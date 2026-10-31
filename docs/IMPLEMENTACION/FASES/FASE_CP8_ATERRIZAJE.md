@@ -1143,6 +1143,8 @@ falta uno nuevo.
   `GET /finance/contpaqi/dictamen` lo muestra por el mismo camino. Septiembre: 96 de 98 frenadas por «ya capturada».
 - **2026-10-31** — `[CP.8.92]` registrado (§11.10): los traspasos salen en el archivo como pólizas de diario y el
   dictamen las frena traspaso por traspaso contra los diarios de ella. Septiembre: 15 de 15 frenadas.
+- **2026-10-31** — `[CP.8.93]` 🧪 en el armador de egresos (§11.12): 14 egresos con fecha basura dejan de desaparecer
+  de su mes; se declaran en el mes de su estado de cuenta.
 
 ---
 
@@ -1598,3 +1600,35 @@ público, así que ahora lo describen por su gasto.
 **Lo que falta:** la pantalla (C3): en «Reglas», el botón para firmar «por proveedor» con la prueba del mes a la vista,
 y la prueba del endpoint con el payload de esa pantalla (regla 13). La prueba tarda lo que el armado del mes (2.5–4.3 s
 en la prueba A/B): es un botón, no una carga de pantalla.
+
+### 11.12 🧪 `[CP.8.93]` La fecha basura en el armado de egresos (2026-10-31)
+
+El armado elegía los egresos del mes **por su fecha**. Un egreso con la fecha mal capturada en Bancos desaparecía de
+su mes y caía en otro: o en un mes que nadie arma (el año 0206), o en el futuro (2027).
+
+**Medido en prod, sólo lectura** (la regla del armador de traspasos: fuera del mes de su estado de cuenta ±7 días):
+
+| Estado de cuenta | Fecha capturada | Egresos | Qué son |
+|---|---|---:|---|
+| Febrero 2026 | año 0206 | 1 | un traspaso |
+| Agosto 2026 | agosto 2027 | 13 | un pago a proveedor, 6 pagos de crédito, una nómina, 2 IVA, 2 sin categoría, un traspaso |
+
+Son $0.78 M. Los 9 del 1-ene en el estado de octubre que se habían medido antes son **ingresos** (cobranza): el
+armado de egresos no los lee; le tocan al armador de cobranza (F-E) y a CB.
+
+**La regla (C1), en `leerEgresos`:** el mes de un egreso es el de su fecha mientras caiga en su estado de cuenta ±7
+días (un corte de los últimos días del mes anterior no es basura). Si no cae, es el de su **estado**: ahí se declara
+`fecha_fuera_del_estado` —un renglón sin asiento por cuenta, con dueño Finanzas en la bandeja— y no se arma. Un mes
+tampoco toma la basura de otro estado por su fecha. No se confirma como pago a proveedor hasta que se corrija.
+
+**Medido después:** el armado declara 11 en agosto (los 13 menos los 2 de IVA, que nunca se arman solos) y un conteo
+directo en SQL da 11. Ninguna póliza armada cambia: agosto, con el código anterior y el nuevo sobre los mismos datos,
+da 112 armadas y 95 iguales en los dos. (Por la mañana daba 110 y 94 con el mismo código: los datos de prod se movieron
+en el día; por eso el antes y el después se corren juntos.) La consulta del mes pasa de ~30 ms a ~50 ms.
+
+**Candado** `test-newdb-contpaqi-fecha-basura.js`: 6 ✓ contra base local (junio arma sólo el normal; el fechado un
+año después se declara en junio y no aparece en el junio siguiente; el del 28 de mayo se arma en mayo) y 2 ✓ contra
+prod; tres mutantes la ponen en rojo. Con el agrupado roto, el lote basura sí se armaba y el dictamen lo frenaba por
+fecha fuera del periodo: la segunda defensa funciona, pero no es la que declara.
+
+**Para Finanzas, en CB:** corregir las 14 fechas (estados de febrero y agosto).

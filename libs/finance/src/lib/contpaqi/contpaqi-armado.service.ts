@@ -100,7 +100,7 @@ import { armarPagoProveedorCompleto, esPagoDeTarjeta } from './pago-proveedor';
 import { armarGastoConFactura, esGastoPorProveedor, PREFIJO_GASTO_POR_PROVEEDOR } from './gasto-con-factura';
 import { cotejar, type PolizaReal, type ResultadoCotejo } from './cotejo';
 import { dictaminarArchivo, resumenDictamen, type Dictamen } from './dictamen';
-import { armarTraspasosDelMes, type CuentaTraspaso, type PiernaTraspaso } from './traspasos';
+import { armarTraspasosDelMes, TOLERANCIA_DIAS_ESTADO, type CuentaTraspaso, type PiernaTraspaso } from './traspasos';
 import { leerContextoDictamen } from './dictamen.contexto';
 import {
   FuentePagoProveedor, type FuenteFacturas, type MovimientoPago, type PropuestaPago, type ResolucionPago,
@@ -455,6 +455,10 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
    */
   private async leerEgresos(anioMes: string): Promise<any[]> {
     const dia1 = `${anioMes}-01`;
+    // `[CP.8.93]` La misma regla que el armador de traspasos (`fechaDelEstado`): fuera del mes de su estado ±7 días.
+    const tol = TOLERANCIA_DIAS_ESTADO;
+    const fueraDelEstado = `(m.movement_date < to_date(left(st.period::text, 7) || '-01', 'YYYY-MM-DD') - ?::int
+      OR m.movement_date >= (to_date(left(st.period::text, 7) || '-01', 'YYYY-MM-DD') + interval '1 month')::date + ?::int)`;
     return this.db
       .with('iva', (q) => q
         .select(this.db.raw(`DISTINCT ON (h.bank_account_id, h.movement_date, round(h.amount_out, 2))
@@ -475,11 +479,13 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
         // `CAJA CG` y `FACTORAJE FAC` se leen solos; un `CG` suelto no lo entiende nadie.
         'ba.bank as banco_nombre',
         this.db.raw('iva.amount_out as iva_hermano'),
+        this.db.raw(`(st.period IS NOT NULL AND ${fueraDelEstado}) AS fuera_del_estado`, [tol, tol]),
       )
       .from('finance.bank_movements as m')
       // ⛔ `[CP.8.79]` LEFT: un egreso sin categoría desaparecía de TODO el puente (sept-2026: 457 por $8.70 M).
       .leftJoin('finance.movement_categories as c', 'c.id', 'm.category_id')
       .leftJoin('finance.bank_accounts as ba', 'ba.id', 'm.bank_account_id')
+      .leftJoin('finance.bank_statements as st', 'st.id', 'm.statement_id')
       .joinRaw(`
         LEFT JOIN iva ON iva.bank_account_id = m.bank_account_id
                      AND iva.movement_date   = m.movement_date
@@ -490,7 +496,14 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
       // El IVA no se arma solo: es el renglón 2 del asiento de su hermano.
       // `c.code <> 'iva'` con c.code NULL da NULL y tiraba los sin categoría: se pregunta explícito.
       .where((q) => q.whereNull('c.code').orWhereNot('c.code', 'iva_acreditable'))
-      .whereRaw(`m.movement_date >= ?::date AND m.movement_date < (?::date + interval '1 month')`, [dia1, dia1])
+      // `[CP.8.93]` El mes de un egreso es el de su fecha MIENTRAS caiga en su estado de cuenta (±7 días: un corte de
+      // los últimos días del mes anterior no es basura). Si no cae —años 0206 y 2027 en Bancos—, es el de su ESTADO:
+      // ahí se declara, en vez de desaparecer de su mes y aparecer en otro. (~50 ms en prod contra ~30 ms antes.)
+      .where((q) => q
+        .where((d) => d
+          .whereRaw(`m.movement_date >= ?::date AND m.movement_date < (?::date + interval '1 month')`, [dia1, dia1])
+          .where((s) => s.whereNull('st.period').orWhereRaw(`NOT ${fueraDelEstado}`, [tol, tol])))
+        .orWhere((b) => b.whereRaw('left(st.period::text, 7) = ?', [anioMes]).whereRaw(fueraDelEstado, [tol, tol])))
       .orderBy('m.movement_date')
       .orderBy('m.id');
   }
@@ -1436,7 +1449,8 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
    */
   async pagosPorConfirmar(anioMes: string): Promise<PagoPorConfirmar[]> {
     return this.conTenant(async () => {
-      const egresos = (await this.leerEgresos(anioMes)).filter((e) => e.cuenta_banco);
+      // `[CP.8.93]` Un pago con fecha basura no se confirma: no se arma hasta que Finanzas corrija la fecha.
+      const egresos = (await this.leerEgresos(anioMes)).filter((e) => e.cuenta_banco && !e.fuera_del_estado);
       const reglas = await this.leerReglas();
       // `[CP.8.81]` El pago de tarjeta no se confirma como pago a proveedor: confirmarlo lo armaría mal.
       // `[CP.8.87]` El gasto por proveedor no se confirma aquí: confirmarlo lo armaría como compra.
@@ -1554,8 +1568,11 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
     // (cuenta de banco × día) — exactamente el grano de la póliza real.
     const grupos = new Map<string, any[]>();
     const sinBanco: any[] = [];
+    const basura = new Map<string, any[]>();
     for (const e of egresos) {
       if (!e.cuenta_banco) { sinBanco.push(e); continue; }
+      // `[CP.8.93]` Fecha basura: no entra a ningún lote (su día no existe en el mes); se declara abajo.
+      if (e.fuera_del_estado) { basura.set(e.cuenta_banco, [...(basura.get(e.cuenta_banco) ?? []), e]); continue; }
       const k = `${e.cuenta_banco}|${e.fecha}`;
       if (!grupos.has(k)) grupos.set(k, []);
       grupos.get(k)!.push(e);
@@ -1569,7 +1586,7 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
     const aMovimiento = (e: { cuenta_banco: string; amount_out: string | number; fecha: string; concept: unknown }): MovimientoPago => ({
       cuenta_banco: e.cuenta_banco, importe: Number(e.amount_out), fecha: e.fecha, concepto: String(e.concept ?? ''),
     });
-    const movsPago = egresos.filter((e) => e.cuenta_banco && esPagoProveedor(e)).map(aMovimiento);
+    const movsPago = egresos.filter((e) => e.cuenta_banco && !e.fuera_del_estado && esPagoProveedor(e)).map(aMovimiento);
     const fuente = movsPago.length ? await this.fuenteDelMes(anioMes, movsPago) : null;
     // `[CP.8.73]` La confirmación humana gana sobre lo que la fuente resuelve sola.
     const confs = movsPago.length
@@ -1699,6 +1716,26 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
         total: lote.asiento?.total ?? 0,
         iva_traspaso: lote.asiento?.iva_traspaso ?? null,
         motivos: porMotivo,
+        tipo: 'lote',
+        clave: k,
+      } });
+    }
+    // ⛔ `[CP.8.93]` Un egreso fechado a más de 7 días del mes de su estado de cuenta (años 0206 y 2027 en Bancos) no se
+    // arma: se declara en el mes de SU estado, un renglón sin asiento por cuenta con su motivo, para que Finanzas
+    // corrija la fecha. Antes lo elegía la fecha: desaparecía de su mes (agosto 2026: 11 egresos) y caía en otro.
+    for (const [cuenta_banco, xs] of basura) {
+      const k = `basura|${cuenta_banco}|${anioMes}`;
+      for (const e of xs) estados?.set(String(e.id), { motivo: 'fecha_fuera_del_estado', clave: k });
+      out.push({ evento_tipo: 'bank_lote', clave: k, asiento: null, uuids: [], resumen: {
+        cuenta_banco,
+        banco_label: [xs[0].banco_nombre, xs[0].banco_label].filter(Boolean).join(' ').trim() || null,
+        fecha: xs[0].fecha,
+        movimientos: xs.length,
+        incluidas: 0,
+        renglones: 0,
+        total: 0,
+        iva_traspaso: null,
+        motivos: { fecha_fuera_del_estado: xs.length },
         tipo: 'lote',
         clave: k,
       } });
