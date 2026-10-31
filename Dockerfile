@@ -142,8 +142,22 @@ COPY database ./database
 # `.nx/cache` no sobrevive entre builds de Docker sin él. ⭐ `id=trade-nx` es COMPARTIDO por los
 # tres destinos que compilan — antes sólo existía en este archivo, y por eso el worker y las dos
 # apps de Angular recompilaban siempre desde cero.
+#
+# ⛔⛔ `[OPS.MEM.1]` EL BUILD ES LA PRIMERA VÍCTIMA DEL OOM, NO PRODUCCIÓN (2026-10-31).
+# Los tres OOM globales de `md` (28, 29 y 30-oct) cayeron DENTRO de un build de `api`, y en los tres
+# el kernel mató a Postgres (`pg-prod` dos veces → prod en recovery ~20 s). Medido en el volcado del
+# kernel: el proceso más grande era el `node` de esta etapa (4.4–4.9 GB anónimos + ~1 GB de esbuild)
+# con `oom_score_adj=-500` — lo HEREDA de `dockerd` —, contra +862 de `pg-prod`. El kernel protegía
+# el build y sacrificaba la base. Subirse el propio `oom_score_adj` no pide privilegios; los hijos
+# (npx → node → esbuild) lo heredan. Probado en `md`: control -500, con esta línea 1000.
+# Si `/proc` no lo permite (otro builder), la línea no hace nada y el build sigue igual.
+# ⚠️ SOLA NO ALCANZA en el peor caso medido: con la cuenta del kernel (RSS + swap + adj × 32.8 GiB)
+# el build con 1000 habría muerto primero el 28 y el 29-oct, pero el 30-oct el checkpointer de
+# `pg-prod` (10 GB de memoria compartida, adj 862) seguía arriba por 0.3 GiB. Va JUNTO con bajar
+# `shared_buffers` y subir `requests` de `pg-prod` (`[OPS.MEM.2]`, `52-pg-prod.deployment.yaml`).
 FROM src AS build-api
 RUN --mount=type=cache,id=trade-nx,target=/app/.nx/cache,sharing=locked \
+    { echo 1000 > /proc/self/oom_score_adj; } 2>/dev/null || true; \
     NODE_OPTIONS="--max-old-space-size=4096 --import file:///app/load-compiler.mjs" \
     npx nx run-many -t build -p view,api --configuration=production --parallel=1
 
@@ -177,6 +191,7 @@ RUN --mount=type=cache,id=trade-nx,target=/app/.nx/cache,sharing=locked \
 # local. Va `--date=format-local:` con `TZ=UTC`. Detalle en `ops/prod/deploy.sh`.
 FROM src AS build-portal
 RUN --mount=type=cache,id=trade-nx,target=/app/.nx/cache,sharing=locked \
+    { echo 1000 > /proc/self/oom_score_adj; } 2>/dev/null || true; \
     NODE_OPTIONS="--max-old-space-size=4096 --import file:///app/load-compiler.mjs" \
     npx nx build portal --configuration=production
 
@@ -188,6 +203,7 @@ RUN --mount=type=cache,id=trade-nx,target=/app/.nx/cache,sharing=locked \
 # `/assets/version.json`, así que la sonda no cambió una línea.
 FROM src AS build-vendor
 RUN --mount=type=cache,id=trade-nx,target=/app/.nx/cache,sharing=locked \
+    { echo 1000 > /proc/self/oom_score_adj; } 2>/dev/null || true; \
     NODE_OPTIONS="--max-old-space-size=4096 --import file:///app/load-compiler.mjs" \
     npx nx build vendor --configuration=production
 
