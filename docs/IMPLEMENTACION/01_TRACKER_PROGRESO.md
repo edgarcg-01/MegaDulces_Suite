@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 2075 KB, 13005 líneas, 72 secciones.
+> **Índice navegable** — 2076 KB, 13005 líneas, 72 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -13050,7 +13050,7 @@ entregada» el cuadre nunca tiene qué buscar. Firmas pendientes **D1–D5** (§
 - [ ] ⬜ `[CP.8.90]` C3 — El cuadre 3 vías abre la diferencia por familia: «lo arma el puente» / «no lo arma, y por qué».
 - [x] 🧪 `[CP.8.95]` C1 — **Motor de dictamen** (`dictamen.ts` + `dictamen.contexto.ts`): cada póliza armada con veredicto (bloquea / revisar / aviso) en 8 perspectivas antes de entregarla. Ene–sep: bloquea las 997 que contabilidad ya capturó (igual al cruce de `comparar-armado-contpaqi.js`), 1 CFDI cancelado; marca 65 de 98 que ella asentó distinto (26 % de precisión vs 9.9 % base). Oct: 13 por entregar (6 listas, 7 revisar). Spec 36 ✓ con control positivo y mutación a rojo. Descartadas medidas: «2120 sin provisión», «PPD sin REP». Falta C2/C3 (espera a que otra sesión commitee el armado) y D12. 2026-10-29
 - [ ] ⬜ `[CP.8.91]` C1 — Armador de comisiones bancarias banco × mes (D6), con A/B ene–sep y placebo.
-- [ ] ⬜ `[CP.8.92]` C1 — Armador de traspasos entre cuentas (diario tipo 3), con A/B ene–sep y TI = TE.
+- [ ] 🔨 `[CP.8.92]` C1 — Armador de traspasos entre cuentas (diario tipo 3), con A/B ene–sep y TI = TE. 🔨 **C0 medido 2026-10-31** (réplica + Bancos): ella arma UNA póliza de diario por cuenta de ORIGEN y mes, fechada a fin de mes, con un cargo a la destino y un abono a la origen por traspaso (163 de 164 pólizas); el 99.9 % de sus renglones cae en cuentas de banco ya mapeadas. En la Suite el 94.4 % de las salidas tiene su entrada (mismo importe, otra cuenta, ±1 día; placebo 31.0 %), y enero cuadra exacto con ella (146 traspasos, 292 renglones, mismo importe); abril a junio ella lleva 13–51 % más que los pares. Siguiente: el A/B renglón por renglón contra ella, con placebo, antes de escribir el armador. [§11.10](FASES/FASE_CP8_ATERRIZAJE.md).
 - [ ] ⬜ `[CP.8.93]` C0 — Fechas basura de Bancos (9 movs de oct fechados 2026-01-01, $354,818): el armador los rechaza con motivo.
 - [ ] ⬜ `[CP.8.94]` C2+C3 — Cola para el agente SDK (`GET /cola`, `POST /entregas/:id/resultado`) y «Aprobar y enviar»; sólo si `CP.8.87` dice que el SDK está (D9).
 

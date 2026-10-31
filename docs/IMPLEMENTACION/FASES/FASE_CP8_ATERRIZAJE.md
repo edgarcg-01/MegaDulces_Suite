@@ -1423,3 +1423,33 @@ cuanto commitee:
    («121 armadas · 108 ya capturadas · 6 listas · 7 a revisar»).
 4. **D12, para Edgar:** las pólizas en «revisar», ¿salen en el archivo o esperan visto bueno? Recomiendo **visto
    bueno**: es un endpoint que escribe, y por la regla 13 se prueba contra base real.
+
+### 11.10 🔨 `[CP.8.92]` Traspasos entre cuentas: la forma de ella, medida (2026-10-31)
+
+Medido en prod, sólo lectura, con la réplica de ContPAQi (`contpaqi_ods`, CP.9) y Bancos (`finance.bank_movements`,
+categoría `traspaso_entre_cuentas`), enero a octubre de 2026.
+
+**Cómo los asienta ella.** Una póliza de **diario** (tipo 3) **por cuenta de ORIGEN y por mes**, «TRASPASOS ENTRE
+CUENTAS <banco> <terminación de la cuenta>», de 14 a 19 al mes, fechada el último día. Por cada traspaso lleva **un
+cargo a la cuenta destino y un abono a la de origen**, los dos con la fecha de fin de mes y sin concepto ni referencia
+por renglón: 163 de 164 pólizas tienen tantos abonos como cargos. Son de 265 a 406 renglones al mes.
+
+**Las cuentas ya están.** El 99.9 % de sus renglones (3,173 de 3,177) cae en cuentas de banco que la Suite tiene
+mapeadas (`bank_accounts.contpaqi_cuenta`). Quedan fuera 4 renglones en dos líneas de crédito del Bajío: son cuentas de
+pasivo (214x), no de banco.
+
+**El par sale de Bancos.** De las 1,434 salidas de enero a septiembre, 1,353 (94.4 %; el 89.1 % del dinero) tienen su
+entrada en **otra** cuenta, por el mismo importe, el mismo día o al siguiente. El placebo —la entrada un mes después—
+casa el 31.0 %: los importes redondos se repiten. Por eso el emparejamiento tiene que ser **uno a uno** y por fecha, y
+lo ambiguo se declara.
+
+**Enero cuadra exacto:** 146 traspasos con par en la Suite son los 292 renglones de ella (2 por traspaso), con el mismo
+importe total de los dos lados. Febrero, marzo, julio, agosto y septiembre difieren entre 1 % y 3 % del dinero. Abril,
+mayo y junio no: ella lleva entre 13 % y 51 % más que los pares de la Suite. Y en la Suite las entradas y las salidas
+no suman lo mismo ningún mes: son las 81 salidas sin par y sus entradas huérfanas. Esa diferencia la explica el A/B
+renglón por renglón, no esta medición.
+
+**Lo que sigue (C1), antes de escribir el armador:** simular enero a septiembre (emparejar uno a uno, agrupar por
+cuenta de origen, cargo a la destino y abono a la origen) y comparar renglón por renglón contra ella —mes, cuenta de
+origen, cuenta destino, importe—, con placebo. Las piernas sin par no se arman: se declaran. El registro en
+`contpaqi-armado.service.ts` espera a que se commitee `CP.8.87`, que tiene ese archivo abierto.
