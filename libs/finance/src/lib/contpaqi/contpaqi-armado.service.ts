@@ -100,6 +100,7 @@ import { armarPagoProveedorCompleto, esPagoDeTarjeta } from './pago-proveedor';
 import { armarGastoConFactura, esGastoPorProveedor, PREFIJO_GASTO_POR_PROVEEDOR } from './gasto-con-factura';
 import { cotejar, type PolizaReal, type ResultadoCotejo } from './cotejo';
 import { dictaminarArchivo, resumenDictamen, type Dictamen } from './dictamen';
+import { armarTraspasosDelMes, type CuentaTraspaso, type PiernaTraspaso } from './traspasos';
 import { leerContextoDictamen } from './dictamen.contexto';
 import {
   FuentePagoProveedor, type FuenteFacturas, type MovimientoPago, type PropuestaPago, type ResolucionPago,
@@ -177,7 +178,7 @@ export interface ResumenLote {
    * contadora). Ausente o `lote` = el lote del día. Los pagos que no se arman se cuentan en `motivos` de su
    * lote (`pago_a_confirmar`, `pago_sin_resolver`, `pago_no_cuadra`…), nunca entran al lote como «2120 / banco».
    */
-  tipo?: 'lote' | 'pago_proveedor' | 'gasto_proveedor';
+  tipo?: 'lote' | 'pago_proveedor' | 'gasto_proveedor' | 'traspaso';
   /** De dónde salieron las facturas del pago: la cadena de Kepler o una factura por importe. */
   fuente?: FuenteFacturas | null;
   /** Facturas y notas (UUID) que lleva el pago: van a los renglones `AD` del archivo. */
@@ -1158,7 +1159,7 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
     const entregados = new Map<string, number>(
       ((await this.db('contpaqi.poliza_exports')
         .where({ tenant_id: MEGA, periodo: anioMes })
-        .whereIn('evento_tipo', ['bank_lote', 'bank_pago_proveedor', 'bank_gasto'])
+        .whereIn('evento_tipo', ['bank_lote', 'bank_pago_proveedor', 'bank_gasto', 'bank_traspaso'])
         .whereIn('estado', ['armada', 'entregada', 'aplicada'])
         .select('evento_tipo', 'evento_id', 'total')) as { evento_tipo: string; evento_id: string; total: string | number }[])
         .map((r) => [`${r.evento_tipo}|${r.evento_id}`, Number(r.total)]),
@@ -1721,11 +1722,71 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
       cuentas,
     };
 
+    // `[CP.8.92]` Los traspasos entre cuentas van aparte: una póliza de DIARIO por cuenta de origen y mes, como ella.
+    // Su pierna de salida sigue en el lote del día como `no_aplica` (no es un egreso).
+    const traspasos = await this.traspasosDelMes(anioMes, estados);
+    out.push(...traspasos);
+
     const conAsiento = out.filter((l) => l.resumen.incluidas > 0).length;
     const pagos = out.filter((l) => l.evento_tipo === 'bank_pago_proveedor' || l.evento_tipo === 'bank_gasto').length;
-    this.log.log(`lotes ${anioMes}: ${out.length - pagos} (banco × día) + ${pagos} pagos a proveedor completos de ${movsPago.length}`
-      + ` · ${conAsiento} con asiento · ${fuera.movimientos} fuera de lote (${cuentas.map((c) => c.cuenta).join(', ') || '—'})`);
+    this.log.log(`lotes ${anioMes}: ${out.length - pagos - traspasos.length} (banco × día) + ${pagos} pagos a proveedor completos de ${movsPago.length}`
+      + ` + ${traspasos.length} de traspasos · ${conAsiento} con asiento · ${fuera.movimientos} fuera de lote (${cuentas.map((c) => c.cuenta).join(', ') || '—'})`);
     return { lotes: out, fuera_de_lote: fuera };
+  }
+
+  /**
+   * `[CP.8.92]` — **Las pólizas de traspasos del mes** (`traspasos.ts`): las dos piernas de `traspaso_entre_cuentas`, la
+   * salida y la entrada, emparejadas uno a uno; una póliza de diario por cuenta de origen, fechada a fin de mes.
+   *
+   * Lee la ventana del mes ±1 día (el emparejamiento cruza el corte) más las piernas de SU estado de cuenta aunque su
+   * fecha sea basura (`[CP.8.93]`: así se declaran en vez de desaparecer). La pierna armada queda en `estados` con la
+   * clave de su póliza; la que no, con su motivo (`traspaso_<motivo>`). ⛔ Nada se asienta a medias.
+   */
+  private async traspasosDelMes(anioMes: string, estados?: Map<string, EstadoMovimiento>): Promise<PolizaArmada[]> {
+    const ini = `${anioMes}-01`;
+    const filasCuentas = (await this.db('finance.bank_accounts').where({ tenant_id: MEGA })
+      .select('id', 'bank', 'account_label', 'alias', 'contpaqi_cuenta', 'contpaqi_cuenta_nombre')) as {
+      id: string; bank: string | null; account_label: string | null; alias: string | null;
+      contpaqi_cuenta: string | null; contpaqi_cuenta_nombre: string | null;
+    }[];
+    const cuentas: CuentaTraspaso[] = filasCuentas.map((c) => ({
+      id: String(c.id), contpaqi: c.contpaqi_cuenta ? String(c.contpaqi_cuenta).trim() : null,
+      alias: c.alias ?? null, etiqueta: c.account_label ?? null, nombre_contpaqi: c.contpaqi_cuenta_nombre ?? null,
+    }));
+    const piernas: PiernaTraspaso[] = ((await this.db.raw(`
+      SELECT bm.id, bm.movement_date::text AS fecha, bm.bank_account_id AS cuenta_id, bm.concept AS concepto,
+             coalesce(bm.amount_in, 0)::float8 AS entra, coalesce(bm.amount_out, 0)::float8 AS sale,
+             left(st.period::text, 7) AS periodo
+        FROM finance.bank_movements bm
+        JOIN finance.movement_categories mc ON mc.id = bm.category_id
+        LEFT JOIN finance.bank_statements st ON st.id = bm.statement_id
+       WHERE bm.tenant_id = ? AND bm.deleted_at IS NULL AND mc.code = 'traspaso_entre_cuentas'
+         AND ((bm.movement_date >= ?::date - 1 AND bm.movement_date < (?::date + interval '1 month')::date + 1)
+              OR left(st.period::text, 7) = ?)`, [MEGA, ini, ini, anioMes])).rows as {
+      id: string; fecha: string; cuenta_id: string; concepto: string | null; entra: number; sale: number; periodo: string | null;
+    }[]).map((p) => ({
+      id: String(p.id), fecha: p.fecha, cuenta_id: String(p.cuenta_id), concepto: p.concepto ?? null,
+      entra: Number(p.entra), sale: Number(p.sale), periodo: p.periodo ?? null,
+    }));
+    if (!piernas.length) return [];
+
+    const armado = armarTraspasosDelMes(anioMes, piernas, cuentas);
+    const etiqueta = new Map(filasCuentas.map((c) => [String(c.contpaqi_cuenta ?? '').trim(),
+      [c.bank, c.account_label].filter(Boolean).join(' ').trim() || null]));
+    for (const x of armado.sinArmar) estados?.set(x.id, { motivo: `traspaso_${x.motivo}`, clave: null });
+    return armado.polizas.map((p) => {
+      const clave = `${p.cuenta_origen}|${anioMes}`;
+      for (const t of p.traspasos) for (const x of [t.salida, t.entrada]) estados?.set(x.id, { motivo: null, clave: `traspaso|${clave}` });
+      return {
+        evento_tipo: 'bank_traspaso' as const, clave, asiento: p.asiento, uuids: [],
+        resumen: {
+          cuenta_banco: p.cuenta_origen, banco_label: etiqueta.get(p.cuenta_origen) ?? null, fecha: p.asiento.fecha,
+          movimientos: p.traspasos.length, incluidas: p.traspasos.length, renglones: p.asiento.movimientos.length,
+          total: p.asiento.total, iva_traspaso: null, motivos: {}, tipo: 'traspaso' as const, fuente: null, cfdis: 0,
+          clave: `traspaso|${clave}`,
+        },
+      };
+    });
   }
 
   /**

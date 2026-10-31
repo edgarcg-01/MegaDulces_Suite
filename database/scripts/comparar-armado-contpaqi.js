@@ -216,7 +216,8 @@ function patron(difs) {
       const eg = await svc.leerEgresos(mes);
       return { lotes: r.lotes, estados: est, catDe: new Map(eg.map((e) => [String(e.id), e.categoria_code])) };
     });
-    const armadas = lotes.filter((l) => l.asiento && l.resumen.incluidas > 0);
+    // `[CP.8.92]` Los traspasos son pólizas de DIARIO: se comparan contra los diarios de ella (`ab-traspasos`), no aquí.
+    const armadas = lotes.filter((l) => l.asiento && l.resumen.incluidas > 0 && l.evento_tipo !== 'bank_traspaso');
 
     // Las pólizas reales de egreso del mes, con ±3 días a las orillas.
     const desde = sumarDias(`${mes}-01`, -3);

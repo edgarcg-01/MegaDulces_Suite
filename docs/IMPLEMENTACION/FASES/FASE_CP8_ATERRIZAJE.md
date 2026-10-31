@@ -1141,6 +1141,8 @@ falta uno nuevo.
   commiteó; sin firmar nada no cambia ninguna póliza armada. Con eso se destraba conectar el dictamen y los traspasos.
 - **2026-10-31** — `[CP.8.88]` 🧪 y `[CP.8.95]` C2 (§11.9): el archivo del mes deja fuera lo que el dictamen frena, y
   `GET /finance/contpaqi/dictamen` lo muestra por el mismo camino. Septiembre: 96 de 98 frenadas por «ya capturada».
+- **2026-10-31** — `[CP.8.92]` registrado (§11.10): los traspasos salen en el archivo como pólizas de diario y el
+  dictamen las frena traspaso por traspaso contra los diarios de ella. Septiembre: 15 de 15 frenadas.
 
 ---
 
@@ -1445,7 +1447,7 @@ pruebas se ponen rojas.
 4. **D12, para Edgar:** las pólizas en «revisar», ¿salen en el archivo o esperan visto bueno? Recomiendo **visto
    bueno**: es un endpoint que escribe, y por la regla 13 se prueba contra base real.
 
-### 11.10 🧪 `[CP.8.92]` Traspasos entre cuentas: la forma de ella, el armador y su A/B (2026-10-31)
+### 11.10 🧪 `[CP.8.92]` Traspasos entre cuentas: la forma de ella, el armador, su A/B y su registro (2026-10-31)
 
 Medido en prod, sólo lectura, con la réplica de ContPAQi (`contpaqi_ods`, CP.9) y Bancos (`finance.bank_movements`,
 categoría `traspaso_entre_cuentas`), enero a octubre de 2026.
@@ -1510,9 +1512,38 @@ sale como `fecha_fuera_del_estado` en el mes de SU estado. Medido en Bancos: añ
 el 1-ene en el de octubre (éstos, de cobranza). En traspasos, 5 piernas de enero a septiembre; antes desaparecían sin
 decirse, porque su fecha no cae en ningún mes que se arme. Los cortes del último día del mes anterior no son basura.
 
+**Registrado (2026-10-31).** En cuanto se adoptó `[CP.8.87]` se pudo tocar el armado:
+- `construirLotes` suma, después de los lotes de egreso, una póliza `bank_traspaso` por cuenta de origen y mes
+  (`traspasosDelMes`): lee las dos piernas de la ventana del mes ±1 día más las de su estado de cuenta (`[CP.8.93]`).
+  Sale en el TXT como tipo 3 (diario), el mismo layout que ya aceptaba el tipo; el cuadre ya comparaba por tipo y
+  `poliza_exports` no restringe `evento_tipo`. Lo entregado se reconoce también para `bank_traspaso`: no se reenvía.
+- La pierna de salida sigue en el lote del día como `no_aplica` (no es egreso). La que entra en su póliza queda con
+  la clave de ésta; la que no, con su motivo (`traspaso_salida_sin_entrada`, `traspaso_ambigua`…) y su dueño.
+- ⛔ **El duplicado de un traspaso se busca en DIARIO.** El «ya capturada» del dictamen sólo miraba las pólizas de
+  egreso de ella (tipo 2), por la pata de banco; los traspasos de ella son de diario (tipo 3), así que uno ya
+  capturado habría salido otra vez. Regla nueva: por traspaso, el cargo a la destino y el abono a la origen del mismo
+  importe en una póliza de diario de ella del periodo (sin orillas: la del mes anterior va a fin de mes y traería los
+  importes de un traspaso fijo). Todos → `ya_capturada`; alguno → `ya_capturada_en_parte`. Las dos frenan: con uno
+  solo, entregar la póliza lo duplicaría. El staging (`analytics.gl_polizas`) tiene las mismas pólizas de traspasos
+  que la réplica, mes por mes (12 a 18 al mes en 2026).
+
+| Medido en prod, sólo lectura | Pólizas de traspasos | Frenadas |
+|---|---:|---|
+| Abril 2026 | 12 | 12 (todas «ya capturada») |
+| Septiembre 2026 | 15 | 15 (14 enteras, 1 en parte) |
+| Octubre 2026 (en curso) | 15 | 15 (10 enteras, 5 en parte: ella va capturando) |
+
+El A/B de egresos no cambia: septiembre sigue en 98 armadas y 85 iguales (`comparar-armado-contpaqi.js` deja fuera
+las de diario). Candados: `test-newdb-contpaqi-traspasos.js` 10 ✓ contra base local (una póliza tipo 3 con 4
+renglones, la salida suelta declarada, frenada entera y en parte, entregada y no reenviada) y 4 ✓ contra prod; cuatro
+mutantes la ponen en rojo. `dictamen.spec.ts` suma 7 casos con su control.
+
+⚠️ **Consecuencia que decide el proceso (D5):** mientras ella capture traspasos de un mes, la póliza de esa cuenta queda
+frenada «en parte» y el puente no entrega el resto. Armar sólo «el resto» daría una póliza que no es como las suyas
+(ella hace una por cuenta y mes); queda así hasta que D5 diga qué deja de capturar.
+
 **Lo que sigue:**
-1. Registrar el armador en `contpaqi-armado.service.ts` y emitirlo por el TXT: espera a que se commitee `CP.8.87`,
-   que tiene ese archivo abierto. Al registrarlo, el candado anti-duplicado (`[CP.8.88]`) busca su póliza por mes.
+1. La pantalla (C3): las pólizas de traspasos en el paso «Entregar», con su veredicto.
 2. Para Finanzas, en CB: cargar los cuatro estados de cuenta que faltan y recategorizar las 12 piernas.
 3. Abierto en el armador: los 48 que ella emparejó distinto, y los 16 que enero arma y ella no tiene.
 

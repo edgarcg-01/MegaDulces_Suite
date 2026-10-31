@@ -2,6 +2,7 @@ import type { Knex } from 'knex';
 import type {
   CfdiDelContexto, ContextoDictamen, CuentaDelCatalogo, PolizaADictaminar, PolizaDeElla,
 } from './dictamen';
+import { TIPO_POLIZA_DIARIO } from './traspasos';
 
 /** Las tablas de la réplica de las que sale una asociación CFDI ↔ póliza (`analytics.v_contpaqi_cfdi_poliza`). */
 const TABLAS_DE_ASOCIACION = ['ct_asoccfdis', 'ct_asocdoctosadministrativos', 'ct_asoccfdinodosdepago',
@@ -83,6 +84,27 @@ export async function leerContextoDictamen(
     porPoliza.get(k)!.renglones.push({ cuenta: String(l.cuenta), abono: l.cargo_abono === 'A', importe: Number(l.importe) });
   }
 
+  // `[CP.8.92]` Las pólizas de DIARIO de contabilidad, sólo si hay traspasos que juzgar: del periodo SIN orillas (las
+  // de traspasos van a fin de mes, y la del mes anterior traería los importes de un traspaso fijo) y sólo sus renglones
+  // de banco, que es lo que el traspaso cruza.
+  let diariosDeElla: PolizaDeElla[] | null = null;
+  if (polizas.some((p) => Number(p.asiento.tipo_poliza) === TIPO_POLIZA_DIARIO)) {
+    const filas = (await trx.raw(`
+      SELECT l.ejercicio, l.periodo, l.folio, to_char(p.fecha, 'YYYY-MM-DD') AS fecha, l.cuenta, l.cargo_abono, l.importe
+        FROM analytics.gl_polizas p
+        JOIN analytics.gl_poliza_lines l ON l.tenant_id = p.tenant_id AND l.source = p.source AND l.ejercicio = p.ejercicio
+         AND l.periodo = p.periodo AND l.tipo_pol = p.tipo_pol AND l.folio = p.folio
+       WHERE p.tenant_id = ? AND p.source = 'contpaqi' AND p.tipo_pol = '3'
+         AND p.fecha >= ?::date AND p.fecha < ?::date AND l.cuenta LIKE '102%'`, [tenantId, ini, sig])).rows as any[];
+    const porDiario = new Map<string, PolizaDeElla>();
+    for (const l of filas) {
+      const k = `${l.ejercicio}|${l.periodo}|3|${l.folio}`;
+      if (!porDiario.has(k)) porDiario.set(k, { k, fecha: l.fecha, renglones: [] });
+      porDiario.get(k)!.renglones.push({ cuenta: String(l.cuenta), abono: l.cargo_abono === 'A', importe: Number(l.importe) });
+    }
+    diariosDeElla = [...porDiario.values()];
+  }
+
   // `[CP.8.88]` Sin la réplica de ContPAQi (dev, CI) sus vistas no existen: la migración de `[CP.9.3]` no las crea sin
   // datos. Lo que sale de ellas queda sin medir y el dictamen lo declara (`replica_no_medido`, `ejercicio_no_medido`).
   // Se pregunta antes porque consultarlas igual abortaría la transacción del armado entero.
@@ -160,6 +182,7 @@ export async function leerContextoDictamen(
     rfcEmpresa: emisora?.rfc ?? null,
     catalogo, cfdis,
     polizasDeElla: [...porPoliza.values()],
+    diariosDeElla,
     uuidEnEgresos, asociacionesAl, ejercicios, provisiones, anticipos, rfcDeCuenta, efos,
   };
 }

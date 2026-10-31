@@ -526,6 +526,13 @@ const DUENO: Record<string, string> = {
   gasto_sin_facturas: 'contabilidad — no se identifican las facturas del pago',
   gasto_importe_invalido: 'sistemas — una factura del gasto trae importes que no cuadran',
   gasto_error: 'sistemas — error al armar el gasto',
+  // `[CP.8.92]` Piernas de traspaso entre cuentas que no entran a su póliza de diario.
+  traspaso_salida_sin_entrada: 'finanzas — falta la entrada en la otra cuenta: cargar su estado de cuenta o categorizarla como traspaso',
+  traspaso_entrada_sin_salida: 'finanzas — falta la salida en la otra cuenta: cargar su estado de cuenta o categorizarla como traspaso',
+  traspaso_ambigua: 'finanzas — dos traspasos iguales el mismo día y el concepto no dice cuál va con cuál',
+  traspaso_cuenta_sin_mapear: 'finanzas — una de las dos cuentas no tiene su cuenta de ContPAQi (crosswalk de CP.2)',
+  traspaso_fecha_fuera_del_estado: 'finanzas — la fecha del movimiento no cae en el mes de su estado de cuenta (fecha basura)',
+  traspaso_importe_invalido: 'sistemas — un traspaso sin importe',
   pago_proveedor_sin_cuenta: 'compras — el proveedor no tiene cuenta en ContPAQi',
   pago_sin_facturas: 'contabilidad — confirmar qué facturas paga (Pagos por confirmar)',
   pago_importe_invalido: 'sistemas — un CFDI del pago trae importe no positivo',

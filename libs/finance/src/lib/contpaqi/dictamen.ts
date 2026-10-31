@@ -21,8 +21,8 @@
  *   formato     lo que el archivo (latin1, campos de 100) no puede escribir
  *   cfdi        UUID bien formado, conocido, no cancelado, nuestro, en pesos, sin retenciones, de un emisor
  *   proveedor   el RFC de los CFDI es el de la cuenta del proveedor; el emisor no está en la lista 69-B
- *   duplicado   ya la capturó contabilidad · el CFDI ya está en otra póliza · repetido en el mismo archivo · la
- *               réplica que lo dice tiene más de un día
+ *   duplicado   ya la capturó contabilidad (en egreso por la pata de banco; en diario, traspaso por traspaso) · el
+ *               CFDI ya está en otra póliza · repetido en el mismo archivo · la réplica que lo dice tiene más de un día
  *   criterio    señales de que contabilidad la asienta distinto
  *
  * ── Lo que se midió antes de escribir las reglas de criterio ─────────────────────────────────
@@ -33,6 +33,7 @@
  * póliza: lo cubre el detector fiscal `ppd_sin_rep`, no se duplica aquí.
  */
 import { asientoCuadra, type Asiento } from './poliza-egreso';
+import { TIPO_POLIZA_DIARIO } from './traspasos';
 
 export type Severidad = 'bloquea' | 'revisar' | 'aviso';
 export type Perspectiva =
@@ -110,6 +111,12 @@ export interface ContextoDictamen {
   /** Pólizas de egreso que contabilidad ya capturó, del periodo con ±3 días a las orillas. */
   polizasDeElla: PolizaDeElla[] | null;
   /**
+   * `[CP.8.92]` Pólizas de DIARIO que contabilidad ya capturó, sólo sus renglones de banco y sólo del periodo: las de
+   * traspasos van fechadas a fin de mes, y la del mes anterior traería los mismos importes de un traspaso fijo.
+   * `null` = no se pidieron (no hay pólizas de diario que juzgar).
+   */
+  diariosDeElla: PolizaDeElla[] | null;
+  /**
    * UUID → claves de pólizas de EGRESO de contabilidad que ya lo llevan asociado (cualquier mes). `[CP.9.4]` De la
    * réplica de ContPAQi (los tres caminos de asociación, a nivel movimiento y póliza) unida al staging.
    */
@@ -155,6 +162,8 @@ const ANTICIPO_MIN = 1;
 
 const esBanco = (c: string) => c.startsWith('102');
 const esProveedor = (c: string) => c.startsWith('2120');
+/** `[CP.8.92]` Una póliza de diario (los traspasos entre cuentas): su duplicado se busca entre los diarios de ella. */
+const esDiario = (a: Asiento) => Number(a.tipo_poliza) === TIPO_POLIZA_DIARIO;
 /** Cuentas que no identifican al tercero (banco e impuestos): no sirven para desempatar. */
 const esGenerica = (c: string) => esBanco(c) || c.startsWith('106') || c.startsWith('147');
 const cent = (n: unknown) => Math.round(Number(n) * 100);
@@ -468,6 +477,8 @@ export function dictaminar(p: PolizaADictaminar, ctx: ContextoDictamen): Dictame
  * Las pólizas de un archivo, cada una con lo suyo y con lo que sólo se ve mirando todas:
  *  - **ya la capturó contabilidad** (misma cuenta de banco e importe en ±3 días): entregarla la duplicaría. Una
  *    póliza de ella se usa una sola vez; si hay dos candidatas que no se distinguen, se pide revisar.
+ *  - `[CP.8.92]` en DIARIO (traspasos), **traspaso por traspaso**: el cargo a la destino y el abono a la origen del
+ *    mismo importe en una póliza de diario de ella. Uno solo que ya esté frena la póliza entera.
  *  - **el CFDI ya está en otra póliza de egreso de ella**: pago parcial o pago duplicado.
  *  - **el mismo CFDI o la misma pata de banco en dos pólizas del archivo**.
  */
@@ -492,9 +503,11 @@ export function dictaminarArchivo(ps: PolizaADictaminar[], ctx: ContextoDictamen
     }
   }
 
-  // La misma pata de banco (cuenta, importe, día) en dos pólizas del archivo.
+  // La misma pata de banco (cuenta, importe, día) en dos pólizas del archivo. Las de diario (traspasos) no tienen UNA
+  // pata de banco que las identifique: su duplicado se busca abajo, traspaso por traspaso.
+  const egresos = orden.filter((p) => !esDiario(p.asiento));
   const porPata = new Map<string, string[]>();
-  for (const p of orden) {
+  for (const p of egresos) {
     const b = pataDeBanco(p.asiento);
     if (!b) continue;
     const k = `${b.cuenta}|${cent(b.importe)}|${p.asiento.fecha}`;
@@ -511,7 +524,7 @@ export function dictaminarArchivo(ps: PolizaADictaminar[], ctx: ContextoDictamen
   // Lo que contabilidad ya capturó.
   const suya = new Map<string, string>();
   if (!ctx.polizasDeElla) {
-    for (const p of orden) {
+    for (const p of egresos) {
       agrega(p.clave, h('captura_previa_no_medida', 'duplicado', 'revisar',
         'No se leyeron las pólizas que ya capturó contabilidad: no se comprobó que ésta no esté ya en ContPAQi.'));
     }
@@ -525,7 +538,7 @@ export function dictaminarArchivo(ps: PolizaADictaminar[], ctx: ContextoDictamen
         porBanco.set(k, [...(porBanco.get(k) ?? []), { k: r.k, fecha: r.fecha, cuentas, usada: false }]);
       }
     }
-    for (const p of orden) {
+    for (const p of egresos) {
       const b = pataDeBanco(p.asiento);
       if (!b) continue;
       const libres = (porBanco.get(`${b.cuenta}|${cent(b.importe)}`) ?? [])
@@ -547,6 +560,52 @@ export function dictaminarArchivo(ps: PolizaADictaminar[], ctx: ContextoDictamen
         agrega(p.clave, h('posible_ya_capturada', 'duplicado', 'revisar',
           `Hay ${c.length} pólizas de contabilidad con la misma cuenta de banco e importe en ±${VENTANA_DIAS} días: no se distingue si ésta ya está.`));
       }
+    }
+  }
+
+  // `[CP.8.92]` Lo que contabilidad ya capturó en DIARIO (los traspasos entre cuentas): por traspaso, el cargo a la
+  // cuenta destino y el abono a la de origen del mismo importe en UNA póliza de diario de ella; cada renglón suyo se
+  // usa una vez. Con uno solo que ya esté, entregar la póliza lo duplicaría: se frena, no basta con revisar.
+  const diarios = orden.filter((p) => esDiario(p.asiento));
+  if (diarios.length && !ctx.diariosDeElla) {
+    for (const p of diarios) {
+      agrega(p.clave, h('captura_previa_no_medida', 'duplicado', 'revisar',
+        'No se leyeron las pólizas de diario que ya capturó contabilidad: no se comprobó que estos traspasos no estén ya en ContPAQi.'));
+    }
+  } else if (diarios.length && ctx.diariosDeElla) {
+    const deElla = ctx.diariosDeElla.map((r) => {
+      const libres = new Map<string, number>();
+      for (const x of r.renglones.filter((y) => esBanco(String(y.cuenta)))) {
+        const k = `${x.cuenta}|${x.abono ? 'A' : 'C'}|${cent(x.importe)}`;
+        libres.set(k, (libres.get(k) ?? 0) + 1);
+      }
+      return { r, libres };
+    });
+    for (const p of diarios) {
+      const abonos = p.asiento.movimientos.filter((m) => m.abono && esBanco(String(m.cuenta)));
+      const origen = abonos.length ? String(abonos[0].cuenta) : null;
+      // Sin la forma de un traspaso (abonos a una sola cuenta de banco) no hay par que buscar.
+      if (!origen || abonos.some((m) => String(m.cuenta) !== origen)) continue;
+      const cargos = p.asiento.movimientos.filter((m) => !m.abono && esBanco(String(m.cuenta)));
+      const suyas = new Set<PolizaDeElla>();
+      let ya = 0;
+      for (const c of cargos) {
+        const kc = `${c.cuenta}|C|${cent(c.importe)}`;
+        const ka = `${origen}|A|${cent(c.importe)}`;
+        const d = deElla.find((x) => (x.libres.get(kc) ?? 0) > 0 && (x.libres.get(ka) ?? 0) > 0);
+        if (!d) continue;
+        d.libres.set(kc, (d.libres.get(kc) ?? 0) - 1);
+        d.libres.set(ka, (d.libres.get(ka) ?? 0) - 1);
+        suyas.add(d.r);
+        ya += 1;
+      }
+      if (!ya) continue;
+      const folios = lista([...suyas].map((r) => `${r.k.split('|').slice(-1)[0]} del ${r.fecha}`), 3);
+      agrega(p.clave, ya === cargos.length
+        ? h('ya_capturada', 'duplicado', 'bloquea',
+          `Contabilidad ya capturó ${ya === 1 ? 'este traspaso' : `estos ${ya} traspasos`}: póliza de diario ${folios}. Entregarla los duplicaría.`)
+        : h('ya_capturada_en_parte', 'duplicado', 'bloquea',
+          `${ya} de ${cargos.length} traspasos ya están en la póliza de diario ${folios} de contabilidad: entregarla los duplicaría.`));
     }
   }
 

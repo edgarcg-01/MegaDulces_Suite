@@ -45,6 +45,7 @@ const contexto = (cambios: Partial<ContextoDictamen> = {}): ContextoDictamen => 
   catalogo: new Map([CTA_PROV, BANCO, '5020000413', GASTO].map((c) => [c, { afectable: true, baja: false }])),
   cfdis: new Map([[U1, cfdi()]]),
   polizasDeElla: [],
+  diariosDeElla: [],
   uuidEnEgresos: new Map(),
   asociacionesAl: '2026-10-29',
   ejercicios: new Map([[2026, { cerrado: false }]]),
@@ -272,6 +273,64 @@ describe('[CP.8.95] dictamen de una póliza', () => {
     });
     it('⛔ sin las pólizas de contabilidad no pasa en verde', () => {
       expect(dictaminarArchivo([poliza()], contexto({ polizasDeElla: null }))[0].veredicto).toBe('revisar');
+    });
+  });
+
+  describe('[CP.8.92] archivo: traspasos ya capturados en diario', () => {
+    const ORIGEN = BANCO;
+    const DESTINO = '1020210000';
+    const OTRO = '1020080000';
+    const cat = new Map([ORIGEN, DESTINO, OTRO].map((c) => [c, { afectable: true, baja: false }]));
+    // Como la arma `traspasos.ts`: diario, fin de mes, cargos a las destino y después los abonos a la origen.
+    const traspasos = (pares: [string, number][], clave = 'traspaso|1'): PolizaADictaminar => ({
+      clave,
+      uuids: [],
+      asiento: {
+        tipo_poliza: 3,
+        fecha: '2026-09-30',
+        concepto: 'TRASPASOS ENTRE CUENTAS PRUEBA',
+        total: pares.reduce((s, [, i]) => s + i, 0),
+        movimientos: [...pares.map(([d, i]) => mov(d, false, i)), ...pares.map(([, i]) => mov(ORIGEN, true, i))],
+      },
+    });
+    const diarioDeElla = (k: string, pares: [string, number][], origen = ORIGEN) => ({
+      k, fecha: '2026-09-30',
+      renglones: [...pares.map(([d, i]) => ({ cuenta: d, abono: false, importe: i })), ...pares.map(([, i]) => ({ cuenta: origen, abono: true, importe: i }))],
+    });
+    const ctx = (diariosDeElla: ReturnType<typeof diarioDeElla>[] | null) => contexto({ catalogo: cat, diariosDeElla });
+
+    it('⭐ control: sin traspasos de ella la póliza de diario sale lista', () => {
+      const [d] = dictaminarArchivo([traspasos([[DESTINO, 500], [OTRO, 300]])], ctx([]));
+      expect(d.hallazgos).toEqual([]);
+      expect(d.veredicto).toBe('lista');
+    });
+    it('todos sus traspasos ya están en su póliza de diario: bloquea', () => {
+      const [d] = dictaminarArchivo([traspasos([[DESTINO, 500], [OTRO, 300]])], ctx([diarioDeElla('2026|9|3|40', [[OTRO, 300], [DESTINO, 500]])]));
+      expect(sev(d, 'ya_capturada')).toBe('bloquea');
+      expect(d.hallazgos.find((x) => x.regla === 'ya_capturada')?.mensaje).toContain('40');
+    });
+    it('⛔ con UNO ya capturado se frena la póliza entera: entregarla duplicaría ése', () => {
+      const [d] = dictaminarArchivo([traspasos([[DESTINO, 500], [OTRO, 300]])], ctx([diarioDeElla('2026|9|3|40', [[DESTINO, 500]])]));
+      expect(sev(d, 'ya_capturada_en_parte')).toBe('bloquea');
+      expect(d.hallazgos.find((x) => x.regla === 'ya_capturada_en_parte')?.mensaje).toMatch(/^1 de 2/);
+    });
+    it('el mismo importe a otra destino, o desde otra origen, no es el mismo traspaso', () => {
+      expect(dictaminarArchivo([traspasos([[DESTINO, 500]])], ctx([diarioDeElla('2026|9|3|40', [[OTRO, 500]])]))[0].veredicto).toBe('lista');
+      expect(dictaminarArchivo([traspasos([[DESTINO, 500]])], ctx([diarioDeElla('2026|9|3|40', [[DESTINO, 500]], OTRO)]))[0].veredicto).toBe('lista');
+    });
+    it('un traspaso de ella se usa una sola vez: dos iguales nuestros contra uno suyo es «en parte»', () => {
+      const [d] = dictaminarArchivo([traspasos([[DESTINO, 500], [DESTINO, 500]])], ctx([diarioDeElla('2026|9|3|40', [[DESTINO, 500]])]));
+      expect(sev(d, 'ya_capturada_en_parte')).toBe('bloquea');
+    });
+    it('⛔ sin sus pólizas de diario no pasa en verde', () => {
+      const [d] = dictaminarArchivo([traspasos([[DESTINO, 500]])], ctx(null));
+      expect(sev(d, 'captura_previa_no_medida')).toBe('revisar');
+    });
+    it('la regla del egreso no toca un traspaso: una póliza de EGRESO de ella con el mismo banco e importe no lo frena', () => {
+      const egresoDeElla = { k: '2026|9|2|77', fecha: '2026-09-30', renglones: [{ cuenta: GASTO, abono: false, importe: 500 }, { cuenta: ORIGEN, abono: true, importe: 500 }] };
+      const [d] = dictaminarArchivo([traspasos([[DESTINO, 500]])], contexto({ catalogo: cat, diariosDeElla: [], polizasDeElla: [egresoDeElla] }));
+      expect(reglas(d)).not.toContain('ya_capturada');
+      expect(d.veredicto).toBe('lista');
     });
   });
 
