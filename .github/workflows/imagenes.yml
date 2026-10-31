@@ -1,0 +1,92 @@
+# ═════════════════════════════════════════════════════════════════════════════════════════════
+# `[OPS.CI.1]` LAS IMÁGENES SE CONSTRUYEN ACÁ, NO EN EL SERVIDOR DE PRODUCCIÓN (2026-10-31)
+#
+# ── Por qué, medido ─────────────────────────────────────────────────────────────────────────
+# Los tres OOM globales de `md` (28, 29 y 30-oct) cayeron DENTRO de un `docker build` de `api`
+# (`auto-deploy.log`), y en los tres el kernel mató a Postgres: el `node` del build (4.4–4.9 GB)
+# heredaba `oom_score_adj=-500` de dockerd. Además cada imagen vivía tres veces en el disco de
+# prod (almacén de Docker + registro + caché de construcción ≈ 141 GB de 365 usados), y el CI ya
+# compilaba cada commit: `md` lo volvía a compilar.
+#
+# ── Qué hace ────────────────────────────────────────────────────────────────────────────────
+# Cuando `CI` termina en verde sobre un push a `main`, construye los cuatro destinos del MISMO
+# `Dockerfile` (`runner-api|worker|portal|vendor`) con los MISMOS build-args que `auto-deploy.sh`
+# y los publica en `ghcr.io/edgarcg-01/trade-prod-<servicio>:<sha completo>`.
+# `md` (con `AUTO_DEPLOY_IMAGENES=ghcr` en `~/ops/prod/vigia.env`) las DESCARGA en vez de
+# construirlas; registro local, manifiestos, prevuelo y rollback no cambian.
+#
+# ⛔ `GIT_COMMIT_SHA` = los primeros 9 caracteres del sha: es lo que `/api/health` devuelve y lo
+#    que `auto-deploy.sh` compara para dar por bueno un despliegue. `auto-deploy.sh` además
+#    VERIFICA el `ENV GIT_COMMIT_SHA` de la imagen descargada contra su `DESEADO` y frena si
+#    difieren — no se confía en que los dos lados abrevien igual.
+# ⚠️ Archivo aparte de `ci.yml` a propósito: `workflow_run` corre con el workflow de `main` y no
+#    depende de editar el `ci.yml` (que otra sesión tiene en curso el 2026-10-31).
+# ═════════════════════════════════════════════════════════════════════════════════════════════
+name: Imágenes (GHCR)
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: imagenes-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  construir:
+    # Sólo un CI verde de un PUSH a main: un PR no publica imágenes de producción.
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        servicio: [api, worker, portal, vendor]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 1
+
+      # El mismo sello que `auto-deploy.sh` (`COMMIT_ISO` con `format-local` + `TZ=UTC`: `git show
+      # --date=format:` NO respeta TZ y rotulaba `Z` una hora local — ver `ops/prod/deploy.sh`).
+      - name: Sello del commit
+        id: sello
+        run: |
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "sha9=$(git rev-parse HEAD | cut -c1-9)" >> "$GITHUB_OUTPUT"
+          echo "iso=$(TZ=UTC git show -s --date=format-local:'%Y-%m-%dT%H:%M:%SZ' --format=%cd HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          target: runner-${{ matrix.servicio }}
+          build-args: |
+            GIT_COMMIT_SHA=${{ steps.sello.outputs.sha9 }}
+            GIT_COMMIT_ISO=${{ steps.sello.outputs.iso }}
+          # La etiqueta une el paquete al repo (público): sin ella el paquete nace suelto.
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ steps.sello.outputs.sha }}
+          tags: |
+            ghcr.io/edgarcg-01/trade-prod-${{ matrix.servicio }}:${{ steps.sello.outputs.sha }}
+            ghcr.io/edgarcg-01/trade-prod-${{ matrix.servicio }}:${{ steps.sello.outputs.sha9 }}
+          push: true
+          # Caché por servicio en GitHub Actions: lo que en `md` costaba 80 GB de disco de prod.
+          cache-from: type=gha,scope=${{ matrix.servicio }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.servicio }}
