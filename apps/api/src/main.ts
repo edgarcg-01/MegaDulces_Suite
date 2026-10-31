@@ -44,6 +44,14 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { INestApplicationContext } from '@nestjs/common';
 import { createAdapter } from '@socket.io/redis-adapter';
 import { createClient, RedisClientType } from 'redis';
+// ⛔ `redis` v6 reparte sus comandos en @redis/bloom|json|search|time-series, y cada uno carga
+// internos de `@redis/client` de SU MISMA versión. La imagen instala lo que webpack emite en
+// dist/apps/api/package.json (generatePackageJson), y eso sale del grafo de imports: `redis`
+// aparece, `@redis/client` no, así que npm lo resolvió por una restricción ^5 de otra
+// dependencia. Medido en la imagen de `bdd75266e` (2026-10-30): @redis/client 5.12.1 junto a
+// @redis/search 6.3.1 → `Cannot find module '@redis/client/dist/lib/commands/reply-utils'` y la
+// API en CrashLoopBackOff. El árbol probado tiene los seis paquetes en 6.3.1.
+import '@redis/client';
 
 type IoServerOptions = NonNullable<Parameters<IoAdapter['createIOServer']>[1]>;
 
