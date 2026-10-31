@@ -138,7 +138,9 @@ spec:
             timeoutSeconds: 15
           resources:
             # ⛔ SIN limits. Ver arriba.
-            requests: { memory: "2Gi", cpu: "200m" }
+            # `[OPS.MEM.2]` requests 2Gi → 5Gi: el OOM del 28-oct mató a ESTA base con
+            # oom_score_adj 931 (Burstable: 1000 − 1000·requests/RAM). Con 5Gi baja a ~826.
+            requests: { memory: "5Gi", cpu: "200m" }
       volumes:
         - name: datos
           hostPath: { path: /var/lib/docker/volumes/pgvector-md-data/_data, type: Directory }

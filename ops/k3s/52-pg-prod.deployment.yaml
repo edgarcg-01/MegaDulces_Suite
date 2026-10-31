@@ -106,13 +106,23 @@ spec:
             # ⚠️ En el compose archive_mode sale de PGPROD_ARCHIVE_MODE (default off). Acá va
             #    fijo en `on` porque es lo que el cluster vivo tiene: el manifiesto no puede
             #    heredar un default que apaga el archivado.
+            # ⛔⛔ `[OPS.MEM.2]` 2026-10-31 — 12 GB → 8 GB y 4 GB → 1 GB. Tres OOM globales en tres días
+            # (28/29/30-oct) cayeron dentro de un `docker build` de `api`, y dos veces el kernel mató al
+            # checkpointer de esta base (prod ~20 s en recovery). Con 12 GB su badness (RSS + adj) le
+            # ganaba al build aun con el build en adj 1000 (Dockerfile, `[OPS.MEM.1]`); con 8 GB no.
+            # `maintenance_work_mem` se multiplica por obrero (REFRESH … CONCURRENTLY, CREATE INDEX).
+            # ⚠️ `effective_cache_size` NO se toca a propósito: no reserva memoria, sólo orienta al
+            # planificador, y moverla cambia planes — eso es optimizar, va aparte.
+            # ⚠️ El `effective_cache_size='10GB'`/`maintenance_work_mem='1GB'` que hay en
+            # postgresql.auto.conf (ALTER SYSTEM) NUNCA tuvo efecto: estos `-c` le ganan.
+            # Antes (medido 2026-10-31, stats desde 10-22): hit ratio 99.897 %, 12.05 M bloques leídos.
             - postgres
             - "-c"
-            - "shared_buffers=12GB"
+            - "shared_buffers=8GB"
             - "-c"
             - "effective_cache_size=16GB"
             - "-c"
-            - "maintenance_work_mem=4GB"
+            - "maintenance_work_mem=1GB"
             - "-c"
             - "work_mem=64MB"
             # ⚠️ [OPS.DISCO.3] `wal_compression=zstd` y `checkpoint_timeout=15min` NO están acá: se
@@ -180,7 +190,10 @@ spec:
             timeoutSeconds: 15
           resources:
             # ⛔ SIN limits.memory.
-            requests: { memory: "4Gi", cpu: "500m" }
+            # `[OPS.MEM.2]` requests 4Gi → 12Gi: sin `limits` el pod es Burstable y k8s le da
+            # oom_score_adj = 1000 − 1000·requests/RAM. Con 4Gi era 862 (leído en el log del kernel):
+            # Postgres quedaba primero en la fila del OOM. Con 12Gi baja a ~583.
+            requests: { memory: "12Gi", cpu: "500m" }
       volumes:
         - name: datos
           hostPath: { path: /var/lib/docker/volumes/prod_pg-prod-data/_data, type: Directory }
