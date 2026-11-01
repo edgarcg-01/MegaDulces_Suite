@@ -233,10 +233,26 @@ export class ScopeService {
     const roleName = user?.role_name ?? roleNameHint ?? '';
     const dims = {} as Record<ScopeDimension, ResolvedDimension>;
 
-    // God-mode: espeja `manage:all`. Sale temprano — ni siquiera consulta reglas.
+    // God-mode: espeja `manage:all`. Sale temprano — sólo consulta las reglas del USUARIO puestas
+    // en el área pedida.
+    //
+    // `[COT.20]` Una regla de usuario con área explícita le gana al god-mode, y SÓLO en esa área.
+    // Los jefes de zona tienen `superadmin` como rol principal (medido en prod 2026-10-30:
+    // aaron_alejo, ivette_cruz, ramon_rodriguez) y deben cotizar sólo en las sucursales de su
+    // zona; con el god-mode intacto cotizaban en las 8. La regla `'*'` NO entra aquí: ivette ya
+    // tiene una (`01-04`) y que de golpe le restringiera todos los módulos sería una sorpresa.
     if (isPlatformAdminRole(roleName)) {
+      const reglasDelArea: ScopeRuleRow[] =
+        area && area !== AREA_DEFECTO
+          ? await this.knex('identity.user_scopes')
+              .where({ tenant_id: tenantId, user_id: userId, area })
+              .select('dimension', 'mode', 'values', 'mode_write', 'nota', 'area')
+          : [];
       for (const dim of SCOPE_DIMENSIONS) {
-        dims[dim] = { mode: 'all', values: [], modeWrite: 'all', valuesWrite: [], source: 'platform_admin', resolvable: true };
+        const regla = reglasDelArea.find((r) => r.dimension === dim);
+        dims[dim] = regla
+          ? this.dimDeRegla(regla, 'user', dim, user)
+          : { mode: 'all', values: [], modeWrite: 'all', valuesWrite: [], source: 'platform_admin', resolvable: true };
       }
       return { tenantId, userId, roleName, dims };
     }
@@ -281,21 +297,30 @@ export class ScopeService {
         dims[dim] = { mode: 'none', values: [], modeWrite: 'none', valuesWrite: [], source: 'default', resolvable: true };
         continue;
       }
-      const modeWrite = (regla.mode_write ?? regla.mode) as ScopeMode;
-      dims[dim] = {
-        mode: regla.mode,
-        values: this.valoresDe(regla.mode, regla.values, dim, user),
-        modeWrite,
-        valuesWrite: this.valoresDe(modeWrite, regla.values, dim, user),
-        source,
-        nota: regla.nota ?? null,
-        // `[ID.26]` El ÚNICO caso no resoluble: `own` con la columna de la ficha
-        // vacía. Sin esto es indistinguible de `none` — mismo `WHERE false`.
-        resolvable: this.esResoluble(regla.mode, modeWrite, dim, user),
-      };
+      dims[dim] = this.dimDeRegla(regla, source, dim, user);
     }
 
     return { tenantId, userId, roleName, dims };
+  }
+
+  private dimDeRegla(
+    regla: ScopeRuleRow,
+    source: ScopeSource,
+    dim: ScopeDimension,
+    user: Record<string, unknown> | undefined,
+  ): ResolvedDimension {
+    const modeWrite = (regla.mode_write ?? regla.mode) as ScopeMode;
+    return {
+      mode: regla.mode,
+      values: this.valoresDe(regla.mode, regla.values, dim, user),
+      modeWrite,
+      valuesWrite: this.valoresDe(modeWrite, regla.values, dim, user),
+      source,
+      nota: regla.nota ?? null,
+      // `[ID.26]` El ÚNICO caso no resoluble: `own` con la columna de la ficha
+      // vacía. Sin esto es indistinguible de `none` — mismo `WHERE false`.
+      resolvable: this.esResoluble(regla.mode, modeWrite, dim, user),
+    };
   }
 
   /**

@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 2074 KB, 13004 líneas, 72 secciones.
+> **Índice navegable** — 2090 KB, 13012 líneas, 72 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -10,75 +10,75 @@
 | 85 | 92 | 15 | Tracker de Progreso |
 | 93 | 183 | 202 | 📊 Estado global de fases |
 | 184 | 210 | 1 | 🚦 Estado por item (granular) |
-| 211 | 3180 | 410 | 🎯 EN PROGRESO |
-| 3197 | 3234 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
-| 3235 | 3268 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
-| 3269 | 3353 | 6 | GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código) |
-| 3354 | 3457 | 6 | GX.15 — El expediente del gasto: los cuatro eslabones juntos, y su PDF 🧪 2026-09-24 (en código) |
-| 3458 | 3524 | 4 | GX.16 — Áreas de gasto: el motor propone, la persona confirma 🧪 2026-09-24 (en código) |
-| 3525 | 3628 | 7 | IG — Ingresos contables: el otro lado del libro 🧪 2026-09-25 (en código) |
-| 3629 | 3712 | 6 | GX.19 — Egresos: el número no cambia, ahora dice con qué se calculó 🧪 2026-09-25 (en código) |
-| 3713 | 3882 | 13 | GX.20 — Aprobación de gastos: el día, en tres pestañas 🧪 2026-09-25 (en código) |
-| 3883 | 3945 | 4 | GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código) |
-| 3946 | 4018 | 5 | GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código) |
-| 4019 | 4070 | 3 | GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código) |
-| 4071 | 4790 | 92 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
-| 4791 | 4804 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
-| 4805 | 4829 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
-| 4830 | 4852 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
-| 4853 | 4891 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
-| 4892 | 5576 | 62 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
-| 5577 | 5761 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
-| 5762 | 5804 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
-| 5805 | 5882 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
-| 5883 | 5976 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
-| 5977 | 6112 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
-| 6113 | 6129 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
-| 6130 | 6180 | 92 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
-| 6181 | 6248 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
-| 6249 | 6501 | 20 | Fase CH — Checadores / Control de asistencia |
-| 6502 | 6567 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
-| 6568 | 6595 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
-| 6596 | 6762 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
-| 6763 | 7122 | 123 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
-| 7123 | 7185 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
-| 7186 | 7315 | 44 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
-| 7316 | 7378 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
-| 7379 | 7539 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
-| 7540 | 7610 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
-| 7611 | 7659 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
-| 7660 | 7692 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
-| 7693 | 8082 | 54 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
-| 8083 | 8214 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
-| 8215 | 8261 | 21 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
-| 8262 | 8301 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
-| 8302 | 8354 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
-| 8355 | 8421 | 20 | Fase WMS-BI — Análisis BI de Almacén |
-| 8422 | 8584 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
-| 8585 | 8868 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
-| 8869 | 9036 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 9037 | 11370 | 179 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 11371 | 11379 | 1 | Fase RR — Ventas por ruta |
-| 11380 | 11675 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 11676 | 11686 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 11687 | 11707 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 11708 | 11718 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 11719 | 11730 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 11731 | 11790 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 11791 | 12218 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 12219 | 12233 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 12234 | 12275 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 12276 | 12425 | 65 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 12426 | 12456 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 12457 | 12504 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
-| 12505 | 12534 | 28 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 12535 | 12564 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 12571 | 12580 | 1 | 📝 Convenciones |
-| 12581 | 12618 | 13 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 12619 | 12637 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 12638 | 12690 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 12691 | 13058 | 44 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 13059 | 13088 | 6 | Fase CP.9 — Cobertura total de ContPAQi |
+| 211 | 3181 | 410 | 🎯 EN PROGRESO |
+| 3198 | 3235 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
+| 3236 | 3269 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
+| 3270 | 3354 | 6 | GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código) |
+| 3355 | 3458 | 6 | GX.15 — El expediente del gasto: los cuatro eslabones juntos, y su PDF 🧪 2026-09-24 (en código) |
+| 3459 | 3525 | 4 | GX.16 — Áreas de gasto: el motor propone, la persona confirma 🧪 2026-09-24 (en código) |
+| 3526 | 3629 | 7 | IG — Ingresos contables: el otro lado del libro 🧪 2026-09-25 (en código) |
+| 3630 | 3713 | 6 | GX.19 — Egresos: el número no cambia, ahora dice con qué se calculó 🧪 2026-09-25 (en código) |
+| 3714 | 3883 | 13 | GX.20 — Aprobación de gastos: el día, en tres pestañas 🧪 2026-09-25 (en código) |
+| 3884 | 3946 | 4 | GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código) |
+| 3947 | 4019 | 5 | GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código) |
+| 4020 | 4071 | 3 | GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código) |
+| 4072 | 4791 | 92 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
+| 4792 | 4805 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
+| 4806 | 4830 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
+| 4831 | 4853 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
+| 4854 | 4892 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
+| 4893 | 5577 | 62 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
+| 5578 | 5762 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
+| 5763 | 5805 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
+| 5806 | 5883 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
+| 5884 | 5977 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
+| 5978 | 6113 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
+| 6114 | 6130 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
+| 6131 | 6181 | 92 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
+| 6182 | 6249 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
+| 6250 | 6502 | 20 | Fase CH — Checadores / Control de asistencia |
+| 6503 | 6568 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
+| 6569 | 6596 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
+| 6597 | 6763 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
+| 6764 | 7123 | 123 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
+| 7124 | 7186 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
+| 7187 | 7316 | 44 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
+| 7317 | 7379 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
+| 7380 | 7540 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
+| 7541 | 7611 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
+| 7612 | 7660 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
+| 7661 | 7693 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
+| 7694 | 8083 | 54 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
+| 8084 | 8215 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
+| 8216 | 8269 | 36 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
+| 8270 | 8309 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
+| 8310 | 8362 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
+| 8363 | 8429 | 20 | Fase WMS-BI — Análisis BI de Almacén |
+| 8430 | 8592 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
+| 8593 | 8876 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
+| 8877 | 9044 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
+| 9045 | 11378 | 179 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 11379 | 11387 | 1 | Fase RR — Ventas por ruta |
+| 11388 | 11683 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 11684 | 11694 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 11695 | 11715 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 11716 | 11726 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 11727 | 11738 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 11739 | 11798 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 11799 | 12226 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 12227 | 12241 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 12242 | 12283 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 12284 | 12433 | 65 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 12434 | 12464 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 12465 | 12512 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
+| 12513 | 12542 | 28 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 12543 | 12572 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 12579 | 12588 | 1 | 📝 Convenciones |
+| 12589 | 12626 | 13 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 12627 | 12645 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 12646 | 12698 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 12699 | 13066 | 44 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 13067 | 13096 | 6 | Fase CP.9 — Cobertura total de ContPAQi |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -1725,6 +1725,7 @@ pendiente.** Sin migración y sin permisos nuevos → **no hace falta re-login**
 | `[COT.17]` | 🧪 | **Unidad del medio en la cotización + vista previa de precio de 3 s → 0.15 s** (2026-10-02). **(a) Unidad del medio:** en productos con 3 unidades (KINDER DELICE: pieza 1 · paquete 10 · caja 140) el desglose del precio de la caja sólo mostraba la base; el equipo de ventas pidió también el paquete. Ahora pantalla nueva, detalle y Excel/PDF dicen `(14 PAQ 121.86 · 140 PZA 12.19)`, desde UNA función pura (`desglose()` en `quote-units.ts`). Precio PROPORCIONAL al de la caja, no el de lista del paquete suelto. Sólo si el paquete cabe exacto: medido en suc 01, **384 SKUs** con paquete+caja, 383 exactos, 1 no (97134, 11 en 200) → ese no se inventa. El detalle trae `product_pack_size` (descriptivo, del JOIN a `v_label_prices`). **(b) Velocidad:** la previa de precio tardaba ~3 s por clic en prod porque `analytics.v_label_presentations` tiene CTE referenciados varias veces (`esc`, `uni`) → Postgres los MATERIALIZA y el filtro sucursal+sku no entra (recalcula 84k `kdii` + 379k `kdpv_prod_util`). Migración `20261002120000` recrea la vista con **el mismo SQL + `NOT MATERIALIZED`** en sus 6 CTE. **Medido en prod (solo lectura), 96 lecturas: mediana 3,094 → 144 ms, p90 3,738 → 179 ms, 96/96 resultados idénticos.** Candado `v-label-presentations-not-materialized.spec.ts` (cuerpo == original salvo la palabra; prueba negativa). `v_label_prices` ya era 5–20 ms. Declarado: `kdpv_prod_util` sigue en seq scan (~30 ms; su índice es sobre `c1` crudo, la vista filtra `btrim(c1)`). **Pendiente: aplicar la migración en prod (una por una, `apply-one-migration-prod.js`).** |
 | `[COT.18]` | 🧪 | **Detalle de cotización compacto, con el mismo esqueleto que el alta** (2026-10-02). `/telemarketing/cotizaciones/:id` (editar una cotización) tenía un contenedor de 1,100 px, 5–6 tarjetas de condiciones de ~75 px, una tarjeta "Captura manual" con encabezado + subtítulo + etiqueta, renglones de ~70 px (el desglose del precio partido en 3 líneas) y el total al fondo. Ahora: cabecera de UNA línea (`← Cotizaciones / folio · cliente · estado`), condiciones en una tira, "Agregar artículo" en la misma fila del buscador (el desplegable cae bajo el buscador, no bajo la etiqueta), artículo elegido en horizontal (unidad · cantidad · precio + Agregar), renglones de una línea y **riel fijo** con totales del servidor, Excel/PDF, la lista del cliente plegada y el lugar del asistente IA. **Medido en la pantalla real (COT-2026-00009, 10 renglones, 1366+ px): renglón 54 → 39 px y los 10 caben sin scroll; la tarjeta del artículo elegido ~230 px.** Se quitó el azul del aviso de volumen (DESIGN.md: tokens de acción). Sin cambios de lógica ni de datos: sólo plantilla y estilos, más `nombreSucursal()`. El `nowrap` de la tabla vive dentro del mismo `@container densetable` que la apila en angosto. Sin verificar: modo oscuro y < 1100 px. |
 | `[COT.19]` | 🧪 | **El cotizador respeta las sucursales del usuario** (2026-10-03). Disparado por una prueba en prod: `alberto_ayala` (`vendedor_telemarketing`, perfil `08` Morelia Abastos) abrió el cotizador y le arrancó en la `01` Padre Hidalgo. **Medido:** el perfil estaba bien (rol `own` + `warehouse_code='08'`); el cotizador ignoraba el alcance de ADR-050 — lista fija de 8 sucursales, `signal('01')`, y **ningún endpoint de `commercial-quotes` validaba la sucursal** (se podía preciar y crear en cualquiera). **Arreglo, reusando `ScopeService` (área `televenta`), sin migraciones ni permisos nuevos:** `GET /commercial/quotes/branches` (sucursales del usuario + la de arranque = la de su perfil si le toca, **nunca `01` por omisión**); 403 en catálogo, vendedores y precio de una sucursal ajena; crear exige sucursal SIEMPRE y de escritura; agregar/editar/quitar renglón y cancelar validan escritura sobre la sucursal de la cotización; lista y resumen filtran por sucursal (cada quien ve las suyas; dirección todas); clientes de mayoreo sólo con las condiciones de sus sucursales; el detalle devuelve `branch_writable` y la pantalla no ofrece editar lo que el servidor rechazaría. **Front:** una sucursal → fija; varias → selector sólo con las suyas; ninguna → «Sin sucursal asignada» (fail-closed, no se abren las 8); sin sucursal elegida el buscador está apagado. **Medido en prod (22 usuarios con permiso de cotizar):** 6 de una sucursal, 3 con varias, 10 con todas; ⚠️ **3 con `own` y sin sucursal en el perfil (`mauricio_ibarra`, `mauricio_ramirez`, `juan_espinoza`) quedan SIN poder cotizar hasta que se les asigne** — es corrección de datos desde administración, no se dibuja como «todas». Las 11 cotizaciones existentes traen sucursal (01: 9, 06: 2): filtrar no esconde ninguna vieja. SQL con `= ANY(:scope_branches)` verificado contra prod (solo lectura). `quote-scope.spec.ts` 19/19 con prueba negativa (sin la compuerta del catálogo, rojo). Sin verificar: los perfiles vendedor/gerente en pantalla (no hay sesión de ellos). |
+| `[COT.20]` | 🔨 | **Dirección cotiza en las 8 sucursales; cada jefe de zona sólo en las suyas** (2026-10-30). Reporte: `superuser` veía «Sin sucursal asignada». **Medido:** `direccion` lee `all` y escribe `none` (`'*'`), y COT.19 valida con escritura; el `superadmin` complementario de `superuser`/`guillermo_lopez` no lo ve el alcance. Los 3 jefes de zona (`superadmin` principal) cotizaban en las 8. **Arreglo:** `ScopeService` — una regla de usuario CON ÁREA le gana al god-mode, sólo en esa área; migración `20261030114816` (`direccion · televenta · all/all`; ivette_cruz 01-04, aaron_alejo 07-08, ramon_rodriguez 05-06, área `televenta`). `scope.service.spec.ts` 5/5 con prueba negativa; `quote-scope.spec.ts` 19/19. Falta: aplicar la migración en prod y ver la pantalla con la sesión de cada uno. NO MEDIDO: el `INSERT` de `user_scopes` contra una base real. |
 
 **Verificado:** `quote-deliverable-export.spec.ts` 4/4 ok; `quote-pricing.spec.ts` 2/2 ok; suite `commercial` 21/21 suites (231 pruebas) ok; suite `contracts` 10/10 suites (152 pruebas) ok; compuertas `check-template-literals` (344 componentes ok), `lint-changed` (35 archivos limpios); `nx build view` pasa limpio con exit code 0. Redirección y asignación de folio verificada hacia `/telemarketing/cotizaciones`.
 
