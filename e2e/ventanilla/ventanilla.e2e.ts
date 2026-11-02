@@ -330,3 +330,76 @@ test.describe('7 · Lo que toca hoy, contado antes de las listas (Q.1)', () => {
     await expect(page.getByTestId('ir-explicar')).toContainText('1');
   });
 });
+
+test.describe('8 · Fondo de monedas: se junta por pieza y se cambia por billetes con rastro', () => {
+  const abrir = async (p: Page, con = 'Banco', nombre = 'Banco del Bajío') => {
+    await p.click('#btn-cambiar-monedas');
+    await p.selectOption('#mon-con', con);
+    await p.fill('#mon-nombre', nombre);
+  };
+
+  test('el fondo se cuenta por pieza y avisa cuando conviene cambiarlo (desde $5,000)', async ({ page }) => {
+    await expect(page.locator('#n-monedas')).toHaveText('$3,250.00');
+    await expect(page.locator('#monedas-aviso')).toContainText('cuando pasen de $5,000.00');
+    await page.evaluate(() => { const s = (window as any).__caos.estado(); s.cajon[10] += 200; (window as any).__caos.render(); });   // +$2,000 que dejó una ruta
+    await expect(page.locator('#monedas-aviso')).toContainText('Conviene cambiarlas');
+    await expect(page.getByTestId('ir-monedas')).toHaveClass(/alerta/);
+  });
+
+  test('en el acto: salen monedas y entran billetes por el mismo importe; el cajón no cambia de total', async ({ page }) => {
+    await abrir(page);
+    await pieza(page, 'mon-sale', 10, 100);              // $1,000 en monedas de $10
+    await pieza(page, 'mon-entra', 500, 2);              // $1,000 en billetes
+    await page.click('#btn-mon');
+    await expect(page.locator('#n-monedas')).toHaveText('$2,250.00');
+    await expect(kpi(page, 'cajon')).toHaveText('$31,750.00');
+    await expect(libro(page).first()).toContainText('Monedas por billetes con Banco · Banco del Bajío');
+  });
+
+  test('[negativa] si los billetes no suman lo que salió, no se registra; la comisión se declara aparte', async ({ page }) => {
+    await abrir(page);
+    await pieza(page, 'mon-sale', 10, 100);
+    await pieza(page, 'mon-entra', 500, 1); await pieza(page, 'mon-entra', 200, 2); await pieza(page, 'mon-entra', 50, 1); await pieza(page, 'mon-entra', 20, 1);   // $970
+    await expect(page.locator('#btn-mon')).toBeDisabled();
+    await expect(page.locator('#mon-cuadre')).toContainText('Faltan por explicar $30.00');
+    await page.fill('#mon-comision', '30');
+    await expect(page.locator('#btn-mon')).toBeEnabled();
+    await page.click('#btn-mon');
+    await expect(libro(page).first()).toContainText('Comisión por el cambio de monedas');
+    await expect(kpi(page, 'cajon')).toHaveText('$31,720.00');
+  });
+
+  test('[negativa] no se pueden cambiar más monedas de las que hay en el cajón', async ({ page }) => {
+    await abrir(page);
+    await pieza(page, 'mon-sale', 2, 101);               // sólo hay 100 de $2
+    await pieza(page, 'mon-entra', 200, 1);
+    await expect(page.locator('#mon-cuadre')).toContainText('No hay tantas monedas');
+    await expect(page.locator('#btn-mon')).toBeDisabled();
+  });
+
+  test('[negativa] cambiar de modo no borra lo ya capturado', async ({ page }) => {
+    await abrir(page);
+    await pieza(page, 'mon-sale', 5, 7);
+    await page.click('[data-modo="lleva"]');
+    await expect(page.locator('#mon-con')).toHaveValue('Banco');
+    await expect(page.locator('#mon-nombre')).toHaveValue('Banco del Bajío');
+    await expect(page.locator('[data-grupo="mon-sale"][data-denom="5"]')).toHaveValue('7');
+  });
+
+  test('si se las lleva una persona, quedan en custodia a su nombre hasta que regresa con los billetes', async ({ page }) => {
+    await abrir(page);
+    await page.click('[data-modo="lleva"]');
+    await pieza(page, 'mon-sale', 5, 200);               // $1,000 en monedas de $5
+    await page.fill('#mon-persona', 'Chofer Ruta 5');
+    await page.click('#btn-mon');
+    const custodia = page.getByTestId('cola-custodias').locator('tr', { hasText: 'Monedas para cambio' });
+    await expect(custodia).toContainText('Chofer Ruta 5');
+    await expect(custodia).toContainText('$1,000.00');
+    await custodia.getByRole('button', { name: 'Rendir' }).click();
+    await page.fill('#ren-comprobado', '0');
+    await pieza(page, 'ren', 500, 2);                    // regresa $1,000 en billetes
+    await page.click('#btn-rendir');
+    await expect(page.getByTestId('cola-custodias').locator('tr', { hasText: 'Monedas para cambio' })).toHaveCount(0);
+    await expect(kpi(page, 'cajon')).toHaveText('$31,750.00');
+  });
+});

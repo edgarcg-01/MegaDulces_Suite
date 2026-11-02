@@ -16,7 +16,7 @@ const crypto = require('crypto');
 const REPO = path.resolve(__dirname, '..', '..');
 require(path.join(REPO, 'node_modules', 'ts-node')).register({
   transpileOnly: true, skipProject: true,
-  compilerOptions: { module: 'commonjs', target: 'es2020', esModuleInterop: true, moduleResolution: 'node' },
+  compilerOptions: { module: 'commonjs', target: 'es2020', esModuleInterop: true, moduleResolution: 'node', ignoreDeprecations: '6.0' },
 });
 const { armarCodigo } = require(path.join(REPO, 'libs/finance/src/lib/cashbook/codigo-formato.ts'));
 const knex = require('knex')(require('../knexfile-newdb.js').development);

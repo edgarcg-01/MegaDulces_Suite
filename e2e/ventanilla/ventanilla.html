@@ -127,6 +127,9 @@ details.sim .fila{display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-top:var(--s
     <section class="cola" data-testid="cola-atrasados"><h2>Atrasados <span class="n" id="n-atrasados"></span><span class="faint">de octubre, que Control no concilió · se concilian, no se pagan</span>
       <button class="btn" id="btn-atrasados" type="button" style="margin-left:auto" aria-expanded="false"></button></h2><table><tbody id="t-atrasados"></tbody></table></section>
     <section class="cola" id="sec-rutas" data-testid="cola-rutas"><h2>Por recibir de rutas <span class="n" id="n-rutas"></span><span class="faint">el depósito se empareja solo por ruta y fecha</span></h2><table><tbody id="t-rutas"></tbody></table></section>
+    <section class="cola" id="sec-monedas" data-testid="fondo-monedas"><h2>Fondo de monedas <span class="n" id="n-monedas"></span><span class="faint" id="monedas-detalle"></span>
+      <button class="btn" id="btn-cambiar-monedas" type="button" style="margin-left:auto">Cambiar por billetes</button></h2>
+      <p class="pie faint" id="monedas-aviso"></p></section>
     <section class="cola" id="sec-custodias" data-testid="cola-custodias"><h2>Custodias abiertas <span class="n" id="n-custodias"></span><button class="btn" id="btn-nueva-custodia" type="button" style="margin-left:auto">Retiro a custodia</button></h2><table><tbody id="t-custodias"></tbody></table></section>
     <section class="cola" data-testid="libro"><h2>Libro del día <span class="n" id="n-libro"></span><span class="faint">lo que ya quedó registrado</span></h2><table><tbody id="t-libro"></tbody></table></section>
   </div>
@@ -140,7 +143,10 @@ details.sim .fila{display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-top:var(--s
 <script>
 // ═══ Reglas de la ventanilla (FASE_LE §5.2, V1–V9) y decisiones D3, D14, D20 ═══════════════════
 const TOPE_CAJON = 50000;          // D20
-const UMBRAL = 10000;              // D3: firma de Tesorería para lo que sale SIN orden aprobada
+const UMBRAL = 10000;
+const AVISO_MONEDAS = 5000;        // medido 2026-11-02: el fondo llegó a $7,238.50 y $7,276.50 antes de cambiarse
+const DENOM_MONEDA = [10, 5, 2, 1, 0.5];
+const DENOM_BILLETE = [1000, 500, 200, 100, 50, 20];              // D3: firma de Tesorería para lo que sale SIN orden aprobada
 const DENOM_MAQUINA = [1000, 500, 200, 100, 50, 20];               // V1: los billetes viven en la máquina
 const DENOM_CAJON = [500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];     // el cajón: cambio, monedas
 const DENOM_USD = [100, 50, 20, 10, 5, 1];                          // D2: la caja también guarda dólares, por pieza
@@ -222,6 +228,8 @@ function nuevoCodigo() {
   const dv = [...cuerpo].reduce((a, c) => a + c.charCodeAt(0), 0) % 10;
   return cuerpo + '-' + dv;
 }
+const monedasTotal = () => DENOM_MONEDA.reduce((a, d) => a + d * (S.cajon[d] || 0), 0);
+const monedasPiezas = () => DENOM_MONEDA.reduce((a, d) => a + (S.cajon[d] || 0), 0);
 const usdTotal = () => DENOM_USD.reduce((a, d) => a + d * (S.usd[d] || 0), 0);
 const cajonTotal = () => DENOM_CAJON.reduce((a, d) => a + d * (S.cajon[d] || 0), 0);
 const sumaPiezas = (p) => Object.entries(p).reduce((a, [d, n]) => a + Number(d) * (Number(n) || 0), 0);
@@ -242,7 +250,7 @@ function render() {
   $('buscar-box').hidden = S.rol !== 'cajera';
   $('resumen').hidden = S.rol !== 'cajera';
   // Q.1: lo que toca hoy, contado, ANTES de las listas; cada conteo lleva a su lista (con 26 pagos, las rutas quedan abajo).
-  $('resumen').innerHTML = [['explicar', 'por explicar', S.explicar.length, S.explicar.length > 0], ['pagar', 'por pagar hoy', S.porPagar.length], ['rutas', 'rutas por recibir', S.rutas.length], ['custodias', 'custodias abiertas', S.custodias.length]]
+  $('resumen').innerHTML = [['explicar', 'por explicar', S.explicar.length, S.explicar.length > 0], ['pagar', 'por pagar hoy', S.porPagar.length], ['rutas', 'rutas por recibir', S.rutas.length], ['custodias', 'custodias abiertas', S.custodias.length], ['monedas', 'en monedas', fmt(monedasTotal()), monedasTotal() >= AVISO_MONEDAS]]
     .map(([k, txt, n, alerta]) => `<a href="#sec-${k}" data-testid="ir-${k}" class="${alerta ? 'alerta' : ''}"><b>${n}</b>${txt}</a>`).join('');
   const q = S.q;
   const cuenta = (vis, tot) => (q && vis.length !== tot ? vis.length + ' de ' + tot : String(tot));
@@ -258,6 +266,11 @@ function render() {
   $('btn-nueva-custodia').disabled = S.cerrado;
   const off = S.cerrado ? 'disabled' : '';
 
+  $('n-monedas').textContent = contandoACiegas ? 'contando a ciegas' : fmt(monedasTotal());
+  $('monedas-detalle').textContent = contandoACiegas ? '' : monedasPiezas() + ' piezas de $10 a 50 centavos, en el cajón';
+  $('monedas-aviso').textContent = monedasTotal() >= AVISO_MONEDAS ? 'Conviene cambiarlas: pasan de ' + fmt(AVISO_MONEDAS) + '.' : 'Se cambian por billetes cuando pasen de ' + fmt(AVISO_MONEDAS) + '.';
+  $('monedas-aviso').classList.toggle('motivo', monedasTotal() >= AVISO_MONEDAS);
+  $('btn-cambiar-monedas').disabled = S.cerrado || monedasTotal() <= 0;
   const vExp = S.explicar.filter((e) => coincide([e.usuario, 'retiro sin codigo'], e.monto, q));
   $('n-explicar').textContent = cuenta(vExp, S.explicar.length);
   filas('t-explicar', vExp, 'Nada salió de la máquina sin orden.', (e) =>
@@ -398,6 +411,56 @@ function renderPanel() {
     const b = $('btn-cus-pedir'); if (b) b.addEventListener('click', () => pedirCustodia(P));
     return;
   }
+  if (P.tipo === 'monedas') {
+    let h = '<h3>Cambiar monedas por billetes</h3><p class="muted">Hay <b class="mono">' + fmt(monedasTotal()) + '</b> en monedas. Todo por pieza.</p>'
+      + '<label class="muted">¿Con quién?</label><select id="mon-con"><option value="">Elige…</option><option>Banco</option><option>Proveedor de morralla</option><option>Cliente o tienda</option><option>Otro</option></select>'
+      + '<input class="txt" id="mon-nombre" placeholder="Nombre (banco, proveedor o persona)">'
+      + '<div class="seg" role="group" aria-label="Cómo se cambia" style="margin:8px 0"><button type="button" data-modo="acto" aria-pressed="' + (P.modo !== 'lleva') + '">En el acto</button><button type="button" data-modo="lleva" aria-pressed="' + (P.modo === 'lleva') + '">Se las lleva una persona</button></div>'
+      + '<div class="muted">Monedas que salen, en piezas</div>' + piezasHtml(DENOM_MONEDA, 'mon-sale');
+    if (P.modo === 'lleva') h += '<input class="txt" id="mon-persona" placeholder="¿Quién se las lleva? (queda en custodia a su nombre)">';
+    else h += '<div class="muted">Billetes que entran, en piezas</div>' + piezasHtml(DENOM_BILLETE, 'mon-entra')
+      + '<input class="txt" id="mon-comision" type="number" min="0" step="0.01" placeholder="Comisión que cobraron (si hubo)">';
+    h += '<div class="faint" id="mon-cuadre"></div><button class="btn primario" id="btn-mon" type="button">' + (P.modo === 'lleva' ? 'Entregar las monedas' : 'Registrar el cambio') + '</button>';
+    el.innerHTML = h;
+    // Estado sucio: cambiar de modo NO borra lo capturado (con quién, nombre, piezas, persona).
+    const guardar = () => { P.con = $('mon-con').value; P.nombre = $('mon-nombre').value; P.sale = leerPiezas('mon-sale');
+      if ($('mon-persona')) P.persona = $('mon-persona').value; if ($('mon-comision')) P.comision = $('mon-comision').value; };
+    $('mon-con').value = P.con || ''; $('mon-nombre').value = P.nombre || '';
+    el.querySelectorAll('[data-grupo="mon-sale"]').forEach((i) => { i.value = (P.sale || {})[i.dataset.denom] || 0; });
+    el.querySelectorAll('[data-grupo="mon-entra"]').forEach((i) => { i.value = (P.entra || {})[i.dataset.denom] || 0; });
+    if ($('mon-persona')) $('mon-persona').value = P.persona || ''; if ($('mon-comision')) $('mon-comision').value = P.comision || '';
+    el.querySelectorAll('[data-modo]').forEach((b) => b.addEventListener('click', () => { guardar(); if (P.modo !== 'lleva') P.entra = leerPiezas('mon-entra'); P.modo = b.dataset.modo; render(); }));
+    const cuadre = () => {
+      const sale = leerPiezas('mon-sale'), vSale = sumaPiezas(sale);
+      const alcanza = Object.entries(sale).every(([d, n]) => n <= (S.cajon[d] || 0));
+      const con = $('mon-con').value, nombre = $('mon-nombre').value.trim();
+      let okk = vSale > 0 && alcanza && !!con && !!nombre, txt = !alcanza ? 'No hay tantas monedas en el cajón.' : '';
+      if (P.modo === 'lleva') okk = okk && !!$('mon-persona').value.trim();
+      else {
+        const vEntra = sumaPiezas(leerPiezas('mon-entra')), com = Number($('mon-comision').value) || 0, dif = +(vSale - vEntra - com).toFixed(2);
+        okk = okk && dif === 0;
+        if (alcanza) txt = dif === 0 ? 'Cuadra: monedas = billetes' + (com ? ' + comisión' : '') + '.' : 'Faltan por explicar ' + fmt(dif) + ' (billetes + comisión tienen que sumar lo que salió).';
+      }
+      $('mon-cuadre').textContent = txt; $('btn-mon').disabled = !okk;
+    };
+    el.querySelectorAll('input,select').forEach((i) => i.addEventListener('input', cuadre)); el.querySelector('select').addEventListener('change', cuadre); cuadre();
+    $('btn-mon').addEventListener('click', () => {
+      const sale = leerPiezas('mon-sale'), vSale = sumaPiezas(sale), con = $('mon-con').value + ' · ' + $('mon-nombre').value.trim();
+      Object.entries(sale).forEach(([d, n]) => { S.cajon[d] = (S.cajon[d] || 0) - n; });
+      if (P.modo === 'lleva') {
+        const persona = $('mon-persona').value.trim();
+        S.custodias.push({ id: 'c' + (S.custodias.length + 2), persona, motivo: 'Monedas para cambio (' + con + ')', monto: vSale, dias: 0 });
+        asentar('custodia', 'Monedas para cambio con ' + con + ' · las lleva ' + persona, vSale);
+      } else {
+        const entra = leerPiezas('mon-entra'), com = Number($('mon-comision').value) || 0;
+        Object.entries(entra).forEach(([d, n]) => { S.cajon[d] = (S.cajon[d] || 0) + n; });
+        asentar('cambio', 'Monedas por billetes con ' + con + ': salen ' + fmt(vSale) + ' en monedas, entran ' + fmt(vSale - com) + ' en billetes', vSale);
+        if (com) asentar('gasto', 'Comisión por el cambio de monedas · ' + con, com);
+      }
+      S.panel = null; render();
+    });
+    return;
+  }
   if (P.tipo === 'rendir') {
     const c = S.custodias.find((x) => x.id === P.id);
     el.innerHTML = `<h3>Rendir: ${c.motivo}</h3><p>${c.persona} tiene <b class="mono">${fmt(c.monto)}</b>.</p>
@@ -499,6 +562,7 @@ document.addEventListener('click', (ev) => {
   if (acc === 'pagar') abrirPago(id);
   else if (acc === 'explicar') { S.panel = { tipo: 'explicar', id }; render(); }
   else if (acc === 'conciliar') { const a = S.atrasados.find((x) => x.id === id); S.atrasados = S.atrasados.filter((x) => x !== a); asentar('conciliado', `${a.doc} · ${a.quien} · ${a.dia} (atrasado de octubre)`, a.monto); render(); }
+  else if (b.id === 'btn-cambiar-monedas') { S.panel = { tipo: 'monedas', modo: 'acto' }; render(); }
   else if (b.id === 'btn-atrasados') { S.verAtrasados = !S.verAtrasados; render(); }
   else if (acc === 'ver-explicar') { S.rol = 'cajera'; S.panel = { tipo: 'explicar', id }; render(); }
   else if (acc === 'ruta') { S.panel = { tipo: 'ruta', id }; render(); }
@@ -510,7 +574,7 @@ document.addEventListener('click', (ev) => {
 });
 document.addEventListener('input', (ev) => { if (ev.target.id === 'buscar') { S.q = ev.target.value; render(); } });
 // Ganchos para las pruebas: simulan la máquina, que no vive en esta pantalla.
-window.__caos = { entrega: (codigo, monto, usuario = 'Usuario 003') => maquinaEntrega(codigo, monto, usuario), estado: () => S };
+window.__caos = { render: () => render(), entrega: (codigo, monto, usuario = 'Usuario 003') => maquinaEntrega(codigo, monto, usuario), estado: () => S };
 render();
 </script>
 </body>
