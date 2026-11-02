@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, ElementRef, HostListener, OnDestroy, ViewChild, computed, effect, inject, signal } from '@angular/core';
-import { Router } from '@angular/router';
+import type { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
 import { TableModule } from 'primeng/table';
 import { firstValueFrom } from 'rxjs';
 import { warehouseName } from '@megadulces/contracts';
@@ -7,6 +7,9 @@ import { AuthService } from '../../../core/services/auth.service';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { SucursalPickerComponent } from '../../../shared/components/sucursal-picker/sucursal-picker.component';
+import { TiendaArqueoComponent } from './tienda-arqueo.component';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
 import { HalladoCatalogo, ProductoPrecio, SucursalVerificador, VerificadorService } from '../verificador.service';
 import {
   EscalonCaja, LineaCaja, MOTIVOS_QUITAR, errorEfectivo, esCorreccionInmediata, importeRenglon, leerComando,
@@ -38,7 +41,7 @@ const CANAL_CLIENTE = 'md-caja-cliente';
 @Component({
   selector: 'app-tienda-caja',
   standalone: true,
-  imports: [TableModule, FreshnessPillComponent, LoadStateComponent, SucursalPickerComponent],
+  imports: [TableModule, FreshnessPillComponent, LoadStateComponent, SucursalPickerComponent, TiendaArqueoComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
   <div class="cj">
@@ -50,7 +53,7 @@ const CANAL_CLIENTE = 'md-caja-cliente';
         Modo práctica: no guarda, no imprime, no cobra ni manda a Kepler. Sin promociones por cantidad.</span>
       <span class="cj-acciones">
         <button type="button" class="cj-hb" tabindex="-1" (click)="abrirVerificador()">Verificar precio <kbd>F6</kbd></button>
-        <button type="button" class="cj-hb" tabindex="-1" (click)="irArqueo()">Mi arqueo <kbd>F7</kbd></button>
+        @if (puedeArqueo) { <button type="button" class="cj-hb" tabindex="-1" [class.cj-hb-on]="arqueo()" (click)="irArqueo()">Mi arqueo <kbd>F7</kbd></button> }
         <button type="button" class="cj-hb" tabindex="-1" (click)="abrirCliente()">Pantalla del cliente</button>
       </span>
     </header>
@@ -58,6 +61,16 @@ const CANAL_CLIENTE = 'md-caja-cliente';
     <app-load-state [loading]="cargando()" [error]="errorCarga()" [isEmpty]="!sucursal()" emptyIcon="pi-building"
                     emptyTitle="Elige la sucursal de esta caja" emptyHint="Los precios y la búsqueda salen del catálogo de esa sucursal."
                     (retry)="prepararSucursal()">
+    @if (arqueo()) {
+    <section class="cj-arq" aria-label="Mi arqueo">
+      <div class="cj-arq-barra">
+        <span class="cj-sub">Arqueo ciego de tu caja, el mismo de Arqueo de Tienda: lo que entregues aquí queda guardado.</span>
+        <button type="button" class="cj-hb" (click)="cerrarArqueo()">{{ confirmarSalida() ? 'Salir sin entregar el conteo' : 'Volver a la caja' }}</button>
+      </div>
+      @if (confirmarSalida()) { <div class="cj-aviso cj-warn" role="status">Tu conteo no está entregado. Entrégalo, o presiona otra vez para salir y perderlo.</div> }
+      @defer (on immediate) { <app-tienda-arqueo #arq /> } @loading (minimum 200ms) { <div class="cj-sub">Cargando el arqueo…</div> }
+    </section>
+    } @else {
     <main class="cj-main">
       <section class="cj-trabajo" aria-label="Ticket en curso">
         <div class="cj-cmd">
@@ -175,10 +188,12 @@ const CANAL_CLIENTE = 'md-caja-cliente';
         }
       </aside>
     </main>
+    }
     </app-load-state>
 
     <footer class="cj-pie" aria-label="Teclas de este momento">
-      @if (auth()) { <span><kbd>1</kbd>–<kbd>4</kbd> motivo</span><span>PIN y <kbd>Enter</kbd></span><span><kbd>Esc</kbd> no hacerlo</span> }
+      @if (arqueo()) { <span>Captura tu conteo con el teclado y el ratón; la caja no toma teclas mientras tanto</span> }
+      @else if (auth()) { <span><kbd>1</kbd>–<kbd>4</kbd> motivo</span><span>PIN y <kbd>Enter</kbd></span><span><kbd>Esc</kbd> no hacerlo</span> }
       @else if (verificando()) { <span>Escanea o escribe y <kbd>Enter</kbd></span><span><kbd>Esc</kbd> volver a vender</span> }
       @else if (estado() === 'venta') { <span><kbd>Enter</kbd> agregar</span><span><kbd>5*</kbd>código cantidad</span><span>letras o <kbd>F9</kbd> buscar</span><span><kbd>Ctrl</kbd>+<kbd>Supr</kbd> cancelar ticket</span><span><b>250 <kbd>F12</kbd></b> cobra $250 en efectivo</span> }
       @else if (estado() === 'cobro') { <span>Teclea lo que te dieron</span><span><b><kbd>Enter</kbd> efectivo</b> (vacío = exacto)</span><span><kbd>F2</kbd> tarjeta</span><span><kbd>F3</kbd> transferencia</span><span><kbd>Esc</kbd> volver</span> }
@@ -195,6 +210,9 @@ const CANAL_CLIENTE = 'md-caja-cliente';
     .cj-acciones { margin-left: auto; display: inline-flex; gap: var(--sp-2); }
     .cj-hb { display: inline-flex; align-items: center; gap: var(--sp-2); height: 2.25rem; padding: 0 var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); color: var(--text-main); font: inherit; font-size: var(--fs-sm); font-weight: 600; cursor: pointer; }
     .cj-hb:hover { background: var(--surface-hover-bg); }
+    .cj-hb-on { border-color: var(--action); color: var(--action); }
+    .cj-arq { flex: 1; min-height: 0; overflow: auto; padding: var(--sp-3) var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-3); }
+    .cj-arq-barra { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-2); }
     .cj-main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(20rem, 27rem); gap: var(--sp-4); padding: var(--sp-4); }
     @media (max-width: 60rem) { .cj-main { grid-template-columns: 1fr; } }
     .cj-trabajo { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: var(--sp-3); }
@@ -256,10 +274,14 @@ const CANAL_CLIENTE = 'md-caja-cliente';
 })
 export class TiendaCajaComponent implements OnDestroy {
   private readonly svc = inject(VerificadorService);
-  private readonly router = inject(Router);
   @ViewChild('cmd') private cmd?: ElementRef<HTMLInputElement>;
 
   readonly motivos = MOTIVOS_QUITAR;
+  /** El arqueo vive DENTRO de la caja (una sola interfaz): el mismo componente real de /tienda/arqueo. */
+  readonly puedeArqueo = [Permission.STORE_ARQUEO_VER, Permission.STORE_ARQUEO_CAPTURAR, Permission.STORE_ARQUEO_SIN_CAJA_CAPTURAR].some((p) => inject(PermissionsService).has(p));
+  readonly arqueo = signal(false);
+  readonly confirmarSalida = signal(false);
+  @ViewChild('arq') private arqueoCmp?: HasUnsavedChanges;
   readonly dinero = pesos;
 
   // ── Sucursal y catálogo ──
@@ -373,6 +395,7 @@ export class TiendaCajaComponent implements OnDestroy {
     if (a && a.tipo !== 'error' && k !== 'Shift') this.aviso.set(null);
     const v = this.texto().trim();
 
+    if (this.arqueo()) return; // el arqueo captura con su propio teclado
     if (!this.auth() && (k === 'F6' || k === 'F7')) { k === 'F6' ? this.abrirVerificador() : this.irArqueo(); return; }
     if (this.auth()) return this.teclaAutorizacion(e, k);
     if (this.verificando()) {
@@ -622,7 +645,18 @@ export class TiendaCajaComponent implements OnDestroy {
   abrirVerificador(): void { this.cerrarResultados(); this.limpiar(); this.verificado.set(null); this.verificando.set(true); this.enfocar(); }
   irArqueo(): void {
     if (this.tot().renglones && this.estado() !== 'cobrado') return this.avisar('aviso', 'Para hacer tu arqueo, termina o cancela el ticket en curso.');
-    void this.router.navigate(['/tienda/arqueo']);
+    if (!this.puedeArqueo) return this.avisar('aviso', 'Tu puesto no tiene el arqueo de caja.');
+    this.cerrarResultados();
+    this.verificando.set(false);
+    this.confirmarSalida.set(false);
+    this.arqueo.set(true);
+  }
+
+  cerrarArqueo(): void {
+    if (this.arqueoCmp?.hasUnsavedChanges() && !this.confirmarSalida()) { this.confirmarSalida.set(true); return; }
+    this.confirmarSalida.set(false);
+    this.arqueo.set(false);
+    this.enfocar();
   }
 
   private async verificar(v: string): Promise<void> {
@@ -668,7 +702,7 @@ export class TiendaCajaComponent implements OnDestroy {
   private folioDe(n: number): string { return 'P-' + String(n).padStart(6, '0'); }
   private avisar(tipo: Aviso['tipo'], texto: string): void { this.aviso.set({ tipo, texto }); if (tipo === 'error') this.tono(180, 260, 'square'); }
   private limpiar(): void { this.texto.set(''); this.teclas = []; if (this.cmd) this.cmd.nativeElement.value = ''; }
-  private enfocar(): void { setTimeout(() => this.cmd?.nativeElement.focus(), 0); }
+  private enfocar(): void { if (!this.arqueo()) setTimeout(() => this.cmd?.nativeElement.focus(), 0); }
   reenfocar(): void { this.enfocar(); }
 
   private audio?: AudioContext;
