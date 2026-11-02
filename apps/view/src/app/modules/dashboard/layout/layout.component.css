@@ -47,3 +47,23 @@
 
 /* [MT.5] El CSS del panel se fue con el componente:
    core/panel/panel-lateral.component.css (alli el anfitrion ES el <aside>). */
+
+/*
+ * `[TBL.1]` **La barra de scroll NO debe cambiar el ancho del contenido.**
+ *
+ * Medido en 0finanzasb el 2026-11-02: al aparecer la barra de este `.pane`, todo lo de
+ * adentro se angostaba entre 2 y 11 px y corria a la izquierda — cinco elementos saltando
+ * a la vez. Eso cierra un lazo con cualquier codigo que ajuste alto segun el ancho
+ * disponible (`fijarAlto()` del Calendario de pagos): crece el alto -> aparece la barra ->
+ * se angosta -> reflow -> cambia el alto -> se va la barra -> y otra vez. Se ve como temblor.
+ *
+ * `stable` reserva el carril SIEMPRE, haya barra o no, asi que aparecer o irse deja de mover
+ * nada. Cuesta ~15 px de ancho permanentes sobre ~1900: el 0.8 %.
+ *
+ * ⚠️ Es el UNICO `scrollbar-gutter` de la app (medido: 0 antes de este). El mismo lazo puede
+ * vivir en cualquier contenedor con `overflow-y: auto`; si vuelve a aparecer en otra
+ * pantalla, el arreglo es este, no otro parche de alto.
+ */
+:host .pane {
+  scrollbar-gutter: stable;
+}
