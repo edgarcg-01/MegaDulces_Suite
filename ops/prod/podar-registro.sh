@@ -141,7 +141,10 @@ for repo in $(en_registro ls "$RAIZ" 2>/dev/null); do
     vivos="$vivos $(printf '%s' "$m" | grep -oE 'sha256:[0-9a-f]{64}' | tr '\n' ' ')"
   done
   if [ "$aborta_h" = si ]; then fallos=$((fallos + 1)); else
-    for h in $(en_registro ls "$RAIZ/$repo/_manifests/revisions/sha256" 2>/dev/null); do
+    # ⚠️ Sólo revisiones con `link` VIVO: un DELETE del registro quita el enlace y DEJA la carpeta
+    #    vacía. Contar carpetas daba 866 «fallos» falsos el 2026-11-02 (DELETE → 404 sobre manifiestos
+    #    ya borrados) y el latido habría quedado rojo cada domingo sin ningún daño.
+    for h in $(en_registro sh -c "for d in '$RAIZ/$repo/_manifests/revisions/sha256'/*; do [ -f \"\$d/link\" ] && basename \"\$d\"; done" 2>/dev/null); do
       d="sha256:$h"
       case " $vivos $keep_d " in *" $d "*) continue ;; esac   # conservado, hijo de conservado, o ya tratado en 2)
       [ -n "${PODAR_LISTAR:-}" ] && echo "    huérfano $repo@$d"
