@@ -304,7 +304,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'store-price-check', label: 'Verificador de precios', route: '/tienda/verificador', view: [Permission.STORE_PRICE_CHECK_VER], manage: [] },
           // `[PDV.31]` Caja de mostrador en MODO PRÁCTICA (no guarda ni manda a Kepler): mientras no existan las claves
           // `STORE_POS_*` (PDV.26) la abre quien supervisa la tienda en vivo, no las cajeras.
-          { id: 'store-pos', label: 'Caja (práctica)', route: '/tienda/caja', view: [Permission.STORE_LIVE_VER], manage: [] },
+          { id: 'store-pos', label: 'Caja (práctica)', route: '/tienda/caja', view: [Permission.STORE_LIVE_VER, Permission.STORE_ARQUEO_CAPTURAR], manage: [] },
           // `[FLT.1]` La ruta la abre CUALQUIERA de las dos claves (`anyPermissionGuard`): quien
           // sólo reporta tiene que poder entrar a la pantalla donde trabaja. Es la misma lección
           // que obligó a corregir Caducidades, donde el gate en VER le negaba la pantalla al

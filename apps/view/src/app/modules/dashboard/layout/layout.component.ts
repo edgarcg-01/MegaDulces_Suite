@@ -659,7 +659,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
       title: 'Operación',
       items: [
         // `[PDV.31]` La caja de mostrador va primero: es la tarea del mostrador. Modo práctica hasta D0/D1.
-        { label: 'Caja (práctica)', icon: 'pi pi-shopping-cart', route: '/tienda/caja', permission: Permission.STORE_LIVE_VER },
+        { label: 'Caja (práctica)', icon: 'pi pi-shopping-cart', route: '/tienda/caja', permission: Permission.STORE_LIVE_VER,
+          anyOf: [Permission.STORE_LIVE_VER, Permission.STORE_ARQUEO_CAPTURAR] },
         { label: 'Verificador de precios', icon: 'pi pi-barcode', route: '/tienda/verificador', permission: Permission.STORE_PRICE_CHECK_VER },
         { label: 'Monitor en vivo', icon: 'pi pi-bolt',       route: '/tienda/live',     permission: Permission.STORE_LIVE_VER },
         { label: 'Sucursales',      icon: 'pi pi-building',    route: '/tienda/branches', permission: Permission.STORE_LIVE_VER },
