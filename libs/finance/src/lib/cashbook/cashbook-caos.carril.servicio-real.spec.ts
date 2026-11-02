@@ -75,4 +75,41 @@ describe.skipIf(!URL)('[LE.4.4] el carril de la máquina contra Postgres', () =>
     expect(refs).toEqual(expect.arrayContaining([`caos:${DEV}:${AP + 3}`, `caos:${DEV}:${AP + 4}`, `caos:${DEV}:hueco:${AP + 5}-${AP + 5}`, `caos:${DEV}:${AP + 5}`]));
     expect(refs.some((r) => r.endsWith(`:${AP}`))).toBe(false);       // lo de antes de la apertura nunca entra
   });
+
+  it('`[LE.2.8]` un retiro con el código de su orden se asienta contra ella; sin código, a Suspenso', async () => {
+    const hayOrdenes = (await knex.raw(`SELECT to_regprocedure('cashbook.consume_order(text, bigint, timestamptz)') IS NOT NULL AS ok`)).rows[0].ok;
+    if (!hay || !hayOrdenes) { console.warn('[LE.2.8] NO MEDIDO: la base no tiene LE.1.14 (órdenes con código)'); return; }
+    const DEV2 = `${DEV}-C`;
+    const AP2 = 7000;
+    const EMPLEADO = randomUUID();
+    const mov2 = (id: number, typeId: number, label: string, piezas: [number, number][], ref: string | null) => tk.run(async (trx) => {
+      const [r] = await trx('analytics.caos_cash_movements').insert({
+        tenant_id: T, device: DEV2, external_id: id, type_id: typeId, type_label: label, occurred_at: new Date(Date.now() - 1800_000).toISOString(),
+        total: piezas.reduce((s, [d, q]) => s + d * q, 0), ref, user_external: 'Usuario 003', _row_hash: `${DEV2}-${id}`,
+      }).returning('id');
+      for (const [d, q] of piezas) await trx('analytics.caos_cash_denominations').insert({ tenant_id: T, movement_id: r.id, denom: d, pieza_tipo: 'B', quantity: q });
+    });
+    const orden = await tk.run(async (trx) => (await trx.raw('SELECT cashbook.issue_order(?::jsonb) AS r', [JSON.stringify({
+      actor: { kind: 'persona', user_id: randomUUID() }, kind: 'custodia', amount_minor: '300000',
+      classification: { tipo: 'custodia', empleado: EMPLEADO, nombre: 'Compras' }, expires_at: new Date(Date.now() + 7200_000).toISOString(),
+    })])).rows[0].r as { code: string });
+
+    await mov2(AP2 + 1, 0, 'Deposito', [[500, 20]], 'ruta 27 261026');        // $10,000 a la máquina
+    await mov2(AP2 + 2, 4, 'Dispensar', [[500, 6]], `${orden.code} compra urgente`);   // $3,000 CON código
+    await mov2(AP2 + 3, 4, 'Dispensar', [[500, 2]], 'gnf canindo');           // $1,000 SIN código
+    const r = await carril.correr({ tenantId: T, desde: `${DEV2}:${AP2}` });
+    expect(r).toMatchObject({ estado: 'al_dia', asentados: 3 });
+
+    const cuentasDe = (id: number) => tk.run(async (trx) => (await trx.raw(`
+      SELECT a.code FROM cashbook.entries e JOIN cashbook.entry_lines l ON l.entry_id = e.id JOIN cashbook.accounts a ON a.id = l.account_id
+       WHERE e.event_ref = ? ORDER BY a.code`, [`caos:${DEV2}:${id}`])).rows.map((x: { code: string }) => x.code));
+    const conCodigo = await cuentasDe(AP2 + 2);
+    expect(conCodigo.some((c: string) => c.startsWith('CUSTODIA:'))).toBe(true);     // contra la orden: custodia de Compras
+    expect(conCodigo).not.toContain('SUSPENSO_MXN');
+    expect(await cuentasDe(AP2 + 3)).toContain('SUSPENSO_MXN');                     // NEGATIVA: sin código, Suspenso
+
+    const estado = await tk.run(async (trx) => (await trx('cashbook.withdrawal_orders').where({ code: orden.code }).first('state', 'used_minor')));
+    expect(estado).toMatchObject({ state: 'usada' });
+    expect(Number(estado.used_minor)).toBe(300000);
+  });
 });

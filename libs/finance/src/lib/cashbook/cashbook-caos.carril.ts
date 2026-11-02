@@ -23,7 +23,8 @@ import { KNEX_NEW_DB, TenantContextService, TenantKnexService } from '@megadulce
 import { planDeCaos, puntoDeApertura } from './carril-caos';
 import { identidadDeCaos, type MovimientoCaos } from './identidad';
 import { pesosACentavos } from '@megadulces/contracts';
-import { cobranzaRuta, esSinRegla, movimientoCaos, type Contexto, type Propuesta } from './reglas';
+import { cobranzaRuta, esSinRegla, movimientoCaos, type ClasificacionCaos, type Contexto, type Propuesta } from './reglas';
+import { leerCodigo } from './codigo-formato';
 
 const MEGA = '00000000-0000-0000-0000-00000000d01c';
 const LOTE = 500;
@@ -90,16 +91,22 @@ export class CashbookCaosCarril {
         let asentados = 0;
         let aLaCola = 0;
         let hasta = ultimo;
+        const hayOrdenes = await this.hayOrdenesConCodigo(trx);
         for (const m of plan.aAsentar) {
-          const res = movimientoCaos(m, { ...ctx, valueAt: new Date(m.occurred_at).toISOString() });
+          // `[LE.2.8]` Consumir la orden y asentar el retiro caen en el MISMO punto de guardado: si el
+          // asiento no entra, la orden no queda descontada.
+          await trx.raw('SAVEPOINT libro_caos');
+          const clasificacion = hayOrdenes ? await this.porCodigo(trx, m) : undefined;
+          const res = movimientoCaos(m, { ...ctx, valueAt: new Date(m.occurred_at).toISOString() }, clasificacion);
           if (esSinRegla(res)) {
+            await trx.raw('ROLLBACK TO SAVEPOINT libro_caos');
+            await trx.raw('RELEASE SAVEPOINT libro_caos');
             await this.encolar(trx, res.event_ref, res.motivo, m);
             aLaCola += 1;
             hasta = Number(m.external_id);
             continue;
           }
           for (const c of res.cuentas) await trx.raw('SELECT cashbook.open_account(?::jsonb)', [JSON.stringify(c)]);
-          await trx.raw('SAVEPOINT libro_caos');
           try {
             await trx.raw('SELECT cashbook.post_entry(?::jsonb)', [JSON.stringify(res.asiento)]);
             await trx.raw('RELEASE SAVEPOINT libro_caos');
@@ -148,6 +155,31 @@ export class CashbookCaosCarril {
         LEFT JOIN analytics.caos_cash_denominations d ON d.movement_id = m.id
        WHERE m.device = ? AND m.external_id > ?
        GROUP BY m.id ORDER BY m.external_id LIMIT ?`, [equipo, desde, LOTE])).rows as MovimientoCaos[];
+  }
+
+  /**
+   * `[LE.1.14]` ¿La base ya tiene las órdenes con código? Si la API se despliega antes que la migración,
+   * el carril sigue como hasta hoy (sin código → Suspenso) en vez de caerse (expand/contract).
+   */
+  private async hayOrdenesConCodigo(trx: Knex.Transaction): Promise<boolean> {
+    const r = (await trx.raw(`SELECT to_regprocedure('cashbook.consume_order(text, bigint, timestamptz)') IS NOT NULL AS hay`)).rows[0] as { hay: boolean };
+    return r.hay === true;
+  }
+
+  /**
+   * `[LE.2.8]` La regla del código: un retiro (Dispensar) cuya referencia empieza con el código de una
+   * orden vigente se asienta con la clasificación de esa orden, y la orden se descuenta. Sin código,
+   * con uno mal verificado, vencido, usado o por más de lo ordenado: sin clasificación → Suspenso.
+   * La base decide el saldo (`consume_order`); aquí sólo se lee el código.
+   */
+  private async porCodigo(trx: Knex.Transaction, m: MovimientoCaos): Promise<ClasificacionCaos | undefined> {
+    if (m.type_id !== 4) return undefined;
+    const l = leerCodigo(m.ref);
+    if (!l.ok) return undefined;
+    const sale = pesosACentavos(String(m.total).replace(/^-/, ''));
+    const r = (await trx.raw('SELECT cashbook.consume_order(?, ?, ?) AS r',
+      [l.codigo, sale.toString(), new Date(m.occurred_at).toISOString()])).rows[0].r as { ok: boolean; classification?: ClasificacionCaos };
+    return r.ok ? r.classification : undefined;
   }
 
   private async encolar(trx: Knex.Transaction, ref: string, motivo: string, m: MovimientoCaos): Promise<void> {
