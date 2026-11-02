@@ -3,7 +3,7 @@
 // Uso: node scripts/kepler/replay-cotizacion/analiza.js <salida.json>
 const fs = require('fs');
 const path = require('path');
-const { renglones, dias } = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+const { renglones, dias, doc = 'UD40' } = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 
 // [E.25] La cuenta REAL de la cotización (libs/contracts quote-totals.ts), empaquetada: el pedido se
 // cuadra con la misma función que usan el servidor, la pantalla y el papel, no con una copia.
@@ -65,7 +65,7 @@ for (const l of renglones) {
 const N = renglones.length;
 const K = renglones.reduce((a, l) => a + Number(l.imp), 0);
 const docs = new Set(renglones.map((l) => l.suc + '|' + l.folio + '|' + l.serie)).size;
-console.log(`# Replay — pedidos de telemarketing U-D-40 de los últimos ${dias} día(s)`);
+console.log(`# Replay — ${doc === 'UD10' ? 'tickets de mostrador U-D-10 (el gemelo de la caja, [PDV.4])' : 'pedidos de telemarketing U-D-40'} de los últimos ${dias} día(s)`);
 console.log(`Universo: ${docs} pedidos · ${N} renglones · ${pesos(K)} cobrados por Kepler`);
 console.log(`(renglones cuya cantidad asentada difiere de la capturada —surtido—: ${cantCambio}; su importe se compara con la asentada)\n`);
 console.log('## Renglón: ¿el motor da el mismo precio que Kepler?');
@@ -73,6 +73,13 @@ console.log('| clase | renglones | % | importe Kepler | importe motor | motor �
 console.log('|---|---:|---:|---:|---:|---:|');
 for (const [k, c] of [...clases].sort((a, b) => b[1].n - a[1].n)) {
   console.log(`| ${k} | ${c.n} | ${(100 * c.n / N).toFixed(1)} | ${pesos(c.kepler)} | ${pesos(c.motor)} | ${pesos(c.dif)} |`);
+}
+// [PDV.4] El motor cotiza con el precio de HOY. Un renglón con otra lista mide un cambio de precio entre
+// el cobro y la corrida, no la lógica: ésta se mide sobre los renglones con la misma lista que Kepler.
+{
+  const n = (k) => clases.get(k)?.n ?? 0;
+  const base = N - n('lista_distinta') - n('kepler_sin_lista') - n('sin_precio');
+  console.log(`\n**Lógica del motor** (renglones con la misma lista que Kepler: ${base} de ${N}; fuera ${n('lista_distinta')} con precio ya cambiado, ${n('sin_precio')} sin precio publicado y ${n('kepler_sin_lista')} sin lista en Kepler): **${(100 * n('exacto') / base).toFixed(2)} % al centavo**`);
 }
 for (const [k, c] of clases) {
   if (k === 'exacto') continue;

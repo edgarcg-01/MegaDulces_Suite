@@ -30,7 +30,12 @@ const RAIZ = path.resolve(__dirname, '..', '..', '..');
 const TENANT = '00000000-0000-0000-0000-00000000d01c';
 const CONGELADO = /\.json$/i.test(process.argv[2] || '') ? process.argv[2] : null;
 const DIAS = CONGELADO ? JSON.parse(fs.readFileSync(CONGELADO, 'utf8')).dias : Number(process.argv[2] || 1);
-const SALIDA = process.argv[3] || path.join(os.tmpdir(), `replay-cotizacion-${DIAS}d.json`);
+// [PDV.4] El gemelo de la caja: REPLAY_DOC=UD10 re-cotiza los tickets de mostrador (U-D-10, «Ticket
+// Contado Caja N») en vez de los pedidos de telemarketing. El folio del ticket se RECICLA, así que el
+// renglón se liga también por su fecha (kdm2.c32); sin eso un ticket hereda renglones de otro día.
+const DOC = (process.env.REPLAY_DOC || 'UD40').toUpperCase();
+if (!['UD40', 'UD10'].includes(DOC)) throw new Error('REPLAY_DOC debe ser UD40 o UD10');
+const SALIDA = process.argv[3] || path.join(os.tmpdir(), `replay-cotizacion-${DOC.toLowerCase()}-${DIAS}d.json`);
 
 function motorEmpaquetado() {
   // Dentro de node_modules/.cache (ignorado por git): desde ahí el require del paquete sube solo a
@@ -67,7 +72,7 @@ const UNIVERSO = `
       nullif(regexp_replace(coalesce(c16::text,''),'[^0-9.-]','','g'),'')::numeric importe,
       coalesce(nullif(regexp_replace(coalesce(c19::text,''),'[^0-9.-]','','g'),'')::numeric,0) pct
     FROM kepler_ods.kdm1
-    WHERE c2='U' AND c3='D' AND (c4)::int = 40 AND btrim(c27) = 'TELEMARK'
+    WHERE c2='U' AND c3='D' AND ${DOC === 'UD10' ? '(c4)::int = 10' : "(c4)::int = 40 AND btrim(c27) = 'TELEMARK'"}
       AND (c9)::date >= current_date - ${DIAS}),
   l AS (
     SELECT h.suc, h.folio, h.c5 serie, h.estatus, h.fecha::text fecha, h.cliente, h.h13, h.iva, h.ieps, h.importe, h.pct,
@@ -78,6 +83,7 @@ const UNIVERSO = `
       coalesce((x.c17)::numeric,0) t_iva, coalesce((x.c18)::numeric,0) t_ieps
     FROM h JOIN kepler_ods.kdm2 x ON btrim(x.sucursal)=h.suc AND x.c1=h.c1 AND x.c2=h.c2 AND x.c3=h.c3
       AND (x.c4)::int=h.c4 AND (x.c5)::int=h.c5 AND btrim(x.c6)=h.folio
+      ${DOC === 'UD10' ? 'AND (x.c32)::date = h.fecha' : ''}
     WHERE (x.c9)::numeric > 0),
   kd AS (SELECT DISTINCT ON (btrim(i.sucursal), btrim(i.c1)) btrim(i.sucursal) suc, btrim(i.c1) sku, i.c18::numeric kdii_iva, i.c19::numeric kdii_ieps,
       upper(btrim(i.c80)) u2, nullif(i.c81::numeric, 0) f2, upper(btrim(i.c83)) u3, nullif(i.c84::numeric, 0) f3
@@ -97,8 +103,9 @@ const CONTROLES = [
   { in: { branch: '01', sku: '89008', quantity: 2, rung_label: 'CJA' }, u: 621.12, l: 621.07, t: 1242.24 },
   // 36 PAQ capturados como PAQ: tramo 10+ del PAQ, sin prorrateo — la captura de la pantalla de Kepler
   { in: { branch: '01', sku: '89008', quantity: 36, rung_label: 'PAQ' }, u: 51.76, l: 55.93, t: 1863.36 },
-  // 1 CJA de 144 PZA: 144 × $15.26 — UD40 01-0003315
-  { in: { branch: '01', sku: '02195', quantity: 1, rung_label: 'CJA' }, u: 2197.44, l: 2197.95, t: 2197.44 },
+  // 1 CJA de 80 PZA: 80 × $5.80 (lista 80 × $5.80125) — UD40 06-0001718 del 2026-11-02. Re-anclado:
+  // el de 01-0003315 (02195, 144 × $15.26) quedó viejo cuando Kepler subió esa CJA a $2,217.93.
+  { in: { branch: '06', sku: '01007', quantity: 1, rung_label: 'CJA' }, u: 464, l: 464.1, t: 464 },
   // el tramo se cobra aunque sea MÁS caro que la lista ($11.99) — UD40 08-0000707
   { in: { branch: '08', sku: '40509', quantity: 50, rung_label: 'PAQ' }, u: 12.76, l: 11.99, t: 638 },
   // 1 CJA de 20 PAQ: la CJA no tiene promo (el PAQ sí, 5 %) — UD40 08-0000755
@@ -152,6 +159,6 @@ const CONTROLES = [
     l.motor = cache.get(k);
   }
   s.cerrar();
-  fs.writeFileSync(SALIDA, JSON.stringify({ dias: DIAS, generado: new Date().toISOString(), renglones }));
+  fs.writeFileSync(SALIDA, JSON.stringify({ dias: DIAS, doc: DOC, generado: new Date().toISOString(), renglones }));
   console.error(`${cache.size} cotizaciones distintas en ${((Date.now() - t0) / 1000).toFixed(0)} s → ${SALIDA}`);
 })().catch((e) => { console.error(e); process.exit(1); });
