@@ -1,7 +1,8 @@
 # Dónde vive la ingesta
 
 > **Fuente única de "qué corre dónde".** Si otro documento contradice a éste, gana éste —
-> y corregí el otro. Medido en vivo el **2026-09-11**.
+> y corregí el otro. Medido en vivo el **2026-09-11**; §2 y §4 re-medidos el **2026-11-02**
+> (k3s, despliegue por `prod-release` + `vigia-despliegue`, imágenes de la app desde GHCR).
 >
 > Antes de este día TODA la ingesta corría en una máquina de escritorio Windows (`.249`),
 > con la agenda en el Programador de Windows: fuera del repo, invisible en un diff, y
@@ -27,8 +28,10 @@ Acceso: `ssh superoot@192.168.0.222`.
 
 ## 2. Qué corre en `md`
 
-Todo se define en **[`ops/vl/docker-compose.yml`](vl/docker-compose.yml)** (en el servidor vive
-en `~/ops/vl/`). Los secretos en `~/secrets/{feeds,ingest}.env`, permisos `600`, **fuera del repo**.
+⛔ **Desde el 2026-10-01 todo corre en k3s** (namespaces `prod`, `ingesta`, `obs`), con los
+manifiestos en [`k3s/`](k3s/). El [`ops/vl/docker-compose.yml`](vl/docker-compose.yml) de abajo es
+el **origen** de cada carril, no lo que corre: sus contenedores están `Exited`. Los secretos siguen
+en `~/secrets/{feeds,ingest}.env`, permisos `600`, **fuera del repo**.
 
 ### 2.1 Contenedores
 
@@ -276,8 +279,11 @@ procesos con el mismo `job_key` se pisan el renglón del latido (pasó hoy con e
 
 ## 4. Cómo se despliega un cambio
 
-`md` **no tiene el repo**, y la imagen es **autocontenida** (el código se copia adentro). O sea
-que un cambio de código exige **reconstruir**, no reiniciar:
+⛔ **Lo de este bloque es el carril VIEJO de Compose** (`ops/vl/deploy.sh`). Prod y la ingesta
+se despliegan por §4.1; esto queda para lo que todavía no se movió a k3s.
+
+La imagen es **autocontenida** (el código se copia adentro). O sea que un cambio de código exige
+**reconstruir**, no reiniciar:
 
 ```sh
 ops/vl/deploy.sh                 # reconstruye y recrea los feeds
@@ -288,11 +294,25 @@ ops/vl/deploy.sh --estado        # qué corre allá y con qué imagen
 ⛔ Archiva **`HEAD`**, no la copia de trabajo: el índice de git lo comparten ~10 sesiones y el
 working tree traería WIP ajeno a producción. Te avisa qué archivos no viajan.
 
-### 4.1 `api`/`worker` se despliegan SOLOS desde `origin/main` (`[VL.17]`, 2026-09-24)
+### 4.1 El despliegue lo dispara `prod-release`, no `origin/main`
 
-Ya no hay que correr nada: `ops/prod/auto-deploy.sh` mira `origin/main` cada 5 minutos y, si lo
-que está horneado en la imagen no coincide, construye, recrea y **verifica**. La agenda está
-versionada en [`ops/prod/crontab.auto-deploy`](prod/crontab.auto-deploy).
+> ⛔ **Actualizado 2026-11-02.** El texto de `[VL.17]` (2026-09-24) decía que `auto-deploy.sh`
+> miraba `origin/main` cada 5 minutos: **ya no**. Su renglón del `crontab` está comentado.
+> Hoy:
+>
+> 1. El CI pasa `build` + `secret-scan` → `sellar` mueve la etiqueta `ci-green`.
+> 2. Alguien **suelta** (`soltar.sh`, skill [`entrega`](../.claude/skills/entrega/SKILL.md)):
+>    `prod-release` pasa a ese commit.
+> 3. En `md`, el servicio systemd **`vigia-despliegue`** ve el cambio y corre `auto-deploy.sh`,
+>    que trabaja sobre el checkout `~/auto-deploy/repo` (sí: `md` tiene el repo).
+> 4. Las imágenes de la app (`api`, `worker`, `portal`, `vendor`) **no se construyen en `md`**:
+>    las construye GitHub (`.github/workflows/imagenes.yml`) y `auto-deploy.sh` las baja de
+>    `ghcr.io` y verifica que el sello horneado sea el commit pedido (`AUTO_DEPLOY_IMAGENES=ghcr`
+>    en `~/ops/prod/vigia.env`, `[OPS.CI.1]`). Las imágenes **base** (`pg`, `caddy`, `backup`)
+>    todavía se construyen en `md`, sólo cuando cambia su tag `base-<hash>`.
+> 5. El único testigo de que llegó: `/api/health`.
+>
+> Lo de abajo sigue valiendo para los comandos y las migraciones.
 
 ```sh
 ssh superoot@192.168.0.222 'sh ~/ops/prod/auto-deploy.sh --estado'   # qué sirve vs qué hay en main
@@ -328,9 +348,9 @@ se ve idéntico a uno que corre y no encuentra nada que hacer.
 |---|---|---|
 | Servidor `md` | **1 sola llave SSH**, 1 usuario con shell (`superoot`) | cerrado… **sin atribución** |
 | Llave de despliegue de GitHub | `read_only = true` | ✅ correcto |
-| `main` en GitHub | exige PR + 1 review de CODEOWNERS, sin force-push | ✅ |
+| `main` en GitHub | exige PR + 1 review de CODEOWNERS, sin force-push | ✅ — ⚠️ **re-medido 2026-10-27: ya no exige review**, sólo `build` + `secret-scan` |
 | Colaboradores | 4 con `write` — **no** pueden saltarse esa protección | ✅ sus commits entran por PR |
-| Repositorio | era **PÚBLICO**, con 157 archivos con IPs internas | ⛔ **corregido: privado** |
+| Repositorio | era **PÚBLICO**, con 157 archivos con IPs internas | ⛔ se pasó a privado… y **hoy vuelve a ser PÚBLICO** (`gh repo view`, 2026-11-02). Lo que se escribe en el repo es público |
 
 ⭐ **El hallazgo que dio vuelta la premisa:** de los últimos 25 commits en `main`, **21 entraron
 por push directo del lead** (cuenta admin, y `enforce_admins` está en `false`, que es lo que la
