@@ -282,6 +282,27 @@ export interface PruebaPorProveedor {
 }
 
 /** `[CP.8.88]` Una póliza que el dictamen frena: no sale en el archivo, y se dice por qué. Sin override. */
+/**
+ * Un renglón de `leerEgresos`, con los campos que su `SELECT` trae. Existe para que los lotes
+ * (`basura`, `comisiones`, `porBanco`) no se declaren `any[]` en el borde (ADR-052): el tipo
+ * sale de la consulta, no de lo que parezca. `leerEgresos` sigue devolviendo `any[]` —tiparla
+ * entera es trabajo del carril de ContPAQi—, y `any` entra en este tipo sin queja.
+ */
+interface EgresoFila {
+  id: string;
+  concept: string | null;
+  amount_out: string | number | null;
+  fecha: string;
+  categoria_code: string | null;
+  categoria_nombre: string | null;
+  cuenta_banco: string | null;
+  banco_label: string | null;
+  banco_nombre: string | null;
+  banco_alias: string | null;
+  iva_hermano: string | number | null;
+  fuera_del_estado: boolean | null;
+}
+
 export interface PolizaBloqueada {
   clave: string;
   evento_tipo: EventoArchivo;
@@ -1590,11 +1611,11 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
     // (cuenta de banco × día) — exactamente el grano de la póliza real.
     const grupos = new Map<string, any[]>();
     const sinBanco: any[] = [];
-    const basura = new Map<string, any[]>();
+    const basura = new Map<string, EgresoFila[]>();
     // `[CP.8.91]` Con la categoría firmada, las comisiones van por banco × MES, como ella (D6), no al lote del día.
     const reglaComision = reglas.get(CATEGORIA_COMISION);
     const comisionMensual = reglaComision?.estado === 'aprobada' && !!reglaComision.cuenta_gasto;
-    const comisiones = new Map<string, any[]>();
+    const comisiones = new Map<string, EgresoFila[]>();
     for (const e of egresos) {
       if (!e.cuenta_banco) { sinBanco.push(e); continue; }
       // `[CP.8.93]` Fecha basura: no entra a ningún lote (su día no existe en el mes); se declara abajo.
@@ -1813,7 +1834,7 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
    * con la clave de su póliza; si el armador la rechaza, con su motivo (`comisiones_<motivo>`). Nada a medias.
    */
   private async comisionesDelMes(
-    anioMes: string, porBanco: Map<string, any[]>, cuentaGasto: string, estados?: Map<string, EstadoMovimiento>,
+    anioMes: string, porBanco: Map<string, EgresoFila[]>, cuentaGasto: string, estados?: Map<string, EstadoMovimiento>,
   ): Promise<PolizaArmada[]> {
     const sueltos = await this.ivasSueltosDelMes(anioMes, [...porBanco.keys()]);
     const out: PolizaArmada[] = [];

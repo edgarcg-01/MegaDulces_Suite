@@ -195,7 +195,7 @@ export class PaymentCalendarController {
   @Get('que-pagar')
   @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
   @ApiOperation({ summary: 'Qué hay que pagar: acreedores con ventana de pronto pago abierta, por dinero en riesgo.' })
-  quePagar() {
+  quePagar(): ReturnType<PaymentCalendarService['quePagar']> {
     return this.svc.quePagar();
   }
 
