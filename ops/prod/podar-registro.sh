@@ -93,7 +93,7 @@ if [ -z "$p0" ]; then
 fi
 di "registro ${p0}GB · $(echo "$EN_USO" | wc -l) imágenes en uso por k3s · retener $RETENER por repo · $( [ $APLICAR = 1 ] && echo APLICANDO || echo SIMULACIÓN )"
 
-borrados=0; conservados=0; fallos=0
+borrados=0; conservados=0; fallos=0; huerfanos=0
 for repo in $(en_registro ls "$RAIZ" 2>/dev/null); do
   # Etiquetas de la más nueva a la más vieja (mtime del enlace de la etiqueta = cuándo se subió).
   tags=$(en_registro ls -t "$RAIZ/$repo/_manifests/tags" 2>/dev/null)
@@ -109,6 +109,7 @@ for repo in $(en_registro ls "$RAIZ" 2>/dev/null); do
     fi
   done
   [ "$keep_d" = "ABORTA" ] && { fallos=$((fallos + 1)); continue; }
+  conserv_d="$keep_d"   # sólo lo conservado (keep_d crece abajo con lo que se borra)
   # 2) Lo demás se borra por digest, salvo que el digest sea de algo conservado.
   for t in $tags; do
     d=$(digest_de "$repo" "$t")
@@ -122,15 +123,45 @@ for repo in $(en_registro ls "$RAIZ" 2>/dev/null); do
     fi
     keep_d="$keep_d $d"   # mismo digest bajo otra etiqueta: ya se borró, no se intenta dos veces
   done
-  di "  $repo: $(echo "$tags" | wc -l) etiquetas → $b_repo manifiestos a borrar"
+  # 3) ⛔ `[OPS.DISCO.4c]` LOS HUÉRFANOS (2026-11-02). Docker 29 sube cada imagen como un ÍNDICE OCI
+  #    con dos manifiestos hijos (imagen + atestación). El paso 2 borra el índice y los hijos quedan
+  #    sin etiqueta pero vivos, reteniendo sus capas: medido, `trade-prod-api` tenía 11 etiquetas y
+  #    573 revisiones, y la poda del 1-nov dio «registro 44.6→44.6GB». Acá se borra toda revisión que
+  #    ninguna etiqueta CONSERVADA alcanza.
+  #    ⛔ NO `garbage-collect --delete-untagged`: trata como «sin etiqueta» también a los hijos de un
+  #    índice conservado y los borra — rompe justo las imágenes que se quieren guardar.
+  #    Lo que se protege = cada digest conservado + TODO lo que su manifiesto referencia (hijos del
+  #    índice; capas y config, que no son revisiones, sobran sin daño). Si un manifiesto conservado
+  #    no se puede leer, se salta el repo entero: sin sus hijos no se sabe qué protege.
+  vivos="$conserv_d"; h_repo=0; aborta_h=no
+  for d in $conserv_d; do
+    if ! m=$(curl -fsS -H "$ACEPTA" "$REG/v2/$repo/manifests/$d" 2>/dev/null); then
+      di "⛔ no se pudo leer el manifiesto CONSERVADO $repo@$d — no se buscan huérfanos en este repo"; aborta_h=si; break
+    fi
+    vivos="$vivos $(printf '%s' "$m" | grep -oE 'sha256:[0-9a-f]{64}' | tr '\n' ' ')"
+  done
+  if [ "$aborta_h" = si ]; then fallos=$((fallos + 1)); else
+    for h in $(en_registro ls "$RAIZ/$repo/_manifests/revisions/sha256" 2>/dev/null); do
+      d="sha256:$h"
+      case " $vivos $keep_d " in *" $d "*) continue ;; esac   # conservado, hijo de conservado, o ya tratado en 2)
+      [ -n "${PODAR_LISTAR:-}" ] && echo "    huérfano $repo@$d"
+      if [ "$APLICAR" = 1 ]; then
+        if curl -fsS -o /dev/null -X DELETE "$REG/v2/$repo/manifests/$d"; then huerfanos=$((huerfanos + 1)); h_repo=$((h_repo + 1))
+        else fallos=$((fallos + 1)); di "aviso: no se pudo borrar el huérfano $repo@$d"; fi
+      else
+        huerfanos=$((huerfanos + 1)); h_repo=$((h_repo + 1))
+      fi
+    done
+  fi
+  di "  $repo: $(echo "$tags" | wc -l) etiquetas → $b_repo manifiestos a borrar · $h_repo huérfanos"
 done
 
 if [ "$APLICAR" != 1 ]; then
-  di "SIMULACIÓN: se borrarían $borrados manifiestos y se conservarían $conservados. Nada se tocó."
+  di "SIMULACIÓN: se borrarían $borrados manifiestos etiquetados y $huerfanos huérfanos; se conservarían $conservados. Nada se tocó."
   exit 0
 fi
 
-di "manifiestos borrados: $borrados · conservados: $conservados · fallos: $fallos — recolectando blobs…"
+di "manifiestos borrados: $borrados · huérfanos: $huerfanos · conservados: $conservados · fallos: $fallos — recolectando blobs…"
 en_registro registry garbage-collect /etc/docker/registry/config.yml >/dev/null 2>&1 \
   || { di "⛔ garbage-collect falló"; latir error "borrados $borrados manifiestos pero garbage-collect FALLÓ: no se liberó espacio"; exit 1; }
 # ⛔ El registro trae `cache: blobdescriptor: inmemory`: después del GC sigue «recordando» blobs que
@@ -141,7 +172,7 @@ k3s kubectl rollout restart -n "$REG_NS" "deploy/$REG_DEPLOY" >/dev/null 2>&1 \
   && k3s kubectl rollout status -n "$REG_NS" "deploy/$REG_DEPLOY" --timeout=180s >/dev/null 2>&1 \
   || { di "⛔ el registro no volvió tras el reinicio"; latir error "GC hecho pero el registro NO volvió del reinicio — revisar deploy/$REG_DEPLOY"; exit 1; }
 p1=$(peso_gb)
-nota="registro ${p0}→${p1}GB · $borrados manifiestos borrados · $conservados conservados · $fallos fallos (retener $RETENER + lo que usa k3s)"
+nota="registro ${p0}→${p1}GB · $borrados manifiestos borrados · $huerfanos huérfanos · $conservados conservados · $fallos fallos (retener $RETENER + lo que usa k3s)"
 di "$nota"
 if [ "$fallos" -gt 0 ]; then latir error "$nota"; exit 1; fi
 latir ok "$nota"
