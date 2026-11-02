@@ -1,13 +1,12 @@
 import { ChangeDetectionStrategy, Component, ElementRef, HostListener, OnDestroy, ViewChild, computed, effect, inject, signal } from '@angular/core';
-import type { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
 import { TableModule } from 'primeng/table';
 import { firstValueFrom } from 'rxjs';
-import { warehouseName } from '@megadulces/contracts';
+import { DENOMINACIONES_MXN, warehouseName } from '@megadulces/contracts';
 import { AuthService } from '../../../core/services/auth.service';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { SucursalPickerComponent } from '../../../shared/components/sucursal-picker/sucursal-picker.component';
-import { TiendaArqueoComponent } from './tienda-arqueo.component';
+import { ArqueoResult, ArqueoService, ArqueoTipo, Turno } from '../arqueo.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { HalladoCatalogo, ProductoPrecio, SucursalVerificador, VerificadorService } from '../verificador.service';
@@ -41,7 +40,7 @@ const CANAL_CLIENTE = 'md-caja-cliente';
 @Component({
   selector: 'app-tienda-caja',
   standalone: true,
-  imports: [TableModule, FreshnessPillComponent, LoadStateComponent, SucursalPickerComponent, TiendaArqueoComponent],
+  imports: [TableModule, FreshnessPillComponent, LoadStateComponent, SucursalPickerComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
   <div class="cj">
@@ -51,14 +50,20 @@ const CANAL_CLIENTE = 'md-caja-cliente';
       @if (datosAl(); as d) { <app-freshness-pill measures="data" [since]="d" label="Precios de Kepler" [staleAfterSec]="900" /> }
       @if (turno(); as t) {
         <span class="cj-sub">Turno desde {{ t.desde }} · fondo {{ dinero(t.fondo) }} · {{ t.retiros.length }} retiro(s)</span>
-        @if (nivelGaveta() === 'maximo') { <span class="cj-chip cj-chip-bad" role="status">La gaveta pasó el máximo: haz un retiro (F8) para seguir vendiendo</span> }
+        @if (turnoK()) {} @else if (nivelGaveta() === 'maximo') { <span class="cj-chip cj-chip-bad" role="status">La gaveta pasó el máximo: haz un retiro (F8) para seguir vendiendo</span> }
         @else if (nivelGaveta() === 'aviso') { <span class="cj-chip cj-chip-warn" role="status">Gaveta cerca del máximo: conviene un retiro (F8)</span> }
+      }
+      @if (turnoK(); as tk) {
+        <span class="cj-sub">Kepler: caja {{ tk.caja }} · folio {{ tk.folio }}</span>
+        @if (tk.pide_retiro) { <span class="cj-chip cj-chip-bad" role="status">Kepler pide retiro: la caja pasó su límite (F8)</span> }
+        @if (tk.retiro_sin_contar) { <span class="cj-chip cj-chip-warn" role="status">Hay retiros en Kepler sin contar (F8)</span> }
+        @if (tk.pide_cierre) { <span class="cj-chip cj-chip-warn" role="status">Toca el corte del turno (F7)</span> }
       }
       <span class="cj-practica" role="note"><i class="pi pi-info-circle" aria-hidden="true"></i>
         Práctica: no guarda ni manda a Kepler</span>
       <span class="cj-acciones">
         <button type="button" class="cj-hb" tabindex="-1" (click)="abrirVerificador()">Verificar precio <kbd>F6</kbd></button>
-        @if (puedeArqueo) { <button type="button" class="cj-hb" tabindex="-1" [class.cj-hb-on]="arqueo()" (click)="irArqueo()">Mi arqueo <kbd>F7</kbd></button> }
+        @if (puedeArqueo) { <button type="button" class="cj-hb" tabindex="-1" [class.cj-hb-on]="!!arq()" (click)="irArqueo()">Mi arqueo <kbd>F7</kbd></button> }
         <button type="button" class="cj-hb" tabindex="-1" (click)="abrirCliente()">Pantalla del cliente</button>
         @if (turno(); as t) {
           <button type="button" class="cj-hb" tabindex="-1" (click)="abrirRetiro()">Retiro <kbd>F8</kbd></button>
@@ -70,16 +75,6 @@ const CANAL_CLIENTE = 'md-caja-cliente';
     <app-load-state [loading]="cargando()" [error]="errorCarga()" [isEmpty]="!sucursal()" emptyIcon="pi-building"
                     emptyTitle="Elige la sucursal de esta caja" emptyHint="Los precios y la búsqueda salen del catálogo de esa sucursal."
                     (retry)="prepararSucursal()">
-    @if (arqueo()) {
-    <section class="cj-arq" aria-label="Mi arqueo">
-      <div class="cj-arq-barra">
-        <span class="cj-sub">Arqueo ciego de tu caja, el mismo de Arqueo de Tienda: lo que entregues aquí queda guardado.</span>
-        <button type="button" class="cj-hb" (click)="cerrarArqueo()">{{ confirmarSalida() ? 'Salir sin entregar el conteo' : 'Volver a la caja' }}</button>
-      </div>
-      @if (confirmarSalida()) { <div class="cj-aviso cj-warn" role="status">Tu conteo no está entregado. Entrégalo, o presiona otra vez para salir y perderlo.</div> }
-      @defer (on immediate) { <app-tienda-arqueo #arq /> } @loading (minimum 200ms) { <div class="cj-sub">Cargando el arqueo…</div> }
-    </section>
-    } @else {
     <main class="cj-main">
       <section class="cj-trabajo" aria-label="Ticket en curso">
         <div class="cj-cmd">
@@ -132,7 +127,36 @@ const CANAL_CLIENTE = 'md-caja-cliente';
       </section>
 
       <aside class="cj-panel" aria-live="polite">
-        @if (conteo(); as c) {
+        @if (arq(); as q) {
+          <div class="cj-box cj-box-act">
+            <span class="cj-lbl">Mi arqueo · se guarda en Arqueo de Tienda</span>
+            @if (turnoK(); as t) { <div class="cj-sub">Caja {{ t.caja }} · folio {{ t.folio }} · {{ t.business_date }}</div> }
+            @if (q.paso === 'tipo') {
+              <div class="cj-h3">¿Qué vas a contar?</div>
+              <div class="cj-opt"><kbd>1</kbd>Retiro de caja (sangría)</div>
+              <div class="cj-opt"><kbd>2</kbd>Corte del turno</div>
+              <div class="cj-opt"><kbd>3</kbd>Relevo de cajera</div>
+            } @else if (q.paso === 'listo' && q.resultado) {
+              <div class="cj-h2">{{ tipoTexto(q.tipo) }} guardado{{ q.tipo === 'retiro' && q.resultado.secuencia ? ' · sangría ' + q.resultado.secuencia : '' }}</div>
+              <div class="cj-fila"><b>Contaste</b><span class="cj-grande">{{ dinero(q.resultado.total_contado) }}</span></div>
+              @if (q.resultado.reveal && q.resultado.diff_real !== null && q.resultado.diff_real !== undefined) {
+                <div class="cj-fila"><span>{{ q.resultado.diff_real > 0 ? 'Faltante' : q.resultado.diff_real < 0 ? 'Sobrante' : 'Cuadra' }} contra Kepler</span><span class="num">{{ dinero(q.resultado.diff_real < 0 ? -q.resultado.diff_real : q.resultado.diff_real) }}</span></div>
+              } @else { <div class="cj-sub">Conteo ciego: la diferencia la ve tu encargada al validarlo.</div> }
+              <div class="cj-h3">Enter para volver a vender.</div>
+            } @else {
+              <div class="cj-h3">{{ tipoTexto(q.tipo) }}: cuenta por pieza</div>
+              @for (d of denomsMx; track d.key; let i = $index) {
+                <div class="cj-fila cj-den" [class.cj-den-on]="i === q.i && q.paso === 'conteo'">
+                  <span>{{ d.familia === 'moneda' ? 'Monedas de ' : 'Billetes de ' }}{{ d.label }}</span>
+                  <span class="num">{{ q.vals[i] === undefined ? '—' : q.vals[i] + ' = ' + dinero(q.vals[i] * d.valor) }}</span>
+                </div>
+              }
+              <div class="cj-fila"><b>Contado</b><span class="cj-grande">{{ dinero(sumaArq()) }}</span></div>
+              @if (q.paso === 'guardando') { <div class="cj-sub">Guardando…</div> }
+              @else if (q.i >= denomsMx.length) { <div class="cj-h3">Enter entrega tu conteo. Después ya no se puede cambiar.</div> }
+            }
+          </div>
+        } @else if (conteo(); as c) {
           <div class="cj-box cj-box-act">
             <span class="cj-lbl">{{ c.tipo === 'apertura' ? 'Abrir turno · cuenta el fondo que recibes' : 'Retiro de efectivo · conteo ciego' }}</span>
             <div class="cj-sub">{{ c.tipo === 'apertura' ? 'Cuenta por pieza; la caja suma. Sin turno abierto no se vende.' : 'La caja no dice cuánto hay en la gaveta: lo cuentas tú y lo cuenta quien lo recibe.' }}</div>
@@ -212,12 +236,11 @@ const CANAL_CLIENTE = 'md-caja-cliente';
         }
       </aside>
     </main>
-    }
     </app-load-state>
 
     <footer class="cj-pie" aria-label="Teclas de este momento">
-      @if (conteo(); as c) { <span>Teclea cuántas piezas y <kbd>Enter</kbd> (vacío = 0)</span><span><kbd>Esc</kbd> {{ c.tipo === 'apertura' ? 'empezar de nuevo' : 'no retirar' }}</span> }
-      @else if (arqueo()) { <span>Captura tu conteo con el teclado y el ratón; la caja no toma teclas mientras tanto</span> }
+      @if (arq(); as q) { <span>{{ q.paso === 'tipo' ? '1 retiro · 2 corte · 3 relevo' : q.paso === 'listo' ? 'Enter: volver a vender' : 'Teclea cuántas piezas y Enter (vacío = 0)' }}</span><span><kbd>Esc</kbd> {{ q.paso === 'listo' ? 'volver' : 'no guardar' }}</span> }
+      @else if (conteo(); as c) { <span>Teclea cuántas piezas y <kbd>Enter</kbd> (vacío = 0)</span><span><kbd>Esc</kbd> {{ c.tipo === 'apertura' ? 'empezar de nuevo' : 'no retirar' }}</span> }
       @else if (auth()) { <span><kbd>1</kbd>–<kbd>4</kbd> motivo</span><span>PIN y <kbd>Enter</kbd></span><span><kbd>Esc</kbd> no hacerlo</span> }
       @else if (verificando()) { <span>Escanea o escribe y <kbd>Enter</kbd></span><span><kbd>Esc</kbd> volver a vender</span> }
       @else if (estado() === 'venta') { <span><kbd>Enter</kbd> agregar</span><span><kbd>5*</kbd>código cantidad</span><span>letras o <kbd>F9</kbd> buscar</span><span><kbd>Ctrl</kbd>+<kbd>Supr</kbd> cancelar ticket</span><span><b>250 <kbd>F12</kbd></b> cobra $250 en efectivo</span> }
@@ -243,8 +266,6 @@ const CANAL_CLIENTE = 'md-caja-cliente';
     .cj-den { padding: var(--sp-1) var(--sp-2); border-radius: var(--r-sm); }
     .cj-den-on { background: var(--surface-selected-bg); box-shadow: inset 3px 0 0 var(--action); }
     .cj-hb-on { border-color: var(--action); color: var(--action); }
-    .cj-arq { flex: 1; min-height: 0; overflow: auto; padding: var(--sp-3) var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-3); }
-    .cj-arq-barra { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-2); }
     .cj-main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(20rem, 27rem); gap: var(--sp-4); padding: var(--sp-4); }
     @media (max-width: 60rem) { .cj-main { grid-template-columns: 1fr; } }
     .cj-trabajo { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: var(--sp-3); }
@@ -313,7 +334,16 @@ export class TiendaCajaComponent implements OnDestroy {
   readonly motivos = MOTIVOS_QUITAR;
   /** El arqueo vive DENTRO de la caja (una sola interfaz): el mismo componente real de /tienda/arqueo. */
   readonly puedeArqueo = [Permission.STORE_ARQUEO_VER, Permission.STORE_ARQUEO_CAPTURAR, Permission.STORE_ARQUEO_SIN_CAJA_CAPTURAR].some((p) => inject(PermissionsService).has(p));
-  readonly arqueo = signal(false);
+  private readonly arqSvc = inject(ArqueoService);
+  readonly denomsMx = DENOMINACIONES_MXN;
+  /** Los turnos de Kepler que el servidor le deja ver a esta persona; la caja usa el de su sucursal. */
+  private readonly turnosKepler = signal<Turno[]>([]);
+  readonly turnoK = computed(() => {
+    const ts = this.turnosKepler().filter((t) => t.warehouse_code === this.suc());
+    return ts.find((t) => t.abierto) ?? ts[0] ?? null;
+  });
+  readonly arq = signal<{ paso: 'tipo' | 'conteo' | 'guardando' | 'listo'; tipo: ArqueoTipo; i: number; vals: number[]; resultado: ArqueoResult | null } | null>(null);
+  readonly sumaArq = computed(() => r2((this.arq()?.vals ?? []).reduce((a, n, i) => a + n * this.denomsMx[i].valor, 0)));
   /** Cerrar turno = el arqueo real (el conteo ciego del cierre); al volver, el turno de práctica se cierra. */
   private cerrandoTurno = false;
 
@@ -337,8 +367,6 @@ export class TiendaCajaComponent implements OnDestroy {
     const den = this.denominaciones(c.tipo);
     return r2(c.vals.reduce((a, n, i) => a + (den[i][0] ? n * den[i][0] : n), 0));
   });
-  readonly confirmarSalida = signal(false);
-  @ViewChild('arq') private arqueoCmp?: HasUnsavedChanges;
   readonly dinero = pesos;
 
   // ── Sucursal y catálogo ──
@@ -388,6 +416,8 @@ export class TiendaCajaComponent implements OnDestroy {
   readonly formasTexto = computed(() => [...new Set(this.pagos().map((p) => p.forma.toLowerCase()))].join(' + '));
 
   readonly modo = computed(() => {
+    const q = this.arq();
+    if (q) return q.paso === 'tipo' ? 'Elegir' : q.paso === 'listo' ? 'Listo' : 'Piezas';
     const c = this.conteo();
     if (c) return c.i >= this.denominaciones(c.tipo).length ? (c.tipo === 'retiro' ? 'PIN' : 'Confirmar') : 'Piezas';
     const a = this.auth();
@@ -398,6 +428,8 @@ export class TiendaCajaComponent implements OnDestroy {
     return /[a-zñ]/i.test(this.texto()) ? 'Buscar' : 'Escanear';
   });
   readonly placeholder = computed(() => {
+    const q = this.arq();
+    if (q) return q.paso === 'tipo' ? '1 retiro · 2 corte · 3 relevo' : q.paso === 'conteo' && q.i < this.denomsMx.length ? (this.denomsMx[q.i].familia === 'moneda' ? 'Monedas de ' : 'Billetes de ') + this.denomsMx[q.i].label + ': cuántas, y Enter' : q.paso === 'listo' ? 'Enter para volver a vender' : 'Enter entrega el conteo';
     const c = this.conteo();
     if (c) return c.i < this.denominaciones(c.tipo).length ? this.denominaciones(c.tipo)[c.i][1] + ': cuántas, y Enter' : c.tipo === 'retiro' ? 'PIN de quien recibe' : 'Enter abre el turno';
     const a = this.auth();
@@ -441,7 +473,7 @@ export class TiendaCajaComponent implements OnDestroy {
     this.cargando.set(true);
     this.errorCarga.set(null);
     this.svc.asegurarSnapshot(s).subscribe({
-      next: () => { this.cargando.set(false); if (!this.turno()) this.abrirApertura(); this.enfocar(); },
+      next: () => { this.cargando.set(false); this.cargarTurnos(); if (!this.turno()) this.abrirApertura(); this.enfocar(); },
       error: () => { this.cargando.set(false); this.errorCarga.set('No se pudo descargar el catálogo de precios de ' + warehouseName(s) + '. La búsqueda por código sigue funcionando.'); },
     });
   }
@@ -456,7 +488,7 @@ export class TiendaCajaComponent implements OnDestroy {
     if (a && a.tipo !== 'error' && k !== 'Shift') this.aviso.set(null);
     const v = this.texto().trim();
 
-    if (this.arqueo()) return; // el arqueo captura con su propio teclado
+    if (this.arq()) return this.teclaArqueo(e, k, v);
     if (this.conteo()) return this.teclaConteo(e, k, v);
     if (!this.auth() && (k === 'F6' || k === 'F7')) { k === 'F6' ? this.abrirVerificador() : this.irArqueo(); return; }
     if (this.auth()) return this.teclaAutorizacion(e, k);
@@ -467,7 +499,7 @@ export class TiendaCajaComponent implements OnDestroy {
     }
     if (this.estado() === 'cobro') return this.teclaCobro(e, k, v);
     // F8 (retiro) también justo después de cobrar: es el momento natural de vaciar la gaveta.
-    if (k === 'F8' && this.estado() !== 'cobro') { this.abrirRetiro(); return; }
+    if (k === 'F8' && this.estado() !== 'cobro') { this.turnoK() ? this.irArqueo('retiro') : this.abrirRetiro(); return; }
     if (this.estado() === 'cobrado') { if (k === 'Enter' || /^F\d+$/.test(k)) e.preventDefault(); return; }
 
     switch (k) {
@@ -488,7 +520,7 @@ export class TiendaCajaComponent implements OnDestroy {
       case '+': if (v) return; e.preventDefault(); this.sumar(); return;
       case '-': if (v) return; e.preventDefault(); this.restar(); return;
       case 'F4': this.cambiarPresentacion(); return;
-      case 'F8': this.abrirRetiro(); return;
+      case 'F8': this.turnoK() ? this.irArqueo('retiro') : this.abrirRetiro(); return;
       case 'F9': void this.buscarTexto(v || ' ', true); return;
       case 'F10': this.pedir('quitar', this.sel()); return;
       case 'Delete':
@@ -714,27 +746,79 @@ export class TiendaCajaComponent implements OnDestroy {
 
   // ── Verificador (F6) y arqueo (F7) ──
   abrirVerificador(): void { this.cerrarResultados(); this.limpiar(); this.verificado.set(null); this.verificando.set(true); this.enfocar(); }
-  irArqueo(): void {
+  irArqueo(tipo?: ArqueoTipo): void {
     if (this.tot().renglones && this.estado() !== 'cobrado') return this.avisar('aviso', 'Para hacer tu arqueo, termina o cancela el ticket en curso.');
     if (!this.puedeArqueo) return this.avisar('aviso', 'Tu puesto no tiene el arqueo de caja.');
+    if (!this.turnoK()) return this.avisar('error', 'No hay un turno de Kepler en ' + warehouseName(this.suc()) + ' que puedas arquear. Sin turno se captura en Arqueo de Tienda.');
+    if (this.estado() === 'cobrado') this.siguienteCliente();
     this.cerrarResultados();
     this.verificando.set(false);
-    this.confirmarSalida.set(false);
-    this.arqueo.set(true);
+    this.conteo.set(null);
+    this.arq.set({ paso: tipo ? 'conteo' : 'tipo', tipo: tipo ?? 'cierre', i: 0, vals: [], resultado: null });
+    this.limpiar();
+    this.enfocar();
   }
 
-  cerrarArqueo(): void {
-    if (this.arqueoCmp?.hasUnsavedChanges() && !this.confirmarSalida()) { this.confirmarSalida.set(true); return; }
-    this.confirmarSalida.set(false);
-    this.arqueo.set(false);
-    if (this.cerrandoTurno) {
+  private cargarTurnos(): void {
+    this.arqSvc.turnos().subscribe({ next: (r) => this.turnosKepler.set(r.turnos ?? []), error: () => this.turnosKepler.set([]) });
+  }
+
+  tipoTexto(t: ArqueoTipo): string { return t === 'retiro' ? 'Retiro de caja' : t === 'relevo' ? 'Relevo de cajera' : 'Corte del turno'; }
+
+  private teclaArqueo(e: KeyboardEvent, k: string, v: string): void {
+    const q = this.arq()!;
+    if (q.paso === 'guardando') { e.preventDefault(); return; }
+    if (k === 'Escape' || (q.paso === 'listo' && k === 'Enter')) {
+      e.preventDefault();
+      const cerro = q.paso === 'listo' && q.tipo === 'cierre';
+      this.arq.set(null);
+      this.limpiar();
+      if (this.cerrandoTurno && cerro) {
+        this.turno.set(null);
+        this.efectivoVendido.set(0);
+        this.avisar('ok', 'Corte entregado: el turno de práctica se cerró. Para vender otra vez, abre turno.');
+        this.abrirApertura();
+      }
       this.cerrandoTurno = false;
-      this.turno.set(null);
-      this.efectivoVendido.set(0);
-      this.avisar('ok', 'Turno de práctica cerrado. Tu arqueo es el conteo del cierre; para vender otra vez, abre turno.');
-      this.abrirApertura();
+      this.enfocar();
+      return;
     }
-    this.enfocar();
+    if (q.paso === 'tipo') {
+      if (k.length === 1) e.preventDefault();
+      const tipo = ({ '1': 'retiro', '2': 'cierre', '3': 'relevo' } as Record<string, ArqueoTipo>)[k];
+      if (tipo) this.arq.set({ ...q, paso: 'conteo', tipo });
+      return;
+    }
+    if (q.paso === 'listo') return;
+    if (k !== 'Enter') { if (k.length === 1 && !/[\d]/.test(k) && !e.ctrlKey) e.preventDefault(); return; }
+    e.preventDefault();
+    if (q.i < this.denomsMx.length) {
+      const n = v === '' ? 0 : Number(v);
+      if (!Number.isInteger(n) || n < 0) return this.avisar('error', 'Teclea cuántas piezas (número entero).');
+      this.arq.set({ ...q, i: q.i + 1, vals: [...q.vals, n] });
+      this.limpiar();
+      return;
+    }
+    this.guardarArqueo(q);
+  }
+
+  /** El MISMO payload que arma Arqueo de Tienda (tienda-arqueo.component submit): cabecera del turno de Kepler. */
+  private guardarArqueo(q: NonNullable<ReturnType<typeof this.arq>>): void {
+    const t = this.turnoK();
+    if (!t) return this.avisar('error', 'Ya no hay turno de Kepler para guardar el arqueo.');
+    const denominations: Record<string, number> = {};
+    q.vals.forEach((n, i) => { if (n > 0) denominations[this.denomsMx[i].key] = n; });
+    if (!Object.keys(denominations).length) return this.avisar('error', 'El conteo está en cero: cuenta otra vez (Esc para no guardar).');
+    this.arq.set({ ...q, paso: 'guardando' });
+    this.arqSvc.submit({
+      cash_cut_folio: t.folio, warehouse_code: t.warehouse_code, caja: t.caja, business_date: t.business_date,
+      cajero_code: t.cajero_code || undefined, tipo: q.tipo, denominations,
+      // [SM.49] La sangría normal que pide Kepler por el límite.
+      concepto: q.tipo === 'retiro' ? 'retiro_caja' : undefined,
+    }).subscribe({
+      next: (r) => { this.arq.set({ ...q, paso: 'listo', resultado: r }); this.cargarTurnos(); this.tono(1320, 60); },
+      error: (err) => { this.arq.set({ ...q, paso: 'conteo' }); this.avisar('error', 'No se guardó el arqueo: ' + (err?.error?.message || 'intenta de nuevo.')); },
+    });
   }
 
   private async verificar(v: string): Promise<void> {
@@ -796,7 +880,7 @@ export class TiendaCajaComponent implements OnDestroy {
     if (!this.puedeArqueo) return this.avisar('aviso', 'Tu puesto no tiene el arqueo de caja: el cierre lo hace quien sí lo tiene.');
     if (this.estado() === 'cobrado') this.siguienteCliente();
     this.cerrandoTurno = true;
-    this.irArqueo();
+    this.irArqueo('cierre');
   }
 
   private teclaConteo(e: KeyboardEvent, k: string, v: string): void {
@@ -850,7 +934,7 @@ export class TiendaCajaComponent implements OnDestroy {
   private folioDe(n: number): string { return 'P-' + String(n).padStart(6, '0'); }
   private avisar(tipo: Aviso['tipo'], texto: string): void { this.aviso.set({ tipo, texto }); if (tipo === 'error') this.tono(180, 260, 'square'); }
   private limpiar(): void { this.texto.set(''); this.teclas = []; if (this.cmd) this.cmd.nativeElement.value = ''; }
-  private enfocar(): void { if (!this.arqueo()) setTimeout(() => this.cmd?.nativeElement.focus(), 0); }
+  private enfocar(): void { setTimeout(() => this.cmd?.nativeElement.focus(), 0); }
   reenfocar(): void { this.enfocar(); }
 
   private audio?: AudioContext;
