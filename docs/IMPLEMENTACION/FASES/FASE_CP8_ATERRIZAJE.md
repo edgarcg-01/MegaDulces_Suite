@@ -1154,6 +1154,8 @@ falta uno nuevo.
 - **2026-10-31** — `[CP.8.96]` bloqueos investigados (§11.14): el depósito → sucursal sale de Kepler para la tienda; los
   huecos del ODS son fechas de arranque; faltan el reparto de TLMKT por equipo y la fuente exacta de la cifra diaria.
 - **2026-11-02** — `[CP.8.96]` punto 5 (§11.14): su cifra diaria son los tickets del día; por mes y tasa quedan a 0.99–1.05.
+- **2026-11-02** — `[CP.8.96]` TLMKT (§11.14): el equipo sale del concepto del banco y de Kepler; su reparto se
+  desvía en 25–54 % sin regla, y la venta TLMKT de Kepler no cubre su abono todavía.
 
 ---
 
@@ -1843,3 +1845,35 @@ correcta —la de Kepler o la suya— es **criterio de contabilidad**, y su pól
 otros ingresos que no se midieron. Recomendación: que contabilidad acepte la venta del día de Kepler (tickets menos
 devoluciones del día) como el abono, con la diferencia contra los depósitos a la cuenta puente que ella ya usa; si no,
 F-E se queda en sugerir, no en armar.
+
+#### TLMKT por equipo (2026-11-02)
+
+Medido en prod, sólo lectura, julio a septiembre. Las tres pólizas son «VENTAS TLMKT CANINDO» (clientes 12), «… MORELIA»
+(13) y «… PADRE HIDALGO» (14).
+
+- **El equipo de un depósito se deriva, de dos fuentes que coinciden.** El concepto del banco lo dice: «VENTA TLMK
+  CANINDO / MORELIA / PH <cliente>» (el nombre es del **cliente**, no del telemarketista). Lo nombra en el **79–86 %** de
+  sus renglones TLMKT con depósito. Cuando el cobro tiene entrada en Kepler, el vendedor del cliente (`kdud.c12`, primer
+  dígito 1 = Padre Hidalgo, 2 = Morelia, 3 = Canindo) dice el mismo equipo que el concepto casi siempre. Morelia casi
+  no tiene entrada en Kepler; Canindo y Padre Hidalgo sí.
+- **Ella se desvía y ninguna fuente lo explica.** De los renglones donde el concepto nombra equipo, cae en la póliza de
+  ese equipo el 88 % (julio), 91 % (agosto) y 79 % (septiembre). Visto desde el depósito, de los que nombran equipo y
+  ella usó en alguna póliza de ventas, sólo el 46 % (julio), 75 % (agosto) y 65 % (septiembre) caen en la de su equipo:
+  el resto va a otro equipo o a una **póliza de tienda** (en julio, la mayoría a Padre Hidalgo y Zamora). En las filas
+  desviadas el concepto y el vendedor de Kepler siguen coincidiendo entre sí: el desvío es de ella. Aprender el mapa
+  (vendedor, grupo, zona, cliente o palabras del concepto) en un mes y probarlo en el siguiente acierta 48–70 %.
+  Restringido a importes únicos en su cuenta y mes (para descartar emparejamientos falsos) da lo mismo.
+- **Hipótesis, NO MEDIDA:** su póliza TLMKT no tiene renglón de cuadre. El cargo son sólo depósitos y el abono sólo
+  los tríos de venta (0 %, con IVA, IEPS), así que los depósitos tienen que sumar la venta. Mover depósitos entre
+  pólizas sería la forma de cuadrarla. En octubre las tres pólizas tienen un solo renglón de abono de cuadre: todavía no
+  las termina.
+- **El abono TLMKT no se deriva todavía.** `analytics.erp_sale_tickets` sólo trae mostrador. La venta `canal =
+  'mayoreo'` de `analytics.v_kepler_seller_lines` suma **0.34, 0.58 y 0.79** de sus tres pólizas en julio, agosto y
+  septiembre (crece como la cobertura del ODS). Por equipo, según el primer dígito del vendedor, no reproduce su reparto:
+  en agosto no hay venta con prefijo de Morelia. NO MEDIDO de qué tabla sale la cifra que ella asienta.
+
+**Qué decide esto:** un armador TLMKT puede repartir los depósitos por el concepto del banco (con Kepler de respaldo),
+pero no puede reproducir su póliza mientras (a) la venta del equipo no tenga fuente y (b) el cuadre lo haga ella
+moviendo depósitos. ⭐ Alternativa de proceso, igual que en tienda: que la póliza TLMKT lleve una cuenta puente para la
+diferencia entre depósitos del equipo y venta del equipo, en vez de mover depósitos. Eso lo decide contabilidad, junto
+con el abono de tienda.
