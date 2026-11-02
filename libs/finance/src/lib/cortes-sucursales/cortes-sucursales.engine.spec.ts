@@ -470,6 +470,20 @@ describe('[CSU.16] la declaración del cajero, que no es la del sistema', () => 
     expect(d.creditos_fuera_del_desglose).toBe(false);
   });
 
+  it('[CSU.20] los conteos fuera de corte salen con el nombre de la sucursal, sólo los del periodo y el más reciente primero', () => {
+    const f = (fecha: string, hora: string, total: string) => ({
+      sucursal: '02', fecha, hora, tipo: 'sin_caja' as const, caja: null, total, por_que: 'sin_caja' as const,
+      motivo: 'DEPOSITO DOMINGO 1-11-2026', folio: null, usuario: 'Claudia Pimentel',
+    });
+    const r = armarRespuesta([], { '02': 'La Piedad Abastos' }, { from: '2026-11-01', to: '2026-11-02' }, undefined,
+      [f('2026-11-02', '09:00:00', '128596'), f('2026-11-02', '12:00:00', '122047.5'), f('2026-10-31', '10:00:00', '1')]);
+    expect(r.conteos_fuera_de_corte.map((x) => x.total)).toEqual([122047.5, 128596]);
+    expect(r.conteos_fuera_de_corte[0].sucursal_nombre).toBe('La Piedad Abastos');
+    // NEGATIVA: no tocan los totales de los cortes.
+    expect(r.totales.vendido).toBe(0);
+    expect(armarRespuesta([], {}, { from: '2026-11-01', to: '2026-11-02' }).conteos_fuera_de_corte).toEqual([]);
+  });
+
   it('si el sistema esperaba tarjeta y el cajero no la declaró, el total queda sin medir', () => {
     const sinTarjeta = { ...conteos[4], medios: { retiros: 31440 } };
     const d = construirCorte({ ...piedad, conteos_cajero: [...conteos.slice(0, 4), sinTarjeta] }, NOMBRES).arqueo!.declaracion_cajero!;

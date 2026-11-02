@@ -269,6 +269,33 @@ export interface CorteRow {
   diferencia: number | null;
 }
 
+/**
+ * `[CSU.20]` Por qué un conteo del cajero no está en ningún corte.
+ *  · `sin_caja`            — se capturó como «Conteo de efectivo» sin caja: constancia, sin monto esperado.
+ *  · `folio_de_otro_turno` — su folio apunta a un turno en el que no se capturó (ver `ligarPorCaptura`).
+ *  · `sin_turno`           — sin folio, y a esa hora no había turno en esa caja.
+ */
+export type CorteConteoFueraMotivo = 'sin_caja' | 'folio_de_otro_turno' | 'sin_turno';
+
+export interface CorteConteoFuera {
+  sucursal: string;
+  sucursal_nombre: string;
+  /** Día y hora de la tienda en que se capturó. */
+  fecha: string;
+  hora: string;
+  tipo: 'sin_caja' | 'retiro' | 'cierre';
+  /** La caja que se capturó; `null` en «sin caja». */
+  caja: string | null;
+  total: number;
+  por_que: CorteConteoFueraMotivo;
+  /** Lo que escribió quien contó (el motivo de «sin caja»); `null` si no escribió nada. */
+  motivo: string | null;
+  /** El folio de turno que trae la captura, si trae. */
+  folio: string | null;
+  /** Quién contó: nombre del usuario de la Suite, o su usuario si no tiene nombre. */
+  usuario: string | null;
+}
+
 export interface CorteSucursalResumen {
   sucursal: string;
   sucursal_nombre: string;
@@ -315,6 +342,13 @@ export interface CortesSucursalesResponse {
   };
   sucursales: CorteSucursalResumen[];
   cortes: CorteRow[];
+  /**
+   * `[CSU.20]` Efectivo que el cajero contó en el periodo y NO quedó en ningún corte: conteos «sin
+   * caja» (constancias sin esperado: fondo, depósito al banco, la venta del día anterior…) y retiros o
+   * cierres que no se pudieron ligar a un turno. No suman ni restan a ningún corte: se ven para que no
+   * se pierdan. Fuera, a propósito: rutas RD/RV (son la liquidación de la ruta) y relevos (van en su turno).
+   */
+  conteos_fuera_de_corte: CorteConteoFuera[];
   /** Cortes en blanco (monto < $1) que se dejaron fuera de la lista. Se declaran, no se esconden. */
   cortes_en_blanco: number;
   /** Fecha del corte más reciente del periodo; `null` si no hubo cortes. */

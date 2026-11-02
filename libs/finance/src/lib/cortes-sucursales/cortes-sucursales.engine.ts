@@ -33,7 +33,7 @@
  *   esperado de efectivo NETO de devoluciones (`[CSU.7]`: la devolución sale del cajón).
  */
 import type {
-  CorteArqueo, CorteCobro, CorteCobroCancelado, CorteCuadre, CorteDeclaracionCajero, CorteDevolucion, CorteEstadoCobro,
+  CorteArqueo, CorteCobro, CorteCobroCancelado, CorteConteoFuera, CorteCuadre, CorteDeclaracionCajero, CorteDevolucion, CorteEstadoCobro,
   CorteMedioCobro, CorteRow, CorteSucursalResumen, CortesAlcance, CortesSucursalesResponse,
 } from '@megadulces/contracts';
 import { CUADRE_UMBRAL, cuadreTurno, type ComoSeLigo } from '@megadulces/platform-core';
@@ -107,6 +107,20 @@ export interface CorteCrudo {
   conteos_cajero?: ConteoCajeroCrudo[] | null;
   /** `[CSU.16]` Conteos de esa caja ese día que NO se pudieron ligar a ningún turno. */
   conteos_cajero_sin_ligar?: number;
+}
+
+/** `[CSU.20]` Un conteo del cajero que no quedó en ningún corte (ver `CorteConteoFuera`). */
+export interface ConteoFueraCrudo {
+  sucursal: string;
+  fecha: string;
+  hora: string;
+  tipo: CorteConteoFuera['tipo'];
+  caja: string | null;
+  total: string | number;
+  por_que: CorteConteoFuera['por_que'];
+  motivo: string | null;
+  folio: string | null;
+  usuario: string | null;
 }
 
 /** `[CSU.16]` Un retiro o cierre de `reconciliation.blind_counts`, ya ligado al turno del corte. */
@@ -298,6 +312,7 @@ const conDiferencia = (c: CorteRow): boolean => c.cuadre !== 'cuadra' && c.cuadr
 export function armarRespuesta(
   crudos: CorteCrudo[], nombres: Record<string, string>, periodo: { from: string; to: string },
   alcance: CortesAlcance = { todas: true, sucursales: [] },
+  fuera: ConteoFueraCrudo[] = [],
 ): CortesSucursalesResponse {
   const todos = crudos.map((c) => construirCorte(c, nombres));
   const cortes = todos.filter((c) => c.monto >= MONTO_MINIMO_CORTE);
@@ -335,6 +350,15 @@ export function armarRespuesta(
     },
     sucursales,
     cortes,
+    // [CSU.20] Sólo los del periodo; el más reciente primero, como la lista.
+    conteos_fuera_de_corte: fuera
+      .filter((x) => x.fecha >= periodo.from && x.fecha <= periodo.to)
+      .map((x) => ({
+        sucursal: x.sucursal, sucursal_nombre: nombres[x.sucursal] || `Sucursal ${x.sucursal}`,
+        fecha: x.fecha, hora: x.hora, tipo: x.tipo, caja: x.caja, total: r2(n(x.total)), por_que: x.por_que,
+        motivo: x.motivo || null, folio: x.folio || null, usuario: x.usuario || null,
+      }))
+      .sort((a, b) => `${b.fecha} ${b.hora}`.localeCompare(`${a.fecha} ${a.hora}`)),
     cortes_en_blanco: todos.length - cortes.length,
     ultimo_corte: cortes.reduce<string | null>((m, c) => (!m || c.fecha > m ? c.fecha : m), null),
   };

@@ -5,7 +5,7 @@ import {
   ligarPorCaptura, llaveTurnoFechado, type ConteoFechado, type TurnoFechado,
 } from '@megadulces/platform-core';
 import type { CortesAlcance, CortesSucursalesResponse } from '@megadulces/contracts';
-import { armarRespuesta, type ConteoCajeroCrudo, type CorteCrudo } from './cortes-sucursales.engine';
+import { armarRespuesta, type ConteoCajeroCrudo, type ConteoFueraCrudo, type CorteCrudo } from './cortes-sucursales.engine';
 
 /**
  * `[CSU.1]` Cortes/Sucursales — lectura pura sobre el ODS, sin importer (derive-no-copy).
@@ -209,9 +209,16 @@ SELECT bc.id::text AS id, bc.tipo, bc.warehouse_code AS sucursal,
        NULLIF(btrim(bc.cash_cut_folio), '') AS cash_cut_folio,
        bc.total_contado::numeric AS total, bc.medios, bc.captured_at,
        to_char(bc.captured_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS fecha_captura,
-       to_char(bc.captured_at AT TIME ZONE 'America/Mexico_City', 'HH24:MI:SS') AS hora
+       to_char(bc.captured_at AT TIME ZONE 'America/Mexico_City', 'HH24:MI:SS') AS hora,
+       -- [CSU.20] Para los que no quedan en ningún corte: qué escribió y quién contó.
+       NULLIF(btrim(bc.motivo), '') AS motivo, COALESCE(u.nombre, bc.cajero_code) AS usuario
   FROM reconciliation.blind_counts bc
- WHERE bc.tenant_id = ?::uuid AND bc.warehouse_code = ANY(?::text[]) AND bc.tipo IN ('retiro', 'cierre')
+  LEFT JOIN LATERAL (
+    SELECT x.nombre FROM identity.users x
+     WHERE x.tenant_id = bc.tenant_id AND upper(x.username) = upper(bc.cajero_code) AND x.deleted_at IS NULL
+     LIMIT 1
+  ) u ON true
+ WHERE bc.tenant_id = ?::uuid AND bc.warehouse_code = ANY(?::text[]) AND bc.tipo IN ('retiro', 'cierre', 'sin_caja')
    AND bc.captured_at >= (?::date)::timestamp AT TIME ZONE 'America/Mexico_City'
    AND bc.captured_at <  (?::date + 1)::timestamp AT TIME ZONE 'America/Mexico_City'`;
 
@@ -285,7 +292,7 @@ export class CortesSucursalesService {
       const r = await trx.raw(SQL, [periodo.from, periodo.to, alcance.todas, codigos, periodo.from, periodo.to, tenantId]);
       const filas = r.rows as CorteCrudo[];
       await this.completarCobros(trx, tenantId, filas);
-      await this.completarCajero(trx, tenantId, filas);
+      const fuera = await this.completarCajero(trx, tenantId, filas, periodo);
       const nom = await trx.raw(
         `SELECT warehouse_code, max(warehouse_name) AS nombre FROM analytics.cash_cuts WHERE tenant_id = ?::uuid GROUP BY 1`,
         [tenantId],
@@ -294,7 +301,7 @@ export class CortesSucursalesService {
       for (const x of nom.rows as Array<{ warehouse_code: string; nombre: string | null }>) {
         if (x.nombre) nombres[x.warehouse_code] = x.nombre;
       }
-      const resp = armarRespuesta(filas, nombres, periodo, alcance);
+      const resp = armarRespuesta(filas, nombres, periodo, alcance, fuera);
       this.logger.debug(`cortes ${periodo.from}..${periodo.to}: ${resp.totales.cortes} en ${Date.now() - t0} ms`);
       return resp;
     });
@@ -337,22 +344,39 @@ export class CortesSucursalesService {
    * van de un día antes del primer arqueo (el folio de un cierre contado pasada la medianoche) a uno
    * después del último; los conteos, del primer día al día siguiente del último.
    */
-  private async completarCajero(trx: Knex.Transaction, tenantId: string, filas: CorteCrudo[]): Promise<void> {
+  private async completarCajero(
+    trx: Knex.Transaction, tenantId: string, filas: CorteCrudo[], periodo: { from: string; to: string },
+  ): Promise<ConteoFueraCrudo[]> {
     const conArqueo = filas.filter((f) => f.arqueo_fecha && f.caja && f.turno);
-    if (!conArqueo.length) return;
-    const sucs = [...new Set(conArqueo.map((f) => f.sucursal))];
-    const fechas = conArqueo.map((f) => String(f.arqueo_fecha)).sort();
+    const sucs = [...new Set(filas.map((f) => f.sucursal))];
+    if (!sucs.length) return [];
+    // [CSU.20] El rango cubre el periodo entero (los «sin caja» de un día sin arqueo también cuentan) y
+    // los días de arqueo que lo desbordan (el folio de turno puede ser de la víspera).
+    const fechas = [periodo.from, periodo.to, ...conArqueo.map((f) => String(f.arqueo_fecha))].sort();
     const desde = fechas[0], hasta = fechas[fechas.length - 1];
     const t = await trx.raw(SQL_TURNOS, [sucs, masDias(desde, -1), masDias(hasta, 1)]);
     const c = await trx.raw(SQL_CONTEOS, [tenantId, sucs, desde, masDias(hasta, 1)]);
     const turnos = (t.rows as TurnoFechado[]).map((x) => ({ ...x, caja: sinCeros(String(x.caja)), folio: sinCeros(String(x.folio)) }));
-    const conteos = (c.rows as Array<ConteoFechado & Omit<ConteoCajeroCrudo, 'ligado' | 'captured_at'> & { captured_at: Date | string }>)
-      .map((x) => ({
-        ...x, caja: sinCeros(String(x.caja)),
-        cash_cut_folio: x.cash_cut_folio == null ? null : sinCeros(String(x.cash_cut_folio)),
-        captured_at: x.captured_at instanceof Date ? x.captured_at.toISOString() : String(x.captured_at),
-      }));
+    type ConteoFila = ConteoFechado & Omit<ConteoCajeroCrudo, 'ligado' | 'captured_at'>
+      & { captured_at: Date | string; motivo: string | null; usuario: string | null };
+    const filasConteo = (c.rows as ConteoFila[]).map((x) => ({
+      ...x, caja: sinCeros(String(x.caja)),
+      cash_cut_folio: x.cash_cut_folio == null ? null : sinCeros(String(x.cash_cut_folio)),
+      captured_at: x.captured_at instanceof Date ? x.captured_at.toISOString() : String(x.captured_at),
+    }));
+    // «Sin caja» no pertenece a ningún turno por definición: no pasa por la liga, va directo a la lista.
+    const conteos = filasConteo.filter((x) => x.tipo !== 'sin_caja');
+    const fuera: ConteoFueraCrudo[] = filasConteo.filter((x) => x.tipo === 'sin_caja').map((x) => ({
+      sucursal: x.sucursal, fecha: x.fecha_captura, hora: x.hora, tipo: 'sin_caja', caja: null, total: x.total,
+      por_que: 'sin_caja', motivo: x.motivo, folio: null, usuario: x.usuario,
+    }));
     const { porTurno, sinTurno } = ligarPorCaptura(turnos, conteos);
+    for (const x of sinTurno) {
+      fuera.push({
+        sucursal: x.sucursal, fecha: x.fecha_captura, hora: x.hora, tipo: x.tipo === 'cierre' ? 'cierre' : 'retiro',
+        caja: x.caja, total: x.total, por_que: x.motivo, motivo: null, folio: x.cash_cut_folio, usuario: x.usuario,
+      });
+    }
     // Lo que se contó en esa caja ese día y no se pudo ligar: se declara en el corte, no se pierde.
     const sueltos = new Map<string, number>();
     for (const x of sinTurno) {
@@ -367,5 +391,6 @@ export class CortesSucursalesService {
       }
       f.conteos_cajero_sin_ligar = sueltos.get(`${f.sucursal}|${caja}|${f.arqueo_fecha}`) ?? 0;
     }
+    return fuera;
   }
 }

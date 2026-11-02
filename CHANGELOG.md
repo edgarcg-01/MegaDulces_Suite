@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Added — Cortes/Sucursales: lo que el cajero contó y no quedó en ningún corte (CSU.20, 2026-11-02)
+- Cada día de sucursal dice cuántos conteos quedaron **fuera de corte** y, al desplegarlo, los lista con su hora, importe, por qué no están en un corte y quién los contó.
+- Incluye los «conteos sin caja» (fondo, depósito al banco, la venta del día anterior), que son constancias: no suman ni restan.
+- En octubre: 477 retiros y cierres por $5.6 M apuntaban a otro turno en el arqueo de tienda. Antes no se veían.
+
 ### Fixed — Cortes/Sucursales: tarjeta y transferencia juntas, y los créditos del cajón ya no parecen faltante (CSU.19, 2026-11-02)
 - El detalle del corte muestra **«Tarjeta y transferencia»** en un solo renglón, con lo esperado, lo declarado por el cajero y lo que tiene Kepler. Antes se leía como un sobrante de tarjeta y una transferencia sin declarar.
 - Cuando el desglose de Kepler marca un faltante que son los **créditos y cheques** del cajero, la pantalla lo dice («créditos del cajero», en gris) en vez de «Falta» en rojo. «No concuerda» pasa de 66 a 50 cortes en octubre.

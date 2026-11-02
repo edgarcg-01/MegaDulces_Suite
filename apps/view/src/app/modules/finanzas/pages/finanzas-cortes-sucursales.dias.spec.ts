@@ -1,5 +1,5 @@
-import type { CorteArqueo, CorteRow } from '@megadulces/contracts';
-import { agruparCortesPorDia, celdaArqueo, creditosExplicanDesglose, descuadraPorTestigo } from './finanzas-cortes-sucursales.component';
+import type { CorteArqueo, CorteConteoFuera, CorteRow } from '@megadulces/contracts';
+import { agruparCortesPorDia, celdaArqueo, creditosExplicanDesglose, descuadraPorTestigo, motivoFuera } from './finanzas-cortes-sucursales.component';
 
 /**
  * `[CSU.15]` La lista principal de Cortes/Sucursales engloba los cortes **por día de sucursal**,
@@ -124,6 +124,25 @@ describe('[CSU.15] los cortes se engloban por día de sucursal', () => {
     expect(creditosExplicanDesglose(a(false, -9532.87))).toBe(false);
     expect(creditosExplicanDesglose(a(true, -0.2))).toBe(false);
     expect(creditosExplicanDesglose({ fisico_diferencia: -500, declaracion_cajero: null } as unknown as CorteArqueo)).toBe(false);
+  });
+
+  it('[CSU.20] lo contado fuera de un corte se pega a su día-sucursal y NO toca los totales del día', () => {
+    const fuera = (p: Partial<CorteConteoFuera>): CorteConteoFuera => ({
+      sucursal: '05', sucursal_nombre: 'Zamora Centro', fecha: '2026-10-13', hora: '18:00:00', tipo: 'sin_caja', caja: null,
+      total: 340, por_que: 'sin_caja', motivo: 'fondo de caja', folio: null, usuario: 'Guadalupe Meléndez', ...p,
+    });
+    const dias = agruparCortesPorDia([corte({ folio: '0000001' })], [fuera({}), fuera({ sucursal: '01' }), fuera({ fecha: '2026-10-14' })]);
+    expect(dias).toHaveLength(1);
+    expect(dias[0].fuera).toHaveLength(1);
+    expect(dias[0].monto).toBe(1000);
+    expect(dias[0].saldo).toBe(1000);
+  });
+
+  it('[CSU.20] el porqué de un conteo fuera de corte, en palabras', () => {
+    const x = (p: Partial<CorteConteoFuera>) => ({ tipo: 'retiro', por_que: 'sin_turno', motivo: null, folio: null, ...p }) as CorteConteoFuera;
+    expect(motivoFuera(x({ tipo: 'sin_caja', por_que: 'sin_caja', motivo: 'deposito al banco\nlpa' }))).toBe('Constancia sin caja: «deposito al banco lpa»');
+    expect(motivoFuera(x({ por_que: 'folio_de_otro_turno', folio: '111' }))).toBe('Apunta al turno 111, que no estaba abierto cuando se capturó');
+    expect(motivoFuera(x({}))).toBe('Sin folio, y a esa hora no había turno en esa caja');
   });
 
   it('[CSU.17] la celda dice falta/sobra en palabras, y sin dato NO dice «Cuadra»', () => {
