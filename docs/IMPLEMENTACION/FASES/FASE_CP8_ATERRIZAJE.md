@@ -1153,6 +1153,7 @@ falta uno nuevo.
   los tickets de Kepler; todavía no se puede armar (de qué sucursal es cada depósito, TLMKT y rutas, huecos del ODS).
 - **2026-10-31** — `[CP.8.96]` bloqueos investigados (§11.14): el depósito → sucursal sale de Kepler para la tienda; los
   huecos del ODS son fechas de arranque; faltan el reparto de TLMKT por equipo y la fuente exacta de la cifra diaria.
+- **2026-11-02** — `[CP.8.96]` punto 5 (§11.14): su cifra diaria son los tickets del día; por mes y tasa quedan a 0.99–1.05.
 
 ---
 
@@ -1816,3 +1817,29 @@ que tome la cifra del **corte de caja** de Kepler. NO MEDIDO.
 en orden: (a) el corte de caja de Kepler por tasa contra sus tríos diarios; (b) el reparto de TLMKT por equipo; (c) la
 segunda fuente para los depósitos sin entrada en Kepler. ⭐ Alternativa de proceso: que Bancos (CB) o Cortes/Sucursales
 capture la sucursal en cada depósito, en vez de derivarla.
+
+#### El punto 5, la cifra diaria (2026-11-02)
+
+Medido en prod, sólo lectura, agosto y septiembre, en las sucursales de tienda con el mes completo de tickets.
+
+- **No es el corte de caja ni los cobros.** El total de su trío contra el total del día según el corte de Kepler
+  (`kepler_ods.kdpv_folio_caja`, formas de pago por fecha de negocio) o según los cobros `U-A-5` de la entidad de la
+  sucursal casa en 1–9 de 30 días. El corte, además, separa por forma de pago, no por tasa.
+- **Sí son los tickets del día, en orden.** Sus tríos van día por día y el primero es el **último día del mes anterior**
+  (por eso un primer cruce por posición salía corrido). Alineado, en 8 Esquinas de septiembre un tercio de los días casa
+  al centavo en las tres tasas y el IVA casa al peso en 16 de 30.
+- **Lo que no casa tiene dos formas:**
+  - días que se compensan (el 6 y el 7 de septiembre, +$2,274 y −$2,005 con su IVA): venta que cruza el corte nocturno.
+    La tabla de tickets del ODS sólo trae la fecha, no la hora: no se puede reconstruir el turno desde ahí;
+  - dulce con IEPS al 0 % que ella resta (el IEPS faltante es 7–8 % del 0 % faltante): las **devoluciones de mostrador**
+    (notas `U-A-21` fiscal y `U-A-25` no fiscal; total `c16`, IVA `c14`, IEPS `c15`). Explican días enteros al peso (el 2
+    y el 5 de septiembre), pero **no la regla**: restarlas todas mejora unas sucursales y empeora otras.
+- **Por mes y por tasa, tickets ÷ ella:** 8 Esquinas 0.999–1.009 · La Piedad Abastos 1.000–1.020 · Zamora 0.990–1.039 ·
+  Yurécuaro 1.021–1.047 · Canindo (septiembre) 0.994–0.996.
+
+**Qué decide esto:** un armador con «los tickets del día por tasa» reproduciría su forma y quedaría a **0–4.5 % por tasa
+en el mes**. Esa diferencia no es ruido del armador: es lo que ella ajusta a mano (devoluciones, turno). Cuál es la cifra
+correcta —la de Kepler o la suya— es **criterio de contabilidad**, y su póliza además cuadra con renglones de caja y de
+otros ingresos que no se midieron. Recomendación: que contabilidad acepte la venta del día de Kepler (tickets menos
+devoluciones del día) como el abono, con la diferencia contra los depósitos a la cuenta puente que ella ya usa; si no,
+F-E se queda en sugerir, no en armar.
