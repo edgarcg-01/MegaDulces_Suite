@@ -153,11 +153,24 @@ export class SupplierPaymentProofsService {
     const tenantId = this.tenantCtx.requireTenantId();
     const limit = Math.min(1000, Math.max(1, Number(q.limit) || 500));
     /**
-     * `[PC.8]` Cuánto tarda CADA consulta. En prod la carga de la página tarda 5–6 s y no se pudo
-     * reproducir: con 600k documentos sintéticos en kdm1 la consulta tarda ~110 ms (usa el PK por
-     * sucursal + c2/c3) y la pantalla pinta en ~1.2 s con la API simulada. El dato que falta es de
-     * prod, y viaja en la respuesta (`tiempos_ms` + encabezado `Server-Timing`, visible en DevTools)
-     * y en el log cuando la carga pasa de 1 s (el umbral de «no funciona» del proyecto).
+     * `[PC.8]` Cuánto tarda CADA consulta. Escrito el 2026-10-06, cuando en prod la carga de la
+     * página tardaba 5–6 s y no se pudo reproducir: con 600k documentos sintéticos en kdm1 la
+     * consulta tardaba ~110 ms y la pantalla pintaba en ~1.2 s con la API simulada.
+     *
+     * ⛔ **Re-medido contra prod el 2026-11-02, y el SQL NO es el cuello** — esta nota mandaba a
+     * buscarlo acá. Las tres consultas de este método, con la caché caliente: **duplicados + filas
+     * 127 ms · kpis 73 ms**. Dos cosas que conviene no volver a suponer:
+     *   · **Filtrar por año no ahorra nada**: 4,899 de los 4,914 pagos son de 2026, así que el
+     *     rango que la pantalla no manda al abrir tampoco habría servido (con rango: 70 ms).
+     *   · El plan lee **26,520 filas de kdm1 para quedarse con 4,914** (`Rows Removed by Filter:
+     *     21606`) sobre **9,317 bloques dispersos**: todos los `btrim()`/`ILIKE` de la vista son
+     *     post-filtro. En caliente son 106 ms; **en frío esos bloques se leen de disco**, y ahí sí
+     *     puede costar. No está medido en frío: no se afirma.
+     *
+     * ⚠️ Y la medición vieja es **anterior al arreglo del túnel del 2026-10-28** (el tráfico salía
+     * del clúster por la IP externa), así que los 5–6 s pueden ser de un mundo que ya no existe.
+     * Lo que falta sigue siendo el dato del NAVEGADOR, y viaja en la respuesta (`tiempos_ms` +
+     * encabezado `Server-Timing`, visible en DevTools) y en el log cuando la carga pasa de 1 s.
      */
     const reloj = Date.now();
     const tiempos: { duplicados: number; filas: number; kpis: number; total: number } = { duplicados: 0, filas: 0, kpis: 0, total: 0 };
