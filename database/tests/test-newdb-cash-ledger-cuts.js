@@ -170,9 +170,21 @@ const corte = (over = {}) => ({
       ok(auth.closed_by !== auth.authorized_by, 'y quedan los dos nombres, distintos, en el registro');
 
       console.log('\n── 7. El movimiento se ata a su corte ──');
-      await trx('finance.cash_ledger').whereIn('id', [i1.id, d1.id]).update({ corte_id: abierto.id, estado: 'en_corte' });
-      const enCorte = await trx('finance.cash_ledger').where({ corte_id: abierto.id }).count('* as n').first();
-      ok(Number(enCorte.n) === 2, `2 movimientos quedaron atados al corte (dio ${enCorte.n})`);
+      // `[LE.0.7]` Se ata MIENTRAS el corte es borrador, como lo hace `cerrar()` (exige borrador, ata y
+      // después sella). Hasta el 2026-11-02 esta sección ataba al corte `abierto` ya AUTORIZADO en la
+      // sección 6: justo lo que pasó en prod el 22-oct por SQL directo, y lo que la base ya no deja.
+      const [deDia] = await trx('finance.cash_ledger_cuts').insert(corte({ sucursal: '20' })).returning('*');
+      await trx('finance.cash_ledger').whereIn('id', [i1.id, d1.id]).update({ corte_id: deDia.id, estado: 'en_corte' });
+      const enCorte = await trx('finance.cash_ledger').where({ corte_id: deDia.id }).count('* as n').first();
+      ok(Number(enCorte.n) === 2, `2 movimientos quedaron atados al corte en borrador (dio ${enCorte.n})`);
+      const hayLe07 = (await trx.raw(`SELECT 1 FROM pg_trigger WHERE tgname = 'trg_cash_ledger_no_entra_a_corte_firmado'`)).rows.length === 1;
+      if (hayLe07) {
+        const [tarde] = await trx('finance.cash_ledger').insert(mov({ folio: `CGT-${Date.now()}` })).returning('*');
+        const c7a = await violation(trx, () => trx('finance.cash_ledger').where({ id: tarde.id }).update({ corte_id: abierto.id }));
+        ok(c7a === '23514', `[negativa] atar un movimiento a un corte ya AUTORIZADO → 23514 (LE.0.7), got ${c7a}`);
+      } else {
+        skip('LE.0.7: la migración 20261031141131 no está aplicada en esta base.');
+      }
       const c7 = await violation(trx, () => trx('finance.cash_ledger')
         .insert(mov({ corte_id: '00000000-0000-0000-0000-00000000dead' })));
       ok(c7 === '23503', `[negativa] atar un movimiento a un corte inexistente → 23503 (FK), got ${c7}`);
@@ -200,8 +212,8 @@ const corte = (over = {}) => ({
       const antes = await efectoDe(gx.id);
       ok(Number(antes.efecto) === 0, `cancelado y suelto: no mueve el saldo (efecto ${antes.efecto})`);
 
-      // Así lo ata `cerrar()` ahora: corte_id sí, estado NO.
-      await trx('finance.cash_ledger').where({ id: gx.id }).update({ corte_id: abierto.id });
+      // Así lo ata `cerrar()` ahora: corte_id sí, estado NO — y al corte en borrador (LE.0.7).
+      await trx('finance.cash_ledger').where({ id: gx.id }).update({ corte_id: deDia.id });
       const atado = await efectoDe(gx.id);
       ok(atado.estado === 'cancelado',
         'atado a un corte, el movimiento cancelado CONSERVA su estado');
@@ -209,12 +221,11 @@ const corte = (over = {}) => ({
         `y sigue sin mover el saldo (efecto ${atado.efecto}) — pertenece al corte, pero no cuenta`);
 
       // ⛔ LA PRUEBA NEGATIVA: esto es exactamente lo que hacía el código viejo —pisarle el estado
-      // a 'en_corte' y que el cancelado RESUCITE moviendo $777—. ⭐ `[CGS.11]` Desde el 2026-10-21
-      // el corte `abierto` ya está AUTORIZADO (sección 6), y la base no deja cambiar el estado de un
-      // movimiento de un corte firmado: el daño ya no se puede ni provocar.
-      const c8 = await violation(trx, () => trx('finance.cash_ledger').where({ id: gx.id }).update({ estado: 'en_corte' }));
+      // a 'en_corte' y que el cancelado RESUCITE moviendo $777—. ⭐ `[CGS.11]` + `[LE.0.7]`: al corte
+      // `abierto`, ya AUTORIZADO (sección 6), el cancelado no entra, y menos con el estado pisado.
+      const c8 = await violation(trx, () => trx('finance.cash_ledger').where({ id: gx.id }).update({ corte_id: abierto.id, estado: 'en_corte' }));
       ok(c8 === '23514',
-        `[negativa] pisarle el estado a 'en_corte' a un movimiento de un corte firmado → 23514 (CGS.11), got ${c8}`);
+        `[negativa] meterlo a un corte firmado pisándole el estado a 'en_corte' → 23514, got ${c8}`);
       const sigue = await efectoDe(gx.id);
       ok(Number(sigue.efecto) === 0, `y el cancelado sigue sin mover el saldo (efecto ${sigue.efecto})`);
 
