@@ -345,6 +345,8 @@ export class TiendaCajaComponent implements OnDestroy {
     effect(() => { if (this.suc()) this.prepararSucursal(); });
     // La pantalla del cliente escucha este canal (misma app, otra ventana).
     effect(() => this.canal?.postMessage(this.paraCliente()));
+    // La pantalla del cliente recién abierta pide el estado actual.
+    if (this.canal) this.canal.onmessage = (m: MessageEvent<{ pide?: boolean }>) => { if (m.data?.pide) this.canal?.postMessage(this.paraCliente()); };
   }
 
   ngOnDestroy(): void { this.canal?.close(); }

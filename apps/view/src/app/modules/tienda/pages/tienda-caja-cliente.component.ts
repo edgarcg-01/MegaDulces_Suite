@@ -52,7 +52,7 @@ interface Estado {
   }
   `,
   styles: [`
-    :host { display: block; height: 100vh; background: var(--surface-ground); color: var(--text-main); }
+    :host { display: block; position: fixed; inset: 0; z-index: 10; overflow: auto; background: var(--surface-ground); color: var(--text-main); }
     .cc-centro { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sp-4); text-align: center; }
     .cc-rejilla { height: 100%; display: grid; grid-template-columns: minmax(0, 1fr) minmax(18rem, 28rem); }
     @media (max-width: 50rem) { .cc-rejilla { grid-template-columns: 1fr; } }
@@ -75,7 +75,11 @@ export class TiendaCajaClienteComponent implements OnDestroy {
   private readonly canal = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('md-caja-cliente') : null;
 
   constructor() {
-    if (this.canal) this.canal.onmessage = (m: MessageEvent<Estado>) => this.s.set(m.data);
+    if (this.canal) {
+      this.canal.onmessage = (m: MessageEvent<Estado | { pide: true }>) => { if (!('pide' in m.data)) this.s.set(m.data); };
+      // Abierta con un ticket a medias: le pide a la caja su estado en vez de esperar al siguiente cambio.
+      this.canal.postMessage({ pide: true });
+    }
   }
 
   ngOnDestroy(): void { this.canal?.close(); }
