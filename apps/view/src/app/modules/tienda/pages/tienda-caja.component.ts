@@ -49,12 +49,21 @@ const CANAL_CLIENTE = 'md-caja-cliente';
       <h1 class="cj-titulo">Caja</h1>
       <app-sucursal-picker [(valor)]="sucursal" placeholder="Elige la sucursal" etiqueta="Sucursal de la caja" />
       @if (datosAl(); as d) { <app-freshness-pill measures="data" [since]="d" label="Precios de Kepler" [staleAfterSec]="900" /> }
+      @if (turno(); as t) {
+        <span class="cj-sub">Turno desde {{ t.desde }} · fondo {{ dinero(t.fondo) }} · {{ t.retiros.length }} retiro(s)</span>
+        @if (nivelGaveta() === 'maximo') { <span class="cj-chip cj-chip-bad" role="status">La gaveta pasó el máximo: haz un retiro (F8) para seguir vendiendo</span> }
+        @else if (nivelGaveta() === 'aviso') { <span class="cj-chip cj-chip-warn" role="status">Gaveta cerca del máximo: conviene un retiro (F8)</span> }
+      }
       <span class="cj-practica" role="note"><i class="pi pi-info-circle" aria-hidden="true"></i>
         Modo práctica: no guarda, no imprime, no cobra ni manda a Kepler. Sin promociones por cantidad.</span>
       <span class="cj-acciones">
         <button type="button" class="cj-hb" tabindex="-1" (click)="abrirVerificador()">Verificar precio <kbd>F6</kbd></button>
         @if (puedeArqueo) { <button type="button" class="cj-hb" tabindex="-1" [class.cj-hb-on]="arqueo()" (click)="irArqueo()">Mi arqueo <kbd>F7</kbd></button> }
         <button type="button" class="cj-hb" tabindex="-1" (click)="abrirCliente()">Pantalla del cliente</button>
+        @if (turno(); as t) {
+          <button type="button" class="cj-hb" tabindex="-1" (click)="abrirRetiro()">Retiro <kbd>F8</kbd></button>
+          <button type="button" class="cj-hb" tabindex="-1" (click)="cerrarTurno()">Cerrar turno</button>
+        }
       </span>
     </header>
 
@@ -77,7 +86,7 @@ const CANAL_CLIENTE = 'md-caja-cliente';
           <label class="cj-cmd-caja" for="cj-cmd">
             <span class="cj-modo">{{ modo() }}</span>
             <input #cmd id="cj-cmd" class="cj-cmd-input" autocomplete="off" spellcheck="false"
-                   [type]="auth()?.motivo ? 'password' : 'text'" [placeholder]="placeholder()"
+                   [type]="ocultar() ? 'password' : 'text'" [placeholder]="placeholder()"
                    [value]="texto()" (input)="alTeclear($any($event.target).value)" (blur)="reenfocar()" />
           </label>
           @if (resultados().length || buscandoTexto()) {
@@ -116,14 +125,29 @@ const CANAL_CLIENTE = 'md-caja-cliente';
               </tr>
             </ng-template>
             <ng-template #emptymessage>
-              <tr><td colspan="5" class="cj-vacio">Caja lista. Escanea el primer producto.</td></tr>
+              <tr><td colspan="5" class="cj-vacio">{{ turno() ? 'Caja lista. Escanea el primer producto.' : 'Abre el turno: cuenta el fondo en el panel de la derecha.' }}</td></tr>
             </ng-template>
           </p-table>
         </div>
       </section>
 
       <aside class="cj-panel" aria-live="polite">
-        @if (auth(); as a) {
+        @if (conteo(); as c) {
+          <div class="cj-box cj-box-act">
+            <span class="cj-lbl">{{ c.tipo === 'apertura' ? 'Abrir turno · cuenta el fondo que recibes' : 'Retiro de efectivo · conteo ciego' }}</span>
+            <div class="cj-sub">{{ c.tipo === 'apertura' ? 'Cuenta por pieza; la caja suma. Sin turno abierto no se vende.' : 'La caja no dice cuánto hay en la gaveta: lo cuentas tú y lo cuenta quien lo recibe.' }}</div>
+            @for (d of denominaciones(c.tipo); track d[1]; let i = $index) {
+              <div class="cj-fila cj-den" [class.cj-den-on]="i === c.i && !c.pin">
+                <span>{{ d[1] }}</span>
+                <span class="num">{{ c.vals[i] === undefined ? '—' : (d[0] ? c.vals[i] + ' = ' + dinero(c.vals[i] * d[0]) : dinero(c.vals[i])) }}</span>
+              </div>
+            }
+            <div class="cj-fila"><b>{{ c.tipo === 'apertura' ? 'Fondo contado' : 'Retiras' }}</b><span class="cj-grande">{{ dinero(sumaConteo()) }}</span></div>
+            @if (c.i >= denominaciones(c.tipo).length) {
+              <div class="cj-h3">{{ c.tipo === 'apertura' ? 'Enter abre el turno con este fondo.' : 'Quien recibe teclea su PIN arriba y Enter.' }}</div>
+            }
+          </div>
+        } @else if (auth(); as a) {
           <div class="cj-box cj-box-act">
             <span class="cj-lbl">Pide supervisor</span>
             <div class="cj-h2">{{ authTitulo() }}</div>
@@ -192,7 +216,8 @@ const CANAL_CLIENTE = 'md-caja-cliente';
     </app-load-state>
 
     <footer class="cj-pie" aria-label="Teclas de este momento">
-      @if (arqueo()) { <span>Captura tu conteo con el teclado y el ratón; la caja no toma teclas mientras tanto</span> }
+      @if (conteo(); as c) { <span>Teclea cuántas piezas y <kbd>Enter</kbd> (vacío = 0)</span><span><kbd>Esc</kbd> {{ c.tipo === 'apertura' ? 'empezar de nuevo' : 'no retirar' }}</span> }
+      @else if (arqueo()) { <span>Captura tu conteo con el teclado y el ratón; la caja no toma teclas mientras tanto</span> }
       @else if (auth()) { <span><kbd>1</kbd>–<kbd>4</kbd> motivo</span><span>PIN y <kbd>Enter</kbd></span><span><kbd>Esc</kbd> no hacerlo</span> }
       @else if (verificando()) { <span>Escanea o escribe y <kbd>Enter</kbd></span><span><kbd>Esc</kbd> volver a vender</span> }
       @else if (estado() === 'venta') { <span><kbd>Enter</kbd> agregar</span><span><kbd>5*</kbd>código cantidad</span><span>letras o <kbd>F9</kbd> buscar</span><span><kbd>Ctrl</kbd>+<kbd>Supr</kbd> cancelar ticket</span><span><b>250 <kbd>F12</kbd></b> cobra $250 en efectivo</span> }
@@ -210,6 +235,11 @@ const CANAL_CLIENTE = 'md-caja-cliente';
     .cj-acciones { margin-left: auto; display: inline-flex; gap: var(--sp-2); }
     .cj-hb { display: inline-flex; align-items: center; gap: var(--sp-2); height: 2.25rem; padding: 0 var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); color: var(--text-main); font: inherit; font-size: var(--fs-sm); font-weight: 600; cursor: pointer; }
     .cj-hb:hover { background: var(--surface-hover-bg); }
+    .cj-chip { font-size: var(--fs-sm); font-weight: 600; border-radius: var(--r-pill); padding: var(--sp-1) var(--sp-3); }
+    .cj-chip-warn { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
+    .cj-chip-bad { background: var(--bad-soft-bg); color: var(--bad-fg); }
+    .cj-den { padding: var(--sp-1) var(--sp-2); border-radius: var(--r-sm); }
+    .cj-den-on { background: var(--surface-selected-bg); box-shadow: inset 3px 0 0 var(--action); }
     .cj-hb-on { border-color: var(--action); color: var(--action); }
     .cj-arq { flex: 1; min-height: 0; overflow: auto; padding: var(--sp-3) var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-3); }
     .cj-arq-barra { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-2); }
@@ -280,6 +310,29 @@ export class TiendaCajaComponent implements OnDestroy {
   /** El arqueo vive DENTRO de la caja (una sola interfaz): el mismo componente real de /tienda/arqueo. */
   readonly puedeArqueo = [Permission.STORE_ARQUEO_VER, Permission.STORE_ARQUEO_CAPTURAR, Permission.STORE_ARQUEO_SIN_CAJA_CAPTURAR].some((p) => inject(PermissionsService).has(p));
   readonly arqueo = signal(false);
+  /** Cerrar turno = el arqueo real (el conteo ciego del cierre); al volver, el turno de práctica se cierra. */
+  private cerrandoTurno = false;
+
+  // ── Turno de PRÁCTICA (PDV.14 lo guarda de verdad): fondo, gaveta ciega y retiros ──
+  readonly turno = signal<{ desde: string; fondo: number; retiros: { folio: string; monto: number; hora: string }[] } | null>(null);
+  readonly conteo = signal<{ tipo: 'apertura' | 'retiro'; i: number; vals: number[]; pin: boolean } | null>(null);
+  private readonly efectivoVendido = signal(0);
+  /** Límites de Yurécuaro en Kepler (aviso $10,000 · máximo $15,000); por sucursal llegan con PDV.5. */
+  private readonly avisoGaveta = 10_000;
+  private readonly maximoGaveta = 15_000;
+  private readonly gaveta = computed(() => {
+    const t = this.turno();
+    return t ? r2(t.fondo + this.efectivoVendido() - t.retiros.reduce((a, x) => a + x.monto, 0)) : 0;
+  });
+  readonly nivelGaveta = computed(() => (this.gaveta() >= this.maximoGaveta ? 'maximo' : this.gaveta() >= this.avisoGaveta ? 'aviso' : 'ok'));
+  /** El PIN (de supervisor o de quien recibe un retiro) no se ve al teclearlo. */
+  readonly ocultar = computed(() => { const c = this.conteo(); return !!this.auth()?.motivo || (!!c && c.tipo === 'retiro' && c.i >= this.denominaciones(c.tipo).length); });
+  readonly sumaConteo = computed(() => {
+    const c = this.conteo();
+    if (!c) return 0;
+    const den = this.denominaciones(c.tipo);
+    return r2(c.vals.reduce((a, n, i) => a + (den[i][0] ? n * den[i][0] : n), 0));
+  });
   readonly confirmarSalida = signal(false);
   @ViewChild('arq') private arqueoCmp?: HasUnsavedChanges;
   readonly dinero = pesos;
@@ -331,6 +384,8 @@ export class TiendaCajaComponent implements OnDestroy {
   readonly formasTexto = computed(() => [...new Set(this.pagos().map((p) => p.forma.toLowerCase()))].join(' + '));
 
   readonly modo = computed(() => {
+    const c = this.conteo();
+    if (c) return c.i >= this.denominaciones(c.tipo).length ? (c.tipo === 'retiro' ? 'PIN' : 'Confirmar') : 'Piezas';
     const a = this.auth();
     if (a) return a.motivo ? 'PIN' : 'Motivo';
     if (this.verificando()) return 'Verificar';
@@ -339,6 +394,8 @@ export class TiendaCajaComponent implements OnDestroy {
     return /[a-zñ]/i.test(this.texto()) ? 'Buscar' : 'Escanear';
   });
   readonly placeholder = computed(() => {
+    const c = this.conteo();
+    if (c) return c.i < this.denominaciones(c.tipo).length ? this.denominaciones(c.tipo)[c.i][1] + ': cuántas, y Enter' : c.tipo === 'retiro' ? 'PIN de quien recibe' : 'Enter abre el turno';
     const a = this.auth();
     if (a) return a.motivo ? 'PIN del supervisor' : 'Elige 1, 2, 3 o 4';
     if (this.verificando()) return 'Código o nombre del producto';
@@ -380,7 +437,7 @@ export class TiendaCajaComponent implements OnDestroy {
     this.cargando.set(true);
     this.errorCarga.set(null);
     this.svc.asegurarSnapshot(s).subscribe({
-      next: () => { this.cargando.set(false); this.enfocar(); },
+      next: () => { this.cargando.set(false); if (!this.turno()) this.abrirApertura(); this.enfocar(); },
       error: () => { this.cargando.set(false); this.errorCarga.set('No se pudo descargar el catálogo de precios de ' + warehouseName(s) + '. La búsqueda por código sigue funcionando.'); },
     });
   }
@@ -396,6 +453,7 @@ export class TiendaCajaComponent implements OnDestroy {
     const v = this.texto().trim();
 
     if (this.arqueo()) return; // el arqueo captura con su propio teclado
+    if (this.conteo()) return this.teclaConteo(e, k, v);
     if (!this.auth() && (k === 'F6' || k === 'F7')) { k === 'F6' ? this.abrirVerificador() : this.irArqueo(); return; }
     if (this.auth()) return this.teclaAutorizacion(e, k);
     if (this.verificando()) {
@@ -424,6 +482,7 @@ export class TiendaCajaComponent implements OnDestroy {
       case '+': if (v) return; e.preventDefault(); this.sumar(); return;
       case '-': if (v) return; e.preventDefault(); this.restar(); return;
       case 'F4': this.cambiarPresentacion(); return;
+      case 'F8': this.abrirRetiro(); return;
       case 'F9': void this.buscarTexto(v || ' ', true); return;
       case 'F10': this.pedir('quitar', this.sel()); return;
       case 'Delete':
@@ -459,6 +518,8 @@ export class TiendaCajaComponent implements OnDestroy {
   private async agregarPorCodigo(codigo: string, cantidad: number, conCantidad: boolean): Promise<void> {
     const s = this.suc();
     if (!s) return this.avisar('error', 'Elige la sucursal de la caja.');
+    if (!this.turno()) { this.abrirApertura(); return this.avisar('error', 'Abre el turno antes de vender: cuenta el fondo.'); }
+    if (this.nivelGaveta() === 'maximo' && !this.lineas().length) return this.avisar('error', 'La gaveta pasó el máximo. Haz un retiro (F8) antes del siguiente ticket.');
     const r = await firstValueFrom(this.svc.buscar(codigo, s));
     if (r.estado === 'no_encontrado') return this.avisar('error', 'No encontrado: ' + codigo + '. El producto NO entró al ticket.');
     if (r.estado === 'sin_datos') return this.avisar('error', 'Sin datos de precios para ' + codigo + ' (sin red y sin respaldo). El producto NO entró al ticket.');
@@ -627,7 +688,11 @@ export class TiendaCajaComponent implements OnDestroy {
     this.pagos.update((p) => [...p, { forma, recibido, aplicado, cambio: forma === 'Efectivo' ? r2(recibido - aplicado) : 0 }]);
     this.limpiar();
     this.aviso.set(null);
-    if (this.saldo() <= 0.004) { this.estado.set('cobrado'); this.tono(1320, 60); }
+    if (this.saldo() <= 0.004) {
+      this.estado.set('cobrado');
+      this.efectivoVendido.update((v) => r2(v + this.pagos().filter((p) => p.forma === 'Efectivo').reduce((a, p) => a + p.aplicado, 0)));
+      this.tono(1320, 60);
+    }
   }
 
   private siguienteCliente(): void {
@@ -656,6 +721,13 @@ export class TiendaCajaComponent implements OnDestroy {
     if (this.arqueoCmp?.hasUnsavedChanges() && !this.confirmarSalida()) { this.confirmarSalida.set(true); return; }
     this.confirmarSalida.set(false);
     this.arqueo.set(false);
+    if (this.cerrandoTurno) {
+      this.cerrandoTurno = false;
+      this.turno.set(null);
+      this.efectivoVendido.set(0);
+      this.avisar('ok', 'Turno de práctica cerrado. Tu arqueo es el conteo del cierre; para vender otra vez, abre turno.');
+      this.abrirApertura();
+    }
     this.enfocar();
   }
 
@@ -686,6 +758,76 @@ export class TiendaCajaComponent implements OnDestroy {
       empujon: p?.siguiente ? 'Llevando ' + (p.siguiente.desde - l!.cantidad) + ' más de ' + l!.nombre + ', te quedan en ' + pesos(p.siguiente.precio) + ' cada uno.' : '',
       lineas: this.lineas().map((x, i) => ({ nombre: x.nombre, cantidad: x.granel ? x.cantidad.toFixed(3) + ' kg' : x.cantidad + ' ' + x.unidad.toLowerCase(), importe: importeRenglon(x), quitado: !!x.quitado, sel: i === this.sel() })),
     };
+  }
+
+  // ── Turno: apertura, retiro y cierre ──
+  denominaciones(tipo: 'apertura' | 'retiro'): readonly (readonly [number, string])[] {
+    return tipo === 'apertura'
+      ? [[500, 'Billetes de $500'], [200, 'Billetes de $200'], [100, 'Billetes de $100'], [50, 'Billetes de $50'], [20, 'Billetes de $20'], [0, 'Monedas (importe)']]
+      : [[1000, 'Billetes de $1,000'], [500, 'Billetes de $500'], [200, 'Billetes de $200'], [100, 'Billetes de $100']];
+  }
+
+  private abrirApertura(): void {
+    if (this.turno() || this.conteo()) return;
+    this.conteo.set({ tipo: 'apertura', i: 0, vals: [], pin: false });
+    this.limpiar();
+    this.enfocar();
+  }
+
+  abrirRetiro(): void {
+    if (!this.turno()) return this.avisar('aviso', 'Primero abre el turno.');
+    if (this.lineas().length && this.estado() !== 'cobrado') return this.avisar('aviso', 'Termina o cancela el ticket en curso antes del retiro.');
+    if (this.estado() === 'cobrado') this.siguienteCliente();
+    this.cerrarResultados();
+    this.verificando.set(false);
+    this.conteo.set({ tipo: 'retiro', i: 0, vals: [], pin: false });
+    this.limpiar();
+    this.enfocar();
+  }
+
+  cerrarTurno(): void {
+    if (this.lineas().length && this.estado() !== 'cobrado') return this.avisar('aviso', 'Termina o cancela el ticket en curso antes de cerrar el turno.');
+    if (!this.puedeArqueo) return this.avisar('aviso', 'Tu puesto no tiene el arqueo de caja: el cierre lo hace quien sí lo tiene.');
+    if (this.estado() === 'cobrado') this.siguienteCliente();
+    this.cerrandoTurno = true;
+    this.irArqueo();
+  }
+
+  private teclaConteo(e: KeyboardEvent, k: string, v: string): void {
+    const c = this.conteo()!;
+    const den = this.denominaciones(c.tipo);
+    if (k === 'Escape') {
+      e.preventDefault();
+      this.limpiar();
+      if (c.tipo === 'apertura') this.conteo.set({ tipo: 'apertura', i: 0, vals: [], pin: false });
+      else this.conteo.set(null);
+      return;
+    }
+    if (k !== 'Enter') { if (k.length === 1 && !/[d.,]/.test(k) && !e.ctrlKey) e.preventDefault(); return; }
+    e.preventDefault();
+    if (c.i < den.length) {
+      const n = v === '' ? 0 : leerImporte(v);
+      if (n === null || (den[c.i][0] && n % 1)) return this.avisar('error', den[c.i][0] ? 'Teclea cuántas piezas (número entero).' : 'Teclea el importe en monedas, por ejemplo 36.50.');
+      this.conteo.set({ ...c, i: c.i + 1, vals: [...c.vals, n] });
+      this.limpiar();
+      return;
+    }
+    const total = this.sumaConteo();
+    if (c.tipo === 'apertura') {
+      if (!(total > 0)) return this.avisar('error', 'El fondo no puede ser cero: vuelve a contar (Esc).');
+      this.turno.set({ desde: new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: false }), fondo: total, retiros: [] });
+      this.conteo.set(null);
+      this.limpiar();
+      return this.avisar('ok', 'Turno abierto con ' + pesos(total) + ' de fondo. Escanea el primer producto.');
+    }
+    if (!(total > 0)) return this.avisar('error', 'El retiro está en cero: cuenta lo que vas a retirar (Esc para no retirar).');
+    if (v.length < 4) return this.avisar('error', 'Quien recibe el dinero teclea su PIN (al menos 4 dígitos). En práctica no se valida.');
+    const t = this.turno()!;
+    const folio = 'R-' + String(t.retiros.length + 1).padStart(4, '0');
+    this.turno.set({ ...t, retiros: [...t.retiros, { folio, monto: total, hora: new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: false }) }] });
+    this.conteo.set(null);
+    this.limpiar();
+    this.avisar('ok', 'Retiro ' + folio + ' por ' + pesos(total) + ' registrado en práctica: entra al corte del turno.');
   }
 
   // ── Ayudas ──
