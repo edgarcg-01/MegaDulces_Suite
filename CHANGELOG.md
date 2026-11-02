@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Fixed — Cortes/Sucursales: la lista dice de quién es cada número (CSU.17, 2026-11-02)
+- Cada corte muestra **tres arqueos con su fuente**: el corte contra lo que Kepler esperaba, lo que contó el **cajero** y los **billetes y monedas** que capturó Kepler. Cada uno dice «Falta $X», «Sobra $X» o «Cuadra», o por qué no hay dato.
+- Los encabezados dicen de dónde sale cada monto («aplicado en Kepler», «por cobrar»), y arriba se ve la fecha del **último cobro aplicado en Kepler**.
+- «N sin cuadrar» del día ya no da por bueno un «Cuadra» que el cajero o el desglose contradicen. En octubre: 55 → 272 cortes.
+
 ### Added — Pagos: el sistema dice **qué pagar**, sin que nadie se lo pida (PGP.41 / PGP.42, 2026-10-31)
 - Al abrir el Calendario, el panel responde la pregunta de todos los días: **«pagando $9,196,114.81 a 32 acreedores esta semana se ganan $507,960.87 de pronto pago»**, con quién cierra hoy, quién mañana y a quién se le puede preparar la transferencia ya.
 - Antes había que abrir el día y apretar «proponer», y la propuesta ordenaba por la factura más vieja — que **nunca llegaba** a lo que gana descuento.

@@ -113,11 +113,37 @@ export interface DiaDeCortes {
   saldo: number;
   /** Cortes del día que todavía no se cobraron completos. */
   pendientes: number;
-  /** Cortes del día cuyo arqueo no cuadra (faltante, sobrante o corte distinto). */
+  /**
+   * Cortes del día que no cuadran: el corte contra lo que Kepler esperaba, o `[CSU.17]` un testigo
+   * independiente (el cajero; si no contó, los billetes y monedas de Kepler).
+   */
   descuadrados: number;
 }
 
 const CUADRE_MALO: readonly CorteCuadre[] = ['faltante_arqueo', 'sobrante_arqueo', 'corte_distinto'];
+
+/**
+ * `[CSU.17]` Una diferencia de arqueo como se pinta en la lista, con su signo en palabras.
+ * `null` = ese testigo no contó: se dice con `sinDato`, nunca «Cuadra».
+ */
+export function celdaArqueo(dif: number | null | undefined, sinDato: string): { label: string; sev: Sev } {
+  if (dif == null) return { label: sinDato, sev: 'secondary' };
+  if (Math.abs(dif) < 1) return { label: 'Cuadra', sev: 'success' };
+  return dif < 0 ? { label: `Falta ${money(-dif)}`, sev: 'danger' } : { label: `Sobra ${money(dif)}`, sev: 'warn' };
+}
+
+/**
+ * `[CSU.17]` ¿Un testigo independiente dice que el corte no cuadra? Manda el cajero; si no contó,
+ * los billetes y monedas de Kepler. Medido el 01/11 en 8 Esquinas: los 4 cortes decían «Cuadra»
+ * (Kepler contra sí mismo) y el cajero contó −$98.05, −$0.22, −$3,495.69 y −$406.23.
+ */
+export function descuadraPorTestigo(c: CorteRow): boolean {
+  const a = c.arqueo;
+  if (!a) return false;
+  const cajero = a.declaracion_cajero?.diferencia;
+  const dif = cajero != null ? cajero : a.fisico_diferencia;
+  return dif != null && Math.abs(dif) >= 1;
+}
 
 /**
  * `[CSU.15]` Englobar los cortes por día de sucursal — **el único cambio al proceso de hoy**.
@@ -147,7 +173,7 @@ export function agruparCortesPorDia(cortes: readonly CorteRow[]): DiaDeCortes[] 
     g.cobrado += c.cobrado;
     g.saldo += c.saldo;
     if (c.saldo > 0.005) g.pendientes++;
-    if (CUADRE_MALO.includes(c.cuadre)) g.descuadrados++;
+    if (CUADRE_MALO.includes(c.cuadre) || descuadraPorTestigo(c)) g.descuadrados++;
   }
   return [...grupos.values()].sort((a, b) =>
     a.fecha === b.fecha ? a.sucursal_nombre.localeCompare(b.sucursal_nombre, 'es') : b.fecha.localeCompare(a.fecha));
@@ -259,10 +285,10 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
         <div class="cs-split">
           <section class="cs-block dt-scope" aria-labelledby="cs-h-cortes">
             <div class="cs-bh"><h2 id="cs-h-cortes">Cortes @if (selSuc(); as s) { · {{ s.sucursal_nombre }} }</h2>
-              <span class="cs-hint" aria-live="polite">@if (q().trim()) { {{ cortes().length }} de {{ cortesBase().length }} corte(s) con «{{ q().trim() }}» · <button type="button" class="cs-link" (click)="limpiarBusqueda()">limpiar</button> · } @else { {{ diasDeCortes().length }} día(s) · {{ cortes().length }} corte(s) · } pendiente {{ money(pendienteVisible()) }}
+              <span class="cs-hint" aria-live="polite">@if (q().trim()) { {{ cortes().length }} de {{ cortesBase().length }} corte(s) con «{{ q().trim() }}» · <button type="button" class="cs-link" (click)="limpiarBusqueda()">limpiar</button> · } @else { {{ diasDeCortes().length }} día(s) · {{ cortes().length }} corte(s) · } pendiente {{ money(pendienteVisible()) }}@if (ultimoCobro(); as u) { · último cobro aplicado en Kepler: {{ dmy(u) }} }
                 @if (!plegadoBloqueado() && diasDeCortes().length > 1) { · <button type="button" class="cs-link" (click)="todosLosDias(!algunDiaAbierto())">{{ algunDiaAbierto() ? 'plegar todos' : 'desplegar todos' }}</button> }</span></div>
             <p-table [value]="diasDeCortes()" size="small" class="surf-table dt-stack" [rowHover]="true" [scrollable]="true" scrollHeight="58vh" dataKey="clave" [expandedRowKeys]="diasAbiertos()" [paginator]="diasDeCortes().length > 100" [rows]="100">
-              <ng-template #header><tr><th class="cs-togcol"><span class="sr-only">Desplegar</span></th><th>Día</th>@if (!selSuc()) { <th>Sucursal</th> }<th class="ta-r">Cortes</th><th class="ta-r">Monto</th><th class="ta-r">Cobrado</th><th class="ta-r">Saldo</th><th>Estado</th></tr></ng-template>
+              <ng-template #header><tr><th class="cs-togcol"><span class="sr-only">Desplegar</span></th><th>Día</th>@if (!selSuc()) { <th>Sucursal</th> }<th class="ta-r">Cortes</th><th class="ta-r">Monto<span class="cs-th-de">cortes en Kepler</span></th><th class="ta-r">Cobrado<span class="cs-th-de">aplicado en Kepler</span></th><th class="ta-r">Saldo<span class="cs-th-de">por cobrar</span></th><th>Estado</th></tr></ng-template>
               <ng-template #body let-d let-expanded="expanded">
                 <tr class="cs-dia" [class.cs-dia-abierta]="expanded">
                   <td role="cell" data-label="Desplegar"><button type="button" class="cs-tog" (click)="toggleDia(d)" [disabled]="plegadoBloqueado()"
@@ -283,7 +309,11 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
               <ng-template #expandedrow let-d>
                 <tr class="cs-dia-det"><td [attr.colspan]="selSuc() ? 7 : 8">
                   <table class="cs-cortes">
-                    <thead><tr><th>Corte</th><th>Caja</th><th class="ta-r">Monto</th><th class="ta-r">Cobrado</th><th class="ta-r">Saldo</th><th>Cobro</th><th>Cuadre</th></tr></thead>
+                    <!-- [CSU.17] Cada número dice de quién es. Los tres arqueos son diferencias contra lo
+                         que Kepler esperaba: el corte (Kepler contra si mismo), el cajero (su arqueo ciego)
+                         y los billetes y monedas que capturo Kepler. -->
+                    <thead><tr><th>Corte</th><th>Caja</th><th class="ta-r">Monto</th><th class="ta-r">Cobrado<span class="cs-th-de">en Kepler</span></th><th class="ta-r">Saldo</th><th>Cobro</th>
+                      <th>Corte<span class="cs-th-de">vs esperado Kepler</span></th><th>Cajero<span class="cs-th-de">arqueo ciego</span></th><th>Billetes y monedas<span class="cs-th-de">Kepler</span></th></tr></thead>
                     <tbody>
                       @for (c of d.cortes; track c.clave) {
                         <tr class="cs-corte" [class.cs-corte-sel]="selCorte()?.clave === c.clave" (click)="selCorte.set(c)" tabindex="0"
@@ -297,6 +327,15 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
                           <td><p-tag [value]="cobroLabel(c.estado_cobro)" [severity]="cobroSev(c.estado_cobro)" styleClass="cs-tag" />
                             @if (c.cobros_cancelados.length) { <p-tag [value]="c.cobros_cancelados.length + ' cancelado' + (c.cobros_cancelados.length > 1 ? 's' : '')" severity="secondary" styleClass="cs-tag" [attr.title]="'Cobros cancelados en Kepler: no suman'" /> }</td>
                           <td><p-tag [value]="cuadreLabel(c)" [severity]="cuadreSev(c.cuadre)" styleClass="cs-tag" /></td>
+                          @if (c.arqueo; as a) {
+                            @let cj = celdaCajero(a);
+                            @let kp = celda(a.fisico_diferencia, 'Sin desglose');
+                            <td><p-tag [value]="cj.label" [severity]="cj.sev" styleClass="cs-tag" />
+                              @if (a.declaracion_cajero?.concuerda_con_kepler === false) { <p-tag value="no concuerda con Kepler" severity="secondary" styleClass="cs-tag" /> }</td>
+                            <td><p-tag [value]="kp.label" [severity]="kp.sev" styleClass="cs-tag" /></td>
+                          } @else {
+                            <td class="muted">—</td><td class="muted">—</td>
+                          }
                         </tr>
                       }
                     </tbody>
@@ -761,6 +800,25 @@ export class FinanzasCortesSucursalesComponent implements OnInit {
     frases.push(d.ligado === 'folio' ? 'ligado por el folio del turno' : 'ligado por caja y hora (la captura no trae folio)');
     return `${frases.join(' · ')}.`;
   }
+
+  /** `[CSU.17]` Celda de arqueo de la lista (ver `celdaArqueo`). */
+  celda(dif: number | null | undefined, sinDato: string): { label: string; sev: Sev } { return celdaArqueo(dif, sinDato); }
+  /** `[CSU.17]` El cajero: su diferencia, o por qué no hay — no contó, no capturó el cierre, o sus conteos apuntan a otro turno. */
+  celdaCajero(a: CorteArqueo): { label: string; sev: Sev } {
+    const d = a.declaracion_cajero;
+    if (d) return celdaArqueo(d.diferencia, 'Sin cierre');
+    return celdaArqueo(null, a.conteos_cajero_sin_ligar ? `Sin ligar (${a.conteos_cajero_sin_ligar})` : 'No contó');
+  }
+
+  /**
+   * `[CSU.17]` La fecha del último cobro aplicado en Kepler entre los cortes del periodo: un «Sin cobro»
+   * de ayer con el último cobro de hace dos días es plazo de captura, no un defecto de la pantalla.
+   */
+  readonly ultimoCobro = computed(() => {
+    let max: string | null = null;
+    for (const c of this.data()?.cortes ?? []) for (const b of c.cobros) if (b.fecha && (!max || b.fecha > max)) max = b.fecha;
+    return max;
+  });
 
   /** `[CSU.16]` Cortes del periodo cuyo contado en Kepler es idéntico al esperado, sobre los que tienen arqueo. */
   readonly pctContadoIgual = computed(() => {
