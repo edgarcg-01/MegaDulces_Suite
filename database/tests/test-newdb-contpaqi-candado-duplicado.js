@@ -71,6 +71,12 @@ function servicio(pool) {
   return armado;
 }
 
+/** `[CP.8.97]` Las filas de `GET lotes` con la llave con que las conoce la pantalla (`clave`, o `cuenta|fecha`). */
+async function filasDeLotes(armado, mes) {
+  const { lotes } = await armado.simularLotes(mes);
+  return new Set(lotes.map((l) => l.clave ?? `${l.cuenta_banco}|${l.fecha}`));
+}
+
 async function soloLectura(url) {
   console.log(`\n[B] Contra prod, sólo lectura: ${MES_REAL}, que contabilidad ya capturó`);
   const pool = knexLib({
@@ -90,6 +96,10 @@ async function soloLectura(url) {
     check(yaCapturadas.length >= dic.polizas.length * 0.9,
       `⭐ frena por «ya capturada» casi todo un mes que ella ya capturó: ${yaCapturadas.length} de ${dic.polizas.length}`);
     check(frenadas.every((p) => p.hallazgos.some((x) => x.severidad === 'bloquea')), 'cada bloqueada dice qué regla la frena');
+    // `[CP.8.97]` La pantalla liga cada fila de `GET lotes` con su veredicto por `lote`: si no casa, la fila se ve sin dictamen.
+    const filas = await filasDeLotes(armado, MES_REAL);
+    check(dic.polizas.every((p) => filas.has(p.lote)) && dic.entregadas.every((k) => filas.has(k)),
+      `cada póliza dictaminada y cada entregada es una fila de la lista (${dic.polizas.length} + ${dic.entregadas.length} de ${filas.size} filas)`);
 
     let arch = null;
     let err = null;
@@ -171,6 +181,10 @@ async function completo(urlAdmin, urlRuntime) {
     const d2 = await armado.dictamenDelMes(MES);
     check(d2.polizas.length === 1 && d2.polizas[0].clave === `${BANCO}|2001-03-05` && d2.ya_entregadas === 1,
       `lo ya entregado sale de la pantalla como sale del archivo: juzga ${d2.polizas.map((p) => p.clave).join(', ')} · ${d2.ya_entregadas} entregada`);
+    const filas2 = await filasDeLotes(armado, MES);
+    check(d2.polizas[0].lote === `${BANCO}|2001-03-05` && d2.entregadas.length === 1 && d2.entregadas[0] === `${BANCO}|2001-03-06`
+      && filas2.has(d2.polizas[0].lote) && filas2.has(d2.entregadas[0]),
+      `[CP.8.97] la pantalla sabe qué fila es cada una: frenada ${d2.polizas[0].lote} · entregada ${d2.entregadas.join(', ')}`);
 
     await ponerSuPoliza(100.01);
     const a2 = await armado.generarArchivoMes(MES);

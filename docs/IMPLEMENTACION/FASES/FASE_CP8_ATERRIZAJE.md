@@ -1156,6 +1156,8 @@ falta uno nuevo.
 - **2026-11-02** — `[CP.8.96]` punto 5 (§11.14): su cifra diaria son los tickets del día; por mes y tasa quedan a 0.99–1.05.
 - **2026-11-02** — `[CP.8.96]` TLMKT (§11.14): el equipo sale del concepto del banco y de Kepler; su reparto se
   desvía en 25–54 % sin regla, y la venta TLMKT de Kepler no cubre su abono todavía.
+- **2026-11-02** — `[CP.8.97]` La entrega con el dictamen (§11.15): el paso 4 dice lo que sale y cada póliza
+  lleva su veredicto en la misma lista.
 
 ---
 
@@ -1877,3 +1879,44 @@ pero no puede reproducir su póliza mientras (a) la venta del equipo no tenga fu
 moviendo depósitos. ⭐ Alternativa de proceso, igual que en tienda: que la póliza TLMKT lleve una cuenta puente para la
 diferencia entre depósitos del equipo y venta del equipo, en vez de mover depósitos. Eso lo decide contabilidad, junto
 con el abono de tienda.
+
+### 11.15 🧪 `[CP.8.97]` La entrega con el dictamen (2026-11-02)
+
+**Qué cambia.** El paso 4 de `/contabilidad/contpaqi-puente` («Revisar y entregar») decía «N pólizas listas» contando
+todo lo armado, incluido lo que el dictamen frena (`[CP.8.88]`) y lo ya entregado (`[CP.8.53]`), que no viajan en el
+archivo. En septiembre eso eran 111 de 113. Ahora la respuesta de arriba es lo que **sale**: listas más por revisar,
+con su importe. Debajo, lo que no sale o pide una mirada; cada parte filtra la lista.
+
+**Las cinco preguntas** (`diseno` §0b):
+1. *Qué ve primero y en qué orden:* cuántas pólizas salen y cuánto suman; después, cuántas hay por revisar, cuántas
+   frenó el dictamen y cuántas ya se entregaron. En la lista, lo frenado y lo por revisar van primero.
+2. *Qué no ve:* los códigos de regla (se muestra el mensaje en llano) y los avisos menores, que sólo aparecen en el
+   detalle. Las listas no se enumeran arriba, porque ya están en la cifra.
+3. *Accesibilidad:* el veredicto va en la fila (etiqueta con texto, no sólo color), con el hallazgo más grave debajo
+   del banco. Hay chips por veredicto con su conteo y el detalle trae todos los hallazgos. «Por revisar» y «Frenadas»
+   se abren desde la tira de métricas y desde la frase de arriba.
+4. *Ligas:* la frenada por «ya capturada» dice en el mensaje el folio y la fecha de la póliza de contabilidad, y los
+   movimientos de cada póliza se siguen abriendo desde la fila. El aviso de descarga cuenta lo que dice el archivo
+   (`X-Polizas`, `X-Bloqueadas-Dictamen`); si un encabezado no llega, no lo dice.
+5. *¿Le toca a esta pantalla?* Sí: es la revisión antes de entregar. No es pestaña ni tabla nueva; es una columna y
+   unos chips en «Las pólizas del mes».
+
+**Jerarquía (Q.5):** primario = cuántas salen y su importe; secundario = por revisar, frenadas y ya entregadas;
+terciario = el porqué de cada fila.
+
+**Contrato (C2).** `GET dictamen` agrega `polizas[].lote` (la llave de la fila en `GET lotes`: `clave` del resumen o
+`cuenta|fecha`) y `entregadas` (las filas con póliza que ya tienen entrega registrada). Lo nuevo es aditivo: ningún
+consumidor anterior cambia.
+
+**Probado.**
+- `check:pantalla`: 0 fallas nuevas, y la pantalla tipa.
+- Spec de la pantalla: 44 ✓. Los mutantes de las frases (umbral de por revisar y de frenadas) salen rojos.
+- `test-newdb-contpaqi-candado-duplicado`: 10 ✓ en local, donde la frenada y la entregada se ligan a su fila. Contra
+  prod, sólo lectura: 7 ✓; las 113 pólizas de septiembre son, cada una, una fila de la lista. Usar la clave cruda
+  como llave sale rojo.
+
+**Declarado.**
+- El dictamen tarda **~7 s** en prod (septiembre; antes medía 3–4 s). Arriba de 500 ms, así que llega después de la
+  lista: mientras tanto la respuesta dice «armadas» y «Revisando…». Bajarlo es deuda con nombre (`[CP.8.98]`, sin abrir).
+- «Por revisar» **sí sale** en el archivo (D12, sin decidir): la pantalla lo dice junto al botón de descarga.
+- Sin validación visual: no se levantó la app.

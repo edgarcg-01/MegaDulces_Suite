@@ -22,6 +22,8 @@ import {
   motivoNoFirmable,
   pasoDeMotivo,
   sugerenciaBeneficiario,
+  frasesDelDictamen,
+  textoArchivoGenerado,
 } from './contabilidad-contpaqi-puente.component';
 
 /**
@@ -350,5 +352,29 @@ describe('[CP.8.80] categorizar desde el puente', () => {
     const cmp = leer('apps/view/src/app/modules/contabilidad/pages/contabilidad-contpaqi-puente.component.ts');
     expect(cmp).not.toContain('routerLink="/finanzas/bancos"');
     expect(cmp).toContain('abrirCategorizar(x)');
+  });
+});
+
+describe('[CP.8.97] el dictamen en la entrega', () => {
+  const n = (o: Partial<Record<'lista' | 'revisar' | 'bloqueada' | 'entregada', number>>) =>
+    ({ lista: 0, revisar: 0, bloqueada: 0, entregada: 0, ...o });
+
+  it('la segunda línea nombra lo que pide trabajo, en ese orden, y no las listas', () => {
+    expect(frasesDelDictamen(n({ lista: 7, revisar: 8, bloqueada: 118, entregada: 3 })).map((f) => f.texto)).toEqual([
+      '8 por revisar antes de entregar', '118 frenadas por el dictamen, no salen', '3 ya entregadas',
+    ]);
+    expect(frasesDelDictamen(n({ bloqueada: 1 }))[0].texto).toBe('1 frenada por el dictamen, no sale');
+    expect(frasesDelDictamen(n({ revisar: 1 }))[0].texto).toBe('1 por revisar antes de entregar');
+  });
+
+  it('todas listas: la línea queda vacía (la plantilla dice «Todas pasan el dictamen»)', () => {
+    expect(frasesDelDictamen(n({ lista: 40 }))).toEqual([]);
+  });
+
+  it('el aviso de descarga dice lo que traen los encabezados del archivo, y calla lo que no llegó', () => {
+    expect(textoArchivoGenerado('2026-10', '15', '118'))
+      .toBe('Archivo de 2026-10 generado con 15 pólizas; 118 frenadas por el dictamen no van. NO quedó marcado como entregado.');
+    expect(textoArchivoGenerado('2026-10', '1', '0')).toBe('Archivo de 2026-10 generado con 1 póliza. NO quedó marcado como entregado.');
+    expect(textoArchivoGenerado('2026-10', null, null)).toBe('Archivo de 2026-10 generado. NO quedó marcado como entregado.');
   });
 });

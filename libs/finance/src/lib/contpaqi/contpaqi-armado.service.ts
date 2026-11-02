@@ -199,6 +199,12 @@ interface PolizaArmada {
 }
 
 /**
+ * `[CP.8.97]` La identidad con que la pantalla conoce la fila en `GET lotes`: la misma regla que usa ella
+ * (`clave` del resumen, o `cuenta|fecha` del lote del día), para ligar cada fila con su dictamen.
+ */
+const filaDeLote = (l: PolizaArmada): string => l.resumen.clave ?? `${l.resumen.cuenta_banco}|${l.resumen.fecha}`;
+
+/**
  * `[CP.8.34]` — **Lo que el puente NO cubre, dicho por el servidor.**
  *
  * ⛔ Antes esto vivía en un `logger.warn` que nadie lee: *"876 egresos sin contpaqi_cuenta"*.
@@ -300,9 +306,13 @@ export interface DictamenMes {
     fecha: string;
     total: number;
     banco_label: string | null;
+    /** `[CP.8.97]` La identidad de su fila en `GET lotes` (`clave` del resumen, o `cuenta|fecha` del lote). */
+    lote: string;
   })[];
   /** Lo del mes que ya tiene entrega registrada: ni se dictamina ni sale. */
   ya_entregadas: number;
+  /** `[CP.8.97]` Las filas de `GET lotes` con póliza que no se dictaminan porque ya tienen entrega registrada. */
+  entregadas: string[];
   /** Lotes entregados que cambiaron después: no se reenvían (`[CP.8.53]`). */
   cambiados: string[];
 }
@@ -1000,14 +1010,18 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
    */
   async dictamenDelMes(anioMes: string): Promise<DictamenMes> {
     return this.conTenant(async () => {
-      const { pendientes, ya_entregadas, cambiados } = await this.pendientesDelMes(anioMes);
+      const { pendientes, ya_entregadas, cambiados, entregadas } = await this.pendientesDelMes(anioMes);
       const { hoy, dictamenes } = await this.dictaminarPendientes(anioMes, pendientes);
       const polizas = pendientes.map((l) => ({
         ...(dictamenes.get(`${l.evento_tipo}|${l.clave}`) as Dictamen),
         clave: l.clave, evento_tipo: l.evento_tipo, tipo: l.resumen.tipo ?? 'lote',
         fecha: l.asiento!.fecha, total: l.asiento!.total, banco_label: l.resumen.banco_label ?? null,
+        lote: filaDeLote(l),
       }));
-      return { mes: anioMes, hoy, resumen: resumenDictamen(polizas), polizas, ya_entregadas, cambiados };
+      return {
+        mes: anioMes, hoy, resumen: resumenDictamen(polizas), polizas, ya_entregadas, cambiados,
+        entregadas: entregadas.map(filaDeLote),
+      };
     });
   }
 
@@ -1159,7 +1173,7 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
    */
   private async pendientesDelMes(anioMes: string): Promise<{
     conAsiento: number; pendientes: PolizaArmada[]; ya_entregadas: number; cambiados: string[];
-    fuera_de_lote: ResumenMes['fuera_de_lote'];
+    fuera_de_lote: ResumenMes['fuera_de_lote']; entregadas: PolizaArmada[];
   }> {
     const { lotes, fuera_de_lote } = await this.construirLotes(anioMes);
     const conAsiento = lotes.filter((l) => l.asiento && l.resumen.incluidas > 0);
@@ -1181,13 +1195,15 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
         .map((r) => [`${r.evento_tipo}|${r.evento_id}`, Number(r.total)]),
     );
     const cambiados: string[] = [];
+    const entregadas: PolizaArmada[] = [];
     const pendientes = conAsiento.filter((l) => {
       const llave = `${l.evento_tipo}|${l.clave}`;
       if (!entregados.has(llave)) return true;
       if (Math.round(entregados.get(llave)! * 100) !== Math.round(l.asiento!.total * 100)) cambiados.push(l.clave);
+      entregadas.push(l);
       return false;
     });
-    return { conAsiento: conAsiento.length, pendientes, ya_entregadas: entregados.size, cambiados, fuera_de_lote };
+    return { conAsiento: conAsiento.length, pendientes, ya_entregadas: entregados.size, cambiados, fuera_de_lote, entregadas };
   }
 
   /**

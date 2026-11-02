@@ -17,6 +17,7 @@ import {
   ContpaqiPuenteService, LoteRow, LotesResp, CuadreResp,
   PendienteProveedor, PendientesResp, ReglaVista, PagoPorConfirmar, CfdiPropuesto, MovimientosResp,
   FiltroMovimientos, MovimientoBanco, CategoriaEgreso, VistaPreviaBeneficiario,
+  DictamenResp, PolizaDictaminada, Hallazgo, Veredicto,
 } from '../contpaqi-puente.service';
 
 /**
@@ -78,12 +79,32 @@ import {
         @if (data(); as d) {
 
           <!-- Q.1 · la respuesta, antes que cualquier tabla -->
+          <!-- [CP.8.97] Lo que SALE (el dictamen ya quitó lo frenado y lo entregado), no lo que se armó. -->
           <section class="cpp-verdict">
             <h2>
-              <span class="mono">{{ d.resumen.con_asiento | number }}</span>
-              {{ d.resumen.con_asiento === 1 ? 'póliza lista' : 'pólizas listas' }}
-              <span class="cpp-v-imp mono">{{ importeListo() | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+              @if (dict()) {
+                <span class="mono">{{ salen() | number }}</span>
+                {{ salen() === 1 ? 'póliza sale en el archivo' : 'pólizas salen en el archivo' }}
+                <span class="cpp-v-imp mono">{{ importeSale() | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+              } @else {
+                <span class="mono">{{ d.resumen.con_asiento | number }}</span>
+                {{ d.resumen.con_asiento === 1 ? 'póliza armada' : 'pólizas armadas' }}
+                <span class="cpp-v-imp mono">{{ importeListo() | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+              }
             </h2>
+            @if (dict()) {
+              <p class="cpp-v-sub">
+                @for (f of frasesDictamen(); track f.v; let ult = $last) {
+                  <button type="button" class="cpp-link" [class.cpp-mal]="f.v === 'bloqueada'" (click)="verVeredicto(f.v)">{{ f.texto }}</button>@if (!ult) { &middot; }
+                } @empty { Todas pasan el dictamen. }
+                <app-context-help topic="contpaqi-dictamen" />
+              </p>
+            } @else if (dictError(); as e) {
+              <p class="cpp-v-sub cpp-mal" role="alert">No se pudo dictaminar el mes: {{ e }}.
+                <button type="button" class="cpp-link" (click)="cargarDictamen()">Reintentar</button></p>
+            } @else {
+              <p class="cpp-v-sub">Revisando cada p&oacute;liza contra el cat&aacute;logo, sus facturas y lo que contabilidad ya captur&oacute;&hellip;</p>
+            }
           </section>
 
           <!-- Los pasos: cada uno dice lo que le queda. El estado no depende sólo del color. -->
@@ -397,6 +418,13 @@ import {
                   @if (avisoArchivo(); as a) { <div class="cpp-aviso" [class.mal]="a.mal" role="status">{{ a.texto }}</div> }
                   @if (avisoEntrega(); as a) { <div class="cpp-aviso" [class.mal]="a.mal" role="status">{{ a.texto }}</div> }
                 }
+                @if (porVeredicto().revisar > 0) {
+                  <p class="cpp-ojo">
+                    <i class="pi pi-eye" aria-hidden="true"></i>
+                    <span><button type="button" class="cpp-link mono" (click)="verVeredicto('revisar')">{{ porVeredicto().revisar | number }}</button>
+                      {{ porVeredicto().revisar === 1 ? 'póliza por revisar sí va' : 'pólizas por revisar sí van' }} en el archivo: m&iacute;ralas antes de descargarlo.</span>
+                  </p>
+                }
                 @if (cuadre(); as c) {
                   <p class="cpp-ojo">
                     <i class="pi pi-sync" aria-hidden="true"></i>
@@ -436,10 +464,16 @@ import {
 
                 <h4 class="cpp-h4">Las p&oacute;lizas del mes</h4>
                 <div class="cpp-chips">
-                  <button type="button" class="cpp-chip" [class.on]="filtro() === null"
-                          [attr.aria-pressed]="filtro() === null" (click)="toggleMotivo(null)">
+                  <button type="button" class="cpp-chip" [class.on]="filtro() === null && filtroVer() === null"
+                          [attr.aria-pressed]="filtro() === null && filtroVer() === null" (click)="toggleMotivo(null)">
                     Todas <span class="mono">{{ d.lotes.length | number }}</span>
                   </button>
+                  @for (c of chipsDictamen(); track c.v) {
+                    <button type="button" class="cpp-chip" [class.on]="filtroVer() === c.v"
+                            [attr.aria-pressed]="filtroVer() === c.v" (click)="toggleVeredicto(c.v)">
+                      {{ c.label }} <span class="mono">{{ c.n | number }}</span>
+                    </button>
+                  }
                   @for (m of d.motivos; track m.motivo) {
                     <button type="button" class="cpp-chip" [class.on]="filtro() === m.motivo"
                             [attr.aria-pressed]="filtro() === m.motivo" (click)="toggleMotivo(m.motivo)">
@@ -455,13 +489,18 @@ import {
                              selectionMode="single" [selection]="sel()" (selectionChange)="sel.set($event)"
                              dataKey="k">
                       <ng-template #header>
-                        <tr><th>Banco</th><th>Fecha</th><th class="ta-r">Movs</th><th class="ta-r">Entran</th></tr>
+                        <tr><th>Banco</th><th>Dictamen</th><th>Fecha</th><th class="ta-r">Movs</th><th class="ta-r">Entran</th></tr>
                       </ng-template>
                       <ng-template #body let-l>
                         <tr [pSelectableRow]="l" class="cpp-lote">
                           <td>
                             <span class="cpp-bank">{{ banco(l) }}</span>
                             @if (l.tipo === 'pago_proveedor') { <span class="cpp-sub">pago a proveedor &middot; {{ l.cfdis | number }} facturas y notas</span> }
+                            @if (porQueDe(l); as pq) { <span class="cpp-sub cpp-porque" [title]="pq">{{ pq }}</span> }
+                          </td>
+                          <td>
+                            @if (veredictoDe(l); as v) { <p-tag [severity]="tagVeredicto(v)" [value]="textoVeredicto(v)" /> }
+                            @else if (l.incluidas > 0 && !dict()) { <span class="muted">&hellip;</span> }
                           </td>
                           <td class="muted mono">{{ l.fecha }}</td>
                           <td class="ta-r"><button type="button" class="cpp-cifra mono" (click)="verMovimientos({ poliza: l.k }, banco(l) + ' · ' + l.fecha)">{{ l.movimientos | number }}</button></td>
@@ -473,7 +512,7 @@ import {
                         </tr>
                       </ng-template>
                       <ng-template #emptymessage>
-                        <tr><td colspan="4" class="cpp-empty">Ninguna p&oacute;liza con ese motivo.</td></tr>
+                        <tr><td colspan="5" class="cpp-empty">Ninguna p&oacute;liza con ese filtro.</td></tr>
                       </ng-template>
                     </p-table>
                   </div>
@@ -510,6 +549,22 @@ import {
                       }
                       @if (l.iva_traspaso === 'no_emitido') {
                         <p class="cpp-note">Esta p&oacute;liza cuadra pero no lleva el traspaso de IVA.</p>
+                      }
+                      @if (veredictoDe(l); as v) {
+                        <div class="cpp-eyebrow mt">Dictamen</div>
+                        <div class="cpp-dict"><p-tag [severity]="tagVeredicto(v)" [value]="textoVeredicto(v)" />
+                          <span class="cpp-sub">{{ explicaVeredicto(v) }}</span></div>
+                        @if (dictDe(l); as p) {
+                          @if (p.hallazgos.length) {
+                            <ul class="cpp-hallazgos">
+                              @for (h of hallazgosOrdenados(p); track $index) {
+                                <li [class.cpp-mal]="h.severidad === 'bloquea'"><span class="cpp-sev">{{ textoSeveridad(h.severidad) }}</span> {{ h.mensaje }}</li>
+                              }
+                            </ul>
+                          } @else {
+                            <p class="cpp-note">Pasa todas las revisiones.</p>
+                          }
+                        }
                       }
                     } @else {
                       <p class="cpp-note">Elige una p&oacute;liza de la lista.</p>
@@ -634,6 +689,13 @@ import {
     .cpp-verdict h2 { font-size: clamp(1.5rem, 3.6vw, 2rem); font-weight: 600; margin: 0;
       letter-spacing: -.02em; line-height: 1.15; text-wrap: balance; }
     .cpp-v-imp { color: var(--c-text-2); font-weight: 500; margin-left: .35rem; font-size: .7em; }
+    /* [CP.8.97] Secundario: qué del dictamen no sale o pide una mirada; cada parte filtra la lista. */
+    .cpp-v-sub { margin: .35rem 0 0; font-size: var(--fs-sm); color: var(--c-text-2); }
+    .cpp-porque { max-width: 46ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cpp-dict { display: flex; gap: var(--sp-2); align-items: baseline; margin-top: var(--sp-1); }
+    .cpp-hallazgos { list-style: none; margin: var(--sp-2) 0 0; padding: 0; display: grid; gap: var(--sp-2);
+      font-size: var(--fs-xs); color: var(--c-text-2); }
+    .cpp-sev { font-weight: 600; margin-right: .25rem; }
 
     .cpp-pasos ol { list-style: none; margin: 0; padding: 0; display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--sp-2); }
@@ -842,11 +904,23 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
   /** El resumen del paso 4: qué trae el archivo y qué se queda afuera. */
   readonly kpis = computed<MetricStripItem[]>(() => {
     const d = this.data();
+    const dc = this.dict();
+    const n = this.porVeredicto();
     if (!d) return [];
+    // `[CP.8.97]` Con el dictamen, lo que SALE y lo que lo frena; sin él, sólo lo armado (no se adelanta un veredicto).
+    const archivo: MetricStripItem[] = dc ? [
+      { label: 'Salen en el archivo', value: this.salen(), format: 'number', state: 'medido',
+        tone: this.salen() === 0 ? 'muted' : 'ok', sub: PESOS.format(this.importeSale()) },
+      { label: 'Por revisar', value: n.revisar, format: 'number', state: 'medido', tone: n.revisar > 0 ? 'warn' : 'muted',
+        sub: 'salen; míralas antes', drill: 'revisar', drillLabel: 'Ver las pólizas por revisar' },
+      { label: 'Frenadas', value: n.bloqueada, format: 'number', state: 'medido', tone: n.bloqueada > 0 ? 'bad' : 'muted',
+        sub: 'el dictamen no las deja salir', drill: 'bloqueada', drillLabel: 'Ver las pólizas frenadas por el dictamen' },
+    ] : [
+      { label: 'Pólizas armadas', value: d.resumen.con_asiento, format: 'number', state: 'medido',
+        tone: d.resumen.con_asiento === 0 ? 'muted' : 'default', sub: this.dictError() ? 'sin dictamen' : 'dictaminando…' },
+    ];
     return [
-      { label: 'Pólizas listas', value: d.resumen.con_asiento, format: 'number', state: 'medido',
-        tone: d.resumen.con_asiento === 0 ? 'muted' : 'ok', sub: 'van en el archivo' },
-      { label: 'Importe', value: this.importeListo(), format: 'currency', state: 'medido', sub: 'de esas pólizas' },
+      ...archivo,
       // `[CP.8.78]` Todo conteo de movimientos se abre (`drill` de MetricStrip, `[LC.21]`).
       { label: 'Movimientos que entran', value: d.resumen.incluidas, format: 'number', state: 'medido',
         sub: 'van en esas pólizas', drill: 'entran', drillLabel: 'Ver los movimientos que entran al archivo' },
@@ -868,6 +942,84 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
   readonly importeListo = computed(() =>
     (this.data()?.lotes ?? []).filter((l) => l.incluidas > 0).reduce((a, l) => a + Number(l.total), 0));
 
+  // ── `[CP.8.97]` El dictamen, en la misma lista de pólizas ─────────────────────────────────────
+  /**
+   * El dictamen del mes (`GET dictamen`, `[CP.8.95]`). Tarda segundos, así que llega después de la lista y no la
+   * detiene; mientras tanto la respuesta de arriba dice «armadas», que es lo único que ya se sabe.
+   */
+  readonly dict = signal<DictamenResp | null>(null);
+  readonly dictError = signal<string | null>(null);
+  /** Filtro de la lista por veredicto. Uno u otro: elegir éste suelta el filtro por motivo, y al revés. */
+  readonly filtroVer = signal<VeredictoFila | null>(null);
+
+  private readonly dictPorLote = computed(() => new Map((this.dict()?.polizas ?? []).map((p) => [p.lote, p])));
+  private readonly entregadasSet = computed(() => new Set(this.dict()?.entregadas ?? []));
+
+  readonly porVeredicto = computed<Record<VeredictoFila, number>>(() => {
+    const d = this.dict();
+    return {
+      lista: d?.resumen.por_veredicto.lista ?? 0, revisar: d?.resumen.por_veredicto.revisar ?? 0,
+      bloqueada: d?.resumen.por_veredicto.bloqueada ?? 0, entregada: d?.entregadas.length ?? 0,
+    };
+  });
+  /** Lo que lleva el archivo: listas y por revisar. Lo frenado y lo ya entregado no viaja (`[CP.8.88]`, `[CP.8.53]`). */
+  readonly salen = computed(() => this.porVeredicto().lista + this.porVeredicto().revisar);
+  readonly importeSale = computed(() =>
+    (this.dict()?.polizas ?? []).filter((p) => p.veredicto !== 'bloqueada').reduce((a, p) => a + Number(p.total), 0));
+  readonly frasesDictamen = computed(() => frasesDelDictamen(this.porVeredicto()));
+  readonly chipsDictamen = computed(() => {
+    const n = this.porVeredicto();
+    return ORDEN_VEREDICTO.filter((v) => n[v] > 0).map((v) => ({ v, n: n[v], label: CHIP_VEREDICTO[v] }));
+  });
+
+  cargarDictamen(): void {
+    const mes = this.mes();
+    this.dictError.set(null);
+    this.api.dictamen(mes).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { if (r.mes === this.mes()) this.dict.set(r); },
+      error: (e) => { this.dict.set(null); this.dictError.set(e?.error?.message ?? 'error de red'); },
+    });
+  }
+
+  dictDe(l: LoteVista): PolizaDictaminada | null { return this.dictPorLote().get(l.k) ?? null; }
+
+  /** `null` = la fila no lleva póliza, o el dictamen todavía no llega. */
+  veredictoDe(l: LoteVista): VeredictoFila | null {
+    const p = this.dictPorLote().get(l.k);
+    if (p) return p.veredicto;
+    return this.entregadasSet().has(l.k) ? 'entregada' : null;
+  }
+
+  /** Q.3 · en la fila, el porqué de lo frenado o por revisar: su hallazgo más grave. */
+  porQueDe(l: LoteVista): string | null {
+    const p = this.dictDe(l);
+    if (!p || p.veredicto === 'lista') return null;
+    return this.hallazgosOrdenados(p).find((h) => h.severidad !== 'aviso')?.mensaje ?? null;
+  }
+
+  hallazgosOrdenados(p: PolizaDictaminada): Hallazgo[] {
+    return [...p.hallazgos].sort((a, b) => RANGO_SEVERIDAD[a.severidad] - RANGO_SEVERIDAD[b.severidad]);
+  }
+
+  tagVeredicto(v: VeredictoFila): 'success' | 'warn' | 'danger' | 'secondary' { return TAG_VEREDICTO[v]; }
+  textoVeredicto(v: VeredictoFila): string { return TEXTO_VEREDICTO[v]; }
+  explicaVeredicto(v: VeredictoFila): string { return EXPLICA_VEREDICTO[v]; }
+  textoSeveridad(s: Hallazgo['severidad']): string { return TEXTO_SEVERIDAD[s]; }
+
+  toggleVeredicto(v: VeredictoFila): void {
+    this.filtroVer.set(this.filtroVer() === v ? null : v);
+    this.filtro.set(null);
+    this.sel.set(this.visibles()[0] ?? null);
+  }
+
+  /** Desde la respuesta de arriba: lleva al paso 4 con la lista ya filtrada por ese veredicto. */
+  verVeredicto(v: VeredictoFila): void {
+    this.filtroVer.set(v);
+    this.filtro.set(null);
+    this.sel.set(this.visibles()[0] ?? null);
+    this.irA('archivo');
+  }
+
   readonly pagosPendientes = computed(() => {
     const p = this.pagos();
     return p ? p.filter((x) => !x.confirmacion?.vigente).length : null;
@@ -877,7 +1029,8 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
     reglas: this.reglas() ? this.porFirmar().reglas : null, reglasError: !!this.reglasError(),
     proveedores: this.porConfirmar()?.filas.length ?? null, proveedoresError: !!this.proveedoresError(),
     pagos: this.pagosPendientes(), pagosError: !!this.pagosError(),
-    polizas: this.data()?.resumen.con_asiento ?? 0,
+    // `[CP.8.97]` «en el archivo» = lo que sale; hasta que llegue el dictamen, lo armado.
+    polizas: this.dict() ? this.salen() : this.data()?.resumen.con_asiento ?? 0,
   }));
 
   readonly paso = computed<Paso | null>(() => this.pasoElegido() ?? primerPasoConTrabajo(this.pasos()));
@@ -931,7 +1084,8 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
 
   /** Las tarjetas de la tira del paso 4 abren sus movimientos. */
   abrirKpi(llave: string): void {
-    if (llave === 'entran') this.verMovimientos({ entra: true }, 'Entran al archivo');
+    if (llave === 'revisar' || llave === 'bloqueada') this.verVeredicto(llave);
+    else if (llave === 'entran') this.verMovimientos({ entra: true }, 'Entran al archivo');
     else if (llave === 'espera') this.verMovimientos({ espera: true }, 'Esperan un paso');
     else if (llave === 'no_aplica') this.verMovimientos({ motivo: 'no_aplica' }, 'No generan póliza');
   }
@@ -972,12 +1126,19 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
     const d = this.data();
     if (!d) return [];
     const f = this.filtro();
-    const rows = f ? d.lotes.filter((l) => (l.motivos?.[f] ?? 0) > 0) : d.lotes;
-    return [...rows]
-      .sort((a, b) => b.movimientos - a.movimientos || a.fecha.localeCompare(b.fecha))
-      // `dataKey` de PrimeNG necesita UN campo, y la llave del lote son dos (banco y día).
-      // `[CP.8.72]` La clave viene del servidor: un pago a proveedor y el lote de su día comparten banco y fecha.
-      .map((l) => ({ ...l, k: l.clave ?? `${l.cuenta_banco}|${l.fecha}` }));
+    const fv = this.filtroVer();
+    const porLote = this.dictPorLote();
+    const entregadas = this.entregadasSet();
+    const ver = (l: LoteVista): VeredictoFila | null => porLote.get(l.k)?.veredicto ?? (entregadas.has(l.k) ? 'entregada' : null);
+    // `dataKey` de PrimeNG necesita UN campo, y la llave del lote son dos (banco y día).
+    // `[CP.8.72]` La clave viene del servidor: un pago a proveedor y el lote de su día comparten banco y fecha.
+    const conK = d.lotes.map((l) => ({ ...l, k: l.clave ?? `${l.cuenta_banco}|${l.fecha}` }));
+    const rows = conK
+      .filter((l) => !f || (l.motivos?.[f] ?? 0) > 0)
+      .filter((l) => !fv || ver(l) === fv);
+    // `[CP.8.97]` Primero lo que pide una decisión antes de entregar: frenadas y por revisar.
+    const rango = (l: LoteVista) => { const v = ver(l); return v === 'bloqueada' ? 0 : v === 'revisar' ? 1 : 2; };
+    return rows.sort((a, b) => rango(a) - rango(b) || b.movimientos - a.movimientos || a.fecha.localeCompare(b.fecha));
   });
 
   readonly deNadie = computed(() => contarDeNadie(this.data()?.motivos ?? []));
@@ -1083,9 +1244,13 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
       this.reglas.set(null);
       this.porConfirmar.set(null);
       this.pagos.set(null);
+      this.dict.set(null);
+      this.filtroVer.set(null);
     }
     this.error.set(null);
     this.cargarPagos();   // [CP.8.73] mismo mes, mismo momento
+    // [CP.8.97] Aparte y sin esperarlo: tarda segundos. Al recargar en silencio queda el anterior hasta que llegue el nuevo.
+    this.cargarDictamen();
     this.api.lotes(this.mes()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => {
         this.data.set(d);
@@ -1341,8 +1506,9 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
     this.bajando.set(true);
     this.avisoArchivo.set(null);
     this.api.archivo(this.mes()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (blob) => {
+      next: (res) => {
         this.bajando.set(false);
+        const blob = res.body;
         if (!blob || blob.type.includes('json')) {
           this.avisoArchivo.set({ texto: 'El servidor no devolvió un archivo de póliza.', mal: true });
           return;
@@ -1353,9 +1519,7 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
         a.download = `egresos-banco-${this.mes()}.txt`;
         a.click();
         URL.revokeObjectURL(url);
-        this.avisoArchivo.set({
-          texto: `Archivo de ${this.mes()} generado. NO quedó marcado como entregado.`, mal: false,
-        });
+        this.avisoArchivo.set({ texto: textoArchivoGenerado(this.mes(), res.headers.get('X-Polizas'), res.headers.get('X-Bloqueadas-Dictamen')), mal: false });
       },
       error: (e) => {
         this.bajando.set(false);
@@ -1397,6 +1561,8 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
         });
         this.api.cuadre().pipe(takeUntilDestroyed(this.destroyRef))
           .subscribe({ next: (c) => this.cuadre.set(c), error: () => this.cuadre.set(null) });
+        // [CP.8.97] Lo recién entregado pasa a «ya entregada» y deja de salir.
+        this.cargarDictamen();
       },
       error: (e) => {
         this.entregando.set(false);
@@ -1443,6 +1609,7 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
 
   toggleMotivo(motivo: string | null): void {
     this.filtro.set(motivo !== null && this.filtro() === motivo ? null : motivo);
+    this.filtroVer.set(null);
     this.sel.set(this.visibles()[0] ?? null);
   }
 
@@ -1470,6 +1637,46 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
 
 /** Una fila de la tabla: el lote más la llave que `dataKey` necesita. */
 type LoteVista = LoteRow & { k: string };
+
+/** `[CP.8.97]` El veredicto de una fila: los tres del dictamen, más «ya entregada» (no se dictamina ni sale). */
+export type VeredictoFila = Veredicto | 'entregada';
+const ORDEN_VEREDICTO: VeredictoFila[] = ['bloqueada', 'revisar', 'lista', 'entregada'];
+const CHIP_VEREDICTO: Record<VeredictoFila, string> = { bloqueada: 'Frenadas', revisar: 'Por revisar', lista: 'Listas', entregada: 'Ya entregadas' };
+const TEXTO_VEREDICTO: Record<VeredictoFila, string> = { bloqueada: 'Frenada', revisar: 'Por revisar', lista: 'Lista', entregada: 'Ya entregada' };
+const TAG_VEREDICTO: Record<VeredictoFila, 'success' | 'warn' | 'danger' | 'secondary'> =
+  { bloqueada: 'danger', revisar: 'warn', lista: 'success', entregada: 'secondary' };
+const EXPLICA_VEREDICTO: Record<VeredictoFila, string> = {
+  lista: 'Sale en el archivo.',
+  revisar: 'Sale en el archivo, pero pide una mirada antes de entregarlo.',
+  bloqueada: 'No sale en el archivo hasta que se corrija lo de abajo.',
+  entregada: 'Ya tiene entrega registrada: no se vuelve a mandar.',
+};
+const TEXTO_SEVERIDAD: Record<Hallazgo['severidad'], string> = { bloquea: 'Frena:', revisar: 'Revisar:', aviso: 'Aviso:' };
+const RANGO_SEVERIDAD: Record<Hallazgo['severidad'], number> = { bloquea: 0, revisar: 1, aviso: 2 };
+const PESOS = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
+
+/**
+ * `[CP.8.97]` La segunda línea de la respuesta: lo que NO sale o pide una mirada, en el orden en que pide trabajo.
+ * Las listas no se nombran (ya están en la cifra de arriba). Vacío = todas pasan el dictamen.
+ */
+export function frasesDelDictamen(n: Record<VeredictoFila, number>): { v: VeredictoFila; texto: string }[] {
+  const out: { v: VeredictoFila; texto: string }[] = [];
+  if (n.revisar > 0) out.push({ v: 'revisar', texto: `${plural(n.revisar, 'por revisar antes de entregar', 'por revisar antes de entregar')}` });
+  if (n.bloqueada > 0) out.push({ v: 'bloqueada', texto: plural(n.bloqueada, 'frenada por el dictamen, no sale', 'frenadas por el dictamen, no salen') });
+  if (n.entregada > 0) out.push({ v: 'entregada', texto: plural(n.entregada, 'ya entregada', 'ya entregadas') });
+  return out;
+}
+
+/**
+ * `[CP.8.97]` El aviso tras descargar. Las cifras salen de los encabezados del archivo que se bajó, no del dictamen
+ * de la pantalla (pudo cambiar entre una cosa y otra). Un encabezado que no llegó no se dice.
+ */
+export function textoArchivoGenerado(mes: string, polizas: string | null, frenadas: string | null): string {
+  const lleva = polizas !== null ? ` con ${plural(Number(polizas), 'póliza', 'pólizas')}` : '';
+  const fr = frenadas !== null && Number(frenadas) > 0
+    ? `; ${plural(Number(frenadas), 'frenada por el dictamen no va', 'frenadas por el dictamen no van')}` : '';
+  return `Archivo de ${mes} generado${lleva}${fr}. NO quedó marcado como entregado.`;
+}
 
 /** `[CP.8.76]` Los pasos del mes, en el orden en que se hacen. */
 export type Paso = 'reglas' | 'proveedores' | 'pagos' | 'archivo';

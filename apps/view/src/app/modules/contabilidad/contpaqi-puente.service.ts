@@ -1,5 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpResponse } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 
@@ -42,8 +42,17 @@ export class ContpaqiPuenteService {
    * `[CP.8.38]` El TXT del mes. ⛔ Generar NO es entregar: el backend no escribe
    * `poliza_exports`, así que esto no arranca el reloj del cuadre.
    */
-  archivo(mes: string): Observable<Blob> {
-    return this.http.get(`${this.base}/archivo?mes=${encodeURIComponent(mes)}`, { responseType: 'blob' });
+  archivo(mes: string): Observable<HttpResponse<Blob>> {
+    // `[CP.8.97]` La respuesta entera: sus encabezados dicen cuántas pólizas lleva y cuántas frenó el dictamen.
+    return this.http.get(`${this.base}/archivo?mes=${encodeURIComponent(mes)}`, { responseType: 'blob', observe: 'response' });
+  }
+
+  /**
+   * `[CP.8.97]` El dictamen de lo que saldría en el archivo, póliza por póliza (`[CP.8.95]`). `_VER`, no escribe.
+   * ⚠️ Tarda segundos (lee el catálogo, los CFDI y lo que contabilidad ya capturó): se pide aparte de `lotes`.
+   */
+  dictamen(mes: string): Observable<DictamenResp> {
+    return this.http.get<DictamenResp>(`${this.base}/dictamen?mes=${encodeURIComponent(mes)}`);
   }
 
   /**
@@ -160,13 +169,46 @@ export interface LoteRow {
   /** Conteo POR motivo. Cuatro rechazos distintos tienen cuatro dueños distintos. */
   motivos: Record<string, number>;
   /** `[CP.8.72]` `pago_proveedor` = un pago a proveedor armado completo (una póliza por pago). Ausente = lote del día. */
-  tipo?: 'lote' | 'pago_proveedor';
+  tipo?: 'lote' | 'pago_proveedor' | 'gasto_proveedor' | 'traspaso' | 'comisiones';
   /** De dónde salieron las facturas del pago: la cadena de Kepler o una factura por importe. */
   fuente?: 'cadena_kepler' | 'importe_una' | 'confirmada' | null;
   /** UUID (facturas y notas) que lleva el pago. */
   cfdis?: number;
   /** Identidad de la fila: un pago y el lote de su día comparten banco y fecha. */
   clave?: string;
+}
+
+/** `[CP.8.97]` Espejo de `DictamenMes` del backend (`dictamen.ts`, `[CP.8.95]`). */
+export type Veredicto = 'lista' | 'revisar' | 'bloqueada';
+export interface Hallazgo {
+  regla: string;
+  perspectiva: string;
+  /** `bloquea` la frena · `revisar` sale pero pide una mirada · `aviso` no cambia el veredicto. */
+  severidad: 'bloquea' | 'revisar' | 'aviso';
+  mensaje: string;
+}
+export interface PolizaDictaminada {
+  clave: string;
+  evento_tipo: string;
+  tipo: string;
+  veredicto: Veredicto;
+  hallazgos: Hallazgo[];
+  fecha: string;
+  total: number;
+  banco_label: string | null;
+  /** La `k` de su fila en `lotes` (`clave`, o `cuenta|fecha` del lote del día). */
+  lote: string;
+}
+export interface DictamenResp {
+  mes: string;
+  /** El día con el que se juzgó. */
+  hoy: string;
+  resumen: { polizas: number; por_veredicto: Record<Veredicto, number> };
+  polizas: PolizaDictaminada[];
+  ya_entregadas: number;
+  cambiados: string[];
+  /** Las filas de `lotes` con póliza que ya tienen entrega registrada: no se dictaminan ni salen. */
+  entregadas: string[];
 }
 
 /** `[CP.8.73]` Un CFDI candidato para confirmar un pago. */

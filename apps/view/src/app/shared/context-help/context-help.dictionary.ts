@@ -2507,6 +2507,24 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
     ],
   },
 
+  // `[CP.8.97]` El dictamen llega a la pantalla de entrega: tres veredictos y una palabra («frenada») que no se
+  // entienden solos.
+  'contpaqi-dictamen': {
+    title: 'El dictamen — qué revisa antes de entregar',
+    intro: 'Antes de que una póliza salga en el archivo, la Suite la revisa como lo haría contabilidad: que cuadre, que sus cuentas existan y acepten movimientos, que la fecha caiga en el mes, que sus facturas sean válidas y que contabilidad no la haya capturado ya.',
+    groups: [
+      {
+        heading: 'Los veredictos',
+        entries: [
+          { term: 'Lista', def: 'Pasa todas las revisiones. Sale en el archivo.' },
+          { term: 'Por revisar', def: 'Sale en el archivo, pero algo pide una mirada (una factura con retención, un redondeo grande, una captura parecida en ContPAQi). Ábrela y decide antes de importar el archivo.' },
+          { term: 'Frenada', def: 'No sale en el archivo. Importarla duplicaría algo o ContPAQi la rechazaría: ya está capturada, no cuadra, usa una cuenta dada de baja o su fecha está fuera del mes. Al corregir la causa vuelve a salir sola.' },
+          { term: 'Ya entregada', def: 'Ya se marcó como cargada en ContPAQi. No se dictamina ni vuelve a salir, aunque cambie después.' },
+        ],
+      },
+    ],
+  },
+
   // `[PGP.1]` La pantalla de cuentas de pago estrena una sección con jerga derivada —cobertura,
   // el 80 %, «pagado por banco»— y ninguna de las tres se entiende por su nombre. Se escribe acá
   // y no en un `title` porque una definición dentro de un `title` sólo existe para quien tiene
