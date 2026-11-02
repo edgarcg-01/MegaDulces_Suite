@@ -55,7 +55,7 @@ const CANAL_CLIENTE = 'md-caja-cliente';
         @else if (nivelGaveta() === 'aviso') { <span class="cj-chip cj-chip-warn" role="status">Gaveta cerca del máximo: conviene un retiro (F8)</span> }
       }
       <span class="cj-practica" role="note"><i class="pi pi-info-circle" aria-hidden="true"></i>
-        Modo práctica: no guarda, no imprime, no cobra ni manda a Kepler. Sin promociones por cantidad.</span>
+        Práctica: no guarda ni manda a Kepler</span>
       <span class="cj-acciones">
         <button type="button" class="cj-hb" tabindex="-1" (click)="abrirVerificador()">Verificar precio <kbd>F6</kbd></button>
         @if (puedeArqueo) { <button type="button" class="cj-hb" tabindex="-1" [class.cj-hb-on]="arqueo()" (click)="irArqueo()">Mi arqueo <kbd>F7</kbd></button> }
@@ -228,7 +228,9 @@ const CANAL_CLIENTE = 'md-caja-cliente';
   `,
   styles: [`
     :host { display: block; height: calc(100dvh - 6.25rem); min-height: 32rem; }
-    .cj { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--surface-ground); color: var(--text-main); font-size: var(--fs-lg); }
+    .cj { display: flex; flex-direction: column; height: 100%; min-height: calc(100dvh - 7.5rem); background: var(--surface-ground); color: var(--text-main); font-size: var(--fs-lg); }
+    /* El envoltorio de estados es el hijo flexible: sin esto el ticket no crece y sobra fondo abajo. */
+    .cj > app-load-state { flex: 1; min-height: 0; display: flex; flex-direction: column; }
     .cj-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-4); padding: var(--sp-2) var(--sp-4); background: var(--card-bg); border-bottom: 1px solid var(--border-color); }
     .cj-titulo { margin: 0; font-size: var(--fs-h3); font-weight: 700; }
     .cj-practica { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-sm); color: var(--warn-soft-fg); background: var(--warn-soft-bg); border-radius: var(--r-pill); padding: var(--sp-1) var(--sp-3); }
@@ -277,6 +279,7 @@ const CANAL_CLIENTE = 'md-caja-cliente';
     .cj-mayoreo, .cj-ahorro { font-size: var(--fs-sm); font-weight: 600; color: var(--ok-fg); }
     .cj-ahorro { font-size: var(--fs-body); }
     .cj-u { display: inline-block; font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-xs); font-weight: 600; padding: 0 var(--sp-2); border-radius: var(--r-sm); background: var(--text-main); color: var(--card-bg); }
+    .cj-ticket th.comm-num, .cj-ticket td.comm-num { text-align: right; }
     .cj-cant { font-family: var(--font-mono, ui-monospace, monospace); font-weight: 600; font-size: var(--fs-lg); white-space: nowrap; }
     .cj-imp { font-weight: 700; font-size: var(--fs-lg); }
     .cj-vacio { padding: var(--sp-6) var(--sp-3); color: var(--text-faint); }
@@ -463,6 +466,8 @@ export class TiendaCajaComponent implements OnDestroy {
       return;
     }
     if (this.estado() === 'cobro') return this.teclaCobro(e, k, v);
+    // F8 (retiro) también justo después de cobrar: es el momento natural de vaciar la gaveta.
+    if (k === 'F8' && this.estado() !== 'cobro') { this.abrirRetiro(); return; }
     if (this.estado() === 'cobrado') { if (k === 'Enter' || /^F\d+$/.test(k)) e.preventDefault(); return; }
 
     switch (k) {
@@ -804,7 +809,7 @@ export class TiendaCajaComponent implements OnDestroy {
       else this.conteo.set(null);
       return;
     }
-    if (k !== 'Enter') { if (k.length === 1 && !/[d.,]/.test(k) && !e.ctrlKey) e.preventDefault(); return; }
+    if (k !== 'Enter') { if (k.length === 1 && !/[\d.,]/.test(k) && !e.ctrlKey) e.preventDefault(); return; }
     e.preventDefault();
     if (c.i < den.length) {
       const n = v === '' ? 0 : leerImporte(v);
