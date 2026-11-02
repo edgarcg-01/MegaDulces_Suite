@@ -338,7 +338,7 @@
         </div>
         @if (r.series.length) {
           <div class="tf-chart">
-            <p-chart type="bar" [data]="chartData()" [options]="chartOptions()"></p-chart>
+            <p-chart type="bar" [data]="chartData()" [options]="$any(chartOptions())"></p-chart>
           </div>
         } @else {
           <p class="tf-empty">Sin venta registrada en el rango.</p>

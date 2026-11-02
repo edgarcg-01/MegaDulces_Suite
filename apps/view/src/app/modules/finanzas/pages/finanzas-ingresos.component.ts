@@ -231,7 +231,7 @@ import { LIBROS_CONTABLES_TABS } from '../libros-contables-tabs';
 
         @if (view() === 'tendencia') {
           <div class="card-premium card-flat in-chart">
-            <p-chart type="bar" [data]="chartData()" [options]="chartOpts()" height="360px"></p-chart>
+            <p-chart type="bar" [data]="chartData()" [options]="$any(chartOpts())" height="360px"></p-chart>
           </div>
         }
 

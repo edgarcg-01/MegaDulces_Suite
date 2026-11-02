@@ -122,7 +122,7 @@ type RangeMetric = 'revenue' | 'tickets' | 'units';
                           [ngModel]="rangeMetric()" (ngModelChange)="rangeMetric.set($event)" styleClass="sb-liquid sb-liquid-sm" />
         </div>
         @if (r.series.length) {
-          <div class="tf-chart"><p-chart type="bar" [data]="rangeChartData()" [options]="rangeChartOpts()"></p-chart></div>
+          <div class="tf-chart"><p-chart type="bar" [data]="rangeChartData()" [options]="$any(rangeChartOpts())"></p-chart></div>
         } @else {
           <p class="tf-empty">Sin venta registrada en el rango.</p>
         }

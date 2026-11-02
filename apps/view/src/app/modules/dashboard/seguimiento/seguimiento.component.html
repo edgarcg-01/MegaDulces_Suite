@@ -151,7 +151,7 @@
           <p-chart
             type="bar"
             [data]="$any(cd)"
-            [options]="chartOptions()"
+            [options]="$any(chartOptions())"
             [plugins]="$any(chartPlugins)"
             height="100%"
           />
@@ -165,7 +165,7 @@
           <p-chart
             type="bar"
             [data]="$any(ad)"
-            [options]="altChartOptions()"
+            [options]="$any(altChartOptions())"
             [plugins]="$any(chartPlugins)"
             height="100%"
           />
