@@ -370,10 +370,13 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
                          dos veces. La de la derecha es el desglose que Kepler guarda (solo efectivo). -->
                     <thead><tr><th></th><th class="ta-r">Esperado<span class="cs-th-de">sistema</span></th><th class="ta-r">Declarado<span class="cs-th-de">cajero</span></th><th class="ta-r">Desglose<span class="cs-th-de">Kepler</span></th></tr></thead>
                     <tbody>
-                      <tr><td>Efectivo</td><td class="ta-r num">{{ money(a.efectivo_esperado) }}</td><td class="ta-r num cs-strong">{{ d?.efectivo == null ? '—' : money(d.efectivo) }}</td><td class="ta-r num">{{ a.conteo_fisico === null ? '—' : money(a.conteo_fisico) }}</td></tr>
+                      <!-- [CSU.18] Con devoluciones pagadas del cajon, el esperado se pinta NETO: las dos
+                           diferencias de abajo son contra el neto, y el bruto contra el desglose se leia
+                           como un faltante que no existe (Madero 1-48: $221.23 = sus dos devoluciones). -->
+                      <tr><td>Efectivo@if (c.devoluciones_total > 0) { <span class="muted">neto de devoluciones</span> }</td><td class="ta-r num">{{ money(a.efectivo_esperado - c.devoluciones_total) }}</td><td class="ta-r num cs-strong">{{ d?.efectivo == null ? '—' : money(d.efectivo) }}</td><td class="ta-r num">{{ a.conteo_fisico === null ? '—' : money(a.conteo_fisico) }}</td></tr>
                       <tr><td>Tarjeta</td><td class="ta-r num">{{ money(a.tarjeta_esperado) }}</td><td class="ta-r num">{{ d?.tarjeta == null ? '—' : money(d.tarjeta) }}</td><td class="ta-r num muted">—</td></tr>
                       <tr><td>Transferencia</td><td class="ta-r num">{{ money(a.transfer_esperado) }}</td><td class="ta-r num">{{ d?.transferencia == null ? '—' : money(d.transferencia) }}</td><td class="ta-r num muted">—</td></tr>
-                      <tr class="cs-tot"><td>Total</td><td class="ta-r num">{{ money(a.esperado_total) }}</td><td class="ta-r num">{{ d?.total == null ? '—' : money(d.total) }}</td><td class="ta-r num muted">—</td></tr>
+                      <tr class="cs-tot"><td>Total</td><td class="ta-r num">{{ money(a.esperado_neto) }}</td><td class="ta-r num">{{ d?.total == null ? '—' : money(d.total) }}</td><td class="ta-r num muted">—</td></tr>
                     </tbody>
                   </table>
                   @if (c.devoluciones.length) {
@@ -384,7 +387,7 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
                         <span class="num">-{{ money(v.monto) }}</span>
                       </div>
                     }
-                    <div class="cs-row cs-tot"><span>Esperado neto de devoluciones</span><span class="num">{{ money(a.esperado_neto) }}</span></div>
+                    <div class="cs-row cs-tot"><span>Kepler esperaba {{ money(a.esperado_total) }} bruto; menos devoluciones, el esperado de la tabla</span><span class="num">{{ money(a.esperado_neto) }}</span></div>
                   }
                   <div class="cs-row"><span>Monto del corte en Kepler</span><span class="num cs-strong">{{ money(c.monto) }}</span></div>
                   <div class="cs-row"><span>{{ cuadreLabel(c) }}</span><span class="num" [class.cs-bad]="c.cuadre !== 'cuadra'">{{ c.diferencia === null ? '—' : money(c.diferencia) }}</span></div>
