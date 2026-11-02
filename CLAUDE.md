@@ -168,7 +168,7 @@
 | **MS** | Mesa de Servicio (tickets de servicio) | ⏸️ |
 | **CSU** | Cortes/Sucursales (corte de caja → cobro → ingreso) | 🟢 |
 | **CGA** | Caja General: cazar el ingreso/egreso pendiente (ruta detalle, vecinal, proveedores en efectivo) — absorbida por LE el 2026-10-27 | ⏸️ |
-| **LE** | Libro de efectivo de partida doble: Caja General + CAOS como un banco (38 reglas B1–B38; reemplaza a CGA) | 🔨 |
+| **LE** | Libro de efectivo de partida doble: Caja General + CAOS como un banco; opera como **ventanilla bancaria** (ADR-112: billetes en la bóveda, ninguna salida sin orden, pagar es registrar); reemplaza a CGA | 🔨 |
 | **ECA** | Estado de cuenta de acreedores (por tipo) | 🧪 |
 | **RH** | Recursos Humanos: migración de Mega Talento | 🔨 |
 | **GP** | Gestión de pedidos en almacén (surtido/checado/embarque sin papel) | 🧪 |
