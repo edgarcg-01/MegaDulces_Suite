@@ -130,13 +130,20 @@ const CANAL_CLIENTE = 'md-caja-cliente';
       <aside class="cj-panel" aria-live="polite">
         @if (arq(); as q) {
           <div class="cj-box cj-box-act">
-            <span class="cj-lbl">Mi arqueo · se guarda en Arqueo de Tienda</span>
+            <span class="cj-lbl">{{ ajeno() ? 'Arqueo de ' + ajeno() : 'Mi arqueo' }} · se guarda en Arqueo de Tienda</span>
             @if (turnoK(); as t) { <div class="cj-sub">Caja {{ t.caja }} · folio {{ t.folio }} · {{ t.business_date }}</div> }
+            @if (ajeno(); as quien) { <div class="cj-ajeno" role="note">Este turno es de <b>{{ quien }}</b>: lo que guardes queda a su nombre y cuenta en su cuadre.</div> }
             @if (q.paso === 'tipo') {
               <div class="cj-h3">¿Qué vas a contar?</div>
               <div class="cj-opt"><kbd>1</kbd>Retiro de caja (sangría)</div>
               <div class="cj-opt"><kbd>2</kbd>Corte del turno</div>
               <div class="cj-opt"><kbd>3</kbd>Relevo de cajera</div>
+            } @else if (q.paso === 'confirmar') {
+              <div class="cj-h3">{{ tipoTexto(q.tipo) }} de {{ ajeno() }}</div>
+              <div class="cj-fila"><b>Contado</b><span class="cj-grande">{{ dinero(sumaArq()) }}</span></div>
+              <div class="cj-ajeno" role="alert">Vas a guardar un arqueo REAL a nombre de <b>{{ ajeno() }}</b>, en el turno {{ turnoK()?.folio }}. No es práctica y no se puede deshacer.</div>
+              <div class="cj-opt"><kbd>Enter</kbd>Sí, guardarlo a su nombre</div>
+              <div class="cj-opt"><kbd>Esc</kbd>No, regresar al conteo</div>
             } @else if (q.paso === 'listo' && q.resultado) {
               <div class="cj-h2">{{ tipoTexto(q.tipo) }} guardado{{ q.tipo === 'retiro' && q.resultado.secuencia ? ' · sangría ' + q.resultado.secuencia : '' }}</div>
               <div class="cj-fila"><b>Contaste</b><span class="cj-grande">{{ dinero(q.resultado.total_contado) }}</span></div>
@@ -242,7 +249,7 @@ const CANAL_CLIENTE = 'md-caja-cliente';
     </app-load-state>
 
     <footer class="cj-pie" aria-label="Teclas de este momento">
-      @if (arq(); as q) { <span>{{ q.paso === 'tipo' ? '1 retiro · 2 corte · 3 relevo' : q.paso === 'listo' ? 'Enter: volver a vender' : 'Teclea cuántas piezas y Enter (vacío = 0)' }}</span><span><kbd>Esc</kbd> {{ q.paso === 'listo' ? 'volver' : 'no guardar' }}</span> }
+      @if (arq(); as q) { <span>{{ q.paso === 'tipo' ? '1 retiro · 2 corte · 3 relevo' : q.paso === 'listo' ? 'Enter: volver a vender' : q.paso === 'confirmar' ? 'Enter: guardar a nombre de ' + ajeno() : 'Teclea cuántas piezas y Enter (vacío = 0)' }}</span><span><kbd>Esc</kbd> {{ q.paso === 'listo' ? 'volver' : q.paso === 'confirmar' ? 'regresar al conteo' : 'no guardar' }}</span> }
       @else if (conteo(); as c) { <span>Teclea cuántas piezas y <kbd>Enter</kbd> (vacío = 0)</span><span><kbd>Esc</kbd> {{ c.tipo === 'apertura' ? 'empezar de nuevo' : 'no retirar' }}</span> }
       @else if (auth()) { <span><kbd>1</kbd>–<kbd>4</kbd> motivo</span><span>PIN y <kbd>Enter</kbd></span><span><kbd>Esc</kbd> no hacerlo</span> }
       @else if (verificando()) { <span>Escanea o escribe y <kbd>Enter</kbd></span><span><kbd>Esc</kbd> volver a vender</span> }
@@ -322,6 +329,7 @@ const CANAL_CLIENTE = 'md-caja-cliente';
     .cj-teclas, .cj-pie { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-4); font-size: var(--fs-sm); color: var(--text-muted); }
     .cj-opt { display: flex; gap: var(--sp-2); align-items: center; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); }
     .cj-opt-on { border: 2px solid var(--text-main); font-weight: 700; }
+    .cj-ajeno { font-size: var(--fs-sm); color: var(--warn-soft-fg); background: var(--warn-soft-bg); border: 1px solid var(--warn-border); border-radius: var(--r-md); padding: var(--sp-2) var(--sp-3); }
     .cj-cta { height: 4rem; width: 100%; border: 0; border-radius: var(--r-lg); background: var(--action); color: var(--action-ink); font: inherit; font-size: var(--fs-h3); font-weight: 700; display: flex; align-items: center; justify-content: center; gap: var(--sp-3); cursor: pointer; }
     .cj-cta:disabled { opacity: .4; cursor: not-allowed; }
     .cj-cta:focus-visible, .cj-hb:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
@@ -350,7 +358,18 @@ export class TiendaCajaComponent implements OnDestroy {
     const ts = this.turnosKepler().filter((t) => t.warehouse_code === this.suc());
     return ts.find((t) => t.abierto) ?? ts[0] ?? null;
   });
-  readonly arq = signal<{ paso: 'tipo' | 'conteo' | 'guardando' | 'listo'; tipo: ArqueoTipo; i: number; vals: number[]; resultado: ArqueoResult | null } | null>(null);
+  readonly arq = signal<{ paso: 'tipo' | 'conteo' | 'confirmar' | 'guardando' | 'listo'; tipo: ArqueoTipo; i: number; vals: number[]; resultado: ArqueoResult | null } | null>(null);
+  /**
+   * A nombre de QUIÉN quedaría el arqueo, si no es de quien está en la caja. Quien ve el esperado
+   * (superadmin, admin, supervisor de cuadre) puede capturar por otra persona: el servidor respeta el
+   * `cajero_code` que mandamos (`atribuir()` en store-arqueo.controller). A la cajera el servidor le
+   * impone su propio usuario y sólo le lista sus turnos, así que para ella esto queda en null.
+   */
+  private readonly yo = (inject(AuthService).user()?.username || '').trim().toUpperCase();
+  readonly ajeno = computed(() => {
+    const c = (this.turnoK()?.cajero_code || '').trim().toUpperCase();
+    return c && c !== this.yo ? c : null;
+  });
   readonly sumaArq = computed(() => r2((this.arq()?.vals ?? []).reduce((a, n, i) => a + n * this.denomsMx[i].valor, 0)));
   /** Cerrar turno = el arqueo real (el conteo ciego del cierre); al volver, el turno de práctica se cierra. */
   private cerrandoTurno = false;
@@ -425,7 +444,7 @@ export class TiendaCajaComponent implements OnDestroy {
 
   readonly modo = computed(() => {
     const q = this.arq();
-    if (q) return q.paso === 'tipo' ? 'Elegir' : q.paso === 'listo' ? 'Listo' : 'Piezas';
+    if (q) return q.paso === 'tipo' ? 'Elegir' : q.paso === 'listo' ? 'Listo' : q.paso === 'confirmar' ? 'Confirmar' : 'Piezas';
     const c = this.conteo();
     if (c) return c.i >= this.denominaciones(c.tipo).length ? (c.tipo === 'retiro' ? 'PIN' : 'Confirmar') : 'Piezas';
     const a = this.auth();
@@ -437,7 +456,7 @@ export class TiendaCajaComponent implements OnDestroy {
   });
   readonly placeholder = computed(() => {
     const q = this.arq();
-    if (q) return q.paso === 'tipo' ? '1 retiro · 2 corte · 3 relevo' : q.paso === 'conteo' && q.i < this.denomsMx.length ? (this.denomsMx[q.i].familia === 'moneda' ? 'Monedas de ' : 'Billetes de ') + this.denomsMx[q.i].label + ': cuántas, y Enter' : q.paso === 'listo' ? 'Enter para volver a vender' : 'Enter entrega el conteo';
+    if (q) return q.paso === 'tipo' ? '1 retiro · 2 corte · 3 relevo' : q.paso === 'conteo' && q.i < this.denomsMx.length ? (this.denomsMx[q.i].familia === 'moneda' ? 'Monedas de ' : 'Billetes de ') + this.denomsMx[q.i].label + ': cuántas, y Enter' : q.paso === 'listo' ? 'Enter para volver a vender' : q.paso === 'confirmar' ? 'Enter guarda a nombre de ' + this.ajeno() + ' · Esc regresa' : 'Enter entrega el conteo';
     const c = this.conteo();
     if (c) return c.i < this.denominaciones(c.tipo).length ? this.denominaciones(c.tipo)[c.i][1] + ': cuántas, y Enter' : c.tipo === 'retiro' ? 'PIN de quien recibe' : 'Enter abre el turno';
     const a = this.auth();
@@ -775,6 +794,12 @@ export class TiendaCajaComponent implements OnDestroy {
   private teclaArqueo(e: KeyboardEvent, k: string, v: string): void {
     const q = this.arq()!;
     if (q.paso === 'guardando') { e.preventDefault(); return; }
+    if (q.paso === 'confirmar') {
+      if (k === 'Escape') { e.preventDefault(); this.arq.set({ ...q, paso: 'conteo' }); return; }
+      if (k === 'Enter') { e.preventDefault(); this.guardarArqueo(q); return; }
+      if (k.length === 1) e.preventDefault();
+      return;
+    }
     if (k === 'Escape' || (q.paso === 'listo' && k === 'Enter')) {
       e.preventDefault();
       const cerro = q.paso === 'listo' && q.tipo === 'cierre';
@@ -806,6 +831,8 @@ export class TiendaCajaComponent implements OnDestroy {
       this.limpiar();
       return;
     }
+    // Un conteo a nombre de OTRA persona no sale con el mismo Enter que cierra el conteo: se confirma.
+    if (this.ajeno()) { this.arq.set({ ...q, paso: 'confirmar' }); this.limpiar(); return; }
     this.guardarArqueo(q);
   }
 
