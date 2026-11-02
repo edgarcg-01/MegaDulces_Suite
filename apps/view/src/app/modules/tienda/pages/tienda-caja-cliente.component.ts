@@ -1,0 +1,82 @@
+import { ChangeDetectionStrategy, Component, OnDestroy, signal } from '@angular/core';
+import { pesos } from '../caja-motor';
+
+/**
+ * [PDV.33] Pantalla del cliente: segundo monitor de la caja. Se abre desde /tienda/caja y escucha el
+ * canal del navegador (misma app, otra ventana), así que no consulta nada al servidor. Muestra lo
+ * que el cliente necesita para confiar: cada renglón al entrar, el total, lo que ahorró y su cambio.
+ */
+interface Estado {
+  estado: 'venta' | 'cobro' | 'cobrado';
+  total: number; ahorro: number; saldo: number; recibido: number; cambio: number;
+  sucursal: string; empujon: string;
+  lineas: { nombre: string; cantidad: string; importe: number; quitado: boolean; sel: boolean }[];
+}
+
+@Component({
+  selector: 'app-tienda-caja-cliente',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `
+  @if (s(); as e) {
+    @if (e.estado === 'cobrado') {
+      <div class="cc-centro">
+        <div class="cc-tenue">Gracias por tu compra</div>
+        <div class="cc-lbl">Tu cambio</div>
+        <div class="cc-total cc-gigante">{{ dinero(e.cambio) }}</div>
+        <div class="cc-tenue">Recibido {{ dinero(e.recibido) }} · total {{ dinero(e.total) }}</div>
+      </div>
+    } @else if (!e.lineas.length) {
+      <div class="cc-centro"><div class="cc-total">Bienvenido a Mega Dulces</div><div class="cc-tenue">{{ e.sucursal }}</div></div>
+    } @else {
+      <div class="cc-rejilla">
+        <section class="cc-lista" aria-label="Tu compra">
+          <div class="cc-lbl">Tu compra</div>
+          @for (l of e.lineas; track $index) {
+            <div class="cc-fila" [class.cc-sel]="l.sel" [class.cc-quitado]="l.quitado">
+              <span>{{ l.nombre }} · {{ l.cantidad }}</span><span>{{ l.quitado ? 'quitado' : dinero(l.importe) }}</span>
+            </div>
+          }
+          @if (e.empujon) { <div class="cc-empujon">{{ e.empujon }}</div> }
+        </section>
+        <aside class="cc-lado">
+          <div class="cc-lbl">{{ e.estado === 'cobro' ? 'Por pagar' : 'Total a pagar' }}</div>
+          <div class="cc-total">{{ dinero(e.estado === 'cobro' ? e.saldo : e.total) }}</div>
+          <div class="cc-tenue">IVA e IEPS incluidos</div>
+          @if (e.ahorro > 0) { <div class="cc-ahorro">Ahorraste por mayoreo {{ dinero(e.ahorro) }}</div> }
+        </aside>
+      </div>
+    }
+  } @else {
+    <div class="cc-centro"><div class="cc-total">Bienvenido a Mega Dulces</div></div>
+  }
+  `,
+  styles: [`
+    :host { display: block; height: 100vh; background: var(--surface-ground); color: var(--text-main); }
+    .cc-centro { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sp-4); text-align: center; }
+    .cc-rejilla { height: 100%; display: grid; grid-template-columns: minmax(0, 1fr) minmax(18rem, 28rem); }
+    @media (max-width: 50rem) { .cc-rejilla { grid-template-columns: 1fr; } }
+    .cc-lista { padding: var(--sp-8); display: flex; flex-direction: column; gap: var(--sp-2); border-right: 1px solid var(--border-color); overflow: auto; font-size: var(--fs-h3); }
+    .cc-lado { padding: var(--sp-8); display: flex; flex-direction: column; gap: var(--sp-3); }
+    .cc-lbl { font-size: var(--fs-sm); letter-spacing: .06em; text-transform: uppercase; font-weight: 600; color: var(--text-faint); }
+    .cc-fila { display: flex; justify-content: space-between; gap: var(--sp-4); padding: var(--sp-1) var(--sp-3); border-radius: var(--r-md); font-variant-numeric: tabular-nums; }
+    .cc-sel { background: var(--surface-selected-bg); font-weight: 700; }
+    .cc-quitado { color: var(--text-faint); text-decoration: line-through; }
+    .cc-empujon { margin-top: auto; border: 1px solid var(--border-color); border-radius: var(--r-lg); padding: var(--sp-3) var(--sp-4); background: var(--card-bg); }
+    .cc-total { font-size: var(--text-display-xl); font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+    .cc-gigante { font-size: var(--text-display-xl); }
+    .cc-tenue { font-size: var(--fs-lg); color: var(--text-muted); }
+    .cc-ahorro { font-size: var(--fs-h3); color: var(--ok-fg); font-weight: 600; }
+  `],
+})
+export class TiendaCajaClienteComponent implements OnDestroy {
+  readonly s = signal<Estado | null>(null);
+  readonly dinero = pesos;
+  private readonly canal = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('md-caja-cliente') : null;
+
+  constructor() {
+    if (this.canal) this.canal.onmessage = (m: MessageEvent<Estado>) => this.s.set(m.data);
+  }
+
+  ngOnDestroy(): void { this.canal?.close(); }
+}

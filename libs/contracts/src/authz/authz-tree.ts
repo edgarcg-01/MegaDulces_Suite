@@ -302,6 +302,9 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'store-caducidades', label: 'Control de Caducidades', route: '/tienda/caducidades', view: [Permission.COMMERCIAL_EXPIRY_VER], manage: [Permission.COMMERCIAL_EXPIRY_CAPTURAR] },
           { id: 'store-analytics', label: 'Análisis de ventas', route: '/tienda/analisis-semanal', view: [Permission.STORE_ANALYTICS_VER], manage: [] },
           { id: 'store-price-check', label: 'Verificador de precios', route: '/tienda/verificador', view: [Permission.STORE_PRICE_CHECK_VER], manage: [] },
+          // `[PDV.31]` Caja de mostrador en MODO PRÁCTICA (no guarda ni manda a Kepler): mientras no existan las claves
+          // `STORE_POS_*` (PDV.26) la abre quien supervisa la tienda en vivo, no las cajeras.
+          { id: 'store-pos', label: 'Caja (práctica)', route: '/tienda/caja', view: [Permission.STORE_LIVE_VER], manage: [] },
           // `[FLT.1]` La ruta la abre CUALQUIERA de las dos claves (`anyPermissionGuard`): quien
           // sólo reporta tiene que poder entrar a la pantalla donde trabaja. Es la misma lección
           // que obligó a corregir Caducidades, donde el gate en VER le negaba la pantalla al

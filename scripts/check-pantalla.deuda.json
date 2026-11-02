@@ -1071,6 +1071,14 @@
     "§2",
     "§9"
   ],
+  "apps/view/src/app/modules/tienda/pages/tienda-caja-cliente.component.ts": [
+    "Q.1",
+    "§2",
+    "§9"
+  ],
+  "apps/view/src/app/modules/tienda/pages/tienda-caja.component.ts": [
+    "Q.1"
+  ],
   "apps/view/src/app/modules/tienda/pages/tienda-cajas.component.ts": [
     "Q.1",
     "§2",
