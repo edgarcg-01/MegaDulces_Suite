@@ -104,6 +104,12 @@ const POR_CONSTRAINT: Record<string, string> = {
   cash_ledger_doc_quien_chk: 'Cada cheque o papel dice de quién es o quién debe.',
   cash_ledger_doc_cheque_chk: 'Cada cheque lleva banco y número.',
   cash_ledger_doc_papel_chk: 'Cada papel dice por qué se debe.',
+  // `[LE.0.9]` `[LE.0.8]` La contención de la ventanilla (migraciones 20261031135300 y 20261031141406).
+  caja_exige_llave_chk:
+    'Tu usuario no tiene la llave para operar o firmar la caja. Lo hace quien opera la caja; si crees que te toca, pídeselo a Finanzas.',
+  cash_ledger_folio_no_se_borra_chk:
+    'Ese folio ya se emitió: no se borra ni cambia de número. Si estaba mal, se cancela con su motivo.',
+  folio_consecutivo_chk: 'El consecutivo de folios sólo avanza de uno en uno.',
 };
 
 /** Códigos de Postgres que SÍ son culpa de lo que se mandó, no del servidor. */

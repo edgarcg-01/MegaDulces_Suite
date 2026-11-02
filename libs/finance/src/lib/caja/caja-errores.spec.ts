@@ -24,6 +24,18 @@ describe('[CG.154] traducirErrorDeCaja', () => {
     }
   });
 
+  it('[LE.0.9][LE.0.8] la contención de la ventanilla dice qué pasó, no «revisa los datos»', () => {
+    const frase = (constraint: string) => {
+      try { traducirErrorDeCaja({ code: '23514', constraint }); } catch (e) { return (e as BadRequestException).message; }
+      return '';
+    };
+    expect(frase('caja_exige_llave_chk')).toContain('no tiene la llave');
+    expect(frase('cash_ledger_folio_no_se_borra_chk')).toContain('se cancela con su motivo');
+    expect(frase('folio_consecutivo_chk')).toContain('de uno en uno');
+    // Sin la frase, la regla caía al genérico: el usuario sin llave leía «revisa los datos».
+    expect(frase('caja_exige_llave_chk')).not.toContain('Revisa los datos');
+  });
+
   it('un uuid mal formado (22P02) es culpa del dato, no del servidor', () => {
     expect(lanzar({ code: '22P02' })).toThrow(BadRequestException);
   });
