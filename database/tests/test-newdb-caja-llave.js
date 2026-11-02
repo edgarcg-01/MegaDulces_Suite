@@ -71,12 +71,12 @@ const dijo = (err) => (err ? `${err.code} ${err.constraint ?? '(sin nombre)'}` :
     await knex.transaction(async (trx) => {
       console.log('\n── 1. Siembra: quien opera, un superadmin con la llave en su mapa, y una excepción en false ──');
       await trx.raw(`
-        INSERT INTO identity.role_permissions (tenant_id, role_name, permissions, activo)
-        VALUES (?, 'le09_opera', '{"FINANCE_CAJA_GESTIONAR": true}'::jsonb, true)
+        INSERT INTO identity.role_permissions (tenant_id, role_name, permissions)
+        VALUES (?, 'le09_opera', '{"FINANCE_CAJA_GESTIONAR": true}'::jsonb)
         ON CONFLICT (tenant_id, role_name) DO UPDATE SET permissions = EXCLUDED.permissions`, [T]);
       await trx.raw(`
-        INSERT INTO identity.role_permissions (tenant_id, role_name, permissions, activo)
-        VALUES (?, 'superadmin', '{"FINANCE_CAJA_GESTIONAR": true, "FINANCE_CAJA_AUTORIZAR": true}'::jsonb, true)
+        INSERT INTO identity.role_permissions (tenant_id, role_name, permissions)
+        VALUES (?, 'superadmin', '{"FINANCE_CAJA_GESTIONAR": true, "FINANCE_CAJA_AUTORIZAR": true}'::jsonb)
         ON CONFLICT (tenant_id, role_name) DO UPDATE
           SET permissions = identity.role_permissions.permissions || EXCLUDED.permissions`, [T]);
       for (const [id, rol] of [[OPERA, 'le09_opera'], [DIOS, 'superadmin'], [NEGADO, 'le09_opera']]) {
