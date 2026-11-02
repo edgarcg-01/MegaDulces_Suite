@@ -975,6 +975,26 @@ y validación visual.
 **Prueba:** 2 pruebas nuevas en `historial-precio.component.spec.ts` (el botón manda `codes: ['99001']`; sin producto elegido no hay botón). **Mutación** (`codes: []`) da rojo. `check:templates`, `check:tokens`, `check:wiring`, tipos sin errores; `check:pantalla` sin fallas nuevas (queda el aviso #9, preexistente).
 
 **NO medido:** el botón en un navegador real (sólo spec de DOM) y el flujo completo hasta la hoja de la etiquetera.
+## 2026-11-02 — `[ETQ-CODIGO.2]` El código tampoco se corta en las etiquetas en oferta · `[ETQ-HISTORIAL]` a ✅ · punto 81
+
+**1. `[ETQ-CODIGO.2]`.** `[ETQ-CODIGO]` dejó declarada una deuda: en una etiqueta **en oferta** el renglón «contenido | Código» baja a la columna derecha (43.4 mm) y esa plantilla no pasaba `--etq-meta-n`, así que no tenía tope y seguía dependiendo de `fitMeta`. Ahora pasa la variable y lleva su tope propio (`META_ANCHO_PROMO_MM` = 41 mm = 43.4 − 2 × 1.2).
+
+**Medido en la app real** (`:4200` con la API local; respuestas de etiqueta/sucursales **simuladas** con los datos reales de prod del 20750 y una promoción de 5 % sobre el paquete; ninguna base se tocó). Contenido largo **sintético** (38 caracteres) para ejercitar el tope, columna de 164 px:
+
+| Caso | Cuerpo | Mide | ¿Se corta? |
+|---|---|---|---|
+| con el ajuste de JS | 2.26 mm | 164 / 164 px | no |
+| **sin JS, con el tope** | 1.86 mm | 164 / 164 px | **no** |
+| **sin JS, sin el tope** (como estaba) | 3.2 mm | **225** / 164 px | **sí** |
+
+El 20750 real en oferta (21 caracteres) cabe a 3.2 mm con o sin tope: el tope de esa columna sólo actúa desde ~22 caracteres. Candado en `etiqueta-hoja.spec` (las dos plantillas pasan la variable; el tope = la constante = el ancho de la columna − huecos), con su prueba negativa en rojo.
+
+⚠️ **NO MEDIDO:** el arnés de geometría no arma el diseño de oferta, así que **no hay invariante para él** (deuda con nombre) · la impresión física · la etiqueta con la promo simulada salió con veredicto `overflow` aun sin este cambio (el renglón quedó a 3.2 mm, igual que antes); no es de este cambio y no se investigó.
+
+**2. `[ETQ-HISTORIAL]` → ✅.** En prod: `/api/health` sirve `7ce6b790a`, que contiene #464 y #468; `GET /store/labels/price-history` responde **401** sin sesión (una ruta inexistente responde **404**, el control); la pantalla viene en los chunks servidos (`Historial de precios` y `price-history`, de 491 chunks recorridos). La validación visual sigue siendo la del navegador local.
+
+**3. Punto 81 del protocolo de PR** (ONBOARDING §8.0b): tras fusionar `main` en tu rama, el diff tiene que tener el tamaño esperado. En el #476, `merge=union` (tracker, log y CHANGELOG, `.gitattributes`) dejó **dos** `[ETQ-CODIGO]` y **dos** `[ETQ-HISTORIAL]` sin conflicto; lo delató «3 agregadas, 0 quitadas» donde el cambio era 1 por 1.
+
 ## 2026-10-28 — `[ETQ-CODIGO]` La etiqueta imprimió «Código: 207» en vez de «20750»
 
 > ✅ **2026-10-29 — en producción y confirmado.** PR #467 fusionado (`3ebc69882`); prod sirve `8f8e3d9ae` (`/api/health`), con `ci-green` y `prod-release` en ese commit. El chunk servido (`chunk-Fv4qO4L4.js`) trae el tope CSS, la variable `--etq-meta-n` y `caracteresMeta`. La tienda confirmó la etiqueta impresa. En el camino, el CI marcó 2 errores de lint en líneas nuevas del spec (`no-regex-spaces`, corregidos en el mismo PR) y GitHub dejó el PR en `CONFLICTING` con una base vieja sin correr el CI (`git merge-tree` fusionaba limpio; se destrabó fusionando `main` en la rama).

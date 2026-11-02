@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Fixed — Etiquetas en oferta: el código del producto tampoco se corta (ETQ-CODIGO.2, 2026-11-02)
+- En una etiqueta **en oferta**, el renglón «contenido | Código» va en la columna derecha y no tenía el tope que se agregó en ETQ-CODIGO: con un contenido largo el código se podía cortar si el ajuste de JavaScript no corría. Ahora cabe sin JavaScript. Medido: con contenido largo, sin el tope el texto pide 225 px en una columna de 164; con el tope, cabe.
+- Sin migración, sin permiso, sin endpoint. No medido: la impresión física; el arnés de geometría todavía no arma el diseño de oferta.
 ### Added — Cortes/Sucursales: lo que el cajero contó y no quedó en ningún corte (CSU.20, 2026-11-02)
 - Cada día de sucursal dice cuántos conteos quedaron **fuera de corte** y, al desplegarlo, los lista con su hora, importe, por qué no están en un corte y quién los contó.
 - Incluye los «conteos sin caja» (fondo, depósito al banco, la venta del día anterior), que son constancias: no suman ni restan.
