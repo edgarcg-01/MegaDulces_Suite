@@ -50,6 +50,13 @@ import { armarRespuesta, type ConteoCajeroCrudo, type ConteoFueraCrudo, type Cor
  * Medido (2026-10-21) en banco LOCAL a escala de prod (`kdm1` 880,697 filas / 825 MB, 504 cortes):
  * vieja 88,615 ms → nueva 192 ms (medianas), salida idéntica. En prod: `NO MEDIDO` (sin lectura).
  * Re-medir: `database/scripts/csu-cortes-bench-local.js` (local) y `csu-cortes-paridad-prod.js` (prod).
+ *
+ * `[CSU.22]` Medido en PROD (2026-11-02, octubre completo, 920 cortes, EXPLAIN ANALYZE, mediana de 5):
+ * la consulta principal tardaba 526 ms y ahora 169 ms, con la respuesta del servicio idéntica (deep
+ * equal en sep, oct, nov y 28-sep..2-nov; el control de un centavo cambiado sí sale distinto). La causa
+ * era el JOIN final contra los agregados: ver `amap` abajo. Lo demás, en el servidor: cobros 118 ms,
+ * turnos ~20 ms, conteos 12 ms. ⚠️ Medido desde fuera del clúster, list() da ~1.1 s: casi todo es red
+ * (la respuesta de octubre pesa 1.4 MB, 143 kB con gzip). El tiempo dentro de prod: `NO MEDIDO`.
  */
 const SQL = `
 WITH co AS MATERIALIZED (
@@ -130,19 +137,36 @@ dv AS MATERIALIZED (
      AND m.c9 >= (?::date - 1) AND m.c9 < (?::date + 2)
      AND m.sucursal IN (SELECT sucursal FROM sucs)
 ),
-d AS MATERIALIZED (
-  -- MATERIALIZED por lo mismo que el agregado de cobros: se calcula una vez, no una por corte.
-  -- El folio de turno se repite entre fechas: sólo la devolución del día del corte (±1 por medianoche).
-  SELECT co.sucursal, co.folio,
-         jsonb_agg(jsonb_build_object(
-           'doc_prefix', dv.doc_prefix, 'folio', dv.folio, 'fecha', to_char(dv.fecha_d, 'YYYY-MM-DD'), 'monto', dv.monto,
-           'cliente', dv.cliente, 'motivo', dv.motivo, 'cajero', dv.cajero) ORDER BY dv.doc_prefix, dv.folio) AS devoluciones
-    FROM co
-    JOIN dv ON dv.sucursal = co.sucursal AND dv.caja = co.caja AND dv.turno = co.turno AND abs(dv.fecha_d - co.fecha_d) <= 1
-   GROUP BY 1, 2
+-- [CSU.22] Los tres agregados se casan con el corte por LLAVE, no por JOIN. El planner estima 1 corte
+-- (son 920 en octubre: la selectividad de los btrim de kdue no se puede estimar), así que unía cada
+-- agregado con un Nested Loop contra el CTE entero: medido en prod, 709,468 + 195,747 + 294,111 filas
+-- descartadas por Join Filter y ~250 ms de los 362 de la consulta. Un objeto jsonb por agregado
+-- (una fila) se busca por llave en tiempo logarítmico, y la estimación deja de importar.
+amap AS MATERIALIZED (
+  SELECT jsonb_object_agg(sucursal || '|' || corte_folio, jsonb_build_object('cobrado', cobrado, 'cobros', cobros)) AS m FROM a
+),
+acmap AS MATERIALIZED (
+  SELECT jsonb_object_agg(sucursal || '|' || corte_folio, cobros_cancelados) AS m FROM ac
+),
+dvmap AS MATERIALIZED (
+  -- Las devoluciones por caja y turno; el día (±1 por medianoche: el folio de turno se repite entre
+  -- fechas) se filtra abajo, por corte, igual que lo hacía el JOIN.
+  SELECT jsonb_object_agg(llave, devs) AS m FROM (
+    SELECT dv.sucursal || '|' || dv.caja || '|' || dv.turno AS llave,
+           jsonb_agg(jsonb_build_object(
+             'doc_prefix', dv.doc_prefix, 'folio', dv.folio, 'fecha', to_char(dv.fecha_d, 'YYYY-MM-DD'), 'monto', dv.monto,
+             'cliente', dv.cliente, 'motivo', dv.motivo, 'cajero', dv.cajero)) AS devs
+      FROM dv WHERE dv.caja IS NOT NULL AND dv.turno IS NOT NULL
+     GROUP BY 1
+  ) x
 )
 SELECT co.sucursal, co.folio, co.fecha, co.referencia, co.caja, co.turno, co.monto,
-       a.cobros, coalesce(a.cobrado, 0) AS cobrado, ac.cobros_cancelados, d.devoluciones,
+       amap.m -> (co.sucursal || '|' || co.folio) -> 'cobros' AS cobros,
+       coalesce((amap.m -> (co.sucursal || '|' || co.folio) ->> 'cobrado')::numeric, 0) AS cobrado,
+       acmap.m -> (co.sucursal || '|' || co.folio) AS cobros_cancelados,
+       (SELECT jsonb_agg(x.v ORDER BY x.v ->> 'doc_prefix', x.v ->> 'folio')
+          FROM jsonb_array_elements(dvmap.m -> (co.sucursal || '|' || co.caja || '|' || co.turno)) AS x(v)
+         WHERE abs((x.v ->> 'fecha')::date - co.fecha_d) <= 1) AS devoluciones,
        to_char(cc.business_date, 'YYYY-MM-DD') AS arqueo_fecha,
        cc.efectivo_esperado, cc.efectivo_contado,
        cc.tarjeta_esperado, cc.tarjeta_contado,
@@ -154,9 +178,7 @@ SELECT co.sucursal, co.folio, co.fecha, co.referencia, co.caja, co.turno, co.mon
        -- efectivo; [CSU.19] es tarjeta + transferencia y se publica aparte.
        cc.arqueo_billetes, cc.arqueo_monedas, cc.efectivo_retirado, cc.arqueo_otros
   FROM co
-  LEFT JOIN a ON a.sucursal = co.sucursal AND a.corte_folio = co.folio
-  LEFT JOIN ac ON ac.sucursal = co.sucursal AND ac.corte_folio = co.folio
-  LEFT JOIN d ON d.sucursal = co.sucursal AND d.folio = co.folio
+  CROSS JOIN amap CROSS JOIN acmap CROSS JOIN dvmap
   LEFT JOIN LATERAL (
     SELECT c.* FROM analytics.cash_cuts c
      WHERE c.tenant_id = ?::uuid AND c.warehouse_code = co.sucursal AND c.caja = co.caja AND c.folio = co.turno
