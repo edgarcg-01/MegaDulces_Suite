@@ -2649,4 +2649,30 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       },
     ],
   },
+  // `[CSU.21]` Finanzas › Cortes/Sucursales. Lo lee quien revisa los cortes de caja de las tiendas.
+  'cortes-sucursales': {
+    title: 'Cortes de caja de las sucursales',
+    intro: 'Cada renglón es un corte de caja de Kepler (cliente CONTADO): lo que vendió una caja en un turno, cuánto ya se cobró en Kepler y si el dinero cuadra. Para saber si cuadra hay tres testigos, y cada uno dice de dónde sale.',
+    groups: [
+      {
+        heading: 'De dónde sale cada número',
+        entries: [
+          { term: 'Caja 3-407', def: 'La caja y el número de turno en Kepler: caja 3, turno 407. Es el mismo número que el cajero ve al abrir y cerrar su caja.' },
+          { term: 'Esperado', def: 'Lo que Kepler dice que debe haber en la caja al cerrar, por forma de pago, ya restadas las devoluciones que se pagaron del cajón.' },
+          { term: 'Declarado (cajero)', def: 'Lo que contó el cajero en su arqueo ciego de la Suite: el cajón al cerrar, más los retiros del turno, más los créditos y cheques que tiene en lugar de billetes.' },
+          { term: 'Desglose (Kepler)', def: 'Los billetes, monedas y retiros que capturó Kepler al cerrar. En algunas cajas no cuenta los créditos y cheques: si el cajero los declaró, la pantalla los suma antes de comparar.' },
+          { term: '= esperado', def: 'El corte salió igual a lo esperado porque Kepler registró como contado lo mismo que esperaba. No es una medición: para saber si cuadró, mira al cajero o al desglose.' },
+        ],
+      },
+      {
+        heading: 'Qué revisar',
+        entries: [
+          { term: 'Sin cuadrar', def: 'El corte no coincide con lo esperado, o el cajero (si no contó, el desglose de Kepler) se separa de lo esperado por 50 pesos o más. Debajo de 50 pesos es redondeo y se pinta en gris.' },
+          { term: 'En plazo', def: 'Un corte que todavía no se cobra y tiene 3 días o menos. Es lo normal: en octubre, 8 de cada 10 cortes se cobraron en 3 días. Pasado ese plazo dice «por cobrar» y el saldo va en rojo.' },
+          { term: 'Sin ligar', def: 'El cajero contó algo en esa caja ese día, pero su captura apunta a otro turno, o no había turno a esa hora. No se usa para el corte; se lista abajo, en «Contado fuera de un corte».' },
+          { term: 'Contado fuera de un corte', def: 'Conteos de efectivo que no quedaron en ningún corte: constancias sin caja (fondo, depósito al banco, la venta del día anterior) y retiros o cierres sin turno. No suman ni restan a los cortes.' },
+        ],
+      },
+    ],
+  },
 };

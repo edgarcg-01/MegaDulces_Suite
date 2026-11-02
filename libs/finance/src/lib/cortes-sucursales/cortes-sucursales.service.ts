@@ -301,6 +301,21 @@ export class CortesSucursalesService {
       for (const x of nom.rows as Array<{ warehouse_code: string; nombre: string | null }>) {
         if (x.nombre) nombres[x.warehouse_code] = x.nombre;
       }
+      // [CSU.21] El nombre del cajero que cerró: la pantalla decía «cerró 42DEVE». Medido en octubre, el
+      // catálogo de cajeros POS tiene el nombre de 65 de los 72 que cerraron turno.
+      const cajeros = [...new Set(filas.map((f) => f.cajero_cierre).filter((x): x is string => !!x))];
+      if (cajeros.length) {
+        const pc = await trx.raw(
+          `SELECT warehouse_code, cajero_code, nombre FROM analytics.pos_cashiers
+            WHERE tenant_id = ?::uuid AND cajero_code = ANY(?::text[]) AND NULLIF(btrim(nombre), '') IS NOT NULL`,
+          [tenantId, cajeros],
+        );
+        const porClave = new Map<string, string>();
+        for (const x of pc.rows as Array<{ warehouse_code: string; cajero_code: string; nombre: string }>) {
+          porClave.set(`${x.warehouse_code}|${x.cajero_code}`, x.nombre.trim());
+        }
+        for (const f of filas) if (f.cajero_cierre) f.cajero_nombre = porClave.get(`${f.sucursal}|${f.cajero_cierre}`) ?? null;
+      }
       const resp = armarRespuesta(filas, nombres, periodo, alcance, fuera);
       this.logger.debug(`cortes ${periodo.from}..${periodo.to}: ${resp.totales.cortes} en ${Date.now() - t0} ms`);
       return resp;

@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Fixed — Cortes/Sucursales: una sola cifra de «sin cuadrar», y el rojo sólo para lo vencido (CSU.21, 2026-11-02)
+- El indicador, «Por sucursal» y la lista cuentan «sin cuadrar» con la misma regla: 227 cortes en octubre. Antes el indicador decía 55 y la lista 272.
+- Cuando Kepler registró como contado lo mismo que esperaba, el corte dice «= esperado» en gris, no «Cuadra» en verde.
+- Un corte sin cobrar con 3 días o menos dice «en plazo». El rojo queda para lo vencido.
+- La sucursal y el cajero salen por nombre. Hay ayuda (?) con las palabras de la pantalla, y el detalle aparece al elegir un corte.
+
 ### Added — Cortes/Sucursales: lo que el cajero contó y no quedó en ningún corte (CSU.20, 2026-11-02)
 - Cada día de sucursal dice cuántos conteos quedaron **fuera de corte** y, al desplegarlo, los lista con su hora, importe, por qué no están en un corte y quién los contó.
 - Incluye los «conteos sin caja» (fondo, depósito al banco, la venta del día anterior), que son constancias: no suman ni restan.
