@@ -10,7 +10,7 @@
 | 85 | 92 | 15 | Tracker de Progreso |
 | 93 | 183 | 202 | 📊 Estado global de fases |
 | 184 | 210 | 1 | 🚦 Estado por item (granular) |
-| 211 | 3241 | 424 | 🎯 EN PROGRESO |
+| 211 | 3241 | 425 | 🎯 EN PROGRESO |
 | 3258 | 3295 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
 | 3296 | 3329 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
 | 3330 | 3414 | 6 | GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código) |
@@ -223,10 +223,10 @@ Y se actualiza el símbolo al avanzar:
 - [ ] **[LE.1.14]** 🔨 **La orden lleva el código que se teclea en la máquina** — 2026-10-31. Columnas nuevas, sin regla dura todavía. 🔨 2026-11-02: en `cashbook.withdrawal_orders` (no en requests: ahí autorizada exige asiento), escrita sólo por funciones; migración `20261102134515`.
 - [ ] **[LE.1.15]** ⬜ **Usuario de la máquina → empleado, y el tope del cajón, como catálogos firmados** — 2026-10-31.
 - [ ] **[LE.2.8]** 🔨 **Un retiro con código se explica solo; sin código cae en Suspenso con nombre** — 2026-10-31. Placebo: los 98 retiros del 15–30 oct → 98 en Suspenso, 0 asientos inventados. 🔨 2026-11-02: motor del código + el carril de la máquina ya asienta contra la orden; 0 colisiones del formato en la historia de la máquina.
-- [ ] **[LE.2.9]** 🔨 **Un documento de Kepler se paga una sola vez, en un acto** — 2026-10-31. 🔨 2026-11-02: regla «retiro con código de pago = gasto de su documento» + motor del plan de pago con redondeo declarado (D26). Falta la API.
+- [ ] **[LE.2.9]** 🔨 **Un documento de Kepler se paga una sola vez, en un acto** — 2026-10-31. 🔨 2026-11-02: regla «retiro con código de pago = gasto de su documento» + motor del plan de pago con redondeo declarado (D26). La parte del cajón se asienta en el mismo acto (LE.4.10).
 - [ ] **[LE.2.10]** ⬜ **El cajón arriba del tope abre un hallazgo** — 2026-10-31. Tope $50,000 (D20, decidida el 31-oct).
 - [ ] **[LE.2.11]** ⬜ **Fondo de monedas: se junta por pieza y se cambia por billetes con rastro** — 2026-11-02 (pedido del PM). En el acto o «se las lleva una persona» (custodia); comisión declarada; aviso desde $5,000 (D25). Hoy los cambios no dejan rastro (el fondo cae de $7,276.50 a $2,712.00 sin movimiento). Prototipo con 6 pruebas.
-- [ ] **[LE.4.10]** ⬜ **La API de la ventanilla: pagar, custodia, recibir de ruta, depositar el excedente** — 2026-10-31. Probada contra base real con el payload de la pantalla.
+- [ ] **[LE.4.10]** 🔨 **La API de la ventanilla: pagar, custodia, recibir de ruta, depositar el excedente** — 2026-10-31. 🔨 2026-11-02: PAGAR hecho (plan, pagar, por firmar, firmar, rechazar; migración `20261102143213`); base 23 ✓, servicio real 5 ✓ con 3 mutantes muertos. Falta custodia, fondo del cajón y recibir de ruta.
 - [ ] **[LE.4.11]** ⬜ **Tesorería firma en «Mi trabajo», con reautenticación** — 2026-10-31.
 - [ ] **[LE.4.12]** ⬜ **Un retiro sin orden avisa en el momento** — 2026-10-31. Por evento, sin cron nuevo.
 - [ ] **[LE.5.6]** ⬜ **Lo que cambia antes de la pantalla, sin código nuevo** — 2026-10-31. D21 ya vale (se sigue de D19); espera D22.

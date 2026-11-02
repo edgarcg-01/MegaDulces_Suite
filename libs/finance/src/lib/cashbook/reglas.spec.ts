@@ -2,7 +2,7 @@ import { DineroInvalido, valorDePiezas, type AsientoPropuesto, type CuentaPropue
 import { identidadDeCaos, llaveDePiezaCaos, piezasQueEntranALaMaquina, type MovimientoCaos } from './identidad';
 import {
   CUENTAS_FIJAS, ReglaInvalida, apertura, chequeDepositado, chequeDevuelto, chequeRecibido, clasificarSuspenso, cobranzaRuta,
-  cobroEnDolares, depositoEnBanco, entregaRuta, esSinRegla, faltante, gasto, movimientoCaos, otroIngreso, regresoCustodiaAlCajon,
+  cobroEnDolares, depositoEnBanco, entregaRuta, esSinRegla, faltante, gasto, movimientoCaos, otroIngreso, pagoDelCajon, regresoCustodiaAlCajon,
   sobrante, type Contexto, type Propuesta, type ResultadoRegla,
 } from './reglas';
 
@@ -320,5 +320,34 @@ describe('[LE.2.7] propiedad: todo asiento cuadra por moneda y conserva cada pie
     const p = entregaRuta({ ruta: '27', piezas: { 500: '1' } }, CAJERA);
     const roto: Propuesta = { ...p, asiento: { ...p.asiento, lines: p.asiento.lines.map((l, i) => (i === 1 ? { ...l, amount_minor: '-49999' } : l)) } as AsientoPropuesto };
     expect(() => verificar(roto)).toThrow();
+  });
+});
+
+describe('[LE.2.9] la parte del cajón de un pago, con el redondeo declarado (D26)', () => {
+  const base = { concepto: '201', documento: '00|X-D-26|0023782|0011', orden: 'o-1', recibe: 'Nómina CEDIS' };
+
+  it('el testigo de hoy: $796.73 → $16.50 del cajón; el egreso suma el documento EXACTO con la máquina', () => {
+    const p = pagoDelCajon({ ...base, piezas: { 10: '1', 5: '1', 1: '1', '0.5': '1' }, redondeo: -23n }, CAJERA);
+    expect(p).not.toBeNull();
+    if (!p) return;
+    verificar(p);
+    expect(linea(p, 'CAJA_MXN').amount_minor).toBe('-1650');
+    expect(linea(p, 'REDONDEO_MXN').amount_minor).toBe('-23');
+    // máquina 78000 (lo asienta el carril) + cajón 1673 = 79673: el importe del X-D-26, al centavo.
+    expect(78000n + BigInt(linea(p, 'EGRESO:201').amount_minor)).toBe(79673n);
+    expect(p.asiento).toMatchObject({ event_kind: 'gasto', event_ref: 'pago:o-1' });
+    expect(p.asiento.meta).toMatchObject({ documento: base.documento, orden: 'o-1', recibe: 'Nómina CEDIS', redondeo: '-23' });
+  });
+
+  it('todo de la máquina con redondeo: sólo el redondeo contra el egreso; sin redondeo, nada que asentar', () => {
+    const p = pagoDelCajon({ ...base, redondeo: 25n }, CAJERA);
+    if (!p) throw new Error('debía asentar el redondeo');
+    verificar(p);
+    expect(p.asiento.lines.map((l) => [l.account, l.amount_minor])).toEqual([['EGRESO:201', '-25'], ['REDONDEO_MXN', '25']]);
+    expect(pagoDelCajon({ ...base, redondeo: 0n }, CAJERA)).toBeNull();
+  });
+
+  it('NEGATIVA: el cajón se cuenta por pieza del catálogo; una pieza que no existe no pasa', () => {
+    expect(() => pagoDelCajon({ ...base, piezas: { 3: '1' }, redondeo: 0n }, CAJERA)).toThrow(DineroInvalido);
   });
 });

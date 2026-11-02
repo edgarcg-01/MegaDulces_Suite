@@ -25,14 +25,19 @@ export interface DocumentoAPagar {
   cuentaKepler: string | null;
 }
 
-/** El vale de `/finanzas/aprobacion-gastos` que la cajera elige al pagar (D18). */
+/**
+ * El vale de `/finanzas/aprobacion-gastos` que la cajera elige al pagar (D18). Ampara el pago sólo
+ * si guarda QUIÉN lo aprobó (`aprobado_at`): medido 2026-11-02, de 1,374 vales `validada` desde el
+ * 1-oct sólo 148 la guardan, y el cierre de Kepler valida vales que nadie firmó (`[GX.85]`).
+ */
 export interface ValeElegido {
   folio: string;
   estado: string;
   importeCentavos: bigint;
+  aprobadoAt: string | null;
 }
 
-export type BloqueoDePago = 'importe_invalido' | 'ya_ordenado' | 'sin_cuenta_kepler' | 'vale_de_otro_importe';
+export type BloqueoDePago = 'importe_invalido' | 'ya_ordenado' | 'ya_pagado' | 'sin_cuenta_kepler' | 'vale_de_otro_importe';
 
 export interface PlanDePago {
   documento: DocumentoAPagar;
@@ -59,14 +64,23 @@ export function alMedioPeso(c: bigint): bigint {
   return r * 2n >= MEDIO_PESO ? c - r + MEDIO_PESO : c - r;
 }
 
-export function planDePago(doc: DocumentoAPagar, opciones: { yaOrdenado: boolean; vale: ValeElegido | null }): PlanDePago {
+function motivoDeFirma(vale: ValeElegido | null): string | null {
+  if (!vale) return 'no trae vale aprobado';
+  if (!ESTADOS_APROBADOS.has(vale.estado)) return `el vale ${vale.folio} está ${vale.estado}, no aprobado`;
+  if (!vale.aprobadoAt) return `el vale ${vale.folio} no guarda quién lo aprobó`;
+  return null;
+}
+
+/** `yaPagado`: el libro viejo (`finance.cash_ledger`) ya lo registró; no se paga otra vez por la Ventanilla. */
+export function planDePago(doc: DocumentoAPagar, opciones: { yaOrdenado: boolean; yaPagado?: boolean; vale: ValeElegido | null }): PlanDePago {
   const pagable = doc.importeCentavos > 0n ? alMedioPeso(doc.importeCentavos) : 0n;
   const maquina = (pagable / BILLETE_MINIMO) * BILLETE_MINIMO;
   const vale = opciones.vale;
-  const valeAprobado = !!vale && ESTADOS_APROBADOS.has(vale.estado);
+  const motivoFirma = motivoDeFirma(vale);
   let bloqueo: BloqueoDePago | null = null;
   if (doc.importeCentavos <= 0n) bloqueo = 'importe_invalido';
   else if (opciones.yaOrdenado) bloqueo = 'ya_ordenado';
+  else if (opciones.yaPagado) bloqueo = 'ya_pagado';
   else if (!doc.cuentaKepler) bloqueo = 'sin_cuenta_kepler';
   else if (vale && vale.importeCentavos !== doc.importeCentavos) bloqueo = 'vale_de_otro_importe';
   return {
@@ -75,8 +89,8 @@ export function planDePago(doc: DocumentoAPagar, opciones: { yaOrdenado: boolean
     redondeoCentavos: pagable - doc.importeCentavos,
     maquinaCentavos: maquina,
     cajonCentavos: pagable - maquina,
-    requiereFirma: !valeAprobado,
-    motivoFirma: valeAprobado ? null : vale ? `el vale ${vale.folio} está ${vale.estado}, no aprobado` : 'no trae vale aprobado',
+    requiereFirma: motivoFirma !== null,
+    motivoFirma,
     bloqueo,
   };
 }
@@ -85,6 +99,7 @@ export function planDePago(doc: DocumentoAPagar, opciones: { yaOrdenado: boolean
 export const MOTIVO_BLOQUEO: Readonly<Record<BloqueoDePago, string>> = {
   importe_invalido: 'El documento no trae un importe que pagar.',
   ya_ordenado: 'Este documento ya tiene su orden de pago: no se paga dos veces.',
+  ya_pagado: 'Este documento ya está registrado en el libro de caja: no se paga dos veces.',
   sin_cuenta_kepler: 'Falta su cuenta de Kepler.',
   vale_de_otro_importe: 'El vale elegido es por otro importe que el documento.',
 };

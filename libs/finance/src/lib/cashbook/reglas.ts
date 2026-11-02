@@ -324,6 +324,36 @@ export function gasto(h: { concepto: string; desde: { tipo: 'cajon'; piezas: Pie
   ]);
 }
 
+// ── E-09b · `[LE.2.9]` La parte del CAJÓN de un pago en la Ventanilla, con el redondeo declarado ─
+
+/**
+ * Un pago sale en dos partes: los billetes de la máquina (los asienta el carril de CAOS contra la
+ * orden, `movimientoCaos` con `{ tipo: 'pago' }`) y lo de menos de $20, del cajón por pieza. Ésta es la
+ * segunda, y lleva el redondeo de D26: el egreso queda al importe EXACTO del documento.
+ *
+ *   máquina (carril) ............ EGRESO +maquina · BÓVEDA −maquina
+ *   cajón (aquí) ................ EGRESO +(cajon − redondeo) · REDONDEO +redondeo · CAJA −cajon
+ *   ⇒ EGRESO suma el importe del documento; REDONDEO dice cuánto se pagó de más (+) o de menos (−).
+ *
+ * Devuelve `null` si no hay nada que asentar (todo de la máquina y sin redondeo).
+ */
+export function pagoDelCajon(h: { concepto: string; documento: string; orden: string; piezas?: PiezasTexto; redondeo: bigint; recibe: string },
+  ctx: Contexto, extra: { meta?: MetaAsiento } = {}): Propuesta | null {
+  const hayPiezas = !!h.piezas && Object.keys(h.piezas).length > 0;
+  const cajon = hayPiezas ? montoDe(h.piezas as PiezasTexto) : 0n;
+  if (cajon < 0n) throw new ReglaInvalida('cashbook_monto_invalido', 'pago: las piezas del cajón salen, se cuentan en positivo');
+  if (cajon === 0n && h.redondeo === 0n) return null;
+  const piernas: Pierna[] = [];
+  if (cajon - h.redondeo !== 0n) piernas.push({ cuenta: CUENTA.egreso(h.concepto), monto: cajon - h.redondeo });
+  if (h.redondeo !== 0n) piernas.push({ cuenta: CUENTA.redondeo(), monto: h.redondeo });
+  if (cajon !== 0n) piernas.push({ cuenta: F.CAJA_MXN, monto: -cajon, piezas: negarPiezas(h.piezas as PiezasTexto) });
+  return armar('gasto', ctx, piernas, {
+    // Por ORDEN, no por documento: si una orden vence a medias, el segundo intento no se confunde con el primero.
+    event_ref: `pago:${h.orden}`,
+    meta: { ...extra.meta, documento: h.documento, orden: h.orden, recibe: h.recibe, redondeo: centavosATexto(h.redondeo) },
+  });
+}
+
 // ── E-11 · Lo que sobró de una custodia regresa al cajón ──────────────────────────────────────
 
 export function regresoCustodiaAlCajon(h: { empleado: string; nombre: string; piezas: PiezasTexto }, ctx: Contexto): Propuesta {
