@@ -45,7 +45,7 @@ const CANAL_CLIENTE = 'md-caja-cliente';
     <header class="cj-head">
       <h1 class="cj-titulo">Caja</h1>
       <app-sucursal-picker [(valor)]="sucursal" placeholder="Elige la sucursal" etiqueta="Sucursal de la caja" />
-      @if (datosAl(); as d) { <app-freshness-pill [since]="d" label="Precios de Kepler" /> }
+      @if (datosAl(); as d) { <app-freshness-pill measures="data" [since]="d" label="Precios de Kepler" [staleAfterSec]="900" /> }
       <span class="cj-practica" role="note"><i class="pi pi-info-circle" aria-hidden="true"></i>
         Modo práctica: no guarda, no imprime, no cobra ni manda a Kepler. Sin promociones por cantidad.</span>
       <span class="cj-acciones">
