@@ -104,7 +104,7 @@ const CANAL_CLIENTE = 'md-caja-cliente';
 
         <div class="cj-ticket">
           <div class="cj-cap"><b>Ticket {{ folio() }}</b><span>Público en general</span><span class="cj-der">{{ tot().renglones }} renglones</span></div>
-          <p-table [value]="lineas()" styleClass="surf-table surf-table--plain surf-table--sticky" [scrollable]="true" scrollHeight="flex">
+          <p-table [value]="lineas()" tableStyleClass="surf-table surf-table--plain surf-table--sticky" [scrollable]="true" scrollHeight="flex">
             <ng-template #header>
               <tr><th>Producto</th><th>Present.</th><th class="comm-num">Cantidad</th><th class="comm-num">Precio</th><th class="comm-num">Importe</th></tr>
             </ng-template>
@@ -227,7 +227,7 @@ const CANAL_CLIENTE = 'md-caja-cliente';
   </div>
   `,
   styles: [`
-    :host { display: block; height: 100%; }
+    :host { display: block; height: calc(100dvh - 6.25rem); min-height: 32rem; }
     .cj { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--surface-ground); color: var(--text-main); font-size: var(--fs-lg); }
     .cj-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-4); padding: var(--sp-2) var(--sp-4); background: var(--card-bg); border-bottom: 1px solid var(--border-color); }
     .cj-titulo { margin: 0; font-size: var(--fs-h3); font-weight: 700; }
@@ -249,9 +249,10 @@ const CANAL_CLIENTE = 'md-caja-cliente';
     .cj-cmd { position: relative; }
     .cj-cmd-caja { display: flex; align-items: center; gap: var(--sp-3); height: 4.25rem; padding: 0 var(--sp-4); background: var(--card-bg); border: 2px solid var(--action); border-radius: var(--r-lg); }
     .cj-modo { min-width: 5.5rem; font-size: var(--fs-xs); font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--action); }
-    .cj-cmd-input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text-main); font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-h2); }
-    .cj-cmd-input:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
-    .cj-cmd-input::placeholder { font-family: inherit; font-size: var(--fs-lg); color: var(--text-faint); }
+    .cj-cmd-input { flex: 1; min-width: 0; border: 0; outline: 2px solid transparent; background: transparent; color: var(--text-main); font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-h2); }
+    /* El anillo lo lleva la caja que envuelve al campo (focus-within); el contorno transparente sigue visible en Alto Contraste. */
+    .cj-cmd-caja:focus-within { box-shadow: 0 0 0 3px var(--action-ring); }
+    .cj-cmd-input::placeholder { font-family: var(--font-body); font-size: var(--fs-lg); color: var(--text-faint); }
     .cj-res { position: absolute; z-index: 5; left: 0; right: 0; top: calc(100% + var(--sp-1)); margin: 0; padding: 0; list-style: none; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-lg); box-shadow: var(--shadow-float); overflow: hidden; }
     .cj-res-i { display: flex; justify-content: space-between; gap: var(--sp-3); padding: var(--sp-2) var(--sp-4); border-bottom: 1px solid var(--border-color); cursor: pointer; }
     .cj-on { background: var(--surface-selected-bg); box-shadow: inset 3px 0 0 var(--action); }
