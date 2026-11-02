@@ -1920,3 +1920,21 @@ consumidor anterior cambia.
   lista: mientras tanto la respuesta dice «armadas» y «Revisando…». Bajarlo es deuda con nombre (`[CP.8.98]`, sin abrir).
 - «Por revisar» **sí sale** en el archivo (D12, sin decidir): la pantalla lo dice junto al botón de descarga.
 - Sin validación visual: no se levantó la app.
+
+**e2e (Playwright), escrita y NO MEDIDA.** `e2e/contpaqi-puente/dictamen-entrega.e2e.ts` tiene 8 pruebas en navegador real
+contra prod, sólo lectura; toda petición que no sea GET se aborta y la prueba sale roja. Cruzan lo que pinta la pantalla
+contra `GET dictamen`:
+- la cifra y el importe de arriba;
+- la segunda línea;
+- el estado del paso 4;
+- cada chip y su filtro;
+- el orden de la lista (frenadas primero);
+- el porqué de la fila y los hallazgos del detalle;
+- la tira y la frase que abren lo frenado;
+- la ayuda;
+- el aviso de descarga contra los encabezados del archivo.
+
+Se saltan, declarado, sin `MD_TOKEN_FILE` o si prod no tiene `[CP.8.97]` (la API sin `lote` ni `entregadas`). Hoy
+se listan y compilan las 8, y las 8 se saltan: falta soltar y correrlas con sesión.
+
+    MD_TOKEN_FILE=<ruta> npx playwright test -c e2e/contpaqi-puente/playwright.config.ts
