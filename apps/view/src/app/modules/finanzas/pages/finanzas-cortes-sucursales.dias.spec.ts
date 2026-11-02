@@ -1,5 +1,5 @@
 import type { CorteArqueo, CorteRow } from '@megadulces/contracts';
-import { agruparCortesPorDia, celdaArqueo, descuadraPorTestigo } from './finanzas-cortes-sucursales.component';
+import { agruparCortesPorDia, celdaArqueo, creditosExplicanDesglose, descuadraPorTestigo } from './finanzas-cortes-sucursales.component';
 
 /**
  * `[CSU.15]` La lista principal de Cortes/Sucursales engloba los cortes **por día de sucursal**,
@@ -114,6 +114,16 @@ describe('[CSU.15] los cortes se engloban por día de sucursal', () => {
     expect(descuadraPorTestigo(corte({ arqueo: a(0.44, -2276.59) }))).toBe(false);
     expect(descuadraPorTestigo(corte({ arqueo: a(null, null) }))).toBe(false);
     expect(descuadraPorTestigo(corte({ arqueo: null }))).toBe(false);
+  });
+
+  it('[CSU.19] caso real Canindo 5-46: el «Falta $9,532.87» del desglose son los créditos del cajero', () => {
+    const a = (fuera: boolean, fisico: number | null) =>
+      ({ fisico_diferencia: fisico, declaracion_cajero: { documentos: 9533.8, creditos_fuera_del_desglose: fuera, diferencia: 0.93 } }) as unknown as CorteArqueo;
+    expect(creditosExplicanDesglose(a(true, -9532.87))).toBe(true);
+    // NEGATIVAS: si los créditos no explican el desglose (o ya venían dentro), el faltante se queda como faltante.
+    expect(creditosExplicanDesglose(a(false, -9532.87))).toBe(false);
+    expect(creditosExplicanDesglose(a(true, -0.2))).toBe(false);
+    expect(creditosExplicanDesglose({ fisico_diferencia: -500, declaracion_cajero: null } as unknown as CorteArqueo)).toBe(false);
   });
 
   it('[CSU.17] la celda dice falta/sobra en palabras, y sin dato NO dice «Cuadra»', () => {

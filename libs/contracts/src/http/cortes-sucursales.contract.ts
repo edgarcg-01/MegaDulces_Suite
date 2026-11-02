@@ -145,6 +145,11 @@ export interface CorteArqueo {
    */
   fisico_diferencia: number | null;
   /**
+   * `[CSU.19]` Tarjeta + transferencia que Kepler tiene en el corte (`kdpv_folio_caja.c45`, «otros»):
+   * = `c16 + c17` en 555 de 643 cortes de octubre. `null` si Kepler no lo trae.
+   */
+  electronico_kepler: number | null;
+  /**
    * `[CSU.9]` Kepler registró como contado (`c25`) exactamente lo esperado (`c15`). Cuando es `true`
    * y el cajero no hizo arqueo ciego, «cuadra» NO significa que cuadró: nadie midió, y la pantalla
    * lo dice. `[CSU.16]` Re-medido el 2026-10-30: pasa en **1,327 de 1,560** cortes desde sep (85.1 %).
@@ -197,7 +202,12 @@ export interface CorteDeclaracionCajero {
   /** Lo que declaró en el cierre. `null` = no lo declaró, que no es lo mismo que cero. */
   tarjeta: number | null;
   transferencia: number | null;
-  /** Efectivo + tarjeta + transferencia; `null` si falta una forma que el sistema sí esperaba. */
+  /**
+   * `[CSU.19]` Tarjeta + transferencia declaradas, JUNTAS: el campo «tarjeta» del cierre trae las dos
+   * (= tarjeta + transferencia esperadas en 112 de 126 cierres de octubre). `null` si no declaró ninguna.
+   */
+  electronico: number | null;
+  /** Efectivo + electrónico; `null` sin cierre, o si el sistema esperaba electrónico y no lo declaró. */
   total: number | null;
   /**
    * Efectivo declarado (más los retiros sin verificar) − efectivo esperado neto de devoluciones.
@@ -205,9 +215,20 @@ export interface CorteDeclaracionCajero {
    */
   diferencia: number | null;
   /**
-   * ¿El cajero y el desglose de Kepler (`fisico_diferencia`) dicen lo mismo, dentro del umbral del
-   * arqueo ($50)? `false` = uno de los dos conteos está mal o el conteo no es de este turno.
-   * `null` si falta uno de los dos.
+   * `[CSU.19]` El desglose de Kepler (`fisico_diferencia`) más los créditos y cheques que declaró el
+   * cajero: el desglose sólo cuenta billetes y monedas. Es lo comparable con `diferencia`.
+   */
+  fisico_con_documentos: number | null;
+  /**
+   * `[CSU.19]` El desglose de Kepler deja FUERA los créditos y cheques que declaró el cajero: los dos
+   * testigos sólo coinciden sumándoselos. Depende de cómo los capture cada caja en Kepler (en Padre
+   * Hidalgo Caja 2 quedan fuera; en Yurécuaro Caja 3 ya vienen dentro).
+   */
+  creditos_fuera_del_desglose: boolean;
+  /**
+   * ¿El cajero y el desglose de Kepler dicen lo mismo, dentro del umbral del arqueo ($50), con o sin
+   * los créditos y cheques del cajero? `false` = uno de los dos conteos está mal o el conteo no es de
+   * este turno. `null` si falta uno de los dos.
    */
   concuerda_con_kepler: boolean | null;
   /** Cuándo capturó el cierre (ISO); `null` sin cierre. */

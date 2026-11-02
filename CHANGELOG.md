@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Fixed — Cortes/Sucursales: tarjeta y transferencia juntas, y los créditos del cajón ya no parecen faltante (CSU.19, 2026-11-02)
+- El detalle del corte muestra **«Tarjeta y transferencia»** en un solo renglón, con lo esperado, lo declarado por el cajero y lo que tiene Kepler. Antes se leía como un sobrante de tarjeta y una transferencia sin declarar.
+- Cuando el desglose de Kepler marca un faltante que son los **créditos y cheques** del cajero, la pantalla lo dice («créditos del cajero», en gris) en vez de «Falta» en rojo. «No concuerda» pasa de 66 a 50 cortes en octubre.
+- Sin arqueo del cajero, se advierte que un faltante del desglose puede ser crédito en papel.
+
 ### Fixed — Cortes/Sucursales: la lista dice de quién es cada número (CSU.17, 2026-11-02)
 - Cada corte muestra **tres arqueos con su fuente**: el corte contra lo que Kepler esperaba, lo que contó el **cajero** y los **billetes y monedas** que capturó Kepler. Cada uno dice «Falta $X», «Sobra $X» o «Cuadra», o por qué no hay dato.
 - Los encabezados dicen de dónde sale cada monto («aplicado en Kepler», «por cobrar»), y arriba se ve la fecha del **último cobro aplicado en Kepler**.

@@ -150,8 +150,9 @@ SELECT co.sucursal, co.folio, co.fecha, co.referencia, co.caja, co.turno, co.mon
        cc.cajero_cierre,
        -- [CSU.9] Las denominaciones: el UNICO efectivo que alguien conto. efectivo_contado es un
        -- numero declarado y es identico al esperado en el 81.2% de los cortes, asi que el veredicto
-       -- "cuadra" sale de comparar una cifra contra si misma. OJO: arqueo_otros (c45) NO entra.
-       cc.arqueo_billetes, cc.arqueo_monedas, cc.efectivo_retirado
+       -- "cuadra" sale de comparar una cifra contra si misma. OJO: arqueo_otros (c45) NO entra al
+       -- efectivo; [CSU.19] es tarjeta + transferencia y se publica aparte.
+       cc.arqueo_billetes, cc.arqueo_monedas, cc.efectivo_retirado, cc.arqueo_otros
   FROM co
   LEFT JOIN a ON a.sucursal = co.sucursal AND a.corte_folio = co.folio
   LEFT JOIN ac ON ac.sucursal = co.sucursal AND ac.corte_folio = co.folio

@@ -432,6 +432,44 @@ describe('[CSU.16] la declaración del cajero, que no es la del sistema', () => 
     expect(d.concuerda_con_kepler).toBe(false);
   });
 
+  it('[CSU.19] ⭐ caso real Canindo 5-46: los créditos explican el desglose y «tarjeta» trae tarjeta + transferencia', () => {
+    // Kepler: c15 61,622.87 · c16 9,445.27 · c17 8,167.18 · c43 1,050 · c44 140 · c45 17,612.45 · c48 50,900.
+    const can = base({
+      sucursal: '06', caja: '5', turno: '46', monto: '79235.32',
+      efectivo_esperado: '61622.87', efectivo_contado: '61622.87', tarjeta_esperado: '9445.27', tarjeta_contado: '9445.27',
+      transfer_esperado: '8167.18', transfer_contado: '8167.18',
+      arqueo_billetes: '1050', arqueo_monedas: '140', efectivo_retirado: '50900', arqueo_otros: '17612.45',
+    });
+    const r = (total: string) => ({ tipo: 'retiro', total, medios: null, captured_at: '2026-10-31T18:00:00Z', ligado: 'folio' as const });
+    const cierre = { tipo: 'cierre', total: '1190', medios: { retiros: 50900, tarjeta: 17612.45, creditos: 9533.8 }, captured_at: '2026-10-31T23:42:00Z', ligado: 'folio' as const };
+    const a = construirCorte({ ...can, conteos_cajero: [r('23800'), r('13800'), r('13300'), cierre] }, NOMBRES).arqueo!;
+    const d = a.declaracion_cajero!;
+    expect(d.diferencia).toBe(0.93);
+    expect(a.fisico_diferencia).toBe(-9532.87);
+    expect(d.fisico_con_documentos).toBe(0.93);
+    expect(d.concuerda_con_kepler).toBe(true);
+    expect(d.creditos_fuera_del_desglose).toBe(true);
+    expect(d.electronico).toBe(17612.45);
+    expect(a.electronico_kepler).toBe(17612.45);
+    expect(d.total).toBe(79236.25);
+    // NEGATIVA: sin los créditos en la comparación, los dos testigos «no concordarían».
+    expect(Math.abs(d.diferencia! - a.fisico_diferencia!) >= 50).toBe(true);
+  });
+
+  it('[CSU.19] ⛔ NEGATIVA (caso real Yurécuaro 3-206): si Kepler YA trae los créditos en su desglose, no se suman dos veces', () => {
+    // c15 2,834.95; el cajero: cajón 2,151 + créditos 683.95. El desglose de Kepler cuadra a $0 sin sumarle nada.
+    const y = base({
+      sucursal: '04', caja: '3', turno: '206', monto: '2834.95', efectivo_esperado: '2834.95', efectivo_contado: '2834.95',
+      tarjeta_esperado: '0', tarjeta_contado: '0', transfer_esperado: '0', transfer_contado: '0',
+      arqueo_billetes: '2700', arqueo_monedas: '134.95', efectivo_retirado: '0',
+    });
+    const cierre = { tipo: 'cierre', total: '2151', medios: { creditos: 683.95 }, captured_at: '2026-10-24T23:21:00Z', ligado: 'hora' as const };
+    const d = construirCorte({ ...y, conteos_cajero: [cierre] }, NOMBRES).arqueo!.declaracion_cajero!;
+    expect(d.diferencia).toBe(0);
+    expect(d.concuerda_con_kepler).toBe(true);
+    expect(d.creditos_fuera_del_desglose).toBe(false);
+  });
+
   it('si el sistema esperaba tarjeta y el cajero no la declaró, el total queda sin medir', () => {
     const sinTarjeta = { ...conteos[4], medios: { retiros: 31440 } };
     const d = construirCorte({ ...piedad, conteos_cajero: [...conteos.slice(0, 4), sinTarjeta] }, NOMBRES).arqueo!.declaracion_cajero!;

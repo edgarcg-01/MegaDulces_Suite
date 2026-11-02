@@ -101,6 +101,8 @@ export interface CorteCrudo {
   arqueo_billetes?: string | number | null;
   arqueo_monedas?: string | number | null;
   efectivo_retirado?: string | number | null;
+  /** `[CSU.19]` `c45` «otros»: tarjeta + transferencia del corte en Kepler. */
+  arqueo_otros?: string | number | null;
   /** `[CSU.16]` Retiros y cierre del arqueo ciego del cajero, ya ligados a ESTE turno (`ligarPorCaptura`). */
   conteos_cajero?: ConteoCajeroCrudo[] | null;
   /** `[CSU.16]` Conteos de esa caja ese día que NO se pudieron ligar a ningún turno. */
@@ -159,11 +161,21 @@ function declaracionCajero(
   const cq = cuadreTurno({ ...turno, efectivo_esperado: r2(turno.efectivo_esperado - documentos) }, { cajonContado: cajon, retirosContados });
   const tarjeta = cierre ? medio(medios, 'tarjeta') : null;
   const transferencia = cierre ? medio(medios, 'transferencia') : null;
+  // [CSU.19] Tarjeta y transferencia se juzgan JUNTAS: el campo «tarjeta» del cierre trae las dos
+  // (medido en octubre: = tarjeta + transferencia esperadas en 112 de 126 cierres, = sólo tarjeta en 0).
+  const electronico = tarjeta === null && transferencia === null ? null : r2((tarjeta ?? 0) + (transferencia ?? 0));
   const efectivo = cajon === null ? null : r2(cajon + retirosContados + documentos);
-  const faltaForma = (declarado: number | null, esp: number): boolean => declarado === null && esp > 0.005;
-  const total = efectivo === null || faltaForma(tarjeta, esperado.tarjeta) || faltaForma(transferencia, esperado.transferencia)
-    ? null : r2(efectivo + (tarjeta ?? 0) + (transferencia ?? 0));
+  const total = efectivo === null || (electronico === null && esperado.tarjeta + esperado.transferencia > 0.005)
+    ? null : r2(efectivo + (electronico ?? 0));
   const diferencia = cq.diff_real === null ? null : r2(-cq.diff_real);
+  // [CSU.19] Los créditos y cheques del cajón entran o NO al desglose de Kepler según la caja: medido en
+  // octubre, en Padre Hidalgo Caja 2 y Canindo 5-46 quedan fuera (el desglose «falta» justo esos papeles),
+  // y en Yurécuaro Caja 3 o La Piedad Abastos 5-226 ya vienen dentro (cuadra a $0 sin sumarlos).
+  // Entonces los dos testigos concuerdan si coinciden de CUALQUIERA de las dos formas, y sólo cuando
+  // coinciden únicamente sumándolos se dice que el faltante del desglose son esos papeles.
+  const fisico_con_documentos = fisicoDiferencia === null ? null : r2(fisicoDiferencia + documentos);
+  const coincide = (x: number | null): boolean => diferencia !== null && x !== null && Math.abs(diferencia - x) < CUADRE_UMBRAL;
+  const creditos_fuera_del_desglose = documentos > 0 && !coincide(fisicoDiferencia) && coincide(fisico_con_documentos);
   return {
     cajon,
     retiros: retirosContados,
@@ -174,11 +186,14 @@ function declaracionCajero(
     efectivo,
     tarjeta,
     transferencia,
+    electronico,
     total,
     // `cuadreTurno` da esperado − contado (faltante positivo); aquí, como el resto de la pantalla, sobrante positivo.
     diferencia,
+    fisico_con_documentos,
+    creditos_fuera_del_desglose,
     // Dos testigos del mismo cajón: si se separan más que el umbral del arqueo, uno está mal o el conteo no es de aquí.
-    concuerda_con_kepler: diferencia === null || fisicoDiferencia === null ? null : Math.abs(diferencia - fisicoDiferencia) < CUADRE_UMBRAL,
+    concuerda_con_kepler: diferencia === null || fisicoDiferencia === null ? null : coincide(fisicoDiferencia) || coincide(fisico_con_documentos),
     capturado_at: cierre ? String(cierre.captured_at) : null,
     ligado: (cierre ?? retiros[0]).ligado,
   };
@@ -215,6 +230,9 @@ function arqueoDe(c: CorteCrudo, devoluciones: number): CorteArqueo | null {
     cajero: c.cajero_cierre || null,
     conteo_fisico,
     fisico_diferencia,
+    // [CSU.19] c45 «otros» = tarjeta + transferencia que Kepler tiene en el corte (= c16 + c17 en 555 de 643
+    // cortes de octubre). Es el desglose electrónico; no entra al efectivo ([CSU.9]).
+    electronico_kepler: c.arqueo_otros == null ? null : r2(n(c.arqueo_otros)),
     // Kepler registró como contado lo mismo que esperaba (c25 = c15): 85.1% de los cortes (CSU.16).
     arqueo_declarado: a.efectivo_contado === a.efectivo_esperado,
     declaracion_cajero: declaracionCajero(

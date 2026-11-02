@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 2108 KB, 13045 líneas, 72 secciones.
+> **Índice navegable** — 2109 KB, 13051 líneas, 72 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -10,75 +10,75 @@
 | 85 | 92 | 15 | Tracker de Progreso |
 | 93 | 183 | 202 | 📊 Estado global de fases |
 | 184 | 210 | 1 | 🚦 Estado por item (granular) |
-| 211 | 3210 | 416 | 🎯 EN PROGRESO |
-| 3227 | 3264 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
-| 3265 | 3298 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
-| 3299 | 3383 | 6 | GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código) |
-| 3384 | 3487 | 6 | GX.15 — El expediente del gasto: los cuatro eslabones juntos, y su PDF 🧪 2026-09-24 (en código) |
-| 3488 | 3554 | 4 | GX.16 — Áreas de gasto: el motor propone, la persona confirma 🧪 2026-09-24 (en código) |
-| 3555 | 3658 | 7 | IG — Ingresos contables: el otro lado del libro 🧪 2026-09-25 (en código) |
-| 3659 | 3742 | 6 | GX.19 — Egresos: el número no cambia, ahora dice con qué se calculó 🧪 2026-09-25 (en código) |
-| 3743 | 3912 | 13 | GX.20 — Aprobación de gastos: el día, en tres pestañas 🧪 2026-09-25 (en código) |
-| 3913 | 3975 | 4 | GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código) |
-| 3976 | 4048 | 5 | GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código) |
-| 4049 | 4100 | 3 | GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código) |
-| 4101 | 4820 | 92 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
-| 4821 | 4834 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
-| 4835 | 4859 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
-| 4860 | 4882 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
-| 4883 | 4921 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
-| 4922 | 5606 | 62 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
-| 5607 | 5791 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
-| 5792 | 5834 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
-| 5835 | 5912 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
-| 5913 | 6006 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
-| 6007 | 6142 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
-| 6143 | 6159 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
-| 6160 | 6210 | 92 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
-| 6211 | 6278 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
-| 6279 | 6531 | 20 | Fase CH — Checadores / Control de asistencia |
-| 6532 | 6597 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
-| 6598 | 6625 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
-| 6626 | 6792 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
-| 6793 | 7152 | 123 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
-| 7153 | 7215 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
-| 7216 | 7345 | 44 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
-| 7346 | 7408 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
-| 7409 | 7569 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
-| 7570 | 7640 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
-| 7641 | 7689 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
-| 7690 | 7722 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
-| 7723 | 8112 | 54 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
-| 8113 | 8244 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
-| 8245 | 8298 | 37 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
-| 8299 | 8338 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
-| 8339 | 8391 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
-| 8392 | 8458 | 20 | Fase WMS-BI — Análisis BI de Almacén |
-| 8459 | 8621 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
-| 8622 | 8905 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
-| 8906 | 9073 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 9074 | 11407 | 179 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 11408 | 11416 | 1 | Fase RR — Ventas por ruta |
-| 11417 | 11712 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 11713 | 11723 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 11724 | 11744 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 11745 | 11755 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 11756 | 11767 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 11768 | 11827 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 11828 | 12255 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 12256 | 12270 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 12271 | 12312 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 12313 | 12462 | 65 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 12463 | 12493 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 12494 | 12541 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
-| 12542 | 12571 | 28 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 12572 | 12601 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 12608 | 12617 | 1 | 📝 Convenciones |
-| 12618 | 12655 | 13 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 12656 | 12674 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 12675 | 12727 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 12728 | 13098 | 54 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 13099 | 13129 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 211 | 3216 | 418 | 🎯 EN PROGRESO |
+| 3233 | 3270 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
+| 3271 | 3304 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
+| 3305 | 3389 | 6 | GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código) |
+| 3390 | 3493 | 6 | GX.15 — El expediente del gasto: los cuatro eslabones juntos, y su PDF 🧪 2026-09-24 (en código) |
+| 3494 | 3560 | 4 | GX.16 — Áreas de gasto: el motor propone, la persona confirma 🧪 2026-09-24 (en código) |
+| 3561 | 3664 | 7 | IG — Ingresos contables: el otro lado del libro 🧪 2026-09-25 (en código) |
+| 3665 | 3748 | 6 | GX.19 — Egresos: el número no cambia, ahora dice con qué se calculó 🧪 2026-09-25 (en código) |
+| 3749 | 3918 | 13 | GX.20 — Aprobación de gastos: el día, en tres pestañas 🧪 2026-09-25 (en código) |
+| 3919 | 3981 | 4 | GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código) |
+| 3982 | 4054 | 5 | GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código) |
+| 4055 | 4106 | 3 | GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código) |
+| 4107 | 4826 | 92 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
+| 4827 | 4840 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
+| 4841 | 4865 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
+| 4866 | 4888 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
+| 4889 | 4927 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
+| 4928 | 5612 | 62 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
+| 5613 | 5797 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
+| 5798 | 5840 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
+| 5841 | 5918 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
+| 5919 | 6012 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
+| 6013 | 6148 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
+| 6149 | 6165 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
+| 6166 | 6216 | 92 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
+| 6217 | 6284 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
+| 6285 | 6537 | 20 | Fase CH — Checadores / Control de asistencia |
+| 6538 | 6603 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
+| 6604 | 6631 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
+| 6632 | 6798 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
+| 6799 | 7158 | 123 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
+| 7159 | 7221 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
+| 7222 | 7351 | 44 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
+| 7352 | 7414 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
+| 7415 | 7575 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
+| 7576 | 7646 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
+| 7647 | 7695 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
+| 7696 | 7728 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
+| 7729 | 8118 | 54 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
+| 8119 | 8250 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
+| 8251 | 8304 | 36 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
+| 8305 | 8344 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
+| 8345 | 8397 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
+| 8398 | 8464 | 20 | Fase WMS-BI — Análisis BI de Almacén |
+| 8465 | 8627 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
+| 8628 | 8911 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
+| 8912 | 9079 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
+| 9080 | 11413 | 179 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 11414 | 11422 | 1 | Fase RR — Ventas por ruta |
+| 11423 | 11718 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 11719 | 11729 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 11730 | 11750 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 11751 | 11761 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 11762 | 11773 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 11774 | 11833 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 11834 | 12261 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 12262 | 12276 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 12277 | 12318 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 12319 | 12468 | 65 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 12469 | 12499 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 12500 | 12547 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
+| 12548 | 12577 | 28 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 12578 | 12607 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 12614 | 12623 | 1 | 📝 Convenciones |
+| 12624 | 12661 | 13 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 12662 | 12680 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 12681 | 12733 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 12734 | 13104 | 54 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 13105 | 13135 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -218,7 +218,7 @@ Y se actualiza el símbolo al avanzar:
 
 - [ ] **[LE.0.7]** 🔨 **Un día cerrado no recibe movimientos** — 2026-10-31. Hoy un movimiento suelto se puede atar a un corte cerrado (pasó el 22-oct: $121,130.53 por SQL directo). Atar a un corte cerrado → error; `cash-cut.servicio-real` sigue verde. 🔨 2026-10-31: migración `20261031141131_le07_corte_cerrado_no_recibe_movimientos` + casos en `test-newdb-caja-supervision.js`. Medido: 476 ataduras de la app, todas dentro del cierre; 5 por SQL el 22-oct.
 - [ ] **[LE.0.8]** 🔨 **Un folio emitido no desaparece** — 2026-10-31. Faltan 155 folios sin rastro (19-oct). El consecutivo sólo avanza de uno en uno y un movimiento con folio se cancela, no se borra. 🔨 2026-10-31: migración `20261031141406_le08_un_folio_emitido_no_desaparece` (folio oficial no se borra; consecutivo de uno en uno) + casos en `test-newdb-caja-supervision.js`. Los 123 huecos de gastos son un tramo del 19-oct, antes de la bitácora: causa NO MEDIDA.
-- [ ] **[LE.0.9]** 🔨 **Opera la caja sólo quien la opera** — 2026-10-31. D23 firmada: disparador en la base que no cuenta el superadmin + Tesorería sin llave de operar + depurar superadmin (lista por confirmar). 14 cuentas superadmin hoy. 🔨 2026-10-31: migración `20261031135300_le09_caja_solo_quien_tiene_la_llave` + prueba `test-newdb-caja-llave.js`; simulada en prod (sólo lectura): operan 2, firman 3. Falta aplicarla (exige push).
+- [ ] **[LE.0.9]** 🔨 **Opera la caja sólo quien la opera** — 2026-10-31. D23 firmada: disparador en la base que no cuenta el superadmin + Tesorería sin llave de operar + depurar superadmin (lista por confirmar). 14 cuentas superadmin hoy. 🔨 2026-10-31: migración `20261031135300_le09_caja_solo_quien_tiene_la_llave` + prueba `test-newdb-caja-llave.js`; simulada en prod (sólo lectura): operan 2, firman 3. En `main` el 2026-11-02 como `f34c5d088` junto con LE.0.7 y LE.0.8, **empujado con --no-verify autorizado por Edgar**: la compuerta `gate-push.js` corrida sobre el rango exacto dio verde (26 gates, nada rojo en los 11 archivos); dentro de `git push` en Windows no lee las refs de stdin, cae a `HEAD` y mide 20 commits locales ajenos (deuda de la compuerta, sin item todavía). Falta aplicar las 3 migraciones en prod.
 - [ ] **[LE.1.14]** ⬜ **La orden lleva el código que se teclea en la máquina** — 2026-10-31. Columnas nuevas, sin regla dura todavía.
 - [ ] **[LE.1.15]** ⬜ **Usuario de la máquina → empleado, y el tope del cajón, como catálogos firmados** — 2026-10-31.
 - [ ] **[LE.2.8]** ⬜ **Un retiro con código se explica solo; sin código cae en Suspenso con nombre** — 2026-10-31. Placebo: los 98 retiros del 15–30 oct → 98 en Suspenso, 0 asientos inventados.
@@ -643,6 +643,12 @@ Y se actualiza el símbolo al avanzar:
   - **«N sin cuadrar» del día** cuenta también lo que contradice un testigo (manda el cajero; si no contó, el desglose de Kepler). Medido en octubre, 906 cortes: **55 → 272**. Hay 217 «Cuadra» que un testigo contradice, 172 de ellos por $50 o más (|Σ| $781,577.16): 55 los contradice el cajero y 162 el desglose (126 son faltantes). 48 «Cuadra» no tienen ningún testigo.
   - **Caso real:** 8 Esquinas 01/11 tenía 4 «Cuadra»; el cajero contó −$98.05, −$0.22, −$3,495.69 y −$406.23.
   - **Pruebas:** componente 25/25; la mutación de `descuadraPorTestigo` sale en rojo. `check:pantalla` 0 nuevas. Sin validación visual. 🧪 2026-11-02
+- [x] **[CSU.19]** **Tarjeta y transferencia van juntas, y los créditos del cajón dejan de parecer faltante.** Caso Canindo 5-46 (31/10): el cajero cuadraba (+$0.93), pero la pantalla decía «Billetes y monedas: Falta $9,532.87 · no concuerda» y «Tarjeta $17,612.45 contra $9,445.27».
+  - **Tarjeta y transferencia, un renglón:** el campo «tarjeta» del cierre trae las dos (en 112 de 126 cierres de octubre, nunca sólo tarjeta). Kepler también las junta en `c45` «otros» (= c16 + c17 en 732 de 904). Ahora se ve lo esperado, lo declarado y Kepler; en 5-46, los tres dan $17,612.45. El total declarado ya se puede medir en 184 cortes (antes 63).
+  - **Créditos y cheques:** el desglose de Kepler los deja fuera o los incluye, según la caja: fuera en Padre Hidalgo Caja 2 y Canindo 5-46, dentro en Yurécuaro Caja 3 y La Piedad Abastos 5-226. Los testigos concuerdan si coinciden de cualquiera de las dos formas. En los 16 cortes donde sólo coinciden sumando los papeles, la celda dice «$X · créditos del cajero» en gris.
+  - **Sin cajero**, el detalle advierte que un faltante del desglose puede ser crédito en papel. El encabezado dice «Kepler · sin créditos».
+  - **Antes/después** (servicio real contra prod, octubre, sólo lectura): monto, cobro, cuadre y las dos diferencias no cambian en ningún corte; «no concuerda» pasa de 66 a 50. Una primera versión que siempre sumaba los créditos rompía 15 cortes donde Kepler ya los traía, y se corrigió antes de cerrar.
+  - **Pruebas:** motor 43/43 (Canindo 5-46 y la negativa de Yurécuaro 3-206), componente 26/26, `check:pantalla` 0 nuevas. Sin validación visual. 🧪 2026-11-02
 - [x] **[CSU.18]** **El detalle del corte compara el esperado NETO de devoluciones.** Caso Morelia Madero 1-48 (31/10): la tabla mostraba efectivo esperado $71,887.92 contra $71,666.69 del desglose, y abajo «$0.00». Los $221.23 eran sus dos devoluciones pagadas del cajón ($43.05 + $178.18). Las diferencias ya eran contra el neto (CSU.7/16); la tabla pintaba el bruto. Ahora el efectivo y el total de la tabla son netos, la fila dice «neto de devoluciones» y la lista de devoluciones dice el bruto de Kepler. Sólo pantalla: ninguna cifra calculada cambia. `check:pantalla` 0 nuevas, componente 25/25. Sin validación visual. 🧪 2026-11-02
 - [x] **[CSU.12]** **Proveedores: los documentos cancelados en Kepler dejan de contar.** Los $13.3 M de pagos cancelados aplicados a entradas (`kdm5` X-D) no los suma ninguna vista de prod: medido en el catálogo, y quedan cubiertos por `kepler_kdm5_vigente`. El daño real estaba en la cabecera `kdm1` sin filtrar `c43`:
   - `expense_documents`: 1,021 documentos y **$3,177,101.13** → Comprobaciones, pagables de Caja, materialidad y MAAT.
@@ -8282,7 +8288,7 @@ usa el equipo, está **42 migraciones atrás de prod y a la vez tiene 15 que pro
 | VL.21 | ✅ 2026-09-24 | **La compuerta frenó el despliegue por dos migraciones que NO había que aplicar.** Se pidió aplicarlas; **leerlas primero evitó el daño**: eran los nombres VIEJOS de un renombre a medio commitear, y su contenido ya había corrido en prod como `20260925140000/140100` (lote 540, `analytics.caos_cash_movements` con **773 filas** y `FINANCE_CAOS_VER` en 11 roles). Aplicarlas habría dejado en `knex_migrations` una fila para un archivo que al commitearse el renombre deja de existir — el estado que este proyecto ya vivió como *"directory corrupt" → crash loop*. **La compuerta no estaba equivocada** (HEAD los tenía y prod no): le faltaba la pregunta siguiente. `clasificar-migraciones.awk` distingue `PEND` de `DUP` comparando **el blob de git** — git ya es direccionable por contenido, así que dos archivos idénticos comparten SHA y no hay hash que calcular. ⚠️ Se descarta comparar el sufijo del nombre: dos migraciones distintas pueden llamarse igual y dejar pasar una de verdad es el error peor. Verificado contra el caso real (2 DUP, 0 PEND), con prueba negativa (una aplicada de verdad sale PEND) y **falla cerrado** (exit 2 si no puede leer prod, en vez de declarar las 857 pendientes). Vive en UN archivo compartido: las dos compuertas eran dos implementaciones y el comentario de una **afirmaba reusar la otra sin hacerlo**. De paso muere `comm -23`, que exige orden byte a byte y avisa por un stderr tapado por `2>/dev/null` — `deploy.sh` no tenía el `LC_ALL=C`. ⚠️ **El sentido contrario, que `--estado` ahora avisa:** 2 migraciones APLICADAS en prod **sin archivo en HEAD**, las dos en disco sin commitear. | [`clasificar-migraciones.awk`](../../ops/prod/clasificar-migraciones.awk) |
 | VL.9.10b | 🚀 2026-10-19 | **El respaldo llenaba el disco y el disco mataba al respaldo.** 2ª caída por `DiskPressure` en 11 días: WAL archivado **160 GB** (base 34 GB) — la base genera ~200 segmentos/h, **~12.5 GB/día comprimido**, y con completo semanal + `retention-full=2` se retenían ~2 semanas. El kubelet desalojó `pg-prod` (~30 intentos), el completo del domingo abortó con `[057]` a mitad de camino y sin completo no hay `expire`: círculo. Completo a mano 09:16 → expiró 4–11 oct → **disco 82 % → 65 % (+82 GB)**, nodo `DiskPressure=False`. `pgbackrest-run.sh auto`: completo si el último tiene ≥3 días (por edad, no calendario — un completo fallido se reintenta la noche siguiente). Imagen `prod-backup` reconstruida y contenedor recreado con `--no-deps`; cron verificado dentro. ⚠️ El completo se etiquetó `20261018-233002F` (pgBackRest **retomó** el abortado), así que el próximo cae el 21-oct. | [`pgbackrest-run.sh`](../../ops/prod/pgbackrest-run.sh) |
 | OPS.DISCO.3 | 🔨 2026-10-19 | **Que no vuelva a pasar: avisar con DÍAS, y actuar antes que el kubelet.** Lo que había no avisaba: `podar-disco.sh` sólo corría al desplegar (último latido 16-oct, **en verde con 65 GB libres**) y no mira respaldos ni registro. (1) **Fuente:** `pg-prod` tenía `wal_compression=off` + `checkpoint_timeout=5min` → `ALTER SYSTEM` a `zstd` + `15min`, sólo recarga. Base: 18-oct **~200 seg/h** plano 24 h. Después: **NO MEDIDO** todavía (5 min dieron 52 seg/h — una muestra no se cita; medir 24 h). (2) **`vigia-disco.sh`** cada 10 min: consumo 24 h/72 h (el peor, por el diente de sierra), días hasta el umbral de desalojo (5 %), latido `vigia_disco`; margen < 60 GB → escala `podar-disco` → completo de pgBackRest, con enfriamiento de 12 h. Prueba negativa 8 casos, **vista en rojo** rompiendo umbrales (3 rojos). (3) `podar-disco` diario 04:30, independiente del despliegue. ⬜ **Falta:** instalar `crontab.disco` en `md` (bloqueado por permisos de la sesión) · poda del registro (34.5 GB, 101–136 etiquetas por imagen, `OPS.DISCO.4`, necesita autorización) · aviso fuera del tablero (decisión 2026-10-19: sólo tablero; deuda OBS.0.2) · respaldo fuera de la máquina (VL.8). | [`vigia-disco.sh`](../../ops/prod/vigia-disco.sh) · [`crontab.disco`](../../ops/prod/crontab.disco) |
-| OPS.DISCO.4b | 🚀 2026-10-31 | **La poda del registro apuntaba a un contenedor muerto.** Auditoría de `md` (2026-10-31): `vigia_disco` en **rojo, 6.3 días a DiskPressure** (13 GB/día en 72 h). El registro pesaba **44–47 GB** con **183 etiquetas** de `api`, y `podar-registro.sh` **no estaba en el crontab vivo** y además hacía `docker exec prod-registry` — el contenedor de Compose, `Exited` desde que el registro pasó a k3s (OPS.LIMPIEZA.8, 2026-10-20). Arreglo: todo por `kubectl exec deploy/registry`; aborta con `NO MEDIDO` si el pod no responde (antes «podaba» una lista vacía y latía ok); **reinicia el pod tras el GC** (`blobdescriptor: inmemory` recuerda blobs borrados → un push posterior puede saltarse una capa). Prueba negativa: `REGISTRO_DEPLOY=no-existe` → aborta, `rc=1`, **vista en rojo**. Simulación real en `md`: **861 manifiestos a borrar, 82 conservados** (5 por repo + todo lo que referencian deploy/rs/cronjob/pod). ⚠️ Copiado a `md` (respaldo `podar-registro.sh.bak-20261031`); el `--aplicar` y el renglón del crontab los corre Edgar (el clasificador bloqueó la escritura remota). ⛔ **Corrección a la auditoría:** la caché de construcción en 80 GB **no** es un defecto — es el techo de diseño de CD.22 (90 GB; rehacer `deps` cuesta ~7 min). No se tocó. ⬜ Falta: `--aplicar`, agenda, y el `lvextend` (el LV raíz es **500 de 950.8 GB** del PV: ~450 GB sin asignar). ✅ **Agenda instalada por Edgar** (domingos 04:45; primera corrida 2026-11-01). Sonar y Netdata detenidos con `restart=no` (puertos 9000/19999 cerrados; la swap bajó de 3.2 GB a ~0.7 GB). ⬜ `lvextend` (sudo). ⛔ **`[OPS.DISCO.4c]` 2026-11-02 — la poda no liberaba nada** (1-nov: «registro 44.6→44.6GB»): Docker 29 sube cada imagen como índice OCI + 2 hijos (imagen y atestación); borrar el índice dejaba los hijos huérfanos reteniendo capas (`trade-prod-api`: 11 etiquetas, 573 revisiones). Ahora una 3ª pasada borra toda revisión que ninguna etiqueta conservada alcanza (se protege cada digest conservado + todo lo que su manifiesto referencia; si no se puede leer uno, se salta el repo). NO `--delete-untagged` (borra hijos de índices conservados). Simulación: **2,512 huérfanos**; control: los 32 digests que k3s usa hoy, 0 marcados; aritmética: api 573 − 540 = 33 = 11 etiquetas × 3. Ese día: caché de construcción vaciada (ya no se compila en `md`): **77 → 149 GB libres**, `vigia_disco` ok. | [`podar-registro.sh`](../../ops/prod/podar-registro.sh) |
+| OPS.DISCO.4b | 🚀 2026-10-31 | **La poda del registro apuntaba a un contenedor muerto.** Auditoría de `md` (2026-10-31): `vigia_disco` en **rojo, 6.3 días a DiskPressure** (13 GB/día en 72 h). El registro pesaba **44–47 GB** con **183 etiquetas** de `api`, y `podar-registro.sh` **no estaba en el crontab vivo** y además hacía `docker exec prod-registry` — el contenedor de Compose, `Exited` desde que el registro pasó a k3s (OPS.LIMPIEZA.8, 2026-10-20). Arreglo: todo por `kubectl exec deploy/registry`; aborta con `NO MEDIDO` si el pod no responde (antes «podaba» una lista vacía y latía ok); **reinicia el pod tras el GC** (`blobdescriptor: inmemory` recuerda blobs borrados → un push posterior puede saltarse una capa). Prueba negativa: `REGISTRO_DEPLOY=no-existe` → aborta, `rc=1`, **vista en rojo**. Simulación real en `md`: **861 manifiestos a borrar, 82 conservados** (5 por repo + todo lo que referencian deploy/rs/cronjob/pod). ⚠️ Copiado a `md` (respaldo `podar-registro.sh.bak-20261031`); el `--aplicar` y el renglón del crontab los corre Edgar (el clasificador bloqueó la escritura remota). ⛔ **Corrección a la auditoría:** la caché de construcción en 80 GB **no** es un defecto — es el techo de diseño de CD.22 (90 GB; rehacer `deps` cuesta ~7 min). No se tocó. ⬜ Falta: `--aplicar`, agenda, y el `lvextend` (el LV raíz es **500 de 950.8 GB** del PV: ~450 GB sin asignar). ✅ **Agenda instalada por Edgar** (domingos 04:45; primera corrida 2026-11-01). Sonar y Netdata detenidos con `restart=no` (puertos 9000/19999 cerrados; la swap bajó de 3.2 GB a ~0.7 GB). ⬜ `lvextend` (sudo). | [`podar-registro.sh`](../../ops/prod/podar-registro.sh) |
 | OPS.MEM.1 | 🚀 2026-10-31 | **Los tres OOM de `md` los causó el build, y el kernel mataba a la base.** OOM globales el **28-oct 15:01** (mató a `pgvector-md`), **29-oct 12:19** y **30-oct 13:15** (mató al checkpointer de `pg-prod` → prod ~20 s en recovery; los carriles de ingesta acumulan 6–7 reinicios). Los tres cayeron **DENTRO de un `docker build` de `api`** (14:57→15:04, 12:15→12:23, 13:10→13:20 en `auto-deploy.log`) — los builds de api ocupan ~4 % del día. En el volcado del kernel el proceso más grande era el `node` del build (**4.4–4.9 GB** anónimos + ~1 GB de esbuild) con **`oom_score_adj=-500`, heredado de `dockerd`**, contra **+862** de `pg-prod` (Burstable: 1000 − 1000·requests/RAM). Arreglo: las tres etapas que compilan se suben el propio `oom_score_adj` a 1000 (no pide privilegios). Probado en `md` con control: sin la línea **-500**, con ella **1000**, heredado por los hijos. ⚠️ **Sola no alcanza:** con la cuenta del kernel el build habría muerto primero el 28 y el 29, pero el 30 el checkpointer (10 GB compartidos) seguía arriba por 0.3 GiB → va con OPS.MEM.2. Llega a `md` con el próximo despliegue. En prod con `4c89722dc` (`DESPLEGADO` 13:54:06). | [`Dockerfile`](../../Dockerfile) |
 | OPS.MEM.2 | 🚀 2026-10-31 | **Memoria de Postgres: lo que reserva, no lo que orienta.** `pg-prod` `shared_buffers` 12→**8 GB**, `maintenance_work_mem` 4→**1 GB**, `requests.memory` 4→**12Gi** (adj ~583); `pgvector-md` `requests` 2→**5Gi** (adj ~826). `effective_cache_size` **no se toca** (no reserva; moverla cambia planes = optimizar, va aparte). ⛔ Hallazgo: el `ALTER SYSTEM` previo (`effective_cache_size='10GB'`, `maintenance_work_mem='1GB'` en `postgresql.auto.conf`) **nunca tuvo efecto** — los `-c` del deployment le ganan (`pg_settings.source = 'command line'`). `kubectl diff` del repo contra lo vivo: antes `rc=0` (idénticos), después **sólo esas cinco líneas**. **Antes** (stats desde 10-22): hit ratio **99.897 %**, 12.05 M bloques leídos, top-10 de `pg_stat_statements` con ~100 % de acierto. ⛔ **NO copiar a `~/ops/k3s` fuera de la ventana:** cada despliegue reaplica esa carpeta y reiniciaría `pg-prod` en horario hábil. Ventana: copiar + `kubectl apply` bajo `flock /tmp/auto-deploy.lock`, fuera de horario. ⬜ Falta: ventana y medición después. ✅ **Ventana corrida 13:54:39–13:56:04** (`paso-a-mano/OPS-MEM2-ventana.sh`; `pg-prod` ~47 s, `pgvector-md` ~38 s, apagado fast): `shared_buffers` 8GB · `maintenance_work_mem` 1GB · `oom_score_adj` 862→**584** y 931→**827** (previstos 583/826). Réplica 9/9 workers igual que antes, retraso 25 s; latidos de ingesta todos `ok` a las 14:00 — `store_poller` arrastró 4 min el error del chequeo de réplica hecho DURANTE el apagado (por diseño: chequea cada 240 s y conserva el veredicto). ⬜ Medición después: hit ratio con 24 h de datos. | [`52-pg-prod`](../../ops/k3s/52-pg-prod.deployment.yaml) · [`51-pgvector-md`](../../ops/k3s/51-pgvector-md.deployment.yaml) |
 | OPS.CONF.1 | 🚀 2026-10-31 | **Una sola fuente para los manifiestos: el checkout del despliegue** (decisión de Edgar, abierta desde el 2026-10-16). `aplicar-k3s-prod.sh` aplicaba `~/ops/k3s`, una copia a mano. `kubectl diff` del repo (`origin/main`) contra lo VIVO, archivo por archivo: de lo que aplica el despliegue (`namespace: prod`) sólo difería **`42-worker`** — el pod tiene `LE_LIBRO_KEPLER`/`_DESDE` y `LE_LIBRO_CAOS`/`_DESDE` (LE.4.4, D11) que **el repo no tenía**: unificar sin subirlas las habría apagado en el siguiente despliegue. Subidas tal cual; después del cambio el diff da **sólo la imagen**. `61-deploy-log` (obs) vivía sólo en el servidor: versionado, `kubectl diff` `rc=0`. `auto-deploy.sh` exporta `K3S_DIR=$REPO_DIR/ops/k3s` justo después del `reset --hard` (el checkout queda en el commit que se despliega) y `aplicar-k3s-prod.sh` usa ese default. ⚠️ Corrección de una medición mía: el `origin/main` del checkout de `md` está congelado en `aa17ad4d5` (28-oct) **y no es una falla** — el despliegue trae sólo `prod-release` con su propia llave. ⛔ **Orden obligatorio:** los dos scripts se copian a `md` DESPUÉS de la ventana de OPS.MEM.2 y sólo si `prod-release` ya trae este commit (si no, el próximo despliegue aplicaría el `52` viejo o un `42` sin LE) — el guion de la ventana lo comprueba. ⚠️ Fuera de alcance, declarado: `30-ods-reconcile-full` (ingesta, otro carril de despliegue) tiene en el repo un paso de OPS-AUD.13.4 (`arbitro-polizas-valor.js --apply`) **que no está vivo**; y los scripts de `~/ops/prod` siguen siendo copia a mano (`soltar.sh` difiere, faltan 7). Activado en la ventana: los dos scripts se copiaron a `md` tras verificar que `prod-release` ya traía el `42` con LE y el `52` de 8 GB. ⬜ Primer despliegue aplicando desde el checkout. | [`auto-deploy.sh`](../../ops/prod/auto-deploy.sh) · [`aplicar-k3s-prod.sh`](../../ops/prod/aplicar-k3s-prod.sh) · [`42-worker`](../../ops/k3s/42-worker.deployment.yaml) |

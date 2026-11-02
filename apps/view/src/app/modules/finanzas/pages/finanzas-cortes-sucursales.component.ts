@@ -133,6 +133,15 @@ export function celdaArqueo(dif: number | null | undefined, sinDato: string): { 
 }
 
 /**
+ * `[CSU.19]` El desglose de Kepler marca faltante y los créditos y cheques que declaró el cajero lo
+ * explican (con ellos, el desglose concuerda con el cajero). Caso Canindo 5-46: −$9,532.87 de desglose,
+ * $9,533.80 en créditos, el cajero +$0.93.
+ */
+export function creditosExplicanDesglose(a: CorteArqueo): boolean {
+  return a.declaracion_cajero?.creditos_fuera_del_desglose === true && a.fisico_diferencia !== null && Math.abs(a.fisico_diferencia) >= 1;
+}
+
+/**
  * `[CSU.17]` ¿Un testigo independiente dice que el corte no cuadra? Manda el cajero; si no contó,
  * los billetes y monedas de Kepler. Medido el 01/11 en 8 Esquinas: los 4 cortes decían «Cuadra»
  * (Kepler contra sí mismo) y el cajero contó −$98.05, −$0.22, −$3,495.69 y −$406.23.
@@ -313,7 +322,7 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
                          que Kepler esperaba: el corte (Kepler contra si mismo), el cajero (su arqueo ciego)
                          y los billetes y monedas que capturo Kepler. -->
                     <thead><tr><th>Corte</th><th>Caja</th><th class="ta-r">Monto</th><th class="ta-r">Cobrado<span class="cs-th-de">en Kepler</span></th><th class="ta-r">Saldo</th><th>Cobro</th>
-                      <th>Corte<span class="cs-th-de">vs esperado Kepler</span></th><th>Cajero<span class="cs-th-de">arqueo ciego</span></th><th>Billetes y monedas<span class="cs-th-de">Kepler</span></th></tr></thead>
+                      <th>Corte<span class="cs-th-de">vs esperado Kepler</span></th><th>Cajero<span class="cs-th-de">arqueo ciego</span></th><th>Billetes y monedas<span class="cs-th-de">Kepler · sin créditos</span></th></tr></thead>
                     <tbody>
                       @for (c of d.cortes; track c.clave) {
                         <tr class="cs-corte" [class.cs-corte-sel]="selCorte()?.clave === c.clave" (click)="selCorte.set(c)" tabindex="0"
@@ -329,7 +338,7 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
                           <td><p-tag [value]="cuadreLabel(c)" [severity]="cuadreSev(c.cuadre)" styleClass="cs-tag" /></td>
                           @if (c.arqueo; as a) {
                             @let cj = celdaCajero(a);
-                            @let kp = celda(a.fisico_diferencia, 'Sin desglose');
+                            @let kp = celdaKepler(a);
                             <td><p-tag [value]="cj.label" [severity]="cj.sev" styleClass="cs-tag" />
                               @if (a.declaracion_cajero?.concuerda_con_kepler === false) { <p-tag value="no concuerda con Kepler" severity="secondary" styleClass="cs-tag" /> }</td>
                             <td><p-tag [value]="kp.label" [severity]="kp.sev" styleClass="cs-tag" /></td>
@@ -374,9 +383,11 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
                            diferencias de abajo son contra el neto, y el bruto contra el desglose se leia
                            como un faltante que no existe (Madero 1-48: $221.23 = sus dos devoluciones). -->
                       <tr><td>Efectivo@if (c.devoluciones_total > 0) { <span class="muted">neto de devoluciones</span> }</td><td class="ta-r num">{{ money(a.efectivo_esperado - c.devoluciones_total) }}</td><td class="ta-r num cs-strong">{{ d?.efectivo == null ? '—' : money(d.efectivo) }}</td><td class="ta-r num">{{ a.conteo_fisico === null ? '—' : money(a.conteo_fisico) }}</td></tr>
-                      <tr><td>Tarjeta</td><td class="ta-r num">{{ money(a.tarjeta_esperado) }}</td><td class="ta-r num">{{ d?.tarjeta == null ? '—' : money(d.tarjeta) }}</td><td class="ta-r num muted">—</td></tr>
-                      <tr><td>Transferencia</td><td class="ta-r num">{{ money(a.transfer_esperado) }}</td><td class="ta-r num">{{ d?.transferencia == null ? '—' : money(d.transferencia) }}</td><td class="ta-r num muted">—</td></tr>
-                      <tr class="cs-tot"><td>Total</td><td class="ta-r num">{{ money(a.esperado_neto) }}</td><td class="ta-r num">{{ d?.total == null ? '—' : money(d.total) }}</td><td class="ta-r num muted">—</td></tr>
+                      <!-- [CSU.19] Tarjeta y transferencia en UN renglon: el cierre del cajero las trae juntas
+                           (112 de 126 en octubre) y Kepler tambien (c45 «otros»). Separadas se leian como
+                           un sobrante de tarjeta y una transferencia sin declarar. -->
+                      <tr><td>Tarjeta y transferencia</td><td class="ta-r num">{{ money(a.tarjeta_esperado + a.transfer_esperado) }}</td><td class="ta-r num">{{ d?.electronico == null ? '—' : money(d.electronico) }}</td><td class="ta-r num" [class.muted]="a.electronico_kepler === null">{{ a.electronico_kepler === null ? '—' : money(a.electronico_kepler) }}</td></tr>
+                      <tr class="cs-tot"><td>Total</td><td class="ta-r num">{{ money(a.esperado_neto) }}</td><td class="ta-r num">{{ d?.total == null ? '—' : money(d.total) }}</td><td class="ta-r num" [class.muted]="a.conteo_fisico === null || a.electronico_kepler === null">{{ a.conteo_fisico === null || a.electronico_kepler === null ? '—' : money(a.conteo_fisico + a.electronico_kepler) }}</td></tr>
                     </tbody>
                   </table>
                   @if (c.devoluciones.length) {
@@ -410,8 +421,15 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
                   @if (a.conteo_fisico !== null) {
                     <div class="cs-row" [class.cs-fis]="!d">
                       <span>Desglose de Kepler menos esperado <span class="muted">(billetes + monedas + retirado)</span></span>
-                      <span class="num" [class.cs-bad]="a.fisico_diferencia !== null && abs(a.fisico_diferencia) > 1">{{ a.fisico_diferencia === null ? '—' : signo(a.fisico_diferencia) }}</span>
+                      <span class="num" [class.cs-bad]="a.fisico_diferencia !== null && abs(a.fisico_diferencia) > 1 && !creditosExplican(a)">{{ a.fisico_diferencia === null ? '—' : signo(a.fisico_diferencia) }}</span>
                     </div>
+                    <!-- [CSU.19] El desglose de Kepler solo cuenta billetes y monedas: los creditos y cheques del
+                         cajon no entran. Con el cajero se puede separar; sin el, se advierte. -->
+                    @if (creditosExplican(a)) {
+                      <p class="cs-hint">No es faltante: son los <b>{{ money(d!.documentos) }} en créditos y cheques</b> que declaró el cajero, que Kepler no cuenta en su desglose. Con ellos, el desglose da {{ signo(d!.fisico_con_documentos!) }}.</p>
+                    } @else if (!d && a.fisico_diferencia !== null && a.fisico_diferencia <= -1) {
+                      <p class="cs-hint">El desglose de Kepler sólo cuenta billetes y monedas: si en el cajón había <b>créditos o cheques</b>, aparecen aquí como faltante. Sin el arqueo del cajero no se pueden separar.</p>
+                    }
                   } @else {
                     <p class="cs-hint">Kepler <b>no trae el desglose por denominación</b> de este corte.</p>
                   }
@@ -806,6 +824,13 @@ export class FinanzasCortesSucursalesComponent implements OnInit {
 
   /** `[CSU.17]` Celda de arqueo de la lista (ver `celdaArqueo`). */
   celda(dif: number | null | undefined, sinDato: string): { label: string; sev: Sev } { return celdaArqueo(dif, sinDato); }
+  /** `[CSU.19]` ¿El faltante del desglose de Kepler son los créditos y cheques que declaró el cajero? */
+  creditosExplican(a: CorteArqueo): boolean { return creditosExplicanDesglose(a); }
+  /** `[CSU.19]` Celda de billetes y monedas: si los créditos del cajero explican el faltante, se dice y va en gris. */
+  celdaKepler(a: CorteArqueo): { label: string; sev: Sev } {
+    if (creditosExplicanDesglose(a)) return { label: `${money(a.fisico_diferencia ?? 0)} · créditos del cajero`, sev: 'secondary' };
+    return celdaArqueo(a.fisico_diferencia, 'Sin desglose');
+  }
   /** `[CSU.17]` El cajero: su diferencia, o por qué no hay — no contó, no capturó el cierre, o sus conteos apuntan a otro turno. */
   celdaCajero(a: CorteArqueo): { label: string; sev: Sev } {
     const d = a.declaracion_cajero;
