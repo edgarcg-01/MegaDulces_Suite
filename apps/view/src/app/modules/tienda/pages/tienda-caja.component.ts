@@ -46,7 +46,8 @@ const CANAL_CLIENTE = 'md-caja-cliente';
   <div class="cj">
     <header class="cj-head">
       <h1 class="cj-titulo">Caja</h1>
-      <app-sucursal-picker [(valor)]="sucursal" placeholder="Elige la sucursal" etiqueta="Sucursal de la caja" />
+      @if (sucursalPropia) { <span class="cj-suc"><i class="pi pi-building" aria-hidden="true"></i>{{ nombreSucursal(sucursalPropia) }}</span> }
+      @else { <app-sucursal-picker [(valor)]="sucursal" placeholder="Elige la sucursal" etiqueta="Sucursal de la caja" /> }
       @if (datosAl(); as d) { <app-freshness-pill measures="data" [since]="d" label="Precios de Kepler" [staleAfterSec]="900" /> }
       @if (turno(); as t) {
         <span class="cj-sub">Turno desde {{ t.desde }} · fondo {{ dinero(t.fondo) }} · {{ t.retiros.length }} retiro(s)</span>
@@ -145,12 +146,14 @@ const CANAL_CLIENTE = 'md-caja-cliente';
               <div class="cj-h3">Enter para volver a vender.</div>
             } @else {
               <div class="cj-h3">{{ tipoTexto(q.tipo) }}: cuenta por pieza</div>
+              <div class="cj-dens">
               @for (d of denomsMx; track d.key; let i = $index) {
                 <div class="cj-fila cj-den" [class.cj-den-on]="i === q.i && q.paso === 'conteo'">
-                  <span>{{ d.familia === 'moneda' ? 'Monedas de ' : 'Billetes de ' }}{{ d.label }}</span>
+                  <span>{{ d.label }} <span class="cj-sub">{{ d.familia }}</span></span>
                   <span class="num">{{ q.vals[i] === undefined ? '—' : q.vals[i] + ' = ' + dinero(q.vals[i] * d.valor) }}</span>
                 </div>
               }
+              </div>
               <div class="cj-fila"><b>Contado</b><span class="cj-grande">{{ dinero(sumaArq()) }}</span></div>
               @if (q.paso === 'guardando') { <div class="cj-sub">Guardando…</div> }
               @else if (q.i >= denomsMx.length) { <div class="cj-h3">Enter entrega tu conteo. Después ya no se puede cambiar.</div> }
@@ -263,6 +266,8 @@ const CANAL_CLIENTE = 'md-caja-cliente';
     .cj-chip { font-size: var(--fs-sm); font-weight: 600; border-radius: var(--r-pill); padding: var(--sp-1) var(--sp-3); }
     .cj-chip-warn { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
     .cj-chip-bad { background: var(--bad-soft-bg); color: var(--bad-fg); }
+    .cj-dens { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 var(--sp-3); font-size: var(--fs-body); }
+    .cj-suc { display: inline-flex; align-items: center; gap: var(--sp-2); font-weight: 600; }
     .cj-den { padding: var(--sp-1) var(--sp-2); border-radius: var(--r-sm); }
     .cj-den-on { background: var(--surface-selected-bg); box-shadow: inset 3px 0 0 var(--action); }
     .cj-hb-on { border-color: var(--action); color: var(--action); }
@@ -332,6 +337,9 @@ export class TiendaCajaComponent implements OnDestroy {
   @ViewChild('cmd') private cmd?: ElementRef<HTMLInputElement>;
 
   readonly motivos = MOTIVOS_QUITAR;
+  /** La caja es de UNA sucursal: la del usuario, si la tiene (entonces no se ofrece elegir otra). */
+  readonly sucursalPropia = inject(AuthService).user()?.warehouse_code || null;
+  nombreSucursal(c: string): string { return warehouseName(c); }
   /** El arqueo vive DENTRO de la caja (una sola interfaz): el mismo componente real de /tienda/arqueo. */
   readonly puedeArqueo = [Permission.STORE_ARQUEO_VER, Permission.STORE_ARQUEO_CAPTURAR, Permission.STORE_ARQUEO_SIN_CAJA_CAPTURAR].some((p) => inject(PermissionsService).has(p));
   private readonly arqSvc = inject(ArqueoService);
@@ -454,8 +462,7 @@ export class TiendaCajaComponent implements OnDestroy {
 
   constructor() {
     // La sucursal del usuario, si la tiene: la caja es de UNA sucursal.
-    const propia = inject(AuthService).user()?.warehouse_code;
-    if (propia) this.sucursal.set(propia);
+    if (this.sucursalPropia) this.sucursal.set(this.sucursalPropia);
     this.svc.sucursales().subscribe({ next: (s) => this.sucursales.set(s), error: () => this.sucursales.set([]) });
     effect(() => { if (this.suc()) this.prepararSucursal(); });
     // La pantalla del cliente escucha este canal (misma app, otra ventana).
