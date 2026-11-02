@@ -222,8 +222,23 @@ export interface ReglaDescuento {
   umbral_verificado: boolean;
   aplica_a: string | null;
   saldo_estado: string | null;
+  /** `[PDV.4]` La tienda lleva control de saldo: tiene alguna regla con `saldo_estado` ≠ `sin_control`. */
+  tienda_lleva_saldo?: boolean;
   reglas_duplicadas: string | number;
   valid_to: string | Date | null;
+}
+
+/**
+ * `[PDV.4]` Promoción por cantidad con saldo 0 (`c9 = 0 AND c10 = 0`, `sin_control`) en una tienda que SÍ
+ * lleva control de saldo: el mostrador no la da. Medido en tickets U-D-10 de 14 días (2026-10-19→11-02),
+ * reglas de umbral 1: en la 05 se cobra bajo lista el 49.5 % con saldo contra 22.4 % sin él; en la 08,
+ * 98.7 % contra 36.1 % (lo que queda es la escalera de mayoreo). En una tienda que no lleva la columna
+ * (la 08 al instalarse, sept-2026) el cero no dice nada y la promo se aplica. Sólo `descuento_cantidad`:
+ * es lo medido. Devuelve el motivo para `not_applied`, o null si la regla se aplica.
+ */
+export function motivoPromoSinSaldo(rule: Pick<ReglaDescuento, 'mecanismo' | 'saldo_estado' | 'tienda_lleva_saldo'>): string | null {
+  if (rule.mecanismo !== 'descuento_cantidad' || rule.saldo_estado !== 'sin_control' || !rule.tienda_lleva_saldo) return null;
+  return 'La promoción tiene saldo 0 en una sucursal que lleva control de saldo: el mostrador no la da. Se declara, no se aplica.';
 }
 
 /**
@@ -721,7 +736,9 @@ export class QuotePricingService {
         }
       : await knex.raw(
           `SELECT mecanismo, umbral_tipo, umbral, pct, free_sku, free_qty, free_unidad,
-                  umbral_verificado, aplica_a, saldo_estado, reglas_duplicadas, valid_to
+                  umbral_verificado, aplica_a, saldo_estado, reglas_duplicadas, valid_to,
+                  EXISTS (SELECT 1 FROM analytics.v_erp_discount_rules s
+                           WHERE s.tienda = :branch AND s.saldo_estado <> 'sin_control') AS tienda_lleva_saldo
              FROM analytics.v_erp_discount_rules
             WHERE tienda = :branch AND sku = :sku
               AND (aplica_a = :aplica_a OR upper(unidad) = upper(:unitName))`,
@@ -746,6 +763,11 @@ export class QuotePricingService {
           mechanism: rule.mecanismo,
           reason: umbral === null ? 'La regla no declara umbral.' : `Requiere ${umbral} ${rStep.label ?? ''} y se están cotizando ${rQty}.`,
         });
+        continue;
+      }
+      const sinSaldo = motivoPromoSinSaldo(rule);
+      if (sinSaldo) {
+        notApplied.push({ mechanism: rule.mecanismo, reason: sinSaldo });
         continue;
       }
       if (Number(rule.reglas_duplicadas) > 1) {
@@ -1265,10 +1287,12 @@ export class QuotePricingService {
     const ladders = await this.ladders(knex, branch, lista);
     const r = await knex.raw(
       `SELECT sku, unidad, mecanismo, umbral_tipo, umbral, pct, free_sku, free_qty, free_unidad,
-              umbral_verificado, aplica_a, saldo_estado, reglas_duplicadas, valid_to
+              umbral_verificado, aplica_a, saldo_estado, reglas_duplicadas, valid_to,
+              EXISTS (SELECT 1 FROM analytics.v_erp_discount_rules s
+                       WHERE s.tienda = ? AND s.saldo_estado <> 'sin_control') AS tienda_lleva_saldo
          FROM analytics.v_erp_discount_rules
         WHERE tienda = ? AND sku IN (${lista.map(() => '?').join(', ')})`,
-      [branch, ...lista],
+      [branch, branch, ...lista],
     );
     for (const row of r.rows as ReglaDescuento[]) {
       const l = reglas.get(row.sku) ?? [];
