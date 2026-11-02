@@ -9,6 +9,21 @@
 ---
 
 ## [Unreleased]
+### Fixed — Pagos: la pantalla dejaba de estar quieta en algunas máquinas (TBL.1, 2026-11-02)
+- En ciertos equipos, el Calendario de pagos **vibraba sin parar**: los bloques se corrían unos píxeles a la izquierda y volvían, una y otra vez, mientras la pantalla estaba quieta.
+- La causa: los paneles se ajustan solos al alto de la ventana. Al crecer 16 px el contenido desbordaba, **aparecía la barra de desplazamiento**, la barra se comía unos píxeles de ancho, todo se reacomodaba, el alto volvía a cambiar y la barra se iba. El ciclo no terminaba nunca.
+- Se corta por los dos lados: el contenedor principal **reserva siempre el espacio de la barra** (así aparecer o irse ya no mueve nada), y el ajuste de alto ignora las diferencias menores a 24 px, que es donde vivía la oscilación.
+- ⚠️ El defecto **sólo ocurre en Windows**: en un navegador sin ventana real las barras flotan sobre el contenido y no se comen ancho, así que no se reproducía en pruebas. Se encontró midiendo en la máquina que fallaba.
+- Era el único lugar de la aplicación que reservaba el espacio de la barra. Si el síntoma aparece en otra pantalla, la causa es la misma.
+
+### Fixed — Accesibilidad: «desactivar animaciones» ahora apaga las animaciones (A11Y, 2026-11-02)
+- Quien pedía reducir el movimiento en Windows **seguía viendo 48 cosas moviéndose**: puntos de «en vivo», barras de carga, destellos. Lo que se apagaba eran cinco transiciones sueltas.
+- Ahora se apagan todas, y sólo cuando la persona lo pide en su sistema operativo.
+
+### Internal — Comprobantes de pago: la nota que culpaba a la base de datos estaba vieja (PC.8, 2026-11-02)
+- Un comentario del código decía que la pantalla tardaba 5–6 segundos y mandaba a buscar la causa en las consultas. **Medido de nuevo contra producción: 127 ms y 73 ms.** La base no es el cuello.
+- También queda descartado filtrar por año: 4,899 de los 4,914 pagos son de 2026, así que no reduce nada.
+- La medición vieja era del 6 de octubre, anterior al arreglo del túnel del 28 de octubre. No se cambió código: sin saber qué tarda, tocarlo sería optimizar a ciegas.
 ### Fixed — Cortes/Sucursales: una sola cifra de «sin cuadrar», y el rojo sólo para lo vencido (CSU.21, 2026-11-02)
 - El indicador, «Por sucursal» y la lista cuentan «sin cuadrar» con la misma regla: 227 cortes en octubre. Antes el indicador decía 55 y la lista 272.
 - Cuando Kepler registró como contado lo mismo que esperaba, el corte dice «= esperado» en gris, no «Cuadra» en verde.
