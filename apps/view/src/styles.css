@@ -3400,3 +3400,38 @@ td.num, th.num {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+
+/* ──────────────────────────────────────────────────────────────────────────
+ * MOVIMIENTO REDUCIDO — el barrido final, y va AL FINAL a propósito.
+ *
+ * ⛔ Medido el 2026-11-02: este archivo tenía CINCO bloques de
+ * `prefers-reduced-motion` y los cinco apagaban TRANSICIONES puntuales
+ * (gauge, health-box, liquid-tabs, togglebutton, portal-card). Ninguno apagaba
+ * una sola ANIMACIÓN, y `apps/view` tiene **48 `animation: … infinite`**:
+ * puntos de «en vivo», skeletons, shimmers, pulsos. Es decir que quien pedía
+ * quietud en Windows seguía viendo 48 cosas moviéndose.
+ *
+ * No es sólo accesibilidad. Una animación infinita repinta su región para
+ * siempre, y en una máquina sin aceleración por GPU eso es trabajo de CPU
+ * permanente — en la pantalla se ve como un temblor que nadie sabe de dónde sale.
+ *
+ * `animation-iteration-count: 1` en vez de `none`: la animación corre UNA vez y
+ * termina en su estado final. Con `none` un skeleton se quedaría con el fondo a
+ * medio pintar, que es peor que quieto.
+ *
+ * ⚠️ El `*` con `!important` es deliberado y es el patrón canónico: barre también
+ * lo que inyecta PrimeNG, que no pasa por este archivo. Sólo aplica cuando la
+ * persona YA pidió reducir movimiento en su sistema operativo.
+ * ────────────────────────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    /* El riel de pestañas declara `scroll-behavior: smooth` y lo mueve por JS en
+       cada `syncIndicator()`: con movimiento reducido el salto es instantáneo. */
+    scroll-behavior: auto !important;
+  }
+}
