@@ -1145,15 +1145,42 @@ export class PaymentCalendarService {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [tenantId]);
-      const { rows } = await trx.raw(
-        `SELECT proveedor_code, proveedor_nombre, facturas, importe::float8 AS importe,
-                gana::float8 AS gana, tasa::float8 AS tasa, cierra::text AS cierra,
-                dias_restantes, vence_la_mas_vieja::text AS vence_la_mas_vieja,
-                rendimiento::float8 AS rendimiento, cuenta_estado, se_puede_preparar_hoy
-           FROM analytics.v_pago_sugerido
-          ORDER BY dias_restantes ASC, gana DESC`,
-      );
-      return rows;
+      try {
+        const { rows } = await trx.raw(
+          `SELECT proveedor_code, proveedor_nombre, facturas, importe::float8 AS importe,
+                  gana::float8 AS gana, tasa::float8 AS tasa, cierra::text AS cierra,
+                  dias_restantes, vence_la_mas_vieja::text AS vence_la_mas_vieja,
+                  rendimiento::float8 AS rendimiento, cuenta_estado, se_puede_preparar_hoy
+             FROM analytics.v_pago_sugerido
+            ORDER BY dias_restantes ASC, gana DESC`,
+        );
+        return rows;
+      } catch (e: unknown) {
+        /**
+         * `[PGP.43]` **La vista todavía no está en esta base: se DICE, no se devuelve un 500.**
+         *
+         * Visto en pantalla el 2026-11-02: el panel mostraba *«Internal server error»* porque el
+         * código de `[PGP.41]` llegó a un backend donde `analytics.v_pago_sugerido` no existía —
+         * la migración va ANTES de soltar y acá no se había aplicado. Es el mismo orden que ya
+         * costó el retiro de `[PGP.29]`.
+         *
+         * ⛔ **No se esconde el problema**: se traduce. Se atrapa ÚNICAMENTE `42P01`
+         * (`undefined_table`) — cualquier otro error sigue subiendo tal cual, porque un fallo de
+         * datos disfrazado de «todavía no disponible» sería peor que el 500. Y se registra en el
+         * log con el nombre de la vista, que es lo que necesita quien lo va a arreglar.
+         */
+        const code = (e as { code?: string })?.code;
+        if (code === '42P01') {
+          this.logger.warn(
+            'analytics.v_pago_sugerido no existe en esta base: falta aplicar su migracion ' +
+            '(20261031140043_pgp41_que_hay_que_pagar_hoy). «Que conviene pagar» queda NO MEDIDO.',
+          );
+          throw new ServiceUnavailableException(
+            'Todavía no está disponible en esta base: falta aplicar su migración. No es que no haya nada que convenga pagar.',
+          );
+        }
+        throw e;
+      }
     });
   }
 
