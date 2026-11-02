@@ -266,7 +266,11 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                     <span class="pg-cap-fill" [class.is-over]="day.summary.exceeded" [style.width.%]="usedPct(day)"></span>
                   </span>
                 } @else {
-                  <span class="pg-cap-say">Presupuestos no fijó el tope de este día: se pueden armar pagos, pero el día no se autoriza.</span>
+                  <!-- [PGP.44] Acá decía la MISMA frase del veredicto de arriba, palabra por palabra
+                       («Presupuestos no fijó el tope de este día: se pueden armar pagos, pero el día
+                       no se autoriza»). En el lugar de una métrica va el estado de esa métrica, no
+                       una segunda copia del diagnóstico. -->
+                  <span class="pg-cap-say">Sin tope fijado</span>
                 }
               </div>
               <!-- [PGP.15] EL AVANCE DEL DIA, siempre a la vista y sin clic (eran cuatro acordeones). -->
@@ -498,24 +502,33 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                     <i class="pi pi-bolt" aria-hidden="true"></i>
                     Pagando <b class="comm-num">{{ money(quePagarImporte()) }}</b> a <b>{{ quePagar().length }}</b> acreedores esta semana se ganan <b class="comm-num pg-gana">{{ money(quePagarGana()) }}</b> de pronto pago.
                   </p>
+                  <!-- [PGP.44] Cada renglon LLEVA a sus facturas con el buscador ya puesto.
+                       Antes el panel afirmaba la ganancia y no habia camino para tomarla. -->
                   <ul class="pg-qp-l">
                     @for (r of quePagar().slice(0, 5); track r.proveedor_code) {
                       <li [class.is-urge]="r.dias_restantes <= 1">
-                        <span class="pg-qp-n">{{ r.proveedor_nombre }}</span>
-                        <span class="pg-qp-d">
-                          @if (r.dias_restantes === 0) { cierra <b>hoy</b> }
-                          @else if (r.dias_restantes === 1) { cierra <b>mañana</b> }
-                          @else { quedan {{ r.dias_restantes }} días }
-                          · {{ facturas(r.facturas) }}
-                          @if (!r.se_puede_preparar_hoy) { · <span class="pg-qp-b">sin cuenta para transferir</span> }
-                        </span>
-                        <span class="comm-num pg-qp-i">{{ money(r.importe) }}</span>
-                        <span class="comm-num pg-gana pg-qp-g">+{{ money(r.gana) }}</span>
+                        <button type="button" class="pg-qp-go" (click)="tomarSugerido(r)"
+                                [attr.aria-label]="'Ver las ' + facturas(r.facturas) + ' de ' + r.proveedor_nombre + ' para agregarlas al día'">
+                          <span class="pg-qp-n">{{ r.proveedor_nombre }}</span>
+                          <span class="pg-qp-d">
+                            @if (r.dias_restantes === 0) { cierra <b>hoy</b> }
+                            @else if (r.dias_restantes === 1) { cierra <b>mañana</b> }
+                            @else { quedan {{ r.dias_restantes }} días }
+                            · {{ facturas(r.facturas) }}
+                            @if (!r.se_puede_preparar_hoy) { · <span class="pg-qp-b">sin cuenta para transferir</span> }
+                          </span>
+                          <span class="comm-num pg-qp-i">{{ money(r.importe) }}</span>
+                          <span class="comm-num pg-gana pg-qp-g">+{{ money(r.gana) }}</span>
+                          <i class="pi pi-angle-right pg-qp-ch" aria-hidden="true"></i>
+                        </button>
                       </li>
                     }
                   </ul>
                   @if (quePagar().length > 5) {
-                    <p class="pg-qp-m">y {{ quePagar().length - 5 }} acreedores más, por {{ money(quePagarRestoGana()) }}</p>
+                    <!-- [PGP.44] «por $X» se leia como el IMPORTE de esos acreedores (estaba al pie de
+                         una columna de importes) y es la GANANCIA: el 2026-11-02 decia «por $239,108.55»
+                         sobre 32 acreedores que suman $4.7M. Ahora se nombra lo que es. -->
+                    <p class="pg-qp-m">y {{ quePagar().length - 5 }} acreedores más, que ganan <b class="comm-num pg-gana">{{ money(quePagarRestoGana()) }}</b> de pronto pago</p>
                   }
                 </section>
               }
@@ -548,7 +561,8 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                        favorita del catalogo del proveedor (aprobada por Gerencia). Antes habia que abrir
                        un dialogo por pago solo para aceptar una cuenta que el sistema ya conocia. -->
                   <div class="pg-applyall">
-                    <span class="pg-aa-lb">Para los {{ pendingCount() }} pagos</span>
+                    <!-- [PGP.44] Decía «Para los 1 pagos». El helper ya resuelve el plural. -->
+                    <span class="pg-aa-lb">Para {{ pagos(pendingCount()) }}</span>
                     <span class="pg-aa-f"><label for="pg-bulk-method">Método</label>
                       <p-select appendTo="body" inputId="pg-bulk-method" [options]="methodOpts" [(ngModel)]="bulkMethod" optionLabel="label" optionValue="value" placeholder="Elegir…" size="small" class="cal-sel" /></span>
                     @if (bulkMethod !== 'efectivo') {
@@ -1372,8 +1386,14 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-qp { margin:0 0 var(--sp-3); padding:var(--sp-2) var(--sp-3); background:var(--surface-2); border-radius:var(--radius-md); }
     .pg-qp-t { margin:0 0 var(--sp-2); font-size:var(--fs-sm); display:flex; align-items:center; gap:var(--sp-1); }
     .pg-qp-l { list-style:none; margin:0; padding:0; }
-    .pg-qp-l li { display:grid; grid-template-columns:1fr auto auto; gap:var(--sp-2); align-items:baseline;
-                  padding:2px 0; font-size:var(--fs-xs); border-top:1px solid var(--border-color); }
+    .pg-qp-l li { border-top:1px solid var(--border-color); }
+    /* [PGP.44] El renglon es un boton: lleva a las facturas de ese acreedor. */
+    .pg-qp-go { all:unset; box-sizing:border-box; cursor:pointer; width:100%;
+                display:grid; grid-template-columns:1fr auto auto auto; gap:var(--sp-2); align-items:baseline;
+                padding:2px var(--sp-1); font-size:var(--fs-xs); border-radius:var(--r-sm); }
+    .pg-qp-go:hover { background:var(--overlay-hover); }
+    .pg-qp-go:focus-visible { outline:2px solid var(--action-ring); outline-offset:-2px; }
+    .pg-qp-ch { grid-column:4; color:var(--text-muted); align-self:center; }
     .pg-qp-l li.is-urge .pg-qp-d { color:var(--action); font-weight:600; }
     .pg-qp-n { grid-column:1; font-weight:600; }
     .pg-qp-d { grid-column:1; color:var(--fg-3); }
@@ -2026,7 +2046,9 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       // veces el botón de elegir método»). La frase dice dónde se resuelve; el botón principal del paso es
       // «Aplicar a los N», en la barra de los pagos, y lo de un solo pago es «Preparar» en su fila.
       const sinMetodo = this.allocations().filter((x) => x.status === 'pending' && !x.payment_method).length;
-      const donde = sinMetodo > 1 ? `Elige método y cuenta de origen en «Para los ${this.pendingCount()} pagos»` : `Usa «Preparar» en su fila`;
+      // [PGP.44] El rótulo se cita TEXTUAL: si el botón dice «Para 1 pago» y esto manda a
+      // «Para los 1 pagos», el aviso apunta a algo que no existe en pantalla.
+      const donde = sinMetodo > 1 ? `Elige método y cuenta de origen en «Para ${this.pagos(this.pendingCount())}»` : `Usa «Preparar» en su fila`;
       return { tone: 'ok',
         say: n === 1 ? `Falta ${this.faltaDe(a)} de 1 pago para poder autorizar el día.`
                      : `Faltan ${n} de ${this.pendingCount()} pagos por preparar.`,
@@ -2395,6 +2417,34 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   buscarYa(): void {
     if (this.busquedaTimer) clearTimeout(this.busquedaTimer);
     this.loadObligations({ silencioso: true });
+  }
+
+  /**
+   * `[PGP.44]` **Tomar lo que el panel dice que conviene pagar.**
+   *
+   * ⛔ Visto en la pantalla viva el 2026-11-02: el panel afirmaba *«se ganan $479,287.84»* y
+   * *«cierra hoy»* en cinco renglones, y **no había un solo camino para tomarlo**. Medido ese
+   * día: cerraban 8 acreedores por $3,989,252.17 con $244,990.48 en juego, y el día tenía
+   * armado **un** pago de $47,472 a un proveedor que no gana descuento. La pantalla decía qué
+   * hacer y no dejaba hacerlo — es la ley 0 del estándar: *nada afirma lo que no es, y todo lo
+   * que importa se puede alcanzar*.
+   *
+   * No se arma solo: **se lleva a donde se arma.** El buscador ya resuelve el resto —
+   * `[PGP.15]` agrupa por proveedor y sucursal y agrega el grupo entero de un clic—, así que
+   * esto es la regla Q.4 (del dato a su lugar de arreglo, con el filtro ya puesto) y no una
+   * segunda forma de armar pagos, que sería otra interfaz para el mismo flujo.
+   *
+   * Se busca por CÓDIGO y no por nombre: el nombre de Kepler trae razones sociales que no
+   * coinciden con el catálogo, y el código es el que agrupa.
+   */
+  tomarSugerido(r: PagoSugerido): void {
+    const termino = (r.proveedor_code || r.proveedor_nombre || '').trim();
+    if (!termino) return;
+    this.busqueda.set(termino);
+    this.buscarYa();
+    // El foco va al buscador: queda a la vista qué se filtró y se puede corregir de una tecla.
+    // (La lista de la deuda ya está siempre abierta con el día — ver `verDeuda`.)
+    setTimeout(() => document.getElementById('pg-buscar')?.focus(), 0);
   }
   /** Esc limpia la búsqueda (y si ya estaba vacía, no hace nada: no cierra nada por sorpresa). */
   limpiarBusqueda(ev: Event): void {
