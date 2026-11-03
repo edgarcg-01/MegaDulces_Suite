@@ -220,7 +220,7 @@ export function revisarMorrallaCorte(morralla: number | null | undefined): { ok:
     return {
       ok: false,
       texto: `La morralla es sólo el metal de menos de 50¢ y no pasa de $${MORRALLA_CORTE_TOPE}.00. `
-        + 'Las monedas de 50¢ para arriba y los billetes van en su renglón, contados por pieza.',
+        + 'Las monedas de 50¢ para arriba —también las de bolsa— y los billetes van en su renglón, contados por pieza.',
     };
   }
   return { ok: true };
