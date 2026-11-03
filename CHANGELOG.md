@@ -9,6 +9,16 @@
 ---
 
 ## [Unreleased]
+### Added — Pagos: el documento que va a autorización ya dice **contra qué facturas** se paga (PGP.47, 2026-11-03)
+- El papel que se firma para autorizar los pagos del día imprimía **una fila por pago**, con los beneficiarios pegados uno tras otro separados por `;` y ninguna referencia al documento que se liquida. Quien firma, firmaba un total. Y quien después arma el expediente físico tenía que volver a la pantalla, documento por documento, para saber qué papeles buscar.
+- Lo que escondía: los 102 pagos vivos tapan **236 líneas de factura** —2.4 por pago, hasta 9—, y el día de hoy son **71 documentos en 28 pagos**.
+- Ahora cada pago abre su desglose, con un renglón por factura: **sucursal (por nombre), folio interno, folio externo, fecha, vencimiento, importe del documento, lo que este pago le abona y qué papel existe hoy**.
+- **Folio interno y externo son cosas distintas, y las dos hacían falta.** El interno es el del documento en Kepler, con el que lo conoce el ERP (está en el 85.4 % de las líneas). El externo es el impreso en el papel del proveedor, que es como lo busca quien archiva: se obtiene del CFDI timbrado o de la lectura del comprobante, y está en el **74.3 %**.
+- Se agrega un bloque **«Control del expediente»** que cuenta, para el día: cuántas facturas se pueden imprimir del sistema (**62.8 % tiene PDF**), cuántas hay que pedirle al proveedor porque sólo se tiene el UUID fiscal (15.9 %), cuántas **hay que buscar en el archivo físico** (21.2 %), cuántos folios externos los leyó un OCR y conviene cotejar, y cuántos pagos van por menos de lo que se debe y necesitan anexar el soporte.
+- ⛔ **Una factura que el ERP ya tiene saldada se anuncia en su propio renglón.** Son **33 de 226 líneas vivas**: hasta hoy sumaban al total del día como si fueran deuda, y el problema aparecía recién al intentar ejecutar el pago, después de preparar, autorizar y firmar.
+- ⚠️ **Lo que el documento NO afirma, a propósito.** La «referencia» que el ERP guarda de cada factura **no es el folio del proveedor**: es captura a mano, y al contrastarla contra los comprobantes fiscales coincide en 4 de 219 casos (contra 0 del control). Por eso no se publica como folio. Y el folio externo **dice siempre de dónde salió** —del comprobante fiscal o de una lectura automática—, porque un folio timbrado y una foto leída por una máquina no merecen la misma confianza.
+- El documento se validó generándolo con los datos reales del día. Ahí se encontró que la lectura automática a veces confunde el folio con el identificador fiscal: **5 de 35 folios leídos eran ilegibles** y se publicaban como si fueran buenos. Ya se descartan, y esas líneas se declaran «sin folio externo legible» en vez de mostrar basura.
+
 ### Fixed — Pagos: preparar un pago deja de ser un callejón sin salida (PGP.46, 2026-11-03)
 - **Nadie había logrado terminar de preparar un pago. Nunca.** Desde que existe el Calendario (16-oct) se crearon **146 pagos y se preparó 0**; los 33 lotes siguen en borrador, ninguno autorizado ni cerrado. La única acción que la gente completaba era **sacar el pago del día: 49 de 146**.
 - La causa eran tres puertas cerradas a la vez, y ninguna se veía desde una sesión de administrador —que es desde donde se venía mirando la pantalla, y donde todo funciona—:
