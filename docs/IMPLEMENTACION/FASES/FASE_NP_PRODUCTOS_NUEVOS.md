@@ -42,7 +42,7 @@ de posición, y lo único parecido era la categoría *innovation* de las recomen
 | `[NP.4]` | Mig `20261007360100_np_new_product_reviews.js` — clasificación de Compras (RLS forzado, auditoría completa, soft-delete). | 🧪 aplicada en local |
 | `[NP.5]` | Pestaña `compras-catalogo-nuevos.component.ts` + `productos-nuevos.service.ts` + etiqueta en la lista de Productos. | 🧪 |
 | `[NP.6]` | Umbrales y veredicto (en `analytics.kpi_thresholds`, nacen vacíos → "sin meta") + hitos 30/60/90 **congelados** en tabla propia. | ⬜ |
-| `[NP.7]` | Alta solicitada en la app (pestaña Solicitudes) con inversión y meta planeadas → plan contra real. | ⬜ decisión de proceso |
+| `[NP.7]` | Alta solicitada en la app (pestaña Solicitudes) con inversión y meta planeadas → plan contra real. **Plan detallado (2026-10-28): alta desde fotos + ficha para Kepler → [`FASE_NP7_ALTA_DESDE_FOTOS.md`](FASE_NP7_ALTA_DESDE_FOTOS.md).** | 🔨 2026-11-03: primer corte (levantamiento + bandeja «Por revisar») en PR; estado por item en el plan NP.7 |
 | `[NP.8]` | **En vivo**: función `analytics.fn_new_products_movimientos(tenant, skus, desde, hasta)` (venta y entradas desde el ODS; desde `NP.11` vive en la mig `20261007360000` porque la matvista la usa para su historia) + índice `ix_kdm1_compra_fecha` (mig `20261007360200`). La matvista guarda SERIES hasta el corte. | 🧪 aplicada en local |
 | `[NP.9]` | **Recomendación de recompra** global y por sucursal (`recomendar` + `CRITERIO_RECOMPRA`) + `GET new-products/:id` (comportamiento por sucursal). | 🧪 |
 | `[NP.10]` | **Rediseño**: respuesta arriba, filtros por recomendación, venta por semana en cada fila, panel lateral por sucursal, refresco solo cada minuto. | 🧪 |

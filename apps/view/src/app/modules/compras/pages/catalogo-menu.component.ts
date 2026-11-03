@@ -37,6 +37,8 @@ export const CATALOGO_GRUPOS: ReadonlyArray<{ titulo: string; items: ReadonlyArr
     items: [
       { route: '/compras/catalogo', descripcion: 'Buscar un producto, sus unidades y precio' },
       { route: '/compras/catalogo/nuevos', descripcion: 'Seguimiento a 30, 60 y 90 días' },
+      // `[NP.7.L.3b]` Sólo con CATALOGO_FICHAS_REVISAR (la misma regla de visibilidad que la barra).
+      { route: '/compras/catalogo/digital', descripcion: 'Lo que se levantó desde el celular, por revisar' },
     ],
   },
   {

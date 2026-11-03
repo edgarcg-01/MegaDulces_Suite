@@ -19,7 +19,8 @@ import type {
 import { ScopeService, TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import { PickingCapturaService } from './picking-captura.service';
 import { PickingConsolaService } from './picking-consola.service';
-import { esCerrada, resolverCodigo, unidadMayor, type KdiiFila } from './checado-codigo';
+import { esCerrada, resolverCodigo, unidadMayor } from '../shared/kdii-codigo';
+import { kdiiPorCodigo, kdiiPorSku } from '../shared/kdii-lectura';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Ventana de surtidos que se ofrecen para checar (igual que la bandeja de Facturación). */
@@ -309,7 +310,7 @@ export class ChecadoService {
       const responder = async (resultado: ChecadoEscaneoResponse['resultado'], mensaje: string, producto: string | null) =>
         ({ resultado, mensaje, producto, pedido: await this.cargar(trx, chk.id) });
 
-      const res = resolverCodigo(code, await this.kdiiPorCodigo(trx, chk.sucursal, code), new Set(porSku.keys()));
+      const res = resolverCodigo(code, await kdiiPorCodigo(trx, chk.sucursal, code), new Set(porSku.keys()));
       if (res.tipo === 'desconocido') return responder('desconocido', `El código ${code} no está en el catálogo de Kepler de esta sucursal.`, null);
       if (res.tipo === 'ambiguo') return responder('ambiguo', `El código ${code} lo tienen varios productos (${res.candidatos.join(', ')}). Escanea otra etiqueta del producto.`, null);
       const r = res.resuelto;
@@ -590,7 +591,7 @@ export class ChecadoService {
       qty_requested: string; qty_presentacion: string | null; unidad_presentacion: string | null;
     }>).filter((r) => Number(r.esperado) > TOL);
     if (!renglones.length) return;
-    const kdii = new Map((await this.kdiiPorSku(trx, sucursal, renglones.map((r) => r.sku).filter((s): s is string => !!s))).map((f) => [f.sku, f]));
+    const kdii = new Map((await kdiiPorSku(trx, sucursal, renglones.map((r) => r.sku).filter((s): s is string => !!s))).map((f) => [f.sku, f]));
     await trx('commercial.order_check_lines').insert(
       renglones.map((r) => {
         const f = r.sku ? kdii.get(r.sku) : undefined;
@@ -614,55 +615,6 @@ export class ChecadoService {
         };
       }),
     );
-  }
-
-  private static readonly KDII_COLS = `
-    btrim(c1) AS sku, NULLIF(btrim(c2), '') AS nombre,
-    upper(NULLIF(btrim(c11), '')) AS u1,
-    upper(NULLIF(btrim(c80), '')) AS u2, NULLIF(btrim(c81::text), '')::numeric AS f2,
-    upper(NULLIF(btrim(c83), '')) AS u3, NULLIF(btrim(c84::text), '')::numeric AS f3,
-    btrim(c7) AS b1, btrim(c93) AS b2, btrim(c102) AS b3,
-    btrim(c82) AS d1, btrim(c95) AS d2, btrim(c96) AS d3,
-    btrim(c85) AS t1`;
-
-  /** Desempate fijo si la sucursal trae dos fichas de la misma clave: la de caja más grande. */
-  private static readonly KDII_ORDEN = `ORDER BY btrim(c1), NULLIF(btrim(c84::text), '')::numeric DESC NULLS LAST, NULLIF(btrim(c81::text), '')::numeric DESC NULLS LAST`;
-
-  private aFila(r: Record<string, unknown>): KdiiFila {
-    const s = (k: string): string | null => (r[k] == null ? null : String(r[k]));
-    const n = (k: string): number | null => (r[k] == null ? null : Number(r[k]));
-    return {
-      sku: String(r['sku']), nombre: s('nombre'),
-      u1: s('u1'), u2: s('u2'), f2: n('f2'), u3: s('u3'), f3: n('f3'),
-      base: [s('b1'), s('b2'), s('b3')], dos: [s('d1'), s('d2'), s('d3')], tres: [s('t1')],
-    };
-  }
-
-  /** Productos de la sucursal que traen ese código en alguna casilla, o cuya caja es C+clave. */
-  private async kdiiPorCodigo(trx: Knex.Transaction, sucursal: string, code: string): Promise<KdiiFila[]> {
-    const { rows } = await trx.raw(
-      `SELECT DISTINCT ON (btrim(c1)) ${ChecadoService.KDII_COLS}
-         FROM kepler_ods.kdii
-        WHERE btrim(sucursal) = ?
-          AND (upper(?) IN (upper(btrim(c7)), upper(btrim(c93)), upper(btrim(c102)), upper(btrim(c82)),
-                            upper(btrim(c95)), upper(btrim(c96)), upper(btrim(c85)))
-               OR upper(?) = 'C' || upper(btrim(c1)))
-        ${ChecadoService.KDII_ORDEN}`,
-      [sucursal, code, code],
-    );
-    return (rows as Array<Record<string, unknown>>).map((r) => this.aFila(r));
-  }
-
-  private async kdiiPorSku(trx: Knex.Transaction, sucursal: string, skus: string[]): Promise<KdiiFila[]> {
-    if (!skus.length) return [];
-    const { rows } = await trx.raw(
-      `SELECT DISTINCT ON (btrim(c1)) ${ChecadoService.KDII_COLS}
-         FROM kepler_ods.kdii
-        WHERE btrim(sucursal) = ? AND btrim(c1) = ANY(?::text[])
-        ${ChecadoService.KDII_ORDEN}`,
-      [sucursal, skus],
-    );
-    return (rows as Array<Record<string, unknown>>).map((r) => this.aFila(r));
   }
 
   /** El checado como lo ve la pantalla. */

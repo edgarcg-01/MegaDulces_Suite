@@ -22,7 +22,7 @@ describe('gruposDelMenu', () => {
   it('⭐ agrupa en Productos · Precios y costos · Por corregir, cada opción con su descripción', () => {
     const g = gruposDelMenu(CATALOGO_TABS, todas);
     expect(etiquetas(g)).toEqual([
-      ['Productos', ['Productos', 'Productos nuevos']],
+      ['Productos', ['Productos', 'Productos nuevos', 'Catálogo digital']],
       ['Precios y costos', ['Precios', 'Costos', 'Reportes']],
       ['Por corregir', ['Códigos', 'No registrados', 'Mantenimiento']],
     ]);

@@ -95,3 +95,60 @@ export function unidadMayor(f: KdiiFila): { unidad: string | null; factor: numbe
   if (!opciones.length) return null;
   return opciones.sort((x, y) => y.factor - x.factor)[0];
 }
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// `[NP.7.L.9a]` El levantamiento: qué PELDAÑO tiene la persona en la mano.
+//
+// A diferencia del checado, aquí el factor no decide si el código «existe»: un código que está en la
+// casilla de la Unidad Dos con `c81` en 0/1 («Kepler no lo capturó», ERP_KEPLER §2.1.1) sigue siendo
+// de ese producto y de ese peldaño. Si se exigiera el factor, saldría «no existe» y se abriría un alta
+// duplicada (§10b.7 punto 3 del plan). El factor se reporta aparte, `null` si no está capturado.
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+
+export type Peldano = 'base' | 'dos' | 'tres';
+
+/** El peldaño del código dentro de UN producto (Base > Dos > Tres, `C`+clave = Tres), sin mirar factores. */
+export function peldanoDelCodigo(f: KdiiFila, codigo: string): Peldano | null {
+  const c = limpio(codigo);
+  if (!c) return null;
+  const en = (xs: Array<string | null>): boolean => xs.some((x) => limpio(x) === c);
+  if (en(f.base)) return 'base';
+  if (en(f.dos)) return 'dos';
+  if (en(f.tres) || c === `C${limpio(f.sku)}`) return 'tres';
+  return null;
+}
+
+export interface EscaneoResuelto {
+  sku: string;
+  nombre: string | null;
+  peldano: Peldano;
+  /** Rótulo de Kepler tal cual (`PAQ`, `CJA`…): informativo, NO dice el nivel físico. */
+  unidad: string | null;
+  /** Unidades base que trae ese peldaño; `null` si Kepler no lo tiene capturado (0 o vacío). */
+  factor: number | null;
+}
+
+export type ResultadoEscaneo =
+  | { tipo: 'ok'; resuelto: EscaneoResuelto }
+  | { tipo: 'desconocido' }
+  | { tipo: 'ambiguo'; candidatos: string[] };
+
+/**
+ * Resuelve un escaneo del levantamiento. Sin pedido que desempate: si dos productos comparten el
+ * código, es ambiguo y NO se captura (va a Incidencias, §10b.3 punto 1).
+ */
+export function resolverEscaneo(codigo: string, filas: KdiiFila[]): ResultadoEscaneo {
+  const hallados = new Map<string, EscaneoResuelto>();
+  for (const f of filas) {
+    const p = peldanoDelCodigo(f, codigo);
+    if (!p || hallados.has(f.sku)) continue;
+    const crudo = p === 'base' ? 1 : p === 'dos' ? f.f2 : f.f3;
+    const factor = crudo != null && Number(crudo) > 0 ? Number(crudo) : null;
+    const unidad = p === 'base' ? f.u1 : p === 'dos' ? f.u2 : f.u3;
+    hallados.set(f.sku, { sku: f.sku, nombre: f.nombre, peldano: p, unidad, factor });
+  }
+  if (!hallados.size) return { tipo: 'desconocido' };
+  const todos = [...hallados.values()];
+  if (todos.length === 1) return { tipo: 'ok', resuelto: todos[0] };
+  return { tipo: 'ambiguo', candidatos: todos.map((r) => r.sku).sort() };
+}
