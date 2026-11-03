@@ -24,6 +24,17 @@ describe('[DP.1.1] resolverDefinicion — la vigente a una fecha, o «sin defini
     expect(resolverDefinicion(DEF, rs, '2026-11-01')).toMatchObject({ estado: 'definida', valor: 4 });
   });
 
+  it('⭐ una reversa RETROACTIVA gana: el caso «sigue al chofer» (Edgar, 2026-11-03)', () => {
+    const rs = [
+      resp('2026-10-20', '2026-10-20T18:00:00Z', 'tipo_ruta'), // la del 20-oct, rige desde ese día
+      resp('2026-09-08', '2026-11-03T21:00:00Z', 'chofer'), // la de hoy, con retroactivo al renombre
+    ];
+    expect(resolverDefinicion(DEF, rs, '2026-09-01')).toEqual({ estado: 'sin_definir', motivo: 'no_rige_aun' });
+    expect(resolverDefinicion(DEF, rs, '2026-09-15')).toMatchObject({ estado: 'definida', valor: 'chofer' });
+    // Con «la vigencia más alta» esta fecha devolvía 'tipo_ruta' (10-20 > 09-08): la reversa perdía.
+    expect(resolverDefinicion(DEF, rs, '2026-10-25')).toMatchObject({ estado: 'definida', valor: 'chofer' });
+  });
+
   it('dos respuestas con la misma vigencia: gana la contestada más tarde (la corrección)', () => {
     const rs = [resp('2026-11-01', '2026-11-01T10:00:00Z', 3), resp('2026-11-01', '2026-11-01T12:00:00Z', 5)];
     expect(resolverDefinicion(DEF, rs, '2026-11-03')).toMatchObject({ estado: 'definida', valor: 5 });

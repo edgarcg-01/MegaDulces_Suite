@@ -79,8 +79,13 @@ const TODOS = ['SELECT', 'INSERT', 'UPDATE', 'DELETE'];
     ok(rd.every((d) => d.assigned_to === null), '⭐ todas nacen SIN dueño (D4): quién contesta lo decide Edgar');
     ok(rd.every((d) => d.answered_at === null), 'ninguna nace contestada');
     const conPropuesta = rd.filter((d) => d.suggested_value !== null);
-    ok(conPropuesta.length === 3 && conPropuesta.every((d) => /Lupita/.test(d.suggested_source || '')),
-      `lo que Lupita dijo entra como PROPUESTA con su fuente (3: motivos, 3 periodos, último viernes) — hay ${conPropuesta.length}`);
+    ok(conPropuesta.length === 4 && conPropuesta.every((d) => (d.suggested_source || '').trim().length > 0),
+      `4 propuestas, todas con su fuente — hay ${conPropuesta.length}`);
+    ok(conPropuesta.filter((d) => /Lupita/.test(d.suggested_source)).length === 3,
+      'lo que Lupita dijo (motivos, 3 periodos, último viernes) entra como PROPUESTA, no como respuesta');
+    const sigue = rd.find((d) => d.key === 'rd.universo.sigue_a');
+    ok(sigue && sigue.suggested_value === 'chofer' && /Edgar/.test(sigue.suggested_source || '') && sigue.status === 'pendiente',
+      '⭐ «sigue al chofer» (Edgar, 2026-11-03) entra como propuesta y la pregunta sigue pendiente: ningún usuario del padrón es el suyo');
     const ventana = rd.find((d) => d.key === 'rd.ausencia.ventana');
     ok(ventana && Number(ventana.suggested_value) === 3 && ventana.value_type === 'number',
       'rd.ausencia.ventana: propuesta 3, tipo número');

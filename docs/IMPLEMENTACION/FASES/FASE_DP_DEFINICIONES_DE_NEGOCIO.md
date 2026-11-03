@@ -103,7 +103,7 @@ Datos **propios** (respuestas de personas): tabla real, no vista. Sin importer.
 |---|---|---|---|
 | D1 | **Primitivo compartido, no de comisiones.** Schema `platform`, porque la pregunta no es de ningún dominio. Sus consumidores la leen por `key` | pendiente de ADR | 2026-11-03 |
 | D2 | **Lo que alguien dijo fuera del sistema entra como PROPUESTA, no como respuesta.** «3 últimos periodos» de Lupita queda en `suggested_value` con su fuente: una respuesta tiene autor con usuario, fecha y motivo, y un chat no da ninguno | pendiente de ADR | 2026-11-03 |
-| D3 | **Contestar no pisa: versiona.** Cada respuesta es una fila con `valid_from`; la vigente a una fecha es la de mayor `valid_from` ≤ fecha. Así una quincena vieja se recalcula con la regla que regía entonces, igual que el tabulador | pendiente de ADR | 2026-11-03 |
+| D3 | **Contestar no pisa: versiona.** Cada respuesta es una fila con `valid_from`. La vigente a una fecha es, entre las que ya rigen, la **contestada más tarde**: una respuesta nueva reescribe la regla desde su vigencia, también hacia atrás. ⚠️ Nació como «la de mayor `valid_from`» y el primer caso real la rompió: «sigue al chofer» (contestada el 3-nov, rige desde el 8-sep) perdía contra «tipo de ruta» (20-oct) para toda fecha posterior al 20-oct. Prueba con mutante que muere | pendiente de ADR | 2026-11-03 |
 | D4 | **Una pregunta sin dueño no aparece en ninguna bandeja.** Las 17 nacen sin dueño a propósito: quién contesta cada una lo decide Edgar (`[RD.103]`–`[RD.106]`), y la pantalla lo declara | — | 2026-11-03 |
 
 ---
@@ -114,7 +114,8 @@ Datos **propios** (respuestas de personas): tabla real, no vista. Sin importer.
 |---|---|---|---|
 | Quién contesta cada pregunta | Edgar | Lupita las planteó; su puesto no está medido y algunas son de RH (asistencia) o de Dirección (chofer vs ruta) | Asignar dueño desde la pantalla (DP.2.2) |
 | Registrar la prueba en `database/run-all-tests.js` | Edgar | El archivo tiene un cambio ajeno en el índice; commitearlo con pathspec arrastraría ese cambio | Que su autor lo commitee, o permiso para hacerlo juntos |
-| Cupo | Edgar | 7 fases 🔨 contra 4 | Cerrar o pasar a ⏸️ tres |
+| Cupo | Edgar | 7 fases 🔨 contra 4 | **Decidido (2026-11-03): ninguna a ⏸️, se terminan todas** |
+| El usuario de Edgar en el padrón | Edgar | Ningún `identity.users` es el suyo (`edgar_cortes` es cliente B2B, `edgar_luna` es Marketing): su decisión no se puede firmar a su nombre | Que diga con qué usuario entra; hasta entonces su respuesta es propuesta (D2) |
 
 ---
 
@@ -135,3 +136,4 @@ Datos **propios** (respuestas de personas): tabla real, no vista. Sin importer.
 | Fecha | Qué pasó | Quién |
 |---|---|---|
 | 2026-11-03 | Fase abierta. C0 (tablas + 17 preguntas) y C1 (contrato + adaptador de tarea) en código | Edgar (abre) · Claude |
+| 2026-11-03 | Primera respuesta: `rd.universo.sigue_a` = **chofer**, retroactivo al 2026-09-08. ⚠️ No estaba abierta: el 2026-10-20 Edgar había dicho «tipo de ruta», escrito sólo en la nota del padrón de 321/322. Se le mostró la contradicción y confirmó la reversa. Entra como propuesta (sin usuario suyo). Retroactivo medido: **$0** (2V001 bajo el primer escalón en Q18–Q21). D3 corregida | Edgar · Claude |

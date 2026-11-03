@@ -25,7 +25,8 @@
  *  · `business_definition_answers` — las RESPUESTAS, con `valid_from` y motivo obligatorio. Es
  *    registro: `app_runtime` no tiene UPDATE ni DELETE. Contestar otra vez no pisa: agrega una
  *    vigencia (D3), igual que el tabulador, para que una quincena vieja se recalcule con la regla
- *    que regía entonces.
+ *    que regía entonces. Entre las que ya rigen manda la CONTESTADA MÁS TARDE, para que una reversa
+ *    retroactiva gane (el caso «sigue al chofer», 2026-11-03).
  *
  * ── Invariantes que hace cumplir la base ────────────────────────────────────────────────────
  *  · `respondida` ⇔ `answered_at`; `respondida` ⇒ `answered_by`.
@@ -62,10 +63,15 @@ const op = (value, label) => ({ value, label });
 
 /** [key, area, question, decides, value_type, choices, unit, config_route, suggested_value] */
 const PREGUNTAS = [
+  // ⚠️ Ésta NO estaba abierta: el 2026-10-20 Edgar decidió «tipo de ruta» y quedó escrito SÓLO en la
+  // nota de 321/322 del padrón. El 2026-11-03 la revirtió: «sigue al chofer», con retroactivo al
+  // 2026-09-08. Entra como PROPUESTA (D2) porque ningún usuario del padrón es el de Edgar (los dos
+  // «edgar_*» son un cliente B2B y Marketing): la confirma él al contestarla en el sistema.
   ['rd.universo.sigue_a', 'direccion',
     '¿La comisión de Ruta Directa sigue al chofer o al tipo de ruta?',
-    'Las rutas 321 y 322 pasaron a Vecinal el 2026-09-08 y desde entonces venden $846,189.75 sin comisión. El mismo chofer comisionaba en junio.',
-    'choice', [op('chofer', 'Al chofer: si cambia de ruta, la comisión se va con él'), op('tipo_ruta', 'Al tipo de ruta: sólo comisiona la ruta de camión')], null, null, null],
+    '321 → 2V001 (mismo chofer, Joseph Agustín Guerrero) y 322 → 2V003 (otro chofer) desde el 2026-09-08. Con el tabulador RD, 2V001 vendió $132,066 / $90,702 / $105,197 en Q19–Q21: todas bajo el primer escalón ($189,999.99), así que el retroactivo vale $0 hoy.',
+    'choice', [op('chofer', 'Al chofer: si cambia de ruta, la comisión se va con él'), op('tipo_ruta', 'Al tipo de ruta: sólo comisiona la ruta de camión')], null, null,
+    { valor: 'chofer', fuente: 'Edgar (PM), 2026-11-03: sigue al chofer, con retroactivo al 2026-09-08. Revierte la del 2026-10-20 («tipo de ruta», nota del padrón de 321/322)' }],
   ['rd.vecinal.tabulador', 'comercial',
     '¿Cuál es el tabulador de las rutas vecinales: escalones de venta, porcentaje y sobre qué se calcula?',
     'Las rutas vecinales venden $2.2M en 30 días sin comisión configurada.',
@@ -231,7 +237,7 @@ exports.up = async function up(knex) {
         REFERENCES identity.users (tenant_id, id) ON DELETE RESTRICT
     )`);
   await knex.raw(`CREATE INDEX IF NOT EXISTS ix_bdef_ans_vigencia ON platform.business_definition_answers
-                  (tenant_id, definition_id, valid_from DESC, answered_at DESC)`);
+                  (tenant_id, definition_id, answered_at DESC, valid_from DESC)`);
 
   // ── DP.0.2: las 17 preguntas de Comisiones RD, sin dueño, sólo si el tenant existe ──
   const { rows: [t] } = await knex.raw('SELECT id FROM identity.tenants WHERE id = ?', [TENANT]);
@@ -245,10 +251,11 @@ exports.up = async function up(knex) {
            config_route, suggested_value, suggested_source)
         VALUES (?, ?, ?, 'commercial.commissions', ?, ?, ?, ?::jsonb, ?, ?, ?::jsonb, ?)
         ON CONFLICT (tenant_id, key) DO NOTHING`,
+      // Una propuesta con fuente propia viene como { valor, fuente }; si no, la fuente es Lupita.
       [TENANT, key, area, question, decides, valueType,
         choices ? JSON.stringify(choices) : null, unit, configRoute,
-        suggested == null ? null : JSON.stringify(suggested),
-        suggested == null ? null : FUENTE_LUPITA]);
+        suggested == null ? null : JSON.stringify(suggested.fuente ? suggested.valor : suggested),
+        suggested == null ? null : (suggested.fuente || FUENTE_LUPITA)]);
     }
   }
 
@@ -258,7 +265,7 @@ exports.up = async function up(knex) {
   await proteger(knex, 'business_definition_answers', 'SELECT, INSERT');
 
   await knex.raw(`COMMENT ON TABLE platform.business_definitions IS 'DP.0.1 — una regla de negocio que falta, PREGUNTADA dentro del sistema: qué decide, de qué tipo es la respuesta y quién la contesta. Es también la TAREA de su dueño (contrato de tarea: assigned_(to|by|at)). No se borra: se descarta con motivo.'`);
-  await knex.raw(`COMMENT ON TABLE platform.business_definition_answers IS 'DP.0.1 — las respuestas, con vigencia (valid_from) y motivo. Registro: sin UPDATE ni DELETE para app_runtime. La vigente a una fecha es la de mayor valid_from <= fecha (y la más nueva si empatan).'`);
+  await knex.raw(`COMMENT ON TABLE platform.business_definition_answers IS 'DP.0.1 — las respuestas, con vigencia (valid_from) y motivo. Registro: sin UPDATE ni DELETE para app_runtime. La vigente a una fecha es, entre las que ya rigen (valid_from <= fecha), la CONTESTADA MÁS TARDE: una respuesta nueva reescribe la regla desde su vigencia, también hacia atrás.'`);
   await knex.raw(`COMMENT ON COLUMN platform.business_definitions.suggested_value IS 'Lo que alguien ya dijo FUERA del sistema (un chat, una junta). Es propuesta, no respuesta: no tiene usuario, fecha ni motivo. suggested_source dice de dónde salió.'`);
   await knex.raw(`COMMENT ON COLUMN platform.business_definitions.config_route IS 'Para value_type=config_ref: la pantalla donde la respuesta se CONFIGURA (p. ej. el tabulador). La definición sólo apunta ahí.'`);
   // eslint-disable-next-line no-console

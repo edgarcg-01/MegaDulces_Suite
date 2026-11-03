@@ -109,8 +109,10 @@ export function validarRespuesta(def: Pick<DefinicionNegocio, 'value_type' | 'ch
 }
 
 /**
- * La respuesta VIGENTE a una fecha: la de mayor `valid_from` ≤ fecha y, si dos empatan, la contestada
- * más tarde (una corrección del mismo día gana). Nunca cae a la propuesta ni a un default.
+ * La respuesta VIGENTE a una fecha: entre las que ya rigen (`valid_from` ≤ fecha), la contestada MÁS
+ * TARDE — una respuesta nueva reescribe la regla desde su vigencia en adelante, también hacia atrás
+ * (una reversa retroactiva). Si dos se contestaron a la vez, la de vigencia más alta. Nunca cae a la
+ * propuesta ni a un default.
  */
 export function resolverDefinicion(
   def: Pick<DefinicionNegocio, 'id' | 'status'>,
@@ -120,11 +122,15 @@ export function resolverDefinicion(
   if (def.status === 'descartada') return { estado: 'sin_definir', motivo: 'descartada' };
   const propias = respuestas.filter((r) => r.definition_id === def.id);
   if (!propias.length) return { estado: 'sin_definir', motivo: 'sin_respuesta' };
+  // ⭐ Manda la CONTESTADA MÁS TARDE entre las que ya rigen, no la de vigencia más alta. Con «la
+  // vigencia más alta», una reversa retroactiva perdía: «sigue al tipo de ruta» (contestada el
+  // 20-oct, rige desde jul) le ganaba a «sigue al chofer» (contestada el 3-nov, rige desde sep)
+  // para toda fecha posterior al 20-oct. Una respuesta nueva reescribe la regla desde su vigencia.
   const vigentes = propias
     .filter((r) => r.valid_from <= fecha)
-    .sort((a, b) => (a.valid_from === b.valid_from
-      ? Date.parse(b.answered_at) - Date.parse(a.answered_at)
-      : (a.valid_from < b.valid_from ? 1 : -1)));
+    .sort((a, b) => (a.answered_at === b.answered_at
+      ? (a.valid_from < b.valid_from ? 1 : -1)
+      : Date.parse(b.answered_at) - Date.parse(a.answered_at)));
   const r = vigentes[0];
   if (!r) return { estado: 'sin_definir', motivo: 'no_rige_aun' };
   return { estado: 'definida', valor: r.value, respuesta: r };
