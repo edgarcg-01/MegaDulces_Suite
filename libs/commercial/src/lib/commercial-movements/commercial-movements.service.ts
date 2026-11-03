@@ -268,15 +268,19 @@ const TRANSFER_PAIRING_SQL = (shpDestSql: string) => `
           -- join que cuelgue de él se evalúa por RENGLÓN: el planner elige un nested loop contra
           -- commercial.warehouses (28 filas, estimadas en 1) y el agregado pasa de 0.3 s a 2.4 s.
           -- Los nombres y el destino se resuelven en shpd, sobre ~2k DOCUMENTOS. Medido 2026-10-06.
-          -- [DM.22] ventana de CANDIDATOS: un embarque puede preceder a su recepcion por hasta
-          -- PAIR_LATE_DAYS, o fecharse hasta PAIR_EARLY_DAYS despues de ella. Cuesta 14 ms.
+          -- [DM.22] ventana de CANDIDATOS. [MX.2.7] Tiene que cubrir la salida verdadera de CADA
+          -- recepción candidata (rcv, abajo: from−EARLY … to+LATE), y ésa puede estar hasta LATE días
+          -- antes o EARLY después → from−(LATE+EARLY) … to+(LATE+EARLY). Con from−LATE … to+EARLY,
+          -- una recepción del 30-oct (rango 5–11 oct) no veía su salida del 28-oct de Morelia Abastos
+          -- y se pegaba a la de CEDIS del 5-oct con el MISMO folio y serie (el folio es secuencia por
+          -- sucursal): «diferencia» con 0 productos en común, 4 de 4 reportadas el 2026-11-02.
           SELECT m.warehouse_id, m.folio, m.doc_serie, m.tenant_id,
                  MIN(m.doc_date) AS doc_date, SUM(m.qty) AS qty, SUM(m.amount) AS amount, COUNT(*)::int AS lineas,
                  max(m.dest_code) AS dest_code, max(m.dest_label) AS dest_label, ${SKU_SIG('m')} AS sku_sig,
                  COUNT(*) FILTER (WHERE m.amount IS NULL)::int AS lineas_sin_importe
           FROM analytics.stock_movements m
           WHERE m.tenant_id = ? AND m.doc_code = 'TrsfShip'
-            AND m.doc_date BETWEEN ?::date - ${PAIR_LATE_DAYS} AND ?::date + ${PAIR_EARLY_DAYS}${shpDestSql}
+            AND m.doc_date BETWEEN ?::date - ${PAIR_LATE_DAYS + PAIR_EARLY_DAYS} AND ?::date + ${PAIR_LATE_DAYS + PAIR_EARLY_DAYS}${shpDestSql}
           GROUP BY m.warehouse_id, m.folio, m.doc_serie, m.tenant_id
         ), shpd AS (
           -- [DM.20] a dónde va dirigido CADA embarque: es la LLAVE del pareo, no un adorno.

@@ -280,6 +280,26 @@ Y se actualiza el símbolo al avanzar:
 
 ## 🎯 EN PROGRESO
 
+### Fase MX — Movimientos por excepción: el Diario pasa a reportería y se auditan sólo las diferencias · 2026-10-28 · plan en [`FASE_MX`](FASES/FASE_MX_MOVIMIENTOS_POR_EXCEPCION.md)
+
+> El detalle, las mediciones y la bitácora viven en el plan. ⚠️ Este bloque se repuso el 2026-11-03:
+> las líneas MX se habían dejado sin commitear en el árbol compartido y otra sesión pisó el archivo.
+> Prod verificado por `/api/health` el 2026-11-03: corre `2869fbe91`, que contiene MX.1.1–MX.3.2.
+
+- [x] **[MX.0.1–0.4]** ✅ Mediciones previas (2026-10-28).
+- [x] **[MX.1.1–1.7]** ✅ **Prod** — pareo por SKU, vacío ≠ cero, envejecimiento del tránsito, catálogo de excepciones, netos y tolerancias, mayor 515 honesto, unidad del importe.
+- [x] **[MX.2.1–2.3]** ✅ **Prod** — PDF desde los totales, conteo por identidad real, `GET /commercial/movements/exceptions`.
+- [x] **[MX.2.4]** ✅ **Prod** — cada incidencia dice DÓNDE está el error; se resuelve con motivo en un panel lateral (D8: `stock_movement_audits.resolution_reason`, migración `20261029091330` aplicada).
+- [ ] **[MX.2.4b]** ⬜ Foto de lo visto al resolver: la resolución rancia (el documento cambió después) vuelve a la bandeja.
+- [ ] **[MX.2.5]** ⬜ Permiso propio para resolver, repartido en prod (hoy: `COMMERCIAL_MOVEMENTS_GESTIONAR`; Prevención lo tiene por puesto).
+- [x] **[MX.2.6]** ✅ **Prod** — ajustes del día: los de una tienda en un día son UNA incidencia con entradas, salidas y neto (bandeja 484 → 252).
+- [x] **[MX.2.7]** 🧪 **Local 2026-11-03** — la recepción ya no se pega a la salida de otra sucursal que repite folio y serie (salidas candidatas ±105 d). Reportado por Prevención: 4 «diferencias» que Kepler cuadraba. Prod (solo lectura): 5–11 oct 4 → 0, sept 18 → 3, ago 26 → 3; el Cuadre del Diario contaba esas salidas dos veces (sept −$1.39 M). Prueba de base NO MEDIDA en local (sin Docker), corre en `pruebas-db`.
+- [ ] **[MX.3.0]** ⬜ Observaciones de diseño al plan (`auditoria-diseno` §9).
+- [x] **[MX.3.1a]** ✅ **Prod** — sale el botón «Auditar» del Diario; la marca vieja se lee y se lleva a Incidencias.
+- [ ] **[MX.3.1]** ⬜ Diario = reportería (resto): «cuadrado por el motor» / «excepción» / «sin comparación»; vacío = NO MEDIDO; error limpia el dato viejo.
+- [x] **[MX.3.2]** ✅ **Prod** — pantalla `/almacen/incidencias`.
+- Deuda con nombre: el endpoint de la bandeja tarda ~1 s con el rango por defecto (el pareo de traspasos); va como optimización aparte.
+
 ### Fase LE — Libro de efectivo: la Caja General como un banco · 2026-10-27 · plan en [`FASE_LE_LIBRO_DE_EFECTIVO`](FASES/FASE_LE_LIBRO_DE_EFECTIVO.md) · ADR-102, ADR-103, ADR-112
 
 > E0–E4 (el libro, sus reglas, la API y los carriles de la máquina y de Kepler) están en el plan con

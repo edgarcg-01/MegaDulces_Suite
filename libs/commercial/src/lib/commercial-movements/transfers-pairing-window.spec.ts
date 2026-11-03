@@ -65,7 +65,15 @@ describe('[DM.22] ⛔ los CANDIDATOS se buscan fuera del rango', () => {
   it('⭐⭐ la ventana de embarques se ensancha con las constantes del pareo, no con un número suelto', () => {
     // Si acá quedara un literal, la ventana del pareo y la de los candidatos podrían separarse
     // en silencio — que es exactamente el defecto que esto cierra.
-    expect(TPL).toContain('?::date - ${PAIR_LATE_DAYS} AND ?::date + ${PAIR_EARLY_DAYS}');
+    // [MX.2.7] Y tiene que cubrir la salida verdadera de CADA recepción candidata: ésas llegan
+    // hasta to+LATE y su salida puede ir LATE antes o EARLY después → ±(LATE+EARLY).
+    expect(TPL).toContain('?::date - ${PAIR_LATE_DAYS + PAIR_EARLY_DAYS} AND ?::date + ${PAIR_LATE_DAYS + PAIR_EARLY_DAYS}');
+  });
+
+  it('⛔ NEGATIVA [MX.2.7]: la ventana de embarques NO es la vieja (−LATE … +EARLY)', () => {
+    // Con ésa, una recepción del 30-oct (rango 5–11 oct) no veía su salida del 28-oct y se pegaba
+    // a la de otra sucursal con el mismo folio y serie: 4 «diferencias» falsas reportadas.
+    expect(TPL).not.toContain('?::date - ${PAIR_LATE_DAYS} AND ?::date + ${PAIR_EARLY_DAYS}');
   });
 
   it('⭐ y la de recepciones, espejada', () => {
