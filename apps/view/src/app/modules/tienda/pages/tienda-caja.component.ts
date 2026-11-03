@@ -75,7 +75,7 @@ const CANAL_CLIENTE = 'md-caja-cliente';
         <button type="button" class="cj-hb" tabindex="-1" [class.cj-hb-on]="verificando()" (click)="abrirVerificador()">Verificar precio <kbd>F6</kbd></button>
         @if (puedeArqueo) { <button type="button" class="cj-hb" tabindex="-1" [class.cj-hb-on]="!!arq()" (click)="irArqueo()">Mi arqueo <kbd>F7</kbd></button> }
         <button type="button" class="cj-hb" tabindex="-1" (click)="abrirCliente()">Pantalla del cliente</button>
-        @if (cajon.soportado && cajon.estado() === 'desconectada') { <button type="button" class="cj-hb" tabindex="-1" title="Con la gaveta CERRADA: la caja la calibra al conectar" (click)="conectarGaveta()">Conectar gaveta</button> }
+        @if (cajon.soportado && cajon.estado() === 'desconectada') { <button type="button" class="cj-hb" tabindex="-1" title="Al conectar, la gaveta se abre una vez para calibrarla" (click)="conectarGaveta()">Conectar gaveta</button> }
         @if (turno(); as t) {
           <button type="button" class="cj-hb" tabindex="-1" (click)="retiro()">Retiro <kbd>F8</kbd></button>
           <button type="button" class="cj-hb" tabindex="-1" (click)="cerrarTurno()">Cerrar turno</button>
@@ -776,7 +776,7 @@ export class TiendaCajaComponent implements OnDestroy {
   // ── Cobro ──
   async conectarGaveta(): Promise<void> {
     const err = await this.cajon.conectar();
-    if (err) this.avisar('aviso', err); else this.avisar('ok', 'Gaveta conectada: se abre sola al cobrar en efectivo, y abierta no deja cobrar.');
+    if (err) this.avisar('aviso', err); else this.avisar('ok', 'Gaveta conectada: se abrió para calibrarla, ciérrala para cobrar. Se abre sola al cobrar en efectivo, y abierta no deja cobrar.');
     this.enfocar();
   }
 

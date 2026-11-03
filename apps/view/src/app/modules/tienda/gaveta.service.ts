@@ -1,5 +1,5 @@
 import { Injectable, OnDestroy, signal } from '@angular/core';
-import { ESC_POS_ESTADO, EstadoGaveta, escPosAbrirGaveta, leerEstadoGaveta } from './caja-motor';
+import { ESC_POS_ESTADO, EstadoGaveta, calibrarGaveta, escPosAbrirGaveta, leerEstadoGaveta } from './caja-motor';
 
 /**
  * [PDV.34] La gaveta de la caja, conectada a la impresora de tickets (el cajón va al puerto RJ11 de
@@ -10,12 +10,15 @@ import { ESC_POS_ESTADO, EstadoGaveta, escPosAbrirGaveta, leerEstadoGaveta } fro
  * su driver). Una impresora USB con driver de impresora de Windows no la ve el navegador: ahí hace
  * falta un agente local (D-I3, según el censo PDV.6). La caja lo declara («sin conectar»), no lo finge.
  *
- * Cómo se calibra: al conectar se pide la gaveta CERRADA y se guarda el nivel que reporta; abierta es
- * el otro. Así no hay que saber si el cajón es «normalmente abierto» o «normalmente cerrado».
+ * Cómo se calibra: al conectar se lee el nivel, se abre la gaveta y se vuelve a leer; si cambió, el de
+ * antes era «cerrada» ({@link calibrarGaveta}). Así no hay que saber si el cajón es «normalmente
+ * abierto» o «normalmente cerrado», ni confiar en que alguien lo cerró antes de conectar.
  */
 const CADA_MS = 300;
 /** Sin respuesta en este tiempo, la impresora está conectada pero no reporta el cajón. */
 const SIN_RESPUESTA_MS = 1500;
+/** Tiempo para ver el cambio de nivel tras el pulso (en Yurécuaro se vio a los ~1.3 s). */
+const CICLO_MS = 3000;
 const LLAVE = 'md-caja-gaveta';
 
 interface PuertoSerial {
@@ -64,16 +67,24 @@ export class GavetaService implements OnDestroy {
     try { p = await this.serial.requestPort(); } catch { return 'No se eligió la impresora.'; }
     await this.cerrarPuerto();
     try { await this.abrirPuerto(p, baud); } catch (e) { return 'No se pudo abrir el puerto: ' + ((e as Error)?.message || 'ocupado por otro programa'); }
-    const byte = await this.esperarByte(SIN_RESPUESTA_MS);
-    if (byte === null) {
+    this.config = null;
+    const antes = await this.esperarByte(SIN_RESPUESTA_MS);
+    if (antes === null) {
       this.config = { nivelCerrada: false, baud, pin: 0 };
       this.guardarConfig();
       return 'La impresora no contesta el estado del cajón: la caja abrirá la gaveta, pero no sabrá si está cerrada.';
     }
-    // Calibración: lo que se lee ahora es «cerrada».
-    this.config = { nivelCerrada: (byte & 0x04) !== 0, baud, pin: 0 };
+    // Calibración por ciclo (calibrarGaveta): se abre y se mira si el nivel cambió.
+    await this.escritor?.write(escPosAbrirGaveta(0)).catch(() => undefined);
+    const c = calibrarGaveta(antes, await this.esperarByte(CICLO_MS, (b) => ((b ^ antes) & 0x04) !== 0));
+    if (c === 'sin_cambio') {
+      await this.cerrarPuerto();
+      return 'La gaveta no cambió al mandarle abrir. Si estaba abierta, ciérrala y vuelve a conectar; si sí se abrió, este cajón no avisa si está cerrado.';
+    }
+    this.config = { nivelCerrada: c.nivelCerrada, baud, pin: 0 };
     this.guardarConfig();
-    this.estado.set('cerrada');
+    this.ultimaRespuesta = Date.now();
+    this.fijar('abierta');
     return null;
   }
 
@@ -126,11 +137,12 @@ export class GavetaService implements OnDestroy {
     }
   }
 
-  private async esperarByte(ms: number): Promise<number | null> {
+  /** Espera una respuesta válida de DLE EOT 1 (y que cumpla `y`, si se da). */
+  private async esperarByte(ms: number, y: (b: number) => boolean = () => true): Promise<number | null> {
     this.ultimoByte = null;
     const hasta = Date.now() + ms;
     while (Date.now() < hasta) {
-      if (this.ultimoByte !== null && (this.ultimoByte & 0x93) === 0x12) return this.ultimoByte;
+      if (this.ultimoByte !== null && (this.ultimoByte & 0x93) === 0x12 && y(this.ultimoByte)) return this.ultimoByte;
       await new Promise((r) => setTimeout(r, 50));
     }
     return null;

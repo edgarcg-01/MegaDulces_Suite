@@ -1,5 +1,5 @@
 // [PDV.31] Sin `import ... from 'vitest'`: la config usa `globals: true`.
-import { abreGavetaAlCobrar, edadTexto, bloqueoPorGaveta, ESC_POS_ESTADO, escPosAbrirGaveta, leerEstadoGaveta, errorEfectivo, esCorreccionInmediata, leerComando, leerImporte, LineaCaja, precioRenglon, totalesCaja } from './caja-motor';
+import { abreGavetaAlCobrar, calibrarGaveta, edadTexto, bloqueoPorGaveta, ESC_POS_ESTADO, escPosAbrirGaveta, leerEstadoGaveta, errorEfectivo, esCorreccionInmediata, leerComando, leerImporte, LineaCaja, precioRenglon, totalesCaja } from './caja-motor';
 
 // Los precios son los cobrados en Yurécuaro del 24 al 30 de octubre (prototipo validado con Edgar).
 const linea = (p: Partial<LineaCaja>): LineaCaja => ({
@@ -88,6 +88,17 @@ describe('[PDV.34] gaveta por ESC/POS', () => {
     expect(leerEstadoGaveta(0x16, true)).toBe('cerrada');
     expect(leerEstadoGaveta(0x12, true)).toBe('abierta');
     expect(leerEstadoGaveta(0x1a, false)).toBe('cerrada');
+  });
+  it('calibra por ciclo: el nivel de antes es «cerrada» sólo si el pulso lo cambió', () => {
+    // Yurécuaro (Star BSC10, 2026-11-03): ALTO antes del pulso, BAJO al abrirse → cerrada = alto
+    expect(calibrarGaveta(0x16, 0x12)).toEqual({ nivelCerrada: true });
+    expect(calibrarGaveta(0x12, 0x16)).toEqual({ nivelCerrada: false });
+    // Ya estaba abierta (el pulso no la mueve) o no hay sensor: no se calibra, ni al revés
+    expect(calibrarGaveta(0x12, 0x12)).toBe('sin_cambio');
+    expect(calibrarGaveta(0x16, 0x16)).toBe('sin_cambio');
+    expect(calibrarGaveta(0x16, null)).toBe('sin_cambio');
+    // Un cambio en otro bit (fuera de línea) no es el cajón
+    expect(calibrarGaveta(0x12, 0x1a)).toBe('sin_cambio');
   });
   it('un byte que no es la respuesta de DLE EOT 1 se ignora', () => {
     expect(leerEstadoGaveta(0x00, false)).toBeNull();

@@ -153,12 +153,22 @@ export const ESC_POS_ESTADO = Uint8Array.of(0x10, 0x04, 0x01);
 /**
  * Lee la respuesta a DLE EOT 1. El byte trae bits fijos (0 y 7 en 0, 1 y 4 en 1): si no los trae no
  * es la respuesta y se ignora. El bit 2 es el NIVEL del pin 3 del conector, y qué nivel significa
- * «abierta» depende del cajón; por eso se calibra: `nivelCerrada` es el que se leyó con la gaveta
- * cerrada al conectarla.
+ * «abierta» depende del cajón; por eso se calibra (ver {@link calibrarGaveta}).
  */
 export function leerEstadoGaveta(byte: number, nivelCerrada: boolean): 'cerrada' | 'abierta' | null {
   if ((byte & 0x93) !== 0x12) return null;
   return ((byte & 0x04) !== 0) === nivelCerrada ? 'cerrada' : 'abierta';
+}
+
+/**
+ * Calibración por CICLO: se lee el nivel, se manda el pulso y se vuelve a leer. Si el pulso cambió el
+ * nivel, el de antes era «cerrada». Si no lo cambió, no se sabe nada (la gaveta ya estaba abierta, o
+ * el cajón no trae sensor) y no se calibra: suponer «estaba cerrada» invertía todo, y una gaveta
+ * abierta se leía cerrada justo cuando hay que impedir el cobro.
+ */
+export function calibrarGaveta(antes: number, despues: number | null): { nivelCerrada: boolean } | 'sin_cambio' {
+  if (despues === null || ((antes ^ despues) & 0x04) === 0) return 'sin_cambio';
+  return { nivelCerrada: (antes & 0x04) !== 0 };
 }
 
 /** Con la gaveta abierta no se cobra: primero se entrega el cambio y se cierra. */
