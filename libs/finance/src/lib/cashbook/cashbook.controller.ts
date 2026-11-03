@@ -1,8 +1,12 @@
 import { Body, Controller, Get, Headers, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
-import type { ConteoDeCaja, HechoDePersona, ResultadoConteo, ResultadoHecho, SaldosDelLibro } from '@megadulces/contracts';
+import type {
+  ConteoDeCaja, HechoDePersona, OrdenPorFirmar, PagoEnVentanilla, PlanDePagoVentanilla, ResultadoConteo, ResultadoHecho,
+  ResultadoPago, SaldosDelLibro,
+} from '@megadulces/contracts';
 import { CashbookService, type UsuarioDelLibro } from './cashbook.service';
+import { CashbookVentanillaService } from './cashbook-ventanilla.service';
 
 interface AuthedRequest { user?: { id?: string; sub?: string; userId?: string; username?: string } }
 
@@ -16,7 +20,7 @@ interface AuthedRequest { user?: { id?: string; sub?: string; userId?: string; u
 @UseGuards(RolesGuard)
 @Controller('finance/libro-efectivo')
 export class CashbookController {
-  constructor(private readonly svc: CashbookService) {}
+  constructor(private readonly svc: CashbookService, private readonly ventanilla: CashbookVentanillaService) {}
 
   private user(req: AuthedRequest): UsuarioDelLibro {
     const u = req?.user ?? {};
@@ -106,6 +110,44 @@ export class CashbookController {
   @ApiOperation({ summary: '[LE.4.3] Cierra la jornada: la autoriza la sesión; cierra quien hizo el arqueo de cierre' })
   cerrar(@Param('fecha') fecha: string, @Req() req: AuthedRequest): Promise<{ cerro: string; autorizo: string }> {
     return this.svc.cerrarJornada(fecha, this.user(req));
+  }
+
+  // ── `[LE.4.10]` La Ventanilla: pagar un X-D-26 en un solo acto ─────────────────────────────
+
+  @Get('pagos/plan')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: '[LE.4.10] Qué sale de la máquina y qué del cajón al pagar un X-D-26, y si firma Tesorería (no escribe)' })
+  planDePago(@Query('origen_ref') origenRef: string, @Query('cuenta_kepler') cuenta?: string,
+    @Query('vale_id') valeId?: string): Promise<PlanDePagoVentanilla> {
+    return this.ventanilla.plan(origenRef, cuenta, valeId);
+  }
+
+  @Post('pagos')
+  @RequirePermissions(Permission.FINANCE_CAJA_GESTIONAR)
+  @ApiOperation({ summary: '[LE.4.10] Paga un X-D-26 (Idempotency-Key obligatoria): con vale aprobado devuelve el código; sin él, queda por firmar' })
+  pagar(@Body() body: PagoEnVentanilla, @Headers('idempotency-key') key: string | undefined, @Req() req: AuthedRequest): Promise<ResultadoPago> {
+    return this.ventanilla.pagar(body, this.user(req), key);
+  }
+
+  @Get('ordenes/por-firmar')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: '[LE.4.10] Las órdenes que esperan la firma de Tesorería, la más vieja primero' })
+  porFirmar(): Promise<OrdenPorFirmar[]> {
+    return this.ventanilla.porFirmar();
+  }
+
+  @Post('ordenes/:id/firmar')
+  @RequirePermissions(Permission.FINANCE_CAJA_AUTORIZAR)
+  @ApiOperation({ summary: '[LE.4.10] Tesorería firma una orden (nunca la propia): nace el código y se asienta lo del cajón' })
+  firmarOrden(@Param('id') id: string, @Req() req: AuthedRequest): Promise<ResultadoPago> {
+    return this.ventanilla.firmar(id, this.user(req));
+  }
+
+  @Post('ordenes/:id/rechazar')
+  @RequirePermissions(Permission.FINANCE_CAJA_AUTORIZAR)
+  @ApiOperation({ summary: '[LE.4.10] Tesorería rechaza una orden, con motivo' })
+  rechazarOrden(@Param('id') id: string, @Body() body: { nota: string }, @Req() req: AuthedRequest): Promise<void> {
+    return this.ventanilla.rechazar(id, body?.nota, this.user(req));
   }
 
   @Post('hallazgos/:id/cerrar')

@@ -4,7 +4,7 @@ import {
 import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import {
-  denomKeyDeValor, denomDe, SUCURSAL_CAJA_GENERAL, diaDeFecha, aCorteCajaDto,
+  denomKeyDeValor, denomDe, SUCURSAL_CAJA_GENERAL, diaDeFecha, aCorteCajaDto, revisarMorrallaCorte,
   type JornadasPendientes, type CorteCajaDto, type VeredictoCorte, type PosicionCajaDto,
   type ArqueosResponse, type ArqueoDia, type ArqueoCaos, type ArqueoPieza, type ArqueoControlUltimo, type VerificacionCorte,
   type VerdadDiferencia,
@@ -131,6 +131,16 @@ function rechazarCeroContradictorio(input: CerrarCorteInput): void {
       'Marcaste que no hay efectivo, pero la reja trae piezas. O se cuenta lo que hay, o se declara que no hay nada.',
     );
   }
+}
+
+/**
+ * `[LE.2.12]` La morralla es sólo el metal de menos de 50¢ (`revisarMorrallaCorte`, la misma regla que
+ * la pantalla). Se revisa lo que la persona TECLEA ahora; un conteo ya sellado no se vuelve a juzgar
+ * al cerrar: lo sellado antes de la regla se cierra como está (expand/contract).
+ */
+function rechazarMorrallaFueraDeTope(morralla: number | null | undefined): void {
+  const r = revisarMorrallaCorte(morralla);
+  if (!r.ok) throw new BadRequestException(r.texto);
 }
 
 interface Usuario { id?: string; username?: string }
@@ -835,6 +845,7 @@ export class CashCutService {
       // `[CGA-A.51]` Lo que se llevó alguien a pagar no se pide en el cajón (ADR-101).
       const custodia = await this.custodiaDe(trx, tenantId, c.sucursal, c.fecha ?? null);
       rechazarCeroContradictorio(input);
+      rechazarMorrallaFueraDeTope(input.morralla);
       const totales = calcularCorte({
         fondoInicial: fondo(c), movimientos: movs, cajeroSinCapturar: cajero, custodia,
         conteo: input.conteo, morralla: input.morralla ?? 0, ceroDeclarado: input.cero_declarado === true,
@@ -898,6 +909,7 @@ export class CashCutService {
       });
 
       rechazarCeroContradictorio(input);
+      rechazarMorrallaFueraDeTope(input.morralla);
       const totales = calcularCorte({
         fondoInicial: fondo(c), movimientos: movs, cajeroSinCapturar: cajero, custodia,
         conteo: input.conteo, morralla: input.morralla ?? 0, ceroDeclarado: input.cero_declarado === true,
@@ -947,6 +959,7 @@ export class CashCutService {
       if (decision.usar === 'rechazo') {
         throw new BadRequestException(textoConteoDistinto(decision.sellado, decision.tecleado));
       }
+      if (decision.usar !== 'sellado') rechazarMorrallaFueraDeTope(input.morralla);
       const conteo = decision.usar === 'sellado' && sellado ? sellado.conteo : input.conteo;
       const morralla = decision.usar === 'sellado' && sellado ? sellado.morralla : (input.morralla ?? 0);
       if (decision.usar === 'sellado') {
