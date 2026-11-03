@@ -105,6 +105,17 @@ interface Obligation {
 }
 interface PaymentAccount { id: string; bank_name: string; account_number: string | null; clabe: string | null; alias: string | null; es_favorita: boolean }
 /**
+ * `[PGP.46]` Una solicitud de alta de cuenta **esperando aprobación**: lo que alguien capturó al
+ * preparar un pago y todavía nadie revisó. ⛔ No es una cuenta del catálogo — el catálogo está
+ * aprobado y éste no —, y por eso se pinta distinto y con quién la capturó.
+ */
+interface SolicitudCuenta {
+  id: string; supplier_id: string; status: string;
+  proposed_bank_name: string | null; proposed_clabe: string | null;
+  requested_by: string | null; requested_at: string | null;
+}
+
+/**
  * `[TP.17.2]` La lista de obligaciones viaja con su TOTAL. El endpoint tiene un techo (1,000 por
  * omisión) y sin este dato la pantalla no puede distinguir «hay mil» de «te muestro mil de tres mil»
  * — que es la diferencia entre informar y mentir (ADR-056).
@@ -947,8 +958,15 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
           <p-select appendTo="body" inputId="cal-prep-dest" [options]="prepAccounts()" [(ngModel)]="prepAccountId" optionLabel="label" optionValue="id" placeholder="Elegir cuenta…" [showClear]="true" [fluid]="true" class="cal-dlg-sel" />
         } @else if (prepAccountsError()) {
           <p class="cal-dlg-hint"><b>No se pudo leer el catálogo de cuentas del proveedor ({{ prepAccountsError() }}).</b> Captura la CLABE abajo.</p>
+        } @else if (prepPedida(); as p) {
+          <!-- [PGP.46] La CLABE ya se capturó antes y está esperando aprobación. Se propone con
+               su procedencia: un valor puesto solo, sin decir con qué, es una orden disfrazada. -->
+          <p class="cal-dlg-hint cal-habito">
+            <i class="pi pi-clock" aria-hidden="true"></i>
+            Precargada de una captura anterior: <b>{{ p.banco && !p.banco.startsWith('(') ? p.banco + ' · ' : '' }}{{ p.clabe }}</b>@if (p.quien) {, la capturó <b>{{ p.quien }}</b>}@if (p.cuando) { el {{ p.cuando }}}. <b>Todavía no la aprueba Compras</b>, así que revísala antes de pagar; si no es ésta, bórrala y escribe la correcta.
+          </p>
         } @else if (prepSupplierId) {
-          <p class="cal-dlg-hint">Este proveedor no tiene cuentas en el catálogo. Captura la CLABE abajo; para no volver a teclearla, pide a Compras que la dé de alta en Cuentas de pago (pasa por aprobación de Gerencia).</p>
+          <p class="cal-dlg-hint">Este proveedor no tiene cuentas en el catálogo. Captura la CLABE abajo; queda <b>pedida de alta sola</b> para que no haya que teclearla otra vez. La aprueba Dirección desde «Cuentas de pago»; mientras tanto, el pago sale igual.</p>
         }
         <label class="cal-dlg-label" for="cal-prep-clabe">Cuenta destino — banco y CLABE (si no está en el catálogo)</label>
         <input id="cal-prep-clabe" pInputText type="text" [(ngModel)]="prepDestination" [disabled]="!!prepAccountId" placeholder="Ej. BBVA · CLABE 012180001234567891" class="cal-dlg-full" />
@@ -2147,6 +2165,18 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   /** Un 403/500 del catálogo NO es «el proveedor no tiene cuentas»: se dice distinto. */
   readonly prepAccountsError = signal<string | null>(null);
   /**
+   * `[PGP.46]` **La CLABE que alguien ya capturó para este proveedor, esperando aprobación.**
+   *
+   * Medido en prod el 2026-11-03: el catálogo tiene **0 cuentas**, así que hasta hoy el diálogo
+   * pedía teclear los 18 dígitos **cada vez** — el mismo proveedor, la misma CLABE, otra semana.
+   * Ahora la primera captura queda pedida de alta y las siguientes la encuentran acá.
+   *
+   * ⛔ Se propone, **no se da por buena**: es una captura de alguien, todavía sin aprobar, y el
+   * renglón lo dice con quién y cuándo. Es el patrón de `[PGP.30]` — un valor puesto solo, sin
+   * decir con qué, es una orden disfrazada.
+   */
+  readonly prepPedida = signal<{ clabe: string; banco: string | null; quien: string | null; cuando: string | null } | null>(null);
+  /**
    * `[PGP.41]` **Qué hay que pagar, sin que nadie lo pida.** Se carga al abrir la pantalla, no
    * al apretar un botón: el pedido de Edgar (2026-10-31) fue *«ya el mismo sistema me debe
    * decir qué pago»*, y una respuesta que hay que ir a buscar no es esa respuesta.
@@ -3185,6 +3215,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     }
     this.prepAccounts.set([]);
     this.prepAccountsError.set(null);
+    this.prepPedida.set(null);
     this.prepSupplierId = this.proveedorDe(a);
     if (this.prepSupplierId) {
       this.http.get<PaymentAccount[]>(`${this.accountsBase}/by-supplier/${this.prepSupplierId}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -3194,6 +3225,32 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
           if (!this.prepAccountId && !this.prepDestination) this.prepAccountId = rows.find((r) => r.es_favorita)?.id ?? null;
         },
         error: (e) => { this.prepAccounts.set([]); this.prepAccountsError.set(e?.status === 403 ? 'sin permiso de Compras' : 'error del servidor'); },
+      });
+      /**
+       * `[PGP.46]` Y la CLABE que alguien ya capturó para este proveedor y está esperando
+       * aprobación. Va en paralelo al catálogo porque responde otra pregunta: el catálogo dice
+       * «qué cuentas están aprobadas», esto dice «qué se capturó y todavía no».
+       *
+       * ⛔ Si falla, se calla y el diálogo queda como estaba (hay que teclearla). NO se muestra
+       * un error: no poder proponer un atajo no es un problema del pago.
+       */
+      this.http.get<SolicitudCuenta[]>(`${this.accountsBase}/solicitudes`, {
+        params: { supplier_id: this.prepSupplierId },
+      }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (rows) => {
+          const r = rows.find((x) => !!x.proposed_clabe);
+          if (!r?.proposed_clabe) return;
+          this.prepPedida.set({
+            clabe: r.proposed_clabe, banco: r.proposed_bank_name ?? null,
+            quien: r.requested_by ?? null, cuando: r.requested_at ? r.requested_at.slice(0, 10) : null,
+          });
+          // Se precarga SOLO si no hay nada elegido: nunca pisa lo que la persona ya puso ni una
+          // cuenta del catálogo, que está aprobada y gana sobre una captura pendiente.
+          if (!this.prepAccountId && !this.prepDestination.trim()) {
+            this.prepDestination = `${r.proposed_bank_name && !r.proposed_bank_name.startsWith('(') ? r.proposed_bank_name + ' · CLABE ' : ''}${r.proposed_clabe}`;
+          }
+        },
+        error: () => this.prepPedida.set(null),
       });
     }
     this.prepareVisible = true;

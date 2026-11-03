@@ -9,6 +9,17 @@
 ---
 
 ## [Unreleased]
+### Fixed — Pagos: preparar un pago deja de ser un callejón sin salida (PGP.46, 2026-11-03)
+- **Nadie había logrado terminar de preparar un pago. Nunca.** Desde que existe el Calendario (16-oct) se crearon **146 pagos y se preparó 0**; los 33 lotes siguen en borrador, ninguno autorizado ni cerrado. La única acción que la gente completaba era **sacar el pago del día: 49 de 146**.
+- La causa eran tres puertas cerradas a la vez, y ninguna se veía desde una sesión de administrador —que es desde donde se venía mirando la pantalla, y donde todo funciona—:
+  1. Para pagar por transferencia hace falta la cuenta del proveedor. **El catálogo de cuentas está vacío**, así que había que teclear los 18 dígitos de la CLABE.
+  2. Esa CLABE **se guardaba sólo en ese pago**. La semana siguiente, el mismo proveedor, los mismos 18 dígitos.
+  3. De los **9 puestos que preparan pagos, 8 no podían ni ver el catálogo ni pedir que la cuenta se registrara**. El mensaje en pantalla era «pídele a Compras que la dé de alta»: salir del sistema y escribirle a otra área.
+- **Ahora la CLABE que capturas queda pedida de alta sola**, con tu nombre y la fecha, y la próxima vez la pantalla te la propone en lugar de pedírtela. Si diez pagos del mismo proveedor pasan por ahí, queda **una sola solicitud**, no diez.
+- **Quien prepara pagos ya puede ver la cuenta del proveedor y pedir el alta.** ⛔ **Aprobarla sigue siendo de Dirección**: una solicitud no mueve un peso ni se propone a nadie hasta que alguien distinto la revisa. Separar a quien captura de quien aprueba es la defensa contra una CLABE cambiada, y queda igual.
+- Una cuenta propuesta desde una captura pendiente **se marca como tal**: dice quién la capturó, cuándo, y que todavía no está aprobada. No se presenta como si fuera del catálogo.
+- ⚠️ Esto destraba el paso; **no arregla la carga visual de la pantalla**, que sigue pendiente.
+
 ### Added — Pagos: ahora se puede registrar lo que un proveedor **pactó**, y «no da descuento» deja de confundirse con «no preguntamos» (PGP.45, 2026-11-03)
 - Hasta hoy, la ventana de pronto pago salía de **observar** lo que de hecho pasó: «cuando le pagamos a este proveedor y nos dieron descuento, fue a los N días». Es una guía defendible, pero no es lo que el proveedor prometió, y de los proveedores a los que nunca les capturamos un descuento **el sistema no decía nada**.
 - Un silencio se lee como «acá no hay nada que ganar», y eso tapaba algo grande: **a los cinco proveedores de compra más importantes se les pagaron 223 veces y $51,553,655 en doce meses, sin un solo peso de descuento registrado** — Bolsas de los Altos sola, 120 pagos y $34,465,840. Hay dos explicaciones posibles —que no den pronto pago, o que lo estemos dejando pasar— y el sistema **no podía distinguirlas**.

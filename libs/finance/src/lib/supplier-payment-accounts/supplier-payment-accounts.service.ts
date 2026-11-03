@@ -2,7 +2,19 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, ObjectStorageService } from '@megadulces/platform-core';
 import type { CuentasPagoFaltantesResponse, CuentaPagoPropuesta } from '@megadulces/contracts';
+import { clabeDeTexto, bancoDeTexto } from '@megadulces/contracts/finance/clabe';
 import { repartirFaltantes } from './missing-accounts.engine';
+
+/**
+ * `[PGP.46]` El estado de una solicitud recién creada, **tal como lo exige el CHECK de la tabla**
+ * (medido en prod el 2026-11-03: `pending_approval | approved | rejected | applied`).
+ *
+ * ⛔ Está nombrado en vez de escrito a mano en cada lugar porque un literal mal tecleado acá no
+ * da error: el `INSERT` usa el DEFAULT de la columna y queda bien, pero el `WHERE` que busca
+ * duplicados no casa nunca — y el candado de idempotencia se vuelve decorativo sin que nada se
+ * ponga rojo. `listRequests()` usa el mismo valor.
+ */
+const ESTADO_PENDIENTE = 'pending_approval';
 
 /**
  * `[PGP.20]` Tipos del boundary. Nacen al mudar el modulo de `commercial` a `finance`: el gate
@@ -37,6 +49,14 @@ export interface SupplierPaymentAccountRequestRow {
   decided_by: string | null;
   decided_at: string | null;
   decision_notes: string | null;
+  /**
+   * `[PGP.46]` Lo propuesto viajaba en el `select('r.*')` y **no estaba declarado**: la bandeja
+   * mostraba quién pidió el cambio y no a qué cuenta. El diálogo de «Preparar» lo necesita para
+   * proponer la CLABE ya capturada en vez de pedirla otra vez.
+   */
+  proposed_bank_name: string | null;
+  proposed_clabe: string | null;
+  proposed_account_number: string | null;
 }
 
 export interface CreateAccountChangeRequestDto {
@@ -191,13 +211,19 @@ export class SupplierPaymentAccountsService {
         .orderBy('es_favorita', 'desc').orderBy('created_at', 'asc'));
   }
 
-  async listRequests(status?: string): Promise<SupplierPaymentAccountRequestRow[]> {
+  /**
+   * La bandeja de solicitudes. `[PGP.46]` agrega el filtro por proveedor: el diálogo de
+   * «Preparar» lo usa para **proponer la CLABE que ya se capturó antes** en vez de pedirla otra
+   * vez. Sin el filtro tendría que bajarse la bandeja entera para encontrar una fila.
+   */
+  async listRequests(status?: string, supplierId?: string): Promise<SupplierPaymentAccountRequestRow[]> {
     this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const b = trx('commercial.supplier_payment_account_change_requests as r')
         .join('catalog.suppliers as s', 's.id', 'r.supplier_id')
         .select('r.*', 's.name as supplier_name');
-      if (status) b.where('r.status', status); else b.where('r.status', 'pending_approval');
+      b.where('r.status', status || ESTADO_PENDIENTE);
+      if (supplierId) b.where('r.supplier_id', supplierId);
       return b.orderBy('r.requested_at', 'desc');
     });
   }
@@ -236,6 +262,88 @@ export class SupplierPaymentAccountsService {
         proposed_es_favorita: !!dto.proposed_es_favorita, reason: dto.reason.trim(), requested_by: username,
       }).returning('*');
       return row;
+    });
+  }
+
+  /**
+   * `[PGP.46]` — **La CLABE que alguien tecleó para pagar queda PEDIDA de alta, sola.**
+   *
+   * ── El defecto que cierra ────────────────────────────────────────────────────────────────
+   *
+   * Medido en prod el 2026-11-03: `commercial.supplier_payment_accounts` tiene **0 filas**, y el
+   * Calendario lleva **146 pagos creados y 0 preparados jamás** — 33 lotes, todos en `draft`, 0
+   * autorizados, 0 cerrados. La única acción que la gente completa es la ✕ de sacar el pago del
+   * día: **49 de 146**.
+   *
+   * El mecanismo era éste: para pagar por transferencia hace falta la cuenta destino; el catálogo
+   * está vacío; el diálogo pedía teclear los 18 dígitos **y los guardaba sólo en ese pago**. La
+   * semana siguiente, el mismo proveedor, los mismos 18 dígitos. El propio diálogo lo admitía:
+   * *«para no volver a teclearla, pide a Compras que la dé de alta»* — o sea, salir de la
+   * pantalla y escribirle a otra área.
+   *
+   * ⭐ Es el acto que YA ocurre y que el sistema tiraba. Acá no se pide trabajo nuevo: se guarda
+   * el que alguien acaba de hacer.
+   *
+   * ── Lo que esto NO hace, y es deliberado ─────────────────────────────────────────────────
+   *
+   * ⛔ **No da de alta la cuenta: deja una SOLICITUD pendiente.** Quien prepara un pago no puede
+   * aprobar la cuenta a la que ese dinero va a salir — eso sigue exigiendo
+   * `FINANCE_PAYMENT_CALENDAR_AUTORIZAR` (Dirección), y este método no lo toca. Separar quien
+   * captura de quien aprueba es la defensa contra una CLABE cambiada; convertir una captura en
+   * cuenta aprobada la borraría de un plumazo.
+   *
+   * ⛔ **No marca favorita.** Una favorita se propone sola en los pagos siguientes, y proponer
+   * sola una cuenta que nadie revisó es exactamente el riesgo que el flujo de aprobación existe
+   * para cubrir.
+   *
+   * ⚠️ **No interrumpe el pago.** Lo llama `prepare()` después de guardar: si esto falla, el pago
+   * ya quedó preparado y la falla se registra, no se propaga. Un pago que no se puede preparar
+   * porque el catálogo tuvo un problema sería un remedio peor que la enfermedad.
+   *
+   * @returns qué pasó, para que quien llama lo pueda decir en pantalla sin adivinar.
+   */
+  async registrarDesdePago(
+    supplierId: string,
+    destinationText: string | null,
+    username: string,
+    motivo: string,
+  ): Promise<{ resultado: 'pedida' | 'ya_estaba' | 'ya_pedida' | 'sin_clabe'; clabe: string | null }> {
+    const clabe = clabeDeTexto(destinationText);
+    // Sin UNA sola CLABE válida no hay nada defendible que pedir. `clabeDeTexto` ya devuelve null
+    // cuando el texto trae dos: elegir una por el orden en que quedaron escritas sería inventar a
+    // cuál va el dinero.
+    if (!clabe) return { resultado: 'sin_clabe', clabe: null };
+
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const yaEsCuenta = await trx('commercial.supplier_payment_accounts')
+        .where({ tenant_id: tenantId, supplier_id: supplierId, clabe, status: 'activa' }).first();
+      if (yaEsCuenta) return { resultado: 'ya_estaba' as const, clabe };
+
+      // Idempotencia: preparar diez pagos del mismo proveedor en la misma semana tiene que dejar
+      // UNA solicitud, no diez. La bandeja de quien aprueba es el recurso escaso.
+      //
+      // ⛔ `ESTADO_PENDIENTE` sale del CHECK de la tabla, medido en prod: los valores son
+      // `pending_approval | approved | rejected | applied`. Escrito a ojo como `'pendiente'`,
+      // este `where` NO casa nunca y cada pago deja una solicitud nueva — el candado de
+      // idempotencia se vuelve decorativo y nadie se entera hasta que la bandeja tiene cien
+      // filas de la misma cuenta. Lo cazó la medición, no una revisión.
+      const yaPedida = await trx('commercial.supplier_payment_account_change_requests')
+        .where({ tenant_id: tenantId, supplier_id: supplierId, proposed_clabe: clabe, status: ESTADO_PENDIENTE }).first();
+      if (yaPedida) return { resultado: 'ya_pedida' as const, clabe };
+
+      await trx('commercial.supplier_payment_account_change_requests').insert({
+        tenant_id: tenantId, supplier_id: supplierId, account_id: null, deactivate: false,
+        // El banco es lo que la persona escribió al lado de la CLABE. Si no escribió nada legible
+        // queda dicho así, en vez de inventarle un banco a partir del código: el alta la revisa
+        // alguien, y «(no se capturó)» es una pregunta clara; un banco adivinado es una trampa.
+        proposed_bank_name: bancoDeTexto(destinationText) ?? '(no se capturó el banco)',
+        proposed_account_number: null, proposed_clabe: clabe, proposed_alias: null,
+        proposed_attachment_url: null, proposed_attachment_kind: null,
+        proposed_es_favorita: false,
+        reason: motivo, requested_by: username,
+      });
+      return { resultado: 'pedida' as const, clabe };
     });
   }
 

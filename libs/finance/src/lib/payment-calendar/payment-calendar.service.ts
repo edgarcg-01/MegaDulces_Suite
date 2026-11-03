@@ -5,6 +5,8 @@ import { BUDGET_LEDGER_PORT, type BudgetLedgerPort } from '../budget/budget-ledg
 import { GRUPOS_FINANCIEROS, PREFIJOS_FINANCIEROS } from '../creditor-statements/creditor-statements.engine';
 import { sqlKeplerPayableId } from '@megadulces/contracts/finance/kepler-payable-key';
 import { sqlVentanaProntoPago } from '@megadulces/contracts/finance/pronto-pago-ventana';
+import { clabeValida } from '@megadulces/contracts/finance/clabe';
+import { SupplierPaymentAccountsService } from '../supplier-payment-accounts/supplier-payment-accounts.service';
 import type { PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 
 export type ObligationSource = 'budget_expense' | 'financial_commitment' | 'supplier_payable' | 'kepler_payable';
@@ -83,16 +85,15 @@ export function weekDates(date: string): string[] {
 }
 
 /**
- * `[TP.16]` Dígito de control de una CLABE (Banxico): pesos 3·7·1 sobre los primeros 17 dígitos,
- * se suma `(dígito × peso) mod 10`, y el control es `(10 − suma mod 10) mod 10`.
+ * `[TP.16]`/`[PGP.46]` Dígito de control de una CLABE (Banxico).
+ *
+ * ⛔ **La implementación se mudó a `@megadulces/contracts/finance/clabe`** y acá queda el
+ * re-export, que no es pereza: este servicio ahora llama al de cuentas de proveedor, así que si
+ * aquél importara `clabeValida` de ESTE archivo quedaría un ciclo de importación — y un ciclo en
+ * TypeScript no falla al compilar, falla en ejecución con un `undefined` donde iba la función.
+ * Los consumidores (y sus pruebas) siguen importándola de acá sin cambios.
  */
-export function clabeValida(clabe: string): boolean {
-  if (!/^\d{18}$/.test(clabe)) return false;
-  const pesos = [3, 7, 1];
-  let suma = 0;
-  for (let i = 0; i < 17; i++) suma += (Number(clabe[i]) * pesos[i % 3]) % 10;
-  return (10 - (suma % 10)) % 10 === Number(clabe[17]);
-}
+export { clabeValida };
 
 /**
  * `[TP.16]` ¿El pago trae lo que Caja General necesita para dispersarlo? Método, y además origen
@@ -241,6 +242,12 @@ export class PaymentCalendarService {
     // `[PGP.21]` OPCIONAL a proposito: si el cableado falla, muere ESTE endpoint y no el arranque
     // de la API. Es la leccion de #414, que tiro produccion con el CI en verde.
     @Optional() private readonly storage?: ObjectStorageService,
+    // `[PGP.46]` El catalogo de cuentas, para que la CLABE tecleada al preparar quede pedida de
+    // alta. OPCIONAL por la misma razon que `storage`, y ademas porque lo que hace es ACCESORIO al
+    // pago: si no esta cableado, el pago se prepara igual y lo unico que se pierde es no volver a
+    // teclear 18 digitos. Al reves —tumbar el pago porque el catalogo no respondio— seria un
+    // remedio peor que la enfermedad.
+    @Optional() private readonly cuentas?: SupplierPaymentAccountsService,
   ) {}
 
   private assertDate(d: string) {
@@ -1430,8 +1437,65 @@ export class PaymentCalendarService {
         reference_text: dto.reference_text ?? null, supplier_payment_account_id: accountId,
         updated_by: username, updated_at: trx.fn.now(),
       }).returning('*');
+
+      /**
+       * `[PGP.46]` **La CLABE tecleada a mano queda PEDIDA de alta, para no teclearla otra vez.**
+       *
+       * Medido el 2026-11-03: el catálogo está en **0 filas**, y el Calendario lleva **146 pagos
+       * y 0 preparados jamás** (33 lotes, todos `draft`). Quien prepara tecleaba 18 dígitos que
+       * se guardaban **sólo en ese pago**; la semana siguiente, el mismo proveedor, los mismos 18
+       * dígitos. El acto ya ocurre: lo que faltaba era quedárselo.
+       *
+       * ⛔ **Sólo cuando se capturó a mano** (`!accountId`): si la cuenta salió del catálogo, ya
+       * está dada de alta y pedirla de nuevo ensuciaría la bandeja de quien aprueba.
+       *
+       * ⚠️ **Fuera de la transacción del pago, y sin propagar el error.** El pago ya quedó
+       * guardado arriba; esto es accesorio. Si el catálogo falla, se registra y se sigue — un
+       * pago que no se puede preparar porque el catálogo tuvo un problema sería peor que volver
+       * a teclear la CLABE.
+       */
+      if (!accountId && destinationText && this.cuentas) {
+        const supplierId = await this.proveedorDeAllocation(trx, tenantId, allocationId);
+        if (supplierId) {
+          try {
+            const r = await this.cuentas.registrarDesdePago(
+              supplierId, destinationText, username,
+              `Capturada al preparar el pago ${allocationId} el ${new Date().toISOString().slice(0, 10)}.`,
+            );
+            if (r.resultado === 'pedida') {
+              this.logger.log(`[PGP.46] alta de cuenta pedida para el proveedor ${supplierId} desde el pago ${allocationId}`);
+            }
+          } catch (e) {
+            this.logger.warn(`[PGP.46] el pago ${allocationId} quedó preparado, pero no se pudo pedir el alta de su cuenta: ${String((e as Error)?.message ?? e)}`);
+          }
+        }
+      }
       return updated;
     });
+  }
+
+  /**
+   * `[PGP.46]` El proveedor del catálogo detrás de un pago, o `null`.
+   *
+   * La asignación no guarda el proveedor: guarda los renglones de deuda que cubre. Para la deuda
+   * del ERP la llave es el `md5` de `(sucursal, tipo, subtipo, folio)` — la misma que arma
+   * `sqlKeplerPayableId`, no una copia — y de ahí se resuelve el código Kepler contra
+   * `catalog.suppliers`.
+   *
+   * ⛔ Devuelve `null` sin ruido cuando no se puede resolver: un pago puede cubrir un gasto o un
+   * compromiso financiero, que no tienen proveedor de catálogo, y una factura ya saldada sale de
+   * `v_supplier_payables` (es lo que midió `[PGP.40]`). Inventar un proveedor para colgarle una
+   * cuenta bancaria sería mucho peor que no registrarla.
+   */
+  private async proveedorDeAllocation(trx: Knex.Transaction, tenantId: string, allocationId: string): Promise<string | null> {
+    const row = await trx('finance.payment_allocation_items as i')
+      .join('analytics.v_supplier_payables as v', trx.raw(`${KEPLER_PAYABLE_ID} = i.obligation_id`))
+      .join('catalog.suppliers as s', 's.code', 'v.proveedor')
+      .where('i.allocation_id', allocationId)
+      .andWhere('v.tenant_id', tenantId)
+      .select('s.id')
+      .first();
+    return (row as { id?: string } | undefined)?.id ?? null;
   }
 
   /**

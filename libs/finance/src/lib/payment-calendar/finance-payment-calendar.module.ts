@@ -11,6 +11,7 @@ import { PaymentCalendarService } from './payment-calendar.service';
 import { PaymentCalendarDocumentService } from './payment-calendar-document.service';
 import { PaymentCalendarController } from './payment-calendar.controller';
 import { FinanceBudgetModule } from '../budget/finance-budget.module';
+import { FinanceSupplierPaymentAccountsModule } from '../supplier-payment-accounts/finance-supplier-payment-accounts.module';
 import { BudgetLinesService } from '../budget/budget-lines.service';
 import { BUDGET_LEDGER_PORT } from '../budget/budget-ledger.port';
 
@@ -28,7 +29,10 @@ import { BUDGET_LEDGER_PORT } from '../budget/budget-ledger.port';
   // `[PGP.21]` `CloudinaryModule` EXPORTA `ObjectStorageService`, que firma la URL del PDF de la
   // factura. Se importa el modulo en vez de declarar el servicio en `providers`: asi se comparte
   // la instancia en lugar de crear una segunda en este inyector (mismo patron que TP.7).
-  imports: [FinanceBudgetModule, CloudinaryModule],
+  // `[PGP.46]` El catálogo de cuentas de proveedor, para que la CLABE que alguien teclea al
+  // preparar un pago quede PEDIDA de alta y no haya que teclearla otra vez. Sin ciclo:
+  // `FinanceSupplierPaymentAccountsModule` sólo importa `CloudinaryModule`.
+  imports: [FinanceBudgetModule, CloudinaryModule, FinanceSupplierPaymentAccountsModule],
   controllers: [
     BudgetCapacityController,
     BudgetExpenseObligationsController,

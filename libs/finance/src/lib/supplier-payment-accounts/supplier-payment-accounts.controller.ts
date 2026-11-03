@@ -57,16 +57,41 @@ export class SupplierPaymentAccountsController {
   }
 
   @Get('by-supplier/:supplierId')
-  @RequirePermissions(Permission.COMPRAS_OBLIGACIONES_VER)
+  /**
+   * `[PGP.46]` **Quien prepara el pago tiene que poder VER a qué cuenta va.**
+   *
+   * ⛔ Con `COMPRAS_OBLIGACIONES_VER` solo, esto devolvía **403 a 8 de los 9 roles que preparan
+   * pagos** — medido en prod el 2026-11-03: de `tesoreria`, `finanzas`, `contabilidad`,
+   * `auxiliar finanzas`, `finanzas_operativo`, `credito_cobranza`, `marketing` y `gerente_compras`,
+   * sólo el último lo tiene. El diálogo de «Preparar» llama a este endpoint, recibía el 403 y
+   * pintaba *«No se pudo leer el catálogo de cuentas del proveedor (sin permiso de Compras)»*: la
+   * persona no podía ver una cuenta que ya existe y tenía que teclear los 18 dígitos igual.
+   *
+   * ⚠️ **Por qué nadie lo había visto**: el guard da god-mode a `superadmin` («admin/superadmin
+   * pasa todo»), y la pantalla se venía mirando desde una sesión superadmin, donde funciona. Es
+   * la razón por la que un gate se prueba con el permiso MÍNIMO, no con el máximo.
+   *
+   * Mismo criterio —y mismas dos claves— que `faltantes` acá arriba. No amplía nada: dar de alta
+   * y aprobar siguen donde estaban.
+   */
+  @RequireAnyPermission(Permission.COMPRAS_OBLIGACIONES_VER, Permission.FINANCE_PAYMENTS_VER)
   listAccounts(@Param('supplierId') supplierId: string): Promise<SupplierPaymentAccountRow[]> {
     return this.svc.listAccounts(supplierId);
   }
 
   @Get('solicitudes')
-  @RequirePermissions(Permission.COMPRAS_OBLIGACIONES_VER)
+  // `[PGP.46]` Quien capturó la CLABE al preparar un pago tiene que poder ver en qué quedó su
+  // solicitud. Sin esto, el alta que el sistema pide en su nombre es invisible para quien la
+  // originó, y lo que no se puede seguir se vuelve a teclear.
+  @RequireAnyPermission(Permission.COMPRAS_OBLIGACIONES_VER, Permission.FINANCE_PAYMENTS_VER)
   @ApiOperation({ summary: 'Bandeja de solicitudes de alta/cambio/baja de cuenta. Default: pendientes.' })
-  listRequests(@Query('status') status?: string): Promise<SupplierPaymentAccountRequestRow[]> {
-    return this.svc.listRequests(status);
+  listRequests(
+    @Query('status') status?: string,
+    // `[PGP.46]` El diálogo de «Preparar» pide las de UN proveedor, para proponer la CLABE que
+    // ya se capturó antes en vez de pedirla otra vez.
+    @Query('supplier_id') supplierId?: string,
+  ): Promise<SupplierPaymentAccountRequestRow[]> {
+    return this.svc.listRequests(status, supplierId);
   }
 
   @Post('adjunto')
@@ -77,7 +102,21 @@ export class SupplierPaymentAccountsController {
   }
 
   @Post('solicitudes')
-  @RequirePermissions(Permission.COMPRAS_OBLIGACIONES_GESTIONAR)
+  /**
+   * `[PGP.46]` **Pedir el alta no es darla**, y por eso esto se abre a quien prepara pagos.
+   *
+   * ⛔ Con `COMPRAS_OBLIGACIONES_GESTIONAR` solo, **8 de los 9 roles que preparan pagos no podían
+   * ni PEDIR** que la cuenta quedara registrada (medido en prod, 2026-11-03). El diálogo les
+   * decía *«pide a Compras que la dé de alta»*: salir de la pantalla y escribirle a otra área. El
+   * resultado medido es que **nadie preparó un pago nunca** — 146 creados, 0 preparados, y 49
+   * sacados del día con la ✕.
+   *
+   * ⛔⛔ **Lo que NO se toca: aprobar.** Sigue exigiendo `FINANCE_PAYMENT_CALENDAR_AUTORIZAR`
+   * (hoy, sólo `direccion` y `superadmin`). Una solicitud es una fila `pendiente` que no mueve un
+   * peso ni propone cuenta a nadie hasta que alguien distinto la aprueba. Separar a quien captura
+   * de quien aprueba es la defensa contra una CLABE cambiada, y queda intacta.
+   */
+  @RequireAnyPermission(Permission.COMPRAS_OBLIGACIONES_GESTIONAR, Permission.FINANCE_PAYMENTS_GESTIONAR)
   @ApiOperation({ summary: 'Solicita alta/cambio/baja de una cuenta de pago a proveedor. Requiere motivo. NO se aplica sola.' })
   createRequest(@Body() dto: CreateAccountChangeRequestDto, @Req() req: AuthedRequest): Promise<SupplierPaymentAccountRequestRow> {
     return this.svc.createRequest(dto, req.user?.username || 'sistema');
