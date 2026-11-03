@@ -39,7 +39,7 @@ type ReprogramReason = 'cuenta_erronea' | 'falla_sistema_banco' | 'pago_devuelto
  * está parado. Es una unión cerrada a propósito — `runVerdict()` tiene que seguir siendo
  * exhaustiva, y agregar un paso sin su acción tiene que romper la compilación, no pasar de largo.
  */
-type VerdictActionKind = 'armar' | 'proponer' | 'ordenar' | 'autorizar' | 'pagar' | 'cerrar' | 'rebote' | 'mover' | 'exceso';
+type VerdictActionKind = 'armar' | 'proponer' | 'ordenar' | 'autorizar' | 'pagar' | 'cerrar' | 'rebote' | 'mover' | 'exceso' | 'saldadas';
 interface VerdictAction { kind: VerdictActionKind; label: string; icon: string }
 /** `[PGP.15]` El veredicto: «bien» y «falta» no llevan tono (lo dice la frase); sólo lo que está mal. */
 interface Verdict { tone: 'ok' | 'bad' | 'muted'; say: string; why: string | null; action: VerdictAction | null }
@@ -1071,6 +1071,21 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
       </div>
     </p-dialog>
 
+    <!-- [PGP.51] Quitar lo que el ERP ya no debe: qué sale, completo o en parte, antes de apretar. -->
+    <p-dialog [visible]="saldadasVisible()" (visibleChange)="saldadasVisible.set($event)" [modal]="true" header="Quitar lo que el ERP ya no debe" [style]="{ width: '34rem' }">
+      <p class="cal-dlg-p">De lo comprometido hoy, el ERP ya no debe <b class="comm-num">{{ money(saldadasDelDiaTotal()) }}</b>: se pagó por fuera o tiene nota de crédito, y marcarlo pagado fallaría.</p>
+      <ul class="pg-dlg-list">
+        @for (a of saldadasDelDia(); track a.id) {
+          <li><span>{{ allocationTitle(a) }} <span class="pg-dlg-a">{{ noSePuedePagar(a) ? 'sale del día' : 'pierde ' + a.kepler_saldadas + ' de sus ' + a.items.length + ' facturas' }}</span></span><b class="comm-num">{{ money(a.kepler_saldadas_importe) }}</b></li>
+        }
+      </ul>
+      <p class="cal-dlg-hint">Es la misma ✕ de cada fila, para todos a la vez. Lo que sí se debe se queda en el día.</p>
+      <div class="cal-dlg-actions">
+        <button pButton type="button" class="p-button-text p-button-secondary" (click)="saldadasVisible.set(false)">Cancelar</button>
+        <button pButton type="button" [loading]="saving()" [disabled]="saving() || !saldadasDelDia().length" (click)="quitarTodoLoSaldado()">Quitar {{ money(saldadasDelDiaTotal()) }}</button>
+      </div>
+    </p-dialog>
+
     <!-- Dialog: el pago rebotó. Marca y mueve en UN paso: eran dos acciones en dos lugares. -->
     <p-dialog [(visible)]="reboteVisible" [modal]="true" header="El pago rebotó" [style]="{ width: '26rem' }">
       @if (reboteAllocation; as a) {
@@ -1170,8 +1185,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
        cada uno lleva su icono y su texto, que es lo que exige el modo de alto contraste. */
     /* [PGP.49] margin-left: el aviso salia pegado a la referencia del proveedor («2034ⓘ sin factura»). */
     .pg-ev { display:inline-flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-sm); margin-left:var(--sp-2); }
+    /* [PGP.51] Era --action: el naranja es SOLO del boton principal, y este enlace salia en cada renglon
+       con PDF (5 en la primera pantalla del 3-nov, compitiendo con «Mover 6 pagos»). */
     .pg-ev-pdf { border:0; background:transparent; cursor:pointer; font:inherit; font-size:var(--fs-sm);
-      color:var(--action); padding:0; text-align:left; }
+      color:var(--text-main); font-weight:600; padding:0; text-align:left; }
     .pg-ev-pdf:hover { text-decoration:underline; }
     .pg-ev-pdf:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
     .pg-ev-uuid { color:var(--fg-2); }
@@ -2152,9 +2169,10 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    * Con `cercania`: 160 de 160. El orden viejo sigue, con el nombre que dice lo que hace.
    */
   readonly ordenOpts = [
-    { label: 'Más cercanas a hoy', value: 'cercania' },
-    { label: 'Más vencidas primero', value: 'vencimiento' },
-    { label: 'Pierde descuento primero', value: 'descuento' },
+    // [PGP.51] Cortos: el selector mide 8.5rem y «Más cercanas a hoy» salía cortado con «…».
+    { label: 'Cerca de hoy', value: 'cercania' },
+    { label: 'Más vencidas', value: 'vencimiento' },
+    { label: 'Pierde descuento', value: 'descuento' },
   ];
   ordenSel: 'cercania' | 'vencimiento' | 'descuento' = 'cercania';
   /** Lo que dice el resumen de la lista sobre QUÉ parte trae cuando viene topada. */
@@ -2246,6 +2264,18 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     }
     if (s.exceeded) {
       const say = `Lo comprometido excede el tope del día por ${this.money(Math.abs(Number(s.remaining_amount ?? 0)))}.`;
+      // [PGP.51] PRIMERO lo que el ERP ya no debe: quitarlo no cuesta nada y baja el exceso. Mover
+      // pagos que sí se deben mientras eso sigue adentro es mover dinero de más.
+      const exceso = Math.abs(Number(s.remaining_amount ?? 0));
+      const saldado = this.saldadasDelDiaTotal();
+      if (saldado > 0.005) {
+        const resta = exceso - saldado;
+        return { tone: 'bad', say,
+          why: resta > 0.005
+            ? `De lo comprometido, ${this.money(saldado)} el ERP ya no lo debe: quitarlo es lo primero y deja el exceso en ${this.money(resta)}. Después se propone qué mover.`
+            : `De lo comprometido, ${this.money(saldado)} el ERP ya no lo debe: quitarlo deja el día dentro del tope.`,
+          action: { kind: 'saldadas', label: `Quitar lo que el ERP ya no debe (${this.moneyShort(saldado)})`, icon: 'pi-times' } };
+      }
       // [PGP.50] Decía «Mueve o quita pagos» sin botón, y el sistema ya sabe qué mover y a dónde.
       const p = this.propuestaExceso();
       if (p) {
@@ -2508,8 +2538,48 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    */
   readonly saldadasDelDia = computed(() =>
     this.allocations().filter((a) => a.status === 'pending' && (a.kepler_saldadas ?? 0) > 0));
+  /*
+   * ⛔ `[PGP.51]` Sumaba `amount_assigned` —el pago COMPLETO— de todo pago con AL MENOS una factura
+   * saldada: un pago de 4 facturas con 1 saldada contaba las 4. El rótulo dice «de los cuales $X el
+   * ERP ya no los debe», así que la cifra es sólo lo saldado (`kepler_saldadas_importe`).
+   */
   readonly saldadasDelDiaTotal = computed(() =>
-    this.saldadasDelDia().reduce((s, a) => s + Number(a.amount_assigned || 0), 0));
+    this.saldadasDelDia().reduce((s, a) => s + Number(a.kepler_saldadas_importe || 0), 0));
+  readonly saldadasVisible = signal(false);
+  /**
+   * `[PGP.51]` **Quita del día lo que el ERP ya no debe, todo de una vez.** Es lo primero que hay que
+   * hacer con un día excedido: no cuesta nada (marcarlo pagado fallaría igual) y baja lo
+   * comprometido. El 3-nov la propuesta de mover proponía 6 pagos ($1,015,591.37) con ese dinero
+   * todavía adentro. Un pago con TODAS sus facturas saldadas sale del día (la ✕ de su fila); uno con
+   * algunas, pierde sólo ésas (`[PGP.48]`). Fallos parciales reportados (DESIGN §10).
+   */
+  async quitarTodoLoSaldado(): Promise<void> {
+    const pagos = this.saldadasDelDia();
+    if (!pagos.length || this.saving()) return;
+    this.saving.set(true);
+    let ok = 0;
+    const fallas: string[] = [];
+    for (const a of pagos) {
+      try {
+        if (this.noSePuedePagar(a)) {
+          await firstValueFrom(this.http.post(`${this.base}/allocations/${a.id}/cancelar`, { reason: 'El ERP ya no debe sus facturas' }));
+        } else {
+          for (const it of a.items.filter((x) => x.kepler_saldada)) {
+            await firstValueFrom(this.http.delete(`${this.base}/allocations/${a.id}/items/${it.id}`));
+          }
+        }
+        ok++;
+      } catch (e) {
+        fallas.push(`${this.allocationTitle(a)}: ${this.errMsg(e, 'error')}`);
+      }
+    }
+    this.saving.set(false);
+    this.saldadasVisible.set(false);
+    this.invalidarDeuda();
+    this.reload();
+    if (ok) this.toast.add({ severity: 'success', summary: 'Quitado lo que ya no se debe', detail: `${ok} de ${this.pagos(pagos.length)}.` });
+    if (fallas.length) this.toast.add({ severity: 'error', summary: `${fallas.length} no se quitaron`, detail: fallas.join(' · '), life: 10000 });
+  }
 
   /**
    * `[PGP.36]` **La cuenta de resultados del día.** El encabezado publicaba «27 pagos ·
@@ -3249,6 +3319,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       case 'cerrar': this.closeLot(); break;
       case 'rebote': { const f = this.allocations().find((a) => a.status === 'failed'); if (f) this.openReprogram(f); break; }
       case 'mover': this.openMoverTodos(); break;
+      case 'saldadas': this.saldadasVisible.set(true); break;
       case 'exceso': { const p = this.propuestaExceso(); if (p) this.abrirMover(p.pagos, { destinos: p.destinos ?? undefined, motivo: 'presupuesto_recortado' }); break; }
     }
   }
