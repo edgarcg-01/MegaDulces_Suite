@@ -32,6 +32,24 @@ function money(n: any): string {
 /** Lo unico que `ejecutorDe` necesita de una asignacion: con que cuenta y metodo se paga. */
 type ConEjecutor = { payment_method?: string | null; bank_account_kind?: string | null };
 
+/**
+ * Lo que `tablaExpediente` LEE de un pago del día — estructural, como `ConEjecutor`.
+ * ⛔ No es el contrato `PaymentCalendarAllocation` a propósito: `listDayAllocations` no declara
+ * su retorno, y el tipo que infiere no garantiza estos campos; exigir el contrato acá obligaría
+ * a un `as` que afirmaría más de lo que el origen prueba. Opcional = el origen puede no traerlo.
+ */
+type PagoDelExpediente = ConEjecutor & {
+  id: string;
+  amount_assigned: number;
+  classification?: string | null;
+  priority_rank?: number | null;
+  bank_account_label?: string | null;
+  destination_account_text?: string | null;
+  cash_register_text?: string | null;
+  reference_text?: string | null;
+  items?: Array<{ beneficiary?: string | null }>;
+};
+
 function ejecutorDe(a: ConEjecutor): string {
   if (!a.payment_method) return 'sin preparar';
   if (a.bank_account_kind === 'cash' || a.payment_method === 'efectivo') return 'Caja General';
@@ -165,7 +183,7 @@ export class PaymentCalendarDocumentService {
    * `CFDI` es el folio timbrado y `OCR` es una lectura automática de la foto del comprobante.
    * Juntarlos bajo un solo rótulo haría que una lectura se leyera como un dato fiscal.
    */
-  private tablaExpediente(allocations: any[], detalle: ExpedienteLinea[]): string {
+  private tablaExpediente(allocations: PagoDelExpediente[], detalle: ExpedienteLinea[]): string {
     const porPago = new Map<string, ExpedienteLinea[]>();
     for (const d of detalle) {
       const arr = porPago.get(d.allocation_id) ?? [];
@@ -180,19 +198,25 @@ export class PaymentCalendarDocumentService {
       .map((a) => {
         const lineas = (porPago.get(a.id) ?? []).slice()
           .sort((x, y) => String(x.folio_interno ?? '').localeCompare(String(y.folio_interno ?? '')));
-        const quien = [...new Set((a.items || []).map((i: any) => String(i.beneficiary || '')).filter(Boolean))].join('; ');
+        const quien = [...new Set((a.items || []).map((i) => String(i.beneficiary || '')).filter(Boolean))].join('; ');
         const rfcs = [...new Set(lineas.map((l) => l.rfc).filter(Boolean))];
         const comoSale = [
           a.payment_method ? METHOD_LABEL[a.payment_method] || a.payment_method : 'sin preparar',
           a.bank_account_label || (a.payment_method === 'efectivo' ? 'Caja' : null),
           a.destination_account_text || a.cash_register_text || a.reference_text || null,
         ].filter(Boolean).join(' · ');
+        // ⛔ La tabla tiene DIEZ columnas y esta fila traía NUEVE. No era sólo un hueco al final:
+        // corría todo un lugar, así que el total del pago caía bajo «Importe doc.» y el conteo de
+        // documentos bajo «Se paga» — una columna de dinero publicando un número de papeles. Lo
+        // encontró Edgar preguntando por los vacíos. El total va donde dice **Se paga**, que es lo
+        // que es; el conteo baja al texto, donde se lee sin confundirse con una cifra.
+        const cuantos = lineas.length === 1 ? '1 documento' : `${lineas.length} documentos`;
         const cabeza = `<tr class="pago-row">
           <td class="c">${esc(a.priority_rank ?? '—')}</td>
-          <td colspan="6"><b>${esc(quien || '—')}</b>${rfcs.length ? ` · RFC ${esc(rfcs.join(' / '))}` : ''}
-            <div class="como">${esc(comoSale)} · ${CLASSIFICATION_LABEL[a.classification] || esc(a.classification)}</div></td>
+          <td colspan="7"><b>${esc(quien || '—')}</b>${rfcs.length ? ` · RFC ${esc(rfcs.join(' / '))}` : ''}
+            <div class="como">${esc(comoSale)} · ${CLASSIFICATION_LABEL[a.classification ?? ''] || esc(a.classification ?? '—')} · ${esc(lineas.length ? cuantos : 'sin documentos ligados')}</div></td>
           <td class="r"><b>${money(a.amount_assigned)}</b></td>
-          <td class="c">${lineas.length || '—'}</td>
+          <td></td>
         </tr>`;
         const hijas = lineas.length
           ? lineas.map((l) => `<tr class="doc-row">

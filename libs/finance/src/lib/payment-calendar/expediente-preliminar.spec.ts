@@ -1,4 +1,3 @@
-import { describe, it, expect } from 'vitest';
 import { PaymentCalendarDocumentService } from './payment-calendar-document.service';
 import { folioExternoLegible, type ExpedienteLinea } from './payment-calendar.service';
 
@@ -106,6 +105,47 @@ describe('[PGP.47] el desglose por factura', () => {
   it('⛔ una factura que el ERP ya no debe lo GRITA en su renglón', () => {
     const html = tabla([pago()], [linea({ saldada: true })]);
     expect(html).toContain('YA SALDADA EN EL ERP');
+  });
+
+  /**
+   * ⛔ El gate que faltaba. La fila de pago traía **9 celdas en una tabla de 10**, y eso no dejaba
+   * sólo un hueco al final: corría todo un lugar, así que el total del pago caía bajo «Importe
+   * doc.» y el conteo de documentos bajo «Se paga» —una columna de dinero publicando un número de
+   * papeles—. Ninguna de las 19 pruebas anteriores lo vio: todas miraban el CONTENIDO de una
+   * celda, ninguna la FORMA de la tabla. Lo encontró Edgar preguntando por los vacíos.
+   */
+  it('⛔ TODA fila tiene el mismo ancho que el encabezado, contando colspan', () => {
+    const html = tabla([pago({ amount_assigned: 2000 }), pago({ id: 'A2', priority_rank: 2 })], [
+      linea({ allocation_id: 'A1' }), linea({ allocation_id: 'A1', folio_interno: '2' }),
+      linea({ allocation_id: 'A2', folio_interno: '3' }),
+    ]);
+    // ⛔ El contador NO puede usar /<t[dh][^>]*>/: ese patrón también casa `<thead>` («th» + «ead»)
+    // y se cuenta a sí mismo. Mi primera medición dijo 11 columnas por ese motivo.
+    const ancho = (fila: string): number =>
+      (fila.match(/<t[dh](?=[\s>])[^>]*>/g) ?? []).reduce((n, td) => {
+        const m = /colspan="(\d+)"/.exec(td);
+        return n + (m ? Number(m[1]) : 1);
+      }, 0);
+    const encabezado = ancho((/<thead>[\s\S]*?<\/thead>/.exec(html) ?? [''])[0]);
+    expect(encabezado).toBe(10);
+    const filas = html.match(/<tr[^>]*>[\s\S]*?<\/tr>/g) ?? [];
+    expect(filas.length).toBeGreaterThan(4);
+    for (const f of filas) expect(ancho(f), f.slice(0, 90)).toBe(encabezado);
+  });
+
+  it('⛔ el total del pago se publica bajo «Se paga», no bajo «Importe doc.»', () => {
+    const html = tabla([pago({ amount_assigned: 174140.17 })], [linea({ importe: 94005.37 })]);
+    const cabeza = (/<tr class="pago-row">[\s\S]*?<\/tr>/.exec(html) ?? [''])[0];
+    const celdas = [...cabeza.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((m) => m[1].replace(/<[^>]+>/g, '').trim());
+    // Orden · beneficiario(colspan 7) · el total · vacío  →  el total es la ANTEÚLTIMA celda,
+    // que es la columna 9 = «Se paga». La 10 («Papel») no aplica a nivel de pago.
+    expect(celdas.at(-2)).toBe('$174,140.17');
+    expect(celdas.at(-1)).toBe('');
+    // Exactamente cuatro celdas: Orden · beneficiario(7) · total · vacío. Una quinta significaría
+    // que algo volvió a ocupar una columna de dinero.
+    expect(celdas).toHaveLength(4);
+    // Y el conteo de documentos vive en el texto, no en una celda propia.
+    expect(cabeza).toContain('1 documento');
   });
 
   it('un pago sin documentos ligados lo dice, en vez de dejar el hueco mudo', () => {
