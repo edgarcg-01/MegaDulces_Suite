@@ -389,6 +389,20 @@ importe 18 px) · terciario = código, tasa y teclas (13 px). Está bien resuelt
 ⛔ Las cuatro 🔴 se cierran antes de que la caja deje de ser práctica, y se dan por cerradas con otra
 pasada en nivel A, no con esta tabla.
 
+**Segunda pasada en nivel A (2026-11-03, mismo script y mismos datos):**
+- **Cerrados:**
+  - **UI.1**: el aviso dice «Precios del respaldo de hace 6 h: Kepler no contestó en vivo» y cada renglón lleva «precio de respaldo».
+  - **UI.2**: «Cobrado con tarjeta $6.55».
+  - **UI.3**: el botón y la tecla F8 abren lo mismo.
+  - **UI.4**: «la venta no se guarda ni va a Kepler · el arqueo sí se guarda».
+  - **UI.5**: con 23 renglones, el último queda a la vista.
+  - **UI.9**: Cobrar conserva su borde en Alto Contraste.
+  - **UI.10** y **UI.11**.
+- **Siguen abiertos:** UI.6 (la cabecera; con el aviso de respaldo ocupa más), UI.7 y UI.8.
+- **Pedido de Edgar en la misma pasada:** «es muy complicado saber cuándo estoy en verificador o pasando un producto».
+  - En la caja: el verificador pone la captura con borde punteado, una banda negra «VERIFICADOR DE PRECIOS · Lo que escanees NO entra al ticket · Esc vuelve a la venta» y el ticket apagado al 35 %.
+  - En la pantalla del cliente: la consulta con el lenguaje de `/tienda/verificador` (nombre, «Por paquete», precio grande, escalones de mayoreo, de dónde salió el precio y «Esta consulta no se agregó a tu compra»).
+
 ---
 
 ## 14. Las consultas

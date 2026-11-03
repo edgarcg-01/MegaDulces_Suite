@@ -25,6 +25,8 @@ export interface LineaCaja {
   quitado: { motivo: string; quien: string } | null;
   /** Las otras presentaciones del producto, para cambiar con F4. */
   presentaciones: { unidad: string; lista: number; escalera: EscalonCaja[] }[];
+  /** El precio salió del RESPALDO (Kepler no contestó en vivo): `al` es de cuándo es ese respaldo. Ausente = en vivo. */
+  respaldo?: { al: string | null } | null;
 }
 
 export interface PrecioRenglon {
@@ -167,4 +169,14 @@ export function bloqueoPorGaveta(estado: EstadoGaveta): string | null {
 /** La gaveta se abre al cerrar un ticket sólo si entró o salió efectivo; con tarjeta o transferencia no hay nada que guardar. */
 export function abreGavetaAlCobrar(pagos: readonly { forma: string }[]): boolean {
   return pagos.some((p) => p.forma === 'Efectivo');
+}
+
+/** «hace 25 min», «hace 6 h», «hace 2 días»: la edad de un respaldo de precios. Sin fecha se dice, no se inventa. */
+export function edadTexto(iso: string | null | undefined, ahora: number): string {
+  const t = iso ? Date.parse(iso) : NaN;
+  if (!Number.isFinite(t)) return 'fecha desconocida';
+  const min = Math.max(0, Math.round((ahora - t) / 60_000));
+  if (min < 60) return 'hace ' + min + ' min';
+  const h = Math.round(min / 60);
+  return h < 48 ? 'hace ' + h + ' h' : 'hace ' + Math.round(h / 24) + ' días';
 }

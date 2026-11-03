@@ -10,6 +10,10 @@ interface Estado {
   estado: 'venta' | 'cobro' | 'cobrado';
   total: number; ahorro: number; saldo: number; recibido: number; cambio: number;
   sucursal: string; empujon: string;
+  /** Sin efectivo no hay cambio: se muestra lo pagado y con qué. */
+  efectivo: boolean; formas: string;
+  /** La cajera le está verificando un precio: gana sobre todo lo demás. */
+  verificador: { nombre: string; unidades: { nombre: string; precio: number }[]; mayoreo: { texto: string; precio: number }[]; respaldo: string | null } | null;
   lineas: { nombre: string; cantidad: string; importe: number; quitado: boolean; sel: boolean }[];
 }
 
@@ -19,12 +23,40 @@ interface Estado {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
   @if (s(); as e) {
-    @if (e.estado === 'cobrado') {
+    @if (e.verificador; as v) {
+      <div class="cc-centro cc-verif" role="status">
+        <div class="cc-lbl">Consulta de precio</div>
+        @if (v.nombre) {
+          <div class="cc-v-nombre">{{ v.nombre }}</div>
+          @if (v.unidades[0]; as u) {
+            <div class="cc-v-unidad">Por {{ u.nombre.toLowerCase() }}</div>
+            <div class="cc-total cc-gigante">{{ dinero(u.precio) }}</div>
+          }
+          @for (u of v.unidades.slice(1); track u.nombre) { <div class="cc-v-fila"><span>{{ u.nombre }}</span><b>{{ dinero(u.precio) }}</b></div> }
+          @if (v.mayoreo.length) {
+            <div class="cc-v-may">
+              <div class="cc-lbl">Precio por mayoreo</div>
+              @for (t of v.mayoreo; track t.texto) { <div class="cc-v-fila"><span>{{ t.texto }}</span><b class="cc-ahorro-n">{{ dinero(t.precio) }} c/u</b></div> }
+            </div>
+          }
+          @if (v.respaldo) { <div class="cc-tenue">Precio de respaldo de {{ v.respaldo }}</div> }
+          <div class="cc-tenue">Esta consulta no se agregó a tu compra</div>
+        } @else {
+          <div class="cc-total">Acerca el producto al lector</div>
+          <div class="cc-tenue">Te mostramos su precio aquí</div>
+        }
+      </div>
+    } @else if (e.estado === 'cobrado') {
       <div class="cc-centro">
         <div class="cc-tenue">Gracias por tu compra</div>
-        <div class="cc-lbl">Tu cambio</div>
-        <div class="cc-total cc-gigante">{{ dinero(e.cambio) }}</div>
-        <div class="cc-tenue">Recibido {{ dinero(e.recibido) }} · total {{ dinero(e.total) }}</div>
+        @if (e.efectivo) {
+          <div class="cc-lbl">Tu cambio</div>
+          <div class="cc-total cc-gigante">{{ dinero(e.cambio) }}</div>
+          <div class="cc-tenue">Recibido {{ dinero(e.recibido) }} · total {{ dinero(e.total) }}</div>
+        } @else {
+          <div class="cc-lbl">Pagaste con {{ e.formas }}</div>
+          <div class="cc-total cc-gigante">{{ dinero(e.total) }}</div>
+        }
       </div>
     } @else if (!e.lineas.length) {
       <div class="cc-centro"><div class="cc-total">Bienvenido a Mega Dulces</div><div class="cc-tenue">{{ e.sucursal }}</div></div>
@@ -67,6 +99,12 @@ interface Estado {
     .cc-gigante { font-size: var(--text-display-xl); }
     .cc-tenue { font-size: var(--fs-lg); color: var(--text-muted); }
     .cc-ahorro { font-size: var(--fs-h3); color: var(--ok-fg); font-weight: 600; }
+    .cc-verif { gap: var(--sp-3); padding: var(--sp-8); }
+    .cc-v-nombre { font-size: var(--fs-h1); font-weight: 700; max-width: 40ch; }
+    .cc-v-unidad { font-size: var(--fs-lg); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); }
+    .cc-v-may { display: flex; flex-direction: column; gap: var(--sp-2); width: min(100%, 36rem); margin-top: var(--sp-2); padding: var(--sp-4); border: 1px solid var(--border-color); border-radius: var(--r-lg); background: var(--card-bg); }
+    .cc-v-fila { display: flex; justify-content: space-between; gap: var(--sp-4); width: min(100%, 36rem); font-size: var(--fs-h3); font-variant-numeric: tabular-nums; }
+    .cc-ahorro-n { color: var(--ok-fg); }
   `],
 })
 export class TiendaCajaClienteComponent implements OnDestroy {

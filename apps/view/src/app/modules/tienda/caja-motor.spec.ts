@@ -1,5 +1,5 @@
 // [PDV.31] Sin `import ... from 'vitest'`: la config usa `globals: true`.
-import { abreGavetaAlCobrar, bloqueoPorGaveta, ESC_POS_ESTADO, escPosAbrirGaveta, leerEstadoGaveta, errorEfectivo, esCorreccionInmediata, leerComando, leerImporte, LineaCaja, precioRenglon, totalesCaja } from './caja-motor';
+import { abreGavetaAlCobrar, edadTexto, bloqueoPorGaveta, ESC_POS_ESTADO, escPosAbrirGaveta, leerEstadoGaveta, errorEfectivo, esCorreccionInmediata, leerComando, leerImporte, LineaCaja, precioRenglon, totalesCaja } from './caja-motor';
 
 // Los precios son los cobrados en Yurécuaro del 24 al 30 de octubre (prototipo validado con Edgar).
 const linea = (p: Partial<LineaCaja>): LineaCaja => ({
@@ -104,5 +104,18 @@ describe('[PDV.34] gaveta por ESC/POS', () => {
     expect(abreGavetaAlCobrar([{ forma: 'Tarjeta' }])).toBe(false);
     expect(abreGavetaAlCobrar([{ forma: 'Tarjeta' }, { forma: 'Efectivo' }])).toBe(true);
     expect(abreGavetaAlCobrar([])).toBe(false);
+  });
+});
+
+describe('[PDV.31] edad del respaldo de precios', () => {
+  const ahora = Date.parse('2026-11-03T15:00:00Z');
+  it('minutos, horas y días', () => {
+    expect(edadTexto('2026-11-03T14:35:00Z', ahora)).toBe('hace 25 min');
+    expect(edadTexto('2026-11-03T09:00:00Z', ahora)).toBe('hace 6 h');
+    expect(edadTexto('2026-10-31T15:00:00Z', ahora)).toBe('hace 3 días');
+  });
+  it('sin fecha no se inventa una edad', () => {
+    expect(edadTexto(null, ahora)).toBe('fecha desconocida');
+    expect(edadTexto('no-es-fecha', ahora)).toBe('fecha desconocida');
   });
 });
