@@ -1,0 +1,250 @@
+/**
+ * `[AB.45]` Las consultas de «Pendientes de la sucursal», una por cola.
+ *
+ * ⚠️ **Este archivo no importa NADA, a propósito.** Así la validación contra prod
+ * (`database/scripts/ab45-pendientes-sucursal.js`, sólo lectura) carga ESTE texto tal cual, sin
+ * copiarlo. Si una consulta se copiara al script, lo que se mide ya no sería lo que corre.
+ *
+ * ⛔ Ningún literal con signo de interrogación dentro de una consulta: knex lo toma como parámetro
+ * posicional y la consulta truena («could not determine data type of parameter $1»). Ya pasó aquí.
+ *
+ * Cada consulta devuelve las filas pendientes de UNA sucursal, las más viejas primero, con la misma
+ * forma: `folio · detalle · fecha (date) · monto · total` (`total` = `count(*) OVER()`, el universo
+ * completo aunque el `LIMIT` recorte las filas).
+ *
+ * Binds con nombre: `:t` tenant · `:wh` almacén (uuid) · `:suc` llave canónica de la sucursal
+ * (`branchKeySql`, `'01'`) · `:kc` código Kepler del almacén (`kepler_code` o `code`).
+ *
+ * El predicado de cada una es el de su pantalla DUEÑA, citado en el registro
+ * (`sucursal-pendientes.registry.ts`). Este es un read-model de esos predicados: si el dueño cambia
+ * su regla, se cambia aquí.
+ */
+
+const HOY = `(now() AT TIME ZONE 'America/Mexico_City')::date`;
+const LIM = 200;
+
+/**
+ * Lo que corre el servicio por cada cola: la consulta + los días contra el día de México. Los días se
+ * calculan en SQL porque un `date` de pg llega al driver como medianoche UTC y en JS se leería como el
+ * día anterior (LC.16). Vive aquí (y no en el servicio) para que la validación ejerza esto mismo.
+ */
+export function envolver(sql: string): string {
+  return `SELECT x.folio, x.detalle, x.monto, x.total, (${HOY} - x.fecha)::int AS dias
+            FROM (${sql}) x
+           ORDER BY x.fecha NULLS LAST, x.folio`;
+}
+
+export const SQL_LLEGADAS_SIN_VALE = `
+SELECT r.folio::text AS folio, COALESCE(NULLIF(btrim(r.proveedor_nombre), ''), 'Proveedor sin nombre') AS detalle,
+       r.receipt_date::date AS fecha, r.monto AS monto, count(*) OVER()::int AS total
+  FROM analytics.erp_goods_receipts r
+  JOIN commercial.erp_sucursal_warehouse m ON m.tenant_id = r.tenant_id AND m.sucursal = r.sucursal AND m.warehouse_id = :wh
+ WHERE r.tenant_id = :t AND r.dup_of_folio IS NULL
+   AND r.receipt_date BETWEEN ${HOY} - 7 AND ${HOY}
+   AND NOT EXISTS (SELECT 1 FROM commercial.receiving_sessions s
+                    WHERE s.tenant_id = r.tenant_id AND s.status <> 'cancelled'
+                      AND s.source_ref = r.sucursal || '/' || r.folio)
+ ORDER BY r.receipt_date, r.folio
+ LIMIT ${LIM}`;
+
+export const SQL_VALES_ABIERTOS = `
+SELECT s.folio::text AS folio,
+       CASE WHEN s.source_kind = 'manual' THEN 'Vale manual' ELSE 'Documento ' || COALESCE(s.source_ref, '') END AS detalle,
+       s.created_at::date AS fecha, NULL::numeric AS monto, count(*) OVER()::int AS total
+  FROM commercial.receiving_sessions s
+ WHERE s.tenant_id = :t AND s.warehouse_id = :wh AND s.status IN ('open', 'validating')
+ ORDER BY s.created_at
+ LIMIT ${LIM}`;
+
+export const SQL_SIN_FECHAR = `
+SELECT s.folio::text AS folio, COALESCE(p.nombre, l.expected_name, l.expected_sku) AS detalle,
+       s.closed_at::date AS fecha, NULL::numeric AS monto, count(*) OVER()::int AS total
+  FROM commercial.receiving_lines l
+  JOIN commercial.receiving_sessions s ON s.tenant_id = l.tenant_id AND s.id = l.session_id
+  LEFT JOIN public.products p ON p.id = l.product_id
+ WHERE l.tenant_id = :t AND s.warehouse_id = :wh AND s.status = 'closed'
+   AND l.product_id IS NOT NULL AND l.received_qty > 0
+   AND l.received_qty > COALESCE((SELECT SUM(c.quantity) FROM commercial.receiving_lot_captures c
+                                   WHERE c.receiving_line_id = l.id AND c.status IN ('accepted', 'pending_authorization')), 0)
+ ORDER BY s.closed_at, s.folio
+ LIMIT ${LIM}`;
+
+/**
+ * El universo de `/compras/entradas` en su carril por defecto (`al_dia`): sin la copia CEDIS
+ * (`dup_of_folio`) y desde `reception_start` de `finance.receipt_settings` — el mismo default que el
+ * servicio dueño (`RECEPTION_START_DEFAULT`). Con 90 días a secas, CEDIS sumaba 253 copias.
+ */
+export const SQL_ENTRADAS_SIN_COMPROBANTE = `
+SELECT r.folio::text AS folio, COALESCE(NULLIF(btrim(r.proveedor_nombre), ''), 'Proveedor sin nombre') AS detalle,
+       r.receipt_date::date AS fecha, r.monto AS monto, count(*) OVER()::int AS total
+  FROM analytics.erp_goods_receipts r
+  LEFT JOIN finance.goods_receipt_proofs p ON p.tenant_id = r.tenant_id AND p.sucursal = r.sucursal AND p.folio = r.folio
+ WHERE r.tenant_id = :t AND r.warehouse_id = :wh AND r.dup_of_folio IS NULL AND p.folio IS NULL
+   AND r.receipt_date >= COALESCE((SELECT s.reception_start FROM finance.receipt_settings s WHERE s.tenant_id = :t), DATE '2026-08-01')
+ ORDER BY r.receipt_date, r.folio
+ LIMIT ${LIM}`;
+
+export const SQL_RECLAMOS = `
+SELECT COALESCE(c.folio, c.source_ref, '')::text AS folio, COALESCE(c.product_name, c.sku) AS detalle,
+       c.created_at::date AS fecha, c.amount AS monto, count(*) OVER()::int AS total
+  FROM commercial.receiving_claims c
+ WHERE c.tenant_id = :t AND c.status IN ('open', 'claimed')
+   AND (c.warehouse_id = :wh OR c.responsible_warehouse_id = :wh)
+ ORDER BY c.created_at
+ LIMIT ${LIM}`;
+
+export const SQL_OLAS = `
+SELECT w.code::text AS folio,
+       CASE w.status WHEN 'en_surtido' THEN 'A medias' ELSE 'Sin empezar' END
+         || CASE WHEN w.prioridad = 1 THEN ' · urgente' ELSE '' END AS detalle,
+       w.created_at::date AS fecha, NULL::numeric AS monto, count(*) OVER()::int AS total
+  FROM commercial.picking_waves w
+ WHERE w.tenant_id = :t AND w.warehouse_id = :wh AND w.status IN ('abierta', 'en_surtido')
+ ORDER BY w.created_at
+ LIMIT ${LIM}`;
+
+export const SQL_PREVENTA_SIN_TERMINAR = `
+SELECT COALESCE(o.code, '')::text AS folio, 'Lo empezó ' || COALESCE(p.started_by_name, 'alguien') AS detalle,
+       p.started_at::date AS fecha, NULL::numeric AS monto, count(*) OVER()::int AS total
+  FROM commercial.presale_picks p
+  LEFT JOIN commercial.orders o ON o.id = p.order_id
+ WHERE p.tenant_id = :t AND p.warehouse_id = :wh AND p.finished_at IS NULL
+ ORDER BY p.started_at
+ LIMIT ${LIM}`;
+
+export const SQL_PREVENTA_POR_REVISAR = `
+SELECT COALESCE(o.code, '')::text AS folio, 'Surtió ' || COALESCE(p.finished_by_name, 'alguien') AS detalle,
+       p.finished_at::date AS fecha, NULL::numeric AS monto, count(*) OVER()::int AS total
+  FROM commercial.presale_picks p
+  LEFT JOIN commercial.orders o ON o.id = p.order_id
+ WHERE p.tenant_id = :t AND p.warehouse_id = :wh AND p.finished_at IS NOT NULL
+   AND p.review_required AND p.reviewed_at IS NULL
+ ORDER BY p.finished_at
+ LIMIT ${LIM}`;
+
+export const SQL_GUIAS = `
+SELECT g.folio::text AS folio,
+       CASE g.status WHEN 'abierta' THEN 'Abierta' ELSE 'Impresa, sin liquidar' END
+         || COALESCE(' · ruta ' || NULLIF(btrim(g.sales_route), ''), '') AS detalle,
+       g.business_date AS fecha, NULL::numeric AS monto, count(*) OVER()::int AS total
+  FROM commercial.load_guides g
+ WHERE g.tenant_id = :t AND g.branch = :suc AND g.status IN ('abierta', 'impresa') AND g.liquidation_id IS NULL
+ ORDER BY g.business_date, g.folio
+ LIMIT ${LIM}`;
+
+export const SQL_CHECADO = `
+SELECT COALESCE(c.order_code, c.kepler_folio, '')::text AS folio, c.destino_nombre AS detalle,
+       c.created_at::date AS fecha, NULL::numeric AS monto, count(*) OVER()::int AS total
+  FROM commercial.order_checks c
+ WHERE c.tenant_id = :t AND c.warehouse_id = :wh AND c.status = 'en_checado'
+ ORDER BY c.created_at
+ LIMIT ${LIM}`;
+
+/** Turno de Kepler CERRADO en 7 días sin su arqueo de cierre (el mismo NOT EXISTS que `turnosPendientes`). */
+export const SQL_TURNOS_SIN_ARQUEO = `
+SELECT k.c3::bigint::text AS folio, 'Caja ' || btrim(k.c2::text) || COALESCE(' · ' || NULLIF(btrim(k.c8), ''), '') AS detalle,
+       k.c5::date AS fecha, NULL::numeric AS monto, count(*) OVER()::int AS total
+  FROM kepler_ods.kdpv_folio_caja k
+ WHERE k.sucursal = :kc
+   AND k.c10::date <> DATE '1800-01-01'
+   AND k.c5::date >= ${HOY} - 7
+   AND NOT EXISTS (SELECT 1 FROM reconciliation.blind_counts b
+                    WHERE b.tenant_id = :t AND b.warehouse_code = k.sucursal AND b.tipo = 'cierre'
+                      AND b.cash_cut_folio = k.c3::bigint::text AND b.caja = k.c2 AND b.business_date = k.c5::date)
+ ORDER BY k.c5, k.c2
+ LIMIT ${LIM}`;
+
+/** Arqueo de cierre sin la firma de la encargada (`validado_at IS NULL`), 7 días. */
+export const SQL_ARQUEOS_POR_VALIDAR = `
+SELECT COALESCE(b.cash_cut_folio, '')::text AS folio,
+       'Caja ' || COALESCE(b.caja, 'sin caja') || COALESCE(' · ' || NULLIF(btrim(b.cajero_code), ''), '') AS detalle,
+       b.business_date AS fecha, b.total_contado AS monto, count(*) OVER()::int AS total
+  FROM reconciliation.blind_counts b
+ WHERE b.tenant_id = :t AND b.warehouse_code = :kc AND b.tipo = 'cierre' AND b.validado_at IS NULL
+   AND b.business_date >= ${HOY} - 7
+ ORDER BY b.business_date, b.caja
+ LIMIT ${LIM}`;
+
+export const SQL_CONTEOS = `
+SELECT c.folio::text AS folio, COALESCE(c.ritmo, c.type) AS detalle,
+       c.created_at::date AS fecha, NULL::numeric AS monto, count(*) OVER()::int AS total
+  FROM commercial.inventory_counts c
+ WHERE c.tenant_id = :t AND c.warehouse_id = :wh AND c.status IN ('open', 'counting', 'review', 'ready_to_reconcile')
+ ORDER BY c.created_at
+ LIMIT ${LIM}`;
+
+const GASTO = (estados: string) => `
+SELECT COALESCE(NULLIF(btrim(e.folio_solicitud), ''), 'sin folio') AS folio,
+       COALESCE(NULLIF(btrim(e.proveedor), ''), e.solicitante, 'Gasto')
+         || COALESCE(' · ' || NULLIF(btrim(e.motivo_rechazo), ''), '') AS detalle,
+       e.created_at::date AS fecha, e.importe AS monto, count(*) OVER()::int AS total
+  FROM finance.expense_proofs e
+ WHERE e.tenant_id = :t AND e.sucursal = :suc AND e.status IN (${estados})
+ ORDER BY e.created_at
+ LIMIT ${LIM}`;
+/** `rechazada` = «Te lo devolvieron, hay que corregirlo» (`expense-capture-links.service.ts`). */
+export const SQL_GASTOS_DEVUELTOS = GASTO(`'rechazada'`);
+/** `aprobada` = aprobado con cotización, espera su factura (`mis-gastos-abiertos.ts`). */
+export const SQL_GASTOS_ESPERAN_FACTURA = GASTO(`'aprobada'`);
+/** `recibida` / `revision` = lo revisa Finanzas. */
+export const SQL_GASTOS_EN_REVISION = GASTO(`'recibida', 'revision'`);
+
+/** Ticket que espera a la sucursal: resuelto por confirmar, o en pausa esperando al solicitante. Sin confidenciales. */
+export const SQL_TICKETS = `
+SELECT r.folio::text AS folio,
+       CASE WHEN r.status = 'resuelto' THEN 'Confírmalo: ' ELSE 'Te piden información: ' END || r.title AS detalle,
+       COALESCE(r.resolved_at, r.paused_at, r.created_at)::date AS fecha, NULL::numeric AS monto, count(*) OVER()::int AS total
+  FROM servicedesk.requests r
+ WHERE r.tenant_id = :t AND r.warehouse_code = :suc AND r.deleted_at IS NULL
+   AND NOT COALESCE(r.is_test, false) AND NOT COALESCE(r.confidential, false)
+   AND (r.status = 'resuelto' OR (r.status = 'en_espera' AND r.pause_reason = 'solicitante'))
+ ORDER BY 3
+ LIMIT ${LIM}`;
+
+export const SQL_COTIZACIONES = `
+SELECT q.code::text AS folio, COALESCE(NULLIF(btrim(q.erp_customer_name), ''), NULLIF(btrim(q.contact_name), ''), 'Cliente sin nombre') AS detalle,
+       q.quote_date AS fecha, q.total AS monto, count(*) OVER()::int AS total
+  FROM commercial.quotes q
+ WHERE q.tenant_id = :t AND q.source_branch = :suc AND q.deleted_at IS NULL
+   AND q.status = 'draft' AND q.valid_until >= ${HOY}
+ ORDER BY q.quote_date, q.code
+ LIMIT ${LIM}`;
+
+export const SQL_FICHAS = `
+SELECT COALESCE(NULLIF(btrim(s.sku), ''), NULLIF(btrim(s.ean), ''), 'sin código') AS folio, s.supplier_name AS detalle,
+       s.created_at::date AS fecha, NULL::numeric AS monto, count(*) OVER()::int AS total
+  FROM catalog.product_sheets s
+ WHERE s.tenant_id = :t AND s.branch_code = :suc AND s.deleted_at IS NULL
+   AND s.origin = 'levantamiento' AND s.status IN ('en_captura', 'recapturar')
+ ORDER BY s.created_at
+ LIMIT ${LIM}`;
+
+// ── De otra área: abierto de la sucursal, lo atiende alguien más ─────────────────────────────
+
+export const SQL_FALTANTES_PISO = `
+SELECT COALESCE(f.sku, f.scanned_code, '')::text AS folio, f.product_name AS detalle,
+       f.first_reported_at::date AS fecha, f.est_lost_revenue AS monto, count(*) OVER()::int AS total
+  FROM commercial.floor_stockouts f
+ WHERE f.tenant_id = :t AND f.warehouse_id = :wh AND f.status IN ('open', 'in_progress')
+ ORDER BY f.first_reported_at
+ LIMIT ${LIM}`;
+
+/** Foto del momento: la existencia negativa no tiene fecha. Sin revisión viva (`negative_stock_reviews`). */
+export const SQL_NEGATIVOS = `
+SELECT v.sku::text AS folio, COALESCE(p.nombre, v.sku) || ' · ' || v.existencia::text AS detalle,
+       NULL::date AS fecha, NULL::numeric AS monto, count(*) OVER()::int AS total
+  FROM analytics.v_kepler_negative_stock v
+  LEFT JOIN public.products p ON p.id = v.product_id
+ WHERE v.tenant_id = :t AND v.warehouse_id = :wh
+   AND NOT EXISTS (SELECT 1 FROM commercial.negative_stock_reviews r
+                    WHERE r.tenant_id = v.tenant_id AND r.warehouse_id = v.warehouse_id AND r.sku = v.sku AND r.deleted_at IS NULL)
+ ORDER BY v.existencia
+ LIMIT ${LIM}`;
+
+export const SQL_DOMICILIO = `
+SELECT d.folio::text AS folio, d.customer_name AS detalle,
+       d.created_at::date AS fecha, d.value AS monto, count(*) OVER()::int AS total
+  FROM commercial.home_deliveries d
+ WHERE d.tenant_id = :t AND d.kepler_warehouse_code = :kc AND d.deleted_at IS NULL AND d.status = 'pendiente'
+ ORDER BY d.created_at
+ LIMIT ${LIM}`;

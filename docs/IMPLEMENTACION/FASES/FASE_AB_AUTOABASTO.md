@@ -2364,6 +2364,75 @@ ventana.
   cambiaría a dónde entra el auxiliar de tienda.
 - (c) Cajero: no tiene ninguna de las tres llaves y no ve la pantalla.
 
+### 16.23 🧪 [AB.45] Todos los pendientes de la Suite que tiene la sucursal (2026-11-03)
+
+**Edgar, sobre AB.44:** «esto no sólo debe ser de traspasos o entradas: aquí deben estar todos los pendientes de la
+Suite que tiene la sucursal». Cambia el alcance: la pantalla deja de componer 3 endpoints y lee **un registro de
+colas** del servidor (`sucursal-pendientes.registry.ts`), con el mismo patrón que las bandejas de Mi trabajo
+(`me-work.ts`). Cada cola trae su consulta, su llave (la del guard de la pantalla que la resuelve), su ruta y la cita
+de su predicado dueño.
+
+**Inventario:** se recorrieron todos los dominios (comercial, finanzas, reconciliación, mesa de servicio, RH, reparto,
+catálogo, WhatsApp) buscando cualquier fila que espere a alguien de la sucursal. Salieron 34 candidatas; quedaron
+22 colas más las 4 de «lo que te va a llegar».
+
+**Validación:** cada consulta se ejerció contra prod en sólo lectura, para las 9 sucursales
+(`database/scripts/ab45-pendientes-sucursal.js`, que carga el `.sql.ts` tal cual y lo envuelve igual que el
+servicio). Ninguna pasa de 300 ms y el servicio las corre en 3 tandas en paralelo. Cifras del 2026-11-03:
+
+| Grupo | Cola (de la sucursal) | Hoy en la red |
+|---|---|---|
+| Recibir | Traspasos sin recibir en Kepler · compras sin vale en el Andén (7 d) · vales sin cerrar · mercancía sin caducidad · entradas sin comprobante · reclamos | 46 · 187 · 26 · 16 · 1,553 · 0 |
+| Surtir | Surtidos abiertos · preventa a medias · preventa sin revisión en caja · guías sin liquidar · checado a medias | 16 · 1 · 0 · 0 · 0 |
+| Caja | Turnos cerrados sin arqueo (7 d) · arqueos de cierre sin firma de la encargada (7 d) | 171 · 151 |
+| Inventario | Conteos abiertos | 0 |
+| Administración | Gastos devueltos · gastos que esperan factura · solicitudes de servicio que esperan a la sucursal · cotizaciones en borrador vigentes · fichas por recapturar · requisiciones rechazadas | 15 · 1 · 3 · 43 · 0 · 0 |
+
+**De otra área** (se ven, no suman):
+- Faltantes de piso (Compras): 264.
+- Existencia negativa (Prevención): 3,014.
+- Gastos en revisión (Finanzas): 18.
+- Pedidos a domicilio (Reparto): 4, de hace 113 días.
+- Pedidos de traspaso sin embarcar y requisiciones con Compras.
+
+**Lo que corrigió la validación (y no se habría visto sin ella):**
+- **Entradas:** con «90 días» a secas, CEDIS daba 1,198, porque se colaban 253 copias de CEDIS (`dup_of_folio`).
+  Ahora la cola usa el universo de su pantalla dueña: sin copia y desde `reception_start`. Con eso CEDIS da 1,057,
+  lo mismo que muestra `/compras/entradas`.
+- **Cotizaciones:** no guardan `warehouse_id`; la sucursal está en `source_branch`. Sin esto daban 0 contra 43 reales.
+- **Arqueos:** un `'?'` dentro de la consulta lo toma knex como parámetro y la consulta truena. Ahora hay un candado
+  en la spec, con su prueba negativa.
+- **AB.44 corregido:** los arqueos sin validar SÍ son de la sucursal. Los firma la encargada (`RECONCILIATION_VER`,
+  SM.12); AB.44 los había descartado como «de otra área». Y la caducidad al recibir (Andén) entra, porque Edgar pidió
+  todos los pendientes.
+
+**Fuera, con su porqué (se listan en la pantalla):**
+- WhatsApp y carga al camión: no guardan la sucursal.
+- Etiquetas y retiros: no son colas.
+- Hojas de caducidad: flujo retirado.
+- Arqueo de Caja General: lo autoriza Tesorería.
+- Conteo de camión: es por ruta.
+- Hallazgos de reabasto: 24,038 abiertos del motor de Compras.
+- Incidencias de asistencia: sólo RH.
+- Cortes de sucursal: el arqueo que falta ya está en «Turnos sin arqueo».
+- Clientes nuevos sin clave y pedidos por capturar en Kepler: la cuenta no está conectada o el predicado no está
+  verificado. **Deuda con nombre.**
+
+**Llaves:** `LLAVES_PENDIENTES_SUCURSAL` (contracts) es la puerta de la ruta, del sidebar y del endpoint. El candado
+de la spec exige que sea exactamente la unión del registro. Cotizaciones pide las DOS llaves de su ruta (`allOf`).
+
+**Pruebas:**
+- Registro: 9/9. Servicio con dobles: 6/6. Reabasto: 297 + 6.
+- Almacén + aterrizajes: 658/658.
+- `check:pantalla`: cumple las 10 reglas y tipa. `check:templates`: verde.
+- Negativas en rojo: un `'?'` en una consulta; quitar el `allOf`; contar lo de otra área en el total.
+- **No medido:**
+  - El arranque de la API: controlador nuevo en `CommercialReplenishmentModule`; los constructores inyectan
+    clases, sin firmas nuevas en los existentes.
+  - Validación visual.
+  - Que cada número coincida con el de su pantalla dueña vista en vivo. Se citó el predicado, pero no se cruzó
+    endpoint contra endpoint.
+
 
 - [ ] Métrica re-medida con la misma consulta, antes/después publicado.
 - [ ] Carga completa de la mesa y de «Mi pedido» bajo 500 ms en todas las sucursales, medida en prod (AB.36).

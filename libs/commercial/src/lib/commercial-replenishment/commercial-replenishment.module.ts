@@ -17,6 +17,8 @@ import { PedidoNegociacionService } from './pedido-negociacion.service';
 import { PedidoNegociacionController } from './pedido-negociacion.controller';
 import { KEPLER_REQUISITION_SINK_PORT } from '@megadulces/contracts';
 import { KeplerRequisitionSinkAdapter } from './kepler-requisition-sink.adapter';
+import { SucursalPendientesService } from './sucursal-pendientes.service';
+import { SucursalPendientesController } from './sucursal-pendientes.controller';
 
 /**
  * Proyecto Compras / Reabastecimiento (Fase RA — ADR-030).
@@ -26,8 +28,10 @@ import { KeplerRequisitionSinkAdapter } from './kepler-requisition-sink.adapter'
  * TenantKnexService/TenantContextService vienen del módulo global de platform-core.
  */
 @Module({
-  controllers: [CommercialReplenishmentController, AutoabastoController, CommercialPurchaseOrdersController, PurchaseAdjustmentsController, PurchaseFlowController, PedidoNegociacionController],
-  providers: [CommercialReplenishmentService, AutoabastoPedidoService, ReplenishmentScannerService, CommercialPurchaseOrdersService, ReplenishmentExportService, PurchaseAdjustmentsService, PurchaseAdjustmentsFindingsBridgeService, ObjectStorageService, PurchaseFlowService, PedidoNegociacionService,
+  // `[AB.45]` Pendientes de la sucursal: vive aquí porque reusa `AutoabastoPedidoService.viene` y el
+  // alcance de almacenes de Autoabasto.
+  controllers: [CommercialReplenishmentController, AutoabastoController, CommercialPurchaseOrdersController, PurchaseAdjustmentsController, PurchaseFlowController, PedidoNegociacionController, SucursalPendientesController],
+  providers: [CommercialReplenishmentService, AutoabastoPedidoService, SucursalPendientesService, ReplenishmentScannerService, CommercialPurchaseOrdersService, ReplenishmentExportService, PurchaseAdjustmentsService, PurchaseAdjustmentsFindingsBridgeService, ObjectStorageService, PurchaseFlowService, PedidoNegociacionService,
     // `[KR.4]` La puerta hacia Kepler (ADR-016, excepción autorizada 2026-10-13).
     // ⛔ Estar ligado NO significa estar encendido: el adapter sólo abre conexión si existe
     // `KEPLER_PUSH_URL`, y aunque exista, sin `GRANT INSERT` sobre `md.kdm1`/`kdm2` la base

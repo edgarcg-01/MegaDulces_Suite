@@ -14,6 +14,7 @@ import type { DiagnosticoRenglon } from './autoabasto-mesa.contract';
 // `[AB.40]` El motor único de cantidad (tope de 45 días). Este archivo le presta sólo TIPOS
 // (`import type`), así que no hay ciclo en tiempo de ejecución.
 import { costoUnicoBase, toparRedondeo, type MotivoTope } from './cantidad-pedido.contract';
+import { Permission } from '../authz/permissions';
 
 /** La escalera de unidades de Kepler de un producto (`analytics.v_product_unit_ladder`). */
 export interface EscaleraUnidades {
@@ -802,6 +803,87 @@ export interface AutoabastoVieneDocsResponse {
   /** Embarques sin recibir de más días que esto ya no se restan del pedido (se muestran para reclamarlos). */
   ventana_en_camino_dias: number;
 }
+
+/**
+ * `[AB.45]` **Pendientes de la sucursal** — `GET /commercial/sucursal-pendientes?warehouse_id=`.
+ *
+ * Todas las colas de la Suite que tienen trabajo de UNA sucursal, en una respuesta. Cada cola trae su
+ * conteo, cuánto espera la más vieja y sus primeras filas; sólo viajan las que la persona puede abrir.
+ * `de = 'sucursal'` es lo que la sucursal tiene que hacer; `'otra_area'`, lo que está abierto de la
+ * sucursal y espera a otra área (no suma al total de la sucursal).
+ */
+export type GrupoPendienteSucursal = 'recibir' | 'surtir' | 'caja' | 'inventario' | 'administracion';
+
+export interface PendienteSucursalFila {
+  folio: string;
+  detalle: string | null;
+  /** Días esperando. `null` = la fila no tiene fecha (una foto del momento). */
+  dias: number | null;
+  monto: number | null;
+}
+
+export interface ColaSucursal {
+  id: string;
+  grupo: GrupoPendienteSucursal;
+  de: 'sucursal' | 'otra_area';
+  /** Qué es, en palabras de la sucursal. */
+  label: string;
+  /** Qué hacer (o quién lo atiende, si es de otra área). */
+  accion: string;
+  /** Pantalla que lo resuelve, y su filtro si lo acepta. */
+  ruta: string;
+  query: Record<string, string> | null;
+  /** Qué periodo mira la cola, en palabras («últimos 7 días»). `null` = todo lo abierto. */
+  ventana: string | null;
+  /** `no_medido` = la consulta falló: NO es cero (`total` viene en 0 y no debe sumarse). */
+  estado: 'ok' | 'no_medido';
+  motivo?: string | null;
+  total: number;
+  mas_viejo_dias: number | null;
+  /** Las más viejas primero, hasta `PENDIENTES_SUCURSAL_TOPE_FILAS`. */
+  filas: PendienteSucursalFila[];
+}
+
+export interface SucursalPendientesResponse {
+  almacen: { id: string; name: string; sucursal: string | null };
+  generado_en: string;
+  colas: ColaSucursal[];
+  /** Lo que se buscó y NO entra, con su porqué. Se muestra: «no está» no es «no se buscó». */
+  fuera: Array<{ label: string; motivo: string }>;
+}
+
+export const PENDIENTES_SUCURSAL_TOPE_FILAS = 10;
+
+/**
+ * `[AB.45]` Las llaves que abren «Pendientes de la sucursal»: la de CUALQUIERA de sus colas. Una sola
+ * lista para la puerta de la ruta, el tab del sidebar y el endpoint; adentro, cada cola exige la suya.
+ * El candado `sucursal-pendientes.registry.spec.ts` verifica que sea exactamente la unión del registro.
+ */
+export const LLAVES_PENDIENTES_SUCURSAL: readonly Permission[] = [
+  Permission.AUTOABASTO_VER,
+  Permission.COMMERCIAL_INVENTORY_RECIBIR,
+  Permission.COMMERCIAL_EXPIRY_CAPTURAR,
+  Permission.COMPRAS_ENTRADAS_GESTIONAR,
+  Permission.COMPRAS_HALLAZGOS_VER,
+  Permission.ALMACEN_SURTIDO_COORDINAR,
+  Permission.COMMERCIAL_PICKING_VER,
+  Permission.COMMERCIAL_PICKING_GESTIONAR,
+  Permission.PREVENTA_GUIAS_GESTIONAR,
+  Permission.ALMACEN_CHECADO_GESTIONAR,
+  Permission.STORE_ARQUEO_VER,
+  Permission.STORE_ARQUEO_CAPTURAR,
+  Permission.RECONCILIATION_VER,
+  Permission.COMMERCIAL_INVENTORY_CONTAR,
+  Permission.FINANCE_EXPENSES_VER,
+  Permission.FINANCE_EXPENSES_CAPTURAR,
+  Permission.SERVICIO_REPORTAR,
+  Permission.COMMERCIAL_QUOTES_VER,
+  Permission.CATALOGO_LEVANTAR,
+  Permission.STORE_STOCKOUT_VER,
+  Permission.STORE_STOCKOUT_CAPTURAR,
+  Permission.COMMERCIAL_MOVEMENTS_VER,
+  Permission.REPARTO_DESPACHAR,
+];
 
 /**
  * `[AB.44]` Un almacén de «Pendientes de la sucursal»: el alcance de la persona en el área Almacén,

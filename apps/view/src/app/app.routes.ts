@@ -4,6 +4,7 @@ import { LayoutComponent } from './modules/dashboard/layout/layout.component';
 import { authGuard } from './core/guards/auth.guard';
 import { permissionGuard, anyPermissionGuard, carteraEntryGuard, gastosAreaEntryGuard, colaboradorGuard, comercialHomeGuard, mktHomeGuard, almacenHomeGuard, logisticaHomeGuard, comprasHomeGuard, finanzasHomeGuard, contabilidadHomeGuard, adminHomeGuard, repartoHomeGuard, telemarketingHomeGuard, preciosHomeGuard, desarrolladoresHomeGuard, servicioHomeGuard, rhHomeGuard } from './core/guards/permission.guard';
 import { Permission } from './core/constants/permissions';
+import { LLAVES_PENDIENTES_SUCURSAL } from '@megadulces/contracts';
 import { televentaGuard } from './modules/televenta/televenta.guard';
 import { repartoGuard } from './modules/reparto/reparto.guard';
 import { storeEntryRedirect } from './modules/tienda/tienda.guards';
@@ -1713,13 +1714,12 @@ export const routes: Routes = [
         canActivate: [anyPermissionGuard(Permission.AUTOABASTO_VER, Permission.AUTOABASTO_SOLICITAR)]
       },
       {
-        // [AB.44] Pendientes de la sucursal: lo que la sucursal tiene que hacer hoy, de los procesos
-        // dueños (Autoabasto, Entradas, Consola de surtido). Abre con la llave de CUALQUIERA de sus
-        // secciones —las mismas del endpoint `autoabasto/pendientes/almacenes`—; adentro, cada
-        // sección se pinta sólo con la suya.
+        // [AB.45] Pendientes de la sucursal: todas las colas de la Suite con trabajo de una sucursal.
+        // Abre con la llave de CUALQUIERA de sus colas (`LLAVES_PENDIENTES_SUCURSAL`, la misma lista
+        // que el endpoint y el sidebar); adentro, cada cola viaja sólo con la suya.
         path: 'pendientes',
         loadComponent: () => import('./modules/almacen/pages/almacen-pendientes.component').then(m => m.AlmacenPendientesComponent),
-        canActivate: [anyPermissionGuard(Permission.AUTOABASTO_VER, Permission.COMPRAS_ENTRADAS_VER, Permission.ALMACEN_SURTIDO_COORDINAR)]
+        canActivate: [anyPermissionGuard(...LLAVES_PENDIENTES_SUCURSAL)]
       },
       {
         // [AB.39] «Mi pedido» y la mesa son UNA pantalla desde el 2026-10-26 (eran la misma cuenta

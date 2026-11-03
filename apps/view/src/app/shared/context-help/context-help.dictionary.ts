@@ -609,22 +609,23 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
   // [MX.3.2] Incidencias: sólo lo que el motor no pudo dar por bueno.
   'almacen-pendientes': {
     title: 'Pendientes de la sucursal — guía',
-    intro: 'Lo que tu sucursal tiene que hacer, juntado de las pantallas donde se resuelve. Sólo suma lo que te toca a ti: lo que espera a otra área se menciona en una línea, pero no cuenta.',
+    intro: 'Todo lo que la Suite tiene abierto de tu sucursal, juntado de las pantallas donde se resuelve: recibir, surtir, caja, inventario y administración. Sólo ves las colas de las pantallas que tu puesto puede abrir. El total suma lo que le toca a la sucursal; lo que atiende otra área se ve abajo y no suma.',
     groups: [
       {
-        heading: 'Qué cuenta como pendiente',
+        heading: 'Cómo se lee',
         entries: [
-          { term: 'Traspaso sin recibir en Kepler', def: 'Una sucursal te embarcó mercancía y en Kepler todavía no está su recepción («Recepción Traspaso Suc»). Se captura en Kepler; la Suite no escribe ahí. Se miran los embarques de los últimos 30 días.' },
-          { term: 'Compras rechazó tu requisición', def: 'Lo que pediste desde Autoabasto con «Enviar a Compras» y Compras rechazó. Lee el motivo y decide si vuelves a pedirlo.' },
-          { term: 'Entrada sin comprobante', def: 'Una orden de entrada de Kepler de los últimos 90 días a la que no se le ha subido la remisión. Se sube en Entradas.' },
-          { term: 'Surtido sin empezar o a medias', def: 'Un surtido abierto en la consola: nadie lo ha tomado, o alguien lo empezó y no lo ha terminado.' },
+          { term: 'Cola', def: 'Un tipo de pendiente (por ejemplo, «Turnos de caja cerrados sin arqueo»). Cada una dice cuántos hay, desde cuándo espera el más viejo, qué hacer y lleva con «Resolver» a la pantalla donde se hace.' },
+          { term: 'Días', def: 'Cuántos días lleva esperando, contados en hora de México.' },
+          { term: 'Ventana', def: 'Algunas colas miran sólo un periodo (por ejemplo, «últimos 7 días» en caja). Se dice al lado del nombre.' },
+          { term: 'Al día', def: 'Colas que hoy están en cero. Se nombran en una línea para que sepas que se revisaron.' },
         ],
       },
       {
-        heading: 'Lo que se ve y no suma',
+        heading: 'Lo que no suma',
         entries: [
-          { term: 'Esperando a otra área', def: 'Un pedido de traspaso que la matriz todavía no embarca, o una requisición que Compras no ha decidido. No es trabajo de la sucursal: se menciona para que sepas que viene.' },
-          { term: 'Una sección que no se pudo leer', def: 'Se dice, y el total de arriba no la incluye. No quiere decir que esté en cero.' },
+          { term: 'Lo atiende otra área', def: 'Está abierto en tu sucursal pero lo resuelve alguien más: Compras (faltantes, requisiciones), Prevención (existencia negativa), Finanzas (gastos en revisión), Reparto (domicilio) o la sucursal que te surte (pedidos sin embarcar).' },
+          { term: 'Una cola que no se pudo leer', def: 'Se dice, y el total de arriba no la incluye. No quiere decir que esté en cero.' },
+          { term: 'Lo que no aparece aquí', def: 'Al final de la pantalla está la lista de lo que se buscó en la Suite y no entra, con su porqué.' },
         ],
       },
     ],
