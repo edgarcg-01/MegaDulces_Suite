@@ -1,7 +1,7 @@
 # ═══ EL CARRIL PILOTO ═══  [K3S.5]
 #
 # Se migra PRIMERO éste, y la elección no es al azar: es el carril cuyo fallo cuesta menos.
-#   · no propaga DELETE (`ODS_DELETE_SOBRANTES: "0"`);
+#   · nació sin propagar DELETE; desde [PQ.39] (2026-11-03) SÍ lo propaga (`ODS_DELETE_SOBRANTES: "1"`);
 #   · su tope de latido es 90 min, así que una pasada perdida no dispara nada;
 #   · `ODS_HB_IGNORE_ERROR: "1"` — su `error` es alarma de DATO, no de proceso.
 # Si algo sale mal, se apaga acá y se vuelve a levantar en Compose. No se pierde una fila.
@@ -71,8 +71,15 @@ spec:
               value: "90"
             - name: ODS_HB_IGNORE_ERROR
               value: "1"
+            # [PQ.39] ENCENDIDO el 2026-11-03 (`kubectl set env`, por el PM). Con "0" el ODS guardaba
+            # lo que Kepler ya había borrado: 29,003 filas en estas tablas, y en `kdpv_prov_prod`
+            # 1,173 relaciones proveedor→producto muertas que la mediana de `v_supplier_cost_ladder`
+            # mezclaba con las vivas (18283: caja $1,593.77 = mitad de una caja borrada de $3,176.94).
+            # Antes de encenderlo se corrió una vez sólo `kdpv_prov_prod`: 1,173 borradas, y después
+            # ODS = Kepler llave por llave en las 9 sucursales. Los frenos del script siguen: confirma
+            # contra la tabla completa del réplica y aborta si pasaría del 60 % de una tabla×rama.
             - name: ODS_DELETE_SOBRANTES
-              value: "0"
+              value: "1"
           # El MISMO `health.js` del HEALTHCHECK de Compose, sin tocar una línea. Acá es el brazo:
           # cuando falla, reinicia el kubelet. Eso es lo que hace innecesario a `ods-autoheal`.
           livenessProbe:
