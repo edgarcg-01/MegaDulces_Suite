@@ -56,6 +56,10 @@ está mal». Eso se **declara como no medido** (ADR-056).
 Si estás en nivel C y el trabajo exige A: **pedí que levanten la API antes de seguir**, no después
 de entregar.
 
+⛔ **Y «no hay navegador» no es excusa para saltarse capas enteras.** El contraste se calcula de los
+tokens; la carga se cuenta en una captura; la comprensión se lee. Ver §3c: esas tres capas se
+entregan siempre, en el nivel que haya, con lo que no se pudo medir declarado.
+
 ---
 
 ## 2. Los cuatro ejes, y qué compuerta cubre cada uno
@@ -191,6 +195,86 @@ y **la tabla completa —qué exige cada una al generar y qué se mira al audita
 
 ---
 
+## 3c. ⛔⛔ La ficha de las tres capas que se saltan: carga, comprensión, accesibilidad
+
+Los seis cruces de §3 traen procedimiento, y los seis son de **veracidad y alcance**. Carga visual,
+comprensión y accesibilidad sólo aparecían como nombres de capa, sin instrumento. **Lo que tiene
+pasos se hace; lo que sólo tiene nombre se salta.** Por eso esta ficha va en **todo** informe, haya o
+no hallazgos con pesos.
+
+> **El caso (2026-11-03, `/finanzas/calendario-pagos`).** Dos auditorías seguidas miraron sólo
+> veracidad y alcance, y Edgar preguntó *«¿y la carga visual, comprensión, accesibilidad? ¿eso no
+> lo evalúas?»*. Medidas después, en minutos y **sin navegador**:
+>
+> - los avisos de error, en ámbar sobre blanco, a **2.15:1**: lo menos legible de la pantalla (uno lo
+>   había escrito la misma sesión que auditaba);
+> - **~70 controles y ~58 cifras** en la primera pantalla; «31 pagos» repetido **6 veces**;
+> - **19 elementos ámbar con 3 significados** distintos;
+> - un `aria-live` que anunciaba **~19 veces** por carga.
+>
+> En el repo, `--warn-fg` aparece como color de texto en **336 lugares de 144 archivos** y `--ok-fg`
+> en **280 de 143** (candidatos: no todos fallan). La excusa fue «no hay pantalla viva», y **ninguna
+> de las tres capas la necesita para empezar**.
+
+⭐ **El costo de estas capas no viene en pesos, y aun así es costo.** La queja del PM del 29-oct fue
+*«la interfaz abruma a la gente»*: una pantalla que abruma deja de usarse, y entonces no hay pesos
+que proteger. §7 pide «cuánto cuesta en la unidad del negocio»; aquí la unidad es **conteos**
+(controles, repeticiones, ratios). No se deja al final porque no traiga signo de pesos.
+
+### Carga visual — se cuenta (en la pantalla viva o en una captura)
+
+| Variable | Cómo se mide | Qué lo vuelve hallazgo |
+|---|---|---|
+| Controles accionables en la primera pantalla | contarlos, y aparte cuántos hay **por renglón** | muchas decisiones a la vez (Hick); en cada fila compiten más de 3 |
+| Cifras a la vista | montos y conteos, por separado | cifras que nadie necesita para decidir |
+| **El mismo dato repetido** | cuántas veces aparece cada hecho (el total, el conteo, el faltante), en cualquier forma | ⭐ la carga más barata de quitar: repetir no informa nada nuevo |
+| Avisos al mismo tiempo | rojos + ámbar + banners visibles juntos | más de uno compitiendo por «lo primero» |
+| Color: elementos por tono × **papeles** de cada tono | contar y escribir qué significa cada uso | un tono con más de un significado; presupuesto: neutro + acción (sólo el botón principal) + rojo (sólo lo que está mal) |
+| Niveles reales de tamaño de letra | `--fs-*` de cada pieza en el CSS del componente | menos de 3 niveles (§Q.5), o lo primario del mismo tamaño que lo terciario |
+| Marco contra trabajo | alto desde el borde hasta la primera fila de trabajo, entre el alto visible | el marco se come la pantalla (con nivel A se mide en px; en captura, se declara aproximado) |
+
+### Comprensión — se lee como quien no escribió el código
+
+| Variable | Cómo se mide |
+|---|---|
+| **La prueba de la frase** | escribir la pregunta que contesta la pantalla. Si hace falta «y», contesta dos: **¿cuál es la de hoy, y ocupa el lugar más grande?** |
+| Rótulos falsos o ambiguos | cada rótulo contra el número o la celda que acompaña (Cruce 2), y además: ¿se puede leer de dos maneras? («captura $X»: ¿verbo o sustantivo?) |
+| Términos sin definir en pantalla | listar cada término del oficio («tope», «ventana», «por confirmar»). ⛔ Lo que vive sólo en un `title` **no cuenta como definido**: sin mouse no existe |
+| Números sin unidad ni sentido | signos raros («$-950.8K libre»), porcentajes topados, códigos sin rótulo («CEDIS 0000304») |
+
+### Accesibilidad — el contraste se CALCULA, no se espera al navegador
+
+1. **Contraste de cada token usado como color de texto**, en claro **y** en oscuro. Se sacan del
+   CSS del componente los `color:var(--x)` y su fondo, se resuelven en `libs/design-tokens/tokens.css`
+   y se calculan con la fórmula de WCAG. AA pide **4.5:1** para texto normal y **3:1** para texto
+   grande (≥24 px, o ≥18.66 px en negritas). El instrumento, **con sus controles** (§4):
+
+   ```js
+   // node <scratchpad>/contraste.js — los dos controles TIENEN que dar 21.00 y ~4.48
+   const lin = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+   const L = (h) => { const n = parseInt(h.slice(1), 16); return 0.2126 * lin(n >> 16 & 255) + 0.7152 * lin(n >> 8 & 255) + 0.0722 * lin(n & 255); };
+   const ratio = (a, b) => { const [x, y] = [L(a), L(b)].sort((p, q) => q - p); return ((x + 0.05) / (y + 0.05)).toFixed(2); };
+   console.log('CONTROL', ratio('#000000', '#FFFFFF'), ratio('#777777', '#FFFFFF'));
+   console.log('--warn-fg/blanco', ratio('#F59E0B', '#FFFFFF')); // 2.15 — NO pasa como texto
+   ```
+
+   ⭐ **Ya medido:** como color de texto sobre blanco, `--warn-fg` da **2.15** y `--ok-fg` **3.30**.
+   Los dos fallan AA. Para texto van `--warn-soft-fg` y `--ok-soft-fg`; los `-fg` sueltos son para
+   rellenos, iconos y bordes.
+2. **`aria-live` ruidosos:** cada región viva y **cuántas veces se actualiza** en una carga normal.
+   Un contador que avanza por tandas habla en cada tanda.
+3. **El color nunca va solo:** cada estado lleva palabra o icono, además del tono.
+4. **Teclado:** la tarea se termina sin mouse; el atajo está escrito en pantalla. Por código se
+   revisa que exista; recorrerlo de verdad es nivel A.
+5. **Objetivos táctiles de ≥44 px** con puntero `coarse`; **`forced-colors`**, que con nivel C se
+   declara NO MEDIDO.
+
+⛔ **Sin pantalla viva, la ficha se entrega igual.** Contraste, aria, color solo, términos y
+repeticiones salen del código y de una captura. Lo que de verdad pide nivel A (px reales, recorrido
+con teclado, `forced-colors`, lector de pantalla) va en una línea **«NO MEDIDO»**, nunca se omite.
+
+---
+
 ## 4. ⛔⛔ Disciplina de instrumento
 
 **Tres instrumentos fallaron en una sola sesión**, y los tres habrían metido una conclusión falsa
@@ -266,6 +350,8 @@ cosas»*). Antes de cualquier acento o ratio suelto, contesta con la pantalla vi
    - **Visibilidad:** cuenta lo que está plegado al entrar y cuánto texto esconde; el texto cortado
      con «…»; y las cifras que animan (un conteo de 900 ms publica montos que no existen).
    - **Desglose:** todo total tiene que abrirse a sus renglones sin salir de la pantalla.
+8. **La ficha de §3c** —carga, comprensión y accesibilidad, con cifra—, en **todo** informe. Es la
+   parte que se salta cuando nadie la pide, y es la que dice si la pantalla abruma.
 
 Los detalles (acentos, un ratio, 10 px) van **después**, como síntomas de esto. *El caso:
 `/finanzas/calendario-pagos` — se entregaron 12 detalles y no se dijo que el veredicto medía 14 px
@@ -290,7 +376,10 @@ npm run check:estilos                  # escala --fs-*, hex crudo, foco sin anil
 
 # 4 · Los seis cruces de §3. Acá está lo que las compuertas no ven.
 
-# 5 · Sólo con nivel A: medí la pantalla viva (chrome-devtools / playwright).
+# 5 · La ficha de §3c: contraste de cada token de texto (script con controles), aria-live,
+#     conteos de carga sobre la pantalla o una captura, la prueba de la frase.
+
+# 6 · Sólo con nivel A: medí la pantalla viva (chrome-devtools / playwright).
 ```
 
 ⚠️ **`vitest` NO tipa las plantillas y `check:pantalla` tampoco.** Un `<p-sortIcon>` que en PrimeNG
@@ -335,6 +424,10 @@ Cada uno lleva las cuatro, o no se entrega:
 
 ⛔ **Y lo que no se pudo medir se DECLARA, nunca se dibuja como cero ni como verde** (ADR-056).
 
+⛔ **El informe no está completo sin la ficha de §3c**, aunque ninguno de sus renglones traiga
+pesos. En carga y comprensión, el punto 3 («cuánto cuesta») se dice en conteos: *«“31 pagos”
+repetido 6 veces»*, *«avisos de error a 2.15:1»*.
+
 ---
 
 ## 8. Lo que esta skill NO cubre todavía
@@ -359,7 +452,10 @@ Declarado para que nadie lo dé por hecho:
   ilustraciones) **no aplican tal cual**. Extender la compuerta no es cambiar una ruta.
 
 - **`[AUD.4]` contraste** — cero compuertas. Ni WCAG AA ni `forced-colors` (Alto Contraste de
-  Windows, que `DESIGN.md` llama «el tercer modo» y la flota **es** Windows). Hoy se mide a mano.
+  Windows, que `DESIGN.md` llama «el tercer modo» y la flota **es** Windows). Hoy se mide a mano,
+  con el script de §3c. Línea base del 2026-11-03: `--warn-fg` (2.15:1) como color de texto en
+  **336 lugares de 144 archivos**, `--ok-fg` (3.30:1) en **280 de 143**. Son candidatos, no fallas
+  confirmadas: falta saber el fondo y el tamaño de cada uno.
 - **`[AUD.5]` sencillez** — las 7 leyes de §10 son BINDING y automatizables (Miller: >6 campos sin
   separador · Tesler: datos vitales tras acordeones · Von Restorff: destructiva nunca en `--action`
   · Hick: `⌘K` con 20+ destinos) y ninguna tiene instrumento.
