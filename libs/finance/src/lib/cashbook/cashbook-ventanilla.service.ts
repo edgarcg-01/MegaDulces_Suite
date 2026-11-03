@@ -32,7 +32,7 @@ import {
   type OrdenPorFirmar, type PagoEnVentanilla, type PiezasTexto, type PlanDePagoVentanilla, type ResultadoPago,
 } from '@megadulces/contracts';
 import { traducirErrorDelLibro } from './errores';
-import { MOTIVO_BLOQUEO, planDePago, type DocumentoAPagar, type PlanDePago, type ValeElegido } from './plan-de-pago';
+import { MOTIVO_BLOQUEO, planDePago, type DocumentoAPagar, type PlanDePago, type Respaldo, type ValeElegido } from './plan-de-pago';
 import { pagoDelCajon, type Contexto } from './reglas';
 import type { UsuarioDelLibro } from './cashbook.service';
 
@@ -69,8 +69,61 @@ export const SQL_VALE = `
          aprobado_at::text AS aprobado_at
     FROM finance.expense_proofs WHERE tenant_id = ? AND id = ?`;
 
+/**
+ * `[LE.2.13]` Lo que el X-D-26 paga según Kepler. Corridos TAL CUAL contra prod (sólo lectura,
+ * 2026-11-03, <160 ms): 08/0000699 = 3 entradas de compra cuadradas; 08/0000707 = 6 gastos con su
+ * vale; 00/0023782 = un gasto SIN expediente en la Suite.
+ *  · Gasto: `kdm5` (transferencia → gasto XA1001) → `expense_documents` (su solicitud) → el vale de
+ *    `expense_proofs`; si hay varios, el aprobado por una persona, y si no, el más nuevo.
+ *  · Compra: `kdxf` (transferencia → entrada A-20) con el importe de la entrada (`kdxe`) y todo lo que
+ *    se le ha aplicado sin contar cargos cancelados (`kdm1.c43 = 'C'`, la trampa de ECA.7).
+ */
+export const SQL_RESPALDO_GASTO = `
+  SELECT g.gasto, g.aplicado::text AS aplicado, ep.id AS vale_id, ep.folio AS vale_folio, ep.status AS vale_estado,
+         ep.importe::text AS vale_importe, ep.aprobado_at::text AS vale_aprobado_at
+    FROM (SELECT btrim(m.c11) AS gasto, sum(m.c13) AS aplicado
+            FROM kepler_ods.kdm5 m
+           WHERE m.sucursal = ? AND btrim(m.c1) = m.sucursal AND m.c2 = 'X' AND m.c3 = 'D' AND m.c4 = 26 AND m.c5 = 1
+             AND btrim(m.c6) = ? AND m.c8 = 'A' AND m.c9 = 10 AND m.c10 = 1
+           GROUP BY 1) g
+    LEFT JOIN LATERAL (SELECT btrim(ed.solicitud_folio) AS sol FROM analytics.expense_documents ed
+                        WHERE ed.tenant_id = ? AND ed.doc_tipo = 'XA1001' AND ed.sucursal = ? AND btrim(ed.doc_folio) = g.gasto
+                          AND nullif(btrim(ed.solicitud_folio), '') IS NOT NULL
+                        LIMIT 1) d ON true
+    LEFT JOIN LATERAL (SELECT p.id, coalesce(nullif(btrim(p.folio_solicitud), ''), left(p.id::text, 8)) AS folio, p.status,
+                              p.importe, p.aprobado_at
+                         FROM finance.expense_proofs p
+                        WHERE p.tenant_id = ? AND p.sucursal = ? AND btrim(p.folio_solicitud) = d.sol
+                        ORDER BY (p.aprobado_at IS NOT NULL) DESC, (p.status = 'rechazada'), p.created_at DESC
+                        LIMIT 1) ep ON true
+   ORDER BY g.gasto`;
+export const SQL_RESPALDO_COMPRA = `
+  WITH mio AS (
+    SELECT btrim(f.c2) AS acreedor, f.c7, f.c8, btrim(f.c9) AS doc, sum(f.c10) AS aplicado
+      FROM kepler_ods.kdxf f
+     WHERE f.sucursal = ? AND f.c1 = f.sucursal AND f.c4 = 26 AND f.c5 = 1 AND btrim(f.c6) = ? AND f.c7 = 20
+     GROUP BY 1, 2, 3, 4)
+  SELECT mio.doc, mio.aplicado::text AS aplicado,
+         (SELECT max(e.c11) FROM kepler_ods.kdxe e
+           WHERE e.sucursal = ? AND btrim(e.c2) = mio.acreedor AND e.c3 = 'A' AND e.c4 = mio.c7 AND e.c5 = mio.c8
+             AND btrim(e.c6) = mio.doc)::text AS importe_doc,
+         (SELECT sum(o.c10) FROM kepler_ods.kdxf o
+           WHERE o.sucursal = ? AND o.c1 = o.sucursal AND btrim(o.c2) = mio.acreedor AND o.c7 = mio.c7 AND o.c8 = mio.c8
+             AND btrim(o.c9) = mio.doc
+             AND NOT EXISTS (SELECT 1 FROM kepler_ods.kdm1 h
+                              WHERE h.sucursal = o.sucursal AND h.c1 = o.sucursal AND h.c2 = 'X' AND h.c3 = 'D'
+                                AND h.c4 = o.c4 AND h.c5 = o.c5 AND btrim(h.c6) = btrim(o.c6) AND h.c43 = 'C'))::text AS aplicado_total
+    FROM mio
+   ORDER BY mio.doc`;
+
 export interface FilaDocumento { folio: string; beneficiario: string; importe: string }
 export interface FilaVale { id: string; folio: string; status: string; importe: string; aprobado_at: string | null }
+export interface FilaRespaldoGasto {
+  gasto: string; aplicado: string; vale_id: string | null; vale_folio: string | null; vale_estado: string | null;
+  vale_importe: string | null; vale_aprobado_at: string | null;
+}
+export interface FilaRespaldoCompra { doc: string; aplicado: string; importe_doc: string | null; aplicado_total: string | null }
+type ValeConId = ValeElegido & { id: string };
 
 function sumaDePiezas(p: PiezasTexto | undefined): bigint {
   if (!p || Object.keys(p).length === 0) return 0n;
@@ -120,6 +173,45 @@ export class CashbookVentanillaService {
     return (await trx.raw(SQL_VALE, [tenantId, valeId])).rows[0] as FilaVale | undefined;
   }
 
+  /** `[LE.2.13]` `null` = no hay ODS de Kepler en esta base: el respaldo es «no medido», nunca «no paga nada». */
+  protected async filasDelRespaldo(trx: Knex.Transaction, tenantId: string, sucursal: string, folio: string)
+    : Promise<{ gastos: FilaRespaldoGasto[]; compras: FilaRespaldoCompra[] } | null> {
+    const hay = (await trx.raw(`SELECT (to_regclass('kepler_ods.kdm5') IS NOT NULL AND to_regclass('kepler_ods.kdxf') IS NOT NULL
+      AND to_regclass('kepler_ods.kdxe') IS NOT NULL AND to_regclass('kepler_ods.kdm1') IS NOT NULL
+      AND to_regclass('analytics.expense_documents') IS NOT NULL) AS ok`)).rows[0]?.ok === true;
+    if (!hay) return null;
+    const gastos = (await trx.raw(SQL_RESPALDO_GASTO, [sucursal, folio, tenantId, sucursal, tenantId, sucursal])).rows as FilaRespaldoGasto[];
+    const compras = (await trx.raw(SQL_RESPALDO_COMPRA, [sucursal, folio, sucursal, sucursal])).rows as FilaRespaldoCompra[];
+    return { gastos, compras };
+  }
+
+  /**
+   * `[LE.2.13]` El respaldo del documento y sus vales (`undefined` = sin ODS: no medido). Una entrada cuyo
+   * importe Kepler no tiene no se puede verificar: ese documento cae a «ninguno» (firma Tesorería), no a «cuadra».
+   */
+  private async respaldo(trx: Knex.Transaction, tenantId: string, origenRef: string): Promise<{ respaldo: Respaldo | undefined; vales: ValeConId[] }> {
+    const [, sucursal, , folio] = LLAVE_DOCUMENTO.exec(origenRef) as RegExpExecArray;
+    const f = await this.filasDelRespaldo(trx, tenantId, sucursal, folio);
+    // Sin ODS no se afirma «Kepler no dice qué paga»: no se midió. Queda la regla de siempre (el vale de la cajera).
+    if (!f) return { respaldo: undefined, vales: [] };
+    if (f.gastos.length) {
+      const gastos = f.gastos.map((g) => ({
+        folio: g.gasto,
+        vale: g.vale_id ? { id: g.vale_id, folio: String(g.vale_folio), estado: String(g.vale_estado),
+          importeCentavos: pesosACentavos(String(g.vale_importe ?? '0')), aprobadoAt: g.vale_aprobado_at } : null,
+      }));
+      const aplicado = f.gastos.reduce((t, g) => t + pesosACentavos(g.aplicado), 0n);
+      return { respaldo: { tipo: 'gasto', aplicadoCentavos: aplicado, gastos },
+        vales: gastos.flatMap((g) => (g.vale ? [g.vale] : [])) };
+    }
+    if (f.compras.length && f.compras.every((c) => c.importe_doc !== null && c.aplicado_total !== null)) {
+      const aplicado = f.compras.reduce((t, c) => t + pesosACentavos(c.aplicado), 0n);
+      const pagadosDeMas = f.compras.filter((c) => pesosACentavos(String(c.aplicado_total)) > pesosACentavos(String(c.importe_doc))).length;
+      return { respaldo: { tipo: 'compra', aplicadoCentavos: aplicado, documentos: f.compras.length, pagadosDeMas }, vales: [] };
+    }
+    return { respaldo: { tipo: 'ninguno' }, vales: [] };
+  }
+
   /** El X-D-26 tal como lo tiene Kepler. Nunca el importe de la pantalla. */
   private async documento(trx: Knex.Transaction, tenantId: string, origenRef: string, cuenta: string | null): Promise<DocumentoAPagar> {
     const m = LLAVE_DOCUMENTO.exec(String(origenRef ?? '').trim());
@@ -157,9 +249,15 @@ export class CashbookVentanillaService {
 
   private async armarPlan(trx: Knex.Transaction, tenantId: string, origenRef: string, cuenta: string | null, valeId: string | undefined) {
     const doc = await this.documento(trx, tenantId, origenRef, cuenta?.trim() || null);
-    const vale = await this.vale(trx, tenantId, valeId);
+    const { respaldo, vales } = await this.respaldo(trx, tenantId, doc.origenRef);
+    let vale = await this.vale(trx, tenantId, valeId);
+    // `[LE.2.13]` El vale lo dice Kepler: el que elija la cajera tiene que ser uno de los del documento.
+    if (vale && respaldo?.tipo === 'gasto' && !vales.some((v) => v.id === vale?.id)) {
+      throw new BadRequestException({ codigo: 'vale_no_corresponde', mensaje: `El vale ${vale.folio} no es de ningún gasto que pague este documento.` });
+    }
+    if (!vale && vales.length === 1) vale = vales[0];
     const ya = await this.yaTomado(trx, tenantId, doc.origenRef);
-    return { plan: planDePago(doc, { yaOrdenado: ya.ordenado, yaPagado: ya.pagado, vale }), vale };
+    return { plan: planDePago(doc, { yaOrdenado: ya.ordenado, yaPagado: ya.pagado, vale, respaldo }), vale, vales };
   }
 
   private static aTexto(p: PlanDePago): PlanDePagoVentanilla {
@@ -227,7 +325,7 @@ export class CashbookVentanillaService {
         return this.resultadoDe(trx, previa.id);
       }
 
-      const { plan, vale } = await this.armarPlan(trx, tenantId, body.origen_ref, body.cuenta_kepler ?? null, body.vale_id);
+      const { plan, vale, vales } = await this.armarPlan(trx, tenantId, body.origen_ref, body.cuenta_kepler ?? null, body.vale_id);
       if (plan.bloqueo) {
         const cuerpo = { codigo: plan.bloqueo, mensaje: MOTIVO_BLOQUEO[plan.bloqueo] };
         if (plan.bloqueo === 'ya_ordenado' || plan.bloqueo === 'ya_pagado') throw new ConflictException(cuerpo);
@@ -249,7 +347,9 @@ export class CashbookVentanillaService {
       const vence = (await trx.raw(`SELECT ${FIN_DEL_DIA} AS fin`)).rows[0].fin as Date;
       const o = (await trx.raw('SELECT cashbook.issue_order(?::jsonb) AS o', [JSON.stringify({
         kind: 'pago', amount_minor: centavosATexto(plan.maquinaCentavos), source_ref: plan.documento.origenRef,
-        classification: { tipo: 'pago', concepto, documento: plan.documento.origenRef, ...(vale ? { vale: vale.id } : {}) },
+        classification: { tipo: 'pago', concepto, documento: plan.documento.origenRef, ...(vale ? { vale: vale.id } : {}),
+          // `[LE.2.13]` Un documento que paga varios gastos guarda todos sus vales; el «una vez» de la base mira `vale`.
+          ...(vales.length > 1 ? { vales: vales.map((v) => v.id) } : {}) },
         actor: { kind: 'persona', user_id: cajera }, expires_at: new Date(vence).toISOString(),
         por_firmar: plan.requiereFirma, act: acto, idempotency_key: key,
       })])).rows[0].o as OrdenEmitida;

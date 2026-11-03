@@ -4,7 +4,7 @@ import { HttpException } from '@nestjs/common';
 import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import type { PagoEnVentanilla } from '@megadulces/contracts';
 import { CashbookService } from './cashbook.service';
-import { CashbookVentanillaService, type FilaDocumento, type FilaVale } from './cashbook-ventanilla.service';
+import { CashbookVentanillaService, type FilaDocumento, type FilaRespaldoCompra, type FilaRespaldoGasto, type FilaVale } from './cashbook-ventanilla.service';
 
 /**
  * `[LE.4.10]` — La Ventanilla contra Postgres, con el payload de la pantalla (regla 13): pagar con
@@ -39,6 +39,12 @@ class VentanillaConFilas extends CashbookVentanillaService {
   }
   protected override async filaDelVale(_trx: Knex.Transaction, _t: string, id: string): Promise<FilaVale | undefined> {
     return this.vales.get(id);
+  }
+  /** `[LE.2.13]` Sin entrada = sin ODS (lo que pasa en la base de prueba): el respaldo es «ninguno». */
+  respaldos = new Map<string, { gastos: FilaRespaldoGasto[]; compras: FilaRespaldoCompra[] }>();
+  protected override async filasDelRespaldo(_trx: Knex.Transaction, _t: string, sucursal: string, folio: string)
+    : Promise<{ gastos: FilaRespaldoGasto[]; compras: FilaRespaldoCompra[] } | null> {
+    return this.respaldos.get(`${sucursal}|${folio}`) ?? null;
   }
 }
 
@@ -196,5 +202,53 @@ describe.skipIf(!URL)('[LE.4.10] la Ventanilla contra Postgres', () => {
     v.vales.set(OTRO, { id: OTRO, folio: '0000231', status: 'aprobada', importe: '500.00', aprobado_at: '2026-11-02 11:00:00-06' });
     expect(await rechazo(v.pagar(pago(DOC, { vale_id: OTRO }), CAJERA, randomUUID()))).toEqual({ status: 422, codigo: 'vale_de_otro_importe' });
     expect(await rechazo(v.pagar(pago(DOC, { vale_id: randomUUID() }), CAJERA, randomUUID()))).toEqual({ status: 404, codigo: 'vale_inexistente' });
+  });
+
+  /**
+   * `[LE.2.13]` Lo que Kepler dice que paga el documento decide, con UNA autorización: la compra misma o
+   * el gasto aprobado por una persona. Las filas copian lo que el SQL devolvió en prod el 2026-11-03.
+   */
+  it('[LE.2.13] una compra con sus entradas cuadradas sale sin firma; un gasto sin aprobar o sin expediente no sale', async () => {
+    if (!hay) return;
+    const entrada = (doc: string, pesos: string, total = pesos): FilaRespaldoCompra => ({ doc, aplicado: pesos, importe_doc: pesos, aplicado_total: total });
+    const gasto = (g: string, pesos: string, vale: Partial<FilaRespaldoGasto> | null): FilaRespaldoGasto => ({
+      gasto: g, aplicado: pesos, vale_id: null, vale_folio: null, vale_estado: null, vale_importe: null, vale_aprobado_at: null, ...(vale ?? {}) });
+
+    // Un proveedor de mercancía, 08/0000699 en prod: 3 entradas por $17,230. Sin vale y sin firma.
+    v.docs.set('00|X-D-26|0023795|0011', { folio: '0023795', beneficiario: 'PROVEEDOR DE BOTANA', importe: '17230.00' });
+    v.respaldos.set('00|0023795', { gastos: [], compras: [entrada('0000367', '6010.00'), entrada('0000375', '6530.00'), entrada('0000380', '4690.00')] });
+    const cajaAntes = await saldo('CAJA_MXN');
+    const r = await v.pagar(pago('00|X-D-26|0023795|0011', { piezas_cajon: { 10: '1' } }), CAJERA, randomUUID());
+    expect(r).toMatchObject({ estado: 'pagado', maquina_minor: '1722000', cajon_minor: '1000' });
+    expect(cajaAntes - (await saldo('CAJA_MXN'))).toBe(1000n);
+
+    // NEGATIVA: una entrada que otro pago ya cubrió quedaría pagada de más.
+    v.docs.set('00|X-D-26|0023796|0011', { folio: '0023796', beneficiario: 'PROVEEDOR DE BOTANA', importe: '6010.00' });
+    v.respaldos.set('00|0023796', { gastos: [], compras: [entrada('0000367', '6010.00', '12020.00')] });
+    expect(await rechazo(v.pagar(pago('00|X-D-26|0023796|0011', { piezas_cajon: { 10: '1' } }), CAJERA, randomUUID())))
+      .toEqual({ status: 422, codigo: 'compra_pagada_de_mas' });
+
+    // NEGATIVA: validada sólo por el cierre de Kepler (sin quién aprobó) no sale, ni se manda a firmar.
+    const SIN_PERSONA = randomUUID();
+    v.docs.set('00|X-D-26|0023797|0011', { folio: '0023797', beneficiario: 'CAJA CHICA', importe: '600.00' });
+    v.respaldos.set('00|0023797', { gastos: [gasto('0000220', '600.00', { vale_id: SIN_PERSONA, vale_folio: '0000247', vale_estado: 'validada', vale_importe: '600' })], compras: [] });
+    expect(await rechazo(v.pagar(pago('00|X-D-26|0023797|0011'), CAJERA, randomUUID()))).toEqual({ status: 422, codigo: 'gasto_sin_aprobar' });
+    // ...y la cajera no lo ampara con el vale de otro gasto.
+    const AJENO = randomUUID();
+    v.vales.set(AJENO, { id: AJENO, folio: '0000999', status: 'aprobada', importe: '600.00', aprobado_at: '2026-11-02 11:00:00-06' });
+    expect(await rechazo(v.pagar(pago('00|X-D-26|0023797|0011', { vale_id: AJENO }), CAJERA, randomUUID())))
+      .toEqual({ status: 400, codigo: 'vale_no_corresponde' });
+
+    // NEGATIVA: el testigo de nómina de prod, 00/0023782, tiene su gasto sin expediente en la Suite.
+    v.docs.set('00|X-D-26|0023798|0011', { folio: '0023798', beneficiario: 'NOMINA', importe: '796.73' });
+    v.respaldos.set('00|0023798', { gastos: [gasto('0009593', '796.73', null)], compras: [] });
+    expect(await rechazo(v.pagar(pago('00|X-D-26|0023798|0011'), CAJERA, randomUUID()))).toEqual({ status: 422, codigo: 'gasto_sin_expediente' });
+
+    // Con su vale aprobado por una persona sí sale, y el vale lo pone Kepler, no la cajera.
+    const FIRMADO = randomUUID();
+    v.docs.set('00|X-D-26|0023799|0011', { folio: '0023799', beneficiario: 'CAJA CHICA', importe: '1100.00' });
+    v.respaldos.set('00|0023799', { gastos: [gasto('0000276', '1100.00', { vale_id: FIRMADO, vale_folio: '0000308', vale_estado: 'validada',
+      vale_importe: '1100', vale_aprobado_at: '2026-11-02 15:36:54-06' })], compras: [] });
+    expect(await v.pagar(pago('00|X-D-26|0023799|0011'), CAJERA, randomUUID())).toMatchObject({ estado: 'pagado', maquina_minor: '110000', cajon_minor: '0' });
   });
 });
