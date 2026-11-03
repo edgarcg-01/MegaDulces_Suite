@@ -172,7 +172,7 @@ export class PaymentCalendarDocumentService {
       arr.push(d);
       porPago.set(d.allocation_id, arr);
     }
-    const FUENTE: Record<string, string> = { cfdi: 'CFDI', ocr: 'OCR', ninguna: '—' };
+    const FUENTE: Record<string, string> = { cfdi: 'CFDI', ocr: 'OCR', erp: 'ERP', ninguna: '—' };
     const PAPEL: Record<string, string> = { pdf: 'PDF', uuid: 'UUID', ninguna: 'FALTA', no_aplica: '—' };
     const cuerpo = allocations
       .slice()
@@ -232,6 +232,7 @@ export class PaymentCalendarDocumentService {
     const saldadas = detalle.filter((d) => d.saldada).length;
     const sinExterno = conPapel.filter((d) => !d.folio_externo).length;
     const porOcr = conPapel.filter((d) => d.folio_externo_fuente === 'ocr').length;
+    const porErp = conPapel.filter((d) => d.folio_externo_fuente === 'erp').length;
     const parcial = detalle.filter((d) => d.pendiente !== null && d.se_paga < d.pendiente - 0.005).length;
     const fila = (k: string, v: number | string, nota = '') =>
       `<tr><td>${esc(k)}</td><td class="r"><b>${esc(String(v))}</b></td><td class="nota">${esc(nota)}</td></tr>`;
@@ -243,6 +244,7 @@ export class PaymentCalendarDocumentService {
         ${fila('SIN ningún papel', n('ninguna'), 'hay que buscarlos en el archivo físico')}
         ${fila('Sin folio externo legible', sinExterno, 'el papel se busca por folio interno y fecha')}
         ${fila('Folio externo leído por OCR', porOcr, 'no verificado contra el CFDI — cotejar contra el papel')}
+        ${fila('Folio externo tecleado en el ERP', porErp, 'lleva el prefijo de captura — cotejar contra el papel')}
         ${fila('Se paga menos de lo que se debe', parcial, 'pago parcial o descuento: anexar el soporte')}
         ${saldadas ? fila('ATENCIÓN — el ERP ya no debe este documento', saldadas, 'no se puede pagar: revisar antes de autorizar') : ''}
       </table>`;

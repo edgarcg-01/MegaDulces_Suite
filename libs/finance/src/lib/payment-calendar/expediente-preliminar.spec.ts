@@ -77,6 +77,26 @@ describe('[PGP.47] el desglose por factura', () => {
     expect(porCfdi).not.toContain('>OCR<');
   });
 
+  /**
+   * ⛔ Lo encontró Edgar leyendo el papel: la columna decía `SD060092661394`, que no es ningún
+   * folio — es la serie `SD06` pegada al folio `0092661394` sin separador. En la factura dice
+   * «Serie SD06 Folio 0092661394». 37 de 44 CFDI de la deuda programada traen serie.
+   */
+  it('⛔ serie y folio del CFDI se publican SEPARADOS, no pegados', () => {
+    const html = tabla([pago()], [linea({ folio_externo: 'SD06-0092661394', folio_externo_fuente: 'cfdi' })]);
+    expect(html).toContain('SD06-0092661394');
+    expect(html).not.toContain('SD060092661394');
+  });
+
+  it('⭐ la referencia del ERP es la TERCERA fuente, y se declara como tal', () => {
+    const html = tabla([pago()], [linea({ folio_externo: '0-F-7470', folio_externo_fuente: 'erp' })]);
+    expect(html).toContain('0-F-7470');
+    expect(html).toContain('ERP');
+    // No se disfraza de dato timbrado ni de lectura: es lo que alguien tecleó.
+    expect(html).not.toContain('>CFDI<');
+    expect(html).not.toContain('>OCR<');
+  });
+
   it('sin folio externo no inventa fuente: la columna queda declarada en blanco', () => {
     const html = tabla([pago()], [linea({ folio_externo: null, folio_externo_fuente: 'ninguna' })]);
     expect(html).not.toContain('OCR');

@@ -274,13 +274,27 @@ export interface ExpedienteLinea {
   sucursal: string | null;
   /** El folio del documento en Kepler — con el que el ERP lo conoce. Cobertura medida: 85.4 %. */
   folio_interno: string | null;
-  /** El folio impreso en el papel del proveedor. Medido: 168 de 226 líneas vivas (74.3 %). */
+  /**
+   * El folio impreso en el papel del proveedor. Con las tres fuentes abajo, **100 % de las
+   * líneas del 2026-11-03** (25 del CFDI, 30 del OCR, 14 del ERP).
+   */
   folio_externo: string | null;
   /**
-   * De dónde salió el folio externo, porque no valen lo mismo: `cfdi` es el folio **timbrado**
-   * (36 de 36 casan); `ocr` es una lectura automática de la foto del comprobante (132 de 142).
+   * De dónde salió, porque las tres **no valen lo mismo** y quien archiva tiene que saber cuál
+   * está leyendo (ADR-056):
+   *
+   *  - `cfdi` — serie y folio del comprobante **timbrado**, casado por UUID. Es el dato duro.
+   *  - `ocr`  — lectura automática de la foto del comprobante. Acierta mucho pero **no está
+   *    verificada**, y 5 de 35 del día eran ilegibles (ver `folioExternoLegible`).
+   *  - `erp`  — lo que tecleó quien capturó la factura (`kdxe.c16`), con su prefijo tal cual.
+   *    ⭐ Medido el 2026-11-03 sobre los **43 pares casados por UUID** (no por ancla difusa):
+   *    **22 terminan con el folio completo del CFDI (51.2 %)** y **28 con sus últimos cuatro
+   *    (65.1 %)**, con **placebo 0** en los dos casos — el folio interno de Kepler nunca aparece
+   *    ahí. ⛔ Corrige una medición mía anterior que lo dio por ruido («4 de 219»): aquella
+   *    anclaba por RFC + importe, lo que infla los pares, y comparaba contra una concatenación
+   *    de serie y folio que estaba mal armada.
    */
-  folio_externo_fuente: 'cfdi' | 'ocr' | 'ninguna' | null;
+  folio_externo_fuente: 'cfdi' | 'ocr' | 'erp' | 'ninguna' | null;
   /** Folio de la orden de compra que originó la entrada. Medido: 100 de 142 con comprobante. */
   orden_compra: string | null;
   fecha_recepcion: string | null;
@@ -1221,7 +1235,13 @@ export class PaymentCalendarService {
           // ⛔ `p.folio_interno` NO se usa: medido el 2026-11-03, está en 2 de 142 comprobantes y
           // en **0** verificados (`folio_interno_ok`). El folio interno es el del ERP, y el
           // comprobante lo confirma por otro lado: `p.folio` coincide con `v.folio` en 142 de 142.
-          trx.raw(`nullif(btrim(coalesce(c.serie, '') || coalesce(c.folio, '')), '') AS folio_cfdi`),
+          // ⛔ Serie y folio son columnas DISTINTAS y pegarlas sin separador produce un folio que
+          // no existe: `SD06` + `0092661394` salia `SD060092661394`, y en la factura dice
+          // «Serie SD06 Folio 0092661394». Lo encontro Edgar leyendo el papel. 37 de 44 CFDI de
+          // la deuda programada traen serie, asi que no es un caso de borde.
+          trx.raw(`CASE WHEN nullif(btrim(c.folio), '') IS NULL THEN NULL
+                        WHEN nullif(btrim(c.serie), '') IS NULL THEN btrim(c.folio)
+                        ELSE btrim(c.serie) || '-' || btrim(c.folio) END AS folio_cfdi`),
           trx.raw(`nullif(btrim(p.ocr_folio), '') AS folio_ocr`),
           trx.raw(`nullif(btrim(p.oc_folio), '') AS orden_compra`),
           'p.receipt_date as fecha_recepcion',
@@ -1253,6 +1273,9 @@ export class PaymentCalendarService {
         // de las dos está leyendo antes de darle crédito (ADR-056).
         const folioCfdi = (r['folio_cfdi'] as string | null) ?? null;
         const folioOcr = folioExternoLegible(r['folio_ocr'] as string | null);
+        // La tercera fuente: lo que tecleó quien capturó la factura en el ERP. Es la más débil
+        // de las tres y por eso va última, pero llena el hueco que dejan las otras dos.
+        const folioErp = propia ? null : folioExternoLegible(r['referencia'] as string | null);
         return {
           allocation_id: String(r['allocation_id']),
           obligation_source: r['obligation_source'] as ObligationSource,
@@ -1260,8 +1283,9 @@ export class PaymentCalendarService {
           se_paga: Number(r['applied_amount']),
           sucursal: (r['sucursal'] as string | null) ?? null,
           folio_interno: (r['documento'] as string | null) ?? null,
-          folio_externo: propia ? null : (folioCfdi ?? folioOcr),
-          folio_externo_fuente: propia ? null : (folioCfdi ? 'cfdi' : folioOcr ? 'ocr' : 'ninguna'),
+          folio_externo: propia ? null : (folioCfdi ?? folioOcr ?? folioErp),
+          folio_externo_fuente: propia ? null
+            : folioCfdi ? 'cfdi' : folioOcr ? 'ocr' : folioErp ? 'erp' : 'ninguna',
           orden_compra: propia ? null : ((r['orden_compra'] as string | null) ?? null),
           fecha_recepcion: propia ? null : dia(r['fecha_recepcion']),
           fecha: dia(r['fecha']), vencimiento: dia(r['vencimiento']),
