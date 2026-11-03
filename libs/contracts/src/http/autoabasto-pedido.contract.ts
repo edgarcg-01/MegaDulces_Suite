@@ -860,7 +860,15 @@ export interface SucursalPendientesResponse {
   fuera: Array<{ label: string; motivo: string }>;
 }
 
-export const PENDIENTES_SUCURSAL_TOPE_FILAS = 10;
+/**
+ * `[AB.47]` Filas por cola que viajan: TODAS las que trae la consulta (su `LIMIT` es 200), para que los
+ * filtros de la pantalla (míos, sin tomar, buscar) miren algo más que las 10 primeras. La pantalla pinta
+ * 10 y «Ver todas» abre el resto. Si `total` > filas, la pantalla lo dice. Las colas de OTRA área viajan
+ * sin filas: ahí sólo se muestra el conteo.
+ */
+export const PENDIENTES_SUCURSAL_TOPE_FILAS = 200;
+/** `[AB.47]` Cuántas filas pinta la pantalla de cada cola antes de «Ver todas». */
+export const PENDIENTES_SUCURSAL_FILAS_VISIBLES = 10;
 
 /** `[AB.46]` Quién se atribuyó un pendiente para resolverlo. */
 export interface ResponsablePendiente {

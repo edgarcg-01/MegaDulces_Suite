@@ -2501,6 +2501,30 @@ anaquel). Ahora tienen dos y aterrizan en Mi trabajo. Nadie pierde acceso.
   puertas primarias, el front (`modules/sucursal`, layout) y `check:pantalla`. Tampoco: el arranque de la API, la
   validación visual y `MATRIZ_ACCESOS` (se regenera después de aplicar el reparto).
 
+#### 16.24.1 🧪 [AB.47] Filtros (2026-11-03)
+
+**Edgar:** «hay que agregar filtros o lo que sea necesario para mejorar la interfaz». Se agregaron, debajo de la
+franja:
+- **Quién lo tiene:** todos · sin tomar · míos, con su conteo.
+- **Proceso:** recibir, surtir, caja, inventario o administración, con su conteo.
+- **Buscar:** por folio, detalle o persona, sin acentos y en cualquier orden (`coincideBusqueda`, D.8).
+- **«Sólo lo que puedo resolver»:** deja las colas cuya pantalla abre el puesto.
+
+Cada control cuenta con los OTROS filtros puestos. Los filtros viven en la URL (`quien`, `proceso`, `q`, `puedo`,
+`suc`), así que se comparten y sobreviven a recargar. Con filtros puestos:
+- una cola sin coincidencias sale de la lista, y se dice cuántas salieron;
+- se ocultan «al día», lo de otra área y la lista de lo que no entra (no aplican al filtro).
+
+**Filas por cola.** Viajan hasta 200, las que ya trae cada consulta, para que los filtros miren algo más que las 10
+primeras. Se pintan 10 y «Ver las N» abre el resto. Si la cola tiene más de 200, se dice. Las colas de otra área
+viajan sin filas: sólo se muestra su conteo.
+
+**Pruebas:**
+- Util: 12/12, con negativa en rojo («míos» contando lo de otros).
+- `check:pantalla`: tipa y cumple las 10 reglas.
+- Reabasto: 313/313.
+- **No medido:** validación visual y el peso de la respuesta en CEDIS (hasta 200 filas por cola).
+
 **Pendiente de commit (cambios ajenos en el mismo archivo):** el registro de la prueba en
 `database/run-all-tests.js` está en el árbol, pero no se commiteó porque ese archivo trae 2 líneas de otra sesión
 sin commitear.
