@@ -181,6 +181,17 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
     await cal.cancelAllocation(unico.id, 'prueba', USER);
   });
 
+  // `[PGP.50]` El orden por cercanía a hoy: el SQL corre de verdad (abs de una resta de fechas en
+  // la zona de CDMX). Las facturas de prueba vencen todas en 2030, así que lo más cercano a hoy es
+  // lo que vence antes: el control es que coincida con el orden por vencimiento.
+  it('[PGP.50] orden «cercania»: lo más cercano a hoy primero', async () => {
+    const cerca = await cal.listObligations({ search: 'TPIT', orden: 'cercania' });
+    const venc = await cal.listObligations({ search: 'TPIT', orden: 'vencimiento' });
+    expect(cerca.rows.length).toBeGreaterThan(1);
+    const fechas = (r: { rows: Array<{ original_due_date: string | Date }> }) => r.rows.map((x) => String(x.original_due_date).slice(0, 10));
+    expect(fechas(cerca)).toEqual(fechas(venc));
+  });
+
   it('[PGP.48] los días YA PASADOS con pagos pendientes se listan; los futuros no', async () => {
     const [lot] = await trx('finance.payment_calendar_lots').insert({ tenant_id: M, lot_date: '2020-01-15' }).returning('id');
     await trx('finance.payment_allocations').insert({ tenant_id: M, lot_id: lot.id, classification: 'proveedor_mercancia', amount_assigned: 1234.5, created_by: USER });

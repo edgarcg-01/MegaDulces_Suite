@@ -39,7 +39,7 @@ type ReprogramReason = 'cuenta_erronea' | 'falla_sistema_banco' | 'pago_devuelto
  * está parado. Es una unión cerrada a propósito — `runVerdict()` tiene que seguir siendo
  * exhaustiva, y agregar un paso sin su acción tiene que romper la compilación, no pasar de largo.
  */
-type VerdictActionKind = 'armar' | 'proponer' | 'ordenar' | 'autorizar' | 'pagar' | 'cerrar' | 'rebote' | 'mover';
+type VerdictActionKind = 'armar' | 'proponer' | 'ordenar' | 'autorizar' | 'pagar' | 'cerrar' | 'rebote' | 'mover' | 'exceso';
 interface VerdictAction { kind: VerdictActionKind; label: string; icon: string }
 /** `[PGP.15]` El veredicto: «bien» y «falta» no llevan tono (lo dice la frase); sólo lo que está mal. */
 interface Verdict { tone: 'ok' | 'bad' | 'muted'; say: string; why: string | null; action: VerdictAction | null }
@@ -349,7 +349,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                     <!-- [PGP.15] El universo de la lista, en la misma línea (era un renglón aparte): si vino
                          topada se dice cuántas de cuántas, también con búsqueda. -->
                     @else if (busquedaAplicada()) { @if (obligationsTruncated()) { {{ obligations().length | number }} de {{ obligationsTotal() | number }} facturas } @else { {{ facturas(obligacionesProgramables().length) }} } con «{{ busquedaAplicada() }}»@if (gruposBusqueda().length > 1) { · {{ gruposBusqueda().length }} proveedores } }
-                    @else { @if (obligationsTruncated()) { {{ obligations().length | number }} de {{ obligationsTotal() | number }} por pagar, las más próximas a vencer } @else { {{ obligationsTotal() | number }} por pagar }@if (obligacionesEnRevision().length) { · {{ obligacionesEnRevision().length }} por confirmar } }
+                    @else { @if (obligationsTruncated()) { {{ obligations().length | number }} de {{ obligationsTotal() | number }} por pagar, {{ ordenDice() }} } @else { {{ obligationsTotal() | number }} por pagar }@if (obligacionesEnRevision().length) { · {{ obligacionesEnRevision().length }} por confirmar } }
                   </span>
                 </div>
                 @if (avisoAlta(); as av) {
@@ -358,6 +358,52 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                 @if (creditosError()) {
                   <!-- [PGP.48] Sin esto, una falla se leía como «ningún acreedor trae crédito a favor». -->
                   <p class="pg-qp-nm"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No se pudo leer el crédito a favor de los acreedores: los avisos de «a favor sin aplicar» no aparecen. No es que no haya.</p>
+                }
+                <!-- [PGP.41] La respuesta, antes de que nadie la pida: qué conviene pagar esta semana.
+                     [PGP.44] Cada renglón LLEVA a sus facturas con el buscador ya puesto.
+                     [PGP.50] Vive en este panel (sus renglones llenan el buscador de aquí). Un renglón por
+                     acreedor; «sin cuenta» es UNA cifra en el encabezado, no un aviso en 34 de 37 renglones;
+                     y en un día que ya excede su tope nace plegado: ahí no toca agregar sino mover. -->
+                @if (quePagarError(); as err) {
+                  <p class="pg-qp-nm"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ err }} Lo que convenga pagar NO se pudo calcular: no es que no haya nada.</p>
+                } @else if (quePagar().length) {
+                  <section class="pg-qp" aria-label="Qué conviene pagar">
+                    <button type="button" class="pg-qp-t" [attr.aria-expanded]="!quePagarPlegado()" (click)="plegarQuePagar()">
+                      <i class="pi" [class.pi-angle-down]="!quePagarPlegado()" [class.pi-angle-right]="quePagarPlegado()" aria-hidden="true"></i>
+                      <i class="pi pi-bolt" aria-hidden="true"></i>
+                      <span>Pagando <b class="comm-num">{{ money(quePagarImporte()) }}</b> a <b>{{ quePagar().length }}</b> acreedores esta semana se ganan <b class="comm-num pg-gana">{{ money(quePagarGana()) }}</b> de pronto pago@if (quePagarSinCuenta() > 0) {<span class="pg-qp-sc"> · {{ quePagarSinCuenta() }} de {{ quePagar().length }} sin cuenta para transferir</span>}</span>
+                    </button>
+                    @if (quePagarPlegado()) {
+                      @if (diaExcedido()) { <p class="pg-qp-ex">Plegado porque el día ya excede su tope: primero hay que mover pagos.</p> }
+                    } @else {
+                      <ul class="pg-qp-l">
+                        @for (r of quePagar().slice(0, verQuePagarTodo() ? quePagar().length : 5); track r.proveedor_code) {
+                          <li [class.is-urge]="r.dias_restantes <= 1">
+                            <button type="button" class="pg-qp-go" (click)="tomarSugerido(r)"
+                                    [attr.aria-label]="'Ver las ' + facturas(r.facturas) + ' de ' + r.proveedor_nombre + ' para agregarlas al día' + (r.se_puede_preparar_hoy ? '' : '; no tiene cuenta para transferir')">
+                              <span class="pg-qp-who"><span class="pg-qp-n">{{ r.proveedor_nombre }}</span><span class="pg-qp-d"> ·
+                                @if (r.dias_restantes === 0) { cierra <b>hoy</b> }
+                                @else if (r.dias_restantes === 1) { cierra <b>mañana</b> }
+                                @else { quedan {{ r.dias_restantes }} días }
+                                · {{ facturas(r.facturas) }}@if (quePagarMarcaConCuenta() && r.se_puede_preparar_hoy) { · con cuenta } @else if (!quePagarMarcaConCuenta() && !r.se_puede_preparar_hoy) { · sin cuenta }</span></span>
+                              <span class="comm-num pg-qp-i">{{ money(r.importe) }}</span>
+                              <span class="comm-num pg-gana pg-qp-g">+{{ money(r.gana) }}</span>
+                              <i class="pi pi-angle-right pg-qp-ch" aria-hidden="true"></i>
+                            </button>
+                          </li>
+                        }
+                      </ul>
+                      @if (quePagar().length > 5) {
+                        <!-- [PGP.44] Se nombra la GANANCIA, no un «por $X» que se leía como importe.
+                             [PGP.48] «y 32 más» se abre ahí mismo. -->
+                        <button type="button" class="pg-qp-m" [attr.aria-expanded]="verQuePagarTodo()" (click)="verQuePagarTodo.set(!verQuePagarTodo())">
+                          <i class="pi" [class.pi-angle-down]="!verQuePagarTodo()" [class.pi-angle-up]="verQuePagarTodo()" aria-hidden="true"></i>
+                          @if (verQuePagarTodo()) { Ver sólo los primeros 5 }
+                          @else { y {{ quePagar().length - 5 }} acreedores más, que ganan <b class="comm-num pg-gana">{{ money(quePagarRestoGana()) }}</b> de pronto pago }
+                        </button>
+                      }
+                    }
+                  </section>
                 }
                 @if (verDeuda()) {
                   <div class="pg-drawer" id="pg-add-b">
@@ -539,51 +585,9 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
 
             <!-- ── LOS PAGOS DEL DIA: una tabla, todos los estados, siempre a la vista ── -->
             <section class="pg-sec" aria-labelledby="pg-pagos-h">
-              <!-- [PGP.41] La respuesta, antes de que nadie la pida. Va ARRIBA del panel del dia
-                   porque es lo que define que hacer con el dia, no un adorno. -->
-              @if (quePagarError(); as err) {
-                <p class="pg-qp-nm"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ err }} Lo que convenga pagar hoy NO se pudo calcular: no es que no haya nada.</p>
-              } @else if (quePagar().length) {
-                <section class="pg-qp" aria-label="Que conviene pagar">
-                  <p class="pg-qp-t">
-                    <i class="pi pi-bolt" aria-hidden="true"></i>
-                    Pagando <b class="comm-num">{{ money(quePagarImporte()) }}</b> a <b>{{ quePagar().length }}</b> acreedores esta semana se ganan <b class="comm-num pg-gana">{{ money(quePagarGana()) }}</b> de pronto pago.
-                  </p>
-                  <!-- [PGP.44] Cada renglon LLEVA a sus facturas con el buscador ya puesto.
-                       Antes el panel afirmaba la ganancia y no habia camino para tomarla. -->
-                  <ul class="pg-qp-l">
-                    @for (r of quePagar().slice(0, verQuePagarTodo() ? quePagar().length : 5); track r.proveedor_code) {
-                      <li [class.is-urge]="r.dias_restantes <= 1">
-                        <button type="button" class="pg-qp-go" (click)="tomarSugerido(r)"
-                                [attr.aria-label]="'Ver las ' + facturas(r.facturas) + ' de ' + r.proveedor_nombre + ' para agregarlas al día'">
-                          <span class="pg-qp-n">{{ r.proveedor_nombre }}</span>
-                          <span class="pg-qp-d">
-                            @if (r.dias_restantes === 0) { cierra <b>hoy</b> }
-                            @else if (r.dias_restantes === 1) { cierra <b>mañana</b> }
-                            @else { quedan {{ r.dias_restantes }} días }
-                            · {{ facturas(r.facturas) }}
-                            @if (!r.se_puede_preparar_hoy) { · <span class="pg-qp-b">sin cuenta para transferir</span> }
-                          </span>
-                          <span class="comm-num pg-qp-i">{{ money(r.importe) }}</span>
-                          <span class="comm-num pg-gana pg-qp-g">+{{ money(r.gana) }}</span>
-                          <i class="pi pi-angle-right pg-qp-ch" aria-hidden="true"></i>
-                        </button>
-                      </li>
-                    }
-                  </ul>
-                  @if (quePagar().length > 5) {
-                    <!-- [PGP.44] «por $X» se leia como el IMPORTE de esos acreedores (estaba al pie de
-                         una columna de importes) y es la GANANCIA: el 2026-11-02 decia «por $239,108.55»
-                         sobre 32 acreedores que suman $4.7M. Ahora se nombra lo que es. -->
-                    <!-- [PGP.48] «y 32 más» era una cifra que no se podía recorrer: ahora se abren ahí mismo. -->
-                    <button type="button" class="pg-qp-m" [attr.aria-expanded]="verQuePagarTodo()" (click)="verQuePagarTodo.set(!verQuePagarTodo())">
-                      <i class="pi" [class.pi-angle-down]="!verQuePagarTodo()" [class.pi-angle-up]="verQuePagarTodo()" aria-hidden="true"></i>
-                      @if (verQuePagarTodo()) { Ver sólo los primeros 5 }
-                      @else { y {{ quePagar().length - 5 }} acreedores más, que ganan <b class="comm-num pg-gana">{{ money(quePagarRestoGana()) }}</b> de pronto pago }
-                    </button>
-                  }
-                </section>
-              }
+              <!-- [PGP.50] «Qué conviene pagar» vivía aquí, arriba de la tabla del día: medía ~380 px y dejaba
+                   a la vista 2 de 31 pagos. Sus renglones llevan a «Agregar facturas», así que se mudó a ese
+                   panel, que es donde se toma esa decisión. -->
               <div class="pg-sec-h">
                 <h3 class="pg-sec-t" id="pg-pagos-h">Pagos del día
                   @if (allocations().length) { <span class="pg-sec-n comm-num">{{ pagos(allocations().length) }} · {{ money(dayTotal(day)) }}</span> }
@@ -1091,17 +1095,28 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
       <!-- [PGP.48] Uno o varios: los pagos de un día que ya pasó se mueven juntos. -->
       @if (reprogramTodos.length > 1) {
         <p class="cal-dlg-p">Se mueven <b>{{ pagos(reprogramTodos.length) }}</b> por <b class="comm-num">{{ money(reprogramTotal()) }}</b>, con su misma preparación.</p>
+        <!-- [PGP.50] Cuáles: mover N pagos sin decir cuáles es firmar a ciegas. -->
+        <ul class="pg-dlg-list">
+          @for (a of reprogramTodos; track a.id) {
+            <li><span><span class="comm-num pg-dlg-fol">{{ a.priority_rank ?? '—' }}</span> {{ allocationTitle(a) }}@if (reprogramDestinos) { <span class="pg-dlg-a">→ {{ dayShort(fechaDeMover(a)) }}</span> }</span><b class="comm-num">{{ money(a.amount_assigned) }}</b></li>
+          }
+        </ul>
       } @else if (reprogramTodos[0]; as a) {
-        <p class="cal-dlg-p"><strong>{{ allocationTitle(a) }}</strong> · {{ money(a.amount_assigned) }}</p>
+        <p class="cal-dlg-p"><strong>{{ allocationTitle(a) }}</strong> · {{ money(a.amount_assigned) }}@if (reprogramDestinos) { → {{ dayLong(fechaDeMover(a)) }} }</p>
       }
-      <label class="cal-dlg-label" for="cal-rep-date">Nueva fecha</label>
-      <input id="cal-rep-date" type="date" [min]="todayIso" [(ngModel)]="reprogramDate" class="cal-date-input cal-dlg-full" />
+      @if (reprogramDestinos) {
+        <!-- [PGP.50] Repartidos por la propuesta del exceso: cada uno al primer día que le cabe. -->
+        <p class="cal-dlg-hint">Cada pago va al primer día siguiente que todavía tiene espacio en su tope. Para elegir otra fecha, muévelo desde su fila.</p>
+      } @else {
+        <label class="cal-dlg-label" for="cal-rep-date">Nueva fecha</label>
+        <input id="cal-rep-date" type="date" [min]="todayIso" [(ngModel)]="reprogramDate" class="cal-date-input cal-dlg-full" />
+      }
       <label class="cal-dlg-label" for="cal-rep-reason">Motivo</label>
       <p-select appendTo="body" inputId="cal-rep-reason" [options]="reprogramReasonOpts" [(ngModel)]="reprogramReason" optionLabel="label" optionValue="value" placeholder="Motivo" [fluid]="true" class="cal-dlg-sel" />
       @if (reprogramReason === 'otro') {
         <input pInputText type="text" [(ngModel)]="reprogramReasonDetail" placeholder="Detalle (obligatorio)" class="cal-dlg-full" aria-label="Detalle del motivo" />
       }
-      <div class="cal-dlg-actions"><button pButton type="button" class="p-button-text p-button-secondary" (click)="reprogramVisible = false">Cancelar</button><button pButton type="button" (click)="confirmReprogram()" [loading]="saving()" [disabled]="!reprogramValido()">@if (reprogramDate) { Mover al {{ dayLong(reprogramDate) }} } @else { Mover }</button></div>
+      <div class="cal-dlg-actions"><button pButton type="button" class="p-button-text p-button-secondary" (click)="reprogramVisible = false">Cancelar</button><button pButton type="button" (click)="confirmReprogram()" [loading]="saving()" [disabled]="!reprogramValido()">@if (reprogramDestinos) { Mover {{ reprogramTodos.length === 1 ? 'el pago' : 'los ' + reprogramTodos.length }} } @else if (reprogramDate) { Mover al {{ dayLong(reprogramDate) }} } @else { Mover }</button></div>
     </p-dialog>
   `,
   styles: [`
@@ -1478,6 +1493,8 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-sec-saldada { display:inline-flex; align-items:center; gap:var(--sp-1); color:var(--bad-fg); font-weight:600; font-size:var(--fs-xs); }
     .pg-dlg-list li.is-saldada { color:var(--bad-fg); }
     .pg-dlg-warn { display:inline-flex; align-items:center; gap:var(--sp-1); margin-left:var(--sp-2); color:var(--bad-fg); font-weight:600; font-size:var(--fs-xs); }
+    /* [PGP.50] El dia al que va cada pago en la propuesta del exceso. */
+    .pg-dlg-a { margin-left:var(--sp-2); color:var(--text-muted); font-weight:600; white-space:nowrap; }
     /* [PGP.36] La razon de pago. Cuatro tonos y NINGUNO depende solo del color: cada uno lleva
        su icono y su texto (DESIGN - el color nunca es el unico portador). */
     .pg-razon { display:flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-xs); font-weight:600; color:var(--fg-2); }
@@ -1490,20 +1507,27 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-sec-pronto { display:inline-flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-xs); }
     /* [PGP.41] La respuesta del sistema. Fondo sutil, sin caja dura: es informacion, no una alerta. */
     .pg-qp { margin:0 0 var(--sp-3); padding:var(--sp-2) var(--sp-3); background:var(--surface-2); border-radius:var(--radius-md); }
-    .pg-qp-t { margin:0 0 var(--sp-2); font-size:var(--fs-sm); display:flex; align-items:center; gap:var(--sp-1); }
+    /* [PGP.50] El encabezado pliega y despliega: es un boton, con su anillo de foco. */
+    .pg-qp-t { all:unset; box-sizing:border-box; cursor:pointer; width:100%; margin:0; padding:2px var(--sp-1);
+               font-size:var(--fs-sm); display:flex; align-items:baseline; gap:var(--sp-1); border-radius:var(--r-sm); color:var(--text-main); }
+    .pg-qp-t:hover { background:var(--overlay-hover); }
+    .pg-qp-t:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
+    .pg-qp-sc { color:var(--text-muted); }
+    .pg-qp-ex { margin:var(--sp-1) 0 0; padding-left:calc(var(--sp-1) + 1rem); font-size:var(--fs-xs); color:var(--text-muted); }
+    .pg-qp-who { grid-column:1; min-width:0; }
     .pg-qp-l { list-style:none; margin:0; padding:0; }
     .pg-qp-l li { border-top:1px solid var(--border-color); }
     /* [PGP.44] El renglon es un boton: lleva a las facturas de ese acreedor. */
     .pg-qp-go { all:unset; box-sizing:border-box; cursor:pointer; width:100%;
                 display:grid; grid-template-columns:1fr auto auto auto; gap:var(--sp-2); align-items:baseline;
-                padding:2px var(--sp-1); font-size:var(--fs-xs); border-radius:var(--r-sm); }
+                padding:2px var(--sp-1); font-size:var(--fs-sm); border-radius:var(--r-sm); }
     .pg-qp-go:hover { background:var(--overlay-hover); }
     .pg-qp-go:focus-visible { outline:2px solid var(--action-ring); outline-offset:-2px; }
     .pg-qp-ch { grid-column:4; color:var(--text-muted); align-self:center; }
     .pg-qp-l li.is-urge .pg-qp-d { color:var(--text-main); font-weight:700; }
-    .pg-qp-n { grid-column:1; font-weight:600; }
-    .pg-qp-d { grid-column:1; color:var(--fg-3); }
-    .pg-qp-b { color:var(--warn-soft-fg); }
+    /* [PGP.50] Nombre y detalle en UN renglon (eran dos lineas por acreedor). */
+    .pg-qp-n { font-weight:600; }
+    .pg-qp-d { color:var(--fg-3); }
     .pg-qp-i { grid-column:2; color:var(--fg-2); }
     .pg-qp-g { grid-column:3; min-width:6rem; text-align:right; }
     .pg-qp-m { display:inline-flex; align-items:center; gap:var(--sp-1); margin:var(--sp-1) 0 0; padding:2px var(--sp-1);
@@ -2120,12 +2144,26 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   }
 
   /** El orden de la lista de deuda, como una sola decisión en vez de dos casillas sueltas. */
+  /**
+   * ⛔ `[PGP.50]` **Por omisión, lo más cercano a hoy.** Era «Vence primero» (vencimiento
+   * ascendente) y la lista se topa en 1,000: entregaba las 1,000 MÁS VIEJAS. Medido el 2026-11-03,
+   * el corte caía en el 1-jun-2026 y **0 de las 160 facturas que vencen esta semana
+   * ($9,022,851.47) estaban en la lista**, mientras el rótulo decía «las más próximas a vencer».
+   * Con `cercania`: 160 de 160. El orden viejo sigue, con el nombre que dice lo que hace.
+   */
   readonly ordenOpts = [
-    { label: 'Vence primero', value: 'vencimiento' },
+    { label: 'Más cercanas a hoy', value: 'cercania' },
+    { label: 'Más vencidas primero', value: 'vencimiento' },
     { label: 'Pierde descuento primero', value: 'descuento' },
   ];
-  ordenSel: 'vencimiento' | 'descuento' = 'vencimiento';
-  onOrden(): void { this.ordenDescuento = this.ordenSel === 'descuento'; this.loadObligations(); }
+  ordenSel: 'cercania' | 'vencimiento' | 'descuento' = 'cercania';
+  /** Lo que dice el resumen de la lista sobre QUÉ parte trae cuando viene topada. */
+  ordenDice(): string {
+    return this.ordenSel === 'descuento' ? 'las que pierden descuento primero'
+      : this.ordenSel === 'vencimiento' ? 'las más vencidas primero'
+      : 'las más cercanas a hoy, vencidas o por vencer';
+  }
+  onOrden(): void { this.loadObligations(); }
 
   /** El primer pago al que le falta algo: el que el veredicto nombra y al que lleva su botón. */
   primerIncompleto(): PaymentCalendarAllocation | null {
@@ -2207,9 +2245,19 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
         why: 'Se pueden armar pagos, pero el día no se autoriza hasta que lo fije.', action: null };
     }
     if (s.exceeded) {
-      return { tone: 'bad',
-        say: `Lo comprometido excede el tope del día por ${this.money(Math.abs(Number(s.remaining_amount ?? 0)))}.`,
-        why: 'Mueve o quita pagos, o pide a Presupuestos ampliarlo.', action: null };
+      const say = `Lo comprometido excede el tope del día por ${this.money(Math.abs(Number(s.remaining_amount ?? 0)))}.`;
+      // [PGP.50] Decía «Mueve o quita pagos» sin botón, y el sistema ya sabe qué mover y a dónde.
+      const p = this.propuestaExceso();
+      if (p) {
+        const cuantos = p.pagos.length === 1 ? 'el último pago del orden' : `los últimos ${p.pagos.length} del orden`;
+        const n = p.pagos.length === 1 ? '1 pago' : `${p.pagos.length} pagos`;
+        return { tone: 'bad', say,
+          why: p.destinos
+            ? `Mover ${cuantos} (${this.money(p.total)}) lo deja dentro del tope; caben en lo libre del ${this.diasDestino(p.destinos)}. En la ventana se ve cuál va a qué día. También puedes pedir a Presupuestos ampliarlo.`
+            : `Mover ${cuantos} (${this.money(p.total)}) lo deja dentro del tope, pero lo libre de esta semana no alcanza para todos: elige la fecha, o pide a Presupuestos ampliarlo.`,
+          action: { kind: 'exceso', label: p.destinos ? `Mover ${n} al ${this.diasDestino(p.destinos)}` : `Mover ${n} a otro día`, icon: 'pi-calendar' } };
+      }
+      return { tone: 'bad', say, why: 'Mueve o quita pagos, o pide a Presupuestos ampliarlo.', action: null };
     }
     if (!this.allocations().length) {
       /*
@@ -2295,8 +2343,6 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   private busquedaTimer: ReturnType<typeof setTimeout> | null = null;
   private obligSeq = 0;
   onlyCritical = false;
-  /** [PGP.7] Lee la misma lista por urgencia de descuento en vez de por fecha de pago. */
-  ordenDescuento = false;
 
   obligations = signal<Obligation[]>([]);
   loadingObligations = signal(false);
@@ -2387,6 +2433,27 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   readonly quePagarRestoGana = computed(() => this.quePagar().slice(5).reduce((s, r) => s + Number(r.gana || 0), 0));
   /** `[PGP.48]` «y N más» se abre ahí mismo: una cifra del encabezado tiene que poder recorrerse. */
   readonly verQuePagarTodo = signal(false);
+  /**
+   * `[PGP.50]` «Sin cuenta para transferir» se decía en cada renglón, y el 3-nov eran 34 de 37: el
+   * aviso repetido no distinguía a nadie. Ahora es una cifra en el encabezado y el renglón marca
+   * sólo el caso MINORITARIO («con cuenta» si casi nadie tiene; «sin cuenta» si casi todos tienen).
+   */
+  readonly quePagarSinCuenta = computed(() => this.quePagar().filter((r) => !r.se_puede_preparar_hoy).length);
+  readonly quePagarMarcaConCuenta = computed(() => this.quePagarSinCuenta() * 2 > this.quePagar().length);
+  /** `[PGP.50]` El día abierto ya pasa de su tope. */
+  readonly diaExcedido = computed(() => !!this.selectedDay()?.summary.exceeded);
+  /**
+   * `[PGP.50]` Plegado por omisión cuando el día excede su tope: la pantalla decía «excede, quita
+   * pagos» en rojo y justo debajo «pagando $8.77M más se ganan…». Plegar no es esconder: el
+   * encabezado conserva cuánto, a cuántos y cuánto se gana, y se abre de un clic.
+   */
+  private readonly quePagarPlegadoManual = signal<boolean | null>(null);
+  readonly quePagarPlegado = computed(() => {
+    const manual = this.quePagarPlegadoManual();
+    const excede = this.diaExcedido();
+    return manual ?? excede;
+  });
+  plegarQuePagar(): void { this.quePagarPlegadoManual.set(!this.quePagarPlegado()); }
 
   /**
    * `[PGP.48]` Los días ya pasados que todavía tienen pagos pendientes (ver `pendientesAtrasados`
@@ -2646,7 +2713,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     if (this.classificationFilter) p.set('classification', this.classificationFilter);
     if (termino) p.set('search', termino);
     if (this.onlyCritical) p.set('onlyCritical', 'true');
-    if (this.ordenDescuento) p.set('orden', 'descuento');
+    // [PGP.50] El orden viaja siempre: el default del backend es `vencimiento` y aquí es `cercania`.
+    p.set('orden', this.ordenSel);
     this.http.get<ObligationPage>(`${this.base}/obligations?${p.toString()}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
         if (seq !== this.obligSeq) return;
@@ -3181,6 +3249,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       case 'cerrar': this.closeLot(); break;
       case 'rebote': { const f = this.allocations().find((a) => a.status === 'failed'); if (f) this.openReprogram(f); break; }
       case 'mover': this.openMoverTodos(); break;
+      case 'exceso': { const p = this.propuestaExceso(); if (p) this.abrirMover(p.pagos, { destinos: p.destinos ?? undefined, motivo: 'presupuesto_recortado' }); break; }
     }
   }
 
@@ -3528,24 +3597,78 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   openReprogram(a: PaymentCalendarAllocation): void {
     this.abrirMover([a]);
   }
+  /**
+   * `[PGP.50]` **Qué mover para que el día quepa en su tope, y a dónde.** El veredicto decía
+   * «Mueve o quita pagos» sin botón; el 3-nov el día excedía por $950,840.35 con el miércoles en
+   * $912.4K libres y el jueves en $671.6K. Regla, la misma que ya decide el turno de dispersión:
+   * se mueven los ÚLTIMOS del orden de pago (el orden propuesto pone primero compromisos,
+   * críticos y lo más vencido) hasta cubrir el exceso, y CADA UNO va al primer día siguiente de
+   * la semana cargada que tenga tope y todavía le quepa. Repartir no es un adorno: medido el
+   * 3-nov, el exceso ($950,840.35) era mayor que lo libre de CUALQUIER día (máx. $912,434.29 el
+   * miércoles), así que mandarlos todos a un solo día lo dejaba excedido a él. Lo que el ERP ya no
+   * debe NO se mueve: se quita.
+   * ⛔ Sólo PROPONE: el diálogo enseña cuáles, a qué fecha cada uno, y nada sale sin el clic.
+   */
+  readonly propuestaExceso = computed<{ pagos: PaymentCalendarAllocation[]; total: number; destinos: ReadonlyMap<string, string> | null } | null>(() => {
+    const day = this.selectedDay();
+    const liberado = this.isReleased();
+    if (!day || !day.summary.exceeded || liberado) return null;
+    const exceso = -Number(day.summary.remaining_amount ?? 0);
+    if (!(exceso > 0.005)) return null;
+    const rango = (a: PaymentCalendarAllocation) => a.priority_rank ?? Number.MAX_SAFE_INTEGER;
+    const candidatos = this.allocations()
+      .filter((a) => a.status === 'pending' && !this.noSePuedePagar(a))
+      .sort((a, b) => rango(b) - rango(a));
+    const pagos: PaymentCalendarAllocation[] = [];
+    let total = 0;
+    for (const a of candidatos) {
+      if (total >= exceso - 0.005) break;
+      pagos.push(a);
+      total += Number(a.amount_assigned || 0);
+    }
+    if (!pagos.length || total < exceso - 0.005) return null;
+    // Lo libre de cada día siguiente, y se va gastando conforme se asigna.
+    const dias = (this.week()?.days ?? [])
+      .filter((d) => d.date > day.date && d.summary.capacity_defined && !this.diaCerrado(d.summary.lot_status))
+      .map((d) => ({ date: d.date, libre: Number(d.summary.remaining_amount ?? 0) }));
+    const destinos = new Map<string, string>();
+    for (const a of pagos) {
+      const imp = Number(a.amount_assigned || 0);
+      const d = dias.find((x) => x.libre >= imp - 0.005);
+      if (!d) return { pagos, total, destinos: null }; // no cabe todo en la semana: se elige la fecha a mano
+      d.libre -= imp;
+      destinos.set(a.id, d.date);
+    }
+    return { pagos, total, destinos };
+  });
+  /** Los días a los que va la propuesta, en orden y sin repetir («mié 4 y jue 5»). */
+  diasDestino(destinos: ReadonlyMap<string, string>): string {
+    const ds = [...new Set(destinos.values())].sort().map((d) => this.dayShort(d));
+    return ds.length > 1 ? `${ds.slice(0, -1).join(', ')} y ${ds[ds.length - 1]}` : ds[0] ?? '';
+  }
   /** `[PGP.48]` Los pendientes de un día que ya pasó, juntos: un diálogo, no uno por pago. */
   openMoverTodos(): void {
     this.abrirMover(this.allocations().filter((a) => a.status === 'pending'));
   }
-  private abrirMover(pagos: PaymentCalendarAllocation[]): void {
+  private abrirMover(pagos: PaymentCalendarAllocation[], opts: { destinos?: ReadonlyMap<string, string>; motivo?: ReprogramReason } = {}): void {
     if (!pagos.length) return;
     this.reprogramTodos = pagos;
+    this.reprogramDestinos = opts.destinos ?? null;
     this.reprogramDate = this.siguienteHabil();
     // En un día que ya pasó el motivo ya se sabe; se propone y se puede cambiar.
     const pasado = this.diaPasado() && pagos.every((a) => a.status === 'pending');
-    this.reprogramReason = pasado ? 'otro' : null;
-    this.reprogramReasonDetail = pasado ? 'El día pasó sin pagarse' : '';
+    this.reprogramReason = opts.motivo ?? (pasado ? 'otro' : null);
+    this.reprogramReasonDetail = !opts.motivo && pasado ? 'El día pasó sin pagarse' : '';
     this.reprogramVisible = true;
   }
   reprogramTotal(): number { return this.reprogramTodos.reduce((s, a) => s + Number(a.amount_assigned || 0), 0); }
   /** Prevenir antes que reportar: sin fecha (o en el pasado) o sin motivo, el botón no se ofrece. */
+  /** `[PGP.50]` La fecha de cada pago cuando la propuesta los reparte en varios días; si es null, todos van a `reprogramDate`. */
+  reprogramDestinos: ReadonlyMap<string, string> | null = null;
+  fechaDeMover(a: PaymentCalendarAllocation): string { return this.reprogramDestinos?.get(a.id) ?? this.reprogramDate; }
   reprogramValido(): boolean {
-    return this.reprogramTodos.length > 0 && !!this.reprogramDate && this.reprogramDate >= this.todayIso && !!this.reprogramReason
+    const fechaOk = this.reprogramDestinos ? true : !!this.reprogramDate && this.reprogramDate >= this.todayIso;
+    return this.reprogramTodos.length > 0 && fechaOk && !!this.reprogramReason
       && (this.reprogramReason !== 'otro' || !!this.reprogramReasonDetail.trim()) && !this.saving();
   }
   /**
@@ -3555,29 +3678,32 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   async confirmReprogram(): Promise<void> {
     const pagos = this.reprogramTodos;
     if (!this.reprogramValido()) return;
-    const fecha = this.reprogramDate;
     const motivo = this.reprogramReason;
     const detalle = this.reprogramReasonDetail.trim();
     this.saving.set(true);
-    const nuevos: string[] = [];
+    // [PGP.50] Cada pago a SU fecha (la propuesta del exceso los reparte); los nuevos se forman al
+    // final del orden de cada día destino, día por día.
+    const nuevosPorDia = new Map<string, string[]>();
     const fallas: string[] = [];
     for (const a of pagos) {
+      const fecha = this.fechaDeMover(a);
       try {
         const movido = await firstValueFrom(this.http.post<{ id?: string } | null>(`${this.base}/allocations/${a.id}/reprogramar`, {
           date: fecha, reason: motivo, reason_detail: detalle || undefined,
         }));
-        if (movido?.id) nuevos.push(movido.id);
+        if (movido?.id) nuevosPorDia.set(fecha, [...(nuevosPorDia.get(fecha) ?? []), movido.id]);
       } catch (e) {
         fallas.push(`${this.allocationTitle(a)}: ${this.errMsg(e, 'error')}`);
       }
     }
-    if (nuevos.length) await this.ordenarNuevos(fecha, nuevos);
+    for (const [fecha, ids] of nuevosPorDia) await this.ordenarNuevos(fecha, ids);
     this.saving.set(false);
     this.invalidarDeuda();
     this.reload();
     const ok = pagos.length - fallas.length;
+    const dondeTxt = this.diasDestino(new Map(pagos.map((a) => [a.id, this.fechaDeMover(a)])));
     if (!fallas.length) this.reprogramVisible = false;
-    if (ok) this.toast.add({ severity: 'success', summary: 'Movido', detail: pagos.length === 1 ? `${this.allocationTitle(pagos[0])} pasó al ${this.dayLong(fecha)}.` : `${ok} de ${this.pagos(pagos.length)} pasaron al ${this.dayLong(fecha)}.` });
+    if (ok) this.toast.add({ severity: 'success', summary: 'Movido', detail: pagos.length === 1 ? `${this.allocationTitle(pagos[0])} pasó al ${this.dayLong(this.fechaDeMover(pagos[0]))}.` : `${ok} de ${this.pagos(pagos.length)} pasaron al ${dondeTxt}.` });
     if (fallas.length) this.toast.add({ severity: 'error', summary: `${fallas.length} no se movieron`, detail: fallas.join(' · '), life: 10000 });
   }
 
