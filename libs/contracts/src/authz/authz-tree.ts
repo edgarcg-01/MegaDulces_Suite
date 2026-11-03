@@ -304,7 +304,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'store-price-check', label: 'Verificador de precios', route: '/tienda/verificador', view: [Permission.STORE_PRICE_CHECK_VER], manage: [] },
           // `[PDV.31]` Caja de mostrador en MODO PRÁCTICA (no guarda ni manda a Kepler): mientras no existan las claves
           // `STORE_POS_*` (PDV.26) la abre quien supervisa la tienda en vivo, no las cajeras.
-          { id: 'store-pos', label: 'Caja (práctica)', route: '/tienda/caja', view: [Permission.STORE_LIVE_VER], manage: [] },
+          { id: 'store-pos', label: 'Caja (práctica)', route: '/tienda/caja', view: [Permission.STORE_LIVE_VER, Permission.STORE_ARQUEO_CAPTURAR], manage: [] },
           // `[FLT.1]` La ruta la abre CUALQUIERA de las dos claves (`anyPermissionGuard`): quien
           // sólo reporta tiene que poder entrar a la pantalla donde trabaja. Es la misma lección
           // que obligó a corregir Caducidades, donde el gate en VER le negaba la pantalla al
@@ -381,6 +381,14 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // comprador»: la ruta, el menú lateral y el aterrizaje de /compras ya vivían acá — el
           // nodo del árbol se había quedado listado bajo Ventas, apuntando afuera de su proyecto.
           { id: 'products', label: 'Catálogo', route: '/compras/catalogo', view: [Permission.COMMERCIAL_PRODUCTS_VER], manage: [Permission.COMMERCIAL_PRODUCTS_GESTIONAR] },
+          // `[NP.7]` Levantamiento del Catálogo digital: TODA persona escanea y fotografía productos desde el celular
+          // (Francisco, 2026-11-02: «todos participan en la construcción del catálogo digital»). ⚠️ SIN ruta A PROPÓSITO,
+          // mismo precedente que `servicio-reportar`: la clave se reparte a todo rol con personas, y si abriera un destino
+          // en el mapa les quitaría a cajeras y almacenistas su entrada directa desde «Mi trabajo». Se llega con el botón
+          // «Levantar productos» del header (`/levantamiento`).
+          { id: 'compras-levantamiento', label: 'Levantamiento de fichas', route: '', view: [Permission.CATALOGO_LEVANTAR], manage: [] },
+          // `[NP.7.L.3b]` Catálogo digital › Por revisar: quien decide lo levantado (otra clave que quien levanta).
+          { id: 'compras-catalogo-digital', label: 'Catálogo digital', route: '/compras/catalogo/digital', view: [], manage: [Permission.CATALOGO_FICHAS_REVISAR] },
           // Fase TP (ADR-064) — la "cuenta por pagar" a proveedor de mercancía que
           // alimenta el Calendario de Pagos de Finanzas. Permiso propio.
           { id: 'compras-obligaciones', label: 'Obligaciones a proveedor', route: '/compras/obligaciones', view: [Permission.COMPRAS_OBLIGACIONES_VER], manage: [Permission.COMPRAS_OBLIGACIONES_GESTIONAR, Permission.COMPRAS_PLAZOS_AUTORIZAR] },

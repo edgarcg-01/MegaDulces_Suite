@@ -107,6 +107,18 @@ test.describe('2 · Por explicar: lo que sale sin orden se ve en segundos y con 
   });
 });
 
+test.describe('2b · Tesorería: firma, no opera (V9)', () => {
+  test('[negativa] Tesorería no ve el panel de operar ni «Cerrar el día»; su aviso lleva al retiro', async ({ page }) => {
+    await page.click('#sim-retiro-sin-codigo');
+    await verComo(page, 'tesoreria');
+    await expect(page.locator('#btn-cerrar')).toBeHidden();
+    await expect(page.getByTestId('panel')).toBeHidden();
+    await page.getByTestId('aviso').first().getByRole('button', { name: 'Ver' }).click();
+    await expect(page.getByTestId('panel')).toContainText('Explicar un retiro sin código');
+    await expect(page.getByTestId('panel')).toContainText('$8,000.00');
+  });
+});
+
 test.describe('3 · Cobro de ruta: el depósito se empareja solo (V5)', () => {
   test('el depósito que cuadra con Kepler se recibe con un clic', async ({ page }) => {
     const fila = page.getByTestId('ruta-r22');
@@ -176,10 +188,20 @@ test.describe('4 · Custodia: dinero sin documento = custodia con nombre (V6, D3
 });
 
 test.describe('5 · Cierre: testigos, no una resta (V7, V8, V9, LE.0.7)', () => {
-  const contarExacto = async (p: Page, ajuste: Record<string, number> = {}) => {
-    const cajon = await p.evaluate(() => (window as any).__caos.estado().cajon as Record<string, number>);
+  const contarExacto = async (p: Page, ajuste: Record<string, number> = {}, ajusteUsd: Record<string, number> = {}) => {
+    const { cajon, usd } = await p.evaluate(() => (window as any).__caos.estado() as { cajon: Record<string, number>; usd: Record<string, number> });
     for (const [d, n] of Object.entries(cajon)) await pieza(p, 'cierre', d, n + (ajuste[d] || 0));
+    for (const [d, n] of Object.entries(usd)) await pieza(p, 'cierre-usd', d, n + (ajusteUsd[d] || 0));
   };
+
+  test('[negativa] los dólares también se cuentan a ciegas, y su diferencia queda en dólares con nombre', async ({ page }) => {
+    await expect(kpi(page, 'usd' as any)).toContainText('US$');
+    await page.click('#btn-cerrar');
+    await expect(page.locator('#kpi-usd'), 'mientras se cuenta, tampoco se ven los dólares').toHaveText('contando a ciegas');
+    await contarExacto(page, {}, { 100: -1 });
+    await page.click('#btn-contar');
+    await expect(page.getByTestId('pendientes')).toContainText('Diferencia de dólares US$-100.00');
+  });
 
   test('[negativa] mientras se cuenta, el esperado NO se ve (conteo ciego)', async ({ page }) => {
     await page.click('#btn-cerrar');
@@ -228,5 +250,156 @@ test.describe('5 · Cierre: testigos, no una resta (V7, V8, V9, LE.0.7)', () => 
     await contarExacto(page, { 500: 40 });                  // +$20,000 → $51,750
     await page.click('#btn-contar');
     await expect(page.getByTestId('pendientes')).toContainText('arriba del tope');
+  });
+});
+
+test.describe('6 · Con el volumen de un día real (26 pagos, 47 atrasados, 7 mal fechados)', () => {
+  test('lo de hoy y lo atrasado NO se mezclan: los 47 de octubre se abren aparte y se concilian, no se pagan', async ({ page }) => {
+    await expect(page.locator('#n-pagar')).toHaveText('26');
+    await expect(page.locator('#n-atrasados')).toHaveText('47');
+    await expect(page.locator('[data-testid^="atrasado-"]'), '[negativa] cerrados por defecto').toHaveCount(0);
+    await page.click('#btn-atrasados');
+    await expect(page.locator('[data-testid^="atrasado-"]')).toHaveCount(47);
+    await page.getByTestId('atrasado-a1').getByRole('button', { name: 'Conciliar' }).click();
+    await expect(page.locator('#n-atrasados')).toHaveText('46');
+    await expect(libro(page).first()).toContainText('atrasado de octubre');
+    await expect(page.getByTestId('mal-fechados'), 'los mal fechados se declaran, con su importe').toContainText('7 documentos');
+  });
+
+  test('una sola búsqueda para todas las listas, sin acentos y con el importe como se escriba', async ({ page }) => {
+    const buscar = page.locator('#buscar');
+    await buscar.fill('$12,480');
+    await expect(page.getByTestId('pagar-p2')).toBeVisible();
+    await expect(page.locator('#n-pagar')).toHaveText(/^1 de 26$/);
+    await buscar.fill('padre hidalgo');
+    await expect(page.locator('[data-testid^="ruta-"]')).toHaveCount(2);
+    await buscar.fill('PAPELERIA');
+    await expect(page.getByTestId('pagar-p2'), 'sin acento encuentra «Papelería»').toBeVisible();
+    await buscar.fill('0023110');
+    await expect(page.getByTestId('atrasado-a1'), 'si lo buscado está en los atrasados, se abren solos').toBeVisible();
+    await buscar.fill('zzzz');
+    await expect(page.getByTestId('cola-pagar')).toContainText('Nada coincide con la búsqueda');
+  });
+
+  test('[negativa] un documento sin su cuenta de Kepler no se paga, y la fila dice por qué', async ({ page }) => {
+    await expect(page.getByTestId('pagar-p7').getByRole('button', { name: 'Pagar' })).toBeDisabled();
+    await expect(page.getByTestId('pagar-p7').getByTestId('sin-cuenta')).toHaveText('falta su cuenta de Kepler');
+    await expect(page.getByTestId('pagar-p1').getByRole('button', { name: 'Pagar' })).toBeEnabled();
+  });
+
+  test('[negativa] en las listas no hay botones naranjas: la única primaria es la del panel', async ({ page }) => {
+    await expect(page.locator('#vista-cajera .cola .btn.primario')).toHaveCount(0);
+    await page.getByTestId('pagar-p1').getByRole('button', { name: 'Pagar' }).click();
+    await expect(page.locator('#panel .btn.primario')).toHaveCount(1);
+  });
+
+  test('el cheque que dejó la ruta cubre su parte, anotado con banco y número', async ({ page }) => {
+    await page.getByTestId('ruta-r27').getByRole('button', { name: 'Contar cajón' }).click();
+    await page.fill('#chq-banco', 'Banco del Bajío');
+    await page.fill('#chq-numero', '004512');
+    await page.fill('#chq-monto', '48');
+    await page.click('#btn-recibir');
+    await expect(page.getByTestId('ruta-r27')).toHaveCount(0);
+    await expect(libro(page).first()).toContainText('cheque Banco del Bajío 004512');
+    await expect(libro(page).first()).not.toContainText('pendiente');
+  });
+
+  test('[negativa] un cheque sin número no se anota, y la ruta no se da por recibida', async ({ page }) => {
+    await page.getByTestId('ruta-r27').getByRole('button', { name: 'Contar cajón' }).click();
+    await page.fill('#chq-banco', 'Banco del Bajío');
+    await page.fill('#chq-monto', '48');
+    await page.click('#btn-recibir');
+    await expect(page.locator('#chq-error')).toBeVisible();
+    await expect(page.getByTestId('ruta-r27')).toHaveCount(1);
+  });
+});
+
+test.describe('7 · Lo que toca hoy, contado antes de las listas (Q.1)', () => {
+  test('el resumen cuenta cada lista y lleva a ella aunque quede fuera de la vista', async ({ page }) => {
+    await expect(page.getByTestId('ir-pagar')).toContainText('26');
+    await expect(page.getByTestId('ir-rutas')).toContainText('2');
+    await expect(page.getByTestId('cola-rutas'), 'con 26 pagos, las rutas quedan abajo').not.toBeInViewport();
+    await page.getByTestId('ir-rutas').click();
+    await expect(page.getByTestId('cola-rutas')).toBeInViewport();
+  });
+
+  test('[negativa] un retiro sin código sube al resumen en rojo en cuanto pasa', async ({ page }) => {
+    await expect(page.getByTestId('ir-explicar')).not.toHaveClass(/alerta/);
+    await page.click('#sim-retiro-sin-codigo');
+    await expect(page.getByTestId('ir-explicar')).toHaveClass(/alerta/);
+    await expect(page.getByTestId('ir-explicar')).toContainText('1');
+  });
+});
+
+test.describe('8 · Fondo de monedas: se junta por pieza y se cambia por billetes con rastro', () => {
+  const abrir = async (p: Page, con = 'Banco', nombre = 'Banco del Bajío') => {
+    await p.click('#btn-cambiar-monedas');
+    await p.selectOption('#mon-con', con);
+    await p.fill('#mon-nombre', nombre);
+  };
+
+  test('el fondo se cuenta por pieza y avisa cuando conviene cambiarlo (desde $5,000)', async ({ page }) => {
+    await expect(page.locator('#n-monedas')).toHaveText('$3,250.00');
+    await expect(page.locator('#monedas-aviso')).toContainText('cuando pasen de $5,000.00');
+    await page.evaluate(() => { const s = (window as any).__caos.estado(); s.cajon[10] += 200; (window as any).__caos.render(); });   // +$2,000 que dejó una ruta
+    await expect(page.locator('#monedas-aviso')).toContainText('Conviene cambiarlas');
+    await expect(page.getByTestId('ir-monedas')).toHaveClass(/alerta/);
+  });
+
+  test('en el acto: salen monedas y entran billetes por el mismo importe; el cajón no cambia de total', async ({ page }) => {
+    await abrir(page);
+    await pieza(page, 'mon-sale', 10, 100);              // $1,000 en monedas de $10
+    await pieza(page, 'mon-entra', 500, 2);              // $1,000 en billetes
+    await page.click('#btn-mon');
+    await expect(page.locator('#n-monedas')).toHaveText('$2,250.00');
+    await expect(kpi(page, 'cajon')).toHaveText('$31,750.00');
+    await expect(libro(page).first()).toContainText('Monedas por billetes con Banco · Banco del Bajío');
+  });
+
+  test('[negativa] si los billetes no suman lo que salió, no se registra; la comisión se declara aparte', async ({ page }) => {
+    await abrir(page);
+    await pieza(page, 'mon-sale', 10, 100);
+    await pieza(page, 'mon-entra', 500, 1); await pieza(page, 'mon-entra', 200, 2); await pieza(page, 'mon-entra', 50, 1); await pieza(page, 'mon-entra', 20, 1);   // $970
+    await expect(page.locator('#btn-mon')).toBeDisabled();
+    await expect(page.locator('#mon-cuadre')).toContainText('Faltan por explicar $30.00');
+    await page.fill('#mon-comision', '30');
+    await expect(page.locator('#btn-mon')).toBeEnabled();
+    await page.click('#btn-mon');
+    await expect(libro(page).first()).toContainText('Comisión por el cambio de monedas');
+    await expect(kpi(page, 'cajon')).toHaveText('$31,720.00');
+  });
+
+  test('[negativa] no se pueden cambiar más monedas de las que hay en el cajón', async ({ page }) => {
+    await abrir(page);
+    await pieza(page, 'mon-sale', 2, 101);               // sólo hay 100 de $2
+    await pieza(page, 'mon-entra', 200, 1);
+    await expect(page.locator('#mon-cuadre')).toContainText('No hay tantas monedas');
+    await expect(page.locator('#btn-mon')).toBeDisabled();
+  });
+
+  test('[negativa] cambiar de modo no borra lo ya capturado', async ({ page }) => {
+    await abrir(page);
+    await pieza(page, 'mon-sale', 5, 7);
+    await page.click('[data-modo="lleva"]');
+    await expect(page.locator('#mon-con')).toHaveValue('Banco');
+    await expect(page.locator('#mon-nombre')).toHaveValue('Banco del Bajío');
+    await expect(page.locator('[data-grupo="mon-sale"][data-denom="5"]')).toHaveValue('7');
+  });
+
+  test('si se las lleva una persona, quedan en custodia a su nombre hasta que regresa con los billetes', async ({ page }) => {
+    await abrir(page);
+    await page.click('[data-modo="lleva"]');
+    await pieza(page, 'mon-sale', 5, 200);               // $1,000 en monedas de $5
+    await page.fill('#mon-persona', 'Chofer Ruta 5');
+    await page.click('#btn-mon');
+    const custodia = page.getByTestId('cola-custodias').locator('tr', { hasText: 'Monedas para cambio' });
+    await expect(custodia).toContainText('Chofer Ruta 5');
+    await expect(custodia).toContainText('$1,000.00');
+    await custodia.getByRole('button', { name: 'Rendir' }).click();
+    await page.fill('#ren-comprobado', '0');
+    await pieza(page, 'ren', 500, 2);                    // regresa $1,000 en billetes
+    await page.click('#btn-rendir');
+    await expect(page.getByTestId('cola-custodias').locator('tr', { hasText: 'Monedas para cambio' })).toHaveCount(0);
+    await expect(kpi(page, 'cajon')).toHaveText('$31,750.00');
   });
 });

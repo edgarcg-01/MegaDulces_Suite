@@ -676,6 +676,13 @@ export enum Permission {
   // el landed cost por proveedor (lo que salio de la chequera) y esto publica el DATO MAESTRO
   // con el que se pone precio. Distinto dueno: quien lo corrige edita el catalogo, no la compra.
   COMPRAS_COSTO_ESTANDAR_VER = 'COMPRAS_COSTO_ESTANDAR_VER',
+  // `[NP.7.L.7b]` Catálogo digital — LEVANTAR fichas desde el celular (`/levantamiento`): escanear,
+  // confirmar el código y tomar las fotos. No ve costo, precio ni margen. UNIVERSAL (Francisco, 2026-11-02):
+  // a todo rol con personas, como `SERVICIO_REPORTAR`; la sucursal la da el perfil o se elige (D25).
+  CATALOGO_LEVANTAR = 'CATALOGO_LEVANTAR',
+  // `[NP.7.L.15]` Catálogo digital — REVISAR lo levantado: publicar, pedir otra foto o descartar. Clave PROPIA:
+  // no se reusa `CATALOGO_GESTIONAR` (abre /dashboard/admin/catalogs) ni se hereda de `CATALOGO_LEVANTAR`.
+  CATALOGO_FICHAS_REVISAR = 'CATALOGO_FICHAS_REVISAR',
   // Descuentos y apoyos (ajustes X-D-40/55) + facturas duplicadas.
   COMPRAS_DESCUENTOS_VER = 'COMPRAS_DESCUENTOS_VER',
   COMPRAS_DESCUENTOS_GESTIONAR = 'COMPRAS_DESCUENTOS_GESTIONAR',

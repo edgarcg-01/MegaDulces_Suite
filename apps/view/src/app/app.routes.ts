@@ -1304,6 +1304,13 @@ export const routes: Routes = [
         data: { catalogoApartado: 'listas-precios' }
       },
       {
+        // [NP.7.L.3b] Catálogo digital › Por revisar: lo que levantó el personal, para publicar, pedir otra
+        // foto o descartar. Clave propia: quien levanta no publica.
+        path: 'catalogo/digital',
+        loadComponent: () => import('./modules/compras/pages/compras-catalogo-digital.component').then(m => m.ComprasCatalogoDigitalComponent),
+        canActivate: [permissionGuard(Permission.CATALOGO_FICHAS_REVISAR)]
+      },
+      {
         // [NP.5] Productos nuevos: seguimiento a 30/60/90 dias de cada codigo que entra al catalogo.
         // Mismo permiso que el catalogo; la inversion la recorta el SERVIDOR sin permiso de costo.
         path: 'catalogo/nuevos',
@@ -1968,10 +1975,17 @@ export const routes: Routes = [
   // ── Proyecto Tienda ─────────────────────────────────────────────────
   // Monitor de tickets de venta EN VIVO por sucursal (WebSocket /store).
   {
+    // `[NP.7.L.4a]` Levantamiento del Catálogo digital: el celular del personal de sucursal, sin el marco de la
+    // app (mobile-first, safe-area propia). Con sesión y permiso: NO va en RUTAS_PUBLICAS.
+    path: 'levantamiento',
+    canActivate: [authGuard, permissionGuard(Permission.CATALOGO_LEVANTAR)],
+    loadComponent: () => import('./modules/levantamiento/pages/levantamiento.component').then(m => m.LevantamientoComponent),
+  },
+  {
     // `[PDV.33]` La pantalla del cliente de la caja: segundo monitor, SIN el marco de la app (va antes que
     // `tienda` para que su ruta completa gane). Escucha a /tienda/caja por el canal del navegador.
     path: 'tienda/caja/cliente',
-    canActivate: [authGuard, permissionGuard(Permission.STORE_LIVE_VER)],
+    canActivate: [authGuard, anyPermissionGuard(Permission.STORE_LIVE_VER, Permission.STORE_ARQUEO_CAPTURAR)],
     loadComponent: () => import('./modules/tienda/pages/tienda-caja-cliente.component').then(m => m.TiendaCajaClienteComponent),
   },
   {
@@ -1984,7 +1998,9 @@ export const routes: Routes = [
         // imprime ni manda a Kepler (espera D0/D1 de la fase PDV). Mismo gate que `cajas` hasta PDV.26.
         path: 'caja',
         loadComponent: () => import('./modules/tienda/pages/tienda-caja.component').then(m => m.TiendaCajaComponent),
-        canActivate: [permissionGuard(Permission.STORE_LIVE_VER)]
+        // La abre quien supervisa (en vivo) y la cajera (captura su arqueo): la práctica no guarda nada y lo
+        // único que escribe, el arqueo, ya es suyo. Las claves propias llegan con PDV.26.
+        canActivate: [anyPermissionGuard(Permission.STORE_LIVE_VER, Permission.STORE_ARQUEO_CAPTURAR)]
       },
       // Redirect condicional (determinista): monitor en vivo si tiene STORE_LIVE_VER /
       // manage:all; si solo tiene etiquetas (rol etiquetas_tienda), cae en /tienda/etiquetas.

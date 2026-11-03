@@ -1,12 +1,14 @@
 import { ChangeDetectionStrategy, Component, ElementRef, HostListener, OnDestroy, ViewChild, computed, effect, inject, signal } from '@angular/core';
-import { Router } from '@angular/router';
 import { TableModule } from 'primeng/table';
 import { firstValueFrom } from 'rxjs';
-import { warehouseName } from '@megadulces/contracts';
+import { DENOMINACIONES_MXN, warehouseName } from '@megadulces/contracts';
 import { AuthService } from '../../../core/services/auth.service';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { SucursalPickerComponent } from '../../../shared/components/sucursal-picker/sucursal-picker.component';
+import { ArqueoResult, ArqueoService, ArqueoTipo, Turno } from '../arqueo.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
 import { HalladoCatalogo, ProductoPrecio, SucursalVerificador, VerificadorService } from '../verificador.service';
 import {
   EscalonCaja, LineaCaja, MOTIVOS_QUITAR, errorEfectivo, esCorreccionInmediata, importeRenglon, leerComando,
@@ -44,14 +46,30 @@ const CANAL_CLIENTE = 'md-caja-cliente';
   <div class="cj">
     <header class="cj-head">
       <h1 class="cj-titulo">Caja</h1>
-      <app-sucursal-picker [(valor)]="sucursal" placeholder="Elige la sucursal" etiqueta="Sucursal de la caja" />
-      @if (datosAl(); as d) { <app-freshness-pill [since]="d" label="Precios de Kepler" /> }
+      @if (sucursalPropia) { <span class="cj-suc"><i class="pi pi-building" aria-hidden="true"></i>{{ nombreSucursal(sucursalPropia) }}</span> }
+      @else { <app-sucursal-picker [(valor)]="sucursal" placeholder="Elige la sucursal" etiqueta="Sucursal de la caja" /> }
+      @if (datosAl(); as d) { <app-freshness-pill measures="data" [since]="d" label="Precios de Kepler" [staleAfterSec]="900" /> }
+      @if (turno(); as t) {
+        <span class="cj-sub">Turno desde {{ t.desde }} · fondo {{ dinero(t.fondo) }} · {{ t.retiros.length }} retiro(s)</span>
+        @if (turnoK()) {} @else if (nivelGaveta() === 'maximo') { <span class="cj-chip cj-chip-bad" role="status">La gaveta pasó el máximo: haz un retiro (F8) para seguir vendiendo</span> }
+        @else if (nivelGaveta() === 'aviso') { <span class="cj-chip cj-chip-warn" role="status">Gaveta cerca del máximo: conviene un retiro (F8)</span> }
+      }
+      @if (turnoK(); as tk) {
+        <span class="cj-sub">Kepler: caja {{ tk.caja }} · folio {{ tk.folio }}</span>
+        @if (tk.pide_retiro) { <span class="cj-chip cj-chip-bad" role="status">Kepler pide retiro: la caja pasó su límite (F8)</span> }
+        @if (tk.retiro_sin_contar) { <span class="cj-chip cj-chip-warn" role="status">Hay retiros en Kepler sin contar (F8)</span> }
+        @if (tk.pide_cierre) { <span class="cj-chip cj-chip-warn" role="status">Toca el corte del turno (F7)</span> }
+      }
       <span class="cj-practica" role="note"><i class="pi pi-info-circle" aria-hidden="true"></i>
-        Modo práctica: no guarda, no imprime, no cobra ni manda a Kepler. Sin promociones por cantidad.</span>
+        Práctica: no guarda ni manda a Kepler</span>
       <span class="cj-acciones">
         <button type="button" class="cj-hb" tabindex="-1" (click)="abrirVerificador()">Verificar precio <kbd>F6</kbd></button>
-        <button type="button" class="cj-hb" tabindex="-1" (click)="irArqueo()">Mi arqueo <kbd>F7</kbd></button>
+        @if (puedeArqueo) { <button type="button" class="cj-hb" tabindex="-1" [class.cj-hb-on]="!!arq()" (click)="irArqueo()">Mi arqueo <kbd>F7</kbd></button> }
         <button type="button" class="cj-hb" tabindex="-1" (click)="abrirCliente()">Pantalla del cliente</button>
+        @if (turno(); as t) {
+          <button type="button" class="cj-hb" tabindex="-1" (click)="abrirRetiro()">Retiro <kbd>F8</kbd></button>
+          <button type="button" class="cj-hb" tabindex="-1" (click)="cerrarTurno()">Cerrar turno</button>
+        }
       </span>
     </header>
 
@@ -64,7 +82,7 @@ const CANAL_CLIENTE = 'md-caja-cliente';
           <label class="cj-cmd-caja" for="cj-cmd">
             <span class="cj-modo">{{ modo() }}</span>
             <input #cmd id="cj-cmd" class="cj-cmd-input" autocomplete="off" spellcheck="false"
-                   [type]="auth()?.motivo ? 'password' : 'text'" [placeholder]="placeholder()"
+                   [type]="ocultar() ? 'password' : 'text'" [placeholder]="placeholder()"
                    [value]="texto()" (input)="alTeclear($any($event.target).value)" (blur)="reenfocar()" />
           </label>
           @if (resultados().length || buscandoTexto()) {
@@ -82,7 +100,7 @@ const CANAL_CLIENTE = 'md-caja-cliente';
 
         <div class="cj-ticket">
           <div class="cj-cap"><b>Ticket {{ folio() }}</b><span>Público en general</span><span class="cj-der">{{ tot().renglones }} renglones</span></div>
-          <p-table [value]="lineas()" styleClass="surf-table surf-table--plain surf-table--sticky" [scrollable]="true" scrollHeight="flex">
+          <p-table [value]="lineas()" tableStyleClass="surf-table surf-table--plain surf-table--sticky" [scrollable]="true" scrollHeight="flex">
             <ng-template #header>
               <tr><th>Producto</th><th>Present.</th><th class="comm-num">Cantidad</th><th class="comm-num">Precio</th><th class="comm-num">Importe</th></tr>
             </ng-template>
@@ -103,14 +121,60 @@ const CANAL_CLIENTE = 'md-caja-cliente';
               </tr>
             </ng-template>
             <ng-template #emptymessage>
-              <tr><td colspan="5" class="cj-vacio">Caja lista. Escanea el primer producto.</td></tr>
+              <tr><td colspan="5" class="cj-vacio">{{ turno() ? 'Caja lista. Escanea el primer producto.' : 'Abre el turno: cuenta el fondo en el panel de la derecha.' }}</td></tr>
             </ng-template>
           </p-table>
         </div>
       </section>
 
       <aside class="cj-panel" aria-live="polite">
-        @if (auth(); as a) {
+        @if (arq(); as q) {
+          <div class="cj-box cj-box-act">
+            <span class="cj-lbl">Mi arqueo · se guarda en Arqueo de Tienda</span>
+            @if (turnoK(); as t) { <div class="cj-sub">Caja {{ t.caja }} · folio {{ t.folio }} · {{ t.business_date }}</div> }
+            @if (q.paso === 'tipo') {
+              <div class="cj-h3">¿Qué vas a contar?</div>
+              <div class="cj-opt"><kbd>1</kbd>Retiro de caja (sangría)</div>
+              <div class="cj-opt"><kbd>2</kbd>Corte del turno</div>
+              <div class="cj-opt"><kbd>3</kbd>Relevo de cajera</div>
+            } @else if (q.paso === 'listo' && q.resultado) {
+              <div class="cj-h2">{{ tipoTexto(q.tipo) }} guardado{{ q.tipo === 'retiro' && q.resultado.secuencia ? ' · sangría ' + q.resultado.secuencia : '' }}</div>
+              <div class="cj-fila"><b>Contaste</b><span class="cj-grande">{{ dinero(q.resultado.total_contado) }}</span></div>
+              @if (q.resultado.reveal && q.resultado.diff_real !== null && q.resultado.diff_real !== undefined) {
+                <div class="cj-fila"><span>{{ q.resultado.diff_real > 0 ? 'Faltante' : q.resultado.diff_real < 0 ? 'Sobrante' : 'Cuadra' }} contra Kepler</span><span class="num">{{ dinero(q.resultado.diff_real < 0 ? -q.resultado.diff_real : q.resultado.diff_real) }}</span></div>
+              } @else { <div class="cj-sub">Conteo ciego: la diferencia la ve tu encargada al validarlo.</div> }
+              <div class="cj-h3">Enter para volver a vender.</div>
+            } @else {
+              <div class="cj-h3">{{ tipoTexto(q.tipo) }}: cuenta por pieza</div>
+              <div class="cj-dens">
+              @for (d of denomsMx; track d.key; let i = $index) {
+                <div class="cj-fila cj-den" [class.cj-den-on]="i === q.i && q.paso === 'conteo'">
+                  <span>{{ d.label }} <span class="cj-sub">{{ d.familia }}</span></span>
+                  <span class="num">{{ q.vals[i] === undefined ? '—' : q.vals[i] + ' = ' + dinero(q.vals[i] * d.valor) }}</span>
+                </div>
+              }
+              </div>
+              <div class="cj-fila"><b>Contado</b><span class="cj-grande">{{ dinero(sumaArq()) }}</span></div>
+              @if (q.paso === 'guardando') { <div class="cj-sub">Guardando…</div> }
+              @else if (q.i >= denomsMx.length) { <div class="cj-h3">Enter entrega tu conteo. Después ya no se puede cambiar.</div> }
+            }
+          </div>
+        } @else if (conteo(); as c) {
+          <div class="cj-box cj-box-act">
+            <span class="cj-lbl">{{ c.tipo === 'apertura' ? 'Abrir turno · cuenta el fondo que recibes' : 'Retiro de efectivo · conteo ciego' }}</span>
+            <div class="cj-sub">{{ c.tipo === 'apertura' ? 'Cuenta por pieza; la caja suma. Sin turno abierto no se vende.' : 'La caja no dice cuánto hay en la gaveta: lo cuentas tú y lo cuenta quien lo recibe.' }}</div>
+            @for (d of denominaciones(c.tipo); track d[1]; let i = $index) {
+              <div class="cj-fila cj-den" [class.cj-den-on]="i === c.i && !c.pin">
+                <span>{{ d[1] }}</span>
+                <span class="num">{{ c.vals[i] === undefined ? '—' : (d[0] ? c.vals[i] + ' = ' + dinero(c.vals[i] * d[0]) : dinero(c.vals[i])) }}</span>
+              </div>
+            }
+            <div class="cj-fila"><b>{{ c.tipo === 'apertura' ? 'Fondo contado' : 'Retiras' }}</b><span class="cj-grande">{{ dinero(sumaConteo()) }}</span></div>
+            @if (c.i >= denominaciones(c.tipo).length) {
+              <div class="cj-h3">{{ c.tipo === 'apertura' ? 'Enter abre el turno con este fondo.' : 'Quien recibe teclea su PIN arriba y Enter.' }}</div>
+            }
+          </div>
+        } @else if (auth(); as a) {
           <div class="cj-box cj-box-act">
             <span class="cj-lbl">Pide supervisor</span>
             <div class="cj-h2">{{ authTitulo() }}</div>
@@ -178,7 +242,9 @@ const CANAL_CLIENTE = 'md-caja-cliente';
     </app-load-state>
 
     <footer class="cj-pie" aria-label="Teclas de este momento">
-      @if (auth()) { <span><kbd>1</kbd>–<kbd>4</kbd> motivo</span><span>PIN y <kbd>Enter</kbd></span><span><kbd>Esc</kbd> no hacerlo</span> }
+      @if (arq(); as q) { <span>{{ q.paso === 'tipo' ? '1 retiro · 2 corte · 3 relevo' : q.paso === 'listo' ? 'Enter: volver a vender' : 'Teclea cuántas piezas y Enter (vacío = 0)' }}</span><span><kbd>Esc</kbd> {{ q.paso === 'listo' ? 'volver' : 'no guardar' }}</span> }
+      @else if (conteo(); as c) { <span>Teclea cuántas piezas y <kbd>Enter</kbd> (vacío = 0)</span><span><kbd>Esc</kbd> {{ c.tipo === 'apertura' ? 'empezar de nuevo' : 'no retirar' }}</span> }
+      @else if (auth()) { <span><kbd>1</kbd>–<kbd>4</kbd> motivo</span><span>PIN y <kbd>Enter</kbd></span><span><kbd>Esc</kbd> no hacerlo</span> }
       @else if (verificando()) { <span>Escanea o escribe y <kbd>Enter</kbd></span><span><kbd>Esc</kbd> volver a vender</span> }
       @else if (estado() === 'venta') { <span><kbd>Enter</kbd> agregar</span><span><kbd>5*</kbd>código cantidad</span><span>letras o <kbd>F9</kbd> buscar</span><span><kbd>Ctrl</kbd>+<kbd>Supr</kbd> cancelar ticket</span><span><b>250 <kbd>F12</kbd></b> cobra $250 en efectivo</span> }
       @else if (estado() === 'cobro') { <span>Teclea lo que te dieron</span><span><b><kbd>Enter</kbd> efectivo</b> (vacío = exacto)</span><span><kbd>F2</kbd> tarjeta</span><span><kbd>F3</kbd> transferencia</span><span><kbd>Esc</kbd> volver</span> }
@@ -187,23 +253,34 @@ const CANAL_CLIENTE = 'md-caja-cliente';
   </div>
   `,
   styles: [`
-    :host { display: block; height: 100%; }
-    .cj { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--surface-ground); color: var(--text-main); font-size: var(--fs-lg); }
+    :host { display: block; height: calc(100dvh - 6.25rem); min-height: 32rem; }
+    .cj { display: flex; flex-direction: column; height: 100%; min-height: calc(100dvh - 7.5rem); background: var(--surface-ground); color: var(--text-main); font-size: var(--fs-lg); }
+    /* El envoltorio de estados es el hijo flexible: sin esto el ticket no crece y sobra fondo abajo. */
+    .cj > app-load-state { flex: 1; min-height: 0; display: flex; flex-direction: column; }
     .cj-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-4); padding: var(--sp-2) var(--sp-4); background: var(--card-bg); border-bottom: 1px solid var(--border-color); }
     .cj-titulo { margin: 0; font-size: var(--fs-h3); font-weight: 700; }
     .cj-practica { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-sm); color: var(--warn-soft-fg); background: var(--warn-soft-bg); border-radius: var(--r-pill); padding: var(--sp-1) var(--sp-3); }
     .cj-acciones { margin-left: auto; display: inline-flex; gap: var(--sp-2); }
     .cj-hb { display: inline-flex; align-items: center; gap: var(--sp-2); height: 2.25rem; padding: 0 var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); color: var(--text-main); font: inherit; font-size: var(--fs-sm); font-weight: 600; cursor: pointer; }
     .cj-hb:hover { background: var(--surface-hover-bg); }
+    .cj-chip { font-size: var(--fs-sm); font-weight: 600; border-radius: var(--r-pill); padding: var(--sp-1) var(--sp-3); }
+    .cj-chip-warn { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
+    .cj-chip-bad { background: var(--bad-soft-bg); color: var(--bad-fg); }
+    .cj-dens { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 var(--sp-3); font-size: var(--fs-body); }
+    .cj-suc { display: inline-flex; align-items: center; gap: var(--sp-2); font-weight: 600; }
+    .cj-den { padding: var(--sp-1) var(--sp-2); border-radius: var(--r-sm); }
+    .cj-den-on { background: var(--surface-selected-bg); box-shadow: inset 3px 0 0 var(--action); }
+    .cj-hb-on { border-color: var(--action); color: var(--action); }
     .cj-main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(20rem, 27rem); gap: var(--sp-4); padding: var(--sp-4); }
     @media (max-width: 60rem) { .cj-main { grid-template-columns: 1fr; } }
     .cj-trabajo { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: var(--sp-3); }
     .cj-cmd { position: relative; }
     .cj-cmd-caja { display: flex; align-items: center; gap: var(--sp-3); height: 4.25rem; padding: 0 var(--sp-4); background: var(--card-bg); border: 2px solid var(--action); border-radius: var(--r-lg); }
     .cj-modo { min-width: 5.5rem; font-size: var(--fs-xs); font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--action); }
-    .cj-cmd-input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text-main); font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-h2); }
-    .cj-cmd-input:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
-    .cj-cmd-input::placeholder { font-family: inherit; font-size: var(--fs-lg); color: var(--text-faint); }
+    .cj-cmd-input { flex: 1; min-width: 0; border: 0; outline: 2px solid transparent; background: transparent; color: var(--text-main); font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-h2); }
+    /* El anillo lo lleva la caja que envuelve al campo (focus-within); el contorno transparente sigue visible en Alto Contraste. */
+    .cj-cmd-caja:focus-within { box-shadow: 0 0 0 3px var(--action-ring); }
+    .cj-cmd-input::placeholder { font-family: var(--font-body); font-size: var(--fs-lg); color: var(--text-faint); }
     .cj-res { position: absolute; z-index: 5; left: 0; right: 0; top: calc(100% + var(--sp-1)); margin: 0; padding: 0; list-style: none; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-lg); box-shadow: var(--shadow-float); overflow: hidden; }
     .cj-res-i { display: flex; justify-content: space-between; gap: var(--sp-3); padding: var(--sp-2) var(--sp-4); border-bottom: 1px solid var(--border-color); cursor: pointer; }
     .cj-on { background: var(--surface-selected-bg); box-shadow: inset 3px 0 0 var(--action); }
@@ -228,6 +305,7 @@ const CANAL_CLIENTE = 'md-caja-cliente';
     .cj-mayoreo, .cj-ahorro { font-size: var(--fs-sm); font-weight: 600; color: var(--ok-fg); }
     .cj-ahorro { font-size: var(--fs-body); }
     .cj-u { display: inline-block; font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-xs); font-weight: 600; padding: 0 var(--sp-2); border-radius: var(--r-sm); background: var(--text-main); color: var(--card-bg); }
+    .cj-ticket th.comm-num, .cj-ticket td.comm-num { text-align: right; }
     .cj-cant { font-family: var(--font-mono, ui-monospace, monospace); font-weight: 600; font-size: var(--fs-lg); white-space: nowrap; }
     .cj-imp { font-weight: 700; font-size: var(--fs-lg); }
     .cj-vacio { padding: var(--sp-6) var(--sp-3); color: var(--text-faint); }
@@ -256,10 +334,47 @@ const CANAL_CLIENTE = 'md-caja-cliente';
 })
 export class TiendaCajaComponent implements OnDestroy {
   private readonly svc = inject(VerificadorService);
-  private readonly router = inject(Router);
   @ViewChild('cmd') private cmd?: ElementRef<HTMLInputElement>;
 
   readonly motivos = MOTIVOS_QUITAR;
+  /** La caja es de UNA sucursal: la del usuario, si la tiene (entonces no se ofrece elegir otra). */
+  readonly sucursalPropia = inject(AuthService).user()?.warehouse_code || null;
+  nombreSucursal(c: string): string { return warehouseName(c); }
+  /** El arqueo vive DENTRO de la caja (una sola interfaz): el mismo componente real de /tienda/arqueo. */
+  readonly puedeArqueo = [Permission.STORE_ARQUEO_VER, Permission.STORE_ARQUEO_CAPTURAR, Permission.STORE_ARQUEO_SIN_CAJA_CAPTURAR].some((p) => inject(PermissionsService).has(p));
+  private readonly arqSvc = inject(ArqueoService);
+  readonly denomsMx = DENOMINACIONES_MXN;
+  /** Los turnos de Kepler que el servidor le deja ver a esta persona; la caja usa el de su sucursal. */
+  private readonly turnosKepler = signal<Turno[]>([]);
+  readonly turnoK = computed(() => {
+    const ts = this.turnosKepler().filter((t) => t.warehouse_code === this.suc());
+    return ts.find((t) => t.abierto) ?? ts[0] ?? null;
+  });
+  readonly arq = signal<{ paso: 'tipo' | 'conteo' | 'guardando' | 'listo'; tipo: ArqueoTipo; i: number; vals: number[]; resultado: ArqueoResult | null } | null>(null);
+  readonly sumaArq = computed(() => r2((this.arq()?.vals ?? []).reduce((a, n, i) => a + n * this.denomsMx[i].valor, 0)));
+  /** Cerrar turno = el arqueo real (el conteo ciego del cierre); al volver, el turno de práctica se cierra. */
+  private cerrandoTurno = false;
+
+  // ── Turno de PRÁCTICA (PDV.14 lo guarda de verdad): fondo, gaveta ciega y retiros ──
+  readonly turno = signal<{ desde: string; fondo: number; retiros: { folio: string; monto: number; hora: string }[] } | null>(null);
+  readonly conteo = signal<{ tipo: 'apertura' | 'retiro'; i: number; vals: number[]; pin: boolean } | null>(null);
+  private readonly efectivoVendido = signal(0);
+  /** Límites de Yurécuaro en Kepler (aviso $10,000 · máximo $15,000); por sucursal llegan con PDV.5. */
+  private readonly avisoGaveta = 10_000;
+  private readonly maximoGaveta = 15_000;
+  private readonly gaveta = computed(() => {
+    const t = this.turno();
+    return t ? r2(t.fondo + this.efectivoVendido() - t.retiros.reduce((a, x) => a + x.monto, 0)) : 0;
+  });
+  readonly nivelGaveta = computed(() => (this.gaveta() >= this.maximoGaveta ? 'maximo' : this.gaveta() >= this.avisoGaveta ? 'aviso' : 'ok'));
+  /** El PIN (de supervisor o de quien recibe un retiro) no se ve al teclearlo. */
+  readonly ocultar = computed(() => { const c = this.conteo(); return !!this.auth()?.motivo || (!!c && c.tipo === 'retiro' && c.i >= this.denominaciones(c.tipo).length); });
+  readonly sumaConteo = computed(() => {
+    const c = this.conteo();
+    if (!c) return 0;
+    const den = this.denominaciones(c.tipo);
+    return r2(c.vals.reduce((a, n, i) => a + (den[i][0] ? n * den[i][0] : n), 0));
+  });
   readonly dinero = pesos;
 
   // ── Sucursal y catálogo ──
@@ -309,6 +424,10 @@ export class TiendaCajaComponent implements OnDestroy {
   readonly formasTexto = computed(() => [...new Set(this.pagos().map((p) => p.forma.toLowerCase()))].join(' + '));
 
   readonly modo = computed(() => {
+    const q = this.arq();
+    if (q) return q.paso === 'tipo' ? 'Elegir' : q.paso === 'listo' ? 'Listo' : 'Piezas';
+    const c = this.conteo();
+    if (c) return c.i >= this.denominaciones(c.tipo).length ? (c.tipo === 'retiro' ? 'PIN' : 'Confirmar') : 'Piezas';
     const a = this.auth();
     if (a) return a.motivo ? 'PIN' : 'Motivo';
     if (this.verificando()) return 'Verificar';
@@ -317,6 +436,10 @@ export class TiendaCajaComponent implements OnDestroy {
     return /[a-zñ]/i.test(this.texto()) ? 'Buscar' : 'Escanear';
   });
   readonly placeholder = computed(() => {
+    const q = this.arq();
+    if (q) return q.paso === 'tipo' ? '1 retiro · 2 corte · 3 relevo' : q.paso === 'conteo' && q.i < this.denomsMx.length ? (this.denomsMx[q.i].familia === 'moneda' ? 'Monedas de ' : 'Billetes de ') + this.denomsMx[q.i].label + ': cuántas, y Enter' : q.paso === 'listo' ? 'Enter para volver a vender' : 'Enter entrega el conteo';
+    const c = this.conteo();
+    if (c) return c.i < this.denominaciones(c.tipo).length ? this.denominaciones(c.tipo)[c.i][1] + ': cuántas, y Enter' : c.tipo === 'retiro' ? 'PIN de quien recibe' : 'Enter abre el turno';
     const a = this.auth();
     if (a) return a.motivo ? 'PIN del supervisor' : 'Elige 1, 2, 3 o 4';
     if (this.verificando()) return 'Código o nombre del producto';
@@ -339,12 +462,13 @@ export class TiendaCajaComponent implements OnDestroy {
 
   constructor() {
     // La sucursal del usuario, si la tiene: la caja es de UNA sucursal.
-    const propia = inject(AuthService).user()?.warehouse_code;
-    if (propia) this.sucursal.set(propia);
+    if (this.sucursalPropia) this.sucursal.set(this.sucursalPropia);
     this.svc.sucursales().subscribe({ next: (s) => this.sucursales.set(s), error: () => this.sucursales.set([]) });
     effect(() => { if (this.suc()) this.prepararSucursal(); });
     // La pantalla del cliente escucha este canal (misma app, otra ventana).
     effect(() => this.canal?.postMessage(this.paraCliente()));
+    // La pantalla del cliente recién abierta pide el estado actual.
+    if (this.canal) this.canal.onmessage = (m: MessageEvent<{ pide?: boolean }>) => { if (m.data?.pide) this.canal?.postMessage(this.paraCliente()); };
   }
 
   ngOnDestroy(): void { this.canal?.close(); }
@@ -356,7 +480,7 @@ export class TiendaCajaComponent implements OnDestroy {
     this.cargando.set(true);
     this.errorCarga.set(null);
     this.svc.asegurarSnapshot(s).subscribe({
-      next: () => { this.cargando.set(false); this.enfocar(); },
+      next: () => { this.cargando.set(false); this.cargarTurnos(); if (!this.turno()) this.abrirApertura(); this.enfocar(); },
       error: () => { this.cargando.set(false); this.errorCarga.set('No se pudo descargar el catálogo de precios de ' + warehouseName(s) + '. La búsqueda por código sigue funcionando.'); },
     });
   }
@@ -371,6 +495,8 @@ export class TiendaCajaComponent implements OnDestroy {
     if (a && a.tipo !== 'error' && k !== 'Shift') this.aviso.set(null);
     const v = this.texto().trim();
 
+    if (this.arq()) return this.teclaArqueo(e, k, v);
+    if (this.conteo()) return this.teclaConteo(e, k, v);
     if (!this.auth() && (k === 'F6' || k === 'F7')) { k === 'F6' ? this.abrirVerificador() : this.irArqueo(); return; }
     if (this.auth()) return this.teclaAutorizacion(e, k);
     if (this.verificando()) {
@@ -379,6 +505,8 @@ export class TiendaCajaComponent implements OnDestroy {
       return;
     }
     if (this.estado() === 'cobro') return this.teclaCobro(e, k, v);
+    // F8 (retiro) también justo después de cobrar: es el momento natural de vaciar la gaveta.
+    if (k === 'F8' && this.estado() !== 'cobro') { this.turnoK() ? this.irArqueo('retiro') : this.abrirRetiro(); return; }
     if (this.estado() === 'cobrado') { if (k === 'Enter' || /^F\d+$/.test(k)) e.preventDefault(); return; }
 
     switch (k) {
@@ -399,6 +527,7 @@ export class TiendaCajaComponent implements OnDestroy {
       case '+': if (v) return; e.preventDefault(); this.sumar(); return;
       case '-': if (v) return; e.preventDefault(); this.restar(); return;
       case 'F4': this.cambiarPresentacion(); return;
+      case 'F8': this.turnoK() ? this.irArqueo('retiro') : this.abrirRetiro(); return;
       case 'F9': void this.buscarTexto(v || ' ', true); return;
       case 'F10': this.pedir('quitar', this.sel()); return;
       case 'Delete':
@@ -434,6 +563,8 @@ export class TiendaCajaComponent implements OnDestroy {
   private async agregarPorCodigo(codigo: string, cantidad: number, conCantidad: boolean): Promise<void> {
     const s = this.suc();
     if (!s) return this.avisar('error', 'Elige la sucursal de la caja.');
+    if (!this.turno()) { this.abrirApertura(); return this.avisar('error', 'Abre el turno antes de vender: cuenta el fondo.'); }
+    if (this.nivelGaveta() === 'maximo' && !this.lineas().length) return this.avisar('error', 'La gaveta pasó el máximo. Haz un retiro (F8) antes del siguiente ticket.');
     const r = await firstValueFrom(this.svc.buscar(codigo, s));
     if (r.estado === 'no_encontrado') return this.avisar('error', 'No encontrado: ' + codigo + '. El producto NO entró al ticket.');
     if (r.estado === 'sin_datos') return this.avisar('error', 'Sin datos de precios para ' + codigo + ' (sin red y sin respaldo). El producto NO entró al ticket.');
@@ -602,7 +733,11 @@ export class TiendaCajaComponent implements OnDestroy {
     this.pagos.update((p) => [...p, { forma, recibido, aplicado, cambio: forma === 'Efectivo' ? r2(recibido - aplicado) : 0 }]);
     this.limpiar();
     this.aviso.set(null);
-    if (this.saldo() <= 0.004) { this.estado.set('cobrado'); this.tono(1320, 60); }
+    if (this.saldo() <= 0.004) {
+      this.estado.set('cobrado');
+      this.efectivoVendido.update((v) => r2(v + this.pagos().filter((p) => p.forma === 'Efectivo').reduce((a, p) => a + p.aplicado, 0)));
+      this.tono(1320, 60);
+    }
   }
 
   private siguienteCliente(): void {
@@ -618,9 +753,79 @@ export class TiendaCajaComponent implements OnDestroy {
 
   // ── Verificador (F6) y arqueo (F7) ──
   abrirVerificador(): void { this.cerrarResultados(); this.limpiar(); this.verificado.set(null); this.verificando.set(true); this.enfocar(); }
-  irArqueo(): void {
+  irArqueo(tipo?: ArqueoTipo): void {
     if (this.tot().renglones && this.estado() !== 'cobrado') return this.avisar('aviso', 'Para hacer tu arqueo, termina o cancela el ticket en curso.');
-    void this.router.navigate(['/tienda/arqueo']);
+    if (!this.puedeArqueo) return this.avisar('aviso', 'Tu puesto no tiene el arqueo de caja.');
+    if (!this.turnoK()) return this.avisar('error', 'No hay un turno de Kepler en ' + warehouseName(this.suc()) + ' que puedas arquear. Sin turno se captura en Arqueo de Tienda.');
+    if (this.estado() === 'cobrado') this.siguienteCliente();
+    this.cerrarResultados();
+    this.verificando.set(false);
+    this.conteo.set(null);
+    this.arq.set({ paso: tipo ? 'conteo' : 'tipo', tipo: tipo ?? 'cierre', i: 0, vals: [], resultado: null });
+    this.limpiar();
+    this.enfocar();
+  }
+
+  private cargarTurnos(): void {
+    this.arqSvc.turnos().subscribe({ next: (r) => this.turnosKepler.set(r.turnos ?? []), error: () => this.turnosKepler.set([]) });
+  }
+
+  tipoTexto(t: ArqueoTipo): string { return t === 'retiro' ? 'Retiro de caja' : t === 'relevo' ? 'Relevo de cajera' : 'Corte del turno'; }
+
+  private teclaArqueo(e: KeyboardEvent, k: string, v: string): void {
+    const q = this.arq()!;
+    if (q.paso === 'guardando') { e.preventDefault(); return; }
+    if (k === 'Escape' || (q.paso === 'listo' && k === 'Enter')) {
+      e.preventDefault();
+      const cerro = q.paso === 'listo' && q.tipo === 'cierre';
+      this.arq.set(null);
+      this.limpiar();
+      if (this.cerrandoTurno && cerro) {
+        this.turno.set(null);
+        this.efectivoVendido.set(0);
+        this.avisar('ok', 'Corte entregado: el turno de práctica se cerró. Para vender otra vez, abre turno.');
+        this.abrirApertura();
+      }
+      this.cerrandoTurno = false;
+      this.enfocar();
+      return;
+    }
+    if (q.paso === 'tipo') {
+      if (k.length === 1) e.preventDefault();
+      const tipo = ({ '1': 'retiro', '2': 'cierre', '3': 'relevo' } as Record<string, ArqueoTipo>)[k];
+      if (tipo) this.arq.set({ ...q, paso: 'conteo', tipo });
+      return;
+    }
+    if (q.paso === 'listo') return;
+    if (k !== 'Enter') { if (k.length === 1 && !/[\d]/.test(k) && !e.ctrlKey) e.preventDefault(); return; }
+    e.preventDefault();
+    if (q.i < this.denomsMx.length) {
+      const n = v === '' ? 0 : Number(v);
+      if (!Number.isInteger(n) || n < 0) return this.avisar('error', 'Teclea cuántas piezas (número entero).');
+      this.arq.set({ ...q, i: q.i + 1, vals: [...q.vals, n] });
+      this.limpiar();
+      return;
+    }
+    this.guardarArqueo(q);
+  }
+
+  /** El MISMO payload que arma Arqueo de Tienda (tienda-arqueo.component submit): cabecera del turno de Kepler. */
+  private guardarArqueo(q: NonNullable<ReturnType<typeof this.arq>>): void {
+    const t = this.turnoK();
+    if (!t) return this.avisar('error', 'Ya no hay turno de Kepler para guardar el arqueo.');
+    const denominations: Record<string, number> = {};
+    q.vals.forEach((n, i) => { if (n > 0) denominations[this.denomsMx[i].key] = n; });
+    if (!Object.keys(denominations).length) return this.avisar('error', 'El conteo está en cero: cuenta otra vez (Esc para no guardar).');
+    this.arq.set({ ...q, paso: 'guardando' });
+    this.arqSvc.submit({
+      cash_cut_folio: t.folio, warehouse_code: t.warehouse_code, caja: t.caja, business_date: t.business_date,
+      cajero_code: t.cajero_code || undefined, tipo: q.tipo, denominations,
+      // [SM.49] La sangría normal que pide Kepler por el límite.
+      concepto: q.tipo === 'retiro' ? 'retiro_caja' : undefined,
+    }).subscribe({
+      next: (r) => { this.arq.set({ ...q, paso: 'listo', resultado: r }); this.cargarTurnos(); this.tono(1320, 60); },
+      error: (err) => { this.arq.set({ ...q, paso: 'conteo' }); this.avisar('error', 'No se guardó el arqueo: ' + (err?.error?.message || 'intenta de nuevo.')); },
+    });
   }
 
   private async verificar(v: string): Promise<void> {
@@ -650,6 +855,76 @@ export class TiendaCajaComponent implements OnDestroy {
       empujon: p?.siguiente ? 'Llevando ' + (p.siguiente.desde - l!.cantidad) + ' más de ' + l!.nombre + ', te quedan en ' + pesos(p.siguiente.precio) + ' cada uno.' : '',
       lineas: this.lineas().map((x, i) => ({ nombre: x.nombre, cantidad: x.granel ? x.cantidad.toFixed(3) + ' kg' : x.cantidad + ' ' + x.unidad.toLowerCase(), importe: importeRenglon(x), quitado: !!x.quitado, sel: i === this.sel() })),
     };
+  }
+
+  // ── Turno: apertura, retiro y cierre ──
+  denominaciones(tipo: 'apertura' | 'retiro'): readonly (readonly [number, string])[] {
+    return tipo === 'apertura'
+      ? [[500, 'Billetes de $500'], [200, 'Billetes de $200'], [100, 'Billetes de $100'], [50, 'Billetes de $50'], [20, 'Billetes de $20'], [0, 'Monedas (importe)']]
+      : [[1000, 'Billetes de $1,000'], [500, 'Billetes de $500'], [200, 'Billetes de $200'], [100, 'Billetes de $100']];
+  }
+
+  private abrirApertura(): void {
+    if (this.turno() || this.conteo()) return;
+    this.conteo.set({ tipo: 'apertura', i: 0, vals: [], pin: false });
+    this.limpiar();
+    this.enfocar();
+  }
+
+  abrirRetiro(): void {
+    if (!this.turno()) return this.avisar('aviso', 'Primero abre el turno.');
+    if (this.lineas().length && this.estado() !== 'cobrado') return this.avisar('aviso', 'Termina o cancela el ticket en curso antes del retiro.');
+    if (this.estado() === 'cobrado') this.siguienteCliente();
+    this.cerrarResultados();
+    this.verificando.set(false);
+    this.conteo.set({ tipo: 'retiro', i: 0, vals: [], pin: false });
+    this.limpiar();
+    this.enfocar();
+  }
+
+  cerrarTurno(): void {
+    if (this.lineas().length && this.estado() !== 'cobrado') return this.avisar('aviso', 'Termina o cancela el ticket en curso antes de cerrar el turno.');
+    if (!this.puedeArqueo) return this.avisar('aviso', 'Tu puesto no tiene el arqueo de caja: el cierre lo hace quien sí lo tiene.');
+    if (this.estado() === 'cobrado') this.siguienteCliente();
+    this.cerrandoTurno = true;
+    this.irArqueo('cierre');
+  }
+
+  private teclaConteo(e: KeyboardEvent, k: string, v: string): void {
+    const c = this.conteo()!;
+    const den = this.denominaciones(c.tipo);
+    if (k === 'Escape') {
+      e.preventDefault();
+      this.limpiar();
+      if (c.tipo === 'apertura') this.conteo.set({ tipo: 'apertura', i: 0, vals: [], pin: false });
+      else this.conteo.set(null);
+      return;
+    }
+    if (k !== 'Enter') { if (k.length === 1 && !/[\d.,]/.test(k) && !e.ctrlKey) e.preventDefault(); return; }
+    e.preventDefault();
+    if (c.i < den.length) {
+      const n = v === '' ? 0 : leerImporte(v);
+      if (n === null || (den[c.i][0] && n % 1)) return this.avisar('error', den[c.i][0] ? 'Teclea cuántas piezas (número entero).' : 'Teclea el importe en monedas, por ejemplo 36.50.');
+      this.conteo.set({ ...c, i: c.i + 1, vals: [...c.vals, n] });
+      this.limpiar();
+      return;
+    }
+    const total = this.sumaConteo();
+    if (c.tipo === 'apertura') {
+      if (!(total > 0)) return this.avisar('error', 'El fondo no puede ser cero: vuelve a contar (Esc).');
+      this.turno.set({ desde: new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: false }), fondo: total, retiros: [] });
+      this.conteo.set(null);
+      this.limpiar();
+      return this.avisar('ok', 'Turno abierto con ' + pesos(total) + ' de fondo. Escanea el primer producto.');
+    }
+    if (!(total > 0)) return this.avisar('error', 'El retiro está en cero: cuenta lo que vas a retirar (Esc para no retirar).');
+    if (v.length < 4) return this.avisar('error', 'Quien recibe el dinero teclea su PIN (al menos 4 dígitos). En práctica no se valida.');
+    const t = this.turno()!;
+    const folio = 'R-' + String(t.retiros.length + 1).padStart(4, '0');
+    this.turno.set({ ...t, retiros: [...t.retiros, { folio, monto: total, hora: new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: false }) }] });
+    this.conteo.set(null);
+    this.limpiar();
+    this.avisar('ok', 'Retiro ' + folio + ' por ' + pesos(total) + ' registrado en práctica: entra al corte del turno.');
   }
 
   // ── Ayudas ──

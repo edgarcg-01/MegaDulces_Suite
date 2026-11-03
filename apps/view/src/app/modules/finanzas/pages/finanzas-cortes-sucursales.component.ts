@@ -22,6 +22,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 import { money, dmy } from './finanzas-format';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { CORTES_ARQUEOS_TABS } from '../cortes-arqueos-tabs';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary';
@@ -113,6 +114,8 @@ export interface DiaDeCortes {
   saldo: number;
   /** Cortes del día que todavía no se cobraron completos. */
   pendientes: number;
+  /** `[CSU.21]` De ésos, los que pasaron el plazo normal de cobro (`plazo_cobro_dias`). Sólo éstos son alarma. */
+  vencidos: number;
   /**
    * Cortes del día que no cuadran: el corte contra lo que Kepler esperaba, o `[CSU.17]` un testigo
    * independiente (el cajero; si no contó, los billetes y monedas de Kepler).
@@ -122,17 +125,37 @@ export interface DiaDeCortes {
   fuera: CorteConteoFuera[];
 }
 
-const CUADRE_MALO: readonly CorteCuadre[] = ['faltante_arqueo', 'sobrante_arqueo', 'corte_distinto'];
 
 /**
  * `[CSU.17]` Una diferencia de arqueo como se pinta en la lista, con su signo en palabras.
  * `null` = ese testigo no contó: se dice con `sinDato`, nunca «Cuadra».
  */
-export function celdaArqueo(dif: number | null | undefined, sinDato: string): { label: string; sev: Sev } {
+export function celdaArqueo(dif: number | null | undefined, sinDato: string, umbral = 50): { label: string; sev: Sev } {
   if (dif == null) return { label: sinDato, sev: 'secondary' };
   if (Math.abs(dif) < 1) return { label: 'Cuadra', sev: 'success' };
-  return dif < 0 ? { label: `Falta ${money(-dif)}`, sev: 'danger' } : { label: `Sobra ${money(dif)}`, sev: 'warn' };
+  const label = dif < 0 ? `Falta ${money(-dif)}` : `Sobra ${money(dif)}`;
+  // [CSU.21] Debajo del umbral del arqueo es redondeo de monedas: se dice, en gris, sin alarma.
+  if (Math.abs(dif) < umbral) return { label, sev: 'secondary' };
+  return { label, sev: dif < 0 ? 'danger' : 'warn' };
 }
+
+/**
+ * `[CSU.21]` La pastilla del corte contra lo que Kepler esperaba. Cuando Kepler registró como contado lo
+ * mismo que esperaba (c25 = c15, el 91.5 % de octubre), «Cuadra» compara a Kepler contra sí mismo: se
+ * dice «= esperado» en gris, y el verde queda para cuando hubo un contado distinto que sí coincidió.
+ */
+export function celdaCorte(c: CorteRow): { label: string; sev: Sev } {
+  if (c.cuadre === 'cuadra' && c.arqueo?.arqueo_declarado) return { label: '= esperado', sev: 'secondary' };
+  return { label: etiquetaCuadre(c), sev: CUADRE[c.cuadre].sev };
+}
+
+/** `[CSU.21]` Días entre dos fechas 'YYYY-MM-DD'. */
+export function diasEntre(desde: string, hasta: string): number {
+  return Math.round((Date.parse(`${hasta}T00:00:00Z`) - Date.parse(`${desde}T00:00:00Z`)) / 86_400_000);
+}
+
+/** `[CSU.21]` Hoy en la hora de la tienda, 'YYYY-MM-DD'. */
+export const hoyMx = (): string => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
 
 /**
  * `[CSU.20]` Por qué un conteo del cajero no está en ningún corte, en palabras. «Sin caja» es una
@@ -154,19 +177,6 @@ export function creditosExplicanDesglose(a: CorteArqueo): boolean {
 }
 
 /**
- * `[CSU.17]` ¿Un testigo independiente dice que el corte no cuadra? Manda el cajero; si no contó,
- * los billetes y monedas de Kepler. Medido el 01/11 en 8 Esquinas: los 4 cortes decían «Cuadra»
- * (Kepler contra sí mismo) y el cajero contó −$98.05, −$0.22, −$3,495.69 y −$406.23.
- */
-export function descuadraPorTestigo(c: CorteRow): boolean {
-  const a = c.arqueo;
-  if (!a) return false;
-  const cajero = a.declaracion_cajero?.diferencia;
-  const dif = cajero != null ? cajero : a.fisico_diferencia;
-  return dif != null && Math.abs(dif) >= 1;
-}
-
-/**
  * `[CSU.15]` Englobar los cortes por día de sucursal — **el único cambio al proceso de hoy**.
  *
  * ⭐ Agrupa lo que ya se está viendo, no lo que trajo el servidor: recibe la lista **ya filtrada**
@@ -177,7 +187,9 @@ export function descuadraPorTestigo(c: CorteRow): boolean {
  * Orden: el día más reciente primero y, dentro del día, por nombre de sucursal. Los cortes de cada
  * día conservan el orden en que venían.
  */
-export function agruparCortesPorDia(cortes: readonly CorteRow[], fuera: readonly CorteConteoFuera[] = []): DiaDeCortes[] {
+export function agruparCortesPorDia(
+  cortes: readonly CorteRow[], fuera: readonly CorteConteoFuera[] = [], hoy: string = hoyMx(), plazo = 3,
+): DiaDeCortes[] {
   const grupos = new Map<string, DiaDeCortes>();
   for (const c of cortes) {
     const clave = `${c.fecha}|${c.sucursal}`;
@@ -185,7 +197,7 @@ export function agruparCortesPorDia(cortes: readonly CorteRow[], fuera: readonly
     if (!g) {
       g = {
         clave, fecha: c.fecha, sucursal: c.sucursal, sucursal_nombre: c.sucursal_nombre,
-        cortes: [], monto: 0, cobrado: 0, saldo: 0, pendientes: 0, descuadrados: 0, fuera: [],
+        cortes: [], monto: 0, cobrado: 0, saldo: 0, pendientes: 0, vencidos: 0, descuadrados: 0, fuera: [],
       };
       grupos.set(clave, g);
     }
@@ -194,7 +206,9 @@ export function agruparCortesPorDia(cortes: readonly CorteRow[], fuera: readonly
     g.cobrado += c.cobrado;
     g.saldo += c.saldo;
     if (c.saldo > 0.005) g.pendientes++;
-    if (CUADRE_MALO.includes(c.cuadre) || descuadraPorTestigo(c)) g.descuadrados++;
+    // [CSU.21] La regla de «sin cuadrar» es UNA y la calcula el backend (`sinCuadrar`): la misma del indicador.
+    if (c.sin_cuadrar) g.descuadrados++;
+    if (c.saldo > 0.005 && diasEntre(c.fecha, hoy) > plazo) g.vencidos++;
   }
   // [CSU.20] Se pegan al día-sucursal que ya se ve (la lista filtrada); los de un día sin cortes
   // visibles no se pierden: los cuenta la barra de arriba.
@@ -223,7 +237,7 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, DatePickerModule, ToggleSwitchModule, TagModule,
-    InputTextModule, IconFieldModule, InputIconModule, MetricStripComponent, SucursalPipe, PageTabsComponent],
+    InputTextModule, IconFieldModule, InputIconModule, MetricStripComponent, SucursalPipe, PageTabsComponent, ContextHelpComponent],
   template: `
     <div class="surf-page in">
       <header class="surf-page-head">
@@ -232,6 +246,7 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
           <p class="surf-page-sub">Lo que vendió cada caja (corte de caja POS, cliente <b>CONTADO</b>), cuánto ya se cobró en Kepler y cuánto sigue pendiente. Se cuadra contra el arqueo del mismo turno.</p>
         </div>
         <div class="cs-actions">
+          <app-context-help topic="cortes-sucursales" />
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="loading()" (click)="reload()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
         </div>
       </header>
@@ -288,7 +303,7 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
             <ng-template #header><tr><th>Sucursal</th><th class="ta-r">Cortes</th><th class="ta-r">Vendido</th><th class="ta-r">Cobrado</th><th class="ta-r">Pendiente</th><th class="ta-r">% cobrado</th><th>Abierto desde</th><th>Revisar</th></tr></ng-template>
             <ng-template #body let-s>
               <tr [pSelectableRow]="s">
-                <td role="cell" data-label="Sucursal"><span class="cs-mono muted">{{ s.sucursal }}</span> {{ s.sucursal_nombre }}</td>
+                <td role="cell" data-label="Sucursal">{{ s.sucursal_nombre }}</td>
                 <td class="ta-r num" role="cell" data-label="Cortes">{{ s.cortes }}</td>
                 <td class="ta-r num" role="cell" data-label="Vendido">{{ money(s.vendido) }}</td>
                 <td class="ta-r num" role="cell" data-label="Cobrado" [class.muted]="!s.cobrado">{{ s.cobrado ? money(s.cobrado) : '—' }}</td>
@@ -296,7 +311,7 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
                 <td class="ta-r num" role="cell" data-label="% cobrado">{{ pct(s.cobrado, s.vendido) }}</td>
                 <td role="cell" data-label="Abierto desde">@if (s.abierto_desde) { {{ dmy(s.abierto_desde) }} <span class="muted">· {{ dias(s.abierto_desde) }} d</span> } @else { <span class="muted">—</span> }</td>
                 <td role="cell" data-label="Revisar">
-                  @if (s.con_diferencia) { <p-tag [value]="s.con_diferencia + ' con diferencia'" severity="warn" styleClass="cs-tag" /> }
+                  @if (s.con_diferencia) { <p-tag [value]="s.con_diferencia + ' sin cuadrar'" severity="danger" styleClass="cs-tag" /> }
                   @if (s.sin_arqueo) { <p-tag [value]="s.sin_arqueo + ' sin arqueo'" severity="info" styleClass="cs-tag" /> }
                   @if (!s.con_diferencia && !s.sin_arqueo) { <span class="muted">—</span> }
                 </td>
@@ -306,7 +321,7 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
           </p-table>
         </section>
 
-        <div class="cs-split">
+        <div class="cs-split" [class.cs-split-solo]="!selCorte()">
           <section class="cs-block dt-scope" aria-labelledby="cs-h-cortes">
             <div class="cs-bh"><h2 id="cs-h-cortes">Cortes @if (selSuc(); as s) { · {{ s.sucursal_nombre }} }</h2>
               <span class="cs-hint" aria-live="polite">@if (q().trim()) { {{ cortes().length }} de {{ cortesBase().length }} corte(s) con «{{ q().trim() }}» · <button type="button" class="cs-link" (click)="limpiarBusqueda()">limpiar</button> · } @else { {{ diasDeCortes().length }} día(s) · {{ cortes().length }} corte(s) · } pendiente {{ money(pendienteVisible()) }}@if (fueraVisibles().length) { · {{ fueraVisibles().length }} conteo(s) fuera de corte por {{ money(sumaFuera(fueraVisibles())) }} }@if (ultimoCobro(); as u) { · último cobro aplicado en Kepler: {{ dmy(u) }} }
@@ -323,9 +338,11 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
                   <td class="ta-r num muted" role="cell" data-label="Cortes">{{ d.cortes.length }}</td>
                   <td class="ta-r num cs-strong" role="cell" data-label="Monto">{{ money(d.monto) }}</td>
                   <td class="ta-r num" role="cell" data-label="Cobrado" [class.muted]="!d.cobrado">{{ d.cobrado ? money(d.cobrado) : '—' }}</td>
-                  <td class="ta-r num cs-strong" role="cell" data-label="Saldo" [class.cs-bad]="d.saldo > 0.005">{{ money(d.saldo) }}</td>
+                  <td class="ta-r num cs-strong" role="cell" data-label="Saldo" [class.cs-bad]="d.vencidos > 0">{{ money(d.saldo) }}</td>
                   <td role="cell" data-label="Estado">
-                    @if (d.pendientes) { <p-tag [value]="d.pendientes + ' por cobrar'" severity="warn" styleClass="cs-tag" /> } @else { <p-tag value="Todo cobrado" severity="success" styleClass="cs-tag" /> }
+                    @if (d.vencidos) { <p-tag [value]="d.vencidos + ' por cobrar · más de ' + plazo() + ' días'" severity="warn" styleClass="cs-tag" /> }
+                    @if (d.pendientes - d.vencidos) { <p-tag [value]="(d.pendientes - d.vencidos) + ' en plazo'" severity="secondary" styleClass="cs-tag" /> }
+                    @if (!d.pendientes) { <p-tag value="Todo cobrado" severity="success" styleClass="cs-tag" /> }
                     @if (d.descuadrados) { <p-tag [value]="d.descuadrados + ' sin cuadrar'" severity="danger" styleClass="cs-tag" /> }
                     @if (d.fuera.length) { <p-tag [value]="d.fuera.length + ' fuera de corte'" severity="info" styleClass="cs-tag" /> }
                   </td>
@@ -348,10 +365,11 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
                           <td class="cs-mono">{{ c.caja && c.turno ? c.caja + '-' + c.turno : c.referencia }}</td>
                           <td class="ta-r num">{{ money(c.monto) }}</td>
                           <td class="ta-r num" [class.muted]="!c.cobrado">{{ c.cobrado ? money(c.cobrado) : '—' }}</td>
-                          <td class="ta-r num cs-strong">{{ money(c.saldo) }}</td>
+                          <td class="ta-r num cs-strong" [class.cs-bad]="c.saldo > 0.005 && vencido(c)">{{ money(c.saldo) }}</td>
                           <td><p-tag [value]="cobroLabel(c.estado_cobro)" [severity]="cobroSev(c.estado_cobro)" styleClass="cs-tag" />
                             @if (c.cobros_cancelados.length) { <p-tag [value]="c.cobros_cancelados.length + ' cancelado' + (c.cobros_cancelados.length > 1 ? 's' : '')" severity="secondary" styleClass="cs-tag" [attr.title]="'Cobros cancelados en Kepler: no suman'" /> }</td>
-                          <td><p-tag [value]="cuadreLabel(c)" [severity]="cuadreSev(c.cuadre)" styleClass="cs-tag" /></td>
+                          @let cc = celdaDelCorte(c);
+                          <td><p-tag [value]="cc.label" [severity]="cc.sev" styleClass="cs-tag" /></td>
                           @if (c.arqueo; as a) {
                             @let cj = celdaCajero(a);
                             @let kp = celdaKepler(a);
@@ -394,10 +412,12 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
             </p-table>
           </section>
 
+          <!-- [CSU.21] El detalle aparece al elegir un corte; mientras, la lista toma todo el ancho. -->
+          @if (selCorte()) {
           <section class="cs-block cs-detail" aria-labelledby="cs-h-det" aria-live="polite">
             @if (selCorte(); as c) {
               <div class="cs-bh"><h2 id="cs-h-det">{{ c.documento }} · {{ c.referencia }}</h2><p-tag [value]="cobroLabel(c.estado_cobro)" [severity]="cobroSev(c.estado_cobro)" styleClass="cs-tag" /></div>
-              <p class="cs-hint cs-pad">{{ c.sucursal | sucursal }} · {{ dmy(c.fecha) }}@if (c.arqueo?.cajero) { · cerró {{ c.arqueo?.cajero }} }</p>
+              <p class="cs-hint cs-pad">{{ c.sucursal | sucursal }} · {{ dmy(c.fecha) }}@if (c.arqueo?.cajero) { · cerró {{ c.arqueo?.cajero_nombre || c.arqueo?.cajero }} }</p>
 
               <div class="cs-step">
                 <h3><span class="cs-n">1</span> Corte contra el arqueo del turno</h3>
@@ -506,12 +526,11 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
 
               <div class="cs-step">
                 <h3><span class="cs-n">3</span> Llegó a la empresa</h3>
-                <p class="cs-hint">Entrega 2: aquí se verá el abono en el estado de cuenta (tarjeta y transferencia) y el paso del efectivo por Caja Fuerte y Caja General hasta su depósito. Hoy <b>no se mide</b>.</p>
+                <p class="cs-hint">Todavía <b>no se mide</b>: el abono en el banco y el paso del efectivo hasta su depósito.</p>
               </div>
-            } @else {
-              <div class="cs-empty cs-pad"><i class="pi pi-arrow-left" aria-hidden="true"></i><span>Elige un corte para ver su arqueo y sus cobros.</span></div>
             }
           </section>
+          }
         </div>
       }
     </div>
@@ -547,6 +566,7 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
     .cs-pad { padding:.5rem .85rem 0; }
     .cs-link { background:none; border:0; padding:0; color:var(--action); cursor:pointer; font:inherit; text-decoration:underline; }
     .cs-split { display:grid; grid-template-columns:minmax(0,1.6fr) minmax(0,1fr); gap:1rem; align-items:start; }
+    .cs-split.cs-split-solo { grid-template-columns:minmax(0,1fr); }
     @media (max-width:68.75rem) { .cs-split { grid-template-columns:minmax(0,1fr); } }
     .cs-detail { position:sticky; top:.5rem; }
     .cs-step { padding:.7rem .85rem; border-top:1px solid var(--border-color); }
@@ -668,7 +688,7 @@ export class FinanzasCortesSucursalesComponent implements OnInit {
    * sumaba a mano. Se deriva de `cortes()` —la lista ya filtrada— para que el total del renglón
    * sea exactamente la suma de lo que se despliega debajo.
    */
-  readonly diasDeCortes = computed<DiaDeCortes[]>(() => agruparCortesPorDia(this.cortes(), this.fueraVisibles()));
+  readonly diasDeCortes = computed<DiaDeCortes[]>(() => agruparCortesPorDia(this.cortes(), this.fueraVisibles(), hoyMx(), this.plazo()));
   /** `[CSU.20]` Los conteos fuera de corte de la sucursal elegida (o de todas). */
   readonly fueraVisibles = computed<CorteConteoFuera[]>(() => {
     const todos = this.data()?.conteos_fuera_de_corte ?? [];
@@ -788,17 +808,20 @@ export class FinanzasCortesSucursalesComponent implements OnInit {
 
   kpis(d: CortesSucursalesResponse): MetricStripItem[] {
     const t = d.totales;
+    const hoy = hoyMx();
+    const venc = d.cortes.filter((c) => c.saldo > 0.005 && diasEntre(c.fecha, hoy) > d.plazo_cobro_dias).reduce((x, c) => x + c.saldo, 0);
     return [
       { label: 'Vendido en cortes', value: t.vendido, format: 'currency2', tone: 'default', sub: `${t.cortes} cortes · ${d.sucursales.length} sucursales` },
       { label: 'Cobrado en Kepler', value: t.cobrado, format: 'currency2', tone: 'ok', sub: `${this.pct(t.cobrado, t.vendido)} de lo vendido` },
-      { label: 'Pendiente de cobro', value: t.pendiente, format: 'currency2', tone: t.pendiente > 0.005 ? 'bad' : 'ok', sub: `${t.sin_cobro} cortes sin ningún cobro` },
-      { label: 'Corte vs arqueo', value: t.con_diferencia, format: 'number', tone: t.con_diferencia ? 'warn' : 'ok', sub: t.sin_arqueo ? `con diferencia · ${t.sin_arqueo} sin arqueo` : 'con diferencia' },
+      { label: 'Pendiente de cobro', value: t.pendiente, format: 'currency2', tone: venc > 0.005 ? 'bad' : 'default', sub: venc > 0.005 ? `${money(venc)} con más de ${d.plazo_cobro_dias} días` : `todo dentro de ${d.plazo_cobro_dias} días` },
+      // [CSU.21] La MISMA regla que «N sin cuadrar» de la lista (`sin_cuadrar` del backend).
+      { label: 'Sin cuadrar', value: t.con_diferencia, format: 'number', tone: t.con_diferencia ? 'bad' : 'ok', sub: t.sin_arqueo ? `corte, cajero o desglose · ${t.sin_arqueo} sin arqueo` : 'corte, cajero o desglose' },
     ];
   }
 
   /** El periodo empieza antes de que existieran los cortes POS en Kepler. */
   antesDeCortes(d: CortesSucursalesResponse): boolean { return d.periodo.from < INICIO_CORTES; }
-  sucursalesTexto(d: CortesSucursalesResponse): string { return d.alcance.sucursales.map((x) => x.codigo + ' ' + x.nombre).join(', '); }
+  sucursalesTexto(d: CortesSucursalesResponse): string { return d.alcance.sucursales.map((x) => x.nombre).join(', '); }
   pct(a: number, b: number): string { return b > 0 ? `${((a / b) * 100).toFixed(1)}%` : '—'; }
   dias(desde: string): number {
     const hoy = new Date();
@@ -865,18 +888,25 @@ export class FinanzasCortesSucursalesComponent implements OnInit {
   fueraTipo(x: CorteConteoFuera): string { return x.tipo === 'sin_caja' ? 'Conteo sin caja' : x.tipo === 'cierre' ? 'Cierre' : 'Retiro'; }
   fueraPorQue(x: CorteConteoFuera): string { return motivoFuera(x); }
   /** `[CSU.17]` Celda de arqueo de la lista (ver `celdaArqueo`). */
-  celda(dif: number | null | undefined, sinDato: string): { label: string; sev: Sev } { return celdaArqueo(dif, sinDato); }
+  celda(dif: number | null | undefined, sinDato: string): { label: string; sev: Sev } { return celdaArqueo(dif, sinDato, this.umbral()); }
+  /** `[CSU.21]` La pastilla del corte (ver `celdaCorte`). */
+  celdaDelCorte(c: CorteRow): { label: string; sev: Sev } { return celdaCorte(c); }
+  /** `[CSU.21]` El corte pasó el plazo normal de cobro. */
+  vencido(c: CorteRow): boolean { return diasEntre(c.fecha, hoyMx()) > this.plazo(); }
+  /** `[CSU.21]` Umbral del arqueo y plazo de cobro: los manda el backend, nadie los escribe dos veces. */
+  readonly umbral = computed(() => this.data()?.umbral_descuadre ?? 50);
+  readonly plazo = computed(() => this.data()?.plazo_cobro_dias ?? 3);
   /** `[CSU.19]` ¿El faltante del desglose de Kepler son los créditos y cheques que declaró el cajero? */
   creditosExplican(a: CorteArqueo): boolean { return creditosExplicanDesglose(a); }
   /** `[CSU.19]` Celda de billetes y monedas: si los créditos del cajero explican el faltante, se dice y va en gris. */
   celdaKepler(a: CorteArqueo): { label: string; sev: Sev } {
     if (creditosExplicanDesglose(a)) return { label: `${money(a.fisico_diferencia ?? 0)} · créditos del cajero`, sev: 'secondary' };
-    return celdaArqueo(a.fisico_diferencia, 'Sin desglose');
+    return celdaArqueo(a.fisico_diferencia, 'Sin desglose', this.umbral());
   }
   /** `[CSU.17]` El cajero: su diferencia, o por qué no hay — no contó, no capturó el cierre, o sus conteos apuntan a otro turno. */
   celdaCajero(a: CorteArqueo): { label: string; sev: Sev } {
     const d = a.declaracion_cajero;
-    if (d) return celdaArqueo(d.diferencia, 'Sin cierre');
+    if (d) return celdaArqueo(d.diferencia, 'Sin cierre', this.umbral());
     return celdaArqueo(null, a.conteos_cajero_sin_ligar ? `Sin ligar (${a.conteos_cajero_sin_ligar})` : 'No contó');
   }
 

@@ -82,6 +82,15 @@ input.txt,select{width:100%;font:inherit;background:var(--surface-2);color:var(-
 details.sim{margin:0 var(--sp-5) var(--sp-4);font-size:var(--fs-xs);color:var(--text-muted)}
 details.sim summary{cursor:pointer}
 details.sim .fila{display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-top:var(--sp-2)}
+.resumen{display:flex;flex-wrap:wrap;gap:var(--sp-2);margin:0 var(--sp-5) var(--sp-3)}
+.resumen a{display:inline-flex;gap:var(--sp-2);align-items:baseline;padding:4px 12px;border:1px solid var(--border-color);border-radius:var(--r-pill);color:var(--text-muted);text-decoration:none;font-size:var(--fs-xs)}
+.resumen a b{color:var(--text-main);font-family:var(--font-mono)}
+.resumen a.alerta b{color:var(--err-fg)}
+.resumen a:focus-visible{outline:2px solid var(--action-ring)}
+.buscar{display:flex;align-items:center;gap:var(--sp-3);margin:0 var(--sp-5)}
+.buscar input{max-width:560px}
+.pie{margin:0;padding:var(--sp-2) var(--sp-4);border-top:1px solid var(--table-border);font-size:var(--fs-xs)}
+.motivo{font-size:var(--fs-micro);color:var(--warn-fg);display:block}
 @media (prefers-reduced-motion: reduce){*{transition:none!important}}
 </style>
 </head>
@@ -90,6 +99,7 @@ details.sim .fila{display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-top:var(--s
   <h1>Caja General · Ventanilla</h1>
   <div class="kpi" data-testid="kpi-maquina"><b id="kpi-maquina"></b><span>en la máquina</span></div>
   <div class="kpi" id="kpi-cajon-box" data-testid="kpi-cajon"><b id="kpi-cajon"></b><span id="kpi-cajon-tope"></span></div>
+  <div class="kpi" data-testid="kpi-usd"><b id="kpi-usd"></b><span>dólares en el cajón</span></div>
   <div class="seg" role="group" aria-label="Ver como">
     <button type="button" data-rol="cajera" aria-pressed="true">Cajera</button>
     <button type="button" data-rol="tesoreria" aria-pressed="false">Tesorería (teléfono)</button>
@@ -106,12 +116,21 @@ details.sim .fila{display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-top:var(--s
   </div>
 </details>
 
+<nav class="resumen" id="resumen" aria-label="Lo que toca hoy" data-testid="resumen"></nav>
+<div class="buscar" id="buscar-box"><input class="txt" id="buscar" type="search" placeholder="Buscar en todas las listas: importe, folio, ruta, sucursal, persona…" aria-label="Buscar en todas las listas"><span class="faint" id="buscar-cuenta"></span></div>
+
 <main>
   <div id="vista-cajera">
-    <section class="cola alerta" data-testid="cola-explicar"><h2>Por explicar <span class="n" id="n-explicar"></span><span class="faint">salió de la máquina sin orden</span></h2><table><tbody id="t-explicar"></tbody></table></section>
-    <section class="cola" data-testid="cola-pagar"><h2>Por pagar <span class="n" id="n-pagar"></span><span class="faint">documentos de Kepler que esperan su efectivo</span></h2><table><tbody id="t-pagar"></tbody></table></section>
-    <section class="cola" data-testid="cola-rutas"><h2>Por recibir de rutas <span class="n" id="n-rutas"></span><span class="faint">el depósito se empareja solo por ruta y fecha</span></h2><table><tbody id="t-rutas"></tbody></table></section>
-    <section class="cola" data-testid="cola-custodias"><h2>Custodias abiertas <span class="n" id="n-custodias"></span><button class="btn" id="btn-nueva-custodia" type="button" style="margin-left:auto">Retiro a custodia</button></h2><table><tbody id="t-custodias"></tbody></table></section>
+    <section class="cola alerta" id="sec-explicar" data-testid="cola-explicar"><h2>Por explicar <span class="n" id="n-explicar"></span><span class="faint">salió de la máquina sin orden</span></h2><table><tbody id="t-explicar"></tbody></table></section>
+    <section class="cola" id="sec-pagar" data-testid="cola-pagar"><h2>Por pagar hoy <span class="n" id="n-pagar"></span><span class="faint">documentos de Kepler que esperan su efectivo</span></h2><table><tbody id="t-pagar"></tbody></table>
+      <p class="pie faint" data-testid="mal-fechados" id="mal-fechados"></p></section>
+    <section class="cola" data-testid="cola-atrasados"><h2>Atrasados <span class="n" id="n-atrasados"></span><span class="faint">de octubre, que Control no concilió · se concilian, no se pagan</span>
+      <button class="btn" id="btn-atrasados" type="button" style="margin-left:auto" aria-expanded="false"></button></h2><table><tbody id="t-atrasados"></tbody></table></section>
+    <section class="cola" id="sec-rutas" data-testid="cola-rutas"><h2>Por recibir de rutas <span class="n" id="n-rutas"></span><span class="faint">el depósito se empareja solo por ruta y fecha</span></h2><table><tbody id="t-rutas"></tbody></table></section>
+    <section class="cola" id="sec-monedas" data-testid="fondo-monedas"><h2>Fondo de monedas <span class="n" id="n-monedas"></span><span class="faint" id="monedas-detalle"></span>
+      <button class="btn" id="btn-cambiar-monedas" type="button" style="margin-left:auto">Cambiar por billetes</button></h2>
+      <p class="pie faint" id="monedas-aviso"></p></section>
+    <section class="cola" id="sec-custodias" data-testid="cola-custodias"><h2>Custodias abiertas <span class="n" id="n-custodias"></span><button class="btn" id="btn-nueva-custodia" type="button" style="margin-left:auto">Retiro a custodia</button></h2><table><tbody id="t-custodias"></tbody></table></section>
     <section class="cola" data-testid="libro"><h2>Libro del día <span class="n" id="n-libro"></span><span class="faint">lo que ya quedó registrado</span></h2><table><tbody id="t-libro"></tbody></table></section>
   </div>
   <div id="vista-tesoreria" hidden>
@@ -124,21 +143,67 @@ details.sim .fila{display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-top:var(--s
 <script>
 // ═══ Reglas de la ventanilla (FASE_LE §5.2, V1–V9) y decisiones D3, D14, D20 ═══════════════════
 const TOPE_CAJON = 50000;          // D20
-const UMBRAL = 10000;              // D3: firma de Tesorería para lo que sale SIN orden aprobada
+const UMBRAL = 10000;
+const AVISO_MONEDAS = 5000;        // medido 2026-11-02: el fondo llegó a $7,238.50 y $7,276.50 antes de cambiarse
+const DENOM_MONEDA = [10, 5, 2, 1, 0.5];
+const DENOM_BILLETE = [1000, 500, 200, 100, 50, 20];              // D3: firma de Tesorería para lo que sale SIN orden aprobada
 const DENOM_MAQUINA = [1000, 500, 200, 100, 50, 20];               // V1: los billetes viven en la máquina
 const DENOM_CAJON = [500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];     // el cajón: cambio, monedas
+const DENOM_USD = [100, 50, 20, 10, 5, 1];                          // D2: la caja también guarda dólares, por pieza
 const fmt = (n) => '$' + Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtUsd = (n) => 'US' + fmt(n);
+
+// ═══ Volumen como el de un día real (medido 2026-10-31: ~26 gastos al día; 47 atrasados de octubre; 7 mal fechados) ═══
+// Datos INVENTADOS con esa forma: el repo es público.
+const BENEF = ['Gasolina · Unidad 12', 'Fletes del Bajío', 'Limpieza Integral', 'Viáticos · Ruta 22', 'Mantenimiento de bodega',
+  'Agua purificada', 'Paquetería', 'Refacciones · Unidad 7', 'Casetas · Ruta 31', 'Papelería del Centro', 'Comida de cuadrilla',
+  'Cerrajería', 'Recarga de tanque', 'Material eléctrico', 'Fumigación', 'Hielo', 'Bolsas de empaque', 'Taller · Unidad 3',
+  'Nómina eventual · Morelia Madero', 'Gastos de oficina · CEDIS', 'Pintura', 'Herramienta', 'Lavado de unidades'];
+function generarHoy() {
+  const base = [
+    { id: 'p1', doc: 'X-D-26 0023782', quien: 'NOMINA · CEDIS', monto: 796.5, vale: 'VA-1182', cuenta: '601-014' },
+    { id: 'p2', doc: 'X-D-26 0023790', quien: 'Papelería del Centro', monto: 12480, vale: null, cuenta: '601-022' },
+    { id: 'p3', doc: 'X-D-26 0023791', quien: 'Refacciones · Ruta 5', monto: 3250, vale: 'VA-1190', cuenta: '601-031' },
+  ];
+  for (let i = 4; i <= 26; i++) {
+    const monto = Math.round(((i * 7919) % 9000 + 150) * 2) / 2;
+    base.push({ id: 'p' + i, doc: 'X-D-26 00238' + String(i + 10).padStart(2, '0'), quien: BENEF[(i - 4) % BENEF.length], monto,
+      vale: i % 4 === 0 ? null : 'VA-12' + String(i).padStart(2, '0'),
+      cuenta: i === 7 || i === 19 ? null : '601-0' + String(10 + (i % 40)).padStart(2, '0') });   // 2 sin cuenta declarada
+  }
+  return base;
+}
+function generarAtrasados() {
+  return Array.from({ length: 47 }, (_, k) => ({ id: 'a' + (k + 1), doc: 'X-D-26 00231' + String(k + 10).padStart(2, '0'),
+    quien: BENEF[(k * 5) % BENEF.length], dia: String(1 + (k % 11)).padStart(2, '0') + '/10', monto: Math.round(((k * 4793) % 6000 + 90) * 2) / 2 }));
+}
+// Búsqueda: liberal al recibir (Postel) — sin acentos ni mayúsculas, el importe con o sin comas y «$».
+const norm = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+function coincide(campos, monto, q) {
+  const fichas = norm(q).split(/\s+/).filter(Boolean);
+  if (!fichas.length) return true;
+  const texto = norm(campos.join(' '));
+  return fichas.every((f) => {
+    if (/^\$?[\d.,]+$/.test(f) && /\d/.test(f)) {
+      const n = Number(f.replace(/[$,]/g, ''));
+      return monto != null && (Math.abs(monto - n) < 0.005 || texto.includes(f.replace(/[$,]/g, '')));
+    }
+    return texto.includes(f);
+  });
+}
 
 const S = {
   rol: 'cajera',
   cerrado: false,
   maquina: 412300,
   cajon: { 500: 20, 200: 40, 100: 60, 50: 50, 20: 100, 10: 200, 5: 200, 2: 100, 1: 50, 0.5: 0 },
-  porPagar: [
-    { id: 'p1', doc: 'X-D-26 0023782', quien: 'NOMINA · CEDIS', monto: 796.5, vale: 'VA-1182' },
-    { id: 'p2', doc: 'X-D-26 0023790', quien: 'Papelería del Centro', monto: 12480, vale: null },
-    { id: 'p3', doc: 'X-D-26 0023791', quien: 'Refacciones · Ruta 5', monto: 3250, vale: 'VA-1190' },
-  ],
+  usd: { 100: 3, 50: 2, 20: 5, 10: 0, 5: 0, 1: 0 },
+  cheques: [],     // documentos en la caja: { banco, numero, monto, de }
+  porPagar: generarHoy(),
+  atrasados: generarAtrasados(),
+  verAtrasados: false,
+  malFechados: { n: 7, monto: 50796.4 },
+  q: '',
   rutas: [
     { id: 'r27', ruta: 'Ruta 27', plaza: 'Padre Hidalgo', fecha: '31/10', esperado: 17048, deposito: 17000, cajon: null },
     { id: 'r22', ruta: 'Ruta 22', plaza: 'Padre Hidalgo', fecha: '31/10', esperado: 9463, deposito: 9463, cajon: null },
@@ -163,6 +228,9 @@ function nuevoCodigo() {
   const dv = [...cuerpo].reduce((a, c) => a + c.charCodeAt(0), 0) % 10;
   return cuerpo + '-' + dv;
 }
+const monedasTotal = () => DENOM_MONEDA.reduce((a, d) => a + d * (S.cajon[d] || 0), 0);
+const monedasPiezas = () => DENOM_MONEDA.reduce((a, d) => a + (S.cajon[d] || 0), 0);
+const usdTotal = () => DENOM_USD.reduce((a, d) => a + d * (S.usd[d] || 0), 0);
 const cajonTotal = () => DENOM_CAJON.reduce((a, d) => a + d * (S.cajon[d] || 0), 0);
 const sumaPiezas = (p) => Object.entries(p).reduce((a, [d, n]) => a + Number(d) * (Number(n) || 0), 0);
 const parteMaquina = (monto) => Math.floor(monto / 20) * 20;   // la máquina sólo da billetes
@@ -178,28 +246,56 @@ function render() {
   const contandoACiegas = S.panel?.tipo === 'cierre' && !S.panel.contado;
   $('kpi-cajon').textContent = contandoACiegas ? 'contando a ciegas' : fmt(cajonTotal());
   $('kpi-cajon-tope').textContent = 'en el cajón · tope ' + fmt(TOPE_CAJON);
+  $('kpi-usd').textContent = contandoACiegas ? 'contando a ciegas' : fmtUsd(usdTotal());
+  $('buscar-box').hidden = S.rol !== 'cajera';
+  $('resumen').hidden = S.rol !== 'cajera';
+  // Q.1: lo que toca hoy, contado, ANTES de las listas; cada conteo lleva a su lista (con 26 pagos, las rutas quedan abajo).
+  $('resumen').innerHTML = [['explicar', 'por explicar', S.explicar.length, S.explicar.length > 0], ['pagar', 'por pagar hoy', S.porPagar.length], ['rutas', 'rutas por recibir', S.rutas.length], ['custodias', 'custodias abiertas', S.custodias.length], ['monedas', 'en monedas', fmt(monedasTotal()), monedasTotal() >= AVISO_MONEDAS]]
+    .map(([k, txt, n, alerta]) => `<a href="#sec-${k}" data-testid="ir-${k}" class="${alerta ? 'alerta' : ''}"><b>${n}</b>${txt}</a>`).join('');
+  const q = S.q;
+  const cuenta = (vis, tot) => (q && vis.length !== tot ? vis.length + ' de ' + tot : String(tot));
   $('kpi-cajon-box').classList.toggle('mal', cajonTotal() > TOPE_CAJON);
   $('banda-cerrado').hidden = !S.cerrado;
   document.querySelectorAll('[data-rol]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.rol === S.rol)));
   $('vista-cajera').hidden = S.rol !== 'cajera';
   $('vista-tesoreria').hidden = S.rol !== 'tesoreria';
-  $('btn-cerrar').disabled = S.cerrado || S.rol !== 'cajera';
+  // V9: Tesorería firma, no opera. Lo que no es suyo no se le muestra (ni el panel de operar ni el cierre).
+  $('btn-cerrar').hidden = S.rol !== 'cajera';
+  $('btn-cerrar').disabled = S.cerrado;
+  $('panel').hidden = S.rol !== 'cajera';
   $('btn-nueva-custodia').disabled = S.cerrado;
   const off = S.cerrado ? 'disabled' : '';
 
-  $('n-explicar').textContent = S.explicar.length;
-  filas('t-explicar', S.explicar, 'Nada salió de la máquina sin orden.', (e) =>
+  $('n-monedas').textContent = contandoACiegas ? 'contando a ciegas' : fmt(monedasTotal());
+  $('monedas-detalle').textContent = contandoACiegas ? '' : monedasPiezas() + ' piezas de $10 a 50 centavos, en el cajón';
+  $('monedas-aviso').textContent = monedasTotal() >= AVISO_MONEDAS ? 'Conviene cambiarlas: pasan de ' + fmt(AVISO_MONEDAS) + '.' : 'Se cambian por billetes cuando pasen de ' + fmt(AVISO_MONEDAS) + '.';
+  $('monedas-aviso').classList.toggle('motivo', monedasTotal() >= AVISO_MONEDAS);
+  $('btn-cambiar-monedas').disabled = S.cerrado || monedasTotal() <= 0;
+  const vExp = S.explicar.filter((e) => coincide([e.usuario, 'retiro sin codigo'], e.monto, q));
+  $('n-explicar').textContent = cuenta(vExp, S.explicar.length);
+  filas('t-explicar', vExp, 'Nada salió de la máquina sin orden.', (e) =>
     `<tr data-testid="explicar-${e.id}"><td>${e.hora}</td><td>Retiro sin código · <b>${e.usuario}</b></td><td class="num">${fmt(e.monto)}</td>
      <td class="acc"><button class="btn" ${off} data-acc="explicar" data-id="${e.id}">Explicar</button></td></tr>`);
 
-  $('n-pagar').textContent = S.porPagar.length;
-  filas('t-pagar', S.porPagar, 'No hay documentos por pagar.', (p) =>
+  const vPag = S.porPagar.filter((p) => coincide([p.doc, p.quien, p.cuenta, p.vale], p.monto, q));
+  $('n-pagar').textContent = cuenta(vPag, S.porPagar.length);
+  filas('t-pagar', vPag, q ? 'Nada coincide con la búsqueda.' : 'No hay documentos por pagar.', (p) =>
     `<tr data-testid="pagar-${p.id}"><td class="mono">${p.doc}</td><td>${p.quien}</td>
      <td>${p.vale ? `<span class="tag ok">vale ${p.vale}</span>` : '<span class="tag warn">sin vale aprobado</span>'}</td>
-     <td class="num">${fmt(p.monto)}</td><td class="acc"><button class="btn primario" ${off} data-acc="pagar" data-id="${p.id}">Pagar</button></td></tr>`);
+     <td class="num">${fmt(p.monto)}</td><td class="acc"><button class="btn" ${off || (p.cuenta ? "" : "disabled")} data-acc="pagar" data-id="${p.id}">Pagar</button>${p.cuenta ? "" : "<span class=\"motivo\" data-testid=\"sin-cuenta\">falta su cuenta de Kepler</span>"}</td></tr>`);
+  $("mal-fechados").textContent = S.malFechados.n + " documentos de Kepler por " + fmt(S.malFechados.monto) + " vienen fechados después de hoy: se corrigen en Kepler y aparecen solos.";
+  const vAtr = S.atrasados.filter((a) => coincide([a.doc, a.quien, a.dia], a.monto, q));
+  $("n-atrasados").textContent = cuenta(vAtr, S.atrasados.length);
+  const abiertos = S.verAtrasados || (q && vAtr.length > 0);
+  $("btn-atrasados").textContent = abiertos ? "Ocultar" : "Ver los " + S.atrasados.length;
+  $("btn-atrasados").setAttribute("aria-expanded", String(!!abiertos));
+  filas("t-atrasados", abiertos ? vAtr : [], abiertos ? "Nada coincide con la búsqueda." : "No se mezclan con lo de hoy: ábrelos para conciliarlos.", (a) =>
+    `<tr data-testid="atrasado-${a.id}"><td class="mono">${a.doc}</td><td>${a.quien}</td><td>${a.dia}</td><td class="num">${fmt(a.monto)}</td>
+     <td class="acc"><button class="btn" ${off} data-acc="conciliar" data-id="${a.id}">Conciliar</button></td></tr>`);
 
-  $('n-rutas').textContent = S.rutas.length;
-  filas('t-rutas', S.rutas, 'No hay cobros de ruta pendientes.', (r) => {
+  const vRut = S.rutas.filter((r) => coincide([r.ruta, r.plaza, r.fecha], r.deposito, q));
+  $('n-rutas').textContent = cuenta(vRut, S.rutas.length);
+  filas('t-rutas', vRut, 'No hay cobros de ruta pendientes.', (r) => {
     const falta = r.esperado - r.deposito;
     const estado = falta === 0 ? '<span class="tag ok">cuadra con Kepler</span>' : `<span class="tag warn">el depósito no cubre ${fmt(falta)}</span>`;
     return `<tr data-testid="ruta-${r.id}"><td>${r.ruta} · ${r.plaza}</td><td>${r.fecha}</td><td>${estado}</td>
@@ -207,8 +303,9 @@ function render() {
      <td class="acc"><button class="btn" ${off} data-acc="ruta" data-id="${r.id}">${falta === 0 ? 'Recibir' : 'Contar cajón'}</button></td></tr>`;
   });
 
-  $('n-custodias').textContent = S.custodias.length;
-  filas('t-custodias', S.custodias, 'No hay dinero en custodia.', (c) =>
+  const vCus = S.custodias.filter((c) => coincide([c.persona, c.motivo], c.monto, q));
+  $('n-custodias').textContent = cuenta(vCus, S.custodias.length);
+  filas('t-custodias', vCus, 'No hay dinero en custodia.', (c) =>
     `<tr data-testid="custodia-${c.id}"><td>${c.motivo}</td><td><b>${c.persona}</b></td><td class="faint">hace ${c.dias} días</td>
      <td class="num">${fmt(c.monto)}</td><td class="acc"><button class="btn" ${off} data-acc="rendir" data-id="${c.id}">Rendir</button></td></tr>`);
 
@@ -221,7 +318,9 @@ function render() {
   filas('t-firmar', pend, 'Nada por firmar.', (f) =>
     `<tr data-testid="firmar-${f.id}"><td>${f.que}</td><td class="num">${fmt(f.monto)}</td><td class="acc"><button class="btn primario" data-acc="firmar" data-id="${f.id}">Firmar</button></td></tr>`);
   $('n-avisos').textContent = S.avisos.length;
-  filas('t-avisos', S.avisos, 'Sin avisos.', (a) => `<tr data-testid="aviso"><td>${a.texto}</td></tr>`);
+  // Un aviso lleva a lo que avisa: el retiro sin código se abre en «Por explicar», con su persona y su monto.
+  filas('t-avisos', S.avisos, 'Sin avisos.', (a) => `<tr data-testid="aviso"><td>${a.texto}</td>
+    <td class="acc">${a.explicar ? `<button class="btn" data-acc="ver-explicar" data-id="${a.explicar}">Ver</button>` : ''}</td></tr>`);
 
   renderPanel();
 }
@@ -280,14 +379,21 @@ function renderPanel() {
   if (P.tipo === 'ruta') {
     const r = S.rutas.find((x) => x.id === P.id), falta = +(r.esperado - r.deposito).toFixed(2);
     let h = `<h3>${r.ruta} · ${r.plaza} · ${r.fecha}</h3><p>Kepler espera <b class="mono">${fmt(r.esperado)}</b>; la ruta depositó en la máquina <b class="mono">${fmt(r.deposito)}</b>.</p>`;
-    if (falta > 0) h += `<div class="paso"><div class="muted">Lo que la ruta dejó en el cajón, en piezas</div>${piezasHtml(DENOM_CAJON, 'ruta')}</div>`;
+    if (falta > 0) h += `<div class="paso"><div class="muted">Lo que la ruta dejó en el cajón, en piezas</div>${piezasHtml(DENOM_CAJON, 'ruta')}
+      <div class="muted">¿Dejó un cheque? Uno por renglón, con banco y número</div>
+      <input class="txt" id="chq-banco" placeholder="Banco"><input class="txt" id="chq-numero" placeholder="Número de cheque"><input class="txt" id="chq-monto" type="number" min="0" step="0.01" placeholder="Importe del cheque">
+      <div class="aviso err" id="chq-error" hidden>Un cheque lleva banco, número e importe.</div></div>`;
     h += `<button class="btn primario" id="btn-recibir" type="button">Recibir</button>`;
     el.innerHTML = h;
     $('btn-recibir').addEventListener('click', () => {
-      const piezas = falta > 0 ? leerPiezas('ruta') : {}, enCajon = sumaPiezas(piezas), dif = +(r.esperado - r.deposito - enCajon).toFixed(2);
+      const piezas = falta > 0 ? leerPiezas('ruta') : {}, enCajon = sumaPiezas(piezas);
+      const chq = falta > 0 ? { banco: $('chq-banco').value.trim(), numero: $('chq-numero').value.trim(), monto: Number($('chq-monto').value) || 0 } : { monto: 0 };
+      if (chq.monto > 0 && (!chq.banco || !chq.numero)) { $('chq-error').hidden = false; return; }   // un cheque se anota completo o no se anota
+      if (chq.monto > 0) S.cheques.push({ ...chq, de: r.ruta });
+      const dif = +(r.esperado - r.deposito - enCajon - chq.monto).toFixed(2);
       Object.entries(piezas).forEach(([d, n]) => { S.cajon[d] = (S.cajon[d] || 0) + n; });
       S.maquina += 0; // el depósito ya estaba en la máquina
-      asentar('cobro', `${r.ruta} ${r.fecha}: depósito ${fmt(r.deposito)}${enCajon ? ' + cajón ' + fmt(enCajon) : ''}${dif ? ' · pendiente a nombre de ' + r.ruta + ' ' + fmt(dif) : ''}`, r.deposito + enCajon, dif ? { pendiente: dif } : {});
+      asentar('cobro', `${r.ruta} ${r.fecha}: depósito ${fmt(r.deposito)}${enCajon ? ' + cajón ' + fmt(enCajon) : ''}${chq.monto ? ' + cheque ' + chq.banco + ' ' + chq.numero + ' ' + fmt(chq.monto) : ''}${dif ? ' · pendiente a nombre de ' + r.ruta + ' ' + fmt(dif) : ''}`, r.deposito + enCajon + chq.monto, dif ? { pendiente: dif } : {});
       S.rutas = S.rutas.filter((x) => x !== r); S.panel = null; render();
     });
     return;
@@ -303,6 +409,56 @@ function renderPanel() {
     el.innerHTML = h;
     el.querySelectorAll('[data-grupo="cus"]').forEach((i) => { i.value = (P.piezas || {})[i.dataset.denom] || 0; });
     const b = $('btn-cus-pedir'); if (b) b.addEventListener('click', () => pedirCustodia(P));
+    return;
+  }
+  if (P.tipo === 'monedas') {
+    let h = '<h3>Cambiar monedas por billetes</h3><p class="muted">Hay <b class="mono">' + fmt(monedasTotal()) + '</b> en monedas. Todo por pieza.</p>'
+      + '<label class="muted">¿Con quién?</label><select id="mon-con"><option value="">Elige…</option><option>Banco</option><option>Proveedor de morralla</option><option>Cliente o tienda</option><option>Otro</option></select>'
+      + '<input class="txt" id="mon-nombre" placeholder="Nombre (banco, proveedor o persona)">'
+      + '<div class="seg" role="group" aria-label="Cómo se cambia" style="margin:8px 0"><button type="button" data-modo="acto" aria-pressed="' + (P.modo !== 'lleva') + '">En el acto</button><button type="button" data-modo="lleva" aria-pressed="' + (P.modo === 'lleva') + '">Se las lleva una persona</button></div>'
+      + '<div class="muted">Monedas que salen, en piezas</div>' + piezasHtml(DENOM_MONEDA, 'mon-sale');
+    if (P.modo === 'lleva') h += '<input class="txt" id="mon-persona" placeholder="¿Quién se las lleva? (queda en custodia a su nombre)">';
+    else h += '<div class="muted">Billetes que entran, en piezas</div>' + piezasHtml(DENOM_BILLETE, 'mon-entra')
+      + '<input class="txt" id="mon-comision" type="number" min="0" step="0.01" placeholder="Comisión que cobraron (si hubo)">';
+    h += '<div class="faint" id="mon-cuadre"></div><button class="btn primario" id="btn-mon" type="button">' + (P.modo === 'lleva' ? 'Entregar las monedas' : 'Registrar el cambio') + '</button>';
+    el.innerHTML = h;
+    // Estado sucio: cambiar de modo NO borra lo capturado (con quién, nombre, piezas, persona).
+    const guardar = () => { P.con = $('mon-con').value; P.nombre = $('mon-nombre').value; P.sale = leerPiezas('mon-sale');
+      if ($('mon-persona')) P.persona = $('mon-persona').value; if ($('mon-comision')) P.comision = $('mon-comision').value; };
+    $('mon-con').value = P.con || ''; $('mon-nombre').value = P.nombre || '';
+    el.querySelectorAll('[data-grupo="mon-sale"]').forEach((i) => { i.value = (P.sale || {})[i.dataset.denom] || 0; });
+    el.querySelectorAll('[data-grupo="mon-entra"]').forEach((i) => { i.value = (P.entra || {})[i.dataset.denom] || 0; });
+    if ($('mon-persona')) $('mon-persona').value = P.persona || ''; if ($('mon-comision')) $('mon-comision').value = P.comision || '';
+    el.querySelectorAll('[data-modo]').forEach((b) => b.addEventListener('click', () => { guardar(); if (P.modo !== 'lleva') P.entra = leerPiezas('mon-entra'); P.modo = b.dataset.modo; render(); }));
+    const cuadre = () => {
+      const sale = leerPiezas('mon-sale'), vSale = sumaPiezas(sale);
+      const alcanza = Object.entries(sale).every(([d, n]) => n <= (S.cajon[d] || 0));
+      const con = $('mon-con').value, nombre = $('mon-nombre').value.trim();
+      let okk = vSale > 0 && alcanza && !!con && !!nombre, txt = !alcanza ? 'No hay tantas monedas en el cajón.' : '';
+      if (P.modo === 'lleva') okk = okk && !!$('mon-persona').value.trim();
+      else {
+        const vEntra = sumaPiezas(leerPiezas('mon-entra')), com = Number($('mon-comision').value) || 0, dif = +(vSale - vEntra - com).toFixed(2);
+        okk = okk && dif === 0;
+        if (alcanza) txt = dif === 0 ? 'Cuadra: monedas = billetes' + (com ? ' + comisión' : '') + '.' : 'Faltan por explicar ' + fmt(dif) + ' (billetes + comisión tienen que sumar lo que salió).';
+      }
+      $('mon-cuadre').textContent = txt; $('btn-mon').disabled = !okk;
+    };
+    el.querySelectorAll('input,select').forEach((i) => i.addEventListener('input', cuadre)); el.querySelector('select').addEventListener('change', cuadre); cuadre();
+    $('btn-mon').addEventListener('click', () => {
+      const sale = leerPiezas('mon-sale'), vSale = sumaPiezas(sale), con = $('mon-con').value + ' · ' + $('mon-nombre').value.trim();
+      Object.entries(sale).forEach(([d, n]) => { S.cajon[d] = (S.cajon[d] || 0) - n; });
+      if (P.modo === 'lleva') {
+        const persona = $('mon-persona').value.trim();
+        S.custodias.push({ id: 'c' + (S.custodias.length + 2), persona, motivo: 'Monedas para cambio (' + con + ')', monto: vSale, dias: 0 });
+        asentar('custodia', 'Monedas para cambio con ' + con + ' · las lleva ' + persona, vSale);
+      } else {
+        const entra = leerPiezas('mon-entra'), com = Number($('mon-comision').value) || 0;
+        Object.entries(entra).forEach(([d, n]) => { S.cajon[d] = (S.cajon[d] || 0) + n; });
+        asentar('cambio', 'Monedas por billetes con ' + con + ': salen ' + fmt(vSale) + ' en monedas, entran ' + fmt(vSale - com) + ' en billetes', vSale);
+        if (com) asentar('gasto', 'Comisión por el cambio de monedas · ' + con, com);
+      }
+      S.panel = null; render();
+    });
     return;
   }
   if (P.tipo === 'rendir') {
@@ -323,18 +479,21 @@ function renderPanel() {
   if (P.tipo === 'cierre') {
     if (!P.contado) {
       el.innerHTML = `<h3>Cerrar el día</h3><p class="muted">Cuenta el cajón por pieza. No se muestra cuánto debería haber hasta que termines.</p>
-        ${piezasHtml(DENOM_CAJON, 'cierre')}<button class="btn primario" id="btn-contar" type="button">Ya conté</button>`;
-      $('btn-contar').addEventListener('click', () => { P.contado = leerPiezas('cierre'); render(); });
+        ${piezasHtml(DENOM_CAJON, 'cierre')}<div class="muted">Dólares, por pieza</div>${piezasHtml(DENOM_USD, 'cierre-usd')}<button class="btn primario" id="btn-contar" type="button">Ya conté</button>`;
+      $('btn-contar').addEventListener('click', () => { P.contado = leerPiezas('cierre'); P.contadoUsd = leerPiezas('cierre-usd'); render(); });
       return;
     }
     const contado = sumaPiezas(P.contado), esperado = cajonTotal(), dif = +(contado - esperado).toFixed(2);
     const pend = [];
     if (dif !== 0) pend.push(`Diferencia del cajón ${fmt(dif)} · a nombre de la cajera`);
+    const difUsd = sumaPiezas(P.contadoUsd || {}) - usdTotal();
+    if (difUsd !== 0) pend.push(`Diferencia de dólares ${fmtUsd(difUsd)} · a nombre de la cajera`);
     S.explicar.forEach((e) => pend.push(`Retiro sin código ${fmt(e.monto)} · a nombre de ${e.usuario}`));
     if (contado > TOPE_CAJON) pend.push(`Cajón arriba del tope por ${fmt(contado - TOPE_CAJON)} · deposítalo en la máquina`);
     el.innerHTML = `<h3>Cerrar el día</h3>
       <div class="paso"><div>Contaste <b class="mono" data-testid="contado">${fmt(contado)}</b> · el libro esperaba <b class="mono" data-testid="esperado">${fmt(esperado)}</b></div>
-      <div>La máquina se contó sola: <b class="mono">${fmt(S.maquina)}</b></div></div>
+      <div>La máquina se contó sola: <b class="mono">${fmt(S.maquina)}</b></div>
+      <div class="faint" data-testid="cheques-en-caja">Cheques en la caja: ${S.cheques.length}${S.cheques.length ? ' · ' + fmt(S.cheques.reduce((a, c) => a + c.monto, 0)) : ''}</div></div>
       <div class="paso"><b>Pendientes con nombre</b>${pend.length ? '<ul data-testid="pendientes">' + pend.map((x) => `<li>${x}</li>`).join('') + '</ul>' : '<p class="muted" data-testid="pendientes">Ninguno: el día cuadra.</p>'}
       <p class="faint">Nada se absorbe: cada pendiente queda abierto con su responsable.</p></div>
       ${P.pedido ? '<div class="aviso" data-testid="espera-firma">Esperando la firma de Tesorería.</div>' : '<button class="btn primario" id="btn-pedir-cierre" type="button">Pedir la firma del cierre</button>'}`;
@@ -381,7 +540,7 @@ function maquinaEntrega(codigo, monto, usuario) {
   S.maquina -= monto;
   if (!o || monto > o.monto) {   // V2: sin código, vencido, usado o de más → Por explicar, a nombre de quien sacó
     const e = { id: 'e' + (S.explicar.length + 1), hora: '10:12', usuario, monto };
-    S.explicar.push(e); S.avisos.unshift({ texto: `Retiro sin código: ${usuario} sacó ${fmt(monto)} de la máquina` });
+    S.explicar.push(e); S.avisos.unshift({ texto: `Retiro sin código: ${usuario} sacó ${fmt(monto)} de la máquina`, explicar: e.id });
     render(); return;
   }
   o.usada = true;
@@ -402,6 +561,10 @@ document.addEventListener('click', (ev) => {
   const acc = b.dataset.acc, id = b.dataset.id;
   if (acc === 'pagar') abrirPago(id);
   else if (acc === 'explicar') { S.panel = { tipo: 'explicar', id }; render(); }
+  else if (acc === 'conciliar') { const a = S.atrasados.find((x) => x.id === id); S.atrasados = S.atrasados.filter((x) => x !== a); asentar('conciliado', `${a.doc} · ${a.quien} · ${a.dia} (atrasado de octubre)`, a.monto); render(); }
+  else if (b.id === 'btn-cambiar-monedas') { S.panel = { tipo: 'monedas', modo: 'acto' }; render(); }
+  else if (b.id === 'btn-atrasados') { S.verAtrasados = !S.verAtrasados; render(); }
+  else if (acc === 'ver-explicar') { S.rol = 'cajera'; S.panel = { tipo: 'explicar', id }; render(); }
   else if (acc === 'ruta') { S.panel = { tipo: 'ruta', id }; render(); }
   else if (acc === 'rendir') { S.panel = { tipo: 'rendir', id }; render(); }
   else if (acc === 'firmar') { const f = S.firmar.find((x) => x.id === id); f.ok = true; f.alFirmar(); render(); }
@@ -409,8 +572,9 @@ document.addEventListener('click', (ev) => {
   else if (b.id === 'btn-cerrar') { S.panel = { tipo: 'cierre' }; render(); }
   else if (b.id === 'sim-retiro-sin-codigo') maquinaEntrega(null, 8000, 'Usuario 002');
 });
+document.addEventListener('input', (ev) => { if (ev.target.id === 'buscar') { S.q = ev.target.value; render(); } });
 // Ganchos para las pruebas: simulan la máquina, que no vive en esta pantalla.
-window.__caos = { entrega: (codigo, monto, usuario = 'Usuario 003') => maquinaEntrega(codigo, monto, usuario), estado: () => S };
+window.__caos = { render: () => render(), entrega: (codigo, monto, usuario = 'Usuario 003') => maquinaEntrega(codigo, monto, usuario), estado: () => S };
 render();
 </script>
 </body>

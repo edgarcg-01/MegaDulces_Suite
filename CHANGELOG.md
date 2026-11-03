@@ -12,6 +12,27 @@
 ### Fixed — Etiquetas en oferta: el código del producto tampoco se corta (ETQ-CODIGO.2, 2026-11-02)
 - En una etiqueta **en oferta**, el renglón «contenido | Código» va en la columna derecha y no tenía el tope que se agregó en ETQ-CODIGO: con un contenido largo el código se podía cortar si el ajuste de JavaScript no corría. Ahora cabe sin JavaScript. Medido: con contenido largo, sin el tope el texto pide 225 px en una columna de 164; con el tope, cabe.
 - Sin migración, sin permiso, sin endpoint. No medido: la impresión física; el arnés de geometría todavía no arma el diseño de oferta.
+### Fixed — Pagos: la pantalla dejaba de estar quieta en algunas máquinas (TBL.1, 2026-11-02)
+- En ciertos equipos, el Calendario de pagos **vibraba sin parar**: los bloques se corrían unos píxeles a la izquierda y volvían, una y otra vez, mientras la pantalla estaba quieta.
+- La causa: los paneles se ajustan solos al alto de la ventana. Al crecer 16 px el contenido desbordaba, **aparecía la barra de desplazamiento**, la barra se comía unos píxeles de ancho, todo se reacomodaba, el alto volvía a cambiar y la barra se iba. El ciclo no terminaba nunca.
+- Se corta por los dos lados: el contenedor principal **reserva siempre el espacio de la barra** (así aparecer o irse ya no mueve nada), y el ajuste de alto ignora las diferencias menores a 24 px, que es donde vivía la oscilación.
+- ⚠️ El defecto **sólo ocurre en Windows**: en un navegador sin ventana real las barras flotan sobre el contenido y no se comen ancho, así que no se reproducía en pruebas. Se encontró midiendo en la máquina que fallaba.
+- Era el único lugar de la aplicación que reservaba el espacio de la barra. Si el síntoma aparece en otra pantalla, la causa es la misma.
+
+### Fixed — Accesibilidad: «desactivar animaciones» ahora apaga las animaciones (A11Y, 2026-11-02)
+- Quien pedía reducir el movimiento en Windows **seguía viendo 48 cosas moviéndose**: puntos de «en vivo», barras de carga, destellos. Lo que se apagaba eran cinco transiciones sueltas.
+- Ahora se apagan todas, y sólo cuando la persona lo pide en su sistema operativo.
+
+### Internal — Comprobantes de pago: la nota que culpaba a la base de datos estaba vieja (PC.8, 2026-11-02)
+- Un comentario del código decía que la pantalla tardaba 5–6 segundos y mandaba a buscar la causa en las consultas. **Medido de nuevo contra producción: 127 ms y 73 ms.** La base no es el cuello.
+- También queda descartado filtrar por año: 4,899 de los 4,914 pagos son de 2026, así que no reduce nada.
+- La medición vieja era del 6 de octubre, anterior al arreglo del túnel del 28 de octubre. No se cambió código: sin saber qué tarda, tocarlo sería optimizar a ciegas.
+### Fixed — Cortes/Sucursales: una sola cifra de «sin cuadrar», y el rojo sólo para lo vencido (CSU.21, 2026-11-02)
+- El indicador, «Por sucursal» y la lista cuentan «sin cuadrar» con la misma regla: 227 cortes en octubre. Antes el indicador decía 55 y la lista 272.
+- Cuando Kepler registró como contado lo mismo que esperaba, el corte dice «= esperado» en gris, no «Cuadra» en verde.
+- Un corte sin cobrar con 3 días o menos dice «en plazo». El rojo queda para lo vencido.
+- La sucursal y el cajero salen por nombre. Hay ayuda (?) con las palabras de la pantalla, y el detalle aparece al elegir un corte.
+
 ### Added — Cortes/Sucursales: lo que el cajero contó y no quedó en ningún corte (CSU.20, 2026-11-02)
 - Cada día de sucursal dice cuántos conteos quedaron **fuera de corte** y, al desplegarlo, los lista con su hora, importe, por qué no están en un corte y quién los contó.
 - Incluye los «conteos sin caja» (fondo, depósito al banco, la venta del día anterior), que son constancias: no suman ni restan.

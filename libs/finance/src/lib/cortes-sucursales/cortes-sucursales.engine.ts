@@ -97,6 +97,8 @@ export interface CorteCrudo {
   transfer_esperado: string | number | null;
   transfer_contado: string | number | null;
   cajero_cierre: string | null;
+  /** `[CSU.21]` Nombre del cajero que cerró, del catálogo de cajeros POS. */
+  cajero_nombre?: string | null;
   /** `[CSU.9]` Denominaciones del arqueo (`c43`/`c44`) y lo retirado en el turno (`c48`). */
   arqueo_billetes?: string | number | null;
   arqueo_monedas?: string | number | null;
@@ -242,6 +244,7 @@ function arqueoDe(c: CorteCrudo, devoluciones: number): CorteArqueo | null {
     esperado_neto: r2(esperado_total - devoluciones),
     contado_total: r2(a.efectivo_contado + a.tarjeta_contado + a.transfer_contado),
     cajero: c.cajero_cierre || null,
+    cajero_nombre: c.cajero_nombre || null,
     conteo_fisico,
     fisico_diferencia,
     // [CSU.19] c45 «otros» = tarjeta + transferencia que Kepler tiene en el corte (= c16 + c17 en 555 de 643
@@ -303,10 +306,27 @@ export function construirCorte(c: CorteCrudo, nombres: Record<string, string>): 
     arqueo,
     cuadre,
     diferencia,
+    sin_cuadrar: sinCuadrar(cuadre, arqueo),
   };
 }
 
-const conDiferencia = (c: CorteRow): boolean => c.cuadre !== 'cuadra' && c.cuadre !== 'sin_arqueo';
+/** `[CSU.21]` Días en que un corte sin cobrar está en plazo (ver `CortesSucursalesResponse.plazo_cobro_dias`). */
+export const PLAZO_COBRO_DIAS = 3;
+
+/**
+ * `[CSU.21]` La regla ÚNICA de «sin cuadrar». El corte contra lo que Kepler esperaba se juzga desde $1
+ * (`veredictoCuadre`); un testigo —manda el cajero; si no contó, el desglose de Kepler— desde
+ * `CUADRE_UMBRAL`, el mismo del arqueo de tienda: debajo es redondeo de monedas.
+ */
+export function sinCuadrar(cuadre: CorteCuadre, arqueo: CorteArqueo | null): boolean {
+  if (cuadre !== 'cuadra' && cuadre !== 'sin_arqueo') return true;
+  if (!arqueo) return false;
+  const cajero = arqueo.declaracion_cajero?.diferencia;
+  const dif = cajero != null ? cajero : arqueo.fisico_diferencia;
+  return dif != null && Math.abs(dif) >= CUADRE_UMBRAL;
+}
+
+const conDiferencia = (c: CorteRow): boolean => c.sin_cuadrar;
 
 /** Arma la respuesta completa: separa los cortes en blanco y resume por sucursal. */
 export function armarRespuesta(
@@ -360,6 +380,8 @@ export function armarRespuesta(
       }))
       .sort((a, b) => `${b.fecha} ${b.hora}`.localeCompare(`${a.fecha} ${a.hora}`)),
     cortes_en_blanco: todos.length - cortes.length,
+    umbral_descuadre: CUADRE_UMBRAL,
+    plazo_cobro_dias: PLAZO_COBRO_DIAS,
     ultimo_corte: cortes.reduce<string | null>((m, c) => (!m || c.fecha > m ? c.fecha : m), null),
   };
 }

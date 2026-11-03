@@ -117,7 +117,10 @@ export interface CorteArqueo {
   /** `[CSU.7]` `esperado_total` − devoluciones del turno: contra esto se juzga el corte. */
   esperado_neto: number;
   contado_total: number;
+  /** Clave del cajero que cerró en Kepler (`c8`). */
   cajero: string | null;
+  /** `[CSU.21]` Su nombre (`analytics.pos_cashiers`); `null` si el catálogo no lo tiene. */
+  cajero_nombre: string | null;
   /**
    * `[CSU.9]` ⭐⭐ **El único efectivo que alguien contó de verdad**: billetes + monedas + lo
    * retirado durante el turno (`kdpv_folio_caja` `c43 + c44 + c48`).
@@ -267,6 +270,13 @@ export interface CorteRow {
   cuadre: CorteCuadre;
   /** Corte − esperado neto del arqueo. `null` cuando no hay arqueo. */
   diferencia: number | null;
+  /**
+   * `[CSU.21]` ⭐ **El corte no cuadra**, con UNA regla para toda la pantalla (indicador, «Por sucursal» y la
+   * lista): el corte no coincide con lo que Kepler esperaba, o un testigo independiente —el cajero; si no
+   * contó, el desglose de Kepler— se separa del esperado por `umbral_descuadre` o más. Antes el indicador
+   * contaba sólo lo primero (55 en octubre) y la lista las dos (272): dos cifras del mismo hecho.
+   */
+  sin_cuadrar: boolean;
 }
 
 /**
@@ -353,4 +363,14 @@ export interface CortesSucursalesResponse {
   cortes_en_blanco: number;
   /** Fecha del corte más reciente del periodo; `null` si no hubo cortes. */
   ultimo_corte: string | null;
+  /**
+   * `[CSU.21]` Desde cuántos pesos un testigo dice que el corte NO cuadra (`CUADRE_UMBRAL`, el mismo del
+   * arqueo de tienda). Debajo es redondeo y se pinta en gris.
+   */
+  umbral_descuadre: number;
+  /**
+   * `[CSU.21]` Días en que un corte sin cobrar está EN PLAZO, no vencido. Medido en octubre: el 80 % de los
+   * cortes recibió su primer cobro en 3 días o menos. Lo de adentro del plazo no se pinta como alarma.
+   */
+  plazo_cobro_dias: number;
 }

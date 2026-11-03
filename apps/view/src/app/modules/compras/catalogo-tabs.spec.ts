@@ -26,6 +26,7 @@ describe('CATALOGO_TABS', () => {
       ['Resumen', '/compras/catalogo/resumen'],
       ['Productos', '/compras/catalogo'],
       ['Productos nuevos', '/compras/catalogo/nuevos'],
+      ['Catálogo digital', '/compras/catalogo/digital'],
       ['Solicitudes', '/compras/catalogo/solicitudes'],
       ['Incidencias', '/compras/catalogo/incidencias'],
       ['No registrados', '/compras/catalogo/no-registrados'],

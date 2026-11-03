@@ -98,6 +98,7 @@ export function esCodigoCompleto(code: string, rafaga: boolean): boolean {
         </div>
       }
 
+      @if (conPie()) {
       <div class="psf-pie">
         <span class="psf-est" [class.on]="activo()">
           <span class="psf-dot" aria-hidden="true"></span>
@@ -105,6 +106,7 @@ export function esCodigoCompleto(code: string, rafaga: boolean): boolean {
         </span>
         <span class="psf-help">Al escanear busca solo · Enter busca · Esc limpia</span>
       </div>
+      }
     </div>
   `,
   styles: [`
@@ -185,6 +187,16 @@ export class ProductScanFieldComponent implements AfterViewInit, OnDestroy {
   readonly ocupado = input(false);
   /** Reenfoca cuando cambia: el padre lo incrementa tras resolver o guardar renglón. */
   readonly refocoTick = input(0);
+  /**
+   * `[NP.7]` El pie «Pistola lista — dispara»: sirve en el mostrador con pistola, confunde en un celular.
+   * Por defecto se muestra (las pantallas que ya lo usan no cambian); el levantamiento lo apaga.
+   */
+  readonly conPie = input(true);
+  /**
+   * `[NP.7]` Tomar el foco solo (al cargar y con `refocoTick`): lo que hace funcionar la pistola del
+   * mostrador. En un celular abre el teclado y tapa media pantalla, así que el levantamiento lo apaga.
+   */
+  readonly autoEnfoque = input(true);
 
   readonly valorChange = output<string>();
   /** El operador disparó: pistola (Enter), cámara (lectura) o botón de lupa. */
@@ -205,10 +217,10 @@ export class ProductScanFieldComponent implements AfterViewInit, OnDestroy {
   private intervalos: number[] = [];
 
   constructor() {
-    effect(() => { this.refocoTick(); this.enfocar(); });
+    effect(() => { this.refocoTick(); if (this.autoEnfoque()) this.enfocar(); });
   }
 
-  ngAfterViewInit(): void { this.enfocar(); }
+  ngAfterViewInit(): void { if (this.autoEnfoque()) this.enfocar(); }
 
   /** Devuelve el foco y selecciona: el siguiente disparo pisa lo anterior. */
   enfocar(): void {
@@ -257,7 +269,7 @@ export class ProductScanFieldComponent implements AfterViewInit, OnDestroy {
     this.cancelarAuto();
     this.intervalos = [];
     this.valorChange.emit('');
-    this.enfocar();
+    if (this.autoEnfoque()) this.enfocar();
   }
 
   // ── Cámara (para quien recorre el anaquel sin pistola) ────────────────────
@@ -309,7 +321,8 @@ export class ProductScanFieldComponent implements AfterViewInit, OnDestroy {
     try { this.controles?.stop(); } catch { /* la cámara ya estaba cerrada */ }
     this.controles = undefined;
     this.lector = undefined;
-    this.enfocar();
+    // Sin auto-enfoque (celular) cerrar la cámara no abre el teclado encima del aviso.
+    if (this.autoEnfoque()) this.enfocar();
   }
 
   ngOnDestroy(): void { this.cancelarAuto(); this.cerrarCamara(); }

@@ -36,6 +36,8 @@ export * from './lib/commercial-home-delivery/commercial-home-delivery.service';
 export * from './lib/commercial-rider-liquidation/commercial-rider-liquidation.module';
 // Fase SU.2 — pool de pedidos por surtir + olas de surtido (ADR-067)
 export * from './lib/commercial-picking/commercial-picking.module';
+// [NP.7] Catálogo digital: levantamiento de fichas de producto desde el celular.
+export * from './lib/product-sheets/product-sheets.module';
 export * from './lib/commercial-picking/picking.service';
 export * from './lib/warehouse-orders/warehouse-orders.module';
 export * from './lib/warehouse-locations/warehouse-locations.module';

@@ -1,5 +1,5 @@
 import type { CorteArqueo, CorteConteoFuera, CorteRow } from '@megadulces/contracts';
-import { agruparCortesPorDia, celdaArqueo, creditosExplicanDesglose, descuadraPorTestigo, motivoFuera } from './finanzas-cortes-sucursales.component';
+import { agruparCortesPorDia, celdaArqueo, celdaCorte, creditosExplicanDesglose, motivoFuera } from './finanzas-cortes-sucursales.component';
 
 /**
  * `[CSU.15]` La lista principal de Cortes/Sucursales engloba los cortes **por día de sucursal**,
@@ -73,14 +73,26 @@ describe('[CSU.15] los cortes se engloban por día de sucursal', () => {
     expect(dias[0].pendientes).toBe(1);
   });
 
-  it('señala cuántos cortes del día no cuadran en el arqueo (y «sin arqueo» no es descuadre)', () => {
+  it('[CSU.21] «sin cuadrar» del día es la regla del backend (sin_cuadrar), no una cuenta propia', () => {
     const dias = agruparCortesPorDia([
-      corte({ folio: '0000001', cuadre: 'faltante_arqueo', diferencia: -9000 }),
-      corte({ folio: '0000002', cuadre: 'sobrante_arqueo', diferencia: 50 }),
-      corte({ folio: '0000003', cuadre: 'sin_arqueo' }),
-      corte({ folio: '0000004', cuadre: 'cuadra' }),
+      corte({ folio: '0000001', cuadre: 'faltante_arqueo', diferencia: -9000, sin_cuadrar: true }),
+      corte({ folio: '0000002', cuadre: 'cuadra', sin_cuadrar: true }), // el cajero contó -$3,495.69
+      corte({ folio: '0000003', cuadre: 'sin_arqueo', sin_cuadrar: false }),
+      corte({ folio: '0000004', cuadre: 'cuadra', sin_cuadrar: false }),
     ]);
     expect(dias[0].descuadrados).toBe(2);
+  });
+
+  it('[CSU.21] lo pendiente dentro del plazo NO es vencido; pasado el plazo, sí', () => {
+    const dias = agruparCortesPorDia([
+      corte({ folio: '0000001', fecha: '2026-10-30', saldo: 1000 }),
+      corte({ folio: '0000002', fecha: '2026-10-30', saldo: 0, cobrado: 1000, estado_cobro: 'cobrado' }),
+      corte({ folio: '0000003', fecha: '2026-10-26', saldo: 500 }),
+    ], [], '2026-11-02', 3);
+    const d30 = dias.find((d) => d.fecha === '2026-10-30')!;
+    const d26 = dias.find((d) => d.fecha === '2026-10-26')!;
+    expect([d30.pendientes, d30.vencidos]).toEqual([1, 0]);
+    expect([d26.pendientes, d26.vencidos]).toEqual([1, 1]);
   });
 
   it('la llave del renglón distingue día y sucursal (es la que abre y cierra el detalle)', () => {
@@ -90,30 +102,6 @@ describe('[CSU.15] los cortes se engloban por día de sucursal', () => {
 
   it('sin cortes no inventa renglones', () => {
     expect(agruparCortesPorDia([])).toEqual([]);
-  });
-
-  it('[CSU.17] ⭐ caso real 8 Esquinas 01/11: «Cuadra» de Kepler pero el cajero contó −$3,495.69 → el día lo cuenta', () => {
-    const arqueo = (cajero: number | null, fisico: number | null) => ({
-      fisico_diferencia: fisico, conteos_cajero_sin_ligar: 0,
-      declaracion_cajero: cajero === null ? null : { diferencia: cajero, concuerda_con_kepler: true },
-    }) as unknown as CorteArqueo;
-    const dias = agruparCortesPorDia([
-      corte({ folio: '0000123', cuadre: 'cuadra', diferencia: 0, arqueo: arqueo(-98.05, -98.05) }),
-      corte({ folio: '0000124', cuadre: 'cuadra', diferencia: 0, arqueo: arqueo(-0.22, -0.22) }),
-      corte({ folio: '0000125', cuadre: 'cuadra', diferencia: 0, arqueo: arqueo(-3495.69, -3495.69) }),
-      // Sin cajero manda el desglose de Kepler.
-      corte({ folio: '0000126', cuadre: 'cuadra', diferencia: 0, arqueo: arqueo(null, -564.42) }),
-    ]);
-    expect(dias[0].descuadrados).toBe(3);
-  });
-
-  it('[CSU.17] manda el cajero sobre el desglose; sin ningún testigo NO es descuadre', () => {
-    const a = (cajero: number | null, fisico: number | null) =>
-      ({ fisico_diferencia: fisico, conteos_cajero_sin_ligar: 0, declaracion_cajero: cajero === null ? null : { diferencia: cajero } }) as unknown as CorteArqueo;
-    expect(descuadraPorTestigo(corte({ arqueo: a(0.44, -0.06) }))).toBe(false);
-    expect(descuadraPorTestigo(corte({ arqueo: a(0.44, -2276.59) }))).toBe(false);
-    expect(descuadraPorTestigo(corte({ arqueo: a(null, null) }))).toBe(false);
-    expect(descuadraPorTestigo(corte({ arqueo: null }))).toBe(false);
   });
 
   it('[CSU.19] caso real Canindo 5-46: el «Falta $9,532.87» del desglose son los créditos del cajero', () => {
@@ -148,8 +136,18 @@ describe('[CSU.15] los cortes se engloban por día de sucursal', () => {
   it('[CSU.17] la celda dice falta/sobra en palabras, y sin dato NO dice «Cuadra»', () => {
     expect(celdaArqueo(-3495.69, 'No contó')).toEqual({ label: 'Falta $3,495.69', sev: 'danger' });
     expect(celdaArqueo(72.91, 'No contó')).toEqual({ label: 'Sobra $72.91', sev: 'warn' });
+    // [CSU.21] Debajo del umbral del arqueo ($50) es redondeo: se dice, en gris.
+    expect(celdaArqueo(-0.73, 'No contó')).toEqual({ label: 'Cuadra', sev: 'success' });
+    expect(celdaArqueo(-16.68, 'No contó', 50)).toEqual({ label: 'Falta $16.68', sev: 'secondary' });
     expect(celdaArqueo(0.44, 'No contó')).toEqual({ label: 'Cuadra', sev: 'success' });
     expect(celdaArqueo(null, 'No contó')).toEqual({ label: 'No contó', sev: 'secondary' });
+  });
+
+  it('[CSU.21] «Cuadra» en verde sólo si hubo un contado distinto que coincidió; Kepler contra sí mismo es «= esperado»', () => {
+    const conArqueo = (declarado: boolean) => ({ arqueo_declarado: declarado }) as unknown as CorteArqueo;
+    expect(celdaCorte(corte({ cuadre: 'cuadra', diferencia: 0, arqueo: conArqueo(true) }))).toEqual({ label: '= esperado', sev: 'secondary' });
+    expect(celdaCorte(corte({ cuadre: 'cuadra', diferencia: 0, arqueo: conArqueo(false) }))).toEqual({ label: 'Cuadra', sev: 'success' });
+    expect(celdaCorte(corte({ cuadre: 'corte_distinto', diferencia: 4000, arqueo: conArqueo(true) })).sev).toBe('warn');
   });
 
   it('PRUEBA NEGATIVA: agrupar sólo por fecha mezclaría sucursales — el renglón dejaría de cuadrar', () => {

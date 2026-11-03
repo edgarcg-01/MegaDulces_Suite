@@ -71,17 +71,18 @@ const dijo = (err) => (err ? `${err.code} ${err.constraint ?? '(sin nombre)'}` :
     await knex.transaction(async (trx) => {
       console.log('\n── 1. Siembra: quien opera, un superadmin con la llave en su mapa, y una excepción en false ──');
       await trx.raw(`
-        INSERT INTO identity.role_permissions (tenant_id, role_name, permissions, activo)
-        VALUES (?, 'le09_opera', '{"FINANCE_CAJA_GESTIONAR": true}'::jsonb, true)
+        INSERT INTO identity.role_permissions (tenant_id, role_name, permissions)
+        VALUES (?, 'le09_opera', '{"FINANCE_CAJA_GESTIONAR": true}'::jsonb)
         ON CONFLICT (tenant_id, role_name) DO UPDATE SET permissions = EXCLUDED.permissions`, [T]);
       await trx.raw(`
-        INSERT INTO identity.role_permissions (tenant_id, role_name, permissions, activo)
-        VALUES (?, 'superadmin', '{"FINANCE_CAJA_GESTIONAR": true, "FINANCE_CAJA_AUTORIZAR": true}'::jsonb, true)
+        INSERT INTO identity.role_permissions (tenant_id, role_name, permissions)
+        VALUES (?, 'superadmin', '{"FINANCE_CAJA_GESTIONAR": true, "FINANCE_CAJA_AUTORIZAR": true}'::jsonb)
         ON CONFLICT (tenant_id, role_name) DO UPDATE
           SET permissions = identity.role_permissions.permissions || EXCLUDED.permissions`, [T]);
       for (const [id, rol] of [[OPERA, 'le09_opera'], [DIOS, 'superadmin'], [NEGADO, 'le09_opera']]) {
-        await trx.raw(`INSERT INTO identity.users (id, tenant_id, username, role_name, activo)
-          VALUES (?, ?, ?, ?, true)`, [id, T, `le09_${id.slice(-3)}`, rol]);
+        // `users_hash_solo_falta_si_corresponde`: un usuario interno lleva contraseña (aquí, de relleno).
+        await trx.raw(`INSERT INTO identity.users (id, tenant_id, username, role_name, activo, password_hash)
+          VALUES (?, ?, ?, ?, true, 'prueba-sin-login')`, [id, T, `le09_${id.slice(-3)}`, rol]);
       }
       await trx.raw(`INSERT INTO identity.user_permissions (tenant_id, user_id, permission_key, allow, nota)
         VALUES (?, ?, 'FINANCE_CAJA_GESTIONAR', false, 'prueba LE.0.9')`, [T, NEGADO]);

@@ -47,6 +47,12 @@ interface Verdict { tone: 'ok' | 'bad' | 'muted'; say: string; why: string | nul
 interface Etapa { n: number; nombre: string; quien: string | null; dice: string; estado: 'hecho' | 'ahora' | 'pendiente' }
 /** `[PGP.15]` Lo último que esta persona eligió en «Para los N pagos» (sólo una comodidad por navegador). */
 const PREF_PREPARAR = 'pgp.preparar.ultimo';
+
+/**
+ * `[TBL.1]` Por debajo de esto, el alto de los paneles NO se re-escribe. Ver `fijarAlto()`:
+ * tapa la oscilación medida de 16 px y el ancho de una barra de Windows (~15 px).
+ */
+const ALTO_HISTERESIS_PX = 24;
 /** El MISMO formato que antes daba `toLocaleString('es-MX', { currency: 'MXN', maximumFractionDigits: 2 })`, armado una vez. */
 const PESOS = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 2 });
 
@@ -1573,10 +1579,52 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     for (const arriba of [el.previousElementSibling, document.querySelector('.pg-top')]) if (arriba) this.altoObs.observe(arriba);
     this.ajustarAlto();
   }
+  /**
+   * `[TBL.1]` **La pantalla temblaba, y éste era el lazo.** Medido en `0finanzasb` el 2026-11-02
+   * con `PerformanceObserver('layout-shift')`, cinco elementos saltando a la vez:
+   *
+   * ```
+   * section.pg-sec   844,366 1042x608 -> 838,366 1033x624   x-6  w-9  h+16
+   * button.pg-rev-h   88,916  738x58  ->  88,932  738x58          y+16
+   * span.pg-buscar   241,372  582x41  -> 235,372  582x41   x-6
+   * button.pg-day   1375,207  253x49  -> 1364,207 251x49   x-11 w-2
+   * ```
+   *
+   * Todo corre a la izquierda y se angosta mientras algo crece **+16 px de alto**. Ese 16 es
+   * el margen que esta misma función reserva. El ciclo: el panel crece 16 px → el contenido
+   * desborda → **aparece la barra de scroll del `.pane`** → la barra se come 9–11 px de ancho →
+   * todo reflowea → el alto vuelve a cambiar → la barra se va → y de nuevo.
+   *
+   * Se corta por los dos lados:
+   *   1. `scrollbar-gutter: stable` en `.pane` (`layout.component.css`): aparecer o irse la
+   *      barra **deja de cambiar el ancho**, que es la mitad del lazo, y vale para toda la app.
+   *   2. Acá, **histéresis de 24 px**: por debajo de eso no se re-escribe. 24 porque hay que
+   *      tapar la oscilación medida (16 px) y el ancho de una barra de Windows (~15 px). El
+   *      costo es que un cambio de ventana menor a 24 px no se refleja — 4 % de un panel de
+   *      600 px, invisible al lado de un temblor permanente.
+   *   3. Y la medición se difiere a `requestAnimationFrame`: escribir estilos **dentro** del
+   *      callback de un `ResizeObserver` es lo que fuerza el reflow sincrónico de cada vuelta.
+   *
+   * ⚠️ Ocho hipótesis cayeron antes de ésta (el riel de pestañas, el DPI fraccional, VNC, la
+   * GPU, el sidebar). Ninguna se pudo reproducir en banco: las barras de scroll de Chromium
+   * headless son *overlay* y no se comen el ancho, así que **el lazo no cierra fuera de
+   * Windows**. Si alguien vuelve a tocar esto, el instrumento que sí lo vio es
+   * `PerformanceObserver` sobre `layout-shift` corriendo en la máquina que falla.
+   */
+  private altoPrev = 0;
+  private altoRaf = 0;
   @HostListener('window:resize') ajustarAlto(): void {
+    if (this.altoRaf) return; // ya hay una pasada pedida para este frame
+    this.altoRaf = requestAnimationFrame(() => { this.altoRaf = 0; this.fijarAlto(); });
+  }
+  private fijarAlto(): void {
     const el = this.trabajoEl;
     if (!el) return;
-    if (window.matchMedia('(max-width: 75rem)').matches) { el.style.removeProperty('--pg-alto'); return; }
+    if (window.matchMedia('(max-width: 75rem)').matches) {
+      el.style.removeProperty('--pg-alto');
+      this.altoPrev = 0;
+      return;
+    }
     let pane: HTMLElement | null = el.parentElement;
     while (pane && !/(auto|scroll)/.test(getComputedStyle(pane).overflowY)) pane = pane.parentElement;
     const caja = pane ? pane.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
@@ -1588,7 +1636,12 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     el.style.setProperty('--pg-alto', `${alto}px`);
     // Lo que todavía sobresale (el relleno inferior de la página) se descuenta: medido, quedaban 16 px de desplazamiento.
     const sobra = pane ? pane.scrollHeight - pane.clientHeight : 0;
-    if (sobra > 0 && sobra < 120 && alto - sobra >= piso) { alto -= sobra; el.style.setProperty('--pg-alto', `${alto}px`); }
+    if (sobra > 0 && sobra < 120 && alto - sobra >= piso) alto -= sobra;
+    // La histéresis: si el valor nuevo está dentro del ruido, se conserva el anterior. Sin
+    // esto, el par (alto, alto-16) se persigue para siempre y eso es exactamente el temblor.
+    if (this.altoPrev && Math.abs(alto - this.altoPrev) < ALTO_HISTERESIS_PX) alto = this.altoPrev;
+    this.altoPrev = alto;
+    el.style.setProperty('--pg-alto', `${alto}px`);
   }
 
   /** `[PGP.15]` Los pagos desglosados (abiertos a sus facturas). */
@@ -2181,7 +2234,13 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   readonly reboteReasonOpts = REPROGRAM_REASON_OPTS.filter((o) => o.value !== 'presupuesto_recortado');
 
   ngOnInit(): void {
-    this.destroyRef.onDestroy(() => { cancelAnimationFrame(this.rampaId); this.altoObs?.disconnect(); });
+    // `[TBL.1]` También el frame del ajuste de alto: si el componente se va con uno pendiente,
+    // `fijarAlto()` corre sobre un elemento ya desconectado y mide ceros.
+    this.destroyRef.onDestroy(() => {
+      cancelAnimationFrame(this.rampaId);
+      if (this.altoRaf) cancelAnimationFrame(this.altoRaf);
+      this.altoObs?.disconnect();
+    });
     this.recuperarPreparacion();
     this.reload();
     // [PGP.14] El credito a favor sin aplicar: se pide UNA vez y se guarda por acreedor.

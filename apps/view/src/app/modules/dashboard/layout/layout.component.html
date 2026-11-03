@@ -344,6 +344,20 @@
           ></p-menu>
         }
 
+        <!-- `[NP.7]` Catálogo digital: TODA persona participa en levantar fichas (Francisco, 2026-11-02). Como Mesa de
+             Servicio, es un botón del header y no un destino del mapa: no le quita a nadie su entrada directa. -->
+        @if (!isRestricted() && puedeLevantar()) {
+          <a
+            routerLink="/levantamiento"
+            class="p-2 rounded-lg hover:bg-surface-hover transition-colors text-content-muted inline-flex items-center gap-2
+                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--focus-ring)]"
+            title="Levantar productos para el catálogo digital (fotos desde el celular)"
+            aria-label="Levantar productos"
+          >
+            <i class="pi pi-camera text-lg" aria-hidden="true"></i>
+            @if (!isMobile()) { <span class="text-sm">Levantar productos</span> }
+          </a>
+        }
         <!-- `[MS.3.1]` Mesa de Servicio: la puerta de TODA persona. Sin texto en teléfono para no ensanchar la barra. -->
         @if (!isRestricted() && puedeReportar()) {
           <a

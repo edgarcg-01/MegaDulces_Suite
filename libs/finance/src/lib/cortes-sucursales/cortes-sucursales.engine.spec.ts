@@ -10,8 +10,40 @@
  * se declara).
  */
 import {
-  armarRespuesta, construirCorte, estadoCobro, veredictoCuadre, type CorteCrudo,
+  armarRespuesta, construirCorte, estadoCobro, sinCuadrar, veredictoCuadre, type CorteCrudo,
 } from './cortes-sucursales.engine';
+import type { CorteArqueo } from '@megadulces/contracts';
+
+describe('[CSU.21] UNA regla de «sin cuadrar» para el indicador, «Por sucursal» y la lista', () => {
+  const a = (cajero: number | null, fisico: number | null) =>
+    ({ fisico_diferencia: fisico, declaracion_cajero: cajero === null ? null : { diferencia: cajero } }) as unknown as CorteArqueo;
+  it('el corte contra lo esperado se juzga desde $1; un testigo, desde $50', () => {
+    expect(sinCuadrar('corte_distinto', a(0, 0))).toBe(true);
+    expect(sinCuadrar('cuadra', a(-3495.69, -3495.69))).toBe(true);
+    expect(sinCuadrar('cuadra', a(-49.99, null))).toBe(false);
+    expect(sinCuadrar('cuadra', a(null, -50))).toBe(true);
+  });
+  it('manda el cajero sobre el desglose (Padre Hidalgo 5-161: cajero −$1.59, desglose −$2,276.59)', () => {
+    expect(sinCuadrar('cuadra', a(-1.59, -2276.59))).toBe(false);
+  });
+  it('⛔ NEGATIVA: sin arqueo ni testigos no es «sin cuadrar» (es «sin arqueo», que se cuenta aparte)', () => {
+    expect(sinCuadrar('sin_arqueo', null)).toBe(false);
+    expect(sinCuadrar('cuadra', a(null, null))).toBe(false);
+  });
+  it('el indicador y «Por sucursal» cuentan con la misma regla que el corte', () => {
+    const base = { sucursal: '03', folio: '0000125', fecha: '2026-11-01', referencia: 'Caja 2-323', caja: '2', turno: '323',
+      monto: '168056.19', cobrado: '0', cobros: null, arqueo_fecha: '2026-11-01', efectivo_esperado: '100000', efectivo_contado: '100000',
+      tarjeta_esperado: '68056.19', tarjeta_contado: '68056.19', transfer_esperado: '0', transfer_contado: '0', cajero_cierre: '40MJCC',
+      arqueo_billetes: '1000', arqueo_monedas: '4.31', efectivo_retirado: '95500' } as CorteCrudo;
+    const r = armarRespuesta([base], { '03': '8 Esquinas' }, { from: '2026-11-01', to: '2026-11-01' });
+    expect(r.cortes[0].cuadre).toBe('cuadra');
+    expect(r.cortes[0].sin_cuadrar).toBe(true); // el desglose dice −$3,495.69
+    expect(r.totales.con_diferencia).toBe(1);
+    expect(r.sucursales[0].con_diferencia).toBe(1);
+    expect(r.umbral_descuadre).toBe(50);
+    expect(r.plazo_cobro_dias).toBe(3);
+  });
+});
 
 const base = (over: Partial<CorteCrudo>): CorteCrudo => ({
   sucursal: '05', folio: '0000001', fecha: '2026-10-01', referencia: 'Caja 4-199', caja: '4', turno: '199',

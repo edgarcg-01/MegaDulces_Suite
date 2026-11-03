@@ -658,6 +658,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
     {
       title: 'Operación',
       items: [
+        // `[PDV.31]` La caja de mostrador va primero: es la tarea del mostrador. Modo práctica hasta D0/D1.
+        { label: 'Caja (práctica)', icon: 'pi pi-shopping-cart', route: '/tienda/caja', permission: Permission.STORE_LIVE_VER,
+          anyOf: [Permission.STORE_LIVE_VER, Permission.STORE_ARQUEO_CAPTURAR] },
         { label: 'Verificador de precios', icon: 'pi pi-barcode', route: '/tienda/verificador', permission: Permission.STORE_PRICE_CHECK_VER },
         { label: 'Monitor en vivo', icon: 'pi pi-bolt',       route: '/tienda/live',     permission: Permission.STORE_LIVE_VER },
         { label: 'Sucursales',      icon: 'pi pi-building',    route: '/tienda/branches', permission: Permission.STORE_LIVE_VER },
@@ -1387,6 +1390,12 @@ export class LayoutComponent implements OnInit, OnDestroy {
    * (le quitaría a cajeras y almacenistas su entrada directa a `/projects`).
    */
   puedeReportar = computed(() => this.perms.has(Permission.SERVICIO_REPORTAR));
+
+  /**
+   * `[NP.7]` ¿Se ofrece «Levantar productos» en el header? Quien tiene `CATALOGO_LEVANTAR` (todo rol con personas).
+   * Misma razón que `puedeReportar`: es la ÚNICA entrada a `/levantamiento`, que no es destino del mapa.
+   */
+  puedeLevantar = computed(() => this.perms.has(Permission.CATALOGO_LEVANTAR));
 
   isRestricted = computed(() => {
     // Modo "kiosco" (oculta el chrome) SOLO para el colaborador de Trade con acceso
