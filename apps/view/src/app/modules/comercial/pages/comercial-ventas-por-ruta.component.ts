@@ -8,6 +8,7 @@ import { SelectModule } from 'primeng/select';
 import { MultiSelectModule } from 'primeng/multiselect';
 import { ToastModule } from 'primeng/toast';
 import { TableModule } from 'primeng/table';
+import { TagModule } from 'primeng/tag';
 import { InputTextModule } from 'primeng/inputtext';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { CheckboxModule } from 'primeng/checkbox';
@@ -104,7 +105,7 @@ const MES: Record<string, string> = {
   imports: [
     FreshnessPillComponent,
     CommonModule, FormsModule, ButtonModule, SelectModule, MultiSelectModule,
-    ToastModule, TableModule, InputTextModule, InputNumberModule, CheckboxModule,
+    ToastModule, TableModule, TagModule, InputTextModule, InputNumberModule, CheckboxModule,
     IconFieldModule, InputIconModule,
     RouterLink, LoadStateComponent, PageTabsComponent, SidePeekComponent, MetricStripComponent, RouteClosureReconComponent, VecinalReconComponent, RutaCajaCaosComponent, RoutePromoComponent,
   ],
@@ -944,14 +945,15 @@ const MES: Record<string, string> = {
                 <app-load-state [loading]="depCargando()" [error]="depError()"
                                 [isEmpty]="!depCargando() && !depError() && !depDepositos().length"
                                 [skeletonRows]="6" emptyIcon="pi-wallet"
-                                emptyTitle="Ningún depósito de la caja fuerte declara esta ruta"
-                                emptyHint="El texto del depósito es lo que la atribuye. Lo que no declara ruta queda sin dueño y se ve en el panel de arriba."
+                                emptyTitle="Ningún depósito de la caja fuerte es de esta ruta"
+                                emptyHint="Lo atribuye el texto del depósito o su liga con el cobro de la ruta en Caja General. Lo que no tiene ninguno de los dos queda sin dueño y se ve en el panel de arriba."
                                 (retry)="recargarDeposito()">
                   <div class="rr-dep-kpis">
-                    <div><span>Depósitos</span><b>{{ depFila()?.depositos ?? 0 }}</b></div>
-                    <div><span>Depositado</span><b>{{ (depFila()?.monto_caos ?? 0) | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></div>
-                    <div><span>En Caja General</span><b>{{ depFila()?.en_caja_general ? ((depFila()!.monto_caja_general) | currency:'MXN':'symbol-narrow':'1.0-0') : '—' }}</b></div>
-                    <div><span>Sin capturar</span><b>{{ (depFila()?.monto_pendiente ?? 0) | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></div>
+                    <div><span>Depósitos</span><b>{{ depTotales().n }}</b></div>
+                    <div><span>Depositado</span><b>{{ depTotales().monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></div>
+                    <div><span>En Caja General</span><b>{{ depTotales().ligado ? (depTotales().ligado | currency:'MXN':'symbol-narrow':'1.0-0') : '—' }}</b></div>
+                    <div><span>Sin capturar</span><b>{{ depTotales().pendiente | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></div>
+                    <div><span>Antes de Caja General</span><b>{{ depTotales().previo | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></div>
                   </div>
 
                   @if (depFila()?.motivo_sucursal) {
@@ -969,41 +971,54 @@ const MES: Record<string, string> = {
                       <th scope="col">Día de venta</th>
                       <th scope="col" class="comm-num">Depositado</th>
                       <th scope="col">Entrada a Caja General</th>
-                      <th scope="col" class="comm-num">Δ</th></tr>
+                      <th scope="col" class="comm-num">Sin explicar</th></tr>
                     </ng-template>
                     <ng-template #body let-d>
                       <tr>
                         <td class="rr-mono">#{{ d.external_id }}</td>
                         <td class="rr-mono">{{ d.occurred_at.slice(0, 16).replace('T', ' ') }}</td>
-                        <td class="rr-mono comm-muted">{{ d.ref || '(sin referencia)' }}</td>
+                        <td class="rr-mono comm-muted">
+                          {{ d.ref || '(sin referencia)' }}
+                          @if (d.ruta_por === 'liga') { <p-tag value="ruta por su cobro" severity="secondary" /> }
+                          @if (d.compartido) { <p-tag value="depósito de varias rutas" severity="secondary" /> }
+                        </td>
                         <td class="rr-mono">
                           @if (d.fecha_venta) { {{ d.fecha_venta }} }
                           @else { <span class="comm-muted" [title]="d.motivo">no lo declara</span> }
                         </td>
-                        <td class="comm-num rr-strong">{{ d.monto_caos | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                        <td class="comm-num rr-strong">
+                          {{ d.parte | currency:'MXN':'symbol-narrow':'1.0-0' }}
+                          @if (d.compartido) {
+                            <span class="comm-muted"> de {{ d.monto_caos | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+                          }
+                        </td>
                         <td>
-                          @if (d.cg_folio) {
+                          @for (l of d.ligas; track l.folio) {
                             <a class="rr-link rr-mono" [routerLink]="['/finanzas/caja-general']"
-                               [queryParams]="{ q: d.cg_folio, from: d.cg_fecha, to: d.cg_fecha }"
-                               [title]="'Abrir ' + d.cg_folio + ' en Caja General'">
-                              {{ d.cg_folio }} <i class="pi pi-external-link" aria-hidden="true"></i>
+                               [queryParams]="{ q: l.folio, from: l.fecha, to: l.fecha }"
+                               [title]="'Abrir ' + l.folio + ' en Caja General'">
+                              {{ l.folio }} <i class="pi pi-external-link" aria-hidden="true"></i>
                             </a>
-                          } @else {
-                            <span class="comm-muted">sin capturar todavía</span>
+                          } @empty {
+                            <span class="comm-muted">{{ d.estado_liga === 'previo' ? 'antes de Caja General' : 'sin capturar todavía' }}</span>
+                          }
+                          @if (d.ruta_contradice) {
+                            <p-tag [value]="'el cobro es de la ruta ' + d.rutas_ligadas.join(', ')" severity="warn" />
                           }
                         </td>
                         <td class="comm-num comm-muted">
-                          @if (d.delta === null) { — }
-                          @else { {{ d.delta | currency:'MXN':'symbol-narrow':'1.0-0' }} }
+                          @if (d.compartido || d.delta === null) { — }
+                          @else if (d.delta < 0) { {{ -d.delta | currency:'MXN':'symbol-narrow':'1.0-0' }} }
+                          @else { completo }
                         </td>
                       </tr>
                     </ng-template>
                   </p-table>
                   <p class="rr-note">
-                    De qué ruta es cada depósito lo dice el texto que tecleó quien depositó. Lo que no
-                    declara ruta no se reparte: se queda sin dueño y se ve en el panel de arriba. La
-                    <strong>Δ</strong> es cuánto más dice la entrada que el depósito y nunca es
-                    negativa en lo medido; su causa no está medida.
+                    De qué ruta es cada depósito lo dice el texto que tecleó quien depositó o, si no la
+                    dice, su liga con el cobro de la ruta en Caja General. Un depósito que junta varias
+                    rutas (<em>rd canindo</em>) aparece en cada una con <strong>sólo su parte</strong>.
+                    <strong>Sin explicar</strong> es lo del depósito que ninguna entrada toma todavía.
                   </p>
                 </app-load-state>
               }
@@ -1554,8 +1569,9 @@ export class ComercialVentasPorRutaComponent {
       if (!d.fecha_venta) continue;
       if (!m.has(d.fecha_venta)) m.set(d.fecha_venta, { monto: 0, folios: [], sin_capturar: 0 });
       const e = m.get(d.fecha_venta) as { monto: number; folios: { folio: string; fecha: string | null }[]; sin_capturar: number };
-      e.monto += d.monto_caos;
-      if (d.cg_folio) e.folios.push({ folio: d.cg_folio, fecha: d.cg_fecha }); else e.sin_capturar += 1;
+      e.monto += d.parte;
+      for (const l of d.ligas) e.folios.push({ folio: l.folio, fecha: l.fecha });
+      if (d.estado_liga === 'pendiente') e.sin_capturar += 1;
     }
     return m;
   });
@@ -1566,16 +1582,46 @@ export class ComercialVentasPorRutaComponent {
    */
   readonly depSinDia = computed(() => {
     const sin = this.depDepositos().filter((d) => !d.fecha_venta);
-    return { n: sin.length, monto: sin.reduce((a, d) => a + d.monto_caos, 0) };
+    return { n: sin.length, monto: sin.reduce((a, d) => a + d.parte, 0) };
   });
 
   depDelDia(dia: string) { return this.depPorDia().get(dia) ?? null; }
 
+  /**
+   * `[CG.58.8]` Los depósitos de esta ruta: los que se le atribuyen (texto, o liga de una sola
+   * ruta) y además los de plaza cuya liga incluye un cobro de esta ruta — `rd canindo 12/10` es
+   * de la 502, la 503 y la 504. De esos últimos se cuenta SÓLO la parte ligada a esta ruta.
+   */
   readonly depDepositos = computed(() => {
     const rep = this.depReporte();
-    const f = this.depFila();
-    if (!rep || !f) return [];
-    return rep.depositos.filter((d) => d.clave === f.clave);
+    const row = this.peekRow();
+    if (!rep || !row) return [];
+    const ruta = String(Number(row.route_no));
+    return rep.depositos
+      .filter((d) => !d.vecinal && (d.clave === `ruta:${ruta}` || d.rutas_ligadas.includes(ruta)))
+      .map((d) => {
+        const propio = d.clave === `ruta:${ruta}`;
+        const ligas = propio ? d.ligas : d.ligas.filter((l) => l.ruta === ruta);
+        return {
+          ...d,
+          ligas,
+          compartido: !propio,
+          parte: propio ? d.monto_caos : ligas.reduce((a, l) => a + l.monto, 0),
+        };
+      });
+  });
+
+  /** Los totales de la pestaña, sobre la parte de cada depósito que es de esta ruta. */
+  readonly depTotales = computed(() => {
+    const t = { n: 0, monto: 0, ligado: 0, pendiente: 0, previo: 0 };
+    for (const d of this.depDepositos()) {
+      t.n += 1;
+      t.monto += d.parte;
+      if (d.estado_liga === 'ligado') t.ligado += d.ligas.reduce((a, l) => a + l.monto, 0);
+      else if (d.estado_liga === 'previo') t.previo += d.parte;
+      else t.pendiente += d.parte;
+    }
+    return t;
   });
 
   // RR2 — Tickets (paginado server-side) + drill al ticket

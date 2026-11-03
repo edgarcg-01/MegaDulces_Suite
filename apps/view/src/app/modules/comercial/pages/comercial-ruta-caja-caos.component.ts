@@ -39,6 +39,11 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
  *
  * y **18 de 749 ($280,600) están capturados en Caja General**. Lo pendiente se dice como
  * pendiente: no es un cero ni un descuadre, es que Caja General arrancó hace días.
+ *
+ * `[CG.58.8]` (2026-11-03): la liga es también `caos_cash_links` —el depósito ligado a los
+ * cobros de sus rutas—, que este panel no leía: publicaba 30 de 141 depósitos ligados. Cada
+ * depósito trae ahora TODAS sus entradas (`ligas`), la ruta sale de la liga cuando el texto no
+ * la dice, y lo anterior al primer ingreso de Caja General se cuenta aparte, no como pendiente.
  */
 @Component({
   selector: 'app-ruta-caja-caos',
@@ -92,7 +97,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
               <div class="dt-scope">
               <p-table [value]="filas()" class="dt-stack surf-table surf-table--plain surf-table--sticky"
                        size="small" [rowHover]="true" [scrollable]="true" scrollHeight="34vh"
-                       [tableStyle]="{ 'min-width': '52rem' }"
+                       [tableStyle]="{ 'min-width': '60rem' }"
                        dataKey="clave" [expandedRowKeys]="abiertas()">
                 <ng-template #header>
                   <tr>
@@ -103,6 +108,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
                     <th class="comm-num">Depositado</th>
                     <th class="comm-num">En Caja General</th>
                     <th class="comm-num">Sin capturar</th>
+                    <th class="comm-num">Antes de Caja General</th>
                   </tr>
                 </ng-template>
                 <ng-template #body let-f>
@@ -138,11 +144,14 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
                       @if (f.pendientes) { {{ money(f.monto_pendiente) }} }
                       @else { <span class="rc-ok">todo capturado</span> }
                     </td>
+                    <td class="comm-num rc-mono rc-tenue" role="cell" data-label="Antes de Caja General">
+                      @if (f.previos) { {{ money(f.monto_previo) }} } @else { — }
+                    </td>
                   </tr>
                 </ng-template>
                 <ng-template #expandedrow let-f>
                   <tr class="rc-detalle">
-                    <td [attr.colspan]="7">
+                    <td [attr.colspan]="8">
                       <table class="rc-sub">
                         <thead>
                           <tr>
@@ -152,7 +161,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
                             <th>Día de venta</th>
                             <th class="comm-num">Depositado</th>
                             <th>Entrada a Caja General</th>
-                            <th class="comm-num">Δ</th>
+                            <th class="comm-num">Sin explicar</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -160,29 +169,39 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
                             <tr>
                               <td class="rc-mono">#{{ d.external_id }}</td>
                               <td class="rc-mono">{{ d.occurred_at.slice(0, 16).replace('T', ' ') }}</td>
-                              <td class="rc-mono rc-tenue">{{ d.ref || '(sin referencia)' }}</td>
+                              <td class="rc-mono rc-tenue">
+                                {{ d.ref || '(sin referencia)' }}
+                                @if (d.ruta_por === 'liga') { <p-tag [value]="'ruta ' + d.ruta + ' por su cobro'" severity="secondary" /> }
+                              </td>
                               <td class="rc-mono">
                                 @if (d.fecha_venta) { {{ d.fecha_venta }} }
                                 @else { <span class="rc-tenue" [title]="d.motivo">no la declara</span> }
                               </td>
                               <td class="comm-num rc-mono">{{ money(d.monto_caos) }}</td>
                               <td>
-                                @if (d.cg_folio) {
-                                  <a class="rc-liga rc-mono" [routerLink]="['/finanzas/caja-general']"
-                                     [queryParams]="{ q: d.cg_folio, from: d.cg_fecha, to: d.cg_fecha }"
-                                     [title]="'Abrir ' + d.cg_folio + ' en Caja General'">
-                                    {{ d.cg_folio }} <i class="pi pi-external-link" aria-hidden="true"></i>
-                                  </a>
-                                  @if (d.cg_entradas > 1) {
-                                    <p-tag [value]="d.cg_entradas + ' entradas'" severity="danger" />
-                                  }
-                                } @else {
-                                  <span class="rc-tenue">sin capturar todavía</span>
+                                @for (l of d.ligas; track l.folio) {
+                                  <span class="rc-ligas">
+                                    <a class="rc-liga rc-mono" [routerLink]="['/finanzas/caja-general']"
+                                       [queryParams]="{ q: l.folio, from: l.fecha, to: l.fecha }"
+                                       [title]="'Abrir ' + l.folio + ' en Caja General'">
+                                      {{ l.folio }} <i class="pi pi-external-link" aria-hidden="true"></i>
+                                    </a>
+                                    @if (l.ruta && d.ligas.length > 1) {
+                                      <span class="rc-tenue">ruta {{ l.ruta }} · {{ money(l.monto) }}</span>
+                                    }
+                                  </span>
+                                } @empty {
+                                  <span class="rc-tenue">{{ d.estado_liga === 'previo' ? 'antes de Caja General' : 'sin capturar todavía' }}</span>
+                                }
+                                @if (d.cg_repetida) { <p-tag value="capturado dos veces" severity="danger" /> }
+                                @if (d.ruta_contradice) {
+                                  <p-tag [value]="'el cobro es de la ruta ' + d.rutas_ligadas.join(', ')" severity="warn" />
                                 }
                               </td>
-                              <td class="comm-num rc-mono" [class.rc-warn]="(d.delta ?? 0) !== 0">
+                              <td class="comm-num rc-mono" [class.rc-warn]="(d.delta ?? 0) < 0">
                                 @if (d.delta === null) { <span class="rc-tenue">—</span> }
-                                @else { {{ money(d.delta) }} }
+                                @else if (d.delta < 0) { {{ money(-d.delta) }} }
+                                @else { <span class="rc-ok">completo</span> }
                               </td>
                             </tr>
                           }
@@ -197,18 +216,27 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
               <p class="rc-nota">
                 <i class="pi pi-info-circle" aria-hidden="true"></i>
                 <span>
-                  De qué ruta es cada depósito lo dice el <strong>texto que tecleó quien depositó</strong>,
-                  y se atribuye al grano que ese texto aguanta: nunca más fino.
+                  De qué ruta es cada depósito lo dice el <strong>texto que tecleó quien depositó</strong>;
+                  si el texto no la dice y todas sus entradas en Caja General son cobros de una sola
+                  ruta, la dice <strong>su liga</strong> ({{ d.resumen.ruta_por_liga }} depósitos).
+                  @if (d.resumen.contradicen) {
+                    En <strong>{{ d.resumen.contradicen }}</strong> el texto y la liga dicen rutas
+                    distintas: manda el texto y la fila lo marca.
+                  }
                   <strong>{{ d.resumen.plaza }}</strong> depósitos ({{ money(d.resumen.monto_plaza) }})
                   sólo nombran la plaza, y bajarlos a una ruta sería inventar;
                   <strong>{{ d.resumen.sin_declarar }}</strong> ({{ money(d.resumen.monto_sin_declarar) }})
                   no declaran nada; y <strong>{{ d.resumen.vecinal }}</strong>
                   ({{ money(d.resumen.monto_vecinal) }}) son de la vecinal, que se arquea en su caja
                   y tiene su propio panel arriba.
-                  La <strong>Δ</strong> es cuánto más dice la entrada que el depósito, y
-                  <strong>nunca es negativa</strong> en lo medido: la entrada siempre declara igual
-                  o más. Es chica —0.77% del total, mediana 0.09%— y por eso no se lee como
-                  faltante; <strong>la causa no está medida</strong> y no se afirma acá.
+                  <strong>Sin explicar</strong> es la parte del depósito que todavía ninguna entrada
+                  toma: no es faltante, es captura a medias.
+                  @if (d.resumen.previos) {
+                    Lo depositado antes del {{ d.cg_desde }}
+                    (<strong>{{ d.resumen.previos }}</strong>, {{ money(d.resumen.monto_previo) }})
+                    es anterior al primer ingreso de Caja General: no tiene entrada que ligar y no
+                    se cuenta como pendiente.
+                  }
                 </span>
               </p>
             }
@@ -256,6 +284,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
     .rc-liga:hover { text-decoration: underline; }
     .rc-liga:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; border-radius: var(--r-sm); }
     .rc-liga .pi { font-size: .7em; }
+    .rc-ligas { display: inline-flex; gap: var(--sp-1); align-items: baseline; margin-right: var(--sp-2); white-space: nowrap; }
 
     .rc-mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
     .rc-tenue { color: var(--text-faint); }
@@ -297,9 +326,11 @@ export class RutaCajaCaosComponent {
       {
         label: 'Con entrada en Caja General', value: r.monto_caja_general, format: 'currency',
         tone: r.en_caja_general ? 'ok' : 'warn',
-        sub: `${r.en_caja_general} de ${r.depositos} depósitos`,
-        state: r.en_caja_general === r.depositos ? 'medido' : 'parcial',
-        stateNote: 'El resto todavía no se captura en Caja General: es pendiente, no descuadre',
+        sub: `${r.en_caja_general} de ${r.depositos - r.previos} depósitos desde ${d.cg_desde ?? '—'}`,
+        state: r.pendientes ? 'parcial' : 'medido',
+        stateNote: r.pendientes
+          ? 'El resto todavía no se captura en Caja General: es pendiente, no descuadre'
+          : undefined,
       },
       {
         label: 'Atribuido a una ruta o plaza', value: atribuido, format: 'currency',
@@ -321,18 +352,23 @@ export class RutaCajaCaosComponent {
     const d = this.data();
     if (!d) return { tono: 'ok', icono: 'pi-check-circle', titulo: '', cuerpo: '' };
     const r = d.resumen;
+    const previos = r.previos
+      ? ` ${r.previos} depósitos (${this.money(r.monto_previo)}) son anteriores a Caja General y no tienen entrada que ligar.`
+      : '';
     if (!r.pendientes) {
       return {
         tono: 'ok', icono: 'pi-check-circle',
-        titulo: 'Todo lo depositado tiene su entrada en Caja General.',
-        cuerpo: `${r.depositos} depósitos por ${this.money(r.monto)} en el período.`,
+        titulo: r.en_caja_general
+          ? 'Todo lo depositado desde que existe Caja General tiene su entrada.'
+          : 'Ningún depósito del período es posterior al arranque de Caja General.',
+        cuerpo: `${r.en_caja_general} depósitos ligados por ${this.money(r.monto_caja_general)}.${previos}`,
       };
     }
     return {
       tono: 'warn', icono: 'pi-exclamation-triangle',
       titulo: `${r.pendientes} depósitos no se han capturado en Caja General.`,
       cuerpo: `Son ${this.money(r.monto_pendiente)} que ya están en la caja fuerte y todavía no `
-        + 'tienen entrada. No es un faltante: es captura pendiente.',
+        + `tienen entrada. No es un faltante: es captura pendiente.${previos}`,
     };
   });
 

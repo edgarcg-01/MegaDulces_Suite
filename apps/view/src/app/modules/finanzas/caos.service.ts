@@ -275,6 +275,17 @@ export interface CaosResumen { porRuta: CaosPorRuta[]; porOperador: CaosPorOpera
  */
 export type RutaCajaGrano = 'ruta_dia' | 'ruta' | 'plaza' | 'sin_declarar';
 
+/** [CG.58.8] Una entrada de Caja General que explica (parte de) un deposito. */
+export interface RutaCajaLiga {
+  folio: string;
+  fecha: string;
+  /** Lo que esta entrada toma del deposito. */
+  monto: number;
+  ruta: string | null;
+  sucursal: string | null;
+  estado: string | null;
+}
+
 export interface RutaCajaDeposito {
   /** A que fila pertenece. La manda el servidor: la pantalla NO re-deduce la precedencia. */
   clave: string;
@@ -295,6 +306,15 @@ export interface RutaCajaDeposito {
   cg_estado: string | null;
   cg_sucursal: string | null;
   cg_entradas: number;
+  /** [CG.58.8] Capturado dos veces como entrada de CAOS: el mismo dinero dos veces. */
+  cg_repetida: boolean;
+  ligas: RutaCajaLiga[];
+  rutas_ligadas: string[];
+  ruta_por: 'texto' | 'liga' | null;
+  ruta_contradice: boolean;
+  /** ligado · pendiente · previo (anterior al primer ingreso de Caja General). */
+  estado_liga: 'ligado' | 'pendiente' | 'previo';
+  /** Suma de entradas - deposito. Negativa = parte del deposito que ninguna entrada explica. */
   delta: number | null;
 }
 
@@ -315,6 +335,8 @@ export interface RutaCajaFila {
   monto_caja_general: number;
   pendientes: number;
   monto_pendiente: number;
+  previos: number;
+  monto_previo: number;
 }
 
 export interface RutaCajaReporte {
@@ -326,10 +348,14 @@ export interface RutaCajaReporte {
     depositos: number; monto: number;
     en_caja_general: number; monto_caja_general: number;
     pendientes: number; monto_pendiente: number;
+    previos: number; monto_previo: number;
+    ruta_por_liga: number; contradicen: number;
     vecinal: number; monto_vecinal: number;
     plaza: number; monto_plaza: number;
     sin_declarar: number; monto_sin_declarar: number;
   };
   data_as_of: string | null;
+  /** Primer ingreso capturado en Caja General. */
+  cg_desde: string | null;
   generated_at: string;
 }

@@ -1,4 +1,4 @@
-import { claveDeDeposito } from './caos-ruta-caja.service';
+import { claveDeDeposito, rutaDeDeposito } from './caos-ruta-caja.service';
 import { atribuirDeposito, esVecinal } from './caos-deposito-grano';
 
 /**
@@ -68,5 +68,36 @@ describe('claveDeDeposito — una sola precedencia, y la vecinal manda', () => {
       return claveDeDeposito({ vecinal: esVecinal(ref), ruta: a.ruta, plaza: a.plaza });
     });
     expect(new Set(claves).size).toBe(3);
+  });
+});
+
+/**
+ * `[CG.58.8]` La ruta que pone la LIGA de Caja General. Casos de prod (2026-11-03): `rd canindo
+ * 12/10` (#1642) se liga a cobros de 502/503/504; `ruta22221026` (#1704) se ligó al cobro de la
+ * 26 — el texto y la liga se contradicen.
+ */
+describe('rutaDeDeposito — el texto manda, la liga completa', () => {
+  it('el texto manda aunque haya liga, y si coincide no hay contradicción', () => {
+    expect(rutaDeDeposito('22', ['22'])).toEqual({ ruta: '22', ruta_por: 'texto', ruta_contradice: false });
+  });
+
+  it('⭐ texto y liga dicen rutas distintas: gana el texto y se PUBLICA', () => {
+    expect(rutaDeDeposito('22', ['26'])).toEqual({ ruta: '22', ruta_por: 'texto', ruta_contradice: true });
+  });
+
+  it('sin ruta en el texto y la liga es de UNA ruta: la ruta sale de la liga', () => {
+    const r = rutaDeDeposito(null, ['502']);
+    expect(r).toEqual({ ruta: '502', ruta_por: 'liga', ruta_contradice: false });
+    expect(claveDeDeposito({ vecinal: false, ruta: r.ruta, plaza: 'canindo' })).toBe('ruta:502');
+  });
+
+  it('⛔ liga de VARIAS rutas no elige una: el depósito se queda en su plaza', () => {
+    const r = rutaDeDeposito(null, ['502', '503', '504']);
+    expect(r.ruta).toBeNull();
+    expect(claveDeDeposito({ vecinal: false, ruta: r.ruta, plaza: 'canindo' })).toBe('plaza:canindo');
+  });
+
+  it('sin texto ni liga no inventa nada', () => {
+    expect(rutaDeDeposito(null, [])).toEqual({ ruta: null, ruta_por: null, ruta_contradice: false });
   });
 });
