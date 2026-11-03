@@ -323,6 +323,9 @@ const CANAL_CLIENTE = 'md-caja-cliente';
     .cj-cmd-input { flex: 1; min-width: 0; border: 0; outline: 2px solid transparent; background: transparent; color: var(--text-main); font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-h2); }
     /* El anillo lo lleva la caja que envuelve al campo (focus-within); el contorno transparente sigue visible en Alto Contraste. */
     .cj-cmd-caja:focus-within { box-shadow: 0 0 0 3px var(--action-ring); }
+    /* La regla global input:focus (styles.css, !important) dibujaba un SEGUNDO recuadro dentro de la caja.
+       Un solo marco: el foco ya lo dice la caja; el contorno transparente queda para Alto Contraste. */
+    .cj-cmd-input:focus { outline: 2px solid transparent !important; }
     .cj-cmd-input::placeholder { font-family: var(--font-body); font-size: var(--fs-lg); color: var(--text-faint); }
     .cj-res { position: absolute; z-index: 5; left: 0; right: 0; top: calc(100% + var(--sp-1)); margin: 0; padding: 0; list-style: none; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-lg); box-shadow: var(--shadow-float); overflow: hidden; }
     .cj-res-i { display: flex; justify-content: space-between; gap: var(--sp-3); padding: var(--sp-2) var(--sp-4); border-bottom: 1px solid var(--border-color); cursor: pointer; }
