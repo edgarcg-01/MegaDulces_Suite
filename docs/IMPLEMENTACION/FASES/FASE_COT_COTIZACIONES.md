@@ -351,6 +351,10 @@ conversión comparable contra el 52.7 % histórico.
 
 ### COT.7 — Convertirla en pedido ⬜
 
+> ⛔ **Reescrito el 2026-11-03** por [`FASE_COT7_PEDIDO_TLMK_A_KEPLER.md`](FASE_COT7_PEDIDO_TLMK_A_KEPLER.md):
+> el destino es el «Pedido Telemarketing» `U-D-40` en **Kepler**, no `commercial.orders`
+> (pedido de Edgar). Lo de abajo queda como historia.
+
 `[E.12.4]`. **El único punto de toda la fase que toca inventario.** Crea un `commercial.orders`
 normal y lo apunta (`quotes.order_id`, con el CHECK que ya impide convertir lo que no está
 `accepted`). De ahí en adelante el pedido sigue el camino que ya existe — telemarketing, surtido,
