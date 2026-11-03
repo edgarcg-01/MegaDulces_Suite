@@ -6,7 +6,7 @@ const doc = (pesos: string, over: Partial<DocumentoAPagar> = {}): DocumentoAPaga
   origenRef: '00|X-D-26|0023782|0011', folio: '0023782', beneficiario: 'NOMINA', cuentaKepler: '601-014',
   importeCentavos: BigInt(Math.round(Number(pesos) * 100)), ...over,
 });
-const aprobado = (c: bigint) => ({ folio: 'VA-1182', estado: 'aprobada', importeCentavos: c });
+const aprobado = (c: bigint) => ({ folio: 'VA-1182', estado: 'aprobada', importeCentavos: c, aprobadoAt: '2026-11-02T15:00:00Z' });
 
 describe('[LE.2.9] el plan de un pago', () => {
   it('el testigo de hoy: $796.73 se paga $796.50 — $780 de la máquina, $16.50 del cajón, −23 centavos declarados', () => {
@@ -36,12 +36,16 @@ describe('[LE.2.9] el plan de un pago', () => {
   it('NEGATIVA: sin vale aprobado, firma Tesorería antes del dinero (V4, D18) — y dice por qué', () => {
     expect(planDePago(doc('500'), { yaOrdenado: false, vale: null })).toMatchObject({ requiereFirma: true, motivoFirma: 'no trae vale aprobado' });
     const d = doc('500');
-    expect(planDePago(d, { yaOrdenado: false, vale: { folio: 'VA-9', estado: 'rechazada', importeCentavos: d.importeCentavos } }))
+    expect(planDePago(d, { yaOrdenado: false, vale: { folio: 'VA-9', estado: 'rechazada', importeCentavos: d.importeCentavos, aprobadoAt: null } }))
       .toMatchObject({ requiereFirma: true, motivoFirma: 'el vale VA-9 está rechazada, no aprobado' });
+    // `validada` sin quién lo aprobó: el cierre de Kepler valida vales que nadie firmó (GX.85).
+    expect(planDePago(d, { yaOrdenado: false, vale: { folio: 'VA-7', estado: 'validada', importeCentavos: d.importeCentavos, aprobadoAt: null } }))
+      .toMatchObject({ requiereFirma: true, motivoFirma: 'el vale VA-7 no guarda quién lo aprobó' });
   });
 
   it('NEGATIVA: no se paga dos veces, ni sin cuenta de Kepler, ni con un vale de otro importe, ni en cero', () => {
     expect(planDePago(doc('500'), { yaOrdenado: true, vale: null }).bloqueo).toBe('ya_ordenado');
+    expect(planDePago(doc('500'), { yaOrdenado: false, yaPagado: true, vale: null }).bloqueo).toBe('ya_pagado');
     expect(planDePago(doc('500', { cuentaKepler: null }), { yaOrdenado: false, vale: null }).bloqueo).toBe('sin_cuenta_kepler');
     expect(planDePago(doc('500'), { yaOrdenado: false, vale: aprobado(40000n) }).bloqueo).toBe('vale_de_otro_importe');
     expect(planDePago(doc('0'), { yaOrdenado: false, vale: null }).bloqueo).toBe('importe_invalido');

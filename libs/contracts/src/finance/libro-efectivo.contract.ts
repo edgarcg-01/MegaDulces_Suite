@@ -162,6 +162,22 @@ export const CUENTA = {
     code: `BANCO:${parteDeCodigo(cuenta)}`, name: `Banco · ${cuenta}`, class: 'contrapartida', currency: 'MXN',
     tracks_pieces: false, allows_negative: true, holder_kind: 'concepto', holder_ref: parteDeCodigo(cuenta), witness: 'estado de cuenta',
   }),
+  /**
+   * `[LE · D26]` Lo que se paga de más o de menos al llevar un pago al medio peso (nunca más de 25
+   * centavos por pago). Declarado, nunca absorbido: cada peso tiene su explicación.
+   */
+  redondeo: (): CuentaPropuesta => ({
+    code: 'REDONDEO_MXN', name: 'Redondeo al medio peso', class: 'diferencia', currency: 'MXN',
+    tracks_pieces: false, allows_negative: true, holder_kind: 'ninguno', witness: 'D26: el documento contra lo pagado',
+  }),
+  /**
+   * `[LE.2.11]` El otro lado de un cambio de monedas por billetes (el banco, un proveedor): puente y
+   * sin piezas, porque las piezas cambian de forma y no se conservan. Queda en cero en el mismo acto.
+   */
+  cambioDeEfectivo: (conQuien: string): CuentaPropuesta => ({
+    code: `CAMBIO_EFECTIVO:${parteDeCodigo(conQuien)}`, name: `Cambio de monedas · ${conQuien}`, class: 'puente', currency: 'MXN',
+    tracks_pieces: false, allows_negative: true, holder_kind: 'concepto', holder_ref: parteDeCodigo(conQuien), witness: 'el comprobante del cambio',
+  }),
 };
 
 // ── `[LE.4]` Lo que la API recibe y devuelve ────────────────────────────────────────────────────
@@ -241,4 +257,61 @@ export interface SaldosDelLibro {
   jornada_abierta: string | null;
   /** La cadena recorrida al momento de responder (B2): vacía = íntegra. */
   integridad: { integra: boolean; problemas: { seq: string; problema: string }[] };
+}
+
+// ── `[LE.4.10]` La Ventanilla: pagar un documento de Kepler en un solo acto ────────────────────
+
+/** Lo que manda la Ventanilla al pagar. El importe NO viaja: el servidor lo relee del documento. */
+export interface PagoEnVentanilla {
+  /** `sucursal|X-D-26|folio|0011`. */
+  origen_ref: string;
+  /** La cuenta de Kepler con que se asienta el egreso (`EGRESO:<cuenta>`). */
+  cuenta_kepler: string;
+  /** El vale de `/finanzas/aprobacion-gastos` que ampara el pago (D18). Sin él, firma Tesorería. */
+  vale_id?: string;
+  /** Las piezas que salen del cajón: deben sumar exactamente lo que el plan dice del cajón. */
+  piezas_cajon?: PiezasTexto;
+  /** Quien recibe el dinero (V5: con nombre). */
+  recibe: { nombre: string; empleado?: string };
+}
+
+/** Lo que el servidor calcula antes de pagar (el mismo motor que usa al pagar). */
+export interface PlanDePagoVentanilla {
+  origen_ref: string;
+  folio: string;
+  beneficiario: string;
+  importe_minor: string;
+  pagable_minor: string;
+  redondeo_minor: string;
+  maquina_minor: string;
+  cajon_minor: string;
+  requiere_firma: boolean;
+  motivo_firma: string | null;
+  bloqueo: string | null;
+  motivo_bloqueo: string | null;
+}
+
+/**
+ * Qué pasó al pagar. `pagado`: la máquina entrega `maquina_minor` con `codigo` (null si todo sale
+ * del cajón) y lo del cajón ya quedó asentado. `por_firmar`: Tesorería firma antes de que salga un peso.
+ */
+export type ResultadoPago =
+  | { estado: 'pagado'; orden_id: string; codigo: string | null; maquina_minor: string; cajon_minor: string;
+    redondeo_minor: string; entry_id: string | null; vence: string }
+  | { estado: 'por_firmar'; orden_id: string; motivo: string };
+
+/** Una orden que espera la firma de Tesorería, con todo lo que hace falta para decidir. */
+export interface OrdenPorFirmar {
+  id: string;
+  kind: string;
+  origen_ref: string | null;
+  beneficiario: string | null;
+  maquina_minor: string;
+  cajon_minor: string;
+  redondeo_minor: string;
+  recibe: string | null;
+  motivo_firma: string | null;
+  pedida_por: string;
+  pedida_at: string;
+  vence: string;
 }
