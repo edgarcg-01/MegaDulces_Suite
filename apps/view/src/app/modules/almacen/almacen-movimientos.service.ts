@@ -11,6 +11,7 @@ import { environment } from '../../../environments/environment';
 import type {
   DetalleIncidenciaMovimiento, DocRef, ExcepcionMovimiento, ExcepcionMovimientoItem, MotivoResolucion, MovimientosExcepcionesResponse,
   ResolucionIncidencia, UnidadImporte,
+  CausaNegativo, EstadoNegativo, ExistenciaNegativaResponse, MotivoNegativo, ResolucionNegativo,
 } from '@megadulces/contracts';
 export type GroupBy = 'product' | 'doc_code' | 'day' | 'warehouse';
 /** 'info' = documento informativo (k_binv=0, ej. Aplicación de orden de entrada): no mueve inventario. */
@@ -387,6 +388,23 @@ export class AlmacenMovimientosService {
   /** [MX.2.4] Reabrir una incidencia resuelta. */
   reopenException(docs: DocRef[]): Observable<{ reabierta: boolean }> {
     return this.http.post<{ reabierta: boolean }>(`${this.base}/exceptions/reopen`, { ...docs[0], documentos: docs });
+  }
+  /** [MX.2.8] Existencia NEGATIVA en Kepler, para Prevención (el encargado sólo ve la suya: lo acota el servidor). */
+  negativeStock(q: { warehouse_ids?: string[]; estado?: EstadoNegativo; causas?: CausaNegativo[]; search?: string; page: number; pageSize: number }): Observable<ExistenciaNegativaResponse> {
+    let p = new HttpParams().set('page', q.page).set('pageSize', q.pageSize);
+    if (q.warehouse_ids?.length) p = p.set('warehouse_ids', q.warehouse_ids.join(','));
+    if (q.estado) p = p.set('estado', q.estado);
+    if (q.causas?.length) p = p.set('causas', q.causas.join(','));
+    if (q.search?.trim()) p = p.set('search', q.search.trim());
+    return this.http.get<ExistenciaNegativaResponse>(`${this.base}/negative-stock`, { params: p });
+  }
+  /** [MX.2.8] Resolver con motivo: el servidor guarda la existencia de HOY en Kepler, no la de la pantalla. */
+  resolveNegative(warehouse_id: string, sku: string, motivo: MotivoNegativo, nota: string | null): Observable<ResolucionNegativo> {
+    return this.http.post<ResolucionNegativo>(`${this.base}/negative-stock/resolve`, { warehouse_id, sku, motivo, nota });
+  }
+  /** [MX.2.8] Reabrir una existencia negativa resuelta. */
+  reopenNegative(warehouse_id: string, sku: string): Observable<{ reabierta: boolean }> {
+    return this.http.post<{ reabierta: boolean }>(`${this.base}/negative-stock/reopen`, { warehouse_id, sku });
   }
   downloadExport(f: MovementsFilters, format: 'pdf') {
     return this.http.get(`${this.base}/export.${format}`, {
