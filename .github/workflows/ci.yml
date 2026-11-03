@@ -1018,6 +1018,7 @@ jobs:
                  libs/finance/src/lib/caja/caja-corte-abierto.scanner-real.spec.ts \
                  libs/finance/src/lib/caja/cash-ledger.detalle-real.spec.ts \
                  libs/finance/src/lib/caja/caja-db.util-real.spec.ts \
+                 libs/finance/src/lib/caja/caja-candado.llave-real.spec.ts \
                  libs/finance/src/lib/caos/caos-ingreso-cron.granos-real.spec.ts \
                  libs/finance/src/lib/caja/caja-firma.servicio-real.spec.ts \
                  libs/finance/src/lib/caja/caja-custodia.servicio-real.spec.ts \

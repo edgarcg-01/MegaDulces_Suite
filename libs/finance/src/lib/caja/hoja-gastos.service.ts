@@ -17,7 +17,7 @@ import {
 } from './hoja-gastos.engine';
 import { hojasInstaladas } from './hoja-gastos.gate';
 import { redondea2, tomaDelRetiro } from './caja-lote.engine';
-import { leerCandado } from './caja-candado.query';
+import { leerCandado, sinLlaveDeCaja } from './caja-candado.query';
 import { CajaCustodiaService, sqlCustodiaCerrada, sqlDisponibleCaos } from './caja-custodia.service';
 import { CashLedgerService } from './cash-ledger.service';
 import { altaVinculoCaos } from '../caos/caos.service';
@@ -30,6 +30,7 @@ const RX_DIA = /^\d{4}-\d{2}-\d{2}$/;
 const TIPO_RETIRO = 4;
 const NO_INSTALADA = 'Las hojas de gastos todavía no están instaladas en esta base (migración 20261029143450).';
 const SIN_CONTEO = 'El conteo del cajón todavía no está instalado en esta base (falta la migración 20261030140503).';
+const SIN_LLAVE = 'Tu usuario no tiene la llave de la caja: la hoja la paga y la captura quien opera la caja (en la caja el superadmin no cuenta).';
 
 /** Un renglón de la hoja con su egreso del libro de Caja General, si ya entró. */
 interface RenglonEnLibro {
@@ -193,6 +194,8 @@ export class HojaGastosService {
       // Con la caja bloqueada (sin corte de ayer) el lote no guarda nada: se dice ANTES de marcarla pagada.
       const candado = await leerCandado(trx, tenantId, u.id);
       if (candado.bloqueado) throw new HttpException({ statusCode: HttpStatus.LOCKED, message: candado.texto, candado }, HttpStatus.LOCKED);
+      // `[LE.0.9]` Y sin la llave de la caja la base rechaza cada pago del lote: también ANTES.
+      if (await sinLlaveDeCaja(trx, tenantId, u.id)) throw new ForbiddenException(SIN_LLAVE);
 
       const h = await trx('finance.expense_sheets').where({ tenant_id: tenantId, id }).forUpdate()
         .first('id', 'numero', 'estado', 'total', 'aprobada_por', 'zona');
@@ -319,6 +322,7 @@ export class HojaGastosService {
         .first('id', 'numero', 'estado', 'zona', 'medio', 'caos_device', 'caos_external_id');
       if (!h) throw new NotFoundException('Esa hoja no existe.');
       if (h.estado !== 'pagada') throw new ConflictException(`La hoja ${folioHoja(Number(h.numero))} no está pagada: primero se paga.`);
+      if (await sinLlaveDeCaja(trx, tenantId, u.id)) throw new ForbiddenException(SIN_LLAVE);
       const renglones = await this.renglonesEnLibro(trx, tenantId, String(h.id), this.zona(String(h.zona)));
       return {
         porCapturar: renglones.filter((x) => !x.ledger).map((x) => x.origen_ref),

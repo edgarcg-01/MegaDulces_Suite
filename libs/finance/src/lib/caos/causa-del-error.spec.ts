@@ -1,4 +1,4 @@
-import { causaDelError } from './causa-del-error';
+import { causaDelError, soloLaCausa } from './causa-del-error';
 
 /**
  * `[CGA-A.37]` El latido del carril de atribución guardaba los primeros 300 caracteres del
@@ -33,5 +33,15 @@ describe('causaDelError — la causa primero, el SQL después', () => {
     expect(causaDelError(new Error('se cayó la red')).length).toBeLessThanOrEqual(300);
     expect(causaDelError(new Error('se cayó la red'))).toBe('se cayó la red');
     expect(causaDelError('texto suelto')).toBe('fallo sin mensaje');
+  });
+});
+
+describe('[LE.0.9] soloLaCausa — para una persona: sin SQL ni código', () => {
+  it('deja sólo el mensaje de Postgres', () => {
+    expect(soloLaCausa(errorDeKnex())).toBe('duplicate key value violates unique constraint "ux_caos_atrib_cobro_vivo"');
+  });
+  it('respeta el tope y no inventa nada si el error no es de Postgres', () => {
+    expect(soloLaCausa(new Error('x'.repeat(500))).length).toBe(200);
+    expect(soloLaCausa('texto suelto')).toBe('fallo sin mensaje');
   });
 });

@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { traducirErrorDeCaja } from './caja-errores';
+import { fraseDeErrorDeCaja, traducirErrorDeCaja } from './caja-errores';
 
 /**
  * `[CG.154]` El traductor de errores del libro de caja.
@@ -85,5 +85,32 @@ describe('[CG.154] traducirErrorDeCaja', () => {
       expect(m).not.toContain('cash_ledger');
       expect(m).not.toContain('check constraint');
     }
+  });
+});
+
+/**
+ * ⛔ `[LE.0.9]` El lote de la caja no pasaba por el traductor: HG-5 (2026-11-03) reportó sus 14 filas
+ * rechazadas con los primeros 200 caracteres del SQL. El error de abajo tiene la forma real de knex.
+ */
+describe('[LE.0.9] fraseDeErrorDeCaja — la frase que lleva cada fila del lote', () => {
+  const errorDeLlave = () => Object.assign(new Error(
+    'insert into "finance"."cash_ledger" ("autofill", "beneficiario", "beneficiario_rfc", "centro_costo", "client_uuid", '
+    + '"created_by", "created_by_username", "declared_doc_ref", "fecha", "firma_at", "firma_estado") values ($1, $2, $3) returning * - '
+    + 'Para registrar en la caja hace falta la llave FINANCE_CAJA_GESTIONAR; en la caja el superadmin no cuenta (D23).',
+  ), { code: '23514', constraint: 'caja_exige_llave_chk' });
+
+  it('el superadmin sin llave recibe la frase de la llave, no el SQL', () => {
+    const f = fraseDeErrorDeCaja(errorDeLlave());
+    expect(f).toContain('no tiene la llave');
+    expect(f).not.toContain('insert into');
+  });
+
+  it('⛔ el recorte viejo (200 caracteres) no llegaba a la causa', () => {
+    expect(errorDeLlave().message.slice(0, 200)).not.toContain('llave');
+  });
+
+  it('lo que no reconoce devuelve null: quien llama decide, no se inventa una frase', () => {
+    expect(fraseDeErrorDeCaja(new Error('se cayó la red'))).toBeNull();
+    expect(fraseDeErrorDeCaja({ code: '23505' })).toBeNull();
   });
 });
