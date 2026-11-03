@@ -1,18 +1,21 @@
-import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { RolesGuard, RequireAnyPermission } from '@megadulces/platform-core';
-import {
-  LLAVES_PENDIENTES_SUCURSAL,
-  type SucursalPendientesAlmacen,
-  type SucursalPendientesResponse,
+import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
+import type {
+  AtribuirPendienteRequest,
+  ResponsablePendiente,
+  SucursalPendientesAlmacen,
+  SucursalPendientesResponse,
 } from '@megadulces/contracts';
 import { SucursalPendientesService, type QuienPidePendientes } from './sucursal-pendientes.service';
 
 /**
- * `[AB.45]` **Pendientes de la sucursal** — todo lo que la Suite tiene abierto de UNA sucursal.
+ * `[AB.45]`/`[AB.46]` **Pendientes de sucursal** — módulo propio (`/sucursal`).
  *
- * La puerta es CUALQUIERA de las llaves de sus colas (`LLAVES_PENDIENTES_SUCURSAL`, la misma lista que
- * la ruta y el sidebar); adentro, cada cola exige la suya y el almacén se recorta al alcance.
+ * La puerta es la llave del MÓDULO (`SUCURSAL_PENDIENTES_VER`, repartida a todo rol con personas). Toda
+ * la sucursal ve las mismas colas; el almacén se recorta al alcance de la persona (con sucursal en su
+ * ficha, la suya; oficinas, las que su alcance diga). Atribuirse y soltar escriben en
+ * `commercial.sucursal_pendiente_responsables`.
  */
 @ApiTags('commercial-sucursal-pendientes')
 @ApiBearerAuth()
@@ -22,19 +25,39 @@ export class SucursalPendientesController {
   constructor(private readonly svc: SucursalPendientesService) {}
 
   @Get('almacenes')
-  @RequireAnyPermission(...LLAVES_PENDIENTES_SUCURSAL)
+  @RequirePermissions(Permission.SUCURSAL_PENDIENTES_VER)
   @ApiOperation({ summary: '[AB.45] Almacenes que la persona alcanza, con la llave de sucursal' })
   almacenes(): Promise<SucursalPendientesAlmacen[]> {
     return this.svc.almacenes();
   }
 
   @Get()
-  @RequireAnyPermission(...LLAVES_PENDIENTES_SUCURSAL)
-  @ApiOperation({ summary: '[AB.45] Todas las colas con trabajo de una sucursal (sólo las que la persona puede abrir)' })
+  @RequirePermissions(Permission.SUCURSAL_PENDIENTES_VER)
+  @ApiOperation({ summary: '[AB.46] Todas las colas con trabajo de una sucursal, con quién se atribuyó cada pendiente' })
   pendientes(
     @Query('warehouse_id') warehouseId?: string,
     @Req() req?: { user?: QuienPidePendientes },
   ): Promise<SucursalPendientesResponse> {
     return this.svc.pendientes(warehouseId, req?.user);
+  }
+
+  @Post('atribuir')
+  @RequirePermissions(Permission.SUCURSAL_PENDIENTES_VER)
+  @ApiOperation({ summary: '[AB.46] «Yo lo resuelvo»: atribuirse un pendiente de la sucursal (uno por pendiente)' })
+  atribuir(
+    @Body() body: AtribuirPendienteRequest,
+    @Req() req?: { user?: QuienPidePendientes },
+  ): Promise<ResponsablePendiente> {
+    return this.svc.atribuir(body, req?.user);
+  }
+
+  @Post('soltar')
+  @RequirePermissions(Permission.SUCURSAL_PENDIENTES_VER)
+  @ApiOperation({ summary: '[AB.46] Soltar un pendiente que te atribuiste' })
+  soltar(
+    @Body() body: AtribuirPendienteRequest,
+    @Req() req?: { user?: QuienPidePendientes },
+  ): Promise<{ ok: true }> {
+    return this.svc.soltar(body, req?.user);
   }
 }

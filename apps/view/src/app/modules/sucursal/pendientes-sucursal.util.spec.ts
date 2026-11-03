@@ -4,7 +4,7 @@ import { porGrupo, repartir, veredicto } from './pendientes-sucursal.util';
 
 const cola = (p: Partial<ColaSucursal>): ColaSucursal => ({
   id: 'x', grupo: 'recibir', de: 'sucursal', label: 'X', accion: '', ruta: '/x', query: null, ventana: null,
-  estado: 'ok', total: 0, mas_viejo_dias: null, filas: [], ...p,
+  puede_abrir: false, estado: 'ok', total: 0, mas_viejo_dias: null, filas: [], ...p,
 });
 
 describe('[AB.45] Pendientes de la sucursal — reparto de colas', () => {

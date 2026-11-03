@@ -4,7 +4,6 @@ import { LayoutComponent } from './modules/dashboard/layout/layout.component';
 import { authGuard } from './core/guards/auth.guard';
 import { permissionGuard, anyPermissionGuard, carteraEntryGuard, gastosAreaEntryGuard, colaboradorGuard, comercialHomeGuard, mktHomeGuard, almacenHomeGuard, logisticaHomeGuard, comprasHomeGuard, finanzasHomeGuard, contabilidadHomeGuard, adminHomeGuard, repartoHomeGuard, telemarketingHomeGuard, preciosHomeGuard, desarrolladoresHomeGuard, servicioHomeGuard, rhHomeGuard } from './core/guards/permission.guard';
 import { Permission } from './core/constants/permissions';
-import { LLAVES_PENDIENTES_SUCURSAL } from '@megadulces/contracts';
 import { televentaGuard } from './modules/televenta/televenta.guard';
 import { repartoGuard } from './modules/reparto/reparto.guard';
 import { storeEntryRedirect } from './modules/tienda/tienda.guards';
@@ -1023,6 +1022,22 @@ export const routes: Routes = [
     ]
   },
   // ── Proyecto Mesa de Servicio (Fase MS, ADR-081) ────────────────────
+  // [AB.46] Pendientes de sucursal — módulo propio (Edgar, 2026-11-03: «como módulo, no como submódulo»).
+  // Todo lo que la Suite tiene abierto de una sucursal y quién se encargó de cada cosa. La llave abre la
+  // pantalla; qué sucursal ve cada quien lo decide su alcance (oficinas eligen).
+  {
+    path: 'sucursal',
+    canActivate: [authGuard],
+    component: LayoutComponent,
+    children: [
+      { path: '', pathMatch: 'full', redirectTo: 'pendientes' },
+      {
+        path: 'pendientes',
+        loadComponent: () => import('./modules/sucursal/pages/sucursal-pendientes.component').then(m => m.SucursalPendientesComponent),
+        canActivate: [permissionGuard(Permission.SUCURSAL_PENDIENTES_VER)]
+      },
+    ]
+  },
   // Tickets de servicio para toda la suite. `solicitudes` es la puerta de CUALQUIER persona
   // (`SERVICIO_REPORTAR`, repartido a todo rol con personas pero sin destino en el mapa: se llega
   // por el botón del header). `bandeja` es de quien atiende; `configuracion`, de la coordinación.
@@ -1714,12 +1729,11 @@ export const routes: Routes = [
         canActivate: [anyPermissionGuard(Permission.AUTOABASTO_VER, Permission.AUTOABASTO_SOLICITAR)]
       },
       {
-        // [AB.45] Pendientes de la sucursal: todas las colas de la Suite con trabajo de una sucursal.
-        // Abre con la llave de CUALQUIERA de sus colas (`LLAVES_PENDIENTES_SUCURSAL`, la misma lista
-        // que el endpoint y el sidebar); adentro, cada cola viaja sólo con la suya.
+        // [AB.46] Pendientes de sucursal se volvió módulo propio (`/sucursal`). La ruta vieja se queda
+        // como redirección: un marcador o un enlace viejo no puede terminar en 404.
         path: 'pendientes',
-        loadComponent: () => import('./modules/almacen/pages/almacen-pendientes.component').then(m => m.AlmacenPendientesComponent),
-        canActivate: [anyPermissionGuard(...LLAVES_PENDIENTES_SUCURSAL)]
+        redirectTo: '/sucursal/pendientes',
+        pathMatch: 'full'
       },
       {
         // [AB.39] «Mi pedido» y la mesa son UNA pantalla desde el 2026-10-26 (eran la misma cuenta

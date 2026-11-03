@@ -71,7 +71,7 @@ import { HealthAlertToastComponent } from './health-alert-toast.component';
 import { NotificationsBellComponent } from './notifications-bell.component';
 
 /** Clave interna de proyecto de este layout: indexa los `*NavGroups` escritos a mano (deuda SN). */
-type LayoutProject = 'trademk' | 'comercial' | 'admin' | 'logistica' | 'tienda' | 'reparto' | 'finanzas' | 'contabilidad' | 'almacen' | 'compras' | 'telemarketing' | 'desarrolladores' | 'servicio' | 'rh';
+type LayoutProject = 'trademk' | 'comercial' | 'admin' | 'logistica' | 'tienda' | 'reparto' | 'finanzas' | 'contabilidad' | 'almacen' | 'compras' | 'telemarketing' | 'desarrolladores' | 'servicio' | 'rh' | 'sucursal';
 
 /** `AuthzProject.id` → clave interna. Lo que no está acá (whatsapp) cae al default. */
 const PROJECT_KEY: Readonly<Record<string, LayoutProject>> = {
@@ -92,6 +92,8 @@ const PROJECT_KEY: Readonly<Record<string, LayoutProject>> = {
   desarrolladores: 'desarrolladores',
   servicio: 'servicio',
   rh: 'rh',
+  // `[AB.46]` Pendientes de sucursal: módulo propio.
+  sucursal: 'sucursal',
 };
 
 interface NavItem {
@@ -822,6 +824,16 @@ export class LayoutComponent implements OnInit, OnDestroy {
 
   // Fase MS — Mesa de Servicio. «Mis solicitudes» sólo exige REPORTAR (todo rol con personas lo tiene);
   // Bandeja y Configuración, ATENDER/COORDINAR. Cada item por su permiso, igual que la ruta.
+  /** `[AB.46]` Pendientes de sucursal: una pantalla. Sin este grupo el proyecto caería al nav de Trade. */
+  private sucursalNavGroups: { title: string; items: NavItem[] }[] = [
+    {
+      title: 'Sucursal',
+      items: [
+        { label: 'Pendientes', icon: 'pi pi-inbox', route: '/sucursal/pendientes', anyOf: [Permission.SUCURSAL_PENDIENTES_VER] },
+      ],
+    },
+  ];
+
   private servicioNavGroups: { title: string; items: NavItem[] }[] = [
     {
       title: 'Mesa de Servicio',
@@ -1116,6 +1128,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
     if (this.currentProject() === 'servicio') {
       return this.dedupeByRoute(this.flatOf(this.servicioNavGroups).filter((i) => this.hasPermFor(i)));
     }
+    if (this.currentProject() === 'sucursal') {
+      return this.dedupeByRoute(this.flatOf(this.sucursalNavGroups).filter((i) => this.hasPermFor(i)));
+    }
     if (this.currentProject() === 'rh') {
       return this.dedupeByRoute(this.flatOf(this.rhNavGroups).filter((i) => this.hasPermFor(i)));
     }
@@ -1200,6 +1215,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
     }
     if (this.currentProject() === 'servicio') {
       return this.mapGroups(this.servicioNavGroups, true);
+    }
+    if (this.currentProject() === 'sucursal') {
+      return this.mapGroups(this.sucursalNavGroups, true);
     }
     if (this.currentProject() === 'rh') {
       return this.mapGroups(this.rhNavGroups, true);

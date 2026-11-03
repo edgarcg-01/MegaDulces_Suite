@@ -2459,6 +2459,52 @@ cambian.
 - Compras sin vale con la cascada del Andén.
 - Toda cola que lee `erp_goods_receipts` marcada como pesada.
 
+### 16.24 🧪 [AB.46] Módulo propio, la misma información para toda la sucursal, y «yo lo resuelvo» (2026-11-03)
+
+**Edgar:** «hay que generarlo como módulo y no como submódulo» · «darle acceso a cada persona con la sucursal a la
+misma información, pero en oficinas sí el selector, para que todos puedan atribuirse el resolver los pendientes».
+
+**Módulo `/sucursal`.** Proyecto `sucursal` en `AUTHZ_TREE` con su llave propia, `SUCURSAL_PENDIENTES_VER`: el
+árbol prohíbe permisos compartidos. Va en el mapa de la suite, en «Almacenes y Logística › Sucursales», con su
+sidebar y su ruta. `/almacen/pendientes` redirige y el área salió del sidebar de Almacén.
+
+**La misma información para todos.** Las colas ya no se filtran por el puesto: toda la sucursal ve todas. El
+botón «Resolver» sólo se pinta si el puesto abre la pantalla dueña (`puede_abrir`). Qué sucursal ve cada quien lo
+decide su alcance: quien tiene sucursal en su ficha ve la suya, y oficinas usan el selector. Como ahora la ve toda
+la sucursal, «arqueos sin firma» ya no trae importe: el arqueo es ciego.
+
+**«Yo lo resuelvo».**
+- Tabla `commercial.sucursal_pendiente_responsables` (migración `20261103160516`):
+  - `tenant_id` y RLS forzado.
+  - Un responsable vivo por pendiente (índice único parcial).
+  - Soltar es borrado lógico.
+  - `app_runtime` sin DELETE.
+- Cada fila de cada cola trae una `clave` estable (el id de su tabla o el documento de Kepler).
+- Endpoints `POST atribuir` y `POST soltar`:
+  - Si el pendiente ya lo tiene otra persona, da 409 con su nombre.
+  - Sólo quien lo tiene lo suelta (403 para los demás); un administrador de plataforma también puede.
+- Sin la tabla (migración sin aplicar), la pantalla se lee igual y «atribuir» responde 503. No finge.
+
+**Reparto de la llave** (migración `20261103160517`): los 36 roles que ya tienen `SERVICIO_REPORTAR` (la llave «de
+todo rol con personas»), menos `auditor_externo`. Efecto medido en el aterrizaje, sobre las 133 personas con login
+en 30 días: **17** tenían un solo destino y entraban directo (5 almacenistas, 5 surtidores y 7 de etiquetas de
+anaquel). Ahora tienen dos y aterrizan en Mi trabajo. Nadie pierde acceso.
+
+**Pruebas:**
+- **Contra base real (regla 13):** `test-newdb-sucursal-pendientes-atribuir.js` corre el SERVICIO real con
+  ts-node, como `app_runtime`, en la base local de pruebas (`system_identifier` 7643…, no prod): **16/16**.
+  - Negativas: 409, 403, 23505, 23514, RLS y 42501.
+  - La mutación «quitar el conflicto» la pone en rojo.
+  - Se aplicó el `up()` de la tabla para la prueba y se bajó después.
+- Reabasto: 313/313, servicio con dobles incluido.
+- **No medido en este tramo** (la corrida se interrumpió): contracts después de ajustar `suite-map.spec` a 17
+  puertas primarias, el front (`modules/sucursal`, layout) y `check:pantalla`. Tampoco: el arranque de la API, la
+  validación visual y `MATRIZ_ACCESOS` (se regenera después de aplicar el reparto).
+
+**Pendiente de commit (cambios ajenos en el mismo archivo):** el registro de la prueba en
+`database/run-all-tests.js` está en el árbol, pero no se commiteó porque ese archivo trae 2 líneas de otra sesión
+sin commitear.
+
 
 - [ ] Métrica re-medida con la misma consulta, antes/después publicado.
 - [ ] Carga completa de la mesa y de «Mi pedido» bajo 500 ms en todas las sucursales, medida en prod (AB.36).

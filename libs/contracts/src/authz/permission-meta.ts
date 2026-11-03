@@ -329,6 +329,7 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.AUTOABASTO_AUTORIZAR]: { label: 'Autorizar abasto (dentro del tope)', description: 'Autoriza solicitudes y cambios de parámetro que NO exceden el tope de inventario. Encargado de sucursal.', category: 'Comercial' },
   [Permission.AUTOABASTO_EXCEDER_TOPE]: { label: 'Autorizar por encima del tope', description: 'Única llave que permite pasar el tope de inventario. Dirección comercial o general. No se otorga de paquete.', category: 'Comercial' },
   [Permission.AUTOABASTO_POLITICA]: { label: 'Cambiar política de abasto', description: 'Mueve el umbral de temporalidad (±50%) y los calendarios de temporada. Dirección general y comercial.', category: 'Comercial' },
+  [Permission.SUCURSAL_PENDIENTES_VER]: { label: 'Ver Pendientes de sucursal', description: 'Todo lo que la Suite tiene abierto de la sucursal, en una pantalla (/sucursal/pendientes). Cada cola se muestra sólo si el puesto puede abrir la pantalla donde se resuelve. Solo lectura.', category: 'Comercial' },
   [Permission.NIVELACION_VER]: { label: 'Ver Nivelación de inventarios', description: 'Excedentes y traspasos propuestos entre sucursales (/almacen/nivelacion). Solo lectura.', category: 'Comercial' },
   [Permission.NIVELACION_GESTIONAR]: { label: 'Gestionar traspasos', description: 'Solicita, confirma o rechaza traspasos entre sucursales. Incluye al almacén de origen.', category: 'Comercial' },
 

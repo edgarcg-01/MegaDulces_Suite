@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { LLAVES_PENDIENTES_SUCURSAL, type AutoabastoVieneDoc } from '@megadulces/contracts';
-import { COLAS_SUCURSAL, LLAVE_VIENE, colasDeViene } from './sucursal-pendientes.registry';
+import type { AutoabastoVieneDoc } from '@megadulces/contracts';
+import { COLAS_SUCURSAL, COLAS_VIENE, claveViene, colasDeViene } from './sucursal-pendientes.registry';
 import * as Q from './sucursal-pendientes.sql';
 
 const doc = (p: Partial<AutoabastoVieneDoc>): AutoabastoVieneDoc => ({
@@ -9,13 +9,8 @@ const doc = (p: Partial<AutoabastoVieneDoc>): AutoabastoVieneDoc => ({
 });
 
 describe('[AB.45] registro de Pendientes de la sucursal', () => {
-  it('la puerta (LLAVES_PENDIENTES_SUCURSAL) es EXACTAMENTE la unión de las llaves de las colas', () => {
-    const union = new Set<string>([LLAVE_VIENE, ...COLAS_SUCURSAL.flatMap((c) => c.anyOf)]);
-    expect([...new Set(LLAVES_PENDIENTES_SUCURSAL)].sort()).toEqual([...union].sort());
-  });
-
-  it('cada cola tiene id único, ruta absoluta, llave y fuente citada', () => {
-    const ids = COLAS_SUCURSAL.map((c) => c.id);
+  it('cada cola tiene id único (también contra las de «lo que te va a llegar»), ruta absoluta, llave y fuente citada', () => {
+    const ids = [...COLAS_SUCURSAL.map((c) => c.id), ...COLAS_VIENE];
     expect(new Set(ids).size).toBe(ids.length);
     for (const c of COLAS_SUCURSAL) {
       expect(c.ruta.startsWith('/'), c.id).toBe(true);
@@ -48,13 +43,23 @@ describe('[AB.45] registro de Pendientes de la sucursal', () => {
     expect(Q.SQL_LLEGADAS_SIN_VALE).toContain('LEFT JOIN commercial.erp_sucursal_warehouse');
   });
 
+  it('⛔ la pantalla la ve toda la sucursal: el arqueo (ciego) no enseña lo contado', () => {
+    expect(Q.SQL_ARQUEOS_POR_VALIDAR).not.toContain('total_contado');
+    expect(Q.SQL_TURNOS_SIN_ARQUEO).not.toMatch(/c15|c49|total_contado/);
+  });
+
+  it('la clave de «lo que te va a llegar» distingue el mismo folio de dos orígenes', () => {
+    expect(claveViene(doc({ origen: '00', folio: '7' }))).not.toBe(claveViene(doc({ origen: '01', folio: '7' })));
+    expect(claveViene(doc({ tipo: 'requisicion', id: 'r1' }))).toBe('r1');
+  });
+
   it('las colas que leen la vista cara de órdenes de entrada van marcadas como pesadas', () => {
     for (const c of COLAS_SUCURSAL.filter((x) => x.sql.includes('analytics.erp_goods_receipts'))) expect(c.pesada, c.id).toBe(true);
   });
 
   it('toda consulta devuelve la forma común y filtra por tenant', () => {
     for (const c of COLAS_SUCURSAL) {
-      for (const col of ['AS folio', 'AS detalle', 'AS fecha', 'AS monto', 'AS total']) expect(c.sql, `${c.id} ${col}`).toContain(col);
+      for (const col of ['AS clave', 'AS folio', 'AS detalle', 'AS fecha', 'AS monto', 'AS total']) expect(c.sql, `${c.id} ${col}`).toContain(col);
       expect(c.sql, c.id).toContain(':t');
     }
   });

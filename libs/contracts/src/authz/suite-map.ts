@@ -295,6 +295,16 @@ export const SUITE_SPACES: readonly SuiteSpace[] = [
         source: { status: 'confirmado', cite: '§12.1 + §23 fila Almacén' },
       },
       {
+        // `[AB.46]` Pendientes de sucursal: módulo propio (Edgar, 2026-11-03). Junta colas de todos los
+        // proyectos, pero su trabajo es de piso de sucursal; por eso vive con Almacenes y no en un espacio
+        // nuevo («Operación por zonas» sigue planned: su pantalla territorial no existe).
+        id: 'pendientes-de-sucursal',
+        kind: 'project',
+        project: 'sucursal',
+        group: ['Sucursales'],
+        source: { status: 'propuesta', cite: 'Edgar 2026-11-03: «un módulo donde le mostremos a las sucursales qué tienen pendiente»' },
+      },
+      {
         id: 'transporte-y-embarques',
         kind: 'project',
         project: 'logistica',

@@ -191,8 +191,18 @@ export const COLAS_SUCURSAL: readonly ColaDef[] = [
  */
 export const LLAVE_VIENE = Permission.AUTOABASTO_VER;
 
+/** Los ids de las colas que salen de «lo que te va a llegar» (para validar a qué se atribuye alguien). */
+export const COLAS_VIENE: readonly string[] = ['traspasos-sin-recibir', 'requisiciones-rechazadas', 'pedidos-sin-embarcar', 'requisiciones-con-compras'];
+
+/** `[AB.46]` La clave de un documento de «lo que te va a llegar»: la requisición por su id; Kepler por origen/serie/folio. */
+export function claveViene(d: AutoabastoVieneDoc): string {
+  return d.id ? String(d.id) : `${d.tipo}/${d.origen}/${d.serie}/${d.folio}`;
+}
+
 export function colasDeViene(documentos: AutoabastoVieneDoc[], tope: number): ColaSucursal[] {
-  const fila = (d: AutoabastoVieneDoc, detalle: string) => ({ folio: d.folio, detalle, dias: d.dias, monto: d.monto });
+  const fila = (d: AutoabastoVieneDoc, detalle: string) => ({
+    clave: claveViene(d), responsable: null, folio: d.folio, detalle, dias: d.dias, monto: d.monto,
+  });
   const viejoPrimero = (a: AutoabastoVieneDoc, b: AutoabastoVieneDoc) => b.dias - a.dias || a.folio.localeCompare(b.folio);
   const de = (nombre: string) => warehouseName(nombre) || 'una sucursal sin nombre';
   const cola = (
@@ -201,7 +211,7 @@ export function colasDeViene(documentos: AutoabastoVieneDoc[], tope: number): Co
   ): ColaSucursal => {
     const orden = [...docs].sort(viejoPrimero);
     return {
-      id, grupo, de: quien, label, accion, ruta: '/almacen/autoabasto', query: null, ventana: 'últimos 30 días',
+      id, grupo, de: quien, label, accion, ruta: '/almacen/autoabasto', query: null, ventana: 'últimos 30 días', puede_abrir: false,
       estado: 'ok', total: orden.length, mas_viejo_dias: orden.length ? orden[0].dias : null,
       filas: orden.slice(0, tope).map((d) => fila(d, detalle(d))),
     };

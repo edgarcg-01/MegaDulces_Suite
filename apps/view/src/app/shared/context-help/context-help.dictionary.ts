@@ -607,14 +607,16 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
     ],
   },
   // [MX.3.2] Incidencias: sólo lo que el motor no pudo dar por bueno.
-  'almacen-pendientes': {
-    title: 'Pendientes de la sucursal — guía',
-    intro: 'Todo lo que la Suite tiene abierto de tu sucursal, juntado de las pantallas donde se resuelve: recibir, surtir, caja, inventario y administración. Sólo ves las colas de las pantallas que tu puesto puede abrir. El total suma lo que le toca a la sucursal; lo que atiende otra área se ve abajo y no suma.',
+  'sucursal-pendientes': {
+    title: 'Pendientes de sucursal — guía',
+    intro: 'Todo lo que la Suite tiene abierto de tu sucursal: recibir, surtir, caja, inventario y administración. Toda la sucursal ve lo mismo, y cada quien puede decir «yo lo resuelvo». Si tu ficha tiene sucursal ves la tuya; en oficinas eliges la sucursal arriba. El total suma lo que le toca a la sucursal; lo que atiende otra área se ve abajo y no suma.',
     groups: [
       {
         heading: 'Cómo se lee',
         entries: [
-          { term: 'Cola', def: 'Un tipo de pendiente (por ejemplo, «Turnos de caja cerrados sin arqueo»). Cada una dice cuántos hay, desde cuándo espera el más viejo, qué hacer y lleva con «Resolver» a la pantalla donde se hace.' },
+          { term: 'Cola', def: 'Un tipo de pendiente (por ejemplo, «Turnos de caja cerrados sin arqueo»). Cada una dice cuántos hay, desde cuándo espera el más viejo y qué hacer.' },
+          { term: 'Resolver', def: 'Lleva a la pantalla donde se hace. Sólo aparece si tu puesto abre esa pantalla; si no, ves el pendiente pero lo resuelve alguien que sí la abra.' },
+          { term: 'Yo lo resuelvo', def: 'Te atribuyes el pendiente: toda la sucursal ve que lo tienes tú. Un pendiente lo tiene una sola persona; si ya lo tomó alguien, aparece su nombre. Sólo quien lo tomó lo puede soltar.' },
           { term: 'Días', def: 'Cuántos días lleva esperando, contados en hora de México.' },
           { term: 'Ventana', def: 'Algunas colas miran sólo un periodo (por ejemplo, «últimos 7 días» en caja). Se dice al lado del nombre.' },
           { term: 'Al día', def: 'Colas que hoy están en cero. Se nombran en una línea para que sepas que se revisaron.' },

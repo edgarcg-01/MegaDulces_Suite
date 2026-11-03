@@ -14,7 +14,6 @@ import type { DiagnosticoRenglon } from './autoabasto-mesa.contract';
 // `[AB.40]` El motor único de cantidad (tope de 45 días). Este archivo le presta sólo TIPOS
 // (`import type`), así que no hay ciclo en tiempo de ejecución.
 import { costoUnicoBase, toparRedondeo, type MotivoTope } from './cantidad-pedido.contract';
-import { Permission } from '../authz/permissions';
 
 /** La escalera de unidades de Kepler de un producto (`analytics.v_product_unit_ladder`). */
 export interface EscaleraUnidades {
@@ -815,6 +814,10 @@ export interface AutoabastoVieneDocsResponse {
 export type GrupoPendienteSucursal = 'recibir' | 'surtir' | 'caja' | 'inventario' | 'administracion';
 
 export interface PendienteSucursalFila {
+  /** `[AB.46]` Identifica la fila dentro de su cola (id de su tabla o documento de Kepler). */
+  clave: string;
+  /** `[AB.46]` Quién se la atribuyó para resolverla. `null` = nadie todavía. */
+  responsable: ResponsablePendiente | null;
   folio: string;
   detalle: string | null;
   /** Días esperando. `null` = la fila no tiene fecha (una foto del momento). */
@@ -833,6 +836,11 @@ export interface ColaSucursal {
   /** Pantalla que lo resuelve, y su filtro si lo acepta. */
   ruta: string;
   query: Record<string, string> | null;
+  /**
+   * `[AB.46]` ¿La persona puede abrir `ruta`? Toda la sucursal ve las MISMAS colas (Edgar, 2026-11-03);
+   * el botón «Resolver» sólo se pinta a quien su puesto le abre esa pantalla. Sin esto, el enlace rebota.
+   */
+  puede_abrir: boolean;
   /** Qué periodo mira la cola, en palabras («últimos 7 días»). `null` = todo lo abierto. */
   ventana: string | null;
   /** `no_medido` = la consulta falló: NO es cero (`total` viene en 0 y no debe sumarse). */
@@ -854,36 +862,22 @@ export interface SucursalPendientesResponse {
 
 export const PENDIENTES_SUCURSAL_TOPE_FILAS = 10;
 
-/**
- * `[AB.45]` Las llaves que abren «Pendientes de la sucursal»: la de CUALQUIERA de sus colas. Una sola
- * lista para la puerta de la ruta, el tab del sidebar y el endpoint; adentro, cada cola exige la suya.
- * El candado `sucursal-pendientes.registry.spec.ts` verifica que sea exactamente la unión del registro.
- */
-export const LLAVES_PENDIENTES_SUCURSAL: readonly Permission[] = [
-  Permission.AUTOABASTO_VER,
-  Permission.COMMERCIAL_INVENTORY_RECIBIR,
-  Permission.COMMERCIAL_EXPIRY_CAPTURAR,
-  Permission.COMPRAS_ENTRADAS_GESTIONAR,
-  Permission.COMPRAS_HALLAZGOS_VER,
-  Permission.ALMACEN_SURTIDO_COORDINAR,
-  Permission.COMMERCIAL_PICKING_VER,
-  Permission.COMMERCIAL_PICKING_GESTIONAR,
-  Permission.PREVENTA_GUIAS_GESTIONAR,
-  Permission.ALMACEN_CHECADO_GESTIONAR,
-  Permission.STORE_ARQUEO_VER,
-  Permission.STORE_ARQUEO_CAPTURAR,
-  Permission.RECONCILIATION_VER,
-  Permission.COMMERCIAL_INVENTORY_CONTAR,
-  Permission.FINANCE_EXPENSES_VER,
-  Permission.FINANCE_EXPENSES_CAPTURAR,
-  Permission.SERVICIO_REPORTAR,
-  Permission.COMMERCIAL_QUOTES_VER,
-  Permission.CATALOGO_LEVANTAR,
-  Permission.STORE_STOCKOUT_VER,
-  Permission.STORE_STOCKOUT_CAPTURAR,
-  Permission.COMMERCIAL_MOVEMENTS_VER,
-  Permission.REPARTO_DESPACHAR,
-];
+/** `[AB.46]` Quién se atribuyó un pendiente para resolverlo. */
+export interface ResponsablePendiente {
+  user_id: string;
+  nombre: string;
+  /** ISO. */
+  desde: string;
+  /** `true` = es la persona que consulta (puede soltarlo). */
+  soy_yo: boolean;
+}
+
+/** `[AB.46]` `POST /commercial/sucursal-pendientes/atribuir` y `/soltar`. */
+export interface AtribuirPendienteRequest {
+  warehouse_id: string;
+  cola: string;
+  clave: string;
+}
 
 /**
  * `[AB.44]` Un almacén de «Pendientes de la sucursal»: el alcance de la persona en el área Almacén,

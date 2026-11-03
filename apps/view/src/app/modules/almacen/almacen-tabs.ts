@@ -1,6 +1,5 @@
 import { PageTab } from '../../shared/components/page-tabs/page-tabs.component';
 import { Permission } from '../../core/constants/permissions';
-import { LLAVES_PENDIENTES_SUCURSAL } from '@megadulces/contracts';
 
 /**
  * Fase WMS.1 — el Almacén como un solo producto.
@@ -75,20 +74,6 @@ export interface AlmacenArea {
 }
 
 export const ALMACEN_AREAS: AlmacenArea[] = [
-  {
-    key: 'pendientes',
-    label: 'Pendientes',
-    /**
-     * `[AB.44]`/`[AB.45]` Todo lo que la Suite tiene abierto de la sucursal. Va PRIMERA en el sidebar
-     * porque es lo primero que la sucursal tiene que ver. ⚠️ El ATERRIZAJE de `/almacen` no cambia
-     * (`ALMACEN_LANDING` no la incluye): mover a dónde entra cada quien es otra decisión.
-     * Un tab: la barra no se pinta. Llaves = las de la ruta (`LLAVES_PENDIENTES_SUCURSAL`).
-     */
-    match: ['/almacen/pendientes'],
-    tabs: [
-      { label: 'Pendientes', icon: 'pi pi-inbox', route: '/almacen/pendientes', anyOf: [...LLAVES_PENDIENTES_SUCURSAL], exact: true },
-    ],
-  },
   {
     key: 'entrada',
     label: 'Entrada',

@@ -492,6 +492,9 @@ export enum Permission {
   // confirma o rechaza un traspaso sin tener nada que ver con el autoabasto del destino.
   NIVELACION_VER = 'NIVELACION_VER',
   NIVELACION_GESTIONAR = 'NIVELACION_GESTIONAR',
+  // `[AB.46]` El módulo «Pendientes de sucursal» (`/sucursal`). Abre la PANTALLA; cada cola de adentro
+  // sigue exigiendo la llave de la pantalla que la resuelve (`sucursal-pendientes.registry.ts`).
+  SUCURSAL_PENDIENTES_VER = 'SUCURSAL_PENDIENTES_VER',
   // Páginas independientes que estaban bajo un permiso compartido:
   COMMERCIAL_ERP_PROMOS_VER = 'COMMERCIAL_ERP_PROMOS_VER',   // /mkt/erp-promos (promos del ERP)
   COMMERCIAL_VENDOR_SALES_VER = 'COMMERCIAL_VENDOR_SALES_VER', // /comercial/vendor-sales (ventas de vendedor)

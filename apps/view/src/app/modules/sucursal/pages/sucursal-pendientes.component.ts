@@ -7,8 +7,9 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { TableModule } from 'primeng/table';
 import { ButtonModule } from 'primeng/button';
 import { SelectModule } from 'primeng/select';
-import { TagModule } from 'primeng/tag';
-import type { ColaSucursal, SucursalPendientesAlmacen, SucursalPendientesResponse } from '@megadulces/contracts';
+import { ToastModule } from 'primeng/toast';
+import { MessageService } from 'primeng/api';
+import type { ColaSucursal, PendienteSucursalFila, SucursalPendientesAlmacen, SucursalPendientesResponse } from '@megadulces/contracts';
 import { SucursalPendientesService } from '../sucursal-pendientes.service';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
@@ -17,36 +18,40 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
 import { GRUPO_LABEL, porGrupo, repartir, veredicto } from '../pendientes-sucursal.util';
 
 /**
- * `[AB.44]` → `[AB.45]` **Pendientes de la sucursal** (`/almacen/pendientes`): TODO lo que la Suite
- * tiene abierto de una sucursal, en una pantalla. Edgar (2026-11-03): «aquí deben estar todos los
- * pendientes de la Suite que tiene la sucursal». Una sola llamada
- * (`GET /commercial/sucursal-pendientes`); qué es pendiente lo decide el registro del servidor.
+ * `[AB.44]` → `[AB.45]` → `[AB.46]` **Pendientes de sucursal** (`/sucursal/pendientes`), módulo propio: TODO
+ * lo que la Suite tiene abierto de una sucursal, y quién se encargó de cada cosa.
+ *
+ * Edgar (2026-11-03): «como módulo, no como submódulo» · «darle acceso a cada persona con la sucursal a la
+ * misma información, en oficinas con el selector, para que todos puedan atribuirse el resolver los
+ * pendientes». Toda la sucursal ve las mismas colas; «Resolver» lleva a la pantalla dueña sólo a quien su
+ * puesto se la abre (`puede_abrir`); cualquiera se atribuye un pendiente.
  *
  * ── Las cinco preguntas (skill `diseno` §0b) ────────────────────────────────────────────────────
- * 1. Qué ve y en qué orden: el veredicto (cuántos pendientes, en cuántas colas, cuánto espera el más
- *    viejo); la franja por proceso; las colas con trabajo, la que más espera primero, y dentro de cada
- *    una, lo más viejo primero.
- * 2. Qué no: las colas en cero son una línea («al día»), no secciones. Lo que espera a OTRA área se ve
- *    abajo, compacto, y no suma. Lo que se buscó y no entra se lista con su porqué, plegado.
- * 3. Accesibilidad: folio, detalle (de quién, qué) y días en la fila; la pantalla que lo resuelve a un
- *    clic, con el filtro puesto si la pantalla lo acepta. Hasta 10 filas por cola; el total siempre.
- * 4. Ligado a: cada cola lleva a su pantalla dueña; el traspaso se recibe en Kepler.
- * 5. Le toca: sólo viajan las colas cuya pantalla la persona puede abrir.
+ * 1. Qué ve y en qué orden: el veredicto (cuántos, en cuántas colas, cuánto espera el más viejo); la franja
+ *    por proceso; las colas con trabajo, la que más espera primero; en cada fila, quién la está resolviendo.
+ * 2. Qué no: colas en cero = una línea («al día»); lo de OTRA área, compacto y sin sumar; lo que no entra,
+ *    plegado con su porqué. Sin importes de arqueo: la ve toda la sucursal y el arqueo es ciego.
+ * 3. Accesibilidad: folio, detalle y días en la fila; «Yo lo resuelvo» en la misma fila (una sola interfaz
+ *    por flujo); la pantalla dueña a un clic, con su filtro.
+ * 4. Ligado a: cada cola a su pantalla dueña; el traspaso se recibe en Kepler.
+ * 5. Le toca: a toda la sucursal; la sucursal la fija su alcance (oficinas eligen).
  *
- * Jerarquía: primario = el veredicto; secundario = cada cola (qué es, cuántos, qué hacer); terciario =
- * folios, importes, ventanas y lo de otra área.
+ * Jerarquía: primario = el veredicto; secundario = cada pendiente y quién lo tiene; terciario = folios,
+ * importes, ventanas y lo de otra área.
  */
 @Component({
-  selector: 'app-almacen-pendientes',
+  selector: 'app-sucursal-pendientes',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, TableModule, ButtonModule, SelectModule, TagModule,
+  imports: [CommonModule, FormsModule, RouterLink, TableModule, ButtonModule, SelectModule, ToastModule,
     LoadStateComponent, FreshnessPillComponent, MetricStripComponent, ContextHelpComponent],
+  providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
+    <p-toast></p-toast>
     <div class="surf-page in pen-page">
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1 class="pen-h1">Pendientes de la sucursal <app-context-help topic="almacen-pendientes" /></h1>
+          <h1 class="pen-h1">Pendientes de sucursal <app-context-help topic="sucursal-pendientes" /></h1>
           @if (almacenes().length > 1) {
             <p-select [options]="almacenes()" optionLabel="name" optionValue="id" [ngModel]="sel()" (ngModelChange)="elegir($event)"
                       inputId="pen-suc" ariaLabel="Sucursal" appendTo="body" class="pen-suc"></p-select>
@@ -63,11 +68,9 @@ import { GRUPO_LABEL, porGrupo, repartir, veredicto } from '../pendientes-sucurs
 
       <app-load-state [loading]="cargandoAlmacenes()" [error]="errorAlmacenes()" [isEmpty]="!cargandoAlmacenes() && !almacenes().length"
                       emptyIcon="pi-building" emptyTitle="No tienes una sucursal asignada"
-                      emptyHint="Tu alcance en Almacén no incluye ninguna sucursal. Pídele a Sistemas que te la asigne."
+                      emptyHint="Tu ficha no tiene sucursal y tu alcance no incluye ninguna. Pídele a Sistemas que te la asigne."
                       (retry)="cargarAlmacenes()">
-        <app-load-state [loading]="cargando() && !resp()" [error]="error()" [isEmpty]="!!resp() && !resp()!.colas.length"
-                        emptyIcon="pi-lock" emptyTitle="No ves ninguna cola de pendientes"
-                        emptyHint="Tu puesto no abre ninguna de las pantallas donde se resuelven." (retry)="cargar()">
+        <app-load-state [loading]="cargando() && !resp()" [error]="error()" [isEmpty]="false" (retry)="cargar()">
           @if (resp()) {
             <p class="pen-veredicto" role="status">{{ frase() }}</p>
             @if (nota(); as n) { <p class="pen-nota">{{ n }}</p> }
@@ -81,14 +84,18 @@ import { GRUPO_LABEL, porGrupo, repartir, veredicto } from '../pendientes-sucurs
                     <p class="pen-sub">{{ grupo(c) }} · {{ c.accion }}@if (c.ventana) { · {{ c.ventana }} }</p>
                   </div>
                   <span class="pen-cuenta">{{ c.total | number }}</span>
-                  <a pButton class="p-button-sm p-button-text pen-ir" [routerLink]="c.ruta" [queryParams]="c.query">
-                    <span class="p-button-label">Resolver</span><i class="pi pi-arrow-right" aria-hidden="true"></i>
-                  </a>
+                  @if (c.puede_abrir) {
+                    <a pButton class="p-button-sm p-button-text pen-ir" [routerLink]="c.ruta" [queryParams]="c.query">
+                      <span class="p-button-label">Resolver</span><i class="pi pi-arrow-right" aria-hidden="true"></i>
+                    </a>
+                  } @else {
+                    <span class="pen-sin-acceso">Se resuelve en una pantalla que tu puesto no abre</span>
+                  }
                 </div>
                 <div class="dt-scope">
-                  <p-table [value]="c.filas" size="small" class="surf-table surf-table--plain dt-stack">
+                  <p-table [value]="c.filas" dataKey="clave" size="small" class="surf-table surf-table--plain dt-stack">
                     <ng-template #header>
-                      <tr><th>Folio</th><th>Detalle</th><th class="comm-num">Días</th><th class="comm-num">Importe</th></tr>
+                      <tr><th>Folio</th><th>Detalle</th><th class="comm-num">Días</th><th class="comm-num">Importe</th><th>Quién lo resuelve</th></tr>
                     </ng-template>
                     <ng-template #body let-f>
                       <tr>
@@ -96,12 +103,29 @@ import { GRUPO_LABEL, porGrupo, repartir, veredicto } from '../pendientes-sucurs
                         <td data-label="Detalle" role="cell">{{ f.detalle || '—' }}</td>
                         <td class="comm-num dt-num" data-label="Días" role="cell">{{ f.dias == null ? '—' : (f.dias | number) }}</td>
                         <td class="comm-num dt-num" data-label="Importe" role="cell">{{ f.monto == null ? '—' : dinero(f.monto) }}</td>
+                        <td data-label="Quién lo resuelve" role="cell" class="pen-quien">
+                          @if (f.responsable; as r) {
+                            <span class="pen-resp" [class.pen-resp--yo]="r.soy_yo">{{ r.soy_yo ? 'Tú' : r.nombre }}</span>
+                            <span class="pen-tenue">desde {{ r.desde | date:'d MMM, HH:mm' }}</span>
+                            @if (r.soy_yo) {
+                              <button pButton type="button" class="p-button-sm p-button-text" [disabled]="ocupado(c, f)"
+                                      (click)="soltar(c, f)" [attr.aria-label]="'Soltar ' + f.folio">
+                                <span class="p-button-label">Soltar</span>
+                              </button>
+                            }
+                          } @else {
+                            <button pButton type="button" class="p-button-sm p-button-outlined" [disabled]="ocupado(c, f)"
+                                    (click)="atribuir(c, f)" [attr.aria-label]="'Yo resuelvo ' + f.folio">
+                              <span class="p-button-label">Yo lo resuelvo</span>
+                            </button>
+                          }
+                        </td>
                       </tr>
                     </ng-template>
                   </p-table>
                 </div>
                 @if (c.total > c.filas.length) {
-                  <p class="pen-tenue">Se muestran {{ c.filas.length }} de {{ c.total | number }}, las más viejas primero. El resto, en «Resolver».</p>
+                  <p class="pen-tenue pen-recorte">Se muestran {{ c.filas.length }} de {{ c.total | number }}, las más viejas primero.@if (c.puede_abrir) { El resto, en «Resolver». }</p>
                 }
               </section>
             }
@@ -119,7 +143,7 @@ import { GRUPO_LABEL, porGrupo, repartir, veredicto } from '../pendientes-sucurs
 
             @if (reparto().otraArea.length) {
               <section class="pen-sec" aria-labelledby="pen-h-otra">
-                <h2 class="pen-h2" id="pen-h-otra">Abierto en tu sucursal, lo atiende otra área</h2>
+                <h2 class="pen-h2" id="pen-h-otra">Abierto en la sucursal, lo atiende otra área</h2>
                 <p class="pen-sub">No es trabajo de la sucursal y no suma arriba; se muestra para que sepas que está abierto.</p>
                 <div class="dt-scope">
                   <p-table [value]="reparto().otraArea" size="small" class="surf-table surf-table--plain dt-stack">
@@ -132,9 +156,11 @@ import { GRUPO_LABEL, porGrupo, repartir, veredicto } from '../pendientes-sucurs
                         <td class="comm-num dt-num" data-label="Cuántos" role="cell">{{ c.estado === 'ok' ? (c.total | number) : 'No se pudo leer' }}</td>
                         <td data-label="Quién" role="cell">{{ c.accion }}</td>
                         <td class="dt-actions" data-label="Abrir" role="cell">
-                          <a pButton class="p-button-sm p-button-text" [routerLink]="c.ruta" [queryParams]="c.query" [attr.aria-label]="'Ver ' + c.label">
-                            <span class="p-button-label">Ver</span>
-                          </a>
+                          @if (c.puede_abrir) {
+                            <a pButton class="p-button-sm p-button-text" [routerLink]="c.ruta" [queryParams]="c.query" [attr.aria-label]="'Ver ' + c.label">
+                              <span class="p-button-label">Ver</span>
+                            </a>
+                          }
                         </td>
                       </tr>
                     </ng-template>
@@ -169,9 +195,14 @@ import { GRUPO_LABEL, porGrupo, repartir, veredicto } from '../pendientes-sucurs
     .pen-h2 { margin: 0; font-size: var(--fs-h3); font-weight: 600; color: var(--text-main); }
     .pen-sub { margin: var(--sp-1) 0 0; font-size: var(--fs-sm); color: var(--text-muted); }
     .pen-cuenta { font-size: var(--fs-h3); font-weight: 600; color: var(--text-main); font-variant-numeric: tabular-nums; }
-    .pen-ir { margin-left: auto; }
+    .pen-ir, .pen-sin-acceso { margin-left: auto; }
+    .pen-sin-acceso { font-size: var(--fs-xs); color: var(--text-muted); align-self: center; }
     .pen-folio { font-family: var(--font-mono, monospace); }
-    .pen-tenue { margin: var(--sp-2) 0 0; font-size: var(--fs-xs); color: var(--text-muted); }
+    .pen-quien { white-space: nowrap; }
+    .pen-resp { font-weight: 600; color: var(--text-main); margin-right: var(--sp-2); }
+    .pen-resp--yo { color: var(--ok-fg); }
+    .pen-tenue { font-size: var(--fs-xs); color: var(--text-muted); }
+    .pen-recorte { display: block; margin: var(--sp-2) 0 0; }
     .pen-sinleer .pen-sub { color: var(--warn-fg); }
     .pen-aldia { margin: var(--sp-6) 0 0; font-size: var(--fs-sm); color: var(--text-muted); }
     .pen-aldia .pi { color: var(--ok-fg); }
@@ -180,11 +211,12 @@ import { GRUPO_LABEL, porGrupo, repartir, veredicto } from '../pendientes-sucurs
     .pen-fuera ul { margin: var(--sp-2) 0 0; padding-left: var(--sp-6); }
     .pen-fuera li { margin-bottom: var(--sp-1); }
     .pen-oculto { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-    @container (max-width: 48rem) { .pen-ir { margin-left: 0; } }
+    @container (max-width: 48rem) { .pen-ir, .pen-sin-acceso { margin-left: 0; } .pen-quien { white-space: normal; } }
   `],
 })
-export class AlmacenPendientesComponent implements OnInit {
+export class SucursalPendientesComponent implements OnInit {
   private readonly api = inject(SucursalPendientesService);
+  private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly almacenes = signal<SucursalPendientesAlmacen[]>([]);
@@ -197,6 +229,8 @@ export class AlmacenPendientesComponent implements OnInit {
   readonly cargando = signal(false);
   readonly error = signal<string | null>(null);
   readonly cargadoEn = signal<Date | null>(null);
+  /** Filas con una atribución en vuelo: el botón se apaga en el PRIMER clic (idempotencia visual). */
+  private readonly enVuelo = signal<ReadonlySet<string>>(new Set());
 
   readonly reparto = computed(() => repartir(this.resp()?.colas ?? []));
   private readonly ver = computed(() => veredicto(this.resp()?.colas ?? []));
@@ -265,6 +299,40 @@ export class AlmacenPendientesComponent implements OnInit {
       error: (e) => {
         this.cargando.set(false);
         this.error.set(mensaje(e));
+      },
+    });
+  }
+
+  private llave(c: ColaSucursal, f: PendienteSucursalFila): string {
+    return `${c.id}\u0000${f.clave}`;
+  }
+
+  ocupado(c: ColaSucursal, f: PendienteSucursalFila): boolean {
+    return this.enVuelo().has(this.llave(c, f));
+  }
+
+  atribuir(c: ColaSucursal, f: PendienteSucursalFila): void {
+    this.escribir(c, f, 'atribuir');
+  }
+
+  soltar(c: ColaSucursal, f: PendienteSucursalFila): void {
+    this.escribir(c, f, 'soltar');
+  }
+
+  private escribir(c: ColaSucursal, f: PendienteSucursalFila, que: 'atribuir' | 'soltar'): void {
+    const wh = this.sel();
+    const k = this.llave(c, f);
+    if (!wh || this.enVuelo().has(k)) return;
+    this.enVuelo.update((s) => new Set([...s, k]));
+    const fin = () => this.enVuelo.update((s) => { const n = new Set(s); n.delete(k); return n; });
+    const body = { warehouse_id: wh, cola: c.id, clave: f.clave };
+    const llamada = que === 'atribuir' ? this.api.atribuir(body) : this.api.soltar(body);
+    llamada.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => { fin(); this.cargar(); },
+      error: (e) => {
+        fin();
+        this.toast.add({ severity: 'warn', summary: que === 'atribuir' ? 'No se pudo tomar' : 'No se pudo soltar', detail: mensaje(e), life: 6000 });
+        this.cargar();
       },
     });
   }

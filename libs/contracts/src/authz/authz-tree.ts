@@ -620,6 +620,18 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'servicio-reportes', label: 'Reportes de la mesa', route: '/servicio/reportes', view: [Permission.SERVICIO_COORDINAR], manage: [] },
         ],
       },
+      {
+        // `[AB.46]` Pendientes de sucursal — módulo propio (Edgar, 2026-11-03: «como módulo, no como
+        // submódulo»). Junta las colas de TODOS los proyectos con trabajo de una sucursal; por eso no
+        // cuelga de Almacén. Su llave abre la pantalla; las colas siguen con la llave de su dueño.
+        id: 'sucursal',
+        label: 'Pendientes de sucursal',
+        icon: 'pi pi-inbox',
+        route: '/sucursal',
+        modules: [
+          { id: 'sucursal-pendientes', label: 'Pendientes de la sucursal', route: '/sucursal/pendientes', view: [Permission.SUCURSAL_PENDIENTES_VER], manage: [] },
+        ],
+      },
     ],
   },
 
