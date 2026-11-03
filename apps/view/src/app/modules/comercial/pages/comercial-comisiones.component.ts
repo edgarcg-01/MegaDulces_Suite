@@ -813,12 +813,16 @@ type Vista = typeof VISTAS[number];
             @if (cifrasDestacada(); as c) {
               <p class="cm-eyebrow">{{ d.estado_calculo === 'en_curso' ? 'Neto acumulado' : 'Neto a pagar' }}</p>
               <p class="cm-answer-monto">{{ money(c.neto) }}</p>
+              <!-- [AUD-CM.15] Con deducción medida en cero, «tras nómina $X − deducciones $0.00»
+                   repetía el neto de arriba con otro nombre. Se dice que no hubo deducción. -->
               <p class="cm-answer-pie">
-                tras nómina {{ money(c.tras) }}
                 @if (c.neto == null && c.tras != null) {
-                  · <span class="cm-neg">neto sin medir: falta la deducción del supervisor</span>
+                  tras nómina {{ money(c.tras) }} ·
+                  <span class="cm-neg">neto sin medir: falta la deducción del supervisor</span>
+                } @else if (c.ded === 0) {
+                  ya con la nómina restada · sin deducciones del supervisor
                 } @else {
-                  − deducciones {{ money(c.ded) }}
+                  tras nómina {{ money(c.tras) }} − deducciones {{ money(c.ded) }}
                 }
               </p>
             }
@@ -880,13 +884,13 @@ type Vista = typeof VISTAS[number];
               <div class="cm-gate bad">
                 <strong><i class="pi pi-ban" aria-hidden="true"></i>
                   {{ esProyeccion() ? 'Al cerrar, esto impediría aprobarla' : 'No se puede aprobar' }}</strong>
-                <ul>@for (g of bloqueantesVisibles(r); track g.gate) { <li><b>{{ etiquetaGate(g.gate) }}</b>: {{ g.detalle }}</li> }</ul>
+                <ul>@for (g of bloqueantesVisibles(r); track g.gate) { <li><b>{{ etiquetaGate(g.gate) }}</b>: {{ detalleGate(g.detalle) }}</li> }</ul>
               </div>
             }
             @if (avisos(r).length) {
               <div class="cm-gate warn">
                 <strong><i class="pi pi-exclamation-circle" aria-hidden="true"></i> Pasa, con reservas</strong>
-                <ul>@for (g of avisos(r); track g.gate) { <li><b>{{ etiquetaGate(g.gate) }}</b>: {{ g.detalle }}</li> }</ul>
+                <ul>@for (g of avisos(r); track g.gate) { <li><b>{{ etiquetaGate(g.gate) }}</b>: {{ detalleGate(g.detalle) }}</li> }</ul>
               </div>
             }
 
@@ -938,7 +942,16 @@ type Vista = typeof VISTAS[number];
                 </div>
                 <!-- [RD.101] (D6) Tres llaves: calcula Comercial, aprueba Dirección, paga Finanzas.
                      Cada botón se ofrece a quien tiene SU llave; el servidor vuelve a decidir. -->
-                @if (actoPropio(r) || sePuedeAnularYo(r)) {
+                <!-- [AUD-CM.13] Corrida con veredicto de costo de antes de [RD.96]: no se ofrece
+                     Aprobar (proximoActo) y el acto que toca es recalcularla. -->
+                @if (costoRancio(r) && r.status === 'borrador' && puedeGestionar() && sel(); as p) {
+                  <div class="cm-actos-btns">
+                    <button type="button" class="cm-btn" [disabled]="recalculando()"
+                            (click)="recalcularDesde(p.period_id)">
+                      {{ recalculando() ? 'Recalculando…' : 'Recalcular Q' + (r.period?.period_no ?? '') }}
+                    </button>
+                  </div>
+                } @else if (actoPropio(r) || sePuedeAnularYo(r)) {
                   <div class="cm-actos-btns">
                     @if (actoPropio(r) === 'approve') {
                       <button type="button" class="cm-btn" [disabled]="actuando()"
@@ -953,7 +966,8 @@ type Vista = typeof VISTAS[number];
                       </button>
                     }
                     @if (sePuedeAnularYo(r)) {
-                      <button type="button" class="cm-btn cm-btn--ghost" [disabled]="actuando()"
+                      <!-- [AUD-CM.17] Von Restorff: la destructiva va en rojo y apartada de la principal. -->
+                      <button type="button" class="cm-btn cm-btn--ghost cm-btn--anular" [disabled]="actuando()"
                               (click)="confirmarActo(r, 'void')">Anular</button>
                     }
                   </div>
@@ -1010,7 +1024,7 @@ type Vista = typeof VISTAS[number];
                 <table class="surf-table surf-table--plain surf-table--sticky">
                   <thead><tr>
                     <th>Ruta</th><th>Chofer</th>
-                    <th class="comm-num">Vendió</th><th class="comm-num">%</th>
+                    <th class="comm-num">Vendió</th><th class="comm-num">% tabulador</th>
                     <th class="comm-num">Siguiente escalón</th><th class="comm-num">Le faltó</th>
                     <th class="comm-num">Habría ganado</th>
                     <th>Bono al alcance</th><th></th>
@@ -1151,7 +1165,14 @@ type Vista = typeof VISTAS[number];
                 para que la ausencia sea una decisión y no un descuido.
               </p>
             } @else {
-              @if (costoComun(); as cc) {
+              <!-- [AUD-CM.13] Con el veredicto rancio la leyenda afirmaba «no hay costo» al lado
+                   de una columna Markup llena: se calla y lo dice el bloque de actos. -->
+              @if (run() && costoRancio(run()!)) {
+                <p class="cm-muted cm-micro cm-comun">
+                  Procedencia del costo <strong>sin medir</strong> en esta corrida: se calculó con un
+                  motor que la marcaba «sin costo» aunque el costo sí estaba. Recalcúlala para verla.
+                </p>
+              } @else if (costoComun(); as cc) {
                 @if (cc !== 'dos_fuentes') {
                   <p class="cm-muted cm-micro cm-comun">
                     Las {{ choferes().length }} rutas: <strong>{{ etiquetaCosto(cc) }}</strong> — {{ tipCosto(cc) }}
@@ -1175,7 +1196,7 @@ type Vista = typeof VISTAS[number];
                   <ng-template #header>
                     <tr>
                       <th scope="col">Ruta</th><th scope="col">Chofer</th><th scope="col" class="comm-num">Días</th>
-                      <th scope="col" class="comm-num">Subtotal</th><th scope="col" class="comm-num">Venta</th><th scope="col" class="comm-num">%</th>
+                      <th scope="col" class="comm-num">Subtotal</th><th scope="col" class="comm-num">Venta</th><th scope="col" class="comm-num">% chofer</th>
                       <th scope="col" class="comm-num">Markup</th><th scope="col" class="comm-num">Comisión</th><th scope="col" class="comm-num">Bonos</th>
                       <th scope="col" class="comm-num">Nómina</th><th scope="col" class="comm-num">A pagar</th><th scope="col">Procedencia</th>
                     </tr>
@@ -1183,13 +1204,18 @@ type Vista = typeof VISTAS[number];
                   <ng-template #body let-l>
                     <tr [pSelectableRow]="l" [class.muted]="!!l.motivo_no_pago">
                       <td role="cell" data-label="Ruta" class="comm-num">{{ l.route_code }}</td>
-                      <td role="cell" data-label="Chofer" class="cm-name">{{ l.beneficiario_nombre || '—' }}</td>
+                      <td role="cell" data-label="Chofer" class="cm-name">
+                        @if (l.beneficiario_nombre) { {{ l.beneficiario_nombre }} }
+                        @else { <span class="cm-muted">sin chofer en «Quién cobra»</span> }
+                      </td>
                       <td role="cell" data-label="Días" class="comm-num" [class.cm-corta]="diasCortos(l)" [title]="tipDias(l)">
                         {{ l.dias_con_venta != null ? (l.dias_con_venta + ' / ' + (l.dias_esperados ?? '?')) : '—' }}
                       </td>
                       <td role="cell" data-label="Subtotal" class="comm-num">{{ l.subtotal != null ? money(l.subtotal) : '—' }}</td>
                       <td role="cell" data-label="Venta" class="comm-num cm-muted">{{ l.venta != null ? money(l.venta) : '—' }}</td>
-                      <td role="cell" data-label="%" class="comm-num">{{ l.pct_aplicado != null ? (pct(l.pct_aplicado) + '%') : '—' }}</td>
+                      <!-- [AUD-CM.12] Era el % del TABULADOR (5) en la fila del chofer, que cobra 4:
+                           el otro 1 es del supervisor. Ahora la celda dice lo que cobra el chofer. -->
+                      <td role="cell" data-label="% chofer" class="comm-num" [title]="tipPctChofer(l)">{{ pctChofer(l) != null ? (pct(pctChofer(l)) + '%') : '—' }}</td>
                       <td role="cell" data-label="Markup" class="comm-num cm-muted" [title]="tipMarkup(l)">
                         {{ l.markup_sobre_costo_pct != null ? (pct(l.markup_sobre_costo_pct) + '%') : '—' }}
                       </td>
@@ -1570,6 +1596,7 @@ type Vista = typeof VISTAS[number];
     .cm-actos-dice { margin:.15rem 0 0; font-size:var(--fs-sm); color:var(--c-text-2); }
     .cm-actos-btns { display:flex; gap:var(--sp-2,.5rem); flex-shrink:0; }
     .cm-btn--ghost { background:transparent; color:var(--c-text-2); border:1px solid var(--border-color); }
+    .cm-btn--anular { color:var(--bad-fg); margin-left:var(--sp-6,1.5rem); }
     /* [RD.84] el padron editable y su dialogo */
     .cm-padron { margin:1.1rem 0 0; }
     .cm-padron-tit { display:flex; gap:var(--sp-3,.75rem); align-items:flex-start;
@@ -1985,6 +2012,54 @@ export class ComercialComisionesComponent {
     return todas.filter((g) => g.gate !== 'periodo_cerrado' && g.gate !== 'frescura');
   }
 
+  /**
+   * `[AUD-CM.13]` Renglones con veredicto `sin_costo` que SÍ traen costo. Es la huella del defecto
+   * que arregló `[RD.96]` (2026-10-28): el acumulador arrancaba en el peor veredicto y no salía.
+   * Una corrida guardada antes conserva el veredicto viejo. Q21 (calculada el 23-oct) lo tenía en
+   * 22 de 22 renglones con markup medido. Mientras quede uno, Aprobar no se ofrece.
+   * ⚠️ Sólo la pantalla lo frena: `setStatus` del servidor no lo revisa (deuda nombrada).
+   */
+  costoRancio(r: CommissionRunDetail): number {
+    return (r.lines ?? []).filter((l) => l.costo_veredicto === 'sin_costo'
+      && (l.costo != null || l.cogs_ruta != null || l.cogs_erp != null)).length;
+  }
+
+  /**
+   * `[AUD-CM.12]` El % que COBRA el chofer. `pct_aplicado` es el del tabulador y se reparte con el
+   * supervisor de la ruta (`share_supervisor_pct`); la parte de cada quien sale de las dos
+   * comisiones de la misma ruta, que son lo que de verdad se paga. Sin supervisor, es todo suyo.
+   */
+  pctChofer(l: CommissionLine): number | null {
+    if (l.pct_aplicado == null) return null;
+    const sup = (this.run()?.lines ?? []).find((x) => x.beneficiario === 'supervisor' && x.route_code === l.route_code);
+    const ch = Number(l.comision) || 0;
+    const sp = Number(sup?.comision) || 0;
+    if (ch + sp <= 0) return Number(l.pct_aplicado);
+    return Number(l.pct_aplicado) * ch / (ch + sp);
+  }
+
+  tipPctChofer(l: CommissionLine): string {
+    if (l.pct_aplicado == null) return 'No alcanzó el primer escalón del tabulador.';
+    const pc = this.pctChofer(l);
+    const ps = pc == null ? null : Number(l.pct_aplicado) - pc;
+    return ps && ps > 0.0005
+      ? `El tabulador da ${this.pct(l.pct_aplicado)}% sobre el subtotal: ${this.pct(pc)}% al chofer y ${this.pct(ps)}% al supervisor.`
+      : `El tabulador da ${this.pct(l.pct_aplicado)}% sobre el subtotal, todo al chofer.`;
+  }
+
+  /** `[AUD-CM.14]` El detalle de una compuerta llega del motor con sus códigos (`fuente_unica`). */
+  detalleGate(d: string | null | undefined): string {
+    const M: Record<string, string> = {
+      fuente_unica: 'una sola fuente de costo',
+      fuente_parcial: 'costo parcial',
+      fuente_inestable: 'costo inestable (Wincaja)',
+      sin_metrica_no_paga: 'sin métrica',
+    };
+    // El motor escribe «N bono(s) sobre costo a/b»: se traduce la lista entera, con su «costo».
+    return (d ?? '').replace(/costo ((?:fuente_[a-z]+|sin_metrica_no_paga)(?:\/(?:fuente_[a-z]+|sin_metrica_no_paga))*)/g,
+      (_m, lista: string) => lista.split('/').map((c) => M[c] ?? c).join(' o '));
+  }
+
   avisos(r: CommissionRunDetail): CommissionGate[] {
     return (r.gates ?? []).filter((g) => g.estado === 'advierte' || g.estado === 'no_medido');
   }
@@ -2359,8 +2434,10 @@ export class ComercialComisionesComponent {
           sub: `menos ${this.money(r.total_deduccion)} de deducciones`,
         },
       {
+        // [AUD-CM.16] Sin verde: un conteo completo es lo normal, no un logro, y el verde
+        // contradecía el «Pasa, con reservas» de arriba. Sólo se tiñe lo que falta.
         label: 'Cobertura', value: conDato, format: 'number',
-        tone: sinDato ? 'warn' : 'ok',
+        ...(sinDato ? { tone: 'warn' as const } : {}),
         // [AUD-CM.4] «fuera» cuenta la MISMA lista que la pestaña «No comisionan» (decía 8 con 11
         // renglones en la pestaña: rutas_fuera se congeló con la corrida y usa otra definición).
         sub: `con dato, de ${conDato + sinDato} que comisionan${this.fuera().length ? ` · otras ${this.fuera().length} no comisionan` : ''}`,
@@ -2455,7 +2532,7 @@ export class ComercialComisionesComponent {
   proximoActo(r: CommissionRunDetail): 'approve' | 'pay' | null {
     // ⛔ Una corrida con compuertas que bloquean NO se aprueba. La compuerta ya se pinta arriba
     // con su motivo; ofrecer el botón igual la volvería decorativa.
-    if (r.status === 'borrador' && !this.bloqueantes(r).length) return 'approve';
+    if (r.status === 'borrador' && !this.bloqueantes(r).length && !this.costoRancio(r)) return 'approve';
     if (r.status === 'aprobado') return 'pay';
     return null;
   }
@@ -2509,6 +2586,7 @@ export class ComercialComisionesComponent {
       case 'approve': return 'Falta aprobarla';
       case 'pay': return 'Falta marcarla pagada';
       default:
+        if (r.status === 'borrador' && this.costoRancio(r)) return 'Falta recalcularla';
         if (r.status === 'pagado') return 'Pagada y congelada';
         if (r.status === 'bloqueada') return 'Bloqueada';
         if (r.status === 'anulado') return 'Anulada';
@@ -2524,6 +2602,10 @@ export class ComercialComisionesComponent {
       case 'pay':
         return 'Aprobada. Al marcarla pagada queda congelada — lo pagado no se recalcula.';
       default:
+        if (r.status === 'borrador' && this.costoRancio(r))
+          return `Se calculó antes del arreglo [RD.96] y ${this.costoRancio(r)} renglones dicen «sin costo» `
+            + 'aunque traen su costo: la procedencia que vería Dirección al aprobar es falsa. '
+            + 'Recalcularla la deja en borrador; la aprueba otra persona, no quien recalcula.';
         if (r.status === 'pagado') return 'No se recalcula. Para corregirla hay que anularla y volver a calcular.';
         if (r.status === 'bloqueada')
           return 'No se aprueba con compuertas abiertas: se anula, se resuelve el motivo y se vuelve a calcular.';

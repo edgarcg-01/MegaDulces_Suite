@@ -801,6 +801,32 @@ desarrollador: mientras lo necesite, **el proceso no está aquí**, está en el 
   llave de cada endpoint leída de la metadata que consulta `RolesGuard`; rojo al apagar la regla.
   ⛔ Sin validación visual.
 
+#### `[RD.102]` 🧪 La pantalla deja de afirmar lo que la corrida no es (auditoría 2026-11-03)
+- **Lo medido (nivel A, pantalla viva + `GET /runs/:id` de Q21):** la columna «%» del chofer
+  publicaba el % del **tabulador** (5) y el chofer cobra **4**: el otro 1 es del supervisor
+  (`share_supervisor_pct` 20 %). En la ruta 504, «4.562 %» contra 3.65 % cobrado. Los $14,772.55
+  de los supervisores vivían escritos en la fila del chofer.
+- ⭐ **Q21 se guardó el 23-oct, antes de `[RD.96]` (28-oct):** 22 de 22 renglones dicen
+  `sin_costo` con el costo presente (`cogs_ruta` en las 11, `cogs_erp` en 21–28), y la leyenda
+  afirmaba «el markup no se puede medir y el bono del supervisor no paga» junto a un Markup lleno
+  y **$1,800 de bonos de supervisor pagados**. Era lo que Dirección iba a leer al aprobar.
+- **Lo que cambia:** `% chofer` (la parte del chofer, con el reparto en el `title`) y
+  `% tabulador` en «Lo que faltó» · `costoRancio()`: si un renglón dice `sin_costo` con costo,
+  **no se ofrece Aprobar**, el acto pasa a «Falta recalcularla» con **Recalcular Q21**
+  (`recalculate-from`, GESTIONAR) y la leyenda declara la procedencia como sin medir ·
+  el detalle de las compuertas sin códigos (`fuente_unica` → «una sola fuente de costo») ·
+  la tarjeta de arriba ya no repite el neto con «− deducciones $0.00» · Cobertura sin verde ·
+  la ruta sin chofer dice «sin chofer en «Quién cobra»» · **Anular** en rojo y apartado de la
+  principal.
+- ⚠️ **Deuda con nombre:** el freno es **sólo de la pantalla**; `setStatus` del servidor no
+  revisa el veredicto rancio, así que una llamada directa a `/approve` todavía lo aprobaría.
+- ⚠️ **Falta el acto:** recalcular Q21 (escribe; lo hace quien tenga GESTIONAR, y la aprueba
+  **otra** persona por `[RD.101]`). No se ejecutó en esta sesión.
+- Pruebas: `check:templates`, `check:estilos` y `check:pantalla -- comercial-comisiones` en verde;
+  `ngc --noEmit` sin errores, con control (un método inexistente en la celda nueva → TS2339).
+  Validación visual en claro a 2111 px sobre Q21. ⛔ **Sin validación**: oscuro, `forced-colors`,
+  teléfono, y el estilo de **Anular** (con la corrida rancia no se ofrece; no hay otro borrador).
+
 ### 9.5 Lo que necesita firma antes de que el motor pague
 
 | | Decisión | Por qué no la puedo tomar yo |
