@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import * as puppeteer from 'puppeteer';
-import { PaymentCalendarService } from './payment-calendar.service';
+import { warehouseName } from '@megadulces/contracts';
+import { PaymentCalendarService, type ExpedienteLinea } from './payment-calendar.service';
 
 const CLASSIFICATION_LABEL: Record<string, string> = {
   compromiso_financiero: 'Compromiso financiero', gasto: 'Gasto', proveedor_mercancia: 'Proveedor de mercancía',
@@ -42,6 +43,20 @@ function ejecutorDe(a: ConEjecutor): string {
 function ejecutoresDelLote(allocations: ConEjecutor[]): string[] {
   const vistos = new Set(allocations.map(ejecutorDe));
   return ['Tesorería', 'Caja General'].filter((e) => vistos.has(e));
+}
+
+const MES_CORTO = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+/**
+ * `[PGP.47]` `2026-10-25` → `25-oct`. En una tabla de 10 columnas la fecha ISO se come el ancho
+ * de dos, y el año no aporta: todo lo que se programa para pagar es del ejercicio en curso.
+ * ⛔ Se corta el string, NO se construye un `Date`: `new Date('2026-10-25')` es UTC y en
+ * `America/Mexico_City` imprime el día ANTERIOR (GOTCHAS, el clásico de la fecha corrida).
+ */
+function fechaCorta(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const [, m, d] = String(iso).slice(0, 10).split('-');
+  const mi = Number(m) - 1;
+  return mi >= 0 && mi < 12 ? `${Number(d)}-${MES_CORTO[mi]}` : String(iso).slice(0, 10);
 }
 
 function fechaLarga(iso: string): string {
@@ -140,6 +155,99 @@ export class PaymentCalendarDocumentService {
     </table>`;
   }
 
+  /**
+   * `[PGP.47]` **El desglose por factura**, que es lo que convierte este papel en la carátula del
+   * expediente físico: una fila por pago y, debajo, un renglón por cada documento que liquida,
+   * con el folio interno (el del ERP), el externo (el impreso en el papel del proveedor), las
+   * fechas, los importes y **qué papel existe hoy**.
+   *
+   * ⛔ El folio externo lleva su FUENTE en una columna propia porque los dos no valen lo mismo:
+   * `CFDI` es el folio timbrado y `OCR` es una lectura automática de la foto del comprobante.
+   * Juntarlos bajo un solo rótulo haría que una lectura se leyera como un dato fiscal.
+   */
+  private tablaExpediente(allocations: any[], detalle: ExpedienteLinea[]): string {
+    const porPago = new Map<string, ExpedienteLinea[]>();
+    for (const d of detalle) {
+      const arr = porPago.get(d.allocation_id) ?? [];
+      arr.push(d);
+      porPago.set(d.allocation_id, arr);
+    }
+    const FUENTE: Record<string, string> = { cfdi: 'CFDI', ocr: 'OCR', ninguna: '—' };
+    const PAPEL: Record<string, string> = { pdf: 'PDF', uuid: 'UUID', ninguna: 'FALTA', no_aplica: '—' };
+    const cuerpo = allocations
+      .slice()
+      .sort((a, b) => (a.priority_rank ?? 999) - (b.priority_rank ?? 999))
+      .map((a) => {
+        const lineas = (porPago.get(a.id) ?? []).slice()
+          .sort((x, y) => String(x.folio_interno ?? '').localeCompare(String(y.folio_interno ?? '')));
+        const quien = [...new Set((a.items || []).map((i: any) => String(i.beneficiary || '')).filter(Boolean))].join('; ');
+        const rfcs = [...new Set(lineas.map((l) => l.rfc).filter(Boolean))];
+        const comoSale = [
+          a.payment_method ? METHOD_LABEL[a.payment_method] || a.payment_method : 'sin preparar',
+          a.bank_account_label || (a.payment_method === 'efectivo' ? 'Caja' : null),
+          a.destination_account_text || a.cash_register_text || a.reference_text || null,
+        ].filter(Boolean).join(' · ');
+        const cabeza = `<tr class="pago-row">
+          <td class="c">${esc(a.priority_rank ?? '—')}</td>
+          <td colspan="6"><b>${esc(quien || '—')}</b>${rfcs.length ? ` · RFC ${esc(rfcs.join(' / '))}` : ''}
+            <div class="como">${esc(comoSale)} · ${CLASSIFICATION_LABEL[a.classification] || esc(a.classification)}</div></td>
+          <td class="r"><b>${money(a.amount_assigned)}</b></td>
+          <td class="c">${lineas.length || '—'}</td>
+        </tr>`;
+        const hijas = lineas.length
+          ? lineas.map((l) => `<tr class="doc-row">
+              <td></td>
+              <td>${esc(warehouseName(l.sucursal) || '—')}</td>
+              <td>${esc(l.folio_interno || '—')}${l.saldada ? ' <b>· YA SALDADA EN EL ERP</b>' : ''}</td>
+              <td>${esc(l.folio_externo || '—')}</td>
+              <td class="c">${esc(l.folio_externo ? FUENTE[l.folio_externo_fuente ?? 'ninguna'] : '—')}</td>
+              <td class="c">${esc(fechaCorta(l.fecha))}</td>
+              <td class="c">${esc(fechaCorta(l.vencimiento))}</td>
+              <td class="r">${l.importe === null ? '—' : money(l.importe)}</td>
+              <td class="r">${money(l.se_paga)}</td>
+              <td class="c">${esc(PAPEL[l.papel])}</td>
+            </tr>`).join('')
+          : `<tr class="doc-row"><td></td><td colspan="9"><em>Sin desglose: este pago no tiene documentos ligados.</em></td></tr>`;
+        return cabeza + hijas;
+      }).join('');
+    return `<table class="exp">
+      <thead><tr>
+        <th>Orden</th><th>Sucursal</th><th>Folio interno</th><th>Folio externo</th><th class="c">Fte</th>
+        <th class="c">Fecha</th><th class="c">Vence</th><th class="r">Importe doc.</th><th class="r">Se paga</th><th class="c">Papel</th>
+      </tr></thead>
+      <tbody>${cuerpo}</tbody>
+      <tfoot><tr class="total-row"><td colspan="8">Total del día</td><td class="r">${money(this.filaTotal(allocations))}</td><td></td></tr></tfoot>
+    </table>`;
+  }
+
+  /**
+   * `[PGP.47]` **Qué falta para poder armar el expediente**, contado sobre este día. Va arriba de
+   * las firmas porque es lo que alguien tiene que resolver ANTES de que el papel sirva de carátula.
+   * ⛔ Se cuenta sólo lo que debería tener factura del ERP: una obligación propia no tiene papel
+   * que buscar, y sumarla a «sin papel» inflaría el pendiente (ADR-056).
+   */
+  private controlExpediente(detalle: ExpedienteLinea[]): string {
+    const conPapel = detalle.filter((d) => d.papel !== 'no_aplica');
+    const n = (p: string) => conPapel.filter((d) => d.papel === p).length;
+    const saldadas = detalle.filter((d) => d.saldada).length;
+    const sinExterno = conPapel.filter((d) => !d.folio_externo).length;
+    const porOcr = conPapel.filter((d) => d.folio_externo_fuente === 'ocr').length;
+    const parcial = detalle.filter((d) => d.pendiente !== null && d.se_paga < d.pendiente - 0.005).length;
+    const fila = (k: string, v: number | string, nota = '') =>
+      `<tr><td>${esc(k)}</td><td class="r"><b>${esc(String(v))}</b></td><td class="nota">${esc(nota)}</td></tr>`;
+    return `<h2>Control del expediente</h2>
+      <table class="ctrl">
+        ${fila('Documentos del día', detalle.length, `${conPapel.length} con factura del ERP detrás`)}
+        ${fila('Con la factura digitalizada (PDF)', n('pdf'), 'se puede imprimir del sistema')}
+        ${fila('Sólo con UUID fiscal, sin archivo', n('uuid'), 'hay que pedir el PDF al proveedor')}
+        ${fila('SIN ningún papel', n('ninguna'), 'hay que buscarlos en el archivo físico')}
+        ${fila('Sin folio externo legible', sinExterno, 'el papel se busca por folio interno y fecha')}
+        ${fila('Folio externo leído por OCR', porOcr, 'no verificado contra el CFDI — cotejar contra el papel')}
+        ${fila('Se paga menos de lo que se debe', parcial, 'pago parcial o descuento: anexar el soporte')}
+        ${saldadas ? fila('ATENCIÓN — el ERP ya no debe este documento', saldadas, 'no se puede pagar: revisar antes de autorizar') : ''}
+      </table>`;
+  }
+
   private baseCss(): string {
     return `
       <style>
@@ -152,6 +260,20 @@ export class PaymentCalendarDocumentService {
         th { background: #f2f2f2; }
         .r { text-align: right; font-variant-numeric: tabular-nums; } .c { text-align: center; }
         .total-row td { font-weight: 700; border-top: 2px solid #333; }
+        /* [PGP.47] El desglose. Es papel en BLANCO Y NEGRO: la jerarquia entre el pago y sus
+           facturas la llevan el fondo, el peso y la sangria, nunca un color. */
+        table.exp { font-size: 8pt; }
+        table.exp th, table.exp td { padding: 1.1mm 1.4mm; }
+        .pago-row td { background: #ececec; border-top: 1.2pt solid #555; padding-top: 1.8mm; }
+        .pago-row .como { font-size: 7.5pt; color: #444; margin-top: 0.6mm; }
+        .doc-row td { border-color: #ddd; }
+        .doc-row td:nth-child(2) { padding-left: 3.5mm; }
+        /* El thead se repite solo en cada página impresa; sin esto, la página 2 son filas mudas. */
+        table.exp thead { display: table-header-group; }
+        .pago-row, .doc-row { break-inside: avoid; }
+        table.ctrl { width: auto; min-width: 110mm; font-size: 9pt; }
+        table.ctrl td { border: none; border-bottom: 1px solid #e3e3e3; padding: 1.2mm 3mm 1.2mm 0; }
+        table.ctrl .nota { color: #666; font-size: 8pt; }
         .leyenda { border: 1.4pt solid #333; padding: 3mm 4mm; margin: 5mm 0; font-size: 9.5pt; background: #fafafa; }
         .leyenda b { display: block; margin-bottom: 1mm; }
         .firmas { display: flex; gap: 12mm; margin-top: 10mm; }
@@ -165,15 +287,17 @@ export class PaymentCalendarDocumentService {
    * sin folio) — precisamente para que quien autoriza vea qué se le está pidiendo firmar.
    */
   async renderPreliminar(date: string): Promise<Buffer> {
-    const [lot, summary, allocations] = await Promise.all([
+    const [lot, summary, allocations, detalle] = await Promise.all([
       this.calendar.getLot(date), this.calendar.daySummary(date), this.calendar.listDayAllocations(date),
+      this.calendar.detalleExpediente(date),
     ]);
     if (!allocations.length) throw new BadRequestException('Este día no tiene pagos asignados — no hay nada que autorizar.');
     const total = this.filaTotal(allocations);
     const html = `<!doctype html><html><head><meta charset="utf-8">${this.baseCss()}</head><body>
       <h1>Programación de Pagos — Preliminar para autorización</h1>
-      <p class="sub">Fecha de pago: <b>${fechaLarga(date)}</b> · Folio del lote: <b>${esc(lot?.folio || 'sin asignar (se genera al autorizar)')}</b> · Capacidad autorizada: <b>${summary.capacity_defined ? money(summary.authorized_amount) : 'NO DEFINIDA'}</b> · Total propuesto: <b>${money(total)}</b></p>
-      ${this.tablaPagos(allocations, { conFolio: false })}
+      <p class="sub">Fecha de pago: <b>${fechaLarga(date)}</b> · Folio del lote: <b>${esc(lot?.folio || 'sin asignar (se genera al autorizar)')}</b> · Capacidad autorizada: <b>${summary.capacity_defined ? money(summary.authorized_amount) : 'NO DEFINIDA'}</b> · Total propuesto: <b>${money(total)}</b> · <b>${allocations.length}</b> pago(s), <b>${detalle.length}</b> documento(s)</p>
+      ${this.tablaExpediente(allocations, detalle)}
+      ${this.controlExpediente(detalle)}
       <div class="leyenda">
         <b>Control interno — tramo de autorización</b>
         Este documento es un PRELIMINAR y NO autoriza pago alguno por sí mismo. Requiere la firma de
@@ -181,7 +305,13 @@ export class PaymentCalendarDocumentService {
         <b>Instrucción de ejecución:</b> una vez autorizado (folio asignado), cada pago lo EJECUTA
         quien corresponde a su cuenta de origen —Tesorería lo que sale de banco o factoraje, Caja
         General lo que sale de la caja— exactamente por el método y la cuenta indicados en cada
-        renglón, respetando el orden de pago si la capacidad disponible no alcanza para todos.
+        renglón, respetando el orden de pago si la capacidad disponible no alcanza para todos.<br/>
+        <b>Expediente:</b> el desglose de arriba es la carátula del expediente de cada pago. Cada
+        renglón identifica un documento por su <b>folio interno</b> (el del ERP) y, cuando existe,
+        por el <b>folio externo</b> impreso en el papel del proveedor, indicando si ése viene del
+        CFDI timbrado o de la lectura automática del comprobante —en cuyo caso <b>se coteja contra
+        el papel antes de archivar</b>. La columna «Papel» dice qué hay hoy: PDF se imprime del
+        sistema, UUID se le pide al proveedor, y FALTA se busca en el archivo físico.
       </div>
       <div class="firmas">
         <div class="firma">Preparó (Tesorería)</div>

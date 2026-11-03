@@ -232,6 +232,51 @@ export interface SugerenciaKepler {
   motivo?: string;
   unico?: boolean;
 }
+/**
+ * `[PGP.47]` **Una línea del expediente**: una factura de un pago, con lo que hace falta para
+ * hallar su papel en el archivo. Vive acá y no en `libs/contracts` porque todavía no cruza la
+ * frontera HTTP — la consume el PDF del Calendario, en esta misma lib. Si una pantalla la
+ * necesita, se muda a `contracts` (ADR-056: el primitivo no se queda escondido en un servicio).
+ */
+export interface ExpedienteLinea {
+  allocation_id: string;
+  obligation_source: ObligationSource;
+  obligation_id: string;
+  /** Lo que ESTE pago abona a esta factura. No es el importe de la factura. */
+  se_paga: number;
+  /** Código de la sucursal. ⛔ Se publica por NOMBRE (`warehouseName`), nunca «01». */
+  sucursal: string | null;
+  /** El folio del documento en Kepler — con el que el ERP lo conoce. Cobertura medida: 85.4 %. */
+  folio_interno: string | null;
+  /** El folio impreso en el papel del proveedor. Medido: 168 de 226 líneas vivas (74.3 %). */
+  folio_externo: string | null;
+  /**
+   * De dónde salió el folio externo, porque no valen lo mismo: `cfdi` es el folio **timbrado**
+   * (36 de 36 casan); `ocr` es una lectura automática de la foto del comprobante (132 de 142).
+   */
+  folio_externo_fuente: 'cfdi' | 'ocr' | 'ninguna' | null;
+  /** Folio de la orden de compra que originó la entrada. Medido: 100 de 142 con comprobante. */
+  orden_compra: string | null;
+  fecha_recepcion: string | null;
+  fecha: string | null;
+  vencimiento: string | null;
+  /** Importe original del documento y lo que todavía se debe de él. */
+  importe: number | null;
+  pendiente: number | null;
+  /** `kdxe.c16`, captura MANUAL. No es el folio del proveedor: ver `detalleExpediente`. */
+  referencia: string | null;
+  rfc: string | null;
+  rfc_fuente: 'kepler' | 'nombre' | 'ninguna' | null;
+  /** Lo que Kepler tiene capturado cuando CONTRADICE al comprobante timbrado (ADR-108). */
+  rfc_discrepa: string | null;
+  /** Qué papel existe hoy. `no_aplica` = no hay factura del ERP detrás (obligación propia). */
+  papel: 'pdf' | 'uuid' | 'ninguna' | 'no_aplica';
+  /** El UUID del SAT, y **sólo** cuando `papel === 'uuid'`. Ver la trampa en `detalleExpediente`. */
+  uuid_fiscal: string | null;
+  /** El ERP ya no debe este documento: no se puede pagar. Medido: 33 de 226 líneas vivas. */
+  saldada: boolean;
+}
+
 @Injectable()
 export class PaymentCalendarService {
   private readonly logger = new Logger(PaymentCalendarService.name);
@@ -1088,6 +1133,131 @@ export class PaymentCalendarService {
           items: its,
         };
       });
+    });
+  }
+
+  /**
+   * `[PGP.47]` **El expediente de cada factura del día**, para que el papel que se firma diga
+   * contra QUÉ documentos se paga y qué hay que ir a buscar al archivo.
+   *
+   * ⛔ Nace porque el preliminar imprimía **una fila por pago** y escondía el detalle: medido
+   * contra prod el 2026-11-03, los 102 pagos vivos tapan **236 líneas de factura** (2.4 por pago,
+   * hasta 9), y el día de hoy son **62 facturas en 26 pagos**. Quien autoriza firmaba un total
+   * sin poder ver qué lo compone, y quien arma el expediente físico tenía que volver a la
+   * pantalla documento por documento.
+   *
+   * Cobertura medida el mismo día sobre las 226 líneas derivadas vivas: folio/fecha/vencimiento/
+   * importe **85.4 %** (el 14.6 % que falta son las 33 que el ERP **ya tiene saldadas**),
+   * referencia capturada 83.6 %, RFC 81.9 %, **PDF de la factura 62.8 %**, sólo UUID fiscal
+   * 15.9 %, **sin ningún papel 21.2 %**.
+   *
+   * ⛔⛔ Dos trampas medidas, y por eso los campos se llaman como se llaman:
+   *
+   *  - **`referencia` NO es el folio de la factura del proveedor.** Es `kdxe.c16`, captura a
+   *    mano. Control contra `fiscal.cfdis` anclando por RFC + importe ±$1: de 219 pares coincide
+   *    el folio exacto en **4** y por dígitos en **11**, con placebo (el folio interno de Kepler)
+   *    en **0**. `GE002` teclea `29955` y el CFDI es `S29955`; De La Rosa teclea `40-3115` contra
+   *    un CFDI `F953520` —su remisión—; y hay `40 S/N`. Se publica como lo que es.
+   *  - **`ref_evidencia` son DOS cosas con la misma forma.** 142 líneas traen el id interno del
+   *    comprobante de recepción y 36 el **UUID fiscal del CFDI**, los dos de 36 caracteres.
+   *    Por eso `uuid_fiscal` se llena **sólo** cuando la evidencia es `uuid`: publicar el otro
+   *    como identificador fiscal mentiría en 142 de 178 casos.
+   */
+  async detalleExpediente(date: string): Promise<ExpedienteLinea[]> {
+    this.assertDate(date);
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const lot = await trx('finance.payment_calendar_lots').where({ tenant_id: tenantId, lot_date: date }).first();
+      if (!lot) return [];
+
+      // La deuda derivada del ERP: la vista de pagables trae el documento, y la de evidencia
+      // (`[PGP.19]`) dice si su papel está digitalizado. Las dos por la MISMA llave natural.
+      const derivadas = await trx('finance.payment_allocation_items as i')
+        .join('finance.payment_allocations as a', 'a.id', 'i.allocation_id')
+        .leftJoin('analytics.v_supplier_payables as v', trx.raw(`${KEPLER_PAYABLE_ID} = i.obligation_id`))
+        .joinRaw(`LEFT JOIN analytics.v_payable_evidence e
+                    ON e.sucursal = v.sucursal AND e.doc_tipo = v.doc_tipo
+                   AND e.doc_sub = v.doc_sub AND btrim(e.folio) = btrim(v.folio)`)
+        // El FOLIO EXTERNO —el que viene impreso en el papel del proveedor— no está en el ERP:
+        // sale del comprobante de recepción (lo leyó el OCR) o del CFDI timbrado. Son las dos
+        // únicas fuentes medidas, y cada una se declara por su nombre en `folio_externo_fuente`.
+        .joinRaw(`LEFT JOIN finance.goods_receipt_proofs p
+                    ON e.evidencia = 'pdf' AND p.id::text = e.ref_evidencia`)
+        .joinRaw(`LEFT JOIN fiscal.cfdis c
+                    ON e.evidencia = 'uuid' AND upper(c.uuid::text) = upper(e.ref_evidencia)`)
+        .where('a.lot_id', lot.id).whereNot('a.status', 'cancelled')
+        .where('i.obligation_source', 'kepler_payable')
+        .select(
+          'i.allocation_id', 'i.obligation_source', 'i.obligation_id', 'i.applied_amount',
+          'v.sucursal', 'v.folio as documento', 'v.fecha', 'v.vencimiento',
+          'v.importe', 'v.pendiente', 'v.referencia',
+          'e.evidencia', 'e.ref_evidencia', 'e.rfc', 'e.rfc_fuente', 'e.rfc_discrepa',
+          // ⛔ `p.folio_interno` NO se usa: medido el 2026-11-03, está en 2 de 142 comprobantes y
+          // en **0** verificados (`folio_interno_ok`). El folio interno es el del ERP, y el
+          // comprobante lo confirma por otro lado: `p.folio` coincide con `v.folio` en 142 de 142.
+          trx.raw(`nullif(btrim(coalesce(c.serie, '') || coalesce(c.folio, '')), '') AS folio_cfdi`),
+          trx.raw(`nullif(btrim(p.ocr_folio), '') AS folio_ocr`),
+          trx.raw(`nullif(btrim(p.oc_folio), '') AS orden_compra`),
+          'p.receipt_date as fecha_recepcion',
+        );
+
+      // Las obligaciones propias (HITL): no salen del ERP, así que ni evidencia ni RFC tienen —
+      // y eso se DECLARA, no se dibuja como «sin papel» junto a las que sí deberían tenerlo.
+      const propias = await trx('finance.payment_allocation_items as i')
+        .join('finance.payment_allocations as a', 'a.id', 'i.allocation_id')
+        .join('commercial.supplier_payment_obligations as o', 'o.id', 'i.obligation_id')
+        .where('a.lot_id', lot.id).whereNot('a.status', 'cancelled')
+        .where('i.obligation_source', 'supplier_payable')
+        .select(
+          'i.allocation_id', 'i.obligation_source', 'i.obligation_id', 'i.applied_amount',
+          trx.raw("nullif(btrim(o.kepler_sucursal), '') as sucursal"),
+          trx.raw('coalesce(o.invoice_folio, o.kepler_folio) as documento'),
+          trx.raw('NULL::date as fecha'), 'o.original_due_date as vencimiento',
+          'o.original_amount as importe',
+          trx.raw('(o.original_amount - coalesce(o.paid_amount, 0)) as pendiente'),
+          trx.raw('o.concept as referencia'),
+        );
+
+      const linea = (r: Record<string, unknown>, propia: boolean): ExpedienteLinea => {
+        const ev = propia ? null : (r['evidencia'] as string | null);
+        const num = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+        const dia = (v: unknown) => (v ? String(v instanceof Date ? v.toISOString().slice(0, 10) : v).slice(0, 10) : null);
+        // ⭐ El CFDI primero: es el folio TIMBRADO, no una lectura. El OCR acierta mucho (132 de
+        // 142) pero es una lectura automática de una foto, y quien archiva tiene que saber cuál
+        // de las dos está leyendo antes de darle crédito (ADR-056).
+        const folioCfdi = (r['folio_cfdi'] as string | null) ?? null;
+        const folioOcr = (r['folio_ocr'] as string | null) ?? null;
+        return {
+          allocation_id: String(r['allocation_id']),
+          obligation_source: r['obligation_source'] as ObligationSource,
+          obligation_id: String(r['obligation_id']),
+          se_paga: Number(r['applied_amount']),
+          sucursal: (r['sucursal'] as string | null) ?? null,
+          folio_interno: (r['documento'] as string | null) ?? null,
+          folio_externo: propia ? null : (folioCfdi ?? folioOcr),
+          folio_externo_fuente: propia ? null : (folioCfdi ? 'cfdi' : folioOcr ? 'ocr' : 'ninguna'),
+          orden_compra: propia ? null : ((r['orden_compra'] as string | null) ?? null),
+          fecha_recepcion: propia ? null : dia(r['fecha_recepcion']),
+          fecha: dia(r['fecha']), vencimiento: dia(r['vencimiento']),
+          importe: num(r['importe']), pendiente: num(r['pendiente']),
+          referencia: (r['referencia'] as string | null) ?? null,
+          rfc: propia ? null : ((r['rfc'] as string | null) ?? null),
+          rfc_fuente: propia ? null : ((r['rfc_fuente'] as ExpedienteLinea['rfc_fuente']) ?? null),
+          rfc_discrepa: propia ? null : ((r['rfc_discrepa'] as string | null) ?? null),
+          // ⛔ `no_aplica` NO es `ninguna`: una obligación propia no tiene factura del ERP detrás,
+          // y contarla como «sin papel» inflaría lo que hay que ir a buscar al archivo (ADR-056).
+          papel: propia ? 'no_aplica' : (ev === 'pdf' || ev === 'uuid' ? ev : 'ninguna'),
+          uuid_fiscal: ev === 'uuid' ? ((r['ref_evidencia'] as string | null) ?? null) : null,
+          // `[PGP.40]` La factura que la vista de deuda viva no devuelve es la que el ERP ya
+          // saldó — no una llave rota. Es lo primero que alguien tiene que leer antes de firmar.
+          saldada: !propia && !r['documento'],
+        };
+      };
+
+      return [
+        ...(derivadas as Record<string, unknown>[]).map((r) => linea(r, false)),
+        ...(propias as Record<string, unknown>[]).map((r) => linea(r, true)),
+      ];
     });
   }
 
