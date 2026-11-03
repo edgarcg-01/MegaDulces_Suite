@@ -2433,6 +2433,32 @@ de la spec exige que sea exactamente la unión del registro. Cotizaciones pide l
   - Que cada número coincida con el de su pantalla dueña vista en vivo. Se citó el predicado, pero no se cruzó
     endpoint contra endpoint.
 
+#### 16.23.1 Bajo 500 ms (2026-11-03)
+
+**Edgar:** «la pantalla tarda más de 500 ms, eso está mal». Se midió simulando el servicio (todas las colas, como
+las ve un administrador): **275–681 ms** según la sucursal. Padre Hidalgo y CEDIS pasaban de 500. Había cuatro
+culpables y ninguno necesitó migración, índice nuevo ni copia:
+
+| Consulta | Causa | Arreglo | Antes → después |
+|---|---|---|---|
+| Existencia negativa | Se filtraba por `warehouse_id`, que sale de un join; la vista agregaba todo `kdil` de la red (36,510 renglones) | Filtrar por `kepler_code`: la constante baja al `GROUP BY` del CTE | 130–400 → 21–37 ms, mismos totales |
+| `VIENE_DOCS_SQL` (también la mesa de Autoabasto) | `(x.c4)::int = 50` y `btrim(x.c39::text)` no coincidían con `ix_kdm1_recepcion_traspaso`; el anti-join leía ~492 renglones por embarque | Escribir `x.c4 = 50` y `btrim(x.c39)` | 43–157 → 39–53 ms, mismas filas 9/9 |
+| Entradas y compras sin vale | La vista `erp_goods_receipts` cuesta ~65 ms fijos (CTE de centros de compra) más dos búsquedas laterales por renglón. En la misma tanda se sumaban | Cada una en su propia conexión (`pesada`); entradas filtra por `sucursal`, como su pantalla dueña | — |
+
+**Resultado:** la pantalla completa (todas las colas en paralelo + «lo que te va a llegar») tarda **123–267 ms** en
+las 9 sucursales, en 3 vueltas. El peor caso es CEDIS, por entradas (1,057 sin comprobante).
+
+**Bug que salió de esta medición:** «compras sin vale» se cruzaba sólo con `erp_sucursal_warehouse`, y Canindo (06) y
+Morelia Madero (07) no tienen fila ahí, así que salían en 0. Ahora usa la cascada del Andén
+(`COALESCE(m.warehouse_id, r.warehouse_id)`): **Canindo 0 → 20, Morelia Madero 0 → 16**. Las demás sucursales no
+cambian.
+
+**Candados** (con su prueba negativa en rojo):
+- Negativos por `kepler_code`.
+- Entradas por `sucursal`.
+- Compras sin vale con la cascada del Andén.
+- Toda cola que lee `erp_goods_receipts` marcada como pesada.
+
 
 - [ ] Métrica re-medida con la misma consulta, antes/después publicado.
 - [ ] Carga completa de la mesa y de «Mi pedido» bajo 500 ms en todas las sucursales, medida en prod (AB.36).

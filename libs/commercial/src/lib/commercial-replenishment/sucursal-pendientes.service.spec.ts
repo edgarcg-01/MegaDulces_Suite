@@ -46,7 +46,7 @@ describe('[AB.45] SucursalPendientesService', () => {
     const { svc, corridas } = armar();
     const r = await svc.pendientes(WH, { permissions: { STORE_ARQUEO_CAPTURAR: true } });
     expect(r.colas.map((c) => c.id)).toEqual(['turnos-sin-arqueo']);
-    expect(corridas).toHaveLength(1);
+    expect(corridas.filter((s) => s.includes('AS dias'))).toHaveLength(1);
     expect(r.colas[0]).toMatchObject({ estado: 'ok', total: 3, mas_viejo_dias: 4 });
     expect(r.colas[0].filas[0]).toEqual({ folio: 'F1', detalle: 'd', dias: 4, monto: 10.5 });
   });
@@ -76,7 +76,7 @@ describe('[AB.45] SucursalPendientesService', () => {
   it('el administrador de plataforma ve todas las colas', async () => {
     const { svc, corridas } = armar();
     const r = await svc.pendientes(WH, { role_name: 'superadmin', permissions: {} });
-    expect(corridas.filter((s) => s.includes('FROM (')).length).toBe(Object.keys(Q).filter((k) => k.startsWith('SQL_')).length);
+    expect(corridas.filter((s) => s.includes('AS dias')).length).toBe(Object.keys(Q).filter((k) => k.startsWith('SQL_')).length);
     expect(r.fuera.length).toBeGreaterThan(5);
   });
 });

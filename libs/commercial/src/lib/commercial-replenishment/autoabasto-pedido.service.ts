@@ -84,11 +84,14 @@ emb AS (
      AND btrim(COALESCE(h.c43, '')) <> 'C'
      AND (h.c9)::date >= current_date - ${VENTANA_VIENE_DIAS}
      AND btrim(h.c10::text) IN (SELECT dest_code FROM dest)
+     -- [AB.45] x.c4 = 50 y btrim(x.c39) tal cual: así coinciden con el predicado y la expresión de
+     -- ix_kdm1_recepcion_traspaso. Con (x.c4)::int y c39::text el índice no se usaba y el anti-join
+     -- leía ~492 renglones por embarque (157 a 44 ms en Padre Hidalgo; mismas filas en 9 de 9).
      AND NOT EXISTS (
        SELECT 1 FROM kepler_ods.kdm1 x
-        WHERE x.c2 = 'U' AND x.c3 = 'A' AND (x.c4)::int = 50
+        WHERE x.c2 = 'U' AND x.c3 = 'A' AND x.c4 = 50
           AND btrim(x.sucursal) = :suc AND btrim(x.c1) = :suc
-          AND x.c37 = 41 AND x.c38 = h.c5 AND btrim(x.c39::text) = btrim(h.c6::text)
+          AND x.c37 = 41 AND x.c38 = h.c5 AND btrim(x.c39) = btrim(h.c6::text)
           AND btrim(COALESCE(x.c43, '')) <> 'C' AND (x.c9)::date >= (h.c9)::date - 1)
 ),
 docs AS (

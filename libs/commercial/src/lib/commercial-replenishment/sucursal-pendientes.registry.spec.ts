@@ -36,6 +36,22 @@ describe('[AB.45] registro de Pendientes de la sucursal', () => {
     }
   });
 
+  it('⛔ velocidad: negativos filtra por kepler_code (baja al GROUP BY de la vista), no por warehouse_id', () => {
+    // Por warehouse_id agregaba todo kdil de la red: 130–400 ms contra 21–37 ms (2026-11-03).
+    expect(Q.SQL_NEGATIVOS).toContain('v.kepler_code = :kc');
+    expect(Q.SQL_NEGATIVOS).not.toContain('v.warehouse_id = :wh');
+    expect(Q.SQL_ENTRADAS_SIN_COMPROBANTE).toContain('r.sucursal = :suc');
+  });
+
+  it('compras sin vale usa la cascada del Andén (sin ella, Canindo y Morelia Madero salían en 0)', () => {
+    expect(Q.SQL_LLEGADAS_SIN_VALE).toContain('COALESCE(m.warehouse_id, r.warehouse_id) = :wh');
+    expect(Q.SQL_LLEGADAS_SIN_VALE).toContain('LEFT JOIN commercial.erp_sucursal_warehouse');
+  });
+
+  it('las colas que leen la vista cara de órdenes de entrada van marcadas como pesadas', () => {
+    for (const c of COLAS_SUCURSAL.filter((x) => x.sql.includes('analytics.erp_goods_receipts'))) expect(c.pesada, c.id).toBe(true);
+  });
+
   it('toda consulta devuelve la forma común y filtra por tenant', () => {
     for (const c of COLAS_SUCURSAL) {
       for (const col of ['AS folio', 'AS detalle', 'AS fecha', 'AS monto', 'AS total']) expect(c.sql, `${c.id} ${col}`).toContain(col);

@@ -30,6 +30,8 @@ const llave = `CASE WHEN w.code ~ '^[0-9]{2}$' THEN w.code ELSE w.wincaja_source
          FROM commercial.warehouses w
         WHERE w.tenant_id = ? AND w.deleted_at IS NULL AND w.active AND (${llave}) ~ '^[0-9]{2}$'
         ORDER BY 3`, [T]);
+    // `:sucs` con la MISMA consulta que usa el servicio.
+    for (const a of almacenes) a.sucs = (await trx.raw(SQL.SUCURSALES_DEL_ALMACEN_SQL, { t: T, wh: a.wh })).rows[0].sucs;
     const tabla = {};
     const lento = {};
     for (const [k, sql] of consultas) {
@@ -39,7 +41,7 @@ const llave = `CASE WHEN w.code ~ '^[0-9]{2}$' THEN w.code ELSE w.wincaja_source
         try {
           await trx.raw('SAVEPOINT q');
           // `envolver` = lo MISMO que corre el servicio (consulta + días), no la consulta suelta.
-          const { rows } = await trx.raw(SQL.envolver(sql), { t: T, wh: a.wh, suc: a.suc, kc: a.kc });
+          const { rows } = await trx.raw(SQL.envolver(sql), { t: T, wh: a.wh, suc: a.suc, kc: a.kc, sucs: a.sucs });
           const ms = Date.now() - t0;
           lento[k] = Math.max(lento[k] || 0, ms);
           tabla[k][a.name] = rows.length ? `${rows[0].total}${rows[0].dias != null ? ` (${rows[0].dias}d)` : ''}` : 0;

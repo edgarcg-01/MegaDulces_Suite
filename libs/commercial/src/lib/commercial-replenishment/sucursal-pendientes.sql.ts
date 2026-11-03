@@ -34,18 +34,43 @@ export function envolver(sql: string): string {
            ORDER BY x.fecha NULLS LAST, x.folio`;
 }
 
+/**
+ * El almacén de cada orden de entrada sale de la MISMA cascada que el Andén (`arrivals`): el mapa de la
+ * sucursal si existe, si no el almacén que trae la vista. ⚠️ Con sólo el mapa, Canindo (06) y Morelia
+ * Madero (07) —que no tienen fila en `erp_sucursal_warehouse`— salían en 0.
+ *
+ * `:sucs` = los códigos de sucursal de Kepler que caen en este almacén (los calcula el servicio con
+ * `SUCURSALES_DEL_ALMACEN_SQL`). Va como CONSTANTE para que el filtro llegue a `kdm1` debajo de la vista;
+ * la cascada de abajo sigue siendo la que decide.
+ */
 export const SQL_LLEGADAS_SIN_VALE = `
 SELECT r.folio::text AS folio, COALESCE(NULLIF(btrim(r.proveedor_nombre), ''), 'Proveedor sin nombre') AS detalle,
        r.receipt_date::date AS fecha, r.monto AS monto, count(*) OVER()::int AS total
   FROM analytics.erp_goods_receipts r
-  JOIN commercial.erp_sucursal_warehouse m ON m.tenant_id = r.tenant_id AND m.sucursal = r.sucursal AND m.warehouse_id = :wh
+  LEFT JOIN commercial.erp_sucursal_warehouse m ON m.tenant_id = r.tenant_id AND m.sucursal = r.sucursal
  WHERE r.tenant_id = :t AND r.dup_of_folio IS NULL
+   AND r.sucursal = ANY(CAST(:sucs AS text[]))
+   AND COALESCE(m.warehouse_id, r.warehouse_id) = :wh
    AND r.receipt_date BETWEEN ${HOY} - 7 AND ${HOY}
    AND NOT EXISTS (SELECT 1 FROM commercial.receiving_sessions s
                     WHERE s.tenant_id = r.tenant_id AND s.status <> 'cancelled'
                       AND s.source_ref = r.sucursal || '/' || r.folio)
  ORDER BY r.receipt_date, r.folio
  LIMIT ${LIM}`;
+
+/**
+ * Los códigos de sucursal de Kepler cuyas órdenes de entrada caen en el almacén `:wh` por la cascada de
+ * arriba: los que el mapa le asigna, más el `code` del almacén si el mapa no lo manda a otro. Devuelve
+ * el arreglo como literal de Postgres (`{08,30}`) para pasarlo tal cual a `:sucs`.
+ */
+export const SUCURSALES_DEL_ALMACEN_SQL = `
+SELECT '{' || COALESCE(string_agg(DISTINCT s, ','), '') || '}' AS sucs
+  FROM (SELECT m.sucursal AS s FROM commercial.erp_sucursal_warehouse m WHERE m.tenant_id = :t AND m.warehouse_id = :wh
+        UNION
+        SELECT w.code FROM commercial.warehouses w
+         WHERE w.tenant_id = :t AND w.id = :wh
+           AND NOT EXISTS (SELECT 1 FROM commercial.erp_sucursal_warehouse m2
+                            WHERE m2.tenant_id = w.tenant_id AND m2.sucursal = w.code AND m2.warehouse_id <> w.id)) x`;
 
 export const SQL_VALES_ABIERTOS = `
 SELECT s.folio::text AS folio,
@@ -73,13 +98,15 @@ SELECT s.folio::text AS folio, COALESCE(p.nombre, l.expected_name, l.expected_sk
  * El universo de `/compras/entradas` en su carril por defecto (`al_dia`): sin la copia CEDIS
  * (`dup_of_folio`) y desde `reception_start` de `finance.receipt_settings` — el mismo default que el
  * servicio dueño (`RECEPTION_START_DEFAULT`). Con 90 días a secas, CEDIS sumaba 253 copias.
+ * Filtra por `sucursal` (como el alcance del dueño, `c.sucursal IN …`) y no por `warehouse_id`: la
+ * constante llega a `kdm1` debajo de la vista; el `warehouse_id` sale de un join y no baja.
  */
 export const SQL_ENTRADAS_SIN_COMPROBANTE = `
 SELECT r.folio::text AS folio, COALESCE(NULLIF(btrim(r.proveedor_nombre), ''), 'Proveedor sin nombre') AS detalle,
        r.receipt_date::date AS fecha, r.monto AS monto, count(*) OVER()::int AS total
   FROM analytics.erp_goods_receipts r
   LEFT JOIN finance.goods_receipt_proofs p ON p.tenant_id = r.tenant_id AND p.sucursal = r.sucursal AND p.folio = r.folio
- WHERE r.tenant_id = :t AND r.warehouse_id = :wh AND r.dup_of_folio IS NULL AND p.folio IS NULL
+ WHERE r.tenant_id = :t AND r.sucursal = :suc AND r.dup_of_folio IS NULL AND p.folio IS NULL
    AND r.receipt_date >= COALESCE((SELECT s.reception_start FROM finance.receipt_settings s WHERE s.tenant_id = :t), DATE '2026-08-01')
  ORDER BY r.receipt_date, r.folio
  LIMIT ${LIM}`;
@@ -229,13 +256,18 @@ SELECT COALESCE(f.sku, f.scanned_code, '')::text AS folio, f.product_name AS det
  ORDER BY f.first_reported_at
  LIMIT ${LIM}`;
 
-/** Foto del momento: la existencia negativa no tiene fecha. Sin revisión viva (`negative_stock_reviews`). */
+/**
+ * Foto del momento: la existencia negativa no tiene fecha. Sin revisión viva (`negative_stock_reviews`).
+ * ⛔ Por `kepler_code`, NO por `warehouse_id`: la vista agrega `kdil` por sucursal en un CTE, y sólo una
+ * constante sobre la columna que viene de ese CTE baja al `GROUP BY`. Por `warehouse_id` agregaba la red
+ * entera (36,510 renglones) para quedarse con una sucursal: 130–400 ms → 21–37 ms, mismos totales 9/9.
+ */
 export const SQL_NEGATIVOS = `
 SELECT v.sku::text AS folio, COALESCE(p.nombre, v.sku) || ' · ' || v.existencia::text AS detalle,
        NULL::date AS fecha, NULL::numeric AS monto, count(*) OVER()::int AS total
   FROM analytics.v_kepler_negative_stock v
   LEFT JOIN public.products p ON p.id = v.product_id
- WHERE v.tenant_id = :t AND v.warehouse_id = :wh
+ WHERE v.tenant_id = :t AND v.kepler_code = :kc
    AND NOT EXISTS (SELECT 1 FROM commercial.negative_stock_reviews r
                     WHERE r.tenant_id = v.tenant_id AND r.warehouse_id = v.warehouse_id AND r.sku = v.sku AND r.deleted_at IS NULL)
  ORDER BY v.existencia

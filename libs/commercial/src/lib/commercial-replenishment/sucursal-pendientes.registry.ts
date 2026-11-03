@@ -33,6 +33,12 @@ export interface ColaDef {
   allOf?: readonly Permission[];
   sql: string;
   fuente: string;
+  /**
+   * La consulta lee una vista viva cara (`erp_goods_receipts`: ~65 ms fijos de su CTE de centros de
+   * compra, más dos búsquedas laterales por renglón). Corre en su propia conexión para no sumarse a
+   * las demás: dos pesadas en serie en la misma tanda llevaban la pantalla a 680 ms (medido 2026-11-03).
+   */
+  pesada?: boolean;
 }
 
 export const COLAS_SUCURSAL: readonly ColaDef[] = [
@@ -41,7 +47,7 @@ export const COLAS_SUCURSAL: readonly ColaDef[] = [
     id: 'llegadas-sin-vale', grupo: 'recibir', de: 'sucursal',
     label: 'Compras que llegaron sin vale en el Andén', accion: 'Abre el vale y captura la caducidad',
     ruta: '/almacen/anden', ventana: 'últimos 7 días', anyOf: [Permission.COMMERCIAL_INVENTORY_RECIBIR],
-    sql: Q.SQL_LLEGADAS_SIN_VALE, fuente: 'receiving-session.service.ts pendingErpOrders (VENTANA_MX, sin vale vivo)',
+    sql: Q.SQL_LLEGADAS_SIN_VALE, fuente: 'receiving-session.service.ts arrivals (cascada de almacén, VENTANA_MX, sin vale vivo)', pesada: true,
   },
   {
     id: 'vales-abiertos', grupo: 'recibir', de: 'sucursal',
@@ -60,7 +66,7 @@ export const COLAS_SUCURSAL: readonly ColaDef[] = [
     label: 'Entradas sin comprobante', accion: 'Sube la remisión',
     ruta: '/compras/entradas', query: (llave) => ({ ...(llave ? { suc: llave } : {}), estado: 'pendiente' }),
     ventana: 'desde el arranque de recepción', anyOf: [Permission.COMPRAS_ENTRADAS_GESTIONAR],
-    sql: Q.SQL_ENTRADAS_SIN_COMPROBANTE, fuente: 'goods-receipt-proofs.service.ts listReceipts carril al_dia + estado pendiente',
+    sql: Q.SQL_ENTRADAS_SIN_COMPROBANTE, fuente: 'goods-receipt-proofs.service.ts listReceipts carril al_dia + estado pendiente', pesada: true,
   },
   {
     id: 'reclamos', grupo: 'recibir', de: 'sucursal',

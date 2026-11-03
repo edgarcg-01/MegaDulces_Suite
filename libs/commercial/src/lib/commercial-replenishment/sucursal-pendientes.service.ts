@@ -10,12 +10,10 @@ import {
 import { CommercialReplenishmentService } from './commercial-replenishment.service';
 import { AutoabastoPedidoService } from './autoabasto-pedido.service';
 import { COLAS_SUCURSAL, FUERA_DE_PENDIENTES, LLAVE_VIENE, colasDeViene, type ColaDef } from './sucursal-pendientes.registry';
-import { envolver } from './sucursal-pendientes.sql';
+import { SUCURSALES_DEL_ALMACEN_SQL, envolver } from './sucursal-pendientes.sql';
 
 /** El área de alcance de la pantalla: la misma que Autoabasto (el selector de almacenes). */
 const AREA = 'almacen';
-/** Tandas en paralelo. Cada una abre su transacción: tres conexiones del pool de diez, como la mesa (AB.36). */
-const TANDAS = 3;
 
 export interface QuienPidePendientes {
   username?: string;
@@ -60,15 +58,21 @@ export class SucursalPendientesService {
     const tiene = (p: string) => admin || quien?.permissions?.[p] === true;
     const visible = (c: ColaDef) => c.anyOf.some(tiene) && (c.allOf ?? []).every(tiene);
 
-    const { code, kc } = await this.tk.run(async (trx: Knex.Transaction) => {
+    const { code, kc, sucs } = await this.tk.run(async (trx: Knex.Transaction) => {
       const w = await trx('commercial.warehouses').where({ tenant_id: tenantId, id: almacen.id }).first('code', 'kepler_code');
-      return { code: String(w?.code ?? '').trim(), kc: String(w?.kepler_code || w?.code || '').trim() };
+      const s = await trx.raw(SUCURSALES_DEL_ALMACEN_SQL, { t: tenantId, wh: almacen.id });
+      return {
+        code: String(w?.code ?? '').trim(),
+        kc: String(w?.kepler_code || w?.code || '').trim(),
+        sucs: String(s.rows?.[0]?.sucs ?? '{}'),
+      };
     });
-    const binds = { t: tenantId, wh: almacen.id, suc: almacen.sucursal ?? '', kc };
+    const binds = { t: tenantId, wh: almacen.id, suc: almacen.sucursal ?? '', kc, sucs };
 
+    // Cada pesada en su conexión; las ligeras juntas en otra (~20 consultas de 1–40 ms). Así el total es
+    // el de la más lenta, no la suma. Con «lo que te va a llegar» son a lo más 4 conexiones del pool.
     const defs = COLAS_SUCURSAL.filter(visible);
-    const tandas: ColaDef[][] = Array.from({ length: TANDAS }, () => []);
-    defs.forEach((d, i) => tandas[i % TANDAS].push(d));
+    const tandas: ColaDef[][] = [...defs.filter((d) => d.pesada).map((d) => [d]), defs.filter((d) => !d.pesada)];
 
     const [resultados, viene] = await Promise.all([
       Promise.all(tandas.map((t) => this.correr(t, binds))).then((r) => r.flat()),
