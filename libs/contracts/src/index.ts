@@ -80,6 +80,8 @@ export * from './work/caja-window.contract';
 export * from './work/caja-corte.contract';
 export * from './work/portada-nominal.contract';
 export * from './work/business-clock';
+// [DP.1.1] Definiciones de negocio: la regla que falta se PREGUNTA en el sistema y se contesta configurándola.
+export * from './work/business-definition.contract';
 // [TDA.1] Tienda: los eventos que el gateway /store empuja a las pantallas.
 export * from './http/store.contract';
 // [WMS-REC.15] Menu del Anden: la forma que el backend devuelve y el front consume.

@@ -77,8 +77,8 @@ Datos **propios** (respuestas de personas): tabla real, no vista. Sin importer.
 ### C2 · API
 | # | Item | Estado | ¿Escribe? | Prueba contra base real |
 |---|---|---|---|---|
-| DP.2.1 | `GET /definitions?consumer=` · `GET /definitions/mine` | ⬜ | no | — |
-| DP.2.2 | `POST /definitions/:id/answers` (valor + vigencia + motivo) · `PATCH /definitions/:id` (asignar dueño, plazo, descartar) | ⬜ | **sí** | ⛔ obligatoria, con el payload de la pantalla |
+| DP.2.1 | `GET /definitions?consumer=` (DEFINICIONES_VER) · `GET /definitions/mine` (sin llave: la bandeja propia). Módulo en `libs/platform-core/src/lib/definitions/`; llaves repartidas en la misma migración a `direccion` (2 personas) y `superadmin` (8) | 🔨 | no | Arranque: `business-definitions.metadata.spec.ts` (paramtypes + llaves por método; rojo al quitar el provider) |
+| DP.2.2 | `POST /definitions/:id/answers` (`{ value, valid_from, note }`; **sólo su dueño**, sin llave) · `PATCH /definitions/:id` (DEFINICIONES_GESTIONAR: asignar dueño, plazo, descartar sólo una pendiente) | 🔨 | **sí** | `test-newdb-business-definitions-service.js`: el servicio REAL como `app_runtime`, con ese body. **NO MEDIDO**: no corrió (el `.env` apunta a prod, sin Docker) y la capa HTTP no la ejerce |
 | DP.2.3 | Fuente visible en `me-tasks.ts` («Preguntas de negocio a tu nombre») | ⬜ | no | `test-newdb-me-context.js` |
 
 ### C3 · UI

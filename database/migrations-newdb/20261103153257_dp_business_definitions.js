@@ -61,6 +61,12 @@ const AUDIT = `
 
 const op = (value, label) => ({ value, label });
 
+/** `[DP.2.1]` Quién lee todas las preguntas y quién las reparte. Decide Edgar; arranca en Dirección. */
+const LLAVES = {
+  DEFINICIONES_VER: ['direccion', 'superadmin'],
+  DEFINICIONES_GESTIONAR: ['direccion', 'superadmin'],
+};
+
 /** [key, area, question, decides, value_type, choices, unit, config_route, suggested_value] */
 const PREGUNTAS = [
   // ⚠️ Ésta NO estaba abierta: el 2026-10-20 Edgar decidió «tipo de ruta» y quedó escrito SÓLO en la
@@ -268,12 +274,43 @@ exports.up = async function up(knex) {
   await knex.raw(`COMMENT ON TABLE platform.business_definition_answers IS 'DP.0.1 — las respuestas, con vigencia (valid_from) y motivo. Registro: sin UPDATE ni DELETE para app_runtime. La vigente a una fecha es, entre las que ya rigen (valid_from <= fecha), la CONTESTADA MÁS TARDE: una respuesta nueva reescribe la regla desde su vigencia, también hacia atrás.'`);
   await knex.raw(`COMMENT ON COLUMN platform.business_definitions.suggested_value IS 'Lo que alguien ya dijo FUERA del sistema (un chat, una junta). Es propuesta, no respuesta: no tiene usuario, fecha ni motivo. suggested_source dice de dónde salió.'`);
   await knex.raw(`COMMENT ON COLUMN platform.business_definitions.config_route IS 'Para value_type=config_ref: la pantalla donde la respuesta se CONFIGURA (p. ej. el tabulador). La definición sólo apunta ahí.'`);
+  // ── DP.2.1: las dos llaves, REPARTIDAS (regla 20: un módulo no está entregado con la clave
+  //    sólo declarada en el enum). Contestar no lleva llave: la contesta su dueño. Los demás roles
+  //    vivos quedan en `false` explícito, igual que `[RD.101]`.
+  for (const [llave, roles] of Object.entries(LLAVES)) {
+    await knex.raw(
+      `UPDATE role_permissions
+          SET permissions = permissions || jsonb_build_object(?::text, (role_name = ANY(?::text[])))
+        WHERE permissions -> ?::text IS NULL
+          AND role_name NOT LIKE 'retirado_%'`,
+      [llave, roles, llave],
+    );
+    const { rows } = await knex.raw(
+      `SELECT role_name FROM role_permissions
+        WHERE permissions -> ?::text = 'true'::jsonb AND role_name <> 'superadmin' ORDER BY 1`,
+      [llave],
+    );
+    const { rows: [hay] } = await knex.raw('SELECT count(*)::int n FROM role_permissions');
+    // En una base sin roles (la del CI recién creada) no hay a quién repartir: no es un error.
+    if (hay.n > 0 && !rows.length) {
+      throw new Error(`Ningún rol (fuera de superadmin) quedó con ${llave}: la pantalla nacería sin dueño (regla 20)`);
+    }
+    // eslint-disable-next-line no-console
+    console.log(`  [DP.2.1] ${llave}: en true → ${rows.map((r) => r.role_name).join(', ') || '(ninguno)'}`);
+  }
+
   // eslint-disable-next-line no-console
   console.log(`  [DP.0.1] platform: business_definitions + business_definition_answers · [DP.0.2] ${t ? PREGUNTAS.length : 0} preguntas de Comisiones RD`);
 };
 
 /** Deshace EXACTAMENTE lo que hizo el `up`, ni una fila más. */
 exports.down = async function down(knex) {
+  for (const llave of Object.keys(LLAVES)) {
+    await knex.raw(
+      `UPDATE role_permissions SET permissions = permissions - ?::text WHERE permissions -> ?::text IS NOT NULL`,
+      [llave, llave],
+    );
+  }
   await knex.raw('DROP TABLE IF EXISTS platform.business_definition_answers');
   await knex.raw('DROP TABLE IF EXISTS platform.business_definitions');
   // El schema sólo se borra si quedó vacío: otra fase pudo haberlo empezado a usar.

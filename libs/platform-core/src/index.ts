@@ -68,6 +68,9 @@ export * from './lib/ai/llm-extractor.service';
 export * from './lib/ai/ocr-readings.service';
 export * from './lib/ai-product-matcher/ai-product-matcher.module';
 export * from './lib/ai-product-matcher/ai-product-matcher.service';
+// [DP.2.1] Definiciones de negocio: la regla que falta se pregunta en el sistema (Fase DP).
+export * from './lib/definitions/business-definitions.module';
+export * from './lib/definitions/business-definitions.service';
 
 // ── cloudinary ──
 export * from './lib/cloudinary/cloudinary.module';
