@@ -827,6 +827,55 @@ desarrollador: mientras lo necesite, **el proceso no está aquí**, está en el 
   Validación visual en claro a 2111 px sobre Q21. ⛔ **Sin validación**: oscuro, `forced-colors`,
   teléfono, y el estilo de **Anular** (con la corrida rancia no se ofrece; no hay otro borrador).
 
+### 9.4b Pedidos de Lupita Sánchez (WhatsApp, 2026-11-03) — acotados, sin código
+
+> Pedido literal: *«último viernes de mes se les paga bono de asistencia y puntualidad · los días
+> de vacaciones, incapacidad o algún percance (mantenimiento de vehículo o de cómputo) se
+> promedian con los 3 últimos periodos ya pagados · cobro de faltante de mercancía, ya existe un
+> cliente referenciado (cobro faltante inventario) · faltan rutas vecinal y rutas TLMK»*.
+> Medido en `pg-prod` (sólo lectura, `7688376744939610156`) el mismo día.
+> ⛔ El cupo está excedido (6 🔨 contra 4) y RD **no tiene fila** en el roadmap de `CLAUDE.md`:
+> esto se registra, no se abre.
+
+| Item | Pedido | Lo medido hoy | Lo que falta para empezar |
+|---|---|---|---|
+| `[RD.103]` ⬜ | **Rutas vecinales y TLMK** en el motor | El universo ya las ve y las deja fuera (`fuera_no_es_camion` ×8, `tipo_sin_declarar` ×1, `config_inactiva` 321/322 en Q21). `VERDAD_ABSOLUTA` §32.5: vecinales **$2.2M de venta en 30 días sin configurar**; 321+322 **$846,189.75 desde el 2026-09-08** sin comisión. TLMK: **cero** en el motor. El motor ya admite una escala por ruta (`commission_route_config.scale_id`) | El **tabulador** de cada tipo (escalones, % y base) y quién cobra · la decisión abierta: ¿la comisión sigue al **chofer** o al **tipo de ruta**? |
+| `[RD.104]` ⬜ | **Ausencia justificada** = promedio de los 3 últimos periodos pagados | Hay 20 quincenas pagadas para sacar el promedio, y el motor ya cuenta `dias_con_venta / dias_esperados` (Q21: la 505 vendió 3 de 11 días). **El motivo del día no existe en ningún lado**: `hr.attendance_incidents` = **0 filas** | Qué se promedia (comisión, venta o subtotal) y si cubre el día o la quincena entera · quién captura el motivo (vacaciones, incapacidad, taller, cómputo) y con qué comprobante. Sin motivo capturado, el motor no distingue «no salió» de «la fuente perdió el día» (la compuerta `cobertura_dias` ya lo dice así) |
+| `[RD.105]` ⬜ | **Bono de asistencia y puntualidad**, último viernes de mes | `hr.attendance_logs` = **0**, `hr.attendance_days` = **0** en prod: la suite no tiene checadas (la fase RH está 🔨). El motor sólo paga bonos `periodo='quincena'`; los mensuales (`objetivo_mensual`) se calculan y no entran a la nómina (`[RD.59]`) | El monto y la regla (cuántas faltas o retardos lo pierden) · la fuente de asistencia: o RH aterriza las checadas, o se marca a mano con responsable y motivo, como «Desarrollo de marcas» |
+| `[RD.106]` ⬜ | **Cobro de faltante de mercancía** | El cliente existe: `kdud` **`RD001` «COBRO FALTANTE INVENTARIO»** en las 9 sucursales. **0 documentos** a su nombre en `kdm1` (`c10`…`c15`, `c85`) y **0** en `kdue`; control: 50 clientes reales de la matriz dan 5,103 documentos por `c10` | Cómo se cobra hoy y a quién (¿venta a `RD001` en Kepler, en Wincaja, o se descuenta de la comisión?) · de dónde sale el faltante: el inventario de ruta **no existe como saldo en Kepler** |
+
+**Orden recomendado (dinero × esfuerzo):** `RD.103` primero (es la venta más grande sin
+comisión) → `RD.104` → `RD.106` → `RD.105` (depende de que RH aterrice las checadas).
+
+#### Cómo se preguntan: dentro del sistema, como parámetro configurable (Edgar, 2026-11-03)
+
+> *«Hoy las preguntas hay que hacerlas en un sistema configurable.»* Las preguntas de arriba **no
+> se mandan por WhatsApp**: cada una es un **parámetro** del motor. Mientras nadie lo defina, el
+> parámetro **es** la pregunta abierta: se ve en la pantalla, tiene dueño, y el motor declara
+> «sin definir» (ADR-056), nunca lo rellena con cero. Contestar es configurarlo, con fecha, autor
+> y vigencia, igual que una versión del tabulador.
+
+**Qué ya se configura y qué no** (código al 2026-11-03):
+
+| Pregunta | Parámetro | ¿Configurable hoy? | Qué hay que cambiar |
+|---|---|---|---|
+| Tabulador de vecinal y de TLMK | una escala **por tipo de ruta** | ❌ `loadScale(trx, onDate)` elige **una** escala por fecha para todas las rutas; `commission_route_config.scale_id` existe y el motor no lo lee. La exclusión de vecinales vive fija en `analytics.v_rd_commission_universe` (`fuera_no_es_camion`) | La escala sale de la ruta (o de su tipo). El tipo que comisiona deja de ser una regla de la vista y pasa a ser ajuste. TLMK **no es una ruta**: su base de venta es otra (`U-D-40`, ADR-113) |
+| ¿La comisión sigue al chofer o a la ruta? | regla del universo | ❌ | Se decide una vez (Edgar) y queda como ajuste con vigencia |
+| Ausencia justificada | base (`comision`/`venta`/`subtotal`), ventana (N = 3 pagadas), alcance (día o quincena) y motivos válidos | ❌ | Captura del motivo por ruta × día, con comprobante; el motor promedia las N corridas **pagadas** |
+| Bono de asistencia y puntualidad | monto, faltas y retardos que lo pierden, día de pago («último viernes del mes») | 🟡 los bonos se configuran (`/bonuses`: métrica, umbral, monto, beneficiario), pero **no hay métrica de asistencia** y lo mensual no entra a la nómina | Métrica `asistencia` cuando RH tenga checadas (hoy 0); mientras, `manual` con responsable y motivo |
+| Cobro de faltante | de dónde sale el monto y si se descuenta de la comisión | ❌ las deducciones son nómina por ruta y deducción del supervisor | Una deducción configurable «faltante de inventario», con su fuente declarada |
+
+⛔ **ADR-056: no se inventa un «parámetro pendiente» sólo para comisiones.** Ya hay otro igual
+escrito a mano en Mi trabajo («Indicadores con meta: pendientes de definición (P-01 · P-11)»).
+Si se construye, va a `libs/platform-core` (pregunta, dueño, tipo, valor con vigencia, «sin
+definir» declarado) y su bandeja sale en «Mi trabajo › A tu nombre» del dueño. Es decisión de
+Edgar: primitivo compartido o deuda con nombre.
+
+⭐ **Decidido el 2026-11-03: primitivo compartido → [Fase DP](FASE_DP_DEFINICIONES_DE_NEGOCIO.md).**
+Las preguntas de esta tabla ya viven ahí como 17 filas de `platform.business_definitions`
+(`consumer = 'commercial.commissions'`), sin dueño todavía. `[RD.103]`–`[RD.106]` las LEEN; no
+las vuelven a preguntar.
+
 ### 9.5 Lo que necesita firma antes de que el motor pague
 
 | | Decisión | Por qué no la puedo tomar yo |

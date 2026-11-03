@@ -121,6 +121,8 @@ export const FUENTES_TAREA = [
   'trade.daily_assignments',
   // `[MS.1.5]` Fase MS (ADR-081): el ticket de la Mesa de Servicio ES la tarea de quien lo atiende.
   'servicedesk.requests',
+  // `[DP.1.2]` Fase DP: una pregunta de negocio ES la tarea de quien tiene que contestarla.
+  'platform.business_definitions',
 ] as const;
 export type FuenteTarea = (typeof FUENTES_TAREA)[number];
 
@@ -255,6 +257,25 @@ export const ADAPTADORES: readonly AdaptadorTarea[] = [
       '`en_espera` (pausado, espera al solicitante) se proyecta a `pending` y deja de distinguirse de `nuevo`/`asignado`: el contrato no tiene un estado de espera',
       'a quien se le asigno ANTES de una reasignacion: la fila guarda solo el ultimo asignado; la historia vive en servicedesk.request_messages (kind=assignment)',
       'no admite `not_applicable`: un ticket que no procede se CANCELA (`cancelled`)',
+    ],
+  },
+  {
+    fuente: 'platform.business_definitions',
+    col_asignado_a: 'assigned_to',
+    col_asignado_por: 'assigned_by',
+    asignado_por_es_uuid: true,
+    col_asignado_at: 'assigned_at',
+    col_vence: 'due_at',
+    col_estado: 'status',
+    // Los 3 estados del CHECK. `respondida` es `done` aunque se pueda volver a contestar: una
+    // respuesta nueva agrega una vigencia, no reabre la tarea.
+    estados: { pendiente: 'pending', respondida: 'done', descartada: 'cancelled' },
+    estado_fijo: null,
+    origen: 'manual',
+    no_responde: [
+      'no admite `in_progress`: una pregunta está abierta o contestada, no hay «contestándose»',
+      'una pregunta SIN dueño (`assigned_to` NULL) no aparece en ninguna bandeja: las 17 de Comisiones RD nacen así a propósito hasta que Edgar reparta (D4)',
+      'quien contestó y con qué motivo viven en `business_definition_answers`, no en esta fila: `answered_by` es sólo la última respuesta',
     ],
   },
 ];
