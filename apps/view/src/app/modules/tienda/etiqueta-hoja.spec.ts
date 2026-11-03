@@ -438,6 +438,25 @@ describe('etiquetera · el tamaño de los números no se decide por accidente', 
   });
 
   /**
+   * ⭐ `[ETQ-CODIGO.2]` La etiqueta EN OFERTA también. Ahí el renglón baja a la columna derecha (43.4 mm) y su plantilla
+   * no pasaba la variable: quedó declarado como deuda en ETQ-CODIGO, con el mismo riesgo de cortar el código.
+   */
+  it('⭐ en oferta el renglón del código también lleva su tope en CSS, con el ancho de la columna derecha', () => {
+    // Las DOS plantillas del renglón (columna izquierda y columna derecha en oferta) entregan el largo.
+    expect(LABEL.match(/class="etq-meta" #meta \[style\.--etq-meta-n\]="caracteresMeta"/g)).toHaveLength(2);
+    expect(LABEL.match(/class="etq-meta" #meta>/g)).toBeNull();
+    const promo = /\.etq-label\.is-promo \.etq-right \.etq-meta\{([\s\S]*?)\}/.exec(LABEL)![1];
+    const tope = /font-size:min\(([\d.]+)mm, calc\(([\d.]+)mm \/ \(max\(var\(--etq-meta-n, 1\), 1\) \* ([\d.]+)\)\)\)/.exec(promo);
+    expect(tope).not.toBeNull();
+    expect(Number(tope![1])).toBe(Number(/const META_MM = ([\d.]+)/.exec(LABEL)![1]));
+    expect(Number(tope![2])).toBe(Number(/const META_ANCHO_PROMO_MM = ([\d.]+)/.exec(LABEL)![1]));
+    expect(Number(tope![3])).toBe(Number(/const META_EM_CAR = ([\d.]+)/.exec(LABEL)![1]));
+    // 43.4 mm de la columna derecha − los dos huecos de 1.2 mm
+    const derecha = Number(/\.etq-right\{ width:([\d.]+)mm/.exec(LABEL)![1]);
+    expect(Number(/const META_ANCHO_PROMO_MM = ([\d.]+)/.exec(LABEL)![1])).toBeCloseTo(derecha - 2 * 1.2, 5);
+  });
+
+  /**
    * ⭐ El diagnóstico de la pantalla mira las fuentes que DECIDEN el tamaño.
    *
    * Comprobaba sólo Anton —la del número— y podía pintar "tipografía ✓" con Baloo 2 sin cargar,

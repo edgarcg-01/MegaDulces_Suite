@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Fixed — Etiquetas en oferta: el código del producto tampoco se corta (ETQ-CODIGO.2, 2026-11-02)
+- En una etiqueta **en oferta**, el renglón «contenido | Código» va en la columna derecha y no tenía el tope que se agregó en ETQ-CODIGO: con un contenido largo el código se podía cortar si el ajuste de JavaScript no corría. Ahora cabe sin JavaScript. Medido: con contenido largo, sin el tope el texto pide 225 px en una columna de 164; con el tope, cabe.
+- Sin migración, sin permiso, sin endpoint. No medido: la impresión física; el arnés de geometría todavía no arma el diseño de oferta.
 ### Fixed — Pagos: la pantalla dejaba de estar quieta en algunas máquinas (TBL.1, 2026-11-02)
 - En ciertos equipos, el Calendario de pagos **vibraba sin parar**: los bloques se corrían unos píxeles a la izquierda y volvían, una y otra vez, mientras la pantalla estaba quieta.
 - La causa: los paneles se ajustan solos al alto de la ventana. Al crecer 16 px el contenido desbordaba, **aparecía la barra de desplazamiento**, la barra se comía unos píxeles de ancho, todo se reacomodaba, el alto volvía a cambiar y la barra se iba. El ciclo no terminaba nunca.
