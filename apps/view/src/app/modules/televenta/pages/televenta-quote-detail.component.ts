@@ -596,6 +596,35 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
                 }
               </div>
             }
+            <!-- [COT.7] Aceptar = armar el Pedido Telemarketing en Kepler. Con el pedido escrito, en
+                 este mismo lugar queda su folio: la liga cotización → pedido se ve donde se decidió. -->
+            @if (q.kepler_folio) {
+              <div class="rail-kepler kepler-ok" role="status">
+                <i class="pi pi-check-circle" aria-hidden="true"></i>
+                <span>Pedido en Kepler <b class="mono">{{ q.kepler_folio }}</b> · {{ nombreSucursal(q.kepler_sucursal ?? q.source_branch) }}</span>
+              </div>
+            } @else if (aceptable()) {
+              <div class="rail-kepler">
+                <button pButton type="button" class="btn-kepler" [disabled]="enviandoKepler()" (click)="pedirEnviarKepler(q)">
+                  <span class="p-button-icon p-button-icon-left pi" [class.pi-send]="!enviandoKepler()"
+                        [class.pi-spinner]="enviandoKepler()" [class.pi-spin]="enviandoKepler()" aria-hidden="true"></span>
+                  <span class="p-button-label">{{ enviandoKepler() ? 'Armando el pedido…' : 'Aceptar y armar pedido en Kepler' }}</span>
+                </button>
+                @if (keplerRechazo(); as k) {
+                  <div class="aviso aviso-bad kepler-rechazo" role="alert">
+                    <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                    <div>
+                      <b>{{ k.mensaje }}</b>
+                      @if (k.motivos.length) {
+                        <ul>@for (m of k.motivos; track m) { <li>{{ m }}</li> }</ul>
+                      }
+                    </div>
+                  </div>
+                } @else if (q.kepler_error) {
+                  <p class="tot-nota">Último intento no salió: {{ q.kepler_error }}</p>
+                }
+              </div>
+            }
             <div class="rail-actions">
               <div class="rail-export">
                 <button
@@ -685,6 +714,13 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
       .tot-nota { margin: 0.35rem 0 0; font-size: 0.7rem; color: var(--text-muted); }
       .rail-actions { padding: 0.5rem 0.75rem 0.65rem; border-top: 1px solid var(--border-color); }
       .rail-export { display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem; }
+      /* [COT.7] La acción primaria de la pantalla: una sola, ancho completo, sobre los entregables. */
+      .rail-kepler { padding: 0.6rem 0.75rem; border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 0.45rem; }
+      .btn-kepler { width: 100%; justify-content: center; font-weight: 700; }
+      .kepler-ok { flex-direction: row; align-items: center; gap: 0.45rem; font-size: var(--fs-sm); color: var(--text-main); }
+      .kepler-ok i { color: var(--ok-fg); }
+      .kepler-rechazo { margin: 0; font-size: var(--fs-xs); }
+      .kepler-rechazo ul { margin: 0.25rem 0 0; padding-left: 1.1rem; }
       .ia-placeholder {
         border: 1px dashed var(--ember-border, rgba(240, 90, 40, 0.3)); border-radius: 8px; padding: 0.7rem 0.75rem;
         background: var(--ember-soft, rgba(248, 180, 0, 0.12));
@@ -1497,6 +1533,59 @@ export class TeleventaQuoteDetailComponent implements OnInit {
     const rv = this.revisionDe(l);
     if (!rv?.now || rv.price_changed) return '';
     return explicacionDelPrecio(rv.now.applied);
+  }
+
+  // ── [COT.7] Aceptar → Pedido Telemarketing en Kepler ─────────────────────────────────────────
+  /** Sin folio todavía, en borrador o enviada, con renglones, y en una sucursal donde puede escribir. */
+  readonly aceptable = computed(() => {
+    const q = this.cot();
+    return !!q && !q.kepler_folio && (q.status === 'draft' || q.status === 'sent')
+      && q.branch_writable !== false && q.lines.length > 0;
+  });
+  readonly enviandoKepler = signal(false);
+  readonly keplerRechazo = signal<{ mensaje: string; motivos: string[] } | null>(null);
+
+  pedirEnviarKepler(q: QuoteDetail): void {
+    this.confirm.confirm({
+      header: 'Aceptar y armar el pedido en Kepler',
+      message:
+        'Se escribe en el Kepler de ' + this.nombreSucursal(q.source_branch) + ' un Pedido Telemarketing en estado CREADO para '
+        + q.recipient_name + ' por ' + this.dinero(q.total) + ', y la cotización queda aceptada. '
+        + 'Kepler factura el precio que se escribe: confirma que el cliente aceptó este total.',
+      icon: 'pi pi-send',
+      acceptLabel: 'Sí, armar el pedido',
+      rejectLabel: 'Cancelar',
+      acceptButtonStyleClass: 'p-button-sm',
+      rejectButtonStyleClass: 'p-button-text p-button-sm',
+      accept: () => this.enviarKepler(),
+    });
+  }
+
+  private enviarKepler(): void {
+    // Idempotencia visual: deshabilitado en el primer clic; el servidor además reclama la cotización.
+    if (this.enviandoKepler()) return;
+    this.enviandoKepler.set(true);
+    this.keplerRechazo.set(null);
+    this.svc.enviarAKepler(this.id).subscribe({
+      next: (res) => {
+        this.enviandoKepler.set(false);
+        this.toast.add({
+          severity: 'success',
+          summary: res.ya_estaba ? 'El pedido ya estaba en Kepler' : 'Pedido armado en Kepler',
+          detail: 'Folio ' + res.kepler.folio + ' en ' + this.nombreSucursal(res.kepler.sucursal) + '.',
+        });
+        this.recargar(true);
+      },
+      error: (err) => {
+        this.enviandoKepler.set(false);
+        if (err?.status === 403) { this.falla(err, 'Sin permiso'); return; }
+        const b = err?.error ?? {};
+        this.keplerRechazo.set({
+          mensaje: (typeof b.message === 'string' && b.message) || 'El servidor no respondió.',
+          motivos: Array.isArray(b.motivos) ? b.motivos : [],
+        });
+      },
+    });
   }
 
   pedirRecotizar(r: QuoteCheck): void {

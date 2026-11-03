@@ -112,3 +112,25 @@ export function topeDiario(sucursal: string, env: Env): number {
 
 /** Prefijo con el que la Suite marca sus documentos en Kepler (`c11` en compra, `c24` en traspaso). */
 export const MARCA_SUITE = 'RQ-';
+
+/**
+ * `[COT.7]` Plantilla del **Pedido Telemarketing** (`U-D-40`, `c27='TELEMARK'`) en ese servidor:
+ * `KEPLER_TLMK_TEMPLATE_FOLIO_<NN>` (y `_SERIE_<NN>`, default `1`). ⛔ **Sin default en ningún
+ * servidor, ni en oficinas**: hay que elegir a mano un pedido TELEMARK en `CREADO` de ESE servidor.
+ * Clonar uno procesado arrastraría quién surtió, checó y embarcó; uno de otro servidor no existe.
+ * Sin la variable, la escritura de pedidos de esa sucursal queda apagada — es uno de los candados.
+ */
+export function plantillaTlmkDe(sucursal: string, env: Env): Resolucion<{ serie: string; folio: string }> {
+  const n = normalizarSucursal(sucursal);
+  if (!n.ok) return n;
+  const s = n.valor;
+  const folio = val(env, `KEPLER_TLMK_TEMPLATE_FOLIO_${s}`);
+  const serie = val(env, `KEPLER_TLMK_TEMPLATE_SERIE_${s}`) || '1';
+  if (!folio) {
+    return { ok: false, motivo: `Falta KEPLER_TLMK_TEMPLATE_FOLIO_${s}: no hay pedido TELEMARK plantilla elegido en el servidor ${s}` };
+  }
+  return { ok: true, valor: { serie, folio } };
+}
+
+/** `[COT.7]` Marca de la Suite en el pedido TELEMARK (`c24`): el folio de la cotización empieza así. */
+export const MARCA_COTIZACION = 'COT-';

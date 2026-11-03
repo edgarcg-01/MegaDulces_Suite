@@ -240,7 +240,7 @@ export interface OpenOcRow {
   requisicion?: { id: string | null; folio: string | null; kepler: string | null } | null;
 }
 /** `[PQ.20]` Un renglón del interruptor: sucursal × tipo. */
-export type KeplerTipo = 'compra' | 'traspaso';
+export type KeplerTipo = 'compra' | 'traspaso' | 'telemarketing';
 export interface KeplerSwitchRow {
   sucursal: string;
   sucursal_nombre: string | null;

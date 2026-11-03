@@ -219,6 +219,12 @@ const FILTERS: Array<{ key: string; label: string; status: string }> = [
                         → {{ q.order_code }}
                       </span>
                     }
+                    @if (q.kepler_folio) {
+                      <!-- [COT.7] El Pedido Telemarketing que salió de esta cotización. -->
+                      <span class="lineage" [title]="'Pedido Telemarketing ' + q.kepler_folio + ' en Kepler'">
+                        → Kepler {{ q.kepler_folio }}
+                      </span>
+                    }
                   </td>
                   <td role="cell" data-label="Cliente">
                     <span class="recipient">{{ q.recipient_name }}</span>

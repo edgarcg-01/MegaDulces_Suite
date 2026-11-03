@@ -87,6 +87,9 @@ export interface QuoteListRow {
   unmatched_count: number;
   order_id: string | null;
   order_code: string | null;
+  /** `[COT.7]` Folio y sucursal del Pedido TELEMARK en Kepler; null = no ha salido. */
+  kepler_folio: string | null;
+  kepler_sucursal: string | null;
   created_at: string;
   user_id: string;
   created_by_username: string | null;
@@ -369,6 +372,10 @@ export class CommercialQuotesService {
           q.currency,
           q.order_id,
           o.code AS order_code,
+          -- [COT.7] El pedido TELEMARK en Kepler, si ya salió. to_jsonb: la columna puede no
+          -- existir si el código llega antes que su migración.
+          to_jsonb(q) ->> 'kepler_folio'    AS kepler_folio,
+          to_jsonb(q) ->> 'kepler_sucursal' AS kepler_sucursal,
           q.created_at,
           q.user_id,
           u.username AS created_by_username,

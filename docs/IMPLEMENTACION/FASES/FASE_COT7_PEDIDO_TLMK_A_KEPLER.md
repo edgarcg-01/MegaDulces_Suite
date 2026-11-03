@@ -10,7 +10,7 @@
 | **CAPA TOPE** | C3 (botón en `/telemarketing/cotizaciones/:id`) |
 | **ÁREA** | Telemarketing · escribe en el ERP |
 | **DUEÑO** | ⚠️ sin asignar (lo decide el PM) |
-| **ESTADO** | 🔨 C0 (sólo lectura) desde el 2026-11-03 · C1 en espera de cupo (6 🔨 de 4). Ver D6. |
+| **ESTADO** | 🧪 C0–C3 construidos el 2026-11-03, **escritura APAGADA**; falta habilitar (§7c). |
 
 Medido con `pg-prod` en sólo lectura (`system_identifier` 7688376744939610156), sobre
 `kepler_ods.kdm1`/`kdm2` y `commercial.*`, el 2026-11-03.
@@ -262,6 +262,50 @@ Kepler cobró algo que ninguna regla deriva. El árbitro a mano no se sube y **n
 replay ya hace lo que le faltaba.
 
 
+## 7c. C1–C3 — construido el 2026-11-03, APAGADO
+
+> Edgar, 2026-11-03: *«hagamos lo pendiente para dejar todo listo y sólo habilitar»*. Autoriza
+> construir C1–C3 por encima del cupo de D6; la escritura nace apagada.
+
+| Capa | Pieza | Prueba |
+|---|---|---|
+| C0.7.0c | Unidad y ficha: `c17`/`c18` = `kdii.c18`/`c19` (5,010/5,010), `c11` = `kdii.c11` (5,009/5,010), factor de la presentación por `factorPresentacionFicha` (unidad dos/tres de `kdii`) | medido en `kepler_ods` |
+| C1 | `kepler-pedido-tlmk.ts` (`armarPedidoTlmk`, pura) + `kepler-pedido-tlmk-sink.adapter.ts` (clona un pedido TELEMARK del servidor, todo o nada) | `kepler-pedido-tlmk.spec.ts` 8/8: reconstruye el pedido real 01/0003710 al centavo; mutante → rojo |
+| C1 | **Ensayo contra Kepler real** (`*.ensayo.spec.ts`, ROLLBACK): el adaptador recibe los renglones de un pedido TELEMARK real y tiene que reproducirlo | **01 ($16,985.33) y 06 ($2,793.00) ✅**; con un centavo de más → rojo. 00, 02–05, 07, 08: NO MEDIDO desde esta laptop (`pg_hba` no la deja entrar; el que escribe es el pod de `md`) |
+| C2 | `QuoteKeplerService` + `POST /commercial/quotes/:id/kepler` (controlador aparte: no cambia firmas inyectadas en prod) | `quote-kepler.service.spec.ts` 15/15 (los frenos y su orden; mutante del freno de precio → rojo) |
+| C2 | Migración `20261103125653`: 6 columnas *nullable* en `commercial.quotes` + tipo `telemarketing` en `kepler_push_switch`, 9 renglones **apagados**, tope 1 | idempotente; NO aplicada |
+| C3 | Detalle: «Aceptar y armar pedido en Kepler» en el riel; con folio, el folio en su lugar; rechazo con motivos por renglón. Lista: `→ Kepler 0003800` en la celda del folio. `/compras/kepler-escritura`: columna «Pedido telemarketing» | `check:pantalla` tipa las tres; sin fallas nuevas en ellas |
+
+**Los frenos, en orden** (cada uno sin llamar al ERP): otra persona (COT.21) · no borrador/enviada ·
+vencida · sin sucursal / sin escritura en ella · sin cliente del ERP (D3) · sin vendedor (D5) ·
+renglón sin catálogo · **regalos** (no se escriben todavía: cómo los guarda el pedido no se midió) ·
+sin precio · **precio cambiado en Kepler** (D2) · interruptor apagado · reclamo ocupado.
+
+**Dos candados contra el pedido duplicado:** reclamo atómico `kepler_sending_at` (otro clic → 409) e
+**idempotencia en el ERP** (antes de escribir, busca en Kepler un pedido con la marca `c24` = folio de
+la cotización y devuelve ése).
+
+**Hallazgo del ensayo:** el usuario `kepler_push` no puede leer `md.kdud` (01 y 06). El adaptador valida
+cliente y vendedor primero por PRECEDENTE en `kdm1` (lo que Kepler ya le escribió) y sólo sin precedente
+lee `kdud`/`kduv`; si ahí falta el permiso, rechaza nombrando el `GRANT` (no se tocan credenciales).
+
+### Para habilitar (en este orden)
+
+1. **Empujar** (`f36abcbbb` COT.21, `a85ac6c6f`, y este tramo) y esperar el CI: `boot-api` es quien
+   prueba que el grafo de inyección arranca — **arranque no verificado localmente** (regla 3).
+2. **Migraciones una por una, antes de soltar**: `20261103094512` (COT.21) y `20261103125653` (COT.7).
+3. **Soltar** y comprobar `/api/health`.
+4. **Secreto `kepler-push`** (`ops/prod/kepler-push-secretos.js`): `KEPLER_TLMK_TEMPLATE_FOLIO_<NN>` (y
+   `_SERIE_<NN>` si no es 1) = un pedido TELEMARK en `CREADO` **de ese servidor**. Reiniciar `api`.
+5. **Ensayo desde `md`** para los nueve servidores (desde la laptop sólo llegan 01 y 06).
+6. **Encender una sucursal** en `/compras/kepler-escritura` (tope 1) y aceptar UNA cotización real:
+   verla en `pv_tk` de Kepler, autorizarla y seguirla hasta su factura `U-D-8` — el precio facturado
+   tiene que ser el de la cotización. Recién entonces subir el tope o encender otra.
+
+**NO MEDIDO hasta habilitar:** el endpoint contra una base real (regla 13; la prueba HTTP pide la API
+levantada) · el arranque (lo mide el CI) · el pedido abierto, autorizado y facturado en Kepler · el
+ensayo en 00, 02–05, 07, 08 · pedidos con regalos (rechazados a propósito).
+
 ## 8. Riesgos y bloqueos
 
 | Riesgo / bloqueo | Dueño | Causa | Qué lo destraba |
@@ -284,6 +328,7 @@ replay ya hace lo que le faltaba.
 
 ## Bitácora
 
+- **2026-11-03** — C1–C3 construidos y apagados (§7c): ensayo contra Kepler real ✅ en 01 y 06; 23 pruebas nuevas; migración 20261103125653 sin aplicar.
 - **2026-11-03** — C0.7.0d: las 6 diferencias explicadas (deriva de precio, F1 nivel 0 arreglado con 8 mejoras / 0 empeoras, 70500 unidad declarada). Replay oficial (E.23): 99.12 % → 99.21 % ✅. C0 cerrado salvo 7.0c (unidad).
 - **2026-11-03** — C0.7.0 ✅ (cabecera y renglón con árbitro); C0.7.0b ❌ 98.0 % (6 diferencias explicadas por mecanismo). C1 bloqueado.
 - **2026-11-03** — D0–D5 firmadas (Edgar); D6 decidida; ADR-113. Arranca C0.

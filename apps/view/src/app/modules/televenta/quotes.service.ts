@@ -30,6 +30,9 @@ export interface QuoteListRow {
   unmatched_count: number;
   order_id: string | null;
   order_code: string | null;
+  /** [COT.7] Folio y sucursal del Pedido TELEMARK en Kepler; null o ausente = no ha salido. */
+  kepler_folio?: string | null;
+  kepler_sucursal?: string | null;
   created_at: string;
   user_id: string;
   created_by_username: string | null;
@@ -274,6 +277,13 @@ export interface QuoteDetail {
   customer_request: string | null;
   notes: string | null;
   order_code: string | null;
+  /**
+   * [COT.7] El Pedido TELEMARK en Kepler (viajan con q.*): folio + sucursal si ya salió; kepler_error
+   * si el último intento rebotó. Ausentes en un API anterior a COT.7.
+   */
+  kepler_folio?: string | null;
+  kepler_sucursal?: string | null;
+  kepler_error?: string | null;
   created_by_username: string | null;
   /** [E.29] Nombre de quien la elaboró (identity.users.nombre). Ausente en un API anterior a E.29. */
   created_by_name?: string | null;
@@ -283,6 +293,12 @@ export interface QuoteDetail {
    */
   updated_at?: string | null;
   lines: QuoteLine[];
+}
+
+/** [COT.7] Lo que devuelve aceptar → Kepler. ya_estaba = el pedido ya existía (no se escribió otro). */
+export interface EnvioKepler {
+  ya_estaba: boolean;
+  kepler: { sucursal: string; folio: string; renglones?: number; total?: number };
 }
 
 @Injectable({ providedIn: 'root' })
@@ -330,6 +346,11 @@ export class QuotesService {
   }
 
   /** `[E.27]` Re-cotiza un borrador vigente a precios de hoy (y guarda su IVA/IEPS). */
+  /** [COT.7] Acepta la cotización y la escribe como Pedido Telemarketing en el Kepler de su sucursal. */
+  enviarAKepler(id: string): Observable<EnvioKepler> {
+    return this.http.post<EnvioKepler>(`${this.base}/${id}/kepler`, {});
+  }
+
   reprice(id: string): Observable<{ quote_id: string; lines: number; changed: number }> {
     return this.http.post<{ quote_id: string; lines: number; changed: number }>(`${this.base}/${id}/reprice`, {});
   }

@@ -1,0 +1,185 @@
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { TenantKnexService, TenantContextService, todayMx } from '@megadulces/platform-core';
+
+import { CommercialQuotesService } from './commercial-quotes.service';
+import { QuotePricingService } from './quote-pricing.service';
+import { KeplerPedidoTlmkSinkAdapter, type PedidoTlmkResultado } from './kepler-pedido-tlmk-sink.adapter';
+import type { QuienCotiza } from './quote-scope';
+import type { RenglonCotizacion } from './kepler-pedido-tlmk';
+
+const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Cuánto vale un reclamo sin terminar antes de darlo por caído (un envío normal tarda segundos). */
+const RECLAMO_VENCE = "interval '3 minutes'";
+
+export interface EnvioKepler {
+  ya_estaba: boolean;
+  kepler: { sucursal: string; folio: string; renglones?: number; total?: number };
+}
+
+interface CabeceraEnvio {
+  id: string; code: string; status: string; vencida: boolean; source_branch: string | null;
+  erp_customer_code: string | null; salesperson_code: string | null; terms_discount_pct: string | null;
+  delivery_address_key: string | null; kepler_sucursal: string | null; kepler_folio: string | null;
+}
+
+/**
+ * `[COT.7.4]` — **Aceptar la cotización y armar el «Pedido Telemarketing» en Kepler.**
+ *
+ * ADR-113. El transporte es `KeplerPedidoTlmkSinkAdapter`; aquí viven los frenos de negocio
+ * (D1–D5 del anexo COT.7) y la idempotencia, en el mismo orden que `pushToKepler` de KR:
+ * **leer → frenar → reclamar → empujar (fuera de la transacción de la Suite) → anotar.** El ERP no
+ * participa de nuestro rollback: si el sink se llamara adentro y lo nuestro cayera después,
+ * quedaría un pedido huérfano en Kepler.
+ *
+ * Proveedor aparte a propósito: no cambia la firma inyectada de `CommercialQuotesService` ni la
+ * del controlador que ya está en producción.
+ */
+@Injectable()
+export class QuoteKeplerService {
+  private readonly logger = new Logger(QuoteKeplerService.name);
+
+  constructor(
+    private readonly tk: TenantKnexService,
+    private readonly tenantCtx: TenantContextService,
+    private readonly quotes: CommercialQuotesService,
+    private readonly pricing: QuotePricingService,
+    private readonly sink: KeplerPedidoTlmkSinkAdapter,
+  ) {}
+
+  async enviar(id: string, quien?: QuienCotiza | null): Promise<EnvioKepler> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const userId = this.tenantCtx.get()?.userId ?? null;
+    if (!UUID_RX.test(id)) throw new BadRequestException('id inválido');
+    // COT.21: la de otra persona no se abre, y mucho menos se manda al ERP.
+    await this.quotes.assertPuedeAbrir(id, quien);
+
+    // 1. Leer. `to_jsonb(q)`: las columnas de Kepler pueden no existir si se desplegó antes de migrar.
+    const cab = (await this.tk.run((k) => k.raw(
+      `SELECT q.id, q.code, q.status, (q.valid_until < CURRENT_DATE) AS vencida, q.source_branch,
+              q.erp_customer_code, q.salesperson_code, q.terms_discount_pct::text AS terms_discount_pct,
+              q.delivery_address_key,
+              to_jsonb(q) ->> 'kepler_sucursal' AS kepler_sucursal, to_jsonb(q) ->> 'kepler_folio' AS kepler_folio
+         FROM commercial.quotes q
+        WHERE q.tenant_id = :t AND q.id = :id AND q.deleted_at IS NULL`, { t: tenantId, id }))).rows[0] as CabeceraEnvio | undefined;
+    if (!cab) throw new NotFoundException('Cotización no encontrada');
+
+    // 2. Idempotencia: con folio, ya salió.
+    if (cab.kepler_folio) return { ya_estaba: true, kepler: { sucursal: cab.kepler_sucursal ?? '', folio: cab.kepler_folio } };
+
+    // 3. Frenos. Cada uno existe porque su ausencia escribe en el ERP un pedido que no debía existir.
+    if (cab.status !== 'draft' && cab.status !== 'sent') {
+      throw new BadRequestException(`La cotización está ${cab.status}: sólo una en borrador o enviada se acepta como pedido.`);
+    }
+    if (cab.vencida) throw new BadRequestException('La cotización ya venció: re-cotízala con los precios de hoy antes de aceptarla.');
+    if (!cab.source_branch) throw new BadRequestException('La cotización no tiene sucursal: no se sabe en qué Kepler crear el pedido.');
+    await this.quotes.assertEscribeSucursal(cab.source_branch);
+    // D3: sin clave del ERP no hay pedido. La Suite no da de alta clientes en Kepler.
+    if (!cab.erp_customer_code?.trim()) {
+      throw new BadRequestException('La cotización no tiene un cliente de Kepler. Elige al cliente del padrón (o CONTADO) antes de aceptarla.');
+    }
+    // D5: el vendedor del pedido es el de la cotización, obligatorio.
+    if (!cab.salesperson_code?.trim()) throw new BadRequestException('La cotización no tiene vendedor de Kepler: elígelo antes de aceptarla.');
+
+    const lineas = (await this.tk.run((k) => k.raw(
+      `SELECT ql.line_number, ql.parent_line_number, ql.quantity::float8 AS quantity, ql.unit_price::float8 AS unit_price,
+              ql.list_price::float8 AS list_price, ql.line_total::float8 AS line_total, ql.qty_unit, ql.qty_factor::float8 AS qty_factor,
+              ql.requested_text, btrim(p.sku) AS sku
+         FROM commercial.quote_lines ql
+         LEFT JOIN catalog.products p ON p.tenant_id = ql.tenant_id AND p.id = ql.product_id
+        WHERE ql.tenant_id = :t AND ql.quote_id = :id
+        ORDER BY ql.line_number`, { t: tenantId, id }))).rows as Array<{
+      line_number: number; parent_line_number: number | null; quantity: number; unit_price: number | null; list_price: number | null;
+      line_total: number; qty_unit: string | null; qty_factor: number | null; requested_text: string | null; sku: string | null;
+    }>;
+    if (!lineas.length) throw new BadRequestException('La cotización no tiene renglones.');
+    const sinCatalogo = lineas.filter((l) => !l.sku);
+    if (sinCatalogo.length) {
+      throw new BadRequestException(`${sinCatalogo.length} renglón(es) no casaron con el catálogo (${sinCatalogo.slice(0, 3).map((l) => `«${l.requested_text ?? '?'}»`).join(', ')}): quítalos o cámbialos por un producto antes de aceptar.`);
+    }
+    // Los regalos del ERP (renglón hijo a precio cero) no se escriben todavía: cómo los guarda el
+    // pedido TELEMARK no se midió. Falla cerrada en vez de adivinar.
+    if (lineas.some((l) => l.parent_line_number !== null)) {
+      throw new BadRequestException('La cotización trae producto de regalo: el pedido con regalos todavía no se arma desde la Suite. Captúralo en Kepler.');
+    }
+    const sinPrecio = lineas.filter((l) => !(Number(l.unit_price) > 0));
+    if (sinPrecio.length) throw new BadRequestException(`${sinPrecio.length} renglón(es) sin precio: ${sinPrecio.slice(0, 5).map((l) => l.sku).join(', ')}.`);
+
+    // D2: el precio que se escribe es el que se factura. Si Kepler cambió algún precio desde que se
+    // cotizó, primero se re-cotiza (el botón ya existe) y el cliente acepta el de hoy.
+    const chk = await this.pricing.checkQuote(id);
+    if (chk.price_changed > 0) {
+      throw new BadRequestException(`El precio de ${chk.price_changed} renglón(es) cambió en Kepler desde que se cotizó. Re-cotiza y confirma el total con el cliente antes de aceptar.`);
+    }
+
+    // El interruptor de la Suite, leído en CADA envío: apagar vale al instante (PQ.20).
+    const sw = await this.interruptor(tenantId, cab.source_branch);
+    if (!sw.encendida) {
+      const motivo = `La escritura de pedidos TELEMARK a Kepler de la sucursal ${cab.source_branch} está apagada desde la Suite.`;
+      await this.anotarError(tenantId, id, motivo);
+      throw new BadRequestException(motivo);
+    }
+
+    // 4. Reclamar: un solo envío a la vez por cotización. Sin esto, dos clics escriben dos pedidos.
+    const reclamo = await this.tk.run((k) => k.raw(
+      `UPDATE commercial.quotes SET kepler_sending_at = now()
+        WHERE tenant_id = :t AND id = :id AND kepler_folio IS NULL
+          AND (kepler_sending_at IS NULL OR kepler_sending_at < now() - ${RECLAMO_VENCE})
+        RETURNING id`, { t: tenantId, id }));
+    if (!reclamo.rows.length) throw new ConflictException('Esta cotización ya se está enviando a Kepler. Espera unos segundos y vuelve a abrirla.');
+
+    // 5. Empujar, fuera de la transacción de la Suite.
+    const renglones: RenglonCotizacion[] = lineas.map((l) => ({
+      sku: l.sku as string, cantidad: Number(l.quantity),
+      presentacion: l.qty_unit, factor: l.qty_factor && l.qty_factor > 0 ? Number(l.qty_factor) : null,
+      precio: Number(l.unit_price), lista: l.list_price === null ? null : Number(l.list_price), importe: Number(l.line_total),
+    }));
+    const pct = cab.terms_discount_pct === null ? null : Number(cab.terms_discount_pct);
+    let res: PedidoTlmkResultado;
+    try {
+      res = await this.sink.entregar({
+        cotizacion_id: cab.id, folio_suite: cab.code, sucursal: cab.source_branch,
+        cliente: cab.erp_customer_code, vendedor: cab.salesperson_code,
+        fecha: todayMx(), pct_cliente: pct, direccion_envio: cab.delivery_address_key,
+        renglones, tope_dia: sw.tope_dia,
+      });
+    } catch (err) {
+      res = { estado: 'rechazado', motivo: (err as Error).message };
+    }
+
+    // 6. Anotar, y soltar el reclamo.
+    if (res.estado !== 'entregado') {
+      const motivo = res.motivos?.length ? `${res.motivo}: ${res.motivos.join(' · ')}` : res.motivo;
+      await this.anotarError(tenantId, id, motivo);
+      throw new BadRequestException({ message: `Kepler no aceptó el pedido: ${res.motivo}`, motivos: res.motivos ?? [] });
+    }
+    await this.tk.run((k) => k.raw(
+      `UPDATE commercial.quotes
+          SET kepler_sucursal = :suc, kepler_folio = :folio, kepler_sent_at = now(), kepler_sent_by = :u,
+              kepler_error = NULL, kepler_sending_at = NULL,
+              status = CASE WHEN status IN ('draft','sent') THEN 'accepted' ELSE status END,
+              accepted_at = CASE WHEN status IN ('draft','sent') THEN now() ELSE accepted_at END,
+              updated_at = now(), updated_by = :u
+        WHERE tenant_id = :t AND id = :id`,
+      { suc: res.kepler.sucursal, folio: res.kepler.folio, u: userId, t: tenantId, id }));
+    this.logger.log(`Cotización ${cab.code} aceptada → Pedido TELEMARK Kepler ${res.kepler.sucursal}/${res.kepler.folio} por ${userId ?? 'system'}`);
+    return { ya_estaba: !!res.ya_estaba, kepler: res.kepler };
+  }
+
+  /** El renglón (sucursal, telemarketing). Sin renglón o sin tabla = APAGADA (falla cerrada). */
+  private async interruptor(tenantId: string, sucursal: string): Promise<{ encendida: boolean; tope_dia: number | null }> {
+    try {
+      const r = await this.tk.run((k) => k('commercial.kepler_push_switch')
+        .where({ tenant_id: tenantId, sucursal, tipo: 'telemarketing' }).first('encendida', 'tope_dia'));
+      return r ? { encendida: !!r.encendida, tope_dia: r.tope_dia === null ? null : Number(r.tope_dia) } : { encendida: false, tope_dia: 1 };
+    } catch (e: unknown) {
+      if ((e as { code?: string })?.code === '42P01') return { encendida: false, tope_dia: 1 };
+      throw e;
+    }
+  }
+
+  private async anotarError(tenantId: string, id: string, motivo: string): Promise<void> {
+    await this.tk.run((k) => k.raw(
+      `UPDATE commercial.quotes SET kepler_error = :m, kepler_sending_at = NULL WHERE tenant_id = :t AND id = :id`,
+      { m: motivo.slice(0, 2000), t: tenantId, id }));
+  }
+}

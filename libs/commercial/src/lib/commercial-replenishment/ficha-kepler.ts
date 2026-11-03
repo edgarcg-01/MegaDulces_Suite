@@ -52,3 +52,19 @@ export function factorFichaKepler(f: FilaFichaKepler): { unidad_base: string | n
   else factor = u2 === null && u3 === null ? 1 : null;
   return { unidad_base: u1, factor };
 }
+
+/**
+ * `[COT.7]` Cuántas unidades base trae la presentación `rotuloPres` según la ficha: 1 si es la
+ * base (`c11`), el factor efectivo de la Unidad Dos (`c80`) o de la Tres (`c83`) si el rótulo es
+ * el suyo, y `null` si la ficha no declara esa presentación. Con la misma regla de factor efectivo
+ * que `factorFichaKepler`. Ej. (01, 2026-11-03): 32008 `CJA` → 14 · 70500 `KG` → 2 · 44415 `PAQ` → 1.
+ */
+export function factorPresentacionFicha(f: FilaFichaKepler, rotuloPres: string | null | undefined): number | null {
+  const p = rotulo(rotuloPres);
+  if (p === null) return null;
+  if (p === rotulo(f.c11)) return 1;
+  const c1 = numero(f.c77);
+  if (p === rotulo(f.c80)) return efectivo(numero(f.c81), numero(f.c78), c1);
+  if (p === rotulo(f.c83)) return efectivo(numero(f.c84), numero(f.c79), c1);
+  return null;
+}

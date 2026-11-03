@@ -21,7 +21,10 @@ import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { SEGUIMIENTO_COMPRA_TABS } from '../seguimiento-compra-tabs';
 
 /** Una sucursal con sus dos tipos lado a lado: es lo que se compara al decidir. */
-interface FilaSucursal { sucursal: string; compra: KeplerSwitchRow; traspaso: KeplerSwitchRow }
+interface FilaSucursal { sucursal: string; compra: KeplerSwitchRow; traspaso: KeplerSwitchRow; telemarketing?: KeplerSwitchRow }
+
+/** Cómo se llama cada tipo en pantalla. */
+const ROTULO: Record<KeplerTipo, string> = { compra: 'Compra', traspaso: 'Traspaso', telemarketing: 'Pedido telemarketing' };
 
 /**
  * `[PQ.20]` **Escritura a Kepler** — encender, apagar y topar sin desplegar.
@@ -49,7 +52,7 @@ interface FilaSucursal { sucursal: string; compra: KeplerSwitchRow; traspaso: Ke
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Escritura a Kepler</h1>
-          <p class="surf-page-sub">Qué sucursales reciben en Kepler las requisiciones que se aprueban en la Suite. El cambio vale en la siguiente aprobación, sin reiniciar nada.</p>
+          <p class="surf-page-sub">Qué sucursales reciben en Kepler las requisiciones que se aprueban y los pedidos de las cotizaciones que se aceptan en la Suite. El cambio vale en el siguiente envío, sin reiniciar nada.</p>
         </div>
       </header>
 
@@ -84,6 +87,11 @@ interface FilaSucursal { sucursal: string; compra: KeplerSwitchRow; traspaso: Ke
               <th scope="col">Orden de compra</th>
               <th scope="col">Traspaso</th>
               <th scope="col" class="comm-num">Tope diario</th>
+              @if (conTelemarketing()) {
+                <!-- [COT.7] La cotización aceptada se arma como Pedido Telemarketing (ADR-113). -->
+                <th scope="col">Pedido telemarketing</th>
+                <th scope="col" class="comm-num">Tope diario</th>
+              }
               <th scope="col">Último cambio</th>
             </tr>
           </ng-template>
@@ -95,7 +103,7 @@ interface FilaSucursal { sucursal: string; compra: KeplerSwitchRow; traspaso: Ke
                   <div class="ke-sw">
                     <p-toggleswitch [ngModel]="f[t].encendida" [disabled]="!puedeCambiar() || guardando() === f.sucursal + t"
                                     (ngModelChange)="cambiar(f[t], $event)"
-                                    [ariaLabel]="(t === 'compra' ? 'Compra' : 'Traspaso') + ' en ' + nombre(f.sucursal)" />
+                                    [ariaLabel]="rotulo(t) + ' en ' + nombre(f.sucursal)" />
                     <span [class.ke-on]="f[t].encendida">{{ f[t].encendida ? 'Escribe' : 'Apagada' }}</span>
                   </div>
                   @if (f[t].encendida && !f[t].configurada) {
@@ -105,7 +113,7 @@ interface FilaSucursal { sucursal: string; compra: KeplerSwitchRow; traspaso: Ke
                 <td class="comm-num">
                   <p-inputnumber [ngModel]="f[t].tope_dia" [min]="1" [useGrouping]="false" placeholder="Sin tope"
                                  [disabled]="!puedeCambiar() || guardando() === f.sucursal + t"
-                                 [ariaLabel]="'Tope diario de ' + t + ' en ' + nombre(f.sucursal)"
+                                 [ariaLabel]="'Tope diario de ' + rotulo(t) + ' en ' + nombre(f.sucursal)"
                                  inputStyleClass="ke-tope" (onBlur)="topar(f[t], $any($event.target).value)"
                                  (keydown.enter)="topar(f[t], $any($event.target).value)" />
                 </td>
@@ -161,7 +169,11 @@ interface FilaSucursal { sucursal: string; compra: KeplerSwitchRow; traspaso: Ke
 })
 export class ComprasKeplerEscrituraComponent implements OnInit {
   readonly apartadoTabs = SEGUIMIENTO_COMPRA_TABS;
-  readonly tipos: KeplerTipo[] = ['compra', 'traspaso'];
+  /** [COT.7] El tercer tipo sólo aparece si la API lo trae: una columna vacía diría «apagado» sin saberlo. */
+  readonly conTelemarketing = computed(() => this.rows().some((r) => r.tipo === 'telemarketing'));
+  get tipos(): KeplerTipo[] {
+    return this.conTelemarketing() ? ['compra', 'traspaso', 'telemarketing'] : ['compra', 'traspaso'];
+  }
   private readonly api = inject(ComprasService);
   private readonly perms = inject(PermissionsService);
   private readonly confirm = inject(ConfirmationService);
@@ -195,14 +207,18 @@ export class ComprasKeplerEscrituraComponent implements OnInit {
     return [
       { label: 'Compra escribe en', value: `${this.encendidas('compra')} de ${n}`, format: 'text', sub: 'sucursales' },
       { label: 'Traspaso escribe en', value: `${this.encendidas('traspaso')} de ${n}`, format: 'text', sub: 'sucursales' },
+      ...(this.conTelemarketing()
+        ? [{ label: 'Pedido telemarketing escribe en', value: `${this.encendidas('telemarketing')} de ${n}`, format: 'text' as const, sub: 'sucursales' }]
+        : []),
       { label: 'Encendidas que rebotan', value: reb, format: 'number', tone: reb ? 'bad' : 'muted', sub: reb ? 'falta configuración en el servidor' : 'ninguna' },
     ];
   });
 
   encendidas(t: KeplerTipo): number { return this.rows().filter((r) => r.tipo === t && r.encendida).length; }
   nombre(s: string): string { return warehouseName(s); }
+  rotulo(t: KeplerTipo): string { return ROTULO[t]; }
   ultimo(f: FilaSucursal): KeplerSwitchRow | null {
-    const c = [f.compra, f.traspaso].filter((r) => r.updated_at);
+    const c = [f.compra, f.traspaso, f.telemarketing].filter((r): r is KeplerSwitchRow => !!r?.updated_at);
     return c.sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)))[0] ?? null;
   }
 

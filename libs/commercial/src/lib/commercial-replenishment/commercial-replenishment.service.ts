@@ -23,7 +23,7 @@ import { ReplenishmentScannerService } from './replenishment-scanner.service';
 import { armarSenales } from './pedido-senales';
 import { AVISO_TRANSITO, POLITICA_TRANSITO, type PoliticaTransito, transitoDescontado, transitoMostrado } from './transito';
 import { mensajeFraccion, renglonesSinUnidadEntera } from './fraccion-caja';
-import { plantillaDe, urlDeServidor } from './kepler-servidores';
+import { plantillaDe, plantillaTlmkDe, urlDeServidor } from './kepler-servidores';
 import { buscarLoteRepetido, mensajeLoteRepetido, type LoteRepetido } from './lote-repetido';
 import { VENTANA_YA_PEDIDO_DIAS } from './ya-pedido-sucursal';
 import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt } from '../shared/freshness';
@@ -5630,10 +5630,12 @@ export class CommercialReplenishmentService {
     const env = process.env;
     const out: Array<Record<string, unknown>> = [];
     for (const s of ['00', '01', '02', '03', '04', '05', '06', '07', '08']) {
-      for (const tipo of ['compra', 'traspaso'] as const) {
+      // `[COT.7]` `telemarketing` = el Pedido TELEMARK desde la cotización aceptada (ADR-113); su
+      // plantilla es otra variable y no tiene default en ningún servidor.
+      for (const tipo of ['compra', 'traspaso', 'telemarketing'] as const) {
         const f = filas.find((x) => x['sucursal'] === s && x['tipo'] === tipo);
         const conUrl = urlDeServidor(s, env).ok;
-        const conPlantilla = plantillaDe(tipo, s, env).ok;
+        const conPlantilla = tipo === 'telemarketing' ? plantillaTlmkDe(s, env).ok : plantillaDe(tipo, s, env).ok;
         out.push({
           sucursal: s, sucursal_nombre: nombre.get(s) ?? null, tipo,
           encendida: f ? !!f['encendida'] : false,
@@ -5654,7 +5656,7 @@ export class CommercialReplenishmentService {
     const tenantId = this.tenantCtx.requireTenantId();
     const userId = this.tenantCtx.get()?.userId ?? null;
     if (!/^0[0-8]$/.test(sucursal)) throw new BadRequestException('Sucursal inválida');
-    if (tipo !== 'compra' && tipo !== 'traspaso') throw new BadRequestException('Tipo inválido: compra o traspaso');
+    if (tipo !== 'compra' && tipo !== 'traspaso' && tipo !== 'telemarketing') throw new BadRequestException('Tipo inválido: compra, traspaso o telemarketing');
     if (typeof dto?.encendida !== 'boolean') throw new BadRequestException('Falta encendida (true/false)');
     const tope = dto.tope_dia === null || dto.tope_dia === undefined ? null : Number(dto.tope_dia);
     if (tope !== null && (!Number.isInteger(tope) || tope < 1)) throw new BadRequestException('El tope es un entero mayor que 0, o vacío para no tener tope');
