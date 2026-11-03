@@ -257,6 +257,17 @@ export class PaymentCalendarDocumentService {
     const sinExterno = conPapel.filter((d) => !d.folio_externo).length;
     const porOcr = conPapel.filter((d) => d.folio_externo_fuente === 'ocr').length;
     const porErp = conPapel.filter((d) => d.folio_externo_fuente === 'erp').length;
+    const conCfdi = conPapel.filter((d) => d.fecha_fuente === 'cfdi').length;
+    // ⛔ El importe del ERP es el que decide. Esto sólo avisa que el comprobante dice otra cosa,
+    // para que una persona lo resuelva ANTES de firmar — no se corrige solo (ADR-056).
+    //
+    // ⚠️ El umbral de UN PESO no es arbitrario y sin él la alerta es ruido. Medido el 2026-11-03
+    // sobre el día completo: con el umbral en un centavo saltaban **10** líneas, y **9 eran
+    // centavos de redondeo** (de 1 a 11 ¢ — Kepler suele traer centavos de menos, el mismo motivo
+    // por el que la cadena de pago de `ERP_KEPLER.md` §3.z.4 casa con ±$1). La única real era una
+    // factura con **$1,228.05 de diferencia (0.4 %)**, y gritar diez veces la habría enterrado.
+    const discrepa = conPapel.filter((d) =>
+      d.importe_cfdi !== null && d.importe !== null && Math.abs(d.importe_cfdi - d.importe) > 1).length;
     const parcial = detalle.filter((d) => d.pendiente !== null && d.se_paga < d.pendiente - 0.005).length;
     const fila = (k: string, v: number | string, nota = '') =>
       `<tr><td>${esc(k)}</td><td class="r"><b>${esc(String(v))}</b></td><td class="nota">${esc(nota)}</td></tr>`;
@@ -269,7 +280,9 @@ export class PaymentCalendarDocumentService {
         ${fila('Sin folio externo legible', sinExterno, 'el papel se busca por folio interno y fecha')}
         ${fila('Folio externo leído por OCR', porOcr, 'no verificado contra el CFDI — cotejar contra el papel')}
         ${fila('Folio externo tecleado en el ERP', porErp, 'lleva el prefijo de captura — cotejar contra el papel')}
+        ${fila('Fecha y folio tomados del CFDI timbrado', conCfdi, 'el dato duro: no hace falta cotejarlo')}
         ${fila('Se paga menos de lo que se debe', parcial, 'pago parcial o descuento: anexar el soporte')}
+        ${discrepa ? fila('ATENCIÓN — el CFDI dice otro importe', discrepa, 'revisar cuál es el bueno antes de pagar') : ''}
         ${saldadas ? fila('ATENCIÓN — el ERP ya no debe este documento', saldadas, 'no se puede pagar: revisar antes de autorizar') : ''}
       </table>`;
   }

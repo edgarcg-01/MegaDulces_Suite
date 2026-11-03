@@ -31,7 +31,8 @@ function linea(over: Partial<ExpedienteLinea> = {}): ExpedienteLinea {
     allocation_id: 'A1', obligation_source: 'kepler_payable', obligation_id: 'O1',
     se_paga: 1000, sucursal: '00', folio_interno: '0009780', folio_externo: 'FDA 56778',
     folio_externo_fuente: 'ocr', orden_compra: '0007005', fecha_recepcion: '2026-09-24',
-    fecha: '2026-09-24', vencimiento: '2026-10-24', importe: 1000, pendiente: 1000,
+    fecha: '2026-09-24', fecha_fuente: 'erp', vencimiento: '2026-10-24',
+    importe: 1000, pendiente: 1000, importe_cfdi: null,
     referencia: '0-F6778', rfc: 'CSA0806034GA', rfc_fuente: 'nombre', rfc_discrepa: null,
     papel: 'pdf', uuid_fiscal: null, saldada: false, ...over,
   };
@@ -196,6 +197,59 @@ describe('[PGP.47] el folio por OCR que no puede ser un folio', () => {
       folio_externo_fuente: 'ninguna', papel: 'pdf', uuid_fiscal: null,
     })]);
     expect(html).not.toContain('8854EC14');
+  });
+});
+
+/**
+ * ⭐ Regla de Edgar (2026-11-03): *«todo lo que se pueda obtener vía CFDI es mejor y siempre
+ * darle prioridad»*. Lo que se prueba acá es dónde SÍ aplica y, sobre todo, **dónde no**.
+ */
+describe('[PGP.47] el CFDI manda sobre el ERP', () => {
+  it('⭐ el control del expediente cuenta cuántas líneas traen el dato timbrado', () => {
+    const html = control([
+      linea({ fecha_fuente: 'cfdi' }), linea({ fecha_fuente: 'cfdi' }), linea({ fecha_fuente: 'erp' }),
+    ]);
+    expect(html).toMatch(/tomados del CFDI timbrado<\/td><td class="r"><b>2<\/b>/);
+  });
+
+  /**
+   * ⛔ El límite de la regla. El importe que decide cuánto se paga es el del ERP: es contra lo
+   * que el acreedor nos tiene registrada la deuda. Una diferencia con el comprobante es un
+   * hallazgo para una persona (11 de 43 líneas), **no una corrección automática** — cambiarlo
+   * solo movería dinero sin que nadie lo haya revisado.
+   */
+  it('⛔ un importe distinto en el CFDI se DECLARA, no se corrige solo', () => {
+    const html = control([linea({ importe: 1000, importe_cfdi: 1160 }), linea({ importe: 1000, importe_cfdi: 1000 })]);
+    expect(html).toMatch(/el CFDI dice otro importe<\/td><td class="r"><b>1<\/b>/);
+    expect(html).toContain('revisar cuál es el bueno antes de pagar');
+  });
+
+  /**
+   * ⛔ El umbral importa tanto como la alerta. Medido el 2026-11-03 sobre el día completo: con el
+   * umbral en un centavo saltaban **10** líneas y **9 eran centavos de redondeo** (1 a 11 ¢); la
+   * única real tenía $1,228.05. Una alerta que suena diez veces por nada entierra la que importa.
+   * Estos cuatro valores son los reales de prod.
+   */
+  it('⛔ los centavos de redondeo de Kepler NO disparan la alerta', () => {
+    const centavos = control([
+      linea({ importe: 11748.86, importe_cfdi: 11748.83 }),   // −3 ¢
+      linea({ importe: 731529.79, importe_cfdi: 731529.81 }), // +2 ¢
+      linea({ importe: 3999.89, importe_cfdi: 4000.0 }),      // +11 ¢, el mayor del día
+    ]);
+    expect(centavos).not.toContain('dice otro importe');
+    // Y la única de verdad sí salta.
+    const real = control([linea({ importe: 288993.54, importe_cfdi: 287765.49 })]);
+    expect(real).toMatch(/el CFDI dice otro importe<\/td><td class="r"><b>1<\/b>/);
+  });
+
+  it('⛔ y la alerta NO aparece cuando todos los importes coinciden', () => {
+    expect(control([linea({ importe: 1000, importe_cfdi: 1000 })])).not.toContain('dice otro importe');
+  });
+
+  it('la tabla publica el importe del ERP, nunca el del comprobante', () => {
+    const html = tabla([pago()], [linea({ importe: 1000, importe_cfdi: 1160 })]);
+    expect(html).toContain('$1,000.00');
+    expect(html).not.toContain('$1,160.00');
   });
 });
 

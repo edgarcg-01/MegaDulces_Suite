@@ -298,15 +298,29 @@ export interface ExpedienteLinea {
   /** Folio de la orden de compra que originó la entrada. Medido: 100 de 142 con comprobante. */
   orden_compra: string | null;
   fecha_recepcion: string | null;
+  /**
+   * La fecha de la factura. ⭐ **Del CFDI cuando está identificado**, porque `kdxe.c7` es cuándo
+   * se registró la cuenta por pagar y no cuándo se emitió el comprobante: medido el 2026-11-03,
+   * **difieren en 39 de 43 líneas (91 %)**, hasta 179 días. La que está impresa en el papel que
+   * se archiva es la del CFDI.
+   */
   fecha: string | null;
+  fecha_fuente: 'cfdi' | 'erp' | 'ninguna' | null;
   vencimiento: string | null;
-  /** Importe original del documento y lo que todavía se debe de él. */
+  /** Importe original del documento y lo que todavía se debe de él. **El del ERP**, siempre. */
   importe: number | null;
   pendiente: number | null;
+  /**
+   * Lo que dice el comprobante timbrado, **sólo para contrastar** (11 de 43 difieren del ERP).
+   * ⛔ No reemplaza a `importe`: el que decide cuánto se paga es el del ERP, que es contra lo que
+   * el acreedor nos tiene registrada la deuda. Una diferencia es un hallazgo para una persona.
+   */
+  importe_cfdi: number | null;
   /** `kdxe.c16`, captura MANUAL. No es el folio del proveedor: ver `detalleExpediente`. */
   referencia: string | null;
+  /** ⭐ Del emisor del CFDI cuando está identificado; si no, el que resolvió la vista. */
   rfc: string | null;
-  rfc_fuente: 'kepler' | 'nombre' | 'ninguna' | null;
+  rfc_fuente: 'cfdi' | 'kepler' | 'nombre' | 'ninguna' | null;
   /** Lo que Kepler tiene capturado cuando CONTRADICE al comprobante timbrado (ADR-108). */
   rfc_discrepa: string | null;
   /** Qué papel existe hoy. `no_aplica` = no hay factura del ERP detrás (obligación propia). */
@@ -1242,6 +1256,18 @@ export class PaymentCalendarService {
           trx.raw(`CASE WHEN nullif(btrim(c.folio), '') IS NULL THEN NULL
                         WHEN nullif(btrim(c.serie), '') IS NULL THEN btrim(c.folio)
                         ELSE btrim(c.serie) || '-' || btrim(c.folio) END AS folio_cfdi`),
+          // ⭐ Todo lo que el CFDI tenga, MANDA sobre el ERP (Edgar, 2026-11-03). Medido sobre las
+          // 43 líneas con CFDI identificado: la fecha difiere en **39 (91 %)**, hasta 179 días,
+          // porque `kdxe.c7` es cuándo se REGISTRÓ la cuenta por pagar y `cfdis.fecha` es cuándo
+          // se EMITIÓ la factura — y la que está impresa en el papel que se archiva es la segunda.
+          // El RFC del emisor coincide con el de la vista en 41 de 43, pero 38 los había resuelto
+          // por NOMBRE: tomarlo del comprobante timbrado lo vuelve verificable.
+          // ⛔ El importe NO se reemplaza: el que decide cuánto se paga es el del ERP, que es
+          // contra lo que se debe. Se trae sólo para DECLARAR cuando el CFDI dice otra cosa
+          // (11 de 43), que es un hallazgo y no una corrección automática.
+          trx.raw(`c.fecha::date AS fecha_cfdi`),
+          trx.raw(`nullif(btrim(c.emisor_rfc), '') AS rfc_cfdi`),
+          trx.raw(`c.total AS importe_cfdi`),
           trx.raw(`nullif(btrim(p.ocr_folio), '') AS folio_ocr`),
           trx.raw(`nullif(btrim(p.oc_folio), '') AS orden_compra`),
           'p.receipt_date as fecha_recepcion',
@@ -1288,11 +1314,23 @@ export class PaymentCalendarService {
             : folioCfdi ? 'cfdi' : folioOcr ? 'ocr' : folioErp ? 'erp' : 'ninguna',
           orden_compra: propia ? null : ((r['orden_compra'] as string | null) ?? null),
           fecha_recepcion: propia ? null : dia(r['fecha_recepcion']),
-          fecha: dia(r['fecha']), vencimiento: dia(r['vencimiento']),
+          // ⭐ El CFDI manda. `kdxe.c7` es cuándo se registró la cuenta por pagar; la fecha del
+          // comprobante timbrado es cuándo se emitió la factura, que es la que está impresa en
+          // el papel. Difieren en 39 de 43 líneas identificadas (hasta 179 días).
+          fecha: (propia ? null : dia(r['fecha_cfdi'])) ?? dia(r['fecha']),
+          fecha_fuente: propia ? null : (dia(r['fecha_cfdi']) ? 'cfdi' : dia(r['fecha']) ? 'erp' : 'ninguna'),
+          vencimiento: dia(r['vencimiento']),
+          // ⛔ Se DECLARA, no se corrige: el importe que decide cuánto se paga sigue siendo el del
+          // ERP. Esto sólo expone que el comprobante dice otra cosa (11 de 43 líneas).
+          importe_cfdi: propia ? null : num(r['importe_cfdi']),
           importe: num(r['importe']), pendiente: num(r['pendiente']),
           referencia: (r['referencia'] as string | null) ?? null,
-          rfc: propia ? null : ((r['rfc'] as string | null) ?? null),
-          rfc_fuente: propia ? null : ((r['rfc_fuente'] as ExpedienteLinea['rfc_fuente']) ?? null),
+          // ⭐ El emisor del comprobante timbrado gana sobre lo que el ERP tenga capturado o sobre
+          // un cruce por nombre: coincide con el de la vista en 41 de 43, pero 38 de esos 43 los
+          // había resuelto POR NOMBRE — tomarlo del CFDI los vuelve verificables.
+          rfc: propia ? null : ((r['rfc_cfdi'] as string | null) ?? (r['rfc'] as string | null) ?? null),
+          rfc_fuente: propia ? null
+            : r['rfc_cfdi'] ? 'cfdi' : ((r['rfc_fuente'] as ExpedienteLinea['rfc_fuente']) ?? null),
           rfc_discrepa: propia ? null : ((r['rfc_discrepa'] as string | null) ?? null),
           // ⛔ `no_aplica` NO es `ninguna`: una obligación propia no tiene factura del ERP detrás,
           // y contarla como «sin papel» inflaría lo que hay que ir a buscar al archivo (ADR-056).
