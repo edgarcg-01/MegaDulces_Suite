@@ -233,6 +233,32 @@ export interface SugerenciaKepler {
   unico?: boolean;
 }
 /**
+ * `[PGP.47]` **Un folio leído por OCR que no puede ser un folio.**
+ *
+ * ⛔ Se descubrió MIRANDO EL PAPEL, no con una compuerta: el renglón de BOTANAS Y CEREALES DE
+ * ZAMORA publicaba como «folio externo» el texto `ABF3D7B3-0A61-42C3-8BFF-B871 3C62924B`. El OCR
+ * del comprobante a veces lee el **UUID fiscal** y lo guarda en `ocr_folio`.
+ *
+ * Medido el 2026-11-03 sobre los 35 folios por OCR del día: **5 son ilegibles (14.3 %)** — cuatro
+ * UUID y un `-1649` cortado. Los otros 30 son folios de verdad (`F963114`, `AE 263061`,
+ * `FDA 56779`), así que tirar el OCR entero costaría más de lo que ahorra: la cobertura del folio
+ * externo caería del 74.3 % al 16 %.
+ *
+ * Lo que NO se hace: moverlo a `uuid_fiscal`. Ese campo afirma que el UUID está **casado** con el
+ * documento, y una lectura de una foto no lo está. La línea queda «sin folio externo legible»,
+ * que el control del expediente ya cuenta y explica (ADR-056: se declara, no se rellena).
+ */
+export function folioExternoLegible(leido: string | null | undefined): string | null {
+  const s = String(leido ?? '').trim();
+  if (!s) return null;
+  // Un UUID es el folio FISCAL, no el folio. Se admiten los que el OCR parte con espacios.
+  if (/^[0-9a-f]{8}[\s-]+[0-9a-f-\s]{20,}$/i.test(s) && s.replace(/[^0-9a-f]/gi, '').length >= 30) return null;
+  if (!/^[0-9A-Za-z]/.test(s)) return null;        // `-1649`: lectura cortada por delante.
+  if (s.length > 24) return null;                   // ninguna factura numera así de largo.
+  return s;
+}
+
+/**
  * `[PGP.47]` **Una línea del expediente**: una factura de un pago, con lo que hace falta para
  * hallar su papel en el archivo. Vive acá y no en `libs/contracts` porque todavía no cruza la
  * frontera HTTP — la consume el PDF del Calendario, en esta misma lib. Si una pantalla la
@@ -1226,7 +1252,7 @@ export class PaymentCalendarService {
         // 142) pero es una lectura automática de una foto, y quien archiva tiene que saber cuál
         // de las dos está leyendo antes de darle crédito (ADR-056).
         const folioCfdi = (r['folio_cfdi'] as string | null) ?? null;
-        const folioOcr = (r['folio_ocr'] as string | null) ?? null;
+        const folioOcr = folioExternoLegible(r['folio_ocr'] as string | null);
         return {
           allocation_id: String(r['allocation_id']),
           obligation_source: r['obligation_source'] as ObligationSource,

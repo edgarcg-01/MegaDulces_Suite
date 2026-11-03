@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { PaymentCalendarDocumentService } from './payment-calendar-document.service';
-import type { ExpedienteLinea } from './payment-calendar.service';
+import { folioExternoLegible, type ExpedienteLinea } from './payment-calendar.service';
 
 /**
  * `[PGP.47]` **El desglose por factura del Preliminar.**
@@ -99,6 +99,43 @@ describe('[PGP.47] el desglose por factura', () => {
     expect(html).toContain('1-ene');
     expect(html).not.toContain('24-oct');
     expect(html).not.toContain('31-dic');
+  });
+});
+
+/**
+ * ⛔ Estos cinco valores NO son inventados: son **los cinco folios ilegibles** que el OCR había
+ * guardado entre los 35 del 2026-11-03, y que el papel publicaba como si fueran folios. Se
+ * encontraron mirando el documento generado con datos de prod, no con una compuerta.
+ */
+describe('[PGP.47] el folio por OCR que no puede ser un folio', () => {
+  const ILEGIBLES = [
+    '39B08600-96BE-47A1-9AEE-DB40D50F32E',
+    'F940276-202040-400D-8CDF-0259B03-B34E',
+    '8854EC14-2D3C-4C3A-81B8-8BCFFC90D179',
+    'ABF3D7B3-0A61-42C3-8BFF-B871 3C62924B',
+    '-1649',
+  ];
+  const FOLIOS = ['F963114', 'AE 263061', 'FDA 56779', 'XA2001-0000130', '0414970', '31453'];
+
+  it('⛔ los cinco ilegibles de prod se descartan, uno por uno', () => {
+    for (const s of ILEGIBLES) expect(folioExternoLegible(s), s).toBeNull();
+  });
+
+  it('⭐ y NINGUNO de los folios reales se pierde en el camino', () => {
+    for (const s of FOLIOS) expect(folioExternoLegible(s), s).toBe(s);
+  });
+
+  it('el vacío y el nulo salen como nulo, no como cadena vacía', () => {
+    expect(folioExternoLegible(null)).toBeNull();
+    expect(folioExternoLegible('   ')).toBeNull();
+  });
+
+  it('⛔ un UUID leído por OCR NO se promueve a uuid_fiscal: no está casado con el documento', () => {
+    const html = tabla([pago()], [linea({
+      folio_externo: folioExternoLegible('8854EC14-2D3C-4C3A-81B8-8BCFFC90D179'),
+      folio_externo_fuente: 'ninguna', papel: 'pdf', uuid_fiscal: null,
+    })]);
+    expect(html).not.toContain('8854EC14');
   });
 });
 
