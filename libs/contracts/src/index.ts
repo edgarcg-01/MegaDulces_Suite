@@ -46,6 +46,8 @@ export * from './money/veredicto-cuadre';
 export * from './work/excepciones-movimientos.contract';
 // [MX.1.8] Existencia en negativo: causa que el dato prueba, «dónde», motivos y reapertura.
 export * from './work/existencia-negativa.contract';
+// [MX.1.9] El kardex de un producto en negativo: saldo corrido, día de cruce y pistas.
+export * from './work/kardex-negativo.contract';
 // [CG.38] El cambio en Caja General: todo acto tiene una pila que ENTRA y otra que SALE, y el
 // neto es la resta. Un canje cuyas dos mitades no coinciden es un descuadre, no un canje.
 export * from './work/caja-cambio.contract';

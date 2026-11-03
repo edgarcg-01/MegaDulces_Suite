@@ -2,9 +2,10 @@ import type { Knex } from 'knex';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, ScopeService, branchKeySql, todayMx } from '@megadulces/platform-core';
 import {
-  CAUSAS_ACTIVAS, clasificarNegativo, describirNegativo, ordenarNegativos, reaperturaNegativo, validarResolucionNegativo,
+  CAUSAS_ACTIVAS, DOCS_AGRUPADOS_POR_CAJA, analizarKardex, clasificarNegativo, describirNegativo, ordenarNegativos,
+  reaperturaNegativo, recortarKardex, validarResolucionNegativo,
   type CausaNegativo, type EstadoNegativo, type ExistenciaNegativaItem, type ExistenciaNegativaResponse,
-  type MotivoNegativo, type ResolucionNegativo,
+  type KardexNegativoResponse, type MotivoNegativo, type MovimientoKardex, type ResolucionNegativo,
 } from '@megadulces/contracts';
 
 /**
@@ -262,6 +263,81 @@ export class NegativeStockService {
           deleted_by: ctx?.userId && UUID_RX.test(ctx.userId) ? ctx.userId : null,
         });
       return { reabierta: n > 0 };
+    });
+  }
+
+  /**
+   * `[MX.2.9]` El kardex de un producto en una sucursal, con saldo corrido, día de cruce y pistas
+   * (`analizarKardex`, MX.1.9). Lee `kdm2` en vivo: es UN producto, no un dataset, así que no lleva vista.
+   *
+   * ⚠️ Cuatro ramas UNION ALL a propósito: `kdm2` no tiene un índice por SKU para todos los géneros, sólo
+   * parciales (U-D, U-A, X-A). En una sola consulta el planeador recorre la sucursal entera por la llave
+   * primaria (Morelia Abastos/96868: 6.7 M renglones, 3.3 s). Cada rama con su filtro cae en su índice
+   * parcial: 11–205 ms en el servidor (medido 2026-11-03); N y X-D (~157 k renglones) van por la llave.
+   * Paridad: el kardex suma lo mismo que Kepler en 286 de 300 negativos activos; los 14 que no, todos
+   * en CEDIS y La Piedad Abastos — se declara (`cuadra: false`) y no se calculan cruce ni pistas.
+   */
+  async kardex(q: { warehouse_id?: string; sku?: string }): Promise<KardexNegativoResponse> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const sku = (q.sku ?? '').trim();
+    if (!UUID_RX.test(q.warehouse_id ?? '') || !sku || sku.length > 40) throw new BadRequestException('Falta la sucursal o el producto.');
+    await this.assertEnAlcance(tenantId, q.warehouse_id as string);
+    const t0 = Date.now();
+    return this.tk.run(tenantId, async (trx) => {
+      const w = await trx('commercial.warehouses').where({ tenant_id: tenantId, id: q.warehouse_id }).first('kepler_code', 'name');
+      if (!w?.kepler_code) throw new BadRequestException('Esa sucursal no tiene código de Kepler.');
+      const suc: string = w.kepler_code;
+      const [ex, prod] = await Promise.all([
+        trx.raw(`SELECT coalesce(sum(c4 + c8 - c9), 0)::float8 AS e FROM kepler_ods.kdil
+                  WHERE sucursal = ? AND c1 = ? AND btrim(c3) = ?`, [suc, suc, sku]),
+        trx('catalog.products').where({ tenant_id: tenantId }).whereRaw('sku::text = ?', [sku]).whereNull('deleted_at').first('nombre'),
+      ]);
+      const existencia = Number(ex.rows[0]?.e ?? 0);
+      const rama = (filtro: string) => `
+        SELECT c2, c3, c4, c5, c6, c9, c13, c32, c55, c58 FROM kepler_ods.kdm2
+         WHERE ${filtro} AND btrim(c8) = ? AND sucursal = ? AND c1 = ?`;
+      const { rows } = await trx.raw(`
+        WITH doc AS (
+          -- kdmm repite el catálogo: un nombre por tipo y subtipo, el menor
+          SELECT DISTINCT ON (c1, c2, c3::int, c4::int) c1 AS gen, c2 AS nat, c3::int AS tipo, c4::int AS sub, btrim(c5) AS nombre
+            FROM kepler_ods.kdmm
+           WHERE sucursal = ? AND c8 = 'S'
+           ORDER BY c1, c2, c3::int, c4::int, btrim(c5)
+        ), lin AS (
+          ${rama(`c2 = 'U' AND c3 = 'D'`)}
+          UNION ALL ${rama(`c2 = 'U' AND c3 = 'A'`)}
+          UNION ALL ${rama(`c2 = 'X' AND c3 = 'A'`)}
+          UNION ALL ${rama(`c2 IN ('N', 'X') AND NOT (c2 = 'X' AND c3 = 'A')`)}
+        ), mov AS (
+          SELECT m.c32::date AS dia, m.c2 AS gen, m.c3 AS nat, m.c4::int AS tipo, m.c5::int AS sub, btrim(m.c6) AS folio,
+                 d.nombre, nullif(btrim(m.c55), '') AS unidad, nullif(btrim(m.c58), '')::numeric AS factor,
+                 CASE WHEN m.c3 = 'A' THEN m.c9 ELSE -m.c9 END::numeric AS q, m.c13::numeric AS importe
+            FROM lin m
+            JOIN doc d ON d.gen = m.c2 AND d.nat = m.c3 AND d.tipo = m.c4::int AND d.sub = m.c5::int
+        ), agr AS (
+          SELECT dia, gen || '-' || nat || '-' || tipo AS doc, sub, min(nombre) AS nombre,
+                 CASE WHEN gen || '-' || nat || '-' || tipo = ANY (?::text[]) THEN NULL ELSE folio END AS folio,
+                 count(DISTINCT folio)::int AS documentos, sum(q) AS piezas, sum(importe) AS importe, unidad, factor
+            FROM mov
+           GROUP BY 1, 2, 3, 5, unidad, factor
+        )
+        SELECT to_char(dia, 'YYYY-MM-DD') AS dia, doc, sub, nombre, folio, documentos,
+               piezas::float8 AS piezas, importe::float8 AS importe, unidad, factor::float8 AS factor
+          FROM agr
+         -- las entradas del día antes que sus salidas: el cruce nunca se fecha antes de tiempo
+         ORDER BY dia, (piezas < 0), doc, sub, folio NULLS FIRST, unidad`,
+      [suc, sku, suc, suc, sku, suc, suc, sku, suc, suc, sku, suc, suc, [...DOCS_AGRUPADOS_POR_CAJA]]);
+
+      const movs = rows as MovimientoKardex[];
+      const a = analizarKardex(movs, existencia);
+      const r = recortarKardex(a);
+      this.logger.log(`kardex ${suc}/${sku}: ${movs.length} renglones, cuadra=${a.cuadra}, ${a.pistas.length} pistas, ${Date.now() - t0} ms`);
+      return {
+        ...a,
+        warehouse_id: q.warehouse_id as string, sucursal: w.name, sku, producto: prod?.nombre ?? null,
+        existencia_kepler: existencia, desde: movs[0]?.dia ?? null,
+        renglones: r.renglones, saldo_inicial: r.saldo_inicial, renglones_omitidos: r.omitidos,
+      };
     });
   }
 

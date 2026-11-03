@@ -692,6 +692,29 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       },
     ],
   },
+  'almacen-kardex-negativo': {
+    title: 'Kardex del producto — guía',
+    intro: 'Los movimientos de Kepler de este producto en esta sucursal, con el saldo después de cada uno. Sirve para encontrar cuándo y por qué quedó en negativo. Las pistas son evidencia, no un veredicto: lo que pasó lo confirma quien revisa.',
+    groups: [
+      {
+        heading: 'Cómo leerlo',
+        entries: [
+          { term: 'Saldo', def: 'La existencia después de ese movimiento. En rojo, cuando está en negativo.' },
+          { term: 'Cayó a negativo', def: 'El día en que empezó la racha negativa actual. Lo que salió desde ese día salió sin existencia registrada.' },
+          { term: 'Tickets de mostrador', def: 'Se agrupan por día y caja (Ticket Contado Caja 2 · 3 tickets), separados por unidad.' },
+          { term: 'Control', def: 'Los movimientos tienen que sumar lo mismo que la existencia de Kepler. Si no suman igual, la pantalla lo dice y no calcula el día de cruce ni las pistas.' },
+        ],
+      },
+      {
+        heading: 'Pistas',
+        entries: [
+          { term: 'Unidad o factor', def: 'Ventas que descontaron muchas más piezas de las que cobraron, o entradas que sumaron menos de las que se pagaron, comparadas con el precio de siempre del producto. Suele ser una caja capturada como pieza o un factor mal puesto. Dice en cuánto quedaría la existencia sin ese error.' },
+          { term: 'Entrada tardía', def: 'Ya estuvo en negativo antes y se corrigió sola cuando entró mercancía: señal de que se vende antes de capturar la entrada.' },
+          { term: 'Último conteo', def: 'Si cayó a negativo después del último conteo físico, la diferencia está en lo que se capturó desde ese conteo.' },
+        ],
+      },
+    ],
+  },
   'almacen-movimientos': {
     title: 'Diario de movimientos — guía',
     intro: 'Entradas y salidas de inventario por día (mejora del reporte de Kepler). Abre un día para ver sus documentos, y un documento para validar contra su contraparte. La pestaña "Cuadre de traspasos" concilia que cada salida entre sucursales tenga su recepción. Es sólo lectura: no mueve inventario ni se audita aquí — las diferencias se resuelven en Incidencias.',

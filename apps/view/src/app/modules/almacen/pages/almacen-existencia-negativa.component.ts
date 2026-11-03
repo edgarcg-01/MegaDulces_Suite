@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, injec
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { Subject, debounceTime } from 'rxjs';
+import { Subject, debounceTime, type Subscription } from 'rxjs';
 import { TableModule, type TableLazyLoadEvent } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { ButtonModule } from 'primeng/button';
@@ -13,7 +13,8 @@ import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import {
   diaCorto, ETIQUETA_CAUSA_NEGATIVO, ETIQUETA_REAPERTURA, MOTIVOS_EXISTENCIA_NEGATIVA, validarResolucionNegativo,
-  type CausaNegativo, type ExistenciaNegativaItem, type ExistenciaNegativaResponse, type MotivoNegativo,
+  type CausaNegativo, type ExistenciaNegativaItem, type ExistenciaNegativaResponse, type KardexNegativoResponse,
+  type MotivoNegativo, type TipoPista,
 } from '@megadulces/contracts';
 import { AlmacenMovimientosService } from '../almacen-movimientos.service';
 import { AuthService } from '../../../core/services/auth.service';
@@ -28,6 +29,9 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
 
 const SEVERIDAD: Record<CausaNegativo, 'danger' | 'warn' | 'secondary'> = {
   entrada_sin_aplicar: 'warn', salio_sin_existencia: 'danger', rezago: 'secondary',
+};
+const ICONO_PISTA: Record<TipoPista, string> = {
+  unidad: 'pi-exclamation-triangle', entrada_tardia: 'pi-history', conteo: 'pi-calendar', sin_conteo: 'pi-question-circle',
 };
 const ETIQUETA_MOTIVO = new Map(MOTIVOS_EXISTENCIA_NEGATIVA.map((m) => [m.codigo, m.etiqueta]));
 type Vista = '' | CausaNegativo | 'resueltas';
@@ -130,7 +134,7 @@ type Vista = '' | CausaNegativo | 'resueltas';
       </p-table>
     </app-load-state>
 
-    <app-side-peek [open]="!!abierta()" (openChange)="$event ? null : cerrar()" [width]="560"
+    <app-side-peek [open]="!!abierta()" (openChange)="$event ? null : cerrar()" [width]="640"
                    [title]="abierta()?.producto || abierta()?.sku || ''" [subtitle]="subtitulo()">
       @if (abierta(); as f) {
         <section class="neg-peek" aria-labelledby="neg-donde-h">
@@ -139,7 +143,7 @@ type Vista = '' | CausaNegativo | 'resueltas';
           @if (f.causa === 'entrada_sin_aplicar') {
             <p class="neg-peek-meta">Se corrige en Kepler aplicando la orden de entrada {{ f.vale!.folios.length > 1 ? 'de los vales' : 'del vale' }} {{ f.vale!.folios.join(', ') }}.</p>
           } @else if (f.causa === 'salio_sin_existencia') {
-            <p class="neg-peek-meta">El dato no dice por qué: puede ser una venta con otra clave, una entrada que nunca se capturó o un faltante real. Eso es lo que se averigua.</p>
+            <p class="neg-peek-meta">El dato no dice por qué: puede ser una venta con otra clave, una entrada que nunca se capturó, una unidad mal capturada o un faltante real. El kardex de abajo dice cuándo cayó y qué lo movió.</p>
           }
           <dl class="neg-datos">
             <dt>Existencia en Kepler</dt><dd>{{ f.existencia | number:'1.0-2' }} pz</dd>
@@ -147,6 +151,59 @@ type Vista = '' | CausaNegativo | 'resueltas';
             <dt>Última entrada</dt><dd>{{ dia(f.ult_entrada) }}</dd>
             <dt>Última salida</dt><dd>{{ dia(f.ult_salida) }}</dd>
           </dl>
+        </section>
+
+        <section class="neg-peek-sec" aria-labelledby="neg-kx-h" [attr.aria-busy]="kardexCargando()">
+          <h3 id="neg-kx-h" class="neg-peek-h">Qué dice el kardex <app-context-help topic="almacen-kardex-negativo" /></h3>
+          @if (kardexCargando()) {
+            <p class="neg-peek-meta" role="status">Leyendo los movimientos de Kepler…</p>
+          } @else if (kardexError()) {
+            <p class="neg-err" role="alert">{{ kardexError() }}</p>
+            <button pButton type="button" class="p-button-sm p-button-text" (click)="cargarKardex(f)"><span class="p-button-label">Reintentar</span></button>
+          } @else if (kardex(); as k) {
+            @if (!k.cuadra) {
+              <p class="neg-err">El kardex no cuadra con Kepler: los movimientos suman {{ k.existencia_kepler + k.diferencia | number:'1.0-2' }} pz y Kepler marca {{ k.existencia_kepler | number:'1.0-2' }}. Con el kardex incompleto no se calcula el día de cruce ni las pistas; los movimientos se muestran tal cual.</p>
+            } @else {
+              @if (k.cruce) {
+                <p class="neg-peek-frase-sm">Cayó a negativo el {{ dia(k.cruce.dia) }} (venía de {{ k.cruce.saldo_antes | number:'1.0-2' }} pz).</p>
+              }
+              @if (k.pistas.length) {
+                <ul class="neg-pistas" aria-label="Pistas">
+                  @for (p of k.pistas; track $index) {
+                    <li [class.neg-pista-fuerte]="p.tipo === 'unidad'"><i class="pi" [ngClass]="iconoPista(p.tipo)" aria-hidden="true"></i><span>{{ p.texto }}</span></li>
+                  }
+                </ul>
+              }
+              @if (k.salidas_desde_cruce.length) {
+                <p-table [value]="k.salidas_desde_cruce" size="small" class="surf-table surf-table--plain neg-mini">
+                  <ng-template #caption><span class="neg-peek-meta">Lo que salió desde que cruzó</span></ng-template>
+                  <ng-template #header><tr><th>Documento</th><th class="comm-num">Piezas</th><th class="comm-num">Importe</th></tr></ng-template>
+                  <ng-template #body let-s>
+                    <tr><td>{{ s.nombre }} <span class="neg-tenue-i">· {{ s.documentos }} doc.</span></td>
+                      <td class="comm-num">{{ s.piezas | number:'1.0-2' }}</td><td class="comm-num">{{ dinero(s.importe) }}</td></tr>
+                  </ng-template>
+                </p-table>
+              }
+              <p class="neg-tenue">Control: los movimientos suman {{ k.existencia_kepler | number:'1.0-2' }} pz, lo mismo que Kepler.</p>
+            }
+            @if (k.renglones_omitidos) {
+              <p class="neg-tenue">{{ k.renglones_omitidos | number }} movimientos anteriores no se muestran; arranca con saldo {{ k.saldo_inicial | number:'1.0-2' }} pz.</p>
+            }
+            <p-table [value]="k.renglones" size="small" [scrollable]="true" scrollHeight="20rem" class="surf-table surf-table--plain surf-table--sticky neg-kardex">
+              <ng-template #header><tr><th>Día</th><th>Documento</th><th class="comm-num">Piezas</th><th class="comm-num">Saldo</th></tr></ng-template>
+              <ng-template #body let-r>
+                <tr>
+                  <td class="neg-nowrap">{{ dia(r.dia) }}</td>
+                  <td>{{ r.nombre }}{{ r.folio ? ' ' + r.folio : '' }}
+                    @if (!r.folio && r.documentos > 1) { <span class="neg-tenue-i">· {{ r.documentos }} tickets</span> }
+                    @if (r.unidad) { <span class="neg-tenue-i">· {{ r.unidad }}{{ r.factor ? ' ×' + r.factor : '' }}</span> }
+                  </td>
+                  <td class="comm-num">{{ r.piezas > 0 ? '+' : '' }}{{ r.piezas | number:'1.0-2' }}</td>
+                  <td class="comm-num" [class.neg-saldo-neg]="r.saldo < 0">{{ r.saldo | number:'1.0-2' }}</td>
+                </tr>
+              </ng-template>
+            </p-table>
+          }
         </section>
 
         <section class="neg-peek-resolver" aria-labelledby="neg-res-h">
@@ -211,6 +268,16 @@ type Vista = '' | CausaNegativo | 'resueltas';
     .neg-datos { display: grid; grid-template-columns: auto 1fr; gap: var(--sp-1) var(--sp-3); margin: var(--sp-3) 0 0; font-size: var(--fs-sm); }
     .neg-datos dt { color: var(--text-muted); }
     .neg-datos dd { margin: 0; color: var(--text-main); font-variant-numeric: tabular-nums; }
+    .neg-peek-sec { margin-top: var(--sp-4); padding-top: var(--sp-3); border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: var(--sp-2); }
+    .neg-peek-sec .neg-peek-h { display: inline-flex; align-items: center; gap: var(--sp-1); }
+    .neg-pistas { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); font-size: var(--fs-sm); color: var(--text-main); }
+    .neg-pistas li { display: grid; grid-template-columns: 1rem 1fr; gap: var(--sp-2); align-items: start; }
+    .neg-pistas .pi { margin-top: .2rem; color: var(--text-muted); }
+    .neg-pista-fuerte { font-weight: 600; }
+    .neg-pista-fuerte .pi { color: var(--warn-fg); }
+    .neg-tenue-i { font-size: var(--fs-xs); color: var(--text-muted); }
+    .neg-nowrap { white-space: nowrap; }
+    .neg-saldo-neg { color: var(--bad-fg); font-weight: 600; }
     .neg-peek-resolver { margin-top: var(--sp-4); padding-top: var(--sp-3); border-top: 1px solid var(--border-color); }
     .neg-form { display: flex; flex-direction: column; gap: var(--sp-1); margin-top: var(--sp-2); }
     .neg-label { font-size: var(--fs-xs); color: var(--text-muted); margin-top: var(--sp-2); }
@@ -247,6 +314,10 @@ export class AlmacenExistenciaNegativaComponent implements OnInit {
   private readonly busqueda$ = new Subject<string>();
 
   readonly abierta = signal<ExistenciaNegativaItem | null>(null);
+  readonly kardex = signal<KardexNegativoResponse | null>(null);
+  readonly kardexCargando = signal(false);
+  readonly kardexError = signal<string | null>(null);
+  private kardexSub: Subscription | null = null;
   readonly guardando = signal(false);
   private readonly motivoSig = signal<MotivoNegativo | null>(null);
   private readonly notaSig = signal('');
@@ -347,9 +418,22 @@ export class AlmacenExistenciaNegativaComponent implements OnInit {
     this.abierta.set(f);
     this.motivoSel = null;
     this.nota = '';
+    this.cargarKardex(f);
   }
 
-  cerrar(): void { this.abierta.set(null); }
+  /** El kardex se pide al abrir el caso: es lo primero con lo que se investiga, no un clic más. */
+  cargarKardex(f: ExistenciaNegativaItem): void {
+    this.kardexSub?.unsubscribe();
+    this.kardex.set(null); this.kardexError.set(null); this.kardexCargando.set(true);
+    this.kardexSub = this.api.negativeKardex(f.warehouse_id, f.sku).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (k) => { this.kardex.set(k); this.kardexCargando.set(false); },
+      error: () => { this.kardexCargando.set(false); this.kardexError.set('No se pudo leer el kardex de Kepler.'); },
+    });
+  }
+
+  cerrar(): void { this.kardexSub?.unsubscribe(); this.abierta.set(null); }
+
+  iconoPista(t: TipoPista): string { return ICONO_PISTA[t]; }
 
   resolver(): void {
     const f = this.abierta(); const m = this.motivoSig();

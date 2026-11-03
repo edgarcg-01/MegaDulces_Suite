@@ -11,7 +11,7 @@ import { environment } from '../../../environments/environment';
 import type {
   DetalleIncidenciaMovimiento, DocRef, ExcepcionMovimiento, ExcepcionMovimientoItem, MotivoResolucion, MovimientosExcepcionesResponse,
   ResolucionIncidencia, UnidadImporte,
-  CausaNegativo, EstadoNegativo, ExistenciaNegativaResponse, MotivoNegativo, ResolucionNegativo,
+  CausaNegativo, EstadoNegativo, ExistenciaNegativaResponse, KardexNegativoResponse, MotivoNegativo, ResolucionNegativo,
 } from '@megadulces/contracts';
 export type GroupBy = 'product' | 'doc_code' | 'day' | 'warehouse';
 /** 'info' = documento informativo (k_binv=0, ej. Aplicación de orden de entrada): no mueve inventario. */
@@ -401,6 +401,11 @@ export class AlmacenMovimientosService {
   /** [MX.2.8] Resolver con motivo: el servidor guarda la existencia de HOY en Kepler, no la de la pantalla. */
   resolveNegative(warehouse_id: string, sku: string, motivo: MotivoNegativo, nota: string | null): Observable<ResolucionNegativo> {
     return this.http.post<ResolucionNegativo>(`${this.base}/negative-stock/resolve`, { warehouse_id, sku, motivo, nota });
+  }
+  /** [MX.2.9] Kardex de un producto en una sucursal: saldo corrido, día en que cruzó a negativo y pistas. */
+  negativeKardex(warehouse_id: string, sku: string): Observable<KardexNegativoResponse> {
+    const p = new HttpParams().set('warehouse_id', warehouse_id).set('sku', sku);
+    return this.http.get<KardexNegativoResponse>(`${this.base}/negative-stock/kardex`, { params: p });
   }
   /** [MX.2.8] Reabrir una existencia negativa resuelta. */
   reopenNegative(warehouse_id: string, sku: string): Observable<{ reabierta: boolean }> {

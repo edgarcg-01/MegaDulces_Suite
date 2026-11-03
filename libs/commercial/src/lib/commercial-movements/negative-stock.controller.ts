@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
-import type { CausaNegativo, EstadoNegativo, ExistenciaNegativaResponse, ResolucionNegativo } from '@megadulces/contracts';
+import type { CausaNegativo, EstadoNegativo, ExistenciaNegativaResponse, KardexNegativoResponse, ResolucionNegativo } from '@megadulces/contracts';
 import { NegativeStockService } from './negative-stock.service';
 
 /**
@@ -33,6 +33,13 @@ export class NegativeStockController {
       page: raw.page ? Number(raw.page) : undefined,
       pageSize: raw.pageSize ? Number(raw.pageSize) : undefined,
     });
+  }
+
+  @Get('kardex')
+  @RequireAnyPermission(Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER)
+  @ApiOperation({ summary: '[MX.2.9] Kardex de UN producto en UNA sucursal desde kdm2 en vivo: saldo corrido, día en que cruzó a negativo, lo que salió desde entonces por documento/caja y pistas (unidad desentonada, entrada tardía, último conteo). Declara si el kardex no cuadra con Kepler. Query: warehouse_id, sku.' })
+  kardex(@Query('warehouse_id') warehouse_id?: string, @Query('sku') sku?: string): Promise<KardexNegativoResponse> {
+    return this.svc.kardex({ warehouse_id, sku });
   }
 
   @Post('resolve')
