@@ -268,7 +268,7 @@ const CANAL_CLIENTE = 'md-caja-cliente';
       @if (arq(); as q) { <span>{{ q.paso === 'tipo' ? '1 retiro · 2 corte · 3 relevo' : q.paso === 'listo' ? 'Enter: volver a vender' : q.paso === 'confirmar' ? 'Enter: guardar a nombre de ' + ajeno() : 'Teclea cuántas piezas y Enter (vacío = 0)' }}</span><span><kbd>Esc</kbd> {{ q.paso === 'listo' ? 'volver' : q.paso === 'confirmar' ? 'regresar al conteo' : 'no guardar' }}</span> }
       @else if (conteo(); as c) { <span>Teclea cuántas piezas y <kbd>Enter</kbd> (vacío = 0)</span><span><kbd>Esc</kbd> {{ c.tipo === 'apertura' ? 'empezar de nuevo' : 'no retirar' }}</span> }
       @else if (auth()) { <span><kbd>1</kbd>–<kbd>4</kbd> motivo</span><span>PIN y <kbd>Enter</kbd></span><span><kbd>Esc</kbd> no hacerlo</span> }
-      @else if (verificando()) { <span>Escanea o escribe y <kbd>Enter</kbd></span><span><kbd>Esc</kbd> volver a vender</span> }
+      @else if (verificando()) { <span>Escanea el código, o escribe parte del nombre y elige con <kbd>↑</kbd><kbd>↓</kbd></span><span><kbd>Enter</kbd> ver el precio</span><span><kbd>F9</kbd> ver todos</span><span><kbd>Esc</kbd> volver a vender</span> }
       @else if (estado() === 'venta') { <span><kbd>Enter</kbd> agregar</span><span><kbd>5*</kbd>código cantidad</span><span>letras o <kbd>F9</kbd> buscar</span><span><kbd>Ctrl</kbd>+<kbd>Supr</kbd> cancelar ticket</span><span><b>250 <kbd>F12</kbd></b> cobra $250 en efectivo</span> }
       @else if (estado() === 'cobro') { <span>Teclea lo que te dieron</span><span><b><kbd>Enter</kbd> efectivo</b> (vacío = exacto)</span><span><kbd>F2</kbd> tarjeta</span><span><kbd>F3</kbd> transferencia</span><span><kbd>Esc</kbd> volver</span> }
       @else { <span>Escanea o teclea para el siguiente cliente</span> }
@@ -568,8 +568,20 @@ export class TiendaCajaComponent implements OnDestroy {
     if (!this.auth() && (k === 'F6' || k === 'F7')) { k === 'F6' ? this.abrirVerificador() : this.irArqueo(); return; }
     if (this.auth()) return this.teclaAutorizacion(e, k);
     if (this.verificando()) {
-      if (k === 'Escape') { e.preventDefault(); this.verificando.set(false); this.verificado.set(null); this.limpiar(); }
-      else if (k === 'Enter') { e.preventDefault(); void this.verificar(v); }
+      // Mismas teclas que al vender: las letras abren la lista, las flechas eligen y Enter verifica la elegida.
+      const res = this.resultados();
+      if (k === 'Escape') {
+        e.preventDefault();
+        if (res.length) { this.cerrarResultados(); return; }
+        this.verificando.set(false); this.verificado.set(null); this.limpiar();
+      } else if (k === 'Enter') {
+        e.preventDefault();
+        if (res.length) { const h = res[this.hit()]; this.cerrarResultados(); void this.verificar(h.codigo); }
+        else void this.verificar(v);
+      } else if (k === 'ArrowDown' || k === 'ArrowUp') {
+        e.preventDefault();
+        if (res.length) this.hit.set((this.hit() + (k === 'ArrowDown' ? 1 : -1) + res.length) % res.length);
+      } else if (k === 'F9') { e.preventDefault(); void this.buscarTexto(v || ' ', true); }
       return;
     }
     if (this.estado() === 'cobro') return this.teclaCobro(e, k, v);
@@ -609,7 +621,7 @@ export class TiendaCajaComponent implements OnDestroy {
   alTeclear(valor: string): void {
     if (this.estado() === 'cobrado' && valor && !this.auth() && !this.verificando()) this.siguienteCliente();
     this.texto.set(valor);
-    if (this.estado() === 'venta' && !this.auth() && !this.verificando()) {
+    if ((this.estado() === 'venta' || this.verificando()) && !this.auth()) {
       const c = leerComando(valor);
       if (c.tipo === 'texto') void this.buscarTexto(c.texto, false);
       else this.cerrarResultados();
@@ -720,7 +732,12 @@ export class TiendaCajaComponent implements OnDestroy {
     if (r === null) this.avisar('aviso', 'Aún no está el catálogo de la sucursal para buscar por nombre. Usa el código.');
   }
 
-  elegir(i: number, e: MouseEvent): void { e.preventDefault(); this.hit.set(i); void this.entrar(''); }
+  elegir(i: number, e: MouseEvent): void {
+    e.preventDefault();
+    if (this.verificando()) { const h = this.resultados()[i]; this.cerrarResultados(); if (h) void this.verificar(h.codigo); return; }
+    this.hit.set(i);
+    void this.entrar('');
+  }
   private cerrarResultados(): void { this.busquedaId++; this.resultados.set([]); this.buscandoTexto.set(false); }
   unidadesTexto(h: HalladoCatalogo): string { return h.unidades.map((u) => u.u + ' ' + pesos(u.precio_con_iva)).join(' · '); }
 
