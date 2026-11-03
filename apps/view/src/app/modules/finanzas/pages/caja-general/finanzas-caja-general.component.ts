@@ -19,6 +19,7 @@ import { MessageModule } from 'primeng/message';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { textoFalloFirma, type ContextoFirma } from '@megadulces/contracts';
+import { revisarMorrallaCorte, MORRALLA_CORTE_TOPE } from '@megadulces/contracts';
 import { evaluarCambio, pagableConBilletesCaos, warehouseName, type CaosRetiroLibre, type CaosRetiroDelLote, type Denominacion, firmaSigueValiendo, diaCorto, SUCURSAL_CAJA_GENERAL, CAJA_CONFIRMAR_UMBRAL_DIAS, leerCorte, type LecturaCorte } from '@megadulces/contracts';
 import { prepararFirma, pintarQr, filtrarPorBusqueda, type FirmaCanvas } from '@megadulces/ui-web';
 
@@ -4203,7 +4204,9 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                 <td>
                   @if (rejaEditable()) {
                     <input pInputText type="number" class="cg-pieza-corte cg-morralla-in" min="0" step="0.01"
-                           inputmode="decimal"
+                           inputmode="decimal" [attr.max]="MORRALLA_CORTE_TOPE"
+                           [attr.aria-invalid]="morrallaCorteFuera() ? 'true' : null"
+                           [attr.aria-describedby]="morrallaCorteFuera() ? 'cg-morralla-tope' : null"
                            [ngModel]="morrallaCorteVista()" (ngModelChange)="morrallaCorte.set($event || 0)" placeholder="0.00"
                            (keydown.enter)="moverEnRejaCorte($event, 1)"
                            (keydown.arrowdown)="moverEnRejaCorte($event, 1)"
@@ -4214,6 +4217,13 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                   }
                 </td>
               </tr>
+              <!-- [LE.2.12] Poka-yoke: un bulto tecleado en morralla no se cuenta por pieza (8 de 19
+                   cortes, $192,550 en cuatro). Se dice en el renglón y Guardar queda apagado. -->
+              @if (rejaEditable() && morrallaCorteFuera(); as texto) {
+                <tr>
+                  <td colspan="3"><small id="cg-morralla-tope" class="fin-hint-warn" role="alert">{{ texto }}</small></td>
+                </tr>
+              }
               <!-- Un solo Contado: revelado, es el de la linea de arriba, que sale del servidor. -->
               @if (rejaEditable()) {
                 <tr>
@@ -5821,7 +5831,14 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     const ceroDeclarado = this.ceroVigente();
     const atrasado = this.corteAtrasado();
     const jornadaConfirmada = this.jornadaConfirmada();
-    return puedeSellarUI({ contado, ceroDeclarado, atrasado, jornadaConfirmada }).ok;
+    const morralla = this.morrallaCorte();
+    return puedeSellarUI({ contado, ceroDeclarado, atrasado, jornadaConfirmada, morralla }).ok;
+  });
+  /** `[LE.2.12]` La morralla es sólo el metal de menos de 50¢: la frase si se pasa, `null` si no. */
+  readonly MORRALLA_CORTE_TOPE = MORRALLA_CORTE_TOPE;
+  morrallaCorteFuera = computed(() => {
+    const r = revisarMorrallaCorte(this.morrallaCorte());
+    return r.ok ? null : r.texto;
   });
   /** La reja se teclea mientras se cuenta o se recuenta; revelado el conteo, muestra lo sellado. */
   rejaEditable = computed(() => {

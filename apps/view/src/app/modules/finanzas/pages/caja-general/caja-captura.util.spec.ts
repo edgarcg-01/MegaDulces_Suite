@@ -710,6 +710,23 @@ describe('[CGP-V.3b] puedeSellarUI — la jornada atrasada se declara', () => {
   });
 });
 
+describe('[LE.2.12] puedeSellarUI — la morralla es sólo el metal de menos de 50¢', () => {
+  const base = { contado: 204974.5, ceroDeclarado: false, atrasado: false, jornadaConfirmada: false };
+
+  it('⛔ PRUEBA NEGATIVA: el bulto del 2-nov ($192,550 en morralla) no se sella', () => {
+    expect(puedeSellarUI({ ...base, morralla: 192550 })).toEqual({ ok: false, motivo: 'morralla_fuera_de_tope' });
+  });
+
+  it('centavos sueltos sí se sellan, y sin morralla también', () => {
+    expect(puedeSellarUI({ ...base, morralla: 3.7 }).ok).toBe(true);
+    expect(puedeSellarUI(base).ok).toBe(true);
+  });
+
+  it('sin conteo, el motivo sigue siendo ése', () => {
+    expect(puedeSellarUI({ ...base, contado: 0, morralla: 0 }).motivo).toBe('sin_conteo');
+  });
+});
+
 describe('[CGA-A.56] un egreso dice de dónde salió el dinero', () => {
   const gasto = (o: Partial<FormularioCaja> = {}) => formOk({ tipo: 'gasto', exige_origen: true, ...o });
 

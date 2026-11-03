@@ -11,7 +11,7 @@
  * IGUAL o MÁS ESTRICTA, nunca más permisiva.
  */
 
-import { seleccionarDenominaciones, type Denominacion, type VeredictoCorte } from '@megadulces/contracts';
+import { seleccionarDenominaciones, revisarMorrallaCorte, type Denominacion, type VeredictoCorte } from '@megadulces/contracts';
 
 /**
  * CG.23 — Los billetes que la Caja General cuenta, en el orden en que se cuentan.
@@ -818,12 +818,15 @@ export interface SellarUI {
   readonly atrasado: boolean;
   /** La persona declaró que el efectivo contado es de ESA jornada. */
   readonly jornadaConfirmada: boolean;
+  /** `[LE.2.12]` Lo tecleado en morralla: sólo el metal de menos de 50¢ (`revisarMorrallaCorte`). */
+  readonly morralla?: number;
 }
 
-export function puedeSellarUI(i: SellarUI): { ok: boolean; motivo: 'sin_conteo' | 'jornada_sin_confirmar' | null } {
+export function puedeSellarUI(i: SellarUI): { ok: boolean; motivo: 'sin_conteo' | 'morralla_fuera_de_tope' | 'jornada_sin_confirmar' | null } {
   // ⛔ El orden importa: sin conteo no hay nada que sellar, y decirle «confirmá la jornada» a
   // quien todavía no contó manda a arreglar lo que no está mal.
   if (!(Number(i.contado) > 0 || i.ceroDeclarado)) return { ok: false, motivo: 'sin_conteo' };
+  if (!revisarMorrallaCorte(i.morralla).ok) return { ok: false, motivo: 'morralla_fuera_de_tope' };
   if (i.atrasado && !i.jornadaConfirmada) return { ok: false, motivo: 'jornada_sin_confirmar' };
   return { ok: true, motivo: null };
 }
