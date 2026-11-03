@@ -1,4 +1,5 @@
 import { veredictoRetirada, veredictoSinLatido, CRON_JOBS } from './db-health.service';
+import { AGENT_JOB_KEY, HR_INGEST_JOB_KEY } from '@megadulces/hr';
 
 /**
  * `[DBH.5]` — **Un job declarado que nunca reportó no puede leerse como sano.**
@@ -143,5 +144,40 @@ describe('[CG.119] CRON_JOBS — el carril que late declara su tope de cuelgue',
   it('[negativa] ningún job declara umbrales incoherentes (warnH por encima de critH)', () => {
     const malos = CRON_JOBS.filter((j) => j.warnH > j.critH);
     expect(malos.map((j) => `${j.key} (warnH ${j.warnH} > critH ${j.critH})`)).toEqual([]);
+  });
+});
+
+/**
+ * `[RH.1.8]` **Los latidos de asistencia tienen umbral.** La llave se toma de la constante que el
+ * código de RH escribe en `analytics.cron_runs`, no de un string copiado: si alguien renombra
+ * `HR_INGEST_JOB_KEY` o `AGENT_JOB_KEY`, el latido caería en `unknown` («no está en CRON_JOBS») y
+ * nadie se enteraría. Con esto se entera el CI.
+ */
+describe('[RH.1.8] CRON_JOBS — asistencia', () => {
+  const porLlave = (k: string) => CRON_JOBS.find((j) => j.key === k);
+
+  it.each([
+    ['ingesta de checadas', HR_INGEST_JOB_KEY],
+    ['agente de alertas', AGENT_JOB_KEY],
+  ])('la llave del %s está declarada', (_n, key) => {
+    expect(porLlave(key)).toBeDefined();
+  });
+
+  it('la ingesta avisa a la media hora: el lector late por reloj cada 5 min aunque nadie cheque', () => {
+    const j = porLlave(HR_INGEST_JOB_KEY)!;
+    expect(j.warnH).toBeLessThanOrEqual(0.5);
+    expect(j.critH).toBeLessThanOrEqual(2);
+  });
+
+  it('el agente (cada 30 min) no avisa antes de perder una corrida completa', () => {
+    // Con warnH < 0.5 h una corrida PUNTUAL ya saldría amarilla: ruido que enseña a ignorar el tablero.
+    const j = porLlave(AGENT_JOB_KEY)!;
+    expect(j.warnH).toBeGreaterThan(0.5);
+    expect(j.warnH).toBeLessThan(j.critH);
+  });
+
+  it('⛔ [negativa] sin maxRunH: latirCron nunca deja la fila en running, el tope sería letra muerta', () => {
+    expect(porLlave(HR_INGEST_JOB_KEY)!.maxRunH).toBeUndefined();
+    expect(porLlave(AGENT_JOB_KEY)!.maxRunH).toBeUndefined();
   });
 });

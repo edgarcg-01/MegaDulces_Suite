@@ -1,5 +1,34 @@
 # Recursos Humanos › Asistencia — relojes y personas
 
+## RH.1.8 · Que Salud BD sepa juzgar los latidos de asistencia (2026-10-21)
+
+### Problema
+
+La entrada de checadas y el agente de alertas ya avisan cada vez que trabajan (escriben su «latido»), pero el tablero
+de Salud BD no sabía cada cuánto deberían hacerlo. Sin ese dato los mostraba como «no se puede juzgar»: si el lector de
+relojes o el agente se caían, nadie se enteraba por el tablero.
+
+### Solución
+
+Se registraron los dos con su ritmo esperado: la entrada de checadas avisa si pasa media hora sin señal del lector
+(crítico a las 2 horas) y el agente de alertas, que corre cada 30 minutos, avisa a la hora y media (crítico a las 3).
+Un reloj caído no pone roja la entrada: eso ya lo dice el semáforo de Relojes; lo que la pone roja es que el lector
+entero deje de hablar.
+
+### Cómo se implementó
+
+- Dos filas en `CRON_JOBS` (`apps/api/src/modules/db-health/db-health.service.ts`): `hr_attendance_ingest` y
+  `hr_attendance_agent`.
+- La prueba de Salud BD toma las llaves de las constantes que usa el código de RH, así que si alguien las renombra el CI
+  se pone rojo. Se comprobó rompiéndola a propósito.
+- Va como PR en borrador y **se mergea en el paso 7 del corte**: antes, los dos saldrían en amarillo («declarado y nunca
+  reportó») con alerta, porque todavía no corren.
+
+### Por qué así
+
+Un latido sin umbral es una alarma desconectada: existe, pero no suena. Y se espera al corte porque un tablero amarillo
+dos semanas por algo que todavía no debe correr enseña a ignorar el tablero.
+
 ## RH.1.12 · Ligar los códigos de reloj a sus personas (2026-10-15)
 
 ### Problema
