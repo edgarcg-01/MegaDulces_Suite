@@ -1938,3 +1938,33 @@ Se saltan, declarado, sin `MD_TOKEN_FILE` o si prod no tiene `[CP.8.97]` (la API
 se listan y compilan las 8, y las 8 se saltan: falta soltar y correrlas con sesión.
 
     MD_TOKEN_FILE=<ruta> npx playwright test -c e2e/contpaqi-puente/playwright.config.ts
+
+**El espejo en local (2026-11-03), 14 ✓.** `contpaqi-puente-dictamen.component.spec.ts` monta la plantilla real con
+TestBed (jsdom) y la API simulada. No levanta el front ni el back. Hace las mismas afirmaciones que la e2e, contra un
+mes inventado cuyo resultado se conoce. Ese mes tiene 6 filas:
+- 2 listas: un pago, y un lote del día **sin `clave`**, que se liga por `cuenta|fecha`;
+- 1 por revisar;
+- 1 frenada;
+- 1 ya entregada;
+- 1 sin póliza.
+
+Salen 3 por $3,400.
+
+Además de lo que cubre la e2e, prueba cinco casos:
+- antes de que llegue el dictamen, la pantalla dice «armadas»;
+- si el dictamen falla, aparece «Reintentar» y la pantalla no dice «salen»;
+- un dictamen de otro mes que llega tarde no se pinta;
+- sin `_GESTIONAR` no hay botón de descarga;
+- el aviso toma sus cifras de los **encabezados** del archivo, que la prueba da distintos de los del dictamen.
+
+Un doble del servicio registra cualquier método que escriba, y la prueba sale roja si se llamó alguno.
+
+Se probaron 6 mutantes del componente y los 6 la ponen roja:
+- `salen` sin las pólizas por revisar;
+- aceptar un dictamen de otro mes;
+- no ordenar los hallazgos;
+- la llave de fila sin `cuenta|fecha`;
+- no poner primero las frenadas;
+- el aviso con las cifras de la pantalla.
+
+⛔ No sustituye a la e2e: no usa navegador real, ni datos de prod, ni encabezados HTTP de verdad.
