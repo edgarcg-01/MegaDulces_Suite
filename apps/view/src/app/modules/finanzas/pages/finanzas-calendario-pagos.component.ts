@@ -1152,7 +1152,8 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-favor-btn:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
     /* [PGP.21] La evidencia de la factura. Tres estados y NINGUNO depende solo del color:
        cada uno lleva su icono y su texto, que es lo que exige el modo de alto contraste. */
-    .pg-ev { display:inline-flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-sm); }
+    /* [PGP.49] margin-left: el aviso salia pegado a la referencia del proveedor («2034ⓘ sin factura»). */
+    .pg-ev { display:inline-flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-sm); margin-left:var(--sp-2); }
     .pg-ev-pdf { border:0; background:transparent; cursor:pointer; font:inherit; font-size:var(--fs-sm);
       color:var(--action); padding:0; text-align:left; }
     .pg-ev-pdf:hover { text-decoration:underline; }
