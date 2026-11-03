@@ -1,5 +1,5 @@
 import {
-  escaleraDisjunta, tramoDeCantidad, aCentavosPorBase,
+  escaleraDisjunta, tramoDeCantidad, aCentavosPorBase, tramosAplicables,
   type VolumeTier,
 } from './quote-pricing.service';
 
@@ -35,6 +35,38 @@ describe('escalera de volumen del ERP', () => {
   it('una cantidad en un hueco entre tramos no toma ninguno (no se adivina)', () => {
     const t = escaleraDisjunta([{ desde: 3, hasta: 5, price: 9 }, { desde: 10, hasta: 99, price: 8 }])!;
     expect(tramoDeCantidad(t, 7)).toBeNull();
+  });
+});
+
+/**
+ * `[COT.7.0d]` Escalera ENCIMADA: rige el nivel 0. Caso real: 03004 PAQ en la 01, tal cual en
+ * `kdpv_prod_util` (2026-11-03). El pedido TELEMARK 0003668 cobró 10 PAQ a $39.83 (nivel 0); el
+ * motor cotizaba $36.02 porque, sin tramos, caía al volumen aplastado de `v_label_prices`.
+ */
+const PAQ_03004: VolumeTier[] = [
+  { desde: 3, hasta: 999999, price: 39.83, nivel: 0 },
+  { desde: 3, hasta: 5, price: 36.02, nivel: 1 },
+  { desde: 6, hasta: 9, price: 35.17, nivel: 2 },
+  { desde: 10, hasta: 999999, price: 34.14, nivel: 3 },
+];
+
+describe('[COT.7.0d] tramosAplicables', () => {
+  it('03004: encimada → los tramos del nivel 0, y 10 PAQ cobra $39.83 como Kepler', () => {
+    const t = tramosAplicables(PAQ_03004)!;
+    expect(t).toEqual([{ desde: 3, hasta: 999999, price: 39.83, nivel: 0 }]);
+    expect(tramoDeCantidad(t, 10)?.price).toBe(39.83);
+    expect(tramoDeCantidad(t, 2)).toBeNull(); // abajo del tramo: lista
+  });
+
+  it('disjunta → la escalera completa, el nivel no se mira (89008 sigue igual)', () => {
+    expect(tramosAplicables(PAQ_89008)).toEqual(escaleraDisjunta(PAQ_89008));
+  });
+
+  it('encimada SIN nivel 0 → ninguna (niveles por transacción, no se derivan)', () => {
+    expect(tramosAplicables([
+      { desde: 10, hasta: 999999, price: 71.15, nivel: 1 },
+      { desde: 10, hasta: 999999, price: 70.51, nivel: 2 },
+    ])).toBeNull();
   });
 });
 

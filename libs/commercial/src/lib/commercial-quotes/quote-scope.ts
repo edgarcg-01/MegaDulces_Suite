@@ -1,4 +1,7 @@
-import { Permission } from '@megadulces/platform-core';
+// ⚠️ Sólo el TIPO: este archivo lo carga el motor de precios, y el replay
+// (`scripts/kepler/replay-cotizacion/replay.js`) lo empaqueta con `platform-core` reemplazado por
+// un stub. Un import de valor lo tumbaba al cargar (COT.7.0d, 2026-11-03).
+import type { Permission } from '@megadulces/platform-core';
 
 /**
  * `[COT.19]` — Con qué sucursales puede trabajar quien cotiza.
@@ -38,7 +41,7 @@ export interface QuienCotiza {
   role_name?: string | null;
 }
 
-export const PERMISO_VER_TODAS_COTIZACIONES = Permission.COMMERCIAL_QUOTES_VER_ALL;
+export const PERMISO_VER_TODAS_COTIZACIONES = 'COMMERCIAL_QUOTES_VER_ALL' satisfies `${Permission}`;
 
 /**
  * `null` = ve las de todos; un id = sólo las que hizo ese usuario. Sin datos de quién pide, o

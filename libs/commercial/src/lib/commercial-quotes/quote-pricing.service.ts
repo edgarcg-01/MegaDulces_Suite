@@ -96,6 +96,8 @@ export interface VolumeTier {
   desde: number;
   hasta: number;
   price: number;
+  /** `kdpv_prod_util.c3`, el nivel de precio (0–3). Sólo decide en las escaleras encimadas. */
+  nivel?: number;
 }
 
 /**
@@ -110,6 +112,17 @@ export function escaleraDisjunta(tramos: VolumeTier[]): VolumeTier[] | null {
   const t = [...tramos].sort((a, b) => a.desde - b.desde || a.hasta - b.hasta);
   for (let i = 1; i < t.length; i++) if (t[i].desde <= t[i - 1].hasta) return null;
   return t.length ? t : null;
+}
+
+/**
+ * `[COT.7.0d]` Los tramos que el motor usa: la escalera si es disjunta y, si se encima, **sólo la
+ * del nivel 0** (ERP_KEPLER §2.7: el nivel 0 es el estándar). Antes, una escalera encimada no
+ * daba tramos y el motor caía al volumen de `v_label_prices.wholesale_*`, que aplasta los niveles
+ * y entrega uno profundo: 03004 × 10 PAQ salía a $36.02 (nivel 1) donde Kepler cobró $39.83
+ * (nivel 0), medido en un pedido TELEMARK de la 01 el 2026-11-03.
+ */
+export function tramosAplicables(tramos: VolumeTier[]): VolumeTier[] | null {
+  return escaleraDisjunta(tramos) ?? escaleraDisjunta(tramos.filter((t) => t.nivel === 0));
 }
 
 /** `[E.22]` El tramo que CONTIENE la cantidad; null si cae abajo del primero o en un hueco. */
@@ -495,7 +508,7 @@ export class QuotePricingService {
     // `[E.22]` La escalera COMPLETA por (sku, unidad): el motor elige el tramo que CONTIENE la
     // cantidad. Antes sólo conocía el primero y 38 PAQ del 89008 salían a $55.00 (Kepler: $51.76).
     const tramosQ = await knex.raw(
-      'SELECT btrim(u.c1) AS sku, upper(btrim(u.c2::text)) AS unidad,'
+      'SELECT btrim(u.c1) AS sku, upper(btrim(u.c2::text)) AS unidad, u.c3::int AS nivel,'
         + ' u.c4::numeric AS desde, u.c5::numeric AS hasta, u.c7::numeric AS price'
         + ' FROM kepler_ods.kdpv_prod_util u'
         + ' WHERE u.sucursal = ?' + inSkus('btrim(u.c1)')
@@ -503,15 +516,15 @@ export class QuotePricingService {
       [branch, ...args],
     );
     const tramosPorClave = new Map<string, VolumeTier[]>();
-    for (const r of tramosQ.rows as Array<{ sku: string; unidad: string; desde: string; hasta: string; price: string }>) {
+    for (const r of tramosQ.rows as Array<{ sku: string; unidad: string; nivel: number; desde: string; hasta: string; price: string }>) {
       const k = r.sku + '|' + r.unidad;
       const l = tramosPorClave.get(k) ?? [];
-      l.push({ desde: Number(r.desde), hasta: Number(r.hasta), price: Number(r.price) });
+      l.push({ desde: Number(r.desde), hasta: Number(r.hasta), price: Number(r.price), nivel: Number(r.nivel) });
       tramosPorClave.set(k, l);
     }
     const tiersDe = (sku: string, label: string | null): VolumeTier[] | undefined => {
       const l = label ? tramosPorClave.get(sku + '|' + label.toUpperCase()) : undefined;
-      return (l && escaleraDisjunta(l)) || undefined;
+      return (l && tramosAplicables(l)) || undefined;
     };
 
     const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));

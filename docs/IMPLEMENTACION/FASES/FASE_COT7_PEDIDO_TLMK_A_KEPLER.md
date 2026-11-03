@@ -170,7 +170,7 @@ Renglón (`kdm2`), 581 renglones `CREADO`/`AUTORIZADO`:
 | `c66 = c57 / c58` sin redondear (precio original); difiere en 71 por descuento de volumen | 335 / 406 |
 | `c24 = c9` · `c56 = c51` · `c25` = cliente · `c27` = vendedor · `c28='CREADO'` · `c29=1` | 581 / 581 |
 
-### [COT.7.0b] Árbitro de precio: ❌ 98.0 %, abajo del 99 %
+### [COT.7.0b] Árbitro de precio: ❌ 98.0 % con un árbitro a mano → ✅ 99.21 % con el replay oficial (ver 7.0d)
 
 El motor REAL de COT.1 (`QuotePricingService.priceLine`, cargado con `tsx`, rol de sólo lectura)
 contra 400 renglones `CREADO` de pedidos TELEMARK de ayer y hoy (01/06/08), mismo SKU,
@@ -201,6 +201,67 @@ excluye el canal telemarketing o la lista del cliente?) y de dónde sale la caja
 94156/94157/97397 contra la de Kepler. Con eso, volver a correr el árbitro.
 
 
+### [COT.7.0d] Las 6 diferencias, explicadas — y el árbitro re-hecho
+
+**1. El árbitro estaba mal armado: el precio de Kepler se mueve durante el día.** La bitácora nativa
+(`kdpv_bitacora_precios`) registra recálculos varias veces por día (97397 en la 01 a las 11:13 y
+11:17; 94156 en la 03 a las 10:51, 11:14, 11:27, 11:28). El tramo de 97397 pasó de $106.95 a $99.82
+entre dos corridas de la misma mañana. Comparar un pedido de ayer contra el motor de hoy mide la
+deriva, no el motor: 94156/94157 eran eso (el `c66` del pedido daba ≈ $113 por caja; hoy la lista
+de caja es $125.40).
+
+**Árbitro anclado en el tiempo:** sólo renglones de pedidos cuyo SKU **no se recalculó en la
+bitácora después de la hora de captura** (`kdm1.c69`). Resultado (3 días, 01/05/06/08, motor con F1):
+
+| | |
+|---|---|
+| Renglones | 312 |
+| Precio base igual al centavo | 305 |
+| Sin precio en el motor: SKUs que Kepler pone a $0.01 (00917, 00442, 00310, 00163, 09066) | 5 — falla cerrada, correcto |
+| **Con precio: iguales** | **305 / 307 = 99.3 % ✅ (umbral 99 %)** |
+| Las 2 restantes (95146, 75000 × 3 CJA en la 06) | Kepler cobró lista donde la escalera disjunta da tramo — el 28.6 % que ERP_KEPLER §2.7 declara sin derivar. El motor queda **más barato** que lo cobrado (a favor del cliente) |
+
+**2. F1 — bug real del motor, arreglado.** Con escalera ENCIMADA el motor caía al volumen de
+`v_label_prices.wholesale_*`, que aplasta los niveles (03004: $36.02, nivel 1). La regla documentada
+es el **nivel 0** (Kepler cobró $39.83). `tramosAplicables()` en `quote-pricing.service.ts`: disjunta →
+la escalera; encimada → sólo la del nivel 0. Medido renglón por renglón sobre 476 renglones de
+escalera encimada (15 días, mismo universo, motor de HEAD contra el nuevo): **8 mejoran, 0
+empeoran**, los 8 al precio exacto de Kepler (03004, 57009 CUB ×5, 53070, 95040).
+`volume-tiers.spec.ts` +3 casos; mutante (quitar el nivel 0) → rojo.
+
+**3. 70500 (unidad) — no es bug del flujo real.** En una cotización el rótulo del renglón lo pone el
+propio motor desde su escalera, así que siempre casa. Falló sólo porque el árbitro le pasó el `KG` de
+Kepler, y Kepler vende 70500 en una presentación (`KG` = 2 × 500 g) que la escalera de la Suite no
+ofrece (su base es `500`). Para C1: el pedido se escribe en la presentación cotizada (`c55 = c11 =
+'500'`, `c58 = 1`). Declarado, sin tocar.
+
+**4. Lo que queda abierto, declarado:** en escalera encimada sin nivel 0, o cuando Kepler decide
+cobrar lista sobre un tramo, el precio no se deriva (§2.7). El motor cotiza el mecanismo del ERP;
+si el cliente aceptó ese precio, es el que se escribe (D2 re-cotiza al aceptar).
+
+**Instrumento — corrección (2026-11-03, misma tarde).** El 98.0 % de 7.0b salió de un árbitro armado
+a mano que **no descontaba la deriva de precio**. El repo ya tenía el instrumento correcto:
+`scripts/kepler/replay-cotizacion/` (E.23), que corre el motor real contra los `U-D-40`, abre con un
+control (5 renglones reales reproducidos al centavo) y separa la deriva como `lista_distinta`. Medido
+con él sobre 1 día (84 pedidos, 1,154 renglones, $1,150,064.02), motor de HEAD contra motor con F1
+sobre el **mismo universo congelado** (`REPLAY_MOTOR_REF`):
+
+| clase | HEAD | con F1 |
+|---|---:|---:|
+| exacto | 1,131 | 1,132 |
+| `lista_distinta` (el precio de Kepler cambió desde la captura) | 8 | 8 |
+| `kepler_cobro_lista_motor_bajo` (Kepler no aplicó el tramo; §2.7, no derivable) | 7 | 7 |
+| `sin_precio` (SKUs a $0.01) | 5 | 5 |
+| `kepler_mas_caro` | 2 | **1** (03004 corregido) |
+| `unidad_distinta` (70500) | 1 | 1 |
+| **Lógica del motor** (misma lista que Kepler: 1,141 renglones) | **99.12 %** | **99.21 % ✅** |
+
+⭐ **El árbitro pasa el umbral con el instrumento oficial, y ya lo pasaba antes de F1.** Lo que
+queda fuera de «exacto» sin ser deriva son 7 + 1 renglones ($157.75 y $17.50 de diferencia) donde
+Kepler cobró algo que ninguna regla deriva. El árbitro a mano no se sube y **no queda deuda**: el
+replay ya hace lo que le faltaba.
+
+
 ## 8. Riesgos y bloqueos
 
 | Riesgo / bloqueo | Dueño | Causa | Qué lo destraba |
@@ -223,6 +284,7 @@ excluye el canal telemarketing o la lista del cliente?) y de dónde sale la caja
 
 ## Bitácora
 
+- **2026-11-03** — C0.7.0d: las 6 diferencias explicadas (deriva de precio, F1 nivel 0 arreglado con 8 mejoras / 0 empeoras, 70500 unidad declarada). Replay oficial (E.23): 99.12 % → 99.21 % ✅. C0 cerrado salvo 7.0c (unidad).
 - **2026-11-03** — C0.7.0 ✅ (cabecera y renglón con árbitro); C0.7.0b ❌ 98.0 % (6 diferencias explicadas por mecanismo). C1 bloqueado.
 - **2026-11-03** — D0–D5 firmadas (Edgar); D6 decidida; ADR-113. Arranca C0.
 - **2026-11-03** — Anexo escrito. Medido: 1,483 pedidos TELEMARK / ≈ $17.1 M en 30 días; la
