@@ -9,6 +9,14 @@
 ---
 
 ## [Unreleased]
+### Added — Pagos: ahora se puede registrar lo que un proveedor **pactó**, y «no da descuento» deja de confundirse con «no preguntamos» (PGP.45, 2026-11-03)
+- Hasta hoy, la ventana de pronto pago salía de **observar** lo que de hecho pasó: «cuando le pagamos a este proveedor y nos dieron descuento, fue a los N días». Es una guía defendible, pero no es lo que el proveedor prometió, y de los proveedores a los que nunca les capturamos un descuento **el sistema no decía nada**.
+- Un silencio se lee como «acá no hay nada que ganar», y eso tapaba algo grande: **a los cinco proveedores de compra más importantes se les pagaron 223 veces y $51,553,655 en doce meses, sin un solo peso de descuento registrado** — Bolsas de los Altos sola, 120 pagos y $34,465,840. Hay dos explicaciones posibles —que no den pronto pago, o que lo estemos dejando pasar— y el sistema **no podía distinguirlas**.
+- Ahora se puede registrar la condición acordada con el proveedor, con la fecha en que se pactó y cómo consta. **Registrar que un proveedor NO da descuento es tan valioso como registrar que sí**: convierte un «no sabemos» en un dato, y deja de ocupar lugar en la lista de pendientes.
+- Lo pactado manda sobre lo observado, y lo observado se sigue guardando al lado. Eso permite por fin preguntar **¿nos dan lo que dijeron?** — y ver cuándo pactamos pagar a 10 días y de hecho pagamos a 20.
+- ⛔ **Corrección a una cifra que publicamos el 29 de octubre.** Dijimos que había «$73.5 millones sin medir» de oportunidad de pronto pago. Medido hoy: de esos, **sólo $28.1 millones son deuda de compra**. El resto es crédito bancario ($19.9M), préstamos ($18.0M) y gasto como nómina y SAT ($6.3M), donde un descuento por pronto pago no existe. Y dentro de compra, **nueve proveedores cubren el 80 %**: la tarea no son 245 fichas, son nueve preguntas.
+- ⚠️ Esta entrega es sólo la base de datos. La pantalla para capturar las condiciones y el uso de lo pactado en el Calendario vienen después.
+
 ### Fixed — Pagos: la pantalla dejaba de estar quieta en algunas máquinas (TBL.1, 2026-11-02)
 - En ciertos equipos, el Calendario de pagos **vibraba sin parar**: los bloques se corrían unos píxeles a la izquierda y volvían, una y otra vez, mientras la pantalla estaba quieta.
 - La causa: los paneles se ajustan solos al alto de la ventana. Al crecer 16 px el contenido desbordaba, **aparecía la barra de desplazamiento**, la barra se comía unos píxeles de ancho, todo se reacomodaba, el alto volvía a cambiar y la barra se iba. El ciclo no terminaba nunca.
