@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { TableModule, type TableLazyLoadEvent } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
@@ -26,6 +26,10 @@ import { MetricStripComponent, type MetricStripItem } from '../../../shared/comp
 import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
+import { AlmacenExistenciaNegativaComponent } from './almacen-existencia-negativa.component';
+
+/** `[MX.3.3]` Las dos preguntas de la bandeja de Prevención, cada una en su componente. */
+type VistaIncidencias = 'movimientos' | 'negativos';
 
 const ETIQUETA: Record<ExcepcionMovimiento, string> = {
   diferencia: 'Diferencia', sin_acuse: 'Sin acuse', sin_origen: 'Sin origen',
@@ -54,12 +58,16 @@ const ETIQUETA_MOTIVO = new Map(MOTIVOS_RESOLUCION_MOVIMIENTO.map((m) => [m.codi
  *
  * Jerarquía: primario = cuántas incidencias y de qué tipo (franja) y, en cada fila, dónde está el
  * error; secundario = su dinero y su antigüedad; terciario = folios, piezas y la unidad del importe.
+ *
+ * `[MX.3.3]` Segunda vista, «Existencia negativa» (`?vista=negativos`): productos que Kepler tiene en
+ * negativo. Es otra pregunta, así que vive en su propio componente; aquí sólo se elige cuál se ve.
  */
 @Component({
   selector: 'app-almacen-incidencias',
   standalone: true,
   imports: [CommonModule, FormsModule, TableModule, TagModule, ButtonModule, DatePickerModule, SelectModule, TextareaModule, ToastModule,
-    LoadStateComponent, FreshnessPillComponent, MetricStripComponent, SegmentedComponent, SidePeekComponent, ContextHelpComponent],
+    LoadStateComponent, FreshnessPillComponent, MetricStripComponent, SegmentedComponent, SidePeekComponent, ContextHelpComponent,
+    AlmacenExistenciaNegativaComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -67,12 +75,18 @@ const ETIQUETA_MOTIVO = new Map(MOTIVOS_RESOLUCION_MOVIMIENTO.map((m) => [m.codi
     <div class="surf-page in inc-page">
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1 class="inc-h1">Incidencias de movimientos <app-context-help topic="almacen-incidencias" /></h1>
-          <p class="surf-page-sub">Sólo lo que el motor no pudo dar por bueno. Lo que cuadra está en el Diario de movimientos.</p>
+          <h1 class="inc-h1">Incidencias @if (vista() === 'movimientos') { <app-context-help topic="almacen-incidencias" /> }</h1>
+          <app-segmented [options]="vistas()" [value]="vista()" (valueChange)="elegirVista($event)" ariaLabel="Qué incidencias ver"></app-segmented>
         </div>
-        <app-freshness-pill measures="fetch" [since]="cargadoEn()" [staleAfterSec]="600"></app-freshness-pill>
+        @if (vista() === 'movimientos') {
+          <app-freshness-pill measures="fetch" [since]="cargadoEn()" [staleAfterSec]="600"></app-freshness-pill>
+        }
       </header>
 
+      @if (vista() === 'negativos') {
+        <app-almacen-existencia-negativa (porAtender)="negativosPorAtender.set($event)"></app-almacen-existencia-negativa>
+      } @else {
+      <p class="surf-page-sub inc-sub">Movimientos que el motor no pudo dar por buenos. Lo que cuadra está en el Diario de movimientos.</p>
       <div class="inc-filtros">
         <p-datepicker [(ngModel)]="desde" (onSelect)="recargar()" dateFormat="yy-mm-dd" placeholder="Desde" [showIcon]="true" appendTo="body"
                       inputId="inc-desde" ariaLabel="Desde"></p-datepicker>
@@ -163,6 +177,7 @@ const ETIQUETA_MOTIVO = new Map(MOTIVOS_RESOLUCION_MOVIMIENTO.map((m) => [m.codi
           </ng-template>
         </p-table>
       </app-load-state>
+      }
     </div>
 
     <app-side-peek [open]="!!abierta()" (openChange)="$event ? null : cerrar()" [width]="680"
@@ -274,7 +289,8 @@ const ETIQUETA_MOTIVO = new Map(MOTIVOS_RESOLUCION_MOVIMIENTO.map((m) => [m.codi
   `,
   styles: [`
     :host { display: block; container-type: inline-size; }
-    .inc-h1 { display: inline-flex; align-items: center; gap: var(--sp-2); }
+    .inc-h1 { display: inline-flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); }
+    .inc-sub { margin: var(--sp-2) 0 0; }
     .inc-filtros { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin: var(--sp-3) 0; }
     .inc-banda { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); border: 1px solid var(--warn-border);
       background: var(--warn-soft-bg); color: var(--warn-soft-fg); border-radius: var(--r-md); margin-bottom: var(--sp-3); font-size: var(--fs-sm); }
@@ -310,7 +326,20 @@ const ETIQUETA_MOTIVO = new Map(MOTIVOS_RESOLUCION_MOVIMIENTO.map((m) => [m.codi
 export class AlmacenIncidenciasComponent implements OnInit {
   private readonly api = inject(AlmacenMovimientosService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   private readonly destroyRef = inject(DestroyRef);
+
+  // [MX.3.3] qué pregunta se ve; `?vista=negativos` abre directo en la existencia negativa
+  readonly vista = signal<VistaIncidencias>(this.route.snapshot.queryParamMap.get('vista') === 'negativos' ? 'negativos' : 'movimientos');
+  readonly negativosPorAtender = signal<number | null>(null);
+  readonly vistas = computed<SegOption[]>(() => {
+    const mov = this.resp()?.totals.items;
+    const neg = this.negativosPorAtender();
+    return [
+      { label: 'Movimientos', value: 'movimientos', ...(mov != null ? { count: mov } : {}) },
+      { label: 'Existencia negativa', value: 'negativos', ...(neg != null ? { count: neg } : {}) },
+    ];
+  });
   private readonly toast = inject(MessageService);
   private readonly auth = inject(AuthService);
   private readonly perms = inject(PermissionsService);
@@ -410,7 +439,15 @@ export class AlmacenIncidenciasComponent implements OnInit {
   /** Poka-yoke: la misma validación que el servidor, antes de enviar. */
   readonly errorResolver = computed(() => validarResolucion(this.motivoSig(), this.notaSig()));
 
-  ngOnInit(): void { this.cargar(); }
+  ngOnInit(): void { if (this.vista() === 'movimientos') this.cargar(); }
+
+  /** [MX.3.3] Cambia de pregunta sin salir de la pantalla; la URL lo recuerda para compartirla. */
+  elegirVista(v: string): void {
+    const vista: VistaIncidencias = v === 'negativos' ? 'negativos' : 'movimientos';
+    this.vista.set(vista);
+    if (vista === 'movimientos' && !this.resp() && !this.cargando()) this.cargar();
+    void this.router.navigate([], { relativeTo: this.route, queryParams: { vista: vista === 'negativos' ? 'negativos' : null }, queryParamsHandling: 'merge', replaceUrl: true });
+  }
 
   recargar(): void { this.pagina.set(1); this.cargar(); }
 

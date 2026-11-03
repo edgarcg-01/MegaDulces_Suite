@@ -639,6 +639,36 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       },
     ],
   },
+  'almacen-existencia-negativa': {
+    title: 'Existencia negativa — guía',
+    intro: 'Productos que Kepler tiene en negativo hoy en una sucursal: salió más de lo que entró. Kepler deja vender sin existencia y la pantalla de Existencia lo muestra como 0, así que aquí es donde se ve. Se corrige en Kepler; aquí se registra qué pasó.',
+    groups: [
+      {
+        heading: 'Causas',
+        entries: [
+          { term: 'Entrada sin aplicar', def: 'La mercancía se recibió en un vale de entrada, pero falta su orden de entrada, que es la que suma al inventario de Kepler. Al aplicarla, la existencia queda en lo que dice la fila. Es la única causa que el dato prueba.' },
+          { term: 'Salió sin existencia', def: 'Se vendió o se mandó más de lo que había y ningún vale pendiente lo explica. El dato no dice por qué: puede ser una venta con otra clave, una entrada que nunca se capturó o un faltante real.' },
+          { term: 'Rezago', def: 'En negativo y sin entradas ni salidas en 30 días: un negativo viejo. Va aparte para revisarse en bloque, no mezclado con lo que pasa hoy.' },
+        ],
+      },
+      {
+        heading: 'Cómo leer las cifras',
+        entries: [
+          { term: 'Existencia en Kepler', def: 'Inventario inicial + entradas − salidas, la misma fórmula del reporte de existencias de Kepler.' },
+          { term: 'Valor a costo', def: 'Las piezas que faltan por el costo de Kepler de esa sucursal. Un producto sin costo en Kepler no suma, y la cifra lo dice.' },
+          { term: 'Sucursal', def: 'Prevención ve todas las sucursales; el encargado de tienda ve sólo la suya.' },
+        ],
+      },
+      {
+        heading: 'Revisar y resolver',
+        entries: [
+          { term: 'Marcar resuelta', def: 'Se elige qué pasó (se aplicó la entrada, se contó y ajustó, error de captura, faltante real…) y, si el motivo lo pide, una nota. Se guarda la existencia de Kepler de ese momento.' },
+          { term: 'Volvió', def: 'Una resuelta regresa a «Por atender» si Kepler quedó más negativo (se siguió vendiendo sin existencia) o si entró mercancía después y sigue en negativo.' },
+          { term: 'Reabrir', def: 'Quita la resolución; si sigue en negativo, vuelve a «Por atender». La resolución anterior queda en el historial.' },
+        ],
+      },
+    ],
+  },
   'almacen-movimientos': {
     title: 'Diario de movimientos — guía',
     intro: 'Entradas y salidas de inventario por día (mejora del reporte de Kepler). Abre un día para ver sus documentos, y un documento para validar contra su contraparte. La pestaña "Cuadre de traspasos" concilia que cada salida entre sucursales tenga su recepción. Es sólo lectura: no mueve inventario ni se audita aquí — las diferencias se resuelven en Incidencias.',
