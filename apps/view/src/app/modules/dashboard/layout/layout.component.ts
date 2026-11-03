@@ -1391,6 +1391,12 @@ export class LayoutComponent implements OnInit, OnDestroy {
    */
   puedeReportar = computed(() => this.perms.has(Permission.SERVICIO_REPORTAR));
 
+  /**
+   * `[NP.7]` ¿Se ofrece «Levantar productos» en el header? Quien tiene `CATALOGO_LEVANTAR` (todo rol con personas).
+   * Misma razón que `puedeReportar`: es la ÚNICA entrada a `/levantamiento`, que no es destino del mapa.
+   */
+  puedeLevantar = computed(() => this.perms.has(Permission.CATALOGO_LEVANTAR));
+
   isRestricted = computed(() => {
     // Modo "kiosco" (oculta el chrome) SOLO para el colaborador de Trade con acceso
     // a una sola pantalla (Captura). Las superficies dedicadas (finanzas, reparto,

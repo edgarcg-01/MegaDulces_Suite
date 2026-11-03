@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 2116 KB, 13076 líneas, 72 secciones.
+> **Índice navegable** — 2117 KB, 13076 líneas, 72 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -12657,7 +12657,7 @@ Plan y decisiones en [`FASE_NP_PRODUCTOS_NUEVOS.md`](FASES/FASE_NP_PRODUCTOS_NUE
 - [x] 🧪 `[NP.4]` `catalog.new_product_reviews` (mig `20261007360100`) — clasificación de Compras, RLS forzado, soft-delete.
 - [x] 🧪 `[NP.5]` Pestaña Productos nuevos + etiqueta "Nuevo · día N" en Productos. Unitarias 12 + 7; suite de Compras 308/308.
 - [ ] ⬜ `[NP.6]` Umbrales/veredicto en `analytics.kpi_thresholds` + hitos 30/60/90 congelados.
-- [ ] ⬜ `[NP.7]` Alta solicitada en la app con inversión y meta planeadas (plan contra real).
+- [ ] 🔨 `[NP.7]` **Catálogo digital: fichas de producto, levantamiento y altas desde fotos** — plan en [`FASE_NP7_ALTA_DESDE_FOTOS.md`](FASES/FASE_NP7_ALTA_DESDE_FOTOS.md). 2026-11-02: primer corte del levantamiento en código local (tabla, escaneo, fotos, pantalla `/levantamiento`); 2026-11-03: bandeja «Por revisar», revisión independiente del PR (25 hallazgos corregidos) y regla 13 medida contra Postgres real local (26/26); estado por item en el plan (§10b.5, §6). Antes: «Alta solicitada en la app con inversión y meta planeadas (plan contra real)».
 - [x] 🧪 `[NP.8]` En vivo: `fn_new_products_movimientos` (venta y entradas de hoy desde el ODS, mismas reglas; corte por `v_branch_erp_cutover`) + índice `ix_kdm1_compra_fecha`. Coincide con `v_sellout_daily` renglón por renglón en días cerrados.
 - [x] 🧪 `[NP.9]` Recomendación de recompra global y por sucursal (`CRITERIO_RECOMPRA`, propuesta a calibrar) + `GET new-products/:id`.
 - [x] 🧪 `[NP.10]` Rediseño: respuesta arriba, filtros por recomendación, venta semanal por fila, panel lateral por sucursal, refresco cada minuto.

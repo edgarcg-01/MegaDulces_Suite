@@ -34,6 +34,9 @@ import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, computed, i
 
         <div class="cs-stage">
           <video #video class="cs-video" playsinline muted autoplay></video>
+          @if (guia() && !arrancando()) {
+            <div class="cs-guia" aria-hidden="true"><span>{{ guia() }}</span></div>
+          }
           @if (arrancando()) {
             <div class="cs-msg"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Encendiendo la cámara…</div>
           }
@@ -44,7 +47,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, computed, i
                   aria-label="Tomar la foto">
             <span class="cs-shoot-in"></span>
           </button>
-          <p class="cs-hint">Encuadra el papel completo y que se alcance a leer el total.</p>
+          <p class="cs-hint">{{ indicacion() }}</p>
         </div>
       </div>
     }
@@ -78,6 +81,10 @@ import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, computed, i
 
     .cs-stage { position: relative; flex: 1; min-height: 0; display: flex; }
     .cs-video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+    /* [NP.7] Marco opcional con el nombre de la cara: dónde acomodar el producto. No captura toques. */
+    .cs-guia { position: absolute; inset: 18% 14%; border: 2px dashed rgba(255, 255, 255, .8); border-radius: var(--r-md);
+      display: grid; place-items: center; pointer-events: none; }
+    .cs-guia span { color: rgba(255, 255, 255, .9); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; font-size: var(--fs-sm); }
     .cs-msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
       gap: var(--sp-2); color: #fff; font-size: var(--fs-sm); }
 
@@ -116,6 +123,18 @@ export class CameraShotComponent {
   /** Lado más largo de la imagen resultante. 1600 alcanza para que Vision lea un ticket
    *  y evita subir 8 MB desde datos móviles. */
   readonly maxLado = input<number>(1600);
+  /**
+   * `[NP.7]` La indicación de abajo del obturador. Por defecto, la de siempre (tickets de gasto): las
+   * pantallas que ya lo usan no cambian. El levantamiento pasa la de cada cara.
+   */
+  readonly indicacion = input<string>('Encuadra el papel completo y que se alcance a leer el total.');
+  /** `[NP.7]` Si viene, dibuja un marco punteado con este texto (la cara que toca). Sin él, nada cambia. */
+  readonly guia = input<string | null>(null);
+  /**
+   * `[NP.7]` Re-codificar SIEMPRE lo que llega por el selector, aunque no haga falta reducirlo: el canvas
+   * no copia el EXIF (GPS del teléfono). Por defecto no: las pantallas que ya lo usan no cambian.
+   */
+  readonly recodificarSiempre = input<boolean>(false);
 
   /** data URI de la foto + si salió de la cámara en vivo o del selector. */
   readonly tomada = output<{ dataUri: string; camera: 'live' | 'file' }>();
@@ -206,8 +225,8 @@ export class CameraShotComponent {
       img.onload = () => {
         const c = this.lienzo()?.nativeElement;
         const max = this.maxLado();
-        if (!c || Math.max(img.width, img.height) <= max) { resolve(dataUri); return; }
-        const escala = max / Math.max(img.width, img.height);
+        if (!c || (!this.recodificarSiempre() && Math.max(img.width, img.height) <= max)) { resolve(dataUri); return; }
+        const escala = Math.min(1, max / Math.max(img.width, img.height));
         c.width = Math.round(img.width * escala);
         c.height = Math.round(img.height * escala);
         const ctx = c.getContext('2d');
