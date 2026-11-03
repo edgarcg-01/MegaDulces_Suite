@@ -952,6 +952,7 @@ const MES: Record<string, string> = {
                     <div><span>En Caja General</span><b>{{ depTotales().ligado ? (depTotales().ligado | currency:'MXN':'symbol-narrow':'1.0-0') : '—' }}</b></div>
                     <div><span>Sin capturar</span><b>{{ depTotales().pendiente | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></div>
                     <div><span>Antes de Caja General</span><b>{{ depTotales().previo | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></div>
+                    <div><span>No cuadran</span><b [class.rr-dep-bad-txt]="depTotales().noCuadran > 0">{{ depTotales().noCuadran }}</b></div>
                   </div>
 
                   @if (depFila()?.motivo_sucursal) {
@@ -969,7 +970,7 @@ const MES: Record<string, string> = {
                       <th scope="col">Día de venta</th>
                       <th scope="col" class="comm-num">Depositado</th>
                       <th scope="col">Entrada a Caja General</th>
-                      <th scope="col" class="comm-num">Sin explicar</th></tr>
+                      <th scope="col" class="comm-num">¿Cuadra el depósito?</th></tr>
                     </ng-template>
                     <ng-template #body let-d>
                       <tr>
@@ -1003,10 +1004,18 @@ const MES: Record<string, string> = {
                             <p-tag [value]="'el cobro es de la ruta ' + d.rutas_ligadas.join(', ')" severity="warn" />
                           }
                         </td>
-                        <td class="comm-num comm-muted">
-                          @if (d.compartido || d.delta === null) { — }
-                          @else if (d.delta < 0) { {{ -d.delta | currency:'MXN':'symbol-narrow':'1.0-0' }} }
-                          @else { completo }
+                        <td class="comm-num">
+                          @switch (d.cuadre) {
+                            @case ('cuadra') { <p-tag value="cuadra" severity="success" /> }
+                            @case ('falta') { <p-tag [value]="'faltan ' + (-d.delta | currency:'MXN':'symbol-narrow':'1.0-0')" severity="warn" /> }
+                            @case ('sobra') { <p-tag [value]="'sobran ' + (d.delta | currency:'MXN':'symbol-narrow':'1.0-0')" severity="danger" /> }
+                            @default { <span class="comm-muted">—</span> }
+                          }
+                          @if (d.compartido && d.cuadre) {
+                            <div class="comm-muted rr-dep-reparto">
+                              {{ d.repartido | currency:'MXN':'symbol-narrow':'1.0-0' }} entre las rutas {{ d.rutas_ligadas.join(', ') }}
+                            </div>
+                          }
                         </td>
                       </tr>
                     </ng-template>
@@ -1015,7 +1024,9 @@ const MES: Record<string, string> = {
                     De qué ruta es cada depósito lo dice el texto que tecleó quien depositó o, si no la
                     dice, su liga con el cobro de la ruta en Caja General. Un depósito que junta varias
                     rutas (<em>rd canindo</em>) aparece en cada una con <strong>sólo su parte</strong>.
-                    <strong>Sin explicar</strong> es lo del depósito que ninguna entrada toma todavía.
+                    <strong>¿Cuadra el depósito?</strong> suma las entradas de <strong>todas</strong> sus
+                    rutas contra lo depositado: <em>faltan</em> es dinero que ninguna entrada toma
+                    todavía; <em>sobran</em>, entradas que suman más que el depósito.
                   </p>
                 </app-load-state>
               }
@@ -1091,6 +1102,7 @@ const MES: Record<string, string> = {
     .rr-strong { font-weight:700; }
     .rr-foot td { font-weight:700; }
     .rr-row { cursor:pointer; }
+    .rr-dep-reparto { font-size:var(--fs-xs); white-space:nowrap; }
     .rr-dep-folio { display:inline-flex; gap:var(--sp-1); align-items:baseline; margin-right:var(--sp-2); white-space:nowrap; }
     .rr-link { appearance:none; background:none; border:none; padding:0; font:inherit; font-weight:700; cursor:pointer; color:var(--action); text-underline-offset:2px; }
     .rr-row:hover .rr-link { text-decoration:underline; }
@@ -1600,20 +1612,27 @@ export class ComercialVentasPorRutaComponent {
       .map((d) => {
         const propio = d.clave === `ruta:${ruta}`;
         const ligas = propio ? d.ligas : d.ligas.filter((l) => l.ruta === ruta);
+        // `delta` es del depósito ENTERO (todas sus entradas, de todas las rutas): un depósito
+        // repartido cuadra sólo si la suma de sus partes da el depósito, no si cuadra esta parte.
+        const cuadre: 'cuadra' | 'falta' | 'sobra' | null =
+          d.delta === null ? null : Math.abs(d.delta) < 1 ? 'cuadra' : d.delta < 0 ? 'falta' : 'sobra';
         return {
           ...d,
           ligas,
           compartido: !propio,
           parte: propio ? d.monto_caos : ligas.reduce((a, l) => a + l.monto, 0),
+          cuadre,
+          repartido: d.monto_caos + (d.delta ?? 0),
         };
       });
   });
 
   /** Los totales de la pestaña, sobre la parte de cada depósito que es de esta ruta. */
   readonly depTotales = computed(() => {
-    const t = { n: 0, monto: 0, ligado: 0, pendiente: 0, previo: 0 };
+    const t = { n: 0, monto: 0, ligado: 0, pendiente: 0, previo: 0, noCuadran: 0 };
     for (const d of this.depDepositos()) {
       t.n += 1;
+      if (d.cuadre === 'falta' || d.cuadre === 'sobra') t.noCuadran += 1;
       t.monto += d.parte;
       if (d.estado_liga === 'ligado') t.ligado += d.ligas.reduce((a, l) => a + l.monto, 0);
       else if (d.estado_liga === 'previo') t.previo += d.parte;
