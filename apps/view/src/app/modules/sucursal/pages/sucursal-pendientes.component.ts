@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { HttpErrorResponse } from '@angular/common/http';
+import type { Observable } from 'rxjs';
 import { TableModule } from 'primeng/table';
 import { ButtonModule } from 'primeng/button';
 import { SelectModule } from 'primeng/select';
@@ -326,10 +327,11 @@ export class SucursalPendientesComponent implements OnInit {
     this.enVuelo.update((s) => new Set([...s, k]));
     const fin = () => this.enVuelo.update((s) => { const n = new Set(s); n.delete(k); return n; });
     const body = { warehouse_id: wh, cola: c.id, clave: f.clave };
-    const llamada = que === 'atribuir' ? this.api.atribuir(body) : this.api.soltar(body);
+    // Tipado a `Observable<unknown>`: la unión de los dos Observable no deja llamar a `.pipe()`.
+    const llamada: Observable<unknown> = que === 'atribuir' ? this.api.atribuir(body) : this.api.soltar(body);
     llamada.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => { fin(); this.cargar(); },
-      error: (e) => {
+      error: (e: unknown) => {
         fin();
         this.toast.add({ severity: 'warn', summary: que === 'atribuir' ? 'No se pudo tomar' : 'No se pudo soltar', detail: mensaje(e), life: 6000 });
         this.cargar();

@@ -210,7 +210,9 @@ describe('SN.4 · la puerta que la landing abre no rebota en el índice del proy
      *    resolver. ⚠️ Y no podría: el candado de abajo exige que todo candidato empiece con
      *    `<ruta del proyecto>/`, y acá la única página ES la ruta del proyecto.
      */
-    const conGuardPropio = new Set(['pdv', 'trade', 'televenta', 'reparto', 'presupuestos']);
+    // `sucursal` ([AB.46]): un solo módulo y una sola llave; su índice redirige a `/sucursal/pendientes`,
+    // que exige esa MISMA llave — no hay a dónde rebotar, igual que `presupuestos`.
+    const conGuardPropio = new Set(['pdv', 'trade', 'televenta', 'reparto', 'presupuestos', 'sucursal']);
     const primarios = SUITE_SPACES.flatMap((s) => s.entries)
       .filter((e) => e.kind === 'project' && !e.crossLink)
       .map((e) => e.project);
