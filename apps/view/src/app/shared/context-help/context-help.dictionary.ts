@@ -607,6 +607,28 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
     ],
   },
   // [MX.3.2] Incidencias: sólo lo que el motor no pudo dar por bueno.
+  'almacen-pendientes': {
+    title: 'Pendientes de la sucursal — guía',
+    intro: 'Lo que tu sucursal tiene que hacer, juntado de las pantallas donde se resuelve. Sólo suma lo que te toca a ti: lo que espera a otra área se menciona en una línea, pero no cuenta.',
+    groups: [
+      {
+        heading: 'Qué cuenta como pendiente',
+        entries: [
+          { term: 'Traspaso sin recibir en Kepler', def: 'Una sucursal te embarcó mercancía y en Kepler todavía no está su recepción («Recepción Traspaso Suc»). Se captura en Kepler; la Suite no escribe ahí. Se miran los embarques de los últimos 30 días.' },
+          { term: 'Compras rechazó tu requisición', def: 'Lo que pediste desde Autoabasto con «Enviar a Compras» y Compras rechazó. Lee el motivo y decide si vuelves a pedirlo.' },
+          { term: 'Entrada sin comprobante', def: 'Una orden de entrada de Kepler de los últimos 90 días a la que no se le ha subido la remisión. Se sube en Entradas.' },
+          { term: 'Surtido sin empezar o a medias', def: 'Un surtido abierto en la consola: nadie lo ha tomado, o alguien lo empezó y no lo ha terminado.' },
+        ],
+      },
+      {
+        heading: 'Lo que se ve y no suma',
+        entries: [
+          { term: 'Esperando a otra área', def: 'Un pedido de traspaso que la matriz todavía no embarca, o una requisición que Compras no ha decidido. No es trabajo de la sucursal: se menciona para que sepas que viene.' },
+          { term: 'Una sección que no se pudo leer', def: 'Se dice, y el total de arriba no la incluye. No quiere decir que esté en cero.' },
+        ],
+      },
+    ],
+  },
   'almacen-incidencias': {
     title: 'Incidencias de movimientos — guía',
     intro: 'Aquí llega sólo lo que el motor no pudo dar por bueno al comparar cada salida con su recepción. Lo que cuadra no se audita a mano: está en el Diario de movimientos como reporte.',

@@ -75,6 +75,20 @@ export interface AlmacenArea {
 
 export const ALMACEN_AREAS: AlmacenArea[] = [
   {
+    key: 'pendientes',
+    label: 'Pendientes',
+    /**
+     * `[AB.44]` Lo que la sucursal tiene que hacer hoy, juntado de los procesos dueños. Va PRIMERA en
+     * el sidebar porque es lo primero que la sucursal tiene que ver. ⚠️ El ATERRIZAJE de `/almacen`
+     * no cambia (`ALMACEN_LANDING` no la incluye): mover a dónde entra cada quien es otra decisión.
+     * Un tab: la barra no se pinta.
+     */
+    match: ['/almacen/pendientes'],
+    tabs: [
+      { label: 'Pendientes', icon: 'pi pi-inbox', route: '/almacen/pendientes', anyOf: [Permission.AUTOABASTO_VER, Permission.COMPRAS_ENTRADAS_VER, Permission.ALMACEN_SURTIDO_COORDINAR], exact: true },
+    ],
+  },
+  {
     key: 'entrada',
     label: 'Entrada',
     /**

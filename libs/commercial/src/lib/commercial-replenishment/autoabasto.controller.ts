@@ -1,6 +1,6 @@
 import { BadRequestException, Body, Controller, ForbiddenException, Get, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { RolesGuard, RequirePermissions, Permission, MX_TZ, toMxDateKey, isPlatformAdminRole } from '@megadulces/platform-core';
+import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission, MX_TZ, toMxDateKey, isPlatformAdminRole } from '@megadulces/platform-core';
 import type {
   AutoabastoPedidoResponse, AutoabastoAjusteRequest, AutoabastoAjusteResponse,
   AutoabastoRestablecerRequest, AutoabastoAceptarGrupoRequest, AutoabastoAbrirRequest,
@@ -8,6 +8,7 @@ import type {
   AutoabastoRenglonesResponse, EstadoRenglon, SurteRenglon, OrdenMesa,
   AutoabastoEnviarRequest, AutoabastoEnviarResponse,
   AutoabastoVieneRenglonesResponse, MonthlySalesResponse,
+  AutoabastoVieneDocsResponse, SucursalPendientesAlmacen,
 } from '@megadulces/contracts';
 import { ESTADOS_RENGLON, ORDENES_MESA } from '@megadulces/contracts';
 import { CommercialReplenishmentService } from './commercial-replenishment.service';
@@ -228,6 +229,32 @@ export class AutoabastoController {
       // El PDF: todo lo del almacén con el filtro, sin paginar.
       todos: todos === '1' || todos === 'true',
     });
+  }
+
+  /**
+   * `[AB.44]` «Lo que te va a llegar» de UN almacén, sin la mesa: los mismos documentos que `viene` de
+   * `/pedido` (mismo mapeo, `documentosViene`). Lo lee «Pendientes de la sucursal». Mismo control de
+   * alcance que «Mi pedido».
+   */
+  @Get('viene')
+  @RequirePermissions(Permission.AUTOABASTO_VER)
+  @ApiOperation({ summary: '[AB.44] Lo que le va a llegar a un almacén (pedidos, embarques sin recibir, planes y requisiciones), sin la mesa' })
+  async viene(@Query('warehouse_id') warehouse_id?: string): Promise<AutoabastoVieneDocsResponse> {
+    return this.pedidos.viene(await this.almacenEnAlcance(warehouse_id));
+  }
+
+  /**
+   * `[AB.44]` Los almacenes de «Pendientes de la sucursal»: el alcance de la persona en el área Almacén
+   * (la MISMA lista que el selector de Autoabasto), con la llave canónica de la sucursal. Abre con
+   * cualquiera de las llaves de las secciones de esa pantalla: el auxiliar de tienda no tiene
+   * Autoabasto y sí Entradas, y tiene que poder elegir su sucursal.
+   */
+  @Get('pendientes/almacenes')
+  @RequireAnyPermission(Permission.AUTOABASTO_VER, Permission.COMPRAS_ENTRADAS_VER, Permission.ALMACEN_SURTIDO_COORDINAR)
+  @ApiOperation({ summary: '[AB.44] Almacenes que la persona alcanza, con la llave de sucursal (Pendientes de la sucursal)' })
+  async pendientesAlmacenes(): Promise<SucursalPendientesAlmacen[]> {
+    const warehouses = (await this.svc.almacenes(AREA_AUTOABASTO)) as { id: string; code: string; name: string }[];
+    return this.pedidos.conLlaveDeSucursal(warehouses.map((w) => ({ id: w.id, code: w.code, name: w.name })));
   }
 
   /**

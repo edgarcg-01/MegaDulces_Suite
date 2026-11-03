@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { Knex } from 'knex';
-import { TenantKnexService, TenantContextService, MX_TZ, toMxDateKey } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, MX_TZ, toMxDateKey, branchKeySql } from '@megadulces/platform-core';
 import {
   armarRenglon,
   surteDe,
@@ -40,6 +40,9 @@ import {
   type SurteRenglon,
   type AutoabastoVieneRenglon,
   type AutoabastoVieneRenglonesResponse,
+  type AutoabastoVieneDoc,
+  type AutoabastoVieneDocsResponse,
+  type SucursalPendientesAlmacen,
 } from '@megadulces/contracts';
 import { CommercialReplenishmentService, type CreateRequisitionDto } from './commercial-replenishment.service';
 import {
@@ -332,19 +335,15 @@ export class AutoabastoPedidoService {
     // `[AB.24]` Lo planeado por Compras, por producto (cajas) y por documento.
     // `[AB.29]` Lo que la sucursal pidió (sólo lo VIVO cuenta para el estado) y sus documentos.
     const pedidoSucursal = new Map<string, number>();
-    const reqDocs = new Map<string, FilaReqSucursal & { renglones: number }>();
     for (const q of deSucursal) {
       if (q.viva) pedidoSucursal.set(q.product_id, (pedidoSucursal.get(q.product_id) ?? 0) + num(q.final_qty));
-      const d = reqDocs.get(q.id);
-      if (d) d.renglones++; else reqDocs.set(q.id, { ...q, renglones: 1 });
     }
+    const reqDocs = porDocumento(deSucursal);
     const planPorProducto = new Map<string, number>();
-    const planDocs = new Map<string, FilaPlan & { renglones: number }>();
     for (const p of planes) {
       planPorProducto.set(p.product_id, (planPorProducto.get(p.product_id) ?? 0) + num(p.final_qty));
-      const d = planDocs.get(p.id);
-      if (d) d.renglones++; else planDocs.set(p.id, { ...p, renglones: 1 });
     }
+    const planDocs = porDocumento(planes);
     const renglones: RenglonInterno[] = filas.map((f) => {
       const sku = String(f['sku']);
       // El factor del almacén: las cantidades "_nat" vienen en unidad base, las de la mesa en cajas.
@@ -445,26 +444,7 @@ export class AutoabastoPedidoService {
       ventana_negado_dias: VENTANA_NEGADO_DIAS,
       ventana_en_camino_dias: VENTANA_EN_CAMINO_DIAS,
       viene: medidos || planDocs.size || reqDocs.size ? {
-        documentos: [
-          ...docs.map((d) => ({
-            tipo: d.tipo, origen: d.origen, serie: Number(d.serie), folio: d.folio, estado: d.estado, fecha: d.fecha,
-            dias: Number(d.dias), renglones: Number(d.renglones), monto: numONull(d.monto),
-            se_resta: d.tipo === 'embarque' ? Number(d.dias) <= VENTANA_EN_CAMINO_DIAS : Number(d.dias) <= VENTANA_YA_PEDIDO_DIAS,
-          })),
-          ...[...planDocs.values()].map((p) => ({
-            tipo: 'plan' as const, origen: p.origen ?? '', serie: 0, folio: p.folio ?? '', estado: 'PLANEADO', fecha: p.fecha,
-            dias: Number(p.dias), renglones: p.renglones, monto: numONull(p.monto), se_resta: false, id: p.id,
-          })),
-          // `[AB.29]` Lo que la sucursal mandó a Compras: por aprobar, aprobado o rechazado (con motivo).
-          ...[...reqDocs.values()].map((q) => ({
-            tipo: 'requisicion' as const,
-            origen: q.source_type === 'branch' ? (q.origen ?? '') : '',
-            proveedor: q.source_type === 'branch' ? null : (q.proveedor ?? 'Proveedor'),
-            serie: 0, folio: q.folio, estado: ESTADO_REQ[q.estado] ?? q.estado.toUpperCase(), fecha: q.fecha,
-            dias: Number(q.dias), renglones: q.renglones, monto: numONull(q.monto), se_resta: false,
-            motivo: q.estado === 'cancelled' ? (q.motivo ?? null) : null, id: q.id,
-          })),
-        ],
+        documentos: documentosViene(docs, planDocs, reqDocs),
         renglones_sin_unidad: sinUnidad,
       } : null,
       grupos: lista,
@@ -474,6 +454,53 @@ export class AutoabastoPedidoService {
       guardado_disponible: guardable,
       posiciones,
     };
+  }
+
+  /**
+   * `[AB.44]` Sólo los documentos de «Lo que te va a llegar», para «Pendientes de la sucursal».
+   *
+   * Las mismas cuatro lecturas que `armarAlmacen` hace para `viene` (destino, planes de Compras,
+   * requisiciones de la sucursal, documentos de Kepler) y el mismo mapeo (`documentosViene`), SIN el
+   * motor: la mesa de Padre Hidalgo tarda 1.2–1.5 s (AB.36) y esta pantalla no lee ni un renglón.
+   */
+  async viene(almacen: Almacen): Promise<AutoabastoVieneDocsResponse> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const binds = { t: tenantId, suc: almacen.code };
+    return this.tk.run(async (trx: Knex.Transaction) => {
+      const medidos = ((await trx.raw(TIENE_DESTINO_SQL, binds)).rows ?? []).length > 0;
+      const marca = (await trx.raw(MARCA_SUCURSAL_SQL)).rows.length > 0;
+      const planes = ((await trx.raw(planeadoComprasSql(marca), { t: tenantId, wh: almacen.id })).rows ?? []) as FilaPlan[];
+      const deSucursal = marca
+        ? ((await trx.raw(REQ_SUCURSAL_SQL, { t: tenantId, wh: almacen.id })).rows ?? []) as FilaReqSucursal[]
+        : [];
+      // Sin cliente de traspaso, lo de Kepler NO se mide (≠ «cero»), igual que en `armarAlmacen`.
+      const docs = medidos ? ((await trx.raw(VIENE_DOCS_SQL, binds)).rows ?? []) as FilaDoc[] : [];
+      return {
+        almacen,
+        documentos: documentosViene(docs, porDocumento(planes), porDocumento(deSucursal)),
+        pedidos_medidos: medidos,
+        ventana_en_camino_dias: VENTANA_EN_CAMINO_DIAS,
+      };
+    });
+  }
+
+  /**
+   * `[AB.44]` Los almacenes de la persona con su llave canónica de sucursal (`branchKeySql`), que es con
+   * la que filtra Entradas. Recibe la lista YA recortada al alcance (`motor.almacenes`): no la amplía.
+   */
+  async conLlaveDeSucursal(almacenes: Almacen[]): Promise<SucursalPendientesAlmacen[]> {
+    if (!almacenes.length) return [];
+    const tenantId = this.tenantCtx.requireTenantId();
+    const llaves = await this.tk.run(async (trx: Knex.Transaction) => {
+      const { rows } = await trx.raw(
+        `SELECT w.id::text AS id, NULLIF(btrim(${branchKeySql('w')}), '') AS llave
+           FROM commercial.warehouses w
+          WHERE w.tenant_id = ? AND w.id = ANY(?::uuid[])`,
+        [tenantId, almacenes.map((a) => a.id)],
+      );
+      return new Map((rows as Array<{ id: string; llave: string | null }>).map((r) => [r.id, r.llave]));
+    });
+    return almacenes.map((a) => ({ id: a.id, name: a.name, sucursal: llaves.get(a.id) ?? null }));
   }
 
   /**
@@ -870,6 +897,48 @@ interface AlmacenArmado {
   borrador: string | null;
   guardable: boolean;
   posiciones: PosicionPedido[];
+}
+
+/** Agrupa renglones de requisición por documento, contando renglones. */
+function porDocumento<T extends { id: string }>(filas: T[]): Map<string, T & { renglones: number }> {
+  const docs = new Map<string, T & { renglones: number }>();
+  for (const f of filas) {
+    const d = docs.get(f.id);
+    if (d) d.renglones++; else docs.set(f.id, { ...f, renglones: 1 });
+  }
+  return docs;
+}
+
+/**
+ * `[AB.44]` Los documentos de «Lo que te va a llegar», en UN solo lugar: los sirven `pedido()` (la mesa)
+ * y `viene()` (Pendientes de la sucursal). Si cada uno mapeara por su cuenta, dirían cosas distintas
+ * del mismo embarque.
+ */
+function documentosViene(
+  docs: FilaDoc[],
+  planDocs: Map<string, FilaPlan & { renglones: number }>,
+  reqDocs: Map<string, FilaReqSucursal & { renglones: number }>,
+): AutoabastoVieneDoc[] {
+  return [
+    ...docs.map((d) => ({
+      tipo: d.tipo, origen: d.origen, serie: Number(d.serie), folio: d.folio, estado: d.estado, fecha: d.fecha,
+      dias: Number(d.dias), renglones: Number(d.renglones), monto: numONull(d.monto),
+      se_resta: d.tipo === 'embarque' ? Number(d.dias) <= VENTANA_EN_CAMINO_DIAS : Number(d.dias) <= VENTANA_YA_PEDIDO_DIAS,
+    })),
+    ...[...planDocs.values()].map((p) => ({
+      tipo: 'plan' as const, origen: p.origen ?? '', serie: 0, folio: p.folio ?? '', estado: 'PLANEADO', fecha: p.fecha,
+      dias: Number(p.dias), renglones: p.renglones, monto: numONull(p.monto), se_resta: false, id: p.id,
+    })),
+    // `[AB.29]` Lo que la sucursal mandó a Compras: por aprobar, aprobado o rechazado (con motivo).
+    ...[...reqDocs.values()].map((q) => ({
+      tipo: 'requisicion' as const,
+      origen: q.source_type === 'branch' ? (q.origen ?? '') : '',
+      proveedor: q.source_type === 'branch' ? null : (q.proveedor ?? 'Proveedor'),
+      serie: 0, folio: q.folio, estado: ESTADO_REQ[q.estado] ?? q.estado.toUpperCase(), fecha: q.fecha,
+      dias: Number(q.dias), renglones: q.renglones, monto: numONull(q.monto), se_resta: false,
+      motivo: q.estado === 'cancelled' ? (q.motivo ?? null) : null, id: q.id,
+    })),
+  ];
 }
 
 /** Una fecha del motor como AAAA-MM-DD (el driver puede devolver `Date` o texto). `null` = sin fecha. */

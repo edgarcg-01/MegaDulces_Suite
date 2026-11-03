@@ -2303,6 +2303,67 @@ su uso **no está medido**. Se decidió por lo que hace cada uno:
 Pantalla 53/53; negativa: la prueba de «un solo primario» corrida contra el componente anterior da rojo
 («Enviar a Compras» + 2 «Aceptar grupo»). Sin validación visual.
 
+### 16.22 🧪 [AB.44] Pendientes de la sucursal (2026-11-03)
+
+**Pedido de Edgar (2026-11-03):** «un submódulo "mis pendientes" para las sucursales donde puedan revisar traspasos,
+órdenes de entrada, pendientes, etc.» → «hay que ser más específicos: un módulo donde le mostremos a las sucursales qué
+tienen pendiente» → «constrúyelo». Entra como item de AB y no como fase nueva porque el cupo estaba excedido (6 🔨
+contra 4) y es justo lo que la fase ya decía: «cada sucursal ve lo que le llega».
+
+**Qué es pendiente:** sólo lo que la propia sucursal tiene que HACER. Lo que espera a otra área se menciona en una línea
+y no suma. `/almacen/pendientes` es la primera área del sidebar de Almacén. No calcula nada propio: lee el endpoint
+dueño de cada proceso, con su permiso y su alcance.
+
+| Sección | Fuente (endpoint dueño) | Llave | Hoy (2026-11-03, prod sólo lectura) |
+|---|---|---|---|
+| Lo que te va a llegar: embarque sin recepción en Kepler + requisición rechazada | `GET /commercial/autoabasto/viene` (nuevo; mismas consultas y mismo mapeo que `viene` de `/pedido`, ahora en `documentosViene`) | `AUTOABASTO_VER` | 46 embarques sin recibir en 30 días (Yurécuaro 12 · Padre Hidalgo 9 · 8 Esquinas 7 · Morelia Madero 5 · CEDIS 4 · …); requisiciones de sucursal: 0 creadas |
+| Entradas sin comprobante (90 días, la ventana de la bandeja de Mi trabajo) | `GET /finance/goods-receipts?estado=pendiente` | `COMPRAS_ENTRADAS_VER` | 99 en 30 días (CEDIS 25 · 8 Esquinas 22 · Padre Hidalgo 16 …; Canindo 0) |
+| Surtidos abiertos o a medias, y pedidos autorizados sin armar | `GET /reparto/surtido/consola` | `ALMACEN_SURTIDO_COORDINAR` | 16 olas (Morelia Abastos 14 abiertas) |
+
+**C0 (el árbitro del traspaso):** en 30 días hubo 1,239 embarques recibidos (del embarque a la recepción: mediana 1 día,
+máximo 21) y 43 sin recibir. Como control se buscó, para cada embarque, una recepción del mismo importe que apunte a
+otro folio: aparece en 1 de 43 sin recibir (2.3 %) y en 14 de 1,239 recibidos (1.1 %), así que no hay recepciones
+escondidas bajo otro apuntador. Horas después se cruzaron dos implementaciones independientes: `VIENE_DOCS_SQL` (el
+texto del archivo, corrido con knex) y la consulta de AB.33. Dan lo mismo en las 9 sucursales (46 = 46). Canindo pasó
+de 14 a 1 en el día porque capturaron sus recepciones.
+
+**Qué quedó fuera, medido:**
+- Arqueos sin validar (1,333 en 30 días): los valida otra área.
+- Cortes de caja: sólo existen para la matriz.
+- Reclamos de recepción: 0 filas desde que existe la tabla.
+- Conteos asignados: 0 activos.
+- Hojas de caducidad en borrador (3, todas del 7 y 8 de septiembre): son restos del flujo de hoja que
+  `/tienda/caducidades` reemplazó el 2026-09-08.
+- Existencia negativa (3,005 artículos): le toca a Prevención (MX).
+- Caducidad al recibir en el Andén (520 llegadas sin vale en 7 días y 0 vales desde el 7-oct): **decisión pendiente
+  de Edgar** sobre si es trabajo de la sucursal. Hasta entonces no se pinta, porque un «520» diario enseña a ignorar
+  la pantalla.
+
+**Diseño:** las cinco preguntas de `diseno` §0b están contestadas en la cabecera del componente. Lleva veredicto
+arriba, una franja por proceso y secciones ordenadas por su pendiente más viejo. Cada sección distingue sus cuatro
+estados (sin permiso · cargando · error · leída), y el total declara cuántas secciones no se pudieron leer en vez de
+contarlas como cero. La sucursal se nombra, nunca se numera. La liga a Entradas lleva la sucursal, el estado y la
+ventana.
+
+**Pruebas:**
+- Util: 10/10. Con almacén, aterrizajes y la ruta de Mi trabajo: 81/81.
+- Negativa: contar el pedido sin embarcar como pendiente da rojo.
+- `check:pantalla`: cumple las 10 reglas y tipa.
+- `check:templates`: verde.
+- `--fs-xl` (no existe) se cambió por `--fs-h2`.
+- SQL nuevo (`conLlaveDeSucursal`): ejercido con knex en prod, sólo lectura, con 12 almacenes y con 1 (7 ms).
+- **No medido:**
+  - El arranque de la API: se agregaron dos handlers con decoradores; el constructor no cambió.
+  - Validación visual.
+  - La pantalla con un usuario real de cada rol.
+
+**Deuda con nombre:**
+- (a) La fila «Tu sucursal tiene N pendientes» en Mi trabajo no se hizo. Contarla en `me-work.ts` sería una segunda
+  cuenta; tiene que reusar las de aquí.
+- (b) Sin nodo en `AUTHZ_TREE`, porque no tiene llave propia. Un nodo con ruta la volvería candidata de aterrizaje y
+  cambiaría a dónde entra el auxiliar de tienda.
+- (c) Cajero: no tiene ninguna de las tres llaves y no ve la pantalla.
+
 
 - [ ] Métrica re-medida con la misma consulta, antes/después publicado.
 - [ ] Carga completa de la mesa y de «Mi pedido» bajo 500 ms en todas las sucursales, medida en prod (AB.36).

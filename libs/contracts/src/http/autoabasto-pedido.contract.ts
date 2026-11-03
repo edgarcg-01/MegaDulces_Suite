@@ -789,6 +789,32 @@ export interface AutoabastoViene {
   renglones_sin_unidad: number;
 }
 
+/**
+ * `[AB.44]` `GET /commercial/autoabasto/viene` — sólo los documentos de «Lo que te va a llegar», sin
+ * correr la mesa. Lo lee «Pendientes de la sucursal» (`/almacen/pendientes`). Salen de las MISMAS
+ * consultas y el MISMO mapeo que `viene` de `/pedido`: si cambiara uno, cambiarían los dos.
+ */
+export interface AutoabastoVieneDocsResponse {
+  almacen: { id: string; code: string; name: string };
+  documentos: AutoabastoVieneDoc[];
+  /** `false` = la sucursal no tiene cliente de traspaso: pedidos y embarques NO se midieron (≠ cero). */
+  pedidos_medidos: boolean;
+  /** Embarques sin recibir de más días que esto ya no se restan del pedido (se muestran para reclamarlos). */
+  ventana_en_camino_dias: number;
+}
+
+/**
+ * `[AB.44]` Un almacén de «Pendientes de la sucursal»: el alcance de la persona en el área Almacén,
+ * con la llave canónica de la sucursal (`branchKeySql`). La llave hace falta porque Entradas filtra
+ * por ella, y en Morelia `code` (`MD-30`) no es la llave (`30`).
+ */
+export interface SucursalPendientesAlmacen {
+  id: string;
+  name: string;
+  /** Llave canónica de la sucursal (la de `warehouse_codes`). `null` = el almacén no la tiene. */
+  sucursal: string | null;
+}
+
 export interface AutoabastoPedidoResponse {
   almacen: { id: string; code: string; name: string };
   /** AAAA-MM-DD y HH:mm en hora de México, del servidor. */

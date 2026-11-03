@@ -1713,6 +1713,15 @@ export const routes: Routes = [
         canActivate: [anyPermissionGuard(Permission.AUTOABASTO_VER, Permission.AUTOABASTO_SOLICITAR)]
       },
       {
+        // [AB.44] Pendientes de la sucursal: lo que la sucursal tiene que hacer hoy, de los procesos
+        // dueños (Autoabasto, Entradas, Consola de surtido). Abre con la llave de CUALQUIERA de sus
+        // secciones —las mismas del endpoint `autoabasto/pendientes/almacenes`—; adentro, cada
+        // sección se pinta sólo con la suya.
+        path: 'pendientes',
+        loadComponent: () => import('./modules/almacen/pages/almacen-pendientes.component').then(m => m.AlmacenPendientesComponent),
+        canActivate: [anyPermissionGuard(Permission.AUTOABASTO_VER, Permission.COMPRAS_ENTRADAS_VER, Permission.ALMACEN_SURTIDO_COORDINAR)]
+      },
+      {
         // [AB.39] «Mi pedido» y la mesa son UNA pantalla desde el 2026-10-26 (eran la misma cuenta
         // pintada dos veces). La ruta vieja se queda como redirección: un marcador o un enlace viejo
         // no puede terminar en 404.

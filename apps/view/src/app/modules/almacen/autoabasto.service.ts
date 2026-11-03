@@ -9,6 +9,7 @@ import type {
   AutoabastoRenglonesResponse, EstadoRenglon, SurteRenglon, OrdenMesa,
   AutoabastoEnviarRequest, AutoabastoEnviarResponse,
   AutoabastoVieneDoc, AutoabastoVieneRenglonesResponse, MonthlySalesResponse,
+  AutoabastoVieneDocsResponse, SucursalPendientesAlmacen,
 } from '@megadulces/contracts';
 
 /** `[AB.27]` Filtros de `GET /commercial/autoabasto/renglones`. El almacén es obligatorio: una mesa por sucursal. */
@@ -276,6 +277,16 @@ export class AutoabastoService {
       ? { warehouse_id: warehouseId, tipo: d.tipo, id: d.id ?? '' }
       : { warehouse_id: warehouseId, tipo: d.tipo, origen: d.origen, serie: String(d.serie), folio: d.folio };
     return this.http.get<AutoabastoVieneRenglonesResponse>(`${this.base}/pedido/viene`, { params: new HttpParams({ fromObject: q }) });
+  }
+
+  /** `[AB.44]` «Lo que te va a llegar» de un almacén, sin la mesa (Pendientes de la sucursal). */
+  viene(warehouseId: string): Observable<AutoabastoVieneDocsResponse> {
+    return this.http.get<AutoabastoVieneDocsResponse>(`${this.base}/viene`, { params: new HttpParams().set('warehouse_id', warehouseId) });
+  }
+
+  /** `[AB.44]` Los almacenes de Pendientes de la sucursal (el alcance de la persona, con la llave de sucursal). */
+  pendientesAlmacenes(): Observable<SucursalPendientesAlmacen[]> {
+    return this.http.get<SucursalPendientesAlmacen[]>(`${this.base}/pendientes/almacenes`);
   }
 
   /** `[AB.41]` Venta por mes de un producto en el almacén (el globo de «Venta 30 d», como en /compras/pedido). */
