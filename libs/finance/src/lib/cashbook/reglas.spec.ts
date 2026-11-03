@@ -3,6 +3,7 @@ import { identidadDeCaos, llaveDePiezaCaos, piezasQueEntranALaMaquina, type Movi
 import {
   CUENTAS_FIJAS, ReglaInvalida, apertura, chequeDepositado, chequeDevuelto, chequeRecibido, clasificarSuspenso, cobranzaRuta,
   cobroEnDolares, depositoEnBanco, entregaRuta, esSinRegla, faltante, gasto, movimientoCaos, otroIngreso, pagoDelCajon, regresoCustodiaAlCajon,
+  cambioDeMonedas, aCustodiaDesdeCajon,
   sobrante, type Contexto, type Propuesta, type ResultadoRegla,
 } from './reglas';
 
@@ -349,5 +350,46 @@ describe('[LE.2.9] la parte del cajón de un pago, con el redondeo declarado (D2
 
   it('NEGATIVA: el cajón se cuenta por pieza del catálogo; una pieza que no existe no pasa', () => {
     expect(() => pagoDelCajon({ ...base, piezas: { 3: '1' }, redondeo: 0n }, CAJERA)).toThrow(DineroInvalido);
+  });
+});
+
+describe('[LE.2.11] E-29 · monedas por billetes con alguien de fuera', () => {
+  const codigo = (fn: () => unknown): string => { try { fn(); return 'sin error'; } catch (e) { return (e as ReglaInvalida).codigo ?? (e as Error).name; } };
+  const esCambio = (code: string) => code.startsWith('CAMBIO_EFECTIVO:');
+
+  it('en el acto y exacto: 1,000 monedas de $10 por 20 billetes de $500; el puente queda en cero', () => {
+    const p = cambioDeMonedas({ conQuien: 'Banco', salen: { 10: '1000' }, entran: { 500: '20' } }, CAJERA);
+    verificar(p);
+    expect(p.asiento.event_kind).toBe('cambio');
+    const caja = p.asiento.lines.filter((l) => l.account === 'CAJA_MXN').map((l) => l.amount_minor);
+    expect(caja).toEqual(['-1000000', '1000000']);
+    const puente = p.asiento.lines.filter((l) => esCambio(l.account)).reduce((t, l) => t + BigInt(l.amount_minor), 0n);
+    expect(puente).toBe(0n);
+    expect(p.cuentas.find((c) => esCambio(c.code))).toMatchObject({ class: 'puente', tracks_pieces: false });
+  });
+
+  it('con comisión: el banco se queda $50 y es un gasto declarado, no un faltante', () => {
+    const p = cambioDeMonedas({ conQuien: 'Banco', salen: { 10: '1000' }, entran: { 500: '19', 200: '2', 50: '1' }, comision: '5000' }, CAJERA);
+    verificar(p);
+    expect(p.asiento.lines.filter((l) => l.account.startsWith('EGRESO:')).map((l) => l.amount_minor)).toEqual(['5000']);
+    expect(p.asiento.meta).toMatchObject({ motivo: 'cambio de monedas', con_quien: 'Banco' });
+  });
+
+  it.each([
+    ['lo que sale no cuadra con lo que entra', () => cambioDeMonedas({ conQuien: 'Banco', salen: { 10: '1000' }, entran: { 500: '19' } }, CAJERA), 'cashbook_cambio_no_cuadra'],
+    ['la misma pieza sale y entra', () => cambioDeMonedas({ conQuien: 'Banco', salen: { 10: '10' }, entran: { 10: '10' } }, CAJERA), 'cashbook_cambio_misma_pieza'],
+    ['un cambio sin lo que entra', () => cambioDeMonedas({ conQuien: 'Banco', salen: { 10: '10' }, entran: {} }, CAJERA), 'cashbook_cuenta_exige_piezas'],
+    ['una comisión negativa', () => cambioDeMonedas({ conQuien: 'Banco', salen: { 10: '10' }, entran: { 100: '1' }, comision: '-1' }, CAJERA), 'cashbook_monto_invalido'],
+  ])('NEGATIVA: %s → %s', (_q, fn, esperado) => expect(codigo(fn)).toBe(esperado));
+
+  it('«se las lleva una persona»: salen a su custodia y regresan en billetes con la comisión; la custodia queda en cero', () => {
+    const sale = aCustodiaDesdeCajon({ empleado: 'e-luis', nombre: 'Luis', piezas: { 10: '1000' }, para: 'cambiar monedas en el banco' }, CAJERA);
+    const regresa = regresoCustodiaAlCajon({ empleado: 'e-luis', nombre: 'Luis', piezas: { 500: '19', 200: '2', 50: '1' } }, CAJERA);
+    const comision = gasto({ concepto: 'Comisión por cambio de monedas', desde: { tipo: 'custodia', empleado: 'e-luis', nombre: 'Luis', monto: '5000' } }, CAJERA);
+    for (const p of [sale, regresa, comision]) verificar(p);
+    expect(sale.asiento).toMatchObject({ event_kind: 'retiro_a_custodia', meta: { motivo: 'cambiar monedas en el banco' } });
+    const custodia = [sale, regresa, comision].flatMap((p) => p.asiento.lines).filter((l) => l.account.startsWith('CUSTODIA:'));
+    expect(custodia).toHaveLength(3);
+    expect(custodia.reduce((t, l) => t + BigInt(l.amount_minor), 0n)).toBe(0n);
   });
 });

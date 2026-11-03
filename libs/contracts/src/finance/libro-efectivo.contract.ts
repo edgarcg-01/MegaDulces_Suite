@@ -170,6 +170,14 @@ export const CUENTA = {
     code: 'REDONDEO_MXN', name: 'Redondeo al medio peso', class: 'diferencia', currency: 'MXN',
     tracks_pieces: false, allows_negative: true, holder_kind: 'ninguno', witness: 'D26: el documento contra lo pagado',
   }),
+  /**
+   * `[LE.2.11]` El otro lado de un cambio de monedas por billetes (el banco, un proveedor): puente y
+   * sin piezas, porque las piezas cambian de forma y no se conservan. Queda en cero en el mismo acto.
+   */
+  cambioDeEfectivo: (conQuien: string): CuentaPropuesta => ({
+    code: `CAMBIO_EFECTIVO:${parteDeCodigo(conQuien)}`, name: `Cambio de monedas · ${conQuien}`, class: 'puente', currency: 'MXN',
+    tracks_pieces: false, allows_negative: true, holder_kind: 'concepto', holder_ref: parteDeCodigo(conQuien), witness: 'el comprobante del cambio',
+  }),
 };
 
 // ── `[LE.4]` Lo que la API recibe y devuelve ────────────────────────────────────────────────────

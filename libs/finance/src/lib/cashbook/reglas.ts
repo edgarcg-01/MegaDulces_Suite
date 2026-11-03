@@ -364,6 +364,58 @@ export function regresoCustodiaAlCajon(h: { empleado: string; nombre: string; pi
   ]);
 }
 
+// ── E-29 · `[LE.2.11]` Monedas por billetes con alguien de fuera, en el acto ──────────────────
+
+/**
+ * Salen monedas por pieza, entran billetes por pieza, y la comisión (si el banco cobra) se declara
+ * como gasto: nunca se absorbe. Cuadre exacto: lo que sale = lo que entra + la comisión.
+ *
+ *   CAJA −salen · CAMBIO(con quién) +salen · CAMBIO −(entran + comisión) · CAJA +entran · EGRESO +comisión
+ *
+ * La cuenta del cambio es puente y queda en cero: las piezas no se conservan (cambian de forma), por
+ * eso no puede ser un traspaso entre dos cuentas que cuentan piezas.
+ */
+export function cambioDeMonedas(h: { conQuien: string; salen: PiezasTexto; entran: PiezasTexto; comision?: string },
+  ctx: Contexto, extra: { event_ref?: string; meta?: MetaAsiento } = {}): Propuesta {
+  const salen = piezasValidas(h.salen, 'cambio · lo que sale');
+  const entran = piezasValidas(h.entran, 'cambio · lo que entra');
+  const repetidas = Object.keys(salen).filter((k) => k in entran);
+  if (repetidas.length) {
+    throw new ReglaInvalida('cashbook_cambio_misma_pieza', `cambio: ${repetidas.join(', ')} sale y entra a la vez; eso no es un cambio`);
+  }
+  const vSale = positivo(montoDe(salen), 'cambio · lo que sale');
+  const vEntra = positivo(montoDe(entran), 'cambio · lo que entra');
+  const comision = h.comision === undefined || h.comision === '' ? 0n : centavos(h.comision);
+  if (comision < 0n) throw new ReglaInvalida('cashbook_monto_invalido', 'cambio: la comisión es un importe, no negativo');
+  if (vSale !== vEntra + comision) {
+    throw new ReglaInvalida('cashbook_cambio_no_cuadra',
+      `cambio: salen ${centavosATexto(vSale)} y entran ${centavosATexto(vEntra)} + comisión ${centavosATexto(comision)}; difieren ${centavosATexto(vSale - vEntra - comision)}`);
+  }
+  const otro = CUENTA.cambioDeEfectivo(h.conQuien);
+  const piernas: Pierna[] = [
+    { cuenta: F.CAJA_MXN, monto: -vSale, piezas: negarPiezas(salen) },
+    { cuenta: otro, monto: vSale },
+    { cuenta: otro, monto: -(vEntra + comision) },
+    { cuenta: F.CAJA_MXN, monto: vEntra, piezas: entran },
+  ];
+  if (comision > 0n) piernas.push({ cuenta: CUENTA.egreso('Comisión por cambio de monedas'), monto: comision });
+  return armar('cambio', ctx, piernas, { ...extra, meta: { ...extra.meta, motivo: 'cambio de monedas', con_quien: h.conQuien } });
+}
+
+/**
+ * `[LE.2.11]` «Se las lleva una persona»: las monedas salen del cajón a SU custodia, por pieza, hasta
+ * que regresa con los billetes (`regresoCustodiaAlCajon`) y, si hubo, la comisión como gasto desde su
+ * custodia (`gasto`). Mientras tanto la custodia dice a nombre de quién está el dinero.
+ */
+export function aCustodiaDesdeCajon(h: { empleado: string; nombre: string; piezas: PiezasTexto; para: string },
+  ctx: Contexto): Propuesta {
+  const m = positivo(montoDe(piezasValidas(h.piezas, 'a_custodia')), 'a_custodia');
+  return armar('retiro_a_custodia', ctx, [
+    { cuenta: F.CAJA_MXN, monto: -m, piezas: negarPiezas(h.piezas) },
+    { cuenta: CUENTA.custodia(h.empleado, h.nombre), monto: m },
+  ], { meta: { motivo: h.para } });
+}
+
 // ── E-05, E-12, E-20 · Faltante y sobrante: SIEMPRE con nombre, SIEMPRE autorizados ───────────
 
 type Origen = { tipo: 'ruta'; ruta: string; monto: string } | { tipo: 'custodia'; empleado: string; nombre: string; monto: string } | { tipo: 'cajon'; piezas: PiezasTexto };
