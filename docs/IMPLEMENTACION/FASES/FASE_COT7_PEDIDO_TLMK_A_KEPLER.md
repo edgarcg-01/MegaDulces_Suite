@@ -10,7 +10,7 @@
 | **CAPA TOPE** | C3 (botón en `/telemarketing/cotizaciones/:id`) |
 | **ÁREA** | Telemarketing · escribe en el ERP |
 | **DUEÑO** | ⚠️ sin asignar (lo decide el PM) |
-| **ESTADO** | ⬜ — **no se abre**: el cupo está en 6 🔨 contra 4 (`tablero.js`, 2026-11-03). Ver D6. |
+| **ESTADO** | 🔨 C0 (sólo lectura) desde el 2026-11-03 · C1 en espera de cupo (6 🔨 de 4). Ver D6. |
 
 Medido con `pg-prod` en sólo lectura (`system_identifier` 7688376744939610156), sobre
 `kepler_ods.kdm1`/`kdm2` y `commercial.*`, el 2026-11-03.
@@ -75,7 +75,9 @@ UN documento (`X-A-30`); este anexo pide el segundo y **necesita su propia firma
 
 ---
 
-## 5. Decisiones a firmar
+## 5. Decisiones
+
+> ✅ **D0–D5 firmadas por Edgar el 2026-11-03** («sí, lo que recomiendes»): quedan como la recomendación. D6 la decidió Claude por encargo: ver abajo. ADR-113.
 
 | # | Decisión | Opciones | Recomendación |
 |---|---|---|---|
@@ -85,7 +87,7 @@ UN documento (`X-A-30`); este anexo pide el segundo y **necesita su propia firma
 | **D3** | ¿Cliente sin clave del ERP (prospecto)? | se rechaza · se da de alta en Kepler | **Se rechaza con su porqué.** Hoy 14 de 59 no tienen clave del ERP. Dar de alta clientes es otra escritura y otra firma. `CONTADO` sí es clave válida (5 pedidos así en 30 días) |
 | **D4** | ¿Quién puede mandarlo a Kepler? | quien cotiza (con `GESTIONAR` y COT.21: sólo las suyas) · una llave aparte | **Quien cotiza**, con `COMMERCIAL_QUOTES_GESTIONAR`. El freno operativo es el interruptor por sucursal (`kepler_push_switch`, tipo nuevo `telemarketing`, apagado al nacer) |
 | **D5** | Vendedor del pedido (`c12`) | el de la cotización (`salesperson_code`) · el del cliente en Kepler | **El de la cotización**, obligatorio. Sin vendedor no se escribe |
-| **D6** | Cupo (6 🔨 de 4) | pausar una fase · esperar a que cierre una | **Decisión del PM.** Lo que se puede hacer sin abrir nada: C0 completo, que es sólo lectura |
+| **D6** | Cupo (6 🔨 de 4) | pausar una fase · esperar a que cierre una | ✅ **COT.7 es item de COT, sin fila nueva en el roadmap. C0 (sólo lectura) arranca ya; C1 —lo primero que escribe— espera a que el tablero baje de 4 🔨.** |
 
 ---
 
@@ -140,6 +142,65 @@ UN documento (`X-A-30`); este anexo pide el segundo y **necesita su propia firma
 
 ---
 
+## 7b. C0 — lo medido el 2026-11-03 (sólo lectura, sid 7688376744939610156)
+
+### [COT.7.0] El documento: ✅ con árbitro
+
+Cabecera (`kdm1`), 299 pedidos TELEMARK de 01/06/08 (15 días):
+
+| Regla | Cuadra |
+|---|---|
+| Sin descuento de cliente: `c16 = Σ kdm2.c13` | 131 / 131 |
+| Con descuento: `c16 = Σc13 × (1 − c19/100)` (`c19` = % del cliente) | 168 / 168 |
+| `c14` IVA y `c15` IEPS = Σ del impuesto incluido en cada renglón × (1 − c19/100) | 299 / 299 y 299 / 299 |
+| `c13` = descuento **sin** impuestos: `(Σc13 − IVA − IEPS) × c19/100` | 168 / 168 |
+| `c42` = importe por facturar; `c43` = estado de facturación (`N` → `c42 = c16`; `F` → 0) | el recién creado nace `N` |
+| Fijas: `c5=1` · `c7='PESOS'` · `c31='Ped'` · `c40=1` · `c63='PD-'` · `c97='0\|0'` | 1,485 / 1,485 (30 días) |
+| `c24` es texto libre (`PEDIDO TIK TOK`, `FACTURA`, vacío en 488) → la marca de la Suite cabe ahí, como en el traspaso | — |
+| `c10` cliente · `c12` vendedor · `c22` RFC · `c32`–`c35` nombre y dirección · `c30` condición de pago · `c67` capturista | del cliente en `kdud` |
+
+Renglón (`kdm2`), 581 renglones `CREADO`/`AUTORIZADO`:
+
+| Regla | Cuadra |
+|---|---|
+| `c9 = c51 × c58` (`c51` piezas en la presentación `c55`; `c58` factor; `c9` en la unidad base `c11`) | 406 / 406 |
+| `c12 = round(c57 / c58, 2)` (`c57 = c65` precio de la presentación) | 406 / 406 |
+| `c13 = c12 × c9` — **el importe se calcula con la base redondeada** | 406 / 406 |
+| `c63` = costo estándar `kdii.c77` (por unidad base); `c62` = costo por presentación | 401 / 406 |
+| `c66 = c57 / c58` sin redondear (precio original); difiere en 71 por descuento de volumen | 335 / 406 |
+| `c24 = c9` · `c56 = c51` · `c25` = cliente · `c27` = vendedor · `c28='CREADO'` · `c29=1` | 581 / 581 |
+
+### [COT.7.0b] Árbitro de precio: ❌ 98.0 %, abajo del 99 %
+
+El motor REAL de COT.1 (`QuotePricingService.priceLine`, cargado con `tsx`, rol de sólo lectura)
+contra 400 renglones `CREADO` de pedidos TELEMARK de ayer y hoy (01/06/08), mismo SKU,
+presentación (`c55` como rótulo) y cantidad:
+
+| | |
+|---|---|
+| Precio por unidad base igual a `c12` (el que se factura) | **392 / 400 (98.0 %)** |
+| Precio de la presentación igual a `c57` | 224 / 400 — por centavos: el motor multiplica la base ya redondeada; Kepler, la sin redondear. **No mueve el importe** (`c13 = c12 × c9`), pero el doctipo tiene que escribir `c57` como Kepler |
+| Renglones a $0.01 (00917, 00442): el motor no da precio | 2 — correcto, falla cerrada |
+
+Las 6 diferencias reales, una por una:
+
+| SKU | Kepler cobró (base) | Motor | Causa |
+|---|---|---|---|
+| 97397 ×7 PZA | 108.73 (= lista) | 106.95 | el motor aplica «volumen desde 3 PZA»; Kepler no |
+| 03004 ×10 PAQ | 39.83 (lista 43.14) | 36.02 | el motor aplica «volumen desde 3»; Kepler cobró otro precio |
+| 97397 ×1 CJA | 106.94 | 99.81 | la escalera de caja del motor (998.11 / caja) no es la de Kepler; y su «volumen» (1,051.58) es **más caro** que la lista |
+| 94157 ×5 CJA | 16.39 | 17.30 | lista de caja del motor 176.09 contra ≈ 164 de Kepler |
+| 94156 ×5 CJA | 11.02 | 12.19 | idem (125.40 contra ≈ 110) |
+| 70500 ×3 KG (factor 2) | 70.08 | 36.29 | unidad: el motor rotula el peldaño `500` y lo trata como base (C0.7.0c) |
+
+⭐ **Es un hallazgo de COT.1, no sólo de COT.7:** las cotizaciones de hoy ya muestran esos
+precios. Mientras no se explique, **C1 no arranca** (lo dijo el plan: sin árbitro no se escribe precio).
+
+**Siguiente:** `[COT.7.0d]` — por qué Kepler no aplicó el volumen en 97397/03004 (¿la regla
+excluye el canal telemarketing o la lista del cliente?) y de dónde sale la caja del motor en
+94156/94157/97397 contra la de Kepler. Con eso, volver a correr el árbitro.
+
+
 ## 8. Riesgos y bloqueos
 
 | Riesgo / bloqueo | Dueño | Causa | Qué lo destraba |
@@ -162,5 +223,7 @@ UN documento (`X-A-30`); este anexo pide el segundo y **necesita su propia firma
 
 ## Bitácora
 
+- **2026-11-03** — C0.7.0 ✅ (cabecera y renglón con árbitro); C0.7.0b ❌ 98.0 % (6 diferencias explicadas por mecanismo). C1 bloqueado.
+- **2026-11-03** — D0–D5 firmadas (Edgar); D6 decidida; ADR-113. Arranca C0.
 - **2026-11-03** — Anexo escrito. Medido: 1,483 pedidos TELEMARK / ≈ $17.1 M en 30 días; la
   factura hereda el precio del pedido en 442 de 444 renglones; compra encendida en 00–08.
