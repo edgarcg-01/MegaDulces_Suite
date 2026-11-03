@@ -879,7 +879,7 @@ Junta lo que el plan tenía en GP.4 (checado) y GP.4b (bultos), porque así lo t
     pide a `PickingCapturaService.estadosDe` que Kepler esté en **SURTIDO y cuadre**; el
     `INSERT … ON CONFLICT` contra el índice parcial resuelve a dos checadores a la vez. Sin trabajo,
     dice **cuántos pedidos esperan a Facturación**.
-  - `escanear`: resuelve el código contra `kdii` **de la sucursal** (`checado-codigo.ts`, sólo
+  - `escanear`: resuelve el código contra `kdii` **de la sucursal** (`checado-codigo.ts`, desde el 2026-11-02 `shared/kdii-codigo.ts` porque también lo usa el levantamiento NP.7; sólo
     coincidencia exacta: en `06001` la pieza es `006001` y el paquete `06001`). Caja (factor de
     la unidad mayor) = una caja; lo demás entra a la caja P abierta (se abre sola). Ajeno, ambiguo
     o desconocido se avisan y no suman; por kilo suelto pide el peso; sobrante se avisa.

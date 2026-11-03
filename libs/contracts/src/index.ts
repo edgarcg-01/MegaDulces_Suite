@@ -85,6 +85,8 @@ export * from './http/anden-menu.contract';
 // Orden canónico de presentación de tiendas (PH · MA · MM · 8ESQ · LPA · YUR · CAN · Zamora · CEDIS).
 // Dato chico: no pega al bundle inicial.
 export * from './http/warehouse-order.contract';
+// `[NP.7]` Levantamiento del Catálogo digital (celular): lista blanca, sin costo ni precio.
+export * from './http/levantamiento.contract';
 // [GX.9] Egresos: etiqueta/serie por familia contable (150 activo · 511 compras · 6xx gastos · 702-764 financieros e impuestos).
 // Dato chico (4 entradas): no pega al bundle inicial.
 export * from './http/expense-family.contract';

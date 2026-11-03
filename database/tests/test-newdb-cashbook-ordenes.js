@@ -80,12 +80,20 @@ const consumir = async (trx, code, minor, at = new Date()) =>
       const v = await emitir(trx, orden());
       const r6 = await consumir(trx, v.code, 100, new Date(Date.now() + 7200e3));
       ok(r6.ok === false && r6.motivo === 'vencido', '[negativa] después de su vigencia → vencido');
-      const pago = orden({ kind: 'pago', source_ref: '00|X-D-26|0023782|0011', classification: { tipo: 'cajon' } });
+      const DOC = '00|X-D-26|0023782|0011';
+      const pago = orden({ kind: 'pago', source_ref: DOC, classification: { tipo: 'pago', concepto: 'NOMINA CEDIS', documento: DOC } });
       await emitir(trx, pago);
       const e1 = await intento(trx, () => emitir(trx, pago));
       ok(!!e1 && e1.code === '23505', `[negativa] el mismo X-D-26 no se ordena dos veces → 23505 (${dijo(e1)})`);
-      const e2 = await intento(trx, () => emitir(trx, orden({ kind: 'pago', source_ref: null })));
-      ok(!!e2 && e2.constraint === 'cashbook_orden_pago_con_documento', `[negativa] un pago sin su documento → ${dijo(e2)}`);
+      const e2 = await intento(trx, () => emitir(trx, orden({ kind: 'pago', source_ref: null, classification: { tipo: 'pago', concepto: 'X', documento: 'Y' } })));
+      ok(!!e2 && ['cashbook_orden_pago_con_documento', 'cashbook_orden_pago_clasificada'].includes(e2.constraint), `[negativa] un pago sin su documento → ${dijo(e2)}`);
+      // `[LE.2.9]` Una orden de pago se asienta como el gasto de SU documento, nunca como cajón.
+      const e2b = await intento(trx, () => emitir(trx, orden({ kind: 'pago', source_ref: '00|X-D-26|0023799|0011', classification: { tipo: 'cajon' } })));
+      ok(!!e2b && e2b.constraint === 'cashbook_orden_pago_clasificada', `[negativa] una orden de pago clasificada como cajón → ${dijo(e2b)}`);
+      const e2c = await intento(trx, () => emitir(trx, orden({ kind: 'pago', source_ref: '00|X-D-26|0023799|0011', classification: { tipo: 'pago', concepto: 'X', documento: '00|X-D-26|0000001|0011' } })));
+      ok(!!e2c && e2c.constraint === 'cashbook_orden_pago_clasificada', `[negativa] una orden de pago que apunta a OTRO documento → ${dijo(e2c)}`);
+      const e2d = await intento(trx, () => emitir(trx, orden({ classification: { tipo: 'pago', concepto: '', documento: 'Y' } })));
+      ok(!!e2d && ['cashbook_orden_clasificacion', 'cashbook_orden_pago_clasificada'].includes(e2d.constraint), `[negativa] un pago sin concepto, o una custodia clasificada como pago → ${dijo(e2d)}`);
       const e3 = await intento(trx, () => emitir(trx, orden({ expires_at: new Date(Date.now() - 1000).toISOString() })));
       ok(!!e3 && e3.constraint === 'cashbook_orden_sin_plazo', `[negativa] una orden ya vencida al nacer → ${dijo(e3)}`);
 

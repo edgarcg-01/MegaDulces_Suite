@@ -132,6 +132,17 @@ describe('[LE.2.3] reglas: lo que hace la máquina', () => {
     expect(linea(cust, 'CUSTODIA:E-LUIS').amount_minor).toBe('2500000');
   });
 
+  it('`[LE.2.9]` un retiro con el código de un PAGO es el gasto de su documento: bóveda → egreso, sin pasar por el cajón', () => {
+    const m = mov({ type_id: 4, type_label: 'Dispensar', total: '780.00', ref: 'JAQD-8 nomina cedis', piezas: [B(500, 1), B(200, 1), B(50, 1), B(20, 1), B(10, 1)] });
+    const pago = propuesta(movimientoCaos(m, FEED, { tipo: 'pago', concepto: 'NOMINA CEDIS', documento: '00|X-D-26|0023782|0011' }));
+    verificar(pago);
+    expect(pago.asiento.event_kind).toBe('gasto');
+    expect(linea(pago, 'BOVEDA_CAOS').amount_minor).toBe('-78000');
+    expect(linea(pago, 'EGRESO:NOMINA_CEDIS').amount_minor).toBe('78000');
+    expect(pago.asiento.meta?.['documento']).toBe('00|X-D-26|0023782|0011');
+    expect(pago.asiento.lines.some((l) => l.account === 'CAJA_MXN' || l.account === 'SUSPENSO_MXN')).toBe(false);   // NEGATIVA: ni cajón ni Suspenso
+  });
+
   it('E-15 · «Vaciar Stocks» cuyo total no coincide con su desglose NO se asienta: es un hallazgo (el #1478)', () => {
     const r = movimientoCaos(mov({ type_id: 5, type_label: 'Vaciar Stocks', total: '20.00', piezas: [B(500, 172), B(20, 11)] }), FEED);
     expect(esSinRegla(r)).toBe(true);

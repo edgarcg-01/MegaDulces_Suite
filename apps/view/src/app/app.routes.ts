@@ -1304,6 +1304,13 @@ export const routes: Routes = [
         data: { catalogoApartado: 'listas-precios' }
       },
       {
+        // [NP.7.L.3b] Catálogo digital › Por revisar: lo que levantó el personal, para publicar, pedir otra
+        // foto o descartar. Clave propia: quien levanta no publica.
+        path: 'catalogo/digital',
+        loadComponent: () => import('./modules/compras/pages/compras-catalogo-digital.component').then(m => m.ComprasCatalogoDigitalComponent),
+        canActivate: [permissionGuard(Permission.CATALOGO_FICHAS_REVISAR)]
+      },
+      {
         // [NP.5] Productos nuevos: seguimiento a 30/60/90 dias de cada codigo que entra al catalogo.
         // Mismo permiso que el catalogo; la inversion la recorta el SERVIDOR sin permiso de costo.
         path: 'catalogo/nuevos',
@@ -1967,6 +1974,13 @@ export const routes: Routes = [
   },
   // ── Proyecto Tienda ─────────────────────────────────────────────────
   // Monitor de tickets de venta EN VIVO por sucursal (WebSocket /store).
+  {
+    // `[NP.7.L.4a]` Levantamiento del Catálogo digital: el celular del personal de sucursal, sin el marco de la
+    // app (mobile-first, safe-area propia). Con sesión y permiso: NO va en RUTAS_PUBLICAS.
+    path: 'levantamiento',
+    canActivate: [authGuard, permissionGuard(Permission.CATALOGO_LEVANTAR)],
+    loadComponent: () => import('./modules/levantamiento/pages/levantamiento.component').then(m => m.LevantamientoComponent),
+  },
   {
     // `[PDV.33]` La pantalla del cliente de la caja: segundo monitor, SIN el marco de la app (va antes que
     // `tienda` para que su ruta completa gane). Escucha a /tienda/caja por el canal del navegador.

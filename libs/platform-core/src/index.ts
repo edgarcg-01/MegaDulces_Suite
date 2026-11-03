@@ -75,6 +75,7 @@ export * from './lib/cloudinary/cloudinary.service';
 // ── object storage (Railway Bucket / S3) ──
 export * from './lib/storage/object-storage.service';
 export * from './lib/storage/attachment-signature';
+export * from './lib/storage/jpeg-metadata';
 
 // ── constants / schemas / date ──
 export * from './lib/constants/permissions';

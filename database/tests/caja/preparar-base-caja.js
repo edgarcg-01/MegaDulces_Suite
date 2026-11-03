@@ -112,7 +112,9 @@ const REGLAS_SOBRE_LO_QUE_LEE = ['20261026110741_cga_a55_billetes_por_enlace_de_
   // `[LE.4.9]` En la caja firma un puesto: lee `identity.users` y `identity.position_responsibilities`.
   '20261027162407_le49_cashbook_firma_de_caja_por_puesto.js',
   // `[LE.1.14]` Las órdenes con código (V2): sin ellas el caso del código en el carril sale NO MEDIDO.
-  '20261102134515_le114_cashbook_ordenes_con_codigo.js'];
+  '20261102134515_le114_cashbook_ordenes_con_codigo.js',
+  // `[LE.2.9]` Una orden de pago se asienta como el gasto de su documento.
+  '20261102141233_le29_orden_de_pago_se_asienta_como_gasto.js'];
 const MAX_REMEDIOS = 200;
 /** Los GRANT de prod a `app_runtime` sobre tablas que llegan vacías del snapshot y una prueba escribe. */
 const GRANTS_DE_PROD = {

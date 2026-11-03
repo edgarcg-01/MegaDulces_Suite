@@ -77,3 +77,10 @@ export {
   coincideBusqueda,
   filtrarPorBusqueda,
 } from './search/buscar-en-cliente';
+
+/**
+ * `[NP.7.L.8b]` ¿La foto salió borrosa, movida o con el lente sucio? Se mide en el teléfono antes de
+ * subir. Umbrales PROVISIONALES hasta calibrarlos con fotos reales del piloto (ver el archivo).
+ */
+export { medirFoto, juzgarFoto, dimensionesDeMedicion, CALIDAD_VERSION, LADO_MEDICION, UMBRAL_NITIDEZ, UMBRAL_CONTRASTE } from './foto/calidad-foto';
+export type { MedicionFoto, VeredictoFoto } from './foto/calidad-foto';

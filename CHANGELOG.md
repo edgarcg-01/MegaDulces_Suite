@@ -38,6 +38,9 @@
 - ⛔ **Corrección a una cifra que publicamos el 29 de octubre.** Dijimos que había «$73.5 millones sin medir» de oportunidad de pronto pago. Medido hoy: de esos, **sólo $28.1 millones son deuda de compra**. El resto es crédito bancario ($19.9M), préstamos ($18.0M) y gasto como nómina y SAT ($6.3M), donde un descuento por pronto pago no existe. Y dentro de compra, **nueve proveedores cubren el 80 %**: la tarea no son 245 fichas, son nueve preguntas.
 - ⚠️ Esta entrega es sólo la base de datos. La pantalla para capturar las condiciones y el uso de lo pactado en el Calendario vienen después.
 
+### Fixed — Etiquetas en oferta: el código del producto tampoco se corta (ETQ-CODIGO.2, 2026-11-02)
+- En una etiqueta **en oferta**, el renglón «contenido | Código» va en la columna derecha y no tenía el tope que se agregó en ETQ-CODIGO: con un contenido largo el código se podía cortar si el ajuste de JavaScript no corría. Ahora cabe sin JavaScript. Medido: con contenido largo, sin el tope el texto pide 225 px en una columna de 164; con el tope, cabe.
+- Sin migración, sin permiso, sin endpoint. No medido: la impresión física; el arnés de geometría todavía no arma el diseño de oferta.
 ### Fixed — Pagos: la pantalla dejaba de estar quieta en algunas máquinas (TBL.1, 2026-11-02)
 - En ciertos equipos, el Calendario de pagos **vibraba sin parar**: los bloques se corrían unos píxeles a la izquierda y volvían, una y otra vez, mientras la pantalla estaba quieta.
 - La causa: los paneles se ajustan solos al alto de la ventana. Al crecer 16 px el contenido desbordaba, **aparecía la barra de desplazamiento**, la barra se comía unos píxeles de ancho, todo se reacomodaba, el alto volvía a cambiar y la barra se iba. El ciclo no terminaba nunca.

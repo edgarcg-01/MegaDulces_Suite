@@ -25,6 +25,16 @@ export const CATALOGO_TABS: PageTab[] = [
     icon: 'pi pi-star',
     permission: Permission.COMMERCIAL_PRODUCTS_VER,
   },
+  /**
+   * `[NP.7.L.3b]` Catálogo digital: lo que levanta el personal desde el celular, por revisar. Su propia clave:
+   * no la ve quien sólo consulta el catálogo.
+   */
+  {
+    label: 'Catálogo digital',
+    route: '/compras/catalogo/digital',
+    icon: 'pi pi-camera',
+    permission: Permission.CATALOGO_FICHAS_REVISAR,
+  },
   {
     label: 'Solicitudes',
     route: '/compras/catalogo/solicitudes',

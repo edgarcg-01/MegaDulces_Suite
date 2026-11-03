@@ -207,7 +207,9 @@ export function cobranzaRuta(h: { ruta: string; origenRef: string; monto: string
 export type ClasificacionCaos =
   | { tipo: 'cajon' }
   | { tipo: 'custodia'; empleado: string; nombre: string }
-  | { tipo: 'banco' };
+  | { tipo: 'banco' }
+  /** `[LE.2.9]` El retiro paga un documento de Kepler (X-D-26): sale de la bóveda directo al egreso. */
+  | { tipo: 'pago'; concepto: string; documento: string };
 
 export function movimientoCaos(m: MovimientoCaos, ctx: Contexto, clasificacion?: ClasificacionCaos): ResultadoRegla {
   const id = identidadDeCaos(m);
@@ -265,6 +267,11 @@ export function movimientoCaos(m: MovimientoCaos, ctx: Contexto, clasificacion?:
     if (clasificacion?.tipo === 'cajon') return armar('retiro_caos', ctx, [maquina, espejo(F.CAJA_MXN)], extra);
     if (clasificacion?.tipo === 'custodia') {
       return armar('retiro_a_custodia', ctx, [maquina, espejo(CUENTA.custodia(clasificacion.empleado, clasificacion.nombre))], extra);
+    }
+    // `[LE.2.9]` Pagar es registrar: el retiro con el código de un pago ES el gasto de su documento.
+    if (clasificacion?.tipo === 'pago') {
+      return armar('gasto', ctx, [maquina, espejo(CUENTA.egreso(clasificacion.concepto))],
+        { ...extra, meta: { ...extra.meta, documento: clasificacion.documento } });
     }
     return armar('retiro_caos', ctx, [maquina, espejo(F.SUSPENSO_MXN)], { ...extra, meta: { ...extra.meta, motivo: 'retiro sin clasificar' } });
   }

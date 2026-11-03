@@ -105,6 +105,12 @@ const META_ALTO_MM = 5.1;
  */
 export const META_ANCHO_MM = 31.6;
 export const META_EM_CAR = 0.58;
+/**
+ * `[ETQ-CODIGO.2]` El mismo tope para la etiqueta EN OFERTA, donde el renglón baja a la columna derecha (43.4 mm − 2.4
+ * de los huecos). Quedó declarado como deuda en ETQ-CODIGO: esa plantilla no pasaba la variable y seguía dependiendo de
+ * `fitMeta`. Duplicado en el CSS (`.is-promo .etq-right .etq-meta`); el spec los exige iguales.
+ */
+export const META_ANCHO_PROMO_MM = 41;
 /** Franja de la unidad: arranque del auto-ajuste de la PALABRA (pieza/paquete/caja/kg). */
 const UNIDAD_MM = 4.2;
 
@@ -653,7 +659,9 @@ export interface RenglonEtiqueta {
       letter-spacing:.3px; text-transform:uppercase; white-space:nowrap; }
     .etq-ahorro-bar b{ font-weight:800; font-size:4.3mm; font-variant-numeric:tabular-nums; }
     /* La meta, cuando baja a la columna derecha, se pega al codigo de barras (misma familia). */
-    .etq-label.is-promo .etq-right .etq-meta{ margin-bottom:.4mm; }
+    .etq-label.is-promo .etq-right .etq-meta{ margin-bottom:.4mm;
+      /* [ETQ-CODIGO.2] Columna derecha: mismo tope, con su ancho. Ver META_ANCHO_PROMO_MM. */
+      font-size:min(3.2mm, calc(41mm / (max(var(--etq-meta-n, 1), 1) * 0.58))); }
     .etq-tachado{ text-decoration:line-through; text-decoration-color:var(--red);
       text-decoration-thickness:.35mm; }
     /* Insignia de oferta. Absoluta arriba a la derecha de la caja del precio: fitPrice la mide
@@ -814,7 +822,7 @@ export interface RenglonEtiqueta {
                familia (dato operativo). Eso libera 5.9 mm arriba a la izquierda, que es justo
                lo que la barra de ahorro necesita para no achicar el precio. -->
           @if (enPromo) {
-            <div class="etq-meta" #meta>
+            <div class="etq-meta" #meta [style.--etq-meta-n]="caracteresMeta">
               @if (contenidoDelHero; as ch) { <span>{{ ch }}</span><span class="sep">|</span> }
               <span>Código: <span class="etq-red">{{ model.sku }}</span></span>
             </div>
