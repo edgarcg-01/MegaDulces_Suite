@@ -7,7 +7,7 @@ import {
   PrepareAllocationDto, CreateAgreementDto, ReprogramReason,
 } from './payment-calendar.service';
 import { PaymentCalendarDocumentService } from './payment-calendar-document.service';
-import type { PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
+import type { PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string } }
 
@@ -197,6 +197,14 @@ export class PaymentCalendarController {
   @ApiOperation({ summary: 'Qué hay que pagar: acreedores con ventana de pronto pago abierta, por dinero en riesgo.' })
   quePagar(): ReturnType<PaymentCalendarService['quePagar']> {
     return this.svc.quePagar();
+  }
+
+  /** `[PGP.48]` Días ya pasados con pagos pendientes (apartan el saldo de sus facturas). Sólo lectura. */
+  @Get('pendientes-atrasados')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: 'Días ya pasados que todavía tienen pagos pendientes: fecha, cuántos y por cuánto.' })
+  pendientesAtrasados(): Promise<PagosAtrasadosDia[]> {
+    return this.svc.pendientesAtrasados();
   }
 
   @Post('days/:date/proponer-orden')

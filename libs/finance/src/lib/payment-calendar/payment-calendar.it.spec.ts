@@ -161,6 +161,35 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
     expect(Number(a.amount_assigned)).toBeCloseTo(87126.24, 2);
   });
 
+  // `[PGP.48]` La pantalla llama por primera vez a `DELETE allocations/:id/items/:itemId` («Quitar
+  // esas N»): un pago con facturas que el ERP ya no debe se paga sólo después de quitarlas.
+  it('[PGP.48] quitar UNA factura de un pago: su saldo regresa y el pago baja a lo que queda', async () => {
+    const it803 = await trx('finance.payment_allocation_items').where({ allocation_id: a1, obligation_id: ob['TPIT-803'] }).first();
+    await cal.removeItem(a1, it803.id);
+    expect(await avail('TPIT-803')).toBeCloseTo(22875, 2);
+    const a = await trx('finance.payment_allocations').where({ id: a1 }).first();
+    expect(Number(a.amount_assigned)).toBeCloseTo(64251.24, 2);
+    // Se regresa al estado del caso anterior: los que siguen cuentan con las 3 facturas en a1.
+    await cal.addItem(a1, item('TPIT-803', 22875), USER);
+  });
+
+  it('[PGP.48] ⛔ no se quita la ÚNICA factura de un pago: eso es quitar el pago', async () => {
+    // TPIT-102 todavía no está en ningún pago (a2 nace en el caso siguiente); se suelta al final.
+    const unico = await cal.createAllocation({ date: D2, items: [item('TPIT-102', 1000)] }, USER);
+    const [it] = await trx('finance.payment_allocation_items').where({ allocation_id: unico.id });
+    await expect(cal.removeItem(unico.id, it.id)).rejects.toThrow(/al menos un documento/);
+    await cal.cancelAllocation(unico.id, 'prueba', USER);
+  });
+
+  it('[PGP.48] los días YA PASADOS con pagos pendientes se listan; los futuros no', async () => {
+    const [lot] = await trx('finance.payment_calendar_lots').insert({ tenant_id: M, lot_date: '2020-01-15' }).returning('id');
+    await trx('finance.payment_allocations').insert({ tenant_id: M, lot_id: lot.id, classification: 'proveedor_mercancia', amount_assigned: 1234.5, created_by: USER });
+    const dias = await cal.pendientesAtrasados();
+    const d = dias.find((x) => x.date === '2020-01-15');
+    expect(d).toEqual({ date: '2020-01-15', pagos: 1, monto: 1234.5 });
+    expect(dias.some((x) => x.date >= '2030-01-01')).toBe(false);
+  });
+
   it('Gonac 01 va en otro pago', async () => {
     const a = await cal.createAllocation({ date: D, items: [item('TPIT-101', 35640.2), item('TPIT-102', 18300)] }, USER);
     a2 = a.id;

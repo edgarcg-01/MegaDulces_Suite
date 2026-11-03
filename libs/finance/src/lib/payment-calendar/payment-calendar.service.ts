@@ -7,7 +7,7 @@ import { sqlKeplerPayableId } from '@megadulces/contracts/finance/kepler-payable
 import { sqlVentanaProntoPago } from '@megadulces/contracts/finance/pronto-pago-ventana';
 import { clabeValida } from '@megadulces/contracts/finance/clabe';
 import { SupplierPaymentAccountsService } from '../supplier-payment-accounts/supplier-payment-accounts.service';
-import type { PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
+import type { PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 
 export type ObligationSource = 'budget_expense' | 'financial_commitment' | 'supplier_payable' | 'kepler_payable';
 
@@ -1446,6 +1446,29 @@ export class PaymentCalendarService {
         }
         throw e;
       }
+    });
+  }
+
+  /**
+   * `[PGP.48]` **Los días que ya pasaron con pagos pendientes.** La pantalla sólo mira la semana
+   * abierta, y un pago pendiente aparta el saldo de sus facturas: si su día pasó sin pagarse, esas
+   * facturas quedan fuera de la lista de deuda y de la propuesta, y nada lo decía. Medido el
+   * 2026-11-03: 23 pagos, $5,696,319.13, en 5 días del 19 al 29-oct.
+   */
+  async pendientesAtrasados(): Promise<PagosAtrasadosDia[]> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const { rows } = await trx.raw(
+        `SELECT l.lot_date::text AS date, count(*)::int AS pagos, sum(a.amount_assigned)::float8 AS monto
+           FROM finance.payment_allocations a
+           JOIN finance.payment_calendar_lots l ON l.id = a.lot_id
+          WHERE a.tenant_id = ? AND a.status = 'pending'
+            AND l.lot_date < (now() AT TIME ZONE 'America/Mexico_City')::date
+          GROUP BY l.lot_date
+          ORDER BY l.lot_date`,
+        [tenantId],
+      );
+      return rows as PagosAtrasadosDia[];
     });
   }
 

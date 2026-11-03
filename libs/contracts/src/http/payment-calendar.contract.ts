@@ -102,6 +102,18 @@ export interface PagoSugerido {
   se_puede_preparar_hoy: boolean;
 }
 
+/**
+ * `[PGP.48]` Un día YA PASADO que todavía tiene pagos pendientes. Cada pago pendiente aparta el
+ * saldo de sus facturas, y la lista de deuda sólo trae lo que tiene saldo libre: esas facturas
+ * **desaparecen** de «Agregar facturas» y de la propuesta mientras el pago siga ahí. Medido el
+ * 2026-11-03: 23 pagos, $5,696,319.13, en 5 días del 19 al 29-oct, ninguno preparado.
+ */
+export interface PagosAtrasadosDia {
+  date: string;
+  pagos: number;
+  monto: number;
+}
+
 export interface PaymentCalendarAllocation {
   id: string;
   classification: string;
