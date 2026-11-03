@@ -185,9 +185,9 @@ el fuente.
 | PDV.1 | El ticket de mostrador completo en `analytics.erp_sale_tickets` (se extiende la vista; no hay tabla nueva): hora `c62`, usuario `c67`, apertura `c80`, formas de pago `c83`–`c88`, recibido y cambio `c97` | ⬜ | Σ formas de pago = `c16` (hoy 25,582/25,582) |
 | PDV.2 | El renglón completo en `analytics.erp_sale_ticket_lines`: presentación capturada (`c55`) y asentada (`c11`), lista (`c66`), IVA (`c17`), IEPS (`c18`), promoción | ⬜ | Σ renglones = `c16` al centavo en los 90,428 |
 | PDV.3 | Catálogo de caja por sucursal (vista `derive-no-copy`): presentaciones y factores (`kdii` `c11/c80/c81/c83/c84`), precio por presentación (`c90`–`c92`), escalera (`kdpv_prod_util`), 4 promociones con saldo y vigencia, impuestos (`c18/c19`) y código de barras por presentación | ⬜ | 200 códigos leídos del anaquel de Yurécuaro resuelven a la presentación y precio que cobra Kepler |
-| PDV.4 | **El gemelo**: reproducir los 90,428 tickets renglón por renglón (precio, impuestos, promoción, total), extendiendo `scripts/kepler/replay-cotizacion/` | ⬜ | ≥ 99.5 % al centavo; el resto clasificado (nivel de precio, captura manual, promoción) |
+| PDV.4 | **El gemelo**: reproducir los 90,428 tickets renglón por renglón (precio, impuestos, promoción, total), extendiendo `scripts/kepler/replay-cotizacion/` | 🔨 | ≥ 99.5 % al centavo; el resto clasificado (nivel de precio, captura manual, promoción) |
 | PDV.5 | La gaveta de Kepler decodificada (`kdpv_folio_caja` `c43`–`c49`: fondo, límites, efectivo acumulado, retiros) | ⬜ | `c49` contra Σ efectivo de los tickets del turno |
-| PDV.6 | Censo de las 37 cajas: PC, navegador, impresora, cajón, lector (sufijo), báscula y su etiqueta | ⬜ | Ficha con foto por caja, de cada encargado |
+| PDV.6 | Censo de las 37 cajas: PC, navegador, impresora, cajón, lector (sufijo), báscula y su etiqueta. **Herramienta lista (2026-11-03):** [`ops/cajas/censo-caja.ps1`](../../../ops/cajas/censo-caja.ps1) (sólo lee; mide equipo, pantallas, navegador, impresoras y su puerto, COM, lectores, latencia; prueba el sufijo del lector en vivo) y [`consolidar-censo.js`](../../../ops/cajas/consolidar-censo.js). Fichas: 0 de 37 | 🔨 | Ficha con foto por caja, de cada encargado |
 | PDV.7 | Cortes de red por sucursal en 30 días, leídos del atraso de la réplica lógica | ⬜ | Si no hay historial, se instrumenta y se declara NO MEDIDO |
 | PDV.8 | Línea base de velocidad: 100 tickets cronometrados en hora pico en 2 cajas de Kepler | ⬜ | Segundos por ticket, por renglón y de cobro, con forma de pago |
 | PDV.9 | D0 y D1 firmadas | ⬜ | Firmas escritas en §6 con fecha |
@@ -229,10 +229,10 @@ entorno de D1.
 | # | Item | Estado | `check:pantalla` antes → después |
 |---|---|---|---|
 | PDV.30 | `apps/caja`: instalable, base local, cola persistente | ⬜ | app nueva |
-| PDV.31 | Apertura, venta, búsqueda con presentación, cobro y ticket de 80 mm (reusa `ticket-venta.ts`) | ⬜ | sin fallas nuevas |
+| PDV.31 | Apertura, venta, búsqueda con presentación, cobro y ticket de 80 mm (reusa `ticket-venta.ts`) | 🔨 | sin fallas nuevas |
 | PDV.32 | Consulta, reimpresión, cancelación, autorización en caja y en celular | ⬜ | sin fallas nuevas |
-| PDV.33 | Retiro, corte ciego y pantalla al cliente | ⬜ | sin fallas nuevas |
-| PDV.34 | Hardware según el censo | ⬜ | probado en la caja piloto |
+| PDV.33 | Retiro, corte ciego y pantalla al cliente | 🔨 | sin fallas nuevas |
+| PDV.34 | Hardware según el censo | 🔨 | probado en la caja piloto |
 | PDV.35 | `/tienda/cajas`: supervisión por excepción, con menú y permiso | ⬜ | < 500 ms |
 | PDV.36 | Observaciones de diseño del plan (§13) convertidas en items | ⬜ | — |
 
@@ -399,6 +399,11 @@ pasada en nivel A, no con esta tabla.
   - **UI.9**: Cobrar conserva su borde en Alto Contraste.
   - **UI.10** y **UI.11**.
 - **Siguen abiertos:** UI.6 (la cabecera; con el aviso de respaldo ocupa más), UI.7 y UI.8.
+
+**Tercera pasada (2026-11-03, mismo script):**
+- **UI.6 cerrado.** Lo de una vez al día (pantalla del cliente, gaveta, cerrar turno, fondo y retiros de práctica) se mudó a un menú «Turno y equipo»; Kepler va en su grupo rotulado. Medido: a **1366 la cabecera pasa de 89 a 53 px (un renglón)** y el trabajo empieza en y = 142 (antes 178); a **1024, de 124 a 89 px** (dos renglones). El aviso de práctica se acortó a «la venta no se guarda · el arqueo sí» (el panel de arqueo ya dice «se guarda en Arqueo de Tienda»).
+- **UI.7 cerrado.** «Conectar gaveta» vive en el menú y avisa que sólo sirve con la impresora por COM. Un puerto que no contesta (el COM1 vacío de Yurécuaro) ya no deja la gaveta como «conectada sin sensor»: dice «Ese puerto no contesta como impresora de tickets… esta caja necesita el agente de gaveta». Probado con la impresora falsa: cerrada al conectar, abierta al conectar y puerto mudo.
+- **Sigue abierto:** UI.8 (espera el censo PDV.6).
 - **Pedido de Edgar en la misma pasada:** «es muy complicado saber cuándo estoy en verificador o pasando un producto».
   - En la caja: el verificador pone la captura con borde punteado, una banda negra «VERIFICADOR DE PRECIOS · Lo que escanees NO entra al ticket · Esc vuelve a la venta» y el ticket apagado al 35 %.
   - En la pantalla del cliente: la consulta con el lenguaje de `/tienda/verificador` (nombre, «Por paquete», precio grande, escalones de mayoreo, de dónde salió el precio y «Esta consulta no se agregó a tu compra»).
@@ -490,3 +495,4 @@ commitear de otra sesión (fila LE y ADR-112), y una edición aquí viajaría en
 | 2026-11-02 | [PDV.4] Motor: promoción con saldo 0 en tienda que lleva saldo = no se aplica (`motivoPromoSinSaldo`). Antes/después mismo universo: telemarketing idéntico (340/345); mostrador 18 → 1 promo indebida, lógica 99.64 % → 99.74 %. [PDV.31] `/tienda/caja` (modo práctica) y `/tienda/caja/cliente` en la Suite, commit 9c348ee1f | Claude (pedido de Edgar) |
 | 2026-11-03 | Auditoría de diseño de `/tienda/caja` en nivel A con datos de prueba (§13b): 4 🔴 (la frescura dice «ahora» con precios del respaldo de 6 h · «Cobrado $0.00» con tarjeta · el botón Retiro y la tecla F8 hacen cosas distintas · «Práctica: no guarda» es falso para el arqueo y la gaveta), 5 🟠 y 2 🟡 | Claude (pedido de Edgar) |
 | 2026-11-03 | [PDV.34] La gaveta se calibra por CICLO (`calibrarGaveta`): al conectar se lee el nivel, se manda el pulso y se vuelve a leer; el de antes es «cerrada» sólo si el pulso lo cambió. Antes se suponía cerrada al conectar: conectada abierta, quedaba invertida y dejaba cobrar con la gaveta abierta. Sin cambio, no calibra y lo dice. Prueba con mutante (el comportamiento viejo la pone roja) y nivel A con la impresora falsa: cerrada al conectar → calibra; abierta al conectar → no calibra. Sigue ABIERTO: con la gaveta desconectada o sin sensor se deja cobrar (decisión al salir de práctica) | Claude |
+| 2026-11-03 | [PDV.6] Herramienta del censo en `ops/cajas/` (script de la caja + consolidador, con control: la ficha de 44Caja1 da «Star BSC10 · USB → agente», 1024 px y lector con Enter; la TSC y la Brother no se confunden con la de tickets). [PDV.UI.6][PDV.UI.7] cabecera de un renglón a 1366 y «Conectar gaveta» que no finge. Estados al día: PDV.4, 6, 31, 33 y 34 pasan a 🔨 (tenían código o corridas con ⬜). NO MEDIDO: PS 2 en un Windows 7 real; la detección `usbprint` en una caja real | Claude |

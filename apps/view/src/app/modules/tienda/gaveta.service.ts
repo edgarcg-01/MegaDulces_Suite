@@ -64,15 +64,15 @@ export class GavetaService implements OnDestroy {
   async conectar(baud = 9600): Promise<string | null> {
     if (!this.serial) return 'Este navegador no puede manejar la gaveta: usa Chrome o Edge.';
     let p: PuertoSerial;
-    try { p = await this.serial.requestPort(); } catch { return 'No se eligió la impresora.'; }
+    try { p = await this.serial.requestPort(); } catch { return 'No se eligió la impresora. Si no aparece en la lista, va por USB y esta caja necesita el agente de gaveta.'; }
     await this.cerrarPuerto();
     try { await this.abrirPuerto(p, baud); } catch (e) { return 'No se pudo abrir el puerto: ' + ((e as Error)?.message || 'ocupado por otro programa'); }
     this.config = null;
     const antes = await this.esperarByte(SIN_RESPUESTA_MS);
     if (antes === null) {
-      this.config = { nivelCerrada: false, baud, pin: 0 };
-      this.guardarConfig();
-      return 'La impresora no contesta el estado del cajón: la caja abrirá la gaveta, pero no sabrá si está cerrada.';
+      // [PDV.UI.7] Un puerto que no contesta no es la impresora (en Yurécuaro, COM1 vacío): no se finge conectada.
+      await this.cerrarPuerto();
+      return 'Ese puerto no contesta como impresora de tickets. Si la impresora va por USB, esta caja necesita el agente de gaveta.';
     }
     // Calibración por ciclo (calibrarGaveta): se abre y se mira si el nivel cambió.
     await this.escritor?.write(escPosAbrirGaveta(0)).catch(() => undefined);
