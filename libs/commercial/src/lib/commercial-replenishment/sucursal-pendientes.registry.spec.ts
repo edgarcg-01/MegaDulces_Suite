@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import type { AutoabastoVieneDoc } from '@megadulces/contracts';
 import { COLAS_SUCURSAL, COLAS_VIENE, claveViene, colasDeViene } from './sucursal-pendientes.registry';
 import * as Q from './sucursal-pendientes.sql';

@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import { ConflictException, ForbiddenException, BadRequestException, ServiceUnavailableException } from '@nestjs/common';
 import { SucursalPendientesService } from './sucursal-pendientes.service';
 import * as Q from './sucursal-pendientes.sql';

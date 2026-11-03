@@ -43,6 +43,8 @@ const PERMITIDOS = {
   'libs/contracts/src/work/task.contract.ts': { razon: 'declara el nombre de la fuente de tareas (una cadena), no lee la tabla' },
   'libs/trade/src/lib/users/me-tasks.ts': { razon: 'tareas del usuario: sólo las que TIENE ASIGNADAS (assigned_to = él); no hay lectura por área' },
   'libs/trade/src/lib/users/me-work.ts': { razon: 'contadores de «Mi trabajo»: acotado a las colas de las que la persona es MIEMBRO (MS.7.18); quien es de la cola confidencial es quien debe verla' },
+  'libs/commercial/src/lib/commercial-replenishment/sucursal-pendientes.sql.ts': { razon: '[AB.46] tablero de la sucursal: excluye lo confidencial (NOT COALESCE(r.confidential, false)) y publica solo folio, titulo y fecha de tickets de ESA sucursal. OJO: a proposito NO acota por cola como accesoATicket -- el tablero es de la sucursal entera (36 roles), asi que un ticket NO confidencial lo ve un companero que no lo levanto. Medido en prod el 2026-11-03: 85 tickets, 0 confidenciales, una sola cola (TI).', marca: 'confidential' },
+  'libs/commercial/src/lib/commercial-replenishment/sucursal-pendientes.registry.ts': { razon: '[AB.46] registro de colas: NOMBRA la fuente en un rotulo y apunta al SQL por referencia; la consulta y su defensa viven en sucursal-pendientes.sql.ts' },
 };
 
 function archivos(dir, acc) {
