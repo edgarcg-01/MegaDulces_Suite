@@ -10,8 +10,9 @@ import { ArqueoResult, ArqueoService, ArqueoTipo, Turno } from '../arqueo.servic
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { HalladoCatalogo, ProductoPrecio, SucursalVerificador, VerificadorService } from '../verificador.service';
+import { GavetaService } from '../gaveta.service';
 import {
-  EscalonCaja, LineaCaja, MOTIVOS_QUITAR, errorEfectivo, esCorreccionInmediata, importeRenglon, leerComando,
+  EscalonCaja, LineaCaja, MOTIVOS_QUITAR, abreGavetaAlCobrar, bloqueoPorGaveta, errorEfectivo, esCorreccionInmediata, importeRenglon, leerComando,
   leerImporte, pesos, precioRenglon, r2, totalesCaja,
 } from '../caja-motor';
 
@@ -60,12 +61,19 @@ const CANAL_CLIENTE = 'md-caja-cliente';
         @if (tk.retiro_sin_contar) { <span class="cj-chip cj-chip-warn" role="status">Hay retiros en Kepler sin contar (F8)</span> }
         @if (tk.pide_cierre) { <span class="cj-chip cj-chip-warn" role="status">Toca el corte del turno (F7)</span> }
       }
+      @switch (cajon.estado()) {
+        @case ('abierta') { <span class="cj-chip cj-chip-bad" role="status">Gaveta abierta: ciérrala para cobrar</span> }
+        @case ('cerrada') { <span class="cj-sub"><i class="pi pi-lock" aria-hidden="true"></i> Gaveta cerrada</span> }
+        @case ('sin_sensor') { <span class="cj-chip cj-chip-warn" role="status">La impresora no reporta la gaveta: no se sabe si está cerrada</span> }
+        @default { @if (!cajon.soportado) { <span class="cj-sub">Gaveta: este navegador no la maneja (usa Chrome o Edge)</span> } }
+      }
       <span class="cj-practica" role="note"><i class="pi pi-info-circle" aria-hidden="true"></i>
         Práctica: no guarda ni manda a Kepler</span>
       <span class="cj-acciones">
         <button type="button" class="cj-hb" tabindex="-1" (click)="abrirVerificador()">Verificar precio <kbd>F6</kbd></button>
         @if (puedeArqueo) { <button type="button" class="cj-hb" tabindex="-1" [class.cj-hb-on]="!!arq()" (click)="irArqueo()">Mi arqueo <kbd>F7</kbd></button> }
         <button type="button" class="cj-hb" tabindex="-1" (click)="abrirCliente()">Pantalla del cliente</button>
+        @if (cajon.soportado && cajon.estado() === 'desconectada') { <button type="button" class="cj-hb" tabindex="-1" title="Con la gaveta CERRADA: la caja la calibra al conectar" (click)="conectarGaveta()">Conectar gaveta</button> }
         @if (turno(); as t) {
           <button type="button" class="cj-hb" tabindex="-1" (click)="abrirRetiro()">Retiro <kbd>F8</kbd></button>
           <button type="button" class="cj-hb" tabindex="-1" (click)="cerrarTurno()">Cerrar turno</button>
@@ -210,7 +218,8 @@ const CANAL_CLIENTE = 'md-caja-cliente';
             <div class="cj-sub">{{ tot().articulos }} artículos · IVA {{ dinero(tot().iva) }} e IEPS {{ dinero(tot().ieps) }} incluidos</div>
             @if (tot().ahorro > 0) { <div class="cj-ahorro">Ahorro por mayoreo {{ dinero(tot().ahorro) }}</div> }
           </div>
-          <button type="button" class="cj-cta" tabindex="-1" [disabled]="!tot().renglones" (click)="cobrar('')">Cobrar <kbd>F12</kbd></button>
+          @if (cajon.estado() === 'abierta') { <div class="cj-aviso cj-error" role="alert">Cierra la gaveta para cobrar.</div> }
+          <button type="button" class="cj-cta" tabindex="-1" [disabled]="!tot().renglones || cajon.estado() === 'abierta'" (click)="cobrar('')">Cobrar <kbd>F12</kbd></button>
           @if (lineaSel(); as l) {
             <div class="cj-box">
               <span class="cj-lbl">{{ esUltimo() ? 'Último escaneo' : 'Renglón seleccionado' }}</span>
@@ -242,6 +251,7 @@ const CANAL_CLIENTE = 'md-caja-cliente';
             <div class="cj-total cj-cambio">{{ dinero(cambioTotal()) }}</div>
             <div class="cj-sub">Recibido {{ dinero(recibidoTotal()) }} · total {{ dinero(tot().total) }} · {{ formasTexto() }}</div>
           </div>
+          @if (cajon.estado() === 'abierta') { <div class="cj-aviso cj-error" role="status">Entrega el cambio y cierra la gaveta: con la gaveta abierta no se cobra el siguiente ticket.</div> }
           <div class="cj-aviso cj-ok">Ticket {{ folio() }} cobrado en práctica: no se imprimió ni se mandó a Kepler. Escanea el siguiente producto para empezar otro ticket.</div>
         }
       </aside>
@@ -351,6 +361,7 @@ export class TiendaCajaComponent implements OnDestroy {
   /** El arqueo vive DENTRO de la caja (una sola interfaz): el mismo componente real de /tienda/arqueo. */
   readonly puedeArqueo = [Permission.STORE_ARQUEO_VER, Permission.STORE_ARQUEO_CAPTURAR, Permission.STORE_ARQUEO_SIN_CAJA_CAPTURAR].some((p) => inject(PermissionsService).has(p));
   private readonly arqSvc = inject(ArqueoService);
+  readonly cajon = inject(GavetaService);
   readonly denomsMx = DENOMINACIONES_MXN;
   /** Los turnos de Kepler que el servidor le deja ver a esta persona; la caja usa el de su sucursal. */
   private readonly turnosKepler = signal<Turno[]>([]);
@@ -487,6 +498,13 @@ export class TiendaCajaComponent implements OnDestroy {
     // La pantalla del cliente escucha este canal (misma app, otra ventana).
     effect(() => this.canal?.postMessage(this.paraCliente()));
     // La pantalla del cliente recién abierta pide el estado actual.
+    // [PDV.34] Si esta computadora ya autorizó la impresora, la gaveta se reconecta sola.
+    void this.cajon.reconectar();
+    effect((alLimpiar) => {
+      if (this.cajon.abiertaDesde() === null) return;
+      const t = setTimeout(() => this.avisar('error', 'La gaveta lleva 30 segundos abierta: ciérrala.'), 30_000);
+      alLimpiar(() => clearTimeout(t));
+    });
     if (this.canal) this.canal.onmessage = (m: MessageEvent<{ pide?: boolean }>) => { if (m.data?.pide) this.canal?.postMessage(this.paraCliente()); };
   }
 
@@ -708,8 +726,16 @@ export class TiendaCajaComponent implements OnDestroy {
   }
 
   // ── Cobro ──
+  async conectarGaveta(): Promise<void> {
+    const err = await this.cajon.conectar();
+    if (err) this.avisar('aviso', err); else this.avisar('ok', 'Gaveta conectada: se abre sola al cobrar en efectivo, y abierta no deja cobrar.');
+    this.enfocar();
+  }
+
   cobrar(v: string): void {
     if (!this.tot().renglones) return this.avisar('aviso', 'El ticket está vacío.');
+    const g = bloqueoPorGaveta(this.cajon.estado());
+    if (g) return this.avisar('error', g);
     if (!v) { this.estado.set('cobro'); this.limpiar(); return; }
     const imp = leerImporte(v);
     if (imp === null) return this.avisar('error', 'Para cobrar con importe teclea sólo el número, por ejemplo 250, y F12.');
@@ -745,6 +771,8 @@ export class TiendaCajaComponent implements OnDestroy {
   }
 
   private pagar(forma: Pago['forma'], recibido: number): void {
+    const g = bloqueoPorGaveta(this.cajon.estado());
+    if (g) return this.avisar('error', g);
     const saldo = this.saldo();
     if (forma === 'Efectivo') { const err = errorEfectivo(recibido, saldo); if (err) return this.avisar('error', err); }
     else if (recibido > saldo) return this.avisar('error', forma + ' no puede ser mayor que lo que falta (' + pesos(saldo) + ').');
@@ -755,6 +783,7 @@ export class TiendaCajaComponent implements OnDestroy {
     if (this.saldo() <= 0.004) {
       this.estado.set('cobrado');
       this.efectivoVendido.update((v) => r2(v + this.pagos().filter((p) => p.forma === 'Efectivo').reduce((a, p) => a + p.aplicado, 0)));
+      if (abreGavetaAlCobrar(this.pagos())) void this.cajon.abrir();
       this.tono(1320, 60);
     }
   }
@@ -781,6 +810,7 @@ export class TiendaCajaComponent implements OnDestroy {
     this.verificando.set(false);
     this.conteo.set(null);
     this.arq.set({ paso: tipo ? 'conteo' : 'tipo', tipo: tipo ?? 'cierre', i: 0, vals: [], resultado: null });
+    if (tipo) void this.cajon.abrir();
     this.limpiar();
     this.enfocar();
   }
@@ -818,7 +848,7 @@ export class TiendaCajaComponent implements OnDestroy {
     if (q.paso === 'tipo') {
       if (k.length === 1) e.preventDefault();
       const tipo = ({ '1': 'retiro', '2': 'cierre', '3': 'relevo' } as Record<string, ArqueoTipo>)[k];
-      if (tipo) this.arq.set({ ...q, paso: 'conteo', tipo });
+      if (tipo) { this.arq.set({ ...q, paso: 'conteo', tipo }); void this.cajon.abrir(); }
       return;
     }
     if (q.paso === 'listo') return;
@@ -905,6 +935,7 @@ export class TiendaCajaComponent implements OnDestroy {
     this.cerrarResultados();
     this.verificando.set(false);
     this.conteo.set({ tipo: 'retiro', i: 0, vals: [], pin: false });
+    void this.cajon.abrir();
     this.limpiar();
     this.enfocar();
   }
@@ -942,6 +973,7 @@ export class TiendaCajaComponent implements OnDestroy {
       this.turno.set({ desde: new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: false }), fondo: total, retiros: [] });
       this.conteo.set(null);
       this.limpiar();
+      void this.cajon.abrir();
       return this.avisar('ok', 'Turno abierto con ' + pesos(total) + ' de fondo. Escanea el primer producto.');
     }
     if (!(total > 0)) return this.avisar('error', 'El retiro está en cero: cuenta lo que vas a retirar (Esc para no retirar).');

@@ -1,5 +1,5 @@
 // [PDV.31] Sin `import ... from 'vitest'`: la config usa `globals: true`.
-import { errorEfectivo, esCorreccionInmediata, leerComando, leerImporte, LineaCaja, precioRenglon, totalesCaja } from './caja-motor';
+import { abreGavetaAlCobrar, bloqueoPorGaveta, ESC_POS_ESTADO, escPosAbrirGaveta, leerEstadoGaveta, errorEfectivo, esCorreccionInmediata, leerComando, leerImporte, LineaCaja, precioRenglon, totalesCaja } from './caja-motor';
 
 // Los precios son los cobrados en Yurécuaro del 24 al 30 de octubre (prototipo validado con Edgar).
 const linea = (p: Partial<LineaCaja>): LineaCaja => ({
@@ -72,5 +72,37 @@ describe('[PDV.31] caja-motor — el cobro', () => {
     expect(esCorreccionInmediata({ indice: 2, en: 1000 }, 2, 15_999)).toBe(true);
     expect(esCorreccionInmediata({ indice: 2, en: 1000 }, 2, 16_000)).toBe(false);
     expect(esCorreccionInmediata({ indice: 2, en: 1000 }, 1, 2000)).toBe(false);
+  });
+});
+
+describe('[PDV.34] gaveta por ESC/POS', () => {
+  it('el pulso y la consulta son los bytes de ESC/POS', () => {
+    expect([...escPosAbrirGaveta()]).toEqual([0x1b, 0x70, 0x00, 0x19, 0xfa]);
+    expect([...escPosAbrirGaveta(1)]).toEqual([0x1b, 0x70, 0x01, 0x19, 0xfa]);
+    expect([...ESC_POS_ESTADO]).toEqual([0x10, 0x04, 0x01]);
+  });
+  it('lee el pin 3 contra el nivel calibrado con la gaveta cerrada', () => {
+    // 0x12 = bits fijos, pin 3 bajo · 0x16 = pin 3 alto · 0x1a = fuera de línea, pin bajo
+    expect(leerEstadoGaveta(0x12, false)).toBe('cerrada');
+    expect(leerEstadoGaveta(0x16, false)).toBe('abierta');
+    expect(leerEstadoGaveta(0x16, true)).toBe('cerrada');
+    expect(leerEstadoGaveta(0x12, true)).toBe('abierta');
+    expect(leerEstadoGaveta(0x1a, false)).toBe('cerrada');
+  });
+  it('un byte que no es la respuesta de DLE EOT 1 se ignora', () => {
+    expect(leerEstadoGaveta(0x00, false)).toBeNull();
+    expect(leerEstadoGaveta(0x93, false)).toBeNull();
+    expect(leerEstadoGaveta(0x16 | 0x80, false)).toBeNull();
+  });
+  it('sólo la gaveta ABIERTA bloquea el cobro; sin sensor no se finge cerrada, se declara', () => {
+    expect(bloqueoPorGaveta('abierta')).toContain('Cierra la gaveta');
+    expect(bloqueoPorGaveta('cerrada')).toBeNull();
+    expect(bloqueoPorGaveta('sin_sensor')).toBeNull();
+    expect(bloqueoPorGaveta('desconectada')).toBeNull();
+  });
+  it('se abre al cobrar sólo si hubo efectivo', () => {
+    expect(abreGavetaAlCobrar([{ forma: 'Tarjeta' }])).toBe(false);
+    expect(abreGavetaAlCobrar([{ forma: 'Tarjeta' }, { forma: 'Efectivo' }])).toBe(true);
+    expect(abreGavetaAlCobrar([])).toBe(false);
   });
 });

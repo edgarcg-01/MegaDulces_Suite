@@ -134,3 +134,37 @@ export const MOTIVOS_QUITAR = [
   'Producto dañado o caducado',
   'El precio no coincide con la etiqueta',
 ] as const;
+
+// ── Gaveta (cajón de dinero) por la impresora de tickets, ESC/POS ──
+
+/**
+ * Lo que la caja sabe de la gaveta. `sin_sensor` y `desconectada` NO son «cerrada»: la caja no sabe
+ * y lo dice (ADR-056); en esos dos estados no puede impedir cobrar con la gaveta abierta.
+ */
+export type EstadoGaveta = 'cerrada' | 'abierta' | 'sin_sensor' | 'desconectada';
+
+/** ESC p m t1 t2: pulso al conector del cajón (m=0 pin 2, m=1 pin 5), 50 ms encendido y 500 ms apagado. */
+export const escPosAbrirGaveta = (pin: 0 | 1 = 0): Uint8Array => Uint8Array.of(0x1b, 0x70, pin, 0x19, 0xfa);
+/** DLE EOT 1: estado de la impresora en tiempo real (contesta aunque esté imprimiendo). */
+export const ESC_POS_ESTADO = Uint8Array.of(0x10, 0x04, 0x01);
+
+/**
+ * Lee la respuesta a DLE EOT 1. El byte trae bits fijos (0 y 7 en 0, 1 y 4 en 1): si no los trae no
+ * es la respuesta y se ignora. El bit 2 es el NIVEL del pin 3 del conector, y qué nivel significa
+ * «abierta» depende del cajón; por eso se calibra: `nivelCerrada` es el que se leyó con la gaveta
+ * cerrada al conectarla.
+ */
+export function leerEstadoGaveta(byte: number, nivelCerrada: boolean): 'cerrada' | 'abierta' | null {
+  if ((byte & 0x93) !== 0x12) return null;
+  return ((byte & 0x04) !== 0) === nivelCerrada ? 'cerrada' : 'abierta';
+}
+
+/** Con la gaveta abierta no se cobra: primero se entrega el cambio y se cierra. */
+export function bloqueoPorGaveta(estado: EstadoGaveta): string | null {
+  return estado === 'abierta' ? 'Cierra la gaveta para cobrar.' : null;
+}
+
+/** La gaveta se abre al cerrar un ticket sólo si entró o salió efectivo; con tarjeta o transferencia no hay nada que guardar. */
+export function abreGavetaAlCobrar(pagos: readonly { forma: string }[]): boolean {
+  return pagos.some((p) => p.forma === 'Efectivo');
+}
