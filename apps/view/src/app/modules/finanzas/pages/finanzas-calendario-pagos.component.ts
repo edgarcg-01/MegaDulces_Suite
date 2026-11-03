@@ -396,10 +396,11 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                     <!-- [PGP.15] Lo topado de la lista ya lo dice el resumen junto al buscador («1,000 de 2,848…»). -->
                     @if (evidenciaPendientes() > 0) {
                       @if (evidenciaFallo()) {
-                        <p class="pg-ev-est is-nm"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>No se pudo buscar la factura de {{ facturas(evidenciaPendientes()) }}: en esos renglones no se sabe si hay.
+                        <p class="pg-ev-est is-nm"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>No se pudo buscar el archivo de {{ evidenciaPendientes() | number }} {{ evidenciaPendientes() === 1 ? 'renglón' : 'renglones' }}: ahí no se sabe si hay factura.
                           <button type="button" class="pg-ev-retry" (click)="reintentarEvidencias()">Reintentar</button></p>
                       } @else {
-                        <p class="pg-ev-est">Buscando la factura de {{ facturas(evidenciaPendientes()) }}…</p>
+                        <!-- [PGP.49] Decía «Buscando la factura de 550 facturas…». -->
+                        <p class="pg-ev-est">Buscando el archivo de {{ evidenciaPendientes() | number }} {{ evidenciaPendientes() === 1 ? 'renglón' : 'renglones' }}…</p>
                       }
                     }
                     <div class="pg-dr-hd" aria-hidden="true"><span>Proveedor y documento</span><span>Vencimiento</span><span class="r">Importe</span><span></span></div>
