@@ -93,12 +93,15 @@ const servidores = ACTIVO ? cargarMaestro() : [];
     let ren: Array<Record<string, string>> = [];
     try {
       await cli.query('BEGIN READ ONLY');
+      // Con la plantilla ya elegida en el maestro se ensaya ESA (y si dejó de estar en CREADO, rojo);
+      // sin ella, el último CREADO del servidor.
+      const elegida = process.env[`KEPLER_TLMK_TEMPLATE_FOLIO_${s}`] || null;
       plantilla = (await cli.query(
         `SELECT btrim(c5::text) c5, c6, btrim(c10) c10, btrim(c12) c12, c13::text c13, c14::text c14, c15::text c15, c16::text c16,
                 coalesce(nullif(btrim(c19::text),''),'0') c19, btrim(coalesce(c85::text,'')) c85
            FROM md.kdm1 WHERE c1 = $1 AND c2 = 'U' AND c3 = 'D' AND btrim(c4::text) = '40'
-            AND btrim(c27) = 'TELEMARK' AND btrim(c11) = 'CREADO'
-          ORDER BY c9 DESC, c6 DESC LIMIT 1`, [s])).rows[0];
+            AND btrim(c27) = 'TELEMARK' AND btrim(c11) = 'CREADO' AND ($2::text IS NULL OR c6 = $2)
+          ORDER BY c9 DESC, c6 DESC LIMIT 1`, [s, elegida])).rows[0];
       if (plantilla) {
         ren = (await cli.query(
           `SELECT btrim(c8) sku, c9::text c9, c12::text c12, c13::text c13, btrim(c51::text) c51, btrim(c55) c55,
