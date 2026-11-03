@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
@@ -107,7 +107,7 @@ const MES: Record<string, string> = {
     CommonModule, FormsModule, ButtonModule, SelectModule, MultiSelectModule,
     ToastModule, TableModule, TagModule, InputTextModule, InputNumberModule, CheckboxModule,
     IconFieldModule, InputIconModule,
-    RouterLink, LoadStateComponent, PageTabsComponent, SidePeekComponent, MetricStripComponent, RouteClosureReconComponent, VecinalReconComponent, RutaCajaCaosComponent, RoutePromoComponent,
+    LoadStateComponent, PageTabsComponent, SidePeekComponent, MetricStripComponent, RouteClosureReconComponent, VecinalReconComponent, RutaCajaCaosComponent, RoutePromoComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -471,9 +471,7 @@ const MES: Record<string, string> = {
                       <td>
                         @if (depDelDia(x.date); as d) {
                           @for (f of d.folios; track f.folio) {
-                            <a class="rr-link rr-mono" [routerLink]="['/finanzas/caja-general']"
-                               [queryParams]="{ q: f.folio, from: f.fecha, to: f.fecha }"
-                               [attr.aria-label]="'Abrir ' + f.folio + ' en Caja General'">{{ f.folio }}</a>
+                            <span class="rr-mono rr-dep-folio">{{ f.folio }}</span>
                           }
                           @if (d.sin_capturar) {
                             <span class="comm-muted">{{ d.sin_capturar }} sin capturar</span>
@@ -994,11 +992,10 @@ const MES: Record<string, string> = {
                         </td>
                         <td>
                           @for (l of d.ligas; track l.folio) {
-                            <a class="rr-link rr-mono" [routerLink]="['/finanzas/caja-general']"
-                               [queryParams]="{ q: l.folio, from: l.fecha, to: l.fecha }"
-                               [title]="'Abrir ' + l.folio + ' en Caja General'">
-                              {{ l.folio }} <i class="pi pi-external-link" aria-hidden="true"></i>
-                            </a>
+                            <span class="rr-dep-folio">
+                              <span class="rr-mono">{{ l.folio }}</span>
+                              <span class="comm-muted rr-mono">{{ l.fecha }} · {{ l.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+                            </span>
                           } @empty {
                             <span class="comm-muted">{{ d.estado_liga === 'previo' ? 'antes de Caja General' : 'sin capturar todavía' }}</span>
                           }
@@ -1094,6 +1091,7 @@ const MES: Record<string, string> = {
     .rr-strong { font-weight:700; }
     .rr-foot td { font-weight:700; }
     .rr-row { cursor:pointer; }
+    .rr-dep-folio { display:inline-flex; gap:var(--sp-1); align-items:baseline; margin-right:var(--sp-2); white-space:nowrap; }
     .rr-link { appearance:none; background:none; border:none; padding:0; font:inherit; font-weight:700; cursor:pointer; color:var(--action); text-underline-offset:2px; }
     .rr-row:hover .rr-link { text-decoration:underline; }
     .rr-link:focus-visible { outline:2px solid var(--action); outline-offset:2px; border-radius:var(--r-sm); }

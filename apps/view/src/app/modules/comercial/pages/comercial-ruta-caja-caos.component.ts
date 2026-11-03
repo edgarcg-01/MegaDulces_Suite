@@ -1,7 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { CaosService, RutaCajaDeposito, RutaCajaFila, RutaCajaReporte } from '../../finanzas/caos.service';
@@ -48,7 +47,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
 @Component({
   selector: 'app-ruta-caja-caos',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, TableModule, TagModule,
+  imports: [CommonModule, FormsModule, TableModule, TagModule,
     LoadStateComponent, MetricStripComponent, FreshnessPillComponent, ContextHelpComponent],
   template: `
     <section class="rc-panel">
@@ -181,14 +180,10 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
                               <td>
                                 @for (l of d.ligas; track l.folio) {
                                   <span class="rc-ligas">
-                                    <a class="rc-liga rc-mono" [routerLink]="['/finanzas/caja-general']"
-                                       [queryParams]="{ q: l.folio, from: l.fecha, to: l.fecha }"
-                                       [title]="'Abrir ' + l.folio + ' en Caja General'">
-                                      {{ l.folio }} <i class="pi pi-external-link" aria-hidden="true"></i>
-                                    </a>
-                                    @if (l.ruta && d.ligas.length > 1) {
-                                      <span class="rc-tenue">ruta {{ l.ruta }} · {{ money(l.monto) }}</span>
-                                    }
+                                    <span class="rc-mono">{{ l.folio }}</span>
+                                    <span class="rc-tenue rc-mono">
+                                      {{ l.fecha }} · {{ money(l.monto) }}@if (l.ruta && d.ligas.length > 1) { · ruta {{ l.ruta }} }
+                                    </span>
                                   </span>
                                 } @empty {
                                   <span class="rc-tenue">{{ d.estado_liga === 'previo' ? 'antes de Caja General' : 'sin capturar todavía' }}</span>
@@ -280,10 +275,6 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
     .rc-sub th { color: var(--text-faint); font-weight: var(--fw-medium); }
     .rc-sub .comm-num { text-align: right; }
 
-    .rc-liga { color: var(--action); text-decoration: none; }
-    .rc-liga:hover { text-decoration: underline; }
-    .rc-liga:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; border-radius: var(--r-sm); }
-    .rc-liga .pi { font-size: .7em; }
     .rc-ligas { display: inline-flex; gap: var(--sp-1); align-items: baseline; margin-right: var(--sp-2); white-space: nowrap; }
 
     .rc-mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
