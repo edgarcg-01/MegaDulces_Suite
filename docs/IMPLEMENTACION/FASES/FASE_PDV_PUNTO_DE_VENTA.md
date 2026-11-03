@@ -345,6 +345,52 @@ principal, claro y oscuro).
 
 ---
 
+## 13b. Auditoría de diseño de `/tienda/caja` construida (`auditoria-diseno`, 2026-11-03)
+
+**Evidencia.** Nivel **A con datos de prueba**: la pantalla viva en el front local, con todo `/api`
+contestado por Playwright (el respaldo de precios con 6 h de edad, el precio vivo en 503, un turno de
+Kepler que pide retiro). Más nivel **C** (el componente). **Sin nivel B**: no se leyó producción,
+por pedido de Edgar. El medidor de contraste arrancó con su control (negro/blanco = 21, blanco/blanco = 1).
+Script y capturas: `scratchpad/auditoria-caja.js`, en la sesión del 2026-11-03.
+
+**La frase.** *¿Cuánto cobro y está bien lo que llevo?* Una sola pregunta; la venta no es conflación.
+Pero la **cabecera** contesta otra: *¿en qué estado están mi turno, el de Kepler y la gaveta?*
+**Jerarquía medida:** primario = el total (56 px/700, domina) · secundario = el ticket (producto e
+importe 18 px) · terciario = código, tasa y teclas (13 px). Está bien resuelta.
+
+**Lo que está bien, medido:**
+- El color de acción va en **6 elementos**: captura, modo, renglón seleccionado, empujón y Cobrar.
+- Contraste ≥ 5:1 en claro y oscuro: texto tenue 5.28 y 5.25; Cobrar en oscuro 5.23.
+- La venta se hace completa con teclado; `250 F12` cobra en un gesto.
+- A 1024 px no hay desplazamiento horizontal.
+- Las compuertas no marcan nada nuevo (`check:pantalla` con 0 nuevas, `estilos`, `templates`, `templates-types`).
+
+| # | Sev | Hallazgo y costo | Ley | Criterio de aceptación |
+|---|---|---|---|---|
+| PDV.UI.1 | 🔴 | **La frescura miente.** Con el precio vivo caído, todos los renglones salieron del respaldo de **hace 6 h**, y la píldora dijo **«Precios de Kepler ahora»**. Mide el `datos_al` del ODS de la sucursal, no la fuente de cada precio. `buscar()` sí devuelve `origen` y `snapshotAl`, pero la caja los ignora. Costo: el gemelo midió **125 renglones en un día** con cambio de lista a media jornada; con respaldo viejo se cobran con el precio anterior y nadie lo ve | ADR-056 · DESIGN §9 frescura · Datos añejos §10 | Si algún renglón del ticket salió del respaldo, la píldora dice **«Precios del respaldo de hace 6 h»** en tono de aviso, y el renglón lleva la marca «respaldo». Con todo vivo, dice «en vivo» |
+| PDV.UI.2 | 🔴 | **«Cobrado $0.00».** Al cobrar sólo con tarjeta, el rótulo dice «Cobrado» y la cifra grande es el **cambio** (0). Se lee «no se cobró nada», justo en el momento de entregar la mercancía | Cruce 2 (rótulo contra celda) · Q.2 | Sin efectivo, la cifra grande es lo cobrado ($6.55) con su forma de pago. «Cambio» sólo aparece cuando hay efectivo |
+| PDV.UI.3 | 🔴 | **El botón «Retiro F8» y la tecla F8 hacen cosas distintas.** Con el turno de Kepler abierto, la tecla abre el **arqueo real** («Mi arqueo · se guarda en Arqueo de Tienda»). El clic abre el **retiro de práctica** («Retiro de efectivo · conteo ciego»), que no llega a ningún lado mientras Kepler pide el retiro. El mismo rótulo hace dos cosas según la mano | Jakob (un rótulo, un efecto) · Cruce 2 | El botón llama al mismo manejador que la tecla |
+| PDV.UI.4 | 🔴 | **«Práctica: no guarda ni manda a Kepler» es falso a medias.** El arqueo (F7, F8, Cerrar turno) **sí guarda** en Arqueo de Tienda, y la gaveta **sí abre** de verdad. La cajera cree que nada cuenta y entrega un corte real | Ley 0 del estándar · Cruce 3 (el nombre cubre todo lo que contiene) | El aviso dice **«Práctica: la venta no se guarda ni va a Kepler · el arqueo sí se guarda»**, y el panel de arqueo repite que es real |
+| PDV.UI.5 | 🟠 | **En un ticket largo, el último escaneo queda fuera de vista.** Con 23 renglones, el último no se ve en la tabla (medido) y la selección queda abajo, escondida. Lo compensa la caja «Último escaneo», pero la tabla no acompaña al ojo | Doherty (la vista sigue la acción) · Keyboard-first | Al agregar o seleccionar un renglón, la tabla se desplaza hasta él |
+| PDV.UI.6 | 🟠 | **La cabecera mezcla dos mundos y crece.** Ocupa 4 textos de estado + 6 botones: **2 renglones (89 px) a 1366 y 3 (124 px) a 1024**, y el trabajo empieza en **y = 213 de 768** (28 % es marco). Junta el turno de práctica («fondo $1,000 · 0 retiros») con el real de Kepler («caja 1 · folio · pide retiro») sin separarlos. Es la raíz de UI.3 | Hick · Gestalt (agrupar por mundo) · Tesler | Lo de Kepler va en un solo grupo rotulado «Kepler». «Pantalla del cliente» y «Conectar gaveta», que se usan una vez al día, van en un solo botón «Preparar caja». A 1366 cabe en un renglón |
+| PDV.UI.7 | 🟠 | **«Conectar gaveta» se ofrece donde no puede funcionar.** En la 44Caja1 la Star BSC10 va por USB002, que el navegador no ve (medido el 2026-11-03). El botón abre un selector con sólo COM1 vacío | Poka-yoke · Ley 0 | Mientras no exista el agente local, el botón vive en «Preparar caja» y, si no hay puerto que conteste, dice «Esta caja necesita el agente de gaveta» |
+| PDV.UI.8 | 🟠 | **A 1024 px el ticket cabe en 3 renglones**: el nombre del producto se parte en 3 líneas («LEVI / CHAROLA / 855/50») por la columna angosta. **NO MEDIDO** cuántas de las 37 cajas tienen 1024×768 (censo PDV.6) | Fitts/densidad · DESIGN §R | A 1024 el panel derecho baja a su mínimo y la columna Present. se funde en Cantidad («1 PAQ»): el nombre cabe en 2 líneas |
+| PDV.UI.9 | 🟠 | **En Alto Contraste, «Cobrar» deja de parecer botón**: con `border: 0` queda como texto suelto (medido con `forced-colors`). Es la acción principal de la pantalla, en una flota de Windows | DESIGN §Ing.UI 3 (el tercer modo) | `.cj-cta` lleva un borde transparente de 2 px que Alto Contraste pinta |
+| PDV.UI.10 | 🟡 | **El empujón de mayoreo va en el color de acción** (#C8401A, casi rojo): «Lleva 2 más y queda en $16.68» se lee como error. Hace un papel distinto (información) con el mismo tono que Cobrar | DESIGN §Color (acción sólo en CTA/activo/foco) | Tono neutro fuerte o verde de ahorro, como en la pantalla del cliente |
+| PDV.UI.11 | 🟡 | **«mayoreo · antes $6.55» se parte en 3 líneas** dentro de Precio (verde, a 1366) y estira el renglón | Proximidad numérica | Una línea: «$5.97 · antes $6.55» |
+
+**No medido, declarado:**
+- Datos y volúmenes reales (sin nivel B), y el peso de `/api/kp/precios-todos` (Cruce 6).
+- El INP con un ticket largo.
+- Puntero táctil (`coarse`).
+- Las resoluciones reales de las 37 cajas (PDV.6).
+- La impresora y la gaveta reales dentro de la Suite.
+
+⛔ Las cuatro 🔴 se cierran antes de que la caja deje de ser práctica, y se dan por cerradas con otra
+pasada en nivel A, no con esta tabla.
+
+---
+
 ## 14. Las consultas
 
 Todas de sólo lectura sobre `pg-prod` (identidad verificada por `system_identifier`).
@@ -427,3 +473,5 @@ commitear de otra sesión (fila LE y ADR-112), y una edición aquí viajaría en
 | 2026-10-31 | Anexo [`FASE_PDV_ANEXO_IMPLEMENTACION.md`](FASE_PDV_ANEXO_IMPLEMENTACION.md): plan por capas con tablas, módulos, endpoints y componentes, lo que se reusa del repo y las decisiones D-I1 a D-I4 | Claude (pedido de Edgar) |
 | 2026-11-02 | [PDV.4] Gemelo, primera corrida (1 día: 1–2 nov, todas las sucursales): `REPLAY_DOC=UD10` en `scripts/kepler/replay-cotizacion/`. 4,939 tickets · 21,844 renglones · $1,682,767.70: **98.8 % de los renglones al centavo** (meta G1: 99.5 %); 4,713 tickets con todos sus renglones exactos, y en los 4,713 el importe = `c16` y el IVA/IEPS por tasa de producto cuadran. Diferencias: lista distinta 125, sin precio ($0.01) 63, presentación de 500 g 49, promoción que Kepler no aplicó 18, escalón 10. Control del motor re-anclado (02195 quedó viejo por cambio de precio en Kepler) | Claude (pedido de Edgar) |
 | 2026-11-02 | [PDV.4] Hallazgos del gemelo: (1) los 125 renglones con lista distinta son TODOS del 1-nov, día en que Kepler cambió precios a media jornada (el motor cotiza con el precio de hoy); medida la lógica sobre los 21,656 renglones con la misma lista: **99.64 % al centavo**. (2) Promoción por cantidad con `saldo = 0` (`saldo_estado = sin_control`): el motor la aplica, el mostrador NO. En tickets U-D-10 de 14 días, reglas de umbral 1: `con_saldo` cobra bajo lista en 93 % (15,892 de 17,084); `sin_control` sólo en 26.5 % (195 de 736). En telemarketing la señal es débil (51 % vs 40 %). El cambio al motor espera el antes/después del replay en U-D-10 **y** U-D-40 | Claude (pedido de Edgar) |
+| 2026-11-02 | [PDV.4] Motor: promoción con saldo 0 en tienda que lleva saldo = no se aplica (`motivoPromoSinSaldo`). Antes/después mismo universo: telemarketing idéntico (340/345); mostrador 18 → 1 promo indebida, lógica 99.64 % → 99.74 %. [PDV.31] `/tienda/caja` (modo práctica) y `/tienda/caja/cliente` en la Suite, commit 9c348ee1f | Claude (pedido de Edgar) |
+| 2026-11-03 | Auditoría de diseño de `/tienda/caja` en nivel A con datos de prueba (§13b): 4 🔴 (la frescura dice «ahora» con precios del respaldo de 6 h · «Cobrado $0.00» con tarjeta · el botón Retiro y la tecla F8 hacen cosas distintas · «Práctica: no guarda» es falso para el arqueo y la gaveta), 5 🟠 y 2 🟡 | Claude (pedido de Edgar) |
