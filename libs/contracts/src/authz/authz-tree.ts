@@ -332,7 +332,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // [E.12] Cotizaciones de mayoreo. Módulo aparte con `route` propia: sin `route` el
           // permiso no se ofrece como salida navegable en los 404/403 (`AccessibleRoutesService`
           // filtra por `!!m.route`) y la casilla de /admin/roles no llevaría a ningún lado.
-          { id: 'televenta-cotizaciones', label: 'Cotizaciones', route: '/telemarketing/cotizaciones', view: [Permission.COMMERCIAL_QUOTES_VER], manage: [Permission.COMMERCIAL_QUOTES_GESTIONAR] },
+          { id: 'televenta-cotizaciones', label: 'Cotizaciones', route: '/telemarketing/cotizaciones', view: [Permission.COMMERCIAL_QUOTES_VER, Permission.COMMERCIAL_QUOTES_VER_ALL], manage: [Permission.COMMERCIAL_QUOTES_GESTIONAR] },
           // `[AX.16]` Venía de Comercial (`/comercial/documentos`): es lo que sale del canal. Mismo id
           // y misma clave — mudar el módulo no toca `role_permissions` ni pide re-login (ADR-054).
           { id: 'sales-docs', label: 'Facturación de Telemarketing', route: '/telemarketing/documentos', view: [Permission.COMMERCIAL_SALES_DOCS_VER], manage: [] },

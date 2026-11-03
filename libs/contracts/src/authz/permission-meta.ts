@@ -127,6 +127,7 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.COMMERCIAL_TELEVENTA_OPERATE]: { label: 'Operar Telemarketing', description: 'Trabajar el pool: tomar cliente, registrar llamada, levantar pedido.', category: 'Telemarketing' },
   [Permission.COMMERCIAL_QUOTES_VER]: { label: 'Ver Cotizaciones', description: 'Lectura de las cotizaciones de mayoreo: folio, cliente, vigencia, total y estado (borrador / enviada / aceptada / rechazada / vencida).', category: 'Telemarketing' },
   [Permission.COMMERCIAL_QUOTES_GESTIONAR]: { label: 'Gestionar Cotizaciones', description: 'Crear y editar cotizaciones de mayoreo: capturar la lista del cliente, poner precio (incluido por debajo de lista), enviar, y cerrarla como aceptada o rechazada.', category: 'Telemarketing' },
+  [Permission.COMMERCIAL_QUOTES_VER_ALL]: { label: 'Ver cotizaciones de TODOS', description: 'Ve las cotizaciones de todas las personas de sus sucursales. Sin este permiso, cada quien ve y trabaja sólo las cotizaciones que hizo.', category: 'Telemarketing' },
 
   // Logística
   [Permission.LOGISTICS_FLEET_VER]: { label: 'Ver Flotilla', description: 'Consultar unidades, choferes y personal de logística.', category: 'Logística' },

@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import {
@@ -19,6 +19,10 @@ import {
   QuoteCheck,
   BranchStock,
 } from './quote-pricing.service';
+import type { QuienCotiza } from './quote-scope';
+
+/** Lo que `RolesGuard` deja en `request.user`: el mapa y los roles FRESCOS de DB (COT.21). */
+type ConQuien = { user?: QuienCotiza };
 
 /**
  * `[E.12]` — Cotizaciones de mayoreo.
@@ -51,7 +55,7 @@ export class CommercialQuotesController {
   @ApiQuery({ name: 'search', required: false })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiQuery({ name: 'offset', required: false, type: Number })
-  list(@Query() q: Record<string, string>) {
+  list(@Query() q: Record<string, string>, @Req() req: ConQuien) {
     const query: ListQuotesQuery = {
       status: q['status'],
       origin: q['origin'],
@@ -61,7 +65,7 @@ export class CommercialQuotesController {
       limit: q['limit'] ? Number(q['limit']) : undefined,
       offset: q['offset'] ? Number(q['offset']) : undefined,
     };
-    return this.service.list(query);
+    return this.service.list(query, req?.user);
   }
 
   @Get('wholesale-customers')
@@ -132,8 +136,8 @@ export class CommercialQuotesController {
       'Conteos por estado + monto abierto + las que vencen pronto y las que ya vencieron sin cerrarse.',
   })
   @ApiQuery({ name: 'mine', required: false, type: Boolean })
-  summary(@Query('mine') mine?: string) {
-    return this.service.summary(mine === 'true' || mine === '1');
+  summary(@Req() req: ConQuien, @Query('mine') mine?: string) {
+    return this.service.summary(mine === 'true' || mine === '1', req?.user);
   }
 
   @Get('price-preview')
@@ -172,8 +176,8 @@ export class CommercialQuotesController {
   @Get(':id')
   @RequirePermissions(Permission.COMMERCIAL_QUOTES_VER)
   @ApiOperation({ summary: 'Cabecera + renglones de una cotización (descuento derivado por renglón).' })
-  getOne(@Param('id') id: string) {
-    return this.service.getOne(id);
+  getOne(@Param('id') id: string, @Req() req: ConQuien) {
+    return this.service.getOne(id, req?.user);
   }
 
   @Get(':id/check')
@@ -184,7 +188,8 @@ export class CommercialQuotesController {
       + 'descuento, IVA/IEPS) y la existencia de la sucursal en la unidad del renglón. Dice cuántos '
       + 'renglones cambiaron de precio en Kepler desde que se cotizó y si se puede re-cotizar.',
   })
-  check(@Param('id') id: string): Promise<QuoteCheck> {
+  async check(@Param('id') id: string, @Req() req: ConQuien): Promise<QuoteCheck> {
+    await this.service.assertPuedeAbrir(id, req?.user);
     return this.pricing.checkQuote(id);
   }
 
@@ -195,7 +200,8 @@ export class CommercialQuotesController {
       '[E.27] Re-cotiza TODOS los renglones de un borrador vigente a precios de hoy y guarda su IVA/IEPS. '
       + 'Una cotización enviada, vencida o cancelada no se toca: sus precios son los de su fecha.',
   })
-  reprice(@Param('id') id: string): Promise<{ quote_id: string; lines: number; changed: number }> {
+  async reprice(@Param('id') id: string, @Req() req: ConQuien): Promise<{ quote_id: string; lines: number; changed: number }> {
+    await this.service.assertPuedeAbrir(id, req?.user);
     return this.pricing.repriceQuote(id);
   }
 
@@ -241,8 +247,8 @@ export class CommercialQuotesController {
     summary:
       'Cancela la cotización (baja nuestra). NO es lo mismo que rechazada, que es el no del cliente.',
   })
-  cancel(@Param('id') id: string, @Body() body: { reason: string }) {
-    return this.service.cancel(id, body?.reason);
+  cancel(@Param('id') id: string, @Body() body: { reason: string }, @Req() req: ConQuien) {
+    return this.service.cancel(id, body?.reason, req?.user);
   }
 
   // ─────────────────────────────────────────────────────────────────────────────────────────
@@ -272,10 +278,12 @@ export class CommercialQuotesController {
     summary:
       'Agrega un renglón a una cotización en borrador. El precio lo calcula el servidor. Si el ERP regala producto por esa cantidad, nace también el renglón hijo a precio cero. Un SKU que no casa con el catálogo se guarda como texto: es demanda que estamos rechazando, no basura.',
   })
-  addLine(
+  async addLine(
     @Param('id') id: string,
     @Body() body: { sku?: string; requested_text?: string; quantity: number; rung?: Rung },
+    @Req() req: ConQuien,
   ): Promise<AddLineResult> {
+    await this.service.assertPuedeAbrir(id, req?.user);
     return this.pricing.addLine(id, body);
   }
 
@@ -289,11 +297,13 @@ export class CommercialQuotesController {
       + 'es justamente lo que el operador necesita ver. El precio sigue saliendo del servidor: el '
       + 'body dice cuanto, nunca a cuanto.',
   })
-  updateLine(
+  async updateLine(
     @Param('id') id: string,
     @Param('lineId') lineId: string,
     @Body() body: { quantity: number; rung?: Rung },
+    @Req() req: ConQuien,
   ): Promise<AddLineResult> {
+    await this.service.assertPuedeAbrir(id, req?.user);
     return this.pricing.updateLine(id, lineId, body);
   }
 
@@ -302,7 +312,12 @@ export class CommercialQuotesController {
   @ApiOperation({
     summary: 'Quita un renglón de una cotización en borrador. Se lleva a sus renglones de regalo.',
   })
-  removeLine(@Param('id') id: string, @Param('lineId') lineId: string): Promise<RemoveLineResult> {
+  async removeLine(
+    @Param('id') id: string,
+    @Param('lineId') lineId: string,
+    @Req() req: ConQuien,
+  ): Promise<RemoveLineResult> {
+    await this.service.assertPuedeAbrir(id, req?.user);
     return this.pricing.removeLine(id, lineId);
   }
 }

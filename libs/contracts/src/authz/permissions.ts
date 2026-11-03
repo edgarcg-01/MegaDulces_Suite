@@ -258,6 +258,8 @@ export enum Permission {
   // ahora es gratis; separarlos después de haberlos repartido juntos no lo es ([LC.6.2]).
   COMMERCIAL_QUOTES_VER = 'COMMERCIAL_QUOTES_VER',
   COMMERCIAL_QUOTES_GESTIONAR = 'COMMERCIAL_QUOTES_GESTIONAR',
+  // [COT.21] Sin esta llave cada quien ve sólo las cotizaciones que hizo. Es de Dirección General.
+  COMMERCIAL_QUOTES_VER_ALL = 'COMMERCIAL_QUOTES_VER_ALL',
 
   // Fase V — Vendedor de campo con OCR de ticket
   CAPTURE_TICKET_USE = 'CAPTURE_TICKET_USE',

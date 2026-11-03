@@ -1,3 +1,5 @@
+import { Permission } from '@megadulces/platform-core';
+
 /**
  * `[COT.19]` — Con qué sucursales puede trabajar quien cotiza.
  *
@@ -15,3 +17,46 @@
  * El área es el id del proyecto en `AUTHZ_TREE` (`televenta`), no el prefijo de la ruta (ZN.8).
  */
 export const AREA_COTIZACIONES = 'televenta';
+
+/**
+ * `[COT.21]` — De quién son las cotizaciones que ve cada quien.
+ *
+ * La sucursal (COT.19) no alcanzaba: las cuatro telemarketistas de Padre Hidalgo veían y podían
+ * cancelar las cotizaciones de las otras tres (medido en prod 2026-11-03). Regla de Edgar: cada
+ * quien ve **sólo las suyas**; Dirección General ve todas. El alcance por sucursal sigue
+ * aplicando encima: quien ve todas, ve todas *de sus sucursales*.
+ *
+ * Se decide por LLAVE (`COMMERCIAL_QUOTES_VER_ALL`, ADR-054), no por el modo de alcance: el modo
+ * `all` lo tiene también `claudia_mata` (supervisor que cotiza) por una regla `'*'` puesta para
+ * otros módulos, y habría seguido viendo las de todos. Los roles de plataforma pasan, como en
+ * `RolesGuard`.
+ */
+export interface QuienCotiza {
+  /** El mapa y los roles FRESCOS que `RolesGuard` deja en `request.user`. */
+  permissions?: Record<string, boolean> | null;
+  roles_frescos?: string[] | null;
+  role_name?: string | null;
+}
+
+export const PERMISO_VER_TODAS_COTIZACIONES = Permission.COMMERCIAL_QUOTES_VER_ALL;
+
+/**
+ * `null` = ve las de todos; un id = sólo las que hizo ese usuario. Sin datos de quién pide, o
+ * sin usuario, devuelve `''` (no casa con ninguna): fail-closed, nunca «todas» por omisión.
+ */
+export function autorVisible(
+  quien: QuienCotiza | null | undefined,
+  userId: string | null | undefined,
+  esAdminDePlataforma: (rol?: string | null) => boolean,
+): string | null {
+  const roles = quien?.roles_frescos?.length ? quien.roles_frescos : [quien?.role_name ?? null];
+  if (roles.some((r) => esAdminDePlataforma(r))) return null;
+  // `=== true`: una clave en `false` (como quedan las nuevas al guardar el mapa desde
+  // /admin/roles) no abre nada.
+  if (quien?.permissions?.[PERMISO_VER_TODAS_COTIZACIONES] === true) return null;
+  return userId ?? '';
+}
+
+export const MENSAJE_COTIZACION_AJENA =
+  'Esta cotización la hizo otra persona. Cada quien ve y trabaja sólo las suyas; '
+  + 'las de todos las ve Dirección.';

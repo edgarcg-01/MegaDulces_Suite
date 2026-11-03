@@ -1,15 +1,22 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   HttpException,
   Injectable,
   Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { TenantKnexService, TenantContextService, ScopeService, applySmartSearch } from '@megadulces/platform-core';
+import {
+  TenantKnexService,
+  TenantContextService,
+  ScopeService,
+  applySmartSearch,
+  isPlatformAdminRole,
+} from '@megadulces/platform-core';
 import { PALABRAS_RELLENO, SINONIMOS_CATALOGO } from './catalog-search-terms';
-import { AREA_COTIZACIONES } from './quote-scope';
+import { AREA_COTIZACIONES, MENSAJE_COTIZACION_AJENA, autorVisible, type QuienCotiza } from './quote-scope';
 import { QuotePricingService, type Rung } from './quote-pricing.service';
 
 /** `[E.21]` Un renglón del alta: qué y cuánto. El precio lo pone el servidor, nunca el body. */
@@ -260,6 +267,38 @@ export class CommercialQuotesService {
   }
 
   // ───────────────────────────────────────────────────────────────────────────
+  // De quién son (COT.21)
+  // ───────────────────────────────────────────────────────────────────────────
+
+  /** `null` = ve las de todos; si no, el id de quien pide. La regla vive en `autorVisible`. */
+  private autorDe(quien?: QuienCotiza | null): string | null {
+    return autorVisible(quien, this.tenantCtx.get()?.userId, isPlatformAdminRole);
+  }
+
+  /** El filtro SQL por autor, o `null` si no se filtra. Sin usuario (`''`) no casa con nada. */
+  private filtroAutor(autor: string | null, binds: Record<string, unknown>): string | null {
+    if (autor === null) return null;
+    if (!autor) return 'false';
+    binds['author_id'] = autor;
+    return 'q.user_id = :author_id';
+  }
+
+  /**
+   * 403 si la cotización es de otra persona y quien pide no ve las de todos. Va antes de todo
+   * lo que abre una cotización por id (detalle, re-cotizar, renglones, cancelar): la lista ya no
+   * la muestra, pero el id viaja en un enlace.
+   */
+  async assertPuedeAbrir(id: string, quien?: QuienCotiza | null): Promise<void> {
+    const autor = this.autorDe(quien);
+    if (autor === null) return;
+    const row = await this.tk.run((knex) =>
+      knex('commercial.quotes').where({ id }).whereNull('deleted_at').first('user_id'),
+    );
+    // Si no existe, el método que sigue responde su propio 404.
+    if (row && row.user_id !== autor) throw new ForbiddenException(MENSAJE_COTIZACION_AJENA);
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
   // Lectura
   // ───────────────────────────────────────────────────────────────────────────
 
@@ -267,11 +306,12 @@ export class CommercialQuotesService {
    * La mesa de trabajo: una fila por cotización, con lo que hace falta para decidir a cuál
    * entrar (vigencia, monto, cuántos renglones quedaron sin casar).
    */
-  async list(query: ListQuotesQuery): Promise<{ rows: QuoteListRow[]; total: number }> {
+  async list(query: ListQuotesQuery, quien?: QuienCotiza | null): Promise<{ rows: QuoteListRow[]; total: number }> {
     const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 200);
     const offset = Math.max(Number(query.offset) || 0, 0);
     const userId = this.tenantCtx.get()?.userId;
     const sucursales = await this.sucursalesLeibles();
+    const autor = this.autorDe(quien);
 
     return this.tk.run(async (knex) => {
       const where: string[] = ['q.deleted_at IS NULL'];
@@ -281,6 +321,9 @@ export class CommercialQuotesService {
         where.push('q.source_branch = ANY(:scope_branches)');
         binds['scope_branches'] = sucursales;
       }
+      // COT.21: y de ésas, sólo las suyas, salvo quien ve las de todos.
+      const porAutor = this.filtroAutor(autor, binds);
+      if (porAutor) where.push(porAutor);
 
       if (query.status) {
         const list = String(query.status)
@@ -374,9 +417,10 @@ export class CommercialQuotesService {
    * Los números de la cabecera. Cada estado sale en 0 explícito aunque no tenga filas: un estado
    * ausente en el objeto se lee en la pantalla como "no aplica" cuando en realidad es "cero".
    */
-  async summary(mine = false): Promise<QuotesSummary> {
+  async summary(mine = false, quien?: QuienCotiza | null): Promise<QuotesSummary> {
     const userId = this.tenantCtx.get()?.userId;
     const sucursales = await this.sucursalesLeibles();
+    const autor = this.autorDe(quien);
     return this.tk.run(async (knex) => {
       let mineSql = mine && userId ? 'AND q.user_id = :user_id' : '';
       const binds: Record<string, unknown> = {};
@@ -386,6 +430,9 @@ export class CommercialQuotesService {
         mineSql += ' AND q.source_branch = ANY(:scope_branches)';
         binds['scope_branches'] = sucursales;
       }
+      // COT.21: y lo mismo por autor; si no, la cabecera contaría las de otras personas.
+      const porAutor = this.filtroAutor(autor, binds);
+      if (porAutor) mineSql += ` AND ${porAutor}`;
 
       const res = await knex.raw(
         `
@@ -437,7 +484,8 @@ export class CommercialQuotesService {
   }
 
   /** Cabecera + renglones de una cotización. */
-  async getOne(id: string): Promise<QuoteDetail> {
+  async getOne(id: string, quien?: QuienCotiza | null): Promise<QuoteDetail> {
+    await this.assertPuedeAbrir(id, quien);
     return this.tk.run(async (knex) => {
       const head = await knex.raw(
         `
@@ -1030,10 +1078,11 @@ export class CommercialQuotesService {
    * cancelada = la dimos de baja nosotros. Se distinguen porque miden cosas distintas
    * (una es tasa de conversión, la otra es ruido operativo).
    */
-  async cancel(id: string, reason: string): Promise<CancelledQuote> {
+  async cancel(id: string, reason: string, quien?: QuienCotiza | null): Promise<CancelledQuote> {
     if (!reason || !reason.trim()) {
       throw new BadRequestException('Cancelar exige motivo: sin motivo no se puede medir después.');
     }
+    await this.assertPuedeAbrir(id, quien);
     const userId = this.tenantCtx.get()?.userId;
 
     return this.tk.run(async (knex) => {
