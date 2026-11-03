@@ -55,7 +55,7 @@ export class CommercialQuotesController {
   @ApiQuery({ name: 'search', required: false })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiQuery({ name: 'offset', required: false, type: Number })
-  list(@Query() q: Record<string, string>, @Req() req: ConQuien) {
+  list(@Query() q: Record<string, string>, @Req() req: ConQuien): ReturnType<CommercialQuotesService['list']> {
     const query: ListQuotesQuery = {
       status: q['status'],
       origin: q['origin'],
@@ -136,7 +136,7 @@ export class CommercialQuotesController {
       'Conteos por estado + monto abierto + las que vencen pronto y las que ya vencieron sin cerrarse.',
   })
   @ApiQuery({ name: 'mine', required: false, type: Boolean })
-  summary(@Req() req: ConQuien, @Query('mine') mine?: string) {
+  summary(@Req() req: ConQuien, @Query('mine') mine?: string): ReturnType<CommercialQuotesService['summary']> {
     return this.service.summary(mine === 'true' || mine === '1', req?.user);
   }
 
@@ -176,7 +176,7 @@ export class CommercialQuotesController {
   @Get(':id')
   @RequirePermissions(Permission.COMMERCIAL_QUOTES_VER)
   @ApiOperation({ summary: 'Cabecera + renglones de una cotización (descuento derivado por renglón).' })
-  getOne(@Param('id') id: string, @Req() req: ConQuien) {
+  getOne(@Param('id') id: string, @Req() req: ConQuien): ReturnType<CommercialQuotesService['getOne']> {
     return this.service.getOne(id, req?.user);
   }
 
@@ -247,7 +247,7 @@ export class CommercialQuotesController {
     summary:
       'Cancela la cotización (baja nuestra). NO es lo mismo que rechazada, que es el no del cliente.',
   })
-  cancel(@Param('id') id: string, @Body() body: { reason: string }, @Req() req: ConQuien) {
+  cancel(@Param('id') id: string, @Body() body: { reason: string }, @Req() req: ConQuien): ReturnType<CommercialQuotesService['cancel']> {
     return this.service.cancel(id, body?.reason, req?.user);
   }
 

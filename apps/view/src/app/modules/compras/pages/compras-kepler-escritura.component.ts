@@ -59,7 +59,7 @@ const ROTULO: Record<KeplerTipo, string> = { compra: 'Compra', traspaso: 'Traspa
       <app-page-tabs [tabs]="apartadoTabs" />
 
       <app-load-state [loading]="loading()" [error]="error()" [isEmpty]="!filas().length" [skeletonRows]="9"
-                      emptyTitle="Sin sucursales" (retry)="cargar()">
+                      emptyTitle="Sin sucursales" (retry)="cargar()" class="dt-scope">
         @if (!migrada()) {
           <p class="ke-aviso" role="status">
             <span class="pi pi-info-circle" aria-hidden="true"></span>
@@ -78,7 +78,7 @@ const ROTULO: Record<KeplerTipo, string> = { compra: 'Compra', traspaso: 'Traspa
           </div>
         </div>
 
-        <p-table [value]="filas()" styleClass="p-datatable-sm surf-table surf-table--plain" [attr.aria-label]="'Escritura a Kepler por sucursal'">
+        <p-table [value]="filas()" styleClass="p-datatable-sm surf-table surf-table--plain dt-stack" [attr.aria-label]="'Escritura a Kepler por sucursal'">
           <ng-template #header>
             <tr>
               <th scope="col">Sucursal</th>
@@ -97,9 +97,9 @@ const ROTULO: Record<KeplerTipo, string> = { compra: 'Compra', traspaso: 'Traspa
           </ng-template>
           <ng-template #body let-f>
             <tr>
-              <td class="ke-suc">{{ f.sucursal | sucursal }}</td>
+              <td class="ke-suc dt-id" role="cell">{{ f.sucursal | sucursal }}</td>
               @for (t of tipos; track t) {
-                <td>
+                <td role="cell" [attr.data-label]="rotulo(t)">
                   <div class="ke-sw">
                     <p-toggleswitch [ngModel]="f[t].encendida" [disabled]="!puedeCambiar() || guardando() === f.sucursal + t"
                                     (ngModelChange)="cambiar(f[t], $event)"
@@ -110,7 +110,7 @@ const ROTULO: Record<KeplerTipo, string> = { compra: 'Compra', traspaso: 'Traspa
                     <div class="ke-bad ke-falta">Rebota: falta {{ f[t].falta }} en el servidor</div>
                   }
                 </td>
-                <td class="comm-num">
+                <td class="comm-num dt-num" role="cell" [attr.data-label]="'Tope diario de ' + rotulo(t)">
                   <p-inputnumber [ngModel]="f[t].tope_dia" [min]="1" [useGrouping]="false" placeholder="Sin tope"
                                  [disabled]="!puedeCambiar() || guardando() === f.sucursal + t"
                                  [ariaLabel]="'Tope diario de ' + rotulo(t) + ' en ' + nombre(f.sucursal)"
@@ -119,7 +119,7 @@ const ROTULO: Record<KeplerTipo, string> = { compra: 'Compra', traspaso: 'Traspa
                 </td>
                 @if (t === 'compra') {
                   <!-- [PQ.22] La OC sólo sale junto con una requisición escrita: sin compra encendida no hay qué convertir. -->
-                  <td>
+                  <td role="cell" data-label="Orden de compra">
                     <div class="ke-sw">
                       <p-toggleswitch [ngModel]="!!f.compra.genera_orden"
                                       [disabled]="!puedeCambiar() || !f.compra.encendida || guardando() === f.sucursal + 'compra'"
@@ -132,7 +132,7 @@ const ROTULO: Record<KeplerTipo, string> = { compra: 'Compra', traspaso: 'Traspa
                   </td>
                 }
               }
-              <td class="ke-quien">
+              <td class="ke-quien" role="cell" data-label="Último cambio">
                 @if (ultimo(f); as u) {
                   {{ u.updated_by || 'sistema' }} <span class="ke-faint">· {{ u.updated_at | date:'dd/MM/yy HH:mm' }}</span>
                 } @else { <span class="ke-faint">—</span> }
