@@ -3,7 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 // [VP.2.1] La forma de la procedencia la define el contrato, no cada consumidor.
-import type { Freshness, ExpenseFamilia } from '@megadulces/contracts';
+import type { Freshness, ExpenseFamilia, DefinicionVista } from '@megadulces/contracts';
 import type { PeriodCoverageWire, PeriodComparativoWire } from '@megadulces/contracts';
 import type { IncomeGroupBy as IncomeGroupByT, IncomeReport as IncomeReportT, IncomeTree as IncomeTreeT, IncomeTreeChildren as IncomeTreeChildrenT, IncomeDocumento as IncomeDocumentoT, IncomeSources as IncomeSourcesT, IncomeRecon as IncomeReconT, IncomeReconDetalle as IncomeReconDetalleT, IncomeGrain as IncomeGrainT } from '@megadulces/contracts';
 
@@ -2238,6 +2238,10 @@ export class ComercialService {
    */
   commissionPadron() {
     return this.http.get<PadronRuta[]>(`${this.base}/commissions/routes`);
+  }
+  /** `[DP.3.2]` Las preguntas de negocio de las que depende la nómina RD, con su estado y su dueño. */
+  commissionDefiniciones() {
+    return this.http.get<DefinicionVista[]>(`${this.base}/commissions/definitions`);
   }
   /** `[RD.100]` La nómina de banco vigente de cada supervisor del padrón (`null` = sin configurar). */
   commissionSupervisores() {
