@@ -18,9 +18,10 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { ProductSearchComponent, ProductHit } from '../components/product-search.component';
 import { ProductScanFieldComponent } from '../components/product-scan-field.component';
 import { estadoFefo, formatCantidad, EstadoFefo } from '../expiry-plazo';
+import { CADUCIDAD_UNIDADES_DEF, caducidadUnidadDef, type CaducidadUnidad } from '@megadulces/contracts';
 
 type Condition = 'bueno' | 'regular' | 'malo';
-type LineUnit = 'caja' | 'pieza' | 'bulto' | 'kg';
+type LineUnit = CaducidadUnidad;
 type PlazoLevel = 'bueno' | 'intermedio' | 'riesgoso' | 'vencido';
 
 /**
@@ -390,13 +391,8 @@ const PLAZO_INTERMEDIO_DIAS = 90;
   `],
 })
 export class ComercialExpiryReviewDetailComponent {
-  /** Unidades reales de recepción (no todo llega en piezas). */
-  readonly units: { label: string; value: LineUnit; hint: string }[] = [
-    { label: 'Caja', value: 'caja', hint: 'Caja cerrada — lo común con código de anaquel' },
-    { label: 'Pieza', value: 'pieza', hint: 'Suelto: piñatas, producto individual' },
-    { label: 'Bulto', value: 'bulto', hint: 'Bolsa grande / costal' },
-    { label: 'Kg', value: 'kg', hint: 'Granel, por peso' },
-  ];
+  /** [P2.9 paso 1] Las 7 unidades salen del contrato (`caducidad-unidad`), no de una lista local. */
+  readonly units: { label: string; value: LineUnit; hint: string }[] = CADUCIDAD_UNIDADES_DEF.map((d) => ({ label: d.etiqueta, value: d.codigo, hint: d.pista }));
 
   readonly conditions: { label: string; value: Condition }[] = [
     { label: 'Bueno', value: 'bueno' },
@@ -613,7 +609,7 @@ export class ComercialExpiryReviewDetailComponent {
 
   /** "código de caja (x24)" — lo que declara el barcode leído. */
   scannedUnitLabel(h: ResolveHit): string {
-    const base = h.unit_hint === 'caja' ? 'caja' : h.unit_hint === 'pieza' ? 'pieza' : String(h.scanned_unit || '').toLowerCase();
+    const base = caducidadUnidadDef(h.unit_hint)?.singular ?? String(h.scanned_unit || '').toLowerCase();
     return h.factor && h.factor > 1 ? `${base} (x${h.factor})` : base;
   }
   /** A partir del primer toque manual, el sistema deja de sugerir. */
