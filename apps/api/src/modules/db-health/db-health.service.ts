@@ -119,42 +119,79 @@ const APP_SOURCES: SourceCfg[] = [
   // el dato de esa sucursal parado. El agregado no lo ve (otras sucursales avanzan). Esto mira
   // la última VENTA (c4=10) por sucursal en horario de tienda y alarma si UNA se atrasa mientras
   // la red sigue activa (calca wincaja_branch_stale). Excluye CEDIS 00 (0 venta pública).
+  //
+  // [TOR.0.10] El «horario de tienda» era uno solo, 10:00–21:30, para las 8. Canindo deja de vender
+  // ~17:20 (~14:00 el domingo), así que cada noche era «la más atrasada» y el sensor gritaba en falso:
+  // simulado cada 15 min sobre 14 días al 2026-11-04, **67 instantes en alarma, todos Canindo
+  // cerrada**. Ahora el horario se DERIVA de la propia venta de cada sucursal (los mismos días de la
+  // semana de las 8 semanas anteriores) → 0 en la misma simulación. Y una sucursal que no ha vendido
+  // NADA hoy ya cuenta desde su hora de apertura: antes ni aparecía (prueba negativa: Zamora Centro sin
+  // ventas → antes «7 de 8» y verde; ahora 4.9 h, «sin venta desde que abrió»).
   {
     key: 'kepler_ods_branch_stale', label: 'Kepler ODS — sucursal congelada (replica)', table: 'kepler_ods.kdm1', tsCandidates: [],
     sql: `WITH w AS (
-            SELECT (now() AT TIME ZONE 'America/Mexico_City')::time AS mx_time,
-                   (now() AT TIME ZONE 'America/Mexico_City')::date AS mx_date
+            SELECT (now() AT TIME ZONE 'America/Mexico_City') AS mx
           ),
-          per_branch AS (
-            SELECT k.sucursal,
-                   (max(k.c9::date + k.c62::time) AT TIME ZONE 'America/Mexico_City') AS last_sale
+          -- El horario se DERIVA de la venta: los mismos días de la semana de las 8 semanas
+          -- anteriores (el domingo cierra antes). Sólo esas 8 fechas, por el índice de fecha.
+          hist AS (
+            SELECT k.sucursal, k.c9::date AS dia, min(k.c62::time) AS primera, max(k.c62::time) AS ultima
               FROM kepler_ods.kdm1 k, w
              WHERE k.c2='U' AND k.c3='D' AND k.c4=10
                AND k.sucursal <> '00'
                AND k.c62 ~ '^[0-9]{1,2}:[0-9]{2}'
-               AND k.c9::date = w.mx_date
-             GROUP BY k.sucursal
+               AND k.c9::date IN (w.mx::date - 7, w.mx::date - 14, w.mx::date - 21, w.mx::date - 28,
+                                  w.mx::date - 35, w.mx::date - 42, w.mx::date - 49, w.mx::date - 56)
+             GROUP BY 1, 2
+          ),
+          horario AS (
+            SELECT sucursal,
+                   percentile_disc(0.5) WITHIN GROUP (ORDER BY primera) AS abre,
+                   percentile_disc(0.5) WITHIN GROUP (ORDER BY ultima) AS cierra
+              FROM hist GROUP BY 1 HAVING count(*) >= 3
+          ),
+          hoy AS (
+            SELECT k.sucursal, max(k.c9::date + k.c62::time) AS ultima
+              FROM kepler_ods.kdm1 k, w
+             WHERE k.c2='U' AND k.c3='D' AND k.c4=10
+               AND k.sucursal <> '00'
+               AND k.c62 ~ '^[0-9]{1,2}:[0-9]{2}'
+               AND k.c9::date = w.mx::date
+               AND (k.c9::date + k.c62::time) <= w.mx
+             GROUP BY 1
+          ),
+          -- Abiertas AHORA según su propio horario. Una que no ha vendido nada hoy cuenta desde su
+          -- hora de apertura: antes no aparecía en absoluto y una sucursal caída desde la mañana
+          -- era invisible.
+          abiertas AS (
+            SELECT h.sucursal, coalesce(y.ultima, w.mx::date + h.abre) AS desde, y.ultima IS NULL AS sin_venta
+              FROM horario h CROSS JOIN w
+              LEFT JOIN hoy y USING (sucursal)
+             WHERE w.mx::time BETWEEN h.abre + interval '30 min' AND h.cierra
           ),
           agg AS (
-            SELECT max(last_sale) AS net_last, min(last_sale) AS stale_last, count(*)::int AS activas,
-                   (array_agg(sucursal ORDER BY last_sale ASC))[1] AS stale_suc
-              FROM per_branch
+            SELECT (SELECT max(ultima) FROM hoy) AS net_last,
+                   min(desde) AS stale_last, count(*)::int AS abiertas,
+                   (array_agg(sucursal ORDER BY desde ASC))[1] AS stale_suc,
+                   (array_agg(sin_venta ORDER BY desde ASC))[1] AS stale_sin_venta
+              FROM abiertas
           )
           SELECT CASE
-                   WHEN (SELECT mx_time FROM w) NOT BETWEEN '10:00' AND '21:30' THEN now()
-                   WHEN agg.net_last IS NULL OR agg.net_last < now() - interval '45 min' THEN now()
-                   ELSE agg.stale_last
+                   WHEN agg.abiertas = 0 THEN now()
+                   -- Si la red entera lleva 45 min sin venta es el ODS, no una sucursal: lo dicen
+                   -- las sondas de la réplica, no ésta.
+                   WHEN agg.net_last IS NULL OR agg.net_last < (SELECT mx FROM w) - interval '45 min' THEN now()
+                   ELSE agg.stale_last AT TIME ZONE 'America/Mexico_City'
                  END AS last_update,
-                 -- [TOR.0.9] Decía «activas 8/6» (escrito para 6 sucursales) y nombraba la sucursal por
-                 -- código. Son 8 las que venden al público (CEDIS no cuenta).
-                 'activas ' || coalesce(agg.activas,0) || ' de 8 · más atrasada ' ||
+                 'abiertas ' || agg.abiertas || ' de 8 · más atrasada ' ||
                    coalesce((SELECT n FROM (VALUES ('01','Padre Hidalgo'),('02','La Piedad Abastos'),('03','8 Esquinas'),
                      ('04','Yurécuaro'),('05','Zamora Centro'),('06','Canindo'),('07','Morelia Madero'),('08','Morelia Abastos')) v(c, n)
-                     WHERE v.c = agg.stale_suc), agg.stale_suc, '—') || ' ' ||
-                   coalesce(to_char(agg.stale_last AT TIME ZONE 'America/Mexico_City','HH24:MI'),'—') ||
-                   ' · red ' || coalesce(to_char(agg.net_last AT TIME ZONE 'America/Mexico_City','HH24:MI'),'—') AS note_extra
+                     WHERE v.c = agg.stale_suc), agg.stale_suc, '—') ||
+                   CASE WHEN agg.stale_sin_venta THEN ' (sin venta desde que abrió, ' ELSE ' (última venta ' END ||
+                   coalesce(to_char(agg.stale_last, 'HH24:MI'), '—') || ')' ||
+                   ' · red ' || coalesce(to_char(agg.net_last, 'HH24:MI'), '—') AS note_extra
             FROM agg`,
-    warnH: 3, critH: 6, cadence: 'continuo en horario (detecta 1 replica caído)',
+    warnH: 3, critH: 6, cadence: 'continuo en el horario de cada sucursal (derivado de su venta)',
   },
   // [OBS.3.2] CATÁLOGO por sucursal — el hueco por el que pasaron los 6 días de 2026-08-27.
   //
