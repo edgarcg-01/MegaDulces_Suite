@@ -294,6 +294,12 @@ Nivel C: se lee el plan, no la pantalla. 🔴 bloquea C3 → 🚀 · 🟠 dentro
 
 ---
 
+## 8-bis. Al final (Edgar, 2026-11-04: «dejemos esos para el final»)
+
+- [ ] Apagar en `SISTEMAS` los dos carriles de Caja General retirados el 22-oct (CGS.48) que siguen en pm2: `pm2 stop caja-general-replica caja-general-ship` · `pm2 delete caja-general-replica caja-general-ship` · `pm2 save`.
+- [ ] Llevar a prod, en orden: migraciones `20261104114612` (caídas por servidor) y `20261104125552` (`cron_runs.detail`) con `aplicar-migracion.sh` → soltar API y suite → redesplegar el poller con `ops/vl/deploy.sh`.
+- [ ] Validar las dos torres en pantalla (hoy: sin validación visual).
+
 ## 9. Definición de Terminado
 
 - [ ] 1. Métrica de la cabecera **remedida**, antes/después publicado
