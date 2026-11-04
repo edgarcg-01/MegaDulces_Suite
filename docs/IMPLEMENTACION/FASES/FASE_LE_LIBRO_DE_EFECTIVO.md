@@ -568,6 +568,48 @@ pantalla, no (método: no se sube de capa sin la de abajo verificada).
 
 ---
 
+### 5.4 Un día de la cajera en la Ventanilla — cada ingreso y cada egreso (PM, 2026-11-04)
+
+**Pedido literal** (Edgar, 2026-11-04): *«primero armemos todo. ponme ejemplo con todo tipo de
+ingreso o egreso, como lo haría Carmen en el nuevo proceso»*. Es el guion de aceptación de E6:
+la Ventanilla está completa cuando este día se puede hacer entero en ella, sin Captura (D34).
+Los importes son **de ejemplo**; las reglas, las firmadas (D3 umbral $10,000 · D20 tope del cajón
+$50,000 · D25 cambio de monedas desde $5,000 · D26 al medio peso).
+
+**Lo que la cajera ya no hace nunca:** teclear un importe (todo es por pieza o lo pone el documento),
+capturar algo después de que el dinero salió, ligar un retiro de la máquina a mano, ni firmar lo que
+ella misma opera (V9).
+
+| # | Hora | Lo que pasa | Lo que hace la cajera | Lo que hace el sistema | Firma | Hecho | Hoy |
+|---|---|---|---|---|---|---|---|
+| 1 | 8:00 | **Abrir el día** | un toque en «Abrir» | arranca con el cajón contado al cerrar ayer y la bóveda que dice la máquina; si no cuadran con el cierre firmado, abre un hallazgo antes de operar | — | jornada (LE.1.5) | ⬜ LE.6.7 |
+| 2 | 8:05 | **Lo que la máquina dio sin código** (anoche, $2,000 con el usuario de un vendedor) | la fila sale **primero**, a nombre de esa persona: la liga a su documento, la pasa a custodia de quien se lo llevó o registra que lo regresó | Suspenso a nombre del dueño del usuario (V2) y aviso a Tesorería en ese momento | Tesorería desde $10,000 | E-07/E-08 desde Suspenso | ⬜ LE.6.7, LE.4.12 |
+| 3 | 9:00 | **Pago de una compra** (X-D-26 que paga entradas de mercancía, $17,230) | «Pagar» en la fila → teclea el código en la máquina (salen $17,220) → cuenta $10 en monedas → quien recibe firma en la pantalla | parte el pago en máquina y cajón, asienta en el mismo acto, y el documento ya no se puede pagar otra vez | ninguna: la compra fue la autorización (D27) | E-24 + E-07 | ✅ en código (LE.6.1), sin pantalla publicada (D34) |
+| 4 | 9:20 | **Pago de un gasto aprobado** (sucursal, oficinas, tarjeta de crédito) | igual que el 3 | revisa en Kepler que el X-D-26 paga gastos aprobados por una persona; el de oficinas se entrega donde dijo quien lo aprobó (D32) | ninguna: ya aprobó una persona (D27, D31) | E-24 | ✅ en código; «dónde se entrega» ⬜ LE.2.14 |
+| 5 | 9:40 | **Pago que Kepler no explica** (el X-D-26 no dice qué gasto o compra paga) | «Pedir firma» | la orden queda «por firmar», sin código; Tesorería la ve en su teléfono con qué, cuánto y para quién | Tesorería, siempre | E-24 | ✅ API; la firma en «Mi trabajo» ⬜ LE.4.11/LE.6.2 |
+| 6 | 9:45 | **Pago detenido** (gasto sin aprobar, rechazado o compra pagada de más) | nada: la fila dice por qué y lleva a Aprobación de gastos | no deja pagar, ni con firma (D29) | — | — | ✅ en código |
+| 7 | 10:00 | **Pago parcial** (una parte del saldo de un proveedor) | elige las facturas, o deja la más vieja primero | nunca deja pagar más de lo que se debe | la de la compra | E-24 | ⬜ (D30 sin confirmar) |
+| 8 | 10:30 | **Una ruta deposita su cobranza en la máquina** («ruta 12 041126») | **nada** | empareja el depósito con la cobranza de Kepler de esa ruta (V5) | — | E-01 + E-02 | 🧪 regla (LE.2.5); el carril de la máquina apagado (LE.4.4) |
+| 9 | 10:35 | **Depósito de ruta que no dice qué ruta** | la fila aparece en Suspenso: escoge la ruta | queda ligado y deja de estar en Suspenso | Tesorería desde $10,000 | E-03 | ⬜ LE.6.7 |
+| 10 | 11:00 | **Una ruta entrega al cajón** (monedas, un cheque y dólares) | en la fila de esa ruta: cuenta las monedas por pieza, anota el folio del cheque, cuenta los dólares | asienta pesos, documento y dólares contra lo que la ruta debe; los dólares con su tipo de cambio | dólares: cuatro ojos | E-04, E-22, E-21 | ⬜ LE.6.7 (R3) |
+| 11 | 11:30 | **Anticipo a proveedor** (X-D-60) | «Pagar», igual que el 3 | igual que el 3 | la del anticipo en Kepler | E-24 | ⬜ LE.6.7 |
+| 12 | 12:00 | **Dinero para algo que todavía no tiene documento** (una compra urgente, un viaje) | «Retiro a custodia» a nombre de quien se lo lleva → código → la persona firma | el dinero queda «En custodia · persona», con su antigüedad a la vista | Tesorería desde $10,000 | E-08 | ⬜ LE.6.5 |
+| 13 | más tarde | **La persona rinde la custodia** (trae factura y el cambio) | en la fila de la custodia: adjunta el comprobante y cuenta lo que regresa | cierra la custodia: gasto por lo comprobado, cajón por lo devuelto | cuatro ojos | E-10 + E-11 | ⬜ LE.6.5 |
+| 14 | 12:30 | **Reposición a una sucursal** (sus gastos pagados con su venta) | la hoja de la zona ya llega cerrada y aprobada (LE.2.15) → «Pagar» → un código para todo el retiro | un asiento con un renglón por pago; el depósito en la cuenta de la zona es su testigo | Tesorería, siempre (D-R1) | E-28 | ⬜ LE.2.15 + LE.6.7 |
+| 15 | 13:00 | **Otro ingreso que no es de ruta** (cobro de una sucursal, venta de desecho) | «Recibir» → concepto → cuenta las piezas → adjunta el soporte | asienta contra «otros ingresos» | cuatro ojos | E-23 (D17) | ⬜ LE.6.7 |
+| 16 | 14:00 | **Las monedas pasaron de $5,000** | «Cambiar monedas»: entrega las bolsas y recibe billetes, todo por pieza | el cambio suma cero; si hay comisión, se declara | — | E-17 (LE.2.11) | 🔨 regla |
+| 17 | 17:00 | **El cajón pasa del tope** | deposita el excedente en la máquina con el código del cajón | baja el cajón, sube la bóveda | — | E-13 | ⬜ LE.2.10 |
+| 18 | — | **La máquina se vacía para el banco / se dota** | nada | el envío queda «en tránsito» hasta que el banco lo confirma (conciliación); dotar, cuando se mida de dónde viene | — | E-14, E-15, E-16 | ⚠️ origen y destino NO MEDIDOS (LE.0.2) |
+| 19 | 18:00 | **Cerrar el día** | cuenta el cajón a ciegas, por pieza | la bóveda se cuenta sola; cada diferencia es un hallazgo con dueño; lo que siga en Suspenso sale con nombre | Tesorería, un toque | jornada + E-19 | ⬜ LE.6.4 |
+| 20 | cualquiera | **Arqueo sorpresa** | nada: cuenta un tercero, sin ver el esperado | la diferencia abre un hallazgo; el ajuste nunca es automático | el ajuste: cuatro ojos | E-19 + E-20 | ⬜ LE.6.3 |
+| 21 | cualquiera | **Un error** (pagó lo que no era) | «Revertir» con el motivo | el espejo exacto del asiento; nada se borra | siempre cuatro ojos | E-26 | 🧪 libro; pantalla ⬜ |
+| 22 | — | **Kepler cancela un pago que ya salió** | nada | reversa + hallazgo a nombre de quien pagó | — | E-25 | ⬜ |
+| 23 | al vencer | **A una ruta le faltó o le sobró** | nada | faltante o sobrante a nombre del vendedor | siempre cuatro ojos | E-05, E-06 | ⬜; cómo se cobra el faltante, D8 sin decidir |
+
+**Quién hace qué en el día:** la cajera opera la ventanilla (filas 1–17 y 19). Tesorería sólo firma
+desde el teléfono (filas 2, 5, 9, 12, 14, 19 y los cuatro ojos). Un tercero arquea (20). Las rutas
+depositan solas (8). Nadie captura después.
+
 ## 6. Modelo de amenazas (qué puede salir mal y qué lo para)
 
 | Escenario | Control | Prueba |
@@ -984,3 +1026,4 @@ frescura.
 | 2026-11-03 | **LE.2.13 🧪 — una sola autorización por pago, y la dice Kepler.** Conversación con el PM sobre por qué la caja sigue complicada: D27–D33. Medido en prod (sólo lectura): casi todo pago de caja ya trae en Kepler qué gasto o compra paga (4,067 de 4,068 en jul–oct), así que la Ventanilla deja de pedir una segunda firma y deja de pagar lo que no está aprobado por una persona. ⚠️ Corrección a la conversación: «validada» no es «aprobada»; quién aprobó se guarda desde el 29-oct. Se reparan además las cifras de LE.2.11 y D25 que la shell se comió en `40ea10971`. Lección: un `$` dentro de comillas dobles en bash se expande; los textos con importes se escriben por archivo, nunca por `node -e`. |
 | 2026-11-03 | **LE.6.1 🔨 — la Ventanilla entra a la app.** El primer tramo: «Por pagar hoy» y pagar, sobre la regla de una sola autorización (LE.2.13). El veredicto se pide por lote porque uno por uno serían ~26 × 60 ms; el SQL es UNO (el pago de un documento usa el lote con un par). Va como pestaña de Caja con las claves de Captura, como decía el plan (la ruta definitiva se toma el día del cambio, LE.7.2). Lección: `node -e` con comillas invertidas dentro de comillas dobles en bash borró texto tres veces en la sesión; los textos con `` ` `` o `$` se escriben por archivo. |
 | 2026-11-04 | **D34 — un solo sistema.** El PM vio la Ventanilla como pestaña junto a Captura y lo rechazó: dos pantallas para el mismo dinero. Se quitan su pestaña y su ruta (el componente, la API y sus pruebas se quedan: son lo que toma `/finanzas/caja-general` el día del cambio). Medido para saber cuánto falta: de 784 movimientos de Captura en 30 días, la Ventanilla cubre los 509 X-D-26 (65 %); el resto es LE.6.7. El plan de §5.3 cambia de «por rebanada, con días en paralelo» a «por rebanada en el servidor, de un golpe en la pantalla». |
+| 2026-11-04 | **§5.4 — un día de la cajera, cada ingreso y egreso.** Pedido del PM: *«primero armemos todo; ponme ejemplo con todo tipo de ingreso o egreso»*. 23 situaciones con lo que hace la cajera, lo que hace el sistema, quién firma, el hecho del catálogo y su estado hoy. Es el guion de aceptación de LE.6.7: la Ventanilla está completa cuando el día entero se hace en ella. De las 23, 4 están en código (pagos a proveedor: sale ya, pide firma, detenido); el resto es lo que falta armar. |
