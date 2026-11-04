@@ -186,7 +186,11 @@ type EstadoLibro = 'abierto' | 'sin_dia' | 'sin_medir';
 
       <!-- [LE.6.7] Lo que entra: los cobros de ruta y de sucursal, en la misma pantalla y después de lo que sale (§5.2). -->
       <section class="vt-sec" aria-labelledby="vt-recibir">
-        <h2 id="vt-recibir" class="vt-h2">Por recibir <span class="muted">· cobros de ruta y de sucursal</span></h2>
+        <div class="vt-sec-head">
+          <h2 id="vt-recibir" class="vt-h2">Por recibir <span class="muted">· cobros de ruta y de sucursal</span></h2>
+          <!-- [LE.6.7] E-23: lo que entra sin documento de cobro de Kepler (1 en 60 días, medido el 2026-11-04). -->
+          <p-button size="small" severity="secondary" [outlined]="true" icon="pi pi-plus" label="Otro ingreso" [disabled]="!puedePagar()" (onClick)="abrirOtro()" />
+        </div>
         <app-load-state [loading]="cargandoCobros() && !colaCobros()" [error]="errorCobros()" [isEmpty]="!!colaCobros() && !cobros().length"
                         [skeletonRows]="3" errorTitle="No se pudo leer qué hay por recibir" emptyTitle="No hay cobros por recibir"
                         (retry)="cargar()">
@@ -302,6 +306,29 @@ type EstadoLibro = 'abierto' | 'sin_dia' | 'sin_medir';
         }
       </section>
     </div>
+
+    <p-dialog [visible]="otroAbierto()" (visibleChange)="!$event && otroAbierto.set(false)" [modal]="true" [draggable]="false"
+              [style]="{ width: '36rem' }" header="Otro ingreso">
+      @if (resultadoOtro(); as r) {
+        <p class="vt-resultado" role="status" data-testid="resultado-otro">
+          {{ r.estado === 'asentado' ? 'Listo: ya está en el libro.' : 'Pasa el umbral: espera la firma de otra persona.' }}
+        </p>
+      } @else {
+        <p class="muted">Dinero que entra sin un cobro de Kepler (una venta de desecho, una devolución). Se cuenta por pieza y se dice de qué es.</p>
+        <label class="vt-lbl" for="vt-concepto">De qué es</label>
+        <input pInputText id="vt-concepto" class="vt-in" [ngModel]="conceptoOtro()" (ngModelChange)="conceptoOtro.set($event)" autocomplete="off" />
+        <app-conteo-cajon sentido="entra" [total]="0" [(piezas)]="piezasOtro" [conMorralla]="false" />
+        @if (errorOtro()) { <p class="vt-aviso vt-aviso--mal" role="alert">{{ errorOtro() }}</p> }
+      }
+      <ng-template #footer>
+        @if (resultadoOtro()) {
+          <p-button label="Listo" (onClick)="otroAbierto.set(false); cargar()" />
+        } @else {
+          <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="otroAbierto.set(false)" />
+          <p-button label="Recibir" [disabled]="!listoParaOtro()" [loading]="enviandoOtro()" (onClick)="recibirOtro()" />
+        }
+      </ng-template>
+    </p-dialog>
 
     <p-dialog [visible]="nuevaCustodia()" (visibleChange)="!$event && nuevaCustodia.set(false)" [modal]="true" [draggable]="false"
               [style]="{ width: '36rem' }" header="Sacar dinero a la custodia de una persona">
@@ -644,6 +671,17 @@ export class FinanzasCajaVentanillaComponent implements OnInit {
   /** Una llave por intento: un doble clic o un reintento no paga dos veces. */
   private llave = '';
 
+  // `[LE.6.7]` Otro ingreso (E-23).
+  readonly otroAbierto = signal(false);
+  readonly conceptoOtro = signal('');
+  readonly piezasOtro = signal<Record<string, number>>({});
+  readonly enviandoOtro = signal(false);
+  readonly errorOtro = signal<string | null>(null);
+  readonly resultadoOtro = signal<ResultadoHecho | null>(null);
+  private llaveOtro = '';
+  readonly listoParaOtro = computed(() => this.puedePagar() && !this.enviandoOtro() && this.conceptoOtro().trim().length >= 5
+    && valorDePiezas(Object.fromEntries(Object.entries(this.piezasOtro()).filter(([, n]) => Number(n) > 0)), 'MXN') > 0n);
+
   // `[LE.6.5]` Custodias.
   readonly custodias = signal<CustodiaAbierta[] | null>(null);
   readonly errorCustodias = signal<string | null>(null);
@@ -828,6 +866,22 @@ export class FinanzasCajaVentanillaComponent implements OnInit {
         this.colaCobros.set(c); this.cobros.set(a.filas); this.cobrosYaRecibidos.set(a.yaRecibidos); this.cargandoCobros.set(false);
       },
       error: (e) => { this.errorCobros.set(this.mensaje(e, 'No se pudo leer qué hay por recibir.')); this.cargandoCobros.set(false); },
+    });
+  }
+
+  abrirOtro(): void {
+    this.otroAbierto.set(true); this.conceptoOtro.set(''); this.piezasOtro.set({}); this.errorOtro.set(null); this.resultadoOtro.set(null);
+    this.llaveOtro = uuidV4();
+  }
+
+  recibirOtro(): void {
+    if (!this.listoParaOtro()) return;
+    const piezas = Object.fromEntries(Object.entries(this.piezasOtro()).filter(([, n]) => Number(n) > 0).map(([k, n]) => [k, String(n)]));
+    this.enviandoOtro.set(true);
+    this.errorOtro.set(null);
+    this.libroApi.registrarHecho({ tipo: 'otro_ingreso', concepto: this.conceptoOtro().trim(), piezas }, this.llaveOtro).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.resultadoOtro.set(r); this.enviandoOtro.set(false); },
+      error: (e) => { this.errorOtro.set(this.mensaje(e, 'No se registró.')); this.enviandoOtro.set(false); },
     });
   }
 

@@ -99,6 +99,7 @@ function montar(opciones: { jornada?: string | null; saldosFalla?: boolean; gest
     explicar: vi.fn(() => of({ estado: 'asentado' as const, entry_id: 'e11' })),
     reposiciones: vi.fn(() => of(opciones.hojas ?? HOJAS)),
     hallazgos: vi.fn(() => of([])),
+    registrarHecho: vi.fn(() => of({ estado: 'asentado' as const, entry_id: 'e30' })),
     solicitudes: vi.fn(() => of([])),
     custodias: vi.fn(() => of(opciones.custodias ?? CUSTODIAS)),
     personas: vi.fn(() => of([{ usuario_id: 'u-p', nombre: 'Persona De Compras' }])),
@@ -419,5 +420,19 @@ describe('[LE.2.13] la Ventanilla', () => {
     comp.rendirCustodia();
     const [body] = libro.rendir.mock.calls[0] as unknown as [Record<string, unknown>, string];
     expect(body).toEqual({ persona: 'u-lleva', documentos: [{ origen_ref: '00|X-D-26|0000002|0011', cuenta_kepler: '201' }], regresa: { 5: '1' } });
+  });
+
+  it('[LE.6.7] otro ingreso: de qué es (al menos 5 letras) y sus piezas; nunca un importe tecleado', () => {
+    const { comp, libro } = montar();
+    comp.abrirOtro();
+    comp.piezasOtro.set({ 100: 1 });
+    comp.conceptoOtro.set('caja');
+    expect(comp.listoParaOtro()).toBe(false);
+    comp.conceptoOtro.set('venta de desecho');
+    expect(comp.listoParaOtro()).toBe(true);
+    comp.recibirOtro();
+    const [body] = libro.registrarHecho.mock.calls[0] as unknown as [Record<string, unknown>, string];
+    expect(body).toEqual({ tipo: 'otro_ingreso', concepto: 'venta de desecho', piezas: { 100: '1' } });
+    expect(comp.resultadoOtro()).toEqual({ estado: 'asentado', entry_id: 'e30' });
   });
 });
