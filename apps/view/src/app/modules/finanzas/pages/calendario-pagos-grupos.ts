@@ -262,3 +262,21 @@ export function fechaCorta(iso: string | null, hoyIso: string): string {
     : { day: 'numeric', month: 'short', year: '2-digit' };
   return new Date(d + 'T12:00:00Z').toLocaleDateString('es-MX', { ...opts, timeZone: 'UTC' });
 }
+
+/**
+ * `[PGP.60]` **Los pasos para intercambiar el orden de dos pagos sin chocar.** El backend
+ * (`setPriorityRank`) rechaza un número que otro pago pendiente del día ya tiene. Los dos `POST`
+ * en paralelo de antes chocaban en el instante del cruce (68 de 178 fallaron en 14 días, medido el
+ * 2026-11-04). Tres pasos seguidos nunca chocan: A a un número libre, B al de A, A al de B.
+ * Devuelve `[id, orden]` en el orden en que se mandan; vacío si `i`/`j` no son válidos.
+ */
+export function pasosIntercambio(
+  lista: ReadonlyArray<{ id: string; priority_rank: number | null }>, i: number, j: number,
+): Array<[string, number]> {
+  if (i < 0 || j < 0 || i >= lista.length || j >= lista.length || i === j) return [];
+  const a = lista[i], b = lista[j];
+  const mio = a.priority_rank ?? i + 1;
+  const suyo = b.priority_rank ?? j + 1;
+  const libre = Math.max(0, ...lista.map((x) => x.priority_rank ?? 0), lista.length) + 1;
+  return [[a.id, libre], [b.id, mio], [a.id, suyo]];
+}
