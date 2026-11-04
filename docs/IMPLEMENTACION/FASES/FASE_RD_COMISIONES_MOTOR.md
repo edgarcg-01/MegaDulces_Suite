@@ -879,7 +879,7 @@ comisión) → `RD.104` → `RD.106` → `RD.105` (depende de que RH aterrice la
 | RD.103.2 🔨 | C1 | El motor elige el tabulador **de la familia de cada ruta**; una ruta cuya familia no tiene tabulador vigente sale con motivo `sin_tabulador` (declarado, nunca $0 callado) | Antes/después: Q14–Q21 de Ruta Directa **idénticas al centavo** |
 | RD.103.3 | C1 | **La propuesta**: escalones armados sobre la venta real de la familia en las últimas quincenas, para que la comisión cueste la parte del margen que la persona fije (por omisión, la de RD: 21.4 %), con lo que habría costado quincena por quincena. Lo que no se midió (gastos) sale declarado, no como cero | Reproducir con la propuesta el costo de RD sobre el libro |
 | RD.103.4 | C2 | Tabuladores por familia; `GET` de la propuesta; «Quién cobra» exige la familia explícita para un código vecinal | Arranque (`design:paramtypes`) + servicio real contra base |
-| RD.103.5 | C3 | Tabulador › Vecinal: la propuesta **aparte**, con su fuente y su costo simulado; «usarla como base» la copia a los escalones editables; **la persona estrena** la versión. Contestar `rd.vecinal.tabulador` = estrenar ese tabulador | `check:pantalla` + vista viva |
+| RD.103.5 🔨 | C3 | Tabulador › Vecinal: la propuesta **aparte**, con su fuente (sin costo simulado: no hay quincena vecinal pagada contra la cual simular); «usarla como base» la copia a los escalones editables; **la persona estrena** la versión. Contestar `rd.vecinal.tabulador` = estrenar ese tabulador | `check:pantalla` + vista viva |
 
 **`[RD.103.0]` medido (2026-11-04, sólo lectura, prod):**
 
@@ -997,11 +997,31 @@ preguntaban:
 3. Dar de alta cada vecinal en «Quién cobra» con `familia: 'vecinal'`, su sueldo base de banco
    (`nomina_banco`), chofer, supervisor y `activo_desde`.
 
-**Deuda con nombre:** (a) C3 — la pantalla rotula `bajo_piso` / `sin_costo` / `sin_tabulador` /
-`estandar_kepler_hoy` con el código crudo y los cuenta como «fuera» (`esFuera()` sólo conoce
-`bajo_umbral` y `sin_dato_en_la_fuente`), y «Tabulador» todavía no separa familias; (b) la meta del
-supervisor (95 % del año anterior) **no se aplica**: el libro la tiene vacía y la 07 no tiene venta
-vecinal en el ODS antes del 2026-09-07; (c) `c77` es el costo de HOY.
+**Deuda con nombre:** (a) ~~C3~~ cerrada por `[RD.103.5]` (abajo); (b) la meta del supervisor
+(95 % del año anterior) **no se aplica**: el libro la tiene vacía y la 07 no tiene venta vecinal en
+el ODS antes del 2026-09-07; (c) `c77` es el costo de HOY; (d) las preguntas nuevas `rd.vecinal.*`
+esperan la próxima migración DP con cambio de estructura; (e) las pruebas `test-newdb-rd-*` de
+RD.103 siguen sin registrar en `run-all-tests.js` (el archivo tiene cambios a medias de otra sesión).
+
+**`[RD.103.5]` en código (2026-11-04) — la pantalla, con las cinco preguntas contestadas antes:**
+(1) qué ve: el tabulador **de una familia** (control segmentado Ruta Directa · Vecinal) y, en la
+corrida, cada motivo en palabras; (2) qué no: códigos crudos, ni vecinales contadas «fuera» del
+universo; (3) accesibilidad: cada motivo con su explicación (`tipPctChofer`, `tipCosto`); (4) liga:
+`sin_tabulador` dice dónde se estrena; (5) le toca: es la misma corrida y el mismo tabulador.
+
+- ⛔ **El riesgo que cerró:** el editor tomaba «la vigente» con `escalas.find(e => e.vigente)`, de
+  todas las familias. Con la versión vecinal en la lista habría partido de escalones de markup y,
+  al estrenar sin `familia`, **creado una versión de Ruta Directa con ellos**. Ahora cada familia
+  edita sólo su vigente, y la `familia` viaja siempre.
+- **Vecinal:** escalones en % de markup; la **propuesta del libro aparte, con su fuente**, y «Usar
+  como base» la copia al borrador (D-V1); piso del chofer y parte del supervisor; **sin simulación,
+  y se dice por qué** (no hay quincena vecinal pagada en la suite contra la cual comparar); la
+  confirmación nombra en palabras todo lo que la versión decide.
+- **Quién cobra:** el alta pide «cobra con el tabulador de» y **no deja enviar** un código vecinal
+  sin elegirlo (poka-yoke; el servidor también lo rechaza).
+- **Medido:** `check:pantalla -- comercial` → `comercial-comisiones` tipa con 0 errores y cumple las
+  10 reglas; `check:templates` verde; specs del módulo 5/5. **Sin validación visual**: no se levanta
+  nada en local; se mira en prod después de desplegar.
 
 **Decisiones (las tomo y las anuncio; Edgar firma):**
 - **D-V1. La propuesta nunca se aplica sola.** Se guarda como propuesta (D2 de la fase DP) con su
