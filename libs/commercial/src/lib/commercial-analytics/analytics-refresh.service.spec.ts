@@ -125,3 +125,58 @@ describe('[NP.14] una matvista VACÍA no espera su cadencia', () => {
     expect(refrescos().some((s) => s.includes(NUEVOS))).toBe(false);
   });
 });
+
+/**
+ * `[PQ.61]` La venta diaria de Kepler pasa a ser TABLA mantenida por evento. En el ciclo nocturno ya
+ * no se refresca: se llama a su árbitro. Lo que importa es lo que cuelga de ella: con el árbitro sano
+ * sus dependientes se refrescan; con el árbitro en contra, no (igual que con una matvista rota).
+ * Y mientras siga siendo matvista (este código va desplegado ANTES de la migración), nada cambia.
+ */
+describe('[PQ.61] el ciclo nocturno y la venta diaria mantenida por evento', () => {
+  const KEPLER = 'analytics.mv_kepler_sales_daily';
+  const MENSUAL = 'analytics.mv_sellout_monthly'; // depende de KEPLER en el ciclo nocturno
+
+  function knexNocturno(relkindKepler: 'm' | 'r', arbitro: Fila | null) {
+    const sentencias: string[] = [];
+    const raw = async (sql: string, binds?: unknown[]): Promise<{ rows: Fila[] }> => {
+      sentencias.push(sql);
+      if (/FROM pg_class/.test(sql)) {
+        const mv = String(binds?.[0]);
+        return { rows: [{ relkind: mv === KEPLER ? relkindKepler : 'm', relispopulated: true }] };
+      }
+      if (/kepler_sales_daily_arbitro\(\)/.test(sql)) return { rows: [{ r: arbitro }] };
+      return { rows: [] };
+    };
+    const k = { raw, transaction: async (fn: (trx: { raw: typeof raw }) => Promise<unknown>) => fn({ raw }) } as unknown as Knex;
+    const refrescos = (): string[] => sentencias.filter((s) => s.includes('REFRESH MATERIALIZED VIEW'));
+    return { k, sentencias, refrescos };
+  }
+
+  it('tabla con árbitro sano: no la refresca, llama al árbitro y SÍ refresca a sus dependientes', async () => {
+    const { k, sentencias, refrescos } = knexNocturno('r', { ok: true, pendientes: 0, errores_24h: 0 });
+    await new AnalyticsRefreshService(k).refreshWincajaDaily();
+    expect(sentencias).toContain('SELECT analytics.kepler_sales_daily_arbitro() AS r');
+    expect(refrescos().some((s) => s.includes(KEPLER))).toBe(false);
+    expect(refrescos().some((s) => s.includes(MENSUAL))).toBe(true);
+  });
+
+  it('[negativa] árbitro en contra: sus dependientes NO se refrescan', async () => {
+    const { k, refrescos } = knexNocturno('r', { ok: false, pendientes: 12, errores_24h: 0 });
+    await new AnalyticsRefreshService(k).refreshWincajaDaily();
+    expect(refrescos().some((s) => s.includes(MENSUAL))).toBe(false);
+  });
+
+  it('[negativa] el árbitro no contesta: cuenta como falla', async () => {
+    const { k, refrescos } = knexNocturno('r', null);
+    await new AnalyticsRefreshService(k).refreshWincajaDaily();
+    expect(refrescos().some((s) => s.includes(MENSUAL))).toBe(false);
+  });
+
+  it('mientras siga siendo matvista se refresca como siempre y el árbitro no se llama', async () => {
+    const { k, sentencias, refrescos } = knexNocturno('m', null);
+    await new AnalyticsRefreshService(k).refreshWincajaDaily();
+    expect(refrescos()).toContain(`REFRESH MATERIALIZED VIEW CONCURRENTLY ${KEPLER}`);
+    expect(sentencias.some((s) => s.includes('kepler_sales_daily_arbitro'))).toBe(false);
+    expect(refrescos().some((s) => s.includes(MENSUAL))).toBe(true);
+  });
+});
