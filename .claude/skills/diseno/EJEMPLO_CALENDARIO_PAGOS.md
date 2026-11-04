@@ -237,6 +237,21 @@ Lo que cambia contra hoy, y lo que se conserva:
 | Reordenar | 2 `POST` en paralelo, 38 % falla | un intercambio atómico |
 | Se conserva | una columna (`[PGP.52]`) · pronto pago primero al agregar (`[PGP.53]`) · el buscador con `/` · el desglose en la fila · los avisos por paso |
 
+### Estado de la maqueta al 2026-11-04 (`[PGP.58]`–`[PGP.60]`, sin validación visual)
+
+| Pieza | Estado |
+|---|---|
+| Pagos del día arriba cuando el día ya está armado; abajo al armar (el pronto pago sigue primero al agregar) | ✅ en código — con `ng-template`, no CSS `order`: el teclado sigue el orden visual |
+| Columna «Por qué hoy» (gana / vencida hace N días / vence hoy / se adelanta) | ✅ en código |
+| Línea de corte del tope en la tabla | ✅ en código |
+| Reordenar sin choques (3 pasos con número libre) | ✅ en código, con prueba que reproduce la regla del backend y mutante que la pone roja |
+| «faltan N» con peso, sin pastilla ámbar | ✅ en código |
+| El veredicto cita el rótulo real de la barra («Los N sin preparar») | ✅ en código |
+| La factura desde el pago (archivo, folio Kepler, referencia) | ✅ en código (`[PGP.58]`) |
+| Botón en el veredicto al preparar | ⛔ **no se agrega**: Edgar lo quitó en `[PGP.15]` por repetir «Aplicar a los N». Ahora la barra queda pegada al veredicto |
+| Bloqueos nombrados («sin cuenta destino: catálogo vacío») | ⬜ pendiente: saber qué proveedor no tiene favorita cuesta una consulta por proveedor |
+| Días sin tope y sin pagos más angostos en la tira | ⬜ pendiente |
+
 ## Paso 11 · Criterios de aceptación (se miden en la pantalla viva)
 
 De [`auditoria-diseno/VALORES.md`](../auditoria-diseno/VALORES.md), los que deciden esta pantalla:

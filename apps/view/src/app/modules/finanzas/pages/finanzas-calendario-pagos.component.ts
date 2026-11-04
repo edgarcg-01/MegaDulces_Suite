@@ -26,7 +26,7 @@ import { EntityInspectorComponent } from '../../../shared/components/entity-insp
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
-import { agruparObligaciones, allocationKey, fechaCorta, obligationKey, sugerirArmado, vencimiento, type ArmadoGrupo, type ObligationGroup } from './calendario-pagos-grupos';
+import { agruparObligaciones, allocationKey, fechaCorta, obligationKey, pasosIntercambio, sugerirArmado, vencimiento, type ArmadoGrupo, type ObligationGroup } from './calendario-pagos-grupos';
 import { firstValueFrom } from 'rxjs';
 import { PagosTabsComponent } from '../pagos-tabs.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
@@ -284,6 +284,12 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
             }
           </div>
 
+          <!-- ⛔ [PGP.60] Con el día ya armado, LOS PAGOS DEL DÍA van aquí, pegados al veredicto que los
+               nombra: medido el 2026-11-04, 104 de 109 pagos armados esperaban PREPARAR y, en una captura
+               de 1,250 px, el primero aparecía cortado en el borde de abajo, debajo de 8 grupos de pronto
+               pago y del buscador. El pronto pago sigue siendo lo primero que se AGREGA (PGP.53). -->
+          @if (pagosPrimero()) { <ng-container *ngTemplateOutlet="bloquePagos; context: { $implicit: day }" /> }
+
           <!-- ── [PGP.53] PRONTO PAGO: lo primero que se paga, con su porqué, por el día en que cierra ──
                Era una línea plegada bajo el buscador («Conviene pagar: 37 acreedores…»). Edgar: es la
                prioridad, se recomienda firme y se dice por qué. Grupo = día en que cierra el descuento;
@@ -530,7 +536,13 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
             </section>
           }
 
-          <!-- ── LOS PAGOS DEL DÍA: un renglón por pago ── -->
+          <!-- [PGP.60] Sin pagos todavía (armar), los pagos del día van al final: arriba está lo que se agrega. -->
+          @if (!pagosPrimero()) { <ng-container *ngTemplateOutlet="bloquePagos; context: { $implicit: day }" /> }
+
+          <!-- ── LOS PAGOS DEL DÍA: un renglón por pago ──
+               [PGP.60] Se escribe UNA vez y se pinta en uno de dos lugares según el paso del día (no con
+               CSS order: el teclado seguiría el orden viejo del DOM). -->
+          <ng-template #bloquePagos let-day>
           <section class="pg-sec pg-pagos" aria-labelledby="pg-pagos-h">
             <div class="pg-sec-h">
               <h3 class="pg-sec-t" id="pg-pagos-h">Pagos del día
@@ -639,13 +651,14 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                     <th class="pg-c-tg"><span class="sr-only">Desglose</span></th>
                     <th class="pg-c-ord" [class.is-folio]="isReleased()">@if (isReleased()) { Folio } @else { Orden }</th>
                     <th class="pg-c-ben">A quién</th>
+                    <th class="pg-c-why">Por qué hoy</th>
                     <th class="pg-c-how">Cómo sale</th>
                     <th class="pg-c-amt">Importe</th>
                     <th class="pg-c-act"><span class="sr-only">Acciones</span></th>
                   </tr>
                 </ng-template>
                 <ng-template #body let-a let-i="rowIndex" let-expanded="expanded">
-                  <tr [class.is-bad]="a.status === 'failed'">
+                  <tr [class.is-bad]="a.status === 'failed'" [class.is-corte]="a.id === corteDelTope()">
                     <td class="pg-c-tg">
                       <button type="button" class="pg-tg" [attr.aria-expanded]="expanded" [attr.aria-label]="(expanded ? 'Ocultar el detalle de ' : 'Ver el detalle de ') + allocationTitle(a)" (click)="toggleAbierto(a.id)">
                         <span class="pi" [class.pi-angle-down]="expanded" [class.pi-angle-right]="!expanded" aria-hidden="true"></span>
@@ -664,7 +677,12 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                       }
                     </td>
                     <td class="pg-c-ben">
+                      <!-- [PGP.60] La línea de corte: desde este pago, lo acumulado ya no cabe en el tope. -->
+                      @if (a.id === corteDelTope()) { <span class="pg-corte"><i class="pi pi-arrow-down" aria-hidden="true"></i>Desde aquí ya no cabe en el tope del día</span> }
                       <span class="pg-ben"><span class="cal-benef">{{ allocationTitle(a) }}</span><span class="pg-ben-d"> · {{ itemsBranches(a) }} · {{ itemsResumen(a) }}</span></span>
+                    </td>
+                    <td class="pg-c-why" data-l="Por qué hoy">
+                      @if (porQueHoy(a); as q) { <span [class.pg-why-f]="q.fuerte">{{ q.texto }}</span> } @else { <span class="pg-why-n">—</span> }
                     </td>
                     <td class="pg-c-how" data-l="Cómo sale">
                       @if (a.kepler_saldadas > 0) {
@@ -708,7 +726,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                 </ng-template>
                 <ng-template #expandedrow let-a>
                   <tr class="pg-xrow">
-                    <td colspan="6">
+                    <td colspan="7">
                       <!-- [PGP.52] El desglose junta lo que antes llenaba el renglón: por qué se paga hoy, las
                            notas, lo que el ERP ya no debe y cada factura con lo que se le aplica. -->
                       <div class="pg-x-info">
@@ -785,6 +803,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
               }
             }
           </section>
+          </ng-template>
         }
       </main>
     </div>
@@ -1169,7 +1188,9 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-day-b { display:flex; align-items:center; gap:4px; font-size:var(--fs-sm); color:var(--text-muted); line-height:1.3; white-space:nowrap; }
     .pg-day-b b { color:var(--text-main); font-weight:700; }
     .pg-day-b b.cal-bad-txt { color:var(--bad-soft-fg); }
-    .pg-day-b b.cal-warn-txt { color:var(--warn-soft-fg); background:var(--warn-soft-bg); }
+    /* [PGP.60] «faltan N» con PESO, sin pastilla ámbar: el estándar §3.10 deja el color sólo para la
+       acción principal y para lo que está mal. Eran 4 pastillas ámbar en la tira de la semana. */
+    .pg-day-b b.cal-warn-txt { color:var(--text-main); background:none; padding:0; }
     .pg-day-b b.cal-ok-txt { color:var(--ok-soft-fg); }
     /* El estado del dia viaja en FORMA (punto lleno / hueco), nunca solo en color. */
     .pg-dot { width:6px; height:6px; border-radius:var(--r-pill); background:var(--text-faint); flex-shrink:0; }
@@ -1340,7 +1361,13 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     td.pg-c-amt { font-weight:700; color:var(--text-main); white-space:nowrap; }
     .pg-c-ben { min-width:0; }
     /* [PGP.52] «Cómo sale» con su propia columna: en el panel angosto iba debajo del nombre; a todo lo ancho, al lado. */
-    .pg-c-how { width:34%; }
+    .pg-c-how { width:28%; }
+    /* [PGP.60] «Por qué hoy» decide el orden: va al lado de a quién. Fuerte = vencida, vence hoy o cierra pronto (peso, no color). */
+    .pg-c-why { width:16%; font-size:var(--fs-sm); color:var(--text-muted); }
+    .pg-c-why .pg-why-f { color:var(--text-main); font-weight:700; }
+    /* [PGP.60] La línea de corte del tope: lo que está de aquí para abajo excede lo autorizado. */
+    :host ::ng-deep .pg-prep .p-datatable-tbody > tr.is-corte > td { border-top:2px dashed var(--bad-fg); }
+    .pg-corte { display:flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-xs); font-weight:700; color:var(--bad-soft-fg); margin-bottom:2px; }
     .pg-tg { all:unset; box-sizing:border-box; cursor:pointer; display:inline-grid; place-items:center; width:28px; height:28px; border-radius:var(--r-sm); color:var(--text-muted); }
     .pg-tg:hover { background:var(--overlay-hover); color:var(--text-main); }
     .pg-tg:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
@@ -1520,6 +1547,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
       :host ::ng-deep .pg-prep td.pg-c-ben { grid-column:2 / -1; grid-row:1; }
       /* [PGP.52] La columna nueva, «Cómo sale», va a todo lo ancho debajo del nombre. */
       :host ::ng-deep .pg-prep td.pg-c-how { grid-column:1 / -1; }
+      :host ::ng-deep .pg-prep td.pg-c-why { grid-column:1 / -1; width:auto; }
       .pg-add-t { white-space:normal; }
       .pg-lista-acts { margin-left:0; }
       /* Folio u orden a la izquierda e importe a la derecha, en el mismo renglon. */
@@ -1606,6 +1634,50 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    * 4 pagar · 5 cerrar · 6 cerrado. `[PGP.15]` Suma «cerrar»: el backend ya tenía `cerrar` y
    * `fallo`, y la pantalla no los ofrecía — el proceso no se podía terminar desde la interfaz.
    */
+  /**
+   * `[PGP.60]` **Con el día ya armado, los pagos van arriba** (pegados al veredicto que los nombra).
+   * Sin pagos, el día está en ARMAR y arriba va lo que se agrega: el pronto pago primero (`[PGP.53]`).
+   */
+  readonly pagosPrimero = computed(() => this.allocations().length > 0);
+
+  /**
+   * `[PGP.60]` **Por qué se paga HOY**, en el renglón (decide el orden; antes sólo vivía en el
+   * desglose). Lo que gana pronto pago va primero; si no, cómo está su factura más vieja contra el
+   * día. Sin dato, null — la celda dice «—», no inventa un motivo (ADR-056).
+   */
+  porQueHoy(a: PaymentCalendarAllocation): { texto: string; fuerte: boolean } | null {
+    if ((a.pronto_captura ?? 0) > 0) {
+      const urge = (a.items ?? []).some((it) => it.pronto_estado === 'por_vencer');
+      return { texto: `gana ${this.money(a.pronto_captura)}${urge ? ' · cierra pronto' : ''}`, fuerte: urge };
+    }
+    const dia = this.selectedDate();
+    const vence = (a.items ?? []).map((it) => it.vence).filter((v): v is string => !!v).sort()[0];
+    if (vence) {
+      const d = Math.round((Date.parse(dia) - Date.parse(vence.slice(0, 10))) / 86_400_000);
+      if (d > 0) return { texto: d === 1 ? 'vencida hace 1 día' : `vencida hace ${d} días`, fuerte: true };
+      if (d === 0) return { texto: 'vence hoy', fuerte: true };
+      return { texto: `vence el ${this.shortDate(vence)} (se adelanta)`, fuerte: false };
+    }
+    if ((a.pronto_deja_pasar ?? 0) > 0) return { texto: `deja pasar ${this.money(a.pronto_deja_pasar)}`, fuerte: false };
+    return null;
+  }
+
+  /**
+   * `[PGP.60]` **Dónde se acaba el tope**, en el orden de dispersión: el primer pago con el que lo
+   * acumulado pasa lo autorizado. Así «excede $X» se ve en la tabla (qué queda arriba y qué abajo),
+   * no sólo como cifra. Sin tope fijado no hay corte que dibujar (null).
+   */
+  readonly corteDelTope = computed<string | null>(() => {
+    const s = this.selectedDay()?.summary;
+    if (!s?.capacity_defined || s.authorized_amount == null) return null;
+    let acum = 0;
+    for (const a of this.allocations()) {
+      acum += Number(a.amount_assigned || 0);
+      if (acum > Number(s.authorized_amount) + 0.005) return a.id;
+    }
+    return null;
+  });
+
   readonly pasoActivo = computed<1 | 2 | 3 | 4 | 5 | 6>(() => {
     if (this.selectedDay()?.summary.lot_status === 'closed') return 6;
     if (this.isReleased()) return this.pendingCount() > 0 || this.failedCount() > 0 ? 4 : 5;
@@ -2331,7 +2403,9 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       // [PGP.44] El rótulo se cita TEXTUAL: si el botón dice «Para 1 pago» y esto manda a
       // «Para los 1 pagos», el aviso apunta a algo que no existe en pantalla.
       // [PGP.49] El rótulo de la barra cambió a «Para los N sin preparar»: se cita igual.
-      const donde = sinMetodo > 1 ? `Elige método y cuenta de origen en «Para los ${this.unpreparedCount()} sin preparar»` : `Usa «Preparar» en su fila`;
+      // [PGP.60] Y volvió a cambiar a «Los N sin preparar:» (PGP.52) sin que esto lo siguiera: el
+      // veredicto citaba un rótulo que no existía en pantalla (visto en captura el 2026-11-04).
+      const donde = sinMetodo > 1 ? `Elige método y cuenta de origen abajo, en «Los ${this.unpreparedCount()} sin preparar»` : `Usa «Preparar» en su fila`;
       return { tone: 'ok',
         say: n === 1 ? `Falta ${this.faltaDe(a)} de 1 pago para poder autorizar el día.`
                      : `Faltan ${n} de ${this.pendingCount()} pagos por preparar.`,
@@ -3347,16 +3421,22 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     const i = lista.findIndex((x) => x.id === a.id);
     const j = i + delta;
     if (i < 0 || j < 0 || j >= lista.length) return;
-    const otro = lista[j];
-    const mio = a.priority_rank ?? i + 1;
-    const suyo = otro.priority_rank ?? j + 1;
+    /**
+     * ⛔ `[PGP.60]` **Fallaba 4 de cada 10 veces** (medido en `analytics.ui_usage`, 14 días al
+     * 2026-11-04: 68 de 178 `POST …/orden` con 4xx). Eran dos `POST` en PARALELO, y el backend
+     * (`setPriorityRank`) rechaza un orden que otro pago pendiente del día ya tiene: en el instante del
+     * intercambio cada uno tenía el número del otro → «El orden N ya lo tiene otro pago de este día».
+     * Ahora va en TRES pasos seguidos que nunca chocan: el mío a un número libre (uno más que el
+     * mayor del día), el otro al mío, el mío al suyo. Si un paso falla, los números siguen siendo
+     * únicos y la recarga muestra el orden real.
+     */
+    const pasos = pasosIntercambio(lista, i, j);
+    if (!pasos.length) return;
     this.saving.set(true);
-    Promise.all([
-      firstValueFrom(this.http.post(`${this.base}/allocations/${a.id}/orden`, { priority_rank: suyo })),
-      firstValueFrom(this.http.post(`${this.base}/allocations/${otro.id}/orden`, { priority_rank: mio })),
-    ]).then(() => this.loadWeek())
+    pasos.reduce<Promise<unknown>>((prev, [id, rank]) => prev.then(() =>
+      firstValueFrom(this.http.post(`${this.base}/allocations/${id}/orden`, { priority_rank: rank }))), Promise.resolve())
       .catch((e) => this.toast.add({ severity: 'error', summary: 'No se pudo reordenar', detail: String(e?.error?.message ?? e?.message ?? e) }))
-      .finally(() => this.saving.set(false));
+      .finally(() => { this.saving.set(false); this.loadWeek(); });
   }
 
   /** El proveedor del catálogo detrás de un pago (sólo facturas de mercancía lo traen). */
