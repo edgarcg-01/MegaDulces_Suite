@@ -930,7 +930,7 @@ no se cita como medición actual.
 
 ## 16. Propuesta (2026-11-04) — temporada, una sola falta y días agotados
 
-**Estado: propuesta, sin firma.** No abre fase: el tablero marca **7 🔨 contra un cupo de 4**, así que
+**Estado: D25–D28 ✅ firmadas por el PM el 2026-11-04** (las cuatro recomendaciones). No abre fase: el tablero marca **7 🔨 contra un cupo de 4**, así que
 esto entra como items de PQ y se hace **junto con D17 de AB** (el motor sale del ODS), que es dueño
 del mismo código. ⛔ Nada de esto se escribe en `import-replenishment-plan.js` ni en
 `import-demand-clean.js` (regla 1 + D17): va en las vistas del ODS que D17 tiene que crear.
@@ -959,10 +959,10 @@ contra las dos pantallas. **Primero se miden (C0), después se cambia el número
 
 | # | Decisión | Opciones | Recomendación |
 |---|---|---|---|
-| D25 | Cobertura | (a) la que elija el comprador, igual para todo almacén (hoy Pedido) · (b) una por almacén (hoy la mesa: 21 d en 02–07, 30 el resto) | **(b) como base en las dos**; Pedido puede cambiarla, y entonces lo dice: «calculado con 30 días; la sucursal ve 21» |
-| D26 | Ajuste por cumplimiento del proveedor | (a) en las dos · (b) en ninguna · (c) sólo en lo que se pide al proveedor | **(c)**: un traspaso de la matriz no depende de lo que surta el proveedor |
-| D27 | Fin de temporada | (a) el motor sugiere 0 y se puede pedir a mano · (b) candado | **(a)**: el comprador puede saber de una reposición o de una venta especial; el candado lo saca del sistema |
-| D28 | Traspasos de la Suite (plan paralelo, 640 repetidos) | (a) encender la escritura de traspasos (PQ.19, canario desde 01) · (b) dejar de generarlos mientras esté apagada · (c) contarlos como «ya viene» | **(a)**. Es lo único que cierra el lazo; (c) haría que el motor pida de menos si nadie ejecuta el plan. Encender es secreto en `md`: **lo decide y lo hace Edgar** |
+| D25 | Cobertura | (a) la que elija el comprador, igual para todo almacén (hoy Pedido) · (b) una por almacén (hoy la mesa: 21 d en 02–07, 30 el resto) | ✅ **Firmada (b), PM 2026-11-04.** Como base en las dos; Pedido puede cambiarla, y entonces lo dice: «calculado con 30 días; la sucursal ve 21» |
+| D26 | Ajuste por cumplimiento del proveedor | (a) en las dos · (b) en ninguna · (c) sólo en lo que se pide al proveedor | ✅ **Firmada (c), PM 2026-11-04**: un traspaso de la matriz no depende de lo que surta el proveedor |
+| D27 | Fin de temporada | (a) el motor sugiere 0 y se puede pedir a mano · (b) candado | ✅ **Firmada (a), PM 2026-11-04**: el comprador puede saber de una reposición o de una venta especial; el candado lo saca del sistema |
+| D28 | Traspasos de la Suite (plan paralelo, 640 repetidos) | (a) encender la escritura de traspasos (PQ.19, canario desde 01) · (b) dejar de generarlos mientras esté apagada · (c) contarlos como «ya viene» | ✅ **Firmada (a), PM 2026-11-04**. Es lo único que cierra el lazo; (c) haría que el motor pida de menos si nadie ejecuta el plan. Encender es secreto en `md`: **lo decide y lo hace Edgar** |
 
 ### 16.4 Qué NO incluye
 
