@@ -608,6 +608,13 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-11-04 — `[FCT]` La hoja «RENTABILIDAD TLMKT»: el viaje y su venta salen de Kepler, el costo de Logística
+
+- **Qué se revisó.** La hoja de Telemarketing que Edgar pidió «complementar en `/comercial/comisiones`», contra prod en sólo lectura. Plan: [`FASE_FC_ANEXO_RENTABILIDAD_TLMK`](FASES/FASE_FC_ANEXO_RENTABILIDAD_TLMK_2026-11-04.md).
+- **Lo encontrado**: no es una hoja de comisiones comerciales (trae el pago del chofer y del auxiliar y el costo del viaje); cada viaje es una guía de embarque TM de Kepler (55/55 casan a ±$10, un día después; placebo 0); la unidad y el chofer que Kepler pone en esas guías no sirven; la captura de viajes de Logística existe pero no se usa (0 de 206 viajes de octubre); la tarifa de comisión de Logística contradice a la hoja (Degollado $51.60 contra $120).
+- **Lecciones.** (1) Una columna de Kepler que existe no es una columna que se llena: la unidad de la guía TM dice «MOTOCICLETA» en viajes de 289 km; colgar el GPS de ahí habría dado km falsos con toda la apariencia de medidos. (2) Antes de culpar al cruce, medir la cobertura del ODS: 200 de 255 viajes «sin cruce» eran fechas que el ODS todavía no tiene. (3) El «cerrado» de otro módulo no es el tuyo: el embarque `cerrado` de EMB no lo toca Pagos de viaje; la regla buena era la de la guía completa (`pendientesDeLaGuia`), y `v_trip_state` costaba 2.5 s.
+- **NO MEDIDO**: el `up()` de la migración en una base (Docker local caído); el arranque de la API (sólo la metadata emitida); la pantalla en un navegador. ⛔ Sin aplicar en prod.
+
 ## 2026-11-04 — `[DP]` Definiciones de negocio: en prod, y comisiones dice qué regla le falta
 
 - **En prod** desde `7db184b1f`: tablas `platform.business_definitions` / `_answers` y las 17 preguntas de Comisiones RD (batch 1092), y el reparto de llaves (batch 1096). Medido: VER 2 · GESTIONAR 2 · CONTESTAR 38 roles.

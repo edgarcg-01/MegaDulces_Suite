@@ -87,6 +87,50 @@ dueño lo saltaría): se cruza en el servicio.
 | FCT.3.1 | Pantalla de rentabilidad TM por viaje (ver D1), con enlace al cierre del viaje en Logística para los `sin_cerrar` | ⬜ |
 | FCT.3.2 | Que el cierre de viaje de Logística (EMB) ofrezca las guías TM de Hidalgo y Morelia Abastos para cerrarlas (hoy se cierran 9 viajes en total) | ⬜ |
 
+### C3 · El diseño, por escrito antes de la plantilla (skill `diseno` §0a/§0b)
+
+1. **Propósito (prueba de la frase):** *¿cuánto le cuesta a la empresa entregar cada viaje de
+   Telemarketing, contra lo que se vendió en él?* — una pregunta, sin «y». El acto que cierra no
+   vive aquí: es cerrar el viaje en Logística; esta pantalla lo hace visible y lleva hasta él.
+2. **Quién entra:** el mismo público que Comisiones y Rentabilidad RD — permiso
+   `COMMERCIAL_ROUTE_PROFIT_VER`, medido en prod: dirección, finanzas, contabilidad, superadmin; uso
+   real en 30 días (`ui_usage`, `/api/commercial/route-profit*` y `/commissions*`): dirección,
+   prevención auxiliar, superadmin.
+3. **El estado real:** 0 de 206 viajes TM de octubre tienen el costo cerrado. ⭐ Ése es el cuello y
+   es lo primero que se ve: «0 de 206 viajes con costo — se cierran en Logística».
+4. **Qué ve, en orden (nivel 0):** (a) la franja de cifras: viajes, venta, **viajes con costo
+   cerrado (n de N)**, gasto registrado y su % sobre la venta de los cerrados (o «sin dato»);
+   (b) la tabla de viajes, el más nuevo primero: fecha · sucursal (nombre) · destinos · vendedor ·
+   paradas · venta · estado del costo · gasto registrado · % . Un solo control: el segmentado de
+   estado (Todos / Sin cerrar / Cierre a medias / Cerrados) con su conteo, más sucursal y rango.
+5. **Qué no ve:** unidad y chofer de Kepler (medido: no sirven en TM) → fuera; km por la unidad de
+   Kepler → fuera; el costo de la camioneta → no se dibuja, se declara «sin dato (Costo por
+   unidad)»; el desglose por parada → en el panel, no en la fila.
+6. **Mapa de desglose:** venta del viaje → panel lateral con sus vendedores (venta de cada uno) y
+   sus ciudades; gasto registrado → panel con comisión chofer, auxiliares, viáticos, gastos de ruta
+   y la camioneta «sin dato»; «sin cerrar» → enlace a Logística › Embarques; todo sale de la misma
+   respuesta `GET /commercial/route-profit/tlmk` (no hay llamadas extra).
+7. **Accesibilidad:** cada cifra a 0 clics (fila) o 1 (panel); sucursal por nombre; ordenable por
+   fecha y venta; filas operables con teclado (Enter abre el panel); el estado lleva texto, no sólo
+   color.
+8. **Ligas:** de dónde viene — la guía de Kepler (`<sucursal>-G<guía>`) en la fila; a dónde va — el
+   cierre del viaje en Logística. Liga rota nombrada: hoy nadie cierra viajes TM (0 de 206).
+9. **¿Le toca?:** sí al público de Comisiones; se llega desde la barra de Comisiones («Viajes TM»).
+   La comisión del VENDEDOR TM no vive aquí (pregunta DP `rd.tlmk.tabulador`).
+10. **Maqueta:**
+    ```
+    Viajes de Telemarketing · venta de Kepler, costo del cierre en Logística   [rango] [sucursal]
+    Viajes 206 │ Venta $16.0M │ Con costo cerrado 0 de 206 │ Gasto registrado sin dato
+    ⚠ 206 viajes sin cerrar en Logística: su costo no se puede calcular. → Ir a Embarques
+    [Todos 206] [Sin cerrar 206] [Cierre a medias 0] [Cerrados 0]
+    Fecha  Sucursal          Destinos            Vendedor        Par.  Venta        Costo
+    16-oct Sucursal Hidalgo  León (+6)           Sergio Mendoza   16   $217,347.94  Sin cerrar
+    ```
+11. **Criterios de aceptación:** carga < 500 ms medido en prod (hoy 90 ms el mes); ningún costo
+    dibujado como $0 sin cierre; `check:pantalla` sin fallas nuevas; sucursal siempre por nombre.
+12. **Lo que la interfaz NO resuelve:** que alguien cierre los viajes (D3), la tarifa de comisión
+    (D2), el costo de la camioneta (FCU sin aplicar), y la migración FCT.0.1 sin aplicar en prod.
+
 ## 4. Decisiones (las firma el PM)
 
 | # | Decisión | Recomendación | Estado |
