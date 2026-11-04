@@ -10,7 +10,7 @@ import { TagModule } from 'primeng/tag';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
 import {
-  SUCURSAL_CAJA_GENERAL, valorDePiezas, type HojaDeReposicion, type PartidaEnSuspenso, type PlanDePagoVentanilla, type QuienLlevaDeposito, type ResultadoCobro, type ResultadoHecho, type ResultadoPago,
+  SUCURSAL_CAJA_GENERAL, valorDePiezas, type CustodiaAbierta, type HojaDeReposicion, type PersonaDeCustodia, type ResultadoRendicion, type PartidaEnSuspenso, type PlanDePagoVentanilla, type QuienLlevaDeposito, type ResultadoCobro, type ResultadoHecho, type ResultadoPago,
 } from '@megadulces/contracts';
 import { LoadStateComponent } from '../../../../shared/components/load-state/load-state.component';
 import { FreshnessPillComponent } from '../../../../shared/components/freshness-pill/freshness-pill.component';
@@ -256,7 +256,122 @@ type EstadoLibro = 'abierto' | 'sin_dia' | 'sin_medir';
           }
         }
       </section>
+
+      <!-- [LE.6.5] Custodias (V6): el dinero que tiene una persona para algo sin documento todavía, con su antigüedad. -->
+      <section class="vt-sec" aria-labelledby="vt-custodias" data-testid="custodias">
+        <div class="vt-sec-head">
+          <h2 id="vt-custodias" class="vt-h2">Custodias <span class="muted">· dinero a cargo de una persona hasta que rinde</span></h2>
+          <p-button size="small" severity="secondary" [outlined]="true" icon="pi pi-plus" label="Sacar a custodia" [disabled]="!puedePagar()"
+                    (onClick)="abrirNuevaCustodia()" />
+        </div>
+        @if (errorCustodias()) {
+          <p class="vt-aviso vt-aviso--mal" role="alert">{{ errorCustodias() }}</p>
+        } @else if (custodias(); as cs) {
+          @if (!cs.length) {
+            <p class="vt-pie muted" data-testid="custodias-vacio">Nadie tiene dinero a su cargo.</p>
+          } @else {
+            <p-table [value]="cs" size="small" dataKey="persona" class="dt-stack vt-tbl">
+              <ng-template #header>
+                <tr><th scope="col">Persona</th><th scope="col">Desde</th><th scope="col" class="ta-r">A su cargo</th><th scope="col"><span class="sr-only">Rendir</span></th></tr>
+              </ng-template>
+              <ng-template #body let-c>
+                <tr [attr.data-persona]="c.persona">
+                  <td data-label="Persona">{{ c.nombre }}
+                    @for (r of c.reposiciones; track r.orden_id) {
+                      <span class="vt-motivo">Reposición {{ r.zona }} del {{ dmy(r.dia) }} · {{ minor(r.total_minor) }} · espera su depósito en el banco
+                        <p-button size="small" [text]="true" label="Confirmar el depósito" [disabled]="!puedePagar()"
+                                  [ariaLabel]="'Confirmar el depósito de la reposición ' + r.zona" (onClick)="confirmarDeposito(r.orden_id)" />
+                      </span>
+                    }
+                  </td>
+                  <td class="num" data-label="Desde">{{ c.desde ? dmy(c.desde) : '—' }}</td>
+                  <td class="ta-r num dt-num" data-label="A su cargo">{{ minor(c.saldo_minor) }}</td>
+                  <td class="ta-r" data-label="Rendir">
+                    <p-button size="small" severity="secondary" [outlined]="true" label="Rendir" [disabled]="!puedePagar()"
+                              [ariaLabel]="'Rendir la custodia de ' + c.nombre" (onClick)="abrirRendir(c)" />
+                  </td>
+                </tr>
+              </ng-template>
+            </p-table>
+          }
+          @if (avisoCustodia()) { <p class="vt-aviso" role="status" data-testid="aviso-custodia">{{ avisoCustodia() }}</p> }
+        }
+      </section>
     </div>
+
+    <p-dialog [visible]="nuevaCustodia()" (visibleChange)="!$event && nuevaCustodia.set(false)" [modal]="true" [draggable]="false"
+              [style]="{ width: '36rem' }" header="Sacar dinero a la custodia de una persona">
+      @if (resultadoCustodia(); as r) {
+        <p class="vt-resultado" role="status" data-testid="resultado-custodia">
+          @if (r.estado === 'pagado' && r.codigo) { Teclea en la máquina este código: <b class="vt-codigo">{{ r.codigo }}</b> }
+          @else if (r.estado === 'por_firmar') { Quedó por firmar: {{ r.motivo }}. }
+          @else if (r.estado === 'asentado') { Listo: el dinero del cajón ya está a su cargo. }
+          @else if (r.estado === 'por_autorizar') { Pasa el umbral: espera la firma de otra persona. }
+        </p>
+      } @else {
+        <label class="vt-lbl" for="vt-persona">Quién se lo lleva</label>
+        <input pInputText id="vt-persona" class="vt-in" [ngModel]="buscaPersona()" (ngModelChange)="buscarPersona($event)" placeholder="Nombre o usuario" autocomplete="off" />
+        @if (personasHalladas().length) {
+          <fieldset class="vt-destinos">
+            <legend class="sr-only">Elige a la persona</legend>
+            @for (p of personasHalladas(); track p.usuario_id) {
+              <label class="vt-destino"><input type="radio" name="vt-persona" [checked]="personaCustodia() === p.usuario_id" (change)="personaCustodia.set(p.usuario_id)" /> {{ p.nombre }}</label>
+            }
+          </fieldset>
+        }
+        <label class="vt-lbl" for="vt-para">Para qué</label>
+        <input pInputText id="vt-para" class="vt-in" [ngModel]="paraCustodia()" (ngModelChange)="paraCustodia.set($event)" placeholder="Para qué se lleva el dinero" autocomplete="off" />
+        <fieldset class="vt-destinos">
+          <legend class="vt-lbl">De dónde sale</legend>
+          <label class="vt-destino"><input type="radio" name="vt-de" [checked]="desdeCustodia() === 'maquina'" (change)="desdeCustodia.set('maquina')" />
+            De la máquina (billetes), por <input pInputText class="vt-ruta" inputmode="numeric" aria-label="Pesos" [ngModel]="montoCustodia()" (ngModelChange)="montoCustodia.set($event)" placeholder="pesos" /></label>
+          <label class="vt-destino"><input type="radio" name="vt-de" [checked]="desdeCustodia() === 'cajon'" (change)="desdeCustodia.set('cajon')" /> Del cajón (monedas, por pieza)</label>
+        </fieldset>
+        @if (desdeCustodia() === 'cajon') {
+          <app-conteo-cajon sentido="entra" [total]="0" [(piezas)]="piezasCustodia" [conBilletes]="false" [conMorralla]="false" />
+        }
+        @if (errorCustodia()) { <p class="vt-aviso vt-aviso--mal" role="alert">{{ errorCustodia() }}</p> }
+      }
+      <ng-template #footer>
+        @if (resultadoCustodia()) {
+          <p-button label="Listo" (onClick)="cerrarNuevaCustodia()" />
+        } @else {
+          <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="nuevaCustodia.set(false)" />
+          <p-button label="Sacar" [disabled]="!listoParaCustodia()" [loading]="enviandoCustodia()" (onClick)="sacarACustodia()" />
+        }
+      </ng-template>
+    </p-dialog>
+
+    <p-dialog [visible]="!!rindiendo()" (visibleChange)="!$event && rindiendo.set(null)" [modal]="true" [draggable]="false"
+              [style]="{ width: '38rem' }" [header]="rindiendo() ? 'Rendir · ' + rindiendo()!.nombre : ''">
+      @if (rindiendo(); as c) {
+        <p class="vt-quien">Tiene a su cargo <b class="num">{{ minor(c.saldo_minor) }}</b></p>
+        @if (resultadoRendir(); as r) {
+          <p class="vt-resultado" role="status" data-testid="resultado-rendir">Rendido. Le queda a su cargo <b class="num">{{ minor(r.saldo_minor) }}</b>.</p>
+        } @else {
+          <fieldset class="vt-destinos">
+            <legend class="vt-lbl">Los documentos de Kepler que pagó con ese dinero</legend>
+            @for (f of docsParaRendir(); track f.doc.origen_ref) {
+              <label class="vt-destino"><input type="checkbox" [checked]="docsRendir().includes(f.doc.origen_ref)" (change)="alternarDoc(f.doc.origen_ref)" />
+                X-D-26 {{ f.doc.folio }} · {{ f.doc.beneficiario ?? '—' }} · {{ money(f.doc.monto) }}</label>
+            } @empty {
+              <p class="muted">No hay X-D-26 de Caja General por pagar con su cuenta de Kepler.</p>
+            }
+          </fieldset>
+          <p class="vt-lbl">Lo que regresa al cajón</p>
+          <app-conteo-cajon sentido="entra" [total]="0" [(piezas)]="piezasRegresa" [conMorralla]="false" />
+          @if (errorRendir()) { <p class="vt-aviso vt-aviso--mal" role="alert">{{ errorRendir() }}</p> }
+        }
+      }
+      <ng-template #footer>
+        @if (resultadoRendir()) {
+          <p-button label="Listo" (onClick)="cerrarRendir()" />
+        } @else {
+          <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="rindiendo.set(null)" />
+          <p-button label="Rendir" [disabled]="!listoParaRendir()" [loading]="enviandoRendir()" (onClick)="rendirCustodia()" />
+        }
+      </ng-template>
+    </p-dialog>
 
     <p-dialog [visible]="!!reponiendo()" (visibleChange)="!$event && cerrarReposicion()" [modal]="true" [draggable]="false"
               [style]="{ width: '42rem' }" [header]="reponiendo() ? 'Reposición · ' + reponiendo()!.nombre : ''">
@@ -494,6 +609,7 @@ type EstadoLibro = 'abierto' | 'sin_dia' | 'sin_medir';
     .vt-destinos { border: 0; margin: 0 0 var(--sp-2); padding: 0; display: grid; gap: var(--sp-2); }
     .vt-destino { display: flex; gap: var(--sp-2); align-items: center; font-size: var(--fs-sm); }
     .vt-ruta { width: 6rem; }
+    .vt-sec-head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--sp-3); flex-wrap: wrap; }
     .vt-renglones { margin: 0 0 var(--sp-3); font-size: var(--fs-sm); }
     .vt-renglones ul { margin: var(--sp-2) 0 0; padding-left: var(--sp-4); max-height: 12rem; overflow: auto; }
   `],
@@ -523,6 +639,41 @@ export class FinanzasCajaVentanillaComponent implements OnInit {
   readonly resultado = signal<ResultadoPago | null>(null);
   /** Una llave por intento: un doble clic o un reintento no paga dos veces. */
   private llave = '';
+
+  // `[LE.6.5]` Custodias.
+  readonly custodias = signal<CustodiaAbierta[] | null>(null);
+  readonly errorCustodias = signal<string | null>(null);
+  readonly avisoCustodia = signal<string | null>(null);
+  readonly nuevaCustodia = signal(false);
+  readonly buscaPersona = signal('');
+  readonly personasHalladas = signal<PersonaDeCustodia[]>([]);
+  readonly personaCustodia = signal<string | null>(null);
+  readonly paraCustodia = signal('');
+  readonly desdeCustodia = signal<'maquina' | 'cajon' | null>(null);
+  readonly montoCustodia = signal('');
+  readonly piezasCustodia = signal<Record<string, number>>({});
+  readonly enviandoCustodia = signal(false);
+  readonly errorCustodia = signal<string | null>(null);
+  readonly resultadoCustodia = signal<ResultadoPago | ResultadoHecho | null>(null);
+  private llaveCustodia = '';
+  readonly rindiendo = signal<CustodiaAbierta | null>(null);
+  readonly docsRendir = signal<string[]>([]);
+  readonly piezasRegresa = signal<Record<string, number>>({});
+  readonly enviandoRendir = signal(false);
+  readonly errorRendir = signal<string | null>(null);
+  readonly resultadoRendir = signal<ResultadoRendicion | null>(null);
+  private llaveRendir = '';
+  /** Los X-D-26 de la cola que se pueden rendir: con su cuenta de Kepler. */
+  readonly docsParaRendir = computed(() => this.filas().filter((f) => !!f.doc.kepler_cuenta));
+  private readonly piezasDe = (p: Record<string, number>) => Object.fromEntries(Object.entries(p).filter(([, n]) => Number(n) > 0));
+  readonly listoParaCustodia = computed(() => {
+    if (!this.personaCustodia() || this.paraCustodia().trim().length < 5 || !this.puedePagar() || this.enviandoCustodia()) return false;
+    if (this.desdeCustodia() === 'maquina') return /^\d+$/.test(this.montoCustodia().trim()) && Number(this.montoCustodia()) > 0;
+    if (this.desdeCustodia() === 'cajon') return valorDePiezas(this.piezasDe(this.piezasCustodia()), 'MXN') > 0n;
+    return false;
+  });
+  readonly listoParaRendir = computed(() => !!this.rindiendo() && this.puedePagar() && !this.enviandoRendir()
+    && (this.docsRendir().length > 0 || valorDePiezas(this.piezasDe(this.piezasRegresa()), 'MXN') > 0n));
 
   // `[LE.6.8]` Reposiciones.
   readonly reposiciones = signal<HojaDeReposicion[] | null>(null);
@@ -637,6 +788,12 @@ export class FinanzasCajaVentanillaComponent implements OnInit {
       next: ({ c, v }) => { this.cola.set(c); this.filas.set(armarCola(c.rows, v)); this.cargando.set(false); },
       error: (e) => { this.error.set(this.mensaje(e, 'No se pudo leer la cola.')); this.cargando.set(false); },
     });
+    // `[LE.6.5]` Lo que cada persona tiene a su cargo.
+    this.errorCustodias.set(null);
+    this.libroApi.custodias().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (c) => this.custodias.set(c),
+      error: (e) => { this.custodias.set(null); this.errorCustodias.set(this.mensaje(e, 'No se pudo leer qué tiene cada persona a su cargo.')); },
+    });
     // `[LE.6.8]` Las reposiciones y quién puede llevar el depósito.
     this.errorReposiciones.set(null);
     this.libroApi.reposiciones().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -662,6 +819,80 @@ export class FinanzasCajaVentanillaComponent implements OnInit {
         this.colaCobros.set(c); this.cobros.set(a.filas); this.cobrosYaRecibidos.set(a.yaRecibidos); this.cargandoCobros.set(false);
       },
       error: (e) => { this.errorCobros.set(this.mensaje(e, 'No se pudo leer qué hay por recibir.')); this.cargandoCobros.set(false); },
+    });
+  }
+
+  abrirNuevaCustodia(): void {
+    this.nuevaCustodia.set(true);
+    this.buscaPersona.set(''); this.personasHalladas.set([]); this.personaCustodia.set(null);
+    this.paraCustodia.set(''); this.desdeCustodia.set(null); this.montoCustodia.set(''); this.piezasCustodia.set({});
+    this.resultadoCustodia.set(null); this.errorCustodia.set(null);
+    this.llaveCustodia = uuidV4();
+  }
+
+  buscarPersona(q: string): void {
+    this.buscaPersona.set(q);
+    if (q.trim().length < 2) { this.personasHalladas.set([]); return; }
+    this.libroApi.personas(q.trim()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (p) => this.personasHalladas.set(p), error: () => this.personasHalladas.set([]) });
+  }
+
+  sacarACustodia(): void {
+    const persona = this.personaCustodia();
+    if (!persona || !this.listoParaCustodia()) return;
+    const desde = this.desdeCustodia() === 'maquina'
+      ? { tipo: 'maquina' as const, monto_minor: String(Number(this.montoCustodia().trim()) * 100) }
+      : { tipo: 'cajon' as const, piezas: Object.fromEntries(Object.entries(this.piezasDe(this.piezasCustodia())).map(([k, n]) => [k, String(n)])) };
+    this.enviandoCustodia.set(true);
+    this.errorCustodia.set(null);
+    this.libroApi.retiroACustodia({ persona, para: this.paraCustodia().trim(), desde }, this.llaveCustodia).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.resultadoCustodia.set(r); this.enviandoCustodia.set(false); },
+      error: (e) => { this.errorCustodia.set(this.mensaje(e, 'No se sacó.')); this.enviandoCustodia.set(false); },
+    });
+  }
+
+  cerrarNuevaCustodia(): void {
+    this.nuevaCustodia.set(false);
+    this.resultadoCustodia.set(null);
+    this.cargar();
+  }
+
+  abrirRendir(c: CustodiaAbierta): void {
+    this.rindiendo.set(c);
+    this.docsRendir.set([]); this.piezasRegresa.set({});
+    this.resultadoRendir.set(null); this.errorRendir.set(null);
+    this.llaveRendir = uuidV4();
+  }
+
+  alternarDoc(ref: string): void {
+    this.docsRendir.update((d) => (d.includes(ref) ? d.filter((x) => x !== ref) : [...d, ref]));
+  }
+
+  rendirCustodia(): void {
+    const c = this.rindiendo();
+    if (!c || !this.listoParaRendir()) return;
+    const porRef = new Map(this.filas().map((f) => [f.doc.origen_ref, f.doc.kepler_cuenta ?? '']));
+    const regresa = Object.fromEntries(Object.entries(this.piezasDe(this.piezasRegresa())).map(([k, n]) => [k, String(n)]));
+    this.enviandoRendir.set(true);
+    this.errorRendir.set(null);
+    this.libroApi.rendir({ persona: c.persona, documentos: this.docsRendir().map((r) => ({ origen_ref: r, cuenta_kepler: porRef.get(r) ?? '' })),
+      ...(Object.keys(regresa).length ? { regresa } : {}) }, this.llaveRendir).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.resultadoRendir.set(r); this.enviandoRendir.set(false); },
+      error: (e) => { this.errorRendir.set(this.mensaje(e, 'No se rindió.')); this.enviandoRendir.set(false); },
+    });
+  }
+
+  cerrarRendir(): void {
+    this.rindiendo.set(null);
+    this.resultadoRendir.set(null);
+    this.cargar();
+  }
+
+  /** El banco es el testigo: si el depósito no aparece, se dice y la reposición sigue abierta. */
+  confirmarDeposito(ordenId: string): void {
+    this.avisoCustodia.set(null);
+    this.libroApi.confirmarDeposito(ordenId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => { this.avisoCustodia.set('Depósito confirmado: la reposición quedó cerrada.'); this.cargar(); },
+      error: (e) => this.avisoCustodia.set(this.mensaje(e, 'No se pudo confirmar el depósito.')),
     });
   }
 

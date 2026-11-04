@@ -321,7 +321,7 @@ export function gasto(h: { concepto: string; desde: { tipo: 'cajon'; piezas: Pie
   return armar('gasto', ctx, [
     { cuenta: CUENTA.egreso(h.concepto), monto: m },
     { cuenta: CUENTA.custodia(h.desde.empleado, h.desde.nombre), monto: -m },
-  ]);
+  ], extra);
 }
 
 // ── E-09b · `[LE.2.9]` La parte del CAJÓN de un pago en la Ventanilla, con el redondeo declarado ─
@@ -356,12 +356,13 @@ export function pagoDelCajon(h: { concepto: string; documento: string; orden: st
 
 // ── E-11 · Lo que sobró de una custodia regresa al cajón ──────────────────────────────────────
 
-export function regresoCustodiaAlCajon(h: { empleado: string; nombre: string; piezas: PiezasTexto }, ctx: Contexto): Propuesta {
+export function regresoCustodiaAlCajon(h: { empleado: string; nombre: string; piezas: PiezasTexto }, ctx: Contexto,
+  extra: { event_ref?: string; meta?: MetaAsiento } = {}): Propuesta {
   const m = montoDe(piezasValidas(h.piezas, 'regreso_custodia'));
   return armar('regreso_custodia', ctx, [
     { cuenta: F.CAJA_MXN, monto: m, piezas: h.piezas },
     { cuenta: CUENTA.custodia(h.empleado, h.nombre), monto: -m },
-  ]);
+  ], extra);
 }
 
 // ── E-29 · `[LE.2.11]` Monedas por billetes con alguien de fuera, en el acto ──────────────────

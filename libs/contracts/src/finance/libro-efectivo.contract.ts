@@ -453,6 +453,52 @@ export interface PedirReposicion {
   piezas_cajon?: PiezasTexto;
 }
 
+// ── `[LE.6.5]` Custodias: dinero a cargo de una persona, hasta que rinde (V6) ──────────────────
+
+/** Una reposición ya pagada que espera su depósito en el banco para cerrarse (§5.5). */
+export interface ReposicionPorConfirmar {
+  orden_id: string;
+  zona: string;
+  total_minor: string;
+  documentos: number;
+  dia: string;
+}
+
+/** Lo que una persona tiene a su cargo. Sin plazo que castigue (D3): la antigüedad se ve, no se cobra sola. */
+export interface CustodiaAbierta {
+  /** `holder_ref` de la cuenta: el usuario de la persona. */
+  persona: string;
+  nombre: string;
+  saldo_minor: string;
+  /** Desde cuándo tiene algo a su cargo sin volver a cero. */
+  desde: string | null;
+  reposiciones: ReposicionPorConfirmar[];
+}
+
+/** Sacar dinero para algo que todavía no tiene documento (V6): de la máquina con código, o del cajón por pieza. */
+export interface RetiroACustodia {
+  /** El usuario de quien se lo lleva. */
+  persona: string;
+  para: string;
+  desde: { tipo: 'maquina'; monto_minor: string } | { tipo: 'cajon'; piezas: PiezasTexto };
+}
+
+/** Rendir: los documentos de Kepler que pagó con ese dinero, y lo que regresa al cajón (por pieza). */
+export interface RendirCustodia {
+  persona: string;
+  documentos?: Array<{ origen_ref: string; cuenta_kepler: string }>;
+  regresa?: PiezasTexto;
+}
+
+export interface ResultadoRendicion {
+  asientos: string[];
+  /** Lo que le queda a cargo después de rendir. */
+  saldo_minor: string;
+}
+
+/** Una persona que puede tener dinero a su cargo (usuario activo de la Suite). */
+export interface PersonaDeCustodia { usuario_id: string; nombre: string }
+
 /** Una orden que espera la firma de Tesorería, con todo lo que hace falta para decidir. */
 export interface OrdenPorFirmar {
   id: string;

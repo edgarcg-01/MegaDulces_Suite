@@ -2,7 +2,7 @@ import { Body, Controller, Get, Headers, Param, Post, Query, Req, UseGuards } fr
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import type {
-  CobroEnVentanilla, ConteoDeCaja, EstadoDeCobro, ExplicarSuspenso, HechoDePersona, HojaDeReposicion, PedirReposicion, QuienLlevaDeposito, OrdenPorFirmar, PagoEnVentanilla, PartidaEnSuspenso, PlanDePagoVentanilla,
+  CobroEnVentanilla, ConteoDeCaja, EstadoDeCobro, ExplicarSuspenso, HechoDePersona, HojaDeReposicion, PedirReposicion, QuienLlevaDeposito, CustodiaAbierta, PersonaDeCustodia, RendirCustodia, ResultadoRendicion, RetiroACustodia, OrdenPorFirmar, PagoEnVentanilla, PartidaEnSuspenso, PlanDePagoVentanilla,
   ResultadoCobro, ResultadoConteo, ResultadoHecho, ResultadoPago, SaldosDelLibro, VeredictoDePago,
 } from '@megadulces/contracts';
 import { CashbookService, type UsuarioDelLibro } from './cashbook.service';
@@ -187,6 +187,43 @@ export class CashbookController {
   @ApiOperation({ summary: '[LE.6.8] Pide la reposición de una zona (Idempotency-Key): nace por firmar; con la firma de Tesorería sale el código y el dinero queda en custodia de quien lleva el depósito' })
   pedirReposicion(@Body() body: PedirReposicion, @Headers('idempotency-key') key: string | undefined, @Req() req: AuthedRequest): Promise<ResultadoPago> {
     return this.ventanilla.pedirReposicion(body, this.user(req), key);
+  }
+
+  @Post('reposiciones/:id/confirmar-deposito')
+  @RequirePermissions(Permission.FINANCE_CAJA_GESTIONAR)
+  @ApiOperation({ summary: '[LE.6.8] Cierra una reposición pagada con su testigo: el depósito en la cuenta de la zona; cada pago queda como gasto desde la custodia' })
+  confirmarDeposito(@Param('id') id: string, @Req() req: AuthedRequest): Promise<ResultadoRendicion> {
+    return this.ventanilla.confirmarDeposito(id, this.user(req));
+  }
+
+  // ── `[LE.6.5]` Custodias: dinero a cargo de una persona hasta que rinde ────────────────────
+
+  @Get('custodias')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: '[LE.6.5] Lo que cada persona tiene a su cargo, desde cuándo, y las reposiciones que esperan su depósito (no escribe)' })
+  custodias(): Promise<CustodiaAbierta[]> {
+    return this.ventanilla.custodias();
+  }
+
+  @Get('custodias/personas')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: '[LE.6.5] Buscar a la persona que se lleva el dinero (usuarios activos; al menos 2 letras)' })
+  personas(@Query('q') q?: string): Promise<PersonaDeCustodia[]> {
+    return this.ventanilla.personas(q);
+  }
+
+  @Post('custodias')
+  @RequirePermissions(Permission.FINANCE_CAJA_GESTIONAR)
+  @ApiOperation({ summary: '[LE.6.5] Saca dinero a la custodia de una persona (Idempotency-Key): de la máquina con código —desde el umbral la firma Tesorería— o del cajón por pieza' })
+  retiroACustodia(@Body() body: RetiroACustodia, @Headers('idempotency-key') key: string | undefined, @Req() req: AuthedRequest): Promise<ResultadoPago | ResultadoHecho> {
+    return this.ventanilla.retiroACustodia(body, this.user(req), key);
+  }
+
+  @Post('custodias/rendir')
+  @RequirePermissions(Permission.FINANCE_CAJA_GESTIONAR)
+  @ApiOperation({ summary: '[LE.6.5] Rinde una custodia (Idempotency-Key): con documentos de Kepler y con lo que regresa al cajón por pieza' })
+  rendir(@Body() body: RendirCustodia, @Headers('idempotency-key') key: string | undefined, @Req() req: AuthedRequest): Promise<ResultadoRendicion> {
+    return this.ventanilla.rendir(body, this.user(req), key);
   }
 
   @Get('ordenes/por-firmar')

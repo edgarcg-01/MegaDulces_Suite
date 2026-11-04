@@ -3,7 +3,7 @@ import knexFactory, { Knex } from 'knex';
 import { HttpException } from '@nestjs/common';
 import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import type { PagoEnVentanilla, ZonaHojaGastos } from '@megadulces/contracts';
-import type { PagoDeZona } from '../caja/hoja-gastos.engine';
+import type { DepositoBancoHoja, PagoDeZona } from '../caja/hoja-gastos.engine';
 import { CashbookService } from './cashbook.service';
 import {
   CashbookVentanillaService, type FilaDocumento, type FilaDocumentoLote, type FilaRespaldoCompra, type FilaRespaldoGasto, type FilaVale,
@@ -58,6 +58,11 @@ class VentanillaConFilas extends CashbookVentanillaService {
       gastos: sembrados.flatMap(([sucursal, folio]) => this.respaldos.get(`${sucursal}|${folio}`)!.gastos.map((g) => ({ sucursal, folio, ...g }))),
       compras: sembrados.flatMap(([sucursal, folio]) => this.respaldos.get(`${sucursal}|${folio}`)!.compras.map((c) => ({ sucursal, folio, ...c }))),
     };
+  }
+  /** `[LE.6.8]` Los depósitos a la cuenta de cada zona (`null` = cuenta no medida). */
+  depositos = new Map<string, DepositoBancoHoja[] | null>();
+  protected override async depositosDelBanco(_trx: Knex.Transaction, _t: string, zona: ZonaHojaGastos): Promise<DepositoBancoHoja[] | null> {
+    return this.depositos.has(zona.clave) ? this.depositos.get(zona.clave) ?? null : [];
   }
   /** `[LE.6.8]` Los pagos de cada zona que devolvería la consulta de la hoja. */
   pagosZona = new Map<string, PagoDeZona[]>();
@@ -553,5 +558,93 @@ describe.skipIf(!URL)('[LE.4.10] la Ventanilla contra Postgres', () => {
       await trx.raw('SELECT cashbook.post_entry(?::jsonb)', [JSON.stringify(p.asiento)]);
     });
     expect(await saldo(custodia)).toBe(155050n);   // el total de la hoja, a nombre de quien lleva el depósito
+
+    // El banco es el testigo: sin depósito, no se cierra; con el depósito exacto, cada pago queda como gasto y la persona, descargada.
+    expect((await v.custodias()).find((c) => c.persona === LLEVA.id)?.reposiciones.map((x) => x.orden_id)).toEqual([r.orden_id]);
+    expect(await rechazo(v.confirmarDeposito(r.orden_id, CAJERA))).toEqual({ status: 409, codigo: 'deposito_no_encontrado' });
+    v.depositos.set('morelia', [{ id: 'dep-1', dia: (await knex.raw(`SELECT (now() AT TIME ZONE 'America/Mexico_City')::date::text AS d`)).rows[0].d, importe: 1550.5 }]);
+    v.docs.set('07|X-D-26|9002|0011', { folio: '9002', beneficiario: 'GASTOS', importe: '1250.50' });
+    v.docs.set('07|X-D-26|9003|0011', { folio: '9003', beneficiario: 'GASTOS', importe: '300.00' });
+    const cierre = await v.confirmarDeposito(r.orden_id, CAJERA);
+    expect(cierre.asientos).toHaveLength(2);
+    expect(cierre.saldo_minor).toBe('0');
+    expect(await saldo(custodia)).toBe(0n);
+    expect((await v.custodias()).some((c) => c.persona === LLEVA.id)).toBe(false);
+    expect(await v.confirmarDeposito(r.orden_id, CAJERA)).toEqual(cierre);   // reintento: lo mismo
+  });
+
+  // ── `[LE.6.5]` Custodias ───────────────────────────────────────────────────────────────
+
+  it('[LE.6.5] custodia del cajón: se lleva monedas, rinde con un documento de Kepler y regresa lo demás; una vez', async () => {
+    if (!hay) return;
+    const ADMIN = process.env['CAJA_TEST_DB_ADMIN_URL'] ?? String(URL).replace('app_runtime:app_runtime@', 'postgres:postgres@');
+    const dueno = knexFactory({ client: 'pg', connection: ADMIN, pool: { min: 0, max: 1 } });
+    const P = randomUUID();
+    try {
+      await dueno.raw(`INSERT INTO identity.users (id, tenant_id, username, nombre, role_name, activo, kind, created_at, updated_at)
+        VALUES (?, ?, 'compras_urgentes', 'Persona De Compras', 'compras', true, 'interno', now(), now())`, [P, T]);
+    } finally { await dueno.destroy(); }
+    expect((await v.personas('compras')).map((x) => x.usuario_id)).toContain(P);
+
+    const r = await v.retiroACustodia({ persona: P, para: 'cinta y bolsas para la ruta', desde: { tipo: 'cajon', piezas: { 10: '2' } } }, CAJERA, randomUUID());
+    expect(r.estado).toBe('asentado');
+    const c = (await v.custodias()).find((x) => x.persona === P);
+    expect(c).toMatchObject({ nombre: 'Persona De Compras', saldo_minor: '2000' });
+    expect(c?.desde).toBeTruthy();
+
+    v.docs.set('00|X-D-26|0024001|0011', { folio: '0024001', beneficiario: 'PAPELERIA', importe: '15.00' });
+    const key = randomUUID();
+    const body = { persona: P, documentos: [{ origen_ref: '00|X-D-26|0024001|0011', cuenta_kepler: '201' }], regresa: { 5: '1' } };
+    const rd = await v.rendir(body, CAJERA, key);
+    expect(rd.asientos).toHaveLength(2);
+    expect(rd.saldo_minor).toBe('0');
+    expect((await v.custodias()).some((x) => x.persona === P)).toBe(false);
+    expect(await v.rendir(body, CAJERA, key)).toEqual(rd);                                   // reintento: lo mismo
+    expect(await rechazo(v.rendir({ persona: P, documentos: body.documentos }, CAJERA, randomUUID())))
+      .toEqual({ status: 409, codigo: 'documento_ya_pagado' });                             // un documento se rinde una vez
+  });
+
+  it('[LE.6.5] NEGATIVAS: no se rinde más de lo que tiene, sin para qué no sale, y sin persona no hay custodia', async () => {
+    if (!hay) return;
+    const ADMIN = process.env['CAJA_TEST_DB_ADMIN_URL'] ?? String(URL).replace('app_runtime:app_runtime@', 'postgres:postgres@');
+    const dueno = knexFactory({ client: 'pg', connection: ADMIN, pool: { min: 0, max: 1 } });
+    const P = randomUUID();
+    try {
+      await dueno.raw(`INSERT INTO identity.users (id, tenant_id, username, nombre, role_name, activo, kind, created_at, updated_at)
+        VALUES (?, ?, 'viaje_ruta', 'Persona De Viaje', 'logistica', true, 'interno', now(), now())`, [P, T]);
+    } finally { await dueno.destroy(); }
+    await v.retiroACustodia({ persona: P, para: 'casetas del viaje', desde: { tipo: 'cajon', piezas: { 10: '1' } } }, CAJERA, randomUUID());
+    v.docs.set('00|X-D-26|0024002|0011', { folio: '0024002', beneficiario: 'CASETAS', importe: '15.00' });
+    const mas = await rechazo(v.rendir({ persona: P, documentos: [{ origen_ref: '00|X-D-26|0024002|0011', cuenta_kepler: '201' }] }, CAJERA, randomUUID()));
+    expect(mas.status).not.toBe(200);                                                       // $15 contra $10: la base no deja la custodia negativa
+    expect(await saldo(`CUSTODIA:${P.toUpperCase()}`)).toBe(1000n);
+    expect(await rechazo(v.retiroACustodia({ persona: P, para: 'no', desde: { tipo: 'cajon', piezas: { 10: '1' } } }, CAJERA, randomUUID())))
+      .toEqual({ status: 400, codigo: 'sin_para_que' });
+    expect(await rechazo(v.retiroACustodia({ persona: randomUUID(), para: 'casetas del viaje', desde: { tipo: 'cajon', piezas: { 10: '1' } } }, CAJERA, randomUUID())))
+      .toEqual({ status: 404, codigo: 'persona_inexistente' });
+    expect(await rechazo(v.rendir({ persona: P }, CAJERA, randomUUID()))).toEqual({ status: 400, codigo: 'nada_que_rendir' });
+  });
+
+  it('[LE.6.5] custodia de la máquina: sin umbral configurado la firma Tesorería; con umbral, abajo sale el código directo; sólo billetes', async () => {
+    if (!hay) return;
+    const ADMIN = process.env['CAJA_TEST_DB_ADMIN_URL'] ?? String(URL).replace('app_runtime:app_runtime@', 'postgres:postgres@');
+    const dueno = knexFactory({ client: 'pg', connection: ADMIN, pool: { min: 0, max: 1 } });
+    const P = randomUUID();
+    try {
+      await dueno.raw(`INSERT INTO identity.users (id, tenant_id, username, nombre, role_name, activo, kind, created_at, updated_at)
+        VALUES (?, ?, 'anticipo_flete', 'Persona Del Flete', 'logistica', true, 'interno', now(), now())`, [P, T]);
+      const r1 = await v.retiroACustodia({ persona: P, para: 'anticipo de flete', desde: { tipo: 'maquina', monto_minor: '50000' } }, CAJERA, randomUUID());
+      expect(r1).toMatchObject({ estado: 'por_firmar', motivo: 'no hay umbral configurado: la firma Tesorería (D3)' });
+      if (r1.estado !== 'por_firmar') return;
+      const f = await v.firmar(r1.orden_id, TESORERIA);
+      expect(f).toMatchObject({ estado: 'pagado', maquina_minor: '50000' });
+      await dueno.raw(`INSERT INTO cashbook.authorization_rules (tenant_id, event_kind, threshold_minor) VALUES (?, 'retiro_a_custodia', 1000000)
+        ON CONFLICT (tenant_id, event_kind) DO UPDATE SET threshold_minor = 1000000`, [T]);
+      const r2 = await v.retiroACustodia({ persona: P, para: 'anticipo de flete', desde: { tipo: 'maquina', monto_minor: '50000' } }, CAJERA, randomUUID());
+      expect(r2).toMatchObject({ estado: 'pagado', maquina_minor: '50000' });                // abajo de $10,000: código directo
+      expect(r2.estado === 'pagado' ? r2.codigo : null).toMatch(/^[A-HJ-NP-Z2-9]{4}-\d$/);
+      expect(await rechazo(v.retiroACustodia({ persona: P, para: 'anticipo de flete', desde: { tipo: 'maquina', monto_minor: '50050' } }, CAJERA, randomUUID())))
+        .toEqual({ status: 422, codigo: 'monto_no_es_de_billetes' });
+    } finally { await dueno.destroy(); }
   });
 });

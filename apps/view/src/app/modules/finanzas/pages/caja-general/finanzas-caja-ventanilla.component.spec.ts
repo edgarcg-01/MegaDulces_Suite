@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { provideRouter } from '@angular/router';
 import { of, throwError } from 'rxjs';
-import type { EstadoDeCobro, HojaDeReposicion, PartidaEnSuspenso, QuienLlevaDeposito, PlanDePagoVentanilla, ResultadoCobro, SaldosDelLibro, VeredictoDePago } from '@megadulces/contracts';
+import type { CustodiaAbierta, EstadoDeCobro, HojaDeReposicion, PartidaEnSuspenso, QuienLlevaDeposito, PlanDePagoVentanilla, ResultadoCobro, SaldosDelLibro, VeredictoDePago } from '@megadulces/contracts';
 import { FinanzasCajaVentanillaComponent } from './finanzas-caja-ventanilla.component';
 import { CashLedgerService, type MovimientoPendiente, type PendientesResponse } from '../../cash-ledger.service';
 import { LibroEfectivoService } from '../../libro-efectivo.service';
@@ -76,8 +76,12 @@ const HOJAS: HojaDeReposicion[] = [
     anteriores: { n: 0, monto_minor: '0' } },
 ];
 
+// `[LE.6.5]` Una persona con dinero a su cargo y una reposición que espera su depósito.
+const CUSTODIAS: CustodiaAbierta[] = [{ persona: 'u-lleva', nombre: 'Quien Lleva', saldo_minor: '155050', desde: '2026-11-05T10:00:00Z',
+  reposiciones: [{ orden_id: 'o9', zona: 'morelia', total_minor: '155050', documentos: 2, dia: '2026-11-05' }] }];
+
 function montar(opciones: { jornada?: string | null; saldosFalla?: boolean; gestionar?: boolean; suspenso?: PartidaEnSuspenso[] | 'falla';
-  hojas?: HojaDeReposicion[]; quien?: QuienLlevaDeposito[] } = {}) {
+  hojas?: HojaDeReposicion[]; quien?: QuienLlevaDeposito[]; custodias?: CustodiaAbierta[] } = {}) {
   const ledger = { movimientosPendientes: vi.fn((f: { doc_tipo?: string }) => of(f.doc_tipo === 'U-A-5' ? COBROS : COLA)) };
   const libro = {
     saldos: vi.fn(() => (opciones.saldosFalla ? throwError(() => ({ status: 403 }))
@@ -91,6 +95,11 @@ function montar(opciones: { jornada?: string | null; saldosFalla?: boolean; gest
     suspenso: vi.fn(() => (opciones.suspenso === 'falla' ? throwError(() => ({ status: 503 })) : of(opciones.suspenso ?? SUSPENSO))),
     explicar: vi.fn(() => of({ estado: 'asentado' as const, entry_id: 'e11' })),
     reposiciones: vi.fn(() => of(opciones.hojas ?? HOJAS)),
+    custodias: vi.fn(() => of(opciones.custodias ?? CUSTODIAS)),
+    personas: vi.fn(() => of([{ usuario_id: 'u-p', nombre: 'Persona De Compras' }])),
+    retiroACustodia: vi.fn(() => of({ estado: 'asentado' as const, entry_id: 'e20' })),
+    rendir: vi.fn(() => of({ asientos: ['e21', 'e22'], saldo_minor: '0' })),
+    confirmarDeposito: vi.fn(() => throwError(() => ({ error: { codigo: 'deposito_no_encontrado', mensaje: 'El banco todavía no muestra el depósito de esa reposición.' } }))),
     quienLleva: vi.fn(() => of(opciones.quien ?? [{ usuario_id: 'u-lleva', nombre: 'Quien Lleva' }])),
     pedirReposicion: vi.fn(() => of({ estado: 'por_firmar' as const, orden_id: 'o9', motivo: 'la reposición la firma Tesorería (D-R1)' })),
     recibir: vi.fn(() => of<ResultadoCobro>({ estado: 'recibido', entry_id: 'e2', tipo: 'ruta', ruta: '22', contado_minor: '180000',
@@ -355,5 +364,53 @@ describe('[LE.2.13] la Ventanilla', () => {
   it('[LE.6.8] sin apertura del libro no hay hoja: lo dice en una línea', () => {
     const { el } = montar({ hojas: HOJAS.map((h) => ({ ...h, sin_arranque: true, renglones: [] })) });
     expect(el.querySelector('[data-testid="reposicion-sin-arranque"]')).not.toBeNull();
+  });
+
+  // ── `[LE.6.5]` Custodias ───────────────────────────────────────────────────────────────
+
+  it('[LE.6.5] quién tiene dinero a su cargo, desde cuándo, y la reposición que espera su depósito', () => {
+    const { el } = montar();
+    const fila = el.querySelector('tr[data-persona="u-lleva"]') as HTMLElement;
+    expect(fila.textContent).toContain('Quien Lleva');
+    expect(fila.textContent).toContain('espera su depósito en el banco');
+  });
+
+  it('[LE.6.5] confirmar el depósito: si el banco no lo muestra, lo dice y la reposición sigue abierta', () => {
+    const { fixture, comp, libro } = montar();
+    comp.confirmarDeposito('o9');
+    fixture.detectChanges();
+    expect(libro.confirmarDeposito).toHaveBeenCalledWith('o9');
+    expect(comp.avisoCustodia()).toContain('todavía no muestra el depósito');
+  });
+
+  it('[LE.6.5] sacar a custodia: persona, para qué y de dónde; NUNCA sin decir para qué', () => {
+    const { comp, libro } = montar();
+    comp.abrirNuevaCustodia();
+    comp.buscarPersona('compras');
+    comp.personaCustodia.set('u-p');
+    comp.desdeCustodia.set('cajon');
+    comp.piezasCustodia.set({ 10: 2 });
+    comp.paraCustodia.set('no');
+    expect(comp.listoParaCustodia()).toBe(false);              // para qué: al menos 5 letras
+    comp.paraCustodia.set('cinta y bolsas');
+    expect(comp.listoParaCustodia()).toBe(true);
+    comp.sacarACustodia();
+    const [body] = libro.retiroACustodia.mock.calls[0] as unknown as [Record<string, unknown>, string];
+    expect(body).toEqual({ persona: 'u-p', para: 'cinta y bolsas', desde: { tipo: 'cajon', piezas: { 10: '2' } } });
+    comp.desdeCustodia.set('maquina');
+    comp.montoCustodia.set('500');
+    expect(comp.listoParaCustodia()).toBe(true);
+  });
+
+  it('[LE.6.5] rendir: con documentos de la cola y lo que regresa al cajón; sin nada, no se rinde', () => {
+    const { comp, libro } = montar();
+    comp.abrirRendir(CUSTODIAS[0]);
+    expect(comp.listoParaRendir()).toBe(false);
+    comp.alternarDoc('00|X-D-26|0000002|0011');
+    comp.piezasRegresa.set({ 5: 1 });
+    expect(comp.listoParaRendir()).toBe(true);
+    comp.rendirCustodia();
+    const [body] = libro.rendir.mock.calls[0] as unknown as [Record<string, unknown>, string];
+    expect(body).toEqual({ persona: 'u-lleva', documentos: [{ origen_ref: '00|X-D-26|0000002|0011', cuenta_kepler: '201' }], regresa: { 5: '1' } });
   });
 });

@@ -28,7 +28,8 @@ import {
 import type { Knex } from 'knex';
 import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import {
-  CUENTA, ZONAS_HOJA_GASTOS, centavosATexto, formatearDinero, pesosACentavos, valorDePiezas, warehouseName,
+  CUENTA, ZONAS_HOJA_GASTOS, centavosATexto, formatearDinero, pagableConBilletesCaos, pesosACentavos, valorDePiezas, warehouseName,
+  type CustodiaAbierta, type PersonaDeCustodia, type RendirCustodia, type ReposicionPorConfirmar, type ResultadoRendicion, type RetiroACustodia,
   type HojaDeReposicion, type PedirReposicion, type QuienLlevaDeposito, type ZonaHojaGastos,
   type CobroEnVentanilla, type CuentaDelCobro, type EstadoDeCobro, type ExplicarSuspenso, type OrdenPorFirmar, type PartidaEnSuspenso, type ResultadoHecho, type PagoEnVentanilla, type PiezasTexto,
   type PlanDePagoVentanilla, type ResultadoCobro, type ResultadoPago, type VeredictoDePago,
@@ -37,9 +38,11 @@ import { traducirErrorDelLibro } from './errores';
 import {
   ARREGLO_DEL_BLOQUEO, MOTIVO_BLOQUEO, planDePago, veredictoDePago, type DocumentoAPagar, type PlanDePago, type Respaldo, type ValeElegido,
 } from './plan-de-pago';
-import { CUENTAS_FIJAS, aCustodiaDesdeCajon, clasificarSuspenso, entregaRuta, otroIngreso, pagoDelCajon, type Contexto, type Propuesta } from './reglas';
+import {
+  CUENTAS_FIJAS, aCustodiaDesdeCajon, clasificarSuspenso, entregaRuta, gasto, otroIngreso, pagoDelCajon, regresoCustodiaAlCajon, type Contexto, type Propuesta,
+} from './reglas';
 import { hojaDeReposicion } from './reposicion-en-ventanilla';
-import type { PagoDeZona } from '../caja/hoja-gastos.engine';
+import { depositoDeHoja, type DepositoBancoHoja, type PagoDeZona } from '../caja/hoja-gastos.engine';
 import { consultasHoja } from '../caja/hoja-gastos.query';
 import {
   clasificarCobro, eventoDeCobro, parDelCobro, type CobroClasificado, type FilaCobroRuta, type FilaCobroSucursal,
@@ -207,6 +210,27 @@ export const SQL_QUIEN_LLEVA = `
    WHERE ur.tenant_id = ? AND ur.responsibility_key = 'finanzas.caja_deposito' AND ur.accion = 'suma'
      AND ur.deleted_at IS NULL AND (ur.valid_to IS NULL OR ur.valid_to >= current_date)
    ORDER BY 2`;
+
+/**
+ * `[LE.6.5]` Lo que cada persona tiene a su cargo: el saldo de su cuenta de custodia y desde cuándo
+ * no vuelve a cero (la última vez que el corrido fue 0). Sin plazo que castigue (D3). Parámetros: `[tenant]`.
+ * ⚠️ NO MEDIDO en prod: el rol de lectura no lee `cashbook` (LE.5.8).
+ */
+export const SQL_CUSTODIAS = `
+  WITH m AS (
+    SELECT a.id, a.holder_ref AS persona, a.name, e.seq, e.value_at,
+           sum(l.amount_minor) OVER (PARTITION BY a.id ORDER BY e.seq) AS corrido
+      FROM cashbook.accounts a
+      JOIN cashbook.entry_lines l ON l.account_id = a.id
+      JOIN cashbook.entries e ON e.id = l.entry_id
+     WHERE a.tenant_id = ? AND a.class = 'custodia'),
+  u AS (SELECT DISTINCT ON (id) id, persona, name, corrido FROM m ORDER BY id, seq DESC),
+  c AS (SELECT id, max(seq) FILTER (WHERE corrido = 0) AS cero FROM m GROUP BY id)
+  SELECT u.persona, regexp_replace(u.name, '^En custodia · ', '') AS nombre, u.corrido::text AS saldo_minor,
+         (SELECT min(m.value_at) FROM m WHERE m.id = u.id AND m.seq > coalesce(c.cero, 0))::text AS desde
+    FROM u JOIN c ON c.id = u.id
+   WHERE u.corrido <> 0
+   ORDER BY 4 NULLS LAST, 2`;
 
 export interface FilaDocumento { folio: string; beneficiario: string; importe: string }
 export interface FilaVale { id: string; folio: string; status: string; importe: string; aprobado_at: string | null }
@@ -882,6 +906,209 @@ export class CashbookVentanillaService {
       })])).rows[0].o as OrdenEmitida;
       this.logger.log(`[LE.6.8] reposición ${zona.clave} (${enHoja.length} pagos) por firmar`);
       return { estado: 'por_firmar', orden_id: o.id, motivo: acto.motivo_firma };
+    });
+  }
+
+  // ── `[LE.6.5]` Custodias: dinero a cargo de una persona hasta que rinde (V6) ──────────────────
+
+  /** Las personas que pueden tener dinero a su cargo: usuarios activos de la Suite (el catálogo del empleado es LE.1.15). */
+  async personas(q: string | undefined): Promise<PersonaDeCustodia[]> {
+    const texto = String(q ?? '').trim();
+    if (texto.length < 2) return [];
+    return this.run(async (trx, tenantId) => (await trx.raw(`
+      SELECT u.id::text AS usuario_id, coalesce(nullif(btrim(u.nombre), ''), u.username) AS nombre
+        FROM identity.users u
+       WHERE u.tenant_id = ? AND u.activo AND u.deleted_at IS NULL
+         AND (u.nombre ILIKE ? OR u.username ILIKE ?)
+       ORDER BY 2 LIMIT 20`, [tenantId, `%${texto}%`, `%${texto}%`])).rows as PersonaDeCustodia[]);
+  }
+
+  private async persona(trx: Knex.Transaction, tenantId: string, id: string): Promise<PersonaDeCustodia> {
+    if (!UUID.test(String(id ?? ''))) throw new BadRequestException({ codigo: 'persona_invalida', mensaje: 'La custodia es de una persona con su usuario.' });
+    const p = (await trx.raw(`SELECT u.id::text AS usuario_id, coalesce(nullif(btrim(u.nombre), ''), u.username) AS nombre
+      FROM identity.users u WHERE u.tenant_id = ? AND u.id = ? AND u.activo AND u.deleted_at IS NULL`, [tenantId, id])).rows[0] as PersonaDeCustodia | undefined;
+    if (!p) throw new NotFoundException({ codigo: 'persona_inexistente', mensaje: 'No hay un usuario activo con ese id.' });
+    return p;
+  }
+
+  /** Lo que tiene a su cargo cada persona, desde cuándo, y las reposiciones que esperan su depósito. */
+  async custodias(): Promise<CustodiaAbierta[]> {
+    return this.run(async (trx, tenantId) => {
+      const filas = (await trx.raw(SQL_CUSTODIAS, [tenantId])).rows as Array<{ persona: string; nombre: string; saldo_minor: string; desde: string | null }>;
+      const repos = (await trx.raw(`
+        SELECT o.id::text AS orden_id, o.classification->>'empleado' AS persona, o.act->>'zona' AS zona, o.act->>'total_minor' AS total_minor,
+               jsonb_array_length(coalesce(o.act->'documentos', '[]'::jsonb)) AS documentos, (o.created_at AT TIME ZONE 'America/Mexico_City')::date::text AS dia
+          FROM cashbook.withdrawal_orders o
+         WHERE o.tenant_id = ? AND o.kind = 'reposicion' AND o.state IN ('vigente', 'usada')
+           AND NOT EXISTS (SELECT 1 FROM cashbook.entries e WHERE e.tenant_id = o.tenant_id AND e.event_kind = 'gasto'
+                             AND e.meta->>'reposicion' = o.id::text)
+         ORDER BY o.created_at`, [tenantId])).rows as Array<ReposicionPorConfirmar & { persona: string }>;
+      return filas.map((f) => ({ ...f, reposiciones: repos.filter((r) => r.persona === f.persona).map((r) => ({ orden_id: r.orden_id, zona: r.zona, total_minor: r.total_minor, documentos: Number(r.documentos), dia: r.dia })) }));
+    });
+  }
+
+  /**
+   * Sacar dinero a la custodia de una persona (V6). De la máquina: una orden con código, y desde el
+   * umbral (D3) la firma Tesorería —sin umbral configurado, siempre: lo no medido no se da por
+   * pequeño—. Del cajón: por pieza, en el acto (el libro aplica su propio umbral).
+   */
+  async retiroACustodia(body: RetiroACustodia, usuario: UsuarioDelLibro, idempotencyKey: string | undefined): Promise<ResultadoPago | ResultadoHecho> {
+    const cajera = this.quien(usuario);
+    const key = this.llave(idempotencyKey);
+    const para = String(body?.para ?? '').trim();
+    if (para.length < 5) throw new BadRequestException({ codigo: 'sin_para_que', mensaje: 'Para qué se lleva el dinero (V6: la custodia dice para qué).' });
+    return this.run(async (trx, tenantId) => {
+      const p = await this.persona(trx, tenantId, body?.persona);
+      if (body?.desde?.tipo === 'cajon') {
+        const ctx: Contexto = { actor: { kind: 'persona', user_id: cajera }, valueAt: new Date().toISOString(), requestId: key };
+        const prop = aCustodiaDesdeCajon({ empleado: p.usuario_id, nombre: p.nombre, piezas: body.desde.piezas, para }, ctx);
+        return this.asentarOPedir(trx, prop, cajera, 'le_custodia');
+      }
+      if (body?.desde?.tipo !== 'maquina') throw new BadRequestException({ codigo: 'origen_invalido', mensaje: 'De la máquina o del cajón.' });
+      await this.exigeVentanilla(trx);
+      const monto = BigInt(String(body.desde.monto_minor ?? '0'));
+      if (monto <= 0n || pesosACentavos(String(pagableConBilletesCaos(Number(monto) / 100))) !== monto) {
+        throw new UnprocessableEntityException({ codigo: 'monto_no_es_de_billetes', mensaje: 'De la máquina salen billetes: el monto es múltiplo de los que da.' });
+      }
+      const previa = (await trx.raw(`SELECT id FROM cashbook.withdrawal_orders WHERE tenant_id = ? AND idempotency_key = ?`, [tenantId, key])).rows[0] as { id: string } | undefined;
+      if (previa) return this.resultadoDe(trx, previa.id);
+      const umbral = (await trx.raw(`SELECT threshold_minor::text AS u FROM cashbook.authorization_rules WHERE tenant_id = ? AND event_kind = 'retiro_a_custodia'`,
+        [tenantId])).rows[0]?.u as string | undefined;
+      const firma = umbral === undefined || monto >= BigInt(umbral);
+      const vence = (await trx.raw(`SELECT ${FIN_DEL_DIA} AS fin`)).rows[0].fin as Date;
+      const motivo = umbral === undefined ? 'no hay umbral configurado: la firma Tesorería (D3)' : 'desde el umbral la firma Tesorería (D3)';
+      const o = (await trx.raw('SELECT cashbook.issue_order(?::jsonb) AS o', [JSON.stringify({
+        kind: 'custodia', amount_minor: monto.toString(), source_ref: `custodia:${key}`,
+        classification: { tipo: 'custodia', empleado: p.usuario_id, nombre: p.nombre },
+        actor: { kind: 'persona', user_id: cajera }, expires_at: new Date(vence).toISOString(), por_firmar: firma,
+        act: { piezas_cajon: {}, recibe: p.nombre, recibe_empleado: p.usuario_id, cajon_minor: '0', redondeo_minor: '0',
+          beneficiario: `Custodia · ${p.nombre}`, folio: para, motivo_firma: firma ? motivo : null }, idempotency_key: key,
+      })])).rows[0].o as OrdenEmitida;
+      if (firma) return { estado: 'por_firmar', orden_id: o.id, motivo };
+      return this.resultadoDe(trx, o.id);
+    });
+  }
+
+  /** Asienta, o lo deja como solicitud si el libro dice que pasa el umbral. */
+  private async asentarOPedir(trx: Knex.Transaction, prop: Propuesta, quien: string, punto: string): Promise<ResultadoHecho> {
+    for (const a of prop.cuentas) await trx.raw('SELECT cashbook.open_account(?::jsonb)', [JSON.stringify({ ...a, user_id: quien })]);
+    await trx.raw(`SAVEPOINT ${punto}`);
+    try {
+      const id = (await trx.raw('SELECT cashbook.post_entry(?::jsonb) AS id', [JSON.stringify(prop.asiento)])).rows[0].id as string;
+      await trx.raw(`RELEASE SAVEPOINT ${punto}`);
+      return { estado: 'asentado', entry_id: id };
+    } catch (e) {
+      await trx.raw(`ROLLBACK TO SAVEPOINT ${punto}`);
+      if ((e as { constraint?: string }).constraint !== 'cashbook_requiere_autorizacion') throw e;
+      const r = await trx.raw(`SELECT cashbook.create_request(?::jsonb, clock_timestamp() + interval '72 hours') AS id`, [JSON.stringify(prop.asiento)]);
+      return { estado: 'por_autorizar', request_id: r.rows[0].id as string, motivo: 'pasa el umbral de autorización' };
+    }
+  }
+
+  /**
+   * Rendir: cada documento de Kepler que pagó con el dinero de su custodia (un documento se rinde UNA
+   * vez y no puede estar pagado por otro lado) y lo que regresa al cajón, por pieza. La custodia no
+   * puede quedar negativa: lo garantiza la base.
+   */
+  async rendir(body: RendirCustodia, usuario: UsuarioDelLibro, idempotencyKey: string | undefined): Promise<ResultadoRendicion> {
+    const cajera = this.quien(usuario);
+    const key = this.llave(idempotencyKey);
+    const docs = body?.documentos ?? [];
+    const regresa = body?.regresa && Object.keys(body.regresa).length ? body.regresa : null;
+    if (!docs.length && !regresa) throw new BadRequestException({ codigo: 'nada_que_rendir', mensaje: 'Se rinde con documentos, con lo que regresa, o con los dos.' });
+    return this.run(async (trx, tenantId) => {
+      const p = await this.persona(trx, tenantId, body?.persona);
+      const ya = (await trx.raw(`SELECT id::text AS id FROM cashbook.entries WHERE tenant_id = ? AND meta->>'rendicion' = ? ORDER BY seq`, [tenantId, key])).rows as { id: string }[];
+      if (ya.length) return { asientos: ya.map((x) => x.id), saldo_minor: await this.saldoDeCustodia(trx, tenantId, p.usuario_id) };
+      const asientos: string[] = [];
+      const ctx: Contexto = { actor: { kind: 'persona', user_id: cajera }, valueAt: new Date().toISOString() };
+      for (const d of docs) {
+        const doc = await this.documento(trx, tenantId, d.origen_ref, d.cuenta_kepler?.trim() || null);
+        if (!doc.cuentaKepler) throw new UnprocessableEntityException({ codigo: 'sin_cuenta', mensaje: `El ${doc.folio} no trae su cuenta de Kepler.` });
+        const t = await this.yaTomado(trx, tenantId, doc.origenRef);
+        const rendido = (await trx.raw(`SELECT 1 FROM cashbook.entries WHERE tenant_id = ? AND event_ref = ?`, [tenantId, `rinde:${doc.origenRef}`])).rows.length > 0;
+        if (t.ordenado || t.pagado || rendido) {
+          throw new ConflictException({ codigo: 'documento_ya_pagado', mensaje: `El X-D-26 ${doc.folio} ya está pagado o rendido: no entra dos veces.` });
+        }
+        const prop = gasto({ concepto: doc.cuentaKepler, desde: { tipo: 'custodia', empleado: p.usuario_id, nombre: p.nombre, monto: doc.importeCentavos.toString() } },
+          ctx, { event_ref: `rinde:${doc.origenRef}`, meta: { rendicion: key, documento: doc.origenRef } });
+        const r = await this.asentarOPedir(trx, prop, cajera, 'le_rinde');
+        if (r.estado !== 'asentado') throw new UnprocessableEntityException({ codigo: 'rendicion_por_autorizar', mensaje: 'Ese documento pasa el umbral: se rinde con la firma de otra persona.' });
+        asientos.push(r.entry_id);
+      }
+      if (regresa) {
+        const prop = regresoCustodiaAlCajon({ empleado: p.usuario_id, nombre: p.nombre, piezas: regresa }, ctx, { event_ref: `regresa:${key}`, meta: { rendicion: key } });
+        const r = await this.asentarOPedir(trx, prop, cajera, 'le_regresa');
+        if (r.estado === 'asentado') asientos.push(r.entry_id);
+      }
+      return { asientos, saldo_minor: await this.saldoDeCustodia(trx, tenantId, p.usuario_id) };
+    });
+  }
+
+  private async saldoDeCustodia(trx: Knex.Transaction, tenantId: string, persona: string): Promise<string> {
+    return ((await trx.raw(`SELECT balance_minor::text AS s FROM cashbook.v_saldos WHERE code = ?`, [CUENTA.custodia(persona, 'x').code])).rows[0]?.s as string | undefined) ?? '0';
+  }
+
+  /** Los depósitos a la cuenta de la zona desde un día (la MISMA lectura que la hoja). `protected`: la prueba los sustituye. */
+  protected async depositosDelBanco(trx: Knex.Transaction, tenantId: string, zona: ZonaHojaGastos, desde: string): Promise<DepositoBancoHoja[] | null> {
+    if (!zona.cuenta_deposito) return null;
+    const cuentas = (await trx('finance.bank_accounts').where('tenant_id', tenantId)
+      .whereRaw('upper(btrim(bank)) = ?', [zona.cuenta_deposito.banco.toUpperCase()])
+      .where('account_label', zona.cuenta_deposito.terminacion).select('id')).map((r: { id: string }) => String(r.id));
+    if (!cuentas.length) return null;
+    return (await trx('finance.bank_movements').where('tenant_id', tenantId).whereNull('deleted_at').where('amount_in', '>', 0)
+      .whereIn('bank_account_id', cuentas).where('movement_date', '>=', desde)
+      .select(trx.raw('id::text AS id'), trx.raw(`to_char(movement_date, 'YYYY-MM-DD') AS dia`), 'amount_in'))
+      .map((d: { id: string; dia: string; amount_in: string }) => ({ id: d.id, dia: d.dia, importe: Math.round(Number(d.amount_in) * 100) / 100 }));
+  }
+
+  /**
+   * Cerrar una reposición con su testigo: el depósito en la cuenta de la zona (uno o dos depósitos que
+   * suman el total ± $0.50, del día del retiro a siete después: `depositoDeHoja`, la regla de la hoja).
+   * Encontrado → cada pago de la hoja queda como gasto desde la custodia y la persona queda descargada.
+   * Sin cuenta medida, sin depósito o con más de una combinación posible: NO se cierra (se dice por qué).
+   */
+  async confirmarDeposito(ordenId: string, usuario: UsuarioDelLibro): Promise<ResultadoRendicion> {
+    const cajera = this.quien(usuario);
+    if (!UUID.test(String(ordenId))) throw new BadRequestException({ codigo: 'orden_invalida', mensaje: 'Esa no es una orden.' });
+    return this.run(async (trx, tenantId) => {
+      const o = (await trx.raw(`SELECT id::text AS id, kind, state, classification, act, (created_at AT TIME ZONE 'America/Mexico_City')::date::text AS dia
+        FROM cashbook.withdrawal_orders WHERE tenant_id = ? AND id = ?`, [tenantId, ordenId])).rows[0] as
+        { id: string; kind: string; state: string; classification: { empleado: string; nombre: string }; act: ActoDePago; dia: string } | undefined;
+      if (!o || o.kind !== 'reposicion') throw new NotFoundException({ codigo: 'orden_inexistente', mensaje: 'No es una reposición.' });
+      if (!['vigente', 'usada'].includes(o.state)) throw new ConflictException({ codigo: 'reposicion_sin_pagar', mensaje: 'Esa reposición no se ha pagado: no hay depósito que confirmar.' });
+      const ya = (await trx.raw(`SELECT id::text AS id FROM cashbook.entries WHERE tenant_id = ? AND event_kind = 'gasto' AND meta->>'reposicion' = ? ORDER BY seq`,
+        [tenantId, o.id])).rows as { id: string }[];
+      if (ya.length) return { asientos: ya.map((x) => x.id), saldo_minor: await this.saldoDeCustodia(trx, tenantId, o.classification.empleado) };
+      const zona = ZONAS_HOJA_GASTOS.find((z) => z.clave === o.act.zona);
+      if (!zona) throw new UnprocessableEntityException({ codigo: 'zona_invalida', mensaje: 'La reposición no dice su zona.' });
+      const todos = await this.depositosDelBanco(trx, tenantId, zona, o.dia);
+      if (todos === null) {
+        throw new UnprocessableEntityException({ codigo: 'cuenta_no_medida', mensaje: `La cuenta donde se deposita la reposición de ${zona.nombre} no está medida: no se confirma a ciegas.` });
+      }
+      const usados = new Set(((await trx.raw(`SELECT DISTINCT unnest(string_to_array(meta->>'deposito', ',')) AS id FROM cashbook.entries
+        WHERE tenant_id = ? AND event_kind = 'gasto' AND meta->>'deposito' IS NOT NULL`, [tenantId])).rows as { id: string }[]).map((x) => x.id));
+      const total = Number(o.act.total_minor ?? '0') / 100;
+      const dep = depositoDeHoja(total, o.dia, todos.filter((d) => !usados.has(d.id)));
+      if (dep.estado === 'no_encontrado') throw new ConflictException({ codigo: 'deposito_no_encontrado', mensaje: 'El banco todavía no muestra el depósito de esa reposición.' });
+      if (dep.estado === 'ambiguo') throw new ConflictException({ codigo: 'deposito_ambiguo', mensaje: `Hay ${dep.opciones} formas de llegar al total con los depósitos de esos días: lo liga una persona.` });
+      const docs = o.act.documentos ?? [];
+      const pares = docs.map((d) => d.split('|')).map((x) => [x[0], x[2]] as [string, string]);
+      const filas = await this.filasDeDocumentos(trx, tenantId, pares);
+      const ctx: Contexto = { actor: { kind: 'persona', user_id: cajera }, valueAt: new Date().toISOString() };
+      const asientos: string[] = [];
+      for (const ref of docs) {
+        const [s, , f] = ref.split('|');
+        const fila = filas.find((x) => x.sucursal === s && x.folio === f);
+        if (!fila) throw new UnprocessableEntityException({ codigo: 'documento_inexistente', mensaje: `Kepler ya no tiene el ${f}: la reposición se revisa antes de cerrarla.` });
+        const prop = gasto({ concepto: `reposicion ${zona.clave}`, desde: { tipo: 'custodia', empleado: o.classification.empleado, nombre: o.classification.nombre,
+          monto: pesosACentavos(fila.importe).toString() } }, ctx,
+        { event_ref: `rinde:${ref}`, meta: { reposicion: o.id, deposito: dep.ids.join(','), documento: ref } });
+        for (const a of prop.cuentas) await trx.raw('SELECT cashbook.open_account(?::jsonb)', [JSON.stringify({ ...a, user_id: cajera })]);
+        asientos.push((await trx.raw('SELECT cashbook.post_entry(?::jsonb) AS id', [JSON.stringify(prop.asiento)])).rows[0].id as string);
+      }
+      this.logger.log(`[LE.6.8] reposición ${o.id} cerrada con el depósito ${dep.ids.join(',')}`);
+      return { asientos, saldo_minor: await this.saldoDeCustodia(trx, tenantId, o.classification.empleado) };
     });
   }
 

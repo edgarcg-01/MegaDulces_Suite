@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import type {
-  CobroEnVentanilla, EstadoDeCobro, ExplicarSuspenso, HojaDeReposicion, PagoEnVentanilla, PartidaEnSuspenso, PedirReposicion,
+  CobroEnVentanilla, CustodiaAbierta, EstadoDeCobro, ExplicarSuspenso, PersonaDeCustodia, RendirCustodia, ResultadoRendicion, RetiroACustodia, HojaDeReposicion, PagoEnVentanilla, PartidaEnSuspenso, PedirReposicion,
   PlanDePagoVentanilla, QuienLlevaDeposito, ResultadoCobro,
   ResultadoHecho, ResultadoPago, SaldosDelLibro, VeredictoDePago,
 } from '@megadulces/contracts';
@@ -62,6 +62,31 @@ export class LibroEfectivoService {
   /** `[LE.6.8]` Pide la reposición: nace por firmar; la firma de Tesorería da el código. */
   pedirReposicion(body: PedirReposicion, idempotencyKey: string): Observable<ResultadoPago> {
     return this.http.post<ResultadoPago>(`${this.base}/reposiciones`, body, { headers: new HttpHeaders({ 'Idempotency-Key': idempotencyKey }) });
+  }
+
+  /** `[LE.6.5]` Lo que cada persona tiene a su cargo. */
+  custodias(): Observable<CustodiaAbierta[]> {
+    return this.http.get<CustodiaAbierta[]>(`${this.base}/custodias`).pipe(reintentarSi429<CustodiaAbierta[]>());
+  }
+
+  /** `[LE.6.5]` Buscar a la persona (al menos 2 letras). */
+  personas(q: string): Observable<PersonaDeCustodia[]> {
+    return this.http.get<PersonaDeCustodia[]>(`${this.base}/custodias/personas`, { params: new HttpParams().set('q', q) });
+  }
+
+  /** `[LE.6.5]` Sacar dinero a la custodia de una persona. */
+  retiroACustodia(body: RetiroACustodia, idempotencyKey: string): Observable<ResultadoPago | ResultadoHecho> {
+    return this.http.post<ResultadoPago | ResultadoHecho>(`${this.base}/custodias`, body, { headers: new HttpHeaders({ 'Idempotency-Key': idempotencyKey }) });
+  }
+
+  /** `[LE.6.5]` Rendir una custodia. */
+  rendir(body: RendirCustodia, idempotencyKey: string): Observable<ResultadoRendicion> {
+    return this.http.post<ResultadoRendicion>(`${this.base}/custodias/rendir`, body, { headers: new HttpHeaders({ 'Idempotency-Key': idempotencyKey }) });
+  }
+
+  /** `[LE.6.8]` Cerrar una reposición con su depósito del banco. */
+  confirmarDeposito(ordenId: string): Observable<ResultadoRendicion> {
+    return this.http.post<ResultadoRendicion>(`${this.base}/reposiciones/${encodeURIComponent(ordenId)}/confirmar-deposito`, {});
   }
 
   /** `[LE.6.7]` Lo que la máquina hizo y nadie explicó, lo más viejo primero. */
