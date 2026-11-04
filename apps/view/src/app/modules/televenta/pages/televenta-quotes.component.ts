@@ -11,6 +11,8 @@ import { MessageService } from 'primeng/api';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { QuotesService, QuoteListRow, QuoteStatus, QuotesSummary } from '../quotes.service';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
+import { fechaVigencia } from '../quote-deliverable-export';
 
 /**
  * `[E.12.0]` — Mesa de cotizaciones de mayoreo.
@@ -67,6 +69,7 @@ const FILTERS: Array<{ key: string; label: string; status: string }> = [
     TableModule,
     TagModule,
     ProgressSpinnerModule,
+    SucursalPipe,
   ],
   /**
    * [E.13] Provee su PROPIO MessageService y pinta su PROPIO p-toast. Antes los heredaba del
@@ -90,26 +93,14 @@ const FILTERS: Array<{ key: string; label: string; status: string }> = [
             </button>
           }
         </div>
+        <!-- [COT.23] Aquí había una nota «Qué hace hoy» que decía que todavía no se podían cargar
+             renglones ni convertirla en pedido: las dos cosas ya existen (COT.1b y COT.7). Un
+             aviso que niega lo que la pantalla hace se cree igual que uno verdadero; se quitó. -->
         <p>
-          La oferta de precio que todavía no es venta. Entra acá la lista que manda el cliente y la
-          venta que se levanta en la visita de ruta. Una cotización <strong>no aparta inventario</strong>:
-          eso pasa recién cuando se convierte en pedido.
+          La oferta de precio que todavía no es venta. Al aceptarla sale como Pedido Telemarketing
+          en Kepler; mientras tanto <strong>no aparta inventario</strong>.
         </p>
       </header>
-
-      <!-- Qué hace este submódulo y qué todavía NO hace. Se declara arriba y una sola vez: un
-           módulo a medias que no lo dice se lee como un módulo roto. -->
-      <div class="scope-note" role="note">
-        <i class="pi pi-info-circle" aria-hidden="true"></i>
-        <div>
-          <p class="scope-title">Qué hace hoy</p>
-          <p>
-            Registra la cotización con su folio, su destinatario y su vigencia, y lleva la cuenta de
-            en qué quedó. <strong>Todavía no</strong>: cargar renglones, enviar al cliente, imprimir
-            el PDF ni convertirla en pedido.
-          </p>
-        </div>
-      </div>
 
       @if (loading()) {
         <div class="loading" aria-live="polite">
@@ -195,15 +186,19 @@ const FILTERS: Array<{ key: string; label: string; status: string }> = [
               [tableStyle]="{ 'min-width': '60rem' }"
             >
               <ng-template #header>
+                <!-- [COT.23] Fecha primero: la lista va de la más nueva a la más vieja y la
+                     pregunta al entrar es «¿qué cotizamos y cuándo?». Sucursal y vendedor por
+                     nombre; «Origen» salió (no decide nada al elegir a cuál entrar). -->
                 <tr>
-                  <th>Folio</th>
-                  <th>Cliente</th>
-                  <th>Origen</th>
-                  <th>Estado</th>
-                  <th>Vigencia</th>
-                  <th class="num">Renglones</th>
-                  <th class="num">Total</th>
-                  <th>Cotizó</th>
+                  <th scope="col">Fecha</th>
+                  <th scope="col">Folio</th>
+                  <th scope="col">Cliente</th>
+                  <th scope="col">Sucursal</th>
+                  <th scope="col">Estado</th>
+                  <th scope="col">Vigencia</th>
+                  <th scope="col" class="num">Renglones</th>
+                  <th scope="col" class="num">Total</th>
+                  <th scope="col">Cotizó</th>
                 </tr>
               </ng-template>
               <ng-template #body let-q>
@@ -212,6 +207,7 @@ const FILTERS: Array<{ key: string; label: string; status: string }> = [
                 <tr class="fila" [routerLink]="['/telemarketing/cotizaciones', q.id]" tabindex="0"
                     (keydown.enter)="abrir(q.id)" (keydown.space)="abrir(q.id)"
                     [attr.aria-label]="'Abrir la cotización ' + q.code">
+                  <td role="cell" data-label="Fecha" class="nowrap">{{ fecha(q.quote_date) }}</td>
                   <td class="mono dt-id" role="cell">
                     {{ q.code }}
                     @if (q.order_code) {
@@ -235,12 +231,12 @@ const FILTERS: Array<{ key: string; label: string; status: string }> = [
                       <span class="cust-code prospect">Prospecto</span>
                     }
                   </td>
-                  <td role="cell" data-label="Origen">{{ originLabel(q.origin) }}</td>
+                  <td role="cell" data-label="Sucursal" class="nowrap">{{ q.source_branch ? (q.source_branch | sucursal) : '—' }}</td>
                   <td role="cell" data-label="Estado">
                     <p-tag [value]="statusLabel(q.status)" [severity]="statusSeverity(q.status)"></p-tag>
                   </td>
                   <td role="cell" data-label="Vigencia">
-                    <span [class.overdue]="isOverdue(q)">{{ q.valid_until }}</span>
+                    <span [class.overdue]="isOverdue(q)">{{ fecha(q.valid_until) }}</span>
                     <span class="days">{{ expiryHint(q) }}</span>
                   </td>
                   <td class="num dt-num" role="cell" data-label="Renglones">
@@ -254,12 +250,23 @@ const FILTERS: Array<{ key: string; label: string; status: string }> = [
                     }
                   </td>
                   <td class="num dt-num" role="cell" data-label="Total">{{ q.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-                  <td class="muted" role="cell" data-label="Cotizó">{{ q.created_by_username || '—' }}</td>
+                  <td class="muted" role="cell" data-label="Cotizó">
+                    {{ q.created_by_name || q.created_by_username || '—' }}
+                    @if (q.salesperson_name) {
+                      <span class="days">Vendedor: {{ q.salesperson_name }}</span>
+                    }
+                  </td>
                 </tr>
               </ng-template>
             </p-table>
-            <p class="table-foot">
-              Mostrando {{ rows().length }} de {{ total() }}.
+            <!-- [COT.23] La lista se topaba en 50 sin decirlo (medido: 62 abiertas → 12 invisibles).
+                 Ahora pide 200 y, si aun así hay más, lo dice con la salida. -->
+            <p class="table-foot" [class.foot-warn]="total() > rows().length">
+              @if (total() > rows().length) {
+                Mostrando las {{ rows().length }} más recientes de {{ total() }}: busca por folio o cliente para encontrar las demás.
+              } @else {
+                {{ total() }} {{ total() === 1 ? 'cotización' : 'cotizaciones' }}.
+              }
             </p>
           }
         </div>
@@ -326,6 +333,8 @@ const FILTERS: Array<{ key: string; label: string; status: string }> = [
       .unmatched { display: block; font-size: var(--fs-xs); color: var(--warn-soft-fg); }
       .muted { color: var(--text-muted); font-size: var(--fs-sm); }
       .table-foot { margin: 0; padding: 0.5rem 0.75rem; font-size: var(--fs-xs); color: var(--text-muted); border-top: 1px solid var(--border-color); }
+      .foot-warn { color: var(--text-main); font-weight: 600; }
+      .nowrap { white-space: nowrap; }
 
       /* [COT.1b] La fila es navegable: cursor, hover y foco visible. Sin el :focus-visible,
          quien navega con teclado tiene una fila clickeable que no puede ver que tiene el foco. */
@@ -378,7 +387,7 @@ export class TeleventaQuotesComponent implements OnInit {
   reload(): void {
     this.loading.set(true);
     const f = FILTERS.find((x) => x.key === this.activeFilter());
-    this.svc.list({ status: f?.status || undefined, search: this.searchTerm || undefined }).subscribe({
+    this.svc.list({ status: f?.status || undefined, search: this.searchTerm || undefined, limit: 200 }).subscribe({
       next: (page) => {
         this.rows.set(page.rows);
         this.total.set(page.total);
@@ -421,6 +430,11 @@ export class TeleventaQuotesComponent implements OnInit {
 
   originLabel(o: string): string {
     return ORIGIN_LABEL[o] ?? o;
+  }
+
+  /** [COT.23] dd/mm/aaaa, el mismo formato del detalle y del PDF (E.29), no «2026-11-04». */
+  fecha(iso: string | null | undefined): string {
+    return iso ? fechaVigencia(iso).texto : '—';
   }
 
   /** Vencida de verdad = la fecha pasó Y sigue abierta. Una aceptada vencida no es un problema. */

@@ -76,11 +76,15 @@ export class CommercialQuotesController {
   })
   @ApiQuery({ name: 'search', required: false, description: 'Código o nombre. Vacío = primeros N.' })
   @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiQuery({ name: 'branch', required: false, description: 'COT.22: sólo los clientes que compraron en esa sucursal en el último año.' })
+  @ApiQuery({ name: 'all', required: false, description: 'COT.22: con branch, todo el padrón de esa sucursal (cliente que todavía no compra ahí).' })
   searchWholesaleCustomers(
     @Query('search') search?: string,
     @Query('limit') limit?: string,
+    @Query('branch') branch?: string,
+    @Query('all') all?: string,
   ): Promise<WholesaleCustomerRow[]> {
-    return this.service.searchWholesaleCustomers(search ?? '', limit ? Number(limit) : 20);
+    return this.service.searchWholesaleCustomers(search ?? '', limit ? Number(limit) : 20, branch || null, all === '1' || all === 'true');
   }
 
   /**

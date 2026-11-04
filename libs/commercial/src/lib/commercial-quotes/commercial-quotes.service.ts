@@ -94,6 +94,11 @@ export interface QuoteListRow {
   created_at: string;
   user_id: string;
   created_by_username: string | null;
+  /** `[COT.23]` Nombre de quien cotizó (la lista lo muestra en vez del usuario). */
+  created_by_name: string | null;
+  /** `[COT.23]` La sucursal con cuyas condiciones se cotizó. */
+  source_branch: string | null;
+  salesperson_name: string | null;
 }
 
 /** Una fila de `analytics.v_erp_wholesale_customers`: el cliente EN UNA sucursal. */
@@ -118,6 +123,13 @@ export interface WholesaleCustomerRow {
   branches: WholesaleBranchTerms[];
   /** true = sus condiciones NO son iguales en todas las sucursales. */
   terms_vary_by_branch: boolean;
+  /**
+   * `[COT.22]` Con la búsqueda por sucursal: las OTRAS sucursales donde el cliente compró en el
+   * último año (el cliente compartido) y la fecha de su última compra en ésta (null = no ha
+   * comprado aquí; sólo sale si se pidió el padrón entero).
+   */
+  also_in?: string[];
+  last_purchase_here?: string | null;
 }
 
 /**
@@ -235,6 +247,7 @@ export class CommercialQuotesService {
     writable: string[] | null;
     default_branch: string | null;
     resolvable: boolean;
+    salesperson_by_branch: Record<string, { code: string; name: string }>;
   }> {
     const scope = await this.scope.current(AREA_COTIZACIONES);
     const d = scope.dims.warehouse;
@@ -256,7 +269,39 @@ export class CommercialQuotesService {
     if (perfil && usable(perfil)) defaultBranch = perfil;
     else if (writable && writable.length === 1) defaultBranch = writable[0];
 
-    return { mode: d.mode, branches, writable, default_branch: defaultBranch, resolvable: d.resolvable };
+    return {
+      mode: d.mode, branches, writable, default_branch: defaultBranch, resolvable: d.resolvable,
+      salesperson_by_branch: userId ? await this.vendedorDelUsuario(userId) : {},
+    };
+  }
+
+  /**
+   * `[COT.24]` El vendedor de Kepler que ES este usuario, por sucursal: la liga vive en
+   * `analytics.vendor_identity.user_id` (la tabla que ya dice qué persona es cada código). La
+   * pantalla lo pone solo cuando el cliente no trae vendedor o es prospecto; con cliente manda el
+   * vendedor del cliente (Edgar, 2026-11-04: así va el 97.6 % de los pedidos TELEMARK).
+   *
+   * ⚠️ Si la columna todavía no existe (el código llegó antes que su migración) devuelve `{}` y la
+   * pantalla sigue pidiendo elegirlo: tirar `branches` dejaría a todos sin poder cotizar.
+   * `analytics.*` no tiene RLS → tenant explícito.
+   */
+  private async vendedorDelUsuario(userId: string): Promise<Record<string, { code: string; name: string }>> {
+    const tenantId = this.tenantCtx.get()?.tenantId;
+    if (!tenantId) return {};
+    try {
+      const rows: Array<{ source_branch: string; vendedor: string; canonical_name: string }> = await this.tk.run((knex) =>
+        knex('analytics.vendor_identity')
+          .where({ tenant_id: tenantId, user_id: userId })
+          .whereRaw('coalesce(exclude, false) = false')
+          .select('source_branch', 'vendedor', 'canonical_name'),
+      );
+      const out: Record<string, { code: string; name: string }> = {};
+      for (const r of rows) out[r.source_branch] = { code: r.vendedor, name: r.canonical_name };
+      return out;
+    } catch (err) {
+      if ((err as { code?: string }).code === '42703') return {};
+      throw err;
+    }
   }
 
   /** 403 con mensaje si la sucursal pedida no está en su alcance de lectura. */
@@ -380,6 +425,9 @@ export class CommercialQuotesService {
           q.created_at,
           q.user_id,
           u.username AS created_by_username,
+          u.nombre   AS created_by_name,
+          q.source_branch,
+          q.salesperson_name,
           COALESCE(l.line_count, 0)::int      AS line_count,
           COALESCE(l.unmatched_count, 0)::int AS unmatched_count
         FROM commercial.quotes q
@@ -592,10 +640,25 @@ export class CommercialQuotesService {
    * y $30,000 sin descuento en las otras cinco. Colapsarlo a un solo juego de condiciones sería
    * elegir una sucursal en silencio.
    */
-  async searchWholesaleCustomers(search: string, limit = 20): Promise<WholesaleCustomerRow[]> {
+  async searchWholesaleCustomers(
+    search: string,
+    limit = 20,
+    branch: string | null = null,
+    all = false,
+  ): Promise<WholesaleCustomerRow[]> {
     const term = (search || '').trim();
     const n = Math.min(Math.max(Number(limit) || 20, 1), 50);
-    const sucursales = await this.sucursalesLeibles();
+    // COT.22 (Edgar, 2026-11-04): con sucursal, sólo los clientes DE ESA sucursal. El padrón de
+    // Kepler (kdud) está copiado en las 9 —2,516 de 2,895 claves aparecen en varias, medido—, así
+    // que "dado de alta aquí" no distingue a nadie. Lo que sí: haber comprado aquí en el último año
+    // (los tipos, abajo). El cliente 10144 tiene facturas de contado en La Piedad Abastos y
+    // ninguna en Canindo, y Canindo lo cotizó: es el control negativo (buscado en Canindo, no sale).
+    // `all` abre el padrón entero para el cliente que todavía no compra en esta sucursal; la fila
+    // lo dice.
+    const suc = (branch || '').trim();
+    if (suc) await this.assertLeeSucursal(suc);
+    const sucursales = suc ? [suc] : await this.sucursalesLeibles();
+    const soloCompradores = !!suc && !all;
 
     return this.tk.run(async (knex) => {
       // Búsqueda por PALABRAS (COT.16): cada palabra tiene que aparecer en el código, el nombre
@@ -612,10 +675,32 @@ export class CommercialQuotesService {
       // y en el armado (para no listar las condiciones de las otras plazas).
       const filtroSuc = sucursales !== null ? 'WHERE v.sucursal = ANY(:scope_branches)' : '';
       if (sucursales !== null) hit.whereIn('sucursal', sucursales);
+      // Compra = factura de contado U-D-5, factura de telemarketing U-D-8, U-D-12 o pedido U-D-40.
+      // El ticket de mostrador U-D-10 queda FUERA a propósito: son 615 mil documentos al año, casi
+      // todos «CONTADO», y suma ~1 cliente por sucursal (Canindo 155 → 156) a cambio de llevar la
+      // búsqueda de 250 ms a 1.3–1.6 s. Medido en prod, 2026-11-04.
+      // ⚠️ `c4 IN (...)` numérico y no `btrim(c4::text)`: así entra por la llave de kdm1 en vez de
+      // recorrer por fecha los 676 mil documentos U-D del año (67 ms contra 299 ms).
+      if (soloCompradores) {
+        hit.whereRaw(
+          `customer_code IN (SELECT btrim(c10) FROM kepler_ods.kdm1
+              WHERE c1 = ? AND c2 = 'U' AND c3 = 'D' AND c4 IN (5, 8, 12, 40) AND c9::date >= current_date - 365)`,
+          [suc],
+        );
+      }
 
       const res = await knex.raw(
         `
-        WITH hit AS :hit
+        WITH hit AS :hit,
+        -- COT.22: dónde compró cada cliente de la lista en el último año. Con esto se dice si
+        -- compra aquí y en qué otras sucursales también (el cliente compartido).
+        compras AS (
+          SELECT btrim(c10) AS code, c1 AS sucursal, max(c9::date) AS ultima
+            FROM kepler_ods.kdm1
+           WHERE c2 = 'U' AND c3 = 'D' AND c4 IN (5, 8, 12, 40) AND c9::date >= current_date - 365
+             AND btrim(c10) IN (SELECT customer_code FROM hit)
+           GROUP BY 1, 2
+        )
         SELECT
           v.customer_code,
           max(v.name)                      AS name,
@@ -639,14 +724,16 @@ export class CommercialQuotesService {
           -- que decirlo: es la diferencia entre "$60,000 con 3%" y "$30,000 sin descuento".
           (count(DISTINCT coalesce(v.discount_1_pct::text, '-')) > 1
            OR count(DISTINCT coalesce(v.credit_limit::text, '-')) > 1
-           OR count(DISTINCT coalesce(v.payment_days::text, '-')) > 1) AS terms_vary_by_branch
+           OR count(DISTINCT coalesce(v.payment_days::text, '-')) > 1) AS terms_vary_by_branch,
+          ${suc ? `(SELECT to_char(max(ultima), 'YYYY-MM-DD') FROM compras WHERE code = v.customer_code AND sucursal = :one_branch)` : 'NULL'} AS last_purchase_here,
+          ${suc ? `(SELECT coalesce(jsonb_agg(sucursal ORDER BY sucursal), '[]'::jsonb) FROM compras WHERE code = v.customer_code AND sucursal <> :one_branch)` : `'[]'::jsonb`} AS also_in
         FROM analytics.v_erp_wholesale_customers v
         JOIN hit ON hit.customer_code = v.customer_code
         ${filtroSuc}
         GROUP BY v.customer_code
         ORDER BY v.customer_code
         `,
-        sucursales !== null ? { hit, scope_branches: sucursales } : { hit },
+        sucursales !== null ? { hit, scope_branches: sucursales, ...(suc ? { one_branch: suc } : {}) } : { hit },
       );
       return res.rows;
     });

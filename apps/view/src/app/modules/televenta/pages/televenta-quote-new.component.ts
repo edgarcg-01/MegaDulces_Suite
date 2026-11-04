@@ -234,22 +234,37 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                   [showEmptyMessage]="true"
                   [fluid]="true"
                   appendTo="body"
-                  placeholder="Buscar cliente de mayoreo: código, nombre o RFC, palabras en cualquier orden…"
+                  [disabled]="!sucursal()"
+                  [placeholder]="!sucursal() ? 'Primero elige la sucursal' : padronCompleto() ? 'Todo el padrón de ' + branchName(sucursal()) + ': código, nombre o RFC…' : 'Clientes de ' + branchName(sucursal()) + ': código, nombre o RFC, palabras en cualquier orden…'"
                   ariaLabel="Buscar cliente de mayoreo"
                 >
+                  <!-- [COT.22] Cada fila dice si compra en esta sucursal y en cuáles más (el cliente
+                       compartido). Ya no hay condiciones de otras plazas en la fila: se busca en una. -->
                   <ng-template #item let-c>
                     <span class="r-row">
                       <span class="r-code">{{ c.customer_code }}</span>
                       <span class="r-name">{{ c.name }}</span>
-                      <span class="r-state">{{ c.state || c.phone || '' }}</span>
-                      @if (c.terms_vary_by_branch) {
-                        <p-tag severity="warn" value="condiciones cambian por sucursal" />
+                      <span class="r-state" [class.r-sin]="!c.last_purchase_here">{{ compraAqui(c) }}</span>
+                      @if (c.also_in?.length) {
+                        <span class="r-state">También compra en {{ tambienEn(c) }}</span>
                       }
                     </span>
                   </ng-template>
-                  <ng-template #empty>Ningún cliente de mayoreo coincide con «{{ terminoCliente }}».</ng-template>
+                  <ng-template #empty>
+                    @if (padronCompleto()) {
+                      Ningún cliente del padrón de {{ branchName(sucursal()) }} coincide con «{{ terminoCliente }}».
+                    } @else {
+                      Nadie que haya comprado en {{ branchName(sucursal()) }} el último año coincide con «{{ terminoCliente }}».
+                      Usa «Buscar en todo el padrón» si todavía no compra aquí.
+                    }
+                  </ng-template>
                 </p-autocomplete>
               </p-iconfield>
+              @if (sucursal()) {
+                <button type="button" class="padron-toggle" (click)="togglePadronCompleto()" [attr.aria-pressed]="padronCompleto()">
+                  {{ padronCompleto() ? 'Sólo clientes que compran en ' + branchName(sucursal()) : 'Buscar en todo el padrón (cliente que todavía no compra aquí)' }}
+                </button>
+              }
             } @else {
               <!-- Cliente seleccionado: una sola fila, junto al vendedor -->
               <div class="chosen-row">
@@ -322,7 +337,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
               @if (vendedorFijo(); as vc) {
                 <span class="vendedor-label"><i class="pi pi-user" aria-hidden="true"></i> Vendedor</span>
                 <span class="vendedor-fijo">{{ vc.name }}</span>
-                <span class="vendedor-origen">del cliente en Kepler</span>
+                <span class="vendedor-origen">{{ vc.origen }}</span>
                 <p-button
                   label="Cambiar"
                   size="small"
@@ -983,6 +998,14 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .r-code { font-family: var(--font-mono, monospace); font-weight: 700; width: 4.5rem; flex: none; }
       .r-name { flex: 1; font-weight: 600; min-width: 0; }
       .r-state { font-size: var(--fs-xs); color: var(--text-muted); flex: none; }
+      /* [COT.22] Sin compras aquí: texto en palabras, no color (ámbar como texto no llega a AA). */
+      .r-sin { font-style: italic; }
+      .padron-toggle {
+        margin-top: 0.25rem; padding: 0.25rem 0; border: 0; background: none; cursor: pointer;
+        font-size: var(--fs-xs); color: var(--text-muted); text-decoration: underline; min-height: 24px;
+      }
+      .padron-toggle:hover { color: var(--text-main); }
+      .padron-toggle:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
       .chosen-row {
         display: flex; align-items: center; gap: 0.75rem;
@@ -1206,6 +1229,11 @@ export class TeleventaQuoteNewComponent implements OnInit {
   terminoCliente = '';
   resultadosClientes = signal<WholesaleCustomer[]>([]);
   cliente = signal<WholesaleCustomer | null>(null);
+  /**
+   * [COT.22] La búsqueda trae sólo a quien compró en la sucursal elegida en el último año.
+   * Encendido, todo el padrón de esa sucursal: el cliente que todavía no compra aquí.
+   */
+  readonly padronCompleto = signal(false);
 
   // COT.19: la sucursal sale del ALCANCE del usuario (ADR-050), no de un '01' fijo. Antes un
   // vendedor de Morelia Abastos abría el cotizador en Padre Hidalgo. Vacía = todavía no se eligió.
@@ -1235,10 +1263,26 @@ export class TeleventaQuoteNewComponent implements OnInit {
   });
   /** El vendedor del cliente en la sucursal (kdud.c12), si está en el padrón de vendedores de esa sucursal. */
   readonly vendedorCliente = computed(() => vendedorDelCliente(this.sucursalTerms()?.salesperson_code, this.vendedores()));
-  /** El vendedor se muestra como DATO (no como pregunta) mientras sea el del cliente. */
-  readonly vendedorFijo = computed(() => {
-    const vc = this.vendedorCliente();
-    return this.modo() === 'mayoreo' && vc && this.vendedorSeleccionado() === vc.code && !this.cambiandoVendedor() ? vc : null;
+  /**
+   * [COT.24] El vendedor de Kepler que ES quien cotiza, en la sucursal elegida (la liga vive en
+   * `vendor_identity.user_id`). Sólo cuenta si está en el padrón de vendedores de esa sucursal.
+   */
+  readonly miVendedor = computed(() => {
+    const mio = this.misRamas()?.salesperson_by_branch?.[this.sucursal()];
+    return mio ? vendedorDelCliente(mio.code, this.vendedores()) : null;
+  });
+  /**
+   * El vendedor se muestra como DATO (no como pregunta) mientras sea el que el sistema ya sabe:
+   * el del cliente en Kepler y, si el cliente no trae o es prospecto, el de quien cotiza
+   * (Edgar, 2026-11-04).
+   */
+  readonly vendedorFijo = computed<{ code: string; name: string; origen: string } | null>(() => {
+    if (this.cambiandoVendedor()) return null;
+    const sel = this.vendedorSeleccionado();
+    const vc = this.modo() === 'mayoreo' ? this.vendedorCliente() : null;
+    if (vc) return sel === vc.code ? { ...vc, origen: 'del cliente en Kepler' } : null;
+    const mio = this.miVendedor();
+    return mio && sel === mio.code ? { ...mio, origen: 'tú, por tu usuario' } : null;
   });
   readonly opcionesVendedor = computed(() => this.vendedores().map((v) => ({ value: v.code, label: `${v.code} — ${v.name}` })));
 
@@ -1392,7 +1436,10 @@ export class TeleventaQuoteNewComponent implements OnInit {
     this.busquedaCliente$
       .pipe(
         switchMap((t) => {
-          return this.svc.searchWholesaleCustomers(t, 20).pipe(
+          // [COT.22] Sin sucursal no se busca: los clientes son de UNA sucursal.
+          const suc = this.sucursal();
+          if (!suc) return of([] as WholesaleCustomer[]);
+          return this.svc.searchWholesaleCustomers(t, 20, suc, this.padronCompleto()).pipe(
             catchError((err) => {
               this.toast.add({
                 severity: err?.status === 403 ? 'warn' : 'error',
@@ -1528,6 +1575,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
     this.modo.set(m);
     if (m === 'contacto') {
       this.limpiarCliente();
+      this.asignarVendedorSugerido();
     }
   }
 
@@ -1575,6 +1623,17 @@ export class TeleventaQuoteNewComponent implements OnInit {
 
   onSucursalChange(val: string | null): void {
     const s = val || '';
+    // [COT.22] El cliente se buscó en la sucursal anterior: sus condiciones y su vendedor son de
+    // allá. Se suelta y se dice, en vez de cotizarlo en silencio con términos que no existen aquí.
+    const previo = this.cliente();
+    if (previo && s && !previo.branches.some((b) => b.sucursal === s)) {
+      this.limpiarCliente();
+      this.toast.add({
+        severity: 'info',
+        summary: 'Elige el cliente otra vez',
+        detail: `${previo.name} se buscó en otra sucursal. Búscalo en ${this.branchName(s)}.`,
+      });
+    }
     this.sucursal.set(s);
     this.cargarVendedores(s);
     this.revisarExistencia();
@@ -1601,13 +1660,38 @@ export class TeleventaQuoteNewComponent implements OnInit {
   asignarVendedorSugerido(): void {
     // [E.29] Con cliente, el vendedor es EL DEL CLIENTE en esa sucursal o ninguno: antes, si el
     // cliente nuevo no traía vendedor, se quedaba el del cliente anterior.
+    // [COT.24] Si el cliente no trae vendedor (o es prospecto), el de quien cotiza.
     if (this.cliente()) {
-      this.vendedorSeleccionado.set(this.vendedorCliente()?.code ?? null);
+      this.vendedorSeleccionado.set(this.vendedorCliente()?.code ?? this.miVendedor()?.code ?? null);
       this.cambiandoVendedor.set(false);
       return;
     }
     const sel = this.vendedorSeleccionado();
     if (sel && !this.vendedores().some((v) => v.code === sel)) this.vendedorSeleccionado.set(null);
+    if (!this.vendedorSeleccionado() && this.miVendedor()) this.vendedorSeleccionado.set(this.miVendedor()!.code);
+  }
+
+  /** [COT.22] Cambia entre «compraron aquí» y el padrón entero, y repite la búsqueda tecleada. */
+  togglePadronCompleto(): void {
+    this.padronCompleto.update((v) => !v);
+    if (this.terminoCliente) this.onBuscarCliente(this.terminoCliente);
+  }
+
+  /** [COT.22] «Compra aquí · última 18-oct» o «Sin compras en Canindo». */
+  compraAqui(c: WholesaleCustomer): string {
+    if (c.last_purchase_here) return `Compra aquí · última ${this.fechaCorta(c.last_purchase_here)}`;
+    return `Sin compras en ${this.branchName(this.sucursal())} en el último año`;
+  }
+
+  /** [COT.22] Las otras sucursales donde también compra, por nombre. */
+  tambienEn(c: WholesaleCustomer): string {
+    return (c.also_in ?? []).map((s) => this.branchName(s)).join(', ');
+  }
+
+  private fechaCorta(iso: string): string {
+    const [y, m, d] = iso.split('-').map(Number);
+    if (!y || !m || !d) return iso;
+    return new Date(y, m - 1, d).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' });
   }
 
   onVendedorChange(val: string | null): void {
