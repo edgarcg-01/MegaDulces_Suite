@@ -647,10 +647,24 @@ export class PaymentCalendarService {
         'El almacen de archivos no esta disponible; no puedo abrir la factura ahora.');
     }
     const firmados = await this.storage.signFiles(files as { url?: string; public_id?: string }[]);
-    return firmados.map((f) => {
+    /**
+     * `[PGP.59]` **Una LLAVE del bucket no es una URL.** Cuando `signFiles` no puede firmar
+     * (almacén sin configurar, o la firma falla) devuelve el archivo con su llave
+     * (`finance/<tenant>/goods-receipts/<uuid>.pdf`) en `url`, y la pantalla la abría: el navegador
+     * se la pedía al propio sitio y la persona veía «Cannot GET …» (visto en Pagos el 2026-11-04;
+     * es el mismo síntoma que `ce732b9b5` arregló en el visor de documentos, y que Pagos no
+     * heredó). Sólo sale lo que de verdad se puede abrir; si había archivos y ninguno se firmó,
+     * se DICE con su causa (ADR-056) en lugar de devolver una lista que parece servible.
+     */
+    const abribles = firmados.map((f) => {
       const x = f as { url?: string; name?: string; role?: string; kind?: string };
       return { url: x.url ?? '', name: x.name ?? null, role: x.role ?? null, kind: x.kind ?? null };
-    }).filter((f) => f.url);
+    }).filter((f) => /^https?:\/\//i.test(f.url));
+    if (files.length && !abribles.length) {
+      throw new ServiceUnavailableException(
+        'La factura está guardada, pero el servidor no pudo preparar su enlace de lectura (almacén de archivos sin configurar o la firma falló). No se arregla desde aquí: avisa a Sistemas.');
+    }
+    return abribles;
   }
 
   async listObligations(q: {
