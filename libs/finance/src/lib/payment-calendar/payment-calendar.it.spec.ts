@@ -870,16 +870,30 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
       const mig = createRequire(__filename)(resolvePath(__dirname,
         '../../../../../database/migrations-newdb/20261103171051_pgp51b_que_pagar_sin_el_sobrante_del_descuento.js')) as
         { SQL: { CON_DESCUENTO_VIGENTE: string } };
-      const folios = async (condicion: string): Promise<string[]> => (await trx.raw(
-        `SELECT btrim(v.folio) AS folio FROM analytics.v_supplier_payables v
-          WHERE btrim(v.proveedor) = ? ${condicion} ORDER BY 1`, [PROV])).rows.map((r: { folio: string }) => r.folio);
-      const todas = await folios('');
-      expect(todas).toEqual([F1, F2, F3]);                        // control: la base ve las tres
-      const sugerido = await folios(mig.SQL.CON_DESCUENTO_VIGENTE);
-      const pronto = await folios(`AND ${sqlSinDescuentoVigente('v')}`);
-      expect(sugerido).toEqual([F2, F3]);
-      // Una sola regla: las dos pantallas excluyen exactamente lo mismo.
-      expect(pronto).toEqual(sugerido);
+      // ⚠️ La condición de la migración NO es una cláusula suelta: se inserta en el ANCLA de la vista
+      // reemplazando su último «)» (`ANCLA.slice(0, -1) + CON_DESCUENTO_VIGENTE`), así que termina con
+      // ese paréntesis de más. Pegada tal cual da «syntax error at or near ")"» (así falló en el CI).
+      const vigente = mig.SQL.CON_DESCUENTO_VIGENTE.trimEnd();
+      expect(vigente.endsWith(')')).toBe(true);
+      const clausula = vigente.slice(0, -1);
+      // SAVEPOINT: un error de SQL aquí no debe envenenar la transacción del resto del archivo.
+      await trx.raw('SAVEPOINT pgp51b_q');
+      try {
+        const folios = async (condicion: string): Promise<string[]> => (await trx.raw(
+          `SELECT btrim(v.folio) AS folio FROM analytics.v_supplier_payables v
+            WHERE btrim(v.proveedor) = ? ${condicion} ORDER BY 1`, [PROV])).rows.map((r: { folio: string }) => r.folio);
+        const todas = await folios('');
+        expect(todas).toEqual([F1, F2, F3]);                        // control: la base ve las tres
+        const sugerido = await folios(clausula);
+        const pronto = await folios(`AND ${sqlSinDescuentoVigente('v')}`);
+        expect(sugerido).toEqual([F2, F3]);
+        // Una sola regla: las dos pantallas excluyen exactamente lo mismo.
+        expect(pronto).toEqual(sugerido);
+        await trx.raw('RELEASE SAVEPOINT pgp51b_q');
+      } catch (e) {
+        await trx.raw('ROLLBACK TO SAVEPOINT pgp51b_q');
+        throw e;
+      }
     });
 
     it('⛔ «Otro» sin detalle se rechaza, y no deja nada reservado', async () => {
