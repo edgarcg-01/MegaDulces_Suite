@@ -1243,7 +1243,7 @@ en Pedido y en la mesa** de Padre Hidalgo (la venta única a BOLSAS DE LOS ALTOS
 
 | # | Decisión | Opciones | Recomendación |
 |---|---|---|---|
-| D33 | ¿Cuándo se pide un producto? | (a) al llegar al punto de reorden, hasta el objetivo (la mesa hoy) · (b) siempre que falte para el objetivo (Pedido hoy) · (c) (a) para traspasos y (b) sólo el día que toca el proveedor | **(a) en las dos**, mientras la agenda de proveedores no tenga fechas confiables (PQ.3; 25 % de canales regulares). Pedir arriba del reorden son pedidos chicos y frecuentes de lo que todavía alcanza; (c) se retoma con la agenda capturada |
+| D33 | ¿Cuándo se pide un producto? | (a) al llegar al punto de reorden, hasta el objetivo (la mesa hoy) · (b) siempre que falte para el objetivo (Pedido hoy) · (c) (a) para traspasos y (b) sólo el día que toca el proveedor | ✅ **Firmada (a), PM 2026-11-04** (aplicada en PQ.44, §17.12). En las dos, mientras la agenda de proveedores no tenga fechas confiables (PQ.3; 25 % de canales regulares). Pedir arriba del reorden son pedidos chicos y frecuentes de lo que todavía alcanza; (c) se retoma con la agenda capturada |
 
 Con D25, D26 y D33 firmadas, PQ.44 (una sola función de falta) tiene sus tres reglas; lo «sin
 explicar» se revisa con esa función ya escrita.
@@ -1359,6 +1359,45 @@ renglones) en vez de por el índice de SKU.
 - Vitest 318/318, con una prueba nueva que se puso roja al quitar la llamada. `tsc` limpio, con el
   control detectado.
 
+### 17.12 PQ.44, primer paso — Pedido pide al llegar al reorden, como la mesa (2026-11-04, D33)
+
+Las dos pantallas leen la misma existencia (`replenishment_plan.stock_pz`) y el mismo reorden
+(`reorder_policy.reorder_point`). La regla «en o bajo el reorden» ahora vive una vez, en
+`faltante.ts` (`0aeec91fc`):
+- la mesa la usa en `criticalStock`;
+- Pedido la usa en `workbook` y en su detalle por producto.
+
+Arriba del reorden, la celda de Pedido sale en 0 aunque falte para el objetivo. Sin política de
+reorden, Pedido no frena: no hay contra qué comparar.
+
+**Antes y después**, con los dos servicios del árbol armados con esbuild (sin backend), contra prod
+en sólo lectura y con la cobertura de la mesa en cada sucursal:
+
+| | Antes | Después |
+|---|---:|---:|
+| «Pedido lo pide y la mesa no» | 681 renglones ($2.9 M) | **2** ($2 mil) |
+| Cumplimiento del proveedor (D26) | 606 | 606 |
+| La mesa resta lo que viene en camino | 153 | 153 |
+| La mesa pide y Pedido no | 47 | 47 |
+| Sin explicar | 72 | 72 |
+| Pedido, 8 sucursales | 106,277 cajas · $24.4 M | **100,722 cajas · $21.4 M** |
+
+Las otras causas no se movieron un renglón: el cambio tocó sólo lo que debía. Los 2 que quedan no se
+revisaron uno por uno (**NO MEDIDO**); lo esperado son productos sin política.
+
+**Pruebas:**
+- `faltante.spec.ts` comprueba que las dos pantallas usan el primitivo. Al quitárselo a Pedido, se
+  pone roja.
+- Vitest 323/323. `tsc` limpio, con el control detectado.
+- La latencia de `workbook` no cambió: ~1.9 s, ya arriba de 500 ms antes de esto (deuda aparte).
+
+**Lo que falta de PQ.44:**
+- **D25:** cobertura por almacén como base en Pedido, y decirlo cuando el comprador la cambia.
+- **D26:** el inflado por cumplimiento, sólo en lo que se compra al proveedor. Son los 606
+  renglones ($1.3 M).
+- **La pantalla:** una celda en 0 por estar arriba del reorden no dice por qué. Pide `diseno` y las
+  cinco preguntas. **Sin validación visual.**
+
 ---
 
 ## 18. Unidades de medida al 100 %: verificado o con dueño (2026-11-04)
@@ -1459,6 +1498,7 @@ vivas (no una 8ª copia a mano), en una ventana firmada fuera de horario.
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-04 | PM firmó **D33**. **PQ.44, primer paso** (`0aeec91fc`, §17.12): Pedido pide al llegar al reorden con la misma regla que la mesa (`faltante.ts`). «Pedido lo pide y la mesa no» 681 → 2; Pedido en 8 sucursales $24.4 M → $21.4 M; las otras diferencias no se movieron. Falta D25, D26 y explicarlo en pantalla | PM + sesión Claude |
 | 2026-11-04 | PM firmó **D32**. Al re-medir, el placebo tumbó la liga por productos (21 de 38 también casaban 30–90 días antes) → árbitro **por importe de renglón**: **PQ.69** liga 23 ($2.98 M) y **PQ.68** cierra 16 ($0.35 M); unas 20 más se cierran solas al cumplir 30 días (`833934781`, §17.11). ⛔ RQ-2026-01391 ($245,571) falló y el reintento no la toma: Compras | PM + sesión Claude |
 | 2026-11-04 | **PQ.50 🧪** (`b37cea6e4`, D29, §17.10): el traspaso aprobado que en 7 días no salió a Kepler se cierra con motivo al leer la bandeja. Son 867 de 1,152 ($17.3 M), 200 por lectura. La mitad de sólo lectura de la prueba da 867 = 867 contra prod; la mitad que escribe corre en el CI. **Choque de códigos:** §18 ya usaba PQ.58–PQ.66, así que lo de esta sesión se renumera: GRANT → PQ.67, D32 → PQ.68, ligar → PQ.69, freno → **PQ.70** (sus commits dicen PQ.61) | PM + sesión Claude |
 | 2026-11-04 | «Aún existen productos con advertencia» → «¿100 %?» → «¿e históricos?» → **§18**: PQ.58 ✅ en prod (el commit dice PQ.41: choque de código, §18.1), estado A/B/C/D medido (91 % del valor verificado), plan PQ.59–PQ.66; el PM aprobó la tabla de historia de fichas | Claude |
