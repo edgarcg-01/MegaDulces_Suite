@@ -830,10 +830,109 @@ desde la UI de Kepler (OC y requisición). Las cuatro ya escritas se reparan a m
 
 ---
 
+## 15. Revisión del 2026-11-04: la temporada, la sincronía con Autoabasto y lo que el motor no considera
+
+PM, con captura de la mesa de 8 Esquinas: *«hay algo importante que no se está considerando y es la
+estacionalidad de los productos. No voy a pedir lo que muestra la imagen si su venta es sólo en
+octubre… necesito que pedido y /almacen/autoabasto funcionen en sincronía; antes de proponer nada
+revisa los puntos anteriores»* y después *«documéntalo y revisa qué más no estamos considerando»*.
+
+**Evidencia:** nivel B (prod en sólo lectura, `system_identifier 7688376744939610156`, API en
+`7db184b1f`) + nivel C (código). **Nivel A no**: no hubo sesión en la pantalla. ⛔ **Esta sección
+documenta hallazgos; no propone arreglos** — el PM pidió revisar antes de proponer.
+
+### 15.1 La temporada: por qué la mesa pide calaveritas el 4 de noviembre
+
+Caso: `39025 PAL CALAVERITAS 560G/40` en 8 Esquinas, mesa «Falta neta 2.8 · a pedir 3 CJA», venta
+sólo en octubre. **Control:** 3.222 pz/día × factor 1.000 × 21 d ÷ 24 pz/caja = **2.82** = lo que
+pinta la pantalla. El factor sale de `database/importers/kepler/import-replenishment-plan.js`
+(`seasonCte` y `fpico`), y lo leen igual la mesa y `/compras/pedido`.
+
+| # | Hueco | Dónde | Medido |
+|---|---|---|---|
+| 1 | **Los meses en cero no existen.** El índice normaliza cada mes contra el promedio de los meses CON venta (`sy … HAVING sum(rev) > 500`). Un producto que sólo vende en octubre tiene octubre = su promedio = 1.0: se lee **plano** | `seasonCte` | 39025: factor **1.000**, tomado de la categoría (`season_src='cat'`) |
+| 2 | **Piso de 0.5.** `LEAST(2.0, GREATEST(0.5, …))`: aunque el índice diga «noviembre ≈ 0», se pide al menos la mitad de lo de octubre | `season` | 58 de 95 pares de Día de Muertos con sugerido están en el piso |
+| 3 | **El freno de fin de pico (AB.17) excluye la temporada por diseño.** Pide venta regular (6 de 8 semanas) y existencia 6 de 7 días; lo de temporada no es regular y lo agotado se trata como venta negada | `fpico` | **0** de 95 frenados |
+| 4 | **Un solo año de historia.** El índice lee `analytics.sales_daily` desde 2025-01-01; en `kepler_ods` hay 2026 en las nueve sucursales y 2025 en tres. 8 Esquinas y Yurécuaro venden desde enero de 2026: no tienen octubre anterior propio | `hist` | sin forma de comprobar repetición (AB §4 ya lo declaró) |
+
+Además: banda muerta 0.85–1.15 → 1, y respaldo por categoría cuando el SKU no tiene el mes.
+
+**Alcance, como cota inferior** (filtro por nombre: calavera, calaca, Halloween, catrín, bruja,
+calabaza, muerto, fantasma, esqueleto, zombi — es un control, no una regla): **26 productos, 95
+pares almacén × producto, ~450 cajas, ~$85 mil a costo** sugeridos hoy; y **32 productos en 76
+pares con $78 mil de existencia** que quedaron de la temporada. ⛔ **El universo de todas las
+temporadas está NO MEDIDO** (§15.5).
+
+⭐ **Ya estaba diseñado y no se construyó:** FASE_AB §4 define la regla de temporalidad con
+vigencia, el caso «fin de temporada con mercancía por recibir» y los estados `clasificada` ·
+`ventana_incompleta` · `sin_historia`. Hoy: 0 items en el tracker, 0 tablas en prod.
+
+⛔ **Dónde no va el arreglo:** el factor vive en un importer (regla 1) y **D17 de AB** (firmada el
+26-oct) mueve el motor completo —mesa, «Mi pedido» y `/compras/pedido`— a vistas del ODS. El plan
+sigue saliendo del importer (latido `fact_replenishment_plan_stock` en `ok` hoy). Extender
+`seasonCte` contradice D17.
+
+### 15.2 Pedido y Autoabasto: una fuente, tres fórmulas
+
+Leen el mismo `analytics.replenishment_plan` (demanda, existencia, factor de temporada): **en la
+temporada están sincronizadas en el error**. La falta se calcula distinto:
+
+| | `/compras/pedido` (`workbook`) | Mesa de Autoabasto (`demandTarget`) |
+|---|---|---|
+| Cobertura | la que elige el comprador (30 d por omisión), igual para todo almacén | mapa fijo `COBERTURA_AUTOABASTO`: 21 d en 02–07, 30 d el resto |
+| Cumplimiento del proveedor | infla hasta 1.30 (RA-DYN.U7) | no |
+| Traspaso en camino en Kepler (`U-D-40`/`U-D-41`) | **no lo resta**: el tránsito del plan sólo lee OC `X-A-35` sin entrada | lo resta, dentro de su ventana |
+| Traspaso aprobado en la Suite | no lo cuenta → lo vuelve a sugerir | lo muestra como «Compras lo planeó», no lo resta (D14) |
+
+Y una tercera: `purchaseSuggestion` (cálculo lateral de Pedido) con cobertura por cadencia de
+Kepler + lead y colchón por cuantiles. **PQ.UI.2 (26-oct) sigue vigente.** El script
+`database/scripts/ab25-mesa-vs-pedido.js` corrió hoy, pero reproduce el texto del motor del 13-oct:
+no se cita como medición actual.
+
+### 15.3 Lo demás que el motor no considera
+
+| # | Qué | Medido hoy | Confianza |
+|---|---|---|---|
+| 1 | **Los días agotados cuentan como venta cero.** `import-demand-clean.js` divide entre los días de la ventana, también los días sin existencia; ni la demanda ni el plan lo corrigen. Dirección **contraria** a la temporada: pide **de menos** | Productos A con venta: **865 de 4,725 (18 %)** sin existencia en la foto 7 o más de 29 días; B: **1,514 de 6,104 (25 %)**. Venta no vista en 21 d, sólo con pares que tuvieron existencia 10 días o más: ~$2.0 M (A) + ~$0.8 M (B) a costo | **PLAUSIBLE**: `stock_snapshots` no guarda filas en cero (ausencia = cero o fuera de la foto) y la foto es de fin de día (agotarse a media tarde cuenta como día sin existencia). Sin control independiente |
+| 2 | **El tiempo de entrega nadie lo captura** | 0 de 2,349 canales con lead capturado, 0 con cadencia manual (PQ.3 ⬜). El plan usa un lead derivado: 1–40 d, promedio 5 | B |
+| 3 | **Se sugieren productos que nunca se compraron** | 191 productos en 311 pares sin `last_purchase` en ningún almacén, ~$0.78 M aprox. (incluye un renglón de unidad sin verificar, §15.5) | B; **no investigado** si son proveedores que surten directo en tienda o altas nuevas |
+| 4 | **Los feriados móviles caen en otro mes.** El índice es mensual: Semana Santa fue 13–20 abr 2025, 29 mar–5 abr 2026 y será 21–28 mar 2027. Con un año de historia, la cuaresma se espera en el mes del año pasado | — | mecanismo, **no medido** |
+| 5 | **Lo que sobró de la temporada no tiene salida** | $78 mil de Día de Muertos en existencia (§15.1); Sobrante se abría 5 veces en 30 d (23-oct) | B; uso de hoy **no medido** |
+| 6 | **Los traspasos de la Suite son un plan paralelo** | 1,104 aprobados ($20.93 M), 0 con documento en Kepler, ~300 nuevos por semana con «escritura de traspaso apagada desde la Suite». El traspaso real va por `U-D-40`/`U-D-41` en Kepler y la mesa lo resta. **Repetidos** (mismo destino, origen y producto, vivos, 30 d): **640 grupos, 468 en días distintos, hasta 6 veces, $5.95 M** | B, re-medido por el destino del renglón |
+| 7 | **Cancelar no pide motivo** | 107 canceladas en 14 d, 0 con motivo. `reject()` sólo lo exige si la pidió una sucursal (AB.32); PQ.9 ⬜ | B |
+| 8 | ~~Promociones por `is_promo`~~ | 57 pares con sugerido, $19: la bandera casi no se usa y **no sirve** para separar promociones | descartado |
+
+### 15.4 La auditoría de la mañana, revisada
+
+- **Corregido:** «$20.9 M de traspasos parados». No es dinero detenido: es el plan paralelo de
+  §15.3 #6. El costo es que la sucursal ve «Compras lo planeó» y eso no va a pasar, y Pedido no sabe
+  qué parte del plan se ejecutó.
+- **Se sostiene:** compras a Kepler 23 de 26 esta semana (46 de 91 la anterior); 85 compras
+  aprobadas sin documento ($7.31 M, 27 d de promedio) sin revisar una por una.
+- **Se sostiene:** `--warn-fg` como color de texto en ~8 reglas de `compras-pedido-real.component.ts`
+  (incluido el verbo de la acción en `.pr-acc-haz`): **2.15:1** sobre blanco y **1.93:1** sobre el
+  fondo ámbar (controles 21.00 y 4.48). `--warn-soft-fg` da 7.09.
+- **Se sostiene:** Pedido sin `LoadState` (deuda declarada de `check:pantalla`), 68 `title=`, 0 `aria-live`.
+- **Se sostiene:** PQ.31–PQ.40 están en commits pero no en el tracker ni en esta bitácora.
+- **NO MEDIDO hoy:** la pantalla viva, la latencia de `workbook` y el uso por pestaña (lectura de
+  logs de la API bloqueada). Las cifras de §1 son del 23-oct.
+
+### 15.5 Instrumentos que fallaron hoy (y por qué no se citan)
+
+| Instrumento | Qué dijo | Por qué se tiró |
+|---|---|---|
+| Universo de temporada: «el año pasado cayó >70 % el mes siguiente» o «80 % de su venta en 30 d, sin año anterior» | 186 productos, ~$1.09 M | mezclaba promociones y lanzamientos (Trident, Bimbo, Barcel) y un renglón de 13,929 «cajas» |
+| Sugerido aproximado (demanda × factor × 21/30 d − existencia − tránsito) | sirve para el control de 39025 | **no aplica la compuerta de unidad (`RUNG_OK`) de Pedido**: cuenta renglones que la pantalla retiene, como `17499 BOLSA ROLLO NATURAL` (sin `rung_veredicto`, 663 pz/día con caja de 1 = $480 mil inexistentes) |
+| Duplicados agrupando por la cabecera | 631 grupos | se repitió con el destino de cada renglón: 0 renglones con destino distinto a la cabecera; la cifra se sostuvo (640) |
+| `ab25-mesa-vs-pedido.js` | tabla por almacén | reproduce el texto del motor del 13-oct |
+
+---
+
 ## 10. Bitácora
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-04 | «No se está considerando la estacionalidad… Pedido y Autoabasto en sincronía; antes de proponer, revisa» → **§15**, sólo hallazgos. El factor de temporada tiene cuatro huecos (meses en cero fuera del índice, piso de 0.5, fin de pico que excluye la temporada, un solo año de historia); 39025 sale con factor 1.000 (control 2.82 = pantalla). Pedido y la mesa comparten la fuente y difieren en cobertura, cumplimiento y traspasos en camino. Otros: días agotados cuentan como venta cero (PLAUSIBLE), feriados móviles, traspasos de la Suite como plan paralelo con 640 repetidos. Corregido el «$20.9 M parados» de la auditoría de la mañana. Nivel B + C; nivel A no | PM + sesión Claude |
 | 2026-10-28 | «La requisición no aparece para generar la OC en Kepler; y generemos la OC automáticamente» → **PQ.21 🔨** (`c42` saldo pendiente + IVA/IEPS de la ficha) y **PQ.22 🔨** (OC X-A-35 ligada, misma transacción, interruptor por sucursal apagado). Reglas medidas en `kepler_ods`; ensayo contra Kepler NO MEDIDO (sin `pg_hba` o sin GRANT `kdxd` desde desarrollo; 01/06/07 sin GRANT) (§14.6) | PM + sesión PQ |
 | 2026-10-27 | «Actívemoslo para hacer pruebas» → **PQ.19 🧪**: D24 en código (traspaso en unidad base + factor contrastado con la ficha del origen). Simulacro: compras 85/85, traspasos 776/809; los 33 son fichas de Kepler sin factor. Encender = secreto en `md` (no lo toca la sesión): canario de compra en 04 primero, traspaso desde 01 después del push (§14.5) | PM + sesión PQ |
 | 2026-10-27 | «¿Cómo sale el traspaso en cada sucursal?» (§14.4): pedido `U-D-40` + embarque `U-D-41` en la que manda, recepción `U-A-50` en la que recibe, idénticos al centavo, ligados por `c37/c38/c39`. Hallazgo: Kepler escribe el traspaso en unidad base (99.2 %), nosotros en CJA → **D24** | PM + sesión PQ |
