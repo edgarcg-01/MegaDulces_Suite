@@ -928,10 +928,58 @@ no se cita como medición actual.
 
 ---
 
+## 16. Propuesta (2026-11-04) — temporada, una sola falta y días agotados
+
+**Estado: propuesta, sin firma.** No abre fase: el tablero marca **7 🔨 contra un cupo de 4**, así que
+esto entra como items de PQ y se hace **junto con D17 de AB** (el motor sale del ODS), que es dueño
+del mismo código. ⛔ Nada de esto se escribe en `import-replenishment-plan.js` ni en
+`import-demand-clean.js` (regla 1 + D17): va en las vistas del ODS que D17 tiene que crear.
+
+### 16.1 Por qué así
+
+Los tres problemas viven en **las mismas dos entradas del motor** —la demanda diaria y el factor de
+temporada— y las dos están por mudarse del importer al ODS. Arreglarlos antes de la mudanza es
+hacerlo dos veces; mudarse sin arreglarlos es copiar el defecto a la vista nueva. Y ninguno tiene
+todavía su **árbitro**: el de temporada es la venta real que siguió a cada temporada de 2025; el de
+días agotados, la existencia de Kepler día por día; el de la falta única, la misma consulta corrida
+contra las dos pantallas. **Primero se miden (C0), después se cambia el número (C1).**
+
+### 16.2 Los items, en orden
+
+| Orden | Item | Capa | Árbitro / criterio | Dinero · Esfuerzo · Prioridad |
+|---|---|---|---|---|
+| 1 | **PQ.41 — Backtest del factor de temporada contra lo que pasó en 2025.** Con la historia hasta el 4-nov-2025, ¿qué factor habría dado el índice de hoy para el mes siguiente, y qué se vendió de verdad? Por SKU, en las transiciones oct→nov y dic→ene (Día de Muertos y Navidad/Reyes). Sale el universo de temporada (el que §15.5 no pudo medir) y cuánto se habría pedido de más | C0 | venta real del mes siguiente en `sales_daily` 2025; control: 39025 debe salir como «sólo octubre» | NO MEDIDO (eso mide el item) · S · **2** (sube a 1 si Navidad pasa de $1 M) |
+| 2 | **PQ.42 — ¿La ausencia en la foto de existencia es un agotado?** Para una muestra de pares sin foto, la existencia de Kepler (kardex) ese día. Si se confirma, la demanda de productos A/B se divide entre **días con existencia**, no entre días de la ventana | C0 | existencia diaria de Kepler; control: un par con existencia continua debe dar 0 días agotados | ~$2.8 M en 21 d, **PLAUSIBLE** · S · **1** si se confirma |
+| 3 | **PQ.43 — Paridad mesa vs Pedido con la consulta real de hoy.** Rehacer `ab25` sobre el código vigente: por almacén × producto, cuántos renglones dan distinta falta y por cuánto, y qué columna de §15.2 explica cada diferencia | C0 | las dos consultas reales de los servicios, en sólo lectura | NO MEDIDO · S · **1** (es una cifra con la que se decide compra) |
+| 4 | **PQ.44 — Una sola función de falta en `libs/`** (cobertura, cumplimiento, en camino, plan de Compras) que usan la mesa, «Mi pedido» y `/compras/pedido`, con antes/después por almacén. Depende de D25–D27 | C1 | PQ.43 da 0 diferencias no explicadas | según PQ.43 · M · — |
+| 5 | **PQ.45 — Temporada y días agotados en la vista de demanda del ODS** (la de D17): meses en cero cuentan, el piso de 0.5 deja de aplicar al SKU con evidencia propia, estado «fin de temporada» y demanda sobre días con existencia. Commit propio con antes/después; optimizar va aparte | C1 | el backtest de PQ.41 mejora y PQ.42 confirmado | según PQ.41/42 · M–L · — |
+| 6 | **PQ.46 — La pantalla dice por qué pide 0** en las dos pantallas: «Fin de temporada: vendió 4 cajas en octubre; el año pasado en noviembre, 0» y «Pedido sobre 18 días con existencia de 29». Se sigue pudiendo pedir a mano | C3 | skill `diseno` §0b, antes y después | — · S · — |
+
+### 16.3 Decisiones a firmar
+
+| # | Decisión | Opciones | Recomendación |
+|---|---|---|---|
+| D25 | Cobertura | (a) la que elija el comprador, igual para todo almacén (hoy Pedido) · (b) una por almacén (hoy la mesa: 21 d en 02–07, 30 el resto) | **(b) como base en las dos**; Pedido puede cambiarla, y entonces lo dice: «calculado con 30 días; la sucursal ve 21» |
+| D26 | Ajuste por cumplimiento del proveedor | (a) en las dos · (b) en ninguna · (c) sólo en lo que se pide al proveedor | **(c)**: un traspaso de la matriz no depende de lo que surta el proveedor |
+| D27 | Fin de temporada | (a) el motor sugiere 0 y se puede pedir a mano · (b) candado | **(a)**: el comprador puede saber de una reposición o de una venta especial; el candado lo saca del sistema |
+| D28 | Traspasos de la Suite (plan paralelo, 640 repetidos) | (a) encender la escritura de traspasos (PQ.19, canario desde 01) · (b) dejar de generarlos mientras esté apagada · (c) contarlos como «ya viene» | **(a)**. Es lo único que cierra el lazo; (c) haría que el motor pida de menos si nadie ejecuta el plan. Encender es secreto en `md`: **lo decide y lo hace Edgar** |
+
+### 16.4 Qué NO incluye
+
+- Feriados móviles (§15.3 #4): con un año de historia no hay con qué medirlos; queda como deuda con
+  nombre hasta tener dos cuaresmas.
+- Tiempo de entrega capturado (PQ.3) y productos nunca comprados (§15.3 #3): siguen en sus items.
+- Lo que sobró de la temporada (§15.3 #5): va a Sobrante, no al motor.
+- La regla de temporalidad de AB §4 (clasificación ±50 % con vigencia): se retoma después de
+  PQ.41, que dice si hace falta además del factor.
+
+---
+
 ## 10. Bitácora
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-04 | «Pasa a proponer» → **§16, sin firma**: tres mediciones primero (PQ.41 backtest de temporada contra 2025 · PQ.42 ¿la foto sin fila es agotado? · PQ.43 paridad mesa vs Pedido), después una sola falta en `libs/` y temporada + días agotados en la vista del ODS de D17 (nunca en el importer). Decisiones D25–D28. No abre fase (7 🔨 contra 4) | PM + sesión Claude |
 | 2026-11-04 | «No se está considerando la estacionalidad… Pedido y Autoabasto en sincronía; antes de proponer, revisa» → **§15**, sólo hallazgos. El factor de temporada tiene cuatro huecos (meses en cero fuera del índice, piso de 0.5, fin de pico que excluye la temporada, un solo año de historia); 39025 sale con factor 1.000 (control 2.82 = pantalla). Pedido y la mesa comparten la fuente y difieren en cobertura, cumplimiento y traspasos en camino. Otros: días agotados cuentan como venta cero (PLAUSIBLE), feriados móviles, traspasos de la Suite como plan paralelo con 640 repetidos. Corregido el «$20.9 M parados» de la auditoría de la mañana. Nivel B + C; nivel A no | PM + sesión Claude |
 | 2026-10-28 | «La requisición no aparece para generar la OC en Kepler; y generemos la OC automáticamente» → **PQ.21 🔨** (`c42` saldo pendiente + IVA/IEPS de la ficha) y **PQ.22 🔨** (OC X-A-35 ligada, misma transacción, interruptor por sucursal apagado). Reglas medidas en `kepler_ods`; ensayo contra Kepler NO MEDIDO (sin `pg_hba` o sin GRANT `kdxd` desde desarrollo; 01/06/07 sin GRANT) (§14.6) | PM + sesión PQ |
 | 2026-10-27 | «Actívemoslo para hacer pruebas» → **PQ.19 🧪**: D24 en código (traspaso en unidad base + factor contrastado con la ficha del origen). Simulacro: compras 85/85, traspasos 776/809; los 33 son fichas de Kepler sin factor. Encender = secreto en `md` (no lo toca la sesión): canario de compra en 04 primero, traspaso desde 01 después del push (§14.5) | PM + sesión PQ |
