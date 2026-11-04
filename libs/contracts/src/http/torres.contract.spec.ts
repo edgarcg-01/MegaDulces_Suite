@@ -26,7 +26,7 @@ describe('[TOR.1.1] orden de la bandeja', () => {
 
 describe('[TOR.1.2] cada carril va a una torre', () => {
   it('lo que llega de Kepler y de los puntos de venta es de Sistemas', () => {
-    for (const k of ['kepler_server_07', 'ods_live_hot', 'cdc_reconcile', 'store_poller', 'route_collections', 'caja_general_replica_all', 'hr_attendance_ingest', 'feed_contpaqi']) {
+    for (const k of ['kepler_server_07', 'ods_live_hot', 'cdc_reconcile', 'store_poller', 'route_collections', 'caja_general_replica_all', 'hr_attendance_ingest', 'feed_contpaqi', 'caos_conteo', 'libro_kepler']) {
       expect(`${k}:${torreDeLlave(k)}`).toBe(`${k}:sistemas`);
     }
   });

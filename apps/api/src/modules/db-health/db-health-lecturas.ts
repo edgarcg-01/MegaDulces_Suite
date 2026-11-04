@@ -42,21 +42,11 @@ export function pctMuertas(dead: number, filas: number): number | null {
 }
 
 /**
- * **Qué commit dice el carril de despliegue que dejó corriendo.** `auto-deploy.sh` late en
- * `analytics.cron_runs` con «desplegado <sha> desde <sha> · …» o «al día en <sha>». La bitácora
- * `ops.deploys` sólo la escribe `deploy.sh` (el manual): desde k3s quedó parada en el 1-oct y el
- * tablero avisaba «alguien levantó un contenedor por fuera» en cada despliegue sano.
- * `null` = el latido no nombra un commit (un error, una espera): no hay contra qué comparar.
+ * `[TOR.4]` **¿Es un carril retirado?** Nadie lo declara en `CRON_JOBS` y su latido no se escribe
+ * hace más de una semana. Un carril se retira sacándolo de la lista (`[NORM.3]`), pero si su última
+ * corrida fue un error su fila quedaba CRÍTICA para siempre: medido el 2026-11-04,
+ * `route_collections` (retirado el 19-oct) y `mv_caja_push` (27-oct) seguían con alerta abierta.
  */
-export function commitDelLatido(nota: string | null | undefined): string | null {
-  const m = /(?:desplegado|al día en|al dia en)\s+([0-9a-f]{7,40})\b/i.exec(String(nota ?? ''));
-  return m ? m[1].toLowerCase() : null;
-}
-
-/** Dos sha del mismo commit pueden venir con distinto largo: coinciden si uno es prefijo del otro. */
-export function mismoCommit(a: string | null | undefined, b: string | null | undefined): boolean {
-  const x = String(a ?? '').toLowerCase();
-  const y = String(b ?? '').toLowerCase();
-  if (x.length < 7 || y.length < 7) return false;
-  return x.startsWith(y) || y.startsWith(x);
+export function esCarrilRetirado(declarado: boolean, edadSeg: number | null): boolean {
+  return !declarado && edadSeg != null && edadSeg > 7 * 86400;
 }

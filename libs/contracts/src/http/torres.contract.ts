@@ -125,7 +125,7 @@ export function ordenarSenales<T extends { estado: EstadoSenal; desde: string | 
  * puntos de venta, ContPAQi, CAOS, los relojes, el GPS): su falla se arregla en ese servidor o en su
  * enlace. Todo lo demás es nuestra plataforma y va a **Desarrollo**. Ninguna llave queda sin torre.
  */
-export const TORRE_SISTEMAS_RX = /^(kepler_|ods_|cdc_|store_|caja_general|wincaja|route_|rd_route|feed_|fleet|consolidado|stock|cedis|hr_attendance|libro_kepler|libro_caos|gastos_cierre_kepler|caos_movimientos|contpaqi_add|sales_daily)/;
+export const TORRE_SISTEMAS_RX = /^(kepler_|ods_|cdc_|store_|caja_general|wincaja|route_|rd_route|feed_|fleet|consolidado|stock|cedis|hr_attendance|libro_kepler|libro_caos|gastos_cierre_kepler|caos_movimientos|caos_conteo|contpaqi_add|sales_daily)/;
 
 export function torreDeLlave(clave: string): 'sistemas' | 'desarrollo' {
   return TORRE_SISTEMAS_RX.test(clave) ? 'sistemas' : 'desarrollo';

@@ -7,7 +7,12 @@ import {
 } from '@megadulces/contracts';
 import type { Knex } from 'knex';
 import { commitDelBuild } from '../../build-info';
-import { DbHealthService, type DbHealthReport, type SourceHealth } from './db-health.service';
+import { CRON_JOBS, DbHealthService, type DbHealthReport, type SourceHealth } from './db-health.service';
+
+/** Llaves de carril con umbral. Un latido fuera de esta lista no lo juzga nadie. */
+const DECLARADOS = new Set(CRON_JOBS.map((j) => j.key));
+/** Un latido sin declarar que no se escribe hace más de esto es un carril muerto: no se muestra. */
+const MUERTO_MS = 7 * 24 * 3600 * 1000;
 
 /**
  * `[TOR.2.1]`/`[TOR.2.2]` Las dos torres de control. No miden nada nuevo: reparten lo que ya miden
@@ -33,8 +38,10 @@ const PESO: Record<EstadoSenal, number> = { falla: 3, riesgo: 2, no_medido: 1, o
 const GRUPOS_SISTEMAS: { clave: string; nombre: string; llaves: string[] }[] = [
   { clave: 'replica-ods', nombre: 'Réplica → ODS', llaves: ['ods_live_mirror', 'ods_live_hot', 'ods_live_caja'] },
   { clave: 'completitud', nombre: 'Completitud del ODS', llaves: ['cdc_reconcile', 'cdc_reconcile_chicas', 'cdc_reconcile_ancho', 'cdc_reconcile_full'] },
-  { clave: 'caja-general', nombre: 'Caja General (.mdb)', llaves: ['caja_general_replica_all', 'caja_general_ship'] },
-  { clave: 'camionetas', nombre: 'Camionetas', llaves: ['rd_route_push_dia', 'route_collections', 'route_sales'] },
+  // [TOR.4] Fuera la tarjeta de Caja General (.mdb): sus carriles se retiraron el 2026-10-22 (CGS.48),
+  // y `route_collections` el 2026-10-19 (CGA-A.22, ahora es vista). Si alguno sigue latiendo, sale en
+  // «Atender» como «corre sin estar declarado», que es lo que es.
+  { clave: 'camionetas', nombre: 'Camionetas', llaves: ['rd_route_push_dia', 'route_sales'] },
   { clave: 'relojes', nombre: 'Relojes checadores', llaves: ['hr_attendance_ingest', 'hr_attendance_agent'] },
   { clave: 'gps', nombre: 'GPS de flota', llaves: ['fleet_gps', 'fleet_positions'] },
 ];
@@ -78,6 +85,43 @@ export class TorresService {
     return m;
   }
 
+  /**
+   * `[TOR.4]` Reparte las fuentes de UNA torre en lo que se muestra y lo que ya no funciona:
+   *  · un latido sin declarar y sin escribirse hace más de 7 días es un carril muerto → fuera;
+   *  · uno sin declarar que SIGUE latiendo → señal «corre sin estar declarado» (con su máquina):
+   *    o se retiró y hay que apagarlo donde corre, o está vivo y hay que declararlo.
+   */
+  private repartir(fuentes: SourceHealth[], hosts: Map<string, string | null>, alertas: Map<string, Alerta>) {
+    const vivas: SourceHealth[] = [];
+    const sinDeclarar: SenalTorre[] = [];
+    for (const s of fuentes) {
+      const esCarril = s.group === 'cron';
+      if (esCarril && !DECLARADOS.has(s.key)) {
+        const edadMs = s.age_seconds != null ? s.age_seconds * 1000 : null;
+        if (edadMs == null || edadMs > MUERTO_MS) continue;
+        const host = hosts.get(s.key);
+        sinDeclarar.push({
+          clave: s.key, que: `${s.label} corre sin estar declarado`,
+          porque: `Su latido sigue llegando${host ? ` desde «${host}»` : ''} pero ningún umbral lo juzga. Si se retiró, hay que apagarlo donde corre; si sigue vivo, hay que declararlo.`,
+          estado: 'riesgo', texto_estado: 'sin declarar', desde: s.last_update, dueno: null,
+          alerta_id: alertas.get(s.key)?.id ?? null, vista: !!alertas.get(s.key)?.acknowledged_at,
+        });
+        continue;
+      }
+      vivas.push(s);
+    }
+    return { vivas, sinDeclarar };
+  }
+
+  private async hosts(tenantId: string): Promise<Map<string, string | null>> {
+    const m = new Map<string, string | null>();
+    try {
+      const rows = await this.knex!('analytics.cron_runs').where({ tenant_id: tenantId }).select('job_key', 'host');
+      for (const r of rows as Array<{ job_key: string; host: string | null }>) m.set(r.job_key, r.host);
+    } catch (e) { this.logger.warn(`torres: hosts ilegibles: ${(e as Error).message}`); }
+    return m;
+  }
+
   private senalDeFuente(s: SourceHealth, alerta: Alerta | undefined): SenalTorre {
     const estado = ESTADO_DE[s.status];
     return {
@@ -104,11 +148,11 @@ export class TorresService {
       return { verificado_al, servidores: [], caidas: null, atender: [], otros: [], avisos: null, mesa: null };
     }
     const tenantId = this.tenantCtx.requireTenantId();
-    const [rep, alertas, latidos, horario, caidas, avisos, mesa] = await Promise.all([
+    const [rep, alertas, latidos, horario, caidas, avisos, mesa, hosts] = await Promise.all([
       this.reporte(), this.alertasAbiertas(tenantId), this.latidosServidor(tenantId), this.horarioDeHoy(),
-      this.caidas30d(tenantId), this.avisos(tenantId), this.mesa(tenantId),
+      this.caidas30d(tenantId), this.avisos(tenantId), this.mesa(tenantId), this.hosts(tenantId),
     ]);
-    const fuentes = rep.sources.filter((s) => torreDeLlave(s.key) === 'sistemas');
+    const { vivas: fuentes, sinDeclarar } = this.repartir(rep.sources.filter((s) => torreDeLlave(s.key) === 'sistemas'), hosts, alertas);
 
     const servidores = CODIGOS_KEPLER.map((codigo) => this.servidor(codigo, latidos, horario, caidas))
       .sort((a, b) => (PESO[b.estado] - PESO[a.estado]) || (warehouseDisplayRank(a.codigo) - warehouseDisplayRank(b.codigo)));
@@ -117,6 +161,7 @@ export class TorresService {
     const atender: SenalTorre[] = fuentes
       .filter((s) => !s.key.startsWith('kepler_server_') && (s.status === 'warn' || s.status === 'critical'))
       .map((s) => this.senalDeFuente(s, alertas.get(s.key)));
+    atender.push(...sinDeclarar);
     if (mesa && mesa.abiertos > 0) {
       atender.push({
         clave: 'mesa-servicio', que: 'Mesa de Servicio', porque: `${mesa.asignados} asignados y ${mesa.en_espera} en espera`,
@@ -294,11 +339,12 @@ export class TorresService {
       };
     }
     const tenantId = this.tenantCtx.requireTenantId();
-    const [rep, alertas, refs, motor, lentas, sinRepartir, corridas, arranquePg] = await Promise.all([
+    const [rep, alertas, refs, motor, lentas, sinRepartir, corridas, arranquePg, hosts] = await Promise.all([
       this.reporte(), this.alertasAbiertas(tenantId), this.refs(), this.salud.getEngineReport(),
       this.consultasLentas(), this.permisosSinRepartir(tenantId), this.corridas7d(tenantId), this.arranquePostgres(),
+      this.hosts(tenantId),
     ]);
-    const fuentes = rep.sources.filter((s) => torreDeLlave(s.key) === 'desarrollo');
+    const { vivas: fuentes, sinDeclarar } = this.repartir(rep.sources.filter((s) => torreDeLlave(s.key) === 'desarrollo'), hosts, alertas);
     const por = (k: string) => rep.sources.find((s) => s.key === k);
 
     // Migraciones pendientes: sólo se saben cuando el despliegue las encuentra y lo dice en su latido.
@@ -308,6 +354,7 @@ export class TorresService {
     const atender: SenalTorre[] = fuentes
       .filter((s) => s.status === 'warn' || s.status === 'critical')
       .map((s) => this.senalDeFuente(s, alertas.get(s.key)));
+    atender.push(...sinDeclarar);
     if (lentas != null && lentas > 0) {
       atender.push({ clave: 'consultas-lentas', que: 'Consultas lentas', porque: `${lentas} tipos de consulta tardan más de 500 ms en promedio desde el último arranque de la base`, estado: 'riesgo', texto_estado: `${lentas} lentas`, desde: arranquePg, dueno: null, alerta_id: null, vista: false });
     }

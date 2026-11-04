@@ -1,4 +1,4 @@
-import { commitDelLatido, etiquetaBase, filasEstimadas, mismoCommit, pctMuertas } from './db-health-lecturas';
+import { esCarrilRetirado, etiquetaBase, filasEstimadas, pctMuertas } from './db-health-lecturas';
 
 /**
  * `[DH.5]` Tres lecturas que el tablero publicaba falsas (medido en prod el 2026-11-04).
@@ -41,21 +41,15 @@ describe('[DH.5] % de filas muertas sobre reltuples', () => {
   });
 });
 
-describe('[DH.5] commit del latido de auto-deploy', () => {
-  it('lee «desplegado <sha>» y «al día en <sha>»', () => {
-    expect(commitDelLatido('desplegado 7db184b1f desde 43b58464c · servicios: api worker')).toBe('7db184b1f');
-    expect(commitDelLatido('al día en 7db184b1f')).toBe('7db184b1f');
+describe('[TOR.4] carril retirado', () => {
+  it('⛔ NEGATIVA — route_collections: sin declarar y 16 días sin latir → retirado, no crítico eterno', () => {
+    expect(esCarrilRetirado(false, 16 * 86400)).toBe(true);
   });
-
-  it('⛔ un latido sin commit (error, espera) no da commit: no hay contra qué comparar', () => {
-    expect(commitDelLatido('fetch falló (llave o red)')).toBeNull();
-    expect(commitDelLatido(null)).toBeNull();
+  it('un carril declarado nunca es «retirado», por viejo que sea: eso es una falla', () => {
+    expect(esCarrilRetirado(true, 30 * 86400)).toBe(false);
   });
-
-  it('mismoCommit tolera largos distintos y rechaza sha cortos o vacíos', () => {
-    expect(mismoCommit('7db184b1f', '7db184b1f0a1b2c3')).toBe(true);
-    expect(mismoCommit('7db184b1f', 'ece8269aa')).toBe(false);
-    expect(mismoCommit('7db', '7db184b1f')).toBe(false);
-    expect(mismoCommit('unknown', '7db184b1f')).toBe(false);
+  it('sin declarar pero latiendo esta semana: NO es retirado (sigue corriendo y hay que verlo)', () => {
+    expect(esCarrilRetirado(false, 2 * 3600)).toBe(false);
+    expect(esCarrilRetirado(false, null)).toBe(false);
   });
 });

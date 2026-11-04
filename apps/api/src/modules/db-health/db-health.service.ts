@@ -3,12 +3,11 @@ import { KNEX_NEW_DB_ADMIN, TenantContextService } from '@megadulces/platform-co
 import { CAJA_AUTOFILL_FRESCURA_H } from '@megadulces/contracts';
 import type { Knex } from 'knex';
 import { Client } from 'pg';
-import { commitDelBuild } from '../../build-info';
 // [DH.1] La regla de recurrencia vive aparte, SIN dependencias, para que su candado pueda
 // ejercitarla de verdad: este archivo arrastra NestJS y `@megadulces/*`, así que un test de Node
 // no lo puede cargar y terminaría reimplementando la regla — que es no probarla.
 import { RECURRENCIA, recurrenciaLevantaLaMano } from './db-health-recurrencia';
-import { commitDelLatido, etiquetaBase, filasEstimadas, mismoCommit, pctMuertas } from './db-health-lecturas';
+import { esCarrilRetirado, etiquetaBase, filasEstimadas, pctMuertas } from './db-health-lecturas';
 
 /**
  * Salud/frescura de datos para Administración. Dos grupos:
@@ -1466,6 +1465,19 @@ export const CRON_JOBS: CronCfg[] = [
   ...KEPLER_SERVERS.map(([code, name]) => (
     { key: `kepler_server_${code}`, label: `Servidor Kepler · ${name}`, cadence: 'cada ~4 min (store_poller)', warnH: 0.5, critH: 1 }
   )),
+  // [TOR.4] Ocho carriles que laten todos los días y NADIE había declarado: sin umbral caían en
+  // `unknown` y las torres los pintaban «no medido» estando sanos. Umbrales de su cadencia REAL
+  // (mediana y p95 del intervalo entre corridas, 14 días al 2026-11-04 en `cron_run_log`):
+  // libro_* 1 min · caos_conteo 5 min · vigia_disco 10 min · demanda live 30 min · diarios 24 h ·
+  // poda_registro mediana 15 h, p95 27 h.
+  { key: 'libro_kepler',                label: 'Libro de efectivo — cobranza de ruta de Kepler', cadence: 'cada 1 min (worker)', warnH: 0.25, critH: 1 },
+  { key: 'libro_caos',                  label: 'Libro de efectivo — movimientos de la máquina',  cadence: 'cada 1 min (worker)', warnH: 0.25, critH: 1 },
+  { key: 'caos_conteo',                 label: 'CAOS — lectura del reporte Contenidos',          cadence: 'cada 5 min',          warnH: 0.5,  critH: 1 },
+  { key: 'vigia_disco',                 label: 'Vigía del disco de md',                          cadence: 'cada 10 min (md)',    warnH: 0.5,  critH: 2 },
+  { key: 'fact_product_demand_live',    label: 'Demanda limpia (live)',                          cadence: 'cada 30 min',         warnH: 1.5,  critH: 3 },
+  { key: 'fact_product_demand_nightly', label: 'Demanda limpia (nocturna)',                      cadence: 'diario',              warnH: 26,   critH: 50 },
+  { key: 'fact_inventory_health',       label: 'Salud de inventario',                            cadence: 'diario',              warnH: 26,   critH: 50 },
+  { key: 'poda_registro',               label: 'Poda del registro de imágenes',                  cadence: '~2 veces al día (md)', warnH: 30,  critH: 72 },
   // [VL.4b] El poller GPS de la flota, el otro carril mudo. Su modo de falla NO es caerse: es que
   // la sesión con MagniTracking expire (ADR-034: no hay API oficial, el adapter replica el login de
   // la web). Ahí `fn_objects` devuelve vacío, el ciclo termina "bien" y no se entrega nada — por eso
@@ -1728,32 +1740,6 @@ export interface EngineTable {
 
 export interface EngineMetric {
   key: string; label: string; display: string; status: Status; note?: string;
-}
-
-/** `[VL.15.E]` Un renglón de la bitácora `ops.deploys` que escribe `ops/prod/deploy.sh`. */
-export interface DeployRow {
-  commit_sha: string;
-  servicios: string;
-  resultado: string;
-  migraciones_pendientes: number;
-  quien: string | null;
-  desde: string | null;
-  desplegado_en: string;
-}
-
-export interface VersionReport {
-  checked_at: string;
-  /** Lo que ESTE proceso está sirviendo, leído de la imagen — no de la bitácora. */
-  corriendo: { commit: string; uptime_seconds: number };
-  /** `false` = la bitácora todavía no existe. Distinto de "existe y está vacía". */
-  bitacora_disponible: boolean;
-  despliegues: DeployRow[];
-  /**
-   * `[DH.5]` El latido de `auto-deploy.sh` (`analytics.cron_runs`, `auto_deploy`): el carril que
-   * despliega desde k3s. `null` = no se pudo leer o nunca latió. `commit` = el que el latido dice
-   * haber dejado corriendo; `coincide` lo compara con `corriendo` (null si no hay con qué).
-   */
-  latido: { status: string; at: string | null; note: string | null; commit: string | null; coincide: boolean | null } | null;
 }
 
 export interface EngineReport {
@@ -2151,7 +2137,13 @@ export class DbHealthService {
       const ageSec = this.ageOf(finish);
       let status: Status;
       let note: string | undefined;
-      if (row.status === 'error') {
+      if (esCarrilRetirado(!!cfg, ageSec)) {
+        // [TOR.4] Nadie lo declara y no late hace más de una semana: se retiró. Antes, si su
+        // última corrida fue un error, quedaba CRÍTICO para siempre y su alerta no se cerraba
+        // (route_collections, retirado el 19-oct; mv_caja_push, el 27-oct).
+        status = 'unknown';
+        note = `retirado: no está en CRON_JOBS y no late hace ${Math.round((ageSec ?? 0) / 86400)} días`;
+      } else if (row.status === 'error') {
         status = 'critical';
         note = `última corrida FALLÓ: ${(row.error || '').slice(0, 80)}`;
       } else if (row.status === 'running') {
@@ -2261,80 +2253,6 @@ export class DbHealthService {
    *
    * Todo es SELECT sobre catálogos; no toca datos de negocio y no depende de ningún tenant.
    */
-  /**
-   * `[VL.15.E]` **Qué versión corre, mirable sin terminal.**
-   *
-   * Dos piezas que responden preguntas distintas y por eso van juntas:
-   *
-   *   `corriendo` — el commit HORNEADO en esta imagen. Es el mismo que sirve `/api/health`, y
-   *     se lee del proceso, no de la bitácora: si alguien levantó un contenedor por fuera de
-   *     `deploy.sh`, la bitácora no se entera y esto **sí**. La verdad es lo que está en
-   *     memoria, no lo que alguien anotó.
-   *
-   *   `despliegues` — la bitácora `ops.deploys` que escribe `deploy.sh`: quién, cuándo, qué
-   *     servicios, con cuántas migraciones pendientes, y **también los que fallaron** — que son
-   *     los que uno quiere leer cuando algo no cuadra.
-   *
-   * ⚠️ Si las dos no coinciden, el renglón de arriba manda y hay que sospechar de un
-   * `docker compose up` a mano. Por eso se devuelven las dos y no una sola "versión".
-   *
-   * La tabla puede no existir todavía (se auto-crea en el primer despliegue): eso se DECLARA
-   * con `bitacora_disponible: false`, no se disfraza de lista vacía — que se leería como
-   * "nunca se desplegó nada", que es otra cosa.
-   */
-  async getVersionReport(): Promise<VersionReport> {
-    const base: VersionReport = {
-      checked_at: new Date().toISOString(),
-      corriendo: { commit: commitDelBuild(), uptime_seconds: Math.floor(process.uptime()) },
-      bitacora_disponible: false,
-      despliegues: [],
-      latido: null,
-    };
-    if (!this.knex) return base;
-    // [DH.5] El carril que despliega desde k3s es `auto-deploy.sh`, y ése late en `cron_runs`,
-    // no en `ops.deploys`. Se lee aparte: si falla, la bitácora se sigue mostrando.
-    try {
-      const { rows } = await this.knex.raw(
-        `SELECT status, last_finish, note FROM analytics.cron_runs
-          WHERE job_key = 'auto_deploy' ORDER BY last_finish DESC NULLS LAST LIMIT 1`);
-      const r = rows[0] as { status?: string; last_finish?: string | Date | null; note?: string | null } | undefined;
-      if (r) {
-        const commit = commitDelLatido(r.note);
-        base.latido = {
-          status: String(r.status ?? 'desconocido'),
-          at: r.last_finish ? new Date(r.last_finish).toISOString() : null,
-          note: r.note ?? null,
-          commit,
-          coincide: commit && base.corriendo.commit !== 'unknown' ? mismoCommit(commit, base.corriendo.commit) : null,
-        };
-      }
-    } catch (e) {
-      this.logger.warn(`db-health version: latido auto_deploy ilegible: ${(e as Error).message}`);
-    }
-    try {
-      const { rows } = await this.knex.raw(
-        `SELECT commit_sha, servicios, resultado, migraciones_pendientes, quien, desde,
-                desplegado_en
-           FROM ops.deploys ORDER BY id DESC LIMIT 20`);
-      return {
-        ...base,
-        bitacora_disponible: true,
-        despliegues: rows.map((r: Record<string, unknown>) => ({
-          commit_sha: String(r.commit_sha),
-          servicios: String(r.servicios),
-          resultado: String(r.resultado),
-          migraciones_pendientes: Number(r.migraciones_pendientes ?? 0),
-          quien: r.quien ? String(r.quien) : null,
-          desde: r.desde ? String(r.desde) : null,
-          desplegado_en: new Date(r.desplegado_en as string).toISOString(),
-        })),
-      };
-    } catch {
-      // `ops.deploys` todavía no existe (o no se pudo leer). Se declara, no se inventa.
-      return base;
-    }
-  }
-
   async getEngineReport(): Promise<EngineReport> {
     const checked_at = new Date().toISOString();
     const vacio: EngineReport = {
