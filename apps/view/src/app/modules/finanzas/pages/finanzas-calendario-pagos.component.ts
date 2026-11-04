@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, OnInit, ViewChild, inject, signal, computed, effect, untracked } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
-import { RouterLink } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { ButtonModule } from 'primeng/button';
@@ -31,7 +31,7 @@ import { firstValueFrom } from 'rxjs';
 import { PagosTabsComponent } from '../pagos-tabs.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { MetricStripComponent, type MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
-import { PagosComprobantesService, type DepositOcr, type PagoCandidate, type ProofFile } from '../pagos-comprobantes.service';
+import { PagosCapturaLoteComponent } from '../components/pagos-captura-lote.component';
 
 type ReprogramReason = 'cuenta_erronea' | 'falla_sistema_banco' | 'pago_devuelto' | 'presupuesto_recortado' | 'otro';
 
@@ -171,7 +171,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
   selector: 'app-finanzas-calendario-pagos',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [PagosTabsComponent, CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule, CheckboxModule, ToastModule, TooltipModule, LoadStateComponent, EntityInspectorComponent, ContextHelpComponent, SidePeekComponent, MetricStripComponent],
+  imports: [PagosTabsComponent, CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule, CheckboxModule, ToastModule, TooltipModule, LoadStateComponent, EntityInspectorComponent, ContextHelpComponent, SidePeekComponent, MetricStripComponent, PagosCapturaLoteComponent],
   providers: [MessageService],
   template: `
     <!-- [TP.20.3] Las cuatro pantallas de Pagos son un ciclo, no cuatro reportes sueltos. -->
@@ -300,6 +300,12 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                botones en la barra de los pagos que abren su panel lateral (su regla del 29-oct: lo secundario =
                botón + ventana; el 95-100 % de la pantalla es la tarea). -->
           <ng-container *ngTemplateOutlet="bloquePagos; context: { $implicit: day }" />
+
+          <!-- ── [PGP.71] COMPROBANTES DE PAGO: la MISMA franja de «Pagos a proveedor» (Edgar, 2026-11-04:
+               «sólo un apartado donde se pueda soltar el PDF y se vincule automáticamente»). Es el componente
+               compartido, no una copia: lee cada PDF, busca su pago en Kepler y deja pre-marcado el que
+               coincide; guardar sigue siendo UN clic de la persona (PC.3: la IA propone, la persona confirma). -->
+          <app-pagos-captura-lote (verDiferencias)="verComprobantesConDiferencias()" />
 
           <!-- ── [PGP.53] PRONTO PAGO: lo primero que se paga, con su porqué, por el día en que cierra ──
                Era una línea plegada bajo el buscador («Conviene pagar: 37 acreedores…»). Edgar: es la
@@ -562,54 +568,6 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
           }
           </app-side-peek>
 
-          <!-- ── [PGP.69] COMPROBANTE DE PAGO: soltar el PDF aquí, sin ir a «Pagos a proveedor» ──
-               Mismo flujo y mismo servicio que esa pestaña: se guarda, se lee, se busca el pago de Kepler
-               y se adjunta. Pequeño a propósito: un recuadro, lo que leyó y a qué pago va. -->
-          <app-side-peek [open]="panelComp()" (openChange)="panelComp.set($event)" [width]="520" title="Comprobante de pago"
-                         subtitle="Suelta el PDF del banco: se lee y se busca el pago de Kepler al que pertenece">
-          @if (panelComp()) {
-            <section class="pg-comp" aria-label="Comprobante de pago">
-              <label class="pg-comp-drop" [class.is-drag]="compArrastrando()" (dragover)="compSobre($event)" (dragleave)="compFuera($event)" (drop)="compSoltar($event)">
-                <input type="file" accept="application/pdf" (change)="compElegirArchivo($event)" hidden />
-                <i class="pi pi-cloud-upload" aria-hidden="true"></i>
-                @if (compNombre(); as n) { <span><b>{{ n }}</b> · suelta otro para cambiarlo</span> }
-                @else { <span>Suelta aquí el PDF o haz clic para elegirlo</span> }
-              </label>
-              @if (compError(); as e) { <p class="pg-comp-err" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>{{ e }}</p> }
-              @if (compEstado() === 'leyendo') { <p class="pg-comp-st" role="status">Guardando y leyendo el comprobante…</p> }
-              @if (compEstado() === 'buscando') { <p class="pg-comp-st" role="status">Buscando el pago de Kepler que le corresponde…</p> }
-              @if (compOcr(); as o) {
-                <dl class="pg-comp-ocr">
-                  <dt>Monto</dt><dd class="comm-num">{{ o.monto != null ? money(o.monto) : 'no se leyó' }}</dd>
-                  <dt>Fecha</dt><dd>{{ o.fecha || 'no se leyó' }}</dd>
-                  <dt>Beneficiario</dt><dd>{{ o.beneficiario || '—' }}</dd>
-                  @if (o.clave_rastreo) { <dt>Rastreo</dt><dd class="comm-num">{{ o.clave_rastreo }}</dd> }
-                </dl>
-              }
-              @if (compEstado() === 'listo' || compEstado() === 'guardando') {
-                @if (compCandidatos().length) {
-                  <p class="pg-comp-q">{{ compCandidatos().length === 1 ? '¿Es este pago?' : '¿Cuál de estos pagos es?' }}</p>
-                  <div class="pg-comp-cands" role="radiogroup" aria-label="Pago de Kepler">
-                    @for (p of compCandidatos().slice(0, 5); track p.sucursal + p.doc_prefix + p.folio) {
-                      <label class="pg-comp-cand" [class.is-sel]="compElegido() === p">
-                        <input type="radio" name="pg-comp-cand" [checked]="compElegido() === p" (change)="compElegido.set(p)" />
-                        <span class="pg-comp-c1"><b>{{ p.proveedor_nombre || p.proveedor_code }}</b> · {{ branchLabel(p.sucursal) }}</span>
-                        <span class="pg-comp-c2 comm-num">{{ p.doc_prefix }}-{{ p.folio }} · {{ p.pago_dia || p.pago_date }}@if (p.banco_nombre) { · {{ p.banco_nombre }} }</span>
-                        <span class="pg-comp-c3 comm-num">{{ money(p.monto) }}</span>
-                      </label>
-                    }
-                  </div>
-                  <button pButton type="button" class="pg-comp-ok" [disabled]="!compElegido() || compEstado() === 'guardando'" [loading]="compEstado() === 'guardando'" (click)="compAdjuntar()">
-                    @if (compElegido(); as e) { Adjuntar a {{ e.doc_prefix }}-{{ e.folio }} } @else { Elige el pago }
-                  </button>
-                } @else {
-                  <p class="pg-comp-st">No encontré en Kepler un pago con ese monto y fecha. Puede que todavía no se capture el pago en Kepler; cuando exista, se adjunta aquí o en «Pagos a proveedor».</p>
-                }
-              }
-            </section>
-          }
-          </app-side-peek>
-
           <!-- ── LOS PAGOS DEL DÍA: un renglón por pago ──
                [PGP.60] Se escribe UNA vez y se pinta en uno de dos lugares según el paso del día (no con
                CSS order: el teclado seguiría el orden viejo del DOM). -->
@@ -637,10 +595,6 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                     <span class="pi pi-plus" aria-hidden="true"></span>&nbsp;Agregar facturas <kbd class="pg-kbd" aria-hidden="true">/</kbd>
                   </button>
                 }
-                <!-- [PGP.69] El comprobante de pago, sin ir a «Pagos a proveedor». -->
-                <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [attr.aria-expanded]="panelComp()" (click)="abrirComprobante()">
-                  <span class="pi pi-paperclip" aria-hidden="true"></span>&nbsp;Comprobante
-                </button>
                 @if (allocations().length) {
                   <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" [loading]="printing()" (click)="printPreliminar()"><span class="pi pi-file-pdf" aria-hidden="true"></span>&nbsp;Preliminar</button>
                 }
@@ -1415,26 +1369,6 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-buscar:focus-within .pg-kbd { display:none; }
     /* [PGP.66] En el botón el atajo va EN LÍNEA: con el absolute del buscador se encimaba sobre «facturas». */
     .pg-sec-acts .pg-kbd { position:static; margin-left:var(--sp-1); }
-    /* [PGP.69] El panel del comprobante de pago: un recuadro para soltar el PDF, lo leído y el pago al que va. */
-    .pg-comp { display:grid; gap:var(--sp-3); }
-    .pg-comp-drop { display:flex; align-items:center; gap:var(--sp-2); padding:var(--sp-4); border:1.5px dashed var(--border-color);
-      border-radius:var(--r-md); color:var(--text-muted); font-size:var(--fs-sm); cursor:pointer; }
-    .pg-comp-drop:hover, .pg-comp-drop.is-drag { background:var(--overlay-hover); border-color:var(--text-main); color:var(--text-main); }
-    .pg-comp-drop:focus-within { outline:2px solid var(--focus-ring); outline-offset:2px; }
-    .pg-comp-drop .pi { font-size:var(--fs-lg); }
-    .pg-comp-err { display:flex; gap:var(--sp-1); align-items:center; margin:0; font-size:var(--fs-sm); color:var(--bad-soft-fg); }
-    .pg-comp-st { margin:0; font-size:var(--fs-sm); color:var(--text-muted); }
-    .pg-comp-ocr { display:grid; grid-template-columns:max-content 1fr; gap:2px var(--sp-3); margin:0; font-size:var(--fs-sm); }
-    .pg-comp-ocr dt { color:var(--text-muted); } .pg-comp-ocr dd { margin:0; color:var(--text-main); }
-    .pg-comp-q { margin:0; font-weight:600; font-size:var(--fs-sm); color:var(--text-main); }
-    .pg-comp-cands { display:grid; gap:var(--sp-1); }
-    .pg-comp-cand { display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:0 var(--sp-2); align-items:center; padding:var(--sp-2);
-      border:1px solid var(--border-color); border-radius:var(--r-sm); cursor:pointer; font-size:var(--fs-sm); }
-    .pg-comp-cand input { grid-row:1 / 3; }
-    .pg-comp-cand.is-sel { border-color:var(--text-main); background:var(--overlay-selected); }
-    .pg-comp-c2 { grid-column:2; color:var(--text-muted); font-size:var(--fs-xs); }
-    .pg-comp-c3 { grid-column:3; grid-row:1 / 3; font-weight:700; color:var(--text-main); }
-    .pg-comp-ok { justify-self:start; }
     .pg-lista-tg { margin-left:auto; font-size:var(--fs-sm); font-weight:600; color:var(--text-muted); gap:var(--sp-1); }
     .pg-alta { display:flex; align-items:center; gap:var(--sp-2); margin:0; padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border-color);
       font-size:var(--fs-sm); font-weight:600; color:var(--text-main); background:var(--surface-2); }
@@ -1921,84 +1855,12 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   abrirPronto(): void { this.panelAgregar.set(false); this.panelPronto.set(true); }
 
   /**
-   * `[PGP.69]` **El comprobante de pago se adjunta desde aquí** (Edgar, 2026-11-04: «un botón o
-   * apartado pequeño… optimizar el tener que ir a Pagos a proveedor»). Es el MISMO flujo de esa
-   * pestaña —guardar, leer con OCR, encontrar el pago de Kepler por monto/fecha/concepto, adjuntar—
-   * con el MISMO servicio y las MISMAS cargas: no hay endpoint nuevo ni otra regla de cuadre.
-   * Mismo permiso que ver Pagos (`FINANCE_PAYMENTS_VER`).
+   * `[PGP.71]` «Ver con diferencias» de la franja del comprobante: esa lista vive en «Pagos a
+   * proveedor», y se abre ya filtrada (`?estado=con_diferencias`) — no se repite aquí.
    */
-  private readonly comprobantes = inject(PagosComprobantesService);
-  readonly panelComp = signal(false);
-  readonly compArrastrando = signal(false);
-  readonly compNombre = signal<string | null>(null);
-  readonly compEstado = signal<'vacio' | 'leyendo' | 'buscando' | 'listo' | 'guardando'>('vacio');
-  readonly compError = signal<string | null>(null);
-  readonly compOcr = signal<DepositOcr | null>(null);
-  readonly compCandidatos = signal<PagoCandidate[]>([]);
-  readonly compElegido = signal<PagoCandidate | null>(null);
-  private compDatos: string | null = null;
-  private compArchivo: ProofFile | null = null;
-  abrirComprobante(): void { this.panelPronto.set(false); this.panelAgregar.set(false); this.panelComp.set(true); }
-  compSobre(ev: DragEvent): void { ev.preventDefault(); if (!this.compArrastrando()) this.compArrastrando.set(true); }
-  compFuera(ev: DragEvent): void { ev.preventDefault(); this.compArrastrando.set(false); }
-  compSoltar(ev: DragEvent): void {
-    ev.preventDefault(); this.compArrastrando.set(false);
-    const f = ev.dataTransfer?.files?.[0]; if (f) void this.compProcesar(f);
-  }
-  compElegirArchivo(ev: Event): void {
-    const input = ev.target as HTMLInputElement; const f = input.files?.[0]; input.value = '';
-    if (f) void this.compProcesar(f);
-  }
-  private async compProcesar(file: File): Promise<void> {
-    // El nombre también se limpia: rechazado un archivo, el recuadro no puede seguir mostrando el anterior.
-    this.compError.set(null); this.compOcr.set(null); this.compCandidatos.set([]); this.compElegido.set(null); this.compArchivo = null; this.compNombre.set(null); this.compEstado.set('vacio');
-    if (!(file.type === 'application/pdf' || /\.pdf$/i.test(file.name))) { this.compError.set(`«${file.name}» no es PDF: el comprobante de pago tiene que ser PDF.`); return; }
-    if (file.size > 10 * 1024 * 1024) { this.compError.set(`«${file.name}» pasa de 10 MB.`); return; }
-    this.compNombre.set(file.name);
-    this.compEstado.set('leyendo');
-    try {
-      this.compDatos = await new Promise<string>((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result || '')); r.onerror = () => rej(r.error); r.readAsDataURL(file); });
-      // Guardar y leer en paralelo, como en «Pagos a proveedor».
-      const [archivo, ocr] = await Promise.all([
-        firstValueFrom(this.comprobantes.uploadFile(this.compDatos, 'comprobante')),
-        firstValueFrom(this.comprobantes.ocr(this.compDatos)),
-      ]);
-      this.compArchivo = archivo; this.compOcr.set(ocr);
-      this.compEstado.set('buscando');
-      const { pagos } = await firstValueFrom(this.comprobantes.matchPago(ocr.monto, ocr.fecha, ocr.concepto));
-      const candidatos = pagos ?? [];
-      this.compCandidatos.set(candidatos);
-      // Uno solo y con el monto al peso: se propone elegido. Con dos o más, decide la persona.
-      const exactos = candidatos.filter((c) => ocr.monto != null && Math.abs(Number(c.monto) - Number(ocr.monto)) <= 1);
-      if (exactos.length === 1) this.compElegido.set(exactos[0]);
-      this.compEstado.set('listo');
-    } catch (e) {
-      this.compEstado.set('vacio');
-      this.compError.set(this.errMsg(e, 'No se pudo leer o guardar el comprobante. Intenta de nuevo.'));
-    }
-  }
-  async compAdjuntar(): Promise<void> {
-    const p = this.compElegido(); const archivo = this.compArchivo; const ocr = this.compOcr();
-    if (!p || !archivo) return;
-    this.compEstado.set('guardando');
-    try {
-      const res = await firstValueFrom(this.comprobantes.attach({
-        sucursal: p.sucursal, folio: p.folio, doc_prefix: p.doc_prefix,
-        files: [{ ...archivo, sha256: ocr?.sha256 }], ocr: ocr ?? undefined,
-      }));
-      this.toast.add({ severity: 'success', summary: 'Comprobante adjuntado', detail: `${p.doc_prefix}-${p.folio} · ${res.monto_match ? 'el monto cuadra' : 'guardado: revisa el monto'}` });
-      if (res.cuenta_propia === false) this.toast.add({ severity: 'warn', summary: 'Cuenta origen NO reconocida', detail: 'El pago no salió de una cuenta de la empresa.', life: 8000 });
-      if (res.ref_duplicada) this.toast.add({ severity: 'warn', summary: 'Clave de rastreo duplicada', detail: `Misma clave en: ${(res.ref_otros || []).join(', ')}`, life: 8000 });
-      this.compLimpiar();
-    } catch (e) {
-      this.compEstado.set('listo');
-      this.compError.set(this.errMsg(e, 'No se pudo adjuntar.'));
-    }
-  }
-  compLimpiar(): void {
-    this.compNombre.set(null); this.compOcr.set(null); this.compCandidatos.set([]); this.compElegido.set(null);
-    this.compError.set(null); this.compEstado.set('vacio'); this.compDatos = null; this.compArchivo = null;
-  }
+  private readonly router = inject(Router);
+  verComprobantesConDiferencias(): void { void this.router.navigate(['/finanzas/pagos-comprobantes'], { queryParams: { estado: 'con_diferencias' } }); }
+
   /** Abre el panel de agregar y lleva el foco al buscador (botón o tecla /). */
   abrirAgregar(): void { this.panelPronto.set(false); this.panelAgregar.set(true); this.enfocarBuscador(); }
   cerrarLista(): void {
