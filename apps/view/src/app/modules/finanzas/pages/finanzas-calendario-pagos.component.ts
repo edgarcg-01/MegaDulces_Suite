@@ -221,6 +221,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
             @for (d of week()?.days ?? []; track d.date) {
               <button type="button" class="pg-day"
                       [class.is-sel]="d.date === selectedDate()" [class.is-nocap]="!d.summary.capacity_defined"
+                      [class.is-vacio]="!d.summary.capacity_defined && !d.allocations.length"
                       [attr.aria-current]="d.date === selectedDate() ? 'true' : null"
                       [attr.aria-label]="dayAria(d)" (click)="openDay(d.date)">
                 <span class="pg-day-t">
@@ -1179,7 +1180,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-day:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
     /* El dia elegido: fondo y borde del color del TEXTO, no naranja. El naranja es del boton principal. */
     .pg-day.is-sel { background:var(--overlay-selected); border-color:var(--text-main); box-shadow:inset 0 -2px 0 var(--text-main); }
-    .pg-day.is-nocap { opacity:.7; }
+    /* [PGP.60] Era opacity:.7, y eso aclaraba también el texto: «sin tope» quedaba en 3.62:1 (claro) y
+       4.04:1 (oscuro), debajo del 4.5:1 de AA. Un día sin tope y sin pagos no se atenúa: se ANGOSTA
+       (decía «sin tope · —» ocupando lo mismo que un día con 30 pagos). */
+    .pg-day.is-vacio { flex:0 1 8rem; min-width:8rem; }
     .pg-day-t { display:flex; align-items:baseline; justify-content:space-between; gap:var(--sp-2); }
     .pg-day-n { font-size:var(--fs-sm); font-weight:700; text-transform:capitalize; color:var(--text-main); white-space:nowrap; }
     .pg-t { font-weight:400; color:var(--text-muted); font-size:var(--fs-sm); }
@@ -2995,14 +2999,15 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   capKpis(d: PaymentCalendarWeekDay): MetricStripItem[] {
     const s = d.summary;
     const libre = Number(s.remaining_amount ?? 0);
-    return [
+    // [PGP.49] «Libre -$950,840.35» se lee como algo que sobra: excedido, la cifra se nombraba «Excede».
+    // [PGP.60] Y excedido ya NO va en la tira: el veredicto lo dice en su título y la semana en su día
+    // (visto en captura el 2026-11-04: «$364,289.83» tres veces). Queda lo que el veredicto no dice: el %.
+    const items: MetricStripItem[] = [
       { label: 'Comprometido', value: Number(s.assigned_amount ?? 0), format: 'currency2', sub: `${this.usedPctRound(d)} % del tope` },
-      // [PGP.49] «Libre -$950,840.35» se lee como algo que sobra: excedido, la cifra se nombra así.
-      libre < 0
-        ? { label: 'Excede', value: -libre, format: 'currency2', tone: 'bad' }
-        : { label: 'Libre', value: libre, format: 'currency2', tone: 'default' },
-      { label: 'Tope del día', value: Number(s.authorized_amount ?? 0), format: 'currency2' },
     ];
+    if (libre >= 0) items.push({ label: 'Libre', value: libre, format: 'currency2', tone: 'default' });
+    items.push({ label: 'Tope del día', value: Number(s.authorized_amount ?? 0), format: 'currency2' });
+    return items;
   }
   prepared(a: PaymentCalendarAllocation): boolean { return isPrepared(a); }
   /** $1.95M · $197K · $3,465 — la franja necesita cifras cortas; el detalle va completo. */
