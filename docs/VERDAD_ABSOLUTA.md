@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 352 KB, 5237 líneas, 38 secciones.
+> **Índice navegable** — 355 KB, 5284 líneas, 38 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/VERDAD_ABSOLUTA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -41,10 +41,10 @@
 | 4370 | 4438 | 4 | 29. ⭐⭐ El anti-réplica de `kdm1` no filtra RÉPLICAS: filtra RUTAS — $5.87M fuera de seis vistas (CG, 2026-10-1 |
 | 4439 | 4733 | 21 | 30. ⭐⭐ `/compras/pedido`: el motor de compra no veía un CANAL ENTERO ($12.92M/30d) — y la misma pantalla leía  |
 | 4734 | 4951 | 13 | 31. ⭐⭐ UNIDADES DE MEDIDA: hay TRES unidades, no una — el árbitro cubre el 91.4 % y el 2.2 % que no cierra mue |
-| 4952 | 5061 | 7 | 32. ⭐⭐ LA COMISIÓN DE RUTA DIRECTA: seis números deciden un depósito, y ninguno tenía árbitro declarado (RD, 2 |
-| 5062 | 5107 | 5 | 33. ⭐⭐ EL LIBRO DE COMPRAS: el asiento tiene árbitro; qué facturas entran, todavía no (LC.19, 2026-10-21) |
-| 5108 | 5192 | 7 | 34. ⭐⭐ EL PRECIO DE UNA COTIZACIÓN: Kepler cobra la PRESENTACIÓN capturada (E.22–E.28, 2026-10-22) |
-| 5193 | 5287 | 8 | 35. ⭐⭐ EL PAGO A PROVEEDOR: cinco números distintos, cinco árbitros distintos (PGP, 2026-10-24) |
+| 4952 | 5108 | 10 | 32. ⭐⭐ LA COMISIÓN DE RUTA DIRECTA: seis números deciden un depósito, y ninguno tenía árbitro declarado (RD, 2 |
+| 5109 | 5154 | 5 | 33. ⭐⭐ EL LIBRO DE COMPRAS: el asiento tiene árbitro; qué facturas entran, todavía no (LC.19, 2026-10-21) |
+| 5155 | 5239 | 7 | 34. ⭐⭐ EL PRECIO DE UNA COTIZACIÓN: Kepler cobra la PRESENTACIÓN capturada (E.22–E.28, 2026-10-22) |
+| 5240 | 5334 | 8 | 35. ⭐⭐ EL PAGO A PROVEEDOR: cinco números distintos, cinco árbitros distintos (PGP, 2026-10-24) |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -5025,9 +5025,11 @@ que ya costaron dinero:
   (`activo_hasta = 2026-07-15`), recalcular las quincenas en que sí eran Ruta Directa daba **$0
   contra los $19,096.84 que el libro pagó en 5 quincenas**. *Una baja correcta reescribía la
   historia.*
-- ⭐ **La comisión sigue al TIPO DE RUTA, no al chofer** (decisión de Edgar, 2026-10-20). Las
-  321/322 operan hoy como `2V001`/`2V003`, vecinales. Que el chofer sea el mismo **no** las
-  devuelve a Ruta Directa — ésa es justamente la lectura que ya se equivocó una vez.
+- ~~⭐ **La comisión sigue al TIPO DE RUTA, no al chofer** (decisión de Edgar, 2026-10-20).~~
+  ⛔ **REVERTIDA el 2026-11-03 (Edgar): la comisión sigue al CHOFER**, con retroactivo al
+  2026-09-08 (`rd.universo.sigue_a`). 321 → `2V001` cobra con el tabulador de Ruta Directa aunque
+  su código sea vecinal; por eso la familia del tabulador va en la fila de «Quién cobra» y no se
+  deduce del código (`[RD.103.2]`, D-V2).
 
 ### 32.4 Lo que NO se puede medir, y por lo tanto se declara
 
@@ -5049,15 +5051,60 @@ quincena olvidada se viera normal.
 
 | | Hueco | Monto o tamaño |
 |---|---|---:|
-| **D7** | el acantilado de $189,999.99 | **9 filas · $26,932.74** |
+| **D7** | el acantilado de $189,999.99 | **9 filas · $26,932.74** — ⚠️ 2026-11-04: las 8 que el motor deja `bajo_umbral` en Q1–Q20 caen ahí **por días imputados o perdidos**, no por el corte: ver §32.6 |
 | **D3** | la línea del supervisor: su recibo se contradice | el libro tiene **238 líneas y las 238 son `chofer`** — el supervisor no aparece en ninguna |
 | **D5** | N quincenas y X % para promover el motor de auditor a pagador | sin fijar |
-| **D6** | quién calcula, quién aprueba y quién paga | hoy **un solo permiso** hace las tres |
-| — | las rutas vecinales: ¿comisionan? | **$2.2M en 30 días** sin configurar |
-| — | el contraste | **0 de 238** filas con el lado del motor |
+| ~~**D6**~~ | ~~quién calcula, quién aprueba y quién paga~~ | ✅ `[RD.101]`: quien calculó una corrida no la aprueba |
+| ~~—~~ | ~~las rutas vecinales: ¿comisionan?~~ | ✅ **sí** (Edgar, 2026-11-04); su regla es la del libro de Comercial, en código `[RD.103.2]`, sin estrenar |
+| ~~—~~ | ~~el contraste~~ | ✅ **238 de 238** con el lado del motor; explicado en §32.6 |
 
 > ⛔ **Mientras estos seis estén abiertos, «100 % por el motor» describe una meta, no un estado.**
 > El motor puede calcular; lo que todavía no puede es **defender** cada peso contra un testigo.
+
+### 32.6 ⭐⭐ El contraste, explicado peso por peso (2026-11-04)
+
+> **Medido contra prod** (sólo lectura, sid `7688376744939610156`) y contra el **diario** del
+> libro (`INDICADORES RD 2026.xlsx` › *CONCENTRADO DE INFORMACIÓN*, venta por ruta × día, leído
+> **con fórmulas**), cruzado día por día con `v_rd_commission_sales`.
+
+**El estado:** el motor ya tiene lado en las **238** filas de Q1–Q20. **161 cuadran al peso**;
+las 77 restantes suman **−$74,862** (el motor pagaría menos que el libro). Ninguna corrida del
+motor está aprobada ni pagada: lo pagado siguen siendo las 20 del libro, y del motor hay un
+borrador de Q21.
+
+**De dónde sale cada peso de las 77:**
+
+| Causa | Filas | Comisión | El testigo |
+|---|---:|---:|---|
+| **El libro COMPENSA ausencias**: el día que falta lo llena con `(mismo día de la semana, 1 + 2 + 3 semanas antes) / 3` — costo, subtotal y venta | 25 | **−$42,312** | la celda es una **fórmula**, no una cifra: el 23-feb, `F64 = (F48+F32+F16)/3` en las 10 rutas → 20,465.79667 |
+| **Hueco de la fuente**: venta real tecleada en el libro que nuestra ingesta no tiene | 7 | **−$32,187** | la 321 deja de replicar el **2026-06-02** (último corte de su Wincaja) y nunca entra al push; 21 y 26 tienen Wincaja hasta el 27-jun y push desde el 6-jul — **la semana del cambio se perdió** (también 28 el 26–27 jun y 322 el 2–4 jul) |
+| diferencias chicas de subtotal o redondeo | 45 | −$362 | — |
+
+⭐ **El 23 de febrero NO es un hueco de la ingesta, y se probó:** los folios de pago de las 12
+rutas son **continuos** entre el corte del sábado 21 y el del martes 24 (la 21 cierra en 4030 y
+abre en 4031). Ese día no hubo tickets: el libro lo **imputó**. *La primera hipótesis —«se
+perdió el día»— era la contraria, y la refutó la numeración del propio sistema, no una opinión.*
+
+⛔ **Lo que esto cambia:**
+
+- **La compensación por ausencia ya EXISTE: la aplica el libro, a mano y sin motivo registrado.**
+  Su regla real es **por día**, sobre la **venta del mismo día de la semana de las 3 semanas
+  anteriores** — no «el promedio de las 3 quincenas pagadas» que se propuso para
+  `rd.ausencia.ventana` / `rd.ausencia.base`. Esas preguntas se contestan con ESTA evidencia,
+  y el motor no paga lo mismo que el libro hasta que la regla sea un parámetro con motivo y
+  comprobante (`rd.ausencia.motivos`, `rd.ausencia.comprobante`).
+- **Los 7 huecos de la fuente no se recuperan desde el ODS**: no están en Wincaja, en el push ni
+  en Kepler. El único testigo es el libro de Comercial. Se **declaran** (`sin_dato_en_la_fuente`),
+  no se rellenan.
+- **D7 se mide de nuevo**: de las filas que el motor deja en cero por quedar bajo el primer escalón,
+  **ninguna** lo está sin un día imputado o perdido. El acantilado sigue siendo real en la tabla,
+  pero en Q1–Q20 no cobró a nadie por sí solo.
+
+> ⭐ **La verdad absoluta de comisiones RD, hoy:** cada peso de diferencia contra el libro tiene
+> UNA explicación con su testigo. Lo que falta para que el motor *pague* no es aritmética: es
+> **una regla de negocio** (la compensación, con motivo) y **una decisión** (D5: cuándo el motor
+> deja de auditar y paga). Las vecinales tienen regla en código y todavía ninguna versión
+> estrenada.
 
 ## 33. ⭐⭐ EL LIBRO DE COMPRAS: el asiento tiene árbitro; qué facturas entran, todavía no (LC.19, 2026-10-21)
 
