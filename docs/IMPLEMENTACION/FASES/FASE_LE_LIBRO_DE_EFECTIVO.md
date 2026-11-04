@@ -610,6 +610,38 @@ ella misma opera (V9).
 desde el teléfono (filas 2, 5, 9, 12, 14, 19 y los cuatro ojos). Un tercero arquea (20). Las rutas
 depositan solas (8). Nadie captura después.
 
+### 5.5 La reposición en la Ventanilla — la nueva forma de trabajar (PM, 2026-11-04)
+
+**Pedido literal** (Edgar, 2026-11-04): *«con reposición también, ¿cuál será la nueva forma de
+trabajar?»* → *«sí, hagámoslo»*. Baja §5.1 (E-28) a la operación de cada día, con la regla del PM
+del 29-oct: **un solo movimiento de la máquina paga la hoja entera de la zona**, y los pagos entran
+al libro en el mismo acto.
+
+| # | Quién | Qué hace | Qué hace el sistema |
+|---|---|---|---|
+| 1 | La sucursal | paga sus gastos con la venta del día y los registra en su Kepler (X-D-26), como hoy; sube el expediente | — |
+| 2 | Quien aprueba gastos | aprueba cada gasto en Aprobación de gastos (D27, D29) | lo que no tiene expediente aprobado no se repone |
+| 3 | — | — | **la hoja se arma sola** (LE.2.16): cada X-D-26 de la zona entra con su destino; lo que no se repone (compras, apoyo de proveedores) queda fuera con su motivo; el pago que llega tarde (p. ej. fechado al día siguiente) entra en la hoja siguiente, nunca se pierde |
+| 4 | Tesorería | revisa la hoja y la **aprueba en un acto** (D28, LE.2.15); es la única firma de la reposición (D27, D-R1) | sin la llave de caja no se aprueba (D23): ni la cuenta de plataforma ni la de Dirección |
+| 5 | La cajera | en la cola de la Ventanilla aparece **una fila** por hoja aprobada («Reposición <zona> · N pagos · total»): «Pagar» → código → la máquina da los billetes → cuenta las monedas por pieza → **firma quien lleva el depósito** | un asiento: un renglón por pago contra la bóveda y el cajón (E-28); el dinero queda **en custodia de quien lo lleva** (E-08) |
+| 6 | Quien lleva el depósito | lo deposita en el banco a la cuenta de la sucursal, por el total exacto de Kepler | la conciliación bancaria encuentra el depósito y cierra la custodia sola; si no aparece, se ve con su antigüedad y a nombre de quién está |
+
+**La nómina** («nom») va por el **mismo camino, con su propia hoja** (D36): mismo acto de aprobar,
+misma fila en la cola, mismo depósito.
+
+**Lo que desaparece:** la ventana de Reposición con «Por resolver / Sin retiro / Explicadas», la
+hoja abierta que alguien tiene que cerrar, ligar un retiro a mano (una reposición de Morelia costó
+21 capturas) y «Capturar lo que falta» (HG-5: pagada con 14 pagos fuera del libro). No queda ningún
+paso donde el dinero salga antes de que el libro lo sepa.
+
+**Si algo cambia después:** Kepler cancela un pago de una hoja pagada → reversa + hallazgo a nombre de
+quien pagó (E-25); un gasto rechazado antes de aprobar la hoja sale de ella solo; después, es un
+hallazgo con dueño. El gasto de oficinas no es reposición (D32): se paga directo, como cualquier pago.
+
+**Quién lleva el depósito** (D35): siempre una persona con nombre, de un catálogo firmado (LE.1.15).
+Hoy son **dos personas** que nombró el PM el 2026-11-04; sus nombres viven en el catálogo de la base
+y en el Tablero PM, **no en este repo público**.
+
 ## 6. Modelo de amenazas (qué puede salir mal y qué lo para)
 
 | Escenario | Control | Prueba |
@@ -778,6 +810,7 @@ contratos tipados en `libs/contracts`, emparejador con precisión publicada.
 | LE.2.13 | **Lo que respalda el pago lo dice Kepler, y UNA autorización basta** (PM, 2026-11-03: *«¿por qué volverlos a aprobar?»*, *«las compras ya se autorizan cuando se hace la compra»*). El servidor lee qué paga el X-D-26: gastos XA1001 (`kdm5`) con el vale de su solicitud, u órdenes de entrada A-20 (`kdxf`, con el importe de la entrada en `kdxe` y sin cargos cancelados). **Sale sin firma** si es una compra cuadrada sin entradas pagadas de más, o si cada gasto tiene su vale aprobado **por una persona** (`aprobado_at`; «validada» sólo por el cierre de Kepler no cuenta, GX.85). **No sale** (no se manda a firmar) si el gasto está rechazado, sin expediente o sin aprobar, o si lo aplicado no suma el importe. Firma Tesorería sólo lo que Kepler no respalda. Sin ODS el respaldo es NO MEDIDO y queda la regla del vale. Medido antes (prod, sólo lectura): de 4,068 X-D-26 de caja jul–oct, 1,206 pagan compras, 2,861 gastos y 1 nada; desde el 29-oct (cuando se empezó a guardar quién aprueba) 220 de 258 vales validados tienen persona y 38 los validó Kepler solo; 3 gastos rechazados en la Suite se pagaron igual | B3, B39 | 🧪 | `plan-de-pago.spec.ts` (16, con 6 negativas y mutante muerto) y `cashbook-ventanilla.servicio-real.spec.ts` contra Postgres con el payload de la pantalla (compra sin firma; pagada de más, sin aprobar, sin expediente y vale ajeno rechazados; mutante muerto); el SQL de las dos lecturas corrido TAL CUAL en prod con 5 testigos, <160 ms; el prototipo `e2e/ventanilla` ya trabaja así (primero lo que se puede pagar, lo detenido abajo con su porqué y dónde se arregla; 42 pruebas, 15 nuevas, mutante muerto) |
 | LE.2.14 | **«¿Dónde se entrega el dinero?» lo dice quien aprueba** (PM, 2026-11-03: el gasto de la gente de oficinas que va a una sucursal se carga a la sucursal pero se paga en oficinas; *«debería ir directo a Caja General»*). En la fila de `/finanzas/aprobacion-gastos`: sucursal o Caja General, propuesto solo (capturado en Kepler con un usuario `0…` y pedido por alguien sin sucursal → Caja General) y corregible. Decide a dónde va el pago: Caja General → la Ventanilla; sucursal → la hoja de su zona. Medido (oct, 383 pagos de gasto de la caja de una sucursal): 173 capturados en oficinas y pedidos por alguien sin sucursal, 24 capturados en oficinas por alguien de la sucursal, 186 capturados en la sucursal; HG-2, HG-3, HG-4 y HG-6 son hojas enteras de un gasto de oficinas. ⚠️ Kepler dice que esos viáticos salieron de la caja chica de la sucursal: el dato no sabe dónde se entregó el dinero, por eso se declara. `hr.employees` está vacía en prod | B4 | ⬜ | la propuesta contra los 383 de octubre; la hoja de zona deja de llevar lo de Caja General |
 | LE.2.15 | **La hoja de gastos se cierra y aprueba en un acto** (PM, 2026-11-03: *«la hoja que cierra y aprueba es la misma, así que sólo necesitamos autorizar»*). Hoy quien cerró no aprueba (cuatro ojos); con D27 cada gasto ya trae su aprobación, así que la hoja es el pago, no otra autorización | B4 | ⬜ | cerrar = aprobada; quien la paga sigue siendo otra persona |
+| LE.2.16 | **La hoja de reposición se arma sola** (§5.1, §5.5): una sola función pura en `libs/` da el destino de cada X-D-26 de efectivo (va en la hoja · ya explicado · no se repone con su motivo · anterior al arranque) y una vista de sólo lectura arma la hoja por zona; la de nómina, aparte (D36). El pago que llega tarde va a la hoja siguiente | E-28 | ⬜ | la hoja sale igual a las hojas en papel de 2 días medidos (al centavo); cada X-D-26 de 30 días con exactamente un destino (control de totales); un pago fechado al día siguiente cae en la hoja siguiente |
 
 **Criterio de salida**: cada evento del catálogo con regla y prueba; ningún tipo de CAOS «a medir»
 sin resolver; precisión del emparejador publicada.
@@ -872,6 +905,7 @@ quién la abre.
 | LE.6.5 | Por rendir y custodias **dentro de la cola**, con antigüedad y nombre (no una pestaña) | ⬜ | ídem |
 | LE.6.6 | Hallazgos y mayor: ventana desde la barra; todo total se abre hasta el asiento | ⬜ | ídem; < 500 ms |
 | LE.6.7 | **La Ventanilla hace todo el día de la cajera** (D34). Universo medido en `pg-prod` (sólo lectura) el 2026-11-04 sobre los movimientos vivos de `finance.cash_ledger` de 30 días: **784**, de los que **509 (65 %) son X-D-26** —lo único que la Ventanilla paga hoy—, **235 (30 %) cobros U-A-5**, **36 movimientos de CAOS** capturados a mano (todos en la semana del 12-oct; 0 desde el 19-oct), **3 anticipos X-D-60** y **2 manuales**; más **20 cortes**. Falta, en la misma cola: recibir el cobro de ruta (R3), los anticipos X-D-60, los movimientos de CAOS sin documento (Suspenso), la apertura con el saldo de arranque, el arqueo (LE.6.3), el cierre (LE.6.4) y las custodias (LE.6.5) | ⬜ | inventario de lo que hace Captura (cada acción de su pantalla y cada tipo de su cola de 30 días) con su lugar en la Ventanilla: **0 sin destino**; lo que no se muda, dicho y firmado por el PM |
+| LE.6.8 | **La reposición en la cola** (§5.5): una fila por hoja aprobada; «Pagar» da UN código para todo el retiro, monedas por pieza, firma quien lleva el depósito (catálogo D35) y el dinero queda en custodia a su nombre; la conciliación del depósito la cierra | ⬜ | pagar una hoja de 14 pagos = 1 código y 14 renglones en un asiento, contra base real con el payload de la pantalla; sin la llave no se aprueba ni se paga; depósito no encontrado → custodia visible con antigüedad |
 
 ### E7 · Cambio y retiro — operación
 
@@ -949,6 +983,8 @@ quién la abre.
 | D32 | **El gasto de oficinas** (LE.2.14) | Directo a Caja General; quien aprueba declara dónde se entrega el dinero, con la propuesta automática | ✅ decidida por el PM el 2026-11-03 |
 | D33 | **El libro viejo se congela** (LE.0.4) | Sólo arreglos que detengan un daño; el esfuerzo va a que la Ventanilla opere | ✅ decidida por el PM el 2026-11-03 (*«hagámoslo para ver qué tal el flujo de trabajo»*) |
 | D34 | **Un solo sistema: la Ventanilla no convive con Captura** (PM, 2026-11-04: *«no puede existir ventanilla y captura, debe ser un solo sistema»*) | La Ventanilla no tiene pestaña ni ruta publicada mientras no haga **todo** lo que hoy se hace en Captura (LE.6.7); el día del cambio (LE.7.2) toma `/finanzas/caja-general` con las mismas claves y Captura sale del menú **en el mismo acto**. Lo que cada rebanada corría «en paralelo» lo corre el libro en sombra (E5) con los hechos de Kepler y de la máquina, no la cajera en dos pantallas. ⚠️ Lo que se pierde es el ensayo con gente: por eso la reversa (LE.7.1) deja de ser opcional y se ensaya antes del cambio | ✅ decidida por el PM el 2026-11-04 |
+| D35 | **Quién lleva el depósito de la reposición** (§5.5) | Siempre una persona con nombre, de un catálogo firmado; el dinero queda en custodia a su nombre hasta que la conciliación encuentra el depósito | ✅ decidida por el PM el 2026-11-04: dos personas, nombradas en el catálogo (no en el repo) |
+| D36 | **La nómina («nom»)** (§5.5) | Mismo camino que la reposición, con su propia hoja | ✅ decidida por el PM el 2026-11-04 |
 
 ---
 
@@ -1027,3 +1063,4 @@ frescura.
 | 2026-11-03 | **LE.6.1 🔨 — la Ventanilla entra a la app.** El primer tramo: «Por pagar hoy» y pagar, sobre la regla de una sola autorización (LE.2.13). El veredicto se pide por lote porque uno por uno serían ~26 × 60 ms; el SQL es UNO (el pago de un documento usa el lote con un par). Va como pestaña de Caja con las claves de Captura, como decía el plan (la ruta definitiva se toma el día del cambio, LE.7.2). Lección: `node -e` con comillas invertidas dentro de comillas dobles en bash borró texto tres veces en la sesión; los textos con `` ` `` o `$` se escriben por archivo. |
 | 2026-11-04 | **D34 — un solo sistema.** El PM vio la Ventanilla como pestaña junto a Captura y lo rechazó: dos pantallas para el mismo dinero. Se quitan su pestaña y su ruta (el componente, la API y sus pruebas se quedan: son lo que toma `/finanzas/caja-general` el día del cambio). Medido para saber cuánto falta: de 784 movimientos de Captura en 30 días, la Ventanilla cubre los 509 X-D-26 (65 %); el resto es LE.6.7. El plan de §5.3 cambia de «por rebanada, con días en paralelo» a «por rebanada en el servidor, de un golpe en la pantalla». |
 | 2026-11-04 | **§5.4 — un día de la cajera, cada ingreso y egreso.** Pedido del PM: *«primero armemos todo; ponme ejemplo con todo tipo de ingreso o egreso»*. 23 situaciones con lo que hace la cajera, lo que hace el sistema, quién firma, el hecho del catálogo y su estado hoy. Es el guion de aceptación de LE.6.7: la Ventanilla está completa cuando el día entero se hace en ella. De las 23, 4 están en código (pagos a proveedor: sale ya, pide firma, detenido); el resto es lo que falta armar. |
+| 2026-11-04 | **§5.5 — la reposición en la Ventanilla.** El PM aprueba la nueva forma: la hoja se arma sola, Tesorería la aprueba en un acto (única firma), la cajera la paga con un solo código y queda en custodia de quien lleva el depósito hasta que el banco lo confirma. D35 (quién lleva el depósito: dos personas con nombre, en el catálogo y no en el repo) y D36 (nómina por el mismo camino, hoja propia). Items LE.2.16 y LE.6.8. |
