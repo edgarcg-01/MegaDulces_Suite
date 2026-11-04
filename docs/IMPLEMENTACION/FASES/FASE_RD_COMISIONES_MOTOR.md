@@ -1096,6 +1096,51 @@ Las preguntas de esta tabla ya viven ahí como 17 filas de `platform.business_de
 (`consumer = 'commercial.commissions'`), sin dueño todavía. `[RD.103]`–`[RD.106]` las LEEN; no
 las vuelven a preguntar.
 
+#### `[RD.106]` ⬜ La quincena se cierra DÍA POR DÍA (Edgar, 2026-11-04)
+
+> *«Ya sabemos la venta por día y podemos ir trabajando día por día.»* — Edgar, al ver la trampa
+> de Q22 (calcular el 4-nov congela el día a medias). La unidad de verificación es el **día de
+> ruta**, no la quincena: cada día se cierra contra un testigo cuando llega, y la quincena es la
+> suma de días ya cerrados.
+
+**C0 — medido el 2026-11-04 (prod, sólo lectura, `system_identifier` verificado).** Venta del
+motor (`v_rd_commission_sales`, por ruta y día) contra el **corte de caja de su camioneta**
+(Kepler `U-D-23`, `kdm1.c1` = almacén `01-00N` ↔ ruta 21·22·23·26·27·28, `c16` = `c42`):
+
+| | días de ruta | al peso | a ≤1 % | difieren | placebo (corte del día siguiente) al peso |
+|---|---:|---:|---:|---:|---:|
+| Q22 (22-oct a 3-nov), Padre Hidalgo | 66 | **63** | 1 | 2 (+$337, +$266) | **0** de 48 |
+| 1-sep a 3-nov, Padre Hidalgo | 160 con corte | **148** | 4 | 8 | **0** de 122 |
+
+- ⭐ **El testigo existe y es fuerte**: 95 % de los días cuadran al peso y el placebo da cero.
+- **Desde cuándo:** los cortes `U-D-23` de las camionetas de Padre Hidalgo empiezan el
+  **2 / 3 / 5-oct** (el cambio de cobro del 2-oct). Antes no hay testigo diario: 163 días de
+  septiembre tienen venta y no corte.
+- ⛔ **Canindo (501–505) no tiene `U-D-23` en el ODS** (sólo cobros en `route_collections`,
+  hasta el 29–31-oct): sus días se cerrarían «sin testigo» y así se declararían, nunca verde.
+- Las diferencias grandes de octubre son **redondas y con el corte arriba** (−$3,000 el 19-oct
+  en la 28, −$2,000 el 21-oct en la 22): parece efectivo que entra al corte sin ser venta.
+  Hipótesis, no medida.
+
+**Lo que se construye (C1→C3, después del pago de Q22):**
+
+| Estado del día de ruta | Cuándo |
+|---|---|
+| `falta` | la camioneta no mandó venta de ese día hábil |
+| `llego` | hay venta y todavía no hay corte (o cambió hace poco) |
+| `cerrado` | la venta cuadra al peso con el corte del día |
+| `cerrado_sin_testigo` | no hay corte con qué arbitrar (Canindo); se dice así |
+| `difiere` | hay corte y no cuadra: va a la bandeja con el monto |
+| `corregido` | cambió después de cerrarse, con su porqué |
+
+- El estado se recalcula **por evento** (llega venta o llega corte), no por reloj.
+- Cada mañana, los días de ayer que no cerraron van a la bandeja de «Mi trabajo» de quien los
+  arregla (por responsabilidad, no por permiso).
+- La quincena se aprueba cuando **todos** sus días están cerrados; con eso desaparece la trampa
+  de la hora (`to > hoy`) y el automático de las 07:30 deja de ser el que decide.
+- Lo que llega después de pagar va como **ajuste** a la quincena siguiente, nunca reescribe lo
+  pagado; el mismo ajuste registra lo pagado por fuera (`[RD.105]`).
+
 ### 9.5 Lo que necesita firma antes de que el motor pague
 
 | | Decisión | Por qué no la puedo tomar yo |
