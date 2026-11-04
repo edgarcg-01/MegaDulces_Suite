@@ -377,6 +377,36 @@ export type ResultadoCobro =
   | ({ estado: 'recibido'; entry_id: string } & CuentaDelCobro)
   | ({ estado: 'por_autorizar'; request_id: string; motivo: string } & CuentaDelCobro);
 
+// ── `[LE.6.7]` Suspenso: lo que la máquina hizo y nadie explicó (V2) ─────────────────────────
+
+/**
+ * Un movimiento de la máquina que el libro dejó en Suspenso. `haber` = entró dinero sin decir de
+ * quién (un depósito sin ruta); `debe` = salió sin orden (un retiro sin código, un vaciado sin
+ * destino). El importe y la dirección los lee el servidor del libro: nunca viajan desde la pantalla.
+ */
+export interface PartidaEnSuspenso {
+  /** `caos:<equipo>:<movimiento>`. */
+  event_ref: string;
+  entry_id: string;
+  esta_en: 'debe' | 'haber';
+  monto_minor: string;
+  fecha: string;
+  /** El movimiento de la máquina (`Deposito`, `Dispensar`…) y el texto que se tecleó en ella. */
+  movimiento: string | null;
+  texto: string | null;
+  /** El usuario de la máquina. Su empleado lo dirá el catálogo firmado (LE.1.15); hoy es el usuario. */
+  usuario_maquina: string | null;
+  motivo: string | null;
+}
+
+/** A dónde fue lo que estaba en Suspenso. La custodia llega con LE.6.5. */
+export type DestinoDeExplicacion = { tipo: 'ruta'; ruta: string } | { tipo: 'cajon' } | { tipo: 'transito' };
+
+export interface ExplicarSuspenso {
+  event_ref: string;
+  hacia: DestinoDeExplicacion;
+}
+
 /** Una orden que espera la firma de Tesorería, con todo lo que hace falta para decidir. */
 export interface OrdenPorFirmar {
   id: string;

@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { provideRouter } from '@angular/router';
 import { of, throwError } from 'rxjs';
-import type { EstadoDeCobro, PlanDePagoVentanilla, ResultadoCobro, SaldosDelLibro, VeredictoDePago } from '@megadulces/contracts';
+import type { EstadoDeCobro, PartidaEnSuspenso, PlanDePagoVentanilla, ResultadoCobro, SaldosDelLibro, VeredictoDePago } from '@megadulces/contracts';
 import { FinanzasCajaVentanillaComponent } from './finanzas-caja-ventanilla.component';
 import { CashLedgerService, type MovimientoPendiente, type PendientesResponse } from '../../cash-ledger.service';
 import { LibroEfectivoService } from '../../libro-efectivo.service';
@@ -58,7 +58,15 @@ const ESTADOS: EstadoDeCobro[] = [
   { origen_ref: '01-003|U-A-5|0000027|0011', tipo: 'ruta', ruta: '23', esperado_minor: '50000', recibido: true, motivo: null },
 ];
 
-function montar(opciones: { jornada?: string | null; saldosFalla?: boolean; gestionar?: boolean } = {}) {
+// `[LE.6.7]` Lo que la máquina hizo sin explicar: un depósito sin ruta y un retiro sin código.
+const SUSPENSO: PartidaEnSuspenso[] = [
+  { event_ref: 'caos:AST:1601', entry_id: 'e9', esta_en: 'haber', monto_minor: '250000', fecha: '2026-11-03T10:00:00Z', movimiento: 'Deposito',
+    texto: 'deposito varios', usuario_maquina: 'vendedor7', motivo: null },
+  { event_ref: 'caos:AST:1602', entry_id: 'e10', esta_en: 'debe', monto_minor: '100000', fecha: '2026-11-03T11:00:00Z', movimiento: 'Dispensar',
+    texto: null, usuario_maquina: 'vendedor7', motivo: 'retiro sin clasificar' },
+];
+
+function montar(opciones: { jornada?: string | null; saldosFalla?: boolean; gestionar?: boolean; suspenso?: PartidaEnSuspenso[] | 'falla' } = {}) {
   const ledger = { movimientosPendientes: vi.fn((f: { doc_tipo?: string }) => of(f.doc_tipo === 'U-A-5' ? COBROS : COLA)) };
   const libro = {
     saldos: vi.fn(() => (opciones.saldosFalla ? throwError(() => ({ status: 403 }))
@@ -69,6 +77,8 @@ function montar(opciones: { jornada?: string | null; saldosFalla?: boolean; gest
     pagar: vi.fn(() => of({ estado: 'pagado' as const, orden_id: 'o1', codigo: 'JAQD-8', maquina_minor: '1722000', cajon_minor: '1000',
       redondeo_minor: '0', entry_id: 'e1', vence: '2026-11-04T06:00:00Z' })),
     estadoDeCobros: vi.fn(() => of(ESTADOS)),
+    suspenso: vi.fn(() => (opciones.suspenso === 'falla' ? throwError(() => ({ status: 503 })) : of(opciones.suspenso ?? SUSPENSO))),
+    explicar: vi.fn(() => of({ estado: 'asentado' as const, entry_id: 'e11' })),
     recibir: vi.fn(() => of<ResultadoCobro>({ estado: 'recibido', entry_id: 'e2', tipo: 'ruta', ruta: '22', contado_minor: '180000',
       esperado_minor: '185000', diferencia_minor: '-5000', es_redondeo: false })),
   };
@@ -231,7 +241,7 @@ describe('[LE.2.13] la Ventanilla', () => {
 
   it('[LE.6.7] NEGATIVA: lo detenido no abre, y sin el día del libro no se recibe', () => {
     const { comp } = montar();
-    const detenido = comp.cobros().find((f) => f.estado === 'detenido')!;
+    const detenido = comp.cobros().filter((f) => f.estado === 'detenido')[0];
     comp.abrirCobro(detenido);
     expect(comp.recibiendo()).toBeNull();
     TestBed.resetTestingModule();
@@ -241,5 +251,53 @@ describe('[LE.2.13] la Ventanilla', () => {
     sinDia.piezasCobro.set({ 500: 1 });
     sinDia.entrega.set('Chofer');
     expect(sinDia.listoParaRecibir()).toBe(false);
+  });
+
+  // ── `[LE.6.7]` En Suspenso ───────────────────────────────────────────────────────────────
+
+  it('[LE.6.7] Suspenso va primero: lo que entró sin dueño y lo que salió sin orden, y su total arriba', () => {
+    const { el, comp } = montar();
+    const filas = [...el.querySelectorAll('tr[data-suspenso]')];
+    expect(filas.map((f) => f.getAttribute('data-suspenso'))).toEqual(['haber', 'debe']);
+    expect(filas[0].textContent).toContain('Entró sin decir de quién');
+    expect(filas[0].textContent).toContain('deposito varios');
+    expect(filas[1].textContent).toContain('Salió sin orden');
+    expect(comp.kpis()[0]).toMatchObject({ label: 'En Suspenso', value: 3500, tone: 'bad' });
+  });
+
+  it('[LE.6.7] explicar un depósito: a una ruta (con su número) o del cajón; NUNCA «al banco»', () => {
+    const { comp, libro } = montar();
+    comp.abrirSuspenso((comp.suspenso() ?? [])[0]);
+    comp.destino.set('transito');
+    expect(comp.listoParaExplicar()).toBe(false);            // un depósito no se fue al banco
+    comp.destino.set('ruta');
+    comp.rutaSuspenso.set('R41');
+    expect(comp.listoParaExplicar()).toBe(false);            // la ruta es su número
+    comp.rutaSuspenso.set(' 41 ');
+    expect(comp.listoParaExplicar()).toBe(true);
+    comp.explicar();
+    const [body, llave] = libro.explicar.mock.calls[0] as unknown as [Record<string, unknown>, string];
+    expect(body).toEqual({ event_ref: 'caos:AST:1601', hacia: { tipo: 'ruta', ruta: '41' } });
+    expect(llave).toMatch(/^[0-9a-f-]{36}$/);
+    expect(comp.resultadoSuspenso()).toEqual({ estado: 'asentado', entry_id: 'e11' });
+  });
+
+  it('[LE.6.7] NEGATIVA: un retiro no es de una ruta', () => {
+    const { comp } = montar();
+    comp.abrirSuspenso((comp.suspenso() ?? [])[1]);
+    comp.destino.set('ruta');
+    comp.rutaSuspenso.set('41');
+    expect(comp.listoParaExplicar()).toBe(false);
+    comp.destino.set('cajon');
+    expect(comp.listoParaExplicar()).toBe(true);
+  });
+
+  it('[LE.6.7] sin Suspenso lo dice en una línea; si no se pudo leer, lo declara (no lo pinta como vacío)', () => {
+    const vacio = montar({ suspenso: [] }).el;
+    expect(vacio.querySelector('[data-testid="suspenso-vacio"]')).not.toBeNull();
+    TestBed.resetTestingModule();
+    const falla = montar({ suspenso: 'falla' }).el;
+    expect(falla.querySelector('[data-testid="suspenso-error"]')).not.toBeNull();
+    expect(falla.querySelector('[data-testid="suspenso-vacio"]')).toBeNull();
   });
 });

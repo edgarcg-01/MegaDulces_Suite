@@ -28,15 +28,15 @@ import {
 import type { Knex } from 'knex';
 import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import {
-  centavosATexto, formatearDinero, pesosACentavos, valorDePiezas, warehouseName,
-  type CobroEnVentanilla, type CuentaDelCobro, type EstadoDeCobro, type OrdenPorFirmar, type PagoEnVentanilla, type PiezasTexto,
+  CUENTA, centavosATexto, formatearDinero, pesosACentavos, valorDePiezas, warehouseName,
+  type CobroEnVentanilla, type CuentaDelCobro, type EstadoDeCobro, type ExplicarSuspenso, type OrdenPorFirmar, type PartidaEnSuspenso, type ResultadoHecho, type PagoEnVentanilla, type PiezasTexto,
   type PlanDePagoVentanilla, type ResultadoCobro, type ResultadoPago, type VeredictoDePago,
 } from '@megadulces/contracts';
 import { traducirErrorDelLibro } from './errores';
 import {
   ARREGLO_DEL_BLOQUEO, MOTIVO_BLOQUEO, planDePago, veredictoDePago, type DocumentoAPagar, type PlanDePago, type Respaldo, type ValeElegido,
 } from './plan-de-pago';
-import { entregaRuta, otroIngreso, pagoDelCajon, type Contexto, type Propuesta } from './reglas';
+import { CUENTAS_FIJAS, clasificarSuspenso, entregaRuta, otroIngreso, pagoDelCajon, type Contexto, type Propuesta } from './reglas';
 import {
   clasificarCobro, eventoDeCobro, parDelCobro, type CobroClasificado, type FilaCobroRuta, type FilaCobroSucursal,
 } from './cobro-en-ventanilla';
@@ -159,6 +159,33 @@ export const SQL_COBROS_SUCURSAL = `
      AND sucursal = ANY(?::text[]) AND folio = ANY(?::text[])
      AND (sucursal, folio) IN (SELECT * FROM unnest(?::text[], ?::text[]))
    GROUP BY sucursal, folio`;
+
+/**
+ * `[LE.6.7]` Lo abierto en Suspenso: cada asiento de la máquina con saldo en `SUSPENSO_MXN`, sin
+ * reversa y sin explicación (ni asentada ni esperando firma), con el texto y el usuario de la
+ * máquina. ⚠️ NO MEDIDO en prod: el rol de lectura no lee `cashbook` (LE.5.8).
+ * Parámetros: `[tenant, ref|null, ref|null, tenant, tenant, tenant]`.
+ */
+export const SQL_SUSPENSO = `
+  WITH s AS (
+    SELECT e.id AS entry_id, e.event_ref, e.value_at, e.meta->>'motivo' AS motivo, sum(l.amount_minor) AS neto
+      FROM cashbook.entries e
+      JOIN cashbook.entry_lines l ON l.entry_id = e.id
+      JOIN cashbook.accounts a ON a.id = l.account_id
+     WHERE e.tenant_id = ? AND a.code = 'SUSPENSO_MXN' AND e.event_ref LIKE 'caos:%'
+       AND (?::text IS NULL OR e.event_ref = ?)
+       AND NOT EXISTS (SELECT 1 FROM cashbook.entries r WHERE r.reverses_entry_id = e.id)
+     GROUP BY e.id)
+  SELECT s.entry_id, s.event_ref, s.value_at::text AS value_at, s.neto::text AS neto, s.motivo, m.type_label, m.ref, m.user_external
+    FROM s
+    LEFT JOIN analytics.caos_cash_movements m ON m.tenant_id = ? AND m.device = split_part(s.event_ref, ':', 2)
+         AND m.external_id::text = split_part(s.event_ref, ':', 3)
+   WHERE s.neto <> 0
+     AND NOT EXISTS (SELECT 1 FROM cashbook.entries c WHERE c.tenant_id = ? AND c.event_kind = 'clasificar_suspenso'
+                       AND c.event_ref = 'clasifica:' || s.event_ref)
+     AND NOT EXISTS (SELECT 1 FROM cashbook.requests q WHERE q.tenant_id = ? AND q.state IN ('pendiente', 'autorizada')
+                       AND q.payload->>'event_ref' = 'clasifica:' || s.event_ref)
+   ORDER BY s.value_at, s.event_ref`;
 
 export interface FilaDocumento { folio: string; beneficiario: string; importe: string }
 export interface FilaVale { id: string; folio: string; status: string; importe: string; aprobado_at: string | null }
@@ -652,6 +679,96 @@ export class CashbookVentanillaService {
         return { estado: 'por_autorizar', request_id: r.rows[0].id as string, motivo: 'pasa el umbral de autorización', ...cuenta };
       }
     });
+  }
+
+  // ── `[LE.6.7]` Suspenso: lo que la máquina hizo y nadie explicó (V2) ──────────────────────
+
+  /** Lo abierto en Suspenso, lo más viejo primero; con `ref`, sólo ese movimiento. */
+  private async enSuspenso(trx: Knex.Transaction, tenantId: string, ref: string | null): Promise<PartidaEnSuspenso[]> {
+    const filas = (await trx.raw(SQL_SUSPENSO, [tenantId, ref, ref, tenantId, tenantId, tenantId])).rows as
+      Array<{ entry_id: string; event_ref: string; value_at: string; neto: string; motivo: string | null;
+        type_label: string | null; ref: string | null; user_external: string | null }>;
+    return filas.map((f) => ({
+      event_ref: f.event_ref, entry_id: f.entry_id, esta_en: BigInt(f.neto) > 0n ? 'debe' : 'haber',
+      monto_minor: (BigInt(f.neto) < 0n ? -BigInt(f.neto) : BigInt(f.neto)).toString(), fecha: f.value_at,
+      movimiento: f.type_label, texto: f.ref, usuario_maquina: f.user_external, motivo: f.motivo,
+    }));
+  }
+
+  /** Lo que está en Suspenso y nadie ha explicado (ni con una explicación esperando firma). */
+  async suspenso(): Promise<PartidaEnSuspenso[]> {
+    return this.run((trx, tenantId) => this.enSuspenso(trx, tenantId, null));
+  }
+
+  /**
+   * Explicar un movimiento en Suspenso: a qué ruta era el depósito, o que fue (o venía) del cajón,
+   * o que se fue al banco. El importe y la dirección los lee el servidor del libro; las piezas del
+   * cajón son las del movimiento de la máquina (V7: el cajón se mueve por pieza).
+   */
+  async explicar(body: ExplicarSuspenso, usuario: UsuarioDelLibro, idempotencyKey: string | undefined): Promise<ResultadoHecho> {
+    const quien = this.quien(usuario);
+    const key = this.llave(idempotencyKey);
+    const ref = String(body?.event_ref ?? '').trim();
+    if (!/^caos:[^:]+:\d+$/.test(ref)) throw new BadRequestException({ codigo: 'movimiento_invalido', mensaje: 'Se explica un movimiento de la máquina (caos:equipo:número).' });
+    const hacia = body?.hacia;
+    if (!hacia || !['ruta', 'cajon', 'transito'].includes(hacia.tipo)) {
+      throw new BadRequestException({ codigo: 'destino_invalido', mensaje: 'A dónde fue: una ruta, el cajón o el banco.' });
+    }
+    if (hacia.tipo === 'ruta' && !/^\d{1,4}$/.test(String(hacia.ruta ?? '').trim())) {
+      throw new BadRequestException({ codigo: 'ruta_invalida', mensaje: 'La ruta es su número.' });
+    }
+    return this.run(async (trx, tenantId) => {
+      const previa = (await trx.raw(`
+        SELECT 'asentado' AS estado, id::text AS id, event_ref FROM cashbook.entries WHERE tenant_id = ? AND request_id = ?
+        UNION ALL
+        SELECT 'por_autorizar', id::text, payload->>'event_ref' FROM cashbook.requests WHERE tenant_id = ? AND request_id = ?`,
+      [tenantId, key, tenantId, key])).rows[0] as { estado: 'asentado' | 'por_autorizar'; id: string; event_ref: string } | undefined;
+      if (previa) {
+        if (previa.event_ref !== `clasifica:${ref}`) {
+          throw new ConflictException({ codigo: 'cashbook_peticion_reusada', mensaje: 'Esa petición ya se registró con otro contenido.' });
+        }
+        return previa.estado === 'asentado' ? { estado: 'asentado', entry_id: previa.id }
+          : { estado: 'por_autorizar', request_id: previa.id, motivo: 'pasa el umbral de autorización' };
+      }
+      const p = (await this.enSuspenso(trx, tenantId, ref))[0];
+      if (!p) throw new ConflictException({ codigo: 'no_esta_en_suspenso', mensaje: 'Ese movimiento no está en Suspenso: ya se explicó, o nunca estuvo.' });
+      if (hacia.tipo === 'ruta' && p.esta_en !== 'haber') {
+        throw new UnprocessableEntityException({ codigo: 'destino_no_corresponde', mensaje: 'Sólo un depósito es de una ruta: esto salió de la máquina.' });
+      }
+      if (hacia.tipo === 'transito' && p.esta_en !== 'debe') {
+        throw new UnprocessableEntityException({ codigo: 'destino_no_corresponde', mensaje: 'Al banco sólo va lo que salió de la máquina: esto entró.' });
+      }
+      const piezas = hacia.tipo === 'cajon' ? await this.piezasDeLaMaquina(trx, p.entry_id) : undefined;
+      if (hacia.tipo === 'cajon' && !piezas) {
+        throw new UnprocessableEntityException({ codigo: 'sin_piezas', mensaje: 'La máquina no dejó sus piezas en ese movimiento: no se pasa al cajón sin contarlo.' });
+      }
+      const cuenta = hacia.tipo === 'ruta' ? CUENTA.porRendirRuta(String(hacia.ruta).trim())
+        : hacia.tipo === 'cajon' ? CUENTAS_FIJAS.CAJA_MXN : CUENTAS_FIJAS.TRANSITO_BANCO;
+      const ctx: Contexto = { actor: { kind: 'persona', user_id: quien }, valueAt: new Date().toISOString(), requestId: key };
+      const prop = clasificarSuspenso({ eventRefOriginal: ref, monto: p.monto_minor, estaEn: p.esta_en, hacia: cuenta, piezas }, ctx);
+      for (const a of prop.cuentas) await trx.raw('SELECT cashbook.open_account(?::jsonb)', [JSON.stringify({ ...a, user_id: quien })]);
+      await trx.raw('SAVEPOINT le_explicar');
+      try {
+        const id = (await trx.raw('SELECT cashbook.post_entry(?::jsonb) AS id', [JSON.stringify(prop.asiento)])).rows[0].id as string;
+        await trx.raw('RELEASE SAVEPOINT le_explicar');
+        return { estado: 'asentado', entry_id: id };
+      } catch (e) {
+        await trx.raw('ROLLBACK TO SAVEPOINT le_explicar');
+        if ((e as { constraint?: string }).constraint !== 'cashbook_requiere_autorizacion') throw e;
+        const r = await trx.raw(`SELECT cashbook.create_request(?::jsonb, clock_timestamp() + interval '72 hours') AS id`, [JSON.stringify(prop.asiento)]);
+        return { estado: 'por_autorizar', request_id: r.rows[0].id as string, motivo: 'pasa el umbral de autorización' };
+      }
+    });
+  }
+
+  /** Las piezas que movió la máquina en ese asiento, en positivo (la regla les pone el signo). */
+  private async piezasDeLaMaquina(trx: Knex.Transaction, entryId: string): Promise<PiezasTexto | undefined> {
+    const filas = (await trx.raw(`
+      SELECT p.denom_key, abs(p.pieces)::text AS n
+        FROM cashbook.entry_lines l JOIN cashbook.accounts a ON a.id = l.account_id
+        JOIN cashbook.entry_pieces p ON p.line_id = l.id
+       WHERE l.entry_id = ? AND a.code = 'BOVEDA_CAOS' AND l.currency = 'MXN'`, [entryId])).rows as { denom_key: string; n: string }[];
+    return filas.length ? Object.fromEntries(filas.map((f) => [f.denom_key, f.n])) : undefined;
   }
 
   /** El cobro que ya registró esta llave (asiento o solicitud), con lo que se contestó la primera vez. */

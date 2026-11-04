@@ -9,7 +9,9 @@ import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
-import { SUCURSAL_CAJA_GENERAL, valorDePiezas, type PlanDePagoVentanilla, type ResultadoCobro, type ResultadoPago } from '@megadulces/contracts';
+import {
+  SUCURSAL_CAJA_GENERAL, valorDePiezas, type PartidaEnSuspenso, type PlanDePagoVentanilla, type ResultadoCobro, type ResultadoHecho, type ResultadoPago,
+} from '@megadulces/contracts';
 import { LoadStateComponent } from '../../../../shared/components/load-state/load-state.component';
 import { FreshnessPillComponent } from '../../../../shared/components/freshness-pill/freshness-pill.component';
 import { MetricStripComponent, type MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
@@ -92,6 +94,41 @@ type EstadoLibro = 'abierto' | 'sin_dia' | 'sin_medir';
           <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
           No se pudo leer el libro nuevo: al pagar, el servidor dirá si se puede.
         </p>
+      }
+
+      <!-- [LE.6.7] Primero lo que la máquina hizo sin orden (§5.2, V2): es lo que no puede esperar al cierre. -->
+      @if (errorSuspenso()) {
+        <p class="vt-aviso vt-aviso--mal" role="alert" data-testid="suspenso-error">{{ errorSuspenso() }}</p>
+      } @else if (suspenso(); as sp) {
+        @if (sp.length) {
+          <section class="vt-sec vt-sec--primera" aria-labelledby="vt-suspenso">
+            <h2 id="vt-suspenso" class="vt-h2">En Suspenso <span class="muted">· lo que la máquina hizo y nadie explicó</span></h2>
+            <p-table [value]="sp" size="small" dataKey="event_ref" class="dt-stack vt-tbl" data-testid="suspenso">
+              <ng-template #header>
+                <tr>
+                  <th scope="col">Qué pasó</th><th scope="col">Lo que se tecleó</th><th scope="col">Usuario de la máquina</th>
+                  <th scope="col">Cuándo</th><th scope="col" class="ta-r">Importe</th><th scope="col"><span class="sr-only">Explicar</span></th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-p>
+                <tr [attr.data-suspenso]="p.esta_en">
+                  <td data-label="Qué pasó">{{ p.esta_en === 'haber' ? 'Entró sin decir de quién' : 'Salió sin orden' }}
+                    <span class="vt-motivo">{{ p.movimiento ?? 'movimiento de la máquina' }}</span></td>
+                  <td data-label="Lo que se tecleó">{{ p.texto || '(nada)' }}</td>
+                  <td data-label="Usuario de la máquina">{{ p.usuario_maquina ?? '—' }}</td>
+                  <td class="num" data-label="Cuándo">{{ dmy(p.fecha) }}</td>
+                  <td class="ta-r num dt-num" data-label="Importe">{{ minor(p.monto_minor) }}</td>
+                  <td class="ta-r" data-label="Explicar">
+                    <p-button size="small" severity="secondary" [outlined]="true" label="Explicar" [disabled]="!puedePagar()"
+                              [ariaLabel]="'Explicar el movimiento ' + p.event_ref" (onClick)="abrirSuspenso(p)" />
+                  </td>
+                </tr>
+              </ng-template>
+            </p-table>
+          </section>
+        } @else {
+          <p class="vt-pie muted" data-testid="suspenso-vacio">Nada en Suspenso: todo lo que hizo la máquina está explicado.</p>
+        }
       }
 
       <app-load-state [loading]="cargando() && !cola()" [error]="error()" [isEmpty]="!!cola() && !filas().length" [skeletonRows]="6"
@@ -234,6 +271,45 @@ type EstadoLibro = 'abierto' | 'sin_dia' | 'sin_medir';
       </ng-template>
     </p-dialog>
 
+    <p-dialog [visible]="!!explicando()" (visibleChange)="!$event && cerrarSuspenso()" [modal]="true" [draggable]="false"
+              [style]="{ width: '34rem' }" header="Explicar un movimiento de la máquina">
+      @if (explicando(); as p) {
+        <p class="vt-quien">{{ p.esta_en === 'haber' ? 'Entraron' : 'Salieron' }} <b class="num">{{ minor(p.monto_minor) }}</b>
+          · {{ p.movimiento ?? 'movimiento' }} · «{{ p.texto || 'sin texto' }}» · usuario {{ p.usuario_maquina ?? '—' }}</p>
+        @if (resultadoSuspenso(); as r) {
+          <p class="vt-resultado" role="status" data-testid="resultado-suspenso">
+            {{ r.estado === 'asentado' ? 'Explicado: ya salió de Suspenso.' : 'Pasa el umbral: la explicación espera la firma de otra persona.' }}
+          </p>
+        } @else {
+          <fieldset class="vt-destinos">
+            <legend class="vt-lbl">{{ p.esta_en === 'haber' ? '¿De quién era este dinero?' : '¿A dónde fue este dinero?' }}</legend>
+            @if (p.esta_en === 'haber') {
+              <label class="vt-destino"><input type="radio" name="vt-dest" [checked]="destino() === 'ruta'" (change)="destino.set('ruta')" />
+                De la ruta <input pInputText class="vt-ruta" [ngModel]="rutaSuspenso()" (ngModelChange)="rutaSuspenso.set($event)"
+                                  inputmode="numeric" aria-label="Número de ruta" placeholder="número" /></label>
+              <label class="vt-destino"><input type="radio" name="vt-dest" [checked]="destino() === 'cajon'" (change)="destino.set('cajon')" />
+                Venía del cajón (se depositó lo de la ventanilla)</label>
+            } @else {
+              <label class="vt-destino"><input type="radio" name="vt-dest" [checked]="destino() === 'cajon'" (change)="destino.set('cajon')" />
+                Fue al cajón</label>
+              <label class="vt-destino"><input type="radio" name="vt-dest" [checked]="destino() === 'transito'" (change)="destino.set('transito')" />
+                Se fue al banco</label>
+            }
+          </fieldset>
+          <p class="vt-respalda muted">Si se lo llevó una persona para algo que todavía no tiene documento, va a su custodia (todavía no está en la Ventanilla).</p>
+          @if (errorExplicar()) { <p class="vt-aviso vt-aviso--mal" role="alert">{{ errorExplicar() }}</p> }
+        }
+      }
+      <ng-template #footer>
+        @if (resultadoSuspenso()) {
+          <p-button label="Listo" (onClick)="cerrarSuspenso()" />
+        } @else {
+          <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="cerrarSuspenso()" />
+          <p-button label="Explicar" [disabled]="!listoParaExplicar()" [loading]="enviandoSuspenso()" (onClick)="explicar()" />
+        }
+      </ng-template>
+    </p-dialog>
+
     <p-dialog [visible]="!!pagando()" (visibleChange)="!$event && cerrar()" [modal]="true" [draggable]="false"
               [style]="{ width: '36rem' }" [header]="pagando() ? 'Pagar X-D-26 ' + pagando()!.doc.folio : ''">
       @if (pagando(); as f) {
@@ -322,6 +398,10 @@ type EstadoLibro = 'abierto' | 'sin_dia' | 'sin_medir';
     .vt-h2 { margin: 0 0 var(--sp-2); font-size: var(--fs-md, 1.05rem); font-weight: 600; }
     .vt-h2 .muted { font-weight: 400; font-size: var(--fs-sm); }
     .vt-opciones { display: flex; gap: var(--sp-2); flex-wrap: wrap; margin-bottom: var(--sp-2); }
+    .vt-sec--primera { margin: 0 0 var(--sp-4); }
+    .vt-destinos { border: 0; margin: 0 0 var(--sp-2); padding: 0; display: grid; gap: var(--sp-2); }
+    .vt-destino { display: flex; gap: var(--sp-2); align-items: center; font-size: var(--fs-sm); }
+    .vt-ruta { width: 6rem; }
   `],
 })
 export class FinanzasCajaVentanillaComponent implements OnInit {
@@ -350,6 +430,26 @@ export class FinanzasCajaVentanillaComponent implements OnInit {
   /** Una llave por intento: un doble clic o un reintento no paga dos veces. */
   private llave = '';
 
+  // `[LE.6.7]` En Suspenso.
+  readonly suspenso = signal<PartidaEnSuspenso[] | null>(null);
+  readonly errorSuspenso = signal<string | null>(null);
+  readonly explicando = signal<PartidaEnSuspenso | null>(null);
+  readonly destino = signal<'ruta' | 'cajon' | 'transito' | null>(null);
+  readonly rutaSuspenso = signal('');
+  readonly enviandoSuspenso = signal(false);
+  readonly errorExplicar = signal<string | null>(null);
+  readonly resultadoSuspenso = signal<ResultadoHecho | null>(null);
+  private llaveSuspenso = '';
+  /** Cada destino sólo con su dirección: a una ruta sólo lo que entró; al banco sólo lo que salió. */
+  readonly listoParaExplicar = computed(() => {
+    const p = this.explicando();
+    const d = this.destino();
+    if (!p || !d || !this.puedePagar() || this.enviandoSuspenso()) return false;
+    if (d === 'ruta') return p.esta_en === 'haber' && /^\d{1,4}$/.test(this.rutaSuspenso().trim());
+    if (d === 'transito') return p.esta_en === 'debe';
+    return true;
+  });
+
   // `[LE.6.7]` Por recibir.
   readonly cargandoCobros = signal(false);
   readonly errorCobros = signal<string | null>(null);
@@ -371,7 +471,7 @@ export class FinanzasCajaVentanillaComponent implements OnInit {
   readonly contadoCobro = computed(() => valorDePiezas(Object.fromEntries(Object.entries(this.piezasCobro()).filter(([, n]) => Number(n) > 0)), 'MXN'));
   /** Las plantillas no tienen literales `bigint`: la comparación vive aquí. */
   readonly hayContado = computed(() => this.contadoCobro() > 0n);
-  readonly listoParaRecibir = computed(() => this.modoCobro() === 'cajon' && !!this.recibiendo() && this.recibiendo()!.estado === 'recibible'
+  readonly listoParaRecibir = computed(() => this.modoCobro() === 'cajon' && this.recibiendo()?.estado === 'recibible'
     && this.puedePagar() && !this.enviandoCobro() && this.contadoCobro() > 0n && !!this.entrega().trim());
   readonly cajon = computed(() => Number(this.plan()?.cajon_minor ?? 0) / 100);
   readonly listoParaPagar = computed(() => {
@@ -385,7 +485,12 @@ export class FinanzasCajaVentanillaComponent implements OnInit {
   readonly kpis = computed<MetricStripItem[]>(() => {
     const r = resumenCola(this.filas());
     const rc = this.resumenCobros();
+    const sp = this.suspenso() ?? [];
+    const enSuspenso = sp.reduce((s, p) => s + Number(p.monto_minor), 0) / 100;
     return [
+      // Sólo cuando hay algo: es lo primero que se resuelve, y en cero no decide nada (Q.1).
+      ...(sp.length ? [{ label: 'En Suspenso', value: enSuspenso, format: 'currency2' as const,
+        sub: `${sp.length} · la máquina sin explicar`, tone: 'bad' as const }] : []),
       { label: 'Se pagan ya', value: r.pagable.monto, format: 'currency2', sub: `${r.pagable.n} ${r.pagable.n === 1 ? 'documento' : 'documentos'}`, tone: 'default' },
       { label: 'Piden la firma de Tesorería', value: r.firma.monto, format: 'currency2', sub: `${r.firma.n} · Kepler no dice qué pagan`, tone: r.firma.n ? 'warn' : 'muted' },
       { label: 'Detenidos', value: r.detenido.monto, format: 'currency2', sub: `${r.detenido.n} · se arreglan donde se autorizan`, tone: r.detenido.n ? 'bad' : 'muted' },
@@ -418,6 +523,12 @@ export class FinanzasCajaVentanillaComponent implements OnInit {
       next: ({ c, v }) => { this.cola.set(c); this.filas.set(armarCola(c.rows, v)); this.cargando.set(false); },
       error: (e) => { this.error.set(this.mensaje(e, 'No se pudo leer la cola.')); this.cargando.set(false); },
     });
+    // `[LE.6.7]` Suspenso, aparte: si no se puede leer, se dice; nunca se pinta como «nada en Suspenso».
+    this.errorSuspenso.set(null);
+    this.libroApi.suspenso().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (s) => this.suspenso.set(s),
+      error: (e) => { this.suspenso.set(null); this.errorSuspenso.set(this.mensaje(e, 'No se pudo leer qué hay en Suspenso.')); },
+    });
     // `[LE.6.7]` Lo que entra, aparte: si una de las dos colas falla, la otra se sigue viendo.
     this.cargandoCobros.set(true);
     this.errorCobros.set(null);
@@ -431,6 +542,35 @@ export class FinanzasCajaVentanillaComponent implements OnInit {
       },
       error: (e) => { this.errorCobros.set(this.mensaje(e, 'No se pudo leer qué hay por recibir.')); this.cargandoCobros.set(false); },
     });
+  }
+
+  abrirSuspenso(p: PartidaEnSuspenso): void {
+    this.explicando.set(p);
+    this.destino.set(null);
+    this.rutaSuspenso.set('');
+    this.resultadoSuspenso.set(null);
+    this.errorExplicar.set(null);
+    this.llaveSuspenso = uuidV4();
+  }
+
+  explicar(): void {
+    const p = this.explicando();
+    const d = this.destino();
+    if (!p || !d || !this.listoParaExplicar()) return;
+    this.enviandoSuspenso.set(true);
+    this.errorExplicar.set(null);
+    const hacia = d === 'ruta' ? { tipo: 'ruta' as const, ruta: this.rutaSuspenso().trim() } : { tipo: d };
+    this.libroApi.explicar({ event_ref: p.event_ref, hacia }, this.llaveSuspenso).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.resultadoSuspenso.set(r); this.enviandoSuspenso.set(false); },
+      error: (e) => { this.errorExplicar.set(this.mensaje(e, 'No se explicó.')); this.enviandoSuspenso.set(false); },
+    });
+  }
+
+  cerrarSuspenso(): void {
+    const hecho = !!this.resultadoSuspenso();
+    this.explicando.set(null);
+    this.resultadoSuspenso.set(null);
+    if (hecho) this.cargar();
   }
 
   abrirCobroFila(data: FilaCobro | FilaCobro[] | undefined): void {

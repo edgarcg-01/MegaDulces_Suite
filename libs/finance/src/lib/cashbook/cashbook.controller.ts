@@ -2,7 +2,7 @@ import { Body, Controller, Get, Headers, Param, Post, Query, Req, UseGuards } fr
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import type {
-  CobroEnVentanilla, ConteoDeCaja, EstadoDeCobro, HechoDePersona, OrdenPorFirmar, PagoEnVentanilla, PlanDePagoVentanilla,
+  CobroEnVentanilla, ConteoDeCaja, EstadoDeCobro, ExplicarSuspenso, HechoDePersona, OrdenPorFirmar, PagoEnVentanilla, PartidaEnSuspenso, PlanDePagoVentanilla,
   ResultadoCobro, ResultadoConteo, ResultadoHecho, ResultadoPago, SaldosDelLibro, VeredictoDePago,
 } from '@megadulces/contracts';
 import { CashbookService, type UsuarioDelLibro } from './cashbook.service';
@@ -150,6 +150,20 @@ export class CashbookController {
   @ApiOperation({ summary: '[LE.6.7] Recibe un cobro contado por pieza (Idempotency-Key obligatoria): de ruta contra lo que debe rendir, de sucursal como otro ingreso; la diferencia se declara' })
   recibirCobro(@Body() body: CobroEnVentanilla, @Headers('idempotency-key') key: string | undefined, @Req() req: AuthedRequest): Promise<ResultadoCobro> {
     return this.ventanilla.recibir(body, this.user(req), key);
+  }
+
+  @Get('suspenso')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: '[LE.6.7] Lo que la máquina hizo y nadie explicó (depósitos sin ruta, retiros sin código), lo más viejo primero (no escribe)' })
+  suspenso(): Promise<PartidaEnSuspenso[]> {
+    return this.ventanilla.suspenso();
+  }
+
+  @Post('suspenso/explicar')
+  @RequirePermissions(Permission.FINANCE_CAJA_GESTIONAR)
+  @ApiOperation({ summary: '[LE.6.7] Explica un movimiento en Suspenso (a una ruta, al cajón o al banco; Idempotency-Key obligatoria): importe y dirección los lee el servidor del libro' })
+  explicarSuspenso(@Body() body: ExplicarSuspenso, @Headers('idempotency-key') key: string | undefined, @Req() req: AuthedRequest): Promise<ResultadoHecho> {
+    return this.ventanilla.explicar(body, this.user(req), key);
   }
 
   @Get('ordenes/por-firmar')

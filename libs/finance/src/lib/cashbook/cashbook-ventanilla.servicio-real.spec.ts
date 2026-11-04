@@ -8,6 +8,7 @@ import {
   CashbookVentanillaService, type FilaDocumento, type FilaDocumentoLote, type FilaRespaldoCompra, type FilaRespaldoGasto, type FilaVale,
 } from './cashbook-ventanilla.service';
 import type { FilaCobroRuta, FilaCobroSucursal } from './cobro-en-ventanilla';
+import { esSinRegla, movimientoCaos } from './reglas';
 
 /**
  * `[LE.4.10]` — La Ventanilla contra Postgres, con el payload de la pantalla (regla 13): pagar con
@@ -402,5 +403,78 @@ describe.skipIf(!URL)('[LE.4.10] la Ventanilla contra Postgres', () => {
     expect(e[0].motivo).toContain('varias rutas');
     expect(e[1]).toMatchObject({ tipo: 'detenido', esperado_minor: null });
     expect(await rechazo(v.estadoDeCobros(Array.from({ length: 201 }, (_, i) => `07|U-A-5|${i}|0011`)))).toEqual({ status: 400, codigo: 'demasiados_documentos' });
+  });
+
+  // ── `[LE.6.7]` Suspenso: explicar lo que la máquina hizo sin decir para qué ─────────────────
+
+  const DEV = `LE67-${Date.now().toString(36)}`;
+  /** Un movimiento de la máquina, sembrado en `analytics` y asentado por la regla real, como lo haría el carril. */
+  const maquina = async (id: number, typeId: number, label: string, piezas: Array<[number, number]>, ref: string | null) => {
+    const tk = new TenantKnexService(knex, { requireTenantId: () => T } as unknown as TenantContextService);
+    const occurred = new Date(Date.now() - 600_000).toISOString();
+    const total = piezas.reduce((s, [d, q]) => s + d * q, 0);
+    return tk.run(async (trx) => {
+      const [row] = await trx('analytics.caos_cash_movements').insert({ tenant_id: T, device: DEV, external_id: id, type_id: typeId,
+        type_label: label, occurred_at: occurred, total, ref, user_external: 'vendedor7', _row_hash: `${DEV}-${id}` }).returning('id');
+      for (const [d, q] of piezas) await trx('analytics.caos_cash_denominations').insert({ tenant_id: T, movement_id: row.id, denom: d, pieza_tipo: 'B', quantity: q });
+      const p = movimientoCaos({ device: DEV, external_id: id, type_id: typeId, type_label: label, occurred_at: occurred, total, ref,
+        user_external: 'vendedor7', piezas: piezas.map(([d, q]) => ({ denom: d, pieza_tipo: 'B', quantity: q })) },
+      { actor: { kind: 'servicio', service: 'libro-caos' }, valueAt: occurred });
+      if (esSinRegla(p)) throw new Error(p.motivo);
+      for (const c of p.cuentas) await trx.raw('SELECT cashbook.open_account(?::jsonb)', [JSON.stringify(c)]);
+      await trx.raw('SELECT cashbook.post_entry(?::jsonb)', [JSON.stringify(p.asiento)]);
+    });
+  };
+
+  it('[LE.6.7] un depósito sin ruta queda en Suspenso; se explica a qué ruta era, y sale de Suspenso una vez', async () => {
+    if (!hay) return;
+    await maquina(1, 0, 'Deposito', [[500, 5]], 'deposito varios');
+    const REF = `caos:${DEV}:1`;
+    const p = (await v.suspenso()).find((x) => x.event_ref === REF);
+    expect(p).toMatchObject({ esta_en: 'haber', monto_minor: '250000', movimiento: 'Deposito', texto: 'deposito varios', usuario_maquina: 'vendedor7' });
+
+    const antes = await saldo('POR_RENDIR:RUTA:41');
+    const key = randomUUID();
+    const r = await v.explicar({ event_ref: REF, hacia: { tipo: 'ruta', ruta: '41' } }, CAJERA, key);
+    expect(r.estado).toBe('asentado');
+    expect(antes - (await saldo('POR_RENDIR:RUTA:41'))).toBe(250000n);   // la ruta ya rindió esos $2,500
+    expect((await v.suspenso()).some((x) => x.event_ref === REF)).toBe(false);
+
+    // Reintento con la misma llave: lo mismo. NEGATIVAS: otra llave, y la misma llave con otro movimiento.
+    expect(await v.explicar({ event_ref: REF, hacia: { tipo: 'ruta', ruta: '41' } }, CAJERA, key)).toEqual(r);
+    expect(await rechazo(v.explicar({ event_ref: REF, hacia: { tipo: 'ruta', ruta: '41' } }, CAJERA, randomUUID())))
+      .toEqual({ status: 409, codigo: 'no_esta_en_suspenso' });
+    expect(await rechazo(v.explicar({ event_ref: `caos:${DEV}:9`, hacia: { tipo: 'cajon' } }, CAJERA, key)))
+      .toEqual({ status: 409, codigo: 'cashbook_peticion_reusada' });
+  });
+
+  it('[LE.6.7] un retiro sin código: no es de una ruta; si fue al cajón, entra con las piezas de la máquina', async () => {
+    if (!hay) return;
+    await maquina(2, 0, 'Deposito', [[500, 4]], 'ruta 41 041126');   // con ruta: NO va a Suspenso
+    expect((await v.suspenso()).some((x) => x.event_ref === `caos:${DEV}:2`)).toBe(false);
+    await maquina(3, 4, 'Dispensar', [[500, 2]], null);
+    const REF = `caos:${DEV}:3`;
+    expect((await v.suspenso()).find((x) => x.event_ref === REF)).toMatchObject({ esta_en: 'debe', monto_minor: '100000' });
+    expect(await rechazo(v.explicar({ event_ref: REF, hacia: { tipo: 'ruta', ruta: '41' } }, CAJERA, randomUUID())))
+      .toEqual({ status: 422, codigo: 'destino_no_corresponde' });
+
+    const caja = (await libro.saldos(true)).cuentas.find((c) => c.code === 'CAJA_MXN');
+    const r = await v.explicar({ event_ref: REF, hacia: { tipo: 'cajon' } }, CAJERA, randomUUID());
+    expect(r.estado).toBe('asentado');
+    expect((await saldo('CAJA_MXN')) - BigInt(caja?.balance_minor ?? '0')).toBe(100000n);
+    // El cajón ganó exactamente las dos piezas de $500 que dio la máquina (V7).
+    const despues = (await libro.saldos(true)).cuentas.find((c) => c.code === 'CAJA_MXN');
+    expect(BigInt(despues?.piezas?.['500'] ?? '0') - BigInt(caja?.piezas?.['500'] ?? '0')).toBe(2n);
+  });
+
+  it('[LE.6.7] NEGATIVAS de Suspenso: cada falta con su código', async () => {
+    if (!hay) return;
+    expect(await rechazo(v.explicar({ event_ref: 'X-D-26|1', hacia: { tipo: 'cajon' } }, CAJERA, randomUUID()))).toEqual({ status: 400, codigo: 'movimiento_invalido' });
+    expect(await rechazo(v.explicar({ event_ref: `caos:${DEV}:1`, hacia: { tipo: 'custodia' } as never }, CAJERA, randomUUID())))
+      .toEqual({ status: 400, codigo: 'destino_invalido' });
+    expect(await rechazo(v.explicar({ event_ref: `caos:${DEV}:1`, hacia: { tipo: 'ruta', ruta: 'R41' } }, CAJERA, randomUUID())))
+      .toEqual({ status: 400, codigo: 'ruta_invalida' });
+    expect(await rechazo(v.explicar({ event_ref: `caos:${DEV}:1`, hacia: { tipo: 'cajon' } }, CAJERA, undefined)))
+      .toEqual({ status: 400, codigo: 'sin_idempotency_key' });
   });
 });

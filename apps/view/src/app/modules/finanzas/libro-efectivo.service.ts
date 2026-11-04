@@ -2,7 +2,8 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import type {
-  CobroEnVentanilla, EstadoDeCobro, PagoEnVentanilla, PlanDePagoVentanilla, ResultadoCobro, ResultadoPago, SaldosDelLibro, VeredictoDePago,
+  CobroEnVentanilla, EstadoDeCobro, ExplicarSuspenso, PagoEnVentanilla, PartidaEnSuspenso, PlanDePagoVentanilla, ResultadoCobro,
+  ResultadoHecho, ResultadoPago, SaldosDelLibro, VeredictoDePago,
 } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
 import { reintentarSi429 } from '../../core/utils/reintentar-429';
@@ -45,6 +46,16 @@ export class LibroEfectivoService {
   estadoDeCobros(docs: readonly string[]): Observable<EstadoDeCobro[]> {
     return this.http.get<EstadoDeCobro[]>(`${this.base}/cobros/estado`, { params: new HttpParams().set('docs', docs.join(',')) })
       .pipe(reintentarSi429<EstadoDeCobro[]>());
+  }
+
+  /** `[LE.6.7]` Lo que la máquina hizo y nadie explicó, lo más viejo primero. */
+  suspenso(): Observable<PartidaEnSuspenso[]> {
+    return this.http.get<PartidaEnSuspenso[]>(`${this.base}/suspenso`).pipe(reintentarSi429<PartidaEnSuspenso[]>());
+  }
+
+  /** `[LE.6.7]` Explica un movimiento en Suspenso. El importe lo lee el servidor del libro. */
+  explicar(body: ExplicarSuspenso, idempotencyKey: string): Observable<ResultadoHecho> {
+    return this.http.post<ResultadoHecho>(`${this.base}/suspenso/explicar`, body, { headers: new HttpHeaders({ 'Idempotency-Key': idempotencyKey }) });
   }
 
   /** `[LE.6.7]` Recibe un cobro contado por pieza. Misma regla de la llave que `pagar`: un reintento no recibe dos veces. */
