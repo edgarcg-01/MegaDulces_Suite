@@ -1,6 +1,6 @@
 ---
 name: auditoria-diseno
-description: Protocolo para AUDITAR una pantalla ya construida de esta suite (no para construirla — eso es la skill `diseno`). Los seis cruces que ninguna compuerta hace, la disciplina de instrumento y los tres niveles de evidencia. OBLIGATORIO antes de decir que una pantalla está bien, mal, "es un asco" o "quedó limpia". También (§9) para revisar el PLAN de una fase antes de construir su interfaz: observaciones de diseño con severidad que se agregan al doc de fase. Se invoca con auditar, auditoría, revisar pantalla, review de UI, "está feo", "no se entiende", "qué le falta a esta pantalla", legibilidad, QA de frontend, observaciones de diseño al plan, revisión de diseño de una fase, rediseño.
+description: Protocolo para AUDITAR una pantalla ya construida de esta suite (no para construirla — eso es la skill `diseno`). Los seis cruces que ninguna compuerta hace, la disciplina de instrumento, los tres niveles de evidencia y (§3d) la tabla de valores numéricos que comparten diseño y desarrollo — contraste, escala tipográfica, espaciado, alturas, color, carga, movimiento y tiempos — con su veredicto por capa. OBLIGATORIO antes de decir que una pantalla está bien, mal, "es un asco" o "quedó limpia". También (§9) para revisar el PLAN de una fase antes de construir su interfaz: observaciones de diseño con severidad que se agregan al doc de fase. Se invoca con auditar, auditoría, revisar pantalla, review de UI, "está feo", "no se entiende", "qué le falta a esta pantalla", legibilidad, QA de frontend, observaciones de diseño al plan, revisión de diseño de una fase, rediseño.
 ---
 
 # Auditoría de diseño — el protocolo
@@ -195,7 +195,7 @@ y **la tabla completa —qué exige cada una al generar y qué se mira al audita
 
 ---
 
-## 3c. ⛔⛔ La ficha de las tres capas que se saltan: carga, comprensión, accesibilidad
+## 3c. ⛔⛔ La ficha de las capas que se saltan: carga, comprensión, accesibilidad, retrabajo
 
 Los seis cruces de §3 traen procedimiento, y los seis son de **veracidad y alcance**. Carga visual,
 comprensión y accesibilidad sólo aparecían como nombres de capa, sin instrumento. **Lo que tiene
@@ -269,9 +269,107 @@ que proteger. §7 pide «cuánto cuesta en la unidad del negocio»; aquí la uni
 5. **Objetivos táctiles de ≥44 px** con puntero `coarse`; **`forced-colors`**, que con nivel C se
    declara NO MEDIDO.
 
+**Cuánto de accesibilidad está cubierto** (contado el 2026-11-04 sobre `VALORES.md` §2): de **24
+parámetros, 3 tienen compuerta** — `check:estilos` (que el anillo de foco exista), `check:teclado`
+(filas operables) y `check:pantalla` P/TBL (ayuda en un `title`, sólo advertencia). El contraste
+tiene el script de arriba, que se corre a mano. **Nunca se midieron** `forced-colors`, zoom, reflujo
+a 320 px ni lector de pantalla; en el repo no hay axe, pa11y ni Lighthouse.
+
+### Retrabajo — se cuenta en el PROCESO, no en la vista
+
+Agregado el **2026-11-04** (Edgar). Retrabajo es todo lo que obliga a la persona a **hacer dos
+veces lo mismo**: volver a capturar, corregir después, reintentar un envío, confirmar lo que el
+sistema ya sabía. No se ve en una captura de la vista de entrada: aparece al recorrer el proceso
+entero (§5 paso 6), y por eso se salta.
+
+| Variable | Cómo se mide | Qué lo vuelve hallazgo |
+|---|---|---|
+| **Perder lo capturado** | teclear algo y salir por el menú, por `Esc` y recargando | sale sin preguntar «¿Descartar cambios sin guardar?» |
+| **Doble envío** | doble clic rápido en cada botón que escribe | se manda dos veces, o el botón no se apaga en el **primer** clic |
+| **Lote parcial** | forzar una falla en 1 de N (simulando la respuesta, con escrituras bloqueadas) | se reporta como falla total, o los que fallaron **no quedan seleccionados** para reintentar |
+| **Dato pedido dos veces** | listar cada dato que la persona teclea en el proceso | uno ya estaba capturado o el sistema ya lo sabía (WCAG 3.3.7) |
+| **Corregir después** | meter `1,250.00`, `$1250`, un espacio al final, un RFC mal | se rechaza lo que se entiende, o el error llega **al enviar** y no al salir del campo |
+| **Clics que sólo confirman** | contar los clics del proceso con **N registros**, separando los que deciden | hay clics que confirman algo que el sistema ya sabía (caso: Pagos, 30 → 6) |
+| **Proceso que no termina** | comparar los endpoints del controlador con los que llama la pantalla | una acción existe en el backend y la pantalla no la ofrece (caso: `fallo` y `cerrar`) |
+
+⛔ **Hoy el retrabajo se audita sólo en la pantalla, a mano.** No existe una métrica de retrabajo
+medida en producción: lo pendiente está en §8. Un hallazgo de retrabajo cuesta **en clics, en
+capturas repetidas o en registros duplicados**, y ésa es su unidad para §7 punto 3. Perder o
+duplicar trabajo es 🔴 en el veredicto de §3d.
+
 ⛔ **Sin pantalla viva, la ficha se entrega igual.** Contraste, aria, color solo, términos y
 repeticiones salen del código y de una captura. Lo que de verdad pide nivel A (px reales, recorrido
-con teclado, `forced-colors`, lector de pantalla) va en una línea **«NO MEDIDO»**, nunca se omite.
+con teclado, `forced-colors`, lector de pantalla, el recorrido de retrabajo) va en una línea
+**«NO MEDIDO»**, nunca se omite.
+
+---
+
+## 3d. ⭐ La tabla de valores — el contrato entre diseño y desarrollo
+
+Nace el **2026-11-04** de un pedido de Edgar: los parámetros de evaluación, **con los valores que
+usa un diseñador** al entregar y que un dev puede comprobar. Hasta hoy los umbrales estaban
+repartidos en `tokens.css`, `DESIGN.md` (1,704 líneas) y el estándar; quien evaluaba los recordaba
+a medias o los sacaba de la literatura general, que en varios casos **no es el valor de esta suite**
+(el clásico «LCP < 2.5 s» contra la regla de Edgar: **una consulta de más de 500 ms no funciona**).
+
+**Dónde están los valores:** en [`VALORES.md`](VALORES.md), junto a esta skill — **leelo entero
+antes de evaluar**, no por grep. Son 18 secciones: veracidad · contraste y accesibilidad ·
+visibilidad · jerarquía y tipografía · espacio y responsivo · capas · color · tablas · formularios
+· texto y formatos · carga · movimiento · gráficas · IA · rendimiento · pruebas con personas · las
+**12 contradicciones entre fuentes** · lo que todavía no tiene instrumento.
+
+Cada renglón trae **Pasa** (el valor que lo aprueba), **Nivel** (la evidencia mínima, §1),
+**Instrumento** (qué lo comprueba hoy) y **Fuente** (la ley que cobra, §7 punto 4).
+
+⭐ **La columna Instrumento es la que más enseña:** de **165 renglones, 132 se comprueban sólo a
+mano** (contado el 2026-11-04). Una compuerta en verde no prueba el renglón — casi todas miden **presencia** de una
+pieza, no que la pieza diga la verdad. Y tres instrumentos que parecen cubrir algo no corren:
+`check:pantalla` no está en el CI, y `check-voseo.js` y `check-sucursal-pipe.js` no están
+conectados a ningún carril.
+
+⛔ **Los valores que más se equivocan de memoria** (los dos primeros los equivocó esta misma
+sección el día que nació):
+
+- el anillo de foco va con **`--focus-ring`**; `--action-ring` es el halo y como `outline` da 1.44:1;
+- `--action` en claro es **`#C8401A`** (5.00:1 con blanco) desde el 2026-10-26, no el sunset `#F05A28` (3.39:1);
+- la consulta de carga es **< 500 ms**, no el «LCP < 2.5 s» de la literatura;
+- el oscuro de Operations es zinc **`#09090B` / `#18181B`**, no el `#111111` que todavía dice `DESIGN.md`.
+
+### Lo que el diseño entrega para que esto se pueda evaluar
+
+Un diseño (en Figma, en Stitch o en papel) que llega sin esto **no se puede evaluar contra la
+tabla**, y lo que falte se va a inventar al construirlo:
+
+1. **Las cinco preguntas de [`diseno` §0b](../diseno/SKILL.md)**, contestadas por escrito, y la
+   prueba de la frase.
+2. **Primario · secundario · terciario** nombrados, con su token `--fs-*` / `--fw-*`.
+3. **Sólo tokens**: ningún color, espacio, radio o duración fuera de las escalas de `VALORES.md`.
+4. **Todos los estados**: `hover` · `focus-visible` · `active` · `disabled` · cargando · vacío ·
+   falló · dato añejo · lote parcial. El camino feliz solo no se evalúa.
+5. **Claro, oscuro y `forced-colors`**, y la variante `pointer: coarse` si la usa `apps/vendor`.
+6. **El proceso entero con N registros**, no la vista de entrada con uno (§5 paso 6).
+7. **El texto literal**, en tuteo: títulos, vacíos con su acción, errores con «Reintentar»,
+   sucursales por nombre. Un «Lorem ipsum» o un «No data found» en el diseño se vuelve el texto final.
+8. **Los casos de borde dibujados**: un monto de 8 dígitos, un nombre de 80 caracteres, la lista
+   vacía, la lista topada («10 de 428») y el ancho de 390 px.
+
+### El veredicto — por capa, nunca un promedio
+
+⛔ **No se calcula un puntaje global.** Un promedio deja que diez renglones visuales en verde tapen
+una cifra falsa, que es exactamente lo que el estándar prohíbe: *una pantalla hermosa que publica
+un número falso ya hizo daño*. El veredicto se da por capa y en orden:
+
+| Resultado | Cuándo |
+|---|---|
+| 🔴 **No pasa** | **cualquier** ✗ en Veracidad (§1); un ✗ en Visibilidad que esconde lo que define el estado (§3); un ✗ en Formularios que **pierde o duplica trabajo** (cambios sin guardar, doble clic, lote parcial reportado como total); o IA que actúa sola sobre dinero (§14) → bloquea pasar C3 a 🚀 (§9) |
+| 🟠 **Pasa con deuda** | ✗ en Contraste y accesibilidad, Jerarquía, Color, Tablas, el resto de Formularios, Texto, Carga, Gráficas o Rendimiento: se arregla en la fase |
+| 🟡 **Pasa con deuda menor** | ✗ sólo en Espacio, Capas o Movimiento: deuda con nombre |
+| ✓ **Pasa** | ningún ✗ **y** los NO MEDIDO escritos, con su nivel faltante |
+
+Los números de sección son los de `VALORES.md`.
+
+⚠️ Un informe con todos los renglones en ✓ y ningún NO MEDIDO, hecho sin pantalla viva, **es falso
+por construcción**: la mitad de la tabla pide nivel A.
 
 ---
 
@@ -318,8 +416,10 @@ Y dos corolarios que ya costaron:
 general, estructura, colores, jerarquía de información; no puedes basar tu diseño en pequeñas
 cosas»*). Antes de cualquier acento o ratio suelto, contesta con la pantalla viva:
 
-0. **Las cinco preguntas de [`diseno` §0b](../diseno/SKILL.md)**, contestadas por escrito ANTES de
-   lo demás: qué debe ver el usuario y en qué orden · qué no · qué accesibilidad necesita la
+0. **El análisis de propósito de [`diseno` §0a](../diseno/SKILL.md)** (los doce pasos: propósito,
+   quién entra, estado real medido, mapa de desglose…), con el ejemplo resuelto de Pagos. Una
+   auditoría que no sabe para qué existe la pantalla audita celdas. Dentro de él van **las cinco
+   preguntas de [`diseno` §0b](../diseno/SKILL.md)**, contestadas por escrito ANTES de lo demás: qué debe ver el usuario y en qué orden · qué no · qué accesibilidad necesita la
    información · si está ligada a otro proceso (¿se ve el folio de origen y de destino?) · si este
    proceso la debe ver. *Caso (2026-10-29): `/compras/oc-abiertas` arrancaba por la orden más vieja y
    no decía de qué requisición salía cada OC; se auditó la celda y no se hizo esta pregunta.*
@@ -350,8 +450,10 @@ cosas»*). Antes de cualquier acento o ratio suelto, contesta con la pantalla vi
    - **Visibilidad:** cuenta lo que está plegado al entrar y cuánto texto esconde; el texto cortado
      con «…»; y las cifras que animan (un conteo de 900 ms publica montos que no existen).
    - **Desglose:** todo total tiene que abrirse a sus renglones sin salir de la pantalla.
-8. **La ficha de §3c** —carga, comprensión y accesibilidad, con cifra—, en **todo** informe. Es la
+8. **La ficha de §3c** —carga, comprensión, accesibilidad y retrabajo, con cifra—, en **todo** informe. Es la
    parte que se salta cuando nadie la pide, y es la que dice si la pantalla abruma.
+9. **La tabla de valores de §3d**, renglón por renglón (✓ · ✗ · NO MEDIDO), y su **veredicto por
+   capa**. Es lo que permite que un diseñador y un dev lleguen a la misma conclusión.
 
 Los detalles (acentos, un ratio, 10 px) van **después**, como síntomas de esto. *El caso:
 `/finanzas/calendario-pagos` — se entregaron 12 detalles y no se dijo que el veredicto medía 14 px
@@ -424,8 +526,8 @@ Cada uno lleva las cuatro, o no se entrega:
 
 ⛔ **Y lo que no se pudo medir se DECLARA, nunca se dibuja como cero ni como verde** (ADR-056).
 
-⛔ **El informe no está completo sin la ficha de §3c**, aunque ninguno de sus renglones traiga
-pesos. En carga y comprensión, el punto 3 («cuánto cuesta») se dice en conteos: *«“31 pagos”
+⛔ **El informe no está completo sin la ficha de §3c ni la tabla de §3d con su veredicto por
+capa**, aunque ninguno de sus renglones traiga pesos. En carga y comprensión, el punto 3 («cuánto cuesta») se dice en conteos: *«“31 pagos”
 repetido 6 veces»*, *«avisos de error a 2.15:1»*.
 
 ---
@@ -461,6 +563,23 @@ Declarado para que nadie lo dé por hecho:
   · Hick: `⌘K` con 20+ destinos) y ninguna tiene instrumento.
   ⭐ **El primer candidato ya está nombrado por el Cruce 1**: *toda cifra publicada en un encabezado
   tiene que poder recorrerse en su lista*. Esa sola habría cazado las 148 filas invisibles.
+- **Accesibilidad automática** — 3 de 24 parámetros con compuerta (§3c). ⭐ **La propuesta más
+  barata:** `@axe-core/playwright` dentro de las pruebas e2e de Playwright que ya existen
+  (`e2e/`). Cubriría de una vez contraste calculado sobre lo pintado, etiquetas, ARIA y `scope` de
+  tablas. ⚠️ Esas pruebas corren a mano y no están en el CI: conectar axe sin conectarlas no frena
+  nada. Pendiente de decidir; no hay item en el tracker.
+- **Métrica de retrabajo en producción** — **no existe** (Edgar, 2026-11-04: medirla). Tres
+  señales propuestas, ninguna medida todavía; todas en sólo lectura contra prod:
+
+  | Señal | Dónde | Qué tiene que resolverse antes de creerla |
+  |---|---|---|
+  | **Envíos rechazados**: tasa de 4xx por ruta que escribe (`POST`/`PUT`/`PATCH`) | `analytics.ui_usage` (`fecha · metodo · ruta · role_name → hits, errores_4xx`); lector: `.claude/skills/pm/uso.js` | ⚠️ el 4xx **no distingue el código**: un 400/422 (validación) es retrabajo, un 401/403/404 casi nunca. Hipótesis hasta separar por código |
+  | **Correcciones**: registros cancelados, revertidos o editados poco después de crearse | las tablas de cada módulo | primero averiguar qué tablas guardan el estado y **la fecha del cambio**; sin esa fecha no se puede medir |
+  | **Duplicados**: el mismo registro capturado dos veces en minutos | las tablas de cada módulo | definir «el mismo» por tabla (folio, importe, persona, hora) y probarlo con un control negativo |
+
+  El entregable sería **una lista de pantallas ordenada por retrabajo medido**, para auditar a mano
+  primero donde más cuesta. ⛔ Hasta que exista, «esta pantalla no genera retrabajo» **no se puede
+  afirmar**: se escribe NO MEDIDO.
 
 ---
 
