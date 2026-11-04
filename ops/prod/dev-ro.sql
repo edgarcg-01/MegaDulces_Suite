@@ -70,7 +70,7 @@ DO $$
 DECLARE s text; mv record;
 BEGIN
   FOREACH s IN ARRAY ARRAY[
-    'analytics','analytics_external','budget','caja_general_ods','catalog','commercial','erp',
+    'analytics','analytics_external','budget','caja_general_ods','cashbook','catalog','commercial','erp',
     'fdw_export','finance','fiscal','hr','identity','intelligence','inventory','kepler_ods',
     'logistics','md','ops','public','reconciliation','trade','whatsapp','wincaja'
   ] LOOP
@@ -91,6 +91,22 @@ BEGIN
              WHERE schemaname NOT IN ('pg_catalog','information_schema','pgboss') LOOP
     EXECUTE format('GRANT SELECT ON %I.%I TO dev_ro', mv.schemaname, mv.matviewname);
   END LOOP;
+END $$;
+
+-- ── 2b. `[LE.5.8]` El libro de efectivo (`cashbook`) ────────────────────────────────────────
+-- Medido el 2026-11-04: dev_ro veía las tablas de `cashbook` pero cualquier `SELECT` respondía
+-- `permission denied for function current_tenant` — su RLS llama a `cashbook.current_tenant()`, que la
+-- migración del libro le quitó a PUBLIC (D10). Sin esto el estado del libro nuevo NO se puede medir
+-- desde fuera de la API. Las tablas las crea `cashbook_owner`, no `postgres`: el permiso por omisión
+-- se declara también para ese rol. Sólo lectura: el libro no se escribe más que por sus funciones.
+DO $$
+BEGIN
+  IF to_regprocedure('cashbook.current_tenant()') IS NOT NULL THEN
+    GRANT EXECUTE ON FUNCTION cashbook.current_tenant() TO dev_ro;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'cashbook_owner') AND to_regnamespace('cashbook') IS NOT NULL THEN
+    ALTER DEFAULT PRIVILEGES FOR ROLE cashbook_owner IN SCHEMA cashbook GRANT SELECT ON TABLES TO dev_ro;
+  END IF;
 END $$;
 
 -- ── 3. Lo que NO se lee ─────────────────────────────────────────────────────────────────────
