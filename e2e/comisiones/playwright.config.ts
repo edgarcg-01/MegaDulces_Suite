@@ -31,6 +31,11 @@ export default defineConfig({
     baseURL: process.env.E2E_BASE_URL || 'https://megadulcessuite.com',
     viewport: { width: 1366, height: 768 },
     trace: 'retain-on-failure',
+    // ⛔⛔ Sin esto la red de seguridad tiene un agujero: lo que pasa por el service worker de la
+    // app (ngsw) NO lo ve `page.route`. Medido el 2026-11-04 en la primera corrida: el POST del
+    // alta en «Quién cobra» salió al servidor de PROD sin interceptar, y no escribió sólo porque
+    // el limitador de la API lo rechazó con 429.
+    serviceWorkers: 'block',
   },
   projects: [{ name: 'chromium' }],
 });

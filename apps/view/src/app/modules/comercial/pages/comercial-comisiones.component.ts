@@ -690,7 +690,11 @@ type Vista = typeof VISTAS[number];
                        ariaLabel="De qué familia es el tabulador" />
 
         @if (esVecinalTab()) {
-          @if (vigenteFamilia(); as v) {
+          <!-- [RD.103.5] Sin el tabulador cargado no se sabe si hay version vecinal: no se
+               afirma ninguna de las dos (el error lo dice tabErr abajo). Medido 2026-11-04: con
+               un 429 en GET /scales la pantalla decia «Todavia no hay tabulador vecinal». -->
+          @if (!escalas()) {
+          } @else if (vigenteFamilia(); as v) {
             <p class="cm-muted cm-micro">
               Vigente desde el <strong>{{ dia(v.valid_from) }}</strong> ·
               supervisor {{ pct(pctSupFamilia()) }} % ·
@@ -832,7 +836,7 @@ type Vista = typeof VISTAS[number];
                 <input type="date" [ngModel]="desdeTabulador()"
                        [ngModelOptions]="{ standalone: true }"
                        (ngModelChange)="desdeTabulador.set($event)"
-                       [min]="minTabulador()" />
+                       [attr.min]="minTabulador() ?? null" />
               </label>
               <label class="cm-campo">
                 <span>Parte del supervisor</span>
@@ -852,7 +856,7 @@ type Vista = typeof VISTAS[number];
                                placeholder="sin piso" />
               </label>
               <button type="button" class="cm-btn cm-btn--baja"
-                      [disabled]="!desdeTabulador() || !!huecoTabulador() || estrenando()"
+                      [disabled]="!escalas() || !desdeTabulador() || !!huecoTabulador() || estrenando()"
                       (click)="confirmarEstrenoVecinal()">
                 {{ estrenando() ? 'Estrenando…' : 'Estrenar esta versión' }}
               </button>
@@ -917,7 +921,7 @@ type Vista = typeof VISTAS[number];
                   <input type="date" [ngModel]="desdeTabulador()"
                          [ngModelOptions]="{ standalone: true }"
                          (ngModelChange)="desdeTabulador.set($event)"
-                         [min]="minTabulador()" />
+                         [attr.min]="minTabulador() ?? null" />
                 </label>
                 <!-- [RD.100] La parte del supervisor (D3) es de esta versión del tabulador. -->
                 <label class="cm-campo">
@@ -3398,7 +3402,9 @@ export class ComercialComisionesComponent {
     this.pctSupBorrador.set(null);
     this.pisoBorrador.set(null);
     this.simulacion.set(null);
-    this.tabErr.set(null);
+    // ⛔ Un error de CARGA no se borra al cambiar de familia: sin el tabulador leído, borrarlo dejaba
+    // la pantalla sin decir que falló (medido 2026-11-04, e2e con GET /scales caído).
+    if (this.escalas()) this.tabErr.set(null);
   }
 
   setTier(i: number, campo: keyof TierRD, valor: unknown): void {

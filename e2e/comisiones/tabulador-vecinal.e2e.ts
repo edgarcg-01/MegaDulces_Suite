@@ -47,10 +47,14 @@ test.beforeAll(async ({ baseURL }) => {
 });
 test.afterAll(async () => { await api?.dispose(); });
 
+/** Con el limitador de la API (200/min) un 429 no es «la API falla»: se espera su ventana. */
 const getEscalas = async (): Promise<Escalas> => {
-  const r = await api.get(`${API}/scales`);
-  expect(r.status(), 'GET /scales').toBe(200);
-  return r.json();
+  for (let intento = 1; ; intento++) {
+    const r = await api.get(`${API}/scales`);
+    if (r.status() === 429 && intento < 4) { await new Promise((ok) => setTimeout(ok, 11_000)); continue; }
+    expect(r.status(), 'GET /scales').toBe(200);
+    return r.json();
+  }
 };
 const familiaDe = (e: Escala) => e.familia ?? 'ruta_directa';
 const vigenteDe = (d: Escalas, familia: string) =>
@@ -74,6 +78,8 @@ async function blindar(page: Page): Promise<Capturas> {
     const url = req.url();
     if (m === 'GET' || m === 'HEAD' || m === 'OPTIONS') return route.continue();
     if (m === 'POST' && /\/commissions\/scales\/simulate(\?|$)/.test(url)) return route.continue();
+    // La telemetría de la app no es una escritura de negocio: se contesta aquí y no sale.
+    if (/\/api\/telemetry\//.test(url)) return route.fulfill({ status: 204, body: '' });
     if (m === 'POST' && /\/commissions\/scales(\?|$)/.test(url)) {
       const body = req.postDataJSON() as Record<string, unknown>;
       cap.estreno.push(body);
@@ -100,9 +106,18 @@ async function blindar(page: Page): Promise<Capturas> {
   return cap;
 }
 
-async function abrir(page: Page, vista: 'Tabulador' | 'Quién cobra') {
+async function abrir(page: Page, vista: 'Tabulador' | 'Quién cobra', opts: { esperarEscalas?: boolean } = {}) {
   await page.addInitScript((t) => { try { localStorage.setItem('auth_token', t as string); } catch { /* */ } }, token);
-  await page.goto(RUTA);
+  // El limitador de la API (200/min) puede contestar 429 al GET /scales de la página si la suite
+  // va pegada: se espera su ventana y se recarga, para que la prueba mida la pantalla y no el límite.
+  for (let intento = 1; ; intento++) {
+    const escalas = opts.esperarEscalas === false ? null
+      : page.waitForResponse((r) => /\/commissions\/scales$/.test(r.url()) && r.request().method() === 'GET');
+    await (intento === 1 ? page.goto(RUTA) : page.reload());
+    const r = await escalas;
+    if (!r || r.status() !== 429 || intento === 3) break;
+    await page.waitForTimeout(11_000);
+  }
   const vistas = page.getByRole('radiogroup', { name: 'Qué se está viendo' });
   await expect(vistas).toBeVisible({ timeout: 20_000 });
   await vistas.getByRole('radio', { name: new RegExp(`^${vista}`) }).click();
@@ -132,6 +147,22 @@ const puedeGestionar = async (page: Page) =>
   (await page.getByRole('button', { name: 'Descartar cambios' }).count()) > 0;
 
 // ════════════════════════════════════════════════════════════════════════════════════
+test.describe('el blindaje — antes de confiar en él, se prueba', () => {
+  test('ningún service worker controla la página y un POST de alta NO sale al servidor', async ({ page }) => {
+    const cap = await blindar(page);
+    await abrir(page, 'Quién cobra');
+    expect(await page.evaluate(() => !!navigator.serviceWorker?.controller),
+      'con un service worker activo, page.route no ve sus peticiones (medido 2026-11-04)').toBe(false);
+    // Sin token a propósito: si el blindaje fallara, el servidor contestaría 401 y no escribiría.
+    const status = await page.evaluate(async () => (await fetch('/api/commercial/commissions/routes', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ route_code: 'E2E-BLINDAJE', nomina_banco: 0, activo_desde: '2099-01-01' }),
+    })).status);
+    expect(status, 'lo contestó la intercepción (201 falso), no el servidor').toBe(201);
+    expect(cap.alta.map((b) => b.route_code)).toEqual(['E2E-BLINDAJE']);
+  });
+});
+
 test.describe('tabulador por familia — lectura', () => {
   test('Ruta Directa: el editor parte de la vigente DE RUTA DIRECTA (cruzado con la API)', async ({ page }) => {
     const cap = await blindar(page);
@@ -142,6 +173,8 @@ test.describe('tabulador por familia — lectura', () => {
     await familia(page, 'Ruta Directa');
 
     await expect(page.getByRole('columnheader', { name: /Desde \(venta\)/ })).toBeVisible();
+    // Los escalones llegan con GET /scales: se espera el primero antes de leerlos.
+    await expect(page.getByRole('spinbutton', { name: 'Escalón 1, desde' })).toBeVisible();
     const t = await escalonesEnPantalla(page);
     expect(t.length, 'tantos escalones como la vigente RD').toBe(rd!.tiers.length);
     rd!.tiers.forEach((x, i) => {
@@ -165,6 +198,7 @@ test.describe('tabulador por familia — lectura', () => {
     await expect(page.getByRole('columnheader', { name: /Desde \(markup\)/ })).toBeVisible();
     if (vec) {
       await expect(page.getByText(/Vigente desde el/)).toBeVisible();
+      await expect(page.getByRole('spinbutton', { name: 'Escalón 1, desde' })).toBeVisible();
       expect((await escalonesEnPantalla(page)).length).toBe(vec.tiers.length);
     } else {
       await expect(page.getByText('Todavía no hay tabulador vecinal.')).toBeVisible();
@@ -176,6 +210,25 @@ test.describe('tabulador por familia — lectura', () => {
     await expect(page.getByRole('button', { name: 'Ver qué pasaría' }), 'vecinal: no hay contra qué simular').toHaveCount(0);
     await expect(page.getByText('Es un acantilado, no una rampa.')).toHaveCount(0);
     if (await puedeGestionar(page)) await expect(page.getByText('No se puede simular:')).toBeVisible();
+    expect(cap.abortadas).toEqual([]);
+  });
+
+  test('Vecinal con el tabulador SIN cargar: no afirma que no hay versión ni deja estrenar (error ≠ vacío)', async ({ page }) => {
+    const cap = await blindar(page);
+    // Se simula la caída de GET /scales (medido 2026-11-04 con un 429 real del limitador).
+    await page.route('**/commissions/scales', (r) => (r.request().method() === 'GET'
+      ? r.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ message: 'caído (e2e)' }) })
+      : r.fallback()));
+    await abrir(page, 'Tabulador', { esperarEscalas: false });
+    await familia(page, 'Vecinal');
+    await expect(page.getByText('caído (e2e)')).toBeVisible();
+    await expect(page.getByText('Todavía no hay tabulador vecinal.'), 'sin dato no se afirma «no hay»').toHaveCount(0);
+    if (await puedeGestionar(page)) {
+      await page.getByRole('button', { name: 'Usar como base' }).click();
+      await page.locator('label.cm-campo', { hasText: 'Rige desde' }).locator('input[type="date"]').fill('2026-10-22');
+      await expect(page.getByRole('button', { name: 'Estrenar esta versión' }),
+        'sin saber qué versión rige, no se estrena').toBeDisabled();
+    }
     expect(cap.abortadas).toEqual([]);
   });
 });
@@ -199,14 +252,15 @@ test.describe('tabulador por familia — lo que la pantalla MANDA al estrenar (i
     const estrenar = page.getByRole('button', { name: 'Estrenar esta versión' });
     await expect(estrenar, 'sin «Rige desde» no se deja estrenar').toBeDisabled();
     const fecha = page.locator('label.cm-campo', { hasText: 'Rige desde' }).locator('input[type="date"]');
-    const min = (await fecha.getAttribute('min')) ?? '2026-10-22';
-    const desde = min > '2026-10-22' ? min : '2026-10-22';
+    const min = await fecha.getAttribute('min');
+    expect(min, 'el piso de fechas viene del tabulador, nunca «undefined»').toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    const desde = min! > '2026-10-22' ? min! : '2026-10-22';
     await fecha.fill(desde);
     await expect(estrenar).toBeEnabled();
     await estrenar.click();
 
     // La confirmación nombra lo que decide, en palabras — y que no se pudo simular.
-    const dialogo = page.getByRole('alertdialog').or(page.locator('.p-confirmdialog'));
+    const dialogo = page.getByRole('alertdialog', { name: 'Estrenar el tabulador vecinal' });
     await expect(dialogo).toContainText('No se pudo simular');
     await expect(dialogo).toContainText('129,999.99');
     await dialogo.getByRole('button', { name: 'Estrenar' }).click();
@@ -234,12 +288,20 @@ test.describe('tabulador por familia — lo que la pantalla MANDA al estrenar (i
     test.skip(!(await puedeGestionar(page)), 'NO MEDIDO: el usuario de MD_TOKEN_FILE no tiene COMMERCIAL_COMMISSIONS_GESTIONAR');
 
     // La simulación SÍ va al servidor: no escribe (permiso VER) y es obligatoria antes de estrenar en RD.
-    await page.getByRole('button', { name: 'Ver qué pasaría' }).click();
+    // ⚠️ El limitador de la API (200/min) responde 429 si la suite va pegada: se espera su ventana
+    // y se reintenta, en vez de leer un 429 como «la simulación no funciona».
+    for (let intento = 1; ; intento++) {
+      const resp = page.waitForResponse((r) => /\/commissions\/scales\/simulate/.test(r.url()));
+      await page.getByRole('button', { name: 'Ver qué pasaría' }).click();
+      const r = await resp;
+      if (r.status() !== 429 || intento === 3) { expect(r.status(), 'la simulación responde').toBeLessThan(300); break; }
+      await page.waitForTimeout(11_000);
+    }
     await expect(page.getByText(/la última quincena pagada/)).toBeVisible({ timeout: 30_000 });
     const fecha = page.locator('section.cm-sim label.cm-campo', { hasText: 'Rige desde' }).locator('input[type="date"]');
     await fecha.fill((await fecha.getAttribute('min')) ?? '2026-11-05');
     await page.getByRole('button', { name: 'Estrenar esta versión' }).click();
-    await page.getByRole('alertdialog').or(page.locator('.p-confirmdialog'))
+    await page.getByRole('alertdialog', { name: 'Estrenar el tabulador' })
       .getByRole('button', { name: 'Estrenar' }).click();
 
     await expect.poll(() => cap.estreno.length).toBe(1);
