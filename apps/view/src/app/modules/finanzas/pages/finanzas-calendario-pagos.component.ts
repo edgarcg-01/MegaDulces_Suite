@@ -2610,7 +2610,13 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     return !!s?.capacity_defined && this.prontoUrgente().importe > Number(s.remaining_amount ?? 0);
   });
   private readonly prontoAbiertos = signal<Record<string, boolean>>({});
-  prontoAbierto(g: { cierra: string; dias: number }): boolean { return this.prontoAbiertos()[g.cierra] ?? g.dias <= 1; }
+  /**
+   * `[PGP.64]` Abiertos de entrada lo que cierra hoy o mañana **sólo al ARMAR** (el día sin pagos: agregar es
+   * la tarea, PGP.53). Con el día armado nacen cerrados: medido en la pantalla viva el 2026-11-04 (2135×1232),
+   * «Cierra hoy» (7) y «Cierra mañana» (2) abiertos hacían medir al pronto pago 449 px y dejaban el buscador
+   * fuera de la vista. Cerrado, cada grupo sigue diciendo acreedores, importe y lo que se gana.
+   */
+  prontoAbierto(g: { cierra: string; dias: number }): boolean { return this.prontoAbiertos()[g.cierra] ?? (g.dias <= 1 && !this.pagosPrimero()); }
   togglePronto(g: { cierra: string; dias: number }): void {
     this.prontoAbiertos.update((m) => ({ ...m, [g.cierra]: !this.prontoAbierto(g) }));
   }
