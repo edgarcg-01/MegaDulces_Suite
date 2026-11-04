@@ -876,7 +876,7 @@ comisión) → `RD.104` → `RD.106` → `RD.105` (depende de que RH aterrice la
 |---|---|---|---|
 | RD.103.0 🧪 | C0 | Medir para las vecinales: la unidad del monto (¿con IVA?), su **costo** desde Kepler (margen), sus **gastos** atribuibles y, si existe, la hoja con lo que se les paga hoy | La unidad contra el documento de Kepler; el costo contra lo pagado al proveedor; la hoja de pagos como testigo de la propuesta |
 | RD.103.1 🧪 | C0 | `familia` (`ruta_directa` · `vecinal` · `tlmk`) en `commission_scales` y en `commission_route_config`, con valor por omisión `ruta_directa`: lo que hay no cambia y la API desplegada sigue escribiendo | Las 13 filas del padrón y `RD-2026` quedan en `ruta_directa` |
-| RD.103.2 | C1 | El motor elige el tabulador **de la familia de cada ruta**; una ruta cuya familia no tiene tabulador vigente sale con motivo `sin_tabulador` (declarado, nunca $0 callado) | Antes/después: Q14–Q21 de Ruta Directa **idénticas al centavo** |
+| RD.103.2 🔨 | C1 | El motor elige el tabulador **de la familia de cada ruta**; una ruta cuya familia no tiene tabulador vigente sale con motivo `sin_tabulador` (declarado, nunca $0 callado) | Antes/después: Q14–Q21 de Ruta Directa **idénticas al centavo** |
 | RD.103.3 | C1 | **La propuesta**: escalones armados sobre la venta real de la familia en las últimas quincenas, para que la comisión cueste la parte del margen que la persona fije (por omisión, la de RD: 21.4 %), con lo que habría costado quincena por quincena. Lo que no se midió (gastos) sale declarado, no como cero | Reproducir con la propuesta el costo de RD sobre el libro |
 | RD.103.4 | C2 | Tabuladores por familia; `GET` de la propuesta; «Quién cobra» exige la familia explícita para un código vecinal | Arranque (`design:paramtypes`) + servicio real contra base |
 | RD.103.5 | C3 | Tabulador › Vecinal: la propuesta **aparte**, con su fuente y su costo simulado; «usarla como base» la copia a los escalones editables; **la persona estrena** la versión. Contestar `rd.vecinal.tabulador` = estrenar ese tabulador | `check:pantalla` + vista viva |
@@ -956,6 +956,52 @@ preguntaban:
   «MORELIA MADERO VECINAL»), no contra la estimación tecleada de la hoja.
 
 **`[RD.103.1]` en código:** migración `20261104103945` — `familia` (`ruta_directa` · `vecinal` · `tlmk`) en `commission_scales` y `commission_route_config`, `NOT NULL DEFAULT 'ruta_directa'` con CHECK; los tres caminos que insertan hoy (`createScaleVersion()`, alta del padrón, semilla `20260908120100`) no mandan la columna y el DEFAULT los cubre. Prueba `test-newdb-rd-familia-tabulador.js` (negativa: familia inventada → 23514; control: `vecinal` entra; un INSERT como el de la API desplegada queda en `ruta_directa`). **NO MEDIDO**: corre en el CI (contra prod sale «no medido» y no escribe). ⚠️ Las dos pruebas faltan de registrar en `run-all-tests.js` (el mismo bloqueo que DP).
+
+**`[RD.103.2]` en código (2026-11-04) — la regla del libro, sin inventar nada:**
+
+- **C0, migración `20261104124524`** (expand, compatible con la API desplegada): el costo vecinal
+  = cantidad × `kdii.c77` de `00` en `v_rd_route_daily` (`costo_status` `estandar_kepler_hoy` /
+  `_incompleto`) y `costo_vecinal` al final de `v_rd_commission_sales`; `gate_field` admite
+  `markup`; `piso_chofer_venta` en la escala; `scale_id` en cada línea de la corrida.
+  **Ejercido el SQL contra prod** (sólo lectura, 24-sep a 3-nov, contra el cuerpo de `103527`):
+  push y Wincaja **360 de 360 filas idénticas**; vecinal cambia sólo el costo (259 filas, venta y
+  subtotal iguales); costo por catorcena contra el libro **+2.2 % / +1.0 % / −0.9 %** (20, 21, 22);
+  SKUs sin costo < 0.01 % del importe en 7 de 8 rutas (1V001: 1.19 %); +1.1 s sobre 40 días (corre
+  en el refresco de la matview, no en pantalla).
+- **C1, motor**: `escalaVigente()` (`commission-escala.ts`) elige la versión **de una familia** y la
+  usan los cinco lectores que la elegían sin familia (motor, alta de versión, padrón, bonos,
+  nóminas). La corrida carga un tabulador por familia; una familia sin versión vigente sale
+  `sin_tabulador` (nunca cae al de RD). La regla pura (`commission-escalon.logic.ts`): escalón por
+  venta (RD, igual que antes) o por markup (vecinal; sin costo → `sin_costo`), y el piso del chofer
+  (`bajo_piso`; el supervisor cobra igual, como en el libro). **Árbitro**: la spec reproduce al
+  centavo las catorcenas 1, 18 y 21 del libro; rojo verificado rompiendo el piso; las 40 pruebas
+  del módulo siguen en verde.
+- **C2**: `POST /scales` acepta `familia`, `gate_field` y `piso_chofer_venta` (la primera versión de
+  una familia nueva exige `gate_field`); el alta del padrón **exige `familia` para un código
+  vecinal** (D-V2) y toma la escala vigente de esa familia.
+- **NO MEDIDO**: `test-newdb-rd-vecinal-escalon-markup.js` (negativas 23514 y la prueba de que la
+  consulta sin familia elegiría la vecinal) corre en el CI; falta registrarla en `run-all-tests.js`
+  con sus hermanas. El arranque de Nest no se verificó (no hay firmas inyectadas nuevas).
+
+**Para que pague (en este orden, después de desplegar):**
+
+1. Aplicar `20261104103527`, `20261104103945` y `20261104124524` (una por una) y desplegar la API.
+   ⛔ Al revés no: el código nuevo lee `familia`, `piso_chofer_venta` y `costo_vecinal`.
+2. **Estrenar** la versión vecinal (Comercial; D-V1, nunca la migración): `POST
+   /commercial/commissions/scales` con `familia: 'vecinal'`, `gate_field: 'markup'`,
+   `share_supervisor_pct: 20`, `piso_chofer_venta: 129999.99`, `valid_from` = el día siguiente al
+   último periodo pagado o aprobado, y los escalones de markup −100→12.01 = 2.73 · 12.01→13.01 =
+   2.95 · 13.01→15.01 = 3.13 · 15.01→18.01 = 3.41 · 18.01→sin techo = 4.00. ⚠️ Arriba de 25 % el
+   libro da FALSO (cero): el último escalón abierto en 4.00 es lectura nuestra y va como
+   `rd.vecinal.markup_25`.
+3. Dar de alta cada vecinal en «Quién cobra» con `familia: 'vecinal'`, su sueldo base de banco
+   (`nomina_banco`), chofer, supervisor y `activo_desde`.
+
+**Deuda con nombre:** (a) C3 — la pantalla rotula `bajo_piso` / `sin_costo` / `sin_tabulador` /
+`estandar_kepler_hoy` con el código crudo y los cuenta como «fuera» (`esFuera()` sólo conoce
+`bajo_umbral` y `sin_dato_en_la_fuente`), y «Tabulador» todavía no separa familias; (b) la meta del
+supervisor (95 % del año anterior) **no se aplica**: el libro la tiene vacía y la 07 no tiene venta
+vecinal en el ODS antes del 2026-09-07; (c) `c77` es el costo de HOY.
 
 **Decisiones (las tomo y las anuncio; Edgar firma):**
 - **D-V1. La propuesta nunca se aplica sola.** Se guarda como propuesta (D2 de la fase DP) con su
