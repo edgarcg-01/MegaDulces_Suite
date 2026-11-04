@@ -2,6 +2,7 @@ import { AfterViewInit, ChangeDetectionStrategy, Component, ElementRef, OnDestro
 import { FormsModule } from '@angular/forms';
 import { BrowserMultiFormatReader, IScannerControls } from '@zxing/browser';
 import { BarcodeFormat, DecodeHintType } from '@zxing/library';
+import { controlesSiSigueAbierta, detenerLector } from '../../../../shared/util/lector-camara.util';
 
 /**
  * **La barra única del Andén — escanear y buscar son el mismo campo.**
@@ -203,11 +204,11 @@ export class ScanFieldComponent implements AfterViewInit, OnDestroy {
       ]);
       this.lector = new BrowserMultiFormatReader(hints, { delayBetweenScanAttempts: 100 });
       try {
-        this.controles = await this.lector.decodeFromConstraints(
+        this.controles = controlesSiSigueAbierta(await this.lector.decodeFromConstraints(
           { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } },
           v,
           (r) => { if (r) this.leido(r.getText()); },
-        );
+        ), this.camaraAbierta());
       } catch {
         this.cerrarCamara();
         this.sinCamara.emit('No se pudo abrir la cámara. Revisa los permisos (requiere HTTPS).');
@@ -226,7 +227,7 @@ export class ScanFieldComponent implements AfterViewInit, OnDestroy {
 
   cerrarCamara(): void {
     this.camaraAbierta.set(false);
-    try { this.controles?.stop(); } catch { /* la cámara ya estaba cerrada */ }
+    detenerLector(this.controles);
     this.controles = undefined;
     this.lector = undefined;
     this.enfocar();

@@ -1,11 +1,13 @@
 import { ChangeDetectionStrategy, Component, computed, inject, OnInit, signal, viewChild } from '@angular/core';
-import { DecimalPipe } from '@angular/common';
+import { DecimalPipe, NgTemplateOutlet } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import type {
   LevantamientoBusquedaFila, LevantamientoCara, LevantamientoContexto, LevantamientoEscaneoDto, LevantamientoEscaneoRespuesta, LevantamientoMotivoSalto, LevantamientoSugerido,
 } from '@megadulces/contracts';
+import { LEVANTAMIENTO_CARA_OBLIGATORIA } from '@megadulces/contracts';
 import { CALIDAD_VERSION, dimensionesDeMedicion, juzgarFoto, medirFoto } from '@megadulces/ui-web';
+import { base64ToBlob } from '../../../core/http/visit-form-data';
 import { AuthService } from '../../../core/services/auth.service';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { MetricStripComponent, type MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
@@ -63,7 +65,7 @@ const PALABRA: Record<string, string> = { PZA: 'pieza', PAQ: 'paquete', CJA: 'ca
 @Component({
   selector: 'app-levantamiento-page',
   standalone: true,
-  imports: [DecimalPipe, LoadStateComponent, MetricStripComponent, FreshnessPillComponent, ProductScanFieldComponent, CameraShotComponent],
+  imports: [DecimalPipe, NgTemplateOutlet, LoadStateComponent, MetricStripComponent, FreshnessPillComponent, ProductScanFieldComponent, CameraShotComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <main class="lv" [attr.aria-busy]="ocupado()">
@@ -183,9 +185,12 @@ const PALABRA: Record<string, string> = { PZA: 'pieza', PAQ: 'paquete', CJA: 'ca
                 @for (m of motivos; track m.id) { <button type="button" class="lv-btn" [disabled]="ocupado()" (click)="saltar(m.id)">{{ m.texto }}</button> }
                 <button type="button" class="lv-link lv-full" (click)="eligiendoMotivo.set(false)">Mejor sí la tomo</button>
               </div>
-            } @else {
+            } @else if (caraActual() !== caraObligatoria) {
               <button type="button" class="lv-link lv-full" [disabled]="ocupado()" (click)="eligiendoMotivo.set(true)">Saltar esta cara</button>
+            } @else {
+              <p class="lv-ter lv-center">El frente siempre se fotografía: es la foto principal del catálogo.</p>
             }
+            <ng-container [ngTemplateOutlet]="camaraTpl" />
           </footer>
         }
 
@@ -196,9 +201,13 @@ const PALABRA: Record<string, string> = { PZA: 'pieza', PAQ: 'paquete', CJA: 'ca
           </section>
           <footer class="lv-foot">
             <button type="button" class="lv-btn lv-pri lv-lg" (click)="camara()?.abrir()"><i class="pi pi-camera" aria-hidden="true"></i> Repetir foto</button>
-            <!-- Una cara lisa (sin texto ni dibujo) puede no pasar nunca la medición: siempre hay salida. -->
-            <button type="button" class="lv-link lv-full" (click)="saltarDesdeRepetir()">Saltar esta cara</button>
+            <!-- Una cara lisa (sin texto ni dibujo) puede no pasar nunca la medición: siempre hay salida. El frente no
+                 se salta (toda ficha trae al menos una foto real): su salida es «Salir sin terminar». -->
+            @if (caraActual() !== caraObligatoria) {
+              <button type="button" class="lv-link lv-full" (click)="saltarDesdeRepetir()">Saltar esta cara</button>
+            }
             <button type="button" class="lv-link lv-full" (click)="paso.set('salir')">Salir sin terminar</button>
+            <ng-container [ngTemplateOutlet]="camaraTpl" />
           </footer>
         }
 
@@ -235,8 +244,13 @@ const PALABRA: Record<string, string> = { PZA: 'pieza', PAQ: 'paquete', CJA: 'ca
           </footer>
         }
       }
-      <app-camera-shot [etiqueta]="nombreCara(caraActual())" [maxLado]="4096" [recodificarSiempre]="true" [indicacion]="indicacion()"
-        [guia]="nombreCara(caraActual())" (tomada)="alTomar($event.dataUri)" />
+      <!-- La cámara sólo existe en los dos pasos que toman foto, dentro de su pie. Suelta al final de la pantalla, su
+           respaldo sin cámara (permiso negado) se arrastraba a «Enviado» con un «Tomar foto» que ya no tenía qué
+           fotografiar, y pegado al borde (prueba visual con la CSP de prod, 2026-11-03). Una sola declaración. -->
+      <ng-template #camaraTpl>
+        <app-camera-shot [etiqueta]="nombreCara(caraActual())" [maxLado]="4096" [recodificarSiempre]="true" [indicacion]="indicacion()"
+          [guia]="nombreCara(caraActual())" (tomada)="alTomar($event.dataUri)" />
+      </ng-template>
     </main>
   `,
   styles: [`
@@ -303,6 +317,8 @@ export class LevantamientoComponent implements OnInit {
   protected readonly lector = viewChild(ProductScanFieldComponent);
 
   protected readonly motivos = MOTIVOS;
+  /** El frente no se salta (el servidor responde 400): la pantalla ni lo ofrece. */
+  protected readonly caraObligatoria = LEVANTAMIENTO_CARA_OBLIGATORIA;
   protected readonly paso = signal<Paso>('inicio');
   protected readonly cargando = signal(true);
   protected readonly error = signal<string | null>(null);
@@ -660,7 +676,9 @@ export class LevantamientoComponent implements OnInit {
     if (!g) throw new Error('Sin canvas');
     g.drawImage(img, 0, 0, d.ancho, d.alto);
     const medicion = medirFoto(g.getImageData(0, 0, d.ancho, d.alto).data, d.ancho, d.alto);
-    const blob = await (await fetch(dataUri)).blob();
+    // Sin `fetch(dataUri)`: la CSP de prod (`connect-src 'self'`) lo bloquea, y en local no hay CSP que lo
+    // delate. Así ninguna foto llegó al servidor en la primera captura en prod (2026-11-03).
+    const blob = base64ToBlob(dataUri);
     return { blob, ancho: img.naturalWidth, alto: img.naturalHeight, medicion };
   }
 

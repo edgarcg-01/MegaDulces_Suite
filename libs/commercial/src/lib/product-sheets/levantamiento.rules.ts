@@ -3,6 +3,7 @@
  * servicio lee y escribe, aquí se decide. Plan: `docs/IMPLEMENTACION/FASES/FASE_NP7_ALTA_DESDE_FOTOS.md`
  * (§7.1 modelo, §10b.3 flujo, §10b.7 unidades).
  */
+import { LEVANTAMIENTO_CARA_OBLIGATORIA } from '@megadulces/contracts';
 import type { KdiiFila, Peldano, ResultadoEscaneo } from '../shared/kdii-codigo';
 
 // ── Estados (el CHECK de la migración usa estas mismas listas) ─────────────────────────────────
@@ -170,9 +171,18 @@ export interface FotoFicha {
   por_busqueda: boolean;
 }
 
-/** Caras de la unidad principal ya resueltas (con foto o saltadas con motivo), por la persona que sea. */
+/**
+ * ¿La cara quedó resuelta? Con foto, o saltada con motivo — salvo el frente, que sólo se resuelve con foto
+ * (`LEVANTAMIENTO_CARA_OBLIGATORIA`). Un salto del frente anterior a esa regla no cuenta: la pantalla lo
+ * vuelve a pedir. Así ninguna ficha se completa sin al menos una foto real.
+ */
+export function caraResuelta(f: Pick<FotoFicha, 'cara' | 'storage_key' | 'saltada_motivo'>): boolean {
+  return !!f.storage_key || (!!f.saltada_motivo && f.cara !== LEVANTAMIENTO_CARA_OBLIGATORIA);
+}
+
+/** Caras de la unidad principal ya resueltas (ver `caraResuelta`), por la persona que sea. */
 export function carasResueltas(fotos: FotoFicha[], peldano: Peldano): Set<string> {
-  return new Set(fotos.filter((f) => f.peldano === peldano && (f.storage_key || f.saltada_motivo)).map((f) => f.cara));
+  return new Set(fotos.filter((f) => f.peldano === peldano && caraResuelta(f)).map((f) => f.cara));
 }
 
 /**
@@ -183,6 +193,15 @@ export function carasResueltas(fotos: FotoFicha[], peldano: Peldano): Set<string
 export function estadoTrasFoto(fotos: FotoFicha[], peldano: Peldano): EstadoLevantamiento {
   const hechas = carasResueltas(fotos, peldano);
   return carasRequeridas().every((c) => hechas.has(c)) ? 'fotos_tomadas' : 'en_captura';
+}
+
+/**
+ * ¿La unidad principal no tiene NI UNA foto? Una ficha nueva ya no puede llegar así (el frente no se salta),
+ * pero sí las anteriores a esa regla: la primera captura en prod (2026-11-03) entró a «Por revisar» con las 5
+ * caras saltadas y cero fotos. Por eso Catálogo no puede PUBLICAR una ficha así: se descarta o se pide otra foto.
+ */
+export function sinFotoReal(fotos: FotoFicha[], peldano: Peldano): boolean {
+  return !fotos.some((f) => f.peldano === peldano && !!f.storage_key);
 }
 
 /** Motivos por los que la ficha va a revisión humana aunque la IA estuviera encendida (§10b.3 punto 4). */

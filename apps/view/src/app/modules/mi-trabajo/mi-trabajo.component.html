@@ -52,6 +52,19 @@
       }
     </div>
 
+    <!-- `[NP.7]` Lo mismo con «Levantar productos»: su botón de cámara vive en el header de las áreas y aquí no
+         llegaba. Con texto también en el teléfono, que es donde se usa. -->
+    @if (puedeLevantar()) {
+      <p-button
+        label="Levantar productos"
+        icon="pi pi-camera"
+        severity="secondary"
+        [outlined]="true"
+        size="small"
+        (click)="levantar()">
+      </p-button>
+    }
+
     <!-- `[MS.3.1]` /projects no monta el layout de proyectos, así que el botón de su header no llega acá:
          sin esto, quien sólo ve «Mi trabajo» no tenía ninguna forma de reportar un problema. -->
     @if (puedeReportar()) {
