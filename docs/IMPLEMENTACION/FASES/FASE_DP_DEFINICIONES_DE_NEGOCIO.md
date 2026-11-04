@@ -79,12 +79,12 @@ Datos **propios** (respuestas de personas): tabla real, no vista. Sin importer.
 |---|---|---|---|---|
 | DP.2.1 | `GET /definitions?consumer=` (DEFINICIONES_VER) · `GET /definitions/mine` (sin llave: la bandeja propia). Módulo en `libs/platform-core/src/lib/definitions/`; llaves repartidas en la misma migración a `direccion` (2 personas) y `superadmin` (8) | 🔨 | no | Arranque: `business-definitions.metadata.spec.ts` (paramtypes + llaves por método; rojo al quitar el provider) |
 | DP.2.2 | `POST /definitions/:id/answers` (`{ value, valid_from, note }`; **sólo su dueño**, sin llave) · `PATCH /definitions/:id` (DEFINICIONES_GESTIONAR: asignar dueño, plazo, descartar sólo una pendiente) | 🔨 | **sí** | `test-newdb-business-definitions-service.js`: el servicio REAL como `app_runtime`, con ese body. **NO MEDIDO**: no corrió (el `.env` apunta a prod, sin Docker) y la capa HTTP no la ejerce |
-| DP.2.3 | Fuente visible en `me-tasks.ts` («Preguntas de negocio a tu nombre») | ⬜ | no | `test-newdb-me-context.js` |
+| DP.2.3 | Fuente visible en `me-tasks.ts` («Preguntas de negocio a tu nombre» → `/admin/definiciones`, sólo las `pendiente`). Se mide aislada: si la tabla todavía no existe, esa fila sale «no medida» y Mi trabajo no se cae | 🔨 | no | `test-newdb-me-context.js` (ahora cuenta 6 fuentes; candado de ruta/guard simulado en verde). NO MEDIDO contra base |
 
 ### C3 · UI
 | # | Item | Estado | `check:pantalla` antes → después |
 |---|---|---|---|
-| DP.3.1 | Contestar una pregunta desde «Mi trabajo» (el control lo decide el tipo) | ⬜ | |
+| DP.3.1 | `/admin/definiciones`: «A tu nombre» y «Todas» (sin dueño arriba), panel para contestar (el control lo decide el tipo; misma `validarRespuesta()`), repartir y descartar. Llave nueva `DEFINICIONES_CONTESTAR` (38 roles en prod, como `SERVICIO_REPORTAR`) para que el dueño tenga enlace | 🔨 | nueva → **0 fallas** (10 reglas). `ngc` sin errores propios (cazó 2 `TS4104` que `check:pantalla` no vio). Vista viva con las 17 interceptadas y escrituras bloqueadas: lista, orden y panel de quien reparte ✔. ⛔ **Sin validación visual**: el formulario del dueño (el backend local empezó a dar 500), oscuro, `forced-colors`, teléfono |
 | DP.3.2 | En `/comercial/comisiones`, cada ajuste que depende de una pregunta muestra «sin definir · lo define <dueño>» | ⬜ | |
 
 ⛔ Cargar la skill `diseno` **antes** del primer archivo. Antes del primer item C3, la sección
@@ -130,6 +130,39 @@ Datos **propios** (respuestas de personas): tabla real, no vista. Sin importer.
 - [ ] 7. **En prod**, o escrito por qué no y qué falta
 
 ---
+
+## Observaciones de diseño UI — revisión del plan (2026-11-03)
+
+> Nivel C (se lee el plan, no la pantalla): nada visual se afirma como medido. Severidad: 🔴 bloquea
+> pasar C3 a 🚀 · 🟠 dentro de la fase · 🟡 mejora o deuda con nombre.
+
+**Las cinco preguntas (`diseno` §0b):**
+1. **Qué ve y en qué orden.** El dueño: sus pendientes, la de plazo más próximo arriba; cada una con
+   la pregunta, qué decide y la propuesta si la hay. Dirección: todas, con las **sin dueño arriba**
+   (lo que falta repartir), después las pendientes con dueño por plazo, al final las contestadas.
+2. **Qué NO.** La `key` técnica (sólo en el panel, chica), el consumidor como código (se traduce:
+   «Comisiones de Ruta Directa»), el historial completo (su conteo; el detalle en el panel).
+3. **Accesibilidad.** Un clic desde «Mi trabajo»; se contesta en un panel lateral sin perder la lista;
+   el control lo decide el tipo; la propuesta se precarga con un clic; vigencia por defecto hoy;
+   la fila se abre con Enter.
+4. **Ligada a otro proceso.** Cada pregunta dice a qué pantalla afecta y la enlaza; una `config_ref`
+   enlaza a la pantalla donde se configura.
+5. **Le toca.** El dueño (`DEFINICIONES_CONTESTAR`) ve «A tu nombre»; Dirección (`VER`/`GESTIONAR`)
+   ve «Todas» y reparte.
+
+**La frase:** *¿qué reglas de negocio faltan por definir y quién las define?* — una sola pregunta,
+vista desde dos sillas. **Jerarquía:** primario = la pregunta · secundario = la respuesta vigente y
+el dueño · terciario = área, plazo, `key`.
+
+| # | Sev | Observación y costo | Ley | Criterio de aceptación |
+|---|---|---|---|---|
+| DP.UI.1 | 🔴 | La propuesta (lo que se dijo por chat) **no se puede ver como respuesta**: 4 de las 17 traen una, y una celda «vigente: chofer» afirmaría una regla que nadie firmó en el sistema (D2) | Veracidad (ADR-056) | La columna de la respuesta dice «sin definir»; la propuesta va aparte, con su fuente: «Propuesta · Edgar (PM), 2026-11-03» |
+| DP.UI.2 | 🔴 | **«Sin dueño» se declara**: las 17 nacen sin dueño y, sin decirlo, la lista se leería como «pendientes de alguien» | Veracidad | En «Todas», las sin dueño van arriba con «Sin dueño: nadie la va a contestar» |
+| DP.UI.3 | 🟠 | Quien no es el dueño no debe ver un «Guardar» que el servidor rechaza con 403 | Poka-yoke | El control de respuesta sólo existe para el dueño; a Dirección le dice «La contesta {nombre}» y le ofrece «Asignármela» |
+| DP.UI.4 | 🟠 | El motivo es obligatorio y el valor tiene tipo: dejar escribir y rechazar después es el error como primer recurso | Poka-yoke | «Guardar» deshabilitado hasta tener valor válido (misma `validarRespuesta()` del contrato) y motivo |
+| DP.UI.5 | 🟠 | Una vigencia en el pasado reescribe la regla hacia atrás (D3): es justo lo que hizo «sigue al chofer» | Comprensión | Si la fecha es anterior a hoy: «Rige desde {fecha}: reescribe la regla también para lo ya calculado» |
+| DP.UI.6 | 🟠 | Doble clic = dos respuestas (dos vigencias iguales) | Idempotencia visual | «Guardar» se deshabilita en el primer clic |
+| DP.UI.7 | 🟡 | Descartar es destructivo | Von Restorff | En rojo, separado de lo diario, con confirmación y motivo |
 
 ## 7. Bitácora
 

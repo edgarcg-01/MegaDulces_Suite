@@ -1,0 +1,55 @@
+/* `[DP.3.1]` Definiciones de negocio — superficie Operations. Cero hex crudo. */
+:host { display: block; }
+
+.ad-page { display: flex; flex-direction: column; gap: var(--sp-4); min-height: 0; }
+.ad-head-actions { display: flex; align-items: center; gap: var(--sp-2); }
+
+.ad-table th {
+  font-size: var(--fs-micro); font-weight: var(--fw-medium);
+  text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-2);
+}
+.ad-table td { font-size: var(--fs-sm); vertical-align: top; }
+.ad-row { cursor: pointer; }
+.ad-row:focus-visible { outline: 2px solid var(--action); outline-offset: -2px; }
+.ad-row-sel { background: var(--table-row-selected-bg); }
+
+/* Jerarquía (§Q.5): la pregunta es lo primario; lo demás, secundario o terciario. */
+.ad-pregunta { display: block; font-weight: var(--fw-medium); color: var(--fg-1); max-width: 60ch; }
+.ad-sub { display: block; font-size: var(--fs-xs); color: var(--fg-2); }
+.ad-valor { font-weight: var(--fw-medium); color: var(--fg-1); }
+.ad-falta { color: var(--fg-2); font-style: italic; }
+.ad-vencida { color: var(--bad-fg); }
+
+/* ── Panel ─────────────────────────────────────────────────────────── */
+.ad-peek { display: flex; flex-direction: column; gap: var(--sp-4); font-size: var(--fs-sm); }
+.ad-peek h3 {
+  margin: 0 0 var(--sp-1); font-size: var(--fs-micro); font-weight: var(--fw-medium);
+  text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-2);
+}
+.ad-peek p { margin: 0; }
+.ad-valor-grande { font-size: var(--fs-lg); font-weight: var(--fw-medium); color: var(--fg-1); }
+.ad-link { color: var(--action); font-size: var(--fs-sm); }
+.ad-link:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+
+.ad-propuesta {
+  padding: var(--sp-3); border: 1px dashed var(--border-color); border-radius: var(--r-md);
+}
+
+.ad-form, .ad-reparto, .ad-descartar { display: flex; flex-direction: column; gap: var(--sp-2); }
+.ad-label { font-size: var(--fs-xs); color: var(--fg-2); margin-top: var(--sp-1); }
+.ad-acc { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+.ad-aviso {
+  padding: var(--sp-2) var(--sp-3); border: 1px solid var(--warn-border); border-radius: var(--r-md);
+  background: var(--warn-soft-bg); color: var(--warn-soft-fg); font-size: var(--fs-xs);
+}
+.ad-error {
+  display: flex; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--bad-border); border-radius: var(--r-md);
+  background: var(--bad-soft-bg); color: var(--bad-soft-fg);
+}
+
+/* DP.UI.7 (Von Restorff): descartar en rojo y apartado de lo diario. */
+.ad-descartar { margin-top: var(--sp-4); padding-top: var(--sp-4); border-top: 1px solid var(--border-color); }
+.ad-btn-bad { color: var(--bad-fg); align-self: flex-start; }
+
+.ad-key { font-size: var(--fs-nano); color: var(--fg-3); }

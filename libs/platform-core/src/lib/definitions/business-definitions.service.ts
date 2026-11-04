@@ -3,8 +3,9 @@ import {
 } from '@nestjs/common';
 import {
   resolverDefinicion, validarRespuesta,
-  type DefinicionNegocio, type DefinicionResuelta, type OpcionDefinicion, type RespuestaDefinicion,
-  type EstadoDefinicion, type TipoDefinicion,
+  type ActualizarDefinicion, type ContestarDefinicion, type DefinicionResuelta, type DefinicionVista,
+  type EstadoDefinicion, type OpcionDefinicion, type PersonaAsignable, type RespuestaDefinicion,
+  type TipoDefinicion,
 } from '@megadulces/contracts';
 import { TenantKnexService } from '../database/tenant-knex.service';
 import { TenantContextService } from '../tenant/tenant-context.service';
@@ -25,34 +26,10 @@ import { TenantContextService } from '../tenant/tenant-context.service';
  *     leen la pantalla y los consumidores, para que no haya dos reglas.
  *  3. **Lo que nadie contestó se DECLARA** `sin_definir` (ADR-056). La propuesta (`suggested_*`)
  *     viaja aparte y nunca se devuelve como valor.
+ *
+ * Las formas (`DefinicionVista`, los bodies) viven en `@megadulces/contracts`: la pantalla las importa
+ * de ahí y un cambio de forma truena al compilar, no en pantalla.
  */
-
-export interface DefinicionVista extends DefinicionNegocio {
-  /** Nombre de quien la contesta, para la pantalla. `null` = sin dueño (D4). */
-  readonly asignado_nombre: string | null;
-  readonly answered_at: string | null;
-  readonly discard_reason: string | null;
-  /** La respuesta que rige HOY, o «sin definir» con su motivo. */
-  readonly vigente: DefinicionResuelta;
-  readonly respuestas: number;
-}
-
-export interface ContestarDefinicion {
-  value: unknown;
-  /** `YYYY-MM-DD`. Desde cuándo rige. */
-  valid_from: string;
-  /** Por qué: obligatorio. Es lo único que explica la regla seis meses después. */
-  note: string;
-}
-
-export interface ActualizarDefinicion {
-  /** uuid de la persona que la contesta; `null` la deja sin dueño. */
-  assigned_to?: string | null;
-  /** ISO; `null` quita el plazo. */
-  due_at?: string | null;
-  /** Descarta la pregunta con este motivo. Sólo una `pendiente`. */
-  discard_reason?: string;
-}
 
 const FECHA = /^\d{4}-\d{2}-\d{2}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -188,6 +165,21 @@ export class BusinessDefinitionsService {
       await trx('platform.business_definitions').where({ id }).update(patch);
       const [vista] = await this.leer(trx, { id });
       return vista;
+    });
+  }
+
+  /**
+   * A quién se le puede asignar una pregunta: personas internas activas. Va aquí y no en el padrón
+   * de `/admin/users` para que repartir no exija `USUARIOS_VER`, que es otra facultad.
+   */
+  async asignables(): Promise<PersonaAsignable[]> {
+    return this.tk.run(async (trx) => {
+      const filas = await trx('identity.users')
+        .whereNull('deleted_at').where({ kind: 'interno' }).whereNot('activo', false)
+        .select('id', trx.raw(`COALESCE(NULLIF(btrim(nombre), ''), username) AS nombre`),
+          trx.raw('position_code AS puesto'))
+        .orderByRaw(`COALESCE(NULLIF(btrim(nombre), ''), username)`);
+      return filas as PersonaAsignable[];
     });
   }
 

@@ -31,12 +31,13 @@ describe('[DP.2.1] BusinessDefinitionsModule arranca', () => {
     expect(tipos?.map((t) => t?.name)).toEqual(['TenantKnexService', 'TenantContextService']);
   });
 
-  it('las llaves: VER lee, GESTIONAR reparte; contestar y la bandeja propia NO llevan llave', () => {
+  it('las llaves: VER lee todo, GESTIONAR reparte, CONTESTAR abre la bandeja propia', () => {
     const llave = (m: string) => Reflect.getMetadata(PERMISSIONS_KEY, ctrl().prototype[m] as object) as string[] | undefined;
     expect(llave('listar')).toEqual([Permission.DEFINICIONES_VER]);
     expect(llave('actualizar')).toEqual([Permission.DEFINICIONES_GESTIONAR]);
-    // La contesta su DUEÑO: lo decide el servicio por `assigned_to`, no una clave del rol.
-    expect(llave('contestar')).toBeUndefined();
-    expect(llave('mias')).toBeUndefined();
+    expect(llave('asignables')).toEqual([Permission.DEFINICIONES_GESTIONAR]);
+    // CONTESTAR abre la puerta; que la pregunta sea TUYA lo decide el servicio por `assigned_to`.
+    expect(llave('contestar')).toEqual([Permission.DEFINICIONES_CONTESTAR]);
+    expect(llave('mias')).toEqual([Permission.DEFINICIONES_CONTESTAR]);
   });
 });
