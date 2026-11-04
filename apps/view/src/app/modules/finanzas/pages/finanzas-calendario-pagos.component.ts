@@ -202,9 +202,8 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
           </span>
           <!-- [PGP.14] Sin semana cargada no hay resumen: un cero dibujado donde no hubo medición (ADR-056).
                [PGP.52] Sólo lo libre: «sin preparar» y «sin tope» ya los dice cada día de la tira. -->
-          @if (week()) {
-            <span class="pg-week-f"><b class="comm-num">{{ moneyShort(weekAvailable()) }}</b> libres de <b class="comm-num">{{ moneyShort(weekBudget()) }}</b> esta semana</span>
-          }
+          <!-- [PGP.62] Sin «$X libres de $Y esta semana»: es la suma de lo libre que ya dice cada día de la tira. -->
+
           <!-- [PGP.48] Los pagos que se quedaron en un día que ya pasó apartan el saldo de sus facturas. -->
           @if (atrasadosError()) {
             <span class="pg-atr is-nm"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>No se pudo revisar si quedaron pagos en días pasados.</span>
@@ -306,14 +305,14 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                        HOY (HORIZONTE_DIAS de PGP.41), no la semana del calendario, y no cambia al navegar a otra. -->
                   <span class="pg-pp-tot">en los próximos 7 días ganas <b class="comm-num">{{ money(quePagarGana()) }}</b></span>
                 </div>
+                <!-- [PGP.62] En UNA línea. El origen del % («lo que pasó, no un acuerdo») ya lo dice el porqué de cada acreedor al abrirlo. -->
                 <p class="pg-pp-why">
                   @if (prontoUrgente().acreedores) {
-                    {{ acreedores(prontoUrgente().acreedores) }} cierran hoy o mañana: si no se les paga a tiempo, se pierden <b class="comm-num">{{ money(prontoUrgente().gana) }}</b> de descuento.
+                    {{ acreedores(prontoUrgente().acreedores) }} cierran hoy o mañana: se pierden <b class="comm-num">{{ money(prontoUrgente().gana) }}</b> si no se pagan.
                   } @else {
                     El siguiente descuento cierra el {{ dayShort(prontoGrupos()[0].cierra) }}.
                   }
-                  @if (prontoNoCabe()) { No cabe todo en lo libre del día: si hay que escoger, primero el de mayor %. }
-                  <span class="pg-pp-src">El % es el que cada proveedor nos descontó en el último año cuando se le pagó a tiempo (Kepler): es lo que pasó, no un acuerdo firmado.</span>
+                  @if (prontoNoCabe()) { Si no cabe todo, primero el de mayor %. }
                 </p>
                 @for (g of prontoVisibles(); track g.cierra) {
                   <div class="pg-pp-gr">
@@ -556,10 +555,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
             <div class="pg-sec-h">
               <h3 class="pg-sec-t" id="pg-pagos-h">Pagos del día
                 @if (allocations().length) { <span class="pg-sec-n">{{ pagos(allocations().length) }}@if (!day.summary.capacity_defined) { · <span class="comm-num">{{ money(dayTotal(day)) }}</span> }</span> }
-                <!-- [PGP.36] Lo que el día gana y deja pasar de pronto pago, sin color: es contexto, no alarma. -->
-                @if (diaCaptura() > 0 || diaDejaPasar() > 0) {
-                  <span class="pg-sec-pronto">pronto pago:@if (diaCaptura() > 0) { gana <span class="comm-num">{{ money(diaCaptura()) }}</span> }@if (diaCaptura() > 0 && diaDejaPasar() > 0) { · }@if (diaDejaPasar() > 0) { deja pasar <span class="comm-num">{{ money(diaDejaPasar()) }}</span> }</span>
-                }
+                <!-- [PGP.62] Sin «pronto pago: gana $X · deja pasar $Y» aquí: «Por qué hoy» lo dice en cada renglón. -->
                 <!-- [PGP.35] Lo que el ERP ya no debe. Con el día excedido ya lo dice el veredicto. -->
                 @if (saldadasDelDia().length && !day.summary.exceeded) {
                   <span class="pg-sec-saldada"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span class="comm-num">{{ money(saldadasDelDiaTotal()) }}</span> ya no se deben</span>
@@ -590,9 +586,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                     <p-select appendTo="body" inputId="pg-bulk-origin" [options]="originOpts()" [(ngModel)]="bulkOriginId" optionLabel="label" optionValue="id" placeholder="Elegir cuenta…" [filter]="true" filterBy="label" size="small" class="cal-sel" /></span>
                 }
                 <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [disabled]="!bulkMethod || (bulkMethod !== 'efectivo' && !bulkOriginId) || saving()" [loading]="saving()" (click)="aplicarATodos()">{{ unpreparedCount() === 1 ? 'Aplicar' : 'Aplicar a los ' + unpreparedCount() }}</button>
-                @if (bulkMethod === 'transferencia' || bulkMethod === 'cargo_automatico') {
-                  <span class="pg-aa-note">El destino sale de la cuenta favorita de cada proveedor; los que no tengan, quedan marcados.</span>
-                }
+                <!-- [PGP.62] Sin el renglón «El destino sale de la cuenta favorita…»: al aplicar, el aviso nombra a los que no tienen. -->
               </div>
             }
 
@@ -1266,7 +1260,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     /* ── [PGP.52] Una columna: veredicto · agregar · pagos del dia. Sin paneles que se peleen el ancho. ── */
     .pg-paso { font-size:var(--fs-sm); color:var(--text-muted); }
     /* Agregar: el buscador en una linea; sin busqueda, tres enlaces con su cuenta en vez de 1,000 renglones. */
-    .pg-add { display:grid; gap:var(--sp-1); padding:var(--sp-2) 0; }
+    /* [PGP.62] El buscador y «Ver todas (N)» en UN renglón: eran dos. Lo demás (avisos, la lista) va a todo lo ancho. */
+    .pg-add { display:grid; grid-template-columns:minmax(0, auto) auto; align-items:center; gap:var(--sp-1) var(--sp-4); padding:var(--sp-1) 0; }
+    .pg-add > :not(.pg-add-bar):not(.pg-add-links) { grid-column:1 / -1; }
+    @media (max-width: 47.5rem) { .pg-add { grid-template-columns:minmax(0, 1fr); } }
     .pg-add-bar { display:flex; align-items:center; gap:var(--sp-2) var(--sp-3); flex-wrap:wrap; }
     .pg-add-t { margin:0; font-size:var(--fs-h3); font-weight:600; color:var(--text-main); white-space:nowrap; }
     .pg-add-n { font-size:var(--fs-sm); color:var(--text-muted); }
@@ -1799,7 +1796,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   readonly pasoTexto = computed(() => {
     const e = this.etapas().find((x) => x.estado === 'ahora');
     if (!e) return this.selectedDay()?.summary.lot_status === 'closed' ? 'Día cerrado' : '';
-    return [`Paso ${e.n} de 5: ${e.nombre}`, e.quien, e.dice].filter(Boolean).join(' · ');
+    // [PGP.62] Al preparar, «N de M listos» ya lo dicen el veredicto («Faltan N de M») y la barra («Los N sin preparar»).
+    return [`Paso ${e.n} de 5: ${e.nombre}`, e.quien, e.n === 2 ? '' : e.dice].filter(Boolean).join(' · ');
   });
 
   /**
