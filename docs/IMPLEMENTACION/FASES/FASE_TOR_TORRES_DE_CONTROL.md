@@ -1,0 +1,261 @@
+# Fase TOR — Torres de control: Sistemas y Desarrollo
+
+> El método que la gobierna: [`docs/METODO_DE_TRABAJO.md`](../../METODO_DE_TRABAJO.md).
+> Nace de rehacer `/admin/db-health` desde cero (`[DH.5]` corrigió lo que mentía; esto la reemplaza).
+
+```
+OBJETIVO: que Sistemas vea si los servidores y carriles de Kepler funcionan, y Desarrollo si
+          nuestra infraestructura está sana y al día con main — cada falla con dueño.
+MÉTRICA:  fallas activas sin ver — HOY (2026-11-04): 25 alertas abiertas, 0 vistas, la más vieja
+          de 42 días; 12 carriles en error o detenidos (5 de más de una semana); el respaldo fuera
+          del servidor en error desde el 31-oct → META: ninguna falla abierta más de 24 h sin
+          dueño que la haya visto, para 2026-11-30
+CAPA TOPE: C3
+ÁREA:      Plataforma
+DUEÑO:     Edgar (firma) · dueños por carril: D5
+ESTADO:    ⬜ — espera D1 (cupo: 7 fases 🔨 contra 4)
+```
+
+Medido en sólo lectura el 2026-11-04: `pg-prod` (`system_identifier` 7688376744939610156) y la
+fuente de réplicas en `md` `:5433` (7644631598664073265), más `git ls-remote` del carril de entrega.
+
+---
+
+## 1. Qué problema resuelve
+
+`/admin/db-health` mezcla dos oficios en una sola columna de nueve bloques: **el de Sistemas**
+(¿llegó el dato de cada sucursal?) y **el de Desarrollo** (¿qué versión corre, cómo está la base?).
+Ninguno de los dos encuentra lo suyo, y la bandeja que debía juntarlos no la atiende nadie.
+
+| Hecho medido hoy | Qué cuesta |
+|---|---|
+| El respaldo fuera del servidor (`respaldo_fuera`) en error desde el 31-oct | si se pierde `md`, se pierde todo lo que no está en otro lado |
+| `md` se reinició completo el 1-nov 22:02 (prod y la fuente arrancaron en el mismo segundo) y ninguna pantalla lo dijo | un reinicio sin apagado limpio borra contadores; el motor dio «Crítico» falso hasta `[DH.5]` |
+| 12 carriles en error o detenidos; cobranza de ruta y autollenado de caja desde el 19-oct | dato que la operación cree vigente y no lo es |
+| 2 commits sellados sin soltar y 4 migraciones sin aplicar (una del 2-nov) | lo terminado no llega |
+| 269 tipos de consulta con media de más de 500 ms desde el reinicio (`pg_stat_statements`) | por regla del proyecto, una consulta de más de 500 ms no funciona |
+| 14 permisos declarados que no tiene ningún rol | módulos «entregados» que nadie puede abrir (regla 20) |
+| 25 alertas abiertas, 0 vistas | la bandeja es papel tapiz |
+| Réplicas de sucursal: 9 de 9 reciben (la más atrasada, 26 s); 5 errores de aplicación acumulados | hoy está bien, pero **la API de prod no lo puede ver** (§3, TOR.0.1) |
+
+---
+
+## 2. Qué NO incluye
+
+- **Arreglar** cada falla de §1: van como incidentes a su carril, no esperan a esta fase (§8).
+- Escribir en Kepler ni en ningún servidor desde la pantalla (la escritura Suite→Kepler está apagada).
+- Botones que reinicien pods, apliquen migraciones o suelten versiones: la torre **informa y
+  manda al runbook**; ejecutar sigue siendo el carril `entrega` en `md`. Un botón así es una
+  credencial con forma de botón (regla 7).
+- Telemetría de navegador o de uso por pantalla.
+- Borrar `/admin/db-health`: se redirige a la torre de Desarrollo cuando ésta esté en prod.
+
+---
+
+## 3. Las dos pantallas
+
+### 3.1 Torre de Sistemas — servidores y carriles de Kepler
+
+**La frase:** *¿qué servidor o carril de Kepler está caído o atrasado, en qué sucursal, y qué hago?*
+
+**Las cinco preguntas** ([`diseno` §0b](../../../.claude/skills/diseno/SKILL.md)):
+
+| # | Pregunta | Respuesta |
+|---|---|---|
+| 1 | Qué ve y en qué orden | Veredicto («2 sucursales con problema») → **matriz sucursal × carril** → bandeja de lo que hay que atender, lo más grave primero |
+| 2 | Qué no ve | Versiones, migraciones, el motor de prod, CI: eso es de Desarrollo |
+| 3 | Accesibilidad | Sucursal **por nombre**; cada celda con estado en palabra + edad; desglose al lado sin salir |
+| 4 | Ligada a otro proceso | Cada falla enlaza a su runbook y, si la reporta alguien, al ticket de Mesa de Servicio |
+| 5 | ¿Le toca? | Sí: es el trabajo diario de Sistemas. Los tickets de Mesa de Servicio (12 asignados hoy) viven acá |
+
+> Boceto: los valores son de ejemplo, no medidos.
+
+**Jerarquía:** primario = el veredicto y las celdas en rojo · secundario = la matriz completa ·
+terciario = notas y edad de cada celda.
+
+```
+ Torre de Sistemas                                      verificado hace 40 s
+ ─────────────────────────────────────────────────────────────────────────
+ 2 sucursales con problema · 1 carril detenido · 3 tickets esperando
+ ─────────────────────────────────────────────────────────────────────────
+                     Servidor   Réplica   Al ODS   Caja    Camionetas  Relojes
+ Matriz              Kepler     lógica             (mdb)   (push)
+ Morelia Madero      ●  arriba  ● 4 s     ● 1 min  —       ● hoy       ● 2 min
+ La Piedad Abastos   ●  arriba  ▲ 3 err   ● 1 min  —       ✕ 18 d      ● 5 min
+ CEDIS               ○ NO MEDIDO (Access 97)        …
+ …
+ ─────────────────────────────────────────────────────────────────────────
+ Atender                                           dueño     desde
+ ✕ Camioneta 504 sin día nuevo                     —         18 d   runbook ›
+ ▲ Réplica La Piedad: 3 errores de aplicación      —         ?      runbook ›
+ Ticket SD-0081 «no me cuadra la caja»            Sistemas  2 d    abrir ›
+```
+
+**Carriles** (columnas de la matriz y renglones de servidores sin sucursal):
+
+| Carril | Fuente hoy | ¿La API de prod la ve? |
+|---|---|---|
+| Servidor Kepler de cada sucursal + réplica lógica | `pg_stat_subscription` en la fuente `:5433` | ❌ no tiene conexión a la fuente → TOR.0.1 |
+| Del espejo al ODS | latidos `ods_live_*`, `cdc_reconcile*` (por sucursal sólo en texto libre) | 🟡 → TOR.0.2 |
+| Caja General (`.mdb`) | latido `caja_general_replica_all` | ✅ |
+| CEDIS (Access 97) | sonda en `db-health` | ✅ |
+| Wincaja (`.249`) | sondas `wincaja_*` (retiradas, laten si revive) | ✅ |
+| Camionetas (push de ruta, 11 cuelgan del reenvío de `.249`) | `rd_route_push_dia` | ✅ |
+| Relojes checadores | `hr_attendance_*` | ✅ |
+| GPS de flota | `vehicle_positions` | ✅ |
+| Escritorio `.249` (Windows, requiere sesión) | — | ❌ NO MEDIDO → TOR.0.3 |
+| Mesa de Servicio | `servicedesk.requests` | ✅ |
+
+### 3.2 Torre de Desarrollo — nuestra infraestructura
+
+**La frase:** *¿producción está sana y al día con `main`, y qué rompimos?*
+
+| # | Pregunta | Respuesta |
+|---|---|---|
+| 1 | Qué ve y en qué orden | Veredicto → **tira de entrega** (`main` → sellado → soltado → corriendo, con migraciones pendientes) → bandeja → seis carriles desglosables |
+| 2 | Qué no ve | Sucursales, Kepler, tickets: eso es de Sistemas. Configuración de autovacuum y peso por schema quedan en un desglose |
+| 3 | Accesibilidad | Commit corto copiable; cada carril se abre al lado; «no medido» explícito |
+| 4 | Ligada a otro proceso | La tira de entrega es el carril de la skill `entrega`: cada paso dice qué falta y el comando para `md` |
+| 5 | ¿Le toca? | Sí: los 4 devs y quien suelta |
+
+> Boceto: los commits y conteos son los medidos el 2026-11-04; el resto, de ejemplo.
+
+**Jerarquía:** primario = veredicto + tira de entrega · secundario = bandeja · terciario = carriles.
+
+```
+ Torre de Desarrollo                                    verificado hace 40 s
+ ─────────────────────────────────────────────────────────────────────────
+ Producción sana · 2 commits sin soltar · 4 migraciones pendientes
+ ─────────────────────────────────────────────────────────────────────────
+ main 23be29b ─● sellado 23be29b ─▲ soltado 7db184b ─● corriendo 7db184b
+               4 migraciones sin aplicar (la más vieja del 02/11)   cómo ›
+ ─────────────────────────────────────────────────────────────────────────
+ Atender                                           dueño     desde
+ ✕ Respaldo fuera del servidor en error            —         4 d    runbook ›
+ ✕ Carril autollenado de caja detenido             —         16 d   ›
+ ▲ 269 consultas con media > 500 ms                —         —      ver ›
+ ─────────────────────────────────────────────────────────────────────────
+ Vida ●   Base ▲   Respaldos ✕   Disco ○ sonda incoherente   Carriles ✕   Errores ○ NO MEDIDO
+```
+
+**Carriles:**
+
+| Carril | Qué muestra | Fuente hoy |
+|---|---|---|
+| Entrega | refs `main`/`ci-green`/`prod-release`, lo que corre, migraciones pendientes | lo que corre: `/api/health` ✅ · refs y pendientes: ❌ → TOR.0.4 |
+| Vida | API, worker, túnel, pods listos y reinicios, arranque de Postgres | túnel ✅ · `pg_postmaster_start_time()` ✅ · pods ❌ → TOR.0.5 |
+| Base | conexiones, bloqueos, consultas > 500 ms, filas muertas (sobre `reltuples`) | `pg_stat_activity`, `pg_stat_statements` (schema `identity`) ✅ |
+| Respaldos | local, pgbackrest, fuera del servidor, `pgvector-md` | latidos ✅ · `pgvector-md` sin respaldo (auditoría 31-oct) |
+| Disco y capacidad | libre, consumo por día, días hasta `DiskPressure` | `vigia_disco` 🟡 se contradice (17.9 GB/día en 24 h, 0 en 72 h) → TOR.0.6 |
+| Carriles de la suite | crons de API/worker: última corrida, fallas en 7 días | `cron_runs`, `cron_run_log` ✅ |
+| Errores de la app | excepciones por endpoint | ❌ NO MEDIDO (`instrument.ts` de Sentry existe; no se sabe si está prendido) → D4 |
+| Permisos | permisos declarados sin ningún rol | `identity.role_permissions` ✅ |
+
+---
+
+## 4. Las capas
+
+### C0 · Dato
+
+| # | Item | Estado | Verificado contra |
+|---|---|---|---|
+| TOR.0.1 | Estado de la réplica de cada sucursal visible para la API: el carril `kepler_replica_refresh` (ya corre en `md`) late **una fila por sucursal** (`kepler_sub_<código>`) con segundos desde el último mensaje y errores de aplicación | ⬜ | `pg_stat_subscription` leído directo en `:5433` el mismo minuto |
+| TOR.0.2 | El latido de `ods_live_*` y `cdc_reconcile*` declara su dato **por sucursal en campos**, no en texto libre (columna `detail jsonb` en `analytics.cron_runs`, aditiva, expand/contract) | ⬜ | el `note` actual dice lo mismo |
+| TOR.0.3 | Latido de `.249` (escritorio Windows): sesión iniciada, Docker arriba, tareas de Wincaja corriendo | ⬜ | Programador de tareas en la máquina |
+| TOR.0.4 | Latido de entrega: `vigia-ci-green` escribe `main`, `ci-green`, `prod-release` y migraciones pendientes en cada pasada | ⬜ | `git ls-remote` + `aplicar-migracion.sh --pendientes` en `md` |
+| TOR.0.5 | Latido de pods: réplicas listas y reinicios por deployment de `prod` e `ingesta` | ⬜ | `kubectl get pods` en `md` |
+| TOR.0.6 | `vigia_disco`: corregir la incoherencia 24 h/72 h antes de publicar «días hasta DiskPressure» | ⬜ | `df` en `md` en dos fechas |
+| TOR.0.7 | Dueño por carril como **definición configurable** (primitivo de la Fase DP), no texto en el código | ⬜ | la pregunta contestada por Edgar |
+
+⛔ Sin importer: todo es latido de un carril que ya corre o catálogo de Postgres. Lo que no llega se
+dibuja **NO MEDIDO**, nunca verde.
+
+### C1 · Dominio
+
+| # | Item | Estado | Prueba que lo ejerce |
+|---|---|---|---|
+| TOR.1.1 | **Primitivo `Señal`** en `libs/contracts`: `{ carril, sujeto, estado, edad_s, medido, nota, dueño, enlace }` + `veredictoDeSeñales()` (lo no medido no cuenta como sano ni se esconde). Lo usan las dos torres (ADR-056) | ⬜ | spec con negativa: una señal `medido:false` nunca da veredicto verde |
+| TOR.1.2 | Catálogo de carriles por torre (cuál va a Sistemas, cuál a Desarrollo), sin duplicar `CRON_JOBS` | ⬜ | cada `job_key` de `cron_runs` cae en exactamente una torre o en «sin clasificar» visible |
+
+### C2 · API
+
+| # | Item | Estado | ¿Escribe? | Prueba contra base real |
+|---|---|---|---|---|
+| TOR.2.1 | `GET /plataforma/torre/sistemas` → veredicto, matriz sucursal × carril, bandeja, tickets | ⬜ | no | consulta ejercida contra el CI; < 500 ms |
+| TOR.2.2 | `GET /plataforma/torre/desarrollo` → veredicto, tira de entrega, bandeja, carriles | ⬜ | no | ídem |
+| TOR.2.3 | `POST …/senales/:id/visto` (reemplaza el ack actual, con quién y cuándo) | ⬜ | **sí** | ⛔ obligatoria, con el payload de la pantalla |
+
+### C3 · UI
+
+| # | Item | Estado | `check:pantalla` antes → después |
+|---|---|---|---|
+| TOR.3.1 | `/sistemas/torre` — Torre de Sistemas | ⬜ | nueva: 0 fallas |
+| TOR.3.2 | `/admin/torre` — Torre de Desarrollo; `/admin/db-health` redirige | ⬜ | `admin-db-health`: Q.1, §2, P, TBL → 0 |
+| TOR.3.3 | Entradas de sidebar, permisos repartidos en prod (regla 20) y `MATRIZ_ACCESOS.md` regenerada | ⬜ | — |
+
+---
+
+## 5. Decisiones a firmar
+
+| # | Decisión | Opciones | Recomendación |
+|---|---|---|---|
+| D1 | **Cupo** | (a) abrir TOR como 8ª 🔨 · (b) pasar una 🔨 a ⏸️ · (c) dejar TOR ⬜ y hacer sólo C0 como incidentes | **(b)**. Si no, **(c)**: C0 son latidos que hacen falta igual |
+| D2 | **Rutas y permisos** | permiso nuevo por torre · uno solo | **Dos**: `SISTEMAS_TORRE_VER` (nuevo) y `PLATFORM_HEALTH_VER` para Desarrollo. Quitárselo a `recursos_humanos` |
+| D3 | **Cómo ve la API las réplicas** | (A) darle una conexión de lectura a la fuente `:5433` · (B) latido por sucursal desde `md` | **(B)**: no toca credenciales (regla 7) y sigue el patrón de todos los carriles |
+| D4 | **Errores de la app** | confirmar si Sentry está prendido en prod · prenderlo (Fase A.1, ⏸️) · dejarlo NO MEDIDO | Confirmar primero; mientras, «NO MEDIDO» visible |
+| D5 | **Dueño de cada carril** | nombres por carril | Necesito los nombres de Sistemas y de los 4 devs por carril |
+| D6 | **Mesa de Servicio** | en la torre de Sistemas · aparte | En la torre, como fila de la bandeja con enlace al ticket |
+
+---
+
+## 6. Riesgos y bloqueos
+
+| Bloqueo | Dueño | Causa | Qué lo destraba |
+|---|---|---|---|
+| C0 de pods, entrega y `.249` corre en `md` y en `.249` | quien tenga acceso a `md` | los latidos se escriben desde scripts del servidor, no desde la API | D1 + un dev con `ssh` a `md` |
+| `ops/k3s` del repo no es lo que se aplica | — | memoria de plataforma | medir en `md` antes de prometer un latido nuevo |
+
+---
+
+## 7. Observaciones de diseño UI — revisión del plan (2026-11-04)
+
+Nivel C: se lee el plan, no la pantalla. 🔴 bloquea C3 → 🚀 · 🟠 dentro de la fase · 🟡 mejora.
+
+| # | Sev | Observación y costo | Ley | Criterio de aceptación |
+|---|---|---|---|---|
+| TOR.UI.1 | 🔴 | Una celda sin fuente pintada como sano repetiría el «todo sano» de `[DH.5]` | ADR-056 | toda celda sin dato dice «no medido» en palabra y no cuenta para el veredicto como sano |
+| TOR.UI.2 | 🔴 | La sucursal por código («01») no le dice nada a Sistemas | sucursal por nombre | la matriz usa `warehouseName()`; cero códigos crudos |
+| TOR.UI.3 | 🔴 | Un veredicto que cuenta fallas sin dueño las vuelve a normalizar (25 abiertas, 0 vistas) | Q.4 redirección | cada fila de la bandeja lleva dueño (o «sin dueño» en rojo) y enlace a su runbook |
+| TOR.UI.4 | 🟠 | Dos torres con piezas distintas para lo mismo | Jakob | las dos usan el mismo componente de señal, de bandeja y de desglose (`app-side-peek`) |
+| TOR.UI.5 | 🟠 | La matriz de 9 × 6 celdas con color solo | color nunca solo | cada celda: icono + palabra + edad; `forced-colors` revisado |
+| TOR.UI.6 | 🟠 | El auto-refresco que habla en cada vuelta | `aria-live` ruidoso | un solo `aria-live` para el veredicto, sólo cuando cambia |
+| TOR.UI.7 | 🟡 | Texto en ámbar `-fg` (2.15:1) | contraste AA | texto en `-soft-fg`, como `[DH.5]` |
+
+---
+
+## 8. Lo que no espera a esta fase
+
+1. `respaldo_fuera` en error desde el 31-oct.
+2. 4 migraciones sin aplicar y 2 commits sin soltar.
+3. Carriles detenidos más de una semana: `route_collections`, `caja_autollenado`, `mv_caja_push`,
+   `caos_ingreso_conciliar`, `feed_route_stock`.
+
+---
+
+## 9. Definición de Terminado
+
+- [ ] 1. Métrica de la cabecera **remedida**, antes/después publicado
+- [ ] 2. Cada capa verificada **o declarada NO MEDIDA** (ADR-056)
+- [ ] 3. Todo endpoint que escribe **ejercido contra base real** con el payload de la pantalla
+- [ ] 4. Toda compuerta nueva **rota a propósito una vez**, rojo verificado
+- [ ] 5. Todo primitivo genérico en `libs/` compartido **o** deuda con nombre en el tracker
+- [ ] 6. Tracker + `03_LOG_REVISIONES.md` + roadmap de `CLAUDE.md` al día
+- [ ] 7. **En prod**, o escrito por qué no y qué falta
+
+---
+
+## 10. Bitácora
+
+| Fecha | Qué pasó | Quién |
+|---|---|---|
+| 2026-11-04 | Edgar pide rehacer `/admin/db-health` como torre de control, y después partirla en dos: Sistemas (servidores y Kepler) y Desarrollo (nuestra infraestructura). Plan escrito con lo medido en prod | Edgar · Claude |
