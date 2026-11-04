@@ -1123,6 +1123,57 @@ Lectura: lo que cuesta es la venta única, y ya tiene su corrección (PQ.47). La
 error por sí mismas: pedir lo que se vende es correcto aunque no se haya comprado en 90 días. Si
 el proveedor lo dejó de surtir es otro hecho, **NO MEDIDO** (necesita el catálogo del proveedor).
 
+### 17.6 PQ.47 y PQ.41 — resultados (2026-11-04, prioridad 2)
+
+**PQ.47 — la venta única, contra el documento de Kepler.** Para cada par cuyo mejor día de los
+últimos 30 es 50 % o más de su venta del mes ($5 mil o más ese día): el cliente que más compró ese
+día (`kdm2` → `kdm1.c10` → `kdud`, ventas `U-D-8` y `U-D-10`) y en cuántos meses previos le había
+comprado ese mismo producto. **Control:** 17499 → cliente BOLSAS DE LOS ALTOS (que también es
+proveedor), facturas `U-D-8` 0001734 y 0001735, 0 meses previos ✓.
+
+| Quién compró el día dominante | Pares | Venta de ese día | Venta de 30 d |
+|---|---:|---:|---:|
+| Un cliente que no le había comprado ese producto en los meses previos | 49 | $1.62 M | $1.89 M |
+| Mostrador «CONTADO» (sin cliente) | 18 | $0.23 M | $0.33 M |
+| Un cliente que se lo compró 1–2 meses antes | 12 | $0.11 M | $0.16 M |
+| Un cliente recurrente (3 meses o más) | 4 | $0.05 M | $0.07 M |
+
+⚠️ La historia de ventas de Kepler en el ODS arranca en enero de 2026 en casi todas las
+sucursales: «no le había comprado» no distingue una venta única de una compra anual (varios son
+navideños comprados en octubre). ⚠️ Las consultas por par se corren de una en una; juntas pasan de
+60 s (índices parciales de `kdm2`).
+
+**PQ.41 — el factor de temporada contra lo que se vendió.** El texto **real** de `seasonCte`, con
+la fecha movida. Grano: producto en la red, venta en pesos de 30 días, productos con $1,000 o más
+en la ventana anterior. **Control:** el pronóstico ingenuo (factor 1 = «el mes que viene igual al
+pasado»).
+
+| Fecha de la prueba | Error del motor | Error ingenuo | Año pasado tal cual | Motor contra ingenuo |
+|---|---:|---:|---:|---:|
+| 2025-11-04 (sin año anterior) | $22.03 M | $21.80 M | — | 1 % **peor** |
+| 2026-08-05 | $15.55 M | $15.65 M | $21.55 M | 0.6 % mejor |
+| 2026-10-05 | $20.45 M | $21.67 M | $27.86 M | 5.6 % mejor |
+
+1. **El factor actual casi no le gana a no tener factor** (de −1 % a +6 %). En los productos que
+   se desplomaron al mes siguiente (508 a 682 por fecha), el motor pronosticó de más entre $2.8 M y
+   $3.5 M de venta; en los que subieron, se quedó corto entre $6.8 M y $13.9 M.
+2. **Copiar el año pasado es peor** (+38 % de error): con un año, a nivel producto, es ruido. No es
+   el arreglo.
+3. **Regla dirigida:** el año pasado sólo donde ese año el producto se desplomó (siguiente < 30 %
+   del anterior). En esos productos (96 en agosto, 153 en octubre), **lo pronosticado de más baja
+   ~95 %** ($163 mil → $12 mil; $659 mil → $10 mil). A cambio, el error total sube 2–3 %: parte
+   de ellos este año sí se vendió y se quedan cortos.
+
+**Lo que esto no es:** venta a precio, no cajas pedidas; grano de red, no de sucursal; dos fechas
+con un año de historia.
+
+### 17.7 Decisiones nuevas (de PQ.41 y PQ.47)
+
+| # | Decisión | Opciones | Recomendación |
+|---|---|---|---|
+| D30 | En producto de temporada, ¿qué error cuesta más? | (a) pedir de más: queda mercancía parada hasta el año siguiente · (b) pedir de menos: se pierde venta · (c) igual | **(a)**: aplicar la regla dirigida (§17.6 punto 3) sólo donde el año pasado se desplomó, con el aviso «Fin de temporada: el año pasado en noviembre vendió X» y la cantidad editable (D27) |
+| D31 | La venta de un cliente que no compraba ese producto | (a) sale del promedio y la pantalla la nombra («Incluye una venta única a BOLSAS DE LOS ALTOS el 16-oct») · (b) se queda · (c) sólo se avisa | **(a)** cuando sea 50 % o más del mes; **(c)** para mostrador «CONTADO», que no tiene cliente con quién comprobarlo |
+
 ⭐ **Decisión del PM (2026-11-04): el orden se invierte** — *«empecemos de prioridad 3 y 4 a
 prioridad 1»*. Se trabaja PQ.52 → PQ.53 → PQ.54 → PQ.57 → PQ.49 → PQ.48 → PQ.55/PQ.56 (éstas dos
 esperan logs y una sesión de prueba) y después las de prioridad 2 y 1. Queda escrito porque va en
@@ -1134,6 +1185,7 @@ contra de la regla dinero × esfuerzo (`pm/criterios.md` §1: la decisión del P
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-04 | Prioridad 2 (§17.6): **PQ.47 🧪 C0**: de 83 ventas únicas, 49 son de clientes que no compraban ese producto ($1.62 M en un día); 17499 = venta a BOLSAS DE LOS ALTOS, que es proveedor. **PQ.41 🧪 C0**: el factor de temporada sólo mejora 0–6 % al pronóstico ingenuo; copiar el año pasado es 38 % peor; la regla dirigida quita ~95 % de lo pronosticado de más en lo que se desplomó. Nacen **D30** (¿qué error cuesta más?) y **D31** (venta única fuera del promedio) | PM + sesión Claude |
 | 2026-11-04 | «Documentemos todos los hallazgos y hagámoslos correcciones» → **§17**: 24 correcciones (C-1…C-24) en cuatro frentes, cada una con item, capa, árbitro y prioridad; items nuevos PQ.47–PQ.57 y D29 sin firma. Hallazgo nuevo: **venta extraordinaria única** proyectada como diaria (17499: una venta de 19,899 rollos; en la red 76 pares, $1.05 M en un día). Corregido en §15.5 lo dicho de 17499 | PM + sesión Claude |
 | 2026-11-04 | PM firmó **D25–D28**. **PQ.42 🧪** (§16.5): el día sin foto es agotado (A vende 65.5 % de los días con existencia contra 16.3 % sin ella); el motor no ve ~$2.38 M de venta en 21 d. La foto lee la copia `commercial.stock` y el motor la vista del ODS | PM + sesión Claude |
 | 2026-11-04 | «Pasa a proponer» → **§16, sin firma**: tres mediciones primero (PQ.41 backtest de temporada contra 2025 · PQ.42 ¿la foto sin fila es agotado? · PQ.43 paridad mesa vs Pedido), después una sola falta en `libs/` y temporada + días agotados en la vista del ODS de D17 (nunca en el importer). Decisiones D25–D28. No abre fase (7 🔨 contra 4) | PM + sesión Claude |
