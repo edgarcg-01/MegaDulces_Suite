@@ -2260,7 +2260,12 @@ export class ComercialService {
   commissionScaleSimular(tiers: TierRD[]) {
     return this.http.post<SimulacionEscalaRD>(`${this.base}/commissions/scales/simulate`, { tiers });
   }
-  commissionScaleEstrenar(body: { valid_from: string; nombre?: string; share_supervisor_pct?: number; tiers: TierRD[] }) {
+  commissionScaleEstrenar(body: {
+    valid_from: string; nombre?: string; share_supervisor_pct?: number; tiers: TierRD[];
+    /** `[RD.103.5]` Por omisión el servidor la toma de Ruta Directa. */
+    familia?: FamiliaTabulador; gate_field?: 'venta' | 'subtotal' | 'markup';
+    piso_chofer_venta?: number | null;
+  }) {
     return this.http.post<{
       id: string; valid_from: string; cerro_a: string | null;
       escalones: number; bonos_heredados: number;
@@ -4833,6 +4838,8 @@ export interface SupervisorNomina {
 }
 export interface PadronRuta {
   id: string; route_code: string; scale_id: string; zona: string | null;
+  /** `[RD.103.2]` Ausente en una API anterior: se lee como Ruta Directa. */
+  familia?: FamiliaTabulador;
   chofer_nombre: string | null; supervisor_nombre: string | null;
   nomina_banco: string | number; activo: boolean; notes: string | null;
   /** `YYYY-MM-DD`. NULL = «desde siempre» / «sin cierre». Ver `[RD.84.0]`. */
@@ -4844,7 +4851,11 @@ export interface PadronAlta {
   route_code: string; nomina_banco: number; activo_desde: string;
   zona?: string | null; chofer_nombre?: string | null;
   supervisor_nombre?: string | null; notes?: string | null;
+  /** `[RD.103.2]` Obligatoria para un código vecinal (`2V001`): el servidor no la deduce. */
+  familia?: FamiliaTabulador;
 }
+/** `[RD.103]` Con qué tabulador cobra una ruta. TLMK existe en la base y todavía no tiene motor. */
+export type FamiliaTabulador = 'ruta_directa' | 'vecinal' | 'tlmk';
 export interface PadronEdicion {
   zona?: string | null; chofer_nombre?: string | null; supervisor_nombre?: string | null;
   nomina_banco?: number; activo?: boolean;
@@ -4861,6 +4872,10 @@ export interface EscalaRD {
   valid_from: string; valid_to: string | null; vigente: boolean;
   base_field: string; gate_field: string; share_supervisor_pct: string | number;
   notes: string | null;
+  /** `[RD.103.2]` Ausente en una API anterior: se lee como Ruta Directa. */
+  familia?: FamiliaTabulador;
+  /** El chofer cobra sólo si la venta es MAYOR que esto. NULL = sin piso. */
+  piso_chofer_venta?: string | number | null;
   tiers: { min_amount: string | number; max_amount: string | number | null; pct: string | number }[];
 }
 export interface EscalasRD {

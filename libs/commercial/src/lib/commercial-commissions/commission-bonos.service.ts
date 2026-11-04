@@ -1,6 +1,7 @@
 import type { Knex } from 'knex';
 import { Injectable, Logger, BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { escalaVigente } from './commission-escala';
 
 /** Lo que la base acepta. Se declara acá para traducir el CHECK a un mensaje que se entienda. */
 const METRICAS = ['venta', 'markup_pct', 'visitas', 'volumen', 'manual'] as const;
@@ -196,9 +197,9 @@ export class CommissionBonosService {
   }
 
   private async escalaVigente(trx: Knex.Transaction): Promise<{ id: string }> {
-    const escala = await trx('commercial.commission_scales')
-      .whereNull('deleted_at').whereNull('valid_to')
-      .orderBy('valid_from', 'desc').first();
+    // [RD.103.2] Los bonos de esta pantalla son de Ruta Directa: sin la familia, en cuanto exista
+    // la versión vecinal un bono nuevo podía colgarse de ella.
+    const escala = await escalaVigente(trx, { familia: 'ruta_directa' });
     if (!escala) {
       throw new ConflictException(
         'No hay tabulador vigente, y un bono cuelga de uno: es lo que define desde cuándo rige. '
