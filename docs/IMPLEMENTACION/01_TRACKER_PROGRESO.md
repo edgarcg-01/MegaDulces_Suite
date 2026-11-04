@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 2126 KB, 13109 líneas, 72 secciones.
+> **Índice navegable** — 2127 KB, 13109 líneas, 72 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -10,7 +10,7 @@
 | 85 | 92 | 15 | Tracker de Progreso |
 | 93 | 185 | 203 | 📊 Estado global de fases |
 | 186 | 212 | 1 | 🚦 Estado por item (granular) |
-| 213 | 3274 | 432 | 🎯 EN PROGRESO |
+| 213 | 3274 | 433 | 🎯 EN PROGRESO |
 | 3291 | 3328 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
 | 3329 | 3362 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
 | 3363 | 3447 | 6 | GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código) |
@@ -256,7 +256,7 @@ Y se actualiza el símbolo al avanzar:
 - [ ] **[LE.6.1]** 🔨 **La Ventanilla en la app: «Por pagar hoy» y pagar** — 2026-11-03 (PM: *«ármalo bien con la nueva interfaz»*). Sin pestaña ni ruta (D34, PM 2026-11-04: *«no puede existir ventanilla y captura, debe ser un solo sistema»*): toma `/finanzas/caja-general` el día del cambio. La cola de Kepler con el veredicto por lote (LE.2.13): lo que sale, lo que firma Tesorería y lo detenido con dónde se arregla; pagar con plan, monedas por pieza, quien recibe y código. Sin validación visual. Falta Suspenso, rutas, custodias y cierre.
 - [ ] **[LE.6.7]** 🔨 **La Ventanilla hace todo el día de la cajera** (D34) — hoy cubre los X-D-26: 509 de 784 movimientos de Captura en 30 días (65 %). Falta en la misma cola: cobro de ruta U-A-5 (235), anticipos X-D-60, CAOS sin documento, apertura con el saldo de arranque, arqueo, cierre y custodias. Hecho = inventario de Captura con 0 acciones sin destino. **2026-11-04: primer tramo, recibir un cobro en el cajón** (ruta contra lo que debe rendir, sucursal como otro ingreso; la ventana pregunta antes si llegó por la máquina: 66 de 102 cobros de ruta). Segundo tramo, **Suspenso** (primero en la pantalla): cada movimiento de la máquina sin explicar se explica en la fila (a una ruta, al cajón con sus piezas, al banco). Falta la custodia como destino (LE.6.5) y el empleado del usuario de la máquina (LE.1.15).
 - [ ] **[LE.2.16]** ⬜ **La hoja de reposición se arma sola** — 2026-11-04 (PM: *«sí, hagámoslo»*, §5.5). Una función de destino en `libs/` por cada X-D-26 de efectivo + vista por zona; nómina en hoja propia (D36); lo que llega tarde, a la hoja siguiente.
-- [ ] **[LE.6.8]** ⬜ **La reposición en la cola de la Ventanilla** — una fila por hoja aprobada, un solo código, firma quien lleva el depósito (D35: catálogo con nombre) y custodia a su nombre hasta que la conciliación encuentra el depósito.
+- [ ] **[LE.6.8]** 🔨 **La reposición en la cola de la Ventanilla** — una fila por hoja aprobada, un solo código, firma quien lleva el depósito (D35: catálogo con nombre) y custodia a su nombre hasta que la conciliación encuentra el depósito. **2026-11-04, primer tramo**: pedir (la hoja desde la apertura del libro), firma de Tesorería, código, y cajón y máquina en la custodia de quien lleva el depósito. Quién lo lleva: responsabilidad `finanzas.caja_deposito` que el PM da en Responsabilidades. Falta cerrar la custodia con el depósito del banco.
 - [ ] **[LE.5.8]** ⬜ **El libro se puede medir desde fuera** — 2026-11-04 (plan §0b, H14). El rol de sólo lectura recibe lectura de `cashbook` en `ops/prod/dev-ro.sql`; hoy responde `permission denied for function current_tenant`. Lo aplica el PM en `md`.
 - [ ] **[LE.4.10]** 🔨 **La API de la ventanilla: pagar, custodia, recibir de ruta, depositar el excedente** — 2026-10-31. 🔨 2026-11-02: PAGAR hecho (plan, pagar, por firmar, firmar, rechazar; migración `20261102143213`); base 23 ✓, servicio real 5 ✓ con 3 mutantes muertos. Falta custodia, fondo del cajón y recibir de ruta.
 - [ ] **[LE.4.11]** ⬜ **Tesorería firma en «Mi trabajo», con reautenticación** — 2026-10-31.

@@ -2,7 +2,7 @@ import { Body, Controller, Get, Headers, Param, Post, Query, Req, UseGuards } fr
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import type {
-  CobroEnVentanilla, ConteoDeCaja, EstadoDeCobro, ExplicarSuspenso, HechoDePersona, OrdenPorFirmar, PagoEnVentanilla, PartidaEnSuspenso, PlanDePagoVentanilla,
+  CobroEnVentanilla, ConteoDeCaja, EstadoDeCobro, ExplicarSuspenso, HechoDePersona, HojaDeReposicion, PedirReposicion, QuienLlevaDeposito, OrdenPorFirmar, PagoEnVentanilla, PartidaEnSuspenso, PlanDePagoVentanilla,
   ResultadoCobro, ResultadoConteo, ResultadoHecho, ResultadoPago, SaldosDelLibro, VeredictoDePago,
 } from '@megadulces/contracts';
 import { CashbookService, type UsuarioDelLibro } from './cashbook.service';
@@ -164,6 +164,29 @@ export class CashbookController {
   @ApiOperation({ summary: '[LE.6.7] Explica un movimiento en Suspenso (a una ruta, al cajón o al banco; Idempotency-Key obligatoria): importe y dirección los lee el servidor del libro' })
   explicarSuspenso(@Body() body: ExplicarSuspenso, @Headers('idempotency-key') key: string | undefined, @Req() req: AuthedRequest): Promise<ResultadoHecho> {
     return this.ventanilla.explicar(body, this.user(req), key);
+  }
+
+  // ── `[LE.6.8]` La reposición: una hoja, una firma de Tesorería, un código ──────────────────
+
+  @Get('reposiciones')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: '[LE.6.8] La hoja de reposición de cada zona desde la apertura del libro: qué va, qué no y por qué, y cuánto da la máquina y cuánto el cajón (no escribe)' })
+  reposiciones(): Promise<HojaDeReposicion[]> {
+    return this.ventanilla.reposiciones();
+  }
+
+  @Get('reposiciones/quien-lleva')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: '[LE.6.8] Quién puede llevar el depósito de una reposición (la responsabilidad finanzas.caja_deposito, D35)' })
+  quienLleva(): Promise<QuienLlevaDeposito[]> {
+    return this.ventanilla.quienLleva();
+  }
+
+  @Post('reposiciones')
+  @RequirePermissions(Permission.FINANCE_CAJA_GESTIONAR)
+  @ApiOperation({ summary: '[LE.6.8] Pide la reposición de una zona (Idempotency-Key): nace por firmar; con la firma de Tesorería sale el código y el dinero queda en custodia de quien lleva el depósito' })
+  pedirReposicion(@Body() body: PedirReposicion, @Headers('idempotency-key') key: string | undefined, @Req() req: AuthedRequest): Promise<ResultadoPago> {
+    return this.ventanilla.pedirReposicion(body, this.user(req), key);
   }
 
   @Get('ordenes/por-firmar')

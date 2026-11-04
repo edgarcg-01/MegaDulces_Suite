@@ -28,7 +28,8 @@ import {
 import type { Knex } from 'knex';
 import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import {
-  CUENTA, centavosATexto, formatearDinero, pesosACentavos, valorDePiezas, warehouseName,
+  CUENTA, ZONAS_HOJA_GASTOS, centavosATexto, formatearDinero, pesosACentavos, valorDePiezas, warehouseName,
+  type HojaDeReposicion, type PedirReposicion, type QuienLlevaDeposito, type ZonaHojaGastos,
   type CobroEnVentanilla, type CuentaDelCobro, type EstadoDeCobro, type ExplicarSuspenso, type OrdenPorFirmar, type PartidaEnSuspenso, type ResultadoHecho, type PagoEnVentanilla, type PiezasTexto,
   type PlanDePagoVentanilla, type ResultadoCobro, type ResultadoPago, type VeredictoDePago,
 } from '@megadulces/contracts';
@@ -36,7 +37,10 @@ import { traducirErrorDelLibro } from './errores';
 import {
   ARREGLO_DEL_BLOQUEO, MOTIVO_BLOQUEO, planDePago, veredictoDePago, type DocumentoAPagar, type PlanDePago, type Respaldo, type ValeElegido,
 } from './plan-de-pago';
-import { CUENTAS_FIJAS, clasificarSuspenso, entregaRuta, otroIngreso, pagoDelCajon, type Contexto, type Propuesta } from './reglas';
+import { CUENTAS_FIJAS, aCustodiaDesdeCajon, clasificarSuspenso, entregaRuta, otroIngreso, pagoDelCajon, type Contexto, type Propuesta } from './reglas';
+import { hojaDeReposicion } from './reposicion-en-ventanilla';
+import type { PagoDeZona } from '../caja/hoja-gastos.engine';
+import { consultasHoja } from '../caja/hoja-gastos.query';
 import {
   clasificarCobro, eventoDeCobro, parDelCobro, type CobroClasificado, type FilaCobroRuta, type FilaCobroSucursal,
 } from './cobro-en-ventanilla';
@@ -49,6 +53,10 @@ const FIN_DEL_DIA = `((date_trunc('day', clock_timestamp() AT TIME ZONE 'America
 
 /** Lo que la cajera capturó y se asienta al pagar (o al firmar). Vive en `withdrawal_orders.act`. */
 interface ActoDePago {
+  /** `[LE.6.8]` En una reposición: los X-D-26 que repone y su zona. */
+  documentos?: string[];
+  zona?: string;
+  total_minor?: string;
   piezas_cajon: PiezasTexto;
   recibe: string;
   recibe_empleado: string | null;
@@ -186,6 +194,19 @@ export const SQL_SUSPENSO = `
      AND NOT EXISTS (SELECT 1 FROM cashbook.requests q WHERE q.tenant_id = ? AND q.state IN ('pendiente', 'autorizada')
                        AND q.payload->>'event_ref' = 'clasifica:' || s.event_ref)
    ORDER BY s.value_at, s.event_ref`;
+
+/**
+ * `[LE.6.8]` Quién puede llevar el depósito de una reposición (D35): la responsabilidad
+ * `finanzas.caja_deposito` dada a la persona (`user_responsibilities`, el mismo patrón que AB.29).
+ * Mientras nadie la tenga, la Ventanilla no deja pedir una reposición. Parámetros: `[tenant]`.
+ */
+export const SQL_QUIEN_LLEVA = `
+  SELECT u.id::text AS usuario_id, coalesce(nullif(btrim(u.nombre), ''), u.username) AS nombre
+    FROM identity.user_responsibilities ur
+    JOIN identity.users u ON u.id = ur.user_id AND u.tenant_id = ur.tenant_id AND u.deleted_at IS NULL AND u.activo
+   WHERE ur.tenant_id = ? AND ur.responsibility_key = 'finanzas.caja_deposito' AND ur.accion = 'suma'
+     AND ur.deleted_at IS NULL AND (ur.valid_to IS NULL OR ur.valid_to >= current_date)
+   ORDER BY 2`;
 
 export interface FilaDocumento { folio: string; beneficiario: string; importe: string }
 export interface FilaVale { id: string; folio: string; status: string; importe: string; aprobado_at: string | null }
@@ -439,7 +460,7 @@ export class CashbookVentanillaService {
   private async resultadoDe(trx: Knex.Transaction, ordenId: string): Promise<ResultadoPago> {
     const o = (await trx.raw(`
       SELECT o.id, o.code, o.state, o.amount_minor::text AS amount_minor, o.act, o.expires_at::text AS vence,
-             (SELECT e.id FROM cashbook.entries e WHERE e.tenant_id = o.tenant_id AND e.event_kind = 'gasto'
+             (SELECT e.id FROM cashbook.entries e WHERE e.tenant_id = o.tenant_id AND e.event_kind IN ('gasto', 'retiro_a_custodia')
                 AND e.event_ref = 'pago:' || o.id::text ORDER BY e.event_version DESC LIMIT 1) AS entry_id
         FROM cashbook.withdrawal_orders o WHERE o.id = ?`, [ordenId])).rows[0] as
       { id: string; code: string | null; state: string; amount_minor: string; act: ActoDePago | null; vence: string; entry_id: string | null } | undefined;
@@ -520,6 +541,14 @@ export class CashbookVentanillaService {
       if (r.kind === 'pago' && r.act) {
         await this.asentarCajon(trx, { id: r.id, documento: r.source_ref, concepto: r.classification.concepto, cajera: r.issued_by,
           llave: r.idempotency_key, acto: r.act, firmo: firma });
+      }
+      // `[LE.6.8]` En una reposición, lo del cajón se va con quien lleva el depósito (su custodia), por pieza.
+      if (r.kind === 'reposicion' && r.act && BigInt(r.act.cajon_minor ?? '0') > 0n && r.act.recibe_empleado) {
+        const ctx: Contexto = { actor: { kind: 'persona', user_id: r.issued_by }, valueAt: new Date().toISOString() };
+        const p = aCustodiaDesdeCajon({ empleado: r.act.recibe_empleado, nombre: r.act.recibe, piezas: r.act.piezas_cajon,
+          para: `reposición ${r.source_ref.split(':')[1] ?? ''}` }, ctx, { event_ref: `pago:${r.id}`, meta: { orden: r.id, firmo: firma } });
+        for (const c of p.cuentas) await trx.raw('SELECT cashbook.open_account(?::jsonb)', [JSON.stringify({ ...c, user_id: r.issued_by })]);
+        await trx.raw('SELECT cashbook.post_entry(?::jsonb)', [JSON.stringify(p.asiento)]);
       }
       this.logger.log(`[LE.4.10] orden ${r.id} firmada por ${usuario.username ?? firma}`);
       return this.resultadoDe(trx, r.id);
@@ -758,6 +787,101 @@ export class CashbookVentanillaService {
         const r = await trx.raw(`SELECT cashbook.create_request(?::jsonb, clock_timestamp() + interval '72 hours') AS id`, [JSON.stringify(prop.asiento)]);
         return { estado: 'por_autorizar', request_id: r.rows[0].id as string, motivo: 'pasa el umbral de autorización' };
       }
+    });
+  }
+
+  // ── `[LE.6.8]` La reposición (§5.5): una hoja, una firma de Tesorería, un código ────────────
+
+  /** Los pagos de la zona: la MISMA consulta que la hoja (CGA-A.65). `protected`: la prueba la sustituye. */
+  protected async pagosDeZona(trx: Knex.Transaction, tenantId: string, zona: ZonaHojaGastos): Promise<PagoDeZona[]> {
+    return (await consultasHoja.pagos(trx, tenantId, [...zona.sucursales], zona.desde, { conHojas: true })) as PagoDeZona[];
+  }
+
+  /** El primer día del libro: lo anterior no entra a una hoja de la Ventanilla (D-R2). */
+  private async arranque(trx: Knex.Transaction, tenantId: string): Promise<string | null> {
+    return ((await trx.raw(`SELECT min(business_date)::text AS d FROM cashbook.business_days WHERE tenant_id = ?`, [tenantId])).rows[0]?.d as string | null) ?? null;
+  }
+
+  /** Los pagos que ya van en una orden de reposición viva: no vuelven a entrar a una hoja. */
+  private async tomados(trx: Knex.Transaction, tenantId: string): Promise<Set<string>> {
+    const filas = (await trx.raw(`
+      SELECT DISTINCT d AS ref FROM cashbook.withdrawal_orders o, jsonb_array_elements_text(coalesce(o.act->'documentos', '[]'::jsonb)) d
+       WHERE o.tenant_id = ? AND o.kind = 'reposicion' AND o.state IN ('por_firmar', 'vigente', 'usada')`, [tenantId])).rows as { ref: string }[];
+    return new Set(filas.map((f) => f.ref));
+  }
+
+  private async hojas(trx: Knex.Transaction, tenantId: string): Promise<HojaDeReposicion[]> {
+    const arranque = await this.arranque(trx, tenantId);
+    const tomados = await this.tomados(trx, tenantId);
+    const out: HojaDeReposicion[] = [];
+    for (const z of ZONAS_HOJA_GASTOS) out.push(hojaDeReposicion(z, await this.pagosDeZona(trx, tenantId, z), arranque, tomados));
+    return out;
+  }
+
+  /** La hoja de cada zona, lista para pedir. */
+  async reposiciones(): Promise<HojaDeReposicion[]> {
+    return this.run(async (trx, tenantId) => { await this.exigeVentanilla(trx); return this.hojas(trx, tenantId); });
+  }
+
+  /** Quién puede llevar el depósito: la responsabilidad dada a la persona (D35). Vacío = falta nombrarlos. */
+  async quienLleva(): Promise<QuienLlevaDeposito[]> {
+    return this.run(async (trx, tenantId) => (await trx.raw(SQL_QUIEN_LLEVA, [tenantId])).rows as QuienLlevaDeposito[]);
+  }
+
+  /**
+   * Pedir la reposición de una zona: la orden nace «por firmar» SIEMPRE (D-R1); la firma de Tesorería
+   * es la aprobación de la hoja (D28) y es la única. Lo que da la máquina y lo del cajón quedan en
+   * custodia de quien lleva el depósito hasta que el banco lo confirma (§5.5).
+   */
+  async pedirReposicion(body: PedirReposicion, usuario: UsuarioDelLibro, idempotencyKey: string | undefined): Promise<ResultadoPago> {
+    const cajera = this.quien(usuario);
+    const key = this.llave(idempotencyKey);
+    const zona = ZONAS_HOJA_GASTOS.find((z) => z.clave === String(body?.zona ?? '').trim());
+    if (!zona) throw new BadRequestException({ codigo: 'zona_invalida', mensaje: 'Esa zona no repone gastos.' });
+    const documentos = [...new Set((body?.documentos ?? []).map((d) => String(d).trim()))];
+    return this.run(async (trx, tenantId) => {
+      await this.exigeVentanilla(trx);
+      const previa = (await trx.raw(`SELECT id, source_ref FROM cashbook.withdrawal_orders WHERE tenant_id = ? AND idempotency_key = ?`,
+        [tenantId, key])).rows[0] as { id: string; source_ref: string } | undefined;
+      if (previa) {
+        if (!previa.source_ref.startsWith(`reposicion:${zona.clave}:`)) {
+          throw new ConflictException({ codigo: 'cashbook_peticion_reusada', mensaje: 'Esa petición ya se registró con otro contenido.' });
+        }
+        return this.resultadoDe(trx, previa.id);
+      }
+      const lleva = ((await trx.raw(SQL_QUIEN_LLEVA, [tenantId])).rows as QuienLlevaDeposito[]).find((q) => q.usuario_id === String(body?.lleva ?? ''));
+      if (!lleva) {
+        throw new UnprocessableEntityException({ codigo: 'sin_quien_lleva',
+          mensaje: 'Quien lleva el depósito tiene que tener la responsabilidad «lleva el depósito de la reposición» (D35).' });
+      }
+      const hoja = hojaDeReposicion(zona, await this.pagosDeZona(trx, tenantId, zona), await this.arranque(trx, tenantId), await this.tomados(trx, tenantId));
+      if (!hoja.renglones.length) throw new UnprocessableEntityException({ codigo: 'hoja_vacia', mensaje: 'La hoja de esa zona no tiene pagos que reponer.' });
+      const enHoja = hoja.renglones.map((r) => r.origen_ref);
+      if (enHoja.length !== documentos.length || enHoja.some((r) => !documentos.includes(r))) {
+        throw new ConflictException({ codigo: 'hoja_cambio', mensaje: 'La hoja cambió desde que se vio (entró o salió un pago): se vuelve a ver antes de pedirla.' });
+      }
+      const piezas = body?.piezas_cajon ?? {};
+      if (sumaDePiezas(piezas) !== BigInt(hoja.cajon_minor)) {
+        throw new UnprocessableEntityException({ codigo: 'cajon_no_cuadra',
+          mensaje: `Del cajón salen ${formatearDinero(BigInt(hoja.cajon_minor))}: las piezas suman ${formatearDinero(sumaDePiezas(piezas))}.` });
+      }
+      if (BigInt(hoja.maquina_minor) <= 0n) {
+        throw new UnprocessableEntityException({ codigo: 'reposicion_sin_maquina', mensaje: 'Una reposición de menos de $20 no pasa por la máquina: se paga del cajón.' });
+      }
+      const acto = {
+        piezas_cajon: piezas, recibe: lleva.nombre, recibe_empleado: lleva.usuario_id, cajon_minor: hoja.cajon_minor, redondeo_minor: '0',
+        beneficiario: `Reposición ${zona.nombre}`, folio: `${enHoja.length} pagos`, motivo_firma: 'la reposición la firma Tesorería (D-R1)',
+        documentos: enHoja, zona: zona.clave, total_minor: hoja.total_minor,
+      };
+      const vence = (await trx.raw(`SELECT ${FIN_DEL_DIA} AS fin`)).rows[0].fin as Date;
+      const o = (await trx.raw('SELECT cashbook.issue_order(?::jsonb) AS o', [JSON.stringify({
+        kind: 'reposicion', amount_minor: hoja.maquina_minor, source_ref: `reposicion:${zona.clave}:${key}`,
+        classification: { tipo: 'custodia', empleado: lleva.usuario_id, nombre: lleva.nombre },
+        actor: { kind: 'persona', user_id: cajera }, expires_at: new Date(vence).toISOString(),
+        por_firmar: true, act: acto, idempotency_key: key,
+      })])).rows[0].o as OrdenEmitida;
+      this.logger.log(`[LE.6.8] reposición ${zona.clave} (${enHoja.length} pagos) por firmar`);
+      return { estado: 'por_firmar', orden_id: o.id, motivo: acto.motivo_firma };
     });
   }
 

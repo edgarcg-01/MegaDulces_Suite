@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { provideRouter } from '@angular/router';
 import { of, throwError } from 'rxjs';
-import type { EstadoDeCobro, PartidaEnSuspenso, PlanDePagoVentanilla, ResultadoCobro, SaldosDelLibro, VeredictoDePago } from '@megadulces/contracts';
+import type { EstadoDeCobro, HojaDeReposicion, PartidaEnSuspenso, QuienLlevaDeposito, PlanDePagoVentanilla, ResultadoCobro, SaldosDelLibro, VeredictoDePago } from '@megadulces/contracts';
 import { FinanzasCajaVentanillaComponent } from './finanzas-caja-ventanilla.component';
 import { CashLedgerService, type MovimientoPendiente, type PendientesResponse } from '../../cash-ledger.service';
 import { LibroEfectivoService } from '../../libro-efectivo.service';
@@ -66,7 +66,18 @@ const SUSPENSO: PartidaEnSuspenso[] = [
     texto: null, usuario_maquina: 'vendedor7', motivo: 'retiro sin clasificar' },
 ];
 
-function montar(opciones: { jornada?: string | null; saldosFalla?: boolean; gestionar?: boolean; suspenso?: PartidaEnSuspenso[] | 'falla' } = {}) {
+// `[LE.6.8]` La hoja de Morelia: dos pagos del libro y uno de antes de la apertura; Canindo vacía.
+const HOJAS: HojaDeReposicion[] = [
+  { zona: 'morelia', nombre: 'Zona Morelia', sin_arranque: false, total_minor: '155050', maquina_minor: '155000', cajon_minor: '50',
+    renglones: [{ origen_ref: '07|X-D-26|9002|0011', sucursal: '07', folio: '9002', fecha_pago: '2026-11-05', beneficiario: 'GASTOS', importe_minor: '125050' },
+      { origen_ref: '07|X-D-26|9003|0011', sucursal: '07', folio: '9003', fecha_pago: '2026-11-05', beneficiario: 'GASTOS', importe_minor: '30000' }],
+    fuera: [], anteriores: { n: 1, monto_minor: '100000' } },
+  { zona: 'canindo', nombre: 'Zona Canindo', sin_arranque: false, total_minor: '0', maquina_minor: '0', cajon_minor: '0', renglones: [], fuera: [],
+    anteriores: { n: 0, monto_minor: '0' } },
+];
+
+function montar(opciones: { jornada?: string | null; saldosFalla?: boolean; gestionar?: boolean; suspenso?: PartidaEnSuspenso[] | 'falla';
+  hojas?: HojaDeReposicion[]; quien?: QuienLlevaDeposito[] } = {}) {
   const ledger = { movimientosPendientes: vi.fn((f: { doc_tipo?: string }) => of(f.doc_tipo === 'U-A-5' ? COBROS : COLA)) };
   const libro = {
     saldos: vi.fn(() => (opciones.saldosFalla ? throwError(() => ({ status: 403 }))
@@ -79,6 +90,9 @@ function montar(opciones: { jornada?: string | null; saldosFalla?: boolean; gest
     estadoDeCobros: vi.fn(() => of(ESTADOS)),
     suspenso: vi.fn(() => (opciones.suspenso === 'falla' ? throwError(() => ({ status: 503 })) : of(opciones.suspenso ?? SUSPENSO))),
     explicar: vi.fn(() => of({ estado: 'asentado' as const, entry_id: 'e11' })),
+    reposiciones: vi.fn(() => of(opciones.hojas ?? HOJAS)),
+    quienLleva: vi.fn(() => of(opciones.quien ?? [{ usuario_id: 'u-lleva', nombre: 'Quien Lleva' }])),
+    pedirReposicion: vi.fn(() => of({ estado: 'por_firmar' as const, orden_id: 'o9', motivo: 'la reposición la firma Tesorería (D-R1)' })),
     recibir: vi.fn(() => of<ResultadoCobro>({ estado: 'recibido', entry_id: 'e2', tipo: 'ruta', ruta: '22', contado_minor: '180000',
       esperado_minor: '185000', diferencia_minor: '-5000', es_redondeo: false })),
   };
@@ -299,5 +313,47 @@ describe('[LE.2.13] la Ventanilla', () => {
     const falla = montar({ suspenso: 'falla' }).el;
     expect(falla.querySelector('[data-testid="suspenso-error"]')).not.toBeNull();
     expect(falla.querySelector('[data-testid="suspenso-vacio"]')).toBeNull();
+  });
+
+  // ── `[LE.6.8]` Reposiciones ──────────────────────────────────────────────────────────────
+
+  it('[LE.6.8] la hoja de cada zona: sus pagos, su total y lo de antes de la apertura dicho aparte', () => {
+    const { el } = montar();
+    const fila = el.querySelector('tr[data-zona="morelia"]') as HTMLElement;
+    expect(fila.textContent).toContain('Zona Morelia');
+    expect(fila.textContent).toContain('1 de antes de la apertura');
+    expect((fila.querySelector('button') as HTMLButtonElement).disabled).toBe(false);
+    expect(((el.querySelector('tr[data-zona="canindo"]') as HTMLElement).querySelector('button') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('[LE.6.8] pedir: quien lleva el depósito y las monedas exactas del cajón; nace por firmar', () => {
+    const { fixture, comp, libro } = montar();
+    comp.abrirReposicion(HOJAS[0]);
+    expect(comp.lleva()).toBe('u-lleva');                       // una sola persona: ya elegida
+    expect(comp.listoParaReponer()).toBe(false);                 // faltan los 50 centavos del cajón
+    comp.piezasReposicion.set({ '0.5': 1 });
+    expect(comp.listoParaReponer()).toBe(true);
+    comp.pedirReposicion();
+    fixture.detectChanges();
+    const [body, llave] = libro.pedirReposicion.mock.calls[0] as unknown as [Record<string, unknown>, string];
+    expect(body).toEqual({ zona: 'morelia', documentos: ['07|X-D-26|9002|0011', '07|X-D-26|9003|0011'], lleva: 'u-lleva', piezas_cajon: { '0.5': '1' } });
+    expect(llave).toMatch(/^[0-9a-f-]{36}$/);
+    expect(document.body.querySelector('[data-testid="resultado-reposicion"]')?.textContent).toContain('Quedó por firmar');
+  });
+
+  it('[LE.6.8] NEGATIVA: sin nadie nombrado para llevar el depósito, lo dice y no se pide', () => {
+    const { fixture, comp, libro } = montar({ quien: [] });
+    comp.abrirReposicion(HOJAS[0]);
+    comp.piezasReposicion.set({ '0.5': 1 });
+    fixture.detectChanges();
+    expect(document.body.querySelector('[data-testid="sin-quien-lleva"]')?.textContent).toContain('Responsabilidades');
+    expect(comp.listoParaReponer()).toBe(false);
+    comp.pedirReposicion();
+    expect(libro.pedirReposicion).not.toHaveBeenCalled();
+  });
+
+  it('[LE.6.8] sin apertura del libro no hay hoja: lo dice en una línea', () => {
+    const { el } = montar({ hojas: HOJAS.map((h) => ({ ...h, sin_arranque: true, renglones: [] })) });
+    expect(el.querySelector('[data-testid="reposicion-sin-arranque"]')).not.toBeNull();
   });
 });

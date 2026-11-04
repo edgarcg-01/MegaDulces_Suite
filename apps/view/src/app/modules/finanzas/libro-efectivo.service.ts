@@ -2,7 +2,8 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import type {
-  CobroEnVentanilla, EstadoDeCobro, ExplicarSuspenso, PagoEnVentanilla, PartidaEnSuspenso, PlanDePagoVentanilla, ResultadoCobro,
+  CobroEnVentanilla, EstadoDeCobro, ExplicarSuspenso, HojaDeReposicion, PagoEnVentanilla, PartidaEnSuspenso, PedirReposicion,
+  PlanDePagoVentanilla, QuienLlevaDeposito, ResultadoCobro,
   ResultadoHecho, ResultadoPago, SaldosDelLibro, VeredictoDePago,
 } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
@@ -46,6 +47,21 @@ export class LibroEfectivoService {
   estadoDeCobros(docs: readonly string[]): Observable<EstadoDeCobro[]> {
     return this.http.get<EstadoDeCobro[]>(`${this.base}/cobros/estado`, { params: new HttpParams().set('docs', docs.join(',')) })
       .pipe(reintentarSi429<EstadoDeCobro[]>());
+  }
+
+  /** `[LE.6.8]` La hoja de reposición de cada zona, desde la apertura del libro. */
+  reposiciones(): Observable<HojaDeReposicion[]> {
+    return this.http.get<HojaDeReposicion[]>(`${this.base}/reposiciones`).pipe(reintentarSi429<HojaDeReposicion[]>());
+  }
+
+  /** `[LE.6.8]` Quién puede llevar el depósito (D35). */
+  quienLleva(): Observable<QuienLlevaDeposito[]> {
+    return this.http.get<QuienLlevaDeposito[]>(`${this.base}/reposiciones/quien-lleva`).pipe(reintentarSi429<QuienLlevaDeposito[]>());
+  }
+
+  /** `[LE.6.8]` Pide la reposición: nace por firmar; la firma de Tesorería da el código. */
+  pedirReposicion(body: PedirReposicion, idempotencyKey: string): Observable<ResultadoPago> {
+    return this.http.post<ResultadoPago>(`${this.base}/reposiciones`, body, { headers: new HttpHeaders({ 'Idempotency-Key': idempotencyKey }) });
   }
 
   /** `[LE.6.7]` Lo que la máquina hizo y nadie explicó, lo más viejo primero. */

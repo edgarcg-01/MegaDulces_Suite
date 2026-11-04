@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import knexFactory, { Knex } from 'knex';
 import { HttpException } from '@nestjs/common';
 import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
-import type { PagoEnVentanilla } from '@megadulces/contracts';
+import type { PagoEnVentanilla, ZonaHojaGastos } from '@megadulces/contracts';
+import type { PagoDeZona } from '../caja/hoja-gastos.engine';
 import { CashbookService } from './cashbook.service';
 import {
   CashbookVentanillaService, type FilaDocumento, type FilaDocumentoLote, type FilaRespaldoCompra, type FilaRespaldoGasto, type FilaVale,
@@ -57,6 +58,11 @@ class VentanillaConFilas extends CashbookVentanillaService {
       gastos: sembrados.flatMap(([sucursal, folio]) => this.respaldos.get(`${sucursal}|${folio}`)!.gastos.map((g) => ({ sucursal, folio, ...g }))),
       compras: sembrados.flatMap(([sucursal, folio]) => this.respaldos.get(`${sucursal}|${folio}`)!.compras.map((c) => ({ sucursal, folio, ...c }))),
     };
+  }
+  /** `[LE.6.8]` Los pagos de cada zona que devolvería la consulta de la hoja. */
+  pagosZona = new Map<string, PagoDeZona[]>();
+  protected override async pagosDeZona(_trx: Knex.Transaction, _t: string, zona: ZonaHojaGastos): Promise<PagoDeZona[]> {
+    return this.pagosZona.get(zona.clave) ?? [];
   }
   /** `[LE.6.7]` Los cobros que las dos fuentes devolverían (`almacen|folio` → su fila). */
   cobrosRuta = new Map<string, Omit<FilaCobroRuta, 'almacen' | 'folio'>>();
@@ -476,5 +482,76 @@ describe.skipIf(!URL)('[LE.4.10] la Ventanilla contra Postgres', () => {
       .toEqual({ status: 400, codigo: 'ruta_invalida' });
     expect(await rechazo(v.explicar({ event_ref: `caos:${DEV}:1`, hacia: { tipo: 'cajon' } }, CAJERA, undefined)))
       .toEqual({ status: 400, codigo: 'sin_idempotency_key' });
+  });
+
+  // ── `[LE.6.8]` La reposición: pedir → firma de Tesorería → código → custodia de quien lleva el depósito ──
+
+  it('[LE.6.8] reposición de punta a punta: la hoja desde la apertura, una firma, un código y todo en custodia de quien lleva el depósito', async () => {
+    if (!hay) return;
+    // Quien lleva el depósito: una persona con la responsabilidad (la da el PM en Responsabilidades, D35).
+    const LLEVA = { id: randomUUID(), username: 'lleva_deposito' };
+    const ADMIN = process.env['CAJA_TEST_DB_ADMIN_URL'] ?? String(URL).replace('app_runtime:app_runtime@', 'postgres:postgres@');
+    const dueno = knexFactory({ client: 'pg', connection: ADMIN, pool: { min: 0, max: 1 } });
+    try {
+      await dueno.raw(`INSERT INTO identity.users (id, tenant_id, username, nombre, role_name, activo, kind, created_at, updated_at)
+        VALUES (?, ?, ?, 'Quien Lleva', 'finanzas_operativo', true, 'interno', now(), now())`, [LLEVA.id, T, LLEVA.username]);
+      await dueno.raw(`INSERT INTO identity.user_responsibilities (id, tenant_id, user_id, responsibility_key, accion, nota, valid_from, created_at, updated_at)
+        VALUES (gen_random_uuid(), ?, ?, 'finanzas.caja_deposito', 'suma', 'prueba LE.6.8', current_date, now(), now())`, [T, LLEVA.id]);
+    } catch (e) {
+      console.warn(`[LE.6.8] NO MEDIDO: sin el dueño de la base no se siembra quién lleva el depósito (${(e as Error).message})`);
+      return;
+    } finally { await dueno.destroy(); }
+    expect(await v.quienLleva()).toEqual([{ usuario_id: LLEVA.id, nombre: 'Quien Lleva' }]);
+
+    // La hoja: dos pagos del día del libro y uno de antes de la apertura (no entra; lo reconstruye E3).
+    const pagoZ = (folio: string, fecha: string, importe: number) => ({ origen_ref: `07|X-D-26|${folio}|0011`, sucursal: '07', doc_tipo: 'X-D-26',
+      folio, fecha_pago: fecha, fecha_captura: fecha, beneficiario: 'GASTOS GENERALES', clave: 'G001', centro: '007', referencia: null, importe,
+      en_libro: null, cg_folio: null, en_hoja: false });
+    v.pagosZona.set('morelia', [pagoZ('9001', '2026-10-15', 1000), pagoZ('9002', HOY, 1250.5), pagoZ('9003', HOY, 300)]);
+    const hoja = (await v.reposiciones()).find((h) => h.zona === 'morelia');
+    expect(hoja).toMatchObject({ total_minor: '155050', maquina_minor: '155000', cajon_minor: '50', anteriores: { n: 1, monto_minor: '100000' } });
+    const docs = (hoja?.renglones ?? []).map((r) => r.origen_ref);
+
+    // NEGATIVAS: sin quien lleva con la responsabilidad, con la hoja cambiada, con el cajón que no cuadra.
+    const pedir = (over: Partial<{ documentos: string[]; lleva: string; piezas_cajon: Record<string, string> }> = {}) =>
+      ({ zona: 'morelia', documentos: docs, lleva: LLEVA.id, piezas_cajon: { '0.5': '1' }, ...over });
+    expect(await rechazo(v.pedirReposicion(pedir({ lleva: CAJERA.id }), CAJERA, randomUUID()))).toEqual({ status: 422, codigo: 'sin_quien_lleva' });
+    expect(await rechazo(v.pedirReposicion(pedir({ documentos: docs.slice(0, 1) }), CAJERA, randomUUID()))).toEqual({ status: 409, codigo: 'hoja_cambio' });
+    expect(await rechazo(v.pedirReposicion(pedir({ piezas_cajon: { 1: '1' } }), CAJERA, randomUUID()))).toEqual({ status: 422, codigo: 'cajon_no_cuadra' });
+
+    const key = randomUUID();
+    const r = await v.pedirReposicion(pedir(), CAJERA, key);
+    expect(r).toMatchObject({ estado: 'por_firmar' });
+    if (r.estado !== 'por_firmar') return;
+    expect(await v.pedirReposicion(pedir(), CAJERA, key)).toEqual(r);                        // reintento: la misma orden
+    expect((await v.reposiciones()).find((h) => h.zona === 'morelia')?.renglones).toEqual([]);   // ya pedidos: no vuelven a entrar
+    expect((await v.porFirmar()).find((o) => o.id === r.orden_id)).toMatchObject({ kind: 'reposicion', maquina_minor: '155000', cajon_minor: '50', recibe: 'Quien Lleva' });
+
+    // La firma de Tesorería es la aprobación de la hoja (D28), y nunca la de quien la pidió.
+    const custodia = `CUSTODIA:${LLEVA.id.toUpperCase()}`;
+    const cajaAntes = await saldo('CAJA_MXN');
+    expect(await rechazo(v.firmar(r.orden_id, CAJERA))).toEqual({ status: 422, codigo: 'cashbook_orden_firma_otro' });
+    const f = await v.firmar(r.orden_id, TESORERIA);
+    expect(f.estado).toBe('pagado');
+    if (f.estado !== 'pagado' || !f.codigo) throw new Error('debía salir el código');
+    expect(cajaAntes - (await saldo('CAJA_MXN'))).toBe(50n);   // lo del cajón, por pieza, ya en su custodia
+    expect(await saldo(custodia)).toBe(50n);
+
+    // La máquina entrega con el código: el carril consume la orden y asienta el retiro a la MISMA custodia.
+    // Billetes de $500 y de $50 en la bóveda: la máquina sólo entrega lo que tiene (el libro lo exige por pieza).
+    await maquina(20, 0, 'Deposito', [[500, 4], [50, 2]], 'ruta 41 041126');
+    const tk = new TenantKnexService(knex, { requireTenantId: () => T } as unknown as TenantContextService);
+    await tk.run(async (trx) => {
+      const c = (await trx.raw('SELECT cashbook.consume_order(?, ?, now()) AS r', [f.codigo, 155000])).rows[0].r as { ok: boolean; classification: unknown };
+      expect(c.ok).toBe(true);
+      const occurred = new Date().toISOString();
+      const p = movimientoCaos({ device: DEV, external_id: 21, type_id: 4, type_label: 'Dispensar', occurred_at: occurred, total: 1550,
+        ref: `${f.codigo} repo morelia`, user_external: 'cajera', piezas: [{ denom: 500, pieza_tipo: 'B', quantity: 3 }, { denom: 50, pieza_tipo: 'B', quantity: 1 }] },
+      { actor: { kind: 'servicio', service: 'libro-caos' }, valueAt: occurred }, c.classification as never);
+      if (esSinRegla(p)) throw new Error(p.motivo);
+      for (const a of p.cuentas) await trx.raw('SELECT cashbook.open_account(?::jsonb)', [JSON.stringify(a)]);
+      await trx.raw('SELECT cashbook.post_entry(?::jsonb)', [JSON.stringify(p.asiento)]);
+    });
+    expect(await saldo(custodia)).toBe(155050n);   // el total de la hoja, a nombre de quien lleva el depósito
   });
 });

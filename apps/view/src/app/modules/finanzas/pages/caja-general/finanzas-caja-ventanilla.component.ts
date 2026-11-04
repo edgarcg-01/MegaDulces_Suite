@@ -10,7 +10,7 @@ import { TagModule } from 'primeng/tag';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
 import {
-  SUCURSAL_CAJA_GENERAL, valorDePiezas, type PartidaEnSuspenso, type PlanDePagoVentanilla, type ResultadoCobro, type ResultadoHecho, type ResultadoPago,
+  SUCURSAL_CAJA_GENERAL, valorDePiezas, type HojaDeReposicion, type PartidaEnSuspenso, type PlanDePagoVentanilla, type QuienLlevaDeposito, type ResultadoCobro, type ResultadoHecho, type ResultadoPago,
 } from '@megadulces/contracts';
 import { LoadStateComponent } from '../../../../shared/components/load-state/load-state.component';
 import { FreshnessPillComponent } from '../../../../shared/components/freshness-pill/freshness-pill.component';
@@ -220,7 +220,99 @@ type EstadoLibro = 'abierto' | 'sin_dia' | 'sin_medir';
           }
         </app-load-state>
       </section>
+
+      <!-- [LE.6.8] La reposición (§5.5): una hoja por zona, una firma de Tesorería, un código. -->
+      <section class="vt-sec" aria-labelledby="vt-reposicion" data-testid="reposiciones">
+        <h2 id="vt-reposicion" class="vt-h2">Reposiciones <span class="muted">· lo que las sucursales pagaron con su venta</span></h2>
+        @if (errorReposiciones()) {
+          <p class="vt-aviso vt-aviso--mal" role="alert">{{ errorReposiciones() }}</p>
+        } @else if (reposiciones(); as hs) {
+          @if (hs[0]?.sin_arranque) {
+            <p class="vt-pie muted" data-testid="reposicion-sin-arranque">El libro nuevo no ha abierto: la hoja de cada zona empieza con la apertura.</p>
+          } @else {
+            <p-table [value]="hs" size="small" dataKey="zona" class="dt-stack vt-tbl">
+              <ng-template #header>
+                <tr>
+                  <th scope="col">Zona</th><th scope="col" class="ta-r">Pagos</th><th scope="col" class="ta-r">Total</th>
+                  <th scope="col">No se reponen</th><th scope="col"><span class="sr-only">Pedir</span></th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-h>
+                <tr [attr.data-zona]="h.zona">
+                  <td data-label="Zona">{{ h.nombre }}
+                    @if (h.anteriores.n) { <span class="vt-motivo">{{ h.anteriores.n }} de antes de la apertura: los reconstruye la historia, no esta hoja.</span> }
+                  </td>
+                  <td class="ta-r num" data-label="Pagos">{{ h.renglones.length }}</td>
+                  <td class="ta-r num dt-num" data-label="Total">{{ minor(h.total_minor) }}</td>
+                  <td data-label="No se reponen">{{ h.fuera.length ? h.fuera.length + ' (nómina, apoyos, compras o comisiones)' : '—' }}</td>
+                  <td class="ta-r" data-label="Pedir">
+                    <p-button size="small" severity="secondary" [outlined]="true" label="Pedir la reposición"
+                              [disabled]="!h.renglones.length || !puedePagar()" [ariaLabel]="'Pedir la reposición de ' + h.nombre"
+                              (onClick)="abrirReposicion(h)" />
+                  </td>
+                </tr>
+              </ng-template>
+            </p-table>
+          }
+        }
+      </section>
     </div>
+
+    <p-dialog [visible]="!!reponiendo()" (visibleChange)="!$event && cerrarReposicion()" [modal]="true" [draggable]="false"
+              [style]="{ width: '42rem' }" [header]="reponiendo() ? 'Reposición · ' + reponiendo()!.nombre : ''">
+      @if (reponiendo(); as h) {
+        <p class="vt-quien">{{ h.renglones.length }} pagos · <b class="num">{{ minor(h.total_minor) }}</b></p>
+        @if (resultadoReposicion(); as r) {
+          <p class="vt-resultado" role="status" data-testid="resultado-reposicion">
+            @if (r.estado === 'por_firmar') {
+              Quedó por firmar. Tesorería la aprueba con su firma —es la única— y entonces sale el código para la máquina.
+            } @else {
+              Firmada: el código es <b class="vt-codigo">{{ r.codigo }}</b>.
+            }
+          </p>
+        } @else {
+          <dl class="vt-plan">
+            <div><dt>La máquina entrega</dt><dd class="num">{{ minor(h.maquina_minor) }}</dd></div>
+            <div><dt>Del cajón, en monedas</dt><dd class="num">{{ minor(h.cajon_minor) }}</dd></div>
+          </dl>
+          <details class="vt-renglones">
+            <summary>Los {{ h.renglones.length }} pagos que repone</summary>
+            <ul>
+              @for (p of h.renglones; track p.origen_ref) {
+                <li class="num">X-D-26 {{ p.folio }} · {{ p.beneficiario ?? '—' }} · {{ minor(p.importe_minor) }}</li>
+              }
+            </ul>
+          </details>
+          @if (cajonReposicion() > 0) {
+            <app-conteo-cajon [total]="cajonReposicion()" [(piezas)]="piezasReposicion" [conBilletes]="false" [conMorralla]="false" />
+          }
+          @if (quienLleva().length) {
+            <fieldset class="vt-destinos">
+              <legend class="vt-lbl">Quién lleva el depósito al banco</legend>
+              @for (q of quienLleva(); track q.usuario_id) {
+                <label class="vt-destino"><input type="radio" name="vt-lleva" [checked]="lleva() === q.usuario_id" (change)="lleva.set(q.usuario_id)" />
+                  {{ q.nombre }}</label>
+              }
+            </fieldset>
+            <p class="vt-respalda muted">El dinero queda a su nombre hasta que el banco confirma el depósito.</p>
+          } @else {
+            <p class="vt-aviso" role="status" data-testid="sin-quien-lleva">
+              <i class="pi pi-info-circle" aria-hidden="true"></i>
+              Falta nombrar quién lleva el depósito: se da como responsabilidad en Administración › Responsabilidades (D35).
+            </p>
+          }
+          @if (errorReposicion()) { <p class="vt-aviso vt-aviso--mal" role="alert">{{ errorReposicion() }}</p> }
+        }
+      }
+      <ng-template #footer>
+        @if (resultadoReposicion()) {
+          <p-button label="Listo" (onClick)="cerrarReposicion()" />
+        } @else {
+          <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="cerrarReposicion()" />
+          <p-button label="Pedir la firma" [disabled]="!listoParaReponer()" [loading]="enviandoReposicion()" (onClick)="pedirReposicion()" />
+        }
+      </ng-template>
+    </p-dialog>
 
     <p-dialog [visible]="!!recibiendo()" (visibleChange)="!$event && cerrarCobro()" [modal]="true" [draggable]="false"
               [style]="{ width: '40rem' }" [header]="recibiendo() ? 'Recibir el cobro U-A-5 ' + recibiendo()!.doc.folio : ''">
@@ -402,6 +494,8 @@ type EstadoLibro = 'abierto' | 'sin_dia' | 'sin_medir';
     .vt-destinos { border: 0; margin: 0 0 var(--sp-2); padding: 0; display: grid; gap: var(--sp-2); }
     .vt-destino { display: flex; gap: var(--sp-2); align-items: center; font-size: var(--fs-sm); }
     .vt-ruta { width: 6rem; }
+    .vt-renglones { margin: 0 0 var(--sp-3); font-size: var(--fs-sm); }
+    .vt-renglones ul { margin: var(--sp-2) 0 0; padding-left: var(--sp-4); max-height: 12rem; overflow: auto; }
   `],
 })
 export class FinanzasCajaVentanillaComponent implements OnInit {
@@ -429,6 +523,26 @@ export class FinanzasCajaVentanillaComponent implements OnInit {
   readonly resultado = signal<ResultadoPago | null>(null);
   /** Una llave por intento: un doble clic o un reintento no paga dos veces. */
   private llave = '';
+
+  // `[LE.6.8]` Reposiciones.
+  readonly reposiciones = signal<HojaDeReposicion[] | null>(null);
+  readonly errorReposiciones = signal<string | null>(null);
+  readonly quienLleva = signal<QuienLlevaDeposito[]>([]);
+  readonly reponiendo = signal<HojaDeReposicion | null>(null);
+  readonly piezasReposicion = signal<Record<string, number>>({});
+  readonly lleva = signal<string | null>(null);
+  readonly enviandoReposicion = signal(false);
+  readonly errorReposicion = signal<string | null>(null);
+  readonly resultadoReposicion = signal<ResultadoPago | null>(null);
+  private llaveReposicion = '';
+  readonly cajonReposicion = computed(() => Number(this.reponiendo()?.cajon_minor ?? 0) / 100);
+  /** Con quien lleva el depósito elegido y las monedas exactas del cajón (la misma valuación que el servidor). */
+  readonly listoParaReponer = computed(() => {
+    const h = this.reponiendo();
+    if (!h || !h.renglones.length || !this.lleva() || !this.puedePagar() || this.enviandoReposicion()) return false;
+    const conteo = Object.fromEntries(Object.entries(this.piezasReposicion()).filter(([, n]) => Number(n) > 0));
+    return valorDePiezas(conteo, 'MXN') === BigInt(h.cajon_minor);
+  });
 
   // `[LE.6.7]` En Suspenso.
   readonly suspenso = signal<PartidaEnSuspenso[] | null>(null);
@@ -523,6 +637,13 @@ export class FinanzasCajaVentanillaComponent implements OnInit {
       next: ({ c, v }) => { this.cola.set(c); this.filas.set(armarCola(c.rows, v)); this.cargando.set(false); },
       error: (e) => { this.error.set(this.mensaje(e, 'No se pudo leer la cola.')); this.cargando.set(false); },
     });
+    // `[LE.6.8]` Las reposiciones y quién puede llevar el depósito.
+    this.errorReposiciones.set(null);
+    this.libroApi.reposiciones().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => this.reposiciones.set(r),
+      error: (e) => { this.reposiciones.set(null); this.errorReposiciones.set(this.mensaje(e, 'No se pudo leer qué hay por reponer.')); },
+    });
+    this.libroApi.quienLleva().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (q) => this.quienLleva.set(q), error: () => this.quienLleva.set([]) });
     // `[LE.6.7]` Suspenso, aparte: si no se puede leer, se dice; nunca se pinta como «nada en Suspenso».
     this.errorSuspenso.set(null);
     this.libroApi.suspenso().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -542,6 +663,37 @@ export class FinanzasCajaVentanillaComponent implements OnInit {
       },
       error: (e) => { this.errorCobros.set(this.mensaje(e, 'No se pudo leer qué hay por recibir.')); this.cargandoCobros.set(false); },
     });
+  }
+
+  abrirReposicion(h: HojaDeReposicion): void {
+    if (!h.renglones.length) return;
+    this.reponiendo.set(h);
+    this.piezasReposicion.set({});
+    this.lleva.set(this.quienLleva().length === 1 ? this.quienLleva()[0].usuario_id : null);
+    this.resultadoReposicion.set(null);
+    this.errorReposicion.set(null);
+    this.llaveReposicion = uuidV4();
+  }
+
+  pedirReposicion(): void {
+    const h = this.reponiendo();
+    const lleva = this.lleva();
+    if (!h || !lleva || !this.listoParaReponer()) return;
+    this.enviandoReposicion.set(true);
+    this.errorReposicion.set(null);
+    const piezas = Object.fromEntries(Object.entries(this.piezasReposicion()).filter(([, n]) => Number(n) > 0).map(([k, n]) => [k, String(n)]));
+    this.libroApi.pedirReposicion({ zona: h.zona, documentos: h.renglones.map((r) => r.origen_ref), lleva, piezas_cajon: piezas }, this.llaveReposicion)
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => { this.resultadoReposicion.set(r); this.enviandoReposicion.set(false); },
+        error: (e) => { this.errorReposicion.set(this.mensaje(e, 'No se pidió.')); this.enviandoReposicion.set(false); },
+      });
+  }
+
+  cerrarReposicion(): void {
+    const hecho = !!this.resultadoReposicion();
+    this.reponiendo.set(null);
+    this.resultadoReposicion.set(null);
+    if (hecho) this.cargar();
   }
 
   abrirSuspenso(p: PartidaEnSuspenso): void {

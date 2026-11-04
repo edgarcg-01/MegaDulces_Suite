@@ -407,6 +407,52 @@ export interface ExplicarSuspenso {
   hacia: DestinoDeExplicacion;
 }
 
+// ── `[LE.6.8]` La reposición en la Ventanilla (§5.5): una hoja, una firma, un código ─────────
+
+/** Un pago de la sucursal que va en la hoja (o que no, con su motivo). */
+export interface PagoDeReposicion {
+  origen_ref: string;
+  sucursal: string;
+  folio: string;
+  fecha_pago: string;
+  beneficiario: string | null;
+  importe_minor: string;
+  motivo?: string;
+}
+
+/**
+ * La hoja de una zona, lista para pedir. Lo anterior a la apertura del libro NO entra: se cuenta en
+ * `anteriores` y lo reconstruye E3 (D-R2). Sin apertura, `sin_arranque` y la hoja va vacía.
+ */
+export interface HojaDeReposicion {
+  zona: string;
+  nombre: string;
+  sin_arranque: boolean;
+  renglones: PagoDeReposicion[];
+  total_minor: string;
+  /** Lo que da la máquina (billetes) y lo que pone el cajón, en piezas, para llegar al total. */
+  maquina_minor: string;
+  cajon_minor: string;
+  /** Lo que no se repone (nómina, apoyo de proveedores, compras, comisiones), con su motivo. */
+  fuera: PagoDeReposicion[];
+  anteriores: { n: number; monto_minor: string };
+}
+
+/** Quién puede llevar el depósito: la responsabilidad `finanzas.caja_deposito` dada a la persona (D35). */
+export interface QuienLlevaDeposito { usuario_id: string; nombre: string }
+
+/**
+ * Lo que manda la Ventanilla para pedir una reposición. Los documentos van para comprobar que la
+ * hoja no cambió entre que se vio y se pidió; el importe lo arma el servidor.
+ */
+export interface PedirReposicion {
+  zona: string;
+  documentos: string[];
+  /** El `usuario_id` de quien lleva el depósito (de `reposiciones/quien-lleva`). */
+  lleva: string;
+  piezas_cajon?: PiezasTexto;
+}
+
 /** Una orden que espera la firma de Tesorería, con todo lo que hace falta para decidir. */
 export interface OrdenPorFirmar {
   id: string;

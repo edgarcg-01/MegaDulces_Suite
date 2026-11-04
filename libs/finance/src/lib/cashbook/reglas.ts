@@ -408,12 +408,12 @@ export function cambioDeMonedas(h: { conQuien: string; salen: PiezasTexto; entra
  * custodia (`gasto`). Mientras tanto la custodia dice a nombre de quién está el dinero.
  */
 export function aCustodiaDesdeCajon(h: { empleado: string; nombre: string; piezas: PiezasTexto; para: string },
-  ctx: Contexto): Propuesta {
+  ctx: Contexto, extra: { event_ref?: string; meta?: MetaAsiento } = {}): Propuesta {
   const m = positivo(montoDe(piezasValidas(h.piezas, 'a_custodia')), 'a_custodia');
   return armar('retiro_a_custodia', ctx, [
     { cuenta: F.CAJA_MXN, monto: -m, piezas: negarPiezas(h.piezas) },
     { cuenta: CUENTA.custodia(h.empleado, h.nombre), monto: m },
-  ], { meta: { motivo: h.para } });
+  ], { ...extra, meta: { motivo: h.para, ...extra.meta } });
 }
 
 // ── E-05, E-12, E-20 · Faltante y sobrante: SIEMPRE con nombre, SIEMPRE autorizados ───────────
