@@ -152,7 +152,7 @@ type EstadoLibro = 'abierto' | 'sin_dia' | 'sin_medir';
             </ng-template>
             <ng-template #body let-f>
               <tr [pSelectableRow]="f" [class.vt-detenido]="f.estado === 'detenido'" [attr.data-estado]="f.estado">
-                <td class="dt-id num" data-label="Documento">X-D-26 {{ f.doc.folio }}</td>
+                <td class="dt-id num" data-label="Documento">{{ f.doc.doc_tipo }} {{ f.doc.folio }}</td>
                 <td data-label="Beneficiario">{{ f.doc.beneficiario ?? '—' }}</td>
                 <td class="num" data-label="Fecha">{{ dmy(f.doc.fecha_valor) }}</td>
                 <td data-label="Lo respalda">
@@ -166,7 +166,7 @@ type EstadoLibro = 'abierto' | 'sin_dia' | 'sin_medir';
                 <td class="ta-r num dt-num" data-label="Importe">{{ money(f.doc.monto) }}</td>
                 <td class="ta-r" data-label="Pagar">
                   <p-button size="small" severity="secondary" [outlined]="true" [label]="f.estado === 'firma' ? 'Pedir firma' : 'Pagar'"
-                            [disabled]="f.estado === 'detenido' || !puedePagar()" [ariaLabel]="'Pagar X-D-26 ' + f.doc.folio"
+                            [disabled]="f.estado === 'detenido' || !puedePagar()" [ariaLabel]="'Pagar ' + f.doc.doc_tipo + ' ' + f.doc.folio"
                             (onClick)="$event.stopPropagation(); abrir(f)" />
                 </td>
               </tr>
@@ -174,7 +174,7 @@ type EstadoLibro = 'abierto' | 'sin_dia' | 'sin_medir';
           </p-table>
 
           <p class="vt-pie muted">
-            La cola de Kepler para Caja General (X-D-26 de la caja 0011).
+            La cola de Kepler para Caja General: pagos a proveedor (X-D-26) y anticipos (X-D-60) de la caja 0011.
             @if (c.mal_fechados?.movimientos) {
               {{ c.mal_fechados!.movimientos }} {{ c.mal_fechados!.movimientos === 1 ? 'documento viene fechado' : 'documentos vienen fechados' }}
               después de hoy ({{ money(c.mal_fechados!.monto) }}): se corrigen en Kepler y aparecen solos.
@@ -522,7 +522,7 @@ type EstadoLibro = 'abierto' | 'sin_dia' | 'sin_medir';
     </p-dialog>
 
     <p-dialog [visible]="!!pagando()" (visibleChange)="!$event && cerrar()" [modal]="true" [draggable]="false"
-              [style]="{ width: '36rem' }" [header]="pagando() ? 'Pagar X-D-26 ' + pagando()!.doc.folio : ''">
+              [style]="{ width: '36rem' }" [header]="pagando() ? 'Pagar ' + pagando()!.doc.doc_tipo + ' ' + pagando()!.doc.folio : ''">
       @if (pagando(); as f) {
         <p class="vt-quien">{{ f.doc.beneficiario ?? '—' }} · <b class="num">{{ money(f.doc.monto) }}</b></p>
         <p class="vt-respalda muted" data-testid="lo-respalda">{{ loRespalda(f) }}</p>
@@ -785,7 +785,12 @@ export class FinanzasCajaVentanillaComponent implements OnInit {
       catchError(() => of<EstadoLibro>('sin_medir')),
       takeUntilDestroyed(this.destroyRef),
     ).subscribe((e) => this.libro.set(e));
-    this.ledger.movimientosPendientes({ doc_tipo: 'X-D-26', tipo: 'gasto', caja: '0011', sucursal: SUCURSAL_CAJA_GENERAL, limit: 200 }).pipe(
+    // `[LE.6.7]` Los pagos a proveedor (X-D-26) y los anticipos (X-D-60), en la misma cola.
+    forkJoin([
+      this.ledger.movimientosPendientes({ doc_tipo: 'X-D-26', tipo: 'gasto', caja: '0011', sucursal: SUCURSAL_CAJA_GENERAL, limit: 200 }),
+      this.ledger.movimientosPendientes({ doc_tipo: 'X-D-60', tipo: 'gasto', caja: '0011', sucursal: SUCURSAL_CAJA_GENERAL, limit: 200 }),
+    ]).pipe(
+      map(([a, b]): PendientesResponse => ({ ...a, rows: [...a.rows, ...b.rows], has_more: a.has_more || b.has_more, confirmables: a.confirmables + b.confirmables })),
       switchMap((c) => forkJoin({ c: of(c), v: c.rows.length ? this.libroApi.veredictos(c.rows.map((r) => r.origen_ref)) : of([]) })),
       takeUntilDestroyed(this.destroyRef),
     ).subscribe({

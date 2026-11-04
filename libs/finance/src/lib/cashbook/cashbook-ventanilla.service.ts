@@ -50,7 +50,12 @@ import {
 import type { UsuarioDelLibro } from './cashbook.service';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const LLAVE_DOCUMENTO = /^([0-9]{2}(?:-[0-9]+)?)\|(X-D-26)\|([^|]+)\|(0011)$/;
+/**
+ * `[LE.6.7]` El X-D-26 (pago a proveedor) y el X-D-60 (anticipo, Glosario). El respaldo por lote
+ * (kdm5/kdxf) está medido sólo para el X-D-26: el anticipo se lee documento por documento y su respaldo
+ * es «no medido», así que siempre lo firma Tesorería —un anticipo todavía no tiene compra que lo respalde—.
+ */
+const LLAVE_DOCUMENTO = /^([0-9]{2}(?:-[0-9]+)?)\|(X-D-26|X-D-60)\|([^|]+)\|(0011)$/;
 const FIN_DEL_DIA = `((date_trunc('day', clock_timestamp() AT TIME ZONE 'America/Mexico_City') + interval '1 day')
   AT TIME ZONE 'America/Mexico_City')`;
 
@@ -314,7 +319,8 @@ export class CashbookVentanillaService {
    * importe Kepler no tiene no se puede verificar: ese documento cae a «ninguno» (firma Tesorería), no a «cuadra».
    */
   private async respaldo(trx: Knex.Transaction, tenantId: string, origenRef: string): Promise<{ respaldo: Respaldo | undefined; vales: ValeConId[] }> {
-    const [, sucursal, , folio] = LLAVE_DOCUMENTO.exec(origenRef) as RegExpExecArray;
+    const [, sucursal, tipo, folio] = LLAVE_DOCUMENTO.exec(origenRef) as RegExpExecArray;
+    if (tipo !== 'X-D-26') return { respaldo: undefined, vales: [] };
     return (await this.respaldosDe(trx, tenantId, [[sucursal, folio]])).get(`${sucursal}|${folio}`) ?? { respaldo: undefined, vales: [], detalle: [] };
   }
 
@@ -366,8 +372,11 @@ export class CashbookVentanillaService {
     if (lista.length > 200) throw new BadRequestException({ codigo: 'demasiados_documentos', mensaje: 'Se piden hasta 200 documentos a la vez.' });
     return this.run(async (trx, tenantId) => {
       const llaves = lista.map((d) => ({ d, m: LLAVE_DOCUMENTO.exec(d) }));
-      const pares = llaves.filter((x) => x.m).map((x) => [x.m![1], x.m![3]] as [string, string]);
+      const pares = llaves.filter((x) => x.m && x.m[2] === 'X-D-26').map((x) => [x.m![1], x.m![3]] as [string, string]);
       const docsLote = pares.length ? await this.filasDeDocumentos(trx, tenantId, pares) : [];
+      // El anticipo (X-D-60), uno por uno: son pocos (3 en 30 días, medido el 2026-11-04) y su folio puede repetir el de un X-D-26.
+      const anticipos = new Map<string, FilaDocumento[]>();
+      for (const x of llaves) if (x.m && x.m[2] === 'X-D-60') anticipos.set(x.d, await this.filasDelDocumento(trx, [tenantId, x.m[1], 'X-D-60', x.m[3], '0011']));
       const respaldos = await this.respaldosDe(trx, tenantId, pares);
       const ya = new Map<string, { ordenado: boolean; pagado: boolean }>(
         ((await trx.raw(`
@@ -381,11 +390,11 @@ export class CashbookVentanillaService {
           .map((r) => [r.ref, { ordenado: r.ordenado, pagado: r.pagado }]));
       return llaves.map(({ d, m }): VeredictoDePago => {
         const base = { origen_ref: d, respaldo: 'no_medido' as const, puede: false, requiere_firma: false, arreglo: null, detalle: [] };
-        if (!m) return { ...base, bloqueo: 'documento_invalido', motivo: 'La Ventanilla paga un X-D-26 de la caja 0011.' };
-        const filas = docsLote.filter((x) => x.sucursal === m[1] && x.folio === m[3]);
+        if (!m) return { ...base, bloqueo: 'documento_invalido', motivo: 'La Ventanilla paga un X-D-26 o un X-D-60 de la caja 0011.' };
+        const filas = m[2] === 'X-D-60' ? (anticipos.get(d) ?? []) : docsLote.filter((x) => x.sucursal === m[1] && x.folio === m[3]);
         if (filas.length === 0) return { ...base, bloqueo: 'documento_inexistente', motivo: 'Kepler no tiene ese documento como egreso de la caja.' };
         if (filas.length > 1) return { ...base, bloqueo: 'documento_ambiguo', motivo: 'Ese documento tiene más de un renglón en Kepler: no se paga hasta aclararlo.' };
-        const r = respaldos.get(`${m[1]}|${m[3]}`);
+        const r = m[2] === 'X-D-26' ? respaldos.get(`${m[1]}|${m[3]}`) : undefined;
         const v = veredictoDePago(pesosACentavos(filas[0].importe), { yaOrdenado: !!ya.get(d)?.ordenado, yaPagado: !!ya.get(d)?.pagado, respaldo: r?.respaldo });
         const res = r?.respaldo;
         return {
@@ -406,7 +415,7 @@ export class CashbookVentanillaService {
   private async documento(trx: Knex.Transaction, tenantId: string, origenRef: string, cuenta: string | null): Promise<DocumentoAPagar> {
     const m = LLAVE_DOCUMENTO.exec(String(origenRef ?? '').trim());
     if (!m) {
-      throw new BadRequestException({ codigo: 'documento_invalido', mensaje: 'La Ventanilla paga un X-D-26 de la Caja General (sucursal|X-D-26|folio|0011).' });
+      throw new BadRequestException({ codigo: 'documento_invalido', mensaje: 'La Ventanilla paga un X-D-26 o un X-D-60 de la Caja General (sucursal|tipo|folio|0011).' });
     }
     const [, sucursal, docTipo, folio, clave] = m;
     const filas = await this.filasDelDocumento(trx, [tenantId, sucursal, docTipo, folio, clave]);

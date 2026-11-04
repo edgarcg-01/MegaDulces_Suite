@@ -42,6 +42,9 @@ const PLAN: PlanDePagoVentanilla = {
   motivo_firma: null, bloqueo: null, motivo_bloqueo: null,
 };
 
+// `[LE.6.7]` Los anticipos (X-D-60): aquí ninguno, para que la cola de pagos sea la de siempre.
+const ANTICIPOS: PendientesResponse = { rows: [], limit: 200, has_more: false, confirmables: 0, datos_al: '2026-11-03T18:00:00Z' };
+
 // `[LE.6.7]` La cola de cobros: uno de ruta, uno de sucursal, uno detenido y uno ya recibido en el libro nuevo.
 const cobroDoc = (almacen: string, folio: string, monto: number): MovimientoPendiente =>
   doc(folio, monto, { origen_ref: `${almacen}|U-A-5|${folio}|0011`, tipo: 'ingreso', origen_tipo: 'cobro', sucursal: almacen,
@@ -82,7 +85,7 @@ const CUSTODIAS: CustodiaAbierta[] = [{ persona: 'u-lleva', nombre: 'Quien Lleva
 
 function montar(opciones: { jornada?: string | null; saldosFalla?: boolean; gestionar?: boolean; suspenso?: PartidaEnSuspenso[] | 'falla';
   hojas?: HojaDeReposicion[]; quien?: QuienLlevaDeposito[]; custodias?: CustodiaAbierta[] } = {}) {
-  const ledger = { movimientosPendientes: vi.fn((f: { doc_tipo?: string }) => of(f.doc_tipo === 'U-A-5' ? COBROS : COLA)) };
+  const ledger = { movimientosPendientes: vi.fn((f: { doc_tipo?: string }) => of(f.doc_tipo === 'U-A-5' ? COBROS : f.doc_tipo === 'X-D-60' ? ANTICIPOS : COLA)) };
   const libro = {
     saldos: vi.fn(() => (opciones.saldosFalla ? throwError(() => ({ status: 403 }))
       : of({ cuentas: [], ultimo_asiento: '0', jornada_abierta: opciones.jornada === undefined ? '2026-11-03' : opciones.jornada,
@@ -126,6 +129,8 @@ describe('[LE.2.13] la Ventanilla', () => {
   it('pide la cola de Caja General (X-D-26 de la 0011) y los veredictos de esos documentos en UN viaje', () => {
     const { ledger, libro } = montar();
     expect(ledger.movimientosPendientes).toHaveBeenCalledWith({ doc_tipo: 'X-D-26', tipo: 'gasto', caja: '0011', sucursal: '00', limit: 200 });
+    // [LE.6.7] Y los anticipos, en la misma cola.
+    expect(ledger.movimientosPendientes).toHaveBeenCalledWith({ doc_tipo: 'X-D-60', tipo: 'gasto', caja: '0011', sucursal: '00', limit: 200 });
     expect(libro.veredictos).toHaveBeenCalledTimes(1);
     expect(libro.veredictos).toHaveBeenCalledWith(COLA.rows.map((r) => r.origen_ref));
   });

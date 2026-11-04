@@ -647,4 +647,25 @@ describe.skipIf(!URL)('[LE.4.10] la Ventanilla contra Postgres', () => {
         .toEqual({ status: 422, codigo: 'monto_no_es_de_billetes' });
     } finally { await dueno.destroy(); }
   });
+
+  // ── `[LE.6.7]` El anticipo (X-D-60): entra a la cola y siempre lo firma Tesorería ───────────
+
+  it('[LE.6.7] un anticipo X-D-60 se lee por su cuenta (aunque repita el folio de un X-D-26) y siempre pide la firma de Tesorería', async () => {
+    if (!hay) return;
+    v.docs.set('00|X-D-60|0000123|0011', { folio: '0000123', beneficiario: 'ANTICIPO PROVEEDOR', importe: '5000.00' });
+    v.docs.set('00|X-D-26|0000123|0011', { folio: '0000123', beneficiario: 'OTRO PAGO', importe: '80.00' });
+    const [anticipo, pago] = await v.veredictos(['00|X-D-60|0000123|0011', '00|X-D-26|0000123|0011']);
+    expect(anticipo).toMatchObject({ respaldo: 'no_medido', puede: true, requiere_firma: true, bloqueo: null });
+    expect(pago).toMatchObject({ puede: true, bloqueo: null });
+    // NEGATIVA: un anticipo que Kepler NO tiene no se vuelve real porque exista un X-D-26 con su folio.
+    v.docs.set('00|X-D-26|0000124|0011', { folio: '0000124', beneficiario: 'OTRO PAGO', importe: '80.00' });
+    // (los dos en el mismo viaje, como los pide la pantalla)
+    expect((await v.veredictos(['00|X-D-60|0000124|0011', '00|X-D-26|0000124|0011']))[0]).toMatchObject({ puede: false, bloqueo: 'documento_inexistente' });
+    // El plan del anticipo es SU importe, no el del X-D-26 del mismo folio.
+    expect(await v.plan('00|X-D-60|0000123|0011', '201', undefined)).toMatchObject({ importe_minor: '500000', requiere_firma: true });
+    const r = await v.pagar({ origen_ref: '00|X-D-60|0000123|0011', cuenta_kepler: '201', recibe: { nombre: 'Proveedor' } }, CAJERA, randomUUID());
+    expect(r.estado).toBe('por_firmar');
+    expect(await rechazo(v.pagar({ origen_ref: '00|X-D-61|0000123|0011', cuenta_kepler: '201', recibe: { nombre: 'Proveedor' } }, CAJERA, randomUUID())))
+      .toEqual({ status: 400, codigo: 'documento_invalido' });
+  });
 });
