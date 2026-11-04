@@ -123,7 +123,7 @@ type EstadoLibro = 'abierto' | 'sin_dia' | 'sin_medir';
           </p-table>
 
           <p class="vt-pie muted">
-            La cola de Kepler para Caja General (X-D-26 de la caja 0011), la misma que Captura.
+            La cola de Kepler para Caja General (X-D-26 de la caja 0011).
             @if (c.mal_fechados?.movimientos) {
               {{ c.mal_fechados!.movimientos }} {{ c.mal_fechados!.movimientos === 1 ? 'documento viene fechado' : 'documentos vienen fechados' }}
               después de hoy ({{ money(c.mal_fechados!.monto) }}): se corrigen en Kepler y aparecen solos.

@@ -664,15 +664,6 @@ export const routes: Routes = [
         canActivate: [anyPermissionGuard(Permission.FINANCE_CAJA_VER, Permission.FINANCE_CAJA_GESTIONAR, Permission.FINANCE_CAJA_AUTORIZAR)]
       },
       {
-        // ⭐ `[LE.2.13]` **La Ventanilla** (fase LE, ADR-112): pagar ES registrar en el libro nuevo, y lo
-        // que respalda cada pago lo dice Kepler (la compra o el gasto aprobado por una persona).
-        // ⚠️ Mismo gate que Captura (VER, GESTIONAR o AUTORIZAR): la ve quien opera la caja y no cambia
-        // el acceso de nadie. Pagar lo exige el servidor (GESTIONAR) y la base (la llave, LE.0.9).
-        path: 'caja-general/ventanilla',
-        loadComponent: () => import('./modules/finanzas/pages/caja-general/finanzas-caja-ventanilla.component').then(m => m.FinanzasCajaVentanillaComponent),
-        canActivate: [anyPermissionGuard(Permission.FINANCE_CAJA_VER, Permission.FINANCE_CAJA_GESTIONAR, Permission.FINANCE_CAJA_AUTORIZAR)]
-      },
-      {
         // ⭐⭐ `[CGS.2]` **Arqueos**: lo que se contó en el cajón contra lo que el libro dice que
         // debería haber, con su cuenta término por término, su conteo pieza por pieza y los
         // movimientos del día.
