@@ -760,6 +760,17 @@ desarrollador: mientras lo necesite, **el proceso no está aquí**, está en el 
   tiene 0 filas, así que su línea sale «20 % sin deducción» (Q21: ~$8,000 contra los $2,400 fijos
   que paga Canindo) — D3 sigue sin cerrar; (3) la 505 no tiene chofer en el padrón (Q22 bajo el
   umbral: no cobra). Contraste de Q22 con el libro: NO MEDIDO hasta tener el libro.
+  - **D3 para Q22 = opción A (Edgar, 2026-11-04): la suite paga SÓLO a los choferes; el
+    supervisor se paga por fuera, como hasta hoy.** Las líneas `supervisor` de la corrida no se
+    depositan. ⚠️ **Deuda con nombre `[RD.105]`**: `setStatus('pagado')` marca la corrida
+    entera — no hay forma de decir «el supervisor se pagó fuera», así que el registro afirma
+    más de lo que la suite pagó; hasta que exista, la corrida de Q22 se lee con esta nota.
+  - **Quién calcula Q22: el automático de las 07:30 del 5-nov** (`[RD.87]`,
+    `commission-auto-run.service.ts`): corre después del refresco de las 06:20 y sólo si la fuente
+    de todas las rutas vigentes está viva; deja `borrador`, nunca aprueba. ⛔ **Nadie oprime
+    «Calcular» el 4-nov**: el freno es `to > hoy`, así que ese día (`to = hoy`) deja escribir la
+    corrida con la venta del día a medias, y una corrida no se reescribe sola. Si a las 07:30 no
+    calcula (nombra rutas rezagadas), se calcula a mano con esas rutas a la vista.
 - **D3 firmado (Edgar, 2026-10-29): la fórmula — 20 % + bonos − nómina de banco — y «que todo
   se pueda configurar».** → `[RD.100]`.
 
