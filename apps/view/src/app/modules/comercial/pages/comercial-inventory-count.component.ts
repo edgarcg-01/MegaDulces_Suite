@@ -12,6 +12,7 @@ import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import { BrowserMultiFormatReader, IScannerControls } from '@zxing/browser';
 import { DecodeHintType, BarcodeFormat } from '@zxing/library';
+import { controlesSiSigueAbierta, detenerLector } from '../../../shared/util/lector-camara.util';
 import { App as CapApp } from '@capacitor/app';
 import type { PluginListenerHandle } from '@capacitor/core';
 import { ComercialService, InventoryCount, InventoryCounterProgress, ResolvedProduct } from '../comercial.service';
@@ -473,11 +474,11 @@ export class ComercialInventoryCountComponent {
       // delayBetweenScanAttempts 100ms (default 500) → ~10× más intentos/seg.
       this.reader = new BrowserMultiFormatReader(hints, { delayBetweenScanAttempts: 100 });
       try {
-        this.controls = await this.reader.decodeFromConstraints(
+        this.controls = controlesSiSigueAbierta(await this.reader.decodeFromConstraints(
           { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } },
           v,
           (result) => { if (result) this.onScanned(result.getText()); },
-        );
+        ), this.scanning());
       } catch {
         this.scanning.set(false);
         this.toast.add({ severity: 'warn', summary: 'No se pudo abrir la cámara', detail: 'Revisa los permisos (requiere HTTPS).' });
@@ -498,7 +499,7 @@ export class ComercialInventoryCountComponent {
 
   stopScan() {
     this.scanning.set(false);
-    try { this.controls?.stop(); } catch { /* noop */ }
+    detenerLector(this.controls);
     this.controls = undefined;
     this.reader = undefined;
   }

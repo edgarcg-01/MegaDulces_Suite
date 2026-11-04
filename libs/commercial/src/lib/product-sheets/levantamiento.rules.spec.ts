@@ -2,7 +2,7 @@
 import type { ResultadoEscaneo } from '../shared/kdii-codigo';
 import {
   apartadoALiberar, apartadoVivo, decidirEscaneo, decidirRevision, estadoTrasFoto, motivosDeRevision, nombreUnidad, nuevoApartado, peldanoPrincipal,
-  type EntradaEscaneo, type FotoFicha,
+  caraResuelta, sinFotoReal, type EntradaEscaneo, type FotoFicha,
 } from './levantamiento.rules';
 
 const AHORA = new Date('2026-11-03T16:00:00Z');
@@ -107,6 +107,24 @@ describe('fotos · cuándo queda completa la unidad principal', () => {
     const conSalto = [...cinco.slice(0, 4), foto('base', { storage_key: null, sha256: null, saltada_motivo: 'no_se_puede_girar' })];
     expect(estadoTrasFoto(conSalto, 'base')).toBe('fotos_tomadas');
     expect(motivosDeRevision(conSalto, 'base')).toEqual(['caras_saltadas']);
+  });
+
+  it('⛔ el frente sólo se resuelve con FOTO: un salto del frente (anterior a la regla) no completa la ficha', () => {
+    const frenteSaltado = [foto('frente', { storage_key: null, sha256: null, saltada_motivo: 'no_tiene_esa_cara' }), ...cinco.slice(1)];
+    expect(caraResuelta(frenteSaltado[0])).toBe(false);
+    expect(estadoTrasFoto(frenteSaltado, 'base')).toBe('en_captura');
+    // Control: otra cara saltada sí se resuelve, y el frente con foto también.
+    expect(caraResuelta(foto('reverso', { storage_key: null, sha256: null, saltada_motivo: 'otro' }))).toBe(true);
+    expect(caraResuelta(cinco[0])).toBe(true);
+  });
+
+  it('⭐ las 5 caras saltadas = sin ninguna foto real (la primera captura en prod llegó así a «Por revisar»)', () => {
+    const saltada = (c: string) => foto(c, { storage_key: null, sha256: null, saltada_motivo: 'otro' });
+    const todasSaltadas = ['frente', 'reverso', 'lateral_izq', 'lateral_der', 'base'].map(saltada);
+    expect(sinFotoReal(todasSaltadas, 'base')).toBe(true);
+    // Control: con UNA foto real ya hay qué revisar; y una foto de otro peldaño no cuenta.
+    expect(sinFotoReal([foto('frente'), ...todasSaltadas.slice(1)], 'base')).toBe(false);
+    expect(sinFotoReal([foto('frente', { peldano: 'dos' }), ...todasSaltadas.slice(1)], 'base')).toBe(true);
   });
 
   it('prueba negativa: fotos de OTRO peldaño no completan la principal', () => {

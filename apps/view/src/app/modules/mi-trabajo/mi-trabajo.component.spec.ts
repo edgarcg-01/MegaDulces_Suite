@@ -295,6 +295,25 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
 
   // ── Puertas ───────────────────────────────────────────────────────────────
 
+  // ── `[NP.7]` «Levantar productos» desde la pantalla de entrada ─────────────────────────────────
+  // En la primera captura en prod nadie lo encontraba: el botón de cámara vive en el header de las áreas,
+  // que «Mi trabajo» no monta. Se mide con la pantalla PINTADA (no buscando texto en la plantilla).
+  const botonLevantar = () => [...(fix.nativeElement as HTMLElement).querySelectorAll('header button')]
+    .find((b) => (b.textContent ?? '').includes('Levantar productos')) as HTMLButtonElement | undefined;
+
+  it('[NP.7] con CATALOGO_LEVANTAR la cabecera trae «Levantar productos» y lleva a /levantamiento', async () => {
+    await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR, Permission.CATALOGO_LEVANTAR], stay: true });
+    const b = botonLevantar();
+    expect(b).toBeTruthy();
+    b!.click();
+    expect(navigate).toHaveBeenCalledWith(['/levantamiento']);
+  });
+
+  it('[NP.7] ⛔ NEGATIVA — sin CATALOGO_LEVANTAR el botón no se pinta', async () => {
+    await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true });
+    expect(botonLevantar()).toBeUndefined();
+  });
+
   it('el almacenista (RECIBIR + SUPERVISAR) tiene UNA puerta → entra directo a /almacen', async () => {
     await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR, Permission.COMMERCIAL_INVENTORY_SUPERVISAR] });
     expect(navigate).toHaveBeenCalledWith(['/almacen']);
