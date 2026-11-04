@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import type {
-  AsignarUsuarioDeMaquina, CobroEnVentanilla, ConteoDeCaja, TopeDelCajon, UsuarioDeMaquina, CustodiaAbierta, EstadoDeCobro, HechoDePersona, ResultadoConteo, ExplicarSuspenso, PersonaDeCustodia, RendirCustodia, ResultadoRendicion, RetiroACustodia, HojaDeReposicion, PagoEnVentanilla, PartidaEnSuspenso, PedirReposicion,
+  AsignarUsuarioDeMaquina, CobroEnVentanilla, OrdenPorFirmar, ConteoDeCaja, TopeDelCajon, UsuarioDeMaquina, CustodiaAbierta, EstadoDeCobro, HechoDePersona, ResultadoConteo, ExplicarSuspenso, PersonaDeCustodia, RendirCustodia, ResultadoRendicion, RetiroACustodia, HojaDeReposicion, PagoEnVentanilla, PartidaEnSuspenso, PedirReposicion,
   PlanDePagoVentanilla, QuienLlevaDeposito, ResultadoCobro,
   ResultadoHecho, ResultadoPago, SaldosDelLibro, VeredictoDePago,
 } from '@megadulces/contracts';
@@ -129,6 +129,19 @@ export class LibroEfectivoService {
 
   asignarUsuarioDeMaquina(body: AsignarUsuarioDeMaquina): Observable<UsuarioDeMaquina[]> {
     return this.http.post<UsuarioDeMaquina[]>(`${this.base}/catalogos/usuarios-maquina`, body);
+  }
+
+  /** `[LE.4.10]` Las órdenes que esperan la firma de Tesorería (pagos, reposiciones, custodias). */
+  porFirmar(): Observable<OrdenPorFirmar[]> {
+    return this.http.get<OrdenPorFirmar[]>(`${this.base}/ordenes/por-firmar`).pipe(reintentarSi429<OrdenPorFirmar[]>());
+  }
+
+  firmarOrden(id: string): Observable<ResultadoPago> {
+    return this.http.post<ResultadoPago>(`${this.base}/ordenes/${encodeURIComponent(id)}/firmar`, {});
+  }
+
+  rechazarOrden(id: string, nota: string): Observable<void> {
+    return this.http.post<void>(`${this.base}/ordenes/${encodeURIComponent(id)}/rechazar`, { nota });
   }
 
   /** `[LE.6.5]` Lo que cada persona tiene a su cargo. */

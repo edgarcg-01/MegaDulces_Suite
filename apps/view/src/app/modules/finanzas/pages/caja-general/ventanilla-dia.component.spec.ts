@@ -35,6 +35,10 @@ function montar(o: { jornada?: string | null; cajaSeq?: string; autorizar?: bool
     usuariosDeMaquina: vi.fn(() => of([{ device: 'AST', user_external: 'vendedor7', ultimo_uso: null, movimientos: 34, persona: null, nombre: null }])),
     asignarUsuarioDeMaquina: vi.fn(() => of([{ device: 'AST', user_external: 'vendedor7', ultimo_uso: null, movimientos: 34, persona: 'u9', nombre: 'Persona Nueve' }])),
     personas: vi.fn(() => of([{ usuario_id: 'u9', nombre: 'Persona Nueve' }])),
+    porFirmar: vi.fn(() => of([{ id: 'o5', kind: 'reposicion', origen_ref: null, beneficiario: 'Reposición Zona Morelia', maquina_minor: '155000', cajon_minor: '50',
+      redondeo_minor: '0', recibe: 'Quien Lleva', motivo_firma: 'la reposición la firma Tesorería (D-R1)', pedida_por: 'cajera', pedida_at: '2026-11-04T10:00:00Z', vence: '2026-11-05T06:00:00Z' }])),
+    firmarOrden: vi.fn(() => of({ estado: 'pagado' as const, orden_id: 'o5', codigo: 'K7QD-3', maquina_minor: '155000', cajon_minor: '50', redondeo_minor: '0', entry_id: 'e5', vence: '2026-11-05T06:00:00Z' })),
+    rechazarOrden: vi.fn(() => of(undefined)),
   };
   TestBed.configureTestingModule({
     imports: [VentanillaDiaComponent],
@@ -138,5 +142,20 @@ describe('[LE.6.4] Tu día', () => {
     comp.asignar(comp.usuarios()[0], 'u9');
     expect(libro.asignarUsuarioDeMaquina).toHaveBeenCalledWith({ device: 'AST', user_external: 'vendedor7', persona: 'u9' });
     expect(comp.usuarios()[0].nombre).toBe('Persona Nueve');
+  });
+
+  it('[LE.4.10] las órdenes que esperan firma también se firman aquí; la firma da el código; rechazar pide motivo', () => {
+    const { comp, libro, fixture } = montar({ autorizar: true });
+    comp.verFirmas.set(true);
+    fixture.detectChanges();
+    expect(document.body.querySelector('[data-orden="o5"]')?.textContent).toContain('Reposición Zona Morelia');
+    comp.firmarOrden('o5');
+    expect(libro.firmarOrden).toHaveBeenCalledWith('o5');
+    expect(comp.aviso()).toContain('K7QD-3');
+    comp.rechazarOrden('o5');
+    expect(libro.rechazarOrden).not.toHaveBeenCalled();     // sin motivo, no
+    comp.nota.set('no trae la hoja completa');
+    comp.rechazarOrden('o5');
+    expect(libro.rechazarOrden).toHaveBeenCalledWith('o5', 'no trae la hoja completa');
   });
 });

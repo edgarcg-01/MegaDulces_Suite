@@ -7,7 +7,7 @@ import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
 import {
-  valorDePiezas, type PersonaDeCustodia, type ResultadoConteo, type ResultadoHecho, type SaldosDelLibro, type TopeDelCajon, type UsuarioDeMaquina,
+  valorDePiezas, type OrdenPorFirmar, type PersonaDeCustodia, type ResultadoConteo, type ResultadoHecho, type SaldosDelLibro, type TopeDelCajon, type UsuarioDeMaquina,
 } from '@megadulces/contracts';
 import { PermissionsService } from '../../../../core/services/permissions.service';
 import { Permission } from '../../../../core/constants/permissions';
@@ -65,7 +65,7 @@ type Conteo = 'cierre' | 'sorpresa' | 'arranque';
             <p-button size="small" severity="secondary" [outlined]="true" label="Cerrar el día" (onClick)="cerrarDia()" />
           }
         }
-        <p-button size="small" severity="secondary" [text]="true" [label]="'Firmas por dar (' + solicitudes().length + ')'" (onClick)="verFirmas.set(true)" />
+        <p-button size="small" severity="secondary" [text]="true" [label]="'Firmas por dar (' + (solicitudes().length + ordenes().length) + ')'" (onClick)="verFirmas.set(true)" />
         <p-button size="small" severity="secondary" [text]="true" label="Tope y usuarios de la máquina" (onClick)="abrirCatalogos()" />
         <p-button size="small" severity="secondary" [text]="true" [label]="'Hallazgos (' + hallazgos().length + ')'" (onClick)="verHallazgos.set(true)" />
       </div>
@@ -112,9 +112,22 @@ type Conteo = 'cierre' | 'sorpresa' | 'arranque';
     </p-dialog>
 
     <p-dialog [visible]="verFirmas()" (visibleChange)="verFirmas.set($event)" [modal]="true" [draggable]="false" [style]="{ width: '38rem' }" header="Firmas por dar">
-      @if (autorizar() && solicitudes().length) {
+      @if (autorizar() && (solicitudes().length || ordenes().length)) {
         <label class="vd-lbl" for="vd-nota">Motivo, si rechazas</label>
         <input pInputText id="vd-nota" class="vd-in" [ngModel]="nota()" (ngModelChange)="nota.set($event)" autocomplete="off" />
+      }
+      <!-- Las órdenes con código que esperan firma: sin ella no sale de la máquina un peso (V4). -->
+      @for (o of ordenes(); track o.id) {
+        <div class="vd-fila" [attr.data-orden]="o.id">
+          <span>{{ o.beneficiario ?? o.kind }} · <b class="num">{{ minor(o.maquina_minor) }}</b>@if (o.cajon_minor !== '0') { + {{ minor(o.cajon_minor) }} del cajón }
+            · {{ o.motivo_firma ?? 'espera firma' }} · pidió {{ o.pedida_por }}</span>
+          @if (autorizar()) {
+            <span class="vd-botones">
+              <p-button size="small" label="Firmar" (onClick)="firmarOrden(o.id)" />
+              <p-button size="small" severity="secondary" [text]="true" label="Rechazar" [disabled]="nota().trim().length < 5" (onClick)="rechazarOrden(o.id)" />
+            </span>
+          }
+        </div>
       }
       @for (s of solicitudes(); track s.id) {
         <div class="vd-fila" [attr.data-solicitud]="s.id">
@@ -126,10 +139,9 @@ type Conteo = 'cierre' | 'sorpresa' | 'arranque';
             </span>
           }
         </div>
-      } @empty {
-        <p class="muted">Nada espera firma.</p>
       }
-      @if (!autorizar() && solicitudes().length) { <p class="muted">Las firma Tesorería (quien opera no firma, V9).</p> }
+      @if (!solicitudes().length && !ordenes().length) { <p class="muted">Nada espera firma.</p> }
+      @if (!autorizar() && (solicitudes().length || ordenes().length)) { <p class="muted">Las firma Tesorería (quien opera no firma, V9).</p> }
     </p-dialog>
 
     <p-dialog [visible]="verCatalogos()" (visibleChange)="verCatalogos.set($event)" [modal]="true" [draggable]="false" [style]="{ width: '40rem' }"
@@ -209,6 +221,7 @@ export class VentanillaDiaComponent implements OnInit {
   });
   readonly hallazgos = signal<HallazgoDelLibro[]>([]);
   readonly solicitudes = signal<SolicitudDelLibro[]>([]);
+  readonly ordenes = signal<OrdenPorFirmar[]>([]);
   readonly verFirmas = signal(false);
   readonly verHallazgos = signal(false);
   readonly aviso = signal<string | null>(null);
@@ -249,8 +262,9 @@ export class VentanillaDiaComponent implements OnInit {
       h: this.libro.hallazgos().pipe(catchError(() => of([] as HallazgoDelLibro[]))),
       q: this.libro.solicitudes().pipe(catchError(() => of([] as SolicitudDelLibro[]))),
       t: this.libro.tope().pipe(catchError(() => of(null))),
-    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ s, h, q, t }) => {
-      this.saldos.set(s); this.estado.set(s ? 'medido' : 'sin_medir'); this.hallazgos.set(h); this.solicitudes.set(q); this.tope.set(t);
+      o: this.libro.porFirmar().pipe(catchError(() => of([] as OrdenPorFirmar[]))),
+    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ s, h, q, t, o }) => {
+      this.saldos.set(s); this.estado.set(s ? 'medido' : 'sin_medir'); this.hallazgos.set(h); this.solicitudes.set(q); this.tope.set(t); this.ordenes.set(o);
     });
   }
 
@@ -300,6 +314,19 @@ export class VentanillaDiaComponent implements OnInit {
 
   firmar(id: string): void {
     this.libro.autorizar(id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: () => this.hecho('Firmado.'), error: (e) => this.fallo(e, 'No se firmó.') });
+  }
+
+  /** La firma de Tesorería da el código (nunca la de quien la pidió: la base lo exige). */
+  firmarOrden(id: string): void {
+    this.libro.firmarOrden(id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => this.hecho(r.estado === 'pagado' && r.codigo ? `Firmada: el código para la máquina es ${r.codigo}.` : 'Firmada.'),
+      error: (e) => this.fallo(e, 'No se firmó.'),
+    });
+  }
+
+  rechazarOrden(id: string): void {
+    if (this.nota().trim().length < 5) return;
+    this.libro.rechazarOrden(id, this.nota().trim()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: () => this.hecho('Orden rechazada.'), error: (e) => this.fallo(e, 'No se rechazó.') });
   }
 
   rechazar(id: string): void {
