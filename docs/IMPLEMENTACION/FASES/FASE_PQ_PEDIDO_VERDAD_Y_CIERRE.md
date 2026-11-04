@@ -1204,7 +1204,7 @@ NO MEDIDO (§14.6 lo dejó sin medir). Es un permiso en el servidor de Kepler: *
 
 | # | Decisión | Opciones | Recomendación |
 |---|---|---|---|
-| D32 | Las 85 compras aprobadas sin documento | (a) una sola limpieza: ligar las 38 a su documento de Kepler, cancelar las 35 sin nada con motivo «no se hizo en Kepler», y dejar las 12 restantes a Compras · (b) dejarlas · (c) cancelar todas | **(a)**. Escribe en prod (estado y folio de 73 requisiciones): con prueba contra base real del mismo camino y fuera de horario hábil. Firma de Edgar |
+| D32 | Las 85 compras aprobadas sin documento | (a) una sola limpieza: ligar las 38 a su documento de Kepler, cancelar las 35 sin nada con motivo «no se hizo en Kepler», y dejar las 12 restantes a Compras · (b) dejarlas · (c) cancelar todas | ✅ **Firmada (a), PM 2026-11-04**, con un ajuste que pidió el dato (§17.11): se ligan **23**, no 38 (el 80 % de productos no identificaba el documento), y se cancela sólo lo que ya cumplió 30 días |
 
 Items nuevos (renumerados el mismo día, §17.10): **PQ.67** (Edgar) — el `GRANT` en 8 Esquinas y
 medir 02, 04 y 05, antes de que compren ahí · **PQ.68** — la limpieza de D32 · **PQ.69** — que una
@@ -1306,6 +1306,59 @@ de §18. Lo de esta sesión pasa a:
 
 PQ.70 = los commits `84de4bcf2` y `2c603da2a`, que dicen «PQ.61»; el código ya dice `[PQ.70]`.
 
+### 17.11 D32 — ligar por importe y cerrar lo que no se hizo (2026-11-04, PQ.69 + PQ.68)
+
+**Lo que cambió al re-medir:** §17.8 decía que 38 «ya estaban» en Kepler: un documento del
+proveedor con 80 % o más de los productos. **El placebo lo tumbó.** Buscando lo mismo entre 30 y
+90 días antes, 21 de esas 38 también tenían un documento así, y 18 tenían más de uno en la ventana.
+Esos proveedores surten lo mismo una y otra vez: el 80 % de productos no dice CUÁL documento es.
+
+**El árbitro que sí identifica es el importe de cada renglón** (`kdm2.c13`). La cantidad va en
+otra unidad, pero el importe es el mismo: cuadró al centavo 37 de 37 el 2026-10-16.
+- Con todos los renglones dentro de ±0.5 %, **25 casan con un solo documento**.
+- En el placebo casan 2, ambas de un solo renglón: un pedido idéntico que se repite.
+- La regla pide un solo documento que case en toda la ventana de 90 días y una OC no compartida.
+  Con ella **quedan 23 ($2.98 M)**.
+- 00749 y 00750 comparten la OC 0007112 (Compras juntó dos requisiciones en una): eso lo resuelve
+  una persona.
+
+**Qué hace** (`compra-sin-documento.ts`, `833934781`), fuera de la petición, a lo más cada 30 min:
+
+| Regla | Item | Hoy | Alcance |
+|---|---|---:|---|
+| Ligar a su OC (`ordered` + `oc_folio`; PQ.26 la marca recibida cuando Kepler cierra la OC) | PQ.69 | 23 | **Permanente**: también las que se capturen a mano después |
+| Cerrar con motivo «No se hizo en Kepler…», sin persona | PQ.68 | 16 ($0.35 M) | **Sólo el universo de D32**: aprobadas antes del 27-oct, sin error de envío, 30 días cumplidos y nada en Kepler (ni del proveedor, ni de nadie con sus productos) |
+
+- Unas 20 más, de principios de octubre, **se cerrarán solas** al cumplir sus 30 días si nada
+  aparece en Kepler.
+- **Quedan a Compras:**
+  - las 15 de las 38 que no se pudieron identificar (entre ellas RQ-2026-00488, CEDIS, $1.76 M);
+  - las 8 parciales;
+  - las que tienen documentos de otro proveedor;
+  - las aprobadas después del 27-oct.
+- ⛔ **RQ-2026-01391** (Yurécuaro, $245,571, aprobada el 24-oct) falló con «Kepler no conoce al
+  proveedor», y **el reintento automático no la toma** (sólo reintenta desde el 27-oct). Le toca a
+  **Compras**.
+
+**Rendimiento:** de 1.8 s + 6.4 s a **256 ms + 149 ms**. El nombre del proveedor se resolvía en
+`kdxd` por cada renglón de `kdm1` (4.2 s), y la búsqueda por producto entraba por fecha (242 mil
+renglones) en vez de por el índice de SKU.
+
+**Prueba de base** (`test-newdb-compra-sin-documento.js`):
+
+- (1) **Sólo lectura, contra prod.**
+  - 23/23 ligas verificadas aparte, renglón por renglón. La tolerancia está fija en la prueba, no
+    importada del módulo: importada, sería un espejo.
+  - 16/16 cancelables sin renglones de Kepler con sus productos.
+  - Placebo: con el reloj diez años atrás, 0.
+  - **Negativa:** sin exigir todos los renglones salen 13 ligas, 1 falla y la prueba se pone roja.
+  - **Mutante vivo, declarado:** con 30 % de tolerancia, la regla de ambigüedad deja 22 ligas y
+    ninguna mala. Ése lo caza la mitad sintética.
+- (2) **Casos que escriben, con ROLLBACK, en el CI** (sucursal sintética `96`): liga y cancela, con
+  ocho negativas. **Desde aquí: NO MEDIDO.**
+- Vitest 318/318, con una prueba nueva que se puso roja al quitar la llamada. `tsc` limpio, con el
+  control detectado.
+
 ---
 
 ## 18. Unidades de medida al 100 %: verificado o con dueño (2026-11-04)
@@ -1360,12 +1413,45 @@ cambió hacia atrás las cajas de sus 41 productos). Kepler no guarda historia d
 | PQ.58 | C0 ✅ | Árbitro del peldaño por unidad asentada (archivo `pq41`): 428 → 316 celdas, ninguna nueva | aplicado 2026-11-04, `[PQ.41] celdas sin valuar: 428 -> 316` |
 | PQ.59 | C0 | Historia de fichas: `analytics.kepler_ficha_history` mantenida por trigger sobre `kepler_ods.kdii` (sólo cuando cambian unidades, factores o costos) | prueba contra Postgres real en el CI; en prod, una fila inicial por ficha |
 | PQ.60 | C0 | Estado de unidades por almacén × producto (A/B/C/D) en una vista; reemplaza al triángulo como veredicto | controles: 97392 → B, 48067 → C, 99891 → D |
-| PQ.61 | C0 | Venta histórica convertida por renglón (factor del renglón, nunca el de hoy); lo no convertible se declara | antes/después de cajas vendidas y del sugerido, fuera de horario |
+| PQ.61 | C0 ⚠️ | Venta histórica convertida por renglón (factor del renglón, nunca el de hoy); lo no convertible se declara. **Medido, ver §18.4: el sugerido NO está afectado; la reconstrucción espera la firma de la ventana** | antes/después de cajas vendidas y del sugerido, fuera de horario |
 | PQ.62 | C1 | B → pregunta a Compras («¿cuántas trae la caja?») con Definiciones de negocio, por valor | contestar = configurar |
 | PQ.63 | C1 | C → cola de conteo de Inventario Continuo | sólo un `N-A-30` arregla la existencia |
 | PQ.64 | C0 | Aviso por evento: movimiento de kardex en una unidad que no es la base | por trigger, no nocturno |
 | PQ.65 | C3 | Pedido muestra el estado (con su acción) en vez del triángulo y valúa todo con la fórmula de Kepler | `diseno` + `check:pantalla` |
 | PQ.66 | deuda | `mv_kepler_bought_rung` (PQ.40) se refresca de noche: contra la regla de «nada nocturno» | pasar a evento |
+
+### 18.4 PQ.61 medido: la venta se asienta en la base, salvo el paquete (2026-11-04)
+
+Prod, sólo lectura, venta `U-D-8/10/12` de 90 días, cada renglón arbitrado por precio: `kdm2.c12`
+(precio por unidad asentada) ÷ `kdii.c77` tiene que caer en banda de margen (0.85–2.5) contra 1, `f2`
+o `f3`. **Control:** los renglones cuyo rótulo es la base de la ficha dan mediana 1.29 (p10 1.16,
+p90 1.42), un margen con impuestos; el árbitro distingue.
+
+| Rótulo asentado (`c11`) | Renglones | Lo que dice el precio |
+|---|---:|---|
+| = base de la ficha | 1,118,768 (99.4 %) | base |
+| = escalón intermedio (`u2`) | 791 | **intermedio** (razón ÷ `f2` = 1.14) |
+| = caja (`u3`) | 102 | **base**: rótulo de caja con precio de pieza |
+| fuera de la ficha (250/400/500/PAQ/PZA) | 4,738 | base en su mayoría |
+
+Efecto en `mv_kepler_sales_daily.units` por producto: **5,334 de 5,365 iguales**; **21 subcontados**
+(cuenta el paquete como pieza: $540 k de venta, 36.5 k → 46.5 k unidades; 65109 20,581 → 25,351;
+14039 1,134 → 2,739); 2 sobrecontados (multiplica por la caja un «CJA» con precio de pieza: 44350
+48 → 4). El efecto «retroactivo» de la caja de hoy es marginal: sólo 17 productos se venden con
+base caja y 2 con caja intermedia.
+
+⭐ **El sugerido de compra NO está afectado:** su demanda sale de `analytics.sales_daily`, que ya
+convierte cada renglón por precio (`toCanonicalPriced`): 65109 con factores 1 y 10, 14039 con 1 y
+16, y su razón unidades/peso coincide con la arbitrada. Lo subcontado vive en el sell-out, productos
+nuevos, respuesta al precio y la ficha del catálogo.
+
+⛔ **Lo que cuesta arreglarlo:** no existe `CREATE OR REPLACE MATERIALIZED VIEW`. Cambiar la fórmula
+exige tirar y rehacer **19 dependientes en 5 niveles, ~3 GB de matvistas** (`mv_sales_blended`
+1.7 GB, `mv_sellout_monthly` 525 MB, `mv_price_signals` 221 MB…), con el sell-out sin servir
+mientras dura. Es la misma reconstrucción que espera la deuda declarada en
+`20260911240200_sellout_daily_lee_label_consolidado.js` (6 SKUs, $868 k/90 d). Recomendación: **una
+sola reconstrucción para las dos**, con una herramienta que rehaga la cadena desde las definiciones
+vivas (no una 8ª copia a mano), en una ventana firmada fuera de horario.
 
 ---
 
@@ -1373,6 +1459,7 @@ cambió hacia atrás las cajas de sus 41 productos). Kepler no guarda historia d
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-04 | PM firmó **D32**. Al re-medir, el placebo tumbó la liga por productos (21 de 38 también casaban 30–90 días antes) → árbitro **por importe de renglón**: **PQ.69** liga 23 ($2.98 M) y **PQ.68** cierra 16 ($0.35 M); unas 20 más se cierran solas al cumplir 30 días (`833934781`, §17.11). ⛔ RQ-2026-01391 ($245,571) falló y el reintento no la toma: Compras | PM + sesión Claude |
 | 2026-11-04 | **PQ.50 🧪** (`b37cea6e4`, D29, §17.10): el traspaso aprobado que en 7 días no salió a Kepler se cierra con motivo al leer la bandeja. Son 867 de 1,152 ($17.3 M), 200 por lectura. La mitad de sólo lectura de la prueba da 867 = 867 contra prod; la mitad que escribe corre en el CI. **Choque de códigos:** §18 ya usaba PQ.58–PQ.66, así que lo de esta sesión se renumera: GRANT → PQ.67, D32 → PQ.68, ligar → PQ.69, freno → **PQ.70** (sus commits dicen PQ.61) | PM + sesión Claude |
 | 2026-11-04 | «Aún existen productos con advertencia» → «¿100 %?» → «¿e históricos?» → **§18**: PQ.58 ✅ en prod (el commit dice PQ.41: choque de código, §18.1), estado A/B/C/D medido (91 % del valor verificado), plan PQ.59–PQ.66; el PM aprobó la tabla de historia de fichas | Claude |
 | 2026-11-04 | **PQ.61 🧪** (`84de4bcf2`): el freno contra el duplicado vale también para el **primer** envío (no tenía ninguno) y mira productos y saldo abierto. Medido con el SQL real: de 76 compras escritas por la Suite desde el 27-oct, 2 repetían una requisición abierta hecha a mano (RQ-2026-01760/-01762, $9,450). ⛔ **Corrección a la fila de abajo:** las 4 OC del 1-nov de 8 Esquinas están **recibidas** (`c43='F'`, saldo 0): RQ-2026-01881 no duplica una orden abierta, vuelve a pedir 22 productos que acaban de llegar. Que eso sea intencional lo confirma Compras; el freno nuevo no la detiene | PM + sesión Claude |
