@@ -332,4 +332,106 @@ describe('[CP.8.97] /contabilidad/contpaqi-puente · la entrega con el dictamen 
     await pinta();
     expect(txt(el().querySelector('.cpp-verdict h2'))).toMatch(/^5 pólizas armadas/);
   });
+
+  // ── [CP.8.99] Lo entregado dice dónde está ────────────────────────────────────────────────────────────────────
+  describe('[CP.8.99] lo entregado dice dónde está, y los conteos del mes abren su lista', () => {
+    const MOTIVO_EN = 'casó por token con la póliza 2/501; importes idénticos';
+    /** `pp:entregada` ya está en ContPAQi; `pp:lista` se entregó, no apareció y vuelve a salir (sigue «Lista»). */
+    const conSeguimiento = (): DictamenResp => ({
+      ...dictamenDe(mes),
+      seguimiento: [
+        { lote: 'pp:entregada', estado: 'en_contpaqi', folio: 501, motivo: MOTIVO_EN, entregada_en: `${mes}-10` },
+        { lote: 'pp:lista', estado: 'no_aparecio', folio: null, motivo: 'entregada hace 9 días (plazo 5)', entregada_en: `${mes}-02` },
+      ],
+    });
+    const lineaCuadre = () => todos('.cpp-ojo').find((p) => txt(p).includes('De lo entregado de'));
+    const parte = (t: string) => todos<HTMLButtonElement>('.cpp-ojo button').find((b) => txt(b).includes(t));
+    const fila = (banco: string, total?: string) => filas().find((f) => txt(f).includes(banco) && (!total || txt(f).includes(total)));
+
+    async function abrir(d: DictamenResp = conSeguimiento()) {
+      await montar();
+      dictamen$.next(d);
+      await pinta();
+      await paso4();
+    }
+
+    it('la fila de lo entregado dice dónde está (no sólo «Ya entregada»)', async () => {
+      await abrir();
+      chip('Ya entregadas')!.click();
+      await pinta();
+      expect(veredictos()).toEqual(['En ContPAQi']);
+    });
+
+    it('la línea del cuadre es del MES y nombra primero lo que pide trabajo', async () => {
+      await abrir();
+      expect(txt(lineaCuadre())).toBe(`De lo entregado de ${mes}: 1 no apareció en 5 días (sale otra vez) · 1 ya en ContPAQi`);
+    });
+
+    it('⭐ cada parte de la línea filtra la lista, y «Todas» lo quita', async () => {
+      await abrir();
+      parte('no apareció')!.click();
+      await pinta();
+      expect(parte('no apareció')!.getAttribute('aria-pressed')).toBe('true');
+      expect(chip('Todas')!.getAttribute('aria-pressed')).toBe('false');
+      expect(filas()).toHaveLength(1);
+      // Se volvió a armar: su veredicto es el del dictamen de hoy, y el porqué dice que no apareció.
+      expect(veredictos()).toEqual(['Lista']);
+      expect(txt(filas()[0].querySelector('.cpp-porque'))).toBe('No apareció en ContPAQi en 5 días: sale otra vez en el archivo.');
+
+      parte('ya en ContPAQi')!.click();
+      await pinta();
+      expect(parte('no apareció')!.getAttribute('aria-pressed')).toBe('false');
+      expect(veredictos()).toEqual(['En ContPAQi']);
+
+      chip('Todas')!.click();
+      await pinta();
+      expect(filas()).toHaveLength(6);
+      expect(parte('ya en ContPAQi')!.getAttribute('aria-pressed')).toBe('false');
+    });
+
+    it('elegir un veredicto suelta el filtro del cuadre (son excluyentes)', async () => {
+      await abrir();
+      parte('no apareció')!.click();
+      await pinta();
+      chip('Frenadas')!.click();
+      await pinta();
+      expect(parte('no apareció')!.getAttribute('aria-pressed')).toBe('false');
+      expect(veredictos()).toEqual(['Frenada']);
+    });
+
+    it('el detalle dice cuándo se marcó, el folio de ContPAQi y lo que dijo el cuadre', async () => {
+      await abrir();
+      // Elegir la parte deja seleccionada la primera fila: el detalle ya la muestra (otro clic la soltaría).
+      parte('ya en ContPAQi')!.click();
+      await pinta();
+      const peek = todos('.cpp-peek').find((p) => txt(p).includes('Folio en ContPAQi'))!;
+      expect(txt(peek)).toMatch(new RegExp(`Marcada como cargada ?${mes}-10`));
+      expect(txt(peek)).toMatch(/Folio en ContPAQi ?501/);
+      expect(txt(peek)).toContain(MOTIVO_EN);
+    });
+
+    it('lo que se entregó y todavía espera NO lleva porqué (está en plazo; no hay nada que hacer)', async () => {
+      const d = conSeguimiento();
+      d.seguimiento = [{ lote: 'pp:entregada', estado: 'esperando', folio: null, motivo: 'entregada hace 1 días; el plazo es 5', entregada_en: `${mes}-27` }];
+      await abrir(d);
+      expect(txt(lineaCuadre())).toBe(`De lo entregado de ${mes}: 1 esperando`);
+      const f = fila('BANCO PRUEBA 0001', `${mes}-07`)!;
+      expect(txt(f.querySelectorAll('td')[1])).toBe('Esperando');
+      expect(f.querySelector('.cpp-porque')).toBeNull();
+    });
+
+    it('⛔ sin `seguimiento` (API anterior) no afirma nada del mes: ni la línea ni «nada marcado»', async () => {
+      await montar();
+      await llegaDictamen();
+      await paso4();
+      expect(lineaCuadre()).toBeUndefined();
+      expect(todos('.cpp-ojo').some((p) => txt(p).includes('todavía no se ha marcado nada'))).toBe(false);
+      expect(veredictos()).toContain('Ya entregada');
+    });
+
+    it('con `seguimiento` vacío y entregas en otros meses, dice que de ESTE mes no se marcó nada', async () => {
+      await abrir({ ...dictamenDe(mes), seguimiento: [] });
+      expect(todos('.cpp-ojo').some((p) => txt(p).includes(`De ${mes} todavía no se ha marcado nada como cargado.`))).toBe(true);
+    });
+  });
 });

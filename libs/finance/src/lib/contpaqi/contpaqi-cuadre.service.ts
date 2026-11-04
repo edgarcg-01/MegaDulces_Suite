@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import type { Knex } from 'knex';
 import {
-  cuadrar, resumirCuadre, PLAZO_DIAS,
+  cuadrar, estadoTrasCuadre, resumirCuadre, PLAZO_DIAS, SQL_ENTREGADA_EN,
   type CandidatoContpaqi, type ExportPendiente, type ResultadoCuadre,
 } from './cuadre.engine';
 import { PREFIJO } from './token';
@@ -134,7 +134,8 @@ export class ContpaqiCuadreService {
         this.db.raw(`asiento->>'fecha' as fecha`),
         this.db.raw(`(asiento->>'tipo_poliza')::int as tipo_poliza`),
         this.db.raw(`asiento->>'token' as token`),
-        this.db.raw(`to_char(updated_at, 'YYYY-MM-DD') as entregada_en`),
+        // `[CP.8.99]` Desde el día que se marcó, no desde `updated_at` (que `guardar` reescribe en cada corrida).
+        this.db.raw(`${SQL_ENTREGADA_EN} as entregada_en`),
       )) as unknown as ExportPendiente[];
 
     if (!pendientes.length) {
@@ -195,10 +196,7 @@ export class ContpaqiCuadreService {
    * camino asciende un evento, que es justo lo que separa un puente de un exportador.
    */
   private async guardar(p: ExportPendiente, r: ResultadoCuadre): Promise<void> {
-    const estado = r.veredicto === 'aplicada' ? 'aplicada'
-      : r.veredicto === 'no_aparecio' ? 'rechazada'
-      : undefined; // `probable`, `difiere`, `ambiguo` y `esperando` NO mueven el estado: el
-                   // evento sigue entregado y su veredicto vive en `verificada` + `motivo`.
+    const estado = estadoTrasCuadre(r);
     await this.db('contpaqi.poliza_exports')
       .where({ tenant_id: MEGA, evento_tipo: p.evento_tipo, evento_id: p.evento_id })
       .update({
