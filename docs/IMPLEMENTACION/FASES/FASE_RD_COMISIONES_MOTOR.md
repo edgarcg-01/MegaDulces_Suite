@@ -891,6 +891,70 @@ comisión) → `RD.104` → `RD.106` → `RD.105` (depende de que RH aterrice la
 | **Gastos** | No hay gasto por ruta. Sí por **canal y plaza** en `analytics.expense_entries.dpto` (desde el 2026-08-06): «MORELIA MADERO VECINAL», «VECINAL PADRE HIDALGO», «ZAMORA CENTRO VECINAL», «LA PIEDAD ABASTOS VECINAL», y los TLMK. El grueso es **SUELDOS** y arrendamiento vehicular | La propuesta podrá usar el gasto del canal por plaza, prorrateado por venta, **declarado** como prorrateo |
 | **Lo pagado a vecinales** | La comisión vecinal no aparece como cuenta propia: «VIATICOS Y COMISIONES» y «BONOS POR VENTAS» son montos chicos; lo probable es que vaya dentro de SUELDOS. **NO MEDIDO** como cifra separable | Sigue haciendo falta la hoja (o la persona) que la calcula: es el único testigo |
 
+**`[RD.103.0]` el testigo apareció (2026-11-04): el libro de Comercial «COMISIONES RV (plaza) 2026».**
+Llegaron el de **Morelia completo** (xlsx, 7 hojas: gasto de operación, control de gasto, registro
+de ventas diario, comisiones, recibo del vendedor, recibo del supervisor, resumen) y la hoja de
+gasto del de **Padre Hidalgo** (CSV). Leído **con fórmulas**, no sólo valores. ⛔ Nombres, RFC,
+CURP, NSS y sueldos del libro **no se copian aquí** (repo público): se nombra la ruta, no a la persona.
+
+*La regla que el libro aplica hoy* — es la que `rd.vecinal.tabulador` y `rd.vecinal.quien_cobra`
+preguntaban:
+
+| Pieza | Lo que hace el libro | Lo que implica para el motor |
+|---|---|---|
+| **Periodo** | **Catorcena**, no quincena: 26 al año, cierra cada 14 días desde el 2026-01-14 (periodo 1 = 1 al 14 de enero); el recibo se paga al cierre + 3 días | El motor corre por quincena (`Q14–Q21`): el periodo vecinal es OTRO calendario. Pregunta nueva |
+| **Base del escalón** | «MARGEN %» = subtotal ÷ costo − 1: es **markup sobre costo**, no margen sobre venta (16.4 % de markup = 14.1 % de margen) | El escalón vecinal es por **rentabilidad**; el de RD, por **volumen**. `commission_scales` necesita declarar sobre qué se escalona |
+| **Tasa total** | markup < 12.01 % → 2.73 % · < 13.01 % → 2.95 % · < 15.01 % → 3.13 % · < 18.01 % → 3.41 % · < 25 % → 4.00 % · **≥ 25 % → la fórmula da FALSO (cero)** | Lo de ≥ 25 % es un hueco del `IF`, no una regla: se pregunta, no se copia |
+| **Reparto** | vendedor **80 %**, supervisor **20 %** de la tasa total; los dos × **subtotal** | Propuesta para `rd.vecinal.quien_cobra` = «ambos», 80/20 |
+| **Piso del vendedor** | cobra sólo si la **venta** de la catorcena pasa de $129,999.99, y se le paga **comisión − su sueldo base depositado en banco**. Sin `MAX(0, …)`: con venta apenas arriba del piso la resta sale **negativa** (2.728 % × ~$119k de subtotal < sueldo base) | Dos preguntas: el piso y qué pasa si la resta es negativa |
+| **Condición del supervisor** | cobra si la venta ≥ **95 % de la del mismo periodo del año anterior**; cobra aunque el vendedor quede en «NO APLICA». El recibo del supervisor usa OTRA regla (venta > año anterior, más un bono fijo por ruta cumplida) | La columna del año anterior está **vacía** (calendario 2022 sin datos): hoy la condición **siempre pasa**. Dos reglas para lo mismo → se pregunta cuál |
+| **Gasto de operación** | hoja aparte: cajero, surtidor, renta vehicular, combustible, almacén, mantenimiento; «gasto a cubrir por periodo» repartido por participación de ruta (60/40) | **No entra a la comisión**: sólo al resumen («utilidad después de gastos»). Es insumo de rentabilidad de ruta, no del motor |
+
+*Defectos del libro* (de fórmula, verificables abriendo el archivo):
+
+1. **Gasto**: combustible por catorcena/semana/día copiado de la fila de vehículos (3,600 en vez de
+   6,720 por periodo); almacén dividido entre 24/48/336 en vez de 26/52/364; mantenimiento entre
+   365; el total diario suma `G4:G8` y deja fuera mantenimiento. El gasto a cubrir por periodo sale
+   **~11 % bajo** (25,024 contra 27,824 con la misma cifra anual). El 8.04 % es gasto anual ÷
+   $9,000,000 **tecleado**, no una venta medida.
+2. La tasa se guarda como **texto** («3.410%»); el recibo del supervisor y su comisión final dan `#REF!`.
+3. Registro de ventas: **8 días de enero con la misma cifra copiada** (2 grupos) — captura a mano.
+4. Desde la catorcena 20 «venta» = «subtotal» (el neto): los pisos sobre venta ($130k, 95 %) se
+   miden **sin impuestos** desde ahí y **con impuestos** antes. El piso subió ~9 % sin que nadie lo decidiera.
+
+*Cruce contra Kepler* (pg-prod, sólo lectura, sid `7688376744939610156`; `kdm1` `U-D-10`, neto =
+`c16 − c14 − c15`):
+
+- El libro **cuadra al centavo con el neto de Kepler, sucursal `07`** (27 de 262 días con venta).
+  Pero su única columna «la ruta del vendedor» **salta de ruta**: catorcena 20 → `2V003` (8 días),
+  **21 → `2V001` (9 de 11 días)**, 22 → `2V003` (10 días). En la 21 el libro marca $95,077 y el
+  vendedor queda «NO APLICA» (bajo el piso), mientras `2V003` vendió ~$296k de neto en Kepler.
+  ⚠️ Lo más probable es que en la 21 se cargó la venta de otra ruta. **Por confirmar con quien
+  lleva el libro** antes de llamarlo pago faltante.
+- La columna del segundo vendedor (`2V001` según el padrón) está **vacía todo el año**.
+- `07` no tiene documentos vecinales en el ODS antes del **2026-09-07**: las catorcenas 1–17 del
+  libro **NO MEDIDAS** contra Kepler.
+- Días cercanos pero no iguales (10-13: libro 19,154.07, `2V001` 19,367.95; un día **negativo**,
+  09-29: −4,373.18): ¿devoluciones restadas? **NO MEDIDO**.
+
+*Qué cambia en `RD.103`:*
+
+- **`RD.103.3`** deja de partir sólo del 21.4 % del margen de RD: la regla vigente existe y es la
+  del libro → propuesta «fuente: libro de Comercial, 2026-11-04» = escalones por markup + 80/20 +
+  piso + descuento del sueldo base. **Control:** reproducir las catorcenas 18–22 del libro con la
+  venta de Kepler (las que sí se pueden medir) y explicar cada diferencia.
+- **`RD.103.2`**: el escalón necesita su **base** (`venta` · `markup`) y la familia su **periodo**
+  (quincena · catorcena). Sin eso el motor no puede reproducir el libro.
+- **Preguntas nuevas para DP** (entran en la próxima migración DP que cambie estructura: una que
+  sólo siembra la frena la compuerta), cada una con la propuesta del libro y su fuente:
+  `rd.vecinal.periodo` (catorcena) · `rd.vecinal.base_escalon` (markup) · `rd.vecinal.markup_25`
+  (¿qué tasa arriba de 25 %?) · `rd.vecinal.reparto` (80/20) · `rd.vecinal.piso_venta` ($130k;
+  ¿con o sin impuestos?) · `rd.vecinal.descuenta_sueldo_base` (¿y si sale negativo?) ·
+  `rd.vecinal.meta_supervisor` (95 % del año anterior, o «más que el año anterior + bono»).
+- **El gasto de operación** va a la rentabilidad de ruta (`/comercial/ruta-directa/rentabilidad`),
+  y se arbitra contra lo pagado en `analytics.expense_entries.dpto` («VECINAL PADRE HIDALGO»,
+  «MORELIA MADERO VECINAL»), no contra la estimación tecleada de la hoja.
+
 **`[RD.103.1]` en código:** migración `20261104103945` — `familia` (`ruta_directa` · `vecinal` · `tlmk`) en `commission_scales` y `commission_route_config`, `NOT NULL DEFAULT 'ruta_directa'` con CHECK; los tres caminos que insertan hoy (`createScaleVersion()`, alta del padrón, semilla `20260908120100`) no mandan la columna y el DEFAULT los cubre. Prueba `test-newdb-rd-familia-tabulador.js` (negativa: familia inventada → 23514; control: `vecinal` entra; un INSERT como el de la API desplegada queda en `ruta_directa`). **NO MEDIDO**: corre en el CI (contra prod sale «no medido» y no escribe). ⚠️ Las dos pruebas faltan de registrar en `run-all-tests.js` (el mismo bloqueo que DP).
 
 **Decisiones (las tomo y las anuncio; Edgar firma):**
