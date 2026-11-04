@@ -26,6 +26,7 @@ import { mensajeFraccion, renglonesSinUnidadEntera } from './fraccion-caja';
 import { plantillaDe, plantillaTlmkDe, urlDeServidor } from './kepler-servidores';
 import { buscarLoteRepetido, mensajeLoteRepetido, type LoteRepetido } from './lote-repetido';
 import { VENTANA_YA_PEDIDO_DIAS } from './ya-pedido-sucursal';
+import { cerrarTraspasosNoEjecutados } from './traspaso-no-ejecutado';
 import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt } from '../shared/freshness';
 
 /**
@@ -4977,6 +4978,14 @@ export class CommercialReplenishmentService {
     } catch (e: unknown) {
       this.logger.warn(`[PQ.25] No se pudo asociar OC de Kepler: ${(e as Error)?.message}`);
     }
+    // `[PQ.50]` D29: el traspaso aprobado que en 7 días no salió a Kepler se cierra con motivo. En su
+    // propia transacción: si falla, no deshace lo que PQ.25/PQ.26 acaban de ligar.
+    try {
+      const c = await this.tk.run((trx) => cerrarTraspasosNoEjecutados(trx, tenantId));
+      if (c) this.logger.log(`[PQ.50] ${c} traspaso(s) aprobados sin salir a Kepler, cerrados con motivo`);
+    } catch (e: unknown) {
+      this.logger.warn(`[PQ.50] No se pudieron cerrar los traspasos sin ejecutar: ${(e as Error)?.message}`);
+    }
     void this.reintentarKepler(tenantId);
   }
 
@@ -4996,12 +5005,12 @@ export class CommercialReplenishmentService {
    * empuja: se deja dicho en `kepler_error` cuál es, para que alguien confirme. Los traspasos no
    * se reintentan solos: su escritura está apagada en todas las sucursales y no hay freno medido.
    *
-   * `[PQ.61]` El freno es `yaEnKeplerSql()` y lo usan también el primer envío (`pushKeplerTrasAprobar`).
+   * `[PQ.70]` El freno es `yaEnKeplerSql()` y lo usan también el primer envío (`pushKeplerTrasAprobar`).
    */
   private readonly ultimoReintento = new Map<string, number>();
 
   /**
-   * `[PQ.61]` **¿Kepler ya tiene esta compra, hecha a mano?** Subconsulta que devuelve los documentos
+   * `[PQ.70]` **¿Kepler ya tiene esta compra, hecha a mano?** Subconsulta que devuelve los documentos
    * (texto para `kepler_error`) o NULL. Pide `r` (la requisición), `w` (su almacén) y `s` (su
    * proveedor). Un X-A-30/35 del mismo proveedor, en la misma sucursal, que trae **alguno de sus
    * productos**, y que además:
@@ -5031,7 +5040,7 @@ export class CommercialReplenishmentService {
                              WHERE kl.sucursal = k.sucursal AND kl.c1 = k.c1 AND kl.c2 = k.c2 AND kl.c3 = k.c3
                                AND kl.c4 = k.c4 AND kl.c6 = k.c6 AND btrim(kl.c8) = btrim(p.sku)))`;
   }
-  /** `[PQ.61]` Lo que queda escrito en `kepler_error` cuando el freno detiene el envío. */
+  /** `[PQ.70]` Lo que queda escrito en `kepler_error` cuando el freno detiene el envío. */
   private motivoYaEnKepler(docs: string): string {
     return `No se envió: Kepler ya tiene ${docs} de este proveedor en esta sucursal, con productos de esta requisición, hecha fuera de la Suite. Si es ésta, no hay que hacer nada más; si no, reintenta desde la ficha.`;
   }
@@ -5311,7 +5320,7 @@ export class CommercialReplenishmentService {
   private async pushKeplerTrasAprobar(id: string): Promise<{ estado: string; folio?: string; motivo?: string }> {
     if (!this.keplerSink) return { estado: 'apagado' };
     try {
-      // `[PQ.61]` El primer envío no tenía freno: sólo el reintento. Si Kepler ya tiene esta compra
+      // `[PQ.70]` El primer envío no tenía freno: sólo el reintento. Si Kepler ya tiene esta compra
       // hecha a mano, no se escribe y se deja dicho (la ficha conserva «Reintentar», que no pasa por aquí).
       const ya = await this.tk.run(async (trx) => {
         const tenantId = this.tenantCtx.requireTenantId();

@@ -157,7 +157,7 @@ describe('[RQ.15] la pantalla, que era lo que de verdad faltaba', () => {
     expect(b).toContain("r.source_type = 'supplier'");
   });
 
-  it('⛔ [PQ.61] el PRIMER envío también pasa por el freno, y el freno mira productos y saldo abierto', () => {
+  it('⛔ [PQ.70] el PRIMER envío también pasa por el freno, y el freno mira productos y saldo abierto', () => {
     const p = SVC.indexOf('private async pushKeplerTrasAprobar(');
     expect(p).toBeGreaterThan(0);
     const cuerpo = SVC.slice(p, SVC.indexOf('const r = await this.pushToKepler(id);', p));
@@ -170,6 +170,18 @@ describe('[RQ.15] la pantalla, que era lo que de verdad faltaba', () => {
     // y con algún producto de la requisición: un mismo proveedor con otros productos no frena
     expect(freno).toContain('btrim(kl.c8) = btrim(p.sku)');
     expect(SVC.slice(SVC.indexOf('private async reintentarKepler('), SVC.indexOf('private async reintentarKepler(') + 600)).toContain('${this.yaEnKeplerSql()} AS ya_en_kepler');
+  });
+
+  it('⛔ [PQ.50] la lectura de la bandeja cierra el traspaso que no salió, en su PROPIA transacción', () => {
+    const a = CODIGO.indexOf('private async asociarOcDeKepler(');
+    const b = CODIGO.slice(a, CODIGO.indexOf('private async reintentarKepler(', a));
+    // Separada de PQ.25/PQ.26: si el cierre falla, no deshace lo que acaba de ligar.
+    expect(b).toMatch(/\}\s*catch[\s\S]{0,200}\[PQ\.25\][\s\S]{0,200}this\.tk\.run\(\(trx\) => cerrarTraspasosNoEjecutados\(trx, tenantId\)\)/);
+    const MOD = sinComentarios(readFileSync(join(DIR, 'traspaso-no-ejecutado.ts'), 'utf8'));
+    expect(MOD).toContain(`r.source_type = 'branch'`);
+    expect(MOD).toContain('r.kepler_folio IS NULL AND r.oc_folio IS NULL AND NOT r.requested_by_branch');
+    expect(MOD).toContain('rejected_by = NULL');
+    expect(MOD).toMatch(/LIMIT \?/);
   });
 
   it('⭐ el backend DEVUELVE el folio, o la pantalla nunca podría mostrarlo', () => {
