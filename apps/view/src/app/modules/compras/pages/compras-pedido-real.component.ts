@@ -45,6 +45,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
+import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { LoPedidoComponent } from '../lo-pedido.component';
 import { ComprasFlujoComponent } from './compras-flujo.component';
 
@@ -156,6 +157,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     PedidoNegociacionPanelComponent,
     PedidoNegociacionDetalleComponent,
     LoPedidoComponent,
+    LoadStateComponent,
     CommonModule, FormsModule, ButtonModule, TableModule, PaginatorModule, ToastModule, SelectModule, MultiSelectModule,
     InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, TagModule, DialogModule, ConfirmDialogModule, PopoverModule, MetricStripComponent, ContextHelpComponent, SegmentedComponent, FreshnessPillComponent, SidePeekComponent, ComprasFlujoComponent,
     SucursalPipe,
@@ -360,11 +362,9 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
         }
 
         @if (error()) {
-          <div class="pr-state pr-error">
-            <i class="pi pi-exclamation-triangle"></i>
-            <div><p>No se pudo cargar el workbook.</p>
-              <p-button type="button" label="Reintentar" icon="pi pi-refresh" styleClass="p-button-sm p-button-text" (click)="loadWorkbook()"></p-button></div>
-          </div>
+          <!-- [PQ.53] El error canónico: role="alert" (se anuncia), mismo botón y mismo aspecto que el resto de la suite. -->
+          <app-load-state error="Revisa tu conexión y vuelve a intentarlo."
+                          errorTitle="No se pudo cargar el pedido" (retry)="loadWorkbook()"></app-load-state>
         } @else {
           <!-- U.2 — el inventario valuado declara su hueco. Sin este banner el total baja en
                silencio al dejar de sumar lo no verificado, y eso se lee como "hay menos
@@ -1028,8 +1028,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
           @if (tranLoading()) {
             <div class="pr-peek-loading"><i class="pi pi-spin pi-spinner"></i> Consultando órdenes de compra…</div>
           } @else if (tranError()) {
-            <div class="pr-state pr-error"><i class="pi pi-exclamation-triangle"></i>
-              <p>No se pudieron leer las órdenes de compra.</p></div>
+            <app-load-state error="Revisa tu conexión y vuelve a intentarlo."
+                            errorTitle="No se pudieron leer las órdenes de compra" (retry)="reintentarTransito()"></app-load-state>
           } @else if (tranRows().length) {
             <p class="pr-uov-hint">
               <strong>{{ tranTotalCajas() | number:'1.0-1' }} cajas</strong> ya pedidas y sin recibir
@@ -1239,11 +1239,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
         </div>
         @if (wlVista() === 'proveedores') {
           @if (agError()) {
-            <div class="pr-state pr-error">
-              <i class="pi pi-exclamation-triangle"></i>
-              <div><p>No se pudo cargar la agenda de proveedores.</p>
-                <p-button type="button" label="Reintentar" icon="pi pi-refresh" styleClass="p-button-sm p-button-text" (click)="loadAgenda()"></p-button></div>
-            </div>
+            <app-load-state error="Revisa tu conexión y vuelve a intentarlo."
+                            errorTitle="No se pudo cargar la agenda de proveedores" (retry)="loadAgenda()"></app-load-state>
           } @else {
             <p-table [value]="agRows()" [loading]="agLoading()"
                      [paginator]="true" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]"
@@ -1296,11 +1293,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
             <p class="pr-foot">Un renglón por <strong>proveedor</strong>, ordenado por la fecha más urgente de sus sucursales. La cadencia es la <strong>derivada</strong> de sus entregas en Kepler (acierta en 1 de 4 canales): capturarla es el siguiente paso de esta fase.</p>
           }
         } @else if (wlError()) {
-          <div class="pr-state pr-error">
-            <i class="pi pi-exclamation-triangle"></i>
-            <div><p>No se pudo cargar el ciclo de reabasto.</p>
-              <p-button type="button" label="Reintentar" icon="pi pi-refresh" styleClass="p-button-sm p-button-text" (click)="loadWorklist()"></p-button></div>
-          </div>
+          <app-load-state error="Revisa tu conexión y vuelve a intentarlo."
+                          errorTitle="No se pudo cargar el ciclo de reabasto" (retry)="loadWorklist()"></app-load-state>
         } @else {
           <!-- [PQ.4] Cruce 1: el encabezado cuenta el universo y la lista pide 500. Lo que no entra
                se DICE, no se esconde. -->
@@ -1817,8 +1811,6 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-empty i { font-size: 1.6rem /* glifo, no texto: la escala --fs-* es de TIPO y su tope util acá es 1.25rem */; display: block; margin-bottom: .5rem; color: var(--text-faint); }
     .pr-empty p { margin: 0 0 .25rem; font-weight: 600; color: var(--text-main); }
     .pr-empty span { font-size: var(--fs-sm); }
-    .pr-state { display: flex; gap: .75rem; align-items: center; padding: 1.25rem; border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); }
-    .pr-error { color: var(--bad-fg); } .pr-error i { font-size: 1.4rem /* glifo, no texto (idem .pr-empty i) */; } .pr-error p { margin: 0; color: var(--text-main); }
     .pr-foot { font-size: var(--fs-xs); color: var(--text-muted); margin-top: .5rem; }
     .pr-agotados { font-size: var(--fs-sm); color: var(--text-main); margin: 0 0 .5rem; }
     .pr-fresh { display: inline-flex; align-items: center; margin: -.25rem 0 .6rem; }
@@ -4343,8 +4335,18 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   tranTotalValor = computed(() => this.tranRows().reduce((s, o) => s + (Number(o.valor) || 0), 0));
   tranGap = computed(() => Math.max(0, this.tranTotalCajas() - this.tranDescuenta()));
 
+  /** `[PQ.53]` La fila del último «ver órdenes», para que el error tenga «Reintentar». */
+  private tranFila: WorkbookRow | null = null;
+
   openTransit(r: WorkbookRow): void {
     this.recordarFoco();
+    this.tranFila = r;
+    this.cargarTransito(r);
+  }
+  reintentarTransito(): void {
+    if (this.tranFila) this.cargarTransito(this.tranFila);
+  }
+  private cargarTransito(r: WorkbookRow): void {
     this.tranProduct.set({ sku: r.sku, nombre: r.nombre });
     this.tranRows.set([]); this.tranError.set(false); this.tranLoading.set(true); this.tranVisible = true;
     this.api.inTransit(r.product_id)
