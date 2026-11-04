@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ColaSucursal } from '@megadulces/contracts';
-import { SIN_FILTROS, conteosFiltros, filtrarColas, hayFiltros, porGrupo, repartir, veredicto } from './pendientes-sucursal.util';
+import { SIN_FILTROS, conteosFiltros, cuentaCola, filtrarColas, hayFiltros, porGrupo, repartir, veredicto } from './pendientes-sucursal.util';
 
 const cola = (p: Partial<ColaSucursal>): ColaSucursal => ({
   id: 'x', grupo: 'recibir', de: 'sucursal', label: 'X', accion: '', ruta: '/x', query: null, ventana: null,
@@ -88,8 +88,42 @@ describe('[AB.47] filtros de Pendientes de sucursal', () => {
   it('los conteos de cada control respetan los OTROS filtros', () => {
     const k = conteosFiltros(colas, { ...SIN_FILTROS, grupo: 'recibir' });
     expect(k.quien).toEqual({ todos: 3, sin_tomar: 1, mios: 1 });
-    expect(k.grupo).toEqual({ todos: 4, recibir: 3, caja: 1 });
-    expect(conteosFiltros(colas, { ...SIN_FILTROS, quien: 'mios' }).grupo).toEqual({ todos: 1, recibir: 1 });
+    expect(k.grupo).toEqual({ recibir: 3, caja: 1 });
+    expect(conteosFiltros(colas, { ...SIN_FILTROS, quien: 'mios' }).grupo).toEqual({ recibir: 1, caja: 0 });
+  });
+
+  // [AB.48] CEDIS: el veredicto decía 1,137 y «Todos» 280, porque los conteos salían de las filas que viajaron.
+  describe('[AB.48] los conteos cuentan el UNIVERSO de la cola, no las filas que viajaron', () => {
+    const grande = [
+      cola({ id: 'g', grupo: 'recibir', total: 1057, mas_viejo_dias: 90, puede_abrir: true,
+        filas: [fila('A', 'Ánfora', null), fila('B', 'Cajeta', { nombre: 'Ana', soy_yo: false }), fila('C', 'Chicle', { nombre: 'Yo', soy_yo: true })] }),
+      cola({ id: 'h', grupo: 'caja', total: 80, mas_viejo_dias: 3, puede_abrir: true, filas: [fila('T', 'Caja 1', null)] }),
+    ];
+
+    it('sin filtros, «Todos» y la franja suman lo mismo que el veredicto', () => {
+      const k = conteosFiltros(grande, SIN_FILTROS);
+      expect(k.quien.todos).toBe(veredicto(grande).total);
+      expect(k.quien.todos).toBe(1137);
+      expect(k.grupo).toEqual({ recibir: 1057, caja: 80 });
+      expect(k.exactos).toBe(true);
+    });
+
+    it('«sin tomar» = universo menos los tomados; «míos» = los míos', () => {
+      const k = conteosFiltros(grande, SIN_FILTROS);
+      expect(k.quien).toEqual({ todos: 1137, sin_tomar: 1135, mios: 1 });
+      const r = filtrarColas(grande, { ...SIN_FILTROS, quien: 'sin_tomar' });
+      expect(r.colas.map((c) => c.cuenta.n)).toEqual([1055, 80]);
+    });
+
+    it('con búsqueda sólo se cuenta lo que viajó, y se dice (exacta = false)', () => {
+      const k = conteosFiltros(grande, { ...SIN_FILTROS, texto: 'anfora' });
+      expect(k.quien.todos).toBe(1);
+      expect(k.exactos).toBe(false);
+      const c = cuentaCola(grande[1], 'todos', 'caja');
+      expect(c).toEqual({ n: 1, exacta: false });
+      // control: una cola que viajó entera sí es exacta con búsqueda
+      expect(cuentaCola(cola({ total: 1, filas: [fila('Z', 'z', null)] }), 'todos', 'z')).toEqual({ n: 1, exacta: true });
+    });
   });
 
   it('una cola que trae menos filas que su total se marca recortada', () => {

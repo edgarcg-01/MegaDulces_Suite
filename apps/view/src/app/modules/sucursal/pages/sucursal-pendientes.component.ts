@@ -40,13 +40,13 @@ const QUIEN: FiltroQuien[] = ['todos', 'sin_tomar', 'mios'];
  * pendientes» · «hay que agregar filtros o lo que sea necesario para mejorar la interfaz».
  *
  * ── Las cinco preguntas (skill `diseno` §0b) ────────────────────────────────────────────────────
- * 1. Qué ve y en qué orden: el veredicto; los filtros (quién lo tiene · proceso · sólo lo que puedo
- *    resolver · buscar); las colas con trabajo, la que más espera primero; en cada fila, quién la tiene.
+ * 1. Qué ve y en qué orden: el veredicto; la franja por proceso, que también filtra; los filtros (quién
+ *    lo tiene · sólo lo que puedo resolver · buscar); las colas con trabajo, la que más espera primero; en cada fila, quién la tiene.
  * 2. Qué no: colas en cero = una línea («al día»); lo de OTRA área, compacto y sin sumar; una cola que el
  *    filtro deja vacía sale y se dice cuántas salieron; cada cola pinta 10 filas y «Ver todas» abre el resto.
  *    Sin importes de arqueo: la ve toda la sucursal y el arqueo es ciego.
  * 3. Accesibilidad: buscar por folio, detalle o responsable (sin acentos, en cualquier orden); cada opción
- *    de filtro con su conteo; los filtros viven en la URL (se comparten y sobreviven a recargar);
+ *    de filtro con su conteo sobre el universo de cada tipo (`[AB.48]`: antes contaba sólo lo que viajó); los filtros viven en la URL (se comparten y sobreviven a recargar);
  *    «Yo lo resuelvo» en la misma fila (una sola interfaz por flujo).
  * 4. Ligado a: cada cola a su pantalla dueña; el traspaso se recibe en Kepler.
  * 5. Le toca: a toda la sucursal; la sucursal la fija su alcance (oficinas eligen).
@@ -89,16 +89,16 @@ const QUIEN: FiltroQuien[] = ['todos', 'sin_tomar', 'mios'];
           @if (resp()) {
             <p class="pen-veredicto" role="status">{{ frase() }}</p>
             @if (nota(); as n) { <p class="pen-nota">{{ n }}</p> }
-            <app-metric-strip [items]="kpis()" ariaLabel="Pendientes de la sucursal por proceso"></app-metric-strip>
+            <!-- La franja por proceso ES el filtro de proceso: clic filtra, otro clic lo quita. Cuenta con los otros filtros puestos. -->
+            <app-metric-strip [items]="kpis()" [selected]="filtros().grupo === 'todos' ? null : filtros().grupo"
+                              (drill)="porProceso($event)" ariaLabel="Pendientes de la sucursal por proceso; clic para filtrar"></app-metric-strip>
 
             <div class="pen-filtros" role="search" aria-label="Filtrar pendientes">
               <app-segmented [options]="opcionesQuien()" [value]="filtros().quien" (valueChange)="poner({ quien: $any($event) })"
                              ariaLabel="Quién lo tiene"></app-segmented>
-              <app-segmented [options]="opcionesGrupo()" [value]="filtros().grupo" (valueChange)="poner({ grupo: $any($event) })"
-                             ariaLabel="Proceso"></app-segmented>
               <span class="pen-buscar">
                 <i class="pi pi-search" aria-hidden="true"></i>
-                <input pInputText type="search" [ngModel]="filtros().texto" (ngModelChange)="poner({ texto: $event })"
+                <input pInputText type="search" [ngModel]="texto()" (ngModelChange)="buscar($event)"
                        placeholder="Folio, proveedor, producto o persona" aria-label="Buscar pendientes" />
               </span>
               <label class="pen-puedo">
@@ -114,7 +114,7 @@ const QUIEN: FiltroQuien[] = ['todos', 'sin_tomar', 'mios'];
             </div>
             @if (conFiltros()) {
               <p class="pen-tenue pen-resumen" role="status">
-                {{ resumenFiltro() }}@if (vista().ocultas) { · {{ vista().ocultas }} {{ vista().ocultas === 1 ? 'cola no tiene' : 'colas no tienen' }} nada con estos filtros }
+                {{ resumenFiltro() }}@if (vista().ocultas) { · {{ vista().ocultas }} {{ vista().ocultas === 1 ? 'tipo de pendiente no tiene' : 'tipos de pendiente no tienen' }} nada con estos filtros }
               </p>
             }
 
@@ -126,7 +126,7 @@ const QUIEN: FiltroQuien[] = ['todos', 'sin_tomar', 'mios'];
                     <p class="pen-sub">{{ grupo(cf.cola) }} · {{ cf.cola.accion }}@if (cf.cola.ventana) { · {{ cf.cola.ventana }} }</p>
                   </div>
                   <span class="pen-cuenta">
-                    @if (cf.filas.length !== cf.cola.filas.length) { {{ cf.filas.length | number }} <span class="pen-de">de {{ cf.cola.total | number }}</span> }
+                    @if (cf.cuenta.n !== cf.cola.total) { {{ cf.cuenta.n | number }} <span class="pen-de">de {{ cf.cola.total | number }}</span> }
                     @else { {{ cf.cola.total | number }} }
                   </span>
                   @if (cf.cola.puede_abrir) {
@@ -150,7 +150,7 @@ const QUIEN: FiltroQuien[] = ['todos', 'sin_tomar', 'mios'];
                         <td class="comm-num dt-num" data-label="Importe" role="cell">{{ f.monto == null ? '—' : dinero(f.monto) }}</td>
                         <td data-label="Quién lo resuelve" role="cell" class="pen-quien">
                           @if (f.responsable; as r) {
-                            <span class="pen-resp" [class.pen-resp--yo]="r.soy_yo">{{ r.soy_yo ? 'Tú' : r.nombre }}</span>
+                            <span class="pen-resp">{{ r.soy_yo ? 'Tú' : r.nombre }}</span>
                             <span class="pen-tenue">desde {{ r.desde | date:'d MMM, HH:mm' }}</span>
                             @if (r.soy_yo) {
                               <button pButton type="button" class="p-button-sm p-button-text" [disabled]="ocupado(cf.cola, f)"
@@ -159,7 +159,8 @@ const QUIEN: FiltroQuien[] = ['todos', 'sin_tomar', 'mios'];
                               </button>
                             }
                           } @else {
-                            <button pButton type="button" class="p-button-sm p-button-outlined" [disabled]="ocupado(cf.cola, f)"
+                            <!-- Neutro: hay uno por fila (66 en Padre Hidalgo); el color de acción queda para «Resolver». -->
+                            <button pButton type="button" class="p-button-sm p-button-text p-button-secondary pen-tomar" [disabled]="ocupado(cf.cola, f)"
                                     (click)="atribuir(cf.cola, f)" [attr.aria-label]="'Yo resuelvo ' + f.folio">
                               <span class="p-button-label">Yo lo resuelvo</span>
                             </button>
@@ -177,7 +178,7 @@ const QUIEN: FiltroQuien[] = ['todos', 'sin_tomar', 'mios'];
                     </button>
                   }
                   @if (cf.recortada) {
-                    <span class="pen-tenue">Aquí están las {{ cf.cola.filas.length }} más viejas de {{ cf.cola.total | number }}@if (conFiltros()) {; los filtros sólo miran ésas}.@if (cf.cola.puede_abrir) { El resto, en «Resolver». }</span>
+                    <span class="pen-tenue">Aquí están las {{ cf.cola.filas.length }} más viejas de {{ cf.cola.total | number }}@if (!cf.cuenta.exacta) {; la búsqueda sólo mira ésas}.@if (cf.cola.puede_abrir) { El resto, en «Resolver». }</span>
                   }
                 </div>
               </section>
@@ -193,7 +194,7 @@ const QUIEN: FiltroQuien[] = ['todos', 'sin_tomar', 'mios'];
               @for (c of reparto().sinLeer; track c.id) {
                 <section class="pen-sec pen-sinleer" role="alert">
                   <h2 class="pen-h2">{{ c.label }}</h2>
-                  <p class="pen-sub"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ c.motivo || 'No se pudo leer esta cola.' }} No quiere decir que esté en cero.</p>
+                  <p class="pen-sub"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ c.motivo || 'No se pudo leer.' }} No quiere decir que esté en cero.</p>
                 </section>
               }
 
@@ -268,11 +269,13 @@ const QUIEN: FiltroQuien[] = ['todos', 'sin_tomar', 'mios'];
     .pen-folio { font-family: var(--font-mono, monospace); }
     .pen-quien { white-space: nowrap; }
     .pen-resp { font-weight: 600; color: var(--text-main); margin-right: var(--sp-2); }
-    .pen-resp--yo { color: var(--ok-fg); }
+    .pen-tomar { white-space: nowrap; }
     .pen-tenue { font-size: var(--fs-xs); color: var(--text-muted); }
     .pen-pie { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin-top: var(--sp-1); }
     .pen-vacio { margin-top: var(--sp-6); font-size: var(--fs-sm); color: var(--text-muted); }
-    .pen-sinleer .pen-sub { color: var(--warn-fg); }
+    /* Texto en -soft-fg: --warn-fg sobre blanco da 2.15:1 (AA pide 4.5); el icono sí puede ir en -fg. */
+    .pen-sinleer .pen-sub { color: var(--warn-soft-fg); }
+    .pen-sinleer .pen-sub .pi { color: var(--warn-fg); }
     .pen-aldia { margin: var(--sp-6) 0 0; font-size: var(--fs-sm); color: var(--text-muted); }
     .pen-aldia .pi { color: var(--ok-fg); }
     .pen-fuera { margin-top: var(--sp-6); font-size: var(--fs-sm); color: var(--text-muted); }
@@ -311,6 +314,9 @@ export class SucursalPendientesComponent implements OnInit {
 
   // ── [AB.47] Filtros: viven en la URL (se comparten y sobreviven a recargar) ──────────────────
   readonly filtros = signal<Filtros>(SIN_FILTROS);
+  /** Lo tecleado en el buscador, antes de aplicarse (`buscar`). */
+  readonly texto = signal('');
+  private tecleo: ReturnType<typeof setTimeout> | undefined;
   /** Colas con «Ver todas» abierto. */
   readonly abiertas = signal<ReadonlySet<string>>(new Set());
 
@@ -329,40 +335,48 @@ export class SucursalPendientesComponent implements OnInit {
     ];
   });
 
-  readonly opcionesGrupo = computed<SegOption[]>(() => {
-    const k = this.conteos().grupo;
-    return [
-      { label: 'Todo', value: 'todos', count: k['todos'] ?? 0 },
-      ...GRUPOS.filter((g) => (k[g] ?? 0) > 0 || this.filtros().grupo === g).map((g) => ({ label: GRUPO_LABEL[g], value: g, count: k[g] ?? 0 })),
-    ];
-  });
-
   readonly resumenFiltro = computed(() => {
-    const n = this.vista().colas.reduce((s, c) => s + c.filas.length, 0);
-    return `${n.toLocaleString('es-MX')} ${n === 1 ? 'pendiente' : 'pendientes'} con estos filtros`;
+    const n = this.vista().colas.reduce((s, c) => s + c.cuenta.n, 0);
+    const parcial = this.vista().colas.some((c) => !c.cuenta.exacta) ? ' (la búsqueda sólo mira los más viejos de cada tipo)' : '';
+    return `${n.toLocaleString('es-MX')} ${n === 1 ? 'pendiente' : 'pendientes'} con estos filtros${parcial}`;
   });
 
   readonly frase = computed(() => {
     const v = this.ver();
     if (!v.total) return v.sinLeer ? 'Sin pendientes en lo que se pudo leer' : 'Al día: la sucursal no tiene pendientes';
     const viejo = v.masViejo ? ` · el más viejo espera ${v.masViejo} ${v.masViejo === 1 ? 'día' : 'días'}` : '';
-    return `${v.total.toLocaleString('es-MX')} ${v.total === 1 ? 'pendiente' : 'pendientes'} en ${v.colas} ${v.colas === 1 ? 'cola' : 'colas'}${viejo}`;
+    return `${v.total.toLocaleString('es-MX')} ${v.total === 1 ? 'pendiente' : 'pendientes'} de ${v.colas} ${v.colas === 1 ? 'tipo' : 'tipos'}${viejo}`;
   });
 
   readonly nota = computed(() => {
     const n = this.ver().sinLeer;
     if (!n) return null;
-    return `${n === 1 ? 'Una cola no se pudo leer' : `${n} colas no se pudieron leer`}: el total no la incluye.`;
+    return `${n === 1 ? 'Un tipo de pendiente no se pudo leer' : `${n} tipos de pendiente no se pudieron leer`}: el total no ${n === 1 ? 'lo' : 'los'} incluye.`;
   });
 
-  readonly kpis = computed<MetricStripItem[]>(() => porGrupo(this.resp()?.colas ?? []).map((g) => ({
-    label: GRUPO_LABEL[g.grupo],
-    value: g.total,
-    format: 'number',
-    tone: g.total ? 'warn' : 'ok',
-    state: g.sinLeer ? 'parcial' : undefined,
-    stateNote: g.sinLeer ? 'Una de sus colas no se pudo leer' : undefined,
-  })));
+  /**
+   * La franja por proceso, que también es el filtro de proceso (antes había un segmentado aparte que
+   * contaba otra cosa). Cuenta con los demás filtros puestos; sin filtros suma el total del veredicto.
+   * Sin ámbar: «hay pendientes» no es una alerta, y como texto `--warn-fg` no se lee (2.15:1).
+   */
+  readonly kpis = computed<MetricStripItem[]>(() => {
+    const k = this.conteos().grupo;
+    const sel = this.filtros().grupo;
+    return porGrupo(this.resp()?.colas ?? []).map((g): MetricStripItem => {
+      const label = GRUPO_LABEL[g.grupo];
+      const n = k[g.grupo] ?? 0;
+      return {
+        label,
+        value: n,
+        format: 'number',
+        tone: n ? 'default' : 'muted',
+        state: g.sinLeer ? 'parcial' : undefined,
+        stateNote: g.sinLeer ? 'Uno de sus tipos de pendiente no se pudo leer' : undefined,
+        drill: g.total || sel === g.grupo ? g.grupo : undefined,
+        drillLabel: sel === g.grupo ? `Quitar el filtro de ${label}` : `Ver sólo ${label}: ${n.toLocaleString('es-MX')}`,
+      };
+    });
+  });
 
   readonly alDiaTexto = computed(() => this.reparto().alDia.map((c) => c.label.charAt(0).toLowerCase() + c.label.slice(1)).join(' · '));
 
@@ -377,7 +391,25 @@ export class SucursalPendientesComponent implements OnInit {
       texto: qp.get('q') ?? '',
       soloPuedo: qp.get('puedo') === '1',
     });
+    this.texto.set(this.filtros().texto);
+    this.destroyRef.onDestroy(() => clearTimeout(this.tecleo));
     this.cargarAlmacenes(qp.get('suc'));
+  }
+
+  /** Clic en la franja: filtra ese proceso; otro clic en el mismo lo quita. */
+  porProceso(g: string): void {
+    const grupo = g as GrupoPendienteSucursal;
+    this.poner({ grupo: this.filtros().grupo === grupo ? 'todos' : grupo });
+  }
+
+  /**
+   * La búsqueda se aplica al dejar de teclear: el resumen es una región viva y, aplicada en cada tecla,
+   * el lector de pantalla anunciaba una vez por letra («anfora» = 6 anuncios).
+   */
+  buscar(t: string): void {
+    this.texto.set(t);
+    clearTimeout(this.tecleo);
+    this.tecleo = setTimeout(() => this.poner({ texto: t }), 300);
   }
 
   poner(cambio: Partial<Filtros>): void {
@@ -397,6 +429,8 @@ export class SucursalPendientesComponent implements OnInit {
   }
 
   limpiar(): void {
+    clearTimeout(this.tecleo);
+    this.texto.set('');
     this.poner({ ...SIN_FILTROS });
   }
 

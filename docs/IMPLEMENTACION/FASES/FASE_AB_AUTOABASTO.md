@@ -2529,6 +2529,30 @@ viajan sin filas: sólo se muestra su conteo.
 `database/run-all-tests.js` está en el árbol, pero no se commiteó porque ese archivo trae 2 líneas de otra sesión
 sin commitear.
 
+#### 16.24.2 🧪 [AB.48] Auditoría de diseño y sus arreglos (2026-11-03)
+
+**Edgar:** «usa la skill /auditoria-diseno» y, con el informe, «resolvámoslo». Nivel de evidencia C (fuente) + B
+(prod, sólo lectura); sin nivel A. Lo que se arregló:
+
+| # | Hallazgo (medido) | Arreglo |
+|---|---|---|
+| 1 | 🔴 **Dos «todos».** Los conteos de los filtros salían de las filas que viajaban (≤ 200 por cola): en CEDIS el veredicto decía **1,137** y «Todos» habría dicho **280** | `cuentaCola`: sin búsqueda se cuenta el universo (`total`; «sin tomar» = total − tomados). Con búsqueda sólo se puede contar lo que viajó, y se dice («la búsqueda sólo mira los más viejos de cada tipo») |
+| 2 | 🔴 **~77 elementos color de acción** en Padre Hidalgo (66 «Yo lo resuelvo» delineados) | «Yo lo resuelvo» pasa a botón de texto neutro; el color de acción queda en «Resolver» y en el proceso elegido |
+| 7 | 🟡 La división por proceso salía dos veces (franja y segmentado), con números distintos | La franja ES el filtro de proceso: clic filtra, otro clic quita (`MetricStrip` gana el input aditivo `selected` → `aria-pressed`). Se quitó el segmentado. Sin ámbar en la franja |
+| 4 | 🟠 «Días» de gastos devueltos contaba desde la captura (folio 0008783: **66** días; lo devolvieron hace **29**) | Devueltos cuentan desde `validated_at`; esperan factura, desde `aprobado_at` (si no hay, «—», no se rellena). Control: 0008783 da 29 |
+| 5 | 🟠 Código en vez de nombre: «Documento 00/0001010» (26 vales); cajeros «10C03» | Vales: «Orden de entrada 0001010» / «Traspaso …». Cajeros por nombre: turnos con `pos_cashiers` (291 de 301 con nombre en 7 días), arqueos con el usuario de la Suite y luego `pos_cashiers` (155 de 157). Sin nombre en ningún catálogo queda la clave (7 turnos de Padre Hidalgo, «28JATC») |
+| 6 | 🟠 Texto bajo AA en modo claro: «Tú» en `--ok-fg` (**3.30:1**), «no se pudo leer» en `--warn-fg` (**2.15:1**) | «Tú» sin color (la palabra basta); el aviso en `--warn-soft-fg` (7.09) y sólo el icono en `--warn-fg` |
+| 8 | 🟡 El resumen (`role="status"`) se anunciaba en cada tecla | La búsqueda se aplica 300 ms después de dejar de teclear |
+| 9 | 🟡 Jerga: «en 9 colas» | «de 9 tipos»; «cola» sale de los textos y de la ayuda |
+
+**Fuera, aparte (#3):** Mi trabajo cuenta las entradas sin comprobante con otro universo (90 días, con copias):
+CEDIS 1,198 contra 1,057 aquí. Unificarlo toca `me-work.ts`, otro módulo.
+
+**Pruebas:** util 15/15 (3 nuevas, con el caso CEDIS; mutante «contar lo que viajó» → 2 rojas) · registro y
+servicio 25/25 · `MetricStrip` 15/15 · `ngc --noEmit` 0 errores, con su control (`TS2339`) · `check:pantalla`:
+`sucursal-pendientes` cumple las 10 reglas · las 22 consultas contra prod (sólo lectura), mismos totales.
+**No medido:** validación visual, foco con teclado, `forced-colors`, 44 px táctiles, INP.
+
 
 - [ ] Métrica re-medida con la misma consulta, antes/después publicado.
 - [ ] Carga completa de la mesa y de «Mi pedido» bajo 500 ms en todas las sucursales, medida en prod (AB.36).

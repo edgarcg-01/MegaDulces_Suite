@@ -236,7 +236,7 @@ export class SucursalPendientesService {
         } catch (e) {
           await trx.raw('ROLLBACK TO SAVEPOINT cola');
           this.logger.warn(`cola ${d.id} no se pudo medir: ${(e as Error).message}`);
-          out.push({ ...base, estado: 'no_medido', motivo: 'No se pudo leer esta cola.', total: 0, mas_viejo_dias: null, filas: [] });
+          out.push({ ...base, estado: 'no_medido', motivo: 'No se pudo leer.', total: 0, mas_viejo_dias: null, filas: [] });
         }
       }
       return out;

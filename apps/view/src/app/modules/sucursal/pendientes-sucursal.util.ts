@@ -101,17 +101,33 @@ export function filaPasa(f: PendienteSucursalFila, quien: FiltroQuien, texto: st
   return coincideBusqueda(texto, f.folio, f.detalle, f.responsable?.nombre);
 }
 
+/**
+ * Cuántos pendientes de la cola pasan los filtros de FILA (quién y texto), sobre su UNIVERSO cuando se
+ * puede: sin búsqueda, «todos» es `total` y «sin tomar» es `total` menos los tomados (un pendiente sólo
+ * se toma desde la pantalla, y la pantalla trae los más viejos: los tomados viajan). Con búsqueda sólo se
+ * puede buscar en lo que viajó (hasta 200 por cola): `exacta = false` si la cola viene recortada.
+ * ⚠️ Antes los conteos salían de las filas que viajaron y CEDIS decía «Todos 280» con 1,137 arriba.
+ */
+export function cuentaCola(c: ColaSucursal, quien: FiltroQuien, texto: string): { n: number; exacta: boolean } {
+  if (texto.trim()) return { n: c.filas.filter((x) => filaPasa(x, quien, texto)).length, exacta: c.total <= c.filas.length };
+  if (quien === 'todos') return { n: c.total, exacta: true };
+  if (quien === 'sin_tomar') return { n: Math.max(0, c.total - c.filas.filter((x) => x.responsable).length), exacta: true };
+  return { n: c.filas.filter((x) => x.responsable?.soy_yo).length, exacta: true };
+}
+
 export interface ColaFiltrada {
   cola: ColaSucursal;
   /** Las filas que pasan. Sin filtros de fila, todas las que viajaron. */
   filas: PendienteSucursalFila[];
-  /** `true` = la cola trae menos filas que su total: el filtro miró sólo las más viejas. */
+  /** Cuántos pasan, sobre el universo de la cola cuando se puede (`cuentaCola`). */
+  cuenta: { n: number; exacta: boolean };
+  /** `true` = la cola trae menos filas que su total: lo que se pinta son las más viejas. */
   recortada: boolean;
 }
 
 /**
  * Las colas de la sucursal con trabajo, ya filtradas, en el orden de `repartir` (lo que más espera
- * primero). Una cola que el filtro deja sin filas sale de la lista; `ocultas` dice cuántas salieron
+ * primero). Una cola que el filtro deja en cero sale de la lista; `ocultas` dice cuántas salieron
  * por los filtros (no por estar al día).
  */
 export function filtrarColas(colas: ColaSucursal[], f: Filtros): { colas: ColaFiltrada[]; ocultas: number } {
@@ -121,34 +137,38 @@ export function filtrarColas(colas: ColaSucursal[], f: Filtros): { colas: ColaFi
   for (const c of base) {
     if (f.grupo !== 'todos' && c.grupo !== f.grupo) continue;
     if (f.soloPuedo && !c.puede_abrir) continue;
+    const cuenta = cuentaCola(c, f.quien, f.texto);
+    if (filtraFila && !cuenta.n) continue;
     const filas = filtraFila ? c.filas.filter((x) => filaPasa(x, f.quien, f.texto)) : c.filas;
-    if (filtraFila && !filas.length) continue;
-    out.push({ cola: c, filas, recortada: c.total > c.filas.length });
+    out.push({ cola: c, filas, cuenta, recortada: c.total > c.filas.length });
   }
   return { colas: out, ocultas: base.length - out.length };
 }
 
+const QUIENES: FiltroQuien[] = ['todos', 'sin_tomar', 'mios'];
+
 /**
- * Los conteos de cada opción, contando FILAS de la sucursal: cada control cuenta con los OTROS filtros
- * puestos (así el número dice cuántos verías al elegirlo). Sobre las filas que viajaron (hasta 200 por cola).
+ * Los conteos de cada opción: cada control cuenta con los OTROS filtros puestos (así el número dice
+ * cuántos verías al elegirlo), sobre el universo de cada cola (`cuentaCola`). Sin filtros, la suma de
+ * `grupo` y `quien.todos` es el total del veredicto. `exactos = false` = una búsqueda miró sólo lo
+ * que viajó de alguna cola recortada.
  */
-export function conteosFiltros(colas: ColaSucursal[], f: Filtros): { quien: Record<FiltroQuien, number>; grupo: Record<string, number> } {
+export function conteosFiltros(colas: ColaSucursal[], f: Filtros): { quien: Record<FiltroQuien, number>; grupo: Record<string, number>; exactos: boolean } {
   const base = repartir(colas).conTrabajo.filter((c) => !f.soloPuedo || c.puede_abrir);
   const quien: Record<FiltroQuien, number> = { todos: 0, sin_tomar: 0, mios: 0 };
-  const grupo: Record<string, number> = { todos: 0 };
+  const grupo: Record<string, number> = {};
+  let exactos = true;
   for (const c of base) {
-    for (const x of c.filas) {
-      if (!coincideBusqueda(f.texto, x.folio, x.detalle, x.responsable?.nombre)) continue;
-      if (f.grupo === 'todos' || c.grupo === f.grupo) {
-        quien.todos++;
-        if (!x.responsable) quien.sin_tomar++;
-        if (x.responsable?.soy_yo) quien.mios++;
-      }
-      if (filaPasa(x, f.quien, '')) {
-        grupo['todos']++;
-        grupo[c.grupo] = (grupo[c.grupo] ?? 0) + 1;
+    if (f.grupo === 'todos' || c.grupo === f.grupo) {
+      for (const q of QUIENES) {
+        const k = cuentaCola(c, q, f.texto);
+        quien[q] += k.n;
+        exactos = exactos && k.exacta;
       }
     }
+    const k = cuentaCola(c, f.quien, f.texto);
+    grupo[c.grupo] = (grupo[c.grupo] ?? 0) + k.n;
+    exactos = exactos && k.exacta;
   }
-  return { quien, grupo };
+  return { quien, grupo, exactos };
 }

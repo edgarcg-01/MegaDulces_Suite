@@ -73,9 +73,15 @@ SELECT '{' || COALESCE(string_agg(DISTINCT s, ','), '') || '}' AS sucs
            AND NOT EXISTS (SELECT 1 FROM commercial.erp_sucursal_warehouse m2
                             WHERE m2.tenant_id = w.tenant_id AND m2.sucursal = w.code AND m2.warehouse_id <> w.id)) x`;
 
+/**
+ * `source_ref` es `«sucursal»/«folio»` de Kepler («01/0000401»): el detalle dice QUÉ documento es y su
+ * folio, sin el código de sucursal (la sucursal se nombra, jamás se numera; y el vale ya es de ésta).
+ */
 export const SQL_VALES_ABIERTOS = `
 SELECT s.id::text AS clave, s.folio::text AS folio,
-       CASE WHEN s.source_kind = 'manual' THEN 'Vale manual' ELSE 'Documento ' || COALESCE(s.source_ref, '') END AS detalle,
+       CASE s.source_kind WHEN 'manual' THEN 'Vale manual'
+         ELSE CASE s.source_kind WHEN 'erp_receipt' THEN 'Orden de entrada ' WHEN 'erp_transfer' THEN 'Traspaso ' ELSE 'Documento ' END
+              || COALESCE(NULLIF(split_part(s.source_ref, '/', 2), ''), s.source_ref, '') END AS detalle,
        s.created_at::date AS fecha, NULL::numeric AS monto, count(*) OVER()::int AS total
   FROM commercial.receiving_sessions s
  WHERE s.tenant_id = :t AND s.warehouse_id = :wh AND s.status IN ('open', 'validating')
@@ -168,11 +174,17 @@ SELECT c.id::text AS clave, COALESCE(c.order_code, c.kepler_folio, '')::text AS 
  ORDER BY c.created_at
  LIMIT ${LIM}`;
 
-/** Turno de Kepler CERRADO en 7 días sin su arqueo de cierre (el mismo NOT EXISTS que `turnosPendientes`). */
+/**
+ * Turno de Kepler CERRADO en 7 días sin su arqueo de cierre (el mismo NOT EXISTS que `turnosPendientes`).
+ * El cajero, por su nombre del catálogo de Wincaja (`pos_cashiers`, el mismo join que `blind-count`); sin
+ * nombre en el catálogo queda su clave, no se inventa.
+ */
 export const SQL_TURNOS_SIN_ARQUEO = `
-SELECT k.sucursal || '/' || btrim(k.c2::text) || '/' || k.c3::bigint::text AS clave, k.c3::bigint::text AS folio, 'Caja ' || btrim(k.c2::text) || COALESCE(' · ' || NULLIF(btrim(k.c8), ''), '') AS detalle,
+SELECT k.sucursal || '/' || btrim(k.c2::text) || '/' || k.c3::bigint::text AS clave, k.c3::bigint::text AS folio,
+       'Caja ' || btrim(k.c2::text) || COALESCE(' · ' || COALESCE(NULLIF(btrim(pc.nombre), ''), NULLIF(btrim(k.c8), '')), '') AS detalle,
        k.c5::date AS fecha, NULL::numeric AS monto, count(*) OVER()::int AS total
   FROM kepler_ods.kdpv_folio_caja k
+  LEFT JOIN analytics.pos_cashiers pc ON pc.tenant_id = :t AND pc.warehouse_code = k.sucursal AND pc.cajero_code = btrim(k.c8)
  WHERE k.sucursal = :kc
    AND k.c10::date <> DATE '1800-01-01'
    AND k.c5::date >= ${HOY} - 7
@@ -186,12 +198,19 @@ SELECT k.sucursal || '/' || btrim(k.c2::text) || '/' || k.c3::bigint::text AS cl
  * Arqueo de cierre sin la firma de la encargada (`validado_at IS NULL`), 7 días.
  * ⛔ Sin importe: esta pantalla la ve TODA la sucursal (AB.46) y el arqueo es ciego; lo contado por
  * una cajera no se le enseña a las demás.
+ * Quien contó, por nombre: el usuario de la Suite (como `cortes-sucursales`) o el catálogo de Wincaja; si
+ * ninguno lo conoce, su clave.
  */
 export const SQL_ARQUEOS_POR_VALIDAR = `
 SELECT b.id::text AS clave, COALESCE(b.cash_cut_folio, '')::text AS folio,
-       'Caja ' || COALESCE(b.caja, 'sin caja') || COALESCE(' · ' || NULLIF(btrim(b.cajero_code), ''), '') AS detalle,
+       'Caja ' || COALESCE(b.caja, 'sin caja')
+         || COALESCE(' · ' || COALESCE(NULLIF(btrim(u.nombre), ''), NULLIF(btrim(pc.nombre), ''), NULLIF(btrim(b.cajero_code), '')), '') AS detalle,
        b.business_date AS fecha, NULL::numeric AS monto, count(*) OVER()::int AS total
   FROM reconciliation.blind_counts b
+  LEFT JOIN LATERAL (SELECT x.nombre FROM identity.users x
+                      WHERE x.tenant_id = b.tenant_id AND upper(x.username) = upper(b.cajero_code) AND x.deleted_at IS NULL
+                      LIMIT 1) u ON true
+  LEFT JOIN analytics.pos_cashiers pc ON pc.tenant_id = b.tenant_id AND pc.warehouse_code = b.warehouse_code AND pc.cajero_code = btrim(b.cajero_code)
  WHERE b.tenant_id = :t AND b.warehouse_code = :kc AND b.tipo = 'cierre' AND b.validado_at IS NULL
    AND b.business_date >= ${HOY} - 7
  ORDER BY b.business_date, b.caja
@@ -205,21 +224,26 @@ SELECT c.id::text AS clave, c.folio::text AS folio, COALESCE(c.ritmo, c.type) AS
  ORDER BY c.created_at
  LIMIT ${LIM}`;
 
-const GASTO = (estados: string) => `
+/**
+ * `desde` = el momento en que el gasto quedó en ESTE estado: «Días» cuenta lo que lleva esperando a la
+ * sucursal, no lo que lleva desde la captura (folio 0008783: decía 66 días y lo devolvieron hace 29).
+ * Sin ese momento la fecha queda NULL y los días se pintan «—»: no se rellena con la captura.
+ */
+const GASTO = (estados: string, desde: string) => `
 SELECT e.id::text AS clave, COALESCE(NULLIF(btrim(e.folio_solicitud), ''), 'sin folio') AS folio,
        COALESCE(NULLIF(btrim(e.proveedor), ''), e.solicitante, 'Gasto')
          || COALESCE(' · ' || NULLIF(btrim(e.motivo_rechazo), ''), '') AS detalle,
-       e.created_at::date AS fecha, e.importe AS monto, count(*) OVER()::int AS total
+       (${desde} AT TIME ZONE 'America/Mexico_City')::date AS fecha, e.importe AS monto, count(*) OVER()::int AS total
   FROM finance.expense_proofs e
  WHERE e.tenant_id = :t AND e.sucursal = :suc AND e.status IN (${estados})
- ORDER BY e.created_at
+ ORDER BY ${desde} NULLS LAST, e.created_at
  LIMIT ${LIM}`;
-/** `rechazada` = «Te lo devolvieron, hay que corregirlo» (`expense-capture-links.service.ts`). */
-export const SQL_GASTOS_DEVUELTOS = GASTO(`'rechazada'`);
-/** `aprobada` = aprobado con cotización, espera su factura (`mis-gastos-abiertos.ts`). */
-export const SQL_GASTOS_ESPERAN_FACTURA = GASTO(`'aprobada'`);
-/** `recibida` / `revision` = lo revisa Finanzas. */
-export const SQL_GASTOS_EN_REVISION = GASTO(`'recibida', 'revision'`);
+/** `rechazada` = «Te lo devolvieron, hay que corregirlo» (`expense-capture-links.service.ts`); el rechazo sella `validated_at`. */
+export const SQL_GASTOS_DEVUELTOS = GASTO(`'rechazada'`, 'e.validated_at');
+/** `aprobada` = aprobado con cotización, espera su factura (`mis-gastos-abiertos.ts`); la firma sella `aprobado_at` (CGA-A.62). */
+export const SQL_GASTOS_ESPERAN_FACTURA = GASTO(`'aprobada'`, 'e.aprobado_at');
+/** `recibida` / `revision` = lo revisa Finanzas; espera desde la captura. */
+export const SQL_GASTOS_EN_REVISION = GASTO(`'recibida', 'revision'`, 'e.created_at');
 
 /** Ticket que espera a la sucursal: resuelto por confirmar, o en pausa esperando al solicitante. Sin confidenciales. */
 export const SQL_TICKETS = `
