@@ -301,7 +301,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                botón + ventana; el 95-100 % de la pantalla es la tarea). -->
           <ng-container *ngTemplateOutlet="bloquePagos; context: { $implicit: day }" />
 
-          <!-- ── [PGP.71] COMPROBANTES DE PAGO: la MISMA franja de «Pagos a proveedor» (Edgar, 2026-11-04:
+          <!-- ── [PGP.72] COMPROBANTES DE PAGO: la MISMA franja de «Pagos a proveedor» (Edgar, 2026-11-04:
                «sólo un apartado donde se pueda soltar el PDF y se vincule automáticamente»). Es el componente
                compartido, no una copia: lee cada PDF, busca su pago en Kepler y deja pre-marcado el que
                coincide; guardar sigue siendo UN clic de la persona (PC.3: la IA propone, la persona confirma). -->
@@ -1855,7 +1855,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   abrirPronto(): void { this.panelAgregar.set(false); this.panelPronto.set(true); }
 
   /**
-   * `[PGP.71]` «Ver con diferencias» de la franja del comprobante: esa lista vive en «Pagos a
+   * `[PGP.72]` «Ver con diferencias» de la franja del comprobante: esa lista vive en «Pagos a
    * proveedor», y se abre ya filtrada (`?estado=con_diferencias`) — no se repite aquí.
    */
   private readonly router = inject(Router);

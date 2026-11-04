@@ -691,7 +691,7 @@ export class FinanzasPagosComprobantesComponent implements OnInit, OnDestroy {
   readonly viewTarget = signal<PagoRow | null>(null);
 
   constructor() {
-    // [PGP.71] Calendario de Pagos llega aquí con ?estado=con_diferencias desde su franja de comprobantes.
+    // [PGP.72] Calendario de Pagos llega aquí con ?estado=con_diferencias desde su franja de comprobantes.
     const e = inject(ActivatedRoute).snapshot.queryParamMap.get('estado');
     if (e !== null && this.estadoOpts.some((o) => o.value === e)) this.estadoSel.set(e);
     this.load();
