@@ -141,7 +141,8 @@ for (const [s, srv] of Object.entries(SERVIDORES)) {
       `END $$;`,
       `GRANT CONNECT, TEMPORARY ON DATABASE md_${s} TO kepler_push;`,
       `GRANT USAGE ON SCHEMA md TO kepler_push;`,
-      `GRANT SELECT ON md.kdm1, md.kdm2, md.pv_suc_ip, md.kdxd, md.kdii TO kepler_push;`,
+      // kdud/kduv: el pedido TELEMARK (COT.7) valida cliente y vendedor sin precedente en esa sucursal.
+      `GRANT SELECT ON md.kdm1, md.kdm2, md.pv_suc_ip, md.kdxd, md.kdii, md.kdud, md.kduv TO kepler_push;`,
       `GRANT INSERT ON md.kdm1, md.kdm2 TO kepler_push;`,
       ``,
       `-- Y en pg_hba.conf (después: SELECT pg_reload_conf();):`,
