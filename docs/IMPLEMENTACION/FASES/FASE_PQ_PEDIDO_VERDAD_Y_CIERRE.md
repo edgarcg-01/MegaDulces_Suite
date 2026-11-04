@@ -1206,9 +1206,10 @@ NO MEDIDO (§14.6 lo dejó sin medir). Es un permiso en el servidor de Kepler: *
 |---|---|---|---|
 | D32 | Las 85 compras aprobadas sin documento | (a) una sola limpieza: ligar las 38 a su documento de Kepler, cancelar las 35 sin nada con motivo «no se hizo en Kepler», y dejar las 12 restantes a Compras · (b) dejarlas · (c) cancelar todas | **(a)**. Escribe en prod (estado y folio de 73 requisiciones): con prueba contra base real del mismo camino y fuera de horario hábil. Firma de Edgar |
 
-Items nuevos: **PQ.58** (Edgar) — el `GRANT` en 8 Esquinas y medir 02, 04 y 05, antes de que
-compren ahí · **PQ.59** — la limpieza de D32 · **PQ.60** — que una requisición escrita a mano en
-Kepler también se ligue sola (mismo proveedor, sucursal y productos), para que no vuelva a pasar.
+Items nuevos (renumerados el mismo día, §17.10): **PQ.67** (Edgar) — el `GRANT` en 8 Esquinas y
+medir 02, 04 y 05, antes de que compren ahí · **PQ.68** — la limpieza de D32 · **PQ.69** — que una
+requisición escrita a mano en Kepler también se ligue sola (mismo proveedor, sucursal y productos),
+para que no vuelva a pasar.
 
 ### 17.9 PQ.43 — la mesa contra Pedido, con el código desplegado (2026-11-04, prioridad 1)
 
@@ -1251,6 +1252,59 @@ explicar» se revisa con esa función ya escrita.
 prioridad 1»*. Se trabaja PQ.52 → PQ.53 → PQ.54 → PQ.57 → PQ.49 → PQ.48 → PQ.55/PQ.56 (éstas dos
 esperan logs y una sesión de prueba) y después las de prioridad 2 y 1. Queda escrito porque va en
 contra de la regla dinero × esfuerzo (`pm/criterios.md` §1: la decisión del PM manda y se registra).
+
+### 17.10 PQ.50 — el traspaso aprobado que no salió se cierra solo (2026-11-04, D29)
+
+**Medido en prod (sólo lectura):** 1,152 traspasos aprobados sin documento en Kepler; **867 con
+más de 7 días ($17.3 M)**, el más viejo del 29-sep. **Ninguno lo pidió una sucursal.**
+
+**Qué hace** (`traspaso-no-ejecutado.ts`, `b37cea6e4`): cada lectura de la bandeja de Compras
+cierra a lo más 200 (los más viejos primero) que estén `approved`, sin `kepler_folio` ni
+`oc_folio` y aprobados hace más de `VENTANA_YA_PEDIDO_DIAS`. Quedan `cancelled` con motivo
+«No salió a Kepler: Compras lo aprobó el DD-MM-YYYY y en 7 días no salió desde la Suite…» y sin
+persona (`rejected_by` NULL). Va en su propia transacción: si falla, no deshace lo que PQ.25/PQ.26
+acaban de ligar. Los 867 de hoy se van en 5 lecturas.
+
+- ⛔ **No toca lo que pidió una sucursal**: la mesa le muestra sus canceladas como «RECHAZADA», y
+  una que Compras aprobó no fue rechazada. Hoy son 0; si aparecen, se decide aparte.
+- ⚠️ **El motivo no dice que el traspaso no ocurrió**, sólo que no salió desde la Suite. Si se hizo
+  a mano en Kepler (`U-D-40`), ese documento es el que la mesa resta; ligarlo es PQ.69. Cuántos
+  se hicieron a mano: **NO MEDIDO**.
+- ⚠️ **Las cuentas de canceladas** (PQ.9: «107 en 14 días, 0 con motivo») suben con estos 867. Se
+  separan por `rejected_by IS NULL` y el motivo que empieza con «No salió a Kepler».
+- ⚠️ **Cuándo corre:** el primer cierre ocurre con la primera lectura de la bandeja después de
+  soltar. D29 pide hacerlo fuera de horario hábil: **soltar después de las 19 h**. Son
+  escrituras chicas (200 renglones, 25 ms medidos como SELECT), no un `REFRESH`.
+
+**Prueba de base real** (`test-newdb-traspaso-no-ejecutado.js`, en `run-all-tests.js`):
+
+- (1) **sólo lectura, corrida contra prod**: el módulo cuenta 867 y el testigo, escrito aparte,
+  también 867. Placebos: con el reloj diez años atrás da 0; con el reloj un año adelante, 1,152 ≥ 867.
+  - **Prueba negativa:** con la ventana cambiada a 1 día da 1,069 contra 867 y la prueba se pone roja.
+- (2) **casos que escriben, con ROLLBACK, sólo en una base local (el CI)**: el tope cierra
+  primero los más viejos; el motivo lleva la fecha; el cierre queda sin persona y cumple el CHECK
+  de motivo.
+  - **Negativas:** no cierra el de 6 días, el que tiene folio, el ordenado, el capturado a mano, el
+    pedido por una sucursal, una compra ni uno por aprobar.
+  - **Desde esta máquina: NO MEDIDO.** No hay base local (Docker apagado); corre en el job
+    `pruebas-db` del CI.
+- El `UPDATE` no se pudo planear contra prod: el rol de lectura no tiene permiso ni para
+  `EXPLAIN UPDATE`. Se corrió su mismo `WHERE` y su motivo como `SELECT`: 200 filas, 25 ms.
+- Vitest del motor: 316/316, con una prueba nueva que se puso roja al quitar la llamada. `tsc`:
+  0 errores en los archivos tocados (el error de control sí se detectó).
+
+⛔ **Choque de códigos (renumerado):** la §18 (commit `fb95bcc85`, otra sesión) numeró
+**PQ.58–PQ.66** antes de que §17.8 usara PQ.58–PQ.60 y el freno saliera como «PQ.61». Ganan los
+de §18. Lo de esta sesión pasa a:
+
+| Antes | Ahora | Qué es |
+|---|---|---|
+| PQ.58 | **PQ.67** | El `GRANT` de `kdxd` en 8 Esquinas (dado) y medir 02, 04 y 05 |
+| PQ.59 | **PQ.68** | La limpieza de D32 |
+| PQ.60 | **PQ.69** | Ligar sola la requisición escrita a mano en Kepler |
+| PQ.61 | **PQ.70** | El freno contra el duplicado en el primer envío |
+
+PQ.70 = los commits `84de4bcf2` y `2c603da2a`, que dicen «PQ.61»; el código ya dice `[PQ.70]`.
 
 ---
 
@@ -1319,6 +1373,7 @@ cambió hacia atrás las cajas de sus 41 productos). Kepler no guarda historia d
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-04 | **PQ.50 🧪** (`b37cea6e4`, D29, §17.10): el traspaso aprobado que en 7 días no salió a Kepler se cierra con motivo al leer la bandeja. Son 867 de 1,152 ($17.3 M), 200 por lectura. La mitad de sólo lectura de la prueba da 867 = 867 contra prod; la mitad que escribe corre en el CI. **Choque de códigos:** §18 ya usaba PQ.58–PQ.66, así que lo de esta sesión se renumera: GRANT → PQ.67, D32 → PQ.68, ligar → PQ.69, freno → **PQ.70** (sus commits dicen PQ.61) | PM + sesión Claude |
 | 2026-11-04 | «Aún existen productos con advertencia» → «¿100 %?» → «¿e históricos?» → **§18**: PQ.58 ✅ en prod (el commit dice PQ.41: choque de código, §18.1), estado A/B/C/D medido (91 % del valor verificado), plan PQ.59–PQ.66; el PM aprobó la tabla de historia de fichas | Claude |
 | 2026-11-04 | **PQ.61 🧪** (`84de4bcf2`): el freno contra el duplicado vale también para el **primer** envío (no tenía ninguno) y mira productos y saldo abierto. Medido con el SQL real: de 76 compras escritas por la Suite desde el 27-oct, 2 repetían una requisición abierta hecha a mano (RQ-2026-01760/-01762, $9,450). ⛔ **Corrección a la fila de abajo:** las 4 OC del 1-nov de 8 Esquinas están **recibidas** (`c43='F'`, saldo 0): RQ-2026-01881 no duplica una orden abierta, vuelve a pedir 22 productos que acaban de llegar. Que eso sea intencional lo confirma Compras; el freno nuevo no la detiene | PM + sesión Claude |
 | 2026-11-04 | Edgar dio el `GRANT` de `kdxd` en 8 Esquinas (PQ.58). ⛔ **Riesgo de duplicado al reintentar RQ-2026-01881:** el reintento automático (PQ.26) se dispara al abrir la bandeja, y su freno sólo mira documentos de Kepler **desde la aprobación** (3-nov). El 1-nov se capturaron a mano 4 OC de DISTRIBUIDORA DE LA ROSA en 8 Esquinas (0001110–0001113, $141,231) que ya traen **22 de sus 64 productos ($161,421)**. Nace **PQ.61**: el freno compara productos, no sólo proveedor, y mira desde unos días antes de crear la requisición | PM + sesión Claude |
