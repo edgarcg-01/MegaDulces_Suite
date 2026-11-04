@@ -28,6 +28,7 @@ import { buscarLoteRepetido, mensajeLoteRepetido, type LoteRepetido } from './lo
 import { VENTANA_YA_PEDIDO_DIAS } from './ya-pedido-sucursal';
 import { cerrarTraspasosNoEjecutados } from './traspaso-no-ejecutado';
 import { limpiarComprasSinDocumento } from './compra-sin-documento';
+import { bajoReorden, segunReorden } from './faltante';
 import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt } from '../shared/freshness';
 
 /**
@@ -1187,7 +1188,7 @@ export class CommercialReplenishmentService {
     if (q.bucket && BUCKETS.includes(q.bucket as Bucket)) {
       b.andWhereRaw(`${this.bucketExpr(oh)} = ?`, [q.bucket]);
     } else if (q.scope !== 'all' && !ACCIONES_FUERA_DE_CRITICO.includes(q.accion ?? '')) {
-      b.andWhereRaw(`${oh} <= rp.reorder_point`); // default: crítico (≤ punto de reorden)
+      b.andWhereRaw(bajoReorden(oh, 'rp.reorder_point')); // default: crítico (≤ punto de reorden). [PQ.44] la misma regla que Pedido
     }
     return abcPedido;
   }
@@ -2339,8 +2340,11 @@ export class CommercialReplenishmentService {
                  -- medicion suficiente -- o sea que el 100% de los renglones sin fill rate publican
                  -- el MISMO numero que antes de esta linea.
                  -- SIN ACENTOS GRAVES EN ESTE COMENTARIO: va dentro de un template literal de JS.
+                 -- [PQ.44] D33: se pide al llegar al punto de reorden, como la mesa (segunReorden).
+                 -- Arriba del reorden la celda sale 0 aunque falte para el objetivo.
                  CASE WHEN ${RUNG_OK} THEN
-                   round((GREATEST(0, COALESCE(sum(b.daily_pieces),0) * COALESCE(max(b.season_ratio),1) * :cov / (${SUF} * ${BF}) - COALESCE(sum(b.stock_pz),0) / ${DBF} - (${transitoDescontado('sum(b.transit_eff_cajas)', 'sum(b.transit_cajas)')})) * ${FILLF})::numeric, 1)
+                   ${segunReorden('COALESCE(sum(b.stock_pz),0)', 'sum(b.rop_reorder)',
+                     `round((GREATEST(0, COALESCE(sum(b.daily_pieces),0) * COALESCE(max(b.season_ratio),1) * :cov / (${SUF} * ${BF}) - COALESCE(sum(b.stock_pz),0) / ${DBF} - (${transitoDescontado('sum(b.transit_eff_cajas)', 'sum(b.transit_cajas)')})) * ${FILLF})::numeric, 1)`)}
                  END AS ped,
                  -- El fill rate viaja al front para que el inflado se VEA. Un pedido que crecio 4.8%
                  -- sin decir por que es justo lo que este repo no publica.
@@ -3358,12 +3362,14 @@ export class CommercialReplenishmentService {
                round((rp.daily_pieces * 30 / (${suf} * ${bf}))::numeric, 1) AS venta_cajas,
                round((rp.stock_pz / ${dbf})::numeric, 1) AS existencia_cajas,
                round(rp.transit_cajas::numeric, 1) AS transito_cajas,
-               round(GREATEST(0, rp.daily_pieces * COALESCE(rp.season_ratio,1) * :cov / (${suf} * ${bf}) - rp.stock_pz / ${dbf} - (${transitoDescontado('rp.transit_eff_cajas', 'rp.transit_cajas')}))::numeric, 1) AS pedido_cajas,
+               ${segunReorden('rp.stock_pz', 'rop.reorder_point',
+                 `round(GREATEST(0, rp.daily_pieces * COALESCE(rp.season_ratio,1) * :cov / (${suf} * ${bf}) - rp.stock_pz / ${dbf} - (${transitoDescontado('rp.transit_eff_cajas', 'rp.transit_cajas')}))::numeric, 1)`)} AS pedido_cajas,
                -- días = existencia en cajas ÷ venta diaria en cajas (las dos en la misma unidad)
                round((rp.stock_pz / ${dbf} * ${suf} * ${bf} / NULLIF(rp.daily_pieces, 0))::numeric, 0) AS cover_days
           FROM analytics.replenishment_plan rp
           JOIN commercial.warehouses w ON w.tenant_id = rp.tenant_id AND w.id = rp.warehouse_id
           JOIN catalog.products pr ON pr.tenant_id = rp.tenant_id AND pr.id = rp.product_id
+          LEFT JOIN commercial.reorder_policy rop ON rop.tenant_id = rp.tenant_id AND rop.product_id = rp.product_id AND rop.warehouse_id = rp.warehouse_id
          WHERE rp.tenant_id = :t AND rp.product_id = :pid
            AND (rp.stock_pz > 0 OR rp.daily_pieces > 0 OR rp.transit_cajas > 0)
          ORDER BY rp.revenue30 DESC NULLS LAST, w.code`,
