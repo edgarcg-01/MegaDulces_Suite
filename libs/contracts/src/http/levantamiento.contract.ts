@@ -13,6 +13,13 @@ export type LevantamientoPeldano = 'base' | 'dos' | 'tres';
 export const LEVANTAMIENTO_CARAS = ['frente', 'reverso', 'lateral_izq', 'lateral_der', 'base'] as const;
 export type LevantamientoCara = (typeof LEVANTAMIENTO_CARAS)[number];
 
+/**
+ * La cara que NO se salta: es la foto principal del catálogo y todo producto la tiene. Como es la primera,
+ * toda ficha completa trae al menos una foto real. La primera captura en prod (2026-11-03) llegó a «Por
+ * revisar» con las 5 caras saltadas y cero fotos.
+ */
+export const LEVANTAMIENTO_CARA_OBLIGATORIA: LevantamientoCara = 'frente';
+
 export const LEVANTAMIENTO_MOTIVOS_SALTO = ['no_tiene_esa_cara', 'no_se_puede_girar', 'otro'] as const;
 export type LevantamientoMotivoSalto = (typeof LEVANTAMIENTO_MOTIVOS_SALTO)[number];
 

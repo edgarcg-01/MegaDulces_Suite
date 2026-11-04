@@ -5,8 +5,8 @@ import type {
 } from '@megadulces/contracts';
 import { ObjectStorageService, TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import { kdiiPorSku } from '../shared/kdii-lectura';
-import type { KdiiFila } from '../shared/kdii-codigo';
-import { decidirRevision, ESTADOS_EN_REVISION, motivosDeRevision, type FotoFicha } from './levantamiento.rules';
+import type { KdiiFila, Peldano } from '../shared/kdii-codigo';
+import { decidirRevision, ESTADOS_EN_REVISION, motivosDeRevision, sinFotoReal, type FotoFicha } from './levantamiento.rules';
 import type { Quien } from './levantamiento.service';
 
 const MOTIVOS: RevisionMotivo[] = ['sin_analizar', 'caras_saltadas', 'entro_por_busqueda', 'foto_repetida'];
@@ -121,10 +121,14 @@ export class RevisionService {
     const tenant = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx: Knex.Transaction) => {
       const f = await trx('catalog.product_sheets').where({ id, tenant_id: tenant, origin: 'levantamiento' }).whereNull('deleted_at')
-        .forUpdate().first('status', 'created_by', 'photos', trx.raw(`sheet #>> '{capturo,by}' AS capturo`));
+        .forUpdate().first('status', 'created_by', 'photos', trx.raw(`sheet #>> '{capturo,by}' AS capturo`), trx.raw(`sheet ->> 'principal' AS principal`));
       if (!f) throw new NotFoundException('No encontramos esa ficha.');
       const r = decidirRevision(f.status, String(dto?.decision ?? ''), nota);
       if (!r.ok) throw (ESTADOS_EN_REVISION.includes(f.status) ? new BadRequestException(r.motivo) : new ConflictException(r.motivo));
+      // Una ficha sin ninguna foto (anterior a que el frente fuera obligatorio) no se publica: se descarta o se pide otra.
+      if (dto.decision === 'publicar' && sinFotoReal((f.photos ?? []) as FotoFicha[], (f.principal ?? 'base') as Peldano)) {
+        throw new ConflictException('Esta ficha no tiene ninguna foto: descártala o pide otra foto.');
+      }
       const suya = String(f.capturo ?? f.created_by ?? '') === quien.userId
         || ((f.photos ?? []) as Array<{ captured_by?: string | null }>).some((p) => p.captured_by === quien.userId);
       if (dto.decision === 'publicar' && suya) {

@@ -5,13 +5,13 @@ import type {
   LevantamientoCalidadFoto, LevantamientoCara, LevantamientoContexto, LevantamientoEscaneoDto, LevantamientoEscaneoRespuesta,
   LevantamientoBusquedaFila, LevantamientoFotoRespuesta, LevantamientoMotivoSalto, LevantamientoPeldano, LevantamientoSaltoDto, LevantamientoSugeridosRespuesta,
 } from '@megadulces/contracts';
-import { LEVANTAMIENTO_CARAS, LEVANTAMIENTO_MOTIVOS_SALTO } from '@megadulces/contracts';
+import { LEVANTAMIENTO_CARA_OBLIGATORIA, LEVANTAMIENTO_CARAS, LEVANTAMIENTO_MOTIVOS_SALTO } from '@megadulces/contracts';
 import { detectarTipo, ObjectStorageService, quitarMetadatosJpeg, ScopeService, TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import { resolverEscaneo, type KdiiFila, type ResultadoEscaneo } from '../shared/kdii-codigo';
 import { kdiiPorCodigo, kdiiPorSku } from '../shared/kdii-lectura';
 import {
   apartadoVivo, carasRequeridas, decidirEscaneo, ESTADOS_CON_FICHA, ESTADOS_EN_REVISION, estadoTrasFoto, nombreUnidad,
-  nuevoApartado, peldanoPrincipal, type AccionEscaneo, type Apartado, type ApartadoDelUsuario, type FotoFicha,
+  caraResuelta, nuevoApartado, peldanoPrincipal, type AccionEscaneo, type Apartado, type ApartadoDelUsuario, type FotoFicha,
 } from './levantamiento.rules';
 import { CONTEOS_LEVANTAMIENTO_SQL, NO_FISICO_REGEX, SUGERIDOS_LEVANTAMIENTO_SQL } from './levantamiento.sql';
 import { consultaBuscadorCatalogo, ORDEN_BUSCADOR_CATALOGO } from '../shared/catalogo-buscador';
@@ -24,6 +24,9 @@ export const AREA_LEVANTAMIENTO = 'compras';
 
 /** De dónde salió la sucursal de la captura (se guarda en la ficha). */
 export type OrigenSucursal = 'perfil' | 'alcance' | 'elegida';
+
+/** El frente no se salta (`LEVANTAMIENTO_CARA_OBLIGATORIA`): así toda ficha completa trae al menos una foto real. */
+export const FRENTE_OBLIGATORIO = 'El frente siempre se fotografía: es la foto principal del catálogo. Si no se puede tomar, sal sin terminar.';
 
 /** Tope por foto. La cámara del navegador entrega ~1-4 MB; un archivo de 15 MB ya no es una foto de anaquel. */
 export const MAX_FOTO_BYTES = 15 * 1024 * 1024;
@@ -146,6 +149,18 @@ export class LevantamientoService {
     return rm?.rung_modal == null ? null : Number(rm.rung_modal);
   }
 
+  /**
+   * Universo y faltantes de la sucursal. Aparte porque lee vistas materializadas del ODS que la base vacía
+   * del CI no tiene: la prueba de integración lo fija aquí y ejerce el resto del contexto.
+   */
+  protected async conteos(trx: Knex.Transaction, tenant: string, branch: string): Promise<{ universe: number; missing: number }> {
+    // El planificador estima 1 fila en la ficha de Kepler (son ~9,700) y elige ciclos anidados:
+    // 3.5 s → 0.5 s sin ellos, medido 2026-11-02. Sólo dentro de esta transacción.
+    await trx.raw('SET LOCAL enable_nestloop = off');
+    const c = (await trx.raw(CONTEOS_LEVANTAMIENTO_SQL, { tenant, branch, no_fisico: NO_FISICO_REGEX })).rows[0] as { universe: number; missing: number };
+    return { universe: Number(c.universe), missing: Number(c.missing) };
+  }
+
   /** Las sucursales para elegir (las de Kepler, con su nombre; nunca «07» suelto en pantalla). */
   async sucursales(): Promise<Array<{ code: string; name: string }>> {
     return this.tk.run(async (trx) => {
@@ -167,20 +182,18 @@ export class LevantamientoService {
     const { code: branch, source } = await this.sucursal(quien, pedida);
     const tenant = this.tenant();
     return this.tk.run(async (trx) => {
-      // El planificador estima 1 fila en la ficha de Kepler (son ~9,700) y elige ciclos anidados:
-      // 3.5 s → 0.5 s sin ellos, medido 2026-11-02. Sólo dentro de esta transacción.
-      await trx.raw('SET LOCAL enable_nestloop = off');
-      const c = (await trx.raw(CONTEOS_LEVANTAMIENTO_SQL, { tenant, branch, no_fisico: NO_FISICO_REGEX })).rows[0] as { universe: number; missing: number };
+      const c = await this.conteos(trx, tenant, branch);
       const w = await trx('commercial.warehouses').where({ kepler_code: branch }).whereNull('deleted_at').first('name');
-      const u = await trx('identity.users').where({ id: quien.userId }).first('username', 'full_name');
+      // `identity.users` no tiene `full_name`: el nombre es `nombre` (42703 en prod, 2026-11-03).
+      const u = await trx('identity.users').where({ id: quien.userId }).first('username', 'nombre');
       const semana = await this.semana(trx, tenant, branch, quien.userId);
       return {
         branch_code: branch,
         branch_name: w?.name ?? null,
         branch_source: source,
-        user: { id: quien.userId, username: u?.username ?? quien.username, name: u?.full_name ?? null },
-        missing: Number(c.missing),
-        universe: Number(c.universe),
+        user: { id: quien.userId, username: u?.username ?? quien.username, name: u?.nombre ?? null },
+        missing: c.missing,
+        universe: c.universe,
         week: semana,
         ai_enabled: iaEncendida(),
       };
@@ -350,12 +363,16 @@ export class LevantamientoService {
     };
   }
 
-  /** Las caras resueltas del peldaño y, aparte, las saltadas: la pantalla nunca cuenta un salto como foto. */
+  /**
+   * Las caras resueltas del peldaño y, aparte, las saltadas: la pantalla nunca cuenta un salto como foto. Un
+   * salto VIEJO del frente (anterior a `LEVANTAMIENTO_CARA_OBLIGATORIA`) no sale en ninguna de las dos: la
+   * pantalla vuelve a pedir esa foto.
+   */
   private carasDe(fotos: FotoFicha[], principal: LevantamientoPeldano): { faces_done: LevantamientoCara[]; faces_skipped: LevantamientoCara[] } {
-    const del = fotos.filter((f) => f.peldano === principal);
+    const del = fotos.filter((f) => f.peldano === principal && caraResuelta(f));
     return {
-      faces_done: [...new Set(del.filter((f) => f.storage_key || f.saltada_motivo).map((f) => f.cara as LevantamientoCara))],
-      faces_skipped: [...new Set(del.filter((f) => !f.storage_key && f.saltada_motivo).map((f) => f.cara as LevantamientoCara))],
+      faces_done: [...new Set(del.map((f) => f.cara as LevantamientoCara))],
+      faces_skipped: [...new Set(del.filter((f) => !f.storage_key).map((f) => f.cara as LevantamientoCara))],
     };
   }
 
@@ -513,6 +530,7 @@ export class LevantamientoService {
 
   async saltar(quien: Quien, sheetId: string, dto: LevantamientoSaltoDto): Promise<LevantamientoFotoRespuesta> {
     const cara = this.caraValida(dto?.face);
+    if (cara === LEVANTAMIENTO_CARA_OBLIGATORIA) throw new BadRequestException(FRENTE_OBLIGATORIO);
     const motivo = String(dto?.reason ?? '') as LevantamientoMotivoSalto;
     if (!(LEVANTAMIENTO_MOTIVOS_SALTO as readonly string[]).includes(motivo)) throw new BadRequestException('Elige por qué no se puede tomar esa cara.');
     const tenant = this.tenant();

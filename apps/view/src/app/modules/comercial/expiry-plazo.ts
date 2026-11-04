@@ -1,3 +1,4 @@
+import { unidadEnTexto } from '@megadulces/contracts';
 /**
  * El **plazo** de una caducidad: cuántos días le quedan y qué tan grave es.
  *
@@ -72,11 +73,12 @@ export function formatCantidad(v: number | string | null | undefined): string {
   return n.toFixed(3).replace(/\.?0+$/, '') || '0';
 }
 
-/** Unidad en plural cuando toca: "1 caja" · "4 cajas" · "2.5 kg" · "10 pz". */
+/**
+ * Unidad en plural cuando toca: "1 caja" · "4 paquetes" · "2.5 kg" · "3 bolsas de 250 g" · "10 pz".
+ * [P2.9 paso 1] Sale del contrato `caducidad-unidad` (antes `${u}s`, que habría dado «g250s»).
+ */
 export function formatUnidad(v: number | string | null | undefined, unit: string | null | undefined): string {
-  const u = String(unit || 'pz');
-  if (u === 'kg' || u === 'pz') return u; // no se pluralizan
-  return Number(v) === 1 ? u : `${u}s`;
+  return unidadEnTexto(v, unit);
 }
 
 /** Clasifica una caducidad. `null` si la fecha no es interpretable todavía. */

@@ -1507,6 +1507,13 @@ export class MiTrabajoComponent {
   /** `[MS.3.1]` Mesa de Servicio: `SERVICIO_REPORTAR` no es destino del mapa de la suite a propósito, así que la ÚNICA entrada es este botón. */
   readonly puedeReportar = computed(() => this.perms.has(Permission.SERVICIO_REPORTAR));
   reportar(): void { void this.router.navigate(['/servicio/solicitudes'], { queryParams: { nueva: 1 } }); }
+  /**
+   * `[NP.7]` Levantar productos: mismo caso que la Mesa de Servicio. No es destino del mapa y su botón vive en el
+   * header de las áreas, que `/projects` no monta: sin esto, quien entra a «Mi trabajo» no lo encontraba en ningún
+   * lado (Francisco, en su celular, 2026-11-03).
+   */
+  readonly puedeLevantar = computed(() => this.perms.has(Permission.CATALOGO_LEVANTAR));
+  levantar(): void { void this.router.navigate(['/levantamiento']); }
 
   logout(): void {
     this.auth.logout({ derribar: true });

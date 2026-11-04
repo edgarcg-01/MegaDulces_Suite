@@ -8,6 +8,7 @@ import { ConfirmationService } from 'primeng/api';
 import { SelectModule } from 'primeng/select';
 import { BrowserMultiFormatReader, IScannerControls } from '@zxing/browser';
 import { BarcodeFormat, DecodeHintType } from '@zxing/library';
+import { controlesSiSigueAbierta, detenerLector } from '../../../shared/util/lector-camara.util';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -1234,11 +1235,11 @@ export class TiendaVerificadorComponent implements OnInit, OnDestroy {
       ]);
       this.lector = new BrowserMultiFormatReader(hints, { delayBetweenScanAttempts: 100 });
       try {
-        this.controles = await this.lector.decodeFromConstraints(
+        this.controles = controlesSiSigueAbierta(await this.lector.decodeFromConstraints(
           { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } },
           v,
           (r) => { if (r) this.leido(r.getText()); },
-        );
+        ), this.camaraAbierta());
       } catch {
         this.cerrarCamara();
         this.banner.set({
@@ -1263,7 +1264,8 @@ export class TiendaVerificadorComponent implements OnInit, OnDestroy {
     this.camaraAbierta.set(false);
     window.removeEventListener('unhandledrejection', this.onCameraGlobalError);
     window.removeEventListener('error', this.onCameraGlobalError);
-    try { this.controles?.stop(); } catch { /* la cámara ya estaba cerrada */ }
+    // El vigilante de arriba ya se quitó: el rechazo de la linterna lo atiende `detenerLector`.
+    detenerLector(this.controles);
     this.controles = undefined;
     this.lector = undefined;
     this.enfocar();

@@ -68,6 +68,16 @@ describe('[P2.9.3] ProductScanFieldComponent — disparo automático', () => {
     expect(buscados).toEqual([]);
   });
 
+  it('⛔ NEGATIVA — con linterna, zxing cierra la cámara con una promesa que se RECHAZA: el rechazo queda atendido', () => {
+    // Se mira que alguien registre un manejador de RECHAZO (eso es «atendido»), no el evento de rechazo suelto:
+    // con zone.js cargado ese evento no llega al proceso, y una prueba que lo esperaba pasaba también SIN el arreglo.
+    let manejadorDeRechazo = false;
+    const thenable = { then(_ok?: unknown, mal?: unknown) { if (typeof mal === 'function') manejadorDeRechazo = true; return thenable; } };
+    (fix.componentInstance as unknown as { controles: unknown }).controles = { stop: () => thenable };
+    fix.componentInstance.cerrarCamara();
+    expect(manejadorDeRechazo).toBe(true);
+  });
+
   it('esCodigoCompleto: 8–14 dígitos o ráfaga de pistola; un texto corto o a mano, no', () => {
     expect(esCodigoCompleto('7502271913377', false)).toBe(true);
     expect(esCodigoCompleto('75022719', false)).toBe(true);

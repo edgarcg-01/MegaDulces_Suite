@@ -9,6 +9,20 @@
 ---
 
 ## [Unreleased]
+### Fixed — Catálogo digital: la primera captura desde el celular (NP.7, 2026-11-03)
+- Las fotos del levantamiento **no llegaban al servidor**: el teléfono las medía bien y fallaba al prepararlas para subir ("No se pudo leer esa foto"), por una regla de seguridad que sólo existe en producción. Ya se preparan sin ese paso (probado con la regla de producción en el navegador; la primera subida real se confirma después del despliegue).
+- La pantalla de inicio del levantamiento mostraba "No se pudo cargar la información" (error del servidor). Corregido.
+- Al escanear con la cámara del celular aparecía "Algo falló en esta pantalla" aunque el escaneo sí funcionaba. Corregido en los cuatro lectores de la app: Levantamiento y Caducidades, Andén, Verificador de precios y Conteo de inventario. Además, si se cancela mientras la cámara abre, ya no se queda prendida.
+- **«Levantar productos» ahora está en «Mi trabajo»** (la pantalla de entrada). Antes sólo aparecía como un ícono de cámara dentro de las áreas.
+- **El frente siempre se fotografía**: ya no se puede saltar, así que todo producto enviado a revisión trae al menos una foto. Y Catálogo ya no puede publicar una ficha sin fotos (se descarta o se pide otra foto).
+- Si el celular no da permiso de cámara, el botón alterno «Tomar foto» ya no se queda en la pantalla de «Enviado» y respeta los márgenes.
+
+### Added — Compras: Catálogo digital, levantamiento desde el celular y bandeja «Por revisar» (NP.7, 2026-11-03)
+- Cualquier persona de la empresa puede **levantar la ficha de un producto desde su celular**: escanea el código, la Suite reconoce qué unidad es y pide 5 fotos guiadas. El teléfono revisa en el momento que la foto no esté movida ni opaca, y la foto se guarda **sin datos de ubicación**.
+- Entra por el botón **«Levantar productos»** del encabezado. La pantalla sugiere primero los productos que más se venden en la sucursal y todavía no tienen ficha; si el código no se puede escanear, hay un buscador de respaldo.
+- Lo levantado llega a **Compras › Catálogo › Catálogo digital · Por revisar**, donde Compras publica, pide otra foto o descarta, con una decisión por clic. **Nadie publica lo que él mismo levantó.**
+- ⚠️ La IA que leerá el empaque **está apagada** hasta que se decida qué se puede mandar a un proveedor externo; mientras tanto todo lo revisa una persona.
+
 ### Added — Pagos: el documento que va a autorización ya dice **contra qué facturas** se paga (PGP.47, 2026-11-03)
 - El papel que se firma para autorizar los pagos del día imprimía **una fila por pago**, con los beneficiarios pegados uno tras otro separados por `;` y ninguna referencia al documento que se liquida. Quien firma, firmaba un total. Y quien después arma el expediente físico tenía que volver a la pantalla, documento por documento, para saber qué papeles buscar.
 - Lo que escondía: los 102 pagos vivos tapan **236 líneas de factura** —2.4 por pago, hasta 9—, y el día de hoy son **71 documentos en 28 pagos**.
@@ -61,6 +75,10 @@
 - Cuando Kepler registró como contado lo mismo que esperaba, el corte dice «= esperado» en gris, no «Cuadra» en verde.
 - Un corte sin cobrar con 3 días o menos dice «en plazo». El rojo queda para lo vencido.
 - La sucursal y el cajero salen por nombre. Hay ayuda (?) con las palabras de la pantalla, y el detalle aparece al elegir un corte.
+### Changed — Caducidades: se captura en paquete, bolsa de 250 g y bolsa de 500 g (P2.9 pasos 1–2, 2026-11-02)
+- Las unidades pasan de 4 (caja · pieza · bulto · kg) a **7**: se agregan **paquete**, **bolsa de 250 g** y **bolsa de 500 g**. Un código de **paquete** ya sugiere «Paquete» (antes «Caja»). Medido antes: sólo el 46 % de las capturas estaba en una unidad del producto; 3 de cada 4 productos capturados son de base paquete.
+- Una sola definición en `libs/contracts` (`caducidad-unidad`) para la base, el servicio y las pantallas. Migración `20261102123053` (amplía el CHECK; **se aplica antes del código**).
+- No incluye: filtrar el selector por las unidades de cada producto (paso 3) ni convertir lo que entra a FEFO (paso 4).
 
 ### Added — Cortes/Sucursales: lo que el cajero contó y no quedó en ningún corte (CSU.20, 2026-11-02)
 - Cada día de sucursal dice cuántos conteos quedaron **fuera de corte** y, al desplegarlo, los lista con su hora, importe, por qué no están en un corte y quién los contó.
