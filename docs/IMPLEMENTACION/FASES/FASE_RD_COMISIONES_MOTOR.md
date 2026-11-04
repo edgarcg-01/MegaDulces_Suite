@@ -750,6 +750,16 @@ desarrollador: mientras lo necesite, **el proceso no está aquí**, está en el 
   la pagó el libro (~$3,202.66) y el motor no (el día perdido del 15-oct la deja bajo el umbral);
   504, el motor $799 arriba, sin explicar todavía.
 
+- ⛔ **D5 SUSPENDIDA para Q22 (Edgar, 2026-11-04): «mañana pagamos nosotros».** La suite paga
+  Q22 (22-oct a 4-nov) el **5-nov** sin las 2 quincenas de control. Medido ese día (sólo
+  lectura): las 11 rutas activas con todos sus días hasta el 3-nov; padrón con nómina de banco en
+  las 11; bonos de quincena iguales a los del libro; la cadena de permisos existe (calcular:
+  Dirección/Finanzas · aprobar: Dirección · pagar: Finanzas). ⚠️ Riesgos para ese pago: (1) la
+  compuerta de frescura pasa con que UNA ruta tenga el último día — calcular antes de que
+  lleguen las 11 paga un día incompleto; (2) **el supervisor**: `commission_beneficiary_config`
+  tiene 0 filas, así que su línea sale «20 % sin deducción» (Q21: ~$8,000 contra los $2,400 fijos
+  que paga Canindo) — D3 sigue sin cerrar; (3) la 505 no tiene chofer en el padrón (Q22 bajo el
+  umbral: no cobra). Contraste de Q22 con el libro: NO MEDIDO hasta tener el libro.
 - **D3 firmado (Edgar, 2026-10-29): la fórmula — 20 % + bonos − nómina de banco — y «que todo
   se pueda configurar».** → `[RD.100]`.
 
