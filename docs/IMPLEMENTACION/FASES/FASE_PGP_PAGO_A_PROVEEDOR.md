@@ -412,8 +412,8 @@ Son el tapón de O1, no un adorno.
 |---|---|---|---|
 | PGP.0.1 | Decode del documento de pago `X-D-26`: qué tablas escribe y con qué llave | 🧪 **medido 2026-10-22** | Ver cuadro abajo |
 | PGP.0.2 | Columnas `NOT NULL` de `md.kdm1`, `md.kdxe` y `md.kdxf` + **qué puede tocar `kepler_push`** | 🧪 **medido 2026-10-22** | Catálogo de `md_00` (`192.168.9.95`). Ver «el bloqueo de O3» abajo |
-| PGP.0.3 | Documento plantilla de `X-D-26` para clonar, por sucursal | ⬜ | Un pago real reciente del `00`, leído entero |
-| PGP.0.4 | Precedente de `c45` (cuenta de tesorería) por banco de origen | ⬜ | El decode de `c45` + estado de cuenta CB |
+| PGP.0.3 | Documento plantilla de `X-D-26` para clonar, por sucursal | 🧪 **candidata 00/1/0023768** (2026-11-04) | Un pago real reciente del `00`, leído entero |
+| PGP.0.4 | Precedente de `c45` (cuenta de tesorería) por banco de origen | 🧪 **18 de 18 resuelven** (2026-11-04) | El decode de `c45` + estado de cuenta CB |
 
 **Lo ya medido en PGP.0.1** (sucursal `00`, sep–oct 2026, contra el ODS):
 
@@ -471,13 +471,73 @@ GRANT SELECT          ON md.kdxd, md.kdmm TO kepler_push;  -- validar acreedor y
 ERP es un riesgo permanente a cambio de una comodidad de un día. El borrado de los documentos de
 prueba lo hace quien administra Kepler, que es el mismo patrón que ya se siguió en KR.
 
+#### ⭐ C0 de O3 re-medido (2026-11-04, `[PGP.71]`) — y el permiso que faltaba pedir
+
+Medido contra `kepler_ods` en prod (sólo lectura), sobre los **471 pagos `X-D-26` por transferencia a
+proveedores de compra** (`c10 LIKE 'C%'`, sin Caja General) de oficinas, agosto–noviembre 2026. Hoy
+**no se pudo** volver a leer el catálogo del Kepler vivo: `md_00` rechaza la conexión desde la máquina
+de trabajo (`pg_hba.conf`), así que **los permisos de `kepler_push` siguen NO MEDIDOS** desde el 22-oct.
+
+⛔⛔ **Corrección al «qué lo destraba» de arriba: falta un `UPDATE`.** Kepler **guarda** el saldo de
+cada factura en `kdxe.c20`: en 2,072 de 2,081 facturas abiertas es igual a importe − aplicado
+(control placebo contra el saldo de otra factura del mismo acreedor: 45 de 1,223). El pago, a su vez,
+deja su propio remanente en su `kdxe.c20` (23,663 de 23,963). Ni `kdm1` (`c42` = total en 8,609 de
+8,609 entradas) ni el catálogo `kdxd` guardan saldo. Escribir el pago sin bajar `c20` dejaría la
+factura **debiéndose en Kepler** con el pago ya escrito. El pedido correcto es:
+
+```sql
+GRANT SELECT, INSERT     ON md.kdxe, md.kdxf TO kepler_push;  -- el pago y sus aplicaciones
+GRANT UPDATE (c20)       ON md.kdxe          TO kepler_push;  -- ⭐ el saldo de la factura, y sólo esa columna
+GRANT SELECT             ON md.kdxd, md.kdmm, md.kdxv, md.kdb1 TO kepler_push;  -- acreedor, tipos, conceptos, bancos
+```
+
+**El documento, campo por campo** (lo que no está aquí se copia de la plantilla: 166 de las 200
+columnas de `kdm1` tienen **un solo valor** en los 471 pagos):
+
+| Campo | Qué es | Regla | Medido |
+|---|---|---|---|
+| `kdm1.c16` = `c42` = `kdxe.c11` = `c17` | importe | el del pago | 471 / 471 |
+| `kdm1.c11` = `kdxe.c16` | referencia | el folio de la Suite | 471 / 471 |
+| `kdm1.c45` = `kdxe.c22` | cuenta de tesorería (`kdb1`) | la cuenta de origen | 471 / 471 · las **18** cuentas bancarias de la Suite resuelven a **un** código cada una |
+| `kdm1.c12` = `kdxe.c18` | concepto (`kdxv`: C-001 CEDIS, C-010 MORELIA ABASTOS…) | el de las facturas | 414 / 471 · ⚠️ 64 pagos mezclan conceptos: **se rechazan** (ver abajo) |
+| `kdm1.c48` | la sucursal, en texto | el nombre del concepto | C-001→CEDIS 254 · C-010→MORELIA ABASTOS 83 · C-020→CANINDO 42 (Kepler la teclea con dedazos) |
+| `kdm1.c81` / `c82` / `c84` | IVA redondeado / sin redondear / IEPS | Σ aplicado × impuesto ÷ total de cada factura | **471 / 471** (170 con IVA ≠ 0; `c82` casa a 0.0001) |
+| `kdm1.c22` · `c32`–`c35` | RFC, nombre, domicilio | los del último `X-D-26` de ese acreedor; si no hay, `kdxd` | 451 / 456 |
+| `kdm1.c17` | días de crédito | `kdxd.c16` | 463 / 471 |
+| `kdm1.c85` | banco destino | los 3 primeros dígitos de la CLABE (código ABM) | 012/072/002/030 observados |
+| `kdxf` | una aplicación por factura | `c4 26 · c5 1 · c6` folio · `c7 c8 c9` la factura · `c10` = `c11` aplicado | 11,544 / 11,544 con `c10 = c11` |
+| `kdxe.c20` de la factura | saldo | `c20 − aplicado`, con `WHERE c20 >= aplicado` | arriba |
+
+**Lo que NO se pudo derivar, declarado:**
+
+- ⚠️ **`c86`, los últimos dígitos de la cuenta destino.** No hay CLABE de proveedor en ninguna tabla
+  `kdx*` del ODS, y el estado de cuenta no la repite (5 de 402). Se escribe **vacío**, que Kepler ya
+  acepta. **Pregunta a Tesorería:** ¿de dónde la toma quien captura?
+- ⚠️ **Pagos con facturas de conceptos distintos** (64 de 471, 13.6 %). Kepler pide uno y quien captura
+  elige; en 31 de esos 64 no es el de la factura mayor. Se **rechaza** con el motivo, y Tesorería parte
+  el pago en uno por concepto. **Pregunta a Edgar** si prefiere otra regla.
+- Cada servidor paga en el suyo (desde el 1-oct, los nueve: oficinas lleva $27.6 M de $42.5 M), con su
+  serie `1` y prefijo `XD2601-`. Ningún `kdxf` cruza de servidor. **Arranque propuesto: sólo `00`.**
+- La plantilla candidata en `00` es **`X-D-26 1/0023768`** (transferencia, una factura, `c19`/`c20`/`c24`
+  vacíos). Antes de C2 se lee entera en el Kepler vivo y se compara con el valor mayoritario de las ocho
+  columnas que tienen dos valores (`c18`, `c41`, `c91`, `c101`, `c188`, `c191`, `c195`, `c197`).
+- ⛔ **Lo abierto de ADR-092 aplica aquí con más fuerza:** Kepler se negaba a dar de baja una
+  requisición escrita por la Suite. **Un pago que no se puede cancelar es peor que uno que no se puede
+  crear.** El primer pago real se escribe en presencia de quien administra Kepler, y se prueba
+  cancelarlo **desde la pantalla de Kepler** antes de encender nada.
+
+**C1 hecho** (`[PGP.71]`, 🧪): [`pago-kepler.armador.ts`](../../../libs/finance/src/lib/payment-calendar/kepler-pago/pago-kepler.armador.ts)
+arma las cuatro escrituras sin tocar Kepler, `motivosParaNoEscribir` es la compuerta E3.3 y
+`escrituraDePagoEncendida` el interruptor E3.5 (apagado salvo `KEPLER_PAGO_ESCRITURA=encendida`).
+20 pruebas; dos mutantes probados en rojo (quitar «marcado pagado» y quitar el tope de saldo).
+
 ### C1 · Dominio
 
 | # | Item | Estado | Prueba que lo ejerce |
 |---|---|---|---|
 | PGP.1.1 | Tope de firma por monto y a quién le toca cada pago | ⬜ | Casos en los dos lados del tope, y exactamente en el tope |
-| PGP.1.2 | Armador del documento `X-D-26`: clonar plantilla, pisar campos de negocio, derivar folio `MAX+1` | ⬜ | Contra la plantilla real, sin escribir |
-| PGP.1.3 | Repartidor de aplicaciones `kdxf`: un pago que cubre N facturas | ⬜ | El caso de 8 aplicaciones, y el de 1 |
+| PGP.1.2 | Armador del documento `X-D-26`: clonar plantilla, pisar campos de negocio, derivar folio `MAX+1` | 🧪 `[PGP.71]` | Contra la plantilla real, sin escribir |
+| PGP.1.3 | Repartidor de aplicaciones `kdxf`: un pago que cubre N facturas | 🧪 `[PGP.71]` | El caso de 8 aplicaciones, y el de 1 |
 | PGP.1.4 | Conciliador: lo escrito por la plataforma contra lo que el ODS devuelve | ⬜ | Un pago escrito y releído |
 
 ### C2 · API
@@ -683,6 +743,7 @@ Se copian a `01_TRACKER_PROGRESO.md` **el día que la fase pase a 🔨**, no ant
 | 2026-11-04 | **`[PGP.53]` El pronto pago pasa a ser LO PRIMERO que se paga, con su porqué y por el día en que cierra — 🧪 en código, sin desplegar, sin validación visual.** Edgar, sobre su captura de `[PGP.52]`: *«mencionamos pronto pago, pero esa es la prioridad: recomendar firmemente que paguemos eso y por qué, desglosar por qué, y darle prioridad en base a su vencimiento»*. Era una línea plegada bajo el buscador y, abierta, 37 renglones planos con «sin cuenta» repetido. Ahora es una **sección propia entre el veredicto y «Agregar»**: título *«Paga primero el pronto pago»* + lo que se gana en la semana; una frase firme (*«N acreedores cierran hoy o mañana: si no se les paga a tiempo, se pierden  de descuento»*; si lo urgente pasa de lo libre del día: *«primero el de mayor %»*); **grupos por el día en que CIERRA el descuento** (hoy y mañana abiertos, los demás una línea con su total); renglón = a quién · importe · lo que gana · %; **desglose del porqué**: hasta qué día, cuánto y qué %, **con cuántos pagos del último año se midió y a cuántos días de la factura**, si además ya está vencida, si tiene cuenta, y si el día abierto ya es tarde. «Agregar» lleva a sus facturas (el mismo camino de `[PGP.44]`). Backend: `quePagar()` cruza `mv_supplier_prompt_discount` (la misma fuente que calcula `gana`) y devuelve `pagos_con_descuento`, `dias_tipicos`, `ganado_12m`; medido en prod (sólo lectura): **37 de 37** acreedores con evidencia, sin inflar, ~700 ms igual que antes (⚠️ la vista ya pasaba de 500 ms: deuda previa, no de este cambio). La tasa se contrastó contra Kepler: cada pago de CS006/CB004/CC025 registra c84/(c84+c16) = 6.90 % (28 de 28). ⚠️ **Abierto**: 65 proveedores observan exactamente 6.90 %; es lo que Kepler registró pago por pago, pero parece una tasa estándar y no un acuerdo por proveedor — la ficha pactada de `[PGP.45]` es la que lo resuelve. Se retiran 7 miembros y ~25 reglas CSS de la lista vieja. Verificación: `check:templates`, reactividad y estilos en verde; `check:pantalla` 0 fallas nuevas; `ngc` 0 errores en este archivo **con control negativo** (un binding inexistente en la sección nueva → lo marcó); `tsc` de la API en verde. **NO MEDIDO**: la pantalla viva (navegador ocupado por otra sesión), el teclado y el ancho angosto. | Claude |
 | 2026-10-23 | ⚠️ **El tracker perdió los items PGP**: el incidente de `c7d94aa7b` (un commit que arrastró hunks ajenos) los devolvió al árbol y se descartaron. El código está en prod; la bitácora de esta fase es, por ahora, el único registro. Reponerlos exige tocar un archivo que otra sesión tiene en vuelo. | Claude |
 | 2026-11-04 | **`[PGP.70]` Auditoría de `/finanzas/calendario-pagos` (nivel C + B, sin pantalla viva) y sus arreglos — 🧪 en código, sin empujar.** (1) La ✕ «Quitar del día» actuaba con un clic, sin confirmar ni deshacer, y se perdía la preparación: ahora abre «Quitar del día», que dice qué se pierde y ofrece «Mover a otro día» (conserva método y cuentas); la ✕ y el botón se apagan mientras guarda. (2) «Pagado» en la fila marcaba sin confirmar algo que aquí no se deshace: abre el MISMO diálogo que el lote, con ese pago solo. (3) «búscalo arriba» apuntaba a un buscador que desde PGP.66 vive en «Agregar facturas». (4) El panel de pronto pago repetía su título. (5) «netear» → «descontar del pago», «documento(s)», «Elígela», «de más». **Medido en prod (sólo lectura):** de 74 pagos quitados, 47 se volvieron a agregar (la mitad en menos de un minuto), pero 65 de las 74 bajas son de cuentas de prueba: para la gente real **no es concluyente**. Reordenar (`/orden`) se rechazó en 38 de 41 intentos de Contabilidad, Finanzas y Tesorería, todos antes de que PGP.60 llegara a prod: después, **NO MEDIDO**. ⛔ El hallazgo de fondo: desde el 16-oct **ningún día se ha autorizado ni se ha marcado un solo pago como pagado**, y 180 de 188 pagos los crearon cuentas de prueba — autorizar, pagar, rebotó y cerrar **nunca se ejercieron en prod** (regla 13). | Claude (auditoría) |
+| 2026-11-04 | **`[PGP.71]` O3 abierto por el PM (PGP-C, por encima del cupo) — C0 re-medido y C1 en código, 🧪, sin tocar Kepler.** ⛔ El C0 del 22-oct no veía que Kepler **guarda** el saldo de la factura (`kdxe.c20`, 2,072 de 2,081): el pedido de permisos suma `UPDATE (c20)` sobre `md.kdxe` (§4 · C0). Decodificados contra 471 pagos: importe, referencia, cuenta de tesorería, concepto, IVA/IEPS proporcional (471 de 471) y domicilio. Declarados: `c86` (sin fuente) y los pagos con conceptos mezclados (se rechazan). Armador, compuerta E3.3 e interruptor E3.5 con 20 pruebas y dos mutantes en rojo. Falta: los `GRANT` (quien administra Kepler), leer la plantilla en vivo, el adapter C2 y que un día cierre en la Suite. | Claude |
 
 ---
 
