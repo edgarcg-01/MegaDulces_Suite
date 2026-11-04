@@ -614,19 +614,19 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       {
         heading: 'Cómo se lee',
         entries: [
-          { term: 'Cola', def: 'Un tipo de pendiente (por ejemplo, «Turnos de caja cerrados sin arqueo»). Cada una dice cuántos hay, desde cuándo espera el más viejo y qué hacer.' },
+          { term: 'Tipo de pendiente', def: 'Cada bloque de la pantalla (por ejemplo, «Turnos de caja cerrados sin arqueo»). Dice cuántos hay, desde cuándo espera el más viejo y qué hacer. Los números de arriba, por proceso, filtran al darles clic.' },
           { term: 'Resolver', def: 'Lleva a la pantalla donde se hace. Sólo aparece si tu puesto abre esa pantalla; si no, ves el pendiente pero lo resuelve alguien que sí la abra.' },
           { term: 'Yo lo resuelvo', def: 'Te atribuyes el pendiente: toda la sucursal ve que lo tienes tú. Un pendiente lo tiene una sola persona; si ya lo tomó alguien, aparece su nombre. Sólo quien lo tomó lo puede soltar.' },
-          { term: 'Días', def: 'Cuántos días lleva esperando, contados en hora de México.' },
-          { term: 'Ventana', def: 'Algunas colas miran sólo un periodo (por ejemplo, «últimos 7 días» en caja). Se dice al lado del nombre.' },
-          { term: 'Al día', def: 'Colas que hoy están en cero. Se nombran en una línea para que sepas que se revisaron.' },
+          { term: 'Días', def: 'Cuántos días lleva esperando a la sucursal, contados en hora de México. En un gasto devuelto cuenta desde que Finanzas lo devolvió; en uno que espera factura, desde que se aprobó (si no se sabe cuándo, «—»).' },
+          { term: 'Ventana', def: 'Algunos tipos de pendiente miran sólo un periodo (por ejemplo, «últimos 7 días» en caja). Se dice al lado del nombre.' },
+          { term: 'Al día', def: 'Tipos de pendiente que hoy están en cero. Se nombran en una línea para que sepas que se revisaron.' },
         ],
       },
       {
         heading: 'Lo que no suma',
         entries: [
           { term: 'Lo atiende otra área', def: 'Está abierto en tu sucursal pero lo resuelve alguien más: Compras (faltantes, requisiciones), Prevención (existencia negativa), Finanzas (gastos en revisión), Reparto (domicilio) o la sucursal que te surte (pedidos sin embarcar).' },
-          { term: 'Una cola que no se pudo leer', def: 'Se dice, y el total de arriba no la incluye. No quiere decir que esté en cero.' },
+          { term: 'Lo que no se pudo leer', def: 'Se dice, y el total de arriba no lo incluye. No quiere decir que esté en cero.' },
           { term: 'Lo que no aparece aquí', def: 'Al final de la pantalla está la lista de lo que se buscó en la Suite y no entra, con su porqué.' },
         ],
       },

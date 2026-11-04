@@ -67,6 +67,46 @@ export type DefinicionResuelta =
    */
   | { readonly estado: 'sin_definir'; readonly motivo: 'sin_respuesta' | 'no_rige_aun' | 'descartada' };
 
+/**
+ * `[DP.2.1]` Lo que la API devuelve de una pregunta: la definición, su dueño con nombre y la
+ * respuesta que rige HOY (o «sin definir» con su motivo). La pantalla y el servidor leen esta forma.
+ */
+export interface DefinicionVista extends DefinicionNegocio {
+  /** Nombre de quien la contesta. `null` = sin dueño (D4). */
+  readonly asignado_nombre: string | null;
+  readonly answered_at: string | null;
+  readonly discard_reason: string | null;
+  readonly vigente: DefinicionResuelta;
+  /** Cuántas respuestas tiene, contando las que ya no rigen. */
+  readonly respuestas: number;
+}
+
+/** Body de `POST /definitions/:id/answers`. */
+export interface ContestarDefinicion {
+  value: unknown;
+  /** `YYYY-MM-DD`. Desde cuándo rige. */
+  valid_from: string;
+  /** Por qué: obligatorio. Es lo único que explica la regla seis meses después. */
+  note: string;
+}
+
+/** Body de `PATCH /definitions/:id`. Sólo lo que se manda cambia. */
+export interface ActualizarDefinicion {
+  /** uuid de la persona que la contesta; `null` la deja sin dueño. */
+  assigned_to?: string | null;
+  /** ISO; `null` quita el plazo. */
+  due_at?: string | null;
+  /** Descarta la pregunta con este motivo. Sólo una `pendiente`. */
+  discard_reason?: string;
+}
+
+/** A quién se le puede asignar una pregunta (`GET /definitions/assignable`). */
+export interface PersonaAsignable {
+  readonly id: string;
+  readonly nombre: string;
+  readonly puesto: string | null;
+}
+
 const FECHA = /^\d{4}-\d{2}-\d{2}$/;
 
 /**

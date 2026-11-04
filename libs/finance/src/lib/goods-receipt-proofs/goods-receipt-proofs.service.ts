@@ -8,6 +8,7 @@ import { LlmExtractorService, OcrReadingsService, RemisionFields, RemisionLine }
 // tenerlas pegadas es lo que hace visible cambiar una sin la otra.
 import { GoodsReceiptExpedienteService, enPares } from './goods-receipt-expediente.service';
 import { REGLA_EXPEDIENTE } from './expediente-verdict';
+import { fechaDeCalendario } from './fecha-de-calendario';
 import type { ExpedienteConteos, ExpedienteResumenFila } from '@megadulces/contracts';
 import {
   parecidoNombre, rfcComparable, rfcBienFormado, evaluarPaquete, evaluarFolioInterno,
@@ -2016,7 +2017,8 @@ export class GoodsReceiptProofsService {
           receipt_monto: receiptMonto,
           files: JSON.stringify(files),
           ocr_folio: o.folio || null,
-          ocr_fecha: o.fecha || null,
+          // Sólo una fecha que EXISTE: «2024-04-31» leído por el OCR tumbaba el INSERT entero (08/0422).
+          ocr_fecha: fechaDeCalendario(o.fecha),
           ocr_proveedor: o.proveedor || null,
           ocr_rfc: o.rfc || null,
           ocr_subtotal: ocrSubtotal,

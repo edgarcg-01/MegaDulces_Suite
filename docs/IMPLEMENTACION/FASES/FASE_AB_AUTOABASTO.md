@@ -2501,9 +2501,57 @@ anaquel). Ahora tienen dos y aterrizan en Mi trabajo. Nadie pierde acceso.
   puertas primarias, el front (`modules/sucursal`, layout) y `check:pantalla`. Tampoco: el arranque de la API, la
   validación visual y `MATRIZ_ACCESOS` (se regenera después de aplicar el reparto).
 
+#### 16.24.1 🧪 [AB.47] Filtros (2026-11-03)
+
+**Edgar:** «hay que agregar filtros o lo que sea necesario para mejorar la interfaz». Se agregaron, debajo de la
+franja:
+- **Quién lo tiene:** todos · sin tomar · míos, con su conteo.
+- **Proceso:** recibir, surtir, caja, inventario o administración, con su conteo.
+- **Buscar:** por folio, detalle o persona, sin acentos y en cualquier orden (`coincideBusqueda`, D.8).
+- **«Sólo lo que puedo resolver»:** deja las colas cuya pantalla abre el puesto.
+
+Cada control cuenta con los OTROS filtros puestos. Los filtros viven en la URL (`quien`, `proceso`, `q`, `puedo`,
+`suc`), así que se comparten y sobreviven a recargar. Con filtros puestos:
+- una cola sin coincidencias sale de la lista, y se dice cuántas salieron;
+- se ocultan «al día», lo de otra área y la lista de lo que no entra (no aplican al filtro).
+
+**Filas por cola.** Viajan hasta 200, las que ya trae cada consulta, para que los filtros miren algo más que las 10
+primeras. Se pintan 10 y «Ver las N» abre el resto. Si la cola tiene más de 200, se dice. Las colas de otra área
+viajan sin filas: sólo se muestra su conteo.
+
+**Pruebas:**
+- Util: 12/12, con negativa en rojo («míos» contando lo de otros).
+- `check:pantalla`: tipa y cumple las 10 reglas.
+- Reabasto: 313/313.
+- **No medido:** validación visual y el peso de la respuesta en CEDIS (hasta 200 filas por cola).
+
 **Pendiente de commit (cambios ajenos en el mismo archivo):** el registro de la prueba en
 `database/run-all-tests.js` está en el árbol, pero no se commiteó porque ese archivo trae 2 líneas de otra sesión
 sin commitear.
+
+#### 16.24.2 🧪 [AB.48] Auditoría de diseño y sus arreglos (2026-11-03)
+
+**Edgar:** «usa la skill /auditoria-diseno» y, con el informe, «resolvámoslo». Nivel de evidencia C (fuente) + B
+(prod, sólo lectura); sin nivel A. Lo que se arregló:
+
+| # | Hallazgo (medido) | Arreglo |
+|---|---|---|
+| 1 | 🔴 **Dos «todos».** Los conteos de los filtros salían de las filas que viajaban (≤ 200 por cola): en CEDIS el veredicto decía **1,137** y «Todos» habría dicho **280** | `cuentaCola`: sin búsqueda se cuenta el universo (`total`; «sin tomar» = total − tomados). Con búsqueda sólo se puede contar lo que viajó, y se dice («la búsqueda sólo mira los más viejos de cada tipo») |
+| 2 | 🔴 **~77 elementos color de acción** en Padre Hidalgo (66 «Yo lo resuelvo» delineados) | «Yo lo resuelvo» pasa a botón de texto neutro; el color de acción queda en «Resolver» y en el proceso elegido |
+| 7 | 🟡 La división por proceso salía dos veces (franja y segmentado), con números distintos | La franja ES el filtro de proceso: clic filtra, otro clic quita (`MetricStrip` gana el input aditivo `selected` → `aria-pressed`). Se quitó el segmentado. Sin ámbar en la franja |
+| 4 | 🟠 «Días» de gastos devueltos contaba desde la captura (folio 0008783: **66** días; lo devolvieron hace **29**) | Devueltos cuentan desde `validated_at`; esperan factura, desde `aprobado_at` (si no hay, «—», no se rellena). Control: 0008783 da 29 |
+| 5 | 🟠 Código en vez de nombre: «Documento 00/0001010» (26 vales); cajeros «10C03» | Vales: «Orden de entrada 0001010» / «Traspaso …». Cajeros por nombre: turnos con `pos_cashiers` (291 de 301 con nombre en 7 días), arqueos con el usuario de la Suite y luego `pos_cashiers` (155 de 157). Sin nombre en ningún catálogo queda la clave (7 turnos de Padre Hidalgo, «28JATC») |
+| 6 | 🟠 Texto bajo AA en modo claro: «Tú» en `--ok-fg` (**3.30:1**), «no se pudo leer» en `--warn-fg` (**2.15:1**) | «Tú» sin color (la palabra basta); el aviso en `--warn-soft-fg` (7.09) y sólo el icono en `--warn-fg` |
+| 8 | 🟡 El resumen (`role="status"`) se anunciaba en cada tecla | La búsqueda se aplica 300 ms después de dejar de teclear |
+| 9 | 🟡 Jerga: «en 9 colas» | «de 9 tipos»; «cola» sale de los textos y de la ayuda |
+
+**Fuera, aparte (#3):** Mi trabajo cuenta las entradas sin comprobante con otro universo (90 días, con copias):
+CEDIS 1,198 contra 1,057 aquí. Unificarlo toca `me-work.ts`, otro módulo.
+
+**Pruebas:** util 15/15 (3 nuevas, con el caso CEDIS; mutante «contar lo que viajó» → 2 rojas) · registro y
+servicio 25/25 · `MetricStrip` 15/15 · `ngc --noEmit` 0 errores, con su control (`TS2339`) · `check:pantalla`:
+`sucursal-pendientes` cumple las 10 reglas · las 22 consultas contra prod (sólo lectura), mismos totales.
+**No medido:** validación visual, foco con teclado, `forced-colors`, 44 px táctiles, INP.
 
 
 - [ ] Métrica re-medida con la misma consulta, antes/después publicado.

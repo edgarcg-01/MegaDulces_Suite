@@ -5,6 +5,7 @@ import {
 import { FormsModule } from '@angular/forms';
 import { BrowserMultiFormatReader, IScannerControls } from '@zxing/browser';
 import { BarcodeFormat, DecodeHintType } from '@zxing/library';
+import { controlesSiSigueAbierta, detenerLector } from '../../../shared/util/lector-camara.util';
 
 /**
  * **Un solo campo para los tres modos de dar con el producto.**
@@ -294,11 +295,11 @@ export class ProductScanFieldComponent implements AfterViewInit, OnDestroy {
       ]);
       this.lector = new BrowserMultiFormatReader(hints, { delayBetweenScanAttempts: 100 });
       try {
-        this.controles = await this.lector.decodeFromConstraints(
+        this.controles = controlesSiSigueAbierta(await this.lector.decodeFromConstraints(
           { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } },
           v,
           (r) => { if (r) this.leido(r.getText()); },
-        );
+        ), this.camaraAbierta());
       } catch {
         this.cerrarCamara();
         this.sinCamara.emit('No se pudo abrir la cámara. Revisa los permisos del navegador (requiere HTTPS).');
@@ -318,7 +319,7 @@ export class ProductScanFieldComponent implements AfterViewInit, OnDestroy {
 
   cerrarCamara(): void {
     this.camaraAbierta.set(false);
-    try { this.controles?.stop(); } catch { /* la cámara ya estaba cerrada */ }
+    detenerLector(this.controles);
     this.controles = undefined;
     this.lector = undefined;
     // Sin auto-enfoque (celular) cerrar la cámara no abre el teclado encima del aviso.

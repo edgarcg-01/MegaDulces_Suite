@@ -5,9 +5,10 @@
  * jsonb de fotos, UPDATE condicional del apartado. Los cuerpos son los que manda `/levantamiento`:
  * `{ code }` al escanear y los campos de `FormData` (todos texto) al subir una foto.
  *
- * Se sustituye sólo lo que la base vacía del CI no puede dar: la unidad más vendida (vista materializada,
- * no admite filas sembradas) y la sucursal del perfil (`identity.users`), con métodos `protected` del
- * servicio, y el bucket (un doble que cuenta lo que se sube y lo que se borra).
+ * Se sustituye sólo lo que la base vacía del CI no puede dar: la unidad más vendida y los conteos de la
+ * pantalla de inicio (vistas materializadas, no admiten filas sembradas) y la sucursal del perfil
+ * (`identity.users`), con métodos `protected` del servicio, y el bucket (un doble que cuenta lo que se sube
+ * y lo que se borra).
  *
  * ⚠️ No cubre la capa HTTP (multer, guard, `design:paramtypes`): eso se declara en el PR.
  *
@@ -30,6 +31,8 @@ const ANA: Quien = { userId: '00000000-0000-0000-0000-0000000a0a0a', username: '
 const LUIS: Quien = { userId: '00000000-0000-0000-0000-0000000b0b0b', username: 'np7_it_luis' };
 /** Alguien de OTRA sucursal (la 05). */
 const OTRA: Quien = { userId: '00000000-0000-0000-0000-0000000e0e0e', username: 'np7_it_otra' };
+/** Sin apartados de las otras pruebas: el tope de 3 no le libera nada a media prueba. */
+const PEPE: Quien = { userId: '00000000-0000-0000-0000-0000000f0f0f', username: 'np7_it_pepe' };
 
 const local = /@(localhost|127\.0\.0\.1):\d+\//.test(URL);
 const suite = URL && local ? describe : describe.skip;
@@ -69,6 +72,9 @@ class Prueba extends LevantamientoService {
   protected override async sucursalDelPerfil(userId: string): Promise<string> {
     return this.perfiles.get(userId) ?? '';
   }
+  protected override async conteos(): Promise<{ universe: number; missing: number }> {
+    return { universe: 12, missing: 9 };
+  }
 }
 
 suite(titulo, () => {
@@ -102,6 +108,9 @@ suite(titulo, () => {
       // Los casos de la revisión del PR: uno por producto, para que no se pisen entre sí.
       ...['NP7IT9', 'NP7IT10', 'NP7IT11', 'NP7IT12'].map((s, i) => kdii(s, { c2: `PRODUCTO ${s} (IT)`, c7: `99900000002${i + 1}0` })),
       kdii('NP7IT11', { sucursal: '05', c2: 'PRODUCTO NP7IT11 (IT)', c7: '9990000000230' }),
+      // La primera captura en prod (2026-11-03): el frente saltado y una ficha sin fotos en «Por revisar».
+      kdii('NP7IT13', { c2: 'PRODUCTO NP7IT13 (IT)', c7: '9990000000250' }),
+      kdii('NP7IT14', { c2: 'PRODUCTO NP7IT14 (IT)', c7: '9990000000260' }),
     ]);
     svc = new Prueba(
       { run: <T>(fn: (t: Knex.Transaction) => Promise<T>) => fn(trx) } as never,
@@ -112,9 +121,10 @@ suite(titulo, () => {
         remove: async (key: string) => { borradas.push(key); },
       } as never,
     );
-    for (const s of ['NP7IT1', 'NP7IT2', 'NP7IT5', 'NP7IT6', 'NP7IT7', 'NP7IT8', 'NP7IT9', 'NP7IT10', 'NP7IT11', 'NP7IT12']) svc.rungs.set(s, 1);
+    for (const s of ['NP7IT1', 'NP7IT2', 'NP7IT5', 'NP7IT6', 'NP7IT7', 'NP7IT8', 'NP7IT9', 'NP7IT10', 'NP7IT11', 'NP7IT12', 'NP7IT13', 'NP7IT14']) svc.rungs.set(s, 1);
     svc.perfiles.set(ANA.userId, '01');
     svc.perfiles.set(LUIS.userId, '01');
+    svc.perfiles.set(PEPE.userId, '01');
     svc.perfiles.set(OTRA.userId, '05');
     // El fallo al guardar se simula rompiendo la transacción corta del guardado UNA vez.
     const run = (svc as unknown as { tk: { run: <T>(fn: (t: Knex.Transaction) => Promise<T>) => Promise<T> } }).tk;
@@ -219,6 +229,52 @@ suite(titulo, () => {
     const r = await svc.escanear(ANA, { code: '9990000000120' });
     await svc.soltar(ANA, String(r.sheet_id));
     expect((await svc.escanear(LUIS, { code: '9990000000120' })).action).toBe('capturar');
+  });
+
+  it('⭐ la pantalla de inicio carga su contexto (en prod daba 500: pedía `identity.users.full_name`, que no existe)', async () => {
+    // En un savepoint: si la consulta truena, la transacción compartida por toda la suite sigue viva.
+    await trx.raw('SAVEPOINT np7_ctx');
+    try {
+      // Ana existe en identity.users (dentro del savepoint): el nombre que ve la pantalla sale de `nombre`.
+      const rol = (await trx('identity.role_permissions').where({ tenant_id: M }).first('role_name'))?.role_name;
+      await trx('identity.users').insert({ id: ANA.userId, tenant_id: M, username: ANA.username, nombre: 'Ana de la Prueba', role_name: rol, password_hash: 'np7-it' });
+      const c = await svc.contexto(ANA);
+      expect(c).toMatchObject({
+        branch_code: '01', branch_source: 'perfil', universe: 12, missing: 9, ai_enabled: false,
+        user: { id: ANA.userId, username: ANA.username, name: 'Ana de la Prueba' },
+      });
+    } finally {
+      await trx.raw('ROLLBACK TO SAVEPOINT np7_ctx');
+    }
+  });
+
+  /** Una cara saltada con la forma que guarda el servicio (para sembrar fichas de ANTES de una regla). */
+  const salto = (cara: string, by: string) => ({
+    peldano: 'base', cara, storage_key: null, sha256: null, captured_by: by, captured_at: new Date().toISOString(),
+    saltada_motivo: 'otro', calidad: null, ancho: null, alto: null, por_busqueda: false,
+  });
+
+  it('⛔ el frente no se salta (400): así toda ficha completa trae al menos una foto real (la primera captura en prod llegó a «Por revisar» con las 5 caras saltadas)', async () => {
+    const r = await svc.escanear(PEPE, { code: '9990000000250' });
+    expect(r.action).toBe('capturar');
+    const id = String(r.sheet_id);
+    await expect(svc.saltar(PEPE, id, { face: 'frente', reason: 'no_tiene_esa_cara' })).rejects.toThrow(/El frente siempre se fotografía/);
+    expect((await trx('catalog.product_sheets').where({ id }).first('photos')).photos).toEqual([]);
+    // Control: las demás caras sí se saltan.
+    expect(await svc.saltar(PEPE, id, { face: 'reverso', reason: 'no_se_puede_girar' })).toMatchObject({ faces_done: ['reverso'], complete: false });
+  });
+
+  it('⭐ un salto VIEJO del frente (de antes de la regla) no cuenta: con las otras 4 saltadas la ficha NO se envía y se vuelve a pedir el frente', async () => {
+    const id = await idDe('NP7IT13');
+    // Así quedó en prod la ficha 31054: el frente saltado antes de que existiera la regla.
+    const f = await trx('catalog.product_sheets').where({ id }).first('photos');
+    await trx('catalog.product_sheets').where({ id }).update({ photos: JSON.stringify([salto('frente', PEPE.userId), ...f.photos]) });
+    let ult: unknown;
+    for (const c of ['lateral_izq', 'lateral_der', 'base']) ult = await svc.saltar(PEPE, id, { face: c as never, reason: 'otro' });
+    expect(ult).toMatchObject({ status: 'en_captura', complete: false, faces_done: ['reverso', 'lateral_izq', 'lateral_der', 'base'] });
+    expect((await svc.escanear(PEPE, { code: '9990000000250' })).faces_done).not.toContain('frente');
+    // Con la foto del frente, se completa.
+    expect(await svc.foto(PEPE, id, jpeg(), meta('frente'))).toMatchObject({ status: 'fotos_tomadas', complete: true });
   });
 
   it('D25: sin sucursal en el perfil y sin elegir → SUCURSAL_REQUERIDA', async () => {
@@ -363,11 +419,22 @@ suite(titulo, () => {
 
   it('saltar una cara que ya tenía foto borra esa foto y la declara SALTADA (no cuenta como foto)', async () => {
     const id = await idDe('NP7IT11');
+    await svc.foto(OTRA, id, jpeg(), meta('reverso'));
     const foto = subidas[subidas.length - 1];
-    const r = await svc.saltar(OTRA, id, { face: 'frente', reason: 'otro' });
+    const r = await svc.saltar(OTRA, id, { face: 'reverso', reason: 'otro' });
     expect(borradas).toContain(foto);
-    expect(r).toMatchObject({ faces_done: ['frente'], faces_skipped: ['frente'] });
-    expect((await svc.escanear(OTRA, { code: '9990000000230' })).faces_skipped).toEqual(['frente']);
+    expect(r).toMatchObject({ faces_done: ['frente', 'reverso'], faces_skipped: ['reverso'] });
+    expect((await svc.escanear(OTRA, { code: '9990000000230' })).faces_skipped).toEqual(['reverso']);
+  });
+
+  it('⛔ Catálogo no PUBLICA una ficha sin ninguna foto (la del agua en prod): se descarta o se pide otra', async () => {
+    const id = String((await svc.escanear(PEPE, { code: '9990000000260' })).sheet_id);
+    // La forma exacta de la ficha 59000 en prod: 5 caras saltadas, cero fotos, en «Por revisar».
+    await trx('catalog.product_sheets').where({ id }).update({ photos: JSON.stringify(CARAS.map((c) => salto(c, PEPE.userId))), status: 'fotos_tomadas' });
+    await expect(rev().decidir(CATALOGO, id, { decision: 'publicar' })).rejects.toThrow(/no tiene ninguna foto/);
+    expect((await trx('catalog.product_sheets').where({ id }).first('status')).status).toBe('fotos_tomadas');
+    // Control: descartarla sí se puede (con nota).
+    expect((await rev().decidir(CATALOGO, id, { decision: 'descartar', note: 'sin fotos' })).status).toBe('descartada');
   });
 
   it('⭐ dos escaneos a la vez de un producto SIN ficha: el índice único deja ganar a uno (23505 → «apartado por otro») y la transacción sigue viva', async () => {

@@ -405,6 +405,12 @@ export class AnalyticsRefreshService {
       // ⚠️ Su umbral está registrado en `CRON_JOBS` (`analytics_refresh_sold_rung`): sin eso el
       // sensor cae en `cfg ? classify : 'ok'` y una MV parada se vería VERDE (lección OBS.1).
       ['analytics.mv_kepler_sold_rung', 'analytics_refresh_sold_rung', 'Refresh MV peldaño cobrado (nightly)', []],
+      // [PQ.40] La gemela del lado de COMPRA (max/peldaños de `kdm2.c58` en X-A-20/35, 365 d). La lee
+      // `v_product_box_factor`: donde la ficha de Kepler no trae caja y Kepler compra en UN solo
+      // peldaño, ése es el factor. `deps` vacío: sale directo del ODS. Poblado medido: 3.5 s.
+      // ⚠️ Su umbral está en `CRON_JOBS` (`analytics_refresh_bought_rung`): sin él una MV parada se
+      // vería VERDE (OBS.1), y un producto que empezó a comprarse por caja seguiría como pieza.
+      ['analytics.mv_kepler_bought_rung', 'analytics_refresh_bought_rung', 'Refresh MV peldaño comprado (nightly)', []],
       // [IC.10] Roll-forward entre conteos fisicos: lo contado antes + entradas - salidas contra
       // lo contado despues. `deps` vacio: sale directo del ODS, no de otra MV.
       //

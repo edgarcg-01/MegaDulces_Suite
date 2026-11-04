@@ -61,6 +61,20 @@ const AUDIT = `
 
 const op = (value, label) => ({ value, label });
 
+/**
+ * `[DP.2.1]` Las tres llaves. VER y GESTIONAR arrancan en Dirección (decide Edgar). CONTESTAR va a
+ * TODO rol con personas, como `SERVICIO_REPORTAR` (`20261002170000`) y con sus mismas excepciones:
+ * la llave sólo abre la bandeja propia, y el servidor exige además ser el dueño de la pregunta.
+ */
+const SIN_PERSONAS = ['customer_b2b', 'servicio', 'checador_kiosco', 'verificador_precios', 'etiquetas_tienda'];
+const LLAVES = {
+  DEFINICIONES_VER: { solo: ['direccion', 'superadmin'] },
+  DEFINICIONES_GESTIONAR: { solo: ['direccion', 'superadmin'] },
+  DEFINICIONES_CONTESTAR: { excepto: SIN_PERSONAS },
+};
+/** `?,?,?` para una lista: knex EXPANDE un arreglo en varios `?`, así que `?::text[]` no sirve. */
+const marcas = (xs) => xs.map(() => '?').join(',');
+
 /** [key, area, question, decides, value_type, choices, unit, config_route, suggested_value] */
 const PREGUNTAS = [
   // ⚠️ Ésta NO estaba abierta: el 2026-10-20 Edgar decidió «tipo de ruta» y quedó escrito SÓLO en la
@@ -268,12 +282,46 @@ exports.up = async function up(knex) {
   await knex.raw(`COMMENT ON TABLE platform.business_definition_answers IS 'DP.0.1 — las respuestas, con vigencia (valid_from) y motivo. Registro: sin UPDATE ni DELETE para app_runtime. La vigente a una fecha es, entre las que ya rigen (valid_from <= fecha), la CONTESTADA MÁS TARDE: una respuesta nueva reescribe la regla desde su vigencia, también hacia atrás.'`);
   await knex.raw(`COMMENT ON COLUMN platform.business_definitions.suggested_value IS 'Lo que alguien ya dijo FUERA del sistema (un chat, una junta). Es propuesta, no respuesta: no tiene usuario, fecha ni motivo. suggested_source dice de dónde salió.'`);
   await knex.raw(`COMMENT ON COLUMN platform.business_definitions.config_route IS 'Para value_type=config_ref: la pantalla donde la respuesta se CONFIGURA (p. ej. el tabulador). La definición sólo apunta ahí.'`);
+  // ── DP.2.1: las tres llaves, REPARTIDAS (regla 20: un módulo no está entregado con la clave
+  //    sólo declarada en el enum). Los demás roles vivos quedan en `false` explícito, igual que
+  //    `[RD.101]`. Tabla real `identity.role_permissions`, no la vista de compatibilidad.
+  for (const [llave, regla] of Object.entries(LLAVES)) {
+    const lista = regla.solo || regla.excepto;
+    const valor = regla.solo ? `role_name IN (${marcas(lista)})` : `role_name NOT IN (${marcas(lista)})`;
+    await knex.raw(
+      `UPDATE identity.role_permissions
+          SET permissions = permissions || jsonb_build_object(?::text, (${valor}))
+        WHERE permissions -> ?::text IS NULL
+          AND role_name NOT LIKE 'retirado%'
+          AND deleted_at IS NULL`,
+      [llave, ...lista, llave],
+    );
+    const { rows } = await knex.raw(
+      `SELECT role_name FROM identity.role_permissions
+        WHERE permissions -> ?::text = 'true'::jsonb AND role_name <> 'superadmin' AND deleted_at IS NULL ORDER BY 1`,
+      [llave],
+    );
+    const { rows: [hay] } = await knex.raw('SELECT count(*)::int n FROM identity.role_permissions WHERE deleted_at IS NULL');
+    // En una base sin roles (la del CI recién creada) no hay a quién repartir: no es un error.
+    if (hay.n > 0 && !rows.length) {
+      throw new Error(`Ningún rol (fuera de superadmin) quedó con ${llave}: la pantalla nacería sin dueño (regla 20)`);
+    }
+    // eslint-disable-next-line no-console
+    console.log(`  [DP.2.1] ${llave}: en true → ${rows.length} rol(es): ${rows.map((r) => r.role_name).join(', ') || '(ninguno)'}`);
+  }
+
   // eslint-disable-next-line no-console
   console.log(`  [DP.0.1] platform: business_definitions + business_definition_answers · [DP.0.2] ${t ? PREGUNTAS.length : 0} preguntas de Comisiones RD`);
 };
 
 /** Deshace EXACTAMENTE lo que hizo el `up`, ni una fila más. */
 exports.down = async function down(knex) {
+  for (const llave of Object.keys(LLAVES)) {
+    await knex.raw(
+      `UPDATE identity.role_permissions SET permissions = permissions - ?::text WHERE permissions -> ?::text IS NOT NULL`,
+      [llave, llave],
+    );
+  }
   await knex.raw('DROP TABLE IF EXISTS platform.business_definition_answers');
   await knex.raw('DROP TABLE IF EXISTS platform.business_definitions');
   // El schema sólo se borra si quedó vacío: otra fase pudo haberlo empezado a usar.

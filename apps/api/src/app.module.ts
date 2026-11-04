@@ -21,7 +21,7 @@ import { DailyCapturesModule } from '@megadulces/trade';
 import { PlanogramsModule } from '@megadulces/trade';
 import { CatalogsModule } from '@megadulces/trade';
 // Fase K — AI product match en captures wizard paso 5.
-import { AiProductMatcherModule } from '@megadulces/platform-core';
+import { AiProductMatcherModule, BusinessDefinitionsModule } from '@megadulces/platform-core';
 // Fase V — OCR del ticket del vendedor (Claude Haiku vision + matcher).
 import { TicketExtractorModule } from '@megadulces/commercial';
 import { ScoringModule } from '@megadulces/trade';
@@ -475,6 +475,8 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
     DailyCapturesModule,
     PlanogramsModule,
     AiProductMatcherModule,
+    // [DP.2.1] Definiciones de negocio (Fase DP): /definitions.
+    BusinessDefinitionsModule,
     TicketExtractorModule,
     CatalogsModule,
     ScoringModule,

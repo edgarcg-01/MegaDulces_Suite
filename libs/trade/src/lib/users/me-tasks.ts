@@ -178,6 +178,32 @@ export const FUENTES_VISIBLES: readonly FuenteTareaDef[] = [
     },
   },
   {
+    /*
+     * `[DP.2.3]` Fase DP: una pregunta de negocio ES la tarea de quien tiene que contestarla. Sólo
+     * las `pendiente` (el contrato proyecta `respondida` a done y `descartada` a cancelled). La pregunta
+     * sin dueño no aparece en ninguna bandeja: las 17 de Comisiones RD nacen así hasta que se repartan.
+     */
+    fuente: 'platform.business_definitions',
+    label: 'Preguntas de negocio a tu nombre',
+    detalle: 'reglas que te toca definir · contestarlas es configurarlas',
+    ruta: '/admin/definiciones',
+    icono: 'pi pi-question-circle',
+    anyOf: [Permission.DEFINICIONES_CONTESTAR, Permission.DEFINICIONES_GESTIONAR],
+    medir: (knex, tenantId, userId) => {
+      const a = adaptadorDe('platform.business_definitions');
+      return medirTareas(
+        knex,
+        knex('platform.business_definitions')
+          .where({ tenant_id: tenantId })
+          .where(a.col_asignado_a, userId)
+          .whereNull('deleted_at')
+          .whereIn(a.col_estado as string, dialectosAbiertos(a)),
+        a.col_asignado_at,
+        a.col_vence,
+      );
+    },
+  },
+  {
     fuente: 'finance.recon_tasks',
     label: 'Conciliaciones a tu nombre',
     detalle: 'diferencias que Maat te repartió · con fecha de compromiso',

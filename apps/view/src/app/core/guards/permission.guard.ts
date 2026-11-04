@@ -425,6 +425,9 @@ export const ADMIN_LANDING: LandingCandidate[] = [
   { perm: Permission.USUARIOS_VER, url: '/admin/users' },
   { perm: Permission.ROLES_VER, url: '/admin/roles' },
   { perm: Permission.ROLES_CONFIGURAR, url: '/admin/roles' },
+  // `[DP.3.1]` Dirección entra a «Configuración de la suite» sólo por las definiciones de negocio.
+  { perm: Permission.DEFINICIONES_VER, url: '/admin/definiciones' },
+  { perm: Permission.DEFINICIONES_GESTIONAR, url: '/admin/definiciones' },
 ];
 export const adminHomeGuard: CanActivateFn = landingRedirectGuard(ADMIN_LANDING, '/admin/users');
 

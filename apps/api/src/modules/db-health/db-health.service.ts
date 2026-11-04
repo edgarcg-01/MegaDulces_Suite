@@ -1477,6 +1477,9 @@ export const CRON_JOBS: CronCfg[] = [
   // cosmetico: cuando envejece, el piso que corrige `box_factor = 1` deja de recibir peldanos
   // nuevos y un producto que empezo a venderse por bulto sigue publicandose como pieza.
   { key: 'analytics_refresh_sold_rung',       label: 'Refresh MV peldano cobrado',        cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  // [PQ.40] La gemela del lado de compra. Parada, un producto que empezo a comprarse por caja
+  // seguiria publicandose con caja 1 (y al reves).
+  { key: 'analytics_refresh_bought_rung',     label: 'Refresh MV peldano comprado',       cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   // [WMS-BI.4.3] Copia cacheada del resolvedor de unidad (v_unit_truth, ADR-057). Mismo motivo
   // que la de arriba: sin umbral el sensor cae en `cfg ? classify : 'ok'` y una MV parada se ve
   // VERDE. Cuando envejece, un producto cuya unidad base cambio se sigue publicando con la

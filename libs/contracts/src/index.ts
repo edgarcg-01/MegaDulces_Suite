@@ -31,6 +31,7 @@ export * from './http/unit-ladder.contract';
 // `[ETQ-PRES.0]` La misma regla de VU.0, aplicada al PRECIO: una presentación lleva su unidad,
 // su factor, su contenido derivado y su propio peldaño de mayoreo.
 export * from './http/price-presentation.contract';
+export * from './http/caducidad-unidad.contract';
 // `[ETQ-AVISOS.1]` Cambios de precio: la regla por producto y los avisos. Una sola cuenta para la
 // pantalla y para el generador, o el aviso y la lista discrepan.
 export * from './http/price-change-notice.contract';
@@ -80,6 +81,8 @@ export * from './work/caja-window.contract';
 export * from './work/caja-corte.contract';
 export * from './work/portada-nominal.contract';
 export * from './work/business-clock';
+// [DP.1.1] Definiciones de negocio: la regla que falta se PREGUNTA en el sistema y se contesta configurándola.
+export * from './work/business-definition.contract';
 // [TDA.1] Tienda: los eventos que el gateway /store empuja a las pantallas.
 export * from './http/store.contract';
 // [WMS-REC.15] Menu del Anden: la forma que el backend devuelve y el front consume.

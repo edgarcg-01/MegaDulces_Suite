@@ -223,7 +223,8 @@ export class SucursalPendientesService {
           out.push({
             ...base, estado: 'ok', total: filas.length ? Number(filas[0].total) : 0,
             mas_viejo_dias: filas.length && filas[0].dias != null ? Math.max(0, Number(filas[0].dias)) : null,
-            filas: filas.slice(0, PENDIENTES_SUCURSAL_TOPE_FILAS).map((f) => ({
+            // `[AB.47]` Lo de otra área viaja sin filas: la pantalla sólo muestra su conteo.
+            filas: (d.de === 'otra_area' ? [] : filas.slice(0, PENDIENTES_SUCURSAL_TOPE_FILAS)).map((f) => ({
               clave: String(f.clave ?? f.folio ?? ''),
               responsable: null,
               folio: String(f.folio ?? ''),
@@ -235,7 +236,7 @@ export class SucursalPendientesService {
         } catch (e) {
           await trx.raw('ROLLBACK TO SAVEPOINT cola');
           this.logger.warn(`cola ${d.id} no se pudo medir: ${(e as Error).message}`);
-          out.push({ ...base, estado: 'no_medido', motivo: 'No se pudo leer esta cola.', total: 0, mas_viejo_dias: null, filas: [] });
+          out.push({ ...base, estado: 'no_medido', motivo: 'No se pudo leer.', total: 0, mas_viejo_dias: null, filas: [] });
         }
       }
       return out;

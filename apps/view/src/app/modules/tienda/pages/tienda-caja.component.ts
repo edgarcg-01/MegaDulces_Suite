@@ -50,15 +50,18 @@ const CANAL_CLIENTE = 'md-caja-cliente';
       <h1 class="cj-titulo">Caja</h1>
       @if (sucursalPropia) { <span class="cj-suc"><i class="pi pi-building" aria-hidden="true"></i>{{ nombreSucursal(sucursalPropia) }}</span> }
       @else { <app-sucursal-picker [(valor)]="sucursal" placeholder="Elige la sucursal" etiqueta="Sucursal de la caja" /> }
+      <!-- [PDV.UI.6] Arriba sólo lo que identifica la caja, lo que pide actuar AHORA y las teclas de cada venta.
+           Lo de una vez al día (pantalla del cliente, gaveta, cerrar turno, fondo) vive en «Turno y equipo». -->
+      @if (turnoK(); as tk) { <span class="cj-grupo"><b>Kepler</b> caja {{ tk.caja }} · folio {{ tk.folio }}</span> }
+      <span class="cj-practica" role="note"><i class="pi pi-info-circle" aria-hidden="true"></i>
+        Práctica: la venta no se guarda{{ puedeArqueo && turnoK() ? ' · el arqueo sí' : '' }}</span>
       @if (respaldoEnTicket(); as r) { <span class="cj-chip cj-chip-warn" role="status">Precios del respaldo de {{ r }}: Kepler no contestó en vivo</span> }
       @else if (datosAl(); as d) { <app-freshness-pill measures="data" [since]="d" label="Precios de Kepler" [staleAfterSec]="900" /> }
-      @if (turno(); as t) {
-        <span class="cj-sub">Turno desde {{ t.desde }} · fondo {{ dinero(t.fondo) }} · {{ t.retiros.length }} retiro(s)</span>
-        @if (turnoK()) {} @else if (nivelGaveta() === 'maximo') { <span class="cj-chip cj-chip-bad" role="status">La gaveta pasó el máximo: haz un retiro (F8) para seguir vendiendo</span> }
+      @if (turno() && !turnoK()) {
+        @if (nivelGaveta() === 'maximo') { <span class="cj-chip cj-chip-bad" role="status">La gaveta pasó el máximo: haz un retiro (F8) para seguir vendiendo</span> }
         @else if (nivelGaveta() === 'aviso') { <span class="cj-chip cj-chip-warn" role="status">Gaveta cerca del máximo: conviene un retiro (F8)</span> }
       }
       @if (turnoK(); as tk) {
-        <span class="cj-sub">Kepler: caja {{ tk.caja }} · folio {{ tk.folio }}</span>
         @if (tk.pide_retiro) { <span class="cj-chip cj-chip-bad" role="status">Kepler pide retiro: la caja pasó su límite (F8)</span> }
         @if (tk.retiro_sin_contar) { <span class="cj-chip cj-chip-warn" role="status">Hay retiros en Kepler sin contar (F8)</span> }
         @if (tk.pide_cierre) { <span class="cj-chip cj-chip-warn" role="status">Toca el corte del turno (F7)</span> }
@@ -67,19 +70,27 @@ const CANAL_CLIENTE = 'md-caja-cliente';
         @case ('abierta') { <span class="cj-chip cj-chip-bad" role="status">Gaveta abierta: ciérrala para cobrar</span> }
         @case ('cerrada') { <span class="cj-sub"><i class="pi pi-lock" aria-hidden="true"></i> Gaveta cerrada</span> }
         @case ('sin_sensor') { <span class="cj-chip cj-chip-warn" role="status">La impresora no reporta la gaveta: no se sabe si está cerrada</span> }
-        @default { @if (!cajon.soportado) { <span class="cj-sub">Gaveta: este navegador no la maneja (usa Chrome o Edge)</span> } }
       }
-      <span class="cj-practica" role="note"><i class="pi pi-info-circle" aria-hidden="true"></i>
-        Práctica: la venta no se guarda ni va a Kepler{{ puedeArqueo && turnoK() ? ' · el arqueo sí se guarda' : '' }}{{ cajon.estado() !== 'desconectada' ? ' · la gaveta abre de verdad' : '' }}</span>
       <span class="cj-acciones">
         <button type="button" class="cj-hb" tabindex="-1" [class.cj-hb-on]="verificando()" (click)="abrirVerificador()">Verificar precio <kbd>F6</kbd></button>
         @if (puedeArqueo) { <button type="button" class="cj-hb" tabindex="-1" [class.cj-hb-on]="!!arq()" (click)="irArqueo()">Mi arqueo <kbd>F7</kbd></button> }
-        <button type="button" class="cj-hb" tabindex="-1" (click)="abrirCliente()">Pantalla del cliente</button>
-        @if (cajon.soportado && cajon.estado() === 'desconectada') { <button type="button" class="cj-hb" tabindex="-1" title="Con la gaveta CERRADA: la caja la calibra al conectar" (click)="conectarGaveta()">Conectar gaveta</button> }
-        @if (turno(); as t) {
-          <button type="button" class="cj-hb" tabindex="-1" (click)="retiro()">Retiro <kbd>F8</kbd></button>
-          <button type="button" class="cj-hb" tabindex="-1" (click)="cerrarTurno()">Cerrar turno</button>
-        }
+        @if (turno()) { <button type="button" class="cj-hb" tabindex="-1" (click)="retiro()">Retiro <kbd>F8</kbd></button> }
+        <span class="cj-menu-ancla">
+          <button type="button" class="cj-hb" tabindex="-1" aria-haspopup="true" [attr.aria-expanded]="menu()" [class.cj-hb-on]="menu()" (click)="menu.set(!menu())">Turno y equipo <i class="pi pi-chevron-down" aria-hidden="true"></i></button>
+          @if (menu()) {
+            <div class="cj-menu" role="menu">
+              @if (turno(); as t) {
+                <div class="cj-menu-info">Turno de práctica desde {{ t.desde }} · fondo {{ dinero(t.fondo) }} · {{ t.retiros.length }} retiro(s)</div>
+                <button type="button" role="menuitem" class="cj-menu-op" (click)="menu.set(false); cerrarTurno()">Cerrar turno</button>
+              }
+              <button type="button" role="menuitem" class="cj-menu-op" (click)="menu.set(false); abrirCliente()">Abrir la pantalla del cliente</button>
+              @if (!cajon.soportado) { <div class="cj-menu-info">Gaveta: este navegador no la maneja (usa Chrome o Edge)</div> }
+              @else if (cajon.estado() === 'desconectada') {
+                <button type="button" role="menuitem" class="cj-menu-op" (click)="menu.set(false); conectarGaveta()">Conectar gaveta<span class="cj-menu-nota">Se abre una vez para calibrarla. Sólo si la impresora aparece como puerto COM</span></button>
+              } @else { <div class="cj-menu-info">Gaveta conectada</div> }
+            </div>
+          }
+        </span>
       </span>
     </header>
 
@@ -294,6 +305,15 @@ const CANAL_CLIENTE = 'md-caja-cliente';
     .cj-den { padding: var(--sp-1) var(--sp-2); border-radius: var(--r-sm); }
     .cj-den-on { background: var(--surface-selected-bg); box-shadow: inset 3px 0 0 var(--action); }
     .cj-hb-on { border-color: var(--action); color: var(--action); }
+    .cj-grupo { font-size: var(--fs-sm); color: var(--text-muted); white-space: nowrap; }
+    .cj-grupo b { color: var(--text-main); margin-right: var(--sp-1); }
+    .cj-menu-ancla { position: relative; }
+    .cj-menu { position: absolute; right: 0; top: calc(100% + var(--sp-1)); z-index: 20; min-width: 18rem; display: flex; flex-direction: column; padding: var(--sp-1); background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md); box-shadow: var(--shadow-float); }
+    .cj-menu-op { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: var(--sp-2) var(--sp-3); border: 0; border-radius: var(--r-sm); background: transparent; color: var(--text-main); font: inherit; font-size: var(--fs-body); text-align: left; cursor: pointer; }
+    .cj-menu-op:hover, .cj-menu-op:focus-visible { background: var(--surface-hover-bg); }
+    .cj-menu-op:focus-visible { outline: 2px solid var(--action-ring); outline-offset: -2px; }
+    .cj-menu-info { padding: var(--sp-2) var(--sp-3); font-size: var(--fs-sm); color: var(--text-muted); }
+    .cj-menu-nota { font-size: var(--fs-sm); color: var(--text-muted); }
     .cj-main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(20rem, 27rem); gap: var(--sp-4); padding: var(--sp-4); }
     @media (max-width: 60rem) { .cj-main { grid-template-columns: 1fr; } }
     .cj-trabajo { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: var(--sp-3); }
@@ -303,6 +323,9 @@ const CANAL_CLIENTE = 'md-caja-cliente';
     .cj-cmd-input { flex: 1; min-width: 0; border: 0; outline: 2px solid transparent; background: transparent; color: var(--text-main); font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-h2); }
     /* El anillo lo lleva la caja que envuelve al campo (focus-within); el contorno transparente sigue visible en Alto Contraste. */
     .cj-cmd-caja:focus-within { box-shadow: 0 0 0 3px var(--action-ring); }
+    /* La regla global input:focus (styles.css, !important) dibujaba un SEGUNDO recuadro dentro de la caja.
+       Un solo marco: el foco ya lo dice la caja; el contorno transparente queda para Alto Contraste. */
+    .cj-cmd-input:focus { outline: 2px solid transparent !important; }
     .cj-cmd-input::placeholder { font-family: var(--font-body); font-size: var(--fs-lg); color: var(--text-faint); }
     .cj-res { position: absolute; z-index: 5; left: 0; right: 0; top: calc(100% + var(--sp-1)); margin: 0; padding: 0; list-style: none; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-lg); box-shadow: var(--shadow-float); overflow: hidden; }
     .cj-res-i { display: flex; justify-content: space-between; gap: var(--sp-3); padding: var(--sp-2) var(--sp-4); border-bottom: 1px solid var(--border-color); cursor: pointer; }
@@ -449,6 +472,8 @@ export class TiendaCajaComponent implements OnDestroy {
   readonly hit = signal(0);
   readonly auth = signal<Autorizacion | null>(null);
   readonly verificando = signal(false);
+  /** [PDV.UI.6] Menú «Turno y equipo»: lo que se usa una vez al día, fuera de la cabecera. */
+  readonly menu = signal(false);
   readonly verificado = signal<ProductoPrecio | null>(null);
   /** El verificador mostró un precio del respaldo: su edad ya en texto; null = en vivo. */
   readonly verificadoRespaldo = signal<string | null>(null);
@@ -554,9 +579,17 @@ export class TiendaCajaComponent implements OnDestroy {
   }
 
   // ── Teclado: todo pasa por aquí; el foco nunca sale de la línea de comandos ──
+  /** El menú «Turno y equipo» se cierra al tocar fuera de él. */
+  @HostListener('document:pointerdown', ['$event'])
+  alTocar(e: PointerEvent): void {
+    if (this.menu() && !(e.target as HTMLElement | null)?.closest?.('.cj-menu-ancla')) this.menu.set(false);
+  }
+
   @HostListener('document:keydown', ['$event'])
   alPresionar(e: KeyboardEvent): void {
     const k = e.key;
+    // Cualquier tecla cierra el menú; Esc sólo lo cierra (no sale de lo que se esté haciendo).
+    if (this.menu()) { this.menu.set(false); if (k === 'Escape') { e.preventDefault(); return; } }
     if (/^F\d+$/.test(k)) e.preventDefault();
     if (k.length === 1 && !e.ctrlKey && !e.altKey) this.teclas.push(performance.now());
     const a = this.aviso();
@@ -776,7 +809,7 @@ export class TiendaCajaComponent implements OnDestroy {
   // ── Cobro ──
   async conectarGaveta(): Promise<void> {
     const err = await this.cajon.conectar();
-    if (err) this.avisar('aviso', err); else this.avisar('ok', 'Gaveta conectada: se abre sola al cobrar en efectivo, y abierta no deja cobrar.');
+    if (err) this.avisar('aviso', err); else this.avisar('ok', 'Gaveta conectada: se abrió para calibrarla, ciérrala para cobrar. Se abre sola al cobrar en efectivo, y abierta no deja cobrar.');
     this.enfocar();
   }
 

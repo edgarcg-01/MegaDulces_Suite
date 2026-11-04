@@ -102,6 +102,10 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'positions', label: 'Puestos', route: '/admin/puestos', view: [Permission.USUARIOS_VER], manage: [Permission.USUARIOS_GESTIONAR] },
           { id: 'responsibilities', label: 'Responsabilidades', route: '/admin/responsabilidades', view: [Permission.USUARIOS_VER], manage: [Permission.USUARIOS_GESTIONAR] },
           { id: 'roles', label: 'Roles y permisos', route: '/admin/roles', view: [Permission.ROLES_VER], manage: [Permission.ROLES_CONFIGURAR] },
+          // `[DP.3.1]` Las reglas de negocio que el sistema pregunta. `DEFINICIONES_CONTESTAR` NO va aquí
+          // a propósito: la tienen ~38 roles y, en el árbol, abriría «Configuración de la suite» a todos.
+          // El dueño llega por «Mi trabajo › A tu nombre»; la ruta sí la acepta.
+          { id: 'definitions', label: 'Definiciones de negocio', route: '/admin/definiciones', view: [Permission.DEFINICIONES_VER], manage: [Permission.DEFINICIONES_GESTIONAR] },
         ],
       },
       {

@@ -33,8 +33,9 @@ import { clasificarPlazo, plazoSeverity, plazoIcon, formatCantidad, formatUnidad
 import { parseExpiryShort, formatExpiryEcho, maskExpiryMx, digitsOf } from '../../almacen/shared/expiry-short';
 import { Permission } from '../../../core/constants/permissions';
 import { PermissionsService } from '../../../core/services/permissions.service';
+import { CADUCIDAD_UNIDADES_DEF, type CaducidadUnidad } from '@megadulces/contracts';
 
-type LineUnit = 'caja' | 'pieza' | 'bulto' | 'kg';
+type LineUnit = CaducidadUnidad;
 type Condition = 'bueno' | 'regular' | 'malo';
 
 /**
@@ -740,12 +741,8 @@ type Condition = 'bueno' | 'regular' | 'malo';
   `],
 })
 export class TiendaCaducidadesComponent {
-  readonly units: { label: string; value: LineUnit; hint: string }[] = [
-    { label: 'Caja', value: 'caja', hint: 'Caja cerrada — lo común con código de anaquel' },
-    { label: 'Pieza', value: 'pieza', hint: 'Suelto: piñatas, producto individual' },
-    { label: 'Bulto', value: 'bulto', hint: 'Bolsa grande / costal' },
-    { label: 'Kg', value: 'kg', hint: 'Granel, por peso' },
-  ];
+  /** [P2.9 paso 1] Las 7 unidades salen del contrato (`caducidad-unidad`), no de una lista local. */
+  readonly units: { label: string; value: LineUnit; hint: string }[] = CADUCIDAD_UNIDADES_DEF.map((d) => ({ label: d.etiqueta, value: d.codigo, hint: d.pista }));
 
   readonly conditions: { label: string; value: Condition }[] = [
     { label: 'Bueno', value: 'bueno' },

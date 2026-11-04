@@ -668,8 +668,14 @@ export class PaymentCalendarService {
      *  · `descuento` — cuando se pierde el privilegio. Es el orden de Pronto pago, y su encabezado
      *    decia que «el orden ES la mitad del valor»: por fecha limite del descuento y, a igualdad,
      *    por lo que se gana.
+     *  · `cercania` — `[PGP.50]` lo más cercano a HOY primero, vencido o por vencer. Con el techo
+     *    de 1,000, `vencimiento` entrega las 1,000 MÁS VIEJAS: medido el 2026-11-03 sobre la deuda
+     *    de Kepler, el corte caía en el 1-jun-2026 y **las 160 facturas que vencen esta semana
+     *    ($9,022,851.47) quedaban fuera, 0 de 160**; con `cercania`, 160 de 160 (ventana
+     *    7-oct a 30-nov). Es el orden de la pantalla del Calendario; el default sigue siendo
+     *    `vencimiento` para no mover a nadie más.
      */
-    orden?: 'vencimiento' | 'descuento';
+    orden?: 'vencimiento' | 'descuento' | 'cercania';
   }) {
     // `[TP.17.2]` 1000 era el techo fijo de antes: se conserva como default para no cambiar lo que
     // ya veía la pantalla, pero ahora se puede mover y, sobre todo, se sabe cuánto quedó afuera.
@@ -896,7 +902,10 @@ export class PaymentCalendarService {
        */
       const orderBy = q.orden === 'descuento'
         ? 'ob.pronto_fecha_limite ASC NULLS LAST, ob.pronto_beneficio DESC NULLS LAST'
-        : 'ob.original_due_date ASC NULLS LAST, ob.available_amount DESC';
+        : q.orden === 'cercania'
+          // `[PGP.50]` Días de distancia a hoy (CDMX), en los dos sentidos; a igualdad, lo de más monto.
+          ? `abs(ob.original_due_date::date - (now() AT TIME ZONE 'America/Mexico_City')::date) ASC NULLS LAST, ob.available_amount DESC`
+          : 'ob.original_due_date ASC NULLS LAST, ob.available_amount DESC';
       const rows = await base.orderByRaw(orderBy).limit(limit).offset(offset);
       return { rows, total: Number(total), limit, offset };
     });

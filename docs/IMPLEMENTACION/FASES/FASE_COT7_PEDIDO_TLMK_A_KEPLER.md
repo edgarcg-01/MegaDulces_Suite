@@ -328,6 +328,12 @@ ensayo en 00, 02–05, 07, 08 · pedidos con regalos (rechazados a propósito).
 
 ## Bitácora
 
+- **2026-11-03** — 🚀 **Primer pedido real.** Habilitado sólo en Padre Hidalgo (tope 1/día, 17:29): plantilla `0002568`
+  (CREADO desde el 29-sep; la de julio `0000352` la rechazó el candado de presentación, PAQ 1 vs 20 en la ficha), ensayo
+  con esa plantilla ✅. COT-2026-00016 (Super Esthelin, 3 % cliente) → **Pedido TELEMARK 0003735** en CREADO, leído en
+  Kepler: total 4,217.23 = Σ importes 4,347.66 × 0.97 · IVA 156.54 · IEPS 228.32 · descuento sin impuestos 118.53 (la
+  fórmula de §7b) · 3 renglones con el precio base de la cotización (31.99 · 58.50 · 184.83). **NO MEDIDO todavía:** que
+  Kepler lo autorice, surta y facture a ese precio (`U-D-8`); el ensayo en las otras 8 sucursales.
 - **2026-11-03** — C1–C3 construidos y apagados (§7c): ensayo contra Kepler real ✅ en 01 y 06; 23 pruebas nuevas; migración 20261103125653 sin aplicar.
 - **2026-11-03** — C0.7.0d: las 6 diferencias explicadas (deriva de precio, F1 nivel 0 arreglado con 8 mejoras / 0 empeoras, 70500 unidad declarada). Replay oficial (E.23): 99.12 % → 99.21 % ✅. C0 cerrado salvo 7.0c (unidad).
 - **2026-11-03** — C0.7.0 ✅ (cabecera y renglón con árbitro); C0.7.0b ❌ 98.0 % (6 diferencias explicadas por mecanismo). C1 bloqueado.

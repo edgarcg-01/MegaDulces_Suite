@@ -797,4 +797,12 @@ export enum Permission {
   SERVICIO_REPORTAR = 'SERVICIO_REPORTAR',
   SERVICIO_ATENDER = 'SERVICIO_ATENDER',
   SERVICIO_COORDINAR = 'SERVICIO_COORDINAR',
+  // `[DP.2.1]` Definiciones de negocio (Fase DP): la regla que falta se PREGUNTA en el sistema.
+  // VER lee todas las preguntas con su respuesta vigente; GESTIONAR reparte dueño y plazo y
+  // descarta. CONTESTAR abre la bandeja propia y se reparte a todo rol con personas (como
+  // SERVICIO_REPORTAR): la llave abre la puerta, y el servidor exige además que quien contesta sea
+  // el DUEÑO de la pregunta (`assigned_to`).
+  DEFINICIONES_VER = 'DEFINICIONES_VER',
+  DEFINICIONES_GESTIONAR = 'DEFINICIONES_GESTIONAR',
+  DEFINICIONES_CONTESTAR = 'DEFINICIONES_CONTESTAR',
 }

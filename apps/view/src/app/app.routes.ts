@@ -2497,6 +2497,13 @@ export const routes: Routes = [
         canActivate: [anyPermissionGuard(Permission.USUARIOS_VER, Permission.USUARIOS_GESTIONAR)]
       },
       {
+        // `[DP.3.1]` Definiciones de negocio: la regla que falta se pregunta en el sistema. CONTESTAR abre la
+        // bandeja propia (llega desde «Mi trabajo»); VER y GESTIONAR, todas y el reparto.
+        path: 'definiciones',
+        loadComponent: () => import('./modules/admin/pages/admin-definiciones.component').then(m => m.AdminDefinicionesComponent),
+        canActivate: [anyPermissionGuard(Permission.DEFINICIONES_CONTESTAR, Permission.DEFINICIONES_VER, Permission.DEFINICIONES_GESTIONAR)]
+      },
+      {
         // P2.6 — asignar marcas a promotores (scoping del Control de Caducidades)
         path: 'promotores',
         loadComponent: () => import('./modules/dashboard/admin-promoters/admin-promoters.component').then(m => m.AdminPromotersComponent),

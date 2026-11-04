@@ -124,6 +124,8 @@ export interface MetricStripItem {
           <div class="ms-item" [class]="'tone-' + effTone(it)" [class.is-drill]="!!it.drill"
                [attr.role]="it.drill ? 'button' : null" [attr.tabindex]="it.drill ? 0 : null"
                [attr.aria-label]="it.drill ? (it.drillLabel || 'Ver el detalle de ' + it.label) : null"
+               [class.is-sel]="!!it.drill && it.drill === selected()"
+               [attr.aria-pressed]="it.drill && selected() !== undefined ? it.drill === selected() : null"
                (click)="abrir(it)" (keydown.enter)="abrir(it)" (keydown.space)="abrir(it, $event)">
             <span class="ms-l">{{ it.label }}@if (it.live) {
               <span class="ms-live" title="En vivo" aria-hidden="true"></span>
@@ -209,6 +211,9 @@ export interface MetricStripItem {
     .ms-item.is-drill { cursor:pointer; border-radius:var(--r-sm, 4px); }
     .ms-item.is-drill:hover .ms-v { text-decoration:underline; text-underline-offset:3px; }
     .ms-item.is-drill:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; }
+    /* [AB.48] La tarjeta que filtra la pantalla: marca de seleccionado (acción = activo), no relleno. */
+    .ms-item.is-sel { box-shadow:inset 0 -2px 0 var(--action); }
+    .ms-item.is-sel .ms-l { color:var(--text-main); }
     .ms-item:not(:first-child)::before { content:''; position:absolute; left:0; top:.3rem; bottom:.3rem; width:1px; background:var(--border-color); }
     /* ⛔⛔ [CGA-LEG.1] ACA DECIA ".68rem", Y ESO NO EXISTE EN LA ESCALA. Medido el 2026-10-19
        en Caja General: 10.88px, el rotulo de un KPI de encabezado. Un valor en rem clavado no
@@ -335,6 +340,12 @@ export class MetricStripComponent implements AfterViewInit {
   readonly instant = input(false);
   /** total para composición (default = suma de valores). */
   readonly total = input<number | null>(null);
+  /**
+   * [AB.48] Cuando las tarjetas FILTRAN la pantalla (en vez de abrir un desglose): la llave `drill` de la
+   * que está puesta, o `null` si ninguna. Marca esa tarjeta y da `aria-pressed` a todas las que traen
+   * `drill`. Aditivo: sin este input (`undefined`) nada cambia.
+   */
+  readonly selected = input<string | null | undefined>(undefined);
   /** [LC.21] La llave de la tarjeta que se abrió (sólo las que traen `drill`). */
   readonly drill = output<string>();
 

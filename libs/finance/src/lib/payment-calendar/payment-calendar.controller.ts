@@ -104,7 +104,7 @@ export class PaymentCalendarController {
     @Query('offset') offset?: string,
     @Query('prontoPago') prontoPago?: 'por_vencer' | 'capturable',
     /** `[PGP.7]` El orden de Pronto pago, dentro del Calendario: por fecha limite del descuento. */
-    @Query('orden') orden?: 'vencimiento' | 'descuento',
+    @Query('orden') orden?: 'vencimiento' | 'descuento' | 'cercania',
   ) {
     return this.svc.listObligations({
       source, classification, search, dueFrom, dueTo,
