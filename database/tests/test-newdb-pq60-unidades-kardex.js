@@ -150,7 +150,7 @@ const t = (name, cond, extra) => {
   } catch (err) {
     bad++; console.log('  ✘ excepción:', err.message);
   } finally {
-    await c.query('ROLLBACK').catch(() => {});
+    await c.query('ROLLBACK').catch(() => undefined); // ya revertida o sin conexión: nada que deshacer
     await c.end();
   }
   console.log(`\n${ok} ✔ · ${bad} ✘`);
