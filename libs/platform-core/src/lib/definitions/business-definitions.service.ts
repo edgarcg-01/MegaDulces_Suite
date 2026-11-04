@@ -1,6 +1,7 @@
 import {
   BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException,
 } from '@nestjs/common';
+import type { Knex } from 'knex';
 import {
   resolverDefinicion, validarRespuesta,
   type ActualizarDefinicion, type ContestarDefinicion, type DefinicionResuelta, type DefinicionVista,
@@ -193,7 +194,7 @@ export class BusinessDefinitionsService {
 
   /** La lectura común: preguntas + todas sus respuestas, resueltas con la regla del contrato. */
   private async leer(
-    trx: any,
+    trx: Knex.Transaction,
     f: { consumer?: string; assignedTo?: string; id?: string; key?: string; fecha?: string },
   ): Promise<DefinicionVista[]> {
     // El «hoy» sale de la base y en hora de México: `new Date()` es UTC y adelanta el día de noche.
@@ -202,7 +203,7 @@ export class BusinessDefinitionsService {
     const fecha = f.fecha ?? h.hoy;
 
     const q = trx('platform.business_definitions as d')
-      .leftJoin('identity.users as u', function (this: any) {
+      .leftJoin('identity.users as u', function (this: Knex.JoinClause) {
         this.on('u.id', '=', 'd.assigned_to').andOn('u.tenant_id', '=', 'd.tenant_id');
       })
       .whereNull('d.deleted_at')
