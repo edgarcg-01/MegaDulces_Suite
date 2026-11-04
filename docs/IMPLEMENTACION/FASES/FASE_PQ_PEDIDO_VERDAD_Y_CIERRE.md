@@ -1098,6 +1098,36 @@ por proveedor ni cumplimiento.
 
 Las C0 (PQ.41, PQ.43, PQ.47, PQ.49, PQ.51, PQ.55) son de sólo lectura y no esperan a nadie.
 
+### 17.5 Avance del 2026-11-04 (orden invertido)
+
+| Item | Estado | Qué quedó |
+|---|---|---|
+| PQ.52 | 🧪 `1fc415adf` | 12 reglas de texto ámbar a `--warn-soft-fg` (7.09:1). Eran 12, no ~8: el grep de la auditoría no veía `var(--warn-fg, var(--text-muted))` |
+| PQ.53 | 🧪 `d41173e6e` | Los 4 errores de carga son `LoadState` (`role="alert"` + Reintentar, también en «órdenes en camino», que no lo tenía). Deuda §2 quitada, con prueba negativa. Tipos de plantilla con control (`check-template-types.js`: `metodoQueNoExiste` → TS2339; limpio, verde). 112/112 vitest. ⛔ **Corrección:** la pantalla ya tenía 9 `role="status"` y 4 `role="alert"`; el «0 aria-live» contaba sólo el atributo. ⚠️ `npx ngc --noEmit` a secas **no** tipa plantillas: el control pasó en verde y se descartó |
+| PQ.54 | ⚠️ | `context-help.dictionary.ts` tiene cambios de otra sesión; un commit se los llevaría. Espera a que esa sesión haga commit |
+| PQ.57 | ✅ | PQ.31–PQ.40 en el tracker: los diez commits están en el build de prod `7db184b1f`, y `mv_kepler_bought_rung` (PQ.40) existe con 5,954 filas |
+| PQ.49 | 🧪 C0 | Tabla de abajo. ⛔ **Corrección:** `last_purchase` sale de `analytics.purchase_velocity`, ventana de **90 días** (6-ago a 3-nov): son «sin compra en 90 d», no «nunca comprados» |
+| PQ.48 | C0 hecho, C1 en espera | Diferencia medida hoy: 3,458 pares con existencia en la copia y cero en la vista, 205 al revés. Cambiar la fuente de la foto es un cron que **escribe** y es de AB: va con su dueño, con prueba contra base real, junto con D17 |
+| PQ.55 · PQ.56 | ⚠️ | Esperan la lectura de logs de la API (bloqueada a la sesión) y una sesión de prueba en la pantalla |
+
+**PQ.49 — los 191 productos sugeridos sin compra en 90 días** (cada uno en la primera clase que cumple):
+
+| Clase | Productos | Pares | Sugerido aprox. |
+|---|---:|---:|---:|
+| Venta única: un día es 50 % o más de su venta del mes (C-3, PQ.47) | 28 | 31 | ~$528 mil |
+| Alta nueva: primera venta hace menos de 120 días | 13 | 20 | ~$26 mil |
+| Su proveedor no tiene ninguna compra en 90 días | 11 | 21 | ~$10 mil |
+| Su proveedor sí compra, este producto no (vende de existencia de más de 90 días) | 139 | 239 | ~$220 mil |
+
+Lectura: lo que cuesta es la venta única, y ya tiene su corrección (PQ.47). Las 139 no son un
+error por sí mismas: pedir lo que se vende es correcto aunque no se haya comprado en 90 días. Si
+el proveedor lo dejó de surtir es otro hecho, **NO MEDIDO** (necesita el catálogo del proveedor).
+
+⭐ **Decisión del PM (2026-11-04): el orden se invierte** — *«empecemos de prioridad 3 y 4 a
+prioridad 1»*. Se trabaja PQ.52 → PQ.53 → PQ.54 → PQ.57 → PQ.49 → PQ.48 → PQ.55/PQ.56 (éstas dos
+esperan logs y una sesión de prueba) y después las de prioridad 2 y 1. Queda escrito porque va en
+contra de la regla dinero × esfuerzo (`pm/criterios.md` §1: la decisión del PM manda y se registra).
+
 ---
 
 ## 10. Bitácora
