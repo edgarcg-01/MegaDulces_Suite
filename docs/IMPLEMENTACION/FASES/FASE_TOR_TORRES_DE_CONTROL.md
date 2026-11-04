@@ -106,6 +106,56 @@ terciario = notas y edad de cada celda.
 | Escritorio `.249` (Windows, requiere sesión) | — | ❌ NO MEDIDO → TOR.0.3 |
 | Mesa de Servicio | `servicedesk.requests` | ✅ |
 
+#### 3.1-bis Lo que Sistemas tiene que saber de Kepler (medido 2026-11-04, 30 días)
+
+Las preguntas de Sistemas, tal como las hizo Edgar: *¿cómo sé cuándo se cae un servidor? ¿qué
+alerta tengo? ¿cómo sé qué falló?*
+
+**El camino del dato.** 9 servidores Kepler (Postgres, uno por sucursal) → réplica lógica a la
+fuente de `md` `:5433` (9 suscripciones) → ODS en prod (`ods_live_*`, cada ~10 s) → la suite.
+Aparte, `store_poller` se conecta **directo** a cada servidor cada ~25 s (tienda en vivo), y por
+`.249` pasan CEDIS (Access 97), Wincaja y el push de las camionetas.
+
+**1. ¿Cómo sé que se cayó un servidor? Hoy, no te enteras.** Hay dos señales que sí lo ven:
+
+| Señal | Qué ve | Lo que mostró en 30 días |
+|---|---|---|
+| Bitácora de `store_poller` (`cron_run_log`) | cada intento de conexión fallido, **con la sucursal y el motivo** | 8,305 fallas (8,215 con sucursal). **16 episodios de 10 min o más.** El peor: **Morelia Madero, del 19-oct 09:32 al 20-oct 16:11, ~30 h seguidas con la tienda abierta** (lento, no inalcanzable). **Morelia Abastos inalcanzable toda la noche del 15 al 16-oct** (11 h). Canindo, Yurécuaro y CEDIS, de 1 a 3 h |
+| Réplica lógica (`pg_stat_subscription` en `:5433`) | segundos desde el último mensaje de cada servidor (hay latido aunque no haya ventas) | hoy, las 9 a menos de 30 s. **Sin historia**: sólo se ve el instante, y la API de prod no la alcanza |
+| Sensor `kepler_ods_branch_stale` (existe) | la sucursal con la venta más vieja del día, de 10:00 a 21:30 | **falsa alarma cada noche** por Canindo (deja de vender ~17:10) y rotula «activas 8/6» (escrito para 6 sucursales) |
+
+⚠️ Un *timeout* del poller no prueba que el servidor esté apagado: puede ser lento o la red
+saturada. *Inalcanzable* (`EHOSTUNREACH`) sí apunta a red o servidor apagado. La pantalla tiene que
+decir cuál de los dos es, no «caído» para todo.
+
+**2. ¿Qué alerta tengo? Ninguna fuera de la pantalla.** En 30 días se abrieron **633 alertas
+(244 críticas) y no se notificó ninguna** (`last_notified_at` vacío en todas). El aviso por correo
+(DBH.3) y por WhatsApp (OBS.5.2) están escritos y **apagados**: les faltan destinatarios y la
+plantilla aprobada en Meta (`DB_HEALTH_ALERT_PHONES`, `DB_HEALTH_WA_TEMPLATE`). El toast de la
+suite sólo lo ve quien tiene la pantalla abierta.
+
+**3. ¿Cómo sé qué falló?** Las fallas de Kepler que se pueden distinguir, y si hoy se miden:
+
+| Falla | Cómo se ve | ¿Se mide hoy? |
+|---|---|---|
+| Servidor o red caídos | el poller da *inalcanzable* y la réplica deja de recibir | ✅ poller · 🟡 réplica sólo en `md` |
+| Servidor lento o saturado | el poller da *timeout*; la réplica sigue | ✅ poller |
+| Réplica rota (conflicto al aplicar) | `apply_error_count` sube y la suscripción puede detenerse | 🟡 sólo en `md`. Acumulados hoy: CEDIS 3, Canindo 1, 8 Esquinas 1 |
+| Réplica viva, dato congelado | mensajes llegan pero no hay ventas nuevas en horario | 🟡 el sensor existe, sin horario por sucursal |
+| **Disco del servidor Kepler** | si `md` deja de consumir, el slot retiene WAL en la sucursal **hasta llenar su disco y tirar la caja** (runbook de replicación §0.3) | ❌ sólo se ve en cada servidor (`pg_replication_slots`) |
+| Servidor reiniciado | arranque reciente | ❌ (`pg_postmaster_start_time()` en cada servidor) |
+| Actualización de Kepler que quita una tabla de la publicación | esa tabla deja de replicar **en silencio** (runbook §0-bis) | ❌ (`pg_publication_tables` contra la lista esperada) |
+| `md` mismo caído | todo lo anterior a la vez | ✅ watchdog; el reinicio completo del 1-nov 22:02 no lo dijo ninguna pantalla |
+
+**Lo que esto agrega a C0:**
+
+| # | Item | Estado | Verificado contra |
+|---|---|---|---|
+| TOR.0.8 | **Disponibilidad por servidor** derivada de la bitácora de `store_poller`: episodios por sucursal con inicio, fin, duración y tipo (*inalcanzable* / *lento*) — vista sobre `cron_run_log`, sin copia | ⬜ | el episodio de Morelia Madero del 19–20-oct |
+| TOR.0.9 | **Sonda en cada servidor Kepler** (desde `md`, sólo lectura): WAL retenido por el slot y `safe_wal_size`, arranque, tablas publicadas contra la lista esperada | ⬜ | `pg_replication_slots` leído a mano en una sucursal |
+| TOR.0.10 | **Horario por sucursal** como definición configurable (DP), para que «no vende» no se confunda con «no replica» | ⬜ | la falsa alarma nocturna de Canindo desaparece |
+| TOR.0.11 | **Que la alerta llegue**: prender correo y/o WhatsApp con destinatarios de Sistemas | ⬜ | una falla provocada llega al teléfono (prueba negativa) |
+
 ### 3.2 Torre de Desarrollo — nuestra infraestructura
 
 **La frase:** *¿producción está sana y al día con `main`, y qué rompimos?*
@@ -205,6 +255,8 @@ dibuja **NO MEDIDO**, nunca verde.
 | D4 | **Errores de la app** | confirmar si Sentry está prendido en prod · prenderlo (Fase A.1, ⏸️) · dejarlo NO MEDIDO | Confirmar primero; mientras, «NO MEDIDO» visible |
 | D5 | **Dueño de cada carril** | nombres por carril | Necesito los nombres de Sistemas y de los 4 devs por carril |
 | D6 | **Mesa de Servicio** | en la torre de Sistemas · aparte | En la torre, como fila de la bandeja con enlace al ticket |
+| D7 | **Por dónde llega la alerta** (TOR.0.11) | WhatsApp (plantilla aprobada en Meta) · correo · los dos | **Los dos**: el correo se puede prender ya; WhatsApp necesita que alguien dé de alta la plantilla. Necesito los teléfonos y correos de Sistemas |
+| D8 | **Sonda en los servidores Kepler** (TOR.0.9) | conectar desde `md` con un rol de sólo lectura · no tocarlos | Conectar con sólo lectura: es la única forma de ver el disco de la sucursal antes de que tire la caja. Son servidores de terceros: confirmar que se puede |
 
 ---
 
