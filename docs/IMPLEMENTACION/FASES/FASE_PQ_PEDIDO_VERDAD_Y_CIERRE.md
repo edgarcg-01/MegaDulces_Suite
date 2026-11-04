@@ -1087,7 +1087,7 @@ por proveedor ni cumplimiento.
 
 | # | Decisión | Opciones | Recomendación |
 |---|---|---|---|
-| D29 | Los traspasos aprobados que nadie ejecutó (C-11) | (a) cerrarlos con motivo «no se ejecutó» pasado el plazo · (b) dejarlos como están · (c) esperar a que D28 esté encendida | **(a)**, una vez y después de forma automática: la mesa ya no los muestra pasado el plazo y en Pedido sólo estorban. Escribe en prod: firma de Edgar |
+| D29 | Los traspasos aprobados que nadie ejecutó (C-11) | (a) cerrarlos con motivo «no se ejecutó» pasado el plazo · (b) dejarlos como están · (c) esperar a que D28 esté encendida | ✅ **Firmada (a), PM 2026-11-04**, una vez y después de forma automática: la mesa ya no los muestra pasado el plazo y en Pedido sólo estorban. Escribe en prod: antes de correr, prueba contra base real con el mismo camino (regla 13) y fuera de horario hábil |
 
 ### 17.4 El orden
 
@@ -1171,8 +1171,8 @@ con un año de historia.
 
 | # | Decisión | Opciones | Recomendación |
 |---|---|---|---|
-| D30 | En producto de temporada, ¿qué error cuesta más? | (a) pedir de más: queda mercancía parada hasta el año siguiente · (b) pedir de menos: se pierde venta · (c) igual | **(a)**: aplicar la regla dirigida (§17.6 punto 3) sólo donde el año pasado se desplomó, con el aviso «Fin de temporada: el año pasado en noviembre vendió X» y la cantidad editable (D27) |
-| D31 | La venta de un cliente que no compraba ese producto | (a) sale del promedio y la pantalla la nombra («Incluye una venta única a BOLSAS DE LOS ALTOS el 16-oct») · (b) se queda · (c) sólo se avisa | **(a)** cuando sea 50 % o más del mes; **(c)** para mostrador «CONTADO», que no tiene cliente con quién comprobarlo |
+| D30 | En producto de temporada, ¿qué error cuesta más? | (a) pedir de más: queda mercancía parada hasta el año siguiente · (b) pedir de menos: se pierde venta · (c) igual | ✅ **Firmada (a), PM 2026-11-04**: aplicar la regla dirigida (§17.6 punto 3) sólo donde el año pasado se desplomó, con el aviso «Fin de temporada: el año pasado en noviembre vendió X» y la cantidad editable (D27) |
+| D31 | La venta de un cliente que no compraba ese producto | (a) sale del promedio y la pantalla la nombra («Incluye una venta única a BOLSAS DE LOS ALTOS el 16-oct») · (b) se queda · (c) sólo se avisa | ✅ **Firmada, PM 2026-11-04: (a)** cuando sea 50 % o más del mes; **(c)** para mostrador «CONTADO», que no tiene cliente con quién comprobarlo |
 
 ⭐ **Decisión del PM (2026-11-04): el orden se invierte** — *«empecemos de prioridad 3 y 4 a
 prioridad 1»*. Se trabaja PQ.52 → PQ.53 → PQ.54 → PQ.57 → PQ.49 → PQ.48 → PQ.55/PQ.56 (éstas dos
@@ -1181,10 +1181,72 @@ contra de la regla dinero × esfuerzo (`pm/criterios.md` §1: la decisión del P
 
 ---
 
+## 18. Unidades de medida al 100 %: verificado o con dueño (2026-11-04)
+
+Pedido del PM: *«aún existen productos con un símbolo de advertencia»* → *«investiguemos si
+podemos tener un 100 % de unidades de medida correctas»* → *«¿e históricos?»* → **aprobó el plan
+y la tabla de historia de fichas.**
+
+### 18.1 ⛔ Choque de código: PQ.58 es el commit que dice «PQ.41»
+
+El árbitro del peldaño por unidad asentada se escribió como **PQ.41** sin ver que §16.2 ya usaba
+ese código para el backtest de temporada. Ya está en prod (`7b438a6c1`, archivo
+`20261104094527_pq41_arbitro_peldano_por_unidad_asentada.js`): el archivo **no se renombra** (lo
+nombra el ledger). **En el tracker y en este documento vale PQ.58**; PQ.41 sigue siendo la temporada.
+
+### 18.2 Lo medido (prod, sólo lectura)
+
+**Kepler no verifica unidades, las registra.** Cada movimiento copia el factor de la ficha al
+capturarse; la existencia (`kdil`) es la suma cruda del kardex sin convertir rótulos (§ERP_KEPLER
+3.x); el precio por caja es su propio número en la ficha. Lo que corrige el error es una persona
+contando: el 97392 entró como 708 «CJA» y un `N-A-30` del 30-sep sumó 16,992 PAQ
+(708 + 16,992 = 708 × 25; la ficha dice 10). Pedido cruza lo que Kepler nunca cruza, y por eso se
+le ven las contradicciones.
+
+**Estado por almacén × producto con existencia** (kardex desde el último conteo + compras X-A-40
+asentadas en la base por precio, 365 d):
+
+| Estado | Productos | Valor |
+|---|---:|---:|
+| A · verificado: existencia en una unidad y caja confirmada por compra | 4,202 | $62.0 M |
+| B · coherente, la caja no se prueba con la compra | 1,254 | $4.6 M |
+| C · existencia MEZCLADA desde el último conteo (ZUKO 48xxx) | 315 | $1.6 M |
+| D · caja contradicha (compra en un tamaño que la ficha no tiene: 99891 ficha 6, compra 9) | 5 | $0.1 M |
+
+El triángulo de hoy no es este estado: marca 92 celdas de A y ninguna de D.
+
+**Testigos que se descartaron, con su medida:** el CFDI del proveedor liga 18 % de los renglones
+de entrada (placebo +$1: 286 contra 4,411) y casi siempre factura en «caja», la unidad capturada:
+confirma la caja y su precio, no cuántas piezas trae. Recepción 360 tiene 38 sesiones. Los
+conteos de `inventory_count_items` no guardan unidad.
+
+**Historia:** venta `U-D` asentada en una unidad que la ficha de HOY ya no tiene: ~12 % del
+importe en nov–dic 2025, 8 % ene–mar, 3.5 % abr–jun, 1.2 % jul–sep, 0.4 % oct. El importe está
+bien; la cantidad de esos renglones no se puede convertir con la ficha de hoy, y
+`mv_kepler_sales_daily` multiplica lo asentado en CJA por la caja **actual** (retroactivo: PQ.40
+cambió hacia atrás las cajas de sus 41 productos). Kepler no guarda historia de la ficha.
+
+### 18.3 Los items
+
+| Item | Capa | Qué | Árbitro |
+|---|---|---|---|
+| PQ.58 | C0 ✅ | Árbitro del peldaño por unidad asentada (archivo `pq41`): 428 → 316 celdas, ninguna nueva | aplicado 2026-11-04, `[PQ.41] celdas sin valuar: 428 -> 316` |
+| PQ.59 | C0 | Historia de fichas: `analytics.kepler_ficha_history` mantenida por trigger sobre `kepler_ods.kdii` (sólo cuando cambian unidades, factores o costos) | prueba contra Postgres real en el CI; en prod, una fila inicial por ficha |
+| PQ.60 | C0 | Estado de unidades por almacén × producto (A/B/C/D) en una vista; reemplaza al triángulo como veredicto | controles: 97392 → B, 48067 → C, 99891 → D |
+| PQ.61 | C0 | Venta histórica convertida por renglón (factor del renglón, nunca el de hoy); lo no convertible se declara | antes/después de cajas vendidas y del sugerido, fuera de horario |
+| PQ.62 | C1 | B → pregunta a Compras («¿cuántas trae la caja?») con Definiciones de negocio, por valor | contestar = configurar |
+| PQ.63 | C1 | C → cola de conteo de Inventario Continuo | sólo un `N-A-30` arregla la existencia |
+| PQ.64 | C0 | Aviso por evento: movimiento de kardex en una unidad que no es la base | por trigger, no nocturno |
+| PQ.65 | C3 | Pedido muestra el estado (con su acción) en vez del triángulo y valúa todo con la fórmula de Kepler | `diseno` + `check:pantalla` |
+| PQ.66 | deuda | `mv_kepler_bought_rung` (PQ.40) se refresca de noche: contra la regla de «nada nocturno» | pasar a evento |
+
+---
+
 ## 10. Bitácora
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-04 | «Aún existen productos con advertencia» → «¿100 %?» → «¿e históricos?» → **§18**: PQ.58 ✅ en prod (el commit dice PQ.41: choque de código, §18.1), estado A/B/C/D medido (91 % del valor verificado), plan PQ.59–PQ.66; el PM aprobó la tabla de historia de fichas | Claude |
 | 2026-11-04 | Prioridad 2 (§17.6): **PQ.47 🧪 C0**: de 83 ventas únicas, 49 son de clientes que no compraban ese producto ($1.62 M en un día); 17499 = venta a BOLSAS DE LOS ALTOS, que es proveedor. **PQ.41 🧪 C0**: el factor de temporada sólo mejora 0–6 % al pronóstico ingenuo; copiar el año pasado es 38 % peor; la regla dirigida quita ~95 % de lo pronosticado de más en lo que se desplomó. Nacen **D30** (¿qué error cuesta más?) y **D31** (venta única fuera del promedio) | PM + sesión Claude |
 | 2026-11-04 | «Documentemos todos los hallazgos y hagámoslos correcciones» → **§17**: 24 correcciones (C-1…C-24) en cuatro frentes, cada una con item, capa, árbitro y prioridad; items nuevos PQ.47–PQ.57 y D29 sin firma. Hallazgo nuevo: **venta extraordinaria única** proyectada como diaria (17499: una venta de 19,899 rollos; en la red 76 pares, $1.05 M en un día). Corregido en §15.5 lo dicho de 17499 | PM + sesión Claude |
 | 2026-11-04 | PM firmó **D25–D28**. **PQ.42 🧪** (§16.5): el día sin foto es agotado (A vende 65.5 % de los días con existencia contra 16.3 % sin ella); el motor no ve ~$2.38 M de venta en 21 d. La foto lee la copia `commercial.stock` y el motor la vista del ODS | PM + sesión Claude |
