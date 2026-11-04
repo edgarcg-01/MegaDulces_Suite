@@ -1210,6 +1210,43 @@ Items nuevos: **PQ.58** (Edgar) — el `GRANT` en 8 Esquinas y medir 02, 04 y 05
 compren ahí · **PQ.59** — la limpieza de D32 · **PQ.60** — que una requisición escrita a mano en
 Kepler también se ligue sola (mismo proveedor, sucursal y productos), para que no vuelva a pasar.
 
+### 17.9 PQ.43 — la mesa contra Pedido, con el código desplegado (2026-11-04, prioridad 1)
+
+**Instrumento:** los dos servicios **de la versión de prod** (`git archive 7db184b1f`, armados con
+esbuild), llamados igual que la pantalla —`workbook` de Pedido con la cobertura que declara la mesa
+de cada sucursal, y `AutoabastoPedidoService.pedido` de la mesa— contra prod en sólo lectura
+(`default_transaction_read_only`, `system_identifier` verificado). Sin backend levantado. Reemplaza
+a `ab25-mesa-vs-pedido.js`, que copiaba el texto del motor del 13-oct.
+
+⛔ **Corrección de §15.2:** la mesa no usa 21 días en todas: **30 en Padre Hidalgo, Canindo y
+Morelia Abastos**, 21 en las otras cinco.
+
+| | Renglones | Cajas | Monto aprox. |
+|---|---:|---:|---:|
+| Productos con falta en alguna de las dos (8 sucursales) | 6,014 | | |
+| Dan lo mismo (±0.5 caja) | **4,462 (74 %)** | | |
+| **Pedido lo pide y la mesa no lo lista** | 670 | 5,351 | $2.97 M |
+| Pedido infla por cumplimiento del proveedor (la mesa no) | 603 | 1,943 | $1.26 M |
+| La mesa resta un traspaso o pedido en camino; Pedido no | 162 | 617 | $0.25 M |
+| Sin explicar | 117 | 2,695 | $0.25 M |
+
+**La diferencia grande es CUÁNDO se pide, no cuánto.** La mesa parte de `criticalStock`: sólo
+lista lo que está **en o bajo su punto de reorden**. Pedido pide **todo lo que falte para el
+objetivo** (venta × cobertura), aunque esté arriba del reorden. Caso: `70001 LA ROSA MAZAPAN /30`
+en Padre Hidalgo, 1,392 piezas contra reorden 800 y objetivo 56 × 30 = 1,682 → Pedido pide 14.5
+cajas, la mesa nada. ⚠️ Se descartó primero que fueran productos sin política: 717 de 718 sí la
+tienen.
+
+**Se confirma C-3 en las dos pantallas:** `17499 BOLSA ROLLO NATURAL` sale hoy con **19,899 rollos
+en Pedido y en la mesa** de Padre Hidalgo (la venta única a BOLSAS DE LOS ALTOS).
+
+| # | Decisión | Opciones | Recomendación |
+|---|---|---|---|
+| D33 | ¿Cuándo se pide un producto? | (a) al llegar al punto de reorden, hasta el objetivo (la mesa hoy) · (b) siempre que falte para el objetivo (Pedido hoy) · (c) (a) para traspasos y (b) sólo el día que toca el proveedor | **(a) en las dos**, mientras la agenda de proveedores no tenga fechas confiables (PQ.3; 25 % de canales regulares). Pedir arriba del reorden son pedidos chicos y frecuentes de lo que todavía alcanza; (c) se retoma con la agenda capturada |
+
+Con D25, D26 y D33 firmadas, PQ.44 (una sola función de falta) tiene sus tres reglas; lo «sin
+explicar» se revisa con esa función ya escrita.
+
 ⭐ **Decisión del PM (2026-11-04): el orden se invierte** — *«empecemos de prioridad 3 y 4 a
 prioridad 1»*. Se trabaja PQ.52 → PQ.53 → PQ.54 → PQ.57 → PQ.49 → PQ.48 → PQ.55/PQ.56 (éstas dos
 esperan logs y una sesión de prueba) y después las de prioridad 2 y 1. Queda escrito porque va en
@@ -1283,6 +1320,7 @@ cambió hacia atrás las cajas de sus 41 productos). Kepler no guarda historia d
 | Fecha | Qué pasó | Quién |
 |---|---|---|
 | 2026-11-04 | «Aún existen productos con advertencia» → «¿100 %?» → «¿e históricos?» → **§18**: PQ.58 ✅ en prod (el commit dice PQ.41: choque de código, §18.1), estado A/B/C/D medido (91 % del valor verificado), plan PQ.59–PQ.66; el PM aprobó la tabla de historia de fichas | Claude |
+| 2026-11-04 | **PQ.43 🧪 C0** (§17.9), con los dos servicios de la versión de prod en sólo lectura: 74 % de los 6,014 productos con falta dan lo mismo. La diferencia grande es **cuándo** se pide: la mesa sólo lista lo que está en o bajo reorden, Pedido todo lo que falta para el objetivo (670 renglones, $2.97 M). La bolsa 17499 sale con 19,899 rollos en las dos. Nace **D33** | PM + sesión Claude |
 | 2026-11-04 | PM firmó **D29, D30, D31**. **PQ.51 🧪 C0** (§17.8): de las 85 compras aprobadas sin documento, 38 ($4.08 M) ya están en Kepler hechas a mano, 35 no existen, 12 por revisar; nadie las liga porque PQ.25 sólo liga lo que la Suite escribió. **Hallazgo vivo:** RQ-2026-01881 (8 Esquinas, $389,926) falló por falta de `GRANT` en `kdxd`; desde el 29-oct es la única de 64. Nacen **D32**, PQ.58–PQ.60 | PM + sesión Claude |
 | 2026-11-04 | Prioridad 2 (§17.6): **PQ.47 🧪 C0**: de 83 ventas únicas, 49 son de clientes que no compraban ese producto ($1.62 M en un día); 17499 = venta a BOLSAS DE LOS ALTOS, que es proveedor. **PQ.41 🧪 C0**: el factor de temporada sólo mejora 0–6 % al pronóstico ingenuo; copiar el año pasado es 38 % peor; la regla dirigida quita ~95 % de lo pronosticado de más en lo que se desplomó. Nacen **D30** (¿qué error cuesta más?) y **D31** (venta única fuera del promedio) | PM + sesión Claude |
 | 2026-11-04 | «Documentemos todos los hallazgos y hagámoslos correcciones» → **§17**: 24 correcciones (C-1…C-24) en cuatro frentes, cada una con item, capa, árbitro y prioridad; items nuevos PQ.47–PQ.57 y D29 sin firma. Hallazgo nuevo: **venta extraordinaria única** proyectada como diaria (17499: una venta de 19,899 rollos; en la red 76 pares, $1.05 M en un día). Corregido en §15.5 lo dicho de 17499 | PM + sesión Claude |
