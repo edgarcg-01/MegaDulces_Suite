@@ -315,7 +315,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                   @if (prontoNoCabe()) { No cabe todo en lo libre del día: si hay que escoger, primero el de mayor %. }
                   <span class="pg-pp-src">El % es el que cada proveedor nos descontó en el último año cuando se le pagó a tiempo (Kepler): es lo que pasó, no un acuerdo firmado.</span>
                 </p>
-                @for (g of prontoGrupos(); track g.cierra) {
+                @for (g of prontoVisibles(); track g.cierra) {
                   <div class="pg-pp-gr">
                     <button type="button" class="pg-pp-gh" [class.is-urge]="g.dias <= 1" [attr.aria-expanded]="prontoAbierto(g)" (click)="togglePronto(g)">
                       <i class="pi" [class.pi-angle-down]="prontoAbierto(g)" [class.pi-angle-right]="!prontoAbierto(g)" aria-hidden="true"></i>
@@ -358,6 +358,14 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                       </ul>
                     }
                   </div>
+                }
+                <!-- [PGP.61] Los demás días, en UNA línea que dice qué hay adentro (plegar no es esconder). -->
+                @if (prontoResto().dias) {
+                  <button type="button" class="pg-pp-mas" [attr.aria-expanded]="prontoVerTodos()" (click)="prontoVerTodos.set(!prontoVerTodos())">
+                    <i class="pi" [class.pi-angle-down]="prontoVerTodos()" [class.pi-angle-right]="!prontoVerTodos()" aria-hidden="true"></i>
+                    @if (prontoVerTodos()) { Ver sólo los 3 días que cierran primero }
+                    @else { {{ prontoResto().dias === 1 ? '1 día más' : prontoResto().dias + ' días más' }} · {{ acreedores(prontoResto().acreedores) }} · <span class="comm-num">{{ money(prontoResto().importe) }}</span> · ganas <span class="comm-num">{{ money(prontoResto().gana) }}</span> }
+                  </button>
                 }
               }
             </section>
@@ -1079,7 +1087,8 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
        Ahora:  neutro por default · naranja (--action) SOLO en el boton principal ·
                rojo (--bad) SOLO para lo que esta mal (rebote, tope excedido).
        El estado lo dicen la palabra y el icono, no el tono (regla #5 y forced-colors). ══ */
-    .cal-page { gap:var(--sp-3); }
+    /* [PGP.61] sp-3 → sp-2: el marco (migas, pestañas, semana) se llevaba ~24 % del alto antes del veredicto. */
+    .cal-page { gap:var(--sp-2); }
     .cal-date-input { padding:var(--sp-1) var(--sp-2); border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); color:var(--text-main); font-size:var(--fs-sm); }
     .cal-muted { color:var(--text-faint); }
     .cal-neg, .cal-bad-txt { color:var(--bad-soft-fg); }
@@ -1175,7 +1184,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     /* Los 7 dias en una fila; si no caben, la FILA se desplaza de lado: la pantalla no crece. */
     .pg-days { display:flex; gap:var(--sp-1); overflow-x:auto; scroll-snap-type:x proximity; }
     .pg-day { all:unset; box-sizing:border-box; cursor:pointer; flex:1 1 0; min-width:10.5rem; display:grid; gap:1px;
-      padding:5px var(--sp-2); border:1px solid transparent; border-radius:var(--r-sm); scroll-snap-align:start; }
+      padding:3px var(--sp-2); border:1px solid transparent; border-radius:var(--r-sm); scroll-snap-align:start; }
     .pg-day:hover { background:var(--overlay-hover); }
     .pg-day:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
     /* El dia elegido: fondo y borde del color del TEXTO, no naranja. El naranja es del boton principal. */
@@ -1493,6 +1502,12 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-pp-why { margin:var(--sp-1) 0 var(--sp-2); font-size:var(--fs-sm); max-width:72ch; }
     .pg-pp-src { display:block; margin-top:2px; font-size:var(--fs-xs); color:var(--fg-3); }
     .pg-pp-gr { border-top:1px solid var(--border-color); }
+    /* [PGP.61] La línea de «N días más»: neutra, con su cuenta, del ancho de un grupo. */
+    .pg-pp-mas { all:unset; box-sizing:border-box; cursor:pointer; display:flex; align-items:center; gap:var(--sp-2); width:100%;
+      padding:6px var(--sp-1); border-top:1px solid var(--border-color); font-size:var(--fs-sm); color:var(--text-muted); }
+    .pg-pp-mas:hover { background:var(--overlay-hover); }
+    .pg-pp-mas:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
+    .pg-pp-mas .comm-num { color:var(--text-main); font-weight:600; }
     .pg-pp-gh, .pg-pp-go { all:unset; box-sizing:border-box; cursor:pointer; width:100%; display:grid; align-items:baseline;
                            gap:var(--sp-2); padding:4px var(--sp-1); font-size:var(--fs-sm); border-radius:var(--r-sm); }
     .pg-pp-gh { grid-template-columns:1rem minmax(0,1fr) 9rem 7rem 4rem 5.5rem; font-weight:600; }
@@ -2549,6 +2564,26 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       g.gana += Number(r.gana || 0);
     }
     return out;
+  });
+  /**
+   * `[PGP.61]` **Los 3 días que cierran primero; el resto, en una línea con su cuenta** (Edgar,
+   * 2026-11-04: *«no debemos mostrar tantos, 2 o 3 en pronto pago está más que perfecto»*). Eran 8
+   * grupos, ~370 px. Plegar no es esconder: la línea dice cuántos días, acreedores, importe y cuánto
+   * se gana adentro, y el total de arriba («en los próximos 7 días ganas») sigue contándolos.
+   */
+  readonly prontoVerTodos = signal(false);
+  readonly prontoVisibles = computed(() => {
+    const gs = this.prontoGrupos();
+    return this.prontoVerTodos() ? gs : gs.slice(0, 3);
+  });
+  readonly prontoResto = computed(() => {
+    const resto = this.prontoGrupos().slice(3);
+    return {
+      dias: resto.length,
+      acreedores: resto.reduce((s, g) => s + g.filas.length, 0),
+      importe: resto.reduce((s, g) => s + g.importe, 0),
+      gana: resto.reduce((s, g) => s + g.gana, 0),
+    };
   });
   /** Lo que cierra hoy o mañana: lo único que no puede esperar. */
   readonly prontoUrgente = computed(() => {
