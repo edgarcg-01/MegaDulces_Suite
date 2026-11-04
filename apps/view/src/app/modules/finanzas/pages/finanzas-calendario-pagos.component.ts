@@ -1036,6 +1036,24 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
       </div>
     </p-dialog>
 
+    <!-- [PGP.70] Quitar un pago del día. Era la ✕ de la fila con UN clic, sin deshacer: se perdía la
+         preparación (método y cuentas) y, para volver a pagarlo, había que buscar y agregar sus facturas
+         otra vez. Si lo que cambia es la fecha, «Mover a otro día» conserva la preparación. -->
+    <p-dialog [visible]="!!quitarObjetivo()" (visibleChange)="$event || quitarObjetivo.set(null)" [modal]="true" header="Quitar del día" [style]="{ width: '30rem' }">
+      @if (quitarObjetivo(); as a) {
+        <p class="cal-dlg-p"><strong>{{ allocationTitle(a) }}</strong> · <span class="comm-num">{{ money(a.amount_assigned) }}</span></p>
+        <p class="cal-dlg-hint">{{ a.items.length === 1 ? 'Su factura regresa' : 'Sus ' + a.items.length + ' facturas regresan' }} a lo que se debe. Para pagarlo otro día habría que volver a agregar{{ a.items.length === 1 ? 'la' : 'las' }} con «Agregar facturas».</p>
+        @if (prepared(a)) {
+          <p class="cal-dlg-hint cal-habito-nm"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> Se pierde su preparación: {{ comoSale(a).texto }}. Si sólo cambia la fecha, muévelo: conserva método y cuentas.</p>
+        }
+        <div class="cal-dlg-actions">
+          <button pButton type="button" class="p-button-text p-button-secondary" (click)="quitarObjetivo.set(null)">Cancelar</button>
+          <button pButton type="button" class="p-button-outlined p-button-secondary" [disabled]="saving()" (click)="quitarObjetivo.set(null); openReprogram(a)"><span class="pi pi-calendar" aria-hidden="true"></span>&nbsp;Mover a otro día</button>
+          <button pButton type="button" class="p-button-danger" [disabled]="saving()" [loading]="saving()" (click)="confirmarQuitar()">Quitar del día</button>
+        </div>
+      }
+    </p-dialog>
+
     <!-- [PGP.51] Quitar lo que el ERP ya no debe: qué sale, completo o en parte, antes de apretar. -->
     <p-dialog [visible]="saldadasVisible()" (visibleChange)="saldadasVisible.set($event)" [modal]="true" header="Quitar lo que el ERP ya no debe" [style]="{ width: '34rem' }">
       <p class="cal-dlg-p">De lo comprometido hoy, el ERP ya no debe <b class="comm-num">{{ money(saldadasDelDiaTotal()) }}</b>: se pagó por fuera o tiene nota de crédito, y marcarlo pagado fallaría.</p>
@@ -1089,24 +1107,6 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
         <p class="cal-dlg-hint">Cada pago va al primer día siguiente que todavía tiene espacio en su tope. Para elegir otra fecha, muévelo desde su fila.</p>
       } @else {
         <label class="cal-dlg-label" for="cal-rep-date">Nueva fecha</label>
-    <!-- [PGP.70] Quitar un pago del día. Era la ✕ de la fila con UN clic, sin deshacer: se perdía la
-         preparación (método y cuentas) y, para volver a pagarlo, había que buscar y agregar sus facturas
-         otra vez. Si lo que cambia es la fecha, «Mover a otro día» conserva la preparación. -->
-    <p-dialog [visible]="!!quitarObjetivo()" (visibleChange)="$event || quitarObjetivo.set(null)" [modal]="true" header="Quitar del día" [style]="{ width: '30rem' }">
-      @if (quitarObjetivo(); as a) {
-        <p class="cal-dlg-p"><strong>{{ allocationTitle(a) }}</strong> · <span class="comm-num">{{ money(a.amount_assigned) }}</span></p>
-        <p class="cal-dlg-hint">{{ a.items.length === 1 ? 'Su factura regresa' : 'Sus ' + a.items.length + ' facturas regresan' }} a lo que se debe. Para pagarlo otro día habría que volver a agregar{{ a.items.length === 1 ? 'la' : 'las' }} con «Agregar facturas».</p>
-        @if (prepared(a)) {
-          <p class="cal-dlg-hint cal-habito-nm"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> Se pierde su preparación: {{ comoSale(a).texto }}. Si sólo cambia la fecha, muévelo: conserva método y cuentas.</p>
-        }
-        <div class="cal-dlg-actions">
-          <button pButton type="button" class="p-button-text p-button-secondary" (click)="quitarObjetivo.set(null)">Cancelar</button>
-          <button pButton type="button" class="p-button-outlined p-button-secondary" [disabled]="saving()" (click)="quitarObjetivo.set(null); openReprogram(a)"><span class="pi pi-calendar" aria-hidden="true"></span>&nbsp;Mover a otro día</button>
-          <button pButton type="button" class="p-button-danger" [disabled]="saving()" [loading]="saving()" (click)="confirmarQuitar()">Quitar del día</button>
-        </div>
-      }
-    </p-dialog>
-
         <input id="cal-rep-date" type="date" [min]="todayIso" [(ngModel)]="reprogramDate" class="cal-date-input cal-dlg-full" />
       }
       <label class="cal-dlg-label" for="cal-rep-reason">Motivo</label>
@@ -4054,6 +4054,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    * `[PGP.15]` **Marcar los N pagados de una vez.** Eran N botones, uno por fila. Se marca uno por
    * uno contra el backend —que vuelve a validar que Kepler todavía deba cada factura— y un fallo
    * no detiene a los demás: se dice cuáles sí y cuáles no (DESIGN §10, fallos parciales).
+   * `[PGP.70]` También marca UN pago, cuando el diálogo se abrió desde su fila (`pagarLista`).
    */
   async confirmPagar(): Promise<void> {
     const filas = this.pagarLista();
@@ -4141,4 +4142,3 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     });
   }
 }
-   * `[PGP.70]` También marca UN pago, cuando el diálogo se abrió desde su fila (`pagarLista`).
