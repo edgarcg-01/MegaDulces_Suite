@@ -184,6 +184,22 @@ describe('[RQ.15] la pantalla, que era lo que de verdad faltaba', () => {
     expect(MOD).toMatch(/LIMIT \?/);
   });
 
+  it('⛔ [PQ.69][PQ.68] D32 corre fuera de la petición, a lo más cada 30 min, y liga por IMPORTE', () => {
+    const a = CODIGO.indexOf('private async asociarOcDeKepler(');
+    const b = CODIGO.slice(a, CODIGO.indexOf('private async reintentarKepler(', a));
+    expect(b).toContain('void this.limpiarComprasSinDocumento(tenantId);');
+    const m = CODIGO.slice(CODIGO.indexOf('private async limpiarComprasSinDocumento('), CODIGO.indexOf('private async limpiarComprasSinDocumento(') + 600);
+    expect(m).toMatch(/30 \* 60_000\) return;/);
+    const MOD = sinComentarios(readFileSync(join(DIR, 'compra-sin-documento.ts'), 'utf8'));
+    // todos los renglones, por importe; un solo documento en toda la ventana de 90 días
+    expect(MOD).toContain('abs(kl.imp - rl.costo) <= ${TOLERANCIA_IMPORTE} * rl.costo');
+    expect(MOD).toContain('HAVING count(*) = n.n');
+    expect(MOD).toContain('HAVING count(*) = 1 AND bool_and(en_ventana)');
+    // cancelar sólo el universo de D32, sin error de envío
+    expect(MOD).toContain(`COALESCE(r.approved_at, r.created_at) < '\${INICIO_ENVIO_AUTOMATICO}'::date`);
+    expect(MOD).toContain('r.kepler_error IS NULL');
+  });
+
   it('⭐ el backend DEVUELVE el folio, o la pantalla nunca podría mostrarlo', () => {
     expect(SVC).toMatch(/oc_sucursal' AS oc_sucursal/);
     expect(SVC).toMatch(/oc_folio'\s+AS oc_folio/);

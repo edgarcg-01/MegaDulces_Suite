@@ -27,6 +27,7 @@ import { plantillaDe, plantillaTlmkDe, urlDeServidor } from './kepler-servidores
 import { buscarLoteRepetido, mensajeLoteRepetido, type LoteRepetido } from './lote-repetido';
 import { VENTANA_YA_PEDIDO_DIAS } from './ya-pedido-sucursal';
 import { cerrarTraspasosNoEjecutados } from './traspaso-no-ejecutado';
+import { limpiarComprasSinDocumento } from './compra-sin-documento';
 import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt } from '../shared/freshness';
 
 /**
@@ -4987,6 +4988,7 @@ export class CommercialReplenishmentService {
       this.logger.warn(`[PQ.50] No se pudieron cerrar los traspasos sin ejecutar: ${(e as Error)?.message}`);
     }
     void this.reintentarKepler(tenantId);
+    void this.limpiarComprasSinDocumento(tenantId);
   }
 
   /**
@@ -5008,6 +5010,25 @@ export class CommercialReplenishmentService {
    * `[PQ.70]` El freno es `yaEnKeplerSql()` y lo usan también el primer envío (`pushKeplerTrasAprobar`).
    */
   private readonly ultimoReintento = new Map<string, number>();
+
+  /**
+   * `[PQ.69]` + `[PQ.68]` D32: la compra aprobada que se hizo a mano en Kepler se liga a su OC (por el
+   * importe de cada renglón) y la de antes del 27-oct que en 30 días no apareció se cierra con motivo.
+   * Ver `compra-sin-documento.ts`. Fuera de la petición y a lo más cada 30 min por tenant: las dos
+   * consultas suman ~420 ms (medido 2026-11-04) y la bandeja no las espera.
+   */
+  private readonly ultimaLimpiezaCompras = new Map<string, number>();
+  private async limpiarComprasSinDocumento(tenantId: string): Promise<void> {
+    const ahora = Date.now();
+    if (ahora - (this.ultimaLimpiezaCompras.get(tenantId) ?? 0) < 30 * 60_000) return;
+    this.ultimaLimpiezaCompras.set(tenantId, ahora);
+    try {
+      const r = await this.tk.run((trx) => limpiarComprasSinDocumento(trx, tenantId));
+      if (r.ligadas || r.canceladas) this.logger.log(`[PQ.69] ${r.ligadas} compra(s) ligadas a su OC de Kepler · [PQ.68] ${r.canceladas} cerradas sin documento`);
+    } catch (e: unknown) {
+      this.logger.warn(`[PQ.69] No se pudieron ligar/cerrar las compras sin documento: ${(e as Error)?.message}`);
+    }
+  }
 
   /**
    * `[PQ.70]` **¿Kepler ya tiene esta compra, hecha a mano?** Subconsulta que devuelve los documentos
