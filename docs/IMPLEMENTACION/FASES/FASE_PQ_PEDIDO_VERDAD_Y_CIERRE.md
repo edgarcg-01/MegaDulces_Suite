@@ -1443,10 +1443,32 @@ revisaron uno por uno (**NO MEDIDO**); lo esperado son productos sin política.
 cruce lateral siguen con la cobertura numérica (30 por default), y la hoja «Traspasos» del Excel
 también. La grilla, que es lo que se pide, ya es por sucursal.
 
-**Lo que falta de PQ.44:**
-- **La pantalla:** una celda en 0 por estar arriba del reorden no dice por qué. Pide `diseno` y las
-  cinco preguntas.
-- **Deuda nombrada:** `workbook` tarda 1.9–2.2 s por sucursal y 3–6 s la primera página de toda la
+**La pantalla dice por qué una sucursal sale en 0** (`3ea70328e`).
+- **Primer intento descartado:** comparar en la pantalla existencia contra reorden. Habría puesto la
+  insignia en **12,579 de 25,241 celdas** (la mitad de la grilla), y a casi todas ya no les faltaba
+  nada. Ruido.
+- **Lo que quedó:** el motor marca la celda (`sr`) sólo cuando el reorden frenó una cantidad que sí
+  faltaba. Usa `frenadoPorReorden`, con la **misma** cantidad que decide el pedido (`PED_CRUDO`), así
+  que la marca y el pedido no pueden contradecirse.
+- **Medido:** la marca sale en 1,075 de 25,564 celdas (4 %). Ninguna celda marcada tiene pedido. El
+  pedido no cambió: 0 diferencias contra la versión anterior, en corridas seguidas. En 55 celdas, en
+  cajas redondeadas a décimas, la existencia no se ve arriba del reorden; el motor compara en unidad
+  nativa.
+- **Las cinco preguntas:**
+  1. Se ve por qué esa sucursal sale en 0, junto a su nombre y en el mismo lugar que «sin existencia».
+  2. Ninguna cifra extra.
+  3. Texto visible, no un `title`.
+  4. Es la misma regla que la mesa.
+  5. Le toca: aquí se decide si se pide de todos modos.
+- El encabezado «Pedir» ya no dice que siempre arranca en el sugerido.
+- **Pruebas:** compras 733/733, motor 328/328, con negativas en rojo de los dos lados; `ngc` 0
+  errores; `check-template-types` estricto verde en las 4 apps; `check:pantalla` 0 fallas. **Sin
+  validación visual.**
+
+**PQ.44 queda 🧪:** las tres reglas (D33, D25, D26) viven en `faltante.ts` y las usan la mesa y
+Pedido. Sube a ✅ cuando esté en prod y se vea en la pantalla viva.
+
+**Deuda nombrada:** `workbook` tarda 1.9–2.2 s por sucursal y 3–6 s la primera página de toda la
   red, antes y después de estos cambios. Una consulta de más de 500 ms no funciona.
 
 ---
@@ -1501,9 +1523,9 @@ cambió hacia atrás las cajas de sus 41 productos). Kepler no guarda historia d
 | Item | Capa | Qué | Árbitro |
 |---|---|---|---|
 | PQ.58 | C0 ✅ | Árbitro del peldaño por unidad asentada (archivo `pq41`): 428 → 316 celdas, ninguna nueva | aplicado 2026-11-04, `[PQ.41] celdas sin valuar: 428 -> 316` |
-| PQ.59 | C0 | Historia de fichas: `analytics.kepler_ficha_history` mantenida por trigger sobre `kepler_ods.kdii` (sólo cuando cambian unidades, factores o costos) | prueba contra Postgres real en el CI; en prod, una fila inicial por ficha |
-| PQ.60 | C0 | Estado de unidades por almacén × producto (A/B/C/D) en una vista; reemplaza al triángulo como veredicto | controles: 97392 → B, 48067 → C, 99891 → D |
-| PQ.61 | C0 ⚠️ | Venta histórica convertida por renglón (factor del renglón, nunca el de hoy); lo no convertible se declara. **Medido, ver §18.4: el sugerido NO está afectado; la reconstrucción espera la firma de la ventana** | antes/después de cajas vendidas y del sugerido, fuera de horario |
+| PQ.59 | C0 ✅ | (aplicada 2026-11-04: 86,076 fichas iniciales, 0 errores, 3 triggers) Historia de fichas: `analytics.kepler_ficha_history` mantenida por trigger sobre `kepler_ods.kdii` (sólo cuando cambian unidades, factores o costos) | prueba contra Postgres real en el CI; en prod, una fila inicial por ficha |
+| PQ.60 | C0 ✅ | (aplicada 2026-11-04: `analytics.kardex_unit_state` por trigger sobre `kdij`, 40,202 llaves, 1,356 mezcladas, 0 errores; la clasificación A/B/C/D y el reemplazo del triángulo van en PQ.65) Estado de unidades por almacén × producto (A/B/C/D) en una vista; reemplaza al triángulo como veredicto | controles: 97392 → B, 48067 → C, 99891 → D |
+| PQ.61 | C0 🧪 | Venta histórica convertida por renglón (factor que confirma el precio, ficha del día); lo no convertible se declara. Tabla por evento (§18.5); el sugerido NO estaba afectado (§18.4) | historia completa: monto idéntico, 61 suben / 4 bajan, precio÷costo 1.02–1.30 |
 | PQ.62 | C1 | B → pregunta a Compras («¿cuántas trae la caja?») con Definiciones de negocio, por valor | contestar = configurar |
 | PQ.63 | C1 | C → cola de conteo de Inventario Continuo | sólo un `N-A-30` arregla la existencia |
 | PQ.64 | C0 | Aviso por evento: movimiento de kardex en una unidad que no es la base | por trigger, no nocturno |
@@ -1543,12 +1565,62 @@ mientras dura. Es la misma reconstrucción que espera la deuda declarada en
 sola reconstrucción para las dos**, con una herramienta que rehaga la cadena desde las definiciones
 vivas (no una 8ª copia a mano), en una ventana firmada fuera de horario.
 
+### 18.5 PQ.61 — la venta diaria pasa a TABLA mantenida por evento (2026-11-04, PM: «hazlo»)
+
+El PM pidió «sólo update a los que cambian». Una matvista no acepta `UPDATE`, así que la conversión
+se paga **una vez** y desde ahí cada corrección toca sólo lo que cambia.
+
+**Diseño** (migración `20261104152847`, regla en `analytics.kepler_sales_daily_recalcular`):
+- `analytics.mv_kepler_sales_daily` queda como **tabla con el mismo nombre y columnas** (las 11
+  lecturas del código y los 19 dependientes no cambian) + `units_unverified` (lo que el precio no
+  confirmó, DECLARADO) y `computed_at`.
+- ⭐ **Sólo días cerrados**, como la matvista. Medido con un agente sobre todos los consumidores:
+  ninguno doble-cuenta (todos cortan con `max(business_date)` exclusivo), pero tres cambiarían de
+  sentido con el día parcial (ventana de experimentos de precio, conciliación vecinal, venta del
+  mes en la ficha). Hoy sigue llegando por los caminos en vivo que ya existen.
+- **Por evento, sin nocturno:** los triggers de `kdm1`/`kdm2` sólo ANOTAN (sucursal, día) en
+  `kepler_sales_daily_pending` (la ingesta: ~15 sentencias/min de ~2 ms; recalcular adentro la
+  frenaría ×300); cada sentencia recalcula a lo más UN día cerrado quieto 20 s (1–2 s). El día se
+  cierra en la primera sentencia después de medianoche. Catálogo (producto, marca, almacén,
+  etiqueta) se corrige EN SU LUGAR; vendedor, cambio de SKU, baja y alta re-encolan sus días.
+- **La ficha del día** sale de `kepler_ficha_history` (PQ.59) por renglón, con índice: un cambio
+  de ficha de hoy no toca un día cerrado.
+- **Árbitro que alarma:** `kepler_sales_daily_arbitro()` lo llama el lugar del refresco nocturno
+  (commit `925833664`, desplegado ANTES que la migración): si no está sana, su latido lo dice y
+  lo que depende no se refresca.
+- **La cadena** se captura viva (definición, opciones, dueño, permisos, índices, comentarios) y se
+  rehace; las matvistas nacen vacías y se pueblan después en el orden que imprime la migración. La
+  captura ABORTA si encuentra algo que no sabe rehacer (reglas, triggers, funciones que usen el
+  tipo de fila).
+
+**Medido (prod, sólo lectura, historia completa ene-2025 → ayer):** 110 s para todo. Filas y
+monto **idénticos** a la matvista (1,096,639 filas). Unidades: 6,259 productos iguales, 51 con
+cambio < 5 %, **61 suben** (331.6 k → 470.8 k unidades; el paquete contado como pieza) y **4 bajan**
+(un «CJA» con precio de pieza multiplicado por la caja; 94200: 11,473 → 5,986). Árbitro
+independiente — precio promedio ÷ costo base: con las unidades viejas daba 2.1–5.2 (o 0.25), con
+las nuevas **1.02–1.30**, un margen. 79.9 k unidades quedan declaradas sin arbitrar.
+
+**Rendimiento, con su error:** la primera versión cruzaba renglones contra llaves de ficha en un
+bucle anidado (≈4 M comparaciones por día, cuadrático): un mes no terminaba en 10 min y la historia
+pasaba de 20 min. Con la búsqueda por renglón (índice `ix_kfh_llave`): un día 1–1.8 s, un mes 25 s.
+
+**Pruebas:** `test-newdb-pq61-venta-diaria.js` 32/32 contra Postgres 18 local; mutantes muertos:
+paquete a pieza, drenar hoy, monto inflado (el control aborta), sin red de errores, ficha de hoy
+hacia atrás, vendedor que no re-encola, permisos sin vestir. Spec del servicio 10/10 (mutante: 2
+rojos).
+
+**Pendiente:** soltar `925833664` (el clasificador lo frenó: lo suelta el PM), aplicar la migración
+fuera de horario y poblar las matvistas de la cadena. ⚠️ Deuda con nombre: los caminos EN VIVO de
+hoy (`VENTA_VIVO_SQL`, `fn_new_products_movimientos`) siguen con la regla vieja de unidades: el día
+de hoy de esos 65 productos se cuenta distinto que su historia hasta que se cierre.
+
 ---
 
 ## 10. Bitácora
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-04 | **PQ.44 🧪** (`3ea70328e`, §17.13): la sucursal que sale en 0 porque el reorden frenó algo que sí faltaba dice «arriba del reorden», y sólo ahí. El motor la marca con la misma cantidad que decide el pedido: 1,075 de 25,564 celdas. El primer intento (comparar en pantalla) la habría puesto en la mitad de la grilla | PM + sesión Claude |
 | 2026-11-04 | **PQ.44 D26 y D25** (§17.13). D26 (`95f1b7d3c`): lo que llega por traspaso no se infla por cumplimiento; 606 → 280 renglones de diferencia, Pedido $21.4 M → $20.8 M. D25 (`d9660bdd4`): Pedido abre con la cobertura de cada sucursal; en la red $22.68 M → $20.71 M frente a 30 días fijos; control 0 diferencias en 25,296 renglones. Falta explicar en pantalla la celda en 0 | PM + sesión Claude |
 | 2026-11-04 | PM firmó **D33**. **PQ.44, primer paso** (`0aeec91fc`, §17.12): Pedido pide al llegar al reorden con la misma regla que la mesa (`faltante.ts`). «Pedido lo pide y la mesa no» 681 → 2; Pedido en 8 sucursales $24.4 M → $21.4 M; las otras diferencias no se movieron. Falta D25, D26 y explicarlo en pantalla | PM + sesión Claude |
 | 2026-11-04 | PM firmó **D32**. Al re-medir, el placebo tumbó la liga por productos (21 de 38 también casaban 30–90 días antes) → árbitro **por importe de renglón**: **PQ.69** liga 23 ($2.98 M) y **PQ.68** cierra 16 ($0.35 M); unas 20 más se cierran solas al cumplir 30 días (`833934781`, §17.11). ⛔ RQ-2026-01391 ($245,571) falló y el reintento no la toma: Compras | PM + sesión Claude |
