@@ -197,6 +197,10 @@ export interface WorkbookCell {
   /** [PQ.44] D26: ese almacén recibe a este proveedor por TRASPASO, así que su pedido NO se infló
    *  por cumplimiento. Ausente = se compra al proveedor o no hay canal medido (sí se infla). */
   trf?: true;
+  /** [PQ.44] D33: el punto de reorden frenó una cantidad que SÍ faltaba para el objetivo (por eso
+   *  sale en 0). Sólo viaja ahí: arriba del reorden está la mitad de las celdas y casi a todas ya
+   *  no les falta nada. */
+  sr?: true;
 }
 // [RA-PRO.65] La forma de la respuesta NO se escribe acá: vive en `libs/contracts`
 // (`replenishment-monthly.contract.ts`, ADR-052), que es de donde la lee el backend. Copiarla a

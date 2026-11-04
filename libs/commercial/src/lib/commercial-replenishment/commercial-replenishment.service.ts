@@ -28,7 +28,7 @@ import { buscarLoteRepetido, mensajeLoteRepetido, type LoteRepetido } from './lo
 import { VENTANA_YA_PEDIDO_DIAS } from './ya-pedido-sucursal';
 import { cerrarTraspasosNoEjecutados } from './traspaso-no-ejecutado';
 import { limpiarComprasSinDocumento } from './compra-sin-documento';
-import { bajoReorden, cumplimientoSoloCompra, segunReorden } from './faltante';
+import { bajoReorden, cumplimientoSoloCompra, frenadoPorReorden, segunReorden } from './faltante';
 import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt } from '../shared/freshness';
 
 /**
@@ -2167,6 +2167,10 @@ export class CommercialReplenishmentService {
       // ~10× más chica y el motor pedía de más — $866,756 de sobre-pedido y $2.68M de inventario
       // que no se veía. Resuelto en `analytics.v_warehouse_box_factor` y materializado en el fact.
       const DBF = 'COALESCE(max(b.display_bf), max(b.bf), 1)';
+      // `[PQ.44]` Lo que faltaría para el objetivo (D25 cobertura por almacén, D26 cumplimiento sólo
+      // en compra), ANTES de la regla del reorden (D33). Una sola expresión para el pedido y para
+      // la marca de «frenado por el reorden»: si fueran dos, podrían decir cosas distintas.
+      const PED_CRUDO = `round((GREATEST(0, COALESCE(sum(b.daily_pieces * b.cov_dias),0) * COALESCE(max(b.season_ratio),1) / (${SUF} * ${BF}) - COALESCE(sum(b.stock_pz),0) / ${DBF} - (${transitoDescontado('sum(b.transit_eff_cajas)', 'sum(b.transit_cajas)')})) * ${cumplimientoSoloCompra(TRASPASO, FILLF)})::numeric, 1)`;
       // U.2 — ¿el peldaño de este almacén está verificado? `sin_dato` cuenta como OK a propósito:
       // el detector sólo opina donde hay existencia y costo de compra; ausencia de veredicto no es
       // veredicto negativo (misma regla que `freshness.ts`: no poder MEDIR no se reporta como malo,
@@ -2359,9 +2363,12 @@ export class CommercialReplenishmentService {
                  -- [PQ.44] D33: se pide al llegar al punto de reorden, como la mesa (segunReorden).
                  -- Arriba del reorden la celda sale 0 aunque falte para el objetivo.
                  CASE WHEN ${RUNG_OK} THEN
-                   ${segunReorden('COALESCE(sum(b.stock_pz),0)', 'sum(b.rop_reorder)',
-                     `round((GREATEST(0, COALESCE(sum(b.daily_pieces * b.cov_dias),0) * COALESCE(max(b.season_ratio),1) / (${SUF} * ${BF}) - COALESCE(sum(b.stock_pz),0) / ${DBF} - (${transitoDescontado('sum(b.transit_eff_cajas)', 'sum(b.transit_cajas)')})) * ${cumplimientoSoloCompra(TRASPASO, FILLF)})::numeric, 1)`)}
+                   ${segunReorden('COALESCE(sum(b.stock_pz),0)', 'sum(b.rop_reorder)', PED_CRUDO)}
                  END AS ped,
+                 -- [PQ.44] D33: el reorden freno una cantidad que SI faltaba. Viaja para que la
+                 -- pantalla diga por que sale 0 SOLO ahi, y no en la mitad de las celdas (medido:
+                 -- 12,579 de 25,241 estan arriba del reorden; a 375 les falta para el objetivo).
+                 ${frenadoPorReorden('COALESCE(sum(b.stock_pz),0)', 'sum(b.rop_reorder)', PED_CRUDO)} AS sobre_reorden,
                  -- [PQ.44] D26: la celda que llega por traspaso no se infla; viaja para que la
                  -- pantalla no diga que se multiplico.
                  ${TRASPASO} AS traspaso,
@@ -2433,6 +2440,7 @@ export class CommercialReplenishmentService {
                    'vta', vta, 'exis', exis, 'ped', ped, 'tran', tran, 'cc', caja_cost,
                    'mx', max_cjs_cell, 'rop', reorder_cjs_cell,
                    'trf', CASE WHEN traspaso THEN true END,
+                   'sr', CASE WHEN sobre_reorden THEN true END,
                    'rung', CASE WHEN rung_veredicto IN ('x1_inflada','x2_deflactada') THEN rung_veredicto END,
                    'nat',  CASE WHEN rung_veredicto IN ('x1_inflada','x2_deflactada') THEN exis_nativa END,
                    'natu', CASE WHEN rung_veredicto IN ('x1_inflada','x2_deflactada') THEN rung_base_label END

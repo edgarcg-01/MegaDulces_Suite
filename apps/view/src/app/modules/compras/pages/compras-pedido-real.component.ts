@@ -108,6 +108,8 @@ interface BranchBuy {
   /** Días de cobertura que deja el sugerido topado. `null` = no medible. */
   diasTope: number | null;
   cc: number;            // costo de caja DE ESA SUCURSAL
+  /** `[PQ.44]` D33: el reorden frenó una cantidad que sí faltaba (la marca `sr` del motor). */
+  sr?: boolean;
   /** U.2 — peldaño de unidad contradicho por el costo: acá no se puede ni convertir ni pedir. */
   rung: string | null;
   nat: number;           // existencia en la unidad nativa del almacén (lo que sí es verdad)
@@ -608,7 +610,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                       <th class="pr-r" title="Existencia de esa sucursal, en CAJAS.">Exist.</th>
                                       <th class="pr-r" title="Cuántos días aguanta HOY lo que hay: existencia ÷ (venta 30 d ÷ 30.4). Es lo que decide: rojo menos de 15, ámbar menos de 30. Ordena la lista.">Hoy dura</th>
                                       <th class="pr-r" title="Traspasos sugeridos para este producto: lo que LE LLEGA (desde dónde) o lo que MANDA a otras sucursales, en CAJAS. Se editan en «Traspasos».">Traspaso</th>
-                                      <th class="pr-r pr-ped-h" title="Lo que se le va a pedir. Arranca en el sugerido del motor (venta × estación × cobertura − existencia). NO resta lo que viene en camino ni lo que llega por traspaso: para restarlo, «descontar» arriba. Teclado: ↑ ↓ o Enter mueven al campo anterior/siguiente · ← → restan o suman uno · escribe para reemplazar.">Pedir ✎</th>
+                                      <th class="pr-r pr-ped-h" title="Lo que se le va a pedir. Arranca en el sugerido del motor (venta × estación × cobertura − existencia), sólo si la sucursal está en o bajo su punto de reorden; arriba del reorden arranca en 0. NO resta lo que viene en camino ni lo que llega por traspaso: para restarlo, «descontar» arriba. Teclado: ↑ ↓ o Enter mueven al campo anterior/siguiente · ← → restan o suman uno · escribe para reemplazar.">Pedir ✎</th>
                                       @if (verDetalle(r.product_id)) { <th class="pr-r" title="En qué unidad estás capturando ESTE renglón.">Unidad</th> }
                                       <th class="pr-r" title="Cuántos días queda con lo que pidas y el traspaso: (existencia + pedido + lo que llega − lo que manda) ÷ (venta 30 d ÷ 30.4).">Queda</th>
                                       @if (verDetalle(r.product_id)) { <th title="Dónde entrega el proveedor: directo en la sucursal, o consolidado en un CEDIS.">Entrega</th> }
@@ -2541,6 +2543,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
           hub: !!meta.get(code)?.hub,
           mx: c.mx == null ? null : Number(c.mx),
           rop: c.rop == null ? null : Number(c.rop),
+          sr: !!c.sr,
           added: false,
         });
       }
@@ -2613,6 +2616,10 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     if (!(b.exis > 0)) out.push('sin existencia');
     if (!(b.vta > 0)) out.push('sin venta');
     if (b.mx == null) out.push('sin mínimo');
+    // `[PQ.44]` D33: arriba de su punto de reorden el motor no sugiere nada (como la mesa). Se dice
+    // SÓLO cuando frenó algo que sí faltaba (la marca `sr` del motor): arriba del reorden está la
+    // mitad de las celdas (12,579 de 25,241) y a casi todas ya no les falta nada.
+    if (b.sr) out.push('arriba del reorden');
     return out;
   }
 

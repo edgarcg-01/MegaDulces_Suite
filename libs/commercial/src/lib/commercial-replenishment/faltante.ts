@@ -30,6 +30,14 @@ export const segunReorden = (existencia: string, reorden: string, cantidad: stri
   `(CASE WHEN ${reorden} IS NULL OR ${bajoReorden(existencia, reorden)} THEN ${cantidad} ELSE 0 END)`;
 
 /**
+ * ¿El reorden frenó una cantidad que SÍ faltaba? Es la marca con la que la pantalla dice por qué una
+ * celda sale en 0. Sólo ahí: arriba del reorden está la mitad de las celdas (12,579 de 25,241,
+ * medido 2026-11-04), y a casi todas ya no les falta nada; decirlo en todas sería ruido.
+ */
+export const frenadoPorReorden = (existencia: string, reorden: string, cantidad: string): string =>
+  `(${reorden} IS NOT NULL AND NOT ${bajoReorden(existencia, reorden)} AND ${cantidad} > 0)`;
+
+/**
  * D26 (PM, 2026-11-04): el inflado por cumplimiento del proveedor sólo en lo que se le COMPRA. Un
  * traspaso de la matriz no depende de lo que surta el proveedor; la mesa nunca lo infló.
  *

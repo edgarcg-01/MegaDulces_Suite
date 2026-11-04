@@ -1460,3 +1460,24 @@ describe('[PQ.44] D26: el inflado por cumplimiento no se afirma donde no se apli
     expect(t).toContain('en las sucursales que le compran directo; en las que lo reciben por traspaso no se infla');
   });
 });
+
+describe('[PQ.44] D33: la sucursal en 0 por estar arriba del reorden lo dice, y sólo ahí', () => {
+  // Desde D33 el motor no sugiere nada arriba del punto de reorden (como la mesa). La insignia va
+  // junto al nombre, en el mismo lugar que «sin existencia»: texto visible, no un title. Sale SÓLO
+  // con la marca del motor (`sr`: frenó algo que sí faltaba). Medido el 2026-11-04: arriba del
+  // reorden está la mitad de las celdas (12,579 de 25,241); a 375 les falta para el objetivo.
+  const suc = (o: { exis: number; rop: number | null; sr?: boolean }) =>
+    ({ code: '03', name: '8 Esquinas', vta: 10, exis: o.exis, mx: 20, rop: o.rop, sr: o.sr, rung: null }) as never;
+
+  it('el motor marcó que el reorden frenó lo que faltaba: lo dice', () => {
+    expect(montar(VACIO).componentInstance.branchFlags(suc({ exis: 12, rop: 8, sr: true }))).toContain('arriba del reorden');
+  });
+
+  it('⛔ arriba del reorden pero ya no le falta nada: NO lo dice (sería ruido en la mitad de las filas)', () => {
+    expect(montar(VACIO).componentInstance.branchFlags(suc({ exis: 12, rop: 8 }))).not.toContain('arriba del reorden');
+  });
+
+  it('⛔ en o bajo el reorden: no lo dice (ahí sí se pide)', () => {
+    expect(montar(VACIO).componentInstance.branchFlags(suc({ exis: 3, rop: 8 }))).not.toContain('arriba del reorden');
+  });
+});

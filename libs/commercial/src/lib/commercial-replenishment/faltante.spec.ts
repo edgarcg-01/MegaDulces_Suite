@@ -1,7 +1,7 @@
 // Sin `import ... from 'vitest'`: la config usa `globals: true` (ver requisicion-oc.spec.ts).
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { bajoReorden, cumplimientoSoloCompra, segunReorden } from './faltante';
+import { bajoReorden, cumplimientoSoloCompra, frenadoPorReorden, segunReorden } from './faltante';
 
 /**
  * `[PQ.44]` D33: la mesa y `/compras/pedido` piden con la MISMA regla de reorden. Medido el
@@ -14,6 +14,16 @@ const SVC = readFileSync(join(__dirname, 'commercial-replenishment.service.ts'),
 describe('[PQ.44] la regla de reorden (D33)', () => {
   it('en o bajo el reorden, con la existencia a la izquierda', () => {
     expect(bajoReorden('x', 'r')).toBe('(x <= r)');
+  });
+
+  it('«frenado por el reorden» = hay reorden, está arriba y SÍ faltaba algo', () => {
+    expect(frenadoPorReorden('x', 'r', 'q')).toBe('(r IS NOT NULL AND NOT (x <= r) AND q > 0)');
+  });
+
+  it('⛔ el pedido y la marca salen de la MISMA cantidad (PED_CRUDO): no pueden contradecirse', () => {
+    expect(SVC).toContain(`\${segunReorden('COALESCE(sum(b.stock_pz),0)', 'sum(b.rop_reorder)', PED_CRUDO)}`);
+    expect(SVC).toContain(`\${frenadoPorReorden('COALESCE(sum(b.stock_pz),0)', 'sum(b.rop_reorder)', PED_CRUDO)} AS sobre_reorden,`);
+    expect(SVC).toContain(`'sr', CASE WHEN sobre_reorden THEN true END`);
   });
 
   it('sin reorden (sin política) no frena; arriba del reorden pide 0', () => {
