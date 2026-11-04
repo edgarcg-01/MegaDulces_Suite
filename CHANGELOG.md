@@ -61,6 +61,10 @@
 - Cuando Kepler registró como contado lo mismo que esperaba, el corte dice «= esperado» en gris, no «Cuadra» en verde.
 - Un corte sin cobrar con 3 días o menos dice «en plazo». El rojo queda para lo vencido.
 - La sucursal y el cajero salen por nombre. Hay ayuda (?) con las palabras de la pantalla, y el detalle aparece al elegir un corte.
+### Changed — Caducidades: se captura en paquete, bolsa de 250 g y bolsa de 500 g (P2.9 pasos 1–2, 2026-11-02)
+- Las unidades pasan de 4 (caja · pieza · bulto · kg) a **7**: se agregan **paquete**, **bolsa de 250 g** y **bolsa de 500 g**. Un código de **paquete** ya sugiere «Paquete» (antes «Caja»). Medido antes: sólo el 46 % de las capturas estaba en una unidad del producto; 3 de cada 4 productos capturados son de base paquete.
+- Una sola definición en `libs/contracts` (`caducidad-unidad`) para la base, el servicio y las pantallas. Migración `20261102123053` (amplía el CHECK; **se aplica antes del código**).
+- No incluye: filtrar el selector por las unidades de cada producto (paso 3) ni convertir lo que entra a FEFO (paso 4).
 
 ### Added — Cortes/Sucursales: lo que el cajero contó y no quedó en ningún corte (CSU.20, 2026-11-02)
 - Cada día de sucursal dice cuántos conteos quedaron **fuera de corte** y, al desplegarlo, los lista con su hora, importe, por qué no están en un corte y quién los contó.

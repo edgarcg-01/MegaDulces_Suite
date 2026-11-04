@@ -3,7 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 // [VP.2.1] La forma de la procedencia la define el contrato, no cada consumidor.
-import type { Freshness, ExpenseFamilia } from '@megadulces/contracts';
+import type { Freshness, ExpenseFamilia, CaducidadUnidad } from '@megadulces/contracts';
 import type { PeriodCoverageWire, PeriodComparativoWire } from '@megadulces/contracts';
 import type { IncomeGroupBy as IncomeGroupByT, IncomeReport as IncomeReportT, IncomeTree as IncomeTreeT, IncomeTreeChildren as IncomeTreeChildrenT, IncomeDocumento as IncomeDocumentoT, IncomeSources as IncomeSourcesT, IncomeRecon as IncomeReconT, IncomeReconDetalle as IncomeReconDetalleT, IncomeGrain as IncomeGrainT } from '@megadulces/contracts';
 
@@ -604,7 +604,7 @@ export interface ResolveHit {
   scanned_unit: string | null;
   factor: number | null;
   /** Unidad de la hoja sugerida por el código: el EAN de caja pide "caja". */
-  unit_hint: 'caja' | 'pieza' | 'bulto' | 'kg' | null;
+  unit_hint: CaducidadUnidad | null;
 }
 
 export interface ResolveResult {
@@ -647,7 +647,7 @@ export interface ExpiryReviewLine {
   fed_to_fefo?: boolean;
   fefo_qty?: number | string;
   /** Unidad de medida del renglón: caja | pieza | bulto | kg. */
-  unit?: 'caja' | 'pieza' | 'bulto' | 'kg' | null;
+  unit?: CaducidadUnidad | null;
 }
 
 export interface ExpiryReviewDetail extends ExpiryReview {
@@ -763,7 +763,7 @@ export interface ExpiryLineInput {
   location?: string;
   files?: ReviewFile[];
   /** Unidad de medida del renglón: caja | pieza | bulto | kg. */
-  unit?: 'caja' | 'pieza' | 'bulto' | 'kg' | null;
+  unit?: CaducidadUnidad | null;
 }
 
 export interface AbcRow {

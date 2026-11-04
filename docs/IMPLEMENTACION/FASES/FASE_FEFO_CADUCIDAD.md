@@ -162,12 +162,12 @@ Un código sin match también pasa al paso 2 (la hoja acepta el renglón raw, re
 
 ### P2.9 — Unidades de medida de la captura: pieza · paquete · caja · bulto · kg · bolsa de 250 g · bolsa de 500 g (2026-10-19)
 
-> **Estado: ⬜ DECISIONES TOMADAS (2026-10-19) — sin código.** Pedido del PM: *«en el módulo de caducidades necesitamos agregar las unidades de medida: pieza, paquete, caja, bulto, kilogramo, 250 gr y 500 gr»*. El PM contestó D1–D6 (§3); lo que sigue en §4 puede empezar, salvo el paso 0 (necesita la cuenta de sólo lectura de prod).
+> **Estado (2026-11-02): paso 0 ✅ medido · pasos 1 y 2 🧪 en PR (2026-11-04; prueba contra Postgres real 9/9) · pasos 3 y 4 ⬜.** Antes: ⬜ decisiones tomadas el 2026-10-19. Pedido del PM: *«en el módulo de caducidades necesitamos agregar las unidades de medida: pieza, paquete, caja, bulto, kilogramo, 250 gr y 500 gr»*. El PM contestó D1–D6 (§3); lo que sigue en §4 puede empezar, salvo el paso 0 (necesita la cuenta de sólo lectura de prod).
 
 ```
 OBJETIVO:  que quien captura una caducidad pueda decir en qué unidad la contó, y que se guarde ESA y no otra
 MÉTRICA:   % de renglones de caducidad cuya unidad capturada coincide con una de las unidades DEL PRODUCTO
-           (su base o sus ranuras) — HOY: NO MEDIDO (es el paso 0) → META: se fija con la medición, antes de abrir C3
+           (su base o sus ranuras) — HOY (2026-10-30): **54 de 118 = 46 %** → META propuesta: **≥ 90 %** (se confirma con el PM antes de C3)
 CAPA TOPE: C3   (con C2 ejercida contra base real: la captura ESCRIBE)
 ÁREA:      Trade / Tienda
 DUEÑO:     por asignar
@@ -220,14 +220,38 @@ DUEÑO:     por asignar
 
 | Paso | Capa | Qué | Se cierra cuando… |
 |---|---|---|---|
-| **0** | C0 | **Medir HOY** (solo lectura, §5): renglones por unidad, cuántos son «caja» sobre un producto cuya base es paquete, cuántos sin catálogo, cuántos FEFO parciales, **cuántos productos capturados tienen una escalera traducible a las 7**. | Hay una cifra con fecha. **Necesita la cuenta de sólo lectura de prod.** Define la META de la métrica. |
+| **0** ✅ 2026-10-30 | C0 | **Medir HOY** (solo lectura, §5): renglones por unidad, cuántos son «caja» sobre un producto cuya base es paquete, cuántos sin catálogo, cuántos FEFO parciales, **cuántos productos capturados tienen una escalera traducible a las 7**. | Hay una cifra con fecha. **Necesita la cuenta de sólo lectura de prod.** Define la META de la métrica. |
 | **1b** | C2 | **Retirar el asistente de voz** (D6): `expiry-voice.service.ts`, `expiry-voice-match.ts` (+ spec), los 3 endpoints `/voice/*` y sus providers, los 3 métodos del cliente y los checks 2c del smoke. | Typecheck y pruebas del módulo verdes; el smoke sin los checks de voz; **nada más cambia**. |
-| **1** | C1 | Contrato `caducidad-unidad` + reemplazo de `unitHint` (sin cambio visible). | Tabla de casos Kepler → unidad; el caso «`PAQ` ya no da `caja`» **falla con el código viejo** (prueba negativa); todos los consumidores de los tipos recorridos, plantillas incluidas. |
-| **2** | C2 | Migración que amplía el CHECK + el servicio valida con el contrato + `resolve`/búsqueda devuelven `unidades` (presentaciones del producto traducidas). | Prueba **contra Postgres real con el payload de la pantalla** para **cada una de las 7 unidades** (`POST /entries`); una unidad inválida da 400 **y** la base la rechaza; un producto de base `500` con ranura `KG` devuelve `g500` y `kg`. Se aplica **antes** que el código (si la pantalla manda `paquete` a un servidor viejo, recibe 400). |
+| **1** 🧪 2026-11-02 | C1 | Contrato `caducidad-unidad` + reemplazo de `unitHint` (sin cambio visible). | Tabla de casos Kepler → unidad; el caso «`PAQ` ya no da `caja`» **falla con el código viejo** (prueba negativa); todos los consumidores de los tipos recorridos, plantillas incluidas. |
+| **2** 🧪 2026-11-02 | C2 | Migración que amplía el CHECK + el servicio valida con el contrato + `resolve`/búsqueda devuelven `unidades` (presentaciones del producto traducidas). | Prueba **contra Postgres real con el payload de la pantalla** para **cada una de las 7 unidades** (`POST /entries`); una unidad inválida da 400 **y** la base la rechaza; un producto de base `500` con ranura `KG` devuelve `g500` y `kg`. Se aplica **antes** que el código (si la pantalla manda `paquete` a un servidor viejo, recibe 400). |
 | **3** | C3 | Selector filtrado por producto (con «otra unidad»), plural/etiqueta, hoja impresa, expediente, «Capturas por día» y detalle de Almacén. | Skill `diseno` antes; `check:pantalla` antes y después sin fallas nuevas; validación visual a 390 px; spec del texto de la hoja por unidad y del filtro (producto con 2 unidades ofrece 2; sin escalera ofrece las 7). |
 | **4** | C2 | FEFO con conversión (D4): `cantidad × factor` a la unidad base del producto; sin factor, no alimenta y lo dice. Y, si el PM lo quiere, equivalencias «esto son N …». | Antes/después de lo que entra a FEFO con la **misma** consulta del paso 0. Las equivalencias **no** se publican sobre producto de peso sin factor verificado (`UNIDADES_DE_MEDIDA.md` §7.3). |
 
-#### 5. Consulta de medición del paso 0 (solo lectura — **no se ha ejecutado**)
+#### 4b. Paso 0 — medido el 2026-10-30 (prod, cuenta `sistemas`, sólo lectura, `system_identifier` 7688376744939610156)
+
+Script: dos consultas de sólo lectura (`commercial.expiry_review_lines` × `public.products` × `kepler_ods.kdii`, base = moda de `c11` entre plazas, ranuras = `c80`/`c83`).
+
+| Hecho | Cifra |
+|---|---|
+| Renglones de caducidad (11-sep → 29-oct) | **129**: 81 pieza · 44 caja · 4 sin unidad · **0 sin producto de catálogo** |
+| Cómo se identificó el producto | **por SKU tecleado** casi siempre; sólo **10** por código de barras |
+| Productos capturados por su base en Kepler | **74 PAQ** · 19 PZA · 1 CJA · 10 sin `kdii` |
+| ⭐ **MÉTRICA**: la unidad capturada es una del producto (base o ranuras) | **54 de 118 = 46 %** (11 sin `kdii`, 4 sin unidad) |
+| ⛔ No coincide | **60, y los 60 son «pieza» sobre base PAQ sin ranura PZA** (ranuras PAQ+CJA o sólo CJA). 14 de ellos los puso la pantalla (por nombre asume «pieza») |
+| «caja» sobre base PAQ | **28**; los 28 productos **sí** tienen ranura CJA (así que «caja» es posible), pero no se puede saber cuántos eran paquetes. Sólo **4** vinieron de escanear un código PAQ que `unitHint` tradujo a «caja» |
+| …y alimentaron FEFO | **28 de 28, 954 unidades tal cual** (sin convertir: paso 4) |
+
+**Lectura:** el problema no es la gente: con 3 de cada 4 productos de base **paquete**, la pantalla no ofrecía «paquete» y obligaba a escoger entre caja y pieza. Lo **no medido**: cuántas de las 28 «caja» eran paquetes, y el efecto en FEFO (paso 4).
+
+#### 4c. Pasos 1 y 2 — lo construido (2026-11-02; 🧪 en PR el 2026-11-04, Postgres real 9/9)
+
+- **Contrato `caducidad-unidad`** (`libs/contracts`): las 7 unidades con etiqueta, singular/plural (de `unidadLegible`, sin vocabulario nuevo), rótulo Kepler, tipo y pista; `unidadDesdeKepler()` reemplaza a `unitHint` (**`PAQ → paquete`**, `250 → g250`, `500 → g500`); `unidadEnTexto()` reemplaza el `${u}s` (que habría dado «g250s»). Spec de 7 pruebas, con la negativa de D2.
+- **Migración `20261102123053`**: amplía el CHECK a las 7, idempotente, sin tocar filas. ⛔ **Va en prod ANTES del código.**
+- **Servicio**: valida con `esCaducidadUnidad` y sugiere con `unidadDesdeKepler`. **Pantallas** (captura de Tienda y detalle de Almacén): los botones salen del contrato (7) y el plural también.
+- **No incluye (pasa al paso 3)**: que `resolve`/búsqueda devuelvan las `unidades` del producto y el **selector filtrado** por producto. Hoy se ofrecen las 7 siempre.
+- **Cuestionario §0b** del selector: (1) ver la unidad sugerida por el código ya marcada, las 7 en orden pieza→500 g; (2) no ver las que el producto no tiene — **pendiente, paso 3**; (3) botones con teclado y su pista; (4) ligado a FEFO (cantidad tal cual, paso 4) y a la hoja/expediente (plural); (5) sí, es la captura.
+
+#### 5. Consulta de medición del paso 0 (solo lectura — ejecutada el 2026-10-30, ver §4b)
 
 ```sql
 -- C0.1 · SELECT puro, con la sesión nacida con app.tenant_id (cuenta dev_ro, RLS forzada: sin él sale vacío SIN error)

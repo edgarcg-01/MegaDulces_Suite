@@ -1,4 +1,5 @@
 import type { Knex } from 'knex';
+import { CADUCIDAD_UNIDADES, esCaducidadUnidad, unidadDesdeKepler, type CaducidadUnidad } from '@megadulces/contracts';
 import {
   Injectable,
   BadRequestException,
@@ -35,13 +36,12 @@ import {
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const VALID_CONDITIONS = ['bueno', 'regular', 'malo'] as const;
 /**
- * Unidades reales de recepción en tienda: al almacén no todo llega en piezas.
- * caja (lo común con código numérico de anaquel) · pieza (piñatas, suelto) ·
- * bulto (las bolsas grandes) · kg (granel). Espeja el CHECK de la migración
- * 20260825180000.
+ * `[P2.9 paso 1]` Las unidades en que se cuenta una caducidad salen de UNA definición (`libs/contracts`,
+ * `caducidad-unidad`): pieza · paquete · caja · bulto · kg · bolsa de 250 g · bolsa de 500 g. Espeja el
+ * CHECK de la migración 20261102123053 (antes eran 4, escritas a mano aquí y en 6 lugares más).
  */
-const VALID_UNITS = ['caja', 'pieza', 'bulto', 'kg'] as const;
-export type LineUnit = (typeof VALID_UNITS)[number];
+const VALID_UNITS = CADUCIDAD_UNIDADES;
+export type LineUnit = CaducidadUnidad;
 type Condition = (typeof VALID_CONDITIONS)[number];
 
 export interface ReviewFile {
@@ -71,7 +71,7 @@ export interface ReviewLineDto {
   observations?: string;
   action?: string;
   location?: string; // ubicación física del renglón (anaquel/bodega/exhibidor)
-  unit?: LineUnit; // caja | pieza | bulto | kg
+  unit?: LineUnit; // una de CADUCIDAD_UNIDADES
   files?: ReviewFile[];
 }
 
@@ -408,7 +408,7 @@ export class CommercialExpiryReviewsService {
           location: r.location ?? null,
           scanned_unit: bc?.unit ?? null,
           factor: bc?.factor ?? null,
-          unit_hint: this.unitHint(bc?.unit ?? null, bc?.factor ?? null),
+          unit_hint: unidadDesdeKepler(bc?.unit ?? null, bc?.factor ?? null),
         };
       });
 
@@ -494,19 +494,6 @@ export class CommercialExpiryReviewsService {
     if (/^\d{12}$/.test(code)) out.add('0' + code);
     if (/^0\d{12}$/.test(code)) out.add(code.slice(1));
     return Array.from(out);
-  }
-
-  /** Unidad del catálogo de barcodes → unidad de la hoja. Sin dato, no inventa. */
-  private unitHint(unit: string | null, factor: number | null): LineUnit | null {
-    const u = String(unit || '').trim().toUpperCase();
-    if (u.startsWith('PZ') || u === 'PIEZA' || u === 'UN') return 'pieza';
-    if (u.startsWith('CJ') || u === 'CAJA' || u.startsWith('PAQ') || u === 'BOX') return 'caja';
-    if (u.startsWith('KG') || u === 'KILO') return 'kg';
-    if (u.startsWith('BUL') || u.startsWith('COS')) return 'bulto';
-    // Sin unidad declarada, el factor todavía dice algo: >1 pieza = empaque.
-    if (factor != null && factor > 1) return 'caja';
-    if (factor === 1) return 'pieza';
-    return null;
   }
 
   // ───── renglones ─────
@@ -1480,7 +1467,7 @@ export class CommercialExpiryReviewsService {
       throw new BadRequestException('quantity debe ser número >= 0');
     if (dto.condition && !VALID_CONDITIONS.includes(dto.condition))
       throw new BadRequestException(`condition debe ser: ${VALID_CONDITIONS.join(', ')}`);
-    if (dto.unit && !VALID_UNITS.includes(dto.unit))
+    if (dto.unit && !esCaducidadUnidad(dto.unit))
       throw new BadRequestException(`unit debe ser: ${VALID_UNITS.join(', ')}`);
   }
 

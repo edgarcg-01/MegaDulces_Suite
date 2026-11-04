@@ -31,6 +31,7 @@ export * from './http/unit-ladder.contract';
 // `[ETQ-PRES.0]` La misma regla de VU.0, aplicada al PRECIO: una presentación lleva su unidad,
 // su factor, su contenido derivado y su propio peldaño de mayoreo.
 export * from './http/price-presentation.contract';
+export * from './http/caducidad-unidad.contract';
 // `[ETQ-AVISOS.1]` Cambios de precio: la regla por producto y los avisos. Una sola cuenta para la
 // pantalla y para el generador, o el aviso y la lista discrepan.
 export * from './http/price-change-notice.contract';

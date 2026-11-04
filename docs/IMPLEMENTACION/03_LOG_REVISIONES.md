@@ -309,6 +309,19 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+
+## 2026-11-02 — `[P2.9 pasos 0–2]` Caducidades: se mide la unidad y entran «paquete», «250 g» y «500 g»
+
+**Paso 0, medido el 2026-10-30 (prod, sólo lectura):** de 118 renglones cruzables con `kdii`, sólo **54 (46 %)** están en una unidad que el producto tiene en Kepler. Los **60** que no: todos «pieza» sobre productos de base **PAQ** sin pieza. 74 de los 104 productos capturados son de base PAQ y la pantalla no ofrecía «paquete». 28 «caja» sobre PAQ alimentaron FEFO con 954 unidades sin convertir (no se puede saber cuántas eran paquetes). Casi todo se identifica por SKU tecleado (sólo 10 de 129 por código de barras). Detalle en `FASE_FEFO_CADUCIDAD` §4b.
+
+**Pasos 1 y 2 (en código, sin push):** contrato `caducidad-unidad` en `libs/contracts` (una definición de las 7 unidades; antes estaban a mano en 7 lugares), `PAQ` sugiere **paquete** (D2), plural del contrato (el `${u}s` habría dado «g250s»), migración `20261102123053` que amplía el CHECK (idempotente, sin tocar filas, **en prod antes del código**), servicio y las dos pantallas de captura leen del contrato.
+
+**Probado:** contrato 7/7 (negativa D2: `PAQ` ya no da «caja»); `modules/comercial` + `modules/tienda` **784/784**; tipos del API y de plantillas sin errores; `check:pantalla` **0 fallas nuevas** (289 pantallas); `boundary`, `check:mig-colisiones`, `check:templates`, `check:tokens` verdes.
+
+**Medido el 2026-11-04:** `unidades-captura.servicio-real.spec.ts` (`createEntry` con cada una de las 7 unidades contra Postgres real `:5442`, + dos negativas: el servicio y el CHECK rechazan «cubeta») **9/9**. Negativa de la migración: con el `down` aplicado fallan exactamente «paquete», «g250» y «g500». El primer intento falló por la prueba (el doble de storage no traía `signFiles`), no por el código. Validación visual de los 7 botones: hecha por el usuario en local.
+
+**Lección:** reusé códigos de item del tracker (`P2.9.2`, `P2.9.3`) para arreglos que no eran pasos de P2.9, y casi le pongo `[P2.9.2]` a este paso 2. Los pasos del plan se nombran «P2.9 paso N»; un arreglo suelto toma el siguiente número libre **después de revisar el tracker**.
+
 ## 2026-10-30 — `[COT.20]` El cotizador: Dirección en las 8 sucursales, cada jefe de zona sólo en las suyas
 
 **Reporte:** en `/telemarketing/cotizaciones/nueva`, `superuser` veía «Sin sucursal asignada» y no podía cotizar.
