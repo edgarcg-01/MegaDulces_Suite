@@ -308,15 +308,12 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
           <app-side-peek [open]="panelPronto()" (openChange)="panelPronto.set($event)" [width]="760" title="Pronto pago"
                          [subtitle]="'Si se paga a tiempo, en los próximos 7 días se ganan ' + money(quePagarGana())">
           @if (panelPronto() && verDeuda() && (quePagar().length || quePagarError())) {
-            <section class="pg-pp" aria-labelledby="pg-pp-h">
+            <!-- [PGP.70] Sin el título «Paga primero el pronto pago»: repetía el del panel. El panel ya se llama
+                 «Pronto pago» y su subtítulo dice cuánto se gana en los 7 días que siguen a HOY (PGP.41). -->
+            <section class="pg-pp" aria-label="Pronto pago">
               @if (quePagarError()) {
                 <p class="pg-add-nm">No se pudo calcular el pronto pago. No es que no haya descuentos por ganar.</p>
               } @else {
-                <div class="pg-pp-head">
-                  <h3 class="pg-pp-t" id="pg-pp-h"><i class="pi pi-bolt" aria-hidden="true"></i>Paga primero el pronto pago</h3>
-                  <!-- [AUD] Decía «esta semana ganas»: la vista suma lo que cierra en los 7 días que siguen a
-                       HOY (HORIZONTE_DIAS de PGP.41), no la semana del calendario, y no cambia al navegar a otra. -->
-                </div>
                 <!-- [PGP.62] En UNA línea. El origen del % («lo que pasó, no un acuerdo») ya lo dice el porqué de cada acreedor al abrirlo. -->
                 <p class="pg-pp-why">
                   @if (prontoUrgente().acreedores) {
@@ -598,7 +595,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                   <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" [loading]="printing()" (click)="printEjecucion()"><span class="pi pi-print" aria-hidden="true"></span>&nbsp;Instrucción de ejecución</button>
                 }
                 @if (isReleased() && porPagar().length > 1 && verdict().action?.kind !== 'pagar') {
-                  <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [disabled]="saving()" (click)="pagarVisible = true"><span class="pi pi-check" aria-hidden="true"></span>&nbsp;Marcar los {{ porPagar().length }} pagados</button>
+                  <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [disabled]="saving()" (click)="abrirPagar(null)"><span class="pi pi-check" aria-hidden="true"></span>&nbsp;Marcar los {{ porPagar().length }} pagados</button>
                 }
               </span>
             </div>
@@ -640,7 +637,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                           <span class="pg-sub"><span class="cal-suc">{{ branchLabel(g.branch) }}</span> {{ facturas(g.items.length) }} ·
                             @if (g.motivo === 'pronto_pago') { <b>no vence todavía</b> · se adelanta para ganar <span class="comm-num">{{ money(g.gana) }}</span> antes del {{ shortDate(g.oldest) }} }
                             @else { la más vieja venció el {{ shortDate(g.oldest) }}@if (g.gana > 0) { · además gana <span class="comm-num">{{ money(g.gana) }}</span> si sale hoy } }
-                            @if (creditoDeGrupo(g); as c) { · <span class="pg-favor"><i class="pi pi-replay" aria-hidden="true"></i>trae {{ money(c.a_favor) }} a favor sin aplicar: revisa si hay que netear</span> }
+                            @if (creditoDeGrupo(g); as c) { · <span class="pg-favor"><i class="pi pi-replay" aria-hidden="true"></i>trae {{ money(c.a_favor) }} a favor sin aplicar: revisa si se descuenta de este pago</span> }
                           </span>
                         </span>
                         <span class="pg-prop-amt comm-num">{{ money(g.total) }}</span>
@@ -669,7 +666,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                     }
                   </div>
                 } @else {
-                  <p class="cal-empty">No hay facturas vencidas ni por vencer para este día. Si hay que pagar algo, búscalo arriba.</p>
+                  <p class="cal-empty">No hay facturas vencidas ni por vencer para este día. Si hay que pagar algo, agrégalo con «Agregar facturas».</p>
                 }
               } @else {
                 <p class="cal-empty">Sin pagos este día.</p>
@@ -746,9 +743,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                           <button pButton type="button" class="p-button-sm p-button-secondary" [class.p-button-outlined]="!prepared(a)" [class.p-button-text]="prepared(a)"
                                   (click)="openPrepare(a)" [attr.aria-label]="(prepared(a) ? 'Cambiar cómo sale el pago de ' : 'Preparar el pago de ') + allocationTitle(a)">{{ prepared(a) ? 'Cambiar' : 'Preparar' }}</button>
                         }
-                        <button pButton type="button" class="p-button-sm p-button-text p-button-secondary pg-x" [attr.aria-label]="'Quitar del día a ' + allocationTitle(a)" (click)="cancelAllocation(a)"><span class="pi pi-times" aria-hidden="true"></span></button>
+                        <button pButton type="button" class="p-button-sm p-button-text p-button-secondary pg-x" [disabled]="saving()" [attr.aria-label]="'Quitar del día a ' + allocationTitle(a)" (click)="quitarObjetivo.set(a)"><span class="pi pi-times" aria-hidden="true"></span></button>
                       } @else if (a.status === 'pending') {
-                        <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [disabled]="!prepared(a) || saving()" (click)="execute(a)" [attr.aria-label]="'Marcar pagado el pago de ' + allocationTitle(a)">Pagado</button>
+                        <!-- [PGP.70] Abre el MISMO diálogo que el lote, con este pago solo: marcar no se deshace aquí. -->
+                        <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [disabled]="!prepared(a) || saving()" (click)="abrirPagar(a)" [attr.aria-label]="'Marcar pagado el pago de ' + allocationTitle(a)">Pagado</button>
                         <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" [attr.aria-label]="'El pago de ' + allocationTitle(a) + ' rebotó'" (click)="openRebote(a)">Rebotó…</button>
                       } @else if (a.status === 'failed') {
                         <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [attr.aria-label]="'Mover a otro día el pago de ' + allocationTitle(a)" (click)="openReprogram(a)"><span class="pi pi-calendar" aria-hidden="true"></span>&nbsp;Mover</button>
@@ -856,12 +854,12 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
           </p>
 
           <div class="pg-cr-tot">
-            <span><b class="comm-num">{{ money(creditoTotalPendiente()) }}</b> sin aplicar · {{ creditoPendientes().length }} documento(s)</span>
+            <span><b class="comm-num">{{ money(creditoTotalPendiente()) }}</b> sin aplicar · {{ creditoPendientes().length }} {{ creditoPendientes().length === 1 ? 'documento' : 'documentos' }}</span>
             <span class="cal-muted"><b class="comm-num">{{ money(creditoTotalAplicado()) }}</b> ya aplicado por Kepler</span>
           </div>
 
           @if (creditoPendientes().length) {
-            <h3 class="pg-cr-h">Sin aplicar — esto es lo que se puede netear</h3>
+            <h3 class="pg-cr-h">Sin aplicar — esto es lo que se puede descontar del pago</h3>
             @for (d of creditoPendientes(); track d.clase + d.folio + d.sucursal) {
               <div class="pg-cr-row is-pend">
                 <span class="pg-cr-main">
@@ -895,7 +893,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
             <i class="pi pi-info-circle" aria-hidden="true"></i>
             Aplicar un descuento contra una factura se hace <b>en Kepler</b>: la Suite todavía no
             escribe ese movimiento. Esta pantalla dice <b>qué hay</b> y <b>cuánto</b>, para que no
-            se pague de mas. Las cifras son un <b>piso</b>: el casamiento del ERP sobre-cuenta lo
+            se pague de más. Las cifras son un <b>piso</b>: el casamiento del ERP sobre-cuenta lo
             aplicado, así que lo pendiente real puede ser mayor.
           </p>
         </div>
@@ -967,7 +965,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                prod: 2,771 pagos ($54,897,784) salieron de Caja General y Kepler mismo los clasifica
                como caja. La vista ya no emite este estado -- la rama queda por si una pestana abierta
                desde antes del despliegue todavia lo recibe, y ahora dice la verdad. -->
-          <p class="cal-dlg-hint cal-habito">A este proveedor se le suele pagar <b>desde Caja General</b> ({{ h.cuenta_veces }} de {{ h.cuenta_de }}). Eligela en el desplegable si hoy va igual.</p>
+          <p class="cal-dlg-hint cal-habito">A este proveedor se le suele pagar <b>desde Caja General</b> ({{ h.cuenta_veces }} de {{ h.cuenta_de }}). Elígela en el desplegable si hoy va igual.</p>
         } @else if (h.metodo_estado === 'variable') {
           <p class="cal-dlg-hint cal-habito">No se precargó: a este proveedor se le ha pagado de varias formas ({{ h.metodo_veces }} de {{ h.metodo_de }} con la más usada).</p>
         }
@@ -1013,10 +1011,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     </p-dialog>
 
     <!-- Dialog: marcar pagados (Caja General). Irreversible aqui: friccion proporcional, un solo paso. -->
-    <p-dialog [(visible)]="pagarVisible" [modal]="true" header="Marcar como pagados" [style]="{ width: '32rem' }">
-      <p class="cal-dlg-p">Se marcan <b>{{ pagos(porPagar().length) }}</b> por <b class="comm-num">{{ money(porPagarTotal()) }}</b>. Marca sólo lo que el banco ya confirmó: <b>un pago marcado no se deshace aquí</b>. Si alguno rebotó, cancela y márcalo «Rebotó…» en su fila.</p>
+    <p-dialog [(visible)]="pagarVisible" [modal]="true" [header]="pagarSolo() ? 'Marcar como pagado' : 'Marcar como pagados'" [style]="{ width: '32rem' }">
+      <p class="cal-dlg-p">{{ pagarLista().length === 1 ? 'Se marca' : 'Se marcan' }} <b>{{ pagos(pagarLista().length) }}</b> por <b class="comm-num">{{ money(pagarListaTotal()) }}</b>. Marca sólo lo que el banco ya confirmó: <b>un pago marcado no se deshace aquí</b>. {{ pagarLista().length === 1 ? 'Si rebotó, cancela y márcalo' : 'Si alguno rebotó, cancela y márcalo' }} «Rebotó…» en su fila.</p>
       <ul class="pg-dlg-list">
-        @for (a of porPagar(); track a.id) {
+        @for (a of pagarLista(); track a.id) {
           <li [class.is-saldada]="a.kepler_saldadas > 0">
             <span><span class="comm-num pg-dlg-fol">{{ a.folio || a.priority_rank }}</span> {{ allocationTitle(a) }}
               @if (a.kepler_saldadas > 0) {
@@ -1027,14 +1025,14 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
       </ul>
       <!-- [PGP.35] Se dice ANTES de apretar (DESIGN §10 poka-yoke): el servidor revalida el saldo
            y rechaza esos pagos, pero enterarse por N errores seguidos es el ultimo recurso. -->
-      @if (porPagarSaldadas(); as n) {
+      @if (pagarListaSaldadas(); as n) {
         @if (n > 0) {
-          <p class="cal-dlg-hint cal-habito-nm"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ n === 1 ? '1 de estos pagos va a fallar' : n + ' de estos pagos van a fallar' }}: el ERP ya no debe sus facturas (se pagaron por fuera o tienen nota de crédito). Los demás sí se marcan.</p>
+          <p class="cal-dlg-hint cal-habito-nm"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ pagarLista().length === 1 ? 'Este pago va a fallar' : n === 1 ? '1 de estos pagos va a fallar' : n + ' de estos pagos van a fallar' }}: el ERP ya no debe sus facturas (se pagaron por fuera o tienen nota de crédito).{{ pagarLista().length === 1 ? '' : ' Los demás sí se marcan.' }}</p>
         }
       }
       <div class="cal-dlg-actions">
         <button pButton type="button" class="p-button-text p-button-secondary" (click)="pagarVisible = false">Cancelar</button>
-        <button pButton type="button" [disabled]="!porPagar().length" [loading]="saving()" (click)="confirmPagar()">Marcar {{ pagos(porPagar().length) }}</button>
+        <button pButton type="button" [disabled]="!pagarLista().length || saving()" [loading]="saving()" (click)="confirmPagar()">{{ pagarLista().length === 1 ? 'Marcar pagado' : 'Marcar ' + pagos(pagarLista().length) }}</button>
       </div>
     </p-dialog>
 
@@ -1091,6 +1089,24 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
         <p class="cal-dlg-hint">Cada pago va al primer día siguiente que todavía tiene espacio en su tope. Para elegir otra fecha, muévelo desde su fila.</p>
       } @else {
         <label class="cal-dlg-label" for="cal-rep-date">Nueva fecha</label>
+    <!-- [PGP.70] Quitar un pago del día. Era la ✕ de la fila con UN clic, sin deshacer: se perdía la
+         preparación (método y cuentas) y, para volver a pagarlo, había que buscar y agregar sus facturas
+         otra vez. Si lo que cambia es la fecha, «Mover a otro día» conserva la preparación. -->
+    <p-dialog [visible]="!!quitarObjetivo()" (visibleChange)="$event || quitarObjetivo.set(null)" [modal]="true" header="Quitar del día" [style]="{ width: '30rem' }">
+      @if (quitarObjetivo(); as a) {
+        <p class="cal-dlg-p"><strong>{{ allocationTitle(a) }}</strong> · <span class="comm-num">{{ money(a.amount_assigned) }}</span></p>
+        <p class="cal-dlg-hint">{{ a.items.length === 1 ? 'Su factura regresa' : 'Sus ' + a.items.length + ' facturas regresan' }} a lo que se debe. Para pagarlo otro día habría que volver a agregar{{ a.items.length === 1 ? 'la' : 'las' }} con «Agregar facturas».</p>
+        @if (prepared(a)) {
+          <p class="cal-dlg-hint cal-habito-nm"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> Se pierde su preparación: {{ comoSale(a).texto }}. Si sólo cambia la fecha, muévelo: conserva método y cuentas.</p>
+        }
+        <div class="cal-dlg-actions">
+          <button pButton type="button" class="p-button-text p-button-secondary" (click)="quitarObjetivo.set(null)">Cancelar</button>
+          <button pButton type="button" class="p-button-outlined p-button-secondary" [disabled]="saving()" (click)="quitarObjetivo.set(null); openReprogram(a)"><span class="pi pi-calendar" aria-hidden="true"></span>&nbsp;Mover a otro día</button>
+          <button pButton type="button" class="p-button-danger" [disabled]="saving()" [loading]="saving()" (click)="confirmarQuitar()">Quitar del día</button>
+        </div>
+      }
+    </p-dialog>
+
         <input id="cal-rep-date" type="date" [min]="todayIso" [(ngModel)]="reprogramDate" class="cal-date-input cal-dlg-full" />
       }
       <label class="cal-dlg-label" for="cal-rep-reason">Motivo</label>
@@ -1531,9 +1547,6 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     /* [PGP.53] Pronto pago: su propia seccion, sin caja ni color. Grupo = dia en que cierra; las
        cifras en columnas fijas para que el grupo y sus renglones se lean en la misma vertical. */
     .pg-pp { margin:0 0 var(--sp-4); }
-    .pg-pp-head { display:flex; align-items:baseline; justify-content:space-between; gap:var(--sp-3); flex-wrap:wrap; }
-    .pg-pp-t { margin:0; font-size:var(--fs-h3); font-weight:700; display:inline-flex; align-items:baseline; gap:var(--sp-2); }
-    .pg-pp-t .pi { color:var(--text-muted); }
     .pg-pp-tot { font-size:var(--fs-sm); color:var(--fg-2); }
     .pg-pp-why { margin:var(--sp-1) 0 var(--sp-2); font-size:var(--fs-sm); max-width:72ch; }
     .pg-pp-src { display:block; margin-top:2px; font-size:var(--fs-xs); color:var(--fg-3); }
@@ -2820,7 +2833,21 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   readonly porPagar = computed(() => this.allocations().filter((a) => a.status === 'pending' && isPrepared(a)));
   readonly porPagarTotal = computed(() => this.porPagar().reduce((s, a) => s + Number(a.amount_assigned || 0), 0));
   /** `[PGP.35]` De los que se van a marcar, cuántos el servidor va a rechazar por saldo. */
-  readonly porPagarSaldadas = computed(() => this.porPagar().filter((a) => (a.kepler_saldadas ?? 0) > 0).length);
+  /**
+   * `[PGP.70]` **Lo que marca el diálogo «Marcar como pagados»**: el lote del día, o UN pago cuando se
+   * abre desde «Pagado» en su fila. Esa fila marcaba con un clic, sin confirmar, algo que aquí no se
+   * deshace — mientras el lote pedía confirmación para el mismo acto.
+   */
+  readonly pagarSolo = signal<PaymentCalendarAllocation | null>(null);
+  readonly pagarLista = computed(() => { const a = this.pagarSolo(); return a ? [a] : this.porPagar(); });
+  readonly pagarListaTotal = computed(() => this.pagarLista().reduce((s, a) => s + Number(a.amount_assigned || 0), 0));
+  readonly pagarListaSaldadas = computed(() => this.pagarLista().filter((a) => (a.kepler_saldadas ?? 0) > 0).length);
+  abrirPagar(a: PaymentCalendarAllocation | null): void {
+    this.pagarSolo.set(a);
+    this.pagarVisible = true;
+  }
+  /** `[PGP.70]` El pago que la ✕ de su fila quiere quitar del día; abre su confirmación. */
+  readonly quitarObjetivo = signal<PaymentCalendarAllocation | null>(null);
   reboteVisible = false;
   reboteAllocation: PaymentCalendarAllocation | null = null;
   reboteReason: ReprogramReason | null = null;
@@ -3501,7 +3528,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       case 'proponer': this.invalidarDeuda(); void this.proponer(); break;
       case 'ordenar': this.suggestOrder(); break;
       case 'autorizar': this.releaseLot(); break;
-      case 'pagar': this.pagarVisible = true; break;
+      case 'pagar': this.abrirPagar(null); break;
       case 'cerrar': this.closeLot(); break;
       case 'rebote': { const f = this.allocations().find((a) => a.status === 'failed'); if (f) this.openReprogram(f); break; }
       case 'mover': this.openMoverTodos(); break;
@@ -4023,21 +4050,14 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   printEjecucion(): void { this.openPdf(`${this.base}/days/${this.selectedDate()}/ejecucion.pdf`); }
 
   // ── Caja General: pagar, rebote y cierre ([PGP.15]) ─────────────────────
-  execute(a: PaymentCalendarAllocation): void {
-    this.saving.set(true);
-    this.http.post(`${this.base}/allocations/${a.id}/ejecutar`, {}).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => { this.saving.set(false); this.reload(); this.toast.add({ severity: 'success', summary: 'Marcado pagado', detail: `${this.allocationTitle(a)} · ${this.money(a.amount_assigned)}.` }); },
-      error: (e) => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'No se marcó', detail: e?.error?.message || 'No se pudo marcar como pagado.' }); },
-    });
-  }
   /**
    * `[PGP.15]` **Marcar los N pagados de una vez.** Eran N botones, uno por fila. Se marca uno por
    * uno contra el backend —que vuelve a validar que Kepler todavía deba cada factura— y un fallo
    * no detiene a los demás: se dice cuáles sí y cuáles no (DESIGN §10, fallos parciales).
    */
   async confirmPagar(): Promise<void> {
-    const filas = this.porPagar();
-    if (!filas.length) return;
+    const filas = this.pagarLista();
+    if (!filas.length || this.saving()) return;
     this.saving.set(true);
     let ok = 0;
     const fallas: string[] = [];
@@ -4048,7 +4068,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     this.saving.set(false);
     this.pagarVisible = false;
     this.reload();
-    if (ok) this.toast.add({ severity: 'success', summary: `${ok} de ${this.pagos(filas.length)} marcados pagados` });
+    if (ok && filas.length === 1) this.toast.add({ severity: 'success', summary: 'Marcado pagado', detail: `${this.allocationTitle(filas[0])} · ${this.money(filas[0].amount_assigned)}.` });
+    else if (ok) this.toast.add({ severity: 'success', summary: `${ok} de ${this.pagos(filas.length)} marcados pagados` });
     if (fallas.length) this.toast.add({ severity: 'error', summary: `${fallas.length} no se marcaron`, detail: fallas.join(' · '), life: 10000 });
   }
   openRebote(a: PaymentCalendarAllocation): void {
@@ -4093,10 +4114,14 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     if (movido) this.toast.add({ severity: 'success', summary: 'Rebotó y se movió', detail: `${this.allocationTitle(a)} pasó al ${this.dayLong(fecha)}.` });
     else if (!fecha) this.toast.add({ severity: 'info', summary: 'Marcado que rebotó', detail: `${this.allocationTitle(a)} queda en este día hasta que lo muevas.` });
   }
-  cancelAllocation(a: PaymentCalendarAllocation): void {
+  /** `[PGP.70]` Quitar del día, ya confirmado; `saving` apaga la ✕ y el botón desde el primer clic. */
+  confirmarQuitar(): void {
+    const a = this.quitarObjetivo();
+    if (!a || this.saving()) return;
+    this.saving.set(true);
     this.http.post(`${this.base}/allocations/${a.id}/cancelar`, {}).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => { this.invalidarDeuda(); this.reload(); this.toast.add({ severity: 'info', summary: 'Quitado del día', detail: `${this.allocationTitle(a)} regresa a lo que se debe.` }); },
-      error: (e) => this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo quitar.' }),
+      next: () => { this.saving.set(false); this.quitarObjetivo.set(null); this.invalidarDeuda(); this.reload(); this.toast.add({ severity: 'info', summary: 'Quitado del día', detail: `${this.allocationTitle(a)} regresa a lo que se debe.` }); },
+      error: (e) => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'No se quitó', detail: e?.error?.message || 'No se pudo quitar.' }); },
     });
   }
 
@@ -4116,3 +4141,4 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     });
   }
 }
+   * `[PGP.70]` También marca UN pago, cuando el diálogo se abrió desde su fila (`pagarLista`).
