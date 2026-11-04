@@ -1,6 +1,27 @@
 # Fase PF — Flujo de venta de cualquier producto (Compras › Catálogo › Productos)
 
-> Estado: 🧪 PF.1–PF.9 en código y probados en local (2026-10-12). **Dos migraciones sin aplicar en prod**: `20261009183328_product_flow_watch` (PF.6) y `20261012083236_mv_product_margins_30d` (PF.8).
+```
+OBJETIVO:  Compras sabe, producto por producto, si de verdad hace falta comprarlo, qué ya viene y dónde se estancó,
+           sin que la Suite le dé dos respuestas distintas al mismo producto.
+MÉTRICA:   Productos nuevos con veredicto de compra OPUESTO entre Productos nuevos (NP) y Productos (PF)
+           — HOY: 63 de 74 (85.1 %) en la base LOCAL, 2026-11-03 (`node database/scripts/mide-np-vs-pf.js`);
+             PROD: NO MEDIDO (mismo script, sólo lectura).
+           → META: 0 opuestos sin explicación en pantalla, para el cierre que fije el PM (decisión D-PF.3 abajo).
+MÉTRICA 2: Observaciones 🔴 de diseño abiertas (bloquean 🚀) — 2026-10-26: 4 → HOY 2026-11-03: siguen 4, pero lo
+           que tocaba al motor está hecho en las 3 que lo tenían (PF.UI.1/2/3); a las 4 les queda un pendiente de
+           PANTALLA en archivos del PR de PF.12.1/PF.12.3 (cambio exacto en «Estado al 2026-11-03»). META: 0 al cierre.
+CAPA TOPE: C3
+ÁREA:      Comercial (Compras)
+DUEÑO:     David
+```
+
+> **Estado real (auditoría del 2026-11-03, sobre `origin/main` = `origin/prod-release` = `43b58464c`):**
+> PF.1–PF.8 y PF.12 están en `main` y en `prod-release`. PF.9 también, pero **PF.12 lo reemplazó**. **PF.10 y PF.11
+> no existen en ningún commit** (perdidos, ver «Corrección del tracker»). Las migraciones de PF.6 y PF.8: **NO
+> MEDIDO en prod** (`node database/scripts/check-pf-migraciones.js` con la URL de prod lo contesta).
+> PF.13–PF.17 (2026-11-03) en código y probados, **sin commit**.
+> ⚠️ `prod-release` hoy apunta al mismo commit que `main`: estar en esa rama no fecha CUÁNDO llegó a prod
+> (PF.12 llegó el 2026-10-27 con #460, `ff1f04437`).
 
 ## Pedido (Compras, 2026-10-09)
 
@@ -210,12 +231,30 @@ Lo de Productos nuevos, para **todos** los productos, en la sección de **Produc
   carga aparte, la tabla no lo espera.
 - Lista de 50 líderes: 0.57–0.79 s (desde esta máquina; en el servidor no hay viaje por la red). Detalle: 0.33–0.48 s.
 
-## Abierto
+## Abierto (actualizado 2026-11-03)
 
-- Calibrar los umbrales con Compras (incluidos los 21 días del líder, los 30 días de «caduca pronto» y el corte del 50%).
-- Que el andén y la revisión registren más fechas: hoy la caducidad cubre 60 productos.
-- El tránsito (órdenes de compra por recibir) todavía no resta del «hace falta comprar».
-- Plazo de entrega por proveedor: hoy el umbral de 15 días es fijo para todos.
+- **Calibrar los umbrales con Compras** (15 días; 21 para el top de venta; 60 de «le sobra»; 30 de «caduca pronto»;
+  el corte del 50 %). Desde `[PF.13]` el veredicto lo dice en pantalla: «Es una propuesta todavía sin calibrar con
+  Compras». Sin fecha: depende de una sesión con Compras (D-PF.2).
+- **Tránsito: ya no está abierto como dato, sí como decisión.** `[PF.13]` lee las órdenes de compra abiertas de
+  Kepler (`X-A-35`, misma regla que el diálogo «En camino» del Pedido) y las DICE en el veredicto, **sin restarlas**:
+  es la política vigente del Pedido (`POLITICA_TRANSITO = 'ignorar'`, Edgar 2026-10-08: 151 de 394 OC llevaban más
+  de 60 días). Restarlas aquí y no en el Pedido daría dos «hace falta comprar» distintos. Si se quiere restar, se
+  cambia en UN lugar (`transito.ts`) para los dos. ⚠️ Falta medir en prod que la cantidad de la OC esté en la
+  unidad base (`check-pf-ui-prod.js`, bloque 1); en la base local no hay ni un `X-A-35`.
+- **Plazo de entrega por proveedor:** el umbral de 15 días sigue fijo para todos. El Pedido ya deriva un `lead_days`
+  por producto (`commercial-replenishment.service`, `econ.lead_days`): usarlo aquí es un cambio de alcance que
+  decide el PM con la calibración (D-PF.2), no antes.
+- **Venta de las camionetas** (Canindo, y Padre Hidalgo incompleta): no está en Kepler (FASE_AB §16.17, D18 sin
+  dueño). `[PF.15]` evita las dos mentiras que eso producía («estancado» y «no se vende» sobre lo que sale por
+  camioneta) leyendo la CARGA a camioneta (`U-D-41` a `RUTA`/`RD`), pero el ritmo de venta de esas sucursales
+  sigue corto: el veredicto lo dice. La cifra completa depende de D18.
+- **Temporada** (PF.UI.6): no se puede distinguir con Kepler — su historia empieza en el corte de cada sucursal
+  (local: `mv_kepler_sales_daily` desde el 21-ene-2026; Canindo, Madero y Morelia Abastos desde ago–sep 2026), así
+  que la temporada del año pasado no está. Necesita la réplica de Wincaja (Fase WR) o se declara en pantalla.
+- Que el andén y la revisión registren más fechas: la caducidad cubría 60 lotes (2026-10-09; no re-medido).
+- **Un solo motor de compra** (NP vs PF, D-PF.3): medido el mecanismo, no se unifica sin el PM.
+- **«Editar producto»** quedó sin lugar desde PF.12 (falta decidir dónde vive).
 
 ---
 
@@ -266,3 +305,150 @@ Lo de Productos nuevos, para **todos** los productos, en la sección de **Produc
 venta acumulada (DESIGN §G), que exige verla; los umbrales de negocio (15 / 21 / 60 días, los 30 de
 «caduca pronto», el corte del 50 % de líderes), que calibra Compras; y la caducidad (PF.3), que cubre
 60 lotes y ya declara su cobertura.
+
+---
+
+## Auditoría de cierre — 2026-11-03 (tarjeta #34 del tablero, vence el 2026-11-06)
+
+### Corrección del tracker (lo que decía contra lo que es verdad)
+
+Verificado con `git log --all --grep`, `git log --all -S`, el reflog, los dos `stash` y los worktrees del equipo.
+«En prod» = ancestro de `origin/prod-release` (hoy = `origin/main` = `43b58464c`).
+
+| Item | El tracker decía | Lo verificado | Estado propuesto |
+|---|---|---|---|
+| PF.1 | 🧪 | `09193cd9b` en `main` y en `prod-release` | 🚀 (en prod; sin métrica antes/después) |
+| PF.2 / PF.3 | 🧪 | `305f79cfb` en `main` y `prod-release` | 🚀 |
+| PF.4 / PF.5 | 🧪 | `826ab1d49` en `main` y `prod-release` | 🚀 |
+| PF.6 | 🧪 «mig sin aplicar en prod» | código `3b0641d54` + `eb8acc6c4` en prod. La migración `20261009183328`: **NO MEDIDO**. ⛔ La nota «los 300 de más dinero detenido, de 957 en la red» del 2026-10-29 **no prueba** que la tabla exista: sin ella la API calcula en vivo y devuelve lo mismo | 🚀 código · migración NO MEDIDA (`check-pf-migraciones.js`) |
+| PF.7 / PF.8 | 🧪 «mig sin aplicar» | `ee6dfb47a` en prod. La matvista `20261012083236`: **NO MEDIDO** | 🚀 código · migración NO MEDIDA |
+| PF.9 | 🧪 | `898584238` (#375) en prod, **reemplazado por PF.12** (la barra de proveedores se quitó a pedido de David) | ❌ reemplazado por PF.12 (sus endpoints `flow/proveedores*` siguen vivos y sin pantalla) |
+| PF.10 | 🧪 con cifras de prod y «471 pruebas en verde» | **Ni un commit** en ninguna rama, ni en el reflog, ni en stash, ni en los worktrees; `master_data_history` no aparece en ningún archivo TS. Se perdió antes de commitearse | ❌ perdido. No re-planear hasta que Compras lo pida: PF.12 cambió la tabla donde vivía. Si vuelve, su deuda con nombre sigue: «quién lo revisó» es HITL y necesita su tabla |
+| PF.11 | 🧪 orden por 6 columnas | **Ni un commit.** PF.12 trae su propio orden en Detallado (`siguienteOrden`: Producto y «Este mes») | ❌ perdido · lo útil lo cubre PF.12 (2 columnas, no 6) |
+| PF.12 | 🧪 «falta medir en prod» | `ff1f04437` (#460) en prod desde el 2026-10-27 | 🚀 · le faltan validación visual y tiempos de prod |
+| PF.13–PF.17 | — | Nuevos, 2026-11-03, sin commit | 🧪 |
+
+### PF.13–PF.17 — lo hecho el 2026-11-03 (motor; la pantalla ya pinta estos motivos en «Qué hacer»)
+
+- **`[PF.13]` Lo que ya viene, sin restarlo (PF.UI.1).** El detalle lee las órdenes de compra abiertas de Kepler
+  (`TRANSITO_SQL`: `X-A-35` de 120 días, sin entrada, estatus no F/C/R — la regla del diálogo «En camino» del
+  Pedido) en un SAVEPOINT. El veredicto «Comprar» o «Mover» dice, por ejemplo: «Ya vienen 15 CJA en 2 órdenes de
+  compra abiertas de Kepler; 1 de 14 días o menos, la más vieja de hace 80 días: con eso alcanzaría para 23 días.
+  Este veredicto no las resta, igual que el Pedido: muchas órdenes no se surten». Si la lectura falla: «No se pudo
+  leer lo que ya viene…» (nunca «no hay»). Y «Comprar»/«Esperar» dicen su umbral: «Criterio: comprar con menos de
+  15 días de inventario. Es una propuesta todavía sin calibrar con Compras». La lista NO busca el tránsito (sería
+  una consulta más por página); sólo el detalle.
+- **`[PF.14]` Medición NP contra PF** (`database/scripts/mide-np-vs-pf.js`, sólo lectura): llama a los DOS
+  servicios reales y agrupa el porqué.
+- **`[PF.15]` Lo que sale por camioneta (PF.UI.2/PF.UI.3).** Una sucursal con existencia, sin venta de mostrador y
+  con carga a camioneta (`U-D-41` a `RUTA`/`RD`) en los últimos 14 días ya no es «Estancado»: «Sale por camioneta
+  (última carga: 31 de octubre); lo que vende la camioneta no está en Kepler». Si es lo único que mueve el producto,
+  el veredicto pasa de «No comprar: no se vende» a «Esperar · Sale por camioneta: su venta no está en Kepler».
+  «No se venden» saca los que su sucursal cargó a camioneta en 30 días y los cuenta aparte (`por_camioneta`), y el
+  total dice si es un mínimo (`total_es_minimo`: la consulta tiene tope de 1,200).
+- **`[PF.16]` Rótulos (PF.UI.5).** «Es líder: el #N…» → «Top de nuestra venta: el #N de la red en 90 días (X % de lo
+  que vendemos; no es participación de mercado)». La sucursal sin nombre en la base se nombra con `warehouseName`
+  (antes «Sucursal 06»).
+- **`[PF.17]` Migraciones de PF.6/PF.8** (`database/scripts/check-pf-migraciones.js`, sólo lectura): objeto, LOS DOS
+  ledgers, datos y latido. Control local: los dos objetos existen, la foto late cada minuto y ningún ledger local
+  los nombra (la base local se armó con el arranque de desarrollo). Prueba negativa: `PF17_NEGATIVO=1` → sale 1.
+- Instrumento de tamaño para prod: `database/scripts/check-pf-ui-prod.js` (tránsito y su unidad, camionetas,
+  tope de «No se venden», negativos, cobertura del margen). Corrido en local como control.
+
+Pruebas: `product-flow-transito.spec.ts` (20 pruebas, 8 de ellas negativas); `commercial-products` 349/352 — las 3 rojas son de
+`new-products.spec.ts`, que no importa nada de PF: las rompe el trabajo sin commit de otra sesión en
+`new-products.ts` (NP.UI.1). `compras` (view) 745/745.
+
+⚠️ **Cambia números en prod** (regla 15): «No se venden» deja fuera lo que sale por camioneta, y algunos veredictos
+«No comprar» y «Estancado» pasan a «Esperar» y «Se mueve». El antes/después se mide con `check-pf-ui-prod.js`
+(bloque 2) contra prod ANTES de soltarlo: NO MEDIDO hoy.
+
+### Estado al 2026-11-03 de las observaciones de diseño
+
+| # | Tamaño hoy | Qué quedó hecho | Qué falta (y dónde) |
+|---|---|---|---|
+| PF.UI.1 🔴 | Prod NO MEDIDO (`check-pf-ui-prod.js` §1: OC abiertas, cuántas de más de 60 días, unidad). Local: 0 `X-A-35` | Motor: dice lo que viene sin restarlo y el umbral como propuesta (`[PF.13]`) | Pantalla (PR pendiente): enlace «Ir a Pedido» con el SKU puesto (Q.4). Decisión: D-PF.1 |
+| PF.UI.2 🔴 | ~$428 K/semana de Canindo fuera de Kepler (FASE_AB, 26-oct, no re-medido). Local: Canindo con 194 cargas a camioneta del 14-ago al 9-oct; 0 de los 6 «No se venden» locales con carga | Motor: no «estancado» ni «no se vende» con carga reciente (`[PF.15]`) | Pantalla: rótulo del universo de la venta. Dato: D18 (venta de camionetas al ODS) sin dueño |
+| PF.UI.3 🔴 | Prod: 957 «no se venden» el 29-oct (nota de pantalla), tope 1,200. Local: 6 | PF.12 quitó la vista conflada (dos filtros con su conteo). Motor: `total_es_minimo` y `por_camioneta` | Pantalla: la nota dice el dinero y «o más» (cambio exacto abajo) |
+| PF.UI.4 🔴 | IEPS 8 % (Kinder) a IVA 16 % (plan) | PF.12 ya rotula la lista («venta con impuestos del 1 a hoy») y el margen («Venta sin impuestos») | Pantalla: «¿Cómo va la venta este mes?» no dice su base |
+| PF.UI.5 🟠 | 245 top de venta (9-oct) | Motor (`[PF.16]`) | Pantalla: chip «Líder #N» y filtro «Líderes con pendiente» |
+| PF.UI.6 🟠 | No medible con Kepler (historia desde el corte de cada sucursal) | — | Declarar en pantalla; la temporada real necesita la Fase WR |
+| PF.UI.7 🟠 | Local: de 12 productos con venta, 6 con el margen sobre menos del 50 % de la venta | El panel ya trae la cobertura (`m.cubre`) | Prod NO MEDIDO (`check-pf-ui-prod.js` §4) |
+| PF.UI.8 🟠 | — | PF.12 escribe cajas con la escalera de la ficha; el tránsito también | Alinear con D20 del Pedido (PQ.UI.3) |
+| PF.UI.9 🟠 | Local: 3 sucursal×producto en negativo con venta en 30 días (salen «Agotado») | — | La existencia con piso en cero es de NP (`EXISTENCIA_KEPLER_SQL`): bandera `negativa` a pedir a su dueño |
+| PF.UI.10 🟡 | — | Migraciones con script | Auditoría visual nivel A (aquí no se levanta nada) |
+
+### Un solo motor: NP contra PF (NP.UI.3 / PF.UI.1) — NO se unifica aquí, lo decide el PM
+
+Medido en la base LOCAL el 2026-11-03 con `mide-np-vs-pf.js` (los dos servicios reales, transacción de sólo
+lectura; ⚠️ sobre el `new-products.ts` del árbol, con cambios sin commit de otra sesión que NO tocan la regla de
+abajo): de 218 productos nuevos, 78 con veredicto de NP; 74 comparables. **63 opuestos (85.1 %), todos «PF compra
+/ NP no recompra»**, y **62 por el mismo mecanismo**: PF dice «Comprar: ya no hay existencia» y NP «No recomprar:
+lleva N días sin venderse». NP evalúa los días sin venta (`sinVentaDias`, 21) ANTES de mirar si está agotado, y un
+producto agotado no se vende porque no hay. ⚠️ La base local no tiene venta después del 23-oct, lo que infla el
+número: mide el MECANISMO, no la magnitud de prod (NO MEDIDO; mismo script).
+
+**Propuesta:** (1) corto, regla de NP: «sin venta N días» no da «No recomprar» si en esos días estuvo agotado donde
+se vendía — la misma regla que PF ya tiene («una caída con sucursales agotadas no es falta de demanda»); (2)
+mediano, un solo veredicto de compra en `libs/` que NP y PF consuman, con la pregunta escrita en cada rótulo
+(«¿lo vuelvo a comprar?» de NP es de lanzamiento; «¿hace falta comprar hoy?» de PF, de reposición).
+
+### Definición de Terminado (método §5) — estado real
+
+| # | Punto | Estado |
+|---|---|---|
+| 1 | Métrica medida otra vez, con antes/después | ⚠️ Medida HOY sólo en local (63/74). Prod NO MEDIDO; el antes/después espera la decisión D-PF.3 |
+| 2 | Cada capa verificada o declarada NO MEDIDA | C0: venta cruzada al centavo (9-oct), márgenes cruzados (51 celdas); tránsito: unidad de la OC NO MEDIDA. C1: 102 pruebas PF. C2: lectura, sin escrituras nuevas. C3: sin validación visual (NO MEDIDO) |
+| 3 | Endpoint que escribe, ejercido contra base real | La pantalla sólo lee. La única escritura es la foto del worker (PF.6): ejercida en local (latido `ok`, 2 variantes, hoy); en prod NO MEDIDO |
+| 4 | Compuerta nueva rota a propósito | `check-pf-migraciones.js` rojo con `PF17_NEGATIVO=1` ✅. Las pruebas nuevas traen sus negativas |
+| 5 | Primitivo genérico en `libs/` o deuda con nombre | La lectura opcional en SAVEPOINT (`opcional()`) es local al servicio: **deuda con nombre `[PF.18]`**. El tránsito reutiliza la regla del Pedido |
+| 6 | Tracker, LOG y roadmap con el estado real | ❌ hasta que se aplique el texto de la corrección (lo integra la sesión principal) |
+| 7 | En prod o por qué no | PF.1–PF.9 y PF.12 en prod; PF.13–PF.17 sin commit; migraciones NO MEDIDAS |
+
+### Cambios propuestos para los archivos del PR pendiente (PF.12.1 / PF.12.3) — NO aplicados aquí
+
+1. `libs/commercial/src/lib/commercial-products/catalogo-detallado.ts` — `Cuidado` gana `noSeVendenValor`,
+   `noSeVendenMinimo` y `noSeVendenCamioneta` (de `no_se_venden.valor_total`, `.total_es_minimo` y `.por_camioneta`
+   en `cuidadoDe`); la nota de `contarDetallado` pasa a decir «Los 300 de más dinero detenido, de 957 [o más] en la
+   red ($X a costo); fuera N que salen por camioneta». Por qué: PF.UI.3.
+2. `apps/view/src/app/modules/compras/catalogo-detallado.ts` — `etiquetasTexto`: «Líder #N» → «Top venta #N»; el
+   filtro «Líderes con pendiente» → «Top de venta con pendiente». En `queHacer`, el respaldo «Sucursal NN» →
+   `warehouseName(código)` de `@megadulces/contracts`. Por qué: PF.UI.5 y «una sucursal se nombra».
+3. Mismo archivo, `comoVaLaVenta`: agregar al final de la frase «Venta con IVA e IEPS registrada en Kepler (sin lo
+   que venden las camionetas).». Por qué: PF.UI.4 y PF.UI.2.
+4. Mismo archivo, `sucursalesDetalladas`: si la plaza del motor trae `por_camioneta`, la columna «Sin vender» dice
+   «Sale por camioneta» en vez de los días. Por qué: PF.UI.2 (si no, la tabla contradice al veredicto).
+5. `apps/view/src/app/modules/compras/pages/producto-ficha-detallada.component.ts`, bloque «Qué hacer», después de
+   los traspasos: enlace «Ir a Pedido con este producto» a `/compras/pedido` con `?search=<sku>` (la pantalla de
+   Pedido ya hidrata `search`). Por qué: PF.UI.1 / DESIGN Q.4.
+
+### Los 5 cambios de pantalla, APLICADOS (2026-11-03, D3 de David) y el motor único (D1)
+
+Verificado cada uno contra el código del árbol antes de aplicarlo:
+
+| # | Archivo | Qué quedó | Prueba (con su negativa) |
+|---|---|---|---|
+| 1 | `libs/commercial/.../catalogo-detallado.ts` | `Cuidado` trae `noSeVendenValor` / `noSeVendenMinimo` / `noSeVendenCamioneta`; `notaNoSeVenden`: «Los 300 de más dinero detenido, de 957 o más en la red ($X a costo); fuera N que salen por camioneta». Sin permiso de costo el servidor manda `valor_total` null y no se dice dinero (ni $0) | `catalogo-detallado.spec.ts`: con tope+dinero+camioneta; sin costo; [negativa] lista completa → sin nota; servidor previo → la nota de antes |
+| 2 | `apps/view/.../catalogo-detallado.ts` + `compras-catalogo.component.ts` | «Líder #N» → «Top venta #N» (ficha Y renglón de la lista, que deben decir lo mismo); filtro «Top de venta con pendiente»; pie «no es participación de mercado». El respaldo «Sucursal NN» → `warehouseName` en `queHacer` y en las otras 5 frases del mismo archivo | spec: `warehouseName('04')` y nunca `/^Sucursal /` |
+| 3 | mismo, `comoVaLaVenta` | La frase termina con `BASE_VENTA_MES`: «Venta con IVA e IEPS registrada en Kepler (sin lo que venden las camionetas).» | spec de la función y de la ficha |
+| 4 | mismo, `sucursalesDetalladas` | «Sale por camioneta» en «Sin vender» cuando la sucursal trae `por_camioneta` **y** no vende en mostrador desde `diasEstancado` (la MISMA condición con que el motor la llama «se mueve»). ⚠️ Corrección al texto propuesto: el motor pone `por_camioneta` con cualquier carga reciente, aunque haya vendido hoy; sin la condición, «Hoy vendió» se habría tapado | spec + [negativa] con venta de mostrador hace 2 días dice «2 días» |
+| 5 | `producto-ficha-detallada.component.ts` | Enlace «Ir a Pedido con este producto» → `/compras/pedido?search=<sku>` (verificado: Pedido hidrata `search` de la URL, `compras-pedido-real.component.ts` §Q.4). Sólo con `COMPRAS_PEDIDO_VER` (el guard de Pedido) | spec: `href` exacto; [negativa] sin la clave no se pinta |
+
+**D1 — un solo motor de compra (`PF.UI.1` / `NP.UI.3`), hecho del lado de NP:** Productos nuevos ya no dice «Recomprar /
+Esperar / No recomprar»; su panel muestra el veredicto de Productos (`GET :id/flow`) con su motivo. Detalle y medición
+en `FASE_NP_PRODUCTOS_NUEVOS.md` § Undécima entrega: opuestos NP × PF en local 63 de 74 → **1 de 74**.
+
+Quedan fuera (otras pantallas, mismo rótulo «Líder»): `producto-flujo-panel.component.ts` («Líder · #3 en venta de la
+red») y el filtro «Líderes» de `catalogo-proveedor.ts`. Sin validación visual.
+
+### PF.20–PF.23 (2026-11-04) — en código y probados, en el PR del catálogo
+
+| Ítem | Qué | Estado |
+|---|---|---|
+| `[PF.20]` | Descontinuado (regla única en `libs/contracts`, etiqueta y al final de la lista Sencillo, Estado en la ficha) + el cliente externo nunca ve el último costo | 🧪 |
+| `[PF.21]` | Sucursal del precio recortada al alcance (403 fuera de él) y selector «Precios de» en Detallado; la ficha usa la misma | 🧪 |
+| `[PF.22]` | Último costo por cada unidad en las dos fichas, con la función de la lista | 🧪 |
+| `[PF.23]` | Calendario de periodo en la ficha (venta por sucursal / compras), corte a Kepler declarado, total con sucursales faltantes dicho | 🧪 |
+
+Medido en la base de desarrollo: venta por periodo = consulta directa ($17,711.05, sep-2026, suc. 02). Sin medir en
+prod: tiempos del periodo y de la consulta de alcance (scripts de sólo lectura listos).

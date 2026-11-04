@@ -1,19 +1,23 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Knex } from 'knex';
-import { TenantKnexService } from '@megadulces/platform-core';
-import { aplicarBusquedaCatalogo, razonDeCoincidencia } from './catalogo-busqueda';
+import { Permission, TenantKnexService, isPlatformAdminRole, todayMx } from '@megadulces/platform-core';
+import { aplicarBusquedaCatalogo, ordenListaCatalogo, razonDeCoincidencia } from './catalogo-busqueda';
 import {
   armarConteos,
   armarSucursales,
+  armarUltimoCosto,
   armarUnidades,
+  costoSinImpuestos,
   descripcionDistinta,
   mostrarValido,
   num,
   ordenarCodigos,
+  periodoFicha,
   precioDeRed,
   sucursalValida,
   type CatalogoFila,
   type CatalogoLista,
+  type EntradaCruda,
   type EscaleraCruda,
   type FichaProducto,
   type MostrarCatalogo,
@@ -30,8 +34,8 @@ import {
   PRODUCTO_SQL,
   SIN_PRECIO_LATERAL_SQL,
   SUCURSALES_SQL,
-  ULTIMA_ENTRADA_SQL,
-  VENTA_MES_SQL,
+  ULTIMAS_ENTRADAS_SQL,
+  VENTA_PERIODO_SQL,
 } from './catalogo-ficha.sql';
 import { EXISTENCIA_KEPLER_SQL } from './new-products.sql';
 import type { FilaUniverso } from './catalogo-detallado';
@@ -41,6 +45,39 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 type Escalera = EscaleraCruda & { sku: string };
 type Precio = PrecioCrudo & { product_id: string };
+type Entrada = EntradaCruda & { sku: string };
+
+/**
+ * `[PF.12.3]` Tope de la lectura del último costo en la lista. La lista entera tiene que salir en < 1 s; medido en
+ * local (2026-10-30, página 1, sucursales 01 y 02) lo demás tarda 330–670 ms y esta lectura 6–17 ms. Más de esto
+ * = «Sin dato» en la columna, y la lista a tiempo.
+ */
+const COSTO_TOPE_MS = 300;
+
+/** Lo que `RolesGuard` deja en `req.user` (el mapa de permisos fresco de la base). */
+export interface UsuarioConPermisos {
+  permissions?: Record<string, boolean>;
+  role_name?: string;
+}
+
+/**
+ * `[PF.12.3]` QUIÉN VE EL ÚLTIMO COSTO DE COMPRA EN EL CATÁLOGO: las listas Sencillo y Detallado, la «Última
+ * entrada» de la ficha Sencillo y el «Costo de la última» de la ficha Detallado. Una sola regla para las cuatro:
+ * si una lo muestra y otra no, la pantalla se contradice.
+ *
+ * Decisión de David (dueño del pedido), 2026-10-30, extendida a Detallado el 2026-11-03: **todo el que ve el
+ * catálogo** (`COMMERCIAL_PRODUCTS_VER`), no sólo quien tiene `COMPRAS_COSTO_ESTANDAR_VER`. Se le advirtió que
+ * es dato sensible y lo confirmó. ⚠️ Cambiar quién lo ve es ESTA línea. Lo demás que muestra costo (el MARGEN de
+ * Detallado, Costos, Productos nuevos, Flujo) sigue con `COMPRAS_COSTO_ESTANDAR_VER` y no pasa por aquí.
+ *
+ * ⛔ `[PF.20]` El CLIENTE EXTERNO nunca: `COMMERCIAL_PRODUCTS_VER` también lo tiene `customer_b2b` (medido en prod
+ * el 2026-10-16, ver `precios-catalogo.service.ts` › `sinMargenParaCliente`). La decisión de David fue para la gente
+ * de la empresa que ve el catálogo; darle a un cliente lo que pagamos por el producto nadie lo decidió.
+ */
+export function puedeVerCostoCatalogo(user: UsuarioConPermisos | null | undefined): boolean {
+  if (user?.role_name === 'customer_b2b') return false;
+  return user?.permissions?.[Permission.COMMERCIAL_PRODUCTS_VER] === true || isPlatformAdminRole(user?.role_name);
+}
 
 /**
  * Compras › Catálogo: la lista (búsqueda + unidades con precio de una sucursal) y la ficha de un producto
@@ -72,8 +109,20 @@ export class CatalogoFichaService {
   /**
    * La lista. Mostrar (todos | varios_codigos | sin_codigo | sin_precio) se filtra AQUÍ, no en el navegador:
    * la lista es paginada. Los conteos son de la búsqueda entera, sin importar qué se muestra.
+   *
+   * `[PF.12.1]` Orden: lo vendible primero (`ordenListaCatalogo`). Sólo toca la consulta de los renglones;
+   * los conteos y el total salen de `buscado` sin orden, así que no cambian.
+   *
+   * `[PF.12.3]` Con `verCosto` (lo decide `puedeVerCostoCatalogo`), cada renglón trae su último costo de compra:
+   * UNA consulta más, sólo para los SKUs de la página. Sin él, ni se consulta.
    */
-  async lista(q: { search?: string; sucursal?: string; page?: number; pageSize?: number; mostrar?: string }): Promise<CatalogoLista> {
+  async lista(
+    q: { search?: string; sucursal?: string; page?: number; pageSize?: number; mostrar?: string },
+    opts: { verCosto?: boolean; nuevos?: string[] | null } = {},
+  ): Promise<CatalogoLista> {
+    const verCosto = opts.verCosto === true;
+    // [NP.22] Los ids en seguimiento de Productos nuevos, sólo para CONTARLOS (la lista la sirve Detallado).
+    const nuevos = Array.isArray(opts.nuevos) ? opts.nuevos : null;
     const sucursal = sucursalValida(q.sucursal);
     const pageSize = Math.min(Math.max(Math.trunc(Number(q.pageSize)) || 50, 1), 200);
     const page = Math.max(Math.trunc(Number(q.page)) || 1, 1);
@@ -83,6 +132,8 @@ export class CatalogoFichaService {
       const conPrecio = await this.conPrecioPorSucursal(trx);
       const mostrar: MostrarCatalogo = mostrarValido(q.mostrar, conPrecio);
       const buscado = this.buscado(trx, texto, sucursal, conPrecio);
+      // Con precio por sucursal se une el lateral `sp`, y con él se sabe barato quién tiene unidades.
+      const orden = ordenListaCatalogo(texto, conPrecio);
 
       const base = buscado.clone();
       if (mostrar === 'varios_codigos') base.where('cc.n_codigos', '>=', 2);
@@ -99,8 +150,9 @@ export class CatalogoFichaService {
             trx.raw('count(*) FILTER (WHERE cc.n_codigos >= 2) AS varios'),
             trx.raw('count(*) FILTER (WHERE cc.n_codigos = 0) AS sin_codigo'),
             trx.raw(conPrecio ? 'count(*) FILTER (WHERE sp.sin_precio) AS sin_precio' : 'NULL::int AS sin_precio'),
+            nuevos ? trx.raw('count(*) FILTER (WHERE p.id = ANY(?::uuid[])) AS nuevos', [nuevos]) : trx.raw('NULL::int AS nuevos'),
           )
-          .first() as Promise<{ todos: string; varios: string; sin_codigo: string; sin_precio: string | null } | undefined>,
+          .first() as Promise<{ todos: string; varios: string; sin_codigo: string; sin_precio: string | null; nuevos: string | null } | undefined>,
         // Con «todos» el total ES el conteo de la búsqueda: no se paga otra pasada.
         mostrar === 'todos'
           ? Promise.resolve(undefined)
@@ -117,24 +169,27 @@ export class CatalogoFichaService {
             's.name as proveedor',
             'cc.n_codigos',
           )
-          .orderBy('p.nombre')
-          .orderBy('p.id')
+          .orderByRaw(orden.sql, orden.bindings)
           .limit(pageSize)
           .offset((page - 1) * pageSize) as Promise<Array<{
             id: string; sku: string | null; nombre: string; description: string | null; barcode: string | null;
             proveedor_id: string | null; proveedor: string | null; n_codigos: number | string | null;
           }>>,
       ]);
-      const conteos = armarConteos(crudos, conPrecio);
+      const conteos = { ...armarConteos(crudos, conPrecio), nuevos: nuevos ? Number(crudos?.nuevos ?? 0) : null };
       const out = await this.armarFilas(trx, filas, texto, sucursal, conPrecio);
+      // `[PF.12.3]` Al final y en serie: su tope de tiempo no debe caerle a ninguna otra consulta.
+      const costo = verCosto ? await this.ultimosCostos(trx, out) : null;
 
       return {
         sucursal,
         total: mostrar === 'todos' ? conteos.todos : Number(conteo?.n ?? 0),
-        filas: out,
+        filas: costo?.filas ?? out,
         calculado_al: new Date().toISOString(),
         conteos,
         mostrar,
+        costo_visible: verCosto,
+        costo_medido: costo ? costo.medido : null,
       };
     });
   }
@@ -192,6 +247,60 @@ export class CatalogoFichaService {
     return this.tk.run(async (trx) => this.armarFilas(trx, filas, texto, sucursal, await this.conPrecioPorSucursal(trx)));
   }
 
+  /**
+   * `[PF.12.3]` Detallado con el último costo: los MISMOS renglones de `filasDe` + `ultimosCostos`, la misma
+   * consulta por lote, el mismo savepoint y el mismo tope que la lista Sencillo, en una sola transacción. Así un
+   * producto dice el mismo costo, en la misma unidad, en las dos vistas.
+   */
+  async filasDeConCosto(filas: FilaUniverso[], texto: string, sucursal: string): Promise<{ filas: CatalogoFila[]; medido: boolean }> {
+    if (!filas.length) return { filas: [], medido: true };
+    return this.tk.run(async (trx) => {
+      const base = await this.armarFilas(trx, filas, texto, sucursal, await this.conPrecioPorSucursal(trx));
+      return this.ultimosCostos(trx, base);
+    });
+  }
+
+  /**
+   * `[PF.12.3]` El último costo de los renglones de UNA página: `ULTIMAS_ENTRADAS_SQL` una sola vez con todos sus
+   * SKUs (recortados y sin repetir, como los compara `btrim(c8)`), y la conversión a cada unidad del renglón.
+   * Sin SKU no hay entrada que buscar: `null`, igual que un SKU sin entradas («Sin compras»).
+   * Si la lectura no se pudo hacer, `medido: false` y los renglones van SIN `ultimoCosto` (se declara, no se
+   * pinta como «Sin compras»).
+   */
+  private async ultimosCostos(trx: Knex.Transaction, filas: CatalogoFila[]): Promise<{ filas: CatalogoFila[]; medido: boolean }> {
+    const skus = [...new Set(filas.map((f) => (f.sku ?? '').trim()).filter(Boolean))];
+    const entradas = skus.length ? await this.leerUltimasEntradas(trx, skus) : [];
+    if (entradas === null) return { filas, medido: false };
+    const entradaDe = new Map(entradas.map((e) => [e.sku, e]));
+    return {
+      filas: filas.map((f) => ({ ...f, ultimoCosto: armarUltimoCosto(f.unidades, entradaDe.get((f.sku ?? '').trim())) })),
+      medido: true,
+    };
+  }
+
+  /**
+   * `[PF.12.3]` Lectura OPCIONAL de la lista: en SAVEPOINT y con tope de `COSTO_TOPE_MS`. Si falla o tarda más,
+   * devuelve `null` y la lista sale igual, a tiempo (>1 s = «no funciona»). Motivo medido: en producción los
+   * renglones de compra por SKU se buscan con `ix_kdm2_compra_sku` (`[RA-NEG.5]`); sin él la misma búsqueda
+   * barre ~514 mil renglones X/A y tardó 300–1,680 ms (2026-10-22). El tope se pone con `set_config(..., true)`
+   * DESPUÉS del savepoint y se devuelve al valor anterior antes de soltarlo: si la consulta truena, el ROLLBACK
+   * al savepoint también lo deshace. Va en serie (nunca en un Promise.all): el tope es de la conexión.
+   */
+  private async leerUltimasEntradas(trx: Knex.Transaction, skus: string[]): Promise<Entrada[] | null> {
+    try {
+      return await trx.transaction(async (sp) => {
+        const antes = ((await sp.raw(`SELECT current_setting('statement_timeout') AS t`)).rows[0] as { t?: string } | undefined)?.t ?? '0';
+        await sp.raw(`SELECT set_config('statement_timeout', ?, true)`, [`${COSTO_TOPE_MS}ms`]);
+        const filas = (await sp.raw(ULTIMAS_ENTRADAS_SQL, [skus])).rows as Entrada[];
+        await sp.raw(`SELECT set_config('statement_timeout', ?, true)`, [antes]);
+        return filas;
+      });
+    } catch (e) {
+      this.logger.warn(`Último costo del catálogo no leído (${skus.length} SKUs): ${(e as Error)?.message ?? e}`);
+      return null;
+    }
+  }
+
   /** Unidades con el precio de la sucursal y la razón de la coincidencia, para los renglones dados. */
   private async armarFilas(
     trx: Knex.Transaction,
@@ -247,9 +356,12 @@ export class CatalogoFichaService {
     return out;
   }
 
-  async ficha(id: string, q: { sucursal?: string; puedeVerCosto: boolean }): Promise<FichaProducto> {
+  async ficha(id: string, q: { sucursal?: string; puedeVerCosto: boolean; desde?: string; hasta?: string }): Promise<FichaProducto> {
     if (!UUID_RE.test(id)) throw new BadRequestException('id de producto inválido');
     const sucursal = sucursalValida(q.sucursal);
+    // `[PF.23]` El periodo de la venta por sucursal; sin fechas, el mes en curso (lo de siempre).
+    const periodo = periodoFicha(q.desde, q.hasta, todayMx());
+    if (!periodo) throw new BadRequestException('Periodo inválido: desde y hasta en YYYY-MM-DD, desde <= hasta, a lo más dos años.');
 
     return this.tk.run(async (trx) => {
       const prod = (await trx.raw(PRODUCTO_SQL, [id])).rows[0] as
@@ -267,17 +379,16 @@ export class CatalogoFichaService {
         conPrecio ? trx.raw(PRECIOS_RED_SQL, [id]).then((r) => r.rows as { piece_price: string | null }[]) : Promise.resolve([]),
         sku ? trx.raw(ESCALERA_SQL, [[sku], sucursal]).then((r) => (r.rows[0] as Escalera | undefined) ?? null) : Promise.resolve(null),
         sku ? trx.raw(CODIGOS_SQL, [[sku]]).then((r) => (r.rows as { barcode: string }[]).map((x) => x.barcode)) : Promise.resolve([]),
-        trx.raw(SUCURSALES_SQL).then((r) => r.rows as SucursalCruda[]),
+        trx.raw(SUCURSALES_SQL, [periodo.desde]).then((r) => r.rows as SucursalCruda[]),
         trx
-          .raw(VENTA_MES_SQL, [id])
+          .raw(VENTA_PERIODO_SQL, [id, periodo.desde, periodo.hasta])
           .then((r) => r.rows as { sucursal: string; monto: string; unidades: string; ultima: string | null }[]),
         sku
           ? trx.raw(EXISTENCIA_KEPLER_SQL, [[sku], [id]]).then((r) => r.rows as { sucursal: string; cantidad: string }[])
           : Promise.resolve([]),
+        // `[PF.12.3]` La MISMA consulta que la lista (con un SKU): la ficha y el renglón eligen la misma entrada.
         sku
-          ? trx.raw(ULTIMA_ENTRADA_SQL, [sku]).then((r) => (r.rows[0] as {
-              sucursal: string; fecha: string; unidad: string; cantidad: string; costo: string | null;
-            } | undefined) ?? null)
+          ? trx.raw(ULTIMAS_ENTRADAS_SQL, [[sku]]).then((r) => (r.rows[0] as Entrada | undefined) ?? null)
           : Promise.resolve(null),
       ]);
 
@@ -289,6 +400,8 @@ export class CatalogoFichaService {
       const ultimas = venta.map((v) => v.ultima).filter((x): x is string => !!x).sort();
       const unidades = armarUnidades(escalera, precio);
       const nombreDe = new Map(sucs.map((s) => [s.codigo, s.nombre]));
+      // `[PF.12.3]` Sin IVA ni IEPS, con la misma regla que la lista.
+      const sinImp = entrada ? costoSinImpuestos(entrada.costo, entrada.iva, entrada.ieps) : null;
       let nombreEntrada: string | null = null;
       if (entrada) {
         nombreEntrada = nombreDe.get(entrada.sucursal) ?? null;
@@ -315,14 +428,18 @@ export class CatalogoFichaService {
         precioRed: precioDeRed(red.map((r) => r.piece_price)),
         sucursales,
         corteVenta: ultimas.length ? ultimas[ultimas.length - 1] : null,
-        ultimaEntrada: entrada
+        periodo,
+        ultimaEntrada: entrada && sinImp
           ? {
               sucursal: entrada.sucursal,
               nombreSucursal: nombreEntrada,
               fecha: entrada.fecha,
               cantidad: num(entrada.cantidad) ?? 0,
               unidad: entrada.unidad,
-              costo: q.puedeVerCosto ? num(entrada.costo) : null,
+              costo: q.puedeVerCosto ? sinImp.costo : null,
+              impuesto: sinImp.impuesto,
+              // `[PF.22]` El costo en cada unidad (paquete, caja…): `armarUltimoCosto`, la MISMA función del renglón.
+              porUnidad: q.puedeVerCosto ? (armarUltimoCosto(unidades, entrada)?.porUnidad ?? []) : [],
             }
           : null,
         costo_visible: q.puedeVerCosto,

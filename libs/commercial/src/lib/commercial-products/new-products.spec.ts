@@ -1,12 +1,23 @@
 import {
-  CRITERIO_RECOMPRA,
+  CRITERIO_LANZAMIENTO,
   CRITERIO_SUCURSAL,
+  VEREDICTOS,
+  VER_PRODUCTOS,
+  juzgarRecuperacion,
+  compraPorDocumento,
+  compraSinImpuestos,
+  llaveCompra,
+  type CompraNetaInfo,
+  type RenglonCompra,
   Existencia,
   MargenFuente,
   Movimiento,
   NewProductSource,
   Senales,
   armarProducto,
+  conHitos,
+  kpiHito,
+  semaforoHito,
   llegadaDe,
   margenesDe,
   ocultarCostoPlazas,
@@ -25,6 +36,7 @@ import {
   sumarDias,
   tipoEntradaTexto,
 } from './new-products';
+import type { KpiUmbral } from '@megadulces/contracts';
 
 /**
  * `[NP.2]` La lógica de Productos nuevos: la serie (historia + hoy), los hitos, la recomendación de
@@ -56,7 +68,7 @@ function fuente(over: Partial<NewProductSource> & { dias?: number } = {}): NewPr
 }
 
 const senales = (over: Partial<Senales> = {}): Senales => ({
-  dia: 45, venta_total: 4000, inversion_total: 3000, dias_con_venta_28: 20, venta_28: 2000,
+  dia: 45, venta_total: 4000, venta_neta: 3448.28, inversion_total: 3000, dias_con_venta_28: 20, venta_28: 2000,
   venta_28_previa: 2000, dias_sin_venta: 0, agotado_en: 0, plazas_con_existencia: 1, ...over,
 });
 
@@ -95,21 +107,31 @@ describe('serieDiaria — historia + hoy, sin contar dos veces', () => {
   });
 });
 
-describe('recomendar — ¿conviene volver a comprarlo?', () => {
-  it('antes del día 21 no se decide', () => {
+describe('recomendar — [NP.20] ¿el lanzamiento funcionó?', () => {
+  it('antes del día 21 no se juzga', () => {
     const r = recomendar(senales({ dia: 12 }));
     expect(r.veredicto).toBe('pronto');
-    expect(r.motivos[0]).toContain(`día ${CRITERIO_RECOMPRA.diasMinimos}`);
+    expect(r.motivos[0]).toContain(`día ${CRITERIO_LANZAMIENTO.diasMinimos}`);
   });
 
-  it('nunca vendido → no recomprar', () => {
-    expect(recomendar(senales({ venta_total: 0, dias_con_venta_28: 0, dias_sin_venta: null })).veredicto).toBe('no_recomprar');
+  it('nunca vendido, con existencia → sacar', () => {
+    expect(recomendar(senales({ venta_total: 0, dias_con_venta_28: 0, dias_sin_venta: null })).veredicto).toBe('sacar');
   });
 
-  it('dejó de venderse hace 3 semanas → no recomprar', () => {
-    const r = recomendar(senales({ dias_sin_venta: 25 }));
-    expect(r.veredicto).toBe('no_recomprar');
+  it('dejó de venderse hace 3 semanas, con existencia donde se vendía → sacar', () => {
+    const r = recomendar(senales({ dias_sin_venta: 25, vendio_con_existencia: 1 }));
+    expect(r.veredicto).toBe('sacar');
     expect(r.motivos[0]).toContain('25 días sin venderse');
+  });
+
+  it('el vocabulario es el nuevo: ningún veredicto dice recomprar, esperar ni no recomprar', () => {
+    const casos = [
+      senales({ dia: 12 }), senales({ venta_total: 0, dias_con_venta_28: 0, dias_sin_venta: null }),
+      senales({ dias_sin_venta: 25 }), senales({ dias_con_venta_28: 5 }), senales(),
+      senales({ dias_sin_venta: 25, plazas_con_existencia: 0 }), senales({ agotado_en: 1 }),
+    ];
+    for (const s of casos) expect(VEREDICTOS).toContain(recomendar(s).veredicto);
+    expect(VEREDICTOS).toEqual(['se_queda', 'revisar', 'sacar', 'agotado', 'pronto']);
   });
 
   it('la venta cayó más de 40% contra las 4 semanas anteriores → revisar', () => {
@@ -122,28 +144,133 @@ describe('recomendar — ¿conviene volver a comprarlo?', () => {
     expect(recomendar(senales({ dias_con_venta_28: 5 })).veredicto).toBe('revisar');
   });
 
-  it('venta sostenida + agotado en una plaza que lo vende → recomprar', () => {
+  it('venta sostenida + agotado en una sucursal que lo vende → se queda, y la compra se manda a Productos', () => {
     const r = recomendar(senales({ agotado_en: 1, inversion_total: 10000 }));
-    expect(r.veredicto).toBe('recomprar');
-    expect(r.motivos.join(' ')).toContain('Se agotó en 1 plaza');
+    expect(r.veredicto).toBe('se_queda');
+    expect(r.motivos.join(' ')).toContain('Se agotó en 1 sucursal');
+    expect(r.motivos.join(' ')).toContain(VER_PRODUCTOS);
   });
 
-  it('venta sostenida + ya recuperó lo invertido → recomprar', () => {
-    expect(recomendar(senales({ venta_total: 2500, inversion_total: 3000 })).veredicto).toBe('recomprar');
-  });
-
-  it('venta sostenida pero todavía hay existencia y no ha recuperado → esperar', () => {
-    const r = recomendar(senales({ venta_total: 1000, inversion_total: 3000 }));
-    expect(r.veredicto).toBe('esperar');
-    expect(r.motivos[0]).toContain('todavía hay existencia');
+  it('venta sostenida → se queda, haya recuperado o no (la recuperación se juzga contra la meta del corte)', () => {
+    const rec = recomendar(senales({ venta_total: 2900, venta_neta: 2500, inversion_total: 3000 }));
+    const no = recomendar(senales({ venta_total: 1160, venta_neta: 1000, inversion_total: 3000 }));
+    expect(rec.veredicto).toBe('se_queda');
+    expect(no.veredicto).toBe('se_queda');
+    expect(no.motivos.join(' ')).toContain('$0.33 (sin impuestos) por cada $1 invertido');
   });
 
   it('⛔ sin permiso de costo la decisión no cambia, pero el motivo no dice cifras de inversión', () => {
-    const con = recomendar(senales({ venta_total: 2500, inversion_total: 3000 }), { conCosto: true });
-    const sin = recomendar(senales({ venta_total: 2500, inversion_total: 3000 }), { conCosto: false });
+    const con = recomendar(senales({ venta_total: 2900, venta_neta: 2500, inversion_total: 3000 }), { conCosto: true });
+    const sin = recomendar(senales({ venta_total: 2900, venta_neta: 2500, inversion_total: 3000 }), { conCosto: false });
     expect(sin.veredicto).toBe(con.veredicto);
     expect(con.motivos.join(' ')).toContain('por cada $1 invertido');
     expect(sin.motivos.join(' ')).not.toMatch(/\$\d.*invertido/);
+  });
+});
+
+/**
+ * `[NP.21]` (D2 de David, 2026-11-03) Agotado no es «no se vende». El caso real: el SKU 28034 en la base
+ * local — sin existencia en ninguna sucursal, 29 días sin venta — salía «No recomprar: lleva 29 días sin
+ * venderse» mientras Productos decía «Comprar: ya no hay existencia».
+ */
+describe('[NP.21] sin mercancía no se juzga la venta', () => {
+  it('⭐ el caso 28034: sin existencia en ninguna sucursal y 29 días sin venta → agotado, no sacar', () => {
+    const r = recomendar(senales({ dia: 60, dias_sin_venta: 29, dias_con_venta_28: 0, venta_28: 0, plazas_con_existencia: 0 }));
+    expect(r.veredicto).toBe('agotado');
+    expect(r.motivos[0]).toBe('No hay existencia en ninguna sucursal: la venta no se puede juzgar');
+    expect(r.motivos[1]).toContain('29 días sin venderse');
+    expect(r.motivos).toContain(VER_PRODUCTOS);
+  });
+
+  it('[negativa] la misma falta de venta CON existencia donde se vendía sigue siendo sacar', () => {
+    const r = recomendar(senales({ dia: 60, dias_sin_venta: 29, dias_con_venta_28: 0, venta_28: 0, plazas_con_existencia: 1, vendio_con_existencia: 1 }));
+    expect(r.veredicto).toBe('sacar');
+  });
+
+  it('se agotó en todas las que lo vendían, aunque haya existencia en otra que nunca lo vendió → agotado', () => {
+    const r = recomendar(senales({ dias_sin_venta: 40, plazas_con_existencia: 1, vendio_con_existencia: 0 }));
+    expect(r.veredicto).toBe('agotado');
+    expect(r.motivos[0]).toContain('todas las sucursales donde se vendía');
+  });
+
+  it('[negativa] sin la medida de dónde se vendía (ausente) no se supone agotado', () => {
+    expect(recomendar(senales({ dias_sin_venta: 40, plazas_con_existencia: 1 })).veredicto).toBe('sacar');
+  });
+
+  it('una caída o poca venta con una sucursal agotada tampoco es falta de demanda', () => {
+    expect(recomendar(senales({ venta_28: 500, venta_28_previa: 2000, agotado_en: 1 })).veredicto).toBe('agotado');
+    expect(recomendar(senales({ dias_con_venta_28: 5, agotado_en: 2 })).veredicto).toBe('agotado');
+    // [negativa] sin agotado, las dos siguen en revisar.
+    expect(recomendar(senales({ venta_28: 500, venta_28_previa: 2000 })).veredicto).toBe('revisar');
+  });
+
+  it('con la existencia en duda en todas, lo dice', () => {
+    const r = recomendar(senales({ dias_sin_venta: 30, plazas_con_existencia: 0, en_duda: 2 }));
+    expect(r.veredicto).toBe('agotado');
+    expect(r.motivos[0]).toContain('en duda en 2');
+  });
+
+  it('armarProducto: sin renglón de existencia y 29 días sin venta → agotado; con existencia donde vendía → sacar', () => {
+    const dias = 60;
+    const venta = [...new Array(31).fill(100), ...new Array(29).fill(0)];
+    const f = fuente({ dias, venta_dia: venta, venta_por_plaza: { '03': venta } });
+    const sin = armarProducto(f, HOY, [], []);
+    expect(sin.fila.plazas_con_existencia).toBe(0);
+    expect(sin.fila.recomendacion?.veredicto).toBe('agotado');
+    expect(sin.plazas[0].recomendacion.veredicto).toBe('agotado');
+    const con = armarProducto(f, HOY, [], [{ product_id: 'p1', plaza: '03', cantidad: 36, factor: 12, fuente: 'kepler', unidad: 'PZA' }]);
+    expect(con.fila.recomendacion?.veredicto).toBe('sacar');
+    expect(con.plazas[0].recomendacion.veredicto).toBe('sacar');
+  });
+});
+
+/** `[NP.20]` La recuperación entra al juicio SÓLO contra la meta de Compras del último corte cerrado. */
+describe('[NP.20] juzgarRecuperacion — la meta de Compras, nunca un número de aquí', () => {
+  const queda = { veredicto: 'se_queda' as const, motivos: ['Se vendió 20 de los últimos 28 días'] };
+  const hitos = (estado30: string | null, estado60: string | null = null, cerrado60 = false) => {
+    const h = (cerrado: boolean, estado: string | null) => ({
+      cerrado, inversion: 1, venta: 1, venta_neta: 1, venta_por_peso: 1, unidades: {},
+      semaforo: estado ? { kpi_key: 'k', valor: 1, estado, escala_a: null, avance: null, motivo: estado === 'sin_meta' ? 'Sin meta registrada' : null } : null,
+    });
+    return { 30: h(true, estado30), 60: h(cerrado60, estado60), 90: h(false, null) } as never;
+  };
+
+  it('fuera de tolerancia en el último corte → revisar, sin cifras en el motivo', () => {
+    const r = juzgarRecuperacion(queda, hitos('ok', 'bad', true))!;
+    expect(r.veredicto).toBe('revisar');
+    expect(r.motivos[0]).toContain('A 60 días');
+    expect(r.motivos.join(' ')).not.toMatch(/\$\d/);
+  });
+
+  it('[negativa] juzga el ÚLTIMO corte cerrado: un 30 malo con un 60 en meta no cambia el veredicto', () => {
+    expect(juzgarRecuperacion(queda, hitos('bad', 'ok', true))!.veredicto).toBe('se_queda');
+  });
+
+  it('debajo de la meta lo dice sin cambiar el veredicto; sin meta dice que la recuperación no entró', () => {
+    expect(juzgarRecuperacion(queda, hitos('warn'))).toMatchObject({ veredicto: 'se_queda', motivos: expect.arrayContaining([expect.stringContaining('debajo de la meta')]) });
+    const sm = juzgarRecuperacion(queda, hitos('sin_meta'))!;
+    expect(sm.veredicto).toBe('se_queda');
+    expect(sm.motivos.at(-1)).toContain('Sin meta de Compras para el corte de 30 días');
+  });
+
+  it('[negativa] sólo toca «Se queda»: un sacar o un agotado no se mueven por la meta', () => {
+    const sacar = { veredicto: 'sacar' as const, motivos: ['x'] };
+    expect(juzgarRecuperacion(sacar, hitos('bad'))).toBe(sacar);
+    expect(juzgarRecuperacion(null, hitos('bad'))).toBeNull();
+  });
+
+  it('conHitos lo aplica: con la meta registrada y el corte fuera de tolerancia, se queda → revisar', () => {
+    const u: KpiUmbral = { kpi_key: kpiHito(30), position_code: null, period: 'mes', target: 0.8, warn_at: 0.6, escalate_at: 0.4,
+      direction: 'higher_is_better', escalate_to: null, source: 'prueba', manual_lock: true, auto_tuned_at: null };
+    const { fila } = armarProducto(fuente({ dias: 45, entradas: [{ f: sumarDias(HOY, -45), p: '03', i: 2000000 }],
+      margen_plaza: { '03': { n: 3880, nc: 0, c: 0, nm: 0, m: 0 } } }), HOY, [],
+      [{ product_id: 'p1', plaza: '03', cantidad: 36, factor: 12, fuente: 'kepler', unidad: 'PZA' }]);
+    expect(fila.recomendacion?.veredicto).toBe('se_queda');
+    expect(conHitos(fila, [u]).recomendacion?.veredicto).toBe('revisar');
+    // [negativa] sin meta registrada se queda en «se queda», y lo dice.
+    const sm = conHitos(fila, []);
+    expect(sm.recomendacion?.veredicto).toBe('se_queda');
+    expect(sm.recomendacion?.motivos.at(-1)).toContain('Sin meta de Compras');
   });
 });
 
@@ -151,7 +278,11 @@ describe('armarProducto — global', () => {
   it('hitos: un hito que todavía no llega no está cerrado', () => {
     const { fila } = armarProducto(fuente({ dias: 45 }), HOY, [], []);
     expect(fila.dia).toBe(45);
-    expect(fila.hitos[30]).toEqual({ cerrado: true, inversion: 2000, venta: 3000, unidades: {} });
+    // Sin `margen_plaza` la venta neta no se mide: NULL, nunca la venta con impuestos en su lugar.
+    expect(fila.hitos[30]).toEqual({
+      cerrado: true, inversion: 2000, venta: 3000, venta_neta: null, venta_por_peso: null, unidades: {},
+      semaforo: null,
+    });
     expect(fila.hitos[60].cerrado).toBe(false);
   });
 
@@ -208,8 +339,9 @@ describe('armarProducto — por sucursal', () => {
     expect(fila.agotado_en).toBe(1);
     const p03 = plazas.find((p) => p.plaza === '03')!;
     const p05 = plazas.find((p) => p.plaza === '05')!;
-    expect(p03.recomendacion.veredicto).toBe('recomprar');
-    expect(p03.recomendacion.motivos.join(' ')).toContain('Se agotó');
+    // [NP.20] Vendía sostenido y se agotó: el lanzamiento funcionó; la compra la dice Productos.
+    expect(p03.recomendacion.veredicto).toBe('se_queda');
+    expect(p03.recomendacion.motivos.join(' ')).toContain('No hay existencia en esta sucursal');
     expect(p05.existencia_unidad).toBe('PZA');
     expect(p05.existencia_duda).toBeNull();
   });
@@ -363,7 +495,9 @@ describe('[NP.16] la escalera de cada plaza y la existencia en duda', () => {
 describe('cohortes, resumen y costo oculto', () => {
   const filas = [
     armarProducto(fuente({ product_id: 'a', dias: 120 }), HOY, [], []).fila,
-    armarProducto(fuente({ product_id: 'b', dias: 101, venta_dia: new Array(101).fill(0), venta_por_plaza: {} }), HOY, [], []).fila,
+    // Con existencia donde entró: nunca vendido es «sacar» (sin existencia sería «agotado», [NP.21]).
+    armarProducto(fuente({ product_id: 'b', dias: 101, venta_dia: new Array(101).fill(0), venta_por_plaza: {} }), HOY, [],
+      [{ product_id: 'b', plaza: '03', cantidad: 10, factor: 1, fuente: 'kepler', unidad: 'PZA' }]).fila,
     armarProducto(fuente({ product_id: 'c', dias: 86, entradas: [], venta_dia: new Array(86).fill(50) }), HOY, [], []).fila,
     armarProducto(fuente({ product_id: 'd', dias: 80, exclusion_auto: 'promocion' }), HOY, [], []).fila,
   ];
@@ -380,7 +514,8 @@ describe('cohortes, resumen y costo oculto', () => {
     const r = construirResumen(filas);
     expect(r.seguimiento).toBe(3);
     expect(r.excluido).toBe(1);
-    expect(r.por_veredicto.no_recomprar).toBe(1);
+    expect(r.por_veredicto.sacar).toBe(1);
+    expect(Object.keys(r.por_veredicto).sort()).toEqual(['agotado', 'pronto', 'revisar', 'sacar', 'se_queda']);
     expect(Object.values(r.por_veredicto).reduce((a, b) => a + b, 0)).toBe(3);
   });
 
@@ -590,5 +725,219 @@ describe('[NP.16] unidades por corte y reparto', () => {
       HOY, vivo, []);
     expect(fila.lanzamiento).toBeNull();
     expect(fila.estado).toBe('sin_movimiento');
+  });
+});
+
+/**
+ * `[NP.UI.1]` «Venta por cada $1 invertido» compara lo mismo con lo mismo: venta SIN IVA/IEPS contra
+ * compra SIN impuestos. La neta de la historia es `margen_plaza.n` (la MISMA venta de la serie, sin
+ * impuestos) y la de hoy, `importe_neto` de la función. Producto con IVA 16 %: neta = con impuestos / 1.16.
+ */
+describe('[NP.UI.1] venta por cada $1 invertido, sin impuestos de los dos lados', () => {
+  // 45 días × $116 con IVA = $5,220 → $4,500 sin IVA. Invertido (sin impuestos): $3,000.
+  const conIva = (over: Partial<NewProductSource> = {}) => fuente({
+    dias: 45,
+    venta_dia: new Array(45).fill(116),
+    venta_por_plaza: { '03': new Array(45).fill(116) },
+    margen_plaza: { '03': { n: 4500, nc: 0, c: 0, nm: 0, m: 0 } },
+    entradas: [{ f: sumarDias(HOY, -45), p: '03', i: 3000 }],
+    ...over,
+  });
+
+  it('⭐ venta neta del producto y de la plaza, y el cociente sobre ella', () => {
+    const { fila, plazas } = armarProducto(conIva(), HOY, [], []);
+    expect(fila.venta_total).toBe(5220);
+    expect(fila.venta_neta_total).toBe(4500);
+    expect(fila.venta_por_peso).toBe(1.5);
+    expect(plazas[0].venta_neta_total).toBe(4500);
+  });
+
+  it('[negativa] con la regla vieja (venta con impuestos / compra sin ellos) salía 16 % arriba', () => {
+    const { fila } = armarProducto(conIva(), HOY, [], []);
+    const vieja = Math.round(((fila.venta_total ?? 0) / (fila.inversion_total ?? 1)) * 100) / 100;
+    expect(vieja).toBe(1.74);
+    expect(fila.venta_por_peso).not.toBe(vieja);
+  });
+
+  it('cada hito con su neta (factor de impuesto del producto) y su cociente', () => {
+    const { fila } = armarProducto(conIva(), HOY, [], []);
+    expect(fila.hitos[30].venta).toBe(3480);
+    expect(fila.hitos[30].venta_neta).toBe(3000);
+    expect(fila.hitos[30].venta_por_peso).toBe(1);
+  });
+
+  it('un hito sin venta e inversión medida es un cero MEDIDO, no un hueco', () => {
+    const { fila } = armarProducto(conIva({ venta_dia: [...new Array(30).fill(0), ...new Array(15).fill(116)],
+      venta_por_plaza: { '03': [...new Array(30).fill(0), ...new Array(15).fill(116)] },
+      margen_plaza: { '03': { n: 1500, nc: 0, c: 0, nm: 0, m: 0 } } }), HOY, [], []);
+    expect(fila.hitos[30].venta).toBeNull();
+    expect(fila.hitos[30].venta_por_peso).toBe(0);
+  });
+
+  it('lo de hoy suma su importe NETO', () => {
+    const vivo: Movimiento[] = [{ product_id: 'p1', tipo: 'venta', plaza: '03', fecha: HOY, importe: 116, importe_neto: 100 }];
+    const { fila } = armarProducto(conIva(), HOY, vivo, []);
+    expect(fila.venta_total).toBe(5336);
+    expect(fila.venta_neta_total).toBe(4600);
+  });
+
+  it('⛔ un renglón de hoy sin neta, o una plaza que vendió sin neta en la historia: NO se mide', () => {
+    const vivo: Movimiento[] = [{ product_id: 'p1', tipo: 'venta', plaza: '03', fecha: HOY, importe: 116 }];
+    const a = armarProducto(conIva(), HOY, vivo, []).fila;
+    expect(a.venta_neta_total).toBeNull();
+    expect(a.venta_por_peso).toBeNull();
+    const b = armarProducto(conIva({ margen_plaza: {} }), HOY, [], []);
+    expect(b.fila.venta_neta_total).toBeNull();
+    expect(b.plazas[0].venta_neta_total).toBeNull();
+    // Y la recomendación NO dice cuánto recuperó (no lo inventa con la venta con impuestos).
+    expect(b.fila.recomendacion?.motivos.join(' ')).not.toContain('invertido');
+  });
+
+  it('⭐ el caso del plan: recuperó $0.69 sin impuestos; con IVA se publicaba $0.80', () => {
+    const base = { venta_total: 2400, inversion_total: 3000, plazas_con_existencia: 1, agotado_en: 0 };
+    const hoy = recomendar(senales({ ...base, venta_neta: 2068.97 }));
+    // [NP.20] La recuperación ya no dispara el veredicto (antes, con IVA, salía «Recomprar»): se informa.
+    expect(hoy.veredicto).toBe('se_queda');
+    expect(hoy.motivos.join(' ')).toContain('$0.69 (sin impuestos) por cada $1 invertido');
+    // [negativa] con la venta CON impuestos (la regla vieja) el motivo diría $0.80.
+    expect(recomendar(senales({ ...base, venta_neta: 2400 })).motivos.join(' ')).toContain('$0.80');
+    expect(hoy.motivos.join(' ')).not.toContain('$0.80');
+  });
+
+  it('la cohorte: Σ neta / Σ inversión, sólo de los productos con las DOS medidas', () => {
+    const filas = [
+      armarProducto(conIva({ product_id: 'a' }), HOY, [], []).fila,
+      armarProducto(conIva({ product_id: 'b', margen_plaza: {} }), HOY, [], []).fila,
+    ];
+    const r = construirResumen(filas);
+    expect(r.con_inversion).toBe(1);
+    expect(r.venta_neta).toBe(4500);
+    expect(r.inversion).toBe(6000);
+    expect(r.venta_por_peso).toBe(1.5);
+  });
+});
+
+/**
+ * `[NP.6]` (sin tabla, 2026-11-04) Los cortes 30 · 60 · 90 se DERIVAN de la historia: un hito cumplido es la cifra
+ * definitiva de esos N días, uno que no llega va en curso. El semáforo juzga contra `analytics.kpi_thresholds` y sin
+ * umbral dice «sin meta», nunca verde.
+ */
+describe('[NP.6] cortes derivados de la historia y su semáforo', () => {
+  const conIva = (over: Partial<NewProductSource> & { dias?: number } = {}) => fuente({
+    venta_dia: new Array(over.dias ?? 45).fill(116),
+    venta_por_plaza: { '03': new Array(over.dias ?? 45).fill(116) },
+    margen_plaza: { '03': { n: 100 * (over.dias ?? 45), nc: 0, c: 0, nm: 0, m: 0 } },
+    entradas: [{ f: sumarDias(HOY, -(over.dias ?? 45)), p: '03', i: 3000 }],
+    ...over,
+  });
+  const umbral = (n: 30 | 60 | 90, target: number, warn: number, esc: number): KpiUmbral => ({
+    kpi_key: kpiHito(n), position_code: null, period: 'mes', target, warn_at: warn, escalate_at: esc,
+    direction: 'higher_is_better', escalate_to: null, source: 'prueba', manual_lock: true, auto_tuned_at: null,
+  });
+
+  it('⭐ el corte cumplido es la suma de SUS N días de la historia, y no cambia con lo que pase después', () => {
+    const base = armarProducto(conIva({ dias: 45 }), HOY, [], []).fila;
+    expect(base.hitos[30]).toMatchObject({ cerrado: true, venta: 3480, venta_neta: 3000, inversion: 3000, venta_por_peso: 1 });
+    // Vender mucho después del día 30 no mueve el corte de 30 (sí el de 60, que va en curso).
+    const despues = [...new Array(30).fill(116), ...new Array(15).fill(5000)];
+    const otra = armarProducto(conIva({ dias: 45, venta_dia: despues, venta_por_plaza: { '03': despues } }), HOY, [], []).fila;
+    expect(otra.hitos[30].venta).toBe(3480);
+    expect(otra.hitos[60].cerrado).toBe(false);
+    expect(otra.hitos[60].venta).toBeGreaterThan(base.hitos[60].venta ?? 0);
+  });
+
+  it('el día 95 los tres cortes están cumplidos; el día 20 ninguno', () => {
+    const viejo = armarProducto(conIva({ dias: 95 }), HOY, [], []).fila;
+    expect(([30, 60, 90] as const).map((n) => viejo.hitos[n].cerrado)).toEqual([true, true, true]);
+    const joven = armarProducto(conIva({ dias: 20 }), HOY, [], []).fila;
+    expect(([30, 60, 90] as const).map((n) => joven.hitos[n].cerrado)).toEqual([false, false, false]);
+  });
+
+  it('semáforo: sin umbral → «sin meta» (nunca verde); sin registro → lo dice; con umbral → clasifica', () => {
+    const { fila } = armarProducto(conIva(), HOY, [], []);
+    const h = fila.hitos[30];
+    expect(semaforoHito(h, 30, [])?.estado).toBe('sin_meta');
+    expect(semaforoHito(h, 30, null)).toMatchObject({ estado: 'sin_meta', motivo: expect.stringContaining('registro de umbrales') });
+    expect(semaforoHito(h, 30, [umbral(30, 1.2, 0.9, 0.5)])).toMatchObject({ estado: 'warn', valor: 1, kpi_key: kpiHito(30) });
+    expect(semaforoHito(h, 30, [umbral(30, 0.8, 0.6, 0.4)])?.estado).toBe('ok');
+    // [negativa] el umbral de OTRO hito no juzga a éste.
+    expect(semaforoHito(h, 30, [umbral(60, 0.8, 0.6, 0.4)])?.estado).toBe('sin_meta');
+    // Un hito que no ha cerrado no se juzga; uno sin cociente es «sin medir», no rojo.
+    expect(semaforoHito(fila.hitos[60], 60, [umbral(60, 0.8, 0.6, 0.4)])).toBeNull();
+    expect(semaforoHito({ ...h, venta_por_peso: null }, 30, [umbral(30, 0.8, 0.6, 0.4)])?.estado).toBe('sin_medir');
+  });
+
+  it('conHitos pone el semáforo en cada corte cerrado y deja en NULL el que va en curso', () => {
+    const { fila } = armarProducto(conIva(), HOY, [], []);
+    const h = conHitos(fila, [umbral(30, 0.8, 0.6, 0.4)]).hitos;
+    expect(h[30].semaforo).toMatchObject({ estado: 'ok', valor: 1 });
+    expect(h[60].semaforo).toBeNull();
+  });
+
+  it('⛔ sin permiso de costo: ni cociente, ni semáforo, ni inversión', () => {
+    const { fila } = armarProducto(conIva(), HOY, [], []);
+    const [oc] = ocultarCosto([conHitos(fila, [umbral(30, 0.8, 0.6, 0.4)])]);
+    expect(oc.hitos[30].venta_por_peso).toBeNull();
+    expect(oc.hitos[30].semaforo).toBeNull();
+    expect(oc.hitos[30].inversion).toBeNull();
+    expect(oc.hitos[30].venta_neta).toBe(3000);
+  });
+});
+
+/**
+ * `[NP.18]` (sin migración, 2026-11-04) La compra sin impuestos se calcula en el servidor con `costoSinImpuestos`:
+ * una tasa negativa quiere decir que el importe trae el impuesto adentro.
+ */
+describe('[NP.18] la compra sin impuestos, por documento', () => {
+  const R = (over: Partial<RenglonCompra> = {}): RenglonCompra => ({
+    sku: 'X1', plaza: '03', fecha: '2026-08-23', folio: '100', importe: 108, iva: 0, ieps: -8, ...over,
+  });
+  const vacio = (): CompraNetaInfo => ({ documentos: 0, descontados: 0, sin_documento: 0, no_cuadra: 0 });
+
+  it('⭐ la MISMA regla que el catálogo: −8 trae el IEPS adentro, +8 ya es neto, sin tasa va tal cual', () => {
+    const m = compraPorDocumento([
+      R(), R({ folio: '101', importe: 100, ieps: 8 }), R({ folio: '102', importe: 116, iva: -16, ieps: 0 }),
+      R({ folio: '103', importe: 50, iva: null, ieps: null }),
+    ]);
+    expect(m.get(llaveCompra('X1', '03', '2026-08-23', '100'))).toEqual({ bruto: 108, neto: 100, descontado: true });
+    expect(m.get(llaveCompra('X1', '03', '2026-08-23', '101'))).toEqual({ bruto: 100, neto: 100, descontado: false });
+    expect(m.get(llaveCompra('X1', '03', '2026-08-23', '102'))).toEqual({ bruto: 116, neto: 100, descontado: true });
+    expect(m.get(llaveCompra('X1', '03', '2026-08-23', '103'))).toEqual({ bruto: 50, neto: 50, descontado: false });
+  });
+
+  it('pone el neto en las entradas de la historia y de hoy; lo que no aparece o no cuadra se deja y se cuenta', () => {
+    const f = fuente({ entradas: [
+      { f: '2026-08-23', p: '03', folio: '100', i: 108 },
+      { f: '2026-08-23', p: '03', folio: '999', i: 77 },
+      { f: '2026-08-23', p: '03', folio: '101', i: 90 },
+      { f: '2026-08-24', p: '03', i: 10 },
+    ] });
+    const vivo: Movimiento[] = [{ product_id: 'p1', tipo: 'entrada', plaza: '03', fecha: '2026-08-23', folio: '102', importe: 58 }];
+    const mapa = compraPorDocumento([R(), R({ folio: '101', importe: 100, ieps: 8 }), R({ folio: '102', importe: 116, iva: -16, ieps: 0 })]);
+    const info = vacio();
+    const x = compraSinImpuestos(f, vivo, mapa, info);
+    expect(x.fuente.entradas.map((e) => e.i)).toEqual([100, 77, 90, 10]);
+    // Un renglón de hoy (la mitad del documento) se netea con la proporción del documento.
+    expect(x.vivo[0].importe).toBe(50);
+    expect(info).toEqual({ documentos: 2, descontados: 2, sin_documento: 2, no_cuadra: 1 });
+  });
+
+  it('[negativa] sin el mapa, ninguna entrada cambia (la inversión no se toca a ciegas)', () => {
+    const f = fuente();
+    const info = vacio();
+    expect(compraSinImpuestos(f, [], new Map(), info).fuente.entradas).toEqual(f.entradas);
+    expect(info.documentos).toBe(0);
+  });
+
+  it('⭐ armado con la compra neta, la inversión y el cociente bajan lo que traía el impuesto', () => {
+    const f = fuente({ dias: 45, entradas: [{ f: sumarDias(HOY, -45), p: '03', folio: '100', i: 2160 }],
+      margen_plaza: { '03': { n: 3880, nc: 0, c: 0, nm: 0, m: 0 } } });
+    const mapa = compraPorDocumento([R({ fecha: sumarDias(HOY, -45), importe: 2160 })]);
+    const antes = armarProducto(f, HOY, [], []).fila;
+    const neta = compraSinImpuestos(f, [], mapa, vacio());
+    const despues = armarProducto(neta.fuente, HOY, neta.vivo, []).fila;
+    expect(antes.inversion_total).toBe(2160);
+    expect(despues.inversion_total).toBe(2000);
+    expect(despues.venta_por_peso).toBeGreaterThan(antes.venta_por_peso ?? 0);
   });
 });

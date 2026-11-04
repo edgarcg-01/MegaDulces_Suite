@@ -7,6 +7,9 @@ import {
   mostrarValido,
   ordenarCodigos,
   precioDeRed,
+  diasEntre,
+  periodoFicha,
+  sucursalDelCatalogo,
   sucursalValida,
   type EscaleraCruda,
   type PrecioCrudo,
@@ -143,13 +146,15 @@ describe('ordenarCodigos / precioDeRed / sucursales', () => {
       [
         { codigo: '01', nombre: 'Padre Hidalgo', venta_medible: true },
         { codigo: '03', nombre: '8ESQ', venta_medible: false },
-        { codigo: '08', nombre: 'Morelia Abastos', venta_medible: false },
+        { codigo: '08', nombre: 'Morelia Abastos', venta_medible: false, corte: '2026-09-18' },
         { codigo: '02', nombre: 'Abastos', venta_medible: true },
       ],
       new Map([['01', { monto: '1234.567', unidades: '12' }]]),
       new Map([['01', '40'], ['02', '0']]),
     );
-    expect(s[0]).toEqual({ codigo: '01', nombre: 'Padre Hidalgo', vendidoMes: { monto: 1234.57, unidadesBase: 12 }, existenciaBase: 40 });
+    expect(s[0]).toEqual({ codigo: '01', nombre: 'Padre Hidalgo', vendidoMes: { monto: 1234.57, unidadesBase: 12 }, existenciaBase: 40, corteKepler: null, sinCorte: false });
+    // [PF.23] el corte viaja para que la pantalla diga «en Kepler desde…» en vez de un «sin dato» mudo.
+    expect(s[2].corteKepler).toBe('2026-09-18');
     expect(s[1].vendidoMes).toBeNull();
     expect(s[1].existenciaBase).toBeNull();
     expect(s[2].vendidoMes).toBeNull();
@@ -161,6 +166,51 @@ describe('ordenarCodigos / precioDeRed / sucursales', () => {
     expect(sucursalValida('05')).toBe('05');
     expect(sucursalValida(undefined)).toBe('01');
     expect(sucursalValida("01' OR 1=1")).toBe('01');
+  });
+
+  it('⭐ [PF.21] la sucursal del precio se recorta al ALCANCE (la regla de Precios)', () => {
+    const todas = [{ codigo: '01' }, { codigo: '02' }, { codigo: '05' }];
+    const sinLa01 = [{ codigo: '03' }, { codigo: '05' }];
+    expect(sucursalDelCatalogo(todas, '05')).toBe('05');
+    expect(sucursalDelCatalogo(todas, ' 02 ')).toBe('02');
+    // sin pedir: la 01 si está en su alcance (el default de siempre); si no, la primera de las suyas
+    expect(sucursalDelCatalogo(todas, undefined)).toBe('01');
+    expect(sucursalDelCatalogo(sinLa01, '')).toBe('03');
+    // ninguna en su alcance: la 01, como antes (el costo lo cuida puedeVerCostoCatalogo)
+    expect(sucursalDelCatalogo([], null)).toBe('01');
+  });
+
+  it('⛔ [PF.21] [negativa] pedir una sucursal FUERA del alcance (o mal escrita) da null → 403; antes se servía', () => {
+    const sinLa01 = [{ codigo: '03' }, { codigo: '05' }];
+    expect(sucursalDelCatalogo(sinLa01, '01')).toBeNull();
+    expect(sucursalDelCatalogo(sinLa01, "03' OR 1=1")).toBeNull();
+    expect(sucursalDelCatalogo([], '02')).toBeNull();
+  });
+});
+
+describe('[PF.23] periodoFicha — el periodo de la venta de la ficha', () => {
+  const HOY = '2026-11-04';
+  it('⭐ sin fechas: el mes en curso hasta hoy (lo de siempre)', () => {
+    expect(periodoFicha(undefined, undefined, HOY)).toEqual({ desde: '2026-11-01', hasta: HOY });
+    expect(periodoFicha('', '  ', HOY)).toEqual({ desde: '2026-11-01', hasta: HOY });
+  });
+  it('⭐ con fechas válidas las respeta; «hasta» en el futuro se recorta a hoy (el futuro no tiene venta)', () => {
+    expect(periodoFicha('2025-01-01', '2025-12-31', HOY)).toEqual({ desde: '2025-01-01', hasta: '2025-12-31' });
+    expect(periodoFicha('2026-10-01', '2026-12-31', HOY)).toEqual({ desde: '2026-10-01', hasta: HOY });
+    expect(periodoFicha(HOY, HOY, HOY)).toEqual({ desde: HOY, hasta: HOY });
+  });
+  it('⛔ [negativa] lo que no es un periodo da null (el controlador responde 400, no se adivina)', () => {
+    expect(periodoFicha('2026-10-01', undefined, HOY)).toBeNull(); // falta una
+    expect(periodoFicha('2026-02-31', '2026-03-01', HOY)).toBeNull(); // fecha que no existe
+    expect(periodoFicha('01/10/2026', '2026-10-31', HOY)).toBeNull(); // otro formato
+    expect(periodoFicha('2026-10-31', '2026-10-01', HOY)).toBeNull(); // al revés
+    expect(periodoFicha('2026-12-01', '2026-12-31', HOY)).toBeNull(); // todo en el futuro
+    expect(periodoFicha('2024-01-01', '2026-11-04', HOY)).toBeNull(); // más de dos años
+    expect(periodoFicha("2026-10-01' OR 1=1", '2026-10-31', HOY)).toBeNull();
+  });
+  it('diasEntre cuenta los dos extremos', () => {
+    expect(diasEntre('2026-11-01', '2026-11-01')).toBe(1);
+    expect(diasEntre('2025-01-01', '2025-12-31')).toBe(365);
   });
 });
 
@@ -202,5 +252,25 @@ describe('«Mostrar» de la lista', () => {
     // sucursal de la escalera + sucursal del precio; ningún «?» suelto (knex lo toma como binding).
     expect(SIN_PRECIO_LATERAL_SQL.split('?').length - 1).toBe(2);
     expect(N_CODIGOS_LATERAL_SQL).toMatch(/b\.activo IS TRUE/);
+  });
+
+  /**
+   * `[PF.12.1]` `con_unidades` se agregó al lateral para ORDENAR la lista. Es aditiva: la expresión de
+   * `sin_precio` (que alimenta el filtro «Alguna unidad sin precio» y su conteo) queda letra por letra igual,
+   * los parámetros siguen siendo dos y el lateral sigue agregando a UN renglón, así que ni el total ni los
+   * conteos pueden moverse por ella.
+   */
+  it('con_unidades es aditiva: sin_precio intacto, mismos parámetros, un renglón por producto', () => {
+    const SIN_PRECIO_ORIGINAL = `SELECT coalesce(bool_or(CASE WHEN r.base IS NULL THEN false ELSE
+        NOT coalesce(r.piece > 0, false)
+        OR (r.f2ok AND NOT coalesce(CASE WHEN r.pack_size = r.f2 THEN r.pack_price WHEN r.box_size = r.f2 THEN r.box_price END > 0, false))
+        OR (r.f3ok AND NOT coalesce(CASE WHEN r.pack_size = r.f3 THEN r.pack_price WHEN r.box_size = r.f3 THEN r.box_price END > 0, false))
+      END), false) AS sin_precio`;
+    expect(SIN_PRECIO_LATERAL_SQL).toContain(SIN_PRECIO_ORIGINAL);
+    // con_unidades = «armarUnidades devuelve algo»: hay base (u1 de la escalera o unit_base de la etiqueta).
+    expect(SIN_PRECIO_LATERAL_SQL).toContain('coalesce(bool_or(r.base IS NOT NULL), false) AS con_unidades');
+    expect(SIN_PRECIO_LATERAL_SQL.split('?').length - 1).toBe(2);
+    // ⛔ [negativa] nada de GROUP BY ni de columnas sin agregar: eso sí podría devolver varias filas por producto.
+    expect(SIN_PRECIO_LATERAL_SQL).not.toMatch(/GROUP BY/i);
   });
 });

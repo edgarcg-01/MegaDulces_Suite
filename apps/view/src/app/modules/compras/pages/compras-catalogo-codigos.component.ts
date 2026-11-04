@@ -7,8 +7,7 @@ import { TableModule } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
 import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
-import { CATALOGO_TABS } from '../catalogo-tabs';
+import { CatalogoMenuComponent } from './catalogo-menu.component';
 import { CatalogoLatidoService } from '../catalogo-latido.service';
 import { ComercialService, DupBarcodeRow, DupProduct } from '../../comercial/comercial.service';
 
@@ -36,7 +35,7 @@ type Severidad = '' | 'distinto' | '5' | '25';
   selector: 'app-compras-catalogo-codigos',
   standalone: true,
   imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule,
-    TooltipModule, PageTabsComponent],
+    TooltipModule, CatalogoMenuComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -57,7 +56,7 @@ type Severidad = '' | 'distinto' | '5' | '25';
         </div>
       </header>
 
-      <app-page-tabs [tabs]="tabs" />
+      <app-catalogo-menu />
 
       <!--
         [CAT.7] El estado del canal, SIEMPRE visible. "No hay nada nuevo" y "dejé de preguntar" se
@@ -502,7 +501,6 @@ type Severidad = '' | 'distinto' | '5' | '25';
   `],
 })
 export class ComprasCatalogoCodigosComponent implements OnInit, OnDestroy {
-  readonly tabs = CATALOGO_TABS;
 
   private readonly api = inject(ComercialService);
   private readonly latido = inject(CatalogoLatidoService);

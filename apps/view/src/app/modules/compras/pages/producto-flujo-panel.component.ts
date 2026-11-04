@@ -7,7 +7,7 @@ import {
   EstadoLote, EstadoPlaza, FlujoDetalle, LoteCaducidad, Margen, Margenes, MargenesProducto, PlazaFlujo,
   ProductosFlujoService, VeredictoCompra,
 } from '../productos-flujo.service';
-import { existenciaPartes, listaUnidades, textoUnidades } from './compras-catalogo-nuevos.component';
+import { existenciaPartes, listaUnidades, textoUnidades } from '../productos-nuevos-vista';
 
 /** Cada minuto, sólo con la pestaña a la vista (como Productos nuevos). */
 const REFRESCO_MS = 60_000;

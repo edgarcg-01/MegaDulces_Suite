@@ -83,6 +83,14 @@ export const appRoutes: Routes = [
           ),
       },
       {
+        // [MCP.12] Cotizar al cliente sin levantar pedido (servidor de cotizaciones de telemarketing).
+        path: 'cotizar/:id',
+        loadComponent: () =>
+          import('./modules/vendor/pages/vendor-quote.component').then(
+            (m) => m.VendorQuoteComponent,
+          ),
+      },
+      {
         path: 'order-success',
         loadComponent: () =>
           import('./modules/vendor/pages/vendor-order-success.component').then(

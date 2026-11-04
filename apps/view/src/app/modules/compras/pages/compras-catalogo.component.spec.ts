@@ -1,14 +1,16 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { NEVER, of, throwError } from 'rxjs';
 import { vi } from 'vitest';
 import { ProductosFlujoService } from '../productos-flujo.service';
+import { ProductosNuevosService } from '../productos-nuevos.service';
+import { RESPUESTA } from '../../../../testing/productos-nuevos.fixture';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { CatalogoLista, CatalogoListaDetallada, CatalogoProductosService } from '../catalogo-productos.service';
-import { ComprasCatalogoComponent, claveVista, equivaleTexto, siguienteOrden } from './compras-catalogo.component';
+import { ComprasCatalogoComponent, celdaCosto, claveVista, equivaleTexto, listaSencilloDeDetallado, siguienteOrden, vacioNuevos } from './compras-catalogo.component';
 
 const tick = async (fix: ComponentFixture<unknown>) => { fix.detectChanges(); await fix.whenStable(); fix.detectChanges(); };
 const texto = (el: Element | null | undefined) => (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
@@ -16,7 +18,7 @@ const texto = (el: Element | null | undefined) => (el?.textContent ?? '').replac
 /** La lista de Sencillo como la manda el servidor (conteos de la búsqueda entera). */
 const LISTA_S = (over: Partial<CatalogoLista> = {}): CatalogoLista => ({
   sucursal: '01', total: 2, calculado_al: '2026-10-26T18:00:00Z', mostrar: 'todos',
-  conteos: { todos: 2, variosCodigos: 1, sinCodigo: 0, sinPrecio: 1 },
+  conteos: { todos: 2, variosCodigos: 1, sinCodigo: 0, sinPrecio: 1, nuevos: 1 },
   filas: [
     { id: 'q-1', sku: '70001', nombre: 'LA ROSA MAZAPAN /30', proveedor: { id: 's-rosa', nombre: 'DISTRIBUIDORA DE LA ROSA SA DE CV' },
       nCodigos: 1, razon: null,
@@ -63,6 +65,8 @@ const LISTA_D = (over: Partial<CatalogoListaDetallada> = {}): CatalogoListaDetal
 /** Monta en Sencillo (modo null: sin elección previa) o en Detallado. */
 async function montar(_over: Record<string, never> = {}, opts: {
   modo?: 'sencillo' | 'detallado' | null; lista?: ReturnType<typeof vi.fn>; detallado?: ReturnType<typeof vi.fn>;
+  /** [NP.22] La URL con la que se entra (p. ej. ?mostrar=nuevos). */
+  url?: string; nuevos?: ReturnType<typeof vi.fn>;
 } = {}) {
   const modo = opts.modo === undefined ? 'detallado' : opts.modo;
   if (modo) localStorage.setItem(claveVista('u-1'), modo);
@@ -81,8 +85,10 @@ async function montar(_over: Record<string, never> = {}, opts: {
       { provide: CatalogoProductosService, useValue: catalogo },
       { provide: AuthService, useValue: { user: () => ({ sub: 'u-1', permissions: { COMMERCIAL_PRODUCTS_VER: true } }) } },
       { provide: PermissionsService, useValue: { isAdmin: () => false, has: () => true } },
+      { provide: ProductosNuevosService, useValue: { listar: opts.nuevos ?? vi.fn(() => of(RESPUESTA)), detalle: vi.fn(() => NEVER) } },
     ],
   }).compileComponents();
+  if (opts.url) await TestBed.inject(Router).navigateByUrl(opts.url);
   const fix = TestBed.createComponent(ComprasCatalogoComponent);
   await tick(fix);
   return { fix, flujo, catalogo };
@@ -121,7 +127,7 @@ describe('Detallado (rediseño aprobado): lo de Sencillo + Este mes, etiquetas y
     const [a, b, c] = filasD(fix);
     expect(texto(a.querySelector('.cs-nom'))).toBe('La Rosa Mazapan /30');
     expect(texto(a.querySelector('.cs-sku'))).toBe('70001');
-    expect(Array.from(a.querySelectorAll('.cd-tag')).map((t) => texto(t))).toEqual(['Líder #4', 'Caducado']);
+    expect(Array.from(a.querySelectorAll('.cd-tag')).map((t) => texto(t))).toEqual(['Top venta #4', 'Caducado']);
     expect(Array.from(b.querySelectorAll('.cd-tag')).map((t) => texto(t))).toEqual(['Nuevo · día 12']);
     expect(Array.from(c.querySelectorAll('.cd-tag')).map((t) => texto(t))).toEqual(['Caduca pronto']);
     expect(texto(a.querySelector('.cs-prov'))).toBe('Distribuidora de la Rosa');
@@ -197,17 +203,46 @@ describe('Detallado (rediseño aprobado): lo de Sencillo + Este mes, etiquetas y
     expect(fix.componentInstance.abierto()).toEqual({
       id: 'q-1', nombre: 'La Rosa Mazapan /30', sku: '70001', proveedor: 'Distribuidora de la Rosa', tipo: 'detallado',
       etiquetas: { lider: 4, nuevo: null, caducidad: 'caducado' },
+      // [NP.22] Un servidor anterior (renglón sin la llave lanzamiento): la ficha no sabe si es nuevo y lo pregunta.
+      esNuevo: null,
     });
     expect(document.querySelector('app-producto-ficha-detallada')).not.toBeNull();
     expect(document.querySelector('app-producto-ficha')).toBeNull();
     expect(flujo.detalle).toHaveBeenCalledWith('q-1');
-    expect(catalogo.ficha).toHaveBeenCalledWith('q-1', null);
+    expect(catalogo.ficha).toHaveBeenCalledWith('q-1', '01'); // [PF.21] la sucursal de la lista
     expect(document.body.textContent).not.toContain('Editar producto');
     fix.componentInstance.cerrarFlujo();
     await pintar();
     filasD(fix)[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     await pintar();
     expect(fix.componentInstance.abierto()?.id).toBe('q-2');
+  });
+
+  it('⭐ [PF.21] «Precios de»: con varias sucursales en tu alcance se elige; pide esa al servidor, vuelve a la página 1 y la ficha la sigue', async () => {
+    const detallado = vi.fn((p: { sucursal?: string | null }) => of(LISTA_D({
+      sucursal: p.sucursal ?? '01',
+      sucursales: [{ codigo: '01', nombre: 'PADRE HIDALGO' }, { codigo: '05', nombre: 'YURECUARO' }],
+    })));
+    const { fix, catalogo } = await montar({}, { detallado });
+    const el = fix.nativeElement as HTMLElement;
+    expect(el.querySelector('.cd-suc p-select')).not.toBeNull();
+    expect(texto(el.querySelector('.cd-suc'))).toContain('Precios de');
+    expect(fix.componentInstance.opcionesSucursalD()).toEqual([
+      { label: '01 · Padre Hidalgo', value: '01' }, { label: '05 · Yurecuaro', value: '05' },
+    ]);
+    fix.componentInstance.elegirSucursalD('05');
+    await tick(fix);
+    expect(detallado).toHaveBeenLastCalledWith(expect.objectContaining({ sucursal: '05', page: 1 }));
+    filasD(fix)[0].click();
+    fix.detectChanges(); await Promise.resolve(); fix.detectChanges();
+    expect(catalogo.ficha).toHaveBeenCalledWith('q-1', '05');
+  });
+
+  it('⛔ [PF.21] [negativa] con una sola sucursal en tu alcance no hay selector: se dice de cuál es el precio', async () => {
+    const { fix } = await montar({}, { detallado: vi.fn(() => of(LISTA_D({ sucursal: '03', sucursales: [{ codigo: '03', nombre: 'CANINDO' }] }))) });
+    const el = fix.nativeElement as HTMLElement;
+    expect(el.querySelector('.cd-suc p-select')).toBeNull();
+    expect(texto(el.querySelector('.cd-suc'))).toBe('Precios de 03 · Canindo');
   });
 
   it('⛔ si una familia de etiquetas no se pudo medir, lo dice (un renglón sin etiqueta no quiere decir «no es»)', async () => {
@@ -278,6 +313,24 @@ describe('Sencillo (la vista nueva, la de default)', () => {
     expect(b.textContent).not.toContain('$0');
   });
 
+  it('⭐ [PF.20] descontinuado: la etiqueta en vez de «* DESCONTINUADO»; si Kepler no dejó otro nombre, se dice', async () => {
+    const [a, b] = LISTA_S().filas;
+    const lista = vi.fn(() => of(LISTA_S({ filas: [
+      { ...a, id: 'd-1', sku: '89063', nombre: '* DESCONTINUADO' },
+      { ...b, id: 'd-2', sku: '38024', nombre: '***DESCONTINUADO PAL CHUPA CHUPS BOLSA CHOCO /40' },
+      a,
+    ] })));
+    const { fix } = await sencillo(lista);
+    const [d1, d2, normal] = filasS(fix);
+    expect(texto(d1.querySelector('.cs-nom .cd-tag--desc'))).toBe('Descontinuado');
+    expect(texto(d1.querySelector('.cs-nom'))).toBe('Descontinuado Sin nombre en Kepler');
+    expect(texto(d2.querySelector('.cs-nom'))).toBe('Descontinuado Pal Chupa Chups Bolsa Choco /40');
+    expect(d1.textContent).not.toContain('*');
+    // [negativa] un producto normal no lleva la etiqueta ni cambia su nombre.
+    expect(normal.querySelector('.cd-tag--desc')).toBeNull();
+    expect(texto(normal.querySelector('.cs-nom'))).toBe('La Rosa Mazapan /30');
+  });
+
   it('⭐ el botón cambia a Detallado, lo recuerda por persona, y al volver a entrar abre en Detallado', async () => {
     const { fix, catalogo } = await sencillo();
     (fix.nativeElement.querySelector('.cp-vista-btn') as HTMLButtonElement).click();
@@ -314,7 +367,7 @@ describe('Sencillo (la vista nueva, la de default)', () => {
   it('⭐ «Mostrar» pinta los conteos de la búsqueda y filtra EN EL SERVIDOR', async () => {
     const { fix, catalogo } = await sencillo();
     await abrirMostrar(fix);
-    expect(opciones(fix).map(opcionTexto)).toEqual(['Todos 2', 'Con varios códigos 1', 'Sin código de barras 0', 'Alguna unidad sin precio 1']);
+    expect(opciones(fix).map(opcionTexto)).toEqual(['Todos 2', 'Con varios códigos 1', 'Sin código de barras 0', 'Alguna unidad sin precio 1', 'Productos nuevos 1']);
     opciones(fix)[1].click();
     await tick(fix);
     expect(catalogo.lista).toHaveBeenLastCalledWith({ search: '', mostrar: 'varios_codigos', page: 1, pageSize: 50 });
@@ -355,8 +408,8 @@ describe('Sencillo (la vista nueva, la de default)', () => {
     const pintar = async () => { fix.detectChanges(); await Promise.resolve(); fix.detectChanges(); };
     filasS(fix)[0].click();
     await pintar();
-    expect(fix.componentInstance.abierto()).toEqual({ id: 'q-1', nombre: 'La Rosa Mazapan /30', sku: '70001', proveedor: 'Distribuidora de la Rosa', tipo: 'ficha' });
-    expect(catalogo.ficha).toHaveBeenCalledWith('q-1', null);
+    expect(fix.componentInstance.abierto()).toEqual({ id: 'q-1', nombre: 'La Rosa Mazapan /30', sku: '70001', proveedor: 'Distribuidora de la Rosa', tipo: 'ficha', esNuevo: null });
+    expect(catalogo.ficha).toHaveBeenCalledWith('q-1', null); // Sencillo: sin selector, el servidor elige
     expect(document.body.textContent).not.toContain('Editar producto');
     fix.componentInstance.cerrarFlujo();
     await pintar();
@@ -387,5 +440,341 @@ describe('Sencillo (la vista nueva, la de default)', () => {
   it('equivale: la base dice «base»; las demás, a cuánto equivalen', () => {
     expect(equivaleTexto({ equivale: null })).toBe('base');
     expect(equivaleTexto({ equivale: { cantidad: 18, unidad: 'PAQ' } })).toBe('18 PAQ');
+  });
+});
+
+/**
+ * `[PF.12.3]` La columna «Último costo» de Sencillo: lo que se pagó en la última entrada, sin IVA ni IEPS, en la
+ * MISMA unidad que cada precio. Controles: 70977 (PAQ $2.52 contra $86.55 de costo) se marca; 70001 no.
+ */
+const LISTA_C = (): CatalogoLista => {
+  const [rosa, altos] = LISTA_S().filas;
+  return LISTA_S({
+    total: 4, costo_visible: true,
+    filas: [
+      { ...rosa, ultimoCosto: { fecha: '2026-10-08', sucursal: '08', unidad: 'PAQ', costo: 66.52, impuesto: 'neto', porUnidad: [
+        { unidad: 'PAQ', costo: 66.52, precioSinImpuestos: 80.69, bajoCosto: false },
+        { unidad: 'CJA', costo: 1330.4, precioSinImpuestos: 1476.81, bajoCosto: false },
+      ] } },
+      { id: 'q-9', sku: '70977', nombre: 'LA ROSA MAZAPAN / 40', proveedor: null, nCodigos: 1, razon: null,
+        unidades: [
+          { unidad: 'PAQ', equivale: null, factorBase: 1, precio: 2.52, mayoreo: null },
+          { unidad: 'CJA', equivale: { cantidad: 40, unidad: 'PAQ' }, factorBase: 40, precio: 94.54, mayoreo: null },
+        ],
+        ultimoCosto: { fecha: '2026-10-21', sucursal: '02', unidad: 'PAQ', costo: 86.55, impuesto: 'neto', porUnidad: [
+          { unidad: 'PAQ', costo: 86.55, precioSinImpuestos: 2.33, bajoCosto: true },
+          { unidad: 'CJA', costo: 3462, precioSinImpuestos: 87.54, bajoCosto: true },
+        ] } },
+      { ...altos, ultimoCosto: null },
+      { id: 'q-4', sku: '55555', nombre: 'GRANEL SIN ESCALERA', proveedor: null, nCodigos: 0, razon: null,
+        unidades: [{ unidad: 'PZA', equivale: null, factorBase: 1, precio: 12, mayoreo: null }],
+        ultimoCosto: { fecha: '2026-09-02', sucursal: '00', unidad: 'KG', costo: 50, impuesto: 'sin_dato', porUnidad: [] } },
+    ],
+  });
+};
+
+describe('[PF.12.3] Sencillo › Último costo', () => {
+  afterEach(limpiar);
+  const conCosto = (lista = LISTA_C()) => montar({}, { modo: null, lista: vi.fn(() => of(lista)) });
+  const filas = (fix: ComponentFixture<ComprasCatalogoComponent>) => Array.from(fix.nativeElement.querySelectorAll('.cs-fila')) as HTMLElement[];
+  const lineas = (f: HTMLElement) => Array.from(f.querySelectorAll('.cs-cos .cs-lin')).map((l) => texto(l));
+
+  it('⭐ encabezado «Último costo» que declara el impuesto, después de Precio', async () => {
+    const { fix } = await conCosto();
+    const ths = Array.from(fix.nativeElement.querySelectorAll('.cs thead th')).map((th) => texto(th as Element));
+    expect(ths).toEqual(['Producto', 'Proveedor', 'Unidades de medida', 'Precio', 'Último costo sin IVA ni IEPS']);
+  });
+
+  it('⭐ una línea por unidad, en la MISMA unidad que su precio, con cuándo y dónde (la sucursal por nombre, nunca el número)', async () => {
+    const { fix } = await conCosto();
+    const [rosa] = filas(fix);
+    expect(Array.from(rosa.querySelectorAll('.cs-pre .cs-lin')).map((l) => texto(l))).toEqual(['$87.14', '$1,594.96']);
+    expect(lineas(rosa)).toEqual(['PAQ $66.52', 'CJA $1,330.40']);
+    expect(texto(rosa.querySelector('.cs-cos-org'))).toBe('8 oct 2026 · Morelia Abastos');
+    expect(texto(rosa.querySelector('.cs-cos-org'))).not.toMatch(/\b08\b/);
+    expect(rosa.querySelector('.cs-bajo')).toBeNull();
+  });
+
+  it('⭐ CONTROL 70977: precio 34× debajo del costo → «Precio bajo costo» (p-tag warn) con su evidencia; 70001 no', async () => {
+    const { fix } = await conCosto();
+    const [rosa, r40] = filas(fix);
+    expect(texto(r40.querySelector('.cs-bajo'))).toBe('Precio bajo costo');
+    expect(r40.querySelector('.cs-bajo p-tag')).not.toBeNull();
+    expect(r40.querySelector('.cs-bajo')?.getAttribute('title')).toBe(
+      'PAQ: precio sin impuestos $2.33, último costo $86.55 · CJA: precio sin impuestos $87.54, último costo $3,462.00');
+    expect(r40.querySelectorAll('.cs-cos .cs-lin.is-bajo')).toHaveLength(2);
+    expect(rosa.querySelector('.cs-bajo')).toBeNull();
+    expect(rosa.querySelectorAll('.cs-cos .is-bajo')).toHaveLength(0);
+  });
+
+  it('⛔ sin entradas dice «Sin compras», nunca $0', async () => {
+    const { fix } = await conCosto();
+    const altos = filas(fix)[2];
+    expect(texto(altos.querySelector('.cs-cos'))).toBe('Sin compras');
+    expect(texto(altos.querySelector('.cs-cos'))).not.toContain('$');
+  });
+
+  it('⛔ la unidad de la entrada fuera de la escalera: el costo se queda en SU unidad y se dice «sin convertir»', async () => {
+    const { fix } = await conCosto();
+    const granel = filas(fix)[3];
+    expect(lineas(granel)).toEqual(['KG $50.00']);
+    expect(Array.from(granel.querySelectorAll('.cs-cos-nota')).map((n) => texto(n))).toEqual([
+      'Sin convertir: KG no está entre sus unidades', 'Sin saber si trae impuestos',
+    ]);
+    // La unidad se ve aun en ancho: no se alinea con ningún precio.
+    expect(granel.querySelector('.cs-cos .cs-chip')?.classList.contains('cs-m-ud')).toBe(false);
+    expect(texto(granel.querySelector('.cs-cos-org'))).toBe('2 sep 2026 · CEDIS');
+  });
+
+  it('las definiciones están a la vista bajo la tabla (no en un title)', async () => {
+    const { fix } = await conCosto();
+    const pie = texto(fix.nativeElement.querySelector('.cs .cd-pie'));
+    expect(pie).toContain('Último costo: lo que se pagó en la última entrada de compra de cualquier sucursal');
+    expect(pie).toContain('Precio bajo costo: el precio de lista, sin sus impuestos, queda debajo de ese costo.');
+  });
+
+  it('⛔ si el servidor no pudo leer el costo (costo_medido=false) cada celda dice «Sin dato», nunca «Sin compras», y el pie lo explica', async () => {
+    const sinLeer = LISTA_C();
+    const { fix } = await conCosto({ ...sinLeer, costo_medido: false, filas: sinLeer.filas.map(({ ultimoCosto: _u, ...f }) => f) });
+    const celdas = Array.from(fix.nativeElement.querySelectorAll('.cs-cos')).map((c) => texto(c as Element));
+    expect(celdas).toEqual(['Sin dato', 'Sin dato', 'Sin dato', 'Sin dato']);
+    expect(texto(fix.nativeElement.querySelector('.cs .cd-pie'))).toContain('no se pudo leer ahora: dice «Sin dato» (no quiere decir que no haya compras)');
+    expect(fix.nativeElement.querySelector('.cs-bajo')).toBeNull();
+  });
+
+  it('⛔ [negativa] sin costo_visible del servidor no hay columna, ni celda, ni pie', async () => {
+    const { fix } = await montar({}, { modo: null });
+    const ths = Array.from(fix.nativeElement.querySelectorAll('.cs thead th')).map((th) => texto(th as Element));
+    expect(ths).toEqual(['Producto', 'Proveedor', 'Unidades de medida', 'Precio']);
+    expect(fix.nativeElement.querySelector('.cs-cos')).toBeNull();
+    expect(fix.nativeElement.querySelector('.cs .cd-pie')).toBeNull();
+  });
+
+  it('celdaCosto: bajo costo sólo en una unidad lo nombra; sin costo en la entrada lo dice', () => {
+    const base = LISTA_C().filas[0].ultimoCosto!;
+    const parcial = celdaCosto({ ...base, porUnidad: [
+      { unidad: 'PAQ', costo: 66.52, precioSinImpuestos: 80.69, bajoCosto: false },
+      { unidad: 'CJA', costo: 1330.4, precioSinImpuestos: 1300, bajoCosto: true },
+    ] });
+    expect(parcial.bajoCosto?.texto).toBe('Precio bajo costo en CJA');
+    expect(parcial.lineas.map((l) => l.bajo)).toEqual([false, true]);
+    // Una unidad sin precio no se compara: si la única comparable está bajo costo, es «Precio bajo costo».
+    const unaSinPrecio = celdaCosto({ ...base, porUnidad: [
+      { unidad: 'PAQ', costo: 66.52, precioSinImpuestos: 50, bajoCosto: true },
+      { unidad: 'CJA', costo: 1330.4, precioSinImpuestos: null, bajoCosto: null },
+    ] });
+    expect(unaSinPrecio.bajoCosto?.texto).toBe('Precio bajo costo');
+    expect(celdaCosto({ ...base, costo: null, porUnidad: [] })).toMatchObject({ tipo: 'sin_costo', lineas: [], origen: '8 oct 2026 · Morelia Abastos' });
+    expect(celdaCosto(null).tipo).toBe('sin_compras');
+    expect(celdaCosto(undefined).tipo).toBe('sin_compras');
+    // Sin leer manda sobre todo lo demás: ni un costo viejo ni «Sin compras».
+    expect(celdaCosto(base, false)).toMatchObject({ tipo: 'sin_dato', lineas: [], bajoCosto: null });
+    expect(celdaCosto(null, false).tipo).toBe('sin_dato');
+  });
+});
+
+/**
+ * `[PF.12.3]` Detallado (pedido de David, 2026-11-03): la MISMA columna «Último costo» que Sencillo, con la misma
+ * celda, junto al precio y antes de «Este mes». Los renglones son los de LISTA_C + lo de Detallado.
+ */
+const LISTA_DC = (over: Partial<CatalogoListaDetallada> = {}): CatalogoListaDetallada => LISTA_D({
+  total: 4, costo_visible: true, costo_medido: true, orden: 'mes', dir: 'desc',
+  filas: LISTA_C().filas.map((f, i) => ({ ...f, mes: 1000 * (4 - i), mesAnterior: 900, variacion: 0.1, lider: null, nuevo: null, caducidad: null })),
+  ...over,
+});
+
+describe('[PF.12.3] Detallado › Último costo', () => {
+  afterEach(limpiar);
+  const detallado = (lista = LISTA_DC()) => montar({}, { detallado: vi.fn(() => of(lista)) });
+  const celdas = (el: HTMLElement, sel: string) => Array.from(el.querySelectorAll(sel + ' .cs-cos')).map((c) => texto(c as Element));
+
+  it('⭐ la columna va junto al precio y antes de «Este mes», con su impuesto declarado', async () => {
+    const { fix } = await detallado();
+    const ths = Array.from(fix.nativeElement.querySelectorAll('.cd thead th')).map((th) => texto(th as Element));
+    expect(ths).toEqual(['Producto', 'Proveedor', 'Unidades de medida', 'Precio', 'Último costo sin IVA ni IEPS', 'Este mes']);
+    // «Este mes» sigue en cada renglón, con su orden de siempre.
+    expect(fix.nativeElement.querySelectorAll('.cd .cd-mes')).toHaveLength(4);
+    expect(texto(fix.nativeElement.querySelector('.cd .cd-mes-v'))).toBe('$4,000');
+  });
+
+  it('⭐ el MISMO texto que Sencillo, celda por celda, para los mismos productos', async () => {
+    const s = await montar({}, { modo: null, lista: vi.fn(() => of(LISTA_C())) });
+    const enSencillo = celdas(s.fix.nativeElement, '.cs');
+    limpiar();
+    const d = await detallado();
+    const enDetallado = celdas(d.fix.nativeElement, '.cd');
+    expect(enSencillo).toHaveLength(4);
+    expect(enDetallado).toEqual(enSencillo);
+    expect(enDetallado[0]).toContain('PAQ $66.52');
+    expect(enDetallado[0]).toContain('CJA $1,330.40');
+    expect(enDetallado[0]).toContain('8 oct 2026 · Morelia Abastos');
+  });
+
+  it('⭐ CONTROL en Detallado: 70977 se marca «Precio bajo costo»; 70001 no', async () => {
+    const { fix } = await detallado();
+    const filas = Array.from(fix.nativeElement.querySelectorAll('.cd .cs-fila')) as HTMLElement[];
+    expect(texto(filas[1].querySelector('.cs-bajo'))).toBe('Precio bajo costo');
+    expect(filas[1].querySelector('.cs-bajo p-tag')).not.toBeNull();
+    expect(filas[0].querySelector('.cs-bajo')).toBeNull();
+    expect(texto(filas[2].querySelector('.cs-cos'))).toBe('Sin compras');
+  });
+
+  it('el pie de Detallado suma la definición del costo a la de «Este mes»', async () => {
+    const { fix } = await detallado();
+    const pie = texto(fix.nativeElement.querySelector('.cd .cd-pie'));
+    expect(pie).toContain('Este mes: venta con impuestos del 1 a hoy');
+    expect(pie).toContain('Último costo: lo que se pagó en la última entrada de compra de cualquier sucursal');
+  });
+
+  it('⛔ sin leer (costo_medido=false) dice «Sin dato» en cada renglón, también en Detallado', async () => {
+    const sinLeer = LISTA_DC();
+    const { fix } = await detallado({ ...sinLeer, costo_medido: false, filas: sinLeer.filas.map(({ ultimoCosto: _u, ...f }) => f) });
+    expect(celdas(fix.nativeElement, '.cd')).toEqual(['Sin dato', 'Sin dato', 'Sin dato', 'Sin dato']);
+    expect(texto(fix.nativeElement.querySelector('.cd .cd-pie'))).toContain('no se pudo leer ahora');
+  });
+});
+
+/**
+ * `[NP.22]` «Productos nuevos» dentro de Productos (decisión de David, 2026-11-04): un «Mostrar» más, en Sencillo y en
+ * Detallado, partido por el resultado del lanzamiento, en la URL (sin bloque de resumen: lo retiró David).
+ */
+describe('[NP.22] Mostrar › Productos nuevos', () => {
+  afterEach(limpiar);
+  const LZ = (over: Record<string, unknown> = {}) => ({
+    estado: 'seguimiento' as const, etapa: 'mes_2', dia: 45, veredicto: 'sacar' as const, motivo: 'Lleva 30 días sin venderse',
+    posible_recodificacion: false, sin_venta_30: false, orden: 0, etiqueta: 'Nuevo · día 45', ...over,
+  });
+  const CONTEOS_LZ = { seguimiento: 2, sacar: 1, revisar: 0, agotado: 0, se_queda: 1, pronto: 0, sin_venta_30: 0, sin_movimiento: 5, no_medible: 0, excluido: 0 };
+  const LISTA_NUEVOS = (over: Partial<CatalogoListaDetallada> = {}) => {
+    const base = LISTA_D();
+    return LISTA_D({
+      mostrar: 'nuevos', orden: 'lanzamiento', dir: 'asc', total: 2, resultado: 'seguimiento', conteos_lanzamiento: CONTEOS_LZ,
+      filas: [
+        { ...base.filas[1], lanzamiento: LZ({ posible_recodificacion: true }) },
+        { ...base.filas[0], nuevo: null, lanzamiento: LZ({ veredicto: 'se_queda', motivo: 'Se vendió 27 de los últimos 28 días', dia: 120, etapa: 'graduado', etiqueta: null, orden: 1 }) },
+      ],
+      ...over,
+    });
+  };
+  const partes = (o: Element) => Array.from(o.children).map((c) => texto(c)).filter(Boolean).join(' ');
+  const ths = (el: HTMLElement, sel: string) => Array.from(el.querySelectorAll(`${sel} thead th`)).map((th) => texto(th as Element));
+  const url = () => TestBed.inject(Router).url;
+  const settle = async (fix: ComponentFixture<unknown>) => { for (let i = 0; i < 3; i++) { await tick(fix); await new Promise((r) => setTimeout(r, 0)); } };
+
+  it('⭐ Sencillo: «Productos nuevos» es un Mostrar más, con su conteo; lo filtra el servidor de Detallado y la URL lo guarda', async () => {
+    const detallado = vi.fn(() => of(LISTA_NUEVOS()));
+    const { fix, catalogo } = await montar({}, { modo: null, detallado });
+    const el = fix.nativeElement as HTMLElement;
+    // Sin el filtro: ni resumen, ni columnas del lanzamiento.
+    expect(el.querySelector('app-productos-nuevos-resumen')).toBeNull();
+    expect(ths(el, '.cs')).not.toContain('¿Funcionó?');
+    (el.querySelector('.cs-sel') as HTMLButtonElement).click();
+    await tick(fix);
+    const op = Array.from(el.querySelectorAll('.cs-op')).find((o) => texto(o).startsWith('Productos nuevos')) as HTMLButtonElement;
+    expect(partes(op)).toBe('Productos nuevos 1');
+    op.click();
+    await settle(fix);
+    expect(catalogo.detallado).toHaveBeenLastCalledWith({
+      search: '', mostrar: 'nuevos', resultado: 'seguimiento', orden: 'lanzamiento', dir: 'asc', page: 1, pageSize: 50,
+    });
+    expect(url()).toBe('/?mostrar=nuevos');
+    // Las columnas de Sencillo + ¿Funcionó? y Día, junto al producto.
+    expect(ths(el, '.cs')).toEqual(['Producto', '¿Funcionó?', 'Día', 'Proveedor', 'Unidades de medida', 'Precio']);
+    const [a, b] = Array.from(el.querySelectorAll('.cs-fila')) as HTMLElement[];
+    expect(partes(a.querySelector('.cn-fun')!)).toBe('Sacar Lleva 30 días sin venderse');
+    expect(partes(a.querySelector('.cn-d')!)).toBe('Día 45');
+    expect(partes(b.querySelector('.cn-d')!)).toBe('Día 120 Cumplió 90 días');
+    expect(texto(a.querySelector('.cd-tag--recod'))).toBe('Posible recodificación');
+    // David retiró el bloque de resumen (2026-11-04): no hay titular ni cifras; lo indispensable va en UNA línea con su ayuda.
+    expect(el.querySelector('app-productos-nuevos-resumen')).toBeNull();
+    expect(el.textContent).not.toContain('¿funcionó el lanzamiento?');
+    const nota = el.querySelector('.cn-nota')!;
+    expect(texto(nota)).toContain('Preliminar');
+    expect(texto(nota)).toContain('fecha de alta no está decodificada');
+    expect(texto(nota)).toContain('sin impuestos');
+    expect(nota.querySelector('app-context-help')).not.toBeNull();
+  });
+
+  it('⭐ los resultados del lanzamiento, con cuántos de la búsqueda van en cada uno; elegir uno filtra en el servidor y va a la URL', async () => {
+    const detallado = vi.fn(() => of(LISTA_NUEVOS()));
+    const { fix, catalogo } = await montar({}, { modo: 'detallado', detallado, url: '/?mostrar=nuevos' });
+    const el = fix.nativeElement as HTMLElement;
+    const chips = Array.from(el.querySelectorAll('.cn-chip')) as HTMLButtonElement[];
+    expect(chips.map((c) => partes(c))).toEqual([
+      'Todos en seguimiento 2', 'Sacar 1', 'Revisar 0', 'Agotado: no se juzga 0', 'Se queda 1', 'Aún es pronto 0',
+      'Sin venta en su primer mes 0', 'Dados de alta, sin movimiento 5', 'No medibles 0', 'Excluidos 0',
+    ]);
+    expect(chips[0].getAttribute('aria-pressed')).toBe('true');
+    chips[1].click();
+    await settle(fix);
+    expect(catalogo.detallado).toHaveBeenLastCalledWith(expect.objectContaining({ mostrar: 'nuevos', resultado: 'sacar', page: 1 }));
+    expect(url()).toBe('/?mostrar=nuevos&resultado=sacar');
+    // Detallado: ¿Funcionó? se puede ordenar (el orden de Productos nuevos) y la etiqueta «Nuevo · día N» no se repite.
+    expect(ths(el, '.cd')).toEqual(['Producto', '¿Funcionó?', 'Día', 'Proveedor', 'Unidades de medida', 'Precio', 'Este mes']);
+    expect(Array.from(el.querySelectorAll('.cd .cd-tag')).map((t) => texto(t))).not.toContain('Nuevo · día 12');
+  });
+
+  it('⭐ un enlace con ?mostrar=nuevos&resultado=sacar (el de la pantalla vieja redirigido) abre la lista con ese filtro', async () => {
+    const detallado = vi.fn(() => of(LISTA_NUEVOS()));
+    const { fix, catalogo } = await montar({}, { modo: 'detallado', detallado, url: '/?mostrar=nuevos&resultado=sacar' });
+    expect(catalogo.detallado).toHaveBeenCalledWith(expect.objectContaining({ mostrar: 'nuevos', resultado: 'sacar', orden: 'lanzamiento', dir: 'asc' }));
+    expect(fix.componentInstance.resultado()).toBe('sacar');
+  });
+
+  it('[negativa] salir de Productos nuevos quita la nota, las columnas, los resultados y el filtro de la URL', async () => {
+    const detallado = vi.fn((p: { mostrar?: string }) => of(p.mostrar === 'nuevos' ? LISTA_NUEVOS() : LISTA_D()));
+    const { fix, catalogo } = await montar({}, { modo: 'detallado', detallado, url: '/?mostrar=nuevos&resultado=sacar' });
+    const el = fix.nativeElement as HTMLElement;
+    fix.componentInstance.elegirMostrarD('todos');
+    await settle(fix);
+    expect(catalogo.detallado).toHaveBeenLastCalledWith({ search: '', mostrar: 'todos', orden: 'mes', dir: 'desc', page: 1, pageSize: 50 });
+    expect(url()).toBe('/');
+    expect(el.querySelector('app-productos-nuevos-resumen')).toBeNull();
+    expect(el.querySelector('.cn-nota')).toBeNull();
+    expect(el.querySelector('.cn-res')).toBeNull();
+    expect(ths(el, '.cd')).not.toContain('¿Funcionó?');
+    expect(fix.componentInstance.resultado()).toBe('seguimiento');
+  });
+
+  it('cambiar de vista NO pierde el filtro: Detallado → Sencillo sigue en Productos nuevos', async () => {
+    const detallado = vi.fn(() => of(LISTA_NUEVOS()));
+    const { fix } = await montar({}, { modo: 'detallado', detallado, url: '/?mostrar=nuevos' });
+    fix.componentInstance.alternarVista();
+    await settle(fix);
+    expect(fix.componentInstance.nuevosActivo()).toBe(true);
+    expect(ths(fix.nativeElement, '.cs')).toContain('¿Funcionó?');
+  });
+
+  it('⛔ si el servidor no pudo aplicar Productos nuevos (sin calcular), se DICE: la lista no se hace pasar por él', async () => {
+    const detallado = vi.fn(() => of(LISTA_D({ mostrar: 'todos', resultado: null, conteos_lanzamiento: null })));
+    const { fix } = await montar({}, { modo: 'detallado', detallado, url: '/?mostrar=nuevos' });
+    expect(texto(fix.nativeElement.querySelector('.cd-aviso[role="status"]'))).toContain('Productos nuevos se está calculando');
+  });
+
+  it('⭐ la ficha de un producto nuevo sabe que lo es (la sección «Lanzamiento» no pregunta de más)', async () => {
+    const detallado = vi.fn(() => of(LISTA_NUEVOS()));
+    const { fix } = await montar({}, { modo: 'detallado', detallado, url: '/?mostrar=nuevos' });
+    fix.componentInstance.abrirDetallada(LISTA_NUEVOS().filas[0]);
+    expect(fix.componentInstance.abierto()?.esNuevo).toBe(true);
+    // Sin el filtro, un renglón que el servidor midió y no es nuevo: la ficha ni lo pide.
+    fix.componentInstance.abrirDetallada({ ...LISTA_D().filas[0], lanzamiento: null });
+    expect(fix.componentInstance.abierto()?.esNuevo).toBe(false);
+    // Un servidor anterior (sin la llave): no se sabe.
+    fix.componentInstance.abrirDetallada(LISTA_D().filas[0]);
+    expect(fix.componentInstance.abierto()?.esNuevo).toBeNull();
+  });
+
+  it('listaSencilloDeDetallado: los mismos renglones, los conteos con sus nombres de Sencillo y lo que se aplicó', () => {
+    const l = listaSencilloDeDetallado(LISTA_NUEVOS());
+    expect(l.mostrar).toBe('nuevos');
+    expect(l.conteos).toEqual({ todos: 3, variosCodigos: 1, sinCodigo: 0, sinPrecio: null, nuevos: 140 });
+    expect(l.conteos_lanzamiento).toEqual(CONTEOS_LZ);
+    expect(listaSencilloDeDetallado(LISTA_D()).mostrar).toBe('todos');
+  });
+
+  it('vacioNuevos: dice qué resultado quedó vacío y a dónde ir', () => {
+    expect(vacioNuevos('nuevos', 'sacar')?.titulo).toBe('Ningún producto nuevo en «Sacar»');
+    expect(vacioNuevos('nuevos', 'seguimiento')?.pista).toContain('sin movimiento');
+    expect(vacioNuevos('todos', 'sacar')).toBeNull();
   });
 });

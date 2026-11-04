@@ -38,6 +38,8 @@ export interface CriterioFlujo {
   ventanaNuevos: number;
   limiteNoSeVenden: number;
   ventanaMargen: number;
+  /** `[PF.13]` Una orden de compra abierta de estos días o menos es «reciente». Opcional: servidores previos no la traen. */
+  transitoReciente?: number;
 }
 
 /** `[PF.5]` Un margen con lo que alcanza a cubrir (la forma de `[NP.15]`). */
@@ -144,6 +146,31 @@ export interface AnalisisCompra {
   se_acaba: string | null;
   venta_en_riesgo_dia: number;
   inmovilizado: number | null;
+  /**
+   * `[PF.13]` Lo que ya viene en órdenes de compra abiertas de Kepler (sólo en el detalle). Ausente = no se buscó;
+   * NULL = no se pudo leer. NO se resta del veredicto (misma política que el Pedido); su frase ya va en `motivos`.
+   */
+  transito?: TransitoProducto | null;
+}
+
+/** `[PF.13]` Lo que ya viene en órdenes de compra abiertas de Kepler (la forma del servidor). */
+export interface TransitoProducto {
+  ordenes: number;
+  ordenes_recientes: number;
+  /** En unidad base. NULL = algún renglón en una unidad que no se pudo convertir. */
+  unidades: number | null;
+  unidades_recientes: number | null;
+  /** «29 CJA 7 PAQ 2 PZA». */
+  texto: string | null;
+  dias_mas_vieja: number | null;
+  plazas: Array<{ plaza: string; nombre: string | null; ordenes: number }>;
+  folios: Array<{ plaza: string; folio: string; dias: number | null }>;
+}
+
+/** `[PF.15]` Carga a camioneta de una sucursal (unidad base) y la fecha de la última. */
+export interface SalidaRuta {
+  q: number;
+  ultima: string;
 }
 
 export interface FlujoResumen {
@@ -191,6 +218,8 @@ export interface PlazaFlujo {
   motivo: string;
   escalera: UnidadEscalera[] | null;
   inmovilizado: number | null;
+  /** `[PF.15]` Cargó a camioneta en los días del estancado: no se le llama «estancado» (su venta no está en Kepler). */
+  por_camioneta?: SalidaRuta | null;
 }
 
 export interface RepartoPlaza {
@@ -256,7 +285,13 @@ export interface CuidarRespuesta {
   costo_visible: boolean;
   criterio: CriterioFlujo;
   lideres: { total: number; calculado: string | null; lista: ProductoACuidar[]; por_motivo: Record<MotivoLider, number> };
-  no_se_venden: { nuevos_excluidos: boolean; total: number; valor_total: number | null; por_tramo: Record<TramoSinVenta, number>; productos: NoSeVende[] };
+  no_se_venden: {
+    nuevos_excluidos: boolean; total: number; valor_total: number | null; por_tramo: Record<TramoSinVenta, number>; productos: NoSeVende[];
+    /** `[PF.UI.3]` true = la consulta llegó a su tope: `total` y `valor_total` son un MÍNIMO («N o más»). */
+    total_es_minimo?: boolean;
+    /** `[PF.15]` Los que se sacaron porque su sucursal los cargó a camioneta (su venta no está en Kepler). */
+    por_camioneta?: number;
+  };
   caducidad: {
     productos: ProductoACuidar[];
     cobertura: { lotes: number; productos: number; sucursales: Array<{ plaza: string; nombre: string | null }> };

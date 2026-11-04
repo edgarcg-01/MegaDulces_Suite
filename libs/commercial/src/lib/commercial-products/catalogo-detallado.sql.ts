@@ -1,10 +1,13 @@
 /**
- * Compras › Catálogo › Detallado: las consultas propias, en un archivo sin dependencias. Parámetros con `?`.
+ * Compras › Catálogo › Detallado: las consultas propias, en un archivo sin más dependencia que otro `.sql.ts`
+ * (`catalogo-ficha.sql.ts`, de donde sale la definición única de entrada XA20). Parámetros con `?`.
  * ⚠️ Nada de `?` dentro de expresiones regulares: knex lo toma como binding.
  *
  * Lo demás NO se reescribe: la venta del mes usa `RESUMEN_HISTORIA_SQL` + `VENTA_VIVO_SQL` del motor PF, y la
  * lista usa el buscador y los laterales de Sencillo (`catalogo-ficha.sql.ts`).
  */
+
+import { ENTRADAS_XA20 } from './catalogo-ficha.sql';
 
 const N = (c: string) => `nullif(regexp_replace(${c}::text, '[^0-9.-]', '', 'g'), '')::numeric`;
 
@@ -22,19 +25,11 @@ export const ACTIVOS_CON_SKU_SQL = `
     FROM catalog.products p
    WHERE p.tenant_id = public.current_tenant_id() AND p.deleted_at IS NULL AND p.activo AND p.sku IS NOT NULL`;
 
-/** Las entradas que cuentan (XA20): mismos filtros que `ULTIMA_ENTRADA_SQL` de la ficha. */
-const ENTRADAS_DE = `
-    FROM kepler_ods.kdm2 l
-    JOIN kepler_ods.kdm1 ap
-      ON ap.sucursal = l.sucursal AND ap.c1 = l.c1 AND ap.c2 = l.c2 AND ap.c3 = l.c3
-     AND ap.c4 = l.c4 AND ap.c6 = l.c6
-   WHERE btrim(l.c8) = ?
-     AND l.c2 = 'X' AND l.c3 = 'A' AND btrim(l.c4::text) = '20'
-     AND btrim(ap.c1::text) = ap.sucursal::text
-     AND btrim(coalesce(ap.c43::text, '')) <> 'C'
-     AND ap.c68 IS NOT NULL
-     AND ${N('l.c9')} > 0
-     AND NULLIF(btrim(l.c11::text), '') IS NOT NULL`;
+/**
+ * Las entradas que cuentan (XA20). `[PF.12.3]` Ya no es una copia: es la MISMA definición que la última entrada
+ * (`ENTRADAS_XA20` de catalogo-ficha.sql.ts), con el mismo texto que tenía aquí.
+ */
+const ENTRADAS_DE = ENTRADAS_XA20('btrim(l.c8) = ?');
 
 /**
  * Las compras de UN SKU desde una fecha: por unidad capturada, lo comprado y la primera fecha; y en cada
@@ -45,7 +40,7 @@ export const COMPRAS_VENTANA_SQL = `
     SELECT ap.sucursal, ap.c1, ap.c6, ap.c68::date AS fecha,
            upper(btrim(l.c11::text)) AS unidad, ${N('l.c9')} AS cantidad
     ${ENTRADAS_DE}
-       AND ap.c68::date >= ?::date
+       AND ap.c68::date BETWEEN ?::date AND ?::date
   )
   SELECT e.unidad, sum(e.cantidad) AS cantidad, to_char(min(e.fecha), 'YYYY-MM-DD') AS primera,
          (SELECT count(DISTINCT (d.sucursal, d.c1, d.c6)) FROM e d) AS docs

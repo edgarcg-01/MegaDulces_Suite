@@ -1,9 +1,35 @@
 # Fase NP — Productos nuevos (seguimiento a 30, 60 y 90 días)
 
-> Estado: 🧪 **EN CÓDIGO Y PROBADO EN LOCAL** · 2026-10-07 · sin push, sin PR, nada aplicado a prod.
-> Pantalla: `/compras/catalogo/nuevos` (pestaña **Productos nuevos** del Catálogo de Compras) +
-> etiqueta "Nuevo · día N" en `/compras/catalogo`. Segunda entrega el mismo día: **recomendación de
-> recompra**, **en vivo** y **detalle por sucursal** (ver al final).
+> **Estado al 2026-11-03:** 🧪 · **EN PROD desde el 2026-10-08** (NP.1–NP.5, NP.8–NP.17: la pantalla la
+> usan los jefes de Compras; NP.17 nació de sus quejas en producción). **Sin prod:** la décima entrega
+> (`[NP.6]` hitos congelados + semáforo, `[NP.18]` venta y compra sin impuestos, `[NP.19]` el universo
+> dicho) y la undécima (`[NP.20]` un solo motor de compra, `[NP.21]` agotado no se juzga) — en código y
+> probadas en la base local, **CERO migraciones** (decisión de David del 2026-11-04: las dos de la décima entrega se
+> retiraron; ver [§ Duodécima entrega](#duodécima-entrega-2026-11-04-cero-migraciones-np6-derivado-y-np18-en-el-servidor)).
+> Tarjeta **#33** del Tablero PM, dueño David, vence el **2026-11-10**.
+>
+> ⚠️ Lo que decía esta línea hasta hoy («sin push, sin PR, nada aplicado a prod», 2026-10-07) quedó rancio
+> al día siguiente y nadie lo corrigió en 26 días (observación `NP.UI.9`).
+>
+> Pantalla: desde el 2026-11-04 (`[NP.22]`) **ya no es pantalla propia**: vive en Compras › Catálogo › Productos como
+> «Mostrar › Productos nuevos» (`/compras/catalogo?mostrar=nuevos`; la ruta vieja `/compras/catalogo/nuevos` redirige ahí) +
+> sección «Lanzamiento» en la ficha del producto. Ver [§ Decimotercera entrega](#decimotercera-entrega-2026-11-04-productos-nuevos-dentro-de-productos-np22).
+
+```
+OBJETIVO:  Compras sabe, a los 30, 60 y 90 días de cada código nuevo, si devolvió lo invertido
+           (comparando lo mismo con lo mismo) y si el lanzamiento funcionó (NP.20).
+MÉTRICA:   (2026-11-04, sin tabla) cortes 90 cumplidos que se pueden calcular desde la historia ÷ cortes 90
+           cumplidos de productos en pantalla — HOY (local): 66 de 66 (100 %), 0 sin historia, 0 productos
+           de más de 180 días. Prod NO MEDIDO → `medir-np-productos-nuevos.js` §D3.
+           META: 100 % (un corte cumplido nunca sale «sin dato» mientras el producto está en pantalla).
+           (La métrica anterior —fotos congeladas ÷ hitos cumplidos— se retiró con la tabla.)
+MÉTRICA 2: «venta por $1 invertido» con los dos lados sin impuestos — HOY (local): 12 productos con
+           cociente, 0 cambian de recomendación al corregir; el cociente baja hasta 10 % (17085:
+           $0.69 → $0.62). Prod NO MEDIDO → §E del mismo script.
+CAPA TOPE: C3
+ÁREA:      Comercial (Compras)
+DUEÑO:     David
+```
 
 ## Por qué
 
@@ -35,14 +61,16 @@ de posición, y lo único parecido era la categoría *innovation* de las recomen
 
 | Item | Qué | Estado |
 |---|---|---|
-| `[NP.0]` | Decodificar la fecha de alta de Kepler (`kdii.c50…c75`) contra prod; re-medir el umbral de carga masiva; medir el refresco y el gate de 1 s con volumen real; medir qué parte de las entradas `XA2001` declara su caja (`c55/c56` con identidad que cierra). | ⬜ requiere acceso de lectura a prod |
+| `[NP.0]` | Decodificar la fecha de alta de Kepler (`kdii.c50…c75`) contra prod; re-medir el umbral de carga masiva; medir el refresco y el gate de 1 s con volumen real; medir qué parte de las entradas `XA2001` declara su caja (`c55/c56` con identidad que cierra). | 🔨 2026-11-03: en local las 6 columnas valen `1800-01-01` (vacío) en el **100 %** de 9,678 fichas; el script de sólo lectura `database/scripts/medir-np-productos-nuevos.js` (§A–§C) queda listo para prod |
 | `[NP.1]` | Mig `20261007360000_np_mv_new_products.js` — matvista + índice único + grants. | 🧪 aplicada en local |
 | `[NP.2]` | `libs/commercial/.../new-products.ts` (lógica pura) + `new-products.service.ts` + 2 endpoints en `commercial-products.controller.ts` (`GET new-products`, `PUT new-products/:id/classification`) + refresco nocturno + umbral en `db-health`. | 🧪 |
 | `[NP.3]` | Candado `database/tests/test-newdb-new-products.js` sobre el escenario `database/tests/_lib/new-products-scenario.js` + demo `database/scripts/seed-local-new-products-demo.js` (`--undo`). | 🧪 |
 | `[NP.4]` | Mig `20261007360100_np_new_product_reviews.js` — clasificación de Compras (RLS forzado, auditoría completa, soft-delete). | 🧪 aplicada en local |
 | `[NP.5]` | Pestaña `compras-catalogo-nuevos.component.ts` + `productos-nuevos.service.ts` + etiqueta en la lista de Productos. | 🧪 |
-| `[NP.6]` | Umbrales y veredicto (en `analytics.kpi_thresholds`, nacen vacíos → "sin meta") + hitos 30/60/90 **congelados** en tabla propia. | ⬜ |
+| `[NP.6]` | Umbrales y veredicto (en `analytics.kpi_thresholds`, nacen vacíos → "sin meta") + hitos 30/60/90 **congelados** en tabla propia. | 🧪 2026-11-03 (mig `20261103172233` sin aplicar) |
 | `[NP.7]` | Alta solicitada en la app (pestaña Solicitudes) con inversión y meta planeadas → plan contra real. **Plan detallado (2026-10-28): alta desde fotos + ficha para Kepler → [`FASE_NP7_ALTA_DESDE_FOTOS.md`](FASE_NP7_ALTA_DESDE_FOTOS.md).** | 🔨 2026-11-03: primer corte (levantamiento + bandeja «Por revisar») **en prod** (PR #481; la primera captura de prueba dejó 4 fichas sin foto: ver la bitácora del plan); estado por item en el plan NP.7 |
+| `[NP.18]` | `NP.UI.1`: «venta por $1 invertido» con venta SIN impuestos contra compra SIN impuestos (mig `20261103172230`: la compra con tasa negativa trae el impuesto adentro). | 🧪 2026-11-03 |
+| `[NP.19]` | `NP.UI.2/4/5/6` lo barato: el universo de las cifras dicho con «Preliminar», la nota de ruta, las dos fechas de arranque. | 🧪 2026-11-03 |
 | `[NP.8]` | **En vivo**: función `analytics.fn_new_products_movimientos(tenant, skus, desde, hasta)` (venta y entradas desde el ODS; desde `NP.11` vive en la mig `20261007360000` porque la matvista la usa para su historia) + índice `ix_kdm1_compra_fecha` (mig `20261007360200`). La matvista guarda SERIES hasta el corte. | 🧪 aplicada en local |
 | `[NP.9]` | **Recomendación de recompra** global y por sucursal (`recomendar` + `CRITERIO_RECOMPRA`) + `GET new-products/:id` (comportamiento por sucursal). | 🧪 |
 | `[NP.10]` | **Rediseño**: respuesta arriba, filtros por recomendación, venta por semana en cada fila, panel lateral por sucursal, refresco solo cada minuto. | 🧪 |
@@ -589,3 +617,380 @@ llegada.
 **Lo que esta revisión no cubre:** contraste, panel lateral y gráfica semanal en pantalla real (exigen
 nivel A); los umbrales de `CRITERIO_RECOMPRA`, que calibra Compras (NP.6); y el destino de
 `catalog.new_product_reviews`, sin consumidor desde NP.12.
+
+
+---
+
+## Décima entrega (2026-11-03): hitos congelados, lo mismo con lo mismo y el universo dicho
+
+Tarjeta **#33** (vence 2026-11-10). Auditoría del 2026-11-03 sobre `origin/main`: 18 items (✅ NP.14 ·
+🧪 NP.1–5, 8–13, 15–17 · 🔨 NP.7 · ⬜ NP.0, NP.6) y cuatro observaciones 🔴 que bloquean pasar C3 a 🚀.
+Todo lo de abajo se midió contra la base **LOCAL** (`platform_local`; sólo la sucursal 02 trae fichas y
+precios completos; la historia llega al 2026-10-13). Lo que sólo se sabe en prod va **NO MEDIDO** con
+el comando que lo mide: [`database/scripts/medir-np-productos-nuevos.js`](../../../database/scripts/medir-np-productos-nuevos.js)
+(sólo lectura, `resolverProd()` + `dev_ro`; probado con `--local` como control).
+
+### `[NP.18]` NP.UI.1 — «venta por cada $1 invertido», lo mismo con lo mismo
+
+**Lo que estaba mal, y lo que apareció al medir.** La venta iba CON IVA/IEPS y la compra sin ellos (sale
+8–16 % alta). Al medir el otro lado apareció un segundo defecto, en sentido contrario: la compra NO siempre
+viene sin impuestos. `[PF.12.3]` (`costoSinImpuestos`, `catalogo-ficha.ts`) midió que en `kdm2` de `XA20` el
+**signo** de la tasa decide: positiva o cero = neto; **negativa = el impuesto viene adentro**. La función de
+`[NP.16]` lo suponía siempre neto («256 de 259 documentos», una semana).
+
+| Medido (local) | Cifra |
+|---|---|
+| Renglones `XA20` de productos nuevos | 227 de 14 SKUs; **61 con tasa negativa (6 SKUs)**; 12 sin tasa (los del demo) |
+| Por mes (impuesto adentro) | may 14 de 14 · jun 44 de 53 · jul 0 · ago 3 de 56 · sep 0 · oct 0 |
+| Inversión de más por eso | 78229 +5.5 % · 44238 +5.1 % · 17085 +4.7 % · 70001 +2.6 % · 63018 +0.9 % · 88022 +0.02 % |
+| SKUs nuevos con venta y MÁS de un par IVA/IEPS | **0 de 80** (por eso el factor de impuesto por producto es exacto) |
+| SKUs nuevos con IVA **y** IEPS a la vez | 0 de 80 (la fórmula aditiva de la venta neta no se pone a prueba aquí) |
+
+**Qué cambió.**
+1. Mig `20261103172230_np_compra_sin_impuestos`: reemplaza SÓLO el importe de la rama de entradas de
+   `fn_new_products_movimientos` por `c13 / ((1+|IEPS| si IEPS<0)·(1+|IVA| si IVA<0))`, la regla de
+   `costoSinImpuestos`. Lee la definición instalada y exige encontrar el importe dos veces en esa rama; si no,
+   falla. `CREATE OR REPLACE`, misma firma: no tira la matvista. Idempotente, `down` exacto (md5 igual).
+2. El servidor trae `importe_neto` de lo de hoy y la lógica arma `venta_neta_total` por sucursal y producto
+   (historia = `margen_plaza.n`, la MISMA venta de la serie sin impuestos). `venta_por_peso` = neta ÷
+   inversión; la cohorte y el resumen usan el universo con las DOS medidas (`con_inversion`). Sin neta medida
+   → NULL y la recomendación no dice cuánto recuperó (nunca la venta con impuestos en su lugar).
+3. Cada hito trae `venta_neta` (factor de impuesto del producto) y `venta_por_peso`.
+4. Pantalla: «Sin impuestos de los dos lados: $X por cada $1 invertido, de N productos con compra
+   registrada»; la venta de arriba dice «con impuestos»; «Cómo se decide» lo explica.
+
+**Antes/después (local, transacción revertida, `hoy` = corte local 2026-10-13, 78 en seguimiento):**
+
+| | Antes | Sólo venta neta | Después (las dos) |
+|---|---|---|---|
+| Veredictos (recomprar/revisar/esperar/no recomprar/pronto) | 52/15/8/2/1 | 52/15/8/2/1 | 52/15/8/2/1 |
+| Productos que cambian de veredicto | — | 0 | **0 de 78** |
+| Cociente de la cohorte | $0.40 | — | **$0.37** |
+| 17085 · 78229 · 44238 · 70001 | 0.69 · 0.65 · 0.59 · 0.49 | 0.59 · 0.61 · 0.55 · 0.45 | 0.62 · 0.64 · 0.58 · 0.46 |
+
+⚠️ En local ningún producto cruza el umbral de $0.80 por los impuestos: **en prod NO MEDIDO** (§E del
+script cuenta cuántos lo cruzaban SÓLO por los impuestos). Correrlo antes del merge y otra vez con la
+migración aplicada: es un commit que cambia un número.
+
+### `[NP.6]` Hitos 30/60/90 congelados y su semáforo
+
+> ⛔ **RETIRADO el 2026-11-04** (decisión de David: cero migraciones). La tabla, el cron y «congelado manda» ya no
+> existen; el corte se deriva de la historia. Ver la duodécima entrega. Se deja el texto como registro.
+
+**Medido antes de construir.** `mv_new_products` (local) 218 filas, 82 con lanzamiento, 78 en seguimiento;
+con el hito cumplido hoy: 77 a 30 d · 74 a 60 d · 71 a 90 d (222 fotos de la primera pasada, sólo 1 tomada
+el mismo día del hito). ⛔ **La matvista olvida el producto al día 181** (`least(primera_recepcion,
+primera_venta) >= corte - 180`): con él se van sus 30/60/90 y la cohorte del mes. Eso, y que la recomendación
+del día depende de la existencia de ese día, es lo que no se puede derivar después.
+
+**¿Existía el primitivo? (ADR-056).** Sí, con otro grano: `analytics.period_close` (`[VP.4.1]`) congela una
+cifra por (superficie, MES) — `CHECK periodo ~ '^YYYY-MM$'`, `UNIQUE (tenant, superficie, periodo)` y
+`cerrar_periodo()` sólo acepta `sell_out`. Se copió su FORMA (cifra jsonb + definición + quién/cuándo, sin
+reescritura, el comparador declara) en una tabla propia y queda **deuda con nombre `[NP.6.D1]`**: generalizar
+`period_close` a una llave libre y mudar esto ahí. El umbral SÍ reusa el registro existente:
+`analytics.kpi_thresholds` (`[CDRP.2]`) + `clasificarKpi`/`umbralPara` de `libs/contracts`, sin tocarlos.
+
+**Qué se construyó.**
+- Mig `20261103172233_np_hitos_congelados`: `analytics.new_product_milestones` — una foto viva por (tenant,
+  producto, hito), `tenant_id` + auditoría completa + RLS forzado; `app_runtime` tiene SELECT e INSERT, y
+  UPDATE **sólo** de las columnas del borrado lógico: la cifra no se puede reescribir.
+- `NewProductsService.congelarHitos` (`@Cron` cada hora a los :25, en el worker): arma todos los productos
+  CON costo, `hitosPorCongelar` saca las fotos que faltan y un solo `INSERT … ON CONFLICT DO NOTHING`. Latido
+  `np_hitos_congelados` con `latirCron` (cero es OK con motivo; sin tabla o sin matvista, ERROR con motivo).
+- La foto guarda venta, venta neta, inversión, cociente, unidades, recompra y la recomendación **sólo si se
+  tomó el día del hito** (una foto tardía —la primera pasada— no puede reconstruirla y la deja NULL).
+- La lista y el detalle leen fotos y umbrales como lecturas OPCIONALES (en SAVEPOINT): sin tabla la pantalla
+  sigue y lo declara en `hitos_info`. **Congelado manda**: el hito publica la foto y, si el cálculo de hoy
+  difiere más de $1, lo dice (`foto.recalculado`). El semáforo juzga la cifra congelada contra
+  `compras.productos_nuevos.venta_por_peso.d30|d60|d90` (periodo `mes` por convención); sin fila: «Sin meta»,
+  nunca verde. Sin permiso de costo no viaja ni el cociente ni el semáforo ni el motivo con «$X por $1».
+- Pantalla (panel): columnas «Por $1» y «Meta» (`p-tag`), estado «Congelado el …» / «Cerrado · sin foto
+  todavía», y las notas de recálculo y de meta sin registrar.
+
+**Cómo registra Compras su meta** (no hay pantalla; lo hace quien tenga acceso de escritura, con procedencia):
+
+```sql
+INSERT INTO analytics.kpi_thresholds (tenant_id, kpi_key, position_code, period, target, warn_at, escalate_at,
+                                      direction, source, manual_lock)
+VALUES ('00000000-0000-0000-0000-00000000d01c', 'compras.productos_nuevos.venta_por_peso.d30', NULL, 'mes',
+        0.50, 0.35, 0.20, 'higher_is_better', 'Compras, <nombre>, <fecha>: meta a 30 días', true);
+-- y lo mismo para .d60 y .d90. El CHECK de la tabla rechaza target < warn_at < escalate_at.
+```
+
+### `[NP.0]` La fecha de alta de Kepler y el umbral de carga masiva
+
+- **En local, las 6 columnas fecha de `kdii` (`c50 c56 c60 c64 c65 c75`) valen `1800-01-01` —el vacío de
+  Kepler— en el 100 % de las 9,678 fichas de la 02** (y en las fichas sembradas de las demás). El diccionario
+  de formas (`KEPLER_DICCIONARIO_FORMAS.json`) no ata ninguna de ellas a una casilla de pantalla. Lectura:
+  Kepler no guarda la fecha de alta en `kdii`, o la copia local no la trae. **Decidirlo exige prod** (§A del
+  script: cuántas fechas reales hay por sucursal y si alguna se porta como alta contra el kardex).
+- Mientras tanto la decisión #2 (el reloj arranca en la primera actividad) no depende de esa fecha: sólo la
+  usa «dado de alta, sin movimiento».
+- Umbral de carga masiva (local): días con 24–49 altas = **0**; 50–99 = 1 día (59); 100+ = 9 días. Con corte
+  30, 50 u 80 salen los mismos **114** «dados de alta sin recibir»; con 200, 251. El 50 es estable en local;
+  prod §B.
+- Entradas `XA20` (180 días, local) que declaran su caja: **219 de 227** con `c55`, y la identidad
+  `c9 = c56 × c58` cierra en las 219. Prod §C2.
+- Refresco: el último en local tardó 2.4 s (`cron_runs`); con la función nueva, 1.4 s en una transacción de
+  prueba. Prod §D2 (lee el latido; no refresca nada).
+
+### `[NP.UI.3]` Dos veredictos de compra para el mismo producto — análisis (NO implementado)
+
+Se corrieron **los dos servicios reales** (NP y PF) sobre los mismos 78 productos en seguimiento, en la misma
+transacción y con el mismo `hoy` (local, fijado al corte):
+
+| NP × PF | Productos |
+|---|---|
+| recomprar × comprar | 52 |
+| revisar × comprar | 14 |
+| esperar × comprar | 3 |
+| esperar × traspasar | 3 |
+| esperar × esperar | 2 |
+| no recomprar × comprar | **1** |
+| no recomprar × no comprar · revisar × sobra · pronto × sin movimiento | 1 · 1 · 1 |
+
+**Contradicción fuerte (uno dice comprar y el otro no): 1** — y es justo un defecto de NP, no una diferencia de
+criterio: el 28034 no tiene existencia en ninguna sucursal; NP dice «No recomprar: lleva 21+ días sin venderse»
+y PF «Comprar: ya no hay existencia». La regla de los 21 días sin venta se evalúa ANTES que la del agotado: **no
+se vende porque no hay**. Con el `hoy` real (historia local parada en octubre) el mismo patrón da 63 de 78: es el
+modo de falla cuando un producto se agota y nadie lo surte. **Desacuerdo de urgencia: 17** (NP «revisar/esperar»
+y PF «comprar»): preguntas distintas, mismas palabras. Prod: §E y §F (`--con-pf`) del script.
+
+**Propuesta para el PM (decide él, con el dueño de PF):**
+1. **Una sola pregunta de compra, de un solo motor.** «¿Compro ahora y cuánto?» la contesta PF (cobertura). NP
+   deja de decir «recomprar» y contesta la suya: **«¿el lanzamiento funcionó / se queda en el catálogo?»**
+   (Se queda · Revisar · Sacar · Pronto), por rotación y recuperación, juzgado en sus hitos congelados.
+2. En el panel de un producto nuevo, el veredicto de PF a la vista con su pregunta («En Productos: Comprar —
+   alcanza para 3 días»), como pide el criterio de `NP.UI.3`.
+3. Corregir ya (cambia números → commit aparte, con su antes/después) el caso del agotado: sin existencia en las
+   sucursales que lo vendían, «lleva N días sin venderse» no es evidencia de que no se venda.
+
+### `[NP.7]` Catálogo digital — propuesta para sacarlo a su propia fase (texto para el PM)
+
+> **NP.7 no es seguimiento de productos nuevos: es el ALTA.** Pedir un código nuevo desde la app (con foto,
+> inversión y meta planeadas) cambia un proceso que hoy vive en Kepler, toca permisos, fotos y aprobación, y
+> necesita su propia métrica (p. ej. «altas pedidas por la app ÷ altas en Kepler», HOY 0). Tenerlo como un item
+> 🔨 de NP impide cerrar NP: la fase no puede llegar a ✅ con una pieza que es otro proyecto. Propuesta: **NP.7 →
+> ⏸️ en NP y nace la fase «Altas de catálogo (CAT-ALTA)»** con su plantilla, su fila en el roadmap y su tarjeta,
+> cuando haya cupo (método §3; hoy hay campaña de aterrizaje y no se abre nada nuevo). Lo que NP le deja listo: el
+> «plan contra real» se apoya en las fotos de `[NP.6]` (la inversión y la venta de cada hito ya congeladas).
+
+### Estado de las observaciones de diseño (2026-11-03)
+
+| # | Estado | Qué se hizo / qué falta |
+|---|---|---|
+| NP.UI.1 🔴 | 🧪 resuelto en código | `[NP.18]`. Falta: aplicar la mig y medir en prod (§E). Conflicto declarado: cambia cifras que Compras ya vio (en local, 0 veredictos) |
+| NP.UI.2 🔴 | 🟡 parcial | El universo se dice arriba («Cuentan N productos, entre ellos X posibles recodificaciones y Y que aparecieron por un ajuste») con `p-tag` «Preliminar». **Falta:** sacarlos con un clic y recalcular (decisión de producto) y cerrar `[NP.0]` en prod |
+| NP.UI.3 🔴 | 🧪 resuelto en código (2026-11-03, D1 de David) | `[NP.20]`: NP contesta «¿el lanzamiento funcionó?» y el panel muestra el veredicto de compra de Productos. Ver [§ Undécima entrega](#undécima-entrega-2026-11-03-un-solo-motor-de-compra-y-el-agotado-np20--np21) |
+| NP.UI.4 🟠 | 🟡 | El aviso ya dice «cuenta en las cifras como lanzamiento». Sigue sin salida: decide Edgar (reusar el `PUT …/classification` o excluir automático) |
+| NP.UI.5 🟠 | 🟡 | El panel avisa cuando hubo salidas a camión de ruta; «Cómo se decide» dice que la venta de camionetas sin Kepler no se ve. Falta: que «No recomprar» lo matice en la lista |
+| NP.UI.6 🟠 | 🟡 | El panel dice las dos fechas cuando la mercancía llegó antes de la compra aplicada. Falta: decidir UNA fecha de arranque |
+| NP.UI.7 🟠 | ⬜ declarado | Dos reglas de unidad: no se tocó (es de unidades compartidas con Pedido, D20) |
+| NP.UI.8 🟠 | ⬜ declarado | El piso en cero vive en `EXISTENCIA_KEPLER_SQL`, que también usa PF: cambiarlo cambia PF. Va con el dueño de PF |
+| NP.UI.9 🟡 | ✅ encabezado | Encabezado al día. Falta: `auditoria-diseno` nivel A (claro, oscuro, `forced-colors`) |
+
+### DoD (método §5) — estado real
+
+| # | Punto | Estado |
+|---|---|---|
+| 1 | Métrica medida otra vez, antes/después publicado | 🟡 local sí (arriba); **prod NO MEDIDO** — §D1/§E del script antes y después de aplicar |
+| 2 | Cada capa verificada o NO MEDIDA | C0 local ✔ (candado 179/179) · prod: refresco con la función nueva NO MEDIDO · C1 ✔ 76/76 · C2 ✔ servicio real contra base local · C3 ✔ 754/754 Compras; **sin validación visual** |
+| 3 | Todo endpoint que escribe, ejercido contra base real | 🟡 el cron `congelarHitos` sí (sección 13, servicio real, idempotencia, inmutabilidad, RLS). ⛔ `PUT new-products/:id/classification` (`[NP.4]`) **nunca** se ejerció y no tiene consumidor desde `[NP.12]`: ejercerlo o retirarlo |
+| 4 | Toda compuerta nueva rota a propósito | ✔ regla vieja de la venta → 1 rojo (unitaria) · función vieja = $108 (base) · cron sin tabla → ERROR · «congelado manda» mutado → 1 rojo · «sin meta» pintado verde → 1 rojo |
+| 5 | Primitivo en `libs/` o deuda con nombre | Deuda: **`[NP.6.D1]`** foto congelada por llave (generalizar `period_close`) · **`[NP.6.D2]`** lectura opcional en SAVEPOINT (PF tiene `opcional()` y NP otro): subir a `platform-core` · la regla de impuesto de la compra vive en SQL y en `costoSinImpuestos` (TS), atadas por el candado §12 |
+| 6 | Tracker, LOG y roadmap al día; ADR | ⬜ texto entregado a la sesión principal (no se tocan desde aquí) |
+| 7 | En prod, o por qué no | ⬜ faltan: aplicar `20261103172230` y `20261103172233` (en ese orden), la entrada de `CRON_JOBS`, redeploy api+worker+view, y correr el script |
+
+### Para llevarlo a producción
+
+1. Correr el script en prod (sólo lectura) **antes**: deja el «antes» de §D1 y §E.
+2. Aplicar, una por una y fuera de horario: **`20261103172230_np_compra_sin_impuestos`** (sólo reemplaza una
+   función: la compuerta la ve NO_MEDIDO; aplicarla ANTES de mergear) y **`20261103172233_np_hitos_congelados`**.
+3. Agregar a `CRON_JOBS` (`apps/api/src/modules/db-health/db-health.service.ts`), en el mismo cambio:
+   `{ key: 'np_hitos_congelados', label: 'Hitos 30/60/90 congelados (NP.6)', cadence: 'cada hora (:25)', warnH: 2, critH: 26, maxRunH: 0.1 },`
+4. Redeploy api + worker + view. El primer refresco de la matvista (≤ 30 min) recalcula la historia con la
+   compra sin impuestos; la primera pasada del cron congela todo lo cumplido (tarde, sin recomendación).
+5. Correr el script **después**: §D2 (latido verde, `rows_affected` = fotos), §E (antes/después real).
+6. Compras registra sus metas (SQL de arriba) o queda «Sin meta», que es lo cierto.
+
+---
+
+## Undécima entrega (2026-11-03): un solo motor de compra y el agotado (`NP.20` · `NP.21`)
+
+Decisiones de David del 2026-11-03 (D1 y D2), sobre `NP.UI.3`. Todo medido en la base **LOCAL**
+(`platform_local`, 127.0.0.1) con los **servicios reales** (transacción `READ ONLY`); prod NO MEDIDO.
+
+### `[NP.20]` D1 — Productos nuevos deja de decir si hay que comprar
+
+**La pregunta cambia.** «¿Compro ahora y cuánto?» la contesta SÓLO Productos (motor PF, `product-flow.ts`, por
+cobertura). Productos nuevos contesta **«¿el lanzamiento funcionó?»**:
+
+| Antes (`np6-v1`) | Ahora (`np6-v2`) | Regla (mismos números de `CRITERIO_LANZAMIENTO`, antes `CRITERIO_RECOMPRA`) |
+|---|---|---|
+| Recomprar | **Se queda** | Se vende de forma sostenida (≥ `diasConVentaSano` de `ventana` días) y no cayó |
+| Esperar | **Se queda** | Igual: «todavía hay existencia» era una razón de COMPRA, no del lanzamiento |
+| Revisar | **Revisar** | Cayó a menos de `caidaMaxima`, o se vende pocos días, o el último corte quedó `bad` contra la meta de Compras |
+| No recomprar | **Sacar** | Nunca se vendió, o `sinVentaDias`+ sin venta, CON mercancía donde se vendía |
+| — | **Agotado: no se juzga** | `[NP.21]` cualquier conclusión negativa por falta de venta, cuando falta mercancía |
+| Aún es pronto | **Aún es pronto** | Antes del día `diasMinimos` |
+
+- **Sin umbrales nuevos.** Se quitó `recuperadoAlto` (0.80): era el disparador de «Recomprar», o sea de compra.
+  La recuperación de lo invertido entra SÓLO contra la meta que Compras registre en `analytics.kpi_thresholds`
+  (`compras.productos_nuevos.venta_por_peso.d30|d60|d90`, `[NP.6]`), en el último corte cerrado
+  (`juzgarRecuperacion`): `bad` → «Revisar»; `warn` → se dice; `sin_meta`/`sin_medir` → se dice que no entró.
+  Hoy no hay ninguna meta registrada: la recuperación **no mueve** ningún veredicto y cada «Se queda» lo dice.
+- **El panel muestra el veredicto de compra de Productos** (`GET :id/flow`, el mismo endpoint y permiso que la
+  ficha de Productos; no se copian reglas): chip con la etiqueta de Productos (`VEREDICTO_ETIQUETA`), título,
+  motivos y la hora del cálculo. Si falla, lo dice («No se pudo leer…»), nunca queda en blanco. Cuando el
+  lanzamiento sale «Sacar» y Productos pide comprar o mover, una frase lo explica (`cruceCompra`).
+- La foto congelada guarda la recomendación ya juzgada contra la meta (el cron aplica `conHitos` antes de
+  `hitosPorCongelar`). `DEFINICION_HITOS` sube a `np6-v2`. Una foto con el vocabulario viejo se lee con el
+  nuevo (`veredictoVigente` en el servidor, `veredictoVista` en la pantalla): ninguna existía en prod.
+- Pantalla: titular («De N productos nuevos, X se quedan y Y piden decisión… Z están agotados»), chips, columna
+  «¿Funcionó?», «Cómo se juzga el lanzamiento» con el mapeo viejo→nuevo, y ayuda contextual nueva
+  (`<app-context-help topic="productos-nuevos">`, diccionario versionado). Los conteos salen de las filas.
+
+### `[NP.21]` D2 — Agotado no es «no se vende»
+
+`faltaMercancia`: falta mercancía si no hay existencia en ninguna sucursal, si se agotó en una que lo vendió en las
+últimas 4 semanas, o si ninguna de las que lo vendieron alguna vez tiene existencia (señal nueva
+`vendio_con_existencia`). Por sucursal, la frase habla de esa sucursal. Con la existencia en duda en todas, lo dice.
+
+⚠️ Una sucursal **sin renglón** de existencia cuenta como sin existencia (igual que el `agotado_en` de antes). En la
+base local sólo la 02 trae fichas: por eso 66 de 78 salen sin existencia en ninguna sucursal. En prod todas las
+sucursales tienen `kdil`: la magnitud de allá NO MEDIDA.
+
+### Antes/después (local, servicio real, transacción de sólo lectura)
+
+| | Antes (`np6-v1`) | Después (`np6-v2`) |
+|---|---|---|
+| `hoy` = corte local (2026-10-13), 78 en seguimiento | recomprar 52 · esperar 8 · revisar 15 · no recomprar 2 · pronto 1 | se queda 60 · revisar 1 · sacar 1 · agotado 15 · pronto 1 |
+| Cambian respecto del mapeo 1 a 1 | — | **15 de 78**: 14 «revisar → agotado», 1 «no recomprar → agotado» |
+| `hoy` real (local, venta parada en octubre) | no recomprar 78 | sacar 11 · agotado 67 (**67 de 78** cambian) |
+| **CONTROL 28034** | «No recomprar: lleva 50 días sin venderse» | **«Agotado»**: «No hay existencia en ninguna sucursal: la venta no se puede juzgar» + «Si hay que comprar lo dice Productos» |
+| NP × PF opuestos (`mide-np-vs-pf.js`, 74 comparables) | 63 (85.1 %) | **1 (1.4 %)**: 78229, «Sacar» (25 días sin venta con existencia en 3 sucursales) contra «Comprar: alcanza para 8 días». El panel lo explica |
+
+Prod: NO MEDIDO — `medir-np-productos-nuevos.js --con-pf` §E (ahora falla si hay un «sacar» sin existencia) y §F.
+
+### Pruebas y compuertas
+
+- `commercial-products` (lib) 381/381 (antes 367) · candado de base `test-newdb-new-products.js` **182 ✓ · 0 ✗ · 1 NO
+  MEDIDO** (sección 14 nueva: vocabulario, ningún «sacar» sin existencia, CONTROL 28034; la foto del día exacto del
+  hito no existe en local).
+- Pruebas negativas rotas a propósito: sin la guarda del agotado → 5 unitarias rojas y 2 del candado de base (28034
+  vuelve a «sacar»); sin el `bad` de la meta → 2 rojas. Restaurado y verificado byte a byte.
+- Pantalla: ver el reporte de la sesión (vitest de `compras`, `check:pantalla`, `ngc`). **Sin validación visual**:
+  lo más probable de ajustar es el alto del bloque «¿Hay que comprar? · Productos» en el panel de 640 px.
+
+### Abierto
+
+- Compras ve palabras nuevas: lo anuncia el PM (texto en la bitácora de esta sesión).
+- Calibrar `CRITERIO_LANZAMIENTO` y registrar metas por corte (sin ellas la recuperación no juzga nada).
+- `NP.UI.5` en la lista: «Sacar» todavía no se matiza con «se mueve por camioneta» (el panel sí lo avisa).
+
+---
+
+## Duodécima entrega (2026-11-04): cero migraciones — NP.6 derivado y NP.18 en el servidor
+
+Decisión de David del 2026-11-04: **CERO migraciones** (regla 1: todo del ODS, derivar, nada de copias). Las dos
+migraciones de la décima entrega (`20261103172230_np_compra_sin_impuestos`, `20261103172233_np_hitos_congelados`)
+se **borraron**: no estaban en git, ninguno de los dos ledgers locales (`public` e `identity`) las nombraba, la tabla
+`analytics.new_product_milestones` no existía y la función de base seguía siendo la de `[NP.16]`. Con ellas se fueron
+el cron `congelarHitos` y su latido `np_hitos_congelados` (nunca entró a `CRON_JOBS`), la lectura de fotos,
+`DEFINICION_HITOS`, «congelado manda» y las secciones del candado que sólo probaban eso.
+`check-migration-collisions --solo-git`: 1,415 migraciones, ninguna colisión, **ninguna nueva**.
+
+### `[NP.6]` Los cortes 30/60/90, derivados
+
+- Un corte cumplido es la cifra **definitiva** de esos N días, calculada con la historia del ODS que ya trae la
+  matvista (`venta_dia` día por día desde el lanzamiento, y las entradas con su fecha). Uno que no llega va «en
+  curso». En pantalla: «Definitivo» / «En curso» / «Todavía no llega».
+- Semáforo contra `analytics.kpi_thresholds` (`semaforoHito`, sin cambio): sin meta, «Sin meta», nunca verde. La
+  lectura de umbrales sigue OPCIONAL (SAVEPOINT) y `hitos_info` sólo habla de umbrales.
+- **La ventana de 180 días — opciones medidas (local, 2026-11-04):**
+
+| Opción | Lo medido | Decisión |
+|---|---|---|
+| A. Que la matvista conserve al menos lanzamiento + 90 | Ya lo cumple: un producto vive en la matvista hasta el día 180 (`least(primera_recepcion, primera_venta) >= corte − 180`) y su historia se pide desde `corte − 180`. 66 productos con el corte de 90 cumplido, **0 sin los 90 días de historia**, 0 productos de más de 180 días | **Se queda así**: cero cambios, cero costo |
+| B. Corte bajo demanda en el detalle para productos de más de 180 días | Sería una consulta por SKU a `fn_new_products_movimientos` sobre toda su historia; `[NP.14]` midió esa forma en prod en 5–5.8 s para 200 productos (por SKU es más barato, pero NO MEDIDO). Además el producto ya no aparece en la lista: no hay desde dónde abrirlo | No se construye: no hace falta para que el 90 exista |
+| C. Ampliar la ventana (p. ej. a 365 días) | Es cambiar la definición de la matvista = **migración** | **Pendiente, declarado**: decide David/PM |
+
+- **Lo que ya no se puede contestar** (dicho en «Cómo se juzga el lanzamiento» y en el panel, no inventado):
+  1. Qué recomendaba la pantalla **aquel día** (dependía de la existencia de ese día; no tiene historia).
+  2. Si Kepler corrige un documento viejo, el corte se recalcula con la corrección: no hay foto contra qué compararlo.
+  3. Después del día 180 el producto sale de la pantalla, y con él sus cortes y su mes de cohorte.
+- Tiempos (local, servicio real, transacción de sólo lectura, `hoy` = 2026-10-13): lista **51–56 ms**, detalle
+  **28–31 ms**. Prod NO MEDIDO (la meta es < 1 s; `[NP.17]` midió la lista en prod en 134–163 ms sin esto).
+
+### `[NP.18]` La compra sin impuestos, en el servidor (sin tocar la función de base)
+
+- `COMPRA_RENGLONES_SQL` (`new-products.sql.ts`) lee los renglones `X-A-20` de los documentos que ya trae la
+  historia (plaza + folio de cada entrada), con sus tasas `c17`/`c18`, acotado a la ventana de fechas de esas
+  entradas; `compraPorDocumento` les quita el impuesto con **`costoSinImpuestos`** (`[PF.12.3]`): UNA sola
+  implementación de la regla (antes vivía también en el SQL de la migración). `compraSinImpuestos` pone el neto en
+  cada entrada cuyo documento aparece y cuadra (a 5 centavos); lo que no aparece o no cuadra se queda como lo
+  escribió Kepler y se cuenta en `compra_info`. Lectura OPCIONAL: si falla, `compra_info.medida = false` y el panel
+  lo dice.
+- Plan (local): `ix_kdm1_compra_fecha` + `kdm2_pkey`, 213 documentos, **2.3–2.9 ms**. Prod NO MEDIDO.
+- **Antes/después (local, CONTROL):** 227 documentos neteados, **61 con el impuesto adentro**, 0 sin documento, 0 que
+  no cuadran (las mismas cifras que midió la décima entrega: 227 renglones, 61 con tasa negativa). La inversión
+  cambia en 6 productos y ningún veredicto cambia. **CONTROL 78229: $796,336.83 → $755,033.30 (+5.47 %)**, idéntico a
+  lo que daba la función de la migración retirada (una segunda implementación independiente). 44238 +5.05 % · 17085
+  +4.72 % · 70001 +2.56 % · 63018 +0.86 % · 88022 +0.02 %. Inversión de la cohorte $8,792,005.65 → $8,601,851.86;
+  el cociente queda en $0.37 al centavo.
+- ⚠️ Lo que NO cubre: el margen «sobre lo pagado» (`compra_base` de la matvista) se sigue calculando con la compra
+  como la escribió Kepler. Arreglarlo sin migración exige la misma corrección en `margenesDe`: deuda con nombre
+  **`[NP.18.D1]`**.
+
+### Pruebas y compuertas
+
+- Unitarias `commercial-products` **382/382** · view `compras` + `dashboard/layout` **811/811** · candado de base
+  `test-newdb-new-products.js` **173 ✓ · 0 ✗** (sección 12: SQL real + `costoSinImpuestos` contra una segunda
+  implementación en SQL, y la función de base intacta; sección 13: cada corte cumplido = lo sembrado, 7 cortes).
+- Negativas: sin quitar el impuesto, 3 unitarias rojas y 1 del candado de base (el renglón −8 queda en $108); documento
+  de otro SKU o fuera de la ventana de fechas → no se lee; sin mapa, ninguna entrada cambia.
+- `check-pantalla` 0 nuevas, `ngc --noEmit` 0 errores, `tsc` de la librería sin errores en estos archivos (los 103
+  que da son TS1272 de otros controladores, previos).
+- **Sin validación visual.**
+
+### Para llevarlo a producción (reemplaza al de la décima entrega)
+
+1. **Nada que aplicar en la base.** Redeploy de api + view.
+2. Correr `medir-np-productos-nuevos.js --con-pf` contra prod (sólo lectura) antes y después: §D3 (ventana), §E
+   (`compra_info` y ningún «sacar» sin existencia), §F (NP × PF).
+3. Compras registra sus metas por corte en `kpi_thresholds` (el SQL de la décima entrega sigue valiendo) o queda «Sin meta».
+
+## Decimotercera entrega (2026-11-04): Productos nuevos dentro de Productos (`NP.22`)
+
+**Decisión de David (2026-11-04):** una sola pantalla, menos ventanas. «Productos nuevos» sale del menú «Ver» y de
+`CATALOGO_TABS`; vive en Compras › Catálogo › Productos como **«Mostrar › Productos nuevos»**, en Sencillo y en Detallado.
+`/compras/catalogo/nuevos` **redirige** a `/compras/catalogo?mostrar=nuevos` (conserva `?resultado=`). Cero migraciones.
+
+- **Universo:** «Productos nuevos» = los EN SEGUIMIENTO (el mismo del resumen de la pantalla vieja). ⚠️ Cambia el número
+  de Detallado: antes contaba los que llevaban la etiqueta (≤ 90 días + sin movimiento; 138 en la base local), ahora los
+  en seguimiento (78; incluye los de 90–180 días). Los sin movimiento siguen a un clic («Dados de alta, sin movimiento», 131).
+- **Sub-filtros** (los de la pantalla vieja, con sus nombres y su conteo de la búsqueda): Todos en seguimiento · Sacar ·
+  Revisar · Agotado · Se queda · Aún es pronto · Sin venta en su primer mes · Dados de alta, sin movimiento · No medibles ·
+  Excluidos. Los filtra, cuenta, ordena (`orden=lanzamiento`: lo que pide atención primero) y pagina el SERVIDOR
+  (`GET catalogo?vista=detallado&mostrar=nuevos&resultado=…`); Sencillo pide esa misma respuesta y la pinta con sus columnas.
+- **Columnas** «¿Funcionó?» (resultado + razón principal) y «Día» (día N, «Cumplió 90 días»), sólo con el filtro.
+- **Ficha** (Sencillo y Detallado): sección «Lanzamiento» (`producto-lanzamiento.component.ts`, mismo `GET new-products/:id`):
+  ¿funcionó? con motivos, cortes 30/60/90 (Definitivo / En curso / Todavía no llega) con venta por $1 contra la meta
+  («Sin meta»), comportamiento global, márgenes (con permiso de costo), dónde se mueve mejor, reparto y cada sucursal.
+  No repite «¿Hay que comprar?» (es «Qué hacer»); si los dos tiran en contra, lo explica. Un producto que no es nuevo
+  (404) no pinta nada.
+- **Retirado por decisión de David el mismo día:** el bloque de resumen arriba de la lista (titular, cifras de inversión,
+  venta y venta por $1, plegables de cohortes y criterio). Queda UNA línea: «Preliminar» + la base sin impuestos + la ayuda «?».
+- Sencillo cuenta «Productos nuevos» sin esperar la foto (`FotoSwr.vigente`): la primera vez dice «sin medir».
+
+**Medido (base local, `platform_local`):** conteos de Sencillo 114–152 ms antes → 114–135 ms después (un `FILTER` más; CONTROL:
+el filtro dio 78 = los 78 en seguimiento activos contados aparte). Filtro + conteos + orden en memoria sobre los 11,008:
+1.8 ms + 2.8 ms. Detallado con «nuevos» antes del cambio: 235–242 ms; el después end-to-end **NO MEDIDO** (la API local
+corre el código anterior hasta que se reinicie). Conteos por resultado = `resumen.por_veredicto` (sacar 11, agotado 67).
+
+**Ajustes a «Lanzamiento» pedidos por David al verla (mismo día):** se retiró la tarjeta del resultado (está en la columna
+«¿Funcionó?») y «Comportamiento global» completo (cifras, avisos de fecha de seguimiento / camiones de ruta, tendencia, gráfica
+semanal y la nota larga de los cortes, que pasó a la ayuda «?»). Los cortes 30/60/90 son ahora tres tarjetas (Vendido · Invertido ·
+Por $1 · Meta), en fila y apiladas en angosto, sin tabla ni scroll; «sin impuestos de los dos lados» va en el encabezado. El cruce con
+«Qué hacer» queda como UNA línea sólo cuando se contradicen. `check-pantalla` sella Q.1 en `producto-lanzamiento` (sin cifras de
+encabezado por decisión de David; mismo sello que sus fichas).

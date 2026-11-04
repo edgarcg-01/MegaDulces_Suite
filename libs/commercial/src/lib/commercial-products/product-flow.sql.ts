@@ -135,6 +135,54 @@ export const SALIDAS_SQL = `
      AND coalesce(nullif(btrim(h.c43), ''), '') <> 'C'
    GROUP BY 1, 2, 3`;
 
+/**
+ * `[PF.15]` Lo que cada sucursal cargó a camioneta (`U-D-41` con destino `RUTA nn` / `RD nnn`, el mismo
+ * criterio de `SALIDAS_SQL`) de unos SKU entre dos fechas: unidades base (`kdm2.c9`) y la última carga.
+ * La venta de las camionetas de Canindo NO está en Kepler y la de Padre Hidalgo está incompleta (FASE_AB
+ * §16.17.1–2): la carga es lo único de ellas que sí está, y alcanza para no llamar «estancado» a lo que sale
+ * por camioneta. Entra por FECHA (`ix_kdm1_venta_fecha` → `ix_kdm2_venta_doc`), como `VENTA_VIVO_SQL`.
+ * Parámetros: desde, hasta, skus.
+ */
+export const SALIDAS_RUTA_SQL = `
+  SELECT btrim(l.c8) AS sku, btrim(h.sucursal) AS plaza, sum(l.c9::numeric) AS q,
+         to_char(max(h.c9::date), 'YYYY-MM-DD') AS ultima
+    FROM kepler_ods.kdm1 h
+    JOIN kepler_ods.kdm2 l
+      ON btrim(l.sucursal) = btrim(h.sucursal) AND btrim(l.c1) = btrim(h.c1)
+     AND l.c2 = h.c2 AND l.c3 = h.c3 AND l.c4::integer = h.c4::integer
+     AND l.c5::integer = h.c5::integer AND btrim(l.c6) = btrim(h.c6)
+   WHERE h.c2 = 'U' AND h.c3 = 'D' AND l.c2 = 'U' AND l.c3 = 'D'
+     AND h.c4::integer = 41
+     AND h.c9::date BETWEEN ?::date AND ?::date
+     AND btrim(h.c1) = btrim(h.sucursal)
+     AND btrim(h.c10) ~* '^(RUTA|RD) '
+     AND coalesce(nullif(btrim(h.c43), ''), '') <> 'C'
+     AND btrim(l.c8) = ANY(?::text[])
+     AND coalesce(l.c9::numeric, 0) > 0
+   GROUP BY 1, 2`;
+
+/**
+ * `[PF.13]` Lo que ya viene: órdenes de compra de Kepler (`X-A-35`) abiertas de UN SKU, por orden y unidad del
+ * renglón. MISMO criterio que el diálogo «En camino» del Pedido (`commercial-replenishment.service`,
+ * RA-PRO.45): de los últimos 120 días, sin orden de entrada (`NOT cerrada`) y sin estatus F/C/R. Sale de la
+ * capa normalizada (`analytics.erp_purchase_orders` / `_doc_lines`), que es una VISTA sobre `kepler_ods`:
+ * nada se copia. La vista no tiene RLS: el tenant se filtra explícito.
+ * ⚠️ `cantidad` es `kdm2.c9`: en la venta es la unidad BASE (c9 = c56 × c58 al 99.99 %, UNIDADES §8octies.1);
+ * en la OC no se ha medido (no hay X-A-35 en la base local) — `check-pf-ui-prod.js` lo mide en prod.
+ * Parámetro: sku.
+ */
+export const TRANSITO_SQL = `
+  SELECT oc.sucursal AS plaza, oc.folio, oc.dias_abierta::int AS dias, l.unidad, sum(l.cantidad) AS q
+    FROM analytics.erp_purchase_orders oc
+    JOIN analytics.erp_purchase_doc_lines l
+      ON l.doctype = 'XA3501' AND l.sucursal = oc.sucursal AND l.folio = oc.folio
+   WHERE oc.tenant_id = public.current_tenant_id()
+     AND oc.doc_date >= CURRENT_DATE - 120
+     AND NOT oc.cerrada
+     AND oc.estatus NOT IN ('F', 'C', 'R')
+     AND l.sku = ?
+   GROUP BY 1, 2, 3, 4`;
+
 /** Traspasos recibidos (`U-A-50`) de UN SKU desde una fecha. Entra por `ix_kdm2_sku_abono`. Parámetros: sku, desde. */
 export const TRASPASOS_SQL = `
   SELECT btrim(h.sucursal) AS plaza, coalesce(nullif(upper(btrim(l.c11)), ''), '\\?') AS unidad,
