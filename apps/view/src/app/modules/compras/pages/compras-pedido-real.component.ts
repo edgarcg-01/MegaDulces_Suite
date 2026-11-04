@@ -1694,7 +1694,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-sob-lab { font-size: var(--fs-xs); color: var(--text-muted); }
     .pr-sob-val { font-size: var(--fs-md); font-weight: 600; font-variant-numeric: tabular-nums; }
     .pr-sob-sub { font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
-    .pr-sob-q { font-size: var(--fs-xs); color: var(--warn-fg); font-variant-numeric: tabular-nums; }
+    .pr-sob-q { font-size: var(--fs-xs); color: var(--warn-soft-fg); font-variant-numeric: tabular-nums; }
     .pr-sob-ok { border-left-color: var(--ok-fg); }
     .pr-sob-warn { border-left-color: var(--warn-fg); }
     .pr-sob-bad { border-left-color: var(--bad-fg); }
@@ -1755,10 +1755,10 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     /* La celda que no se puede convertir a cajas: muestra la cantidad SUELTA con su rótulo. */
     .pr-rung { display: inline-flex; align-items: baseline; gap: .25rem;
       font-family: var(--font-mono, ui-monospace); font-variant-numeric: tabular-nums;
-      color: var(--warn-fg); cursor: help; }
+      color: var(--warn-soft-fg); cursor: help; }
     .pr-rung i { font-size: var(--fs-micro); }
     .pr-edad { font-variant-numeric: tabular-nums; color: var(--text-muted); }
-    .pr-edad-warn { color: var(--warn-fg); font-weight: 600; }
+    .pr-edad-warn { color: var(--warn-soft-fg); font-weight: 600; }
     .pr-edad-bad { color: var(--bad-fg); font-weight: 600; }
     .pr-uov-prod { margin: 0 0 .5rem; }
     .pr-uov-hint { font-size: var(--fs-sm); color: var(--text-muted); margin: 0 0 1rem; line-height: 1.4; }
@@ -1787,7 +1787,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-exp-hint { font-size: var(--fs-xs); color: var(--text-muted); }
     .pr-grp-sub { display: inline-flex; gap: .5rem; font-size: var(--fs-xs); }
     .pr-gs { font-variant-numeric: tabular-nums; }
-    .pr-gs-buy { color: var(--action); } .pr-gs-tr { color: var(--text-main); } .pr-gs-over { color: var(--warn-fg, var(--text-muted)); }
+    .pr-gs-buy { color: var(--action); } .pr-gs-tr { color: var(--text-main); } .pr-gs-over { color: var(--warn-soft-fg, var(--text-muted)); }
     .pr-grp-sp { flex: 1; }
     :host ::ng-deep .pr-grp-btn { --p-button-sm-font-size: var(--fs-xs); }
     .pr-link { color: var(--action); cursor: pointer; text-decoration: underline; }
@@ -1796,7 +1796,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-strong { font-weight: 700; }
     .pr-sug { background: var(--overlay-selected, transparent); }
     .pr-val { color: var(--text-main); }
-    .pr-over-val { color: var(--warn-fg, var(--text-muted)); }
+    .pr-over-val { color: var(--warn-soft-fg, var(--text-muted)); }
     .pr-row-over td { color: var(--text-muted); }
     /* input de cantidad — estilo propio (ya no depende de pInputText; ver primeng#12522). */
     .pr-qty { width: 4.5rem; text-align: right; font-variant-numeric: tabular-nums; padding: .2rem .35rem;
@@ -1849,7 +1849,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     /* [RA-DYN.U3] El piso del proveedor. Avisa, no bloquea: juntar la canasta puede ser
        legitimo, y tambien lo es mandar menos y negociarlo. La decision es del comprador. */
     .pr-min-warn { display: inline-flex; align-items: center; gap: .375rem; font-size: var(--fs-sm);
-      color: var(--warn-fg, var(--text-muted)); font-variant-numeric: tabular-nums; white-space: nowrap; }
+      color: var(--warn-soft-fg, var(--text-muted)); font-variant-numeric: tabular-nums; white-space: nowrap; }
     .pr-min-warn i { font-size: var(--fs-xs); }
     .pr-bulk-sp { flex: 1; }
     /* RA-PRO.32 — vista Excel (workbook) */
@@ -1928,7 +1928,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
       border: 1px solid var(--border-color); border-left: 3px solid var(--warn-fg); border-radius: var(--r-sm, 8px);
       background: var(--surface-ground); font-size: var(--fs-sm); line-height: 1.35; }
     .pr-acc.pr-acc-info { border-left-color: var(--info-fg); }
-    .pr-acc-haz { font-size: var(--fs-micro); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--warn-fg); }
+    .pr-acc-haz { font-size: var(--fs-micro); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--warn-soft-fg); }
     .pr-acc-info .pr-acc-haz { color: var(--info-fg); }
     .pr-acc-txt { min-width: 0; color: var(--text-main); }
     .pr-acc-txt b { font-weight: 600; }
@@ -1943,7 +1943,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-dur { display: inline-flex; align-items: center; gap: .4rem; font-variant-numeric: tabular-nums; }
     .pr-dur-bar { width: 2.5rem; height: 5px; border-radius: 3px; background: var(--border-color); position: relative; overflow: hidden; }
     .pr-dur-bar i { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: currentColor; }
-    .pr-dur-bad { color: var(--bad-fg); } .pr-dur-warn { color: var(--warn-fg); } .pr-dur-ok { color: var(--text-muted); }
+    .pr-dur-bad { color: var(--bad-fg); } .pr-dur-warn { color: var(--warn-soft-fg); } .pr-dur-ok { color: var(--text-muted); }
     .pr-tra-in { color: var(--info-fg); }
     .pr-tra-out { color: var(--text-faint); font-size: var(--fs-xs); display: block; }
     .pr-dx-u { color: var(--text-faint); font-size: var(--fs-xs); margin-left: .2rem; }
@@ -2020,9 +2020,9 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-sig { font-size: var(--fs-micro); color: var(--text-main); border: 1px solid var(--border-color);
       border-radius: var(--r-pill, 999px); padding: 0 .45rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
     .pr-sig-bad { color: var(--bad-fg); border-color: var(--bad-border); }
-    .pr-sig-warn { color: var(--warn-fg); border-color: var(--warn-border); }
+    .pr-sig-warn { color: var(--warn-soft-fg); border-color: var(--warn-border); }
     .pr-bflag-bad { color: var(--bad-fg); border-color: var(--bad-border); }
-    .pr-bflag-warn { color: var(--warn-fg); border-color: var(--warn-border); }
+    .pr-bflag-warn { color: var(--warn-soft-fg); border-color: var(--warn-border); }
     /* RA-PEND.1 — "ya requisado" es un AVISO, no un problema: un documento pendiente es el curso
        normal. Queda en el gris de la insignia base y sube a .pr-bflag-bad recien cuando son DOS o
        mas, que ahi si es lo mismo pedido dos veces. */
@@ -2115,7 +2115,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-cart-g { padding: .75rem 0; border-bottom: 1px solid var(--border-color); }
     .pr-cart-gh { display: flex; align-items: baseline; gap: .5rem; font-size: var(--fs-sm); }
     .pr-cart-m { font-variant-numeric: tabular-nums; }
-    .pr-cart-min { display: flex; align-items: center; gap: .35rem; margin: .35rem 0 0; font-size: var(--fs-xs); color: var(--warn-fg); }
+    .pr-cart-min { display: flex; align-items: center; gap: .35rem; margin: .35rem 0 0; font-size: var(--fs-xs); color: var(--warn-soft-fg); }
     .pr-cart-l { list-style: none; margin: .4rem 0 0; padding: 0; display: grid; gap: .35rem; }
     .pr-cart-i { display: grid; gap: .1rem; padding: .35rem 0 .35rem .75rem; }
     .pr-cart-i-off { opacity: .6; }
@@ -2141,7 +2141,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-ent-chip b { font-weight: 700; }
     .pr-ent-chip em { font-style: normal; font-size: var(--fs-nano); color: var(--text-faint); text-transform: uppercase; letter-spacing: .04em; }
     .pr-ent-dir { border-style: dashed; }
-    .pr-ent-warn { display: inline-flex; align-items: center; gap: .3rem; font-size: var(--fs-micro); color: var(--warn-fg, var(--text-muted)); }
+    .pr-ent-warn { display: inline-flex; align-items: center; gap: .3rem; font-size: var(--fs-micro); color: var(--warn-soft-fg, var(--text-muted)); }
     .pr-ordu { display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; margin: .1rem 0 .6rem; }
     .pr-ordu-lbl { font-size: var(--fs-xs); color: var(--text-muted); font-weight: 600; }
     .pr-ordu-hint { font-size: var(--fs-micro); color: var(--text-faint); margin-left: .4rem; font-variant-numeric: tabular-nums; }
