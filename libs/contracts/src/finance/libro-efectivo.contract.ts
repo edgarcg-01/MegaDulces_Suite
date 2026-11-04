@@ -292,6 +292,28 @@ export interface PlanDePagoVentanilla {
 }
 
 /**
+ * `[LE.2.13]` El veredicto de una fila de «Por pagar hoy», pedido por lote (`GET pagos/veredictos`).
+ * Lo que respalda el pago lo dice Kepler: `gasto` (con el vale de su solicitud), `compra` (sus
+ * entradas) o `ninguno` (firma Tesorería). `no_medido` = no hay ODS de Kepler en esa base: la
+ * pantalla no afirma nada sobre el respaldo.
+ */
+export interface VeredictoDePago {
+  origen_ref: string;
+  respaldo: 'gasto' | 'compra' | 'ninguno' | 'no_medido';
+  /** `true` = se puede pagar ya (con o sin la firma de Tesorería). */
+  puede: boolean;
+  requiere_firma: boolean;
+  /** El código del bloqueo (`gasto_sin_aprobar`, `ya_ordenado`…) o `null`. */
+  bloqueo: string | null;
+  /** La frase para la fila: por qué no sale, o por qué firma Tesorería. */
+  motivo: string | null;
+  /** Dónde se arregla lo detenido; `null` = no se arregla aprobando. */
+  arreglo: 'aprobacion_gastos' | null;
+  /** Qué paga, renglón por renglón: los gastos con su vale, o las entradas de la compra. */
+  detalle: Array<{ tipo: 'gasto' | 'entrada'; folio: string; aplicado_minor: string; vale_folio: string | null; aprobado: boolean | null }>;
+}
+
+/**
  * Qué pasó al pagar. `pagado`: la máquina entrega `maquina_minor` con `codigo` (null si todo sale
  * del cajón) y lo del cajón ya quedó asentado. `por_firmar`: Tesorería firma antes de que salga un peso.
  */

@@ -49,6 +49,21 @@ export const CAJA_TABS: readonly PageTab[] = [
   },
   {
     /**
+     * ⭐ `[LE.2.13]` **Ventanilla** — pagar ES registrar en el libro nuevo (fase LE, ADR-112). Va
+     * pegada a Captura: es la otra manera de sacar el dinero, la que la reemplaza. Mismo permiso que
+     * su ruta, que es el de Captura (no cambia el acceso de nadie).
+     */
+    label: 'Ventanilla',
+    route: '/finanzas/caja-general/ventanilla',
+    icon: 'pi pi-wallet',
+    anyOf: [
+      Permission.FINANCE_CAJA_VER,
+      Permission.FINANCE_CAJA_GESTIONAR,
+      Permission.FINANCE_CAJA_AUTORIZAR,
+    ],
+  },
+  {
+    /**
      * ⭐⭐ `[CGS.2]` **Arqueos** — y es UNA pestaña donde había dos.
      *
      * Edgar, 2026-10-20, en dos pedidos del mismo día: *«en historial tengo que hacer scroll

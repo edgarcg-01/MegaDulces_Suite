@@ -4,7 +4,9 @@ import { HttpException } from '@nestjs/common';
 import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import type { PagoEnVentanilla } from '@megadulces/contracts';
 import { CashbookService } from './cashbook.service';
-import { CashbookVentanillaService, type FilaDocumento, type FilaRespaldoCompra, type FilaRespaldoGasto, type FilaVale } from './cashbook-ventanilla.service';
+import {
+  CashbookVentanillaService, type FilaDocumento, type FilaDocumentoLote, type FilaRespaldoCompra, type FilaRespaldoGasto, type FilaVale,
+} from './cashbook-ventanilla.service';
 
 /**
  * `[LE.4.10]` — La Ventanilla contra Postgres, con el payload de la pantalla (regla 13): pagar con
@@ -40,11 +42,25 @@ class VentanillaConFilas extends CashbookVentanillaService {
   protected override async filaDelVale(_trx: Knex.Transaction, _t: string, id: string): Promise<FilaVale | undefined> {
     return this.vales.get(id);
   }
-  /** `[LE.2.13]` Sin entrada = sin ODS (lo que pasa en la base de prueba): el respaldo es «ninguno». */
-  respaldos = new Map<string, { gastos: FilaRespaldoGasto[]; compras: FilaRespaldoCompra[] }>();
-  protected override async filasDelRespaldo(_trx: Knex.Transaction, _t: string, sucursal: string, folio: string)
+  /**
+   * `[LE.2.13]` Las filas que el SQL por lote devolvería (`sucursal|folio` → sus gastos o entradas).
+   * Ningún par sembrado = sin ODS (lo que pasa en la base de prueba): el respaldo es «no medido».
+   */
+  respaldos = new Map<string, { gastos: Array<Omit<FilaRespaldoGasto, 'sucursal' | 'folio'>>; compras: Array<Omit<FilaRespaldoCompra, 'sucursal' | 'folio'>> }>();
+  protected override async filasDelRespaldo(_trx: Knex.Transaction, _t: string, pares: ReadonlyArray<[string, string]>)
     : Promise<{ gastos: FilaRespaldoGasto[]; compras: FilaRespaldoCompra[] } | null> {
-    return this.respaldos.get(`${sucursal}|${folio}`) ?? null;
+    const sembrados = pares.filter(([s, f]) => this.respaldos.has(`${s}|${f}`));
+    if (!sembrados.length) return null;
+    return {
+      gastos: sembrados.flatMap(([sucursal, folio]) => this.respaldos.get(`${sucursal}|${folio}`)!.gastos.map((g) => ({ sucursal, folio, ...g }))),
+      compras: sembrados.flatMap(([sucursal, folio]) => this.respaldos.get(`${sucursal}|${folio}`)!.compras.map((c) => ({ sucursal, folio, ...c }))),
+    };
+  }
+  protected override async filasDeDocumentos(_trx: Knex.Transaction, _t: string, pares: ReadonlyArray<[string, string]>): Promise<FilaDocumentoLote[]> {
+    return pares.flatMap(([sucursal, folio]) => {
+      const d = this.docs.get(`${sucursal}|X-D-26|${folio}|0011`);
+      return d ? [{ sucursal, ...d }] : [];
+    });
   }
 }
 
@@ -210,8 +226,8 @@ describe.skipIf(!URL)('[LE.4.10] la Ventanilla contra Postgres', () => {
    */
   it('[LE.2.13] una compra con sus entradas cuadradas sale sin firma; un gasto sin aprobar o sin expediente no sale', async () => {
     if (!hay) return;
-    const entrada = (doc: string, pesos: string, total = pesos): FilaRespaldoCompra => ({ doc, aplicado: pesos, importe_doc: pesos, aplicado_total: total });
-    const gasto = (g: string, pesos: string, vale: Partial<FilaRespaldoGasto> | null): FilaRespaldoGasto => ({
+    const entrada = (doc: string, pesos: string, total = pesos) => ({ doc, aplicado: pesos, importe_doc: pesos, aplicado_total: total });
+    const gasto = (g: string, pesos: string, vale: Partial<FilaRespaldoGasto> | null) => ({
       gasto: g, aplicado: pesos, vale_id: null, vale_folio: null, vale_estado: null, vale_importe: null, vale_aprobado_at: null, ...(vale ?? {}) });
 
     // Un proveedor de mercancía, 08/0000699 en prod: 3 entradas por $17,230. Sin vale y sin firma.
@@ -250,5 +266,37 @@ describe.skipIf(!URL)('[LE.4.10] la Ventanilla contra Postgres', () => {
     v.respaldos.set('00|0023799', { gastos: [gasto('0000276', '1100.00', { vale_id: FIRMADO, vale_folio: '0000308', vale_estado: 'validada',
       vale_importe: '1100', vale_aprobado_at: '2026-11-02 15:36:54-06' })], compras: [] });
     expect(await v.pagar(pago('00|X-D-26|0023799|0011'), CAJERA, randomUUID())).toMatchObject({ estado: 'pagado', maquina_minor: '110000', cajon_minor: '0' });
+  });
+
+  /**
+   * `[LE.2.13]` La cola pide los veredictos de todos sus documentos en UN viaje, con el mismo motor
+   * que `pagar`. Usa lo que dejó la prueba anterior: lo pagado sale «ya ordenado».
+   */
+  it('[LE.2.13] veredictos por lote: lo que sale, lo detenido con dónde se arregla, lo ya pagado y lo que no existe', async () => {
+    if (!hay) return;
+    v.docs.set('00|X-D-26|0023800|0011', { folio: '0023800', beneficiario: 'GASTOS GENERALES OFICINAS', importe: '250.00' });
+    const r = await v.veredictos(['00|X-D-26|0023795|0011', '00|X-D-26|0023796|0011', '00|X-D-26|0023797|0011',
+      '00|X-D-26|0023798|0011', '00|X-D-26|9999999|0011', '00|X-A-45|1|0011', '00|X-D-26|0023800|0011']);
+    const de = (doc: string) => r.find((x) => x.origen_ref === doc);
+    expect(r).toHaveLength(7);
+    // Ya se pagó en la prueba anterior: sale «ya ordenado», no «se puede».
+    expect(de('00|X-D-26|0023795|0011')).toMatchObject({ respaldo: 'compra', puede: false, bloqueo: 'ya_ordenado' });
+    expect(de('00|X-D-26|0023795|0011')?.detalle).toEqual([
+      { tipo: 'entrada', folio: '0000367', aplicado_minor: '601000', vale_folio: null, aprobado: null },
+      { tipo: 'entrada', folio: '0000375', aplicado_minor: '653000', vale_folio: null, aprobado: null },
+      { tipo: 'entrada', folio: '0000380', aplicado_minor: '469000', vale_folio: null, aprobado: null }]);
+    expect(de('00|X-D-26|0023796|0011')).toMatchObject({ respaldo: 'compra', puede: false, bloqueo: 'compra_pagada_de_mas', arreglo: null });
+    expect(de('00|X-D-26|0023797|0011')).toMatchObject({ respaldo: 'gasto', puede: false, bloqueo: 'gasto_sin_aprobar', arreglo: 'aprobacion_gastos' });
+    expect(de('00|X-D-26|0023797|0011')?.detalle).toEqual([{ tipo: 'gasto', folio: '0000220', aplicado_minor: '60000', vale_folio: '0000247', aprobado: false }]);
+    expect(de('00|X-D-26|0023798|0011')).toMatchObject({ respaldo: 'gasto', puede: false, bloqueo: 'gasto_sin_expediente', arreglo: 'aprobacion_gastos' });
+    expect(de('00|X-D-26|9999999|0011')).toMatchObject({ puede: false, bloqueo: 'documento_inexistente' });
+    expect(de('00|X-A-45|1|0011')).toMatchObject({ puede: false, bloqueo: 'documento_invalido' });
+    // Con ODS, un documento del que Kepler no dice qué paga: se puede, con la firma de Tesorería.
+    expect(de('00|X-D-26|0023800|0011')).toMatchObject({ respaldo: 'ninguno', puede: true, requiere_firma: true,
+      motivo: 'Kepler no dice qué gasto o compra paga' });
+    // Sin ODS (nada sembrado en el lote): NO MEDIDO — no se afirma qué paga; queda la regla del vale.
+    expect((await v.veredictos(['00|X-D-26|0023800|0011']))[0]).toMatchObject({ respaldo: 'no_medido', puede: true, requiere_firma: true,
+      motivo: 'no trae vale aprobado' });
+    expect(await rechazo(v.veredictos(Array.from({ length: 201 }, (_, i) => `00|X-D-26|${i}|0011`)))).toEqual({ status: 400, codigo: 'demasiados_documentos' });
   });
 });

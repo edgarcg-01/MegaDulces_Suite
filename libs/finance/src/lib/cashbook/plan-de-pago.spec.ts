@@ -1,4 +1,4 @@
-import { alMedioPeso, planDePago, type DocumentoAPagar, type Respaldo, type ValeElegido } from './plan-de-pago';
+import { alMedioPeso, planDePago, veredictoDePago, type DocumentoAPagar, type Respaldo, type ValeElegido } from './plan-de-pago';
 
 /** `[LE.2.9]` Pagar en un solo acto: qué sale de la máquina, qué del cajón, y si firma Tesorería. */
 
@@ -108,5 +108,24 @@ describe('[LE.2.13] lo que respalda el pago decide si sale', () => {
   it('el respaldo no se salta lo de siempre: lo ya pagado sigue sin pagarse dos veces', () => {
     expect(planDePago(doc('17230'), { yaOrdenado: false, yaPagado: true, vale: null,
       respaldo: { tipo: 'compra', aplicadoCentavos: 1723000n, documentos: 3, pagadosDeMas: 0 } }).bloqueo).toBe('ya_pagado');
+  });
+});
+
+describe('[LE.2.13] el veredicto de la cola es el MISMO motor que el plan', () => {
+  const casos: Respaldo[] = [
+    { tipo: 'compra', aplicadoCentavos: 1723000n, documentos: 3, pagadosDeMas: 0 },
+    { tipo: 'compra', aplicadoCentavos: 1723000n, documentos: 3, pagadosDeMas: 1 },
+    { tipo: 'gasto', aplicadoCentavos: 1723000n, gastos: [{ folio: '1', vale: null }] },
+    { tipo: 'ninguno' },
+  ];
+  it.each(casos.map((r) => [r.tipo, r] as const))('%s: bloqueo y firma iguales a planDePago', (_t, respaldo) => {
+    const p = planDePago(doc('17230'), { yaOrdenado: false, yaPagado: false, vale: null, respaldo });
+    expect(veredictoDePago(1723000n, { yaOrdenado: false, yaPagado: false, respaldo }))
+      .toEqual({ bloqueo: p.bloqueo, requiereFirma: p.requiereFirma, motivoFirma: p.motivoFirma });
+  });
+  it('NEGATIVA: lo ya ordenado o pagado sale como tal, aunque el respaldo cuadre', () => {
+    const r: Respaldo = { tipo: 'compra', aplicadoCentavos: 1723000n, documentos: 3, pagadosDeMas: 0 };
+    expect(veredictoDePago(1723000n, { yaOrdenado: true, yaPagado: false, respaldo: r }).bloqueo).toBe('ya_ordenado');
+    expect(veredictoDePago(1723000n, { yaOrdenado: false, yaPagado: true, respaldo: r }).bloqueo).toBe('ya_pagado');
   });
 });

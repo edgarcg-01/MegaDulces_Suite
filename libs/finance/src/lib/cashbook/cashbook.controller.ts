@@ -3,7 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import type {
   ConteoDeCaja, HechoDePersona, OrdenPorFirmar, PagoEnVentanilla, PlanDePagoVentanilla, ResultadoConteo, ResultadoHecho,
-  ResultadoPago, SaldosDelLibro,
+  ResultadoPago, SaldosDelLibro, VeredictoDePago,
 } from '@megadulces/contracts';
 import { CashbookService, type UsuarioDelLibro } from './cashbook.service';
 import { CashbookVentanillaService } from './cashbook-ventanilla.service';
@@ -120,6 +120,13 @@ export class CashbookController {
   planDePago(@Query('origen_ref') origenRef: string, @Query('cuenta_kepler') cuenta?: string,
     @Query('vale_id') valeId?: string): Promise<PlanDePagoVentanilla> {
     return this.ventanilla.plan(origenRef, cuenta, valeId);
+  }
+
+  @Get('pagos/veredictos')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: '[LE.2.13] Por lote (hasta 200, separados por coma): si cada X-D-26 se puede pagar ya, por qué no, o si firma Tesorería. Lo que respalda el pago lo dice Kepler (no escribe)' })
+  veredictos(@Query('docs') docs?: string): Promise<VeredictoDePago[]> {
+    return this.ventanilla.veredictos(String(docs ?? '').split(','));
   }
 
   @Post('pagos')

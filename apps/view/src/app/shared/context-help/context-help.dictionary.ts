@@ -2116,6 +2116,36 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
 
   // `[CGA-A.67]` El Cuadre de la caja. Las definiciones salen de `conciliacionWorkbook` (servidor) y
   // del contrato de la cola (`cajaColaDelLibroSql`), que es la misma de la bandeja de Captura.
+  // `[LE.2.13]` La Ventanilla: qué decide si un pago sale (D27, D29).
+  'caja-ventanilla': {
+    title: 'Ventanilla — qué decide si un pago sale',
+    intro: 'Pagar es registrar: el pago queda en el libro en el mismo acto. Lo que lo respalda lo dice Kepler, y una sola autorización basta.',
+    groups: [
+      {
+        heading: 'Lo que respalda un pago',
+        entries: [
+          { term: 'Compra', def: 'El X-D-26 paga órdenes de entrada de mercancía. La compra ya fue la autorización: sale sin otra firma, si ninguna entrada queda pagada de más.' },
+          { term: 'Gasto aprobado', def: 'El X-D-26 paga gastos cuya solicitud aprobó una persona en Aprobación de gastos. «Validado» sólo por el cierre de Kepler no cuenta: ahí el dinero ya había salido.' },
+          { term: 'Firma Tesorería', def: 'Kepler no dice qué gasto o compra paga. Sale, pero sólo con la firma de Tesorería desde su teléfono.' },
+        ],
+      },
+      {
+        heading: 'Lo detenido',
+        entries: [
+          { term: 'Gasto sin aprobar o sin expediente', def: 'Se arregla en Aprobación de gastos: se sube la solicitud y la aprueba una persona. Después sale solo.' },
+          { term: 'Gasto rechazado', def: 'Lo rechazaron en Aprobación de gastos: no se paga, ni con firma.' },
+          { term: 'Compra pagada de más', def: 'Una de sus entradas ya estaba pagada. Se aclara en Kepler.' },
+        ],
+      },
+      {
+        heading: 'El dinero',
+        entries: [
+          { term: 'Máquina', def: 'Los billetes los entrega la máquina con el código del pago; vale hasta el fin del día.' },
+          { term: 'Cajón', def: 'Lo de menos de $20 sale del cajón en monedas, contadas por pieza. Se paga al medio peso y el redondeo queda declarado.' },
+        ],
+      },
+    ],
+  },
   'caja-cuadre': {
     title: 'Cuadre — la caja contra Kepler',
     intro: 'Cada día se compara lo que la caja registró contra lo que la Caja General de Kepler registró. No es el arqueo: el arqueo compara el cajón contra el libro; esto compara el libro contra el ERP.',

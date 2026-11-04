@@ -139,6 +139,26 @@ export function planDePago(doc: DocumentoAPagar, opciones: { yaOrdenado: boolean
   };
 }
 
+/** La cuenta la resuelve y la dice la cola (`movimientos-pendientes`); el veredicto no la vuelve a juzgar. */
+const CUENTA_DE_LA_COLA = '(la cola)';
+
+/**
+ * `[LE.2.13]` El veredicto de una fila de «Por pagar hoy»: el MISMO motor que `planDePago` (no una
+ * copia), sin la cuenta y sin el vale de la cajera — en la cola el vale lo pone Kepler.
+ */
+export function veredictoDePago(importeCentavos: bigint, opciones: { yaOrdenado: boolean; yaPagado: boolean; respaldo?: Respaldo })
+  : { bloqueo: BloqueoDePago | null; requiereFirma: boolean; motivoFirma: string | null } {
+  const p = planDePago({ origenRef: '', folio: '', beneficiario: '', importeCentavos, cuentaKepler: CUENTA_DE_LA_COLA },
+    { ...opciones, vale: null });
+  return { bloqueo: p.bloqueo, requiereFirma: p.requiereFirma, motivoFirma: p.motivoFirma };
+}
+
+/** Dónde se arregla lo detenido; `null` = no se arregla aprobando (rechazado, pagado de más…). */
+export const ARREGLO_DEL_BLOQUEO: Readonly<Partial<Record<BloqueoDePago, 'aprobacion_gastos'>>> = {
+  gasto_sin_expediente: 'aprobacion_gastos',
+  gasto_sin_aprobar: 'aprobacion_gastos',
+};
+
 /** La frase de la fila cuando no se puede pagar (la pantalla la muestra en la fila, no en un aviso aparte). */
 export const MOTIVO_BLOQUEO: Readonly<Record<BloqueoDePago, string>> = {
   importe_invalido: 'El documento no trae un importe que pagar.',

@@ -200,6 +200,8 @@ describe('[GX.18] las puertas del gasto en el nav', () => {
     // hacían que una se quedara vieja.
     const DE_CAJA = [
       '/finanzas/caja-general',
+      // [LE.2.13] La Ventanilla, pegada a Captura: la otra manera de sacar el dinero.
+      '/finanzas/caja-general/ventanilla',
       '/finanzas/caja-general/arqueos',
       // [CGA-A.67] El Cuadre (libro contra Kepler) se mudó de Control (histórico) a esta barra.
       '/finanzas/caja-general/cuadre',
@@ -236,6 +238,13 @@ describe('[GX.18] las puertas del gasto en el nav', () => {
       ]);
       // Con `anyOf`, `permission` sería letra muerta: el filtro devuelve antes de mirarlo.
       expect(t('/finanzas/caja-general')?.permission).toBeUndefined();
+      // [LE.2.13] Ruta: el mismo anyPermissionGuard(VER, GESTIONAR, AUTORIZAR) que Captura.
+      expect(t('/finanzas/caja-general/ventanilla')?.anyOf).toEqual([
+        Permission.FINANCE_CAJA_VER,
+        Permission.FINANCE_CAJA_GESTIONAR,
+        Permission.FINANCE_CAJA_AUTORIZAR,
+      ]);
+      expect(t('/finanzas/caja-general/ventanilla')?.permission).toBeUndefined();
 
       // `[CGS.2]` Ruta: permissionGuard(FINANCE_CAJA_VER). Es lectura: quien revisa de mañana no
       // tiene por qué poder capturar para poder mirar.
@@ -256,6 +265,7 @@ describe('[GX.18] las puertas del gasto en el nav', () => {
     it('todas las pantallas embeben la barra de pestañas', () => {
       const ARCHIVOS: Record<string, string> = {
         '/finanzas/caja-general': 'caja-general/finanzas-caja-general.component.ts',
+        '/finanzas/caja-general/ventanilla': 'caja-general/finanzas-caja-ventanilla.component.ts',
         '/finanzas/caja-general/arqueos': 'caja-general/finanzas-caja-arqueos.component.ts',
         '/finanzas/caja-general/cuadre': 'caja-general/finanzas-caja-cuadre.component.ts',
         '/finanzas/caos': 'caos/finanzas-caos.component.ts',

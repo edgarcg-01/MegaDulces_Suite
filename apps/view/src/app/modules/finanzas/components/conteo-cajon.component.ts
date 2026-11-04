@@ -40,7 +40,7 @@ import { money } from '../pages/finanzas-format';
       </p>
 
       <div class="cc-grupos">
-        @for (g of grupos; track g.titulo) {
+        @for (g of grupos(); track g.titulo) {
           <fieldset class="cc-grupo">
             <legend class="cc-lbl">{{ g.titulo }}</legend>
             @for (d of g.piezas; track d.key) {
@@ -53,11 +53,13 @@ import { money } from '../pages/finanzas-format';
             }
           </fieldset>
         }
+        @if (conMorralla()) {
         <div class="cc-fila cc-morralla">
           <label class="cc-den" for="cc-morralla">Morralla <span class="cc-dim">(menos de 50¢)</span></label>
           <p-inputnumber inputId="cc-morralla" mode="currency" currency="MXN" locale="es-MX" [min]="0" [max]="0.49"
                          ariaLabel="Morralla, menos de 50 centavos" [ngModel]="morralla()" (ngModelChange)="morralla.set($event)" inputStyleClass="cc-in" />
         </div>
+        }
       </div>
     </section>
   `,
@@ -85,10 +87,17 @@ export class ConteoCajonComponent {
   readonly piezas = model<Record<string, number>>({});
   readonly morralla = model<number | null>(null);
 
-  readonly grupos: ReadonlyArray<{ titulo: string; piezas: readonly Denominacion[] }> = [
-    { titulo: 'Billetes', piezas: BILLETES_MXN },
+  /**
+   * `[LE.2.13]` En la Ventanilla los billetes los entrega la máquina y se paga al medio peso: del
+   * cajón sólo salen monedas y no hay morralla. Por omisión, todo (la hoja de gastos queda igual).
+   */
+  readonly conBilletes = input(true);
+  readonly conMorralla = input(true);
+
+  readonly grupos = computed<ReadonlyArray<{ titulo: string; piezas: readonly Denominacion[] }>>(() => [
+    ...(this.conBilletes() ? [{ titulo: 'Billetes', piezas: BILLETES_MXN }] : []),
     { titulo: 'Monedas', piezas: MONEDAS_MXN },
-  ];
+  ]);
 
   readonly conteo = computed<ConteoCajonHoja>(() => ({ piezas: this.piezas(), morralla: Number(this.morralla() ?? 0) }));
   readonly veredicto = computed(() => revisarConteoCajon(this.conteo(), this.total()));
