@@ -20,6 +20,22 @@ export function esFamiliaTabulador(x: unknown): x is FamiliaTabulador {
 /** Un código vecinal de Kepler (`2V001`). No decide la familia (D-V2): sólo obliga a declararla. */
 export const CODIGO_VECINAL = /^[0-9]V[0-9]/;
 
+/** Una fila de `commercial.commission_scales`. `numeric` llega de pg como string. */
+export interface EscalaFila {
+  id: string;
+  tenant_id: string;
+  code: string;
+  nombre: string | null;
+  valid_from: string | Date;
+  valid_to: string | Date | null;
+  familia: FamiliaTabulador;
+  base_field: 'venta' | 'subtotal';
+  gate_field: 'venta' | 'subtotal' | 'markup';
+  share_supervisor_pct: string | number;
+  piso_chofer_venta: string | number | null;
+  notes: string | null;
+}
+
 /**
  * La versión vigente de `familia`. Con `onDate`, la que rige ese día; sin él, la abierta
  * (`valid_to IS NULL`). Devuelve `undefined` si no hay: cada llamador decide si eso es error.
@@ -27,7 +43,7 @@ export const CODIGO_VECINAL = /^[0-9]V[0-9]/;
 export async function escalaVigente(
   trx: Knex | Knex.Transaction,
   opts: { familia: FamiliaTabulador; onDate?: string | null },
-): Promise<any | undefined> {
+): Promise<EscalaFila | undefined> {
   const q = trx('commercial.commission_scales')
     .whereNull('deleted_at')
     .where({ familia: opts.familia });

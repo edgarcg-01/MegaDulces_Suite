@@ -10,7 +10,7 @@ import {
 import { TenantKnexService, TenantContextService, todayMx } from '@megadulces/platform-core';
 import { totalesDeCorrida, type TotalesDeCorrida } from './commission-totales.logic';
 import { decidirEscalon, elegirEscalon } from './commission-escalon.logic';
-import { escalaVigente, esFamiliaTabulador, type FamiliaTabulador } from './commission-escala';
+import { escalaVigente, esFamiliaTabulador, type EscalaFila, type FamiliaTabulador } from './commission-escala';
 
 /**
  * RD.6 / **RD.17-RD.19** — Motor de comisiones de Ruta Directa.
@@ -104,7 +104,7 @@ interface RutaUniverso {
 
 /** `[RD.103.2]` El tabulador de una familia, ya cargado para la corrida. */
 interface ReglaFamilia {
-  scale: any;
+  scale: EscalaFila;
   tiers: Tier[];
   bonuses: Bonus[];
 }
@@ -942,7 +942,9 @@ export class CommercialCommissionsService {
   // ── Internos ─────────────────────────────────────────────────────────────────────────
 
   /** La de Ruta Directa salvo que se pida otra familia: es la que la corrida exige (`[RD.103.2]`). */
-  private async loadScale(trx: any, onDate: string, familia: FamiliaTabulador = 'ruta_directa') {
+  private async loadScale(
+    trx: Knex | Knex.Transaction, onDate: string, familia: FamiliaTabulador = 'ruta_directa',
+  ): Promise<EscalaFila> {
     const scale = await escalaVigente(trx, { familia, onDate });
     if (!scale) throw new NotFoundException(`No hay escala de comision ${familia} vigente al ${onDate}`);
     return scale;
