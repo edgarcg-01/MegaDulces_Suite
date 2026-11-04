@@ -7,7 +7,8 @@ import { sqlKeplerPayableId } from '@megadulces/contracts/finance/kepler-payable
 import { sqlVentanaProntoPago } from '@megadulces/contracts/finance/pronto-pago-ventana';
 import { clabeValida } from '@megadulces/contracts/finance/clabe';
 import { SupplierPaymentAccountsService } from '../supplier-payment-accounts/supplier-payment-accounts.service';
-import type { PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
+import type { DiscountReason, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
+import { assertDescuentoPermitido, normalizarDescuento, round2 } from './descuento-al-pagar';
 
 export type ObligationSource = 'budget_expense' | 'financial_commitment' | 'supplier_payable' | 'kepler_payable';
 
@@ -132,7 +133,18 @@ interface AllocationItemRow {
   obligation_source: ObligationSource;
   obligation_id: string;
   applied_amount: number | string;
+  /** `[PGP.51]` Descuento al pagar: lo cubierto de la factura es `applied_amount + discount_amount`. */
+  discount_amount: number | string;
 }
+
+/**
+ * `[PGP.51]` **Lo que un item CUBRE de su factura**, en SQL: el neto que sale del banco más el
+ * descuento que dio el proveedor. Toda suma que diga cuánto de una obligación está reservado o
+ * pagado lee ESTO, para que el sobrante descontado no se vuelva a ofrecer mientras la nota de
+ * crédito de Kepler no llega. ⛔ Lo que dice cuánto DINERO sale (`amount_assigned`, el tope del
+ * día, los PDF, el cruce con el `X-D-26`) sigue leyendo `applied_amount` solo.
+ */
+const SQL_CUBIERTO = '(i.applied_amount + i.discount_amount)';
 
 const DATE_RX = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -168,7 +180,16 @@ function classificationOf(source: ObligationSource, row: { classification?: unkn
   return c || CLASSIFICATION_BY_SOURCE.kepler_payable;
 }
 
-export interface AllocationItemDto { obligation_source: ObligationSource; obligation_id: string; applied_amount: number }
+/**
+ * `[PGP.51]` `applied_amount` es el NETO que sale del banco. Los cuatro `discount_*` son el
+ * descuento que el proveedor concede AL PAGAR (opcionales: sin ellos, no hay descuento). Los
+ * valida y normaliza `normalizarDescuento()` — nunca se insertan crudos.
+ */
+export interface AllocationItemDto {
+  obligation_source: ObligationSource; obligation_id: string; applied_amount: number;
+  discount_amount?: number | null; discount_reason?: DiscountReason | null;
+  discount_rate?: number | null; discount_note?: string | null;
+}
 export interface CreateAllocationDto { date: string; items: AllocationItemDto[]; priority_rank?: number | null; notes?: string | null }
 export interface PrepareAllocationDto {
   payment_method: 'transferencia' | 'cheque' | 'efectivo' | 'cargo_automatico';
@@ -270,6 +291,12 @@ export interface ExpedienteLinea {
   obligation_id: string;
   /** Lo que ESTE pago abona a esta factura. No es el importe de la factura. */
   se_paga: number;
+  /**
+   * `[PGP.51]` Lo que el proveedor descontó al pagar (0 si nada). `se_paga` es el NETO; lo que la
+   * factura queda cubierta es `se_paga + descuento`. Sin esto, una factura pagada con su descuento
+   * se contaba en el control como «se paga menos de lo que se debe», junto a los pagos parciales.
+   */
+  descuento: number;
   /** Código de la sucursal. ⛔ Se publica por NOMBRE (`warehouseName`), nunca «01». */
   sucursal: string | null;
   /** El folio del documento en Kepler — con el que el ERP lo conoce. Cobertura medida: 85.4 %. */
@@ -360,12 +387,16 @@ export class PaymentCalendarService {
     // saldo se recalcula al vuelo en cada lectura, desde estos mismos items. No hay nada que
     // desincronizar, que es justamente lo que `recalcObligation` viene a evitar en los otros tres.
     if (!table) return;
+    // `[PGP.51]` Reservado y pagado son lo CUBIERTO (neto + descuento al pagar), no sólo el neto:
+    // una factura pagada con 3 % de descuento queda saldada aquí, y el 3 % no vuelve a ofrecerse
+    // mientras Kepler no emite la nota de crédito. Respeta el CHECK reservado + pagado ≤ original
+    // de las tres tablas porque lo cubierto nunca pasa del disponible (`createAllocation`/`addItem`).
     const [agg] = await trx('finance.payment_allocation_items as i')
       .join('finance.payment_allocations as a', 'a.id', 'i.allocation_id')
       .where({ 'i.obligation_source': source, 'i.obligation_id': id })
       .select(
-        trx.raw(`coalesce(sum(i.applied_amount) FILTER (WHERE a.status = 'pending'), 0) AS reserved`),
-        trx.raw(`coalesce(sum(i.applied_amount) FILTER (WHERE a.status = 'executed'), 0) AS paid`),
+        trx.raw(`coalesce(sum(${SQL_CUBIERTO}) FILTER (WHERE a.status = 'pending'), 0) AS reserved`),
+        trx.raw(`coalesce(sum(${SQL_CUBIERTO}) FILTER (WHERE a.status = 'executed'), 0) AS paid`),
       );
     const row = await trx(table).select('original_amount', 'status').where({ id }).first();
     if (!row) return;
@@ -397,7 +428,7 @@ export class PaymentCalendarService {
    * `alreadyReserved`: al asignar, lo reservado por otros pagos; al ejecutar, 0 (este pago ES la reserva).
    */
   private async assertKeplerBalance(trx: Knex.Transaction, source: ObligationSource, row: KeplerLinkedRow, applied: number,
-    alreadyReserved = Number(row.reserved_amount)) {
+    alreadyReserved = Number(row.reserved_amount), netoConNotaYaAplicada?: number) {
     // `[TP.18]` Vale para los dos orígenes de factura: la capturada trae las columnas `kepler_*`
     // desde la mig `20261016002604`, y la derivada las trae por construcción.
     if ((source !== 'supplier_payable' && source !== 'kepler_payable') || !row.kepler_folio) return;
@@ -407,6 +438,8 @@ export class PaymentCalendarService {
       .sum({ pendiente: 'pendiente' });
     const pendiente = Number(doc?.pendiente ?? 0);
     const tope = pendiente - alreadyReserved;
+    // `[PGP.51]` Pago con descuento cuya nota de crédito ya llegó: Kepler debe EXACTAMENTE el neto.
+    if (netoConNotaYaAplicada !== undefined && Math.abs(tope - netoConNotaYaAplicada) <= 0.01) return;
     if (applied > tope + 0.005) {
       throw new BadRequestException(pendiente <= 0
         ? 'Kepler ya no tiene saldo pendiente de esta factura (¿se pagó por fuera o tiene nota de crédito?). No se programa ni se ejecuta.'
@@ -448,12 +481,13 @@ export class PaymentCalendarService {
     if (!row) return undefined;
     // Lo ya comprometido sale de los items, que son la fuente de verdad de la reserva para los
     // CUATRO orígenes — acá, además, es el único lugar donde existe.
+    // `[PGP.51]` Lo cubierto (neto + descuento al pagar), igual que `recalcObligation`.
     const [agg] = await trx('finance.payment_allocation_items as i')
       .join('finance.payment_allocations as a', 'a.id', 'i.allocation_id')
       .where({ 'i.obligation_source': source, 'i.obligation_id': id })
       .select(
-        trx.raw(`coalesce(sum(i.applied_amount) FILTER (WHERE a.status = 'pending'), 0) AS reserved`),
-        trx.raw(`coalesce(sum(i.applied_amount) FILTER (WHERE a.status = 'executed'), 0) AS paid`),
+        trx.raw(`coalesce(sum(${SQL_CUBIERTO}) FILTER (WHERE a.status = 'pending'), 0) AS reserved`),
+        trx.raw(`coalesce(sum(${SQL_CUBIERTO}) FILTER (WHERE a.status = 'executed'), 0) AS paid`),
       );
     return { ...row, reserved_amount: Number(agg?.reserved ?? 0), paid_amount: Number(agg?.paid ?? 0) };
   }
@@ -785,10 +819,12 @@ export class PaymentCalendarService {
         // `[TP.18.5]` Lo reservado se agrega **una vez** y se une por id. Era un LATERAL, que es
         // lo natural de escribir y costaba 2,892 evaluaciones para leer un puñado de filas:
         // medido contra prod, 476 ms de mediana contra 399 así (−16 %).
+        // `[PGP.51]` Suma lo CUBIERTO (neto + descuento al pagar): el sobrante descontado no se
+        // vuelve a ofrecer mientras la nota de crédito de Kepler no llega.
         .joinRaw(`LEFT JOIN (
           SELECT i.obligation_id,
-                 coalesce(sum(i.applied_amount) FILTER (WHERE a.status = 'pending'), 0) AS reserved,
-                 coalesce(sum(i.applied_amount) FILTER (WHERE a.status = 'executed'), 0) AS paid
+                 coalesce(sum(${SQL_CUBIERTO}) FILTER (WHERE a.status = 'pending'), 0) AS reserved,
+                 coalesce(sum(${SQL_CUBIERTO}) FILTER (WHERE a.status = 'executed'), 0) AS paid
             FROM finance.payment_allocation_items i
             JOIN finance.payment_allocations a ON a.id = i.allocation_id
            WHERE i.obligation_source = 'kepler_payable'
@@ -1016,15 +1052,23 @@ export class PaymentCalendarService {
         saldada?: boolean;
         pronto_fecha_limite?: string | null; pronto_tasa?: number | null;
         pronto_beneficio?: number | null; pronto_estado?: string | null;
+        /** `[PGP.54]` Fecha (`YYYY-MM-DD`) y referencia del documento. Ver el contrato. */
+        doc_date?: string | null; doc_ref?: string | null;
       }>();
       for (const source of Object.keys(bySource) as ObligationSource[]) {
         const ids = bySource[source];
         if (source === 'supplier_payable') {
+          // `[PGP.54]` `doc_ref` = `invoice_folio`, la referencia del proveedor que trajo la
+          // entrega (TP.15 la copia de `purchase_delivery_lines.referencia`). `doc_date` = null:
+          // la tabla no tiene fecha de factura. ⛔ `purchase_delivery_lines.invoice_date` NO lo
+          // es aunque se llame así: se llena con `receipt_date` de la entrada (ver
+          // purchase-deliveries.service.ts), y publicarla como fecha de factura mentiría.
           const rows = await trx('commercial.supplier_payment_obligations as o')
             .join('catalog.suppliers as s', 's.id', 'o.supplier_id')
             .whereIn('o.id', ids)
-            .select('o.id', 's.name as beneficiary', 'o.supplier_id', trx.raw("nullif(btrim(o.kepler_sucursal), '') as branch_code"), trx.raw("coalesce(o.concept, o.invoice_folio, 'Mercancía') as concept"));
-          for (const r of rows as { id: string; beneficiary: string; concept: string; supplier_id: string; branch_code: string | null }[]) labels.set(`${source}:${r.id}`, { beneficiary: r.beneficiary, concept: r.concept, supplier_id: r.supplier_id, branch_code: r.branch_code ?? null });
+            .select('o.id', 's.name as beneficiary', 'o.supplier_id', trx.raw("nullif(btrim(o.kepler_sucursal), '') as branch_code"), trx.raw("coalesce(o.concept, o.invoice_folio, 'Mercancía') as concept"),
+              trx.raw("nullif(btrim(o.invoice_folio), '') as doc_ref"));
+          for (const r of rows as { id: string; beneficiary: string; concept: string; supplier_id: string; branch_code: string | null; doc_ref: string | null }[]) labels.set(`${source}:${r.id}`, { beneficiary: r.beneficiary, concept: r.concept, supplier_id: r.supplier_id, branch_code: r.branch_code ?? null, doc_date: null, doc_ref: r.doc_ref ?? null });
         } else if (source === 'kepler_payable') {
           // `[TP.18]` El derivado no tiene tabla: su etiqueta se rearma desde la vista por la
           // misma llave determinística con que se guardó el item (ADR-094 §4).
@@ -1048,11 +1092,18 @@ export class PaymentCalendarService {
               's.id AS supplier_id', 'v.sucursal AS branch_code',
               trx.raw('v.vencimiento AS vence'),
               trx.raw(sqlVentanaProntoPago('v', 'd')),
+              // `[PGP.54]` Fecha y referencia del documento, de la MISMA fila: cero viajes nuevos.
+              // ⚠️ Son las del ERP, no las del CFDI que manda en `detalleExpediente` (`[PGP.47]`):
+              // aquélla pide `analytics.v_payable_evidence` (2.5 s, `[PGP.32]`) y este método lo
+              // corre `weekView` 7 veces en serie. Se declara en el contrato, no se disimula.
+              trx.raw(`to_char(v.fecha, 'YYYY-MM-DD') AS doc_date`),
+              trx.raw('v.referencia AS doc_ref'),
             );
-          for (const r of rows as VentanaRow[]) {
+          for (const r of rows as (VentanaRow & { doc_date: string | null; doc_ref: string | null })[]) {
             labels.set(`${source}:${r.id}`, {
               beneficiary: r.beneficiary, concept: r.concept,
               supplier_id: r.supplier_id ?? undefined, branch_code: r.branch_code ?? null,
+              doc_date: r.doc_date ?? null, doc_ref: r.doc_ref ?? null,
               vence: r.vence ?? null,
               pronto_fecha_limite: r.pronto_fecha_limite ?? null,
               pronto_tasa: r.pronto_tasa === null || r.pronto_tasa === undefined ? null : Number(r.pronto_tasa),
@@ -1085,19 +1136,24 @@ export class PaymentCalendarService {
                 trx.raw(`coalesce(nullif(btrim(k.c6), ''), 'Factura') AS concept`),
                 trx.raw(`s.id AS supplier_id`),
                 trx.raw(`k.sucursal AS branch_code`),
+                // `[PGP.54]` Las MISMAS expresiones que `v_supplier_payables` usa para `fecha` y
+                // `referencia` (migración pgp12), para que la saldada no diga otra fecha.
+                trx.raw(`CASE WHEN k.c7 >= '1900-01-01 00:00:00'::timestamp THEN to_char(k.c7::date, 'YYYY-MM-DD') END AS doc_date`),
+                trx.raw(`nullif(btrim(k.c16), '') AS doc_ref`),
               )
               .from(trx.raw(`kepler_ods.kdxe k`))
               .joinRaw(`LEFT JOIN LATERAL (SELECT c3 FROM kepler_ods.kdxd WHERE btrim(c2) = btrim(k.c2) LIMIT 1) d ON true`)
               .joinRaw(`LEFT JOIN catalog.suppliers s ON btrim(s.code) = btrim(k.c2)`)
               .whereRaw(`btrim(k.c1) = k.sucursal AND k.c3 = 'A'`)
               .whereRaw(`md5('kepler_payable|'||k.sucursal||'|'||k.c4||'|'||k.c5||'|'||btrim(k.c6))::uuid = ANY(?::uuid[])`, [faltan]);
-            for (const r of rescate as { id: string; beneficiary: string; concept: string; supplier_id: string | null; branch_code: string | null }[]) {
+            for (const r of rescate as { id: string; beneficiary: string; concept: string; supplier_id: string | null; branch_code: string | null; doc_date: string | null; doc_ref: string | null }[]) {
               // ⛔ Se rescatan SÓLO el nombre, el folio y la sucursal. La ventana de pronto pago
               // NO: una factura saldada no tiene descuento que capturar, y publicarlo la pondría
               // a competir por atención con el aviso de que no se puede pagar.
               labels.set(`${source}:${r.id}`, {
                 beneficiary: r.beneficiary, concept: r.concept,
                 supplier_id: r.supplier_id ?? undefined, branch_code: r.branch_code ?? null,
+                doc_date: r.doc_date ?? null, doc_ref: r.doc_ref ?? null,
                 saldada: true,
               });
             }
@@ -1146,6 +1202,9 @@ export class PaymentCalendarService {
           // cosas distintas y mezclarlas haría que un gasto recurrente pareciera un proveedor
           // del que no sabemos nada.
           pronto_estado: it.obligation_source === 'kepler_payable' ? (label?.pronto_estado ?? 'sin_medir') : null,
+          // `[PGP.54]` null = no hay de dónde sacarla (la pantalla pinta «—»), nunca una inventada.
+          doc_date: label?.doc_date ?? null,
+          doc_ref: label?.doc_ref ?? null,
         });
         itemsByAllocation.set(it.allocation_id, arr);
       }
@@ -1164,7 +1223,15 @@ export class PaymentCalendarService {
         }
       }
       return allocations.map((a: AllocationRowLite) => {
-        const its = (itemsByAllocation.get(a.id) ?? []).map((it) => ({ ...it, applied_amount: Number(it.applied_amount) }));
+        // `[PGP.51]` `numeric` llega como texto del driver: el descuento sale como número, y la
+        // tasa como número o null (null = se capturó en pesos, no hay tasa que decir).
+        const its = (itemsByAllocation.get(a.id) ?? []).map((it) => ({
+          ...it, applied_amount: Number(it.applied_amount),
+          discount_amount: Number(it.discount_amount ?? 0),
+          discount_reason: it.discount_reason ?? null,
+          discount_rate: it.discount_rate === null || it.discount_rate === undefined ? null : Number(it.discount_rate),
+          discount_note: it.discount_note ?? null,
+        }));
         // `[PGP.35]` El agregado por pago: cuántas de sus facturas quedaron saldadas en el ERP y
         // por cuánto. La pantalla lo necesita para no sumar como deuda viva lo que ya no se debe.
         const saldadas = its.filter((it) => it.kepler_saldada);
@@ -1172,9 +1239,12 @@ export class PaymentCalendarService {
         // del renglón: sin ella el día publica un total y nadie puede juzgar si estuvo bien armado.
         // ⛔ `fuera_de_ventana` NO es «perdido» (el contrato lo dice): se pasó la mediana de lo que
         // históricamente funcionó y todavía se puede intentar. Por eso «deja pasar», no «pierde».
-        const captura = its.reduce((s, it) => s + (
+        // `[PGP.51]` La factura que YA lleva su pronto pago capturado no se estima otra vez: decía
+        // «Gana $X» (o «Deja pasar $X») encima de «Descuento al pagar −$X» — el mismo dinero dos veces.
+        const estimable = its.filter((it) => it.discount_reason !== 'pronto_pago');
+        const captura = estimable.reduce((s, it) => s + (
           (it.pronto_estado === 'capturable' || it.pronto_estado === 'por_vencer') ? Number(it.pronto_beneficio || 0) : 0), 0);
-        const dejaPasar = its.reduce((s, it) => s + (
+        const dejaPasar = estimable.reduce((s, it) => s + (
           it.pronto_estado === 'fuera_de_ventana' ? Number(it.pronto_beneficio || 0) : 0), 0);
         return {
           ...a, amount_assigned: Number(a.amount_assigned),
@@ -1184,6 +1254,8 @@ export class PaymentCalendarService {
           kepler_saldadas_importe: saldadas.reduce((s, it) => s + Number(it.applied_amount), 0),
           pronto_captura: Math.round(captura * 100) / 100,
           pronto_deja_pasar: Math.round(dejaPasar * 100) / 100,
+          // `[PGP.51]` Lo que el proveedor descontó al pagar. `amount_assigned` sigue siendo el neto.
+          discount_total: round2(its.reduce((s, it) => s + it.discount_amount, 0)),
           items: its,
         };
       });
@@ -1242,7 +1314,7 @@ export class PaymentCalendarService {
         .where('a.lot_id', lot.id).whereNot('a.status', 'cancelled')
         .where('i.obligation_source', 'kepler_payable')
         .select(
-          'i.allocation_id', 'i.obligation_source', 'i.obligation_id', 'i.applied_amount',
+          'i.allocation_id', 'i.obligation_source', 'i.obligation_id', 'i.applied_amount', 'i.discount_amount',
           'v.sucursal', 'v.folio as documento', 'v.fecha', 'v.vencimiento',
           'v.importe', 'v.pendiente', 'v.referencia',
           'e.evidencia', 'e.ref_evidencia', 'e.rfc', 'e.rfc_fuente', 'e.rfc_discrepa',
@@ -1281,7 +1353,7 @@ export class PaymentCalendarService {
         .where('a.lot_id', lot.id).whereNot('a.status', 'cancelled')
         .where('i.obligation_source', 'supplier_payable')
         .select(
-          'i.allocation_id', 'i.obligation_source', 'i.obligation_id', 'i.applied_amount',
+          'i.allocation_id', 'i.obligation_source', 'i.obligation_id', 'i.applied_amount', 'i.discount_amount',
           trx.raw("nullif(btrim(o.kepler_sucursal), '') as sucursal"),
           trx.raw('coalesce(o.invoice_folio, o.kepler_folio) as documento'),
           trx.raw('NULL::date as fecha'), 'o.original_due_date as vencimiento',
@@ -1307,6 +1379,7 @@ export class PaymentCalendarService {
           obligation_source: r['obligation_source'] as ObligationSource,
           obligation_id: String(r['obligation_id']),
           se_paga: Number(r['applied_amount']),
+          descuento: Number(r['discount_amount'] ?? 0),
           sucursal: (r['sucursal'] as string | null) ?? null,
           folio_interno: (r['documento'] as string | null) ?? null,
           folio_externo: propia ? null : (folioCfdi ?? folioOcr ?? folioErp),
@@ -1522,21 +1595,26 @@ export class PaymentCalendarService {
     this.assertDate(dto.date);
     if (!dto.items?.length) throw new BadRequestException('Se requiere al menos una obligación');
     const tenantId = this.tenantCtx.requireTenantId();
+    // `[PGP.51]` Cada item se normaliza ANTES de abrir la transacción: un descuento mal capturado
+    // (motivo sin pesos, «Otro» sin detalle, una tasa que no cuadra) no llega a la base.
+    const items = dto.items.map((it) => ({ ...it, ...normalizarDescuento(it) }));
     return this.tk.run(async (trx) => {
       const classifications = new Set<string>();
       const payees = new Set<string>();
       const branches = new Set<string>();
-      for (const it of dto.items) {
-        if (!(Number(it.applied_amount) > 0)) throw new BadRequestException('applied_amount debe ser > 0');
+      for (const it of items) {
         if (!(it.obligation_source in CLASSIFICATION_BY_SOURCE)) throw new BadRequestException('obligation_source inválido');
         const row = await this.loadObligationRow(trx, tenantId, it.obligation_source, it.obligation_id);
         // `[TP.18]` Para el origen derivado, "no encontrada" también significa **Kepler ya no la
         // debe** (la vista sólo trae saldo > 0): no se programa, que es el mismo veredicto.
         if (!row) throw new NotFoundException(`Obligación ${it.obligation_id} no encontrada`);
         if (row.status === 'cancelled') throw new BadRequestException('La obligación está cancelada');
+        assertDescuentoPermitido(it.obligation_source, classificationOf(it.obligation_source, row), it.discount_amount);
         const available = Number(row.original_amount) - Number(row.reserved_amount) - Number(row.paid_amount);
-        if (Number(it.applied_amount) > available + 0.005) throw new BadRequestException(`Excede el saldo disponible de la obligación (disponible: ${available.toFixed(2)})`);
-        await this.assertKeplerBalance(trx, it.obligation_source, row, Number(it.applied_amount));
+        // `[PGP.51]` Contra el disponible y contra Kepler se mide lo CUBIERTO (neto + descuento):
+        // es lo que la factura deja de deber cuando llegue la nota de crédito.
+        if (it.covered > available + 0.005) throw new BadRequestException(`Excede el saldo disponible de la obligación (disponible: ${available.toFixed(2)})`);
+        await this.assertKeplerBalance(trx, it.obligation_source, row, it.covered);
         classifications.add(classificationOf(it.obligation_source, row));
         const k = paymentGroupKey(it.obligation_source, row);
         payees.add(k.payee);
@@ -1547,16 +1625,19 @@ export class PaymentCalendarService {
       if (branches.size > 1) throw new BadRequestException(`Un mismo pago no puede juntar facturas de sucursales distintas (${[...branches].join(', ')}): cada pago entra al centro de costo de su almacén. Crea un pago por sucursal.`);
       const lot = await this.getOrCreateLot(trx, tenantId, dto.date);
       if (LOCKED_LOT_STATUSES.has(lot.status)) throw new BadRequestException('El día ya fue autorizado/cerrado — no admite pagos nuevos (reprograma a otro día).');
-      const amountAssigned = dto.items.reduce((s, it) => s + Number(it.applied_amount), 0);
+      // `[PGP.51]` NETO: lo que sale del banco. El descuento no es dinero que salga.
+      const amountAssigned = round2(items.reduce((s, it) => s + it.applied_amount, 0));
       const [allocation] = await trx('finance.payment_allocations').insert({
         tenant_id: tenantId, lot_id: lot.id, classification: [...classifications][0],
         priority_rank: dto.priority_rank ?? null, amount_assigned: amountAssigned,
         notes: dto.notes ?? null, created_by: username,
       }).returning('*');
-      for (const it of dto.items) {
+      for (const it of items) {
         await trx('finance.payment_allocation_items').insert({
           tenant_id: tenantId, allocation_id: allocation.id, obligation_source: it.obligation_source,
           obligation_id: it.obligation_id, applied_amount: it.applied_amount,
+          discount_amount: it.discount_amount, discount_reason: it.discount_reason,
+          discount_rate: it.discount_rate, discount_note: it.discount_note,
         });
         await this.recalcObligation(trx, it.obligation_source, it.obligation_id);
       }
@@ -1566,6 +1647,8 @@ export class PaymentCalendarService {
 
   async addItem(allocationId: string, item: AllocationItemDto, username: string) {
     const tenantId = this.tenantCtx.requireTenantId();
+    // `[PGP.51]` Mismo normalizador que `createAllocation`: un solo lugar decide si el descuento vale.
+    const norm = normalizarDescuento(item);
     return this.tk.run(async (trx) => {
       const allocation = await trx('finance.payment_allocations').where({ tenant_id: tenantId, id: allocationId }).first();
       if (!allocation) throw new NotFoundException('Pago no encontrado');
@@ -1580,9 +1663,11 @@ export class PaymentCalendarService {
       // del origen derivado vive en la fila (un crédito bancario no es una factura de mercancía),
       // así que no se puede decidir con sólo mirar el `obligation_source`.
       if (classificationOf(item.obligation_source, row) !== allocation.classification) throw new BadRequestException('La obligación no coincide con la clasificación de este pago');
+      assertDescuentoPermitido(item.obligation_source, allocation.classification, norm.discount_amount);
       const available = Number(row.original_amount) - Number(row.reserved_amount) - Number(row.paid_amount);
-      if (Number(item.applied_amount) > available + 0.005) throw new BadRequestException(`Excede el saldo disponible de la obligación (disponible: ${available.toFixed(2)})`);
-      await this.assertKeplerBalance(trx, item.obligation_source, row, Number(item.applied_amount));
+      // `[PGP.51]` Lo CUBIERTO (neto + descuento) contra el disponible y contra Kepler.
+      if (norm.covered > available + 0.005) throw new BadRequestException(`Excede el saldo disponible de la obligación (disponible: ${available.toFixed(2)})`);
+      await this.assertKeplerBalance(trx, item.obligation_source, row, norm.covered);
       // `[TP.16.3]` Lo que se agrega a un pago existente tiene el mismo beneficiario y sucursal que lo que ya trae.
       const [first] = await trx('finance.payment_allocation_items').where({ allocation_id: allocationId }).whereNot({ obligation_id: item.obligation_id }).orderBy('created_at', 'asc').limit(1);
       if (first) {
@@ -1593,7 +1678,9 @@ export class PaymentCalendarService {
       }
       await trx('finance.payment_allocation_items').insert({
         tenant_id: tenantId, allocation_id: allocationId, obligation_source: item.obligation_source,
-        obligation_id: item.obligation_id, applied_amount: item.applied_amount,
+        obligation_id: item.obligation_id, applied_amount: norm.applied_amount,
+        discount_amount: norm.discount_amount, discount_reason: norm.discount_reason,
+        discount_rate: norm.discount_rate, discount_note: norm.discount_note,
       });
       await this.recalcObligation(trx, item.obligation_source, item.obligation_id);
       await this.recalcAllocationTotal(trx, allocationId);
@@ -1609,6 +1696,10 @@ export class PaymentCalendarService {
       if (!item) throw new NotFoundException('Documento no encontrado en este pago');
       const allocation = await trx('finance.payment_allocations').where({ id: allocationId }).first();
       if (allocation.status !== 'pending') throw new BadRequestException('Solo se puede modificar un pago pendiente');
+      // `[PGP.55]` Quitar una factura de un día YA AUTORIZADO cambiaría un importe que Gerencia firmó.
+      // Hasta ahora sólo lo impedía la pantalla; `addItem` ya lo revisaba en el servidor.
+      const lot = await trx('finance.payment_calendar_lots').where({ id: allocation.lot_id }).first();
+      if (lot && LOCKED_LOT_STATUSES.has(lot.status)) throw new BadRequestException('El día ya fue autorizado: no se le pueden quitar facturas a sus pagos.');
       const [{ count }] = await trx('finance.payment_allocation_items').where({ allocation_id: allocationId }).whereNot('id', itemId).count();
       if (Number(count) === 0) throw new BadRequestException('Un pago debe tener al menos un documento — cancela el pago en vez de vaciarlo');
       await trx('finance.payment_allocation_items').where({ id: itemId }).del();
@@ -1650,9 +1741,14 @@ export class PaymentCalendarService {
         reprogrammed_from_id: allocation.id, created_by: username,
       }).returning('*');
       for (const it of items as any[]) {
+        // `[PGP.51]` El descuento al pagar viaja con la factura: reprogramar cambia el DÍA, no lo
+        // que el proveedor concedió. Sin copiarlo, el día nuevo pagaría el neto y dejaría el
+        // descuento otra vez disponible — la misma factura cubierta de menos.
         await trx('finance.payment_allocation_items').insert({
           tenant_id: tenantId, allocation_id: newAllocation.id, obligation_source: it.obligation_source,
           obligation_id: it.obligation_id, applied_amount: it.applied_amount, agreement_id: it.agreement_id,
+          discount_amount: it.discount_amount ?? 0, discount_reason: it.discount_reason ?? null,
+          discount_rate: it.discount_rate ?? null, discount_note: it.discount_note ?? null,
         });
         await this.recalcObligation(trx, it.obligation_source, it.obligation_id);
       }
@@ -1683,7 +1779,9 @@ export class PaymentCalendarService {
       if (accountId) {
         const acc = await trx('commercial.supplier_payment_accounts').where({ tenant_id: tenantId, id: accountId, status: 'activa' }).first();
         if (!acc) throw new BadRequestException('La cuenta de pago seleccionada no existe o está inactiva');
-        destinationText = `${acc.bank_name}${acc.clabe ? ' · CLABE ' + acc.clabe : ''}${acc.account_number ? ' · Cta ' + acc.account_number : ''}${acc.alias ? ' (' + acc.alias + ')' : ''}`;
+        // [PGP.50] La referencia fija viaja en el snapshot: es lo que imprime la instrucción a Caja
+        // General y lo que el banco tiene que llevar, o el proveedor no reconoce el depósito.
+        destinationText = `${acc.bank_name}${acc.clabe ? ' · CLABE ' + acc.clabe : ''}${acc.account_number ? ' · Cta ' + acc.account_number : ''}${acc.payment_reference ? ' · Ref ' + acc.payment_reference : ''}${acc.alias ? ' (' + acc.alias + ')' : ''}`;
       }
       // `[TP.16]` ORIGEN (nuestra cuenta) y DESTINO (la del beneficiario) son dos datos distintos, y
       // el layout del banco pide los dos. Antes bastaba uno cualquiera: una transferencia quedaba
@@ -1909,7 +2007,13 @@ export class PaymentCalendarService {
         // saldo cero — no se ejecuta un pago contra una factura que el ERP ya no reconoce.
         if (it.obligation_source !== 'supplier_payable' && it.obligation_source !== 'kepler_payable') continue;
         const row = await this.loadObligationRow(trx, tenantId, it.obligation_source, it.obligation_id);
-        if (row) await this.assertKeplerBalance(trx, it.obligation_source, row, Number(it.applied_amount), 0);
+        // `[PGP.51]` Al EJECUTAR se mide lo CUBIERTO (neto + descuento), con UNA excepción: si la
+        // nota de crédito del descuento llegó a Kepler antes que la transferencia, el pendiente ya
+        // ES el neto (±1 centavo) y el pago es correcto. Medir sólo el neto dejaba pasar de más:
+        // con otra nota ajena aplicada, el neto cabía y al llegar la del descuento quedaba sobrepagado.
+        const discount = Number(it.discount_amount ?? 0);
+        if (row) await this.assertKeplerBalance(trx, it.obligation_source, row, Number(it.applied_amount) + discount, 0,
+          discount > 0 ? Number(it.applied_amount) : undefined);
         else if (it.obligation_source === 'kepler_payable') {
           throw new BadRequestException('Kepler ya no tiene saldo pendiente de esta factura (¿se pagó por fuera o tiene nota de crédito?). No se programa ni se ejecuta.');
         }

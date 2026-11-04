@@ -102,6 +102,30 @@ export interface ProntoPagoQuery {
   limit?: number;
 }
 
+/**
+ * `[PGP.51]` **La factura que ya se pagó (o se programó) con su descuento no vuelve a ofrecerse.**
+ * Entre el pago y la nota de crédito, Kepler sigue debiendo el descuento (el 3 %): sin esto, ese
+ * sobrante salía aquí como «capturable» y sumaba a «beneficio en juego» un descuento que ya se tomó.
+ * Es la MISMA regla que `v_pago_sugerido` (migración 20261103171051, `CON_DESCUENTO_VIGENTE`) y la
+ * misma llave (`sqlKeplerPayableId`) para la derivada; la capturada se reconoce por su liga `kepler_*`.
+ */
+export function sqlSinDescuentoVigente(p: string): string {
+  return `NOT EXISTS (
+             SELECT 1
+               FROM finance.payment_allocation_items i
+               JOIN finance.payment_allocations a ON a.id = i.allocation_id
+              WHERE i.tenant_id = ${p}.tenant_id
+                AND i.discount_amount > 0
+                AND a.status IN ('pending', 'executed')
+                AND (   (i.obligation_source = 'kepler_payable' AND i.obligation_id = ${sqlKeplerPayableId(p)})
+                     OR (i.obligation_source = 'supplier_payable'
+                         AND i.obligation_id IN (
+                               SELECT o2.id FROM commercial.supplier_payment_obligations o2
+                                WHERE o2.kepler_sucursal = ${p}.sucursal AND o2.kepler_doc_tipo = ${p}.doc_tipo
+                                  AND o2.kepler_doc_sub = ${p}.doc_sub   AND o2.kepler_folio    = ${p}.folio
+                                  AND o2.status <> 'cancelled'))))`;
+}
+
 @Injectable()
 export class ProntoPagoService {
   constructor(
@@ -132,6 +156,7 @@ export class ProntoPagoService {
                    ON d.proveedor_code = btrim(p.proveedor)
            WHERE p.tenant_id = ? AND p.pendiente > 0.01
              AND btrim(p.proveedor) LIKE 'C%'
+             AND ${sqlSinDescuentoVigente('p')}
         ), clasificado AS (
           SELECT b.*,
                  -- [TP.20.5] Los nombres que esta pantalla ya publicaba. El CÁLCULO ya no vive
@@ -197,15 +222,19 @@ export class ProntoPagoService {
                    ON o.kepler_sucursal = p.sucursal AND o.kepler_doc_tipo = p.doc_tipo
                   AND o.kepler_doc_sub = p.doc_sub   AND o.kepler_folio    = p.folio
                   AND o.status <> 'cancelled'
+            -- [PGP.51] Lo CUBIERTO (neto + descuento al pagar), igual que el Calendario: el
+            -- sobrante que el proveedor descontó no se vuelve a ofrecer como programable
+            -- mientras Kepler no emite la nota de credito.
             LEFT JOIN LATERAL (
-              SELECT coalesce(sum(i.applied_amount) FILTER (WHERE a.status = 'pending'), 0)  AS reservado,
-                     coalesce(sum(i.applied_amount) FILTER (WHERE a.status = 'executed'), 0) AS pagado
+              SELECT coalesce(sum(i.applied_amount + i.discount_amount) FILTER (WHERE a.status = 'pending'), 0)  AS reservado,
+                     coalesce(sum(i.applied_amount + i.discount_amount) FILTER (WHERE a.status = 'executed'), 0) AS pagado
                 FROM finance.payment_allocation_items i
                 JOIN finance.payment_allocations a ON a.id = i.allocation_id
                WHERE i.obligation_id = coalesce(o.id, ${sqlKeplerPayableId('p')})
             ) r ON true
            WHERE p.tenant_id = ? AND p.pendiente > 0.01
              AND btrim(p.proveedor) LIKE 'C%'
+             AND ${sqlSinDescuentoVigente('p')}
         ), clasificado AS (
           SELECT b.*,
                  -- Lo que todavia se puede mandar al Calendario de esta factura.

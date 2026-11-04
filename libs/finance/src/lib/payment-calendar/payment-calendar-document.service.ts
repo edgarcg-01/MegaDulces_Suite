@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import * as puppeteer from 'puppeteer';
 import { warehouseName } from '@megadulces/contracts';
 import { PaymentCalendarService, type ExpedienteLinea } from './payment-calendar.service';
+import { rotuloDescuento } from './descuento-al-pagar';
 
 const CLASSIFICATION_LABEL: Record<string, string> = {
   compromiso_financiero: 'Compromiso financiero', gasto: 'Gasto', proveedor_mercancia: 'Proveedor de mercancía',
@@ -47,7 +48,9 @@ type PagoDelExpediente = ConEjecutor & {
   destination_account_text?: string | null;
   cash_register_text?: string | null;
   reference_text?: string | null;
-  items?: Array<{ beneficiary?: string | null }>;
+  /** `[PGP.51]` Lo que el proveedor descontó al pagar; `amount_assigned` sigue siendo el NETO. */
+  discount_total?: number | null;
+  items?: Array<ItemConDescuento & { beneficiary?: string | null }>;
 };
 
 function ejecutorDe(a: ConEjecutor): string {
@@ -62,6 +65,22 @@ function ejecutoresDelLote(allocations: ConEjecutor[]): string[] {
   const vistos = new Set(allocations.map(ejecutorDe));
   return ['Tesorería', 'Caja General'].filter((e) => vistos.has(e));
 }
+
+/** `[PGP.51]` Lo que una factura del pago dice de su descuento al pagar. */
+type ItemConDescuento = {
+  obligation_source?: string | null;
+  obligation_id?: string | null;
+  discount_amount?: number | string | null;
+  discount_reason?: string | null;
+  discount_rate?: number | string | null;
+};
+
+/** `[PGP.51]` Lo único que la línea del descuento lee de un pago y de sus facturas. */
+type ConDescuento = {
+  amount_assigned: number | string;
+  discount_total?: number | null;
+  items?: ItemConDescuento[];
+};
 
 const MES_CORTO = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 /**
@@ -148,6 +167,24 @@ export class PaymentCalendarDocumentService {
     return allocations.reduce((s, a) => s + Number(a.amount_assigned), 0);
   }
 
+  /**
+   * `[PGP.51]` **El descuento al pagar, dicho en el papel.** El importe del renglón es el NETO
+   * (lo que sale del banco) y así debe quedar: es lo que se transfiere y lo que suma el total. Pero
+   * quien firma tiene que ver que la factura era mayor y por qué se paga menos — si no, el neto
+   * parece un pago parcial. Sin descuento no se dibuja nada.
+   */
+  private lineaDescuento(a: ConDescuento): string {
+    const desc = Number(a.discount_total || 0);
+    if (!(desc > 0)) return '';
+    const rotulos = [...new Set((a.items || [])
+      .filter((i) => Number(i.discount_amount || 0) > 0)
+      .map((i) => rotuloDescuento(i.discount_reason, i.discount_rate)))];
+    // Un pago de varias facturas no es «Factura $total»: lo que suma es lo que se cubre de todas.
+    const rotulo = (a.items || []).length > 1 ? 'Se cubre' : 'Factura';
+    return `<div class="desc">${rotulo} ${money(Number(a.amount_assigned) + desc)} − descuento ${money(desc)}`
+      + `${rotulos.length ? ` (${esc(rotulos.join(', '))})` : ''}<br/>La nota de crédito la emite el proveedor después.</div>`;
+  }
+
   private tablaPagos(allocations: any[], opts: { conFolio: boolean }): string {
     const rows = allocations
       .slice()
@@ -163,7 +200,7 @@ export class PaymentCalendarDocumentService {
           <td>${esc(a.bank_account_label || (a.payment_method === 'efectivo' ? 'Caja' : '—'))}</td>
           ${opts.conFolio ? `<td>${esc(ejecutorDe(a))}</td>` : ''}
           <td>${esc(cuenta)}</td>
-          <td class="r">${money(a.amount_assigned)}</td>
+          <td class="r">${money(a.amount_assigned)}${this.lineaDescuento(a)}</td>
         </tr>`;
       }).join('');
     return `<table>
@@ -211,13 +248,25 @@ export class PaymentCalendarDocumentService {
         // encontró Edgar preguntando por los vacíos. El total va donde dice **Se paga**, que es lo
         // que es; el conteo baja al texto, donde se lee sin confundirse con una cifra.
         const cuantos = lineas.length === 1 ? '1 documento' : `${lineas.length} documentos`;
+        // `[PGP.51]` El descuento al pagar de cada factura, por la MISMA llave con que el
+        // expediente identifica la línea. `se_paga` es el NETO (`applied_amount`): sin esto, una
+        // factura con descuento se leería como pago parcial en la columna «Se paga».
+        const descDe = new Map<string, ItemConDescuento>();
+        for (const it of a.items || []) {
+          if (Number(it.discount_amount || 0) > 0) descDe.set(`${it.obligation_source}|${it.obligation_id}`, it);
+        }
         const cabeza = `<tr class="pago-row">
           <td class="c">${esc(a.priority_rank ?? '—')}</td>
           <td colspan="7"><b>${esc(quien || '—')}</b>${rfcs.length ? ` · RFC ${esc(rfcs.join(' / '))}` : ''}
             <div class="como">${esc(comoSale)} · ${CLASSIFICATION_LABEL[a.classification ?? ''] || esc(a.classification ?? '—')} · ${esc(lineas.length ? cuantos : 'sin documentos ligados')}</div></td>
-          <td class="r"><b>${money(a.amount_assigned)}</b></td>
+          <td class="r"><b>${money(a.amount_assigned)}</b>${this.lineaDescuento(a)}</td>
           <td></td>
         </tr>`;
+        const descLinea = (l: ExpedienteLinea): string => {
+          const it = descDe.get(`${l.obligation_source}|${l.obligation_id}`);
+          if (!it) return '';
+          return `<div class="desc">+ desc. ${money(it.discount_amount)}<br/>${esc(rotuloDescuento(it.discount_reason, it.discount_rate))}</div>`;
+        };
         const hijas = lineas.length
           ? lineas.map((l) => `<tr class="doc-row">
               <td></td>
@@ -228,7 +277,7 @@ export class PaymentCalendarDocumentService {
               <td class="c">${esc(fechaCorta(l.fecha))}</td>
               <td class="c">${esc(fechaCorta(l.vencimiento))}</td>
               <td class="r">${l.importe === null ? '—' : money(l.importe)}</td>
-              <td class="r">${money(l.se_paga)}</td>
+              <td class="r">${money(l.se_paga)}${descLinea(l)}</td>
               <td class="c">${esc(PAPEL[l.papel])}</td>
             </tr>`).join('')
           : `<tr class="doc-row"><td></td><td colspan="9"><em>Sin desglose: este pago no tiene documentos ligados.</em></td></tr>`;
@@ -268,7 +317,11 @@ export class PaymentCalendarDocumentService {
     // factura con **$1,228.05 de diferencia (0.4 %)**, y gritar diez veces la habría enterrado.
     const discrepa = conPapel.filter((d) =>
       d.importe_cfdi !== null && d.importe !== null && Math.abs(d.importe_cfdi - d.importe) > 1).length;
-    const parcial = detalle.filter((d) => d.pendiente !== null && d.se_paga < d.pendiente - 0.005).length;
+    // `[PGP.51]` Contra lo que se debe se mide lo CUBIERTO (neto + descuento): la factura pagada con
+    // su descuento no es un pago parcial. Se cuenta aparte, porque su soporte es otro (la nota de
+    // crédito que el proveedor emite después).
+    const parcial = detalle.filter((d) => d.pendiente !== null && d.se_paga + (d.descuento || 0) < d.pendiente - 0.005).length;
+    const conDescuento = detalle.filter((d) => (d.descuento || 0) > 0).length;
     const fila = (k: string, v: number | string, nota = '') =>
       `<tr><td>${esc(k)}</td><td class="r"><b>${esc(String(v))}</b></td><td class="nota">${esc(nota)}</td></tr>`;
     return `<h2>Control del expediente</h2>
@@ -281,7 +334,8 @@ export class PaymentCalendarDocumentService {
         ${fila('Folio externo leído por OCR', porOcr, 'no verificado contra el CFDI — cotejar contra el papel')}
         ${fila('Folio externo tecleado en el ERP', porErp, 'lleva el prefijo de captura — cotejar contra el papel')}
         ${fila('Fecha y folio tomados del CFDI timbrado', conCfdi, 'el dato duro: no hace falta cotejarlo')}
-        ${fila('Se paga menos de lo que se debe', parcial, 'pago parcial o descuento: anexar el soporte')}
+        ${fila('Se paga menos de lo que se debe', parcial, 'pago parcial: anexar el soporte')}
+        ${conDescuento ? fila('Con descuento al pagar', conDescuento, 'la nota de crédito la emite el proveedor después en Kepler') : ''}
         ${discrepa ? fila('ATENCIÓN — el CFDI dice otro importe', discrepa, 'revisar cuál es el bueno antes de pagar') : ''}
         ${saldadas ? fila('ATENCIÓN — el ERP ya no debe este documento', saldadas, 'no se puede pagar: revisar antes de autorizar') : ''}
       </table>`;
@@ -318,6 +372,7 @@ export class PaymentCalendarDocumentService {
         .firmas { display: flex; gap: 12mm; margin-top: 10mm; }
         .firma { flex: 1; border-top: 1pt solid #333; padding-top: 2mm; font-size: 9pt; text-align: center; }
         .foot-note { font-size: 8pt; color: #777; margin-top: 4mm; }
+        .desc { font-size: 7.5pt; color: #555; margin-top: 1mm; font-variant-numeric: tabular-nums; }
       </style>`;
   }
 

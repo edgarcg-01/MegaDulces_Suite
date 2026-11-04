@@ -13,6 +13,18 @@
 export type PaymentObligationSource = 'budget_expense' | 'financial_commitment' | 'supplier_payable' | 'kepler_payable';
 export type PaymentMethod = 'transferencia' | 'cheque' | 'efectivo' | 'cargo_automatico';
 
+/**
+ * `[PGP.51]` **Por qué el proveedor concede un descuento AL PAGAR.** Lista cerrada: la misma que
+ * el CHECK `ck_pai_discount_reason` de `finance.payment_allocation_items`. Kepler lo formaliza
+ * después con una nota de crédito (`X-D-55/56`) o una bonificación (`45`).
+ */
+export type DiscountReason = 'pronto_pago' | 'volumen' | 'otro';
+export const DISCOUNT_REASONS: readonly DiscountReason[] = ['pronto_pago', 'volumen', 'otro'];
+/** `[PGP.51]` El rótulo de cada motivo. Lo comparten la pantalla, el PDF y la ficha: uno solo. */
+export const DISCOUNT_REASON_LABEL: Record<DiscountReason, string> = {
+  pronto_pago: 'Pronto pago', volumen: 'Volumen', otro: 'Otro',
+};
+
 export interface PaymentCalendarDaySummary {
   date: string;
   /** `false` = Presupuestos no fijó capacidad ese día (distinto de capacidad CERO). */
@@ -66,6 +78,41 @@ export interface PaymentCalendarAllocationItem {
   pronto_tasa: number | null;
   pronto_beneficio: number | null;
   pronto_estado: 'capturable' | 'por_vencer' | 'fuera_de_ventana' | 'sin_medir' | null;
+
+  /**
+   * `[PGP.51]` **El descuento que el proveedor dio AL PAGAR esta factura.**
+   *
+   * ⭐ `applied_amount` es el NETO que sale del banco; lo que la factura queda **cubierta** es
+   * `applied_amount + discount_amount`, y eso es lo que deja de ofrecerse mientras la nota de
+   * crédito de Kepler no llega. `discount_amount = 0` y `discount_reason = null` = sin descuento.
+   * `discount_rate` es la fracción (0.03 = 3 %) sólo si se capturó en %; null si en pesos.
+   */
+  discount_amount: number;
+  discount_reason: DiscountReason | null;
+  discount_rate: number | null;
+  discount_note: string | null;
+
+  /**
+   * `[PGP.54]` **La fecha y la referencia del documento**, para que quien planea el día lea la
+   * factura sin abrir el expediente. `null` = no hay de dónde sacarla, y se pinta «—», nunca
+   * una fecha inventada.
+   *
+   *  - `kepler_payable`: `doc_date` = `analytics.v_supplier_payables.fecha` (`kdxe.c7`, cuándo
+   *    se REGISTRÓ la cuenta por pagar en Kepler) y `doc_ref` = `.referencia` (`kdxe.c16`,
+   *    lo que tecleó quien capturó). Para la saldada (`kepler_saldada`) salen de las mismas
+   *    columnas de `kepler_ods.kdxe`.
+   *  - `supplier_payable`: `doc_date` = null (la tabla no tiene fecha de factura) y `doc_ref` =
+   *    `invoice_folio` (la referencia del proveedor que trajo la entrega).
+   *  - Los demás orígenes: null en los dos (no hay documento del proveedor detrás).
+   *
+   * ⚠️ **No es la fecha ni el folio del expediente** (`[PGP.47]`), que manda el CFDI cuando está
+   * identificado: medido el 2026-11-03, la fecha del ERP difiere de la del CFDI en 39 de 43
+   * líneas. El expediente paga por eso `analytics.v_payable_evidence` (2.5 s medidos en
+   * `[PGP.32]`); este renglón lo lee `weekView` 7 veces en serie por cada carga de la semana y
+   * no la paga. Formato `YYYY-MM-DD`.
+   */
+  doc_date: string | null;
+  doc_ref: string | null;
 }
 
 /**
@@ -157,6 +204,11 @@ export interface PaymentCalendarAllocation {
    */
   pronto_captura: number;
   pronto_deja_pasar: number;
+  /**
+   * `[PGP.51]` Suma de `discount_amount` de sus facturas: lo que el proveedor descontó al pagar.
+   * `amount_assigned` ya es NETO (lo que sale del banco); la factura cubierta es la suma de ambos.
+   */
+  discount_total: number;
   items: PaymentCalendarAllocationItem[];
 }
 
