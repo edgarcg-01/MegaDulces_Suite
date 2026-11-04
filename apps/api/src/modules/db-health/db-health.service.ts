@@ -145,8 +145,12 @@ const APP_SOURCES: SourceCfg[] = [
                    WHEN agg.net_last IS NULL OR agg.net_last < now() - interval '45 min' THEN now()
                    ELSE agg.stale_last
                  END AS last_update,
-                 'activas ' || coalesce(agg.activas,0) || '/6 · más atrasada ' ||
-                   coalesce(agg.stale_suc,'—') || ' ' ||
+                 -- [TOR.0.9] Decía «activas 8/6» (escrito para 6 sucursales) y nombraba la sucursal por
+                 -- código. Son 8 las que venden al público (CEDIS no cuenta).
+                 'activas ' || coalesce(agg.activas,0) || ' de 8 · más atrasada ' ||
+                   coalesce((SELECT n FROM (VALUES ('01','Padre Hidalgo'),('02','La Piedad Abastos'),('03','8 Esquinas'),
+                     ('04','Yurécuaro'),('05','Zamora Centro'),('06','Canindo'),('07','Morelia Madero'),('08','Morelia Abastos')) v(c, n)
+                     WHERE v.c = agg.stale_suc), agg.stale_suc, '—') || ' ' ||
                    coalesce(to_char(agg.stale_last AT TIME ZONE 'America/Mexico_City','HH24:MI'),'—') ||
                    ' · red ' || coalesce(to_char(agg.net_last AT TIME ZONE 'America/Mexico_City','HH24:MI'),'—') AS note_extra
             FROM agg`,
@@ -989,6 +993,16 @@ export function veredictoRetirada(
   return { status: 'unknown', note: `retirada el ${s.retiredOn} · ${s.retiredWhy ?? 'sin motivo escrito'}` };
 }
 
+/**
+ * `[TOR.0.9]` Los 9 servidores Kepler que lee `store_poller` (mismo orden y nombres que
+ * `database/importers/lib/kepler-branches.js`). La sucursal se nombra, nunca se numera.
+ */
+const KEPLER_SERVERS: [string, string][] = [
+  ['00', 'CEDIS'], ['01', 'Padre Hidalgo'], ['02', 'La Piedad Abastos'], ['03', '8 Esquinas'],
+  ['04', 'Yurécuaro'], ['05', 'Zamora Centro'], ['06', 'Canindo'], ['07', 'Morelia Madero'],
+  ['08', 'Morelia Abastos'],
+];
+
 export const CRON_JOBS: CronCfg[] = [
   // `[CG.58.5]` La atribución del efectivo de la caja fuerte a cobros de Kepler
   // (`CaosIngresoCronService`, @Cron cada hora al minuto 5). Existe porque el conciliador
@@ -1407,6 +1421,14 @@ export const CRON_JOBS: CronCfg[] = [
   // una réplica deja de recibir WAL — lo segundo es una medida directa sobre `pg_stat_subscription`,
   // no "hace mucho que no vende", que dispararía en falso cada noche al cerrar las tiendas.
   { key: 'store_poller',        label: 'Poller tickets en vivo (Kepler → /tienda/live)', cadence: 'continuo ~25 s', warnH: 0.5, critH: 2 },
+  // [TOR.0.9] Un latido POR SERVIDOR Kepler, que escribe el mismo poller cada ~4 min: si el servidor
+  // no responde (inalcanzable o lento), si un slot retiene WAL sin consumidor (llena el disco de la
+  // sucursal) o si dejó de publicar tablas, `status='error'` con el motivo → una alerta por servidor.
+  // Medido en 30 días al 2026-11-04: 16 caídas de 10 min o más que sólo existían como texto dentro
+  // del latido único de `store_poller`. Umbrales de edad = el poller dejó de revisar.
+  ...KEPLER_SERVERS.map(([code, name]) => (
+    { key: `kepler_server_${code}`, label: `Servidor Kepler · ${name}`, cadence: 'cada ~4 min (store_poller)', warnH: 0.5, critH: 1 }
+  )),
   // [VL.4b] El poller GPS de la flota, el otro carril mudo. Su modo de falla NO es caerse: es que
   // la sesión con MagniTracking expire (ADR-034: no hay API oficial, el adapter replica el login de
   // la web). Ahí `fn_objects` devuelve vacío, el ciclo termina "bien" y no se entrega nada — por eso

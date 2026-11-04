@@ -13,7 +13,7 @@ MÉTRICA:  fallas activas sin ver — HOY (2026-11-04): 25 alertas abiertas, 0 v
 CAPA TOPE: C3
 ÁREA:      Plataforma
 DUEÑO:     Edgar (firma) · dueños por carril: D5
-ESTADO:    ⬜ — espera D1 (cupo: 7 fases 🔨 contra 4)
+ESTADO:    🔨 — abierta por el PM el 2026-11-04 («hagámoslo»), 8ª en curso, por encima del cupo de 4
 ```
 
 Medido en sólo lectura el 2026-11-04: `pg-prod` (`system_identifier` 7688376744939610156) y la
@@ -151,10 +151,10 @@ suite sólo lo ve quien tiene la pantalla abierta.
 
 | # | Item | Estado | Verificado contra |
 |---|---|---|---|
-| TOR.0.8 | **Disponibilidad por servidor** derivada de la bitácora de `store_poller`: episodios por sucursal con inicio, fin, duración y tipo (*inalcanzable* / *lento*) — vista sobre `cron_run_log`, sin copia | ⬜ | el episodio de Morelia Madero del 19–20-oct |
-| TOR.0.9 | **Sonda en cada servidor Kepler** (desde `md`, sólo lectura): WAL retenido por el slot y `safe_wal_size`, arranque, tablas publicadas contra la lista esperada | ⬜ | `pg_replication_slots` leído a mano en una sucursal |
-| TOR.0.10 | **Horario por sucursal** como definición configurable (DP), para que «no vende» no se confunda con «no replica» | ⬜ | la falsa alarma nocturna de Canindo desaparece |
-| TOR.0.11 | **Que la alerta llegue**: prender correo y/o WhatsApp con destinatarios de Sistemas | ⬜ | una falla provocada llega al teléfono (prueba negativa) |
+| TOR.0.8 | **Disponibilidad por servidor** derivada de la bitácora de `store_poller`: episodios por sucursal con inicio, fin, duración y tipo (*inalcanzable* / *lento*) — vista `analytics.v_kepler_server_episodes` sobre `cron_run_log`, sin copia, acotada a 35 días | 🔨 migración `20261104114612` escrita, **sin aplicar** | ✅ cuerpo ejercido contra prod en sólo lectura: 495 episodios en 35 días, 130–178 ms; control: la caída más larga de Morelia Madero da 1,249.7 min, igual que la medición independiente. ⚠️ el `up()` lo ejerce el CI, no prod |
+| TOR.0.9 | **Latido por servidor Kepler** (`kepler_server_<código>`, cada ~4 min) desde `store_poller`, con la misma conexión que ya usa (sin credencial nueva): no responde (inalcanzable/lento) desde cuándo, slot sin consumidor o perdido, WAL retenido, tablas publicadas que bajan, reinicio. Regla en `database/importers/lib/kepler-servidor.js`; las 9 llaves registradas en `db-health` → una alerta por servidor | 🔨 código, **sin desplegar** (imagen `trade-ingest`, `ops/vl/deploy.sh`) | ✅ `test-kepler-servidor.js` 10/10, mutante del slot sin consumidor muerto · sonda ejercida contra prod y la fuente de `md` (sin slots: prueba la consulta, no un slot real). ⚠️ **NO MEDIDO contra un servidor Kepler** (desde aquí no hay credencial): se ve al primer latido. ⚠️ falta registrar la prueba en `run-all-tests.js` (el archivo tiene cambios de otra sesión) |
+| TOR.0.10 | **Horario por sucursal** como definición configurable (DP), para que «no vende» no se confunda con «no replica» | ⬜ espera los horarios | la falsa alarma nocturna de Canindo desaparece. De paso (`[TOR.0.9]`): el sensor ya no dice «activas 8/6» y nombra la sucursal |
+| TOR.0.11 | **Que la alerta llegue**: prender correo y/o WhatsApp con destinatarios de Sistemas | ⬜ espera destinatarios (D7) | una falla provocada llega al teléfono (prueba negativa) |
 
 ### 3.2 Torre de Desarrollo — nuestra infraestructura
 
@@ -311,3 +311,4 @@ Nivel C: se lee el plan, no la pantalla. 🔴 bloquea C3 → 🚀 · 🟠 dentro
 | Fecha | Qué pasó | Quién |
 |---|---|---|
 | 2026-11-04 | Edgar pide rehacer `/admin/db-health` como torre de control, y después partirla en dos: Sistemas (servidores y Kepler) y Desarrollo (nuestra infraestructura). Plan escrito con lo medido en prod | Edgar · Claude |
+| 2026-11-04 | El PM abre la fase («hagámoslo»). C0 de Sistemas: vista de caídas por servidor (TOR.0.8) y latido por servidor con sonda de slot, WAL y tablas publicadas (TOR.0.9), sin credencial nueva. Esperan: horarios (TOR.0.10), destinatarios de la alerta (TOR.0.11) | Edgar · Claude |
