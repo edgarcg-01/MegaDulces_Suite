@@ -982,6 +982,20 @@ preguntaban:
 - **NO MEDIDO**: `test-newdb-rd-vecinal-escalon-markup.js` (negativas 23514 y la prueba de que la
   consulta sin familia elegiría la vecinal) corre en el CI; falta registrarla en `run-all-tests.js`
   con sus hermanas. El arranque de Nest no se verificó (no hay firmas inyectadas nuevas).
+- **Ruta Directa no cambia — antes/después medido (2026-11-04, sesión RD, sólo lectura contra prod):**
+  el cambio toca a RD por tres lados y los tres dan lo mismo.
+  1. *La escala*: prod tiene **una** versión (`RD-2026`, venta/subtotal, 20 %); con la familia en
+     `DEFAULT 'ruta_directa'` los cinco lectores eligen la misma fila que antes.
+  2. *La regla*: `decidirEscalon()` contra el `pickTier` viejo con los 4 escalones reales de
+     `RD-2026` y `piso_chofer_venta` NULL — **20,015 montos (los bordes de cada escalón ±1 centavo
+     más 20,000 al azar), 0 diferencias**. Control: con un piso de $300,000 difieren 1,503.
+  3. *El costo* (`?? costo_vecinal`, días de costo parcial, veredicto `estandar_kepler_hoy`): sólo
+     entra en días con venta vecinal. Las 13 rutas del padrón tienen **0 días con venta vecinal en
+     Q14–Q22** (1,118 días); control: 4 vecinales en las mismas fechas, 22 a 47 días por quincena.
+  ⚠️ Deja de valer el día que una ruta del padrón venda por el carril vecinal (p. ej. 2V001 dada de
+  alta como `ruta_directa`, D-V2): ahí su costo pasa a `cantidad × c77` — es lo buscado, pero ya no
+  es «igual que antes». Comisiones completas de la corrida (no la regla) **NO MEDIDAS**: el código
+  nuevo no corre contra prod hasta aplicar las tres migraciones.
 
 **Para que pague (en este orden, después de desplegar):**
 
