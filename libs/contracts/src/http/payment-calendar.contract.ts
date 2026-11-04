@@ -38,6 +38,18 @@ export interface PaymentCalendarAllocationItem {
   /** `[TP.16.3]` Sucursal (centro de costo) de la factura; null fuera de facturas de proveedor. */
   branch_code: string | null;
   /**
+   * `[PGP.58]` La llave del documento (`oblig:<sucursal>|<tipo>|<subtipo>|<folio>`): abre la ficha
+   * y pide su evidencia (PDF o foto del comprobante). Sólo el origen derivado (`kepler_payable`)
+   * la trae; null en los demás. Opcional para no romper a quien no la mande todavía.
+   */
+  entity_ref?: string | null;
+  /**
+   * `[PGP.58]` La referencia que tecleó quien capturó la factura en Kepler (`kdxe.c16`). Captura
+   * LIBRE: se rotula «Referencia», nunca «Factura» (`[PGP.12]`). Medido el 2026-11-04: 178 de 182
+   * facturas vivas de los pagos pendientes la traen.
+   */
+  doc_ref?: string | null;
+  /**
    * `[PGP.35]` **El ERP ya no debe esta factura.** Sólo puede ser `true` en origen derivado
    * (`kepler_payable`): su etiqueta se rearma desde `analytics.v_supplier_payables`, que filtra
    * `pendiente > 0.005`, así que un documento ausente está saldado — pagado por fuera, o con

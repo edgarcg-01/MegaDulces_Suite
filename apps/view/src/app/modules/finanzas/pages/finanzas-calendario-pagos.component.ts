@@ -295,7 +295,9 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
               } @else {
                 <div class="pg-pp-head">
                   <h3 class="pg-pp-t" id="pg-pp-h"><i class="pi pi-bolt" aria-hidden="true"></i>Paga primero el pronto pago</h3>
-                  <span class="pg-pp-tot">esta semana ganas <b class="comm-num">{{ money(quePagarGana()) }}</b></span>
+                  <!-- [AUD] Decía «esta semana ganas»: la vista suma lo que cierra en los 7 días que siguen a
+                       HOY (HORIZONTE_DIAS de PGP.41), no la semana del calendario, y no cambia al navegar a otra. -->
+                  <span class="pg-pp-tot">en los próximos 7 días ganas <b class="comm-num">{{ money(quePagarGana()) }}</b></span>
                 </div>
                 <p class="pg-pp-why">
                   @if (prontoUrgente().acreedores) {
@@ -723,13 +725,47 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                       </div>
                       <table class="pg-items-t">
                         <caption class="sr-only">Facturas del pago de {{ allocationTitle(a) }}</caption>
-                        <thead><tr><th>Sucursal</th><th>Documento</th><th class="r">Se aplica</th></tr></thead>
+                        <!-- [PGP.58] Cada factura se UBICA (folio de Kepler, que abre su ficha, y la referencia
+                             del proveedor) y se VE (su archivo, PDF o foto del comprobante) sin salir del pago. -->
+                        <thead><tr><th>Sucursal</th><th>Folio Kepler</th><th>Referencia</th><th>Factura</th><th class="r">Se aplica</th></tr></thead>
                         <tbody>
                           @for (it of a.items; track it.id) {
-                            <tr><td>{{ branchLabel(it.branch_code) }}</td><td>{{ it.concept }}@if (it.beneficiary !== a.items[0].beneficiary) { · {{ it.beneficiary }} }@if (it.kepler_saldada) { · <span class="pg-it-sald">el ERP ya no la debe</span> }</td><td class="r comm-num">{{ money(it.applied_amount) }}</td></tr>
+                            <tr>
+                              <td>{{ branchLabel(it.branch_code) }}</td>
+                              <td>
+                                @if (it.entity_ref) {
+                                  <button type="button" class="cal-reflink comm-num" (click)="inspect.set(it.entity_ref!)" [attr.aria-label]="'Abrir la ficha del documento ' + it.concept + ' de ' + it.beneficiary">{{ it.concept }}</button>
+                                } @else { <span class="comm-num">{{ it.concept }}</span> }
+                                @if (it.beneficiary !== a.items[0].beneficiary) { · {{ it.beneficiary }} }@if (it.kepler_saldada) { · <span class="pg-it-sald">el ERP ya no la debe</span> }
+                              </td>
+                              <td class="comm-num">{{ it.doc_ref || '—' }}</td>
+                              <td>
+                                <!-- Ausente = el backend todavía no la manda: NO MEDIDO, no «sin documento» (ADR-056). -->
+                                @if (it.entity_ref === undefined) {
+                                  <span class="pg-ev">—</span>
+                                } @else if (!it.entity_ref) {
+                                  <span class="pg-ev pg-ev-no"><i class="pi pi-info-circle" aria-hidden="true"></i>sin documento de Kepler</span>
+                                } @else if (evidenciaDeItem(it); as e) {
+                                  @if (e.evidencia === 'pdf') {
+                                    <button type="button" class="pg-ev pg-ev-pdf" [attr.aria-label]="'Ver la factura de ' + it.beneficiary + ' ' + it.concept" (click)="abrirFactura(e)"><i class="pi pi-file-pdf" aria-hidden="true"></i>Ver la factura</button>
+                                  } @else if (e.evidencia === 'uuid') {
+                                    <span class="pg-ev pg-ev-uuid"><i class="pi pi-id-card" aria-hidden="true"></i>sin archivo; hay UUID</span>
+                                  } @else {
+                                    <span class="pg-ev pg-ev-no"><i class="pi pi-info-circle" aria-hidden="true"></i>sin factura: {{ e.motivo }}</span>
+                                  }
+                                } @else if (evidenciaBuscada(it)) {
+                                  <span class="pg-ev pg-ev-no"><i class="pi pi-info-circle" aria-hidden="true"></i>sin registro de su papel</span>
+                                } @else if (evidenciaFallo()) {
+                                  <span class="pg-ev pg-ev-no"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>no se pudo buscar</span>
+                                } @else {
+                                  <span class="pg-ev">buscando…</span>
+                                }
+                              </td>
+                              <td class="r comm-num">{{ money(it.applied_amount) }}</td>
+                            </tr>
                           }
                         </tbody>
-                        <tfoot><tr><td colspan="2">{{ facturas(a.items.length) }}</td><td class="r comm-num">{{ money(a.amount_assigned) }}</td></tr></tfoot>
+                        <tfoot><tr><td colspan="4">{{ facturas(a.items.length) }}</td><td class="r comm-num">{{ money(a.amount_assigned) }}</td></tr></tfoot>
                       </table>
                     </td>
                   </tr>
@@ -1060,7 +1096,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-favor-btn { border:0; background:transparent; cursor:pointer; font:inherit; font-size:var(--fs-sm);
       font-weight:700; color:var(--warn-soft-fg); padding:0 2px; border-radius:var(--r-sm); }
     .pg-favor-btn:hover { text-decoration:underline; }
-    .pg-favor-btn:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
+    .pg-favor-btn:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
     /* [PGP.21] La evidencia de la factura. Tres estados y NINGUNO depende solo del color:
        cada uno lleva su icono y su texto, que es lo que exige el modo de alto contraste. */
     /* [PGP.49] margin-left: el aviso salia pegado a la referencia del proveedor («2034ⓘ sin factura»). */
@@ -1070,7 +1106,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-ev-pdf { border:0; background:transparent; cursor:pointer; font:inherit; font-size:var(--fs-sm);
       color:var(--text-main); font-weight:600; padding:0; text-align:left; }
     .pg-ev-pdf:hover { text-decoration:underline; }
-    .pg-ev-pdf:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
+    .pg-ev-pdf:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
     .pg-ev-uuid { color:var(--fg-2); }
     .pg-ev-no { color:var(--fg-3); }
     .pg-ev-src { color:var(--fg-3); }
@@ -1121,7 +1157,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-day { all:unset; box-sizing:border-box; cursor:pointer; flex:1 1 0; min-width:10.5rem; display:grid; gap:1px;
       padding:5px var(--sp-2); border:1px solid transparent; border-radius:var(--r-sm); scroll-snap-align:start; }
     .pg-day:hover { background:var(--overlay-hover); }
-    .pg-day:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
+    .pg-day:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
     /* El dia elegido: fondo y borde del color del TEXTO, no naranja. El naranja es del boton principal. */
     .pg-day.is-sel { background:var(--overlay-selected); border-color:var(--text-main); box-shadow:inset 0 -2px 0 var(--text-main); }
     .pg-day.is-nocap { opacity:.7; }
@@ -1205,7 +1241,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-link { all:unset; box-sizing:border-box; cursor:pointer; display:inline-flex; align-items:center; gap:var(--sp-1);
                padding:2px var(--sp-1); border-radius:var(--r-sm); color:var(--text-main); }
     .pg-link:hover { text-decoration:underline; }
-    .pg-link:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
+    .pg-link:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
     .pg-link .pi { color:var(--text-muted); }
     /* La lista: su propio alto y su propio scroll, para no empujar los pagos del dia fuera de la pantalla. */
     .pg-lista { border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); overflow:hidden; }
@@ -1236,7 +1272,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-sec-acts { display:flex; gap:var(--sp-1); flex-wrap:wrap; }
     .pg-sec-tg { all:unset; box-sizing:border-box; cursor:pointer; display:inline-flex; align-items:center; gap:var(--sp-2); font-weight:700; color:var(--text-main); border-radius:var(--r-sm); }
     .pg-sec-tg:hover { text-decoration:underline; }
-    .pg-sec-tg:focus-visible { outline:2px solid var(--action-ring); outline-offset:2px; }
+    .pg-sec-tg:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; }
     .pg-sub { display:block; font-size:var(--fs-sm); color:var(--text-muted); line-height:1.35; }
 
     /* ── [PGP.15] El buscador: siempre a la vista, el control mas grande de su seccion ── */
@@ -1307,7 +1343,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-c-how { width:34%; }
     .pg-tg { all:unset; box-sizing:border-box; cursor:pointer; display:inline-grid; place-items:center; width:28px; height:28px; border-radius:var(--r-sm); color:var(--text-muted); }
     .pg-tg:hover { background:var(--overlay-hover); color:var(--text-main); }
-    .pg-tg:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
+    .pg-tg:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
     .pg-how-t { color:var(--text-main); overflow-wrap:anywhere; }
     /* El estado del pago: palabra + icono. Solo el rebote lleva color. */
     .pg-st { display:inline-flex; align-items:center; gap:4px; margin-top:2px; font-size:var(--fs-sm); color:var(--text-muted); }
@@ -1322,7 +1358,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-ev-retry { border:1px solid var(--border-color); background:transparent; cursor:pointer; font:inherit;
                    font-size:var(--fs-xs); font-weight:600; color:var(--text-main); padding:1px var(--sp-2); border-radius:var(--r-sm); }
     .pg-ev-retry:hover { background:var(--overlay-hover); }
-    .pg-ev-retry:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
+    .pg-ev-retry:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
     .pg-st.is-bad { color:var(--bad-soft-fg); font-weight:700; }
     .pg-ord { display:inline-flex; align-items:center; gap:1px; }
     .pg-ordn { min-width:1.2rem; text-align:center; font-weight:700; color:var(--text-main); }
@@ -1359,7 +1395,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-icobtn { all:unset; box-sizing:border-box; cursor:pointer; display:inline-grid; place-items:center; width:28px; height:28px;
       border-radius:var(--r-sm); color:var(--text-muted); }
     .pg-icobtn:hover:not(:disabled) { background:var(--overlay-hover); color:var(--text-main); }
-    .pg-icobtn:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
+    .pg-icobtn:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
     .pg-icobtn:disabled { opacity:.4; cursor:default; }
     /* Los renglones fuera de vista no se maquetan ni se pintan hasta que se desplazan a la vista. */
     .pg-drawer-b .pg-dr-row { content-visibility:auto; contain-intrinsic-size:auto 3.25rem; }
@@ -1390,7 +1426,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-saldada-btn { border:1px solid var(--border-color); background:transparent; cursor:pointer; font:inherit; font-size:var(--fs-xs);
                       font-weight:600; color:var(--text-main); padding:1px var(--sp-2); border-radius:var(--r-sm); }
     .pg-saldada-btn:hover:not(:disabled) { background:var(--overlay-hover); }
-    .pg-saldada-btn:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
+    .pg-saldada-btn:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
     .pg-saldada-btn:disabled { opacity:.5; cursor:default; }
     .pg-it-sald { color:var(--bad-fg); font-weight:600; }
     /* [PGP.48] Pagos que se quedaron en dias ya pasados: esta mal, por eso rojo (y con su icono y su palabra). */
@@ -1398,7 +1434,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
               font-size:var(--fs-sm); color:var(--bad-soft-fg); padding:2px var(--sp-1); border-radius:var(--r-sm); text-align:left; }
     .pg-atr b { font-weight:700; }
     .pg-atr:hover { text-decoration:underline; }
-    .pg-atr:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
+    .pg-atr:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
     .pg-atr.is-nm { cursor:default; color:var(--warn-soft-fg); }
     .pg-atr.is-nm:hover { text-decoration:none; }
     .pg-sec-saldada { display:inline-flex; align-items:center; gap:var(--sp-1); color:var(--bad-fg); font-weight:600; font-size:var(--fs-xs); }
@@ -1432,7 +1468,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-pp-gh.is-urge { font-weight:700; }
     .pg-pp-gh .pi { color:var(--text-muted); align-self:center; }
     .pg-pp-gh:hover, .pg-pp-go:hover { background:var(--overlay-hover); }
-    .pg-pp-gh:focus-visible, .pg-pp-go:focus-visible { outline:2px solid var(--action-ring); outline-offset:-2px; }
+    .pg-pp-gh:focus-visible, .pg-pp-go:focus-visible { outline:2px solid var(--focus-ring); outline-offset:-2px; }
     .pg-pp-l { list-style:none; margin:0 0 var(--sp-1); padding:0; }
     .pg-pp-r { display:grid; grid-template-columns:minmax(0,1fr) 5.5rem; align-items:center; gap:var(--sp-2); }
     .pg-pp-go { grid-template-columns:minmax(0,1fr) 9rem 7rem 4rem; padding-left:calc(var(--sp-1) + 1rem + var(--sp-2)); }
@@ -1762,6 +1798,26 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   readonly abiertos = signal<Record<string, boolean>>({});
   toggleAbierto(id: string): void {
     this.abiertos.update((m) => { const n = { ...m }; if (n[id]) delete n[id]; else n[id] = true; return n; });
+    // `[PGP.58]` Al abrir un pago se busca el papel de sus facturas (si ya se buscó, no se repite).
+    if (this.abiertos()[id]) void this.cargarEvidencias();
+  }
+  /**
+   * `[PGP.58]` **Desde el pago se abre la factura** (Edgar, 2026-11-04: «¿puedo ver la factura en PDF
+   * o imagen? ¿el folio interno para ubicarla?»). Las llaves de las facturas de los pagos abiertos;
+   * la evidencia sale del MISMO lote que la lista de deuda (`cargarEvidencias`), no de otro camino.
+   */
+  private refsDePagosAbiertos(): string[] {
+    const ab = this.abiertos();
+    return this.allocations().filter((a) => ab[a.id])
+      .flatMap((a) => (a.items ?? []).map((it) => (it.entity_ref ?? '').trim()));
+  }
+  evidenciaDeItem(it: { entity_ref?: string | null }): PayableEvidenceRow | null {
+    const ref = (it.entity_ref ?? '').trim();
+    return ref ? this.evidencias().get(ref) ?? null : null;
+  }
+  /** Ya respondió la búsqueda de ese documento (con o sin archivo): deja de decir «buscando…». */
+  evidenciaBuscada(it: { entity_ref?: string | null }): boolean {
+    return this.evidenciaRespondidas().has((it.entity_ref ?? '').trim());
   }
 
   readonly executedCount = computed(() => this.allocations().filter((a) => a.status === 'executed').length);
@@ -1994,9 +2050,10 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     let refs: string[] = [];
     try {
       for (;;) {
-        refs = this.filasDeuda()
-          .map((f) => (f.o.entity_ref ?? '').trim())
-          .filter((r) => r.startsWith('oblig:') && !this.evidenciaRespondidas().has(r) && !this.evidenciaPedida.has(r))
+        // `[PGP.58]` Primero las facturas de los pagos ABIERTOS: es donde alguien está revisando.
+        refs = [...this.refsDePagosAbiertos(), ...this.filasDeuda().map((f) => (f.o.entity_ref ?? '').trim())]
+          .filter((r, i, all) => r.startsWith('oblig:') && all.indexOf(r) === i
+            && !this.evidenciaRespondidas().has(r) && !this.evidenciaPedida.has(r))
           .slice(0, 200);
         if (!refs.length) return;
         refs.forEach((r) => this.evidenciaPedida.add(r));

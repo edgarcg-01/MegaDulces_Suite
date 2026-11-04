@@ -200,6 +200,7 @@ interface VentanaRow {
   supplier_id: string | null; branch_code: string | null; vence: string | null;
   pronto_fecha_limite: string | null; pronto_tasa: number | string | null;
   pronto_beneficio: number | string | null; pronto_estado: string | null;
+  entity_ref: string | null; doc_ref: string | null;
 }
 export interface CreateAgreementDto {
   obligation_source: ObligationSource; obligation_id: string;
@@ -1019,6 +1020,8 @@ export class PaymentCalendarService {
       for (const it of items as any[]) (bySource[it.obligation_source] ??= []).push(it.obligation_id);
       const labels = new Map<string, {
         beneficiary: string; concept: string; supplier_id?: string; branch_code?: string | null;
+        /** `[PGP.58]` La llave de la ficha y de la evidencia, y la referencia que tecleó quien capturó. */
+        entity_ref?: string | null; doc_ref?: string | null;
         // `[PGP.36]` Sólo el origen derivado los trae: los otros no tienen factura del ERP detrás.
         vence?: string | null;
         /** `[PGP.40]` La etiqueta vino del universo completo: el ERP ya no debe esa factura. */
@@ -1057,11 +1060,23 @@ export class PaymentCalendarService {
               's.id AS supplier_id', 'v.sucursal AS branch_code',
               trx.raw('v.vencimiento AS vence'),
               trx.raw(sqlVentanaProntoPago('v', 'd')),
+              /**
+               * `[PGP.58]` **Desde el pago se tiene que poder ABRIR la factura** (Edgar, 2026-11-04:
+               * «¿puedo ver la factura en PDF o imagen? ¿el folio interno para ubicarla?»). La
+               * lista de deuda ya lo hacía; el desglose de un pago del día —donde se revisa antes
+               * de pagar o autorizar— sólo decía sucursal, folio e importe. Medido ese día sobre
+               * las 184 facturas vivas de los pagos pendientes: **121 con archivo, 44 sólo con UUID,
+               * 18 sin nada**, y ninguna se podía abrir desde el pago. El `entity_ref` es la MISMA
+               * llave natural que usan la ficha y `v_payable_evidence` (ver la pata `legKepler`).
+               */
+              trx.raw(`'oblig:' || v.sucursal || '|' || v.doc_tipo || '|' || v.doc_sub || '|' || btrim(v.folio) AS entity_ref`),
+              trx.raw(`nullif(btrim(v.referencia), '') AS doc_ref`),
             );
           for (const r of rows as VentanaRow[]) {
             labels.set(`${source}:${r.id}`, {
               beneficiary: r.beneficiary, concept: r.concept,
               supplier_id: r.supplier_id ?? undefined, branch_code: r.branch_code ?? null,
+              entity_ref: r.entity_ref ?? null, doc_ref: r.doc_ref ?? null,
               vence: r.vence ?? null,
               pronto_fecha_limite: r.pronto_fecha_limite ?? null,
               pronto_tasa: r.pronto_tasa === null || r.pronto_tasa === undefined ? null : Number(r.pronto_tasa),
@@ -1094,19 +1109,23 @@ export class PaymentCalendarService {
                 trx.raw(`coalesce(nullif(btrim(k.c6), ''), 'Factura') AS concept`),
                 trx.raw(`s.id AS supplier_id`),
                 trx.raw(`k.sucursal AS branch_code`),
+                // `[PGP.58]` Saldada o no, el documento existe y su papel también.
+                trx.raw(`'oblig:' || k.sucursal || '|' || k.c4 || '|' || k.c5 || '|' || btrim(k.c6) AS entity_ref`),
+                trx.raw(`nullif(btrim(k.c16), '') AS doc_ref`),
               )
               .from(trx.raw(`kepler_ods.kdxe k`))
               .joinRaw(`LEFT JOIN LATERAL (SELECT c3 FROM kepler_ods.kdxd WHERE btrim(c2) = btrim(k.c2) LIMIT 1) d ON true`)
               .joinRaw(`LEFT JOIN catalog.suppliers s ON btrim(s.code) = btrim(k.c2)`)
               .whereRaw(`btrim(k.c1) = k.sucursal AND k.c3 = 'A'`)
               .whereRaw(`md5('kepler_payable|'||k.sucursal||'|'||k.c4||'|'||k.c5||'|'||btrim(k.c6))::uuid = ANY(?::uuid[])`, [faltan]);
-            for (const r of rescate as { id: string; beneficiary: string; concept: string; supplier_id: string | null; branch_code: string | null }[]) {
+            for (const r of rescate as { id: string; beneficiary: string; concept: string; supplier_id: string | null; branch_code: string | null; entity_ref: string | null; doc_ref: string | null }[]) {
               // ⛔ Se rescatan SÓLO el nombre, el folio y la sucursal. La ventana de pronto pago
               // NO: una factura saldada no tiene descuento que capturar, y publicarlo la pondría
               // a competir por atención con el aviso de que no se puede pagar.
               labels.set(`${source}:${r.id}`, {
                 beneficiary: r.beneficiary, concept: r.concept,
                 supplier_id: r.supplier_id ?? undefined, branch_code: r.branch_code ?? null,
+                entity_ref: r.entity_ref ?? null, doc_ref: r.doc_ref ?? null,
                 saldada: true,
               });
             }
@@ -1145,6 +1164,8 @@ export class PaymentCalendarService {
           concept: label?.concept ?? '—',
           supplier_id: label?.supplier_id ?? null,
           branch_code: label?.branch_code ?? null,
+          entity_ref: label?.entity_ref ?? null,
+          doc_ref: label?.doc_ref ?? null,
           kepler_saldada: saldada,
           // `[PGP.36]` La razón por la que esta factura está en el día de hoy.
           vence: label?.vence ?? null,
