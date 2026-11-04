@@ -973,12 +973,56 @@ contra las dos pantallas. **Primero se miden (C0), después se cambia el número
 - La regla de temporalidad de AB §4 (clasificación ±50 % con vigencia): se retoma después de
   PQ.41, que dice si hace falta además del factor.
 
+### 16.5 PQ.42 — resultado: el día sin foto SÍ es un agotado (2026-11-04)
+
+**Cómo se toma la foto** (`stock-snapshot.service.ts`, AB.0b): a las **23:50**, guarda todo renglón
+con existencia distinta de cero —también los negativos— y la cobertura por almacén aparte. La
+ausencia de un par en un almacén cubierto es **cero exacto** al cierre del día.
+
+**Árbitro: la venta del día siguiente.** Pares A/B que vendieron en los últimos 30 días y tuvieron
+existencia al menos una noche; cada día se clasifica por la foto de la noche anterior:
+
+| Clase | Noche anterior | Días-par | Días con venta |
+|---|---|---:|---:|
+| A | con existencia | 113,663 | **65.5 %** |
+| A | sin existencia | 13,102 | **16.3 %** |
+| B | con existencia | 141,277 | **38.1 %** |
+| B | sin existencia | 22,127 | **6.9 %** |
+
+Un día que arranca sin existencia vende **4 veces menos** (A) y **5 veces menos** (B): la foto en
+cero es un agotado real. El 16 % que sí vende se explica por mercancía que entra durante el día.
+⚠️ Ese primer corte, sin restringir a pares que venden, daba 1.1 % contra 61 %: inflaba la diferencia
+con pares que nunca venden. Se tiró.
+
+**La venta que el motor no ve.** Sólo pares con 7 o más días sin existencia y 10 o más con
+existencia (cota conservadora: deja fuera los agotados crónicos). Venta diaria real = venta en días
+con existencia ÷ esos días; la del motor = venta total ÷ días de la ventana:
+
+| Clase | Pares con venta | Pares afectados | Venta no vista en 21 d (a precio) | Venta que el motor ve en 21 d |
+|---|---:|---:|---:|---:|
+| A | 4,726 | 603 | **$1.62 M** | $32.97 M |
+| B | 6,094 | 997 | **$0.76 M** | $6.70 M |
+
+**Veredicto: CONFIRMADO** que el motor subestima la demanda de lo que se agota (~$2.38 M de venta
+en 21 días, ~6 % de lo que ve). Tres cosas que esta cifra **no** es:
+
+1. **No es venta perdida.** Parte del cliente compra otro producto; la sustitución está NO MEDIDA.
+2. **Probablemente se queda corta.** La foto lee `commercial.stock`, la copia que ADR-055 retiró del
+   motor: hoy tiene existencia en **3,458 pares en que `v_erp_stock_on_hand` dice cero** (y lo
+   contrario en 205). Días sin existencia que la copia ve con existencia no entran en esta cuenta.
+3. **No es independiente del todo.** Venta y existencia salen de Kepler; es la mejor evidencia
+   disponible, no un testigo externo.
+
+⭐ **Hallazgo aparte para AB:** la foto diaria (el reloj de AB.0b) y el motor leen **dos
+existencias distintas**. Cuando D17 mude el motor al ODS, la foto tiene que leer la misma vista.
+
 ---
 
 ## 10. Bitácora
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-04 | PM firmó **D25–D28**. **PQ.42 🧪** (§16.5): el día sin foto es agotado (A vende 65.5 % de los días con existencia contra 16.3 % sin ella); el motor no ve ~$2.38 M de venta en 21 d. La foto lee la copia `commercial.stock` y el motor la vista del ODS | PM + sesión Claude |
 | 2026-11-04 | «Pasa a proponer» → **§16, sin firma**: tres mediciones primero (PQ.41 backtest de temporada contra 2025 · PQ.42 ¿la foto sin fila es agotado? · PQ.43 paridad mesa vs Pedido), después una sola falta en `libs/` y temporada + días agotados en la vista del ODS de D17 (nunca en el importer). Decisiones D25–D28. No abre fase (7 🔨 contra 4) | PM + sesión Claude |
 | 2026-11-04 | «No se está considerando la estacionalidad… Pedido y Autoabasto en sincronía; antes de proponer, revisa» → **§15**, sólo hallazgos. El factor de temporada tiene cuatro huecos (meses en cero fuera del índice, piso de 0.5, fin de pico que excluye la temporada, un solo año de historia); 39025 sale con factor 1.000 (control 2.82 = pantalla). Pedido y la mesa comparten la fuente y difieren en cobertura, cumplimiento y traspasos en camino. Otros: días agotados cuentan como venta cero (PLAUSIBLE), feriados móviles, traspasos de la Suite como plan paralelo con 640 repetidos. Corregido el «$20.9 M parados» de la auditoría de la mañana. Nivel B + C; nivel A no | PM + sesión Claude |
 | 2026-10-28 | «La requisición no aparece para generar la OC en Kepler; y generemos la OC automáticamente» → **PQ.21 🔨** (`c42` saldo pendiente + IVA/IEPS de la ficha) y **PQ.22 🔨** (OC X-A-35 ligada, misma transacción, interruptor por sucursal apagado). Reglas medidas en `kepler_ods`; ensayo contra Kepler NO MEDIDO (sin `pg_hba` o sin GRANT `kdxd` desde desarrollo; 01/06/07 sin GRANT) (§14.6) | PM + sesión PQ |
