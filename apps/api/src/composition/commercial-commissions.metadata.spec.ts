@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import { CommercialCommissionsModule } from '@megadulces/commercial';
+import { Permission } from '@megadulces/platform-core';
 
 /**
  * ⛔ `[RD.100]` Regla 30 del protocolo de PR: se agregó `CommissionBeneficiariosService` al
@@ -13,6 +14,8 @@ describe('[RD.100] CommercialCommissionsModule: la nómina del supervisor arranc
   const controllers = (Reflect.getMetadata('controllers', CommercialCommissionsModule) ?? []) as Clase[];
   const providers = (Reflect.getMetadata('providers', CommercialCommissionsModule) ?? []) as Clase[];
   const por = (lista: Clase[], nombre: string) => lista.find((c) => c?.name === nombre);
+  const exportados = ((Reflect.getMetadata('imports', CommercialCommissionsModule) ?? []) as object[])
+    .flatMap((m) => (Reflect.getMetadata('exports', m) ?? []) as Clase[]);
 
   it('el módulo registra el servicio de la nómina del supervisor', () => {
     expect(por(controllers, 'CommercialCommissionsController'), 'falta el controlador').toBeDefined();
@@ -24,8 +27,19 @@ describe('[RD.100] CommercialCommissionsModule: la nómina del supervisor arranc
     expect(Array.isArray(tipos) && tipos.length > 0, 'sin design:paramtypes esta prueba no mide nada').toBe(true);
     expect(tipos!.every((t) => typeof t === 'function' && t !== Object), `paramtypes: ${tipos!.map((t) => t?.name).join(', ')}`).toBe(true);
     expect(tipos).toContain(por(providers, 'CommissionBeneficiariosService'));
-    // Todo lo que el constructor pide está registrado en el módulo: si no, Nest no arranca.
-    for (const t of tipos!) expect(por(providers, t.name), `${t.name} no está en providers`).toBeDefined();
+    // Todo lo que el constructor pide está registrado en el módulo o lo exporta un módulo que
+    // éste importa: si no, Nest no arranca.
+    for (const t of tipos!) expect(por(providers, t.name) ?? por(exportados, t.name), `${t.name} no está en providers ni lo exporta un import`).toBeDefined();
+  });
+
+  it('[DP.3.2] las definiciones llegan por el módulo que las exporta, con la llave de comisiones', () => {
+    const ctrl = por(controllers, 'CommercialCommissionsController')!;
+    const tipos = Reflect.getMetadata('design:paramtypes', ctrl) as Clase[];
+    expect(tipos.map((t) => t?.name)).toContain('BusinessDefinitionsService');
+    expect(por(exportados, 'BusinessDefinitionsService'), 'falta importar BusinessDefinitionsModule').toBeDefined();
+    const metodo = (ctrl as unknown as { prototype: Record<string, unknown> }).prototype['definiciones'];
+    expect(typeof metodo, 'falta GET /definitions').toBe('function');
+    expect(Reflect.getMetadata('permissions', metodo as object)).toEqual([Permission.COMMERCIAL_COMMISSIONS_VER]);
   });
 
   it('el body de POST /supervisors es un tipo, no un valor: Swagger lee Object', () => {

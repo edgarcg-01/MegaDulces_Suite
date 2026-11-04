@@ -2,7 +2,9 @@ import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import {
   RolesGuard, RequirePermissions, RequireAnyPermission, Permission, isPlatformAdminRole,
+  BusinessDefinitionsService,
 } from '@megadulces/platform-core';
+import type { DefinicionVista } from '@megadulces/contracts';
 import { CommercialCommissionsService, type SimulacionEscala, type CorridaConLineas } from './commercial-commissions.service';
 import { CommissionRecalcService, type RecalcResultado } from './commission-recalc.service';
 import { CommissionContrastService, type FaltoResumen, type FaltoFila } from './commission-contrast.service';
@@ -50,6 +52,7 @@ export class CommercialCommissionsController {
     private readonly bonosSvc: CommissionBonosService,
     private readonly autoRunSvc: CommissionAutoRunService,
     private readonly beneficiariosSvc: CommissionBeneficiariosService,
+    private readonly defs: BusinessDefinitionsService,
   ) {}
 
   /**
@@ -230,6 +233,19 @@ export class CommercialCommissionsController {
   })
   universe() {
     return this.service.listUniverse();
+  }
+
+  /**
+   * `[DP.3.2]` Las preguntas de negocio de las que depende esta nómina (vecinal, TLMK, ausencias,
+   * bono de asistencia, faltante…), con su respuesta vigente o «sin definir» y su dueño.
+   * ⛔ Va por COMISIONES_VER y no por `GET /definitions` (DEFINICIONES_VER, sólo Dirección): quien
+   * mira la nómina tiene que ver qué reglas le faltan, y sólo las de ESTE consumidor.
+   */
+  @Get('definitions')
+  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_VER)
+  @ApiOperation({ summary: 'Las definiciones de negocio de comisiones RD, con su estado y su dueño' })
+  definiciones(): Promise<DefinicionVista[]> {
+    return this.defs.listar('commercial.commissions');
   }
 
   /**

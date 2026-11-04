@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 355 KB, 5284 líneas, 38 secciones.
+> **Índice navegable** — 360 KB, 5356 líneas, 38 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/VERDAD_ABSOLUTA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -41,10 +41,10 @@
 | 4370 | 4438 | 4 | 29. ⭐⭐ El anti-réplica de `kdm1` no filtra RÉPLICAS: filtra RUTAS — $5.87M fuera de seis vistas (CG, 2026-10-1 |
 | 4439 | 4733 | 21 | 30. ⭐⭐ `/compras/pedido`: el motor de compra no veía un CANAL ENTERO ($12.92M/30d) — y la misma pantalla leía  |
 | 4734 | 4951 | 13 | 31. ⭐⭐ UNIDADES DE MEDIDA: hay TRES unidades, no una — el árbitro cubre el 91.4 % y el 2.2 % que no cierra mue |
-| 4952 | 5108 | 10 | 32. ⭐⭐ LA COMISIÓN DE RUTA DIRECTA: seis números deciden un depósito, y ninguno tenía árbitro declarado (RD, 2 |
-| 5109 | 5154 | 5 | 33. ⭐⭐ EL LIBRO DE COMPRAS: el asiento tiene árbitro; qué facturas entran, todavía no (LC.19, 2026-10-21) |
-| 5155 | 5239 | 7 | 34. ⭐⭐ EL PRECIO DE UNA COTIZACIÓN: Kepler cobra la PRESENTACIÓN capturada (E.22–E.28, 2026-10-22) |
-| 5240 | 5334 | 8 | 35. ⭐⭐ EL PAGO A PROVEEDOR: cinco números distintos, cinco árbitros distintos (PGP, 2026-10-24) |
+| 4952 | 5180 | 15 | 32. ⭐⭐ LA COMISIÓN DE RUTA DIRECTA: seis números deciden un depósito, y ninguno tenía árbitro declarado (RD, 2 |
+| 5181 | 5226 | 5 | 33. ⭐⭐ EL LIBRO DE COMPRAS: el asiento tiene árbitro; qué facturas entran, todavía no (LC.19, 2026-10-21) |
+| 5227 | 5311 | 7 | 34. ⭐⭐ EL PRECIO DE UNA COTIZACIÓN: Kepler cobra la PRESENTACIÓN capturada (E.22–E.28, 2026-10-22) |
+| 5312 | 5406 | 8 | 35. ⭐⭐ EL PAGO A PROVEEDOR: cinco números distintos, cinco árbitros distintos (PGP, 2026-10-24) |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -4958,6 +4958,12 @@ de ahí**: acierta menos de 1 de cada 10 veces que opina.
 >
 > **Medido contra prod** (`pg-prod`, `system_identifier 7688376744939610156`) el **2026-10-20**,
 > sólo lectura.
+>
+> ⚠️ **Re-medido el 2026-11-04 → [§32.6](#326-re-medido-el-2026-11-04-dónde-se-separan-el-libro-y-la-fuente).**
+> Lo de 32.0 («el motor nunca calculó») y la mitad de 32.5 ya no describen el estado; se dejan
+> como estaban para que se vea qué cambió. **Respuesta corta: todavía NO hay verdad absoluta** —
+> el motor reproduce al peso **dos de cada tres** comisiones del libro, y la diferencia vive en la
+> **venta** (días que la fuente no tiene), no en la regla.
 
 ### 32.0 El estado, antes de cualquier otra cosa
 
@@ -5060,6 +5066,72 @@ quincena olvidada se viera normal.
 
 > ⛔ **Mientras estos seis estén abiertos, «100 % por el motor» describe una meta, no un estado.**
 > El motor puede calcular; lo que todavía no puede es **defender** cada peso contra un testigo.
+
+### 32.6 Re-medido el 2026-11-04: dónde se separan el libro y la fuente
+
+Sólo lectura contra `pg-prod` (control de `system_identifier` en cada guion). Testigos: las
+líneas del libro (`commission_run_lines`, `origen='libro'`), la hoja de entrada del libro
+(**CONCENTRADO DE INFORMACIÓN**: venta por día y ruta, leída con
+`database/scripts/lib/libro-comisiones-rd.js`), la fuente del motor (`v_rd_commission_sales`) y la
+réplica cruda de Wincaja (`wincaja.maestro_mov_almacen`).
+
+**El estado, corregido:**
+
+| | 2026-10-20 | 2026-11-04 |
+|---|---:|---:|
+| líneas del motor (`commission_engine_lines`) | 0 | **721**, 21 quincenas (calculadas el 29-oct) |
+| comisiones de chofer que cuadran al peso con el libro | sin medir | **161 de 238** (Q1–Q3 y Q8–Q9 completas) |
+| diferencia total del motor contra el libro | sin medir | el motor paga **$97,657 menos** en 20 quincenas |
+| corridas aprobadas | 0 | **0** (20 del libro + 1 manual) |
+| decisiones abiertas | D3 · D5 · D6 · D7 | **firmadas el 29-oct** (`FASE_RD` §9.4bis); D3 volvió a firma con el dato de los egresos |
+| vecinales | «¿comisionan?» | **sí comisionan** (Edgar, 4-nov); testigo: el libro de Comercial «COMISIONES RV» |
+
+**Dónde vive la diferencia** (por ruta × quincena, contra la fuente de hoy; la fuente no cambió
+desde que corrió el motor: 0 de 233):
+
+| La fuente, contra el libro | ruta-quincena | lo que mueve en comisión |
+|---|---:|---:|
+| ve la misma venta y el mismo subtotal | 128 | $0 |
+| ve **menos venta** (le faltan días) | 37 | **−$83,423** |
+| sin fuente en todo el periodo | 5 | −$15,131 |
+| misma venta, **otro subtotal** (definición; push) | 44 | +$382 |
+| venta distinta en menos de 0.5 % | 16 | +$128 |
+| ve más venta | 8 | +$388 |
+
+⭐ **La regla no es la que difiere: es la VENTA.** Lo que es sólo subtotal mueve unos cientos de
+pesos y ya tiene árbitro firmado (D5: el subtotal contra Kepler; el que se aleja es el libro).
+
+**Día por día** (la hoja de entrada del libro contra la fuente, 2-ene a 27-oct): **2,785 de 2,944**
+días con venta del libro cuadran **al peso** ($51.7M idénticos). **79 días ($1.64M) están en el
+libro y no en la fuente**, y no aparecen bajo ningún otro código de ruta (cruce por importe: 1 de
+111 casa; placebo con la fecha corrida ±7 días: 0). Se juntan en dos causas:
+
+1. ⭐⭐ **El relevo Wincaja → envío desde la camioneta dejó días sin nadie.** La réplica cruda de
+   Wincaja deja de recibir la caja de la **321 el 2-jun**, la de la **21 y la 26 el 27-jun** y la de
+   la **322 el 1-jul**; el envío (`push`) de la 21 y la 26 arranca el **6-jul**, y la 321 y la 322
+   **nunca** pasan al envío. Los días del hueco (29-jun a 4-jul en la 21 y la 26; 3-jun a 15-jul en
+   la 321) son exactamente los que el libro tiene y la fuente no: **junio y julio suman $992k de
+   los $1.64M**. ⇒ **Ahí el libro tiene razón y la fuente no puede arbitrar** (Q11–Q14).
+2. ⚠️ **El lunes 23 de febrero**: el libro trae un lunes completo para 10 rutas (es lo que hunde
+   Q4 entera, 12 de 12 rutas) y ni la fuente ni la réplica cruda lo tienen. **Pero Kepler dice que
+   ese día la empresa casi no operó**: la venta `U-D-10` cayó ~80 % contra el lunes anterior
+   (367 documentos contra 1,217) y el cobro `U-A-5` de la matriz ~70 % (38 contra 132). El libro
+   tampoco tomó prestado un día de otra quincena (ningún día del 29-ene al 11-mar casa con lo que
+   le sobra, ruta por ruta). **Abierto, con evidencia en los dos sentidos**: se contesta con quien
+   sabe si las camionetas salieron ese lunes, no con más datos.
+
+El resto (días sueltos de una ruta, 41 días donde la fuente ve más y 32 donde ve menos) **no se
+investigó** todavía.
+
+**Qué falta para poder decir «verdad absoluta»:**
+
+- **Para la historia (Q1–Q21)**: el libro es el testigo de la venta en los días del relevo, y la
+  fuente no se corrige inventando esos días (regla 1: cero importers). Se **declaran** como
+  `sin_dato_en_la_fuente` en el contraste, con el monto, y no se cuentan contra el motor.
+- **Para lo que viene (Q22 en adelante)**: el relevo ya pasó — las 11 rutas activas venden por el
+  envío desde la camioneta. La pregunta abierta de `[RD.94]` sigue siendo el riesgo: un día con
+  otra serie no sube y **nada lo marca**. D5 exige 2 quincenas seguidas con cada chofer a ±$1;
+  todavía no hay ninguna medida con el motor contra el libro desde Q21.
 
 ### 32.6 ⭐⭐ El contraste, explicado peso por peso (2026-11-04)
 

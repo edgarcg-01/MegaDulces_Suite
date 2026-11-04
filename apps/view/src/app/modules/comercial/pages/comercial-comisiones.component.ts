@@ -1,5 +1,8 @@
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
+import { NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import type { DefinicionVista } from '@megadulces/contracts';
+import { temasDeVista, textoTema, type TemaDefinicion } from './comisiones-definiciones.util';
 import { FormsModule } from '@angular/forms';
 import { TagModule } from 'primeng/tag';
 import { TableModule } from 'primeng/table';
@@ -98,12 +101,35 @@ type Vista = typeof VISTAS[number];
 @Component({
   selector: 'app-comercial-comisiones',
   standalone: true,
-  imports: [PageTabsComponent, FormsModule, TagModule, LoadStateComponent, MetricStripComponent, SegmentedComponent, FreshnessPillComponent, TableModule, ContextHelpComponent, ComercialComisionesObjetivoComponent, ToastModule, ConfirmDialogModule, DialogModule, InputNumberModule],
+  imports: [PageTabsComponent, RouterLink, NgTemplateOutlet, FormsModule, TagModule, LoadStateComponent, MetricStripComponent, SegmentedComponent, FreshnessPillComponent, TableModule, ContextHelpComponent, ComercialComisionesObjetivoComponent, ToastModule, ConfirmDialogModule, DialogModule, InputNumberModule],
   providers: [MessageService, ConfirmationService],
   template: `
     <div class="cm-page">
       <p-toast />
       <p-confirmdialog />
+
+      <!-- [DP.3.2] Las reglas que el cálculo todavía no aplica, en la vista donde pesan (D2/D4 de
+           la fase DP). Texto neutro: 15 avisos de color iguales no distinguían nada (DP.UI.2).
+           Si la lectura falla se DECLARA: su silencio se leería como «no falta nada». -->
+      <ng-template #reglasSinDefinir let-v>
+        @if (definicionesErr(); as e) {
+          <p class="cm-muted cm-micro">No se pudo leer qué reglas de la nómina faltan definir: {{ e }}</p>
+        } @else if (temasDe(v); as temas) {
+          @if (temas.length) {
+            <section class="cm-reglas" aria-label="Reglas que el cálculo todavía no aplica">
+              <p class="cm-eyebrow">Lo que el cálculo todavía no aplica</p>
+              <ul>
+                @for (t of temas; track t.tema) {
+                  <li><span class="cm-reglas-tema">{{ t.etiqueta }}</span> · {{ textoTema(t) }}</li>
+                }
+              </ul>
+              @if (puedeAbrirDefiniciones(temas)) {
+                <a routerLink="/admin/definiciones" class="cm-reglas-link">Ver las preguntas</a>
+              }
+            </section>
+          }
+        }
+      </ng-template>
 
       <!-- [RD.84] Alta y edicion del padron. Un solo dialogo para los dos actos: dar de baja es
            editar con fecha y motivo, no un boton aparte — tenerlo aparte invitaba a la baja sin
@@ -360,13 +386,23 @@ type Vista = typeof VISTAS[number];
             se paga <strong class="cm-neg">$0</strong>.
           </p>
         }
-        @if (padronVendeSinCobrar(); as m) {
-          <p class="cm-muted cm-micro">
-            Y {{ money(m) }} de <strong>subtotal</strong> en 30 dias esta en rutas que
-            <strong>no comisionan</strong>. Puede ser correcto — las vecinales no son Ruta
-            Directa — pero con el monto al lado la exclusion se puede revisar.
+        <!-- [RD.107] Decia «puede ser correcto — las vecinales no son Ruta Directa». Es falso:
+             las vecinales SI comisionan (Edgar, 2026-11-04) y el libro de la suite no les pago
+             ninguna quincena, asi que se pagan fuera de aqui. -->
+        @if (padronVecinales(); as v) {
+          <p class="cm-falto-grito">
+            {{ v.rutas }} rutas vecinales venden {{ money(v.subtotal) }} de <strong>subtotal</strong>
+            en 30 días y <strong>sí comisionan</strong>, pero este cálculo no tiene su tabulador:
+            su comisión se paga fuera de la suite y aquí no aparece.
           </p>
         }
+        @if (padronVendeSinCobrar(); as m) {
+          <p class="cm-muted cm-micro">
+            Y {{ money(m) }} de <strong>subtotal</strong> en 30 dias esta en otras rutas que
+            <strong>no comisionan</strong>; con el monto al lado la exclusion se puede revisar.
+          </p>
+        }
+        <ng-container [ngTemplateOutlet]="reglasSinDefinir" [ngTemplateOutletContext]="{ $implicit: 'padron' }" />
         <div class="cm-table-wrap">
           <table class="surf-table surf-table--plain surf-table--sticky">
             <thead><tr>
@@ -568,6 +604,7 @@ type Vista = typeof VISTAS[number];
             </button>
           }
         </div>
+        <ng-container [ngTemplateOutlet]="reglasSinDefinir" [ngTemplateOutletContext]="{ $implicit: 'bonos' }" />
         <div class="cm-table-wrap">
           <table class="surf-table surf-table--plain surf-table--sticky">
             <thead><tr>
@@ -1067,6 +1104,7 @@ type Vista = typeof VISTAS[number];
                 @if (r.origen) { · origen {{ etiquetaOrigen(r.origen) }} }
               }
             </p>
+            <ng-container [ngTemplateOutlet]="reglasSinDefinir" [ngTemplateOutletContext]="{ $implicit: 'quincena' }" />
 
             <!-- [RD.83] El ciclo deja de ser un dibujo. Los cuatro pasos estaban pintados como
                  una lista explicativa y sólo el primero tenía botón: la pantalla CONTABA el
@@ -1610,6 +1648,12 @@ type Vista = typeof VISTAS[number];
     .cm-falto-tit { flex:1 1 22rem; min-width:0; }
     /* El token --fs-base NO existe: los reales son --fs-body / --fs-sm / --fs-lg. Sin respaldo. */
     .cm-falto-grito { margin:.2rem 0 .15rem; font-size:var(--fs-body); color:var(--c-text-1); }
+    .cm-reglas { margin:.5rem 0; font-size:var(--fs-sm); color:var(--c-text-2); }
+    .cm-reglas ul { margin:.15rem 0 .25rem; padding-left:1.1rem; }
+    .cm-reglas li { margin:.1rem 0; }
+    .cm-reglas-tema { font-weight:var(--fw-medium); color:var(--c-text-1); }
+    .cm-reglas-link { color:var(--action); font-size:var(--fs-sm); }
+    .cm-reglas-link:focus-visible { outline:2px solid var(--action); outline-offset:2px; }
     .cm-falto-monto { text-align:right; }
     .cm-fila-grito td { background:color-mix(in srgb, var(--c-bad) 7%, transparent); }
 
@@ -1786,6 +1830,34 @@ export class ComercialComisionesComponent {
    * periodo en que aplica una escala nueva. Es el mismo acto las dos veces.
    */
   readonly puedeGestionar = computed(() => this.perms.has(Permission.COMMERCIAL_COMMISSIONS_GESTIONAR));
+
+  /**
+   * `[DP.3.2]` Las preguntas de negocio de las que depende esta nómina (`platform.business_definitions`,
+   * consumidor `commercial.commissions`). `null` = todavía no se leyó: no se pinta nada, porque
+   * «no falta ninguna regla» sólo se puede afirmar con la lista en la mano.
+   */
+  readonly definiciones = signal<DefinicionVista[] | null>(null);
+  readonly definicionesErr = signal<string | null>(null);
+
+  /** Los temas de una vista con lo que les falta (`comisiones-definiciones.util.ts`). */
+  temasDe(v: Vista): TemaDefinicion[] {
+    return temasDeVista(this.definiciones() ?? [], v, this.yo());
+  }
+  readonly textoTema = textoTema;
+
+  /** El enlace sólo a quien la pantalla de definiciones le muestra algo: quien ve todas, o el
+   *  dueño de alguna de estas (su bandeja). A los demás, el nombre del dueño basta. */
+  puedeAbrirDefiniciones(temas: TemaDefinicion[]): boolean {
+    if (this.perms.has(Permission.DEFINICIONES_VER) || this.perms.has(Permission.DEFINICIONES_GESTIONAR)) return true;
+    return this.perms.has(Permission.DEFINICIONES_CONTESTAR) && temas.some((t) => t.mias);
+  }
+
+  private cargarDefiniciones(): void {
+    this.api.commissionDefiniciones().subscribe({
+      next: (d) => { this.definiciones.set(d); this.definicionesErr.set(null); },
+      error: (e) => this.definicionesErr.set(e?.error?.message ?? 'error de red'),
+    });
+  }
   readonly recalculando = signal(false);
   readonly recalc = signal<CommissionRecalcResult | null>(null);
 
@@ -2000,7 +2072,8 @@ export class ComercialComisionesComponent {
     return [...acc.values()].sort((a, b) => a.nombre.localeCompare(b.nombre));
   });
 
-  constructor() { this.cargar(); }
+  // [DP.3.2] Las definiciones no dependen del año ni de la quincena: se piden una vez.
+  constructor() { this.cargar(); this.cargarDefiniciones(); }
 
   cargar() {
     this.cargando.set(true);
@@ -2243,6 +2316,7 @@ export class ComercialComisionesComponent {
       case 'cobra_sin_fuente':  return 'Cobra y su fuente no da señal';
       case 'fuente_rezagada':   return 'Le faltan días';
       case 'vende_sin_cobrar':  return 'Vende y no comisiona';
+      case 'vecinal_sin_tabulador': return 'Comisiona, pero el cálculo no tiene su tabulador';
       case 'dato_imposible':    return 'Trae venta con fecha futura';
       default:                  return '—';
     }
@@ -2301,9 +2375,10 @@ export class ComercialComisionesComponent {
    *  · `cobra_sin_fuente` — comisiona y su fuente no da señal. Es dinero que se va a calcular
    *    sobre nada: el tabulador es un acantilado, así que «sin días» no paga «un poco menos»,
    *    paga CERO.
-   *  · `vende_sin_cobrar` — no comisiona y sí vende. Puede ser correcto (las vecinales no son
-   *    Ruta Directa), pero con el monto al lado la exclusión se puede revisar; sin él es una
-   *    lista de códigos raros que nadie mira.
+   *  · `vecinal_sin_tabulador` — `[RD.107]` vecinal que vende. Las vecinales SÍ comisionan (Edgar,
+   *    2026-11-04) y el libro no les pagó ninguna quincena: el cálculo no tiene su regla.
+   *  · `vende_sin_cobrar` — cualquier otra que no comisiona y sí vende. Con el monto al lado la
+   *    exclusión se puede revisar; sin él es una lista de códigos raros que nadie mira.
    *  · `dato_imposible` — trae venta con fecha futura.
    */
   readonly padronHallazgos = computed(() => this.padron()
@@ -2312,7 +2387,10 @@ export class ComercialComisionesComponent {
       problema: r.comisiona && (r.fuente_estado === 'muerta' || r.fuente_estado === 'sin_fuente')
         ? 'cobra_sin_fuente'
         : r.tiene_dato_futuro ? 'dato_imposible'
-          : !r.comisiona && Number(r.subtotal_30d) > 0 ? 'vende_sin_cobrar'
+          // [RD.107] Las vecinales SÍ comisionan (Edgar, 2026-11-04): no es una exclusión
+          // correcta, es una regla que el cálculo no tiene. Se dicen aparte de lo demás.
+          : !r.comisiona && Number(r.subtotal_30d) > 0
+            ? (r.route_kind === 'vecinal' ? 'vecinal_sin_tabulador' : 'vende_sin_cobrar')
             : r.comisiona && r.fuente_estado === 'rezagada' ? 'fuente_rezagada' : null,
     }))
     .filter((r) => r.problema !== null)
@@ -2341,8 +2419,14 @@ export class ComercialComisionesComponent {
    * y un total más chico no se nota.
    */
   readonly padronVendeSinCobrar = computed(() => this.padron()
-    .filter((r) => !r.comisiona && Number(r.subtotal_30d) > 0)
+    .filter((r) => !r.comisiona && r.route_kind !== 'vecinal' && Number(r.subtotal_30d) > 0)
     .reduce((s, r) => s + Number(r.subtotal_30d), 0));
+
+  /** `[RD.107]` Las vecinales que venden: comisionan, y el cálculo no tiene con qué. */
+  readonly padronVecinales = computed(() => {
+    const filas = this.padron().filter((r) => !r.comisiona && r.route_kind === 'vecinal' && Number(r.subtotal_30d) > 0);
+    return filas.length ? { rutas: filas.length, subtotal: filas.reduce((s, r) => s + Number(r.subtotal_30d), 0) } : null;
+  });
 
   // ── `[RD.52]` El contraste ────────────────────────────────────────────────────────────────
 
