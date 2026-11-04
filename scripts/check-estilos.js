@@ -159,6 +159,13 @@ const TOPE = {
   // CERRADA 2026-10-03: las 206 pasaron a rem (root 16px → conversión exacta).
   breakpoint:    0,
   outline:       0,  // CERRADA 2026-10-03: eran 37 (27 + 10 que el chequeo por ARCHIVO escondia). Un outline:none nuevo sin anillo es ROJO
+  // ABIERTA 2026-11-04 (auditoria de /finanzas/calendario-pagos): un anillo que EXISTE pero no se ve.
+  // `outline: 2px solid var(--action-ring)` usa el HALO translucido (30 % de alpha) como anillo
+  // solido: medido 1.56:1 en claro y 1.52:1 en oscuro, contra el 3:1 de WCAG 1.4.11. La regla 4
+  // lo daba por bueno porque solo pregunta si hay anillo, no si se ve. tokens.css lo documenta
+  // desde el 2026-10-03 (outline -> --focus-ring, box-shadow -> --action-ring) y el patron volvio.
+  // 39 = 50 medidos menos los 11 de calendario-pagos; cruzado con grep: 39 usos en 27 archivos.
+  haloComoAnillo: 39,
 };
 
 /** La escala real, leída de tokens.css — no copiada a mano, que es como se desincronizan. */
@@ -194,10 +201,10 @@ function selectorAnillo(sel) {
   return sel.split(',').map((s) => s.trim() + ':focus-visible').join(', ');
 }
 
-// ── Las cuatro reglas, sobre un bloque de CSS ya extraído ───────────────────────────────────
+// ── Las cinco reglas, sobre un bloque de CSS ya extraído ────────────────────────────────────
 function analizar(css, rel, escala) {
   const limpio = sinComentarios(css);
-  const h = { fontSize: [], hex: [], breakpoint: [], outline: [] };
+  const h = { fontSize: [], hex: [], breakpoint: [], outline: [], haloComoAnillo: [] };
 
   // 1 — font-size con literal
   for (const m of limpio.matchAll(/font-size\s*:\s*([^;}]+)/g)) {
@@ -278,6 +285,12 @@ function analizar(css, rel, escala) {
     h.outline.push({ rel, sel: sel.length > 64 ? '…' + sel.slice(-62) : sel, espera: esperados[0] });
   }
 
+  // 5 — el halo translúcido usado como anillo sólido. Sólo `outline` y `outline-color`: en
+  //     `box-shadow` el 30 % de alpha es correcto (es un resplandor, no una línea).
+  for (const m of limpio.matchAll(/(^|[;{\s])outline(?:-color)?\s*:\s*[^;}]*var\(\s*--action-ring\s*\)/g)) {
+    h.haloComoAnillo.push({ rel });
+  }
+
   return h;
 }
 
@@ -316,6 +329,12 @@ if (process.argv.includes('--self-test')) {
     // La firma exacta de los 27 arreglados: apagar no es señalar.
     ['border:none + background:none NO son señal → rojo',
      '.c input{border:none;background:none;outline:none}',                      'outline', 1],
+    // Regla 5: el halo como anillo. La firma exacta de los 11 de /finanzas/calendario-pagos.
+    ['outline con el halo → rojo',  '.a:focus-visible{outline:2px solid var(--action-ring)}', 'haloComoAnillo', 1],
+    ['outline-color con el halo → rojo', '.a:focus-visible{outline-color:var(--action-ring)}', 'haloComoAnillo', 1],
+    ['outline con --focus-ring → limpio', '.a:focus-visible{outline:2px solid var(--focus-ring)}', 'haloComoAnillo', 0],
+    ['halo en box-shadow → limpio (es su uso)', '.a:focus-visible{box-shadow:0 0 0 3px var(--action-ring)}', 'haloComoAnillo', 0],
+    ['outline-offset no es outline → limpio', '.a{outline-offset:1px;box-shadow:0 0 0 2px var(--action-ring)}', 'haloComoAnillo', 0],
   ];
   let fallos = 0;
   for (const [nombre, css, regla, esperado] of casos) {
@@ -327,7 +346,7 @@ if (process.argv.includes('--self-test')) {
     console.error('\n❌ La compuerta no clasifica ' + fallos + ' caso(s) como debe. Arreglala antes de confiar en su verde.\n');
     process.exit(1);
   }
-  console.log('\n✅ ' + casos.length + ' casos: las 4 reglas marcan y eximen exactamente donde deben.\n');
+  console.log('\n✅ ' + casos.length + ' casos: las 5 reglas marcan y eximen exactamente donde deben.\n');
   process.exit(0);
 }
 
@@ -378,7 +397,7 @@ function bloquesDeComponente(src, noMedido) {
 
 const escala = escalaReal();
 const archivos = DIRS.flatMap((d) => walk(path.join(ROOT, d), []));
-const total = { fontSize: [], hex: [], breakpoint: [], outline: [] };
+const total = { fontSize: [], hex: [], breakpoint: [], outline: [], haloComoAnillo: [] };
 const noMedido = [];
 
 for (const abs of archivos) {
@@ -396,6 +415,7 @@ const ROTULO = {
   hex:        'hex crudo en una declaración de color',
   breakpoint: '@media con breakpoint en px (§R los pide en rem)',
   outline:    'outline:none sin un :focus-visible hermano',
+  haloComoAnillo: 'outline con el halo var(--action-ring) (1.56:1, no se ve)',
 };
 
 const COMO = {
@@ -403,6 +423,7 @@ const COMO = {
   hex:        'Usá el token semántico (--ok-soft-bg, --bad-border, --text-muted…). Un hex se ve bien en claro y roto en oscuro.',
   breakpoint: 'Pasalo a rem (640px = 40rem). En px, el breakpoint no acompaña el zoom al 200%.',
   outline:    'Si apagás el outline, el bloque TIENE que traer su :focus-visible con el anillo tokenizado. Sin anillo no hay teclado.',
+  haloComoAnillo: 'outline → var(--focus-ring) (sólido, 5.00:1); var(--action-ring) es sólo para box-shadow.',
 };
 
 let rojo = false;
@@ -432,7 +453,7 @@ const nm = noMedido.length
   ? ' ⚠️ ' + noMedido.length + ' bloque(s) con ${} NO MEDIDOS (su CSS depende de una expresión).'
   : '';
 
-console.log('✅ ' + archivos.length + ' archivo(s) · 4 reglas de CSS dentro de su tope:');
+console.log('✅ ' + archivos.length + ' archivo(s) · 5 reglas de CSS dentro de su tope:');
 for (const k of Object.keys(total)) {
   console.log('   ' + String(total[k].length).padStart(5) + ' / ' + String(TOPE[k]).padEnd(5) + ' ' + ROTULO[k]);
 }
