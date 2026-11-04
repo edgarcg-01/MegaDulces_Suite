@@ -95,6 +95,8 @@ function montar(opciones: { jornada?: string | null; saldosFalla?: boolean; gest
     suspenso: vi.fn(() => (opciones.suspenso === 'falla' ? throwError(() => ({ status: 503 })) : of(opciones.suspenso ?? SUSPENSO))),
     explicar: vi.fn(() => of({ estado: 'asentado' as const, entry_id: 'e11' })),
     reposiciones: vi.fn(() => of(opciones.hojas ?? HOJAS)),
+    hallazgos: vi.fn(() => of([])),
+    solicitudes: vi.fn(() => of([])),
     custodias: vi.fn(() => of(opciones.custodias ?? CUSTODIAS)),
     personas: vi.fn(() => of([{ usuario_id: 'u-p', nombre: 'Persona De Compras' }])),
     retiroACustodia: vi.fn(() => of({ estado: 'asentado' as const, entry_id: 'e20' })),

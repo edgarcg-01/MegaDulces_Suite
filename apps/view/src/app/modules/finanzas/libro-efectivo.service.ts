@@ -2,12 +2,24 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import type {
-  CobroEnVentanilla, CustodiaAbierta, EstadoDeCobro, ExplicarSuspenso, PersonaDeCustodia, RendirCustodia, ResultadoRendicion, RetiroACustodia, HojaDeReposicion, PagoEnVentanilla, PartidaEnSuspenso, PedirReposicion,
+  CobroEnVentanilla, ConteoDeCaja, CustodiaAbierta, EstadoDeCobro, HechoDePersona, ResultadoConteo, ExplicarSuspenso, PersonaDeCustodia, RendirCustodia, ResultadoRendicion, RetiroACustodia, HojaDeReposicion, PagoEnVentanilla, PartidaEnSuspenso, PedirReposicion,
   PlanDePagoVentanilla, QuienLlevaDeposito, ResultadoCobro,
   ResultadoHecho, ResultadoPago, SaldosDelLibro, VeredictoDePago,
 } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
 import { reintentarSi429 } from '../../core/utils/reintentar-429';
+
+/** `[LE.6.6]` Un hallazgo abierto del libro (la diferencia de un conteo, un hueco de la máquina…), como lo da `GET hallazgos`. */
+export interface HallazgoDelLibro {
+  id: string; source: string; account_code: string | null; business_date: string | null; amount_minor: string | null;
+  detail: Record<string, unknown> | null; owner_user: string | null; opened_at: string; dias_abierto: number | null;
+}
+
+/** Una solicitud que espera la firma de otra persona (cuatro ojos), como la da `GET solicitudes`. */
+export interface SolicitudDelLibro {
+  id: string; event_kind: string; gross_minor: string; registered_by: string; created_at: string; expires_at: string;
+  payload: { meta?: Record<string, string>; reason?: string } | null;
+}
 
 /**
  * `[LE.4.10]` `[LE.2.13]` El libro de efectivo nuevo (`finance/libro-efectivo`), del lado de la
@@ -62,6 +74,43 @@ export class LibroEfectivoService {
   /** `[LE.6.8]` Pide la reposición: nace por firmar; la firma de Tesorería da el código. */
   pedirReposicion(body: PedirReposicion, idempotencyKey: string): Observable<ResultadoPago> {
     return this.http.post<ResultadoPago>(`${this.base}/reposiciones`, body, { headers: new HttpHeaders({ 'Idempotency-Key': idempotencyKey }) });
+  }
+
+  // ── `[LE.6.3]` `[LE.6.4]` `[LE.6.6]` Tu día: abrir, contar, cerrar, arqueo, hallazgos, firmas ──
+
+  abrirJornada(fecha: string): Observable<void> {
+    return this.http.post<void>(`${this.base}/jornadas/${encodeURIComponent(fecha)}/abrir`, {});
+  }
+
+  /** Cierra quien hizo el último arqueo de cierre; firma la sesión (Tesorería). */
+  cerrarJornada(fecha: string): Observable<{ cerro: string; autorizo: string }> {
+    return this.http.post<{ cerro: string; autorizo: string }>(`${this.base}/jornadas/${encodeURIComponent(fecha)}/cerrar`, {});
+  }
+
+  /** El conteo ciego por pieza: de cierre, sorpresa (sin esperado) o relevo. */
+  contar(c: ConteoDeCaja): Observable<ResultadoConteo> {
+    return this.http.post<ResultadoConteo>(`${this.base}/conteos`, c);
+  }
+
+  /** Un hecho de persona (aquí, la apertura con el saldo de arranque: siempre la autoriza otra persona). */
+  registrarHecho(h: HechoDePersona, idempotencyKey: string): Observable<ResultadoHecho> {
+    return this.http.post<ResultadoHecho>(`${this.base}/hechos`, h, { headers: new HttpHeaders({ 'Idempotency-Key': idempotencyKey }) });
+  }
+
+  hallazgos(): Observable<HallazgoDelLibro[]> {
+    return this.http.get<HallazgoDelLibro[]>(`${this.base}/hallazgos`).pipe(reintentarSi429<HallazgoDelLibro[]>());
+  }
+
+  solicitudes(): Observable<SolicitudDelLibro[]> {
+    return this.http.get<SolicitudDelLibro[]>(`${this.base}/solicitudes`).pipe(reintentarSi429<SolicitudDelLibro[]>());
+  }
+
+  autorizar(id: string): Observable<{ entry_id: string }> {
+    return this.http.post<{ entry_id: string }>(`${this.base}/solicitudes/${encodeURIComponent(id)}/autorizar`, {});
+  }
+
+  rechazar(id: string, nota: string): Observable<void> {
+    return this.http.post<void>(`${this.base}/solicitudes/${encodeURIComponent(id)}/rechazar`, { nota });
   }
 
   /** `[LE.6.5]` Lo que cada persona tiene a su cargo. */

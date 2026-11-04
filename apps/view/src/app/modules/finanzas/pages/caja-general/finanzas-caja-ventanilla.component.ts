@@ -23,6 +23,7 @@ import { CashLedgerService, type PendientesResponse } from '../../cash-ledger.se
 import { LibroEfectivoService } from '../../libro-efectivo.service';
 import { CajaTabsComponent } from '../../caja-tabs.component';
 import { ConteoCajonComponent } from '../../components/conteo-cajon.component';
+import { VentanillaDiaComponent } from './ventanilla-dia.component';
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { money, dmy } from '../finanzas-format';
 import { armarCobros, armarCola, resumenCola, textoDiferencia, type FilaCobro, type FilaVentanilla } from './ventanilla.util';
@@ -64,7 +65,7 @@ type EstadoLibro = 'abierto' | 'sin_dia' | 'sin_medir';
   standalone: true,
   imports: [
     FormsModule, RouterLink, ButtonModule, TableModule, TagModule, DialogModule, InputTextModule,
-    LoadStateComponent, FreshnessPillComponent, MetricStripComponent, CajaTabsComponent, ConteoCajonComponent, ContextHelpComponent,
+    LoadStateComponent, FreshnessPillComponent, MetricStripComponent, CajaTabsComponent, ConteoCajonComponent, ContextHelpComponent, VentanillaDiaComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -82,6 +83,9 @@ type EstadoLibro = 'abierto' | 'sin_dia' | 'sin_medir';
                     [loading]="cargando()" (onClick)="cargar()" />
         </div>
       </header>
+
+      <!-- [LE.6.3] [LE.6.4] [LE.6.6] Tu día: abrir, arrancar, contar, cerrar, arqueo, firmas y hallazgos (la barra de §5.2). -->
+      <app-ventanilla-dia (cambio)="cargar()" />
 
       @if (libro() === 'sin_dia') {
         <p class="vt-aviso" role="status" data-testid="libro-sin-dia">
