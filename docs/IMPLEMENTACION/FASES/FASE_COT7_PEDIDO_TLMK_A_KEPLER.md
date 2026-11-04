@@ -328,6 +328,15 @@ ensayo en 00, 02–05, 07, 08 · pedidos con regalos (rechazados a propósito).
 
 ## Bitácora
 
+- **2026-11-04** — 🚀 **Zamora Centro encendida** (tope 1/día): faltaba `GRANT SELECT ON md.kdii, md.kdxd TO kepler_push`
+  en 02/03/04/05 (medido con `has_table_privilege` en los 9); lo aplicó la sucursal como `sa` en el servidor (`sa` no entra
+  por red desde md: `pg_hba`). Ensayo ✅ con la plantilla `0000767` (06-ago, 7 renglones). Encendidas: Padre Hidalgo,
+  Canindo, Morelia Abastos, Zamora Centro. **La Piedad Abastos NO se enciende:** con permiso, pero el `U-D-40 TELEMARK`
+  dejó de usarse ahí en abril (426–489/mes en feb–mar → 13 en abril → 0 desde mayo; quedan ~20/mes `SUCURSAL`) y sus dos
+  únicas plantillas CREADO (abril) traen el total de Kepler 0.08 y 0.15 debajo de la suma de sus propios renglones —
+  pregunta abierta a Edgar: dónde se capturan hoy los pedidos de telemarketing de sus clientes. 8 Esquinas y Yurécuaro:
+  sin permiso todavía. El interruptor de CEDIS aparece encendido (usuario `superoot`, 03-nov 17:54) sin plantilla: el
+  adaptador rechaza con motivo, no escribe.
 - **2026-11-03** — 🚀 **Primer pedido real.** Habilitado sólo en Padre Hidalgo (tope 1/día, 17:29): plantilla `0002568`
   (CREADO desde el 29-sep; la de julio `0000352` la rechazó el candado de presentación, PAQ 1 vs 20 en la ficha), ensayo
   con esa plantilla ✅. COT-2026-00016 (Super Esthelin, 3 % cliente) → **Pedido TELEMARK 0003735** en CREADO, leído en
