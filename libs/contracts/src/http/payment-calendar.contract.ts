@@ -100,6 +100,14 @@ export interface PagoSugerido {
   cuenta_estado: string;
   /** ⛔ `false` NO es «no se le puede pagar»: es «no se puede preparar una transferencia hoy». */
   se_puede_preparar_hoy: boolean;
+  /**
+   * `[PGP.53]` La evidencia del descuento, de `mv_supplier_prompt_discount` (12 meses de Kepler):
+   * cuántos pagos lo obtuvieron, a cuántos días de la factura (mediana) y cuánto se ganó.
+   * `null` si la matvista no tiene al proveedor (no debería: la vista exige ≥ 3 observaciones).
+   */
+  pagos_con_descuento?: number | null;
+  dias_tipicos?: number | null;
+  ganado_12m?: number | null;
 }
 
 /**
