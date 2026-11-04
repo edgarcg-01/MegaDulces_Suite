@@ -3,6 +3,7 @@ import { CommercialAlertsModule } from '@megadulces/commercial';
 import { DbHealthController } from './db-health.controller';
 import { DbHealthService } from './db-health.service';
 import { DbHealthScannerService } from './db-health-scanner.service';
+import { TorresService } from './torres.service';
 
 /**
  * Módulo de salud de DB (Administración). Depende de KNEX_NEW_DB_ADMIN + TenantContextService
@@ -12,6 +13,6 @@ import { DbHealthScannerService } from './db-health-scanner.service';
 @Module({
   imports: [CommercialAlertsModule],
   controllers: [DbHealthController],
-  providers: [DbHealthService, DbHealthScannerService],
+  providers: [DbHealthService, DbHealthScannerService, TorresService],
 })
 export class DbHealthModule {}

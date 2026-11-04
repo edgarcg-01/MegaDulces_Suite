@@ -75,4 +75,31 @@ caso('un reinicio reciente se anota; sin tope de WAL con slot, también', () => 
   assert.strictEqual(v.status, 'ok');
 });
 
+caso('[TOR.0.2] la réplica va en el detalle: segundos y errores, con estructura', () => {
+  const v = veredictoServidor({ caida: null, sonda: sano, ahora, replica: { seg: 20.9, errores: 3, habilitada: true } });
+  assert.strictEqual(v.status, 'ok');
+  assert.strictEqual(v.detalle.replica_s, 21);
+  assert.strictEqual(v.detalle.errores_replica, 3);
+  assert.strictEqual(v.detalle.publicadas, 11);
+  assert.match(v.note, /3 error\(es\) de réplica acumulados/);
+});
+
+caso('⛔ NEGATIVA — servidor responde pero md no recibe de él hace 20 min: es falla', () => {
+  const v = veredictoServidor({ caida: null, sonda: sano, ahora, replica: { seg: 1200, errores: 0, habilitada: true } });
+  assert.strictEqual(v.status, 'error');
+  assert.match(v.error, /no recibe de este servidor hace 20 min/);
+});
+
+caso('réplica deshabilitada o sin proceso: falla aunque la sonda no se haya podido leer', () => {
+  assert.strictEqual(veredictoServidor({ caida: null, sonda: null, errorSonda: 'x', ahora, replica: { seg: null, errores: null, habilitada: false } }).status, 'error');
+  assert.strictEqual(veredictoServidor({ caida: null, sonda: sano, ahora, replica: { seg: null, errores: 0, habilitada: true } }).status, 'error');
+});
+
+caso('sin lectura de réplicas (null): no se inventa, el detalle la deja en null', () => {
+  const v = veredictoServidor({ caida: null, sonda: sano, ahora, replica: null });
+  assert.strictEqual(v.status, 'ok');
+  assert.strictEqual(v.detalle.replica_s, null);
+  assert.strictEqual(v.detalle.errores_replica, null);
+});
+
 console.log(`\n${ok} casos OK`);

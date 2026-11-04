@@ -19,6 +19,8 @@
 
 /** Umbral de WAL retenido que ya es falla aunque el slot esté activo (el consumidor no alcanza). */
 const RETENIDO_MAX_BYTES = 5 * 1024 ** 3;
+/** Segundos sin mensaje del servidor antes de declarar detenida su réplica. Hay latido aunque no se venda. */
+const REPLICA_MAX_S = 15 * 60;
 /** Un reinicio más reciente que esto se anota en la nota. */
 const REINICIO_RECIENTE_MS = 6 * 3600 * 1000;
 
@@ -50,25 +52,56 @@ function horaMx(d) {
  * @param {object|null} p.sonda      lo leído del servidor: { arranque, tope, slots:[{slot,activo,wal_status,retenido}], publicadas }
  * @param {string|null} p.errorSonda motivo si la sonda no se pudo leer estando el servidor arriba
  * @param {number|null} p.publicadasAntes  conteo de la revisión anterior (memoria del proceso)
+ * @param {{seg:number|null, errores:number|null, habilitada:boolean}|null} [p.replica]
+ *        la suscripción de md a este servidor (`[TOR.0.2]`); `null` = no se pudo leer
  * @param {Date} [p.ahora]
- * @returns {{status:'ok'|'error', note:string, error:string|null}}
+ * @returns {{status:'ok'|'error', note:string, error:string|null, detalle:object}}
  */
-function veredictoServidor({ caida, sonda, errorSonda, publicadasAntes, ahora = new Date() }) {
+function veredictoServidor({ caida, sonda, errorSonda, publicadasAntes, replica = null, ahora = new Date() }) {
+  // `[TOR.0.2]` El mismo dato, con estructura, para la torre de Sistemas. Lo no leído va null, nunca 0.
+  const slotsD = sonda && Array.isArray(sonda.slots) ? sonda.slots : [];
+  const detalle = {
+    responde: !caida,
+    tipo_falla: caida ? caida.tipo : null,
+    falla_desde: caida ? new Date(caida.desde).toISOString() : null,
+    replica_s: replica && replica.seg != null ? Math.round(Number(replica.seg)) : null,
+    errores_replica: replica && replica.errores != null ? Number(replica.errores) : null,
+    retenido_max_bytes: slotsD.length ? Math.max(...slotsD.map((s) => Number(s.retenido) || 0)) : null,
+    sin_tope_wal: sonda && slotsD.length ? (sonda.tope === '-1' || sonda.tope === -1) : null,
+    publicadas: sonda && sonda.publicadas != null ? Number(sonda.publicadas) : null,
+    arranque: sonda && sonda.arranque ? new Date(sonda.arranque).toISOString() : null,
+  };
+  // La réplica es otro camino (md ← servidor): puede fallar con el servidor respondiendo.
+  const problemasReplica = [];
+  if (replica) {
+    if (replica.habilitada === false) problemasReplica.push('la réplica a md está DESHABILITADA: no llega nada de este servidor');
+    else if (replica.seg == null) problemasReplica.push('la réplica a md no tiene proceso activo');
+    else if (Number(replica.seg) > REPLICA_MAX_S) problemasReplica.push(`md no recibe de este servidor hace ${Math.round(Number(replica.seg) / 60)} min`);
+  }
+
   if (caida) {
     const min = Math.max(0, Math.round((ahora - new Date(caida.desde)) / 60000));
     return {
       status: 'error',
       note: `desde ${horaMx(caida.desde)} (${min} min)`,
       error: `${PALABRA[caida.tipo] || PALABRA.otro} desde hace ${min} min: ${String(caida.mensaje || '').slice(0, 120)}`,
+      detalle,
     };
   }
   if (!sonda) {
     // Responde (el poller leyó), pero su estado no se pudo leer: se DECLARA, no se pinta sano.
-    return { status: 'ok', note: `responde · NO MEDIDO: ${String(errorSonda || 'sin sonda').slice(0, 120)}`, error: null };
+    return {
+      status: problemasReplica.length ? 'error' : 'ok',
+      note: `responde · NO MEDIDO: ${String(errorSonda || 'sin sonda').slice(0, 120)}`,
+      error: problemasReplica.length ? problemasReplica.join(' · ') : null,
+      detalle,
+    };
   }
 
-  const problemas = [];
+  const problemas = [...problemasReplica];
   const notas = ['responde'];
+  if (detalle.replica_s != null) notas.push(`réplica ${detalle.replica_s} s`);
+  if (detalle.errores_replica) notas.push(`${detalle.errores_replica} error(es) de réplica acumulados`);
   const slots = Array.isArray(sonda.slots) ? sonda.slots : [];
   for (const s of slots) {
     if (s.wal_status === 'lost') problemas.push(`slot ${s.slot} PERDIDO: la réplica ya no puede seguir desde ahí`);
@@ -96,8 +129,24 @@ function veredictoServidor({ caida, sonda, errorSonda, publicadasAntes, ahora = 
     status: problemas.length ? 'error' : 'ok',
     note: notas.join(' · ').slice(0, 500),
     error: problemas.length ? problemas.join(' · ').slice(0, 500) : null,
+    detalle,
   };
 }
+
+/**
+ * `[TOR.0.2]` Las suscripciones de md a cada servidor, en UNA consulta: `pg_subscription` es un
+ * catálogo del clúster entero. El código sale del `dbname=md_XX` de su conexión (la `sub_pilot`
+ * es 8 Esquinas). Se lee con el rol de la réplica (`replicaConfig`), que ya usa el poller.
+ */
+const SQL_REPLICAS = `
+  SELECT s.subname,
+         substring(s.subconninfo from 'dbname=md_([0-9]{2})') AS codigo,
+         s.subenabled AS habilitada,
+         EXTRACT(epoch FROM (now() - st.last_msg_receipt_time)) AS seg,
+         ss.apply_error_count AS errores
+    FROM pg_subscription s
+    LEFT JOIN pg_stat_subscription st ON st.subid = s.oid AND st.relid IS NULL
+    LEFT JOIN pg_stat_subscription_stats ss ON ss.subid = s.oid`;
 
 /** La sonda: sólo catálogos, legibles por cualquier rol (no pide permisos de Kepler). */
 const SQL_SONDA = `
@@ -109,4 +158,4 @@ const SQL_SONDA = `
                     'retenido', pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn))), '[]'::json)
             FROM pg_replication_slots WHERE slot_type = 'logical') AS slots`;
 
-module.exports = { tipoDeFalla, veredictoServidor, SQL_SONDA, RETENIDO_MAX_BYTES };
+module.exports = { tipoDeFalla, veredictoServidor, SQL_SONDA, SQL_REPLICAS, RETENIDO_MAX_BYTES, REPLICA_MAX_S };

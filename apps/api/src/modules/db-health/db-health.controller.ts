@@ -3,6 +3,7 @@ import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { RequirePermissions, Permission } from '@megadulces/platform-core';
 import { DbHealthService } from './db-health.service';
 import { DbHealthScannerService } from './db-health-scanner.service';
+import { TorresService } from './torres.service';
 
 /**
  * Salud/frescura de la DB de la app. Solo lectura. Gateado por USUARIOS_GESTIONAR
@@ -15,7 +16,24 @@ export class DbHealthController {
   constructor(
     private readonly service: DbHealthService,
     private readonly scanner: DbHealthScannerService,
+    private readonly torres: TorresService,
   ) {}
+
+  /** `[TOR.2.1]` Torre de Sistemas: servidores Kepler y carriles de entrada. Sólo lectura. */
+  @Get('torre/sistemas')
+  @ApiOperation({ summary: 'Torre de Sistemas: servidores Kepler, caídas, carriles de entrada' })
+  @RequirePermissions(Permission.PLATFORM_HEALTH_VER)
+  torreSistemas() {
+    return this.torres.sistemas();
+  }
+
+  /** `[TOR.2.2]` Torre de Desarrollo: entrega, base, respaldos, carriles de la suite. Sólo lectura. */
+  @Get('torre/desarrollo')
+  @ApiOperation({ summary: 'Torre de Desarrollo: entrega, base, respaldos, carriles de la suite' })
+  @RequirePermissions(Permission.PLATFORM_HEALTH_VER)
+  torreDesarrollo() {
+    return this.torres.desarrollo();
+  }
 
   @Get()
   @ApiOperation({ summary: 'Reporte de frescura de las fuentes de datos críticas' })

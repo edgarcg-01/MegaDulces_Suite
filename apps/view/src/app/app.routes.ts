@@ -2521,9 +2521,17 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/dashboard/admin-catalogs/admin-catalogs.component').then(m => m.AdminCatalogsComponent),
         canActivate: [permissionGuard(Permission.ROLES_VER)]
       },
+      // `[TOR.3]` Las torres de control reemplazan a «Salud DB». La ruta vieja redirige: la usan
+      // la bandeja de Mi trabajo y el aviso global de salud.
+      { path: 'db-health', redirectTo: 'torre/desarrollo', pathMatch: 'full' },
       {
-        path: 'db-health',
-        loadComponent: () => import('./modules/dashboard/admin-db-health/admin-db-health.component').then(m => m.AdminDbHealthComponent),
+        path: 'torre/sistemas',
+        loadComponent: () => import('./modules/dashboard/torres/torre-sistemas.component').then(m => m.TorreSistemasComponent),
+        canActivate: [permissionGuard(Permission.PLATFORM_HEALTH_VER)]
+      },
+      {
+        path: 'torre/desarrollo',
+        loadComponent: () => import('./modules/dashboard/torres/torre-desarrollo.component').then(m => m.TorreDesarrolloComponent),
         canActivate: [permissionGuard(Permission.PLATFORM_HEALTH_VER)]
       },
       {

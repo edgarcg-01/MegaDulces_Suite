@@ -210,7 +210,7 @@ suite sólo lo ve quien tiene la pantalla abierta.
 | # | Item | Estado | Verificado contra |
 |---|---|---|---|
 | TOR.0.1 | Estado de la réplica de cada sucursal visible para la API: el carril `kepler_replica_refresh` (ya corre en `md`) late **una fila por sucursal** (`kepler_sub_<código>`) con segundos desde el último mensaje y errores de aplicación | ⬜ | `pg_stat_subscription` leído directo en `:5433` el mismo minuto |
-| TOR.0.2 | El latido de `ods_live_*` y `cdc_reconcile*` declara su dato **por sucursal en campos**, no en texto libre (columna `detail jsonb` en `analytics.cron_runs`, aditiva, expand/contract) | ⬜ | el `note` actual dice lo mismo |
+| TOR.0.2 | `analytics.cron_runs.detail jsonb` (nullable): el latido dice su dato con estructura. Primer escritor: `kepler_server_<código>` (réplica s, errores, WAL retenido, tablas, arranque, leídos en UNA consulta a `pg_subscription` del clúster) | 🔨 migración `20261104125552` sin aplicar; el poller la escribe sólo si la columna existe | ✅ consulta de réplicas ejercida en la fuente de md: 9 de 9 con código (la `sub_pilot` es 8 Esquinas); `test-kepler-servidor.js` 14/14 |
 | TOR.0.3 | Latido de `.249` (escritorio Windows): sesión iniciada, Docker arriba, tareas de Wincaja corriendo | ⬜ | Programador de tareas en la máquina |
 | TOR.0.4 | Latido de entrega: `vigia-ci-green` escribe `main`, `ci-green`, `prod-release` y migraciones pendientes en cada pasada | ⬜ | `git ls-remote` + `aplicar-migracion.sh --pendientes` en `md` |
 | TOR.0.5 | Latido de pods: réplicas listas y reinicios por deployment de `prod` e `ingesta` | ⬜ | `kubectl get pods` en `md` |
@@ -224,24 +224,24 @@ dibuja **NO MEDIDO**, nunca verde.
 
 | # | Item | Estado | Prueba que lo ejerce |
 |---|---|---|---|
-| TOR.1.1 | **Primitivo `Señal`** en `libs/contracts`: `{ carril, sujeto, estado, edad_s, medido, nota, dueño, enlace }` + `veredictoDeSeñales()` (lo no medido no cuenta como sano ni se esconde). Lo usan las dos torres (ADR-056) | ⬜ | spec con negativa: una señal `medido:false` nunca da veredicto verde |
-| TOR.1.2 | Catálogo de carriles por torre (cuál va a Sistemas, cuál a Desarrollo), sin duplicar `CRON_JOBS` | ⬜ | cada `job_key` de `cron_runs` cae en exactamente una torre o en «sin clasificar» visible |
+| TOR.1.1 | **Primitivo de señal** en `libs/contracts` (`torres.contract.ts`): `SenalTorre`, `resumenDeSenales` (lo no medido nunca cuenta como bien), `ordenarSenales` | 🧪 | spec 5/5 con negativa |
+| TOR.1.2 | `torreDeLlave`: a Sistemas lo que LLEGA de otro servidor (Kepler, puntos de venta, ContPAQi, CAOS, relojes, GPS); el resto a Desarrollo. Ninguna llave sin torre | 🧪 | spec con las llaves reales de prod |
 
 ### C2 · API
 
 | # | Item | Estado | ¿Escribe? | Prueba contra base real |
 |---|---|---|---|---|
-| TOR.2.1 | `GET /plataforma/torre/sistemas` → veredicto, matriz sucursal × carril, bandeja, tickets | ⬜ | no | consulta ejercida contra el CI; < 500 ms |
-| TOR.2.2 | `GET /plataforma/torre/desarrollo` → veredicto, tira de entrega, bandeja, carriles | ⬜ | no | ídem |
-| TOR.2.3 | `POST …/senales/:id/visto` (reemplaza el ack actual, con quién y cuándo) | ⬜ | **sí** | ⛔ obligatoria, con el payload de la pantalla |
+| TOR.2.1 | `GET /admin/db-health/torre/sistemas` (servicio `torres.service.ts`): servidores, caídas, «Atender», otros carriles, avisos, Mesa de Servicio | 🧪 no | ✅ cada consulta ejercida contra prod en sólo lectura: 0–117 ms. ⚠️ el servicio completo corre al soltar (no se levanta la API local) |
+| TOR.2.2 | `GET /admin/db-health/torre/desarrollo`: entrega (refs leídas de GitHub, cache 5 min; sin respuesta → no medido), «Atender», carriles | 🧪 no | ✅ ídem; GitHub contestó desde aquí (932 ms). ⚠️ NO MEDIDO si el pod de la API tiene salida a GitHub |
+| TOR.2.3 | Marcar vista reusa `POST alerts/:id/ack` (ya existía); «con quién» queda pendiente | ⬜ | — |
 
 ### C3 · UI
 
 | # | Item | Estado | `check:pantalla` antes → después |
 |---|---|---|---|
-| TOR.3.1 | `/sistemas/torre` — Torre de Sistemas | ⬜ | nueva: 0 fallas |
-| TOR.3.2 | `/admin/torre` — Torre de Desarrollo; `/admin/db-health` redirige | ⬜ | `admin-db-health`: Q.1, §2, P, TBL → 0 |
-| TOR.3.3 | Entradas de sidebar, permisos repartidos en prod (regla 20) y `MATRIZ_ACCESOS.md` regenerada | ⬜ | — |
+| TOR.3.1 | `/admin/torre/sistemas` — Torre de Sistemas (diseño aprobado el 2026-11-04) | 🧪 sin validación visual | ✅ nueva: cumple las 10 reglas; barrido 0 nuevas · `ngc` sin errores (control TS2339 cazado) |
+| TOR.3.2 | `/admin/torre/desarrollo` — Torre de Desarrollo; `/admin/db-health` redirige; la pantalla vieja se retira | 🧪 sin validación visual | ✅ nueva: cumple las 10 reglas |
+| TOR.3.3 | Sidebar (dos entradas), árbol de permisos (mismo `PLATFORM_HEALTH_VER`, una fila), `MATRIZ_ACCESOS.md` por regenerar | 🔨 | permisos: D2 sin firmar (hoy `superadmin` y `recursos_humanos`) |
 
 ---
 
@@ -312,3 +312,4 @@ Nivel C: se lee el plan, no la pantalla. 🔴 bloquea C3 → 🚀 · 🟠 dentro
 |---|---|---|
 | 2026-11-04 | Edgar pide rehacer `/admin/db-health` como torre de control, y después partirla en dos: Sistemas (servidores y Kepler) y Desarrollo (nuestra infraestructura). Plan escrito con lo medido en prod | Edgar · Claude |
 | 2026-11-04 | El PM abre la fase («hagámoslo»). C0 de Sistemas: vista de caídas por servidor (TOR.0.8) y latido por servidor con sonda de slot, WAL y tablas publicadas (TOR.0.9), sin credencial nueva. Esperan: horarios (TOR.0.10), destinatarios de la alerta (TOR.0.11) | Edgar · Claude |
+| 2026-11-04 | Diseño de las dos torres aprobado por Edgar y construido: contrato compartido, endpoints de sólo lectura, dos pantallas que comparten pastilla y bandeja, rutas y menú. Falta soltar y validarlas en pantalla | Edgar · Claude |
