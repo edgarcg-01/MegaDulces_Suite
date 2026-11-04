@@ -294,13 +294,20 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                nombra: medido el 2026-11-04, 104 de 109 pagos armados esperaban PREPARAR y, en una captura
                de 1,250 px, el primero aparecía cortado en el borde de abajo, debajo de 8 grupos de pronto
                pago y del buscador. El pronto pago sigue siendo lo primero que se AGREGA (PGP.53). -->
-          @if (pagosPrimero()) { <ng-container *ngTemplateOutlet="bloquePagos; context: { $implicit: day }" /> }
+          <!-- ⭐ [PGP.66] Opción B de Edgar (2026-11-04: «todo está muy compactado y junto… ¿cómo se vería con
+               ventanas o paneles laterales?»): la pantalla es SÓLO el día. El pronto pago y agregar facturas son
+               botones en la barra de los pagos que abren su panel lateral (su regla del 29-oct: lo secundario =
+               botón + ventana; el 95-100 % de la pantalla es la tarea). -->
+          <ng-container *ngTemplateOutlet="bloquePagos; context: { $implicit: day }" />
 
           <!-- ── [PGP.53] PRONTO PAGO: lo primero que se paga, con su porqué, por el día en que cierra ──
                Era una línea plegada bajo el buscador («Conviene pagar: 37 acreedores…»). Edgar: es la
                prioridad, se recomienda firme y se dice por qué. Grupo = día en que cierra el descuento;
-               renglón = a quién, cuánto, cuánto gana y qué %; el porqué, en su desglose. -->
-          @if (verDeuda() && (quePagar().length || quePagarError())) {
+               renglón = a quién, cuánto, cuánto gana y qué %; el porqué, en su desglose.
+               [PGP.66] Vive en su panel lateral; sólo se pinta abierto. -->
+          <app-side-peek [open]="panelPronto()" (openChange)="panelPronto.set($event)" [width]="760" title="Pronto pago"
+                         [subtitle]="'Si se paga a tiempo, en los próximos 7 días se ganan ' + money(quePagarGana())">
+          @if (panelPronto() && verDeuda() && (quePagar().length || quePagarError())) {
             <section class="pg-pp" aria-labelledby="pg-pp-h">
               @if (quePagarError()) {
                 <p class="pg-add-nm">No se pudo calcular el pronto pago. No es que no haya descuentos por ganar.</p>
@@ -309,7 +316,6 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                   <h3 class="pg-pp-t" id="pg-pp-h"><i class="pi pi-bolt" aria-hidden="true"></i>Paga primero el pronto pago</h3>
                   <!-- [AUD] Decía «esta semana ganas»: la vista suma lo que cierra en los 7 días que siguen a
                        HOY (HORIZONTE_DIAS de PGP.41), no la semana del calendario, y no cambia al navegar a otra. -->
-                  <span class="pg-pp-tot">en los próximos 7 días ganas <b class="comm-num">{{ money(quePagarGana()) }}</b></span>
                 </div>
                 <!-- [PGP.62] En UNA línea. El origen del % («lo que pasó, no un acuerdo») ya lo dice el porqué de cada acreedor al abrirlo. -->
                 <p class="pg-pp-why">
@@ -324,7 +330,11 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                   <div class="pg-pp-gr">
                     <button type="button" class="pg-pp-gh" [class.is-urge]="g.dias <= 1" [attr.aria-expanded]="prontoAbierto(g)" (click)="togglePronto(g)">
                       <i class="pi" [class.pi-angle-down]="prontoAbierto(g)" [class.pi-angle-right]="!prontoAbierto(g)" aria-hidden="true"></i>
-                      <span class="pg-pp-n">{{ prontoCierraDice(g.dias, g.cierra) }} <span class="pg-pp-d">· {{ acreedores(g.filas.length) }}</span></span>
+                      <!-- [PGP.65] Cerrado dice lo que hace («ver los 7 acreedores»): Edgar no encontró a los acreedores
+                           cuando el grupo nació cerrado (PGP.64); la flecha sola no avisaba que el renglón se abre. -->
+                      <span class="pg-pp-n">{{ prontoCierraDice(g.dias, g.cierra) }} <span class="pg-pp-d">·
+                        @if (prontoAbierto(g)) { {{ acreedores(g.filas.length) }} }
+                        @else { <span class="pg-pp-ver">ver {{ g.filas.length === 1 ? 'el acreedor' : 'los ' + g.filas.length + ' acreedores' }}</span> }</span></span>
                       <span class="comm-num pg-pp-i">{{ money(g.importe) }}</span>
                       <span class="comm-num pg-pp-g">+{{ money(g.gana) }}</span>
                       <span class="pg-pp-p"></span>
@@ -375,12 +385,15 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
               }
             </section>
           }
+          </app-side-peek>
 
-          <!-- ── AGREGAR: el buscador siempre a la vista; la lista, sólo cuando se pide ── -->
-          @if (verDeuda()) {
-            <section class="pg-add" aria-labelledby="pg-add-h">
+          <!-- ── AGREGAR: el buscador; la lista, sólo cuando se pide ──
+               [PGP.66] En su panel lateral (botón «Agregar facturas» o la tecla /); sólo se pinta abierto. -->
+          <app-side-peek [open]="panelAgregar()" (openChange)="panelAgregar.set($event)" [width]="720"
+                         [title]="'Agregar facturas al ' + dayShort(day.date)">
+          @if (panelAgregar() && verDeuda()) {
+            <section class="pg-add" aria-label="Agregar facturas">
               <div class="pg-add-bar">
-                <h3 class="pg-add-t" id="pg-add-h">Agregar facturas al {{ dayShort(day.date) }}</h3>
                 <span class="pg-buscar">
                   <span class="pi pi-search" aria-hidden="true"></span>
                   <input id="pg-buscar" pInputText type="search" autocomplete="off" class="pg-buscar-in"
@@ -549,9 +562,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
               }
             </section>
           }
-
-          <!-- [PGP.60] Sin pagos todavía (armar), los pagos del día van al final: arriba está lo que se agrega. -->
-          @if (!pagosPrimero()) { <ng-container *ngTemplateOutlet="bloquePagos; context: { $implicit: day }" /> }
+          </app-side-peek>
 
           <!-- ── LOS PAGOS DEL DÍA: un renglón por pago ──
                [PGP.60] Se escribe UNA vez y se pinta en uno de dos lugares según el paso del día (no con
@@ -569,6 +580,17 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
               </h3>
               @if (pagosPrimero()) { <span class="pg-sec-tope"><ng-container *ngTemplateOutlet="topeYPaso; context: { $implicit: day }" /></span> }
               <span class="pg-sec-acts">
+                <!-- [PGP.66] Lo secundario, como botón con su cifra: abre su panel lateral. -->
+                @if (verDeuda() && (quePagar().length || quePagarError())) {
+                  <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [attr.aria-expanded]="panelPronto()" (click)="abrirPronto()">
+                    <span class="pi pi-bolt" aria-hidden="true"></span>&nbsp;Pronto pago@if (prontoUrgente().acreedores) { · {{ prontoUrgente().acreedores }} cierran hoy o mañana }
+                  </button>
+                }
+                @if (verDeuda()) {
+                  <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [attr.aria-expanded]="panelAgregar()" aria-keyshortcuts="/" (click)="abrirAgregar()">
+                    <span class="pi pi-plus" aria-hidden="true"></span>&nbsp;Agregar facturas <kbd class="pg-kbd" aria-hidden="true">/</kbd>
+                  </button>
+                }
                 @if (allocations().length) {
                   <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" [loading]="printing()" (click)="printPreliminar()"><span class="pi pi-file-pdf" aria-hidden="true"></span>&nbsp;Preliminar</button>
                 }
@@ -1089,7 +1111,8 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                rojo (--bad) SOLO para lo que esta mal (rebote, tope excedido).
        El estado lo dicen la palabra y el icono, no el tono (regla #5 y forced-colors). ══ */
     /* [PGP.61] sp-3 → sp-2: el marco (migas, pestañas, semana) se llevaba ~24 % del alto antes del veredicto. */
-    .cal-page { gap:var(--sp-2); }
+    /* [PGP.66] Con lo secundario en paneles, la pantalla recupera aire (Edgar: «todo está muy compactado y junto»). */
+    .cal-page { gap:var(--sp-4); padding-bottom:var(--sp-3); }
     .cal-date-input { padding:var(--sp-1) var(--sp-2); border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); color:var(--text-main); font-size:var(--fs-sm); }
     .cal-muted { color:var(--text-faint); }
     .cal-neg, .cal-bad-txt { color:var(--bad-soft-fg); }
@@ -1214,7 +1237,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
 
     /* ── El veredicto, compacto: frase y boton; tope y avance lado a lado ── */
     .pg-lot { display:grid; gap:var(--sp-2); min-width:0; }
-    .pg-vd { display:grid; gap:0; padding:var(--sp-1) 0; border-block:1px solid var(--border-color); }
+    .pg-vd { display:grid; gap:var(--sp-1); padding:var(--sp-3) 0; border-block:1px solid var(--border-color); }
     /* Rojo SOLO cuando algo esta mal. «Bien» y «falta» no llevan tono: lo dice la frase. */
     .pg-vd.is-bad { border-left:4px solid var(--bad-fg); padding-left:var(--sp-3); }
     .pg-vd-ico { color:var(--bad-soft-fg); margin-right:var(--sp-2); font-size:var(--fs-lg); }
@@ -1321,6 +1344,8 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-kbd { position:absolute; right:var(--sp-2); font-family:var(--font-mono); font-size:var(--fs-micro); color:var(--text-muted);
       border:1px solid var(--border-color); border-radius:var(--r-sm); padding:0 5px; line-height:1.5; pointer-events:none; }
     .pg-buscar:focus-within .pg-kbd { display:none; }
+    /* [PGP.66] En el botón el atajo va EN LÍNEA: con el absolute del buscador se encimaba sobre «facturas». */
+    .pg-sec-acts .pg-kbd { position:static; margin-left:var(--sp-1); }
     .pg-lista-tg { margin-left:auto; font-size:var(--fs-sm); font-weight:600; color:var(--text-muted); gap:var(--sp-1); }
     .pg-alta { display:flex; align-items:center; gap:var(--sp-2); margin:0; padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border-color);
       font-size:var(--fs-sm); font-weight:600; color:var(--text-main); background:var(--surface-2); }
@@ -1371,6 +1396,8 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     :host ::ng-deep .pg-prep .p-datatable-thead > tr > th { font-size:var(--fs-micro); font-weight:600; text-transform:uppercase; letter-spacing:.04em;
       color:var(--text-muted); padding-top:var(--sp-1); padding-bottom:var(--sp-1); }
     :host ::ng-deep .pg-prep .p-datatable-tbody > tr > td { font-size:var(--fs-sm); vertical-align:middle; }
+    /* [PGP.66] Densidad cómoda que eligió Edgar: 48 px por pago (--row-h-lg), una decisión por renglón. */
+    :host ::ng-deep .pg-prep .p-datatable-tbody > tr:not(.pg-xrow) > td { height:var(--row-h-lg); }
     /* El folio autorizado («261026-01-01») partia en dos renglones a 4.5rem; «Como sale» en tres a 19rem. */
     .pg-c-tg { width:2.5rem; } .pg-c-ord { width:4.5rem; } .pg-c-ord.is-folio { width:7.5rem; } .pg-c-amt { width:8.5rem; text-align:right; }
     .pg-c-act { width:9.5rem; text-align:right; white-space:nowrap; }
@@ -1529,6 +1556,8 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-pp-go { grid-template-columns:minmax(0,1fr) 9rem 7rem 4rem; padding-left:calc(var(--sp-1) + 1rem + var(--sp-2)); }
     .pg-pp-n { min-width:0; overflow-wrap:anywhere; }
     .pg-pp-d { color:var(--fg-3); font-weight:400; }
+    /* [PGP.65] Afordancia de enlace con subrayado y el color del texto (sin tono: el color es del botón principal). */
+    .pg-pp-ver { color:var(--text-main); text-decoration:underline; text-underline-offset:2px; }
     .pg-pp-i, .pg-pp-g, .pg-pp-p { text-align:right; }
     .pg-pp-i { color:var(--fg-2); }
     .pg-pp-p { color:var(--fg-3); }
@@ -1789,12 +1818,23 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    * no se pinta ni se piden evidencias; el total sigue a la vista en «Ver todas (N)».
    */
   readonly verLista = signal(false);
+  /**
+   * `[PGP.66]` Los paneles laterales de lo secundario. ⛔ La lista de deuda sólo existe con su panel
+   * ABIERTO: el panel pinta su contenido aunque esté cerrado, y la lista pide evidencia en tandas de
+   * ~2.3 s. Las cuatro señales se leen siempre (un `&&` que corta deja al computed sin dependencias).
+   */
+  readonly panelPronto = signal(false);
+  readonly panelAgregar = signal(false);
   readonly listaAbierta = computed(() => {
     const puede = this.verDeuda();
+    const panel = this.panelAgregar();
     const busca = !!this.busquedaAplicada();
     const pidio = this.verLista();
-    return puede && (busca || pidio);
+    return puede && panel && (busca || pidio);
   });
+  abrirPronto(): void { this.panelAgregar.set(false); this.panelPronto.set(true); }
+  /** Abre el panel de agregar y lleva el foco al buscador (botón o tecla /). */
+  abrirAgregar(): void { this.panelPronto.set(false); this.panelAgregar.set(true); this.enfocarBuscador(); }
   cerrarLista(): void {
     this.verLista.set(false);
     this.verRevision.set(false);
@@ -2611,12 +2651,12 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   });
   private readonly prontoAbiertos = signal<Record<string, boolean>>({});
   /**
-   * `[PGP.64]` Abiertos de entrada lo que cierra hoy o mañana **sólo al ARMAR** (el día sin pagos: agregar es
-   * la tarea, PGP.53). Con el día armado nacen cerrados: medido en la pantalla viva el 2026-11-04 (2135×1232),
-   * «Cierra hoy» (7) y «Cierra mañana» (2) abiertos hacían medir al pronto pago 449 px y dejaban el buscador
-   * fuera de la vista. Cerrado, cada grupo sigue diciendo acreedores, importe y lo que se gana.
+   * `[PGP.64]` → `[PGP.66]` En la pantalla principal, «Cierra hoy» (7) y «Cierra mañana» (2) abiertos hacían
+   * medir al pronto pago 449 px (medido el 2026-11-04 a 2135×1232) y por eso nacieron cerrados. Desde
+   * `[PGP.66]` el pronto pago vive en su panel lateral, con lugar de sobra: lo urgente vuelve a nacer abierto.
    */
-  prontoAbierto(g: { cierra: string; dias: number }): boolean { return this.prontoAbiertos()[g.cierra] ?? (g.dias <= 1 && !this.pagosPrimero()); }
+  // [PGP.66] En su panel lateral hay lugar: lo que cierra hoy o mañana vuelve a nacer abierto (PGP.53).
+  prontoAbierto(g: { cierra: string; dias: number }): boolean { return this.prontoAbiertos()[g.cierra] ?? g.dias <= 1; }
   togglePronto(g: { cierra: string; dias: number }): void {
     this.prontoAbiertos.update((m) => ({ ...m, [g.cierra]: !this.prontoAbierto(g) }));
   }
@@ -2978,6 +3018,9 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   tomarSugerido(r: PagoSugerido): void {
     const termino = (r.proveedor_code || r.proveedor_nombre || '').trim();
     if (!termino) return;
+    // [PGP.66] Del panel de pronto pago al de agregar, ya filtrado por ese acreedor.
+    this.panelPronto.set(false);
+    this.panelAgregar.set(true);
     this.busqueda.set(termino);
     this.buscarYa();
     // El foco va al buscador: queda a la vista qué se filtró y se puede corregir de una tecla.
@@ -2998,7 +3041,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     const t = ev.target as HTMLElement | null;
     if (t?.closest('input, textarea, select, [contenteditable="true"], .p-dialog')) return;
     ev.preventDefault();
-    this.enfocarBuscador();
+    this.abrirAgregar();
   }
   private enfocarBuscador(): void {
     setTimeout(() => {
