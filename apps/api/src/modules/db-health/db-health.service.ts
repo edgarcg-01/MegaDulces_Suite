@@ -8,6 +8,7 @@ import { commitDelBuild } from '../../build-info';
 // ejercitarla de verdad: este archivo arrastra NestJS y `@megadulces/*`, así que un test de Node
 // no lo puede cargar y terminaría reimplementando la regla — que es no probarla.
 import { RECURRENCIA, recurrenciaLevantaLaMano } from './db-health-recurrencia';
+import { commitDelLatido, etiquetaBase, filasEstimadas, mismoCommit, pctMuertas } from './db-health-lecturas';
 
 /**
  * Salud/frescura de datos para Administración. Dos grupos:
@@ -1688,6 +1689,12 @@ export interface VersionReport {
   /** `false` = la bitácora todavía no existe. Distinto de "existe y está vacía". */
   bitacora_disponible: boolean;
   despliegues: DeployRow[];
+  /**
+   * `[DH.5]` El latido de `auto-deploy.sh` (`analytics.cron_runs`, `auto_deploy`): el carril que
+   * despliega desde k3s. `null` = no se pudo leer o nunca latió. `commit` = el que el latido dice
+   * haber dejado corriendo; `coincide` lo compara con `corriendo` (null si no hay con qué).
+   */
+  latido: { status: string; at: string | null; note: string | null; commit: string | null; coincide: boolean | null } | null;
 }
 
 export interface EngineReport {
@@ -1697,6 +1704,8 @@ export interface EngineReport {
   bloat: EngineTable[];
   schemas: { schema: string; size_pretty: string; tables: number }[];
   autovacuum: { name: string; setting: string }[];
+  /** `[DH.5]` Motivo si no se pudo leer el motor. Sin esto, una falla se pintaba como «sin filas muertas». */
+  error: string | null;
 }
 
 /**
@@ -1731,11 +1740,11 @@ export class DbHealthService {
    * primero (críticas antes que warn) + las resueltas en los últimos 7 días. Scopeado al
    * tenant del request (admin knex bypass RLS → filtro explícito).
    */
-  async listAlerts(): Promise<{ open: any[]; recent_resolved: any[] }> {
-    if (!this.knex) return { open: [], recent_resolved: [] };
+  async listAlerts(): Promise<{ open: any[]; recent_resolved: any[]; recent_resolved_total: number }> {
+    if (!this.knex) return { open: [], recent_resolved: [], recent_resolved_total: 0 };
     const tenantId = this.tenantCtx.requireTenantId();
     const reg = await this.knex.raw(`SELECT to_regclass('analytics.db_health_alerts') AS t`);
-    if (!reg.rows[0]?.t) return { open: [], recent_resolved: [] };
+    if (!reg.rows[0]?.t) return { open: [], recent_resolved: [], recent_resolved_total: 0 };
     const cols = ['id', 'source_key', 'source_label', 'group_key', 'status', 'age_seconds',
       'last_update', 'note', 'first_seen_at', 'last_seen_at', 'resolved_at', 'acknowledged_at'];
     const open = await this.knex('analytics.db_health_alerts')
@@ -1745,7 +1754,14 @@ export class DbHealthService {
       .where({ tenant_id: tenantId }).whereNotNull('resolved_at')
       .where('resolved_at', '>', this.knex.raw(`now() - interval '7 days'`))
       .select(cols).orderBy('resolved_at', 'desc').limit(50);
-    return { open, recent_resolved };
+    // [DH.5] El tope de 50 se declara: medido el 2026-11-04, 160 resueltas en 7 días y la
+    // pantalla decía «Resueltas recientes (50)».
+    const total = await this.knex('analytics.db_health_alerts')
+      .where({ tenant_id: tenantId }).whereNotNull('resolved_at')
+      .where('resolved_at', '>', this.knex.raw(`now() - interval '7 days'`))
+      .count({ n: '*' }).first();
+    const recent_resolved_total = Number((total as { n?: string | number } | undefined)?.n) || 0;
+    return { open, recent_resolved, recent_resolved_total };
   }
 
   /** Marca una alerta abierta como reconocida (ack). No la resuelve — eso lo hace el scanner. */
@@ -1760,8 +1776,8 @@ export class DbHealthService {
 
   private dbLabel(): string {
     const conn = this.knex?.client?.config?.connection as { host?: string; connectionString?: string } | string | undefined;
-    const host = typeof conn === 'string' ? conn : String(conn?.host ?? conn?.connectionString ?? '');
-    return /rlwy\.net|railway/i.test(host) ? 'prod (Railway)' : 'local';
+    // [DH.5] Por el HOST: la base de prod en md se llama `railway` y la regla vieja la rotulaba Railway.
+    return etiquetaBase(typeof conn === 'string' ? conn : (conn?.connectionString ?? conn?.host));
   }
 
   private classify(ageSec: number | null, warnH: number, critH: number): Status {
@@ -2213,8 +2229,29 @@ export class DbHealthService {
       corriendo: { commit: commitDelBuild(), uptime_seconds: Math.floor(process.uptime()) },
       bitacora_disponible: false,
       despliegues: [],
+      latido: null,
     };
     if (!this.knex) return base;
+    // [DH.5] El carril que despliega desde k3s es `auto-deploy.sh`, y ése late en `cron_runs`,
+    // no en `ops.deploys`. Se lee aparte: si falla, la bitácora se sigue mostrando.
+    try {
+      const { rows } = await this.knex.raw(
+        `SELECT status, last_finish, note FROM analytics.cron_runs
+          WHERE job_key = 'auto_deploy' ORDER BY last_finish DESC NULLS LAST LIMIT 1`);
+      const r = rows[0] as { status?: string; last_finish?: string | Date | null; note?: string | null } | undefined;
+      if (r) {
+        const commit = commitDelLatido(r.note);
+        base.latido = {
+          status: String(r.status ?? 'desconocido'),
+          at: r.last_finish ? new Date(r.last_finish).toISOString() : null,
+          note: r.note ?? null,
+          commit,
+          coincide: commit && base.corriendo.commit !== 'unknown' ? mismoCommit(commit, base.corriendo.commit) : null,
+        };
+      }
+    } catch (e) {
+      this.logger.warn(`db-health version: latido auto_deploy ilegible: ${(e as Error).message}`);
+    }
     try {
       const { rows } = await this.knex.raw(
         `SELECT commit_sha, servicios, resultado, migraciones_pendientes, quien, desde,
@@ -2245,6 +2282,7 @@ export class DbHealthService {
       checked_at, db_label: 'no configurada', overall: 'unknown',
       database: { name: '—', size_pretty: '—', version: '—' },
       metrics: [], bloat: [], schemas: [], autovacuum: [],
+      error: 'la API no tiene conexión de administración a la base',
     };
     if (!this.knex) return vacio;
 
@@ -2265,11 +2303,13 @@ export class DbHealthService {
                  (SELECT setting::int FROM pg_settings WHERE name = 'max_connections') AS max_conns
             FROM pg_stat_activity WHERE backend_type = 'client backend'`),
         this.knex.raw(`
-          SELECT schemaname, relname, n_live_tup, n_dead_tup, last_autovacuum, last_autoanalyze,
-                 pg_total_relation_size(relid) AS size_bytes,
-                 pg_size_pretty(pg_total_relation_size(relid)) AS size_pretty
-            FROM pg_stat_user_tables
-           WHERE n_dead_tup > 0
+          SELECT s.schemaname, s.relname, s.n_live_tup, s.n_dead_tup, s.last_autovacuum, s.last_autoanalyze,
+                 c.reltuples,
+                 pg_total_relation_size(s.relid) AS size_bytes,
+                 pg_size_pretty(pg_total_relation_size(s.relid)) AS size_pretty
+            FROM pg_stat_user_tables s
+            JOIN pg_class c ON c.oid = s.relid
+           WHERE s.n_dead_tup > 0
            ORDER BY n_dead_tup DESC LIMIT 25`),
         this.knex.raw(`
           SELECT schemaname, count(*)::int AS tablas,
@@ -2304,9 +2344,10 @@ export class DbHealthService {
       ];
 
       const bloat: EngineTable[] = bloatRows.rows.map((r: Record<string, unknown>) => {
-        const live = Number(r.n_live_tup) || 0;
+        // [DH.5] Sobre `reltuples`, no sobre `n_live_tup`: ver `filasEstimadas`.
+        const live = filasEstimadas(Number(r.n_live_tup), Number(r.reltuples));
         const dead = Number(r.n_dead_tup) || 0;
-        const pct = live > 0 ? Math.round((1000 * dead) / live) / 10 : null;
+        const pct = pctMuertas(dead, live);
         return {
           schema: String(r.schemaname), table: String(r.relname), live, dead, dead_pct: pct,
           last_autovacuum: r.last_autovacuum ? new Date(r.last_autovacuum as string).toISOString() : null,
@@ -2333,10 +2374,11 @@ export class DbHealthService {
         autovacuum: avRows.rows.map((r: Record<string, unknown>) => ({
           name: String(r.name), setting: String(r.setting),
         })),
+        error: null,
       };
     } catch (e) {
       this.logger.warn(`db-health engine: ${(e as Error).message}`);
-      return { ...vacio, db_label: this.dbLabel() };
+      return { ...vacio, db_label: this.dbLabel(), error: (e as Error).message };
     }
   }
 

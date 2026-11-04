@@ -55,6 +55,8 @@ export interface HealthAlert {
 export interface HealthAlertsResponse {
   open: HealthAlert[];
   recent_resolved: HealthAlert[];
+  /** [DH.5] Cuántas se resolvieron en 7 días; `recent_resolved` trae como mucho 50. */
+  recent_resolved_total?: number;
 }
 
 // DBH.1 — salud del MOTOR. Distinta del reporte de frescura: aquello responde "¿llegó el dato?",
@@ -76,6 +78,8 @@ export interface EngineReport {
   bloat: EngineTable[];
   schemas: { schema: string; size_pretty: string; tables: number }[];
   autovacuum: { name: string; setting: string }[];
+  /** [DH.5] Motivo si no se pudo leer el motor (antes la falla se veía como «sin filas muertas»). */
+  error?: string | null;
 }
 
 // [VL.15.E] Qué versión corre en prod, sin abrir una terminal.
@@ -97,6 +101,11 @@ export interface VersionReport {
   /** `false` = la bitácora aún no existe. NO es lo mismo que "existe y está vacía". */
   bitacora_disponible: boolean;
   despliegues: DeployRow[];
+  /**
+   * [DH.5] El latido de auto-deploy.sh, el carril que despliega desde k3s. La bitácora de
+   * arriba sólo la escribe deploy.sh (manual) y quedó parada el 1-oct.
+   */
+  latido?: { status: string; at: string | null; note: string | null; commit: string | null; coincide: boolean | null } | null;
 }
 
 @Injectable({ providedIn: 'root' })
