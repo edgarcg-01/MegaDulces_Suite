@@ -1391,12 +1391,63 @@ revisaron uno por uno (**NO MEDIDO**); lo esperado son productos sin política.
 - Vitest 323/323. `tsc` limpio, con el control detectado.
 - La latencia de `workbook` no cambió: ~1.9 s, ya arriba de 500 ms antes de esto (deuda aparte).
 
+### 17.13 PQ.44, segundo y tercer paso — D26 y D25 (2026-11-04)
+
+**D26 — el inflado por cumplimiento, sólo en lo que se compra al proveedor** (`95f1b7d3c`).
+- El canal sale de `commercial.replenishment_channel`: cómo llegó de verdad la mercancía de ese
+  proveedor a ese almacén. Lo escribe un importer que ya existía y que el motor ya consumía; no es
+  uno nuevo.
+- **Contrastado contra Kepler:** de 1,356 pares «traspaso», 40 (3 %) tienen entradas de compra
+  `X-A-40` de ese proveedor en 90 días. «Compra» se confirma menos (425 de 993), en parte porque
+  CEDIS y Morelia Madero compran por Wincaja, que no está en `kdm1`. Por eso la regla se apoya en la
+  etiqueta confiable: **en traspaso no se infla**. Sin canal, se infla como antes.
+- La celda dice si llegó por traspaso (`trf`). La explicación del inflado ya no afirma «va
+  multiplicado» donde no se aplicó.
+- **Resultado:** «Pedido infla por cumplimiento» pasó de 606 a 280 renglones, y Pedido en 8
+  sucursales de $21.4 M a $20.8 M. «Sin explicar» subió de 72 a 81 y «en camino» de 153 a 169: sin
+  el inflado, algunas diferencias cambiaron de clase.
+
+**D25 — la cobertura de cada sucursal como base** (`d9660bdd4`).
+- **Medido antes:** con 30 días fijos, las cinco sucursales de 21 días sugerían **$1.97 M de más**.
+- `workbook` y su Excel aceptan `coverage_mode=sucursal`, con la misma expresión de `libs/contracts`
+  que usa la mesa. La demanda se multiplica por la cobertura de cada almacén **antes** de sumar, así
+  la columna de toda la red también cuadra.
+- **Control:** en las 8 sucursales, el modo «cada sucursal» da exactamente lo mismo que fijar a mano
+  la cobertura de la mesa: **0 diferencias en 25,296 renglones**. El modo fijo tampoco cambió: 0
+  diferencias corrido inmediatamente después de la versión anterior. Las 259 de una corrida previa
+  eran el dato moviéndose entre corridas.
+- **En la red:** $20.71 M con la cobertura de cada sucursal, contra $22.68 M con 30 días fijos.
+- **Pantalla.** Las cinco preguntas, contestadas antes de tocarla:
+
+  | # | Pregunta | Respuesta |
+  |---|---|---|
+  | 1 | Qué ve primero | La cobertura con la que sale el pedido; al abrir, «Cada sucursal» |
+  | 2 | Qué no | La lista de días por sucursal: sólo una línea corta en la barra |
+  | 3 | Accesibilidad | El control segmentado con teclado; la nota es texto visible, no un `title` |
+  | 4 | Liga con otro proceso | La mesa usa la misma cobertura; con un número fijo, la barra lo dice |
+  | 5 | ¿Le toca a esta pantalla? | Sí: aquí se decide cuánto pedir |
+
+  Dicen la cobertura real: la tarjeta «Cobertura», el resumen de cada renglón, el PDF de
+  requisición, las notas de la requisición y la exportación. Un filtro guardado con otra cobertura
+  la conserva fija. Una prueba encontró un recargo de más al salir del campo vacío; se corrigió.
+- **Pruebas:**
+  - Compras: 730/730.
+  - Motor: `faltante.spec` 7/7, con negativas en rojo para D25 y D26.
+  - `ngc`: con el error de control **dentro de la plantilla**, sólo marca ése.
+  - `check-template-types` estricto: verde en las 4 apps.
+  - `check:pantalla`: 0 fallas. Sigue el aviso de una definición dentro de un `title`, que ya
+    existía y va con PQ.54.
+  - **Sin validación visual.**
+
+**Lo que no cambió, a propósito:** la sugerencia de compra y la de traspaso que la pantalla usa como
+cruce lateral siguen con la cobertura numérica (30 por default), y la hoja «Traspasos» del Excel
+también. La grilla, que es lo que se pide, ya es por sucursal.
+
 **Lo que falta de PQ.44:**
-- **D25:** cobertura por almacén como base en Pedido, y decirlo cuando el comprador la cambia.
-- **D26:** el inflado por cumplimiento, sólo en lo que se compra al proveedor. Son los 606
-  renglones ($1.3 M).
 - **La pantalla:** una celda en 0 por estar arriba del reorden no dice por qué. Pide `diseno` y las
-  cinco preguntas. **Sin validación visual.**
+  cinco preguntas.
+- **Deuda nombrada:** `workbook` tarda 1.9–2.2 s por sucursal y 3–6 s la primera página de toda la
+  red, antes y después de estos cambios. Una consulta de más de 500 ms no funciona.
 
 ---
 
@@ -1498,6 +1549,7 @@ vivas (no una 8ª copia a mano), en una ventana firmada fuera de horario.
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-04 | **PQ.44 D26 y D25** (§17.13). D26 (`95f1b7d3c`): lo que llega por traspaso no se infla por cumplimiento; 606 → 280 renglones de diferencia, Pedido $21.4 M → $20.8 M. D25 (`d9660bdd4`): Pedido abre con la cobertura de cada sucursal; en la red $22.68 M → $20.71 M frente a 30 días fijos; control 0 diferencias en 25,296 renglones. Falta explicar en pantalla la celda en 0 | PM + sesión Claude |
 | 2026-11-04 | PM firmó **D33**. **PQ.44, primer paso** (`0aeec91fc`, §17.12): Pedido pide al llegar al reorden con la misma regla que la mesa (`faltante.ts`). «Pedido lo pide y la mesa no» 681 → 2; Pedido en 8 sucursales $24.4 M → $21.4 M; las otras diferencias no se movieron. Falta D25, D26 y explicarlo en pantalla | PM + sesión Claude |
 | 2026-11-04 | PM firmó **D32**. Al re-medir, el placebo tumbó la liga por productos (21 de 38 también casaban 30–90 días antes) → árbitro **por importe de renglón**: **PQ.69** liga 23 ($2.98 M) y **PQ.68** cierra 16 ($0.35 M); unas 20 más se cierran solas al cumplir 30 días (`833934781`, §17.11). ⛔ RQ-2026-01391 ($245,571) falló y el reintento no la toma: Compras | PM + sesión Claude |
 | 2026-11-04 | **PQ.50 🧪** (`b37cea6e4`, D29, §17.10): el traspaso aprobado que en 7 días no salió a Kepler se cierra con motivo al leer la bandeja. Son 867 de 1,152 ($17.3 M), 200 por lectura. La mitad de sólo lectura de la prueba da 867 = 867 contra prod; la mitad que escribe corre en el CI. **Choque de códigos:** §18 ya usaba PQ.58–PQ.66, así que lo de esta sesión se renumera: GRANT → PQ.67, D32 → PQ.68, ligar → PQ.69, freno → **PQ.70** (sus commits dicen PQ.61) | PM + sesión Claude |
