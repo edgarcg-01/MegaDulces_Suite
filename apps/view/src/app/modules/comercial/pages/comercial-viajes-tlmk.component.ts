@@ -105,20 +105,20 @@ function deIso(s: string): Date {
                       emptyIcon="pi-truck" [emptyTitle]="vacioTitulo()" [emptyHint]="vacioPista()" (retry)="cargar()">
         <div class="dt-scope">
           <p-table [value]="filas()" dataKey="clave" selectionMode="single" [selection]="seleccion()"
-                   (onRowSelect)="abrir($event.data)" size="small" sortMode="single"
+                   (onRowSelect)="abrir($any($event.data))" size="small" sortMode="single"
                    class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first dt-stack"
                    [tableStyle]="{ 'min-width': '62rem' }">
             <ng-template #header>
               <tr>
-                <th scope="col" pSortableColumn="fecha">Fecha <p-sortIcon field="fecha" /></th>
+                <th scope="col" pSortableColumn="fecha">Fecha <p-sort-icon field="fecha" /></th>
                 <th scope="col">Sucursal</th>
                 <th scope="col">Destinos</th>
                 <th scope="col">Vendedor</th>
                 <th scope="col" class="comm-num">Paradas</th>
-                <th scope="col" class="comm-num" pSortableColumn="venta">Venta <p-sortIcon field="venta" /></th>
+                <th scope="col" class="comm-num" pSortableColumn="venta">Venta <p-sort-icon field="venta" /></th>
                 <th scope="col">Costo del viaje</th>
-                <th scope="col" class="comm-num" pSortableColumn="registrado">Gasto registrado <p-sortIcon field="registrado" /></th>
-                <th scope="col" class="comm-num" pSortableColumn="pct">% de la venta <p-sortIcon field="pct" /></th>
+                <th scope="col" class="comm-num" pSortableColumn="registrado">Gasto registrado <p-sort-icon field="registrado" /></th>
+                <th scope="col" class="comm-num" pSortableColumn="pct">% de la venta <p-sort-icon field="pct" /></th>
               </tr>
             </ng-template>
             <ng-template #body let-v>
