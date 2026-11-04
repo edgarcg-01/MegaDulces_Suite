@@ -49,6 +49,76 @@ ESTADO:    🔨 — D1 y D2 firmadas el 2026-10-27. **Modelo de operación: vent
 
 ---
 
+## 0b. El plan vigente: de hoy a operar como un banco (PM, 2026-11-04)
+
+**Pedido literal** (Edgar, 2026-11-04): *«necesito una sola forma de trabajar, adecuada y robusta…
+dime qué le hace falta al módulo para que sea 100 % funcional y controlable como un banco»* →
+*«documentemos todo lo que encontramos y apliquémoslo en un plan»*.
+
+Esta sección **ordena** el trabajo que queda; el detalle de cada item sigue en §7 y en §5.
+Si esta sección y el orden de §7 se contradicen, **gana ésta** (es la más nueva) y se corrige allá.
+
+### 0b.1 Lo que encontramos (2026-11-03 y 11-04)
+
+Todo medido en `pg-prod` en sólo lectura (`7688376744939610156`) o en el código, salvo lo marcado.
+
+| # | Hallazgo | Qué se decidió | Dónde vive |
+|---|---|---|---|
+| H1 | La API no preguntaba la llave de caja antes de escribir: una hoja de reposición se pagó con una cuenta de plataforma y sus 14 pagos quedaron fuera del libro, con un aviso que mostraba SQL. El 4-nov los metió la cajera con su usuario y entraron los 14, al centavo | la API pregunta la llave antes de escribir y el aviso dice la causa en palabras | LE.0.10 🧪, **sin desplegar** |
+| H2 | Una hoja de reposición la cerró una cuenta de plataforma y la aprobó una de Dirección, las dos sin llave de caja | en la caja sólo opera quien la opera y firma un puesto (D23); la aprobación pedirá la llave | D23, LE.2.15 |
+| H3 | Se pedía volver a aprobar un X-D-26 que ya respaldaba un gasto aprobado o una compra | una sola autorización por pago | D27, LE.2.13 🧪 |
+| H4 | Cerrar y aprobar la hoja de gastos eran dos actos de dos personas | un solo acto | D28, LE.2.15 |
+| H5 | Salían pagos de gastos rechazados, sin expediente, o «validados» sólo por el cierre de Kepler | lo que no aprobó una persona no sale, ni con firma | D29, LE.2.13 🧪 |
+| H6 | Pago parcial a un proveedor con varias facturas | contra facturas o parte del saldo, nunca más de lo que se debe; la más vieja primero | D30 🟡 (falta confirmar el «sin motivo») |
+| H7 | El pago de tarjeta de crédito no pasaba por aprobación | es un gasto y se aprueba | D31 |
+| H8 | La gente de oficinas carga gastos a la sucursal que visita, pero el dinero se le entrega en oficinas | va directo a Caja General; quien aprueba dice dónde se entrega | D32, LE.2.14 |
+| H9 | La Ventanilla se publicó como pestaña junto a Captura: dos pantallas para el mismo dinero | un solo sistema; la Ventanilla toma la ruta de Captura el día del cambio | D34, LE.6.7 |
+| H10 | La Ventanilla cubre 509 de los 784 movimientos de Captura en 30 días (65 %): sólo los X-D-26 | el resto entra a la misma cola antes del cambio | LE.6.7 |
+| H11 | El día de la cajera son **23 situaciones**; 4 están construidas (los pagos a proveedor) | es el guion de aceptación de la Ventanilla | §5.4 |
+| H12 | La reposición se paga con un retiro de la máquina que el libro no conoce, y sus pagos se ligan a mano (una de Morelia costó 21 capturas) | la hoja se arma sola, una firma, un código, custodia de quien lleva el depósito; la nómina igual | §5.5, D35, D36, LE.2.16, LE.6.8 |
+| H13 | **El libro nuevo no corre en prod**: sin saldo de apertura, el carril de la máquina apagado, cero cierres en sombra | es la puerta de todo lo demás (tramo T1) | LE.3.6, LE.4.4, LE.5.x |
+| H14 | El rol de sólo lectura no puede leer `cashbook` (`permission denied for function current_tenant`): el estado del libro nuevo **no se puede medir** desde fuera de la API | darle lectura, como se hizo con `platform` en `ops/prod/dev-ro.sql` | LE.5.8 (nuevo) |
+| H15 | Los tres candados del libro viejo **sí están en prod** (disparadores de día cerrado, folio que no desaparece y llave), aunque LE.0.7–0.9 dicen 🔨 | corregir su estado al verificar sus pruebas | LE.0.7–0.9 |
+| H16 | Tres trabajos de caja tienen su latido en «error» desde el 19 y el 27-oct (`caja_autollenado`, `mv_caja_push`, `caos_ingreso_conciliar`). NO MEDIDO si están apagados a propósito (contención LE.0.0) o rotos | un trabajo apagado dice «apagado», no «error» | LE.7.3 (retirar) o declararlo antes |
+| H17 | «Cero movimientos de la máquina en el día» no distingue «no se usó» de «no llegó»: el 4-nov fue una falsa alarma (no se usó) | el conteo de la máquina es lo que lo distingue | LE.3.1 |
+| H18 | Morelia fecha sus pagos al día siguiente | la hoja siguiente los toma; no se le pide cambiar | §5.5, LE.2.16 |
+
+### 0b.2 El plan, en seis tramos
+
+Las capas siguen el método: **nada se publica en la pantalla antes de que el libro haya cerrado
+5 días limpios en sombra** (T1). La Ventanilla se construye y se prueba antes, sin ruta (D34), a
+pedido del PM (2026-11-03, *«ármalo bien con la nueva interfaz»*). Es la única excepción al orden
+de capas, y se declara.
+
+| Tramo | Qué | Items | Quién | Sale cuando | Depende de |
+|---|---|---|---|---|---|
+| **T0 · Hoy** | Poner en prod lo que ya está listo: empujar, aplicar la migración `20261102143213`, soltar, ver `/api/health`. Nadie opera la caja con cuentas de plataforma o de Dirección | LE.0.10, LE.2.13, LE.4.10 | PM | `/api/health` sirve el commit | — |
+| **T1 · El libro corre en sombra** (C0) | El conteo de la máquina se guarda; el carril de la máquina se enciende; los testigos del día (estado de cuenta, cobranza y egresos de Kepler) se leen con su frescura; apertura con conteo físico completo y firma de Tesorería, fuera de horario; el libro se alimenta de lo que se captura hoy en Captura (la cajera no captura dos veces); el rol de lectura puede medirlo | LE.3.1, LE.4.4, LE.3.2, LE.3.6, LE.5.1, LE.5.1a, LE.5.8, LE.5.2 | devs + cajera (conteo) + Tesorería (firma) | **5 cierres limpios** contra los testigos | T0 |
+| **T2 · Las reglas y la API de todo el día** (C1–C2), en paralelo con T1 | Por dinero en juego: **1)** cobro de ruta (30 % de los movimientos); **2)** reposición y nómina; **3)** custodias y Suspenso; **4)** anticipos X-D-60 y otros ingresos; **5)** tope del cajón y cambio de monedas; **6)** dónde se entrega, la hoja en un acto, la firma en «Mi trabajo», volver a pedir la clave, aviso en el momento | LE.2.5→API, LE.2.16, E-28, E-08/10/11, E-03, E-23, LE.2.10, LE.2.11, LE.2.14, LE.2.15, LE.4.11, LE.4.2, LE.4.12 | devs | cada situación de §5.4 con su prueba contra base real y el payload de la pantalla | T0 |
+| **T3 · La Ventanilla completa, sin publicar** (C3) | Cada situación de §5.4 en la cola: recibir de ruta, reposición, custodias, Suspenso, abrir, cerrar, arqueo, hallazgos y mayor | LE.6.7, LE.6.8, LE.6.2–6.6 | devs | las 23 situaciones hechas en la pantalla montada contra base real; `check:pantalla` | T2 (por pieza) |
+| **T4 · Gente y proveedores** (sin código), en paralelo | Un usuario por persona en la máquina; Tesorería deja de operar; quién arquea por sorpresa y su calendario; revisión trimestral de accesos; revisión obligatoria del código de caja; formato fijo del depósito de ruta; rotar la credencial de la máquina; cómo se cobra un faltante (D8); catálogo de quién lleva el depósito (D35) | LE.X.1–X.7, LE.0.1, D8, LE.1.15 | PM, Dirección, RH, proveedor | cada uno firmado | — |
+| **T5 · El cambio** | Simulacro de restaurar el respaldo; reversa escrita y **ensayada**; un día completo ensayado en base de prueba con las 23 situaciones; el cambio en un acto (la Ventanilla toma `/finanzas/caja-general`, Captura sale del menú, lo viejo queda de sólo consulta); retirar el código viejo; remedir | LE.5.5, LE.7.1, LE.7.2, LE.7.3, LE.7.4 | devs + cajera + Tesorería | 5 días operando sólo en la Ventanilla sin hallazgos abiertos sin dueño | T1–T4 |
+
+### 0b.3 Lo que sólo puede decidir o conseguir el PM
+
+1. **El día del conteo de apertura** (la cajera cuenta todo por pieza, Tesorería firma) — abre T1.
+2. **Aplicar la lectura de `cashbook`** al rol de sólo lectura en `md` (LE.5.8) — sin eso T1 no se puede medir desde fuera.
+3. **Pedir al proveedor de la máquina** un usuario por persona (LE.X.1) — sin eso el Suspenso no tiene nombre.
+4. **D8 con RH**: descuento de nómina o cuenta por cobrar al empleado para un faltante.
+5. **Rotar la credencial de la máquina** (LE.0.1) y la **revisión obligatoria** del código de caja (LE.X.5).
+6. **Quién arquea por sorpresa** y su calendario (D22, LE.X.3).
+7. **Confirmar D30** (el pago parcial a otra factura, ¿sin motivo?).
+
+### 0b.4 Cómo se sabe que terminó
+
+La caja es «controlable como un banco» cuando, durante 5 días seguidos en la Ventanilla: cada
+peso que sale tiene su orden antes de salir; cada pago tiene una sola autorización y entra al libro
+en el mismo acto; el cajón se cuenta por pieza y nunca pasa del tope sin hallazgo; cada cierre lo
+firma alguien que no operó; y lo que no cuadra tiene dueño con nombre. Las cifras de §11 se remiden
+antes y después (LE.7.4).
+
+---
+
 ## 1. La decisión de fondo: se rehace el núcleo desde cero
 
 El libro actual es de **entrada simple** y la posición del dinero se reconstruye con cuatro
@@ -571,7 +641,7 @@ pantalla, no (método: no se sube de capa sin la de abajo verificada).
 ### 5.4 Un día de la cajera en la Ventanilla — cada ingreso y cada egreso (PM, 2026-11-04)
 
 **Pedido literal** (Edgar, 2026-11-04): *«primero armemos todo. ponme ejemplo con todo tipo de
-ingreso o egreso, como lo haría Carmen en el nuevo proceso»*. Es el guion de aceptación de E6:
+ingreso o egreso, como lo haría [la cajera] en el nuevo proceso»*. Es el guion de aceptación de E6:
 la Ventanilla está completa cuando este día se puede hacer entero en ella, sin Captura (D34).
 Los importes son **de ejemplo**; las reglas, las firmadas (D3 umbral $10,000 · D20 tope del cajón
 $50,000 · D25 cambio de monedas desde $5,000 · D26 al medio peso).
@@ -881,6 +951,7 @@ cada una explicada.
 | LE.5.5 | **Simulacro de restauración**: restaurar el respaldo en base de prueba, `verify_chain` + `v_descuadre_interno` | B38 | ⬜ | ambos limpios |
 | LE.5.6 | **Lo que cambia ANTES de la pantalla, sin código nuevo**: Tesorería deja la captura, los depósitos y el corte (D21); todo retiro sin documento se registra el mismo día como custodia en la pantalla actual (`[CGA-A.50]`, ya existe: hoy 0 abiertas); arranca el arqueo sorpresa (D13, D22) | B9, B11 | ⬜ | métrica (c) y retiros sin explicación remedidos cada semana con `le-metricas.js` |
 | LE.5.7 | **Las cifras que la ventanilla promete mover, medidas antes de E6** (`le-metricas.js` gana (f) y (g)): (1) pagos cuyo documento existe antes del efectivo — HOY 93 de 102 pares; (2) X-D-26 de caja con vale aprobado antes del pago — NO MEDIDO (motor de `[CGA-A.62]`), fija cuántas firmas pedirá V4; (3) cajón contado por pieza — HOY mediana $31,749.50, 13 de 16 cierres ≤ $50k; (4) depósitos de ruta con ruta y fecha legibles — HOY 96 de 119 (81 %; 58 % del dinero) | regla 15 | ⬜ | misma consulta antes y después, con fecha y frescura |
+| LE.5.8 | **El libro se puede medir desde fuera** (H14, 2026-11-04): el rol de sólo lectura recibe lectura de `cashbook` y `EXECUTE` sobre `cashbook.current_tenant()` en `ops/prod/dev-ro.sql`, como se hizo con `platform`; se aplica en `md` | ⬜ | con la cuenta de sólo lectura: `select count(*) from cashbook.entries` responde (hoy: `permission denied for function current_tenant`); una escritura con esa cuenta sigue rechazada |
 
 **Criterio de salida**: **10 cierres hábiles seguidos con cero diferencias sin explicar contra los
 testigos**; toda diferencia contra el viejo explicada; simulacro limpio; firma del PM.
@@ -1064,3 +1135,4 @@ frescura.
 | 2026-11-04 | **D34 — un solo sistema.** El PM vio la Ventanilla como pestaña junto a Captura y lo rechazó: dos pantallas para el mismo dinero. Se quitan su pestaña y su ruta (el componente, la API y sus pruebas se quedan: son lo que toma `/finanzas/caja-general` el día del cambio). Medido para saber cuánto falta: de 784 movimientos de Captura en 30 días, la Ventanilla cubre los 509 X-D-26 (65 %); el resto es LE.6.7. El plan de §5.3 cambia de «por rebanada, con días en paralelo» a «por rebanada en el servidor, de un golpe en la pantalla». |
 | 2026-11-04 | **§5.4 — un día de la cajera, cada ingreso y egreso.** Pedido del PM: *«primero armemos todo; ponme ejemplo con todo tipo de ingreso o egreso»*. 23 situaciones con lo que hace la cajera, lo que hace el sistema, quién firma, el hecho del catálogo y su estado hoy. Es el guion de aceptación de LE.6.7: la Ventanilla está completa cuando el día entero se hace en ella. De las 23, 4 están en código (pagos a proveedor: sale ya, pide firma, detenido); el resto es lo que falta armar. |
 | 2026-11-04 | **§5.5 — la reposición en la Ventanilla.** El PM aprueba la nueva forma: la hoja se arma sola, Tesorería la aprueba en un acto (única firma), la cajera la paga con un solo código y queda en custodia de quien lleva el depósito hasta que el banco lo confirma. D35 (quién lleva el depósito: dos personas con nombre, en el catálogo y no en el repo) y D36 (nómina por el mismo camino, hoja propia). Items LE.2.16 y LE.6.8. |
+| 2026-11-04 | **§0b — el plan vigente.** Pedido del PM: *«documentemos todo lo que encontramos y apliquémoslo en un plan»*. 18 hallazgos de las sesiones del 3 y 4-nov con su decisión y su item, seis tramos (T0 hoy · T1 el libro en sombra · T2 reglas y API · T3 la Ventanilla sin publicar · T4 gente y proveedores · T5 el cambio), lo que sólo puede decidir el PM y cómo se sabe que terminó. Item nuevo LE.5.8 (medir el libro desde fuera). Corrección: en §5.4 el pedido literal nombraba a una persona; el repo es público y queda «la cajera». |
