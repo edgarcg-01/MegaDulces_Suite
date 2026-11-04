@@ -29,7 +29,7 @@ import type { Knex } from 'knex';
 import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import {
   CUENTA, ZONAS_HOJA_GASTOS, centavosATexto, formatearDinero, pagableConBilletesCaos, pesosACentavos, valorDePiezas, warehouseName,
-  type CustodiaAbierta, type PersonaDeCustodia, type RendirCustodia, type ReposicionPorConfirmar, type ResultadoRendicion, type RetiroACustodia,
+  type AsignarUsuarioDeMaquina, type CustodiaAbierta, type PersonaDeCustodia, type TopeDelCajon, type UsuarioDeMaquina, type RendirCustodia, type ReposicionPorConfirmar, type ResultadoRendicion, type RetiroACustodia,
   type HojaDeReposicion, type PedirReposicion, type QuienLlevaDeposito, type ZonaHojaGastos,
   type CobroEnVentanilla, type CuentaDelCobro, type EstadoDeCobro, type ExplicarSuspenso, type OrdenPorFirmar, type PartidaEnSuspenso, type ResultadoHecho, type PagoEnVentanilla, type PiezasTexto,
   type PlanDePagoVentanilla, type ResultadoCobro, type ResultadoPago, type VeredictoDePago,
@@ -759,7 +759,15 @@ export class CashbookVentanillaService {
 
   /** Lo que está en Suspenso y nadie ha explicado (ni con una explicación esperando firma). */
   async suspenso(): Promise<PartidaEnSuspenso[]> {
-    return this.run((trx, tenantId) => this.enSuspenso(trx, tenantId, null));
+    return this.run(async (trx, tenantId) => {
+      const lista = await this.enSuspenso(trx, tenantId, null);
+      if (!lista.length || !(await this.hayCatalogos(trx))) return lista;
+      // `[LE.1.15]` A nombre de quién: el catálogo firmado del usuario de la máquina.
+      const nombres = (await trx.raw(`SELECT DISTINCT ON (device, user_external) device, user_external, nombre FROM cashbook.machine_users
+        WHERE tenant_id = ? ORDER BY device, user_external, created_at DESC`, [tenantId])).rows as Array<{ device: string; user_external: string; nombre: string | null }>;
+      const de = new Map(nombres.map((n) => [`${n.device}|${n.user_external}`, n.nombre]));
+      return lista.map((p) => ({ ...p, persona: p.usuario_maquina ? de.get(`${p.event_ref.split(':')[1]}|${p.usuario_maquina}`) ?? null : null }));
+    });
   }
 
   /**
@@ -1119,6 +1127,75 @@ export class CashbookVentanillaService {
       this.logger.log(`[LE.6.8] reposición ${o.id} cerrada con el depósito ${dep.ids.join(',')}`);
       return { asientos, saldo_minor: await this.saldoDeCustodia(trx, tenantId, o.classification.empleado) };
     });
+  }
+
+  // ── `[LE.1.15]` Catálogos firmados: el tope del cajón y quién es cada usuario de la máquina ──
+
+  private async hayCatalogos(trx: Knex.Transaction): Promise<boolean> {
+    return (await trx.raw(`SELECT to_regprocedure('cashbook.set_drawer_limit(bigint, uuid)') IS NOT NULL AS ok`)).rows[0].ok as boolean;
+  }
+
+  private async exigeCatalogos(trx: Knex.Transaction): Promise<void> {
+    if (!(await this.hayCatalogos(trx))) {
+      throw new ServiceUnavailableException({ codigo: 'catalogos_sin_migracion', mensaje: 'Los catálogos de la Ventanilla todavía no están en esta base (falta la migración 20261104173710).' });
+    }
+  }
+
+  /** El tope vigente; sin fijar, `null` (y la regla del tope no se aplica: se dice). */
+  async tope(): Promise<TopeDelCajon> {
+    return this.run(async (trx, tenantId) => {
+      if (!(await this.hayCatalogos(trx))) return { monto_minor: null, fijado_por: null, fijado_at: null };
+      const r = (await trx.raw(`SELECT l.amount_minor::text AS monto_minor, coalesce(nullif(btrim(u.nombre), ''), u.username, l.set_by::text) AS fijado_por,
+          l.created_at::text AS fijado_at
+        FROM cashbook.drawer_limits l LEFT JOIN identity.users u ON u.tenant_id = l.tenant_id AND u.id = l.set_by
+       WHERE l.tenant_id = ? ORDER BY l.created_at DESC LIMIT 1`, [tenantId])).rows[0] as TopeDelCajon | undefined;
+      return r ?? { monto_minor: null, fijado_por: null, fijado_at: null };
+    });
+  }
+
+  /** Fijar el tope: sólo quien firma caja por su puesto (la base lo exige). Cada cambio queda en la historia. */
+  async fijarTope(montoMinor: string, usuario: UsuarioDelLibro): Promise<TopeDelCajon> {
+    const quien = this.quien(usuario);
+    if (!/^\d+$/.test(String(montoMinor ?? '')) || BigInt(montoMinor) <= 0n) {
+      throw new BadRequestException({ codigo: 'tope_invalido', mensaje: 'El tope es un importe en centavos, mayor que cero.' });
+    }
+    await this.run(async (trx) => { await this.exigeCatalogos(trx); await trx.raw('SELECT cashbook.set_drawer_limit(?, ?)', [montoMinor, quien]); });
+    return this.tope();
+  }
+
+  /** Los usuarios que la máquina usó en 90 días, con la persona que es cada uno (o sin asignar). */
+  async usuariosDeMaquina(): Promise<UsuarioDeMaquina[]> {
+    return this.run(async (trx, tenantId) => {
+      const cat = await this.hayCatalogos(trx);
+      return (await trx.raw(`
+        WITH u AS (
+          SELECT device, user_external, max(occurred_at) AS ultimo, count(*)::int AS n
+            FROM analytics.caos_cash_movements
+           WHERE tenant_id = ? AND user_external IS NOT NULL AND btrim(user_external) <> '' AND occurred_at >= now() - interval '90 days'
+           GROUP BY device, user_external)
+        SELECT u.device, u.user_external, u.ultimo::text AS ultimo_uso, u.n AS movimientos,
+               ${cat ? 'a.user_id::text' : 'NULL::text'} AS persona, ${cat ? 'a.nombre' : 'NULL::text'} AS nombre
+          FROM u
+          ${cat ? `LEFT JOIN LATERAL (SELECT m.user_id, m.nombre FROM cashbook.machine_users m
+                      WHERE m.tenant_id = ? AND m.device = u.device AND m.user_external = u.user_external
+                      ORDER BY m.created_at DESC LIMIT 1) a ON true` : ''}
+         ORDER BY u.n DESC`, cat ? [tenantId, tenantId] : [tenantId])).rows as UsuarioDeMaquina[];
+    });
+  }
+
+  /** Decir quién es un usuario de la máquina (o quitarlo, con `persona: null`). Firma por puesto. */
+  async asignarUsuarioDeMaquina(body: AsignarUsuarioDeMaquina, usuario: UsuarioDelLibro): Promise<UsuarioDeMaquina[]> {
+    const quien = this.quien(usuario);
+    const device = String(body?.device ?? '').trim();
+    const ext = String(body?.user_external ?? '').trim();
+    if (!device || !ext) throw new BadRequestException({ codigo: 'usuario_invalido', mensaje: 'Falta el equipo o el usuario de la máquina.' });
+    await this.run(async (trx, tenantId) => {
+      await this.exigeCatalogos(trx);
+      const p = body?.persona ? await this.persona(trx, tenantId, body.persona) : null;
+      await trx.raw('SELECT cashbook.set_machine_user(?::jsonb)', [JSON.stringify({ device, user_external: ext, user_id: p?.usuario_id ?? null,
+        nombre: p?.nombre ?? null, set_by: quien })]);
+    });
+    return this.usuariosDeMaquina();
   }
 
   /** Las piezas que movió la máquina en ese asiento, en positivo (la regla les pone el signo). */

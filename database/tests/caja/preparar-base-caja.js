@@ -118,7 +118,9 @@ const REGLAS_SOBRE_LO_QUE_LEE = ['20261026110741_cga_a55_billetes_por_enlace_de_
   // `[LE.4.10]` La orden que espera la firma de Tesorería (la Ventanilla paga contra esto).
   '20261102143213_le410_orden_por_firmar_y_vale_una_vez.js',
   // `[LE.6.8]` La responsabilidad «lleva el depósito de la reposición» (D35): la Ventanilla la lee.
-  '20261104152834_le68_responsabilidad_lleva_el_deposito.js'];
+  '20261104152834_le68_responsabilidad_lleva_el_deposito.js',
+  // `[LE.1.15]` `[LE.2.10]` Los catálogos firmados (tope, usuarios de la máquina) y la regla del tope.
+  '20261104173710_le115_catalogos_y_tope_del_cajon.js'];
 const MAX_REMEDIOS = 200;
 /** Los GRANT de prod a `app_runtime` sobre tablas que llegan vacías del snapshot y una prueba escribe. */
 const GRANTS_DE_PROD = {

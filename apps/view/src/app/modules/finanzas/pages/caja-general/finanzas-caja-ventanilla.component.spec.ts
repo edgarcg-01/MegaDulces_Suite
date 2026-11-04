@@ -99,6 +99,7 @@ function montar(opciones: { jornada?: string | null; saldosFalla?: boolean; gest
     explicar: vi.fn(() => of({ estado: 'asentado' as const, entry_id: 'e11' })),
     reposiciones: vi.fn(() => of(opciones.hojas ?? HOJAS)),
     hallazgos: vi.fn(() => of([])),
+    tope: vi.fn(() => of({ monto_minor: null, fijado_por: null, fijado_at: null })),
     registrarHecho: vi.fn(() => of({ estado: 'asentado' as const, entry_id: 'e30' })),
     solicitudes: vi.fn(() => of([])),
     custodias: vi.fn(() => of(opciones.custodias ?? CUSTODIAS)),

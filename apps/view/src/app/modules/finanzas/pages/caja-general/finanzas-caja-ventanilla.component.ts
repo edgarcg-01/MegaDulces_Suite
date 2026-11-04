@@ -119,7 +119,7 @@ type EstadoLibro = 'abierto' | 'sin_dia' | 'sin_medir';
                   <td data-label="Qué pasó">{{ p.esta_en === 'haber' ? 'Entró sin decir de quién' : 'Salió sin orden' }}
                     <span class="vt-motivo">{{ p.movimiento ?? 'movimiento de la máquina' }}</span></td>
                   <td data-label="Lo que se tecleó">{{ p.texto || '(nada)' }}</td>
-                  <td data-label="Usuario de la máquina">{{ p.usuario_maquina ?? '—' }}</td>
+                  <td data-label="Usuario de la máquina">{{ p.usuario_maquina ?? '—' }}@if (p.persona) { <span class="vt-motivo">{{ p.persona }}</span> }</td>
                   <td class="num" data-label="Cuándo">{{ dmy(p.fecha) }}</td>
                   <td class="ta-r num dt-num" data-label="Importe">{{ minor(p.monto_minor) }}</td>
                   <td class="ta-r" data-label="Explicar">

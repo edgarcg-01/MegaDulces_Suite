@@ -394,8 +394,10 @@ export interface PartidaEnSuspenso {
   /** El movimiento de la máquina (`Deposito`, `Dispensar`…) y el texto que se tecleó en ella. */
   movimiento: string | null;
   texto: string | null;
-  /** El usuario de la máquina. Su empleado lo dirá el catálogo firmado (LE.1.15); hoy es el usuario. */
+  /** El usuario de la máquina. */
   usuario_maquina: string | null;
+  /** `[LE.1.15]` La persona que es ese usuario, según el catálogo firmado; `null` = sin asignar. */
+  persona?: string | null;
   motivo: string | null;
 }
 
@@ -498,6 +500,23 @@ export interface ResultadoRendicion {
 
 /** Una persona que puede tener dinero a su cargo (usuario activo de la Suite). */
 export interface PersonaDeCustodia { usuario_id: string; nombre: string }
+
+// ── `[LE.1.15]` Catálogos firmados de la Ventanilla ─────────────────────────────────────────
+
+/** El tope del cajón vigente (D20). `null` = nadie lo ha fijado: la regla del tope no se aplica y se dice. */
+export interface TopeDelCajon { monto_minor: string | null; fijado_por: string | null; fijado_at: string | null }
+
+/** Un usuario de la máquina y la persona que es (B43). `persona` null = sin asignar. */
+export interface UsuarioDeMaquina {
+  device: string;
+  user_external: string;
+  ultimo_uso: string | null;
+  movimientos: number;
+  persona: string | null;
+  nombre: string | null;
+}
+
+export interface AsignarUsuarioDeMaquina { device: string; user_external: string; persona: string | null }
 
 /** Una orden que espera la firma de Tesorería, con todo lo que hace falta para decidir. */
 export interface OrdenPorFirmar {

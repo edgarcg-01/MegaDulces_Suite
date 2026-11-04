@@ -2,7 +2,7 @@ import { Body, Controller, Get, Headers, Param, Post, Query, Req, UseGuards } fr
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import type {
-  CobroEnVentanilla, ConteoDeCaja, EstadoDeCobro, ExplicarSuspenso, HechoDePersona, HojaDeReposicion, PedirReposicion, QuienLlevaDeposito, CustodiaAbierta, PersonaDeCustodia, RendirCustodia, ResultadoRendicion, RetiroACustodia, OrdenPorFirmar, PagoEnVentanilla, PartidaEnSuspenso, PlanDePagoVentanilla,
+  CobroEnVentanilla, ConteoDeCaja, EstadoDeCobro, ExplicarSuspenso, HechoDePersona, HojaDeReposicion, PedirReposicion, QuienLlevaDeposito, CustodiaAbierta, PersonaDeCustodia, RendirCustodia, ResultadoRendicion, RetiroACustodia, TopeDelCajon, UsuarioDeMaquina, AsignarUsuarioDeMaquina, OrdenPorFirmar, PagoEnVentanilla, PartidaEnSuspenso, PlanDePagoVentanilla,
   ResultadoCobro, ResultadoConteo, ResultadoHecho, ResultadoPago, SaldosDelLibro, VeredictoDePago,
 } from '@megadulces/contracts';
 import { CashbookService, type UsuarioDelLibro } from './cashbook.service';
@@ -108,7 +108,7 @@ export class CashbookController {
   @Post('jornadas/:fecha/cerrar')
   @RequirePermissions(Permission.FINANCE_CAJA_AUTORIZAR)
   @ApiOperation({ summary: '[LE.4.3] Cierra la jornada: la autoriza la sesión; cierra quien hizo el arqueo de cierre' })
-  cerrar(@Param('fecha') fecha: string, @Req() req: AuthedRequest): Promise<{ cerro: string; autorizo: string }> {
+  cerrar(@Param('fecha') fecha: string, @Req() req: AuthedRequest): Promise<{ cerro: string; autorizo: string; excedente: string | null }> {
     return this.svc.cerrarJornada(fecha, this.user(req));
   }
 
@@ -224,6 +224,36 @@ export class CashbookController {
   @ApiOperation({ summary: '[LE.6.5] Rinde una custodia (Idempotency-Key): con documentos de Kepler y con lo que regresa al cajón por pieza' })
   rendir(@Body() body: RendirCustodia, @Headers('idempotency-key') key: string | undefined, @Req() req: AuthedRequest): Promise<ResultadoRendicion> {
     return this.ventanilla.rendir(body, this.user(req), key);
+  }
+
+  // ── `[LE.1.15]` Catálogos firmados de la Ventanilla ───────────────────────────────────────
+
+  @Get('catalogos/tope')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: '[LE.1.15] El tope del cajón vigente (D20); null = sin fijar' })
+  tope(): Promise<TopeDelCajon> {
+    return this.ventanilla.tope();
+  }
+
+  @Post('catalogos/tope')
+  @RequirePermissions(Permission.FINANCE_CAJA_AUTORIZAR)
+  @ApiOperation({ summary: '[LE.1.15] Fija el tope del cajón (sólo quien firma caja por su puesto; cada cambio queda en la historia)' })
+  fijarTope(@Body() body: { monto_minor: string }, @Req() req: AuthedRequest): Promise<TopeDelCajon> {
+    return this.ventanilla.fijarTope(body?.monto_minor, this.user(req));
+  }
+
+  @Get('catalogos/usuarios-maquina')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: '[LE.1.15] Los usuarios de la máquina de 90 días y la persona que es cada uno' })
+  usuariosDeMaquina(): Promise<UsuarioDeMaquina[]> {
+    return this.ventanilla.usuariosDeMaquina();
+  }
+
+  @Post('catalogos/usuarios-maquina')
+  @RequirePermissions(Permission.FINANCE_CAJA_AUTORIZAR)
+  @ApiOperation({ summary: '[LE.1.15] Dice quién es un usuario de la máquina (o lo quita); firma por puesto' })
+  asignarUsuarioDeMaquina(@Body() body: AsignarUsuarioDeMaquina, @Req() req: AuthedRequest): Promise<UsuarioDeMaquina[]> {
+    return this.ventanilla.asignarUsuarioDeMaquina(body, this.user(req));
   }
 
   @Get('ordenes/por-firmar')

@@ -17,7 +17,7 @@ const saldos = (jornada: string | null, cajaSeq = '12'): SaldosDelLibro => ({
   ultimo_asiento: '12', jornada_abierta: jornada, integridad: { integra: true, problemas: [] },
 });
 
-function montar(o: { jornada?: string | null; cajaSeq?: string; autorizar?: boolean } = {}) {
+function montar(o: { jornada?: string | null; cajaSeq?: string; autorizar?: boolean; tope?: string | null } = {}) {
   const libro = {
     saldos: vi.fn(() => of(saldos(o.jornada === undefined ? todayMx() : o.jornada, o.cajaSeq))),
     hallazgos: vi.fn(() => of([{ id: 'h1', source: 'arqueo', account_code: 'CAJA_MXN', business_date: null, amount_minor: '-5000', detail: null,
@@ -25,11 +25,16 @@ function montar(o: { jornada?: string | null; cajaSeq?: string; autorizar?: bool
     solicitudes: vi.fn(() => of([{ id: 's1', event_kind: 'apertura', gross_minor: '50000', registered_by: 'u1', created_at: '2026-11-04T10:00:00Z',
       expires_at: '2026-11-07T10:00:00Z', payload: null }])),
     abrirJornada: vi.fn(() => of(undefined)),
-    cerrarJornada: vi.fn(() => of({ cerro: 'u1', autorizo: 'u2' })),
+    cerrarJornada: vi.fn(() => of({ cerro: 'u1', autorizo: 'u2', excedente: 'h9' as string | null })),
     contar: vi.fn(() => of({ ciego: false as const, count_id: 'c1', total_minor: '45000', esperado_minor: '50000', diferencia_minor: '-5000', hallazgo_id: 'h2' })),
     registrarHecho: vi.fn(() => of({ estado: 'por_autorizar' as const, request_id: 'r1', motivo: 'apertura: siempre lo autoriza otra persona' })),
     autorizar: vi.fn(() => of({ entry_id: 'e1' })),
     rechazar: vi.fn(() => of(undefined)),
+    tope: vi.fn(() => of({ monto_minor: o.tope === undefined ? '4000000' : o.tope, fijado_por: 'tesoreria', fijado_at: '2026-11-04T10:00:00Z' })),
+    fijarTope: vi.fn((m: string) => of({ monto_minor: m, fijado_por: 'tesoreria', fijado_at: '2026-11-04T11:00:00Z' })),
+    usuariosDeMaquina: vi.fn(() => of([{ device: 'AST', user_external: 'vendedor7', ultimo_uso: null, movimientos: 34, persona: null, nombre: null }])),
+    asignarUsuarioDeMaquina: vi.fn(() => of([{ device: 'AST', user_external: 'vendedor7', ultimo_uso: null, movimientos: 34, persona: 'u9', nombre: 'Persona Nueve' }])),
+    personas: vi.fn(() => of([{ usuario_id: 'u9', nombre: 'Persona Nueve' }])),
   };
   TestBed.configureTestingModule({
     imports: [VentanillaDiaComponent],
@@ -97,6 +102,7 @@ describe('[LE.6.4] Tu día', () => {
     expect(el.textContent).toContain('Cerrar el día');
     comp.cerrarDia();
     expect(libro.cerrarJornada).toHaveBeenCalledWith(todayMx());
+    expect(comp.aviso()).toContain('quedó un hallazgo');   // [LE.2.10] el cierre dice si dejó el excedente
     comp.rechazar('s1');
     expect(libro.rechazar).not.toHaveBeenCalled();         // sin motivo, no
     comp.nota.set('no cuadra con el conteo');
@@ -104,5 +110,33 @@ describe('[LE.6.4] Tu día', () => {
     expect(libro.rechazar).toHaveBeenCalledWith('s1', 'no cuadra con el conteo');
     comp.firmar('s1');
     expect(libro.autorizar).toHaveBeenCalledWith('s1');
+  });
+
+  it('[LE.2.10] el tope se ve; si el conteo de cierre pasa del tope, lo dice antes de cerrar', () => {
+    const { fixture, comp, el, libro } = montar({ tope: '40000' });   // $400; el conteo de la prueba da $450
+    expect(el.querySelector('[data-testid="dia-tope"]')?.textContent).toContain('$400.00');
+    comp.abrirConteo('cierre');
+    comp.piezas.set({ 200: 2, 50: 1 });
+    comp.registrarConteo();
+    fixture.detectChanges();
+    expect(libro.contar).toHaveBeenCalled();
+    expect(document.body.querySelector('[data-testid="excede-tope"]')?.textContent).toContain('$50.00');
+  });
+
+  it('[LE.2.10] sin tope fijado lo declara: no lo da por cumplido', () => {
+    const { el, comp } = montar({ tope: null });
+    expect(el.querySelector('[data-testid="dia-tope"]')?.textContent).toContain('Sin tope del cajón fijado');
+    expect(comp.excedeTope('999999')).toBeNull();
+  });
+
+  it('[LE.1.15] fijar el tope y decir quién es un usuario de la máquina: sólo con AUTORIZAR', () => {
+    const { comp, libro } = montar({ autorizar: true });
+    comp.abrirCatalogos();
+    comp.nuevoTope.set('50000');
+    comp.fijarTope();
+    expect(libro.fijarTope).toHaveBeenCalledWith('5000000');
+    comp.asignar(comp.usuarios()[0], 'u9');
+    expect(libro.asignarUsuarioDeMaquina).toHaveBeenCalledWith({ device: 'AST', user_external: 'vendedor7', persona: 'u9' });
+    expect(comp.usuarios()[0].nombre).toBe('Persona Nueve');
   });
 });

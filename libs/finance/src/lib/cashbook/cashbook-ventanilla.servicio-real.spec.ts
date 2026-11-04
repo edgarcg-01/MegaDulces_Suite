@@ -668,4 +668,34 @@ describe.skipIf(!URL)('[LE.4.10] la Ventanilla contra Postgres', () => {
     expect(await rechazo(v.pagar({ origen_ref: '00|X-D-61|0000123|0011', cuenta_kepler: '201', recibe: { nombre: 'Proveedor' } }, CAJERA, randomUUID())))
       .toEqual({ status: 400, codigo: 'documento_invalido' });
   });
+
+  // ── `[LE.1.15]` `[LE.2.10]` Los catálogos firmados y el tope (ESTA VA AL FINAL: cierra el día) ──
+
+  it('[LE.1.15] quién es cada usuario de la máquina lo dice quien firma caja; Suspenso lo muestra a su nombre', async () => {
+    if (!hay) return;
+    await maquina(30, 0, 'Deposito', [[500, 2]], 'ruta 41 051126');
+    await maquina(31, 4, 'Dispensar', [[500, 1]], null);                     // sin código: a Suspenso, de «vendedor7»
+    expect((await v.usuariosDeMaquina()).find((u) => u.device === DEV && u.user_external === 'vendedor7')).toMatchObject({ persona: null });
+    expect(await rechazo(v.asignarUsuarioDeMaquina({ device: DEV, user_external: 'vendedor7', persona: TESORERIA.id }, CAJERA)))
+      .toEqual({ status: 422, codigo: 'cashbook_catalogo_requiere_firma' });   // la cajera no firma caja
+    const lista = await v.asignarUsuarioDeMaquina({ device: DEV, user_external: 'vendedor7', persona: TESORERIA.id }, TESORERIA);
+    expect(lista.find((u) => u.device === DEV && u.user_external === 'vendedor7')).toMatchObject({ persona: TESORERIA.id, nombre: TESORERIA.username });
+    expect((await v.suspenso()).find((p) => p.event_ref === `caos:${DEV}:31`)).toMatchObject({ usuario_maquina: 'vendedor7', persona: TESORERIA.username });
+  });
+
+  it('[LE.2.10] el tope lo fija quien firma caja; al cerrar, lo contado arriba del tope es UN hallazgo a nombre de quien cerró', async () => {
+    if (!hay) return;
+    expect(await v.tope()).toEqual({ monto_minor: null, fijado_por: null, fijado_at: null });
+    expect(await rechazo(v.fijarTope('1000', CAJERA))).toEqual({ status: 422, codigo: 'cashbook_catalogo_requiere_firma' });
+    expect(await rechazo(v.fijarTope('0', TESORERIA))).toEqual({ status: 400, codigo: 'tope_invalido' });
+    expect(await v.fijarTope('1000', TESORERIA)).toMatchObject({ monto_minor: '1000', fijado_por: TESORERIA.username });   // $10, para la prueba
+    // El conteo de cierre (lo que haya, por pieza) pasa de $10: al cerrar, el hallazgo del excedente.
+    const caja = (await libro.saldos(true)).cuentas.find((c) => c.code === 'CAJA_MXN');
+    const piezas = caja?.piezas ?? {};
+    await libro.contar({ cuenta: 'CAJA_MXN', tipo: 'cierre', piezas, contado_en: new Date().toISOString() }, CAJERA);
+    const cierre = await libro.cerrarJornada(HOY, TESORERIA);
+    expect(cierre.excedente).toBeTruthy();
+    const h = (await libro.hallazgos()).find((x) => x['id'] === cierre.excedente) as { detail: { regla: string; tope_minor: string }; owner_user: string } | undefined;
+    expect(h).toMatchObject({ detail: { regla: 'tope_del_cajon', tope_minor: '1000' }, owner_user: CAJERA.id });
+  });
 });

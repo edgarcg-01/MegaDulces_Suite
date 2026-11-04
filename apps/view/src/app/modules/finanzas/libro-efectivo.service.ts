@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import type {
-  CobroEnVentanilla, ConteoDeCaja, CustodiaAbierta, EstadoDeCobro, HechoDePersona, ResultadoConteo, ExplicarSuspenso, PersonaDeCustodia, RendirCustodia, ResultadoRendicion, RetiroACustodia, HojaDeReposicion, PagoEnVentanilla, PartidaEnSuspenso, PedirReposicion,
+  AsignarUsuarioDeMaquina, CobroEnVentanilla, ConteoDeCaja, TopeDelCajon, UsuarioDeMaquina, CustodiaAbierta, EstadoDeCobro, HechoDePersona, ResultadoConteo, ExplicarSuspenso, PersonaDeCustodia, RendirCustodia, ResultadoRendicion, RetiroACustodia, HojaDeReposicion, PagoEnVentanilla, PartidaEnSuspenso, PedirReposicion,
   PlanDePagoVentanilla, QuienLlevaDeposito, ResultadoCobro,
   ResultadoHecho, ResultadoPago, SaldosDelLibro, VeredictoDePago,
 } from '@megadulces/contracts';
@@ -83,8 +83,8 @@ export class LibroEfectivoService {
   }
 
   /** Cierra quien hizo el último arqueo de cierre; firma la sesión (Tesorería). */
-  cerrarJornada(fecha: string): Observable<{ cerro: string; autorizo: string }> {
-    return this.http.post<{ cerro: string; autorizo: string }>(`${this.base}/jornadas/${encodeURIComponent(fecha)}/cerrar`, {});
+  cerrarJornada(fecha: string): Observable<{ cerro: string; autorizo: string; excedente: string | null }> {
+    return this.http.post<{ cerro: string; autorizo: string; excedente: string | null }>(`${this.base}/jornadas/${encodeURIComponent(fecha)}/cerrar`, {});
   }
 
   /** El conteo ciego por pieza: de cierre, sorpresa (sin esperado) o relevo. */
@@ -111,6 +111,24 @@ export class LibroEfectivoService {
 
   rechazar(id: string, nota: string): Observable<void> {
     return this.http.post<void>(`${this.base}/solicitudes/${encodeURIComponent(id)}/rechazar`, { nota });
+  }
+
+  // ── `[LE.1.15]` Catálogos firmados ──────────────────────────────────────────────────────
+
+  tope(): Observable<TopeDelCajon> {
+    return this.http.get<TopeDelCajon>(`${this.base}/catalogos/tope`).pipe(reintentarSi429<TopeDelCajon>());
+  }
+
+  fijarTope(montoMinor: string): Observable<TopeDelCajon> {
+    return this.http.post<TopeDelCajon>(`${this.base}/catalogos/tope`, { monto_minor: montoMinor });
+  }
+
+  usuariosDeMaquina(): Observable<UsuarioDeMaquina[]> {
+    return this.http.get<UsuarioDeMaquina[]>(`${this.base}/catalogos/usuarios-maquina`).pipe(reintentarSi429<UsuarioDeMaquina[]>());
+  }
+
+  asignarUsuarioDeMaquina(body: AsignarUsuarioDeMaquina): Observable<UsuarioDeMaquina[]> {
+    return this.http.post<UsuarioDeMaquina[]>(`${this.base}/catalogos/usuarios-maquina`, body);
   }
 
   /** `[LE.6.5]` Lo que cada persona tiene a su cargo. */

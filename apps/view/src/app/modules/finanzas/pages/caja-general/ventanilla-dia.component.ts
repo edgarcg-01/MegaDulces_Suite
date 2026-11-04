@@ -6,7 +6,9 @@ import { catchError } from 'rxjs/operators';
 import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
-import { valorDePiezas, type ResultadoConteo, type ResultadoHecho, type SaldosDelLibro } from '@megadulces/contracts';
+import {
+  valorDePiezas, type PersonaDeCustodia, type ResultadoConteo, type ResultadoHecho, type SaldosDelLibro, type TopeDelCajon, type UsuarioDeMaquina,
+} from '@megadulces/contracts';
 import { PermissionsService } from '../../../../core/services/permissions.service';
 import { Permission } from '../../../../core/constants/permissions';
 import { todayMx } from '../../../../core/utils/mx-date';
@@ -64,8 +66,13 @@ type Conteo = 'cierre' | 'sorpresa' | 'arranque';
           }
         }
         <p-button size="small" severity="secondary" [text]="true" [label]="'Firmas por dar (' + solicitudes().length + ')'" (onClick)="verFirmas.set(true)" />
+        <p-button size="small" severity="secondary" [text]="true" label="Tope y usuarios de la máquina" (onClick)="abrirCatalogos()" />
         <p-button size="small" severity="secondary" [text]="true" [label]="'Hallazgos (' + hallazgos().length + ')'" (onClick)="verHallazgos.set(true)" />
       </div>
+      <p class="vd-tope" data-testid="dia-tope">
+        @if (tope()?.monto_minor) { Tope del cajón: <b>{{ minor(tope()!.monto_minor) }}</b> }
+        @else { Sin tope del cajón fijado: al cerrar no se revisa el excedente. }
+      </p>
       @if (aviso()) { <p class="vd-aviso" role="status" data-testid="dia-aviso">{{ aviso() }}</p> }
     </section>
 
@@ -80,6 +87,9 @@ type Conteo = 'cierre' | 'sorpresa' | 'arranque';
           } @else {
             <p>Contado: <b>{{ minor(r.conteo.total_minor) }}</b> · el libro esperaba {{ minor(r.conteo.esperado_minor) }}.</p>
             <p>{{ r.conteo.diferencia_minor === '0' ? 'Cuadra.' : 'No cuadra por ' + minor(r.conteo.diferencia_minor) + ': quedó un hallazgo con dueño.' }}</p>
+            @if (excedeTope(r.conteo.total_minor); as ex) {
+              <p class="vd-aviso--mal" data-testid="excede-tope">Pasa del tope por {{ minor(ex) }}: deposita lo que sobra en la máquina antes de cerrar (V1).</p>
+            }
           }
         </div>
       } @else {
@@ -122,6 +132,35 @@ type Conteo = 'cierre' | 'sorpresa' | 'arranque';
       @if (!autorizar() && solicitudes().length) { <p class="muted">Las firma Tesorería (quien opera no firma, V9).</p> }
     </p-dialog>
 
+    <p-dialog [visible]="verCatalogos()" (visibleChange)="verCatalogos.set($event)" [modal]="true" [draggable]="false" [style]="{ width: '40rem' }"
+              header="Tope del cajón y usuarios de la máquina">
+      <p class="vd-lbl">Tope del cajón {{ autorizar() ? '' : '(lo fija quien firma caja)' }}</p>
+      @if (autorizar()) {
+        <div class="vd-fila">
+          <input pInputText class="vd-in" inputmode="numeric" aria-label="Tope en pesos" [ngModel]="nuevoTope()" (ngModelChange)="nuevoTope.set($event)" placeholder="pesos" />
+          <p-button size="small" label="Fijar" [disabled]="!topeValido()" (onClick)="fijarTope()" />
+        </div>
+      }
+      <p class="vd-lbl">Quién es cada usuario de la máquina</p>
+      @for (u of usuarios(); track u.device + u.user_external) {
+        <div class="vd-fila" [attr.data-usuario]="u.user_external">
+          <span><b>{{ u.user_external }}</b> · {{ u.movimientos }} movimientos · {{ u.nombre ?? 'sin asignar' }}</span>
+          @if (autorizar()) {
+            <p-button size="small" severity="secondary" [text]="true" label="Asignar" (onClick)="asignando.set(u)" />
+          }
+        </div>
+      } @empty {
+        <p class="muted">La máquina no tiene movimientos con usuario en 90 días.</p>
+      }
+      @if (asignando(); as a) {
+        <label class="vd-lbl" for="vd-busca">¿Quién es «{{ a.user_external }}»?</label>
+        <input pInputText id="vd-busca" class="vd-in" [ngModel]="busca()" (ngModelChange)="buscar($event)" placeholder="Nombre o usuario" autocomplete="off" />
+        @for (p of halladas(); track p.usuario_id) {
+          <div class="vd-fila"><span>{{ p.nombre }}</span><p-button size="small" label="Es esta persona" (onClick)="asignar(a, p.usuario_id)" /></div>
+        }
+      }
+    </p-dialog>
+
     <p-dialog [visible]="verHallazgos()" (visibleChange)="verHallazgos.set($event)" [modal]="true" [draggable]="false" [style]="{ width: '38rem' }" header="Hallazgos abiertos">
       @for (h of hallazgos(); track h.id) {
         <div class="vd-fila" [attr.data-hallazgo]="h.id">
@@ -137,6 +176,7 @@ type Conteo = 'cierre' | 'sorpresa' | 'arranque';
     .vd { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sp-2) var(--sp-4);
       margin: 0 0 var(--sp-4); padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border-subtle, var(--border)); border-radius: var(--r-sm, 8px); }
     .vd-estado { margin: 0; font-size: var(--fs-sm); }
+    .vd-tope { flex-basis: 100%; margin: 0; font-size: var(--fs-xs); color: var(--text-muted); }
     .vd-acciones { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
     .vd-aviso { flex-basis: 100%; margin: 0; font-size: var(--fs-sm); }
     .vd-aviso--mal { color: var(--bad-fg); }
@@ -172,6 +212,15 @@ export class VentanillaDiaComponent implements OnInit {
   readonly verFirmas = signal(false);
   readonly verHallazgos = signal(false);
   readonly aviso = signal<string | null>(null);
+  // `[LE.1.15]` `[LE.2.10]` El tope y quién es cada usuario de la máquina.
+  readonly tope = signal<TopeDelCajon | null>(null);
+  readonly verCatalogos = signal(false);
+  readonly nuevoTope = signal('');
+  readonly topeValido = computed(() => /^\d+$/.test(this.nuevoTope().trim()) && Number(this.nuevoTope()) > 0);
+  readonly usuarios = signal<UsuarioDeMaquina[]>([]);
+  readonly asignando = signal<UsuarioDeMaquina | null>(null);
+  readonly busca = signal('');
+  readonly halladas = signal<PersonaDeCustodia[]>([]);
   /** El motivo de un rechazo: la base lo exige (un rechazo sin porqué no se registra). */
   readonly nota = signal('');
 
@@ -199,8 +248,9 @@ export class VentanillaDiaComponent implements OnInit {
       s: this.libro.saldos().pipe(catchError(() => of(null))),
       h: this.libro.hallazgos().pipe(catchError(() => of([] as HallazgoDelLibro[]))),
       q: this.libro.solicitudes().pipe(catchError(() => of([] as SolicitudDelLibro[]))),
-    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ s, h, q }) => {
-      this.saldos.set(s); this.estado.set(s ? 'medido' : 'sin_medir'); this.hallazgos.set(h); this.solicitudes.set(q);
+      t: this.libro.tope().pipe(catchError(() => of(null))),
+    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(({ s, h, q, t }) => {
+      this.saldos.set(s); this.estado.set(s ? 'medido' : 'sin_medir'); this.hallazgos.set(h); this.solicitudes.set(q); this.tope.set(t);
     });
   }
 
@@ -220,7 +270,8 @@ export class VentanillaDiaComponent implements OnInit {
     const j = this.jornada();
     if (!j) return;
     this.libro.cerrarJornada(j).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => this.hecho(`Día ${dmy(j)} cerrado con tu firma.`), error: (e) => this.fallo(e, 'No se cerró el día.'),
+      next: (r) => this.hecho(r.excedente ? `Día ${dmy(j)} cerrado con tu firma. El cajón pasaba del tope: quedó un hallazgo a nombre de quien cerró.` : `Día ${dmy(j)} cerrado con tu firma.`),
+      error: (e) => this.fallo(e, 'No se cerró el día.'),
     });
   }
 
@@ -254,6 +305,38 @@ export class VentanillaDiaComponent implements OnInit {
   rechazar(id: string): void {
     if (this.nota().trim().length < 5) return;
     this.libro.rechazar(id, this.nota().trim()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: () => this.hecho('Rechazada.'), error: (e) => this.fallo(e, 'No se rechazó.') });
+  }
+
+  /** Lo contado arriba del tope, en centavos; `null` si no pasa o no hay tope fijado. */
+  excedeTope(totalMinor: string): string | null {
+    const t = this.tope()?.monto_minor;
+    if (!t) return null;
+    const d = BigInt(totalMinor) - BigInt(t);
+    return d > 0n ? d.toString() : null;
+  }
+
+  abrirCatalogos(): void {
+    this.verCatalogos.set(true); this.asignando.set(null); this.busca.set(''); this.halladas.set([]); this.nuevoTope.set('');
+    this.libro.usuariosDeMaquina().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (u) => this.usuarios.set(u), error: () => this.usuarios.set([]) });
+  }
+
+  fijarTope(): void {
+    if (!this.topeValido()) return;
+    this.libro.fijarTope(String(Number(this.nuevoTope().trim()) * 100)).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (t) => { this.tope.set(t); this.nuevoTope.set(''); this.aviso.set('Tope fijado.'); }, error: (e) => this.fallo(e, 'No se fijó el tope.'),
+    });
+  }
+
+  buscar(q: string): void {
+    this.busca.set(q);
+    if (q.trim().length < 2) { this.halladas.set([]); return; }
+    this.libro.personas(q.trim()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (p) => this.halladas.set(p), error: () => this.halladas.set([]) });
+  }
+
+  asignar(u: UsuarioDeMaquina, persona: string): void {
+    this.libro.asignarUsuarioDeMaquina({ device: u.device, user_external: u.user_external, persona }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (l) => { this.usuarios.set(l); this.asignando.set(null); this.cambio.emit(); }, error: (e) => this.fallo(e, 'No se asignó.'),
+    });
   }
 
   etiquetaEvento(k: string): string {
