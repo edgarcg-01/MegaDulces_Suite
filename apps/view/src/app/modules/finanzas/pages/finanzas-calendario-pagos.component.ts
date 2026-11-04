@@ -265,16 +265,22 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                 </button>
               }
             </div>
-            <div class="pg-vd-row2">
-              @if (day.summary.capacity_defined) {
-                <!-- [PGP.15] La tira de métricas compartida (Q.1), compacta y sin conteo animado. -->
-                <app-metric-strip class="pg-cap-ms" [items]="capKpis(day)" ariaLabel="El tope del día" density="compact" [instant]="true" />
-              } @else {
-                <span class="pg-cap-say">Sin tope fijado</span>
-              }
-              <!-- [PGP.52] El avance, en UNA línea: eran cinco pasos con su número y su texto. -->
-              <span class="pg-paso">{{ pasoTexto() }}@if (day.lot_folio) { · folio <span class="comm-num">{{ day.lot_folio }}</span> }</span>
-            </div>
+            <!-- [PGP.63] Con pagos, el tope y el paso viajan al encabezado de «Pagos del día» (su contexto, y
+                 ese renglón estaba casi vacío): el veredicto queda en dos renglones. Al ARMAR se quedan aquí,
+                 porque ahí el tope decide qué cabe. -->
+            @if (!pagosPrimero()) { <ng-container *ngTemplateOutlet="topeYPaso; context: { $implicit: day }" /> }
+            <ng-template #topeYPaso let-day>
+              <div class="pg-vd-row2">
+                @if (day.summary.capacity_defined) {
+                  <!-- [PGP.15] La tira de métricas compartida (Q.1), compacta y sin conteo animado. -->
+                  <app-metric-strip class="pg-cap-ms" [items]="capKpis(day)" ariaLabel="El tope del día" density="compact" [instant]="true" />
+                } @else {
+                  <span class="pg-cap-say">Sin tope fijado</span>
+                }
+                <!-- [PGP.52] El avance, en UNA línea: eran cinco pasos con su número y su texto. -->
+                <span class="pg-paso">{{ pasoTexto() }}@if (day.lot_folio) { · folio <span class="comm-num">{{ day.lot_folio }}</span> }</span>
+              </div>
+            </ng-template>
             @if (pasoActivo() === 3) {
               <!-- [PGP.13] Lo que la pantalla NO puede afirmar todavía: D2 y la separación de funciones. -->
               <p class="pg-note"><i class="pi pi-shield" aria-hidden="true"></i><span>Se autoriza <b>el día completo</b>. Debe hacerlo alguien distinto de quien lo preparó, y <b>la Suite todavía no lo impide</b>.</span></p>
@@ -561,6 +567,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                   <span class="pg-sec-saldada"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span class="comm-num">{{ money(saldadasDelDiaTotal()) }}</span> ya no se deben</span>
                 }
               </h3>
+              @if (pagosPrimero()) { <span class="pg-sec-tope"><ng-container *ngTemplateOutlet="topeYPaso; context: { $implicit: day }" /></span> }
               <span class="pg-sec-acts">
                 @if (allocations().length) {
                   <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" [loading]="printing()" (click)="printPreliminar()"><span class="pi pi-file-pdf" aria-hidden="true"></span>&nbsp;Preliminar</button>
@@ -1351,8 +1358,13 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-sec-h > .pg-applyall { flex:1 1 auto; padding:0; background:none; border-bottom:0; gap:var(--sp-1) var(--sp-2); }
     :host ::ng-deep .pg-sec-h > .pg-applyall .cal-sel { width:8.5rem; }
     /* Anclado en .pg-vd: con el encapsulamiento, la regla de MetricStrip empataba (0,4,0) y ganaba por orden de carga. */
-    :host ::ng-deep .pg-vd .pg-cap-ms .ms--compact .ms-v { font-size:var(--fs-sm); font-weight:700; }
-    :host ::ng-deep .pg-vd .pg-cap-ms .ms--compact .ms-item { padding-top:0; padding-bottom:0; }
+    :host ::ng-deep .pg-vd .pg-cap-ms .ms--compact .ms-v,
+    :host ::ng-deep .pg-sec-tope .pg-cap-ms .ms--compact .ms-v { font-size:var(--fs-sm); font-weight:700; }
+    :host ::ng-deep .pg-vd .pg-cap-ms .ms--compact .ms-item,
+    :host ::ng-deep .pg-sec-tope .pg-cap-ms .ms--compact .ms-item { padding-top:0; padding-bottom:0; }
+    /* [PGP.63] El tope y el paso, en línea dentro del encabezado de «Pagos del día» (ocupa el hueco entre el título y «Preliminar»). */
+    .pg-sec-tope { flex:1 1 auto; min-width:0; }
+    .pg-sec-tope .pg-vd-row2 { display:flex; align-items:center; gap:var(--sp-1) var(--sp-4); flex-wrap:wrap; }
 
     /* La tabla del dia */
     :host ::ng-deep .pg-prep .p-datatable-table { table-layout:fixed; width:100%; }
