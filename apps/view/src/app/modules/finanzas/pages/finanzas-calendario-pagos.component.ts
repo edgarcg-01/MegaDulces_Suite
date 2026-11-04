@@ -2093,12 +2093,18 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       `${this.base}/evidencia/archivo/${encodeURIComponent(e.ref_evidencia)}`,
     )).then((files) => {
       // La factura primero; si no viene rotulada, el primer archivo que haya.
-      const f = (files ?? []).find((x) => x.role === 'factura') ?? (files ?? [])[0];
-      if (f?.url) window.open(f.url, '_blank', 'noopener');
+      // ⛔ [PGP.59] Sólo se abre una URL http(s): una LLAVE del bucket (el servidor no pudo
+      // firmarla) abría «Cannot GET …» en una pestaña nueva. Misma regla que doc-viewer `servible()`.
+      const abribles = (files ?? []).filter((x) => /^https?:\/\//i.test(x?.url ?? ''));
+      const f = abribles.find((x) => x.role === 'factura') ?? abribles[0];
+      if (f) window.open(f.url, '_blank', 'noopener');
+      else if ((files ?? []).length) this.toast.add({ severity: 'error', summary: 'No se pudo preparar la factura', detail: 'Está guardada, pero el servidor no pudo generar su enlace de lectura. Avisa a Sistemas.', life: 10000 });
       else this.toast.add({ severity: 'warn', summary: 'Sin archivo', detail: 'El comprobante existe pero no trae un archivo que pueda abrir.' });
-    }).catch(() => this.toast.add({
+    }).catch((e) => this.toast.add({
       severity: 'error', summary: 'No pude abrir la factura',
-      detail: 'El enlace se firma al momento y expira en 10 minutos. Intenta de nuevo.',
+      // El servidor dice la causa (almacén sin configurar, comprobante inexistente); si no la dice, el caso conocido.
+      detail: e?.error?.message || 'El enlace se firma al momento y expira en 10 minutos. Intenta de nuevo.',
+      life: 10000,
     }));
   }
 
