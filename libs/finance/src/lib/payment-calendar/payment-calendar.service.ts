@@ -1420,13 +1420,19 @@ export class PaymentCalendarService {
     return this.tk.run(async (trx) => {
       await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [tenantId]);
       try {
+        // `[PGP.53]` La evidencia del descuento viaja con la propuesta: «conviene» sin decir con
+        // cuántos pagos se midió es una orden sin porqué. Sale de la MISMA matvista que la vista
+        // usa para calcular `gana` (190 filas, una por proveedor: el join no infla).
         const { rows } = await trx.raw(
-          `SELECT proveedor_code, proveedor_nombre, facturas, importe::float8 AS importe,
-                  gana::float8 AS gana, tasa::float8 AS tasa, cierra::text AS cierra,
-                  dias_restantes, vence_la_mas_vieja::text AS vence_la_mas_vieja,
-                  rendimiento::float8 AS rendimiento, cuenta_estado, se_puede_preparar_hoy
-             FROM analytics.v_pago_sugerido
-            ORDER BY dias_restantes ASC, gana DESC`,
+          `SELECT s.proveedor_code, s.proveedor_nombre, s.facturas, s.importe::float8 AS importe,
+                  s.gana::float8 AS gana, s.tasa::float8 AS tasa, s.cierra::text AS cierra,
+                  s.dias_restantes, s.vence_la_mas_vieja::text AS vence_la_mas_vieja,
+                  s.rendimiento::float8 AS rendimiento, s.cuenta_estado, s.se_puede_preparar_hoy,
+                  d.n_observaciones AS pagos_con_descuento, d.dias_mediana AS dias_tipicos,
+                  d.descuento_12m::float8 AS ganado_12m
+             FROM analytics.v_pago_sugerido s
+             LEFT JOIN analytics.mv_supplier_prompt_discount d ON btrim(d.proveedor_code) = btrim(s.proveedor_code)
+            ORDER BY s.dias_restantes ASC, s.gana DESC`,
         );
         return rows;
       } catch (e: unknown) {
