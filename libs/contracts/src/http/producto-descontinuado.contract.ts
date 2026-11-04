@@ -36,7 +36,7 @@ export function nombreSinMarcaDescontinuado(nombre: string | null | undefined): 
   if (!esNombreDescontinuado(s)) return s.trim();
   return s
     .replace(new RegExp(PATRON_DESCONTINUADO.source, 'gi'), ' ')
-    .replace(/^[\s*.\-]+|[\s*.\-]+$/g, '')
+    .replace(/^[\s*.-]+|[\s*.-]+$/g, '')
     .replace(/^\[\s*\d+\s*\]$/, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
