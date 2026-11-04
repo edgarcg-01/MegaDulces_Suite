@@ -388,6 +388,15 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_ROUTE_PROFIT_VER)]
       },
       {
+        // [FCT.3.1] Viajes de Telemarketing: venta de Kepler + costo capturado en Logistica (la hoja
+        // RENTABILIDAD TLMKT). Mismo permiso que la rentabilidad RD: medido en prod, lo tienen los
+        // mismos 4 puestos que Comisiones. Ruta propia y no bajo /telemarketing: esa puerta
+        // (televentaGuard) dejaria fuera a finanzas y contabilidad.
+        path: 'viajes-tm',
+        loadComponent: () => import('./modules/comercial/pages/comercial-viajes-tlmk.component').then(m => m.ComercialViajesTlmkComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ROUTE_PROFIT_VER)]
+      },
+      {
         // Fase MR — Motor de Rentabilidad: cascada de margen sobre venta real.
         path: 'rentabilidad',
         loadComponent: () => import('./modules/comercial/pages/comercial-rentabilidad.component').then(m => m.ComercialRentabilidadComponent),
