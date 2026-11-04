@@ -165,6 +165,8 @@ export * from './http/revision-gps.contract';
 export * from './http/cierre-viaje.contract';
 // [FCU] Costo por unidad: lo que hacía la hoja «TRANSPORTES 2026», con pantalla.
 export * from './http/costo-unidad.contract';
+// [FCT] El viaje TM: venta de Kepler + costo capturado en Logística (la hoja «RENTABILIDAD TLMKT»).
+export * from './http/tlmk-viajes.contract';
 // [EMB.32] Alta rápida de ayudantes y cargadores desde la guía y el cierre.
 export * from './http/alta-persona.contract';
 // [RE.35] El expediente de la factura de una orden de entrada (el papel identifica, el CFDI informa).

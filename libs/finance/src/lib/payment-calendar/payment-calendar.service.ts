@@ -200,6 +200,7 @@ interface VentanaRow {
   supplier_id: string | null; branch_code: string | null; vence: string | null;
   pronto_fecha_limite: string | null; pronto_tasa: number | string | null;
   pronto_beneficio: number | string | null; pronto_estado: string | null;
+  entity_ref: string | null; doc_ref: string | null;
 }
 export interface CreateAgreementDto {
   obligation_source: ObligationSource; obligation_id: string;
@@ -646,10 +647,24 @@ export class PaymentCalendarService {
         'El almacen de archivos no esta disponible; no puedo abrir la factura ahora.');
     }
     const firmados = await this.storage.signFiles(files as { url?: string; public_id?: string }[]);
-    return firmados.map((f) => {
+    /**
+     * `[PGP.59]` **Una LLAVE del bucket no es una URL.** Cuando `signFiles` no puede firmar
+     * (almacén sin configurar, o la firma falla) devuelve el archivo con su llave
+     * (`finance/<tenant>/goods-receipts/<uuid>.pdf`) en `url`, y la pantalla la abría: el navegador
+     * se la pedía al propio sitio y la persona veía «Cannot GET …» (visto en Pagos el 2026-11-04;
+     * es el mismo síntoma que `ce732b9b5` arregló en el visor de documentos, y que Pagos no
+     * heredó). Sólo sale lo que de verdad se puede abrir; si había archivos y ninguno se firmó,
+     * se DICE con su causa (ADR-056) en lugar de devolver una lista que parece servible.
+     */
+    const abribles = firmados.map((f) => {
       const x = f as { url?: string; name?: string; role?: string; kind?: string };
       return { url: x.url ?? '', name: x.name ?? null, role: x.role ?? null, kind: x.kind ?? null };
-    }).filter((f) => f.url);
+    }).filter((f) => /^https?:\/\//i.test(f.url));
+    if (files.length && !abribles.length) {
+      throw new ServiceUnavailableException(
+        'La factura está guardada, pero el servidor no pudo preparar su enlace de lectura (almacén de archivos sin configurar o la firma falló). No se arregla desde aquí: avisa a Sistemas.');
+    }
+    return abribles;
   }
 
   async listObligations(q: {
@@ -1019,6 +1034,8 @@ export class PaymentCalendarService {
       for (const it of items as any[]) (bySource[it.obligation_source] ??= []).push(it.obligation_id);
       const labels = new Map<string, {
         beneficiary: string; concept: string; supplier_id?: string; branch_code?: string | null;
+        /** `[PGP.58]` La llave de la ficha y de la evidencia, y la referencia que tecleó quien capturó. */
+        entity_ref?: string | null; doc_ref?: string | null;
         // `[PGP.36]` Sólo el origen derivado los trae: los otros no tienen factura del ERP detrás.
         vence?: string | null;
         /** `[PGP.40]` La etiqueta vino del universo completo: el ERP ya no debe esa factura. */
@@ -1057,11 +1074,23 @@ export class PaymentCalendarService {
               's.id AS supplier_id', 'v.sucursal AS branch_code',
               trx.raw('v.vencimiento AS vence'),
               trx.raw(sqlVentanaProntoPago('v', 'd')),
+              /**
+               * `[PGP.58]` **Desde el pago se tiene que poder ABRIR la factura** (Edgar, 2026-11-04:
+               * «¿puedo ver la factura en PDF o imagen? ¿el folio interno para ubicarla?»). La
+               * lista de deuda ya lo hacía; el desglose de un pago del día —donde se revisa antes
+               * de pagar o autorizar— sólo decía sucursal, folio e importe. Medido ese día sobre
+               * las 184 facturas vivas de los pagos pendientes: **121 con archivo, 44 sólo con UUID,
+               * 18 sin nada**, y ninguna se podía abrir desde el pago. El `entity_ref` es la MISMA
+               * llave natural que usan la ficha y `v_payable_evidence` (ver la pata `legKepler`).
+               */
+              trx.raw(`'oblig:' || v.sucursal || '|' || v.doc_tipo || '|' || v.doc_sub || '|' || btrim(v.folio) AS entity_ref`),
+              trx.raw(`nullif(btrim(v.referencia), '') AS doc_ref`),
             );
           for (const r of rows as VentanaRow[]) {
             labels.set(`${source}:${r.id}`, {
               beneficiary: r.beneficiary, concept: r.concept,
               supplier_id: r.supplier_id ?? undefined, branch_code: r.branch_code ?? null,
+              entity_ref: r.entity_ref ?? null, doc_ref: r.doc_ref ?? null,
               vence: r.vence ?? null,
               pronto_fecha_limite: r.pronto_fecha_limite ?? null,
               pronto_tasa: r.pronto_tasa === null || r.pronto_tasa === undefined ? null : Number(r.pronto_tasa),
@@ -1094,19 +1123,23 @@ export class PaymentCalendarService {
                 trx.raw(`coalesce(nullif(btrim(k.c6), ''), 'Factura') AS concept`),
                 trx.raw(`s.id AS supplier_id`),
                 trx.raw(`k.sucursal AS branch_code`),
+                // `[PGP.58]` Saldada o no, el documento existe y su papel también.
+                trx.raw(`'oblig:' || k.sucursal || '|' || k.c4 || '|' || k.c5 || '|' || btrim(k.c6) AS entity_ref`),
+                trx.raw(`nullif(btrim(k.c16), '') AS doc_ref`),
               )
               .from(trx.raw(`kepler_ods.kdxe k`))
               .joinRaw(`LEFT JOIN LATERAL (SELECT c3 FROM kepler_ods.kdxd WHERE btrim(c2) = btrim(k.c2) LIMIT 1) d ON true`)
               .joinRaw(`LEFT JOIN catalog.suppliers s ON btrim(s.code) = btrim(k.c2)`)
               .whereRaw(`btrim(k.c1) = k.sucursal AND k.c3 = 'A'`)
               .whereRaw(`md5('kepler_payable|'||k.sucursal||'|'||k.c4||'|'||k.c5||'|'||btrim(k.c6))::uuid = ANY(?::uuid[])`, [faltan]);
-            for (const r of rescate as { id: string; beneficiary: string; concept: string; supplier_id: string | null; branch_code: string | null }[]) {
+            for (const r of rescate as { id: string; beneficiary: string; concept: string; supplier_id: string | null; branch_code: string | null; entity_ref: string | null; doc_ref: string | null }[]) {
               // ⛔ Se rescatan SÓLO el nombre, el folio y la sucursal. La ventana de pronto pago
               // NO: una factura saldada no tiene descuento que capturar, y publicarlo la pondría
               // a competir por atención con el aviso de que no se puede pagar.
               labels.set(`${source}:${r.id}`, {
                 beneficiary: r.beneficiary, concept: r.concept,
                 supplier_id: r.supplier_id ?? undefined, branch_code: r.branch_code ?? null,
+                entity_ref: r.entity_ref ?? null, doc_ref: r.doc_ref ?? null,
                 saldada: true,
               });
             }
@@ -1145,6 +1178,8 @@ export class PaymentCalendarService {
           concept: label?.concept ?? '—',
           supplier_id: label?.supplier_id ?? null,
           branch_code: label?.branch_code ?? null,
+          entity_ref: label?.entity_ref ?? null,
+          doc_ref: label?.doc_ref ?? null,
           kepler_saldada: saldada,
           // `[PGP.36]` La razón por la que esta factura está en el día de hoy.
           vence: label?.vence ?? null,
@@ -1420,13 +1455,19 @@ export class PaymentCalendarService {
     return this.tk.run(async (trx) => {
       await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [tenantId]);
       try {
+        // `[PGP.53]` La evidencia del descuento viaja con la propuesta: «conviene» sin decir con
+        // cuántos pagos se midió es una orden sin porqué. Sale de la MISMA matvista que la vista
+        // usa para calcular `gana` (190 filas, una por proveedor: el join no infla).
         const { rows } = await trx.raw(
-          `SELECT proveedor_code, proveedor_nombre, facturas, importe::float8 AS importe,
-                  gana::float8 AS gana, tasa::float8 AS tasa, cierra::text AS cierra,
-                  dias_restantes, vence_la_mas_vieja::text AS vence_la_mas_vieja,
-                  rendimiento::float8 AS rendimiento, cuenta_estado, se_puede_preparar_hoy
-             FROM analytics.v_pago_sugerido
-            ORDER BY dias_restantes ASC, gana DESC`,
+          `SELECT s.proveedor_code, s.proveedor_nombre, s.facturas, s.importe::float8 AS importe,
+                  s.gana::float8 AS gana, s.tasa::float8 AS tasa, s.cierra::text AS cierra,
+                  s.dias_restantes, s.vence_la_mas_vieja::text AS vence_la_mas_vieja,
+                  s.rendimiento::float8 AS rendimiento, s.cuenta_estado, s.se_puede_preparar_hoy,
+                  d.n_observaciones AS pagos_con_descuento, d.dias_mediana AS dias_tipicos,
+                  d.descuento_12m::float8 AS ganado_12m
+             FROM analytics.v_pago_sugerido s
+             LEFT JOIN analytics.mv_supplier_prompt_discount d ON btrim(d.proveedor_code) = btrim(s.proveedor_code)
+            ORDER BY s.dias_restantes ASC, s.gana DESC`,
         );
         return rows;
       } catch (e: unknown) {

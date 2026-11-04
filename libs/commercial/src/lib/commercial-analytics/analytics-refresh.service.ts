@@ -211,6 +211,18 @@ const AJUSTES_REFRESCO: Readonly<Record<string, readonly string[]>> = {
   'analytics.mv_price_waterfall_sku': ['SET LOCAL enable_nestloop = off', "SET LOCAL statement_timeout = '600s'"],
 };
 
+/**
+ * `[PQ.61]` Las que dejaron de ser matvista: TABLA mantenida por evento (triggers sobre sus
+ * fuentes). En su lugar del ciclo nocturno NO se refrescan: se llama a su árbitro, que drena lo
+ * que quedó atrasado y dice si está sana (`{ ok, pendientes, errores_24h, … }`). Si no lo está,
+ * cuenta como falla: su latido lo declara y lo que depende de ella no se refresca, igual que con
+ * una matvista rota. Mientras siga siendo matvista (antes de aplicar la migración), se refresca
+ * como siempre: este cambio va desplegado ANTES que la migración y sirve para los dos estados.
+ */
+const MANTENIDAS_POR_EVENTO: Readonly<Record<string, string>> = {
+  'analytics.mv_kepler_sales_daily': 'analytics.kepler_sales_daily_arbitro',
+};
+
 @Injectable()
 export class AnalyticsRefreshService {
   private readonly logger = new Logger(AnalyticsRefreshService.name);
@@ -677,19 +689,26 @@ export class AnalyticsRefreshService {
         const found = (
           await admin.raw(`SELECT relkind, relispopulated FROM pg_class WHERE oid = ?::regclass`, [mv])
         ).rows;
-        if (!found.length || found[0].relkind !== 'm') {
+        const arbitro = MANTENIDAS_POR_EVENTO[mv];
+        if (arbitro && found.length && found[0].relkind === 'r') {
+          const r = (await admin.raw(`SELECT ${arbitro}() AS r`)).rows?.[0]?.r;
+          if (!r?.ok) throw new Error(`mantenida por evento y NO sana: ${JSON.stringify(r ?? null)}`);
+          ok = true;
+          this.logger.log(`Árbitro ${mv} (${Date.now() - start}ms, source=cron-nightly): ${JSON.stringify(r)}`);
+        } else if (!found.length || found[0].relkind !== 'm') {
           // [VP.1.3] Antes acá había un `continue` que saltaba ANTES del latido: una MV borrada o
           // renombrada no dejaba fila en `cron_runs` y sólo rastro en nivel `debug`. Ni error ni
           // latido: silencio, que en el tablero se lee igual que "nunca corrió". Se trata como falla.
           throw new Error(`no es materialized view (relkind=${found.length ? found[0].relkind : 'missing'})`);
+        } else {
+          const concurrently = found[0].relispopulated ? 'CONCURRENTLY ' : '';
+          await this.refrescarMv(admin, mv, concurrently);
+          await admin.raw(`ANALYZE ${mv}`);
+          ok = true;
+          this.logger.log(
+            `Refreshed ${mv} (${Date.now() - start}ms, source=cron-nightly${concurrently ? '' : ', initial populate'})`,
+          );
         }
-        const concurrently = found[0].relispopulated ? 'CONCURRENTLY ' : '';
-        await this.refrescarMv(admin, mv, concurrently);
-        await admin.raw(`ANALYZE ${mv}`);
-        ok = true;
-        this.logger.log(
-          `Refreshed ${mv} (${Date.now() - start}ms, source=cron-nightly${concurrently ? '' : ', initial populate'})`,
-        );
       } catch (e: any) {
         errMsg = e.message || String(e);
         fallidas.add(mv); // lo que dependa de ésta no se refresca sobre datos a medias

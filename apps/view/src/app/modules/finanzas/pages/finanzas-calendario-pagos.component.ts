@@ -26,7 +26,7 @@ import { EntityInspectorComponent } from '../../../shared/components/entity-insp
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
-import { agruparObligaciones, allocationKey, fechaCorta, obligationKey, sugerirArmado, vencimiento, type ArmadoGrupo, type ObligationGroup } from './calendario-pagos-grupos';
+import { agruparObligaciones, allocationKey, fechaCorta, obligationKey, pasosIntercambio, sugerirArmado, vencimiento, type ArmadoGrupo, type ObligationGroup } from './calendario-pagos-grupos';
 import { firstValueFrom } from 'rxjs';
 import { PagosTabsComponent } from '../pagos-tabs.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
@@ -221,6 +221,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
             @for (d of week()?.days ?? []; track d.date) {
               <button type="button" class="pg-day"
                       [class.is-sel]="d.date === selectedDate()" [class.is-nocap]="!d.summary.capacity_defined"
+                      [class.is-vacio]="!d.summary.capacity_defined && !d.allocations.length"
                       [attr.aria-current]="d.date === selectedDate() ? 'true' : null"
                       [attr.aria-label]="dayAria(d)" (click)="openDay(d.date)">
                 <span class="pg-day-t">
@@ -284,6 +285,92 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
             }
           </div>
 
+          <!-- ⛔ [PGP.60] Con el día ya armado, LOS PAGOS DEL DÍA van aquí, pegados al veredicto que los
+               nombra: medido el 2026-11-04, 104 de 109 pagos armados esperaban PREPARAR y, en una captura
+               de 1,250 px, el primero aparecía cortado en el borde de abajo, debajo de 8 grupos de pronto
+               pago y del buscador. El pronto pago sigue siendo lo primero que se AGREGA (PGP.53). -->
+          @if (pagosPrimero()) { <ng-container *ngTemplateOutlet="bloquePagos; context: { $implicit: day }" /> }
+
+          <!-- ── [PGP.53] PRONTO PAGO: lo primero que se paga, con su porqué, por el día en que cierra ──
+               Era una línea plegada bajo el buscador («Conviene pagar: 37 acreedores…»). Edgar: es la
+               prioridad, se recomienda firme y se dice por qué. Grupo = día en que cierra el descuento;
+               renglón = a quién, cuánto, cuánto gana y qué %; el porqué, en su desglose. -->
+          @if (verDeuda() && (quePagar().length || quePagarError())) {
+            <section class="pg-pp" aria-labelledby="pg-pp-h">
+              @if (quePagarError()) {
+                <p class="pg-add-nm">No se pudo calcular el pronto pago. No es que no haya descuentos por ganar.</p>
+              } @else {
+                <div class="pg-pp-head">
+                  <h3 class="pg-pp-t" id="pg-pp-h"><i class="pi pi-bolt" aria-hidden="true"></i>Paga primero el pronto pago</h3>
+                  <!-- [AUD] Decía «esta semana ganas»: la vista suma lo que cierra en los 7 días que siguen a
+                       HOY (HORIZONTE_DIAS de PGP.41), no la semana del calendario, y no cambia al navegar a otra. -->
+                  <span class="pg-pp-tot">en los próximos 7 días ganas <b class="comm-num">{{ money(quePagarGana()) }}</b></span>
+                </div>
+                <p class="pg-pp-why">
+                  @if (prontoUrgente().acreedores) {
+                    {{ acreedores(prontoUrgente().acreedores) }} cierran hoy o mañana: si no se les paga a tiempo, se pierden <b class="comm-num">{{ money(prontoUrgente().gana) }}</b> de descuento.
+                  } @else {
+                    El siguiente descuento cierra el {{ dayShort(prontoGrupos()[0].cierra) }}.
+                  }
+                  @if (prontoNoCabe()) { No cabe todo en lo libre del día: si hay que escoger, primero el de mayor %. }
+                  <span class="pg-pp-src">El % es el que cada proveedor nos descontó en el último año cuando se le pagó a tiempo (Kepler): es lo que pasó, no un acuerdo firmado.</span>
+                </p>
+                @for (g of prontoVisibles(); track g.cierra) {
+                  <div class="pg-pp-gr">
+                    <button type="button" class="pg-pp-gh" [class.is-urge]="g.dias <= 1" [attr.aria-expanded]="prontoAbierto(g)" (click)="togglePronto(g)">
+                      <i class="pi" [class.pi-angle-down]="prontoAbierto(g)" [class.pi-angle-right]="!prontoAbierto(g)" aria-hidden="true"></i>
+                      <span class="pg-pp-n">{{ prontoCierraDice(g.dias, g.cierra) }} <span class="pg-pp-d">· {{ acreedores(g.filas.length) }}</span></span>
+                      <span class="comm-num pg-pp-i">{{ money(g.importe) }}</span>
+                      <span class="comm-num pg-pp-g">+{{ money(g.gana) }}</span>
+                      <span class="pg-pp-p"></span>
+                      <span class="pg-pp-a"></span>
+                    </button>
+                    @if (prontoAbierto(g)) {
+                      <ul class="pg-pp-l">
+                        @for (r of g.filas; track r.proveedor_code) {
+                          <li>
+                            <div class="pg-pp-r">
+                              <button type="button" class="pg-pp-go" [attr.aria-expanded]="prontoPorQue() === r.proveedor_code"
+                                      (click)="prontoPorQue.set(prontoPorQue() === r.proveedor_code ? null : r.proveedor_code)"
+                                      [attr.aria-label]="'Por qué conviene pagarle a ' + r.proveedor_nombre">
+                                <span class="pg-pp-n">{{ r.proveedor_nombre }}</span>
+                                <span class="comm-num pg-pp-i">{{ money(r.importe) }}</span>
+                                <span class="comm-num pg-pp-g">+{{ money(r.gana) }}</span>
+                                <span class="comm-num pg-pp-p">{{ pct(r.tasa) }}</span>
+                              </button>
+                              <button pButton type="button" class="p-button-sm p-button-text p-button-secondary pg-pp-a" (click)="tomarSugerido(r)"
+                                      [attr.aria-label]="'Ver las facturas de ' + r.proveedor_nombre + ' para agregarlas al ' + dayShort(day.date)">Agregar</button>
+                            </div>
+                            @if (prontoPorQue() === r.proveedor_code) {
+                              <div class="pg-pp-x">
+                                <p>Si le pagas a más tardar el <b>{{ dayLong(r.cierra) }}</b>, ganas <b class="comm-num">{{ money(r.gana) }}</b>: el {{ pct(r.tasa) }} de sus {{ facturas(r.facturas) }}.@if (day.date > r.cierra) { <b>Pagado el {{ dayShort(day.date) }} ya no gana: cierra antes.</b> }</p>
+                                @if (r.pagos_con_descuento) {
+                                  <p>Lo sabemos porque en el último año le pagamos {{ r.pagos_con_descuento }} veces con ese descuento, normalmente a {{ dias(r.dias_tipicos ?? 0) }} de la factura.</p>
+                                }
+                                @if (r.vence_la_mas_vieja && r.vence_la_mas_vieja < todayIso) {
+                                  <p>Además ya está vencida: su factura más vieja venció el {{ shortDate(r.vence_la_mas_vieja) }}.</p>
+                                }
+                                <p>@if (r.se_puede_preparar_hoy) { Tiene cuenta para transferir. } @else { No tiene cuenta para transferir: la CLABE se captura al prepararlo. }</p>
+                              </div>
+                            }
+                          </li>
+                        }
+                      </ul>
+                    }
+                  </div>
+                }
+                <!-- [PGP.61] Los demás días, en UNA línea que dice qué hay adentro (plegar no es esconder). -->
+                @if (prontoResto().dias) {
+                  <button type="button" class="pg-pp-mas" [attr.aria-expanded]="prontoVerTodos()" (click)="prontoVerTodos.set(!prontoVerTodos())">
+                    <i class="pi" [class.pi-angle-down]="prontoVerTodos()" [class.pi-angle-right]="!prontoVerTodos()" aria-hidden="true"></i>
+                    @if (prontoVerTodos()) { Ver sólo los 3 días que cierran primero }
+                    @else { {{ prontoResto().dias === 1 ? '1 día más' : prontoResto().dias + ' días más' }} · {{ acreedores(prontoResto().acreedores) }} · <span class="comm-num">{{ money(prontoResto().importe) }}</span> · ganas <span class="comm-num">{{ money(prontoResto().gana) }}</span> }
+                  </button>
+                }
+              }
+            </section>
+          }
+
           <!-- ── AGREGAR: el buscador siempre a la vista; la lista, sólo cuando se pide ── -->
           @if (verDeuda()) {
             <section class="pg-add" aria-labelledby="pg-add-h">
@@ -313,14 +400,6 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
               @if (!listaAbierta()) {
                 <!-- [PGP.52] Sin búsqueda, en lugar de 1,000 renglones: tres caminos, cada uno con su cuenta. -->
                 <p class="pg-add-links">
-                  @if (quePagarError()) {
-                    <span class="pg-add-nm">No se pudo calcular qué conviene pagar.</span>
-                  } @else if (quePagar().length) {
-                    <button type="button" class="pg-link" [attr.aria-expanded]="!quePagarPlegado()" (click)="plegarQuePagar()">
-                      <i class="pi pi-bolt" aria-hidden="true"></i>Conviene pagar: <b>{{ quePagar().length }}</b> acreedores esta semana ganan <b class="comm-num">{{ money(quePagarGana()) }}</b> de pronto pago
-                      <i class="pi" [class.pi-angle-down]="!quePagarPlegado()" [class.pi-angle-right]="quePagarPlegado()" aria-hidden="true"></i>
-                    </button>
-                  }
                   @if (obligationsError()) {
                     <span class="pg-add-nm">No se pudo leer la deuda. <button type="button" class="pg-link" (click)="loadObligations()">Reintentar</button></span>
                   } @else {
@@ -330,33 +409,6 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                     <button type="button" class="pg-link" (click)="verLista.set(true); verRevision.set(true)"><i class="pi pi-lock" aria-hidden="true"></i>{{ obligacionesEnRevision().length }} por confirmar</button>
                   }
                 </p>
-                @if (!quePagarPlegado() && quePagar().length) {
-                  <!-- [PGP.41] Qué conviene pagar; [PGP.44] cada renglón llena el buscador con ese acreedor. -->
-                  <ul class="pg-qp-l">
-                    @for (r of quePagar().slice(0, verQuePagarTodo() ? quePagar().length : 5); track r.proveedor_code) {
-                      <li [class.is-urge]="r.dias_restantes <= 1">
-                        <button type="button" class="pg-qp-go" (click)="tomarSugerido(r)"
-                                [attr.aria-label]="'Ver las ' + facturas(r.facturas) + ' de ' + r.proveedor_nombre + ' para agregarlas al día' + (r.se_puede_preparar_hoy ? '' : '; no tiene cuenta para transferir')">
-                          <span class="pg-qp-who"><span class="pg-qp-n">{{ r.proveedor_nombre }}</span><span class="pg-qp-d"> ·
-                            @if (r.dias_restantes === 0) { cierra <b>hoy</b> }
-                            @else if (r.dias_restantes === 1) { cierra <b>mañana</b> }
-                            @else { quedan {{ r.dias_restantes }} días }
-                            · {{ facturas(r.facturas) }}@if (!r.se_puede_preparar_hoy) { · sin cuenta }</span></span>
-                          <span class="comm-num pg-qp-i">{{ money(r.importe) }}</span>
-                          <span class="comm-num pg-qp-g">+{{ money(r.gana) }}</span>
-                          <i class="pi pi-angle-right pg-qp-ch" aria-hidden="true"></i>
-                        </button>
-                      </li>
-                    }
-                  </ul>
-                  @if (quePagar().length > 5) {
-                    <button type="button" class="pg-qp-m" [attr.aria-expanded]="verQuePagarTodo()" (click)="verQuePagarTodo.set(!verQuePagarTodo())">
-                      <i class="pi" [class.pi-angle-down]="!verQuePagarTodo()" [class.pi-angle-up]="verQuePagarTodo()" aria-hidden="true"></i>
-                      @if (verQuePagarTodo()) { Ver sólo los primeros 5 }
-                      @else { y {{ quePagar().length - 5 }} acreedores más, que ganan <b class="comm-num">{{ money(quePagarRestoGana()) }}</b> }
-                    </button>
-                  }
-                }
               } @else {
                 <!-- ── LA LISTA: con búsqueda o con «Ver todas». Tiene su propio alto y su propio scroll. ── -->
                 <div class="pg-lista" id="pg-add-b">
@@ -493,7 +545,13 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
             </section>
           }
 
-          <!-- ── LOS PAGOS DEL DÍA: un renglón por pago ── -->
+          <!-- [PGP.60] Sin pagos todavía (armar), los pagos del día van al final: arriba está lo que se agrega. -->
+          @if (!pagosPrimero()) { <ng-container *ngTemplateOutlet="bloquePagos; context: { $implicit: day }" /> }
+
+          <!-- ── LOS PAGOS DEL DÍA: un renglón por pago ──
+               [PGP.60] Se escribe UNA vez y se pinta en uno de dos lugares según el paso del día (no con
+               CSS order: el teclado seguiría el orden viejo del DOM). -->
+          <ng-template #bloquePagos let-day>
           <section class="pg-sec pg-pagos" aria-labelledby="pg-pagos-h">
             <div class="pg-sec-h">
               <h3 class="pg-sec-t" id="pg-pagos-h">Pagos del día
@@ -602,13 +660,14 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                     <th class="pg-c-tg"><span class="sr-only">Desglose</span></th>
                     <th class="pg-c-ord" [class.is-folio]="isReleased()">@if (isReleased()) { Folio } @else { Orden }</th>
                     <th class="pg-c-ben">A quién</th>
+                    <th class="pg-c-why">Por qué hoy</th>
                     <th class="pg-c-how">Cómo sale</th>
                     <th class="pg-c-amt">Importe</th>
                     <th class="pg-c-act"><span class="sr-only">Acciones</span></th>
                   </tr>
                 </ng-template>
                 <ng-template #body let-a let-i="rowIndex" let-expanded="expanded">
-                  <tr [class.is-bad]="a.status === 'failed'">
+                  <tr [class.is-bad]="a.status === 'failed'" [class.is-corte]="a.id === corteDelTope()">
                     <td class="pg-c-tg">
                       <button type="button" class="pg-tg" [attr.aria-expanded]="expanded" [attr.aria-label]="(expanded ? 'Ocultar el detalle de ' : 'Ver el detalle de ') + allocationTitle(a)" (click)="toggleAbierto(a.id)">
                         <span class="pi" [class.pi-angle-down]="expanded" [class.pi-angle-right]="!expanded" aria-hidden="true"></span>
@@ -627,7 +686,12 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                       }
                     </td>
                     <td class="pg-c-ben">
+                      <!-- [PGP.60] La línea de corte: desde este pago, lo acumulado ya no cabe en el tope. -->
+                      @if (a.id === corteDelTope()) { <span class="pg-corte"><i class="pi pi-arrow-down" aria-hidden="true"></i>Desde aquí ya no cabe en el tope del día</span> }
                       <span class="pg-ben"><span class="cal-benef">{{ allocationTitle(a) }}</span><span class="pg-ben-d"> · {{ itemsBranches(a) }} · {{ itemsResumen(a) }}</span></span>
+                    </td>
+                    <td class="pg-c-why" data-l="Por qué hoy">
+                      @if (porQueHoy(a); as q) { <span [class.pg-why-f]="q.fuerte">{{ q.texto }}</span> } @else { <span class="pg-why-n">—</span> }
                     </td>
                     <td class="pg-c-how" data-l="Cómo sale">
                       @if (a.kepler_saldadas > 0) {
@@ -671,7 +735,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                 </ng-template>
                 <ng-template #expandedrow let-a>
                   <tr class="pg-xrow">
-                    <td colspan="6">
+                    <td colspan="7">
                       <!-- [PGP.52] El desglose junta lo que antes llenaba el renglón: por qué se paga hoy, las
                            notas, lo que el ERP ya no debe y cada factura con lo que se le aplica. -->
                       <div class="pg-x-info">
@@ -688,13 +752,47 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                       </div>
                       <table class="pg-items-t">
                         <caption class="sr-only">Facturas del pago de {{ allocationTitle(a) }}</caption>
-                        <thead><tr><th>Sucursal</th><th>Documento</th><th class="r">Se aplica</th></tr></thead>
+                        <!-- [PGP.58] Cada factura se UBICA (folio de Kepler, que abre su ficha, y la referencia
+                             del proveedor) y se VE (su archivo, PDF o foto del comprobante) sin salir del pago. -->
+                        <thead><tr><th>Sucursal</th><th>Folio Kepler</th><th>Referencia</th><th>Factura</th><th class="r">Se aplica</th></tr></thead>
                         <tbody>
                           @for (it of a.items; track it.id) {
-                            <tr><td>{{ branchLabel(it.branch_code) }}</td><td>{{ it.concept }}@if (it.beneficiary !== a.items[0].beneficiary) { · {{ it.beneficiary }} }@if (it.kepler_saldada) { · <span class="pg-it-sald">el ERP ya no la debe</span> }</td><td class="r comm-num">{{ money(it.applied_amount) }}</td></tr>
+                            <tr>
+                              <td>{{ branchLabel(it.branch_code) }}</td>
+                              <td>
+                                @if (it.entity_ref) {
+                                  <button type="button" class="cal-reflink comm-num" (click)="inspect.set(it.entity_ref!)" [attr.aria-label]="'Abrir la ficha del documento ' + it.concept + ' de ' + it.beneficiary">{{ it.concept }}</button>
+                                } @else { <span class="comm-num">{{ it.concept }}</span> }
+                                @if (it.beneficiary !== a.items[0].beneficiary) { · {{ it.beneficiary }} }@if (it.kepler_saldada) { · <span class="pg-it-sald">el ERP ya no la debe</span> }
+                              </td>
+                              <td class="comm-num">{{ it.doc_ref || '—' }}</td>
+                              <td>
+                                <!-- Ausente = el backend todavía no la manda: NO MEDIDO, no «sin documento» (ADR-056). -->
+                                @if (it.entity_ref === undefined) {
+                                  <span class="pg-ev">—</span>
+                                } @else if (!it.entity_ref) {
+                                  <span class="pg-ev pg-ev-no"><i class="pi pi-info-circle" aria-hidden="true"></i>sin documento de Kepler</span>
+                                } @else if (evidenciaDeItem(it); as e) {
+                                  @if (e.evidencia === 'pdf') {
+                                    <button type="button" class="pg-ev pg-ev-pdf" [attr.aria-label]="'Ver la factura de ' + it.beneficiary + ' ' + it.concept" (click)="abrirFactura(e)"><i class="pi pi-file-pdf" aria-hidden="true"></i>Ver la factura</button>
+                                  } @else if (e.evidencia === 'uuid') {
+                                    <span class="pg-ev pg-ev-uuid"><i class="pi pi-id-card" aria-hidden="true"></i>sin archivo; hay UUID</span>
+                                  } @else {
+                                    <span class="pg-ev pg-ev-no"><i class="pi pi-info-circle" aria-hidden="true"></i>sin factura: {{ e.motivo }}</span>
+                                  }
+                                } @else if (evidenciaBuscada(it)) {
+                                  <span class="pg-ev pg-ev-no"><i class="pi pi-info-circle" aria-hidden="true"></i>sin registro de su papel</span>
+                                } @else if (evidenciaFallo()) {
+                                  <span class="pg-ev pg-ev-no"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>no se pudo buscar</span>
+                                } @else {
+                                  <span class="pg-ev">buscando…</span>
+                                }
+                              </td>
+                              <td class="r comm-num">{{ money(it.applied_amount) }}</td>
+                            </tr>
                           }
                         </tbody>
-                        <tfoot><tr><td colspan="2">{{ facturas(a.items.length) }}</td><td class="r comm-num">{{ money(a.amount_assigned) }}</td></tr></tfoot>
+                        <tfoot><tr><td colspan="4">{{ facturas(a.items.length) }}</td><td class="r comm-num">{{ money(a.amount_assigned) }}</td></tr></tfoot>
                       </table>
                     </td>
                   </tr>
@@ -714,6 +812,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
               }
             }
           </section>
+          </ng-template>
         }
       </main>
     </div>
@@ -988,7 +1087,8 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
        Ahora:  neutro por default · naranja (--action) SOLO en el boton principal ·
                rojo (--bad) SOLO para lo que esta mal (rebote, tope excedido).
        El estado lo dicen la palabra y el icono, no el tono (regla #5 y forced-colors). ══ */
-    .cal-page { gap:var(--sp-3); }
+    /* [PGP.61] sp-3 → sp-2: el marco (migas, pestañas, semana) se llevaba ~24 % del alto antes del veredicto. */
+    .cal-page { gap:var(--sp-2); }
     .cal-date-input { padding:var(--sp-1) var(--sp-2); border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); color:var(--text-main); font-size:var(--fs-sm); }
     .cal-muted { color:var(--text-faint); }
     .cal-neg, .cal-bad-txt { color:var(--bad-soft-fg); }
@@ -1025,7 +1125,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-favor-btn { border:0; background:transparent; cursor:pointer; font:inherit; font-size:var(--fs-sm);
       font-weight:700; color:var(--warn-soft-fg); padding:0 2px; border-radius:var(--r-sm); }
     .pg-favor-btn:hover { text-decoration:underline; }
-    .pg-favor-btn:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
+    .pg-favor-btn:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
     /* [PGP.21] La evidencia de la factura. Tres estados y NINGUNO depende solo del color:
        cada uno lleva su icono y su texto, que es lo que exige el modo de alto contraste. */
     /* [PGP.49] margin-left: el aviso salia pegado a la referencia del proveedor («2034ⓘ sin factura»). */
@@ -1035,7 +1135,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-ev-pdf { border:0; background:transparent; cursor:pointer; font:inherit; font-size:var(--fs-sm);
       color:var(--text-main); font-weight:600; padding:0; text-align:left; }
     .pg-ev-pdf:hover { text-decoration:underline; }
-    .pg-ev-pdf:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
+    .pg-ev-pdf:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
     .pg-ev-uuid { color:var(--fg-2); }
     .pg-ev-no { color:var(--fg-3); }
     .pg-ev-src { color:var(--fg-3); }
@@ -1084,12 +1184,15 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     /* Los 7 dias en una fila; si no caben, la FILA se desplaza de lado: la pantalla no crece. */
     .pg-days { display:flex; gap:var(--sp-1); overflow-x:auto; scroll-snap-type:x proximity; }
     .pg-day { all:unset; box-sizing:border-box; cursor:pointer; flex:1 1 0; min-width:10.5rem; display:grid; gap:1px;
-      padding:5px var(--sp-2); border:1px solid transparent; border-radius:var(--r-sm); scroll-snap-align:start; }
+      padding:3px var(--sp-2); border:1px solid transparent; border-radius:var(--r-sm); scroll-snap-align:start; }
     .pg-day:hover { background:var(--overlay-hover); }
-    .pg-day:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
+    .pg-day:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
     /* El dia elegido: fondo y borde del color del TEXTO, no naranja. El naranja es del boton principal. */
     .pg-day.is-sel { background:var(--overlay-selected); border-color:var(--text-main); box-shadow:inset 0 -2px 0 var(--text-main); }
-    .pg-day.is-nocap { opacity:.7; }
+    /* [PGP.60] Era opacity:.7, y eso aclaraba también el texto: «sin tope» quedaba en 3.62:1 (claro) y
+       4.04:1 (oscuro), debajo del 4.5:1 de AA. Un día sin tope y sin pagos no se atenúa: se ANGOSTA
+       (decía «sin tope · —» ocupando lo mismo que un día con 30 pagos). */
+    .pg-day.is-vacio { flex:0 1 8rem; min-width:8rem; }
     .pg-day-t { display:flex; align-items:baseline; justify-content:space-between; gap:var(--sp-2); }
     .pg-day-n { font-size:var(--fs-sm); font-weight:700; text-transform:capitalize; color:var(--text-main); white-space:nowrap; }
     .pg-t { font-weight:400; color:var(--text-muted); font-size:var(--fs-sm); }
@@ -1098,7 +1201,9 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-day-b { display:flex; align-items:center; gap:4px; font-size:var(--fs-sm); color:var(--text-muted); line-height:1.3; white-space:nowrap; }
     .pg-day-b b { color:var(--text-main); font-weight:700; }
     .pg-day-b b.cal-bad-txt { color:var(--bad-soft-fg); }
-    .pg-day-b b.cal-warn-txt { color:var(--warn-soft-fg); background:var(--warn-soft-bg); }
+    /* [PGP.60] «faltan N» con PESO, sin pastilla ámbar: el estándar §3.10 deja el color sólo para la
+       acción principal y para lo que está mal. Eran 4 pastillas ámbar en la tira de la semana. */
+    .pg-day-b b.cal-warn-txt { color:var(--text-main); background:none; padding:0; }
     .pg-day-b b.cal-ok-txt { color:var(--ok-soft-fg); }
     /* El estado del dia viaja en FORMA (punto lleno / hueco), nunca solo en color. */
     .pg-dot { width:6px; height:6px; border-radius:var(--r-pill); background:var(--text-faint); flex-shrink:0; }
@@ -1170,7 +1275,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-link { all:unset; box-sizing:border-box; cursor:pointer; display:inline-flex; align-items:center; gap:var(--sp-1);
                padding:2px var(--sp-1); border-radius:var(--r-sm); color:var(--text-main); }
     .pg-link:hover { text-decoration:underline; }
-    .pg-link:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
+    .pg-link:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
     .pg-link .pi { color:var(--text-muted); }
     /* La lista: su propio alto y su propio scroll, para no empujar los pagos del dia fuera de la pantalla. */
     .pg-lista { border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); overflow:hidden; }
@@ -1201,7 +1306,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-sec-acts { display:flex; gap:var(--sp-1); flex-wrap:wrap; }
     .pg-sec-tg { all:unset; box-sizing:border-box; cursor:pointer; display:inline-flex; align-items:center; gap:var(--sp-2); font-weight:700; color:var(--text-main); border-radius:var(--r-sm); }
     .pg-sec-tg:hover { text-decoration:underline; }
-    .pg-sec-tg:focus-visible { outline:2px solid var(--action-ring); outline-offset:2px; }
+    .pg-sec-tg:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; }
     .pg-sub { display:block; font-size:var(--fs-sm); color:var(--text-muted); line-height:1.35; }
 
     /* ── [PGP.15] El buscador: siempre a la vista, el control mas grande de su seccion ── */
@@ -1269,10 +1374,16 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     td.pg-c-amt { font-weight:700; color:var(--text-main); white-space:nowrap; }
     .pg-c-ben { min-width:0; }
     /* [PGP.52] «Cómo sale» con su propia columna: en el panel angosto iba debajo del nombre; a todo lo ancho, al lado. */
-    .pg-c-how { width:34%; }
+    .pg-c-how { width:28%; }
+    /* [PGP.60] «Por qué hoy» decide el orden: va al lado de a quién. Fuerte = vencida, vence hoy o cierra pronto (peso, no color). */
+    .pg-c-why { width:16%; font-size:var(--fs-sm); color:var(--text-muted); }
+    .pg-c-why .pg-why-f { color:var(--text-main); font-weight:700; }
+    /* [PGP.60] La línea de corte del tope: lo que está de aquí para abajo excede lo autorizado. */
+    :host ::ng-deep .pg-prep .p-datatable-tbody > tr.is-corte > td { border-top:2px dashed var(--bad-fg); }
+    .pg-corte { display:flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-xs); font-weight:700; color:var(--bad-soft-fg); margin-bottom:2px; }
     .pg-tg { all:unset; box-sizing:border-box; cursor:pointer; display:inline-grid; place-items:center; width:28px; height:28px; border-radius:var(--r-sm); color:var(--text-muted); }
     .pg-tg:hover { background:var(--overlay-hover); color:var(--text-main); }
-    .pg-tg:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
+    .pg-tg:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
     .pg-how-t { color:var(--text-main); overflow-wrap:anywhere; }
     /* El estado del pago: palabra + icono. Solo el rebote lleva color. */
     .pg-st { display:inline-flex; align-items:center; gap:4px; margin-top:2px; font-size:var(--fs-sm); color:var(--text-muted); }
@@ -1287,7 +1398,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-ev-retry { border:1px solid var(--border-color); background:transparent; cursor:pointer; font:inherit;
                    font-size:var(--fs-xs); font-weight:600; color:var(--text-main); padding:1px var(--sp-2); border-radius:var(--r-sm); }
     .pg-ev-retry:hover { background:var(--overlay-hover); }
-    .pg-ev-retry:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
+    .pg-ev-retry:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
     .pg-st.is-bad { color:var(--bad-soft-fg); font-weight:700; }
     .pg-ord { display:inline-flex; align-items:center; gap:1px; }
     .pg-ordn { min-width:1.2rem; text-align:center; font-weight:700; color:var(--text-main); }
@@ -1324,7 +1435,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-icobtn { all:unset; box-sizing:border-box; cursor:pointer; display:inline-grid; place-items:center; width:28px; height:28px;
       border-radius:var(--r-sm); color:var(--text-muted); }
     .pg-icobtn:hover:not(:disabled) { background:var(--overlay-hover); color:var(--text-main); }
-    .pg-icobtn:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
+    .pg-icobtn:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
     .pg-icobtn:disabled { opacity:.4; cursor:default; }
     /* Los renglones fuera de vista no se maquetan ni se pintan hasta que se desplazan a la vista. */
     .pg-drawer-b .pg-dr-row { content-visibility:auto; contain-intrinsic-size:auto 3.25rem; }
@@ -1355,7 +1466,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-saldada-btn { border:1px solid var(--border-color); background:transparent; cursor:pointer; font:inherit; font-size:var(--fs-xs);
                       font-weight:600; color:var(--text-main); padding:1px var(--sp-2); border-radius:var(--r-sm); }
     .pg-saldada-btn:hover:not(:disabled) { background:var(--overlay-hover); }
-    .pg-saldada-btn:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
+    .pg-saldada-btn:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
     .pg-saldada-btn:disabled { opacity:.5; cursor:default; }
     .pg-it-sald { color:var(--bad-fg); font-weight:600; }
     /* [PGP.48] Pagos que se quedaron en dias ya pasados: esta mal, por eso rojo (y con su icono y su palabra). */
@@ -1363,7 +1474,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
               font-size:var(--fs-sm); color:var(--bad-soft-fg); padding:2px var(--sp-1); border-radius:var(--r-sm); text-align:left; }
     .pg-atr b { font-weight:700; }
     .pg-atr:hover { text-decoration:underline; }
-    .pg-atr:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
+    .pg-atr:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
     .pg-atr.is-nm { cursor:default; color:var(--warn-soft-fg); }
     .pg-atr.is-nm:hover { text-decoration:none; }
     .pg-sec-saldada { display:inline-flex; align-items:center; gap:var(--sp-1); color:var(--bad-fg); font-weight:600; font-size:var(--fs-xs); }
@@ -1381,35 +1492,48 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-razon.is-tarde { color:var(--warn-soft-fg); }
     .pg-razon.is-mudo  { color:var(--fg-3); font-weight:500; font-style:italic; }
     .pg-sec-pronto { display:inline-flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-xs); }
-    /* [PGP.41] La respuesta del sistema. Fondo sutil, sin caja dura: es informacion, no una alerta. */
-    .pg-qp { margin:0 0 var(--sp-3); padding:var(--sp-2) var(--sp-3); background:var(--surface-2); border-radius:var(--radius-md); }
-    /* [PGP.50] El encabezado pliega y despliega: es un boton, con su anillo de foco. */
-    .pg-qp-t { all:unset; box-sizing:border-box; cursor:pointer; width:100%; margin:0; padding:2px var(--sp-1);
-               font-size:var(--fs-sm); display:flex; align-items:baseline; gap:var(--sp-1); border-radius:var(--r-sm); color:var(--text-main); }
-    .pg-qp-t:hover { background:var(--overlay-hover); }
-    .pg-qp-t:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
-    .pg-qp-sc { color:var(--text-muted); }
-    .pg-qp-ex { margin:var(--sp-1) 0 0; padding-left:calc(var(--sp-1) + 1rem); font-size:var(--fs-xs); color:var(--text-muted); }
-    .pg-qp-who { grid-column:1; min-width:0; }
-    .pg-qp-l { list-style:none; margin:0; padding:0; }
-    .pg-qp-l li { border-top:1px solid var(--border-color); }
-    /* [PGP.44] El renglon es un boton: lleva a las facturas de ese acreedor. */
-    .pg-qp-go { all:unset; box-sizing:border-box; cursor:pointer; width:100%;
-                display:grid; grid-template-columns:1fr auto auto auto; gap:var(--sp-2); align-items:baseline;
-                padding:2px var(--sp-1); font-size:var(--fs-sm); border-radius:var(--r-sm); }
-    .pg-qp-go:hover { background:var(--overlay-hover); }
-    .pg-qp-go:focus-visible { outline:2px solid var(--action-ring); outline-offset:-2px; }
-    .pg-qp-ch { grid-column:4; color:var(--text-muted); align-self:center; }
-    .pg-qp-l li.is-urge .pg-qp-d { color:var(--text-main); font-weight:700; }
-    /* [PGP.50] Nombre y detalle en UN renglon (eran dos lineas por acreedor). */
-    .pg-qp-n { font-weight:600; }
-    .pg-qp-d { color:var(--fg-3); }
-    .pg-qp-i { grid-column:2; color:var(--fg-2); }
-    .pg-qp-g { grid-column:3; min-width:6rem; text-align:right; }
-    .pg-qp-m { display:inline-flex; align-items:center; gap:var(--sp-1); margin:var(--sp-1) 0 0; padding:2px var(--sp-1);
-               border:0; background:transparent; cursor:pointer; font:inherit; font-size:var(--fs-xs); color:var(--fg-3); border-radius:var(--r-sm); }
-    .pg-qp-m:hover { color:var(--text-main); text-decoration:underline; }
-    .pg-qp-m:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
+    /* [PGP.53] Pronto pago: su propia seccion, sin caja ni color. Grupo = dia en que cierra; las
+       cifras en columnas fijas para que el grupo y sus renglones se lean en la misma vertical. */
+    .pg-pp { margin:0 0 var(--sp-4); }
+    .pg-pp-head { display:flex; align-items:baseline; justify-content:space-between; gap:var(--sp-3); flex-wrap:wrap; }
+    .pg-pp-t { margin:0; font-size:var(--fs-h3); font-weight:700; display:inline-flex; align-items:baseline; gap:var(--sp-2); }
+    .pg-pp-t .pi { color:var(--text-muted); }
+    .pg-pp-tot { font-size:var(--fs-sm); color:var(--fg-2); }
+    .pg-pp-why { margin:var(--sp-1) 0 var(--sp-2); font-size:var(--fs-sm); max-width:72ch; }
+    .pg-pp-src { display:block; margin-top:2px; font-size:var(--fs-xs); color:var(--fg-3); }
+    .pg-pp-gr { border-top:1px solid var(--border-color); }
+    /* [PGP.61] La línea de «N días más»: neutra, con su cuenta, del ancho de un grupo. */
+    .pg-pp-mas { all:unset; box-sizing:border-box; cursor:pointer; display:flex; align-items:center; gap:var(--sp-2); width:100%;
+      padding:6px var(--sp-1); border-top:1px solid var(--border-color); font-size:var(--fs-sm); color:var(--text-muted); }
+    .pg-pp-mas:hover { background:var(--overlay-hover); }
+    .pg-pp-mas:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
+    .pg-pp-mas .comm-num { color:var(--text-main); font-weight:600; }
+    .pg-pp-gh, .pg-pp-go { all:unset; box-sizing:border-box; cursor:pointer; width:100%; display:grid; align-items:baseline;
+                           gap:var(--sp-2); padding:4px var(--sp-1); font-size:var(--fs-sm); border-radius:var(--r-sm); }
+    .pg-pp-gh { grid-template-columns:1rem minmax(0,1fr) 9rem 7rem 4rem 5.5rem; font-weight:600; }
+    .pg-pp-gh.is-urge { font-weight:700; }
+    .pg-pp-gh .pi { color:var(--text-muted); align-self:center; }
+    .pg-pp-gh:hover, .pg-pp-go:hover { background:var(--overlay-hover); }
+    .pg-pp-gh:focus-visible, .pg-pp-go:focus-visible { outline:2px solid var(--focus-ring); outline-offset:-2px; }
+    .pg-pp-l { list-style:none; margin:0 0 var(--sp-1); padding:0; }
+    .pg-pp-r { display:grid; grid-template-columns:minmax(0,1fr) 5.5rem; align-items:center; gap:var(--sp-2); }
+    .pg-pp-go { grid-template-columns:minmax(0,1fr) 9rem 7rem 4rem; padding-left:calc(var(--sp-1) + 1rem + var(--sp-2)); }
+    .pg-pp-n { min-width:0; overflow-wrap:anywhere; }
+    .pg-pp-d { color:var(--fg-3); font-weight:400; }
+    .pg-pp-i, .pg-pp-g, .pg-pp-p { text-align:right; }
+    .pg-pp-i { color:var(--fg-2); }
+    .pg-pp-p { color:var(--fg-3); }
+    .pg-pp-a { justify-self:end; }
+    .pg-pp-x { margin:0 0 var(--sp-2); padding:var(--sp-1) var(--sp-2) var(--sp-1) calc(var(--sp-1) + 1rem + var(--sp-2));
+               font-size:var(--fs-sm); color:var(--fg-2); }
+    .pg-pp-x p { margin:0 0 2px; max-width:72ch; }
+    @media (max-width: 47.5rem) {
+      .pg-pp-gh { grid-template-columns:1rem minmax(0,1fr) auto; }
+      .pg-pp-gh .pg-pp-i, .pg-pp-gh .pg-pp-p, .pg-pp-gh .pg-pp-a { display:none; }
+      .pg-pp-go { grid-template-columns:minmax(0,1fr) auto auto; padding-left:var(--sp-1); }
+      .pg-pp-go .pg-pp-i { display:none; }
+      .pg-pp-x { padding-left:var(--sp-2); }
+    }
     .pg-prop-not { color:var(--warn-soft-fg); }
     .pg-qp-nm { margin:0 0 var(--sp-3); font-size:var(--fs-xs); color:var(--warn-soft-fg);
                 border-left:2px solid var(--warn-fg); padding-left:var(--sp-2); }
@@ -1442,6 +1566,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
       :host ::ng-deep .pg-prep td.pg-c-ben { grid-column:2 / -1; grid-row:1; }
       /* [PGP.52] La columna nueva, «Cómo sale», va a todo lo ancho debajo del nombre. */
       :host ::ng-deep .pg-prep td.pg-c-how { grid-column:1 / -1; }
+      :host ::ng-deep .pg-prep td.pg-c-why { grid-column:1 / -1; width:auto; }
       .pg-add-t { white-space:normal; }
       .pg-lista-acts { margin-left:0; }
       /* Folio u orden a la izquierda e importe a la derecha, en el mismo renglon. */
@@ -1528,6 +1653,50 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    * 4 pagar · 5 cerrar · 6 cerrado. `[PGP.15]` Suma «cerrar»: el backend ya tenía `cerrar` y
    * `fallo`, y la pantalla no los ofrecía — el proceso no se podía terminar desde la interfaz.
    */
+  /**
+   * `[PGP.60]` **Con el día ya armado, los pagos van arriba** (pegados al veredicto que los nombra).
+   * Sin pagos, el día está en ARMAR y arriba va lo que se agrega: el pronto pago primero (`[PGP.53]`).
+   */
+  readonly pagosPrimero = computed(() => this.allocations().length > 0);
+
+  /**
+   * `[PGP.60]` **Por qué se paga HOY**, en el renglón (decide el orden; antes sólo vivía en el
+   * desglose). Lo que gana pronto pago va primero; si no, cómo está su factura más vieja contra el
+   * día. Sin dato, null — la celda dice «—», no inventa un motivo (ADR-056).
+   */
+  porQueHoy(a: PaymentCalendarAllocation): { texto: string; fuerte: boolean } | null {
+    if ((a.pronto_captura ?? 0) > 0) {
+      const urge = (a.items ?? []).some((it) => it.pronto_estado === 'por_vencer');
+      return { texto: `gana ${this.money(a.pronto_captura)}${urge ? ' · cierra pronto' : ''}`, fuerte: urge };
+    }
+    const dia = this.selectedDate();
+    const vence = (a.items ?? []).map((it) => it.vence).filter((v): v is string => !!v).sort()[0];
+    if (vence) {
+      const d = Math.round((Date.parse(dia) - Date.parse(vence.slice(0, 10))) / 86_400_000);
+      if (d > 0) return { texto: d === 1 ? 'vencida hace 1 día' : `vencida hace ${d} días`, fuerte: true };
+      if (d === 0) return { texto: 'vence hoy', fuerte: true };
+      return { texto: `vence el ${this.shortDate(vence)} (se adelanta)`, fuerte: false };
+    }
+    if ((a.pronto_deja_pasar ?? 0) > 0) return { texto: `deja pasar ${this.money(a.pronto_deja_pasar)}`, fuerte: false };
+    return null;
+  }
+
+  /**
+   * `[PGP.60]` **Dónde se acaba el tope**, en el orden de dispersión: el primer pago con el que lo
+   * acumulado pasa lo autorizado. Así «excede $X» se ve en la tabla (qué queda arriba y qué abajo),
+   * no sólo como cifra. Sin tope fijado no hay corte que dibujar (null).
+   */
+  readonly corteDelTope = computed<string | null>(() => {
+    const s = this.selectedDay()?.summary;
+    if (!s?.capacity_defined || s.authorized_amount == null) return null;
+    let acum = 0;
+    for (const a of this.allocations()) {
+      acum += Number(a.amount_assigned || 0);
+      if (acum > Number(s.authorized_amount) + 0.005) return a.id;
+    }
+    return null;
+  });
+
   readonly pasoActivo = computed<1 | 2 | 3 | 4 | 5 | 6>(() => {
     if (this.selectedDay()?.summary.lot_status === 'closed') return 6;
     if (this.isReleased()) return this.pendingCount() > 0 || this.failedCount() > 0 ? 4 : 5;
@@ -1720,6 +1889,26 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   readonly abiertos = signal<Record<string, boolean>>({});
   toggleAbierto(id: string): void {
     this.abiertos.update((m) => { const n = { ...m }; if (n[id]) delete n[id]; else n[id] = true; return n; });
+    // `[PGP.58]` Al abrir un pago se busca el papel de sus facturas (si ya se buscó, no se repite).
+    if (this.abiertos()[id]) void this.cargarEvidencias();
+  }
+  /**
+   * `[PGP.58]` **Desde el pago se abre la factura** (Edgar, 2026-11-04: «¿puedo ver la factura en PDF
+   * o imagen? ¿el folio interno para ubicarla?»). Las llaves de las facturas de los pagos abiertos;
+   * la evidencia sale del MISMO lote que la lista de deuda (`cargarEvidencias`), no de otro camino.
+   */
+  private refsDePagosAbiertos(): string[] {
+    const ab = this.abiertos();
+    return this.allocations().filter((a) => ab[a.id])
+      .flatMap((a) => (a.items ?? []).map((it) => (it.entity_ref ?? '').trim()));
+  }
+  evidenciaDeItem(it: { entity_ref?: string | null }): PayableEvidenceRow | null {
+    const ref = (it.entity_ref ?? '').trim();
+    return ref ? this.evidencias().get(ref) ?? null : null;
+  }
+  /** Ya respondió la búsqueda de ese documento (con o sin archivo): deja de decir «buscando…». */
+  evidenciaBuscada(it: { entity_ref?: string | null }): boolean {
+    return this.evidenciaRespondidas().has((it.entity_ref ?? '').trim());
   }
 
   readonly executedCount = computed(() => this.allocations().filter((a) => a.status === 'executed').length);
@@ -1952,9 +2141,10 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     let refs: string[] = [];
     try {
       for (;;) {
-        refs = this.filasDeuda()
-          .map((f) => (f.o.entity_ref ?? '').trim())
-          .filter((r) => r.startsWith('oblig:') && !this.evidenciaRespondidas().has(r) && !this.evidenciaPedida.has(r))
+        // `[PGP.58]` Primero las facturas de los pagos ABIERTOS: es donde alguien está revisando.
+        refs = [...this.refsDePagosAbiertos(), ...this.filasDeuda().map((f) => (f.o.entity_ref ?? '').trim())]
+          .filter((r, i, all) => r.startsWith('oblig:') && all.indexOf(r) === i
+            && !this.evidenciaRespondidas().has(r) && !this.evidenciaPedida.has(r))
           .slice(0, 200);
         if (!refs.length) return;
         refs.forEach((r) => this.evidenciaPedida.add(r));
@@ -1994,12 +2184,18 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       `${this.base}/evidencia/archivo/${encodeURIComponent(e.ref_evidencia)}`,
     )).then((files) => {
       // La factura primero; si no viene rotulada, el primer archivo que haya.
-      const f = (files ?? []).find((x) => x.role === 'factura') ?? (files ?? [])[0];
-      if (f?.url) window.open(f.url, '_blank', 'noopener');
+      // ⛔ [PGP.59] Sólo se abre una URL http(s): una LLAVE del bucket (el servidor no pudo
+      // firmarla) abría «Cannot GET …» en una pestaña nueva. Misma regla que doc-viewer `servible()`.
+      const abribles = (files ?? []).filter((x) => /^https?:\/\//i.test(x?.url ?? ''));
+      const f = abribles.find((x) => x.role === 'factura') ?? abribles[0];
+      if (f) window.open(f.url, '_blank', 'noopener');
+      else if ((files ?? []).length) this.toast.add({ severity: 'error', summary: 'No se pudo preparar la factura', detail: 'Está guardada, pero el servidor no pudo generar su enlace de lectura. Avisa a Sistemas.', life: 10000 });
       else this.toast.add({ severity: 'warn', summary: 'Sin archivo', detail: 'El comprobante existe pero no trae un archivo que pueda abrir.' });
-    }).catch(() => this.toast.add({
+    }).catch((e) => this.toast.add({
       severity: 'error', summary: 'No pude abrir la factura',
-      detail: 'El enlace se firma al momento y expira en 10 minutos. Intenta de nuevo.',
+      // El servidor dice la causa (almacén sin configurar, comprobante inexistente); si no la dice, el caso conocido.
+      detail: e?.error?.message || 'El enlace se firma al momento y expira en 10 minutos. Intenta de nuevo.',
+      life: 10000,
     }));
   }
 
@@ -2226,7 +2422,9 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       // [PGP.44] El rótulo se cita TEXTUAL: si el botón dice «Para 1 pago» y esto manda a
       // «Para los 1 pagos», el aviso apunta a algo que no existe en pantalla.
       // [PGP.49] El rótulo de la barra cambió a «Para los N sin preparar»: se cita igual.
-      const donde = sinMetodo > 1 ? `Elige método y cuenta de origen en «Para los ${this.unpreparedCount()} sin preparar»` : `Usa «Preparar» en su fila`;
+      // [PGP.60] Y volvió a cambiar a «Los N sin preparar:» (PGP.52) sin que esto lo siguiera: el
+      // veredicto citaba un rótulo que no existía en pantalla (visto en captura el 2026-11-04).
+      const donde = sinMetodo > 1 ? `Elige método y cuenta de origen abajo, en «Los ${this.unpreparedCount()} sin preparar»` : `Usa «Preparar» en su fila`;
       return { tone: 'ok',
         say: n === 1 ? `Falta ${this.faltaDe(a)} de 1 pago para poder autorizar el día.`
                      : `Faltan ${n} de ${this.pendingCount()} pagos por preparar.`,
@@ -2347,32 +2545,71 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   readonly quePagar = signal<PagoSugerido[]>([]);
   readonly quePagarError = signal<string | null>(null);
   readonly quePagarGana = computed(() => this.quePagar().reduce((s, r) => s + Number(r.gana || 0), 0));
-  readonly quePagarImporte = computed(() => this.quePagar().reduce((s, r) => s + Number(r.importe || 0), 0));
-  /** Lo que se pierde si no sale HOY o mañana: es lo único que convierte la lista en urgencia. */
-  /** Lo que se pierde si no sale HOY o manana: es lo unico que convierte la lista en urgencia. */
-  readonly quePagarUrgente = computed(() => this.quePagar().filter((r) => Number(r.dias_restantes) <= 1));
-  /** Lo que gana el resto que la lista no muestra: el resumen no puede inventar su cifra. */
-  readonly quePagarRestoGana = computed(() => this.quePagar().slice(5).reduce((s, r) => s + Number(r.gana || 0), 0));
-  /** `[PGP.48]` «y N más» se abre ahí mismo: una cifra del encabezado tiene que poder recorrerse. */
-  readonly verQuePagarTodo = signal(false);
+
   /**
-   * `[PGP.50]` «Sin cuenta para transferir» se decía en cada renglón, y el 3-nov eran 34 de 37: el
-   * aviso repetido no distinguía a nadie. Ahora es una cifra en el encabezado y el renglón marca
-   * sólo el caso MINORITARIO («con cuenta» si casi nadie tiene; «sin cuenta» si casi todos tienen).
+   * `[PGP.53]` **El pronto pago es la prioridad, y la pantalla lo dice con su porqué.** Edgar,
+   * 2026-11-04: *«esa es la prioridad: recomendar firmemente que paguemos eso y por qué, y darle
+   * prioridad en base a su vencimiento»*. Era una línea plegada debajo del buscador.
+   *
+   * Grupos por el día en que CIERRA el descuento (la vista ya ordena por días restantes y, dentro,
+   * por lo que gana). Hoy y mañana nacen abiertos; los demás días, una línea con su cuenta.
    */
-  readonly quePagarSinCuenta = computed(() => this.quePagar().filter((r) => !r.se_puede_preparar_hoy).length);
-  readonly quePagarMarcaConCuenta = computed(() => this.quePagarSinCuenta() * 2 > this.quePagar().length);
-  /** `[PGP.50]` El día abierto ya pasa de su tope. */
-  readonly diaExcedido = computed(() => !!this.selectedDay()?.summary.exceeded);
+  readonly prontoGrupos = computed(() => {
+    const out: { cierra: string; dias: number; filas: PagoSugerido[]; importe: number; gana: number }[] = [];
+    for (const r of this.quePagar()) {
+      let g = out.find((x) => x.cierra === r.cierra);
+      if (!g) { g = { cierra: r.cierra, dias: Number(r.dias_restantes), filas: [], importe: 0, gana: 0 }; out.push(g); }
+      g.filas.push(r);
+      g.importe += Number(r.importe || 0);
+      g.gana += Number(r.gana || 0);
+    }
+    return out;
+  });
   /**
-   * `[PGP.50]` Plegado por omisión cuando el día excede su tope: la pantalla decía «excede, quita
-   * pagos» en rojo y justo debajo «pagando $8.77M más se ganan…». Plegar no es esconder: el
-   * encabezado conserva cuánto, a cuántos y cuánto se gana, y se abre de un clic.
+   * `[PGP.61]` **Los 3 días que cierran primero; el resto, en una línea con su cuenta** (Edgar,
+   * 2026-11-04: *«no debemos mostrar tantos, 2 o 3 en pronto pago está más que perfecto»*). Eran 8
+   * grupos, ~370 px. Plegar no es esconder: la línea dice cuántos días, acreedores, importe y cuánto
+   * se gana adentro, y el total de arriba («en los próximos 7 días ganas») sigue contándolos.
    */
-  private readonly quePagarPlegadoManual = signal<boolean | null>(null);
-  /** `[PGP.52]` Plegado siempre por omisión: la línea ya dice a cuántos y cuánto se gana; la lista, a un clic. */
-  readonly quePagarPlegado = computed(() => this.quePagarPlegadoManual() ?? true);
-  plegarQuePagar(): void { this.quePagarPlegadoManual.set(!this.quePagarPlegado()); }
+  readonly prontoVerTodos = signal(false);
+  readonly prontoVisibles = computed(() => {
+    const gs = this.prontoGrupos();
+    return this.prontoVerTodos() ? gs : gs.slice(0, 3);
+  });
+  readonly prontoResto = computed(() => {
+    const resto = this.prontoGrupos().slice(3);
+    return {
+      dias: resto.length,
+      acreedores: resto.reduce((s, g) => s + g.filas.length, 0),
+      importe: resto.reduce((s, g) => s + g.importe, 0),
+      gana: resto.reduce((s, g) => s + g.gana, 0),
+    };
+  });
+  /** Lo que cierra hoy o mañana: lo único que no puede esperar. */
+  readonly prontoUrgente = computed(() => {
+    const gs = this.prontoGrupos().filter((g) => g.dias <= 1);
+    return {
+      acreedores: gs.reduce((s, g) => s + g.filas.length, 0),
+      importe: gs.reduce((s, g) => s + g.importe, 0),
+      gana: gs.reduce((s, g) => s + g.gana, 0),
+    };
+  });
+  /** Lo urgente pasa de lo libre del día abierto: hay que escoger, y se dice con qué criterio. */
+  readonly prontoNoCabe = computed(() => {
+    const s = this.selectedDay()?.summary;
+    return !!s?.capacity_defined && this.prontoUrgente().importe > Number(s.remaining_amount ?? 0);
+  });
+  private readonly prontoAbiertos = signal<Record<string, boolean>>({});
+  prontoAbierto(g: { cierra: string; dias: number }): boolean { return this.prontoAbiertos()[g.cierra] ?? g.dias <= 1; }
+  togglePronto(g: { cierra: string; dias: number }): void {
+    this.prontoAbiertos.update((m) => ({ ...m, [g.cierra]: !this.prontoAbierto(g) }));
+  }
+  /** El acreedor con su «por qué» abierto (uno a la vez: es un desglose, no un reporte). */
+  readonly prontoPorQue = signal<string | null>(null);
+  prontoCierraDice(dias: number, cierra: string): string {
+    return dias === 0 ? 'Cierra hoy' : dias === 1 ? 'Cierra mañana' : `Cierra el ${this.dayShort(cierra)}`;
+  }
+  acreedores(n: number): string { return `${n} ${n === 1 ? 'acreedor' : 'acreedores'}`; }
 
   /**
    * `[PGP.48]` Los días ya pasados que todavía tienen pagos pendientes (ver `pendientesAtrasados`
@@ -2797,14 +3034,15 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   capKpis(d: PaymentCalendarWeekDay): MetricStripItem[] {
     const s = d.summary;
     const libre = Number(s.remaining_amount ?? 0);
-    return [
+    // [PGP.49] «Libre -$950,840.35» se lee como algo que sobra: excedido, la cifra se nombraba «Excede».
+    // [PGP.60] Y excedido ya NO va en la tira: el veredicto lo dice en su título y la semana en su día
+    // (visto en captura el 2026-11-04: «$364,289.83» tres veces). Queda lo que el veredicto no dice: el %.
+    const items: MetricStripItem[] = [
       { label: 'Comprometido', value: Number(s.assigned_amount ?? 0), format: 'currency2', sub: `${this.usedPctRound(d)} % del tope` },
-      // [PGP.49] «Libre -$950,840.35» se lee como algo que sobra: excedido, la cifra se nombra así.
-      libre < 0
-        ? { label: 'Excede', value: -libre, format: 'currency2', tone: 'bad' }
-        : { label: 'Libre', value: libre, format: 'currency2', tone: 'default' },
-      { label: 'Tope del día', value: Number(s.authorized_amount ?? 0), format: 'currency2' },
     ];
+    if (libre >= 0) items.push({ label: 'Libre', value: libre, format: 'currency2', tone: 'default' });
+    items.push({ label: 'Tope del día', value: Number(s.authorized_amount ?? 0), format: 'currency2' });
+    return items;
   }
   prepared(a: PaymentCalendarAllocation): boolean { return isPrepared(a); }
   /** $1.95M · $197K · $3,465 — la franja necesita cifras cortas; el detalle va completo. */
@@ -3223,16 +3461,22 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     const i = lista.findIndex((x) => x.id === a.id);
     const j = i + delta;
     if (i < 0 || j < 0 || j >= lista.length) return;
-    const otro = lista[j];
-    const mio = a.priority_rank ?? i + 1;
-    const suyo = otro.priority_rank ?? j + 1;
+    /**
+     * ⛔ `[PGP.60]` **Fallaba 4 de cada 10 veces** (medido en `analytics.ui_usage`, 14 días al
+     * 2026-11-04: 68 de 178 `POST …/orden` con 4xx). Eran dos `POST` en PARALELO, y el backend
+     * (`setPriorityRank`) rechaza un orden que otro pago pendiente del día ya tiene: en el instante del
+     * intercambio cada uno tenía el número del otro → «El orden N ya lo tiene otro pago de este día».
+     * Ahora va en TRES pasos seguidos que nunca chocan: el mío a un número libre (uno más que el
+     * mayor del día), el otro al mío, el mío al suyo. Si un paso falla, los números siguen siendo
+     * únicos y la recarga muestra el orden real.
+     */
+    const pasos = pasosIntercambio(lista, i, j);
+    if (!pasos.length) return;
     this.saving.set(true);
-    Promise.all([
-      firstValueFrom(this.http.post(`${this.base}/allocations/${a.id}/orden`, { priority_rank: suyo })),
-      firstValueFrom(this.http.post(`${this.base}/allocations/${otro.id}/orden`, { priority_rank: mio })),
-    ]).then(() => this.loadWeek())
+    pasos.reduce<Promise<unknown>>((prev, [id, rank]) => prev.then(() =>
+      firstValueFrom(this.http.post(`${this.base}/allocations/${id}/orden`, { priority_rank: rank }))), Promise.resolve())
       .catch((e) => this.toast.add({ severity: 'error', summary: 'No se pudo reordenar', detail: String(e?.error?.message ?? e?.message ?? e) }))
-      .finally(() => this.saving.set(false));
+      .finally(() => { this.saving.set(false); this.loadWeek(); });
   }
 
   /** El proveedor del catálogo detrás de un pago (sólo facturas de mercancía lo traen). */
