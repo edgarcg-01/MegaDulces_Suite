@@ -5,6 +5,7 @@ import { environment } from '../../../environments/environment';
 // [VP.2.1] La forma de la procedencia la define el contrato, no cada consumidor.
 import type { Freshness, ExpenseFamilia, CaducidadUnidad } from '@megadulces/contracts';
 import type { PeriodCoverageWire, PeriodComparativoWire } from '@megadulces/contracts';
+import type { ViajesTlmkResponse } from '@megadulces/contracts';
 import type { IncomeGroupBy as IncomeGroupByT, IncomeReport as IncomeReportT, IncomeTree as IncomeTreeT, IncomeTreeChildren as IncomeTreeChildrenT, IncomeDocumento as IncomeDocumentoT, IncomeSources as IncomeSourcesT, IncomeRecon as IncomeReconT, IncomeReconDetalle as IncomeReconDetalleT, IncomeGrain as IncomeGrainT } from '@megadulces/contracts';
 
 // ── Tipos compartidos ────────────────────────────────────────────────
@@ -2353,6 +2354,18 @@ export class ComercialService {
   routeProfitSerie(anio?: number) {
     const params = anio ? new HttpParams().set('anio', String(anio)) : undefined;
     return this.http.get<RouteProfitSerie>(`${this.base}/route-profit/series`, params ? { params } : {});
+  }
+
+  /**
+   * `[FCT.2.1]` Los viajes de entrega de Telemarketing: venta de Kepler + lo capturado del viaje en
+   * Logística. Sin rango, el mes en curso (el servidor lo decide).
+   */
+  viajesTlmk(q: { desde?: string; hasta?: string; sucursal?: string | null }) {
+    let params = new HttpParams();
+    if (q.desde) params = params.set('desde', q.desde);
+    if (q.hasta) params = params.set('hasta', q.hasta);
+    if (q.sucursal) params = params.set('sucursal', q.sucursal);
+    return this.http.get<ViajesTlmkResponse>(`${this.base}/route-profit/tlmk`, { params });
   }
 
   /** `[RD.57]` El tablero de una quincena. Sin `periodId` abre la última con renglones. */

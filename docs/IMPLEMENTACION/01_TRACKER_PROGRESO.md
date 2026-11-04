@@ -2716,6 +2716,17 @@ El embarque `U-D-41` llegaba por tres puertas (detalle de artículos DM, dinero 
   rollback; `check:pantalla` 10/10 en las 5. Abiertas: D9 (tabla de odómetro, a firmar), FCU.0.6
   (retirar `config_finance.costo_km_*`), que Flotilla abra la misma ficha. ⛔ **No entregado**: 3
   migraciones sin aplicar y permiso sin repartir en prod; sin validación visual.
+- [ ] **[FCT.0–FCT.3]** 🧪 **Viajes TM: la hoja «RENTABILIDAD TLMKT 2026» con nuestra verdad** (anexo de FC,
+  2026-11-04, Edgar: «complementemos con nuestra verdad»). Plan: `FASES/FASE_FC_ANEXO_RENTABILIDAD_TLMK_2026-11-04.md`.
+  C0 vista `analytics.v_tlmk_trip_stops` (mig `20261104130802`, commit `2f357485a`): guía `c86` de
+  embarques serie 1 = el viaje; 55/55 viajes de la hoja casan a ±$10 (placebo +3 % → 0), 556/556 guías
+  iguales a `erp_shipment_headers`. C1 `armarViajesTlmk` (contracts, 12 pruebas, negativas probadas en
+  rojo): costo sólo con la guía de Logística capturada (regla `pendientesDeLaGuia`), nunca $0 sin
+  captura; la camioneta declarada sin dato. C2 `GET /commercial/route-profit/tlmk` (permiso
+  `COMMERCIAL_ROUTE_PROFIT_VER`, sin permiso nuevo); 80–100 ms el mes en prod. C3 Comercial › Ruta
+  Directa › **Viajes TM**. Abiertas: D2 (la tarifa de Logística contradice a la hoja), D3, D5.
+  ⛔ **No entregado**: migración sin aplicar en prod; `up()` sin ensayar en base; arranque verificado
+  sólo por metadata emitida; sin validación visual.
 - [ ] **[EMB.8]** ⬜ `analytics.erp_shipments.route` **no es una ruta**: dos valores en todo el
   histórico (`'40'` 102,310 · `'35'` 44) = el tipo de documento padre, 0/10 match contra
   `kdm_rutas`. Lo pintan como ruta la pantalla de analytics de logística y una tool de Thot.
