@@ -28,14 +28,18 @@ import {
 import type { Knex } from 'knex';
 import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import {
-  centavosATexto, formatearDinero, pesosACentavos, valorDePiezas,
-  type OrdenPorFirmar, type PagoEnVentanilla, type PiezasTexto, type PlanDePagoVentanilla, type ResultadoPago, type VeredictoDePago,
+  centavosATexto, formatearDinero, pesosACentavos, valorDePiezas, warehouseName,
+  type CobroEnVentanilla, type CuentaDelCobro, type EstadoDeCobro, type OrdenPorFirmar, type PagoEnVentanilla, type PiezasTexto,
+  type PlanDePagoVentanilla, type ResultadoCobro, type ResultadoPago, type VeredictoDePago,
 } from '@megadulces/contracts';
 import { traducirErrorDelLibro } from './errores';
 import {
   ARREGLO_DEL_BLOQUEO, MOTIVO_BLOQUEO, planDePago, veredictoDePago, type DocumentoAPagar, type PlanDePago, type Respaldo, type ValeElegido,
 } from './plan-de-pago';
-import { pagoDelCajon, type Contexto } from './reglas';
+import { entregaRuta, otroIngreso, pagoDelCajon, type Contexto, type Propuesta } from './reglas';
+import {
+  clasificarCobro, eventoDeCobro, parDelCobro, type CobroClasificado, type FilaCobroRuta, type FilaCobroSucursal,
+} from './cobro-en-ventanilla';
 import type { UsuarioDelLibro } from './cashbook.service';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -133,6 +137,28 @@ export const SQL_DOCUMENTOS = `
    WHERE tenant_id = ? AND doc_tipo = 'X-D-26' AND clave_banco = '0011' AND signo < 0 AND es_traspaso = false
      AND sucursal = ANY(?::text[]) AND folio = ANY(?::text[])
      AND (sucursal, folio) IN (SELECT * FROM unnest(?::text[], ?::text[]))`;
+
+/**
+ * `[LE.6.7]` Las dos fuentes de un cobro U-A-5 de la 0011, por lote de pares `(almacen, folio)`:
+ * las mismas que arman la cola de Captura. Corridas TAL CUAL en prod (sólo lectura, 2026-11-04) con
+ * los 138 cobros capturados en 14 días: 102 de ruta (la ruta coincide con la capturada en los 102) y
+ * 36 de sucursal, ninguno en las dos ni en ninguna; 9 ms y 5 ms. Parámetros: `[tenant, s, f, s, f]`.
+ */
+export const SQL_COBROS_RUTA = `
+  SELECT almacen, cobro_folio AS folio, sum(importe)::numeric(18,2)::text AS importe,
+         string_agg(DISTINCT regexp_replace(truck, '^ruta_0*', ''), ' · ') AS rutas,
+         count(DISTINCT truck)::int AS n_rutas, count(DISTINCT fecha)::int AS n_fechas
+    FROM analytics.route_collections
+   WHERE tenant_id = ? AND cuenta = '0011' AND almacen = ANY(?::text[]) AND cobro_folio = ANY(?::text[])
+     AND (almacen, cobro_folio) IN (SELECT * FROM unnest(?::text[], ?::text[]))
+   GROUP BY almacen, cobro_folio`;
+export const SQL_COBROS_SUCURSAL = `
+  SELECT sucursal, folio, sum(importe)::numeric(18,2)::text AS importe, count(*)::int AS n
+    FROM analytics.bank_movement_legs
+   WHERE tenant_id = ? AND doc_tipo = 'U-A-5' AND clave_banco = '0011' AND signo > 0 AND es_traspaso = false
+     AND sucursal = ANY(?::text[]) AND folio = ANY(?::text[])
+     AND (sucursal, folio) IN (SELECT * FROM unnest(?::text[], ?::text[]))
+   GROUP BY sucursal, folio`;
 
 export interface FilaDocumento { folio: string; beneficiario: string; importe: string }
 export interface FilaVale { id: string; folio: string; status: string; importe: string; aprobado_at: string | null }
@@ -502,5 +528,149 @@ export class CashbookVentanillaService {
         pedida_por: f.pedida_por, pedida_at: f.created_at, vence: f.expires_at,
       }));
     });
+  }
+
+  // ── `[LE.6.7]` Recibir un cobro (R3): la ruta o la sucursal entrega, la cajera cuenta por pieza ──
+
+  /** Las dos fuentes de un cobro, por lote. `protected`: la prueba contra base real las sustituye. */
+  protected async filasDeCobros(trx: Knex.Transaction, tenantId: string, pares: ReadonlyArray<[string, string]>)
+    : Promise<{ ruta: FilaCobroRuta[]; sucursal: FilaCobroSucursal[] }> {
+    const s = pares.map((p) => p[0]);
+    const f = pares.map((p) => p[1]);
+    const ruta = (await trx.raw(SQL_COBROS_RUTA, [tenantId, s, f, s, f])).rows as FilaCobroRuta[];
+    const sucursal = (await trx.raw(SQL_COBROS_SUCURSAL, [tenantId, s, f, s, f])).rows as FilaCobroSucursal[];
+    return { ruta, sucursal };
+  }
+
+  private async clasificados(trx: Knex.Transaction, tenantId: string, refs: readonly string[]): Promise<Map<string, CobroClasificado>> {
+    const pares = refs.map((r) => parDelCobro(r)).filter((p): p is [string, string] => !!p);
+    const { ruta, sucursal } = pares.length ? await this.filasDeCobros(trx, tenantId, pares) : { ruta: [], sucursal: [] };
+    const porRuta = new Map(ruta.map((r) => [`${r.almacen}|${r.folio}`, r]));
+    const porSucursal = new Map(sucursal.map((r) => [`${r.sucursal}|${r.folio}`, r]));
+    const out = new Map<string, CobroClasificado>();
+    for (const ref of refs) {
+      const p = parDelCobro(ref);
+      out.set(ref, p ? clasificarCobro(porRuta.get(p.join('|')), porSucursal.get(p.join('|')))
+        : { tipo: 'detenido', esperado: null, motivo: 'No es un cobro de la Caja General (almacén|U-A-5|folio|0011).' });
+    }
+    return out;
+  }
+
+  /**
+   * Lo que ya está recibido: en el libro nuevo (asiento, o solicitud que espera firma o ya firmada) o,
+   * mientras conviven, en el viejo (`finance.cash_ledger`). Un documento se recibe una vez.
+   */
+  private async recibidos(trx: Knex.Transaction, tenantId: string, refs: readonly string[]): Promise<Set<string>> {
+    if (!refs.length) return new Set();
+    const filas = (await trx.raw(`
+      SELECT r AS ref FROM unnest(?::text[]) r
+       WHERE EXISTS (SELECT 1 FROM cashbook.entries e WHERE e.tenant_id = ? AND e.event_kind IN ('entrega_ruta', 'otro_ingreso')
+                       AND e.event_ref = 'cobro:' || r)
+          OR EXISTS (SELECT 1 FROM cashbook.requests q WHERE q.tenant_id = ? AND q.state IN ('pendiente', 'autorizada')
+                       AND q.payload->>'event_ref' = 'cobro:' || r)
+          OR EXISTS (SELECT 1 FROM finance.cash_ledger l WHERE l.tenant_id = ? AND l.origen_ref = r
+                       AND l.deleted_at IS NULL AND l.estado <> 'cancelado')`,
+    [[...refs], tenantId, tenantId, tenantId])).rows as { ref: string }[];
+    return new Set(filas.map((f) => f.ref));
+  }
+
+  /** Cómo está cada cobro de la cola, en un viaje (hasta 200): de ruta, de sucursal o detenido, y si ya se recibió. */
+  async estadoDeCobros(docs: string[] | undefined): Promise<EstadoDeCobro[]> {
+    const refs = [...new Set((docs ?? []).map((d) => String(d).trim()).filter(Boolean))];
+    if (refs.length > 200) throw new BadRequestException({ codigo: 'demasiados_documentos', mensaje: 'Hasta 200 cobros por consulta.' });
+    if (!refs.length) return [];
+    return this.run(async (trx, tenantId) => {
+      const c = await this.clasificados(trx, tenantId, refs);
+      const ya = await this.recibidos(trx, tenantId, refs);
+      return refs.map((ref): EstadoDeCobro => {
+        const k = c.get(ref) as CobroClasificado;
+        return { origen_ref: ref, tipo: k.tipo, ruta: k.tipo === 'ruta' ? k.ruta : null,
+          esperado_minor: k.esperado === null ? null : centavosATexto(k.esperado), recibido: ya.has(ref),
+          motivo: k.tipo === 'detenido' ? k.motivo : null };
+      });
+    });
+  }
+
+  /**
+   * Recibir un cobro: lo contado por pieza entra al cajón en un acto. De ruta, contra lo que la ruta
+   * debe rendir (E-04: si faltó, la ruta lo sigue debiendo); de sucursal, como otro ingreso (D17).
+   * El importe de Kepler no viaja: lo relee el servidor, y la diferencia se declara, no se ajusta.
+   */
+  async recibir(body: CobroEnVentanilla, usuario: UsuarioDelLibro, idempotencyKey: string | undefined): Promise<ResultadoCobro> {
+    const cajera = this.quien(usuario);
+    const key = this.llave(idempotencyKey);
+    const entrega = String(body?.entrega?.nombre ?? '').trim();
+    if (!entrega) throw new BadRequestException({ codigo: 'sin_quien_entrega', mensaje: 'Falta quién entrega el dinero (V5: con nombre).' });
+    const piezas: PiezasTexto = body?.piezas ?? {};
+    const contado = sumaDePiezas(piezas);
+    if (contado <= 0n) throw new BadRequestException({ codigo: 'sin_piezas', mensaje: 'Lo que se recibe se cuenta por pieza (V7).' });
+    const ref = String(body?.origen_ref ?? '').trim();
+    if (!parDelCobro(ref)) {
+      throw new BadRequestException({ codigo: 'cobro_invalido', mensaje: 'La Ventanilla recibe un cobro de la Caja General (almacén|U-A-5|folio|0011).' });
+    }
+    return this.run(async (trx, tenantId) => {
+      // Un reintento con la misma llave devuelve lo mismo (la base también lo garantiza, I12).
+      const previa = await this.cobroPrevio(trx, tenantId, key);
+      if (previa) {
+        if (previa.event_ref !== eventoDeCobro(ref)) {
+          throw new ConflictException({ codigo: 'cashbook_peticion_reusada', mensaje: 'Esa petición ya se registró con otro contenido.' });
+        }
+        return previa.resultado;
+      }
+      const c = (await this.clasificados(trx, tenantId, [ref])).get(ref) as CobroClasificado;
+      if (c.tipo === 'detenido') {
+        if (c.esperado === null) throw new NotFoundException({ codigo: 'cobro_detenido', mensaje: c.motivo });
+        throw new UnprocessableEntityException({ codigo: 'cobro_detenido', mensaje: c.motivo });
+      }
+      if ((await this.recibidos(trx, tenantId, [ref])).has(ref)) {
+        throw new ConflictException({ codigo: 'ya_recibido', mensaje: 'Ese cobro ya está recibido: no entra dos veces.' });
+      }
+      const diferencia = contado - c.esperado;
+      const cuenta: CuentaDelCobro = {
+        tipo: c.tipo, ruta: c.tipo === 'ruta' ? c.ruta : null, contado_minor: centavosATexto(contado),
+        esperado_minor: centavosATexto(c.esperado), diferencia_minor: centavosATexto(diferencia),
+        es_redondeo: diferencia !== 0n && diferencia > -50n && diferencia < 50n,
+      };
+      const ctx: Contexto = { actor: { kind: 'persona', user_id: cajera }, valueAt: new Date().toISOString(), requestId: key };
+      // Lo que se contestó va en `meta`: un reintento lo devuelve tal cual, sin volver a leer Kepler.
+      const extra = { event_ref: eventoDeCobro(ref), meta: { origen: 'ventanilla', documento: ref, entrega,
+        contado_minor: cuenta.contado_minor, esperado_minor: cuenta.esperado_minor, diferencia_minor: cuenta.diferencia_minor,
+        ...(c.tipo === 'ruta' ? { ruta: c.ruta } : {}) } };
+      const p: Propuesta = c.tipo === 'ruta'
+        ? entregaRuta({ ruta: c.ruta, piezas }, ctx, extra)
+        : otroIngreso({ concepto: `cobro de sucursal ${warehouseName(c.sucursal)}`, piezas }, ctx, extra);
+      for (const a of p.cuentas) await trx.raw('SELECT cashbook.open_account(?::jsonb)', [JSON.stringify({ ...a, user_id: cajera })]);
+      await trx.raw('SAVEPOINT le_cobro');
+      try {
+        const id = (await trx.raw('SELECT cashbook.post_entry(?::jsonb) AS id', [JSON.stringify(p.asiento)])).rows[0].id as string;
+        await trx.raw('RELEASE SAVEPOINT le_cobro');
+        return { estado: 'recibido', entry_id: id, ...cuenta };
+      } catch (e) {
+        await trx.raw('ROLLBACK TO SAVEPOINT le_cobro');
+        if ((e as { constraint?: string }).constraint !== 'cashbook_requiere_autorizacion') throw e;
+        const r = await trx.raw(`SELECT cashbook.create_request(?::jsonb, clock_timestamp() + interval '72 hours') AS id`, [JSON.stringify(p.asiento)]);
+        return { estado: 'por_autorizar', request_id: r.rows[0].id as string, motivo: 'pasa el umbral de autorización', ...cuenta };
+      }
+    });
+  }
+
+  /** El cobro que ya registró esta llave (asiento o solicitud), con lo que se contestó la primera vez. */
+  private async cobroPrevio(trx: Knex.Transaction, tenantId: string, key: string): Promise<{ event_ref: string; resultado: ResultadoCobro } | null> {
+    const e = (await trx.raw(`SELECT id, event_ref, meta, event_kind FROM cashbook.entries WHERE tenant_id = ? AND request_id = ?`,
+      [tenantId, key])).rows[0] as { id: string; event_ref: string | null; meta: Record<string, string> | null; event_kind: string } | undefined;
+    const q = e ? undefined : (await trx.raw(`SELECT id, payload FROM cashbook.requests WHERE tenant_id = ? AND request_id = ?`, [tenantId, key])).rows[0] as
+      { id: string; payload: { event_ref?: string; event_kind?: string; meta?: Record<string, string> } } | undefined;
+    if (!e && !q) return null;
+    const meta = (e ? e.meta : q?.payload.meta) ?? {};
+    const kind = e ? e.event_kind : q?.payload.event_kind;
+    const dif = BigInt(meta['diferencia_minor'] ?? '0');
+    const cuenta: CuentaDelCobro = {
+      tipo: kind === 'entrega_ruta' ? 'ruta' : 'sucursal', ruta: meta['ruta'] ?? null,
+      contado_minor: meta['contado_minor'] ?? '0', esperado_minor: meta['esperado_minor'] ?? '0', diferencia_minor: meta['diferencia_minor'] ?? '0',
+      es_redondeo: dif !== 0n && dif > -50n && dif < 50n,
+    };
+    if (e) return { event_ref: e.event_ref ?? '', resultado: { estado: 'recibido', entry_id: e.id, ...cuenta } };
+    return { event_ref: q?.payload.event_ref ?? '',
+      resultado: { estado: 'por_autorizar', request_id: q?.id ?? '', motivo: 'pasa el umbral de autorización', ...cuenta } };
   }
 }

@@ -1,6 +1,6 @@
-import type { VeredictoDePago } from '@megadulces/contracts';
+import { warehouseName, type EstadoDeCobro, type VeredictoDePago } from '@megadulces/contracts';
 import type { MovimientoPendiente } from '../../cash-ledger.service';
-import { armarCola, filaDe, resumenCola } from './ventanilla.util';
+import { armarCobros, armarCola, filaDe, resumenCola, textoDiferencia } from './ventanilla.util';
 
 /** `[LE.2.13]` La cola de la Ventanilla: el orden de la tarea y el porqué de cada fila. */
 const doc = (folio: string, monto: number, over: Partial<MovimientoPendiente> = {}): MovimientoPendiente => ({
@@ -50,5 +50,36 @@ describe('[LE.2.13] la cola de la Ventanilla', () => {
     const r = resumenCola(cola);
     expect(r).toEqual({ pagable: { n: 1, monto: 100.1 }, firma: { n: 1, monto: 200.2 }, detenido: { n: 1, monto: 300.3 } });
     expect(r.pagable.n + r.firma.n + r.detenido.n).toBe(docs.length);
+  });
+
+  // ── `[LE.6.7]` Por recibir ───────────────────────────────────────────────────────────────
+  const cobro = (almacen: string, folio: string, monto: number) =>
+    doc(folio, monto, { origen_ref: `${almacen}|U-A-5|${folio}|0011`, tipo: 'ingreso', sucursal: almacen, doc_tipo: 'U-A-5', kepler_cuenta: null });
+  const est = (almacen: string, folio: string, over: Partial<EstadoDeCobro>): EstadoDeCobro => ({
+    origen_ref: `${almacen}|U-A-5|${folio}|0011`, tipo: 'ruta', ruta: '22', esperado_minor: '10000', recibido: false, motivo: null, ...over,
+  });
+
+  it('[LE.6.7] por recibir: primero lo recibible; lo recibido se cuenta y no se lista; sin estado, detenido «sin medir»', () => {
+    const docs = [cobro('01-004', '1', 900), cobro('01-002', '2', 100), cobro('07', '3', 318.24), cobro('01-003', '4', 500), cobro('01-005', '5', 50)];
+    const r = armarCobros(docs, [
+      est('01-004', '1', { tipo: 'detenido', ruta: null, motivo: 'junta varias rutas' }),
+      est('01-002', '2', {}),
+      est('07', '3', { tipo: 'sucursal', ruta: null, esperado_minor: '31824' }),
+      est('01-003', '4', { recibido: true }),
+    ]);
+    expect(r.yaRecibidos).toBe(1);
+    expect(r.filas.map((f) => [f.doc.folio, f.estado, f.etiqueta])).toEqual([
+      ['2', 'recibible', 'ruta 22'], ['3', 'recibible', `sucursal ${warehouseName('07')}`],
+      ['1', 'detenido', 'detenido'], ['5', 'detenido', 'sin medir']]);
+    expect(r.filas[1].esperado).toBe(318.24);
+    expect(r.filas.length + r.yaRecibidos).toBe(docs.length);   // nada se esconde
+  });
+
+  it('[LE.6.7] la diferencia en palabras: cuadra, centavos, faltante de ruta, sobrante', () => {
+    expect(textoDiferencia(185000n, 185000n, '22')).toBe('Cuadra con lo que Kepler espera.');
+    expect(textoDiferencia(31800n, 31824n, null)).toContain('centavos que no se cuentan en monedas');
+    expect(textoDiferencia(180000n, 185000n, '22')).toBe('Faltan $50.00: la ruta 22 los sigue debiendo.');
+    expect(textoDiferencia(190000n, 185000n, '22')).toBe('Sobran $50.00: quedan a favor de la ruta 22.');
+    expect(textoDiferencia(31700n, 31824n, null)).toBe('Faltan $1.24: queda declarado contra lo que dice Kepler.');
   });
 });

@@ -322,6 +322,61 @@ export type ResultadoPago =
     redondeo_minor: string; entry_id: string | null; vence: string }
   | { estado: 'por_firmar'; orden_id: string; motivo: string };
 
+// ── `[LE.6.7]` La Ventanilla: recibir un cobro de Kepler (U-A-5 de la 0011) ──────────────────
+
+/**
+ * Lo que manda la Ventanilla al recibir un cobro. El importe que se esperaba NO viaja: el servidor
+ * lo relee del documento. Lo que viaja es lo CONTADO, por pieza (V7): eso es lo que entra al cajón.
+ */
+export interface CobroEnVentanilla {
+  /** `almacen|U-A-5|folio|0011` (el de la cola de Kepler). */
+  origen_ref: string;
+  /** Billetes y monedas que entrega la ruta o la sucursal, por pieza. */
+  piezas: PiezasTexto;
+  /** Quién entrega el dinero (V5: con nombre). */
+  entrega: { nombre: string };
+}
+
+/**
+ * Cómo está un cobro de la cola (`GET cobros/estado`, por lote). `ruta`: lo debe una ruta y se
+ * recibe contra lo que le falta rendir (E-04). `sucursal`: cobro de una sucursal que no es ruta
+ * (D17, otro ingreso). `detenido`: no se recibe aquí, y `motivo` dice por qué.
+ */
+export interface EstadoDeCobro {
+  origen_ref: string;
+  tipo: 'ruta' | 'sucursal' | 'detenido';
+  ruta: string | null;
+  /** Lo que Kepler dice que se cobró, en centavos; `null` si no se pudo leer. */
+  esperado_minor: string | null;
+  /** Ya está en el libro nuevo. */
+  recibido: boolean;
+  motivo: string | null;
+}
+
+/** Lo que se contó contra lo que Kepler esperaba. La diferencia se DECLARA, nunca se ajusta sola. */
+export interface CuentaDelCobro {
+  tipo: 'ruta' | 'sucursal';
+  ruta: string | null;
+  contado_minor: string;
+  esperado_minor: string;
+  /** contado − esperado: negativo = faltó, positivo = sobró. En una ruta queda en lo que debe rendir. */
+  diferencia_minor: string;
+  /**
+   * La diferencia es de menos de 50 centavos: los centavos que no se cuentan en monedas (D26). Medido
+   * el 2026-11-04: 11 de 138 cobros capturados en 14 días no cuadraban al centavo con Kepler, todos de
+   * sucursal; los 8 vistos iban de 5 centavos a $1.20.
+   */
+  es_redondeo: boolean;
+}
+
+/**
+ * Qué pasó al recibir. `recibido`: ya está en el libro. `por_autorizar`: pasó el umbral y lo autoriza
+ * otra persona antes de entrar (el dinero ya está en el cajón; el asiento espera la firma).
+ */
+export type ResultadoCobro =
+  | ({ estado: 'recibido'; entry_id: string } & CuentaDelCobro)
+  | ({ estado: 'por_autorizar'; request_id: string; motivo: string } & CuentaDelCobro);
+
 /** Una orden que espera la firma de Tesorería, con todo lo que hace falta para decidir. */
 export interface OrdenPorFirmar {
   id: string;

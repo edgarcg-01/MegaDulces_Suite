@@ -28,7 +28,11 @@ import { money } from '../pages/finanzas-format';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [FormsModule, InputNumberModule],
   template: `
-    <section class="cc" aria-label="Conteo de lo que sale del cajón">
+    <section class="cc" [attr.aria-label]="sentido() === 'entra' ? 'Conteo de lo que entra al cajón' : 'Conteo de lo que sale del cajón'">
+      @if (sentido() === 'entra') {
+        <!-- [LE.6.7] Al recibir no hay «cuadra» que exigir: se cuenta lo que llega y la pantalla lo compara. -->
+        <p class="cc-veredicto" role="status">Cuenta lo que te entregan, por pieza: van <b class="cc-num" data-testid="cc-suma">{{ mx(suma()) }}</b>.</p>
+      } @else {
       <p class="cc-veredicto" role="status" [class.cc-ok]="veredicto().ok" [class.cc-mal]="!veredicto().ok && hayAlgo()">
         @if (veredicto().ok) {
           <i class="pi pi-check" aria-hidden="true"></i> Cuadra: contaste {{ mx(total()) }}, lo que sale del cajón.
@@ -38,6 +42,7 @@ import { money } from '../pages/finanzas-format';
           <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ texto() }}
         }
       </p>
+      }
 
       <div class="cc-grupos">
         @for (g of grupos(); track g.titulo) {
@@ -93,6 +98,14 @@ export class ConteoCajonComponent {
    */
   readonly conBilletes = input(true);
   readonly conMorralla = input(true);
+  /**
+   * `[LE.6.7]` `sale` (pagar, la hoja de gastos) exige que cuadre con `total`; `entra` (recibir un
+   * cobro) sólo cuenta: lo que llegue de más o de menos lo compara y lo declara quien lo usa.
+   */
+  readonly sentido = input<'sale' | 'entra'>('sale');
+  /** Lo contado, en pesos: sólo para mostrar (el servidor lo vuelve a valuar con `valorDePiezas`). */
+  readonly suma = computed(() => this.grupos().flatMap((g) => g.piezas)
+    .reduce((s, d) => s + d.valor * (Number(this.piezas()[d.key]) || 0), 0));
 
   readonly grupos = computed<ReadonlyArray<{ titulo: string; piezas: readonly Denominacion[] }>>(() => [
     ...(this.conBilletes() ? [{ titulo: 'Billetes', piezas: BILLETES_MXN }] : []),

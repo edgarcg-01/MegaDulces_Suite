@@ -1,7 +1,9 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
-import type { PagoEnVentanilla, PlanDePagoVentanilla, ResultadoPago, SaldosDelLibro, VeredictoDePago } from '@megadulces/contracts';
+import type {
+  CobroEnVentanilla, EstadoDeCobro, PagoEnVentanilla, PlanDePagoVentanilla, ResultadoCobro, ResultadoPago, SaldosDelLibro, VeredictoDePago,
+} from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
 import { reintentarSi429 } from '../../core/utils/reintentar-429';
 
@@ -37,5 +39,16 @@ export class LibroEfectivoService {
    */
   pagar(body: PagoEnVentanilla, idempotencyKey: string): Observable<ResultadoPago> {
     return this.http.post<ResultadoPago>(`${this.base}/pagos`, body, { headers: new HttpHeaders({ 'Idempotency-Key': idempotencyKey }) });
+  }
+
+  /** `[LE.6.7]` Cómo está cada cobro de la cola (de ruta, de sucursal o detenido, y si ya se recibió), en un viaje. */
+  estadoDeCobros(docs: readonly string[]): Observable<EstadoDeCobro[]> {
+    return this.http.get<EstadoDeCobro[]>(`${this.base}/cobros/estado`, { params: new HttpParams().set('docs', docs.join(',')) })
+      .pipe(reintentarSi429<EstadoDeCobro[]>());
+  }
+
+  /** `[LE.6.7]` Recibe un cobro contado por pieza. Misma regla de la llave que `pagar`: un reintento no recibe dos veces. */
+  recibir(body: CobroEnVentanilla, idempotencyKey: string): Observable<ResultadoCobro> {
+    return this.http.post<ResultadoCobro>(`${this.base}/cobros`, body, { headers: new HttpHeaders({ 'Idempotency-Key': idempotencyKey }) });
   }
 }

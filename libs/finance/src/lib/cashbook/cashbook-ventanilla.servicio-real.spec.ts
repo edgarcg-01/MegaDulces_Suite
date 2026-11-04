@@ -7,6 +7,7 @@ import { CashbookService } from './cashbook.service';
 import {
   CashbookVentanillaService, type FilaDocumento, type FilaDocumentoLote, type FilaRespaldoCompra, type FilaRespaldoGasto, type FilaVale,
 } from './cashbook-ventanilla.service';
+import type { FilaCobroRuta, FilaCobroSucursal } from './cobro-en-ventanilla';
 
 /**
  * `[LE.4.10]` — La Ventanilla contra Postgres, con el payload de la pantalla (regla 13): pagar con
@@ -54,6 +55,16 @@ class VentanillaConFilas extends CashbookVentanillaService {
     return {
       gastos: sembrados.flatMap(([sucursal, folio]) => this.respaldos.get(`${sucursal}|${folio}`)!.gastos.map((g) => ({ sucursal, folio, ...g }))),
       compras: sembrados.flatMap(([sucursal, folio]) => this.respaldos.get(`${sucursal}|${folio}`)!.compras.map((c) => ({ sucursal, folio, ...c }))),
+    };
+  }
+  /** `[LE.6.7]` Los cobros que las dos fuentes devolverían (`almacen|folio` → su fila). */
+  cobrosRuta = new Map<string, Omit<FilaCobroRuta, 'almacen' | 'folio'>>();
+  cobrosSucursal = new Map<string, Omit<FilaCobroSucursal, 'sucursal' | 'folio'>>();
+  protected override async filasDeCobros(_trx: Knex.Transaction, _t: string, pares: ReadonlyArray<[string, string]>)
+    : Promise<{ ruta: FilaCobroRuta[]; sucursal: FilaCobroSucursal[] }> {
+    return {
+      ruta: pares.flatMap(([almacen, folio]) => { const r = this.cobrosRuta.get(`${almacen}|${folio}`); return r ? [{ almacen, folio, ...r }] : []; }),
+      sucursal: pares.flatMap(([sucursal, folio]) => { const r = this.cobrosSucursal.get(`${sucursal}|${folio}`); return r ? [{ sucursal, folio, ...r }] : []; }),
     };
   }
   protected override async filasDeDocumentos(_trx: Knex.Transaction, _t: string, pares: ReadonlyArray<[string, string]>): Promise<FilaDocumentoLote[]> {
@@ -298,5 +309,98 @@ describe.skipIf(!URL)('[LE.4.10] la Ventanilla contra Postgres', () => {
     expect((await v.veredictos(['00|X-D-26|0023800|0011']))[0]).toMatchObject({ respaldo: 'no_medido', puede: true, requiere_firma: true,
       motivo: 'no trae vale aprobado' });
     expect(await rechazo(v.veredictos(Array.from({ length: 201 }, (_, i) => `00|X-D-26|${i}|0011`)))).toEqual({ status: 400, codigo: 'demasiados_documentos' });
+  });
+
+  // ── `[LE.6.7]` Recibir un cobro ───────────────────────────────────────────────────────────
+
+  const cobro = (doc: string, piezas: Record<string, string>) => ({ origen_ref: doc, piezas, entrega: { nombre: 'Chofer de la ruta' } });
+
+  it('[LE.6.7] cobro de ruta al peso: entra al cajón por pieza y baja lo que la ruta debe rendir; una vez', async () => {
+    if (!hay) return;
+    const DOC = '01-002|U-A-5|0000029|0011';
+    v.cobrosRuta.set('01-002|0000029', { importe: '1850.00', rutas: '22', n_rutas: 1, n_fechas: 1 });
+    const cajaAntes = await saldo('CAJA_MXN');
+    const key = randomUUID();
+    const body = cobro(DOC, { 500: '3', 200: '1', 100: '1', 50: '1' });
+    const r = await v.recibir(body, CAJERA, key);
+    expect(r).toMatchObject({ estado: 'recibido', tipo: 'ruta', ruta: '22', contado_minor: '185000', esperado_minor: '185000',
+      diferencia_minor: '0', es_redondeo: false });
+    expect((await saldo('CAJA_MXN')) - cajaAntes).toBe(185000n);
+    expect(await saldo('POR_RENDIR:RUTA:22')).toBe(-185000n);   // sin la cobranza de Kepler asentada aquí, queda «adelantada»
+    const asiento = (await libro.mayor(0, 1000)).find((l) => r.estado === 'recibido' && l['entry_id'] === r.entry_id);
+    expect(asiento).toMatchObject({ event_kind: 'entrega_ruta', event_ref: `cobro:${DOC}`, created_by: CAJERA.id });
+
+    // Reintento con la misma llave: lo mismo, sin un peso más. NEGATIVAS: otra llave, o la misma con otro cobro.
+    expect(await v.recibir(body, CAJERA, key)).toEqual(r);
+    expect((await saldo('CAJA_MXN')) - cajaAntes).toBe(185000n);
+    expect(await rechazo(v.recibir(body, CAJERA, randomUUID()))).toEqual({ status: 409, codigo: 'ya_recibido' });
+    expect(await rechazo(v.recibir(cobro('01-003|U-A-5|0000028|0011', { 500: '1' }), CAJERA, key))).toEqual({ status: 409, codigo: 'cashbook_peticion_reusada' });
+    expect((await v.estadoDeCobros([DOC]))[0]).toMatchObject({ tipo: 'ruta', ruta: '22', esperado_minor: '185000', recibido: true });
+  });
+
+  it('[LE.6.7] cobro de ruta con faltante: se recibe lo contado y la diferencia queda declarada en lo que la ruta debe', async () => {
+    if (!hay) return;
+    const DOC = '01-003|U-A-5|0000028|0011';
+    v.cobrosRuta.set('01-003|0000028', { importe: '500.00', rutas: '23', n_rutas: 1, n_fechas: 1 });
+    const r = await v.recibir(cobro(DOC, { 200: '2', 50: '1' }), CAJERA, randomUUID());
+    expect(r).toMatchObject({ estado: 'recibido', ruta: '23', contado_minor: '45000', esperado_minor: '50000', diferencia_minor: '-5000', es_redondeo: false });
+    expect(await saldo('POR_RENDIR:RUTA:23')).toBe(-45000n);   // con la cobranza (+50000) quedarán los 5000 que faltan
+  });
+
+  it('[LE.6.7] cobro de sucursal: otro ingreso (D17); los centavos que no se cuentan en monedas se declaran como redondeo', async () => {
+    if (!hay) return;
+    const DOC = '07|U-A-5|0000169|0011';
+    v.cobrosSucursal.set('07|0000169', { importe: '318.24', n: 1 });
+    const r = await v.recibir(cobro(DOC, { 200: '1', 100: '1', 10: '1', 5: '1', 1: '3' }), CAJERA, randomUUID());
+    expect(r).toMatchObject({ estado: 'recibido', tipo: 'sucursal', ruta: null, contado_minor: '31800', esperado_minor: '31824',
+      diferencia_minor: '-24', es_redondeo: true });
+    const otros = (await libro.saldos(false)).cuentas.filter((c) => c.code.startsWith('OTROS_INGRESOS:'));
+    expect(otros.map((c) => c.balance_minor)).toContain('-31800');
+  });
+
+  it('[LE.6.7] arriba del umbral: el dinero ya está en el cajón y el asiento espera la firma de otra persona', async () => {
+    if (!hay) return;
+    // El umbral lo pone el dueño de la base: `app_runtime` no escribe reglas de autorización (por diseño).
+    // En el CI y en la base local el dueño es `postgres`; sin él, este camino queda NO MEDIDO.
+    const ADMIN = process.env['CAJA_TEST_DB_ADMIN_URL'] ?? String(URL).replace('app_runtime:app_runtime@', 'postgres:postgres@');
+    const dueno = knexFactory({ client: 'pg', connection: ADMIN, pool: { min: 0, max: 1 } });
+    try {
+      await dueno.raw(`INSERT INTO cashbook.authorization_rules (tenant_id, event_kind, threshold_minor) VALUES (?, 'otro_ingreso', 100000)
+        ON CONFLICT (tenant_id, event_kind) DO UPDATE SET threshold_minor = 100000`, [T]);
+    } catch (e) {
+      console.warn(`[LE.6.7] NO MEDIDO: sin el dueño de la base no se siembra el umbral (${(e as Error).message})`);
+      return;
+    } finally { await dueno.destroy(); }
+    const DOC = '01|U-A-5|0000261|0011';
+    v.cobrosSucursal.set('01|0000261', { importe: '1500.00', n: 1 });
+    const cajaAntes = await saldo('CAJA_MXN');
+    const key = randomUUID();
+    const body = cobro(DOC, { 500: '3' });
+    const r = await v.recibir(body, CAJERA, key);
+    expect(r).toMatchObject({ estado: 'por_autorizar', tipo: 'sucursal', contado_minor: '150000', diferencia_minor: '0' });
+    if (r.estado !== 'por_autorizar') return;
+    expect(await saldo('CAJA_MXN')).toBe(cajaAntes);   // el libro no lo da por asentado antes de la firma
+    expect(await v.recibir(body, CAJERA, key)).toEqual(r);
+    expect((await v.estadoDeCobros([DOC]))[0].recibido).toBe(true);   // no se recibe otra vez mientras espera
+    expect(await rechazo(v.recibir(body, CAJERA, randomUUID()))).toEqual({ status: 409, codigo: 'ya_recibido' });
+    await libro.autorizar(r.request_id, TESORERIA);
+    expect((await saldo('CAJA_MXN')) - cajaAntes).toBe(150000n);
+  });
+
+  it('[LE.6.7] NEGATIVAS: lo detenido no se recibe, y cada falta con su código', async () => {
+    if (!hay) return;
+    v.cobrosRuta.set('01-004|0000028', { importe: '900.00', rutas: '26 · 27', n_rutas: 2, n_fechas: 1 });
+    expect(await rechazo(v.recibir(cobro('01-004|U-A-5|0000028|0011', { 500: '1' }), CAJERA, randomUUID()))).toEqual({ status: 422, codigo: 'cobro_detenido' });
+    expect(await rechazo(v.recibir(cobro('01-009|U-A-5|0000001|0011', { 500: '1' }), CAJERA, randomUUID()))).toEqual({ status: 404, codigo: 'cobro_detenido' });
+    expect(await rechazo(v.recibir(cobro('00|X-D-26|0023782|0011', { 500: '1' }), CAJERA, randomUUID()))).toEqual({ status: 400, codigo: 'cobro_invalido' });
+    expect(await rechazo(v.recibir({ ...cobro('01-004|U-A-5|0000028|0011', { 500: '1' }), entrega: { nombre: ' ' } }, CAJERA, randomUUID())))
+      .toEqual({ status: 400, codigo: 'sin_quien_entrega' });
+    expect(await rechazo(v.recibir(cobro('01-004|U-A-5|0000028|0011', {}), CAJERA, randomUUID()))).toEqual({ status: 400, codigo: 'sin_piezas' });
+    expect(await rechazo(v.recibir(cobro('01-004|U-A-5|0000028|0011', { 500: '1' }), CAJERA, undefined))).toEqual({ status: 400, codigo: 'sin_idempotency_key' });
+    const e = await v.estadoDeCobros(['01-004|U-A-5|0000028|0011', '00|X-D-26|0023782|0011']);
+    expect(e[0]).toMatchObject({ tipo: 'detenido', esperado_minor: '90000', recibido: false });
+    expect(e[0].motivo).toContain('varias rutas');
+    expect(e[1]).toMatchObject({ tipo: 'detenido', esperado_minor: null });
+    expect(await rechazo(v.estadoDeCobros(Array.from({ length: 201 }, (_, i) => `07|U-A-5|${i}|0011`)))).toEqual({ status: 400, codigo: 'demasiados_documentos' });
   });
 });

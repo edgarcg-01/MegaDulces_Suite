@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { provideRouter } from '@angular/router';
 import { of, throwError } from 'rxjs';
-import type { PlanDePagoVentanilla, SaldosDelLibro, VeredictoDePago } from '@megadulces/contracts';
+import type { EstadoDeCobro, PlanDePagoVentanilla, ResultadoCobro, SaldosDelLibro, VeredictoDePago } from '@megadulces/contracts';
 import { FinanzasCajaVentanillaComponent } from './finanzas-caja-ventanilla.component';
 import { CashLedgerService, type MovimientoPendiente, type PendientesResponse } from '../../cash-ledger.service';
 import { LibroEfectivoService } from '../../libro-efectivo.service';
@@ -42,8 +42,24 @@ const PLAN: PlanDePagoVentanilla = {
   motivo_firma: null, bloqueo: null, motivo_bloqueo: null,
 };
 
+// `[LE.6.7]` La cola de cobros: uno de ruta, uno de sucursal, uno detenido y uno ya recibido en el libro nuevo.
+const cobroDoc = (almacen: string, folio: string, monto: number): MovimientoPendiente =>
+  doc(folio, monto, { origen_ref: `${almacen}|U-A-5|${folio}|0011`, tipo: 'ingreso', origen_tipo: 'cobro', sucursal: almacen,
+    doc_tipo: 'U-A-5', beneficiario: 'CONTADO', kepler_cuenta: null, kepler_concepto: null });
+const COBROS: PendientesResponse = {
+  rows: [cobroDoc('01-004', '0000028', 900), cobroDoc('01-002', '0000029', 1850), cobroDoc('07', '0000169', 318.24), cobroDoc('01-003', '0000027', 500)],
+  limit: 200, has_more: false, confirmables: 4, datos_al: '2026-11-03T18:00:00Z',
+};
+const ESTADOS: EstadoDeCobro[] = [
+  { origen_ref: '01-004|U-A-5|0000028|0011', tipo: 'detenido', ruta: null, esperado_minor: '90000', recibido: false,
+    motivo: 'El cobro junta varias rutas: no se sabe cuánto rinde cada una. Se recibe por ruta.' },
+  { origen_ref: '01-002|U-A-5|0000029|0011', tipo: 'ruta', ruta: '22', esperado_minor: '185000', recibido: false, motivo: null },
+  { origen_ref: '07|U-A-5|0000169|0011', tipo: 'sucursal', ruta: null, esperado_minor: '31824', recibido: false, motivo: null },
+  { origen_ref: '01-003|U-A-5|0000027|0011', tipo: 'ruta', ruta: '23', esperado_minor: '50000', recibido: true, motivo: null },
+];
+
 function montar(opciones: { jornada?: string | null; saldosFalla?: boolean; gestionar?: boolean } = {}) {
-  const ledger = { movimientosPendientes: vi.fn(() => of(COLA)) };
+  const ledger = { movimientosPendientes: vi.fn((f: { doc_tipo?: string }) => of(f.doc_tipo === 'U-A-5' ? COBROS : COLA)) };
   const libro = {
     saldos: vi.fn(() => (opciones.saldosFalla ? throwError(() => ({ status: 403 }))
       : of({ cuentas: [], ultimo_asiento: '0', jornada_abierta: opciones.jornada === undefined ? '2026-11-03' : opciones.jornada,
@@ -52,6 +68,9 @@ function montar(opciones: { jornada?: string | null; saldosFalla?: boolean; gest
     plan: vi.fn(() => of(PLAN)),
     pagar: vi.fn(() => of({ estado: 'pagado' as const, orden_id: 'o1', codigo: 'JAQD-8', maquina_minor: '1722000', cajon_minor: '1000',
       redondeo_minor: '0', entry_id: 'e1', vence: '2026-11-04T06:00:00Z' })),
+    estadoDeCobros: vi.fn(() => of(ESTADOS)),
+    recibir: vi.fn(() => of<ResultadoCobro>({ estado: 'recibido', entry_id: 'e2', tipo: 'ruta', ruta: '22', contado_minor: '180000',
+      esperado_minor: '185000', diferencia_minor: '-5000', es_redondeo: false })),
   };
   TestBed.configureTestingModule({
     imports: [FinanzasCajaVentanillaComponent],
@@ -154,5 +173,73 @@ describe('[LE.2.13] la Ventanilla', () => {
 
   it('su ayuda existe en el diccionario', () => {
     expect(CONTEXT_HELP['caja-ventanilla']?.title).toContain('Ventanilla');
+  });
+
+  // ── `[LE.6.7]` Por recibir ───────────────────────────────────────────────────────────────
+
+  it('[LE.6.7] pide los cobros U-A-5 de la 0011 y su estado en UN viaje; lo ya recibido no se lista, se cuenta', () => {
+    const { ledger, libro, el, comp } = montar();
+    expect(ledger.movimientosPendientes).toHaveBeenCalledWith({ doc_tipo: 'U-A-5', tipo: 'ingreso', caja: '0011', limit: 200 });
+    expect(libro.estadoDeCobros).toHaveBeenCalledTimes(1);
+    expect(libro.estadoDeCobros).toHaveBeenCalledWith(COBROS.rows.map((r) => r.origen_ref));
+    const filas = [...el.querySelectorAll('tr[data-cobro]')];
+    expect(filas.map((f) => f.getAttribute('data-cobro'))).toEqual(['recibible', 'recibible', 'detenido']);
+    expect(filas[0].textContent).toContain('ruta 22');
+    expect(filas[2].textContent).toContain('varias rutas');
+    expect((filas[2].querySelector('button') as HTMLButtonElement).disabled).toBe(true);
+    expect(el.textContent).toContain('1 ya está recibido en el libro nuevo');
+    // Lo que se espera recibir hoy: sólo lo recibible (1,850 + 318.24), no lo detenido.
+    expect(comp.kpis().find((k) => k.label === 'Por recibir')?.value).toBe(2168.24);
+  });
+
+  it('[LE.6.7] recibir: primero cómo llegó el dinero; lo de la máquina NO se cuenta aquí', () => {
+    const { fixture, comp, libro } = montar();
+    comp.abrirCobro(comp.cobros()[0]);
+    fixture.detectChanges();
+    expect(document.body.textContent).toContain('¿Cómo llegó este dinero?');
+    // NEGATIVA: sin decir que llegó al cajón, aunque haya piezas y nombre, no se recibe.
+    comp.piezasCobro.set({ 500: 3 });
+    comp.entrega.set('Chofer');
+    expect(comp.listoParaRecibir()).toBe(false);
+    comp.modoCobro.set('maquina');
+    fixture.detectChanges();
+    expect(document.body.querySelector('[data-testid="cobro-maquina"]')?.textContent).toContain('lo registra la máquina');
+    expect(comp.listoParaRecibir()).toBe(false);
+    comp.recibir();
+    expect(libro.recibir).not.toHaveBeenCalled();
+  });
+
+  it('[LE.6.7] recibir en el cajón de punta a punta: piezas → quién entrega → recibir → la diferencia en palabras', () => {
+    const { fixture, comp, libro } = montar();
+    comp.abrirCobro(comp.cobros()[0]);
+    comp.modoCobro.set('cajon');
+    fixture.detectChanges();
+    expect(comp.listoParaRecibir()).toBe(false);            // sin piezas
+    comp.piezasCobro.set({ 500: 3, 200: 1, 100: 1 });
+    fixture.detectChanges();
+    expect(document.body.querySelector('[data-testid="diferencia-cobro"]')?.textContent).toContain('Faltan $50.00: la ruta 22 los sigue debiendo');
+    expect(comp.listoParaRecibir()).toBe(false);            // sin quién entrega
+    comp.entrega.set('Chofer de la ruta');
+    expect(comp.listoParaRecibir()).toBe(true);
+    comp.recibir();
+    fixture.detectChanges();
+    const [body, llave] = libro.recibir.mock.calls[0] as unknown as [Record<string, unknown>, string];
+    expect(body).toEqual({ origen_ref: '01-002|U-A-5|0000029|0011', piezas: { 500: '3', 200: '1', 100: '1' }, entrega: { nombre: 'Chofer de la ruta' } });
+    expect(llave).toMatch(/^[0-9a-f-]{36}$/);
+    expect(document.body.querySelector('[data-testid="resultado-cobro"]')?.textContent).toContain('la ruta 22 los sigue debiendo');
+  });
+
+  it('[LE.6.7] NEGATIVA: lo detenido no abre, y sin el día del libro no se recibe', () => {
+    const { comp } = montar();
+    const detenido = comp.cobros().find((f) => f.estado === 'detenido')!;
+    comp.abrirCobro(detenido);
+    expect(comp.recibiendo()).toBeNull();
+    TestBed.resetTestingModule();
+    const sinDia = montar({ jornada: null }).comp;
+    sinDia.abrirCobro(sinDia.cobros()[0]);
+    sinDia.modoCobro.set('cajon');
+    sinDia.piezasCobro.set({ 500: 1 });
+    sinDia.entrega.set('Chofer');
+    expect(sinDia.listoParaRecibir()).toBe(false);
   });
 });

@@ -1,4 +1,4 @@
-import type { VeredictoDePago } from '@megadulces/contracts';
+import { warehouseName, type EstadoDeCobro, type VeredictoDePago } from '@megadulces/contracts';
 import type { MovimientoPendiente } from '../../cash-ledger.service';
 
 /**
@@ -67,6 +67,55 @@ export function armarCola(docs: readonly MovimientoPendiente[], veredictos: read
   return docs.map((d, i) => ({ f: filaDe(d, porRef.get(d.origen_ref) ?? null), i }))
     .sort((a, b) => ORDEN[a.f.estado] - ORDEN[b.f.estado] || a.i - b.i)
     .map((x) => x.f);
+}
+
+// ── `[LE.6.7]` «Por recibir»: los cobros U-A-5 de la 0011 con su estado (`cobros/estado`) ──────
+
+export type EstadoFilaCobro = 'recibible' | 'detenido';
+
+export interface FilaCobro {
+  doc: MovimientoPendiente;
+  estado: EstadoFilaCobro;
+  /** «ruta 22», «sucursal Morelia Abastos», o por qué no se recibe. */
+  etiqueta: string;
+  motivo: string | null;
+  ruta: string | null;
+  /** Lo que Kepler espera, en pesos; `null` si no se pudo leer. */
+  esperado: number | null;
+}
+
+/**
+ * Cada cobro de la cola con su estado. Lo que ya está en el libro nuevo no se lista (ya se recibió),
+ * pero se cuenta: la pantalla dice cuántos son, no los esconde en silencio.
+ */
+export function armarCobros(docs: readonly MovimientoPendiente[], estados: readonly EstadoDeCobro[]): { filas: FilaCobro[]; yaRecibidos: number } {
+  const porRef = new Map(estados.map((e) => [e.origen_ref, e]));
+  let yaRecibidos = 0;
+  const filas: Array<{ f: FilaCobro; i: number }> = [];
+  docs.forEach((doc, i) => {
+    const e = porRef.get(doc.origen_ref);
+    if (e?.recibido) { yaRecibidos += 1; return; }
+    const esperado = e?.esperado_minor == null ? null : Number(e.esperado_minor) / 100;
+    const f: FilaCobro = !e
+      ? { doc, estado: 'detenido', etiqueta: 'sin medir', motivo: 'No se pudo leer cómo está este cobro.', ruta: null, esperado: null }
+      : e.tipo === 'detenido'
+        ? { doc, estado: 'detenido', etiqueta: 'detenido', motivo: e.motivo, ruta: null, esperado }
+        : { doc, estado: 'recibible', etiqueta: e.tipo === 'ruta' ? `ruta ${e.ruta}` : `sucursal ${warehouseName(doc.sucursal)}`,
+          motivo: null, ruta: e.ruta, esperado };
+    filas.push({ f, i });
+  });
+  filas.sort((a, b) => (a.f.estado === b.f.estado ? a.i - b.i : a.f.estado === 'recibible' ? -1 : 1));
+  return { filas: filas.map((x) => x.f), yaRecibidos };
+}
+
+/** Lo contado contra lo que Kepler espera, en palabras: la diferencia se declara, no se esconde. */
+export function textoDiferencia(contadoMinor: bigint, esperadoMinor: bigint, ruta: string | null): string {
+  const d = contadoMinor - esperadoMinor;
+  if (d === 0n) return 'Cuadra con lo que Kepler espera.';
+  const cuanto = (Number(d < 0n ? -d : d) / 100).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
+  if (d > -50n && d < 50n) return `${d < 0n ? 'Faltan' : 'Sobran'} ${cuanto}: centavos que no se cuentan en monedas; queda declarado.`;
+  if (d < 0n) return ruta ? `Faltan ${cuanto}: la ruta ${ruta} los sigue debiendo.` : `Faltan ${cuanto}: queda declarado contra lo que dice Kepler.`;
+  return ruta ? `Sobran ${cuanto}: quedan a favor de la ruta ${ruta}.` : `Sobran ${cuanto}: queda declarado contra lo que dice Kepler.`;
 }
 
 export interface ResumenCola { n: number; monto: number }

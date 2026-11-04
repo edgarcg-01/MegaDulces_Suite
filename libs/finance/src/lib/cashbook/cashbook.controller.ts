@@ -2,8 +2,8 @@ import { Body, Controller, Get, Headers, Param, Post, Query, Req, UseGuards } fr
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import type {
-  ConteoDeCaja, HechoDePersona, OrdenPorFirmar, PagoEnVentanilla, PlanDePagoVentanilla, ResultadoConteo, ResultadoHecho,
-  ResultadoPago, SaldosDelLibro, VeredictoDePago,
+  CobroEnVentanilla, ConteoDeCaja, EstadoDeCobro, HechoDePersona, OrdenPorFirmar, PagoEnVentanilla, PlanDePagoVentanilla,
+  ResultadoCobro, ResultadoConteo, ResultadoHecho, ResultadoPago, SaldosDelLibro, VeredictoDePago,
 } from '@megadulces/contracts';
 import { CashbookService, type UsuarioDelLibro } from './cashbook.service';
 import { CashbookVentanillaService } from './cashbook-ventanilla.service';
@@ -134,6 +134,22 @@ export class CashbookController {
   @ApiOperation({ summary: '[LE.4.10] Paga un X-D-26 (Idempotency-Key obligatoria): con vale aprobado devuelve el código; sin él, queda por firmar' })
   pagar(@Body() body: PagoEnVentanilla, @Headers('idempotency-key') key: string | undefined, @Req() req: AuthedRequest): Promise<ResultadoPago> {
     return this.ventanilla.pagar(body, this.user(req), key);
+  }
+
+  // ── `[LE.6.7]` La Ventanilla: recibir un cobro (U-A-5 de la 0011) ──────────────────────────
+
+  @Get('cobros/estado')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: '[LE.6.7] Por lote (hasta 200, separados por coma): si cada cobro es de ruta, de sucursal o está detenido, lo que Kepler espera y si ya se recibió (no escribe)' })
+  estadoDeCobros(@Query('docs') docs?: string): Promise<EstadoDeCobro[]> {
+    return this.ventanilla.estadoDeCobros(String(docs ?? '').split(','));
+  }
+
+  @Post('cobros')
+  @RequirePermissions(Permission.FINANCE_CAJA_GESTIONAR)
+  @ApiOperation({ summary: '[LE.6.7] Recibe un cobro contado por pieza (Idempotency-Key obligatoria): de ruta contra lo que debe rendir, de sucursal como otro ingreso; la diferencia se declara' })
+  recibirCobro(@Body() body: CobroEnVentanilla, @Headers('idempotency-key') key: string | undefined, @Req() req: AuthedRequest): Promise<ResultadoCobro> {
+    return this.ventanilla.recibir(body, this.user(req), key);
   }
 
   @Get('ordenes/por-firmar')

@@ -2138,6 +2138,15 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         ],
       },
       {
+        heading: 'Lo que se recibe',
+        entries: [
+          { term: 'Cobro de ruta', def: 'Lo que la ruta entrega en el cajón, contado por pieza. Baja lo que esa ruta debe rendir; si faltó, la ruta lo sigue debiendo.' },
+          { term: 'Cobro de sucursal', def: 'Un cobro de una sucursal que no es ruta. Entra como otro ingreso, con su sucursal.' },
+          { term: 'Ya se depositó en la máquina', def: 'No se cuenta aquí: lo registra la máquina. Contarlo también en el cajón lo contaría dos veces.' },
+          { term: 'La diferencia', def: 'Lo contado contra lo que Kepler espera. Se declara, nunca se ajusta sola; menos de 50 centavos son los que no se cuentan en monedas.' },
+        ],
+      },
+      {
         heading: 'El dinero',
         entries: [
           { term: 'Máquina', def: 'Los billetes los entrega la máquina con el código del pago; vale hasta el fin del día.' },
