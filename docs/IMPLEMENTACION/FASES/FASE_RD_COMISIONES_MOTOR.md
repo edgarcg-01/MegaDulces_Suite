@@ -850,6 +850,46 @@ desarrollador: mientras lo necesite, **el proceso no está aquí**, está en el 
 **Orden recomendado (dinero × esfuerzo):** `RD.103` primero (es la venta más grande sin
 comisión) → `RD.104` → `RD.106` → `RD.105` (depende de que RH aterrice las checadas).
 
+#### `[RD.103]` rehecho: un tabulador por familia, el sistema PROPONE y la persona decide (Edgar, 2026-11-04)
+
+> *«Es por eso que debemos dejar un sistema de configuración para determinar estos parámetros.»*
+> *«El sistema propone cuánto debe ser con base en lo que generan, gastos, históricos, etc., pero
+> el último en considerar esto es el usuario.»* — Edgar, 2026-11-04
+
+**Lo medido hoy (prod, sólo lectura, sid `7688376744939610156`):**
+
+| Hecho | Cifra |
+|---|---|
+| Tabuladores que existen | **uno**: `RD-2026` (desde el 2026-01-01), 4 escalones de 3.75 % a 5 %; el primero empieza en $189,999.99 |
+| Cómo elige el motor | `loadScale()` toma la escala vigente **por fecha**, una para todas las rutas. `commission_route_config.scale_id` existe y **el motor no lo lee** |
+| ⚠️ Riesgo latente | «Quién cobra» acepta cualquier `route_code`: dar de alta una vecinal la pagaría con el tabulador RD **sin aviso** |
+| Lo que RD cuesta (libro, 20 quincenas, 238 líneas del chofer) | comisión = **3.36 %** del subtotal (3.66 % con bonos) = **21.4 % del margen bruto** (margen 15.7 %); 190 de 238 líneas cobraron |
+| Lo que venden las vecinales por quincena (Q14–Q21) | entre ~$52k y ~$327k; 1V001 ~$150–216k, el resto casi siempre bajo $140k. Con el tabulador RD casi ninguna cobraría |
+| ⚠️ Unidad | en la fuente vecinal **subtotal = venta** en todas las filas: no se sabe si es con o sin IVA (**NO MEDIDO**, regla 10) |
+| ⚠️ Costo | `costo_wincaja` vacío en todas las vecinales: **el margen vecinal no se puede calcular de esta fuente** |
+| Gastos por ruta vecinal | **NO MEDIDO** (candidato: `expense_entries.dpto`) |
+| Lo pagado a vecinales | **fuera de la suite**: el libro no trae ninguna (`[RD.107]`) |
+
+**Los items, por capa:**
+
+| # | Capa | Item | Árbitro |
+|---|---|---|---|
+| RD.103.0 | C0 | Medir para las vecinales: la unidad del monto (¿con IVA?), su **costo** desde Kepler (margen), sus **gastos** atribuibles y, si existe, la hoja con lo que se les paga hoy | La unidad contra el documento de Kepler; el costo contra lo pagado al proveedor; la hoja de pagos como testigo de la propuesta |
+| RD.103.1 | C0 | `familia` (`ruta_directa` · `vecinal` · `tlmk`) en `commission_scales` y en `commission_route_config`, con valor por omisión `ruta_directa`: lo que hay no cambia y la API desplegada sigue escribiendo | Las 13 filas del padrón y `RD-2026` quedan en `ruta_directa` |
+| RD.103.2 | C1 | El motor elige el tabulador **de la familia de cada ruta**; una ruta cuya familia no tiene tabulador vigente sale con motivo `sin_tabulador` (declarado, nunca $0 callado) | Antes/después: Q14–Q21 de Ruta Directa **idénticas al centavo** |
+| RD.103.3 | C1 | **La propuesta**: escalones armados sobre la venta real de la familia en las últimas quincenas, para que la comisión cueste la parte del margen que la persona fije (por omisión, la de RD: 21.4 %), con lo que habría costado quincena por quincena. Lo que no se midió (gastos) sale declarado, no como cero | Reproducir con la propuesta el costo de RD sobre el libro |
+| RD.103.4 | C2 | Tabuladores por familia; `GET` de la propuesta; «Quién cobra» exige la familia explícita para un código vecinal | Arranque (`design:paramtypes`) + servicio real contra base |
+| RD.103.5 | C3 | Tabulador › Vecinal: la propuesta **aparte**, con su fuente y su costo simulado; «usarla como base» la copia a los escalones editables; **la persona estrena** la versión. Contestar `rd.vecinal.tabulador` = estrenar ese tabulador | `check:pantalla` + vista viva |
+
+**Decisiones (las tomo y las anuncio; Edgar firma):**
+- **D-V1. La propuesta nunca se aplica sola.** Se guarda como propuesta (D2 de la fase DP) con su
+  fuente («calculada por el sistema el <fecha> con Q14–Q21»); sólo una versión estrenada por una
+  persona paga.
+- **D-V2. La familia va en la fila de «Quién cobra», no se deduce del código.** 2V001 es código
+  vecinal y, por «sigue al chofer», cobra con el tabulador de Ruta Directa.
+- **D-V3. Objetivo por omisión de la propuesta = la parte del margen que hoy cuesta RD (21.4 %).**
+  Es el único costo de comisión que la empresa ya paga y puede medirse; la persona lo mueve.
+
 #### Cómo se preguntan: dentro del sistema, como parámetro configurable (Edgar, 2026-11-03)
 
 > *«Hoy las preguntas hay que hacerlas en un sistema configurable.»* Las preguntas de arriba **no
