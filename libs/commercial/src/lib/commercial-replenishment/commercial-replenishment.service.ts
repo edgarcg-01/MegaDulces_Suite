@@ -4995,20 +4995,52 @@ export class CommercialReplenishmentService {
    * X-A-30/35 de ese proveedor (por clave o por nombre) en esa sucursal desde la aprobación, NO se
    * empuja: se deja dicho en `kepler_error` cuál es, para que alguien confirme. Los traspasos no
    * se reintentan solos: su escritura está apagada en todas las sucursales y no hay freno medido.
+   *
+   * `[PQ.61]` El freno es `yaEnKeplerSql()` y lo usan también el primer envío (`pushKeplerTrasAprobar`).
    */
   private readonly ultimoReintento = new Map<string, number>();
+
+  /**
+   * `[PQ.61]` **¿Kepler ya tiene esta compra, hecha a mano?** Subconsulta que devuelve los documentos
+   * (texto para `kepler_error`) o NULL. Pide `r` (la requisición), `w` (su almacén) y `s` (su
+   * proveedor). Un X-A-30/35 del mismo proveedor, en la misma sucursal, que trae **alguno de sus
+   * productos**, y que además:
+   *  · se capturó desde la aprobación, abierto o ya recibido (el freno de PQ.26: la gente la hizo a
+   *    mano porque la Suite no la mandaba), o
+   *  · sigue **abierto** (`c42` = saldo pendiente) y es de hasta 7 días antes de crearla.
+   *
+   * Medido el 2026-11-04 sobre las 76 compras que la Suite escribió desde el 27-oct: 2 repetían una
+   * requisición abierta hecha a mano (RQ-2026-01760 y -01762 → Morelia Abastos 0000013, $9,450).
+   * El freno anterior, sólo por proveedor y desde la aprobación, no veía la de un día antes. Y uno
+   * sin `c42` habría frenado RQ-2026-01881 por cuatro OC del 1-nov ya recibidas (`c43='F'`, saldo 0):
+   * pedir otra vez lo que ya llegó es decisión de Compras, no un duplicado en Kepler.
+   */
+  private yaEnKeplerSql(): string {
+    return `(SELECT string_agg(CASE btrim(k.c4::text) WHEN '35' THEN 'OC ' ELSE 'requisición ' END
+                               || btrim(k.c6) || ' del ' || to_char(k.c9::date, 'DD-MM'), ', ' ORDER BY k.c6)
+               FROM kepler_ods.kdm1 k
+              WHERE k.sucursal = w.kepler_code AND k.c2 = 'X' AND k.c3 = 'A' AND btrim(k.c4::text) IN ('30', '35')
+                AND (k.c9::date >= r.approved_at::date
+                     OR (COALESCE(k.c42, 0) > 0 AND k.c9::date >= r.created_at::date - 7))
+                AND (btrim(k.c10) = s.code OR upper(btrim(k.c32)) = upper(s.name))
+                AND EXISTS (SELECT 1
+                              FROM kepler_ods.kdm2 kl
+                              JOIN commercial.purchase_requisition_lines rl
+                                ON rl.tenant_id = r.tenant_id AND rl.requisition_id = r.id AND COALESCE(rl.final_qty, 0) > 0
+                              JOIN catalog.products p ON p.tenant_id = rl.tenant_id AND p.id = rl.product_id
+                             WHERE kl.sucursal = k.sucursal AND kl.c1 = k.c1 AND kl.c2 = k.c2 AND kl.c3 = k.c3
+                               AND kl.c4 = k.c4 AND kl.c6 = k.c6 AND btrim(kl.c8) = btrim(p.sku)))`;
+  }
+  /** `[PQ.61]` Lo que queda escrito en `kepler_error` cuando el freno detiene el envío. */
+  private motivoYaEnKepler(docs: string): string {
+    return `No se envió: Kepler ya tiene ${docs} de este proveedor en esta sucursal, con productos de esta requisición, hecha fuera de la Suite. Si es ésta, no hay que hacer nada más; si no, reintenta desde la ficha.`;
+  }
   private async reintentarKepler(tenantId: string): Promise<void> {
     if (!this.keplerSink) return;
     try {
       const ahora = Date.now();
       const filas = (await this.tk.run(async (trx) => (await trx.raw(
-        `SELECT r.id, r.kepler_error,
-                (SELECT string_agg(CASE btrim(k.c4::text) WHEN '35' THEN 'OC ' ELSE 'requisición ' END
-                                   || btrim(k.c6) || ' del ' || to_char(k.c9::date, 'DD-MM'), ', ' ORDER BY k.c6)
-                   FROM kepler_ods.kdm1 k
-                  WHERE k.sucursal = w.kepler_code AND k.c2 = 'X' AND k.c3 = 'A' AND btrim(k.c4::text) IN ('30', '35')
-                    AND k.c9::date >= r.approved_at::date
-                    AND (btrim(k.c10) = s.code OR upper(btrim(k.c32)) = upper(s.name))) AS ya_en_kepler
+        `SELECT r.id, r.kepler_error, ${this.yaEnKeplerSql()} AS ya_en_kepler
            FROM commercial.purchase_requisitions r
            JOIN commercial.warehouses w ON w.tenant_id = r.tenant_id AND w.id = r.warehouse_id
            LEFT JOIN catalog.suppliers s ON s.tenant_id = r.tenant_id AND s.id = r.supplier_id
@@ -5016,7 +5048,7 @@ export class CommercialReplenishmentService {
             AND r.kepler_folio IS NULL AND r.approved_at >= '2026-10-27'
           ORDER BY r.approved_at LIMIT 200`, [tenantId])).rows)) as Array<{ id: string; kepler_error: string | null; ya_en_kepler: string | null }>;
       const avisos = filas.filter((f) => f.ya_en_kepler)
-        .map((f) => ({ id: f.id, motivo: `No se reenvió: Kepler ya tiene ${f.ya_en_kepler} de este proveedor en esta sucursal, hecha fuera de la Suite. Si es ésta, no hay que hacer nada más; si no, reintenta desde la ficha.` }))
+        .map((f) => ({ id: f.id, motivo: this.motivoYaEnKepler(f.ya_en_kepler as string) }))
         .filter((a) => a.motivo !== filas.find((f) => f.id === a.id)?.kepler_error);
       if (avisos.length) {
         await this.tk.run(async (trx) => {
@@ -5279,6 +5311,23 @@ export class CommercialReplenishmentService {
   private async pushKeplerTrasAprobar(id: string): Promise<{ estado: string; folio?: string; motivo?: string }> {
     if (!this.keplerSink) return { estado: 'apagado' };
     try {
+      // `[PQ.61]` El primer envío no tenía freno: sólo el reintento. Si Kepler ya tiene esta compra
+      // hecha a mano, no se escribe y se deja dicho (la ficha conserva «Reintentar», que no pasa por aquí).
+      const ya = await this.tk.run(async (trx) => {
+        const tenantId = this.tenantCtx.requireTenantId();
+        const fila = (await trx.raw(
+          `SELECT ${this.yaEnKeplerSql()} AS ya_en_kepler
+             FROM commercial.purchase_requisitions r
+             JOIN commercial.warehouses w ON w.tenant_id = r.tenant_id AND w.id = r.warehouse_id
+             LEFT JOIN catalog.suppliers s ON s.tenant_id = r.tenant_id AND s.id = r.supplier_id
+            WHERE r.tenant_id = ? AND r.id = ? AND r.source_type = 'supplier' AND r.kepler_folio IS NULL`,
+          [tenantId, id])).rows[0] as { ya_en_kepler: string | null } | undefined;
+        if (!fila?.ya_en_kepler) return null;
+        const motivo = this.motivoYaEnKepler(fila.ya_en_kepler);
+        await trx('commercial.purchase_requisitions').where({ tenant_id: tenantId, id }).update({ kepler_error: motivo });
+        return motivo;
+      });
+      if (ya) return { estado: 'no_salio', motivo: ya };
       const r = await this.pushToKepler(id);
       return { estado: r.ya_estaba ? 'ya_estaba' : 'entregada', folio: r.kepler?.folio ?? undefined };
     } catch (e: unknown) {

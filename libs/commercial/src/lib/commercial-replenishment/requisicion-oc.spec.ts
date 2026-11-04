@@ -157,6 +157,21 @@ describe('[RQ.15] la pantalla, que era lo que de verdad faltaba', () => {
     expect(b).toContain("r.source_type = 'supplier'");
   });
 
+  it('⛔ [PQ.61] el PRIMER envío también pasa por el freno, y el freno mira productos y saldo abierto', () => {
+    const p = SVC.indexOf('private async pushKeplerTrasAprobar(');
+    expect(p).toBeGreaterThan(0);
+    const cuerpo = SVC.slice(p, SVC.indexOf('const r = await this.pushToKepler(id);', p));
+    expect(cuerpo).toContain('this.yaEnKeplerSql()');
+    expect(cuerpo).toContain("estado: 'no_salio'");
+    const f = SVC.indexOf('private yaEnKeplerSql(');
+    const freno = SVC.slice(f, f + 2500);
+    // abierto (c42 = saldo pendiente) desde 7 días antes, o cualquiera desde la aprobación
+    expect(freno).toMatch(/k\.c9::date >= r\.approved_at::date\s+OR \(COALESCE\(k\.c42, 0\) > 0 AND k\.c9::date >= r\.created_at::date - 7\)/);
+    // y con algún producto de la requisición: un mismo proveedor con otros productos no frena
+    expect(freno).toContain('btrim(kl.c8) = btrim(p.sku)');
+    expect(SVC.slice(SVC.indexOf('private async reintentarKepler('), SVC.indexOf('private async reintentarKepler(') + 600)).toContain('${this.yaEnKeplerSql()} AS ya_en_kepler');
+  });
+
   it('⭐ el backend DEVUELVE el folio, o la pantalla nunca podría mostrarlo', () => {
     expect(SVC).toMatch(/oc_sucursal' AS oc_sucursal/);
     expect(SVC).toMatch(/oc_folio'\s+AS oc_folio/);
