@@ -28,7 +28,7 @@ import { buscarLoteRepetido, mensajeLoteRepetido, type LoteRepetido } from './lo
 import { VENTANA_YA_PEDIDO_DIAS } from './ya-pedido-sucursal';
 import { cerrarTraspasosNoEjecutados } from './traspaso-no-ejecutado';
 import { limpiarComprasSinDocumento } from './compra-sin-documento';
-import { bajoReorden, segunReorden } from './faltante';
+import { bajoReorden, cumplimientoSoloCompra, segunReorden } from './faltante';
 import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt } from '../shared/freshness';
 
 /**
@@ -2055,6 +2055,8 @@ export class CommercialReplenishmentService {
         : this.DEFAULT_SETTINGS;
       const fb = this.fillBinds(stWb);
       const FILLF = this.erpFillFactor(erpReady, 'max(b.fill_erp)');
+      // `[PQ.44]` D26: toda la columna llega por traspaso (con canal medido) → no se infla.
+      const TRASPASO = `bool_and(COALESCE(b.canal_via, '') = 'transfer')`;
       const binds: Record<string, unknown> = { t: tenantId, cov, ...(erpReady ? fb : {}) };
       const filters = ['pr.tenant_id = :t', 'pr.activo = true', 'pr.deleted_at IS NULL',
         'NOT EXISTS (SELECT 1 FROM commercial.product_aliases pa WHERE pa.tenant_id = :t AND pa.alias_product_id = pr.id AND pa.deleted_at IS NULL)'];
@@ -2303,11 +2305,15 @@ export class CommercialReplenishmentService {
                  -- suficiente; NO es 1.0 ni 0: la ausencia se declara y el pedido no se mueve.
                  -- SIN ACENTOS GRAVES EN ESTE COMENTARIO: va dentro de un template literal de JS.
                  ${erpReady ? 'fre.fr' : 'NULL::numeric'} AS fill_erp,
+                 -- [PQ.44] D26: por donde llega de verdad este proveedor a este almacen (compra o
+                 -- traspaso). NULL = sin canal medido. Unico por (almacen, proveedor): no multiplica.
+                 rcw.via AS canal_via,
                  ${colExpr} AS col_code, ${conFuera ? 'rp.fuera' : 'false'} AS fuera
             FROM catalog.products pr
             JOIN ${rpSrc(vbfSrc)} rp ON rp.tenant_id = pr.tenant_id AND rp.product_id = pr.id
             JOIN commercial.warehouses w ON w.tenant_id = :t AND w.id = rp.warehouse_id
             LEFT JOIN commercial.reorder_policy rop ON rop.tenant_id = pr.tenant_id AND rop.product_id = pr.id AND rop.warehouse_id = rp.warehouse_id
+            LEFT JOIN commercial.replenishment_channel rcw ON rcw.tenant_id = pr.tenant_id AND rcw.warehouse_id = rp.warehouse_id AND rcw.supplier_id = pr.supplier_id
             LEFT JOIN lad ON lad.sku = pr.sku
             -- [RA-DYN.U7] fre es un CTE MATERIALIZED, no una subconsulta en linea, por la misma
             -- razon que lad y vbf de arriba: en esta consulta el planificador ya eligio dos veces
@@ -2344,8 +2350,11 @@ export class CommercialReplenishmentService {
                  -- Arriba del reorden la celda sale 0 aunque falte para el objetivo.
                  CASE WHEN ${RUNG_OK} THEN
                    ${segunReorden('COALESCE(sum(b.stock_pz),0)', 'sum(b.rop_reorder)',
-                     `round((GREATEST(0, COALESCE(sum(b.daily_pieces),0) * COALESCE(max(b.season_ratio),1) * :cov / (${SUF} * ${BF}) - COALESCE(sum(b.stock_pz),0) / ${DBF} - (${transitoDescontado('sum(b.transit_eff_cajas)', 'sum(b.transit_cajas)')})) * ${FILLF})::numeric, 1)`)}
+                     `round((GREATEST(0, COALESCE(sum(b.daily_pieces),0) * COALESCE(max(b.season_ratio),1) * :cov / (${SUF} * ${BF}) - COALESCE(sum(b.stock_pz),0) / ${DBF} - (${transitoDescontado('sum(b.transit_eff_cajas)', 'sum(b.transit_cajas)')})) * ${cumplimientoSoloCompra(TRASPASO, FILLF)})::numeric, 1)`)}
                  END AS ped,
+                 -- [PQ.44] D26: la celda que llega por traspaso no se infla; viaja para que la
+                 -- pantalla no diga que se multiplico.
+                 ${TRASPASO} AS traspaso,
                  -- El fill rate viaja al front para que el inflado se VEA. Un pedido que crecio 4.8%
                  -- sin decir por que es justo lo que este repo no publica.
                  round(max(b.fill_erp)::numeric, 3) AS fill_erp,
@@ -2413,6 +2422,7 @@ export class CommercialReplenishmentService {
                  jsonb_object_agg(col_code, jsonb_strip_nulls(jsonb_build_object(
                    'vta', vta, 'exis', exis, 'ped', ped, 'tran', tran, 'cc', caja_cost,
                    'mx', max_cjs_cell, 'rop', reorder_cjs_cell,
+                   'trf', CASE WHEN traspaso THEN true END,
                    'rung', CASE WHEN rung_veredicto IN ('x1_inflada','x2_deflactada') THEN rung_veredicto END,
                    'nat',  CASE WHEN rung_veredicto IN ('x1_inflada','x2_deflactada') THEN exis_nativa END,
                    'natu', CASE WHEN rung_veredicto IN ('x1_inflada','x2_deflactada') THEN rung_base_label END

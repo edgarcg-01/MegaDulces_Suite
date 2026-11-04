@@ -16,8 +16,7 @@
  * hay contra qué comparar, y frenar ocultaría la necesidad. La mesa no lista esos productos (parte de
  * la política). Medido en PQ.43: 1 de 718.
  *
- * Pendiente de PQ.44 (no está aquí): cobertura por almacén como base en Pedido (D25) y el inflado
- * por cumplimiento sólo en compra al proveedor (D26).
+ * Pendiente de PQ.44 (no está aquí): cobertura por almacén como base en Pedido (D25).
  */
 
 /** ¿Está en o bajo su punto de reorden? Expresiones SQL en la MISMA unidad. */
@@ -29,3 +28,14 @@ export const bajoReorden = (existencia: string, reorden: string): string => `(${
  */
 export const segunReorden = (existencia: string, reorden: string, cantidad: string): string =>
   `(CASE WHEN ${reorden} IS NULL OR ${bajoReorden(existencia, reorden)} THEN ${cantidad} ELSE 0 END)`;
+
+/**
+ * D26 (PM, 2026-11-04): el inflado por cumplimiento del proveedor sólo en lo que se le COMPRA. Un
+ * traspaso de la matriz no depende de lo que surta el proveedor; la mesa nunca lo infló.
+ *
+ * El canal sale de `commercial.replenishment_channel` (cómo llegó de verdad la mercancía de ese
+ * proveedor a ese almacén). Contrastado contra Kepler el 2026-11-04: de 1,356 pares «traspaso», 40
+ * (3 %) tienen entradas de compra `X-A-40` de ese proveedor en 90 días. Sin canal se infla como antes.
+ */
+export const cumplimientoSoloCompra = (esTraspaso: string, factor: string): string =>
+  `(CASE WHEN ${esTraspaso} THEN 1.0 ELSE ${factor} END)`;

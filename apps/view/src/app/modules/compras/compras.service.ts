@@ -194,6 +194,9 @@ export interface WorkbookCell {
    *  tiene política de reorden ("sin mínimo"); NO es cero. */
   mx?: number;
   rop?: number;
+  /** [PQ.44] D26: ese almacén recibe a este proveedor por TRASPASO, así que su pedido NO se infló
+   *  por cumplimiento. Ausente = se compra al proveedor o no hay canal medido (sí se infla). */
+  trf?: true;
 }
 // [RA-PRO.65] La forma de la respuesta NO se escribe acá: vive en `libs/contracts`
 // (`replenishment-monthly.contract.ts`, ADR-052), que es de donde la lee el backend. Copiarla a

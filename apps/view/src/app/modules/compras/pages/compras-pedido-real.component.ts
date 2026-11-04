@@ -4413,8 +4413,18 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     // El tope lo fija `fill_max_inflate` (1.30) en commercial.replenishment_settings.
     const factor = Math.min(1.30, 1 / Number(r.fill_rate));
     const topado = 1 / Number(r.fill_rate) > 1.3005;
+    // `[PQ.44]` D26: lo que llega por traspaso no se infla. Decir «va multiplicado» de esas
+    // columnas sería afirmar algo que el motor ya no hizo.
+    const celdas = Object.values(r.cells ?? {});
+    const traspasos = celdas.filter((c) => c.trf).length;
+    const multiplica = `×${factor.toFixed(2)}${topado ? ' (topado; sin tope sería ×' + (1 / Number(r.fill_rate)).toFixed(2) + ')' : ''}`;
+    const efecto = traspasos === 0
+      ? `El Pedido va multiplicado ${multiplica}. `
+      : traspasos === celdas.length
+        ? 'El Pedido NO se infla: todas sus sucursales lo reciben por traspaso, que no depende del proveedor. '
+        : `El Pedido va multiplicado ${multiplica} en las sucursales que le compran directo; en las que lo reciben por traspaso no se infla. `;
     return `Histórico: de cada $100 pedidos a este proveedor entrega $${pct.toFixed(1)}. `
-      + `El Pedido va multiplicado ×${factor.toFixed(2)}${topado ? ' (topado; sin tope sería ×' + (1 / Number(r.fill_rate)).toFixed(2) + ')' : ''}. `
+      + efecto
       + 'Ojo: Kepler no distingue un renglón que NOSOTROS cancelamos de uno que el proveedor no surtió.';
   }
   iadTitle(r: WorkbookRow): string {

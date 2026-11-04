@@ -1405,3 +1405,25 @@ describe('[PQ.38] valor venta y valor existencia, en grande', () => {
     expect(ex?.sub).toBe('al costo · faltan 7 SKU por valuar');
   });
 });
+
+describe('[PQ.44] D26: el inflado por cumplimiento no se afirma donde no se aplicó', () => {
+  // El motor ya no infla lo que llega por traspaso. Si el texto siguiera diciendo «va multiplicado»
+  // de todo el renglón, afirmaría algo que no pasó (ley 0 del estándar).
+  const fila = (cells: Record<string, { trf?: true }>) => ({ fill_rate: 0.8, cells }) as never;
+
+  it('sin traspasos: dice el multiplicador', () => {
+    const c = montar(VACIO).componentInstance;
+    expect(c.fillTitle(fila({ a: {}, b: {} }))).toContain('El Pedido va multiplicado ×1.25.');
+  });
+
+  it('todas por traspaso: dice que NO se infla, sin multiplicador', () => {
+    const t = montar(VACIO).componentInstance.fillTitle(fila({ a: { trf: true }, b: { trf: true } }));
+    expect(t).toContain('El Pedido NO se infla');
+    expect(t).not.toContain('va multiplicado');
+  });
+
+  it('mezcla: multiplica sólo en las que compran directo', () => {
+    const t = montar(VACIO).componentInstance.fillTitle(fila({ a: {}, b: { trf: true } }));
+    expect(t).toContain('en las sucursales que le compran directo; en las que lo reciben por traspaso no se infla');
+  });
+});
