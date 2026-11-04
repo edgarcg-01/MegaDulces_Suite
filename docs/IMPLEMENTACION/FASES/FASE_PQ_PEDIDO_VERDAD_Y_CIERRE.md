@@ -1174,6 +1174,42 @@ con un año de historia.
 | D30 | En producto de temporada, ¿qué error cuesta más? | (a) pedir de más: queda mercancía parada hasta el año siguiente · (b) pedir de menos: se pierde venta · (c) igual | ✅ **Firmada (a), PM 2026-11-04**: aplicar la regla dirigida (§17.6 punto 3) sólo donde el año pasado se desplomó, con el aviso «Fin de temporada: el año pasado en noviembre vendió X» y la cantidad editable (D27) |
 | D31 | La venta de un cliente que no compraba ese producto | (a) sale del promedio y la pantalla la nombra («Incluye una venta única a BOLSAS DE LOS ALTOS el 16-oct») · (b) se queda · (c) sólo se avisa | ✅ **Firmada, PM 2026-11-04: (a)** cuando sea 50 % o más del mes; **(c)** para mostrador «CONTADO», que no tiene cliente con quién comprobarlo |
 
+### 17.8 PQ.51 — las 85 compras aprobadas sin documento, una por una (2026-11-04, prioridad 1)
+
+Cada una contra Kepler: requisición `X-A-30` u OC `X-A-35` del **mismo proveedor** (clave, o
+nombre exacto en `kdxd`), en la **misma sucursal**, capturada entre 2 días antes y 30 días después,
+y cuántos de sus productos coinciden. Detalle por folio en el scratchpad de la sesión
+(`pq51_detalle.json`).
+
+| Lo que hay en Kepler | Requisiciones | Monto |
+|---|---:|---:|
+| Ya lo tiene: un documento del proveedor con 80 % o más de sus productos | 38 | $4.08 M |
+| Uno parecido: algunos productos coinciden | 5 | $2.30 M |
+| Del proveedor, pero con otros productos | 3 | $0.02 M |
+| Ningún documento de ese proveedor en 30 días | 39 | $0.91 M |
+
+**Control:** las 39 «ninguno», buscadas **sin exigir proveedor** (y con entradas `X-A-40`): 4
+aparecen con otro proveedor, 35 no tienen nada. El cruce de proveedores funciona.
+
+**Por qué nadie las ligó:** PQ.25 liga sólo requisiciones que **la Suite** escribió en Kepler (las
+que traen `kepler_folio`). Éstas son anteriores al envío automático (PQ.26/PQ.27) y se capturaron a
+mano en Kepler, así que nada las une. Por revisar a mano, las 8 con coincidencia parcial; dos son
+grandes: RQ-2026-00488 (CEDIS, $1.76 M, 19 de 35 productos en la OC 0007136) y RQ-2026-01881.
+
+⛔ **Hallazgo vivo: RQ-2026-01881** (8 Esquinas, 3-nov, $389,926, DISTRIBUIDORA DE LA ROSA, 64
+productos) no llegó a Kepler: «permiso denegado a la tabla kdxd». **Desde el 29-oct llegaron 63
+compras y falló sólo ésta.** El servidor de 8 Esquinas no tiene `GRANT SELECT ON md.kdxd TO
+kepler_push`; 02, 04 y 05 **no han intentado ningún envío** desde el 29-oct, así que su permiso está
+NO MEDIDO (§14.6 lo dejó sin medir). Es un permiso en el servidor de Kepler: **lo da Edgar** (regla 7).
+
+| # | Decisión | Opciones | Recomendación |
+|---|---|---|---|
+| D32 | Las 85 compras aprobadas sin documento | (a) una sola limpieza: ligar las 38 a su documento de Kepler, cancelar las 35 sin nada con motivo «no se hizo en Kepler», y dejar las 12 restantes a Compras · (b) dejarlas · (c) cancelar todas | **(a)**. Escribe en prod (estado y folio de 73 requisiciones): con prueba contra base real del mismo camino y fuera de horario hábil. Firma de Edgar |
+
+Items nuevos: **PQ.58** (Edgar) — el `GRANT` en 8 Esquinas y medir 02, 04 y 05, antes de que
+compren ahí · **PQ.59** — la limpieza de D32 · **PQ.60** — que una requisición escrita a mano en
+Kepler también se ligue sola (mismo proveedor, sucursal y productos), para que no vuelva a pasar.
+
 ⭐ **Decisión del PM (2026-11-04): el orden se invierte** — *«empecemos de prioridad 3 y 4 a
 prioridad 1»*. Se trabaja PQ.52 → PQ.53 → PQ.54 → PQ.57 → PQ.49 → PQ.48 → PQ.55/PQ.56 (éstas dos
 esperan logs y una sesión de prueba) y después las de prioridad 2 y 1. Queda escrito porque va en
@@ -1247,6 +1283,7 @@ cambió hacia atrás las cajas de sus 41 productos). Kepler no guarda historia d
 | Fecha | Qué pasó | Quién |
 |---|---|---|
 | 2026-11-04 | «Aún existen productos con advertencia» → «¿100 %?» → «¿e históricos?» → **§18**: PQ.58 ✅ en prod (el commit dice PQ.41: choque de código, §18.1), estado A/B/C/D medido (91 % del valor verificado), plan PQ.59–PQ.66; el PM aprobó la tabla de historia de fichas | Claude |
+| 2026-11-04 | PM firmó **D29, D30, D31**. **PQ.51 🧪 C0** (§17.8): de las 85 compras aprobadas sin documento, 38 ($4.08 M) ya están en Kepler hechas a mano, 35 no existen, 12 por revisar; nadie las liga porque PQ.25 sólo liga lo que la Suite escribió. **Hallazgo vivo:** RQ-2026-01881 (8 Esquinas, $389,926) falló por falta de `GRANT` en `kdxd`; desde el 29-oct es la única de 64. Nacen **D32**, PQ.58–PQ.60 | PM + sesión Claude |
 | 2026-11-04 | Prioridad 2 (§17.6): **PQ.47 🧪 C0**: de 83 ventas únicas, 49 son de clientes que no compraban ese producto ($1.62 M en un día); 17499 = venta a BOLSAS DE LOS ALTOS, que es proveedor. **PQ.41 🧪 C0**: el factor de temporada sólo mejora 0–6 % al pronóstico ingenuo; copiar el año pasado es 38 % peor; la regla dirigida quita ~95 % de lo pronosticado de más en lo que se desplomó. Nacen **D30** (¿qué error cuesta más?) y **D31** (venta única fuera del promedio) | PM + sesión Claude |
 | 2026-11-04 | «Documentemos todos los hallazgos y hagámoslos correcciones» → **§17**: 24 correcciones (C-1…C-24) en cuatro frentes, cada una con item, capa, árbitro y prioridad; items nuevos PQ.47–PQ.57 y D29 sin firma. Hallazgo nuevo: **venta extraordinaria única** proyectada como diaria (17499: una venta de 19,899 rollos; en la red 76 pares, $1.05 M en un día). Corregido en §15.5 lo dicho de 17499 | PM + sesión Claude |
 | 2026-11-04 | PM firmó **D25–D28**. **PQ.42 🧪** (§16.5): el día sin foto es agotado (A vende 65.5 % de los días con existencia contra 16.3 % sin ella); el motor no ve ~$2.38 M de venta en 21 d. La foto lee la copia `commercial.stock` y el motor la vista del ODS | PM + sesión Claude |
