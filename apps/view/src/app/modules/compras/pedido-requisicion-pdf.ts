@@ -35,6 +35,9 @@ import {
 } from './compras-pdf-comun';
 
 // Se re-exporta: las pruebas y quien ya lo importaba de acá siguen funcionando.
+/** `[PQ.44]` D25: «30 días», o el texto ya armado («la de cada sucursal (21 o 30 días)»). */
+const cobTxt = (d: number | string): string => (typeof d === 'number' ? `${d} días` : d);
+
 export { textoParaArchivo } from './compras-pdf-comun';
 
 /** Un renglón de la tabla de repartición: a quién le toca, y cómo está esa sucursal hoy. */
@@ -53,7 +56,7 @@ export interface ReqPdfData {
   emitido: Date;
   datosAl: Date | null;
   elaboro: string;
-  coberturaDias: number;
+  coberturaDias: number | string;   // [PQ.44] D25: texto con cobertura por sucursal
   producto: {
     sku: string; nombre: string; proveedor: string;
     uxc: number; unidad: string;
@@ -76,7 +79,7 @@ export interface ReqGlobalPdfData {
   emitido: Date;
   datosAl: Date | null;
   elaboro: string;
-  coberturaDias: number;
+  coberturaDias: number | string;   // [PQ.44] D25: texto con cobertura por sucursal
   alcance: string;          // "12 productos seleccionados"
   hojas: HojaProveedor[];
   avisos: string[];
@@ -126,7 +129,7 @@ export async function generarRequisicionPdf(data: ReqPdfData): Promise<void> {
     },
     body: [
       ['Proveedor', { content: p.proveedor || 'Sin proveedor asignado', styles: { fontStyle: 'bold' } },
-        'Cobertura objetivo', `${data.coberturaDias} días`, '', ''],
+        'Cobertura objetivo', `${cobTxt(data.coberturaDias)}`, '', ''],
       ['Producto', { content: `${p.sku} · ${p.nombre}`, styles: { fontStyle: 'bold' } },
         'Unidades por caja', `${p.uxc.toLocaleString('es-MX')} ${p.unidad}`,
         'En órdenes abiertas', p.transitoTxt || 'Nada pendiente'],
@@ -203,7 +206,7 @@ export async function generarRequisicionGlobalPdf(data: ReqGlobalPdfData): Promi
     doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(...INK);
     doc.text('RESUMEN DE LA REQUISICIÓN', M, y + 4);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...MUTED);
-    doc.text(`${data.alcance} · cobertura objetivo ${data.coberturaDias} días`, M, y + 18);
+    doc.text(`${data.alcance} · cobertura objetivo ${cobTxt(data.coberturaDias)}`, M, y + 18);
     y += 28;
     autoTable(doc, {
       ...tablaBase, startY: y,
@@ -234,7 +237,7 @@ export async function generarRequisicionGlobalPdf(data: ReqGlobalPdfData): Promi
       styles: { fontSize: 9, cellPadding: { top: 2, bottom: 2, left: 0, right: 8 }, textColor: INK },
       columnStyles: { 0: { textColor: MUTED, cellWidth: 58 }, 1: { cellWidth: 390 }, 2: { textColor: MUTED, cellWidth: 92 } },
       body: [['Proveedor', { content: h.supplierName || 'Sin proveedor asignado', styles: { fontStyle: 'bold' } },
-        'Cobertura objetivo', `${data.coberturaDias} días`]],
+        'Cobertura objetivo', `${cobTxt(data.coberturaDias)}`]],
     });
     y = lastY(doc, y) + 8;
 

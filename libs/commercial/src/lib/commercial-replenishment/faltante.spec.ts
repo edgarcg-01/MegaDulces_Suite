@@ -37,6 +37,15 @@ describe('[PQ.44] la regla de reorden (D33)', () => {
     expect(SVC).toContain(`'trf', CASE WHEN traspaso THEN true END`);
   });
 
+  it('⛔ [D25] la cobertura de cada almacén es la de la mesa y multiplica ANTES de sumar', () => {
+    // Medido el 2026-11-04: en las 8 sucursales, el modo 'sucursal' da EXACTAMENTE lo que fijar a
+    // mano la cobertura de la mesa (0 diferencias en 25,296 renglones).
+    expect(SVC).toContain(`const COV_ROW = porSucursal ? coberturaAutoabastoSql('w.code') : ':cov::numeric';`);
+    expect(SVC).toContain('${COV_ROW} AS cov_dias,');
+    expect(SVC).toContain('COALESCE(sum(b.daily_pieces * b.cov_dias),0) * COALESCE(max(b.season_ratio),1) / (');
+    expect(SVC).not.toContain('COALESCE(sum(b.daily_pieces),0) * COALESCE(max(b.season_ratio),1) * :cov');
+  });
+
   it('⛔ Pedido (workbook y su detalle) frena arriba del reorden con el MISMO primitivo', () => {
     expect(SVC).toContain(`segunReorden('COALESCE(sum(b.stock_pz),0)', 'sum(b.rop_reorder)',`);
     expect(SVC).toContain(`segunReorden('rp.stock_pz', 'rop.reorder_point',`);

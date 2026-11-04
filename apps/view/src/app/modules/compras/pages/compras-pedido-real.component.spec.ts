@@ -806,12 +806,45 @@ describe('[RA-UX] auditoría de interacción 2026-10-21: lo que la persona hace,
   it('la cobertura recarga si cambió, y no recarga con el mismo valor ni fuera de rango', () => {
     const c = montar(VACIO).componentInstance;
     const wb = vi.spyOn(TestBed.inject(ComprasService), 'workbook');
-    c.coberturaYa();                       // mismo valor que la carga inicial
+    c.coberturaYa();                       // [PQ.44] «cada sucursal», campo vacío: salir no recarga
     expect(wb).not.toHaveBeenCalled();
-    c.coverage = 0; c.coberturaYa();       // a medio teclear
+    c.coberturaTecleada(0); c.coberturaYa();   // a medio teclear
     expect(wb).not.toHaveBeenCalled();
-    c.coverage = 45; c.coberturaYa();
+    c.coberturaTecleada(45); c.coberturaYa();
     expect(wb).toHaveBeenCalledTimes(1);
+    c.coberturaYa();                       // mismo valor que la última carga
+    expect(wb).toHaveBeenCalledTimes(1);
+  });
+
+  // ── [PQ.44] D25: la base es la cobertura de cada sucursal ──
+  it('[PQ.44] D25: abre con la cobertura de cada sucursal y la consulta lo pide así', () => {
+    const c = montar(VACIO).componentInstance;
+    const wb = vi.spyOn(TestBed.inject(ComprasService), 'workbook');
+    expect(c.coberturaSucursal).toBe(true);
+    c.setCoverage('suc');
+    const q = wb.mock.calls.at(-1)![0];
+    expect(q.coverage_mode).toBe('sucursal');
+    expect(q.coverage_days).toBeUndefined();
+  });
+
+  it('[PQ.44] D25: un atajo de días la fija para todas, y «Cada sucursal» la regresa', () => {
+    const c = montar(VACIO).componentInstance;
+    const wb = vi.spyOn(TestBed.inject(ComprasService), 'workbook');
+    c.setCoverage('45');
+    expect(wb.mock.calls.at(-1)![0]).toMatchObject({ coverage_days: 45 });
+    expect(wb.mock.calls.at(-1)![0].coverage_mode).toBeUndefined();
+    expect(c.coberturaCorta()).toBe('45 días');
+    c.setCoverage('suc');
+    expect(wb.mock.calls.at(-1)![0].coverage_mode).toBe('sucursal');
+    expect(c.coberturaCorta()).toMatch(/^la de cada sucursal/);
+  });
+
+  it('⛔ [PQ.44] D25: la cobertura fija cuenta como filtro y «Limpiar» vuelve a la de cada sucursal', () => {
+    const c = montar(VACIO).componentInstance;
+    c.setCoverage('30');
+    expect(c.coberturaSucursal).toBe(false);
+    c.limpiarFiltros();
+    expect(c.coberturaSucursal).toBe(true);
   });
 
   // ── [RA-UX.8] teclado de la fila ──

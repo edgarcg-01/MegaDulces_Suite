@@ -3,7 +3,7 @@ import { TenantKnexService, TenantContextService, ScopeService, TenantCacheServi
 import {
   compareWarehouseCodes, MonthlySalesResponse, OcDetalleDto, OcSeguimientoEstatus, OcSeguimientoGuardadoDto,
   WorkbookSkuSignals,
-  validarSeguimiento, coberturaAutoabastoSql,
+  validarSeguimiento, coberturaAutoabastoSql, coberturaAutoabasto,
   KEPLER_REQUISITION_SINK_PORT, type KeplerRequisitionSinkPort, type KeplerLineaResuelta,
 } from '@megadulces/contracts';
 
@@ -345,6 +345,9 @@ export interface WorkbookQuery {
   category_id?: string;
   search?: string;
   coverage_days?: number;
+  /** `[PQ.44]` D25: 'sucursal' = cada almacén con SU cobertura (la de la mesa, `coberturaAutoabasto`);
+   *  sin esto, `coverage_days` igual para todos (el comprador la fijó). */
+  coverage_mode?: string;
   scope?: string;
   warehouse_ids?: string;   // CSV de almacenes a mostrar como columnas (una/varias); vacío = todas con stock
   group?: string;           // 'general' = una sola columna agregada (red); default = por sucursal
@@ -2057,6 +2060,12 @@ export class CommercialReplenishmentService {
       const FILLF = this.erpFillFactor(erpReady, 'max(b.fill_erp)');
       // `[PQ.44]` D26: toda la columna llega por traspaso (con canal medido) → no se infla.
       const TRASPASO = `bool_and(COALESCE(b.canal_via, '') = 'transfer')`;
+      // `[PQ.44]` D25: la cobertura por almacén es la de la mesa (misma expresión de libs/contracts).
+      // Va por renglón de almacén y la demanda se multiplica ANTES de sumar, así la columna de red
+      // (group=general) también lleva la de cada almacén. Medido el 2026-11-04: con 30 d fijos, las
+      // cinco sucursales de 21 d sugerían $1.97 M de más.
+      const porSucursal = q.coverage_mode === 'sucursal';
+      const COV_ROW = porSucursal ? coberturaAutoabastoSql('w.code') : ':cov::numeric';
       const binds: Record<string, unknown> = { t: tenantId, cov, ...(erpReady ? fb : {}) };
       const filters = ['pr.tenant_id = :t', 'pr.activo = true', 'pr.deleted_at IS NULL',
         'NOT EXISTS (SELECT 1 FROM commercial.product_aliases pa WHERE pa.tenant_id = :t AND pa.alias_product_id = pr.id AND pa.deleted_at IS NULL)'];
@@ -2308,6 +2317,7 @@ export class CommercialReplenishmentService {
                  -- [PQ.44] D26: por donde llega de verdad este proveedor a este almacen (compra o
                  -- traspaso). NULL = sin canal medido. Unico por (almacen, proveedor): no multiplica.
                  rcw.via AS canal_via,
+                 ${COV_ROW} AS cov_dias,
                  ${colExpr} AS col_code, ${conFuera ? 'rp.fuera' : 'false'} AS fuera
             FROM catalog.products pr
             JOIN ${rpSrc(vbfSrc)} rp ON rp.tenant_id = pr.tenant_id AND rp.product_id = pr.id
@@ -2350,7 +2360,7 @@ export class CommercialReplenishmentService {
                  -- Arriba del reorden la celda sale 0 aunque falte para el objetivo.
                  CASE WHEN ${RUNG_OK} THEN
                    ${segunReorden('COALESCE(sum(b.stock_pz),0)', 'sum(b.rop_reorder)',
-                     `round((GREATEST(0, COALESCE(sum(b.daily_pieces),0) * COALESCE(max(b.season_ratio),1) * :cov / (${SUF} * ${BF}) - COALESCE(sum(b.stock_pz),0) / ${DBF} - (${transitoDescontado('sum(b.transit_eff_cajas)', 'sum(b.transit_cajas)')})) * ${cumplimientoSoloCompra(TRASPASO, FILLF)})::numeric, 1)`)}
+                     `round((GREATEST(0, COALESCE(sum(b.daily_pieces * b.cov_dias),0) * COALESCE(max(b.season_ratio),1) / (${SUF} * ${BF}) - COALESCE(sum(b.stock_pz),0) / ${DBF} - (${transitoDescontado('sum(b.transit_eff_cajas)', 'sum(b.transit_cajas)')})) * ${cumplimientoSoloCompra(TRASPASO, FILLF)})::numeric, 1)`)}
                  END AS ped,
                  -- [PQ.44] D26: la celda que llega por traspaso no se infla; viaja para que la
                  -- pantalla no diga que se multiplico.
@@ -2655,6 +2665,11 @@ export class CommercialReplenishmentService {
       return {
         total: Number(tot?.c || 0),
         page, pageSize, coverage_days: cov,
+        // `[PQ.44]` D25: con qué cobertura salió cada columna. `coverage_days` queda como la fija.
+        coverage_mode: porSucursal ? 'sucursal' as const : 'fija' as const,
+        cobertura_columnas: porSucursal
+          ? Object.fromEntries(territories.map((t) => [t.code, coberturaAutoabasto(t.code)]))
+          : null,
         freshness,
         territories,
         agotados_con_venta: res.agotados ?? null,

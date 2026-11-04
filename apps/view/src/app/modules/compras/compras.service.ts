@@ -351,6 +351,10 @@ export interface WorkbookRow {
 }
 export interface WorkbookResponse {
   total: number; page: number; pageSize: number; coverage_days: number;
+  /** [PQ.44] D25: con qué cobertura salió cada columna ('sucursal') o una sola para todas ('fija').
+   *  Ausentes = backend anterior: se lee como 'fija'. */
+  coverage_mode?: 'sucursal' | 'fija';
+  cobertura_columnas?: Record<string, number> | null;
   territories: WorkbookTerritory[];       // puntos de compra presentes → columnas dinámicas
   /**
    * `[RA-PRO.49]` `venta_costo` = la venta 30d **al costo**, sobre las mismas celdas verificadas
@@ -381,6 +385,8 @@ export interface WorkbookResponse {
 }
 export interface WorkbookQuery {
   supplier_id?: string; brand_id?: string; category_id?: string; search?: string; coverage_days?: number; scope?: string;
+  /** [PQ.44] D25: 'sucursal' = cada almacén con su cobertura (la de su mesa); sin esto, `coverage_days` para todos. */
+  coverage_mode?: 'sucursal';
   warehouse_ids?: string[]; group?: 'branch' | 'general'; page?: number; pageSize?: number;
   iad?: 'accel' | 'decel'; only_overstock?: boolean;   // RA-PRO.36.2 filtros server-side
   /** `[PQ.37]` Sólo los agotados en toda la red que sí vendieron en 12 meses (entran en cero). */
@@ -1317,6 +1323,7 @@ export class ComprasService {
     if (q.category_id) p.set('category_id', q.category_id);
     if (q.search) p.set('search', q.search);
     if (q.coverage_days) p.set('coverage_days', String(q.coverage_days));
+    if (q.coverage_mode) p.set('coverage_mode', q.coverage_mode);
     if (q.scope) p.set('scope', q.scope);
     if (q.warehouse_ids?.length) p.set('warehouse_ids', q.warehouse_ids.join(','));
     if (q.group) p.set('group', q.group);
@@ -1403,6 +1410,7 @@ export class ComprasService {
     if (q.category_id) p.set('category_id', q.category_id);
     if (q.search) p.set('search', q.search);
     if (q.coverage_days) p.set('coverage_days', String(q.coverage_days));
+    if (q.coverage_mode) p.set('coverage_mode', q.coverage_mode);
     if (q.scope) p.set('scope', q.scope);
     if (q.warehouse_ids?.length) p.set('warehouse_ids', q.warehouse_ids.join(','));
     if (q.group) p.set('group', q.group);

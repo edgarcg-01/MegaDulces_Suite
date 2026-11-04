@@ -5,7 +5,7 @@ import { CommonModule } from '@angular/common';
 import { ActivatedRoute } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { catchError, of, forkJoin } from 'rxjs';
-import { accionesNegociacion, compareWarehouseCodes, type Freshness, type PedidoNegociacionDto, WAREHOUSE_DISPLAY_ORDER, warehouseName } from '@megadulces/contracts';
+import { accionesNegociacion, coberturaAutoabasto, compareWarehouseCodes, type Freshness, type PedidoNegociacionDto, WAREHOUSE_DISPLAY_ORDER, warehouseName } from '@megadulces/contracts';
 import { type EnlacesNegociacion, PedidoNegociacionPanelComponent } from '../pedido-negociacion-panel.component';
 import { PedidoNegociacionDetalleComponent } from '../pedido-negociacion-detalle.component';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -304,7 +304,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
             <span>Cobertura</span>
             <!-- [RA-UX.6] Recalculaba sólo al perder el foco: con − / + el campo decía 31 d y la
                  tabla seguía calculada con 30. Ahora recalcula al detenerse (y al salir). -->
-            <p-inputnumber [(ngModel)]="coverage" (ngModelChange)="coberturaLuego()" (onBlur)="coberturaYa()" [min]="1" [max]="120" [showButtons]="true"
+            <p-inputnumber [ngModel]="coberturaSucursal ? null : coverage" (ngModelChange)="coberturaTecleada($event)" (onBlur)="coberturaYa()" [min]="1" [max]="120" [showButtons]="!coberturaSucursal" placeholder="cada suc."
                            buttonLayout="horizontal" [step]="1" suffix=" d" inputStyleClass="pr-cov-in"
                            decrementButtonClass="p-button-text" incrementButtonClass="p-button-text"
                            incrementButtonIcon="pi pi-plus" decrementButtonIcon="pi pi-minus" ariaLabel="Días de cobertura"></p-inputnumber>
@@ -314,8 +314,10 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                booleanos de al lado: mismo aspecto, semántica opuesta, y nadie podía saber
                cuáles se excluían. Ahora usan el segmented canónico (radiogroup accesible,
                navegable con flechas) y los toggles quedan visualmente aparte. -->
-          <app-segmented [options]="coverageOpts" [value]="coverage + ''" ariaLabel="Días de cobertura"
+          <app-segmented [options]="coverageOpts" [value]="coberturaSucursal ? 'suc' : coverage + ''" ariaLabel="Días de cobertura"
                          (valueChange)="setCoverage($event)"></app-segmented>
+          <!-- [PQ.44] D25: con qué cobertura sale el pedido, dicho en la barra y no en un title. -->
+          @if (coberturaNota(); as nota) { <small class="pr-cov-nota" role="note">{{ nota }}</small> }
           <span class="pr-fsep" aria-hidden="true"></span>
           <!-- Barra de herramientas ARIA: los toggles + Limpiar son UN solo tab stop y se recorren
                con ← →. Antes eran cinco paradas de tabulador seguidas, y para llegar a la tabla
@@ -1703,6 +1705,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     }
     .pr-sob-err i { color: var(--bad-fg); margin-top: .12rem; }
     .pr-cov { display: inline-flex; align-items: center; gap: .4rem; font-size: var(--fs-sm); color: var(--text-muted); }
+    .pr-cov-nota { font-size: var(--fs-xs); color: var(--text-muted); max-width: 34ch; line-height: 1.25; }
     :host ::ng-deep .pr-cov-in { width: 4.5rem; text-align: right; font-variant-numeric: tabular-nums; }
     .pr-chips { display: inline-flex; gap: .25rem; }
     .pr-presets { display: inline-flex; gap: .25rem; }
@@ -3707,7 +3710,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       emitido: new Date(),
       datosAl: this.datosAl(),
       elaboro: this.auth.user()?.username || 'Compras',
-      coberturaDias: this.coverage,
+      coberturaDias: this.coberturaSucursal ? this.coberturaCorta() : this.coverage,
       producto: {
         sku: r.sku, nombre: r.nombre, proveedor: r.supplier_name || '',
         uxc, unidad: this.unidadBase(r),
@@ -3750,7 +3753,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       emitido: new Date(),
       datosAl: this.datosAl(),
       elaboro: this.auth.user()?.username || 'Compras',
-      coberturaDias: this.coverage,
+      coberturaDias: this.coberturaSucursal ? this.coberturaCorta() : this.coverage,
       alcance: `${n} producto${n === 1 ? '' : 's'} seleccionado${n === 1 ? '' : 's'}`,
       // [RA-PRO.69] Cada hoja lleva el pedido TÍPICO de su proveedor como referencia (no mínimo).
       hojas: agruparPorProveedor(lineas).map((h) => {
@@ -4102,7 +4105,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     const quien = !compran.length ? 'ninguna sucursal compra'
       : compran.length <= 2 ? 'compra' + (compran.length > 1 ? 'n ' : ' ') + compran.join(' y ')
         : `compran ${compran.length} sucursales`;
-    return `${this.coverageAplicada ?? this.coverage} días · ${quien}` + (porTras ? ` · ${porTras} por traspaso` : '');
+    return `${this.coberturaCorta()} · ${quien}` + (porTras ? ` · ${porTras} por traspaso` : '');
   }
 
   // ── Las acciones: verbo + qué + la cifra que lo justifica ────────────────────────────────
@@ -4457,6 +4460,11 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   fCategory: string | null = null;                                    // RA-PRO.12 — categoría de compra
   search = '';
   coverage = 30;
+  /** `[PQ.44]` D25 (PM, 2026-11-04): por default cada sucursal pide con la cobertura de su mesa (21 o
+   *  30 días). Escribir un número o elegir un atajo la fija igual para todas, y la barra lo dice. */
+  coberturaSucursal = true;
+  /** `[PQ.44]` La cobertura con la que salió cada columna en la última consulta, según el backend. */
+  private readonly cobCols = signal<Record<string, number> | null>(null);
 
   // Condensado por sucursal (colapso MANUAL — PrimeNG 18 no trae grupos colapsables): signal para
   // que displayRows() reaccione. Vacío = TODAS colapsadas por default. Clic en el chevron despliega.
@@ -4543,7 +4551,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     try {
       localStorage.setItem(this.FKEY, JSON.stringify({
         mode: this.mode(), fSupplier: this.fSupplier, fBrand: this.fBrand, fCategory: this.fCategory, fWarehouse: this.fWarehouse,
-        search: this.search, coverage: this.coverage, cBuy: this.cBuy(), cTr: this.cTr(), cOver: this.cOver(),
+        search: this.search, coverage: this.coverage, coberturaSucursal: this.coberturaSucursal, cBuy: this.cBuy(), cTr: this.cTr(), cOver: this.cOver(),
         wbWarehouses: this.wbWarehouses, wbScopeNeeded: this.wbScopeNeeded(),
       }));
     } catch { /* localStorage no disponible */ }
@@ -4565,6 +4573,9 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       if ('fWarehouse' in s) this.fWarehouse = s.fWarehouse;
       if (typeof s.search === 'string') this.search = s.search;
       if (typeof s.coverage === 'number') this.coverage = s.coverage;
+      // `[PQ.44]` Un filtro guardado antes de D25 con otra cobertura la conserva fija; si no, cada sucursal.
+      if (typeof s.coberturaSucursal === 'boolean') this.coberturaSucursal = s.coberturaSucursal;
+      else if (typeof s.coverage === 'number' && s.coverage !== ComprasPedidoRealComponent.COVERAGE_DEF) this.coberturaSucursal = false;
       if (typeof s.cBuy === 'boolean') this.cBuy.set(s.cBuy);
       if (typeof s.cTr === 'boolean') this.cTr.set(s.cTr);
       if (typeof s.cOver === 'boolean') this.cOver.set(s.cOver);
@@ -4605,7 +4616,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   private fetchWorkbookPage(reloadEnrichment: boolean): void {
     const gen = ++this.reqGen;
     this.loading.set(true); this.error.set(false); this.saveFilters();
-    this.coverageAplicada = this.coverage;
+    this.coverageAplicada = this.coberturaSucursal ? null : this.coverage;
     // `[RA-UX.8]` Acá vivía `wbOpen.set(new Set())`: cambiar de página o de filtro —o generar una
     // requisición, que recarga— cerraba todo lo que el comprador tenía abierto. El conjunto está
     // indexado por producto, así que lo que no está en la página simplemente no se pinta.
@@ -4644,6 +4655,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         // sería la edad de un dato que ya no se está mostrando.
         if (!r) { this.error.set(true); this.wbRows.set([]); this.frescura.set(FRESCURA_SIN_MEDIR); return; }
         this.wbRows.set(r.rows); this.wbTotals.set(r.totals); this.wbTotal.set(r.total);
+        this.cobCols.set(r.coverage_mode === 'sucursal' ? (r.cobertura_columnas ?? null) : null);
         this.wbRung.set(r.unit_rung ?? null);
         this.wbAgotadosN.set(r.agotados_con_venta ?? null);
         this.frescura.set(r.freshness ?? FRESCURA_SIN_MEDIR);
@@ -4663,7 +4675,9 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     const iad = this.fIad();
     return {
       supplier_id: this.fSupplier || undefined, brand_id: this.fBrand || undefined, category_id: this.fCategory || undefined, search: this.search.trim() || undefined,
-      coverage_days: this.coverage, scope: this.wbScopeNeeded() ? ('needed' as const) : undefined,
+      coverage_days: this.coberturaSucursal ? undefined : this.coverage,
+      coverage_mode: this.coberturaSucursal ? ('sucursal' as const) : undefined,
+      scope: this.wbScopeNeeded() ? ('needed' as const) : undefined,
       warehouse_ids: this.wbWarehouses.length ? this.wbWarehouses : undefined, group: 'branch' as const,
       iad: iad === 'all' ? undefined : iad,
       only_overstock: this.wbOnlyOver() || undefined,
@@ -4708,7 +4722,9 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       this.diasInventario() == null
         ? { label: 'Días de existencia', value: '—', format: 'text', sub: this.diasInventarioSub() }
         : { label: 'Días de existencia', value: this.diasInventario()!, sub: this.diasInventarioSub() },
-      { label: 'Cobertura', value: this.coverage, sub: 'días objetivo' },
+      this.coberturaSucursal
+        ? { label: 'Cobertura', value: 'Cada sucursal', format: 'text', sub: this.coberturaCorta() }
+        : { label: 'Cobertura', value: this.coverage, sub: 'días objetivo' },
     ];
   }
 
@@ -4773,6 +4789,8 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   readonly piezasDeCajas = piezasDeCajas;
 
   readonly coverageOpts: SegOption[] = [
+    // `[PQ.44]` D25: la base es la cobertura de cada sucursal (la de su mesa); los días la fijan para todas.
+    { label: 'Cada sucursal', value: 'suc' },
     { label: '14d', value: '14' }, { label: '30d', value: '30' }, { label: '45d', value: '45' },
   ];
   /** Vista. Era un role="tablist" sin tabpanel; ahora radiogroup con teclado. */
@@ -4808,7 +4826,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     if (this.fCategory) n++;
     if (this.wbWarehouses.length) n++;
     if (this.search.trim()) n++;
-    if (this.coverage !== ComprasPedidoRealComponent.COVERAGE_DEF) n++;
+    if (!this.coberturaSucursal) n++;
     if (this.wbScopeNeeded()) n++;
     if (this.wbOnlyOver()) n++;
     if (this.wbAgotados()) n++;
@@ -4871,6 +4889,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     this.fSupplier = null; this.fBrand = null; this.fCategory = null;
     this.wbWarehouses = []; this.search = '';
     this.coverage = ComprasPedidoRealComponent.COVERAGE_DEF;
+    this.coberturaSucursal = true;
     this.wbScopeNeeded.set(false);
     this.wbOnlyOver.set(false);
     this.wbAgotados.set(false);
@@ -4971,10 +4990,51 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
    * (Este método existía desde antes llamando a `loadAll()` y no lo invocaba nadie: código muerto.)
    */
   setCoverage(d: string | number): void {
+    if (d === 'suc') { this.coberturaSucursal = true; this.loadWorkbook(); return; }
     const n = typeof d === 'number' ? d : parseInt(d, 10);
     if (!Number.isFinite(n)) return;
+    this.coberturaSucursal = false;
     this.coverage = n;
     this.loadWorkbook();
+  }
+  /** `[PQ.44]` Escribir un número fija la cobertura para todas; vaciar el campo no cambia nada. */
+  coberturaTecleada(v: number | null): void {
+    if (v == null) return;
+    this.coverage = v;
+    this.coberturaSucursal = false;
+    this.coberturaLuego();
+  }
+  /** Días → sucursales: los que usó el backend o, con cobertura fija, la tabla de la mesa por columna. */
+  private diasPorSucursal(): Map<number, string[]> {
+    const cols = this.cobCols();
+    const codes = cols ? Object.keys(cols)
+      : [...new Set(this.wbRows().flatMap((r) => Object.keys(r.cells ?? {})))].filter((c) => c !== 'GENERAL');
+    const m = new Map<number, string[]>();
+    for (const c of codes) {
+      const d = cols?.[c] ?? coberturaAutoabasto(c);
+      m.set(d, [...(m.get(d) ?? []), this.sucNom(c)]);
+    }
+    return m;
+  }
+  /** «la de cada sucursal (21 o 30 días)» o «45 días». Para la tarjeta, el resumen, el PDF y la exportación. */
+  coberturaCorta(): string {
+    if (!this.coberturaSucursal) return `${this.coverageAplicada ?? this.coverage} días`;
+    const dias = [...this.diasPorSucursal().keys()].sort((a, b) => a - b);
+    return dias.length ? `la de cada sucursal (${dias.join(' o ')} días)` : 'la de cada sucursal';
+  }
+  /** La línea de la barra: con qué cobertura sale, y si difiere de la que usa cada mesa. */
+  coberturaNota(): string {
+    const m = this.diasPorSucursal();
+    if (this.coberturaSucursal) {
+      const g = [...m.entries()].sort((a, b) => a[1].length - b[1].length);
+      if (g.length < 2) return g.length ? `Todas con ${g[0][0]} d, la de su mesa.` : 'Cada sucursal con la cobertura de su mesa.';
+      const [chico, ...resto] = g;
+      return `Como en su mesa: ${chico[0]} d en ${chico[1].join(', ')}; ${resto.map(([d]) => d + ' d').join(', ')} en las demás.`;
+    }
+    const dias = [...m.keys()].sort((a, b) => a - b);
+    return dias.some((d) => d !== this.coverage)
+      ? `Calculado con ${this.coverage} d para todas; en su mesa cada sucursal pide con ${dias.join(' o ')} d.`
+      : '';
   }
   // ── `[RA-UX.6]` Filtros que reaccionan solos ────────────────────────────────────────────────
   // La búsqueda sólo corría con Enter (sin botón ni pista: escribir y esperar no hacía nada, y
@@ -5012,6 +5072,8 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   }
   coberturaYa(): void {
     if (this.coberturaTimer) { clearTimeout(this.coberturaTimer); this.coberturaTimer = null; }
+    // `[PQ.44]` En «cada sucursal» el campo está vacío: salir de él no cambia nada que recargar.
+    if (this.coberturaSucursal) return;
     const n = Number(this.coverage);
     // Campo vacío o fuera de rango a medio teclear: no se pide nada con un número que nadie quiso.
     if (!Number.isFinite(n) || n < 1 || n > 120) return;
@@ -5709,7 +5771,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       idxCompra.set(k, dtos.length);
       dtos.push({
         warehouse_id: (ls[0].toWh ?? ls[0].wh)!, supplier_id: ls[0].r.supplier_id || null, source_type: 'supplier',
-        notes: `Demand-driven (venta × cobertura ${this.coverage}d) — por sucursal${nota}`,
+        notes: `Demand-driven (venta × cobertura ${this.coberturaCorta()}) — por sucursal${nota}`,
         lines: ls.map<CreateRequisitionLine>((l) => ({
           product_id: l.r.product_id, supplier_id: l.r.supplier_id || null, source_type: 'supplier',
           // `[RA-FIX.1]` La sucursal del renglón del desglose — el dato que el comprador capturó
@@ -6012,7 +6074,9 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     const iad = this.fIad();
     return {
       supplier_id: this.fSupplier || undefined, brand_id: this.fBrand || undefined, category_id: this.fCategory || undefined, search: this.search.trim() || undefined,
-      coverage_days: this.coverage, scope: this.wbScopeNeeded() ? 'needed' : undefined,
+      coverage_days: this.coberturaSucursal ? undefined : this.coverage,
+      coverage_mode: this.coberturaSucursal ? 'sucursal' : undefined,
+      scope: this.wbScopeNeeded() ? 'needed' : undefined,
       warehouse_ids: this.wbWarehouses.length ? this.wbWarehouses : undefined, group: 'branch',
       iad: iad === 'all' ? undefined : iad, only_overstock: this.wbOnlyOver() || undefined,
     } as const;
@@ -6092,7 +6156,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     const first = buyL[0]?.r ?? tr[0];
     const scopeName = pid ? (first?.nombre || 'producto') : code ? this.sucNom(code) : 'toda la red';
     const fileTag = pid ? (first?.sku || 'producto') : code || 'global';
-    this.api.exportPedidoXlsx({ title: `Pedido por sucursal — ${scopeName}`, basis: `cobertura ${this.coverage}d`, multi_warehouse: true, lines })
+    this.api.exportPedidoXlsx({ title: `Pedido por sucursal — ${scopeName}`, basis: `cobertura ${this.coberturaCorta()}`, multi_warehouse: true, lines })
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (resp) => { this.dl.set(false); saveXlsxResponse(resp, `pedido-${fileTag}.xlsx`); },
         error: () => { this.dl.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo exportar.' }); },
