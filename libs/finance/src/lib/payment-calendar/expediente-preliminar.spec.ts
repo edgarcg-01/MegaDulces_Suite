@@ -1,4 +1,4 @@
-import { PaymentCalendarDocumentService } from './payment-calendar-document.service';
+import { PaymentCalendarDocumentService, comoPaga } from './payment-calendar-document.service';
 import { folioExternoLegible, type ExpedienteLinea } from './payment-calendar.service';
 
 /**
@@ -291,5 +291,51 @@ describe('[PGP.47] el control del expediente', () => {
   it('⛔ la alerta de documento saldado NO se imprime cuando no hay ninguno', () => {
     expect(control([linea({ saldada: false })])).not.toContain('ATENCIÓN');
     expect(control([linea({ saldada: true })])).toContain('ATENCIÓN');
+  });
+});
+
+/**
+ * `[PGP.68]` **Cómo se paga, en el papel que se firma** (Edgar, 2026-11-04: «hay que agregar al
+ * preliminar cuando se paga con cheque o con qué banco se debe pagar»). Lo que falta se NOMBRA.
+ */
+const salida = (alloc: unknown[]): string =>
+  (svc as unknown as { tablaSalida(a: unknown[]): string }).tablaSalida(alloc);
+const pagaDe = (html: string): string => ((/<div class="paga[^"]*">([\s\S]*?)<\/div>/.exec(html) ?? ['', ''])[1]).replace(/<[^>]+>/g, '');
+
+describe('[PGP.68] cómo se paga', () => {
+  it('⭐ un cheque dice el BANCO y el NÚMERO de cheque', () => {
+    const html = tabla([pago({ payment_method: 'cheque', bank_account_label: 'BB 4166', reference_text: '5362', destination_account_text: null })], [linea()]);
+    expect(pagaDe(html)).toBe('CHEQUE · Banco: BB 4166 · cheque núm. 5362');
+    expect(html).not.toContain('paga falta');
+  });
+  it('una transferencia dice de qué banco sale y a qué cuenta va', () => {
+    expect(pagaDe(tabla([pago()], [linea()]))).toBe('TRANSFERENCIA · Banco: Banorte 3041 · a CLABE 072180001234567890');
+  });
+  it('⛔ un pago sin preparar dice que FALTA DEFINIR el método y el banco, y se marca', () => {
+    const html = tabla([pago({ payment_method: null, bank_account_label: null, destination_account_text: null })], [linea()]);
+    expect(pagaDe(html)).toBe('FALTA DEFINIR · método y banco');
+    expect(html).toContain('paga falta');
+  });
+  it('⛔ un cheque sin número o sin banco no se firma como completo', () => {
+    expect(comoPaga({ payment_method: 'cheque', bank_account_label: 'BB 4166', reference_text: null } as never))
+      .toEqual({ metodo: 'CHEQUE', banco: 'BB 4166', detalle: 'sin número de cheque', falta: true });
+    expect(comoPaga({ payment_method: 'cheque', bank_account_label: null, reference_text: '1' } as never).banco).toBe('banco sin elegir');
+  });
+  it('el efectivo dice la caja, no «Banco»', () => {
+    expect(pagaDe(tabla([pago({ payment_method: 'efectivo', bank_account_label: null, cash_register_text: 'Caja General', destination_account_text: null })], [linea()])))
+      .toBe('EFECTIVO · Caja: Caja General');
+  });
+  it('⭐ el resumen suma por método y banco, y deja al final lo que falta definir', () => {
+    const html = salida([
+      pago({ id: 'A1', amount_assigned: 100 }), pago({ id: 'A2', amount_assigned: 250 }),
+      pago({ id: 'A3', amount_assigned: 9000, payment_method: null, bank_account_label: null }),
+      pago({ id: 'A4', amount_assigned: 400, payment_method: 'cheque', bank_account_label: 'BB 4166', reference_text: '1' }),
+    ]);
+    const filas = (html.match(/<tbody>[\s\S]*<\/tbody>/)?.[0].match(/<tr>[\s\S]*?<\/tr>/g) ?? []).map((f) => f.replace(/<[^>]+>/g, '|').replace(/\|+/g, '|'));
+    expect(filas).toEqual([
+      '|CHEQUE|BB 4166|1 pago|$400.00|',
+      '|TRANSFERENCIA|Banorte 3041|2 pagos|$350.00|',
+      '|FALTA DEFINIR|—|1 pago|$9,000.00|',
+    ]);
   });
 });
