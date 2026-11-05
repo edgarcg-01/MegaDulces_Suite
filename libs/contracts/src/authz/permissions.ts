@@ -556,6 +556,11 @@ export enum Permission {
   FINANCE_CAJA_VER = 'FINANCE_CAJA_VER',
   FINANCE_CAJA_GESTIONAR = 'FINANCE_CAJA_GESTIONAR',
   FINANCE_CAJA_AUTORIZAR = 'FINANCE_CAJA_AUTORIZAR',
+  // `[LE.6.9]` Quien la tiene ve la VENTANILLA en `/finanzas/caja-general` en lugar de Captura (D34:
+  // un solo sistema por persona). Es el interruptor del cambio: se reparte persona por persona
+  // mientras se prueba y a todos el día del cambio. No da acceso por sí sola: la ruta sigue pidiendo
+  // VER, GESTIONAR o AUTORIZAR, y la API las suyas. Fuera de todo MODULE_GROUP.
+  FINANCE_CAJA_VENTANILLA = 'FINANCE_CAJA_VENTANILLA',
   // CAOS — caja fuerte de efectivo (sistema externo, Fase CS). Sólo lectura por ahora: el reporte
   // de movimientos (depósitos/dispensaciones por denominación). Permiso propio y no un alias de
   // FINANCE_CAJA_VER porque es otro circuito de efectivo (bóveda virtual, dispensaciones).
