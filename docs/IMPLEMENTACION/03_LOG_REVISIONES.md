@@ -908,6 +908,13 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-11-05 — `[LE.CU]` El Cuadre de Caja General: del día que no cuadra al peso sin explicación
+
+- **Qué se hizo.** El Cuadre pasó de «cuántos días cuadran» a «qué efectivo no tiene explicación todavía, y a quién le toca», capa por capa: C0 (`verify-lecu1`, reproduce §36), C1 (motores puros de bóveda, balance y huecos), C2 (`cuadre-huecos`, `cuadre-balance`), C3 (la pantalla). Plan y maqueta en [`FASE_LE_ANEXO_CUADRE`](FASES/FASE_LE_ANEXO_CUADRE.md).
+- **Medido contra prod (sólo lectura).** Los endpoints responden en 846 ms y ninguna consulta pasa de 500 ms. El balance físico reproduce §36.4 al peso.
+- **Lecciones.** (1) **Una liga sólo por importe esconde dinero:** un depósito capturado dos veces casaba por importe con un cobro ajeno y desaparecía de lo que faltaba. Ahora lo casado por importe sigue en «falta», «por confirmar». (2) **«Ni caja ni banco» es la cuenta contable, no la CLABE:** una cuenta de banco con 8 dígitos salía como puente y daba $1.25 M falsos. (3) **Un peso, un hueco:** la misma venta de ruta salía en el libro y como venta sin cobro. (4) **El balance se suma por corte, no por la fecha del renglón.**
+- **NO MEDIDO**: el arranque de la API con las rutas nuevas (lo dice `/api/health` tras soltar); la pantalla en un navegador (**sin validación visual**); las salidas que sólo anota Control y las capturas dobles (se publican como «no medido»). Sin empujar.
+
 ## 2026-11-04 — `[FCT]` La hoja «RENTABILIDAD TLMKT»: el viaje y su venta salen de Kepler, el costo de Logística
 
 - **Qué se revisó.** La hoja de Telemarketing que Edgar pidió «complementar en `/comercial/comisiones`», contra prod en sólo lectura. Plan: [`FASE_FC_ANEXO_RENTABILIDAD_TLMK`](FASES/FASE_FC_ANEXO_RENTABILIDAD_TLMK_2026-11-04.md).
