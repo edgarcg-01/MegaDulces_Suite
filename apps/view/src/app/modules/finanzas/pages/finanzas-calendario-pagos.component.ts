@@ -1288,7 +1288,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
 
     /* ── El veredicto, compacto: frase y boton; tope y avance lado a lado ── */
     .pg-lot { display:grid; gap:var(--sp-2); min-width:0; }
-    .pg-vd { display:grid; gap:var(--sp-1); padding:var(--sp-3) 0; border-block:1px solid var(--border-color); }
+    .pg-vd { display:grid; gap:var(--sp-1); padding:var(--sp-2) 0; border-block:1px solid var(--border-color); }
     /* Rojo SOLO cuando algo esta mal. «Bien» y «falta» no llevan tono: lo dice la frase. */
     .pg-vd.is-bad { border-left:4px solid var(--bad-fg); padding-left:var(--sp-3); }
     .pg-vd-ico { color:var(--bad-soft-fg); margin-right:var(--sp-2); font-size:var(--fs-lg); }
@@ -1297,10 +1297,12 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-vd-sub { font-size:var(--fs-sm); color:var(--text-muted); }
     .pg-pill { display:inline-flex; align-items:center; font-size:var(--fs-micro); font-weight:700; text-transform:uppercase; letter-spacing:.03em; padding:0 7px; border-radius:var(--r-pill); color:var(--text-muted); background:var(--surface-2); }
     .pg-vd-main { display:flex; align-items:center; gap:var(--sp-4); flex-wrap:wrap; }
-    .pg-vd-txt { flex:1; min-width:15rem; }
+    /* [PGP.77] Frase y explicacion en UN renglon cuando caben (Edgar, 2026-11-05: «necesita demasiado
+       espacio»); si no caben, la explicacion baja sola. */
+    .pg-vd-txt { flex:1; min-width:15rem; display:flex; flex-wrap:wrap; align-items:baseline; gap:2px var(--sp-3); }
     /* [PGP.14] La respuesta de la pantalla es lo primero que se lee: la frase mas grande. */
-    .pg-vd-say { margin:0; font-size:var(--fs-h2); font-weight:600; line-height:1.25; letter-spacing:-.01em; color:var(--text-main); }
-    .pg-vd-why { margin:2px 0 0; display:flex; flex-wrap:wrap; align-items:baseline; gap:2px var(--sp-2); font-size:var(--fs-sm); color:var(--text-muted); }
+    .pg-vd-say { margin:0; font-size:var(--fs-lg); font-weight:600; line-height:1.3; letter-spacing:-.01em; color:var(--text-main); }
+    .pg-vd-why { margin:0; display:flex; flex-wrap:wrap; align-items:baseline; gap:2px var(--sp-2); font-size:var(--fs-sm); color:var(--text-muted); }
     :host ::ng-deep .pg-vd-cta.p-button { flex-shrink:0; }
     .pg-vd-row2 { display:grid; grid-template-columns:minmax(0, auto) minmax(26rem, 1fr); gap:var(--sp-2) var(--sp-5); align-items:center;
       margin-top:6px; padding-top:6px; border-top:1px solid var(--border-color); }
@@ -2487,7 +2489,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
         why: 'Se pueden armar pagos, pero el día no se autoriza hasta que lo fije.', action: null };
     }
     if (s.exceeded) {
-      const say = `Lo comprometido excede el tope del día por ${this.money(Math.abs(Number(s.remaining_amount ?? 0)))}.`;
+      const say = `Excede el tope del día por ${this.money(Math.abs(Number(s.remaining_amount ?? 0)))}.`;
       // [PGP.51] PRIMERO lo que el ERP ya no debe: quitarlo no cuesta nada y baja el exceso. Mover
       // pagos que sí se deben mientras eso sigue adentro es mover dinero de más.
       const exceso = Math.abs(Number(s.remaining_amount ?? 0));
@@ -2503,17 +2505,19 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       // [PGP.50] Decía «Mueve o quita pagos» sin botón, y el sistema ya sabe qué mover y a dónde.
       const p = this.propuestaExceso();
       if (p) {
-        const cuantos = p.pagos.length === 1 ? 'el último pago del orden' : `los últimos ${p.pagos.length} del orden`;
+        const cuantos = p.pagos.length === 1 ? 'el último pago' : `los últimos ${p.pagos.length}`;
         const n = p.pagos.length === 1 ? '1 pago' : `${p.pagos.length} pagos`;
         // [PGP.73] Lo que se juega antes del clic: los que se mueven y traen pronto pago abierto.
         const conPronto = p.pagos.filter((a) => (a.pronto_captura ?? 0) > 0);
         const pronto = conPronto.length
-          ? ` Ojo: ${conPronto.length === 1 ? 'uno trae' : `${conPronto.length} traen`} pronto pago (${this.money(conPronto.reduce((s, a) => s + (a.pronto_captura ?? 0), 0))}); en la ventana se ve cuál.`
+          ? ` Ojo: ${conPronto.length === 1 ? 'uno trae' : `${conPronto.length} traen`} pronto pago (${this.money(conPronto.reduce((s, a) => s + (a.pronto_captura ?? 0), 0))}).`
           : '';
+        // [PGP.77] Sólo lo que el botón no dice: cuánto se mueve. A dónde va lo dice el botón, y
+        // cuál va a qué día, la ventana que abre.
         return { tone: 'bad', say,
           why: p.destinos
-            ? `Mover ${cuantos} (${this.money(p.total)}) lo deja dentro del tope; caben en lo libre del ${this.diasDestino(p.destinos)}. En la ventana se ve cuál va a qué día. También puedes pedir a Presupuestos ampliarlo.${pronto}`
-            : `Mover ${cuantos} (${this.money(p.total)}) lo deja dentro del tope, pero lo libre de esta semana no alcanza para todos: elige la fecha, o pide a Presupuestos ampliarlo.${pronto}`,
+            ? `Mover ${cuantos} del orden (${this.money(p.total)}) lo resuelve.${pronto}`
+            : `Mover ${cuantos} del orden (${this.money(p.total)}) lo resuelve, pero lo libre de la semana no alcanza: elige la fecha.${pronto}`,
           action: { kind: 'exceso', label: p.destinos ? `Mover ${n} al ${this.diasDestino(p.destinos)}` : `Mover ${n} a otro día`, icon: 'pi-calendar' } };
       }
       return { tone: 'bad', say, why: 'Mueve o quita pagos, o pide a Presupuestos ampliarlo.', action: null };
