@@ -436,7 +436,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                       Producto
                     </span>
                   </th>
-                  <th class="pr-r" title="Total de lo que se va a pedir, en CAJAS. Es la suma de las sucursales del desglose y SE MUEVE al editarlas.">Σ Ped.<br/>cajas</th>
+                  <th class="pr-r" title="Total de lo que se va a pedir, en la unidad de compra de cada producto (la que dice la celda: cj, kg, bto…). Es la suma de las sucursales del desglose y SE MUEVE al editarlas.">Σ Ped.<br/>a pedir</th>
                   <th class="pr-r pr-val" title="Lo que cuesta ese pedido, valuado con el costo de caja de CADA sucursal.">$ Pedido</th>
                   <th class="pr-r" title="Existencia de toda la red, en CAJAS (suma de las sucursales). El desglose por sucursal está al abrir la fila.">Exist.<br/>red</th>
                   <th class="pr-c-m pr-r" title="Mercancía ya pedida que todavía no llega (OC abierta en Kepler). Clic para ver folios, antigüedad y cuándo llega. ⛔ El Pedido NO la descuenta: muchas OC llevan meses abiertas porque en Kepler la orden se captura al RECIBIR, así que restarlas taparía compras que sí hacen falta. Mira esta columna antes de pedir: lo de acá se SUMA a lo que pidas.">En camino</th>
@@ -459,7 +459,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                   <td><div class="pr-prod"><input type="checkbox" class="pr-chk" [checked]="isSel(r)" [disabled]="!isSel(r) && sumCajas(r) <= 0"
                            (click)="$event.stopPropagation()" (change)="toggleSel(r)"
                            [title]="sumCajas(r) > 0 ? 'En la requisición en armado (la barra de abajo)' : 'Sin pedido al proveedor: no hay nada que requerir'"
-                           [attr.aria-label]="'Agregar ' + r.sku + ' a la requisición'" /><i class="pi pr-wb-go" [ngClass]="isOpen(r) ? 'pi-angle-down' : 'pi-angle-right'"></i> {{ r.nombre }}</div><div class="pr-prod-meta">@if (esContable(r)) { <span class="pr-noncom" title="Pseudo-producto contable de Kepler (unidad SER): devoluciones, descuentos a factura, tiempo aire. No es mercancia y no se puede pedir; aparece porque el workbook todavia no los excluye en origen.">contable</span> }<span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span>@if (r.fuera_calculo) { <span class="pr-bflag pr-bflag-pend">sin existencia en la red · {{ ultimaVentaTexto(r) }}</span> }@if (abcOf(r.product_id); as a) { <p-tag [value]="a" [severity]="abcSev(a)" styleClass="pr-abc"></p-tag> }@for (t of prodTypes(r.product_id); track t) { <p-tag [value]="typeLabel(t)" [severity]="typeSev(t)" styleClass="pr-abc"></p-tag> }@if (unitRefOf(r.product_id); as u) { <button type="button" class="pr-unit-btn" (click)="openUnit(u); $event.stopPropagation()" title="Ajustar la unidad de venta de este producto"><p-tag [value]="unitLabel(u.unit_source)" [severity]="u.unit_source === 'revisar' ? 'warn' : 'contrast'" styleClass="pr-abc"></p-tag></button> }@if (costoFlag(r); as cf) { <span class="pr-bflag" [ngClass]="cf.cls" [title]="margenTitle(r) + ' ' + margenCompraTitle(r)">{{ cf.txt }}</span> }@if (perdida(r); as pd) { <span class="pr-bflag pr-bflag-warn" [title]="perdidaTitle(r)">perdió {{ dineroCorto(pd.total) }}</span> }@if (pendiente(r); as pq) { <span class="pr-bflag pr-bflag-pend" [ngClass]="pq.documentos > 1 ? 'pr-bflag-bad' : ''" [title]="pendienteTitle(r)">ya requisado {{ pq.cajas | number:'1.0-1' }} cj@if (pq.documentos > 1) { · {{ pq.documentos }} veces }</span> }</div></td>
+                           [attr.aria-label]="'Agregar ' + r.sku + ' a la requisición'" /><i class="pi pr-wb-go" [ngClass]="isOpen(r) ? 'pi-angle-down' : 'pi-angle-right'"></i> {{ r.nombre }}</div><div class="pr-prod-meta">@if (esContable(r)) { <span class="pr-noncom" title="Pseudo-producto contable de Kepler (unidad SER): devoluciones, descuentos a factura, tiempo aire. No es mercancia y no se puede pedir; aparece porque el workbook todavia no los excluye en origen.">contable</span> }<span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span>@if (r.fuera_calculo) { <span class="pr-bflag pr-bflag-pend">sin existencia en la red · {{ ultimaVentaTexto(r) }}</span> }@if (abcOf(r.product_id); as a) { <p-tag [value]="a" [severity]="abcSev(a)" styleClass="pr-abc"></p-tag> }@for (t of prodTypes(r.product_id); track t) { <p-tag [value]="typeLabel(t)" [severity]="typeSev(t)" styleClass="pr-abc"></p-tag> }@if (unitRefOf(r.product_id); as u) { <button type="button" class="pr-unit-btn" (click)="openUnit(u); $event.stopPropagation()" title="Ajustar la unidad de venta de este producto"><p-tag [value]="unitLabel(u.unit_source)" [severity]="u.unit_source === 'revisar' ? 'warn' : 'contrast'" styleClass="pr-abc"></p-tag></button> }@if (costoFlag(r); as cf) { <span class="pr-bflag" [ngClass]="cf.cls" [title]="margenTitle(r) + ' ' + margenCompraTitle(r)">{{ cf.txt }}</span> }@if (perdida(r); as pd) { <span class="pr-bflag pr-bflag-warn" [title]="perdidaTitle(r)">perdió {{ dineroCorto(pd.total) }}</span> }@if (pendiente(r); as pq) { <span class="pr-bflag pr-bflag-pend" [ngClass]="pq.documentos > 1 ? 'pr-bflag-bad' : ''" [title]="pendienteTitle(r)">ya requisado {{ pq.cajas | number:'1.0-1' }} {{ etOf(r).mayor }}@if (pq.documentos > 1) { · {{ pq.documentos }} veces }</span> }</div></td>
                   <!-- Los totales son la SUMA VIVA del desglose de abajo: al editar una sucursal
                        se mueven acá. Arrancan en el sugerido del motor, que es lo mismo que
                        publicaba antes la columna por sucursal. -->
@@ -718,9 +718,9 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                       <td class="pr-r">{{ totVta(r) | number:'1.0-1' }}</td>
                                       <td class="pr-r">{{ totExis(r) | number:'1.0-1' }}</td>
                                       <td></td>
-                                      <td class="pr-r"><span class="pr-tra-in">@if (prodTrCajas(r.product_id) > 0) { +{{ prodTrCajas(r.product_id) | number:'1.0-1' }} cj }</span></td>
+                                      <td class="pr-r"><span class="pr-tra-in">@if (prodTrCajas(r.product_id) > 0) { +{{ prodTrCajas(r.product_id) | number:'1.0-1' }} {{ etOf(r).mayor }} }</span></td>
                                       <!-- [PQ.36] El total en cajas Y en la unidad base: «50 cj = 400 pz» se lee antes de mandar. -->
-                                      <td class="pr-r">{{ sumCajas(r) | number:'1.0-1' }} cj@if ((+r.uxc || 1) > 1 && sumCajas(r) > 0) { <span class="pr-muted"> = {{ piezasDeCajas(sumCajas(r), +r.uxc) | number:'1.0-0' }} {{ unidadBase(r) }}</span> }</td>
+                                      <td class="pr-r">{{ sumCajas(r) | number:'1.0-1' }} {{ etOf(r).mayor }}@if ((+r.uxc || 1) > 1 && sumCajas(r) > 0) { <span class="pr-muted"> = {{ piezasDeCajas(sumCajas(r), +r.uxc) | number:'1.0-0' }} {{ unidadBase(r) }}</span> }</td>
                                       @if (verDetalle(r.product_id)) { <td></td> }
                                       <td></td>
                                       @if (verDetalle(r.product_id)) { <td></td> }
@@ -987,7 +987,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
               <section class="pr-cart-g" [attr.aria-label]="'Proveedor ' + g.nombre">
                 <header class="pr-cart-gh">
                   <strong>{{ g.nombre }}</strong>
-                  <span class="pr-muted">{{ g.items.length }} producto{{ g.items.length === 1 ? '' : 's' }} · {{ g.cajas | number:'1.0-1' }} cj</span>
+                  <span class="pr-muted">{{ g.items.length }} producto{{ g.items.length === 1 ? '' : 's' }}@if (unidadComun(g.items); as u) { · {{ g.cajas | number:'1.0-1' }} {{ u }} }</span>
                   <span class="pr-bulk-sp"></span>
                   <strong class="pr-cart-m">{{ money(g.valor) }}</strong>
                 </header>
@@ -1001,7 +1001,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                         <span class="pr-cart-nom">{{ it.r.nombre }}</span>
                         <span class="pr-sku">{{ it.r.sku }}</span>
                         @if (!it.entra) { <span class="pr-bflag" title="Sin cantidad para pedir ni traspasar: no se genera nada de este producto.">sin cantidad — no entra</span> }
-                        @if (pendiente(it.r); as pq) { <span class="pr-bflag pr-bflag-pend" [ngClass]="pq.documentos > 1 ? 'pr-bflag-bad' : ''" [title]="pendienteTitle(it.r)">ya requisado {{ pq.cajas | number:'1.0-1' }} cj</span> }
+                        @if (pendiente(it.r); as pq) { <span class="pr-bflag pr-bflag-pend" [ngClass]="pq.documentos > 1 ? 'pr-bflag-bad' : ''" [title]="pendienteTitle(it.r)">ya requisado {{ pq.cajas | number:'1.0-1' }} {{ etOf(it.r).mayor }}</span> }
                       </div>
                       <div class="pr-cart-d">
                         <span class="pr-muted">{{ it.sucursales }} sucursal{{ it.sucursales === 1 ? '' : 'es' }} · {{ it.cajas | number:'1.0-1' }} {{ etOf(it.r).mayor }}@if (it.traspaso > 0) { · traspaso {{ money(it.traspaso) }} }</span>
@@ -1893,7 +1893,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
        hace dudar de dónde sale un desalineo cuando se audita. */
     :host ::ng-deep .pr-wb th.pr-ped-h { color: var(--action); }
     .pr-ped { font-variant-numeric: tabular-nums; }
-    .pr-ped-on { color: var(--action); font-weight: 600; }
+    /* [PQ.73] Antes en --action: el color de acción en cada fila no decía nada y gastaba el que marca el botón. */
+    .pr-ped-on { color: var(--text-main); font-weight: 600; }
     .pr-uxc { line-height: 1.15; }
     .pr-unit { font-size: var(--fs-nano); color: var(--text-faint); }
     .pr-unit2 { font-size: var(--fs-nano); color: var(--info-fg, var(--text-muted)); }
@@ -2702,6 +2703,11 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     for (const r of this.knownRows().values()) m.set(r.product_id, etiquetaUnidades(this.escInput(r)));
     return m;
   });
+  /** `[PQ.72]` La unidad que comparten todos los renglones, o `null`: sumar cajas con kilos no da un número. */
+  unidadComun(items: ReadonlyArray<{ r: WorkbookRow }>): string | null {
+    const u = new Set(items.map((it) => this.etOf(it.r).mayor));
+    return u.size === 1 ? [...u][0] : null;
+  }
   etOf(r: WorkbookRow): EtiquetaUnidades {
     return this.etMap().get(r.product_id) ?? etiquetaUnidades(this.escInput(r));
   }

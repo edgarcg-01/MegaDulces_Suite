@@ -1481,3 +1481,41 @@ describe('[PQ.44] D33: la sucursal en 0 por estar arriba del reorden lo dice, y 
     expect(montar(VACIO).componentInstance.branchFlags(suc({ exis: 3, rop: 8 }))).not.toContain('arriba del reorden');
   });
 });
+
+describe('[PQ.72] la cantidad dice la unidad de SU fila (auditoría nivel A, 2026-11-05)', () => {
+  // Medido en prod: el desglose de 17499 (se pide en kg) cerraba en «19,899 cj», y la columna se
+  // llamaba «cajas» mostrando kg y bto. Un rótulo que nombra una unidad y muestra otra se cree.
+  const FUENTE = readFileSync(join(__dirname, 'compras-pedido-real.component.ts'), 'utf8');
+
+  it('⛔ ningún total ni «ya requisado» lleva «cj» fijo', () => {
+    expect(FUENTE).not.toMatch(/sumCajas\(r\) \| number:'1\.0-1' \}\} cj/);
+    expect(FUENTE).not.toMatch(/ya requisado \{\{ pq\.cajas \| number:'1\.0-1' \}\} cj/);
+    expect(FUENTE).not.toMatch(/prodTrCajas\(r\.product_id\) \| number:'1\.0-1' \}\} cj/);
+    expect(FUENTE).not.toMatch(/Σ Ped\.<br\/>cajas/);
+  });
+
+  it('el total por proveedor sólo suma cuando todos comparten unidad (cajas + kilos no es un número)', () => {
+    const c = montar(VACIO).componentInstance;
+    const et = (mayor: string) => ({ mayor }) as never;
+    const spy = vi.spyOn(c, 'etOf');
+    spy.mockImplementation((r: { product_id: string }) => et(r.product_id === 'kg-1' ? 'kg' : 'cj'));
+    const it = (pid: string) => ({ r: { product_id: pid } as never });
+    expect(c.unidadComun([it('a'), it('b')])).toBe('cj');
+    expect(c.unidadComun([it('a'), it('kg-1')])).toBeNull();
+    expect(c.unidadComun([])).toBeNull();
+  });
+});
+
+describe('[PQ.73] el color dice algo o no se usa (auditoría nivel A, 2026-11-05)', () => {
+  const FUENTE = readFileSync(join(__dirname, 'compras-pedido-real.component.ts'), 'utf8');
+  const STRIP = readFileSync(join(__dirname, '../../../shared/components/metric-strip/metric-strip.component.ts'), 'utf8');
+
+  it('⛔ el valor de cada fila no lleva el color de acción', () => {
+    expect(FUENTE).toMatch(/\.pr-ped-on \{ color: var\(--text-main\)/);
+  });
+
+  it('⛔ la cifra en ámbar usa el tono legible (--warn-fg como texto daba 1.95:1)', () => {
+    expect(STRIP).toContain('.ms-item.tone-warn .ms-v { color:var(--warn-soft-fg); }');
+    expect(STRIP).not.toContain('.ms-item.tone-warn .ms-v { color:var(--warn-fg); }');
+  });
+});
