@@ -283,8 +283,8 @@ describe('[GX.18] las puertas del gasto en el nav', () => {
 
     /**
      * ⛔ `[LE.6.7]` D34 (Edgar, 2026-11-04: «no puede existir ventanilla y captura, debe ser un
-     * solo sistema»). La Ventanilla no tiene pestaña ni ruta propia: el día del cambio (LE.7.2)
-     * toma `/finanzas/caja-general` y Captura sale en el mismo acto. Ese día esta prueba cambia.
+     * solo sistema»). La Ventanilla no tiene pestaña ni ruta propia: toma `/finanzas/caja-general`
+     * para quien tenga la clave del cambio (`[LE.6.9]`, `caja-ventanilla-cambio.spec.ts`).
      */
     it('[LE.6.7] la Ventanilla no convive con Captura: ni pestaña ni ruta propia', () => {
       expect(CAJA_TABS.some((t) => t.route.includes('ventanilla'))).toBe(false);
@@ -292,7 +292,9 @@ describe('[GX.18] las puertas del gasto en el nav', () => {
       let rutas: string | null = null;
       for (const c of CANDIDATAS) { try { rutas = readFileSync(c, 'utf8'); break; } catch { /* siguiente */ } }
       if (rutas === null) throw new Error('NO MEDIDO: no se pudo leer app.routes.ts');
-      expect(rutas).not.toContain('finanzas-caja-ventanilla.component');
+      expect(rutas).not.toMatch(/path:\s*'[^']*ventanilla/);
+      // Y la abre UNA sola ruta, la de Caja General (la que lleva `canMatch: [trabajaEnVentanilla]`).
+      expect(rutas.split('finanzas-caja-ventanilla.component').length - 1).toBe(1);
       // Control: la pantalla existe (la prueba no pasa porque se borró lo que vigila).
       expect(fuentePagina('caja-general/finanzas-caja-ventanilla.component.ts')).toContain('app-caja-tabs');
     });
