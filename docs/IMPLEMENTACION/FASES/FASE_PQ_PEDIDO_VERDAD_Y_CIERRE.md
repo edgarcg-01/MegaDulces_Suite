@@ -1512,6 +1512,53 @@ decide el pedido: `base` y el armado de celdas sobre todo el catálogo, que la p
 los totales y el orden. Bajarlo de verdad es mantener el resultado por evento (como PQ.61 con la
 venta diaria), no reescribir la consulta: es diseño, va con su propia medición.
 
+### 17.15 PQ.55 — cuánto se abre cada vista de Pedido (2026-11-05)
+
+**La fuente no son los logs** (que seguían bloqueados), sino `analytics.ui_usage` y
+`analytics.ui_usage_users`. Las llena el interceptor de uso (`usage-metrics.interceptor.ts`) con el
+patrón de cada ruta, por día, rol y usuario, desde el 30-sep. Lectura de sólo lectura contra prod
+(sysid verificado), 30 días al 5-nov. **Control:** el 23-oct se publicó `workbook` con 3,734 hits.
+La tabla da 3,901 entre el 30-sep y el 23-oct. La diferencia cabe en el resto del día 23 y en que
+la ventana del 23-oct era más corta.
+
+⛔ **Trampa en el conteo crudo:** `worklist` da 630 hits y 22 personas, pero desde PQ.5 (23-oct)
+Pedido lo llama **cada vez que se abre**, con `pageSize: 1`, para el aviso «hoy te toca». La
+señal limpia del Ciclo es `worklist/proveedores`, que sólo carga la agenda de esa pestaña. Las
+otras tres también pueden cargar solas al restaurar la última vista guardada, así que sus cifras
+son un **techo**.
+
+| Vista | Llamadas en 30 d | De roles de Compras | Personas sin contar superadmin | Desde |
+|---|---:|---:|---:|---|
+| Pedido (`workbook`) | 5,994 | 4,996 | 23 | — |
+| Ciclo (agenda, `worklist/proveedores`) | 26 | 22 | 3 | 23-oct (nació con PQ.4) |
+| Stock muerto (`dead-stock`) | 20 | 13 | 4 | — |
+| Sobrante (`sobrante`) | 8 | 3 | 4 | — |
+| Flujo (`purchase-flow`) | 4 | 1 | 1 | último uso 22-oct |
+
+**Lectura.** Por cada vez que alguien de Compras abre Sobrante, abre Pedido más de mil veces. El
+Ciclo es distinto: su agenda existe desde hace 13 días, la abrieron tres compradores en seis días, y
+el aviso de Pedido es lo que lleva a ella. Se deja y se vuelve a medir el 5-dic.
+
+**D34 (propuesta, sin firma).** Quitar de Pedido las pestañas Stock muerto, Sobrante y Flujo:
+- **Sobrante** entra a la fila con PQ.UI.11: la celda ya trae `surplus_network` y `transfer_in`.
+- **Stock muerto** tiene su pantalla en `/almacen/dead-stock`. Antes de quitarlo hay que comparar
+  las dos fuentes (`replenishment/dead-stock` contra `analytics/dead-stock`), porque no son el mismo
+  endpoint.
+- **Flujo** se queda en su ruta propia.
+
+El corte lo hace **PQ.71**, una vez que la auditoría en pantalla (PQ.56) confirme que nada que
+importe vive sólo ahí. Lo que se gana: cinco vistas pasan a dos, y ~210 líneas de plantilla salen
+del componente (Sobrante 166, Stock muerto 38, Flujo 3; la lógica que las carga, NO MEDIDA). La
+ganancia es de comprensión (dos pestañas menos que nadie abre), no de tamaño.
+
+**De paso, la línea base real de PQ.10.** Es lo que ve la gente, antes del primer paso (que todavía
+no está desplegado):
+- `workbook` promedia 1.6–1.8 s por día de trabajo, del 26-oct al 5-nov.
+- Su máximo diario va de 4 a 10 s.
+- En los 30 días hubo una llamada de 192 s.
+
+Cuando PQ.10 llegue a prod, ésta es la cifra contra la que se compara, con la misma tabla.
+
 ---
 
 ## 18. Unidades de medida al 100 %: verificado o con dueño (2026-11-04)
@@ -1661,6 +1708,7 @@ de hoy de esos 65 productos se cuenta distinto que su historia hasta que se cier
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-05 | **PQ.55 ✅** (§17.15), medido desde `analytics.ui_usage` (no hacían falta los logs). En 30 días, Compras abrió Pedido 4,996 veces, Stock muerto 13, Sobrante 3 y Flujo 1. La agenda del Ciclo, que nació el 23-oct, la abrieron 3 compradores: se deja y se re-mide. El conteo crudo de `worklist` engaña porque el aviso de PQ.5 lo llama al abrir Pedido. Nace **D34** (sin firma: quitar las tres pestañas) con **PQ.71**, que espera a PQ.56. **PQ.49** pasa a ✅ (la medición ya estaba en §17.5). Línea base real de PQ.10: `workbook` promedia 1.6–1.8 s en uso | Claude |
 | 2026-11-04 | **PQ.10 primer paso** (§17.14): escalera y etiquetera se leen sólo para los renglones devueltos, y el factor de caja se une directo a su tabla. Respuesta idéntica en 10 escenarios; la red 2.67 → 2.20 s, un proveedor 1.55 → 0.99 s, una sucursal 1.37 → 0.79 s. El primer intento (unirlas en SQL) subía el caso con proveedor a 19 s y se descartó. Sigue 🔨: lo que queda decide el pedido. Mismo día: PQ.44/50/68/69/70 y 28 renglones más de PQ verificados en prod y pasados a ✅ en el tracker. | Claude |
 | 2026-11-04 | **PQ.44 🧪** (`3ea70328e`, §17.13): la sucursal que sale en 0 porque el reorden frenó algo que sí faltaba dice «arriba del reorden», y sólo ahí. El motor la marca con la misma cantidad que decide el pedido: 1,075 de 25,564 celdas. El primer intento (comparar en pantalla) la habría puesto en la mitad de la grilla | PM + sesión Claude |
 | 2026-11-04 | **PQ.44 D26 y D25** (§17.13). D26 (`95f1b7d3c`): lo que llega por traspaso no se infla por cumplimiento; 606 → 280 renglones de diferencia, Pedido $21.4 M → $20.8 M. D25 (`d9660bdd4`): Pedido abre con la cobertura de cada sucursal; en la red $22.68 M → $20.71 M frente a 30 días fijos; control 0 diferencias en 25,296 renglones. Falta explicar en pantalla la celda en 0 | PM + sesión Claude |
