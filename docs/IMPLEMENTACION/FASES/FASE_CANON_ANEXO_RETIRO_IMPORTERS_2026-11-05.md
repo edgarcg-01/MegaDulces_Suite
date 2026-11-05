@@ -82,6 +82,23 @@ desplegada). **El después:** tras esa noche, el dry-run de `import-margin` debe
 
 `import-pos-ticket-sales` sigue siendo tabla: volverla vista pide borrarla (D2).
 
+## 2c. Oleada 2 — respaldos que repetían al hop-2 (CANON.5.7, 2026-11-05)
+
+El hop-2 de `services/feeds-ingest/apply-handlers.js` llama a las mismas funciones de
+`ods-derived.js` cada vez que cambia `kdii`, `kdik` o `kdpv_prod_util`. El nocturno las volvía a
+pasar sobre todos los SKUs. Medido en `analytics.cron_run_log` (30 días):
+
+| Paso nocturno | Noches que escribieron | Decisión |
+|---|---|---|
+| `import-box-factor` | 1 de 33 (2 filas, 5-oct). El hop-2 escribió 516 filas en el mes | **retirado** |
+| `import-reorder-policy` | 0 de 34 | **retirado** (misma ruta de código que box-factor) |
+| `repoint-catalog-cost` | 2 de 33 (el 30-oct atrapó un costo que el hop-2 no vio) | se queda como red |
+| `import-box-price` | la mayoría (depende de `factor_sale` de la app, que no dispara el hop-2) | se queda |
+| `repoint-catalog-presence` | 1 de 29 | se queda |
+
+De paso, `test-newdb-master-data-history.js` estaba rojo desde PURGA.P1 por un archivo borrado
+(`import-kepler-prices`): la lista se corrigió.
+
 ## 3. Los 51, clasificados
 
 **Leyenda.** **Lee:** `ods` = `kepler_ods` · `réplicas` = bases `md_*` por sucursal · `mart` = el
@@ -194,6 +211,14 @@ se decide dinero: margen, pagos, precios»), no de un monto.
   01–08 tienen **487 ajustes X-D-40/55 propios en 2026** que la tabla nunca leyó. Su monto **NO
   está validado**: en las sucursales `c16` no parece significar lo mismo (147 ajustes de la 01
   suman casi lo mismo que los 1,690 del CEDIS). Ampliar el universo es cambio de alcance.
+- **H11 — El hop-2 escribe datos maestros sin declarar actor.** `services/feeds-ingest/` no llama
+  a `declararActor`: lo que escribe en `catalog.products`, `commercial.reorder_policy` y demás
+  queda en `analytics.master_data_history` como anónimo.
+- **H12 — H6 está activo y medido: dos escritores se pelean.** En 30 días `repoint-catalog-names`
+  corrigió «1 identidad» **las 29 noches**, y `import-product-barcodes` escribió en **953 de 1,417**
+  corridas de media hora. Lo esperable en un respaldo es cero. Con el hop-2 aplicando la regla
+  contraria (CEDIS primero, `c7` crudo), lo más probable es un vaivén. Hay que unificar la regla
+  (CANON.1.3: retail primero) **en el hop-2**, no apagar el respaldo.
 - **H8 — Duplicados de significado**: `product_sales_daily` contra `sales_daily` (otro linaje),
   `stock_ledger` contra `stock_movements`, y `transfers_monthly` contra los traspasos de
   `stock_movements`.
