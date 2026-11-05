@@ -600,6 +600,41 @@ cambios y borrados de Postgres (`pg_stat_user_tables`) de las 360 tablas. Contro
 cambió. **Protocolo:** foto → Tesorería captura UN pago en Kepler → foto → comparar. La diferencia es el conjunto
 completo de escrituras. **El pedido de `GRANT` no se manda hasta tener esa lista**, para no pedir permisos dos veces.
 
+#### ⭐⭐ Deducido por ingeniería inversa (2026-11-04, a pedido de Edgar): lo que escribe una transferencia a proveedor
+
+**Las fuentes:** (1) en el Kepler vivo **no hay ningún disparador, función ni regla** en `md`, así que todo lo escribe el
+programa cliente; (2) los contadores de las 360 tablas desde que el servidor arrancó (2026-11-04 10:24): **sólo 46 tablas
+se escribieron, y las 46 están replicadas en el ODS**, así que las 118 que el ODS no ve no se tocan en la operación normal;
+(3) cada hipótesis se probó contra el estado acumulado de las tablas.
+
+| # | Escritura | Regla deducida | Prueba |
+|---|---|---|---|
+| 1 | INSERT `kdm1` | el documento (decodificado arriba) | 471 / 471 |
+| 2 | INSERT `kdm5` × N | un renglón por factura: `c7` renglón · `c8 c9 c10 c11` la factura · `c12`=`c13` aplicado · `c14` referencia | 471 / 471 |
+| 3 | INSERT `kdxe` | el renglón `D` | 471 / 471 |
+| 4 | INSERT `kdxf` × N | las aplicaciones | 471 / 471 |
+| 5 | UPDATE `kdxe.c20` × N | saldo de cada factura − aplicado | 2,075 / 2,083 |
+| 6 | UPDATE `kdxg` | acumulado del acreedor por mes: **abonos** en `c35`–`c46` (ene–dic) += importe. Cargos en `c47`–`c58` | 229 / 229 acreedores en octubre (y todos los meses); **los contadores: 1,358 cambios en `kdxg` = 1,358 inserciones en `kdxe`** |
+| 7 | INSERT `kdc2AAMM` | la póliza del mes, tipo `E`, número **MAX+1 por mes y tipo** (octubre: 1..1,070 sin huecos, en orden de captura): un abono `102` por el total y un cargo `201` por factura | 131 / 131 pagos de octubre |
+| 8 | UPDATE `kdc126` | acumulados de la cuenta por mes: **cargos** `c27`–`c38`, **abonos** `c63`–`c74` (+ un segundo juego `c51`–`c62` / `c75`–`c86` casi igual) → `201` cargo y `102` abono del mes | octubre al centavo en `102` y `201` |
+
+**No los toca:** `kdcn26` (acumulados por centro de costo: ninguna clave es cuenta 102/201, y ningún pago a compra trae
+renglones `kdm6`), `kdm2`, `kdm6`, la entrada `kdm1` de la factura (`c42` = total en 8,609 de 8,609). **No deducido:**
+`kdxg.c5` (casa con el saldo sólo en 42 %), qué es el segundo juego de `kdc126` (¿lo «afectado»?) y si `kdc2AAMM` lleva
+renglones de IVA en algún caso.
+
+⭐ **Y una pista mayor:** `kdmx_26` guarda el **XML del motor de documentos de Kepler** (`k_docXml`: `Operacion ALTA`, los
+campos `k_67`, `k_81`… que son las columnas de `kdm1`, y la póliza armada con su `npoliza`) para la nota de crédito
+(`X-D-55`), el anticipo a proveedor (`X-D-60`) y `X-A-45`. Kepler tiene un motor que recibe un documento en XML y
+escribe **todo** lo de esta tabla. **Si ese motor se puede llamar desde fuera, la Suite no tendría que reproducir 8
+escrituras ni la contabilidad de Kepler**: le mandaría el documento y Kepler haría lo suyo. Es la pregunta al proveedor
+de Kepler antes de seguir con el adaptador directo.
+
+⛔ **Lo que esto cambia:** escribir el pago directo en las tablas ya no son 4 escrituras sino 8, tres de ellas
+**contables** (póliza numerada y dos juegos de acumulados). Un error ahí descuadra la balanza de Kepler. El adaptador de
+C2 cubre 1, 3, 4 y 5; le faltan 2, 6, 7 y 8, y el pedido de `GRANT` crece a `kdm5`, `kdxg`, `kdc2AAMM` (una tabla
+por mes) y `kdc126`.
+
 ### C1 · Dominio
 
 | # | Item | Estado | Prueba que lo ejerce |
