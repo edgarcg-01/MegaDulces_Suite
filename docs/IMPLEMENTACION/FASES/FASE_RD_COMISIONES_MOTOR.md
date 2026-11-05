@@ -762,19 +762,9 @@ desarrollador: mientras lo necesite, **el proceso no está aquí**, está en el 
   umbral: no cobra). Contraste de Q22 con el libro: NO MEDIDO hasta tener el libro.
   - **D3 para Q22 = opción A (Edgar, 2026-11-04): la suite paga SÓLO a los choferes; el
     supervisor se paga por fuera, como hasta hoy.** Las líneas `supervisor` de la corrida no se
-    depositan. ⚠️ **Deuda con nombre `[RD.108]`**: `setStatus('pagado')` marca la corrida
+    depositan. ⚠️ **Deuda con nombre `[RD.105]`**: `setStatus('pagado')` marca la corrida
     entera — no hay forma de decir «el supervisor se pagó fuera», así que el registro afirma
     más de lo que la suite pagó; hasta que exista, la corrida de Q22 se lee con esta nota.
-    *(Nació como `[RD.105]` y chocaba con el bono de asistencia; renumerada el 4-nov.)*
-  - ⭐ **Antes de aprobar, se corre `[RD.110]`** — `database/tests/test-newdb-rd-quincena-lista-para-pagar.js`,
-    sólo lectura: una corrida viva y del motor · toda ruta con chofer · cada ruta con venta cada
-    día operado · la venta de la corrida = la de la fuente HOY (con su control: quitar un día
-    TIENE que marcar) · el corte de caja de la camioneta como testigo · aprobar y pagar con una
-    persona activa · el monto del supervisor separado. Medido el 4-nov a las ~19 h sobre Q22
-    (sin corrida todavía): rojo por la 505 sin chofer y por la 502 y la 504 sin el 4-nov; el
-    testigo cuadra 67 de 71 días; aprobar y pagar tienen persona. Sobre Q21: el comparador
-    marcó 8 rutas falsas en su primera versión (líneas `fuera_no_es_camion`) — corregido.
-    `ANIO=2026 QUINCENA=22 node database/tests/test-newdb-rd-quincena-lista-para-pagar.js`
   - **Quién calcula Q22: el automático de las 07:30 del 5-nov** (`[RD.87]`,
     `commission-auto-run.service.ts`): corre después del refresco de las 06:20 y sólo si la fuente
     de todas las rutas vigentes está viva; deja `borrador`, nunca aprueba. ⛔ **Nadie oprime
@@ -1090,6 +1080,37 @@ universo; (3) accesibilidad: cada motivo con su explicación (`tipPctChofer`, `t
   (vigencia desde el inicio de la catorcena) y da de alta cada ruta vecinal con chofer, supervisor y
   nómina; Edgar decide margen ≥ 25 % (4 % o 0 %: el libro da FALSO) y la familia de 2V001.
 
+**`[RD.103.0]` El libro vecinal de Padre Hidalgo, contrastado contra Kepler (2026-11-04, sólo lectura):**
+hoja de Comercial «COMISIONES RV PADRE HIDALGO 2026», pestaña vecinal, catorcenas 1–22. ⛔ Trae
+nombres y sueldo base de banco por persona: **nunca al repo**; acá sólo rutas y reglas.
+
+*Lo que confirma:* la **misma regla que Morelia** — escalón por markup (12.52 % → 2.95 %, 14.85 % →
+3.13 %, 18.00 % → 3.41 %, 18.13 % → 4.00 %: mismos cortes), 80 % vendedor / 20 % supervisor sobre el
+subtotal, sueldo base descontado. Y la base es la de la suite: **la columna de la vendedora 43 es
+1V002, tickets `U-D-10` neto, del 22-oct al 3-nov, al centavo** (`$102,244.91` en los dos lados).
+
+*Los cinco defectos que encontramos en el libro* — cada uno con lo que la suite hace para no repetirlo:
+
+| # | Defecto del libro (medido) | Cómo lo evita la suite | Estado |
+|---|---|---|---|
+| L1 | **La tabla del supervisor de Q22 suma UNA ruta, no las dos**: en Q20 y Q21 su comisión es la suma de la parte de cada ruta, al centavo; en Q22 copia sólo la de 1V002 (38 % de lo que su propia regla da). Una fórmula que no se arrastró, y nadie la ve porque el número es plausible | La línea del supervisor se calcula **por ruta** y el neto por persona es la suma de esas líneas: no hay una celda que arrastrar | ✅ por construcción. ⚠️ Q22 el supervisor se paga **fuera** de la suite (D3 opción A), o sea con el libro: avisar a Comercial antes de pagar |
+| L2 | **Se armó antes de cerrar la catorcena**: corta el 3-nov y la catorcena termina el 4 (a 1V002 le faltan $7,954 de venta) | El motor no calcula un periodo con `to > hoy` (`[RD.87]`): el automático corre a las 07:30 del día siguiente al cierre | ✅. ⚠️ La compuerta de frescura pasa con **una** ruta al día: 502 y 504 no tenían el 4-nov a las 18:40 (deuda de RD.104) |
+| L3 | **El costo de Q14–Q19 es inventado**: las dos rutas, seis catorcenas seguidas, con markup **exacto** de 16.95 % (costo = subtotal ÷ 1.1695). El escalón depende del markup, así que esas catorcenas se pagaron con un escalón supuesto | El costo es `qty × kdii.c77` y cada día **declara** si está completo (`estandar_kepler_hoy` / `_incompleto`); sin costo, la ruta sale `sin_costo` y no paga | 🟡 Declarado, pero un costo **incompleto** sube el markup (falta costo → markup mayor → escalón mayor) y el motor igual escalona. Deuda con nombre: medir la cobertura del costo por ruta-catorcena y no escalonar debajo de un umbral |
+| L4 | **La columna del vendedor 41 trae venta que Kepler no tiene a nombre de 1V001**: +$27 k en Q22, +$40 k en Q20, +$56 k en Q21. No casa con ninguna ventana de 1V001, ni con otro tipo de documento (`U-D-5`, `U-D-8`, `U-D-12`, `U-D-40/41`, `U-A-7`), ni con otra sucursal | La venta sale **sólo de Kepler, por ruta**. Lo que el libro suma por fuera entra como **ajuste con motivo** (`[RD.104]`), no se copia | ✅ regla. ⬜ Preguntar a Comercial de dónde sale esa venta (`rd.vecinal.*` en DP) |
+| L5 | **La misma regla, dos fórmulas**: con la comisión debajo del sueldo base, una columna dice «NO APLICA» y la otra publica el negativo (−$178.93, −$590.53, −$69.69) | ⚠️ **La suite tiene el mismo hueco**: `a_pagar = comisión + bonos − nómina` puede salir negativo, y `total_a_pagar` lo **resta** del total de la corrida. Medido: 0 líneas negativas en Q1–Q21 de Ruta Directa (nunca se activó), pero en vecinal sí pasa | ⬜ **D-V4, para Edgar**: recomendación, la línea paga `max(0, …)` y el negativo se **declara** (`comision_bajo_sueldo_base`), nunca se descuenta de otra persona ni de otra catorcena |
+
+*Errores nuestros al contrastar, para no repetirlos:*
+- ⛔ **Persona ≠ ruta.** La columna 43 casa al centavo con 1V002 **en Q22** y **no** en Q20 ni en Q21
+  (ninguna ventana da su importe), y la 41 no es 1V001 en ninguna. Antes de comparar escalones,
+  casar la columna contra Kepler **al centavo y por ventana** (`analytics.v_kepler_vecinal_sales_docs`,
+  `U-D-10`, `c12` = ruta); si no casa, la diferencia es de **base**, no de regla.
+- ⛔ **El periodo del libro no es el del calendario por omisión**: probar la ventana con y sin el
+  último día antes de concluir.
+- ⛔ **Los códigos del libro (41, 42, 43) no están en `kduv`**: no son el `c12` de Kepler. La llave
+  es la ruta (`1V00N`), no el número de la persona.
+- El tercer vendedor (42) no tiene venta vecinal en todo 2026: en Kepler es chofer de Ruta Directa
+  (`01-004`). Una columna vacía no es una ruta caída.
+
 **Decisiones (las tomo y las anuncio; Edgar firma):**
 - **D-V1. La propuesta nunca se aplica sola.** Se guarda como propuesta (D2 de la fase DP) con su
   fuente («calculada por el sistema el <fecha> con Q14–Q21»); sólo una versión estrenada por una
@@ -1128,9 +1149,7 @@ Las preguntas de esta tabla ya viven ahí como 17 filas de `platform.business_de
 (`consumer = 'commercial.commissions'`), sin dueño todavía. `[RD.103]`–`[RD.106]` las LEEN; no
 las vuelven a preguntar.
 
-#### `[RD.109]` ⬜ La quincena se cierra DÍA POR DÍA (Edgar, 2026-11-04)
-
-*(Nació como `[RD.106]`, que ya era el cobro de faltante; renumerada el 4-nov.)*
+#### `[RD.106]` ⬜ La quincena se cierra DÍA POR DÍA (Edgar, 2026-11-04)
 
 > *«Ya sabemos la venta por día y podemos ir trabajando día por día.»* — Edgar, al ver la trampa
 > de Q22 (calcular el 4-nov congela el día a medias). La unidad de verificación es el **día de
@@ -1173,7 +1192,7 @@ motor (`v_rd_commission_sales`, por ruta y día) contra el **corte de caja de su
 - La quincena se aprueba cuando **todos** sus días están cerrados; con eso desaparece la trampa
   de la hora (`to > hoy`) y el automático de las 07:30 deja de ser el que decide.
 - Lo que llega después de pagar va como **ajuste** a la quincena siguiente, nunca reescribe lo
-  pagado; el mismo ajuste registra lo pagado por fuera (`[RD.108]`).
+  pagado; el mismo ajuste registra lo pagado por fuera (`[RD.105]`).
 
 ### 9.5 Lo que necesita firma antes de que el motor pague
 
