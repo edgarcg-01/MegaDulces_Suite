@@ -135,6 +135,26 @@ describe('[MCP.3.16] catálogo · con stock_state=1', () => {
     }
   });
 
+  /** `[MCP.11]` Las promociones son productos de Kepler a $0.01 con existencia 0 por construcción. */
+  it('⭐ una promoción («= GRATIS») viaja marcada y SIN estado: nunca «agotado»; un producto en cero sigue agotado', async () => {
+    const conPromo = [
+      ...filas,
+      { product_id: 'promo', sku: '00196', product_name: '2 WAFER = GRATIS 1 MAS', stock_medible: true, stock_con_registro: true, stock_qty: 0, stock_twin_product_id: null },
+    ];
+    const { svc } = montar({ filas: conPromo });
+    const r = await listar(svc, { warehouseId: ALMACEN, stockState: true });
+    const por = new Map(r.data.map((f) => [f['product_id'], f]));
+    expect(por.get('promo')).toMatchObject({ is_promo: true, stock_state: null, stock_available: null });
+    // CONTROL: el producto normal en cero sigue «agotado» y no se marca como promoción.
+    expect(por.get('cero')).toMatchObject({ is_promo: false, stock_state: 'agotado' });
+  });
+
+  it('[MCP.11] sin stock_state la marca de promoción también viaja (la pantalla la usa al buscar)', async () => {
+    const { svc } = montar({ filas: [{ product_id: 'promo', sku: '00196', product_name: '2 WAFER = GRATIS 1 MAS' }] });
+    const r = await listar(svc, { warehouseId: ALMACEN });
+    expect(r.data[0]).toMatchObject({ is_promo: true });
+  });
+
   it('⛔ lectura de la sucursal vieja: todo sin_dato, ningún número viejo y el orden pedido intacto', async () => {
     const { svc, reg } = montar({ filas, alDia: false });
     const r = await listar(svc, { warehouseId: ALMACEN, stockState: true });

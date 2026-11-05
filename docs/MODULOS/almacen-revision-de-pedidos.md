@@ -5,6 +5,21 @@ La pantalla donde la cajera revisa cada pedido de preventa que terminó el surti
 
 ---
 
+## Lo que cambia la caja lo ven todos (MCP.10.1, 2026-11-03)
+
+- **Problema:** en PD-2026-00203 (PH) el surtidor sacó 1 de 2 salsas y la caja completó la otra. El pedido quedó
+  bien, pero el vendedor seguía viendo el reporte del surtido («2 → 1» y un total menor) y el surtidor veía «2 cajas
+  surtidas», como si las hubiera sacado él.
+- **Solución:** el vendedor, en «Mis pedidos», ve el paso «Revisado en caja» (quién y a qué hora, y si la caja
+  completó o quitó algo) y «Cómo quedó el pedido»: por producto, pediste → surtió → quedó, con un solo total final.
+  El surtidor ve el pedido como «Revisado en caja» y, en cada producto que cambió, «Surtiste N · la caja dejó M».
+- **Cómo:** `GET /vendor/presale-status` trae `review` y `reviewed`; el detalle del surtido trae `picked` (lo que
+  surtió el surtidor, recuperado del reporte) y `final` (cómo quedó). Sin migración: el dato ya existía.
+- **Por qué:** las tres pantallas tienen que contar lo mismo. Si no, el vendedor le dice al cliente que algo no llegó
+  y sí se lo llevó, o el surtidor cree que surtió completo cuando faltó.
+
+---
+
 ## Revisar antes de cobrar (MCP.10, 2026-10-29)
 
 - **Problema:** en Padre Hidalgo 8 de 28 pedidos de preventa salieron con faltantes y en los 8 Kepler decía que sí

@@ -29,7 +29,7 @@ const BANDEJA = (): PresaleReviewInboxResponse => ({
 const DETALLE = (): PresaleReviewDetail => ({
   order: fila(),
   lines: [
-    { key: 'l1', product_id: 'p1', product_name: 'PALETA PAYASO GRANDE', unit: 'CJA', factor: 24, ordered: 1, picked: 1, restorable: true, stock: { state: 'con_existencia', qty: 14, checked_at: null } },
+    { key: 'l1', product_id: 'p1', product_name: 'PALETA PAYASO GRANDE', sku: '44340', unit: 'CJA', factor: 24, ordered: 1, picked: 1, restorable: true, stock: { state: 'con_existencia', qty: 14, checked_at: null } },
     { key: 'l2', product_id: 'p2', product_name: 'MAZAPAN GIGANTE 50 G', unit: 'PAQ', factor: 20, ordered: 3, picked: 2, restorable: true, stock: { state: 'con_existencia', qty: 65, checked_at: null } },
     { key: 'borrado:0', product_id: null, product_name: 'SALSA MAGA', unit: 'CJA', factor: 1, ordered: 1, picked: 0, restorable: false, stock: null },
   ],
@@ -107,10 +107,25 @@ describe('AlmacenRevisionPreventaComponent · revisión en caja (MCP.10)', () =>
     expect(texto()).toContain('Producto 1 de 3');
     expect(texto()).toContain('PALETA PAYASO GRANDE');
     expect(texto()).toContain('Deben ser 1 caja');
+    // [VTK.15] El SKU a la vista mientras revisa.
+    expect(texto()).toContain('SKU 44340');
     clic('Está bien');
     expect(texto()).toContain('Producto 2 de 3');
     expect(texto()).toContain('faltan 1 paquete');
     expect(texto()).toContain('El sistema dice que sí hay (65 paquetes)');
+  });
+
+  it('[MCP.13] el producto que puso el surtidor en lugar de otro lo dice mientras se revisa', async () => {
+    await montar(() => ({
+      order: fila(),
+      lines: [{ key: 'n1', product_id: 'p9', product_name: 'BANDERILLA CHICA', sku: '05190', unit: 'PZA', factor: 1, ordered: 1, picked: 1,
+        restorable: true, stock: null, substitutes_for: 'VIT BANDERILLA GRANDE' }],
+    }));
+    await abrir();
+    expect(texto()).toContain('En lugar de VIT BANDERILLA GRANDE · lo cambió el surtidor');
+    clic('No coincide');
+    // También mientras cuenta: sigue diciendo de dónde salió.
+    expect(texto()).toContain('En lugar de VIT BANDERILLA GRANDE');
   });
 
   it('el faltante se completa con el surtidor; el borrado sin copia sólo deja «No hay»', async () => {

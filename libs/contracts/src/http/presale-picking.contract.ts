@@ -10,7 +10,14 @@
  * entregado. "Cobrado" puede venir de la liga confirmada (la hace una persona, D2/D6 de la Fase MCP)
  * o de una DETECCIÓN: un solo ticket del cliente, posterior al surtido, con los mismos productos.
  * La detección se muestra como tal; no escribe la liga.
+ *
+ * `[MCP.10.1]` Después del surtido, la caja revisa el pedido y puede cambiarlo (completar lo que faltó,
+ * quitar lo que no hubo). La vendedora y el surtidor ven ese resultado (`review`/`reviewed`), no sólo el
+ * reporte del surtido: el reporte cuenta lo que pasó al surtir; la revisión, cómo quedó.
  */
+
+import type { PresaleReviewResult } from './presale-review.contract';
+import type { StockState } from './stock-state.contract';
 
 /** Pestañas de la bandeja. `hoy` incluye lo vencido: lo atrasado también se surte hoy. */
 export type PresalePickBucket = 'hoy' | 'manana' | 'proximos';
@@ -46,6 +53,8 @@ export interface PresalePickInboxRow {
   finished: PresalePickPerson | null;
   /** Aviso de la sucursal sin acuse. */
   unseen: boolean;
+  /** `[MCP.10.1]` Quién lo revisó en caja y cuándo; `null` = sin revisar. Opcional por compatibilidad. */
+  reviewed?: PresalePickPerson | null;
   /**
    * `[MCP.3.13]` Pedido agrupado: folio del pedido PRINCIPAL del grupo (el del vendedor; si este
    * renglón es el principal, su propio folio). `null` = pedido suelto. Opcional por compatibilidad.
@@ -83,8 +92,15 @@ export interface PresalePickLine {
   unit: string;
   /** Piezas de unidad base por unidad mostrada (1 si no hay sello). */
   factor: number;
-  /** Lo que se marcó al surtir (en la unidad mostrada). `null` = el pedido no se ha cerrado. */
+  /**
+   * Lo que se marcó al surtir (en la unidad mostrada). `null` = el pedido no se ha cerrado.
+   * `[MCP.10.1]` Es lo que surtió el SURTIDOR, aunque después la caja lo haya completado.
+   */
   picked: number | null;
+  /** `[MCP.10.1]` Cómo quedó en el pedido tras la revisión en caja; `null`/ausente = sin revisar. */
+  final?: number | null;
+  /** `[MCP.13]` Este renglón lo puso el surtidor EN LUGAR de otro que no hubo; ausente = no es sustituto. */
+  substitutes?: { product_name: string; sku: string | null } | null;
 }
 
 export interface PresalePickDetail {
@@ -94,7 +110,65 @@ export interface PresalePickDetail {
 
 export interface PresalePickFinishRequest {
   /** Una entrada por cada renglón del pedido: lo que sí hubo, en la unidad mostrada. */
-  lines: Array<{ line_id: string; picked: number }>;
+  lines: Array<{ line_id: string; picked: number; substitute?: PresalePickSubstituteChoice | null }>;
+}
+
+/**
+ * `[MCP.13]` Lo que el surtidor puso en lugar de lo que faltó de un renglón: otro producto, en una
+ * de sus unidades (PZA, PAQ, CJA…). Se cobra a SU precio de Kepler en la sucursal del pedido.
+ */
+export interface PresalePickSubstituteChoice {
+  product_id: string;
+  /** En la unidad `unit` del sustituto. */
+  quantity: number;
+  /** Rótulo de una unidad del sustituto (de `PresaleSubstituteCandidate.units`). */
+  unit: string;
+}
+
+/** `[MCP.13]` Un cambio de producto hecho al surtir, como queda en el reporte. */
+export interface PresalePickSubstitution {
+  /** El renglón nuevo del pedido (el sustituto). */
+  line_id: string;
+  /** El renglón que faltó. En `removed` ya no existe; en `adjusted` sigue con lo que sí hubo. */
+  for_line_id: string;
+  for_product_name: string;
+  for_sku: string | null;
+  product_id: string;
+  product_name: string;
+  sku: string | null;
+  quantity: number;
+  unit: string;
+  line_total: number;
+}
+
+/** `[MCP.13]` Una unidad en que se puede surtir el sustituto, con su precio de lista (IVA incluido). */
+export interface PresaleSubstituteUnit {
+  unit: string;
+  /** Piezas de unidad base por unidad. */
+  factor: number;
+  price: number | null;
+}
+
+/** `[MCP.13]` Un producto que se puede poner en lugar del que faltó. */
+export interface PresaleSubstituteCandidate {
+  product_id: string;
+  sku: string | null;
+  product_name: string;
+  units: PresaleSubstituteUnit[];
+  /** Existencia en la sucursal del pedido, en unidad base. `null` = sin dato (no se pudo medir). */
+  stock_qty: number | null;
+  stock_state: StockState;
+  /** Por qué se sugiere: comparte palabras del nombre, es del mismo proveedor, o lo buscó el surtidor. */
+  match: 'nombre' | 'nombre_y_proveedor' | 'proveedor' | 'busqueda';
+}
+
+export interface PresaleSubstituteResponse {
+  for_line_id: string;
+  for_product_name: string;
+  /** Lo que faltó, en la unidad del renglón original. */
+  missing: number;
+  unit: string;
+  data: PresaleSubstituteCandidate[];
 }
 
 export interface PresalePickReportLine {
@@ -134,6 +208,8 @@ export interface PresalePickReport {
   removed: PresalePickReportLine[];
   /** Renglones que se ajustaron a lo que hubo. */
   adjusted: PresalePickReportLine[];
+  /** `[MCP.13]` Lo que el surtidor cambió por otro producto. Ausente en reportes de antes del cambio. */
+  substituted?: PresalePickSubstitution[];
   total_before: number;
   total_after: number;
 }
@@ -171,6 +247,9 @@ export interface PresaleSellerOrder {
   started: PresalePickPerson | null;
   finished: (PresalePickPerson & { outcome: 'completo' | 'con_faltantes' }) | null;
   report: PresalePickReport | null;
+  /** `[MCP.10.1]` La revisión en caja (cómo quedó cada producto y el total final); `null` = sin revisar. */
+  review?: PresaleReviewResult | null;
+  reviewed?: PresalePickPerson | null;
   charge: PresaleSellerCharge | null;
   /** ISO 8601 de la entrega de conformidad, o `null`. */
   delivered_at: string | null;

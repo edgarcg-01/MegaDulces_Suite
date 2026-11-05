@@ -778,6 +778,34 @@ input:focus, textarea:focus, select:focus {
   outline-offset: 2px !important;
 }
 
+/*
+ * [VTK.14] Los BUSCADORES no se pintan de color al escribir (pedido de David, 2026-11-03). Al tocar la
+ * barra se encimaban hasta tres resaltados: el rectángulo de marca de la regla de arriba (separado 2 px,
+ * dentro de la barra redonda), el contorno propio de cada pantalla y el anillo de PrimeNG.
+ * El foco NO desaparece (WCAG 2.4.7): la barra oscurece su borde en gris, sin color.
+ * Aplica a los cuatro buscadores (tomar pedido, mi ruta, elegir ruta, clientes): todos son type="search".
+ */
+input[type="search"]:focus,
+input[type="search"]:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+  /* La señal de foco va en el MISMO bloque que apaga el contorno: el borde, en gris (check:estilos §4). */
+  border-color: var(--text-muted) !important;
+}
+.search:focus-within,
+.search-wrap input[type="search"]:focus,
+input[type="search"].search:focus {
+  border-color: var(--text-muted) !important;
+}
+/* …y la BARRA completa: `libs/design-tokens/tokens.css` le pone un anillo de `--action` con
+   `.vendor-shell .search:focus-within` (la captura de David en «Buscar cliente»). Se apaga aquí, en la
+   app del vendedor, y no en tokens.css, que comparten las tres apps. Los botones conservan su anillo. */
+.vendor-shell .search:focus-within,
+.vendor-shell .search-wrap:focus-within {
+  outline: none !important;
+  border-color: var(--text-muted) !important;
+}
+
 /* Override PrimeNG fonts to use design-system body font */
 .p-component {
   font-family: var(--font-body) !important;

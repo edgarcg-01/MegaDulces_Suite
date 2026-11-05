@@ -159,6 +159,8 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
                   <section class="rv-actual" aria-live="polite">
                     <span class="rv-flecha">▶ REVISANDO · CONTAR</span>
                     <span class="rv-nombre">{{ l.product_name }}</span>
+                    @if (l.sku) { <span class="rv-sku">SKU {{ l.sku }}</span> }
+                    @if (l.substitutes_for) { <span class="rv-en-lugar"><i class="pi pi-sync" aria-hidden="true"></i> En lugar de {{ l.substitutes_for }} · lo cambió el surtidor</span> }
                     <span class="rv-pregunta">¿Cuántos vienen?</span>
                     <div class="rv-paso">
                       <button type="button" (click)="mover(-1)" aria-label="Uno menos"><i class="pi pi-minus" aria-hidden="true"></i></button>
@@ -172,6 +174,8 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
                   <section class="rv-actual">
                     <span class="rv-flecha">▶ REVISANDO</span>
                     <span class="rv-nombre">{{ l.product_name }}</span>
+                    @if (l.sku) { <span class="rv-sku">SKU {{ l.sku }}</span> }
+                    @if (l.substitutes_for) { <span class="rv-en-lugar"><i class="pi pi-sync" aria-hidden="true"></i> En lugar de {{ l.substitutes_for }} · lo cambió el surtidor</span> }
                     <span class="rv-cant">Deben ser <span class="rv-mono">{{ cantidadTexto(l.ordered, l.unit) }}</span></span>
                     <button type="button" class="rv-btn rv-btn-ok" (click)="hacer(l, { tipo: 'bien' })">Está bien <i class="pi pi-check" aria-hidden="true"></i></button>
                     <button type="button" class="rv-btn" (click)="contar(l)">No coincide</button>
@@ -180,6 +184,8 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
                   <section class="rv-actual rv-actual-falta">
                     <span class="rv-flecha">▶ REVISANDO · FALTÓ{{ marca(l)?.despues ? ' · SIGUE ESPERANDO' : '' }}</span>
                     <span class="rv-nombre">{{ l.product_name }}</span>
+                    @if (l.sku) { <span class="rv-sku">SKU {{ l.sku }}</span> }
+                    @if (l.substitutes_for) { <span class="rv-en-lugar"><i class="pi pi-sync" aria-hidden="true"></i> En lugar de {{ l.substitutes_for }} · lo cambió el surtidor</span> }
                     <span class="rv-falta">Se pidieron {{ l.ordered }} y vienen {{ marca(l)!.vienen }}: faltan {{ cantidadTexto(faltan(l), l.unit) }}</span>
                     <span class="rv-hay" [class.rv-hay-no]="l.stock?.state !== 'con_existencia'">{{ textoExistencia(l) }}</span>
                     @if (l.restorable) {
@@ -198,6 +204,8 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
                   <section class="rv-actual rv-actual-sobra">
                     <span class="rv-flecha">▶ REVISANDO · VINO DE MÁS</span>
                     <span class="rv-nombre">{{ l.product_name }}</span>
+                    @if (l.sku) { <span class="rv-sku">SKU {{ l.sku }}</span> }
+                    @if (l.substitutes_for) { <span class="rv-en-lugar"><i class="pi pi-sync" aria-hidden="true"></i> En lugar de {{ l.substitutes_for }} · lo cambió el surtidor</span> }
                     <span class="rv-sobra">Se pidieron {{ l.ordered }} y vienen {{ marca(l)!.vienen }}: sobran {{ cantidadTexto(sobran(l), l.unit) }}</span>
                     <span class="rv-espera">Devuélvele {{ cantidadTexto(sobran(l), l.unit) }} al surtidor.</span>
                     <button type="button" class="rv-btn rv-btn-ok" (click)="hacer(l, { tipo: 'devuelto' })">Ya los devolví <i class="pi pi-check" aria-hidden="true"></i></button>
@@ -229,6 +237,8 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
                         @if (estadoDe(x) === 'nohay') { <i class="pi pi-times" aria-hidden="true"></i> }
                         @else if (resuelto(marca(x))) { <i class="pi pi-check" aria-hidden="true"></i> }
                         {{ x.product_name }}{{ marca(x)?.despues && !resuelto(marca(x)) ? ' · esperando al surtidor' : '' }}
+                        @if (x.sku) { <span class="rv-sku">SKU {{ x.sku }}</span> }
+                        @if (x.substitutes_for) { <span class="rv-en-lugar"><i class="pi pi-sync" aria-hidden="true"></i> En lugar de {{ x.substitutes_for }}</span> }
                       </span>
                       <span class="rv-mono">{{ textoRenglon(x) }}</span>
                     </li>
@@ -295,6 +305,11 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
     .rv-actual-falta .rv-flecha { color: var(--warn-fg); }
     .rv-actual-sobra .rv-flecha { color: var(--action); }
     .rv-nombre { font-size: var(--fs-h2); font-weight: 800; line-height: 1.2; }
+    /* [VTK.15] El SKU siempre a la vista: con él se busca en Kepler al cobrar. */
+    .rv-sku { display: block; font-family: var(--font-mono); font-size: var(--fs-body); font-weight: 600; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+    .rv-item .rv-sku { font-size: var(--fs-sm); font-weight: 500; }
+    /* [MCP.13] El surtidor puso este producto en lugar de otro que no hubo. */
+    .rv-en-lugar { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-sm); font-weight: 700; color: var(--info-fg); }
     .rv-cant, .rv-pregunta { font-size: var(--fs-h3); font-weight: 700; }
     .rv-falta { font-size: var(--fs-lg); font-weight: 800; color: var(--warn-fg); }
     .rv-sobra { font-size: var(--fs-lg); font-weight: 800; color: var(--action); }

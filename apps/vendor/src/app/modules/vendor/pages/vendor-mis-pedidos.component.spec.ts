@@ -89,6 +89,88 @@ describe('VendorMisPedidosComponent · el avance de la vendedora (MCP.8)', () =>
     expect(api.markSeen).not.toHaveBeenCalled();
   });
 
+  /** `[MCP.10.1]` El caso de PD-2026-00203: el surtidor sacó 1 de 2 salsas y la caja completó la otra. */
+  it('si la caja revisó, dice cómo QUEDÓ el pedido y no el reporte viejo del surtido', async () => {
+    const revisado = pedido({
+      total: 1773.6,
+      started: { user_id: 's1', name: 'Juan Pérez', at: '2026-11-03T18:00:00.000Z' },
+      finished: { user_id: 's1', name: 'Juan Pérez', at: '2026-11-03T18:10:00.000Z', outcome: 'con_faltantes' },
+      report: {
+        removed: [],
+        adjusted: [{ product_name: 'SALSA CHAMOY 1L CHILERITO', unit: 'CJA', ordered: 2, picked: 1, line_id: 'l1' }],
+        total_before: 1773.6, total_after: 1431.84,
+      },
+      reviewed: { user_id: 'c1', name: 'María Cajera', at: '2026-11-03T18:51:00.000Z' },
+      review: {
+        lines: [
+          { key: 'l1', product_name: 'SALSA CHAMOY 1L CHILERITO', unit: 'CJA', ordered: 2, picked: 1, final: 2, returned: 0, resolution: 'completo' },
+          { key: 'l2', product_name: 'SALSA CHAMOY 355ML CHILERITO', unit: 'CJA', ordered: 1, picked: 1, final: 1, returned: 0, resolution: 'bien' },
+        ],
+        total_before: 1431.84, total_after: 1773.6,
+      },
+      report_unseen: true,
+    });
+    await montar({ today: '2026-11-03', data: [revisado], unseen_reports: 1 });
+    fix.detectChanges();
+    expect(texto()).toContain('Revisado en caja');
+    expect(texto()).toContain('María Cajera');
+    expect(texto()).toContain('la caja completó 1');
+    expect(texto()).toContain('SALSA CHAMOY 1L CHILERITO · pediste 2 → surtió 1 → quedó 2 CJA (lo completó la caja)');
+    // Lo que llegó igual no se lista, y el reporte viejo («2 → 1», «$1,431.84» como final) ya no se pinta.
+    expect(texto()).not.toContain('355ML CHILERITO · pediste');
+    expect(texto()).not.toContain('Se ajustó a lo que hubo');
+    expect(texto()).toContain('$1,773.60');
+  });
+
+  /** `[MCP.13]` El surtidor cambió la banderilla que faltó por otro producto. */
+  describe('[MCP.13] lo que el surtidor cambió por otro producto', () => {
+    const conCambio = (extra: Partial<PresaleSellerOrder> = {}) => pedido({
+      started: { user_id: 's1', name: 'Juan Pérez', at: '2026-11-04T18:00:00.000Z' },
+      finished: { user_id: 's1', name: 'Juan Pérez', at: '2026-11-04T18:10:00.000Z', outcome: 'con_faltantes' },
+      report: {
+        removed: [],
+        adjusted: [{ product_name: 'VIT BANDERILLA GRANDE', unit: 'PZA', ordered: 2, picked: 1, line_id: 'l1' }],
+        substituted: [{ line_id: 'n1', for_line_id: 'l1', for_product_name: 'VIT BANDERILLA GRANDE', for_sku: '05189',
+          product_id: 'p9', product_name: 'BANDERILLA CHICA', sku: '05190', quantity: 1, unit: 'PZA', line_total: 18 }],
+        total_before: 186.7, total_after: 182.3,
+      },
+      report_unseen: true,
+      ...extra,
+    });
+
+    it('sin revisión: el reporte dice qué se cambió por qué y cuánto faltó', async () => {
+      await montar({ today: '2026-11-04', data: [conCambio()], unseen_reports: 1 });
+      fix.detectChanges();
+      expect(texto()).toContain('Se cambió por otro producto (lo eligió el surtidor)');
+      expect(texto()).toContain('VIT BANDERILLA GRANDE · faltó 1 PZA → BANDERILLA CHICA · 1 PZA');
+    });
+
+    it('revisado: el sustituto no se lista como algo que «pediste»; si la caja lo quitó, se dice', async () => {
+      const revisado = conCambio({
+        reviewed: { user_id: 'c1', name: 'María Cajera', at: '2026-11-04T18:51:00.000Z' },
+        review: {
+          lines: [
+            { key: 'l1', product_name: 'VIT BANDERILLA GRANDE', unit: 'PZA', ordered: 1, picked: 1, final: 1, returned: 0, resolution: 'bien' },
+            { key: 'n1', product_name: 'BANDERILLA CHICA', unit: 'PZA', ordered: 1, picked: 1, final: 0, returned: 0, resolution: 'no_hubo' },
+          ],
+          total_before: 182.3, total_after: 164.3,
+        },
+      });
+      await montar({ today: '2026-11-04', data: [revisado], unseen_reports: 1 });
+      fix.detectChanges();
+      expect(texto()).toContain('Cómo quedó el pedido');
+      expect(texto()).toContain('VIT BANDERILLA GRANDE · faltó 1 PZA → BANDERILLA CHICA · 1 PZA (la caja lo quitó)');
+      expect(texto()).not.toContain('BANDERILLA CHICA · pediste');
+    });
+  });
+
+  it('sin revisión, sigue mostrando el reporte del surtido y espera a la caja', async () => {
+    await montar({ today: '2026-10-14', data: [SURTIDO_CON_FALTANTES], unseen_reports: 1 });
+    fix.detectChanges();
+    expect(texto()).toContain('Se ajustó a lo que hubo');
+    expect(texto()).toContain('Esperando a que la caja lo revise');
+  });
+
   it('separa el error del vacío', async () => {
     await montar(new Error('Sin conexión con el servidor'));
     fix.detectChanges();

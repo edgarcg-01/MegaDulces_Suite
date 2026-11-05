@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 115 KB, 1725 líneas, 35 secciones.
+> **Índice navegable** — 116 KB, 1732 líneas, 35 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/ERP_KEPLER.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -18,30 +18,30 @@
 | 385 | 421 | 3 | 2.6 ⭐ El DESCUENTO DEL CLIENTE vive en `kdud.c17` (decodificado 2026-09-28) |
 | 422 | 538 | 7 | 2.7 ⭐ El PRECIO POR VOLUMEN vive en `kdpv_prod_util`, y su nivel **NO se puede derivar** (decodificado 2026-10 |
 | 539 | 583 | 3 | 2.8 ⭐ Diccionario de columnas extraído de las FORMAS `.kpl` (2026-10-16) |
-| 584 | 607 | 3 | 2.9 ⭐ Los códigos SIMBÓLICOS: promociones, bonificaciones y ajustes viven en `kdii` a $0.01 (medido 2026-10-22 |
-| 608 | 646 | 2 | 3. El modelo de documentos (género · naturaleza · tipo) |
-| 647 | 805 | 10 | 3.1 ⭐⭐ El DESCUENTO de una venta son DOS capas distintas, y no se explican entre sí |
-| 806 | 920 | 9 | 3.y ⭐ El EMBARQUE `U-D-41` y su cabecera logística (decodificado 2026-09-17) |
-| 921 | 975 | 4 | 3.y.3 ⭐ El PEDIDO `U-D-40` y sus cantidades por etapa (decodificado 2026-10-06) |
-| 976 | 1013 | 2 | 3.y.4 ⭐ Códigos de barras: TRES casillas por unidad (corregido 2026-10-06) |
-| 1014 | 1043 | 1 | 3.x ⭐ El folio es POR SUCURSAL, no global — y es diseño, no un defecto |
-| 1044 | 1097 | 3 | 3.z ⭐⭐ `kdm1.c45` — POR QUÉ CUENTA se movió el dinero (decodificado 2026-09-22) |
-| 1098 | 1146 | 3 | 3.z.1 ⭐⭐ El COBRO `U-A-5` no es una venta: es lo que la salda (decodificado 2026-10-14) |
-| 1147 | 1178 | 2 | 3.z.2 ⭐⭐ QUIÉN vendió está en el TICKET (`c12` → `kduv`), y se pierde al agregar (2026-10-14) |
-| 1179 | 1239 | 3 | 3.z.3 ⛔⛔ `kdm1.c1` lleva SUCURSAL **+ RUTA**, y el anti-réplica canónico las descarta (2026-10-14) |
-| 1240 | 1274 | 2 | 3.z.4 ⭐⭐ Qué facturas paga cada pago a proveedor — y por qué el RFC del acreedor no es de fiar (2026-10-21) |
-| 1275 | 1316 | 4 | 3.z.5 ⭐⭐ Qué ESCRIBE un pago a proveedor (`X-D-26` / `X-D-25`) — las 8 escrituras, deducidas (2026-11-04, `[PG |
-| 1317 | 1428 | 6 | 3.c ⭐⭐ El CRM de Kepler: prospectos y cotización `U-D-35` (decodificado 2026-09-22) |
-| 1429 | 1459 | 2 | 3.d ⭐ La NOTA DE CRÉDITO / DEVOLUCIÓN sobre un ticket: va a la FACTURA, no al ticket (decodificado 2026-10-10, |
-| 1460 | 1507 | 3 | 3.x El kardex (`kdij`) y el reparto entre sucursales — `[NP.16]`, medido 2026-10-09 |
-| 1508 | 1535 | 2 | 4. Cómo llega Kepler a la plataforma — el pipeline `kepler_ods` |
-| 1536 | 1592 | 4 | 4.1 ⛔⛔ ANTES DE MEDIR EL ODS: asegurate de estar mirando PRODUCCIÓN |
-| 1593 | 1643 | 3 | 4.2b ⛔⛔⛔ LA CAUSA RAÍZ: `ods_repl` no puede leer las tablas NUEVAS (2026-09-12) |
-| 1644 | 1669 | 2 | 4.2 ⏰ La bomba de calendario — fecha exacta: **2027-01-01** |
-| 1670 | 1734 | 5 | 5. Reglas de oro (te ahorran bugs de datos) |
-| 1735 | 1754 | 1 | 6. Importers / feeds relevantes |
-| 1755 | 1762 | 1 | 7. Conexiones y credenciales |
-| 1763 | 1772 | 1 | 8. Para profundizar |
+| 584 | 614 | 4 | 2.9 ⭐ Los códigos SIMBÓLICOS: promociones, bonificaciones y ajustes viven en `kdii` a $0.01 (medido 2026-10-22 |
+| 615 | 653 | 2 | 3. El modelo de documentos (género · naturaleza · tipo) |
+| 654 | 812 | 10 | 3.1 ⭐⭐ El DESCUENTO de una venta son DOS capas distintas, y no se explican entre sí |
+| 813 | 927 | 9 | 3.y ⭐ El EMBARQUE `U-D-41` y su cabecera logística (decodificado 2026-09-17) |
+| 928 | 982 | 4 | 3.y.3 ⭐ El PEDIDO `U-D-40` y sus cantidades por etapa (decodificado 2026-10-06) |
+| 983 | 1020 | 2 | 3.y.4 ⭐ Códigos de barras: TRES casillas por unidad (corregido 2026-10-06) |
+| 1021 | 1050 | 1 | 3.x ⭐ El folio es POR SUCURSAL, no global — y es diseño, no un defecto |
+| 1051 | 1104 | 3 | 3.z ⭐⭐ `kdm1.c45` — POR QUÉ CUENTA se movió el dinero (decodificado 2026-09-22) |
+| 1105 | 1153 | 3 | 3.z.1 ⭐⭐ El COBRO `U-A-5` no es una venta: es lo que la salda (decodificado 2026-10-14) |
+| 1154 | 1185 | 2 | 3.z.2 ⭐⭐ QUIÉN vendió está en el TICKET (`c12` → `kduv`), y se pierde al agregar (2026-10-14) |
+| 1186 | 1246 | 3 | 3.z.3 ⛔⛔ `kdm1.c1` lleva SUCURSAL **+ RUTA**, y el anti-réplica canónico las descarta (2026-10-14) |
+| 1247 | 1281 | 2 | 3.z.4 ⭐⭐ Qué facturas paga cada pago a proveedor — y por qué el RFC del acreedor no es de fiar (2026-10-21) |
+| 1282 | 1323 | 4 | 3.z.5 ⭐⭐ Qué ESCRIBE un pago a proveedor (`X-D-26` / `X-D-25`) — las 8 escrituras, deducidas (2026-11-04, `[PG |
+| 1324 | 1435 | 6 | 3.c ⭐⭐ El CRM de Kepler: prospectos y cotización `U-D-35` (decodificado 2026-09-22) |
+| 1436 | 1466 | 2 | 3.d ⭐ La NOTA DE CRÉDITO / DEVOLUCIÓN sobre un ticket: va a la FACTURA, no al ticket (decodificado 2026-10-10, |
+| 1467 | 1514 | 3 | 3.x El kardex (`kdij`) y el reparto entre sucursales — `[NP.16]`, medido 2026-10-09 |
+| 1515 | 1542 | 2 | 4. Cómo llega Kepler a la plataforma — el pipeline `kepler_ods` |
+| 1543 | 1599 | 4 | 4.1 ⛔⛔ ANTES DE MEDIR EL ODS: asegurate de estar mirando PRODUCCIÓN |
+| 1600 | 1650 | 3 | 4.2b ⛔⛔⛔ LA CAUSA RAÍZ: `ods_repl` no puede leer las tablas NUEVAS (2026-09-12) |
+| 1651 | 1676 | 2 | 4.2 ⏰ La bomba de calendario — fecha exacta: **2027-01-01** |
+| 1677 | 1741 | 5 | 5. Reglas de oro (te ahorran bugs de datos) |
+| 1742 | 1761 | 1 | 6. Importers / feeds relevantes |
+| 1762 | 1769 | 1 | 7. Conexiones y credenciales |
+| 1770 | 1779 | 1 | 8. Para profundizar |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -602,6 +602,13 @@ Tipos que aparecen: **promociones** («5 CJS … = GRATIS 1 CJ …», «$15,000 
 ⚠️ **Quién consume la regla** (`esCodigoSimbolico`, `libs/contracts`): el mensaje de «por qué no hay precio» de la etiquetera, la marca «Promoción» de su buscador, el **buscador del mostrador** («¿Te pidieron algo?»: su ventana NO consulta existencia ni anota faltante de una promoción, porque la existencia de un código simbólico es 0 por construcción), el **verificador de precios** (`es_promocion` en vivo, `pm` en el respaldo, formato 4) y el buscador del mostrador. **El verificador NO pasa por `v_label_prices`**: lee `kdii` directo y por eso **mostraba el $0.01 como precio** hasta `[ETQ-PROMO.2]`.
 
 ⚠️ `v_label_prices` sólo emite filas con `c90 > 0.05`: estos códigos **nunca** aparecen ahí, y cualquier consumidor que lea «ausente de esa vista» como «sin precio» los confunde con un producto pendiente de precio. Medir contra `kepler_ods.kdii`, no contra la vista.
+
+⛔⛔ **El código de una promoción SE REUTILIZA: lo que cambia es la descripción** (aviso de ventas, medido en prod 2026-11-02). En las ventas de PH (`kdm2`, `c2='U'`, `c3='D'`), de **117** códigos «= GRATIS» vendidos, **25** salieron con **varias** promociones distintas bajo el MISMO código (hasta **3**). Ej.: `04023` fue «3 CJS MINI PPR = GRATIS 7 EXH CRAYON» y después «1 CJ MINI PPR = GRATIS 2 EXH PPR 30 GR»; `95489` regaló un «GREEN PACK» y después un «CEREAL MICHEL».
+- **La identidad de una promoción es código + descripción**, nunca el código solo. Agrupar ventas «por promoción» con `c8` mezcla campañas distintas.
+- **La línea vendida guarda la descripción de ESE momento en `kdm2.c10`** (verificado contra `kdii.c2`). Para historia, agrupar por (`c8`, `c10`). Para lo vigente, la descripción actual es `kdii.c2`.
+- ⚠️ Cualquier copia del nombre por SKU (`catalog.products.nombre`, un caché, una etiqueta impresa) **queda vieja en cuanto la promoción cambia**: leer `kdii` en vivo.
+- ⚠️ `kdii` **no trae vigencia** de estos códigos: «¿está vigente?» no se puede afirmar desde ahí; se DECLARA (o se deriva de ventas recientes con la descripción actual, diciendo la regla).
+- Las promociones por cantidad de `kdpv_descuxq` **no** tienen este problema: su SKU es el del producto real (en PH, 120 de 3,209 SKUs con dos descripciones, todas renombres del mismo producto).
 
 ---
 
