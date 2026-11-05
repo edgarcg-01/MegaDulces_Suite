@@ -301,12 +301,6 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                botón + ventana; el 95-100 % de la pantalla es la tarea). -->
           <ng-container *ngTemplateOutlet="bloquePagos; context: { $implicit: day }" />
 
-          <!-- ── [PGP.72] COMPROBANTES DE PAGO: la MISMA franja de «Pagos a proveedor» (Edgar, 2026-11-04:
-               «sólo un apartado donde se pueda soltar el PDF y se vincule automáticamente»). Es el componente
-               compartido, no una copia: lee cada PDF, busca su pago en Kepler y deja pre-marcado el que
-               coincide; guardar sigue siendo UN clic de la persona (PC.3: la IA propone, la persona confirma). -->
-          <app-pagos-captura-lote (verDiferencias)="verComprobantesConDiferencias()" />
-
           <!-- ── [PGP.53] PRONTO PAGO: lo primero que se paga, con su porqué, por el día en que cierra ──
                Era una línea plegada bajo el buscador («Conviene pagar: 37 acreedores…»). Edgar: es la
                prioridad, se recomienda firme y se dice por qué. Grupo = día en que cierra el descuento;
@@ -605,6 +599,11 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                   <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [disabled]="saving()" (click)="abrirPagar(null)"><span class="pi pi-check" aria-hidden="true"></span>&nbsp;Marcar los {{ porPagar().length }} pagados</button>
                 }
               </span>
+              <!-- [PGP.72] Comprobantes de pago, sin ir a «Pagos a proveedor» (Edgar, 2026-11-04: «sólo replicar ese
+                   botón en un apartado pequeño»). Es el componente compartido en modo compacto: un botón al que
+                   se le suelta el PDF; lee cada uno, busca su pago en Kepler y deja pre-marcado el que coincide.
+                   Guardar sigue siendo UN clic (PC.3: la IA propone, la persona confirma). -->
+              <app-pagos-captura-lote [compacto]="true" (verDiferencias)="verComprobantesConDiferencias()" />
             </div>
 
             @if (!isReleased() && !diaPasado() && unpreparedCount() > 0) {
@@ -1353,7 +1352,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-sec-h { display:flex; align-items:center; justify-content:space-between; gap:var(--sp-2); flex-wrap:wrap; padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border-color); }
     .pg-sec-t { margin:0; display:flex; align-items:baseline; gap:var(--sp-2); flex-wrap:wrap; font-size:var(--fs-sm); font-weight:700; color:var(--text-main); }
     .pg-sec-n { font-size:var(--fs-sm); font-weight:400; color:var(--text-muted); }
-    .pg-sec-acts { display:flex; gap:var(--sp-1); flex-wrap:wrap; }
+    .pg-sec-acts { display:flex; gap:var(--sp-1); flex-wrap:wrap; margin-left:auto; }
     .pg-sec-tg { all:unset; box-sizing:border-box; cursor:pointer; display:inline-flex; align-items:center; gap:var(--sp-2); font-weight:700; color:var(--text-main); border-radius:var(--r-sm); }
     .pg-sec-tg:hover { text-decoration:underline; }
     .pg-sec-tg:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; }
