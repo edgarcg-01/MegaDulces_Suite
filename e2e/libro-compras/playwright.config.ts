@@ -30,6 +30,10 @@ export default defineConfig({
     baseURL: process.env.E2E_BASE_URL || 'https://megadulcessuite.com',
     viewport: { width: 1366, height: 768 },
     trace: 'retain-on-failure',
+    // ⛔ Sin esto la intercepción con page.route tiene un hueco: lo que atiende el service worker de la
+    // app (ngsw) no pasa por page.route. Medido el 2026-11-04 en e2e/comisiones: un POST salió a PROD
+    // sin interceptar. Ver e2e/comisiones/playwright.config.ts.
+    serviceWorkers: 'block',
   },
   projects: [{ name: 'chromium' }],
 });
