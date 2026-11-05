@@ -607,6 +607,7 @@ const MES: Record<string, string> = {
                       } @else {
                         <button type="button" class="rr-link" (click)="$event.stopPropagation(); drillClient(c.code, c.name)"
                                 [attr.aria-label]="'Filtrar por el cliente ' + c.name">{{ c.name }}</button>
+                        @if (c.name === c.code) { <span class="rr-tenue">sin nombre en la fuente</span> }
                       }
                     </td>
                     <td class="comm-num">{{ c.tickets | number }}</td>
@@ -626,11 +627,11 @@ const MES: Record<string, string> = {
                   </button>
                   <span class="rr-mono rr-strong">{{ t.folio }}</span>
                   @if (t.doc_type) { <span class="rr-tag">{{ t.doc_type }}</span> }
-                  <span class="rr-tag rr-tag-src">{{ t.source === 'push' ? 'push' : 'wincaja' }}</span>
+                  <span class="rr-tag rr-tag-src">{{ t.source === 'push' ? 'push' : t.source === 'kepler_vecinal' ? 'kepler' : 'wincaja' }}</span>
                 </div>
                 <div class="rr-tk-meta">
                   <div><span>Fecha</span><b>{{ t.date }}@if (t.time) { · {{ t.time }}}</b></div>
-                  <div><span>Cliente</span><b>{{ t.client_name || '—' }}</b></div>
+                  <div><span>Cliente</span><b>{{ t.client_name || '—' }}@if (t.client_code && t.client_name === t.client_code) { <span class="rr-tenue"> · sin nombre en la fuente</span> }</b></div>
                   <div><span>Pago</span><b>{{ t.payment_method_label || '—' }}</b></div>
                   <div><span>Vendedor</span><b>{{ t.seller || '—' }}</b></div>
                   <div><span>Importe</span><b>{{ t.revenue | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
@@ -666,6 +667,7 @@ const MES: Record<string, string> = {
                   {{ t.lines | number }} renglones · {{ t.skus | number }} SKUs.
                   La equivalencia en cajas se imprime sólo con factor de empaque real y compra ≥ 1 caja.
                   @if (t.source === 'push') { El push de camionetas no trae costo ni impuestos por renglón. }
+                  @if (t.source === 'kepler_vecinal') { La venta vecinal de Kepler no trae costo ni impuestos por renglón. }
                 </p>
               } @else {
                 <!-- Lista paginada de tickets (server-side) -->
@@ -718,6 +720,7 @@ const MES: Record<string, string> = {
                       <td class="rr-tk-cli">
                         {{ t.client_name || '—' }}
                         @if (t.is_public) { <span class="rr-tag">público</span> }
+                        @if (t.client_code && t.client_name === t.client_code) { <span class="rr-tenue">sin nombre en la fuente</span> }
                       </td>
                       <td class="comm-num">{{ t.lines | number }}</td>
                       <td class="comm-num comm-muted">{{ ticketUnitsPerLine(t) | number:'1.0-2' }}</td>

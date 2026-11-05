@@ -3162,7 +3162,7 @@ export interface SalesByRouteTicketsParams {
 
 export interface SalesByRouteTicket {
   key: string;
-  source: 'wincaja' | 'push';
+  source: 'wincaja' | 'push' | 'kepler_vecinal';
   route_no: string;
   folio: string;
   date: string;

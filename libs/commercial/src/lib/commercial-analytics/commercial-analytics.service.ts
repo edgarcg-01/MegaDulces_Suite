@@ -730,7 +730,7 @@ export interface SalesByRouteTicketsQuery {
 export interface SalesByRouteTicket {
   /** Llave del drill: el folio del documento no basta (el push repite folio entre rutas). */
   key: string;
-  source: 'wincaja' | 'push';
+  source: 'wincaja' | 'push' | 'kepler_vecinal';
   route_no: string;
   folio: string;
   date: string;
@@ -8135,7 +8135,7 @@ export class CommercialAnalyticsService {
    * sucursal, así que se prefiere la DOMINANTE de la ruta: contra la sucursal exacta del renglón
    * coincide en 1,259 de 1,260 pares (el que difiere pesa $0). `null` = la ruta no es vecinal.
    */
-  private async vecinalKdudBranch(trx: any, tenantId: string, src: string): Promise<string | null> {
+  private async vecinalKdudBranch(trx: Knex.Transaction, tenantId: string, src: string): Promise<string | null> {
     if (!new RegExp(VECINAL_RX).test(src)) return null;
     const r = (await trx.raw(
       `SELECT warehouse_code FROM analytics.mv_kepler_vecinal_monthly
@@ -8167,7 +8167,10 @@ export class CommercialAnalyticsService {
     const [source, sourceBranch, date] = parts;
     const consecutivo = parts.slice(3).join('|'); // el consecutivo puede traer separadores
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new BadRequestException('key de ticket inválida');
-    if (source !== 'wincaja' && source !== 'push') throw new BadRequestException('key de ticket inválida');
+    // [VEC.38] `kepler_vecinal` faltaba: la lista emitía esas llaves y el detalle las rechazaba (400).
+    if (source !== 'wincaja' && source !== 'push' && source !== 'kepler_vecinal') {
+      throw new BadRequestException('key de ticket inválida');
+    }
     return { source, sourceBranch, date, consecutivo };
   }
 
@@ -8355,18 +8358,30 @@ export class CommercialAnalyticsService {
          FROM analytics.v_route_sales_lines sl WHERE ${W}`, P)).rows[0];
       if (!head || !num(head.lines)) throw new NotFoundException('ticket no encontrado');
 
-      const wname = (await trx.raw(
-        `SELECT COALESCE(pw.name, initcap(pb.branch_name)) AS wname
-         FROM wincaja.branches b
-         LEFT JOIN wincaja.branches pb ON pb.tenant_id = b.tenant_id AND pb.source_branch = b.parent_branch
-         LEFT JOIN commercial.warehouses pw ON pw.tenant_id = b.tenant_id
-           AND pw.code = COALESCE(pb.kepler_code, pb.warehouse_code) AND pw.deleted_at IS NULL
-         WHERE b.tenant_id = ? AND b.source_branch = ?`, [tenantId, sourceBranch])).rows[0];
+      // [VEC.38] La vecinal no está en `wincaja`: su sucursal y su cliente se nombran con Kepler
+      // (la sucursal dominante de la ruta y `kdud`, ver `vecinalKdudBranch`).
+      const vecinal = source === 'kepler_vecinal';
+      const kdudSuc = vecinal ? await this.vecinalKdudBranch(trx, tenantId, sourceBranch) : null;
 
-      const clientRow = (await trx.raw(
-        `SELECT nombre FROM wincaja.clientes
-         WHERE tenant_id = ? AND cliente = ? ORDER BY (source_branch = ?) DESC, source_dataset DESC LIMIT 1`,
-        [tenantId, head.cliente || '', sourceBranch])).rows[0];
+      const wname = vecinal
+        ? (await trx.raw(
+          `SELECT name AS wname FROM commercial.warehouses
+            WHERE tenant_id = ? AND code = ? AND deleted_at IS NULL`, [tenantId, kdudSuc])).rows[0]
+        : (await trx.raw(
+          `SELECT COALESCE(pw.name, initcap(pb.branch_name)) AS wname
+           FROM wincaja.branches b
+           LEFT JOIN wincaja.branches pb ON pb.tenant_id = b.tenant_id AND pb.source_branch = b.parent_branch
+           LEFT JOIN commercial.warehouses pw ON pw.tenant_id = b.tenant_id
+             AND pw.code = COALESCE(pb.kepler_code, pb.warehouse_code) AND pw.deleted_at IS NULL
+           WHERE b.tenant_id = ? AND b.source_branch = ?`, [tenantId, sourceBranch])).rows[0];
+
+      const clientRow = vecinal
+        ? (await trx.raw(
+          `${CommercialAnalyticsService.kdudClientNameSql('?')}`, [head.cliente || '', kdudSuc])).rows[0]
+        : (await trx.raw(
+          `SELECT nombre FROM wincaja.clientes
+           WHERE tenant_id = ? AND cliente = ? ORDER BY (source_branch = ?) DESC, source_dataset DESC LIMIT 1`,
+          [tenantId, head.cliente || '', sourceBranch])).rows[0];
 
       const lines = (await trx.raw(
         `SELECT sl.sku, COALESCE(sl.producto, p.nombre) AS name, sl.unidad, sl.unidad_origen,
@@ -8389,7 +8404,7 @@ export class CommercialAnalyticsService {
 
       return {
         key,
-        source: source as 'wincaja' | 'push',
+        source: source as SalesByRouteTicket['source'],
         route_no: sourceBranch,
         folio: head.folio || consecutivo,
         date,
