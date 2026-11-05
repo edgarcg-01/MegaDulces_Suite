@@ -1102,11 +1102,19 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
         <!-- [PGP.50] Cuáles: mover N pagos sin decir cuáles es firmar a ciegas. -->
         <ul class="pg-dlg-list">
           @for (a of reprogramTodos; track a.id) {
-            <li><span><span class="comm-num pg-dlg-fol">{{ a.priority_rank ?? '—' }}</span> {{ allocationTitle(a) }}@if (reprogramDestinos) { <span class="pg-dlg-a">→ {{ dayShort(fechaDeMover(a)) }}</span> }</span><b class="comm-num">{{ money(a.amount_assigned) }}</b></li>
+            <li><span><span class="comm-num pg-dlg-fol">{{ a.priority_rank ?? '—' }}</span> {{ allocationTitle(a) }}@if (reprogramDestinos) { <span class="pg-dlg-a">→ {{ dayShort(fechaDeMover(a)) }}</span> }@if (prontoAlMover(a); as p) { <span class="pg-dlg-pronto">{{ textoPronto(p) }}</span> }</span><b class="comm-num">{{ money(a.amount_assigned) }}</b></li>
           }
         </ul>
       } @else if (reprogramTodos[0]; as a) {
-        <p class="cal-dlg-p"><strong>{{ allocationTitle(a) }}</strong> · {{ money(a.amount_assigned) }}@if (reprogramDestinos) { → {{ dayLong(fechaDeMover(a)) }} }</p>
+        <p class="cal-dlg-p"><strong>{{ allocationTitle(a) }}</strong> · {{ money(a.amount_assigned) }}@if (reprogramDestinos) { → {{ dayLong(fechaDeMover(a)) }} }@if (prontoAlMover(a); as p) { <span class="pg-dlg-pronto">{{ textoPronto(p) }}</span> }</p>
+      }
+      <!-- [PGP.73] Lo que cuesta mover: mover N pagos sin decir qué descuento se deja pasar es firmar a ciegas.
+           La ventana es OBSERVADA, no pactada (contrato PGP.36): por eso «deja pasar», como en la fila. -->
+      @if (prontoAlMoverTotal(); as s) {
+        <p class="cal-dlg-hint cal-habito-nm"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+          @if (s.deja) { {{ s.n === 1 ? 'Uno deja' : s.n + ' dejan' }} pasar <b class="comm-num">{{ money(s.monto) }}</b> de pronto pago ({{ s.nombres }}): su ventana cierra antes del día al que van. }
+          @else { {{ s.n === 1 ? 'Uno trae' : s.n + ' traen' }} <b class="comm-num">{{ money(s.monto) }}</b> de pronto pago ({{ s.nombres }}), que se deja pasar si salen después de la fecha que dice cada uno. }
+        </p>
       }
       @if (reprogramDestinos) {
         <!-- [PGP.50] Repartidos por la propuesta del exceso: cada uno al primer día que le cabe. -->
@@ -1114,6 +1122,8 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
       } @else {
         <label class="cal-dlg-label" for="cal-rep-date">Nueva fecha</label>
         <input id="cal-rep-date" type="date" [min]="todayIso" [(ngModel)]="reprogramDate" class="cal-date-input cal-dlg-full" />
+        <!-- [PGP.73] Con una sola fecha para todos, el día destino puede quedar excedido: se dice antes de mover. -->
+        @if (destinoTope(); as dt) { <p class="cal-dlg-hint pg-dlg-destino" [class.cal-habito-nm]="dt.mal" role="status">{{ dt.texto }}</p> }
       }
       <label class="cal-dlg-label" for="cal-rep-reason">Motivo</label>
       <p-select appendTo="body" inputId="cal-rep-reason" [options]="reprogramReasonOpts" [(ngModel)]="reprogramReason" optionLabel="label" optionValue="value" placeholder="Motivo" [fluid]="true" class="cal-dlg-sel" />
@@ -1540,6 +1550,9 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-dlg-warn { display:inline-flex; align-items:center; gap:var(--sp-1); margin-left:var(--sp-2); color:var(--bad-fg); font-weight:600; font-size:var(--fs-xs); }
     /* [PGP.50] El dia al que va cada pago en la propuesta del exceso. */
     .pg-dlg-a { margin-left:var(--sp-2); color:var(--text-muted); font-weight:600; white-space:nowrap; }
+    /* [PGP.73] El pronto pago que se deja pasar al mover: ámbar de TEXTO (--warn-soft-fg, 7:1), no el de relleno. */
+    .pg-dlg-pronto { display:block; font-size:var(--fs-xs); font-weight:600; color:var(--warn-soft-fg); }
+    .pg-dlg-destino { margin-top:var(--sp-1); }
     /* [PGP.36] La razon de pago. Cuatro tonos y NINGUNO depende solo del color: cada uno lleva
        su icono y su texto (DESIGN - el color nunca es el unico portador). */
     .pg-razon { display:flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-xs); font-weight:600; color:var(--fg-2); }
@@ -2446,10 +2459,15 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       if (p) {
         const cuantos = p.pagos.length === 1 ? 'el último pago del orden' : `los últimos ${p.pagos.length} del orden`;
         const n = p.pagos.length === 1 ? '1 pago' : `${p.pagos.length} pagos`;
+        // [PGP.73] Lo que se juega antes del clic: los que se mueven y traen pronto pago abierto.
+        const conPronto = p.pagos.filter((a) => (a.pronto_captura ?? 0) > 0);
+        const pronto = conPronto.length
+          ? ` Ojo: ${conPronto.length === 1 ? 'uno trae' : `${conPronto.length} traen`} pronto pago (${this.money(conPronto.reduce((s, a) => s + (a.pronto_captura ?? 0), 0))}); en la ventana se ve cuál.`
+          : '';
         return { tone: 'bad', say,
           why: p.destinos
-            ? `Mover ${cuantos} (${this.money(p.total)}) lo deja dentro del tope; caben en lo libre del ${this.diasDestino(p.destinos)}. En la ventana se ve cuál va a qué día. También puedes pedir a Presupuestos ampliarlo.`
-            : `Mover ${cuantos} (${this.money(p.total)}) lo deja dentro del tope, pero lo libre de esta semana no alcanza para todos: elige la fecha, o pide a Presupuestos ampliarlo.`,
+            ? `Mover ${cuantos} (${this.money(p.total)}) lo deja dentro del tope; caben en lo libre del ${this.diasDestino(p.destinos)}. En la ventana se ve cuál va a qué día. También puedes pedir a Presupuestos ampliarlo.${pronto}`
+            : `Mover ${cuantos} (${this.money(p.total)}) lo deja dentro del tope, pero lo libre de esta semana no alcanza para todos: elige la fecha, o pide a Presupuestos ampliarlo.${pronto}`,
           action: { kind: 'exceso', label: p.destinos ? `Mover ${n} al ${this.diasDestino(p.destinos)}` : `Mover ${n} a otro día`, icon: 'pi-calendar' } };
       }
       return { tone: 'bad', say, why: 'Mueve o quita pagos, o pide a Presupuestos ampliarlo.', action: null };
@@ -3970,6 +3988,51 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   /** `[PGP.50]` La fecha de cada pago cuando la propuesta los reparte en varios días; si es null, todos van a `reprogramDate`. */
   reprogramDestinos: ReadonlyMap<string, string> | null = null;
   fechaDeMover(a: PaymentCalendarAllocation): string { return this.reprogramDestinos?.get(a.id) ?? this.reprogramDate; }
+  /**
+   * `[PGP.73]` **Lo que cuesta mover un pago: el pronto pago que se deja pasar.** El diálogo decía
+   * cuáles y a qué fecha, no esto. Medido en vivo el 2026-11-04: de los 18 que el veredicto proponía
+   * mover, 3 traían «gana · cierra pronto» por $23,387.58 y nada lo avisaba. Con fecha: lo de las
+   * facturas cuya ventana cierra ANTES de ese día. Sin fecha todavía: lo que está en juego y hasta
+   * cuándo. Misma suma que `pronto_captura` del backend (capturable + por_vencer).
+   */
+  prontoAlMover(a: PaymentCalendarAllocation): { monto: number; cierra: string; deja: boolean } | null {
+    const fecha = this.fechaDeMover(a) || null;
+    let monto = 0, cierra = '';
+    for (const it of a.items ?? []) {
+      if (it.pronto_estado !== 'capturable' && it.pronto_estado !== 'por_vencer') continue;
+      const lim = (it.pronto_fecha_limite ?? '').slice(0, 10);
+      const b = Number(it.pronto_beneficio || 0);
+      if (!lim || !(b > 0)) continue;
+      if (fecha && lim >= fecha) continue; // ese día la ventana sigue abierta
+      monto += b;
+      if (!cierra || lim < cierra) cierra = lim;
+    }
+    return monto > 0.005 ? { monto: Math.round(monto * 100) / 100, cierra, deja: !!fecha } : null;
+  }
+  textoPronto(p: { monto: number; cierra: string; deja: boolean }): string {
+    return p.deja ? `deja pasar ${this.money(p.monto)} de pronto pago (su ventana cierra el ${this.shortDate(p.cierra)})`
+      : `gana ${this.money(p.monto)} si sale a más tardar el ${this.shortDate(p.cierra)}`;
+  }
+  prontoAlMoverTotal(): { monto: number; n: number; deja: boolean; nombres: string } | null {
+    // Con sus nombres: la lista va del último del orden al primero, y los que traen pronto pago pueden
+    // quedar abajo del desplazamiento.
+    const con = this.reprogramTodos.flatMap((a) => { const p = this.prontoAlMover(a); return p ? [{ a, p }] : []; });
+    const ps = con.map((x) => x.p);
+    if (!ps.length) return null;
+    const nombres = con.slice(0, 3).map((x) => this.allocationTitle(x.a)).join(', ') + (con.length > 3 ? ` y ${con.length - 3} más` : '');
+    return { monto: Math.round(ps.reduce((s, p) => s + p.monto, 0) * 100) / 100, n: ps.length, deja: ps.every((p) => p.deja), nombres };
+  }
+  /** `[PGP.73]` Con una sola fecha para todos: cómo queda ese día contra su tope (lo que no se ve, se dice). */
+  destinoTope(): { texto: string; mal: boolean } | null {
+    if (this.reprogramDestinos || !this.reprogramDate) return null;
+    const d = this.week()?.days.find((x) => x.date === this.reprogramDate);
+    if (!d) return { texto: 'Ese día no está en la semana a la vista: su tope no se mide aquí.', mal: false };
+    if (!d.summary.capacity_defined) return { texto: 'Ese día no tiene tope fijado: no se podrá autorizar hasta que Presupuestos lo fije.', mal: true };
+    const queda = Number(d.summary.remaining_amount ?? 0) - this.reprogramTotal();
+    return queda >= -0.005
+      ? { texto: `Caben: a ese día le quedan ${this.money(queda)} libres.`, mal: false }
+      : { texto: `No caben: ese día queda excedido por ${this.money(-queda)}.`, mal: true };
+  }
   reprogramValido(): boolean {
     const fechaOk = this.reprogramDestinos ? true : !!this.reprogramDate && this.reprogramDate >= this.todayIso;
     return this.reprogramTodos.length > 0 && fechaOk && !!this.reprogramReason
