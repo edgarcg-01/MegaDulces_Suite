@@ -328,6 +328,18 @@ ensayo en 00, 02–05, 07, 08 · pedidos con regalos (rechazados a propósito).
 
 ## Bitácora
 
+- **2026-11-04** — 🧪 **[COT.25] Liga automática usuario ↔ vendedor de Kepler** (Edgar: «liguemos los usuarios
+  automáticamente»). Por nombre y calculada al pedirla (sin copiar, sin cron): un usuario nuevo queda ligado en cuanto su
+  nombre coincide. Regla estricta, porque una liga mala le atribuye la venta a otro: todas las palabras del vendedor
+  (sin prefijos TLMKT/VMPH01/RD…) en el nombre del usuario; un código que casa con dos personas no se liga; dos códigos
+  de la misma persona en una sucursal → el único con pedidos/facturas en 90 días; los «vendedores» que son plaza, piso o
+  ruta nunca; sólo cuentas de persona (`kind = 'interno'`). La liga a mano (`vendor_identity.user_id`, COT.24) gana.
+  Medido con los datos de prod y la función tal cual: **19 de 172 personas ligadas, ninguna equivocada** en la revisión
+  una por una; quedan fuera, como debe, el usuario de apellido parecido que caía en otro código, el código 505 que casa
+  con dos personas, las cuentas de dispositivo y los dos usuarios de una misma persona. ⛔ **La ruta NO es fuente**: 19
+  cuentas comparten 9 rutas (la encargada de tienda tiene la ruta de un vendedor). Las tres consultas de la liga: ~250 ms
+  en prod. Pruebas: 9 de la regla con los casos reales + 121/121 del módulo.
+
 - **2026-11-04** — 🧪 **COT.22–24: lo que pidió Edgar después del primer uso** (commit local, sin empujar; migración
   `20261104141310` SIN aplicar). Decisiones firmadas hoy: el vendedor es **el del cliente en Kepler y, si falta, el del
   usuario** (así va el 97.6 % de los TELEMARK, 3,257/3,336); los clientes son **los de la sucursal elegida**.

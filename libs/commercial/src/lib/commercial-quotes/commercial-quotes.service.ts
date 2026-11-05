@@ -19,6 +19,7 @@ import { PALABRAS_RELLENO, SINONIMOS_CATALOGO } from './catalog-search-terms';
 import { AREA_COTIZACIONES, MENSAJE_COTIZACION_AJENA, autorVisible, type QuienCotiza } from './quote-scope';
 import { consultaBuscadorCatalogo } from '../shared/catalogo-buscador';
 import { QuotePricingService, type Rung } from './quote-pricing.service';
+import { ligasAutomaticas, type UsuarioParaLiga, type VendedorKepler } from './vendedor-auto-liga';
 
 /** `[E.21]` Un renglón del alta: qué y cuánto. El precio lo pone el servidor, nunca el body. */
 export interface CreateQuoteLine {
@@ -276,32 +277,66 @@ export class CommercialQuotesService {
   }
 
   /**
-   * `[COT.24]` El vendedor de Kepler que ES este usuario, por sucursal: la liga vive en
-   * `analytics.vendor_identity.user_id` (la tabla que ya dice qué persona es cada código). La
-   * pantalla lo pone solo cuando el cliente no trae vendedor o es prospecto; con cliente manda el
-   * vendedor del cliente (Edgar, 2026-11-04: así va el 97.6 % de los pedidos TELEMARK).
+   * `[COT.24][COT.25]` El vendedor de Kepler que ES este usuario, por sucursal. Dos fuentes; la
+   * hecha a mano gana en su sucursal:
+   *  1. **A mano**: `analytics.vendor_identity.user_id` (la tabla que ya dice qué persona es cada código).
+   *  2. **Automática por nombre** (Edgar, 2026-11-04: «liguemos los usuarios automáticamente»):
+   *     `ligasAutomaticas`, con regla estricta — lo dudoso no se liga. Se calcula al pedirla, así
+   *     que un usuario nuevo queda ligado en cuanto su nombre coincide; no se copia nada.
+   *     Medido ese día: 19 de 172 personas, ninguna mal ligada en la revisión una por una.
+   * ⛔ La ruta (`users.route_id` → `catalogs.erp_vendor_code`) NO es fuente: varias cuentas
+   * comparten una ruta (la encargada de tienda tiene la ruta de un vendedor) y quedarían ligadas al
+   * código de otra persona. Medido: 19 cuentas sobre 9 rutas.
+   * La pantalla lo pone solo cuando el cliente no trae vendedor o es prospecto; con cliente manda el
+   * vendedor del cliente (así va el 97.6 % de los pedidos TELEMARK).
    *
-   * ⚠️ Si la columna todavía no existe (el código llegó antes que su migración) devuelve `{}` y la
-   * pantalla sigue pidiendo elegirlo: tirar `branches` dejaría a todos sin poder cotizar.
+   * ⚠️ Si `user_id` todavía no existe (el código llegó antes que su migración) la fuente 1 se toma
+   * vacía y siguen las otras dos: tirar `branches` dejaría a todos sin poder cotizar.
    * `analytics.*` no tiene RLS → tenant explícito.
    */
   private async vendedorDelUsuario(userId: string): Promise<Record<string, { code: string; name: string }>> {
     const tenantId = this.tenantCtx.get()?.tenantId;
     if (!tenantId) return {};
-    try {
-      const rows: Array<{ source_branch: string; vendedor: string; canonical_name: string }> = await this.tk.run((knex) =>
-        knex('analytics.vendor_identity')
-          .where({ tenant_id: tenantId, user_id: userId })
+    return this.tk.run(async (knex) => {
+      // Se pregunta antes de leer: un 42703 dentro de `tk.run` abortaría la transacción entera y
+      // con ella las otras dos fuentes.
+      let manuales: Array<{ source_branch: string; vendedor: string; canonical_name: string; user_id: string }> = [];
+      if (await knex.schema.withSchema('analytics').hasColumn('vendor_identity', 'user_id')) {
+        manuales = await knex('analytics.vendor_identity')
+          .where({ tenant_id: tenantId })
+          .whereNotNull('user_id')
           .whereRaw('coalesce(exclude, false) = false')
-          .select('source_branch', 'vendedor', 'canonical_name'),
+          .select('source_branch', 'vendedor', 'canonical_name', 'user_id');
+      }
+      const usuarios: UsuarioParaLiga[] = await knex('identity.users')
+        .where({ tenant_id: tenantId, kind: 'interno', activo: true })
+        .whereNull('deleted_at')
+        .whereNotNull('nombre')
+        .select('id as user_id', 'nombre');
+      const vendedores: VendedorKepler[] = (
+        await knex.raw(
+          `SELECT DISTINCT sucursal, btrim(c2) AS code, btrim(c3) AS name
+             FROM kepler_ods.kduv WHERE btrim(coalesce(c2, '')) <> '' AND btrim(coalesce(c3, '')) <> ''`,
+        )
+      ).rows;
+      // Sólo desempata (regla 3). `c4` numérico: entra por la llave de kdm1.
+      const activos = new Set<string>(
+        (
+          await knex.raw(
+            `SELECT DISTINCT c1 || '|' || btrim(c12) AS k FROM kepler_ods.kdm1
+              WHERE c2 = 'U' AND c3 = 'D' AND c4 IN (8, 40) AND c9::date >= current_date - 90
+                AND btrim(coalesce(c12, '')) <> ''`,
+          )
+        ).rows.map((r: { k: string }) => r.k),
       );
-      const out: Record<string, { code: string; name: string }> = {};
-      for (const r of rows) out[r.source_branch] = { code: r.vendedor, name: r.canonical_name };
+      const tomados = new Set(manuales.map((m) => `${m.source_branch}|${m.vendedor}`));
+
+      const out: Record<string, { code: string; name: string }> = {
+        ...(ligasAutomaticas(usuarios, vendedores, activos, tomados).get(userId) ?? {}),
+      };
+      for (const m of manuales) if (m.user_id === userId) out[m.source_branch] = { code: m.vendedor, name: m.canonical_name };
       return out;
-    } catch (err) {
-      if ((err as { code?: string }).code === '42703') return {};
-      throw err;
-    }
+    });
   }
 
   /** 403 con mensaje si la sucursal pedida no está en su alcance de lectura. */
