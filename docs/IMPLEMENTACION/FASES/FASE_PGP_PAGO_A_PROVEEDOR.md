@@ -580,6 +580,26 @@ medido el 2026-11-04 a pedido de Edgar):
   existe para los conceptos de compra). **Propuesta: primero compra por transferencia, después cheque y gasto.**
 - Los tipos `X-D-20/23/24` («Pago prov. Trans/cheq/banc», «0 %», «8 %») existen en el catálogo y no tienen documentos.
 
+#### ⛔⛔ El pago escribe SEIS cosas, no cuatro (2026-11-04, rastreo de un folio en las 242 tablas replicadas)
+
+| Tabla | Qué guarda | Medido (471 pagos por transferencia de oficinas, ago–nov) |
+|---|---|---|
+| `kdm1` | el documento | decodificado arriba |
+| **`kdm5`** | **un renglón por factura saldada**: `c7` renglón · `c8 c9 c10 c11` la factura · `c12`=`c13` aplicado · `c14` la referencia del proveedor | 471 / 471 con tantos renglones como `kdxf`; suma = importe en 470 |
+| `kdxe` (`c3=D`) | el renglón de cuentas por pagar | decodificado arriba |
+| `kdxf` | las aplicaciones | decodificado arriba |
+| `kdxe.c20` de la factura | el saldo | decodificado arriba |
+| **`kdc2AAMM`** | **la póliza contable del mes** (`kdc22610` = oct-2026): `102` bancos al abono por el total, `201` proveedores al cargo por factura; `c1` número de póliza; sin renglones de IVA | 131 / 131 en octubre; el pago del 4-nov ya la tiene: **nace al capturar** |
+
+⛔ El «el pago no tiene renglones» de PGP.0.1 miró sólo `kdm2`; los renglones están en `kdm5`. Y la póliza vive en una
+**tabla por mes**: escribirla exige permiso sobre la tabla de cada mes y decodificar de dónde sale su número.
+
+⛔ **Y el rastreo sólo ve 242 de las 360 tablas de `md_00`.** El instrumento que ve todas es
+[`foto-contadores.js`](../../../ops/prod/ensayo-pago-kepler/foto-contadores.js): lee los contadores de inserciones,
+cambios y borrados de Postgres (`pg_stat_user_tables`) de las 360 tablas. Control: dos fotos seguidas, ninguna tabla
+cambió. **Protocolo:** foto → Tesorería captura UN pago en Kepler → foto → comparar. La diferencia es el conjunto
+completo de escrituras. **El pedido de `GRANT` no se manda hasta tener esa lista**, para no pedir permisos dos veces.
+
 ### C1 · Dominio
 
 | # | Item | Estado | Prueba que lo ejerce |

@@ -26,6 +26,13 @@ contenedor que se borra al terminar. En el sistema de `md` no se instala nada; s
    **control**: los documentos con la referencia `ENSAYO-PGP71` en Kepler tienen que ser **0**. Si no
    lo son, sale con código 2 y hay que avisar a quien administra Kepler.
 
+## Qué tablas toca Kepler al capturar (las 360)
+
+`foto-contadores.js` lee los contadores de Postgres de todas las tablas de `md` (el ODS sólo replica 242).
+Protocolo: `foto 00 > antes.json` → Tesorería captura UN pago en Kepler → `foto 00 > despues.json` →
+`comparar antes.json despues.json`. Lo que otra persona capture en esa ventana también sale: ventana corta y cruzar
+contra los documentos nuevos de `kdm1`.
+
 ## Resultado
 
 | Fecha | Resultado |
