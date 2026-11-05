@@ -9,18 +9,25 @@ import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import {
   CLASIFICACION_LABEL, ComprobacionesService,
-  type ExpenseClasificacion, type ExpedienteDelDia, type GastosDelDia, type PestanaGasto,
+  type ExpenseClasificacion, type ExpedienteAtrasado, type ExpedienteDelDia, type GastosDelDia,
   type ReaperturaPendiente,
 } from '../comprobaciones.service';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 import { ValeGastoPeekComponent, type AccionVale, type AprobacionVale } from '../components/vale-gasto-peek.component';
 import { EvidenciaAdicionalDialogComponent, type EvidenciaAgregada } from '../components/evidencia-adicional-dialog.component';
+import { BuscadorGastosEstado } from '../components/buscador-gastos.estado';
 import { encuestarVisible } from '../../../core/utils/poll-visible';
 import { REFRESCO_VALES_MS } from '../vales-refresco';
 import { parseLocalDate } from '../../../core/utils/mx-date';
 // `[GX.65.4a]` La MISMA regla que aplica el servidor, desde el contrato: dos copias se separan.
 import { aceptaEvidenciaAdicional, esDuenoDelVale, detallesParaMostrar } from '@megadulces/contracts';
 import { AuthService, type JwtPayload } from '../../../core/services/auth.service';
+
+/**
+ * `[GX.88]` Las pestañas de ESTA pantalla. La bandeja es lo de hoy; «Atrasados», lo de otro día
+ * que sigue abierto. (`PestanaGasto` del servicio sigue siendo la partición del servidor.)
+ */
+export type PestanaAprobacion = 'entrada' | 'atrasados';
 
 const FORMA_PAGO_LABEL: Record<string, string> = {
   efectivo: 'Efectivo', tarjeta: 'Tarjeta', transferencia: 'Transferencia',
@@ -113,15 +120,21 @@ const ESTADO_LABEL: Record<string, string> = {
   template: `
     <div class="surf-page in ap">
       <p-toast />
+      <!-- [GX.88] Mientras hay una búsqueda arriba de las pestañas, la pantalla se esconde entera:
+           los resultados la reemplazan. El visor y el diálogo de abajo NO se esconden: son los
+           que abren el vale elegido en el buscador. -->
+      @if (!buscandoArriba()) {
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Aprobación de gastos</h1>
           <!-- [GX.67] El subtítulo dice el ALCANCE, no una fecha: la bandeja ya no es
                de un día. Decir «del viernes 3» sobre una lista que trae julio sería la
                misma mentira al revés. -->
+          <!-- [GX.88] Dos alcances, dichos: la bandeja es HOY; lo de antes que sigue abierto
+               vive en «Atrasados», del más viejo al más nuevo. -->
           <p class="surf-page-sub">
-            Todo lo que espera tu firma, <strong class="ap-dia-txt">de cualquier fecha</strong>.
-            Cada vale muestra cuándo se levantó.
+            En la bandeja, lo que se levantó <strong class="ap-dia-txt">hoy</strong>. Lo de días
+            anteriores que sigue abierto está en <strong class="ap-dia-txt">Atrasados</strong>.
           </p>
         </div>
         <button pButton type="button" class="p-button-text" (click)="cargar()" [loading]="cargando()">
@@ -181,22 +194,33 @@ const ESTADO_LABEL: Record<string, string> = {
             <button type="button" role="radio" class="ap-tab" [class.on]="pestana() === t.id"
                     [attr.aria-checked]="pestana() === t.id" (click)="verPestana(t.id)">
               <span class="ap-tab-t">{{ t.label }}</span>
-              <span class="ap-tab-n">{{ conteo(t.id).n }}</span>
-              <span class="ap-tab-m">{{ money(conteo(t.id).monto) }}</span>
+              @if (t.id === 'atrasados' && !atrasadosMedidos()) {
+                <!-- [GX.88] No se midió ≠ cero: sin datos del servidor, el contador no dice 0. -->
+                <span class="ap-tab-n" title="El servidor no mandó los atrasados">—</span>
+                <span class="ap-tab-m">sin medir</span>
+              } @else {
+                <span class="ap-tab-n">{{ conteo(t.id).n }}</span>
+                <span class="ap-tab-m">{{ money(conteo(t.id).monto) }}</span>
+              }
             </button>
           }
         </div>
 
-        <!-- [GX.67] Ya NO es «lo que no ves»: es contexto de lo que SÍ estás viendo.
-             Se conserva porque un vale de hace dos meses en la misma lista que el de hoy
-             se lee distinto si se sabe cuántos vienen de atrás. -->
-        @if (pestana() === 'entrada' && d.entrada_de_otros_dias.n) {
+        <!-- [GX.88] Qué es esta lista, dicho: del más viejo al más nuevo, y de quién depende. -->
+        <!-- [GX.88] ⛔ Si el servidor no mandó los atrasados (una API sin actualizar), se DICE: pintar
+             «no se quedó nada atrasado» sería afirmar lo que no se midió. -->
+        @if (pestana() === 'atrasados' && !atrasadosMedidos()) {
+          <div class="ap-aviso warn">
+            <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+            <span>El servidor no mandó los atrasados, así que <strong>no se puede saber si hay</strong>.
+              Probablemente falta actualizar la API; avisa a sistemas.</span>
+          </div>
+        }
+        @if (pestana() === 'atrasados' && conteo('atrasados').n) {
           <div class="ap-aviso">
-            <i class="pi pi-info-circle" aria-hidden="true"></i>
-            <span>
-              <strong>{{ d.entrada_de_otros_dias.n }}</strong> de estos vienen de días anteriores
-              ({{ money(d.entrada_de_otros_dias.monto) }}) y se pueden autorizar igual.
-            </span>
+            <i class="pi pi-clock" aria-hidden="true"></i>
+            <span>Vales de días anteriores que siguen abiertos, <strong>del más viejo al más nuevo</strong>.
+              Cada uno dice qué le falta y si te toca a ti o a quien lo levantó.</span>
           </div>
         }
 
@@ -204,20 +228,34 @@ const ESTADO_LABEL: Record<string, string> = {
         @if (pestana() === 'entrada' && d.entrada_truncada) {
           <div class="ap-aviso warn">
             <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-            <span>La lista llegó al tope y <strong>hay más esperando firma</strong>. Firma los de
+            <span>La lista de hoy llegó al tope y <strong>hay más esperando firma</strong>. Firma los de
               acá y vuelve a actualizar.</span>
+          </div>
+        }
+        @if (pestana() === 'atrasados' && d.atrasados_truncada) {
+          <div class="ap-aviso warn">
+            <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+            <span>Se muestran {{ d.atrasados?.length ?? 0 }} de <strong>{{ conteo('atrasados').n }}</strong> atrasados
+              (los más viejos primero). Resuelve éstos y vuelve a actualizar.</span>
           </div>
         }
 
         <!-- [GX.67] El vacío se mide con la BANDEJA, no con «total» — que incluye lo
              ya decidido del día y haría decir «no hay nada» con la lista llena, o al revés:
              «hay gastos» sobre una bandeja vacía. -->
-        @if (!conteo(pestana()).n) {
+        @if (!conteo(pestana()).n && !(pestana() === 'atrasados' && !atrasadosMedidos())) {
           <div class="ap-vacio">
             <i class="pi pi-check-circle" aria-hidden="true"></i>
-            <div><strong>No hay nada esperando tu firma.</strong>
-              <div class="ap-muted">En cuanto alguien levante un gasto, aparece acá.</div>
-            </div>
+            @if (pestana() === 'atrasados') {
+              <div><strong>No se quedó nada atrasado.</strong>
+                <div class="ap-muted">Todo lo de días anteriores ya se cerró o se rechazó.</div>
+              </div>
+            } @else {
+              <div><strong>Hoy no hay nada esperando tu firma.</strong>
+                <div class="ap-muted">En cuanto alguien levante un gasto, aparece acá.
+                  @if (conteo('atrasados').n) { Lo de días anteriores está en Atrasados. }</div>
+              </div>
+            }
           </div>
         } @else {
           <div class="ap-cols">
@@ -246,82 +284,102 @@ const ESTADO_LABEL: Record<string, string> = {
 
             <section class="ap-lista">
               @for (p of visibles(); track p.id) {
-                <article class="ap-item" [class.cerrado]="sinAcciones(p)" [class.abierto]="abierto()?.id === p.id"
-                         role="button" tabindex="0" [attr.aria-label]="'Ver el vale ' + p.folio_solicitud"
-                         (click)="abrir(p)" (keydown.enter)="abrir(p)" (keydown.space)="abrir(p); $event.preventDefault()">
-                  <div class="ap-it-head">
-                    <span class="ap-folio">{{ p.folio_solicitud || 'sin folio' }}</span>
-                    @if (p.sucursal) { <span class="ap-suc">{{ branchLabel(p.sucursal) }}</span> }
-                    <!-- [GX.67] El DÍA de captura cuando no es hoy. Sin esto, un vale de
-                         julio y uno de hace diez minutos se ven igual en la misma lista. -->
-                    @if (p.created_at && p.created_at !== hoy()) {
-                      <span class="ap-dia-chip" [title]="'Se levantó el ' + p.created_at">
-                        {{ diaLocal(p.created_at) | date: 'dd/MM/yy' }}
-                      </span>
-                    }
-                    <span class="ap-hora">{{ p.created_hora }}</span>
-                    <span class="ap-grow"></span>
-                    <span class="ap-imp">{{ money(p.importe) }}</span>
-                  </div>
-
-                  <div class="ap-it-con">{{ p.concepto || p.proveedor || '—' }}</div>
-
-                  <div class="ap-it-meta">
-                    <span>{{ p.departamento || p.solicitante || 'sin departamento' }}</span>
-                    <span>·</span>
-                    <span>levantado por {{ p.created_by || '—' }}</span>
-                    @if (p.fecha_gasto && p.fecha_gasto !== p.created_at) {
-                      <span>·</span>
-                      <!-- Las dos fechas, porque no son la misma cosa y a veces no coinciden. -->
-                      <span class="ap-faint">gasto del {{ diaLocal(p.fecha_gasto) | date: 'dd/MM/yy' }}</span>
-                    }
-                  </div>
-
-                  <div class="ap-it-chips">
-                    <span class="ap-chip" [class.ok]="p.status === 'validada'"
-                          [class.warn]="p.status === 'revision'" [class.bad]="p.status === 'rechazada'">
-                      {{ estado(p.status) }}
-                    </span>
-                    @if (p.etapa === 'sin_etapa') {
-                      <!-- Un estado que el servidor no reconoce se DECLARA, no se archiva. -->
-                      <span class="ap-chip bad" title="El servidor no reconoce este estado">estado desconocido</span>
-                    }
-                    @if (p.forma_pago) {
-                      <span class="ap-chip ok">{{ formaPago(p.forma_pago) }}@if (p.forma_pago_detalle) { · {{ detallePago(p.forma_pago_detalle) }} }</span>
-                    } @else {
-                      <span class="ap-chip bad">sin forma de pago</span>
-                    }
-                    @if (p.evidencia_en_vivo) { <span class="ap-chip ok">foto en vivo</span> }
-                    @else { <span class="ap-chip warn">foto sin sello de cámara</span> }
-                    @if (p.clasificacion) { <span class="ap-chip">{{ tipoGasto(p.clasificacion) }}</span> }
-                    @if (p.status === 'aprobada' && p.requiere_evidencia && !p.tiene_evidencia) {
-                      <span class="ap-chip warn">falta la evidencia</span>
-                    }
-                  </div>
-
-                  @if (p.comentarios) { <div class="ap-it-nota">“{{ p.comentarios }}”</div> }
-                  @if (p.revision_nota) { <div class="ap-it-nota warn">{{ p.revision_nota }}</div> }
-                  @if (p.motivo_rechazo) { <div class="ap-it-nota bad">Rechazado: {{ p.motivo_rechazo }}</div> }
-                  @if (p.validated_by) { <div class="ap-it-nota faint">Cerrado por {{ p.validated_by }}</div> }
-                  <!-- [GX.65.4a] Sin esto, el vale propio abriria sin botones y pareceria un fallo. -->
-                  @if (esMio(p)) { <div class="ap-it-nota faint">Es tuyo: lo revisa otra persona.</div> }
-
-                  <div class="ap-it-pie">
-                    @if (p.files.length) {
-                      <span class="ap-faint">{{ p.files.length }} {{ p.files.length === 1 ? 'archivo' : 'archivos' }}</span>
-                    } @else {
-                      <span class="ap-chip bad">sin archivos</span>
-                    }
-                    <span class="ap-grow"></span>
-                    <span class="ap-abrir">{{ accionesDe(p).length ? 'Abrir y decidir' : 'Ver el vale' }}
-                      <i class="pi pi-angle-right" aria-hidden="true"></i></span>
-                  </div>
-                </article>
+                <ng-container *ngTemplateOutlet="fila; context: { $implicit: p }" />
               }
               @if (!visibles().length) { <div class="ap-muted">{{ vacioDe(pestana()) }}</div> }
             </section>
           </div>
         }
+      }
+
+      <!-- [GX.88] UN renglón para las tres listas (bandeja, Atrasados y búsqueda): tres copias
+           del mismo vale se separan a la primera corrección. -->
+      <ng-template #fila let-p>
+      <article class="ap-item" [class.cerrado]="sinAcciones(p)" [class.abierto]="abierto()?.id === p.id"
+               role="button" tabindex="0" [attr.aria-label]="'Ver el vale ' + p.folio_solicitud"
+               (click)="abrir(p)" (keydown.enter)="abrir(p)" (keydown.space)="abrir(p); $event.preventDefault()">
+        <div class="ap-it-head">
+          <span class="ap-folio">{{ p.folio_solicitud || 'sin folio' }}</span>
+          @if (p.sucursal) { <span class="ap-suc">{{ branchLabel(p.sucursal) }}</span> }
+          <!-- [GX.67] El DÍA de captura cuando no es hoy. Sin esto, un vale de
+               julio y uno de hace diez minutos se ven igual en la misma lista. -->
+          @if (p.created_at && p.created_at !== hoy()) {
+            <span class="ap-dia-chip" [title]="'Se levantó el ' + p.created_at">
+              {{ diaLocal(p.created_at) | date: 'dd/MM/yy' }}
+            </span>
+          }
+          <span class="ap-hora">{{ p.created_hora }}</span>
+          <span class="ap-grow"></span>
+          <span class="ap-imp">{{ money(p.importe) }}</span>
+        </div>
+
+        <!-- [GX.88] El atrasado dice cuánto lleva, qué le falta y DE QUIÉN depende: un atrasado
+             que no dice a quién le toca se queda atrasado. -->
+        @if (p.falta) {
+          <div class="ap-atraso" [class.toca]="p.falta.toca === 'aprueba'">
+            <span class="ap-atraso-d">{{ diasTexto(p.dias_atraso) }}</span>
+            <span class="ap-atraso-t">{{ p.falta.texto }}</span>
+            <span class="ap-chip" [class.warn]="p.falta.toca === 'aprueba'">
+              {{ p.falta.toca === 'aprueba' ? 'te toca' : 'espera a quien lo levantó' }}
+            </span>
+          </div>
+        }
+
+        <div class="ap-it-con">{{ p.concepto || p.proveedor || '—' }}</div>
+
+        <div class="ap-it-meta">
+          <span>{{ p.departamento || p.solicitante || 'sin departamento' }}</span>
+          <span>·</span>
+          <span>levantado por {{ p.created_by || '—' }}</span>
+          @if (p.fecha_gasto && p.fecha_gasto !== p.created_at) {
+            <span>·</span>
+            <!-- Las dos fechas, porque no son la misma cosa y a veces no coinciden. -->
+            <span class="ap-faint">gasto del {{ diaLocal(p.fecha_gasto) | date: 'dd/MM/yy' }}</span>
+          }
+        </div>
+
+        <div class="ap-it-chips">
+          <span class="ap-chip" [class.ok]="p.status === 'validada'"
+                [class.warn]="p.status === 'revision'" [class.bad]="p.status === 'rechazada'">
+            {{ estado(p.status) }}
+          </span>
+          @if (p.etapa === 'sin_etapa') {
+            <!-- Un estado que el servidor no reconoce se DECLARA, no se archiva. -->
+            <span class="ap-chip bad" title="El servidor no reconoce este estado">estado desconocido</span>
+          }
+          @if (p.forma_pago) {
+            <span class="ap-chip ok">{{ formaPago(p.forma_pago) }}@if (p.forma_pago_detalle) { · {{ detallePago(p.forma_pago_detalle) }} }</span>
+          } @else {
+            <span class="ap-chip bad">sin forma de pago</span>
+          }
+          @if (p.evidencia_en_vivo) { <span class="ap-chip ok">foto en vivo</span> }
+          @else { <span class="ap-chip warn">foto sin sello de cámara</span> }
+          @if (p.clasificacion) { <span class="ap-chip">{{ tipoGasto(p.clasificacion) }}</span> }
+          @if (p.status === 'aprobada' && p.requiere_evidencia && !p.tiene_evidencia) {
+            <span class="ap-chip warn">falta la evidencia</span>
+          }
+        </div>
+
+        @if (p.comentarios) { <div class="ap-it-nota">“{{ p.comentarios }}”</div> }
+        @if (p.revision_nota) { <div class="ap-it-nota warn">{{ p.revision_nota }}</div> }
+        @if (p.motivo_rechazo) { <div class="ap-it-nota bad">Rechazado: {{ p.motivo_rechazo }}</div> }
+        @if (p.validated_by) { <div class="ap-it-nota faint">Cerrado por {{ p.validated_by }}</div> }
+        <!-- [GX.65.4a] Sin esto, el vale propio abriria sin botones y pareceria un fallo. -->
+        @if (esMio(p)) { <div class="ap-it-nota faint">Es tuyo: lo revisa otra persona.</div> }
+
+        <div class="ap-it-pie">
+          @if (p.files.length) {
+            <span class="ap-faint">{{ p.files.length }} {{ p.files.length === 1 ? 'archivo' : 'archivos' }}</span>
+          } @else {
+            <span class="ap-chip bad">sin archivos</span>
+          }
+          <span class="ap-grow"></span>
+          <span class="ap-abrir">{{ accionesDe(p).length ? 'Abrir y decidir' : 'Ver el vale' }}
+            <i class="pi pi-angle-right" aria-hidden="true"></i></span>
+        </div>
+      </article>
+      </ng-template>
+
       }
 
       <!-- El vale completo vive en un componente compartido: el Historial usa el mismo.
@@ -459,6 +517,13 @@ const ESTADO_LABEL: Record<string, string> = {
     .ap-item[role='button']:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
     .ap-item.abierto { border-color: var(--action); box-shadow: inset 2px 0 0 var(--action); }
 
+    /* ── [GX.88] El atrasado: cuánto lleva y qué le falta ─────────────────── */
+    .ap-atraso { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-2);
+      font-size: var(--fs-sm); color: var(--fg-2); }
+    .ap-atraso-d { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+      font-weight: var(--fw-bold); color: var(--fg-1); }
+    .ap-atraso.toca .ap-atraso-t { color: var(--fg-1); }
+
 
     @media (max-width: 60rem) {
       .ap-cols { flex-direction: column; }
@@ -479,7 +544,7 @@ export class FinanzasAprobacionGastosComponent {
   readonly datos = signal<GastosDelDia | null>(null);
   readonly cargando = signal(true);
   readonly error = signal('');
-  readonly pestana = signal<PestanaGasto>('entrada');
+  readonly pestana = signal<PestanaAprobacion>('entrada');
   readonly grupo = signal<string | null>(null);
   readonly actuando = signal<string | null>(null);
   /** El vale que se está mirando. `null` = el panel está cerrado. */
@@ -513,12 +578,18 @@ export class FinanzasAprobacionGastosComponent {
    * ⚠️ `PestanaGasto` conserva los tres valores en el tipo: los usa `particionarDelDia()` del
    * servidor, que sigue contando las tres particiones. Lo que cambio es que esta pantalla
    * muestra una.
+   *
+   * `[GX.88]` Y una segunda, **Atrasados** (pedido del usuario, 2026-10-30): lo de días
+   * anteriores que sigue abierto, del más viejo al más nuevo. La bandeja queda con lo de hoy.
    */
-  readonly tabs: { id: PestanaGasto; label: string }[] = [
-    { id: 'entrada', label: 'Bandeja de entrada' },
+  readonly tabs: { id: PestanaAprobacion; label: string }[] = [
+    { id: 'entrada', label: 'Bandeja de hoy' },
+    { id: 'atrasados', label: 'Atrasados' },
   ];
 
   constructor() {
+    // `[GX.88]` El vale elegido en el buscador de arriba se abre AQUÍ, con lo que esta pantalla ofrece.
+    this.busqueda?.aperturas$.pipe(takeUntilDestroyed()).subscribe((v) => this.abrir(v));
     this.cargar();
     // `[GX.73]` Se refresca sola mientras la pestaña se ve: los vales nuevos llegan sin recargar.
     encuestarVisible(REFRESCO_VALES_MS, () => this.refrescar());
@@ -594,9 +665,12 @@ export class FinanzasAprobacionGastosComponent {
         next: (rs) => this.reaperturas.set(rs ?? []),
         error: () => this.reaperturas.set([]),
       });
+    // `[GX.88]` Si hay una búsqueda abierta, también se pone al día: después de firmar un vale
+    // desde la búsqueda, su renglón tiene que decir el estado nuevo, no el de hace un momento.
+    this.busqueda?.rebuscar();
   }
 
-  verPestana(p: PestanaGasto): void {
+  verPestana(p: PestanaAprobacion): void {
     this.pestana.set(p);
     // El filtro por departamento es de la bandeja de entrada: arrastrarlo a otra dejaría la
     // lista recortada sin que se vea por qué.
@@ -613,11 +687,13 @@ export class FinanzasAprobacionGastosComponent {
     const d = this.datos();
     if (!d) return [];
     const p = this.pestana();
+    // `[GX.88]` Los atrasados vienen ya ordenados del servidor (del más viejo al más nuevo).
+    if (p === 'atrasados') return d.atrasados ?? [];
     // ⛔ `sin_etapa` entra por la bandeja de entrada: sin esto, un estado que el servidor no
     // reconoce no saldría en NINGUNA pestaña. Ver `visibleEn()` en `etapas-del-dia.ts`.
-    const filas = d.filas.filter((f) => (p === 'entrada' ? f.etapa === 'entrada' || f.etapa === 'sin_etapa' : f.etapa === p));
+    const filas = d.filas.filter((f) => f.etapa === 'entrada' || f.etapa === 'sin_etapa');
     const g = this.grupo();
-    if (p !== 'entrada' || !g) return filas;
+    if (!g) return filas;
     const sel = d.entrada.por_departamento.find((x) => x.clave === g);
     if (!sel) return filas;
     const ids = new Set(sel.ids);
@@ -629,20 +705,47 @@ export class FinanzasAprobacionGastosComponent {
    * que no se reconoce**, y por eso los tres contadores suman el día completo — si no, la
    * pantalla tendría expedientes que no aparecen en ninguna cuenta.
    */
-  conteo(p: PestanaGasto): { n: number; monto: number } {
+  conteo(p: PestanaAprobacion): { n: number; monto: number } {
     const d = this.datos();
     if (!d) return { n: 0, monto: 0 };
-    const e = d.etapas[p] ?? { n: 0, monto: 0 };
-    if (p !== 'entrada') return e;
+    // `[GX.88]` El total REAL de atrasados, no sólo los que llegaron: si la lista se cortó, el
+    // contador no puede decir menos de lo que hay.
+    if (p === 'atrasados') return d.atrasados_total ?? { n: 0, monto: 0 };
+    const e = d.etapas.entrada ?? { n: 0, monto: 0 };
     const raro = d.etapas.sin_etapa ?? { n: 0, monto: 0 };
     return { n: e.n + raro.n, monto: Math.round((e.monto + raro.monto) * 100) / 100 };
   }
 
-  vacioDe(p: PestanaGasto): string {
-    if (p === 'entrada') return this.grupo() ? 'Ese departamento ya no tiene nada esperando firma.' : 'Nada espera tu visto bueno.';
-    if (p === 'aprobados') return 'Todavía no se aprobó nada de este día.';
-    return 'No se rechazó nada de este día.';
+  vacioDe(p: PestanaAprobacion): string {
+    if (p === 'atrasados') {
+      // Sin datos del servidor no se afirma que no haya: se dice que no se midió.
+      return this.atrasadosMedidos() ? 'No se quedó nada atrasado.' : 'No se puede saber: el servidor no mandó los atrasados.';
+    }
+    return this.grupo() ? 'Ese departamento ya no tiene nada esperando firma.' : 'Nada espera tu visto bueno.';
   }
+
+  /** `[GX.88]` «hoy», «1 día», «18 días». Sin fecha legible no se inventa un número. */
+  diasTexto(n: number | null | undefined): string {
+    if (n == null || !Number.isFinite(n)) return 'sin fecha';
+    if (n <= 0) return 'hoy';
+    return n === 1 ? '1 día' : `${n} días`;
+  }
+
+
+  /**
+   * `[GX.88]` ¿El servidor mandó los atrasados? Una API sin actualizar responde sin el campo:
+   * eso es «no se midió», no «no hay». Sin esta distinción la pantalla diría «no se quedó nada
+   * atrasado» —falso— o, peor, tronaría al leer el campo y dejaría de responder a los clics.
+   */
+  readonly atrasadosMedidos = computed(() => Array.isArray(this.datos()?.atrasados));
+
+  /**
+   * `[GX.88]` El buscador de gastos vive ARRIBA de las pestañas (en el shell, que provee su
+   * estado). Esta pantalla sólo esconde lo suyo mientras hay búsqueda y abre el vale elegido.
+   * `optional`: fuera del shell (una prueba, otra ruta) no hay buscador y nada cambia.
+   */
+  private readonly busqueda = inject(BuscadorGastosEstado, { optional: true });
+  readonly buscandoArriba = computed(() => this.busqueda?.buscando() ?? false);
 
   /** `[GX.27]` El helper COMPARTIDO del repo (`core/utils/mx-date`). Yo habia escrito uno
    *  identico acá — un duplicado es un segundo lugar donde se puede corregir mal. */
@@ -695,7 +798,10 @@ export class FinanzasAprobacionGastosComponent {
   /** `[GX.87]` Lo agregado se ve ya, en el visor y en la bandeja: viene firmado del servidor. */
   alAgregarEvidencia(e: EvidenciaAgregada): void {
     this.abierto.update((v) => (v && v.id === e.id ? { ...v, files: e.files } : v));
-    this.datos.update((d) => (d ? { ...d, filas: d.filas.map((f) => (f.id === e.id ? { ...f, files: e.files } : f)) } : d));
+    const conArchivos = <T extends ExpedienteDelDia>(f: T): T => (f.id === e.id ? { ...f, files: e.files } : f);
+    this.datos.update((d) => (d ? { ...d, filas: d.filas.map(conArchivos), atrasados: (d.atrasados ?? []).map(conArchivos) } : d));
+    // `[GX.88]` Y en los resultados de la búsqueda, si el vale se abrió desde ahí.
+    this.busqueda?.conArchivos(e.id, e.files);
     this.toast.add({ severity: 'success', summary: 'Evidencia agregada', life: 5000,
       detail: 'Quedó en el expediente con su porqué. El estado del vale no cambió.' });
   }

@@ -13,11 +13,12 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { parseLocalDate, todayMx } from '../../../core/utils/mx-date';
 import {
-  ComprobacionesService, type CalendarioDelMes, type ExpenseProof, type ExpenseProofsReport, type ValeGasto,
+  ComprobacionesService, type CalendarioDelMes, type ExpedienteDelDia, type ExpenseProof, type ExpenseProofsReport, type ValeGasto,
 } from '../comprobaciones.service';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { ValeGastoPeekComponent, type AccionVale } from '../components/vale-gasto-peek.component';
+import { BuscadorGastosEstado } from '../components/buscador-gastos.estado';
 import { EvidenciaAdicionalDialogComponent, type EvidenciaAgregada } from '../components/evidencia-adicional-dialog.component';
 import { DIAS_SEMANA, mesDe, semanasDelMes, sumarMeses, type CeldaCalendario } from '../calendario-mes.util';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
@@ -88,6 +89,10 @@ function opcionesDeFaceta(
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in hist">
+      <!-- [GX.88] Mientras hay una búsqueda arriba de las pestañas, la pantalla se esconde entera:
+           los resultados la reemplazan. El visor y el diálogo de abajo NO se esconden: son los
+           que abren el vale elegido en el buscador. -->
+      @if (!buscandoArriba()) {
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Historial de levantamientos</h1>
@@ -260,6 +265,8 @@ function opcionesDeFaceta(
             }
           </section>
         }
+      }
+
       }
 
       <p-toast />
@@ -466,6 +473,8 @@ export class FinanzasGastosHistorialComponent {
   });
 
   constructor() {
+    // `[GX.88]` El vale elegido en el buscador de arriba se abre AQUÍ, con lo que esta pantalla ofrece.
+    this.busqueda?.aperturas$.pipe(takeUntilDestroyed()).subscribe((v) => this.abrirDesdeBusqueda(v));
     this.cargarMes();
     // `[GX.73]` Se refresca sola mientras la pestaña se ve (el mes y, si hay uno abierto, el día).
     encuestarVisible(REFRESCO_VALES_MS, () => this.refrescar());
@@ -644,8 +653,22 @@ export class FinanzasGastosHistorialComponent {
    * ⛔ Sin acciones: esto es consulta. Quien mira el historial no necesariamente puede firmar,
    * y el visor sólo ofrece lo que la página le pasa.
    */
-  abrirVale(r: ExpenseProof): void { this.valeAbierto.set(r as ValeGasto); }
-  cerrarVale(abierto: boolean): void { if (!abierto) this.valeAbierto.set(null); }
+  abrirVale(r: ExpenseProof): void { this.desdeBusqueda.set(false); this.valeAbierto.set(r as ValeGasto); }
+  cerrarVale(abierto: boolean): void { if (!abierto) { this.valeAbierto.set(null); this.desdeBusqueda.set(false); } }
+
+  /**
+   * `[GX.88]` El buscador de gastos vive ARRIBA de las pestañas (en el shell, que provee su
+   * estado). Esta pantalla sólo esconde lo suyo mientras hay búsqueda y abre el vale elegido.
+   * `optional`: fuera del shell (una prueba, otra ruta) no hay buscador y nada cambia.
+   */
+  private readonly busqueda = inject(BuscadorGastosEstado, { optional: true });
+  readonly buscandoArriba = computed(() => this.busqueda?.buscando() ?? false);
+  /**
+   * `[GX.88]` El vale abierto vino del buscador, no del día. Cambia lo que se ofrece: el
+   * buscador trae vales de CUALQUIER persona, así que ni «Míos» ni «Todos» describen ese vale.
+   */
+  readonly desdeBusqueda = signal(false);
+  abrirDesdeBusqueda(v: ExpedienteDelDia): void { this.desdeBusqueda.set(true); this.valeAbierto.set(v); }
 
   /**
    * `[GX.29]` Qué ofrece el visor acá. **Sólo** pedir la reapertura, y sólo sobre lo
@@ -658,6 +681,10 @@ export class FinanzasGastosHistorialComponent {
   accionesDelVale(): readonly AccionVale[] {
     const v = this.valeAbierto();
     if (!v) return [];
+    // `[GX.88]` Desde el buscador: sólo sumar evidencia. «Pedir que lo reabran» es para el vale
+    // PROPIO y el buscador trae los de cualquiera; el buscador además sólo lo tiene quien aprueba,
+    // que es quien puede sumar evidencia a cualquier vale (mismo criterio que el servidor).
+    if (this.desdeBusqueda()) return aceptaEvidenciaAdicional(v.status) ? ['agregar_evidencia'] : [];
     const acciones: AccionVale[] = [];
     // Un vale que todavía espera firma no necesita reapertura: ya está abierto.
     if (this.ambito() === 'mios' && ['aprobada', 'validada', 'revision'].includes(String(v.status))) {
@@ -678,6 +705,7 @@ export class FinanzasGastosHistorialComponent {
   alAgregarEvidencia(e: EvidenciaAgregada): void {
     this.valeAbierto.update((v) => (v && v.id === e.id ? { ...v, files: e.files } : v));
     this.filasDia.update((l) => l.map((r) => (r.id === e.id ? { ...r, files: e.files } : r)));
+    this.busqueda?.conArchivos(e.id, e.files);
     this.toast.add({ severity: 'success', summary: 'Evidencia agregada', life: 5000,
       detail: 'Quedó en el expediente con su porqué. El estado del vale no cambió.' });
     this.cdr.markForCheck();
