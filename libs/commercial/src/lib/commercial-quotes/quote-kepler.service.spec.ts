@@ -191,3 +191,29 @@ describe('[COT.26] la dirección de entrega: con varias no se adivina', () => {
     expect(sql.some((x) => x.includes('SET delivery_address_key'))).toBe(true);
   });
 });
+
+describe('[COT.28] observaciones del pedido', () => {
+  it('viajan al ERP con el pedido', async () => {
+    const { svc, sink } = armar({ cab: { order_notes: 'cobrar hoy para entregar hoy mismo' } });
+    await svc.enviar(ID, {});
+    expect(sink.entregar.mock.calls[0][0].observaciones).toBe('cobrar hoy para entregar hoy mismo');
+  });
+
+  it('se guardan en una línea, sin espacios de más', async () => {
+    const { svc, sql } = armar();
+    await expect(svc.fijarObservaciones(ID, '  REMISIÓN\n  urgente ', {})).resolves.toEqual({ order_notes: 'REMISIÓN urgente' });
+    expect(sql.some((x) => x.includes('SET order_notes'))).toBe(true);
+  });
+
+  it('más de 120 caracteres: 400 y no se guarda', async () => {
+    const { svc, sql } = armar();
+    await expect(svc.fijarObservaciones(ID, 'Z'.repeat(121), {})).rejects.toThrow(/120 caracteres/);
+    expect(sql.some((x) => x.includes('SET order_notes'))).toBe(false);
+  });
+
+  it('con folio de Kepler ya no se cambian aquí', async () => {
+    const { svc, sql } = armar({ cab: { kepler_folio: '0003789' } });
+    await expect(svc.fijarObservaciones(ID, 'algo', {})).rejects.toThrow(/Comentarios/);
+    expect(sql.some((x) => x.includes('SET order_notes'))).toBe(false);
+  });
+});
