@@ -9693,6 +9693,18 @@ TP.6-TP.8+TP.10".
 >     declarado — así se duplicó la ruta 23; (3) `CG-2026-00001` (25-sep, $130,000) y `CG-2026-00002` (fechado
 >     10-dic-2026) siguen «registrado» sin corte y fuera de todo cuadre; (4) el rol `marketing` tiene
 >     `FINANCE_BANK_VER`.
+> - [x] **[CGA-A.70]** 🧪 2026-11-05 · **La hoja de gastos reconoce lo que ya pagó una hoja en papel.** Edgar: Morelia
+>   «tiene muchos egresos pendientes»; ¿ya estaban vinculados con Control? Sí: la hoja abierta traía 105 pagos ($716k),
+>   casi todos de las hojas en papel del 13 al 23-oct, en el libro sin decir de qué retiro salieron. Ahora la abierta
+>   dice cuáles ya pagó un retiro «gnf» de Control (tramo de días que suma lo mismo ± $1, una sola vez) con su retiro
+>   de CAOS, deja elegirlos de un clic y avisa si la selección los mezcla con otros (ningún retiro la cuadraría).
+>   Medido en prod con el servicio real: 14, 15 y 23-oct contra «GNF MORELIA», «GNF MA 13/10» y «gnf ma»
+>   ($0.00–$0.19); placebo de importe 0 de 135 tramos; `hoja-gastos` 337 ms. Commit `35c37c9f9`.
+>   - ⚠️ **NO MEDIDO / pendiente:** sin validación visual; el arranque de la API con el cambio (lo dice
+>     `/api/health` tras soltar). **No casan solos** y los liga una persona: «gnf morelia 20/10» ($163,083.50, a
+>     $60–140 de los días 20–22 de Abastos) y «GNF MA» del 21-oct ($124,093.50). **Hallazgo de datos, sin tocar:** el
+>     retiro de CAOS «gnf morelia» del 23-oct ($163,080) tiene ligado un pago de caja chica de $400 del 29-oct
+>     (`CG-2026-00571`), casi seguro por error. Sin empujar.
 > - **[CGA-A.57]** ⬜ **Ligar el historial con propuestas + confirmación** (decisión de Edgar). Octubre
 >   en adelante contra los gastos del libro; mayo–sep ($16.5 M, 326 retiros) contra los egresos de
 >   Kepler (cuenta `0011`), porque el libro empieza el 25-sep. Nada se liga solo (1 de cada 3 parejas

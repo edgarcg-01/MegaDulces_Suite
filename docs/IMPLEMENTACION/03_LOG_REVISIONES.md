@@ -318,6 +318,13 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-11-05 — `[CGA-A.70]` La hoja de gastos de Morelia: lo «pendiente» ya estaba pagado en papel
+
+- **Qué se hizo.** La hoja abierta de Morelia publicaba 105 pagos por reponer ($716k). Casi todos eran de las hojas en papel del 13 al 23-oct, ya pagadas con retiros «gnf» de Control y CAOS, pero en el libro sin su retiro. La hoja ahora reconoce cada hoja en papel (un tramo de días que suma al peso un retiro de Control, una sola vez), muestra su retiro de CAOS, la deja elegir de un clic y avisa si se mezcla con otros pagos.
+- **Medido contra prod (sólo lectura, el servicio real empaquetado).** Reconoce tres hojas al centavo; con los importes corridos, ningún tramo casa. Dos retiros no casan solos y se declaran.
+- **Lección.** **«Pendiente en el sistema» no es «sin pagar»**: el pago vivía en el testigo físico (Control) y el sistema sólo veía que faltaba la liga. Antes de pedir que algo se pague, buscarlo en el testigo que registra la salida del dinero.
+- **NO MEDIDO**: la pantalla en un navegador (**sin validación visual**); el arranque de la API. Sin empujar.
+
 ## 2026-11-05 — `[LE.CU]` El Cuadre de Caja General: del día que no cuadra al peso sin explicación
 
 - **Qué se hizo.** El Cuadre pasó de «cuántos días cuadran» a «qué efectivo no tiene explicación todavía, y a quién le toca», capa por capa: C0 (`verify-lecu1`, reproduce §36), C1 (motores puros de bóveda, balance y huecos), C2 (`cuadre-huecos`, `cuadre-balance`), C3 (la pantalla). Plan y maqueta en [`FASE_LE_ANEXO_CUADRE`](FASES/FASE_LE_ANEXO_CUADRE.md).
