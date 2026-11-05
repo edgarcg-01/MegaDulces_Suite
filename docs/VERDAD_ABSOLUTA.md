@@ -1,50 +1,51 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 361 KB, 5380 líneas, 38 secciones.
+> **Índice navegable** — 388 KB, 5728 líneas, 39 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/VERDAD_ABSOLUTA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
 
 | Desde | Hasta | KB | Sección |
 |---:|---:|---:|---|
-| 51 | 66 | 1 | La verdad absoluta — qué la arbitra, cuánto se sostiene, y qué se declara |
-| 67 | 83 | 1 | 0. Qué es este documento, y qué NO es |
-| 84 | 192 | 6 | 1. Las siete reglas |
-| 193 | 227 | 8 | 2. El estado, en una tabla |
-| 228 | 390 | 10 | 3. Existencia |
-| 391 | 615 | 12 | 4. Ventas y unidades |
-| 616 | 647 | 5 | 5. Los resolvedores canónicos — qué leer para qué |
-| 648 | 724 | 5 | 5bis. ⭐⭐ AUDITORÍA DE ADOPCIÓN — quién debería leer el resolvedor, quién lo lee, quién no (2026-09-12) |
-| 725 | 795 | 5 | 6. Las trampas que ya cobraron |
-| 796 | 853 | 30 | 7. Los huecos declarados, con nombre y monto |
-| 854 | 898 | 3 | 8. Wincaja: ⭐⭐ ya sólo existe para HISTÓRICOS (2026-10-01) |
-| 899 | 1100 | 11 | 12. ⭐⭐ El segundo eje: el COSTO se había arbitrado en UNA sola pantalla (KE.3, 2026-09-10) |
-| 1101 | 1206 | 8 | 13. ⭐⭐ El origen: auditoría del Kepler crudo (2026-09-11) |
-| 1207 | 1407 | 11 | 16. ⭐⭐ El COSTO ESTÁNDAR — cuál de los CINCO costos contesta cada pregunta (CE, 2026-09-29) |
-| 1408 | 1724 | 18 | 9. Hipótesis refutadas — no las reconstruyas |
-| 1725 | 1744 | 2 | 10. Cómo se verifica |
-| 1745 | 1767 | 1 | 11. Lo que este documento no cubre |
-| 1768 | 1843 | 3 | 14. ⭐⭐ REPRODUCIR en vez de ARBITRAR — la medida que Kepler hace (VK.1, 2026-09-12 · ADR-063) |
-| 1844 | 2003 | 9 | 15. ⭐⭐ El ingreso contable: el árbitro tenía razón y el publicado iba alto (IG, 2026-09-29) |
-| 2004 | 2418 | 25 | 17. ⭐⭐ La EXISTENCIA del CEDIS, y las DOS existencias de Kepler (IC.CEDIS, 2026-10-01) |
-| 2419 | 2659 | 15 | 18. ⭐⭐ El ingreso publicado NO es ingreso: el 84 % es la casa facturándose a sí misma (IG.7, 2026-10-01) |
-| 2660 | 2852 | 11 | 19. ⭐⭐ El INVENTARIO DE RUTA: el saldo se valúa en UNA moneda, y el control manual confirma la venta (RD, 2026 |
-| 2853 | 2895 | 3 | 20. ⭐⭐ El TRASPASO: la liga la arbitra el DESTINO, y la fecha miente en los dos sentidos (DM.20, 2026-10-06) |
-| 2896 | 2994 | 6 | 21. ⭐⭐ El EGRESO no tenía testigo — y el que se usaba leía la misma fuente (VE.1, 2026-10-06) |
-| 2995 | 3468 | 27 | 22. ⭐⭐ El SUPUESTO de crecimiento: el número que gobierna todo el plan, y el único que nadie arbitra (PU, 2026 |
-| 3469 | 3576 | 5 | 23. ⭐⭐ El REAL de ventas del presupuesto publicaba $0 sobre $208M — el join unía el canal CANÓNICO contra el C |
-| 3577 | 3731 | 9 | 24. ⭐⭐ El crecimiento de VENTAS era COBERTURA, no negocio: lo establecido CAE 2.95 % y el plan proyecta +26.67 |
-| 3732 | 3883 | 8 | 25. ⭐⭐ El GASTO no se proyecta: se COPIA. La venta crece 26.67 % y el egreso 0.0000 % (PU.VG, 2026-10-08) |
-| 3884 | 4089 | 13 | 26. ⭐⭐ La LIQUIDEZ: el modelo veía el 7.7 % del cobro y el 0 % del pago, y publicaba un verde (TES, 2026-10-08 |
-| 4090 | 4179 | 5 | 27. ⭐⭐ El circuito de pago de la Suite NUNCA corrió — y el real mueve ~$45M al mes por otro lado (TES, Sprint  |
-| 4180 | 4369 | 11 | 28. ⭐⭐ LA CAJA GENERAL: el efectivo SÍ tiene testigo — la custodia no se cuenta, se arrastra (CG, 2026-10-13) |
-| 4370 | 4438 | 4 | 29. ⭐⭐ El anti-réplica de `kdm1` no filtra RÉPLICAS: filtra RUTAS — $5.87M fuera de seis vistas (CG, 2026-10-1 |
-| 4439 | 4733 | 21 | 30. ⭐⭐ `/compras/pedido`: el motor de compra no veía un CANAL ENTERO ($12.92M/30d) — y la misma pantalla leía  |
-| 4734 | 4951 | 13 | 31. ⭐⭐ UNIDADES DE MEDIDA: hay TRES unidades, no una — el árbitro cubre el 91.4 % y el 2.2 % que no cierra mue |
-| 4952 | 5204 | 17 | 32. ⭐⭐ LA COMISIÓN DE RUTA DIRECTA: seis números deciden un depósito, y ninguno tenía árbitro declarado (RD, 2 |
-| 5205 | 5250 | 5 | 33. ⭐⭐ EL LIBRO DE COMPRAS: el asiento tiene árbitro; qué facturas entran, todavía no (LC.19, 2026-10-21) |
-| 5251 | 5335 | 7 | 34. ⭐⭐ EL PRECIO DE UNA COTIZACIÓN: Kepler cobra la PRESENTACIÓN capturada (E.22–E.28, 2026-10-22) |
-| 5336 | 5430 | 8 | 35. ⭐⭐ EL PAGO A PROVEEDOR: cinco números distintos, cinco árbitros distintos (PGP, 2026-10-24) |
+| 52 | 67 | 1 | La verdad absoluta — qué la arbitra, cuánto se sostiene, y qué se declara |
+| 68 | 84 | 1 | 0. Qué es este documento, y qué NO es |
+| 85 | 193 | 6 | 1. Las siete reglas |
+| 194 | 230 | 10 | 2. El estado, en una tabla |
+| 231 | 393 | 10 | 3. Existencia |
+| 394 | 618 | 12 | 4. Ventas y unidades |
+| 619 | 650 | 5 | 5. Los resolvedores canónicos — qué leer para qué |
+| 651 | 727 | 5 | 5bis. ⭐⭐ AUDITORÍA DE ADOPCIÓN — quién debería leer el resolvedor, quién lo lee, quién no (2026-09-12) |
+| 728 | 798 | 5 | 6. Las trampas que ya cobraron |
+| 799 | 856 | 30 | 7. Los huecos declarados, con nombre y monto |
+| 857 | 901 | 3 | 8. Wincaja: ⭐⭐ ya sólo existe para HISTÓRICOS (2026-10-01) |
+| 902 | 1103 | 11 | 12. ⭐⭐ El segundo eje: el COSTO se había arbitrado en UNA sola pantalla (KE.3, 2026-09-10) |
+| 1104 | 1209 | 8 | 13. ⭐⭐ El origen: auditoría del Kepler crudo (2026-09-11) |
+| 1210 | 1410 | 11 | 16. ⭐⭐ El COSTO ESTÁNDAR — cuál de los CINCO costos contesta cada pregunta (CE, 2026-09-29) |
+| 1411 | 1727 | 18 | 9. Hipótesis refutadas — no las reconstruyas |
+| 1728 | 1747 | 2 | 10. Cómo se verifica |
+| 1748 | 1770 | 1 | 11. Lo que este documento no cubre |
+| 1771 | 1846 | 3 | 14. ⭐⭐ REPRODUCIR en vez de ARBITRAR — la medida que Kepler hace (VK.1, 2026-09-12 · ADR-063) |
+| 1847 | 2006 | 9 | 15. ⭐⭐ El ingreso contable: el árbitro tenía razón y el publicado iba alto (IG, 2026-09-29) |
+| 2007 | 2421 | 25 | 17. ⭐⭐ La EXISTENCIA del CEDIS, y las DOS existencias de Kepler (IC.CEDIS, 2026-10-01) |
+| 2422 | 2662 | 15 | 18. ⭐⭐ El ingreso publicado NO es ingreso: el 84 % es la casa facturándose a sí misma (IG.7, 2026-10-01) |
+| 2663 | 2855 | 11 | 19. ⭐⭐ El INVENTARIO DE RUTA: el saldo se valúa en UNA moneda, y el control manual confirma la venta (RD, 2026 |
+| 2856 | 2898 | 3 | 20. ⭐⭐ El TRASPASO: la liga la arbitra el DESTINO, y la fecha miente en los dos sentidos (DM.20, 2026-10-06) |
+| 2899 | 2997 | 6 | 21. ⭐⭐ El EGRESO no tenía testigo — y el que se usaba leía la misma fuente (VE.1, 2026-10-06) |
+| 2998 | 3471 | 27 | 22. ⭐⭐ El SUPUESTO de crecimiento: el número que gobierna todo el plan, y el único que nadie arbitra (PU, 2026 |
+| 3472 | 3579 | 5 | 23. ⭐⭐ El REAL de ventas del presupuesto publicaba $0 sobre $208M — el join unía el canal CANÓNICO contra el C |
+| 3580 | 3734 | 9 | 24. ⭐⭐ El crecimiento de VENTAS era COBERTURA, no negocio: lo establecido CAE 2.95 % y el plan proyecta +26.67 |
+| 3735 | 3886 | 8 | 25. ⭐⭐ El GASTO no se proyecta: se COPIA. La venta crece 26.67 % y el egreso 0.0000 % (PU.VG, 2026-10-08) |
+| 3887 | 4092 | 13 | 26. ⭐⭐ La LIQUIDEZ: el modelo veía el 7.7 % del cobro y el 0 % del pago, y publicaba un verde (TES, 2026-10-08 |
+| 4093 | 4182 | 5 | 27. ⭐⭐ El circuito de pago de la Suite NUNCA corrió — y el real mueve ~$45M al mes por otro lado (TES, Sprint  |
+| 4183 | 4372 | 11 | 28. ⭐⭐ LA CAJA GENERAL: el efectivo SÍ tiene testigo — la custodia no se cuenta, se arrastra (CG, 2026-10-13) |
+| 4373 | 4441 | 4 | 29. ⭐⭐ El anti-réplica de `kdm1` no filtra RÉPLICAS: filtra RUTAS — $5.87M fuera de seis vistas (CG, 2026-10-1 |
+| 4442 | 4736 | 21 | 30. ⭐⭐ `/compras/pedido`: el motor de compra no veía un CANAL ENTERO ($12.92M/30d) — y la misma pantalla leía  |
+| 4737 | 4954 | 13 | 31. ⭐⭐ UNIDADES DE MEDIDA: hay TRES unidades, no una — el árbitro cubre el 91.4 % y el 2.2 % que no cierra mue |
+| 4955 | 5207 | 17 | 32. ⭐⭐ LA COMISIÓN DE RUTA DIRECTA: seis números deciden un depósito, y ninguno tenía árbitro declarado (RD, 2 |
+| 5208 | 5253 | 5 | 33. ⭐⭐ EL LIBRO DE COMPRAS: el asiento tiene árbitro; qué facturas entran, todavía no (LC.19, 2026-10-21) |
+| 5254 | 5338 | 7 | 34. ⭐⭐ EL PRECIO DE UNA COTIZACIÓN: Kepler cobra la PRESENTACIÓN capturada (E.22–E.28, 2026-10-22) |
+| 5339 | 5435 | 8 | 35. ⭐⭐ EL PAGO A PROVEEDOR: cinco números distintos, cinco árbitros distintos (PGP, 2026-10-24) |
+| 5436 | 5779 | 25 | 36. ⭐⭐ EL EFECTIVO DE CAJA GENERAL, seguido desde su origen y al revés: CAOS no es el testigo de que el dinero |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -217,7 +218,9 @@ y aun así publicaba el UxC desde otra columna.
 | **Supuesto de crecimiento · GASTO** | ⭐ los mismos libros de §21, pareando **meses completos de cada lado por separado** | el signo se **invierte**: Kepler puede parear 3 meses (uno es el mes en curso) y da **−40.04 %**; los libros parean 9 completos y dan **+10.55 %**. El `0 %` que publica la pantalla no es un cero medido: es `basis:'default'` por 3 pares contra un mínimo de 4 | ⚠️ **refutado el publicado, NO sustituido**: `familia 6` ≠ agrupador SAT (§21.3) y la correspondencia sigue sin firmar — §22 |
 | **Supuesto de crecimiento · VENTAS** | para `mostrador`/`credito`/`mayoreo`, el ingreso fiscal — **para `ruta` y `preventa` NO puede serlo**: esa venta cobra en efectivo fuera del circuito fiscal | en prod `sales_plan_settings` tiene **0 filas**: los 20.1/10.6/62.1/29.3 que se ven **no están guardados** — el motor leería 0. El `+62.1 %` de Vecinal es el mayor crecimiento declarado **y** uno de los dos canales sin testigo fiscal | ⛔ **declarado, no arbitrado** — §22.6/22.7/22.9 |
 | **Caja general · EFECTIVO del cajón** | el **arqueo de custodia** de Control (conteo humano, externo a la Suite) más el flujo de CAOS, que es otra derivación | el cierre del sábado 10-oct da **$3,327.50** y el esperado del 12-oct **$3,402.45** por **dos caminos independientes que coinciden al centavo**; contado $3,340.00 → falta **$62.45** | ✅ **sí** — §28.6 |
-| **Caja general · saldo de la BÓVEDA (CAOS)** | — | la máquina publica **flujo, nunca contenido**, y el efectivo anterior al feed no se conoce: el acumulado NO es el saldo | ⛔ **declarada, no medida** — §28.7 |
+| **Caja general · saldo de la BÓVEDA (CAOS)** | ⭐ el **inventario de casetes** que la máquina publica tras cada evento (`analytics.caos_cash_counts`, desde el 27-oct) | el replay de flujos cierra **109 de 111** conteos consecutivos al peso (los 2 restantes son un mismo evento contado dos veces, neto $0) y reproduce los **$360,020** de §28.8 por otro camino; al cierre del 10-oct había **$342,500** | ✅ **sí** — §36.4 *(corrige §28.7)* |
+| **Caja general · ¿entró todo el efectivo que se generó?** | ⭐ testigos que **no dependen de la cajera**: la venta de cada camioneta, el corte y el cobro de Kepler, y el conteo físico (bóveda + cajón). ⛔ CAOS NO: sólo registra lo que alguien decidió depositar | Padre Hidalgo: venta = corte = cobro casi al peso. **Canindo: $148,287.45 vendidos del 12 al 31-oct sin cobro**, y del 1 al 4-nov **ninguna de las 5 camionetas mandó cobro** ($226,702.25). Cobros a Caja General sin captura: **$335,165.25** | ⚠️ **sí, con huecos nombrados** — §36 |
+| **Caja general · lo CONTADO en el cajón** | el desglose por denominación del corte | el «contado» de 8 cortes incluye un **bulto tecleado como morralla, sin desglose**: al cierre del 3-nov, **$116 contados pieza por pieza + $188,560 declarados**. En el arqueo paralelo de Control, el 28-oct los **cheques suben exactamente $192,550** y el efectivo coincide al peso con las piezas | ⛔ **declarado, no contado**; casi seguro **cheques, no efectivo** — §36.5, §36.8 |
 | **Caja general · DÓLARES y PAPELES** | el mismo arqueo que cuenta efectivo, cheques y tarjeta | ⭐ placebo DENTRO de la tabla: en 321 arqueos de 2026 el efectivo toma **307** valores, la tarjeta **193**, los cheques **114** — y los dólares **8** (el actual repetido **201 veces** desde abril) y el crédito **1** (**383 veces** desde oct-2025) | ⚠️ **arrastrados, no contados**: $230,338.96 + $20,782.00 — §28.4 |
 | **Caja general · ¿todo lo dispensado tiene dueño?** | el pareo **hora por hora** contra Control y el libro — el agregado diario NO sirve | sábado **3/3** · lunes **6/7** (falta **$13,800** de las 12:29) · martes parcial. ⛔ Sumando por día medí «$165,410 sin nombre» y era **falso** | ⚠️ **sí, con huecos nombrados** — §28.5 |
 | **Ingreso · lo que NO llega a los libros** | ⭐ **cuenta nombrada contra plaza nombrada** — NO el agregado anual, que compara universos distintos | la contabilidad tiene **10 cuentas con el nombre de una ruta** y **seis nunca movieron un peso** desde 2018; las diez juntas registran **$281,816** contra **$66,055,835** de venta de ruta y vecinal (2026 ene–sep) = **0.43 %**. Control positivo con el mismo método: La Piedad Abastos cuadra al **0.03 %** | ✅ **sí: la venta de ruta no pasa por los libros** — §22.10. ⛔ El **destino** de ese efectivo NO se midió |
@@ -5427,3 +5430,349 @@ que preparar.
 7688376744939610156`) el 2026-10-22 y el 2026-10-24, más tres guiones que **leen su SQL del
 servicio** y se pueden volver a correr: `verify-pgp1-cuentas-faltantes.js`,
 `verify-pgp6-deuda-programable.js` y `verify-pgp9-testigo-del-dia.js`.
+
+---
+
+## 36. ⭐⭐ EL EFECTIVO DE CAJA GENERAL, seguido desde su origen y al revés: CAOS no es el testigo de que el dinero entró (CGA, 2026-11-04)
+
+Pedido de Edgar (2026-11-04), sobre `/finanzas/caja-general/cuadre`: *"hagas un cuadre con verdad
+absoluta de todos los movimientos faltantes"*, y después: *"nuestra fuente no es CAOS, ya que si la
+cajera no quiere comprobar ese ingreso no lo hace; debemos cazar desde todos los lugares posibles la
+entrada de efectivo… sigue el flujo del dinero, ya sea inverso o normal"*.
+
+**Medido read-only contra `pg-prod` (`system_identifier 7688376744939610156`) el 2026-11-04.** La
+ventana va del **12-oct** (primer corte del libro) al **3-nov** (último día cerrado); el 4-nov se trata
+como día abierto.
+
+### 36.1 Los testigos, y por qué CAOS no es uno de ellos para el INGRESO
+
+| testigo | qué prueba | ¿depende de la cajera? |
+|---|---|---|
+| **venta de la camioneta** (`analytics.v_rd_route_daily`, fuente `push`) | el efectivo que la ruta generó | no |
+| **corte `U-D-23`** de Kepler (`kdm1`, `c16`) | el efectivo que el corte dice que hay que entregar | no |
+| **cobro `U-A-5`** que salda el corte (`kdm5`; para rutas, `route_collections.folio_corte`) y su cuenta `c45` | a qué cuenta llegó: `0011` Caja General, un banco o una caja chica | no |
+| **el libro** (`finance.cash_ledger`) | lo que se capturó | ⛔ **sí** |
+| **depósito CAOS** | lo que se metió a la bóveda | ⛔ **sí**: si no se deposita, no existe |
+| **inventario de la bóveda** (`caos_cash_counts`) + **conteo del cajón** | cuánto efectivo hay físicamente | no (siempre que se cuente; ver §36.5) |
+
+⛔ **Un ingreso sin depósito CAOS no es un ingreso que no ocurrió.** El depósito sólo registra lo que
+alguien decidió meter a la bóveda. Buscar «faltantes» con CAOS como testigo (como en §28.5) confirma
+lo que se depositó y no puede ver lo que no. El testigo de que el dinero **entró** es el origen
+(venta → corte → cobro); el de que **está**, el conteo físico.
+
+⭐ **El flujo:** venta `U-D-10` → corte `U-D-23` → cobro `U-A-5` que lo salda (`kdm5`) → cuenta `c45`.
+Todo corte tiene que quedar saldado por un cobro, y todo cobro a `0011` tiene que estar en el libro.
+
+### 36.2 El cuadre del libro contra Kepler (`0011`), movimiento por movimiento
+
+Lo reproduje con los **mismos motores puros** del servicio (`casarLibroConKepler`, `casarPorImporte`,
+`estadoDiaCuadre`), día por día. **La diferencia de cada uno de los 24 días queda explicada por
+movimientos con nombre (residuo $0.00).** 6 días cuadran, 2 no tienen Kepler y 16 tienen diferencias:
+
+| grupo | n | monto | qué es |
+|---|---:|---:|---|
+| **Kepler sí, libro no** (ingresos) | 19 | **$335,165.25** | Canindo 13 ($190,777.19), RV de la sucursal 01 4 ($81,114.99), depósito de Morelia `07\|U-A-5\|0000224` ($44,097.07), ruta 26 `01-004\|U-A-5\|0000017` ($19,176) |
+| **Kepler sí, libro no** (gastos) | 4 | $16,719.08 | sucursal 08 del 14-oct (`X-D-26` 311/312/314) y `00\|X-D-26\|0023848` del 3-nov |
+| **error de captura**: ruta 23 del 19-oct capturada en **$34** | 1 | −$30,360 | Kepler $30,394 y depósito CAOS `#1650` $30,360: el libro tomó sólo la diferencia entre los dos |
+| **error de captura**: el mismo efectivo dos veces | 1 | +$21,101 | `CI-2026-00022` (depósito CAOS `#1588`, ruta 23 del 13-oct) **y** `CI-2026-00068` (el cobro de Kepler de esa ruta y ese día) |
+| **en el libro, sin su documento ligado** | 19 | $289,398.21 + 2 docs de Morelia | 13 cobros de Padre Hidalgo del 13 al 15-oct ($229,586.21), 5 depósitos del 13-oct que son la venta del sábado 10-oct ($59,812), y `CI-2026-00046` = `07\|0000067` + `07\|0000057` |
+| **falta o está mal en Kepler** | 6 | — | ruta 27 del 12-oct sin cobro en ninguna cuenta ($12,594); ruta 21 del 16-oct cobrada a **`0001` DEVOLUCIONES** ($20,345); `CG-2026-00471` cita `06\|X-D-26\|0000326`, que no existe; dos más sin documento y uno probable |
+
+⚠️ **Dos defectos de la pantalla:**
+1. `00|N-A-10` y `00|N-A-15` folio 7 ($10,900 c/u, 21-oct) llegan con **`signo` nulo**. El detalle del
+   día los pinta como gasto (`kepSide` trata el nulo como −1) y el total del día no los suma
+   (`FILTER (WHERE signo<0)`): la misma pantalla dice dos cosas.
+2. La cola de Captura da por pendientes los **$229,586.21** de Padre Hidalgo que ya están capturados
+   (depósitos CAOS sin `declared_doc_ref`). Una bandeja que pide recapturar lo capturado fabrica
+   duplicados, como el de $21,101.
+
+### 36.3 Flujo normal: origen → cobro, por ruta
+
+| | venta 12-oct→3-nov | corte | cobrado | venta − cobro |
+|---|---:|---:|---:|---:|
+| **Padre Hidalgo** (21–28, 6 rutas) | $2,183,863.81 | existe (`kdm1`, `c1 = 01-00N`) | $2,168,692.58 | $15,171.23, casi todo de la ruta 27 del 12-oct |
+| **Canindo** (501–505, 5 rutas) | $1,660,841.23 | ⛔ **no existe en el ODS** | $1,333,434.60 | **$327,406.63** |
+
+Canindo, partido:
+
+| hueco | monto | lectura |
+|---|---:|---|
+| **ruta 505, del 19 al 27-oct**: 8 días de venta, **ni un cobro** | **$90,877.27** | su primer cobro es del 28-oct; desde ahí, cobro = venta cada día |
+| ruta 502: 15, 27, 28, 30 y 31-oct | $54,887.37 | |
+| rutas 501, 503 y 504 | $2,522.81 | |
+| **del 1 al 4-nov ninguna de las 5 camionetas mandó cobro** | **$226,702.25** | las 5 se cortan el mismo día ⇒ carril o proceso, no 5 choferes. Padre Hidalgo sí tiene cobros al 4-nov |
+
+⭐ **Fuera de esas fechas, cada camioneta de Canindo cobra el mismo día exactamente lo que vendió**,
+así que los huecos son días con nombre, no un desfase. ⚠️ Cada ruta arrastra además un saldo de la
+primera semana de octubre (~$80k entre las cuatro), de la era Control, que aquí no se mide.
+
+Tampoco **hay ningún depósito CAOS de Canindo después del 28-oct**. Antes, Canindo depositaba **en
+bloque** (9 depósitos por $718,340 entre el 19 y el 28-oct, rotulados «rd canindo»), y la cajera
+capturaba el efectivo **desde el cobro de Kepler**, no desde el depósito. ⇒ El bloque y el cobro son
+el mismo dinero; pareados por importe no casan, y no deben casarse.
+
+**Sucursales.** Su efectivo casi nunca pasa por Caja General: sólo la **01 (11 %)** y la **07 (27 %)**
+cobran a `0011`; las demás depositan a banco.
+- El cruce corte→cobro es completo: `kdm5` tiene la aplicación de **todos** los `U-A-5` del 20-oct al
+  4-nov, así que un corte sin cobro **no** es retraso de la réplica.
+- El atraso normal corte→cobro (mediana / p90, en días) va de 1/3 (02) a 4/9 (08).
+- **33 cortes del 12 al 28-oct siguen sin cobro después de su atraso normal: $392,201.06.** Lo más
+  grande es de la 08 (`0000100`, $108,109.52) y de la 07 (`0000087` y `0000085`, $71,332.42).
+- En la 02 hay **dos cortes idénticos de $20,337.49 el mismo 26-oct**: parece un duplicado en Kepler.
+
+### 36.3b ⭐ Las cajas que alimentan a Caja General: el testigo es el corte de ESA caja
+
+Todos los canales de entrada, medidos (12-oct→3-nov). En el libro, **todos los ingresos traen documento
+de Kepler salvo uno** (`CI-2026-00019`, $16,583):
+
+| canal | testigo de origen | estado |
+|---|---|---|
+| rutas de Padre Hidalgo (21–28) | venta → corte → cobro | ✅ casi al peso (§36.3) |
+| rutas de Canindo (501–505) | venta → cobro (sin corte en el ODS) | ⚠️ §36.3 |
+| **sucursal 01, caja 4** (la venta RV/vecinal) | el corte de esa caja | ✅ cuadra; $395.79 pendientes del 3-nov |
+| **sucursal 07 Morelia, cajas 3 y 4** | el corte de esa caja | ⚠️ ver abajo |
+| **sucursal 08, caja 9** | el corte de esa caja | ⚠️ ver abajo |
+| matriz 00: caja de ahorro ($471,700), pensión, cartón, préstamo, sobrante de fondo | sólo el `U-A-5` (contra `D-13`/`D-60`); no hay venta detrás | sin testigo de origen |
+
+⭐ **El efectivo de sucursal que entra a Caja General sale siempre de las MISMAS cajas.** Cada
+`U-A-5` a `0011` de la 01, la 07 y la 08 salda un corte `U-D-23` (`kdm5`, `c14` = «Caja N-apertura»), y
+la caja es siempre la misma: 01 caja 4, 07 cajas 3 y 4, 08 caja 9. **`kdm1.c27` es el número de caja
+del corte.** Esas cajas cobran casi todo a `0011`, y a veces una parte a banco.
+
+**Cortes de esas cajas sin cobro, 29-oct→3-nov: $289,200.09**
+
+| caja | cortes | sin cobrar | nota |
+|---|---|---:|---|
+| **07 caja 4** | 29, 30, 31-oct · 2, 3-nov | **$189,665.12** | el del 29-oct ($71,105.42) se cobró en parte: $44,097.07 a `0011` (`07\|U-A-5\|0000224`, que **tampoco está en el libro**, §36.2) y faltan $27,008.35. El del **30-oct ($81,202.68) no tiene cobro**, y ya pasó el atraso normal de la 07 (p90 5 días) |
+| 07 caja 3 | 1-nov | $5,453.39 | una parte se cobró a banco (`1604`) |
+| **08 caja 9** | 30, 31-oct · 2, 3-nov | **$93,685.79** | dentro del atraso normal de la 08 (p90 9 días): todavía no es faltante |
+| 01 caja 4 | 3-nov | $395.79 | |
+
+⚠️ Mientras no exista el cobro, Kepler no dice si ese efectivo irá a `0011` o al banco. Lo que sí dice
+es que **existe y no ha llegado a ninguna cuenta**.
+
+⛔ **Lo que no tiene documento en ningún lado** (un cartón vendido sin registrar, un abono de empleado
+sin cobro) no lo ve ningún testigo de origen: sólo el conteo físico. Por eso el bulto sin contar de
+§36.5 es el último hueco. Fuera del alcance quedan las cuatro **cajas chicas** (`0010`, `0030`,
+`0040`, `0050`), que reciben efectivo pero no son Caja General.
+
+### 36.4 Flujo inverso: lo que hay físicamente, y la bóveda reconstruida
+
+**Caja General no manda efectivo a bancos.** En la ventana, la tesorería `0011` no tiene un solo
+traspaso: todo lo que sale son pagos (`X-D-26` 528 / $5,063,816.42 · `X-D-60` 3 / $526,484.87). El
+flujo inverso termina en pagos y en lo que queda en la caja.
+
+⭐ **La bóveda sí se puede medir** (corrige §28.7). Desde el 27-oct la máquina publica su inventario
+tras cada evento. Con el replay (depósito +, dispensar −, vaciar −, dotar +):
+- **109 de 111 conteos consecutivos cierran al peso.** Los 2 restantes son el evento `#1820` contado
+  dos veces, neto $0.
+- Hacia atrás reproduce los **$360,020** del 20-oct 10:04 (§28.8) por otro camino.
+- Al **10-oct 12:58:46** (el instante del arqueo `A23641`) había **$342,500**.
+
+**Balance físico**, del cierre del 10-oct al cierre del 3-nov (cortes `CC-2026-00001`…`00020`):
+
+```
+físico inicial: cajón $3,327.50 + bóveda $342,500 ...............   $345,827.50
++ ingresos del libro ...........................................  $5,200,441.00
+− gastos del libro (incl. CG-2026-00018, sin corte) ............  $5,548,199.20
+                                                                  ─────────────
+= esperado ......................................................    −$1,930.70
+contado pieza por pieza: cajón $116 + bóveda $60 ...............       $176.00
+                                                                  ─────────────
+SOBRAN (contado − esperado) ....................................     $2,106.70
+```
+
+### 36.5 ⛔ El «contado» del cajón NO es un conteo: un bulto tecleado como morralla
+
+`cash_ledger_cuts.contado` = **piezas por denominación + `morralla`**. En 8 cortes la «morralla» es un
+bulto de cientos de miles de pesos **sin desglose**:
+
+| corte | 26-oct | 27 | 28 | 29 | 30 | 31 | 2-nov | 3-nov | 4-nov |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| «morralla» | $298,484.92 | 0 | **$192,550** | 0 | **$192,550** | **$192,550** | **$192,550** | $188,560 | $195,088 |
+| piezas contadas | $43,610.50 | $47,903 | $44,891.50 | $3,517.50 | $31,300.50 | $4,266.50 | $12,424.50 | **$116** | $64,032.50 |
+
+- Es el patrón de §28.4: **el mismo valor repetido = arrastrado, no contado.**
+- El bulto entra y sale del conteo, y por eso las diferencias diarias saltan ±$200k (−$298,428.54 el
+  27-oct, +$380,544.28 el 28-oct).
+- La pantalla de conteo hoy rechaza más de 49¢ de morralla (`[LE.2.12]`, `rechazarMorrallaFueraDeTope`),
+  pero **lo sellado antes de la regla se cerró como venía** (expand/contract). Los cortes del 3 y 4-nov
+  también lo traen.
+
+⇒ **Si el bulto existe**, al cierre del 3-nov hay **$190,666.70** de efectivo sin entrada en el libro.
+**Si no existe**, el cajón tiene $116 y el libro explica el efectivo con $2,106.70 de diferencia. **No
+se sabe cuál de las dos es**, y no se puede saber sin contarlo pieza por pieza.
+
+Por tramos, entre cierres **sin bulto** (27 y 29-oct), las diferencias son −$118,338.30, +$177,562.44
+y −$57,117.44. Son el bulto entrando y saliendo de los conteos, no dinero que aparece y desaparece:
+sólo la ventana completa es interpretable.
+
+⭐ **Lo que el arqueo de Control dice del bulto (§36.8):** el 28-oct los cheques de Control pasan de
+$10,121 a **$202,671 (+$192,550 exactos)**, mientras su efectivo coincide al peso con las piezas del
+corte ($44,891.50). Casi seguro el bulto son **cheques tecleados como morralla**, no efectivo.
+Falta que alguien los vea para que sea medición.
+
+⇒ **Consecuencia, si se confirma:** el efectivo físico cuadra con el libro **en el neto**
+($2,106.70). ⛔ *Corregido el mismo 2026-11-04 (§36.9):* aquí se concluyó que los cobros que
+Kepler da por entrados a `0011` y el libro no tiene ($335,165.25) «no llegaron físicamente». **No
+se sostiene.** El balance sólo prueba que
+
+    entradas sin libro − salidas sin libro ≈ $23,207.70
+
+y §36.9 encontró salidas físicas sin libro con la bóveda como testigo ($192,558.50) más la
+devolución doble de Morelia ($40,949). Para que el neto cuadre, **entraron al menos ~$256k que el
+libro no tiene**. Lo más probable es que buena parte de esos cobros sí llegó y se usó en salidas que
+nadie registró. Cuál peso fue a cuál no se puede asignar con el dato: pide el expediente de cada
+salida.
+
+### 36.6 Los huecos, con nombre y certeza
+
+| hueco | monto | certeza | de quién es |
+|---|---:|---|---|
+| cobros a Caja General sin captura en el libro | $335,165.25 | alta (llave del documento) | operación de caja |
+| venta de Canindo sin cobro, 12–31 oct | $148,287.45 | alta (venta y cobro del mismo carril) | Canindo |
+| ruta 23 del 19-oct capturada en $34 | $30,360 | alta (tres testigos) | operación de caja |
+| el mismo efectivo capturado dos veces | $21,101 de más | alta | operación de caja |
+| venta de Canindo sin cobro, 1–4 nov | $226,702.25 | por confirmar: carril o proceso | Canindo / Desarrollo |
+| cortes de las cajas que alimentan Caja General, sin cobro (29-oct→3-nov) | $289,200.09 | alta que existe; por confirmar si va a `0011` o a banco | Morelia ($195,118.51) y 08 ($93,685.79) |
+| bulto del cajón declarado sin contar | $188,560 | ⛔ **no medido**; casi seguro cheques (§36.8) | operación: conteo pieza por pieza |
+| **salidas físicas que sólo registra Control** (sin pago en Kepler ni renglón en el libro) | **$648,434.50**, de las que **$192,558.50** tienen la bóveda como testigo | alta para las de bóveda; las demás, por confirmar | Dirección / operación de caja (§36.9) |
+| el neto del balance: entradas sin libro − salidas sin libro | ≈ $23,207.70 | alta (bóveda + conteo) | — no asigna peso por peso (§36.5) |
+| cortes cobrados contra `0001` DEVOLUCIONES (ni banco ni caja) | $163,882.36 | alta que existe; destino desconocido | sucursales 01 y 04 |
+| ruta 26 del 21-oct: llegó a la bóveda y no está en el libro | $19,176 | alta (Kepler + Control + bóveda) | operación de caja |
+| devolución de un ingreso doble de Morelia, sin salida en el libro | $40,949 | media (importe idéntico a `CI-2026-00046`) | operación de caja |
+| cobros a `0011` que la pantalla no ve (almacén `00` en el ODS de la 01) | $1,118 | alta | Desarrollo (filtro anti-réplica) |
+| cortes de sucursal vencidos sin cobro | $392,201.06 | alta, pero ese efectivo va a banco, no a Caja General | sucursales |
+
+### 36.7 Las trampas que cobraron escribiendo esta sección
+
+1. ⛔ **Usar CAOS como testigo del ingreso.** «0 de 22 cobros faltantes tienen depósito CAOS» parecía
+   prueba de que el dinero no llegó, y para Canindo no lo es: deposita en bloque. El testigo es el
+   origen, no el depósito.
+2. ⛔ **La cuenta `0001` no es un banco: es DEVOLUCIONES.** Clasificar `kdb1` con «no dice EFECTIVO ⇒
+   banco» la metió entre los bancos. `0001`, `0002` (ajuste) y `015` (traspasos de sucursal) son otra
+   cosa.
+3. ⛔ **En la sucursal 01 el folio del corte se repite** entre la sucursal y sus 6 rutas (`01|0000006`,
+   `01-003|0000006`…), y `kdm5` no trae el almacén del cargo. Para las rutas, la liga es el
+   `folio_corte` del cobro de la camioneta.
+4. ⛔ **Los cortes «sin cobro» se amontonaban del 29-oct en adelante**, y eso parecía retraso de la
+   réplica de `kdm5`. Medido: todo `U-A-5` del 20-oct al 4-nov tiene su aplicación. Es el atraso
+   normal de cada sucursal, y sólo lo que lo pasó se cuenta como hueco.
+5. ⛔ **El «contado» del corte se leyó como conteo** (§36.5). El primer balance daba «sobran
+   $190,666.70» sin decir que $188,560 eran un monto tecleado.
+6. ⛔ **La transacción `READ ONLY` no permite tablas temporales**, así que todo va en CTE. Y `kdm5`
+   trae columnas `numeric`: `btrim()` exige `::text`.
+7. ⛔ **En el corte `U-D-23` la caja NO está en `c80`/`c81`** (vienen vacíos, como en el ticket,
+   §3.z.2 de `ERP_KEPLER.md`): está en **`c27`**. Verificado contra la glosa `c14` de su aplicación
+   en `kdm5` («Caja 4-102» ↔ `c27 = 4`).
+
+### 36.8 ⭐⭐ El barrido de TODAS las entradas posibles: universos completos, no canales conocidos
+
+Pedido de Edgar (2026-11-04): *"necesito que encontremos todas las entradas de dinero posibles para
+que no se nos escape ni una"*. Revisar los canales conocidos no alcanza para eso, porque sólo
+encuentra lo que ya se buscaba. Se barrieron **universos completos** y se miró qué aparecía:
+
+| universo barrido | resultado |
+|---|---|
+| **todo `kdm1`** que toca una cuenta `EFECTIVO` de `kdb1` (`c45` o `c47`), cualquier tipo, sucursal o ruta | sólo `0011`. **Las cajas chicas casi no se usan** (9 movimientos de `0010` desde septiembre, 1 de `0050`) |
+| todo `kdm1` cuya glosa dice efectivo/caja/CAOS **en una cuenta que no es de efectivo** | los depósitos de sucursal a banco (esperados) y gastos pagados en efectivo y registrados sin cuenta (`X-A-10`/`X-A-15`: nóminas, combustible) |
+| las cuentas de `kdb1` que **no son ni efectivo ni CLABE** (`0001`, `0002`, `015`) | ⛔ **`0001` DEVOLUCIONES recibe cobros de venta**: 7 `U-A-5` por **$163,882.36** en la ventana (abajo) |
+| cargos de cliente fuera del corte (`U-D-5`, `U-D-6`, `U-D-12`) | son **re-facturación de tickets** que ya están en el corte, no venta nueva. En la misma apertura de caja, factura ≈ tickets (05: $18,334 contra $18,530; 04: al centavo). Testigo fiscal: los CFDI de ingreso PUE en efectivo (forma 01) suman **$29.5 M** y la factura global `U-D-6`, **$28.3 M**. ⚠️ Medido parcial |
+| la base de la Suite: toda tabla con forma de pago, efectivo o cobro | `store_live_tickets` es el espejo en vivo de los tickets de Kepler (serie `UD1001` = `U-D-10` caja 1). Los pedidos de la Suite marcados `cash` (197, $164k) se vuelven documentos de Kepler; no se siguieron uno por uno. Las liquidaciones de guía y de repartidor son 6 renglones, todos del 16-oct ($10.8k) |
+| **Control (Access) después del relevo** | ⛔ **se sigue capturando: 123 movimientos hasta el 4-nov** (abajo) |
+
+**`0001` DEVOLUCIONES, en la ventana:** `01|U-A-5|0000101` del 13-oct por **$150,470** (salda los
+cortes de las cajas 2 y 3 de Padre Hidalgo), `01|U-A-5|0000102` por $9,858 («VENTAS 11-10-2026 PH») y
+$3,554 en cuatro cobros de la 04. `0001` no es banco ni caja: **Kepler no dice adónde fue ese
+efectivo**, y ninguno está en el libro. Es la misma familia que la ruta 21 del 16-oct (§36.2).
+
+**Cobros a `0011` que nadie ve:** dos `U-A-5` del 23-oct ($200 «VTA PH» y $918 «MONEDA PH») viven en el
+ODS de la 01 con almacén `c1 = '00'`. El anti-réplica (`btrim(c1) = sucursal`) los descarta de
+`kepler_bank_movements`, y no están en `route_collections` ni en el libro.
+
+**Control, el segundo testigo físico.** `caja_general_ods.arqueo_movimientos` trae, después del 11-oct:
+- **12 arqueos** (14 al 28-oct): su **efectivo coincide al peso con las piezas** del corte de la Suite
+  (19-oct $87,772.50; 24-oct $43,975; 28-oct $44,891.50, sin el bulto), y su **«tarjeta» es la
+  bóveda** (19-oct $360,020 y 28-oct $701,670, iguales al inventario CAOS). El 28-oct los **cheques
+  suben exactamente $192,550**: el bulto de §36.5.
+- **101 movimientos vivos**: **47 casan con el libro** a ±1 día y ±$5 (placebo con montos corridos:
+  3–6). Una **entrada confirmada que el libro no tiene**: `A23702` «R26», 21-oct, **$19,176**
+  ($19,160 a la bóveda + $16): el cobro `01-004|U-A-5|0000017` que Kepler sí tiene. Una salida que
+  parece corrección: `A23675` «DEV RUTA MORELIA (DOBLE)», 19-oct, **$40,949**, el importe idéntico de
+  `CI-2026-00046`, sin salida en el libro.
+- **28 salidas sin pareja 1:1 en el libro**, que no son reposición, nómina ni bonos: pagos en
+  efectivo de tarjetas de crédito de un tercero ($200,556, $119,726, $72,832.50, $8,577), una entrega
+  de $170,000 a una persona, $161,404.50 sin descripción, depósitos a cuentas de proveedores. ⚠️ **No
+  concluyente**: el libro parte en renglones lo que Control registra en bloque (los $476,582 del
+  3-nov son la suma exacta de `CG-2026-00643` + `CG-2026-00644`), y a ±7 días el placebo da 7 de 84.
+  Hace falta casarlas por suma, no por importe.
+
+⚠️ *Las salidas de esta lista se reclasifican en §36.9:* casándolas por **identidad** (beneficiario,
+terminación de la tarjeta) y no por importe, varias sí tienen su pago en Kepler.
+
+⛔ **Lo que ningún barrido ve:** el efectivo que no deja rastro en ningún sistema. Sólo lo atrapa el
+conteo físico, y hoy el conteo arrastra el bulto. **Sin medir todavía:** los complementos de pago en
+efectivo (cobranza de crédito; `cfdi_payment_links` forma 01, sin monto) y los pedidos `cash` de la
+Suite uno por uno.
+
+### 36.9 ⭐⭐ Las SALIDAS: el libro sólo registra lo que Kepler conoce
+
+Pedido de Edgar (2026-11-04): *«ahora egresos de caja general»*. Ventana 12-oct → 3-nov.
+
+**1. Lo que Kepler y el libro registran casi cuadra.** Los **527 gastos del libro traen todos
+documento de Kepler** (522 `pago_proveedor`, 4 desde CAOS, 1 sin origen con documento). Pagos de
+Kepler a `0011` que el libro no tiene: **$16,719.08**. Gastos del libro sin documento válido:
+**$1,240** (`CG-2026-00100` y `CG-2026-00471`, §36.2).
+
+⇒ **El libro sólo registra salidas que Kepler conoce.** Una salida física sin documento (pagar una
+tarjeta, entregar efectivo a alguien) no la ve ni Kepler ni el libro: **sólo Control y la bóveda.**
+
+**2. Control contra el libro: por importe NO, por identidad SÍ.**
+
+| método | casan | placebo | veredicto |
+|---|---:|---:|---|
+| 1–4 renglones del libro que sumen lo de Control (±1 día, ±$5) | 82 de 87 | **81** | ⛔ no distingue: cualquier monto se arma sumando |
+| un pago de Kepler a `0011` dentro de 1 % y ±7 días | 10 de 24 | **9** | ⛔ no distingue |
+| **identidad**: la terminación de la tarjeta o el beneficiario que Control escribe, contra el beneficiario de Kepler | — | — | ✅ el único que sirve |
+
+Por identidad, Control anota el **efectivo entregado, redondeado a billete**, y Kepler el **pago
+exacto**: TDC terminación 6323, $200,556 en Control contra `X-D-60` «T. CREDITO BANORTE 6323» por
+**$200,419.65** al día siguiente; la 5163, $8,577 contra $8,507.22; AMEX 2009, $75,798 contra
+`CG-2026-00511` por $75,797.72.
+
+**3. Lo que queda sin documento en ningún lado: $648,434.50.**
+
+| salida | monto | testigo |
+|---|---:|---|
+| pago en efectivo de la tarjeta **AMEX 2009** (26-oct) | **$119,726** | dispensado de la bóveda `#1722`, mismo minuto ($119,720) |
+| pago en efectivo de la tarjeta **AMEX 2003** (26-oct) | **$72,832.50** | dispensado `#1724` ($72,830) |
+| entrega a un proveedor de mercancía (21-oct) | $170,000 | sólo Control; sus documentos de octubre suman ~$28k |
+| depósitos a cuentas de dos proveedores (21, 22 y 29-oct) | $152,903 | sólo Control; **ninguno de los dos tiene un solo pago en Kepler** |
+| otras 7, sin descripción o con nombre de persona | $133,013 | sólo Control |
+
+⭐ **Las AMEX sí existen en Kepler, pero como gasto, no como pago:** sus cargos entran como
+documentos de proveedor `X-A-10`/`X-A-15` (laptops, generador, licencias, preciadores) sin un
+`X-D` que los pague desde Caja General. El único pago es el de $75,797.72. **El efectivo de los
+otros dos salió de la bóveda y no tiene documento de pago.**
+
+⚠️ **Lo que no se midió:** las reposiciones de gasto a sucursal y las nóminas que Control registra en
+bloque (`GNF`, `NOM`; por ejemplo, $169,696 a Morelia el 15-oct, con dispensado `#1604` de
+$169,500). El libro las parte en muchos pagos de sucursal, y por importe no se pueden casar.
+
+**4. ⛔ La consecuencia corrige §36.5.** Con salidas físicas sin libro por al menos $192,558.50
+(más los $40,949 de la devolución doble), el neto del balance (≈ $23,207.70) obliga a que **hayan
+entrado al menos ~$256k que el libro no tiene**. Los cobros de §36.2 no son «dinero que no llegó»:
+lo más probable es que buena parte llegó y se usó en salidas que nadie registró.
+
+**Trampas de esta subsección:**
+1. ⛔ **El cruce por suma con placebo de 81 de 87 parecía un 94 % de cobertura.** Sin el placebo
+   se habría publicado «Control casa con el libro».
+2. ⛔ **La tolerancia de ±$10 escondió los pagos de tarjeta:** Control redondea el efectivo
+   entregado, y la diferencia era de $69.78 y $136.35. **La identidad casa donde el importe no.**
+3. ⛔ **`kdm1.c32` (beneficiario) con un apellido común** devolvió 287 documentos: la identidad se
+   busca con el nombre completo o con la terminación de la tarjeta.
+
+**Medición reproducible:** consultas de sólo lectura contra `pg-prod` el 2026-11-04; el cuadre del
+libro usa los motores del servicio importados tal cual. ⚠️ Los guiones viven **fuera del repo** (en el
+scratchpad de la sesión): no se pueden volver a correr desde aquí hasta que se versionen como
+`scripts/verify-*`.
