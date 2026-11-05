@@ -76,9 +76,11 @@ describe('[CB.53.1] el grafo de FinanceBankModule cierra', () => {
   });
 
   it('PRUEBA NEGATIVA: sin el import que lo exporta, la comprobación se pone roja', () => {
-    @Reflect.metadata('providers', [BankReconPorAvisoService])
-    @Reflect.metadata('imports', [])
+    // Sin decorador: un decorador DENTRO del spec no se transforma y Node lo rechaza al cargar el archivo
+    // («SyntaxError: Invalid or unexpected token»: las pruebas no corrían). Es la misma metadata que pondría.
     class ModuloSinElImport {}
+    Reflect.defineMetadata('providers', [BankReconPorAvisoService], ModuloSinElImport);
+    Reflect.defineMetadata('imports', [], ModuloSinElImport);
     expect(alcanceDe(ModuloSinElImport).has(PgListenService)).toBe(false);
   });
 });
