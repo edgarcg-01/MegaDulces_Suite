@@ -695,10 +695,9 @@ Y se actualiza el símbolo al avanzar:
   mismo universo (códigos, importes, tickets, orden) en 2V005, 1V001, 1V004, 3V001, 25 y 501;
   camionetas con los mismos nombres; clientes 44–235 ms, tickets 86–448 ms. Typecheck y arranque
   **NO MEDIDOS** (los corre el CI). *(commit `b5186b3ff`)*
-- [ ] **[VEC.36]** 🔨 2026-11-04 — Filtro **Ruta directa / Vecinal** (con conteo, `?tipo=`) y
-  comparativa RD vs vecinal en el periodo y filtros de la tabla (venta, %, rutas con venta,
-  tickets, ticket promedio, venta por ruta). ⚠️ Sin año anterior: la vecinal existe en el ODS
-  desde abr-2026 (medido). Pruebas 7 nuevas + negativa. *(commit `593f27c4e`)*
+- [ ] **[VEC.36]** 🔨 2026-11-04 — Filtro **Ruta directa / Vecinal** (con conteo, `?tipo=`).
+  La comparativa RD vs vecinal que lo acompañaba se **retiró a pedido del PM** el mismo día.
+  Pruebas + negativa. *(commits `593f27c4e`, `e87928727`)*
 - [ ] **[VEC.37]** 🔨 2026-11-04 — **Una sola barra de filtros** (QUÉ rutas / CÓMO acotarlas) y
   **«Solo activas»** = vendió en alguno de los dos últimos meses del reporte, independiente del
   rango; apagada por defecto. *(commit `5299fe876`)*
