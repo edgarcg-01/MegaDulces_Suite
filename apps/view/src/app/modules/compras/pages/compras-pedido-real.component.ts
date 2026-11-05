@@ -474,15 +474,20 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                   <!-- Los totales son la SUMA VIVA del desglose de abajo: al editar una sucursal
                        se mueven acá. Arrancan en el sugerido del motor, que es lo mismo que
                        publicaba antes la columna por sucursal. -->
+                  <!-- [PQ.79] Si NINGUNA sucursal se pudo calcular (peldano en contra en todas), el
+                       total no es 0: no se midio. Se pinta el guion con su razon (ADR-056). -->
                   <td class="pr-r pr-strong" [title]="pedidoTitle(r)">
+                    @if (sinCalcular(r)) { <span class="pr-rung" [title]="sinCalcularTitle(r)">— <i class="pi pi-exclamation-triangle" aria-hidden="true"></i></span> } @else {
                     {{ sumCajas(r) | number:'1.0-1' }} <span class="pr-unit">{{ etOf(r).mayor }}</span>@if (r.almacenes_sin_pedido) { <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> }
+                    }
                   </td>
-                  <td class="pr-r pr-val pr-strong" [class.pr-ped-on]="sumCajas(r) > 0">{{ money(sumValor(r)) }}</td>
+                  <td class="pr-r pr-val pr-strong" [class.pr-ped-on]="sumCajas(r) > 0">{{ sinCalcular(r) ? '—' : money(sumValor(r)) }}</td>
                   <!-- U.2 — la existencia de red suma SOLO los almacenes con el peldano verificado.
                        Si alguno quedo fuera se declara con el triangulo y el conteo en el tooltip,
                        porque un total mas chico se lee como "hay menos inventario". -->
                   <td class="pr-r pr-muted" [title]="exisRedTitle(r)">
-                    @if (r.almacenes_sin_valuar) {
+                    @if (sinCalcular(r)) { <span class="pr-rung" [title]="sinCalcularTitle(r)">— <i class="pi pi-exclamation-triangle" aria-hidden="true"></i></span> }
+                    @else if (r.almacenes_sin_valuar) {
                       <span class="pr-rung">{{ exisRed(r) | number:'1.0-1' }} <i class="pi pi-exclamation-triangle" aria-hidden="true"></i></span>
                     } @else { {{ exisRed(r) | number:'1.0-1' }} }
                   </td>
@@ -725,17 +730,19 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                       }
                                     </tbody>
                                     <tfoot><tr>
+                                      <!-- [PQ.79] El total suma SOLO las sucursales calculadas: si falta alguna lo
+                                           dice con el triangulo, y si no hay ninguna es guion, no 0. -->
                                       <td>Total</td>
-                                      <td class="pr-r">{{ totVta(r) | number:'1.0-1' }}</td>
-                                      <td class="pr-r">{{ totExis(r) | number:'1.0-1' }}</td>
+                                      <td class="pr-r">@if (sinCalcular(r)) { <span class="pr-rung" [title]="sinCalcularTitle(r)">— <i class="pi pi-exclamation-triangle" aria-hidden="true"></i></span> } @else { {{ totVta(r) | number:'1.0-1' }}@if (r.almacenes_sin_valuar) { <i class="pi pi-exclamation-triangle pr-rung" [title]="sinCalcularTitle(r)" aria-hidden="true"></i> } }</td>
+                                      <td class="pr-r">@if (sinCalcular(r)) { <span class="pr-rung" [title]="sinCalcularTitle(r)">— <i class="pi pi-exclamation-triangle" aria-hidden="true"></i></span> } @else { {{ totExis(r) | number:'1.0-1' }}@if (r.almacenes_sin_valuar) { <i class="pi pi-exclamation-triangle pr-rung" [title]="sinCalcularTitle(r)" aria-hidden="true"></i> } }</td>
                                       <td></td>
                                       <td class="pr-r"><span class="pr-tra-in">@if (prodTrCajas(r.product_id) > 0) { +{{ prodTrCajas(r.product_id) | number:'1.0-1' }} {{ etOf(r).mayor }} }</span></td>
                                       <!-- [PQ.36] El total en cajas Y en la unidad base: «50 cj = 400 pz» se lee antes de mandar. -->
-                                      <td class="pr-r">{{ sumCajas(r) | number:'1.0-1' }} {{ etOf(r).mayor }}@if ((+r.uxc || 1) > 1 && sumCajas(r) > 0) { <span class="pr-muted"> = {{ piezasDeCajas(sumCajas(r), +r.uxc) | number:'1.0-0' }} {{ unidadBase(r) }}</span> }</td>
+                                      <td class="pr-r">@if (sinCalcular(r)) { — } @else { {{ sumCajas(r) | number:'1.0-1' }} {{ etOf(r).mayor }} }@if ((+r.uxc || 1) > 1 && sumCajas(r) > 0) { <span class="pr-muted"> = {{ piezasDeCajas(sumCajas(r), +r.uxc) | number:'1.0-0' }} {{ unidadBase(r) }}</span> }</td>
                                       @if (verDetalle(r.product_id)) { <td></td> }
                                       <td></td>
                                       @if (verDetalle(r.product_id)) { <td></td> }
-                                      <td class="pr-r pr-val">{{ money(sumValor(r)) }}</td>
+                                      <td class="pr-r pr-val">{{ sinCalcular(r) ? '—' : money(sumValor(r)) }}</td>
                                     </tr></tfoot>
                                   </table>
                                 </div>
@@ -3014,6 +3021,25 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       + `${b.nat.toLocaleString('es-MX')} ${u} en este almacén. Restar demanda − existencia `
       + 'mezclaría peldaños y el sugerido saldría mal. Se compara el divisor contra lo que se pagó '
       + 'por unidad de stock; el detalle está en la bandeja de hallazgos.';
+  }
+
+  /**
+   * `[PQ.79]` ¿Ninguna sucursal del renglón se pudo calcular? Entonces sus totales NO son cero: no se
+   * midieron, y se pintan «—». Caso real (2026-11-05, 59059 NARANJA BOLI CHICO): las 5 sucursales con
+   * peldaño en contra y la pantalla decía «0 cj · $0 · Exist. red 0» con 939 paquetes en la red.
+   */
+  sinCalcular(r: WorkbookRow): boolean {
+    const bs = this.branchBuys(r);
+    return bs.length > 0 && bs.every((b) => !!b.rung);
+  }
+  sinCalcularTitle(r: WorkbookRow): string {
+    const bs = this.branchBuys(r);
+    const n = bs.filter((b) => b.rung).length;
+    if (!n) return '';
+    const cuales = n === bs.length ? `Ninguna de las ${n} sucursales` : `${n} de ${bs.length} sucursales no`;
+    return `${cuales} se pudo calcular: el divisor de cajas no cuadra con lo que se pagó por unidad. `
+      + 'No es cero: la existencia está en su unidad suelta dentro del desglose. Suele ser una entrada '
+      + 'de compra capturada en otra unidad en Kepler (piezas como paquetes).';
   }
 
   /** Existencia de RED en cajas = Σ de las sucursales con el peldaño verificado (U.2). */

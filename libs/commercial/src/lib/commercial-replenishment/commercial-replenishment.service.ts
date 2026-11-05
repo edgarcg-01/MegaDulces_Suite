@@ -2318,7 +2318,16 @@ export class CommercialReplenishmentService {
              AND EXISTS (SELECT 1 FROM catalog.products pr WHERE pr.id = v.product_id AND ${where})
         ), `}base AS MATERIALIZED (
           SELECT pr.id AS product_id, pr.sku, pr.nombre, pr.supplier_id,
-                 rp.suf, rp.bf, rp.display_bf, rp.caja_cost, rp.daily_pieces, rp.stock_pz, rp.transit_cajas,
+                 -- [PQ.78] El costo de caja es el que Kepler tiene HOY en la sucursal que recibe, para el
+                 -- proveedor del producto: la pantalla Costos por Proveedor por Productos de ESA
+                 -- sucursal, que es de donde la orden de compra toma su precio. Se lee del ODS en vivo
+                 -- (llave exacta del indice: sucursal, proveedor, sku). El fact trae la MEDIANA de
+                 -- las 9 sucursales y se rehace cada 15 min: un cambio guardado en una sola sucursal
+                 -- no se veia nunca, y uno guardado en todas tardaba hasta 15 min. Donde la llave no
+                 -- casa (rutas, Wincaja, o un proveedor distinto al de Kepler) queda el del fact.
+                 -- Medido 2026-11-05: 33,444 de 34,023 renglones de sucursal casan, 0 duplicados.
+                 COALESCE(kpp.c4, rp.caja_cost) AS caja_cost,
+                 rp.suf, rp.bf, rp.display_bf, rp.daily_pieces, rp.stock_pz, rp.transit_cajas,
                  -- [RA.TR] Las dos columnas viajan CRUDAS hasta donde la politica decide (abajo,
                  -- en la columna ped). El COALESCE que vivia aca duplicaba la caida que ahora hace
                  -- transitoDescontado, y era un sexto lugar donde la regla podia divergir.
@@ -2362,6 +2371,9 @@ export class CommercialReplenishmentService {
             FROM catalog.products pr
             JOIN ${rpSrc(vbfSrc)} rp ON rp.tenant_id = pr.tenant_id AND rp.product_id = pr.id
             JOIN commercial.warehouses w ON w.tenant_id = :t AND w.id = rp.warehouse_id
+            LEFT JOIN catalog.suppliers spk ON spk.tenant_id = pr.tenant_id AND spk.id = pr.supplier_id
+            LEFT JOIN kepler_ods.kdpv_prov_prod kpp
+                   ON kpp.sucursal = w.code AND kpp.c1 = spk.code AND kpp.c2 = pr.sku AND kpp.c4 > 0
             LEFT JOIN commercial.reorder_policy rop ON rop.tenant_id = pr.tenant_id AND rop.product_id = pr.id AND rop.warehouse_id = rp.warehouse_id
             LEFT JOIN commercial.replenishment_channel rcw ON rcw.tenant_id = pr.tenant_id AND rcw.warehouse_id = rp.warehouse_id AND rcw.supplier_id = pr.supplier_id
             -- [RA-DYN.U7] fre es un CTE MATERIALIZED, no una subconsulta en linea, por la misma

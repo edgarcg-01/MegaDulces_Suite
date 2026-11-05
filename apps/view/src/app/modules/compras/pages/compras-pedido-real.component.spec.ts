@@ -1632,3 +1632,36 @@ describe('[PQ.76] una cifra no medida se PINTA como «—», no como 0', () => {
     expect(sob).not.toMatch(/\$\s?0\b|\b0\b/);
   });
 });
+
+describe('[PQ.79] lo que ninguna sucursal pudo calcular se pinta «—», no 0', () => {
+  // Caso real (2026-11-05, 59059 NARANJA BOLI CHICO): las 5 sucursales con peldaño en contra y el
+  // renglón decía «0 cj · $0 · Exist. red 0», y el Total del desglose «0 / 0», con 939 paquetes.
+  const celda = (exis: number, nat: number) => ({ cc: 186.21, mx: 1, nat, rop: 1, vta: 0.5, exis, natu: 'PAQ', rung: 'x1_inflada', tran: 0 });
+  const R59 = {
+    product_id: 'p-59059', sku: '59059', nombre: 'NARANJA BOLI CHICO /20', supplier_id: 's-1', supplier_name: 'OSWALDO PEREZ ARIAS',
+    uxc: '20', caja_cost: '186.21', cells: { '01': celda(1.4, 27), '03': celda(45.3, 905), '08': celda(0.2, 3) },
+    almacenes_sin_pedido: 3, almacenes_sin_valuar: 3, suma_pedido_cajas: null, pedido_valor: null, valor_exis: null, signals: null,
+  };
+  const fila0 = (fix: { nativeElement: HTMLElement }) => fix.nativeElement.querySelector('.pr-wb-tbl > tbody > tr') as HTMLElement;
+
+  it('⛔ con TODAS las sucursales sin calcular, Σ Ped., $ Pedido y Exist. red dicen «—»', () => {
+    const fix = montar({ ...VACIO, total: 1, rows: [R59] });
+    fix.detectChanges();
+    const c = fix.componentInstance;
+    expect(c.sinCalcular(R59 as never)).toBe(true);
+    const tds = [...fila0(fix).querySelectorAll('td')].map((td) => (td.textContent || '').replace(/\s+/g, ' ').trim());
+    // Σ Ped., $ Pedido y Exist. red son las tres celdas después del producto.
+    expect(tds.slice(1, 4)).toEqual(['—', '—', '—']);
+    expect(c.sinCalcularTitle(R59 as never)).toMatch(/Ninguna de las 3 sucursales/);
+  });
+
+  it('con UNA sucursal calculada vuelve el número (la suma parcial lleva su triángulo)', () => {
+    const r = { ...R59, cells: { ...R59.cells, '05': { ...celda(2, 40), rung: null } }, almacenes_sin_valuar: 3 };
+    // El desglose sale de los renglones CARGADOS en la pantalla, no del objeto que se pasa.
+    const c = montar({ ...VACIO, total: 1, rows: [r] }).componentInstance;
+    expect(c.branchBuys(r as never)).toHaveLength(4);
+    expect(c.sinCalcular(r as never)).toBe(false);
+    expect(c.exisRed(r as never)).toBe(2);
+    expect(c.sinCalcularTitle(r as never)).toMatch(/3 de 4 sucursales no/);
+  });
+});

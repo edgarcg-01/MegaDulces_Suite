@@ -1,4 +1,4 @@
-import { nombreArchivoRequisicion, nombreArchivoRequisicionGlobal, textoParaArchivo } from './pedido-requisicion-pdf';
+import { nombreArchivoRequisicion, nombreArchivoRequisicionGlobal, notaPrecio, textoParaArchivo } from './pedido-requisicion-pdf';
 
 describe('[RA-PRO.56] nombreArchivoRequisicionGlobal — control de los PDF emitidos', () => {
   const d = new Date(2026, 8, 26, 9, 5, 7);   // 26-sep-2026 09:05:07 hora local
@@ -55,5 +55,19 @@ describe('[RA-PRO.56] textoParaArchivo', () => {
   it('vacío o sólo signos → cadena vacía', () => {
     expect(textoParaArchivo('')).toBe('');
     expect(textoParaArchivo('*** ///')).toBe('');
+  });
+});
+
+describe('[PQ.78] notaPrecio — el papel dice de dónde sale el precio', () => {
+  it('nombra a Kepler, la sucursal que recibe, sin impuestos y la hora de la consulta', () => {
+    const t = notaPrecio(new Date(2026, 10, 5, 13, 30));
+    expect(t).toContain('Kepler (Costos por Proveedor por Productos)');
+    expect(t).toContain('de la sucursal que recibe');
+    expect(t).toContain('sin impuestos');
+    expect(t).toMatch(/al 05.*2026/);
+    expect(t).toContain('corríjalo en Kepler');
+  });
+  it('sin hora de consulta no inventa una', () => {
+    expect(notaPrecio(null)).not.toMatch(/, al /);
   });
 });

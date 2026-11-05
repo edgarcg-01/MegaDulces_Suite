@@ -1733,6 +1733,72 @@ Cero filas por defecto no se distingue de cero por desuso (regla 13). Por eso na
 Pesa más de lo que parece: el lead time en 0 es la mitad de por qué las fechas del Ciclo no se
 sostienen (PQ.UI.5).
 
+### 17.20 PQ.78 y PQ.79 — dos papeles que traen los compradores (2026-11-05)
+
+**PQ.78: el precio de la sucursal que recibe, leído del ODS en vivo.** Un comprador corrigió a mano
+la requisición de Tuby Ice (proveedor CF010): CHILE y SUPER salían a $297.83 y $397.10 la caja, y el
+proveedor cotizó $282.15 y $376.20 ($18.81 por paquete). Medido:
+
+- el PDF imprimía lo que Kepler tenía: 9 de 9 sucursales en $297.83, aún a las 13:46. El precio
+  nuevo no estaba guardado en Kepler. La corrección del precio se hace en Kepler (*Costos por
+  Proveedor por Productos*), no en la suite;
+- pero la suite tenía dos defectos propios. El fact `replenishment_plan.caja_cost` trae la
+  **mediana de las 9 sucursales** (`v_supplier_cost_ladder`) y se rehace cada 15 min, así que un
+  precio corregido en una sola sucursal no se veía nunca, y uno corregido en todas tardaba hasta
+  15 min. Además, el papel no decía de dónde salía el precio ni de qué hora era.
+
+Lo hecho: `workbook` lee `kepler_ods.kdpv_prov_prod` con la llave exacta del índice (sucursal,
+código de proveedor y SKU). Resultados:
+
+- casan 33,444 de 34,023 renglones de sucursal, sin duplicados;
+- donde no casa queda el valor del fact: rutas, Wincaja y 479 renglones cuyo proveedor en la suite
+  no es el de Kepler;
+- **antes/después** (sólo lectura contra prod): cambian 37 precios; el pedido sugerido de la red baja
+  $106 ($21,081,318.97 → $21,081,212.84) y la existencia valuada $114. Ejemplo: en 97150, Yurécuaro y
+  Morelia Madero pasan a $346 (su Kepler) y las demás siguen en $370;
+- control: Tuby en Morelia Abastos se queda en $297.83, porque Kepler no ha cambiado;
+- costo: unos 100 ms en frío sobre el catálogo entero y +26 ms con caché caliente.
+
+El PDF (las dos formas) dice ahora: «Precio = costo de caja del proveedor, sin impuestos, en Kepler
+(Costos por Proveedor por Productos) de la sucursal que recibe, al <hora>. Si el proveedor cotizó
+otro precio, corríjalo en Kepler y vuelva a generar esta hoja». La prueba se probó con un mutante.
+
+⚠️ **Deuda con nombre:** Autoabasto, Existencia y las listas de traspaso o sobrestock siguen leyendo
+la mediana del fact. Hoy difieren en 37 renglones. Se alinean cuando el motor se mude a vistas del
+ODS (D17); no se tocó el importer.
+
+**PQ.79: lo que ninguna sucursal pudo calcular se pinta «—», no 0.** El caso fue 59059 NARANJA BOLI
+CHICO: el renglón decía «0 cj · $0 · Exist. red 0», y el Total del desglose «0 / 0», con 939
+paquetes en la red.
+
+La causa está en Kepler:
+
+| | Folio | Cantidad | Costo unitario | Importe |
+|---|---|---|---|---|
+| Entrada normal | 0001065 | 40 PAQ | $9.32 | $372.96 |
+| Entrada del 2-oct en 8 Esquinas | X-A-40 0001062 | 800 PAQ | $0.5067 | $405.36 |
+
+El 0001062 vale lo de 40 paquetes: se capturaron las piezas (40 × 20) en la unidad de paquete. 8
+Esquinas trae unos **760 paquetes que no existen**. Consecuencias:
+
+1. Lo pagado se promedia en toda la red, así que esa sola entrada pone el veredicto `x1_inflada` en
+   las 5 sucursales.
+2. El motor ve sobrante en 8 Esquinas y propone traspasar mercancía inexistente.
+
+Lo hecho en la suite: `sinCalcular(r)` pinta «—», con la razón en el título, en Σ Ped., $ Pedido,
+Exist. red y el renglón Total. Si faltan sólo algunas sucursales, la suma parcial lleva su
+triángulo también en el Total. Dos pruebas, una de render con el renglón real; mutante muerto.
+
+**Fuera de la suite (Edgar):** corregir en Kepler la entrada 0001062 de 8 Esquinas, o ajustar su
+existencia. Dos hallazgos quedan registrados sin item: el árbitro de peldaño promedia lo pagado en
+toda la red, de modo que una captura mala en una sucursal bloquea a todas; y el motor puede proponer
+traspasos de existencia fantasma.
+
+**Proveedores con «?» en el nombre:** 6 de 804 claves de Kepler (CF010, CC021, CG005, CB009, CC002…). El ODS guarda bien la Ñ de otros 29 proveedores, escritos con Ñ. Entonces el «?» **está guardado así en el catálogo de Kepler** (`kdxd.c3`) y se corrige
+allá; el importer de proveedores lo traerá corregido. Parcharlo en la suite lo pisaría la siguiente
+corrida. Además CF010 aparece dos veces en `catalog.suppliers`: «853», bien escrito y sin
+productos, y «CF010», con «?» y con los 3 productos.
+
 ---
 
 ## 18. Unidades de medida al 100 %: verificado o con dueño (2026-11-04)
@@ -1882,6 +1948,7 @@ de hoy de esos 65 productos se cuenta distinto que su historia hasta que se cier
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-05 | **PQ.78 🧪 · PQ.79 🧪** (§17.20): el precio del pedido es el de Kepler en la sucursal que recibe, leído en vivo (antes, la mediana de la red con 15 min de atraso); el papel dice de dónde sale y de qué hora es. Lo que ninguna sucursal pudo calcular se pinta «—», no 0. Causas en Kepler, para Edgar: el precio nuevo de Tuby no estaba guardado, una entrada de 8 Esquinas metió 800 paquetes donde eran 40, y 6 proveedores tienen «?» en el nombre | Claude |
 | 2026-11-05 | **PQ.75 🧪** (§17.19): el pedido típico en dos cifras («$241 mil · llevas $686 mil»). La captura de la entrega en el panel pasa a **PQ.77**: 0 de 1,347 proveedores la tienen, su endpoint nunca se ha llamado y no tiene prueba contra base real; primero va la prueba | Claude |
 | 2026-11-05 | **PQ.74 🧪** (§17.18): el primer producto se ve al entrar. Simulado en la página viva, pasa de y=850 (debajo de la barra) a y=583, y se ven dos productos completos. Salen la pastilla, dos cifras repetidas, la caja de días duplicada y el rojo del Ciclo; la mitad de lo ganado era aire. Sin validación visual del código real | Claude |
 | 2026-11-05 | **PQ.76 🧪** (§17.17): las tres listas de Pedido se topaban en 500 renglones y la pantalla los sumaba como total. «A traspasar» $3.4 M → $4.9 M y «Sobrestock» $9.5 M → $13.0 M, con el mismo dato. Los productos que quedaban fuera perdían su traspaso en el desglose y en la requisición. Ahora se piden por producto de la página y los totales vienen del servidor. Probado contra prod en sólo lectura, con control negativo; tres mutantes muertos | Claude |
