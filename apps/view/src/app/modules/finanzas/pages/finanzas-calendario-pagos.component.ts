@@ -261,7 +261,9 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                 @if (verdict().why) { <p class="pg-vd-why">{{ verdict().why }}</p> }
               </div>
               @if (verdict().action; as act) {
-                <button pButton type="button" class="pg-vd-cta" [disabled]="saving()" [loading]="saving()" (click)="runVerdict(act.kind)">
+                <!-- [PGP.77] Chico, y en lo que está mal sin relleno: el aviso ya dice qué pasa; el botón no tiene que gritarlo otra vez. -->
+                <button pButton type="button" class="pg-vd-cta p-button-sm" [class.p-button-outlined]="verdict().tone === 'bad'" [class.p-button-secondary]="verdict().tone === 'bad'"
+                        [disabled]="saving()" [loading]="saving()" (click)="runVerdict(act.kind)">
                   <span class="pi" [ngClass]="act.icon" aria-hidden="true"></span>&nbsp;{{ act.label }}
                 </button>
               }
@@ -1288,10 +1290,11 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
 
     /* ── El veredicto, compacto: frase y boton; tope y avance lado a lado ── */
     .pg-lot { display:grid; gap:var(--sp-2); min-width:0; }
-    .pg-vd { display:grid; gap:var(--sp-1); padding:var(--sp-2) 0; border-block:1px solid var(--border-color); }
+    .pg-vd { display:grid; gap:var(--sp-1); padding:var(--sp-1) 0; border-block:1px solid var(--border-color); }
     /* Rojo SOLO cuando algo esta mal. «Bien» y «falta» no llevan tono: lo dice la frase. */
-    .pg-vd.is-bad { border-left:4px solid var(--bad-fg); padding-left:var(--sp-3); }
-    .pg-vd-ico { color:var(--bad-soft-fg); margin-right:var(--sp-2); font-size:var(--fs-lg); }
+    /* [PGP.77] Lo que está mal lo marca SÓLO el icono rojo junto a la frase: la barra lateral roja más
+       el botón de color eran dos llamadas de atención para un mismo aviso («me desconcentra»). */
+    .pg-vd-ico { color:var(--bad-soft-fg); margin-right:var(--sp-1); font-size:var(--fs-body); }
     .pg-vd-id { display:flex; align-items:baseline; gap:var(--sp-2); flex-wrap:wrap; }
     .pg-vd-id h2 { margin:0; font-size:var(--fs-xs); font-weight:600; color:var(--text-muted); }
     .pg-vd-sub { font-size:var(--fs-sm); color:var(--text-muted); }
@@ -1301,7 +1304,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
        espacio»); si no caben, la explicacion baja sola. */
     .pg-vd-txt { flex:1; min-width:15rem; display:flex; flex-wrap:wrap; align-items:baseline; gap:2px var(--sp-3); }
     /* [PGP.14] La respuesta de la pantalla es lo primero que se lee: la frase mas grande. */
-    .pg-vd-say { margin:0; font-size:var(--fs-lg); font-weight:600; line-height:1.3; letter-spacing:-.01em; color:var(--text-main); }
+    .pg-vd-say { margin:0; font-size:var(--fs-h3); font-weight:600; line-height:1.3; color:var(--text-main); }
     .pg-vd-why { margin:0; display:flex; flex-wrap:wrap; align-items:baseline; gap:2px var(--sp-2); font-size:var(--fs-sm); color:var(--text-muted); }
     :host ::ng-deep .pg-vd-cta.p-button { flex-shrink:0; }
     .pg-vd-row2 { display:grid; grid-template-columns:minmax(0, auto) minmax(26rem, 1fr); gap:var(--sp-2) var(--sp-5); align-items:center;
