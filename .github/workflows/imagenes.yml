@@ -37,7 +37,7 @@ name: Imágenes (GHCR)
 # Sólo push a `main`: un PR no publica imágenes de producción.
 on:
   push:
-    branches: [main]
+    branches: [main, 'hotfix/**']   # hotfix: la rama de excepción construye su imagen (VEC.39/40, 2026-11-05)
 
 permissions:
   contents: read
