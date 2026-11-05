@@ -611,13 +611,19 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                    cuenta favorita de cada proveedor. Sólo en el paso de preparar. -->
               <div class="pg-applyall">
                 <span class="pg-aa-lb">{{ unpreparedCount() === 1 ? 'El pago sin preparar' : 'Los ' + unpreparedCount() + ' sin preparar' }}:</span>
+                <!-- [PGP.75] El método y la CLABE vienen del historial de cada proveedor (se ven en su renglón);
+                     lo único que se decide aquí es de qué cuenta sale el día: la cuenta de origen NO se propone
+                     por proveedor (decisión medida, FASE_PGP «Lo que NO se va a autorrellenar»). -->
                 <span class="pg-aa-f"><label for="pg-bulk-method">Método</label>
-                  <p-select appendTo="body" inputId="pg-bulk-method" [options]="methodOpts" [(ngModel)]="bulkMethod" optionLabel="label" optionValue="value" placeholder="Elegir…" size="small" class="cal-sel" /></span>
+                  <p-select appendTo="body" inputId="pg-bulk-method" [options]="methodOpts" [(ngModel)]="bulkMethod" optionLabel="label" optionValue="value" placeholder="El de su historial" [showClear]="true" size="small" class="cal-sel" /></span>
                 @if (bulkMethod !== 'efectivo') {
                   <span class="pg-aa-f"><label for="pg-bulk-origin">Sale de</label>
                     <p-select appendTo="body" inputId="pg-bulk-origin" [options]="originOpts()" [(ngModel)]="bulkOriginId" optionLabel="label" optionValue="id" placeholder="Elegir cuenta…" [filter]="true" filterBy="label" size="small" class="cal-sel" /></span>
                 }
-                <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [disabled]="!bulkMethod || (bulkMethod !== 'efectivo' && !bulkOriginId) || saving()" [loading]="saving()" (click)="aplicarATodos()">{{ unpreparedCount() === 1 ? 'Aplicar' : 'Aplicar a los ' + unpreparedCount() }}</button>
+                <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [disabled]="!puedeAplicar() || saving()" [loading]="saving()" (click)="aplicarATodos()">{{ unpreparedCount() === 1 ? 'Aplicar' : 'Aplicar a los ' + unpreparedCount() }}</button>
+                @if (!bulkMethod) {
+                  <span class="pg-aa-n">{{ resumenSugerencias() }}</span>
+                }
                 <!-- [PGP.62] Sin el renglón «El destino sale de la cuenta favorita…»: al aplicar, el aviso nombra a los que no tienen. -->
               </div>
             }
@@ -737,6 +743,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                       } @else if (comoSale(a); as cs) {
                         <span class="pg-how">
                           @if (cs.texto) { <span class="pg-how-t">{{ cs.texto }}</span> }
+                          @else if (sugerencias().get(a.id); as sg) {
+                            <!-- [PGP.75] Lo que el historial propone, con su procedencia: todavía no está guardado. -->
+                            <span class="pg-how-t pg-sug" [title]="sg.porque"><i class="pi pi-history" aria-hidden="true"></i>{{ sg.texto }}</span>
+                          }
                           <span class="pg-st" [class.is-bad]="a.status === 'failed'" [class.is-todo]="a.status === 'pending' && !!cs.falta">
                             <i class="pi" [ngClass]="estadoIcono(a)" aria-hidden="true"></i>{{ estadoTexto(a) }}
                           </span>
@@ -1000,6 +1010,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
         }
         <label class="cal-dlg-label" for="cal-prep-clabe">Cuenta destino — banco y CLABE (si no está en el catálogo)</label>
         <input id="cal-prep-clabe" pInputText type="text" [(ngModel)]="prepDestination" [disabled]="!!prepAccountId" placeholder="Ej. BBVA · CLABE 012180001234567891" class="cal-dlg-full" />
+        @if (prepDestHistorial && prepDestination === prepDestHistorial && prepAllocation) {
+          <!-- [PGP.75] Un valor puesto solo, sin decir con qué, es una orden disfrazada (PGP.30): se dice de dónde salió. -->
+          <p class="cal-dlg-hint cal-habito"><i class="pi pi-history" aria-hidden="true"></i> Precargada de sus comprobantes de pago: {{ sugerencias().get(prepAllocation.id)?.porque }}. Revísala antes de pagar; al guardar queda pedida de alta en el catálogo.</p>
+        }
         <p class="cal-dlg-hint">Si escribes una CLABE de 18 dígitos se valida su dígito de control.</p>
       }
       @if (prepMethod === 'cheque') {
@@ -1466,6 +1480,9 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-tg:hover { background:var(--overlay-hover); color:var(--text-main); }
     .pg-tg:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
     .pg-how-t { color:var(--text-main); overflow-wrap:anywhere; }
+    .pg-how-t.pg-sug { color:var(--text-muted); }
+    .pg-sug .pi { margin-right:var(--sp-1); font-size:var(--fs-xs); }
+    .pg-aa-n { font-size:var(--fs-sm); color:var(--text-muted); }
     /* El estado del pago: palabra + icono. Solo el rebote lleva color. */
     .pg-st { display:inline-flex; align-items:center; gap:4px; margin-top:2px; font-size:var(--fs-sm); color:var(--text-muted); }
     /* [PGP.49] «Falta el método» era pastilla ambar en CADA renglon: 26 de 31 el 3-nov, repitiendo lo que
@@ -2532,7 +2549,11 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       // [PGP.49] El rótulo de la barra cambió a «Para los N sin preparar»: se cita igual.
       // [PGP.60] Y volvió a cambiar a «Los N sin preparar:» (PGP.52) sin que esto lo siguiera: el
       // veredicto citaba un rótulo que no existía en pantalla (visto en captura el 2026-11-04).
-      const donde = sinMetodo > 1 ? `Elige método y cuenta de origen abajo, en «Los ${this.unpreparedCount()} sin preparar»` : `Usa «Preparar» en su fila`;
+      // [PGP.75] Con el historial cubriendo a alguno, lo único que se decide es de qué cuenta sale el día.
+      const conHistorial = [...this.sugerencias().values()].filter((x) => x.metodo).length;
+      const donde = conHistorial > 1
+        ? `El historial trae el método de ${conHistorial}: elige abajo de qué cuenta sale el día y aplica, en «Los ${this.unpreparedCount()} sin preparar»`
+        : sinMetodo > 1 ? `Elige método y cuenta de origen abajo, en «Los ${this.unpreparedCount()} sin preparar»` : `Usa «Preparar» en su fila`;
       return { tone: 'ok',
         say: n === 1 ? `Falta ${this.faltaDe(a)} de 1 pago para poder autorizar el día.`
                      : `Faltan ${n} de ${this.pendingCount()} pagos por preparar.`,
@@ -2623,6 +2644,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
 
   prepMethod: string | null = null;
   prepDestination = '';
+  /** `[PGP.75]` La CLABE que el diálogo precargó de los comprobantes del proveedor (para decirlo y para cederle el lugar al catálogo). */
+  prepDestHistorial: string | null = null;
   prepReference = '';
   prepCash = '';
   prepAccountId: string | null = null;
@@ -3225,6 +3248,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     if (a.status === 'executed') return 'Marcado pagado';
     if (a.status === 'cancelled') return 'Cancelado';
     const falta = this.comoSale(a).falta;
+    // `[PGP.75]` Con el método en su historial, lo que falta es aplicarlo (y elegir de qué cuenta sale el día).
+    if (falta === 'el método' && this.sugerencias().get(a.id)?.metodo) return 'Por aplicar';
     if (falta) return `Falta ${falta}`;
     return this.isReleased() ? 'Por pagar' : 'Listo';
   }
@@ -3627,6 +3652,54 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     return id ? this.habitos().get(id) ?? null : null;
   }
 
+  /**
+   * `[PGP.75]` **Lo que el historial propone para cada pago sin preparar**: el método de su hábito
+   * (`metodo_estado = estable`, PGP.30) y la CLABE de sus propios comprobantes (sólo si es UNA, con
+   * dígito de control válido). La cuenta de ORIGEN no: es la decisión del día de Tesorería y se elige
+   * una vez en la barra. Medido el 2026-11-04 sobre 76 pagos pendientes: método en 55, CLABE en 48.
+   */
+  readonly sugerencias = computed<ReadonlyMap<string, { metodo: string | null; destino: string | null; texto: string; porque: string }>>(() => {
+    const out = new Map<string, { metodo: string | null; destino: string | null; texto: string; porque: string }>();
+    const habitos = this.habitos();
+    for (const a of this.allocations()) {
+      if (a.status !== 'pending' || isPrepared(a)) continue;
+      const sid = this.proveedorDe(a);
+      const h = sid ? habitos.get(sid) : undefined;
+      if (!h) continue;
+      const metodo = h.metodo_estado === 'estable' ? h.metodo_sugerido : null;
+      const usaDestino = (metodo ?? 'transferencia') === 'transferencia' || metodo === 'cargo_automatico';
+      const destino = usaDestino && h.clabe_estado === 'unica' && h.clabe_sugerida
+        ? `${(h.clabe_banco ?? '').trim() ? (h.clabe_banco ?? '').trim() + ' · ' : ''}CLABE ${h.clabe_sugerida}` : null;
+      if (!metodo && !destino) continue;
+      const partes = [metodo ? this.methodLabel(metodo) : null, destino && h.clabe_sugerida ? `→ ${(h.clabe_banco ?? '').trim() || 'CLABE'} ··${h.clabe_sugerida.slice(-4)}` : null].filter(Boolean);
+      const porque = [
+        metodo ? `Método: así se le pagó ${h.metodo_veces} de ${h.metodo_de} veces` : null,
+        destino ? `CLABE: la de sus ${h.clabe_comprobantes} comprobantes de pago${h.clabe_ultima_vez ? `, el último del ${h.clabe_ultima_vez}` : ''}` : null,
+        h.clabe_estado === 'varias' ? `Sus comprobantes traen ${h.clabes_distintas} CLABEs distintas: elígela en «Preparar»` : null,
+      ].filter(Boolean).join('. ');
+      out.set(a.id, { metodo, destino, texto: `Sugerido: ${partes.join(' ')}`, porque });
+    }
+    return out;
+  });
+  /** `[PGP.75]` En una línea, cuánto trae el historial y qué queda por decidir. */
+  readonly resumenSugerencias = computed(() => {
+    const pend = this.allocations().filter((a) => a.status === 'pending' && !isPrepared(a)).length;
+    const s = [...this.sugerencias().values()];
+    const conMetodo = s.filter((x) => x.metodo).length;
+    const conClabe = s.filter((x) => x.destino).length;
+    if (!pend) return '';
+    if (!conMetodo) return 'Ningún proveedor trae método en su historial: elige el método.';
+    const sin = pend - conMetodo;
+    return `El historial trae el método de ${conMetodo} de ${pend} y la CLABE de ${conClabe}.` + (sin ? ` Los otros ${sin} se quedan sin preparar: elige un método para ellos o usa «Preparar».` : '');
+  });
+  /** `[PGP.75]` Con método elegido, como antes; sin él, basta que el historial cubra a alguno. Siempre con origen (salvo efectivo). */
+  puedeAplicar(): boolean {
+    const m = this.bulkMethod;
+    if (m === 'efectivo') return true;
+    if (!this.bulkOriginId) return false;
+    return !!m || [...this.sugerencias().values()].some((x) => x.metodo);
+  }
+
   /** El hábito del pago que tiene abierto el diálogo — para explicar por qué NO se precargó nada. */
   prepHabito(): SupplierPaymentHabit | null {
     return this.prepAllocation ? this.habitoDe(this.prepAllocation) : null;
@@ -3655,18 +3728,25 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    * transferencia). Lo ya preparado se cambia en su fila, con «Cambiar».
    */
   async aplicarATodos(): Promise<void> {
-    const m = this.bulkMethod;
-    const filas = this.allocations().filter((a) => a.status === 'pending' && !isPrepared(a));
-    if (!m || !filas.length || (m !== 'efectivo' && !this.bulkOriginId)) return;
-    const usaDestino = m === 'transferencia' || m === 'cargo_automatico';
+    if (!this.puedeAplicar() || this.saving()) return;
+    const elegido = this.bulkMethod;
+    const sugerencias = this.sugerencias();
+    // `[PGP.75]` Sin método elegido, cada pago lleva el de su historial; el que no tiene historial se queda.
+    const todas = this.allocations().filter((a) => a.status === 'pending' && !isPrepared(a));
+    const filas = elegido ? todas : todas.filter((a) => sugerencias.get(a.id)?.metodo);
+    const sinHistorial = todas.length - filas.length;
+    if (!filas.length) return;
     this.saving.set(true);
     const favs = new Map<string, string | null | 'error'>();
-    let ok = 0, conFavorita = 0;
+    let ok = 0, conFavorita = 0, conHistorial = 0;
     const sinDestino: string[] = [], sinCatalogo: string[] = [], fallas: string[] = [];
     for (const a of filas) {
+      const sg = sugerencias.get(a.id);
+      const m = elegido ?? sg!.metodo!;
+      const usaDestino = m === 'transferencia' || m === 'cargo_automatico';
       const cambio: Record<string, unknown> = { payment_method: m, bank_account_id: m === 'efectivo' ? null : this.bulkOriginId };
       const tieneDestino = !!a.supplier_payment_account_id || !!(a.destination_account_text ?? '').trim();
-      let puso = false, catalogoCaido = false;
+      let puso = false, catalogoCaido = false, pusoHistorial = false;
       if (usaDestino && !tieneDestino) {
         const sid = this.proveedorDe(a);
         if (sid) {
@@ -3675,12 +3755,16 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
           if (fav === 'error') catalogoCaido = true;
           else if (fav) { cambio['supplier_payment_account_id'] = fav; puso = true; }
         }
+        // `[PGP.75]` Sin favorita aprobada, la CLABE de sus comprobantes. Al guardarse queda pedida de
+        // alta en el catálogo (PGP.46), para que la apruebe Compras/Dirección.
+        if (!puso && sg?.destino) { cambio['destination_account_text'] = sg.destino; pusoHistorial = true; }
       }
       try {
         await firstValueFrom(this.http.post(`${this.base}/allocations/${a.id}/preparar`, this.cuerpoPreparar(a, cambio)));
         ok++;
         if (puso) conFavorita++;
-        if (usaDestino && !tieneDestino && !puso) (catalogoCaido ? sinCatalogo : sinDestino).push(this.allocationTitle(a));
+        if (pusoHistorial) conHistorial++;
+        if (usaDestino && !tieneDestino && !puso && !pusoHistorial) (catalogoCaido ? sinCatalogo : sinDestino).push(this.allocationTitle(a));
       } catch (e) {
         fallas.push(`${this.allocationTitle(a)}: ${this.errMsg(e, 'error')}`);
       }
@@ -3688,8 +3772,11 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     this.saving.set(false);
     this.recordarPreparacion();
     this.loadWeek();
-    if (ok) this.toast.add({ severity: 'success', summary: `${ok} de ${this.pagos(filas.length)} preparados`, detail: conFavorita ? `${conFavorita} con la cuenta favorita de su proveedor.` : undefined });
-    if (sinDestino.length) this.toast.add({ severity: 'warn', summary: `${sinDestino.length} sin cuenta destino`, detail: `${sinDestino.join(', ')}: su proveedor no tiene cuenta favorita en el catálogo. Captúrala con «Preparar».`, life: 10000 });
+    const detalle = [conFavorita ? `${conFavorita} con la cuenta favorita de su proveedor` : null,
+      conHistorial ? `${conHistorial} con la CLABE de sus comprobantes (queda pedida de alta)` : null,
+      sinHistorial ? `${sinHistorial} sin historial se quedaron sin preparar` : null].filter(Boolean).join(' · ');
+    if (ok) this.toast.add({ severity: 'success', summary: `${ok} de ${this.pagos(filas.length)} preparados`, detail: detalle || undefined });
+    if (sinDestino.length) this.toast.add({ severity: 'warn', summary: `${sinDestino.length} sin cuenta destino`, detail: `${sinDestino.join(', ')}: su proveedor no tiene cuenta favorita en el catálogo ni CLABE en sus comprobantes. Captúrala con «Preparar».`, life: 10000 });
     if (sinCatalogo.length) this.toast.add({ severity: 'warn', summary: 'No se pudo leer el catálogo de cuentas', detail: `${sinCatalogo.join(', ')}: elige su destino con «Preparar».`, life: 10000 });
     if (fallas.length) this.toast.add({ severity: 'error', summary: `${fallas.length} no se prepararon`, detail: fallas.join(' · '), life: 10000 });
   }
@@ -3700,7 +3787,9 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   private recuperarPreparacion(): void {
     try {
       const v = JSON.parse(localStorage.getItem(PREF_PREPARAR) || 'null') as { m?: string | null; o?: string | null } | null;
-      if (v && !this.bulkMethod) { this.bulkMethod = v.m ?? null; this.bulkOriginId = v.o ?? null; }
+      // `[PGP.75]` Sólo el ORIGEN se recuerda: un método recordado le ganaría al historial de cada
+      // proveedor sin que nadie lo eligiera hoy.
+      if (v && !this.bulkOriginId) { this.bulkOriginId = v.o ?? null; }
     } catch { /* sin almacenamiento o valor viejo: se elige de nuevo */ }
   }
   /**
@@ -3862,12 +3951,19 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     this.prepAccountsError.set(null);
     this.prepPedida.set(null);
     this.prepSupplierId = this.proveedorDe(a);
+    // `[PGP.75]` La CLABE de sus comprobantes, si no hay nada puesto. Es lo ÚLTIMO en precedencia: la
+    // cuenta aprobada del catálogo y la captura pendiente la reemplazan si llegan y nadie la tocó.
+    const histDest = this.sugerencias().get(a.id)?.destino ?? null;
+    this.prepDestHistorial = !this.prepDestination.trim() && !a.supplier_payment_account_id ? histDest : null;
+    if (this.prepDestHistorial) this.prepDestination = this.prepDestHistorial;
+    const intacto = () => !!this.prepDestHistorial && this.prepDestination === this.prepDestHistorial;
     if (this.prepSupplierId) {
       this.http.get<PaymentAccount[]>(`${this.accountsBase}/by-supplier/${this.prepSupplierId}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (rows) => {
           this.prepAccounts.set(rows.map((r) => ({ id: r.id, label: `${r.bank_name}${r.clabe ? ' · ' + r.clabe : ''}${r.alias ? ' (' + r.alias + ')' : ''}${r.es_favorita ? ' ★' : ''}` })));
-          // La favorita se propone sola; el usuario puede cambiarla.
-          if (!this.prepAccountId && !this.prepDestination) this.prepAccountId = rows.find((r) => r.es_favorita)?.id ?? null;
+          // La favorita se propone sola; el usuario puede cambiarla. [PGP.75] Gana sobre la CLABE del historial.
+          const fav = rows.find((r) => r.es_favorita)?.id ?? null;
+          if (!this.prepAccountId && fav && (!this.prepDestination || intacto())) { this.prepAccountId = fav; if (intacto()) { this.prepDestination = ''; this.prepDestHistorial = null; } }
         },
         error: (e) => { this.prepAccounts.set([]); this.prepAccountsError.set(e?.status === 403 ? 'sin permiso de Compras' : 'error del servidor'); },
       });
@@ -3891,8 +3987,9 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
           });
           // Se precarga SOLO si no hay nada elegido: nunca pisa lo que la persona ya puso ni una
           // cuenta del catálogo, que está aprobada y gana sobre una captura pendiente.
-          if (!this.prepAccountId && !this.prepDestination.trim()) {
+          if (!this.prepAccountId && (!this.prepDestination.trim() || intacto())) {
             this.prepDestination = `${r.proposed_bank_name && !r.proposed_bank_name.startsWith('(') ? r.proposed_bank_name + ' · CLABE ' : ''}${r.proposed_clabe}`;
+            this.prepDestHistorial = null;
           }
         },
         error: () => this.prepPedida.set(null),

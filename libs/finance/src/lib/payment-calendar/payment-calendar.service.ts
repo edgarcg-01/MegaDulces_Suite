@@ -6,6 +6,7 @@ import { GRUPOS_FINANCIEROS, PREFIJOS_FINANCIEROS } from '../creditor-statements
 import { sqlKeplerPayableId } from '@megadulces/contracts/finance/kepler-payable-key';
 import { sqlVentanaProntoPago } from '@megadulces/contracts/finance/pronto-pago-ventana';
 import { clabeValida } from '@megadulces/contracts/finance/clabe';
+import { destinosSugeridos, type FilaComprobanteClabe } from './destino-sugerido';
 import { SupplierPaymentAccountsService } from '../supplier-payment-accounts/supplier-payment-accounts.service';
 import type { PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 
@@ -1557,7 +1558,36 @@ export class PaymentCalendarService {
         WHERE h.metodo_sugerido IS NOT NULL
            OR h.cuenta_origen_id IS NOT NULL
            OR h.cuenta_estado = 'caja_general'`, [tenantId]));
-    return rows as SupplierPaymentHabit[];
+    const habitos = rows as SupplierPaymentHabit[];
+
+    // `[PGP.75]` La CLABE destino, de los comprobantes del propio proveedor (ver `destino-sugerido.ts`).
+    // Medido contra prod el 2026-11-04: 55-118 ms. Un proveedor con CLABE y sin hábito de método
+    // también entra: la CLABE vale sola.
+    const { rows: comp } = await this.tk.run((trx) => trx.raw(
+      `SELECT btrim(m.c10) AS proveedor_code, x.clabe, count(*)::int AS comprobantes,
+              to_char(max(pr.pago_date), 'YYYY-MM-DD') AS ultima, max(pr.ocr_banco) AS banco, s.id AS supplier_id
+         FROM finance.supplier_payment_proofs pr
+        CROSS JOIN LATERAL (SELECT (regexp_match(pr.ocr_cuenta_dest, '([0-9]{18})'))[1] AS clabe) x
+         JOIN kepler_ods.kdm1 m ON m.sucursal = pr.sucursal AND m.c2 = 'X' AND m.c3 = 'D'
+                               AND m.c6 = pr.folio AND btrim(m.c63) = pr.doc_prefix || '-'
+         JOIN catalog.suppliers s ON btrim(s.code) = btrim(m.c10) AND s.tenant_id = pr.tenant_id
+        WHERE pr.tenant_id = ? AND x.clabe IS NOT NULL AND coalesce(pr.status, '') <> 'rechazado'
+        GROUP BY 1, 2, s.id`, [tenantId]));
+    const filas = comp as (FilaComprobanteClabe & { supplier_id: string })[];
+    const destinos = destinosSugeridos(filas);
+    const idDe = new Map(filas.map((f) => [f.proveedor_code.trim(), f.supplier_id]));
+    const porCode = new Map(habitos.map((h) => [String(h.proveedor_code).trim(), h]));
+    for (const [code, d] of destinos) {
+      const h = porCode.get(code);
+      if (h) { Object.assign(h, d); continue; }
+      habitos.push({
+        supplier_id: idDe.get(code)!, proveedor_code: code,
+        metodo_estado: 'sin_historial', metodo_sugerido: null, metodo_veces: null, metodo_de: null, metodo_ultima_vez: null,
+        cuenta_estado: 'sin_historial', cuenta_origen_id: null, cuenta_origen_nombre: null, cuenta_veces: null, cuenta_de: null,
+        ...d,
+      });
+    }
+    return habitos;
   }
 
   /** El lote del día tal cual (folio/status/released_by/at) — usado por el documento imprimible. */
