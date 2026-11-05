@@ -7402,16 +7402,29 @@ export class CommercialAnalyticsService {
    */
   private async routeFilterOptions(kind: 'sku' | 'cliente'): Promise<{ value: string; label: string }[]> {
     const tenantId = this.tenantCtx.requireTenantId();
+    // `[VEC.39]` Dos matvistas: la historia de Wincaja (congelada desde el 2026-08-12, por mes, sin
+    // refresco) y lo que se mueve (push + vecinal del ODS, ciclo de 30 min). La que había leía una
+    // foto del 2026-09-29 que nadie refrescaba. La ventana de 2 años va por MES: el primer mes entra
+    // completo. Un código en las dos piernas se suma, y lleva el rótulo con nombre de más venta.
     const rows: any[] = await this.tk.run(async (trx) => (await trx.raw(
-      `SELECT value, label FROM analytics.mv_route_filter_options
-        WHERE tenant_id = ? AND kind = ? ORDER BY rev DESC NULLS LAST LIMIT 5000`,
-      [tenantId, kind])).rows).catch(() => []);
+      `SELECT value,
+              (array_agg(label ORDER BY (label <> value) DESC, rev DESC NULLS LAST))[1] AS label,
+              sum(rev) AS rev
+         FROM (SELECT value, label, rev FROM analytics.mv_route_filter_options_live
+                WHERE tenant_id = ? AND kind = ?
+               UNION ALL
+               SELECT value, label, rev FROM analytics.mv_route_filter_options_wincaja
+                WHERE tenant_id = ? AND kind = ?
+                  AND month >= date_trunc('month', CURRENT_DATE - INTERVAL '2 years')) o
+        GROUP BY value ORDER BY 3 DESC NULLS LAST LIMIT 5000`,
+      [tenantId, kind, tenantId, kind])).rows).catch(() => []);
     if (rows.length) {
       return rows.map((r) => ({ value: r.value, label: r.label }));
     }
 
-    this.logger.warn(`[AUD-DAT.17] mv_route_filter_options vacía o ausente para kind=${kind} — `
-      + 'cayendo a la consulta en vivo (~12 s). Correr la migración 20260929170000 y su REFRESH.');
+    this.logger.warn(`[VEC.39] mv_route_filter_options_live/_wincaja vacías o ausentes para kind=${kind} — `
+      + 'cayendo a la consulta en vivo (minutos: la pierna Wincaja cuesta ~15 s por mes). '
+      + 'Aplicar la migración 20261105122624.');
     const live: any[] = await this.tk.run(async (trx) => (await trx.raw(
       `WITH lineas AS (
          SELECT vl.tenant_id, vl.cliente, vl.sku, vl.importe
