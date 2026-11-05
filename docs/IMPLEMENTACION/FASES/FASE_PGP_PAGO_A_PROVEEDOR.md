@@ -546,6 +546,24 @@ acepta a `kepler_push` desde `md`, y esta sesión no puede entrar a `md`. Lo cor
 (desde `libs/finance`). Antes de C3 (el endpoint y su botón) falta: que el ensayo pase, el reclamo atómico del pago en
 `payment_allocations.kepler_payment_folio` (el doble clic de `PGP.UI.1`) y su prueba contra base real en el CI.
 
+**Medido en el Kepler vivo el 2026-11-04 por la noche, desde `md` con `psql`** (autorizado por Edgar; la conexión viajó
+por la entrada estándar, no en la línea de comandos):
+
+| Tabla | `kepler_push` puede |
+|---|---|
+| `md.kdm1` | SELECT · INSERT |
+| `md.kdxd` | SELECT (el 22-oct no podía: alguien lo dio después, probablemente para `[PQ.17]`) |
+| `md.kdxe` · `md.kdxf` · `md.kdmm` · `md.kdxv` · `md.kdb1` | ⛔ **nada** |
+
+- La plantilla `00/1/0023768` existe, y sus ocho columnas de dos valores traen `1800-01-01` (el valor mayoritario).
+- **Ensayo parcial de `kdm1`, con ROLLBACK:** se clonó la plantilla en una temporal, el folio salió `MAX+1` (`0023996`) y
+  las 27 columnas que pisa el armador se aplicaron con parámetros sin tipo, como los manda `node-pg`: **Postgres resolvió
+  todos los tipos**. Después del ROLLBACK, 0 documentos con la referencia del ensayo.
+- `c81`, `c82`, `c84` y `c17` son **`varchar`** en Kepler y `c16`/`c42` `numeric`: los números viajan como texto sin
+  relleno (`160`, `0`, `30`), el mismo formato que traen los pagos reales (`516.82`, `0`).
+- ⛔ **El ensayo completo no puede correr todavía:** lo primero que lee es `kdxe`, y hoy da «permiso denegado». Los
+  `GRANT` son lo único que falta para ensayar el pago entero.
+
 ### C1 · Dominio
 
 | # | Item | Estado | Prueba que lo ejerce |
