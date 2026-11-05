@@ -255,7 +255,9 @@ const STEPS = {
     // rename qty_in_transit → transit_cajas se comió la conversión de unidad. Ver GOTCHAS §25.
     path.join(K, 'import-auto-received.js'),     // RA.15.1 auto-received: X-A-40 Kepler → cierra nuestras OC abiertas (OE source=kepler, sin mover stock)
     path.join(K, 'import-stock-movements.js'),  // DM — Diario de movimientos (kdm1⋈kdm2 filtrado por doctype.k_binv) → analytics.stock_movements (ventana 120d)
-    path.join(K, 'import-purchase-velocity.js'), // RA-PRO.17 velocidad de compra real (entrada X-A-40) → analytics.purchase_velocity — TRAS stock-movements (ancla del sugerido)
+    // RETIRADO 2026-11-05 [CANON.5.8]: import-purchase-velocity.js — su único lector era
+    // import-replenishment-plan, que ahora deriva la velocidad de compra en línea de
+    // analytics.stock_movements (mismo cálculo). analytics.purchase_velocity queda sin escritor.
     // RETIRADO 2026-08-20: import-erp-promos — analytics.erp_promotions es VISTA derive-no-copy
     // sobre kepler_ods.kdpv_* (mig 20260820160000). Correrlo pegaría TRUNCATE/INSERT contra la vista.
     // RETIRADO 2026-08-20: import-erp-customers — analytics.erp_customers es VISTA derive-no-copy

@@ -99,6 +99,25 @@ pasar sobre todos los SKUs. Medido en `analytics.cron_run_log` (30 días):
 De paso, `test-newdb-master-data-history.js` estaba rojo desde PURGA.P1 por un archivo borrado
 (`import-kepler-prices`): la lista se corrigió.
 
+## 2d. Oleada 3 — la velocidad de compra entra al plan (CANON.5.8, 2026-11-05)
+
+`import-purchase-velocity` llenaba `analytics.purchase_velocity` una vez por noche, y su único
+lector era `import-replenishment-plan`. El plan ahora deriva la velocidad en línea de
+`analytics.stock_movements`, con el mismo cálculo y el mismo redondeo (~275 ms). El importer se
+retiró; la tabla queda sin escritor (borrarla es D2).
+
+Antes y después, comparando el plan COMPLETO de las dos versiones en prod (sólo lectura, 44,175
+filas almacén×producto): 41,429 idénticas. Todas las diferencias se explican:
+- **Frescura (181 productos):** compras registradas después de las 03:00. El plan del carril
+  `stock` (cada 15 min) ahora las ve; antes usaba la foto de la noche.
+- **Desempate (H13):** 189 productos empatan en la cantidad máxima comprada entre almacenes, y
+  `primary_wh` (el almacén de compra) lo decidía el orden físico de las filas. Ahora a igual
+  cantidad gana donde se compró más reciente.
+- **`stock_pz` (84 filas):** existencia que se movió entre las dos corridas, no el cambio.
+
+Control: la misma comparación sin clasificar los empates da 885 fuera de explicación, así que la
+prueba sí distingue.
+
 ## 3. Los 51, clasificados
 
 **Leyenda.** **Lee:** `ods` = `kepler_ods` · `réplicas` = bases `md_*` por sucursal · `mart` = el
@@ -219,6 +238,8 @@ se decide dinero: margen, pagos, precios»), no de un monto.
   corridas de media hora. Lo esperable en un respaldo es cero. Con el hop-2 aplicando la regla
   contraria (CEDIS primero, `c7` crudo), lo más probable es un vaivén. Hay que unificar la regla
   (CANON.1.3: retail primero) **en el hop-2**, no apagar el respaldo.
+- **H13 — El almacén de compra del plan era una moneda al aire para 189 productos** (ver §2d).
+  Cerrado en CANON.5.8 con un desempate determinista.
 - **H8 — Duplicados de significado**: `product_sales_daily` contra `sales_daily` (otro linaje),
   `stock_ledger` contra `stock_movements`, y `transfers_monthly` contra los traspasos de
   `stock_movements`.
