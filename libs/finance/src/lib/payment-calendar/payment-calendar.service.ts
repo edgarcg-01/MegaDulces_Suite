@@ -121,7 +121,11 @@ export function paymentGroupKey(source: string, row: { supplier_id?: string | nu
   // `[TP.18]` La deuda derivada de Kepler agrupa IGUAL que la capturada: las dos son facturas del
   // mismo proveedor y la misma sucursal, y un pago las puede cubrir juntas (ADR-094 §5).
   const esFactura = source === 'supplier_payable' || source === 'kepler_payable';
-  const payee = esFactura ? `s:${row.supplier_id ?? ''}` : `b:${String(row.beneficiary ?? '').trim().toUpperCase()}`;
+  // `[PGP.78]` Un acreedor de Kepler que no está en el catálogo no trae `supplier_id`: con `s:` vacío,
+  // dos acreedores distintos de la misma sucursal cabían en UN pago. Sin id va por nombre, como el
+  // espejo de la pantalla (`payeeKey`), con su propio prefijo para no juntarse con un gasto.
+  const nombre = String(row.beneficiary ?? '').trim().toUpperCase();
+  const payee = !esFactura ? `b:${nombre}` : row.supplier_id ? `s:${row.supplier_id}` : `f:${nombre}`;
   const suc = esFactura ? String(row.kepler_sucursal ?? '').trim() : '';
   const branch = suc || 'sin sucursal';
   return { payee, branch };
@@ -185,6 +189,8 @@ interface AllocationRowLite {
 /** `[TP.15]` Lo que el candado de saldo lee de una obligación a proveedor (columnas de la mig 20261016002604). */
 interface KeplerLinkedRow {
   supplier_id?: string; reserved_amount: number | string;
+  /** El código del acreedor en Kepler; sólo lo trae la deuda derivada (`kepler_payable`). */
+  kepler_proveedor?: string | null;
   kepler_sucursal?: string | null; kepler_folio?: string | null;
   kepler_doc_tipo?: number | string | null; kepler_doc_sub?: number | string | null;
 }
@@ -403,9 +409,15 @@ export class PaymentCalendarService {
     // `[TP.18]` Vale para los dos orígenes de factura: la capturada trae las columnas `kepler_*`
     // desde la mig `20261016002604`, y la derivada las trae por construcción.
     if ((source !== 'supplier_payable' && source !== 'kepler_payable') || !row.kepler_folio) return;
+    // `[PGP.78]` La derivada trae el código de Kepler y se busca por él. Ir por el catálogo dejaba
+    // en cero a un acreedor que no está dado de alta (medido 2026-11-05: 4 facturas, 3 acreedores)
+    // y la pantalla decía «Kepler ya no tiene saldo» de una factura que Kepler sí debe.
     const [doc] = await trx('analytics.v_supplier_payables')
       .where({ sucursal: row.kepler_sucursal, folio: row.kepler_folio, doc_tipo: row.kepler_doc_tipo, doc_sub: row.kepler_doc_sub })
-      .whereIn('proveedor', trx('catalog.suppliers').select('code').where({ id: row.supplier_id }))
+      .modify((w) => {
+        if (row.kepler_proveedor) w.where('proveedor', row.kepler_proveedor);
+        else w.whereIn('proveedor', trx('catalog.suppliers').select('code').where({ id: row.supplier_id }));
+      })
       .sum({ pendiente: 'pendiente' });
     const pendiente = Number(doc?.pendiente ?? 0);
     const tope = pendiente - alreadyReserved;
@@ -446,6 +458,7 @@ export class PaymentCalendarService {
         trx.raw(`coalesce(nullif(btrim(v.folio), ''), 'Factura') AS concept`),
         'v.sucursal AS kepler_sucursal', 'v.folio AS kepler_folio',
         'v.doc_tipo AS kepler_doc_tipo', 'v.doc_sub AS kepler_doc_sub',
+        'v.proveedor AS kepler_proveedor',
       );
     if (!row) return undefined;
     // Lo ya comprometido sale de los items, que son la fuente de verdad de la reserva para los

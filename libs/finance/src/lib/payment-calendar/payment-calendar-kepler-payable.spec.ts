@@ -78,6 +78,14 @@ describe('[TP.18] paymentGroupKey — el origen derivado se agrupa como factura,
       .toEqual(paymentGroupKey('kepler_payable', { supplier_id: 'F', beneficiary: 'ferrero', kepler_sucursal: '01' }));
   });
 
+  it('[PGP.78] ⛔ dos acreedores fuera del catálogo (sin id) en la misma sucursal NO se juntan', () => {
+    const a = paymentGroupKey('kepler_payable', { supplier_id: null, beneficiary: 'SUSTAYTA CONSULTING SOFT', kepler_sucursal: '00' });
+    const b = paymentGroupKey('kepler_payable', { supplier_id: null, beneficiary: 'OTRO ACREEDOR', kepler_sucursal: '00' });
+    expect(a.payee).not.toBe(b.payee);
+    expect(paymentGroupKey('kepler_payable', { supplier_id: null, beneficiary: 'sustayta consulting soft ', kepler_sucursal: '00' })).toEqual(a);
+    expect(a.payee).not.toBe(paymentGroupKey('budget_expense', { beneficiary: 'SUSTAYTA CONSULTING SOFT' }).payee);
+  });
+
   it('⛔ no se agrupa con un gasto aunque el texto del beneficiario coincida', () => {
     expect(paymentGroupKey('kepler_payable', { supplier_id: 'F', beneficiary: 'CFE', kepler_sucursal: '01' }).payee)
       .not.toBe(paymentGroupKey('budget_expense', { beneficiary: 'CFE' }).payee);
