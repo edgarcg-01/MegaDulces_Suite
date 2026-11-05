@@ -1338,7 +1338,19 @@ type Vista = typeof VISTAS[number];
                     @for (l of fuera(); track l.route_code) {
                       <tr>
                         <td class="comm-num">{{ l.route_code }}</td>
-                        <td><p-tag severity="secondary" [value]="etiquetaVeredicto(l.motivo_no_pago)" /></td>
+                        <td>
+                          <!-- [RD.103.5] Una vecinal fuera del universo NO «no es ruta de camión»: comisiona
+                               con su tabulador y le falta el alta. La etiqueta vieja afirmaba una exclusión
+                               que ya no existe (Edgar, 2026-11-04, captura de Q22). -->
+                          @if (vecinalSinAlta(l)) {
+                            <p-tag severity="warn" value="vecinal: falta darla de alta" />
+                            @if (puedeGestionar()) {
+                              <button type="button" class="cm-link cm-micro" (click)="abrirAltaVecinal(l.route_code)">Darla de alta</button>
+                            }
+                          } @else {
+                            <p-tag severity="secondary" [value]="etiquetaVeredicto(l.motivo_no_pago)" />
+                          }
+                        </td>
                         <td class="comm-num">{{ l.subtotal != null ? money(l.subtotal) : '—' }}</td>
                       </tr>
                     }
@@ -1347,8 +1359,14 @@ type Vista = typeof VISTAS[number];
               </div>
               <p class="cm-warn">
                 <i class="pi pi-info-circle" aria-hidden="true"></i>
-                Estas rutas <strong>venden y no pagan comisión de Ruta Directa</strong>. Salen con su motivo
+                Estas rutas <strong>venden y no cobraron en esta corrida</strong>. Salen con su motivo
                 para que la ausencia sea una decisión y no un descuido.
+                @if (vecinalesSinAlta() > 0) {
+                  Las <strong>vecinales sí comisionan</strong>, con el tabulador vecinal: cobran cuando la
+                  ruta está en <em>Quién cobra</em> con su chofer, supervisor y nómina, y hay un tabulador
+                  vecinal vigente. Esta corrida ya está calculada: el alta cuenta en la siguiente que se
+                  calcule, y entra en ella si su «activo desde» cae dentro del periodo.
+                }
               </p>
             } @else {
               <!-- [AUD-CM.13] Con el veredicto rancio la leyenda afirmaba «no hay costo» al lado
@@ -3069,6 +3087,19 @@ export class ComercialComisionesComponent {
     if (h) return `hasta ${h}`;
     // ⚠️ Baja SIN fecha: no comisiona en NINGÚN periodo, ni en los que sí trabajó. Se dice.
     return 'de baja, sin fecha';
+  }
+
+  /** `[RD.103.5]` Una vecinal que quedó fuera porque nadie la dio de alta (no porque no comisione). */
+  vecinalSinAlta(l: CommissionLine): boolean {
+    return l.motivo_no_pago === 'fuera_no_es_camion' && CODIGO_VECINAL.test(l.route_code);
+  }
+  vecinalesSinAlta(): number { return this.fuera().filter((l) => this.vecinalSinAlta(l)).length; }
+
+  /** Abre el alta con la ruta y la familia puestas: es el acto que falta, sin teclear el código. */
+  abrirAltaVecinal(routeCode: string): void {
+    this.abrirAlta();
+    this.fRuta.set(routeCode);
+    this.fFamilia.set('vecinal');
   }
 
   abrirAlta(): void {
