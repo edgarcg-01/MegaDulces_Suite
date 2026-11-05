@@ -23,7 +23,7 @@ import { CashLedgerService, type PendientesResponse } from '../../cash-ledger.se
 import { LibroEfectivoService } from '../../libro-efectivo.service';
 import { CajaTabsComponent } from '../../caja-tabs.component';
 import { ConteoCajonComponent } from '../../components/conteo-cajon.component';
-import { VentanillaDiaComponent } from './ventanilla-dia.component';
+import { VentanillaDiaComponent } from '../../components/ventanilla-dia.component';
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { money, dmy } from '../finanzas-format';
 import { armarCobros, armarCola, resumenCola, textoDiferencia, type FilaCobro, type FilaVentanilla } from './ventanilla.util';

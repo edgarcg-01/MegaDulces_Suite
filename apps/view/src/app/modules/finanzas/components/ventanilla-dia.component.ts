@@ -9,13 +9,13 @@ import { InputTextModule } from 'primeng/inputtext';
 import {
   valorDePiezas, type OrdenPorFirmar, type PersonaDeCustodia, type ResultadoConteo, type ResultadoHecho, type SaldosDelLibro, type TopeDelCajon, type UsuarioDeMaquina,
 } from '@megadulces/contracts';
-import { PermissionsService } from '../../../../core/services/permissions.service';
-import { Permission } from '../../../../core/constants/permissions';
-import { todayMx } from '../../../../core/utils/mx-date';
-import { uuidV4 } from '../../../../core/utils/uuid';
-import { LibroEfectivoService, type HallazgoDelLibro, type SolicitudDelLibro } from '../../libro-efectivo.service';
-import { ConteoCajonComponent } from '../../components/conteo-cajon.component';
-import { money, dmy } from '../finanzas-format';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
+import { todayMx } from '../../../core/utils/mx-date';
+import { uuidV4 } from '../../../core/utils/uuid';
+import { LibroEfectivoService, type HallazgoDelLibro, type SolicitudDelLibro } from '../libro-efectivo.service';
+import { ConteoCajonComponent } from './conteo-cajon.component';
+import { money, dmy } from '../pages/finanzas-format';
 
 type Conteo = 'cierre' | 'sorpresa' | 'arranque';
 

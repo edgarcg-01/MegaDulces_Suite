@@ -3,10 +3,10 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { of } from 'rxjs';
 import type { SaldosDelLibro } from '@megadulces/contracts';
 import { VentanillaDiaComponent } from './ventanilla-dia.component';
-import { LibroEfectivoService } from '../../libro-efectivo.service';
-import { PermissionsService } from '../../../../core/services/permissions.service';
-import { Permission } from '../../../../core/constants/permissions';
-import { todayMx } from '../../../../core/utils/mx-date';
+import { LibroEfectivoService } from '../libro-efectivo.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
+import { todayMx } from '../../../core/utils/mx-date';
 
 /**
  * `[LE.6.3]` `[LE.6.4]` `[LE.6.6]` «Tu día», montado y usado: qué día está abierto (y si es viejo,
