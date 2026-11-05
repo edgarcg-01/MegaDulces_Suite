@@ -237,10 +237,10 @@ const mesMx = (): string => (diaMxDeInstante(new Date()) ?? new Date().toISOStri
                        class="surf-table surf-table--plain surf-table--sticky dt-stack">
                 <ng-template #header>
                   <tr>
-                    <th class="cg-w-date" pSortableColumn="fecha">Fecha <p-sortIcon field="fecha" /></th>
+                    <th class="cg-w-date" pSortableColumn="fecha">Fecha <p-sorticon field="fecha" /></th>
                     <th>Qué es</th>
                     <th>Testigos</th>
-                    <th class="ta-r comm-num" pSortableColumn="monto">Monto <p-sortIcon field="monto" /></th>
+                    <th class="ta-r comm-num" pSortableColumn="monto">Monto <p-sorticon field="monto" /></th>
                     <th>Certeza</th>
                     <th>Qué se hace</th>
                   </tr>
@@ -263,7 +263,7 @@ const mesMx = (): string => (diaMxDeInstante(new Date()) ?? new Date().toISOStri
                       @if (!r.falta) { <span class="cc-aparte">aparte</span> }
                     </td>
                     <td role="cell" data-label="Certeza">
-                      <span [class.warn]="r.certeza === 'por_confirmar'" [class.muted]="r.certeza === 'alta'">{{ CERTEZA_TXT[r.certeza] }}</span>
+                      <span [class.warn]="r.certeza === 'por_confirmar'" [class.muted]="r.certeza === 'alta'">{{ certezaTxt(r) }}</span>
                     </td>
                     <td role="cell" data-label="Qué se hace">
                       @if (ligaAccion(r); as l) {
@@ -722,6 +722,8 @@ export class FinanzasCajaCuadreComponent implements OnInit {
 
   abrirHueco(h: Hueco | Hueco[] | undefined): void { if (h && !Array.isArray(h)) this.sel.set(h); }
   cerrarHueco(abierto: boolean): void { if (!abierto) this.sel.set(null); }
+  /** La fila de `p-table` llega sin tipo (`let-r`): el índice va por un método tipado. */
+  certezaTxt(h: Hueco): string { return CERTEZA_TXT[h.certeza]; }
 
   /** La sucursal por su NOMBRE: la manda el hueco, o la lleva la llave de Kepler (`07|U-A-5|…`, `01-003|…`). */
   sucursalDe(h: Hueco): string | null {
