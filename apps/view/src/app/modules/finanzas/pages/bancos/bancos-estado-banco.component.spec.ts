@@ -1,24 +1,28 @@
 import { describe, expect, it } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection, signal } from '@angular/core';
-import { Observable, of, throwError } from 'rxjs';
+import { of } from 'rxjs';
 import { MessageService } from 'primeng/api';
 import { BancosEstadoBancoComponent } from './bancos-estado-banco.component';
-import { ArchivoEstadoBanco, BankAccount, BankService, RevisionEstadoBanco } from '../../bank.service';
+import { ArchivoEstadoBanco, ArchivosDelBanco, BankService, RevisionEstadoBanco } from '../../bank.service';
 import { AuthService } from '../../../../core/services/auth.service';
 import { Permission } from '../../../../core/constants/permissions';
 
 /**
  * `[CB.59]` La descarga del banco: el veredicto primero, la cuenta que coincide por saldo se elige
- * sola, y lo que no se puede guardar no ofrece «Guardar». Datos inventados (el repo es público).
+ * sola, lo que nadie pudo comprobar no se pinta en verde y lo que no se puede guardar no ofrece
+ * «Guardar». Datos inventados (el repo es público).
  */
-const cuenta = (id: string, bank: string, alias: string): BankAccount =>
-  ({ id, bank, account_label: alias.split(' ').pop()!, alias, kind: 'bank', kepler_link: null, active: true });
-const CUENTAS = [cuenta('a', 'BBAJIO', 'BB 1111'), cuenta('b', 'BBAJIO', 'BB 2222'), cuenta('c', 'BBVA', 'BBVA 3333')];
 const ARCHIVO: ArchivoEstadoBanco = {
   id: 'f1', bank: 'banbajio', alias: 'BB 1111', account_label: '1111', file_name: 'x.xlsx', date_from: '2026-10-01', date_to: '2026-10-31',
   lines_in_file: 10, lines_new: 10, opening_balance: 100, closing_balance: 200, total_in: 150, total_out: 50,
   balance_ok: true, declared_ok: true, account_check: 'sin_testigo', created_at: '2026-11-05T18:00:00Z', created_by: 'prueba',
+};
+const cta = (alias: string, hasta: string | null, con_lector = true, sin_testigo = 0) =>
+  ({ id: alias, bank: alias.split(' ')[0], alias, hasta, archivos: hasta ? 1 : 0, sin_testigo, con_lector });
+const DATOS: ArchivosDelBanco = {
+  archivos: [ARCHIVO], total: 1, tope: 100,
+  cuentas: [cta('BB 1111', '2026-10-31', true, 1), cta('BB 2222', null), cta('BBVA 3333', null), cta('BNMX 9999', null, false)],
 };
 function revision(p: Partial<RevisionEstadoBanco>): RevisionEstadoBanco {
   return {
@@ -30,13 +34,13 @@ function revision(p: Partial<RevisionEstadoBanco>): RevisionEstadoBanco {
   };
 }
 
-function montar(opts: { cuentas?: Observable<BankAccount[]>; revisar?: (id?: string | null) => RevisionEstadoBanco }) {
+function montar(opts: { datos?: ArchivosDelBanco; revisar?: (id?: string | null) => RevisionEstadoBanco }) {
   const llamadas: (string | null | undefined)[] = [];
+  const guardados: unknown[][] = [];
   const api = {
-    accounts: () => opts.cuentas ?? of(CUENTAS),
-    archivosDelBanco: () => of([ARCHIVO]),
+    archivosDelBanco: () => of(opts.datos ?? DATOS),
     revisarEstadoBanco: (_b: string, _n: string, id?: string | null) => { llamadas.push(id); return of(opts.revisar!(id)); },
-    confirmarEstadoBanco: () => of({}),
+    confirmarEstadoBanco: (...args: unknown[]) => { guardados.push(args); return of({ cuenta: { alias: 'x' }, nuevos: 1, ya_existia: false }); },
   };
   const auth = { user: signal({ permissions: { [Permission.FINANCE_BANK_GESTIONAR]: true } }) };
   TestBed.configureTestingModule({
@@ -48,25 +52,25 @@ function montar(opts: { cuentas?: Observable<BankAccount[]>; revisar?: (id?: str
   fx.detectChanges();
   const cmp = fx.componentInstance;
   const subir = () => { (cmp as any).archivo = { b64: 'AAAA', nombre: 'x.xlsx' }; (cmp as any).revisar(true); fx.detectChanges(); };
-  return { fx, cmp, llamadas, subir };
+  return { fx, cmp, llamadas, guardados, subir, el: fx.nativeElement as HTMLElement };
 }
 
 describe('BancosEstadoBancoComponent', () => {
-  it('el resumen dice cuántas cuentas tienen descarga y nombra las que faltan', () => {
-    const { cmp } = montar({});
+  it('el resumen cuenta sólo las cuentas con lector, nombra las que faltan y dice cuál no se puede subir', () => {
+    const { cmp, el } = montar({});
     const [con, atrasada, sinTestigo] = cmp.resumen();
     expect(con.value).toBe('1 de 3');
     expect(con.sub).toContain('BB 2222');
-    expect(con.sub).toContain('BBVA 3333');
+    expect(con.sub).not.toContain('BNMX');
     expect(atrasada.value).toBe('31/10/26');
     expect(sinTestigo.value).toBe(1);
+    expect(el.textContent).toContain('BNMX 9999 no se puede subir aún');
   });
 
-  it('[negativa] sin el catálogo de cuentas no dibuja «1 de 1»: lo declara no medido', () => {
-    const { cmp } = montar({ cuentas: throwError(() => new Error('500')) });
-    const con = cmp.resumen()[0];
-    expect(con.state).toBe('no_medido');
-    expect(String(con.value)).not.toContain(' de ');
+  it('[negativa] la lista trae tope, el resumen no: lo dice y no recorta las cuentas', () => {
+    const { cmp, el } = montar({ datos: { ...DATOS, total: 250, cuentas: [cta('BB 1111', '2026-10-31'), cta('BB 2222', '2026-10-30'), cta('BBVA 3333', '2026-10-29')] } });
+    expect(cmp.resumen()[0].value).toBe('3 de 3');
+    expect(el.textContent).toContain('Se muestran los 1 más recientes de 250');
   });
 
   it('si UNA cuenta coincide por saldo, se elige sola y el veredicto lo dice', () => {
@@ -80,6 +84,22 @@ describe('BancosEstadoBancoComponent', () => {
     expect(cmp.cuentaElegida()).toBe('a');
     expect(cmp.puedeGuardar()).toBe(true);
     expect(cmp.textoGuardar()).toBe('Guardar 4 movimientos');
+  });
+
+  it('[negativa] sin testigo: no se pinta como comprobado y no guarda hasta confirmar la cuenta a mano', () => {
+    const { cmp, fx, guardados, subir } = montar({
+      revisar: () => revision({ candidatas: [], cuenta: { id: 'b', alias: 'BB 2222' }, como_se_fijo: 'sin_testigo', motivos_bloqueo: [], puede_confirmar: true }),
+    });
+    subir();
+    expect(document.body.textContent).toContain('No hay con qué comprobar que este archivo es de BB 2222');
+    expect(document.body.textContent).not.toContain('Se pueden guardar');
+    expect(cmp.puedeGuardar()).toBe(false);
+    expect(cmp.textoGuardar()).toBe('Guardar sin comprobar');
+    cmp.aceptado.set(true);
+    expect(cmp.puedeGuardar()).toBe(true);
+    cmp.guardar();
+    expect(guardados[0][3]).toBe(true);
+    fx.destroy();
   });
 
   it('[negativa] bloqueado: no se puede guardar y el motivo queda a la vista', () => {

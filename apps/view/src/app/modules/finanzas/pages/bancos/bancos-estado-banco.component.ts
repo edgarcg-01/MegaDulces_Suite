@@ -8,13 +8,14 @@ import { DialogModule } from 'primeng/dialog';
 import { SelectModule } from 'primeng/select';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
+import { CheckboxModule } from 'primeng/checkbox';
 import { MessageService } from 'primeng/api';
 import { LoadStateComponent } from '../../../../shared/components/load-state/load-state.component';
 import { MetricStripComponent, MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
 import { FreshnessPillComponent } from '../../../../shared/components/freshness-pill/freshness-pill.component';
 import { AuthService } from '../../../../core/services/auth.service';
 import { Permission } from '../../../../core/constants/permissions';
-import { ArchivoEstadoBanco, BankAccount, BankService, ComoSeFijoLaCuenta, RevisionEstadoBanco } from '../../bank.service';
+import { ArchivosDelBanco, BankService, ComoSeFijoLaCuenta, RevisionEstadoBanco } from '../../bank.service';
 import { BANCOS_STYLES } from './bancos.styles';
 
 const BANCO: Readonly<Record<RevisionEstadoBanco['banco'], string>> = {
@@ -38,7 +39,8 @@ const COMO: Readonly<Record<ComoSeFijoLaCuenta, { corto: string; largo: string; 
  *  2. Qué no: los renglones uno por uno (no deciden si se guarda; el saldo encadenado ya lo prueba)
  *     ni la clasificación (CB.61, todavía no existe).
  *  3. Accesibilidad: la cuenta por nombre; si el archivo no la trae, la que coincide por saldo ya
- *     viene elegida; el motivo de un bloqueo en una frase, sin código.
+ *     viene elegida; si ninguna coincide, guardar pide confirmar a mano la cuenta (no se pinta en
+ *     verde lo que nadie comprobó); el motivo de un bloqueo en una frase, sin código.
  *  4. Ligas: viene de la banca en línea; TODAVÍA no alimenta Movimientos ni la conciliación (CB.60)
  *     — se dice en la tarjeta para que nadie lo dé por hecho.
  *  5. Le toca a Bancos › Cuentas y a quien hoy sube el libro (FINANCE_BANK_GESTIONAR); ver la lista
@@ -47,7 +49,7 @@ const COMO: Readonly<Record<ComoSeFijoLaCuenta, { corto: string; largo: string; 
 @Component({
   selector: 'bancos-estado-banco',
   standalone: true,
-  imports: [CurrencyPipe, DatePipe, FormsModule, ButtonModule, DialogModule, SelectModule, TableModule, TagModule, LoadStateComponent, MetricStripComponent, FreshnessPillComponent],
+  imports: [CurrencyPipe, DatePipe, FormsModule, ButtonModule, DialogModule, SelectModule, TableModule, TagModule, CheckboxModule, LoadStateComponent, MetricStripComponent, FreshnessPillComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="card-premium card-flat fb-tablewrap eb-card" aria-labelledby="eb-titulo">
@@ -55,7 +57,8 @@ const COMO: Readonly<Record<ComoSeFijoLaCuenta, { corto: string; largo: string; 
         <div>
           <h3 id="eb-titulo" class="fb-card-title eb-title">Estados de cuenta del banco</h3>
           <p class="eb-sub">La descarga de la banca en línea, tal cual: Santander y Banorte (CSV), BBVA (.exp) y BanBajío (Excel).
-            Todavía no alimenta Movimientos ni la conciliación.</p>
+            No depende del periodo elegido arriba y todavía no alimenta Movimientos ni la conciliación.
+            @if (sinLector().length) { {{ sinLector().join(', ') }} no se puede subir aún: no hay lector de su banco. }</p>
         </div>
         @if (puedeSubir()) {
           <input #archivo type="file" accept=".csv,.exp,.txt,.xlsx" hidden (change)="alElegir($event)">
@@ -65,7 +68,7 @@ const COMO: Readonly<Record<ComoSeFijoLaCuenta, { corto: string; largo: string; 
       </div>
 
       <!-- Primario: de qué cuentas hay descarga y hasta qué día llega la más atrasada. -->
-      @if (!cargando() && !cuentasCargando() && !error()) {
+      @if (!cargando() && !error()) {
         <div class="eb-resumen">
           <app-metric-strip [items]="resumen()" density="compact" ariaLabel="Descargas del banco por cuenta" />
           <app-freshness-pill measures="data" [since]="ultimaSubida()" label="última subida" [staleAfterSec]="129600" />
@@ -88,7 +91,7 @@ const COMO: Readonly<Record<ComoSeFijoLaCuenta, { corto: string; largo: string; 
             <tr>
               <td class="eb-strong">{{ f.alias || f.account_label }}</td>
               <td class="mono">{{ f.date_from | date:'dd/MM/yy' }} – {{ f.date_to | date:'dd/MM/yy' }}</td>
-              <td class="comm-num mono">{{ f.lines_new }} <span class="muted">de {{ f.lines_in_file }}</span></td>
+              <td class="comm-num mono">{{ f.lines_in_file }}@if (f.lines_in_file > f.lines_new) { <span class="muted">({{ f.lines_in_file - f.lines_new }} ya estaban)</span> }</td>
               <td class="comm-num mono">{{ num(f.opening_balance) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
               <td class="comm-num mono eb-strong">{{ num(f.closing_balance) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
               <td><p-tag [value]="como(f.account_check).corto" [severity]="como(f.account_check).sev" /></td>
@@ -96,6 +99,9 @@ const COMO: Readonly<Record<ComoSeFijoLaCuenta, { corto: string; largo: string; 
             </tr>
           </ng-template>
         </p-table>
+        @if (datos(); as d) { @if (d.total > d.archivos.length) {
+          <p class="eb-leyenda">Se muestran los {{ d.archivos.length }} más recientes de {{ d.total }} archivos subidos; el resumen de arriba cuenta todos.</p>
+        } }
         <p class="eb-leyenda">Cuenta comprobada: <b>en el archivo</b>, el banco pone el número de cuenta ·
           <b>por saldo</b>, el archivo arranca exactamente donde cerró el anterior de esa cuenta ·
           <b>sin testigo</b>, no había un saldo anterior con qué comprobarla.</p>
@@ -103,12 +109,19 @@ const COMO: Readonly<Record<ComoSeFijoLaCuenta, { corto: string; largo: string; 
     </section>
 
     <p-dialog [visible]="abierto()" (visibleChange)="$event ? null : cerrar()" [modal]="true" [draggable]="false"
-              [style]="{ width: '40rem', maxWidth: '96vw' }" [header]="tituloDialogo()">
+              [style]="{ width: '40rem', maxWidth: '96vw' }" [header]="tituloDialogo()" styleClass="eb-dlg">
       @if (revision(); as r) {
         <!-- Primario: el veredicto. -->
         @if (r.ya_subido; as ya) {
           <p class="eb-veredicto" role="status"><i class="pi pi-info-circle" aria-hidden="true"></i>
             Este mismo archivo ya se subió el {{ ya.subido_el | date:'dd/MM/yy HH:mm' }}@if (ya.subido_por) { por {{ ya.subido_por }} }. No hay nada nuevo que guardar.</p>
+        } @else if (r.puede_confirmar && r.como_se_fijo === 'sin_testigo') {
+          <div class="eb-veredicto warn" role="status">
+            <p><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No hay con qué comprobar que este archivo es de {{ r.cuenta?.alias }}.</p>
+            <p class="eb-veredicto-sub">Ni el libro ni otra descarga de esa cuenta terminan en el saldo inicial del archivo ({{ num(r.saldo_inicial) | currency:'MXN':'symbol-narrow':'1.2-2' }}). Si eliges la cuenta equivocada, sus {{ r.nuevos }} movimientos quedan en ella.</p>
+            <label class="eb-acepto"><p-checkbox [binary]="true" [ngModel]="aceptado()" (ngModelChange)="aceptado.set($event)" inputId="eb-acepto" />
+              <span>Confirmo que el archivo es de <b>{{ r.cuenta?.alias }}</b></span></label>
+          </div>
         } @else if (r.puede_confirmar) {
           <p class="eb-veredicto ok" role="status"><i class="pi pi-check-circle" aria-hidden="true"></i>
             @if (r.nuevos > 0) { Se pueden guardar {{ r.nuevos }} movimientos nuevos de {{ r.cuenta?.alias }}. }
@@ -182,8 +195,14 @@ const COMO: Readonly<Record<ComoSeFijoLaCuenta, { corto: string; largo: string; 
     .eb-resumen { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); padding: 0 var(--sp-3) var(--sp-2); }
     .eb-leyenda { margin: 0; padding: var(--sp-2) var(--sp-3); font-size: var(--fs-xs); color: var(--text-muted); }
 
-    .eb-veredicto { display: flex; align-items: baseline; gap: var(--sp-2); margin: 0 0 var(--sp-4); font-size: var(--fs-body); font-weight: 600; color: var(--text-main); }
-    .eb-veredicto.ok { color: var(--ok-fg); }
+    /* Primario del diálogo: el veredicto, más grande que el título (que queda terciario). */
+    .eb-veredicto { display: flex; align-items: baseline; gap: var(--sp-2); margin: 0 0 var(--sp-4); font-size: var(--fs-lg); font-weight: var(--fw-bold, 700); color: var(--text-main); }
+    .eb-veredicto.ok { color: var(--ok-soft-fg); }
+    div.eb-veredicto.warn { display: block; color: var(--warn-soft-fg); }
+    .eb-veredicto.warn p { margin: 0; }
+    .eb-veredicto .eb-veredicto-sub { margin-top: var(--sp-1); font-size: var(--fs-sm); font-weight: 400; color: var(--text-main); }
+    .eb-acepto { display: flex; align-items: center; gap: var(--sp-2); margin-top: var(--sp-3); font-size: var(--fs-sm); font-weight: 400; color: var(--text-main); cursor: pointer; }
+    :host ::ng-deep .eb-dlg .p-dialog-title { font-size: var(--fs-sm); font-weight: var(--fw-medium, 500); color: var(--text-muted); }
     div.eb-veredicto.bad { display: block; color: var(--bad-fg); }
     .eb-veredicto.bad p { margin: 0; }
     .eb-veredicto.bad ul { margin: var(--sp-1) 0 0; padding-left: var(--sp-5); font-weight: 400; color: var(--text-main); font-size: var(--fs-sm); }
@@ -199,6 +218,7 @@ const COMO: Readonly<Record<ComoSeFijoLaCuenta, { corto: string; largo: string; 
     .eb-datos dt { font-size: var(--fs-xs); color: var(--text-muted); }
     .eb-datos dd { margin: 0; color: var(--text-main); }
     .eb-datos .ok, .eb-datos .bad { display: inline-flex; align-items: baseline; gap: var(--sp-1); }
+    .eb-datos .ok { color: var(--ok-soft-fg); }
 
     .eb-noleidos { margin-top: var(--sp-4); font-size: var(--fs-sm); }
     .eb-noleidos ul { margin: var(--sp-1) 0 0; padding-left: var(--sp-5); }
@@ -217,9 +237,11 @@ export class BancosEstadoBancoComponent implements OnInit {
 
   readonly puedeSubir = computed(() => this.auth.user()?.permissions?.[Permission.FINANCE_BANK_GESTIONAR] === true);
 
-  readonly archivos = signal<ArchivoEstadoBanco[]>([]);
-  readonly cuentas = signal<BankAccount[] | null>([]);
-  readonly cuentasCargando = signal(true);
+  readonly datos = signal<ArchivosDelBanco | null>(null);
+  readonly archivos = computed(() => this.datos()?.archivos ?? []);
+  /** Cuentas activas cuyo banco no tiene lector (hoy Banamex): no cuentan como «faltan». */
+  readonly sinLector = computed(() => (this.datos()?.cuentas ?? []).filter((c) => !c.con_lector).map((c) => c.alias));
+  readonly aceptado = signal(false);
   readonly cargando = signal(true);
   readonly error = signal<string | null>(null);
 
@@ -231,33 +253,23 @@ export class BancosEstadoBancoComponent implements OnInit {
   private archivo: { b64: string; nombre: string } | null = null;
 
   readonly ultimaSubida = computed(() => this.archivos()[0]?.created_at ?? null);
-  /** Por cuenta de banco activa: hasta qué día llega su descarga. Las que no tienen ninguna cuentan como faltantes. */
+  /**
+   * Por cuenta de banco activa con lector: hasta qué día llega su descarga. Lo calcula el servidor sobre
+   * TODOS los archivos: la lista de abajo trae tope y un resumen hecho con ella mentiría.
+   */
   readonly resumen = computed<MetricStripItem[]>(() => {
-    const hasta = new Map<string, { alias: string; hasta: string }>();
-    for (const f of this.archivos()) {
-      const k = f.alias || f.account_label;
-      const d = String(f.date_to).slice(0, 10);
-      if (!hasta.has(k) || hasta.get(k)!.hasta < d) hasta.set(k, { alias: k, hasta: d });
-    }
-    const atrasada = [...hasta.values()].sort((a, b) => a.hasta.localeCompare(b.hasta))[0];
-    const sinTestigo = this.archivos().filter((f) => f.account_check === 'sin_testigo').length;
-    // Sin el catálogo de cuentas no hay denominador: se dice, no se dibuja «N de N».
-    const cuentas = this.cuentas();
-    let conDescarga: MetricStripItem;
-    if (cuentas === null) {
-      conDescarga = { label: 'Cuentas con descarga', value: hasta.size, format: 'number', state: 'no_medido', stateNote: 'no se pudo leer el catálogo de cuentas', sub: 'de un total que no se pudo leer' };
-    } else {
-      const faltan = cuentas.filter((c) => c.kind === 'bank' && c.active).map((c) => c.alias || c.account_label).filter((a) => !hasta.has(a));
-      const total = hasta.size + faltan.length;
-      conDescarga = { label: 'Cuentas con descarga', value: `${hasta.size} de ${total}`, format: 'text', tone: faltan.length ? 'warn' : 'ok',
-        sub: faltan.length ? `faltan ${faltan.slice(0, 3).join(', ')}${faltan.length > 3 ? ` y ${faltan.length - 3} más` : ''}` : 'todas' };
-    }
-    // Sin ningún archivo, «la más atrasada» y «sin testigo» no dicen nada: sólo queda cuántas faltan.
-    if (!this.archivos().length) return [conDescarga];
+    const cuentas = (this.datos()?.cuentas ?? []).filter((c) => c.con_lector);
+    const con = cuentas.filter((c) => c.hasta);
+    const faltan = cuentas.filter((c) => !c.hasta).map((c) => c.alias);
+    const conDescarga: MetricStripItem = { label: 'Cuentas con descarga', value: `${con.length} de ${cuentas.length}`, format: 'text', tone: faltan.length ? 'warn' : 'ok',
+      sub: faltan.length ? `faltan ${faltan.slice(0, 3).join(', ')}${faltan.length > 3 ? ` y ${faltan.length - 3} más` : ''}` : 'todas' };
+    if (!con.length) return [conDescarga];
+    const atrasada = [...con].sort((a, b) => a.hasta!.localeCompare(b.hasta!))[0];
+    const sinTestigo = cuentas.reduce((n, c) => n + c.sin_testigo, 0);
     return [
       conDescarga,
-      { label: 'La más atrasada llega al', value: atrasada ? this.fecha(atrasada.hasta) : '—', format: 'text', sub: atrasada?.alias ?? 'sin descargas' },
-      { label: 'Sin testigo', value: sinTestigo, format: 'number', tone: sinTestigo ? 'warn' : 'muted', sub: 'archivos sin saldo anterior con qué comprobar la cuenta' },
+      { label: 'La más atrasada llega al', value: this.fecha(atrasada.hasta!), format: 'text', sub: atrasada.alias },
+      { label: 'Sin testigo', value: sinTestigo, format: 'number', tone: sinTestigo ? 'warn' : 'muted', sub: 'archivos guardados sin poder comprobar la cuenta' },
     ];
   });
 
@@ -272,10 +284,13 @@ export class BancosEstadoBancoComponent implements OnInit {
   })));
   readonly puedeGuardar = computed(() => {
     const r = this.revision();
-    return !!r && r.puede_confirmar && !r.ya_subido && !this.leyendo() && !this.guardando();
+    return !!r && r.puede_confirmar && !r.ya_subido && !this.leyendo() && !this.guardando()
+      && (r.como_se_fijo !== 'sin_testigo' || this.aceptado());
   });
   readonly textoGuardar = computed(() => {
-    const n = this.revision()?.nuevos ?? 0;
+    const r = this.revision();
+    const n = r?.nuevos ?? 0;
+    if (r?.como_se_fijo === 'sin_testigo') return 'Guardar sin comprobar';
     return n === 0 ? 'Registrar el archivo' : n === 1 ? 'Guardar 1 movimiento' : `Guardar ${n} movimientos`;
   });
 
@@ -284,13 +299,8 @@ export class BancosEstadoBancoComponent implements OnInit {
   cargar(): void {
     this.cargando.set(true);
     this.error.set(null);
-    this.cuentasCargando.set(true);
-    this.api.accounts().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (c) => { this.cuentas.set(c ?? []); this.cuentasCargando.set(false); },
-      error: () => { this.cuentas.set(null); this.cuentasCargando.set(false); },
-    });
     this.api.archivosDelBanco().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (rows) => { this.archivos.set(rows ?? []); this.cargando.set(false); },
+      next: (d) => { this.datos.set(d); this.cargando.set(false); },
       error: (e: HttpErrorResponse) => { this.error.set(this.mensaje(e, 'No se pudo leer la lista de estados de cuenta subidos.')); this.cargando.set(false); },
     });
   }
@@ -305,6 +315,7 @@ export class BancosEstadoBancoComponent implements OnInit {
     reader.onload = () => {
       this.archivo = { b64: String(reader.result || ''), nombre: file.name };
       this.cuentaElegida.set(null);
+      this.aceptado.set(false);
       this.revisar(true);
     };
     reader.onerror = () => { this.leyendo.set(false); this.falla('No se pudo leer el archivo.'); };
@@ -313,6 +324,7 @@ export class BancosEstadoBancoComponent implements OnInit {
 
   elegirCuenta(id: string | null): void {
     this.cuentaElegida.set(id);
+    this.aceptado.set(false);
     this.revisar(false);
   }
 
@@ -337,7 +349,7 @@ export class BancosEstadoBancoComponent implements OnInit {
   guardar(): void {
     if (!this.archivo || !this.puedeGuardar()) return;
     this.guardando.set(true);
-    this.api.confirmarEstadoBanco(this.archivo.b64, this.archivo.nombre, this.cuentaElegida())
+    this.api.confirmarEstadoBanco(this.archivo.b64, this.archivo.nombre, this.cuentaElegida(), this.aceptado())
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (c) => {
           this.guardando.set(false);
@@ -363,6 +375,7 @@ export class BancosEstadoBancoComponent implements OnInit {
     this.abierto.set(false);
     this.revision.set(null);
     this.cuentaElegida.set(null);
+    this.aceptado.set(false);
     this.archivo = null;
   }
 

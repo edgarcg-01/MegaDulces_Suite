@@ -3,6 +3,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, todayMx } from '@megadulces/platform-core';
 import { leerEstadoDeCuenta, type Banco, type EstadoDeCuentaLeido, type MovimientoBanco } from './lectores';
+import { cierreDelDia, type RenglonDelLibro } from './saldo-del-libro';
 
 /**
  * `[CB.58]` Subir el estado de cuenta descargado de la banca, en dos pasos: REVISAR (no escribe)
@@ -30,6 +31,8 @@ export interface SubirEstadoDeCuentaBody {
   file_name?: string;
   /** Obligatoria si el archivo no trae la cuenta (todos menos Santander). */
   bank_account_id?: string;
+  /** Sin testigo (nada termina en el saldo inicial), la persona confirma a mano que la cuenta es ésa. */
+  aceptar_sin_testigo?: boolean;
 }
 
 export interface CuentaCandidata {
@@ -66,6 +69,15 @@ export interface RevisionEstadoDeCuenta {
   puede_confirmar: boolean;
   /** Este MISMO archivo (por su sha1) ya se guardó: confirmar no escribe nada nuevo. */
   ya_subido: { archivo_id: string; subido_el: string; subido_por: string | null } | null;
+}
+
+/** `GET statement-files`: la lista (con tope) y, aparte, cada cuenta de banco activa con hasta dónde llega. */
+export interface ArchivosDelBanco {
+  archivos: Record<string, unknown>[];
+  /** Cuántos archivos hay en total: si es mayor que `archivos.length`, la lista está recortada. */
+  total: number;
+  tope: number;
+  cuentas: { id: string; bank: string; alias: string; hasta: string | null; archivos: number; sin_testigo: number; con_lector: boolean }[];
 }
 
 const pesos = (centavos: number) => Math.round(centavos) / 100;
@@ -109,12 +121,15 @@ export class EstadoDeCuentaService {
       .orderBy([{ column: 'movement_date', order: 'desc' }, { column: 'created_at', order: 'desc' }, { column: 'seq', order: 'desc' }])
       .first('running_balance');
     if (delBanco) return Number(delBanco.running_balance);
-    const delLibro = await trx('finance.bank_movements')
+    // El libro no guarda el orden dentro del día: el cierre se reconstruye por la cadena de saldos.
+    const ultimoDia = await trx('finance.bank_movements')
       .where({ bank_account_id: cuentaId }).whereNull('deleted_at').whereNotNull('running_balance')
-      .andWhere('movement_date', '<', antesDe)
-      .orderBy([{ column: 'movement_date', order: 'desc' }, { column: 'created_at', order: 'desc' }])
-      .first('running_balance');
-    return delLibro ? Number(delLibro.running_balance) : null;
+      .andWhere('movement_date', '<', antesDe).first(trx.raw("to_char(max(movement_date), 'YYYY-MM-DD') as d"));
+    if (!ultimoDia?.d) return null;
+    const delDia: RenglonDelLibro[] = await trx('finance.bank_movements')
+      .where({ bank_account_id: cuentaId, movement_date: ultimoDia.d }).whereNull('deleted_at')
+      .select('amount_in', 'amount_out', 'running_balance');
+    return cierreDelDia(delDia);
   }
 
   private async revisarEn(trx: Knex.Transaction, leido: EstadoDeCuentaLeido, body: SubirEstadoDeCuentaBody, sha1: string): Promise<RevisionEstadoDeCuenta & { _lineas: { m: MovimientoBanco; llave: string; existe: boolean }[] }> {
@@ -220,6 +235,9 @@ export class EstadoDeCuentaService {
     return this.tk.run(async (trx) => {
       const { _lineas, ...rev } = await this.revisarEn(trx, leido, body, sha1);
       if (rev.ya_subido) return { ...rev, archivo_id: rev.ya_subido.archivo_id, ya_existia: true };
+      if (rev.como_se_fijo === 'sin_testigo' && body.aceptar_sin_testigo !== true) {
+        throw new BadRequestException({ message: 'el estado de cuenta no se puede guardar', motivos: [`no hay con qué comprobar que el archivo es de ${rev.cuenta?.alias}: confírmalo antes de guardar`] });
+      }
       if (!rev.puede_confirmar || !rev.cuenta || !rev.como_se_fijo || !rev.desde || !rev.hasta || rev.saldo_inicial === null || rev.saldo_final === null) {
         throw new BadRequestException({ message: 'el estado de cuenta no se puede guardar', motivos: rev.motivos_bloqueo });
       }
@@ -253,16 +271,37 @@ export class EstadoDeCuentaService {
     });
   }
 
-  /** Lo que ya se subió, del más reciente al más viejo. */
-  async archivos(limit = 100) {
+  /**
+   * Lo que ya se subió (del más reciente al más viejo, con tope declarado) y, aparte y SIN tope, hasta
+   * dónde llega cada cuenta de banco activa: el resumen no puede salir de una lista recortada.
+   */
+  async archivos(limit = 100): Promise<ArchivosDelBanco> {
     this.tenantCtx.requireTenantId();
-    return this.tk.run((trx) => trx('finance.bank_statement_files as f')
-      .join('finance.bank_accounts as a', 'a.id', 'f.bank_account_id')
-      .select('f.id', 'f.bank', 'a.alias', 'a.account_label', 'f.file_name',
-        // La fecha como texto: sin setTypeParser, un `date` llega como Date y el JSON lo corre de día.
-        trx.raw("to_char(f.date_from, 'YYYY-MM-DD') as date_from"), trx.raw("to_char(f.date_to, 'YYYY-MM-DD') as date_to"),
-        'f.lines_in_file', 'f.lines_new', 'f.opening_balance', 'f.closing_balance', 'f.total_in', 'f.total_out',
-        'f.balance_ok', 'f.declared_ok', 'f.account_check', 'f.created_at', 'f.created_by')
-      .orderBy('f.created_at', 'desc').limit(Math.min(Math.max(1, limit), 500)));
+    const tope = Math.min(Math.max(1, limit), 500);
+    return this.tk.run(async (trx) => {
+      const archivos = await trx('finance.bank_statement_files as f')
+        .join('finance.bank_accounts as a', 'a.id', 'f.bank_account_id')
+        .select('f.id', 'f.bank', 'a.alias', 'a.account_label', 'f.file_name',
+          // La fecha como texto: sin setTypeParser, un `date` llega como Date y el JSON lo corre de día.
+          trx.raw("to_char(f.date_from, 'YYYY-MM-DD') as date_from"), trx.raw("to_char(f.date_to, 'YYYY-MM-DD') as date_to"),
+          'f.lines_in_file', 'f.lines_new', 'f.opening_balance', 'f.closing_balance', 'f.total_in', 'f.total_out',
+          'f.balance_ok', 'f.declared_ok', 'f.account_check', 'f.created_at', 'f.created_by')
+        .orderBy('f.created_at', 'desc').limit(tope);
+      const [{ n }] = await trx('finance.bank_statement_files').count('* as n');
+      const conLector = Object.values(BANCO_EN_CUENTAS);
+      const cuentas = await trx('finance.bank_accounts as a')
+        .leftJoin('finance.bank_statement_files as f', 'f.bank_account_id', 'a.id')
+        .where({ 'a.kind': 'bank', 'a.active': true })
+        .groupBy('a.id', 'a.bank', 'a.alias', 'a.account_label')
+        .select('a.id', 'a.bank', trx.raw('coalesce(a.alias, a.account_label) as alias'),
+          trx.raw("to_char(max(f.date_to), 'YYYY-MM-DD') as hasta"), trx.raw('count(f.id)::int as archivos'),
+          trx.raw("count(f.id) FILTER (WHERE f.account_check = 'sin_testigo')::int as sin_testigo"))
+        .orderBy('alias');
+      return {
+        archivos, total: Number(n), tope,
+        cuentas: cuentas.map((c: { id: string; bank: string; alias: string; hasta: string | null; archivos: number; sin_testigo: number }) =>
+          ({ ...c, con_lector: conLector.includes(c.bank) })),
+      };
+    });
   }
 }

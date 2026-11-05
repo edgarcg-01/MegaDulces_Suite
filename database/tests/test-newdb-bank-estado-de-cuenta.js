@@ -182,7 +182,10 @@ async function completo(urlAdmin, urlRuntime) {
     console.log('\n[5] BBVA no trae la cuenta');
     const sinCuenta = await svc.revisar({ file_base64: BBVA_1 });
     check(!sinCuenta.puede_confirmar && sinCuenta.motivos_bloqueo.some((m) => /elige la cuenta/.test(m)), 'sin elegirla, se pide');
-    const cA = await svc.confirmar({ file_base64: BBVA_1, bank_account_id: BBVA_A }, 'prueba');
+    const eSinAceptar = await svc.confirmar({ file_base64: BBVA_1, bank_account_id: BBVA_A }, 'prueba').then(() => null, (e) => e);
+    check(eSinAceptar && /confírmalo/.test(JSON.stringify(eSinAceptar.response || eSinAceptar.message)) && await lineas(BBVA_A) === 0,
+      '⛔ sin testigo y sin confirmarlo a mano, confirmar se niega y no escribe');
+    const cA = await svc.confirmar({ file_base64: BBVA_1, bank_account_id: BBVA_A, aceptar_sin_testigo: true }, 'prueba');
     check(cA.como_se_fijo === 'sin_testigo' && cA.nuevos === 2, `elegida y sin saldo previo: se guarda declarada «sin_testigo» (${cA.como_se_fijo})`);
     const ordenA = await admin('finance.bank_statement_lines').where({ bank_account_id: BBVA_A }).orderBy('seq').select('concept', 'seq');
     check(ordenA.length === 2 && /^VENTAS/.test(ordenA[0].concept), 'el archivo venía al revés y se guarda en orden cronológico (seq)');
@@ -200,10 +203,33 @@ async function completo(urlAdmin, urlRuntime) {
     const rBanco = await svc.revisar({ file_base64: BBVA_2, bank_account_id: STDR });
     check(!rBanco.puede_confirmar && rBanco.motivos_bloqueo.some((m) => /no es una cuenta BBVA/.test(m)), 'se niega: el archivo es de BBVA');
 
+    console.log('\n[8b] ⛔ La lista con tope NO recorta el resumen por cuenta');
+    const lst = await svc.archivos(1);
+    const porCuenta = (id) => lst.cuentas.find((c) => c.id === id);
+    check(lst.archivos.length === 1 && lst.total >= 3, `la lista declara su tope: ${lst.archivos.length} de ${lst.total}`);
+    check(porCuenta(STDR)?.archivos === 2 && porCuenta(BBVA_A)?.archivos === 1 && porCuenta(BBVA_A)?.hasta === '2026-11-02',
+      `y cada cuenta sigue contando todos sus archivos (STDR ${porCuenta(STDR)?.archivos}, BBVA A ${porCuenta(BBVA_A)?.archivos} hasta ${porCuenta(BBVA_A)?.hasta})`);
+    check(porCuenta(BBVA_A)?.sin_testigo === 1 && porCuenta(BBVA_A)?.con_lector === true, 'con su archivo sin testigo y su lector');
+
     console.log('\n[9] ⛔ RLS');
     // Sin `app.tenant_id`, la política filtra todo (o `current_tenant_id()` se niega): las dos son «no ve».
     const sinTenant = await runtime.transaction(async (trx) => Number((await trx('finance.bank_statement_lines').count('* as n'))[0].n)).catch((e) => `error: ${e.message}`);
     check(sinTenant === 0 || String(sinTenant).startsWith('error'), `sin tenant, app_runtime no ve renglones (${sinTenant})`);
+
+    console.log('\n[10] El testigo del LIBRO: el cierre del día por la cadena, no el último capturado');
+    // BBVA_1 arranca en $200.00 el 02-nov. El libro de la cuenta C cierra el 01-nov en $200.00, pero ese
+    // renglón se capturó PRIMERO: el «último por created_at» daría $150.00 y no la reconocería.
+    const BBVA_C = await cuenta('BBVA', '58003', `${ALIAS} BBVA C`);
+    const [edo] = await admin('finance.bank_statements').insert({ tenant_id: MEGA, bank_account_id: BBVA_C, period: '2026-11' }).returning('id');
+    for (const [i, o, s] of [[50, 0, 200], [300, 0, 300], [0, 150, 150]]) {
+      await admin('finance.bank_movements').insert({ tenant_id: MEGA, statement_id: edo.id ?? edo, bank_account_id: BBVA_C, movement_date: '2026-11-01',
+        concept: 'PRUEBA LIBRO', amount_in: i, amount_out: o, running_balance: s, client_uuid: `prueba-cb59-${s}` });
+    }
+    const rC = await svc.revisar({ file_base64: BBVA_1 });
+    const cC = rC.candidatas.find((c) => c.id === BBVA_C);
+    check(cC?.coincide === true && cC.saldo_conocido === 200, `la cuenta C coincide por el cierre reconstruido ($${cC?.saldo_conocido})`);
+    const rC2 = await svc.revisar({ file_base64: BBVA_1, bank_account_id: BBVA_C });
+    check(rC2.como_se_fijo === 'saldo_continuo', `elegida, queda atestiguada por saldo (${rC2.como_se_fijo})`);
   } finally {
     await limpiar(admin).catch(() => {});
     await admin.destroy();
