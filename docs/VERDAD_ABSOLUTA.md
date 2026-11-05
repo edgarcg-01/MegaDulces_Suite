@@ -1,51 +1,52 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 389 KB, 5743 líneas, 39 secciones.
+> **Índice navegable** — 393 KB, 5806 líneas, 40 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/VERDAD_ABSOLUTA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
 
 | Desde | Hasta | KB | Sección |
 |---:|---:|---:|---|
-| 52 | 67 | 1 | La verdad absoluta — qué la arbitra, cuánto se sostiene, y qué se declara |
-| 68 | 84 | 1 | 0. Qué es este documento, y qué NO es |
-| 85 | 193 | 6 | 1. Las siete reglas |
-| 194 | 230 | 10 | 2. El estado, en una tabla |
-| 231 | 393 | 10 | 3. Existencia |
-| 394 | 618 | 12 | 4. Ventas y unidades |
-| 619 | 650 | 5 | 5. Los resolvedores canónicos — qué leer para qué |
-| 651 | 727 | 5 | 5bis. ⭐⭐ AUDITORÍA DE ADOPCIÓN — quién debería leer el resolvedor, quién lo lee, quién no (2026-09-12) |
-| 728 | 798 | 5 | 6. Las trampas que ya cobraron |
-| 799 | 856 | 30 | 7. Los huecos declarados, con nombre y monto |
-| 857 | 901 | 3 | 8. Wincaja: ⭐⭐ ya sólo existe para HISTÓRICOS (2026-10-01) |
-| 902 | 1103 | 11 | 12. ⭐⭐ El segundo eje: el COSTO se había arbitrado en UNA sola pantalla (KE.3, 2026-09-10) |
-| 1104 | 1209 | 8 | 13. ⭐⭐ El origen: auditoría del Kepler crudo (2026-09-11) |
-| 1210 | 1410 | 11 | 16. ⭐⭐ El COSTO ESTÁNDAR — cuál de los CINCO costos contesta cada pregunta (CE, 2026-09-29) |
-| 1411 | 1727 | 18 | 9. Hipótesis refutadas — no las reconstruyas |
-| 1728 | 1747 | 2 | 10. Cómo se verifica |
-| 1748 | 1770 | 1 | 11. Lo que este documento no cubre |
-| 1771 | 1846 | 3 | 14. ⭐⭐ REPRODUCIR en vez de ARBITRAR — la medida que Kepler hace (VK.1, 2026-09-12 · ADR-063) |
-| 1847 | 2006 | 9 | 15. ⭐⭐ El ingreso contable: el árbitro tenía razón y el publicado iba alto (IG, 2026-09-29) |
-| 2007 | 2421 | 25 | 17. ⭐⭐ La EXISTENCIA del CEDIS, y las DOS existencias de Kepler (IC.CEDIS, 2026-10-01) |
-| 2422 | 2662 | 15 | 18. ⭐⭐ El ingreso publicado NO es ingreso: el 84 % es la casa facturándose a sí misma (IG.7, 2026-10-01) |
-| 2663 | 2855 | 11 | 19. ⭐⭐ El INVENTARIO DE RUTA: el saldo se valúa en UNA moneda, y el control manual confirma la venta (RD, 2026 |
-| 2856 | 2898 | 3 | 20. ⭐⭐ El TRASPASO: la liga la arbitra el DESTINO, y la fecha miente en los dos sentidos (DM.20, 2026-10-06) |
-| 2899 | 2997 | 6 | 21. ⭐⭐ El EGRESO no tenía testigo — y el que se usaba leía la misma fuente (VE.1, 2026-10-06) |
-| 2998 | 3471 | 27 | 22. ⭐⭐ El SUPUESTO de crecimiento: el número que gobierna todo el plan, y el único que nadie arbitra (PU, 2026 |
-| 3472 | 3579 | 5 | 23. ⭐⭐ El REAL de ventas del presupuesto publicaba $0 sobre $208M — el join unía el canal CANÓNICO contra el C |
-| 3580 | 3734 | 9 | 24. ⭐⭐ El crecimiento de VENTAS era COBERTURA, no negocio: lo establecido CAE 2.95 % y el plan proyecta +26.67 |
-| 3735 | 3886 | 8 | 25. ⭐⭐ El GASTO no se proyecta: se COPIA. La venta crece 26.67 % y el egreso 0.0000 % (PU.VG, 2026-10-08) |
-| 3887 | 4092 | 13 | 26. ⭐⭐ La LIQUIDEZ: el modelo veía el 7.7 % del cobro y el 0 % del pago, y publicaba un verde (TES, 2026-10-08 |
-| 4093 | 4182 | 5 | 27. ⭐⭐ El circuito de pago de la Suite NUNCA corrió — y el real mueve ~$45M al mes por otro lado (TES, Sprint  |
-| 4183 | 4372 | 11 | 28. ⭐⭐ LA CAJA GENERAL: el efectivo SÍ tiene testigo — la custodia no se cuenta, se arrastra (CG, 2026-10-13) |
-| 4373 | 4441 | 4 | 29. ⭐⭐ El anti-réplica de `kdm1` no filtra RÉPLICAS: filtra RUTAS — $5.87M fuera de seis vistas (CG, 2026-10-1 |
-| 4442 | 4736 | 21 | 30. ⭐⭐ `/compras/pedido`: el motor de compra no veía un CANAL ENTERO ($12.92M/30d) — y la misma pantalla leía  |
-| 4737 | 4954 | 13 | 31. ⭐⭐ UNIDADES DE MEDIDA: hay TRES unidades, no una — el árbitro cubre el 91.4 % y el 2.2 % que no cierra mue |
-| 4955 | 5207 | 17 | 32. ⭐⭐ LA COMISIÓN DE RUTA DIRECTA: seis números deciden un depósito, y ninguno tenía árbitro declarado (RD, 2 |
-| 5208 | 5253 | 5 | 33. ⭐⭐ EL LIBRO DE COMPRAS: el asiento tiene árbitro; qué facturas entran, todavía no (LC.19, 2026-10-21) |
-| 5254 | 5338 | 7 | 34. ⭐⭐ EL PRECIO DE UNA COTIZACIÓN: Kepler cobra la PRESENTACIÓN capturada (E.22–E.28, 2026-10-22) |
-| 5339 | 5435 | 8 | 35. ⭐⭐ EL PAGO A PROVEEDOR: cinco números distintos, cinco árbitros distintos (PGP, 2026-10-24) |
-| 5436 | 5794 | 26 | 36. ⭐⭐ EL EFECTIVO DE CAJA GENERAL, seguido desde su origen y al revés: CAOS no es el testigo de que el dinero |
+| 53 | 68 | 1 | La verdad absoluta — qué la arbitra, cuánto se sostiene, y qué se declara |
+| 69 | 85 | 1 | 0. Qué es este documento, y qué NO es |
+| 86 | 194 | 6 | 1. Las siete reglas |
+| 195 | 231 | 10 | 2. El estado, en una tabla |
+| 232 | 394 | 10 | 3. Existencia |
+| 395 | 619 | 12 | 4. Ventas y unidades |
+| 620 | 651 | 5 | 5. Los resolvedores canónicos — qué leer para qué |
+| 652 | 728 | 5 | 5bis. ⭐⭐ AUDITORÍA DE ADOPCIÓN — quién debería leer el resolvedor, quién lo lee, quién no (2026-09-12) |
+| 729 | 799 | 5 | 6. Las trampas que ya cobraron |
+| 800 | 857 | 30 | 7. Los huecos declarados, con nombre y monto |
+| 858 | 902 | 3 | 8. Wincaja: ⭐⭐ ya sólo existe para HISTÓRICOS (2026-10-01) |
+| 903 | 1104 | 11 | 12. ⭐⭐ El segundo eje: el COSTO se había arbitrado en UNA sola pantalla (KE.3, 2026-09-10) |
+| 1105 | 1210 | 8 | 13. ⭐⭐ El origen: auditoría del Kepler crudo (2026-09-11) |
+| 1211 | 1411 | 11 | 16. ⭐⭐ El COSTO ESTÁNDAR — cuál de los CINCO costos contesta cada pregunta (CE, 2026-09-29) |
+| 1412 | 1728 | 18 | 9. Hipótesis refutadas — no las reconstruyas |
+| 1729 | 1748 | 2 | 10. Cómo se verifica |
+| 1749 | 1771 | 1 | 11. Lo que este documento no cubre |
+| 1772 | 1847 | 3 | 14. ⭐⭐ REPRODUCIR en vez de ARBITRAR — la medida que Kepler hace (VK.1, 2026-09-12 · ADR-063) |
+| 1848 | 2007 | 9 | 15. ⭐⭐ El ingreso contable: el árbitro tenía razón y el publicado iba alto (IG, 2026-09-29) |
+| 2008 | 2422 | 25 | 17. ⭐⭐ La EXISTENCIA del CEDIS, y las DOS existencias de Kepler (IC.CEDIS, 2026-10-01) |
+| 2423 | 2663 | 15 | 18. ⭐⭐ El ingreso publicado NO es ingreso: el 84 % es la casa facturándose a sí misma (IG.7, 2026-10-01) |
+| 2664 | 2856 | 11 | 19. ⭐⭐ El INVENTARIO DE RUTA: el saldo se valúa en UNA moneda, y el control manual confirma la venta (RD, 2026 |
+| 2857 | 2899 | 3 | 20. ⭐⭐ El TRASPASO: la liga la arbitra el DESTINO, y la fecha miente en los dos sentidos (DM.20, 2026-10-06) |
+| 2900 | 2998 | 6 | 21. ⭐⭐ El EGRESO no tenía testigo — y el que se usaba leía la misma fuente (VE.1, 2026-10-06) |
+| 2999 | 3472 | 27 | 22. ⭐⭐ El SUPUESTO de crecimiento: el número que gobierna todo el plan, y el único que nadie arbitra (PU, 2026 |
+| 3473 | 3580 | 5 | 23. ⭐⭐ El REAL de ventas del presupuesto publicaba $0 sobre $208M — el join unía el canal CANÓNICO contra el C |
+| 3581 | 3735 | 9 | 24. ⭐⭐ El crecimiento de VENTAS era COBERTURA, no negocio: lo establecido CAE 2.95 % y el plan proyecta +26.67 |
+| 3736 | 3887 | 8 | 25. ⭐⭐ El GASTO no se proyecta: se COPIA. La venta crece 26.67 % y el egreso 0.0000 % (PU.VG, 2026-10-08) |
+| 3888 | 4093 | 13 | 26. ⭐⭐ La LIQUIDEZ: el modelo veía el 7.7 % del cobro y el 0 % del pago, y publicaba un verde (TES, 2026-10-08 |
+| 4094 | 4183 | 5 | 27. ⭐⭐ El circuito de pago de la Suite NUNCA corrió — y el real mueve ~$45M al mes por otro lado (TES, Sprint  |
+| 4184 | 4373 | 11 | 28. ⭐⭐ LA CAJA GENERAL: el efectivo SÍ tiene testigo — la custodia no se cuenta, se arrastra (CG, 2026-10-13) |
+| 4374 | 4442 | 4 | 29. ⭐⭐ El anti-réplica de `kdm1` no filtra RÉPLICAS: filtra RUTAS — $5.87M fuera de seis vistas (CG, 2026-10-1 |
+| 4443 | 4737 | 21 | 30. ⭐⭐ `/compras/pedido`: el motor de compra no veía un CANAL ENTERO ($12.92M/30d) — y la misma pantalla leía  |
+| 4738 | 4955 | 13 | 31. ⭐⭐ UNIDADES DE MEDIDA: hay TRES unidades, no una — el árbitro cubre el 91.4 % y el 2.2 % que no cierra mue |
+| 4956 | 5208 | 17 | 32. ⭐⭐ LA COMISIÓN DE RUTA DIRECTA: seis números deciden un depósito, y ninguno tenía árbitro declarado (RD, 2 |
+| 5209 | 5254 | 5 | 33. ⭐⭐ EL LIBRO DE COMPRAS: el asiento tiene árbitro; qué facturas entran, todavía no (LC.19, 2026-10-21) |
+| 5255 | 5339 | 7 | 34. ⭐⭐ EL PRECIO DE UNA COTIZACIÓN: Kepler cobra la PRESENTACIÓN capturada (E.22–E.28, 2026-10-22) |
+| 5340 | 5436 | 8 | 35. ⭐⭐ EL PAGO A PROVEEDOR: cinco números distintos, cinco árbitros distintos (PGP, 2026-10-24) |
+| 5437 | 5795 | 26 | 36. ⭐⭐ EL EFECTIVO DE CAJA GENERAL, seguido desde su origen y al revés: CAOS no es el testigo de que el dinero |
+| 5796 | 5858 | 5 | 37. ⭐⭐ EL LIBRO «CUENTAS» DE TESORERÍA: qué son las columnas S y C (CB, 2026-11-05) |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -5791,3 +5792,66 @@ lo más probable es que buena parte llegó y se usó en salidas que nadie regist
 libro usa los motores del servicio importados tal cual. ⚠️ Los guiones viven **fuera del repo** (en el
 scratchpad de la sesión): no se pueden volver a correr desde aquí hasta que se versionen como
 `scripts/verify-*`.
+
+## 37. ⭐⭐ EL LIBRO «CUENTAS» DE TESORERÍA: qué son las columnas S y C (CB, 2026-11-05)
+
+> Pedido de Edgar (2026-11-05): *«deduce tú qué es S y C. Necesito una verdad absoluta»*, para retirar
+> el libro que Tesorería llena a mano (FASE_CB §8). Medido en `pg-prod` (sólo lectura), movimientos de
+> las cuentas de banco (sin Caja General) de ago–oct 2026. Cada hipótesis contra un testigo que **nadie
+> captura**, con control barajado.
+
+### 37.1 S = la UNIDAD DE NEGOCIO (sucursal o canal), no la sucursal de Kepler
+
+- **Su catálogo existe y no es Kepler:** son los códigos de almacén de Control
+  (`analytics.caja_sucursales_catalog`, `source_instance='SI'`): `10` Padre Hidalgo · `20` PH RD ·
+  `30` Morelia Abastos · `32` Morelia Madero · `40` 8 Esquinas · `42` La Piedad Abastos · `50` Canindo ·
+  `51` Canindo RD · `54` Zamora Centro · `90` Yurécuaro · `12` Logística · `38` Oficinas · …
+  Los mismos números son el 3er/4º segmento del catálogo de departamentos de Kepler (`kdc3`,
+  `1-ZONA-UNIDAD-DEPTO`: `1-01-10-20 RD PADRE HIDALGO`, `1-03-50-75 TLMKT CANINDO`).
+- **Testigo:** la sucursal del documento de Kepler con el que casó el depósito (`bank_recon_matches`,
+  sucursal ≠ `00`). S traducida a sucursal Kepler (`v_erp_branch_catalog`: 01 PH · 02 La Piedad ·
+  03 8 Esquinas · 04 Yurécuaro · 05 Zamora · 06 Canindo · 07 Madero · 08 Morelia Abastos) **coincide en
+  2,034 de 2,253 (90.3 %), el 99.1 % del dinero.** S barajada: **18.6–21.2 %** (cinco barajadas).
+- ⛔ **Telemarketing contradice al catálogo de Control y le da la razón a `kdc3`:** `70` cae 394/394 en
+  Padre Hidalgo (`1-01-10-70 TLMKT PH`) y `73` en Morelia Abastos (`1-02-30-73 MORELIA TLMK`); Control
+  dice `70 Telemarketing` y `73 PHidalgo TLMK`. Para S manda `kdc3`.
+- S sólo aparece con M ∈ {I, G, C}; nunca en traspasos. En gastos y compras es el centro de costo al que
+  se carga (`12` Logística, `38` Oficinas, `2/4/5/7` = `02` Contabilidad, `04` Finanzas, `05` RRHH,
+  `07` Mercadotecnia sin el cero) — **en gastos NO está medido contra testigo**, sólo contra catálogo.
+- Lo que no casa (9.7 % de los renglones, 0.9 % del dinero) son depósitos chicos registrados en Kepler
+  en otra sucursal; no se investigó caso por caso.
+
+### 37.2 C = una clave PROPIA de Tesorería: no es cuenta contable de ningún sistema
+
+- **Refutado contra los tres catálogos:** ContPAQi (`contpaqi_accounts`, 10 dígitos: `102` = Bancos
+  coincide, pero `510` = «Inventario final» y **no existen** `610/612/613`) · Kepler (`kdc126`: `610`
+  = Papelería, `612` = No deducibles, `613` = Tecnología; **no existe** `510`) · Control
+  (`caja_general_cuentas`: claves de 4–8 dígitos, ninguna de éstas). Parece una cuenta de mayor y no lo es.
+- **Su significado es el uso**, medido contra el concepto que escribe el banco y el tipo de documento de Kepler:
+
+| C | Renglones | Significado medido | Testigo |
+|---|---:|---|---|
+| `102` | 7,657 | Depósito por venta / cobranza | 93 % con palabra de depósito en el concepto; 62 % casa con `U-A-5`/`U-A-7` (4,770 de 7,657) |
+| `147` | 2,236 | IVA de la comisión bancaria | 96 % dice «IVA» en el concepto |
+| `612` | 2,321 | Comisión del banco, sobre todo la tasa de descuento de la terminal | «APLI TASA DE DES… TERMINALES PUNTO DE VENTA», «COMISION» |
+| `613` | 1,467 | Compra con la tarjeta de la empresa (sobre todo gasolineras) | 88 % «COMPRA - DISPOSICION POR POS» |
+| `510` | 611 | Pago a proveedor de mercancía | 77 % casa con pago de Kepler (`X-D-26/25/60`, 473 de 611); el concepto es el proveedor (La Rosa, Mondelez…) |
+| `610` | 387 | Nómina y pagos a personas (finiquitos, pensiones) | sólo 58 % dice «NOMINA»: es la clave **menos** determinada por el banco |
+| `-` / `/` | — | Traspasos (`TE`/`TI`), factoraje (`PF`), crédito (`LC`) | van con M, no con C |
+
+- ⚠️ Los significados de `612`/`613` **cambiaron con el tiempo**: en enero `612` también era SUA/IMSS,
+  pago de capital y arrendamiento, y `613` caja de ahorro (FASE_CB §0). C es una etiqueta de trabajo, no
+  un catálogo estable: lo que el sistema necesita no es C sino la **categoría** (`movement_categories`).
+
+### 37.3 Qué significa para retirar el libro
+
+- **S se puede derivar** del documento de Kepler casado (sucursal) más el departamento `kdc3` del gasto;
+  donde no hay documento, se declara sin unidad.
+- **C no hace falta reproducirlo:** cada clave se explica por el concepto del banco (`147`, `612`,
+  `613`), por el tipo de documento de Kepler (`102`, `510`) o por ambos; `610` necesita además al
+  beneficiario del pago. La categoría sale de ahí sin captura.
+- **Pendiente de confirmar con Tesorería** (no cambia lo medido): que S se asigna desde el catálogo de
+  Control y si C viene de algún catálogo viejo propio.
+
+**Medición reproducible:** consultas de sólo lectura contra `pg-prod` el 2026-11-05; los guiones viven
+fuera del repo (scratchpad de la sesión).

@@ -291,6 +291,120 @@ Pendientes: memoria por beneficiario + aviso «N sin categoría» en Bancos; Caj
 
 ---
 
+## 8. `[CB.55–CB.61]` ⬜ El estado de cuenta lo da el banco, no el libro «CUENTAS» (2026-11-05)
+
+**Pedido (Edgar, 2026-11-05):** un lugar donde subir el CSV del estado de cuenta de cada banco, y que
+Tesorería deje de armar el libro «CUENTAS …» (Google Sheet / `.xlsx` mensual).
+
+**Qué hace hoy el libro y por qué no se apaga de golpe.** El libro no es sólo el estado de cuenta copiado:
+Tesorería le agrega a mano cuatro cosas que el banco no trae, y el código las consume.
+
+| Lo que agrega el libro | Quién lo consume hoy | Con el CSV del banco, ¿de dónde sale? |
+|---|---|---|
+| **M** (tipo: TE/TI, I, C, CF/PF, DS…) | `classifyWith` — reglas 10–61 de `bank_classify_rules` | Traspaso TE/TI: el otro lado está en nuestra otra cuenta (mismo importe, misma clave de rastreo). Cobranza: el depósito casado con Kepler (`runMatchTreasury`). Lo demás: **a medir** |
+| **C** (cuenta contable: 102, 510, 610, 612…) | reglas 70–151 y 880–903; `contpaqi/beneficiario.ts`; `contpaqi-categoria.service.ts`; Caja General | Del documento de Kepler o de PGP con el que case el movimiento; si no casa, reglas por concepto. **No se adivina**: si no sale, queda `sin_clasificar` y se declara |
+| **S** (sucursal) | Caja General, cobranza | Del documento casado; sin documento, sin sucursal (se declara) |
+| Hoja **CAJA GENERAL** (`kind='cash'`) | testigo manual de Caja General | **No es banco: ningún CSV la reemplaza.** Su retiro es de la fase LE (libro de efectivo), no de ésta |
+
+Conclusión: **la meta es correcta** —el libro es captura a mano de un dato que el banco ya da—, pero se retira
+**por cuenta**, cuando la cuenta pasa la compuerta de CB.60, no por decreto. Apagarlo hoy dejaría sin
+categoría, sin sucursal y sin beneficiario de ContPAQi todo lo que hoy depende de M/C/S.
+
+**Reglas que gobiernan los items:** sin importer (el archivo entra por la pantalla, como el `.xlsx` de hoy,
+ADR-033) · **misma tabla** `finance.bank_movements`, sin copia · formato de cada banco **verificado contra un
+archivo real**, nunca supuesto · ⛔ **el repo es público**: los archivos reales no entran al repo; las pruebas
+usan archivos fabricados con el mismo encabezado.
+
+| # | Capa | Item | Criterio de aceptación |
+|---|---|---|---|
+| **CB.55** | C0 | **Muestras reales**: un export por banco (Santander, BBVA, Banorte, BanBajío, Banamex) **y de la factorera**: la consulta de movimientos en Excel/CSV/TXT tal como sale del portal (sin abrir ni re-guardar: Excel altera fechas y ceros), del mes completo de **octubre 2026** (ya capturado en el libro), **más el PDF del estado de cuenta del mismo mes como testigo de saldo inicial y final**. Pedido a Tesorería el 2026-11-05, junto con el significado de la columna S. **Tesorería (2026-11-05): el estado de cuenta completo el banco sólo lo da en PDF; los movimientos los descarga ella de la banca en línea.** La descarga sigue siendo un paso manual por cuenta; lo que se elimina es copiar y codificar M/C/S. La conexión directa banco→sistema (host-to-host) es contrato con cada banco: diferida, decisión de Edgar. ⚠️ **Bloquea a todo lo demás; lo consigue Edgar con Tesorería.** | Por banco, documentado aquí: formato (CSV/TXT/XLS), encabezado, codificación, separador, formato de fecha e importe, si trae saldo corrido, referencia, clave de rastreo, contraparte y hora. Los totales del archivo contra el mes ya cargado del libro: cuadran, o se explica la diferencia |
+| **CB.56** | C0 | Migración (generada, idempotente): `bank_movements` + `reference`, `tracking_key`, `counterparty_account`, `counterparty_rfc`, `movement_time`; `sync_source` acepta `'bank_csv'` | Ninguna columna `NOT NULL` (la API desplegada no las manda); `grep` de **todos** los caminos que insertan en `bank_movements` (upload, sheet, WhatsApp) sigue funcionando |
+| **CB.57** 🧪 2026-11-05 | C1 | **Hecho para 4 de 5 bancos (falta Banamex):** [`estado-de-cuenta/lectores.ts`](../../../libs/finance/src/lib/bank/estado-de-cuenta/lectores.ts), 13 pruebas con archivos fabricados (5 negativas; dos mutaciones —«siempre cuadra» y «tirar el renglón que no se entiende»— las cazan). Contra las 4 muestras reales: 230 movimientos, 0 sin leer, las 4 cuadran; BanBajío además coincide con sus totales declarados. Plan original: un lector por banco, funciones puras: detecta banco y cuenta por encabezado / número de cuenta; huella de cada fila por (cuenta, fecha, clave de rastreo o referencia, importe, ocurrencia) | Spec por banco con archivo fabricado; **control obligatorio: saldo inicial + depósitos − retiros = saldo final**; un archivo con una fila borrada se pone rojo (prueba negativa). Una fila que no se entiende se reporta, nunca se tira en silencio (el lector viejo tiró ~82) |
+| **CB.58** | C2 | `POST` de subida en dos pasos: **revisar** (no escribe: cuenta, mes, N movimientos, cuadre de saldo, cuántos ya existían) y **confirmar** (escribe). Archivo original al almacenamiento con su sha1; el mismo archivo dos veces no duplica | Prueba contra base real (CI) con el archivo de la pantalla; permiso nuevo **repartido en prod** a quien concilia hoy |
+| **CB.59** | C3 | En Bancos › Cuentas, la matriz cuenta × mes de **CB.UI.3** («N movimientos» · «Cargado sin movimientos — revisar» · «Sin estado de cuenta» · «Sin medir»), con «Subir estado de cuenta» en cada celda y arrastre de varios archivos | `diseno` + `check:pantalla` antes y después; la vista previa del paso «revisar» se ve antes de escribir |
+| **CB.60** | C1 | **Precedencia y compuerta de retiro del libro, por cuenta × mes.** Con CSV cargado, el CSV manda y el libro queda como testigo: cada movimiento del CSV sin par en el libro y viceversa se lista | Un mes completo en paralelo. La cuenta deja de requerir el libro cuando: diferencias CSV↔libro explicadas, y el «sin categoría» de la cuenta **no sube** contra el mismo mes con el libro (medición antes/después) |
+| **CB.61** | C1 | Categoría, sucursal y beneficiario sin M/C/S: del documento casado (Kepler / PGP por clave de rastreo), traspasos por par de cuentas propias, y reglas por concepto | Medido por cuenta: % de movimientos que obtienen categoría sin el libro. Lo que no la obtiene queda `sin_clasificar` y se ve en la bandeja de CB.UI.7 |
+
+**Lo que se gana (por qué vale el esfuerzo):** (1) Tesorería deja de copiar del portal al Excel; (2) la clave
+de rastreo y la referencia permiten **casar por identidad** (pago a proveedor de PGP, depósito de cliente) en
+lugar de por importe; (3) el saldo del banco es el árbitro de que no falta ninguna fila; (4) durante la
+transición, CSV y libro son dos implementaciones del mismo dato y sus diferencias son errores de captura.
+
+**Medido en prod, sólo lectura (2026-11-05, ago–oct 2026, cuentas de banco, sin Caja General):** de
+**15,862 movimientos**, **10,851 (68 %) ya están casados con un documento de Kepler** (`bank_recon_matches`):
+para ésos, M/C/S del libro son redundantes —el documento ya trae sucursal, cuenta y tipo—. Son ~3/4 del
+dinero. El resto, **5,011 movimientos**, sin documento de Kepler:
+
+| Grupo (según el libro) | Movs | Cómo se obtendría sin el libro |
+|---|---:|---|
+| Ingreso | 2,815 | El banco agrupa o es de otro mes (CB.50): casar por referencia / agrupación, no por importe |
+| Gasto | 1,738 | Comisiones, terminal, servicios: reglas por concepto (CB.52/CB.54) — poco dinero, muchos renglones |
+| Traspaso | 143 | Par de cuentas propias (mismo importe, misma clave de rastreo) |
+| Compra | 137 | PGP / pago a proveedor por clave de rastreo |
+| Sin clasificar / devolución / factoraje / financiero | 178 | A medir en CB.61 |
+
+⚠️ El pareo con Kepler **casi** no depende del libro: sólo usa la categoría para excluir factoraje y, en la
+segunda pasada, traspasos. CB.61 debe dar esa categoría antes de retirar el libro de una cuenta.
+**Meta fijada por Edgar (2026-11-05): cubrir el 100 % del libro y que deje de llenarse a mano.** Inventario
+de lo que el libro aporta y de dónde sale cada pieza sin él:
+
+| Pieza del libro | Fuente sin captura | Estado (medido 2026-11-05, ago–oct) |
+|---|---|---|
+| Renglones de las 18 cuentas (fecha, concepto, importe, saldo) | Export del banco (CB.55–CB.58) | ⚠️ bloqueado: sin muestras |
+| **M → grupo**, movimientos casados con Kepler (68 %) | Tipo de documento de Kepler | `N-A-26`→traspaso 871/893 · `U-A-5/7/25`→ingreso 4,804/4,810 · `X-D-60`→compra 12/13 · **`X-D-25/26`→gasto 4,477 o compra 474: el tipo NO los separa** — falta medir si el beneficiario / cuenta de Kepler sí |
+| M → grupo, sin documento de Kepler (32 %) | Reglas por concepto, par de cuentas propias, PGP por rastreo | A medir (CB.61) |
+| **C** | **No es cuenta contable de ningún sistema** (refutado contra ContPAQi, Kepler y Control): clave propia de Tesorería. Su significado se deduce del concepto del banco (`147` IVA de comisión, `612` comisión/tasa de descuento, `613` compra con tarjeta) y del documento de Kepler (`102` cobranza, `510` pago a proveedor); `610` (nómina y pagos a personas) necesita al beneficiario | ✅ Resuelto — [VERDAD_ABSOLUTA §37.2](../../VERDAD_ABSOLUTA.md). No se reproduce C: se deriva la categoría |
+| **S** | **La unidad de negocio** (sucursal o canal) con los códigos de almacén de Control = segmentos de `kdc3` (`10` PH, `30` Morelia Abastos, `50` Canindo, `70` TLMK PH, `73` TLMK Morelia…). Se deriva de la sucursal del documento de Kepler casado | ✅ Resuelto — [VERDAD_ABSOLUTA §37.1](../../VERDAD_ABSOLUTA.md): coincide en 90.3 % de los depósitos (99.1 % del dinero) contra 18.6–21.2 % barajada. En gastos, sólo contra catálogo |
+| Hojas CONCENTRADO / RESUMEN DE SALDOS / MOVIMIENTOS GENERAL | Ya las calcula Bancos (`concentrado`, `balances`) | Derivadas: sobran en cuanto existan los renglones |
+| Hoja POR IDENTIFICAR | Bancos › control de ingresos (`ingresosControl`) | Derivada |
+| Hoja FACTORAJE | Estado de cuenta de la factorera (no es banco) | Sin muestra: pedirla junto con CB.55 |
+| Hoja CAJA GENERAL | Libro de efectivo (fase LE, ventanilla) | Fuera de esta fase; el 100 % del libro exige que LE la cubra |
+
+**Muestras recibidas (2026-11-05, Tesorería; viven fuera del repo).** 4 de 5 bancos, **de noviembre, no de
+octubre**; falta Banamex. Las 4 se leen y **su saldo corrido encadena sin un eslabón roto** (saldo anterior ±
+movimiento = saldo del renglón):
+
+| Banco | Formato | Orden | Trae la cuenta | Lo que trae además | Ojo |
+|---|---|---|---|---|---|
+| Santander | CSV, coma; valores con apóstrofo (`'65507301604`) | viejo→nuevo | ✅ en cada renglón (→ 1604) | **hora, referencia, clave de rastreo, CLABE, RFC y nombre de ordenante y beneficiario** | el más rico |
+| Banorte | CSV Latin-1, fin de línea **sólo CR**, `$` y comas en importes, fecha `31/Oct./2026` | viejo→nuevo | ❌ (identificada por saldo: **BTE 7744**) | rastreo, CLABE, RFC y referencia **dentro del concepto** | |
+| BBVA | `.exp` de texto, tabuladores, Latin-1, fecha `03-11-2026` | **nuevo→viejo** | ❌ | sólo concepto/referencia | sin rastreo |
+| BanBajío | `.xlsx` con encabezado de 9 filas y **totales declarados** (n, cargos, abonos: coinciden con la suma) | **nuevo→viejo** | ❌ (sólo número de cliente) | hora, recibo, RFC/tarjeta en el concepto | |
+
+Consecuencias para CB.57/CB.58: (1) **la cuenta no siempre viene en el archivo** → se elige al subir, y el
+sistema la confirma porque el saldo inicial del archivo debe ser el último saldo conocido de esa cuenta; (2) el
+orden no es fijo → el lector prueba los dos y se queda con el que encadena; (3) Banorte casó con el libro: sus
+dos depósitos del 31-oct ($180,139.01) están en BTE 7744 con el mismo saldo. **El libro aún no tiene noviembre**
+(último cargado: octubre) mientras el banco ya trae el 3-nov: el export es más fresco que la captura.
+**Las muestras contra Kepler (sólo lectura, cuenta + importe exacto + dirección + fecha ±3 días, sin reusar
+documento; placebo = el mismo pareo contra otra cuenta del mismo banco):** BanBajío 9/10 (placebo 0) · Banorte
+8/21 (placebo 0) · Santander 2/19 (placebo 0) · BBVA 25/180, **todos en la 4885 y cero en las otras cinco
+BBVA** → la cuenta del `.exp` queda identificada sin que el archivo la diga (BanBajío, por continuidad de
+saldo: su saldo inicial es exactamente el último del libro en BB 4166). Lo que no casa, por clase (leída
+**sólo del concepto del banco**):
+- **Comisiones e IVA del banco** (139 renglones, poco dinero): Kepler no las registra renglón por renglón;
+  se clasifican por concepto (renta de terminal, cuota de afiliación TPV, tasa de descuento, IVA).
+- **Efectivo por traslado de valores:** Santander recibe **un** depósito partido en 3 renglones con la **misma
+  referencia** y la misma hora, mientras Kepler registra un documento por sucursal y corte (CB.50, «el banco
+  agrupa»). La referencia —que el libro no tiene— permite agrupar antes de casar.
+- **Ventas TPV** (BBVA): 25 de 60 casan; el resto, a medir con más días (Kepler puede agruparlas por corte).
+- **Depósitos de clientes por nombre** (Banorte, «DULCERIA LOS ALTOS …»): cobranza aún sin documento en Kepler.
+Ningún renglón de la muestra se quedó sin clase legible: el tipo (M) sale del concepto del banco. Muestra de
+un día: confirma el mecanismo, no mide la cobertura; la cobertura se mide con octubre completo contra el libro.
+
+⚠️ **Hallazgo:** 17 renglones de BTE 7744 ($1.43 M) están en el libro con fecha **2027-08-06** (vienen del
+Sheet); con fecha futura quedan fuera de todo reporte. No se determinó si es captura o lector.
+
+**Cómo se demuestra el 100 % sin apostar:** el clasificador sin libro (CB.61) corre **en sombra** sobre los
+meses que sí tienen libro y se compara renglón por renglón contra la captura manual (dos implementaciones
+del mismo dato). Una cuenta deja de pedir el libro cuando, con su export del banco cargado, la sombra
+coincide con la captura y lo que no coincide está explicado. El libro se retira cuenta por cuenta, no por fecha.
+
+⚠️ El sync del Sheet (CB.23) está **apagado** desde el 2026-10-13 (`active=false`, último periodo 2026-08):
+hoy el libro se **sube a mano** como `.xlsx`.
+
+---
+
 ## Observaciones de diseño UI — revisión del plan (2026-10-26)
 
 > **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que
