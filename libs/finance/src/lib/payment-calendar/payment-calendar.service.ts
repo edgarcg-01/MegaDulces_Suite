@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, ObjectStorageService } from '@megadulces/platform-core';
 import { BUDGET_LEDGER_PORT, type BudgetLedgerPort } from '../budget/budget-ledger.port';
@@ -2128,6 +2128,42 @@ export class PaymentCalendarService {
         rank++;
       }
       return result;
+    });
+  }
+
+  /**
+   * `[PGP.76]` **El orden del día entero, en UNA escritura.** Tesorería arrastra un pago (o lo
+   * mueve con el teclado) y la pantalla manda la lista completa de pendientes en su nuevo orden.
+   * Antes cada paso de las flechas eran tres `setPriorityRank` seguidos y una recarga: llevar el
+   * pago 20 al turno 1 costaba 19 clics y 57 escrituras (234 `POST …/orden` en 30 días, 71 con 4xx,
+   * medido el 2026-11-05). Aquí no hay choque posible: todos los turnos cambian en la misma
+   * sentencia, y si la lista no es exactamente la de pendientes del día —otra persona agregó o
+   * quitó un pago mientras se ordenaba— se rechaza entera en vez de dejar un orden a medias.
+   */
+  async reorderDay(date: string, ids: readonly string[], username: string) {
+    this.assertDate(date);
+    if (!Array.isArray(ids) || !ids.length || ids.some((x) => typeof x !== 'string' || !x)) {
+      throw new BadRequestException('ids debe ser la lista de pagos pendientes del día en su nuevo orden');
+    }
+    if (new Set(ids).size !== ids.length) throw new BadRequestException('Un pago aparece dos veces en el orden');
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const lot = await trx('finance.payment_calendar_lots').where({ tenant_id: tenantId, lot_date: date }).forUpdate().first();
+      if (!lot) throw new NotFoundException('No hay pagos asignados este día');
+      if (lot.status !== 'draft' && lot.status !== 'scheduled' && lot.status !== 'in_prep') {
+        throw new BadRequestException(`El día ya está en estado "${lot.status}": su orden de pago ya no cambia`);
+      }
+      const pend: Array<{ id: string }> = await trx('finance.payment_allocations').where({ lot_id: lot.id, status: 'pending' }).select('id');
+      const vivos = new Set(pend.map((r) => r.id));
+      if (pend.length !== ids.length || ids.some((id) => !vivos.has(id))) {
+        throw new ConflictException('Los pagos del día cambiaron mientras los ordenabas: recarga y vuelve a moverlo');
+      }
+      await trx.raw(`
+        UPDATE finance.payment_allocations a
+           SET priority_rank = v.r::int, updated_by = ?, updated_at = now()
+          FROM unnest(?::uuid[]) WITH ORDINALITY AS v(id, r)
+         WHERE a.id = v.id AND a.lot_id = ? AND a.priority_rank IS DISTINCT FROM v.r::int`, [username, ids, lot.id]);
+      return ids.map((id, i) => ({ id, priority_rank: i + 1 }));
     });
   }
 

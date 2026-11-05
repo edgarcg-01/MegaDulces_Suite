@@ -207,6 +207,14 @@ export class PaymentCalendarController {
     return this.svc.pendientesAtrasados();
   }
 
+  /** `[PGP.76]` El orden completo de los pendientes del día, en una sola escritura (arrastrar o teclado). */
+  @Post('days/:date/orden')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_GESTIONAR)
+  @ApiOperation({ summary: 'Fija el orden de pago de TODOS los pendientes del día de una vez; rechaza si la lista no es exactamente la de pendientes.' })
+  reorderDay(@Param('date') date: string, @Body() body: { ids: string[] }, @Req() req: AuthedRequest) {
+    return this.svc.reorderDay(date, body?.ids, req.user?.username || 'sistema');
+  }
+
   @Post('days/:date/proponer-orden')
   @RequirePermissions(Permission.FINANCE_PAYMENTS_GESTIONAR)
   @ApiOperation({ summary: 'Propone el orden de pago del día (compromisos financieros → críticos → resto). Tesorería lo ajusta después.' })

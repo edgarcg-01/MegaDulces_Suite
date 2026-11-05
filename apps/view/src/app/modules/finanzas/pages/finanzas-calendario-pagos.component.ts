@@ -26,7 +26,7 @@ import { EntityInspectorComponent } from '../../../shared/components/entity-insp
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
-import { agruparObligaciones, allocationKey, fechaCorta, obligationKey, pasosIntercambio, sugerirArmado, vencimiento, type ArmadoGrupo, type ObligationGroup } from './calendario-pagos-grupos';
+import { agruparObligaciones, allocationKey, fechaCorta, obligationKey, moverEnOrden, sugerirArmado, vencimiento, type ArmadoGrupo, type ObligationGroup } from './calendario-pagos-grupos';
 import { firstValueFrom } from 'rxjs';
 import { PagosTabsComponent } from '../pagos-tabs.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
@@ -684,9 +684,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                 <p class="cal-empty">Sin pagos este día.</p>
               }
             } @else {
-              <!-- [PGP.52] UN renglón por pago: quién, cómo sale, cuánto y su acción. Las flechas de orden
-                   aparecen al pasar el cursor o con el foco del teclado. El resto vive en el desglose (›). -->
-              <p-table [value]="allocations()" size="small" dataKey="id" [expandedRowKeys]="abiertos()" class="surf-table surf-table--plain surf-table--sticky pg-prep">
+              <!-- [PGP.52] UN renglón por pago: quién, cómo sale, cuánto y su acción. El resto vive en el desglose (›).
+                   [PGP.76] El orden se cambia arrastrando la fila por su asa (≡) o, con el foco en el asa, ↑ ↓ Inicio Fin. -->
+              <span class="sr-only" aria-live="polite">{{ ordenAviso() }}</span>
+              <p-table [value]="allocations()" size="small" dataKey="id" [expandedRowKeys]="abiertos()" (onRowReorder)="alSoltar($event)" class="surf-table surf-table--plain surf-table--sticky pg-prep">
                 <ng-template #header>
                   <tr>
                     <th class="pg-c-tg"><span class="sr-only">Desglose</span></th>
@@ -699,7 +700,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                   </tr>
                 </ng-template>
                 <ng-template #body let-a let-i="rowIndex" let-expanded="expanded">
-                  <tr [class.is-bad]="a.status === 'failed'" [class.is-corte]="a.id === corteDelTope()">
+                  <tr [class.is-bad]="a.status === 'failed'" [class.is-corte]="a.id === corteDelTope()" [pReorderableRow]="i" [pReorderableRowDisabled]="a.status !== 'pending' || isReleased()">
                     <td class="pg-c-tg">
                       <button type="button" class="pg-tg" [attr.aria-expanded]="expanded" [attr.aria-label]="(expanded ? 'Ocultar el detalle de ' : 'Ver el detalle de ') + allocationTitle(a)" (click)="toggleAbierto(a.id)">
                         <span class="pi" [class.pi-angle-down]="expanded" [class.pi-angle-right]="!expanded" aria-hidden="true"></span>
@@ -707,11 +708,13 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                     </td>
                     <td class="pg-c-ord">
                       @if (a.status === 'pending' && !isReleased()) {
-                        <!-- [PGP.13] Ordenar CON TECLADO: el orden decide el turno en que se dispersa. -->
-                        <span class="pg-ord">
-                          <button pButton type="button" class="p-button-sm p-button-text p-button-secondary pg-ico pg-ord-b" [disabled]="i === 0 || saving()" (click)="moverPago(a, -1)" [attr.aria-label]="'Subir ' + allocationTitle(a)"><span class="pi pi-chevron-up" aria-hidden="true"></span></button>
-                          <b class="comm-num pg-ordn">{{ a.priority_rank ?? '—' }}</b>
-                          <button pButton type="button" class="p-button-sm p-button-text p-button-secondary pg-ico pg-ord-b" [disabled]="i === allocations().length - 1 || saving()" (click)="moverPago(a, 1)" [attr.aria-label]="'Bajar ' + allocationTitle(a)"><span class="pi pi-chevron-down" aria-hidden="true"></span></button>
+                        <!-- [PGP.76] El asa: se arrastra con el mouse, o con el foco ↑ ↓ Inicio Fin. El orden decide el turno en que se dispersa. -->
+                        <span class="pg-ord" pReorderableRowHandle tabindex="0" role="button" [attr.data-ord]="a.id"
+                              aria-keyshortcuts="ArrowUp ArrowDown Home End" (keydown)="teclaOrden($event, a)"
+                              [attr.aria-label]="'Turno ' + turno(a) + ' de ' + pendingCount() + ', ' + allocationTitle(a) + '. Arrastra la fila, o usa flecha arriba y abajo; Inicio y Fin lo llevan al principio o al final'"
+                              title="Arrastra para cambiar el orden (o ↑ ↓ con el teclado)">
+                          <span class="pi pi-bars pg-ord-h" aria-hidden="true"></span>
+                          <b class="comm-num pg-ordn">{{ turno(a) }}</b>
                         </span>
                       } @else {
                         <span class="comm-num pg-ordn">{{ a.folio || a.priority_rank || '—' }}</span>
@@ -1366,9 +1369,9 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     td.pg-c-how .pg-how-t { color:var(--text-main); }
     td.pg-c-how .pg-st { margin-top:0; }
     /* Las flechas de orden: al pasar el cursor o con el foco del teclado (el numero se ve siempre). */
-    :host ::ng-deep .pg-prep .pg-ord-b { opacity:0; }
-    :host ::ng-deep .pg-prep tr:hover .pg-ord-b, :host ::ng-deep .pg-prep tr:focus-within .pg-ord-b { opacity:1; }
-    @media (hover: none) { :host ::ng-deep .pg-prep .pg-ord-b { opacity:1; } }
+    /* [PGP.76] El asa se ve siempre (atenuada); se enciende al pasar el cursor o con el foco. */
+    .pg-ord-h { font-size:var(--fs-xs); color:var(--text-muted); }
+    :host ::ng-deep .pg-prep tr:hover .pg-ord-h, .pg-ord:focus-visible .pg-ord-h { color:var(--text-main); }
     /* El desglose junta lo que antes llenaba el renglon. */
     .pg-x-info { display:grid; gap:4px; margin:0 0 var(--sp-2); }
     .pg-x-info p { margin:0; }
@@ -1498,10 +1501,11 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-ev-retry:hover { background:var(--overlay-hover); }
     .pg-ev-retry:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
     .pg-st.is-bad { color:var(--bad-soft-fg); font-weight:700; }
-    .pg-ord { display:inline-flex; align-items:center; gap:1px; }
+    .pg-ord { display:inline-flex; align-items:center; gap:var(--sp-2); padding:var(--sp-1) var(--sp-2); border-radius:var(--radius-sm); cursor:grab; user-select:none; }
+    .pg-ord:active { cursor:grabbing; }
+    .pg-ord:focus-visible { outline:2px solid var(--action); outline-offset:1px; }
     .pg-ordn { min-width:1.2rem; text-align:center; font-weight:700; color:var(--text-main); }
-    :host ::ng-deep .pg-ord .p-button { color:var(--text-muted); }
-    :host ::ng-deep .pg-ord .p-button:not(:disabled):hover, :host ::ng-deep .pg-x.p-button:hover { color:var(--text-main); }
+    :host ::ng-deep .pg-x.p-button:hover { color:var(--text-main); }
     :host ::ng-deep .pg-x.p-button { color:var(--text-muted); }
     /* El desglose: las facturas del pago, a la escala de la tabla y sin otra caja. */
     :host ::ng-deep .pg-prep .p-datatable-tbody > tr.pg-xrow > td { background:var(--surface-2); padding:var(--sp-2) var(--sp-3) var(--sp-2) 3rem; }
@@ -1727,7 +1731,19 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     const sel = this.selectedDate();
     return this.week()?.days.find((d) => d.date === sel) ?? null;
   });
-  readonly allocations = computed<PaymentCalendarAllocation[]>(() => this.selectedDay()?.allocations ?? []);
+  /**
+   * `[PGP.76]` El orden que Tesorería acaba de dar (arrastrando o con el teclado) y que todavía no
+   * vuelve del servidor. La lista se pinta así AL INSTANTE; se guarda completa, de una vez.
+   */
+  private readonly ordenLocal = signal<{ date: string; ids: readonly string[] } | null>(null);
+  readonly allocations = computed<PaymentCalendarAllocation[]>(() => {
+    const base = this.selectedDay()?.allocations ?? [];
+    const o = this.ordenLocal();
+    if (!o || o.date !== this.selectedDate()) return base;
+    const pos = new Map(o.ids.map((id, i) => [id, i]));
+    return [...base].sort((x, y) => (pos.get(x.id) ?? Number.MAX_SAFE_INTEGER) - (pos.get(y.id) ?? Number.MAX_SAFE_INTEGER));
+  });
+  private readonly pendientesEnOrden = computed(() => this.allocations().filter((a) => a.status === 'pending').map((a) => a.id));
   readonly pendingCount = computed(() => this.allocations().filter((a) => a.status === 'pending').length);
   readonly unrankedCount = computed(() => this.allocations().filter((a) => a.status === 'pending' && a.priority_rank == null).length);
   readonly unpreparedCount = computed(() => this.allocations().filter((a) => a.status === 'pending' && !isPrepared(a)).length);
@@ -3612,27 +3628,71 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    * no usa mouse no podía ordenar, y el orden decide el turno en que Caja General dispersa.
    * Mueve el pago una posición y reescribe los turnos de los dos que se cruzan.
    */
-  moverPago(a: PaymentCalendarAllocation, delta: 1 | -1): void {
+  /**
+   * `[PGP.76]` **Reordenar sin pasos.** Antes eran flechas ↑↓ escondidas que movían de a un lugar,
+   * y cada clic eran tres escrituras y una recarga de la semana: llevar el pago 20 al turno 1 eran
+   * 19 clics y ~19 recargas (234 `POST …/orden` en 30 días, 71 con error, medido el 2026-11-05).
+   * Ahora se ARRASTRA la fila por su asa, o con el foco en el asa: ↑ ↓ de a uno, Inicio y Fin al
+   * principio o al final. La lista cambia al instante y se guarda completa en una sola escritura
+   * (`POST days/:date/orden`), 0.6 s después del último movimiento: diez flechazos son un guardado.
+   */
+  readonly ordenAviso = signal('');
+  private ordenTimer: ReturnType<typeof setTimeout> | null = null;
+  private ordenCola: Promise<unknown> = Promise.resolve();
+
+  turno(a: PaymentCalendarAllocation): number { return this.pendientesEnOrden().indexOf(a.id) + 1; }
+
+  /** PrimeNG ya reacomodó el arreglo que pinta: de ahí sale el orden nuevo. */
+  alSoltar(e: { dropIndex?: number }): void {
     const lista = this.allocations();
-    const i = lista.findIndex((x) => x.id === a.id);
-    const j = i + delta;
-    if (i < 0 || j < 0 || j >= lista.length) return;
-    /**
-     * ⛔ `[PGP.60]` **Fallaba 4 de cada 10 veces** (medido en `analytics.ui_usage`, 14 días al
-     * 2026-11-04: 68 de 178 `POST …/orden` con 4xx). Eran dos `POST` en PARALELO, y el backend
-     * (`setPriorityRank`) rechaza un orden que otro pago pendiente del día ya tiene: en el instante del
-     * intercambio cada uno tenía el número del otro → «El orden N ya lo tiene otro pago de este día».
-     * Ahora va en TRES pasos seguidos que nunca chocan: el mío a un número libre (uno más que el
-     * mayor del día), el otro al mío, el mío al suyo. Si un paso falla, los números siguen siendo
-     * únicos y la recarga muestra el orden real.
-     */
-    const pasos = pasosIntercambio(lista, i, j);
-    if (!pasos.length) return;
-    this.saving.set(true);
-    pasos.reduce<Promise<unknown>>((prev, [id, rank]) => prev.then(() =>
-      firstValueFrom(this.http.post(`${this.base}/allocations/${id}/orden`, { priority_rank: rank }))), Promise.resolve())
-      .catch((e) => this.toast.add({ severity: 'error', summary: 'No se pudo reordenar', detail: String(e?.error?.message ?? e?.message ?? e) }))
-      .finally(() => { this.saving.set(false); this.loadWeek(); });
+    const movido = e.dropIndex != null ? lista[e.dropIndex]?.id ?? null : null;
+    this.fijarOrden(lista.filter((a) => a.status === 'pending').map((a) => a.id), movido, false);
+  }
+
+  teclaOrden(ev: KeyboardEvent, a: PaymentCalendarAllocation): void {
+    const ids = this.pendientesEnOrden();
+    const i = ids.indexOf(a.id);
+    const j = ev.key === 'ArrowUp' ? i - 1 : ev.key === 'ArrowDown' ? i + 1 : ev.key === 'Home' ? 0 : ev.key === 'End' ? ids.length - 1 : null;
+    if (i < 0 || j == null) return;
+    ev.preventDefault();
+    if (j < 0 || j >= ids.length || j === i) return;
+    this.fijarOrden(moverEnOrden(ids, i, j), a.id, true);
+  }
+
+  private fijarOrden(ids: string[], movido: string | null, enfocar: boolean): void {
+    const date = this.selectedDate();
+    this.ordenLocal.set({ date, ids });
+    const a = movido ? this.allocations().find((x) => x.id === movido) : null;
+    if (a) this.ordenAviso.set(`${this.allocationTitle(a)}: turno ${ids.indexOf(a.id) + 1} de ${ids.length}`);
+    // La fila se vuelve a pintar en su lugar nuevo: el foco la sigue para la siguiente flecha.
+    if (enfocar && movido) setTimeout(() => (document.querySelector(`[data-ord="${movido}"]`) as HTMLElement | null)?.focus());
+    if (this.ordenTimer) clearTimeout(this.ordenTimer);
+    this.ordenTimer = setTimeout(() => this.guardarOrden(date), 600);
+  }
+
+  private guardarOrden(date: string): void {
+    this.ordenTimer = null;
+    const o = this.ordenLocal();
+    if (!o || o.date !== date) return;
+    const ids = [...o.ids];
+    this.ordenCola = this.ordenCola.then(async () => {
+      try {
+        await firstValueFrom(this.http.post(`${this.base}/days/${date}/orden`, { ids }));
+        const pos = new Map(ids.map((id, i) => [id, i + 1]));
+        const llave = (x: PaymentCalendarAllocation, k: number) => pos.get(x.id) ?? ids.length + 1 + k;
+        this.week.update((w) => w && ({ ...w, days: w.days.map((d) => d.date !== date ? d : {
+          ...d,
+          allocations: d.allocations.map((x, k) => ({ x, k })).sort((p, q) => llave(p.x, p.k) - llave(q.x, q.k))
+            .map(({ x }) => (pos.has(x.id) ? { ...x, priority_rank: pos.get(x.id) ?? x.priority_rank } : x)),
+        }) }));
+        // Si mientras tanto se movió otra vez, ese orden más nuevo se queda y se guarda en su turno.
+        if (this.ordenLocal() === o) this.ordenLocal.set(null);
+      } catch (e) {
+        this.ordenLocal.set(null);
+        this.toast.add({ severity: 'error', summary: 'No se guardó el orden', detail: this.errMsg(e, 'No se pudo guardar el orden.'), life: 8000 });
+        this.loadWeek();
+      }
+    });
   }
 
   /** El proveedor del catálogo detrás de un pago (sólo facturas de mercancía lo traen). */
