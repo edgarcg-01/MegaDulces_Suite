@@ -895,12 +895,12 @@ comisión) → `RD.104` → `RD.106` → `RD.105` (depende de que RH aterrice la
 
 | # | Capa | Item | Árbitro |
 |---|---|---|---|
-| RD.103.0 🧪 | C0 | Medir para las vecinales: la unidad del monto (¿con IVA?), su **costo** desde Kepler (margen), sus **gastos** atribuibles y, si existe, la hoja con lo que se les paga hoy | La unidad contra el documento de Kepler; el costo contra lo pagado al proveedor; la hoja de pagos como testigo de la propuesta |
-| RD.103.1 🧪 | C0 | `familia` (`ruta_directa` · `vecinal` · `tlmk`) en `commission_scales` y en `commission_route_config`, con valor por omisión `ruta_directa`: lo que hay no cambia y la API desplegada sigue escribiendo | Las 13 filas del padrón y `RD-2026` quedan en `ruta_directa` |
-| RD.103.2 🔨 | C1 | El motor elige el tabulador **de la familia de cada ruta**; una ruta cuya familia no tiene tabulador vigente sale con motivo `sin_tabulador` (declarado, nunca $0 callado) | Antes/después: Q14–Q21 de Ruta Directa **idénticas al centavo** |
+| RD.103.0 ✅ 2026-11-04 | C0 | Medir para las vecinales: la unidad del monto (¿con IVA?), su **costo** desde Kepler (margen), sus **gastos** atribuibles y, si existe, la hoja con lo que se les paga hoy | La unidad contra el documento de Kepler; el costo contra lo pagado al proveedor; la hoja de pagos como testigo de la propuesta |
+| RD.103.1 ✅ 2026-11-04 | C0 | `familia` (`ruta_directa` · `vecinal` · `tlmk`) en `commission_scales` y en `commission_route_config`, con valor por omisión `ruta_directa`: lo que hay no cambia y la API desplegada sigue escribiendo | Las 13 filas del padrón y `RD-2026` quedan en `ruta_directa` |
+| RD.103.2 🧪 | C1 | El motor elige el tabulador **de la familia de cada ruta**; una ruta cuya familia no tiene tabulador vigente sale con motivo `sin_tabulador` (declarado, nunca $0 callado) | Antes/después: Q14–Q21 de Ruta Directa **idénticas al centavo** |
 | RD.103.3 | C1 | **La propuesta**: escalones armados sobre la venta real de la familia en las últimas quincenas, para que la comisión cueste la parte del margen que la persona fije (por omisión, la de RD: 21.4 %), con lo que habría costado quincena por quincena. Lo que no se midió (gastos) sale declarado, no como cero | Reproducir con la propuesta el costo de RD sobre el libro |
 | RD.103.4 | C2 | Tabuladores por familia; `GET` de la propuesta; «Quién cobra» exige la familia explícita para un código vecinal | Arranque (`design:paramtypes`) + servicio real contra base |
-| RD.103.5 🔨 | C3 | Tabulador › Vecinal: la propuesta **aparte**, con su fuente (sin costo simulado: no hay quincena vecinal pagada contra la cual simular); «usarla como base» la copia a los escalones editables; **la persona estrena** la versión. Contestar `rd.vecinal.tabulador` = estrenar ese tabulador | `check:pantalla` + vista viva |
+| RD.103.5 🧪 | C3 | Tabulador › Vecinal: la propuesta **aparte**, con su fuente (sin costo simulado: no hay quincena vecinal pagada contra la cual simular); «usarla como base» la copia a los escalones editables; **la persona estrena** la versión. Contestar `rd.vecinal.tabulador` = estrenar ese tabulador | `check:pantalla` + vista viva |
 
 **`[RD.103.0]` medido (2026-11-04, sólo lectura, prod):**
 
@@ -1035,8 +1035,9 @@ preguntaban:
 **Deuda con nombre:** (a) ~~C3~~ cerrada por `[RD.103.5]` (abajo); (b) la meta del supervisor
 (95 % del año anterior) **no se aplica**: el libro la tiene vacía y la 07 no tiene venta vecinal en
 el ODS antes del 2026-09-07; (c) `c77` es el costo de HOY; (d) las preguntas nuevas `rd.vecinal.*`
-esperan la próxima migración DP con cambio de estructura; (e) las pruebas `test-newdb-rd-*` de
-RD.103 siguen sin registrar en `run-all-tests.js` (el archivo tiene cambios a medias de otra sesión).
+esperan la próxima migración DP con cambio de estructura; (e) ~~las pruebas `test-newdb-rd-*` de
+RD.103 sin registrar en `run-all-tests.js`~~ registradas en `25cb97a04` (familia, escalón por markup,
+subtotal neto); `rd-bonos-heredan-escala` y `rd-padron-vigencia` siguen fuera (no son de RD.103).
 
 **`[RD.103.5]` en código (2026-11-04) — la pantalla, con las cinco preguntas contestadas antes:**
 (1) qué ve: el tabulador **de una familia** (control segmentado Ruta Directa · Vecinal) y, en la
@@ -1057,6 +1058,27 @@ universo; (3) accesibilidad: cada motivo con su explicación (`tipPctChofer`, `t
 - **Medido:** `check:pantalla -- comercial` → `comercial-comisiones` tipa con 0 errores y cumple las
   10 reglas; `check:templates` verde; specs del módulo 5/5. **Sin validación visual**: no se levanta
   nada en local; se mira en prod después de desplegar.
+
+**Estado al cierre del 2026-11-04 (medido en prod, sólo lectura):**
+- **En prod** (desplegado con `af56a1657`; migraciones `20261104103527`, `20261104103945` y
+  `20261104124524` aplicadas una por una y verificadas: columnas, GRANTs conservados, una sola
+  escala de Ruta Directa, costo vecinal presente). RD.103.0 y RD.103.1 ✅.
+- **RD.103.2 🧪, no ✅:** el camino vecinal del motor **no se ha ejercido en prod**. No hay tabulador
+  vecinal estrenado ni ninguna ruta vecinal en `commission_route_config` (13 filas, todas
+  `ruta_directa`): una corrida hoy deja a las vecinales fuera, no en $0 callado. Pasa a ✅ con la
+  primera corrida que pague una vecinal y su contraste contra el libro de esa catorcena.
+- **RD.103.5 🧪 — e2e con navegador contra prod** (`e2e/comisiones`, `cf1e8c266`): 7 de 8 verdes; la
+  octava es roja **a propósito** hasta desplegar `05d945e78`, que corrige tres defectos que el e2e
+  encontró con el tabulador sin cargar (la pestaña Vecinal afirmaba «todavía no hay tabulador», el
+  cambio de familia borraba el error, y «Rige desde» quedaba con `min="undefined"`).
+- ⛔ **Incidente del e2e, contenido:** en la primera corrida el `POST` del alta en «Quién cobra» salió
+  a prod sin interceptar — `page.route` no ve lo que atiende el service worker (ngsw) — y no escribió
+  sólo porque el limitador lo rechazó con 429 (verificado: 0 filas). Arreglo: `serviceWorkers:
+  'block'` + una prueba del blindaje que corre primero; el mismo hueco se cerró en
+  `e2e/libro-compras` y `e2e/contpaqi-puente` (`d6886ed13`).
+- **Para que una vecinal cobre falta (fuera del código):** Comercial estrena el tabulador vecinal
+  (vigencia desde el inicio de la catorcena) y da de alta cada ruta vecinal con chofer, supervisor y
+  nómina; Edgar decide margen ≥ 25 % (4 % o 0 %: el libro da FALSO) y la familia de 2V001.
 
 **Decisiones (las tomo y las anuncio; Edgar firma):**
 - **D-V1. La propuesta nunca se aplica sola.** Se guarda como propuesta (D2 de la fase DP) con su
