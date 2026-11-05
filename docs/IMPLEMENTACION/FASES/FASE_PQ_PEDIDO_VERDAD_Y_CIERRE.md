@@ -1662,6 +1662,55 @@ Además, en un producto que quedaba fuera de esos 500 renglones:
 - Nest: sólo se agregaron parámetros `@Query` a tres métodos. El constructor no cambió, pero el
   arranque NO está verificado.
 
+### 17.18 PQ.74 — el primer producto se ve al entrar (2026-11-05)
+
+**Las cinco preguntas (diseno §0b), antes de tocar la plantilla:**
+1. *Qué debe ver, y en qué orden.* Cuánto hay que comprar (la cifra primaria), y enseguida los
+   productos, del de más dinero al de menos. Hoy el primero empieza en y=850 de una ventana de 768, y
+   la barra fija de abajo tapa desde y=701.
+2. *Qué no debe ver:*
+   - la pastilla «UNIFICADO», que no decide nada;
+   - la cifra «Cobertura», que repite el selector de cobertura con su nota;
+   - «SKUs», que repite el paginador;
+   - la caja de días mientras rige «cada sucursal», que repite el segmentado;
+   - el rojo del aviso del Ciclo: sus fechas son estimadas (PQ.UI.5) y no deben gritar.
+3. *Accesibilidad.* Nada se esconde tras un clic nuevo. Lo que sale repetía algo que sigue a la
+   vista. El aviso «sin valuar» conserva su «por qué».
+4. *Liga a otro proceso.* «Ver el ciclo» y «Lo pedido» se quedan donde están.
+5. *¿Le toca?* Sí. Lo que se quita es repetición, no información.
+
+**Medición previa, simulada en la página viva** (sólo en el navegador de la prueba, sin escribir):
+- Con estos cambios más el aire entre bloques (gap de 16 → 8 px y sin márgenes sumados), el primer
+  producto pasa de y=850 a y=583.
+- Antes de la barra se ven dos productos completos.
+- Sin reducir el aire quedaba en y=687, todavía debajo de la barra: la mitad de la ganancia es aire.
+
+**Lo hecho:**
+- Sin la pastilla. La frescura pasa al encabezado.
+- Las cifras quedan en una fila (seis): salen «SKUs» y «Cobertura». El objetivo («objetivo 21 o
+  30 d») queda en la bajada de «Días de existencia», para conservar el par «tengo N, quiero M» de
+  RA-PRO.49.
+- El aviso del Ciclo en una línea, sin caja y sin rojo.
+- La caja de días sólo aparece cuando la cobertura no es «cada sucursal».
+- «Sin valuar» en una línea, sin caja.
+- 8 px entre bloques y sin márgenes sumados.
+- El proveedor ya no se parte: las pastillas bajan de línea.
+
+**Pruebas:**
+- Pedido 136/136, y compras + componente de cifras 763/763.
+- Plantillas tipadas. `check:pantalla` sin fallas.
+- La prueba de PQ.5 que exigía el rojo de urgencia se cambió a propósito, con su motivo.
+- Mutante: devolver «SKUs» → rojo.
+
+⛔ **Corrección de esta misma sesión.** Creí que el «—» de PQ.76 sin `format: 'text'` se pintaba
+como 0, porque así lo decía un comentario del archivo. El mutante sobrevivió. Al leer el componente
+de cifras resultó que `isText()` ya pinta como texto todo valor que no es número: el comentario
+estaba desactualizado y PQ.76 nunca tuvo ese defecto. Se dejó el `format` explícito y se anotó el
+comentario viejo.
+
+**Sin validación visual del código real.** La medición fue una simulación en el navegador. Al
+soltar, se repite la medida de y=850 con el mismo script (`a56e.js`).
+
 ---
 
 ## 18. Unidades de medida al 100 %: verificado o con dueño (2026-11-04)
@@ -1811,6 +1860,7 @@ de hoy de esos 65 productos se cuenta distinto que su historia hasta que se cier
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-05 | **PQ.74 🧪** (§17.18): el primer producto se ve al entrar. Simulado en la página viva, pasa de y=850 (debajo de la barra) a y=583, y se ven dos productos completos. Salen la pastilla, dos cifras repetidas, la caja de días duplicada y el rojo del Ciclo; la mitad de lo ganado era aire. Sin validación visual del código real | Claude |
 | 2026-11-05 | **PQ.76 🧪** (§17.17): las tres listas de Pedido se topaban en 500 renglones y la pantalla los sumaba como total. «A traspasar» $3.4 M → $4.9 M y «Sobrestock» $9.5 M → $13.0 M, con el mismo dato. Los productos que quedaban fuera perdían su traspaso en el desglose y en la requisición. Ahora se piden por producto de la página y los totales vienen del servidor. Probado contra prod en sólo lectura, con control negativo; tres mutantes muertos | Claude |
 | 2026-11-05 | **PQ.56 ✅** (§17.16): nivel A en prod, en sólo lectura y con blindaje probado. Lo más caro: la primera fila es 17499 ($686 mil por una sola venta; espera D31). Le siguen un rótulo de cajas que muestra kg, una primera pantalla sin ningún producto, «Sobrestock» a 1.95:1 y el rojo como decoración. Nacen **PQ.72–PQ.75** | Claude |
 | 2026-11-05 | **PQ.55 ✅** (§17.15), medido desde `analytics.ui_usage` (no hacían falta los logs). En 30 días, Compras abrió Pedido 4,996 veces, Stock muerto 13, Sobrante 3 y Flujo 1. La agenda del Ciclo, que nació el 23-oct, la abrieron 3 compradores: se deja y se re-mide. El conteo crudo de `worklist` engaña porque el aviso de PQ.5 lo llama al abrir Pedido. Nace **D34** (sin firma: quitar las tres pestañas) con **PQ.71**, que espera a PQ.56. **PQ.49** pasa a ✅ (la medición ya estaba en §17.5). Línea base real de PQ.10: `workbook` promedia 1.6–1.8 s en uso | Claude |

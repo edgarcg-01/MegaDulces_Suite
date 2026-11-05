@@ -1250,7 +1250,8 @@ describe('[RA-NEG.2] el desglose compacto: qué hacer, en pocas palabras', () =>
 describe('[PQ.5] «hoy te toca pedirle a…» en la pestaña Pedido', () => {
   const CICLO = { total: 1049, vencidos: 637, hoy: 24, prox7: 89, prov_vencidos: 180, prov_hoy: 12, page: 1, pageSize: 1, rows: [] };
 
-  it('con vencidos, el aviso nombra proveedores y canales, y marca urgencia', () => {
+  // [PQ.74] Ya no se marca en rojo: las fechas del ciclo son ESTIMADAS (PQ.UI.5) y un rojo diario se aprende a ignorar.
+  it('con vencidos, el aviso nombra proveedores y canales, sin rojo de urgencia', () => {
     const fix = montar(VACIO, CICLO);
     const c = fix.componentInstance;
     expect(c.mode()).toBe('pedido');
@@ -1259,7 +1260,7 @@ describe('[PQ.5] «hoy te toca pedirle a…» en la pestaña Pedido', () => {
     const t = fix.nativeElement.textContent as string;
     expect(t).toContain('Hoy te toca pedirle a 192 proveedores');
     expect(t).toContain('637 canales vencidos');
-    expect(fix.nativeElement.querySelector('.pr-ciclo-urge')).not.toBeNull();
+    expect(fix.nativeElement.querySelector('.pr-ciclo-urge')).toBeNull();
   });
 
   it('⛔ si la consulta FALLA dice «no se pudo medir», nunca «no toca nadie»', () => {
@@ -1579,5 +1580,55 @@ describe('[PQ.76] las tres listas: por producto de la página, y los KPIs con el
     c.rebuild();
     c.wbRows.set([{ product_id: 'p1' }]);
     expect(c.totTr()).toBe(20);
+  });
+});
+
+describe('[PQ.74] el primer producto se ve al entrar (auditoría nivel A, 2026-11-05)', () => {
+  // Medido en prod a 1366×768: el primer producto empezaba en y=850 y la barra fija tapa desde y=701.
+  // Simulado en la página viva, estos cambios lo dejan en y=583. Aquí se cuida que no vuelvan.
+  const FUENTE = readFileSync(join(__dirname, 'compras-pedido-real.component.ts'), 'utf8');
+
+  it('⛔ las cifras de arriba caben en una fila: sin «SKUs» ni «Cobertura» (los dicen el paginador y el selector)', () => {
+    const labels = montar(VACIO).componentInstance.pedidoKpi().map((k) => k.label);
+    expect(labels).not.toContain('SKUs');
+    expect(labels).not.toContain('Cobertura');
+    expect(labels.length).toBeLessThanOrEqual(6);
+  });
+
+  it('el objetivo de cobertura queda junto a «Días de existencia» (el par «tengo N, quiero M»)', () => {
+    const c = montar({ ...VACIO, totals: { pedido: 0, venta: 3000, exis: 900, venta_costo: 1500 } }).componentInstance;
+    const d = c.pedidoKpi().find((k) => k.label === 'Días de existencia');
+    expect(d?.sub).toMatch(/objetivo/);
+  });
+
+  it('⛔ con «cada sucursal» no hay caja de días: repetía al segmentado', () => {
+    const fix = montar(VACIO);
+    fix.componentInstance.coberturaSucursal = true;
+    fix.detectChanges();
+    expect((fix.nativeElement as HTMLElement).querySelector('.pr-cov p-inputnumber')).toBeNull();
+  });
+
+  it('⛔ sin la pastilla «unificado» y con la frescura dentro del encabezado', () => {
+    const el = montar(VACIO).nativeElement as HTMLElement;
+    expect(el.querySelector('.pr-badge')).toBeNull();
+    expect(el.querySelector('.surf-page-head .pr-fresh')).not.toBeNull();
+  });
+
+  it('⛔ el aire entre bloques es de 8 px (16 + márgenes dejaba el primer producto bajo la barra)', () => {
+    expect(FUENTE).toMatch(/\.pr-page \{ gap: \.5rem; \}/);
+    expect(FUENTE).toMatch(/\.pr-filters \{[^}]*margin-bottom: 0;/);
+  });
+});
+
+describe('[PQ.76] una cifra no medida se PINTA como «—», no como 0', () => {
+  it('⛔ con la lista caída, el strip muestra el guion y no un cero', () => {
+    const fix = montar(VACIO, undefined, 'u1', { overstock: () => throwError(() => new Error('500')) });
+    fix.detectChanges();
+    const items = [...(fix.nativeElement as HTMLElement).querySelectorAll('.ms-item')].map((e) => (e.textContent || '').replace(/\s+/g, ' ').trim());
+    const sob = items.find((t) => t.startsWith('Sobrestock'));
+    expect(sob).toBeDefined();
+    expect(sob).toContain('—');
+    expect(sob).toContain('no se pudo medir');
+    expect(sob).not.toMatch(/\$\s?0\b|\b0\b/);
   });
 });

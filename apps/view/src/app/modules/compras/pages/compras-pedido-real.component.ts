@@ -174,10 +174,21 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
       <p-confirmdialog />
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1 style="display:inline-flex;align-items:center;gap:.4rem">Pedido <span class="pr-badge">unificado</span> <app-context-help topic="pedido-compras" /></h1>
+          <!-- [PQ.74] Sin la pastilla «unificado»: no decidía nada y era lo primero que se leía en rojo. -->
+          <h1 style="display:inline-flex;align-items:center;gap:.4rem">Pedido <app-context-help topic="pedido-compras" /></h1>
           <!-- [RA-UX.7] Era un instructivo de ~70 palabras: si la pantalla necesita explicarse para
                usarse, la explicación va al "?" (diccionario versionado, regla P), no al encabezado. -->
           <p class="surf-page-sub">Qué pedir, producto por producto. Abre una fila para capturar por sucursal; lo que escribas se agrega a la requisición, que se genera toda junta desde la barra de abajo.</p>
+          <!-- [PQ.74] La frescura va con el título: era una fila propia antes de las cifras. -->
+          @if (mode() !== 'flujo') {
+            <div class="pr-fresh">
+              @if (mode() === 'pedido') {
+                <app-freshness-pill measures="data" [freshness]="frescura()" />
+              } @else {
+                <app-freshness-pill measures="fetch" [since]="loadedAt()" [staleAfterSec]="900" />
+              }
+            </div>
+          }
         </div>
         <!-- Era un role="tablist" con dos role="tab" y CERO role="tabpanel": un tab que no controla
              ningún panel es ARIA rota (el lector anuncia "pestaña 1 de 2" y no hay panel al que
@@ -225,16 +236,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
            2026-10-07: 415 sellos distintos en 34 días sobre una tabla sana; un max() diría "hace 4
            min" y un min() "hace 34 días"). Si el servidor todavía no lo manda, el veredicto llega
            'unknown' y la píldora dice "datos sin medir" — nunca se esconde ni dibuja un verde.
-           En "Flujo" no se muestra: esa pestaña tiene su propia fuente y daría una hora ajena. -->
-      @if (mode() !== 'flujo') {
-        <div class="pr-fresh">
-          @if (mode() === 'pedido') {
-            <app-freshness-pill measures="data" [freshness]="frescura()" />
-          } @else {
-            <app-freshness-pill measures="fetch" [since]="loadedAt()" [staleAfterSec]="900" />
-          }
-        </div>
-      }
+           En "Flujo" no se muestra: esa pestaña tiene su propia fuente y daría una hora ajena.
+           [PQ.74] La píldora vive ahora en el encabezado, junto al título. -->
 
       @if (mode()==='pedido') {
         <!-- RA-PRO.32.3 — PEDIDO unificado: workbook por SKU + desglose por sucursal (compra/traspaso/sobre) en el acordeón -->
@@ -251,7 +254,9 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
             <button type="button" class="pr-zlink" (click)="setMode('ciclo')">Ver el ciclo</button>
           </div>
         } @else if (cicloAviso(); as a) {
-          <div class="pr-borrador pr-ciclo" [class.pr-ciclo-urge]="a.vencidos > 0" role="status">
+          <!-- [PQ.74] Sin el rojo de urgencia: las fechas del ciclo son ESTIMADAS (lead time en 0, 25 % de
+               canales regulares; PQ.UI.5) y un rojo diario se aprende a ignorar. -->
+          <div class="pr-borrador pr-ciclo" role="status">
             <i class="pi pi-calendar" aria-hidden="true"></i>
             @if (a.vencidos + a.hoy > 0) {
               <p>Hoy te toca pedirle a <strong>{{ cicloAvisoProveedores(a) }}</strong>:
@@ -304,15 +309,19 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
             <p-inputicon class="pi pi-search" />
             <input pInputText type="text" [(ngModel)]="search" (ngModelChange)="buscarLuego()" (keyup.enter)="buscarYa()" placeholder="SKU o producto…" aria-label="Buscar producto" />
           </p-iconfield>
-          <label class="pr-cov">
+          <!-- [PQ.74] Con «cada sucursal», la caja de días repetía al segmentado (y su texto salía
+               truncado: «cada su…»). Aparece al elegir días, para afinarlos. -->
+          <div class="pr-cov">
             <span>Cobertura</span>
+            @if (!coberturaSucursal) {
             <!-- [RA-UX.6] Recalculaba sólo al perder el foco: con − / + el campo decía 31 d y la
                  tabla seguía calculada con 30. Ahora recalcula al detenerse (y al salir). -->
-            <p-inputnumber [ngModel]="coberturaSucursal ? null : coverage" (ngModelChange)="coberturaTecleada($event)" (onBlur)="coberturaYa()" [min]="1" [max]="120" [showButtons]="!coberturaSucursal" placeholder="cada suc."
+            <p-inputnumber [ngModel]="coverage" (ngModelChange)="coberturaTecleada($event)" (onBlur)="coberturaYa()" [min]="1" [max]="120" [showButtons]="true"
                            buttonLayout="horizontal" [step]="1" suffix=" d" inputStyleClass="pr-cov-in"
                            decrementButtonClass="p-button-text" incrementButtonClass="p-button-text"
                            incrementButtonIcon="pi pi-plus" decrementButtonIcon="pi pi-minus" ariaLabel="Días de cobertura"></p-inputnumber>
-          </label>
+            }
+          </div>
           <!-- Los presets de cobertura son un SELECTOR DE VALOR (mutuamente excluyente), no un
                toggle. Hasta 2026-09-14 usaban '.pr-chip', la misma clase que los filtros
                booleanos de al lado: mismo aspecto, semántica opuesta, y nadie podía saber
@@ -1650,14 +1659,16 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
   `,
   styles: [`
     :host { display: block; padding-bottom: 3.5rem; }
-    app-metric-strip { display: block; margin-bottom: 1rem; }
+    app-metric-strip { display: block; margin-bottom: 0; }   /* [PQ.74] el aire lo pone el gap de .pr-page */
     .surf-page-head { display: flex; align-items: flex-start; gap: 1rem; }
-    .pr-badge { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-nano); text-transform: uppercase; letter-spacing: .08em;
-      color: var(--action); border: 1px solid var(--action-ring, var(--border-color)); border-radius: var(--r-pill, 999px); padding: .05rem .45rem; vertical-align: middle; margin-left: .4rem; }
     /* (2026-09-14) .pr-mode se retira: el selector de vista pasó a app-segmented. */
     .pr-tab { font-size: var(--fs-sm); padding: .3rem .7rem; border: 0; background: transparent; color: var(--text-muted); border-radius: var(--r-sm, 8px); cursor: pointer; }
     .pr-tab-on { background: var(--overlay-selected, var(--hover-bg)); color: var(--text-main); font-weight: 600; }
-    .pr-filters { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-bottom: .75rem; }
+    .pr-filters { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0; }
+    /* [PQ.74] Entre bloques, 8 px y no 16 + el margen de cada uno: con 768 px de alto, el primer
+       producto quedaba en y=850 (debajo de la barra fija). La mitad de lo ganado era aire. */
+    .pr-page { gap: .5rem; }
+    .pr-page > .surf-page-head { padding-bottom: .5rem; }
     :host ::ng-deep .pr-sel-wide { min-width: 17rem; }
     :host ::ng-deep .pr-sel { min-width: 13rem; }
     :host ::ng-deep .pr-search input { min-width: 12rem; }
@@ -1726,7 +1737,9 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-chk:disabled { cursor: not-allowed; opacity: .35; }
     .pr-chk:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
     .pr-sel-all { display: inline-flex; align-items: center; gap: .15rem; cursor: pointer; font: inherit; }
-    .pr-prod-meta { display: flex; align-items: center; gap: .4rem; margin-top: .1rem; }
+    /* [PQ.74] Con varias pastillas, el proveedor se partía en seis renglones (17083): ahora las
+       pastillas bajan de línea y el nombre no se parte. */
+    .pr-prod-meta { display: flex; align-items: center; gap: .4rem; margin-top: .1rem; flex-wrap: wrap; }
     .pr-sku { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-micro); color: var(--text-faint); }
     .pr-unit-btn { border: 0; background: transparent; padding: 0; cursor: pointer; }
     /* RA-PRO.44 — "En camino": chip accionable que abre las OCs abiertas del SKU. */
@@ -1746,9 +1759,9 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     /* U.2 — el hueco del valuado, declarado. Mismo lenguaje visual que .pr-tran-gap (hairline +
        filete ámbar): es una advertencia de dato, no un error de la pantalla. */
     .pr-rung-banner { display: flex; gap: .5rem; align-items: flex-start; font-size: var(--fs-sm);
-      line-height: 1.5; margin: 0 0 1rem; padding: .6rem .75rem;
-      border: 1px solid var(--border-color); border-left: 2px solid var(--warn-fg);
-      border-radius: var(--r-sm, 8px); background: var(--surface-2, transparent);
+      line-height: 1.5; margin: 0; padding: 0 .25rem;
+      /* [PQ.74] Sin caja: la cifra ya está en «Valor existencia»; esto la explica, en una línea. */
+      border: 0; background: transparent;
       color: var(--text-muted); }
     .pr-rung-banner i { color: var(--warn-fg); margin-top: .18rem; flex: none; }
     .pr-rung-banner p { margin: 0; max-width: 78ch; }
@@ -1792,7 +1805,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-grp-sp { flex: 1; }
     :host ::ng-deep .pr-grp-btn { --p-button-sm-font-size: var(--fs-xs); }
     .pr-link { color: var(--action); cursor: pointer; text-decoration: underline; }
-    .pr-supp { color: var(--text-muted); font-size: var(--fs-sm); }
+    .pr-supp { color: var(--text-muted); font-size: var(--fs-sm); white-space: nowrap; }
     .pr-mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-sm); }
     .pr-strong { font-weight: 700; }
     .pr-sug { background: var(--overlay-selected, transparent); }
@@ -1819,8 +1832,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-empty p { margin: 0 0 .25rem; font-weight: 600; color: var(--text-main); }
     .pr-empty span { font-size: var(--fs-sm); }
     .pr-foot { font-size: var(--fs-xs); color: var(--text-muted); margin-top: .5rem; }
-    .pr-agotados { font-size: var(--fs-sm); color: var(--text-main); margin: 0 0 .5rem; }
-    .pr-fresh { display: inline-flex; align-items: center; margin: -.25rem 0 .6rem; }
+    .pr-agotados { font-size: var(--fs-sm); color: var(--text-main); margin: 0; }
+    .pr-fresh { display: flex; align-items: center; margin: .25rem 0 0; }
     /* Separador entre el selector de VALOR (cobertura) y los toggles booleanos: el ojo necesita
        ver que son dos grupos distintos, no siete botones iguales en fila. */
     .pr-fsep { width: 1px; align-self: stretch; margin: .15rem .35rem; background: var(--border-color); }
@@ -2036,8 +2049,10 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-borrador i { color: var(--action); }
     .pr-borrador-sub { display: block; color: var(--text-muted); font-size: var(--fs-xs); }
     /* [PQ.5] El aviso del ciclo: mismo molde que el borrador; con vencidos, el filete avisa. */
-    .pr-ciclo-urge { border-left-color: var(--bad-fg); }
-    .pr-ciclo-urge i { color: var(--bad-fg); }
+    /* [PQ.74] El aviso del ciclo en UNA línea, sin caja ni rojo; su definición de «canal» va en la misma línea. */
+    .pr-ciclo { margin: 0; padding: 0 .25rem; border: 0; background: transparent; }
+    .pr-ciclo .pr-borrador-sub { display: inline; margin-left: .35rem; }
+    .pr-ciclo i { color: var(--text-muted); }
     /* RA-PEND.2 — lo que impide generar, arriba del boton apagado. */
     .pr-plan-stop { margin: .6rem 0 0; padding: .55rem .7rem; border: 1px solid var(--bad-border);
       border-radius: var(--r-sm, 8px); background: var(--bad-bg, transparent); color: var(--bad-fg); font-size: var(--fs-sm); }
@@ -4748,8 +4763,10 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
 
   /** `[PQ.76]` Una cifra que sale de una lista: cargando, no medida o el total del servidor. Nunca un 0 inventado. */
   private kpiDeLista(label: string, v: number | null | undefined, sub: string, tone?: MetricTone): MetricStripItem {
-    if (v === undefined) return { label, value: '…', tone: 'muted', sub: 'cargando' };
-    if (v === null) return { label, value: '—', tone: 'muted', sub: 'no se pudo medir' };
+    // `format: 'text'` explícito. El strip ya pinta como texto lo que no es número (`isText`), así que
+    // no es lo que evita el 0; lo que lo evita es no devolver nunca un número inventado.
+    if (v === undefined) return { label, value: '…', format: 'text', tone: 'muted', sub: 'cargando' };
+    if (v === null) return { label, value: '—', format: 'text', tone: 'muted', sub: 'no se pudo medir' };
     return { label, value: v, format: 'currency', tone, sub };
   }
 
@@ -4761,7 +4778,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       // renglones: medido el 2026-11-05, $3.5 M de $5.0 M en traspasos y $9.5 M de $13.2 M en sobrestock.
       this.kpiDeLista('A traspasar', this.trTotal(), 'desde CEDIS'),
       this.kpiDeLista('Sobrestock', this.ovTotal(), 'inmovilizado', 'warn'),
-      { label: 'SKUs', value: this.wbTotal() },
+      // [PQ.74] «SKUs» salió: el paginador dice cuántos productos hay.
       // `[PQ.38]` Los dos operandos de «Días de existencia», a la vista y con los mismos filtros que
       // la tabla: la venta va A PRECIO (suma de «Valor venta»), la existencia AL COSTO (suma de
       // «Valor exist.»). Si hay almacenes sin valuar (U.2) la bajada lo dice: el total es parcial.
@@ -4774,12 +4791,13 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       // toma la rama numérica y `Number('—') || 0` lo pinta como **0** — justo el cero que este
       // KPI documenta que nunca hay que dibujar (ADR-056), y encima con la bajada diciendo
       // "sin demanda medida" al lado. Mismo patrón que ya usa `vendor-history` para km/h.
+      // ⚠️ (2026-11-05, PQ.74) Ya no es así: `isText()` del strip pinta como texto todo valor que no
+      // sea número, con o sin `format`. El `format: 'text'` se deja por explícito, no porque evite un 0.
       this.diasInventario() == null
         ? { label: 'Días de existencia', value: '—', format: 'text', sub: this.diasInventarioSub() }
-        : { label: 'Días de existencia', value: this.diasInventario()!, sub: this.diasInventarioSub() },
-      this.coberturaSucursal
-        ? { label: 'Cobertura', value: 'Cada sucursal', format: 'text', sub: this.coberturaCorta() }
-        : { label: 'Cobertura', value: this.coverage, sub: 'días objetivo' },
+        : { label: 'Días de existencia', value: this.diasInventario()!, sub: `${this.diasInventarioSub()} · objetivo ${this.objetivoCorto()}` },
+      // [PQ.74] «Cobertura» salió como cifra aparte: el selector de cobertura la dice con su nota, y
+      // el objetivo quedó en la bajada de «Días de existencia», que es con lo que se compara.
     ];
   }
 
@@ -5072,6 +5090,12 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     return m;
   }
   /** «la de cada sucursal (21 o 30 días)» o «45 días». Para la tarjeta, el resumen, el PDF y la exportación. */
+  /** `[PQ.74]` El objetivo en pocas letras, junto a «Días de existencia»: «30 d» o «21 o 30 d». */
+  objetivoCorto(): string {
+    if (!this.coberturaSucursal) return `${this.coverageAplicada ?? this.coverage} d`;
+    const dias = [...this.diasPorSucursal().keys()].sort((a, b) => a - b);
+    return dias.length ? `${dias.join(' o ')} d` : 'el de cada sucursal';
+  }
   coberturaCorta(): string {
     if (!this.coberturaSucursal) return `${this.coverageAplicada ?? this.coverage} días`;
     const dias = [...this.diasPorSucursal().keys()].sort((a, b) => a - b);
