@@ -167,7 +167,7 @@ describe('[CB.57] importes y saldo', () => {
   });
 
   it('un solo renglón conserva el orden del archivo', () => {
-    const m: MovimientoBanco = { linea: 2, fecha: '2026-11-01', hora: null, concepto: 'X', cargo_centavos: 0, abono_centavos: 100, saldo_centavos: 100, referencia: null, clave_rastreo: null, contraparte_cuenta: null, contraparte_rfc: null, contraparte_nombre: null };
+    const m: MovimientoBanco = { linea: 2, fecha: '2026-11-01', hora: null, concepto: 'X', cargo_centavos: 0, abono_centavos: 100, saldo_centavos: 100, referencia: null, clave_rastreo: null, contraparte_cuenta: null, contraparte_rfc: null, contraparte_nombre: null, texto_original: 'x' };
     expect(controlarSaldo([m]).control).toMatchObject({ orden_original: 'viejo_a_nuevo', saldo_inicial_centavos: 0, cuadra: true });
   });
 });

@@ -1,0 +1,239 @@
+/**
+ * `[CB.58]` — Subir el estado de cuenta de la banca ESCRIBE: esta suite lo ejerce contra una base
+ * real, como `app_runtime` con el tenant puesto, con el payload que manda la pantalla
+ * (`{ file_base64, file_name, bank_account_id? }`).
+ *
+ * Los archivos son FABRICADOS con la forma exacta de las descargas reales del 2026-11-05
+ * (Santander CSV con apóstrofos, BBVA `.exp` con tabuladores del más nuevo al más viejo) y datos
+ * inventados: el repo es público.
+ *
+ * Bloques (destino LOCAL / `pruebas-db`):
+ *   1. ✅ Santander trae su cuenta → `en_archivo`, cuadra, se guarda con hora/rastreo/contraparte.
+ *   2. ✅ El mismo archivo otra vez → `ya_existia`, cero renglones nuevos.
+ *   3. ✅ Una descarga que se encima con la anterior → sólo entran los renglones nuevos.
+ *   4. ⛔ NEGATIVA: falta un renglón a la mitad → no cuadra, `confirmar` se niega y no escribe.
+ *   5. ✅ BBVA no trae la cuenta: sin elegirla se niega; elegida y sin saldo previo → `sin_testigo`.
+ *   6. ✅ El siguiente archivo BBVA arranca en el saldo con que cerró el anterior → `saldo_continuo`.
+ *   7. ⛔ NEGATIVA: elegir OTRA cuenta BBVA cuando el saldo es el de la primera → se niega y lo dice.
+ *   8. ⛔ NEGATIVA: elegir una cuenta de otro banco → se niega.
+ *   9. ⛔ RLS: sin tenant, `app_runtime` no ve ningún renglón.
+ * Destino PROD: sólo lectura (las tablas existen, cuántos archivos hay); lo que escribe, NO MEDIDO.
+ */
+
+const path = require('path');
+const Module = require('module');
+require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env'), quiet: true });
+
+const ROOT = path.resolve(__dirname, '..', '..');
+
+require('ts-node').register({
+  transpileOnly: true,
+  skipProject: true,
+  compilerOptions: {
+    module: 'commonjs', target: 'es2020', esModuleInterop: true,
+    experimentalDecorators: true, emitDecoratorMetadata: true,
+    moduleResolution: 'node', ignoreDeprecations: '6.0',
+  },
+});
+// El servicio sólo necesita los NOMBRES de sus dos dependencias y `todayMx` (la inyección se hace a
+// mano abajo). Se registran en la caché de módulos: no se escribe ningún archivo de stub.
+const todayMx = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+const STUBS = {
+  '@megadulces/platform-core': { TenantKnexService: class {}, TenantContextService: class {}, todayMx },
+};
+const stubIds = {};
+for (const [pedido, exportsStub] of Object.entries(STUBS)) {
+  const id = path.join(__dirname, `__stub_cb58_${pedido.replace(/[@/]/g, '_')}.js`);
+  require.cache[id] = { id, filename: id, loaded: true, exports: exportsStub, children: [], paths: [] };
+  stubIds[pedido] = id;
+}
+const resolveOriginal = Module._resolveFilename;
+Module._resolveFilename = function resolver(pedido, ...resto) {
+  return stubIds[pedido] || resolveOriginal.call(this, pedido, ...resto);
+};
+
+const knexLib = require('knex');
+const { classify, assertSafeTarget } = require('./_lib/assert-safe-target');
+
+const MEGA = '00000000-0000-0000-0000-00000000d01c';
+const ALIAS = 'PRUEBA CB58';
+
+let ok = 0;
+let fail = 0;
+let nm = 0;
+const check = (cond, label) => {
+  if (cond) { ok += 1; console.log(`  ✓ ${label}`); } else { fail += 1; console.log(`  ✗ ${label}`); }
+};
+const noMedido = (label) => { nm += 1; console.log(`  ⚠ NO MEDIDO: ${label}`); };
+const fin = () => {
+  console.log(`\n${fail === 0 ? '✅' : '❌'} CB.58 estado de cuenta de la banca: ${ok} ✓ / ${fail} ✗`
+    + (nm ? ` · ${nm} NO MEDIDO` : '') + '\n');
+  process.exit(fail === 0 ? 0 : 1);
+};
+
+// ── Archivos fabricados con la forma de las descargas reales ────────────────────────────────
+const SANTANDER_ENC = 'Cuenta,Fecha,Hora,Sucursal,Descripcion,Cargo/Abono,Importe,Saldo,Referencia,Concepto,Banco Participante,Clabe Beneficiario,Nombre Beneficiario,Cta Ordenante,Nombre Ordenante,Codigo Devolucion,Causa Devolucion,RFC Beneficiario,RFC Ordenante,Clave de Rastreo,Descripcion Larga';
+const stdr = (fecha, hora, desc, signo, imp, saldo, o = {}) => [`'11112222333'`, `'${fecha}'`, hora, `'0560'`, desc.padEnd(40), signo, imp, saldo,
+  (o.ref || '').padEnd(15), ' '.repeat(20), ''.padEnd(40), `'${''.padEnd(20)}'`, ''.padEnd(40), `'${(o.cta || '').padEnd(20)}'`, (o.nom || '').padEnd(40),
+  '  ', ''.padEnd(30), ''.padEnd(15), (o.rfc || '').padEnd(15), (o.rastreo || '').padEnd(30), desc.padEnd(130)].join(',');
+const S1 = stdr('02112026', '03:04', 'COMISION MANEJO DE CUENTA', '-', '500.00', '9500.00');
+const S2 = stdr('02112026', '09:15', 'ABONO TRANSFERENCIA SPEI', '+', '1250.50', '10750.50', { ref: '000111222', cta: '012345678901234567', nom: 'CLIENTE DE PRUEBA SA DE CV', rfc: 'XAXX010101000', rastreo: 'PRUEBA0000000001' });
+const S3 = stdr('03112026', '11:40', 'DEPOSITO EN EFECTIVO', '+', '3000.00', '13750.50', { ref: '0000099999' });
+const S4 = stdr('03112026', '12:10', 'DEPOSITO EN EFECTIVO', '+', '249.50', '14000.00', { ref: '0000099998' });
+const santander = (r) => Buffer.from([SANTANDER_ENC, ...r].join('\n'), 'ascii').toString('base64');
+const bbva = (renglonesNuevoAViejo) => Buffer.from(['Día\tConcepto / Referencia\tcargo\tAbono\tSaldo', ...renglonesNuevoAViejo].join('\r\n'), 'latin1').toString('base64');
+const BBVA_1 = bbva([
+  '02-11-2026\tAPLI TASA DE DES DEBITO/100000001 TERMINALES PUNTO DE VENTA\t100.00\t\t1,100.00',
+  '02-11-2026\tVENTAS DEBITO/100000002 TERMINALES PUNTO DE VENTA\t\t1,000.00\t1,200.00',
+]);
+const BBVA_2 = bbva([ // arranca en $1,100.00: el cierre de BBVA_1
+  '03-11-2026\tIVA TASA DE DESC DEBITO/100000003 TERMINALES PUNTO DE VENTA\t16.00\t\t1,584.00',
+  '03-11-2026\tVENTAS DEBITO/100000004 TERMINALES PUNTO DE VENTA\t\t500.00\t1,600.00',
+]);
+
+function servicio(pool, conTenant = true) {
+  const { EstadoDeCuentaService } = require(path.join(ROOT, 'libs/finance/src/lib/bank/estado-de-cuenta/estado-de-cuenta.service.ts'));
+  const tk = {
+    run: (cb) => pool.transaction(async (trx) => {
+      if (conTenant) await trx.raw("SELECT set_config('app.tenant_id', ?, true)", [MEGA]);
+      return cb(trx);
+    }),
+  };
+  const svc = new EstadoDeCuentaService(tk, { requireTenantId: () => MEGA });
+  svc.logger = { log() {}, warn() {}, error() {}, debug() {} };
+  return svc;
+}
+
+const niega = async (fn) => {
+  try { await fn(); return null; } catch (e) { return e; }
+};
+
+async function faltantes(db) {
+  const rels = ['finance.bank_accounts', 'finance.bank_movements', 'finance.bank_statement_files', 'finance.bank_statement_lines'];
+  const r = await db.raw('SELECT r FROM unnest(?::text[]) r WHERE to_regclass(r) IS NULL', [rels]);
+  return r.rows.map((x) => x.r);
+}
+
+async function limpiar(admin) {
+  const ids = (await admin('finance.bank_accounts').where('alias', 'like', `${ALIAS}%`).select('id')).map((r) => r.id);
+  if (!ids.length) return;
+  await admin('finance.bank_statement_lines').whereIn('bank_account_id', ids).del();
+  await admin('finance.bank_statement_files').whereIn('bank_account_id', ids).del();
+  await admin('finance.bank_accounts').whereIn('id', ids).del();
+}
+
+async function completo(urlAdmin, urlRuntime) {
+  console.log('\n[modo COMPLETO — destino local]');
+  assertSafeTarget('test-newdb-bank-estado-de-cuenta', { url: urlAdmin });
+  assertSafeTarget('test-newdb-bank-estado-de-cuenta', { url: urlRuntime });
+  const admin = knexLib({ client: 'pg', connection: urlAdmin, pool: { min: 0, max: 2 } });
+  const runtime = knexLib({ client: 'pg', connection: urlRuntime, pool: { min: 0, max: 3 } });
+  try {
+    const falta = await faltantes(admin);
+    if (falta.length) { noMedido(`faltan relaciones en este destino: ${falta.join(', ')}`); return; }
+    await limpiar(admin);
+
+    console.log('\n[0] Sembrar cuentas con postgres (salta el RLS: siembra, no prueba)');
+    const cuenta = async (bank, label, alias) => {
+      const [r] = await admin('finance.bank_accounts').insert({ tenant_id: MEGA, bank, account_label: label, alias, kind: 'bank', active: true }).returning('id');
+      return r.id ?? r;
+    };
+    const STDR = await cuenta('SANTANDER', '22333', `${ALIAS} STDR`);
+    const BBVA_A = await cuenta('BBVA', '58001', `${ALIAS} BBVA A`);
+    const BBVA_B = await cuenta('BBVA', '58002', `${ALIAS} BBVA B`);
+    const svc = servicio(runtime);
+    const lineas = async (id) => Number((await admin('finance.bank_statement_lines').where({ bank_account_id: id }).count('* as n'))[0].n);
+
+    console.log('\n[1] Santander: la cuenta viene en el archivo');
+    const rev = await svc.revisar({ file_base64: santander([S1, S2, S3]), file_name: 'SANTANDER.csv' });
+    check(rev.cuenta?.id === STDR && rev.como_se_fijo === 'en_archivo', `la cuenta se fija por el número del archivo (${rev.como_se_fijo})`);
+    check(rev.cuadra && rev.puede_confirmar && rev.nuevos === 3, `cuadra y entrarían 3 nuevos (${rev.nuevos}); motivos: ${JSON.stringify(rev.motivos_bloqueo)}`);
+    check(await lineas(STDR) === 0, 'revisar NO escribe');
+    const c1 = await svc.confirmar({ file_base64: santander([S1, S2, S3]), file_name: 'SANTANDER.csv' }, 'prueba');
+    check(!c1.ya_existia && c1.nuevos === 3 && await lineas(STDR) === 3, `confirmar guarda los 3 renglones (${c1.nuevos})`);
+    const spei = await admin('finance.bank_statement_lines').where({ bank_account_id: STDR, tracking_key: 'PRUEBA0000000001' }).first();
+    check(spei && spei.movement_time === '09:15' && spei.counterparty_rfc === 'XAXX010101000' && Number(spei.amount_in) === 1250.5,
+      'el renglón SPEI guarda hora, RFC de quien ordena e importe en pesos');
+    check(spei && typeof spei.raw_line === 'string' && spei.raw_line.includes('ABONO TRANSFERENCIA SPEI'), 'y el texto original como evidencia');
+    const f1 = await admin('finance.bank_statement_files').where({ id: c1.archivo_id }).first();
+    check(f1 && f1.balance_ok === true && f1.account_check === 'en_archivo' && Number(f1.opening_balance) === 10000 && Number(f1.closing_balance) === 13750.5,
+      `el archivo guarda su control: saldo $${f1 && f1.opening_balance} → $${f1 && f1.closing_balance}`);
+
+    console.log('\n[2] El mismo archivo otra vez');
+    const c2 = await svc.confirmar({ file_base64: santander([S1, S2, S3]), file_name: 'SANTANDER (1).csv' }, 'prueba');
+    check(c2.ya_existia === true && await lineas(STDR) === 3, 'se reconoce y no duplica nada');
+
+    console.log('\n[3] Una descarga que se encima con la anterior');
+    const c3 = await svc.confirmar({ file_base64: santander([S2, S3, S4]), file_name: 'SANTANDER 2.csv' }, 'prueba');
+    check(!c3.ya_existia && c3.nuevos === 1 && c3.ya_cargados === 2 && await lineas(STDR) === 4, `entra sólo el renglón nuevo (${c3.nuevos} nuevo, ${c3.ya_cargados} ya cargados)`);
+
+    console.log('\n[4] ⛔ NEGATIVA: falta un renglón a la mitad');
+    const S5 = stdr('04112026', '08:00', 'DEPOSITO EN EFECTIVO', '+', '100.00', '14100.00');
+    const S6 = stdr('04112026', '09:00', 'DEPOSITO EN EFECTIVO', '+', '100.00', '14300.00'); // salta 14200
+    const rNeg = await svc.revisar({ file_base64: santander([S5, S6]) });
+    check(!rNeg.cuadra && !rNeg.puede_confirmar && rNeg.motivos_bloqueo.some((m) => /no encadena/.test(m)), 'la revisión lo marca y dice por qué');
+    const eNeg = await niega(() => svc.confirmar({ file_base64: santander([S5, S6]) }, 'prueba'));
+    check(eNeg && /no se puede guardar/.test(JSON.stringify(eNeg.response || eNeg.message)), 'confirmar se niega');
+    check(await lineas(STDR) === 4, 'y no escribe ni un renglón');
+
+    console.log('\n[5] BBVA no trae la cuenta');
+    const sinCuenta = await svc.revisar({ file_base64: BBVA_1 });
+    check(!sinCuenta.puede_confirmar && sinCuenta.motivos_bloqueo.some((m) => /elige la cuenta/.test(m)), 'sin elegirla, se pide');
+    const cA = await svc.confirmar({ file_base64: BBVA_1, bank_account_id: BBVA_A }, 'prueba');
+    check(cA.como_se_fijo === 'sin_testigo' && cA.nuevos === 2, `elegida y sin saldo previo: se guarda declarada «sin_testigo» (${cA.como_se_fijo})`);
+    const ordenA = await admin('finance.bank_statement_lines').where({ bank_account_id: BBVA_A }).orderBy('seq').select('concept', 'seq');
+    check(ordenA.length === 2 && /^VENTAS/.test(ordenA[0].concept), 'el archivo venía al revés y se guarda en orden cronológico (seq)');
+
+    console.log('\n[6] El siguiente archivo arranca donde cerró el anterior');
+    const rB = await svc.revisar({ file_base64: BBVA_2, bank_account_id: BBVA_A });
+    check(rB.como_se_fijo === 'saldo_continuo' && rB.puede_confirmar, `la cuenta queda atestiguada por el saldo (${rB.como_se_fijo}, inicial $${rB.saldo_inicial})`);
+    check(rB.candidatas.some((c) => c.id === BBVA_A && c.coincide) && !rB.candidatas.some((c) => c.id === BBVA_B && c.coincide), 'la candidata que coincide es la correcta y sólo ella');
+
+    console.log('\n[7] ⛔ NEGATIVA: elegir la otra cuenta BBVA');
+    const rOtra = await svc.revisar({ file_base64: BBVA_2, bank_account_id: BBVA_B });
+    check(!rOtra.puede_confirmar && rOtra.motivos_bloqueo.some((m) => m.includes(`${ALIAS} BBVA A`)), 'se niega y nombra la cuenta cuyo saldo sí es');
+
+    console.log('\n[8] ⛔ NEGATIVA: una cuenta de otro banco');
+    const rBanco = await svc.revisar({ file_base64: BBVA_2, bank_account_id: STDR });
+    check(!rBanco.puede_confirmar && rBanco.motivos_bloqueo.some((m) => /no es una cuenta BBVA/.test(m)), 'se niega: el archivo es de BBVA');
+
+    console.log('\n[9] ⛔ RLS');
+    // Sin `app.tenant_id`, la política filtra todo (o `current_tenant_id()` se niega): las dos son «no ve».
+    const sinTenant = await runtime.transaction(async (trx) => Number((await trx('finance.bank_statement_lines').count('* as n'))[0].n)).catch((e) => `error: ${e.message}`);
+    check(sinTenant === 0 || String(sinTenant).startsWith('error'), `sin tenant, app_runtime no ve renglones (${sinTenant})`);
+  } finally {
+    await limpiar(admin).catch(() => {});
+    await admin.destroy();
+    await runtime.destroy();
+  }
+}
+
+async function soloLectura(url) {
+  console.log('\n[modo SÓLO LECTURA — destino prod]');
+  const pool = knexLib({
+    client: 'pg', connection: url,
+    pool: { min: 0, max: 2, afterCreate: (c, d) => c.query('SET default_transaction_read_only = on', (e) => d(e, c)) },
+  });
+  try {
+    servicio(pool);
+    check(true, 'el servicio carga (ts-node) con sus dependencias reales');
+    const falta = await faltantes(pool);
+    if (falta.length) { noMedido(`la migración CB.56 no está aplicada en este destino: ${falta.join(', ')}`); return; }
+    const r = await pool.raw(`SELECT count(*)::int archivos, count(*) FILTER (WHERE NOT balance_ok)::int sin_cuadre FROM finance.bank_statement_files WHERE tenant_id = ?`, [MEGA]);
+    check(r.rows[0].sin_cuadre === 0, `ningún archivo guardado sin cuadre (${r.rows[0].archivos} archivos)`);
+    noMedido('revisar/confirmar escriben: corre completo en `pruebas-db`');
+  } finally {
+    await pool.destroy();
+  }
+}
+
+(async () => {
+  const urlAdmin = process.env.DATABASE_URL_NEW;
+  const urlRuntime = process.env.DATABASE_URL_NEW_RUNTIME;
+  const kAdmin = classify(urlAdmin).kind;
+  const kRuntime = urlRuntime ? classify(urlRuntime).kind : null;
+  if (kAdmin === 'local' && kRuntime === 'local') await completo(urlAdmin, urlRuntime);
+  else if (kAdmin === 'prod') await soloLectura(urlAdmin);
+  else noMedido(`destino no clasificable (admin ${kAdmin}, runtime ${kRuntime})`);
+  fin();
+})().catch((e) => { console.error(e); process.exit(1); });

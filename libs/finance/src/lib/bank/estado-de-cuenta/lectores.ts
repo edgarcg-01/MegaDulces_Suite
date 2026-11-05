@@ -40,6 +40,8 @@ export interface MovimientoBanco {
   contraparte_cuenta: string | null;
   contraparte_rfc: string | null;
   contraparte_nombre: string | null;
+  /** El renglón tal como venía en el archivo: evidencia, no se interpreta. */
+  texto_original: string;
 }
 
 export interface RenglonNoLeido {
@@ -175,6 +177,7 @@ function leerSantander(buf: Buffer): Omit<EstadoDeCuentaLeido, 'control'> {
       contraparte_cuenta: oNulo(limpio(v[abono ? c.ctaOrd : c.clabe])),
       contraparte_rfc: oNulo(limpio(v[abono ? c.rfcOrd : c.rfcBen])),
       contraparte_nombre: oNulo(limpio(v[abono ? c.nomOrd : c.nomBen])),
+      texto_original: texto,
     });
   }
   return { banco: 'santander', cuenta, cliente: null, movimientos, no_leidos, declarado: null };
@@ -211,6 +214,7 @@ function leerBanorte(buf: Buffer): Omit<EstadoDeCuentaLeido, 'control'> {
       contraparte_cuenta: pesca(/CLABE\s+(\d{18})/),
       contraparte_rfc: pesca(/RFC\s+([A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3})/),
       contraparte_nombre: pesca(/DEL CLIENTE\s+(.+?)\s+DE LA CLABE/),
+      texto_original: texto,
     });
   }
   return { banco: 'banorte', cuenta: null, cliente: null, movimientos, no_leidos, declarado: null };
@@ -237,6 +241,7 @@ function leerBbva(buf: Buffer): Omit<EstadoDeCuentaLeido, 'control'> {
       cargo_centavos: cargo, abono_centavos: abono, saldo_centavos: saldo,
       referencia: oNulo((concepto.match(/\/(\S+)/)?.[1] ?? '')),
       clave_rastreo: null, contraparte_cuenta: null, contraparte_rfc: null, contraparte_nombre: null,
+      texto_original: texto,
     });
   }
   return { banco: 'bbva', cuenta: null, cliente: null, movimientos, no_leidos, declarado: null };
@@ -305,6 +310,7 @@ async function leerBanBajio(buf: Buffer): Promise<Omit<EstadoDeCuentaLeido, 'con
       referencia: oNulo(texto(f[c.recibo])), clave_rastreo: null, contraparte_cuenta: null,
       contraparte_rfc: oNulo(concepto.match(/RFC\s+([A-ZÑ&]{3,4}\s?\d{6}[A-Z0-9]{3})/)?.[1]?.replace(/\s/g, '') ?? ''),
       contraparte_nombre: null,
+      texto_original: f.map(texto).join(' | '),
     });
   }
   return { banco: 'banbajio', cuenta: null, cliente, movimientos, no_leidos, declarado };
