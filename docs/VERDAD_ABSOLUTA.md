@@ -5178,6 +5178,30 @@ perdió el día»— era la contraria, y la refutó la numeración del propio si
 > deja de auditar y paga). Las vecinales tienen regla en código y todavía ninguna versión
 > estrenada.
 
+### 32.7 ⭐⭐ La comisión VECINAL: el libro es testigo, no árbitro (Padre Hidalgo, 2026-11-04)
+
+El libro vecinal de Comercial (Morelia y Padre Hidalgo) aplica la regla que la suite reproduce —
+escalón por markup, 80 / 20, sueldo base descontado— y **su base casa con Kepler al centavo cuando
+se le encuentra la ventana** (Padre Hidalgo Q22: la columna 43 = 1V002, `U-D-10` neto, 22-oct a
+3-nov). Pero como cifra a pagar **no se sostiene sola**: el mismo libro trae, medido, una tabla del
+supervisor que en Q22 suma una ruta en vez de dos, una catorcena armada antes de cerrar, seis
+catorcenas con el costo inventado (markup fijo de 16.95 %), una columna con venta que Kepler no
+tiene a nombre de su ruta y la misma regla escrita con dos fórmulas para el negativo.
+
+**Qué arbitra cada número vecinal:**
+
+| Número | Árbitro | Lo que se declara |
+|---|---|---|
+| Subtotal y venta | Kepler, `U-D-10` por ruta (`c12` = `1V00N`) | lo que el libro sume por fuera entra como ajuste con motivo (`[RD.104]`) |
+| Costo y markup | `qty × kdii.c77` (costo estándar de hoy) | `estandar_kepler_incompleto`: el markup sale **inflado** si falta costo |
+| Escalón | la versión vigente de la familia `vecinal` | sin versión estrenada, `sin_tabulador`, nunca $0 callado |
+| Supervisor | la suma de su parte **ruta por ruta** | — |
+| Comisión menor al sueldo base | **sin regla** (D-V4) | hoy la línea sale negativa y resta del total: no pagar así |
+
+⛔ **Para contrastar contra el libro, primero casar la columna contra Kepler al centavo y por
+ventana.** Persona ≠ ruta: la columna 43 es 1V002 en Q22 y no en Q20 ni Q21. Si no casa, la
+diferencia es de **base**, no de regla. Detalle y deudas: `FASE_RD_COMISIONES_MOTOR.md` §RD.103.0.
+
 ## 33. ⭐⭐ EL LIBRO DE COMPRAS: el asiento tiene árbitro; qué facturas entran, todavía no (LC.19, 2026-10-21)
 
 > **Por qué existe esta sección.** Edgar preguntó *«¿ya tenemos una verdad absoluta, y mostramos
