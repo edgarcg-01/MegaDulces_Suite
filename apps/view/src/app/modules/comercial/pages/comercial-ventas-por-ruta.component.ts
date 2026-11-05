@@ -44,6 +44,7 @@ import { RutaCajaCaosComponent } from './comercial-ruta-caja-caos.component';
 import { CaosService, RutaCajaReporte } from '../../finanzas/caos.service';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { RoutePromoComponent } from './comercial-route-promo.component';
+import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
 
 type DetailTab = 'productos' | 'unidades' | 'dias' | 'clientes' | 'tickets' | 'deposito';
 
@@ -93,6 +94,21 @@ type ArqDia = {
 /** Fila con agregados del PERIODO visible (recalculados client-side según el rango de meses). */
 type ViewRow = SalesByRouteRow & { _revenue: number; _units: number; _tickets: number; _share: number };
 
+/**
+ * `[VEC.36]` Ruta directa (RD: camioneta, deposita en CAOS) o vecinal (Kepler `1V001`…, se
+ * arquea en su caja). El criterio es el CÓDIGO, el mismo del backend (`VECINAL_RX`).
+ */
+type RouteKind = 'directa' | 'vecinal';
+function routeKind(r: Pick<SalesByRouteRow, 'route_no' | 'route_code'>): RouteKind {
+  return /^\d+V\d/i.test(r.route_no ?? '') || /VEC/i.test(r.route_code ?? '') ? 'vecinal' : 'directa';
+}
+
+/** `[VEC.36]` Una columna de la comparativa RD vs vecinal, sobre el periodo visible. */
+type KindSummary = {
+  kind: RouteKind; label: string; revenue: number; share: number; routes: number;
+  tickets: number; avgTicket: number | null; perRoute: number | null;
+};
+
 const MES: Record<string, string> = {
   '01': 'Ene', '02': 'Feb', '03': 'Mar', '04': 'Abr', '05': 'May', '06': 'Jun',
   '07': 'Jul', '08': 'Ago', '09': 'Sep', '10': 'Oct', '11': 'Nov', '12': 'Dic',
@@ -108,6 +124,7 @@ const MES: Record<string, string> = {
     ToastModule, TableModule, TagModule, InputTextModule, InputNumberModule, CheckboxModule,
     IconFieldModule, InputIconModule,
     LoadStateComponent, PageTabsComponent, SidePeekComponent, MetricStripComponent, RouteClosureReconComponent, VecinalReconComponent, RutaCajaCaosComponent, RoutePromoComponent,
+    SegmentedComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -174,6 +191,9 @@ const MES: Record<string, string> = {
       <!-- Filtros de vista (client-side, instantáneos sobre lo cargado) -->
       @if (report()?.rows?.length) {
         <div class="rr-viewfilters">
+          <!-- [VEC.36] RD o vecinal: el filtro más usado de los de vista, por eso va primero. -->
+          <app-segmented [options]="tipoOpts()" [value]="fTipo()" (valueChange)="setTipo($event)"
+                         ariaLabel="Tipo de ruta" />
           <p-multiselect [options]="branchOpts()" [ngModel]="fBranch()" (ngModelChange)="fBranch.set($event)"
                          optionLabel="label" optionValue="value" placeholder="Todas las sucursales" [showClear]="true"
                          [filter]="true" filterBy="label" filterPlaceholder="Buscar sucursal…" appendTo="body"
@@ -216,6 +236,47 @@ const MES: Record<string, string> = {
       @if (report(); as r) {
         @if (r.rows.length) {
           <app-metric-strip [items]="kpiItems()" ariaLabel="Resumen de ventas por ruta" />
+
+          <!-- [VEC.36] RD contra vecinal, mismo periodo y filtros que la tabla. El encabezado de
+               cada columna filtra la tabla a ese tipo (el número lleva a sus rutas). -->
+          @if (showKindCompare()) {
+            <section class="card-premium card-flat rr-cmp" aria-labelledby="rr-cmp-title">
+              <h2 id="rr-cmp-title" class="rr-cmp-title">Ruta directa contra vecinal</h2>
+              <p-table [value]="cmpRows" styleClass="p-datatable-sm surf-table surf-table--plain">
+                <ng-template #header>
+                  <tr>
+                    <th scope="col"><span class="sr-only">Indicador</span></th>
+                    @for (k of kindSummary(); track k.kind) {
+                      <th scope="col" class="comm-num">
+                        <button type="button" class="rr-link" [class.rr-cmp-on]="fTipo() === k.kind"
+                                (click)="setTipo(fTipo() === k.kind ? 'todas' : k.kind)"
+                                [attr.aria-pressed]="fTipo() === k.kind"
+                                [attr.aria-label]="'Ver sólo ' + k.label">{{ k.label }}</button>
+                      </th>
+                    }
+                  </tr>
+                </ng-template>
+                <ng-template #body let-m>
+                  <tr>
+                    <th scope="row" class="rr-cmp-lbl">{{ m.label }}</th>
+                    @for (k of kindSummary(); track k.kind) {
+                      <td class="comm-num" [class.rr-strong]="m.key === 'revenue'">
+                        @switch (m.key) {
+                          @case ('revenue') { {{ k.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }} }
+                          @case ('share') { {{ k.share | number:'1.0-1' }}% }
+                          @case ('routes') { {{ k.routes | number }} }
+                          @case ('tickets') { {{ k.tickets | number }} }
+                          @case ('avgTicket') { @if (k.avgTicket != null) { {{ k.avgTicket | currency:'MXN':'symbol-narrow':'1.0-0' }} } @else { — } }
+                          @case ('perRoute') { @if (k.perRoute != null) { {{ k.perRoute | currency:'MXN':'symbol-narrow':'1.0-0' }} } @else { — } }
+                        }
+                      </td>
+                    }
+                  </tr>
+                </ng-template>
+              </p-table>
+              <p class="rr-note">Sin comparación contra el año anterior: la venta vecinal existe en el sistema desde abril de 2026.</p>
+            </section>
+          }
 
 
           <div class="so-actions-bar">
@@ -1096,6 +1157,10 @@ const MES: Record<string, string> = {
     :host ::ng-deep .rr-vf-num { width:8rem; }
     .rr-vf-chk { display:inline-flex; align-items:center; gap:.4rem; font-size:.82rem; color:var(--text-muted); cursor:pointer; }
     app-metric-strip { display:block; margin-bottom:1rem; }
+    .rr-cmp { padding:var(--sp-3) var(--sp-4); margin-bottom:var(--sp-4); max-width:640px; }
+    .rr-cmp-title { font-size:var(--fs-sm); font-weight:600; margin:0 0 var(--sp-2); }
+    .rr-cmp-lbl { font-weight:400; color:var(--text-muted); text-align:left; }
+    .rr-cmp-on { text-decoration:underline; text-underline-offset:3px; }
     .so-actions-bar { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1rem; }
     .rr-table-card { padding:1.25rem; }
     /* Sticky/frozen/tema los da PrimeNG + surf-table; sólo jerarquía visual acá. */
@@ -1206,6 +1271,7 @@ export class ComercialVentasPorRutaComponent {
   fOnlyWithSales = signal(false);          // ocultar rutas en $0 del periodo
   fMinRevenue = signal<number | null>(null); // rango de venta del periodo
   fMaxRevenue = signal<number | null>(null);
+  fTipo = signal<RouteKind | 'todas'>('todas'); // [VEC.36] ruta directa / vecinal
 
   /** Sucursales presentes en el reporte (para el multiselect). */
   readonly branchOpts = computed<{ label: string; value: string }[]>(() => {
@@ -1256,8 +1322,67 @@ export class ComercialVentasPorRutaComponent {
     });
   });
 
-  /** Filas visibles = periodo + sucursal + búsqueda + solo-con-venta + rango $. */
+  /** Filas visibles = tipo + todo lo de `rowsSinTipo`. */
   readonly filteredRows = computed<ViewRow[]>(() => {
+    const t = this.fTipo();
+    const rows = this.rowsSinTipo();
+    return t === 'todas' ? rows : rows.filter((row) => routeKind(row) === t);
+  });
+
+  /**
+   * `[VEC.36]` Las opciones del tipo, con cuántas rutas hay detrás de cada una (sobre los demás
+   * filtros de vista: el conteo dice lo que se va a ver al elegirla).
+   */
+  readonly tipoOpts = computed<SegOption[]>(() => {
+    const rows = this.rowsSinTipo();
+    const vec = rows.filter((r) => routeKind(r) === 'vecinal').length;
+    return [
+      { label: 'Todas', value: 'todas', count: rows.length },
+      { label: 'Ruta directa', value: 'directa', count: rows.length - vec },
+      { label: 'Vecinal', value: 'vecinal', count: vec },
+    ];
+  });
+
+  /**
+   * `[VEC.36]` RD contra vecinal en el MISMO periodo y con los mismos filtros de vista que la
+   * tabla (salvo el tipo, que es lo que se compara). El % es sobre la suma de las dos, o sea lo
+   * que está en pantalla. «Rutas» cuenta sólo las que vendieron en el periodo: una ruta en $0
+   * bajaría la venta por ruta sin decir nada de las que sí salen.
+   * ⚠️ Sin año anterior: la vecinal sale del ODS desde abr-2026 (medido 2026-11-04), así que una
+   * variación contra 2025 sería crecimiento inventado.
+   */
+  readonly kindSummary = computed<KindSummary[]>(() => {
+    const rows = this.rowsSinTipo();
+    const total = rows.reduce((s, r) => s + r._revenue, 0);
+    return (['directa', 'vecinal'] as RouteKind[]).map((kind) => {
+      const mine = rows.filter((r) => routeKind(r) === kind);
+      const revenue = mine.reduce((s, r) => s + r._revenue, 0);
+      const tickets = mine.reduce((s, r) => s + r._tickets, 0);
+      const routes = mine.filter((r) => r._revenue > 0).length;
+      return {
+        kind, label: kind === 'vecinal' ? 'Vecinal' : 'Ruta directa', revenue,
+        share: total > 0 ? (revenue / total) * 100 : 0, routes, tickets,
+        avgTicket: tickets > 0 ? revenue / tickets : null,
+        perRoute: routes > 0 ? revenue / routes : null,
+      };
+    });
+  });
+
+  /** Renglones de la comparativa, en el orden en que se leen: cuánto, qué peso, con qué. */
+  readonly cmpRows: { key: keyof KindSummary; label: string }[] = [
+    { key: 'revenue', label: 'Venta' },
+    { key: 'share', label: '% de la venta' },
+    { key: 'routes', label: 'Rutas con venta' },
+    { key: 'tickets', label: 'Tickets' },
+    { key: 'avgTicket', label: 'Ticket promedio' },
+    { key: 'perRoute', label: 'Venta por ruta' },
+  ];
+
+  /** La comparativa sólo se muestra si en pantalla hay de las dos. */
+  readonly showKindCompare = computed(() => this.kindSummary().every((k) => k.revenue > 0));
+
+  /** Filas de los demás filtros de vista = periodo + sucursal + búsqueda + solo-con-venta + rango $. */
+  private readonly rowsSinTipo = computed<ViewRow[]>(() => {
     const wh = this.fBranch();
     const q = this.fQuery().trim().toLowerCase();
     const only = this.fOnlyWithSales();
@@ -1297,7 +1422,8 @@ export class ComercialVentasPorRutaComponent {
 
   readonly hasViewFilters = computed(() =>
     this.fBranch().length > 0 || !!this.fQuery() || !!this.fMonthFrom() || !!this.fMonthTo() ||
-    this.fOnlyWithSales() || this.fMinRevenue() != null || this.fMaxRevenue() != null);
+    this.fOnlyWithSales() || this.fMinRevenue() != null || this.fMaxRevenue() != null ||
+    this.fTipo() !== 'todas');
 
   readonly kpiItems = computed<MetricStripItem[]>(() => {
     if (!this.report()) return [];
@@ -1324,6 +1450,11 @@ export class ComercialVentasPorRutaComponent {
     this.fBranch.set([]); this.fQuery.set('');
     this.fMonthFrom.set(null); this.fMonthTo.set(null);
     this.fOnlyWithSales.set(false); this.fMinRevenue.set(null); this.fMaxRevenue.set(null);
+    this.fTipo.set('todas');
+  }
+
+  setTipo(v: string) {
+    this.fTipo.set(v === 'directa' || v === 'vecinal' ? v : 'todas');
   }
 
   year = new Date().getFullYear();
@@ -1353,8 +1484,7 @@ export class ComercialVentasPorRutaComponent {
    */
   readonly esRutaVecinal = computed(() => {
     const r = this.peekRow();
-    if (!r) return false;
-    return /^\d+V\d/i.test(r.route_no ?? '') || /VEC/i.test(r.route_code ?? '');
+    return !!r && routeKind(r) === 'vecinal';
   });
 
   // ── `[VEC.12]` El dinero de una ruta VECINAL: el arqueo de la caja donde se timbró ────────
@@ -1983,6 +2113,10 @@ export class ComercialVentasPorRutaComponent {
 
     const sucursales = this.lista(qp.get('branch') ?? qp.get('branches'));
     if (sucursales.length) this.fBranch.set(sucursales);
+
+    // `[VEC.36]` `?tipo=vecinal` / `?tipo=directa`: filtro de vista, como `branch`.
+    const tipo = qp.get('tipo');
+    if (tipo) this.setTipo(tipo);
   }
 
   /** `'01,02 , 03'` → `['01','02','03']`. Vacío si no vino nada útil. */
