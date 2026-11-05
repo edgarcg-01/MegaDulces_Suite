@@ -6,8 +6,6 @@ import { permissionGuard, anyPermissionGuard, carteraEntryGuard, gastosAreaEntry
 import { Permission } from './core/constants/permissions';
 import { PermissionsService } from './core/services/permissions.service';
 
-/** `[LE.6.9]` Quien tiene la clave del cambio entra a la Ventanilla; los demás siguen en Captura (D34). */
-export const trabajaEnVentanilla: CanMatchFn = () => inject(PermissionsService).has(Permission.FINANCE_CAJA_VENTANILLA);
 import { televentaGuard } from './modules/televenta/televenta.guard';
 import { repartoGuard } from './modules/reparto/reparto.guard';
 import { storeEntryRedirect } from './modules/tienda/tienda.guards';
@@ -16,6 +14,9 @@ import { rutasDelPanel } from './core/panel/panel-routes';
 import { SplitShellComponent } from './core/panel/split-shell.component';
 import { countFocusGuard } from './core/guards/count-focus.guard';
 import { unsavedChangesGuard } from './core/guards/unsaved-changes.guard';
+
+/** `[LE.6.9]` Quien tiene la clave del cambio entra a la Ventanilla; los demás siguen en Captura (D34). */
+export const trabajaEnVentanilla: CanMatchFn = () => inject(PermissionsService).has(Permission.FINANCE_CAJA_VENTANILLA);
 
 /**
  * El aux route del panel se activa **sólo si la URL trae algo para el panel**.
@@ -2543,9 +2544,17 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/dashboard/admin-catalogs/admin-catalogs.component').then(m => m.AdminCatalogsComponent),
         canActivate: [permissionGuard(Permission.ROLES_VER)]
       },
+      // `[TOR.3]` Las torres de control reemplazan a «Salud DB». La ruta vieja redirige: la usan
+      // la bandeja de Mi trabajo y el aviso global de salud.
+      { path: 'db-health', redirectTo: 'torre/desarrollo', pathMatch: 'full' },
       {
-        path: 'db-health',
-        loadComponent: () => import('./modules/dashboard/admin-db-health/admin-db-health.component').then(m => m.AdminDbHealthComponent),
+        path: 'torre/sistemas',
+        loadComponent: () => import('./modules/dashboard/torres/torre-sistemas.component').then(m => m.TorreSistemasComponent),
+        canActivate: [permissionGuard(Permission.PLATFORM_HEALTH_VER)]
+      },
+      {
+        path: 'torre/desarrollo',
+        loadComponent: () => import('./modules/dashboard/torres/torre-desarrollo.component').then(m => m.TorreDesarrolloComponent),
         canActivate: [permissionGuard(Permission.PLATFORM_HEALTH_VER)]
       },
       {

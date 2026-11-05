@@ -106,6 +106,9 @@ export interface TransferExportRow {
 }
 export interface WorkbookExport {
   coverage_days: number;
+  /** [PQ.44] D25: con qué cobertura salieron las hojas de PEDIDO («30 días» o «la de cada sucursal»).
+   *  Sin esto, `coverage_days`. La hoja de traspasos usa siempre `coverage_days`: transferPlan no cambia. */
+  coverage_label?: string;
   territories: WorkbookExportTerritory[];
   rows: WorkbookExportRow[];
   transfers?: TransferExportRow[]; // RA — hoja "Traspasos" del workbook global (opcional)
@@ -561,10 +564,10 @@ export class ReplenishmentExportService {
     wb.creator = 'Mega Dulces';
     wb.created = new Date();
     const terrs = data.territories || [];
-    this.writeFlatSheet(wb, 'Todos', data.rows || [], terrs, data.coverage_days);
+    this.writeFlatSheet(wb, 'Todos', data.rows || [], terrs, data.coverage_label ?? data.coverage_days);
     const used = new Set<string>(['todos']);
     for (const g of this.groupBySupplier(data.rows || [])) {
-      this.writeSupplierSheet(wb, this.uniqueSheetName(g.name, used), g.name, g.rows, terrs, data.coverage_days);
+      this.writeSupplierSheet(wb, this.uniqueSheetName(g.name, used), g.name, g.rows, terrs, data.coverage_label ?? data.coverage_days);
     }
     if (data.transfers && data.transfers.length) this.writeTransfersSheet(wb, data.transfers, data.coverage_days);
     return Buffer.from((await wb.xlsx.writeBuffer()) as ArrayBuffer);
@@ -578,7 +581,7 @@ export class ReplenishmentExportService {
     const terrs = data.territories || [];
     const used = new Set<string>();
     for (const g of this.groupBySupplier(data.rows || [])) {
-      this.writeSupplierSheet(wb, this.uniqueSheetName(g.name, used), g.name, g.rows, terrs, data.coverage_days);
+      this.writeSupplierSheet(wb, this.uniqueSheetName(g.name, used), g.name, g.rows, terrs, data.coverage_label ?? data.coverage_days);
     }
     return Buffer.from((await wb.xlsx.writeBuffer()) as ArrayBuffer);
   }
@@ -588,13 +591,13 @@ export class ReplenishmentExportService {
     const wb = new ExcelJS.Workbook();
     wb.creator = 'Mega Dulces';
     wb.created = new Date();
-    this.writeFlatSheet(wb, 'Pedido (plano)', data.rows || [], data.territories || [], data.coverage_days);
+    this.writeFlatSheet(wb, 'Pedido (plano)', data.rows || [], data.territories || [], data.coverage_label ?? data.coverage_days);
     if (data.transfers && data.transfers.length) this.writeTransfersSheet(wb, data.transfers, data.coverage_days);
     return Buffer.from((await wb.xlsx.writeBuffer()) as ArrayBuffer);
   }
 
   /** Escribe UNA hoja por-proveedor (layout columnar Vta/Exist/Pedido por territorio) en `wb`. */
-  private writeSupplierSheet(wb: ExcelJS.Workbook, name: string, supTitle: string, rows: WorkbookExportRow[], terrs: WorkbookExportTerritory[], coverage: number): void {
+  private writeSupplierSheet(wb: ExcelJS.Workbook, name: string, supTitle: string, rows: WorkbookExportRow[], terrs: WorkbookExportTerritory[], coverage: number | string): void {
     rows = rows ?? [];
     terrs = terrs ?? [];
     const MONEY = '$#,##0.00', N1 = '#,##0.0', N0 = '#,##0';
@@ -608,7 +611,7 @@ export class ReplenishmentExportService {
     // Fila 1 — título
     ws.mergeCells(1, 1, 1, totalCols);
     const title = ws.getCell(1, 1);
-    title.value = `PEDIDO — ${supTitle}  ·  cobertura ${coverage} días`;
+    title.value = `PEDIDO — ${supTitle}  ·  cobertura ${typeof coverage === 'number' ? coverage + ' días' : coverage}`;
     title.font = { bold: true, size: 14 };
     title.alignment = { horizontal: 'center', vertical: 'middle' };
     ws.getRow(1).height = 24;
@@ -799,7 +802,7 @@ export class ReplenishmentExportService {
    * (Vta/Exist/Pedido por territorio) + totales. Respeta desglosar/englobar (territories) y refleja
    * la tabla en pantalla. Formato editorial Mercado/Stone.
    */
-  private writeFlatSheet(wb: ExcelJS.Workbook, sheetName: string, rowsIn: WorkbookExportRow[], terrs: WorkbookExportTerritory[], coverage: number): void {
+  private writeFlatSheet(wb: ExcelJS.Workbook, sheetName: string, rowsIn: WorkbookExportRow[], terrs: WorkbookExportTerritory[], coverage: number | string): void {
     rowsIn = rowsIn ?? [];
     terrs = terrs ?? [];
     const MONEY = '$#,##0.00', N1 = '#,##0.0', N0 = '#,##0';
@@ -823,7 +826,7 @@ export class ReplenishmentExportService {
     const title = ws.getCell(1, 1);
     const fecha = new Date().toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' });
     const grouped = terrs.length === 1 && terrs[0].code === 'GENERAL';
-    title.value = `PEDIDO — ${grouped ? 'red (englobado)' : 'por sucursal'}  ·  cobertura ${coverage} días`;
+    title.value = `PEDIDO — ${grouped ? 'red (englobado)' : 'por sucursal'}  ·  cobertura ${typeof coverage === 'number' ? coverage + ' días' : coverage}`;
     title.font = { name: FONT, bold: true, size: 16, color: { argb: INK } };
     title.alignment = { horizontal: 'left', vertical: 'middle', indent: 1 };
     ws.getRow(1).height = 28;

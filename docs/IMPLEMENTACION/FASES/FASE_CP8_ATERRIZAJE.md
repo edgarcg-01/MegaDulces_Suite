@@ -1158,6 +1158,9 @@ falta uno nuevo.
   desvía en 25–54 % sin regla, y la venta TLMKT de Kepler no cubre su abono todavía.
 - **2026-11-02** — `[CP.8.97]` La entrega con el dictamen (§11.15): el paso 4 dice lo que sale y cada póliza
   lleva su veredicto en la misma lista.
+- **2026-11-04** — `[CP.8.99]` Lo entregado dice dónde está (§11.16). Cada fila entregada dice si ContPAQi ya la
+  tiene. Los conteos del mes se abren a su lista. Se arreglaron dos defectos del cuadre que se encontraron en el
+  camino: el plazo nunca vencía, y lo que no apareció no se volvía a buscar.
 
 ---
 
@@ -1968,3 +1971,80 @@ Se probaron 6 mutantes del componente y los 6 la ponen roja:
 - el aviso con las cifras de la pantalla.
 
 ⛔ No sustituye a la e2e: no usa navegador real, ni datos de prod, ni encabezados HTTP de verdad.
+
+### 11.16 🧪 `[CP.8.99]` Lo entregado dice dónde está (2026-11-04)
+
+**La pregunta que lo abrió (Edgar):** al entregar 400 pólizas de golpe, ¿se pierde de vista cuáles se hicieron?
+
+**Respuesta medida: no, cada póliza conserva su rastro.** Cada póliza:
+- se registra sola en `poliza_exports`, por `(evento_tipo, evento_id)`;
+- lleva su token en el concepto;
+- el cuadre la busca cada 10 minutos.
+
+**Pero la pantalla perdía ese rastro.** Decía «N encontradas, N por revisar, N que no aparecieron»:
+- con totales de **todos** los meses;
+- sin poder abrir ninguno;
+- y la fila sólo decía «Ya entregada».
+
+Con 400 pólizas entregadas y 3 que faltaban en ContPAQi, no había manera de saber cuáles eran.
+
+**Al revisarlo aparecieron dos defectos del cuadre, más graves que lo de la pantalla.** Los dos están medidos contra
+la base local y ninguno había ocurrido en prod, porque `poliza_exports` sigue vacía.
+
+1. ⛔ **El plazo nunca vencía.**
+   - El cuadre medía la entrega desde `updated_at`, y su propio `guardar` reescribe `updated_at` en cada corrida.
+   - El plazo volvía a cero cada 10 minutos, así que «no apareció» no podía salir nunca.
+   - Lo que no llegara a ContPAQi se habría quedado «esperando» para siempre, y el conteo de «no aparecieron»
+     siempre habría dicho 0.
+   - **Arreglo:** el día de la entrega viaja en `asiento.entrega.en`. El cuadre lo lee de ahí (`SQL_ENTREGADA_EN`,
+     con `created_at` como respaldo de filas viejas). Sigue el precedente de `[CP.8.50]`: va en el JSON y no en una
+     columna, para no pedir una migración.
+2. ⛔ **Lo que no apareció no se volvía a buscar.**
+   - Una póliza `rechazada` vuelve a salir en el archivo, a propósito (`[CP.8.53]`).
+   - Pero al marcarla otra vez, el `ON CONFLICT DO NOTHING` la dejaba `rechazada`.
+   - El cuadre ya no la buscaba, y la póliza salía en **cada** archivo siguiente.
+   - **Arreglo:** la re-entrega la vuelve `entregada`, con su fecha nueva y sin el veredicto viejo. Se hace con
+     `DO UPDATE … WHERE estado = 'rechazada'`, que no toca nada más. `POST entregas` ahora devuelve `reentregadas`.
+
+**Las cinco preguntas** (`diseno` §0b):
+1. **Qué se ve y en qué orden.** En la fila, dónde está cada póliza entregada. En la línea del paso 4, los conteos
+   del mes que se mira, empezando por lo que pide trabajo: no apareció → no cuadra → por confirmar → esperando →
+   ya en ContPAQi.
+2. **Qué no se ve.** El total de todos los meses: en la vista de un mes confunde.
+3. **Accesibilidad.** Cada parte de la línea filtra la lista con un clic, y «Todas» quita el filtro. El detalle
+   muestra:
+   - el día en que se marcó como cargada;
+   - el folio en ContPAQi;
+   - lo que dijo el cuadre.
+4. **Proceso ligado.** ContPAQi, por el folio de la póliza allá.
+5. **¿Le toca a esta pantalla?** Sí: es el mismo paso 4. No hace falta otra pantalla.
+
+**Contrato:**
+- `GET dictamen` gana `seguimiento[]` con `lote`, `estado`, `folio`, `motivo` y `entregada_en`.
+- Los estados salen de `seguimientoDe()` en el motor: `en_contpaqi`, `por_confirmar`, `esperando`, `no_cuadra` y
+  `no_aparecio`.
+- La pantalla lo trata como opcional. Si la API todavía no lo manda, no afirma nada del mes.
+
+**Probado:**
+- **Motor:** 9 ✓. Cada veredicto real de `cuadrar` pasa por lo que se guarda y llega a su estado; los seis caen en
+  alguno.
+- **Base local:** 16 ✓, el ciclo completo:
+  - se entrega y queda «esperando»;
+  - se marcó hace 10 días y el cuadre corrió en medio, así que queda «no apareció»;
+  - vuelve a salir en el archivo;
+  - se re-entrega y queda «entregada» desde hoy;
+  - aparece con nuestro token y queda «en ContPAQi» con su folio.
+- **Mutantes del backend:** 3 de 3 rojos. Dos de ellos devuelven el código a su estado anterior (el plazo desde
+  `updated_at` y la re-entrega ignorada); el tercero quita las rechazadas del seguimiento.
+- **Prod, sólo lectura:** 8 ✓. El seguimiento viaja: 0 en septiembre, porque nada se ha entregado.
+- **Pantalla:** 22 ✓ en la spec local; 8 de 8 mutantes rojos.
+- **Contabilidad:** 87 ✓.
+- **`check:pantalla`:** 0 nuevas, tipa.
+- **La e2e** gana una prueba: la línea cruzada contra `seguimiento`. Son 9 en total, NO MEDIDA hasta soltar.
+
+**Declarado:**
+- **Sin validación visual.**
+- **El aviso de re-entrega no está probado.** El texto «N que no habían aparecido se volvieron a entregar» no lo
+  ejerce ninguna prueba de pantalla, porque esa prueba no escribe.
+- **Cuatro pruebas de base fallan en local, en HEAD igual que con este cambio.** `puente`, `bandeja` y `tenant` piden
+  datos reales de enero; `entrega` también falla en HEAD.

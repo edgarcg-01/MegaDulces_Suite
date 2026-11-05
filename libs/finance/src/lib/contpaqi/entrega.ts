@@ -84,9 +84,12 @@ export function compararArchivo(
  */
 export function filasDeEntrega(p: {
   tenantId: string; mes: string; lotes: LoteArchivo[]; por: string; huella: string;
+  /** `[CP.8.99]` El día en que se marcó (Ciudad de México, `YYYY-MM-DD`): desde aquí corre el plazo del cuadre. */
+  en: string;
 }): FilaEntrega[] {
   if (!p.por) throw new Error('una entrega sin autor no es una afirmación');
   if (!/^\d{4}-\d{2}$/.test(p.mes)) throw new Error(`mes inválido: "${p.mes}"`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(p.en)) throw new Error(`fecha de entrega inválida: "${p.en}"`);
   return p.lotes.map((l): FilaEntrega => {
     const tipo: EventoArchivo = l.evento_tipo ?? 'bank_lote';
     return {
@@ -100,7 +103,9 @@ export function filasDeEntrega(p: {
         guid: guidDe(tipo, l.clave),
         // `[CP.8.50]` Quién lo afirmó y sobre qué archivo. Viaja en el JSON y no en una columna
         // para no pedir una migración por esto; deuda con nombre en el tracker.
-        entrega: { por: p.por, archivo_sha256: p.huella, movimientos: l.movimientos },
+        // `[CP.8.99]` `en`: el plazo del cuadre corre desde aquí. Antes corría desde `updated_at`, que el propio
+        // cuadre reescribe en cada corrida: volvía a cero cada 10 min y «no apareció» no podía salir nunca.
+        entrega: { por: p.por, archivo_sha256: p.huella, movimientos: l.movimientos, en: p.en },
       }),
       total: l.asiento.total,
       estado: 'entregada',

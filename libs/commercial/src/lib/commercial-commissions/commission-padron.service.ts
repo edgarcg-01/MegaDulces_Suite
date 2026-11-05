@@ -1,6 +1,7 @@
 import type { Knex } from 'knex';
 import { Injectable, Logger, BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { CODIGO_VECINAL, escalaVigente, esFamiliaTabulador, type FamiliaTabulador } from './commission-escala';
 
 /**
  * `[RD.84]` — **El padrón de rutas se administra desde la pantalla, no desde una migración.**
@@ -64,7 +65,7 @@ export class CommissionPadronService {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const { rows } = await trx.raw(
-        `SELECT c.id, c.route_code, c.scale_id, c.zona,
+        `SELECT c.id, c.route_code, c.scale_id, c.familia, c.zona,
                 c.chofer_nombre, c.supervisor_nombre,
                 c.nomina_banco, c.activo, c.notes,
                 to_char(c.activo_desde, 'YYYY-MM-DD') AS activo_desde,
@@ -108,6 +109,20 @@ export class CommissionPadronService {
         + 'a su alta. Es la primera quincena en que esta ruta cobra.',
       );
     }
+    // ⭐ `[RD.103.2]` La familia decide con qué tabulador cobra. Un código vecinal NO se deduce
+    // (D-V2: 2V001 cobra con el de Ruta Directa porque «la comisión sigue al chofer»), pero
+    // tampoco se deja caer al valor por omisión: antes, dar de alta una vecinal la pagaba con el
+    // tabulador RD sin aviso. Se exige que quien la da de alta lo diga.
+    if (dto?.familia != null && !esFamiliaTabulador(dto.familia)) {
+      throw new BadRequestException(`familia debe ser ruta_directa, vecinal o tlmk (llegó «${dto.familia}»).`);
+    }
+    if (dto?.familia == null && CODIGO_VECINAL.test(code)) {
+      throw new BadRequestException(
+        `${code} es un código vecinal: di con qué tabulador cobra (familia: 'vecinal', o `
+        + `'ruta_directa' si la comisión sigue a un chofer de Ruta Directa).`,
+      );
+    }
+    const familia: FamiliaTabulador = dto?.familia ?? 'ruta_directa';
 
     return this.tk.run(async (trx) => {
       const ya = await trx('commercial.commission_route_config')
@@ -121,12 +136,13 @@ export class CommissionPadronService {
           + 'conserva su historia en vez de arrancar una segunda.',
         );
       }
-      const scaleId = dto.scale_id ?? await this.escalaVigente(trx, dto.activo_desde);
+      const scaleId = dto.scale_id ?? await this.escalaVigente(trx, dto.activo_desde, familia);
       const [fila] = await trx('commercial.commission_route_config')
         .insert({
           tenant_id: tenantId,
           route_code: code,
           scale_id: scaleId,
+          familia,
           zona: dto.zona ?? null,
           chofer_nombre: dto.chofer_nombre ?? null,
           supervisor_nombre: dto.supervisor_nombre ?? null,
@@ -207,16 +223,14 @@ export class CommissionPadronService {
 
   // ── Internos ───────────────────────────────────────────────────────────────────────────
 
-  private async escalaVigente(trx: Knex.Transaction, onDate: string): Promise<string> {
-    const escala = await trx('commercial.commission_scales')
-      .whereNull('deleted_at')
-      .where('valid_from', '<=', onDate)
-      .andWhere((b: Knex.QueryBuilder) => b.whereNull('valid_to').orWhere('valid_to', '>', onDate))
-      .orderBy('valid_from', 'desc').first();
+  private async escalaVigente(
+    trx: Knex.Transaction, onDate: string, familia: FamiliaTabulador,
+  ): Promise<string> {
+    const escala = await escalaVigente(trx, { familia, onDate });
     if (!escala) {
       throw new ConflictException(
-        `No hay tabulador vigente al ${onDate}, y una ruta del padrón no puede existir sin uno: `
-        + 'es lo que decide su porcentaje. Creá la escala primero.',
+        `No hay tabulador ${familia} vigente al ${onDate}, y una ruta del padrón no puede existir `
+        + 'sin uno: es lo que decide su porcentaje. Estrená la escala de esa familia primero.',
       );
     }
     return escala.id as string;
@@ -259,7 +273,7 @@ export class CommissionPadronService {
 }
 
 export interface PadronFila {
-  id: string; route_code: string; scale_id: string; zona: string | null;
+  id: string; route_code: string; scale_id: string; familia: FamiliaTabulador; zona: string | null;
   chofer_nombre: string | null; supervisor_nombre: string | null;
   nomina_banco: string | number; activo: boolean; notes: string | null;
   activo_desde: string | null; activo_hasta: string | null;
@@ -270,6 +284,8 @@ export interface PadronFila {
 export interface AltaRuta {
   route_code: string; nomina_banco: number; activo_desde: string;
   scale_id?: string; zona?: string | null;
+  /** `[RD.103.2]` Obligatoria para un código vecinal (`2V001`); si no, `ruta_directa`. */
+  familia?: FamiliaTabulador;
   chofer_nombre?: string | null; supervisor_nombre?: string | null; notes?: string | null;
 }
 

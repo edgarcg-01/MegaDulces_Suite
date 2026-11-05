@@ -17,7 +17,7 @@ import {
   ContpaqiPuenteService, LoteRow, LotesResp, CuadreResp,
   PendienteProveedor, PendientesResp, ReglaVista, PagoPorConfirmar, CfdiPropuesto, MovimientosResp,
   FiltroMovimientos, MovimientoBanco, CategoriaEgreso, VistaPreviaBeneficiario,
-  DictamenResp, PolizaDictaminada, Hallazgo, Veredicto,
+  DictamenResp, PolizaDictaminada, Hallazgo, Veredicto, SeguimientoCuadre, SeguimientoPoliza,
 } from '../contpaqi-puente.service';
 
 /**
@@ -428,13 +428,19 @@ import {
                 @if (cuadre(); as c) {
                   <p class="cpp-ojo">
                     <i class="pi pi-sync" aria-hidden="true"></i>
-                    @if (!c.hay_entregas) {
+                    <!-- [CP.8.99] Del MES que se mira, y cada parte abre su lista (antes: totales de todos los meses, sin abrir). -->
+                    @if (lineaCuadre().length) {
+                      <span>De lo entregado de {{ mes() }}:
+                        @for (x of lineaCuadre(); track x.e; let ult = $last) {
+                          <button type="button" class="cpp-link" [class.cpp-mal]="x.mal" [class.on]="filtroSeg() === x.e"
+                                  [attr.aria-pressed]="filtroSeg() === x.e" (click)="toggleSeguimiento(x.e)">{{ x.texto }}</button>@if (!ult) { &middot; }
+                        }
+                      </span>
+                    } @else if (!c.hay_entregas) {
                       Todav&iacute;a no se ha marcado ning&uacute;n archivo como cargado.
-                    } @else {
-                      En ContPAQi: <strong class="mono">{{ c.verificadas | number }}</strong> encontradas,
-                      <strong class="mono">{{ c.esperando | number }}</strong> por revisar,
-                      <strong class="mono" [class.cpp-mal]="c.divergentes > 0">{{ c.divergentes | number }}</strong>
-                      que no aparecieron en {{ c.plazo_dias }} d&iacute;as.
+                    } @else if (dict()?.seguimiento) {
+                      <!-- Sin el seguimiento (API anterior) no se afirma nada del mes: no saberlo no es «nada marcado». -->
+                      De {{ mes() }} todav&iacute;a no se ha marcado nada como cargado.
                     }
                   </p>
                 }
@@ -464,8 +470,8 @@ import {
 
                 <h4 class="cpp-h4">Las p&oacute;lizas del mes</h4>
                 <div class="cpp-chips">
-                  <button type="button" class="cpp-chip" [class.on]="filtro() === null && filtroVer() === null"
-                          [attr.aria-pressed]="filtro() === null && filtroVer() === null" (click)="toggleMotivo(null)">
+                  <button type="button" class="cpp-chip" [class.on]="filtro() === null && filtroVer() === null && filtroSeg() === null"
+                          [attr.aria-pressed]="filtro() === null && filtroVer() === null && filtroSeg() === null" (click)="toggleMotivo(null)">
                     Todas <span class="mono">{{ d.lotes.length | number }}</span>
                   </button>
                   @for (c of chipsDictamen(); track c.v) {
@@ -499,7 +505,9 @@ import {
                             @if (porQueDe(l); as pq) { <span class="cpp-sub cpp-porque" [title]="pq">{{ pq }}</span> }
                           </td>
                           <td>
-                            @if (veredictoDe(l); as v) { <p-tag [severity]="tagVeredicto(v)" [value]="textoVeredicto(v)" /> }
+                            <!-- [CP.8.99] Lo ya entregado no tiene dictamen: dice dónde está (lo dijo el cuadre). -->
+                            @if (veredictoDe(l) === 'entregada' && segDe(l); as s) { <p-tag [severity]="tagSeg(s.estado)" [value]="textoSeg(s.estado)" /> }
+                            @else if (veredictoDe(l); as v) { <p-tag [severity]="tagVeredicto(v)" [value]="textoVeredicto(v)" /> }
                             @else if (l.incluidas > 0 && !dict()) { <span class="muted">&hellip;</span> }
                           </td>
                           <td class="muted mono">{{ l.fecha }}</td>
@@ -565,6 +573,15 @@ import {
                             <p class="cpp-note">Pasa todas las revisiones.</p>
                           }
                         }
+                      }
+                      @if (segDe(l); as s) {
+                        <div class="cpp-eyebrow mt">En ContPAQi</div>
+                        <div class="cpp-dict"><p-tag [severity]="tagSeg(s.estado)" [value]="textoSeg(s.estado)" /></div>
+                        <div class="cpp-kvs">
+                          <div class="cpp-kv"><span>Marcada como cargada</span><span class="mono">{{ s.entregada_en ?? 'sin fecha' }}</span></div>
+                          <div class="cpp-kv"><span>Folio en ContPAQi</span><span class="mono">{{ s.folio ?? 'todavía no' }}</span></div>
+                        </div>
+                        @if (s.motivo) { <p class="cpp-sub">{{ s.motivo }}</p> }
                       }
                     } @else {
                       <p class="cpp-note">Elige una p&oacute;liza de la lista.</p>
@@ -785,6 +802,8 @@ import {
     .cpp-link { border: 0; background: transparent; color: var(--action); padding: 2px 0; font: inherit;
       font-size: var(--fs-xs); cursor: pointer; text-decoration: underline; }
     .cpp-link.mt { margin-top: .5rem; }
+    /* [CP.8.99] La parte de la línea del cuadre que está filtrando la lista: el estado no depende sólo del color. */
+    .cpp-link.on { font-weight: 600; text-decoration-thickness: 2px; }
     .cpp-mas { margin-top: 1rem; font-size: var(--fs-sm); color: var(--c-text-2); }
     .cpp-mas summary { cursor: pointer; color: var(--c-text-2); }
     .cpp-lista-simple { margin: .5rem 0 0; padding-left: 1.1rem; font-size: var(--fs-xs); }
@@ -955,6 +974,23 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
   private readonly dictPorLote = computed(() => new Map((this.dict()?.polizas ?? []).map((p) => [p.lote, p])));
   private readonly entregadasSet = computed(() => new Set(this.dict()?.entregadas ?? []));
 
+  // ── `[CP.8.99]` Lo entregado dice dónde está ───────────────────────────────────────────────────────────────
+  /** Filtro de la lista por lo que dijo el cuadre. Excluye a los otros dos filtros, como ellos entre sí. */
+  readonly filtroSeg = signal<SeguimientoCuadre | null>(null);
+  private readonly segPorLote = computed(() => new Map((this.dict()?.seguimiento ?? []).map((s) => [s.lote, s])));
+  /** La línea del cuadre, del MES que se mira (no de todos los meses): cada parte filtra la lista. */
+  readonly lineaCuadre = computed(() => lineaDelCuadre(this.dict()?.seguimiento ?? [], this.plazoDias()));
+  segDe(l: LoteVista): SeguimientoPoliza | null { return this.segPorLote().get(l.k) ?? null; }
+  tagSeg(e: SeguimientoCuadre): 'success' | 'warn' | 'danger' | 'secondary' { return TAG_SEGUIMIENTO[e]; }
+  textoSeg(e: SeguimientoCuadre): string { return TEXTO_SEGUIMIENTO[e]; }
+
+  toggleSeguimiento(e: SeguimientoCuadre): void {
+    this.filtroSeg.set(this.filtroSeg() === e ? null : e);
+    this.filtroVer.set(null);
+    this.filtro.set(null);
+    this.sel.set(this.visibles()[0] ?? null);
+  }
+
   readonly porVeredicto = computed<Record<VeredictoFila, number>>(() => {
     const d = this.dict();
     return {
@@ -993,8 +1029,10 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
   /** Q.3 · en la fila, el porqué de lo frenado o por revisar: su hallazgo más grave. */
   porQueDe(l: LoteVista): string | null {
     const p = this.dictDe(l);
-    if (!p || p.veredicto === 'lista') return null;
-    return this.hallazgosOrdenados(p).find((h) => h.severidad !== 'aviso')?.mensaje ?? null;
+    const delDictamen = p && p.veredicto !== 'lista'
+      ? this.hallazgosOrdenados(p).find((h) => h.severidad !== 'aviso')?.mensaje ?? null : null;
+    // `[CP.8.99]` Lo que decide ahora va primero (el dictamen); si no dice nada, lo que dijo el cuadre.
+    return delDictamen ?? porQueDelCuadre(this.segDe(l), this.plazoDias());
   }
 
   hallazgosOrdenados(p: PolizaDictaminada): Hallazgo[] {
@@ -1009,6 +1047,7 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
   toggleVeredicto(v: VeredictoFila): void {
     this.filtroVer.set(this.filtroVer() === v ? null : v);
     this.filtro.set(null);
+    this.filtroSeg.set(null);
     this.sel.set(this.visibles()[0] ?? null);
   }
 
@@ -1016,6 +1055,7 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
   verVeredicto(v: VeredictoFila): void {
     this.filtroVer.set(v);
     this.filtro.set(null);
+    this.filtroSeg.set(null);
     this.sel.set(this.visibles()[0] ?? null);
     this.irA('archivo');
   }
@@ -1133,9 +1173,12 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
     // `dataKey` de PrimeNG necesita UN campo, y la llave del lote son dos (banco y día).
     // `[CP.8.72]` La clave viene del servidor: un pago a proveedor y el lote de su día comparten banco y fecha.
     const conK = d.lotes.map((l) => ({ ...l, k: l.clave ?? `${l.cuenta_banco}|${l.fecha}` }));
+    const fs = this.filtroSeg();
+    const seg = this.segPorLote();
     const rows = conK
       .filter((l) => !f || (l.motivos?.[f] ?? 0) > 0)
-      .filter((l) => !fv || ver(l) === fv);
+      .filter((l) => !fv || ver(l) === fv)
+      .filter((l) => !fs || seg.get(l.k)?.estado === fs);
     // `[CP.8.97]` Primero lo que pide una decisión antes de entregar: frenadas y por revisar.
     const rango = (l: LoteVista) => { const v = ver(l); return v === 'bloqueada' ? 0 : v === 'revisar' ? 1 : 2; };
     return rows.sort((a, b) => rango(a) - rango(b) || b.movimientos - a.movimientos || a.fecha.localeCompare(b.fecha));
@@ -1246,6 +1289,7 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
       this.pagos.set(null);
       this.dict.set(null);
       this.filtroVer.set(null);
+      this.filtroSeg.set(null);
     }
     this.error.set(null);
     this.cargarPagos();   // [CP.8.73] mismo mes, mismo momento
@@ -1554,8 +1598,10 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
       next: (r) => {
         this.entregando.set(false);
         const ya = r.ya_registradas ? ` (${r.ya_registradas} ya estaban registradas)` : '';
+        // `[CP.8.99]` Las que no habían aparecido y se volvieron a mandar también se dicen: el cuadre las busca de nuevo.
+        const re = r.reentregadas ? `; ${plural(r.reentregadas, 'que no había aparecido se volvió a entregar', 'que no habían aparecido se volvieron a entregar')}` : '';
         this.avisoEntrega.set({
-          texto: `${r.nuevas} pólizas de ${r.mes} quedaron como entregadas${ya}. `
+          texto: `${r.nuevas} pólizas de ${r.mes} quedaron como entregadas${re}${ya}. `
             + `La Suite las buscará en ContPAQi; las que no aparezcan en ${this.plazoDias()} días se avisan aquí.`,
           mal: false,
         });
@@ -1610,6 +1656,7 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
   toggleMotivo(motivo: string | null): void {
     this.filtro.set(motivo !== null && this.filtro() === motivo ? null : motivo);
     this.filtroVer.set(null);
+    this.filtroSeg.set(null);
     this.sel.set(this.visibles()[0] ?? null);
   }
 
@@ -1676,6 +1723,41 @@ export function textoArchivoGenerado(mes: string, polizas: string | null, frenad
   const fr = frenadas !== null && Number(frenadas) > 0
     ? `; ${plural(Number(frenadas), 'frenada por el dictamen no va', 'frenadas por el dictamen no van')}` : '';
   return `Archivo de ${mes} generado${lleva}${fr}. NO quedó marcado como entregado.`;
+}
+
+// ── `[CP.8.99]` Dónde está lo entregado ─────────────────────────────────────────────────────────────────────
+/** En el orden en que pide trabajo: lo que hay que investigar o confirmar primero, lo que ya está al final. */
+const ORDEN_SEGUIMIENTO: SeguimientoCuadre[] = ['no_aparecio', 'no_cuadra', 'por_confirmar', 'esperando', 'en_contpaqi'];
+const TEXTO_SEGUIMIENTO: Record<SeguimientoCuadre, string> = {
+  en_contpaqi: 'En ContPAQi', por_confirmar: 'Por confirmar', esperando: 'Esperando', no_cuadra: 'No cuadra', no_aparecio: 'No apareció',
+};
+const TAG_SEGUIMIENTO: Record<SeguimientoCuadre, 'success' | 'warn' | 'danger' | 'secondary'> =
+  { en_contpaqi: 'success', por_confirmar: 'warn', esperando: 'secondary', no_cuadra: 'danger', no_aparecio: 'danger' };
+
+/**
+ * `[CP.8.99]` La línea del cuadre del mes: cuántas de lo entregado están en cada lugar, en el orden en que piden
+ * trabajo. Cada parte filtra la lista. Vacío = del mes no se entregó nada (la pantalla lo dice con otra frase).
+ */
+export function lineaDelCuadre(seg: { estado: SeguimientoCuadre }[], plazo: number): { e: SeguimientoCuadre; n: number; texto: string; mal: boolean }[] {
+  const n = Object.fromEntries(ORDEN_SEGUIMIENTO.map((e) => [e, 0])) as Record<SeguimientoCuadre, number>;
+  for (const s of seg) n[s.estado] += 1;
+  const texto: Record<SeguimientoCuadre, (k: number) => string> = {
+    no_aparecio: (k) => plural(k, `no apareció en ${plazo} días (sale otra vez)`, `no aparecieron en ${plazo} días (salen otra vez)`),
+    no_cuadra: (k) => plural(k, 'no cuadra con lo que tiene ContPAQi', 'no cuadran con lo que tiene ContPAQi'),
+    por_confirmar: (k) => plural(k, 'por confirmar (casó sólo por importe)', 'por confirmar (casaron sólo por importe)'),
+    esperando: (k) => plural(k, 'esperando', 'esperando'),
+    en_contpaqi: (k) => plural(k, 'ya en ContPAQi', 'ya en ContPAQi'),
+  };
+  return ORDEN_SEGUIMIENTO.filter((e) => n[e] > 0)
+    .map((e) => ({ e, n: n[e], texto: texto[e](n[e]), mal: e === 'no_aparecio' || e === 'no_cuadra' }));
+}
+
+/** `[CP.8.99]` El porqué de la fila según el cuadre. `null` = no hay nada que decir (está allá, o espera en plazo). */
+export function porQueDelCuadre(s: { estado: SeguimientoCuadre; motivo: string | null } | null, plazo: number): string | null {
+  if (!s) return null;
+  if (s.estado === 'no_aparecio') return `No apareció en ContPAQi en ${plazo} días: sale otra vez en el archivo.`;
+  if (s.estado === 'no_cuadra' || s.estado === 'por_confirmar') return s.motivo;
+  return null;
 }
 
 /** `[CP.8.76]` Los pasos del mes, en el orden en que se hacen. */

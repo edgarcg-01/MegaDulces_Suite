@@ -14,7 +14,7 @@ import { MessageService } from 'primeng/api';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
-import { Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
 import { PagosComprobantesService, PagoRow, PagosReport, DepositOcr, ProofFile, PagoDetail } from '../pagos-comprobantes.service';
@@ -690,7 +690,12 @@ export class FinanzasPagosComprobantesComponent implements OnInit, OnDestroy {
   readonly viewData = signal<PagoDetail | null>(null);
   readonly viewTarget = signal<PagoRow | null>(null);
 
-  constructor() { this.load(); }
+  constructor() {
+    // [PGP.72] Calendario de Pagos llega aquí con ?estado=con_diferencias desde su franja de comprobantes.
+    const e = inject(ActivatedRoute).snapshot.queryParamMap.get('estado');
+    if (e !== null && this.estadoOpts.some((o) => o.value === e)) this.estadoSel.set(e);
+    this.load();
+  }
 
   ngOnInit(): void {
     this.socket.connect();

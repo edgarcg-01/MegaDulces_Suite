@@ -2114,8 +2114,6 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
     ],
   },
 
-  // `[CGA-A.67]` El Cuadre de la caja. Las definiciones salen de `conciliacionWorkbook` (servidor) y
-  // del contrato de la cola (`cajaColaDelLibroSql`), que es la misma de la bandeja de Captura.
   // `[LE.2.13]` La Ventanilla: qué decide si un pago sale (D27, D29).
   'caja-ventanilla': {
     title: 'Ventanilla — qué decide si un pago sale',
@@ -2155,6 +2153,8 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       },
     ],
   },
+  // `[CGA-A.67]` El Cuadre de la caja. Las definiciones salen de `conciliacionWorkbook` (servidor) y
+  // del contrato de la cola (`cajaColaDelLibroSql`), que es la misma de la bandeja de Captura.
   'caja-cuadre': {
     title: 'Cuadre — la caja contra Kepler',
     intro: 'Cada día se compara lo que la caja registró contra lo que la Caja General de Kepler registró. No es el arqueo: el arqueo compara el cajón contra el libro; esto compara el libro contra el ERP.',
@@ -2338,7 +2338,8 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
           { term: 'Fuente viva / rezagada / muerta', def: 'Qué tan nuevo es el último día de venta que llegó de esa ruta: viva hasta 3 días, rezagada hasta 30, muerta más allá. «Sin fuente» es distinto: nunca llegó nada, y por eso no publica número de días en vez de publicar un cero.' },
           { term: 'Cobra y su fuente no da señal', def: 'La ruta está encendida para cobrar y hace semanas que no llega su venta. El tabulador es escalonado, así que sin días no se paga «un poco menos»: se paga CERO. Es lo único de esta lista que mueve un depósito.' },
           { term: 'Le faltan días', def: 'Cobra y su fuente llegó, pero rezagada. Puede ser que el camión no salió o que la fuente perdió el día: desde acá no se distinguen.' },
-          { term: 'Vende y no comisiona', def: 'Vendió en los últimos 30 días y no está en el esquema de Ruta Directa. Puede ser correcto —las vecinales no son RD— pero el monto va al lado para que la exclusión se pueda revisar en vez de ser una lista de códigos raros.' },
+          { term: 'Vende y no comisiona', def: 'Vendió en los últimos 30 días y no está en el esquema de Ruta Directa ni es vecinal. El monto va al lado para que la exclusión se pueda revisar en vez de ser una lista de códigos raros.' },
+          { term: 'Comisiona, pero el cálculo no tiene su tabulador', def: 'Una ruta vecinal que vende. Las vecinales sí comisionan, pero esta pantalla todavía no tiene su tabulador ni sabe quién cobra: su comisión se paga fuera de la suite y aquí no aparece. Las dos reglas están en Definiciones de negocio.' },
           { term: 'Trae venta con fecha futura', def: 'Llegó una venta fechada después de hoy, que es un dato imposible. Se denuncia aparte de la frescura: si se mezclaran, esa ruta se vería como la MÁS fresca de todas en vez de como la que tiene el dato roto.' },
           { term: 'Subtotal (30 d)', def: 'La venta SIN IVA de los últimos 30 días — la misma base con la que se calcula la comisión. No es la venta con IVA: las dos difieren alrededor de 6%.' },
         ],

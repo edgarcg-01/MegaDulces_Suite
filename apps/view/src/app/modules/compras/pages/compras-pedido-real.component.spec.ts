@@ -806,12 +806,45 @@ describe('[RA-UX] auditoría de interacción 2026-10-21: lo que la persona hace,
   it('la cobertura recarga si cambió, y no recarga con el mismo valor ni fuera de rango', () => {
     const c = montar(VACIO).componentInstance;
     const wb = vi.spyOn(TestBed.inject(ComprasService), 'workbook');
-    c.coberturaYa();                       // mismo valor que la carga inicial
+    c.coberturaYa();                       // [PQ.44] «cada sucursal», campo vacío: salir no recarga
     expect(wb).not.toHaveBeenCalled();
-    c.coverage = 0; c.coberturaYa();       // a medio teclear
+    c.coberturaTecleada(0); c.coberturaYa();   // a medio teclear
     expect(wb).not.toHaveBeenCalled();
-    c.coverage = 45; c.coberturaYa();
+    c.coberturaTecleada(45); c.coberturaYa();
     expect(wb).toHaveBeenCalledTimes(1);
+    c.coberturaYa();                       // mismo valor que la última carga
+    expect(wb).toHaveBeenCalledTimes(1);
+  });
+
+  // ── [PQ.44] D25: la base es la cobertura de cada sucursal ──
+  it('[PQ.44] D25: abre con la cobertura de cada sucursal y la consulta lo pide así', () => {
+    const c = montar(VACIO).componentInstance;
+    const wb = vi.spyOn(TestBed.inject(ComprasService), 'workbook');
+    expect(c.coberturaSucursal).toBe(true);
+    c.setCoverage('suc');
+    const q = wb.mock.calls.at(-1)![0];
+    expect(q.coverage_mode).toBe('sucursal');
+    expect(q.coverage_days).toBeUndefined();
+  });
+
+  it('[PQ.44] D25: un atajo de días la fija para todas, y «Cada sucursal» la regresa', () => {
+    const c = montar(VACIO).componentInstance;
+    const wb = vi.spyOn(TestBed.inject(ComprasService), 'workbook');
+    c.setCoverage('45');
+    expect(wb.mock.calls.at(-1)![0]).toMatchObject({ coverage_days: 45 });
+    expect(wb.mock.calls.at(-1)![0].coverage_mode).toBeUndefined();
+    expect(c.coberturaCorta()).toBe('45 días');
+    c.setCoverage('suc');
+    expect(wb.mock.calls.at(-1)![0].coverage_mode).toBe('sucursal');
+    expect(c.coberturaCorta()).toMatch(/^la de cada sucursal/);
+  });
+
+  it('⛔ [PQ.44] D25: la cobertura fija cuenta como filtro y «Limpiar» vuelve a la de cada sucursal', () => {
+    const c = montar(VACIO).componentInstance;
+    c.setCoverage('30');
+    expect(c.coberturaSucursal).toBe(false);
+    c.limpiarFiltros();
+    expect(c.coberturaSucursal).toBe(true);
   });
 
   // ── [RA-UX.8] teclado de la fila ──
@@ -1403,5 +1436,48 @@ describe('[PQ.38] valor venta y valor existencia, en grande', () => {
     fix.detectChanges();
     const ex = fix.componentInstance.pedidoKpi().find((k: { label: string }) => k.label === 'Valor existencia');
     expect(ex?.sub).toBe('al costo · faltan 7 SKU por valuar');
+  });
+});
+
+describe('[PQ.44] D26: el inflado por cumplimiento no se afirma donde no se aplicó', () => {
+  // El motor ya no infla lo que llega por traspaso. Si el texto siguiera diciendo «va multiplicado»
+  // de todo el renglón, afirmaría algo que no pasó (ley 0 del estándar).
+  const fila = (cells: Record<string, { trf?: true }>) => ({ fill_rate: 0.8, cells }) as never;
+
+  it('sin traspasos: dice el multiplicador', () => {
+    const c = montar(VACIO).componentInstance;
+    expect(c.fillTitle(fila({ a: {}, b: {} }))).toContain('El Pedido va multiplicado ×1.25.');
+  });
+
+  it('todas por traspaso: dice que NO se infla, sin multiplicador', () => {
+    const t = montar(VACIO).componentInstance.fillTitle(fila({ a: { trf: true }, b: { trf: true } }));
+    expect(t).toContain('El Pedido NO se infla');
+    expect(t).not.toContain('va multiplicado');
+  });
+
+  it('mezcla: multiplica sólo en las que compran directo', () => {
+    const t = montar(VACIO).componentInstance.fillTitle(fila({ a: {}, b: { trf: true } }));
+    expect(t).toContain('en las sucursales que le compran directo; en las que lo reciben por traspaso no se infla');
+  });
+});
+
+describe('[PQ.44] D33: la sucursal en 0 por estar arriba del reorden lo dice, y sólo ahí', () => {
+  // Desde D33 el motor no sugiere nada arriba del punto de reorden (como la mesa). La insignia va
+  // junto al nombre, en el mismo lugar que «sin existencia»: texto visible, no un title. Sale SÓLO
+  // con la marca del motor (`sr`: frenó algo que sí faltaba). Medido el 2026-11-04: arriba del
+  // reorden está la mitad de las celdas (12,579 de 25,241); a 375 les falta para el objetivo.
+  const suc = (o: { exis: number; rop: number | null; sr?: boolean }) =>
+    ({ code: '03', name: '8 Esquinas', vta: 10, exis: o.exis, mx: 20, rop: o.rop, sr: o.sr, rung: null }) as never;
+
+  it('el motor marcó que el reorden frenó lo que faltaba: lo dice', () => {
+    expect(montar(VACIO).componentInstance.branchFlags(suc({ exis: 12, rop: 8, sr: true }))).toContain('arriba del reorden');
+  });
+
+  it('⛔ arriba del reorden pero ya no le falta nada: NO lo dice (sería ruido en la mitad de las filas)', () => {
+    expect(montar(VACIO).componentInstance.branchFlags(suc({ exis: 12, rop: 8 }))).not.toContain('arriba del reorden');
+  });
+
+  it('⛔ en o bajo el reorden: no lo dice (ahí sí se pide)', () => {
+    expect(montar(VACIO).componentInstance.branchFlags(suc({ exis: 3, rop: 8 }))).not.toContain('arriba del reorden');
   });
 });

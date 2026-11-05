@@ -50,6 +50,34 @@ type PagoDelExpediente = ConEjecutor & {
   items?: Array<{ beneficiary?: string | null }>;
 };
 
+/**
+ * `[PGP.68]` **Cómo se paga, dicho para quien firma** (Edgar, 2026-11-04: *«hay que agregar al
+ * preliminar cuando se paga con cheque o con qué banco se debe pagar»*). Iba revuelto en una línea
+ * gris junto a la clasificación y el conteo de documentos, y un pago sin preparar decía sólo
+ * «sin preparar». Lo que falta se nombra (banco sin elegir, cheque sin número): firmar un pago es
+ * firmar CÓMO sale, y eso no se puede dejar implícito.
+ */
+export function comoPaga(a: Pick<PagoDelExpediente, 'payment_method' | 'bank_account_label' | 'destination_account_text' | 'cash_register_text' | 'reference_text'>):
+  { metodo: string; banco: string | null; detalle: string | null; falta: boolean } {
+  const banco = (a.bank_account_label ?? '').trim() || null;
+  switch (a.payment_method) {
+    case 'cheque':
+      return { metodo: 'CHEQUE', banco: banco ?? 'banco sin elegir', falta: !banco || !a.reference_text,
+        detalle: a.reference_text ? `cheque núm. ${a.reference_text}` : 'sin número de cheque' };
+    case 'transferencia':
+    case 'cargo_automatico': {
+      const destino = (a.destination_account_text ?? '').trim();
+      return { metodo: a.payment_method === 'cargo_automatico' ? 'CARGO AUTOMÁTICO' : 'TRANSFERENCIA',
+        banco: banco ?? 'banco sin elegir', falta: !banco || !destino,
+        detalle: destino ? `a ${destino}` : 'sin cuenta destino' };
+    }
+    case 'efectivo':
+      return { metodo: 'EFECTIVO', banco: (a.cash_register_text ?? '').trim() || banco || 'Caja', detalle: null, falta: false };
+    default:
+      return { metodo: 'FALTA DEFINIR', banco: null, detalle: 'método y banco', falta: true };
+  }
+}
+
 function ejecutorDe(a: ConEjecutor): string {
   if (!a.payment_method) return 'sin preparar';
   if (a.bank_account_kind === 'cash' || a.payment_method === 'efectivo') return 'Caja General';
@@ -148,6 +176,27 @@ export class PaymentCalendarDocumentService {
     return allocations.reduce((s, a) => s + Number(a.amount_assigned), 0);
   }
 
+  /**
+   * `[PGP.68]` **Cómo sale el dinero del día**, por método y banco: cuántos pagos y cuánto. Es lo
+   * que Tesorería necesita para tener fondos en cada cuenta y lo que quien firma necesita para ver
+   * cuánto falta por definir. Ordenado por importe; lo que falta definir, al final y nombrado.
+   */
+  private tablaSalida(allocations: PagoDelExpediente[]): string {
+    const grupos = new Map<string, { metodo: string; banco: string | null; n: number; total: number; falta: boolean }>();
+    for (const a of allocations) {
+      const cp = comoPaga(a);
+      const k = `${cp.metodo}|${cp.banco ?? ''}`;
+      const g = grupos.get(k) ?? { metodo: cp.metodo, banco: cp.banco, n: 0, total: 0, falta: cp.metodo === 'FALTA DEFINIR' };
+      g.n += 1; g.total += Number(a.amount_assigned) || 0;
+      grupos.set(k, g);
+    }
+    const filas = [...grupos.values()].sort((x, y) => Number(x.falta) - Number(y.falta) || y.total - x.total)
+      .map((g) => `<tr><td><b>${esc(g.metodo)}</b></td><td>${esc(g.banco ?? '—')}</td><td class="r">${g.n === 1 ? '1 pago' : `${g.n} pagos`}</td><td class="r">${money(g.total)}</td></tr>`)
+      .join('');
+    return `<h2>Cómo sale el dinero del día</h2>
+      <table class="salida"><thead><tr><th>Método</th><th>Banco o caja</th><th class="r">Pagos</th><th class="r">Importe</th></tr></thead><tbody>${filas}</tbody></table>`;
+  }
+
   private tablaPagos(allocations: any[], opts: { conFolio: boolean }): string {
     const rows = allocations
       .slice()
@@ -200,11 +249,9 @@ export class PaymentCalendarDocumentService {
           .sort((x, y) => String(x.folio_interno ?? '').localeCompare(String(y.folio_interno ?? '')));
         const quien = [...new Set((a.items || []).map((i) => String(i.beneficiary || '')).filter(Boolean))].join('; ');
         const rfcs = [...new Set(lineas.map((l) => l.rfc).filter(Boolean))];
-        const comoSale = [
-          a.payment_method ? METHOD_LABEL[a.payment_method] || a.payment_method : 'sin preparar',
-          a.bank_account_label || (a.payment_method === 'efectivo' ? 'Caja' : null),
-          a.destination_account_text || a.cash_register_text || a.reference_text || null,
-        ].filter(Boolean).join(' · ');
+        // [PGP.68] Cómo se paga, en su propia línea y en negro: método, banco y el dato que lo cierra.
+        const cp = comoPaga(a);
+        const paga = `<b>${esc(cp.metodo)}</b>${cp.banco ? ` · ${cp.metodo === 'EFECTIVO' ? 'Caja' : 'Banco'}: ${esc(cp.banco)}` : ''}${cp.detalle ? ` · ${esc(cp.detalle)}` : ''}`;
         // ⛔ La tabla tiene DIEZ columnas y esta fila traía NUEVE. No era sólo un hueco al final:
         // corría todo un lugar, así que el total del pago caía bajo «Importe doc.» y el conteo de
         // documentos bajo «Se paga» — una columna de dinero publicando un número de papeles. Lo
@@ -214,7 +261,8 @@ export class PaymentCalendarDocumentService {
         const cabeza = `<tr class="pago-row">
           <td class="c">${esc(a.priority_rank ?? '—')}</td>
           <td colspan="7"><b>${esc(quien || '—')}</b>${rfcs.length ? ` · RFC ${esc(rfcs.join(' / '))}` : ''}
-            <div class="como">${esc(comoSale)} · ${CLASSIFICATION_LABEL[a.classification ?? ''] || esc(a.classification ?? '—')} · ${esc(lineas.length ? cuantos : 'sin documentos ligados')}</div></td>
+            <div class="paga${cp.falta ? ' falta' : ''}">${paga}</div>
+            <div class="como">${CLASSIFICATION_LABEL[a.classification ?? ''] || esc(a.classification ?? '—')} · ${esc(lineas.length ? cuantos : 'sin documentos ligados')}</div></td>
           <td class="r"><b>${money(a.amount_assigned)}</b></td>
           <td></td>
         </tr>`;
@@ -305,6 +353,11 @@ export class PaymentCalendarDocumentService {
         table.exp th, table.exp td { padding: 1.1mm 1.4mm; }
         .pago-row td { background: #ececec; border-top: 1.2pt solid #555; padding-top: 1.8mm; }
         .pago-row .como { font-size: 7.5pt; color: #444; margin-top: 0.6mm; }
+        /* [PGP.68] Cómo se paga: en negro, legible al firmar. Lo que falta, subrayado (papel B/N: sin color). */
+        .pago-row .paga { font-size: 8.5pt; color: #111; margin-top: 0.8mm; }
+        .pago-row .paga.falta { text-decoration: underline; }
+        table.salida { width: auto; min-width: 120mm; font-size: 9pt; }
+        table.salida td, table.salida th { padding: 1.2mm 3mm; }
         .doc-row td { border-color: #ddd; }
         .doc-row td:nth-child(2) { padding-left: 3.5mm; }
         /* El thead se repite solo en cada página impresa; sin esto, la página 2 son filas mudas. */
@@ -335,6 +388,7 @@ export class PaymentCalendarDocumentService {
     const html = `<!doctype html><html><head><meta charset="utf-8">${this.baseCss()}</head><body>
       <h1>Programación de Pagos — Preliminar para autorización</h1>
       <p class="sub">Fecha de pago: <b>${fechaLarga(date)}</b> · Folio del lote: <b>${esc(lot?.folio || 'sin asignar (se genera al autorizar)')}</b> · Capacidad autorizada: <b>${summary.capacity_defined ? money(summary.authorized_amount) : 'NO DEFINIDA'}</b> · Total propuesto: <b>${money(total)}</b> · <b>${allocations.length}</b> pago(s), <b>${detalle.length}</b> documento(s)</p>
+      ${this.tablaSalida(allocations)}
       ${this.tablaExpediente(allocations, detalle)}
       ${this.controlExpediente(detalle)}
       <div class="leyenda">

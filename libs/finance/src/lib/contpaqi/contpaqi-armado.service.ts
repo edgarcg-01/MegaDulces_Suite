@@ -103,6 +103,7 @@ import { dictaminarArchivo, resumenDictamen, type Dictamen } from './dictamen';
 import { armarTraspasosDelMes, TOLERANCIA_DIAS_ESTADO, type CuentaTraspaso, type PiernaTraspaso } from './traspasos';
 import { armarComisionesDelMes, CATEGORIA_COMISION } from './comisiones';
 import { leerContextoDictamen } from './dictamen.contexto';
+import { seguimientoDe, SQL_ENTREGADA_EN, type SeguimientoCuadre } from './cuadre.engine';
 import {
   FuentePagoProveedor, type FuenteFacturas, type MovimientoPago, type PropuestaPago, type ResolucionPago,
 } from './pago-proveedor.fuente';
@@ -203,6 +204,26 @@ interface PolizaArmada {
  * (`clave` del resumen, o `cuenta|fecha` del lote del día), para ligar cada fila con su dictamen.
  */
 const filaDeLote = (l: PolizaArmada): string => l.resumen.clave ?? `${l.resumen.cuenta_banco}|${l.resumen.fecha}`;
+
+/** El día de hoy en Ciudad de México, `YYYY-MM-DD` (el contenedor corre en UTC). */
+const hoyMx = (): string =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+
+/**
+ * `[CP.8.99]` Dónde está una póliza del mes que ya se entregó alguna vez: la fila de la pantalla lo dice, y los
+ * conteos del mes se abren a su lista. Sale de `poliza_exports` tal como lo dejó el cuadre (`seguimientoDe`).
+ */
+export interface SeguimientoPoliza {
+  /** La `k` de su fila en `GET lotes`. */
+  lote: string;
+  estado: SeguimientoCuadre;
+  /** El folio de la póliza en ContPAQi, cuando el cuadre la encontró (por token o, sin confirmar, por importe). */
+  folio: number | null;
+  /** Lo que dijo el cuadre (o quién la entregó, si todavía no la juzga). */
+  motivo: string | null;
+  /** `YYYY-MM-DD`: el día en que se marcó como cargada. Desde ahí corre el plazo. */
+  entregada_en: string | null;
+}
 
 /**
  * `[CP.8.34]` — **Lo que el puente NO cubre, dicho por el servidor.**
@@ -334,6 +355,11 @@ export interface DictamenMes {
   ya_entregadas: number;
   /** `[CP.8.97]` Las filas de `GET lotes` con póliza que no se dictaminan porque ya tienen entrega registrada. */
   entregadas: string[];
+  /**
+   * `[CP.8.99]` Las pólizas del mes que se entregaron alguna vez, y dónde están: en ContPAQi, esperando, por confirmar,
+   * no cuadra, o no apareció (ésas vuelven a estar entre las `polizas`, porque salen otra vez).
+   */
+  seguimiento: SeguimientoPoliza[];
   /** Lotes entregados que cambiaron después: no se reenvían (`[CP.8.53]`). */
   cambiados: string[];
 }
@@ -1031,7 +1057,7 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
    */
   async dictamenDelMes(anioMes: string): Promise<DictamenMes> {
     return this.conTenant(async () => {
-      const { pendientes, ya_entregadas, cambiados, entregadas } = await this.pendientesDelMes(anioMes);
+      const { pendientes, ya_entregadas, cambiados, entregadas, seguimiento } = await this.pendientesDelMes(anioMes);
       const { hoy, dictamenes } = await this.dictaminarPendientes(anioMes, pendientes);
       const polizas = pendientes.map((l) => ({
         ...(dictamenes.get(`${l.evento_tipo}|${l.clave}`) as Dictamen),
@@ -1041,7 +1067,7 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
       }));
       return {
         mes: anioMes, hoy, resumen: resumenDictamen(polizas), polizas, ya_entregadas, cambiados,
-        entregadas: entregadas.map(filaDeLote),
+        entregadas: entregadas.map(filaDeLote), seguimiento,
       };
     });
   }
@@ -1053,13 +1079,17 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
    * ser **idéntico, byte a byte**, al que la Suite genera hoy para ese mes (`compararArchivo`).
    * Si no, `EntregaRechazada` — se pide regenerar, no se aproxima.
    *
-   * ⭐ Idempotente: `ON CONFLICT DO NOTHING` por evento. Marcar dos veces no duplica y **no toca**
-   * lo ya registrado: el cuadre usa `updated_at` como hora de entrega, y reescribirla reiniciaría su
-   * plazo; una póliza ya `aplicada` tampoco puede volver a `entregada`. (El `registrar()` de abajo
-   * hace `merge`, por eso éste no lo usa.)
+   * ⭐ Idempotente por evento: marcar dos veces no duplica y **no toca** lo ya registrado (reescribir la fecha de
+   * entrega reiniciaría el plazo del cuadre; una póliza ya `aplicada` no puede volver a `entregada`).
+   *
+   * ⛔ `[CP.8.99]` **Salvo lo que no apareció.** Una póliza `rechazada` (venció el plazo sin llegar a ContPAQi) vuelve
+   * a salir en el archivo a propósito (`[CP.8.53]`). Antes, al marcar ese archivo, el `ON CONFLICT DO NOTHING` la dejaba
+   * `rechazada`: el cuadre ya no la buscaba y salía en CADA archivo siguiente, sin que nadie supiera si ya estaba allá.
+   * Ahora la re-entrega la vuelve `entregada`, con su fecha nueva y sin el veredicto anterior, y el cuadre la busca otra
+   * vez. Sólo ésas: el `WHERE` del `DO UPDATE` deja intacto todo lo demás.
    */
   async marcarEntregado(anioMes: string, archivoBase64: string, por: string): Promise<{
-    mes: string; polizas: number; nuevas: number; ya_registradas: number; total: number;
+    mes: string; polizas: number; nuevas: number; reentregadas: number; ya_registradas: number; total: number;
     archivo_sha256: string;
   }> {
     return this.conTenant(async () => {
@@ -1073,19 +1103,32 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
       if (!cmp.igual) throw new EntregaRechazada(cmp.motivo);
 
       const huella = huellaArchivo(generado);
-      const filas = filasDeEntrega({ tenantId: MEGA, mes: anioMes, lotes: arm.lotes, por, huella });
-      const insertadas = await this.db('contpaqi.poliza_exports')
+      const filas = filasDeEntrega({ tenantId: MEGA, mes: anioMes, lotes: arm.lotes, por, huella, en: hoyMx() });
+      const llave = (r: { evento_tipo: string; evento_id: string }) => `${r.evento_tipo}|${r.evento_id}`;
+      const noAparecieron = new Set(((await this.db('contpaqi.poliza_exports')
+        .where({ tenant_id: MEGA, estado: 'rechazada' })
+        .whereIn(['evento_tipo', 'evento_id'], filas.map((f) => [f.evento_tipo, f.evento_id]))
+        .select('evento_tipo', 'evento_id')) as { evento_tipo: string; evento_id: string }[]).map(llave));
+      const escritas = (await this.db('contpaqi.poliza_exports')
         .insert(filas)
         .onConflict(['tenant_id', 'evento_tipo', 'evento_id'])
-        .ignore()
-        .returning('evento_id');
-      this.log.log(`entrega ${anioMes}: ${insertadas.length} nuevas · `
-        + `${filas.length - insertadas.length} ya registradas · ${por}`);
+        .merge({
+          asiento: this.db.raw('excluded.asiento'), total: this.db.raw('excluded.total'), estado: 'entregada',
+          sink: this.db.raw('excluded.sink'), motivo: this.db.raw('excluded.motivo'),
+          verificada: null, verificada_en: null, contpaqi_folio: null, contpaqi_guid: null, updated_at: this.db.fn.now(),
+        })
+        .whereRaw(`poliza_exports.estado = 'rechazada'`)
+        .returning(['evento_tipo', 'evento_id'])) as { evento_tipo: string; evento_id: string }[];
+      const reentregadas = escritas.filter((r) => noAparecieron.has(llave(r))).length;
+      const nuevas = escritas.length - reentregadas;
+      this.log.log(`entrega ${anioMes}: ${nuevas} nuevas · ${reentregadas} reentregadas · `
+        + `${filas.length - escritas.length} ya registradas · ${por}`);
       return {
         mes: anioMes,
         polizas: filas.length,
-        nuevas: insertadas.length,
-        ya_registradas: filas.length - insertadas.length,
+        nuevas,
+        reentregadas,
+        ya_registradas: filas.length - escritas.length,
         total: arm.total,
         archivo_sha256: huella,
       };
@@ -1194,7 +1237,7 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
    */
   private async pendientesDelMes(anioMes: string): Promise<{
     conAsiento: number; pendientes: PolizaArmada[]; ya_entregadas: number; cambiados: string[];
-    fuera_de_lote: ResumenMes['fuera_de_lote']; entregadas: PolizaArmada[];
+    fuera_de_lote: ResumenMes['fuera_de_lote']; entregadas: PolizaArmada[]; seguimiento: SeguimientoPoliza[];
   }> {
     const { lotes, fuera_de_lote } = await this.construirLotes(anioMes);
     const conAsiento = lotes.filter((l) => l.asiento && l.resumen.incluidas > 0);
@@ -1207,14 +1250,20 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
      * (`rechazada` = el cuadre dijo que nunca apareció: ése sí puede volver a mandarse.)
      */
     // `[CP.8.72]` Lo entregado se reconoce por (tipo, clave): un pago a proveedor y un lote nunca comparten clave.
-    const entregados = new Map<string, number>(
-      ((await this.db('contpaqi.poliza_exports')
-        .where({ tenant_id: MEGA, periodo: anioMes })
-        .whereIn('evento_tipo', ['bank_lote', 'bank_pago_proveedor', 'bank_gasto', 'bank_traspaso', 'bank_comisiones'])
-        .whereIn('estado', ['armada', 'entregada', 'aplicada'])
-        .select('evento_tipo', 'evento_id', 'total')) as { evento_tipo: string; evento_id: string; total: string | number }[])
-        .map((r) => [`${r.evento_tipo}|${r.evento_id}`, Number(r.total)]),
-    );
+    // `[CP.8.99]` Una sola lectura, con TODOS los estados: lo `rechazada` no cuenta como entregado (sale otra vez), pero
+    // su fila sí tiene que decir que no apareció.
+    const registradas = (await this.db('contpaqi.poliza_exports')
+      .where({ tenant_id: MEGA, periodo: anioMes })
+      .whereIn('evento_tipo', ['bank_lote', 'bank_pago_proveedor', 'bank_gasto', 'bank_traspaso', 'bank_comisiones'])
+      .select('evento_tipo', 'evento_id', 'total', 'estado', 'verificada', 'contpaqi_folio', 'motivo',
+        this.db.raw(`${SQL_ENTREGADA_EN} as entregada_en`))) as {
+        evento_tipo: string; evento_id: string; total: string | number; estado: string; verificada: boolean | null;
+        contpaqi_folio: number | string | null; motivo: string | null; entregada_en: string | null;
+      }[];
+    const porLlave = new Map(registradas.map((r) => [`${r.evento_tipo}|${r.evento_id}`, r]));
+    const entregados = new Map<string, number>(registradas
+      .filter((r) => ['armada', 'entregada', 'aplicada'].includes(r.estado))
+      .map((r) => [`${r.evento_tipo}|${r.evento_id}`, Number(r.total)]));
     const cambiados: string[] = [];
     const entregadas: PolizaArmada[] = [];
     const pendientes = conAsiento.filter((l) => {
@@ -1224,7 +1273,15 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
       entregadas.push(l);
       return false;
     });
-    return { conAsiento: conAsiento.length, pendientes, ya_entregadas: entregados.size, cambiados, fuera_de_lote, entregadas };
+    const seguimiento: SeguimientoPoliza[] = conAsiento.flatMap((l) => {
+      const r = porLlave.get(`${l.evento_tipo}|${l.clave}`);
+      if (!r) return [];
+      const folio = r.contpaqi_folio === null || r.contpaqi_folio === undefined ? null : Number(r.contpaqi_folio);
+      return [{ lote: filaDeLote(l), estado: seguimientoDe(r), folio, motivo: r.motivo, entregada_en: r.entregada_en }];
+    });
+    return {
+      conAsiento: conAsiento.length, pendientes, ya_entregadas: entregados.size, cambiados, fuera_de_lote, entregadas, seguimiento,
+    };
   }
 
   /**
@@ -1235,8 +1292,7 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
   private async dictaminarPendientes(anioMes: string, pendientes: PolizaArmada[]): Promise<{
     hoy: string; dictamenes: Map<string, Dictamen>;
   }> {
-    const hoy = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' })
-      .format(new Date());
+    const hoy = hoyMx();
     // `[CP.8.91]` La póliza de comisiones agrupa a propósito: un abono por movimiento, no UNA pata de banco.
     const ps = pendientes.map((l) => ({
       clave: `${l.evento_tipo}|${l.clave}`, asiento: l.asiento!, uuids: l.uuids, agrupada: l.evento_tipo === 'bank_comisiones',

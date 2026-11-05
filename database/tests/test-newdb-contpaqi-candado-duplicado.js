@@ -71,6 +71,13 @@ function servicio(pool) {
   return armado;
 }
 
+function servicioCuadre(pool) {
+  const { ContpaqiCuadreService } = require(path.join(SRC, 'contpaqi-cuadre.service.ts'));
+  const cuadre = new ContpaqiCuadreService(pool);
+  cuadre.log = silencio;
+  return cuadre;
+}
+
 /** `[CP.8.97]` Las filas de `GET lotes` con la llave con que las conoce la pantalla (`clave`, o `cuenta|fecha`). */
 async function filasDeLotes(armado, mes) {
   const { lotes } = await armado.simularLotes(mes);
@@ -100,6 +107,8 @@ async function soloLectura(url) {
     const filas = await filasDeLotes(armado, MES_REAL);
     check(dic.polizas.every((p) => filas.has(p.lote)) && dic.entregadas.every((k) => filas.has(k)),
       `cada póliza dictaminada y cada entregada es una fila de la lista (${dic.polizas.length} + ${dic.entregadas.length} de ${filas.size} filas)`);
+    check(Array.isArray(dic.seguimiento) && dic.seguimiento.every((s) => filas.has(s.lote)),
+      `[CP.8.99] el seguimiento viaja y cada uno es una fila de la lista (${dic.seguimiento && dic.seguimiento.length} con entrega en ${MES_REAL})`);
 
     let arch = null;
     let err = null;
@@ -129,6 +138,7 @@ async function completo(urlAdmin, urlRuntime) {
   const runtime = knexLib({ client: 'pg', connection: urlRuntime, pool: { min: 0, max: 3 } });
   const ids = {};
   const suPoliza = { tenant_id: MEGA, source: 'contpaqi', ejercicio: 2001, periodo: 3, tipo_pol: '2', folio: FOLIO };
+  const suya6 = { ...suPoliza, folio: '88802' };
   try {
     for (const [s, t] of [['contpaqi', 'account_rules'], ['contpaqi', 'poliza_exports'], ['analytics', 'contpaqi_accounts'], ['analytics', 'gl_polizas']]) {
       if (!(await admin.schema.withSchema(s).hasTable(t))) { noMedido(`${s}.${t} no existe en este destino`); return; }
@@ -186,6 +196,49 @@ async function completo(urlAdmin, urlRuntime) {
       && filas2.has(d2.polizas[0].lote) && filas2.has(d2.entregadas[0]),
       `[CP.8.97] la pantalla sabe qué fila es cada una: frenada ${d2.polizas[0].lote} · entregada ${d2.entregadas.join(', ')}`);
 
+    // ── [CP.8.99] Lo entregado dice dónde está, y lo que no aparece vuelve a buscarse ─────────────────────────────
+    const DIA6 = `${BANCO}|2001-03-06`;
+    const hoyMx = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    const s2 = d2.seguimiento.find((x) => x.lote === DIA6);
+    check(d2.seguimiento.length === 1 && s2 && s2.estado === 'esperando' && s2.entregada_en === hoyMx && s2.folio === null,
+      `[CP.8.99] recién marcada, su fila dice «esperando» desde hoy: ${JSON.stringify(s2)}`);
+
+    const cuadre = servicioCuadre(runtime);
+    // Lo que pasa de verdad: se marcó hace 10 días y el cuadre ya corrió en medio (y reescribió `updated_at` a ahora).
+    // Antes el plazo corría desde `updated_at`: volvía a cero cada corrida y esto quedaba «esperando» para siempre.
+    const hace10 = new Date(Date.now() - 10 * 86400000).toISOString().slice(0, 10);
+    await admin('contpaqi.poliza_exports').where({ tenant_id: MEGA, periodo: MES, evento_id: DIA6 }).update({
+      asiento: admin.raw(`jsonb_set(asiento::jsonb, '{entrega,en}', to_jsonb(?::text))`, [hace10]),
+      created_at: admin.raw(`now() - interval '10 days'`), updated_at: admin.fn.now(),
+    });
+    await cuadre.cuadrarPendientes(hoyMx);
+    const d3 = await armado.dictamenDelMes(MES);
+    const s3 = d3.seguimiento.find((x) => x.lote === DIA6);
+    check(s3 && s3.estado === 'no_aparecio' && s3.entregada_en === hace10,
+      `⛔ marcada hace 10 días y sin llegar: «no apareció», aunque el cuadre haya corrido en medio (${s3 && s3.estado})`);
+    check(d3.polizas.some((p) => p.lote === DIA6) && !d3.entregadas.includes(DIA6),
+      'lo que no apareció vuelve a salir en el archivo (y su fila sigue diciendo que no apareció)');
+
+    const a3 = await armado.generarArchivoMes(MES);
+    const m3 = await armado.marcarEntregado(MES, Buffer.from(a3.contenido, 'latin1').toString('base64'), POR);
+    const fila3 = await admin('contpaqi.poliza_exports').where({ tenant_id: MEGA, periodo: MES, evento_id: DIA6 })
+      .first('estado', 'verificada', 'contpaqi_folio', admin.raw(`asiento::jsonb->'entrega'->>'en' as en`), admin.raw(`asiento::jsonb->>'token' as token`));
+    check(m3.reentregadas === 1 && m3.nuevas === 0 && fila3.estado === 'entregada' && fila3.verificada === null && fila3.en === hoyMx,
+      `⛔ al marcarla otra vez vuelve a «entregada» desde hoy, sin el veredicto viejo (${m3.reentregadas} reentregada · ${fila3.estado} · ${fila3.en})`);
+    let errDos = null;
+    try { await armado.marcarEntregado(MES, Buffer.from(a3.contenido, 'latin1').toString('base64'), POR); } catch (e) { errDos = e; }
+    const fila3b = await admin('contpaqi.poliza_exports').where({ tenant_id: MEGA, periodo: MES, evento_id: DIA6 }).first('estado', 'updated_at');
+    check(errDos && fila3b.estado === 'entregada',
+      `marcar el mismo archivo otra vez se rechaza (ya no hay qué entregar) y no la toca: «${String(errDos && errDos.message).slice(0, 60)}…»`);
+
+    // Ahora aparece en ContPAQi, con nuestro token en el concepto: el cuadre la encuentra.
+    await admin('analytics.gl_polizas').insert({ ...suya6, anio_mes: MES, fecha: '2001-03-06', concepto: `${fila3.token} PAGO`, cargos: 250.50, abonos: 250.50, num_lines: 2 });
+    await cuadre.cuadrarPendientes(hoyMx);
+    const d4 = await armado.dictamenDelMes(MES);
+    const s4 = d4.seguimiento.find((x) => x.lote === DIA6);
+    check(s4 && s4.estado === 'en_contpaqi' && s4.folio === Number(suya6.folio) && d4.entregadas.includes(DIA6),
+      `y al aparecer allá su fila dice «en ContPAQi» con el folio: ${JSON.stringify(s4)}`);
+
     await ponerSuPoliza(100.01);
     const a2 = await armado.generarArchivoMes(MES);
     check(a2.polizas === 1 && a2.bloqueadas.length === 0, `con otro importe ya no es la suya: el día 5 vuelve a salir (${a2.polizas} · ${a2.bloqueadas.length})`);
@@ -199,6 +252,7 @@ async function completo(urlAdmin, urlRuntime) {
     try {
       await admin('analytics.gl_poliza_lines').where(suPoliza).del();
       await admin('analytics.gl_polizas').where(suPoliza).del();
+      await admin('analytics.gl_polizas').where(suya6).del();
       await admin('contpaqi.poliza_exports').where({ tenant_id: MEGA, periodo: MES }).del();
       await admin('contpaqi.account_rules').where({ tenant_id: MEGA, categoria_code: CAT }).del();
       if (ids.cuenta) await admin('finance.bank_accounts').where({ id: ids.cuenta }).del(); // cascada: estado y movimientos

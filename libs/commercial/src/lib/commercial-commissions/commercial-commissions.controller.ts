@@ -2,7 +2,9 @@ import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import {
   RolesGuard, RequirePermissions, RequireAnyPermission, Permission, isPlatformAdminRole,
+  BusinessDefinitionsService,
 } from '@megadulces/platform-core';
+import type { DefinicionVista } from '@megadulces/contracts';
 import { CommercialCommissionsService, type SimulacionEscala, type CorridaConLineas } from './commercial-commissions.service';
 import { CommissionRecalcService, type RecalcResultado } from './commission-recalc.service';
 import { CommissionContrastService, type FaltoResumen, type FaltoFila } from './commission-contrast.service';
@@ -50,6 +52,7 @@ export class CommercialCommissionsController {
     private readonly bonosSvc: CommissionBonosService,
     private readonly autoRunSvc: CommissionAutoRunService,
     private readonly beneficiariosSvc: CommissionBeneficiariosService,
+    private readonly defs: BusinessDefinitionsService,
   ) {}
 
   /**
@@ -173,14 +176,20 @@ export class CommercialCommissionsController {
   @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_GESTIONAR)
   @ApiOperation({
     summary: 'Crea una VERSIÓN NUEVA del tabulador; nunca pisa la vigente',
-    description: 'Body: `{ valid_from, tiers[], nombre?, share_supervisor_pct? }`. Cierra la '
-      + 'anterior con `valid_to = valid_from`. **Rechaza** una fecha que alcance a un periodo ya '
-      + 'pagado o aprobado, escalones con hueco o traslape, y un último escalón con techo.',
+    description: 'Body: `{ valid_from, tiers[], nombre?, share_supervisor_pct?, familia?, '
+      + 'gate_field?, piso_chofer_venta? }`. Cierra la anterior DE LA MISMA FAMILIA con '
+      + '`valid_to = valid_from`. **Rechaza** una fecha que alcance a un periodo ya pagado o '
+      + 'aprobado, escalones con hueco o traslape, un último escalón con techo y la primera '
+      + 'versión de una familia sin `gate_field`. `[RD.103.2]` La vecinal escalona por '
+      + '`markup` (los escalones en %) y lleva `piso_chofer_venta`.',
   })
   createScale(
     @Body() body: {
       valid_from: string; nombre?: string; share_supervisor_pct?: number;
       tiers: { min_amount: number; max_amount: number | null; pct: number }[];
+      familia?: 'ruta_directa' | 'vecinal' | 'tlmk';
+      gate_field?: 'venta' | 'subtotal' | 'markup';
+      piso_chofer_venta?: number | null;
     },
   ) {
     return this.service.createScaleVersion(body);
@@ -224,6 +233,19 @@ export class CommercialCommissionsController {
   })
   universe() {
     return this.service.listUniverse();
+  }
+
+  /**
+   * `[DP.3.2]` Las preguntas de negocio de las que depende esta nómina (vecinal, TLMK, ausencias,
+   * bono de asistencia, faltante…), con su respuesta vigente o «sin definir» y su dueño.
+   * ⛔ Va por COMISIONES_VER y no por `GET /definitions` (DEFINICIONES_VER, sólo Dirección): quien
+   * mira la nómina tiene que ver qué reglas le faltan, y sólo las de ESTE consumidor.
+   */
+  @Get('definitions')
+  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_VER)
+  @ApiOperation({ summary: 'Las definiciones de negocio de comisiones RD, con su estado y su dueño' })
+  definiciones(): Promise<DefinicionVista[]> {
+    return this.defs.listar('commercial.commissions');
   }
 
   /**

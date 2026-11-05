@@ -9,6 +9,8 @@ import {
 } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, todayMx } from '@megadulces/platform-core';
 import { totalesDeCorrida, type TotalesDeCorrida } from './commission-totales.logic';
+import { decidirEscalon, elegirEscalon } from './commission-escalon.logic';
+import { escalaVigente, esFamiliaTabulador, type EscalaFila, type FamiliaTabulador } from './commission-escala';
 
 /**
  * RD.6 / **RD.17-RD.19** — Motor de comisiones de Ruta Directa.
@@ -96,6 +98,15 @@ interface RutaUniverso {
   nomina_banco: string | null;
   chofer_nombre: string | null;
   supervisor_nombre: string | null;
+  /** `[RD.103.2]` De la fila de «Quién cobra»; sin fila, `ruta_directa` (lo que había). */
+  familia: FamiliaTabulador;
+}
+
+/** `[RD.103.2]` El tabulador de una familia, ya cargado para la corrida. */
+interface ReglaFamilia {
+  scale: EscalaFila;
+  tiers: Tier[];
+  bonuses: Bonus[];
 }
 
 /** El periodo de una ruta, ya arbitrado por `v_rd_commission_base`. */
@@ -166,6 +177,8 @@ export interface CommissionLine {
   deduccion_status: string | null;
   a_pagar: number;
   motivo_no_pago: string | null;
+  /** `[RD.103.2]` La versión del tabulador con que se calculó ESTA línea (cada familia tiene la suya). */
+  scale_id?: string | null;
 }
 
 /** El neto por persona: la deduccion del supervisor no es por ruta. */
@@ -207,6 +220,9 @@ const SQL_VENTA_DIA = `
          subtotal::float8        AS subtotal,
          venta::float8           AS venta,
          costo_wincaja::float8   AS costo_wincaja,
+         -- [RD.103.2] cantidad x kdii.c77: el costo estandar de HOY, el ultimo recurso
+         costo_vecinal::float8   AS costo_vecinal,
+         costo_vecinal_status,
          fuentes_dia,
          dia_multifuente
     FROM analytics.v_rd_commission_sales
@@ -223,7 +239,7 @@ const SQL_COSTO_DIA = `
 
 /** Del peor al mejor. La precedencia esta ESCRITA: el `min()` alfabetico anterior devolvia el
  *  caso MEJOR (`erp_reexpresado_cada_corrida` < `sin_dato_en_la_fuente`) y decia lo contrario. */
-const ORDEN_COSTO = ['sin_costo', 'solo_wincaja_reexpresado', 'una_fuente_erp',
+const ORDEN_COSTO = ['sin_costo', 'solo_wincaja_reexpresado', 'estandar_kepler_hoy', 'una_fuente_erp',
   'una_fuente_embarque', 'dos_fuentes'] as const;
 
 /**
@@ -352,8 +368,8 @@ export class CommercialCommissionsService {
       const escalas = await trx('commercial.commission_scales')
         .whereNull('deleted_at')
         .orderBy('valid_from', 'desc')
-        .select('id', 'code', 'nombre', 'valid_from', 'valid_to',
-          'base_field', 'gate_field', 'share_supervisor_pct', 'notes');
+        .select('id', 'code', 'nombre', 'valid_from', 'valid_to', 'familia',
+          'base_field', 'gate_field', 'share_supervisor_pct', 'piso_chofer_venta', 'notes');
       const ids = escalas.map((e: any) => e.id);
       const tiers = ids.length
         ? await trx('commercial.commission_scale_tiers')
@@ -397,11 +413,17 @@ export class CommercialCommissionsService {
    *  2. Los escalones cubren sin huecos ni traslapes, en orden, y el último sin techo — si no,
    *     una venta cae en ningún escalón y el motor paga cero sin decir por qué.
    *  3. Al menos un escalón: una escala vacía deja a todos en cero.
+   *
+   * `[RD.103.2]` La versión es de UNA familia (por omisión `ruta_directa`, lo que había) y cierra
+   * sólo la vigente de esa familia. La primera vecinal declara cómo escalona (`gate_field:
+   * 'markup'`) y su piso; las siguientes lo heredan si no lo mandan.
    */
   async createScaleVersion(
     body: {
       valid_from: string; nombre?: string; share_supervisor_pct?: number;
       tiers: { min_amount: number; max_amount: number | null; pct: number }[];
+      familia?: FamiliaTabulador; gate_field?: 'venta' | 'subtotal' | 'markup';
+      piso_chofer_venta?: number | null;
     },
     userId?: string,
   ) {
@@ -409,6 +431,19 @@ export class CommercialCommissionsService {
     const desde = String(body?.valid_from ?? '').slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(desde)) {
       throw new ConflictException('Falta la fecha desde la que rige la escala nueva (YYYY-MM-DD).');
+    }
+    const familia = body?.familia ?? 'ruta_directa';
+    if (!esFamiliaTabulador(familia)) {
+      throw new ConflictException(`familia debe ser ruta_directa, vecinal o tlmk (llegó «${familia}»).`);
+    }
+    if (body?.gate_field != null && !['venta', 'subtotal', 'markup'].includes(body.gate_field)) {
+      throw new ConflictException('gate_field es venta, subtotal o markup: sobre qué se elige el escalón.');
+    }
+    if (body?.piso_chofer_venta != null) {
+      const p = Number(body.piso_chofer_venta);
+      if (!Number.isFinite(p) || p < 0) {
+        throw new ConflictException('El piso del chofer es una venta en pesos, cero o mayor.');
+      }
     }
     // `[RD.100]` La parte del supervisor se configura desde la pantalla: se valida el rango.
     if (body?.share_supervisor_pct != null) {
@@ -458,15 +493,24 @@ export class CommercialCommissionsService {
           + `que rija desde el ${desde} reescribiria lo que ya se deposito: la fecha mas temprana `
           + 'posible es el dia siguiente.');
       }
-      const vigente = await this.loadScale(trx, desde).catch(() => null);
+      const vigente = await this.loadScale(trx, desde, familia).catch(() => null);
+      // La PRIMERA versión de una familia nueva no hereda nada: tiene que decir cómo escalona.
+      // Con el `venta` por omisión, un tabulador escrito en % de markup se leería como pesos.
+      if (!vigente && familia !== 'ruta_directa' && !body.gate_field) {
+        throw new ConflictException(
+          `Es la primera versión ${familia}: falta gate_field (venta, subtotal o markup).`);
+      }
       const ins = await trx('commercial.commission_scales').insert({
         tenant_id: tenantId,
-        code: vigente?.code ?? 'RD',
+        code: vigente?.code ?? ({ ruta_directa: 'RD', vecinal: 'VEC', tlmk: 'TLMK' } as const)[familia],
         nombre: body.nombre ?? `Tabulador vigente desde ${desde}`,
         valid_from: desde,
         valid_to: null,
+        familia,
         base_field: vigente?.base_field ?? 'subtotal',
-        gate_field: vigente?.gate_field ?? 'venta',
+        gate_field: body.gate_field ?? vigente?.gate_field ?? 'venta',
+        piso_chofer_venta: body.piso_chofer_venta !== undefined
+          ? body.piso_chofer_venta : (vigente?.piso_chofer_venta ?? null),
         share_supervisor_pct: body.share_supervisor_pct ?? vigente?.share_supervisor_pct ?? 0,
         notes: `Estrenada desde la pantalla de configuracion. Reemplaza a ${vigente?.id ?? '(ninguna)'}.`,
         created_by: userId ?? null,
@@ -623,6 +667,28 @@ export class CommercialCommissionsService {
       if (!tiers.length) throw new ConflictException(`La escala ${scale.code} no tiene escalones`);
       if (!universo.length) throw new ConflictException('El universo de rutas vino vacio');
 
+      // ⭐ `[RD.103.2]` Un tabulador POR FAMILIA. Ruta Directa sigue siendo obligatoria (arriba);
+      // una familia sin versión vigente NO tumba la corrida ni cae al tabulador RD: sus rutas
+      // salen `sin_tabulador`, declaradas (ADR-056). Antes, una vecinal dada de alta en «Quién
+      // cobra» se pagaba con el tabulador RD sin aviso.
+      const reglas = new Map<FamiliaTabulador, ReglaFamilia>([['ruta_directa', { scale, tiers, bonuses }]]);
+      const otras = new Set(universo.filter((u) => u.comisiona && u.familia !== 'ruta_directa').map((u) => u.familia));
+      for (const familia of otras) {
+        const s = await escalaVigente(trx, { familia, onDate: to });
+        if (!s) continue;
+        const [t, b] = await Promise.all([
+          trx('commercial.commission_scale_tiers')
+            .where({ scale_id: s.id }).whereNull('deleted_at')
+            .orderBy('min_amount').select<Tier[]>('min_amount', 'max_amount', 'pct'),
+          trx('commercial.commission_bonuses')
+            .where({ scale_id: s.id, periodo: 'quincena', activo: true })
+            .whereNull('deleted_at')
+            .select<Bonus[]>('beneficiario', 'nombre', 'metrica', 'comparador', 'umbral', 'monto',
+              'route_code', 'gate_venta_min'),
+        ]);
+        if (t.length) reglas.set(familia, { scale: s, tiers: t, bonuses: b });
+      }
+
       const ventaMap = new Map(ventas.map((v) => [v.route_code, v]));
       const lines: CommissionLine[] = [];
       const fuera: { route_code: string; veredicto: string; route_kind: string | null;
@@ -674,24 +740,31 @@ export class CommercialCommissionsService {
         }
         conDato++;
 
-        const gate = scale.gate_field === 'subtotal' ? v.subtotal : v.venta;
-        const base = scale.base_field === 'subtotal' ? v.subtotal : v.venta;
-        const tier = this.pickTier(tiers, gate);
         const { markup, margen } = this.razones(v);
+        const regla = reglas.get(cfg.familia);
+        if (!regla) {
+          lines.push(this.emptyLine(cfg, 'chofer', 'sin_tabulador', esperados(cfg), v, markup, margen));
+          lines.push(this.emptyLine(cfg, 'supervisor', 'sin_tabulador', esperados(cfg), v, markup, margen));
+          continue;
+        }
+        const esc = regla.scale;
+        const conEscala = (l: CommissionLine): CommissionLine => ({ ...l, scale_id: esc.id });
+        // [RD.103.2] Ruta Directa escalona por venta; la vecinal, por markup y con piso del chofer.
+        const decision = decidirEscalon(esc, regla.tiers, v, markup);
 
-        if (!tier) {
-          lines.push(this.emptyLine(cfg, 'chofer', 'bajo_umbral', esperados(cfg), v, markup, margen));
-          lines.push(this.emptyLine(cfg, 'supervisor', 'bajo_umbral', esperados(cfg), v, markup, margen));
+        if (!decision.paga) {
+          lines.push(conEscala(this.emptyLine(cfg, 'chofer', decision.motivo, esperados(cfg), v, markup, margen)));
+          lines.push(conEscala(this.emptyLine(cfg, 'supervisor', decision.motivo, esperados(cfg), v, markup, margen)));
           continue;
         }
 
-        const pct = Number(tier.pct);
-        const comisionTotal = base * (pct / 100);
-        const comisionSupervisor = comisionTotal * (Number(scale.share_supervisor_pct) / 100);
+        const pct = decision.pct;
+        const comisionTotal = decision.base * (pct / 100);
+        const comisionSupervisor = comisionTotal * (Number(esc.share_supervisor_pct) / 100);
         const comisionChofer = comisionTotal - comisionSupervisor;
 
-        const bonosChofer = this.matchBonuses(bonuses, 'chofer', cfg.route_code, v.venta, markup);
-        const bonosSuper = this.matchBonuses(bonuses, 'supervisor', cfg.route_code, v.venta, markup);
+        const bonosChofer = this.matchBonuses(regla.bonuses, 'chofer', cfg.route_code, v.venta, markup);
+        const bonosSuper = this.matchBonuses(regla.bonuses, 'supervisor', cfg.route_code, v.venta, markup);
         const sum = (bs: { monto: number }[]) => bs.reduce((s, b) => s + b.monto, 0);
         const veredictoBono = this.veredictoBono(v, bonosSuper.length > 0);
         const nomina = Number(cfg.nomina_banco ?? 0);
@@ -708,17 +781,24 @@ export class CommercialCommissionsService {
           dias_con_venta: v.dias, dias_esperados: esperados(cfg),
           zona: cfg.plaza_o_zona,
           pct_aplicado: pct, motivo_no_pago: null,
+          scale_id: esc.id,
         };
 
-        lines.push({
-          ...comun,
-          route_code: cfg.route_code, beneficiario: 'chofer', chofer_nombre: cfg.chofer_nombre,
-          comision: r2(comisionChofer), bonos: r2(sum(bonosChofer)), bonos_detalle: bonosChofer,
-          bono_veredicto: bonosChofer.length ? 'arbitrado' : null,  // el del chofer va por VENTA
-          nomina_banco: r2(nomina),
-          deduccion_status: nomina > 0 ? 'aplicada' : 'no_aplica',
-          a_pagar: r2(comisionChofer + sum(bonosChofer) - nomina),
-        });
+        // [RD.103.2] El piso es SOLO del chofer: en el libro vecinal el supervisor cobra aunque el
+        // chofer quede en «NO APLICA». Bajo el piso, el chofer no cobra ni se le resta la nomina.
+        if (decision.chofer_bajo_piso) {
+          lines.push(conEscala(this.emptyLine(cfg, 'chofer', 'bajo_piso', esperados(cfg), v, markup, margen)));
+        } else {
+          lines.push({
+            ...comun,
+            route_code: cfg.route_code, beneficiario: 'chofer', chofer_nombre: cfg.chofer_nombre,
+            comision: r2(comisionChofer), bonos: r2(sum(bonosChofer)), bonos_detalle: bonosChofer,
+            bono_veredicto: bonosChofer.length ? 'arbitrado' : null,  // el del chofer va por VENTA
+            nomina_banco: r2(nomina),
+            deduccion_status: nomina > 0 ? 'aplicada' : 'no_aplica',
+            a_pagar: r2(comisionChofer + sum(bonosChofer) - nomina),
+          });
+        }
 
         // ⚠️ La linea del supervisor trae la CONTRIBUCION de esta ruta (`nomina_banco = 0`).
         // Su deduccion es por PERSONA y agregada sobre sus rutas -- no se reparte entre rutas,
@@ -754,6 +834,12 @@ export class CommercialCommissionsService {
           date_from: from, date_to: to, pay_date: period.pay_date },
         scale: { id: scale.id, code: scale.code, base_field: scale.base_field,
           gate_field: scale.gate_field, share_supervisor_pct: Number(scale.share_supervisor_pct) },
+        // [RD.103.2] Con qué tabulador se calculó cada familia; `scale` arriba es el de Ruta Directa.
+        escalas: [...reglas.entries()].map(([familia, r]) => ({
+          familia, id: r.scale.id, code: r.scale.code, base_field: r.scale.base_field,
+          gate_field: r.scale.gate_field, share_supervisor_pct: Number(r.scale.share_supervisor_pct),
+          piso_chofer_venta: r.scale.piso_chofer_venta == null ? null : Number(r.scale.piso_chofer_venta),
+        })),
         ...totals,
         data_as_of: dataAsOf,
         gates,
@@ -855,14 +941,12 @@ export class CommercialCommissionsService {
 
   // ── Internos ─────────────────────────────────────────────────────────────────────────
 
-  private async loadScale(trx: any, onDate: string) {
-    const scale = await trx('commercial.commission_scales')
-      .whereNull('deleted_at')
-      .where('valid_from', '<=', onDate)
-      .andWhere((b: any) => b.whereNull('valid_to').orWhere('valid_to', '>', onDate))
-      .orderBy('valid_from', 'desc')
-      .first();
-    if (!scale) throw new NotFoundException(`No hay escala de comision vigente al ${onDate}`);
+  /** La de Ruta Directa salvo que se pida otra familia: es la que la corrida exige (`[RD.103.2]`). */
+  private async loadScale(
+    trx: Knex | Knex.Transaction, onDate: string, familia: FamiliaTabulador = 'ruta_directa',
+  ): Promise<EscalaFila> {
+    const scale = await escalaVigente(trx, { familia, onDate });
+    if (!scale) throw new NotFoundException(`No hay escala de comision ${familia} vigente al ${onDate}`);
     return scale;
   }
 
@@ -895,6 +979,8 @@ export class CommercialCommissionsService {
     const { rows } = await trx.raw(
       `SELECT u.route_code, u.route_kind, u.plaza_o_zona,
               u.nomina_banco, u.chofer_nombre, u.supervisor_nombre,
+              -- [RD.103.2] la familia la declara la fila de «Quién cobra», no el código (D-V2)
+              COALESCE(c.familia, 'ruta_directa') AS familia,
               v.vigente AS comisiona,
               -- El veredicto sigue a la vigencia DEL PERIODO. Sin esto, la 321 saldría
               -- 'config_inactiva' en una quincena que sí comisionó, y la pantalla publicaría
@@ -953,7 +1039,8 @@ export class CommercialCommissionsService {
       } as VentaRuta & { _fuentes: Set<string> };
       const c = costoDia.get(k(v.route_code, v.business_date));
       // Precedencia del costo del DIA: la cuenta del camion, el ERP, y al final el inestable.
-      const costoDelDia = c?.cogs_ruta ?? c?.cogs_erp ?? v.costo_wincaja ?? null;
+      // [RD.103.2] La vecinal no tiene embarque ni ERP de ruta: su costo es cantidad x kdii.c77.
+      const costoDelDia = c?.cogs_ruta ?? c?.cogs_erp ?? v.costo_wincaja ?? v.costo_vecinal ?? null;
 
       cur.dias++;
       cur.subtotal += Number(v.subtotal) || 0;
@@ -968,9 +1055,15 @@ export class CommercialCommissionsService {
       if (c?.cogs_ruta != null) cur.cogs_ruta = (cur.cogs_ruta ?? 0) + Number(c.cogs_ruta);
       if (c?.cogs_erp != null) cur.cogs_erp = (cur.cogs_erp ?? 0) + Number(c.cogs_erp);
       if (c && c.cogs_ruta_completo === false) cur.dias_cogs_parcial++;
+      // Un día vecinal con SKUs sin costo estándar: el costo sale chico y el markup alto, igual
+      // que el COGS parcial del embarque. Se cuenta igual para que el veredicto lo declare.
+      if (!c && v.costo_wincaja == null && v.costo_vecinal_status === 'estandar_kepler_incompleto') {
+        cur.dias_cogs_parcial++;
+      }
       // El PEOR veredicto del periodo, por orden escrito.
       const vd = c?.costo_veredicto
-        ?? (v.costo_wincaja != null ? 'solo_wincaja_reexpresado' : 'sin_costo');
+        ?? (v.costo_wincaja != null ? 'solo_wincaja_reexpresado'
+          : v.costo_vecinal != null ? 'estandar_kepler_hoy' : 'sin_costo');
       if (ORDEN_COSTO.indexOf(vd) < ORDEN_COSTO.indexOf(cur.costo_veredicto as never)) {
         cur.costo_veredicto = vd;
       }
@@ -1123,12 +1216,7 @@ export class CommercialCommissionsService {
 
   /** min inclusivo, max exclusivo, `max IS NULL` = sin techo (FASE_RD §4.6). */
   private pickTier(tiers: Tier[], gate: number): Tier | null {
-    for (const t of tiers) {
-      const min = Number(t.min_amount);
-      const max = t.max_amount === null ? Infinity : Number(t.max_amount);
-      if (gate >= min && gate < max) return t;
-    }
-    return null;
+    return elegirEscalon(tiers, gate);
   }
 
   /**
@@ -1462,6 +1550,7 @@ export class CommercialCommissionsService {
         bonos_detalle: JSON.stringify(l.bonos_detalle), bono_veredicto: l.bono_veredicto,
         nomina_banco: l.nomina_banco, deduccion_status: l.deduccion_status,
         a_pagar: l.a_pagar, motivo_no_pago: l.motivo_no_pago,
+        scale_id: l.scale_id ?? null,
         created_by: userId, updated_by: userId,
       })),
     );

@@ -328,6 +328,53 @@ ensayo en 00, 02–05, 07, 08 · pedidos con regalos (rechazados a propósito).
 
 ## Bitácora
 
+- **2026-11-04** — 🧪 **[COT.25] Liga automática usuario ↔ vendedor de Kepler** (Edgar: «liguemos los usuarios
+  automáticamente»). Por nombre y calculada al pedirla (sin copiar, sin cron): un usuario nuevo queda ligado en cuanto su
+  nombre coincide. Regla estricta, porque una liga mala le atribuye la venta a otro: todas las palabras del vendedor
+  (sin prefijos TLMKT/VMPH01/RD…) en el nombre del usuario; un código que casa con dos personas no se liga; dos códigos
+  de la misma persona en una sucursal → el único con pedidos/facturas en 90 días; los «vendedores» que son plaza, piso o
+  ruta nunca; sólo cuentas de persona (`kind = 'interno'`). La liga a mano (`vendor_identity.user_id`, COT.24) gana.
+  Medido con los datos de prod y la función tal cual: **19 de 172 personas ligadas, ninguna equivocada** en la revisión
+  una por una; quedan fuera, como debe, el usuario de apellido parecido que caía en otro código, el código 505 que casa
+  con dos personas, las cuentas de dispositivo y los dos usuarios de una misma persona. ⛔ **La ruta NO es fuente**: 19
+  cuentas comparten 9 rutas (la encargada de tienda tiene la ruta de un vendedor). Las tres consultas de la liga: ~250 ms
+  en prod. Pruebas: 9 de la regla con los casos reales + 121/121 del módulo.
+
+- **2026-11-04** — 🧪 **COT.22–24: lo que pidió Edgar después del primer uso** (commit local, sin empujar; migración
+  `20261104141310` SIN aplicar). Decisiones firmadas hoy: el vendedor es **el del cliente en Kepler y, si falta, el del
+  usuario** (así va el 97.6 % de los TELEMARK, 3,257/3,336); los clientes son **los de la sucursal elegida**.
+  - **[COT.22] Clientes de la sucursal.** El padrón `kdud` está copiado en las 9 (2,516 de 2,895 claves en varias) y el
+    catálogo de vendedores `kduv` también (00–05 comparten): ninguno distingue. Lo que sí: **haber comprado ahí en el
+    último año** (U-D-5, 8, 12, 40). Universo con compra: Padre Hidalgo 418 · La Piedad Abastos 517 · 8 Esquinas 193 ·
+    Yurécuaro 219 · Zamora Centro 230 · Canindo 154 · Morelia Abastos 426. Fuera a propósito el ticket U-D-10 (615 mil
+    docs/año, casi todo «CONTADO»; suma ~1 cliente por sucursal y llevaba la búsqueda de 250 ms a 1.3–1.6 s). Cada fila
+    dice su última compra aquí y **en qué otras sucursales también compra** (el cliente compartido); «Buscar en todo el
+    padrón» abre al que todavía no compra ahí y lo dice. Control negativo: el cliente 10144, el de la cotización
+    rechazada en Canindo, **no sale** en Canindo y con el padrón entero sale como «compra en La Piedad Abastos». SQL real
+    de knex ejercido en prod en sólo lectura: 247 ms.
+  - **[COT.24] Vendedor del usuario.** `analytics.vendor_identity` + `user_id` (extender, no copiar); `GET /branches`
+    devuelve `salesperson_by_branch`. Sembradas sólo 3 ligas con dos hechos (su elección en sus cotizaciones + el nombre
+    en `vendor_identity`): Cinthia 01:10001, Sergio 01:10002, Alberto 08:20003. **Sin pantalla para ligar a los demás**
+    (José Ramón 06:30004 y Yadira 07/08:20006 coinciden sólo por nombre): deuda con nombre. Sin la migración el código
+    devuelve `{}` (42703) y la pantalla sigue pidiendo elegir.
+  - **[COT.23] Interfaz (auditoría nivel C + B, sin validación visual).** Lista: columna **Fecha** primero, sucursal por
+    nombre, quién cotizó por nombre + vendedor; fuera la nota «Qué hace hoy», que **negaba** renglones y pedido a Kepler
+    (los dos existen: rótulo falso, cruce 2); la lista se topaba en 50 con 62 abiertas (**12 invisibles**, cruce 1): pide
+    200 y si aun así hay más lo dice. Detalle: «Cotizada: dd/mm/aaaa». Pendiente de la auditoría: KPIs y chips hechos a
+    mano (no `MetricStrip`/`app-segmented`), `LoadState`, frescura — deuda ya sellada en `check:pantalla`.
+  - Verificado: `ngc` limpio (con control: un método inexistente plantado dio TS2339 en 57 s) · vitest cotizaciones 112/112
+    backend y 82/82 frontend · `check:pantalla televenta` 0 nuevas en las 3 pantallas tocadas (las 3 «nuevas» son de
+    `quote-lines-table`, no tocado: NO MEDIDO para este cambio). **NO MEDIDO:** la pantalla en el navegador.
+
+- **2026-11-04** — 🚀 **Zamora Centro encendida** (tope 1/día): faltaba `GRANT SELECT ON md.kdii, md.kdxd TO kepler_push`
+  en 02/03/04/05 (medido con `has_table_privilege` en los 9); lo aplicó la sucursal como `sa` en el servidor (`sa` no entra
+  por red desde md: `pg_hba`). Ensayo ✅ con la plantilla `0000767` (06-ago, 7 renglones). Encendidas: Padre Hidalgo,
+  Canindo, Morelia Abastos, Zamora Centro. **La Piedad Abastos NO se enciende:** con permiso, pero el `U-D-40 TELEMARK`
+  dejó de usarse ahí en abril (426–489/mes en feb–mar → 13 en abril → 0 desde mayo; quedan ~20/mes `SUCURSAL`) y sus dos
+  únicas plantillas CREADO (abril) traen el total de Kepler 0.08 y 0.15 debajo de la suma de sus propios renglones —
+  pregunta abierta a Edgar: dónde se capturan hoy los pedidos de telemarketing de sus clientes. 8 Esquinas y Yurécuaro:
+  sin permiso todavía. El interruptor de CEDIS aparece encendido (usuario `superoot`, 03-nov 17:54) sin plantilla: el
+  adaptador rechaza con motivo, no escribe.
 - **2026-11-03** — 🚀 **Primer pedido real.** Habilitado sólo en Padre Hidalgo (tope 1/día, 17:29): plantilla `0002568`
   (CREADO desde el 29-sep; la de julio `0000352` la rechazó el candado de presentación, PAQ 1 vs 20 en la ficha), ensayo
   con esa plantilla ✅. COT-2026-00016 (Super Esthelin, 3 % cliente) → **Pedido TELEMARK 0003735** en CREADO, leído en

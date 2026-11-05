@@ -28,6 +28,8 @@ const DRY = process.argv.includes('--dry');
 // Fuente única del mapa de sucursales (paso 3 normalización almacén). Incluye CEDIS '00' y
 // Canindo '06' (este último leído del replica lógico local kepler_md_06 vía clientConfig).
 const { salesMap, clientConfig, replicaConfig } = require('../lib/kepler-branches');
+// [TOR.0.9] Veredicto por servidor (¿se cayó?, ¿qué falló?) — regla pura, probada aparte.
+const { tipoDeFalla, veredictoServidor, SQL_SONDA, SQL_REPLICAS } = require('../lib/kepler-servidor');
 const BRANCHES = process.env.SALES_BRANCH_MAP ? JSON.parse(process.env.SALES_BRANCH_MAP) : salesMap();
 
 // ── LATIDO (VL.4b) ───────────────────────────────────────────────────────────────────────────
@@ -151,6 +153,94 @@ async function revisarReplicas() {
   return malas;
 }
 
+// ── [TOR.0.9] UN LATIDO POR SERVIDOR KEPLER ─────────────────────────────────────────────────
+// Este carril ya se conecta a los 9 servidores cada ~25 s y anotaba sus fallas en UN latido para
+// todos («07 Morelia Madero: timeout expired · …»). Medido el 2026-11-04 en 30 días: 16 caídas de
+// 10 min o más — la peor, Morelia Madero ~30 h el 19–20-oct con la tienda abierta — y ninguna
+// pantalla las decía por servidor. Ahora cada servidor late su propia llave (`kepler_server_<código>`),
+// así db-health abre una alerta POR servidor y dice qué falló.
+//
+// Se late cada CHECK_MS (no cada ciclo): 9 filas cada 25 s inflarían la bitácora 9×, y una caída de
+// minutos no se pierde porque `caidas` recuerda desde cuándo falla cada uno.
+const caidas = new Map();            // código → { desde, tipo, mensaje } mientras siga fallando
+const publicadasAntes = new Map();   // código → tablas publicadas en la revisión anterior
+
+// [TOR.0.2] `cron_runs.detail` llega por migración: se pregunta UNA vez si existe. Sin ella el latido
+// sigue saliendo (sin el dato estructurado), así el orden de despliegue no lo rompe.
+let tieneDetail = null;
+async function latirServidor(b, v) {
+  if (!HB_URL) return;
+  const c = new Client({ connectionString: HB_URL, ...HB_CONN });
+  try {
+    await c.connect();
+    if (tieneDetail === null) {
+      const r = await c.query(`SELECT 1 FROM information_schema.columns
+        WHERE table_schema='analytics' AND table_name='cron_runs' AND column_name='detail'`);
+      tieneDetail = r.rowCount > 0;
+    }
+    const base = [TENANT, `kepler_server_${b.code}`, `Servidor Kepler · ${b.name}`, v.status, v.note, v.error, require('os').hostname()];
+    if (tieneDetail) {
+      await c.query(`
+        INSERT INTO analytics.cron_runs (tenant_id, job_key, label, last_start, last_finish, status, note, error, host, detail, updated_at)
+        VALUES ($1, $2, $3, now(), now(), $4, left($5,500), left($6,500), $7, $8::jsonb, now())
+        ON CONFLICT (tenant_id, job_key) DO UPDATE SET
+          label=EXCLUDED.label, last_start=now(), last_finish=now(), status=EXCLUDED.status,
+          note=EXCLUDED.note, error=EXCLUDED.error, host=EXCLUDED.host, detail=EXCLUDED.detail, updated_at=now()`,
+      [...base, JSON.stringify(v.detalle || null)]);
+    } else {
+      await c.query(`
+        INSERT INTO analytics.cron_runs (tenant_id, job_key, label, last_start, last_finish, status, note, error, host, updated_at)
+        VALUES ($1, $2, $3, now(), now(), $4, left($5,500), left($6,500), $7, now())
+        ON CONFLICT (tenant_id, job_key) DO UPDATE SET
+          label=EXCLUDED.label, last_start=now(), last_finish=now(), status=EXCLUDED.status,
+          note=EXCLUDED.note, error=EXCLUDED.error, host=EXCLUDED.host, updated_at=now()`, base);
+    }
+  } catch (e) { console.log(`⚠️  latido de servidor ${b.code} falló: ${e.message.split('\n')[0].slice(0, 80)}`); }
+  finally { await cerrar(c); }
+}
+
+/** [TOR.0.2] Las 9 suscripciones de md en una consulta (catálogo del clúster). Nunca tira: null = no medido. */
+async function leerReplicas() {
+  const conReplica = BRANCHES.find((x) => x.replica);
+  if (!conReplica) return null;
+  const c = new Client(replicaConfig(conReplica, { connectionTimeoutMillis: 6000, statement_timeout: 15000 }));
+  try {
+    await c.connect();
+    const m = new Map();
+    for (const r of (await c.query(SQL_REPLICAS)).rows) {
+      if (r.codigo) m.set(r.codigo, { seg: r.seg == null ? null : Number(r.seg), errores: r.errores == null ? null : Number(r.errores), habilitada: r.habilitada });
+    }
+    return m;
+  } catch (e) { console.log(`⚠️  no se pudieron leer las réplicas: ${e.message.split('\n')[0].slice(0, 80)}`); return null; }
+  finally { await cerrar(c); }
+}
+
+/** Revisa cada servidor (sólo catálogos) y late su veredicto. Nunca tira. */
+async function revisarServidores() {
+  const replicas = await leerReplicas();
+  for (const b of BRANCHES) {
+    let sonda = null, errorSonda = null;
+    const caida = caidas.get(b.code) || null;
+    if (!caida && b.host) {
+      // clientConfig apunta al POS cuando hay host: la sonda tiene que mirar el SERVIDOR, no la réplica.
+      const c = new Client(clientConfig(b, { connectionTimeoutMillis: 6000, statement_timeout: 15000 }));
+      try {
+        await c.connect();
+        sonda = (await c.query(SQL_SONDA)).rows[0] || null;
+      } catch (e) { errorSonda = e.message.split('\n')[0]; }
+      finally { await cerrar(c); }
+    } else if (!caida) {
+      errorSonda = 'la sucursal se lee sólo de su réplica: no hay servidor que sondear';
+    }
+    const v = veredictoServidor({
+      caida, sonda, errorSonda, publicadasAntes: publicadasAntes.get(b.code) ?? null,
+      replica: replicas ? (replicas.get(b.code) || { seg: null, errores: null, habilitada: false }) : null,
+    });
+    if (sonda && sonda.publicadas != null) publicadasAntes.set(b.code, Number(sonda.publicadas));
+    await latirServidor(b, v);
+  }
+}
+
 const pad = (n) => String(n).padStart(2, '0');
 // "YYYY-MM-DD HH:MM" en hora local MX (offset fijo -06, Centro sin DST).
 function sinceLocalMX(minutesAgo) {
@@ -249,7 +339,18 @@ async function tick() {
     const fallas = [];
     for (const b of BRANCHES) {
       try {
-        const tickets = await pollBranch(b, since);
+        let tickets;
+        try {
+          tickets = await pollBranch(b, since);
+          caidas.delete(b.code);   // [TOR.0.9] leyó: el servidor responde
+        } catch (e) {
+          // [TOR.0.9] Sólo la LECTURA del servidor cuenta como caída; un fallo del push al API
+          // (abajo) es de nuestro lado, no de la sucursal.
+          const m = e.message.split('\n')[0];
+          const prev = caidas.get(b.code);
+          caidas.set(b.code, { desde: prev ? prev.desde : new Date(), tipo: tipoDeFalla(m), mensaje: m });
+          throw e;
+        }
         // backfill: emit=false (el navegador lo trae vía snapshot, sin inundar el WS).
         if (tickets.length) { const r = await push(tickets, !backfill); total += tickets.length; ins += (r.inserted || 0); }
       } catch (e) {
@@ -269,6 +370,8 @@ async function tick() {
       replicasMalas = await revisarReplicas();
       ultimoCheck = Date.now();
       if (replicasMalas.length) console.log(`⚠️  réplica(s) en problemas: ${replicasMalas.join(' · ')}`);
+      // [TOR.0.9] En --dry no se late (es una verificación a mano); la sonda sí corre con latido en continuo.
+      if (!DRY) await revisarServidores();
     }
 
     const problemas = [...fallas, ...replicasMalas];

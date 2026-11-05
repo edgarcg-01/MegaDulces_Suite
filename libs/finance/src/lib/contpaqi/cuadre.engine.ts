@@ -239,3 +239,41 @@ export function resumirCuadre(resultados: ResultadoCuadre[]) {
     por,
   };
 }
+
+/**
+ * El `estado` que deja el veredicto en `poliza_exports`. ⛔ **`aplicada` sólo llega por el veredicto homónimo** — ningún
+ * otro camino asciende un evento. `probable`, `difiere`, `ambiguo` y `esperando` NO mueven el estado (`undefined`): el
+ * evento sigue entregado y su veredicto vive en `verificada` + `motivo`.
+ */
+export function estadoTrasCuadre(r: Pick<ResultadoCuadre, 'veredicto'>): 'aplicada' | 'rechazada' | undefined {
+  return r.veredicto === 'aplicada' ? 'aplicada' : r.veredicto === 'no_aparecio' ? 'rechazada' : undefined;
+}
+
+/**
+ * `[CP.8.99]` Dónde está una póliza entregada, para la fila de la pantalla. Se lee de lo que `guardar` dejó en
+ * `poliza_exports` (`estado`, `verificada`, `contpaqi_folio`), porque el veredicto del motor no se guarda tal cual:
+ *
+ *   `en_contpaqi`   — `aplicada`: casó por token y cuadra al centavo.
+ *   `por_confirmar` — `probable`: casó sólo por importe (`verificada` null CON folio); lo confirma una persona.
+ *   `esperando`     — sin candidato y con el plazo abierto (`verificada` null, sin folio).
+ *   `no_cuadra`     — `difiere` o `ambiguo` (`verificada` false sin `rechazada`): el `motivo` dice cuál.
+ *   `no_aparecio`   — venció el plazo (`rechazada`): vuelve a salir en el archivo.
+ */
+export type SeguimientoCuadre = 'en_contpaqi' | 'por_confirmar' | 'esperando' | 'no_cuadra' | 'no_aparecio';
+
+export function seguimientoDe(r: {
+  estado: string; verificada: boolean | null; contpaqi_folio: number | string | null;
+}): SeguimientoCuadre {
+  if (r.estado === 'aplicada' || r.verificada === true) return 'en_contpaqi';
+  if (r.estado === 'rechazada') return 'no_aparecio';
+  if (r.verificada === false) return 'no_cuadra';
+  return r.contpaqi_folio !== null && r.contpaqi_folio !== undefined ? 'por_confirmar' : 'esperando';
+}
+
+/**
+ * `[CP.8.99]` El día de la entrega, en SQL sobre `contpaqi.poliza_exports`: lo que se marcó (`asiento.entrega.en`) y, en
+ * filas anteriores a eso, el día en que se creó la fila (Ciudad de México). ⛔ Nunca `updated_at`: el cuadre lo
+ * reescribe en cada corrida y el plazo volvería a cero cada 10 minutos.
+ */
+export const SQL_ENTREGADA_EN =
+  `coalesce(asiento->'entrega'->>'en', to_char(created_at at time zone 'America/Mexico_City', 'YYYY-MM-DD'))`;

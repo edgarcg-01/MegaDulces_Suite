@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { BusinessDefinitionsModule } from '@megadulces/platform-core';
 import { CommercialCommissionsService } from './commercial-commissions.service';
 import { CommissionRecalcService } from './commission-recalc.service';
 import { CommissionContrastService } from './commission-contrast.service';
@@ -27,8 +28,12 @@ import { CommercialCommissionsController } from './commercial-commissions.contro
  *
  * `CommissionRecalcService` sigue siendo el camino **a proposito**: calcular desde una quincena
  * hacia adelante cuando cambia el tabulador.
+ *
+ * `[DP.3.2]` Importa `BusinessDefinitionsModule` para que la pantalla declare las reglas que la
+ * nómina todavía no tiene definidas (`GET /definitions` del controlador, con la llave de comisiones).
  */
 @Module({
+  imports: [BusinessDefinitionsModule],
   controllers: [CommercialCommissionsController],
   providers: [CommercialCommissionsService, CommissionRecalcService, CommissionContrastService, CommissionObjectiveService, CommissionPadronService, CommissionBonosService, CommissionAutoRunService, CommissionBeneficiariosService],
   exports: [CommercialCommissionsService, CommissionRecalcService, CommissionContrastService, CommissionObjectiveService],
