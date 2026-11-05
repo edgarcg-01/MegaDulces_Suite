@@ -227,7 +227,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                 <span class="pg-day-t">
                   <span class="pg-day-n">{{ dayShort(d.date) }}@if (d.date === todayIso) { <span class="pg-t"> · hoy</span> }</span>
                   <span class="pg-day-amt" [class.cal-neg]="(d.summary.remaining_amount ?? 0) < 0">
-                    @if (!d.summary.capacity_defined) { <span class="pg-day-l">sin tope</span> }
+                    @if (!d.summary.capacity_defined) { <span class="pg-day-l">sin tope fijado</span> }
                     @else if ((d.summary.remaining_amount ?? 0) < 0) { <span class="pg-day-l">excede </span><span class="comm-num">{{ moneyShort(-(d.summary.remaining_amount ?? 0)) }}</span> }
                     @else { <span class="comm-num">{{ moneyShort(d.summary.remaining_amount) }}</span><span class="pg-day-l"> libre</span> }
                   </span>
@@ -590,7 +590,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                   </button>
                 }
                 @if (allocations().length) {
-                  <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" [loading]="printing()" (click)="printPreliminar()"><span class="pi pi-file-pdf" aria-hidden="true"></span>&nbsp;Preliminar</button>
+                  <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" [loading]="printing()" (click)="printPreliminar()"><span class="pi pi-file-pdf" aria-hidden="true"></span>&nbsp;Preliminar para autorizar</button>
                 }
                 @if (day.lot_folio) {
                   <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" [loading]="printing()" (click)="printEjecucion()"><span class="pi pi-print" aria-hidden="true"></span>&nbsp;Instrucción de ejecución</button>
@@ -680,15 +680,15 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
             } @else {
               <!-- [PGP.52] UN renglón por pago: quién, cómo sale, cuánto y su acción. Las flechas de orden
                    aparecen al pasar el cursor o con el foco del teclado. El resto vive en el desglose (›). -->
-              <p-table [value]="allocations()" size="small" dataKey="id" [expandedRowKeys]="abiertos()" class="surf-table surf-table--plain pg-prep">
+              <p-table [value]="allocations()" size="small" dataKey="id" [expandedRowKeys]="abiertos()" class="surf-table surf-table--plain surf-table--sticky pg-prep">
                 <ng-template #header>
                   <tr>
                     <th class="pg-c-tg"><span class="sr-only">Desglose</span></th>
                     <th class="pg-c-ord" [class.is-folio]="isReleased()">@if (isReleased()) { Folio } @else { Orden }</th>
                     <th class="pg-c-ben">A quién</th>
+                    <th class="pg-c-amt">Importe</th>
                     <th class="pg-c-why">Por qué hoy</th>
                     <th class="pg-c-how">Cómo sale</th>
-                    <th class="pg-c-amt">Importe</th>
                     <th class="pg-c-act"><span class="sr-only">Acciones</span></th>
                   </tr>
                 </ng-template>
@@ -716,6 +716,9 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                       @if (a.id === corteDelTope()) { <span class="pg-corte"><i class="pi pi-arrow-down" aria-hidden="true"></i>Desde aquí ya no cabe en el tope del día</span> }
                       <span class="pg-ben"><span class="cal-benef">{{ allocationTitle(a) }}</span><span class="pg-ben-d"> · {{ itemsBranches(a) }} · {{ itemsResumen(a) }}</span></span>
                     </td>
+                    <!-- [PGP.74] El importe va al lado de a quién: a 2,135 px quedaba a ~1,700 px del nombre y el ojo
+                         cruzaba la pantalla para leer cada pago (auditoría externa, 2026-11-04). -->
+                    <td class="pg-c-amt comm-num" data-l="Importe">{{ money(a.amount_assigned) }}</td>
                     <td class="pg-c-why" data-l="Por qué hoy">
                       @if (porQueHoy(a); as q) { <span [class.pg-why-f]="q.fuerte">{{ q.texto }}</span> } @else { <span class="pg-why-n">—</span> }
                     </td>
@@ -740,7 +743,6 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                         </span>
                       }
                     </td>
-                    <td class="pg-c-amt comm-num" data-l="Importe">{{ money(a.amount_assigned) }}</td>
                     <td class="pg-c-act">
                       @if (a.status === 'pending' && !isReleased()) {
                         @if (diaPasado()) {
@@ -1359,6 +1361,14 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-x-d { font-weight:400; color:var(--text-muted); font-size:var(--fs-sm); }
     /* ── Secciones del dia ───────────────────────────────────────────── */
     .pg-sec { border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); overflow:hidden; }
+    /* [PGP.74] La cabecera de los pagos se queda arriba al bajar (23 pagos a 48 px no caben). surf-table--sticky
+       sola NO alcanzaba, medido: PrimeNG le pone overflow:auto EN LÍNEA al contenedor de la tabla
+       (primeng-table.mjs, inlineStyles.tableContainer) y esta tarjeta recortaba con overflow:hidden. Los dos
+       crean un contenedor de desplazamiento que no se desplaza, y el sticky se pegaba a él. clip recorta
+       igual sin crearlo. Sólo en escritorio: abajo de 64rem la tabla necesita su scroll horizontal
+       (styles.css) y en teléfono la cabecera no existe. */
+    .pg-sec.pg-pagos { overflow:clip; }
+    @media (min-width: 64.0625rem) { :host ::ng-deep .pg-prep .p-datatable-table-container { overflow:visible !important; } }
     .pg-sec-h { display:flex; align-items:center; justify-content:space-between; gap:var(--sp-2); flex-wrap:wrap; padding:var(--sp-2) var(--sp-3); border-bottom:1px solid var(--border-color); }
     .pg-sec-t { margin:0; display:flex; align-items:baseline; gap:var(--sp-2); flex-wrap:wrap; font-size:var(--fs-sm); font-weight:700; color:var(--text-main); }
     .pg-sec-n { font-size:var(--fs-sm); font-weight:400; color:var(--text-muted); }
@@ -1443,8 +1453,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-c-ben { min-width:0; }
     /* [PGP.52] «Cómo sale» con su propia columna: en el panel angosto iba debajo del nombre; a todo lo ancho, al lado. */
     .pg-c-how { width:28%; }
-    /* [PGP.60] «Por qué hoy» decide el orden: va al lado de a quién. Fuerte = vencida, vence hoy o cierra pronto (peso, no color). */
+    /* [PGP.60] «Por qué hoy» decide el orden; [PGP.74] va después del importe. Fuerte = vencida, vence hoy o cierra pronto (peso, no color). */
     .pg-c-why { width:16%; font-size:var(--fs-sm); color:var(--text-muted); }
+    /* [PGP.74] Con el importe a su izquierda, dos cifras quedaban a 12 px y se leían como una frase. */
+    @media (min-width: 47.5625rem) { :host ::ng-deep .pg-prep .p-datatable-thead > tr > th.pg-c-why, :host ::ng-deep .pg-prep .p-datatable-tbody > tr > td.pg-c-why { padding-left:var(--sp-6); } }
     .pg-c-why .pg-why-f { color:var(--text-main); font-weight:700; }
     /* [PGP.60] La línea de corte del tope: lo que está de aquí para abajo excede lo autorizado. */
     :host ::ng-deep .pg-prep .p-datatable-tbody > tr.is-corte > td { border-top:2px dashed var(--bad-fg); }
