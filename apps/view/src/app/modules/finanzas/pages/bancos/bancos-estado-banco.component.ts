@@ -252,6 +252,8 @@ export class BancosEstadoBancoComponent implements OnInit {
       conDescarga = { label: 'Cuentas con descarga', value: `${hasta.size} de ${total}`, format: 'text', tone: faltan.length ? 'warn' : 'ok',
         sub: faltan.length ? `faltan ${faltan.slice(0, 3).join(', ')}${faltan.length > 3 ? ` y ${faltan.length - 3} más` : ''}` : 'todas' };
     }
+    // Sin ningún archivo, «la más atrasada» y «sin testigo» no dicen nada: sólo queda cuántas faltan.
+    if (!this.archivos().length) return [conDescarga];
     return [
       conDescarga,
       { label: 'La más atrasada llega al', value: atrasada ? this.fecha(atrasada.hasta) : '—', format: 'text', sub: atrasada?.alias ?? 'sin descargas' },
