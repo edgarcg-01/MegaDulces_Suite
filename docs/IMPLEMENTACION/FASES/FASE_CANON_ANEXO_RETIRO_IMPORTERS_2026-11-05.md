@@ -118,6 +118,22 @@ filas almacén×producto): 41,429 idénticas. Todas las diferencias se explican:
 Control: la misma comparación sin clasificar los empates da 885 fuera de explicación, así que la
 prueba sí distingue.
 
+## 2e. Oleada 4 — la mensual por producto se vuelve rollup en línea (CANON.5.9, 2026-11-05)
+
+`import-product-sales-monthly` era el rollup de `analytics.product_sales_daily` (Σ por
+producto×almacén×mes, sólo productos del catálogo). Lectores medidos: `thot-build-features.js`
+(nocturno) y `deactivate-legacy-skus.js` (manual); ninguna vista ni función de la base, y las
+lecturas por índice eran los upserts del propio importer.
+
+- **Thot** suma la diaria por mes en su consulta: 36,502 de 36,502 filas de `zone_demand`
+  idénticas a la versión anterior; control con ventana de 11 meses en rojo (5,655 distintas).
+- **`deactivate-legacy-skus`** ya exigía «sin venta diaria», y 0 productos de la mensual faltan
+  en la diaria: la condición sobre la mensual era redundante y salió.
+- **`test-newdb-product-sales-parity`** guardaba «mensual = rollup(diaria)», que sin escritor se
+  pondría rojo al cerrar el mes. Ahora guarda lo que importa: **nadie lee la tabla congelada**
+  (con prueba negativa). En su primera corrida atrapó dos textos que todavía nombraban la
+  mensual. Su etiqueta en `run-all-tests.js` quedó vieja: ese archivo tiene cambios de otra sesión.
+
 ## 3. Los 51, clasificados
 
 **Leyenda.** **Lee:** `ods` = `kepler_ods` · `réplicas` = bases `md_*` por sucursal · `mart` = el

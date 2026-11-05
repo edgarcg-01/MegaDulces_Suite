@@ -12,7 +12,7 @@
  *                 por diseño: NO es tienda mostrador (0 tickets POS), vende MAYOREO vía U-A-5 → sus
  *                 patrones de compra al por mayor sesgarían la afinidad RETAIL. Guard c9<=hoy (una venta
  *                 no es futura; blinda contra fechas futuras legítimas de doctypes no-venta en 00/02).
- *   · zone_demand ← prod-local `analytics.product_sales_monthly` (units por almacén×producto, ya
+ *   · zone_demand ← prod-local `analytics.product_sales_daily` sumada por mes (units por almacén×producto, ya
  *                 derivado de Kepler) + `zonaOf(code)` (mapa sucursal→ciudad, best-effort — el mapeo
  *                 cliente→zona real nunca existió; el peso de zona en el score es 0.5, opcional).
  *                 revenue = units × precio BASE-MXN (los lectores usan demand_index/rank, no revenue).
@@ -72,21 +72,30 @@ function zonaOf(code) {
     const skuToId = new Map(prods.map((p) => [String(p.sku).trim(), p.id]));
     console.log(`catalog.products mapeables: ${skuToId.size}`);
 
-    // ── ZONE DEMAND ← analytics.product_sales_monthly (prod-local) + precio BASE-MXN ──
+    // ── ZONE DEMAND ← analytics.product_sales_daily (prod-local) + precio BASE-MXN ──
     // units por (almacén→zona, producto) en los últimos ZONE_MONTHS meses. revenue = units × precio
     // base (proxy; los lectores usan demand_index/rank). El precio base sale de BASE-MXN si existe.
+    // `[CANON.5.9]` Antes leía analytics.product_sales_monthly, que era EXACTAMENTE este rollup
+    // (Σ diaria por producto×almacén×mes, sólo productos del catálogo) y la llenaba un importer
+    // aparte cada noche. Este script era su único lector de carril; el rollup vive acá.
     const zrows = (
       await app.raw(
         `select w.code as wcode, psm.product_id, sum(psm.units)::numeric units,
                 sum(psm.units * coalesce(pp.price, 0))::numeric revenue
-           from analytics.product_sales_monthly psm
+           from (select d.tenant_id, d.product_id, d.warehouse_id,
+                        date_trunc('month', d.sale_date)::date as month, sum(d.units) as units
+                   from analytics.product_sales_daily d
+                  where d.tenant_id = ?
+                    and d.sale_date >= (date_trunc('month', current_date) - interval '${ZONE_MONTHS} months')
+                    and exists (select 1 from catalog.products p where p.id = d.product_id)
+                  group by 1, 2, 3, 4) psm
            join commercial.warehouses w on w.id = psm.warehouse_id and w.tenant_id = psm.tenant_id
            left join commercial.product_prices pp
              on pp.tenant_id = psm.tenant_id and pp.product_id = psm.product_id
             and pp.price_list_id = '00000000-0000-0000-0000-0000c0ffee02'
           where psm.tenant_id = ? and psm.month >= (date_trunc('month', current_date) - interval '${ZONE_MONTHS} months')
           group by w.code, psm.product_id`,
-        [T],
+        [T, T],
       )
     ).rows;
     // Reagrupar por ZONA (varios almacenes caen en la misma zona) + rank + demand_index.
@@ -113,7 +122,7 @@ function zonaOf(code) {
         });
       });
     }
-    console.log(`zone_demand: ${zoneInserts.length} filas (${byZona.size} zonas) desde product_sales_monthly`);
+    console.log(`zone_demand: ${zoneInserts.length} filas (${byZona.size} zonas) desde product_sales_daily (rollup mensual en línea)`);
 
     // ── AFFINITY (market-basket) ← kepler_ods.kdm1/kdm2 (same-DB) ──
     console.log(`Computando market-basket ODS (${AFFINITY_DAYS}d, puede tardar)...`);

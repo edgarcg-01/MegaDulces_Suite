@@ -271,7 +271,9 @@ const STEPS = {
     // publica la mensual con el dato de ayer — y "ordenar no es depender" (ADR-056): si la
     // diaria falla, la mensual se queda con lo de ayer, no se inventa nada.
     path.join(K, 'import-product-sales-daily.js'), // SAL.5 venta DIARIA x producto (rango 7/15/30d; upsert acumulativo 180d)
-    path.join(K, 'import-product-sales-monthly.js'), // SAL.1 venta mensual x producto ← rollup LOCAL de la diaria
+    // RETIRADO 2026-11-05 [CANON.5.9]: import-product-sales-monthly.js — era el rollup de la diaria
+    // y sólo lo leía thot-build-features, que ahora suma la diaria por mes (36,502 de 36,502 filas
+    // idénticas). El orden de AUD-DAT.10 de arriba ya no aplica: no queda mensual que publicar.
     path.join(K, 'import-sales-by-route-monthly.js'), // RR.2 venta mensual x RUTA (serie c63; upsert acumulativo)
     path.join(K, 'import-route-push-monthly.js'), // RR — venta en ruta del PUSH (.249 mart.ventas ruta_NN) → WIN-<NN> (PH migró de .mdb al push, jul→)
     path.join(K, 'import-route-push-lines.js'), // RR — line-level del push (.249) → route_push_lines (drill-down del reporte; incremental)
