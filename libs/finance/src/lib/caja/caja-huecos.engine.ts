@@ -61,6 +61,10 @@ export interface HuecoEntrada {
   /** Sólo `corte_sin_cobro`: días desde el corte y el atraso normal (p90) de su sucursal. */
   atraso_dias?: number;
   atraso_p90?: number;
+  /** El código de sucursal de Kepler, para que la pantalla la NOMBRE (`warehouseName`), nunca lo imprima. */
+  sucursal?: string;
+  /** `ruta R|YYYY-MM-DD` cuando el hueco es de una venta de ruta declarada: une el lado del libro con el de la camioneta. */
+  ruta_dia?: string;
 }
 
 export interface Hueco extends HuecoEntrada {
@@ -119,7 +123,13 @@ export function clasificaHueco(e: HuecoEntrada): Hueco | null {
   if (!(Number(e.monto) > 0)) return null;
   const testigos: Testigos = { ...SIN_TESTIGOS, ...(e.testigos ?? {}) };
   const r = REGLAS[e.tipo];
-  return { ...e, monto: redondea2(Number(e.monto)), testigos, dueno: r.dueno, accion: r.accion, falta: r.falta, certeza: certezaDe(e, testigos) };
+  /**
+   * ⛔ Una liga sólo por IMPORTE no explica el dinero: se queda en «falta» (por confirmar). Medido en
+   * prod el 2026-11-04: el depósito capturado dos veces (`CI-2026-00022`, $21,101) «casaba» por
+   * importe con un cobro de Canindo del 9-oct, y así desaparecía de lo que faltaba.
+   */
+  const falta = r.falta || (e.tipo === 'libro_sin_ligar' && e.via !== 'identidad' && e.via !== 'llave');
+  return { ...e, monto: redondea2(Number(e.monto)), testigos, dueno: r.dueno, accion: r.accion, falta, certeza: certezaDe(e, testigos) };
 }
 
 /** Clasifica, deja UN hueco por llave (regla 2) y ordena lo más nuevo primero, el más grande antes. */
@@ -138,7 +148,7 @@ export function armaHuecos(entradas: HuecoEntrada[]): Hueco[] {
 export interface ResumenHuecos {
   falta: { n: number; monto: number };
   por_dueno: Record<Dueno, { n: number; monto: number }>;
-  /** Lo explicado que sólo espera su liga (no suma a `falta`). */
+  /** Todo lo que espera su liga. Lo ligado por llave o identidad NO suma a `falta`; lo ligado sólo por importe, sí. */
   por_ligar: { n: number; monto: number };
   /** Lo declarado sin contar (no suma a `falta`: no se sabe si falta). */
   sin_contar: { n: number; monto: number };
@@ -157,7 +167,9 @@ export function resumeHuecos(hs: Hueco[]): ResumenHuecos {
       suma(falta, h);
       suma(por_dueno[h.dueno], h);
       if (h.certeza !== 'alta') por_confirmar_n += 1;
-    } else if (h.tipo === 'libro_sin_ligar') suma(por_ligar, h);
+    }
+    // Lo ligado sólo por importe cuenta en `falta` Y en `por_ligar`: la persona lo liga desde las dos.
+    if (h.tipo === 'libro_sin_ligar') suma(por_ligar, h);
     else if (h.tipo === 'bulto_sin_contar') suma(sin_contar, h);
   }
   return { falta, por_dueno, por_ligar, sin_contar, por_confirmar_n };

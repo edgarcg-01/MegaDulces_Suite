@@ -74,6 +74,22 @@ export class CajaGeneralController {
     return this.svc.keplerMovimientos(this.q(month, from, to));
   }
 
+  /** `[LE.CU.3]` Los huecos del Cuadre nuevo. Mismo permiso que la ruta del Cuadre (VER caja O bancos). */
+  @Get('cuadre-huecos')
+  @RequireAnyPermission(Permission.FINANCE_BANK_VER, Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: 'Huecos de Caja General: cada peso sin explicación, con su dueño, su certeza y su acción (FASE_LE_ANEXO_CUADRE).' })
+  cuadreHuecos(@Query('month') month?: string, @Query('from') from?: string, @Query('to') to?: string) {
+    return this.svc.cuadreHuecos(this.q(month, from, to));
+  }
+
+  /** `[LE.CU.3]` El balance físico del periodo (cajón contado + bóveda contra el libro). */
+  @Get('cuadre-balance')
+  @RequireAnyPermission(Permission.FINANCE_BANK_VER, Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: 'Balance físico de Caja General: cajón contado + bóveda contra el libro, con el bulto sin contar aparte.' })
+  cuadreBalance(@Query('month') month?: string, @Query('from') from?: string, @Query('to') to?: string) {
+    return this.svc.cuadreBalance(this.q(month, from, to));
+  }
+
   @Get('conciliacion-dia')
   @RequireAnyPermission(Permission.FINANCE_BANK_VER, Permission.FINANCE_CAJA_VER)
   @ApiOperation({ summary: 'Drill "¿dónde está el descuadre?" de un día: match greedy por importe .mdb↔Manual y .mdb↔Kepler → huérfanos de cada lado (espejo de Bancos).' })

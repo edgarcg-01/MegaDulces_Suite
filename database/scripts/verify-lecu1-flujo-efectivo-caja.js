@@ -195,6 +195,27 @@ function bovedaEn(t, counts, mov) {
                WHERE a.sucursal=c.sucursal AND btrim(a.c1::text)=c.sucursal AND a.c8='D' AND btrim(a.c9::text)='23' AND btrim(a.c11::text)=c.folio AND btrim(a.c10::text)=c.serie AND btrim(coalesce(ab.c43,''))<>'C'),0)) sin_cobro
          FROM c GROUP BY 1 ORDER BY 1`, [desde, hasta])).rows;
       console.log(`   cortes de las cajas que alimentan Caja General, sin cobrar: ${alim.map((a) => `suc. ${a.sucursal} ${mx(a.sin_cobro)}`).join(' · ')} (§36.3b: $289,200.09 del 29-oct al 3-nov)`);
+
+      // ── 6. `[LE.CU.3]` Las lecturas del Cuadre nuevo, ejercidas tal cual las corre el servicio ──
+      const { entradasDeHuecos, datosBalance } = require(path.join(CAJA, 'caja-cuadre-huecos.query.ts'));
+      const { armaHuecos, resumeHuecos } = require(path.join(CAJA, 'caja-huecos.engine.ts'));
+      const { balanceFisico } = require(path.join(CAJA, 'caja-balance-fisico.engine.ts'));
+      const hoy = (await trx.raw(`SELECT (now() AT TIME ZONE 'America/Mexico_City')::date::text AS d`)).rows[0].d;
+      const t1 = Date.now();
+      const { entradas, ms } = await entradasDeHuecos(trx, T, desde, hasta, hoy);
+      const huecos = armaHuecos(entradas);
+      const res = resumeHuecos(huecos);
+      console.log(`\n6. cuadre-huecos: ${huecos.length} huecos en ${Date.now() - t1} ms (${Object.entries(ms).map(([k, v]) => `${k} ${v} ms`).join(' · ')})`);
+      console.log(`   falta explicar ${mx(res.falta.monto)} en ${res.falta.n} · por confirmar ${res.por_confirmar_n} · por ligar ${mx(res.por_ligar.monto)} (${res.por_ligar.n}) · sin contar ${mx(res.sin_contar.monto)}`);
+      console.log('   por dueño: ' + Object.entries(res.por_dueno).filter(([, v]) => v.n).map(([k, v]) => `${k} ${mx(v.monto)} (${v.n})`).join(' · '));
+      const porTipo = {};
+      for (const h of huecos) { porTipo[h.tipo] ||= { n: 0, m: 0 }; porTipo[h.tipo].n++; porTipo[h.tipo].m = r2(porTipo[h.tipo].m + h.monto); }
+      console.log('   por tipo: ' + Object.entries(porTipo).map(([k, v]) => `${k} ${v.n}/${mx(v.m)}`).join(' · '));
+      const t2 = Date.now();
+      const db = await datosBalance(trx, T, desde, hasta);
+      const bal = db && balanceFisico(db.entrada);
+      console.log(`   cuadre-balance en ${Date.now() - t2} ms: esperado ${mx(bal?.esperado)} · contado ${mx(bal?.contado)} · diferencia ${mx(bal?.diferencia)} · si el bulto fuera efectivo ${mx(bal?.diferencia_si_bulto_es_efectivo)} · inicio ${db?.inicio.fuente} (${db?.inicio.boveda_fuente}) · replay ${db?.replay.cierran}/${db?.replay.pares}`);
+      if (process.env.LECU_DUMP) require('fs').writeFileSync(process.env.LECU_DUMP, JSON.stringify({ huecos, res, db, bal }, null, 1));
     });
   } finally {
     await knex.destroy();

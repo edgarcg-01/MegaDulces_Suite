@@ -41,9 +41,15 @@ describe('clasificaHueco', () => {
     expect(clasificaHueco(e({ tipo: 'corte_sin_cobro', ref: 'z', monto: 10 }))).toBeNull();
   });
 
-  it('lo capturado sin liga y el bulto sin contar NO cuentan como dinero faltante', () => {
+  it('lo capturado sin liga (por identidad) y el bulto sin contar NO cuentan como dinero faltante', () => {
     expect(clasificaHueco(e({ tipo: 'libro_sin_ligar', ref: 'CI-2026-00024', monto: 18132, via: 'identidad' }))).toMatchObject({ falta: false, accion: 'ligar', certeza: 'alta' });
     expect(clasificaHueco(e({ tipo: 'bulto_sin_contar', ref: 'CC-2026-00020', monto: 188560 }))).toMatchObject({ falta: false, accion: 'contar', certeza: 'por_confirmar' });
+  });
+
+  it('NEGATIVA: una liga SÓLO por importe no explica el dinero — sigue en «falta» (el duplicado de $21,101)', () => {
+    // Caso real: CI-2026-00022 (capturado dos veces) «casaba» por importe con un cobro de Canindo del
+    // 9-oct. Si saliera de «falta», el duplicado se volvería invisible.
+    expect(clasificaHueco(e({ tipo: 'libro_sin_ligar', ref: 'CI-2026-00022', monto: 21101, via: 'importe' }))).toMatchObject({ falta: true, certeza: 'por_confirmar', accion: 'ligar' });
   });
 });
 
@@ -80,6 +86,9 @@ describe('armaHuecos / resumeHuecos', () => {
     expect(r.por_dueno.ruta).toEqual({ n: 1, monto: 13598 });
     expect(r.por_dueno.direccion).toEqual({ n: 1, monto: 170000 });
     expect(r.por_ligar).toEqual({ n: 1, monto: 18132 });
+    // …y una liga por importe suma en las dos: falta Y por ligar.
+    const r2 = resumeHuecos(armaHuecos([e({ tipo: 'libro_sin_ligar', ref: 'x', monto: 100, via: 'importe' })]));
+    expect([r2.falta.monto, r2.por_ligar.monto, r2.por_confirmar_n]).toEqual([100, 100, 1]);
     expect(r.sin_contar).toEqual({ n: 1, monto: 188560 });
     expect(r.por_confirmar_n).toBe(1);
   });
