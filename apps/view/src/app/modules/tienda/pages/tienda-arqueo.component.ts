@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, LOCALE_ID, NgZone, OnInit, QueryList, ViewChild, ViewChildren, computed, effect, inject, signal, untracked } from '@angular/core';
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component, DestroyRef, ElementRef, HostListener, LOCALE_ID, NgZone, OnInit, QueryList, ViewChild, ViewChildren, computed, effect, inject, signal, untracked } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule, formatDate } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -173,17 +173,9 @@ interface CortesPersona {
               <!-- [SM.46] En RD/RV no hay caja: lo que se arquea es lo que entrega una RUTA,
                    y la ruta se elige abajo. Pedir la caja ahi era un dato que no describe nada. -->
               @if (!sinCajaFisica()) {
-                <!-- [SM.51] El arqueo se guarda con la caja que se elige aqui. La lista son las cajas
-                     que Kepler uso en la sucursal (60 dias); si no se pudo traer, se teclea. -->
-                @if (cajasOpciones().length) {
-                  <label class="arq-lbl">Caja
-                    <p-select #hcell [options]="cajasOpciones()" [ngModel]="aCaja || null" (ngModelChange)="elegirCaja($event)"
-                              optionLabel="label" optionValue="value" styleClass="arq-fld arq-fld-caja" appendTo="body"
-                              placeholder="Elige tu caja" ariaLabel="Caja" (keydown)="onHeadKey($event, idxCaja())" />
-                  </label>
-                } @else {
-                  <label class="arq-lbl">Caja <input #hcell pInputText class="arq-fld arq-fld-sm" [ngModel]="aCaja" (ngModelChange)="elegirCaja($event)" placeholder="2" (keydown)="onHeadKey($event, idxCaja())" (focus)="selectAll($event)"></label>
-                }
+                <!-- [SM.51] El arqueo se guarda con la caja que se escribe aqui, y el equipo la
+                     recuerda por sucursal. (La lista de cajas de Kepler llega en otro PR.) -->
+                <label class="arq-lbl">Caja <input #hcell pInputText class="arq-fld arq-fld-sm" [ngModel]="aCaja" (ngModelChange)="elegirCaja($event)" placeholder="2" (keydown)="onHeadKey($event, idxCaja())" (focus)="selectAll($event)"></label>
               }
               <!-- Sin selector de fecha: un arqueo es de HOY. Elegir una fecha
                    pasada permitiría sellar dinero de un día que ya cerró. -->
@@ -797,7 +789,6 @@ interface CortesPersona {
     .arq-motivo-err { font-size: var(--fs-micro); color: var(--bad-fg); }
     /* [SM.47] Motivo del conteo sin caja. */
     .arq-motivo { max-width: 40rem; }
-    :host ::ng-deep .arq-fld-caja { min-width: 9rem; }
     .arq-motivo textarea { width: 100%; resize: vertical; }
     .arq-req { font-size: var(--fs-micro); color: var(--action); font-weight: 600; margin-left: .3rem; }
     .arq-motivo-n { align-self: flex-end; font-size: var(--fs-micro); }
@@ -970,6 +961,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   /** Para llegar al menú del tipo de arqueo (un p-select), que no tiene ref propia. */
   private readonly host = inject(ElementRef) as ElementRef<HTMLElement>;
   private readonly svc = inject(ArqueoService);
+  private readonly cdr = inject(ChangeDetectorRef);
   private readonly auth = inject(AuthService);
   private readonly perms = inject(PermissionsService);
   private readonly dataScope = inject(DataScopeService);
@@ -1079,30 +1071,17 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   readonly manual = signal(true);
 
   /**
-   * [SM.51] Las cajas que Kepler usó en la sucursal (60 días), para el selector. Vacío = no
-   * se pudo traer o la sucursal no tiene: se teclea la caja como antes.
+   * [SM.51] Al tener sucursal, la caja que ESTE equipo usó la última vez en ella (si no se
+   * escribió otra). Se recuerda por sucursal: la de otra tienda no se arrastra.
    */
-  readonly cajasOpciones = signal<{ label: string; value: string }[]>([]);
-  private cajasPedidas = '';
-  private readonly cajasAlCambiarSucursal = effect(() => {
+  private readonly cajaAlCambiarSucursal = effect(() => {
     const suc = this.sucursalActiva();
-    untracked(() => this.cargarCajas(suc));
-  });
-  private cargarCajas(suc: string | null): void {
-    if (!suc) { this.cajasOpciones.set([]); this.cajasPedidas = ''; return; }
-    if (suc === this.cajasPedidas) return;
-    this.cajasPedidas = suc;
-    this.svc.cajasDeSucursal(suc).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => {
-        if (this.cajasPedidas !== suc) return;   // llegó tarde: ya cambió la sucursal
-        this.cajasOpciones.set((r.cajas || []).map((c) => ({ label: 'Caja ' + c, value: c })));
-        // Lo que recuerda ESTE equipo, sólo si la caja sigue existiendo en la sucursal.
-        const recordada = this.cajaRecordada(suc);
-        if (!this.aCaja && recordada && r.cajas.includes(recordada)) this.aCaja = recordada;
-      },
-      error: () => { if (this.cajasPedidas === suc) this.cajasOpciones.set([]); },
+    untracked(() => {
+      if (!suc || this.aCaja) return;
+      const recordada = this.cajaRecordada(suc);
+      if (recordada) { this.aCaja = recordada; this.cdr.markForCheck(); }
     });
-  }
+  });
   /** Elige la caja y la recuerda en este equipo (por sucursal). */
   elegirCaja(v: string | null): void {
     this.aCaja = (v ?? '').trim();

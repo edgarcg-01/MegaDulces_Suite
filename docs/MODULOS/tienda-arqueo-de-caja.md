@@ -1,4 +1,4 @@
-# Tienda › Arqueo de caja — la cajera elige su caja; sin lista de turnos, avisos ni historial (SM.51)
+# Tienda › Arqueo de caja — la cajera escribe su caja; sin lista de turnos, avisos ni historial (SM.51)
 
 ## Problema
 
@@ -8,18 +8,17 @@ recuadro de «lo que toca». Además, al elegir un turno, la caja la ponía Kepl
 
 ## Solución
 
-- La cajera elige **su caja** en un selector (las cajas que Kepler usó en la sucursal en 60 días); el equipo la
-  recuerda. El arqueo se guarda con esa caja; si la lista no se puede traer, la caja se teclea.
+- La cajera escribe **su caja**; el equipo la recuerda por sucursal. El arqueo se guarda con esa caja.
 - El turno de Kepler se liga por detrás, por caja + hora (SM.48), sin que ella lo vea.
 - Se quitan la lista de turnos, los avisos de arriba y el recuadro de «lo que toca».
 - La cajera ya no tiene historial; quien valida lo ve en «Sucursales y sus cajas» (días pasados y reimprimir).
+- Pendiente (SM.52): elegir la caja de una lista con las cajas que Kepler usó en la sucursal.
 
 ## Cómo se implementó
 
-- `BlindCountService.cajasDeSucursal` y `GET /store/arqueo/cajas-sucursal` (STORE_ARQUEO_CAPTURAR).
-- Pantalla: la captura queda siempre en modo «con caja» (`manual` en verdadero), `cajasOpciones`, `elegirCaja`
-  (localStorage por sucursal) y ya no se preselecciona un turno; se quitaron del template los avisos, la lista de
-  turnos y el historial de la cajera.
+- Sólo pantalla: la captura queda siempre en modo «con caja» (`manual` en verdadero); `elegirCaja` guarda la caja en
+  localStorage por sucursal y un `effect` la vuelve a poner al tener sucursal; ya no se preselecciona un turno; se
+  quitaron del template los avisos, la lista de turnos y el historial de la cajera.
 
 ## Por qué así
 

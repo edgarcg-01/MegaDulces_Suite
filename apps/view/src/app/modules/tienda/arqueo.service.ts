@@ -380,11 +380,6 @@ export class ArqueoService {
   }
 
   /** La encargada firma el arqueo tras contarlo en el lugar. */
-  /** [SM.51] Las cajas que Kepler usó en la sucursal (60 días): el selector de la captura. */
-  cajasDeSucursal(warehouseCode: string): Observable<{ warehouse_code: string; cajas: string[] }> {
-    return this.http.get<{ warehouse_code: string; cajas: string[] }>(`${this.base}/cajas-sucursal`, { params: { warehouse_code: warehouseCode } });
-  }
-
   /** [SM.48] Sucursales y sus cajas de un día (solo quien valida: trae el esperado). */
   cajas(fecha: string): Observable<ArqueoCajasResp> {
     return this.http.get<ArqueoCajasResp>(`${this.base}/cajas`, { params: { fecha } });

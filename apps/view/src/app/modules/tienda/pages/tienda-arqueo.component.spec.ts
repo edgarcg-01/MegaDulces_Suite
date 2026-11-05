@@ -47,9 +47,6 @@ class ArqueoStub {
   enviado: any = null;
   turnos() { return of(this.resp); }
   rutas() { return of({ warehouse_code: '01', rd: [], rv: [] }); }
-  /** [SM.51] Las cajas de la sucursal para el selector. */
-  cajasLista: string[] = ['1', '2', '3'];
-  cajasDeSucursal(code: string) { return of({ warehouse_code: code, cajas: this.cajasLista }); }
   list() { return of([]); }
   submit(dto: any) { this.enviado = dto; return of({ tipo: dto.tipo, total_contado: 1000, reveal: false }); }
   submitRuta(dto: any) { this.enviado = dto; return of({ tipo: dto.tipo, total_contado: 1000, route_code: dto.route_code, route_label: '', medible: false, motivo_no_medible: 'sin_esperado' }); }
@@ -462,7 +459,6 @@ describe('TiendaArqueoComponent · [SM.45] rutas por sucursal', () => {
 
   const svc = {
     turnos: () => of({ turnos: [], aviso: null }),
-    cajasDeSucursal: (code: string) => of({ warehouse_code: code, cajas: ['1', '2'] }),
     list: () => of([]),
     porCajera: () => of({ cajeras: [], totales: { cajeras: 0, cortes: 0, sin_arqueo: 0 } }),
     rutas: (code?: string | null) => {
@@ -898,8 +894,8 @@ describe('TiendaArqueoComponent · [SM.49] menú del tipo de arqueo y concepto d
 });
 
 /**
- * [SM.51] La cajera elige SU caja y el arqueo se guarda con ella. Se quitaron la lista de
- * turnos de Kepler, los avisos de arriba y su historial.
+ * [SM.51] La cajera escribe SU caja (el equipo la recuerda) y el arqueo se guarda con ella.
+ * Se quitaron la lista de turnos de Kepler, los avisos de arriba y su historial.
  */
 describe('TiendaArqueoComponent · [SM.51] la caja la elige la cajera', () => {
   let fix: ComponentFixture<TiendaArqueoComponent>;
@@ -908,10 +904,9 @@ describe('TiendaArqueoComponent · [SM.51] la caja la elige la cajera', () => {
   const el = (): HTMLElement => fix.nativeElement as HTMLElement;
   const tick = async (): Promise<void> => { await fix.whenStable(); await new Promise((r) => setTimeout(r, 0)); fix.detectChanges(); };
 
-  const montar = async (resp: TurnosResp = { turnos: [], aviso: null }, cajas = ['1', '2', '3']) => {
+  const montar = async (resp: TurnosResp = { turnos: [], aviso: null }) => {
     svc = new ArqueoStub();
     svc.resp = resp;
-    svc.cajasLista = cajas;
     await TestBed.configureTestingModule({
       imports: [TiendaArqueoComponent],
       providers: [
@@ -929,10 +924,10 @@ describe('TiendaArqueoComponent · [SM.51] la caja la elige la cajera', () => {
   };
   beforeEach(() => { try { localStorage.clear(); } catch { /* sin almacenamiento */ } });
 
-  it('⭐ la caja se elige de las que Kepler usó en la sucursal, y el arqueo se guarda con ESA caja', async () => {
+  it('⭐ la caja se escribe y el arqueo se guarda con ESA caja', async () => {
     await montar();
-    expect(cmp.cajasOpciones().map((c) => c.label)).toEqual(['Caja 1', 'Caja 2', 'Caja 3']);
-    cmp.elegirCaja('3');
+    expect(el().querySelector('.arq-head input.arq-fld-sm')).not.toBeNull();
+    cmp.elegirCaja(' 3 ');
     cmp.elegirMenu('retiro:retiro_caja');
     cmp.denomCount['1000'] = 1; cmp.recalc();
     expect(cmp.canSubmit()).toBe(true);
@@ -957,15 +952,10 @@ describe('TiendaArqueoComponent · [SM.51] la caja la elige la cajera', () => {
     expect(cmp.aCaja).toBe('2');
   });
 
-  it('NEGATIVA: una caja recordada que ya no existe en la sucursal NO se preselecciona', async () => {
-    try { localStorage.setItem('arqueo.caja.01', '9'); } catch { /* idem */ }
+  it('NEGATIVA: la caja recordada es por sucursal — la de otra tienda no se arrastra', async () => {
+    try { localStorage.setItem('arqueo.caja.07', '9'); } catch { /* idem */ }
     await montar();
     expect(cmp.aCaja).toBe('');
-  });
-
-  it('si no se pudo traer la lista de cajas, la caja se teclea', async () => {
-    await montar(undefined, []);
-    expect(el().querySelector('input.arq-fld-sm')).not.toBeNull();
   });
 
   it('⭐ con turnos de Kepler pendientes, NO se ven ni la lista ni los avisos, y no se preselecciona turno', async () => {

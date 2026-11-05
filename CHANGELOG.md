@@ -9,8 +9,8 @@
 ---
 
 ## [Unreleased]
-### Changed — Arqueo: la cajera elige su caja; sin lista de turnos, avisos ni historial (SM.51, 2026-11-05)
-- `/tienda/arqueo`: la caja se elige de un selector con las cajas que Kepler usó en la sucursal (se recuerda en el equipo) y el arqueo se guarda con esa caja; el turno de Kepler se liga por detrás por caja + hora.
+### Changed — Arqueo: la cajera escribe su caja; sin lista de turnos, avisos ni historial (SM.51, 2026-11-05)
+- `/tienda/arqueo`: la cajera escribe su caja (el equipo la recuerda por sucursal) y el arqueo se guarda con esa caja; el turno de Kepler se liga por detrás por caja + hora.
 - Se quitan la lista «cortes sin arquear», los avisos de cajas abiertas / de días anteriores y el recuadro de «lo que toca». La cajera ya no tiene historial; quien valida lo ve en «Sucursales y sus cajas».
 
 ### Fixed — Catálogo digital: la primera captura desde el celular (NP.7, 2026-11-03)
