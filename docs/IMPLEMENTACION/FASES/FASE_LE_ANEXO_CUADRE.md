@@ -74,7 +74,7 @@ de la mitad del dinero sin explicar, y cuando sí lo ve, no dice de quién es.
 
 1. **El veredicto del periodo, en una frase.** *«Falta explicar $X en N huecos: caja $A · Kepler y
    sucursales $B · Canindo $C · sin contar $D.»* Cada monto filtra la lista de abajo.
-2. **La línea del efectivo físico.** *«Contado (cajón + bóveda) contra el libro: +$2,106.70 ·
+2. **La línea del efectivo físico.** *«Contado (cajón + bóveda) contra el libro: −$48,047.70 ·
    $188,560 declarados sin contar.»* Es el único testigo que no depende de nadie, y va arriba.
 3. **La lista de huecos**, la tarea. Una fila por hueco, **lo más nuevo primero**, agrupable por
    dueño. Cada fila dice qué testigos lo vieron y cuáles no (cadena venta → corte → cobro → bóveda →
@@ -149,7 +149,7 @@ Cuadre de Caja General                                [?] Kepler hace 4 min · O
 ─────────────────────────────────────────────────────────────────────────────────────────
 Falta explicar $X en N huecos                                       ← primario
   Caja $A  ·  Kepler y sucursales $B  ·  Canindo $C  ·  Sin contar $188,560
-Efectivo contado contra el libro: +$2,106.70 · $188,560 declarados sin contar   [ver balance]
+Efectivo contado contra el libro: −$48,047.70 · $188,560 declarados sin contar  [ver balance]
 
 [ Huecos | Días ]   Dueño: [Todos ▾]   Certeza: [Todas ▾]   [Buscar folio, ruta, monto…]
 

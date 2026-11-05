@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 388 KB, 5728 líneas, 39 secciones.
+> **Índice navegable** — 389 KB, 5743 líneas, 39 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/VERDAD_ABSOLUTA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -45,7 +45,7 @@
 | 5208 | 5253 | 5 | 33. ⭐⭐ EL LIBRO DE COMPRAS: el asiento tiene árbitro; qué facturas entran, todavía no (LC.19, 2026-10-21) |
 | 5254 | 5338 | 7 | 34. ⭐⭐ EL PRECIO DE UNA COTIZACIÓN: Kepler cobra la PRESENTACIÓN capturada (E.22–E.28, 2026-10-22) |
 | 5339 | 5435 | 8 | 35. ⭐⭐ EL PAGO A PROVEEDOR: cinco números distintos, cinco árbitros distintos (PGP, 2026-10-24) |
-| 5436 | 5779 | 25 | 36. ⭐⭐ EL EFECTIVO DE CAJA GENERAL, seguido desde su origen y al revés: CAOS no es el testigo de que el dinero |
+| 5436 | 5794 | 26 | 36. ⭐⭐ EL EFECTIVO DE CAJA GENERAL, seguido desde su origen y al revés: CAOS no es el testigo de que el dinero |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -5573,14 +5573,24 @@ tras cada evento. Con el replay (depósito +, dispensar −, vaciar −, dotar +
 
 ```
 físico inicial: cajón $3,327.50 + bóveda $342,500 ...............   $345,827.50
-+ ingresos del libro ...........................................  $5,200,441.00
++ ingresos del libro ...........................................  $5,250,595.40
 − gastos del libro (incl. CG-2026-00018, sin corte) ............  $5,548,199.20
                                                                   ─────────────
-= esperado ......................................................    −$1,930.70
+= esperado ......................................................    $48,223.70
 contado pieza por pieza: cajón $116 + bóveda $60 ...............       $176.00
                                                                   ─────────────
-SOBRAN (contado − esperado) ....................................     $2,106.70
+FALTAN (esperado − contado) ....................................    $48,047.70
 ```
+
+⛔ *Corregido el mismo 2026-11-04 al versionar la medición (`[LE.CU.1]`):* la primera versión de
+esta sección publicó «ingresos $5,200,441.00 · sobran $2,106.70». Le faltaban **dos ingresos
+fechados antes del relevo que viven dentro de cortes posteriores**: `CI-2026-00029` («VENTA 08/10
+MORELIA», 7-oct, $48,934.40, corte del 13-oct) y `CI-2026-00031` (8-oct, $1,220, corte del 14-oct).
+La consulta filtraba el libro **por la fecha del renglón** (≥ 9-oct) en vez de **por el corte**.
+⭐ *Un corte contiene lo que se le asignó, no lo que cae en sus fechas.* Lo encontró el guion
+versionado al no coincidir con la cifra publicada: para eso se versiona.
+
+Reproducible: `node database/scripts/verify-lecu1-flujo-efectivo-caja.js`.
 
 ### 36.5 ⛔ El «contado» del cajón NO es un conteo: un bulto tecleado como morralla
 
@@ -5599,9 +5609,9 @@ bulto de cientos de miles de pesos **sin desglose**:
   pero **lo sellado antes de la regla se cerró como venía** (expand/contract). Los cortes del 3 y 4-nov
   también lo traen.
 
-⇒ **Si el bulto existe**, al cierre del 3-nov hay **$190,666.70** de efectivo sin entrada en el libro.
-**Si no existe**, el cajón tiene $116 y el libro explica el efectivo con $2,106.70 de diferencia. **No
-se sabe cuál de las dos es**, y no se puede saber sin contarlo pieza por pieza.
+⇒ **Si el bulto es efectivo**, al cierre del 3-nov **sobran $140,512.30** que el libro no explica.
+**Si no lo es**, el cajón tiene $116 y **faltan $48,047.70** contra el libro. **No se sabe cuál de
+las dos es**, y no se puede saber sin contarlo pieza por pieza.
 
 Por tramos, entre cierres **sin bulto** (27 y 29-oct), las diferencias son −$118,338.30, +$177,562.44
 y −$57,117.44. Son el bulto entrando y saliendo de los conteos, no dinero que aparece y desaparece:
@@ -5612,15 +5622,15 @@ $10,121 a **$202,671 (+$192,550 exactos)**, mientras su efectivo coincide al pes
 corte ($44,891.50). Casi seguro el bulto son **cheques tecleados como morralla**, no efectivo.
 Falta que alguien los vea para que sea medición.
 
-⇒ **Consecuencia, si se confirma:** el efectivo físico cuadra con el libro **en el neto**
-($2,106.70). ⛔ *Corregido el mismo 2026-11-04 (§36.9):* aquí se concluyó que los cobros que
-Kepler da por entrados a `0011` y el libro no tiene ($335,165.25) «no llegaron físicamente». **No
-se sostiene.** El balance sólo prueba que
+⇒ **Consecuencia, si se confirma:** faltan **$48,047.70** de efectivo contra el libro, en el
+**neto**. ⛔ *Corregido el mismo 2026-11-04 (§36.9):* aquí se concluyó que los cobros que Kepler da
+por entrados a `0011` y el libro no tiene ($335,165.25) «no llegaron físicamente». **No se
+sostiene.** Descontado el depósito capturado dos veces ($21,101), el balance sólo prueba que
 
-    entradas sin libro − salidas sin libro ≈ $23,207.70
+    entradas sin libro − salidas sin libro ≈ −$26,946.70
 
 y §36.9 encontró salidas físicas sin libro con la bóveda como testigo ($192,558.50) más la
-devolución doble de Morelia ($40,949). Para que el neto cuadre, **entraron al menos ~$256k que el
+devolución doble de Morelia ($40,949). Para que el neto dé eso, **entraron al menos ~$207k que el
 libro no tiene**. Lo más probable es que buena parte de esos cobros sí llegó y se usó en salidas que
 nadie registró. Cuál peso fue a cuál no se puede asignar con el dato: pide el expediente de cada
 salida.
@@ -5637,7 +5647,7 @@ salida.
 | cortes de las cajas que alimentan Caja General, sin cobro (29-oct→3-nov) | $289,200.09 | alta que existe; por confirmar si va a `0011` o a banco | Morelia ($195,118.51) y 08 ($93,685.79) |
 | bulto del cajón declarado sin contar | $188,560 | ⛔ **no medido**; casi seguro cheques (§36.8) | operación: conteo pieza por pieza |
 | **salidas físicas que sólo registra Control** (sin pago en Kepler ni renglón en el libro) | **$648,434.50**, de las que **$192,558.50** tienen la bóveda como testigo | alta para las de bóveda; las demás, por confirmar | Dirección / operación de caja (§36.9) |
-| el neto del balance: entradas sin libro − salidas sin libro | ≈ $23,207.70 | alta (bóveda + conteo) | — no asigna peso por peso (§36.5) |
+| el neto del balance: faltan contra el libro (sin el bulto) | $48,047.70; entradas sin libro − salidas sin libro ≈ −$26,946.70 | alta (bóveda + conteo pieza por pieza) | — no asigna peso por peso (§36.5) |
 | cortes cobrados contra `0001` DEVOLUCIONES (ni banco ni caja) | $163,882.36 | alta que existe; destino desconocido | sucursales 01 y 04 |
 | ruta 26 del 21-oct: llegó a la bóveda y no está en el libro | $19,176 | alta (Kepler + Control + bóveda) | operación de caja |
 | devolución de un ingreso doble de Morelia, sin salida en el libro | $40,949 | media (importe idéntico a `CI-2026-00046`) | operación de caja |
@@ -5659,7 +5669,12 @@ salida.
    réplica de `kdm5`. Medido: todo `U-A-5` del 20-oct al 4-nov tiene su aplicación. Es el atraso
    normal de cada sucursal, y sólo lo que lo pasó se cuenta como hueco.
 5. ⛔ **El «contado» del corte se leyó como conteo** (§36.5). El primer balance daba «sobran
-   $190,666.70» sin decir que $188,560 eran un monto tecleado.
+   $190,666.70» sin decir que $188,560 eran un monto tecleado (y además la cifra estaba mal: ver
+   la trampa 8).
+8. ⛔ **Sumar el libro por la FECHA del renglón en vez de por el CORTE.** Dos ingresos del 7 y 8-oct
+   viven en los cortes del 13 y 14-oct ($50,154.40): el balance publicado decía «sobran $2,106.70»
+   y la verdad es «faltan $48,047.70». Lo cazó el guion versionado (`[LE.CU.1]`) al no reproducir
+   la cifra publicada.
 6. ⛔ **La transacción `READ ONLY` no permite tablas temporales**, así que todo va en CTE. Y `kdm5`
    trae columnas `numeric`: `btrim()` exige `::text`.
 7. ⛔ **En el corte `U-D-23` la caja NO está en `c80`/`c81`** (vienen vacíos, como en el ticket,
@@ -5760,8 +5775,8 @@ bloque (`GNF`, `NOM`; por ejemplo, $169,696 a Morelia el 15-oct, con dispensado 
 $169,500). El libro las parte en muchos pagos de sucursal, y por importe no se pueden casar.
 
 **4. ⛔ La consecuencia corrige §36.5.** Con salidas físicas sin libro por al menos $192,558.50
-(más los $40,949 de la devolución doble), el neto del balance (≈ $23,207.70) obliga a que **hayan
-entrado al menos ~$256k que el libro no tiene**. Los cobros de §36.2 no son «dinero que no llegó»:
+(más los $40,949 de la devolución doble), el neto del balance (≈ −$26,946.70) obliga a que **hayan
+entrado al menos ~$207k que el libro no tiene**. Los cobros de §36.2 no son «dinero que no llegó»:
 lo más probable es que buena parte llegó y se usó en salidas que nadie registró.
 
 **Trampas de esta subsección:**
