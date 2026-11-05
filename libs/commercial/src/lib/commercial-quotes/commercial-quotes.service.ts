@@ -17,7 +17,7 @@ import {
 } from '@megadulces/platform-core';
 import { PALABRAS_RELLENO, SINONIMOS_CATALOGO } from './catalog-search-terms';
 import { AREA_COTIZACIONES, MENSAJE_COTIZACION_AJENA, autorVisible, type QuienCotiza } from './quote-scope';
-import { consultaBuscadorCatalogo } from '../shared/catalogo-buscador';
+import { consultaBuscadorCatalogo, PRECIO_SIMBOLICO_MAX } from '../shared/catalogo-buscador';
 import { QuotePricingService, type Rung } from './quote-pricing.service';
 import { ligasAutomaticas, type UsuarioParaLiga, type VendedorKepler } from './vendedor-auto-liga';
 
@@ -160,6 +160,8 @@ export interface QuoteCatalogRow {
    */
   box_label: string | null;
   sold_by_kg: boolean;
+  /** COT.27: precio simbólico de Kepler ($0.01): regalo o promoción cuya condición está en el nombre. */
+  precio_simbolico: boolean;
 }
 
 /** Cabecera + renglones. Las columnas se devuelven tal cual salen del SELECT. */
@@ -838,7 +840,8 @@ export class CommercialQuotesService {
       // `mv_kepler_sales_daily` al vuelo tardaba 3.4 s por búsqueda, esto 110–200 ms.
       // La consulta interna (búsqueda por palabras + orden por venta) vive en `shared/catalogo-buscador.ts`:
       // `[NP.7.L.10]` la reusa el levantamiento con su propia lista blanca, sin precio. Mismo SQL, sin cambio aquí.
-      const inner = consultaBuscadorCatalogo(knex, suc, term, n);
+      // COT.27: también los regalos de promoción de $0.01, que la vista de etiquetas excluye.
+      const inner = consultaBuscadorCatalogo(knex, suc, term, n, { incluirPrecioSimbolico: true });
 
       const res = await knex.raw(
         // La unidad mayor se completa con BTO/CUB cuando no hay caja, o el botón diría "Caja" y
@@ -901,6 +904,7 @@ export class CommercialQuotesService {
         box_size: num(r['box_size']),
         box_label: (r['box_label'] as string) ?? null,
         sold_by_kg: r['sold_by_kg'] === true,
+        precio_simbolico: num(r['piece_price']) !== null && (num(r['piece_price']) as number) <= PRECIO_SIMBOLICO_MAX,
       }));
     });
   }

@@ -125,6 +125,8 @@ export interface QuoteCatalogRow {
   /** Rótulo del ERP de la unidad mayor: `CJA`, `BTO` (bulto) o `CUB` (cubeta). NULL = no declara. */
   box_label: string | null;
   sold_by_kg: boolean;
+  /** [COT.27] Precio simbólico de Kepler ($0.01): regalo de promoción, la condición está en el nombre. */
+  precio_simbolico?: boolean;
 }
 
 /**
