@@ -8,9 +8,18 @@
 export function causaDelError(e: unknown, max = 300): string {
   if (!(e instanceof Error)) return 'fallo sin mensaje';
   const pg = e as Error & { code?: string; constraint?: string; detail?: string };
-  const msg = e.message;
-  const corte = msg.lastIndexOf(' - ');
-  const causa = corte >= 0 ? msg.slice(corte + 3) : msg;
-  const partes = [pg.code, pg.constraint, causa, pg.detail].filter((x): x is string => !!x);
+  const partes = [pg.code, pg.constraint, soloLaCausa(e, Infinity), pg.detail].filter((x): x is string => !!x);
   return partes.join(' · ').slice(0, max);
+}
+
+/**
+ * ⛔ `[LE.0.9]` Lo mismo, para una PERSONA: sólo el mensaje de Postgres, sin la sentencia ni el código.
+ * El lote de la caja guardaba `e.message.slice(0, 200)` y el aviso de HG-5 (2026-11-03) decía
+ * «insert into "finance"."cash_ledger" ("autofill", "beneficiario", …» catorce veces: la causa —el
+ * superadmin no cuenta en la caja (D23)— quedaba después del carácter 200.
+ */
+export function soloLaCausa(e: unknown, max = 200): string {
+  if (!(e instanceof Error)) return 'fallo sin mensaje';
+  const corte = e.message.lastIndexOf(' - ');
+  return (corte >= 0 ? e.message.slice(corte + 3) : e.message).slice(0, max);
 }

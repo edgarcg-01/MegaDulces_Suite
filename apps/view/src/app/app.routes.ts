@@ -1,9 +1,11 @@
 import { inject } from '@angular/core';
-import { Route, Router, Routes, UrlMatcher } from '@angular/router';
+import { CanMatchFn, Route, Router, Routes, UrlMatcher } from '@angular/router';
 import { LayoutComponent } from './modules/dashboard/layout/layout.component';
 import { authGuard } from './core/guards/auth.guard';
 import { permissionGuard, anyPermissionGuard, carteraEntryGuard, gastosAreaEntryGuard, colaboradorGuard, comercialHomeGuard, mktHomeGuard, almacenHomeGuard, logisticaHomeGuard, comprasHomeGuard, finanzasHomeGuard, contabilidadHomeGuard, adminHomeGuard, repartoHomeGuard, telemarketingHomeGuard, preciosHomeGuard, desarrolladoresHomeGuard, servicioHomeGuard, rhHomeGuard } from './core/guards/permission.guard';
 import { Permission } from './core/constants/permissions';
+import { PermissionsService } from './core/services/permissions.service';
+
 import { televentaGuard } from './modules/televenta/televenta.guard';
 import { repartoGuard } from './modules/reparto/reparto.guard';
 import { storeEntryRedirect } from './modules/tienda/tienda.guards';
@@ -12,6 +14,9 @@ import { rutasDelPanel } from './core/panel/panel-routes';
 import { SplitShellComponent } from './core/panel/split-shell.component';
 import { countFocusGuard } from './core/guards/count-focus.guard';
 import { unsavedChangesGuard } from './core/guards/unsaved-changes.guard';
+
+/** `[LE.6.9]` Quien tiene la clave del cambio entra a la Ventanilla; los demás siguen en Captura (D34). */
+export const trabajaEnVentanilla: CanMatchFn = () => inject(PermissionsService).has(Permission.FINANCE_CAJA_VENTANILLA);
 
 /**
  * El aux route del panel se activa **sólo si la URL trae algo para el panel**.
@@ -663,6 +668,15 @@ export const routes: Routes = [
         path: 'programa-pagos',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-programa-pagos.component').then(m => m.FinanzasProgramaPagosComponent),
         canActivate: [permissionGuard(Permission.FINANCE_PAYMENTS_VER)]
+      },
+      {
+        // ⭐ `[LE.6.9]` La VENTANILLA toma esta misma ruta para quien tenga FINANCE_CAJA_VENTANILLA (D34:
+        // una sola forma de trabajar por persona, nunca las dos a la vez). `canMatch` y no `canActivate`:
+        // sin la clave la ruta NO coincide y cae a Captura, la de abajo, sin redirigir. Va ANTES a propósito.
+        path: 'caja-general',
+        canMatch: [trabajaEnVentanilla],
+        loadComponent: () => import('./modules/finanzas/pages/caja-general/finanzas-caja-ventanilla.component').then(m => m.FinanzasCajaVentanillaComponent),
+        canActivate: [anyPermissionGuard(Permission.FINANCE_CAJA_VER, Permission.FINANCE_CAJA_GESTIONAR, Permission.FINANCE_CAJA_AUTORIZAR)]
       },
       {
         // CG.14 (ADR-070) — Caja General: donde la plataforma REGISTRA el efectivo. Reemplaza

@@ -11,7 +11,7 @@ import {
   etiquetaProcedencia, textoCobertura, BILLETES_CAJA, seleccionarBilletes, GLOSA_MIN,
   puedeAutorizarUI, puedeCerrarUI, textoSaldo, TEXTO_BLOQUEO, MOTIVO_SIN_DOC_MIN,
   conflictoDeEsperado, pasoDelCorte, textoPaso, PASOS_CORTE, textoDeError, separarPorFlujo,
-  GRUPOS_COLA, GRUPO_SIN_CLASIFICAR, grupoDe, puedeSellarUI,
+  GRUPOS_COLA, GRUPO_SIN_CLASIFICAR, grupoDe, puedeSellarUI, piezasConBolsas, revisarBolsas, MONEDAS_CAJA, revisarExplicacion, textoExplicacion, EXPLICACION_VACIA,
   type FormularioCaja, type CorteVista, type EstadoParaPaso,
 } from './caja-captura.util';
 import { BILLETES_MXN } from '@megadulces/contracts';
@@ -710,6 +710,23 @@ describe('[CGP-V.3b] puedeSellarUI — la jornada atrasada se declara', () => {
   });
 });
 
+describe('[LE.2.12] puedeSellarUI — la morralla es sólo el metal de menos de 50¢', () => {
+  const base = { contado: 204974.5, ceroDeclarado: false, atrasado: false, jornadaConfirmada: false };
+
+  it('⛔ PRUEBA NEGATIVA: el bulto del 2-nov ($192,550 en morralla) no se sella', () => {
+    expect(puedeSellarUI({ ...base, morralla: 192550 })).toEqual({ ok: false, motivo: 'morralla_fuera_de_tope' });
+  });
+
+  it('centavos sueltos sí se sellan, y sin morralla también', () => {
+    expect(puedeSellarUI({ ...base, morralla: 3.7 }).ok).toBe(true);
+    expect(puedeSellarUI(base).ok).toBe(true);
+  });
+
+  it('sin conteo, el motivo sigue siendo ése', () => {
+    expect(puedeSellarUI({ ...base, contado: 0, morralla: 0 }).motivo).toBe('sin_conteo');
+  });
+});
+
 describe('[CGA-A.56] un egreso dice de dónde salió el dinero', () => {
   const gasto = (o: Partial<FormularioCaja> = {}) => formOk({ tipo: 'gasto', exige_origen: true, ...o });
 
@@ -730,5 +747,67 @@ describe('[CGA-A.56] un egreso dice de dónde salió el dinero', () => {
   it('sin `exige_origen` (quien no la pidió) y en un ingreso, la regla no existe', () => {
     expect(motivosDeBloqueo(formOk({ tipo: 'gasto' }))).not.toContain('falta_origen_efectivo');
     expect(motivosDeBloqueo(formOk({ tipo: 'ingreso', exige_origen: true }))).not.toContain('falta_origen_efectivo');
+  });
+});
+
+describe('[LE.2.12] monedas en bolsa: se cuentan por bolsa y se sellan como piezas', () => {
+  const reja = [...BILLETES_CAJA, ...MONEDAS_CAJA];
+  const diez = MONEDAS_CAJA.find((d) => d.key === '10')!;
+
+  it('19 bolsas de 1,000 monedas de $10 más 250 sueltas = 19,250 piezas', () => {
+    const r = piezasConBolsas([{ denom_key: '10', denominacion: 10, piezas: 250 }], { '10': { bolsas: 19, porBolsa: 1000 } }, reja);
+    expect(r).toEqual([{ denom_key: '10', denominacion: 10, piezas: 19250 }]);
+    expect(sumaDesglose(r)).toBe(192500);
+  });
+
+  it('una moneda sólo en bolsa aparece aunque no haya sueltas', () => {
+    expect(piezasConBolsas([], { '5': { bolsas: 2, porBolsa: 500 } }, reja))
+      .toEqual([{ denom_key: '5', denominacion: 5, piezas: 1000 }]);
+  });
+
+  it('⛔ PRUEBA NEGATIVA: una bolsa a medio anotar no suma y lo dice', () => {
+    const b = { '10': { bolsas: 19, porBolsa: null } };
+    expect(revisarBolsas(b, reja)).toContain(diez.label);
+    expect(piezasConBolsas([], b, reja)).toEqual([]);
+    expect(puedeSellarUI({ contado: 100, ceroDeclarado: false, atrasado: false, jornadaConfirmada: false, bolsasIncompletas: true }).motivo)
+      .toBe('bolsas_incompletas');
+  });
+
+  it('⛔ un billete no va en bolsa, y las piezas son enteras', () => {
+    expect(revisarBolsas({ '500': { bolsas: 1, porBolsa: 100 } }, reja)).toMatch(/Sólo las monedas/);
+    expect(revisarBolsas({ '10': { bolsas: 1.5, porBolsa: 100 } }, reja)).toMatch(/enteros/);
+    expect(revisarBolsas({ '10': { bolsas: 1, porBolsa: 0 } }, reja)).toMatch(/enteros/);
+  });
+
+  it('sin bolsas, lo suelto pasa tal cual', () => {
+    const sueltas = [{ denom_key: '500', denominacion: 500, piezas: 9 }];
+    expect(piezasConBolsas(sueltas, {}, reja)).toEqual(sueltas);
+    expect(revisarBolsas({ '10': { bolsas: null, porBolsa: null } }, reja)).toBeNull();
+  });
+});
+
+describe('[LE.2.12] lo que Control traía sin detalle se explica peso por peso', () => {
+  const e = (x: Partial<typeof EXPLICACION_VACIA>) => ({ ...EXPLICACION_VACIA, ...x });
+
+  it('A23732: $202,671 = el cheque de $10,121 anotado + $192,550 en monedas', () => {
+    const x = e({ monedas: 192550 });
+    expect(revisarExplicacion(202671, 10121, x, 'Cheques')).toEqual({ sinExplicar: 0, falta: null });
+    expect(textoExplicacion('Cheques', 202671, 10121, x)).toContain('$192,550.00 eran monedas');
+  });
+
+  it('⛔ PRUEBA NEGATIVA: si sólo se anota el cheque, los $192,550 no desaparecen: faltan por explicar', () => {
+    const r = revisarExplicacion(202671, 10121, EXPLICACION_VACIA, 'Cheques');
+    expect(r.sinExplicar).toBe(192550);
+    expect(r.falta).toContain('$192,550.00');
+  });
+
+  it('explicar de más tampoco pasa, y «otra cosa» pide su nota', () => {
+    expect(revisarExplicacion(100, 0, e({ monedas: 150 }), 'Cheques').falta).toMatch(/de más/);
+    expect(revisarExplicacion(100, 0, e({ otro: 100 }), 'Cheques').falta).toMatch(/otra cosa/);
+    expect(revisarExplicacion(100, 0, e({ otro: 100, nota: 'vale de nómina' }), 'Cheques').falta).toBeNull();
+  });
+
+  it('negativos no', () => {
+    expect(revisarExplicacion(100, 0, e({ monedas: -5 }), 'Cheques').falta).toMatch(/negativos/);
   });
 });
