@@ -159,18 +159,29 @@ const SQL_LIVE = `
 
 exports.up = async function up(knex) {
   await knex.raw(`SET LOCAL lock_timeout = '5s'`);
+  // ⛔ GOTCHAS §87.1: `wincaja.*` y `catalog.products` tienen FORCE RLS — hasta el dueño necesita
+  // `app.tenant_id` (salvo superusuario). Sin él, CREATE … WITH DATA nace en CERO y sin error.
+  // Si la sesión no lo trae, se fija el del primer tenant, sólo para esta transacción.
+  await knex.raw(`SELECT set_config('app.tenant_id', t.id::text, true)
+                    FROM public.tenants t
+                   WHERE t.slug = 'mega_dulces'
+                     AND NULLIF(current_setting('app.tenant_id', true), '') IS NULL`);
+
+  /** Una matvista que nace vacía con la fuente llena (las estadísticas sí ven las filas) es el RLS. */
+  const exigirFilas = async (mv, fuente) => {
+    const { rows: [chk] } = await knex.raw(
+      `SELECT (SELECT count(*) FROM ${mv})::int AS filas,
+              COALESCE((SELECT reltuples FROM pg_class WHERE oid = to_regclass(?)), 0)::bigint AS fuente`,
+      [fuente]);
+    if (Number(chk.filas) === 0 && Number(chk.fuente) > 10000) {
+      throw new Error(`${mv} quedó VACÍA con ~${chk.fuente} filas en ${fuente}: RLS sin app.tenant_id (GOTCHAS §87.1).`);
+    }
+    console.log(`  ${mv}: ${chk.filas} filas`);
+  };
 
   await knex.raw(`CREATE MATERIALIZED VIEW IF NOT EXISTS ${WCJ} AS ${SQL_WCJ} WITH DATA`);
-  // ⛔ Esta matvista no se vuelve a refrescar: si nace vacía, se queda vacía. `v_sales_lines`
-  // devuelve 0 filas a un rol con RLS sin `app.tenant_id`, así que un poblado VACÍO con la fuente
-  // llena (las estadísticas sí ven las filas) es el RLS comiéndose la historia: se aborta.
-  const { rows: [chk] } = await knex.raw(
-    `SELECT (SELECT count(*) FROM ${WCJ})::int AS filas,
-            COALESCE((SELECT reltuples FROM pg_class
-                       WHERE oid = to_regclass('wincaja.maestro_mov_almacen')), 0)::bigint AS fuente`);
-  if (Number(chk.filas) === 0 && Number(chk.fuente) > 100000) {
-    throw new Error(`${WCJ} quedó VACÍA con ${chk.fuente} filas en la fuente: aplicar con el rol dueño (sin RLS).`);
-  }
+  // Esta matvista no se vuelve a refrescar: si nace vacía, se queda vacía.
+  await exigirFilas(WCJ, 'wincaja.maestro_mov_almacen');
   await knex.raw(`CREATE UNIQUE INDEX IF NOT EXISTS uq_mv_route_filter_options_wincaja
                     ON ${WCJ} (tenant_id, kind, value, month)`);
   await knex.raw(`COMMENT ON MATERIALIZED VIEW ${WCJ} IS
@@ -179,6 +190,7 @@ exports.up = async function up(knex) {
      lee. Arbitro: test-newdb-route-filter-options.js (Wincaja sin venta de ruta despues de last_date).'`);
 
   await knex.raw(`CREATE MATERIALIZED VIEW IF NOT EXISTS ${LIVE} AS ${SQL_LIVE} WITH DATA`);
+  await exigirFilas(LIVE, 'analytics.route_push_lines');
   // UNIQUE obligatorio: el ciclo de 30 min la refresca CONCURRENTLY.
   await knex.raw(`CREATE UNIQUE INDEX IF NOT EXISTS uq_mv_route_filter_options_live
                     ON ${LIVE} (tenant_id, kind, value)`);
