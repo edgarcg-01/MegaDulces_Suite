@@ -1,5 +1,5 @@
 import {
-  BadRequestException, ConflictException, ForbiddenException, HttpException, HttpStatus, Injectable, NotFoundException,
+  BadRequestException, ConflictException, ForbiddenException, HttpException, HttpStatus, Injectable, Logger, NotFoundException,
 } from '@nestjs/common';
 import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
@@ -7,13 +7,13 @@ import {
   DIAS_RETIRO_HOJA, ZONAS_HOJA_GASTOS, diaMxDeInstante, folioHoja, revisarConteoCajon,
   type CerrarHojaInput, type ClaveZonaHoja, type HojaAbierta, type HojaGastos, type HojasDeGastos, type MedioPagoHoja,
   type MotivoHojaInput, type PagarHojaInput, type PagoDeHojaGastos, type PagoHojaResultado, type RegistrarConteoHojaInput,
-  type RenglonHoja,
+  type RenglonHoja, type RetiroControlHoja,
   type ZonaHojaGastos,
 } from '@megadulces/contracts';
 import { consultasHoja } from './hoja-gastos.query';
 import {
-  armarHojaAbierta, cuadreDelRetiro, depositoDeHoja, instruccionDePago, retirosQueCuadran,
-  type DepositoBancoHoja, type PagoDeZona, type RetiroLibreHoja,
+  armarHojaAbierta, cuadreDelRetiro, depositoDeHoja, instruccionDePago, pagadoEnControl, retirosQueCuadran,
+  type DepositoBancoHoja, type PagoDeZona, type RetiroCaosConLigas, type RetiroLibreHoja,
 } from './hoja-gastos.engine';
 import { hojasInstaladas } from './hoja-gastos.gate';
 import { redondea2, tomaDelRetiro } from './caja-lote.engine';
@@ -58,6 +58,8 @@ interface RenglonEnLibro {
  */
 @Injectable()
 export class HojaGastosService {
+  private readonly logger = new Logger(HojaGastosService.name);
+
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
@@ -338,7 +340,43 @@ export class HojaGastosService {
 
   private async abierta(trx: Knex.Transaction, tenantId: string, zona: ZonaHojaGastos, instalada: boolean, datosAl: string | null) {
     const filas = (await consultasHoja.pagos(trx, tenantId, [...zona.sucursales], zona.desde, { conHojas: instalada })) as PagoDeZona[];
-    return armarHojaAbierta(zona, filas, datosAl);
+    const h = armarHojaAbierta(zona, filas, datosAl);
+    if (!h.renglones.length) return { ...h, control_medido: true };
+    const testigos = await this.testigosDelPapel(trx, tenantId, zona.desde);
+    return testigos
+      ? { ...h, pagado_en_control: pagadoEnControl(zona, h.renglones, testigos.control, testigos.caos), control_medido: true }
+      : h;
+  }
+
+  /**
+   * `[CGA-A.70]` Los retiros con que se pagaron las hojas en papel: los de Control (el Access de Caja
+   * General, `analytics.v_caja_control_movimientos`) y los de CAOS del mismo periodo, con cuántos
+   * pagos del libro cuelgan ya de cada uno. Va en SAVEPOINT: si Control no se puede leer, la hoja
+   * abierta se ve igual y dice «sin medir» en vez de no afirmar nada en silencio.
+   */
+  private async testigosDelPapel(trx: Knex.Transaction, tenantId: string, desde: string)
+    : Promise<{ control: RetiroControlHoja[]; caos: RetiroCaosConLigas[] } | null> {
+    await trx.raw('SAVEPOINT cga_a70_control');
+    try {
+      const control: RetiroControlHoja[] = (await trx('analytics.v_caja_control_movimientos')
+        .where('fecha', '>=', desde).where('cancelado', false).whereRaw(`observaciones ~* '\\mgnf\\M'`)
+        .select('folio', trx.raw(`to_char(fecha, 'YYYY-MM-DD') AS dia`), 'observaciones', 'total_declarado'))
+        .map((r) => ({ folio: String(r.folio), dia: String(r.dia), observaciones: r.observaciones ?? null, total: redondea2(Number(r.total_declarado)) }));
+      const caos: RetiroCaosConLigas[] = (await trx('analytics.caos_cash_movements as m')
+        .where('m.tenant_id', tenantId).where('m.type_id', TIPO_RETIRO)
+        .where('m.occurred_at', '>=', trx.raw(`(?::date - 1)`, [desde]))
+        .select('m.device', 'm.external_id', 'm.occurred_at', 'm.ref', trx.raw('abs(m.total) AS total'),
+          trx.raw(`(SELECT count(*) FROM finance.caos_cash_links k WHERE k.tenant_id = m.tenant_id AND k.deleted_at IS NULL
+                      AND k.caos_device = m.device AND k.caos_external_id::text = m.external_id::text)::int AS ligados`)))
+        .map((r) => ({ device: String(r.device), external_id: Number(r.external_id), occurred_at: new Date(r.occurred_at).toISOString(),
+          dia: diaMxDeInstante(r.occurred_at) as string, ref: r.ref ?? null, total: redondea2(Number(r.total)), ligados: Number(r.ligados) }));
+      await trx.raw('RELEASE SAVEPOINT cga_a70_control');
+      return { control, caos };
+    } catch (e) {
+      await trx.raw('ROLLBACK TO SAVEPOINT cga_a70_control').catch(() => undefined);
+      this.logger.warn(`[CGA-A.70] Control no se pudo leer: ${(e as Error).message}`);
+      return null;
+    }
   }
 
   private async una(trx: Knex.Transaction, tenantId: string, id: string): Promise<HojaGastos> {
