@@ -176,9 +176,23 @@ reparte la regla de dueño de cada hueco, y un hueco con dos dueños posibles se
 en el primero que puede cerrarlo. Las filas de ejemplo sí son movimientos reales de §36.
 
 **Se conserva** (decisiones previas): el estado partido `[CGA-A.66]` (cuadra / falta capturar / no
-cuadra) dentro del modo «Días»; las pestañas de Caja (`[CGA-A.67]`); la frescura de Kepler; la
-exportación a Excel. **Cambia:** el nivel 0 pasa del día al hueco, y el veredicto pasa de «días que no
-cuadran» a **dinero sin explicar con dueño**.
+cuadra) dentro del modo «Días»; las pestañas de Caja (`[CGA-A.67]`); la frescura de Kepler.
+**Cambia:** el nivel 0 pasa del día al hueco, y el veredicto pasa de «días que no
+cuadran» a **dinero sin explicar con dueño**. ⛔ **Sin Excel** (PM, 2026-11-05: *«nada de Excel»*): se
+quitó la exportación de la lista y del día.
+
+**`[LE.CU.4b]` Revisión de las tablas (PM, 2026-11-05: *«el diseño de las tablas es poco amigable»*;
+auditoría nivel C, sin validación visual).** Medido sobre los 87 huecos de prod: el renglón era el
+texto técnico del servidor (códigos de Kepler en 46, hasta 175 caracteres); la acción se repetía en
+cada fila; la venta sin cobro iba una fila por día (32 días = 10 rutas); seis columnas, tres de
+metadatos; los avisos en ámbar a 2.15:1 y el verde a 3.30:1 (AA pide 4.5). La tabla de días tenía 7
+columnas de cifras, y el detalle del día, dos tablas que había que cruzar a ojo. Quedó:
+
+| tabla | antes | ahora |
+|---|---|---|
+| huecos | 6 columnas, 87 filas, acción en cada fila | 3 columnas (fecha · qué es · monto), agrupada por lo que hay que hacer con la acción una vez en el encabezado; la ruta junta sus días (87 → 65 filas); testigos y certeza al detalle, salvo «por confirmar», que se dice en la fila |
+| días | 7 columnas (caja, Kepler y diferencia, de entrada y de salida, más estado) | 4 columnas (día · estado · diferencia al entrar · al salir); los totales del día, en el subtítulo de su detalle |
+| detalle del día | dos tablas: la de la caja y, abajo, «En Kepler, sin caja» | una sola: caja · Kepler · par, lo que no tiene par primero; lo casado sólo por importe dice «por confirmar» y no cuenta como casado |
 
 ## Paso 11 · Criterios de aceptación (se miden en la pantalla viva)
 

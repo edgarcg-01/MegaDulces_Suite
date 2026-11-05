@@ -7,7 +7,6 @@ import { RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
-import { TagModule } from 'primeng/tag';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
 import { coincideBusqueda } from '@megadulces/ui-web';
@@ -19,8 +18,6 @@ import { LoadStateComponent } from '../../../../shared/components/load-state/loa
 import { ContextHelpComponent } from '../../../../shared/context-help/context-help.component';
 import { SegmentedComponent, type SegOption } from '../../../../shared/components/segmented/segmented.component';
 import { SidePeekComponent } from '../../../../shared/components/side-peek/side-peek.component';
-import { SortState, toggleSort, sortIcon, ariaSort, sortRows } from '../../../../shared/util';
-import { exportXlsx, XlsxSheet } from '../../../../shared/export/xlsx-export';
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { CajaTabsComponent } from '../../caja-tabs.component';
 import { money, dmy } from '../finanzas-format';
@@ -55,6 +52,26 @@ interface CuadreBalance {
 /** El filtro de la lista: lo que falta (default), su reparto por dueño, o lo que se declara aparte. */
 type FiltroHuecos = 'falta' | 'caja' | 'kepler' | 'ruta' | 'por_ligar' | 'sin_contar' | 'todo';
 
+/**
+ * El grupo es LO QUE HAY QUE HACER. La lista se lee por tarea: la acción va una vez en el encabezado
+ * del grupo, no repetida en cada renglón.
+ */
+type Grupo = 'capturar' | 'libro' | 'contabilidad' | 'sucursal' | 'ruta' | 'direccion' | 'aparte';
+const GRUPOS: Record<Grupo, { orden: number; titulo: string }> = {
+  capturar: { orden: 1, titulo: 'Capturar en el libro' },
+  libro: { orden: 2, titulo: 'Corregir o ligar en el libro' },
+  contabilidad: { orden: 3, titulo: 'Pedir a contabilidad que lo corrija en Kepler' },
+  sucursal: { orden: 4, titulo: 'Pedir a la sucursal que cobre el corte' },
+  ruta: { orden: 5, titulo: 'Pedir a la ruta lo que vendió y no cobró' },
+  direccion: { orden: 6, titulo: 'Revisar con Dirección' },
+  aparte: { orden: 7, titulo: 'Aparte: no suma a lo que falta' },
+};
+/** Un renglón de la lista: un hueco, o los días de una misma ruta juntos (32 días eran 10 rutas). */
+interface Fila {
+  key: string; grupo: Grupo; fecha: string; desde: string; monto: number; n: number;
+  titulo: string; detalle: string; sucursal: string | null; certeza: Certeza; huecos: Hueco[];
+}
+
 const ESLABONES: { k: Eslabon; label: string }[] = [
   { k: 'venta', label: 'Venta' }, { k: 'corte', label: 'Corte' }, { k: 'cobro', label: 'Cobro' },
   { k: 'boveda', label: 'Bóveda' }, { k: 'libro', label: 'Libro' }, { k: 'control', label: 'Control' },
@@ -77,12 +94,25 @@ const ACCION_TXT: Record<string, string> = {
   revisar: 'Lo revisa Dirección: no tiene documento en ningún lado.',
   ninguna: 'Nada todavía: falta saber si entra o sale.',
 };
+/** Lo que es cada hueco, en palabras de quien opera la caja (el texto del servidor va al detalle). */
+const TITULO_TIPO: Record<string, string> = {
+  kepler_sin_libro: 'Cobro sin capturar',
+  captura_distinta: 'Capturado con otro importe',
+  captura_doble: 'Capturado dos veces',
+  libro_sin_kepler: 'Captura que Kepler no tiene',
+  libro_sin_ligar: 'Captura sin su documento',
+  cuenta_no_caja: 'Cobrado a una cuenta que no es caja',
+  corte_sin_cobro: 'Corte de caja sin cobrar',
+  salida_sin_documento: 'Salida sin documento',
+  bulto_sin_contar: 'Morralla sin contar',
+  sin_direccion: 'Documento sin dirección',
+};
 const HUECO_NO_MEDIDO_TXT: Record<string, string> = {
   salida_sin_documento: 'las salidas que sólo anota Control',
   captura_doble: 'las capturas dobles',
 };
 
-// ── Los días (lo de antes: `conciliacion-workbook` y `conciliacion-dia`) ─────────────────────────
+// ── Los días (`conciliacion-workbook` y `conciliacion-dia`) ─────────────────────────────────────
 
 /**
  * `[CGA-A.66]` De qué está hecho cada día: cuadra · sólo falta capturar lo que está en la cola ·
@@ -117,14 +147,19 @@ interface DiaRow {
   kepler_origen: 'identidad' | 'llave' | 'importe' | 'ruta' | null; kepler_source: MovSource | null; kepler_motivo: string | null;
   kepler_ambiguo: boolean; kepler_delta: number | null;
 }
-interface DiaTotals {
-  control_n: number; en_kepler: number;
-  kepler_only_pendiente_n?: number; kepler_only_pendiente_monto?: number;
-  ruta_cobros_disponible?: boolean;
-  kepler_ambiguos_n: number; kepler_disponible: boolean; tolerancia: number;
-  caja_fuente?: 'control' | 'libro' | 'mixto';
-}
+interface DiaTotals { kepler_disponible: boolean; ruta_cobros_disponible?: boolean }
 interface ConcDia { vs_kepler: { ingresos: ReconSide; gastos: ReconSide }; rows: DiaRow[]; totals: DiaTotals }
+/**
+ * Un renglón del detalle del día: lo de la caja con su par de Kepler, y lo que sólo Kepler tiene,
+ * en UNA tabla. Antes eran dos (la segunda abajo, fuera de la vista) y había que cruzarlas a ojo.
+ */
+interface DetRow {
+  key: string; dir: 'in' | 'out'; concepto: string; libro: boolean;
+  caja: number | null; kepler: number | null;
+  /** `true` = tiene su par con certeza (documento, identidad o la camioneta). */
+  casado: boolean; par: string; parAviso: boolean;
+  cajaMov: { source: MovSource; key: string } | null; keplerMov: { source: MovSource; key: string } | null;
+}
 interface MovDetail { source: MovSource; title: string; fields: { label: string; value: string | number | null }[] }
 interface Facets { meses: string[]; relevo?: { control_ultimo_fecha: string | null; libro_desde: string | null } }
 
@@ -134,28 +169,30 @@ interface Facets { meses: string[]; relevo?: { control_ultimo_fecha: string | nu
  * `docs/IMPLEMENTACION/FASES/FASE_LE_ANEXO_CUADRE.md`; los números, en `VERDAD_ABSOLUTA.md` §36.
  *
  * Antes el nivel 0 era el DÍA («17 de 23 días cuadran»), y un día rojo mezclaba siete causas con
- * siete dueños: nadie sabía qué hacer con él. Ahora el nivel 0 es el HUECO — cada peso sin
- * explicación, con los testigos que lo vieron, su dueño, su certeza y la acción que lo cierra — y
- * el día queda como segundo modo (lo abren 129 de 146 visitas, y es la unidad de cierre).
+ * siete dueños. Ahora el nivel 0 es el HUECO, agrupado por lo que hay que hacer, y el día queda
+ * como segundo modo (lo abren 129 de 146 visitas, y es la unidad de cierre).
+ *
+ * `[LE.CU.4b]` Auditoría del PM (2026-11-05: *«el diseño de las tablas es poco amigable»; «nada de
+ * Excel»*). Medido sobre los 87 huecos de prod: el renglón mostraba el texto técnico del servidor
+ * (códigos de Kepler en 46, hasta 175 caracteres), la misma acción repetida en cada fila, una fila
+ * por día de ruta (32 días = 10 rutas), seis columnas con tres de metadatos, y los avisos en ámbar a
+ * 2.15:1. Ahora: tres columnas, el renglón dice qué es en palabras, la acción una vez por grupo, la
+ * ruta una vez con sus días, los testigos en el detalle, y el texto de color en los tonos `-soft-fg`.
  *
  * Las cinco preguntas (skill diseno §0b):
- *  1. Qué ve primero: cuánto falta explicar y de quién es; la línea del efectivo contado; la lista,
- *     lo más nuevo primero.
- *  2. Qué no: el total del mes Caja/Kepler (un total sin dueño no decide nada) y el párrafo de
- *     método (al `context-help`).
- *  3. Accesibilidad: cada monto del veredicto filtra la lista; la fila abre su cadena con Enter; la
- *     certeza y los testigos se dicen con texto; la sucursal por su nombre; buscable por cualquier
- *     folio.
- *  4. Liga: cada hueco abre su documento (Kepler o libro) y lleva a donde se cierra (Captura,
- *     Arqueos, Cortes/Sucursales).
- *  5. Le toca: es la revisión del libro de caja contra todos sus testigos; los cortes que van a
- *     banco no son de aquí.
+ *  1. Qué ve primero: cuánto falta explicar y de quién es; la línea del efectivo contado; la lista
+ *     por tarea, lo más nuevo primero dentro de cada una.
+ *  2. Qué no: el total del mes Caja/Kepler, el método (al `context-help`), los testigos y el folio
+ *     largo (al detalle).
+ *  3. Accesibilidad: cada monto del veredicto filtra la lista; la fila abre su detalle con Enter; la
+ *     certeza se dice con texto; la sucursal por su nombre; buscable por cualquier folio.
+ *  4. Liga: cada hueco abre su documento y lleva a donde se cierra (Captura, Arqueos, Cortes).
+ *  5. Le toca: es la revisión del libro de caja contra sus testigos; los cortes que van a banco no.
  *
- * Jerarquía: primario = el monto sin explicar · secundario = su reparto por dueño y la línea física
- * · terciario = los testigos de cada fila.
+ * Jerarquía: primario = el monto sin explicar · secundario = su reparto y la línea física ·
+ * terciario = el renglón de cada hueco (su folio y su sucursal, en gris).
  *
- * ⛔ Lo que casó SÓLO por importe sale «por confirmar» y sigue sumando a lo que falta (§36.7): el
- * importe no se distingue de una coincidencia.
+ * ⛔ Lo que casó SÓLO por importe sale «por confirmar» y sigue sumando a lo que falta (§36.7).
  */
 /** El mes en curso en México (YYYY-MM): el reloj del navegador en UTC cambia de mes seis horas antes. */
 const mesMx = (): string => (diaMxDeInstante(new Date()) ?? new Date().toISOString()).slice(0, 7);
@@ -164,7 +201,7 @@ const mesMx = (): string => (diaMxDeInstante(new Date()) ?? new Date().toISOStri
   selector: 'app-finanzas-caja-cuadre',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, SelectModule, TagModule, DialogModule, InputTextModule,
+  imports: [CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, SelectModule, DialogModule, InputTextModule,
     MetricStripComponent, FreshnessPillComponent, LoadStateComponent, ContextHelpComponent, SegmentedComponent, SidePeekComponent, CajaTabsComponent],
   template: `
     <app-caja-tabs />
@@ -195,14 +232,14 @@ const mesMx = (): string => (diaMxDeInstante(new Date()) ?? new Date().toISOStri
                             [instant]="true" (drill)="setFiltro($event)" />
 
           <!-- Secundario: el único testigo que no depende de nadie, el efectivo contado. -->
-          <p class="cc-fisico" role="status">
+          <p class="cc-fisico">
             @if (bal(); as b) {
               @if (!b.balance) { <span class="muted">Sin cortes cerrados en el periodo: el efectivo contado no se compara todavía.</span> }
               @else if (!b.balance.medible) { <span class="warn">Efectivo contado contra el libro: no medido (falta la bóveda de un extremo).</span> }
               @else {
                 <span>Efectivo contado (cajón y bóveda) contra el libro:</span>
-                <b class="num" [class.bad]="(b.balance.diferencia ?? 0) < -1" [class.ok]="abs(b.balance.diferencia) <= 1">{{ signo(b.balance.diferencia) }}</b>
-                <span class="muted">{{ (b.balance.diferencia ?? 0) < -1 ? 'falta' : (b.balance.diferencia ?? 0) > 1 ? 'sobra' : 'cuadra' }}</span>
+                <b class="num" [class.bad]="(b.balance.diferencia ?? 0) < -1">{{ signo(b.balance.diferencia) }}</b>
+                <span>{{ (b.balance.diferencia ?? 0) < -1 ? 'falta' : (b.balance.diferencia ?? 0) > 1 ? 'sobra' : 'cuadra' }}</span>
                 @if (b.balance.bulto > 0) { <span class="muted">· {{ money(b.balance.bulto) }} declarados sin contar</span> }
               }
               @if (b.balance) { <button type="button" class="tw-mlink" (click)="balOpen.set(true)">ver el balance</button> }
@@ -215,65 +252,56 @@ const mesMx = (): string => (diaMxDeInstante(new Date()) ?? new Date().toISOStri
               No medido todavía: {{ textoNoMedido(h) }}. No están en la cifra de arriba; no es que no existan.</p>
           }
 
-          <div class="cc-modo">
+          <div class="cc-barra">
             <app-segmented [options]="opcionesVista(h)" [value]="vista()" (valueChange)="setVista($event)" ariaLabel="Ver huecos o días" />
+            @if (vista() === 'huecos') {
+              <input pInputText type="search" class="cc-buscar" [ngModel]="q()" (ngModelChange)="q.set($event)"
+                     placeholder="Buscar folio, ruta, sucursal o monto…" aria-label="Buscar en los huecos" />
+            }
           </div>
 
           @if (vista() === 'huecos') {
+            @if (filtro() !== 'falta') {
+              <p class="cc-mostrando">Mostrando: {{ textoFiltro() }} ·
+                <button type="button" class="tw-mlink" (click)="filtro.set('falta')">volver a todo lo que falta</button></p>
+            }
             <div class="card-premium card-flat tw-tablewrap dt-scope">
-              <div class="cc-filtros">
-                <span class="cc-mostrando">{{ textoFiltro() }}
-                  @if (filtro() !== 'falta') { <button type="button" class="tw-mlink" (click)="filtro.set('falta')">ver todo lo que falta</button> }
-                </span>
-                <input pInputText type="search" class="cc-buscar" [ngModel]="q()" (ngModelChange)="q.set($event)"
-                       placeholder="Buscar folio, ruta, sucursal o monto…" aria-label="Buscar en los huecos" />
-                <span class="muted tw-fcount">{{ huecosVista().length }} de {{ h.huecos.length }}</span>
-                <button type="button" class="tw-xls" [disabled]="exporting()" (click)="exportHuecos()">
-                  <i class="pi" [class.pi-file-excel]="!exporting()" [class.pi-spin]="exporting()" [class.pi-spinner]="exporting()" aria-hidden="true"></i> Excel
-                </button>
-              </div>
-              <p-table [value]="huecosVista()" size="small" dataKey="ref" [rowHover]="true" selectionMode="single" [metaKeySelection]="false"
-                       (onRowSelect)="abrirHueco($event.data)" (onRowUnselect)="abrirHueco($event.data)"
+              <p-table [value]="filas()" size="small" dataKey="key" [rowHover]="true" selectionMode="single" [metaKeySelection]="false"
+                       rowGroupMode="subheader" groupRowsBy="grupo"
+                       (onRowSelect)="abrirFila($event.data)" (onRowUnselect)="abrirFila($event.data)"
                        class="surf-table surf-table--plain surf-table--sticky dt-stack">
                 <ng-template #header>
                   <tr>
-                    <th class="cg-w-date" pSortableColumn="fecha">Fecha <p-sorticon field="fecha" /></th>
+                    <th class="cg-w-date">Fecha</th>
                     <th>Qué es</th>
-                    <th>Testigos</th>
-                    <th class="ta-r comm-num" pSortableColumn="monto">Monto <p-sorticon field="monto" /></th>
-                    <th>Certeza</th>
-                    <th>Qué se hace</th>
+                    <th class="ta-r comm-num cc-w-monto">Monto</th>
+                  </tr>
+                </ng-template>
+                <ng-template #groupheader let-r>
+                  <tr class="cc-grupo">
+                    <td colspan="3" role="cell">
+                      <div class="cc-grupo-in">
+                        <span class="cc-grupo-t">{{ tituloGrupo(r) }}</span>
+                        <span class="muted">{{ resumenGrupo(r) }}</span>
+                        @if (ligaGrupo(r); as l) {
+                          <a [routerLink]="l.ruta" class="cc-accion" (click)="$event.stopPropagation()">{{ l.label }}</a>
+                        }
+                      </div>
+                    </td>
                   </tr>
                 </ng-template>
                 <ng-template #body let-r>
                   <tr [pSelectableRow]="r" class="tw-clickable">
-                    <td role="cell" data-label="Fecha" class="cg-mono dt-id">{{ dmy(r.fecha) }}</td>
-                    <td role="cell" data-label="Qué es" class="cc-que">
-                      <span>{{ r.etiqueta }}</span>
-                      @if (sucursalDe(r); as s) { <span class="muted cc-suc">{{ s }}</span> }
+                    <td role="cell" data-label="Fecha" class="cg-mono dt-id">{{ textoFecha(r) }}</td>
+                    <td role="cell" data-label="Qué es">
+                      <span class="cc-titulo">{{ r.titulo }}</span>
+                      @if (r.certeza !== 'alta') { <span class="cc-cert">{{ certezaTxt(r) }}</span> }
+                      <span class="cc-det">{{ r.detalle }}@if (r.sucursal) { · {{ r.sucursal }} }</span>
                     </td>
-                    <td role="cell" data-label="Testigos" class="cc-testigos">
-                      @for (t of testigosDe(r); track t.k) {
-                        <span class="cc-t" [class.ok]="t.v === 'si'" [class.bad]="t.v === 'no'" [class.warn]="t.v === 'difiere'">
-                          <i [class]="iconoTestigo(t.v)" aria-hidden="true"></i>{{ t.label }}<span class="sr-only"> {{ TESTIGO_TXT[t.v] }}</span>
-                        </span>
-                      }
-                    </td>
-                    <td role="cell" data-label="Monto" class="ta-r num comm-num dt-num">{{ money(r.monto) }}
-                      @if (!r.falta) { <span class="cc-aparte">aparte</span> }
-                    </td>
-                    <td role="cell" data-label="Certeza">
-                      <span [class.warn]="r.certeza === 'por_confirmar'" [class.muted]="r.certeza === 'alta'">{{ certezaTxt(r) }}</span>
-                    </td>
-                    <td role="cell" data-label="Qué se hace">
-                      @if (ligaAccion(r); as l) {
-                        <a [routerLink]="l.ruta" [queryParams]="l.qp" class="cc-accion" (click)="$event.stopPropagation()"
-                           [attr.aria-label]="l.label + ': ' + r.etiqueta">{{ l.label }}</a>
-                      } @else { <span class="muted">{{ quienCorto(r) }}</span> }
-                    </td>
+                    <td role="cell" data-label="Monto" class="ta-r num comm-num dt-num">{{ money(r.monto) }}</td>
                   </tr>
                 </ng-template>
-                <ng-template #emptymessage><tr><td colspan="6"><div class="cg-empty"><i class="pi pi-check-circle" aria-hidden="true"></i>
+                <ng-template #emptymessage><tr><td colspan="3"><div class="cg-empty"><i class="pi pi-check-circle" aria-hidden="true"></i>
                   <span>{{ h.huecos.length ? 'Ningún hueco con este filtro.' : 'Nada sin explicar en el periodo, con lo que hoy se mide.' }}</span></div></td></tr></ng-template>
               </p-table>
             </div>
@@ -290,54 +318,41 @@ const mesMx = (): string => (diaMxDeInstante(new Date()) ?? new Date().toISOStri
                   <p class="cc-aviso" role="status"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
                     No se pudieron leer los cobros de camioneta: la columna Kepler está incompleta.</p>
                 }
+                <div class="cc-barra">
+                  <app-segmented [options]="opcionesEstado(d)" [value]="estado()" (valueChange)="setEstado($event)" ariaLabel="Estado del día" />
+                </div>
                 <div class="card-premium card-flat tw-tablewrap dt-scope">
-                  <div class="cc-filtros">
-                    <app-segmented [options]="opcionesEstado(d)" [value]="estado()" (valueChange)="setEstado($event)" ariaLabel="Estado del día" />
-                    <app-segmented [options]="opcionesDir" [value]="cuadreDir()" (valueChange)="setDir($event)" ariaLabel="Dirección (se hereda al abrir el día)" />
-                  </div>
                   <p-table [value]="diasVista(d)" size="small" dataKey="fecha" [rowHover]="true" selectionMode="single" [metaKeySelection]="false"
-                           (onRowSelect)="alElegir($event.data)" (onRowUnselect)="alElegir($event.data)" class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first dt-stack">
+                           (onRowSelect)="alElegir($event.data)" (onRowUnselect)="alElegir($event.data)" class="surf-table surf-table--plain surf-table--sticky dt-stack">
                     <ng-template #header>
                       <tr>
                         <th class="cg-w-date">Día</th>
-                        @if (cuadreDir() !== 'out') { <th class="ta-r comm-num">Caja entra</th><th class="ta-r comm-num">Kepler entra</th><th class="ta-r comm-num">Diferencia</th> }
-                        @if (cuadreDir() !== 'in') { <th class="ta-r comm-num">Caja sale</th><th class="ta-r comm-num">Kepler sale</th><th class="ta-r comm-num">Diferencia</th> }
-                        <th class="cc-w-estado">Estado</th>
+                        <th>Estado</th>
+                        <th class="ta-r comm-num">Diferencia al entrar</th>
+                        <th class="ta-r comm-num">Diferencia al salir</th>
                       </tr>
                     </ng-template>
                     <ng-template #body let-r>
                       <tr [pSelectableRow]="r" class="tw-clickable">
-                        <td role="cell" data-label="Día" class="cg-mono dt-id">{{ dmy(r.fecha) }} <span class="muted">· {{ r.mdb_n }}</span>@if (r.caja_fuente === 'libro') { <p-tag value="libro" severity="secondary" styleClass="cg-tag" /> }</td>
-                        @if (cuadreDir() !== 'out') {
-                          <td role="cell" data-label="Caja entra" class="ta-r num comm-num dt-num">{{ money(r.mdb_ingreso) }}</td>
-                          <td role="cell" data-label="Kepler entra" class="ta-r num comm-num dt-num">{{ r.kp_n ? money(r.kp_ingreso) : '—' }}</td>
-                          <td role="cell" data-label="Diferencia entra" class="ta-r num comm-num dt-num" [class.bad]="fuera(r.delta_kep_ingreso, r)">{{ r.kp_n ? money(r.delta_kep_ingreso) : '—' }}</td>
-                        }
-                        @if (cuadreDir() !== 'in') {
-                          <td role="cell" data-label="Caja sale" class="ta-r num comm-num dt-num">{{ money(r.mdb_gasto) }}</td>
-                          <td role="cell" data-label="Kepler sale" class="ta-r num comm-num dt-num">{{ r.kp_n ? money(r.kp_gasto) : '—' }}</td>
-                          <td role="cell" data-label="Diferencia sale" class="ta-r num comm-num dt-num" [class.bad]="fuera(r.delta_kep_gasto, r)">{{ r.kp_n ? money(r.delta_kep_gasto) : '—' }}</td>
-                        }
-                        <td role="cell" data-label="Estado" class="cc-w-estado">
+                        <td role="cell" data-label="Día" class="cg-mono dt-id">{{ dmy(r.fecha) }}</td>
+                        <td role="cell" data-label="Estado">
                           @switch (estadoDe(r)) {
-                            @case ('sin_kepler') { <p-tag value="sin Kepler" severity="secondary" styleClass="cg-tag" /> }
+                            @case ('sin_kepler') { <span class="muted">sin Kepler</span> }
                             @case ('cuadra') { <span class="ok"><i class="pi pi-check" aria-hidden="true"></i> cuadra</span> }
                             @case ('por_capturar') {
                               <a routerLink="/finanzas/caja-general" class="cc-cola" (click)="$event.stopPropagation()"
                                  [attr.aria-label]="'Falta capturar ' + (r.cola_n ?? 0) + ' movimientos del día: ir a la cola'">
-                                <p-tag value="falta capturar" severity="warn" styleClass="cg-tag" />
-                                <span class="num">{{ r.cola_n }} · {{ money((r.cola_ingreso ?? 0) + (r.cola_gasto ?? 0)) }}</span>
-                              </a>
+                                falta capturar {{ r.cola_n }} · {{ money((r.cola_ingreso ?? 0) + (r.cola_gasto ?? 0)) }}</a>
                             }
-                            @default {
-                              <p-tag value="no cuadra" severity="danger" styleClass="cg-tag" />
-                              @if (r.cola_n) { <span class="muted cc-resto">aun capturando la cola: {{ money(r.resto_ingreso ?? 0) }} / {{ money(r.resto_gasto ?? 0) }}</span> }
-                            }
+                            @default { <span class="bad">no cuadra</span> }
                           }
+                          <span class="cc-det">{{ r.mdb_n }} movimientos{{ r.caja_fuente === 'libro' ? ' del libro' : r.caja_fuente === 'control' ? ' de Control' : '' }}</span>
                         </td>
+                        <td role="cell" data-label="Diferencia al entrar" class="ta-r num comm-num dt-num" [class.bad]="fuera(r.delta_kep_ingreso, r)" [class.muted]="!fuera(r.delta_kep_ingreso, r)">{{ r.kp_n ? money(r.delta_kep_ingreso) : '—' }}</td>
+                        <td role="cell" data-label="Diferencia al salir" class="ta-r num comm-num dt-num" [class.bad]="fuera(r.delta_kep_gasto, r)" [class.muted]="!fuera(r.delta_kep_gasto, r)">{{ r.kp_n ? money(r.delta_kep_gasto) : '—' }}</td>
                       </tr>
                     </ng-template>
-                    <ng-template #emptymessage><tr><td colspan="8"><div class="cg-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>Ningún día con este filtro.</span></div></td></tr></ng-template>
+                    <ng-template #emptymessage><tr><td colspan="4"><div class="cg-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>Ningún día con este filtro.</span></div></td></tr></ng-template>
                   </p-table>
                 </div>
               }
@@ -347,41 +362,53 @@ const mesMx = (): string => (diaMxDeInstante(new Date()) ?? new Date().toISOStri
       </app-load-state>
     </div>
 
-    <!-- Un hueco: la cadena de testigos, quién lo cierra y su documento. -->
-    <app-side-peek [open]="!!sel()" (openChange)="cerrarHueco($event)" [title]="sel() ? money(sel()!.monto) : 'Hueco'"
-                   [subtitle]="sel() ? dmy(sel()!.fecha) + (sucursalDe(sel()!) ? ' · ' + sucursalDe(sel()!) : '') : null">
-      @if (sel(); as s) {
-        <p class="pk-que">{{ s.etiqueta }}</p>
-        <p class="pk-falta" [class.bad]="s.falta">
-          {{ s.falta ? 'Cuenta en lo que falta explicar.' : s.tipo === 'bulto_sin_contar' ? 'Se declara aparte: nadie lo ha contado, no se sabe si falta.' : s.tipo === 'libro_sin_ligar' ? 'Se declara aparte: ya está capturado; falta su liga.' : 'Se declara aparte.' }}
-        </p>
+    <!-- Un renglón de la lista: qué es, quién lo cierra, por qué esa certeza y su documento. -->
+    <app-side-peek [open]="!!sel()" (openChange)="cerrarFila($event)" [title]="sel() ? sel()!.titulo : 'Hueco'"
+                   [subtitle]="sel() ? money(sel()!.monto) + (sel()!.sucursal ? ' · ' + sel()!.sucursal : '') : null">
+      @if (sel(); as f) {
+        @if (f.n === 1) {
+          @if (f.huecos[0]; as s) {
+            <p class="pk-que">{{ s.etiqueta }}</p>
+            <p class="pk-falta" [class.bad]="s.falta">{{ textoFalta(s) }}</p>
 
-        <h3 class="pk-h">La cadena</h3>
-        <dl class="cg-movd">
-          @for (t of testigosDe(s); track t.k) {
-            <div class="cg-movd-row"><dt>{{ t.label }}</dt>
-              <dd [class.ok]="t.v === 'si'" [class.bad]="t.v === 'no'" [class.warn]="t.v === 'difiere'"><i [class]="iconoTestigo(t.v)" aria-hidden="true"></i> {{ TESTIGO_TXT[t.v] }}</dd></div>
+            <h3 class="pk-h">Quién lo cierra</h3>
+            <p class="pk-txt"><b>{{ DUENO_TXT[s.dueno] }}.</b> {{ ACCION_TXT[s.accion] || '' }}</p>
+            @if (ligaAccion(s); as l) {
+              <p class="pk-txt"><a [routerLink]="l.ruta" [queryParams]="l.qp" class="cc-accion">{{ l.label }}</a></p>
+            }
+
+            <h3 class="pk-h">Quién lo vio</h3>
+            <dl class="cg-movd">
+              @for (t of testigosDe(s); track t.k) {
+                <div class="cg-movd-row"><dt>{{ t.label }}</dt>
+                  <dd [class.ok]="t.v === 'si'" [class.bad]="t.v === 'no'" [class.warn]="t.v === 'difiere'">{{ TESTIGO_TXT[t.v] }}</dd></div>
+              }
+              @if (!testigosDe(s).length) { <div class="cg-movd-row"><dt>Testigos</dt><dd class="muted">ninguno lo puede confirmar todavía</dd></div> }
+            </dl>
+            @if (s.atraso_dias != null && s.atraso_p90 != null) {
+              <p class="pk-nota">El corte lleva {{ s.atraso_dias }} días sin cobrarse; en esta sucursal lo normal es hasta {{ s.atraso_p90 }} (9 de cada 10 cortes).</p>
+            }
+
+            <h3 class="pk-h">Certeza: {{ CERTEZA_TXT[s.certeza] }}</h3>
+            <p class="pk-txt">{{ razonCerteza(s) }}</p>
+
+            <h3 class="pk-h">El documento</h3>
+            <p class="pk-txt"><span class="cg-mono">{{ folioDe(s) }}</span>
+              @if (movDe(s); as m) { · <button type="button" class="tw-mlink" (click)="openMovement(m.source, m.key)">ver el detalle</button> }
+            </p>
+            <p class="pk-nota muted">Ningún eslabón de esta cadena guarda archivo (PDF o imagen): se ubica por su folio.</p>
           }
-          @if (!testigosDe(s).length) { <div class="cg-movd-row"><dt>Testigos</dt><dd class="muted">ninguno lo puede confirmar todavía</dd></div> }
-        </dl>
-        @if (s.atraso_dias != null && s.atraso_p90 != null) {
-          <p class="pk-nota">El corte lleva {{ s.atraso_dias }} días sin cobrarse; en esta sucursal lo normal es hasta {{ s.atraso_p90 }} (9 de cada 10 cortes).</p>
+        } @else {
+          <p class="pk-que">{{ f.titulo }} en {{ f.n }} días, del {{ dmy(f.desde) }} al {{ dmy(f.fecha) }}.</p>
+          <p class="pk-txt">La camioneta registró la venta y ningún cobro la recibe. <b>{{ DUENO_TXT[f.huecos[0].dueno] }}.</b> {{ ACCION_TXT[f.huecos[0].accion] || '' }}</p>
+          <h3 class="pk-h">Los días</h3>
+          <dl class="cg-movd">
+            @for (s of f.huecos; track s.ref) {
+              <div class="cg-movd-row"><dt>{{ dmy(s.fecha) }}</dt><dd class="num">{{ money(s.monto) }}</dd></div>
+            }
+          </dl>
+          <p class="pk-nota muted">Testigos de cada día: la venta de la camioneta lo tiene; el cobro, no.</p>
         }
-
-        <h3 class="pk-h">Quién lo cierra</h3>
-        <p class="pk-txt"><b>{{ DUENO_TXT[s.dueno] }}.</b> {{ ACCION_TXT[s.accion] || '' }}</p>
-        @if (ligaAccion(s); as l) {
-          <a [routerLink]="l.ruta" [queryParams]="l.qp" class="cc-accion">{{ l.label }}</a>
-        }
-
-        <h3 class="pk-h">Certeza: {{ CERTEZA_TXT[s.certeza] }}</h3>
-        <p class="pk-txt">{{ razonCerteza(s) }}</p>
-
-        <h3 class="pk-h">El documento</h3>
-        <p class="pk-txt"><span class="cg-mono">{{ folioDe(s) }}</span>
-          @if (movDe(s); as m) { · <button type="button" class="tw-mlink" (click)="openMovement(m.source, m.key)">ver el detalle</button> }
-        </p>
-        <p class="pk-nota muted">Ningún eslabón de esta cadena guarda archivo (PDF o imagen): se ubica por su folio.</p>
       }
     </app-side-peek>
 
@@ -418,86 +445,45 @@ const mesMx = (): string => (diaMxDeInstante(new Date()) ?? new Date().toISOStri
       }
     </app-side-peek>
 
-    <!-- Detalle del día: una fila por movimiento de la caja con su par de Kepler, y lo que Kepler
-         tiene y la caja no. En panel lateral, para no perder la lista de días. -->
-    <app-side-peek [open]="dayOpen()" (openChange)="dayOpen.set($event)" [title]="dayTitle()" [width]="1040">
+    <!-- El detalle de un día: lo de la caja con su par de Kepler y lo que sólo Kepler tiene, en una
+         sola tabla, lo que no tiene par primero. En panel lateral para no perder la lista de días. -->
+    <app-side-peek [open]="dayOpen()" (openChange)="dayOpen.set($event)" [title]="dayTitle()" [subtitle]="daySub()" [width]="880">
       @if (wbDayLoad()[dayKey()]) { <div class="cg-empty"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i><span>Casando movimientos del día…</span></div> }
       @else if (wbDayErr()[dayKey()]; as e) { <div class="cg-empty"><i class="pi pi-exclamation-triangle bad" aria-hidden="true"></i><span>{{ e }}</span></div> }
       @else if (wbDayDia()[dayKey()]; as cd) {
-        <p class="dlg-lead">Cada movimiento de la <b>caja</b> ({{ textoRelevo() }}) marca si <b>Kepler</b> lo tiene. Abajo, lo que Kepler registra y la caja no tiene.</p>
-
-        <div class="tw-drill-kpis">
-          <span><b>{{ cd.totals.control_n }}</b> movimientos {{ cd.totals.caja_fuente === 'libro' ? 'del libro' : cd.totals.caja_fuente === 'mixto' ? 'de caja (Control y libro)' : 'de Control' }}</span>
-          @if (cd.totals.kepler_disponible) { <span class="ok"><b>{{ cd.totals.en_kepler }}</b> con su par en Kepler</span> }
-          @else { <span class="muted">Kepler sin datos en el periodo</span> }
-          @if (porImporte(cd); as n) { <span class="warn"><b>{{ n }}</b> casados sólo por importe: por confirmar</span> }
-          @if (cd.totals.ruta_cobros_disponible === false) { <span class="warn">no se pudieron leer los cobros de camioneta</span> }
+        @if (!cd.totals.kepler_disponible) { <p class="cc-aviso" role="status">Kepler no tiene datos de este día: nada se puede casar.</p> }
+        @if (cd.totals.ruta_cobros_disponible === false) { <p class="cc-aviso" role="status">No se pudieron leer los cobros de camioneta: la columna Kepler está incompleta.</p> }
+        <div class="cc-barra">
+          <app-segmented [options]="opcionesDet(cd)" [value]="dfEstado()" (valueChange)="setDfEstado($event)" ariaLabel="Movimientos con o sin su par" />
+          <input pInputText type="search" class="cc-buscar" [ngModel]="dfSearch()" (ngModelChange)="dfSearch.set($event)"
+                 placeholder="Buscar concepto o monto…" aria-label="Buscar en el día" />
         </div>
-
-        <div class="tw-drill-filters">
-          <div class="tw-fg" role="group" aria-label="Dirección">
-            <button type="button" [class.on]="dfDir()===''" (click)="dfDir.set('')">Todos</button>
-            <button type="button" [class.on]="dfDir()==='in'" (click)="dfDir.set('in')">Ingresos</button>
-            <button type="button" [class.on]="dfDir()==='out'" (click)="dfDir.set('out')">Gastos</button>
-          </div>
-          <div class="tw-fg" role="group" aria-label="Estado">
-            <button type="button" [class.on]="dfEstado()===''" (click)="dfEstado.set('')">Todos</button>
-            <button type="button" [class.on]="dfEstado()==='casado'" (click)="dfEstado.set('casado')">Con Kepler</button>
-            <button type="button" [class.on]="dfEstado()==='descuadre'" (click)="dfEstado.set('descuadre')">Sin Kepler</button>
-          </div>
-          <input type="text" class="tw-fsearch" [ngModel]="dfSearch()" (ngModelChange)="dfSearch.set($event)" placeholder="Buscar concepto / monto…" aria-label="Buscar" />
-          <span class="muted tw-fcount">{{ dayRows(cd).length }} de {{ cd.rows.length }}</span>
-          <button type="button" class="tw-xls" [disabled]="exporting()" (click)="exportDay(cd)">
-            <i class="pi" [class.pi-file-excel]="!exporting()" [class.pi-spin]="exporting()" [class.pi-spinner]="exporting()" aria-hidden="true"></i> Excel
-          </button>
-        </div>
-
-        <div class="tw-wrap">
-          <table class="tw-tbl tw-drill-tbl">
-            <thead><tr>
-              @for (c of DAY_COLS; track c.field) {
-                <th [class]="c.cls" [attr.aria-sort]="ariaSort(daySort(), c.field)">
-                  <button type="button" class="surf-sort" (click)="sortDay(c.field)" [attr.aria-label]="'Ordenar por ' + c.label">
-                    {{ c.label }}<i [class]="sortIcon(daySort(), c.field)" aria-hidden="true"></i>
-                  </button>
-                </th>
-              }
-            </tr></thead>
-            <tbody>
-              @for (e of dayRows(cd); track e.key + e.dir) {
-                <tr>
-                  <td class="cg-mono muted">{{ dmy(e.fecha) }}</td>
-                  <td class="ta-c"><i [class]="e.dir === 'in' ? 'pi pi-arrow-down-left tw-in-ico' : 'pi pi-arrow-up-right tw-out-ico'" aria-hidden="true"></i><span class="sr-only">{{ e.dir === 'in' ? 'Ingreso' : 'Gasto' }}</span></td>
-                  <td class="ta-r num"><button type="button" class="tw-mlink" (click)="openMovement(e.source ?? 'control', e.key)">{{ money(e.importe) }}</button>@if (e.source === 'libro') { <p-tag value="libro" severity="secondary" styleClass="cg-tag" /> }</td>
-                  <!-- ⛔ §36.7: lo casado SÓLO por importe se dice «por confirmar», no se da por casado. -->
-                  <td class="ta-r num tw-kep">@if (e.kepler) { <button type="button" class="tw-mlink" [attr.aria-label]="tituloKepler(e)" (click)="openMovement(e.kepler_source!, e.kepler_key)">{{ money(e.kepler_importe ?? 0) }}</button>@if (e.kepler_origen === 'identidad' || e.kepler_origen === 'llave') { <i class="pi pi-link tw-ident" aria-hidden="true"></i> } @else if (e.kepler_origen === 'ruta') { <i class="pi pi-truck tw-ident" aria-hidden="true"></i> } @else if (e.kepler_origen === 'importe') { <span class="tw-amb">por confirmar</span> } @if (e.kepler_ambiguo) { <span class="tw-amb" aria-label="había más de un candidato">~</span> } } @else if (e.kepler_motivo) { <span class="warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ e.kepler_motivo }}</span> } @else { <span class="muted">no está</span> }</td>
-                  <td class="tw-concept">{{ e.concepto || e.extra || '—' }}</td>
-                </tr>
-              }
-              @if (!dayRows(cd).length) { <tr><td colspan="5" class="ta-c muted tw-empty">Sin movimientos con estos filtros.</td></tr> }
-            </tbody>
-          </table>
-        </div>
-
-        @if (dayOrphans(cd); as orp) {
-          @if (orp.length) {
-            <div class="tw-orphans">
-              <div class="tw-orphan">
-                <h3><i class="pi pi-database" aria-hidden="true"></i> En Kepler, sin caja ({{ orp.length }})</h3>
-                <table class="tw-tbl"><tbody>
-                  @for (m of orp; track m.key) {
-                    <tr class="tw-clickable" tabindex="0" (click)="openMovement(m.source, m.key)" (keydown.enter)="openMovement(m.source, m.key)">
-                      <td class="ta-c"><i [class]="m.dir === 'in' ? 'pi pi-arrow-down-left tw-in-ico' : 'pi pi-arrow-up-right tw-out-ico'" aria-hidden="true"></i><span class="sr-only">{{ m.dir === 'in' ? 'Ingreso' : 'Egreso' }}</span></td>
-                      <td class="ta-r num">{{ money(m.importe) }}</td>
-                      <td class="tw-concept">{{ m.concepto || m.extra || '—' }}</td>
-                      <td class="ta-r">@if (m.en_libro; as l) { <p-tag [value]="(l.via === 'declarado' ? 'declarado en ' : 'en libro ') + l.folio" severity="success" styleClass="cg-tag" /> } @else { <p-tag value="por capturar" severity="warn" styleClass="cg-tag" /> }</td>
-                    </tr>
-                  }
-                </tbody></table>
-              </div>
-            </div>
-          }
-        }
+        <p-table [value]="detVista(cd)" size="small" dataKey="key" class="surf-table surf-table--plain dt-stack">
+          <ng-template #header>
+            <tr>
+              <th>Movimiento</th>
+              <th class="ta-r comm-num">Caja</th>
+              <th class="ta-r comm-num">Kepler</th>
+              <th>Par</th>
+            </tr>
+          </ng-template>
+          <ng-template #body let-e>
+            <tr>
+              <td role="cell" data-label="Movimiento">
+                <span class="cc-titulo">{{ e.concepto }}</span>
+                <span class="cc-det">{{ e.dir === 'in' ? 'Entra' : 'Sale' }}{{ e.libro ? ' · libro' : '' }}</span>
+              </td>
+              <td role="cell" data-label="Caja" class="ta-r num comm-num dt-num">
+                @if (e.caja != null) { <button type="button" class="tw-mlink" (click)="abrirMov(e.cajaMov)">{{ money(e.caja) }}</button> } @else { <span class="muted">—</span> }
+              </td>
+              <td role="cell" data-label="Kepler" class="ta-r num comm-num dt-num">
+                @if (e.kepler != null) { <button type="button" class="tw-mlink" (click)="abrirMov(e.keplerMov)">{{ money(e.kepler) }}</button> } @else { <span class="muted">—</span> }
+              </td>
+              <td role="cell" data-label="Par" [class.ok]="e.casado" [class.warn]="e.parAviso">{{ e.par }}</td>
+            </tr>
+          </ng-template>
+          <ng-template #emptymessage><tr><td colspan="4" class="ta-c muted tw-empty">Sin movimientos con este filtro.</td></tr></ng-template>
+        </p-table>
       }
     </app-side-peek>
 
@@ -525,27 +511,25 @@ const mesMx = (): string => (diaMxDeInstante(new Date()) ?? new Date().toISOStri
     .cc-fisico { display:flex; gap:var(--sp-2); align-items:baseline; flex-wrap:wrap; font-size:var(--fs-sm); margin:0 0 var(--sp-2); }
     .cc-fisico b { font-size:var(--fs-md); }
     .cc-nomedido { display:flex; gap:var(--sp-2); align-items:center; font-size:var(--fs-xs); color:var(--text-muted); margin:0 0 var(--sp-3); }
-    .cc-modo { margin:0 0 var(--sp-2); }
-    .cc-dias { font-size:var(--fs-sm); font-weight:600; margin:0 0 var(--sp-2); }
-    .cc-aviso { display:flex; gap:var(--sp-2); align-items:center; font-size:var(--fs-sm); color:var(--warn-fg); margin:0 0 var(--sp-3); }
-    .cc-filtros { display:flex; gap:var(--sp-3); flex-wrap:wrap; align-items:center; margin:0 0 var(--sp-2); }
-    .cc-mostrando { font-size:var(--fs-sm); font-weight:600; display:flex; gap:var(--sp-2); align-items:baseline; }
+    .cc-barra { display:flex; gap:var(--sp-3); flex-wrap:wrap; align-items:center; margin:0 0 var(--sp-2); }
     .cc-buscar { flex:1 1 16rem; max-width:24rem; }
-    .cc-que { min-width:18rem; }
-    .cc-que > span { display:block; }
-    .cc-suc { font-size:var(--fs-xs); }
-    .cc-testigos { white-space:nowrap; }
-    .cc-t { display:inline-flex; align-items:center; gap:2px; font-size:var(--fs-xs); margin-right:var(--sp-2); }
-    .cc-t .pi { font-size:.65rem; }
-    .cc-aparte { display:block; font-size:var(--fs-xs); color:var(--text-muted); font-family:var(--font-sans); }
+    .cc-mostrando { font-size:var(--fs-sm); font-weight:600; margin:0 0 var(--sp-2); }
+    .cc-dias { font-size:var(--fs-sm); font-weight:600; margin:0 0 var(--sp-2); }
+    .cc-aviso { display:flex; gap:var(--sp-2); align-items:center; font-size:var(--fs-sm); color:var(--warn-soft-fg); margin:0 0 var(--sp-3); }
+    /* El encabezado del grupo agrupa con espacio y peso, no con otra caja. */
+    .cc-grupo td { background:var(--card-bg); padding-top:var(--sp-4); }
+    .cc-grupo-in { display:flex; gap:var(--sp-3); align-items:baseline; flex-wrap:wrap; }
+    .cc-grupo-t { font-size:var(--fs-sm); font-weight:700; color:var(--text-main); }
+    .cc-titulo { font-weight:600; color:var(--text-main); }
+    .cc-cert { margin-left:var(--sp-2); font-size:var(--fs-xs); font-weight:600; color:var(--warn-soft-fg); }
+    .cc-det { display:block; font-size:var(--fs-xs); color:var(--text-muted); }
+    .cc-w-monto { width:9rem; }
     .cc-accion { color:var(--action); font-weight:600; text-decoration:none; white-space:nowrap; margin-right:var(--sp-3); }
     .cc-accion:hover { text-decoration:underline; }
-    .cc-accion:focus-visible { outline:2px solid var(--action); outline-offset:2px; border-radius:var(--r-sm); }
-    .cc-w-estado { min-width:12rem; }
-    .cc-cola { display:inline-flex; gap:var(--sp-2); align-items:center; color:inherit; text-decoration:none; }
-    .cc-cola:hover .num, .cc-cola:focus-visible .num { text-decoration:underline; }
-    .cc-cola:focus-visible { outline:2px solid var(--action); outline-offset:2px; border-radius:var(--r-sm); }
-    .cc-resto { display:block; font-size:var(--fs-xs); }
+    .cc-accion:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; border-radius:var(--r-sm); }
+    .cc-cola { color:var(--warn-soft-fg); font-weight:600; text-decoration:none; }
+    .cc-cola:hover { text-decoration:underline; }
+    .cc-cola:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; border-radius:var(--r-sm); }
     .pk-que { font-size:var(--fs-md); font-weight:600; margin:0 0 var(--sp-1); }
     .pk-falta { font-size:var(--fs-sm); margin:0 0 var(--sp-3); }
     .pk-h { font-size:var(--fs-sm); font-weight:700; margin:var(--sp-4) 0 var(--sp-1); }
@@ -555,24 +539,22 @@ const mesMx = (): string => (diaMxDeInstante(new Date()) ?? new Date().toISOStri
     .ta-r { text-align:right; } .ta-c { text-align:center; }
     .num, .cg-mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
     .muted { color:var(--text-muted); }
-    .warn { color:var(--warn-fg); font-weight:700; }
-    .ok { color:var(--ok-fg); }
+    /* Texto de estado en los tonos -soft-fg: --warn-fg (2.15:1) y --ok-fg (3.30:1) no llegan a AA en claro. */
+    .warn { color:var(--warn-soft-fg); font-weight:600; }
+    .ok { color:var(--ok-soft-fg); }
     .bad { color:var(--bad-fg); }
-    .cg-w-date { width:7rem; }
-    :host ::ng-deep .cg-tag { font-size:var(--fs-xs); }
+    .cg-w-date { width:7.5rem; }
     .cg-empty { display:flex; flex-direction:column; align-items:center; gap:var(--sp-2); padding:var(--sp-8); text-align:center; color:var(--text-muted); }
     .cg-empty .pi { font-size:1.5rem; }
     .tw-mlink { font:inherit; font-variant-numeric:tabular-nums; color:inherit; background:none; border:none; padding:0; cursor:pointer; text-decoration:underline; text-decoration-style:dotted; text-underline-offset:3px; }
     .tw-mlink:hover { color:var(--action); }
-    .tw-mlink:focus-visible { outline:2px solid var(--action); outline-offset:2px; border-radius:var(--r-sm); }
-    .tw-amb { color:var(--warn-fg); font-weight:700; margin-left:4px; font-size:var(--fs-xs); font-family:var(--font-sans); }
-    .tw-ident { color:var(--text-muted); font-size:var(--fs-xs); margin-left:4px; }
+    .tw-mlink:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; border-radius:var(--r-sm); }
     .cg-movd { margin:0; }
     .cg-movd-row { display:grid; grid-template-columns:11rem 1fr; gap:var(--sp-2); padding:var(--sp-1) 0; border-bottom:1px solid var(--border-color); }
     .cg-movd-row:last-child { border-bottom:none; }
     .cg-movd-row dt { color:var(--text-muted); font-size:var(--fs-sm); }
     .cg-movd-row dd { margin:0; font-weight:600; font-variant-numeric:tabular-nums; word-break:break-word; }
-    @container (max-width: 40rem) { .cg-movd-row { grid-template-columns:1fr; } .cc-w-estado, .cc-que { min-width:0; } .cc-testigos { white-space:normal; } }
+    @container (max-width: 40rem) { .cg-movd-row { grid-template-columns:1fr; } }
   `],
 })
 export class FinanzasCajaCuadreComponent implements OnInit {
@@ -582,8 +564,6 @@ export class FinanzasCajaCuadreComponent implements OnInit {
 
   readonly money = money;
   readonly dmy = dmy;
-  readonly sortIcon = sortIcon;
-  readonly ariaSort = ariaSort;
   readonly TESTIGO_TXT = TESTIGO_TXT;
   readonly CERTEZA_TXT = CERTEZA_TXT;
   readonly DUENO_TXT = DUENO_TXT;
@@ -674,8 +654,7 @@ export class FinanzasCajaCuadreComponent implements OnInit {
   readonly vista = signal<'huecos' | 'dias'>('huecos');
   readonly filtro = signal<FiltroHuecos>('falta');
   readonly q = signal('');
-  readonly sel = signal<Hueco | null>(null);
-  readonly exporting = signal(false);
+  readonly sel = signal<Fila | null>(null);
 
   opcionesVista(h: CuadreHuecos): SegOption[] {
     return [{ label: 'Huecos', value: 'huecos', count: h.resumen.falta.n }, { label: 'Días', value: 'dias' }];
@@ -692,13 +671,13 @@ export class FinanzasCajaCuadreComponent implements OnInit {
 
   textoFiltro(): string {
     switch (this.filtro()) {
-      case 'caja': return 'Lo que falta y le toca a la caja';
-      case 'kepler': return 'Lo que falta y se corrige en Kepler o en la sucursal';
-      case 'ruta': return 'Lo que las rutas vendieron y no cobraron';
-      case 'por_ligar': return 'Capturado sin su documento ligado';
-      case 'sin_contar': return 'Declarado sin contar';
-      case 'todo': return 'Todos los huecos';
-      default: return 'Todo lo que falta explicar';
+      case 'caja': return 'lo que le toca a la caja';
+      case 'kepler': return 'lo que se corrige en Kepler o en la sucursal';
+      case 'ruta': return 'lo que las rutas vendieron y no cobraron';
+      case 'por_ligar': return 'lo capturado sin su documento';
+      case 'sin_contar': return 'lo declarado sin contar';
+      case 'todo': return 'todos los huecos';
+      default: return 'todo lo que falta explicar';
     }
   }
 
@@ -717,13 +696,108 @@ export class FinanzasCajaCuadreComponent implements OnInit {
   readonly huecosVista = computed(() => {
     const h = this.hc(); const q = this.q();
     if (!h) return [];
-    return h.huecos.filter((x) => this.pasaFiltro(x) && coincideBusqueda(q, x.etiqueta, x.ref, x.monto, this.sucursalDe(x)));
+    return h.huecos.filter((x) => this.pasaFiltro(x) && coincideBusqueda(q, x.etiqueta, x.ref, x.monto, this.sucursalDe(x), TITULO_TIPO[x.tipo]));
   });
 
-  abrirHueco(h: Hueco | Hueco[] | undefined): void { if (h && !Array.isArray(h)) this.sel.set(h); }
-  cerrarHueco(abierto: boolean): void { if (!abierto) this.sel.set(null); }
+  /** Los renglones: un hueco por fila, salvo la venta de ruta sin cobro, que junta sus días. */
+  readonly filas = computed<Fila[]>(() => {
+    const out: Fila[] = [];
+    const rutas = new Map<string, Fila>();
+    for (const h of this.huecosVista()) {
+      const grupo = this.grupoDe(h);
+      if (h.tipo === 'venta_sin_cobro') {
+        const ruta = h.ref.split('|')[0];
+        const ya = rutas.get(ruta);
+        if (ya) {
+          ya.huecos.push(h); ya.n += 1; ya.monto = Math.round((ya.monto + h.monto) * 100) / 100;
+          if (h.fecha > ya.fecha) ya.fecha = h.fecha;
+          if (h.fecha < ya.desde) ya.desde = h.fecha;
+          continue;
+        }
+        const f: Fila = { key: ruta, grupo, fecha: h.fecha, desde: h.fecha, monto: h.monto, n: 1, titulo: `${ruta[0].toUpperCase()}${ruta.slice(1)} vendió y no cobró`, detalle: '', sucursal: null, certeza: h.certeza, huecos: [h] };
+        rutas.set(ruta, f); out.push(f);
+        continue;
+      }
+      out.push({ key: h.ref, grupo, fecha: h.fecha, desde: h.fecha, monto: h.monto, n: 1, titulo: TITULO_TIPO[h.tipo] ?? h.tipo,
+        detalle: this.detalleDe(h), sucursal: this.sucursalDe(h), certeza: h.certeza, huecos: [h] });
+    }
+    for (const f of rutas.values()) {
+      f.huecos.sort((a, b) => b.fecha.localeCompare(a.fecha));
+      f.detalle = f.n === 1 ? '1 día' : `${f.n} días · del ${dmy(f.desde)} al ${dmy(f.fecha)}`;
+    }
+    // p-table agrupa filas CONTIGUAS: el orden del grupo va primero.
+    return out.sort((a, b) => GRUPOS[a.grupo].orden - GRUPOS[b.grupo].orden || b.fecha.localeCompare(a.fecha) || b.monto - a.monto);
+  });
+
+  /** Totales por grupo de lo que se ve (filtro y búsqueda puestos). */
+  private readonly totalesGrupo = computed(() => {
+    const m = new Map<Grupo, { filas: number; monto: number }>();
+    for (const f of this.filas()) {
+      const t = m.get(f.grupo) ?? { filas: 0, monto: 0 };
+      t.filas += 1; t.monto = Math.round((t.monto + f.monto) * 100) / 100;
+      m.set(f.grupo, t);
+    }
+    return m;
+  });
+
+  grupoDe(h: Hueco): Grupo {
+    if (!h.falta) return 'aparte';
+    switch (h.accion) {
+      case 'capturar': return 'capturar';
+      case 'ligar': case 'corregir': return 'libro';
+      case 'pedir_kepler': return 'contabilidad';
+      case 'pedir_sucursal': return 'sucursal';
+      case 'pedir_ruta': return 'ruta';
+      case 'revisar': return 'direccion';
+      default: return 'aparte';
+    }
+  }
+  tituloGrupo(f: Fila): string { return GRUPOS[f.grupo].titulo; }
+  resumenGrupo(f: Fila): string {
+    const t = this.totalesGrupo().get(f.grupo);
+    return t ? `${t.filas} · ${money(t.monto)}` : '';
+  }
+  /** La acción de todo el grupo, una vez. Sólo donde la otra pantalla la puede cumplir para todo el grupo. */
+  ligaGrupo(f: Fila): { label: string; ruta: string } | null {
+    switch (f.grupo) {
+      case 'capturar': return { label: 'Ir a la cola de Captura', ruta: '/finanzas/caja-general' };
+      case 'sucursal': return { label: 'Ver en Cortes/Sucursales', ruta: '/finanzas/cortes-sucursales' };
+      default: return null;
+    }
+  }
+
+  textoFecha(f: Fila): string { return f.n > 1 ? `${dmy(f.fecha)} (${f.n})` : dmy(f.fecha); }
   /** La fila de `p-table` llega sin tipo (`let-r`): el índice va por un método tipado. */
-  certezaTxt(h: Hueco): string { return CERTEZA_TXT[h.certeza]; }
+  certezaTxt(f: Fila): string { return CERTEZA_TXT[f.certeza]; }
+
+  /** El renglón gris: el folio que la persona busca, y lo único que el título no dice. */
+  detalleDe(h: Hueco): string {
+    const folio = this.folioDe(h);
+    switch (h.tipo) {
+      case 'cuenta_no_caja': {
+        const cuenta = /«([^»]+)»/.exec(h.etiqueta)?.[1];
+        return cuenta ? `${folio} · a «${cuenta}»` : folio;
+      }
+      case 'corte_sin_cobro':
+        return h.atraso_dias != null ? `${folio} · ${h.atraso_dias} días sin cobrar` : folio;
+      case 'captura_distinta':
+        return `${folio} · difiere ${money(h.monto)}`;
+      case 'libro_sin_ligar':
+        return h.via === 'importe' ? `${folio} · sólo coincide el importe` : `${folio} · ya se sabe de qué es`;
+      default:
+        return folio;
+    }
+  }
+
+  abrirFila(f: Fila | Fila[] | undefined): void { if (f && !Array.isArray(f)) this.sel.set(f); }
+  cerrarFila(abierto: boolean): void { if (!abierto) this.sel.set(null); }
+
+  textoFalta(h: Hueco): string {
+    if (h.falta) return 'Cuenta en lo que falta explicar.';
+    if (h.tipo === 'bulto_sin_contar') return 'Va aparte: nadie lo ha contado, no se sabe si falta.';
+    if (h.tipo === 'libro_sin_ligar') return 'Va aparte: ya está capturado y se sabe de qué es; falta su liga.';
+    return 'Va aparte.';
+  }
 
   /** La sucursal por su NOMBRE: la manda el hueco, o la lleva la llave de Kepler (`07|U-A-5|…`, `01-003|…`). */
   sucursalDe(h: Hueco): string | null {
@@ -733,9 +807,6 @@ export class FinanzasCajaCuadreComponent implements OnInit {
 
   testigosDe(h: Hueco): { k: Eslabon; label: string; v: Testigo }[] {
     return ESLABONES.map((e) => ({ ...e, v: h.testigos?.[e.k] ?? 'na' })).filter((t) => t.v !== 'na');
-  }
-  iconoTestigo(v: Testigo): string {
-    return v === 'si' ? 'pi pi-check' : v === 'no' ? 'pi pi-times' : 'pi pi-not-equal';
   }
 
   razonCerteza(h: Hueco): string {
@@ -754,7 +825,7 @@ export class FinanzasCajaCuadreComponent implements OnInit {
     const p = h.ref.split('|');
     if (p[0] === 'libro') return p[1];
     if (p.length >= 3 && /^[A-Z]-[A-Z]-\d+$/.test(p[1])) return `${p[1]} ${p[2]}`;
-    return h.ref.replace(/\|/g, ' · ');
+    return p[0];
   }
   /** El detalle que `/movement` sabe abrir: un folio del libro, o un documento de Kepler con su cuenta. */
   movDe(h: Hueco): { source: MovSource; key: string } | null {
@@ -784,43 +855,9 @@ export class FinanzasCajaCuadreComponent implements OnInit {
       default: return null;
     }
   }
-  quienCorto(h: Hueco): string {
-    switch (h.accion) {
-      case 'pedir_kepler': return 'Pedir a contabilidad';
-      case 'pedir_ruta': return 'Pedir a la ruta';
-      case 'revisar': return 'Dirección';
-      case 'ninguna': return '—';
-      default: return DUENO_TXT[h.dueno];
-    }
-  }
-
-  /** Se exporta LO QUE SE VE: filtro y búsqueda puestos. Los montos van como número. */
-  async exportHuecos(): Promise<void> {
-    const h = this.hc(); if (!h) return;
-    this.exporting.set(true);
-    try {
-      const rows = this.huecosVista();
-      const sub = `${h.period.from} a ${h.period.to} - ${this.textoFiltro()}${this.q().trim() ? ' - busqueda "' + this.q().trim() + '"' : ''} - ${rows.length} de ${h.huecos.length}`;
-      await exportXlsx('Huecos de Caja General ' + (this.month() ?? ''), [{
-        name: 'Huecos', subtitle: sub, rows,
-        cols: [
-          { header: 'Fecha', get: (r: Hueco) => r.fecha, type: 'date', width: 12 },
-          { header: 'Que es', get: (r: Hueco) => r.etiqueta, width: 60 },
-          { header: 'Sucursal', get: (r: Hueco) => this.sucursalDe(r), width: 18 },
-          { header: 'Monto', get: (r: Hueco) => r.monto, type: 'money', total: true },
-          { header: 'Cuenta en falta', get: (r: Hueco) => (r.falta ? 'si' : 'aparte'), width: 10 },
-          { header: 'Dueno', get: (r: Hueco) => DUENO_TXT[r.dueno], width: 18 },
-          { header: 'Certeza', get: (r: Hueco) => CERTEZA_TXT[r.certeza], width: 14 },
-          { header: 'Testigos', get: (r: Hueco) => this.testigosDe(r).map((t) => `${t.label}: ${TESTIGO_TXT[t.v]}`).join('; '), width: 40 },
-          { header: 'Documento', get: (r: Hueco) => this.folioDe(r), width: 22 },
-        ],
-      } as XlsxSheet<Hueco>]);
-    } finally { this.exporting.set(false); }
-  }
 
   // ── El balance físico ──────────────────────────────────────────────────────────────────────
 
-  abs(n: number | null | undefined): number { return Math.abs(Number(n) || 0); }
   /** Con signo explícito: «−$48,047.70» falta, «+$…» sobra. `null` = no medido. */
   signo(n: number | null | undefined): string {
     if (n == null) return 'no medido';
@@ -872,19 +909,16 @@ export class FinanzasCajaCuadreComponent implements OnInit {
   }
 
   readonly estado = signal<string>('');
-  readonly cuadreDir = signal<'' | 'in' | 'out'>('');
-  readonly opcionesDir: SegOption[] = [{ label: 'Ambos', value: '' }, { label: 'Ingresos', value: 'in' }, { label: 'Gastos', value: 'out' }];
   opcionesEstado(d: CajaWb): SegOption[] {
     const c = this.cuenta(d);
     return [
       { label: 'Todos', value: '', count: d.por_dia.length },
-      { label: 'Cuadran', value: 'cuadra', count: c.cuadra },
-      { label: 'Falta capturar', value: 'por_capturar', count: c.por_capturar },
       { label: 'No cuadran', value: 'no_cuadra', count: c.no_cuadra },
+      { label: 'Falta capturar', value: 'por_capturar', count: c.por_capturar },
+      { label: 'Cuadran', value: 'cuadra', count: c.cuadra },
     ];
   }
   setEstado(v: string): void { this.estado.set(this.estado() === v && v ? '' : v); }
-  setDir(v: string): void { this.cuadreDir.set(v === 'in' || v === 'out' ? v : ''); }
   diasVista(d: CajaWb): DiaCuadre[] {
     const e = this.estado();
     return e ? d.por_dia.filter((r) => this.estadoDe(r) === e) : d.por_dia;
@@ -899,39 +933,26 @@ export class FinanzasCajaCuadreComponent implements OnInit {
   readonly wbDayErr = signal<Record<string, string>>({});
   readonly dayOpen = signal(false);
   readonly dayKey = signal('');
-  readonly dfDir = signal<'' | 'in' | 'out'>('');
-  readonly dfEstado = signal<'' | 'casado' | 'descuadre'>('');
+  readonly dayRow = signal<DiaCuadre | null>(null);
+  readonly dfEstado = signal<'' | 'sin' | 'con'>('');
   readonly dfSearch = signal('');
-  readonly daySort = signal<SortState | null>(null);
-  readonly DAY_COLS = [
-    { field: 'fecha', label: 'Fecha', cls: '' },
-    { field: 'dir', label: 'Dir', cls: 'ta-c' },
-    { field: 'importe', label: 'Caja', cls: 'ta-r' },
-    { field: 'kepler_importe', label: 'Kepler', cls: 'ta-r' },
-    { field: 'concepto', label: 'Concepto', cls: '' },
-  ];
 
-  dayTitle(): string { return this.dayKey() ? `Detalle del día — ${this.dmy(this.dayKey())}` : 'Detalle del día'; }
-
-  /** `[CGA-A.69]` «el Control hasta el 10-oct» estaba escrito a mano; ahora sale de las facetas. */
-  textoRelevo(): string {
-    const r = this.f().relevo;
-    if (r?.control_ultimo_fecha && r.libro_desde) return `el Control hasta el ${this.dmy(r.control_ultimo_fecha)}; desde el ${this.dmy(r.libro_desde)}, el libro nuevo`;
-    return 'el Control hasta el relevo; desde el primer corte, el libro nuevo';
+  dayTitle(): string { return this.dayKey() ? `El ${this.dmy(this.dayKey())}` : 'El día'; }
+  /** Los totales del día van al subtítulo: la tabla de días ya no los repite en seis columnas. */
+  daySub(): string | null {
+    const r = this.dayRow();
+    if (!r) return null;
+    const k = r.kp_n ? ` · Kepler entró ${money(r.kp_ingreso)} y salió ${money(r.kp_gasto)}` : ' · Kepler sin datos';
+    return `Caja entró ${money(r.mdb_ingreso)} y salió ${money(r.mdb_gasto)}${k}`;
   }
-
-  /** Cuántos pares del día casaron sólo por importe (§36.7): se cuentan, no se dan por casados. */
-  porImporte(cd: ConcDia): number { return cd.rows.filter((r) => r.kepler && r.kepler_origen === 'importe').length; }
 
   /** La fila elegida con clic, Enter o Espacio (pSelectableRow) abre su día; volver a elegirla también. */
   alElegir(d: DiaCuadre | DiaCuadre[] | undefined): void { if (d && !Array.isArray(d)) this.openDay(d); }
 
-  sortDay(field: string): void { this.daySort.set(toggleSort(this.daySort(), field)); }
-
-  openDay(r: { fecha: string }): void {
+  openDay(r: DiaCuadre): void {
     const dk = String(r.fecha).slice(0, 10);
-    this.dayKey.set(dk);
-    this.dfDir.set(this.cuadreDir()); this.dfEstado.set(''); this.dfSearch.set(''); this.daySort.set(null);
+    this.dayKey.set(dk); this.dayRow.set(r);
+    this.dfEstado.set(''); this.dfSearch.set('');
     this.dayOpen.set(true);
     if ((dk in this.wbDayDia()) || this.wbDayLoad()[dk]) return;
     this.wbDayLoad.set({ ...this.wbDayLoad(), [dk]: true });
@@ -941,76 +962,48 @@ export class FinanzasCajaCuadreComponent implements OnInit {
     });
   }
 
-  /** Filas visibles: filtros + orden. La búsqueda es la canónica (tokens, sin acentos, en cualquier orden). */
-  dayRows(cd: ConcDia): DiaRow[] {
-    const dir = this.dfDir(), est = this.dfEstado(), q = this.dfSearch();
-    const filtered = cd.rows.filter((e) => {
-      if (dir && e.dir !== dir) return false;
-      if (est === 'casado' && !e.kepler) return false;
-      if (est === 'descuadre' && e.kepler) return false;
-      return coincideBusqueda(q, e.concepto, e.extra, e.importe);
+  /**
+   * El día en UNA tabla: cada movimiento de la caja con su par, y lo que sólo Kepler tiene. Lo que no
+   * tiene par va primero, del mayor al menor. ⛔ Lo casado sólo por importe NO cuenta como casado.
+   */
+  detalle(cd: ConcDia): DetRow[] {
+    const caja: DetRow[] = cd.rows.map((e) => {
+      const casado = e.kepler && (e.kepler_origen === 'llave' || e.kepler_origen === 'identidad' || e.kepler_origen === 'ruta');
+      let par: string;
+      if (e.kepler && e.kepler_origen === 'llave') par = 'igual, por el documento';
+      else if (e.kepler && e.kepler_origen === 'identidad') par = 'igual, misma ruta y día';
+      else if (e.kepler && e.kepler_origen === 'ruta') par = 'venta de la camioneta';
+      else if (e.kepler) par = e.kepler_ambiguo ? 'por confirmar: sólo el importe, y hay más de un candidato' : 'por confirmar: sólo coincide el importe';
+      else par = e.kepler_motivo || 'Kepler no lo tiene';
+      if (e.kepler && e.kepler_delta) par += ` · ${e.kepler_delta < 0 ? 'entró ' + money(Math.abs(e.kepler_delta)) + ' menos' : 'entró ' + money(e.kepler_delta) + ' más'}`;
+      return {
+        key: 'c|' + e.key + e.dir, dir: e.dir, concepto: e.concepto || e.extra || '—', libro: e.source === 'libro',
+        caja: e.importe, kepler: e.kepler ? e.kepler_importe : null, casado, par, parAviso: !casado,
+        cajaMov: { source: e.source ?? 'control', key: e.key },
+        keplerMov: e.kepler && e.kepler_source && e.kepler_key ? { source: e.kepler_source, key: e.kepler_key } : null,
+      };
     });
-    return sortRows(filtered, this.daySort(), (r, f) => (r as unknown as Record<string, unknown>)[f]);
-  }
-
-  /** Lo que Kepler tiene y la caja no, ingresos y gastos juntos, del mayor al menor. */
-  dayOrphans(cd: ConcDia): OrphanMov[] {
     const v = cd.vs_kepler;
-    return [...v.ingresos.other_only.map((o) => ({ ...o, dir: 'in' as const })),
-      ...v.gastos.other_only.map((o) => ({ ...o, dir: 'out' as const }))].sort((a, b) => b.importe - a.importe);
+    const soloKepler: DetRow[] = [...v.ingresos.other_only.map((o) => ({ ...o, dir: 'in' as const })), ...v.gastos.other_only.map((o) => ({ ...o, dir: 'out' as const }))]
+      .map((o) => ({
+        key: 'k|' + o.key + o.dir, dir: o.dir, concepto: o.concepto || o.extra || '—', libro: false, caja: null, kepler: o.importe,
+        casado: !!o.en_libro, par: o.en_libro ? `sólo en Kepler; ya está en el libro (${o.en_libro.folio})` : 'sólo en Kepler: falta capturarlo',
+        parAviso: !o.en_libro, cajaMov: null, keplerMov: { source: o.source, key: o.key },
+      }));
+    const monto = (r: DetRow) => Math.max(r.caja ?? 0, r.kepler ?? 0);
+    return [...caja, ...soloKepler].sort((a, b) => Number(a.casado) - Number(b.casado) || monto(b) - monto(a));
   }
-
-  /** Lo primero que dice es CON QUÉ MÉTODO casó: un par por identidad y uno por importe no valen igual. */
-  tituloKepler(e: DiaRow): string {
-    const p: string[] = [];
-    if (e.kepler_origen === 'identidad') p.push('Cobro del ERP, casado por identidad (misma ruta y mismo día)');
-    else if (e.kepler_origen === 'llave') p.push('Kepler, casado por el documento del libro');
-    else if (e.kepler_origen === 'ruta') p.push('Sin cobro en tesorería: venta del Kepler de la camioneta');
-    else p.push('Kepler, casado sólo por importe: por confirmar');
-    if (e.kepler_ref) p.push(e.kepler_ref);
-    if (e.kepler_ambiguo) p.push('había más de un candidato con este importe');
-    if (e.kepler_delta) p.push(e.kepler_delta < 0 ? `entró ${this.money(Math.abs(e.kepler_delta))} menos` : `entró ${this.money(e.kepler_delta)} más`);
-    p.push('ver el detalle');
-    return p.join(' · ');
+  opcionesDet(cd: ConcDia): SegOption[] {
+    const rs = this.detalle(cd);
+    const sin = rs.filter((r) => !r.casado).length;
+    return [{ label: 'Todos', value: '', count: rs.length }, { label: 'Sin par', value: 'sin', count: sin }, { label: 'Con su par', value: 'con', count: rs.length - sin }];
   }
-
-  /** Se exporta LO QUE SE VE: dayRows() ya trae filtros y orden. Los importes van como número. */
-  async exportDay(cd: ConcDia): Promise<void> {
-    this.exporting.set(true);
-    try {
-      const f: string[] = [];
-      if (this.dfDir()) f.push(this.dfDir() === 'in' ? 'solo ingresos' : 'solo gastos');
-      if (this.dfEstado()) f.push(this.dfEstado() === 'casado' ? 'solo los que estan en Kepler' : 'solo los que no estan en Kepler');
-      if (this.dfSearch().trim()) f.push('busqueda "' + this.dfSearch().trim() + '"');
-      const rows = this.dayRows(cd);
-      const base = `${this.dayKey()} - ${rows.length} de ${cd.rows.length} movimientos de la caja`;
-      const orp = this.dayOrphans(cd);
-      const sheets: XlsxSheet<any>[] = [{
-        name: 'Detalle del dia',
-        subtitle: f.length ? base + ' - filtros: ' + f.join(', ') : base,
-        rows,
-        cols: [
-          { header: 'Fecha', get: (r: DiaRow) => r.fecha, type: 'date', width: 12 },
-          { header: 'Direccion', get: (r: DiaRow) => (r.dir === 'in' ? 'Ingreso' : 'Gasto'), width: 11 },
-          { header: 'Caja', get: (r: DiaRow) => r.importe, type: 'money', total: true },
-          { header: 'Fuente', get: (r: DiaRow) => (r.source === 'libro' ? 'libro' : 'Control'), width: 9 },
-          { header: 'Kepler', get: (r: DiaRow) => r.kepler_importe, type: 'money', total: true },
-          { header: 'Origen Kepler', get: (r: DiaRow) => (r.kepler_origen === 'importe' ? 'importe (por confirmar)' : r.kepler_origen), width: 14 },
-          { header: 'Ref Kepler', get: (r: DiaRow) => r.kepler_ref, width: 24 },
-          { header: 'Motivo', get: (r: DiaRow) => r.kepler_motivo, width: 26 },
-          { header: 'Concepto', get: (r: DiaRow) => r.concepto, width: 46 },
-        ],
-      }];
-      if (orp.length) sheets.push({ name: 'En Kepler sin caja', rows: orp, cols: [
-        { header: 'Importe', get: (r: OrphanMov) => r.importe, type: 'money', total: true },
-        { header: 'Concepto', get: (r: OrphanMov) => r.concepto, width: 46 },
-        { header: 'Referencia', get: (r: OrphanMov) => r.extra, width: 24 },
-        { header: 'Documento', get: (r: OrphanMov) => r.key, width: 26 },
-        { header: 'Libro nuevo', get: (r: OrphanMov) => (r.en_libro ? (r.en_libro.via === 'declarado' ? 'declarado en ' : 'en libro ') + r.en_libro.folio : 'por capturar'), width: 22 },
-      ] });
-      await exportXlsx('Detalle del dia ' + this.dayKey(), sheets);
-    } finally { this.exporting.set(false); }
+  setDfEstado(v: string): void { this.dfEstado.set(v === 'sin' || v === 'con' ? v : ''); }
+  detVista(cd: ConcDia): DetRow[] {
+    const est = this.dfEstado(), q = this.dfSearch();
+    return this.detalle(cd).filter((r) => (!est || (est === 'sin' ? !r.casado : r.casado)) && coincideBusqueda(q, r.concepto, r.caja, r.kepler));
   }
+  abrirMov(m: { source: MovSource; key: string } | null): void { if (m) this.openMovement(m.source, m.key); }
 
   // ── Detalle de un movimiento ───────────────────────────────────────────────────────────────
 

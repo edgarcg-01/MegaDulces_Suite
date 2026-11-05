@@ -11,7 +11,8 @@ import { FinanzasCajaCuadreComponent } from './finanzas-caja-cuadre.component';
  *
  * ⚠️ PRUEBA NEGATIVA (corrida el 2026-11-05): haciendo que el filtro «falta» deje fuera todo
  * `libro_sin_ligar` se pone roja la 1 (el duplicado ligado sólo por importe desaparecía); cambiando
- * `warehouseName` por el código crudo en `sucursalDe`, la 3; dándole `?q=` a «capturar», la 5.
+ * `warehouseName` por el código crudo en `sucursalDe`, la 3; dándole `?q=` a «capturar», la 5;
+ * sin juntar los días de una ruta, la 7; contando lo casado por importe como casado, la 8.
  */
 const t = (o: Record<string, string> = {}) => ({ venta: 'na', corte: 'na', cobro: 'na', boveda: 'na', libro: 'na', control: 'na', ...o });
 const HUECOS = [
@@ -88,7 +89,39 @@ describe('[LE.CU.4] el Cuadre de Caja General', () => {
     expect(c.ligaAccion(bulto)?.ruta).toBe('/finanzas/caja-general/arqueos');
     expect(c.ligaAccion(corte)?.ruta).toBe('/finanzas/cortes-sucursales');
     expect(c.ligaAccion(ruta)).toBeNull();
-    expect(c.quienCorto(ruta)).toBe('Pedir a la ruta');
+  });
+
+  it('7 · la lista se lee por tarea: un grupo por lo que hay que hacer, y la ruta junta sus días', () => {
+    const c = crea();
+    const extra = { ...HUECOS[5], fecha: '2026-10-28', monto: 8536.9, ref: 'ruta 503|2026-10-28' };
+    c.hc.set({ ...RESPUESTA, huecos: [...HUECOS, extra] } as never);
+    const fs = c.filas();
+    expect(fs.map((f) => f.grupo)).toEqual(['capturar', 'libro', 'sucursal', 'ruta']);
+    const ruta = fs.find((f) => f.grupo === 'ruta')!;
+    expect([ruta.n, ruta.monto, ruta.desde, ruta.fecha]).toEqual([2, 40029.58, '2026-10-28', '2026-11-02']);
+    expect(ruta.titulo).toBe('Ruta 503 vendió y no cobró');
+    // El renglón dice qué es en palabras; el folio va en gris y la sucursal por su nombre.
+    const cobro = fs.find((f) => f.grupo === 'capturar')!;
+    expect(cobro.titulo).toBe('Cobro sin capturar');
+    expect(cobro.detalle).toBe('U-A-5 0000429');
+    expect(c.ligaGrupo(cobro)?.ruta).toBe('/finanzas/caja-general');
+    expect(c.ligaGrupo(ruta)).toBeNull();
+    expect(fs.find((f) => f.grupo === 'libro')!.detalle).toBe('CI-2026-00022 · sólo coincide el importe');
+  });
+
+  it('8 · el detalle del día NO da por casado lo que sólo coincide por importe, y lo sin par va primero', () => {
+    const c = crea();
+    const fila = (o: Record<string, unknown>) => ({ id: 'x', key: 'k', fecha: '2026-10-19', dir: 'in', importe: 100, concepto: 'c', extra: null, kepler: true,
+      kepler_importe: 100, kepler_ref: null, kepler_key: 'kk', kepler_origen: 'llave', kepler_source: 'kepler', kepler_motivo: null, kepler_ambiguo: false, kepler_delta: null, ...o });
+    const cd = {
+      rows: [fila({ key: 'a', importe: 50 }), fila({ key: 'b', importe: 30, kepler_origen: 'importe' })],
+      vs_kepler: { ingresos: { other_only: [{ id: 'o', source: 'kepler', key: 'o1', fecha: '2026-10-19', importe: 999, concepto: 'cobro', extra: null, en_libro: null }] }, gastos: { other_only: [] } },
+      totals: { kepler_disponible: true },
+    };
+    const rs = c.detalle(cd as never);
+    expect(rs.map((r) => [r.concepto, r.casado])).toEqual([['cobro', false], ['c', false], ['c', true]]);
+    expect(rs[1].par).toBe('por confirmar: sólo coincide el importe');
+    expect(rs[0].par).toBe('sólo en Kepler: falta capturarlo');
   });
 
   it('6 · el veredicto dice cuánto falta y cuántos son por confirmar; lo no medido se nombra', () => {
