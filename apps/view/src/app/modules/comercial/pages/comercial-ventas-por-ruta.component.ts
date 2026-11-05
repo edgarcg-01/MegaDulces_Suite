@@ -196,14 +196,14 @@ const MES: Record<string, string> = {
             <label for="rr-f-prod">Producto</label>
             <p-select inputId="rr-f-prod" [options]="productOpts()" [ngModel]="fProduct()" (ngModelChange)="fProduct.set($event); load()"
                       optionLabel="label" optionValue="value" placeholder="Todos" [showClear]="true"
-                      [filter]="true" filterBy="label" filterPlaceholder="Buscar SKU o nombre…" [resetFilterOnHide]="true"
+                      [filter]="true" filterBy="label,value" filterPlaceholder="Buscar SKU o nombre…" [resetFilterOnHide]="true"
                       [virtualScroll]="true" [virtualScrollItemSize]="34" appendTo="body" styleClass="w-full" ariaLabel="Filtrar por producto" />
           </div>
           <div class="rr-field rr-clientf">
             <label for="rr-f-client">Cliente</label>
             <p-select inputId="rr-f-client" [options]="clientOpts()" [ngModel]="fClient()" (ngModelChange)="fClient.set($event); load()"
                       optionLabel="label" optionValue="value" placeholder="Todos" [showClear]="true"
-                      [filter]="true" filterBy="label" filterPlaceholder="Buscar cliente…" [resetFilterOnHide]="true"
+                      [filter]="true" filterBy="label,value" filterPlaceholder="Buscar cliente o código…" [resetFilterOnHide]="true"
                       [virtualScroll]="true" [virtualScrollItemSize]="34" appendTo="body" styleClass="w-full" ariaLabel="Filtrar por cliente" />
           </div>
           <div class="rr-field">
