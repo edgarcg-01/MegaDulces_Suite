@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection, signal } from '@angular/core';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 import { MessageService } from 'primeng/api';
 import { BancosEstadoBancoComponent } from './bancos-estado-banco.component';
 import { ArchivoEstadoBanco, ArchivosDelBanco, BankService, RevisionEstadoBanco } from '../../bank.service';
@@ -9,9 +9,9 @@ import { AuthService } from '../../../../core/services/auth.service';
 import { Permission } from '../../../../core/constants/permissions';
 
 /**
- * `[CB.59]` La descarga del banco: el veredicto primero, la cuenta que coincide por saldo se elige
- * sola, lo que nadie pudo comprobar no se pinta en verde y lo que no se puede guardar no ofrece
- * «Guardar». Datos inventados (el repo es público).
+ * `[CB.59]` Se sueltan una o varias descargas: cada una en su fila con su veredicto, la cuenta que
+ * coincide por saldo se elige sola, lo que nadie pudo comprobar no se cuenta como listo sin
+ * confirmarlo, y un guardado parcial deja los que fallaron con su motivo. Datos inventados.
  */
 const ARCHIVO: ArchivoEstadoBanco = {
   id: 'f1', bank: 'banbajio', alias: 'BB 1111', account_label: '1111', file_name: 'x.xlsx', date_from: '2026-10-01', date_to: '2026-10-31',
@@ -33,14 +33,23 @@ function revision(p: Partial<RevisionEstadoBanco>): RevisionEstadoBanco {
     motivos_bloqueo: ['el archivo no dice de qué cuenta es: elige la cuenta'], puede_confirmar: false, ya_subido: null, ...p,
   };
 }
+const LISTO = (alias = 'BB 1111', id = 'a') => revision({ cuenta: { id, alias }, como_se_fijo: 'saldo_continuo', motivos_bloqueo: [], puede_confirmar: true });
 
-function montar(opts: { datos?: ArchivosDelBanco; revisar?: (id?: string | null) => RevisionEstadoBanco }) {
-  const llamadas: (string | null | undefined)[] = [];
+function montar(opts: {
+  datos?: ArchivosDelBanco;
+  revisar?: (nombre: string, id?: string | null) => RevisionEstadoBanco;
+  confirmar?: (nombre: string) => unknown;
+}) {
+  const llamadas: [string, string | null | undefined][] = [];
   const guardados: unknown[][] = [];
   const api = {
     archivosDelBanco: () => of(opts.datos ?? DATOS),
-    revisarEstadoBanco: (_b: string, _n: string, id?: string | null) => { llamadas.push(id); return of(opts.revisar!(id)); },
-    confirmarEstadoBanco: (...args: unknown[]) => { guardados.push(args); return of({ cuenta: { alias: 'x' }, nuevos: 1, ya_existia: false }); },
+    revisarEstadoBanco: (_b: string, n: string, id?: string | null) => { llamadas.push([n, id]); return of(opts.revisar!(n, id)); },
+    confirmarEstadoBanco: (...args: unknown[]) => {
+      guardados.push(args);
+      const r = opts.confirmar?.(args[1] as string);
+      return r instanceof Error ? throwError(() => r) : of({ cuenta: { alias: 'x' }, nuevos: 1, ya_existia: false });
+    },
   };
   const auth = { user: signal({ permissions: { [Permission.FINANCE_BANK_GESTIONAR]: true } }) };
   TestBed.configureTestingModule({
@@ -51,11 +60,18 @@ function montar(opts: { datos?: ArchivosDelBanco; revisar?: (id?: string | null)
   const fx = TestBed.createComponent(BancosEstadoBancoComponent);
   fx.detectChanges();
   const cmp = fx.componentInstance;
-  const subir = () => { (cmp as any).archivo = { b64: 'AAAA', nombre: 'x.xlsx' }; (cmp as any).revisar(true); fx.detectChanges(); };
-  return { fx, cmp, llamadas, guardados, subir, el: fx.nativeElement as HTMLElement };
+  const soltar = async (...nombres: string[]) => { await cmp.agregarArchivos(nombres.map((nombre) => ({ nombre, b64: 'AAAA' }))); fx.detectChanges(); };
+  return { fx, cmp, llamadas, guardados, soltar, el: fx.nativeElement as HTMLElement };
 }
 
 describe('BancosEstadoBancoComponent', () => {
+  it('sin nada subido no hay vacío grande: el resumen, la franja de una línea y nada más', () => {
+    const { el } = montar({ datos: { archivos: [], total: 0, tope: 100, cuentas: [cta('BB 2222', null)] } });
+    expect(el.querySelector('.eb-soltar')?.textContent).toContain('Arrastra aquí una o varias descargas');
+    expect(el.querySelector('p-table')).toBeNull();
+    expect(el.textContent).not.toContain('Todavía no se ha subido');
+  });
+
   it('el resumen cuenta sólo las cuentas con lector, nombra las que faltan y dice cuál no se puede subir', () => {
     const { cmp, el } = montar({});
     const [con, atrasada, sinTestigo] = cmp.resumen();
@@ -73,56 +89,52 @@ describe('BancosEstadoBancoComponent', () => {
     expect(el.textContent).toContain('Se muestran los 1 más recientes de 250');
   });
 
-  it('si UNA cuenta coincide por saldo, se elige sola y el veredicto lo dice', () => {
-    const { cmp, llamadas, subir } = montar({
-      revisar: (id) => id === 'a'
-        ? revision({ cuenta: { id: 'a', alias: 'BB 1111' }, como_se_fijo: 'saldo_continuo', motivos_bloqueo: [], puede_confirmar: true })
-        : revision({}),
+  it('varios archivos a la vez: cada uno en su fila; el que coincide por saldo se elige solo y queda listo', async () => {
+    const { cmp, llamadas, soltar, el } = montar({
+      revisar: (n, id) => n === 'bbajio.xlsx' ? (id === 'a' ? LISTO() : revision({}))
+        : revision({ candidatas: [{ id: 'c', alias: 'BBVA 3333', saldo_conocido: 1, coincide: false }, { id: 'd', alias: 'BBVA 4444', saldo_conocido: 2, coincide: false }] }),
     });
-    subir();
-    expect(llamadas).toEqual([null, 'a']);
-    expect(cmp.cuentaElegida()).toBe('a');
-    expect(cmp.puedeGuardar()).toBe(true);
-    expect(cmp.textoGuardar()).toBe('Guardar 4 movimientos');
+    await soltar('bbajio.xlsx', 'bbva.exp');
+    expect(cmp.lote().length).toBe(2);
+    expect(llamadas).toEqual([['bbajio.xlsx', null], ['bbajio.xlsx', 'a'], ['bbva.exp', null]]);
+    expect(cmp.veredicto(cmp.lote()[0]).texto).toBe('Listo: 4 nuevos');
+    expect(cmp.veredicto(cmp.lote()[1]).texto).toBe('Elige la cuenta');
+    expect(cmp.textoGuardar()).toBe('Guardar 1 listo');
+    expect(el.textContent).toContain('1 de 2 listos · 1 piden algo');
   });
 
-  it('[negativa] sin testigo: no se pinta como comprobado y no guarda hasta confirmar la cuenta a mano', () => {
-    const { cmp, fx, guardados, subir } = montar({
+  it('[negativa] sin testigo: no cuenta como listo hasta confirmar la cuenta, y la confirmación viaja al guardar', async () => {
+    const { cmp, guardados, soltar } = montar({
       revisar: () => revision({ candidatas: [], cuenta: { id: 'b', alias: 'BB 2222' }, como_se_fijo: 'sin_testigo', motivos_bloqueo: [], puede_confirmar: true }),
     });
-    subir();
-    expect(document.body.textContent).toContain('No hay con qué comprobar que este archivo es de BB 2222');
-    expect(document.body.textContent).not.toContain('Se pueden guardar');
-    expect(cmp.puedeGuardar()).toBe(false);
-    expect(cmp.textoGuardar()).toBe('Guardar sin comprobar');
-    cmp.aceptado.set(true);
-    expect(cmp.puedeGuardar()).toBe(true);
-    cmp.guardar();
+    await soltar('x.xlsx');
+    const a = cmp.lote()[0];
+    expect(cmp.veredicto(a).texto).toBe('Ningún saldo lo comprueba');
+    expect(cmp.listos().length).toBe(0);
+    cmp.aceptar(a, true);
+    expect(cmp.listos().length).toBe(1);
+    await cmp.guardar();
     expect(guardados[0][3]).toBe(true);
-    fx.destroy();
   });
 
-  it('[negativa] bloqueado: no se puede guardar y el motivo queda a la vista', () => {
-    const motivo = 'el saldo inicial ($500) es el último saldo conocido de BB 1111, no de BB 2222';
-    const { cmp, fx, subir } = montar({
-      revisar: () => revision({ candidatas: [], cuenta: { id: 'b', alias: 'BB 2222' }, motivos_bloqueo: [motivo] }),
+  it('[negativa] guardado parcial: el que falla se queda con su motivo y el otro sale de la lista', async () => {
+    const { cmp, soltar } = montar({
+      revisar: (n) => LISTO(n),
+      confirmar: (n) => (n === 'malo.csv' ? Object.assign(new Error('400'), { error: { motivos: ['el saldo no encadena en 1 renglón(es)'] } }) : null),
     });
-    subir();
-    expect(cmp.puedeGuardar()).toBe(false);
-    expect(document.body.textContent).toContain(motivo);
-    fx.destroy();
+    await soltar('bueno.csv', 'malo.csv');
+    await cmp.guardar();
+    expect(cmp.lote().map((a) => a.nombre)).toEqual(['malo.csv']);
+    expect(cmp.veredicto(cmp.lote()[0]).texto).toContain('No se guardó: el saldo no encadena');
+    expect(cmp.listos().length).toBe(0);
   });
 
-  it('[negativa] el mismo archivo otra vez: lo avisa antes de guardar y no ofrece «Guardar»', () => {
-    const { cmp, fx, subir } = montar({
-      revisar: () => revision({
-        cuenta: { id: 'a', alias: 'BB 1111' }, como_se_fijo: 'saldo_continuo', motivos_bloqueo: [], puede_confirmar: true,
-        ya_subido: { archivo_id: 'f1', subido_el: '2026-11-05T18:00:00Z', subido_por: 'prueba' },
-      }),
+  it('[negativa] el mismo archivo otra vez: se avisa y no cuenta como listo', async () => {
+    const { cmp, soltar } = montar({
+      revisar: () => ({ ...LISTO(), ya_subido: { archivo_id: 'f1', subido_el: '2026-11-05T18:00:00Z', subido_por: 'prueba' } }),
     });
-    subir();
-    expect(cmp.puedeGuardar()).toBe(false);
-    expect(document.body.textContent).toContain('ya se subió');
-    fx.destroy();
+    await soltar('x.xlsx');
+    expect(cmp.veredicto(cmp.lote()[0]).texto).toContain('Ya se subió');
+    expect(cmp.listos().length).toBe(0);
   });
 });
