@@ -64,6 +64,8 @@ export interface RevisionEstadoDeCuenta {
   /** Si hay motivos, `confirmar` se niega. Cada motivo es una frase para la pantalla. */
   motivos_bloqueo: string[];
   puede_confirmar: boolean;
+  /** Este MISMO archivo (por su sha1) ya se guardó: confirmar no escribe nada nuevo. */
+  ya_subido: { archivo_id: string; subido_el: string; subido_por: string | null } | null;
 }
 
 const pesos = (centavos: number) => Math.round(centavos) / 100;
@@ -115,7 +117,7 @@ export class EstadoDeCuentaService {
     return delLibro ? Number(delLibro.running_balance) : null;
   }
 
-  private async revisarEn(trx: Knex.Transaction, leido: EstadoDeCuentaLeido, body: SubirEstadoDeCuentaBody): Promise<RevisionEstadoDeCuenta & { _lineas: { m: MovimientoBanco; llave: string; existe: boolean }[] }> {
+  private async revisarEn(trx: Knex.Transaction, leido: EstadoDeCuentaLeido, body: SubirEstadoDeCuentaBody, sha1: string): Promise<RevisionEstadoDeCuenta & { _lineas: { m: MovimientoBanco; llave: string; existe: boolean }[] }> {
     const motivos: string[] = [];
     const ctl = leido.control;
     const desde = leido.movimientos[0]?.fecha ?? null;
@@ -174,6 +176,7 @@ export class EstadoDeCuentaService {
       for (const l of lineas) l.existe = ya.has(l.llave);
     }
     const yaCargados = lineas.filter((l) => l.existe).length;
+    const previo = await trx('finance.bank_statement_files').where({ file_sha1: sha1 }).first('id', 'created_at', 'created_by');
 
     return {
       banco: leido.banco, archivo: body.file_name ?? null, cuenta_en_archivo: leido.cuenta, cliente_en_archivo: leido.cliente,
@@ -185,6 +188,7 @@ export class EstadoDeCuentaService {
       totales_declarados_coinciden: leido.declarado?.coinciden ?? null,
       no_leidos: leido.no_leidos.map(({ linea, motivo }) => ({ linea, motivo })),
       motivos_bloqueo: motivos, puede_confirmar: motivos.length === 0 && !!cuenta && !!como,
+      ya_subido: previo ? { archivo_id: previo.id, subido_el: new Date(previo.created_at).toISOString(), subido_por: previo.created_by ?? null } : null,
       _lineas: lineas,
     };
   }
@@ -199,8 +203,10 @@ export class EstadoDeCuentaService {
   /** Paso 1: qué entraría, sin escribir nada. */
   async revisar(body: SubirEstadoDeCuentaBody): Promise<RevisionEstadoDeCuenta> {
     this.tenantCtx.requireTenantId();
-    const leido = await this.leer(this.decodificar(body));
-    const { _lineas, ...rev } = await this.tk.run((trx) => this.revisarEn(trx, leido, body));
+    const buf = this.decodificar(body);
+    const sha1 = crypto.createHash('sha1').update(buf).digest('hex');
+    const leido = await this.leer(buf);
+    const { _lineas, ...rev } = await this.tk.run((trx) => this.revisarEn(trx, leido, body, sha1));
     void _lineas;
     return rev;
   }
@@ -212,9 +218,8 @@ export class EstadoDeCuentaService {
     const sha1 = crypto.createHash('sha1').update(buf).digest('hex');
     const leido = await this.leer(buf);
     return this.tk.run(async (trx) => {
-      const { _lineas, ...rev } = await this.revisarEn(trx, leido, body);
-      const previo = await trx('finance.bank_statement_files').where({ file_sha1: sha1 }).first('id');
-      if (previo) return { ...rev, archivo_id: previo.id as string, ya_existia: true };
+      const { _lineas, ...rev } = await this.revisarEn(trx, leido, body, sha1);
+      if (rev.ya_subido) return { ...rev, archivo_id: rev.ya_subido.archivo_id, ya_existia: true };
       if (!rev.puede_confirmar || !rev.cuenta || !rev.como_se_fijo || !rev.desde || !rev.hasta || rev.saldo_inicial === null || rev.saldo_final === null) {
         throw new BadRequestException({ message: 'el estado de cuenta no se puede guardar', motivos: rev.motivos_bloqueo });
       }
@@ -253,7 +258,9 @@ export class EstadoDeCuentaService {
     this.tenantCtx.requireTenantId();
     return this.tk.run((trx) => trx('finance.bank_statement_files as f')
       .join('finance.bank_accounts as a', 'a.id', 'f.bank_account_id')
-      .select('f.id', 'f.bank', 'a.alias', 'a.account_label', 'f.file_name', 'f.date_from', 'f.date_to',
+      .select('f.id', 'f.bank', 'a.alias', 'a.account_label', 'f.file_name',
+        // La fecha como texto: sin setTypeParser, un `date` llega como Date y el JSON lo corre de día.
+        trx.raw("to_char(f.date_from, 'YYYY-MM-DD') as date_from"), trx.raw("to_char(f.date_to, 'YYYY-MM-DD') as date_to"),
         'f.lines_in_file', 'f.lines_new', 'f.opening_balance', 'f.closing_balance', 'f.total_in', 'f.total_out',
         'f.balance_ok', 'f.declared_ok', 'f.account_check', 'f.created_at', 'f.created_by')
       .orderBy('f.created_at', 'desc').limit(Math.min(Math.max(1, limit), 500)));

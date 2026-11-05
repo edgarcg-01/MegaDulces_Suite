@@ -29,6 +29,7 @@ import {
 import { BancosConcentradoComponent } from './bancos/bancos-concentrado.component';
 import { BancosConciliacionComponent } from './bancos/bancos-conciliacion.component';
 import { BancosCuentasComponent } from './bancos/bancos-cuentas.component';
+import { BancosEstadoBancoComponent } from './bancos/bancos-estado-banco.component';
 import { BancosCierreComponent } from './bancos/bancos-cierre.component';
 import { BancosMovimientosComponent } from './bancos/bancos-movimientos.component';
 import { BancosAdminComponent } from './bancos/bancos-admin.component';
@@ -48,7 +49,7 @@ import { BANCOS_CONCILIACION_TABS } from '../bancos-conciliacion-tabs';
 @Component({
   selector: 'app-finanzas-bancos',
   standalone: true,
-  imports: [DatePipe, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, CheckboxModule, InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, MetricStripComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent, BancosConcentradoComponent, BancosConciliacionComponent, BancosCuentasComponent, BancosCierreComponent, BancosMovimientosComponent, BancosAdminComponent, BancosContpaqiComponent, BancosThreeWayComponent, BancosCapturasComponent, PageTabsComponent],
+  imports: [DatePipe, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, CheckboxModule, InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, MetricStripComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent, BancosConcentradoComponent, BancosConciliacionComponent, BancosCuentasComponent, BancosEstadoBancoComponent, BancosCierreComponent, BancosMovimientosComponent, BancosAdminComponent, BancosContpaqiComponent, BancosThreeWayComponent, BancosCapturasComponent, PageTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -68,7 +69,7 @@ import { BANCOS_CONCILIACION_TABS } from '../bancos-conciliacion-tabs';
           </label>
           <input #fileInput type="file" accept=".xlsx" hidden (change)="onFile($event)">
           <button pButton type="button" class="p-button-sm p-button-text" [loading]="syncingSheet()" (click)="runSheetSync()" title="Baja el workbook maestro del Google Sheet (export público) y lo procesa"><span class="p-button-icon p-button-icon-left pi pi-cloud-download" aria-hidden="true"></span><span class="p-button-label">Sincronizar del Sheet</span></button>
-          <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="uploading()" (click)="fileInput.click()"><span class="p-button-icon p-button-icon-left pi pi-upload" aria-hidden="true"></span><span class="p-button-label">Subir estado de cuenta</span></button>
+          <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="uploading()" (click)="fileInput.click()" title="El libro CUENTAS que Tesorería llena a mano (Excel). La descarga del banco se sube en Cuentas."><span class="p-button-icon p-button-icon-left pi pi-upload" aria-hidden="true"></span><span class="p-button-label">Subir libro CUENTAS</span></button>
         </div>
       </header>
 
@@ -194,6 +195,8 @@ import { BANCOS_CONCILIACION_TABS } from '../bancos-conciliacion-tabs';
 
       <!-- ── CUENTAS: cuadre de saldos por cuenta (clic → sus movimientos) ── -->
       @if (view() === 'cuentas') {
+        <!-- [CB.59] La descarga del banco, arriba: es la que reemplaza al libro. -->
+        <bancos-estado-banco />
         <bancos-cuentas [balances]="balances()" [statements]="statements()" [diagnostico]="diagnostico()"
           [period]="period()" (openAccount)="verCuentaMovs($event)" />
       }

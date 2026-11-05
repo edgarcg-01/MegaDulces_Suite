@@ -9,7 +9,7 @@
  *
  * Bloques (destino LOCAL / `pruebas-db`):
  *   1. ✅ Santander trae su cuenta → `en_archivo`, cuadra, se guarda con hora/rastreo/contraparte.
- *   2. ✅ El mismo archivo otra vez → `ya_existia`, cero renglones nuevos.
+ *   2. ✅ El mismo archivo otra vez → la revisión ya avisa `ya_subido`; confirmar da `ya_existia`, cero renglones nuevos.
  *   3. ✅ Una descarga que se encima con la anterior → sólo entran los renglones nuevos.
  *   4. ⛔ NEGATIVA: falta un renglón a la mitad → no cuadra, `confirmar` se niega y no escribe.
  *   5. ✅ BBVA no trae la cuenta: sin elegirla se niega; elegida y sin saldo previo → `sin_testigo`.
@@ -147,6 +147,7 @@ async function completo(urlAdmin, urlRuntime) {
     console.log('\n[1] Santander: la cuenta viene en el archivo');
     const rev = await svc.revisar({ file_base64: santander([S1, S2, S3]), file_name: 'SANTANDER.csv' });
     check(rev.cuenta?.id === STDR && rev.como_se_fijo === 'en_archivo', `la cuenta se fija por el número del archivo (${rev.como_se_fijo})`);
+    check(rev.ya_subido === null, 'un archivo nuevo no se reporta como ya subido');
     check(rev.cuadra && rev.puede_confirmar && rev.nuevos === 3, `cuadra y entrarían 3 nuevos (${rev.nuevos}); motivos: ${JSON.stringify(rev.motivos_bloqueo)}`);
     check(await lineas(STDR) === 0, 'revisar NO escribe');
     const c1 = await svc.confirmar({ file_base64: santander([S1, S2, S3]), file_name: 'SANTANDER.csv' }, 'prueba');
@@ -160,6 +161,8 @@ async function completo(urlAdmin, urlRuntime) {
       `el archivo guarda su control: saldo $${f1 && f1.opening_balance} → $${f1 && f1.closing_balance}`);
 
     console.log('\n[2] El mismo archivo otra vez');
+    const rRep = await svc.revisar({ file_base64: santander([S1, S2, S3]), file_name: 'SANTANDER (1).csv' });
+    check(rRep.ya_subido?.archivo_id === c1.archivo_id && rRep.ya_subido?.subido_por === 'prueba', `la revisión ya avisa que ese archivo se subió (${rRep.ya_subido?.subido_el})`);
     const c2 = await svc.confirmar({ file_base64: santander([S1, S2, S3]), file_name: 'SANTANDER (1).csv' }, 'prueba');
     check(c2.ya_existia === true && await lineas(STDR) === 3, 'se reconoce y no duplica nada');
 
