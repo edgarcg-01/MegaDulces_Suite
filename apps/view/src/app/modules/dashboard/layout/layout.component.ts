@@ -541,7 +541,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
     // La ruta pide `ROLES_VER`; con `ROLES_CONFIGURAR` el ítem no se pintaba para
     // quien sí puede abrirla.
     { label: 'Roles',    icon: 'pi pi-shield', route: '/admin/roles', permission: Permission.ROLES_VER },
-    { label: 'Salud DB', icon: 'pi pi-heart',  route: '/admin/db-health', permission: Permission.PLATFORM_HEALTH_VER },
+    // `[TOR.3]` Reemplazan a «Salud DB»: Sistemas (servidores Kepler) y Desarrollo (nuestra infraestructura).
+    { label: 'Torre de Sistemas',   icon: 'pi pi-server', route: '/admin/torre/sistemas',   permission: Permission.PLATFORM_HEALTH_VER },
+    { label: 'Torre de Desarrollo', icon: 'pi pi-code',   route: '/admin/torre/desarrollo', permission: Permission.PLATFORM_HEALTH_VER },
   ];
 
   private logisticaNavGroups: { title: string; items: NavItem[] }[] = [

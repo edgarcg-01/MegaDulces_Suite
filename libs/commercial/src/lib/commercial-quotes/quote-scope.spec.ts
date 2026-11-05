@@ -46,9 +46,16 @@ const VE_TRES_EDITA_UNA = alcance('listed', ['01', '02', '03'], 'listed', ['01']
  */
 function fakeTk(perfil: string | null = null) {
   const calls: Array<{ sql: string; binds: Record<string, unknown> }> = [];
+  // `select` termina la cadena con cero filas: lo usa el vendedor del usuario (COT.24/25).
   const builder: any = new Proxy(function noop() { return undefined; }, {
     get: (_t, prop) =>
-      prop === 'then' ? undefined : prop === 'first' ? async () => ({ warehouse_code: perfil }) : () => builder,
+      prop === 'then'
+        ? undefined
+        : prop === 'first'
+          ? async () => ({ warehouse_code: perfil })
+          : prop === 'select'
+            ? async () => []
+            : () => builder,
     apply: () => builder,
   });
   const knex: any = Object.assign(() => builder, {
@@ -56,6 +63,7 @@ function fakeTk(perfil: string | null = null) {
       calls.push({ sql, binds });
       return { rows: [] };
     }),
+    schema: { withSchema: () => ({ hasColumn: async () => true }) },
   });
   return { calls, tk: { run: (fn: (k: any) => unknown) => fn(knex) } as any };
 }

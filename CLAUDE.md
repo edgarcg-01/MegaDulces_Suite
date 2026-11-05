@@ -173,11 +173,12 @@
 | **RH** | Recursos Humanos: migración de Mega Talento | 🔨 |
 | **GP** | Gestión de pedidos en almacén (surtido/checado/embarque sin papel) | 🧪 |
 | **VAC** | Acople del verificador de precios al estándar (`/tienda/verificador`) | 🟢 |
-| **PGP** | Pago a proveedor de punta a punta (firma → ejecución → `X-D-26` escrito en Kepler) | ⬜ |
+| **PGP** | Pago a proveedor de punta a punta (firma → ejecución → `X-D-26` escrito en Kepler). 9ª en curso: el PM abrió O3 (escribir el pago en Kepler) el 2026-11-04 por encima del cupo de 4 | 🔨 |
 | **PQ** | `/compras/pedido`: del sugerido al ERP sin inventar nada (lo aprobado sale, agenda de proveedores, lazo cerrado; M1/M2 medidas) | 🔨 |
 | **FC** | Flotilla: costo por unidad — reemplaza la hoja «TRANSPORTES 2026» (anexo FCU; todo con pantalla). 5ª en curso, abierta por el PM el 2026-10-26 | 🔨 |
 | **MX** | Movimientos por excepción: el Diario (`/almacen/movimientos`) pasa a reportería y se auditan sólo las diferencias. 6ª en curso, abierta por el PM el 2026-10-28 por encima del cupo de 4 | 🔨 |
 | **DP** | Definiciones de negocio: la regla que falta se PREGUNTA en el sistema (dueño, tipo, vigencia) y contestarla es configurarla; primer consumidor, las 17 preguntas de Comisiones RD. 7ª en curso, abierta por el PM el 2026-11-03 por encima del cupo de 4 | 🔨 |
+| **TOR** | Torres de control: Sistemas (servidores y carriles de Kepler) y Desarrollo (nuestra infraestructura); reemplaza `/admin/db-health`. 8ª en curso, abierta por el PM el 2026-11-04 por encima del cupo de 4 | 🔨 |
 
 ---
 

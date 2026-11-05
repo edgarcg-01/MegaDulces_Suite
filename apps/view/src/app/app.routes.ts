@@ -388,6 +388,15 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_ROUTE_PROFIT_VER)]
       },
       {
+        // [FCT.3.1] Viajes de Telemarketing: venta de Kepler + costo capturado en Logistica (la hoja
+        // RENTABILIDAD TLMKT). Mismo permiso que la rentabilidad RD: medido en prod, lo tienen los
+        // mismos 4 puestos que Comisiones. Ruta propia y no bajo /telemarketing: esa puerta
+        // (televentaGuard) dejaria fuera a finanzas y contabilidad.
+        path: 'viajes-tm',
+        loadComponent: () => import('./modules/comercial/pages/comercial-viajes-tlmk.component').then(m => m.ComercialViajesTlmkComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ROUTE_PROFIT_VER)]
+      },
+      {
         // Fase MR — Motor de Rentabilidad: cascada de margen sobre venta real.
         path: 'rentabilidad',
         loadComponent: () => import('./modules/comercial/pages/comercial-rentabilidad.component').then(m => m.ComercialRentabilidadComponent),
@@ -2521,9 +2530,17 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/dashboard/admin-catalogs/admin-catalogs.component').then(m => m.AdminCatalogsComponent),
         canActivate: [permissionGuard(Permission.ROLES_VER)]
       },
+      // `[TOR.3]` Las torres de control reemplazan a «Salud DB». La ruta vieja redirige: la usan
+      // la bandeja de Mi trabajo y el aviso global de salud.
+      { path: 'db-health', redirectTo: 'torre/desarrollo', pathMatch: 'full' },
       {
-        path: 'db-health',
-        loadComponent: () => import('./modules/dashboard/admin-db-health/admin-db-health.component').then(m => m.AdminDbHealthComponent),
+        path: 'torre/sistemas',
+        loadComponent: () => import('./modules/dashboard/torres/torre-sistemas.component').then(m => m.TorreSistemasComponent),
+        canActivate: [permissionGuard(Permission.PLATFORM_HEALTH_VER)]
+      },
+      {
+        path: 'torre/desarrollo',
+        loadComponent: () => import('./modules/dashboard/torres/torre-desarrollo.component').then(m => m.TorreDesarrolloComponent),
         canActivate: [permissionGuard(Permission.PLATFORM_HEALTH_VER)]
       },
       {

@@ -1,0 +1,246 @@
+import { clabeDeTexto } from '@megadulces/contracts/finance/clabe';
+
+/**
+ * `[PGP.71]` — **El pago `X-D-26` en el idioma de Kepler, armado sin tocar Kepler.**
+ *
+ * Plan: [`FASE_PGP_PAGO_A_PROVEEDOR.md`](../../../../../../docs/IMPLEMENTACION/FASES/FASE_PGP_PAGO_A_PROVEEDOR.md)
+ * §4 «C0 de O3 re-medido (2026-11-04)». Todo lo que está aquí sale de medir 471 pagos por
+ * transferencia de oficinas (`00`, agosto–noviembre 2026) en `kepler_ods`; cada regla trae su cifra.
+ *
+ * Es la capa C1: funciones puras. Quien escribe (el adapter de C2) lee lo vivo de Kepler —la
+ * plantilla, el saldo de cada factura, el proveedor— y le pasa aquí los datos; esto devuelve QUÉ
+ * escribir en cada tabla o POR QUÉ no se puede. Sin base de datos a propósito: un doble de Knex no
+ * ejecuta SQL, y la regla se prueba sola en `pago-kepler.armador.spec.ts`.
+ *
+ * ── Lo que escribe un pago (medido) ─────────────────────────────────────────────────────────
+ *
+ * | Tabla | Qué | Cómo |
+ * |---|---|---|
+ * | `md.kdm1` | el documento `X-D-26` | se CLONA una plantilla y se pisan los campos de abajo |
+ * | `md.kdxe` | su renglón de cuentas por pagar (`c3='D'`) | se clona el de la plantilla |
+ * | `md.kdxf` | una aplicación por factura | se construye: 11 columnas, todas conocidas |
+ * | `md.kdxe` | ⛔ el SALDO de cada factura (`c20`) | **UPDATE** `c20 = c20 − aplicado` |
+ *
+ * ⛔⛔ La cuarta fila es la que el plan del 22-oct no tenía: Kepler **guarda** el saldo de la
+ * factura en `kdxe.c20` (2,072 de 2,081 facturas abiertas lo traen igual a importe − aplicado;
+ * control placebo contra otra factura del mismo acreedor: 45 de 1,223). Escribir el pago sin bajar
+ * ese saldo deja la factura debiéndose en Kepler aunque el pago exista. Por eso el permiso que se
+ * pide incluye `UPDATE (c20)` sobre `md.kdxe`.
+ *
+ * ⚠️ Lo que NO se pudo derivar se DECLARA, no se inventa:
+ *  - `c86` (últimos dígitos de la cuenta destino): no hay CLABE de proveedor en el ODS y el banco
+ *    no la repite (5 de 402 descripciones). Se escribe vacío, que Kepler ya acepta (lo trae vacío
+ *    en el pago de factoraje medido). Pregunta abierta a Tesorería.
+ *  - Facturas con conceptos distintos (`c12`): 64 de 471 pagos; Kepler elige uno y en 31 de esos
+ *    64 no es el de la factura mayor. Aquí se RECHAZA y se pide partir el pago.
+ */
+
+/** Quién capturó (`kdm1.c67`): lo escribió la Suite, no una persona. Mismo valor que la requisición (`[KR.17]`). */
+export const CAPTURISTA_SUITE = 'SUITE';
+/** La cuenta de tesorería de Caja General (`c45 = '0011'`). El efectivo espera el dictamen de Contabilidad (D1). */
+export const C45_CAJA_GENERAL = '0011';
+
+/**
+ * `c12` (concepto del catálogo `kdxv`) → `c48` (la sucursal en texto). Kepler la captura a mano y
+ * con dedazos («PADRE GODALGO», «MORELIA ABASTODS»); medido sobre 471 pagos: C-001 → CEDIS en 254,
+ * C-002 → PADRE HIDALGO en 35, C-010 → MORELIA ABASTOS en 83, C-020 → CANINDO en 42, C-003 → 8 ESQUINAS
+ * en 10. C-004, C-005, C-011 y C-021 casi no aparecen: su nombre sale del propio `kdxv`.
+ */
+export const SUCURSAL_DEL_CONCEPTO: Readonly<Record<string, string>> = Object.freeze({
+  'C-001': 'CEDIS',
+  'C-002': 'PADRE HIDALGO',
+  'C-003': '8 ESQUINAS',
+  'C-004': 'LA PIEDAD ABASTOS',
+  'C-005': 'YURECUARO',
+  'C-010': 'MORELIA ABASTOS',
+  'C-011': 'MORELIA MADERO',
+  'C-020': 'CANINDO',
+  'C-021': 'ZAMORA CENTRO',
+});
+
+/** Una factura que el pago salda, con lo que Kepler tiene HOY de ella (lo lee el adapter en vivo). */
+export interface FacturaAPagar {
+  /** `kdxe.c1`: el almacén. ⚠️ En las tablas de detalle `c1` es el almacén, no la sucursal. */
+  almacen: string;
+  /** `kdxe.c4` / `c5` / `c6`: tipo, subtipo y folio del documento que sube la deuda (`c3='A'`). */
+  tipo: number;
+  subtipo: number;
+  folio: string;
+  /** `kdxe.c18`: el concepto del catálogo `kdxv` (`C-001`…). */
+  concepto: string;
+  /** `kdxe.c20`: el saldo vivo. */
+  saldo: number;
+  /** Lo que este pago le aplica. */
+  aplicado: number;
+  /** `kdm1.c14` / `c15` / `c16` de la factura: IVA, IEPS y total, para el IVA proporcional. */
+  iva: number;
+  ieps: number;
+  total: number;
+}
+
+/** El acreedor, con sus datos fiscales del último `X-D-26` suyo (98.9 % igual) o, si no hay, de `kdxd`. */
+export interface ProveedorKepler {
+  /** `kdxd.c2` = `kdm1.c10`. Sólo proveedores de compra (`C…`): el alcance de D1. */
+  codigo: string;
+  rfc: string;
+  nombre: string;
+  /** `kdm1.c33` / `c34` / `c35`: domicilio, como lo escribió el pago anterior. */
+  domicilio: [string, string, string];
+  /** `kdxd.c16`: días de crédito → `kdm1.c17` (463 de 471). `null` si no se conoce. */
+  dias: number | null;
+}
+
+export interface PagoKeplerEntrada {
+  /** El servidor (`md_NN`). Cada sucursal paga en el suyo: los nueve tienen su serie `XD2601-`. */
+  sucursal: string;
+  /** `YYYY-MM-DD`: el día en que el banco confirmó el pago. */
+  fecha: string;
+  /** `HH:MM`, hora de México (`kdm1.c69`). */
+  hora: string;
+  /** `kdm1.c11` = `kdxe.c16` (471 de 471): la referencia. La Suite pone su folio del pago. */
+  referencia: string;
+  importe: number;
+  /** `kdm1.c45` = `kdxe.c22` (471 de 471): la cuenta de tesorería de `kdb1` por la que salió. */
+  cuentaTesoreria: string;
+  /** El destino como lo preparó Tesorería (texto libre con la CLABE). */
+  destino: string | null;
+  proveedor: ProveedorKepler;
+  facturas: FacturaAPagar[];
+}
+
+type Valor = string | number;
+
+export interface PlanPagoKepler {
+  /** Columnas que se pisan en el clon de la plantilla `kdm1` (el folio `c6` lo pone el adapter, `MAX+1`). */
+  kdm1: Record<string, Valor>;
+  /** Columnas que se pisan en el clon del renglón `kdxe` de la plantilla (sin `c6`). */
+  kdxe: Record<string, Valor>;
+  /** Las aplicaciones `kdxf`, completas salvo `c6` (el folio del pago). */
+  kdxf: Record<string, Valor>[];
+  /** Cuánto baja el saldo (`kdxe.c20`) de cada factura. El adapter exige `c20 >= menos` en el mismo UPDATE. */
+  saldos: { almacen: string; acreedor: string; tipo: number; subtipo: number; folio: string; menos: number }[];
+}
+
+export type ResultadoArmado = { ok: true; plan: PlanPagoKepler } | { ok: false; motivos: string[] };
+
+const r2 = (v: number): number => Math.round(v * 100) / 100;
+const CENTAVO = 0.005;
+
+/**
+ * El IVA y el IEPS que el pago cubre, como los guarda Kepler: proporcionales a lo aplicado de cada
+ * factura. Medido en 471 de 471 pagos (170 con IVA distinto de cero): `c81` es el IVA redondeado a
+ * centavos, `c82` el mismo sin redondear (casa a 0.0001) y `c84` el IEPS.
+ */
+export function ivaProporcional(facturas: Pick<FacturaAPagar, 'aplicado' | 'iva' | 'ieps' | 'total'>[]): { c81: number; c82: number; c84: number } {
+  let iva = 0, ieps = 0;
+  for (const f of facturas) {
+    if (!(f.total > 0)) continue;
+    iva += f.aplicado * (f.iva / f.total);
+    ieps += f.aplicado * (f.ieps / f.total);
+  }
+  // `c82` sin redondear a centavos, pero sin el ruido del punto flotante: Kepler guarda hasta 10
+  // decimales (`516.8179558203`, `26338.261978402`).
+  return { c81: r2(iva), c82: Math.round(iva * 1e10) / 1e10, c84: r2(ieps) };
+}
+
+/** Arma el pago o dice, con todas sus letras, por qué no se puede. Fail-closed: un motivo basta. */
+export function armarPagoKepler(e: PagoKeplerEntrada): ResultadoArmado {
+  const motivos: string[] = [];
+  const prov = e.proveedor;
+
+  if (!/^\d{2}$/.test(e.sucursal)) motivos.push(`Sucursal Kepler inválida «${e.sucursal}»`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(e.fecha)) motivos.push(`Fecha inválida «${e.fecha}»`);
+  if (!/^C/.test(prov.codigo ?? '')) motivos.push(`El acreedor ${prov.codigo || '(vacío)'} no es un proveedor de compra (C…): por ahora sólo se escriben ésos`);
+  const c45 = (e.cuentaTesoreria ?? '').trim();
+  if (!c45) motivos.push('Sin cuenta de tesorería de Kepler (kdm1.c45): no se sabe de qué banco salió');
+  else if (c45 === C45_CAJA_GENERAL) motivos.push('Sale de Caja General: el efectivo espera el dictamen de Contabilidad (D1)');
+  if (!e.facturas.length) motivos.push('El pago no salda ninguna factura');
+
+  for (const f of e.facturas) {
+    const id = `${f.tipo}-${f.subtipo}-${f.folio}`;
+    if (f.almacen !== e.sucursal) motivos.push(`La factura ${id} es del almacén ${f.almacen} y el pago se escribe en el servidor ${e.sucursal}`);
+    if (!(f.aplicado > 0)) motivos.push(`La factura ${id} no recibe nada de este pago`);
+    if (f.aplicado > f.saldo + CENTAVO) motivos.push(`La factura ${id} debe ${f.saldo.toFixed(2)} en Kepler y el pago le aplica ${f.aplicado.toFixed(2)}`);
+  }
+  const suma = e.facturas.reduce((s, f) => s + f.aplicado, 0);
+  if (Math.abs(suma - e.importe) > CENTAVO) motivos.push(`El importe del pago (${e.importe.toFixed(2)}) no es la suma de lo aplicado (${suma.toFixed(2)})`);
+
+  const conceptos = [...new Set(e.facturas.map((f) => (f.concepto ?? '').trim()))];
+  if (conceptos.length > 1) motivos.push(`Las facturas traen conceptos distintos (${conceptos.join(', ')}) y Kepler pide uno por pago: pártelo en un pago por concepto`);
+  const concepto = conceptos[0] ?? '';
+  if (conceptos.length === 1 && !concepto) motivos.push('La factura no trae concepto (kdxe.c18): Kepler no sabría a qué sucursal cargar la compra');
+
+  if (motivos.length) return { ok: false, motivos };
+
+  const clabe = clabeDeTexto(e.destino);
+  const { c81, c82, c84 } = ivaProporcional(e.facturas);
+  const importe = r2(e.importe);
+
+  return {
+    ok: true,
+    plan: {
+      kdm1: {
+        c9: e.fecha, c68: e.fecha, c69: e.hora, c67: CAPTURISTA_SUITE,
+        c10: prov.codigo, c22: prov.rfc, c32: prov.nombre,
+        c33: prov.domicilio[0], c34: prov.domicilio[1], c35: prov.domicilio[2],
+        c11: e.referencia, c12: concepto, c48: SUCURSAL_DEL_CONCEPTO[concepto] ?? '',
+        c16: importe, c42: importe, c43: 'N', c45: c45, c31: 'Tra',
+        ...(prov.dias == null ? {} : { c17: prov.dias }),
+        c81, c82, c84,
+        // El código de banco es lo que la CLABE dice por definición (3 primeros dígitos, ABM).
+        c85: clabe ? clabe.slice(0, 3) : '', c86: '',
+        c19: '', c20: '', c24: '',
+      },
+      kdxe: {
+        c2: prov.codigo, c7: e.fecha, c11: importe, c17: importe, c16: e.referencia, c18: concepto, c20: 0, c22: c45,
+      },
+      kdxf: e.facturas.map((f) => ({
+        c1: e.sucursal, c2: prov.codigo, c3: e.fecha, c4: 26, c5: 1,
+        c7: f.tipo, c8: f.subtipo, c9: f.folio, c10: r2(f.aplicado), c11: r2(f.aplicado),
+      })),
+      saldos: e.facturas.map((f) => ({ almacen: f.almacen, acreedor: prov.codigo, tipo: f.tipo, subtipo: f.subtipo, folio: f.folio, menos: r2(f.aplicado) })),
+    },
+  };
+}
+
+/** Lo que la Suite sabe del pago, para decidir si se puede escribir en Kepler (E3.3). */
+export interface PagoSuite {
+  status: string;
+  payment_method: string | null;
+  /** `finance.bank_accounts.kind` de la cuenta de origen. */
+  origen_kind: string | null;
+  /** `payment_allocations.kepler_payment_folio`: ya ligado a un `X-D-26` (escrito o capturado a mano). */
+  kepler_payment_folio: string | null;
+  lot_status: string;
+  items: { obligation_source: string; branch_code: string | null; kepler_saldada?: boolean | null }[];
+}
+
+const LOTES_FIRMADOS = new Set(['released', 'executing', 'closed']);
+
+/**
+ * `[PGP.71]` E3.3 — **No se escribe a Kepler lo que no esté autorizado y marcado pagado.** Devuelve
+ * los motivos; vacío = se puede. Va aparte del armador porque es una regla de la Suite (estado del
+ * pago) y aquélla es una regla de Kepler (forma del documento).
+ */
+export function motivosParaNoEscribir(p: PagoSuite): string[] {
+  const m: string[] = [];
+  if (!LOTES_FIRMADOS.has(p.lot_status)) m.push('El día no está autorizado');
+  if (p.status !== 'executed') m.push('El pago no está marcado como pagado');
+  if (p.payment_method !== 'transferencia') m.push('Por ahora sólo se escriben transferencias (D1)');
+  if (p.origen_kind !== 'bank') m.push('La cuenta de origen no es una cuenta bancaria');
+  if (p.kepler_payment_folio) m.push(`Ya está ligado al pago ${p.kepler_payment_folio} de Kepler: escribirlo otra vez lo duplicaría`);
+  if (!p.items.length) m.push('El pago no tiene facturas');
+  if (p.items.some((i) => i.obligation_source !== 'kepler_payable')) m.push('Trae renglones que no son facturas de Kepler');
+  if (new Set(p.items.map((i) => i.branch_code)).size > 1) m.push('Trae facturas de más de una sucursal: cada sucursal paga en su servidor');
+  if (p.items.some((i) => i.kepler_saldada)) m.push('Kepler ya no debe alguna de sus facturas');
+  return m;
+}
+
+/**
+ * `[PGP.71]` E3.5 — **El interruptor.** Apagado salvo que diga exactamente `encendida`: una variable
+ * vacía, mal escrita o ausente deja la escritura APAGADA. Es el cuarto candado; los otros tres son el
+ * `GRANT` en Kepler, la conexión `KEPLER_PUSH_URL_NN` y este estado del pago.
+ */
+export function escrituraDePagoEncendida(env: Readonly<Record<string, string | undefined>>): boolean {
+  return (env['KEPLER_PAGO_ESCRITURA'] ?? '').trim() === 'encendida';
+}

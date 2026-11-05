@@ -61,6 +61,7 @@ export * from './http/identity-me.contract';
 export * from './http/suite-usage.contract';
 // [CDRP.2] Registro de umbrales: la forma y el clasificador de 5 estados del tablero directivo.
 export * from './http/kpi-threshold.contract';
+export * from './http/torres.contract';
 // [AU.0] Identidad: la ORGANIZACIÓN (puesto, cadena de mando, responsabilidad, historia).
 // Producer `OrgController` y consumer `/admin/*` importan de acá: un cambio de forma es error de
 // compilación en los dos lados. La pantalla que esto reemplaza declaraba sus 12 tipos adentro.
@@ -165,6 +166,8 @@ export * from './http/revision-gps.contract';
 export * from './http/cierre-viaje.contract';
 // [FCU] Costo por unidad: lo que hacía la hoja «TRANSPORTES 2026», con pantalla.
 export * from './http/costo-unidad.contract';
+// [FCT] El viaje TM: venta de Kepler + costo capturado en Logística (la hoja «RENTABILIDAD TLMKT»).
+export * from './http/tlmk-viajes.contract';
 // [EMB.32] Alta rápida de ayudantes y cargadores desde la guía y el cierre.
 export * from './http/alta-persona.contract';
 // [RE.35] El expediente de la factura de una orden de entrada (el papel identifica, el CFDI informa).

@@ -72,7 +72,9 @@ BEGIN
   FOREACH s IN ARRAY ARRAY[
     'analytics','analytics_external','budget','caja_general_ods','catalog','commercial','erp',
     'fdw_export','finance','fiscal','hr','identity','intelligence','inventory','kepler_ods',
-    'logistics','md','ops','public','reconciliation','trade','whatsapp','wincaja'
+    'logistics','md','ops','platform','public','reconciliation','trade','whatsapp','wincaja'
+    -- `platform` ([DP.0.1], 2026-11-03): definiciones de negocio. Nacio despues de esta lista y
+    -- `dev_ro` respondia `permission denied for schema platform` (medido 2026-11-04).
   ] LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = s) THEN CONTINUE; END IF;
     EXECUTE format('GRANT USAGE ON SCHEMA %I TO dev_ro', s);

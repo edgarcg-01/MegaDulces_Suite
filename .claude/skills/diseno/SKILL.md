@@ -34,6 +34,39 @@ una decisión.
 > y los tres niveles de evidencia. Nace el 2026-10-20, después de que el usuario encontrara
 > **preguntando** tres defectos graves que una auditoría hecha sólo con esta skill no vio.
 
+## 0a. ⛔⛔ El análisis empieza por el PROPÓSITO, no por los defectos (PM, 2026-11-04)
+
+> *«El análisis debe venir desde cómo armar una pantalla, cuál es el propósito de la interfaz, qué
+> debe ver el usuario; el usuario debe tener accesibilidad a cada información (desglose,
+> información tras información). Debemos hacer esas cuestiones antes de generar esa interfaz.»*
+> — Edgar
+
+**El caso:** `/finanzas/calendario-pagos` tuvo tres rondas de parches y un rediseño en diez días
+(`[PGP.48]`–`[PGP.53]`). Cada ronda arregló lo que se veía mal. Ninguna midió que **104 de 109
+pagos armados estaban detenidos en PREPARAR**, el paso que la pantalla ponía en tercer lugar, ni
+que reordenar fallaba **4 de cada 10 veces**. Eso no se ve auditando celdas: se ve preguntando
+primero para qué existe la pantalla.
+
+**Los doce pasos, por escrito y en este orden**, antes de la primera línea de plantilla. Cada uno
+se apoya en el anterior; los pasos 4–9 son las cinco preguntas de §0b, ahora con su base:
+
+| # | Paso | La salida que se escribe |
+|---|---|---|
+| 1 | **Propósito** | el ACTO que la pantalla cierra, y la prueba de la frase (una pregunta, sin «y») |
+| 2 | **Quién entra y con qué pregunta** | roles (de `MATRIZ_ACCESOS.md`) × paso del proceso × lo que hizo, **medido** en `analytics.ui_usage` (`node .claude/skills/pm/uso.js <ruta>`) |
+| 3 | **El estado real** | dónde está detenido el trabajo hoy, con cifras de prod en sólo lectura. ⭐ El cuello que salga de aquí es lo primero que ve la persona |
+| 4 | **Qué ve, en qué orden (nivel 0)** | lo que define el estado, sin clic, completo, con UN botón |
+| 5 | **Qué no ve** | tabla: pieza de hoy → decisión → por qué |
+| 6 | ⭐ **El mapa de desglose** | tabla: **cada cifra** → dónde se abre → qué contiene → endpoint que ya existe. Nivel 1 en la fila, nivel 2 en side-peek, nivel 3 otra pantalla. Una cifra sin fila aquí no se puede recorrer |
+| 7 | **Accesibilidad de la información** | a cuántos clics está cada dato, por nombre, buscable, en qué orden, sin mouse, sin color. ⭐⭐ **Y el DOCUMENTO FUENTE** (Edgar, 2026-11-04: *«¿puedo ver la factura en PDF o imagen? ¿el folio interno para ubicarla?»*): desde **cada lugar donde aparece** un documento —no sólo desde uno— se **ve** su archivo y se **ubica** por su folio interno y el del tercero. Donde no hay archivo, se dice qué hay (UUID) o por qué no. Medir la cobertura (cuántos tienen archivo) es parte del paso 3 |
+| 8 | **Ligas con otros procesos** | de dónde viene y a dónde va; folio de origen y de destino en la fila; ligas rotas nombradas |
+| 9 | **¿Le toca a esta pantalla?** | qué vive aquí, qué se abre en otra y qué se pide a otra área |
+| 10 | **La maqueta** | ASCII o captura, con lo que cambia contra hoy y lo que se conserva (las decisiones previas de Edgar se respetan) |
+| 11 | **Criterios de aceptación** | de `auditoria-diseno/VALORES.md`, medibles en la pantalla viva |
+| 12 | **Lo que la interfaz NO puede resolver** | huecos de dato (C0), de permisos o de otra área — se dicen PRIMERO, porque deciden el orden del trabajo |
+
+⭐ **El ejemplo resuelto, con datos de prod:** [`EJEMPLO_CALENDARIO_PAGOS.md`](EJEMPLO_CALENDARIO_PAGOS.md).
+
 ## 0b. ⛔⛔ El cuestionario ANTES de generar — y otra vez al terminar (PM, 2026-10-29)
 
 > *«Siempre tienen que auditar a la hora de generar una interfaz: qué debe ver el usuario, qué no,

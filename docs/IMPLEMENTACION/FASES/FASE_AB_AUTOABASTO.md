@@ -117,6 +117,11 @@ Descontado lo anterior, quedan **cuatro cosas**, y son las que justifican la fas
 
 ## 4. La regla de temporalidad: qué se acepta y qué se corrige
 
+> ⚠️ **2026-11-04 — esta regla no se construyó** (0 items, 0 tablas en prod), y el factor que sí
+> corre (`season_ratio` del plan) no frena lo de temporada: el 4-nov la mesa de 8 Esquinas pedía
+> calaveritas con factor 1.000. Los cuatro huecos, medidos, y las diferencias de fórmula entre la
+> mesa y `/compras/pedido`, en [FASE_PQ §15](FASE_PQ_PEDIDO_VERDAD_Y_CIERRE.md).
+
 **Se acepta el criterio de negocio.** La fórmula del pedido es clara, auditable por un humano y es la que
 el encargado va a poder defender frente a su jefe. Se implementa **tal cual**, con el 50% como política
 editable con permiso y trazabilidad, y con la separación que el pedido pide entre *variación observada*,

@@ -5,6 +5,8 @@ import {
   RouteProfitService, type PeriodoDisponible, type RentabilidadPeriodo, type SeriePeriodo,
   type GastoDetalle, type FlotaResumen,
 } from './route-profit.service';
+import { TlmkTripsService } from './tlmk-trips.service';
+import type { ViajesTlmkResponse } from '@megadulces/contracts';
 
 /**
  * `[RD.57]` — Rentabilidad de Ruta Directa. **Sólo lectura, a propósito:** acá no se corrige
@@ -16,7 +18,10 @@ import {
 @UseGuards(RolesGuard)
 @Controller('commercial/route-profit')
 export class CommercialRouteProfitController {
-  constructor(private readonly svc: RouteProfitService) {}
+  constructor(
+    private readonly svc: RouteProfitService,
+    private readonly tlmk: TlmkTripsService,
+  ) {}
 
   /** Quincenas que tienen renglones para leer. */
   @Get('periods')
@@ -58,6 +63,22 @@ export class CommercialRouteProfitController {
   @RequirePermissions(Permission.COMMERCIAL_ROUTE_PROFIT_VER)
   flota(): Promise<FlotaResumen> {
     return this.svc.flota();
+  }
+
+  /**
+   * `[FCT.2.1]` Los viajes de entrega de Telemarketing: venta de Kepler + costo del cierre del viaje
+   * en Logística. Sin rango, el mes en curso; tope ~6 meses. Mismo permiso que la rentabilidad de
+   * RD: medido en prod (2026-11-04), lo tienen los mismos 4 puestos que Comisiones (dirección,
+   * finanzas, contabilidad, superadmin). ⚠️ Va ANTES del `@Get()` raíz.
+   */
+  @Get('tlmk')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_PROFIT_VER)
+  viajesTlmk(
+    @Query('desde') desde?: string,
+    @Query('hasta') hasta?: string,
+    @Query('sucursal') sucursal?: string,
+  ): Promise<ViajesTlmkResponse> {
+    return this.tlmk.viajes({ desde, hasta, sucursal });
   }
 
   /** El tablero de una quincena. Sin `period_id` abre la última con renglones. */

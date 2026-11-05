@@ -209,6 +209,24 @@ export interface DictamenResp {
   cambiados: string[];
   /** Las filas de `lotes` con póliza que ya tienen entrega registrada: no se dictaminan ni salen. */
   entregadas: string[];
+  /**
+   * `[CP.8.99]` Lo que se entregó alguna vez, y dónde está. ⚠️ Opcional: la API anterior no lo manda, y sin él la
+   * pantalla no dice nada del cuadre por fila (no lo inventa).
+   */
+  seguimiento?: SeguimientoPoliza[];
+}
+
+/** `[CP.8.99]` Espejo de `SeguimientoCuadre` del backend (`cuadre.engine.ts`). */
+export type SeguimientoCuadre = 'en_contpaqi' | 'por_confirmar' | 'esperando' | 'no_cuadra' | 'no_aparecio';
+export interface SeguimientoPoliza {
+  /** La `k` de su fila en `lotes`. */
+  lote: string;
+  estado: SeguimientoCuadre;
+  /** Folio de la póliza en ContPAQi, si el cuadre la encontró. */
+  folio: number | null;
+  motivo: string | null;
+  /** `YYYY-MM-DD`, el día en que se marcó como cargada. */
+  entregada_en: string | null;
 }
 
 /** `[CP.8.73]` Un CFDI candidato para confirmar un pago. */
@@ -305,6 +323,8 @@ export interface EntregaResp {
   mes: string;
   polizas: number;
   nuevas: number;
+  /** `[CP.8.99]` Las que no habían aparecido en ContPAQi y se volvieron a entregar. Ausente en la API anterior. */
+  reentregadas?: number;
   ya_registradas: number;
   total: number;
   archivo_sha256: string;

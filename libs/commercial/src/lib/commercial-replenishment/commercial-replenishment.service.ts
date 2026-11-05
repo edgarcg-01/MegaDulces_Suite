@@ -3,7 +3,7 @@ import { TenantKnexService, TenantContextService, ScopeService, TenantCacheServi
 import {
   compareWarehouseCodes, MonthlySalesResponse, OcDetalleDto, OcSeguimientoEstatus, OcSeguimientoGuardadoDto,
   WorkbookSkuSignals,
-  validarSeguimiento, coberturaAutoabastoSql,
+  validarSeguimiento, coberturaAutoabastoSql, coberturaAutoabasto,
   KEPLER_REQUISITION_SINK_PORT, type KeplerRequisitionSinkPort, type KeplerLineaResuelta,
 } from '@megadulces/contracts';
 
@@ -26,6 +26,9 @@ import { mensajeFraccion, renglonesSinUnidadEntera } from './fraccion-caja';
 import { plantillaDe, plantillaTlmkDe, urlDeServidor } from './kepler-servidores';
 import { buscarLoteRepetido, mensajeLoteRepetido, type LoteRepetido } from './lote-repetido';
 import { VENTANA_YA_PEDIDO_DIAS } from './ya-pedido-sucursal';
+import { cerrarTraspasosNoEjecutados } from './traspaso-no-ejecutado';
+import { limpiarComprasSinDocumento } from './compra-sin-documento';
+import { bajoReorden, cumplimientoSoloCompra, frenadoPorReorden, segunReorden } from './faltante';
 import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt } from '../shared/freshness';
 
 /**
@@ -342,6 +345,9 @@ export interface WorkbookQuery {
   category_id?: string;
   search?: string;
   coverage_days?: number;
+  /** `[PQ.44]` D25: 'sucursal' = cada almacén con SU cobertura (la de la mesa, `coberturaAutoabasto`);
+   *  sin esto, `coverage_days` igual para todos (el comprador la fijó). */
+  coverage_mode?: string;
   scope?: string;
   warehouse_ids?: string;   // CSV de almacenes a mostrar como columnas (una/varias); vacío = todas con stock
   group?: string;           // 'general' = una sola columna agregada (red); default = por sucursal
@@ -1185,7 +1191,7 @@ export class CommercialReplenishmentService {
     if (q.bucket && BUCKETS.includes(q.bucket as Bucket)) {
       b.andWhereRaw(`${this.bucketExpr(oh)} = ?`, [q.bucket]);
     } else if (q.scope !== 'all' && !ACCIONES_FUERA_DE_CRITICO.includes(q.accion ?? '')) {
-      b.andWhereRaw(`${oh} <= rp.reorder_point`); // default: crítico (≤ punto de reorden)
+      b.andWhereRaw(bajoReorden(oh, 'rp.reorder_point')); // default: crítico (≤ punto de reorden). [PQ.44] la misma regla que Pedido
     }
     return abcPedido;
   }
@@ -2052,6 +2058,14 @@ export class CommercialReplenishmentService {
         : this.DEFAULT_SETTINGS;
       const fb = this.fillBinds(stWb);
       const FILLF = this.erpFillFactor(erpReady, 'max(b.fill_erp)');
+      // `[PQ.44]` D26: toda la columna llega por traspaso (con canal medido) → no se infla.
+      const TRASPASO = `bool_and(COALESCE(b.canal_via, '') = 'transfer')`;
+      // `[PQ.44]` D25: la cobertura por almacén es la de la mesa (misma expresión de libs/contracts).
+      // Va por renglón de almacén y la demanda se multiplica ANTES de sumar, así la columna de red
+      // (group=general) también lleva la de cada almacén. Medido el 2026-11-04: con 30 d fijos, las
+      // cinco sucursales de 21 d sugerían $1.97 M de más.
+      const porSucursal = q.coverage_mode === 'sucursal';
+      const COV_ROW = porSucursal ? coberturaAutoabastoSql('w.code') : ':cov::numeric';
       const binds: Record<string, unknown> = { t: tenantId, cov, ...(erpReady ? fb : {}) };
       const filters = ['pr.tenant_id = :t', 'pr.activo = true', 'pr.deleted_at IS NULL',
         'NOT EXISTS (SELECT 1 FROM commercial.product_aliases pa WHERE pa.tenant_id = :t AND pa.alias_product_id = pr.id AND pa.deleted_at IS NULL)'];
@@ -2153,6 +2167,10 @@ export class CommercialReplenishmentService {
       // ~10× más chica y el motor pedía de más — $866,756 de sobre-pedido y $2.68M de inventario
       // que no se veía. Resuelto en `analytics.v_warehouse_box_factor` y materializado en el fact.
       const DBF = 'COALESCE(max(b.display_bf), max(b.bf), 1)';
+      // `[PQ.44]` Lo que faltaría para el objetivo (D25 cobertura por almacén, D26 cumplimiento sólo
+      // en compra), ANTES de la regla del reorden (D33). Una sola expresión para el pedido y para
+      // la marca de «frenado por el reorden»: si fueran dos, podrían decir cosas distintas.
+      const PED_CRUDO = `round((GREATEST(0, COALESCE(sum(b.daily_pieces * b.cov_dias),0) * COALESCE(max(b.season_ratio),1) / (${SUF} * ${BF}) - COALESCE(sum(b.stock_pz),0) / ${DBF} - (${transitoDescontado('sum(b.transit_eff_cajas)', 'sum(b.transit_cajas)')})) * ${cumplimientoSoloCompra(TRASPASO, FILLF)})::numeric, 1)`;
       // U.2 — ¿el peldaño de este almacén está verificado? `sin_dato` cuenta como OK a propósito:
       // el detector sólo opina donde hay existencia y costo de compra; ausencia de veredicto no es
       // veredicto negativo (misma regla que `freshness.ts`: no poder MEDIR no se reporta como malo,
@@ -2300,11 +2318,16 @@ export class CommercialReplenishmentService {
                  -- suficiente; NO es 1.0 ni 0: la ausencia se declara y el pedido no se mueve.
                  -- SIN ACENTOS GRAVES EN ESTE COMENTARIO: va dentro de un template literal de JS.
                  ${erpReady ? 'fre.fr' : 'NULL::numeric'} AS fill_erp,
+                 -- [PQ.44] D26: por donde llega de verdad este proveedor a este almacen (compra o
+                 -- traspaso). NULL = sin canal medido. Unico por (almacen, proveedor): no multiplica.
+                 rcw.via AS canal_via,
+                 ${COV_ROW} AS cov_dias,
                  ${colExpr} AS col_code, ${conFuera ? 'rp.fuera' : 'false'} AS fuera
             FROM catalog.products pr
             JOIN ${rpSrc(vbfSrc)} rp ON rp.tenant_id = pr.tenant_id AND rp.product_id = pr.id
             JOIN commercial.warehouses w ON w.tenant_id = :t AND w.id = rp.warehouse_id
             LEFT JOIN commercial.reorder_policy rop ON rop.tenant_id = pr.tenant_id AND rop.product_id = pr.id AND rop.warehouse_id = rp.warehouse_id
+            LEFT JOIN commercial.replenishment_channel rcw ON rcw.tenant_id = pr.tenant_id AND rcw.warehouse_id = rp.warehouse_id AND rcw.supplier_id = pr.supplier_id
             LEFT JOIN lad ON lad.sku = pr.sku
             -- [RA-DYN.U7] fre es un CTE MATERIALIZED, no una subconsulta en linea, por la misma
             -- razon que lad y vbf de arriba: en esta consulta el planificador ya eligio dos veces
@@ -2337,9 +2360,18 @@ export class CommercialReplenishmentService {
                  -- medicion suficiente -- o sea que el 100% de los renglones sin fill rate publican
                  -- el MISMO numero que antes de esta linea.
                  -- SIN ACENTOS GRAVES EN ESTE COMENTARIO: va dentro de un template literal de JS.
+                 -- [PQ.44] D33: se pide al llegar al punto de reorden, como la mesa (segunReorden).
+                 -- Arriba del reorden la celda sale 0 aunque falte para el objetivo.
                  CASE WHEN ${RUNG_OK} THEN
-                   round((GREATEST(0, COALESCE(sum(b.daily_pieces),0) * COALESCE(max(b.season_ratio),1) * :cov / (${SUF} * ${BF}) - COALESCE(sum(b.stock_pz),0) / ${DBF} - (${transitoDescontado('sum(b.transit_eff_cajas)', 'sum(b.transit_cajas)')})) * ${FILLF})::numeric, 1)
+                   ${segunReorden('COALESCE(sum(b.stock_pz),0)', 'sum(b.rop_reorder)', PED_CRUDO)}
                  END AS ped,
+                 -- [PQ.44] D33: el reorden freno una cantidad que SI faltaba. Viaja para que la
+                 -- pantalla diga por que sale 0 SOLO ahi, y no en la mitad de las celdas (medido:
+                 -- 12,579 de 25,241 estan arriba del reorden; a 375 les falta para el objetivo).
+                 ${frenadoPorReorden('COALESCE(sum(b.stock_pz),0)', 'sum(b.rop_reorder)', PED_CRUDO)} AS sobre_reorden,
+                 -- [PQ.44] D26: la celda que llega por traspaso no se infla; viaja para que la
+                 -- pantalla no diga que se multiplico.
+                 ${TRASPASO} AS traspaso,
                  -- El fill rate viaja al front para que el inflado se VEA. Un pedido que crecio 4.8%
                  -- sin decir por que es justo lo que este repo no publica.
                  round(max(b.fill_erp)::numeric, 3) AS fill_erp,
@@ -2407,6 +2439,8 @@ export class CommercialReplenishmentService {
                  jsonb_object_agg(col_code, jsonb_strip_nulls(jsonb_build_object(
                    'vta', vta, 'exis', exis, 'ped', ped, 'tran', tran, 'cc', caja_cost,
                    'mx', max_cjs_cell, 'rop', reorder_cjs_cell,
+                   'trf', CASE WHEN traspaso THEN true END,
+                   'sr', CASE WHEN sobre_reorden THEN true END,
                    'rung', CASE WHEN rung_veredicto IN ('x1_inflada','x2_deflactada') THEN rung_veredicto END,
                    'nat',  CASE WHEN rung_veredicto IN ('x1_inflada','x2_deflactada') THEN exis_nativa END,
                    'natu', CASE WHEN rung_veredicto IN ('x1_inflada','x2_deflactada') THEN rung_base_label END
@@ -2639,6 +2673,11 @@ export class CommercialReplenishmentService {
       return {
         total: Number(tot?.c || 0),
         page, pageSize, coverage_days: cov,
+        // `[PQ.44]` D25: con qué cobertura salió cada columna. `coverage_days` queda como la fija.
+        coverage_mode: porSucursal ? 'sucursal' as const : 'fija' as const,
+        cobertura_columnas: porSucursal
+          ? Object.fromEntries(territories.map((t) => [t.code, coberturaAutoabasto(t.code)]))
+          : null,
         freshness,
         territories,
         agotados_con_venta: res.agotados ?? null,
@@ -3356,12 +3395,14 @@ export class CommercialReplenishmentService {
                round((rp.daily_pieces * 30 / (${suf} * ${bf}))::numeric, 1) AS venta_cajas,
                round((rp.stock_pz / ${dbf})::numeric, 1) AS existencia_cajas,
                round(rp.transit_cajas::numeric, 1) AS transito_cajas,
-               round(GREATEST(0, rp.daily_pieces * COALESCE(rp.season_ratio,1) * :cov / (${suf} * ${bf}) - rp.stock_pz / ${dbf} - (${transitoDescontado('rp.transit_eff_cajas', 'rp.transit_cajas')}))::numeric, 1) AS pedido_cajas,
+               ${segunReorden('rp.stock_pz', 'rop.reorder_point',
+                 `round(GREATEST(0, rp.daily_pieces * COALESCE(rp.season_ratio,1) * :cov / (${suf} * ${bf}) - rp.stock_pz / ${dbf} - (${transitoDescontado('rp.transit_eff_cajas', 'rp.transit_cajas')}))::numeric, 1)`)} AS pedido_cajas,
                -- días = existencia en cajas ÷ venta diaria en cajas (las dos en la misma unidad)
                round((rp.stock_pz / ${dbf} * ${suf} * ${bf} / NULLIF(rp.daily_pieces, 0))::numeric, 0) AS cover_days
           FROM analytics.replenishment_plan rp
           JOIN commercial.warehouses w ON w.tenant_id = rp.tenant_id AND w.id = rp.warehouse_id
           JOIN catalog.products pr ON pr.tenant_id = rp.tenant_id AND pr.id = rp.product_id
+          LEFT JOIN commercial.reorder_policy rop ON rop.tenant_id = rp.tenant_id AND rop.product_id = rp.product_id AND rop.warehouse_id = rp.warehouse_id
          WHERE rp.tenant_id = :t AND rp.product_id = :pid
            AND (rp.stock_pz > 0 OR rp.daily_pieces > 0 OR rp.transit_cajas > 0)
          ORDER BY rp.revenue30 DESC NULLS LAST, w.code`,
@@ -4977,7 +5018,16 @@ export class CommercialReplenishmentService {
     } catch (e: unknown) {
       this.logger.warn(`[PQ.25] No se pudo asociar OC de Kepler: ${(e as Error)?.message}`);
     }
+    // `[PQ.50]` D29: el traspaso aprobado que en 7 días no salió a Kepler se cierra con motivo. En su
+    // propia transacción: si falla, no deshace lo que PQ.25/PQ.26 acaban de ligar.
+    try {
+      const c = await this.tk.run((trx) => cerrarTraspasosNoEjecutados(trx, tenantId));
+      if (c) this.logger.log(`[PQ.50] ${c} traspaso(s) aprobados sin salir a Kepler, cerrados con motivo`);
+    } catch (e: unknown) {
+      this.logger.warn(`[PQ.50] No se pudieron cerrar los traspasos sin ejecutar: ${(e as Error)?.message}`);
+    }
     void this.reintentarKepler(tenantId);
+    void this.limpiarComprasSinDocumento(tenantId);
   }
 
   /**
@@ -4995,20 +5045,71 @@ export class CommercialReplenishmentService {
    * X-A-30/35 de ese proveedor (por clave o por nombre) en esa sucursal desde la aprobación, NO se
    * empuja: se deja dicho en `kepler_error` cuál es, para que alguien confirme. Los traspasos no
    * se reintentan solos: su escritura está apagada en todas las sucursales y no hay freno medido.
+   *
+   * `[PQ.70]` El freno es `yaEnKeplerSql()` y lo usan también el primer envío (`pushKeplerTrasAprobar`).
    */
   private readonly ultimoReintento = new Map<string, number>();
+
+  /**
+   * `[PQ.69]` + `[PQ.68]` D32: la compra aprobada que se hizo a mano en Kepler se liga a su OC (por el
+   * importe de cada renglón) y la de antes del 27-oct que en 30 días no apareció se cierra con motivo.
+   * Ver `compra-sin-documento.ts`. Fuera de la petición y a lo más cada 30 min por tenant: las dos
+   * consultas suman ~420 ms (medido 2026-11-04) y la bandeja no las espera.
+   */
+  private readonly ultimaLimpiezaCompras = new Map<string, number>();
+  private async limpiarComprasSinDocumento(tenantId: string): Promise<void> {
+    const ahora = Date.now();
+    if (ahora - (this.ultimaLimpiezaCompras.get(tenantId) ?? 0) < 30 * 60_000) return;
+    this.ultimaLimpiezaCompras.set(tenantId, ahora);
+    try {
+      const r = await this.tk.run((trx) => limpiarComprasSinDocumento(trx, tenantId));
+      if (r.ligadas || r.canceladas) this.logger.log(`[PQ.69] ${r.ligadas} compra(s) ligadas a su OC de Kepler · [PQ.68] ${r.canceladas} cerradas sin documento`);
+    } catch (e: unknown) {
+      this.logger.warn(`[PQ.69] No se pudieron ligar/cerrar las compras sin documento: ${(e as Error)?.message}`);
+    }
+  }
+
+  /**
+   * `[PQ.70]` **¿Kepler ya tiene esta compra, hecha a mano?** Subconsulta que devuelve los documentos
+   * (texto para `kepler_error`) o NULL. Pide `r` (la requisición), `w` (su almacén) y `s` (su
+   * proveedor). Un X-A-30/35 del mismo proveedor, en la misma sucursal, que trae **alguno de sus
+   * productos**, y que además:
+   *  · se capturó desde la aprobación, abierto o ya recibido (el freno de PQ.26: la gente la hizo a
+   *    mano porque la Suite no la mandaba), o
+   *  · sigue **abierto** (`c42` = saldo pendiente) y es de hasta 7 días antes de crearla.
+   *
+   * Medido el 2026-11-04 sobre las 76 compras que la Suite escribió desde el 27-oct: 2 repetían una
+   * requisición abierta hecha a mano (RQ-2026-01760 y -01762 → Morelia Abastos 0000013, $9,450).
+   * El freno anterior, sólo por proveedor y desde la aprobación, no veía la de un día antes. Y uno
+   * sin `c42` habría frenado RQ-2026-01881 por cuatro OC del 1-nov ya recibidas (`c43='F'`, saldo 0):
+   * pedir otra vez lo que ya llegó es decisión de Compras, no un duplicado en Kepler.
+   */
+  private yaEnKeplerSql(): string {
+    return `(SELECT string_agg(CASE btrim(k.c4::text) WHEN '35' THEN 'OC ' ELSE 'requisición ' END
+                               || btrim(k.c6) || ' del ' || to_char(k.c9::date, 'DD-MM'), ', ' ORDER BY k.c6)
+               FROM kepler_ods.kdm1 k
+              WHERE k.sucursal = w.kepler_code AND k.c2 = 'X' AND k.c3 = 'A' AND btrim(k.c4::text) IN ('30', '35')
+                AND (k.c9::date >= r.approved_at::date
+                     OR (COALESCE(k.c42, 0) > 0 AND k.c9::date >= r.created_at::date - 7))
+                AND (btrim(k.c10) = s.code OR upper(btrim(k.c32)) = upper(s.name))
+                AND EXISTS (SELECT 1
+                              FROM kepler_ods.kdm2 kl
+                              JOIN commercial.purchase_requisition_lines rl
+                                ON rl.tenant_id = r.tenant_id AND rl.requisition_id = r.id AND COALESCE(rl.final_qty, 0) > 0
+                              JOIN catalog.products p ON p.tenant_id = rl.tenant_id AND p.id = rl.product_id
+                             WHERE kl.sucursal = k.sucursal AND kl.c1 = k.c1 AND kl.c2 = k.c2 AND kl.c3 = k.c3
+                               AND kl.c4 = k.c4 AND kl.c6 = k.c6 AND btrim(kl.c8) = btrim(p.sku)))`;
+  }
+  /** `[PQ.70]` Lo que queda escrito en `kepler_error` cuando el freno detiene el envío. */
+  private motivoYaEnKepler(docs: string): string {
+    return `No se envió: Kepler ya tiene ${docs} de este proveedor en esta sucursal, con productos de esta requisición, hecha fuera de la Suite. Si es ésta, no hay que hacer nada más; si no, reintenta desde la ficha.`;
+  }
   private async reintentarKepler(tenantId: string): Promise<void> {
     if (!this.keplerSink) return;
     try {
       const ahora = Date.now();
       const filas = (await this.tk.run(async (trx) => (await trx.raw(
-        `SELECT r.id, r.kepler_error,
-                (SELECT string_agg(CASE btrim(k.c4::text) WHEN '35' THEN 'OC ' ELSE 'requisición ' END
-                                   || btrim(k.c6) || ' del ' || to_char(k.c9::date, 'DD-MM'), ', ' ORDER BY k.c6)
-                   FROM kepler_ods.kdm1 k
-                  WHERE k.sucursal = w.kepler_code AND k.c2 = 'X' AND k.c3 = 'A' AND btrim(k.c4::text) IN ('30', '35')
-                    AND k.c9::date >= r.approved_at::date
-                    AND (btrim(k.c10) = s.code OR upper(btrim(k.c32)) = upper(s.name))) AS ya_en_kepler
+        `SELECT r.id, r.kepler_error, ${this.yaEnKeplerSql()} AS ya_en_kepler
            FROM commercial.purchase_requisitions r
            JOIN commercial.warehouses w ON w.tenant_id = r.tenant_id AND w.id = r.warehouse_id
            LEFT JOIN catalog.suppliers s ON s.tenant_id = r.tenant_id AND s.id = r.supplier_id
@@ -5016,7 +5117,7 @@ export class CommercialReplenishmentService {
             AND r.kepler_folio IS NULL AND r.approved_at >= '2026-10-27'
           ORDER BY r.approved_at LIMIT 200`, [tenantId])).rows)) as Array<{ id: string; kepler_error: string | null; ya_en_kepler: string | null }>;
       const avisos = filas.filter((f) => f.ya_en_kepler)
-        .map((f) => ({ id: f.id, motivo: `No se reenvió: Kepler ya tiene ${f.ya_en_kepler} de este proveedor en esta sucursal, hecha fuera de la Suite. Si es ésta, no hay que hacer nada más; si no, reintenta desde la ficha.` }))
+        .map((f) => ({ id: f.id, motivo: this.motivoYaEnKepler(f.ya_en_kepler as string) }))
         .filter((a) => a.motivo !== filas.find((f) => f.id === a.id)?.kepler_error);
       if (avisos.length) {
         await this.tk.run(async (trx) => {
@@ -5279,6 +5380,23 @@ export class CommercialReplenishmentService {
   private async pushKeplerTrasAprobar(id: string): Promise<{ estado: string; folio?: string; motivo?: string }> {
     if (!this.keplerSink) return { estado: 'apagado' };
     try {
+      // `[PQ.70]` El primer envío no tenía freno: sólo el reintento. Si Kepler ya tiene esta compra
+      // hecha a mano, no se escribe y se deja dicho (la ficha conserva «Reintentar», que no pasa por aquí).
+      const ya = await this.tk.run(async (trx) => {
+        const tenantId = this.tenantCtx.requireTenantId();
+        const fila = (await trx.raw(
+          `SELECT ${this.yaEnKeplerSql()} AS ya_en_kepler
+             FROM commercial.purchase_requisitions r
+             JOIN commercial.warehouses w ON w.tenant_id = r.tenant_id AND w.id = r.warehouse_id
+             LEFT JOIN catalog.suppliers s ON s.tenant_id = r.tenant_id AND s.id = r.supplier_id
+            WHERE r.tenant_id = ? AND r.id = ? AND r.source_type = 'supplier' AND r.kepler_folio IS NULL`,
+          [tenantId, id])).rows[0] as { ya_en_kepler: string | null } | undefined;
+        if (!fila?.ya_en_kepler) return null;
+        const motivo = this.motivoYaEnKepler(fila.ya_en_kepler);
+        await trx('commercial.purchase_requisitions').where({ tenant_id: tenantId, id }).update({ kepler_error: motivo });
+        return motivo;
+      });
+      if (ya) return { estado: 'no_salio', motivo: ya };
       const r = await this.pushToKepler(id);
       return { estado: r.ya_estaba ? 'ya_estaba' : 'entregada', folio: r.kepler?.folio ?? undefined };
     } catch (e: unknown) {

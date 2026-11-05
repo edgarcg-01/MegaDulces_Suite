@@ -61,7 +61,18 @@ export interface FilaLote {
   standalone: true,
   imports: [CommonModule, FormsModule, ButtonModule, InputTextModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { '[class.compacto]': 'compacto()' },
   template: `
+    <!-- [PGP.72] Compacto: un botón del alto de los de la barra, al que también se le suelta el PDF.
+         La bandeja de confirmación es la misma y sólo aparece cuando hay archivos. -->
+    @if (compacto()) {
+      <button type="button" class="pl-chip" [class.drag]="arrastrando()" (click)="pickChip.click()"
+              (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)" (drop)="onDrop($event)"
+              aria-label="Comprobantes de pago: suelta aquí los PDF o elígelos">
+        <i class="pi pi-file-pdf" aria-hidden="true"></i> Comprobantes PDF <span class="pl-chip-sub">suéltalos aquí</span>
+      </button>
+      <input #pickChip type="file" accept="application/pdf,.pdf" multiple hidden (change)="onPick($event)" />
+    } @else {
     <section class="pl-drop" [class.drag]="arrastrando()" [class.compact]="filas().length > 0"
              (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)" (drop)="onDrop($event)"
              aria-label="Captura de comprobantes de pago">
@@ -76,6 +87,7 @@ export interface FilaLote {
       </label>
       @if (live()) { <span class="pl-live" title="Cambios de otros usuarios se reflejan al momento"><span class="pl-live-dot"></span> En vivo</span> }
     </section>
+    }
     @if (aviso()) { <div class="pl-aviso" role="status">{{ aviso() }}</div> }
     <!-- [PC.8] Lo guardado SALE de la lista y queda este resumen: la pantalla vuelve a estar limpia. -->
     @if (resumen(); as r) {
@@ -242,6 +254,18 @@ export interface FilaLote {
   `,
   styles: [`
     :host { display: block; margin-bottom: 1rem; }
+    /* [PGP.72] Compacto: el anfitrión no ocupa caja; el botón queda en la fila de quien lo usa y lo demás
+       (aviso, resumen, bandeja) baja a una fila entera debajo. */
+    :host(.compacto) { display: contents; }
+    :host(.compacto) .pl-aviso, :host(.compacto) .pl-resumen, :host(.compacto) .pl-tray { flex: 1 0 100%; order: 10; margin-top: 0; }
+    .pl-chip { all: unset; box-sizing: border-box; cursor: pointer; display: inline-flex; align-items: center; gap: var(--sp-1);
+      min-height: 1.75rem; padding: 0 var(--sp-3); border: 1.5px dashed var(--border-color); border-radius: var(--r-sm, .4rem);
+      font-size: var(--fs-sm); font-weight: 600; color: var(--fg-1); background: var(--surface-card); }
+    .pl-chip .pi { color: var(--action); }
+    .pl-chip-sub { font-weight: 400; color: var(--fg-2); }
+    .pl-chip:hover { border-color: var(--fg-2); }
+    .pl-chip:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+    .pl-chip.drag { border-color: var(--action); background: color-mix(in srgb, var(--action) 8%, var(--surface-card)); }
     .pl-drop { display: flex; align-items: center; gap: 1rem; padding: 1.4rem 1.2rem; border: 2px dashed var(--border-color);
       border-radius: var(--r-md, .5rem); background: var(--surface-card); transition: border-color .15s, background .15s; }
     .pl-drop.compact { padding: .8rem 1.1rem; }
@@ -258,7 +282,7 @@ export interface FilaLote {
     .pl-live-dot { width: .5rem; height: .5rem; border-radius: 50%; background: var(--ok-fg); animation: pl-pulse 1.8s ease-in-out infinite; }
     @keyframes pl-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
     @media (prefers-reduced-motion: reduce) { .pl-live-dot { animation: none; } .pl-drop { transition: none; } }
-    .pl-aviso { margin-top: .5rem; font-size: var(--fs-sm); color: var(--warn-fg); }
+    .pl-aviso { margin-top: .5rem; font-size: var(--fs-sm); color: var(--warn-soft-fg); }
 
     .pl-tray { margin-top: .75rem; border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); background: var(--surface-card); overflow: hidden; }
     /* [PC.8] un lote grande no alarga la página: scroll propio, el encabezado (con «Guardar») no se va */
@@ -342,6 +366,8 @@ export class PagosCapturaLoteComponent {
 
   /** El indicador «En vivo» de la página vive en la zona de carga. */
   readonly live = input(false);
+  /** `[PGP.72]` Sólo el botón (que también recibe el PDF soltado); para meterlo en la barra de otra pantalla. */
+  readonly compacto = input(false);
   /** Se guardaron comprobantes: la página recarga su tabla. */
   readonly guardados = output<LoteGuardado>();
   /** `[PC.8]` La persona quiere ver en la tabla los que quedaron con diferencias. */

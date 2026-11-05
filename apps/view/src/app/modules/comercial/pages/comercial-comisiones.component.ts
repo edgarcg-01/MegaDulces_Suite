@@ -1,5 +1,8 @@
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
+import { NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import type { DefinicionVista } from '@megadulces/contracts';
+import { temasDeVista, textoTema, type TemaDefinicion } from './comisiones-definiciones.util';
 import { FormsModule } from '@angular/forms';
 import { TagModule } from 'primeng/tag';
 import { TableModule } from 'primeng/table';
@@ -20,11 +23,36 @@ import {
   ComercialService, CommissionBoardRow, CommissionRunDetail, CommissionLine,
   CommissionGate, CommissionRecalcResult, CommissionContrast, CommissionContrastRow,
   CommissionHeadroom, CommissionHeadroomRow, CommissionRunPayload, CommissionUniverseRow,
-  PadronRuta, PadronAvisoPagadas, BonoRD, EscalasRD, TierRD, SimulacionEscalaRD, SupervisorNomina,
+  PadronRuta, PadronAvisoPagadas, BonoRD, EscalaRD, EscalasRD, TierRD, SimulacionEscalaRD, SupervisorNomina,
+  FamiliaTabulador,
 } from '../comercial.service';
 import { Permission } from '../../../core/constants/permissions';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { AuthService } from '../../../core/services/auth.service';
+
+/** `[RD.103.2]` Un código vecinal de Kepler (`2V001`): obliga a decir con qué tabulador cobra. */
+const CODIGO_VECINAL = /^[0-9]V[0-9]/i;
+
+/**
+ * `[RD.103.5]` La propuesta vecinal: la regla con la que Comercial YA paga, leída con fórmulas del
+ * libro «COMISIONES RV MORELIA 2026» (`FASE_RD_COMISIONES_MOTOR.md` §RD.103.0). Es una PROPUESTA
+ * (D-V1): se muestra aparte con su fuente y sólo entra al borrador si la persona la usa como base.
+ * ⚠️ Arriba de 25 % de markup el libro da FALSO (cero); el último escalón abierto en 4 % es lectura
+ * nuestra y está preguntado como `rd.vecinal.markup_25`.
+ */
+const PROPUESTA_VECINAL = {
+  fuente: 'Libro de Comercial «COMISIONES RV MORELIA 2026», hoja COMISIONES VECINAL',
+  leido: '2026-11-04',
+  tiers: [
+    { min_amount: -100, max_amount: 12.01, pct: 2.73 },
+    { min_amount: 12.01, max_amount: 13.01, pct: 2.95 },
+    { min_amount: 13.01, max_amount: 15.01, pct: 3.13 },
+    { min_amount: 15.01, max_amount: 18.01, pct: 3.41 },
+    { min_amount: 18.01, max_amount: null, pct: 4 },
+  ] as TierRD[],
+  share_supervisor_pct: 20,
+  piso_chofer_venta: 129999.99,
+};
 
 /** `[RD.92]` Lo que el conmutador de arriba puede mostrar. */
 const VISTAS = ['quincena', 'objetivo', 'padron', 'bonos', 'tabulador'] as const;
@@ -73,12 +101,35 @@ type Vista = typeof VISTAS[number];
 @Component({
   selector: 'app-comercial-comisiones',
   standalone: true,
-  imports: [PageTabsComponent, FormsModule, TagModule, LoadStateComponent, MetricStripComponent, SegmentedComponent, FreshnessPillComponent, TableModule, ContextHelpComponent, ComercialComisionesObjetivoComponent, ToastModule, ConfirmDialogModule, DialogModule, InputNumberModule],
+  imports: [PageTabsComponent, RouterLink, NgTemplateOutlet, FormsModule, TagModule, LoadStateComponent, MetricStripComponent, SegmentedComponent, FreshnessPillComponent, TableModule, ContextHelpComponent, ComercialComisionesObjetivoComponent, ToastModule, ConfirmDialogModule, DialogModule, InputNumberModule],
   providers: [MessageService, ConfirmationService],
   template: `
     <div class="cm-page">
       <p-toast />
       <p-confirmdialog />
+
+      <!-- [DP.3.2] Las reglas que el cálculo todavía no aplica, en la vista donde pesan (D2/D4 de
+           la fase DP). Texto neutro: 15 avisos de color iguales no distinguían nada (DP.UI.2).
+           Si la lectura falla se DECLARA: su silencio se leería como «no falta nada». -->
+      <ng-template #reglasSinDefinir let-v>
+        @if (definicionesErr(); as e) {
+          <p class="cm-muted cm-micro">No se pudo leer qué reglas de la nómina faltan definir: {{ e }}</p>
+        } @else if (temasDe(v); as temas) {
+          @if (temas.length) {
+            <section class="cm-reglas" aria-label="Reglas que el cálculo todavía no aplica">
+              <p class="cm-eyebrow">Lo que el cálculo todavía no aplica</p>
+              <ul>
+                @for (t of temas; track t.tema) {
+                  <li><span class="cm-reglas-tema">{{ t.etiqueta }}</span> · {{ textoTema(t) }}</li>
+                }
+              </ul>
+              @if (puedeAbrirDefiniciones(temas)) {
+                <a routerLink="/admin/definiciones" class="cm-reglas-link">Ver las preguntas</a>
+              }
+            </section>
+          }
+        }
+      </ng-template>
 
       <!-- [RD.84] Alta y edicion del padron. Un solo dialogo para los dos actos: dar de baja es
            editar con fecha y motivo, no un boton aparte — tenerlo aparte invitaba a la baja sin
@@ -96,6 +147,21 @@ type Vista = typeof VISTAS[number];
               <input type="text" name="route_code" inputmode="numeric"
                      [(ngModel)]="fRuta" required />
             </label>
+            <!-- [RD.103.2] La familia decide con que tabulador cobra. Un codigo vecinal no la
+                 deduce (2V001 cobra con el de Ruta Directa: la comision sigue al chofer), asi
+                 que se pide explicita; para los demas, Ruta Directa es lo que ya habia. -->
+            <div class="cm-campo">
+              <span>Cobra con el tabulador de</span>
+              <app-segmented [options]="familiasPadron" [value]="fFamilia() ?? ''"
+                             (valueChange)="elegirFamiliaAlta($event)"
+                             ariaLabel="Con qué tabulador cobra" />
+              @if (familiaFaltante()) {
+                <span class="cm-muted cm-micro">
+                  {{ fRuta().trim() }} es un código vecinal: di con cuál cobra. Ruta Directa si la
+                  comisión sigue a un chofer de Ruta Directa.
+                </span>
+              }
+            </div>
           }
 
           <p class="cm-form-sep">Quién</p>
@@ -320,13 +386,23 @@ type Vista = typeof VISTAS[number];
             se paga <strong class="cm-neg">$0</strong>.
           </p>
         }
-        @if (padronVendeSinCobrar(); as m) {
-          <p class="cm-muted cm-micro">
-            Y {{ money(m) }} de <strong>subtotal</strong> en 30 dias esta en rutas que
-            <strong>no comisionan</strong>. Puede ser correcto — las vecinales no son Ruta
-            Directa — pero con el monto al lado la exclusion se puede revisar.
+        <!-- [RD.107] Decia «puede ser correcto — las vecinales no son Ruta Directa». Es falso:
+             las vecinales SI comisionan (Edgar, 2026-11-04) y el libro de la suite no les pago
+             ninguna quincena, asi que se pagan fuera de aqui. -->
+        @if (padronVecinales(); as v) {
+          <p class="cm-falto-grito">
+            {{ v.rutas }} rutas vecinales venden {{ money(v.subtotal) }} de <strong>subtotal</strong>
+            en 30 días y <strong>sí comisionan</strong>, pero este cálculo no tiene su tabulador:
+            su comisión se paga fuera de la suite y aquí no aparece.
           </p>
         }
+        @if (padronVendeSinCobrar(); as m) {
+          <p class="cm-muted cm-micro">
+            Y {{ money(m) }} de <strong>subtotal</strong> en 30 dias esta en otras rutas que
+            <strong>no comisionan</strong>; con el monto al lado la exclusion se puede revisar.
+          </p>
+        }
+        <ng-container [ngTemplateOutlet]="reglasSinDefinir" [ngTemplateOutletContext]="{ $implicit: 'padron' }" />
         <div class="cm-table-wrap">
           <table class="surf-table surf-table--plain surf-table--sticky">
             <thead><tr>
@@ -528,6 +604,7 @@ type Vista = typeof VISTAS[number];
             </button>
           }
         </div>
+        <ng-container [ngTemplateOutlet]="reglasSinDefinir" [ngTemplateOutletContext]="{ $implicit: 'bonos' }" />
         <div class="cm-table-wrap">
           <table class="surf-table surf-table--plain surf-table--sticky">
             <thead><tr>
@@ -589,9 +666,15 @@ type Vista = typeof VISTAS[number];
           <div>
             <p class="cm-eyebrow">El tabulador</p>
             <p class="cm-muted cm-micro">
-              Lo que decide el porcentaje de cada peso. La compuerta la abre la
-              <strong>venta</strong>; el porcentaje se aplica sobre el
-              <strong>subtotal</strong>.
+              Lo que decide el porcentaje de cada peso.
+              @if (esVecinalTab()) {
+                El escalón lo elige el <strong>markup</strong> (subtotal ÷ costo − 1); el
+                porcentaje se aplica sobre el <strong>subtotal</strong>, y el chofer cobra sólo si
+                la <strong>venta</strong> pasa de su piso.
+              } @else {
+                La compuerta la abre la <strong>venta</strong>; el porcentaje se aplica sobre el
+                <strong>subtotal</strong>.
+              }
               @if (escalas()?.piso_editable; as piso) {
                 Una versión nueva no puede empezar antes del
                 <strong>{{ dia(piso) }}</strong>: lo pagado no se recalcula.
@@ -600,22 +683,75 @@ type Vista = typeof VISTAS[number];
           </div>
         </div>
 
-        <!-- [AUD-CM.12] Es una explicación, no un error: sin caja roja. -->
-        <p class="cm-warn">
-          <i class="pi pi-info-circle" aria-hidden="true"></i>
-          <span>
-            <strong>Es un acantilado, no una rampa.</strong> Debajo del primer escalón no
-            hay porcentaje: la comisión es <strong class="cm-neg">$0</strong>, no «un poco
-            menos». Mover el piso no baja un pago — <strong>lo apaga</strong>.
-          </span>
-        </p>
+        <!-- [RD.103.5] Un tabulador por familia: cada una con sus versiones y su vigente. Antes el
+             editor tomaba «la vigente» de todas, y con la vecinal en la tabla habria editado la
+             de Ruta Directa partiendo de escalones de markup. -->
+        <app-segmented [options]="familiasTab" [value]="familiaTab()" (valueChange)="verFamiliaTab($event)"
+                       ariaLabel="De qué familia es el tabulador" />
+
+        @if (esVecinalTab()) {
+          <!-- [RD.103.5] Sin el tabulador cargado no se sabe si hay version vecinal: no se
+               afirma ninguna de las dos (el error lo dice tabErr abajo). Medido 2026-11-04: con
+               un 429 en GET /scales la pantalla decia «Todavia no hay tabulador vecinal». -->
+          @if (!escalas()) {
+          } @else if (vigenteFamilia(); as v) {
+            <p class="cm-muted cm-micro">
+              Vigente desde el <strong>{{ dia(v.valid_from) }}</strong> ·
+              supervisor {{ pct(pctSupFamilia()) }} % ·
+              @if (pisoFamilia(); as piso) {
+                el chofer cobra si vende más de <strong>{{ money(piso) }}</strong>
+              } @else { sin piso para el chofer }
+            </p>
+          } @else {
+            <!-- No es un error: es el estado real. Las vecinales del padron salen
+                 «sin tabulador» en la nomina hasta que alguien estrene una version. -->
+            <p class="cm-warn">
+              <i class="pi pi-info-circle" aria-hidden="true"></i>
+              <span>
+                <strong>Todavía no hay tabulador vecinal.</strong> Una vecinal dada de alta en
+                «Quién cobra» sale <strong>sin tabulador</strong> en la nómina: no cobra hasta que
+                se estrene una versión aquí.
+              </span>
+            </p>
+          }
+
+          <!-- D-V1: la propuesta va APARTE, con su fuente. Solo entra al borrador si la persona
+               la usa como base; estrenarla sigue siendo un acto suyo. -->
+          <section class="cm-sim">
+            <p class="cm-eyebrow">Propuesta: la regla con la que Comercial ya paga</p>
+            <p class="cm-muted cm-micro">
+              {{ propuestaVecinal.fuente }} (leído el {{ dia(propuestaVecinal.leido) }}):
+              2.73 % a 4 % según el markup, {{ propuestaVecinal.share_supervisor_pct }} % al
+              supervisor y piso del chofer de {{ money(propuestaVecinal.piso_chofer_venta) }}.
+              Arriba de 25 % de markup el libro no paga nada (su fórmula da FALSO): la propuesta
+              deja 4 %, y eso es una lectura nuestra, no del libro.
+            </p>
+            @if (puedeGestionar()) {
+              <div class="cm-tabul-pie">
+                <button type="button" class="cm-btn-sec" (click)="usarPropuestaVecinal()">
+                  Usar como base
+                </button>
+              </div>
+            }
+          </section>
+        } @else {
+          <!-- [AUD-CM.12] Es una explicación, no un error: sin caja roja. -->
+          <p class="cm-warn">
+            <i class="pi pi-info-circle" aria-hidden="true"></i>
+            <span>
+              <strong>Es un acantilado, no una rampa.</strong> Debajo del primer escalón no
+              hay porcentaje: la comisión es <strong class="cm-neg">$0</strong>, no «un poco
+              menos». Mover el piso no baja un pago — <strong>lo apaga</strong>.
+            </span>
+          </p>
+        }
 
         <div class="cm-table-wrap">
           <table class="surf-table surf-table--plain">
             <thead><tr>
               <!-- [AUD-CM.13] El escalón incluye su «desde» y excluye su «hasta» (COMMENT de
                    commission_scale_tiers): sin decirlo, 194,999.99 parecía estar en dos escalones. -->
-              <th class="comm-num">Desde (venta) · incluido</th>
+              <th class="comm-num">{{ esVecinalTab() ? 'Desde (markup)' : 'Desde (venta)' }} · incluido</th>
               <th class="comm-num">Hasta · sin incluir</th>
               <th class="comm-num">Paga sobre el subtotal</th>
               <th></th>
@@ -625,14 +761,17 @@ type Vista = typeof VISTAS[number];
                 <tr>
                   <td class="comm-num">
                     <!-- [AUD-CM.13] Con formato de dinero y porcentaje: decía «189999.99» y «3.75». -->
-                    <p-inputnumber class="cm-tier" [readonly]="!puedeGestionar()" mode="decimal" prefix="$" locale="es-MX"
+                    <!-- [RD.103.5] En vecinal el escalon es markup en %, no pesos. -->
+                    <p-inputnumber class="cm-tier" [readonly]="!puedeGestionar()" mode="decimal" locale="es-MX"
+                                   [prefix]="esVecinalTab() ? '' : '$'" [suffix]="esVecinalTab() ? ' %' : ''"
                                    [minFractionDigits]="2" [maxFractionDigits]="2"
                                    [ngModel]="t.min_amount" [ngModelOptions]="{ standalone: true }"
                                    (ngModelChange)="setTier($index, 'min_amount', $event)"
                                    [ariaLabel]="'Escalón ' + ($index + 1) + ', desde'" />
                   </td>
                   <td class="comm-num">
-                    <p-inputnumber class="cm-tier" [readonly]="!puedeGestionar()" mode="decimal" prefix="$" locale="es-MX"
+                    <p-inputnumber class="cm-tier" [readonly]="!puedeGestionar()" mode="decimal" locale="es-MX"
+                                   [prefix]="esVecinalTab() ? '' : '$'" [suffix]="esVecinalTab() ? ' %' : ''"
                                    [minFractionDigits]="2" [maxFractionDigits]="2"
                                    [ngModel]="t.max_amount" [ngModelOptions]="{ standalone: true }"
                                    (ngModelChange)="setTier($index, 'max_amount', $event)"
@@ -672,13 +811,58 @@ type Vista = typeof VISTAS[number];
             <button type="button" class="cm-btn-sec" [disabled]="tabuladorSinCambios()" (click)="restaurarTabulador()">
               Descartar cambios
             </button>
-            <button type="button" class="cm-btn" [disabled]="!!huecoTabulador() || simulando()"
-                    (click)="simularTabulador()">
-              {{ simulando() ? 'Simulando…' : 'Ver qué pasaría' }}
-            </button>
+            @if (!esVecinalTab()) {
+              <button type="button" class="cm-btn" [disabled]="!!huecoTabulador() || simulando()"
+                      (click)="simularTabulador()">
+                {{ simulando() ? 'Simulando…' : 'Ver qué pasaría' }}
+              </button>
+            }
           </div>
         }
 
+        @if (esVecinalTab()) {
+          <!-- [RD.103.5] Sin simulacion, y se DICE por que: la simulacion recalcula la ultima
+               quincena PAGADA, y ninguna vecinal se ha pagado en la suite (su nomina vivia en
+               el libro). Simular contra nada seria dibujar un cero. -->
+          @if (puedeGestionar()) {
+            <p class="cm-muted cm-micro">
+              <strong>No se puede simular:</strong> ninguna quincena vecinal se ha pagado desde la
+              suite, así que no hay contra qué comparar. Una versión estrenada sólo paga a las
+              vecinales que estén en «Quién cobra» con tabulador vecinal.
+            </p>
+            <div class="cm-tabul-pie">
+              <label class="cm-campo">
+                <span>Rige desde</span>
+                <input type="date" [ngModel]="desdeTabulador()"
+                       [ngModelOptions]="{ standalone: true }"
+                       (ngModelChange)="desdeTabulador.set($event)"
+                       [attr.min]="minTabulador() ?? null" />
+              </label>
+              <label class="cm-campo">
+                <span>Parte del supervisor</span>
+                <p-inputnumber class="cm-tier cm-tier--pct" mode="decimal" suffix=" %" locale="es-MX"
+                               [min]="0" [max]="100" [maxFractionDigits]="2"
+                               [ngModel]="pctSupBorrador() ?? pctSupFamilia()"
+                               [ngModelOptions]="{ standalone: true }"
+                               (ngModelChange)="pctSupBorrador.set($event)" />
+              </label>
+              <label class="cm-campo">
+                <span>Piso del chofer (venta)</span>
+                <p-inputnumber class="cm-tier" mode="decimal" prefix="$" locale="es-MX"
+                               [min]="0" [minFractionDigits]="2" [maxFractionDigits]="2"
+                               [ngModel]="pisoBorrador() ?? pisoFamilia()"
+                               [ngModelOptions]="{ standalone: true }"
+                               (ngModelChange)="pisoBorrador.set($event)"
+                               placeholder="sin piso" />
+              </label>
+              <button type="button" class="cm-btn cm-btn--baja"
+                      [disabled]="!escalas() || !desdeTabulador() || !!huecoTabulador() || estrenando()"
+                      (click)="confirmarEstrenoVecinal()">
+                {{ estrenando() ? 'Estrenando…' : 'Estrenar esta versión' }}
+              </button>
+            </div>
+          }
+        } @else {
         @if (simulacion(); as s) {
           <section class="cm-sim">
             <p class="cm-eyebrow">
@@ -737,7 +921,7 @@ type Vista = typeof VISTAS[number];
                   <input type="date" [ngModel]="desdeTabulador()"
                          [ngModelOptions]="{ standalone: true }"
                          (ngModelChange)="desdeTabulador.set($event)"
-                         [min]="minTabulador()" />
+                         [attr.min]="minTabulador() ?? null" />
                 </label>
                 <!-- [RD.100] La parte del supervisor (D3) es de esta versión del tabulador. -->
                 <label class="cm-campo">
@@ -761,6 +945,7 @@ type Vista = typeof VISTAS[number];
             <strong>No se puede estrenar sin simular antes.</strong> El botón de estrenar
             aparece cuando ya viste a quién le cambia el depósito y en cuánto.
           </p>
+        }
         }
 
         @if (tabErr(); as e) {
@@ -923,6 +1108,7 @@ type Vista = typeof VISTAS[number];
                 @if (r.origen) { · origen {{ etiquetaOrigen(r.origen) }} }
               }
             </p>
+            <ng-container [ngTemplateOutlet]="reglasSinDefinir" [ngTemplateOutletContext]="{ $implicit: 'quincena' }" />
 
             <!-- [RD.83] El ciclo deja de ser un dibujo. Los cuatro pasos estaban pintados como
                  una lista explicativa y sólo el primero tenía botón: la pantalla CONTABA el
@@ -1152,7 +1338,19 @@ type Vista = typeof VISTAS[number];
                     @for (l of fuera(); track l.route_code) {
                       <tr>
                         <td class="comm-num">{{ l.route_code }}</td>
-                        <td><p-tag severity="secondary" [value]="etiquetaVeredicto(l.motivo_no_pago)" /></td>
+                        <td>
+                          <!-- [RD.103.5] Una vecinal fuera del universo NO «no es ruta de camión»: comisiona
+                               con su tabulador y le falta el alta. La etiqueta vieja afirmaba una exclusión
+                               que ya no existe (Edgar, 2026-11-04, captura de Q22). -->
+                          @if (vecinalSinAlta(l)) {
+                            <p-tag severity="warn" value="vecinal: falta darla de alta" />
+                            @if (puedeGestionar()) {
+                              <button type="button" class="cm-link cm-micro" (click)="abrirAltaVecinal(l.route_code)">Darla de alta</button>
+                            }
+                          } @else {
+                            <p-tag severity="secondary" [value]="etiquetaVeredicto(l.motivo_no_pago)" />
+                          }
+                        </td>
                         <td class="comm-num">{{ l.subtotal != null ? money(l.subtotal) : '—' }}</td>
                       </tr>
                     }
@@ -1161,8 +1359,14 @@ type Vista = typeof VISTAS[number];
               </div>
               <p class="cm-warn">
                 <i class="pi pi-info-circle" aria-hidden="true"></i>
-                Estas rutas <strong>venden y no pagan comisión de Ruta Directa</strong>. Salen con su motivo
+                Estas rutas <strong>venden y no cobraron en esta corrida</strong>. Salen con su motivo
                 para que la ausencia sea una decisión y no un descuido.
+                @if (vecinalesSinAlta() > 0) {
+                  Las <strong>vecinales sí comisionan</strong>, con el tabulador vecinal: cobran cuando la
+                  ruta está en <em>Quién cobra</em> con su chofer, supervisor y nómina, y hay un tabulador
+                  vecinal vigente. Esta corrida ya está calculada: el alta cuenta en la siguiente que se
+                  calcule, y entra en ella si su «activo desde» cae dentro del periodo.
+                }
               </p>
             } @else {
               <!-- [AUD-CM.13] Con el veredicto rancio la leyenda afirmaba «no hay costo» al lado
@@ -1466,6 +1670,12 @@ type Vista = typeof VISTAS[number];
     .cm-falto-tit { flex:1 1 22rem; min-width:0; }
     /* El token --fs-base NO existe: los reales son --fs-body / --fs-sm / --fs-lg. Sin respaldo. */
     .cm-falto-grito { margin:.2rem 0 .15rem; font-size:var(--fs-body); color:var(--c-text-1); }
+    .cm-reglas { margin:.5rem 0; font-size:var(--fs-sm); color:var(--c-text-2); }
+    .cm-reglas ul { margin:.15rem 0 .25rem; padding-left:1.1rem; }
+    .cm-reglas li { margin:.1rem 0; }
+    .cm-reglas-tema { font-weight:var(--fw-medium); color:var(--c-text-1); }
+    .cm-reglas-link { color:var(--action); font-size:var(--fs-sm); }
+    .cm-reglas-link:focus-visible { outline:2px solid var(--action); outline-offset:2px; }
     .cm-falto-monto { text-align:right; }
     .cm-fila-grito td { background:color-mix(in srgb, var(--c-bad) 7%, transparent); }
 
@@ -1642,6 +1852,34 @@ export class ComercialComisionesComponent {
    * periodo en que aplica una escala nueva. Es el mismo acto las dos veces.
    */
   readonly puedeGestionar = computed(() => this.perms.has(Permission.COMMERCIAL_COMMISSIONS_GESTIONAR));
+
+  /**
+   * `[DP.3.2]` Las preguntas de negocio de las que depende esta nómina (`platform.business_definitions`,
+   * consumidor `commercial.commissions`). `null` = todavía no se leyó: no se pinta nada, porque
+   * «no falta ninguna regla» sólo se puede afirmar con la lista en la mano.
+   */
+  readonly definiciones = signal<DefinicionVista[] | null>(null);
+  readonly definicionesErr = signal<string | null>(null);
+
+  /** Los temas de una vista con lo que les falta (`comisiones-definiciones.util.ts`). */
+  temasDe(v: Vista): TemaDefinicion[] {
+    return temasDeVista(this.definiciones() ?? [], v, this.yo());
+  }
+  readonly textoTema = textoTema;
+
+  /** El enlace sólo a quien la pantalla de definiciones le muestra algo: quien ve todas, o el
+   *  dueño de alguna de estas (su bandeja). A los demás, el nombre del dueño basta. */
+  puedeAbrirDefiniciones(temas: TemaDefinicion[]): boolean {
+    if (this.perms.has(Permission.DEFINICIONES_VER) || this.perms.has(Permission.DEFINICIONES_GESTIONAR)) return true;
+    return this.perms.has(Permission.DEFINICIONES_CONTESTAR) && temas.some((t) => t.mias);
+  }
+
+  private cargarDefiniciones(): void {
+    this.api.commissionDefiniciones().subscribe({
+      next: (d) => { this.definiciones.set(d); this.definicionesErr.set(null); },
+      error: (e) => this.definicionesErr.set(e?.error?.message ?? 'error de red'),
+    });
+  }
   readonly recalculando = signal(false);
   readonly recalc = signal<CommissionRecalcResult | null>(null);
 
@@ -1856,7 +2094,8 @@ export class ComercialComisionesComponent {
     return [...acc.values()].sort((a, b) => a.nombre.localeCompare(b.nombre));
   });
 
-  constructor() { this.cargar(); }
+  // [DP.3.2] Las definiciones no dependen del año ni de la quincena: se piden una vez.
+  constructor() { this.cargar(); this.cargarDefiniciones(); }
 
   cargar() {
     this.cargando.set(true);
@@ -1987,7 +2226,9 @@ export class ComercialComisionesComponent {
   // ── Lectura ────────────────────────────────────────────────────────────────────────────
 
   private esFuera(l: CommissionLine): boolean {
-    const DENTRO = new Set(['sin_dato_en_la_fuente', 'bajo_umbral']);
+    // [RD.103.2] bajo_piso / sin_costo / sin_tabulador son rutas que COMISIONAN y esta quincena
+    // no cobran: están dentro del universo, no fuera. Contarlas fuera escondía a quién se le debe.
+    const DENTRO = new Set(['sin_dato_en_la_fuente', 'bajo_umbral', 'bajo_piso', 'sin_costo', 'sin_tabulador']);
     return !!l.motivo_no_pago && !DENTRO.has(l.motivo_no_pago);
   }
 
@@ -2039,6 +2280,11 @@ export class ComercialComisionesComponent {
   }
 
   tipPctChofer(l: CommissionLine): string {
+    if (l.motivo_no_pago === 'bajo_piso') {
+      return 'Vendió menos que el piso del chofer: él no cobra esta quincena; el supervisor sí.';
+    }
+    if (l.motivo_no_pago === 'sin_costo') return 'Sin costo no hay markup, y el tabulador vecinal se elige por markup.';
+    if (l.motivo_no_pago === 'sin_tabulador') return 'Su familia no tiene un tabulador vigente: estrénalo en la pestaña Tabulador.';
     if (l.pct_aplicado == null) return 'No alcanzó el primer escalón del tabulador.';
     const pc = this.pctChofer(l);
     const ps = pc == null ? null : Number(l.pct_aplicado) - pc;
@@ -2092,6 +2338,7 @@ export class ComercialComisionesComponent {
       case 'cobra_sin_fuente':  return 'Cobra y su fuente no da señal';
       case 'fuente_rezagada':   return 'Le faltan días';
       case 'vende_sin_cobrar':  return 'Vende y no comisiona';
+      case 'vecinal_sin_tabulador': return 'Comisiona, pero el cálculo no tiene su tabulador';
       case 'dato_imposible':    return 'Trae venta con fecha futura';
       default:                  return '—';
     }
@@ -2150,9 +2397,10 @@ export class ComercialComisionesComponent {
    *  · `cobra_sin_fuente` — comisiona y su fuente no da señal. Es dinero que se va a calcular
    *    sobre nada: el tabulador es un acantilado, así que «sin días» no paga «un poco menos»,
    *    paga CERO.
-   *  · `vende_sin_cobrar` — no comisiona y sí vende. Puede ser correcto (las vecinales no son
-   *    Ruta Directa), pero con el monto al lado la exclusión se puede revisar; sin él es una
-   *    lista de códigos raros que nadie mira.
+   *  · `vecinal_sin_tabulador` — `[RD.107]` vecinal que vende. Las vecinales SÍ comisionan (Edgar,
+   *    2026-11-04) y el libro no les pagó ninguna quincena: el cálculo no tiene su regla.
+   *  · `vende_sin_cobrar` — cualquier otra que no comisiona y sí vende. Con el monto al lado la
+   *    exclusión se puede revisar; sin él es una lista de códigos raros que nadie mira.
    *  · `dato_imposible` — trae venta con fecha futura.
    */
   readonly padronHallazgos = computed(() => this.padron()
@@ -2161,7 +2409,10 @@ export class ComercialComisionesComponent {
       problema: r.comisiona && (r.fuente_estado === 'muerta' || r.fuente_estado === 'sin_fuente')
         ? 'cobra_sin_fuente'
         : r.tiene_dato_futuro ? 'dato_imposible'
-          : !r.comisiona && Number(r.subtotal_30d) > 0 ? 'vende_sin_cobrar'
+          // [RD.107] Las vecinales SÍ comisionan (Edgar, 2026-11-04): no es una exclusión
+          // correcta, es una regla que el cálculo no tiene. Se dicen aparte de lo demás.
+          : !r.comisiona && Number(r.subtotal_30d) > 0
+            ? (r.route_kind === 'vecinal' ? 'vecinal_sin_tabulador' : 'vende_sin_cobrar')
             : r.comisiona && r.fuente_estado === 'rezagada' ? 'fuente_rezagada' : null,
     }))
     .filter((r) => r.problema !== null)
@@ -2190,8 +2441,14 @@ export class ComercialComisionesComponent {
    * y un total más chico no se nota.
    */
   readonly padronVendeSinCobrar = computed(() => this.padron()
-    .filter((r) => !r.comisiona && Number(r.subtotal_30d) > 0)
+    .filter((r) => !r.comisiona && r.route_kind !== 'vecinal' && Number(r.subtotal_30d) > 0)
     .reduce((s, r) => s + Number(r.subtotal_30d), 0));
+
+  /** `[RD.107]` Las vecinales que venden: comisionan, y el cálculo no tiene con qué. */
+  readonly padronVecinales = computed(() => {
+    const filas = this.padron().filter((r) => !r.comisiona && r.route_kind === 'vecinal' && Number(r.subtotal_30d) > 0);
+    return filas.length ? { rutas: filas.length, subtotal: filas.reduce((s, r) => s + Number(r.subtotal_30d), 0) } : null;
+  });
 
   // ── `[RD.52]` El contraste ────────────────────────────────────────────────────────────────
 
@@ -2724,6 +2981,19 @@ export class ComercialComisionesComponent {
   readonly fActivo = signal(true);
   readonly fNotas = signal<string | null>(null);
   readonly fConfirmar = signal(false);
+  /** `[RD.103.2]` `null` = sin elegir: el servidor pone Ruta Directa, salvo a un código vecinal. */
+  readonly fFamilia = signal<FamiliaTabulador | null>(null);
+  readonly familiasPadron: SegOption[] = [
+    { label: 'Ruta Directa', value: 'ruta_directa' },
+    { label: 'Vecinal', value: 'vecinal' },
+  ];
+  /** Poka-yoke: el servidor rechaza un código vecinal sin familia; aquí no se deja enviar. */
+  readonly familiaFaltante = computed(() =>
+    CODIGO_VECINAL.test(this.fRuta().trim()) && this.fFamilia() === null);
+
+  elegirFamiliaAlta(v: string): void {
+    this.fFamilia.set(v === 'vecinal' ? 'vecinal' : v === 'ruta_directa' ? 'ruta_directa' : null);
+  }
 
   /** Esta edición ES una baja: cambia el color del botón y vuelve obligatorio el motivo. */
   readonly esBaja = computed(() => !!this.padronEditando() && !this.fActivo());
@@ -2738,7 +3008,7 @@ export class ComercialComisionesComponent {
     if (nom == null || Number(nom) < 0) return false;
     if (!this.padronEditando()) {
       // Alta: código y fecha de inicio. Sin `activo_desde` la ruta cobraría la quincena 1.
-      return !!this.fRuta().trim() && !!this.fDesde();
+      return !!this.fRuta().trim() && !!this.fDesde() && !this.familiaFaltante();
     }
     if (this.esBaja() && (!this.fHasta() || !String(this.fNotas() ?? '').trim())) return false;
     // Si el servidor ya avisó que toca quincenas pagadas, hay que confirmarlo a propósito.
@@ -2819,12 +3089,26 @@ export class ComercialComisionesComponent {
     return 'de baja, sin fecha';
   }
 
+  /** `[RD.103.5]` Una vecinal que quedó fuera porque nadie la dio de alta (no porque no comisione). */
+  vecinalSinAlta(l: CommissionLine): boolean {
+    return l.motivo_no_pago === 'fuera_no_es_camion' && CODIGO_VECINAL.test(l.route_code);
+  }
+  vecinalesSinAlta(): number { return this.fuera().filter((l) => this.vecinalSinAlta(l)).length; }
+
+  /** Abre el alta con la ruta y la familia puestas: es el acto que falta, sin teclear el código. */
+  abrirAltaVecinal(routeCode: string): void {
+    this.abrirAlta();
+    this.fRuta.set(routeCode);
+    this.fFamilia.set('vecinal');
+  }
+
   abrirAlta(): void {
     this.padronEditando.set(null);
     this.padronAviso.set(null); this.padronErr.set(null); this.fConfirmar.set(false);
     this.fRuta.set(''); this.fChofer.set(null); this.fSupervisor.set(null);
     this.fZona.set(null); this.fNomina.set(null); this.fDesde.set(null);
     this.fHasta.set(null); this.fActivo.set(true); this.fNotas.set(null);
+    this.fFamilia.set(null);
     this.padronAbierto.set(true);
   }
 
@@ -2873,6 +3157,7 @@ export class ComercialComisionesComponent {
         activo_desde: String(this.fDesde()),
         zona: this.fZona(), chofer_nombre: this.fChofer(),
         supervisor_nombre: this.fSupervisor(), notes: this.fNotas(),
+        ...(this.fFamilia() ? { familia: this.fFamilia() as FamiliaTabulador } : {}),
       }).subscribe({ next: (f) => listo(`Ruta ${f.route_code} dada de alta.`), error: falla });
       return;
     }
@@ -3028,10 +3313,56 @@ export class ComercialComisionesComponent {
   readonly desdeTabulador = signal<string | null>(null);
   /** `[RD.100]` La parte del supervisor para la versión nueva; `null` = la de la vigente. */
   readonly pctSupBorrador = signal<number | null>(null);
+  /**
+   * La parte del supervisor de RUTA DIRECTA: la usan la nómina del supervisor y el estreno RD.
+   * ⛔ `[RD.103.5]` Filtra por familia: con la versión vecinal en la lista, «la vigente» a secas
+   * podía ser la vecinal.
+   */
   readonly pctSupVigente = computed<number | null>(() => {
-    const v = this.escalas()?.escalas.find((e) => e.vigente);
+    const v = (this.escalas()?.escalas ?? []).find((e) => this.famDe(e) === 'ruta_directa' && e.vigente);
     return v ? Number(v.share_supervisor_pct) : null;
   });
+
+  // ── [RD.103.5] Un tabulador por familia ────────────────────────────────────────────────
+  readonly familiaTab = signal<FamiliaTabulador>('ruta_directa');
+  readonly familiasTab: SegOption[] = [
+    { label: 'Ruta Directa', value: 'ruta_directa' },
+    { label: 'Vecinal', value: 'vecinal' },
+  ];
+  readonly esVecinalTab = computed(() => this.familiaTab() === 'vecinal');
+  readonly propuestaVecinal = PROPUESTA_VECINAL;
+  /** El piso del chofer para la versión nueva; `null` = el de la vigente de la familia. */
+  readonly pisoBorrador = signal<number | null>(null);
+
+  /** Sin `familia` (una API anterior) la versión es de Ruta Directa: es lo único que existía. */
+  private famDe(e: EscalaRD): FamiliaTabulador { return e.familia ?? 'ruta_directa'; }
+
+  readonly escalasFamilia = computed<EscalaRD[]>(() =>
+    (this.escalas()?.escalas ?? []).filter((e) => this.famDe(e) === this.familiaTab()));
+  /** La vigente de la familia elegida, o la más nueva de ESA familia; nunca la de otra. */
+  readonly vigenteFamilia = computed<EscalaRD | null>(() =>
+    this.escalasFamilia().find((e) => e.vigente) ?? this.escalasFamilia()[0] ?? null);
+  readonly pctSupFamilia = computed<number | null>(() => {
+    const v = this.vigenteFamilia();
+    return v ? Number(v.share_supervisor_pct) : null;
+  });
+  readonly pisoFamilia = computed<number | null>(() => {
+    const p = this.vigenteFamilia()?.piso_chofer_venta;
+    return p == null ? null : Number(p);
+  });
+
+  verFamiliaTab(v: string): void {
+    this.familiaTab.set(v === 'vecinal' ? 'vecinal' : 'ruta_directa');
+    this.restaurarTabulador();
+  }
+
+  /** D-V1: la propuesta entra al borrador sólo por este acto; estrenarla es otro. */
+  usarPropuestaVecinal(): void {
+    this.borrador.set(PROPUESTA_VECINAL.tiers.map((t) => ({ ...t })));
+    this.pctSupBorrador.set(PROPUESTA_VECINAL.share_supervisor_pct);
+    this.pisoBorrador.set(PROPUESTA_VECINAL.piso_chofer_venta);
+    this.tabErr.set(null);
+  }
 
   /** La escala nueva no puede empezar antes de lo ya pagado. El servidor lo exige igual. */
   readonly minTabulador = computed(() => {
@@ -3085,21 +3416,26 @@ export class ComercialComisionesComponent {
 
   /** `[AUD-CM.13]` «Descartar cambios» sólo cuando hay cambios contra la versión vigente. */
   readonly tabuladorSinCambios = computed(() => {
-    const vigente = this.escalas()?.escalas.find((e) => e.vigente) ?? this.escalas()?.escalas[0];
+    const vigente = this.vigenteFamilia();
     const base = (vigente?.tiers ?? []).map((t) => [Number(t.min_amount), t.max_amount === null ? null : Number(t.max_amount), Number(t.pct)]);
-    return JSON.stringify(base) === JSON.stringify(this.borrador().map((t) => [t.min_amount, t.max_amount, t.pct]));
+    return this.pisoBorrador() === null && this.pctSupBorrador() === null
+      && JSON.stringify(base) === JSON.stringify(this.borrador().map((t) => [t.min_amount, t.max_amount, t.pct]));
   });
 
   restaurarTabulador(): void {
-    const vigente = this.escalas()?.escalas.find((e) => e.vigente)
-      ?? this.escalas()?.escalas[0];
+    // [RD.103.5] La base es la vigente de LA FAMILIA elegida; una familia sin versiones arranca vacía.
+    const vigente = this.vigenteFamilia();
     this.borrador.set((vigente?.tiers ?? []).map((t) => ({
       min_amount: Number(t.min_amount),
       max_amount: t.max_amount === null ? null : Number(t.max_amount),
       pct: Number(t.pct),
     })));
+    this.pctSupBorrador.set(null);
+    this.pisoBorrador.set(null);
     this.simulacion.set(null);
-    this.tabErr.set(null);
+    // ⛔ Un error de CARGA no se borra al cambiar de familia: sin el tabulador leído, borrarlo dejaba
+    // la pantalla sin decir que falló (medido 2026-11-04, e2e con GET /scales caído).
+    if (this.escalas()) this.tabErr.set(null);
   }
 
   setTier(i: number, campo: keyof TierRD, valor: unknown): void {
@@ -3170,18 +3506,65 @@ export class ComercialComisionesComponent {
     });
   }
 
+  /**
+   * `[RD.103.5]` El estreno vecinal: sin simulación (no hay quincena vecinal pagada contra la cual
+   * comparar) y por eso la confirmación nombra TODO lo que la versión decide, en palabras.
+   */
+  confirmarEstrenoVecinal(): void {
+    const desde = this.desdeTabulador();
+    if (!desde || this.estrenando() || this.huecoTabulador()) return;
+    const sup = this.pctSupBorrador() ?? this.pctSupFamilia();
+    if (sup === null) {
+      this.tabErr.set('Falta la parte del supervisor: es la primera versión vecinal y no hay de dónde heredarla.');
+      return;
+    }
+    const piso = this.pisoBorrador() ?? this.pisoFamilia();
+    const t = this.borrador();
+    this.confirm.confirm({
+      header: 'Estrenar el tabulador vecinal',
+      message: `Rige desde el ${this.dia(desde)}`
+        + (this.vigenteFamilia() ? ' y la versión vecinal actual se cierra ese día. ' : '. ')
+        + `Paga de ${this.pct(t[0]?.pct ?? 0)} % a ${this.pct(t[t.length - 1]?.pct ?? 0)} % según el markup, `
+        + `${this.pct(sup)} % de eso al supervisor`
+        + (piso !== null ? `; el chofer cobra sólo si vende más de ${this.money(piso)}. ` : '; el chofer no tiene piso. ')
+        + 'No se pudo simular: ninguna quincena vecinal se ha pagado desde la suite. '
+        + 'Sólo cobran las vecinales que estén en «Quién cobra» con tabulador vecinal. Lo ya pagado no se recalcula.',
+      acceptLabel: 'Estrenar', rejectLabel: 'Cancelar',
+      accept: () => this.estrenar(desde),
+    });
+  }
+
   private estrenar(desde: string): void {
     this.estrenando.set(true);
     this.tabErr.set(null);
     const ps = this.pctSupBorrador();
+    const vecinal = this.esVecinalTab();
+    const piso = this.pisoBorrador();
     this.api.commissionScaleEstrenar({
       valid_from: desde, tiers: this.borrador(),
       ...(ps !== null ? { share_supervisor_pct: ps } : {}),
+      // [RD.103.5] La familia viaja SIEMPRE: el servidor por omisión la haría de Ruta Directa.
+      familia: this.familiaTab(),
+      ...(vecinal ? { gate_field: 'markup' as const } : {}),
+      ...(vecinal && piso !== null ? { piso_chofer_venta: piso } : {}),
     }).subscribe({
       next: (r) => {
         this.estrenando.set(false);
         this.simulacion.set(null);
         this.pctSupBorrador.set(null);
+        this.pisoBorrador.set(null);
+        if (vecinal) {
+          // Un 0 en bonos aquí NO es una alarma: los bonos de la pestaña Bonos son de Ruta Directa.
+          this.toast.add({
+            severity: 'success',
+            summary: 'Tabulador vecinal estrenado',
+            detail: `${r.escalones} escalón(es) desde el ${this.dia(r.valid_from)}. Cobran las vecinales `
+              + 'que estén en «Quién cobra» con tabulador vecinal.',
+            life: 8000,
+          });
+          this.cargarEscalas();
+          return;
+        }
         // ⚠️ `bonos_heredados` se DICE, y un 0 no se dibuja como éxito: significa que la escala
         // nueva no paga ningún bono. Es `[RD.85.0]`, y quien la estrena tiene que verlo ahora,
         // no cuando llegue la quincena.
@@ -3256,6 +3639,10 @@ export class ComercialComisionesComponent {
     const M: Record<string, string> = {
       bajo_umbral: 'bajo umbral',
       sin_dato_en_la_fuente: 'sin dato en la fuente',
+      // [RD.103.2] Los motivos del tabulador vecinal.
+      bajo_piso: 'bajo el piso del chofer',
+      sin_costo: 'sin costo: no hay markup',
+      sin_tabulador: 'su familia no tiene tabulador',
       fuera_no_es_camion: 'no es ruta de camión',
       camion_sin_config: 'camión sin configurar',
       camion_sin_identidad: 'sin embarque documentado',
@@ -3269,6 +3656,7 @@ export class ComercialComisionesComponent {
     const M: Record<string, string> = {
       sin_costo: 'sin costo',
       solo_wincaja_reexpresado: 'costo inestable',
+      estandar_kepler_hoy: 'costo estándar de hoy',
       una_fuente_embarque: 'costo de una fuente',
       una_fuente_erp: 'costo de una fuente',
       una_fuente: 'costo de una fuente',
@@ -3279,6 +3667,7 @@ export class ComercialComisionesComponent {
   tipCosto(v: string): string {
     if (v === 'sin_costo') return 'No hay costo en la fuente para estos días: el markup no se puede medir y el bono del supervisor no paga.';
     if (v === 'solo_wincaja_reexpresado') return 'El único costo disponible es el que Wincaja re-expresa cada noche: el markup de un mes cerrado cambia solo.';
+    if (v === 'estandar_kepler_hoy') return 'Cantidad vendida × costo estándar de Kepler, el de HOY y no el del día de la venta. Contra el libro de Comercial difiere 1–2 % por quincena.';
     return 'El markup descansa en una sola fuente de costo, sin un segundo testigo que lo arbitre.';
   }
 

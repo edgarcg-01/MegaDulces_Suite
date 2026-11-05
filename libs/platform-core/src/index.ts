@@ -85,6 +85,8 @@ export * from './lib/constants/permissions';
 export * from './lib/constants/branches';
 export * from './lib/schemas/jsonb-schemas';
 export * from './lib/date/mx-date';
+// [PGP.71] Qué conexión abre qué servidor Kepler: requisición (commercial) y pago (finance).
+export * from './lib/kepler/kepler-servidor';
 export * from './lib/phone/mx-phone';
 
 // ── scope (alcance de datos — ADR-050) ──

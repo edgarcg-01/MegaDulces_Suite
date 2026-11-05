@@ -157,6 +157,9 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
         <!-- Las condiciones CONGELADAS, en una tira. Un precio tiene que ser explicable, y estas
              son la mitad de la explicacion: el descuento del cliente entra sobre el subtotal. -->
         <div class="card terms-line">
+          <!-- [COT.23] El día en que se cotizó: la vigencia sola no dice desde cuándo corre. -->
+          <span class="tl"><span class="tl-lbl">Cotizada:</span> <b>{{ fechaCorta(q.quote_date) }}</b></span>
+          <span class="tl-sep" aria-hidden="true"></span>
           <span class="tl"><span class="tl-lbl">Sucursal:</span> <b>{{ q.source_branch ? nombreSucursal(q.source_branch) : '—' }}</b></span>
           <span class="tl-sep" aria-hidden="true"></span>
           <span class="tl"><span class="tl-lbl">Descuento cliente:</span>

@@ -1,13 +1,14 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { KNEX_NEW_DB_ADMIN, TenantContextService } from '@megadulces/platform-core';
 import { CAJA_AUTOFILL_FRESCURA_H } from '@megadulces/contracts';
+import type { BandejaDeAlertas } from '@megadulces/contracts';
 import type { Knex } from 'knex';
 import { Client } from 'pg';
-import { commitDelBuild } from '../../build-info';
 // [DH.1] La regla de recurrencia vive aparte, SIN dependencias, para que su candado pueda
 // ejercitarla de verdad: este archivo arrastra NestJS y `@megadulces/*`, así que un test de Node
 // no lo puede cargar y terminaría reimplementando la regla — que es no probarla.
 import { RECURRENCIA, recurrenciaLevantaLaMano } from './db-health-recurrencia';
+import { esCarrilRetirado, etiquetaBase, filasEstimadas, pctMuertas } from './db-health-lecturas';
 
 /**
  * Salud/frescura de datos para Administración. Dos grupos:
@@ -118,38 +119,79 @@ const APP_SOURCES: SourceCfg[] = [
   // el dato de esa sucursal parado. El agregado no lo ve (otras sucursales avanzan). Esto mira
   // la última VENTA (c4=10) por sucursal en horario de tienda y alarma si UNA se atrasa mientras
   // la red sigue activa (calca wincaja_branch_stale). Excluye CEDIS 00 (0 venta pública).
+  //
+  // [TOR.0.10] El «horario de tienda» era uno solo, 10:00–21:30, para las 8. Canindo deja de vender
+  // ~17:20 (~14:00 el domingo), así que cada noche era «la más atrasada» y el sensor gritaba en falso:
+  // simulado cada 15 min sobre 14 días al 2026-11-04, **67 instantes en alarma, todos Canindo
+  // cerrada**. Ahora el horario se DERIVA de la propia venta de cada sucursal (los mismos días de la
+  // semana de las 8 semanas anteriores) → 0 en la misma simulación. Y una sucursal que no ha vendido
+  // NADA hoy ya cuenta desde su hora de apertura: antes ni aparecía (prueba negativa: Zamora Centro sin
+  // ventas → antes «7 de 8» y verde; ahora 4.9 h, «sin venta desde que abrió»).
   {
     key: 'kepler_ods_branch_stale', label: 'Kepler ODS — sucursal congelada (replica)', table: 'kepler_ods.kdm1', tsCandidates: [],
     sql: `WITH w AS (
-            SELECT (now() AT TIME ZONE 'America/Mexico_City')::time AS mx_time,
-                   (now() AT TIME ZONE 'America/Mexico_City')::date AS mx_date
+            SELECT (now() AT TIME ZONE 'America/Mexico_City') AS mx
           ),
-          per_branch AS (
-            SELECT k.sucursal,
-                   (max(k.c9::date + k.c62::time) AT TIME ZONE 'America/Mexico_City') AS last_sale
+          -- El horario se DERIVA de la venta: los mismos días de la semana de las 8 semanas
+          -- anteriores (el domingo cierra antes). Sólo esas 8 fechas, por el índice de fecha.
+          hist AS (
+            SELECT k.sucursal, k.c9::date AS dia, min(k.c62::time) AS primera, max(k.c62::time) AS ultima
               FROM kepler_ods.kdm1 k, w
              WHERE k.c2='U' AND k.c3='D' AND k.c4=10
                AND k.sucursal <> '00'
                AND k.c62 ~ '^[0-9]{1,2}:[0-9]{2}'
-               AND k.c9::date = w.mx_date
-             GROUP BY k.sucursal
+               AND k.c9::date IN (w.mx::date - 7, w.mx::date - 14, w.mx::date - 21, w.mx::date - 28,
+                                  w.mx::date - 35, w.mx::date - 42, w.mx::date - 49, w.mx::date - 56)
+             GROUP BY 1, 2
+          ),
+          horario AS (
+            SELECT sucursal,
+                   percentile_disc(0.5) WITHIN GROUP (ORDER BY primera) AS abre,
+                   percentile_disc(0.5) WITHIN GROUP (ORDER BY ultima) AS cierra
+              FROM hist GROUP BY 1 HAVING count(*) >= 3
+          ),
+          hoy AS (
+            SELECT k.sucursal, max(k.c9::date + k.c62::time) AS ultima
+              FROM kepler_ods.kdm1 k, w
+             WHERE k.c2='U' AND k.c3='D' AND k.c4=10
+               AND k.sucursal <> '00'
+               AND k.c62 ~ '^[0-9]{1,2}:[0-9]{2}'
+               AND k.c9::date = w.mx::date
+               AND (k.c9::date + k.c62::time) <= w.mx
+             GROUP BY 1
+          ),
+          -- Abiertas AHORA según su propio horario. Una que no ha vendido nada hoy cuenta desde su
+          -- hora de apertura: antes no aparecía en absoluto y una sucursal caída desde la mañana
+          -- era invisible.
+          abiertas AS (
+            SELECT h.sucursal, coalesce(y.ultima, w.mx::date + h.abre) AS desde, y.ultima IS NULL AS sin_venta
+              FROM horario h CROSS JOIN w
+              LEFT JOIN hoy y USING (sucursal)
+             WHERE w.mx::time BETWEEN h.abre + interval '30 min' AND h.cierra
           ),
           agg AS (
-            SELECT max(last_sale) AS net_last, min(last_sale) AS stale_last, count(*)::int AS activas,
-                   (array_agg(sucursal ORDER BY last_sale ASC))[1] AS stale_suc
-              FROM per_branch
+            SELECT (SELECT max(ultima) FROM hoy) AS net_last,
+                   min(desde) AS stale_last, count(*)::int AS abiertas,
+                   (array_agg(sucursal ORDER BY desde ASC))[1] AS stale_suc,
+                   (array_agg(sin_venta ORDER BY desde ASC))[1] AS stale_sin_venta
+              FROM abiertas
           )
           SELECT CASE
-                   WHEN (SELECT mx_time FROM w) NOT BETWEEN '10:00' AND '21:30' THEN now()
-                   WHEN agg.net_last IS NULL OR agg.net_last < now() - interval '45 min' THEN now()
-                   ELSE agg.stale_last
+                   WHEN agg.abiertas = 0 THEN now()
+                   -- Si la red entera lleva 45 min sin venta es el ODS, no una sucursal: lo dicen
+                   -- las sondas de la réplica, no ésta.
+                   WHEN agg.net_last IS NULL OR agg.net_last < (SELECT mx FROM w) - interval '45 min' THEN now()
+                   ELSE agg.stale_last AT TIME ZONE 'America/Mexico_City'
                  END AS last_update,
-                 'activas ' || coalesce(agg.activas,0) || '/6 · más atrasada ' ||
-                   coalesce(agg.stale_suc,'—') || ' ' ||
-                   coalesce(to_char(agg.stale_last AT TIME ZONE 'America/Mexico_City','HH24:MI'),'—') ||
-                   ' · red ' || coalesce(to_char(agg.net_last AT TIME ZONE 'America/Mexico_City','HH24:MI'),'—') AS note_extra
+                 'abiertas ' || agg.abiertas || ' de 8 · más atrasada ' ||
+                   coalesce((SELECT n FROM (VALUES ('01','Padre Hidalgo'),('02','La Piedad Abastos'),('03','8 Esquinas'),
+                     ('04','Yurécuaro'),('05','Zamora Centro'),('06','Canindo'),('07','Morelia Madero'),('08','Morelia Abastos')) v(c, n)
+                     WHERE v.c = agg.stale_suc), agg.stale_suc, '—') ||
+                   CASE WHEN agg.stale_sin_venta THEN ' (sin venta desde que abrió, ' ELSE ' (última venta ' END ||
+                   coalesce(to_char(agg.stale_last, 'HH24:MI'), '—') || ')' ||
+                   ' · red ' || coalesce(to_char(agg.net_last, 'HH24:MI'), '—') AS note_extra
             FROM agg`,
-    warnH: 3, critH: 6, cadence: 'continuo en horario (detecta 1 replica caído)',
+    warnH: 3, critH: 6, cadence: 'continuo en el horario de cada sucursal (derivado de su venta)',
   },
   // [OBS.3.2] CATÁLOGO por sucursal — el hueco por el que pasaron los 6 días de 2026-08-27.
   //
@@ -988,6 +1030,16 @@ export function veredictoRetirada(
   return { status: 'unknown', note: `retirada el ${s.retiredOn} · ${s.retiredWhy ?? 'sin motivo escrito'}` };
 }
 
+/**
+ * `[TOR.0.9]` Los 9 servidores Kepler que lee `store_poller` (mismo orden y nombres que
+ * `database/importers/lib/kepler-branches.js`). La sucursal se nombra, nunca se numera.
+ */
+const KEPLER_SERVERS: [string, string][] = [
+  ['00', 'CEDIS'], ['01', 'Padre Hidalgo'], ['02', 'La Piedad Abastos'], ['03', '8 Esquinas'],
+  ['04', 'Yurécuaro'], ['05', 'Zamora Centro'], ['06', 'Canindo'], ['07', 'Morelia Madero'],
+  ['08', 'Morelia Abastos'],
+];
+
 export const CRON_JOBS: CronCfg[] = [
   // `[CG.58.5]` La atribución del efectivo de la caja fuerte a cobros de Kepler
   // (`CaosIngresoCronService`, @Cron cada hora al minuto 5). Existe porque el conciliador
@@ -1406,6 +1458,27 @@ export const CRON_JOBS: CronCfg[] = [
   // una réplica deja de recibir WAL — lo segundo es una medida directa sobre `pg_stat_subscription`,
   // no "hace mucho que no vende", que dispararía en falso cada noche al cerrar las tiendas.
   { key: 'store_poller',        label: 'Poller tickets en vivo (Kepler → /tienda/live)', cadence: 'continuo ~25 s', warnH: 0.5, critH: 2 },
+  // [TOR.0.9] Un latido POR SERVIDOR Kepler, que escribe el mismo poller cada ~4 min: si el servidor
+  // no responde (inalcanzable o lento), si un slot retiene WAL sin consumidor (llena el disco de la
+  // sucursal) o si dejó de publicar tablas, `status='error'` con el motivo → una alerta por servidor.
+  // Medido en 30 días al 2026-11-04: 16 caídas de 10 min o más que sólo existían como texto dentro
+  // del latido único de `store_poller`. Umbrales de edad = el poller dejó de revisar.
+  ...KEPLER_SERVERS.map(([code, name]) => (
+    { key: `kepler_server_${code}`, label: `Servidor Kepler · ${name}`, cadence: 'cada ~4 min (store_poller)', warnH: 0.5, critH: 1 }
+  )),
+  // [TOR.4] Ocho carriles que laten todos los días y NADIE había declarado: sin umbral caían en
+  // `unknown` y las torres los pintaban «no medido» estando sanos. Umbrales de su cadencia REAL
+  // (mediana y p95 del intervalo entre corridas, 14 días al 2026-11-04 en `cron_run_log`):
+  // libro_* 1 min · caos_conteo 5 min · vigia_disco 10 min · demanda live 30 min · diarios 24 h ·
+  // poda_registro mediana 15 h, p95 27 h.
+  { key: 'libro_kepler',                label: 'Libro de efectivo — cobranza de ruta de Kepler', cadence: 'cada 1 min (worker)', warnH: 0.25, critH: 1 },
+  { key: 'libro_caos',                  label: 'Libro de efectivo — movimientos de la máquina',  cadence: 'cada 1 min (worker)', warnH: 0.25, critH: 1 },
+  { key: 'caos_conteo',                 label: 'CAOS — lectura del reporte Contenidos',          cadence: 'cada 5 min',          warnH: 0.5,  critH: 1 },
+  { key: 'vigia_disco',                 label: 'Vigía del disco de md',                          cadence: 'cada 10 min (md)',    warnH: 0.5,  critH: 2 },
+  { key: 'fact_product_demand_live',    label: 'Demanda limpia (live)',                          cadence: 'cada 30 min',         warnH: 1.5,  critH: 3 },
+  { key: 'fact_product_demand_nightly', label: 'Demanda limpia (nocturna)',                      cadence: 'diario',              warnH: 26,   critH: 50 },
+  { key: 'fact_inventory_health',       label: 'Salud de inventario',                            cadence: 'diario',              warnH: 26,   critH: 50 },
+  { key: 'poda_registro',               label: 'Poda del registro de imágenes',                  cadence: '~2 veces al día (md)', warnH: 30,  critH: 72 },
   // [VL.4b] El poller GPS de la flota, el otro carril mudo. Su modo de falla NO es caerse: es que
   // la sesión con MagniTracking expire (ADR-034: no hay API oficial, el adapter replica el login de
   // la web). Ahí `fn_objects` devuelve vacío, el ciclo termina "bien" y no se entrega nada — por eso
@@ -1670,26 +1743,6 @@ export interface EngineMetric {
   key: string; label: string; display: string; status: Status; note?: string;
 }
 
-/** `[VL.15.E]` Un renglón de la bitácora `ops.deploys` que escribe `ops/prod/deploy.sh`. */
-export interface DeployRow {
-  commit_sha: string;
-  servicios: string;
-  resultado: string;
-  migraciones_pendientes: number;
-  quien: string | null;
-  desde: string | null;
-  desplegado_en: string;
-}
-
-export interface VersionReport {
-  checked_at: string;
-  /** Lo que ESTE proceso está sirviendo, leído de la imagen — no de la bitácora. */
-  corriendo: { commit: string; uptime_seconds: number };
-  /** `false` = la bitácora todavía no existe. Distinto de "existe y está vacía". */
-  bitacora_disponible: boolean;
-  despliegues: DeployRow[];
-}
-
 export interface EngineReport {
   checked_at: string; db_label: string; overall: Status;
   database: { name: string; size_pretty: string; version: string };
@@ -1697,6 +1750,8 @@ export interface EngineReport {
   bloat: EngineTable[];
   schemas: { schema: string; size_pretty: string; tables: number }[];
   autovacuum: { name: string; setting: string }[];
+  /** `[DH.5]` Motivo si no se pudo leer el motor. Sin esto, una falla se pintaba como «sin filas muertas». */
+  error: string | null;
 }
 
 /**
@@ -1731,11 +1786,11 @@ export class DbHealthService {
    * primero (críticas antes que warn) + las resueltas en los últimos 7 días. Scopeado al
    * tenant del request (admin knex bypass RLS → filtro explícito).
    */
-  async listAlerts(): Promise<{ open: any[]; recent_resolved: any[] }> {
-    if (!this.knex) return { open: [], recent_resolved: [] };
+  async listAlerts(): Promise<BandejaDeAlertas> {
+    if (!this.knex) return { open: [], recent_resolved: [], recent_resolved_total: 0 };
     const tenantId = this.tenantCtx.requireTenantId();
     const reg = await this.knex.raw(`SELECT to_regclass('analytics.db_health_alerts') AS t`);
-    if (!reg.rows[0]?.t) return { open: [], recent_resolved: [] };
+    if (!reg.rows[0]?.t) return { open: [], recent_resolved: [], recent_resolved_total: 0 };
     const cols = ['id', 'source_key', 'source_label', 'group_key', 'status', 'age_seconds',
       'last_update', 'note', 'first_seen_at', 'last_seen_at', 'resolved_at', 'acknowledged_at'];
     const open = await this.knex('analytics.db_health_alerts')
@@ -1745,7 +1800,14 @@ export class DbHealthService {
       .where({ tenant_id: tenantId }).whereNotNull('resolved_at')
       .where('resolved_at', '>', this.knex.raw(`now() - interval '7 days'`))
       .select(cols).orderBy('resolved_at', 'desc').limit(50);
-    return { open, recent_resolved };
+    // [DH.5] El tope de 50 se declara: medido el 2026-11-04, 160 resueltas en 7 días y la
+    // pantalla decía «Resueltas recientes (50)».
+    const total = await this.knex('analytics.db_health_alerts')
+      .where({ tenant_id: tenantId }).whereNotNull('resolved_at')
+      .where('resolved_at', '>', this.knex.raw(`now() - interval '7 days'`))
+      .count({ n: '*' }).first();
+    const recent_resolved_total = Number((total as { n?: string | number } | undefined)?.n) || 0;
+    return { open, recent_resolved, recent_resolved_total };
   }
 
   /** Marca una alerta abierta como reconocida (ack). No la resuelve — eso lo hace el scanner. */
@@ -1760,8 +1822,8 @@ export class DbHealthService {
 
   private dbLabel(): string {
     const conn = this.knex?.client?.config?.connection as { host?: string; connectionString?: string } | string | undefined;
-    const host = typeof conn === 'string' ? conn : String(conn?.host ?? conn?.connectionString ?? '');
-    return /rlwy\.net|railway/i.test(host) ? 'prod (Railway)' : 'local';
+    // [DH.5] Por el HOST: la base de prod en md se llama `railway` y la regla vieja la rotulaba Railway.
+    return etiquetaBase(typeof conn === 'string' ? conn : (conn?.connectionString ?? conn?.host));
   }
 
   private classify(ageSec: number | null, warnH: number, critH: number): Status {
@@ -2076,7 +2138,13 @@ export class DbHealthService {
       const ageSec = this.ageOf(finish);
       let status: Status;
       let note: string | undefined;
-      if (row.status === 'error') {
+      if (esCarrilRetirado(!!cfg, ageSec)) {
+        // [TOR.4] Nadie lo declara y no late hace más de una semana: se retiró. Antes, si su
+        // última corrida fue un error, quedaba CRÍTICO para siempre y su alerta no se cerraba
+        // (route_collections, retirado el 19-oct; mv_caja_push, el 27-oct).
+        status = 'unknown';
+        note = `retirado: no está en CRON_JOBS y no late hace ${Math.round((ageSec ?? 0) / 86400)} días`;
+      } else if (row.status === 'error') {
         status = 'critical';
         note = `última corrida FALLÓ: ${(row.error || '').slice(0, 80)}`;
       } else if (row.status === 'running') {
@@ -2186,65 +2254,13 @@ export class DbHealthService {
    *
    * Todo es SELECT sobre catálogos; no toca datos de negocio y no depende de ningún tenant.
    */
-  /**
-   * `[VL.15.E]` **Qué versión corre, mirable sin terminal.**
-   *
-   * Dos piezas que responden preguntas distintas y por eso van juntas:
-   *
-   *   `corriendo` — el commit HORNEADO en esta imagen. Es el mismo que sirve `/api/health`, y
-   *     se lee del proceso, no de la bitácora: si alguien levantó un contenedor por fuera de
-   *     `deploy.sh`, la bitácora no se entera y esto **sí**. La verdad es lo que está en
-   *     memoria, no lo que alguien anotó.
-   *
-   *   `despliegues` — la bitácora `ops.deploys` que escribe `deploy.sh`: quién, cuándo, qué
-   *     servicios, con cuántas migraciones pendientes, y **también los que fallaron** — que son
-   *     los que uno quiere leer cuando algo no cuadra.
-   *
-   * ⚠️ Si las dos no coinciden, el renglón de arriba manda y hay que sospechar de un
-   * `docker compose up` a mano. Por eso se devuelven las dos y no una sola "versión".
-   *
-   * La tabla puede no existir todavía (se auto-crea en el primer despliegue): eso se DECLARA
-   * con `bitacora_disponible: false`, no se disfraza de lista vacía — que se leería como
-   * "nunca se desplegó nada", que es otra cosa.
-   */
-  async getVersionReport(): Promise<VersionReport> {
-    const base: VersionReport = {
-      checked_at: new Date().toISOString(),
-      corriendo: { commit: commitDelBuild(), uptime_seconds: Math.floor(process.uptime()) },
-      bitacora_disponible: false,
-      despliegues: [],
-    };
-    if (!this.knex) return base;
-    try {
-      const { rows } = await this.knex.raw(
-        `SELECT commit_sha, servicios, resultado, migraciones_pendientes, quien, desde,
-                desplegado_en
-           FROM ops.deploys ORDER BY id DESC LIMIT 20`);
-      return {
-        ...base,
-        bitacora_disponible: true,
-        despliegues: rows.map((r: Record<string, unknown>) => ({
-          commit_sha: String(r.commit_sha),
-          servicios: String(r.servicios),
-          resultado: String(r.resultado),
-          migraciones_pendientes: Number(r.migraciones_pendientes ?? 0),
-          quien: r.quien ? String(r.quien) : null,
-          desde: r.desde ? String(r.desde) : null,
-          desplegado_en: new Date(r.desplegado_en as string).toISOString(),
-        })),
-      };
-    } catch {
-      // `ops.deploys` todavía no existe (o no se pudo leer). Se declara, no se inventa.
-      return base;
-    }
-  }
-
   async getEngineReport(): Promise<EngineReport> {
     const checked_at = new Date().toISOString();
     const vacio: EngineReport = {
       checked_at, db_label: 'no configurada', overall: 'unknown',
       database: { name: '—', size_pretty: '—', version: '—' },
       metrics: [], bloat: [], schemas: [], autovacuum: [],
+      error: 'la API no tiene conexión de administración a la base',
     };
     if (!this.knex) return vacio;
 
@@ -2265,11 +2281,13 @@ export class DbHealthService {
                  (SELECT setting::int FROM pg_settings WHERE name = 'max_connections') AS max_conns
             FROM pg_stat_activity WHERE backend_type = 'client backend'`),
         this.knex.raw(`
-          SELECT schemaname, relname, n_live_tup, n_dead_tup, last_autovacuum, last_autoanalyze,
-                 pg_total_relation_size(relid) AS size_bytes,
-                 pg_size_pretty(pg_total_relation_size(relid)) AS size_pretty
-            FROM pg_stat_user_tables
-           WHERE n_dead_tup > 0
+          SELECT s.schemaname, s.relname, s.n_live_tup, s.n_dead_tup, s.last_autovacuum, s.last_autoanalyze,
+                 c.reltuples,
+                 pg_total_relation_size(s.relid) AS size_bytes,
+                 pg_size_pretty(pg_total_relation_size(s.relid)) AS size_pretty
+            FROM pg_stat_user_tables s
+            JOIN pg_class c ON c.oid = s.relid
+           WHERE s.n_dead_tup > 0
            ORDER BY n_dead_tup DESC LIMIT 25`),
         this.knex.raw(`
           SELECT schemaname, count(*)::int AS tablas,
@@ -2304,9 +2322,10 @@ export class DbHealthService {
       ];
 
       const bloat: EngineTable[] = bloatRows.rows.map((r: Record<string, unknown>) => {
-        const live = Number(r.n_live_tup) || 0;
+        // [DH.5] Sobre `reltuples`, no sobre `n_live_tup`: ver `filasEstimadas`.
+        const live = filasEstimadas(Number(r.n_live_tup), Number(r.reltuples));
         const dead = Number(r.n_dead_tup) || 0;
-        const pct = live > 0 ? Math.round((1000 * dead) / live) / 10 : null;
+        const pct = pctMuertas(dead, live);
         return {
           schema: String(r.schemaname), table: String(r.relname), live, dead, dead_pct: pct,
           last_autovacuum: r.last_autovacuum ? new Date(r.last_autovacuum as string).toISOString() : null,
@@ -2333,10 +2352,11 @@ export class DbHealthService {
         autovacuum: avRows.rows.map((r: Record<string, unknown>) => ({
           name: String(r.name), setting: String(r.setting),
         })),
+        error: null,
       };
     } catch (e) {
       this.logger.warn(`db-health engine: ${(e as Error).message}`);
-      return { ...vacio, db_label: this.dbLabel() };
+      return { ...vacio, db_label: this.dbLabel(), error: (e as Error).message };
     }
   }
 

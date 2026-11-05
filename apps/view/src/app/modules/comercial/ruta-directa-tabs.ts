@@ -89,4 +89,13 @@ export const RUTA_DIRECTA_TABS: PageTab[] = [
     icon: 'pi pi-truck',
     permission: Permission.COMMERCIAL_ROUTE_PROFIT_VER,
   },
+  {
+    // `[FCT.3.1]` Los viajes de entrega de Telemarketing con su costo. Vive en esta barra porque su
+    // público es el de Comisiones y Rentabilidad RD (mismos 4 puestos, medido 2026-11-04) y Edgar
+    // lo pidió como complemento de Comisiones; no es Ruta Directa, por eso dice «TM».
+    label: 'Viajes TM',
+    route: '/comercial/viajes-tm',
+    icon: 'pi pi-send',
+    permission: Permission.COMMERCIAL_ROUTE_PROFIT_VER,
+  },
 ];

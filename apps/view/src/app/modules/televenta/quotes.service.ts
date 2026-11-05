@@ -36,6 +36,10 @@ export interface QuoteListRow {
   created_at: string;
   user_id: string;
   created_by_username: string | null;
+  /** `[COT.23]` Ausentes con la API vieja. */
+  created_by_name?: string | null;
+  source_branch?: string | null;
+  salesperson_name?: string | null;
 }
 
 export interface QuotesSummary {
@@ -68,6 +72,10 @@ export interface WholesaleCustomer {
   branches: WholesaleBranchTerms[];
   /** true = sus condiciones NO son iguales en todas las sucursales. La pantalla lo dice. */
   terms_vary_by_branch: boolean;
+  /** `[COT.22]` Otras sucursales donde compró en el último año (el cliente compartido). */
+  also_in?: string[];
+  /** `[COT.22]` Su última compra en la sucursal buscada; null = no ha comprado aquí. */
+  last_purchase_here?: string | null;
 }
 
 export interface QuotesPage {
@@ -130,6 +138,8 @@ export interface QuoteBranches {
   writable: string[] | null;
   default_branch: string | null;
   resolvable: boolean;
+  /** `[COT.24]` El vendedor de Kepler que es este usuario, por sucursal. Ausente = API vieja. */
+  salesperson_by_branch?: Record<string, { code: string; name: string }>;
 }
 
 // Las funciones de unidades viven en `quote-units.ts` (sin Angular, se prueban solas).
@@ -405,9 +415,12 @@ export class QuotesService {
    * Padrón de clientes del ERP derivado de `kepler_ods.kdud` (todas las claves desde E.26, no sólo `C####`).
    * Cada cliente trae el arreglo de sus sucursales porque sus condiciones difieren entre ellas.
    */
-  searchWholesaleCustomers(search: string, limit = 20): Observable<WholesaleCustomer[]> {
+  searchWholesaleCustomers(search: string, limit = 20, branch?: string, all = false): Observable<WholesaleCustomer[]> {
+    // [COT.22] Con sucursal, sólo quien compró en ella el último año; `all` abre todo su padrón.
     let params = new HttpParams().set('limit', String(limit));
     if (search) params = params.set('search', search);
+    if (branch) params = params.set('branch', branch);
+    if (all) params = params.set('all', '1');
     return this.http.get<WholesaleCustomer[]>(`${this.base}/wholesale-customers`, { params });
   }
 

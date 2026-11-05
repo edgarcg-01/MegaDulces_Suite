@@ -145,3 +145,19 @@ describe('[CG.119] CRON_JOBS — el carril que late declara su tope de cuelgue',
     expect(malos.map((j) => `${j.key} (warnH ${j.warnH} > critH ${j.critH})`)).toEqual([]);
   });
 });
+
+/**
+ * `[TOR.0.9]` Un latido por servidor Kepler. Si una llave falta, su latido cae en `unknown` y el
+ * servidor queda fuera del semáforo — exactamente el «nadie se enteró» de Morelia Madero el 19-oct.
+ */
+describe('[TOR.0.9] los 9 servidores Kepler están declarados y nombrados', () => {
+  const servidores = CRON_JOBS.filter((j) => j.key.startsWith('kepler_server_'));
+  it('son los 9 que lee store_poller (00 a 08)', () => {
+    expect(servidores.map((j) => j.key).sort()).toEqual(
+      ['00', '01', '02', '03', '04', '05', '06', '07', '08'].map((c) => `kepler_server_${c}`));
+  });
+  it('⛔ la sucursal se nombra: ningún rótulo dice sólo el código', () => {
+    expect(servidores.filter((j) => /·\s*\d{2}$/.test(j.label)).map((j) => j.label)).toEqual([]);
+    expect(servidores.find((j) => j.key === 'kepler_server_07')?.label).toBe('Servidor Kepler · Morelia Madero');
+  });
+});

@@ -730,7 +730,7 @@ export interface SalesByRouteTicketsQuery {
 export interface SalesByRouteTicket {
   /** Llave del drill: el folio del documento no basta (el push repite folio entre rutas). */
   key: string;
-  source: 'wincaja' | 'push';
+  source: 'wincaja' | 'push' | 'kepler_vecinal';
   route_no: string;
   folio: string;
   date: string;
@@ -8032,19 +8032,30 @@ export class CommercialAnalyticsService {
                 count(distinct sl.consecutivo) tickets
          FROM analytics.v_route_sales_lines sl WHERE ${W} GROUP BY 1 ORDER BY 1`, P)).rows;
 
+      // [VEC.35] Se agrupa por código y se nombra DESPUÉS, sobre las ≤50 filas, en el maestro de
+      // la fuente del renglón: la camioneta en `wincaja.clientes`, la vecinal en `kdud`.
+      const kdudSuc = await this.vecinalKdudBranch(trx, tenantId, src);
       const clients = (await trx.raw(
-        `SELECT
-           (sl.cliente IS NULL OR btrim(sl.cliente)='' OR sl.cliente='0001') AS is_public,
-           CASE WHEN sl.cliente IS NULL OR btrim(sl.cliente)='' OR sl.cliente='0001'
-                THEN '—' ELSE sl.cliente END AS code,
-           CASE WHEN sl.cliente IS NULL OR btrim(sl.cliente)='' OR sl.cliente='0001'
-                THEN 'Mostrador a bordo (público)' ELSE COALESCE(c.nombre, sl.cliente) END AS name,
-           sum(sl.importe) revenue, sum(sl.qty) units, count(distinct sl.consecutivo) tickets
-         FROM analytics.v_route_sales_lines sl
-         LEFT JOIN (SELECT DISTINCT ON (source_branch, cliente) source_branch, cliente, nombre
-                    FROM wincaja.clientes WHERE tenant_id=? AND source_branch=? ORDER BY source_branch, cliente, source_dataset DESC) c
-           ON c.source_branch=sl.source_branch AND c.cliente=sl.cliente
-         WHERE ${W} GROUP BY 1,2,3 ORDER BY revenue DESC NULLS LAST LIMIT 50`, [tenantId, src, ...P])).rows;
+        `WITH c AS (
+           SELECT
+             (sl.cliente IS NULL OR btrim(sl.cliente)='' OR sl.cliente='0001') AS is_public,
+             CASE WHEN sl.cliente IS NULL OR btrim(sl.cliente)='' OR sl.cliente='0001'
+                  THEN '—' ELSE sl.cliente END AS code,
+             bool_or(sl.source = 'kepler_vecinal') AS vecinal,
+             sum(sl.importe) revenue, sum(sl.qty) units, count(distinct sl.consecutivo) tickets
+           FROM analytics.v_route_sales_lines sl
+           WHERE ${W} GROUP BY 1,2 ORDER BY revenue DESC NULLS LAST LIMIT 50)
+         SELECT c.is_public, c.code,
+                CASE WHEN c.is_public THEN 'Mostrador a bordo (público)'
+                     ELSE COALESCE(CASE WHEN c.vecinal THEN k.nombre ELSE w.nombre END, c.code) END AS name,
+                c.revenue, c.units, c.tickets
+         FROM c
+         LEFT JOIN (SELECT DISTINCT ON (cliente) cliente, nombre
+                    FROM wincaja.clientes WHERE tenant_id=? AND source_branch=? ORDER BY cliente, source_dataset DESC) w
+           ON w.cliente=c.code
+         LEFT JOIN (${CommercialAnalyticsService.kdudClientNameSql('SELECT code FROM c WHERE c.vecinal')}) k
+           ON c.vecinal AND k.cliente=c.code
+         ORDER BY c.revenue DESC NULLS LAST`, [...P, tenantId, src, kdudSuc])).rows;
 
       const tickets = (await trx.raw(
         `SELECT max(sl.doc_ref) folio, sl.consecutivo, max(sl.business_date::date) AS date,
@@ -8113,6 +8124,38 @@ export class CommercialAnalyticsService {
     return src;
   }
 
+  /**
+   * `[VEC.35]` El cliente de una ruta VECINAL se nombra en el maestro de Kepler (`kdud`), no en
+   * `wincaja.clientes`: el código sale de `kdm1.c10` y en Wincaja no existe, así que la pantalla
+   * mostraba el código pelado (2V005: 50 de 50 clientes).
+   *
+   * ⛔ `kdud` es POR SUCURSAL (PK `(sucursal, c2)`) y el mismo código es otra persona en otra
+   * sucursal (medido 2026-11-04: `00011` es «ANDREA MONTIEL SIERRA» en 04 y otro cliente en 01;
+   * 28 de 1,260 pares ruta×cliente salían con otro nombre sin acotar). La línea no trae su
+   * sucursal, así que se prefiere la DOMINANTE de la ruta: contra la sucursal exacta del renglón
+   * coincide en 1,259 de 1,260 pares (el que difiere pesa $0). `null` = la ruta no es vecinal.
+   */
+  private async vecinalKdudBranch(trx: Knex.Transaction, tenantId: string, src: string): Promise<string | null> {
+    if (!new RegExp(VECINAL_RX).test(src)) return null;
+    const r = (await trx.raw(
+      `SELECT warehouse_code FROM analytics.mv_kepler_vecinal_monthly
+        WHERE tenant_id = ? AND route_no = ?
+        GROUP BY warehouse_code ORDER BY sum(revenue) DESC NULLS LAST LIMIT 1`, [tenantId, src])).rows[0];
+    return r?.warehouse_code ?? null;
+  }
+
+  /**
+   * `[VEC.35]` Nombre de cliente según `kdud`, prefiriendo la sucursal de `vecinalKdudBranch`
+   * (un `?`). `codes` acota el barrido a los códigos que se van a nombrar: sin él, el
+   * `DISTINCT ON` sobre las 22 mil filas costaba ~60 ms por llamada.
+   */
+  private static kdudClientNameSql(codes: string): string {
+    return `SELECT DISTINCT ON (btrim(u.c2)) btrim(u.c2) AS cliente, NULLIF(btrim(u.c3), '') AS nombre
+      FROM kepler_ods.kdud u
+     WHERE NULLIF(btrim(u.c3), '') IS NOT NULL AND btrim(u.c2) IN (${codes})
+     ORDER BY btrim(u.c2), (btrim(u.sucursal) = ?) DESC NULLS LAST, u.sucursal`;
+  }
+
   /** Llave del ticket: el folio NO es único (el push lo repite entre rutas y días). */
   private ticketKey(r: { source: string; source_branch: string; date: string; consecutivo: string }): string {
     return [r.source, r.source_branch, r.date, r.consecutivo].join('|');
@@ -8124,7 +8167,10 @@ export class CommercialAnalyticsService {
     const [source, sourceBranch, date] = parts;
     const consecutivo = parts.slice(3).join('|'); // el consecutivo puede traer separadores
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new BadRequestException('key de ticket inválida');
-    if (source !== 'wincaja' && source !== 'push') throw new BadRequestException('key de ticket inválida');
+    // [VEC.38] `kepler_vecinal` faltaba: la lista emitía esas llaves y el detalle las rechazaba (400).
+    if (source !== 'wincaja' && source !== 'push' && source !== 'kepler_vecinal') {
+      throw new BadRequestException('key de ticket inválida');
+    }
     return { source, sourceBranch, date, consecutivo };
   }
 
@@ -8192,6 +8238,7 @@ export class CommercialAnalyticsService {
         ['analytics.route_push_lines', 'imported_at', 'Empuje a ruta'],
         ['wincaja.maestro_mov_almacen', 'imported_at', 'Venta Wincaja (carga)'],
       ]);
+      const kdudSuc = await this.vecinalKdudBranch(trx, tenantId, src);
       return (await trx.raw(
       `WITH sel AS (
          SELECT DISTINCT sl.source, sl.source_branch, sl.business_date, sl.consecutivo
@@ -8214,12 +8261,14 @@ export class CommercialAnalyticsService {
          GROUP BY 1, 2, 3, 4
        ),
        enr AS (
-         SELECT a.*, c.nombre AS cliente_nombre,
+         SELECT a.*, CASE WHEN a.source = 'kepler_vecinal' THEN k.nombre ELSE c.nombre END AS cliente_nombre,
                 CASE WHEN a.revenue_with_cost > 0 THEN round((1 - a.cost / a.revenue_with_cost) * 100, 1) END AS margin_pct
          FROM agg a
          LEFT JOIN (SELECT DISTINCT ON (cliente) cliente, nombre FROM wincaja.clientes
                     WHERE tenant_id = ? AND source_branch = ? ORDER BY cliente, source_dataset DESC) c
            ON c.cliente = a.cliente
+         LEFT JOIN (${CommercialAnalyticsService.kdudClientNameSql(`SELECT cliente FROM agg WHERE source = 'kepler_vecinal'`)}) k
+           ON a.source = 'kepler_vecinal' AND k.cliente = a.cliente
        )
        SELECT *, count(*) OVER () AS total_rows,
               sum(revenue) OVER () AS grand_revenue,
@@ -8228,7 +8277,7 @@ export class CommercialAnalyticsService {
        WHERE true${tickW}
        ORDER BY ${sortCol} ${dir} NULLS LAST, folio ${dir}
        LIMIT ? OFFSET ?`,
-      [...scopeP, ...lineP, ...scopeP, tenantId, src, ...tickP, limit, offset],
+      [...scopeP, ...lineP, ...scopeP, tenantId, src, kdudSuc, ...tickP, limit, offset],
       )).rows;
     });
 
@@ -8309,18 +8358,30 @@ export class CommercialAnalyticsService {
          FROM analytics.v_route_sales_lines sl WHERE ${W}`, P)).rows[0];
       if (!head || !num(head.lines)) throw new NotFoundException('ticket no encontrado');
 
-      const wname = (await trx.raw(
-        `SELECT COALESCE(pw.name, initcap(pb.branch_name)) AS wname
-         FROM wincaja.branches b
-         LEFT JOIN wincaja.branches pb ON pb.tenant_id = b.tenant_id AND pb.source_branch = b.parent_branch
-         LEFT JOIN commercial.warehouses pw ON pw.tenant_id = b.tenant_id
-           AND pw.code = COALESCE(pb.kepler_code, pb.warehouse_code) AND pw.deleted_at IS NULL
-         WHERE b.tenant_id = ? AND b.source_branch = ?`, [tenantId, sourceBranch])).rows[0];
+      // [VEC.38] La vecinal no está en `wincaja`: su sucursal y su cliente se nombran con Kepler
+      // (la sucursal dominante de la ruta y `kdud`, ver `vecinalKdudBranch`).
+      const vecinal = source === 'kepler_vecinal';
+      const kdudSuc = vecinal ? await this.vecinalKdudBranch(trx, tenantId, sourceBranch) : null;
 
-      const clientRow = (await trx.raw(
-        `SELECT nombre FROM wincaja.clientes
-         WHERE tenant_id = ? AND cliente = ? ORDER BY (source_branch = ?) DESC, source_dataset DESC LIMIT 1`,
-        [tenantId, head.cliente || '', sourceBranch])).rows[0];
+      const wname = vecinal
+        ? (await trx.raw(
+          `SELECT name AS wname FROM commercial.warehouses
+            WHERE tenant_id = ? AND code = ? AND deleted_at IS NULL`, [tenantId, kdudSuc])).rows[0]
+        : (await trx.raw(
+          `SELECT COALESCE(pw.name, initcap(pb.branch_name)) AS wname
+           FROM wincaja.branches b
+           LEFT JOIN wincaja.branches pb ON pb.tenant_id = b.tenant_id AND pb.source_branch = b.parent_branch
+           LEFT JOIN commercial.warehouses pw ON pw.tenant_id = b.tenant_id
+             AND pw.code = COALESCE(pb.kepler_code, pb.warehouse_code) AND pw.deleted_at IS NULL
+           WHERE b.tenant_id = ? AND b.source_branch = ?`, [tenantId, sourceBranch])).rows[0];
+
+      const clientRow = vecinal
+        ? (await trx.raw(
+          `${CommercialAnalyticsService.kdudClientNameSql('?')}`, [head.cliente || '', kdudSuc])).rows[0]
+        : (await trx.raw(
+          `SELECT nombre FROM wincaja.clientes
+           WHERE tenant_id = ? AND cliente = ? ORDER BY (source_branch = ?) DESC, source_dataset DESC LIMIT 1`,
+          [tenantId, head.cliente || '', sourceBranch])).rows[0];
 
       const lines = (await trx.raw(
         `SELECT sl.sku, COALESCE(sl.producto, p.nombre) AS name, sl.unidad, sl.unidad_origen,
@@ -8343,7 +8404,7 @@ export class CommercialAnalyticsService {
 
       return {
         key,
-        source: source as 'wincaja' | 'push',
+        source: source as SalesByRouteTicket['source'],
         route_no: sourceBranch,
         folio: head.folio || consecutivo,
         date,
