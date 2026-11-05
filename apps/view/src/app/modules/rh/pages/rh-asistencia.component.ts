@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal, untracked, viewChild } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
@@ -6,7 +6,7 @@ import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import { Popover, PopoverModule } from 'primeng/popover';
 import { filtrarPorBusqueda } from '@megadulces/ui-web';
-import type { HrPersonaAsistencia } from '@megadulces/contracts';
+import type { HrHorarioAsignado, HrPersonaAsistencia } from '@megadulces/contracts';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
@@ -18,11 +18,15 @@ import { RhAsistenciaEstado } from '../rh-asistencia.estado';
 import { RhService, fechaCorta, rhError, sumarDias } from '../rh.service';
 import {
   type Irregularidad, columnasDelRango, cuentaIrregular, departamentoDe, diaLargo, difHorario, etiquetaParcial, firmaHoras,
-  hora12, horarioDe, horasTexto, irregularidadesDe, porDepartamento,
+  horarioAsignadoLargo, horarioDe, horariosDe, horasTexto, irregularidadesDe, porDepartamento,
 } from '../reporte-formato';
 import { type ContextoExport, exportarExcel, exportarPdfPersona, exportarPdfPlaza } from '../rh-exportar';
 
-interface FormHorario { entrada: string; salida: string; comida: number; sabado: boolean; sabadoEntrada: string; sabadoSalida: string; }
+/** `[RH.1.15]` Uno de sus horarios (hasta 4: mañana, tarde…). Cada día se mide contra el más cercano a su entrada. */
+interface TurnoForm { entrada: string; salida: string; comida: number; }
+interface FormHorario { turnos: TurnoForm[]; sabado: boolean; sabadoEntrada: string; sabadoSalida: string; }
+/** Hasta cuántos horarios se le ponen a una persona (el servidor dice lo mismo). */
+const MAX_HORARIOS = 4;
 
 /**
  * Fase RH · `[RH.1.7c]` — Checadas (`/rh/asistencia`): el reporte semanal «calcado» de Mega Talento. Una fila por
@@ -105,6 +109,7 @@ interface FormHorario { entrada: string; salida: string; comida: number; sabado:
             @if (filas().length) {
               <app-rh-reporte-semanal [grupos]="grupos()" [todas]="todas()" [columnas]="columnas()" [irregularidades]="irr()" [hoy]="est.hoy()"
                                       [mideRetardo]="mide()" [parcial]="!!parcial()" [subtotales]="conSubtotales()"
+                                      [saldos]="saldos()" [hasta]="est.datos()?.hasta ?? ''"
                                       (abrir)="abrir($event)" (menu)="menu($event)" />
             } @else {
               <p class="ra-vacio">{{ sinFilas() }}</p>
@@ -175,7 +180,8 @@ interface FormHorario { entrada: string; salida: string; comida: number; sabado:
     <ng-template #tiraHorario let-p>
       <div class="ra-tira">
         @if (p.horarioAsignado; as h) {
-          <p>Horario de <b>{{ primerNombre(p) }}</b> asignado por RH: {{ h12(h.entrada) }} a {{ h12(h.salida) }} · comida {{ h.comidaMin }} min{{ h.sabado ? ' · trabaja el sábado' : '' }}.</p>
+          <p>@if (nHorarios(h) > 1) { <b>{{ primerNombre(p) }}</b> tiene {{ nHorarios(h) }} horarios asignados por RH: {{ largo(h) }}{{ h.sabado ? ' · trabaja el sábado' : '' }}. Cada día se mide contra el que trabajó, el más cercano a su entrada. }
+            @else { Horario de <b>{{ primerNombre(p) }}</b> asignado por RH: {{ largo(h) }}{{ h.sabado ? ' · trabaja el sábado' : '' }}. }</p>
           @if (puedeGestionar()) {
             <p-button label="Cambiar" severity="secondary" [outlined]="true" size="small" (onClick)="abrirHorario(p)" />
             <p-button label="Volver al deducido" [text]="true" size="small" [loading]="guardando()" (onClick)="quitarHorario(p)" />
@@ -192,9 +198,23 @@ interface FormHorario { entrada: string; salida: string; comida: number; sabado:
         <form class="ra-form" (ngSubmit)="guardarHorario()" aria-label="Asignar horario">
           <p class="ra-form-nota">Para <b>{{ p ? (p.nombreCompleto || p.nombre) : 'las ' + visibles().length + ' personas que se ven' }}</b>. Manda sobre lo que se deduce de las
             checadas: contra él se miden el retardo, las faltas, la salida y la comida.</p>
-          <label>Entrada <input pInputText type="time" name="ent" [(ngModel)]="f.entrada" required /></label>
-          <label>Salida <input pInputText type="time" name="sal" [(ngModel)]="f.salida" required /></label>
-          <label>Comida (min) <input pInputText type="number" name="com" min="0" max="180" [(ngModel)]="f.comida" required /></label>
+          @for (t of f.turnos; track $index; let i = $index) {
+            <fieldset class="ra-turno">
+              @if (f.turnos.length > 1) { <legend>Horario {{ i + 1 }}</legend> }
+              <label>Entrada <input pInputText type="time" [name]="'ent' + i" [(ngModel)]="t.entrada" required /></label>
+              <label>Salida <input pInputText type="time" [name]="'sal' + i" [(ngModel)]="t.salida" required /></label>
+              <label>Comida (min) <input pInputText type="number" [name]="'com' + i" min="0" max="180" [(ngModel)]="t.comida" required /></label>
+              @if (f.turnos.length > 1) {
+                <p-button icon="pi pi-times" [text]="true" severity="secondary" size="small" [ariaLabel]="'Quitar el horario ' + (i + 1)" (onClick)="quitarTurno(i)" />
+              }
+            </fieldset>
+          }
+          @if (f.turnos.length < maxHorarios) {
+            <p-button label="Agregar otro horario" icon="pi pi-plus" [text]="true" size="small" (onClick)="agregarTurno()" />
+          }
+          @if (f.turnos.length > 1) {
+            <p class="ra-form-nota">Cada día se mide contra el horario más cercano a la hora en que checó su entrada. Dos horarios no pueden empezar a la misma hora.</p>
+          }
           <label class="ra-check"><input type="checkbox" name="sab" [(ngModel)]="f.sabado" /> Trabaja el sábado</label>
           @if (f.sabado) {
             <label>Sábado entra <input pInputText type="time" name="sabE" [(ngModel)]="f.sabadoEntrada" /></label>
@@ -254,6 +274,8 @@ interface FormHorario { entrada: string; salida: string; comida: number; sabado:
     .ra-form input[type='number'] { width: 6rem; }
     .ra-form .ra-check { flex-direction: row; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm); color: var(--text-main); }
     .ra-form-nota { flex: 1 1 100%; margin: 0; font-size: var(--fs-xs); color: var(--text-muted); }
+    .ra-turno { display: flex; flex-wrap: wrap; gap: var(--sp-3); align-items: flex-end; border: 0; margin: 0; padding: 0; flex: 1 1 100%; }
+    .ra-turno legend { padding: 0; margin-bottom: var(--sp-1); font-size: var(--fs-xs); font-weight: 700; color: var(--text-main); }
     .ra-form-btns { display: flex; gap: var(--sp-2); }
     .ra-banner { margin: 0 var(--sp-3) var(--sp-2); padding: var(--sp-2) var(--sp-3); border-radius: var(--r-sm); font-size: var(--fs-sm); background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
     .ra-ficha .ra-banner, .ra-una .ra-banner { margin: 0; }
@@ -276,7 +298,16 @@ export class RhAsistenciaComponent {
   readonly firma = firmaHoras;
   readonly dif = difHorario;
   readonly diaLargo = diaLargo;
-  readonly h12 = hora12;
+  readonly largo = horarioAsignadoLargo;
+  readonly maxHorarios = MAX_HORARIOS;
+  nHorarios(h: HrHorarioAsignado): number { return horariosDe(h).length; }
+
+  /**
+   * `[RH.1.15]` El saldo de horas extra de cada quien al último día del periodo, para las columnas «HE usó / HE
+   * saldo» (Mega Talento 8dd5521). 'cargando' mientras llega; null si no se pudo leer (se dice, no se pinta un cero).
+   */
+  readonly saldos = signal<Map<string, number> | 'cargando' | null>('cargando');
+  private pedidoSaldos = 0;
 
   readonly sel = signal<HrPersonaAsistencia | null>(null);
   readonly enMenu = signal<HrPersonaAsistencia | null>(null);
@@ -349,6 +380,17 @@ export class RhAsistenciaComponent {
       this.est.fichaPendiente.set(null);
       if (p) this.abrir(p);
     });
+    // `[RH.1.15]` Cada cálculo nuevo trae su saldo de horas extra al último día de ese periodo.
+    effect(() => {
+      const d = this.est.datos();
+      if (!d) return;
+      const n = ++this.pedidoSaldos;
+      untracked(() => this.saldos.set('cargando'));
+      this.api.bancoHorasExtra(d.sucursalId, undefined, d.hasta).subscribe({
+        next: (b) => { if (n === this.pedidoSaldos) this.saldos.set(new Map(b.personas.map((x) => [x.codigo, x.saldoMin]))); },
+        error: () => { if (n === this.pedidoSaldos) this.saldos.set(null); },
+      });
+    });
     // Al recalcular (otra semana, horario guardado), la ficha abierta se refresca con los números nuevos.
     effect(() => {
       const d = this.est.datos();
@@ -389,9 +431,22 @@ export class RhAsistenciaComponent {
     this.aviso.set(null);
     this.destino.set(p);
     this.form.set({
-      entrada: a?.entrada ?? p?.horario ?? '08:00', salida: a?.salida ?? p?.salida ?? '17:00', comida: a?.comidaMin ?? 60,
+      turnos: a ? horariosDe(a).map((h) => ({ entrada: h.entrada, salida: h.salida, comida: h.comidaMin }))
+        : [{ entrada: p?.horario ?? '08:00', salida: p?.salida ?? '17:00', comida: 60 }],
       sabado: a?.sabado ?? false, sabadoEntrada: a?.sabadoEntrada ?? '', sabadoSalida: a?.sabadoSalida ?? '',
     });
+  }
+
+  agregarTurno(): void {
+    const f = this.form();
+    if (!f || f.turnos.length >= MAX_HORARIOS) return;
+    this.form.set({ ...f, turnos: [...f.turnos, { entrada: '', salida: '', comida: 60 }] });
+  }
+
+  quitarTurno(i: number): void {
+    const f = this.form();
+    if (!f || f.turnos.length <= 1) return;
+    this.form.set({ ...f, turnos: f.turnos.filter((_, k) => k !== i) });
   }
 
   guardarHorario(): void {
@@ -402,8 +457,10 @@ export class RhAsistenciaComponent {
     const codigos = p ? [p.codigo] : this.visibles().map((x) => x.codigo);
     if (!codigos.length) return;
     this.guardando.set(true);
+    const [primero] = f.turnos;
     this.api.asignarHorario({
-      site_code: site, person_codes: codigos, starts_at: f.entrada, ends_at: f.salida, lunch_minutes: Number(f.comida),
+      site_code: site, person_codes: codigos, starts_at: primero.entrada, ends_at: primero.salida, lunch_minutes: Number(primero.comida),
+      ...(f.turnos.length > 1 ? { shifts: f.turnos.map((t) => ({ starts_at: t.entrada, ends_at: t.salida, lunch_minutes: Number(t.comida) })) } : {}),
       works_saturday: f.sabado, saturday_starts_at: f.sabado ? f.sabadoEntrada : undefined, saturday_ends_at: f.sabado ? f.sabadoSalida : undefined,
     }).subscribe({
       next: (r) => {
@@ -430,7 +487,7 @@ export class RhAsistenciaComponent {
   private contexto(): ContextoExport {
     return {
       plaza: this.est.nombreSitio(), periodo: this.periodoTexto(), parcial: this.parcial(), columnas: this.columnas(),
-      hoy: this.est.hoy(), mideRetardo: this.mide(),
+      hoy: this.est.hoy(), mideRetardo: this.mide(), saldos: this.saldos() instanceof Map ? (this.saldos() as Map<string, number>) : null,
     };
   }
 

@@ -1,6 +1,6 @@
 import type {
   HrAsistenciaResponse, HrDiaAsistencia, HrGravedad, HrHorarioAsignado, HrIncidenciaDelDia, HrMarcaAsistencia,
-  HrPersonaAsistencia,
+  HrPersonaAsistencia, HrTurnoAsignado,
 } from '@megadulces/contracts';
 import * as hd from './horario-deducido';
 import { detalleDia, formatHoras, type ConfigDesayuno } from './detalle-dia';
@@ -76,6 +76,23 @@ export type Marca = HrMarcaAsistencia;
 export type IncidenciaDia = HrIncidenciaDelDia;
 export type DiaVista = HrDiaAsistencia;
 export type HorarioAsignado = HrHorarioAsignado;
+export type TurnoAsignado = HrTurnoAsignado;
+
+/**
+ * `[RH.1.15]` Los horarios guardados en la fila (`hr.person_schedules.shifts`), si son válidos y
+ * coinciden con sus `turnos` (las entradas). Copia de `horariosDeFila` de Mega Talento @ 8396d3c: con
+ * menos de 2, o si no casan con las entradas, null (y la fila se lee como antes).
+ */
+export function horariosDeFila(shifts: unknown, turnos: string[]): TurnoAsignado[] | null {
+  const lista = Array.isArray(shifts) ? shifts : null;
+  if (!lista || lista.length < 2 || lista.length !== turnos.length) return null;
+  const out: TurnoAsignado[] = [];
+  for (const h of lista as Array<{ entrada?: unknown; salida?: unknown; comidaMin?: unknown } | null>) {
+    if (!h || typeof h.entrada !== 'string' || typeof h.salida !== 'string') return null;
+    out.push({ entrada: h.entrada, salida: h.salida, comidaMin: Number(h.comidaMin) || 0 });
+  }
+  return out;
+}
 
 /** La persona en el padrón del sitio, tal como la arma el lector. */
 export interface FichaPadron {
@@ -286,6 +303,23 @@ export function calcularAsistencia(e: EntradaAsistencia): AsistenciaPersonas {
             : ho.bloques,
           opciones)
       : null;
+    // `[RH.1.15]` VARIOS HORARIOS ASIGNADOS (Mega Talento 8396d3c, 15/10/2026): cada día se mide
+    // contra el que trabajó, el más cercano a su entrada. Con el mismo margen que un horario asignado
+    // único (120 min): con el de un rotativo deducido (60) quien llega 70 min tarde al turno de la
+    // mañana se mediría contra «otro turno» y su retardo desaparecería.
+    const variosHorarios = !!asig && asig.horarios.length > 1;
+    const turnoAsig = variosHorarios && asig
+      ? hd.deducirTurnos(
+          diasAMedir,
+          asig.horarios.map((h) => hd.aMinutos(h.entrada)).filter((x): x is number => x !== null),
+          { ...opciones, atipicoRotativoMin: 120 })
+      : null;
+    /** Su horario asignado de ese día (con varios, el que trabajó; sin checadas, el primero). */
+    const horarioDe = (f: string): TurnoAsignado | null => {
+      if (!asig) return null;
+      const t = turnoAsig?.get(f);
+      return (t && asig.horarios.find((h) => hd.aMinutos(h.entrada) === t.bloque)) || asig.horarios[0];
+    };
     // Si el periodo empieza a media semana, los días de esa semana ANTES del periodo también
     // gastan descansos.
     const ausenciasPrevias = new Map<string, number>();
@@ -331,6 +365,16 @@ export function calcularAsistencia(e: EntradaAsistencia): AsistenciaPersonas {
         }
       }
     }
+    // `[RH.1.15]` DESCANSO capturado por RH (Mega Talento 8dd5521, 13/10/2026): esos días son
+    // descanso, sin mover ningún otro (a quien le tocan dos en la semana, o para quitarle a unas
+    // vacaciones el día que de todos modos descansaba). Va después del cambio de descanso: si
+    // chocan, manda éste.
+    for (const i of e.incidencias) {
+      if (i.personCode !== cod || i.tipo !== 'descanso') continue;
+      for (let f = i.desde; f <= i.hasta; f = siguienteDia(f)) {
+        laboralPorFecha.set(f, false); descansoCambio.set(f, 'descansa');
+      }
+    }
 
     // SIN HORARIO (01/10/2026): quien casi siempre checa UNA vez no deja deducir horario. Sus
     // días se arman igual —checadas, horas y faltas— y sólo el RETARDO queda apagado.
@@ -340,7 +384,7 @@ export function calcularAsistencia(e: EntradaAsistencia): AsistenciaPersonas {
       ...opciones,
       horarioDelDia: sinHorario ? null : horarioDelDia,
       entradaMin: sinHorario ? 0 : entradaUsar,
-      turnoPorFecha: sinHorario || asig ? null : turnoPorFecha,
+      turnoPorFecha: sinHorario ? null : asig ? turnoAsig : turnoPorFecha,
       diasLaborales: laboralesAsig || ho.diasLaborales,
       ausenciasPrevias,
       medirRetardo: !sinHorario && cfg.medirRetardo !== false,
@@ -354,9 +398,12 @@ export function calcularAsistencia(e: EntradaAsistencia): AsistenciaPersonas {
     // ── LAS MARCAS: por qué este número puede no ser de fiar ──
     const marcas: Marca[] = [];
     if (asig) {
+      const lista = asig.horarios.map((h) => `${h.entrada} a ${h.salida}, comida ${h.comidaMin} min`);
       marcas.push({
         codigo: 'horario_confirmado', gravedad: 'ok',
-        detalle: `RH le asignó su horario: ${asig.entrada} a ${asig.salida}, comida ${asig.comidaMin} min` +
+        detalle: (variosHorarios
+          ? `RH le asignó ${lista.length} horarios: ${lista.join(' · ')}; cada día se mide contra el que trabajó`
+          : `RH le asignó su horario: ${lista[0]}`) +
           (asig.sabado ? `, sábado ${asig.sabadoEntrada || asig.entrada} a ${asig.sabadoSalida || asig.salida}` : ', sin sábado') +
           '. Manda sobre la deducción.',
       });
@@ -442,10 +489,11 @@ export function calcularAsistencia(e: EntradaAsistencia): AsistenciaPersonas {
     // tiempo (jornada de 5 h 20 o menos): su horario cambia de un día a otro y la salida deducida
     // no es la de ese día.
     const jornadaDe = (f: string): number | null => {
-      if (asig) {
+      const h = horarioDe(f);
+      if (asig && h) {
         const sab = hd.diaSemana(f) === 6;
-        const ent = hd.aMinutos(sab ? asig.sabadoEntrada || asig.entrada : asig.entrada);
-        const sal = hd.aMinutos(sab ? asig.sabadoSalida || asig.salida : asig.salida);
+        const ent = hd.aMinutos(sab ? asig.sabadoEntrada || h.entrada : h.entrada);
+        const sal = hd.aMinutos(sab ? asig.sabadoSalida || h.salida : h.salida);
         return ent !== null && sal !== null && sal > ent ? sal - ent : null;
       }
       if (sinHorario || ho.tipo === 'rotativo' || ho.entradaMin == null || ho.salidaMin == null) return null;
@@ -475,12 +523,13 @@ export function calcularAsistencia(e: EntradaAsistencia): AsistenciaPersonas {
         const incExcusa = incs.find((i) => tipoIncidencia(i.tipo)?.excusaFalta);
         const justificacion = incExcusa?.etiqueta || excusadas.get(d.fecha);
         let esperadoMin: number | null = null, salidaAntesMin: number | null = null, comidaExcesoMin: number | null = null;
-        if (asig && laboralesAsig) {
+        const hDia = horarioDe(d.fecha);
+        if (asig && hDia && laboralesAsig) {
           const sab = hd.diaSemana(d.fecha) === 6;
           const leToca = laboralesAsig.includes(hd.diaSemana(d.fecha));
-          const ent = hd.aMinutos(sab ? asig.sabadoEntrada || asig.entrada : asig.entrada);
-          const sal = hd.aMinutos(sab ? asig.sabadoSalida || asig.salida : asig.salida);
-          const comPermitida = comPermitidaDia ?? (sab ? 0 : asig.comidaMin);
+          const ent = hd.aMinutos(sab ? asig.sabadoEntrada || hDia.entrada : hDia.entrada);
+          const sal = hd.aMinutos(sab ? asig.sabadoSalida || hDia.salida : hDia.salida);
+          const comPermitida = comPermitidaDia ?? (sab ? 0 : hDia.comidaMin);
           esperadoMin = leToca && ent !== null && sal !== null ? Math.max(0, sal - ent - comPermitida) : 0;
           if (leToca && sal !== null && det.salidaMin !== null && det.netasMin !== null) salidaAntesMin = Math.max(0, sal - det.salidaMin);
           if (leToca && comPermitida > 0 && det.comidaMin !== null) comidaExcesoMin = Math.max(0, det.comidaMin - comPermitida);
@@ -521,6 +570,10 @@ export function calcularAsistencia(e: EntradaAsistencia): AsistenciaPersonas {
           ...(desPermitido !== null ? { desayunoPermitidoMin: desPermitido } : {}),
           ...(comPermitidaDia !== null ? { comidaPermitidaMin: comPermitidaDia } : {}),
           ...(descansoCambio.has(d.fecha) ? { descansoCambio: descansoCambio.get(d.fecha) } : {}),
+          // `[RH.1.15]` Con varios horarios: contra cuál se midió ese día (su entrada). El sábado no:
+          // si trabaja sábado, ese día manda su horario de sábado.
+          ...(variosHorarios && hDia && turnoAsig?.has(d.fecha) && !(asig?.sabado && hd.diaSemana(d.fecha) === 6)
+            ? { turno: hDia.entrada } : {}),
         };
         if (justificacion && d.estado === 'falta') {
           faltasJustificadas++;
@@ -572,7 +625,7 @@ export function calcularAsistencia(e: EntradaAsistencia): AsistenciaPersonas {
       activo: emp ? emp.activo : null,
       tipo: ho.tipo,
       horario: asig ? asig.entrada : ho.entrada,
-      turnos: asig ? [asig.entrada] : ho.turnos,
+      turnos: asig ? asig.horarios.map((h) => h.entrada) : ho.turnos,
       horarioConfirmado: !!turnosConf,
       costumbre: ho.entradaCruda,
       desfaseMin: ho.desfaseMin,

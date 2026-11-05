@@ -1,7 +1,7 @@
 import { asistencia, dia, persona } from '../../../testing/rh.fixture';
 import {
-  SIN_DEPARTAMENTO, celdaDe, columnasDelRango, diasPorFecha, etiquetaParcial, faltasDelPeriodo, firmaHoras, horarioDe, horasTexto,
-  irregularidadesDe, pausasDelDia, porDepartamento, rebasados, tramosDe,
+  SIN_DEPARTAMENTO, celdaDe, columnasDelRango, diasPorFecha, etiquetaParcial, faltasDelPeriodo, firmaHoras, horarioAsignadoCorto,
+  horarioAsignadoLargo, horarioDe, horasTexto, irregularidadesDe, pausasDelDia, porDepartamento, rebasados, saldoTexto, tramosDe,
 } from './reporte-formato';
 
 /**
@@ -93,7 +93,7 @@ describe('[RH.1.7c] pausas, horas y horario', () => {
   });
 
   it('la columna Horario: asignado, rotativo o deducido', () => {
-    expect(horarioDe(persona({ horarioAsignado: { entrada: '08:00', salida: '17:00', comidaMin: 60, sabado: false, sabadoEntrada: null, sabadoSalida: null, asignadoPor: null, actualizadoEn: null } })))
+    expect(horarioDe(persona({ horarioAsignado: { entrada: '08:00', salida: '17:00', comidaMin: 60, horarios: [{ entrada: '08:00', salida: '17:00', comidaMin: 60 }], sabado: false, sabadoEntrada: null, sabadoSalida: null, asignadoPor: null, actualizadoEn: null } })))
       .toEqual({ texto: '08:00–17:00', asignado: true });
     expect(horarioDe(persona({ turnos: ['09:00', '13:00'] })).texto).toBe('Rota · 09:00 / 13:00');
     expect(horarioDe(persona({ horario: '08:30', turnos: ['08:30'] })).texto).toBe('Deducido · 8:30 am');
@@ -168,5 +168,45 @@ describe('[RH.1.7c] lo que cuentan las pestañas y el agrupado', () => {
     expect(etiquetaParcial({ unica: null, departamentos: ['SISTEMAS'], buscar: '', soloIrregulares: false })).toBe('solo SISTEMAS');
     expect(etiquetaParcial({ unica: null, departamentos: [], buscar: ' ana ', soloIrregulares: true })).toBe('quien coincide con «ana» · sólo con irregularidades');
     expect(etiquetaParcial({ unica: null, departamentos: [], buscar: '', soloIrregulares: false })).toBe('');
+  });
+});
+
+describe('[RH.1.15] lo que Mega Talento cambió después del port (8dd5521, 8396d3c)', () => {
+  const inc = (tipo: string, codigo: string, etiqueta: string) => ({ id: tipo, tipo, codigo, etiqueta, nota: '' });
+
+  it('un día de descanso cruzado por vacaciones es DESCANSO, no vacaciones; con «Descanso» capturado, «DESC.»', () => {
+    const vac = una(dia({ fecha: '2026-10-04', estado: 'descanso', incidencias: [inc('vacaciones', 'VAC', 'Vacaciones')] }));
+    expect(celdaDe(vac.p, vac.m, '2026-10-04', o)).toMatchObject({ tipo: 'descanso', jornada: '—' });
+    const dsc = una(dia({ fecha: '2026-10-05', estado: 'descanso', incidencias: [inc('vacaciones', 'VAC', 'Vacaciones'), inc('descanso', 'DSC', 'Descanso')] }));
+    expect(celdaDe(dsc.p, dsc.m, '2026-10-05', o)).toMatchObject({ tipo: 'inc', jornada: 'DESC.', titulo: 'Descanso' });
+    // ⛔ Lo que NO justifica sí se queda: una falta injustificada en su descanso se ve.
+    const fi = una(dia({ fecha: '2026-10-05', estado: 'descanso', incidencias: [inc('falta_injustificada', 'FI', 'Falta injustificada')] }));
+    expect(celdaDe(fi.p, fi.m, '2026-10-05', o).jornada).toBe('FI');
+  });
+
+  it('las horas extra usadas y el turno contra el que se midió salen en la celda', () => {
+    const { p, m } = una(dia({ fecha: '2026-10-05', horasExtraUsadasMin: 90, turno: '13:00' }));
+    const c = celdaDe(p, m, '2026-10-05', o);
+    expect([c.usadasMin, c.turno]).toEqual([90, '13:00']);
+    expect(c.titulo).toContain('usó 1h 30m de horas extra');
+    expect(c.titulo).toContain('medido contra su horario de las 13:00');
+    const j = una(dia({ fecha: '2026-10-05', estado: 'justificado', horasExtraUsadasMin: 540 }));
+    expect(celdaDe(j.p, j.m, '2026-10-05', o).usadasMin).toBe(540);
+  });
+
+  it('varios horarios asignados: la columna y la tira los dicen todos', () => {
+    const h = {
+      entrada: '07:00', salida: '15:00', comidaMin: 30,
+      horarios: [{ entrada: '07:00', salida: '15:00', comidaMin: 30 }, { entrada: '13:00', salida: '20:00', comidaMin: 60 }],
+      sabado: false, sabadoEntrada: null, sabadoSalida: null, asignadoPor: null, actualizadoEn: null,
+    };
+    expect(horarioAsignadoCorto(h)).toBe('07:00–15:00 / 13:00–20:00');
+    expect(horarioAsignadoLargo(h)).toBe('7:00 am a 3:00 pm · comida 30 min; 1:00 pm a 8:00 pm · comida 60 min');
+    // Una respuesta sin `horarios` (servidor viejo) se lee con uno solo.
+    expect(horarioAsignadoCorto({ ...h, horarios: undefined as never })).toBe('07:00–15:00');
+  });
+
+  it('el saldo de horas extra: con signo, «0» si es cero, vacío si no se pudo leer', () => {
+    expect([saldoTexto(180), saldoTexto(-90), saldoTexto(0), saldoTexto(null)]).toEqual(['3h 00m', '−1h 30m', '0', '']);
   });
 });

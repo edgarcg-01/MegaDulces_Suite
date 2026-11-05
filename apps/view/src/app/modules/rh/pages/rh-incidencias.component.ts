@@ -153,6 +153,9 @@ const CON_AUTORIZACION = new Set(['horario_distinto', 'desayuno_distinto', 'comi
           @if (f.incident_type === 'cambio_descanso') {
             <p class="ri-ancho ri-ayuda">El día elegido es su descanso de esa semana, y su descanso de siempre pasa a ser día de trabajo: si no viene ese día, es falta.</p>
           }
+          @if (f.incident_type === 'descanso') {
+            <p class="ri-ancho ri-ayuda">Esos días cuentan como descanso (no como falta ni como vacaciones) y su descanso de siempre no se mueve: para quien descansa dos días esa semana, o para quitarle a unas vacaciones el día que de todos modos descansaba.</p>
+          }
           @if (conAutorizacion(f.incident_type)) {
             <label class="ri-ancho">Por qué ese día fue distinto <input pInputText name="motivo" [(ngModel)]="f.reason" required /></label>
             <label>Quién lo autorizó <input pInputText name="autorizo" [(ngModel)]="f.authorized_by_name" required /></label>

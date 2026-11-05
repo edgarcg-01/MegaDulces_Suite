@@ -62,19 +62,23 @@ export function detalleDia(marcasCrudas: string[], desayuno?: ConfigDesayuno): D
   // (Mega Talento 091ea65, 08/10/2026). Antes bastaba con que empezara antes del corte, y la comida de
   // una tienda a las 11:22 salía como «desayuno de 59 min». Mismo criterio que `reglaDesayunoExcedido`.
   const hayDosPausas = Math.floor(medio.length / 2) >= 2;
-  for (let i = 0; i < medio.length; i += 2) {
-    if (i + 1 < medio.length) {
-      tramos.push(`${hd.aHora(medio[i])} – ${hd.aHora(medio[i + 1])}`);
-      fuera += medio[i + 1] - medio[i];
-      pausas++;
-      if (desayuno && hayDosPausas && desayunoMin == null && medio[i] < desayuno.hastaMin) {
-        const dur = medio[i + 1] - medio[i];
-        if (dur <= desayuno.maxPlausibleMin) desayunoMin = dur;
-      }
-    } else {
-      // Impar: la última salida no tiene regreso. Se enseña, no se descuenta.
+  // `[RH.1.15]` Impar: una marca no tiene pareja. Se enseña, no se descuenta. Cuál es la decide
+  // `hd.marcaSinPareja` (la que deja las pausas más cortas; antes era siempre la última).
+  const suelta = hd.marcaSinPareja(medio);
+  for (let i = 0; i < medio.length; ) {
+    if (i === suelta || i + 1 >= medio.length) {
       tramos.push(hd.aHora(medio[i]) as string);
+      i++;
+      continue;
     }
+    tramos.push(`${hd.aHora(medio[i])} – ${hd.aHora(medio[i + 1])}`);
+    fuera += medio[i + 1] - medio[i];
+    pausas++;
+    if (desayuno && hayDosPausas && desayunoMin == null && medio[i] < desayuno.hastaMin) {
+      const dur = medio[i + 1] - medio[i];
+      if (dur <= desayuno.maxPlausibleMin) desayunoMin = dur;
+    }
+    i += 2;
   }
 
   const desayunoPagado = !!desayuno?.cuentaComoJornada && desayunoMin != null && pausas >= 2;

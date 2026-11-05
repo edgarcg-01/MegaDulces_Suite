@@ -109,6 +109,8 @@ export interface HrDiaAsistencia {
   comidaPermitidaMin?: number;
   /** «Cambio de día de descanso»: este día pasó a ser su descanso, o a ser de trabajo. */
   descansoCambio?: 'descansa' | 'trabaja';
+  /** `[RH.1.15]` Con varios horarios asignados: la entrada del que trabajó ese día (contra cuál se midió). */
+  turno?: string;
 }
 
 /** Una semana de nómina (jueves a miércoles) con su bolsa de tolerancia. */
@@ -123,11 +125,20 @@ export interface HrSemanaAsistencia {
   minutosTrabajados: number;
 }
 
-/** El horario completo que RH le asignó a una persona. */
-export interface HrHorarioAsignado {
+/** `[RH.1.15]` Uno de los horarios (turnos) que RH le asignó a una persona. */
+export interface HrTurnoAsignado {
   entrada: string;
   salida: string;
   comidaMin: number;
+}
+
+/**
+ * El horario completo que RH le asignó a una persona. `[RH.1.15]` Puede tener hasta 4 (`horarios`;
+ * con uno solo, ése uno) y `entrada`/`salida`/`comidaMin` son los del primero. Cada día se mide
+ * contra el más cercano a su entrada. El sábado es uno solo para todos.
+ */
+export interface HrHorarioAsignado extends HrTurnoAsignado {
+  horarios: HrTurnoAsignado[];
   sabado: boolean;
   sabadoEntrada: string | null;
   sabadoSalida: string | null;
@@ -238,6 +249,8 @@ export interface HrHorarioPersonaBody {
   starts_at: string;
   ends_at: string;
   lunch_minutes: number;
+  /** `[RH.1.15]` De 2 a 4 horarios (mañana, tarde…); con él, `starts_at`/`ends_at`/`lunch_minutes` son los del primero. */
+  shifts?: Array<{ starts_at: string; ends_at: string; lunch_minutes: number }>;
   works_saturday?: boolean;
   saturday_starts_at?: string;
   saturday_ends_at?: string;

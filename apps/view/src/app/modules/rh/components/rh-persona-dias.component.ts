@@ -39,13 +39,14 @@ interface RenglonDia {
             <tr [class.apagado]="!r.medido && r.tono === 'mute'">
               <td class="m dt-id" role="cell" data-label="Día">{{ r.col.dow }} {{ r.col.dia }}</td>
               @if (r.medido && r.d; as d) {
-                <td class="m" role="cell" data-label="Entrada">{{ d.entrada }}@if (mideRetardo() && d.atrasoMin > 0) { <span class="tag bad">+{{ d.atrasoMin }} min</span> }</td>
+                <td class="m" role="cell" data-label="Entrada">{{ d.entrada }}@if (mideRetardo() && d.atrasoMin > 0) { <span class="tag bad">+{{ d.atrasoMin }} min</span> }
+                  @if (d.turno) { <span class="d" [title]="'Tiene varios horarios: este día se midió contra el que entra a las ' + d.turno">turno {{ d.turno }}</span> }</td>
                 <td class="m" role="cell" data-label="Desayuno">@if (r.desayuno) { {{ r.desayuno }} <span class="d">{{ d.desayunoMin }} min</span> }
                   @else { <span class="d">—</span> }@if ((d.desayunoExcesoMin || 0) > 0) { <span class="tag warn">+{{ d.desayunoExcesoMin }} min</span> }</td>
                 <td class="m" role="cell" data-label="Comida">@if (r.comida) { {{ r.comida }} @if (d.comidaMin !== null && d.comidaMin !== undefined) { <span class="d">{{ d.comidaMin }} min</span> } }
                   @else { <span class="d">—</span> }@if ((d.comidaExcesoMin || 0) > 0) { <span class="tag warn">+{{ d.comidaExcesoMin }} min</span> }</td>
                 <td class="m" role="cell" data-label="Salida">{{ d.salida }}@if ((d.salidaAntesMin || 0) > 0) { <span class="tag warn">−{{ d.salidaAntesMin }} min</span> }</td>
-                <td class="num dt-num" role="cell" data-label="Horas">{{ horas(d.netasMin) }}</td>
+                <td class="num dt-num" role="cell" data-label="Horas">{{ horas(d.netasMin) }}@if (d.horasExtraUsadasMin) { <span class="d" title="Uso de horas extra: se suman a sus horas del día y se restan de su saldo"> incl. {{ horas(d.horasExtraUsadasMin) }} de horas extra</span> }</td>
                 <td class="num dt-num" role="cell" [attr.data-label]="mideRetardo() ? 'Min. retardo' : 'Retardo'">@if (mideRetardo()) { {{ d.atrasoMin || '' }} } @else { — }</td>
                 @if (persona().horarioAsignado) { <td class="num dt-num" role="cell" data-label="vs. horario" [class.menos]="(r.vs ?? 0) < 0" [class.mas]="(r.vs ?? 0) > 0">{{ firma(r.vs) }}</td> }
               } @else {

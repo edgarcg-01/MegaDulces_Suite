@@ -18,27 +18,54 @@ import * as reader from './attendance-reader';
 const RE_HORA = /^([01]\d|2[0-3]):[0-5]\d$/;
 const aMin = (h: string): number => { const [a, b] = h.split(':').map(Number); return a * 60 + b; };
 
-export interface HorarioPersonaDto {
-  site_code?: string;
-  person_codes?: unknown;
+/** `[RH.1.15]` Uno de varios horarios (mañana, tarde…). */
+export interface TurnoDto {
   starts_at?: string;
   ends_at?: string;
   lunch_minutes?: unknown;
+}
+
+export interface HorarioPersonaDto extends TurnoDto {
+  site_code?: string;
+  person_codes?: unknown;
+  /** `[RH.1.15]` Varios horarios; sin él (o vacío), el horario es `starts_at`/`ends_at`/`lunch_minutes`. */
+  shifts?: unknown;
   works_saturday?: boolean;
   saturday_starts_at?: string;
   saturday_ends_at?: string;
 }
 
+/** `[RH.1.15]` Hasta cuántos horarios distintos se le ponen a una persona (Mega Talento `MAX_HORARIOS`). */
+export const MAX_HORARIOS = 4;
+
+/** Un turno ya validado, en la forma en que se guarda en `hr.person_schedules.shifts` (la de Mega Talento). */
+export interface TurnoGuardado { entrada: string; salida: string; comidaMin: number; }
+
+/** Los horarios que llegan: `shifts: [...]` (varios) o, como antes, los campos sueltos (uno). */
+export function horariosDelCuerpo(b: HorarioPersonaDto): TurnoGuardado[] {
+  const lista: TurnoDto[] = Array.isArray(b.shifts) && b.shifts.length ? (b.shifts as TurnoDto[]) : [b];
+  return lista.map((h) => ({
+    entrada: String(h?.starts_at || ''), salida: String(h?.ends_at || ''), comidaMin: Number(h?.lunch_minutes),
+  }));
+}
+
 /** Devuelve el error en palabras de RH, o null si el horario está bien. */
 export function errorDeHorario(b: HorarioPersonaDto): string | null {
-  if (!RE_HORA.test(String(b.starts_at || '')) || !RE_HORA.test(String(b.ends_at || ''))) {
-    return 'La entrada y la salida deben venir como HH:MM (por ejemplo 08:00 y 18:00).';
+  const horarios = horariosDelCuerpo(b);
+  if (horarios.length > MAX_HORARIOS) return `Se le pueden poner hasta ${MAX_HORARIOS} horarios.`;
+  for (const [i, h] of horarios.entries()) {
+    const cual = horarios.length > 1 ? ` (horario ${i + 1})` : '';
+    if (!RE_HORA.test(h.entrada) || !RE_HORA.test(h.salida)) {
+      return `La entrada y la salida deben venir como HH:MM (por ejemplo 08:00 y 18:00)${cual}.`;
+    }
+    if (aMin(h.salida) <= aMin(h.entrada)) return `La salida tiene que ser después de la entrada${cual}.`;
+    if (!Number.isInteger(h.comidaMin) || h.comidaMin < 0 || h.comidaMin > 180) return `La comida va de 0 a 180 minutos${cual}.`;
+    if (aMin(h.salida) - aMin(h.entrada) - h.comidaMin < 60) return `Con esa comida no le queda ni una hora de trabajo: revisa las horas${cual}.`;
   }
-  const ent = aMin(String(b.starts_at)), sal = aMin(String(b.ends_at));
-  if (sal <= ent) return 'La salida tiene que ser después de la entrada.';
-  const com = Number(b.lunch_minutes);
-  if (!Number.isInteger(com) || com < 0 || com > 180) return 'La comida va de 0 a 180 minutos.';
-  if (sal - ent - com < 60) return 'Con esa comida no le queda ni una hora de trabajo: revisa las horas.';
+  // Cada día se elige el horario por su ENTRADA: dos con la misma no se distinguen.
+  if (new Set(horarios.map((h) => h.entrada)).size !== horarios.length) {
+    return 'Dos horarios no pueden empezar a la misma hora: cada día se reconoce cuál trabajó por su hora de entrada.';
+  }
   if (b.works_saturday) {
     if (!RE_HORA.test(String(b.saturday_starts_at || '')) || !RE_HORA.test(String(b.saturday_ends_at || ''))) {
       return 'El sábado necesita su hora de entrada y de salida.';
@@ -141,19 +168,24 @@ export class HrAttendanceSchedulesService {
     if (err) throw new BadRequestException(err);
     const q = this.quien();
     const sabado = !!b.works_saturday;
+    // `[RH.1.15]` `shift_starts` lleva todas las entradas y la salida y la comida son las del primero;
+    // `shifts` sólo se llena cuando son varios (ver la migración 20261021090942).
+    const horarios = horariosDelCuerpo(b);
+    const [primero] = horarios;
     return this.tk.run(this.tenantCtx.requireTenantId(), async (trx) => {
       if (!(await reader.sitioExiste(trx, site))) throw new NotFoundException(`No existe el sitio de checado "${site}".`);
       const filas = codigos.map((c) => ({
         tenant_id: this.tenantCtx.requireTenantId(), site_code: site, person_code: c,
-        shift_starts: trx.raw('ARRAY[?::time]', [String(b.starts_at)]),
-        ends_at: b.ends_at, lunch_minutes: Number(b.lunch_minutes), works_saturday: sabado,
+        shift_starts: trx.raw(`ARRAY[${horarios.map(() => '?::time').join(',')}]`, horarios.map((h) => h.entrada)),
+        shifts: horarios.length > 1 ? JSON.stringify(horarios) : null,
+        ends_at: primero.salida, lunch_minutes: primero.comidaMin, works_saturday: sabado,
         saturday_starts_at: sabado ? b.saturday_starts_at : null, saturday_ends_at: sabado ? b.saturday_ends_at : null,
         note: 'Horario asignado desde la Suite', confirmed_by: q.id, confirmed_by_name: q.nombre,
       }));
       const r = await trx('hr.person_schedules').insert(filas)
         .onConflict(['tenant_id', 'site_code', 'person_code'])
         .merge(Object.fromEntries([
-          ...['shift_starts', 'ends_at', 'lunch_minutes', 'works_saturday', 'saturday_starts_at',
+          ...['shift_starts', 'shifts', 'ends_at', 'lunch_minutes', 'works_saturday', 'saturday_starts_at',
             'saturday_ends_at', 'note', 'confirmed_by', 'confirmed_by_name'].map((c) => [c, trx.raw(`EXCLUDED.${c}`)]),
           ['updated_at', trx.fn.now()],
         ]))

@@ -27,7 +27,7 @@ describe('[RH.1.8] guiones del corte — copias que no pueden divergir', () => {
 
   it('la cadena del pre-vuelo = base de CH + las de la carga + el reparto + la de personas, y cada archivo existe', () => {
     const esperada = [carga.MIGRACION_BASE_CH, ...carga.MIGRACIONES_FASE, '20261008094815_hr_reparto_asistencia', personas.MIGRACION_PERSONAS,
-      '20261012122707_hr_horas_extra_ajustes', personas.MIGRACION_FICHAS]
+      '20261012122707_hr_horas_extra_ajustes', personas.MIGRACION_FICHAS, carga.MIGRACION_VARIOS_HORARIOS]
       .map((n: string) => `${n}.js`);
     expect(prevuelo.MIG_REPARTO).toBe('20261008094815_hr_reparto_asistencia.js');
     expect(prevuelo.CADENA).toEqual(esperada);
