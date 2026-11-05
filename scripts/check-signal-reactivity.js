@@ -161,6 +161,12 @@ const PERMITIDOS = new Map([
   ['apps/view/src/app/modules/compras/pages/compras-pedido-real.component.ts::wbWarehouses', 'deuda CG.22 (parcial)'],
   ['apps/view/src/app/modules/compras/pages/compras-pedido-real.component.ts::search', 'deuda CG.22 (parcial)'],
   ['apps/view/src/app/modules/compras/pages/compras-pedido-real.component.ts::coverage', 'deuda CG.22 (parcial)'],
+  // Séptimo hermano de los de arriba, mismo computed `filtrosActivos` y misma deuda. Medido el
+  // 2026-11-04: los CUATRO que lo escriben (limpiarFiltros, setCoverage ×2, coberturaTecleada)
+  // terminan en `loadWorkbook()` → `saveFilters()`, que sube `filtrosRev` — por eso el contador
+  // hoy no se queda viejo. Pero el campo sigue sin despertar al computed por sí mismo: si mañana
+  // alguien lo cambia sin pasar por ahí, el bug vuelve mudo. Se arregla con CG.22, no acá.
+  ['apps/view/src/app/modules/compras/pages/compras-pedido-real.component.ts::coberturaSucursal', 'deuda CG.22 (parcial)'],
   ['apps/view/src/app/modules/comercial/pages/comercial-orders.component.ts::fromDate', 'deuda CG.22 (parcial)'],
   ['apps/view/src/app/modules/comercial/pages/comercial-orders.component.ts::toDate', 'deuda CG.22 (parcial)'],
   ['apps/view/src/app/modules/finanzas/pages/finanzas-capturas-sin-folio.component.ts::solSel', 'deuda CG.22 (parcial)'],

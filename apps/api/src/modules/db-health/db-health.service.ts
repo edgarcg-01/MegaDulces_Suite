@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { KNEX_NEW_DB_ADMIN, TenantContextService } from '@megadulces/platform-core';
 import { CAJA_AUTOFILL_FRESCURA_H } from '@megadulces/contracts';
+import type { BandejaDeAlertas } from '@megadulces/contracts';
 import type { Knex } from 'knex';
 import { Client } from 'pg';
 // [DH.1] La regla de recurrencia vive aparte, SIN dependencias, para que su candado pueda
@@ -1785,7 +1786,7 @@ export class DbHealthService {
    * primero (críticas antes que warn) + las resueltas en los últimos 7 días. Scopeado al
    * tenant del request (admin knex bypass RLS → filtro explícito).
    */
-  async listAlerts(): Promise<{ open: any[]; recent_resolved: any[]; recent_resolved_total: number }> {
+  async listAlerts(): Promise<BandejaDeAlertas> {
     if (!this.knex) return { open: [], recent_resolved: [], recent_resolved_total: 0 };
     const tenantId = this.tenantCtx.requireTenantId();
     const reg = await this.knex.raw(`SELECT to_regclass('analytics.db_health_alerts') AS t`);

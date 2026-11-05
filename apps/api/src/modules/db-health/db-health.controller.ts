@@ -4,6 +4,7 @@ import { RequirePermissions, Permission } from '@megadulces/platform-core';
 import { DbHealthService } from './db-health.service';
 import { DbHealthScannerService } from './db-health-scanner.service';
 import { TorresService } from './torres.service';
+import type { TorreSistemas, TorreDesarrollo } from '@megadulces/contracts';
 
 /**
  * Salud/frescura de la DB de la app. Solo lectura. Gateado por USUARIOS_GESTIONAR
@@ -23,7 +24,7 @@ export class DbHealthController {
   @Get('torre/sistemas')
   @ApiOperation({ summary: 'Torre de Sistemas: servidores Kepler, caídas, carriles de entrada' })
   @RequirePermissions(Permission.PLATFORM_HEALTH_VER)
-  torreSistemas() {
+  torreSistemas(): Promise<TorreSistemas> {
     return this.torres.sistemas();
   }
 
@@ -31,7 +32,7 @@ export class DbHealthController {
   @Get('torre/desarrollo')
   @ApiOperation({ summary: 'Torre de Desarrollo: entrega, base, respaldos, carriles de la suite' })
   @RequirePermissions(Permission.PLATFORM_HEALTH_VER)
-  torreDesarrollo() {
+  torreDesarrollo(): Promise<TorreDesarrollo> {
     return this.torres.desarrollo();
   }
 

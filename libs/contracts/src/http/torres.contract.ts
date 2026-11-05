@@ -130,3 +130,47 @@ export const TORRE_SISTEMAS_RX = /^(kepler_|ods_|cdc_|store_|caja_general|wincaj
 export function torreDeLlave(clave: string): 'sistemas' | 'desarrollo' {
   return TORRE_SISTEMAS_RX.test(clave) ? 'sistemas' : 'desarrollo';
 }
+
+/**
+ * `[DH.5]` Una alerta persistida de la bandeja de salud (`analytics.db_health_alerts`), tal como la
+ * publica `GET /db-health/alerts`. Sólo las columnas que ese endpoint selecciona: ni `tenant_id`
+ * ni `detail` ni `acknowledged_by` salen al cliente.
+ *
+ * Tipos y nulabilidad **medidos contra prod el 2026-11-04** (`information_schema.columns`), no
+ * supuestos. `age_seconds` y `last_update` viajan `null` cuando no se pudieron medir: nunca 0.
+ */
+export interface AlertaDeSalud {
+  id: string;
+  /** Llave de la fuente que falló (`ods_live_hot`, `kepler_ods`…). */
+  source_key: string;
+  /** Nombre legible. `null` si la fuente no declaró uno. */
+  source_label: string | null;
+  /** Agrupador de la bandeja. `null` = sin grupo. */
+  group_key: string | null;
+  /** Lo respalda el CHECK `db_health_alerts_status_valid`: sólo estos dos valores. */
+  status: 'warn' | 'critical';
+  /** Antigüedad del dato que disparó la alerta. `null` = no medida, NO cero. */
+  age_seconds: number | null;
+  /** ISO. Última actualización de la fuente; `null` si no se pudo leer. */
+  last_update: string | null;
+  note: string | null;
+  /** ISO. */
+  first_seen_at: string;
+  /** ISO. */
+  last_seen_at: string;
+  /** ISO. `null` mientras sigue abierta. */
+  resolved_at: string | null;
+  /** ISO. `null` mientras nadie la marcó como vista. */
+  acknowledged_at: string | null;
+}
+
+/**
+ * `[DH.5]` Lo que devuelve la bandeja: las abiertas y las resueltas de los últimos 7 días.
+ * `recent_resolved` viene **topada a 50**, y por eso `recent_resolved_total` dice cuántas hay de
+ * verdad — sin él la pantalla rotulaba «Resueltas recientes (50)» sobre 160 reales.
+ */
+export interface BandejaDeAlertas {
+  open: AlertaDeSalud[];
+  recent_resolved: AlertaDeSalud[];
+  recent_resolved_total: number;
+}
