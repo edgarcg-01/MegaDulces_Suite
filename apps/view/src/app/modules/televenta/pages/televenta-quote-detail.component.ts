@@ -261,7 +261,8 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
                           </div>
                           <div class="cat-col-precio">
                             <span class="cat-precio-val">{{ dinero(p.piece_price) }}</span>
-                            <span class="cat-precio-lbl">base</span>
+                            <!-- [COT.27] $0.01 = regalo de promoción de Kepler; la condición está en el nombre. -->
+                            <span class="cat-precio-lbl">{{ p.precio_simbolico ? 'regalo de promoción' : 'base' }}</span>
                           </div>
                         </button>
                       </li>
