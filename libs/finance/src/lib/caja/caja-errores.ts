@@ -130,23 +130,33 @@ interface ErrorPg { code?: string; constraint?: string }
  * columna y de constraint a una pantalla de captura de efectivo.
  */
 export function traducirErrorDeCaja(e: unknown): never {
+  const frase = fraseDeErrorDeCaja(e);
+  if (frase) throw new BadRequestException(frase);
+
+  // ⛔ Desconocido: NO se disfraza de 400. Que siga siendo un 500 es lo que hace que alguien lo
+  // mire.
+  throw e as Error;
+}
+
+/**
+ * La frase para humanos de un error de Postgres del libro, o `null` si no se reconoce.
+ *
+ * ⛔ `[LE.0.9]` El lote (`crearLote`) no pasaba por aquí: reportaba cada fila rechazada con
+ * `e.message.slice(0, 200)`, que es SQL. En HG-5 (2026-11-03) las 14 filas decían
+ * «insert into "finance"."cash_ledger" (…» y la causa —`caja_exige_llave_chk`, que ya tenía su
+ * frase en este mapa— nunca llegó a la pantalla.
+ */
+export function fraseDeErrorDeCaja(e: unknown): string | null {
   const pg = e as ErrorPg;
   const porNombre = pg?.constraint ? POR_CONSTRAINT[pg.constraint] : undefined;
-  if (porNombre) throw new BadRequestException(porNombre);
+  if (porNombre) return porNombre;
 
   // `check_violation` de una regla que no está en el mapa: se dice que es una regla del libro,
   // sin nombrarla. Es lo único honesto — la regla existe y la persona no la cumplió, pero no
   // tenemos una frase escrita para ella.
   if (pg?.code === '23514') {
-    throw new BadRequestException(
-      'El movimiento no cumple una de las reglas del libro de caja. Revisa los datos y vuelve a intentar.',
-    );
+    return 'El movimiento no cumple una de las reglas del libro de caja. Revisa los datos y vuelve a intentar.';
   }
 
-  const porCodigo = pg?.code ? CODIGOS_DEL_CLIENTE[pg.code] : undefined;
-  if (porCodigo) throw new BadRequestException(porCodigo);
-
-  // ⛔ Desconocido: NO se disfraza de 400. Que siga siendo un 500 es lo que hace que alguien lo
-  // mire.
-  throw e as Error;
+  return (pg?.code ? CODIGOS_DEL_CLIENTE[pg.code] : undefined) ?? null;
 }

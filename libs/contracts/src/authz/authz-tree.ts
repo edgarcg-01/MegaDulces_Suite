@@ -423,7 +423,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // TP.6 — dos permisos de manage a propósito: GESTIONAR prepara (asigna/reprograma/
           // prepara), AUTORIZAR libera el lote (separación de funciones, precedente
           // COMPRAS_ENTRADAS_GESTIONAR/VALIDAR). Ver el comentario largo en permissions.ts.
-          { id: 'caja-general', label: 'Caja General', route: '/finanzas/caja-general', view: [Permission.FINANCE_CAJA_VER], manage: [Permission.FINANCE_CAJA_GESTIONAR, Permission.FINANCE_CAJA_AUTORIZAR] },
+          { id: 'caja-general', label: 'Caja General', route: '/finanzas/caja-general', view: [Permission.FINANCE_CAJA_VER], manage: [Permission.FINANCE_CAJA_GESTIONAR, Permission.FINANCE_CAJA_AUTORIZAR, Permission.FINANCE_CAJA_VENTANILLA] },
           // `[CG.105]` El corte diario y el expediente del día, derivados del Access `Control`
           // (30,199 arqueos desde 2013-09-13). Es lo que se revisa cada mañana para ver si el
           // corte coincide con lo que hay físicamente. ⛔ `manage` VACÍO a propósito: se captura
