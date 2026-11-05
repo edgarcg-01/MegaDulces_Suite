@@ -564,6 +564,22 @@ por la entrada estándar, no en la línea de comandos):
 - ⛔ **El ensayo completo no puede correr todavía:** lo primero que lee es `kdxe`, y hoy da «permiso denegado». Los
   `GRANT` son lo único que falta para ensayar el pago entero.
 
+**El menú «Pagos a proveedor» de Kepler, documento por documento** (catálogo `kdmm` y oficinas desde el 1-ago-2026,
+medido el 2026-11-04 a pedido de Edgar):
+
+| Opción del menú | Documento | Escribe | Uso desde el 1-ago | Para la Suite |
+|---|---|---|---|---|
+| Transferencia a proveedor | `X-D-26` | `kdm1` + `kdxe` + `kdxf` + saldo | 1,014 a compra (`C…`) · 5,681 a gasto (`G…`) · 61 a otros | ⭐ **lo de este armador** (hoy sólo `C…`) |
+| Cheques a proveedor | `X-D-25` | lo mismo | 78 a compra · 101 a gasto | el mismo armador con `c4=25`, `c31=Che`, prefijo `XD2501-`; `c11` lleva `CH-<folio del cheque>` en 128 de 179 |
+| Transferencia a no proveedor | `N-A-26` «Transferencia bancaria» | **sólo `kdm1`**: sin cuentas por pagar ni facturas | 523 · $77.5 M | ⛔ **no es pago a proveedor**: los 523 van a la **misma persona física**, desde 17 cuentas. No entra al Calendario sin que Edgar diga qué son |
+| Cheques a no proveedor | — | — | 0 documentos | — |
+
+- Los pagos a **acreedores de gasto** (`G…`) son el mismo documento y casan facturas igual (5,632 de 5,681): sus
+  conceptos son los de gasto del catálogo `kdxv` (`012` gastos financieros 2,892, `007` gastos generales 2,296,
+  `009` nómina 455). Entran con el mismo armador quitando el filtro `C…` y con `c48` vacío (el mapa de sucursal sólo
+  existe para los conceptos de compra). **Propuesta: primero compra por transferencia, después cheque y gasto.**
+- Los tipos `X-D-20/23/24` («Pago prov. Trans/cheq/banc», «0 %», «8 %») existen en el catálogo y no tienen documentos.
+
 ### C1 · Dominio
 
 | # | Item | Estado | Prueba que lo ejerce |
