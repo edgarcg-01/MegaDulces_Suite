@@ -40,7 +40,7 @@ import {
   TransferSuggestionRow, TransferSuggestionResponse, OverstockRow, OverstockResponse, WorkbookRow, WorkbookResponse,
   InTransitOc, InTransitResponse, MonthlySalesResponse, WorklistRow, AgendaProveedorRow,
 } from '../compras.service';
-import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { MetricStripComponent, MetricStripItem, MetricTone } from '../../../shared/components/metric-strip/metric-strip.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
@@ -80,6 +80,8 @@ const SIN_FILAS: URow[] = [];
 const FRESCURA_SIN_MEDIR: Freshness = { data_as_of: null, status: 'unknown', stale: true, age_human: null, inputs: [] };
 /** `[RA-PERF.7]` Proveedor sin nada capturado todavía. Ceros REALES (no se midió nada mal). */
 const SIN_PEDIDO = { cajas: 0, monto: 0, productos: 0 };
+/** `[PQ.76]` Un producto que no existe: pide los totales de las tres listas sin traer renglones. */
+const NINGUN_PRODUCTO = '00000000-0000-0000-0000-000000000000';
 
 /**
  * RA-PRO.47 — Renglón de COMPRA por sucursal del desglose.
@@ -2426,6 +2428,11 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   private readonly buyRows = signal<PurchaseSuggestionRow[]>([]);
   private readonly trRows = signal<TransferSuggestionRow[]>([]);
   private readonly ovRows = signal<OverstockRow[]>([]);
+  /** `[PQ.76]` Totales del filtro completo, del servidor. `undefined` = cargando · `null` = la lista no respondió. */
+  readonly trTotal = signal<number | null | undefined>(undefined);
+  readonly ovTotal = signal<number | null | undefined>(undefined);
+  /** `[PQ.76]` Productos cuyas tres listas ya están cargadas (página vista o marcados). */
+  private enriquecidos = new Set<string>();
   private readonly urows = signal<URow[]>([]);       // modelo unificado (qty editable vive aquí)
   private readonly tickN = signal(0);                 // fuerza recompute de subtotales al editar qty
 
@@ -4635,6 +4642,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     // indexado por producto, así que lo que no está en la página simplemente no se pinta.
     if (reloadEnrichment) {
       this.detailReady.set(false);
+      this.trTotal.set(undefined); this.ovTotal.set(undefined);
       // `[RA-BORR.1]` ⛔ **ACÁ SE BORRABA EL PEDIDO, Y ÉSE ERA EL ACCIDENTE.**
       //
       // Vivían un `buyQty.set({})` + `buyUnit` + `buyDeliver` + `resetSel()` + `dirty.set(false)`,
@@ -4673,10 +4681,33 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         this.wbAgotadosN.set(r.agotados_con_venta ?? null);
         this.frescura.set(r.freshness ?? FRESCURA_SIN_MEDIR);
         this.loadedAt.set(Date.now());
+        // `[PQ.76]` El enriquecimiento (traspasos, sobrestock, ABC) se pide para los productos de la
+        // PÁGINA, no para «los primeros 500 de la red»: el servidor topaba ahí y se sumaban como si
+        // fueran el total. Al cambiar de filtro se pide la página más lo marcado; al paginar, sólo
+        // lo que falte, y se AGREGA (reconstruir borraría las cantidades de traspaso ya editadas).
+        if (!reloadEnrichment) {
+          const faltan = [...new Set(r.rows.map((x) => x.product_id))].filter((p) => !this.enriquecidos.has(p));
+          if (faltan.length) {
+            this.fetchConsolidated(true, faltan).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((res) => {
+              if (gen !== this.reqGen || !res.buy || !res.tr || !res.ov) return;
+              this.agregarEnriquecimiento(res.buy.rows, res.tr.rows, res.ov.rows);
+              faltan.forEach((p) => this.enriquecidos.add(p));
+            });
+          }
+        }
         if (reloadEnrichment) {
-          this.fetchConsolidated(true).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((res) => {
+          const pids = [...new Set([...r.rows.map((x) => x.product_id), ...[...this.selected()].slice(0, 300)])];
+          // Página vacía: igual se piden los totales (los KPIs son del filtro), pero sin renglones.
+          // Una lista vacía de productos el servidor la lee como «sin filtro» y mandaría los 500
+          // primeros de la red; un id que no existe trae sólo el renglón testigo con los totales.
+          this.fetchConsolidated(true, pids.length ? pids : [NINGUN_PRODUCTO]).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((res) => {
             if (gen !== this.reqGen) return;   // idem: el enriquecimiento de una consulta vieja
             this.buyRows.set(res.buy?.rows ?? []); this.trRows.set(res.tr?.rows ?? []); this.ovRows.set(res.ov?.rows ?? []);
+            this.enriquecidos = new Set(res.buy && res.tr && res.ov ? pids : []);
+            // Los KPIs son del filtro completo: el total del servidor, no la suma de lo que viajó.
+            // Una lista que no respondió se declara (null), no se dibuja en cero.
+            this.trTotal.set(res.tr ? Number(res.tr.total_valor) || 0 : null);
+            this.ovTotal.set(res.ov ? Number(res.ov.total_valor) || 0 : null);
             this.rebuild(); this.detailReady.set(true);
           });
         }
@@ -4699,26 +4730,37 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   }
 
   /** forkJoin de las 3 fuentes por-sucursal. ignoreWarehouse=true (Vista Excel) trae todas las sucursales. */
-  private fetchConsolidated(ignoreWarehouse: boolean) {
+  private fetchConsolidated(ignoreWarehouse: boolean, product_ids?: string[]) {
     const wh = ignoreWarehouse ? undefined : (this.fWarehouse || undefined);
     const sup = this.fSupplier || undefined, s = this.search.trim() || undefined, cat = this.fCategory || undefined;
     const brand = this.fBrand || undefined;
+    // `[PQ.76]` Con `product_ids` el servidor no topa en 500: trae todos los renglones de esos productos.
+    const pageSize = product_ids ? 5000 : 1000;
     return forkJoin({
-      buy: this.api.purchaseSuggestion({ supplier_id: sup, brand_id: brand, category_id: cat, warehouse_id: wh, scope: 'needed', search: s, coverage_days: this.coverage, pageSize: 1000 })
+      buy: this.api.purchaseSuggestion({ supplier_id: sup, brand_id: brand, category_id: cat, warehouse_id: wh, scope: 'needed', search: s, coverage_days: this.coverage, pageSize, product_ids })
         .pipe(catchError(() => of(null as PurchaseSuggestionResponse | null))),
-      tr: this.api.transferSuggestion({ warehouse_id: wh, supplier_id: sup, brand_id: brand, category_id: cat, search: s, coverage_days: this.coverage, pageSize: 1000 })
+      tr: this.api.transferSuggestion({ warehouse_id: wh, supplier_id: sup, brand_id: brand, category_id: cat, search: s, coverage_days: this.coverage, pageSize, product_ids })
         .pipe(catchError(() => of(null as TransferSuggestionResponse | null))),
-      ov: this.api.overstock({ warehouse_id: wh, supplier_id: sup, brand_id: brand, category_id: cat, search: s, over_days: 90, pageSize: 1000 })
+      ov: this.api.overstock({ warehouse_id: wh, supplier_id: sup, brand_id: brand, category_id: cat, search: s, over_days: 90, pageSize, product_ids })
         .pipe(catchError(() => of(null as OverstockResponse | null))),
     });
+  }
+
+  /** `[PQ.76]` Una cifra que sale de una lista: cargando, no medida o el total del servidor. Nunca un 0 inventado. */
+  private kpiDeLista(label: string, v: number | null | undefined, sub: string, tone?: MetricTone): MetricStripItem {
+    if (v === undefined) return { label, value: '…', tone: 'muted', sub: 'cargando' };
+    if (v === null) return { label, value: '—', tone: 'muted', sub: 'no se pudo medir' };
+    return { label, value: v, format: 'currency', tone, sub };
   }
 
   pedidoKpi(): MetricStripItem[] {
     const t = this.wbTotals();
     return [
       { label: 'A comprar', value: t.pedido, format: 'currency', tone: 'brand', sub: 'venta × cobertura' },
-      { label: 'A traspasar', value: this.totTr(), format: 'currency', sub: 'desde CEDIS' },
-      { label: 'Sobrestock', value: this.totOver(), format: 'currency', tone: 'warn', sub: 'inmovilizado' },
+      // `[PQ.76]` Total del filtro completo (el del servidor). Antes era la suma de los primeros 500
+      // renglones: medido el 2026-11-05, $3.5 M de $5.0 M en traspasos y $9.5 M de $13.2 M en sobrestock.
+      this.kpiDeLista('A traspasar', this.trTotal(), 'desde CEDIS'),
+      this.kpiDeLista('Sobrestock', this.ovTotal(), 'inmovilizado', 'warn'),
       { label: 'SKUs', value: this.wbTotal() },
       // `[PQ.38]` Los dos operandos de «Días de existencia», a la vista y con los mismos filtros que
       // la tabla: la venta va A PRECIO (suma de «Valor venta»), la existencia AL COSTO (suma de
@@ -5111,8 +5153,26 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
 
   /** Reconstruye el modelo unificado (una sola vez por carga; qty editable persiste en cada URow). */
   private rebuild(): void {
+    this.urows.set(this.aURows(this.buyRows(), this.trRows(), this.ovRows()));
+    this.sellarCarga();
+  }
+
+  /**
+   * `[PQ.76]` Agrega las listas de productos que todavía no estaban (una página nueva) SIN
+   * reconstruir lo cargado: `rebuild()` crea renglones nuevos y perdería las cantidades de
+   * traspaso que el comprador ya editó en otra página.
+   */
+  private agregarEnriquecimiento(buy: PurchaseSuggestionRow[], tr: TransferSuggestionRow[], ov: OverstockRow[]): void {
+    this.buyRows.update((a) => [...a, ...buy]);
+    this.trRows.update((a) => [...a, ...tr]);
+    this.ovRows.update((a) => [...a, ...ov]);
+    this.urows.update((u) => [...u, ...this.aURows(buy, tr, ov)]);
+    this.tick();
+  }
+
+  private aURows(buyRows: PurchaseSuggestionRow[], trRows: TransferSuggestionRow[], ovRows: OverstockRow[]): URow[] {
     const out: URow[] = [];
-    for (const r of this.buyRows()) {
+    for (const r of buyRows) {
       out.push({
         type: 'comprar', product_id: r.product_id, sku: r.sku, nombre: r.nombre,
         warehouse_code: r.warehouse_code || '—', warehouse_id: r.warehouse_id ?? null,
@@ -5125,7 +5185,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         fill_rate: r.fill_rate ?? null, abc_class: r.abc_class ?? null, unit_source: r.unit_source, buy: r,
       });
     }
-    for (const r of this.trRows()) {
+    for (const r of trRows) {
       out.push({
         type: 'traspaso', product_id: r.product_id, sku: r.sku, nombre: r.nombre,
         warehouse_code: r.to_code || '—', warehouse_id: r.to_warehouse_id ?? null,
@@ -5137,7 +5197,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         fill_rate: null, abc_class: null, unit_source: undefined, buy: null,
       });
     }
-    for (const r of this.ovRows()) {
+    for (const r of ovRows) {
       out.push({
         type: 'sobre', product_id: r.product_id, sku: r.sku, nombre: r.nombre,
         warehouse_code: r.warehouse_code || '—', warehouse_id: r.warehouse_id ?? null,
@@ -5150,7 +5210,11 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         fill_rate: null, abc_class: null, unit_source: undefined, buy: null,
       });
     }
-    this.urows.set(out);
+    return out;
+  }
+
+  /** Lo que `rebuild()` hacía después de armar los renglones. */
+  private sellarCarga(): void {
     this.tick();
     this.loadedAt.set(Date.now());   // sella frescura
     // `[RA-BORR.1]` Datos frescos NO quiere decir "sin ediciones pendientes": desde que el cambio
@@ -5171,10 +5235,14 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   });
 
   /** Subtotales por sucursal (código → $ comprar/traspaso/sobre + cajas). */
+  /** `[PQ.76]` Los productos de la página: la barra dice «En esta página» y suma sólo éstos. */
+  private readonly paginaPids = computed(() => new Set(this.wbRows().map((r) => r.product_id)));
   private readonly subs = computed(() => {
     this.tickN();
     const m = new Map<string, Grp>();
+    const pag = this.paginaPids();
     for (const r of this.flatRows()) {
+      if (!pag.has(r.product_id)) continue;
       const g = m.get(r.warehouse_code) ?? { code: r.warehouse_code, name: this.nameOf(r.warehouse_code), buy: 0, tr: 0, over: 0, buyCj: 0, trCj: 0, n: 0 };
       const val = r.qty * r.unit_cost;
       if (r.type === 'comprar') { g.buy += val; g.buyCj += r.qty; }

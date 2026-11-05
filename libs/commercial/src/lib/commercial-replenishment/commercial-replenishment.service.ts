@@ -308,6 +308,8 @@ export interface PurchaseSuggestionQuery {
   page?: number;
   pageSize?: number;
   export?: boolean;
+  /** `[PQ.76]` CSV de productos: sólo esos renglones viajan; los totales siguen siendo del filtro completo. */
+  product_ids?: string;
 }
 
 // RA-PRO.20 — Traspaso preciso (topología-aware): déficit de sucursal ← superávit del CEDIS que la surte.
@@ -321,6 +323,8 @@ export interface TransferSuggestionQuery {
   page?: number;
   pageSize?: number;
   export?: boolean;
+  /** `[PQ.76]` CSV de productos: sólo esos renglones viajan; los totales siguen siendo del filtro completo. */
+  product_ids?: string;
 }
 
 // RA-PRO.19 — Sobrestock (capital inmovilizado), topología-aware (el CEDIS se mide vs demanda de red).
@@ -334,6 +338,8 @@ export interface OverstockQuery {
   page?: number;
   pageSize?: number;
   export?: boolean;
+  /** `[PQ.76]` CSV de productos: sólo esos renglones viajan; los totales siguen siendo del filtro completo. */
+  product_ids?: string;
 }
 
 // RA-PRO.32 — Réplica del workbook del comprador (una fila por SKU, columnas por PUNTO DE COMPRA
@@ -552,6 +558,43 @@ const ACCIONES = ['sobrante', 'traspaso', 'traspaso_parcial', 'comprar', 'ok'] a
  */
 const ACCIONES_FUERA_DE_CRITICO = ['sobrante', 'ok'];
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** `[PQ.76]` Los productos de `product_ids` (CSV): sólo UUIDs, sin repetidos, hasta 2,000. */
+export function productIdsDe(csv?: string): string[] {
+  return [...new Set(String(csv ?? '').split(',').map((x) => x.trim()).filter((x) => UUID_RX.test(x)))].slice(0, 2000);
+}
+
+/**
+ * `[PQ.76]` Filtra la lista a ciertos productos SIN tocar sus totales. Las ventanas
+ * (`COUNT/SUM … OVER()`) se calculan adentro, sobre todo el filtro, y el `WHERE` de afuera sólo
+ * escoge qué renglones viajan. Sin productos, el SQL es el de siempre.
+ *
+ * Por qué existe: Pedido pedía las tres listas con `pageSize=1000`, el servidor las topaba en 500, y
+ * sumaba esos 500 como si fueran el total. Medido el 2026-11-05: traspasos 500 de 4,511 y
+ * sobrestock 500 de 4,605. A los productos que quedaban fuera les faltaba su traspaso en el desglose
+ * y en la requisición.
+ */
+export function aProductos(select: string, orden: string, limite: string, ids: string[], binds: Record<string, unknown>): string {
+  if (!ids.length) return `${select}
+        ORDER BY ${orden}
+        ${limite}`;
+  ids.forEach((id, i) => { binds[`pq76_${i}`] = id; });
+  // Los totales viajan en cada renglón. Si ningún producto pedido tiene renglón, la respuesta se
+  // quedaría sin totales y diría 0, y ese 0 no lo es. Por eso viaja un renglón testigo
+  // (`_pq76_en = false`) que `filasDeProductos` descarta después de leer los totales.
+  return `SELECT * FROM (SELECT a.*, ROW_NUMBER() OVER () AS _pq76_rn,
+          a.product_id IN (${ids.map((_, i) => `:pq76_${i}`).join(',')}) AS _pq76_en
+          FROM (${select}) a) pq76
+        WHERE pq76._pq76_en OR pq76._pq76_rn = 1
+        ORDER BY pq76._pq76_en DESC, pq76.product_id
+        ${limite}`;
+}
+
+/** `[PQ.76]` Quita el renglón testigo de `aProductos` (y sus marcas). Sin filtro, deja todo igual. */
+export function filasDeProductos<T extends Record<string, unknown>>(rows: T[]): T[] {
+  if (!rows.length || !('_pq76_en' in rows[0])) return rows;
+  return rows.filter((r) => r['_pq76_en']).map((r) => { const { _pq76_en, _pq76_rn, ...x } = r; void _pq76_en; void _pq76_rn; return x as T; });
+}
 
 /**
  * Los ajustes del motor tal como LLEGAN, que es distinto de como se guardan.
@@ -1702,7 +1745,8 @@ export class CommercialReplenishmentService {
     const tenantId = this.tenantCtx.requireTenantId();
     const covReq = Number(q.coverage_days) > 0 ? Math.min(120, Math.max(1, Number(q.coverage_days))) : null;
     const page = Math.max(1, Number(q.page) || 1);
-    const cap = q.export ? 100000 : 500;
+    const pids = productIdsDe(q.product_ids);
+    const cap = q.export || pids.length ? 100000 : 500;
     const pageSize = Math.min(cap, Math.max(1, Number(q.pageSize) || (q.export ? cap : 50)));
     return this.tk.run(async (trx) => {
       // RA-PRO.27 — parámetros globales del pedido (fill rate + cobertura) configurables por tenant.
@@ -1924,7 +1968,7 @@ export class CommercialReplenishmentService {
       // comprador viera una clase y el colchón se hubiera dimensionado con otra.
       // PERF: los totales (count/needed/valor/revenue) también salen como WINDOWS aquí en la
       // MISMA pasada — antes se ejecutaba el `from` pesado (con sus 4 subagregados) 2 veces.
-      const rows = (await trx.raw(`
+      const crudas = (await trx.raw(aProductos(`
         SELECT z.*,
                COUNT(*) OVER() AS _total,
                COUNT(*) FILTER (WHERE z.suggested_units > 0) OVER() AS _needed,
@@ -1987,11 +2031,12 @@ export class CommercialReplenishmentService {
         ) z
         LEFT JOIN analytics.v_abc_class vabc
                ON vabc.tenant_id = :t AND vabc.warehouse_id = z.warehouse_id
-              AND vabc.product_id = z.product_id
-        ORDER BY z.suggested_cost DESC NULLS LAST, z.sell_month_mxn DESC, z.on_hand_pieces DESC
-        LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, binds)).rows;
+              AND vabc.product_id = z.product_id`,
+        'z.suggested_cost DESC NULLS LAST, z.sell_month_mxn DESC, z.on_hand_pieces DESC',
+        `LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, pids, binds), binds)).rows;
 
-      const agg: any = rows[0] || {};
+      const agg: any = crudas[0] || {};
+      const rows = filasDeProductos(crudas);
       return {
         total: Number(agg._total || 0),
         needed: Number(agg._needed || 0),
@@ -3464,7 +3509,8 @@ export class CommercialReplenishmentService {
     const tenantId = this.tenantCtx.requireTenantId();
     const cov = Math.min(120, Math.max(1, Number(q.coverage_days) || 30));
     const page = Math.max(1, Number(q.page) || 1);
-    const cap = q.export ? 100000 : 500;
+    const pids = productIdsDe(q.product_ids);
+    const cap = q.export || pids.length ? 100000 : 500;
     const pageSize = Math.min(cap, Math.max(1, Number(q.pageSize) || (q.export ? cap : 50)));
     return this.tk.run(async (trx) => {
       const binds: Record<string, unknown> = { t: tenantId, cov };
@@ -3544,9 +3590,9 @@ export class CommercialReplenishmentService {
         LEFT JOIN catalog.suppliers sup ON sup.tenant_id = :t AND sup.id = bd.supplier_id
         WHERE ${where}`;
 
-      const rows = (await trx.raw(`
+      const crudas = (await trx.raw(`
         ${cte}
-        SELECT bd.product_id, bd.sku, bd.nombre,
+        ${aProductos(`SELECT bd.product_id, bd.sku, bd.nombre,
                bd.wh AS to_warehouse_id, dw.code AS to_code, dw.name AS to_name,
                bd.src AS from_warehouse_id, sw.code AS from_code,
                sup.name AS supplier_name,
@@ -3571,11 +3617,12 @@ export class CommercialReplenishmentService {
                ROUND(SUM(bd.transfer_cjs) OVER()::numeric, 0) AS _total_cajas,
                COUNT(*) FILTER (WHERE bd.rung_veredicto IS NOT NULL) OVER() AS _sin_medir,
                MAX(bd.omitidos) OVER() AS _omitidos
-        ${from}
-        ORDER BY (bd.rung_veredicto IS NULL) DESC, bd.transfer_cjs * bd.caja_cost DESC
-        LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, binds)).rows;
+        ${from}`,
+          '(bd.rung_veredicto IS NULL) DESC, bd.transfer_cjs * bd.caja_cost DESC',
+          `LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, pids, binds)}`, binds)).rows;
 
-      const agg: any = rows[0] || {};
+      const agg: any = crudas[0] || {};
+      const rows = filasDeProductos(crudas);
       return {
         total: Number(agg._total || 0),
         total_valor: Number(agg._total_valor || 0),
@@ -3604,7 +3651,8 @@ export class CommercialReplenishmentService {
     const tenantId = this.tenantCtx.requireTenantId();
     const over = Math.min(365, Math.max(7, Number(q.over_days) || 90));
     const page = Math.max(1, Number(q.page) || 1);
-    const cap = q.export ? 100000 : 500;
+    const pids = productIdsDe(q.product_ids);
+    const cap = q.export || pids.length ? 100000 : 500;
     const pageSize = Math.min(cap, Math.max(1, Number(q.pageSize) || (q.export ? cap : 50)));
     return this.tk.run(async (trx) => {
       const binds: Record<string, unknown> = { t: tenantId, over };
@@ -3657,9 +3705,9 @@ export class CommercialReplenishmentService {
         LEFT JOIN catalog.suppliers sup ON sup.tenant_id = :t AND sup.id = ov.supplier_id
         WHERE ${where}`;
 
-      const rows = (await trx.raw(`
+      const crudas = (await trx.raw(`
         ${cte}
-        SELECT ov.product_id, ov.sku, ov.nombre,
+        ${aProductos(`SELECT ov.product_id, ov.sku, ov.nombre,
                ov.wh AS warehouse_id, w.code AS warehouse_code, w.name AS warehouse_name,
                (w.source_warehouse_id IS NULL) AS is_hub,
                sup.name AS supplier_name, ov.uxc,
@@ -3677,11 +3725,12 @@ export class CommercialReplenishmentService {
                ROUND(SUM(ov.surplus_cjs * ov.caja_cost) FILTER (WHERE ov.rung_veredicto IS NULL) OVER()::numeric, 2) AS _total_valor,
                ROUND(SUM(ov.surplus_cjs) OVER()::numeric, 0) AS _total_cajas,
                COUNT(*) FILTER (WHERE ov.rung_veredicto IS NOT NULL) OVER() AS _sin_medir
-        ${from}
-        ORDER BY (ov.rung_veredicto IS NULL) DESC, ov.surplus_cjs * ov.caja_cost DESC
-        LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, binds)).rows;
+        ${from}`,
+          '(ov.rung_veredicto IS NULL) DESC, ov.surplus_cjs * ov.caja_cost DESC',
+          `LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, pids, binds)}`, binds)).rows;
 
-      const agg: any = rows[0] || {};
+      const agg: any = crudas[0] || {};
+      const rows = filasDeProductos(crudas);
       return {
         total: Number(agg._total || 0),
         total_valor: Number(agg._total_valor || 0),

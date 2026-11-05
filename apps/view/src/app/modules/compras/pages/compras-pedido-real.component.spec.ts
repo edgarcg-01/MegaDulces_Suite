@@ -1519,3 +1519,65 @@ describe('[PQ.73] el color dice algo o no se usa (auditoría nivel A, 2026-11-05
     expect(STRIP).not.toContain('.ms-item.tone-warn .ms-v { color:var(--warn-fg); }');
   });
 });
+
+describe('[PQ.76] las tres listas: por producto de la página, y los KPIs con el total del servidor', () => {
+  // Medido el 2026-11-05 contra prod: el servidor topaba las tres listas en 500 y la pantalla sumaba
+  // esos 500 como total («A traspasar» $3.5 M de $5.0 M; «Sobrestock» $9.5 M de $13.2 M).
+  type Priv = {
+    trTotal: { (): number | null | undefined };
+    ovTotal: { (): number | null | undefined };
+    urows: { (): Array<{ product_id: string; qty: number; type: string }>; set(v: unknown[]): void };
+    wbRows: { set(v: unknown[]): void };
+    buyRows: { set(v: unknown[]): void }; trRows: { set(v: unknown[]): void }; ovRows: { set(v: unknown[]): void };
+    rebuild(): void;
+    agregarEnriquecimiento(b: unknown[], t: unknown[], o: unknown[]): void;
+    totTr(): number;
+  };
+  const tr = (pid: string, qty: number, cost = 10) => ({ product_id: pid, sku: pid, nombre: pid, to_code: '01', transfer_cajas: qty, unit_cost: cost, uxc: 1 });
+
+  it('⛔ al cargar, pide las tres listas SÓLO para los productos de la página', () => {
+    const vistos: Array<Record<string, unknown>> = [];
+    const espia = (q: Record<string, unknown>) => { vistos.push(q); return of({ rows: [], total_valor: 0 }); };
+    montar({ ...VACIO, rows: [] }, undefined, 'u1', { purchaseSuggestion: espia, transferSuggestion: espia, overstock: espia });
+    expect(vistos).toHaveLength(3);
+    // Página vacía: un id que no existe, para traer los totales sin los 500 primeros de la red.
+    for (const q of vistos) expect(q['product_ids']).toEqual(['00000000-0000-0000-0000-000000000000']);
+  });
+
+  it('⛔ «A traspasar» y «Sobrestock» son el total del servidor, no la suma de lo que viajó', () => {
+    const c = montar(VACIO, undefined, 'u1', {
+      transferSuggestion: () => of({ rows: [tr('p1', 1)], total_valor: 5049069 }),
+      overstock: () => of({ rows: [], total_valor: 13233925 }),
+    }).componentInstance;
+    const k = c.pedidoKpi();
+    expect(k.find((x) => x.label === 'A traspasar')?.value).toBe(5049069);
+    expect(k.find((x) => x.label === 'Sobrestock')?.value).toBe(13233925);
+  });
+
+  it('⛔ si la lista no responde, la cifra se declara («—»), no se dibuja en 0', () => {
+    const c = montar(VACIO, undefined, 'u1', { overstock: () => throwError(() => new Error('500')) }).componentInstance;
+    const s = c.pedidoKpi().find((x) => x.label === 'Sobrestock');
+    expect(s?.value).toBe('—');
+    expect(s?.sub).toBe('no se pudo medir');
+  });
+
+  it('⛔ al paginar se AGREGA lo nuevo sin reconstruir: la cantidad de traspaso editada sobrevive', () => {
+    const c = montar(VACIO).componentInstance as unknown as Priv;
+    c.trRows.set([tr('p1', 4)]); c.buyRows.set([]); c.ovRows.set([]);
+    c.rebuild();
+    const editada = c.urows().find((u) => u.product_id === 'p1');
+    if (!editada) throw new Error('sin p1');
+    editada.qty = 99;   // el comprador la cambió en el desglose
+    c.agregarEnriquecimiento([], [tr('p2', 3)], []);
+    expect(c.urows().find((u) => u.product_id === 'p1')?.qty).toBe(99);
+    expect(c.urows().map((u) => u.product_id)).toEqual(['p1', 'p2']);
+  });
+
+  it('⛔ la barra «En esta página» suma sólo los productos de la página', () => {
+    const c = montar(VACIO).componentInstance as unknown as Priv;
+    c.trRows.set([tr('p1', 2, 10), tr('fuera', 50, 10)]); c.buyRows.set([]); c.ovRows.set([]);
+    c.rebuild();
+    c.wbRows.set([{ product_id: 'p1' }]);
+    expect(c.totTr()).toBe(20);
+  });
+});

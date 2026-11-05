@@ -1608,6 +1608,60 @@ claro, oscuro y `forced-colors`.
 **Lo que esta auditoría no cubre:** la vista de un usuario de Compras, el recorrido con teclado, los
 objetivos táctiles, el lector de pantalla y las pestañas Ciclo, Sobrante, Stock muerto y Flujo.
 
+### 17.17 PQ.76 — las tres listas de Pedido se topaban en 500 y se sumaban como total (2026-11-05)
+
+**Cómo salió.** Lo encontré revisando por qué cada apertura de Pedido pide además
+`purchase-suggestion`, `transfer-suggestion` y `overstock` (hallazgo #8 de §17.16).
+- La pantalla las pedía con `pageSize=1000`, pero el servidor las topa en 500.
+- Ni la pantalla ni el servidor decían que la lista venía cortada (Cruce 1 de `auditoria-diseno`).
+- Con esos 500 renglones se armaban las cifras de arriba, las pastillas y los traspasos.
+
+**El daño, medido contra prod** (servicio real empaquetado, sólo lectura):
+
+| | Renglones que llegaban | Lo que publicaba la pantalla | Total del servidor (`total_valor`) |
+|---|---:|---:|---:|
+| A traspasar | 500 de 4,457 | $3,429,912 | $4,859,350 |
+| Sobrestock | 500 de 4,622 | $9,530,616 | $12,977,426 |
+| Compra (pastillas ABC y «comprar») | 500 de 752 | — | — |
+
+Además, en un producto que quedaba fuera de esos 500 renglones:
+- la columna Traspaso del desglose decía «—» aunque sí hubiera traspaso;
+- ese traspaso no entraba a la requisición;
+- le faltaba su pastilla ABC.
+
+**El arreglo** (C2 + C3):
+- **Servidor.** `product_ids` en las tres rutas (`aProductos`).
+  - El filtro se aplica por fuera de la consulta, así que los totales siguen siendo de todo el filtro.
+  - Siempre viaja un renglón testigo con los totales, que `filasDeProductos` descarta.
+  - Sin `product_ids`, el SQL es el mismo de antes.
+- **Pantalla.** Pide las tres listas para los productos de la página, más lo marcado.
+  - Al paginar pide sólo lo que falta y lo **agrega**. Si lo reconstruyera, se borrarían las
+    cantidades de traspaso que el comprador ya editó.
+  - «A traspasar» y «Sobrestock» leen `total_valor` del servidor. Muestran «cargando» o «no se pudo
+    medir», nunca un 0 inventado.
+  - La barra «En esta página» suma sólo la página, como dice su rótulo.
+
+**Pruebas.**
+- **Contra prod, en sólo lectura:**
+  - Sin `product_ids`, las tres respuestas son idénticas a la versión anterior.
+  - Con los productos de la página 1 más 5 que estaban fuera del tope, vienen sólo esos productos,
+    con los totales iguales y las filas iguales a las de la lista completa.
+  - **Control negativo:** con un id que no existe vienen 0 filas y los totales de la red. Ese control
+    encontró que el primer diseño devolvía total 0, y por eso existe el renglón testigo.
+- **Unitarias:**
+  - `pq76-productos.spec.ts` (6) y 5 más en el spec de Pedido.
+  - Tres mutantes, los tres muertos: la cifra suma lo que viajó; la barra no filtra por página;
+    paginar reconstruye.
+  - `libs/commercial` 339/339 y Pedido 130/130.
+
+**Lo que no cambió y queda declarado:**
+- Las tres listas siguen calculándose sobre toda la red en cada apertura, porque los totales lo
+  necesitan. Ganar velocidad aquí es PQ.10, aparte.
+- El traspaso sigue con cobertura de 30 días fijos mientras la tabla usa la de cada sucursal
+  (PQ.UI.2).
+- Nest: sólo se agregaron parámetros `@Query` a tres métodos. El constructor no cambió, pero el
+  arranque NO está verificado.
+
 ---
 
 ## 18. Unidades de medida al 100 %: verificado o con dueño (2026-11-04)
@@ -1757,6 +1811,7 @@ de hoy de esos 65 productos se cuenta distinto que su historia hasta que se cier
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-05 | **PQ.76 🧪** (§17.17): las tres listas de Pedido se topaban en 500 renglones y la pantalla los sumaba como total. «A traspasar» $3.4 M → $4.9 M y «Sobrestock» $9.5 M → $13.0 M, con el mismo dato. Los productos que quedaban fuera perdían su traspaso en el desglose y en la requisición. Ahora se piden por producto de la página y los totales vienen del servidor. Probado contra prod en sólo lectura, con control negativo; tres mutantes muertos | Claude |
 | 2026-11-05 | **PQ.56 ✅** (§17.16): nivel A en prod, en sólo lectura y con blindaje probado. Lo más caro: la primera fila es 17499 ($686 mil por una sola venta; espera D31). Le siguen un rótulo de cajas que muestra kg, una primera pantalla sin ningún producto, «Sobrestock» a 1.95:1 y el rojo como decoración. Nacen **PQ.72–PQ.75** | Claude |
 | 2026-11-05 | **PQ.55 ✅** (§17.15), medido desde `analytics.ui_usage` (no hacían falta los logs). En 30 días, Compras abrió Pedido 4,996 veces, Stock muerto 13, Sobrante 3 y Flujo 1. La agenda del Ciclo, que nació el 23-oct, la abrieron 3 compradores: se deja y se re-mide. El conteo crudo de `worklist` engaña porque el aviso de PQ.5 lo llama al abrir Pedido. Nace **D34** (sin firma: quitar las tres pestañas) con **PQ.71**, que espera a PQ.56. **PQ.49** pasa a ✅ (la medición ya estaba en §17.5). Línea base real de PQ.10: `workbook` promedia 1.6–1.8 s en uso | Claude |
 | 2026-11-04 | **PQ.10 primer paso** (§17.14): escalera y etiquetera se leen sólo para los renglones devueltos, y el factor de caja se une directo a su tabla. Respuesta idéntica en 10 escenarios; la red 2.67 → 2.20 s, un proveedor 1.55 → 0.99 s, una sucursal 1.37 → 0.79 s. El primer intento (unirlas en SQL) subía el caso con proveedor a 19 s y se descartó. Sigue 🔨: lo que queda decide el pedido. Mismo día: PQ.44/50/68/69/70 y 28 renglones más de PQ verificados en prod y pasados a ✅ en el tracker. | Claude |
