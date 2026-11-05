@@ -258,11 +258,16 @@ se decide dinero: margen, pagos, precios»), no de un monto.
 - **H11 — El hop-2 escribe datos maestros sin declarar actor.** `services/feeds-ingest/` no llama
   a `declararActor`: lo que escribe en `catalog.products`, `commercial.reorder_policy` y demás
   queda en `analytics.master_data_history` como anónimo.
-- **H12 — H6 está activo y medido: dos escritores se pelean.** En 30 días `repoint-catalog-names`
-  corrigió «1 identidad» **las 29 noches**, y `import-product-barcodes` escribió en **953 de 1,417**
-  corridas de media hora. Lo esperable en un respaldo es cero. Con el hop-2 aplicando la regla
-  contraria (CEDIS primero, `c7` crudo), lo más probable es un vaivén. Hay que unificar la regla
-  (CANON.1.3: retail primero) **en el hop-2**, no apagar el respaldo.
+- **H12 — H6 está activo, pero es UN producto** (diagnosticado el 2026-11-05 con
+  `analytics.master_data_history`). Cada noche `repoint-catalog-names` (retail primero) pone
+  «AGUA DOÑA VITA 500M/ 1 ZORRO» a las ~03:28, y entre 03:32 y 03:47 el hop-2 (sin actor, CEDIS
+  primero) lo regresa a «\*\*\*DESC DOÑA VITA 500 ML / 1 ZORRO», el nombre que el CEDIS le dio al
+  descontinuarlo. Mismo producto las 4 noches medidas. Se arregla aplicando CANON.1.3 (retail
+  primero) **en el hop-2**, que se despliega con los carriles del ODS.
+  ⚠️ **Corrección:** este hallazgo decía que `import-product-barcodes` escribía en 953 de 1,417
+  corridas. Era cierto **hasta el 29-oct** (4–5 cambios en cada media hora desde el 6-oct); desde
+  el 30-oct está en 0 salvo algún cambio aislado. El promedio de 30 días escondía que ya se había
+  resuelto.
 - **H13 — El almacén de compra del plan era una moneda al aire para 189 productos** (ver §2d).
   Cerrado en CANON.5.8 con un desempate determinista.
 - **H8 — Duplicados de significado**: `product_sales_daily` contra `sales_daily` (otro linaje),
