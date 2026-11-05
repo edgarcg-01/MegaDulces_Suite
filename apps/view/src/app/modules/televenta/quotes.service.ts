@@ -311,6 +311,10 @@ export interface EnvioKepler {
   kepler: { sucursal: string; folio: string; renglones?: number; total?: number };
 }
 
+/** [COT.26] Un domicilio de entrega del cliente en Kepler (kdudent): key = «Dir. envío» del pedido. */
+export interface DireccionEntrega { key: string; calle: string; ciudad: string; telefono: string; ruta: string }
+export interface DireccionesCotizacion { direcciones: DireccionEntrega[]; elegida: string | null; editable: boolean }
+
 @Injectable({ providedIn: 'root' })
 export class QuotesService {
   private readonly http = inject(HttpClient);
@@ -359,6 +363,14 @@ export class QuotesService {
   /** [COT.7] Acepta la cotización y la escribe como Pedido Telemarketing en el Kepler de su sucursal. */
   enviarAKepler(id: string): Observable<EnvioKepler> {
     return this.http.post<EnvioKepler>(`${this.base}/${id}/kepler`, {});
+  }
+
+  direccionesEntrega(id: string): Observable<DireccionesCotizacion> {
+    return this.http.get<DireccionesCotizacion>(`${this.base}/${id}/delivery-addresses`);
+  }
+
+  fijarDireccionEntrega(id: string, key: string | null): Observable<DireccionesCotizacion> {
+    return this.http.patch<DireccionesCotizacion>(`${this.base}/${id}/delivery-address`, { delivery_address_key: key });
   }
 
   reprice(id: string): Observable<{ quote_id: string; lines: number; changed: number }> {
