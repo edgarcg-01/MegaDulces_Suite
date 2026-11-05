@@ -18,7 +18,43 @@ import { PALABRAS_RELLENO, SINONIMOS_CATALOGO } from '../commercial-quotes/catal
  * levantamiento) los quita en su SELECT de afuera, con lista blanca.
  * ⚠️ No valida alcance: la compuerta de sucursal es de cada servicio.
  */
-export function consultaBuscadorCatalogo(knex: Knex | Knex.Transaction, suc: string, term: string, n: number): Knex.QueryBuilder {
+/**
+ * `[COT.27]` La fuente de precios del COTIZADOR: `v_label_prices` más los artículos de precio
+ * simbólico de Kepler (`kdii.c90` de más de 0 a 5 centavos), que la vista deja fuera a propósito
+ * (`c90 > 0.05`) para no imprimir etiquetas de regalos.
+ *
+ * Son los regalos de promoción que el vendedor agrega a mano en el pedido: «5 EXH CANELS CELOFAN
+ * 4S = GRATIS 1 EXH MAS» (09003) viene a $0.01 en los 41 pedidos TELEMARK de Padre Hidalgo de 90 días,
+ * siempre junto al 20005. ~219 por sucursal (medido 2026-11-05), casi todos «= GRATIS»; el resto
+ * son promos del mismo estilo («4X3 EN GOMITAS JUMEX»). La condición vive SÓLO en el nombre: la
+ * Suite no la valida, igual que Kepler. El precio es `c90`, la misma columna de la que la vista saca
+ * `piece_price` (9,301 de 9,301 en la 01); lo cobrado en esos artículos es $0.01 en todos los vendidos.
+ *
+ * Las dos ramas no se enciman (la vista exige `c90 > 0.05`). `sucursal = ?` afuera baja a las dos;
+ * la de `kdii` va por `ix_kdii_suc_sku` (~13 ms la sucursal entera).
+ */
+export const FUENTE_PRECIOS_COTIZACION = `(
+  SELECT sucursal, sku, name, content, barcode, piece_price, wholesale_piece_min_qty, wholesale_piece_price,
+         pack_size, pack_price, wholesale_pack_price, wholesale_pack_min_qty, box_size, box_price, unit_base, sold_by_kg
+    FROM analytics.v_label_prices
+  UNION ALL
+  SELECT btrim(k.sucursal), btrim(k.c1), btrim(k.c2), NULL::text, NULLIF(btrim(k.c7::text), ''), k.c90::numeric,
+         NULL::int, NULL::numeric, NULL::int, NULL::numeric, NULL::numeric, NULL::int, NULL::int, NULL::numeric,
+         NULLIF(upper(btrim(k.c11)), ''), false
+    FROM kepler_ods.kdii k
+   WHERE k.c90 > 0 AND k.c90 <= 0.05 AND btrim(coalesce(k.c1, '')) <> ''
+)`;
+
+/** `[COT.27]` Debajo de esto el precio es simbólico (regalo o promoción de Kepler), no de lista. */
+export const PRECIO_SIMBOLICO_MAX = 0.05;
+
+export function consultaBuscadorCatalogo(
+  knex: Knex | Knex.Transaction,
+  suc: string,
+  term: string,
+  n: number,
+  opciones: { incluirPrecioSimbolico?: boolean } = {},
+): Knex.QueryBuilder {
   const demanda = knex
     .select(knex.raw('btrim(p.sku) AS sku'), knex.raw('max(d.revenue) AS revenue'))
     .from('analytics.product_demand as d')
@@ -36,7 +72,7 @@ export function consultaBuscadorCatalogo(knex: Knex | Knex.Transaction, suc: str
 
   const inner = knex
     .select('v.sku', 'v.name', 'v.content', 'v.barcode', 'v.unit_base', 'v.piece_price', 'v.pack_size', 'v.box_size', 'v.box_price', 'v.sold_by_kg', 'dem.revenue')
-    .from('analytics.v_label_prices as v')
+    .from(opciones.incluirPrecioSimbolico ? knex.raw(`${FUENTE_PRECIOS_COTIZACION} AS v`) : 'analytics.v_label_prices as v')
     .leftJoin(demanda.as('dem'), 'dem.sku', 'v.sku')
     .where('v.sucursal', suc)
     .orderByRaw(

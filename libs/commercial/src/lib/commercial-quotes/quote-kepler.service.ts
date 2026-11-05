@@ -16,6 +16,21 @@ export interface EnvioKepler {
   kepler: { sucursal: string; folio: string; renglones?: number; total?: number };
 }
 
+/**
+ * `[COT.26]` Un domicilio de entrega del cliente en Kepler (`kdudent`, pantalla «Direcciones de
+ * entrega»). `key` es el número que el pedido guarda en «Dir. envío» (`kdm1.c85`) y de él sale la
+ * ruta de la parada (`c13`, ERP_KEPLER §3.y.1). `kdudent` viene replicado igual en las 9 sucursales:
+ * se lee el de la sucursal de la cotización.
+ */
+export interface DireccionEntrega { key: string; calle: string; ciudad: string; telefono: string; ruta: string }
+
+export interface DireccionesCotizacion {
+  direcciones: DireccionEntrega[];
+  elegida: string | null;
+  /** false con folio de Kepler o fuera de borrador/enviada: ahí se cambia en el pedido de Kepler. */
+  editable: boolean;
+}
+
 interface CabeceraEnvio {
   id: string; code: string; status: string; vencida: boolean; source_branch: string | null;
   erp_customer_code: string | null; salesperson_code: string | null; terms_discount_pct: string | null;
@@ -79,6 +94,17 @@ export class QuoteKeplerService {
     }
     // D5: el vendedor del pedido es el de la cotización, obligatorio.
     if (!cab.salesperson_code?.trim()) throw new BadRequestException('La cotización no tiene vendedor de Kepler: elígelo antes de aceptarla.');
+    // COT.26: la dirección decide la ruta que lo entrega. Con varias, no se adivina: vacía, Kepler
+    // la toma como la 1 y el pedido sale a la ruta de otro domicilio.
+    const direcciones = await this.leerDirecciones(cab.source_branch, cab.erp_customer_code);
+    let direccion = cab.delivery_address_key?.trim() || null;
+    if (direccion && !direcciones.some((d) => d.key === direccion)) {
+      throw new BadRequestException(`La dirección de entrega ${direccion} ya no está en Kepler para este cliente: elige otra antes de aceptar.`);
+    }
+    if (!direccion && direcciones.length > 1) {
+      throw new BadRequestException(`El cliente tiene ${direcciones.length} direcciones de entrega: elige a cuál va el pedido antes de aceptarlo.`);
+    }
+    if (!direccion && direcciones.length === 1) direccion = direcciones[0].key;
 
     const lineas = (await this.tk.run((k) => k.raw(
       `SELECT ql.line_number, ql.parent_line_number, ql.quantity::float8 AS quantity, ql.unit_price::float8 AS unit_price,
@@ -139,7 +165,7 @@ export class QuoteKeplerService {
       res = await this.sink.entregar({
         cotizacion_id: cab.id, folio_suite: cab.code, sucursal: cab.source_branch,
         cliente: cab.erp_customer_code, vendedor: cab.salesperson_code,
-        fecha: todayMx(), pct_cliente: pct, direccion_envio: cab.delivery_address_key,
+        fecha: todayMx(), pct_cliente: pct, direccion_envio: direccion,
         renglones, tope_dia: sw.tope_dia,
       });
     } catch (err) {
@@ -163,6 +189,65 @@ export class QuoteKeplerService {
       { suc: res.kepler.sucursal, folio: res.kepler.folio, u: userId, t: tenantId, id }));
     this.logger.log(`Cotización ${cab.code} aceptada → Pedido TELEMARK Kepler ${res.kepler.sucursal}/${res.kepler.folio} por ${userId ?? 'system'}`);
     return { ya_estaba: !!res.ya_estaba, kepler: res.kepler };
+  }
+
+  /** `[COT.26]` Las direcciones de entrega del cliente de la cotización, y cuál tiene elegida. */
+  async direcciones(id: string, quien?: QuienCotiza | null): Promise<DireccionesCotizacion> {
+    const cab = await this.cabeceraDireccion(id, quien);
+    return {
+      direcciones: await this.leerDirecciones(cab.source_branch, cab.erp_customer_code),
+      elegida: cab.delivery_address_key?.trim() || null,
+      editable: !cab.kepler_folio && (cab.status === 'draft' || cab.status === 'sent'),
+    };
+  }
+
+  /** `[COT.26]` Elige la dirección de entrega. Sólo antes de que el pedido exista en Kepler. */
+  async fijarDireccion(id: string, key: string | null, quien?: QuienCotiza | null): Promise<DireccionesCotizacion> {
+    const cab = await this.cabeceraDireccion(id, quien);
+    if (cab.kepler_folio) {
+      throw new BadRequestException(`El pedido ya está en Kepler (folio ${cab.kepler_folio}): la dirección se cambia ahí, en «Dir. envío».`);
+    }
+    if (cab.status !== 'draft' && cab.status !== 'sent') throw new BadRequestException(`La cotización está ${cab.status}: ya no se edita.`);
+    if (!cab.source_branch) throw new BadRequestException('La cotización no tiene sucursal.');
+    await this.quotes.assertEscribeSucursal(cab.source_branch);
+    const limpia = key?.trim() || null;
+    const direcciones = await this.leerDirecciones(cab.source_branch, cab.erp_customer_code);
+    if (limpia && !direcciones.some((d) => d.key === limpia)) {
+      throw new BadRequestException(`La dirección ${limpia} no es del cliente en Kepler.`);
+    }
+    const tenantId = this.tenantCtx.requireTenantId();
+    await this.tk.run((k) => k.raw(
+      `UPDATE commercial.quotes SET delivery_address_key = :key, updated_at = now(), updated_by = :u
+        WHERE tenant_id = :t AND id = :id`,
+      { key: limpia, u: this.tenantCtx.get()?.userId ?? null, t: tenantId, id }));
+    return { direcciones, elegida: limpia, editable: true };
+  }
+
+  private async cabeceraDireccion(id: string, quien?: QuienCotiza | null) {
+    if (!UUID_RX.test(id)) throw new BadRequestException('id inválido');
+    await this.quotes.assertPuedeAbrir(id, quien);
+    const cab = (await this.tk.run((k) => k.raw(
+      `SELECT q.status, q.source_branch, q.erp_customer_code, q.delivery_address_key,
+              to_jsonb(q) ->> 'kepler_folio' AS kepler_folio
+         FROM commercial.quotes q
+        WHERE q.tenant_id = :t AND q.id = :id AND q.deleted_at IS NULL`,
+      { t: this.tenantCtx.requireTenantId(), id }))).rows[0] as
+      | { status: string; source_branch: string | null; erp_customer_code: string | null; delivery_address_key: string | null; kepler_folio: string | null }
+      | undefined;
+    if (!cab) throw new NotFoundException('Cotización no encontrada');
+    return cab;
+  }
+
+  private async leerDirecciones(sucursal: string | null, cliente: string | null): Promise<DireccionEntrega[]> {
+    if (!sucursal || !cliente?.trim()) return [];
+    const r = await this.tk.run((k) => k.raw(
+      `SELECT btrim(c2) AS key, btrim(coalesce(c3, '')) AS calle, btrim(coalesce(c5, '')) AS ciudad,
+              btrim(coalesce(c6, '')) AS telefono, btrim(coalesce(c13, '')) AS ruta
+         FROM kepler_ods.kdudent
+        WHERE sucursal = :s AND btrim(c1) = :c AND btrim(coalesce(c2, '')) <> ''
+        ORDER BY length(btrim(c2)), btrim(c2)`,
+      { s: sucursal, c: cliente.trim() }));
+    return r.rows as DireccionEntrega[];
   }
 
   /** El renglón (sucursal, telemarketing). Sin renglón o sin tabla = APAGADA (falla cerrada). */

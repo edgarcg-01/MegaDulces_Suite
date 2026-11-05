@@ -115,6 +115,12 @@ const MVS: Array<{ name: string; requires_fdw?: boolean; everyMin?: number }> = 
   // Medido aislando las dos piernas de Ventas por ruta: la tabla `sales_by_route_monthly` cuesta
   // 5 ms y esta vista costaba **1,087 ms para 61 filas** — el 99% del tiempo de esa pantalla.
   { name: 'analytics.mv_kepler_vecinal_monthly', everyMin: 30 },
+  // `[VEC.39]` (mig 20261105122624) Los combos Producto/Cliente de la misma pantalla, en su parte
+  // que se mueve (push + vecinal del ODS). Leídos en vivo costaban ~720 ms por combo; el REFRESH
+  // del cuerpo midió 3.4 s. Va con su hermana de arriba: mismo rezago que el reporte que filtran.
+  // ⚠️ Su gemela `mv_route_filter_options_wincaja` NO va aquí, a propósito: su fuente dejó de
+  // moverse el 2026-08-12 y refrescarla costaría minutos para recalcular historia quieta.
+  { name: 'analytics.mv_route_filter_options_live', everyMin: 30 },
   // `[CDRP.4-perf]` (mig 20260922000000) La otra pierna de la misma portada: venta por
   // almacén × canal × día. `sales_daily` está al grano de PRODUCTO y el bloque sumaba 249,389
   // filas por carga; **1,124,926 filas de 200 d colapsan a 4,447** (253×).

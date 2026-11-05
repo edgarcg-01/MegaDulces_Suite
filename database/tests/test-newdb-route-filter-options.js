@@ -1,38 +1,39 @@
 /* eslint-disable no-console */
 /**
- * [AUD-DAT.17] CANDADO del catálogo de los combos de `/dashboard/ventas-detalle`.
+ * [AUD-DAT.17] → [VEC.39] CANDADO de los combos Producto/Cliente de `/comercial/ventas-por-ruta`.
  *
- * ⚠️ ESTE ARCHIVO EXISTE PORQUE SU AUSENCIA ERA UNA MENTIRA PUBLICADA. La migración
- * `20260929170000_mv_route_filter_options.js` afirmaba —en su cabecera **y en el `COMMENT ON`
- * que quedó grabado en prod**— que "el candado test-newdb-route-filter-options.js compara las
- * dos y truena si divergen". No existía. Es exactamente el defecto que la Fase VP.1 ya había
- * medido y nombrado: *un candado que la migración afirma que existe y no existe*. Corregir el
- * archivo no alcanzaba: el comentario vive en el catálogo de producción, así que el arreglo es
- * escribir el candado CON EL NOMBRE QUE PROD YA DECLARA.
+ * ⚠️ ESTE ARCHIVO EXISTE PORQUE SU AUSENCIA FUE UNA MENTIRA PUBLICADA, Y SU PRIMERA VERSIÓN NO
+ * ALCANZÓ. La migración `20260929170000_mv_route_filter_options.js` afirmaba un candado que no
+ * existía; se escribió. Pero declaraba su frescura «NO MEDIDA» y nadie la cableó: la matvista
+ * quedó con la foto del 2026-09-29 hasta el 2026-11-05 (586 de 886 clientes vecinales vendidos
+ * desde entonces no aparecían en el combo). Un NO MEDIDO permanente es un verde con otro nombre.
  *
- * ── QUÉ PROTEGE ─────────────────────────────────────────────────────────────────────────────
- * `analytics.mv_route_filter_options` reemplazó una consulta de **96,303 ms** (el combo de
- * clientes leía `analytics.v_route_sales_lines`, el contrato ENRIQUECIDO, y pagaba dos LATERAL
- * por línea sobre 1,194,719 líneas para llenar una lista desplegable). La matvista se llena con
- * la unión LEAN. La afirmación que sostiene todo el cambio es: **lean y enriquecida dan lo
- * mismo**. Si un día dejan de darlo, el combo empieza a esconder clientes en silencio.
+ * ── QUÉ PROTEGE (mig `20261105122624`) ─────────────────────────────────────────────────────
+ *  · `mv_route_filter_options_live` — push (camionetas) + vecinal del ODS, ciclo de 30 min.
+ *  · `mv_route_filter_options_wincaja` — historia de Wincaja por mes, SIN refresco: su fuente
+ *    dejó de vender por ruta el 2026-08-12.
  *
- *  1. La matvista existe, tiene índice ÚNICO (sin él no hay `REFRESH CONCURRENTLY` y el refresco
- *     bloquearía a los lectores) y declara `computed_at`.
- *  2. La matvista cuadra con su propia definición LEAN, al centavo, en el universo completo.
- *  3. LEAN == ENRIQUECIDA en una ventana acotada. Acotada a propósito: sobre los 2 años la
- *     enriquecida tarda 69 s y no entra en el `statement_timeout` de 1 min — medirla ahí sería
- *     un test que muere por tiempo y se lee como falla.
- *  4. FRESCURA: se mide la edad y el veredicto se **DECLARA NO MEDIDO**, porque no hay carril de
- *     refresco registrado en `CRON_JOBS`. Poner verde un umbral que nadie registró es el
- *     `cfg ? classify : 'ok'` que la Fase VP ya midió dando verde incondicional.
+ *  1. Las dos existen; la viva con índice ÚNICO (sin él no hay `REFRESH CONCURRENTLY`).
+ *  2. Sirven de catálogo: no vacías, sin códigos en blanco, con rótulo.
+ *  3. Su definición == la vista enriquecida `v_route_sales_lines`, en una ventana de 30 días
+ *     (los 2 años no entran en el `statement_timeout` de 1 min: la pierna Wincaja cuesta ~15 s
+ *     por mes). Si divergen, el combo esconde u ofrece clientes que el filtro no encuentra.
+ *  4. FRESCURA de la viva: la refresca el ciclo de 30 min; más de 2 h es ROJO.
+ *  5. ÁRBITRO de la congelada: Wincaja NO puede tener venta de ruta posterior a la última que la
+ *     matvista guardó. Debe encontrar 0; si encuentra, la historia quedó corta y hay que
+ *     refrescarla (o devolverla al ciclo).
  *
- *   DATABASE_URL_NEW=<prod o destino> node database/tests/test-newdb-route-filter-options.js
+ *   DATABASE_URL_NEW=<destino> node database/tests/test-newdb-route-filter-options.js
  */
 const { Client } = require('pg');
+const { _sql } = require('../migrations-newdb/20261105122624_combos_ruta_wincaja_congelado_y_vivo.js');
 
 const URL = process.env.DATABASE_URL_NEW || process.env.DST_URL
   || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW'); })();
+
+const LIVE = 'mv_route_filter_options_live';
+const WCJ = 'mv_route_filter_options_wincaja';
+const VENTANA_MIG = `(CURRENT_DATE - INTERVAL '2 years')`;
 
 let ok = 0, fail = 0, nomedido = 0;
 const pass = (m) => { ok++; console.log('  ✔', m); };
@@ -40,35 +41,11 @@ const bad = (m) => { fail++; console.log('  x FALLA:', m); };
 const skip = (m) => { nomedido++; console.log('  ~ NO MEDIDO:', m); };
 const money = (n) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-/** La unión LEAN, con la ventana como parámetro para poder acotarla en el bloque 3. */
-const lean = (desde) => `
-  SELECT vl.tenant_id, vl.cliente, vl.sku, vl.importe
-    FROM wincaja.v_sales_lines vl
-   WHERE vl.sale_channel = 'ruta_venta' AND vl.business_date >= ${desde}
-  UNION ALL
-  SELECT rpl.tenant_id, rpl.cliente, rpl.sku, rpl.importe
-    FROM analytics.route_push_lines rpl
-   WHERE rpl.business_date >= ${desde}
-  UNION ALL
-  SELECT vl.tenant_id, vl.cliente, vl.sku, vl.importe
-    FROM wincaja.v_sales_lines vl
-   WHERE vl.sale_channel = 'preventa_vecinal' AND vl.source_branch = '10'
-     AND vl.business_date < '2026-06-28'::date AND vl.business_date >= ${desde}`;
-
-/** El MISMO universo leído por la vista enriquecida (la que costaba 96 s). */
-const enriquecida = (desde) => `
-  SELECT sl.tenant_id, sl.cliente, sl.sku, sl.importe
-    FROM analytics.v_route_sales_lines sl
-   WHERE sl.business_date >= ${desde}`;
-
-const agregado = (fuente) => `
-  WITH l AS (${fuente})
-  SELECT count(DISTINCT l.cliente) FILTER (
-           WHERE l.cliente IS NOT NULL AND btrim(l.cliente) <> '' AND l.cliente <> '0001') AS clientes,
-         count(DISTINCT l.sku) FILTER (WHERE l.sku IS NOT NULL) AS skus,
-         round(sum(l.importe) FILTER (
-           WHERE l.cliente IS NOT NULL AND btrim(l.cliente) <> '' AND l.cliente <> '0001'),2) AS rev_cli
-    FROM l WHERE l.tenant_id = $1`;
+/** Los cuerpos de la migración con otra ventana. Si la cadena no está, el candado mediría otra cosa. */
+const conVentana = (sql, desde) => {
+  if (!sql.includes(VENTANA_MIG)) throw new Error('la migración ya no usa la ventana esperada: el candado no sabe acotarla');
+  return sql.split(VENTANA_MIG).join(desde);
+};
 
 (async () => {
   const db = new Client({ connectionString: URL, ssl: /rlwy|railway|proxy/i.test(URL) ? { rejectUnauthorized: false } : false });
@@ -79,99 +56,109 @@ const agregado = (fuente) => `
     const T = t.id;
     // Sin esto `wincaja.v_sales_lines` devuelve 0 filas y el candado se pondría verde midiendo el vacío.
     await db.query('SELECT set_config($1,$2,false)', ['app.tenant_id', T]);
+    await db.query(`SET statement_timeout = '1min'`);
 
     // ── 1. Forma ────────────────────────────────────────────────────────────────────────────
-    console.log('\n[1] La matvista existe y puede refrescarse sin bloquear');
-    const existe = (await db.query(
-      `SELECT 1 FROM pg_matviews WHERE schemaname='analytics' AND matviewname='mv_route_filter_options'`)).rowCount;
-    if (!existe) { bad('analytics.mv_route_filter_options no existe: el combo está cayendo a la consulta viva.'); }
-    else {
+    console.log('\n[1] Las dos matvistas existen');
+    const existen = (await db.query(
+      `SELECT matviewname FROM pg_matviews WHERE schemaname='analytics' AND matviewname = ANY($1)`,
+      [[LIVE, WCJ]])).rows.map((r) => r.matviewname);
+    for (const mv of [LIVE, WCJ]) {
+      if (existen.includes(mv)) pass(`analytics.${mv} existe.`);
+      else bad(`analytics.${mv} no existe: el combo cae a la consulta en vivo (minutos).`);
+    }
+    if (existen.includes(LIVE)) {
       const uq = (await db.query(
         `SELECT indexname FROM pg_indexes
-          WHERE schemaname='analytics' AND tablename='mv_route_filter_options' AND indexdef ILIKE '%UNIQUE%'`)).rows;
-      if (uq.length) pass(`índice único presente (${uq[0].indexname}): REFRESH CONCURRENTLY es posible.`);
-      else bad('sin índice único: el REFRESH tomaría lock exclusivo y bloquearía a los lectores.');
+          WHERE schemaname='analytics' AND tablename=$1 AND indexdef ILIKE '%UNIQUE%'`, [LIVE])).rows;
+      if (uq.length) pass(`índice único en la viva (${uq[0].indexname}): REFRESH CONCURRENTLY es posible.`);
+      else bad('la viva no tiene índice único: el REFRESH bloquearía a los lectores.');
     }
 
-    if (existe) {
-      // ── 2. La matvista sirve de catálogo ──────────────────────────────────────────────────
-      console.log('\n[2] El catálogo es usable (no vacío, sin códigos en blanco, con rótulo)');
-      const mv = (await db.query(
+    // ── 2. Catálogo usable ──────────────────────────────────────────────────────────────────
+    console.log('\n[2] El catálogo es usable (no vacío, sin códigos en blanco, con rótulo)');
+    for (const mv of [LIVE, WCJ].filter((m) => existen.includes(m))) {
+      const r = (await db.query(
         `SELECT count(*) FILTER (WHERE kind='cliente')::int AS clientes,
                 count(*) FILTER (WHERE kind='sku')::int     AS skus,
                 count(*) FILTER (WHERE value IS NULL OR btrim(value) = '')::int AS vacios,
                 count(*) FILTER (WHERE label IS NULL OR btrim(label) = '')::int AS sin_rotulo,
-                count(*) FILTER (WHERE label = value)::int  AS rotulo_es_codigo,
-                round(sum(rev) FILTER (WHERE kind='cliente'),2) AS rev_cli
-           FROM analytics.mv_route_filter_options WHERE tenant_id = $1`, [T])).rows[0];
-      console.log(`     ${mv.clientes} clientes · ${mv.skus} skus · $${money(mv.rev_cli)}`);
-      if (!Number(mv.clientes) && !Number(mv.skus)) {
-        bad('la matvista está VACÍA: el servicio está cayendo al respaldo vivo en cada carga.');
-      } else if (Number(mv.vacios) || Number(mv.sin_rotulo)) {
-        bad(`${mv.vacios} opción(es) con código vacío y ${mv.sin_rotulo} sin rótulo: el combo mostraría filas mudas.`);
-      } else {
-        pass(`${Number(mv.clientes) + Number(mv.skus)} opciones, todas con código y rótulo.`);
-        // El rótulo cae al código cuando el nombre no existe en la fuente: eso está DECLARADO en
-        // el diseño (1,032 de 6,298 códigos de cliente no tienen nombre). Se reporta, no se juzga.
-        console.log(`     ${mv.rotulo_es_codigo} sin nombre en la fuente: su rótulo ES el código (declarado, no inventado).`);
-      }
-
-      // ── 2b. La re-derivación COMPLETA: existe, pero no corre en la suite rápida ────────────
-      if (process.env.DEEP === '1') {
-        console.log('\n[2b] Re-derivación completa contra la unión LEAN (2 años)');
-        await db.query(`SET statement_timeout = '5min'`);
-        const vivo = (await db.query(agregado(lean(`(CURRENT_DATE - INTERVAL '2 years')`)), [T])).rows[0];
-        const dCli = Number(mv.clientes) - Number(vivo.clientes);
-        const dSku = Number(mv.skus) - Number(vivo.skus);
-        const dRev = Number(mv.rev_cli || 0) - Number(vivo.rev_cli || 0);
-        console.log(`     vivo: ${vivo.clientes} clientes · ${vivo.skus} skus · $${money(vivo.rev_cli)}`);
-        // ⚠️ El conteo puede moverse por venta NUEVA desde el último refresco; lo que no puede
-        // moverse es el signo: la matvista jamás debe tener MÁS de lo que la fuente tiene.
-        if (dCli > 0 || dSku > 0) bad(`residuo: la matvista tiene filas que la fuente ya no tiene (Δ ${dCli} clientes, ${dSku} skus).`);
-        else if (dCli === 0 && dSku === 0 && Math.abs(dRev) < 0.01) pass('idéntica al centavo: mismo padrón y misma venta.');
-        else skip(`va ${-dCli} clientes / ${-dSku} skus / $${money(-dRev)} DETRÁS del vivo — rezago sin carril de refresco (bloque 4).`);
-        await db.query(`SET statement_timeout = '1min'`);
-      } else {
-        skip('la re-derivación de los 2 años EXCEDE el statement_timeout de 1 min y dejaría la suite '
-          + 'colgada. Se corre aparte con DEEP=1. No se omite por conveniencia: la afirmación que '
-          + 'sostiene el cambio (lean == enriquecida) se prueba acotada en el bloque 3.');
+                count(*) FILTER (WHERE kind='cliente' AND label = value)::int  AS cli_sin_nombre
+           FROM analytics.${mv} WHERE tenant_id = $1`, [T])).rows[0];
+      console.log(`     ${mv}: ${r.clientes} filas cliente · ${r.skus} filas sku`);
+      if (!r.clientes && !r.skus) bad(`${mv} está VACÍA para mega_dulces.`);
+      else if (r.vacios || r.sin_rotulo) bad(`${mv}: ${r.vacios} código(s) vacío(s) y ${r.sin_rotulo} sin rótulo.`);
+      else {
+        pass(`${mv}: todas las opciones con código y rótulo.`);
+        // Las camionetas 501–505 no tienen nombre en NINGUNA fuente ([VEC.38]): se declara, no se juzga.
+        console.log(`     ${r.cli_sin_nombre} cliente(s) sin nombre en la fuente: su rótulo ES el código.`);
       }
     }
 
-    // ── 3. LEAN == ENRIQUECIDA (la afirmación que sostiene el cambio) ───────────────────────
-    console.log('\n[3] Quitar el enriquecimiento por línea NO cambia el universo');
-    const VENT = `(CURRENT_DATE - INTERVAL '30 days')`;
-    const a = (await db.query(agregado(lean(VENT)), [T])).rows[0];
-    const b = (await db.query(agregado(enriquecida(VENT)), [T])).rows[0];
-    if (!Number(a.clientes) && !Number(b.clientes)) {
+    // ── 3. Definición == vista enriquecida (30 días) ────────────────────────────────────────
+    console.log('\n[3] La definición de las matvistas da el mismo universo que v_route_sales_lines');
+    const D = `(CURRENT_DATE - INTERVAL '30 days')`;
+    // ⚠️ La MISMA foto para los dos lados: la vecinal del ODS entra en vivo, y dos lecturas a 5 s
+    // de distancia difirieron $98.85 en horario hábil (medido). Sin esto el candado da rojo falso.
+    await db.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    const nuevo = (await db.query(
+      `WITH o AS (
+         SELECT tenant_id, kind, value, rev FROM (${conVentana(_sql.SQL_LIVE, D)}) a
+         UNION ALL
+         SELECT tenant_id, kind, value, rev FROM (${conVentana(_sql.SQL_WCJ, D)}) b)
+       SELECT count(DISTINCT value) FILTER (WHERE kind='cliente')::int AS clientes,
+              count(DISTINCT value) FILTER (WHERE kind='sku')::int AS skus,
+              round(sum(rev) FILTER (WHERE kind='cliente'),2) AS rev_cli
+         FROM o WHERE tenant_id = $1`, [T])).rows[0];
+    const enr = (await db.query(
+      `SELECT count(DISTINCT cliente) FILTER (
+                WHERE cliente IS NOT NULL AND btrim(cliente) <> '' AND cliente <> '0001')::int AS clientes,
+              count(DISTINCT sku) FILTER (WHERE sku IS NOT NULL)::int AS skus,
+              round(sum(importe) FILTER (
+                WHERE cliente IS NOT NULL AND btrim(cliente) <> '' AND cliente <> '0001'),2) AS rev_cli
+         FROM analytics.v_route_sales_lines
+        WHERE tenant_id = $1 AND business_date >= ${D}`, [T])).rows[0];
+    await db.query('COMMIT');
+    if (!nuevo.clientes && !enr.clientes) {
       skip('no hay venta de ruta en los últimos 30 días: nada con qué comparar.');
-    } else if (Number(a.clientes) === Number(b.clientes) && Number(a.skus) === Number(b.skus)
-      && Math.abs(Number(a.rev_cli || 0) - Number(b.rev_cli || 0)) < 0.01) {
-      pass(`30 días: ${a.clientes} clientes · ${a.skus} skus · $${money(a.rev_cli)} — lean y enriquecida coinciden.`);
+    } else if (nuevo.clientes === enr.clientes && nuevo.skus === enr.skus
+      && Math.abs(Number(nuevo.rev_cli || 0) - Number(enr.rev_cli || 0)) < 0.01) {
+      pass(`30 días: ${nuevo.clientes} clientes · ${nuevo.skus} skus · $${money(nuevo.rev_cli)} — iguales.`);
     } else {
-      bad(`lean y enriquecida DIVERGEN en 30 días: lean ${a.clientes}/${a.skus}/$${money(a.rev_cli)} vs `
-        + `enriquecida ${b.clientes}/${b.skus}/$${money(b.rev_cli)}. El combo estaría escondiendo filas.`);
+      bad(`DIVERGEN en 30 días: matvistas ${nuevo.clientes}/${nuevo.skus}/$${money(nuevo.rev_cli)} vs `
+        + `enriquecida ${enr.clientes}/${enr.skus}/$${money(enr.rev_cli)}.`);
     }
 
-    // ── 4. Frescura: se mide, no se juzga ───────────────────────────────────────────────────
-    console.log('\n[4] Frescura del catálogo');
-    if (!existe) { skip('sin matvista no hay frescura que medir.'); }
+    // ── 4. Frescura de la viva ──────────────────────────────────────────────────────────────
+    console.log('\n[4] Frescura de la viva (ciclo de 30 min)');
+    if (!existen.includes(LIVE)) skip('sin la viva no hay frescura que medir.');
     else {
       const f = (await db.query(
         `SELECT to_char(max(computed_at),'YYYY-MM-DD HH24:MI') AS al,
-                round(extract(epoch FROM (now() - max(computed_at))) / 3600)::int AS horas
-           FROM analytics.mv_route_filter_options WHERE tenant_id = $1`, [T])).rows[0];
-      const carril = (await db.query(
-        `SELECT count(*)::int n FROM analytics.cron_run_log
-          WHERE job_key ILIKE '%route_filter%' OR job_key ILIKE '%filter_options%'`)).rows[0];
-      console.log(`     calculada el ${f.al} (hace ${f.horas} h)`);
-      if (Number(carril.n) > 0) {
-        pass(`hay carril de refresco registrado (${carril.n} corridas): la edad se puede juzgar.`);
-      } else {
-        skip('NO hay carril de refresco ni umbral registrado en CRON_JOBS: la edad se mide pero no se '
-          + 'puede juzgar. Declararlo verde sería el `cfg ? classify : "ok"` que la Fase VP ya midió. '
-          + 'DEUDA CON NOMBRE: cablear el REFRESH (216 s medidos) al carril nocturno + su umbral.');
-      }
+                round(extract(epoch FROM (now() - max(computed_at))) / 60)::int AS min
+           FROM analytics.${LIVE} WHERE tenant_id = $1`, [T])).rows[0];
+      console.log(`     calculada el ${f.al} (hace ${f.min} min)`);
+      if (f.min === null) bad('sin computed_at: no se puede saber la edad.');
+      else if (f.min <= 120) pass(`edad ${f.min} min ≤ 120.`);
+      else bad(`edad ${f.min} min: el ciclo de 30 min no la está refrescando.`);
+    }
+
+    // ── 5. Árbitro de la congelada ──────────────────────────────────────────────────────────
+    console.log('\n[5] Wincaja no vendió por ruta después de lo que la historia congelada guarda');
+    if (!existen.includes(WCJ)) skip('sin la congelada no hay árbitro.');
+    else {
+      const a = (await db.query(
+        `SELECT (SELECT to_char(max(last_date),'YYYY-MM-DD') FROM analytics.${WCJ}
+                  WHERE tenant_id = $1 AND last_date <= CURRENT_DATE) AS guardado,
+                (SELECT to_char(max(business_date) FILTER (
+                          WHERE venta_origen = 'derivado_tasa_linea' AND venta > 0),'YYYY-MM-DD')
+                   FROM analytics.mv_rd_route_daily_200d
+                  WHERE tenant_id = $1 AND business_date <= CURRENT_DATE) AS wincaja_ultimo`, [T])).rows[0];
+      console.log(`     guardado hasta ${a.guardado ?? '—'} · Wincaja vendió por ruta hasta ${a.wincaja_ultimo ?? '(nada en 200 d)'}`);
+      if (!a.guardado) bad('la congelada no tiene fechas: nació vacía.');
+      else if (!a.wincaja_ultimo || a.wincaja_ultimo <= a.guardado) pass('0 días de Wincaja fuera de la historia congelada.');
+      else bad(`Wincaja volvió a vender por ruta (${a.wincaja_ultimo}) después de ${a.guardado}: `
+        + 'la historia congelada quedó corta — refrescarla o devolverla al ciclo.');
     }
 
     console.log(`\n=== ${ok} OK · ${fail} FALLAS · ${nomedido} NO MEDIDOS ===`);

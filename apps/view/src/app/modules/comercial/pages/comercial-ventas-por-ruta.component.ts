@@ -202,14 +202,14 @@ const MES: Record<string, string> = {
             <label for="rr-f-prod">Producto</label>
             <p-select inputId="rr-f-prod" [options]="productOpts()" [ngModel]="fProduct()" (ngModelChange)="fProduct.set($event); load()"
                       optionLabel="label" optionValue="value" placeholder="Todos" [showClear]="true"
-                      [filter]="true" filterBy="label" filterPlaceholder="Buscar SKU o nombre…" [resetFilterOnHide]="true"
+                      [filter]="true" filterBy="label,value" filterPlaceholder="Buscar SKU o nombre…" [resetFilterOnHide]="true"
                       [virtualScroll]="true" [virtualScrollItemSize]="34" appendTo="body" styleClass="w-full" ariaLabel="Filtrar por producto" />
           </div>
           <div class="rr-field rr-clientf">
             <label for="rr-f-client">Cliente</label>
             <p-select inputId="rr-f-client" [options]="clientOpts()" [ngModel]="fClient()" (ngModelChange)="fClient.set($event); load()"
                       optionLabel="label" optionValue="value" placeholder="Todos" [showClear]="true"
-                      [filter]="true" filterBy="label" filterPlaceholder="Buscar cliente…" [resetFilterOnHide]="true"
+                      [filter]="true" filterBy="label,value" filterPlaceholder="Buscar cliente o código…" [resetFilterOnHide]="true"
                       [virtualScroll]="true" [virtualScrollItemSize]="34" appendTo="body" styleClass="w-full" ariaLabel="Filtrar por cliente" />
           </div>
           <div class="rr-field">
@@ -2102,15 +2102,32 @@ export class ComercialVentasPorRutaComponent {
     };
   }
 
+  /**
+   * `[VEC.40]` **La última petición de cada carril manda; una respuesta vieja se descarta.**
+   *
+   * Lo mismo que `[VEC.24]` ya hizo para el arqueo y el crédito (`sigueSiendoMia`), que faltaba en
+   * el desglose, los tickets y el reporte. El desglose tarda de 1 a 7 s: abrir la ruta A y luego
+   * la B dejaba que la respuesta de A, si llegaba después, se pintara bajo la B — con la fila, los
+   * depósitos y el arqueo ya de la B. «Elijo una ruta y me sale otra».
+   */
+  private turnoDetalle = 0;
+  private turnoTickets = 0;
+  private turnoReporte = 0;
+
   loadTickets(reset = false) {
     if (!this.detail()) return;
     if (reset) this.tkOffset.set(0);
     this.tkLoading.set(true);
+    const turno = ++this.turnoTickets;
     this.svc.salesByRouteTickets(this.ticketParams())
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (p) => { this.tkPage.set(p); this.tkLoading.set(false); },
+        next: (p) => {
+          if (turno !== this.turnoTickets) return;
+          this.tkPage.set(p); this.tkLoading.set(false);
+        },
         error: (e) => {
+          if (turno !== this.turnoTickets) return;
           this.tkLoading.set(false);
           this.toast.add({ severity: 'error', summary: 'Error al cargar tickets', detail: e?.error?.message });
         },
@@ -2220,11 +2237,16 @@ export class ComercialVentasPorRutaComponent {
   load() {
     this.loading.set(true);
     this.error.set(null);
+    const turno = ++this.turnoReporte;
     this.svc.salesByRoute(this.params())
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (r) => { this.report.set(r); this.loading.set(false); },
+        next: (r) => {
+          if (turno !== this.turnoReporte) return;
+          this.report.set(r); this.loading.set(false);
+        },
         error: (e) => {
+          if (turno !== this.turnoReporte) return;
           this.loading.set(false);
           this.error.set(e?.error?.message || 'No se pudo consultar el reporte. Revisa la conexión e intenta de nuevo.');
         },
@@ -2300,6 +2322,9 @@ export class ComercialVentasPorRutaComponent {
     this.detailLoading.set(true);
     this.peekOpen.set(true);
     // El estado del panel es por ruta: si no se limpia, la ruta nueva hereda el drill anterior.
+    // `[VEC.40]` Y los tickets en vuelo de la ruta anterior quedan sin dueño.
+    this.turnoTickets++;
+    this.tkLoading.set(false);
     this.tkPage.set(null);
     this.ticket.set(null);
     this.tkQuery.set(''); this.tkUnit.set(null); this.tkDocType.set(null);
@@ -2326,6 +2351,7 @@ export class ComercialVentasPorRutaComponent {
   private fetchDetail(routeCode: string) {
     const b = this.dayBounds() ?? this.detailBounds();
     this.detailLoading.set(true);
+    const turno = ++this.turnoDetalle;
     this.svc.salesByRouteDetail(routeCode, this.year, {
       from: b.from, to: b.to,
       sku: this.dSku() || undefined,
@@ -2335,11 +2361,13 @@ export class ComercialVentasPorRutaComponent {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (d) => {
+          if (turno !== this.turnoDetalle) return;
           this.dailyMax = Math.max(1, ...d.daily.map((x) => x.revenue));
           this.detail.set(d);
           this.detailLoading.set(false);
         },
         error: (e) => {
+          if (turno !== this.turnoDetalle) return;
           this.detailLoading.set(false);
           if (!this.detail()) this.peekOpen.set(false);
           this.toast.add({ severity: 'error', summary: 'Error al cargar el desglose', detail: e?.error?.message });
