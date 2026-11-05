@@ -531,6 +531,21 @@ arma las cuatro escrituras sin tocar Kepler, `motivosParaNoEscribir` es la compu
 `escrituraDePagoEncendida` el interruptor E3.5 (apagado salvo `KEPLER_PAGO_ESCRITURA=encendida`).
 20 pruebas; dos mutantes probados en rojo (quitar «marcado pagado» y quitar el tope de saldo).
 
+**C2, el adaptador, en código y APAGADO** (`[PGP.71]`, 🧪 sin ensayar): [`kepler-pago-sink.adapter.ts`](../../../libs/finance/src/lib/payment-calendar/kepler-pago/kepler-pago-sink.adapter.ts)
+lee lo vivo de Kepler (acreedor en `kdxd`, código de tesorería en `kdb1`, saldo y concepto de cada factura), arma con el
+armador, clona la plantilla y escribe `kdm1` + `kdxe` + `kdxf` + la baja de `c20` en UNA transacción; si otro pago se
+adelantó al saldo, se deshace todo. Cuatro candados: `KEPLER_PAGO_ESCRITURA=encendida`, `KEPLER_PUSH_URL_NN`,
+`KEPLER_PAGO_TEMPLATE_FOLIO_NN` (sin default en ningún servidor) y los `GRANT`. **No está registrado en ningún módulo**:
+no lo llama nada todavía. La regla de conexión por servidor se mudó a `platform-core` (`kepler-servidor.ts`) para no
+escribirla dos veces.
+
+⚠️ **El ensayo** ([`kepler-pago-sink.ensayo.spec.ts`](../../../libs/finance/src/lib/payment-calendar/kepler-pago/kepler-pago-sink.ensayo.spec.ts))
+corre `entregar()` entero contra el Kepler real y termina en `ROLLBACK`: **NO MEDIDO**. `pg_hba.conf` de Kepler sólo
+acepta a `kepler_push` desde `md`, y esta sesión no puede entrar a `md`. Lo corre una persona desde `md`:
+`KEPLER_ENSAYO=1 KEPLER_PAGO_TEMPLATE_FOLIO_00=0023768 npx vitest run --config vitest.config.ts src/lib/payment-calendar/kepler-pago/kepler-pago-sink.ensayo.spec.ts`
+(desde `libs/finance`). Antes de C3 (el endpoint y su botón) falta: que el ensayo pase, el reclamo atómico del pago en
+`payment_allocations.kepler_payment_folio` (el doble clic de `PGP.UI.1`) y su prueba contra base real en el CI.
+
 ### C1 · Dominio
 
 | # | Item | Estado | Prueba que lo ejerce |

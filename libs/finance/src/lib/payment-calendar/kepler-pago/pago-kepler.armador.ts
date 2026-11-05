@@ -138,7 +138,9 @@ export function ivaProporcional(facturas: Pick<FacturaAPagar, 'aplicado' | 'iva'
     iva += f.aplicado * (f.iva / f.total);
     ieps += f.aplicado * (f.ieps / f.total);
   }
-  return { c81: r2(iva), c82: iva, c84: r2(ieps) };
+  // `c82` sin redondear a centavos, pero sin el ruido del punto flotante: Kepler guarda hasta 10
+  // decimales (`516.8179558203`, `26338.261978402`).
+  return { c81: r2(iva), c82: Math.round(iva * 1e10) / 1e10, c84: r2(ieps) };
 }
 
 /** Arma el pago o dice, con todas sus letras, por qué no se puede. Fail-closed: un motivo basta. */
