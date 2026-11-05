@@ -241,7 +241,9 @@ const STEPS = {
     path.join(K, 'import-margin.js'),        // KV.4 markup (lee sucursal) — antes del fact
     path.join(K, 'import-sales-fact.js'),    // KV.1 fact (lee consolidado; cost usa markup)
     path.join(K, 'import-sales-stats.js'),   // KV.2 ABC/share (lee prod sales_daily) — tras sales-fact
-    path.join(K, 'import-sales-monthly.js'), // HVT.1 rollup mensual durable (sales_daily → sales_monthly, serie larga + calibración demanda) — tras sales-fact
+    // RETIRADO 2026-11-05 [CANON.5.0]: import-sales-monthly.js — analytics.sales_monthly no tiene
+    // lector: ni en libs/apps ni en vistas/funciones de la base; sus 2.9 M lecturas son todas por
+    // la PK, o sea los upserts del propio importer (idx por mes: 0 lecturas). La tabla se queda.
     [path.join(K, 'import-demand-clean.js'), '--hb=nightly'],  // RA-PRO.17.1 demanda LIMPIA (revenue÷precio_pieza) → analytics.product_demand — tras sales-fact `[RA.VA.6]` --hb: llave de latido propia de este carril (corre en live y nightly).
     path.join(K, 'import-inventory-health.js'), // KV.5 días cobertura/status (stock × sales_daily); demanda en PIEZAS crudas (canónico, ver import-inventory-health)
     path.join(K, 'import-reorder-policy.js'),   // RA.2 umbrales reorden Kepler (kdii.c33/34/35 → reorder_policy source=kepler)
@@ -296,7 +298,8 @@ const STEPS = {
     //    recalcular 8 dias -- medido, 2 productos pendientes (1 por costo, 1 por "= GRATIS").
     // NO agregar acá un feed de precio: nada derivado del ODS se refresca por cron.
     // Ver docs/IMPLEMENTACION/KEPLER_PRECIOS_MODELO.md y feedback_ods_derived_realtime_no_batch_lag.
-    [path.join(K, 'repoint-catalog-prices.js'), '--solo-promo'],
+    // RETIRADO del nightly 2026-11-05 [CANON.5.0]: `repoint-catalog-prices.js --solo-promo` corre
+    // con los MISMOS argumentos cada 30 min en `prices` (dueño de `is_promo`); acá repetía su salida.
     path.join(K, 'repoint-catalog-cost.js'), // CANON.0.1 catálogo — SYNC costo (kepler_ods.kdik.c16 mediana retail → cost_base/with_tax/per_case, clamp [1/3,3]× anti-unidad-caja). Mata el escritor de costo de catalog-bulk (.245); nightly lo mantiene fresco entre corridas semanales de catalog. TRAS presence (que los productos existan).
     path.join(K, 'import-transfers-monthly.js'), // T — traspasos NO-venta (salida CEDIS U/D/13 + consolidación UD06 + recepción UA50; upsert acumulativo)
     path.join(K, 'import-expenses-polizas.js'), // GX — egresos contables (pólizas gastos 6xx + compras 5xx) desde kdc2YYMM
@@ -321,7 +324,9 @@ const STEPS = {
     // (triggers en cada kdc2YYMM, mig 20261027135745). El importer nunca borraba: un cambio de cuenta
     // dejaba el renglón viejo para siempre, y num_movto cambiaba de una noche a otra.
     path.join(K, 'import-sales-boxes-monthly.js'), // venta en cajas mensual → analytics.sales_boxes_monthly
-    path.join(DIR, 'wincaja', 'import-sales-by-vendor-monthly.js'), // AUDIT 2026-08-20 — era HUÉRFANO (648k filas sell-out x vendedor, sin modo ni latido). Al nightly + hereda heartbeat feed_nightly. Idempotente (UPSERT + DELETE-orphan + Canindo remap).
+    // RETIRADO 2026-11-05 [CANON.5.0]: wincaja/import-sales-by-vendor-monthly.js — lee la réplica de
+    // Wincaja, que dejó de moverse con el corte (WR.7). Tardaba ~9 min cada noche para 0 updates
+    // (n_tup_upd = 0). La tabla queda como FOTO FIJA: la sigue leyendo Thot (thot-tools.service.ts).
     path.join(K, 'import-pos-cashiers.js'),      // dim cajeros POS → analytics.pos_cashiers
     path.join(K, 'import-supplier-params.js'),   // params de proveedor → catalog.suppliers (UPDATE)
     // RETIRADO 2026-08-26: import-kepler-accounts — finance.kepler_accounts es VISTA derive-no-copy
@@ -335,8 +340,11 @@ const STEPS = {
     path.join(K, 'import-demand-acceleration.js'), // RA-PRO.36 IAD por SKU (−2..+2) para la matriz — tras demanda (usa piece_price)
     path.join(K, 'import-box-factor.js'),          // RA-PRO.37 factor de caja autoritativo (kdii.c84) — ANTES del plan (el uxc lo usa)
     path.join(K, 'import-box-price.js'),           // RA-PRO.39 precio de CJA por producto (kdpv) — base de cajas money-anchored en sell-out
-    path.join(K, 'import-label-data.js'),          // Etiquetas de anaquel (kdii c90/91/92 precio pieza/paq/caja) → product_label_prices. ANTES quedaba stale (no estaba en nightly) → precios de anaquel ~10% abajo del Kepler vigente (bug 30061 ago-2026)
-    path.join(DIR, 'wincaja', 'import-wincaja-caja-factor.js'), // Factor de caja Wincaja (factor_venta) para MOSTRAR cajas en almacenes ciegos MD-30/32/50 — depende de box-factor(c84)+label(c81). Set doble-testigo (anida+costo=paquete)
+    // RETIRADO del nightly 2026-11-05 [CANON.5.0]: import-label-data.js — corre cada 30 min en
+    // `prices` con los mismos argumentos; acá escribía 0 etiquetas cambiadas.
+    // RETIRADO 2026-11-05 [CANON.5.0]: wincaja/import-wincaja-caja-factor.js — su tabla
+    // (analytics.wincaja_product_box_factor) no tiene lector: lo reemplazó v_warehouse_box_factor
+    // (commercial-replenishment.service.ts). La tabla se queda; borrarla pide firma (regla 5).
     [path.join(K, 'import-replenishment-plan.js'), '--hb=nightly'], // RA-PRO.31 fact del pedido — AL FINAL (tras demanda/stock/velocity/tránsito/reorden). `--hb`: ver el carril `stock`.
     // Norm ALMACÉN Paso 2b (BARRIDO): tras todos los importers, llena warehouse_id NULL de las
     // tablas normalizadas (batch 1 warehouse_code + batch 2 sucursal). Idempotente (solo toca NULL),

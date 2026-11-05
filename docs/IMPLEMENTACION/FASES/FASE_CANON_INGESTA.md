@@ -5,6 +5,10 @@
 > toda la información; los imports deberían dejar de existir o al menos unos pocos; normalización no solo
 > en las tablas sino en cómo LLEGA la información."*
 >
+> ⭐ **Puesto al día el 2026-11-05:** [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05.md`](FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05.md)
+> clasifica los 51 importers vivos (24 se quedan, 24 son deuda de la regla 1, 3 retirados) y su §5
+> dice qué de este doc ya no es cierto. **Leerlo antes de tomar un item de abajo.**
+>
 > **Base**: [`MODELO_CANONICO_DATOS.md`](../../MODELO_CANONICO_DATOS.md) (análisis multi-agente 2026-08-15).
 > Leer su **§7 (salvedades)** antes de ejecutar cualquier repunte.
 
