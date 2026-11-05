@@ -18,8 +18,16 @@
  * reconcilia cantidad exacta; se marca recibido = pendiente (MD captura de golpe, fill
  * ~100%). Dedup por folio (índice único parcial) + OC más vieja primero + cap al pendiente.
  *
+ * `[CANON.5.3]` (2026-11-05) — las entradas X-A-40 se leen por default de `kepler_ods`
+ * (kdm1⋈kdm2 con `sucursal`), en la misma conexión de prod. Comparación en seco desde el
+ * 2026-09-01 contra la réplica lógica de cada sucursal: 12,860 de 12,860 folio×sku idénticos
+ * en cantidad y fecha, en las 9 sucursales; control negativo (01 contra 08) en rojo.
+ * `--source=branch` conserva la conexión a cada POS.
+ * ⚠️ El dry-run ESCRIBE dentro de la transacción y hace ROLLBACK: no correrlo contra prod.
+ *
  *   node database/importers/kepler/import-auto-received.js          # dry-run
  *   node database/importers/kepler/import-auto-received.js --apply  # commit
+ *   node database/importers/kepler/import-auto-received.js --source=branch   # POS por sucursal
  */
 
 const { Client } = require('pg');
@@ -27,6 +35,8 @@ const { Client } = require('pg');
 const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
 const APPLY = process.argv.includes('--apply');
+const SOURCE = (process.argv.find((a) => a.startsWith('--source=')) || '').split('=')[1] || 'ods';
+if (!['ods', 'branch'].includes(SOURCE)) throw new Error(`--source desconocido: ${SOURCE} (ods | branch)`);
 
 // Fuente única del mapa de sucursales (paso 3 normalización almacén). Con CEDIS '00'.
 const { stockMap } = require('../lib/kepler-branches');
@@ -36,7 +46,15 @@ function branchNum(url) { const m = /md_(\d+)/i.exec(url || ''); return m ? m[1]
 const dstr = (d) => (d instanceof Date ? d.toISOString().slice(0, 10) : String(d).slice(0, 10));
 
 // Órdenes de entrada X-A-40 agregadas por folio×sku (qty en unidad de presentación Kepler).
-const ENTRADAS_SQL = `
+// En el ODS la base de origen es `sucursal`: el renglón se une dentro de la misma base y sólo
+// se toman los documentos propios (c1 = sucursal), igual que al leer el POS de esa sucursal.
+const ENTRADAS_SQL = SOURCE === 'ods' ? `
+  SELECT oe.c6 AS folio, oe.c9 AS doc_date, l.c8 AS sku, SUM(l.c9) AS qty
+  FROM kepler_ods.kdm1 oe
+  JOIN kepler_ods.kdm2 l ON l.sucursal=oe.sucursal AND l.c1=oe.c1 AND l.c2=oe.c2 AND l.c3=oe.c3 AND l.c4=oe.c4 AND l.c6=oe.c6
+  WHERE oe.sucursal=$1 AND oe.c1=$1 AND oe.c2='X' AND oe.c3='A' AND oe.c4='40' AND oe.c9 >= $2
+  GROUP BY oe.c6, oe.c9, l.c8
+  HAVING SUM(l.c9) > 0` : `
   SELECT oe.c6 AS folio, oe.c9 AS doc_date, l.c8 AS sku, SUM(l.c9) AS qty
   FROM md.kdm1 oe
   JOIN md.kdm2 l ON l.c1=oe.c1 AND l.c2=oe.c2 AND l.c3=oe.c3 AND l.c4=oe.c4 AND l.c6=oe.c6
@@ -148,11 +166,18 @@ async function run() {
       const orders = [...g.orders.values()].sort((a, b) => dstr(a.created_date).localeCompare(dstr(b.created_date)));
       const minDate = dstr(orders[0].created_date);
 
-      let src;
-      try { src = new Client({ connectionString: m.url }); await src.connect(); }
-      catch (e) { console.log(`  ⚠ ${m.code}: sin conexión (${e.message}) — skip`); continue; }
+      let src = db;
+      if (SOURCE === 'branch') {
+        try { src = new Client({ connectionString: m.url }); await src.connect(); }
+        catch (e) { console.log(`  ⚠ ${m.code}: sin conexión (${e.message}) — skip`); continue; }
+      }
 
       let matched = 0;
+      let createdSuc = 0;
+      // Un SAVEPOINT por sucursal: si una falla, se deshace SÓLO lo suyo y la transacción sigue
+      // viva. Sin esto, un error abortaba la transacción entera, las sucursales siguientes fallaban
+      // y el COMMIT final era un ROLLBACK silencioso con el resumen diciendo «COMMIT — N OE».
+      await db.query('SAVEPOINT por_sucursal');
       try {
         const entradas = (await src.query(ENTRADAS_SQL, [suc, minDate])).rows;
         const receipts = matchEntradasToOrders(orders, entradas, taken);
@@ -185,12 +210,15 @@ async function run() {
             if (o?.requisition_id) await db.query(`UPDATE commercial.purchase_requisitions SET estado='received', received_at=now(), updated_at=now()
               WHERE tenant_id=$1 AND id=$2 AND estado IN ('ordered','approved')`, [M, o.requisition_id]);
           }
-          created++;
+          createdSuc++;
         }
+        await db.query('RELEASE SAVEPOINT por_sucursal');
+        created += createdSuc;
         summary.push({ code: m.code, suc, ocs_open: g.orders.size, entradas: entradas.length, matched });
       } catch (e) {
-        console.log(`  ⚠ ${m.code}: error (${e.message}) — skip`);
-      } finally { await src.end(); }
+        await db.query('ROLLBACK TO SAVEPOINT por_sucursal').catch(() => {});
+        console.log(`  ⚠ ${m.code}: error (${e.message}) — skip (lo suyo se deshizo)`);
+      } finally { if (src !== db) await src.end(); }
     }
     console.table(summary);
 
