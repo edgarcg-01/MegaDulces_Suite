@@ -7428,6 +7428,9 @@ export class CommercialAnalyticsService {
     // refresco) y lo que se mueve (push + vecinal del ODS, ciclo de 30 min). La que había leía una
     // foto del 2026-09-29 que nadie refrescaba. La ventana de 2 años va por MES: el primer mes entra
     // completo. Un código en las dos piernas se suma, y lleva el rótulo con nombre de más venta.
+    // ⛔ SIN tope: había un `LIMIT 5000` por venta y el universo es de 7,047 clientes / 5,792 SKU
+    // (medido 2026-11-05) — escondía en silencio a los 2,047 clientes más chicos, justo los nuevos.
+    // La ventana de 2 años ya acota la lista, y el combo pinta con scroll virtual.
     const rows: any[] = await this.tk.run(async (trx) => (await trx.raw(
       `SELECT value,
               (array_agg(label ORDER BY (label <> value) DESC, rev DESC NULLS LAST))[1] AS label,
@@ -7438,7 +7441,7 @@ export class CommercialAnalyticsService {
                SELECT value, label, rev FROM analytics.mv_route_filter_options_wincaja
                 WHERE tenant_id = ? AND kind = ?
                   AND month >= date_trunc('month', CURRENT_DATE - INTERVAL '2 years')) o
-        GROUP BY value ORDER BY 3 DESC NULLS LAST LIMIT 5000`,
+        GROUP BY value ORDER BY 3 DESC NULLS LAST`,
       [tenantId, kind, tenantId, kind])).rows).catch(() => []);
     if (rows.length) {
       return rows.map((r) => ({ value: r.value, label: r.label }));
@@ -7477,7 +7480,7 @@ export class CommercialAnalyticsService {
         WHERE l.tenant_id = ?
           AND CASE WHEN ? = 'sku' THEN l.sku IS NOT NULL
                    ELSE l.cliente IS NOT NULL AND btrim(l.cliente) <> '' AND l.cliente <> '0001' END
-        GROUP BY 1 ORDER BY 2 DESC NULLS LAST LIMIT 5000`,
+        GROUP BY 1 ORDER BY 2 DESC NULLS LAST`,
       [kind, tenantId, kind])).rows);
     return live.map((r) => ({ value: r.value, label: r.value }));
   }
