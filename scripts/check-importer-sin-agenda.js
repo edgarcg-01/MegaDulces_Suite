@@ -51,18 +51,10 @@ const IGNORAR = new Set(['node_modules', 'dist', '.git', '.nx', 'coverage', 'tmp
  * dueños.** Si algo entra acá sin decir quién lo corre, la compuerta deja de servir.
  */
 const SIN_AGENDA_A_PROPOSITO = [
-  { archivo: '_diag-catbulk.js', motivo: 'diagnóstico de un solo uso; se corre a mano y a propósito' },
   { archivo: 'access-replicate.js', motivo: 'Fase CA: lo dispara una Tarea de Windows en `.249` (Jet 32-bit), fuera de este repo' },
-  { archivo: 'run-wincaja-live.ps1', motivo: 'carril Wincaja en `.249`: Tarea de Windows, fuera de este repo (Fase VL.5)' },
-  { archivo: 'run-wincaja-replica.ps1', motivo: 'ídem Wincaja en `.249`' },
-  { archivo: 'sync-wincaja-actual.ps1', motivo: 'ídem Wincaja en `.249`' },
-  { archivo: 'sync-wincaja-concentrada.ps1', motivo: 'ídem Wincaja en `.249`' },
-  { archivo: 'install-concentrate-task.ps1', motivo: 'RETIRADO por [NORM.3]: instalaba una tarea de Windows, el sustrato que ADR-060 sacó' },
   { archivo: 'pull-prod-to-local.js', motivo: 'herramienta de desarrollo (espejo prod→local), no es un carril de producción' },
   { archivo: 'prevuelo-corte-asistencia.js', motivo: '[RH.1.8] PRE-VUELO de sólo lectura: se corre antes del corte, a mano y a propósito' },
-  { archivo: 'ecosystem.sync.config.js', motivo: 'config de PM2 (era el orquestador anterior a k3s); no se dispara, se lee' },
-  { archivo: 'ecosystem.caja-general.config.js', motivo: 'ídem PM2' },
-  { archivo: 'ecosystem.wincaja.config.js', motivo: 'ídem PM2' },
+  { archivo: 'ecosystem.caja-general.config.js', motivo: 'config de PM2 de la réplica de Caja General en `SISTEMAS`; no se dispara, se lee' },
   { archivo: 'ods-cdc-forward.js', motivo: 'drenaje del CDC: lo invoca el carril de replicación, no el cron (ver `replicate-ods-live.js`)' },
 ];
 
