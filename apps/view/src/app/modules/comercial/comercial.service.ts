@@ -3237,6 +3237,9 @@ export interface SalesByRouteRow {
   route_code: string;
   route_no: string;
   label: string;
+  /** `[VEC.41]` Chofer de hoy (comisión de RD, o la persona que Kepler pone en una vecinal). `null` = nadie lo sabe. */
+  driver_name?: string | null;
+  driver_source?: 'comision' | 'kepler' | null;
   monthly: Record<string, SalesByRouteCell>;
   revenue_total: number;
   units_total: number;

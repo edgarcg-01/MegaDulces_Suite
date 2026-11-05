@@ -211,7 +211,7 @@ const MES: Record<string, string> = {
             <p-iconfield class="rr-vf-search">
               <p-inputicon class="pi pi-search" />
               <input id="rr-f-q" pInputText type="text" [ngModel]="fQuery()" (ngModelChange)="fQuery.set($event)"
-                     placeholder="Ruta o sucursal…" />
+                     placeholder="Ruta, sucursal o chofer…" />
               @if (fQuery()) { <p-inputicon class="pi pi-times rr-vf-clear" (click)="fQuery.set('')" role="button" ariaLabel="Limpiar búsqueda" /> }
             </p-iconfield>
           </div>
@@ -285,7 +285,9 @@ const MES: Record<string, string> = {
                   <td pFrozenColumn class="rr-strong">
                     <!-- Botón real: el drill es accesible por teclado (la fila (click) queda para mouse). -->
                     <button type="button" class="rr-link" (click)="$event.stopPropagation(); openRoute(row)"
-                            [attr.aria-label]="'Ver desglose de la ruta ' + row.route_no">Ruta {{ row.route_no }}</button>
+                            [attr.aria-label]="'Ver desglose de la ruta ' + row.route_no + (row.driver_name ? ', chofer ' + row.driver_name : '')">Ruta {{ row.route_no }}</button>
+                    <!-- [VEC.41] El chofer de hoy; sin fuente que lo sepa, se dice — no se deja en blanco. -->
+                    <span class="rr-chofer" [class.rr-chofer--sin]="!row.driver_name">{{ row.driver_name || 'sin chofer asignado' }}</span>
                   </td>
                   @for (m of visibleMonths(); track m) {
                     <td class="comm-num">
@@ -1092,6 +1094,9 @@ const MES: Record<string, string> = {
     .rr-dep-sub { margin:0 0 var(--sp-2); font-size:var(--fs-micro); color:var(--text-muted); }
     .rr-dep-sub:last-child { margin:var(--sp-2) 0 0; }
     .rr-tenue { color:var(--text-faint); }
+    /* [VEC.41] El chofer, debajo de la ruta: secundario, no compite con el número. */
+    .rr-chofer { display:block; font-size:var(--fs-micro); font-weight:400; color:var(--text-muted); white-space:nowrap; }
+    .rr-chofer--sin { color:var(--text-faint); }
     .rr-bad { color:var(--bad-fg); }
     .rr-warn { color:var(--warn-fg); }
     .rr-ok { color:var(--ok-fg); }
@@ -1353,7 +1358,7 @@ export class ComercialVentasPorRutaComponent {
     const min = this.fMinRevenue(); const max = this.fMaxRevenue();
     return this.periodRows().filter((row) => {
       if (wh.length && !wh.includes(row.warehouse_code)) return false;
-      if (q) { const hay = `${row.warehouse_name} ${row.route_no} ${row.route_code}`.toLowerCase(); if (!hay.includes(q)) return false; }
+      if (q) { const hay = `${row.warehouse_name} ${row.route_no} ${row.route_code} ${row.driver_name ?? ''}`.toLowerCase(); if (!hay.includes(q)) return false; }
       if (only && row._revenue <= 0) return false;
       if (min != null && row._revenue < min) return false;
       if (max != null && row._revenue > max) return false;
@@ -1407,7 +1412,8 @@ export class ComercialVentasPorRutaComponent {
   readonly detailSubtitle = computed(() => {
     const d = this.detail();
     if (!d) return null;
-    const parts = [`Ruta ${d.route_no}`, String(d.year)];
+    const chofer = this.peekRow()?.driver_name;
+    const parts = [chofer ? `Ruta ${d.route_no} · ${chofer}` : `Ruta ${d.route_no}`, String(d.year)];
     if (this.periodLabel()) parts.push(this.periodLabel());
     if (this.fProduct() || this.fClient()) parts.push('filtrado');
     return parts.join(' · ');
