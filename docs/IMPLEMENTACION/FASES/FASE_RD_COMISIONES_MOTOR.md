@@ -762,9 +762,19 @@ desarrollador: mientras lo necesite, **el proceso no está aquí**, está en el 
   umbral: no cobra). Contraste de Q22 con el libro: NO MEDIDO hasta tener el libro.
   - **D3 para Q22 = opción A (Edgar, 2026-11-04): la suite paga SÓLO a los choferes; el
     supervisor se paga por fuera, como hasta hoy.** Las líneas `supervisor` de la corrida no se
-    depositan. ⚠️ **Deuda con nombre `[RD.105]`**: `setStatus('pagado')` marca la corrida
+    depositan. ⚠️ **Deuda con nombre `[RD.108]`**: `setStatus('pagado')` marca la corrida
     entera — no hay forma de decir «el supervisor se pagó fuera», así que el registro afirma
     más de lo que la suite pagó; hasta que exista, la corrida de Q22 se lee con esta nota.
+    *(Nació como `[RD.105]` y chocaba con el bono de asistencia; renumerada el 4-nov.)*
+  - ⭐ **Antes de aprobar, se corre `[RD.110]`** — `database/tests/test-newdb-rd-quincena-lista-para-pagar.js`,
+    sólo lectura: una corrida viva y del motor · toda ruta con chofer · cada ruta con venta cada
+    día operado · la venta de la corrida = la de la fuente HOY (con su control: quitar un día
+    TIENE que marcar) · el corte de caja de la camioneta como testigo · aprobar y pagar con una
+    persona activa · el monto del supervisor separado. Medido el 4-nov a las ~19 h sobre Q22
+    (sin corrida todavía): rojo por la 505 sin chofer y por la 502 y la 504 sin el 4-nov; el
+    testigo cuadra 67 de 71 días; aprobar y pagar tienen persona. Sobre Q21: el comparador
+    marcó 8 rutas falsas en su primera versión (líneas `fuera_no_es_camion`) — corregido.
+    `ANIO=2026 QUINCENA=22 node database/tests/test-newdb-rd-quincena-lista-para-pagar.js`
   - **Quién calcula Q22: el automático de las 07:30 del 5-nov** (`[RD.87]`,
     `commission-auto-run.service.ts`): corre después del refresco de las 06:20 y sólo si la fuente
     de todas las rutas vigentes está viva; deja `borrador`, nunca aprueba. ⛔ **Nadie oprime
@@ -1118,7 +1128,9 @@ Las preguntas de esta tabla ya viven ahí como 17 filas de `platform.business_de
 (`consumer = 'commercial.commissions'`), sin dueño todavía. `[RD.103]`–`[RD.106]` las LEEN; no
 las vuelven a preguntar.
 
-#### `[RD.106]` ⬜ La quincena se cierra DÍA POR DÍA (Edgar, 2026-11-04)
+#### `[RD.109]` ⬜ La quincena se cierra DÍA POR DÍA (Edgar, 2026-11-04)
+
+*(Nació como `[RD.106]`, que ya era el cobro de faltante; renumerada el 4-nov.)*
 
 > *«Ya sabemos la venta por día y podemos ir trabajando día por día.»* — Edgar, al ver la trampa
 > de Q22 (calcular el 4-nov congela el día a medias). La unidad de verificación es el **día de
@@ -1161,7 +1173,7 @@ motor (`v_rd_commission_sales`, por ruta y día) contra el **corte de caja de su
 - La quincena se aprueba cuando **todos** sus días están cerrados; con eso desaparece la trampa
   de la hora (`to > hoy`) y el automático de las 07:30 deja de ser el que decide.
 - Lo que llega después de pagar va como **ajuste** a la quincena siguiente, nunca reescribe lo
-  pagado; el mismo ajuste registra lo pagado por fuera (`[RD.105]`).
+  pagado; el mismo ajuste registra lo pagado por fuera (`[RD.108]`).
 
 ### 9.5 Lo que necesita firma antes de que el motor pague
 
