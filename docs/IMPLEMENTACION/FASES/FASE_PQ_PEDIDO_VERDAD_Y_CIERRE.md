@@ -1711,6 +1711,28 @@ comentario viejo.
 **Sin validación visual del código real.** La medición fue una simulación en el navegador. Al
 soltar, se repite la medida de y=850 con el mismo script (`a56e.js`).
 
+### 17.19 PQ.75 — el panel de negociación, y por qué la entrega no se captura todavía ahí (2026-11-05)
+
+**Hecho: el pedido típico en dos cifras.** Antes se leía «$686 mil de $241 mil». Ahora va el típico
+en grande («$241 mil») y debajo «llevas $686 mil». Es la misma cuenta (`evaluarPedidoTipico`),
+sólo se separa. Prueba en el spec del panel, con mutante muerto (volver a «X de Y» → rojo).
+
+**No hecho, a propósito: capturar la entrega en el panel.** «Una sola interfaz por flujo» pide
+quitar el «capturarlo en otra pestaña». Antes de exponer esa escritura en Pedido se midió en prod
+(sólo lectura):
+- `catalog.suppliers.lead_time_days`: **0 de 1,347 proveedores** capturados.
+- `POST suppliers/:id/lead-time`: **0 llamadas** desde que hay registro de uso (30-sep).
+- Ninguna prueba en `database/tests` ejerce ese endpoint contra una base real.
+- Pide `COMPRAS_PROVEEDORES_GESTIONAR`, que no se verificó en el puesto de comprador.
+
+Cero filas por defecto no se distingue de cero por desuso (regla 13). Por eso nace **PQ.77**:
+1. La prueba contra base real del endpoint, con el payload de la pantalla.
+2. Verificar el permiso en los puestos de Compras.
+3. Después, la captura en el panel.
+
+Pesa más de lo que parece: el lead time en 0 es la mitad de por qué las fechas del Ciclo no se
+sostienen (PQ.UI.5).
+
 ---
 
 ## 18. Unidades de medida al 100 %: verificado o con dueño (2026-11-04)
@@ -1860,6 +1882,7 @@ de hoy de esos 65 productos se cuenta distinto que su historia hasta que se cier
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-05 | **PQ.75 🧪** (§17.19): el pedido típico en dos cifras («$241 mil · llevas $686 mil»). La captura de la entrega en el panel pasa a **PQ.77**: 0 de 1,347 proveedores la tienen, su endpoint nunca se ha llamado y no tiene prueba contra base real; primero va la prueba | Claude |
 | 2026-11-05 | **PQ.74 🧪** (§17.18): el primer producto se ve al entrar. Simulado en la página viva, pasa de y=850 (debajo de la barra) a y=583, y se ven dos productos completos. Salen la pastilla, dos cifras repetidas, la caja de días duplicada y el rojo del Ciclo; la mitad de lo ganado era aire. Sin validación visual del código real | Claude |
 | 2026-11-05 | **PQ.76 🧪** (§17.17): las tres listas de Pedido se topaban en 500 renglones y la pantalla los sumaba como total. «A traspasar» $3.4 M → $4.9 M y «Sobrestock» $9.5 M → $13.0 M, con el mismo dato. Los productos que quedaban fuera perdían su traspaso en el desglose y en la requisición. Ahora se piden por producto de la página y los totales vienen del servidor. Probado contra prod en sólo lectura, con control negativo; tres mutantes muertos | Claude |
 | 2026-11-05 | **PQ.56 ✅** (§17.16): nivel A en prod, en sólo lectura y con blindaje probado. Lo más caro: la primera fila es 17499 ($686 mil por una sola venta; espera D31). Le siguen un rótulo de cajas que muestra kg, una primera pantalla sin ningún producto, «Sobrestock» a 1.95:1 y el rojo como decoración. Nacen **PQ.72–PQ.75** | Claude |

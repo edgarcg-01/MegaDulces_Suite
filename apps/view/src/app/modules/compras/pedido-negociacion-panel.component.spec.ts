@@ -123,3 +123,17 @@ describe('[RA-NEG.1] panel «Costo y negociación»', () => {
     expect(t).toContain('distinto por sucursal');
   });
 });
+
+describe('[PQ.75] el pedido típico se lee en dos cifras', () => {
+  // Auditoría nivel A, 2026-11-05: el panel de 17499 decía «$686 mil de $241 mil» y no se entendía
+  // cuál era el típico ni qué se comparaba.
+  it('el típico arriba y «llevas …» abajo', () => {
+    const f = montar();
+    f.componentRef.setInput('tipico', { tipico: '$241 mil', llevas: '$686 mil' });
+    f.detectChanges();
+    const t = texto(f);
+    expect(t).toContain('$241 mil');
+    expect(t).toContain('llevas $686 mil');
+    expect(t).not.toContain('$686 mil de $241 mil');
+  });
+});

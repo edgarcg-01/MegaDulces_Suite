@@ -4194,11 +4194,15 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   }
 
   /** «$667 K de $1.28 M» — el pedido típico que ya publica la fila. */
-  tipicoCorto(r: WorkbookRow): string | null {
+  /**
+   * `[PQ.75]` Las dos cifras por separado. Antes era «$686 mil de $241 mil» en una sola línea, y en la
+   * auditoría nivel A no se entendía cuál era el típico ni qué se comparaba con qué.
+   */
+  tipicoCorto(r: WorkbookRow): { tipico: string; llevas: string } | null {
     const pt = this.pedidoTipico(r);
     if (!pt) return null;
     const f = (v: number) => (pt.criterio === 'monto' ? this.dineroCorto(v) : `${Math.round(v).toLocaleString('es-MX')} cj`);
-    return `${f(pt.llevas)} de ${f(pt.tipico ?? 0)}`;
+    return { tipico: f(pt.tipico ?? 0), llevas: f(pt.llevas) };
   }
 
   /**
