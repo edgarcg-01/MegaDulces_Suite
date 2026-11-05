@@ -12,9 +12,18 @@
  * c39=folio entrada (cuando existe), c16=monto, c82=IVA, c24=motivo.
  * NO toca Kepler (solo SELECT). Idempotente: UPSERT-solo-cambios, sin DELETE.
  *
+ * `[CANON.5.2]` (2026-11-05) — la fuente por default es `kepler_ods.kdm1` con `sucursal='00'`
+ * (las mismas filas que la base del CEDIS, sin conexión al POS). Comparación en seco contra la
+ * tabla: 1,690 de 1,690 llaves idénticas en monto, IVA, motivo y proveedor, total igual al
+ * centavo; control negativo (sucursal '01') en rojo. `--source=branch` conserva el POS.
+ * ⚠️ El UNIVERSO sigue siendo sólo el CEDIS, a propósito: las bases de 01–08 tienen 487 ajustes
+ * propios en 2026 que esta tabla nunca leyó (monto NO VALIDADO: `c16` ahí no parece significar
+ * lo mismo). Ampliarlo es cambio de alcance y va aparte (anexo CANON.5, H10).
+ *
  *   node database/importers/kepler/import-purchase-adjustments.js            # dry-run
  *   node database/importers/kepler/import-purchase-adjustments.js --apply    # commit
  *   node database/importers/kepler/import-purchase-adjustments.js --apply --from 2026-01-01
+ *   node database/importers/kepler/import-purchase-adjustments.js --source=branch   # POS del CEDIS
  */
 
 const { Client } = require('pg');
@@ -22,11 +31,16 @@ const { Client } = require('pg');
 const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
 const { branchUrl } = require('../lib/kepler-branches');
-const SRC = process.env.ADJ_SRC || branchUrl('00'); // CEDIS md_00
+const SOURCE = (process.argv.find((a) => a.startsWith('--source=')) || '').split('=')[1] || 'ods';
+if (!['ods', 'branch'].includes(SOURCE)) throw new Error(`--source desconocido: ${SOURCE} (ods | branch)`);
+const SRC = SOURCE === 'ods' ? DST : (process.env.ADJ_SRC || branchUrl('00')); // CEDIS md_00
+const KDM1 = SOURCE === 'ods' ? `kepler_ods.kdm1` : `md.kdm1`;
+const SUC_FILTRO = SOURCE === 'ods' ? `AND sucursal = '00'` : '';
 const APPLY = process.argv.includes('--apply');
 const fromIx = process.argv.indexOf('--from');
 const FROM = fromIx > -1 ? process.argv[fromIx + 1] : '2026-01-01';
-const SOURCE_BRANCH = (SRC.match(/\/(md_\d+)/) || [])[1] || 'md_00';
+// Se conserva 'md_00' con la fuente ODS: es la misma base de origen y la columna lo nombra así.
+const SOURCE_BRANCH = SOURCE === 'ods' ? 'md_00' : ((SRC.match(/\/(md_\d+)/) || [])[1] || 'md_00');
 
 const money = (v) => { const n = Number(String(v ?? '').replace(/[^0-9.-]/g, '')); return Number.isFinite(n) ? n : 0; };
 const DOCTYPE = { 40: 'XD40', 55: 'XD55' };
@@ -56,7 +70,7 @@ function categorize(m) {
 }
 
 (async () => {
-  console.log(`\n=== Ajustes de compra Kepler (${SOURCE_BRANCH}, X-D-40 + X-D-55) → analytics.erp_purchase_adjustments (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
+  console.log(`\n=== Ajustes de compra Kepler (${SOURCE_BRANCH} vía ${SOURCE}, X-D-40 + X-D-55) → analytics.erp_purchase_adjustments (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
 
   const src = new Client({ connectionString: SRC, connectionTimeoutMillis: 8000 });
   await src.connect();
@@ -67,8 +81,8 @@ function categorize(m) {
               c10 AS prov_code, c32 AS prov_nombre, c22 AS prov_rfc,
               NULLIF(btrim(c11),'') AS factura_ref, NULLIF(btrim(c39),'') AS entrada_folio,
               c16 AS monto, c82 AS iva, c24 AS motivo
-         FROM md.kdm1
-        WHERE c2='X' AND c3='D' AND trim(c4::text) IN ('40','55') AND c9::date >= $1`,
+         FROM ${KDM1}
+        WHERE c2='X' AND c3='D' AND trim(c4::text) IN ('40','55') AND c9::date >= $1 ${SUC_FILTRO}`,
       [FROM]);
     rows = q.rows;
   } finally { await src.end().catch(() => {}); }
