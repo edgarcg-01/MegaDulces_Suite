@@ -477,11 +477,11 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                   <!-- [PQ.79] Si NINGUNA sucursal se pudo calcular (peldano en contra en todas), el
                        total no es 0: no se midio. Se pinta el guion con su razon (ADR-056). -->
                   <td class="pr-r pr-strong" [title]="pedidoTitle(r)">
-                    @if (sinCalcular(r)) { <span class="pr-rung" [title]="sinCalcularTitle(r)">— <i class="pi pi-exclamation-triangle" aria-hidden="true"></i></span> } @else {
+                    @if (pedidoSinCalcular(r)) { <span class="pr-rung" [title]="sinCalcularTitle(r)">— <i class="pi pi-exclamation-triangle" aria-hidden="true"></i></span> } @else {
                     {{ sumCajas(r) | number:'1.0-1' }} <span class="pr-unit">{{ etOf(r).mayor }}</span>@if (r.almacenes_sin_pedido) { <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> }
                     }
                   </td>
-                  <td class="pr-r pr-val pr-strong" [class.pr-ped-on]="sumCajas(r) > 0">{{ sinCalcular(r) ? '—' : money(sumValor(r)) }}</td>
+                  <td class="pr-r pr-val pr-strong" [class.pr-ped-on]="sumCajas(r) > 0">{{ pedidoSinCalcular(r) ? '—' : money(sumValor(r)) }}</td>
                   <!-- U.2 — la existencia de red suma SOLO los almacenes con el peldano verificado.
                        Si alguno quedo fuera se declara con el triangulo y el conteo en el tooltip,
                        porque un total mas chico se lee como "hay menos inventario". -->
@@ -650,15 +650,13 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                               {{ b.vta | number:'1.0-1' }} <span class="pr-vmx-sep">/</span> @if (b.mx != null) { {{ b.mx | number:'1.0-1' }} } @else { — }
                                             </button>
                                           </td>
+                                          <!-- [PQ.80] Con el peldano en contra NO hay sugerido ni dias (se declaran «—»), pero la
+                                               captura queda ABIERTA: el comprador pide a mano. Antes el renglon entero era «—» y un
+                                               producto con una entrada mal capturada en UNA sucursal no se podia pedir en ninguna. -->
                                           @if (b.rung) {
                                             <td class="pr-r pr-dx-c-exi"><span class="pr-rung" [title]="bRungTitle(b)">{{ b.nat | number:'1.0-0' }} {{ b.natu }} <i class="pi pi-exclamation-triangle" aria-hidden="true"></i></span></td>
                                             <td class="pr-r pr-muted pr-dx-c-dur">—</td>
                                             <td class="pr-r pr-muted pr-dx-c-tra">—</td>
-                                            <td class="pr-r pr-rung pr-dx-c-ped" [title]="bRungTitle(b)">—</td>
-                                            @if (verDetalle(r.product_id)) { <td class="pr-r pr-muted pr-dx-c-uni">—</td> }
-                                            <td class="pr-r pr-muted pr-dx-c-que">—</td>
-                                            @if (verDetalle(r.product_id)) { <td class="pr-muted pr-dx-c-ent">—</td> }
-                                            <td class="pr-r pr-muted pr-dx-c-val">—</td>
                                           } @else {
                                             <td class="pr-r pr-muted pr-dx-c-exi" [title]="existTitle(b.exis, qtyOf(r, b))">{{ b.exis | number:'1.0-1' }}</td>
                                             <td class="pr-r pr-dx-c-dur">
@@ -674,7 +672,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                                 @if (t.sale > 0) { <span class="pr-tra-out" [title]="'Manda ' + (t.sale | number:'1.0-1') + ' cajas a ' + t.a">manda {{ t.sale | number:'1.0-1' }}</span> }
                                               } @else { <span class="pr-muted">—</span> }
                                             </td>
-                                            <td class="pr-r pr-dx-c-ped">
+                                          }
+                                          <td class="pr-r pr-dx-c-ped">
                                               <span class="pr-step">
                                                 <button type="button" class="pr-step-b" tabindex="-1" aria-hidden="true"
                                                         (pointerdown)="stepStart(r, b, -1, $event)" (pointerup)="stepStop()" (pointerleave)="stepStop()"
@@ -725,7 +724,6 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                               </td>
                                             }
                                             <td class="pr-r pr-val pr-dx-c-val" [class.pr-strong]="qtyOf(r, b) > 0">{{ qtyOf(r, b) > 0 ? money(qtyOf(r, b) * b.cc) : '—' }}</td>
-                                          }
                                         </tr>
                                       }
                                     </tbody>
@@ -738,11 +736,11 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                       <td></td>
                                       <td class="pr-r"><span class="pr-tra-in">@if (prodTrCajas(r.product_id) > 0) { +{{ prodTrCajas(r.product_id) | number:'1.0-1' }} {{ etOf(r).mayor }} }</span></td>
                                       <!-- [PQ.36] El total en cajas Y en la unidad base: «50 cj = 400 pz» se lee antes de mandar. -->
-                                      <td class="pr-r">@if (sinCalcular(r)) { — } @else { {{ sumCajas(r) | number:'1.0-1' }} {{ etOf(r).mayor }} }@if ((+r.uxc || 1) > 1 && sumCajas(r) > 0) { <span class="pr-muted"> = {{ piezasDeCajas(sumCajas(r), +r.uxc) | number:'1.0-0' }} {{ unidadBase(r) }}</span> }</td>
+                                      <td class="pr-r">@if (pedidoSinCalcular(r)) { — } @else { {{ sumCajas(r) | number:'1.0-1' }} {{ etOf(r).mayor }} }@if ((+r.uxc || 1) > 1 && sumCajas(r) > 0) { <span class="pr-muted"> = {{ piezasDeCajas(sumCajas(r), +r.uxc) | number:'1.0-0' }} {{ unidadBase(r) }}</span> }</td>
                                       @if (verDetalle(r.product_id)) { <td></td> }
                                       <td></td>
                                       @if (verDetalle(r.product_id)) { <td></td> }
-                                      <td class="pr-r pr-val">{{ sinCalcular(r) ? '—' : money(sumValor(r)) }}</td>
+                                      <td class="pr-r pr-val">{{ pedidoSinCalcular(r) ? '—' : money(sumValor(r)) }}</td>
                                     </tr></tfoot>
                                   </table>
                                 </div>
@@ -2641,7 +2639,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
 
   /** Leyendas del renglón: lo que FALTA, dicho con palabras (no un cero que se lea "urge"). */
   branchFlags(b: BranchBuy): string[] {
-    if (b.rung) return [];
+    if (b.rung) return ['sin sugerido · pide a mano'];   // [PQ.80]
     const out: string[] = [];
     if (!(b.exis > 0)) out.push('sin existencia');
     if (!(b.vta > 0)) out.push('sin venta');
@@ -3032,6 +3030,8 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     const bs = this.branchBuys(r);
     return bs.length > 0 && bs.every((b) => !!b.rung);
   }
+  /** `[PQ.80]` Lo PEDIDO es «—» sólo si no se calculó Y nadie capturó a mano: lo capturado es un hecho. */
+  pedidoSinCalcular(r: WorkbookRow): boolean { return this.sinCalcular(r) && !(this.sumCajas(r) > 0); }
   sinCalcularTitle(r: WorkbookRow): string {
     const bs = this.branchBuys(r);
     const n = bs.filter((b) => b.rung).length;
@@ -3065,8 +3065,9 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
 
   /** Cantidad en CAJAS: lo que el usuario escribió, o el sugerido del motor si no tocó nada. */
   qtyOf(r: WorkbookRow, b: BranchBuy): number {
-    if (b.rung) return 0;
     const ov = this.buyQty()[this.bk(r.product_id, b.code)];
+    // [PQ.80] Con el peldano en contra no hay sugerido, pero lo que el comprador escribe SÍ cuenta.
+    if (b.rung) return ov ?? 0;
     return ov === undefined ? b.seed : ov;
   }
   /** Factor (en unidades base) de la unidad en que se captura el renglón. */

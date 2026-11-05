@@ -1794,6 +1794,8 @@ existencia. Dos hallazgos quedan registrados sin item: el árbitro de peldaño p
 toda la red, de modo que una captura mala en una sucursal bloquea a todas; y el motor puede proponer
 traspasos de existencia fantasma.
 
+**PQ.80: con ⚠ no hay sugerido, pero se puede pedir a mano.** Edgar: *«si necesito pedir el boli naranja no me deja»*. Con el peldaño en contra, el renglón de la sucursal era «—» entero y `qtyOf` devolvía 0 aunque se escribiera. Ahora quedan «—» la existencia en cajas, los días y el traspaso (no se midieron), pero el campo para pedir está abierto: lo capturado cuenta y viaja a la requisición y al PDF, sin un sugerido inventado. El renglón dice «sin sugerido · pide a mano». Σ Ped. y $ Pedido sólo son «—» si además nadie capturó nada. El servidor no revisa el peldaño al registrar la requisición. Probado: la prueba de render falla contra la versión anterior, y un mutante de `qtyOf` muerto.
+
 **Proveedores con «?» en el nombre:** 6 de 804 claves de Kepler (CF010, CC021, CG005, CB009, CC002…). El ODS guarda bien la Ñ de otros 29 proveedores, escritos con Ñ. Entonces el «?» **está guardado así en el catálogo de Kepler** (`kdxd.c3`) y se corrige
 allá; el importer de proveedores lo traerá corregido. Parcharlo en la suite lo pisaría la siguiente
 corrida. Además CF010 aparece dos veces en `catalog.suppliers`: «853», bien escrito y sin
@@ -1948,6 +1950,7 @@ de hoy de esos 65 productos se cuenta distinto que su historia hasta que se cier
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-05 | **PQ.80 🧪** (§17.20): con ⚠ de peldaño ya se puede pedir a mano (antes la sucursal quedaba cerrada, y una mala entrada en una sucursal bloqueaba el producto en todas). Sin sugerido inventado | Claude |
 | 2026-11-05 | **PQ.78 🧪 · PQ.79 🧪** (§17.20): el precio del pedido es el de Kepler en la sucursal que recibe, leído en vivo (antes, la mediana de la red con 15 min de atraso); el papel dice de dónde sale y de qué hora es. Lo que ninguna sucursal pudo calcular se pinta «—», no 0. Causas en Kepler, para Edgar: el precio nuevo de Tuby no estaba guardado, una entrada de 8 Esquinas metió 800 paquetes donde eran 40, y 6 proveedores tienen «?» en el nombre | Claude |
 | 2026-11-05 | **PQ.75 🧪** (§17.19): el pedido típico en dos cifras («$241 mil · llevas $686 mil»). La captura de la entrega en el panel pasa a **PQ.77**: 0 de 1,347 proveedores la tienen, su endpoint nunca se ha llamado y no tiene prueba contra base real; primero va la prueba | Claude |
 | 2026-11-05 | **PQ.74 🧪** (§17.18): el primer producto se ve al entrar. Simulado en la página viva, pasa de y=850 (debajo de la barra) a y=583, y se ven dos productos completos. Salen la pastilla, dos cifras repetidas, la caja de días duplicada y el rojo del Ciclo; la mitad de lo ganado era aire. Sin validación visual del código real | Claude |

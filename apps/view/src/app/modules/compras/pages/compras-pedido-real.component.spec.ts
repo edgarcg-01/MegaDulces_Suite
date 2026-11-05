@@ -1665,3 +1665,42 @@ describe('[PQ.79] lo que ninguna sucursal pudo calcular se pinta «—», no 0',
     expect(c.sinCalcularTitle(r as never)).toMatch(/3 de 4 sucursales no/);
   });
 });
+
+describe('[PQ.80] con el peldaño en contra no hay sugerido, pero SÍ se puede pedir a mano', () => {
+  // Edgar, 2026-11-05: «si necesito pedir el boli naranja no me deja». Una entrada mal capturada en
+  // 8 Esquinas (800 paq por 40) dejaba el renglón entero en «—» en las 5 sucursales.
+  const celda = (exis: number, nat: number) => ({ cc: 186.21, mx: 1, nat, rop: 1, vta: 0.5, exis, natu: 'PAQ', rung: 'x1_inflada', tran: 0 });
+  const R = {
+    product_id: 'p-80', sku: '59059', nombre: 'NARANJA BOLI CHICO /20', supplier_id: 's-1', supplier_name: 'DEMO',
+    uxc: '20', caja_cost: '186.21', cells: { '01': celda(1.4, 27), '08': celda(0.2, 3) },
+    almacenes_sin_pedido: 2, almacenes_sin_valuar: 2, signals: null,
+  };
+
+  it('⛔ el desglose abierto trae el campo para pedir en una sucursal con ⚠', () => {
+    const fix = montar({ ...VACIO, total: 1, rows: [R] });
+    fix.detectChanges();
+    const c = fix.componentInstance;
+    c.toggleRow(R as never);
+    fix.detectChanges();
+    const inputs = (fix.nativeElement as HTMLElement).querySelectorAll('.pr-dx-c-ped input.pr-qty');
+    expect(inputs.length).toBe(2);
+  });
+
+  it('lo capturado cuenta (sin sugerido inventado) y el total deja de ser «—»', () => {
+    const c = montar({ ...VACIO, total: 1, rows: [R] }).componentInstance;
+    const b = c.branchBuys(R as never).find((x) => x.code === '08')!;
+    expect(c.qtyOf(R as never, b)).toBe(0);                 // sin sugerido: no se inventa
+    expect(c.pedidoSinCalcular(R as never)).toBe(true);
+    c.setDispOf(R as never, b, 3 * c.bFactor(R as never, b)); // 3 cajas, en la unidad de captura
+    expect(c.qtyOf(R as never, b)).toBeCloseTo(3);
+    expect(c.sinCalcular(R as never)).toBe(true);           // la existencia sigue sin medirse
+    expect(c.pedidoSinCalcular(R as never)).toBe(false);    // lo pedido es un hecho
+    expect(c.sumValor(R as never)).toBeCloseTo(3 * 186.21);
+  });
+
+  it('el renglón dice por qué no hay sugerido y que se pide a mano', () => {
+    const c = montar({ ...VACIO, total: 1, rows: [R] }).componentInstance;
+    const b = c.branchBuys(R as never)[0];
+    expect(c.branchFlags(b)).toEqual(['sin sugerido · pide a mano']);
+  });
+});
