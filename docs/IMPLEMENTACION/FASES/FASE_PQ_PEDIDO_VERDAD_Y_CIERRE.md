@@ -1471,6 +1471,47 @@ Pedido. Sube a ✅ cuando esté en prod y se vea en la pantalla viva.
 **Deuda nombrada:** `workbook` tarda 1.9–2.2 s por sucursal y 3–6 s la primera página de toda la
   red, antes y después de estos cambios. Una consulta de más de 500 ms no funciona.
 
+### 17.14 PQ.10, primer paso — lo que sólo se muestra, fuera de la consulta (2026-11-04)
+
+**Dónde se iba el tiempo** (EXPLAIN ANALYZE en prod, sólo lectura, la página que pide la pantalla al
+abrir: toda la red, cobertura de cada sucursal, sólo con pedido, 20 renglones; 2.67 s):
+
+| Pieza | Tiempo | ¿Decide algo? |
+|---|---:|---|
+| escalera de Kepler (`lad`, rótulos y factores de unidad) | ~650 ms | no: sólo se muestra |
+| factor de caja (`vbf`): el CTE copiaba 245,080 filas para cruzar 25,619 | ~400 ms | sí (rótulo nativo de la celda), pero la fuente es una tabla con índice único |
+| etiquetera (`lp`, caja y paquete) | ~370 ms | no: sólo se muestra |
+| armar las celdas (`jsonb_object_agg` sobre 3,208 productos) | ~400 ms | sí |
+| `base` (plan × productos × políticas) | ~800 ms | sí |
+
+**Hecho** (código, sin cambio de negocio): la escalera y la etiquetera se leen en una consulta
+aparte, con `= ANY(…)`, sólo para los renglones devueltos (`rotulosDePagina`); con la copia
+materializada, `vbf` se une directo a la tabla.
+⛔ **Primer intento descartado:** unirlas a la página en SQL. Con proveedor, el planificador volvió a
+calcular la etiquetera una vez por renglón (185 × 110 ms = **19 s**, contra 1.5 s antes). En consulta
+aparte no hay plan que elegir.
+
+**Medido** con las dos versiones en el mismo proceso, contra prod (sólo lectura), 10 escenarios:
+**respuesta idéntica en los 10** (la única diferencia que apareció era deriva del dato: corriendo
+antes-después-antes salió igual). Tiempos, antes → después:
+
+| Escenario | Antes | Después |
+|---|---:|---:|
+| red, página 1 | 2.67 s | 2.20 s |
+| red, sin «sólo con pedido» | 2.68 s | 2.02 s |
+| un proveedor (185 renglones) | 1.55 s | 0.99 s |
+| una sucursal | 1.37 s | 0.79 s |
+| agotados | 4.88 s | 3.55 s |
+| página de 1,000 | 3.86 s | 2.71 s |
+| exportación | 2.85 s | 2.49 s |
+
+Prueba: `rotulos-pagina.spec.ts` (5), con mutante muerto (caja ← paquete: rojo).
+
+**PQ.10 sigue 🔨: ninguna de estas llega a 500 ms.** Lo que queda (~2 s en la red) es lo que sí
+decide el pedido: `base` y el armado de celdas sobre todo el catálogo, que la pantalla necesita para
+los totales y el orden. Bajarlo de verdad es mantener el resultado por evento (como PQ.61 con la
+venta diaria), no reescribir la consulta: es diseño, va con su propia medición.
+
 ---
 
 ## 18. Unidades de medida al 100 %: verificado o con dueño (2026-11-04)
@@ -1620,6 +1661,7 @@ de hoy de esos 65 productos se cuenta distinto que su historia hasta que se cier
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-04 | **PQ.10 primer paso** (§17.14): escalera y etiquetera se leen sólo para los renglones devueltos, y el factor de caja se une directo a su tabla. Respuesta idéntica en 10 escenarios; la red 2.67 → 2.20 s, un proveedor 1.55 → 0.99 s, una sucursal 1.37 → 0.79 s. El primer intento (unirlas en SQL) subía el caso con proveedor a 19 s y se descartó. Sigue 🔨: lo que queda decide el pedido. Mismo día: PQ.44/50/68/69/70 y 28 renglones más de PQ verificados en prod y pasados a ✅ en el tracker. | Claude |
 | 2026-11-04 | **PQ.44 🧪** (`3ea70328e`, §17.13): la sucursal que sale en 0 porque el reorden frenó algo que sí faltaba dice «arriba del reorden», y sólo ahí. El motor la marca con la misma cantidad que decide el pedido: 1,075 de 25,564 celdas. El primer intento (comparar en pantalla) la habría puesto en la mitad de la grilla | PM + sesión Claude |
 | 2026-11-04 | **PQ.44 D26 y D25** (§17.13). D26 (`95f1b7d3c`): lo que llega por traspaso no se infla por cumplimiento; 606 → 280 renglones de diferencia, Pedido $21.4 M → $20.8 M. D25 (`d9660bdd4`): Pedido abre con la cobertura de cada sucursal; en la red $22.68 M → $20.71 M frente a 30 días fijos; control 0 diferencias en 25,296 renglones. Falta explicar en pantalla la celda en 0 | PM + sesión Claude |
 | 2026-11-04 | PM firmó **D33**. **PQ.44, primer paso** (`0aeec91fc`, §17.12): Pedido pide al llegar al reorden con la misma regla que la mesa (`faltante.ts`). «Pedido lo pide y la mesa no» 681 → 2; Pedido en 8 sucursales $24.4 M → $21.4 M; las otras diferencias no se movieron. Falta D25, D26 y explicarlo en pantalla | PM + sesión Claude |
