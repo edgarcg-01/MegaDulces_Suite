@@ -128,8 +128,7 @@ describe.skipIf(!URL)('[LE.4.7] la API del libro de efectivo contra Postgres', (
 
     // El cierre: lo autoriza la sesión; cierra quien hizo el arqueo de cierre (nunca la misma persona).
     expect(await rechazo(svc.cerrarJornada(HOY, CAJERA))).toEqual({ status: 422, codigo: 'cashbook_cierre_cuatro_ojos' });
-    // [LE.2.10] Sin tope fijado no hay regla de excedente: se dice con null, no se da por cumplida.
-    expect(await svc.cerrarJornada(HOY, MARIAZ)).toEqual({ cerro: CAJERA.id, autorizo: MARIAZ.id, excedente: null });
+    expect(await svc.cerrarJornada(HOY, MARIAZ)).toEqual({ cerro: CAJERA.id, autorizo: MARIAZ.id });
     expect(await rechazo(svc.registrarHecho(gasto, CAJERA, randomUUID()))).toEqual({ status: 422, codigo: 'cashbook_sin_jornada_abierta' });
 
     // Lo que queda: el libro íntegro, la caja con lo que se reconoció.

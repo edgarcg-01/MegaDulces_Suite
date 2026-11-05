@@ -91,9 +91,6 @@ details.sim .fila{display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-top:var(--s
 .buscar input{max-width:560px}
 .pie{margin:0;padding:var(--sp-2) var(--sp-4);border-top:1px solid var(--table-border);font-size:var(--fs-xs)}
 .motivo{font-size:var(--fs-micro);color:var(--warn-fg);display:block}
-.motivo[data-testid="detenido"]{color:var(--text-muted)}
-.motivo a{color:var(--text-main);text-decoration:underline;text-underline-offset:2px}
-.motivo a:focus-visible{outline:2px solid var(--action-ring);outline-offset:1px}
 @media (prefers-reduced-motion: reduce){*{transition:none!important}}
 </style>
 </head>
@@ -125,7 +122,7 @@ details.sim .fila{display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-top:var(--s
 <main>
   <div id="vista-cajera">
     <section class="cola alerta" id="sec-explicar" data-testid="cola-explicar"><h2>Por explicar <span class="n" id="n-explicar"></span><span class="faint">salió de la máquina sin orden</span></h2><table><tbody id="t-explicar"></tbody></table></section>
-    <section class="cola" id="sec-pagar" data-testid="cola-pagar"><h2>Por pagar hoy <span class="n" id="n-pagar"></span><span class="faint">documentos de Kepler que esperan su efectivo</span><span class="faint" id="pagar-detenidos"></span></h2><table><tbody id="t-pagar"></tbody></table>
+    <section class="cola" id="sec-pagar" data-testid="cola-pagar"><h2>Por pagar hoy <span class="n" id="n-pagar"></span><span class="faint">documentos de Kepler que esperan su efectivo</span></h2><table><tbody id="t-pagar"></tbody></table>
       <p class="pie faint" data-testid="mal-fechados" id="mal-fechados"></p></section>
     <section class="cola" data-testid="cola-atrasados"><h2>Atrasados <span class="n" id="n-atrasados"></span><span class="faint">de octubre, que Control no concilió · se concilian, no se pagan</span>
       <button class="btn" id="btn-atrasados" type="button" style="margin-left:auto" aria-expanded="false"></button></h2><table><tbody id="t-atrasados"></tbody></table></section>
@@ -162,59 +159,20 @@ const BENEF = ['Gasolina · Unidad 12', 'Fletes del Bajío', 'Limpieza Integral'
   'Agua purificada', 'Paquetería', 'Refacciones · Unidad 7', 'Casetas · Ruta 31', 'Papelería del Centro', 'Comida de cuadrilla',
   'Cerrajería', 'Recarga de tanque', 'Material eléctrico', 'Fumigación', 'Hielo', 'Bolsas de empaque', 'Taller · Unidad 3',
   'Nómina eventual · Morelia Madero', 'Gastos de oficina · CEDIS', 'Pintura', 'Herramienta', 'Lavado de unidades'];
-// `[LE.2.13]` Lo que respalda cada pago lo dice Kepler, no la cajera (D27, D29). La forma sale de prod
-// (2026-11-03): de 4,068 pagos de caja, 1,206 pagan compras, 2,861 gastos y 1 nada; desde el 29-oct,
-// 38 de 258 vales «validados» los validó Kepler solo, sin que nadie los aprobara.
-const gastoAprobado = (vale, gasto) => ({ tipo: 'gasto', gastos: [{ folio: gasto, vale, estado: 'aprobado', aprobo: 'Jefatura de Finanzas' }] });
 function generarHoy() {
   const base = [
-    { id: 'p1', doc: 'X-D-26 0023782', quien: 'NOMINA · CEDIS', monto: 796.5, respaldo: gastoAprobado('VA-1182', 'XA10 9593'), cuenta: '601-014' },
-    { id: 'p2', doc: 'X-D-26 0023790', quien: 'Papelería del Centro', monto: 12480, respaldo: { tipo: 'ninguno' }, cuenta: '601-022' },
-    { id: 'p3', doc: 'X-D-26 0023791', quien: 'Refacciones · Ruta 5', monto: 3250, respaldo: gastoAprobado('VA-1190', 'XA10 9601'), cuenta: '601-031' },
+    { id: 'p1', doc: 'X-D-26 0023782', quien: 'NOMINA · CEDIS', monto: 796.5, vale: 'VA-1182', cuenta: '601-014' },
+    { id: 'p2', doc: 'X-D-26 0023790', quien: 'Papelería del Centro', monto: 12480, vale: null, cuenta: '601-022' },
+    { id: 'p3', doc: 'X-D-26 0023791', quien: 'Refacciones · Ruta 5', monto: 3250, vale: 'VA-1190', cuenta: '601-031' },
   ];
   for (let i = 4; i <= 26; i++) {
     const monto = Math.round(((i * 7919) % 9000 + 150) * 2) / 2;
-    const gasto = 'XA10 96' + String(i).padStart(2, '0'), vale = 'VA-12' + String(i).padStart(2, '0');
-    const parte = Math.round(monto * 0.6 * 2) / 2;
-    const entradas = [{ folio: 'XA20 0' + (360 + i), importe: parte }, { folio: 'XA20 0' + (380 + i), importe: +(monto - parte).toFixed(2) }];
-    let respaldo = i % 4 === 0 ? { tipo: 'compra', entradas, pagadaDeMas: false } : gastoAprobado(vale, gasto);
-    if (i === 9) respaldo = { tipo: 'gasto', gastos: [{ folio: gasto, vale, estado: 'validado', aprobo: null }] };   // sólo lo validó Kepler
-    if (i === 13) respaldo = { tipo: 'gasto', gastos: [{ folio: gasto, vale: null, estado: null, aprobo: null }] };   // sin expediente
-    if (i === 17) respaldo = { tipo: 'gasto', gastos: [{ folio: gasto, vale, estado: 'rechazado', aprobo: null }] };
-    if (i === 21) respaldo = { tipo: 'compra', entradas, pagadaDeMas: true };
-    if (i === 22) respaldo = { tipo: 'gasto', gastos: [0, 1, 2].map((k) => ({ folio: gasto + '-' + k, vale: vale + '-' + k, estado: 'aprobado', aprobo: 'Jefatura de Finanzas' })) };
-    base.push({ id: 'p' + i, doc: 'X-D-26 00238' + String(i + 10).padStart(2, '0'), quien: i % 4 === 0 ? 'Proveedor de botana ' + i : BENEF[(i - 4) % BENEF.length], monto,
-      respaldo, cuenta: i === 7 || i === 19 ? null : '601-0' + String(10 + (i % 40)).padStart(2, '0') });   // 2 sin cuenta declarada
+    base.push({ id: 'p' + i, doc: 'X-D-26 00238' + String(i + 10).padStart(2, '0'), quien: BENEF[(i - 4) % BENEF.length], monto,
+      vale: i % 4 === 0 ? null : 'VA-12' + String(i).padStart(2, '0'),
+      cuenta: i === 7 || i === 19 ? null : '601-0' + String(10 + (i % 40)).padStart(2, '0') });   // 2 sin cuenta declarada
   }
   return base;
 }
-
-/**
- * `[LE.2.13]` El mismo veredicto que `plan-de-pago.ts`: UNA autorización basta (la compra o el gasto
- * aprobado por una persona); lo que no está aprobado NO sale ni con firma; sólo lo que Kepler no
- * respalda pide la firma de Tesorería. Cada detenido dice por qué y dónde se arregla.
- */
-const APROBACION = '/finanzas/aprobacion-gastos';
-function veredicto(p) {
-  const r = p.respaldo;
-  if (r.tipo === 'ninguno') return { puede: true, firma: true, tag: ['warn', 'Kepler no dice qué paga · firma Tesorería'] };
-  if (r.tipo === 'compra') {
-    if (r.pagadaDeMas) return { puede: false, tag: ['err', 'compra pagada de más'], motivo: 'Una de sus entradas ya estaba pagada: con este pago quedaría pagada de más. Se aclara en Kepler.' };
-    return { puede: true, firma: false, tag: ['', 'compra · ' + r.entradas.length + ' entradas'] };
-  }
-  const g = r.gastos;
-  if (g.some((x) => !x.vale)) return { puede: false, tag: ['err', 'gasto sin expediente'], motivo: 'El gasto no tiene su solicitud en Aprobación de gastos.', arreglo: 'Subirlo y aprobarlo en Aprobación de gastos' };
-  if (g.some((x) => x.estado === 'rechazado')) return { puede: false, tag: ['err', 'gasto rechazado'], motivo: 'Lo rechazaron en Aprobación de gastos: no se paga.' };
-  if (g.some((x) => !x.aprobo)) return { puede: false, tag: ['err', 'gasto sin aprobar'], motivo: 'Lo validó Kepler al aplicarse, pero nadie lo aprobó.', arreglo: 'Aprobarlo en Aprobación de gastos' };
-  return { puede: true, firma: false, tag: ['', g.length === 1 ? 'gasto aprobado · ' + g[0].vale : g.length + ' gastos aprobados'] };
-}
-function detalleRespaldo(p) {
-  const r = p.respaldo;
-  if (r.tipo === 'compra') return 'Paga la compra: ' + r.entradas.map((e) => `<span class="mono">${e.folio}</span> ${fmt(e.importe)}`).join(' · ');
-  if (r.tipo === 'gasto') return 'Paga ' + r.gastos.map((x) => `<span class="mono">${x.folio}</span> · vale ${x.vale}${x.aprobo ? ', aprobado por ' + x.aprobo : ''}`).join('; ');
-  return 'Kepler no dice qué gasto o compra paga.';
-}
-const textoRespaldo = (p) => { const v = veredicto(p); return [v.tag[1], v.motivo || '', p.respaldo.tipo === 'gasto' ? p.respaldo.gastos.map((x) => x.vale || '').join(' ') : ''].join(' '); };
 function generarAtrasados() {
   return Array.from({ length: 47 }, (_, k) => ({ id: 'a' + (k + 1), doc: 'X-D-26 00231' + String(k + 10).padStart(2, '0'),
     quien: BENEF[(k * 5) % BENEF.length], dia: String(1 + (k % 11)).padStart(2, '0') + '/10', monto: Math.round(((k * 4793) % 6000 + 90) * 2) / 2 }));
@@ -319,16 +277,12 @@ function render() {
     `<tr data-testid="explicar-${e.id}"><td>${e.hora}</td><td>Retiro sin código · <b>${e.usuario}</b></td><td class="num">${fmt(e.monto)}</td>
      <td class="acc"><button class="btn" ${off} data-acc="explicar" data-id="${e.id}">Explicar</button></td></tr>`);
 
-  // `[LE.2.13]` Primero lo que se puede pagar ya; lo detenido abajo, cada uno con su porqué y dónde se arregla.
-  const vPag = S.porPagar.filter((p) => coincide([p.doc, p.quien, p.cuenta, textoRespaldo(p)], p.monto, q))
-    .map((p, k) => ({ p, k, v: veredicto(p) })).sort((a, b) => (b.v.puede - a.v.puede) || (a.k - b.k));
-  const detenidos = S.porPagar.filter((p) => !veredicto(p).puede).length;
+  const vPag = S.porPagar.filter((p) => coincide([p.doc, p.quien, p.cuenta, p.vale], p.monto, q));
   $('n-pagar').textContent = cuenta(vPag, S.porPagar.length);
-  $('pagar-detenidos').textContent = detenidos ? `· ${detenidos} detenidos: se arreglan donde se autorizan, no aquí` : '';
-  filas('t-pagar', vPag, q ? 'Nada coincide con la búsqueda.' : 'No hay documentos por pagar.', ({ p, v }) =>
-    `<tr data-testid="pagar-${p.id}" data-puede="${v.puede}"><td class="mono">${p.doc}</td><td>${p.quien}</td>
-     <td><span class="tag ${v.tag[0]}" data-testid="respaldo">${v.tag[1]}</span>${v.motivo ? `<span class="motivo" data-testid="detenido">${v.motivo}${v.arreglo ? ` <a href="${APROBACION}" data-testid="arreglar">${v.arreglo}</a>` : ''}</span>` : ''}</td>
-     <td class="num">${fmt(p.monto)}</td><td class="acc"><button class="btn" ${off || (p.cuenta && v.puede ? "" : "disabled")} data-acc="pagar" data-id="${p.id}">Pagar</button>${p.cuenta ? "" : "<span class=\"motivo\" data-testid=\"sin-cuenta\">falta su cuenta de Kepler</span>"}</td></tr>`);
+  filas('t-pagar', vPag, q ? 'Nada coincide con la búsqueda.' : 'No hay documentos por pagar.', (p) =>
+    `<tr data-testid="pagar-${p.id}"><td class="mono">${p.doc}</td><td>${p.quien}</td>
+     <td>${p.vale ? `<span class="tag ok">vale ${p.vale}</span>` : '<span class="tag warn">sin vale aprobado</span>'}</td>
+     <td class="num">${fmt(p.monto)}</td><td class="acc"><button class="btn" ${off || (p.cuenta ? "" : "disabled")} data-acc="pagar" data-id="${p.id}">Pagar</button>${p.cuenta ? "" : "<span class=\"motivo\" data-testid=\"sin-cuenta\">falta su cuenta de Kepler</span>"}</td></tr>`);
   $("mal-fechados").textContent = S.malFechados.n + " documentos de Kepler por " + fmt(S.malFechados.monto) + " vienen fechados después de hoy: se corrigen en Kepler y aparecen solos.";
   const vAtr = S.atrasados.filter((a) => coincide([a.doc, a.quien, a.dia], a.monto, q));
   $("n-atrasados").textContent = cuenta(vAtr, S.atrasados.length);
@@ -382,11 +336,10 @@ function renderPanel() {
   if (P.tipo === 'pagar') {
     const p = S.porPagar.find((x) => x.id === P.id);
     const maq = parteMaquina(p.monto), caj = +(p.monto - maq).toFixed(2);
-    const firmado = !veredicto(p).firma || P.firma?.ok;
-    let h = `<h3>Pagar ${p.doc}</h3><p>${p.quien} · <b class="mono">${fmt(p.monto)}</b></p>
-      <p class="faint" data-testid="lo-respalda">${detalleRespaldo(p)}</p>`;
+    const firmado = !!p.vale || P.firma?.ok;
+    let h = `<h3>Pagar ${p.doc}</h3><p>${p.quien} · <b class="mono">${fmt(p.monto)}</b></p>`;
     if (!firmado) {
-      h += `<div class="aviso" data-testid="espera-firma">Kepler no dice qué gasto o compra paga: el código no sale hasta que Tesorería firme en su teléfono.</div>`;
+      h += `<div class="aviso" data-testid="espera-firma">Sin vale aprobado: el código no sale hasta que Tesorería firme en su teléfono.</div>`;
     } else {
       h += `<div class="paso"><div class="muted">1. Teclea en la máquina este código y saca <b class="mono">${fmt(maq)}</b></div>
             <div class="codigo" data-testid="codigo">${P.codigo}</div>
@@ -552,11 +505,9 @@ function renderPanel() {
 function abrirPago(id) {
   const p = S.porPagar.find((x) => x.id === id);
   const P = { tipo: 'pagar', id, piezas: {}, recibe: '' };
-  const v = veredicto(p);
-  if (!v.puede) return;   // lo detenido no se paga ni se manda a firmar (D29)
-  if (!v.firma) { P.codigo = nuevoCodigo(); S.ordenes.push({ codigo: P.codigo, monto: parteMaquina(p.monto), para: p.doc, usada: false }); }
-  else {   // V4 + D27: sólo lo que Kepler no respalda pide la firma de Tesorería ANTES del dinero
-    P.firma = pedirFirma(`Pago ${p.doc} · ${p.quien} (Kepler no dice qué paga)`, p.monto, () => {
+  if (p.vale) { P.codigo = nuevoCodigo(); S.ordenes.push({ codigo: P.codigo, monto: parteMaquina(p.monto), para: p.doc, usada: false }); }
+  else {   // V4: sin vale aprobado, firma Tesorería ANTES del dinero
+    P.firma = pedirFirma(`Pago ${p.doc} · ${p.quien} (sin vale)`, p.monto, () => {
       P.codigo = nuevoCodigo(); S.ordenes.push({ codigo: P.codigo, monto: parteMaquina(p.monto), para: p.doc, usada: false });
     });
   }

@@ -63,20 +63,3 @@ export async function leerCandado(
   });
   return { ...c, hoy };
 }
-
-/**
- * ⛔ `[LE.0.9]` ¿La base le va a NEGAR la caja a esta persona? La misma función que usa el
- * disparador `caja_exige_llave_chk` (D23: en la caja el superadmin no cuenta), preguntada ANTES de
- * escribir. `RolesGuard` deja pasar al superadmin y la base no: sin esta pregunta, pagar HG-5
- * (2026-11-03) dejó la hoja pagada con sus 14 pagos fuera del libro.
- *
- * `true` sólo cuando la base dice que no. Persona desconocida (NULL) o función sin instalar: no
- * decide, igual que el disparador.
- */
-export async function sinLlaveDeCaja(
-  trx: Knex.Transaction, tenantId: string, userId: string, clave = 'FINANCE_CAJA_GESTIONAR',
-): Promise<boolean> {
-  const hay = (await trx.raw(`SELECT to_regprocedure('finance.caja_llave(uuid, uuid, text)') IS NOT NULL AS t`)).rows[0]?.t === true;
-  if (!hay) return false;
-  return (await trx.raw('SELECT finance.caja_llave(?::uuid, ?::uuid, ?) AS ok', [tenantId, userId, clave])).rows[0]?.ok === false;
-}

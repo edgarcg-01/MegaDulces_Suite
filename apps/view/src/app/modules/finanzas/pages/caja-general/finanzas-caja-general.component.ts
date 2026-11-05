@@ -1,5 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, NgZone, OnDestroy, OnInit, computed, effect, inject, signal, viewChild, ViewChild } from '@angular/core';
-import { NgTemplateOutlet } from '@angular/common';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, NgZone, OnDestroy, OnInit, computed, effect, inject, signal, ViewChild } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
@@ -20,10 +19,6 @@ import { MessageModule } from 'primeng/message';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { textoFalloFirma, type ContextoFirma } from '@megadulces/contracts';
-import {
-  revisarMorrallaCorte, MORRALLA_CORTE_TOPE,
-  type DocumentosEnCajaDto, type ArqueoCajaDto, type ArqueoGuardadoDto, type NuevoArqueoCajaInput,
-} from '@megadulces/contracts';
 import { evaluarCambio, pagableConBilletesCaos, warehouseName, type CaosRetiroLibre, type CaosRetiroDelLote, type Denominacion, firmaSigueValiendo, diaCorto, SUCURSAL_CAJA_GENERAL, CAJA_CONFIRMAR_UMBRAL_DIAS, leerCorte, type LecturaCorte } from '@megadulces/contracts';
 import { prepararFirma, pintarQr, filtrarPorBusqueda, type FirmaCanvas } from '@megadulces/ui-web';
 
@@ -68,10 +63,7 @@ import {
   type DenominacionCapturada, type MotivoBloqueo, type CorteVista, conflictoDeEsperado, type ConflictoEsperado,
   pasoDelCorte, textoPaso, type PasoCorte, textoDeError, separarPorFlujo,
   GRUPOS_COLA, GRUPO_SIN_CLASIFICAR, grupoDe, CAPTURA_MANUAL_HABILITADA, puedeSellarUI,
-  piezasConBolsas, revisarBolsas, type BolsaMonedas,
-  revisarExplicacion, textoExplicacion, EXPLICACION_VACIA, type ExplicacionSinDetalle,
 } from './caja-captura.util';
-import { ArqueoDocumentosComponent } from '../../components/arqueo-documentos.component';
 import { CajaPasosComponent } from '../../components/caja-pasos.component';
 import {
   MovimientoDocumentosComponent, documentoNuevo, documentoCompleto, documentosParaGuardar, totalDeDocumentos,
@@ -197,7 +189,6 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     MetricStripComponent, LoadStateComponent,
     FreshnessPillComponent, SegmentedComponent, ContextHelpComponent, SucursalPipe, CajaPasosComponent,
     SidePeekComponent, CajaTabsComponent, CajaCuentasKeplerComponent, CajaReposicionComponent, MovimientoDocumentosComponent,
-    ArqueoDocumentosComponent, NgTemplateOutlet,
   ],
   // Sin esto NINGUNA escritura de la pantalla avisaba: guardar, abrir corte, cerrar, autorizar y
   // confirmar el lote fallaban en silencio y se veían igual que un botón muerto.
@@ -312,19 +303,6 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .cg-arqueo-tbl input.cg-pieza, .cg-arqueo-tbl input.cg-pieza-corte, .cg-arqueo-tbl input.cg-pieza-dev {
       width:5.5rem; text-align:right; font-variant-numeric:tabular-nums; padding:var(--sp-1) var(--sp-2); }
     .cg-arqueo-tbl input.cg-morralla-in { width:7.5rem; }
-    /* [LE.2.12] Monedas en bolsa: dos números cortos por renglón, bolsas × piezas. */
-    .cg-arqueo-tbl td.cg-bolsa { white-space:nowrap; }
-    .cg-arqueo-tbl input.cg-bolsa-in { width:4.5rem; text-align:right; font-variant-numeric:tabular-nums;
-                                       padding:var(--sp-1) var(--sp-2); }
-    /* [LE.2.12] Lo que no es efectivo: después de sellar, separado del conteo por una línea. */
-    .cg-ne { margin-top:var(--sp-3); border-top:1px solid var(--border-color); padding-top:var(--sp-2);
-             display:flex; flex-direction:column; gap:var(--sp-2); }
-    .cg-ne-usd, .cg-ne-explica { border:0; margin:0; padding:0; display:grid;
-                                 grid-template-columns:minmax(9rem, auto) minmax(0, 14rem); gap:var(--sp-1) var(--sp-2);
-                                 align-items:center; }
-    .cg-ne-usd legend, .cg-ne-explica legend { font-weight:600; font-size:var(--fs-sm); padding:0; margin-bottom:var(--sp-1); }
-    .cg-ne-usd > small, .cg-ne-explica > small { grid-column:1 / -1; }
-    @container (max-width: 30rem) { .cg-ne-usd, .cg-ne-explica { grid-template-columns:1fr; } }
     /* [CG.38] La reja pasó de 5 renglones a 11: hay que poder ver de un vistazo dónde empieza el
        metal. La marca es TEXTO, no sólo un tono -- el color nunca es el único portador (DESIGN).
        La línea va en la PRIMERA moneda, no en todas: es un corte, no un borde por fila. */
@@ -4189,19 +4167,11 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
              hubiera en ella; al reabrir salia en blanco junto a un Contado con cifra. -->
         @if (rejaEditable() || desgloseSellado()) {
           <p class="cg-cap">{{ !rejaEditable() ? 'Desglose sellado' : recontando() ? 'Reconteo del efectivo' : 'Desglose del efectivo del corte' }}</p>
-          <!-- [LE.2.12] Las monedas en bolsa se cuentan por bolsa (Control las guardaba en «cheques»).
-               Con alguna bolsa anotada la columna no se esconde: lo escondido también se suma. -->
-          @if (rejaEditable()) {
-            <p-button [label]="bolsasVisibles() ? 'Monedas en bolsa' : 'Contar monedas en bolsa'" icon="pi pi-box"
-                      size="small" [text]="true" [disabled]="hayBolsas()"
-                      [attr.aria-expanded]="bolsasVisibles()" (onClick)="bolsasAbiertas.set(!bolsasAbiertas())"></p-button>
-          }
           <p-table [value]="reja" size="small" class="cg-arqueo-tbl">
             <ng-template #header>
               <tr>
                 <th scope="col">Denominación</th>
-                <th scope="col">{{ conBolsas() ? 'Sueltas' : 'Piezas' }}</th>
-                @if (conBolsas()) { <th scope="col">En bolsa <span class="fin-dim">· bolsas × piezas</span></th> }
+                <th scope="col">Piezas</th>
                 <th scope="col">Importe</th>
               </tr>
             </ng-template>
@@ -4221,21 +4191,6 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                     <span class="mono">{{ piezasSelladasDe(b) }}</span>
                   }
                 </td>
-                @if (conBolsas()) {
-                  <td class="cg-bolsa">
-                    @if (b.familia === 'moneda') {
-                      <input pInputText type="number" class="cg-bolsa-in" min="0" step="1" inputmode="numeric" placeholder="bolsas"
-                             [ngModel]="bolsaDe(b).bolsas" (ngModelChange)="setBolsa(b, 'bolsas', $event)"
-                             [attr.aria-label]="'Bolsas de la moneda de ' + b.label" />
-                      <span aria-hidden="true">×</span>
-                      <input pInputText type="number" class="cg-bolsa-in" min="1" step="1" inputmode="numeric" placeholder="piezas"
-                             [ngModel]="bolsaDe(b).porBolsa" (ngModelChange)="setBolsa(b, 'porBolsa', $event)"
-                             [attr.aria-label]="'Piezas que trae cada bolsa de la moneda de ' + b.label" />
-                    } @else {
-                      <span class="fin-dim cg-na">—</span>
-                    }
-                  </td>
-                }
                 <td class="mono cg-sub">{{ money(rejaEditable() ? subtotalCorteDe(b) : subtotalSelladoDe(b)) }}</td>
               </tr>
             </ng-template>
@@ -4245,13 +4200,10 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                      centavos, el unico que no tiene renglon propio desde [CG.38]. -->
                 <th scope="row">Morralla <span class="fin-dim">· menos de 50&cent;</span></th>
                 <td class="fin-dim cg-na">—</td>
-                @if (conBolsas()) { <td class="fin-dim cg-na">—</td> }
                 <td>
                   @if (rejaEditable()) {
                     <input pInputText type="number" class="cg-pieza-corte cg-morralla-in" min="0" step="0.01"
-                           inputmode="decimal" [attr.max]="MORRALLA_CORTE_TOPE"
-                           [attr.aria-invalid]="morrallaCorteFuera() ? 'true' : null"
-                           [attr.aria-describedby]="morrallaCorteFuera() ? 'cg-morralla-tope' : null"
+                           inputmode="decimal"
                            [ngModel]="morrallaCorteVista()" (ngModelChange)="morrallaCorte.set($event || 0)" placeholder="0.00"
                            (keydown.enter)="moverEnRejaCorte($event, 1)"
                            (keydown.arrowdown)="moverEnRejaCorte($event, 1)"
@@ -4262,30 +4214,11 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                   }
                 </td>
               </tr>
-              <!-- [LE.2.12] Poka-yoke: un bulto tecleado en morralla no se cuenta por pieza (8 de 19
-                   cortes, $192,550 en cuatro). Se dice en el renglón y Guardar queda apagado. -->
-              @if (rejaEditable() && morrallaCorteFuera(); as texto) {
-                <tr>
-                  <td [attr.colspan]="conBolsas() ? 4 : 3">
-                    <small id="cg-morralla-tope" class="fin-hint-warn" role="alert">{{ texto }}</small>
-                    @if (!conBolsas()) {
-                      <p-button label="Contar monedas en bolsa" icon="pi pi-box" size="small" [text]="true"
-                                (onClick)="bolsasAbiertas.set(true)"></p-button>
-                    }
-                  </td>
-                </tr>
-              }
-              @if (rejaEditable() && bolsasFalta(); as texto) {
-                <tr>
-                  <td [attr.colspan]="conBolsas() ? 4 : 3"><small class="fin-hint-warn" role="alert">{{ texto }}</small></td>
-                </tr>
-              }
               <!-- Un solo Contado: revelado, es el de la linea de arriba, que sale del servidor. -->
               @if (rejaEditable()) {
                 <tr>
                   <th scope="row">{{ recontando() ? 'Reconteo' : 'Contado' }}</th>
                   <td class="fin-dim cg-na">del conteo</td>
-                  @if (conBolsas()) { <td class="fin-dim cg-na">—</td> }
                   <td>
                     <input pInputText class="mono cg-total" [value]="money(sumaConteo())"
                            disabled tabindex="-1" aria-label="Total contado, calculado del conteo" />
@@ -4298,71 +4231,6 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
           <!-- Sin desglose (API anterior) o con una pieza que la reja no tiene: se dice, no se pinta a medias. -->
           <small class="fin-dim">El desglose de este conteo no se puede mostrar pieza por pieza. Lo sellado es el total
             de arriba, y el corte se cierra con ese.</small>
-        }
-        <!-- [LE.2.12] Lo que no es efectivo: cheques, papeles y dólares, como los contaba Control en cada
-             arqueo. No mueven el esperado del corte (es efectivo): se declaran aparte, contra lo que
-             había, y quedan como arqueo de la caja ligado a este corte. Va DESPUÉS de sellar para no
-             tocar el conteo ciego. -->
-        @if (!rejaEditable() && revelacion()) {
-          <section class="cg-ne" aria-labelledby="cg-ne-tit">
-            <p class="cg-cap" id="cg-ne-tit">Lo que no es efectivo: cheques, papeles y dólares</p>
-            @if (neDeclarado(); as g) {
-              <p class="fin-hint-ok">Declarado en este corte: cheques {{ g.cheques === null ? 'sin contar' : money(g.cheques) }} ·
-                vales y papeles {{ g.papeles === null ? 'sin contar' : money(g.papeles) }} ·
-                {{ g.usd ? 'USD ' + g.usd + ' a ' + g.tipo_cambio : 'sin dólares' }}.</p>
-            } @else {
-              <small class="fin-dim d-block">No cambian el esperado del corte. Anota cada cheque y cada papel; lo que había se marca si sigue.</small>
-              <app-arqueo-documentos #neCh tipo="cheque" [apartado]="neDocs()?.cheques ?? null" [bloqueo]="neDocsBloqueo()" />
-              @if (neSinDetalle().cheque; as monto) {
-                <ng-container *ngTemplateOutlet="explica; context: { $implicit: 'cheque', monto: monto, titulo: 'Cheques' }"></ng-container>
-              }
-              <app-arqueo-documentos #nePa tipo="papel" [apartado]="neDocs()?.papeles ?? null" [bloqueo]="neDocsBloqueo()" />
-              @if (neSinDetalle().papel; as monto) {
-                <ng-container *ngTemplateOutlet="explica; context: { $implicit: 'papel', monto: monto, titulo: 'Vales y papeles' }"></ng-container>
-              }
-              <fieldset class="cg-ne-usd">
-                <legend>Dólares</legend>
-                @if (neUltimoUsd(); as u) {
-                  <small class="fin-dim d-block">El último arqueo con dólares ({{ u.folio }}, {{ u.dia }}) tenía USD {{ u.usd }} a {{ u.tipo_cambio }}. Cuéntalos: no se copia.</small>
-                }
-                <label for="cg-ne-usd">Dólares (USD)</label>
-                <p-inputnumber inputId="cg-ne-usd" mode="decimal" [minFractionDigits]="0" [maxFractionDigits]="2" [min]="0"
-                               [ngModel]="neUsd()" (ngModelChange)="neUsd.set($event)" />
-                <label for="cg-ne-tc">Tipo de cambio</label>
-                <p-inputnumber inputId="cg-ne-tc" mode="decimal" [minFractionDigits]="2" [maxFractionDigits]="4" [min]="0"
-                               [ngModel]="neTC()" (ngModelChange)="neTC.set($event)" />
-                <label for="cg-ne-tcf">De dónde salió el tipo de cambio</label>
-                <input pInputText id="cg-ne-tcf" placeholder="banco, DOF, Kepler…"
-                       [ngModel]="neTCFuente()" (ngModelChange)="neTCFuente.set($event)" />
-              </fieldset>
-              @if (neFalta(); as falta) { <small class="fin-hint-warn d-block" role="status">{{ falta }}</small> }
-              @if (neError(); as e) { <small class="fin-hint-warn d-block" role="alert">{{ e }}</small> }
-              <p-button label="Guardar cheques, papeles y dólares" icon="pi pi-lock" size="small" severity="secondary"
-                        [loading]="neGuardando()" [disabled]="neGuardando() || !!neFalta()" (onClick)="guardarNoEfectivo()"></p-button>
-            }
-          </section>
-          <!-- Lo que Control traía sin detalle: qué era, peso por peso. -->
-          <ng-template #explica let-tipo let-monto="monto" let-titulo="titulo">
-            <fieldset class="cg-ne-explica">
-              <legend>¿Qué eran los {{ money(monto) }} de «{{ titulo.toLowerCase() }}» de Control?</legend>
-              <small class="fin-dim d-block">Lo que anotaste arriba ya cuenta. Lo demás, di qué era: tiene que dar el importe exacto.</small>
-              <label [for]="'cg-ex-mon-' + tipo">Monedas (contadas en la reja)</label>
-              <p-inputnumber [inputId]="'cg-ex-mon-' + tipo" mode="currency" currency="MXN" locale="es-MX" [min]="0"
-                             [ngModel]="explicacionDe(tipo).monedas" (ngModelChange)="setExplicacion(tipo, 'monedas', $event)" />
-              <label [for]="'cg-ex-usd-' + tipo">Dólares (en pesos)</label>
-              <p-inputnumber [inputId]="'cg-ex-usd-' + tipo" mode="currency" currency="MXN" locale="es-MX" [min]="0"
-                             [ngModel]="explicacionDe(tipo).dolares" (ngModelChange)="setExplicacion(tipo, 'dolares', $event)" />
-              <label [for]="'cg-ex-otro-' + tipo">Otra cosa</label>
-              <p-inputnumber [inputId]="'cg-ex-otro-' + tipo" mode="currency" currency="MXN" locale="es-MX" [min]="0"
-                             [ngModel]="explicacionDe(tipo).otro" (ngModelChange)="setExplicacion(tipo, 'otro', $event)" />
-              @if ((explicacionDe(tipo).otro ?? 0) > 0) {
-                <label [for]="'cg-ex-nota-' + tipo">Qué era</label>
-                <input pInputText [id]="'cg-ex-nota-' + tipo" [ngModel]="explicacionDe(tipo).nota"
-                       (ngModelChange)="setExplicacion(tipo, 'nota', $event)" />
-              }
-              <small class="mono d-block">Sin explicar: {{ money(revisionDe(tipo, monto).sinExplicar) }}</small>
-            </fieldset>
-          </ng-template>
         }
         <!-- [CGP-V.9] Con la reja en cero, sellar exige decir que se conto y no hay efectivo: es
              distinto de no haber contado. Se dice aca por que el boton esta apagado. -->
@@ -5936,7 +5804,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   ceroDeclarado = signal(false);
   ceroVigente = computed(() => {
     const declarado = this.ceroDeclarado();
-    const suma = sumaDesglose(this.conteoCorteTotal(), this.morrallaCorte());
+    const suma = sumaDesglose(this.conteoCorte(), this.morrallaCorte());
     return declarado && suma === 0;
   });
   /** Se sella con algo contado, o con el cero declarado. */
@@ -5949,148 +5817,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * los signals.
    */
   puedeSellar = computed(() => {
-    const contado = sumaDesglose(this.conteoCorteTotal(), this.morrallaCorte());
+    const contado = sumaDesglose(this.conteoCorte(), this.morrallaCorte());
     const ceroDeclarado = this.ceroVigente();
     const atrasado = this.corteAtrasado();
     const jornadaConfirmada = this.jornadaConfirmada();
-    const morralla = this.morrallaCorte();
-    const bolsasIncompletas = this.bolsasFalta() !== null;
-    return puedeSellarUI({ contado, ceroDeclarado, atrasado, jornadaConfirmada, morralla, bolsasIncompletas }).ok;
-  });
-  // ── `[LE.2.12]` Monedas en bolsa ─────────────────────────────────────────────────────────────
-  readonly bolsasCorte = signal<Record<string, BolsaMonedas>>({});
-  readonly bolsasAbiertas = signal(false);
-  readonly hayBolsas = computed(() => Object.values(this.bolsasCorte()).some((b) => b.bolsas !== null || b.porBolsa !== null));
-  readonly bolsasVisibles = computed(() => this.bolsasAbiertas() || this.hayBolsas());
-  /** La columna se ve sólo mientras se cuenta: lo sellado ya son piezas. */
-  readonly conBolsas = computed(() => this.bolsasVisibles() && this.rejaEditable());
-  readonly bolsasFalta = computed(() => revisarBolsas(this.bolsasCorte(), this.reja));
-  /** Lo que se sella: las sueltas más las de bolsa. */
-  readonly conteoCorteTotal = computed(() => piezasConBolsas(this.conteoCorte(), this.bolsasCorte(), this.reja));
-  bolsaDe(d: Denominacion): BolsaMonedas { return this.bolsasCorte()[d.key] ?? { bolsas: null, porBolsa: null }; }
-  setBolsa(d: Denominacion, campo: keyof BolsaMonedas, v: unknown): void {
-    const n = v === null || v === undefined || v === '' ? null : Number(v);
-    this.bolsasCorte.update((b) => ({ ...b, [d.key]: { ...this.bolsaDe(d), [campo]: n !== null && Number.isFinite(n) ? n : null } }));
-  }
-
-  // ── `[LE.2.12]` Lo que no es efectivo: cheques, papeles y dólares ────────────────────────────
-  readonly neDocs = signal<DocumentosEnCajaDto | null>(null);
-  readonly neDocsError = signal<string | null>(null);
-  private readonly neCh = viewChild<ArqueoDocumentosComponent>('neCh');
-  private readonly nePa = viewChild<ArqueoDocumentosComponent>('nePa');
-  readonly neDocsBloqueo = computed<string | null>(() => {
-    if (this.neDocsError()) return this.neDocsError();
-    const d = this.neDocs();
-    if (!d) return 'Leyendo qué cheques y papeles había…';
-    return d.instalado ? null : 'Esta base todavía no guarda los cheques y papeles uno por uno: quedan sin contar.';
-  });
-  readonly neUsd = signal<number | null>(null);
-  readonly neTC = signal<number | null>(null);
-  readonly neTCFuente = signal('');
-  readonly neRecientes = signal<ArqueoCajaDto[]>([]);
-  readonly neGuardando = signal(false);
-  readonly neError = signal<string | null>(null);
-  readonly neExplicacion = signal<Record<'cheque' | 'papel', ExplicacionSinDetalle>>({ cheque: EXPLICACION_VACIA, papel: EXPLICACION_VACIA });
-  /** Lo que se declaró para ESTE corte (de la Suite, con algún rubro). */
-  readonly neDeclarado = computed<ArqueoCajaDto | null>(() => {
-    const id = this.corteEnCierre()?.id;
-    return this.neRecientes().find((a) => a.origen === 'suite' && !!id && a.corte_id === id
-      && (a.cheques !== null || a.papeles !== null || a.usd !== null)) ?? null;
-  });
-  readonly neUltimoUsd = computed(() => this.neRecientes().find((a) => (a.usd ?? 0) > 0) ?? null);
-  /** Lo que Control (o un arqueo viejo) traía sin detalle, por apartado. */
-  readonly neSinDetalle = computed(() => ({
-    cheque: this.neDocsBloqueo() ? null : this.neDocs()?.cheques.sin_detalle?.monto ?? null,
-    papel: this.neDocsBloqueo() ? null : this.neDocs()?.papeles.sin_detalle?.monto ?? null,
-  }));
-  explicacionDe(tipo: 'cheque' | 'papel'): ExplicacionSinDetalle { return this.neExplicacion()[tipo]; }
-  setExplicacion(tipo: 'cheque' | 'papel', campo: keyof ExplicacionSinDetalle, v: unknown): void {
-    const valor = campo === 'nota' ? String(v ?? '') : (v === null || v === undefined || v === '' ? null : Number(v));
-    this.neExplicacion.update((e) => ({ ...e, [tipo]: { ...e[tipo], [campo]: valor } }));
-  }
-  private docsDe(tipo: 'cheque' | 'papel'): ArqueoDocumentosComponent | undefined {
-    return tipo === 'cheque' ? this.neCh() : this.nePa();
-  }
-  private anotadoDe(tipo: 'cheque' | 'papel'): number { return this.docsDe(tipo)?.total() ?? 0; }
-  revisionDe(tipo: 'cheque' | 'papel', monto: number): { sinExplicar: number; falta: string | null } {
-    return revisarExplicacion(monto, this.anotadoDe(tipo), this.explicacionDe(tipo), tipo === 'cheque' ? 'Cheques' : 'Vales y papeles');
-  }
-  /** Poka-yoke: lo que falta para guardar, en palabras. `null` = se puede. */
-  readonly neFalta = computed<string | null>(() => {
-    const docs = this.neCh()?.falta() ?? this.nePa()?.falta() ?? null;
-    if (docs) return docs;
-    const sd = this.neSinDetalle();
-    for (const tipo of ['cheque', 'papel'] as const) {
-      const monto = sd[tipo];
-      // Sólo si ese apartado se contó: sin contarlo queda «no se contó» y no hay qué explicar.
-      if (monto === null || this.docsDe(tipo)?.valor() == null) continue;
-      const r = this.revisionDe(tipo, monto);
-      if (r.falta) return r.falta;
-    }
-    if ((this.neUsd() ?? 0) > 0 && (!(this.neTC() ?? 0) || !this.neTCFuente().trim())) {
-      return 'Con dólares hace falta el tipo de cambio y de dónde salió.';
-    }
-    const nada = this.neCh()?.valor() == null && this.nePa()?.valor() == null && this.neUsd() === null;
-    return nada ? 'Cuenta al menos un apartado, o anota 0 dólares si no hay.' : null;
-  });
-
-  cargarNoEfectivo(): void {
-    this.neDocs.set(null); this.neDocsError.set(null); this.neError.set(null);
-    this.neUsd.set(null); this.neTC.set(null); this.neTCFuente.set('');
-    this.neExplicacion.set({ cheque: EXPLICACION_VACIA, papel: EXPLICACION_VACIA });
-    this.svc.documentosEnCaja().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (d) => this.neDocs.set(d),
-      error: () => this.neDocsError.set('No se pudo leer qué cheques y papeles había: esta vez quedan sin contar.'),
-    });
-    this.svc.arqueosCaja(30).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => this.neRecientes.set(r.rows),
-      error: () => this.neRecientes.set([]),
-    });
-  }
-
-  /**
-   * Guarda un arqueo `intermedio` ligado al corte: el efectivo es el conteo SELLADO (no se vuelve a
-   * contar) y lo demás es lo que se declara acá. No es un recuento: el testigo del corte sigue siendo
-   * el de otra persona (`[CGS.44]`), y sin caja fuerte no entra a la posición.
-   */
-  guardarNoEfectivo(): void {
-    const c = this.corteEnCierre(); const sellado = this.desgloseSellado();
-    if (!c || !sellado || this.neGuardando() || this.neFalta()) return;
-    // Síncrono en el primer clic: el doble clic no guarda dos arqueos.
-    this.neGuardando.set(true); this.neError.set(null);
-    const piezas = sellado.conteo
-      .filter((x) => !!x.denom_key && x.piezas > 0)
-      .map((x) => ({ denom_key: String(x.denom_key), piezas: x.piezas }));
-    const notas = [`Declarado al cerrar el corte ${c.folio}: el efectivo es el conteo sellado del corte, no un recuento.`];
-    for (const [tipo, titulo] of [['cheque', 'Cheques'], ['papel', 'Vales y papeles']] as const) {
-      const monto = this.neSinDetalle()[tipo];
-      if (monto !== null && this.docsDe(tipo)?.valor() != null) {
-        notas.push(textoExplicacion(titulo, monto, this.anotadoDe(tipo), this.explicacionDe(tipo)));
-      }
-    }
-    const body: NuevoArqueoCajaInput = {
-      tipo: 'intermedio', corte_id: c.id,
-      piezas: piezas.length ? piezas : [{ denom_key: BILLETES_CAJA[0].key, piezas: 0 }],
-      morralla: sellado.morralla,
-      documentos: this.neDocsBloqueo() ? null
-        : { base: this.neDocs()?.base ?? null, cheques: this.neCh()?.valor() ?? null, papeles: this.nePa()?.valor() ?? null },
-      usd: this.neUsd(), tipo_cambio: this.neTC(), tipo_cambio_fuente: this.neTCFuente().trim() || null,
-      nota: notas.join(' '),
-    };
-    this.svc.registrarArqueoCaja(body).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (g: ArqueoGuardadoDto) => {
-        this.neGuardando.set(false);
-        this.neRecientes.update((r) => [g.arqueo, ...r]);
-        this.avisarOk('Cheques, papeles y dólares guardados');
-      },
-      error: (e) => { this.neGuardando.set(false); this.neError.set(`No se guardaron: ${this.textoError(e)}`); },
-    });
-  }
-  /** `[LE.2.12]` La morralla es sólo el metal de menos de 50¢: la frase si se pasa, `null` si no. */
-  readonly MORRALLA_CORTE_TOPE = MORRALLA_CORTE_TOPE;
-  morrallaCorteFuera = computed(() => {
-    const r = revisarMorrallaCorte(this.morrallaCorte());
-    return r.ok ? null : r.texto;
+    return puedeSellarUI({ contado, ceroDeclarado, atrasado, jornadaConfirmada }).ok;
   });
   /** La reja se teclea mientras se cuenta o se recuenta; revelado el conteo, muestra lo sellado. */
   rejaEditable = computed(() => {
@@ -7496,9 +7227,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * El esperado aparece cuando el servidor lo devuelve, y sólo después de SELLAR el conteo.
    */
   abrirCierre(corte?: { id: string; folio: string; fecha?: string } | null): void {
-    this.conteoCorte.set([]); this.morrallaCorte.set(0); this.bolsasCorte.set({}); this.bolsasAbiertas.set(false);
+    this.conteoCorte.set([]); this.morrallaCorte.set(0);
     this.motivoReconteo.set(''); this.conflictoEsperado.set(null); this.recontando.set(false);
-    this.cargarNoEfectivo();
     this.errorCierre.set(null); this.ceroDeclarado.set(false);
     // `[CGP-V.3b]` Se baja SIEMPRE: una confirmación heredada de otro corte no confirma nada.
     this.jornadaConfirmada.set(false);
@@ -7519,14 +7249,12 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   /** `[CGP-V.2]` Recontar es empezar de cero: la reja se abre vacía y pide motivo. */
   empezarReconteo(): void {
     this.conteoCorte.set([]); this.morrallaCorte.set(0); this.motivoReconteo.set('');
-    this.bolsasCorte.set({}); this.bolsasAbiertas.set(false);
     this.recontando.set(true); this.errorCierre.set(null); this.ceroDeclarado.set(false);
   }
 
   /** Vuelve al conteo sellado sin tocarlo: lo tecleado del reconteo se descarta. */
   cancelarReconteo(): void {
     this.conteoCorte.set([]); this.morrallaCorte.set(0); this.motivoReconteo.set('');
-    this.bolsasCorte.set({}); this.bolsasAbiertas.set(false);
     this.recontando.set(false); this.errorCierre.set(null); this.ceroDeclarado.set(false);
   }
 
@@ -7539,7 +7267,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
 
   /** Lo que la persona lleva sumado. No revela nada: es su propia suma. */
   sumaConteo(): number {
-    return sumaDesglose(this.conteoCorteTotal(), this.morrallaCorte());
+    return sumaDesglose(this.conteoCorte(), this.morrallaCorte());
   }
 
   /** Sella el conteo y recibe la revelación. A partir de acá el conteo ya no se retoca en silencio. */
@@ -7547,7 +7275,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     const c = this.corteEnCierre();
     if (!c || this.sellando() || !this.puedeSellar()) return;
     // Lo que se manda es lo que se guarda como sellado: se toma ANTES de la llamada.
-    const conteo = this.conteoCorteTotal(); const morralla = this.morrallaCorte();
+    const conteo = this.conteoCorte(); const morralla = this.morrallaCorte();
     this.sellando.set(true); this.errorCierre.set(null);
     this.svc.contarCorte(c.id, conteo, morralla, this.ceroVigente()).subscribe({
       next: (r) => {
@@ -7565,7 +7293,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   recontar(): void {
     const c = this.corteEnCierre();
     if (!c || !this.recontando() || this.motivoReconteo().trim().length < GLOSA_MIN || this.sellando() || !this.puedeSellar()) return;
-    const conteo = this.conteoCorteTotal(); const morralla = this.morrallaCorte();
+    const conteo = this.conteoCorte(); const morralla = this.morrallaCorte();
     this.sellando.set(true); this.errorCierre.set(null);
     this.svc.recontarCorte(c.id, conteo, morralla, this.motivoReconteo().trim(), this.ceroVigente()).subscribe({
       next: (r) => {
@@ -7585,10 +7313,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   }
 
   /** Lo que suma ese renglón del corte. Se calcula; no hay dónde teclearlo. */
-  subtotalCorteDe(d: Denominacion): number {
-    // `[LE.2.12]` El importe del renglón es el de TODAS sus piezas: sueltas y de bolsa.
-    return redondea(d.valor * (this.conteoCorteTotal().find((x) => x.denom_key === d.key)?.piezas ?? 0));
-  }
+  subtotalCorteDe(d: Denominacion): number { return redondea(d.valor * (this.piezasCorteDe(d) ?? 0)); }
 
   setPiezasCorte(d: Denominacion, piezas: number): void {
     const list = this.conteoCorte().filter((x) => x.denom_key !== d.key);

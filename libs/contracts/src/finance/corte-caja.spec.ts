@@ -1,4 +1,4 @@
-import { aCorteCajaDto, leerCorte, revisarMorrallaCorte, MORRALLA_CORTE_TOPE } from './corte-caja.contract';
+import { aCorteCajaDto, leerCorte } from './corte-caja.contract';
 
 /**
  * `[CGP-L.7]` La respuesta de un corte, tipada. Antes salía la fila cruda de Postgres: el dinero como
@@ -94,30 +94,5 @@ describe('[CGS.52] leerCorte', () => {
 
   it('cuadra al centavo', () => {
     expect(leerCorte({ ...base, contado: 100, esperado: 100, diferencia: 0 }, fmt).dif).toEqual({ texto: '$0.00', sub: 'cuadra', tono: 'ok' });
-  });
-});
-
-describe('[LE.2.12] revisarMorrallaCorte — sólo el metal de menos de 50¢', () => {
-  it('el bulto del 2-nov ($192,550) no es morralla', () => {
-    const r = revisarMorrallaCorte(192550);
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.texto).toContain('por pieza');
-  });
-
-  it('el tope entra; un centavo arriba, no', () => {
-    expect(revisarMorrallaCorte(MORRALLA_CORTE_TOPE).ok).toBe(true);
-    expect(revisarMorrallaCorte(MORRALLA_CORTE_TOPE + 0.01).ok).toBe(false);
-  });
-
-  it('cero, vacío y centavos sueltos son morralla', () => {
-    expect(revisarMorrallaCorte(0).ok).toBe(true);
-    expect(revisarMorrallaCorte(null).ok).toBe(true);
-    expect(revisarMorrallaCorte(undefined).ok).toBe(true);
-    expect(revisarMorrallaCorte(3.7).ok).toBe(true);
-  });
-
-  it('negativa o que no es número, no', () => {
-    expect(revisarMorrallaCorte(-0.1).ok).toBe(false);
-    expect(revisarMorrallaCorte(Number.NaN).ok).toBe(false);
   });
 });

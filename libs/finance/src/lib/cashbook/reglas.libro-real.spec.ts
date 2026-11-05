@@ -3,7 +3,6 @@ import knexFactory, { Knex } from 'knex';
 import { EVENTOS_SIEMPRE_AUTORIZADOS, type AsientoPropuesto } from '@megadulces/contracts';
 import {
   CUENTAS_FIJAS, apertura, clasificarSuspenso, cobranzaRuta, cobroEnDolares, entregaRuta, esSinRegla, faltante, gasto, movimientoCaos,
-  cambioDeMonedas, aCustodiaDesdeCajon, regresoCustodiaAlCajon,
   type Contexto, type Propuesta,
 } from './reglas';
 
@@ -105,58 +104,6 @@ describe.skipIf(!URL)('[LE.2.3] las reglas de TypeScript contra el libro de SQL'
       const malo: AsientoPropuesto = { ...roto.asiento, lines: roto.asiento.lines.map((l) => (l.pieces ? { ...l, pieces: { 500: '2' } } : l)) };
       await trx.raw('SAVEPOINT sp');
       await expect(trx.raw('SELECT cashbook.post_entry(?::jsonb)', [JSON.stringify(malo)])).rejects.toMatchObject({ constraint: 'cashbook_piezas_no_suman' });
-      await trx.raw('ROLLBACK TO SAVEPOINT sp');
-
-      throw new Error('__rollback__');
-    }).catch((e: Error) => { if (e.message !== '__rollback__') throw e; });
-  });
-
-  it('[LE.2.11] E-29: monedas por billetes en el acto con comisión, y por custodia; el cajón cuadra al centavo y por pieza', async () => {
-    const hay = (await db.raw(`SELECT to_regprocedure('cashbook.post_entry(jsonb)') IS NOT NULL AS ok`)).rows[0].ok;
-    if (!hay) { console.warn('[LE.2.11] NO MEDIDO: la base de prueba no tiene el libro (20261027111930)'); return; }
-    await db.transaction(async (trx) => {
-      const T = randomUUID();
-      await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [T]);
-      if ((await trx.raw(`SELECT to_regprocedure('cashbook._firma_de_caja(uuid, uuid)') IS NOT NULL AS ok`)).rows[0].ok) {
-        await trx.raw(`INSERT INTO identity.users (id, tenant_id, username, role_name, activo, kind, position_code, created_at, updated_at)
-          VALUES (?, ?, 'firma_prueba_e29', 'tesoreria', true, 'interno', 'tesoreria', now(), now())`, [U2, T]);
-        await trx.raw(`INSERT INTO identity.position_responsibilities (id, tenant_id, position_code, responsibility_key, es_principal, created_at, updated_at)
-          VALUES (gen_random_uuid(), ?, 'tesoreria', 'finanzas.caja_firma', true, now(), now())`, [T]);
-      }
-      for (const c of Object.values(CUENTAS_FIJAS)) await trx.raw('SELECT cashbook.open_account(?::jsonb)', [JSON.stringify(c)]);
-      await trx.raw('SELECT cashbook.open_day(?, ?)', ['2099-05-05', U1]);
-      // El fondo: 2,000 monedas de $10 y 10 billetes de $100 = $21,000.
-      await registrar(trx, apertura({ moneda: 'MXN', fecha: '2099-05-05', conteos: [{ cuenta: 'CAJA_MXN', piezas: { 10: '2000', 100: '10' } }] }, CAJERA));
-
-      // En el acto: salen 1,000 monedas ($10,000), entran $9,950 en billetes y el banco cobra $50.
-      const enElActo = cambioDeMonedas({ conQuien: 'Banco', salen: { 10: '1000' }, entran: { 500: '19', 200: '2', 50: '1' }, comision: '5000' }, CAJERA);
-      await registrar(trx, enElActo);
-      const puente = enElActo.cuentas.find((c) => c.code.startsWith('CAMBIO_EFECTIVO:'))!.code;
-      const comision = enElActo.cuentas.find((c) => c.code.startsWith('EGRESO:'))!.code;
-      expect(await saldo(trx, puente)).toBe(0);
-      expect(await saldo(trx, comision)).toBe(5000);
-      expect(await piezas(trx, 'CAJA_MXN', '10')).toBe(1000);
-      expect(await piezas(trx, 'CAJA_MXN', '500')).toBe(19);
-
-      // Por custodia: Luis se lleva las otras 1,000 monedas y regresa con 20 billetes de $500, sin comisión.
-      const sale = aCustodiaDesdeCajon({ empleado: 'e-luis', nombre: 'Luis', piezas: { 10: '1000' }, para: 'cambiar monedas en el banco' }, CAJERA);
-      await registrar(trx, sale);
-      const custodia = sale.cuentas.find((c) => c.code.startsWith('CUSTODIA:'))!.code;
-      expect(await saldo(trx, custodia)).toBe(1000000);
-      await registrar(trx, regresoCustodiaAlCajon({ empleado: 'e-luis', nombre: 'Luis', piezas: { 500: '20' } }, CAJERA));
-      expect(await saldo(trx, custodia)).toBe(0);
-
-      // El cajón: $21,000 − $50 de comisión = $20,950, ya sin monedas de $10.
-      expect(await saldo(trx, 'CAJA_MXN')).toBe(2095000);
-      expect(await piezas(trx, 'CAJA_MXN', '10')).toBe(0);
-      expect(await piezas(trx, 'CAJA_MXN', '500')).toBe(39);
-      expect((await trx.raw('SELECT * FROM cashbook.verify_chain()')).rows).toEqual([]);
-      expect((await trx.raw('SELECT * FROM cashbook.v_descuadre_interno')).rows).toEqual([]);
-
-      // Cambiar 11 billetes de $100 cuando hay 10 lo frena la base, por pieza: el importe sí alcanzaba.
-      await trx.raw('SAVEPOINT sp');
-      await expect(registrar(trx, cambioDeMonedas({ conQuien: 'Banco', salen: { 100: '11' }, entran: { 1000: '1', 50: '2' } }, CAJERA)))
-        .rejects.toMatchObject({ constraint: 'cashbook_piezas_no_negativas' });
       await trx.raw('ROLLBACK TO SAVEPOINT sp');
 
       throw new Error('__rollback__');

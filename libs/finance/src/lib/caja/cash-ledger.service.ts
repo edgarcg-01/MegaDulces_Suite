@@ -42,8 +42,7 @@ import {
 import { revisarFirma } from './caja-firma.engine';
 import { tomarFirmaParaMovimiento, marcarFirmaUsada } from './caja-firma.service';
 import { diaDe } from './caja-autollenado.engine';
-import { fraseDeErrorDeCaja, traducirErrorDeCaja } from './caja-errores';
-import { soloLaCausa } from '../caos/causa-del-error';
+import { traducirErrorDeCaja } from './caja-errores';
 import {
   CajaCustodiaService, sqlDisponibleCaos, sqlCustodiaCerrada, sqlRetiroClasificado, arranqueOrigenEgreso,
 } from './caja-custodia.service';
@@ -3270,8 +3269,7 @@ export class CashLedgerService {
             motivo: 'Otra persona confirmó este mismo documento. No entra dos veces.' });
         } else {
           // Se reporta el mensaje, NO se traga: una fila que falló en silencio se lee como guardada.
-          // `[LE.0.9]` Con la frase del libro si la hay; si no, el mensaje de Postgres sin el SQL.
-          filas.push({ origen_ref: it.origen_ref, estado: 'rechazado', motivo: fraseDeErrorDeCaja(e) ?? soloLaCausa(e) });
+          filas.push({ origen_ref: it.origen_ref, estado: 'rechazado', motivo: String(e?.message ?? e).slice(0, 200) });
         }
       }
     }

@@ -11,7 +11,7 @@
  * IGUAL o MÁS ESTRICTA, nunca más permisiva.
  */
 
-import { seleccionarDenominaciones, revisarMorrallaCorte, type Denominacion, type VeredictoCorte } from '@megadulces/contracts';
+import { seleccionarDenominaciones, type Denominacion, type VeredictoCorte } from '@megadulces/contracts';
 
 /**
  * CG.23 — Los billetes que la Caja General cuenta, en el orden en que se cuentan.
@@ -197,81 +197,6 @@ export function sumaDesglose(dens: DenominacionCapturada[] | null | undefined, m
     .filter((d) => d && Number(d.piezas) > 0)
     .reduce((a, d) => a + Number(d.denominacion) * Number(d.piezas), 0);
   return redondea(suma + Number(morralla || 0));
-}
-
-/**
- * ⭐ `[LE.2.12]` **Las monedas en bolsa se cuentan por bolsa.** Control guardaba el fondo de monedas
- * dentro de «cheques» ($192,550 de los $202,671 del arqueo A23732, 28-oct), y al pasar a la Suite no
- * hubo dónde ponerlo: cayó como bulto en la morralla. Una bolsa es N piezas de UNA moneda; se teclea
- * cuántas bolsas y cuántas piezas trae cada una, y se sella como piezas, igual que las sueltas.
- */
-export interface BolsaMonedas { bolsas: number | null; porBolsa: number | null }
-
-/** Lo que falta para que las bolsas cuenten, en palabras. `null` = están bien (o no hay). */
-export function revisarBolsas(bolsas: Readonly<Record<string, BolsaMonedas>>, catalogo: readonly Denominacion[]): string | null {
-  for (const [key, b] of Object.entries(bolsas)) {
-    const n = b?.bolsas ?? null; const p = b?.porBolsa ?? null;
-    if (n === null && p === null) continue;
-    const d = catalogo.find((x) => x.key === key);
-    if (!d || d.familia !== 'moneda') return 'Sólo las monedas se cuentan por bolsa.';
-    if (n === null || p === null) return `Las bolsas de ${d.label}: anota cuántas bolsas y cuántas piezas trae cada una.`;
-    if (!Number.isInteger(n) || n < 0 || !Number.isInteger(p) || p < 1) {
-      return `Las bolsas de ${d.label}: las bolsas y sus piezas son números enteros.`;
-    }
-  }
-  return null;
-}
-
-/** Las sueltas más las de bolsa, por moneda. Con bolsas incompletas no se suman: `revisarBolsas` lo dice. */
-export function piezasConBolsas(
-  sueltas: readonly DenominacionCapturada[], bolsas: Readonly<Record<string, BolsaMonedas>>, catalogo: readonly Denominacion[],
-): DenominacionCapturada[] {
-  if (revisarBolsas(bolsas, catalogo)) return [...sueltas];
-  const out = new Map(sueltas.map((x) => [x.denom_key, { ...x }]));
-  for (const [key, b] of Object.entries(bolsas)) {
-    const extra = (b?.bolsas ?? 0) * (b?.porBolsa ?? 0);
-    const d = catalogo.find((x) => x.key === key);
-    if (!d || extra <= 0) continue;
-    const r = out.get(key) ?? { denom_key: key, denominacion: d.valor, piezas: 0 };
-    r.piezas += extra;
-    out.set(key, r);
-  }
-  return [...out.values()];
-}
-
-/**
- * ⭐ `[LE.2.12]` **Lo que Control traía SIN detalle se explica peso por peso, no se borra.** El último
- * arqueo de Control (A23732, 28-oct) dice «cheques $202,671» sin decir cuáles, y de eso $192,550
- * eran monedas. El apartado de cheques pide anotarlos uno por uno; lo que no es cheque se dice qué
- * era —monedas (ya contadas en la reja), dólares, u otra cosa con nota— y la suma tiene que dar el
- * importe exacto. Sin esto, «lo que no anotes ya no cuenta» hacía desaparecer $192,550 sin rastro.
- */
-export interface ExplicacionSinDetalle { monedas: number | null; dolares: number | null; otro: number | null; nota: string }
-
-export const EXPLICACION_VACIA: ExplicacionSinDetalle = Object.freeze({ monedas: null, dolares: null, otro: null, nota: '' });
-
-const pesos = (n: number): string =>
-  Math.abs(n).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
-
-/** Cuánto falta por explicar y, si no se puede guardar, por qué. `anotado` = lo que suman los documentos anotados. */
-export function revisarExplicacion(monto: number, anotado: number, e: ExplicacionSinDetalle, titulo: string):
-  { sinExplicar: number; falta: string | null } {
-  const partes = [e.monedas, e.dolares, e.otro].map((x) => Number(x ?? 0));
-  if (partes.some((x) => !Number.isFinite(x) || x < 0)) return { sinExplicar: NaN, falta: `${titulo}: los importes no pueden ser negativos.` };
-  const sinExplicar = redondea(monto - anotado - partes.reduce((s, x) => s + x, 0));
-  if (sinExplicar > 0) return { sinExplicar, falta: `${titulo}: faltan ${pesos(sinExplicar)} por explicar de lo que Control traía sin detalle.` };
-  if (sinExplicar < 0) return { sinExplicar, falta: `${titulo}: explicaste ${pesos(sinExplicar)} de más; revisa los importes.` };
-  if (Number(e.otro ?? 0) > 0 && e.nota.trim().length < 3) return { sinExplicar, falta: `${titulo}: di qué era lo de «otra cosa».` };
-  return { sinExplicar, falta: null };
-}
-
-/** La explicación en una línea, para la nota del arqueo: queda escrito qué eran los pesos de Control. */
-export function textoExplicacion(titulo: string, monto: number, anotado: number, e: ExplicacionSinDetalle): string {
-  const p = [`${pesos(anotado)} anotados uno por uno`];
-  if (Number(e.monedas ?? 0) > 0) p.push(`${pesos(Number(e.monedas))} eran monedas (contadas en la reja del corte)`);
-  if (Number(e.dolares ?? 0) > 0) p.push(`${pesos(Number(e.dolares))} eran dólares`);
-  if (Number(e.otro ?? 0) > 0) p.push(`${pesos(Number(e.otro))}: ${e.nota.trim()}`);
-  return `De los ${pesos(monto)} de «${titulo.toLowerCase()}» que Control traía sin detalle: ${p.join(' · ')}.`;
 }
 
 /** Redondeo a centavos. Sin esto, 0.1+0.2 deja residuos que se ven como descuadre. */
@@ -893,18 +818,12 @@ export interface SellarUI {
   readonly atrasado: boolean;
   /** La persona declaró que el efectivo contado es de ESA jornada. */
   readonly jornadaConfirmada: boolean;
-  /** `[LE.2.12]` Lo tecleado en morralla: sólo el metal de menos de 50¢ (`revisarMorrallaCorte`). */
-  readonly morralla?: number;
-  /** `[LE.2.12]` Hay una bolsa a medio anotar (`revisarBolsas`). */
-  readonly bolsasIncompletas?: boolean;
 }
 
-export function puedeSellarUI(i: SellarUI): { ok: boolean; motivo: 'sin_conteo' | 'morralla_fuera_de_tope' | 'bolsas_incompletas' | 'jornada_sin_confirmar' | null } {
+export function puedeSellarUI(i: SellarUI): { ok: boolean; motivo: 'sin_conteo' | 'jornada_sin_confirmar' | null } {
   // ⛔ El orden importa: sin conteo no hay nada que sellar, y decirle «confirmá la jornada» a
   // quien todavía no contó manda a arreglar lo que no está mal.
   if (!(Number(i.contado) > 0 || i.ceroDeclarado)) return { ok: false, motivo: 'sin_conteo' };
-  if (!revisarMorrallaCorte(i.morralla).ok) return { ok: false, motivo: 'morralla_fuera_de_tope' };
-  if (i.bolsasIncompletas) return { ok: false, motivo: 'bolsas_incompletas' };
   if (i.atrasado && !i.jornadaConfirmada) return { ok: false, motivo: 'jornada_sin_confirmar' };
   return { ok: true, motivo: null };
 }

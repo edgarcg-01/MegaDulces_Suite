@@ -26,8 +26,6 @@ const ROUTES = readFileSync(join(__dirname, '../../app.routes.ts'), 'utf8');
 
 /** Deuda árbol-vs-guard conocida: la clave abre el módulo en el árbol, pero su ruta exige otra. */
 const DEUDA: ReadonlyArray<{ perm: Permission; url: string; motivo: string }> = [
-  // `[LE.6.9]` La clave del cambio Captura → Ventanilla no es de entrada: sola no abre la caja (D34).
-  { perm: Permission.FINANCE_CAJA_VENTANILLA, url: '/finanzas/caja-general', motivo: 'llave de cambio, no de entrada: la ruta exige VER, GESTIONAR o AUTORIZAR' },
   // comercial
   { perm: Permission.COMMERCIAL_INTELLIGENCE_VER, url: '/comercial/command-center', motivo: 'el módulo intelligence apunta a command-center, que exige ANALYTICS_VER; no hay ruta gateada por INTELLIGENCE_VER' },
   { perm: Permission.COMMERCIAL_CARGA_VER, url: '/comercial/orders', motivo: 'el módulo carga apunta a orders (ORDERS_VER)' },

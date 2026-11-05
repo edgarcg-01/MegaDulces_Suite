@@ -30,7 +30,6 @@ import { HojaGastosController } from './hoja-gastos.controller';
 // `[LE.4]` El libro de efectivo de partida doble (ADR-102/103): corre en sombra junto al libro viejo (E5).
 import { CashbookService } from '../cashbook/cashbook.service';
 import { CashbookController } from '../cashbook/cashbook.controller';
-import { CashbookVentanillaService } from '../cashbook/cashbook-ventanilla.service';
 // `[LE.4.4]` El carril máquina → libro: corre por @Cron, APAGADO por default (LE_LIBRO_CAOS=on).
 import { CashbookCaosCarril } from '../cashbook/cashbook-caos.carril';
 
@@ -64,7 +63,7 @@ import { CashbookCaosCarril } from '../cashbook/cashbook-caos.carril';
   // `ENABLE_CAJA_AUTOLLENADO=true` lo prende, y la migración de la cuenta de servicio va antes.
   providers: [CajaGeneralService, CashLedgerService, CajaAutofillService, CashCutService,
     CajaFechaFuturaScannerService, CajaCorteAbiertoScannerService, CajaControlService, CajaAutofillRefreshService,
-    CajaAutollenadoService, CajaArqueoService, CajaFirmaService, CajaCustodiaService, CashbookService, CashbookVentanillaService, CashbookCaosCarril,
+    CajaAutollenadoService, CajaArqueoService, CajaFirmaService, CajaCustodiaService, CashbookService, CashbookCaosCarril,
     CajaReposicionService, HojaGastosService,
     // [OPS-AUD.11.6] La alarma de lo que mantienen los triggers (ADR-104): tesorería y pólizas.
     ArbitroPorCambioService],

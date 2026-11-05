@@ -55,23 +55,11 @@ const FRASES: Readonly<Record<string, string>> = {
   cashbook_estado_final: 'Eso ya quedó cerrado y no cambia.',
   cashbook_inmutable: 'El libro no se edita: se corrige con una reversa.',
   cashbook_cuenta_distinta: 'Esa cuenta ya existe con otra forma.',
-  // `[LE.4.10]` Las órdenes de la Ventanilla.
-  cashbook_orden_actor: 'Una orden la emite una persona con su usuario.',
-  cashbook_orden_sin_plazo: 'Toda orden vence: falta su plazo.',
-  cashbook_orden_inexistente: 'No existe esa orden.',
-  cashbook_orden_no_por_firmar: 'Esa orden ya no espera firma.',
-  cashbook_orden_vencida: 'La orden venció sin firma: hay que pedirla otra vez.',
-  cashbook_orden_firma_otro: 'Quien pidió la orden no la firma ni la rechaza.',
-  cashbook_orden_rechazo_con_motivo: 'Un rechazo dice por qué.',
-  cashbook_orden_documento_una_vez: 'Este documento ya tiene su orden de pago: no se paga dos veces.',
-  cashbook_orden_vale_una_vez: 'Ese vale ya amparó otro pago.',
-  cashbook_orden_llave_unica: 'Esa petición ya se registró con otro contenido.',
 };
 
 /** Los que hablan de un ESTADO (otra persona ya actuó, ya existe): 409. Los demás, 422. */
 const CONFLICTO = new Set(['cashbook_ya_hay_jornada_abierta', 'cashbook_solicitud_no_pendiente', 'cashbook_asiento_una_reversa',
-  'cashbook_peticion_reusada', 'cashbook_evento_cambio', 'cashbook_estado_final', 'cashbook_cuenta_distinta',
-  'cashbook_orden_no_por_firmar', 'cashbook_orden_documento_una_vez', 'cashbook_orden_vale_una_vez', 'cashbook_orden_llave_unica']);
+  'cashbook_peticion_reusada', 'cashbook_evento_cambio', 'cashbook_estado_final', 'cashbook_cuenta_distinta']);
 /** `[LE.4.9]` Quién PUEDE firmar (el puesto), no qué se firmó: 403. */
 const PROHIBIDO = new Set(['cashbook_firma_por_puesto']);
 

@@ -573,30 +573,6 @@ describe.skipIf(!URL)('[CGP-L.0] el servicio REAL del corte contra Postgres', ()
     expect((await corte(c.id)).contado).toBeNull();   // nada quedó sellado
   });
 
-  it('⛔ `[LE.2.12]` un bulto en morralla no se sella, ni se recuenta, ni se cierra: va por pieza', async () => {
-    // El caso del 2-nov: $192,550 tecleados en «morralla · menos de 50¢», el 94 % de lo contado.
-    const c = await svc.abrir({ fecha: dia('03-17'), sucursal: suc('MOR'), fondo_inicial: 0 }, CAJERA);
-    await expect(svc.contar(c.id, { conteo: conteo(['100', 100, 1]), morralla: 192550 }, CAJERA))
-      .rejects.toThrow(/no pasa de \$100\.00/);
-    expect((await corte(c.id)).contado).toBeNull();   // nada quedó sellado
-
-    // Los centavos sueltos sí son morralla, y se sella (con diferencia: el fondo era 0).
-    const r = await svc.contar(c.id, { conteo: conteo(['100', 100, 1]), morralla: 3.5 }, CAJERA);
-    expect(r.totales.contado).toBe(103.5);
-    await expect(svc.recontar(c.id, {
-      conteo: conteo(['100', 100, 1]), morralla: 192550, motivo: 'Faltaba contar las bolsas de la bóveda',
-    }, CAJERA)).rejects.toThrow(/no pasa de \$100\.00/);
-    const fila = await corte(c.id);
-    expect(fila.conteo_previo).toBeNull();            // el reconteo rechazado no dejó el primero a medias
-    expect(Number(fila.morralla)).toBe(3.5);
-
-    // Cerrar sin haber sellado, con el bulto en el cuerpo: tampoco.
-    const c2 = await svc.abrir({ fecha: dia('03-17'), sucursal: suc('MOR2'), fondo_inicial: 0 }, CAJERA);
-    await expect(svc.cerrar(c2.id, { conteo: conteo(['100', 100, 1]), morralla: 192550 }, CAJERA))
-      .rejects.toThrow(/no pasa de \$100\.00/);
-    expect((await corte(c2.id)).estado).toBe('borrador');
-  });
-
   it('`[CGP-L.7]` abrir, cerrar, autorizar y listar responden con el dinero como número y la fecha como día', async () => {
     const f = dia('03-13');
     const c = await svc.abrir({ fecha: f, sucursal: suc('T7'), fondo_inicial: 500 }, CAJERA);

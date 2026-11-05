@@ -64,7 +64,7 @@ test.describe('1 · Pagar: pagar ES registrar, en un solo acto (V2, V3, V4)', ()
     await expect(page.locator('#btn-registrar')).toBeDisabled();
   });
 
-  test('si Kepler no dice qué paga: el código no sale hasta que Tesorería firma, y la cajera no puede firmar', async ({ page }) => {
+  test('sin vale aprobado: el código no sale hasta que Tesorería firma, y la cajera no puede firmar', async ({ page }) => {
     await page.getByTestId('pagar-p2').getByRole('button', { name: 'Pagar' }).click();
     await expect(page.getByTestId('espera-firma')).toBeVisible();
     await expect(page.getByTestId('codigo'), '[negativa] sin firma no hay código').toHaveCount(0);
@@ -401,66 +401,5 @@ test.describe('8 · Fondo de monedas: se junta por pieza y se cambia por billete
     await page.click('#btn-rendir');
     await expect(page.getByTestId('cola-custodias').locator('tr', { hasText: 'Monedas para cambio' })).toHaveCount(0);
     await expect(kpi(page, 'cajon')).toHaveText('$31,750.00');
-  });
-});
-
-/**
- * `[LE.2.13]` UNA autorización basta (D27): la compra misma o el gasto aprobado por una persona en
- * Aprobación de gastos. Lo que no está aprobado no sale ni con firma (D29); cada detenido dice por qué
- * y dónde se arregla. El mismo veredicto que `libs/finance/src/lib/cashbook/plan-de-pago.ts`.
- */
-test.describe('9 · Lo que respalda el pago lo dice Kepler (LE.2.13, D27, D29)', () => {
-  test('una compra sale sin firma: sale el código y el panel dice qué entradas paga', async ({ page }) => {
-    const fila = page.getByTestId('pagar-p4');
-    await expect(fila.getByTestId('respaldo')).toHaveText('compra · 2 entradas');
-    await fila.getByRole('button', { name: 'Pagar' }).click();
-    await expect(page.getByTestId('espera-firma'), 'la compra ya fue la autorización').toHaveCount(0);
-    await expect(page.getByTestId('codigo')).toBeVisible();
-    await expect(page.getByTestId('lo-respalda')).toContainText('XA20');
-  });
-
-  test('un pago de varios gastos aprobados sale sin firma y nombra a quien aprobó cada uno', async ({ page }) => {
-    await expect(page.getByTestId('pagar-p22').getByTestId('respaldo')).toHaveText('3 gastos aprobados');
-    await page.getByTestId('pagar-p22').getByRole('button', { name: 'Pagar' }).click();
-    await expect(page.getByTestId('codigo')).toBeVisible();
-    await expect(page.getByTestId('lo-respalda')).toContainText('aprobado por Jefatura de Finanzas');
-  });
-
-  for (const [id, tag, motivo, arreglo] of [
-    ['p9', 'gasto sin aprobar', 'nadie lo aprobó', 'Aprobarlo en Aprobación de gastos'],
-    ['p13', 'gasto sin expediente', 'no tiene su solicitud', 'Subirlo y aprobarlo en Aprobación de gastos'],
-    ['p17', 'gasto rechazado', 'no se paga', null],
-    ['p21', 'compra pagada de más', 'quedaría pagada de más', null],
-  ] as const) {
-    test(`[negativa] ${tag}: no se paga ni se manda a firmar, y la fila dice por qué`, async ({ page }) => {
-      const fila = page.getByTestId(`pagar-${id}`);
-      await expect(fila.getByTestId('respaldo')).toHaveText(tag);
-      await expect(fila.getByRole('button', { name: 'Pagar' })).toBeDisabled();
-      await expect(fila.getByTestId('detenido')).toContainText(motivo);
-      if (arreglo) await expect(fila.getByTestId('arreglar')).toHaveText(arreglo);
-      else await expect(fila.getByTestId('arreglar'), 'lo rechazado o pagado de más no se «arregla» aprobando').toHaveCount(0);
-    });
-  }
-
-  test('lo que se puede pagar va primero; lo detenido abajo, contado', async ({ page }) => {
-    const filas = page.locator('#t-pagar tr');
-    await expect(filas).toHaveCount(26);
-    await expect(filas.first()).toHaveAttribute('data-puede', 'true');
-    for (const k of [22, 23, 24, 25]) await expect(filas.nth(k)).toHaveAttribute('data-puede', 'false');
-    await expect(page.locator('#pagar-detenidos')).toContainText('4 detenidos');
-  });
-
-  test('la búsqueda encuentra por el respaldo: «rechazado» lleva a su fila', async ({ page }) => {
-    await page.fill('#buscar', 'rechazado');
-    await expect(page.locator('#n-pagar')).toHaveText(/^1 de 26$/);
-    await expect(page.getByTestId('pagar-p17')).toBeVisible();
-  });
-
-  test('[negativa] Tesorería no recibe a firmar nada de lo detenido: sólo lo que Kepler no respalda', async ({ page }) => {
-    await page.getByTestId('pagar-p4').getByRole('button', { name: 'Pagar' }).click();
-    await page.getByTestId('pagar-p2').getByRole('button', { name: 'Pagar' }).click();
-    await verComo(page, 'tesoreria');
-    await expect(page.getByTestId('cola-firmar').locator('tr')).toHaveCount(1);
-    await expect(page.getByTestId('cola-firmar')).toContainText('Kepler no dice qué paga');
   });
 });

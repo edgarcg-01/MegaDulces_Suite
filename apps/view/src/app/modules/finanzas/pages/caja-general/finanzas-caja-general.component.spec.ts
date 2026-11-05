@@ -87,8 +87,6 @@ const REPOSICION: ReposicionSucursales = {
 };
 /** `[CGA-A.65]` La ventana también lee las hojas de zona: las aprobadas se pagan en ella. */
 const HOJAS_VACIAS: HojasDeGastos = { abiertas: [], cerradas: [], instalada: true, datos_al: null, caos_al: null };
-/** `[LE.2.12]` Sin cheques ni papeles en caja, y nada que venga de Control sin detalle. */
-const DOCS_VACIOS = { instalado: true, base: null, cheques: { desde: null, piezas: [], sin_detalle: null }, papeles: { desde: null, piezas: [], sin_detalle: null } };
 
 /**
  * `[CGA-A.63]` El cajón del ARQUEO. La página monta un segundo `app-side-peek` —la ventana de la
@@ -274,10 +272,6 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       candado: vi.fn(() => of({ bloqueado: false, motivo: null, jornada: null, texto: null, con_llave: null, activo: true, hoy: todayMx(), pueden_recibir_llave: [] })),
       reposicion: vi.fn(() => of(REPOSICION)),
       hojasDeGastos: vi.fn(() => of(HOJAS_VACIAS)),
-      // `[LE.2.12]` Lo que no es efectivo: por omisión no había cheques ni papeles, ni arqueos.
-      documentosEnCaja: vi.fn(() => of(DOCS_VACIOS)),
-      arqueosCaja: vi.fn(() => of({ rows: [], limit: 30, fuente: 'prueba' })),
-      registrarArqueoCaja: vi.fn(() => of({ arqueo: { origen: 'suite', corte_id: 'c1', cheques: 0, papeles: 0, usd: null } })),
       ...over,
     };
 
@@ -5172,72 +5166,6 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       expect(svc['cerrarCorte']).toHaveBeenCalledTimes(1);
       expect(svc['cerrarCorte'].mock.calls[0][1]).toEqual([]);
       expect(svc['cerrarCorte'].mock.calls[0][2]).toBe(0);
-    });
-
-    // ── `[LE.2.12]` Las herramientas que Control tenía y el corte no ─────────────────────────────
-    it('[LE.2.12] las monedas en bolsa se suman a las sueltas y se sellan como piezas', () => {
-      montar({ saldo: vi.fn(() => of(abierto(null))), contarCorte: contar() });
-      comp.abrirCierre();
-      comp.setPiezasCorte(den('10'), 250);
-      comp.setBolsa(den('10'), 'bolsas', 19);
-      comp.setBolsa(den('10'), 'porBolsa', 1000);
-      expect(comp.sumaConteo()).toBe(192500);
-      expect(comp.subtotalCorteDe(den('10'))).toBe(192500);
-      comp.sellarConteo();
-      expect(svc['contarCorte'].mock.calls[0][1]).toEqual([{ denom_key: '10', denominacion: 10, piezas: 19250 }]);
-    });
-
-    it('⛔ [LE.2.12] una bolsa a medio anotar no deja sellar', () => {
-      montar({ saldo: vi.fn(() => of(abierto(null))), contarCorte: contar() });
-      comp.abrirCierre();
-      comp.setPiezasCorte(den('500'), 3);
-      comp.setBolsa(den('10'), 'bolsas', 19);
-      expect(comp.bolsasFalta()).toContain('$10');
-      expect(comp.puedeSellar()).toBe(false);
-      comp.sellarConteo();
-      expect(svc['contarCorte']).not.toHaveBeenCalled();
-    });
-
-    it('⛔ [LE.2.12] el bulto en morralla no se sella, y la frase manda a las bolsas', () => {
-      montar({ saldo: vi.fn(() => of(abierto(null))), contarCorte: contar() });
-      comp.abrirCierre();
-      comp.setPiezasCorte(den('500'), 9);
-      comp.morrallaCorte.set(192550);
-      expect(comp.puedeSellar()).toBe(false);
-      expect(comp.morrallaCorteFuera()).toContain('también las de bolsa');
-      comp.sellarConteo();
-      expect(svc['contarCorte']).not.toHaveBeenCalled();
-    });
-
-    it('[LE.2.12] sellado, lo que Control traía sin detalle se ofrece para explicarlo, y sin contar nada no se guarda', () => {
-      const conControl = { ...DOCS_VACIOS, cheques: { desde: null, piezas: [], sin_detalle: { monto: 202671, origen: 'control', at: '2026-10-28T23:51:08.000Z' } } };
-      montar({ saldo: vi.fn(() => of(abierto(SELLADO_FALTA))), documentosEnCaja: vi.fn(() => of(conControl)) });
-      comp.abrirCierre();
-      expect(comp.neSinDetalle().cheque).toBe(202671);
-      expect(comp.neFalta()).toMatch(/al menos un apartado/);
-      comp.guardarNoEfectivo();
-      expect(svc['registrarArqueoCaja']).not.toHaveBeenCalled();
-    });
-
-    it('[LE.2.12] los dólares se guardan como arqueo del corte, con el efectivo SELLADO y sin ser recuento', () => {
-      montar({ saldo: vi.fn(() => of(abierto(SELLADO_FALTA))) });
-      comp.abrirCierre();
-      comp.neUsd.set(12059);
-      expect(comp.neFalta()).toMatch(/tipo de cambio/);
-      comp.neTC.set(19.101); comp.neTCFuente.set('banco');
-      expect(comp.neFalta()).toBeNull();
-      comp.guardarNoEfectivo();
-      const body = svc['registrarArqueoCaja'].mock.calls[0][0];
-      expect(body).toMatchObject({ tipo: 'intermedio', corte_id: 'c1', usd: 12059, tipo_cambio: 19.101, morralla: 0 });
-      expect(body.piezas).toEqual([{ denom_key: '500', piezas: 2 }, { denom_key: '200', piezas: 2 }]);
-      expect(body.nota).toContain('no un recuento');
-    });
-
-    it('[LE.2.12] si este corte ya los declaró, se dice y no se vuelve a pedir', () => {
-      const ya = { origen: 'suite', corte_id: 'c1', cheques: 10121, papeles: 20782, usd: 12059, tipo_cambio: 19.101 };
-      montar({ saldo: vi.fn(() => of(abierto(SELLADO_FALTA))), arqueosCaja: vi.fn(() => of({ rows: [ya], limit: 30, fuente: 'prueba' })) });
-      comp.abrirCierre();
-      expect(comp.neDeclarado()).toMatchObject({ cheques: 10121 });
     });
 
     it('⛔ si la relectura del saldo falla después de sellar, el corte del diálogo se puede cerrar igual', () => {

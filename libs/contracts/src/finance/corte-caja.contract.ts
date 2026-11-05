@@ -195,33 +195,3 @@ export interface CandadoCajaDto {
   /** Quienes capturaron en los últimos 30 días, menos quien pregunta: a quién se le puede dar llave. */
   pueden_recibir_llave: Array<{ id: string; username: string | null }>;
 }
-
-/**
- * ⛔ `[LE.2.12]` **La morralla del corte es SÓLO el metal de menos de 50¢** (20¢, 10¢, 5¢): lo único
- * de la caja que no tiene renglón. De 50¢ para arriba, cada moneda y cada billete tiene el suyo y se
- * cuenta por pieza.
- *
- * Medido en prod el 2026-11-02: en **8 de 19 cortes** el campo llevó un bulto tecleado que nadie
- * contó por pieza ($10,000 · $15,000 · $298,484.92 · y $192,550 idénticos en cuatro cortes); en el
- * del 2-nov era el **94 %** de lo «contado», y los otros 11 traían $0.00. Un importe libre ahí rompe el
- * conteo por pieza y el arqueo ciego, así que el tope no pide explicación: lo de arriba va en su renglón.
- *
- * $100 = 500 monedas de 20¢: más metal chico del que junta una caja. La MISMA regla en la pantalla
- * y en el servidor.
- */
-export const MORRALLA_CORTE_TOPE = 100;
-
-export function revisarMorrallaCorte(morralla: number | null | undefined): { ok: true } | { ok: false; texto: string } {
-  const m = Number(morralla ?? 0);
-  if (!Number.isFinite(m) || m < 0) {
-    return { ok: false, texto: 'La morralla no puede ser negativa.' };
-  }
-  if (Math.round(m * 100) > MORRALLA_CORTE_TOPE * 100) {
-    return {
-      ok: false,
-      texto: `La morralla es sólo el metal de menos de 50¢ y no pasa de $${MORRALLA_CORTE_TOPE}.00. `
-        + 'Las monedas de 50¢ para arriba —también las de bolsa— y los billetes van en su renglón, contados por pieza.',
-    };
-  }
-  return { ok: true };
-}
