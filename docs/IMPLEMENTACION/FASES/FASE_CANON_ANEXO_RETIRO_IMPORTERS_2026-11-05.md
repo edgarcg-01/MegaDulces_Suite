@@ -222,13 +222,22 @@ se decide dinero: margen, pagos, precios»), no de un monto.
   pero el importer sólo busca las vivas. Una ruta borrada en la app que Kepler sigue trayendo se
   vuelve a insertar, choca y hace ROLLBACK de vehículos, choferes y rutas a la vez. **No se vio**
   porque el `nightly` sólo marca error si fallan todos sus pasos. Arreglarlo es S, pero pide D3.
-- **H2 — `import-cash-sessions` tiene fijos los códigos `01`–`05`**: deja fuera las cajas de las
-  sucursales `00`, `06`, `07` y `08`. NO MEDIDO en prod.
+- ✅ **H2 — `import-cash-sessions` tenía fijos los códigos `01`–`05`** (cerrado en CANON.5.10).
+  Medido el 2026-11-05: Canindo, Morelia Madero y Morelia Abastos tenían 11 cajas abiertas en el
+  ODS que `/tienda/cajas` no mostraba; la `00` no tiene cajas. Ahora lee todas las sucursales del
+  mapa único (dry-run: 113 sesiones y 23 abiertas, igual que el ODS).
 - **H3 — `repoint-catalog-prices` sin bandera vuelve a sincronizar el precio.** En los carriles corre
   con `--solo-promo`, pero quien lo lance a mano sin ella escribe `commercial.product_prices` y
   deshace los rechazos de `ods-derived`. Es una mina: el modo por defecto debería ser el seguro. S.
-- **H4 — `import-ap-findings` podría contar doble**: no filtra `c14 = sucursal propia`, y
-  `import-ledger-chain` sí lo hace. NO MEDIDO.
+- **H4 — `import-ap-findings` cuenta doble, poco** (medido el 2026-11-05 en el ODS, 12 meses,
+  cuenta 201): sólo la base de la `03` trae movimientos con `c14` de otra sucursal, 41 por unos
+  $0.68 M, alrededor del 0.1 % de las compras del año, aunque infla ~2.6 % el auxiliar de la `03`.
+  **29 de esos 41 también están en su base dueña** (duplicado real); los otros 12 sólo existen ahí.
+  Un filtro `c14 = propia` como el de `ledger-chain` perdería esos 12: el arreglo es deduplicar
+  contra la base dueña, y se hace al repuntarlo al ODS (item M de prioridad 1).
+- **H9 bis — el arreglo de H9 no es chico:** si `sales-fact` empieza a escribir a nombre de la fila
+  viva, las filas viejas a nombre de la borrada siguen en `sales_daily` y la venta se cuenta doble.
+  Requiere una migración que reasigne esas filas en el mismo cambio.
 - **H5 — `import-supplier-params` sólo llena columnas en NULL**, así que lo que deriva una vez no
   vuelve a refrescarse nunca.
 - **H6 — Reglas opuestas sobre el mismo producto.** El hop-2 (`normalizeProductsFromOds`, en
