@@ -227,7 +227,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                 <span class="pg-day-t">
                   <span class="pg-day-n">{{ dayShort(d.date) }}@if (d.date === todayIso) { <span class="pg-t"> · hoy</span> }</span>
                   <span class="pg-day-amt" [class.cal-neg]="(d.summary.remaining_amount ?? 0) < 0">
-                    @if (!d.summary.capacity_defined) { <span class="pg-day-l">sin tope fijado</span> }
+                    @if (!d.summary.capacity_defined) { @if (d.allocations.length) { <span class="pg-day-l">sin tope fijado</span> } }
                     @else if ((d.summary.remaining_amount ?? 0) < 0) { <span class="pg-day-l">excede </span><span class="comm-num">{{ moneyShort(-(d.summary.remaining_amount ?? 0)) }}</span> }
                     @else { <span class="comm-num">{{ moneyShort(d.summary.remaining_amount) }}</span><span class="pg-day-l"> libre</span> }
                   </span>
@@ -241,7 +241,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                     @else if (d.summary.lot_status === 'closed') { · cerrado }
                     @else if (d.summary.lot_status === 'released' || d.summary.lot_status === 'executing') { · autorizado }
                     @else { · listos }
-                  } @else if (d.summary.capacity_defined) { sin pagos } @else { — }
+                  } @else if (d.summary.capacity_defined) { sin pagos } @else { <!-- [PGP.74] En el día vacío va aquí: al lado del nombre no cabía en 8rem («fijad» cortado, la tira se desplazaba). -->sin tope fijado }
                 </span>
               </button>
             }
@@ -1430,7 +1430,8 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     :host ::ng-deep .pg-vd .pg-cap-ms .ms--compact .ms-item,
     :host ::ng-deep .pg-sec-tope .pg-cap-ms .ms--compact .ms-item { padding-top:0; padding-bottom:0; }
     /* [PGP.63] El tope y el paso, en línea dentro del encabezado de «Pagos del día» (ocupa el hueco entre el título y «Preliminar»). */
-    .pg-sec-tope { flex:1 1 auto; min-width:0; }
+    /* [PGP.74] Base 0: al faltar ancho se doblan las cifras, no se va un botón solo al renglón de abajo. */
+    .pg-sec-tope { flex:1 1 0; min-width:12rem; }
     .pg-sec-tope .pg-vd-row2 { display:flex; align-items:center; gap:var(--sp-1) var(--sp-4); flex-wrap:wrap; }
 
     /* La tabla del dia */
