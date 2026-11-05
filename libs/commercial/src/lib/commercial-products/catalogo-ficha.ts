@@ -485,10 +485,12 @@ export function precioDeRed(precios: Num[]): { sucursales: number; min: number |
  *    `puedeVerCostoCatalogo` (que deja fuera al cliente externo).
  */
 export function sucursalDelCatalogo(permitidas: ReadonlyArray<{ codigo: string }>, pedida: string | null | undefined): string | null {
+  const defecto = !permitidas.length || permitidas.some((s) => s.codigo === '01') ? '01' : permitidas[0].codigo;
   const p = (pedida ?? '').trim();
-  if (p) return permitidas.some((s) => s.codigo === p) ? p : null;
-  if (!permitidas.length || permitidas.some((s) => s.codigo === '01')) return '01';
-  return permitidas[0].codigo;
+  // Pedir la MISMA que se da por omisión siempre pasa: si no, quien no tiene ninguna en su alcance abre la lista (01)
+  // y la ficha, que pide la 01 de la lista, le daba 403.
+  if (p) return permitidas.some((s) => s.codigo === p) || p === defecto ? p : null;
+  return defecto;
 }
 
 /** Sucursal pedida: dos dígitos; por default la 01. */

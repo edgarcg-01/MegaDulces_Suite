@@ -238,6 +238,19 @@ describe('Detallado (rediseño aprobado): lo de Sencillo + Este mes, etiquetas y
     expect(catalogo.ficha).toHaveBeenCalledWith('q-1', '05');
   });
 
+  it('⛔ [P2] si cambiar «Precios de» FALLA, el selector vuelve a la sucursal de los precios que se ven', async () => {
+    const detallado = vi.fn((p: { sucursal?: string | null }) => (p.sucursal === '05'
+      ? throwError(() => new Error('se cayó'))
+      : of(LISTA_D({ sucursal: '01', sucursales: [{ codigo: '01', nombre: 'PADRE HIDALGO' }, { codigo: '05', nombre: 'YURECUARO' }] }))));
+    const { fix } = await montar({}, { detallado });
+    const c = fix.componentInstance as unknown as { elegirSucursalD: (s: string) => void; sucursalVista: () => string | null };
+    expect(c.sucursalVista()).toBe('01');
+    c.elegirSucursalD('05');
+    await tick(fix);
+    // La tabla sigue con los precios de la 01: el selector no puede decir 05.
+    expect(c.sucursalVista()).toBe('01');
+  });
+
   it('⛔ [PF.21] [negativa] con una sola sucursal en tu alcance no hay selector: se dice de cuál es el precio', async () => {
     const { fix } = await montar({}, { detallado: vi.fn(() => of(LISTA_D({ sucursal: '03', sucursales: [{ codigo: '03', nombre: 'CANINDO' }] }))) });
     const el = fix.nativeElement as HTMLElement;

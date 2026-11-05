@@ -116,7 +116,7 @@ const REFRESCO_MS = 60_000;
                            la venta, un «*» con el porqué (el número no se presenta como completo cuando no lo es). -->
                       <div [title]="t.pregunta">
                         <dt>{{ t.titulo }}</dt>
-                        <dd><b class="lz-mono" [class.lz-faint]="mg[t.id].pct === null">{{ margenTexto(mg[t.id].pct) }}</b>@if (mg[t.id].nota; as nota) {<span class="lz-aviso lz-ast" [title]="nota" [attr.aria-label]="nota">*</span>}</dd>
+                        <dd><b class="lz-mono" [class.lz-faint]="mg[t.id].pct === null">{{ margenTexto(mg[t.id].pct) }}</b>@if (mg[t.id].nota; as nota) {<span class="lz-aviso lz-ast" [title]="nota" aria-hidden="true">*</span><span class="sr-only">&ngsp;{{ nota }}</span>}</dd>
                       </div>
                     }
                   </dl>

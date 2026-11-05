@@ -57,7 +57,7 @@ function mensajeDe(e: unknown, porDefecto: string): string {
         <article class="fd" [attr.aria-label]="'Ficha de ' + v.nombre">
           <!-- [PF.23] El periodo, arriba de todo (pedido de David). Dice a qué aplica: lo demás no lo sigue todavía. -->
           <div class="periodo-top">
-            <app-periodo-ficha porOmision="d90" etiqueta="Periodo de las compras" (cambio)="periodoCompras.set($event)" />
+            <app-periodo-ficha porOmision="d90" [valor]="periodoCompras()" etiqueta="Periodo de las compras" (cambio)="periodoCompras.set($event)" />
             <small class="nota">Aplica a las compras · precio, existencia y venta del mes no cambian</small>
           </div>
           @if (etiquetasVm().length) {
@@ -111,9 +111,9 @@ function mensajeDe(e: unknown, porDefecto: string): string {
                 <dt>Último costo</dt>
                 <dd>
                   @if (v.entrada?.costo && v.entrada!.costos.length) {
-                    <span class="costos">@for (c of v.entrada!.costos; track c.unidad) { <span><span class="mono">{{ c.monto }}</span>&ngsp;<span class="ud">por {{ c.unidad }}</span></span> }</span>
+                    <span class="costos">@for (c of v.entrada!.costos; track c.unidad) { <span><span class="mono">{{ c.monto }}</span>&ngsp;<span class="ud">por {{ c.unidad }}</span></span>&ngsp;}</span>&ngsp;
                     <small class="nota">{{ v.entrada!.costoNota }}</small>
-                  } @else if (v.entrada?.costo; as k) { <span class="mono">{{ k }}</span>&ngsp;<span class="ud">por {{ v.entrada!.unidad }}</span><small class="nota">{{ v.entrada!.costoNota }}</small> }
+                  } @else if (v.entrada?.costo; as k) { <span class="mono">{{ k }}</span>&ngsp;<span class="ud">por {{ v.entrada!.unidad }}</span>&ngsp;<small class="nota">{{ v.entrada!.costoNota }}</small> }
                   @else if (v.entrada) { <span class="sin">Sin costo en la entrada</span> }
                   @else { <span class="sin">Sin entradas</span> }
                 </dd>

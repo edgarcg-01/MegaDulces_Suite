@@ -186,6 +186,17 @@ describe('ordenarCodigos / precioDeRed / sucursales', () => {
     expect(sucursalDelCatalogo(sinLa01, "03' OR 1=1")).toBeNull();
     expect(sucursalDelCatalogo([], '02')).toBeNull();
   });
+
+  it('⛔ [PF.21] sin ninguna sucursal en el alcance, pedir la de omisión (01) pasa: la ficha pide lo que la lista dio', () => {
+    // La lista da la 01 por omisión; la ficha la pide explícitamente: antes era 403.
+    expect(sucursalDelCatalogo([], null)).toBe('01');
+    expect(sucursalDelCatalogo([], '01')).toBe('01');
+    // Con alcance sin la 01, la de omisión es la primera de las suyas, y pedirla también pasa.
+    expect(sucursalDelCatalogo([{ codigo: '03' }, { codigo: '05' }], '03')).toBe('03');
+    // [negativa] otra que no es la de omisión ni está en su alcance sigue en 403.
+    expect(sucursalDelCatalogo([], '02')).toBeNull();
+    expect(sucursalDelCatalogo([{ codigo: '03' }], '01')).toBeNull();
+  });
 });
 
 describe('[PF.23] periodoFicha — el periodo de la venta de la ficha', () => {

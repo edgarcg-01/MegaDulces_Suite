@@ -140,6 +140,43 @@ describe('ficha de producto (Sencillo)', () => {
     expect(t).toContain('Agotado en 1 sucursal que sí lo vende');
   });
 
+  it('⛔ [P1] si el periodo elegido FALLA y se reintenta, el calendario muestra ESE periodo (no «este mes»), y se puede volver', async () => {
+    const x = { desde: '2025-01-01', hasta: '2025-12-31' };
+    let fallar = true;
+    const ficha = vi.fn((_id: string, _suc?: string | null, p?: { desde: string; hasta: string } | null) =>
+      p && fallar ? throwError(() => new Error('se cayó')) : of({ ...FICHA, periodo: p ?? { desde: '2026-11-01', hasta: '2026-11-04' } } as FichaProducto));
+    const fix = await montar(ficha as unknown as (id: string) => Observable<FichaProducto>);
+    const cal = () => fix.debugElement.query((d) => d.name === 'app-periodo-ficha')?.componentInstance as
+      { rango: () => (Date | null)[] | null; limpiar: () => void; cambio: { emit: (p: unknown) => void } } | undefined;
+    const iso = (d: Date | null) => (d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : null);
+    cal()!.cambio.emit(x);
+    await tick(fix);
+    expect(texto(fix)).toContain('No se pudo cargar la ficha del producto');
+    // Reintentar con la red de vuelta: la ficha se reconstruye y el calendario dice el periodo que se pidió.
+    fallar = false;
+    (fix.componentInstance as unknown as { recargar: () => void }).recargar();
+    await tick(fix);
+    expect(texto(fix)).toContain('Vendido del 1 ene 2025 al 31 dic 2025');
+    expect(cal()!.rango()!.map(iso)).toEqual([x.desde, x.hasta]);
+    // Y siempre hay salida al de por omisión.
+    cal()!.limpiar();
+    await tick(fix);
+    expect(ficha).toHaveBeenLastCalledWith('p-1', null);
+  });
+
+  it('⭐ [P3] el costo por unidad se LEE separado (texto real, sin helpers): «por PAQ $… por CJA sin IVA ni IEPS»', async () => {
+    const porUnidad = [
+      { unidad: 'PAQ', costo: 35.04, precioSinImpuestos: null, bajoCosto: null },
+      { unidad: 'CJA', costo: 420.48, precioSinImpuestos: null, bajoCosto: null },
+    ];
+    const fix = await montar(() => of({ ...FICHA, costo_visible: true,
+      ultimaEntrada: { ...FICHA.ultimaEntrada!, unidad: 'PAQ', costo: 35.04, impuesto: 'descontado', porUnidad } }));
+    // textContent tal cual (sólo se juntan los espacios repetidos): si algo va pegado, aquí se ve pegado.
+    const dd = Array.from((fix.nativeElement as HTMLElement).querySelectorAll('.ident dt'))
+      .find((d) => d.textContent?.trim() === 'Último costo')!.nextElementSibling!;
+    expect(dd.textContent!.replace(/\s+/g, ' ').trim()).toBe('$35.04 por PAQ $420.48 por CJA sin IVA ni IEPS');
+  });
+
   it('⭐ [PF.23] venta por periodo: dice el periodo, la falta de una sucursal en el total y POR QUÉ no tiene dato (nunca $0)', async () => {
     const ficha = vi.fn((_id: string, _suc?: string | null, p?: { desde: string; hasta: string } | null) => of({
       ...FICHA,

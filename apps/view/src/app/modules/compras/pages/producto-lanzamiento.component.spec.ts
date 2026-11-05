@@ -156,7 +156,10 @@ describe('[NP.22] ProductoLanzamientoComponent — «Lanzamiento» en la ficha',
     const margenes = Array.from(el.querySelectorAll('.lz-margenes > div'));
     expect(margenes.map((t) => t.querySelector('b')?.textContent?.trim())).toEqual(['17.0%', '10.1%', '—']);
     // [NP.22] Sin leyendas a la vista (pedido de David); la cobertura parcial SIGUE declarada en el «*» (no se pinta como completo).
-    expect(margenes[1].querySelector('.lz-ast')?.getAttribute('aria-label')).toContain('no registró el costo en el 20%');
+    // [PF.24/P4] El lector de pantalla lo LEE: texto oculto a la vista (aria-label en un span sin rol se ignora), y el «*» se le esconde.
+    expect(margenes[1].querySelector('.sr-only')?.textContent).toContain('no registró el costo en el 20%');
+    expect(margenes[1].querySelector('.lz-ast')?.getAttribute('aria-hidden')).toBe('true');
+    expect(margenes[1].querySelector('.lz-ast')?.hasAttribute('aria-label')).toBe(false);
     expect(margenes[2].querySelector('.lz-ast')?.getAttribute('title')).toContain('Sin compras en Kepler');
     expect(margenes[0].querySelector('.lz-ast')).toBeNull(); // [negativa] el completo no lleva «*»
     expect(el.querySelector('.lz-margenes')!.textContent).not.toContain('¿Con qué margen');

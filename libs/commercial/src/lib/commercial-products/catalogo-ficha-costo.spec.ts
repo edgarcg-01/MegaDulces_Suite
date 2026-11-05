@@ -316,6 +316,10 @@ describe('puedeVerCostoCatalogo — quién ve el costo del catálogo (decisión 
     expect(puedeVerCostoCatalogo({ role_name: 'customer_b2b', permissions: { [Permission.COMMERCIAL_PRODUCTS_VER]: true } })).toBe(false);
     expect(puedeVerCostoCatalogo({ role_name: 'customer_b2b',
       permissions: { [Permission.COMMERCIAL_PRODUCTS_VER]: true, [Permission.COMPRAS_COSTO_ESTANDAR_VER]: true } })).toBe(false);
+    // Con otra capitalización o espacios (datos heredados) tampoco.
+    for (const rol of ['Customer_B2B', 'CUSTOMER_B2B', ' customer_b2b ']) {
+      expect(puedeVerCostoCatalogo({ role_name: rol, permissions: { [Permission.COMMERCIAL_PRODUCTS_VER]: true } })).toBe(false);
+    }
     // [negativa] un rol interno con el mismo permiso sí lo ve.
     expect(puedeVerCostoCatalogo({ role_name: 'compras', permissions: { [Permission.COMMERCIAL_PRODUCTS_VER]: true } })).toBe(true);
   });

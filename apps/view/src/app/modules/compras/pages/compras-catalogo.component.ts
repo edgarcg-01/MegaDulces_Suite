@@ -290,7 +290,7 @@ export function celdaCosto(c: UltimoCosto | null | undefined, medido = true): Ce
           @if (opcionesSucursalD().length > 1) {
             <label class="cd-suc">
               <span class="cs-sel-eti">Precios de</span>
-              <p-select [options]="opcionesSucursalD()" optionLabel="label" optionValue="value" [ngModel]="listaD()?.sucursal"
+              <p-select [options]="opcionesSucursalD()" optionLabel="label" optionValue="value" [ngModel]="sucursalVista()"
                         (onChange)="elegirSucursalD($event.value)" appendTo="body" ariaLabel="Precios de la sucursal" styleClass="cd-suc-sel" />
             </label>
           } @else if (listaD()?.sucursal; as s) {
@@ -916,6 +916,16 @@ export class ComprasCatalogoComponent {
   readonly tamanoDetallado = signal(PAGINA_SENCILLO);
   /** `[PF.21]` La sucursal del precio que eligió la persona (null = la que diga el servidor). Cambiarla vuelve a la página 1. */
   readonly sucursalD = signal<string | null>(null);
+  /**
+   * `[PF.21]` Lo que muestra el selector: lo elegido o, si no, lo que el servidor aplicó (las dos se leen siempre).
+   * Si la petición de la sucursal elegida FALLA, `sucursalD` se regresa a la de la lista que se ve (efecto de abajo):
+   * así el selector nunca dice una sucursal mientras la tabla muestra los precios de otra.
+   */
+  readonly sucursalVista = computed(() => {
+    const elegida = this.sucursalD();
+    const aplicada = this.listaD()?.sucursal ?? null;
+    return elegida ?? aplicada;
+  });
   readonly paginaD = linkedSignal({
     source: () => ({ q: this.busquedaSenal(), m: this.mostrarD(), o: this.ordenD(), r: this.resultado(), s: this.sucursalD() }), computation: () => 1,
   });
@@ -1114,8 +1124,11 @@ export class ComprasCatalogoComponent {
       }
     });
     effect(() => {
-      if (this.detRes.error() && this.listaD()) {
+      const lista = this.listaD();
+      if (this.detRes.error() && lista) {
         this.toast.add({ severity: 'warn', summary: 'No se pudo actualizar', detail: 'Se muestra la última lista que llegó.' });
+        // [PF.21] Si lo que falló fue cambiar de sucursal, el selector vuelve a la sucursal de los precios que se ven.
+        untracked(() => { if (this.sucursalD() !== null && this.sucursalD() !== lista.sucursal) this.sucursalD.set(lista.sucursal); });
       }
     });
     // [NP.22] La URL manda al entrar y cuando cambia por fuera (un enlace viejo a /compras/catalogo/nuevos llega aquí

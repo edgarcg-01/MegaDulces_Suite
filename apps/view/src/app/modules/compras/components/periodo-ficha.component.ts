@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, input, output, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DatePickerModule } from 'primeng/datepicker';
 import { PeriodoFicha, PresetPeriodo, periodoDe } from '../periodo-ficha';
@@ -9,11 +9,18 @@ const aFecha = (iso: string): Date => {
   return new Date(y, m - 1, d);
 };
 
+/** Lo más atrás que se puede elegir: el servidor (`periodoFicha`) acepta a lo más 731 días, hoy incluido. */
+const DIAS_ATRAS = 730;
+
 /**
  * `[PF.23]` El periodo de la ficha, como CALENDARIO de rango (pedido de David, 2026-11-04: «lo quiero como un
  * calendario», no un menú). Muestra siempre las fechas que se están viendo: al abrir, las del periodo de por
  * omisión. Elegir dos fechas (o una: ese día) y cerrar aplica; «Limpiar» vuelve al de por omisión.
  * Emite el periodo elegido, o `null` = el de por omisión (lo decide el servidor).
+ *
+ * El periodo vigente lo guarda la FICHA (`valor`), no este control: si la ficha se reconstruye (p. ej. tras un error y
+ * «Reintentar»), el calendario vuelve a mostrar lo que la ficha está pidiendo — nunca «este mes» con datos de otro
+ * periodo — y «Limpiar» siempre puede regresar al de por omisión.
  */
 @Component({
   selector: 'app-periodo-ficha',
@@ -22,7 +29,7 @@ const aFecha = (iso: string): Date => {
   imports: [FormsModule, DatePickerModule],
   template: `
     <p-datepicker [ngModel]="rango()" (ngModelChange)="rango.set($event)" selectionMode="range" dateFormat="dd/mm/yy"
-                  [maxDate]="hoy" [readonlyInput]="true" [showIcon]="true" [showButtonBar]="true" [numberOfMonths]="1"
+                  [minDate]="minimo" [maxDate]="hoy" [readonlyInput]="true" [showIcon]="true" [showButtonBar]="true" [numberOfMonths]="1"
                   appendTo="body" [ariaLabel]="etiqueta()" placeholder="Desde – hasta" styleClass="pf-fechas"
                   (onClose)="aplicar()" (onClearClick)="limpiar()" />
   `,
@@ -31,24 +38,28 @@ const aFecha = (iso: string): Date => {
 export class PeriodoFichaComponent {
   /** El periodo con que nace el bloque (el que usa el servidor sin fechas): es lo que muestra al abrir. */
   readonly porOmision = input<Exclude<PresetPeriodo, 'otro'>>('mes');
+  /** El periodo que la ficha está pidiendo AHORA; null = el de por omisión. */
+  readonly valor = input<PeriodoFicha | null>(null);
   readonly etiqueta = input('Periodo');
   readonly cambio = output<PeriodoFicha | null>();
 
   readonly hoy = new Date();
-  /** Lo que el usuario eligió; null = el de por omisión. */
-  private readonly elegido = signal<PeriodoFicha | null>(null);
-  /** Las fechas a la vista: lo elegido, o el periodo de por omisión (las dos señales se leen siempre). */
+  readonly minimo = new Date(this.hoy.getFullYear(), this.hoy.getMonth(), this.hoy.getDate() - DIAS_ATRAS);
+  /** Las fechas a la vista: las de la ficha, o el periodo de por omisión (las dos señales se leen siempre). */
   private readonly vigente = computed<PeriodoFicha | null>(() => {
-    const e = this.elegido();
+    const v = this.valor();
     const o = periodoDe(this.porOmision(), null, this.hoy);
-    return e ?? o;
+    return v ?? o;
   });
-  /** El modelo del calendario. Arranca con el periodo vigente; mientras se elige, lleva la selección a medias. */
+  /** El modelo del calendario. Sigue a lo vigente; mientras se elige, lleva la selección a medias. */
   readonly rango = signal<(Date | null)[] | null>(null);
 
   constructor() {
-    // Al nacer muestra el periodo de por omisión (no un campo vacío que haría creer que no hay filtro).
-    queueMicrotask(() => this.mostrarVigente());
+    // Al nacer y cada vez que la ficha cambia de periodo, el calendario muestra lo vigente (nunca un campo vacío).
+    effect(() => {
+      const v = this.vigente();
+      untracked(() => this.rango.set(v ? [aFecha(v.desde), aFecha(v.hasta)] : null));
+    });
   }
 
   private mostrarVigente(): void {
@@ -56,24 +67,19 @@ export class PeriodoFichaComponent {
     this.rango.set(v ? [aFecha(v.desde), aFecha(v.hasta)] : null);
   }
 
-  /** Al cerrar: con una fecha, ese día; con dos, el rango. Sin ninguna, vuelve a mostrar lo vigente. */
+  /** Al cerrar: con una fecha, ese día; con dos, el rango. Sin ninguna, o el mismo de ahora, vuelve a lo vigente. */
   aplicar(): void {
     const p = periodoDe('otro', this.rango());
-    if (!p) { this.mostrarVigente(); return; }
     const actual = this.vigente();
-    if (actual && actual.desde === p.desde && actual.hasta === p.hasta) { this.mostrarVigente(); return; }
+    if (!p || (actual && actual.desde === p.desde && actual.hasta === p.hasta)) { this.mostrarVigente(); return; }
     const omision = periodoDe(this.porOmision(), null, this.hoy);
     const esOmision = !!omision && omision.desde === p.desde && omision.hasta === p.hasta;
-    this.elegido.set(esOmision ? null : p);
-    this.mostrarVigente();
     this.cambio.emit(esOmision ? null : p);
   }
 
-  /** «Limpiar»: vuelve al periodo de por omisión. */
+  /** «Limpiar»: vuelve al periodo de por omisión (si la ficha pedía otro). */
   limpiar(): void {
-    const habia = this.elegido() !== null;
-    this.elegido.set(null);
-    this.mostrarVigente();
-    if (habia) this.cambio.emit(null);
+    if (this.valor() !== null) this.cambio.emit(null);
+    else this.mostrarVigente();
   }
 }

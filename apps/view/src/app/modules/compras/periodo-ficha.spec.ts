@@ -34,15 +34,17 @@ describe('[PF.23] periodo de la ficha — funciones', () => {
 });
 
 describe('[PF.23] PeriodoFichaComponent (calendario)', () => {
-  const montarCal = async (porOmision: 'mes' | 'd90' = 'mes') => {
+  /** Monta el control como lo usa la ficha: el periodo vigente lo guarda la FICHA y se lo pasa en `valor`. */
+  const montarCal = async (porOmision: 'mes' | 'd90' = 'mes', valor: { desde: string; hasta: string } | null = null) => {
     await TestBed.configureTestingModule({ imports: [PeriodoFichaComponent] }).compileComponents();
     const fix = TestBed.createComponent(PeriodoFichaComponent);
     fix.componentRef.setInput('porOmision', porOmision);
+    fix.componentRef.setInput('valor', valor);
     fix.detectChanges();
-    await Promise.resolve();
-    fix.detectChanges();
+    await fix.whenStable();
     const emitidos: unknown[] = [];
-    fix.componentInstance.cambio.subscribe((p) => emitidos.push(p));
+    // Como la ficha: lo que emite pasa a ser su `valor`.
+    fix.componentInstance.cambio.subscribe((p) => { emitidos.push(p); fix.componentRef.setInput('valor', p); fix.detectChanges(); });
     return { fix, c: fix.componentInstance, emitidos };
   };
   const iso = (d: Date | null | undefined) => (d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : null);
@@ -66,6 +68,16 @@ describe('[PF.23] PeriodoFichaComponent (calendario)', () => {
     expect(c.rango()!.map(iso)).toEqual([mes.desde, mes.hasta]);
   });
 
+  it('⭐ [P1] reconstruido con el periodo de la ficha (p. ej. tras un error y «Reintentar») muestra ESE periodo, y «Limpiar» sale', async () => {
+    const x = { desde: '2025-01-01', hasta: '2025-12-31' };
+    const { c, emitidos } = await montarCal('mes', x);
+    // Nace mostrando lo que la ficha pide, no «este mes».
+    expect(c.rango()!.map(iso)).toEqual([x.desde, x.hasta]);
+    // Y siempre hay salida: «Limpiar» emite null aunque este control no haya elegido nada.
+    c.limpiar();
+    expect(emitidos).toEqual([null]);
+  });
+
   it('una sola fecha es ese día', async () => {
     const { c, emitidos } = await montarCal();
     c.rango.set([new Date(2025, 5, 3), null]);
@@ -73,14 +85,20 @@ describe('[PF.23] PeriodoFichaComponent (calendario)', () => {
     expect(emitidos).toEqual([{ desde: '2025-06-03', hasta: '2025-06-03' }]);
   });
 
-  it('⛔ [negativa] cerrar sin elegir, o con el MISMO periodo, no emite nada (no recarga en balde)', async () => {
+  it('[P5] no deja elegir más atrás de lo que el servidor acepta (731 días, hoy incluido)', async () => {
+    const { c } = await montarCal();
+    const dias = Math.round((new Date(c.hoy.getFullYear(), c.hoy.getMonth(), c.hoy.getDate()).getTime() - c.minimo.getTime()) / 86_400_000) + 1;
+    expect(dias).toBe(731);
+  });
+
+  it('⛔ [negativa] cerrar sin elegir, o con el MISMO periodo, no emite nada; «Limpiar» en el de por omisión tampoco', async () => {
     const { c, emitidos } = await montarCal();
     c.rango.set(null);
     c.aplicar();
     const mes = periodoDe('mes', null)!;
     c.rango.set([new Date(mes.desde + 'T00:00:00'), new Date(mes.hasta + 'T00:00:00')]);
     c.aplicar();
-    c.limpiar(); // ya estaba en el de por omisión
+    c.limpiar();
     expect(emitidos).toEqual([]);
   });
 });

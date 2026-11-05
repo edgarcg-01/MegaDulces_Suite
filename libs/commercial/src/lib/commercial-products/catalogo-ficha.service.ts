@@ -75,7 +75,8 @@ export interface UsuarioConPermisos {
  * de la empresa que ve el catálogo; darle a un cliente lo que pagamos por el producto nadie lo decidió.
  */
 export function puedeVerCostoCatalogo(user: UsuarioConPermisos | null | undefined): boolean {
-  if (user?.role_name === 'customer_b2b') return false;
+  // Sin distinguir mayúsculas: `users.role_name` puede venir con otra capitalización (datos heredados, ver login-core).
+  if (String(user?.role_name ?? '').trim().toLowerCase() === 'customer_b2b') return false;
   return user?.permissions?.[Permission.COMMERCIAL_PRODUCTS_VER] === true || isPlatformAdminRole(user?.role_name);
 }
 

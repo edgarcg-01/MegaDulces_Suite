@@ -69,7 +69,7 @@ interface FilaSucursalVm {
         <article class="ficha" [attr.aria-label]="'Ficha de ' + v.nombre">
           <!-- [PF.23] El periodo, arriba de todo (pedido de David). Dice a qué aplica: precio y existencia son de hoy. -->
           <div class="periodo-top">
-            <app-periodo-ficha porOmision="mes" etiqueta="Periodo de la venta" (cambio)="periodo.set($event)" />
+            <app-periodo-ficha porOmision="mes" [valor]="periodo()" etiqueta="Periodo de la venta" (cambio)="periodo.set($event)" />
             <small class="nota">Aplica a la venta por sucursal · precio y existencia son de hoy</small>
           </div>
           <dl class="ident">
@@ -119,9 +119,9 @@ interface FilaSucursalVm {
                 <dd>
                   <!-- [PF.22] Por cada unidad (paquete y caja), como el renglon de la lista; sin escalera, el de la entrada. -->
                   @if (v.entrada?.costo && v.entrada!.costos.length) {
-                    <span class="costos">@for (c of v.entrada!.costos; track c.unidad) { <span><span class="mono">{{ c.monto }}</span>&ngsp;<span class="ud">por {{ c.unidad }}</span></span> }</span>
+                    <span class="costos">@for (c of v.entrada!.costos; track c.unidad) { <span><span class="mono">{{ c.monto }}</span>&ngsp;<span class="ud">por {{ c.unidad }}</span></span>&ngsp;}</span>&ngsp;
                     <small class="nota">{{ v.entrada!.costoNota }}</small>
-                  } @else if (v.entrada?.costo; as k) { <span class="mono">{{ k }}</span>&ngsp;<span class="ud">por {{ v.entrada!.unidad }}</span><small class="nota">{{ v.entrada!.costoNota }}</small> }
+                  } @else if (v.entrada?.costo; as k) { <span class="mono">{{ k }}</span>&ngsp;<span class="ud">por {{ v.entrada!.unidad }}</span>&ngsp;<small class="nota">{{ v.entrada!.costoNota }}</small> }
                   @else if (v.entrada) { <span class="sin">Sin costo en la entrada</span> }
                   @else { <span class="sin">Sin entradas</span> }
                 </dd>
