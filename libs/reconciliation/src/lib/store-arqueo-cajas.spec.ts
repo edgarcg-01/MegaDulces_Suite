@@ -13,7 +13,7 @@ import { StoreArqueoController } from './store-arqueo.controller';
 describe('StoreArqueoController · [SM.48] folio por caja + hora y cajas del día', () => {
   const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
   const cajera = { username: 'yazmin_sarai', role_name: 'cajero', permissions: { STORE_ARQUEO_CAPTURAR: true } };
-  let blind: { submit: ReturnType<typeof vi.fn>; turnoPorCajaYHora: ReturnType<typeof vi.fn>; cajasDelDia: ReturnType<typeof vi.fn> };
+  let blind: { submit: ReturnType<typeof vi.fn>; turnoPorCajaYHora: ReturnType<typeof vi.fn>; cajasDelDia: ReturnType<typeof vi.fn>; cajasDeSucursal: ReturnType<typeof vi.fn> };
   let scope: { assertCanWrite: ReturnType<typeof vi.fn>; current: ReturnType<typeof vi.fn>; readParam: ReturnType<typeof vi.fn> };
   let ctl: StoreArqueoController;
 
@@ -22,6 +22,7 @@ describe('StoreArqueoController · [SM.48] folio por caja + hora y cajas del dí
       submit: vi.fn(async (dto: { tipo?: string }) => ({ tipo: dto.tipo ?? 'cierre', secuencia: 1, total_contado: 100 })),
       turnoPorCajaYHora: vi.fn(async () => ({ folio: '226', caja: '4', turno: '2', abierto_at: '2026-10-26T15:47:00' })),
       cajasDelDia: vi.fn(async (fecha: string) => ({ fecha, umbral: 50, sucursales: [] })),
+      cajasDeSucursal: vi.fn(async () => ['1', '2', '3']),
     };
     scope = {
       assertCanWrite: vi.fn(async () => undefined),
@@ -70,6 +71,15 @@ describe('StoreArqueoController · [SM.48] folio por caja + hora y cajas del dí
   it('⭐ la vista de cajas es de quien valida (muestra el esperado)', () => {
     const proto = StoreArqueoController.prototype as unknown as Record<string, object>;
     expect(Reflect.getMetadata(PERMISSIONS_KEY, proto['cajas'])).toEqual([Permission.RECONCILIATION_VER]);
+  });
+
+  it('[SM.51] las cajas para el selector salen de la sucursal validada contra el alcance de escritura', async () => {
+    const r = await ctl.cajasSucursal({ warehouse_code: '03' });
+    expect(scope.assertCanWrite).toHaveBeenCalledWith('warehouse', '03');
+    expect(blind.cajasDeSucursal).toHaveBeenCalledWith('03');
+    expect(r).toEqual({ warehouse_code: '03', cajas: ['1', '2', '3'] });
+    const proto = StoreArqueoController.prototype as unknown as Record<string, object>;
+    expect(Reflect.getMetadata(PERMISSIONS_KEY, proto['cajasSucursal'])).toEqual([Permission.STORE_ARQUEO_CAPTURAR]);
   });
 
   it('fecha por defecto = hoy; una fecha mal escrita es 400', async () => {

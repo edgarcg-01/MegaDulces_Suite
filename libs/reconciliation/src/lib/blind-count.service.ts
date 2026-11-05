@@ -736,6 +736,25 @@ export class BlindCountService {
   }
 
   /**
+   * [SM.51] Las cajas que Kepler usó en la sucursal en los últimos 60 días: el selector
+   * de la captura. Sale del ODS vivo (`kdpv_folio_caja`), así que una caja nueva aparece
+   * sola. Medido el 2026-11-05: de 3 (Zamora Centro) a 10 (Morelia Abastos).
+   */
+  async cajasDeSucursal(warehouseCode: string): Promise<string[]> {
+    return this.tk.run(async (trx) => {
+      const { rows } = await trx.raw(
+        `SELECT DISTINCT btrim(k.c2::text) AS caja
+           FROM kepler_ods.kdpv_folio_caja k
+          WHERE k.sucursal = ? AND k.c5::date >= (now() AT TIME ZONE 'America/Mexico_City')::date - 60
+            AND btrim(k.c2::text) <> ''`,
+        [warehouseCode],
+      );
+      return (rows as Array<{ caja: string }>).map((r) => r.caja)
+        .sort((a, b) => Number(a) - Number(b) || a.localeCompare(b));
+    });
+  }
+
+  /**
    * [SM.48] Sucursales y sus cajas de UN día: los turnos de Kepler (abiertos y
    * cerrados) con sus conteos ligados por folio o por caja + hora, y el cuadre de
    * cada turno con la identidad única `cuadreTurno`. Solo para quien valida.

@@ -492,6 +492,18 @@ export class StoreArqueoController {
     return this.blind.cajasDelDia(fecha, warehouse_codes);
   }
 
+  /**
+   * [SM.51] Las cajas de la sucursal para el selector de la captura. La sucursal se valida
+   * contra el alcance de ESCRITURA, igual que al guardar.
+   */
+  @Get('cajas-sucursal')
+  @RequirePermissions(Permission.STORE_ARQUEO_CAPTURAR)
+  @ApiOperation({ summary: 'Tienda — cajas que Kepler usó en la sucursal (60 días), para elegir la caja del arqueo.' })
+  async cajasSucursal(@Query() query: Record<string, unknown>): Promise<{ warehouse_code: string; cajas: string[] }> {
+    const warehouse_code = await this.resolverSucursal((query?.['warehouse_code'] as string) || undefined);
+    return { warehouse_code, cajas: await this.blind.cajasDeSucursal(warehouse_code) };
+  }
+
   @Get('historial')
   @RequirePermissions(Permission.STORE_ARQUEO_VER)
   @ApiQuery({ name: WH, required: false, description: 'Sucursal o CSV. Se recorta a tu alcance.' })
