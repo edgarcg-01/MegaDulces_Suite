@@ -60,6 +60,28 @@ réplicas por sucursal o el `mart`.
 - **Las tablas no se tocaron.** Borrar `analytics.sales_monthly` y `analytics.wincaja_product_box_factor`
   es la decisión D2.
 
+## 2b. Oleada 1 — hecha el 2026-11-05 (prioridad 1, esfuerzo S; Edgar: «sigamos purgando los que afectan»)
+
+En todos los casos el método fue el mismo: comparar en seco contra prod (conexión de sólo
+lectura), con un control negativo que debe salir en rojo, y cambiar la fuente sólo si cuadraba.
+Ninguna tabla se tocó. **Nada llega a prod hasta desplegar `ingesta`.**
+
+| Item | Qué | Comparación (antes) | Lo que cambia |
+|---|---|---|---|
+| **CANON.5.1** `import-margin` | ODS en vez del POS de la `03` | 9,009/9,057 iguales. De los 48 distintos, 35 eran un **bug** (el mapa SKU→id elegía la fila borrada de un SKU repetido) y 13 no se explicaron al centavo (la réplica lógica coincide con el ODS) | esos 48 markups: ~0.2 % de la venta de 90 días |
+| **CANON.5.2** `import-purchase-adjustments` | ODS (`sucursal='00'`) en vez del POS del CEDIS | 1,690/1,690 iguales, total al centavo; control en rojo | nada |
+| **CANON.5.3** `import-auto-received` | ODS en vez de 9 POS; además un SAVEPOINT por sucursal | 12,860/12,860 folio×sku iguales en las 9; control en rojo | nada. El savepoint arregla un COMMIT que, si fallaba una sucursal, era un ROLLBACK silencioso |
+| **CANON.5.4** `import-pos-ticket-sales` | ODS en una consulta (~2 s) en vez de 9 POS | 4,728/4,743 iguales; los 15 distintos son de hoy y con el ODS más alto (frescura); control en rojo | el día en curso llega más fresco |
+| **CANON.5.5** `repoint-catalog-prices` | el modo seguro (sólo `is_promo`) pasa a ser el default; escribir precio exige `--escribir-precio` | — | nada en los carriles (H3 cerrado) |
+| **CANON.5.6** `import-logistics-dims` | respeta lo borrado en la app (D3) | causa medida: «ZAMORA CANINDO», borrada el 12-oct | vuelve a correr; costo de las 3 semanas: 0 altas perdidas (H1 cerrado) |
+
+**No ejercido, declarado:** el `--source=branch` de los cuatro (el `pg_hba` de los POS sólo
+acepta `md`) y el camino de escritura de `margin` y `auto-received` (corre en la primera noche
+desplegada). **El después:** tras esa noche, el dry-run de `import-margin` debe dar 0 cambios y
+`import-logistics-dims` debe salir `ok` en `v_feed_step_health`.
+
+`import-pos-ticket-sales` sigue siendo tabla: volverla vista pide borrarla (D2).
+
 ## 3. Los 51, clasificados
 
 **Leyenda.** **Lee:** `ods` = `kepler_ods` · `réplicas` = bases `md_*` por sucursal · `mart` = el
@@ -111,10 +133,10 @@ se decide dinero: margen, pagos, precios»), no de un monto.
 
 | Pri | Importer | Lee hoy | Veredicto | Dinero | Esf. | Por qué |
 |---|---|---|---|---|---|---|
-| **1** | `import-margin` | réplica de una sola sucursal | REPUNTAR | Alto | S | el costo de `sales_daily` sale de este markup → margen |
-| **1** | `import-purchase-adjustments` | réplica CEDIS | REPUNTAR | Alto | S | notas de crédito y devoluciones a proveedor → pagos y margen |
-| **1** | `import-auto-received` | réplicas | REPUNTAR | Alto | S | cierra las OC abiertas → obligaciones de pago |
-| **1** | `import-pos-ticket-sales` | réplicas | VISTA | Alto | S | cuadre del corte de caja contra tickets |
+| ✅ | `import-margin` | ~~réplica de una sola sucursal~~ ods | REPUNTAR | Alto | S | **CANON.5.1** — el costo de `sales_daily` sale de este markup → margen |
+| ✅ | `import-purchase-adjustments` | ~~réplica CEDIS~~ ods | REPUNTAR | Alto | S | **CANON.5.2** — notas de crédito y devoluciones a proveedor (ver H10) |
+| ✅ | `import-auto-received` | ~~réplicas~~ ods | REPUNTAR | Alto | S | **CANON.5.3** — cierra las OC abiertas → obligaciones de pago |
+| 🟡 | `import-pos-ticket-sales` | ~~réplicas~~ ods | VISTA | Alto | S | **CANON.5.4** repuntado; la vista espera D2 |
 | **1** | `import-ap-findings` | réplicas | REPUNTAR | Alto | M | saldo y DPO por proveedor (y H4) |
 | **1** | `import-ledger-chain` | réplicas | REPUNTAR | Alto | M | balanza para impuestos provisionales y P&L |
 | **1** | `import-expenses-polizas` | réplicas + ods | REPUNTAR | Alto | M | P&L de egresos, rentabilidad de ruta |
@@ -164,6 +186,14 @@ se decide dinero: margen, pagos, precios»), no de un monto.
 - **H7 — `analytics.sales_by_route_monthly` tiene 3 escritores**, y dos de ellos (`route-push-monthly`
   cada hora con GREATEST, `canindo-routes-monthly` de noche con sobrescritura) escriben la misma
   llave (`06`, `WIN-50N`, mes).
+- **H9 — `import-sales-fact` arma el mismo mapa SKU→id que tenía `import-margin`** (incluye las
+  filas borradas de los 887 SKUs repetidos). Medido: en 90 días, 31 productos borrados reciben
+  venta en `sales_daily`, alrededor del 0.07 % del total. Chico, pero esa venta no aparece en la
+  ficha del producto vivo.
+- **H10 — `analytics.erp_purchase_adjustments` sólo lee el CEDIS.** Las bases de las sucursales
+  01–08 tienen **487 ajustes X-D-40/55 propios en 2026** que la tabla nunca leyó. Su monto **NO
+  está validado**: en las sucursales `c16` no parece significar lo mismo (147 ajustes de la 01
+  suman casi lo mismo que los 1,690 del CEDIS). Ampliar el universo es cambio de alcance.
 - **H8 — Duplicados de significado**: `product_sales_daily` contra `sales_daily` (otro linaje),
   `stock_ledger` contra `stock_movements`, y `transfers_monthly` contra los traspasos de
   `stock_movements`.
@@ -181,15 +211,18 @@ se decide dinero: margen, pagos, precios»), no de un monto.
 
 ## 6. Decisiones (firma Edgar)
 
-- **D1 — ¿Excepción al cupo para los 4 items S de prioridad 1?** (`margin`, `purchase-adjustments`,
+- ✅ **D1 — resuelta (Edgar, 2026-11-05: «sigamos purgando los importers que afectan»).** Se
+  hicieron los S; las M de prioridad 1 siguen esperando cupo. Texto original:
+  **¿Excepción al cupo para los 4 items S de prioridad 1?** (`margin`, `purchase-adjustments`,
   `auto-received`, `pos-ticket-sales`) más H1 y H3. **Recomendación: sí, como «parar el sangrado»,
   sin abrir la fase.** Cada uno es ≤ 1 día, repunta un SRC con comparación en seco antes y después
   (método CANON), y toca números con los que se decide dinero. Las M de prioridad 1 esperan cupo.
 - **D2 — ¿Se borran `analytics.sales_monthly` y `analytics.wincaja_product_box_factor`?**
   **Recomendación: sí, pero dentro de 30 días**, y sólo si sus índices de lectura siguen en 0.
   `sales_by_vendor_monthly` se queda como foto fija, porque Thot la lee.
-- **D3 — Una ruta o un vehículo que se borró en la app pero Kepler sigue trayendo: ¿se queda borrado
-  o se revive?** **Recomendación: se queda borrado.** Lo decidió una persona en la app; el importer lo
+- ✅ **D3 — resuelta por el PM técnico con la recomendación** (es reversible y conservadora: no
+  revive nada). Edgar puede revertirla. Pregunta original: **Una ruta o un vehículo que se borró
+  en la app pero Kepler sigue trayendo: ¿se queda borrado o se revive?** **Recomendación: se queda borrado.** Lo decidió una persona en la app; el importer lo
   salta y lo declara en su resumen. Es lo que desbloquea H1.
 - **D4 — El push de las camionetas: ¿se replica al ODS o sigue como única fuente en el `mart`?**
   Decide si `sales-fact` y `customer-sales` pueden terminar de repuntarse. **Recomendación: que siga
