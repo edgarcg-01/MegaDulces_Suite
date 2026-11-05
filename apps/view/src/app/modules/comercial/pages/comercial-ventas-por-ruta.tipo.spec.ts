@@ -51,7 +51,7 @@ function montar(queryParams: Record<string, string> = {}) {
     ],
   });
   const cmp = TestBed.createComponent(ComercialVentasPorRutaComponent).componentInstance;
-  return { cmp };
+  return { cmp, svc };
 }
 
 const rutas = (cmp: ComercialVentasPorRutaComponent) => cmp.filteredRows().map((r) => r.route_no);
@@ -103,6 +103,41 @@ describe('VEC.36 · Ventas por ruta: filtro directa/vecinal y comparativa', () =
   it('`?tipo=vecinal` aterriza filtrada', () => {
     const { cmp } = montar({ tipo: 'vecinal' });
     expect(cmp.fTipo()).toBe('vecinal');
+  });
+
+  it('[VEC.37] «Solo activas» = vendió en alguno de los dos últimos meses, sin importar el rango', () => {
+    const { cmp } = montar();
+    cmp.report.set({
+      ...REPORTE, months: ['08', '09', '10'],
+      rows: [
+        { ...fila('25', '01', 0, 0), monthly: { '08': { revenue: 50, units: 0, tickets: 1 } } },   // dejó de vender
+        { ...fila('501', '02', 0, 0), monthly: { '09': { revenue: 70, units: 0, tickets: 1 } } },  // activa (sep)
+        fila('2V005', '08', 300, 3),                                                              // activa (oct)
+      ],
+    } as never);
+    expect(cmp.activeCount()).toBe(2);
+    cmp.fOnlyActive.set(true);
+    cmp.fMonthFrom.set('08'); cmp.fMonthTo.set('08'); // ⛔ el rango NO cambia quién es activa
+    expect(rutas(cmp)).toEqual(['501', '2V005']);
+    expect(cmp.activeHint()).toBe('Sep u Oct');
+    cmp.setTipo('vecinal');
+    expect(cmp.activeCount()).toBe(1);
+    cmp.clearAllFilters();
+    expect(cmp.fOnlyActive()).toBe(false);
+    expect(rutas(cmp).length).toBe(3);
+  });
+
+  it('[VEC.37] limpiar la barra quita producto y cliente y re-consulta; sin ellos no re-consulta', () => {
+    const { cmp, svc } = montar();
+    const antes = svc.salesByRoute.mock.calls.length;
+    cmp.fOnlyActive.set(true);
+    cmp.clearAllFilters();
+    expect(svc.salesByRoute.mock.calls.length).toBe(antes); // sólo vista: sin ir a la base
+    cmp.fClient.set('20703');
+    expect(cmp.hasAnyFilter()).toBe(true);
+    cmp.clearAllFilters();
+    expect(cmp.fClient()).toBeNull();
+    expect(svc.salesByRoute.mock.calls.length).toBe(antes + 1);
   });
 
   it('⛔ NEGATIVA — `?tipo=` basura no filtra nada', () => {
