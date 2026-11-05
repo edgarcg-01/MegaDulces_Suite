@@ -1559,6 +1559,55 @@ no está desplegado):
 
 Cuando PQ.10 llegue a prod, ésta es la cifra contra la que se compara, con la misma tabla.
 
+### 17.16 PQ.56 — auditoría nivel A de Pedido (2026-11-05)
+
+**Evidencia: nivel A.** La pantalla corrió en prod (build `381ef5860`) con Chromium a 1366×768, en
+claro, oscuro y `forced-colors`.
+- **Sesión:** `superadmin`, no un usuario de Compras. Lo que depende del rol queda NO MEDIDO.
+- **Blindaje:** service worker bloqueado y toda petición que no fuera GET abortada, salvo el login.
+  Control: un `POST` lanzado desde la página salió `ABORTADO`. En las cuatro corridas sólo se
+  abortó la telemetría.
+- **Trampa evitada:** la primera `tbody tr` de la página es la bandeja «Lo pedido», con botones
+  Aprobar/Rechazar en un panel cerrado. El recorrido se apunta a `.pr-wb-tbl`, nunca a «la primera
+  fila».
+- **Contraste:** calculado de los estilos reales con un instrumento que acierta sus dos controles
+  (21.00 y 4.48).
+
+**Las cinco preguntas (diseno §0b), contestadas con la pantalla viva:**
+1. *Qué ve al entrar.* Siete cifras del mismo tamaño, el aviso del Ciclo, los filtros y el aviso
+   de «sin valuar». **Ni un producto:** el primero empieza a 850 px, en una ventana de 768.
+2. *Qué no debería ver.* El aviso rojo de 249 canales vencidos (PQ.UI.5 sigue vigente), la
+   pastilla «UNIFICADO» y la cobertura dos veces.
+3. *Accesibilidad.* El contraste pasa salvo en una cifra. Teclado, objetivos de 44 px y lector de
+   pantalla: NO MEDIDOS.
+4. *Liga a otro proceso.* «ya requisado 580 cj · 3 veces» sí liga. «Entrega: capturarlo en otra
+   pestaña» manda fuera.
+5. *¿Le toca?* Sí. Sobre las tres pestañas de D34 no se juzga aquí (§17.15).
+
+**Hallazgos, del más caro al más barato:**
+
+| # | Capa | Hallazgo | Item |
+|---|---|---|---|
+| 1 | Veracidad | **La primera fila de Pedido es la bolsa 17499: 19,899 kg, $686,118 a comprar.** Sale de una sola venta (PQ.47). La fila no lo dice, y «Agregar a la requisición · $686,118» queda a un clic | PQ.47, espera **D31** |
+| 2 | Veracidad | **El rótulo dice cajas y la celda no lo es.** La columna se llama «Σ Ped. cajas» y muestra kg o bto. En el desglose de 17499, el total dice «19,899 cj» de un producto que se pide en kg | **PQ.72** |
+| 3 | Comprensión | **La primera pantalla es puro marco.** Las 7 cifras miden 24.8 px (aplanamiento, §Q.5). La cobertura se elige dos veces: una caja de texto truncada («cada su…») y un segmentado. El aviso del Ciclo va en rojo | **PQ.74** |
+| 4 | Accesibilidad | **«Sobrestock $9,579,351» en ámbar sobre claro: 1.95:1** (texto grande, pide 3:1). Se le escapó a PQ.52 | **PQ.73** |
+| 5 | Carga | **El rojo se usa como decoración.** «$ Pedido» va en rojo en todas las filas y «A comprar» también: comprar no es un error. Así el rojo pierde el significado de «algo está mal» | **PQ.73** |
+| 6 | Visual | El proveedor se parte en seis renglones cuando la fila trae cuatro pastillas (17083), y la fila triplica su alto | **PQ.74** |
+| 7 | Comprensión | En el panel de negociación, «Pedido típico $686 mil de $241 mil» no se entiende. «Entrega: capturarlo en otra pestaña» saca de la pantalla | **PQ.75** |
+| 8 | Respeto | **11 s hasta que Pedido termina de cargar.** `workbook` tardó 5.4 s en frío, y cada apertura pide además `purchase-suggestion`, `transfer-suggestion` y `overstock` con `pageSize=1000`, unas 4,490 veces al mes cada una | PQ.10 |
+
+**PQ.UI.1–5, revisadas en pantalla:**
+- **PQ.UI.3 resuelta en la celda:** la unidad dice su contenido («6 paq por cj», «15 kg / 3 paq × 5»).
+- **PQ.UI.2 parcial:** la cobertura sale «como en su mesa» (D25). Que la celda reste lo que ya
+  viene no se vio en la fila.
+- **PQ.UI.5 vigente.**
+- **PQ.UI.1 es de dato** y no se ve en pantalla.
+- **PQ.UI.4 (filtrar al CEDIS): NO MEDIDA.** No se eligió esa sucursal.
+
+**Lo que esta auditoría no cubre:** la vista de un usuario de Compras, el recorrido con teclado, los
+objetivos táctiles, el lector de pantalla y las pestañas Ciclo, Sobrante, Stock muerto y Flujo.
+
 ---
 
 ## 18. Unidades de medida al 100 %: verificado o con dueño (2026-11-04)
@@ -1708,6 +1757,7 @@ de hoy de esos 65 productos se cuenta distinto que su historia hasta que se cier
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-05 | **PQ.56 ✅** (§17.16): nivel A en prod, en sólo lectura y con blindaje probado. Lo más caro: la primera fila es 17499 ($686 mil por una sola venta; espera D31). Le siguen un rótulo de cajas que muestra kg, una primera pantalla sin ningún producto, «Sobrestock» a 1.95:1 y el rojo como decoración. Nacen **PQ.72–PQ.75** | Claude |
 | 2026-11-05 | **PQ.55 ✅** (§17.15), medido desde `analytics.ui_usage` (no hacían falta los logs). En 30 días, Compras abrió Pedido 4,996 veces, Stock muerto 13, Sobrante 3 y Flujo 1. La agenda del Ciclo, que nació el 23-oct, la abrieron 3 compradores: se deja y se re-mide. El conteo crudo de `worklist` engaña porque el aviso de PQ.5 lo llama al abrir Pedido. Nace **D34** (sin firma: quitar las tres pestañas) con **PQ.71**, que espera a PQ.56. **PQ.49** pasa a ✅ (la medición ya estaba en §17.5). Línea base real de PQ.10: `workbook` promedia 1.6–1.8 s en uso | Claude |
 | 2026-11-04 | **PQ.10 primer paso** (§17.14): escalera y etiquetera se leen sólo para los renglones devueltos, y el factor de caja se une directo a su tabla. Respuesta idéntica en 10 escenarios; la red 2.67 → 2.20 s, un proveedor 1.55 → 0.99 s, una sucursal 1.37 → 0.79 s. El primer intento (unirlas en SQL) subía el caso con proveedor a 19 s y se descartó. Sigue 🔨: lo que queda decide el pedido. Mismo día: PQ.44/50/68/69/70 y 28 renglones más de PQ verificados en prod y pasados a ✅ en el tracker. | Claude |
 | 2026-11-04 | **PQ.44 🧪** (`3ea70328e`, §17.13): la sucursal que sale en 0 porque el reorden frenó algo que sí faltaba dice «arriba del reorden», y sólo ahí. El motor la marca con la misma cantidad que decide el pedido: 1,075 de 25,564 celdas. El primer intento (comparar en pantalla) la habría puesto en la mitad de la grilla | PM + sesión Claude |
