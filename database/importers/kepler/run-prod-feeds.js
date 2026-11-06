@@ -232,8 +232,9 @@ const STEPS = {
     // iba ~24h atrás aunque el ORIGEN (.249 mart.ventas del push de camionetas) va al día (cada
     // 15min). Intradía lo refresca cada ~1h. Idempotentes (UPSERT GREATEST); siguen en nightly
     // como respaldo. El push lee local (.249), la vecinal lee md_01.
-    path.join(K, 'import-route-push-monthly.js'),    // WIN-<NN> camionetas PH (.249 mart.ventas ruta_NN → mensual)
+    // Orden (CANON.5.16): primero las líneas, porque la mensual ahora es su suma.
     path.join(K, 'import-route-push-lines.js'),      // line-level del push → route_push_lines (drill-down del reporte)
+    path.join(K, 'import-route-push-monthly.js'),    // WIN-<NN> camionetas PH (Σ route_push_lines → mensual)
   ],
   nightly: [
     path.join(K, 'import-rotation-from-consolidado.js'),
@@ -275,8 +276,8 @@ const STEPS = {
     // y sólo lo leía thot-build-features, que ahora suma la diaria por mes (36,502 de 36,502 filas
     // idénticas). El orden de AUD-DAT.10 de arriba ya no aplica: no queda mensual que publicar.
     path.join(K, 'import-sales-by-route-monthly.js'), // RR.2 venta mensual x RUTA (serie c63; upsert acumulativo)
-    path.join(K, 'import-route-push-monthly.js'), // RR — venta en ruta del PUSH (.249 mart.ventas ruta_NN) → WIN-<NN> (PH migró de .mdb al push, jul→)
-    path.join(K, 'import-route-push-lines.js'), // RR — line-level del push (.249) → route_push_lines (drill-down del reporte; incremental)
+    path.join(K, 'import-route-push-lines.js'), // RR — line-level del push (.249) → route_push_lines (drill-down del reporte; incremental). Va ANTES de la mensual (CANON.5.16)
+    path.join(K, 'import-route-push-monthly.js'), // RR — venta en ruta del PUSH (Σ route_push_lines) → WIN-<NN> (PH migró de .mdb al push, jul→)
     // RR — rutas de Canindo (WIN-50N @ warehouse 06): DUEÑO de la llave. Compone la serie de sus dos
     // eras — Wincaja hasta la frontera medida (11/12-ago) + PUSH del runner desde la frontera — y la
     // escribe con overwrite. Va DESPUÉS de import-route-push-monthly (que ya subió la pierna del push)
