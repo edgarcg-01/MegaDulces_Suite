@@ -1,7 +1,7 @@
 import {
   DIAS_RETIRO_HOJA, TOPE_CAJON_HOJA, ZONAS_HOJA_GASTOS, claseDeClave, folioHoja, leerFolioHoja, pagableConBilletesCaos,
-  type ClaseRenglonHoja, type HojaAbierta, type InstruccionPagoHoja, type MotivoFueraDeHoja,
-  type RenglonHoja, type RetiroParaHoja, type ZonaHojaGastos,
+  type ClaseRenglonHoja, type GrupoPagadoEnControl, type HojaAbierta, type InstruccionPagoHoja, type MotivoFueraDeHoja,
+  type RenglonHoja, type RetiroControlHoja, type RetiroParaHoja, type ZonaHojaGastos,
 } from '@megadulces/contracts';
 import { redondea2 } from './caja-lote.engine';
 
@@ -117,7 +117,80 @@ export function armarHojaAbierta(zona: ZonaHojaGastos, pagos: readonly PagoDeZon
     pagados_aparte: pagadosAparte,
     instruccion: renglones.length ? instruccionDePago(total, null) : null,
     datos_al: datosAl,
+    // Lo pone el servicio con `pagadoEnControl`, que necesita leer Control: sin leerlo no se afirma.
+    pagado_en_control: [],
+    control_medido: false,
   };
+}
+
+// ── Lo que ya se repuso con una hoja en papel ─────────────────────────────────────────────────
+
+/** Lo más que pueden diferir un retiro de Control y los pagos de su hoja: Control anota lo contado. */
+export const TOLERANCIA_CONTROL_HOJA = 1;
+
+/** Un retiro de CAOS candidato a ser el de una hoja en papel, con cuántos pagos del libro ya cuelgan de él. */
+export interface RetiroCaosConLigas extends RetiroLibreHoja {
+  ligados: number;
+}
+
+/**
+ * ⭐ `[CGA-A.70]` **Qué pagos de la hoja abierta ya se repusieron con una hoja en papel.**
+ *
+ * Edgar, 2026-11-05: Morelia «tiene muchos egresos pendientes»; verificar «que no se hayan vinculado
+ * ya con Control». Medido ese día: de 105 pagos de la abierta ($716k), el 14, el 15 y el 23-oct suman
+ * al centavo los retiros «GNF MORELIA», «GNF MA 13/10» y «gnf ma» de Control. Están pagados; lo que
+ * falta es LIGARLOS (cerrarlos como su hoja y pagarla con su retiro), y cerrarlos todos en una hoja
+ * los volvería a pagar: ningún retiro cuadra con la suma.
+ *
+ * Un tramo es un rango de días SEGUIDOS de la abierta (una sucursal o la zona entera), como la hoja
+ * en papel. Casa con un retiro «gnf» de Control si suman lo mismo ± `TOLERANCIA_CONTROL_HOJA` y el
+ * retiro se anotó de su último día a `DIAS_RETIRO_HOJA` después. ⛔ Sólo se afirma lo que casa UNA
+ * vez: un retiro con dos tramos posibles, o un tramo que dos retiros reclaman, no se dice pagado.
+ */
+export function pagadoEnControl(
+  zona: ZonaHojaGastos, renglones: readonly RenglonHoja[], control: readonly RetiroControlHoja[], caos: readonly RetiroCaosConLigas[],
+): GrupoPagadoEnControl[] {
+  const dias = [...new Set(renglones.map((r) => r.fecha_pago))].sort();
+  const conjuntos = zona.sucursales.length > 1 ? [...zona.sucursales.map((s) => [s]), [...zona.sucursales]] : [[...zona.sucursales]];
+  type Tramo = { desde: string; hasta: string; sucursales: string[]; refs: string[]; total: number };
+  const tramos = new Map<string, Tramo>();
+  for (let i = 0; i < dias.length; i++) {
+    for (let j = i; j < dias.length; j++) {
+      for (const ss of conjuntos) {
+        const xs = renglones.filter((r) => r.fecha_pago >= dias[i] && r.fecha_pago <= dias[j] && ss.includes(r.sucursal));
+        if (!xs.length) continue;
+        const refs = xs.map((r) => r.origen_ref).sort();
+        // La zona entera con una sola sucursal pagando es el mismo tramo que esa sucursal sola.
+        const llave = refs.join(',');
+        if (tramos.has(llave)) continue;
+        const sucursales = zona.sucursales.filter((s) => xs.some((r) => r.sucursal === s));
+        tramos.set(llave, { desde: xs[0].fecha_pago, hasta: xs[xs.length - 1].fecha_pago, sucursales, refs, total: redondea2(xs.reduce((a, r) => a + r.importe, 0)) });
+      }
+    }
+  }
+  const gnf = control.filter((c) => /\bgnf\b/i.test(c.observaciones ?? '') && c.total > 0);
+  const propuestas: Array<{ c: RetiroControlHoja; t: Tramo }> = [];
+  for (const c of gnf) {
+    const cs = [...tramos.values()].filter((t) => {
+      const x = diasEntre(t.hasta, c.dia);
+      return x >= 0 && x <= DIAS_RETIRO_HOJA && Math.abs(c.total - t.total) <= TOLERANCIA_CONTROL_HOJA + 0.000001;
+    });
+    if (cs.length === 1) propuestas.push({ c, t: cs[0] });
+  }
+  // Un tramo reclamado por dos retiros, o dos tramos que comparten un pago: ninguno se afirma.
+  const usos = new Map<string, number>();
+  for (const p of propuestas) for (const r of p.t.refs) usos.set(r, (usos.get(r) ?? 0) + 1);
+  const unicas = propuestas.filter((p) => p.t.refs.every((r) => usos.get(r) === 1));
+  return unicas.map(({ c, t }) => {
+    const del = caos.filter((k) => k.dia === c.dia && /gnf/i.test(k.ref ?? '')
+      && k.total <= c.total + 0.005 && c.total - k.total < TOPE_CAJON_HOJA);
+    const k = del.length === 1 ? del[0] : null;
+    return {
+      desde: t.desde, hasta: t.hasta, sucursales: t.sucursales, origen_refs: t.refs, total: t.total, control: c,
+      diferencia: redondea2(c.total - t.total),
+      caos: k ? { device: k.device, external_id: k.external_id, ref: k.ref, total: k.total, dia: k.dia, cajon: redondea2(t.total - k.total), ligados: k.ligados } : null,
+    };
+  }).sort((a, b) => a.desde.localeCompare(b.desde) || a.sucursales.join().localeCompare(b.sucursales.join()));
 }
 
 // ── El candado: qué pago sólo se paga con su hoja aprobada ────────────────────────────────────

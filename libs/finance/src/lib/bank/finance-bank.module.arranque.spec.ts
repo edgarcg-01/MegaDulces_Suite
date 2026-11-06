@@ -3,6 +3,8 @@ import { PgListenService } from '@megadulces/platform-core';
 import { FinanceBankModule } from './finance-bank.module';
 import { BankReconPorAvisoService } from './bank-recon-aviso.service';
 import { CANAL_CAJA } from '../caja/caja-realtime.service';
+import { EstadoDeCuentaService } from './estado-de-cuenta/estado-de-cuenta.service';
+import { EstadoDeCuentaController } from './estado-de-cuenta/estado-de-cuenta.controller';
 
 /**
  * `[CB.53.1]` — **Que compile no es que arranque.**
@@ -107,5 +109,31 @@ describe('[CB.53.1] sólo el worker se suscribe', () => {
       expect(escuchar).toHaveBeenCalledTimes(1);
       expect(escuchar.mock.calls[0][0]).toBe(CANAL_CAJA);
     });
+  });
+});
+
+/**
+ * `[CB.58]` — El estado de cuenta de la banca vive en su PROPIO controlador para no tocar la firma
+ * inyectada de `FinanceBankController` (#414). Lo que se puede afirmar sin `design:paramtypes`
+ * (ver arriba por qué vitest no la emite): que los dos están registrados —si no, Nest no los
+ * instancia y la ruta da 404 con el CI en verde— y que el servicio sigue pidiendo sólo dos
+ * dependencias, los globales de platform-core que `FinanceBankService` ya resuelve en este módulo.
+ */
+describe('[CB.58] el estado de cuenta de la banca está registrado en el módulo', () => {
+  it('el servicio está entre los providers y el controlador entre los controllers', () => {
+    expect(meta<unknown>('providers', FinanceBankModule)).toContain(EstadoDeCuentaService);
+    expect(meta<unknown>('controllers', FinanceBankModule)).toContain(EstadoDeCuentaController);
+  });
+
+  it('el servicio pide dos dependencias y el controlador una (si cambian, revisar el arranque)', () => {
+    expect(EstadoDeCuentaService.length).toBe(2);
+    expect(EstadoDeCuentaController.length).toBe(1);
+  });
+
+  it('PRUEBA NEGATIVA: un módulo sin el servicio no lo tiene al alcance', () => {
+    @Reflect.metadata('providers', [])
+    @Reflect.metadata('imports', [])
+    class SinServicio {}
+    expect(alcanceDe(SinServicio).has(EstadoDeCuentaService)).toBe(false);
   });
 });

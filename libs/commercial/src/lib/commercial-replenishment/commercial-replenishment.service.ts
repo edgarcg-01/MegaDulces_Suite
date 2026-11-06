@@ -308,6 +308,8 @@ export interface PurchaseSuggestionQuery {
   page?: number;
   pageSize?: number;
   export?: boolean;
+  /** `[PQ.76]` CSV de productos: sólo esos renglones viajan; los totales siguen siendo del filtro completo. */
+  product_ids?: string;
 }
 
 // RA-PRO.20 — Traspaso preciso (topología-aware): déficit de sucursal ← superávit del CEDIS que la surte.
@@ -321,6 +323,8 @@ export interface TransferSuggestionQuery {
   page?: number;
   pageSize?: number;
   export?: boolean;
+  /** `[PQ.76]` CSV de productos: sólo esos renglones viajan; los totales siguen siendo del filtro completo. */
+  product_ids?: string;
 }
 
 // RA-PRO.19 — Sobrestock (capital inmovilizado), topología-aware (el CEDIS se mide vs demanda de red).
@@ -334,6 +338,8 @@ export interface OverstockQuery {
   page?: number;
   pageSize?: number;
   export?: boolean;
+  /** `[PQ.76]` CSV de productos: sólo esos renglones viajan; los totales siguen siendo del filtro completo. */
+  product_ids?: string;
 }
 
 // RA-PRO.32 — Réplica del workbook del comprador (una fila por SKU, columnas por PUNTO DE COMPRA
@@ -552,6 +558,43 @@ const ACCIONES = ['sobrante', 'traspaso', 'traspaso_parcial', 'comprar', 'ok'] a
  */
 const ACCIONES_FUERA_DE_CRITICO = ['sobrante', 'ok'];
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** `[PQ.76]` Los productos de `product_ids` (CSV): sólo UUIDs, sin repetidos, hasta 2,000. */
+export function productIdsDe(csv?: string): string[] {
+  return [...new Set(String(csv ?? '').split(',').map((x) => x.trim()).filter((x) => UUID_RX.test(x)))].slice(0, 2000);
+}
+
+/**
+ * `[PQ.76]` Filtra la lista a ciertos productos SIN tocar sus totales. Las ventanas
+ * (`COUNT/SUM … OVER()`) se calculan adentro, sobre todo el filtro, y el `WHERE` de afuera sólo
+ * escoge qué renglones viajan. Sin productos, el SQL es el de siempre.
+ *
+ * Por qué existe: Pedido pedía las tres listas con `pageSize=1000`, el servidor las topaba en 500, y
+ * sumaba esos 500 como si fueran el total. Medido el 2026-11-05: traspasos 500 de 4,511 y
+ * sobrestock 500 de 4,605. A los productos que quedaban fuera les faltaba su traspaso en el desglose
+ * y en la requisición.
+ */
+export function aProductos(select: string, orden: string, limite: string, ids: string[], binds: Record<string, unknown>): string {
+  if (!ids.length) return `${select}
+        ORDER BY ${orden}
+        ${limite}`;
+  ids.forEach((id, i) => { binds[`pq76_${i}`] = id; });
+  // Los totales viajan en cada renglón. Si ningún producto pedido tiene renglón, la respuesta se
+  // quedaría sin totales y diría 0, y ese 0 no lo es. Por eso viaja un renglón testigo
+  // (`_pq76_en = false`) que `filasDeProductos` descarta después de leer los totales.
+  return `SELECT * FROM (SELECT a.*, ROW_NUMBER() OVER () AS _pq76_rn,
+          a.product_id IN (${ids.map((_, i) => `:pq76_${i}`).join(',')}) AS _pq76_en
+          FROM (${select}) a) pq76
+        WHERE pq76._pq76_en OR pq76._pq76_rn = 1
+        ORDER BY pq76._pq76_en DESC, pq76.product_id
+        ${limite}`;
+}
+
+/** `[PQ.76]` Quita el renglón testigo de `aProductos` (y sus marcas). Sin filtro, deja todo igual. */
+export function filasDeProductos<T extends Record<string, unknown>>(rows: T[]): T[] {
+  if (!rows.length || !('_pq76_en' in rows[0])) return rows;
+  return rows.filter((r) => r['_pq76_en']).map((r) => { const { _pq76_en, _pq76_rn, ...x } = r; void _pq76_en; void _pq76_rn; return x as T; });
+}
 
 /**
  * Los ajustes del motor tal como LLEGAN, que es distinto de como se guardan.
@@ -1702,7 +1745,8 @@ export class CommercialReplenishmentService {
     const tenantId = this.tenantCtx.requireTenantId();
     const covReq = Number(q.coverage_days) > 0 ? Math.min(120, Math.max(1, Number(q.coverage_days))) : null;
     const page = Math.max(1, Number(q.page) || 1);
-    const cap = q.export ? 100000 : 500;
+    const pids = productIdsDe(q.product_ids);
+    const cap = q.export || pids.length ? 100000 : 500;
     const pageSize = Math.min(cap, Math.max(1, Number(q.pageSize) || (q.export ? cap : 50)));
     return this.tk.run(async (trx) => {
       // RA-PRO.27 — parámetros globales del pedido (fill rate + cobertura) configurables por tenant.
@@ -1924,7 +1968,7 @@ export class CommercialReplenishmentService {
       // comprador viera una clase y el colchón se hubiera dimensionado con otra.
       // PERF: los totales (count/needed/valor/revenue) también salen como WINDOWS aquí en la
       // MISMA pasada — antes se ejecutaba el `from` pesado (con sus 4 subagregados) 2 veces.
-      const rows = (await trx.raw(`
+      const crudas = (await trx.raw(aProductos(`
         SELECT z.*,
                COUNT(*) OVER() AS _total,
                COUNT(*) FILTER (WHERE z.suggested_units > 0) OVER() AS _needed,
@@ -1987,11 +2031,12 @@ export class CommercialReplenishmentService {
         ) z
         LEFT JOIN analytics.v_abc_class vabc
                ON vabc.tenant_id = :t AND vabc.warehouse_id = z.warehouse_id
-              AND vabc.product_id = z.product_id
-        ORDER BY z.suggested_cost DESC NULLS LAST, z.sell_month_mxn DESC, z.on_hand_pieces DESC
-        LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, binds)).rows;
+              AND vabc.product_id = z.product_id`,
+        'z.suggested_cost DESC NULLS LAST, z.sell_month_mxn DESC, z.on_hand_pieces DESC',
+        `LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, pids, binds), binds)).rows;
 
-      const agg: any = rows[0] || {};
+      const agg: Record<string, unknown> = crudas[0] || {};
+      const rows = filasDeProductos(crudas);
       return {
         total: Number(agg._total || 0),
         needed: Number(agg._needed || 0),
@@ -2210,6 +2255,7 @@ export class CommercialReplenishmentService {
       const vbfSrc = (await trx.raw(
         "SELECT to_regclass('analytics.mv_warehouse_box_factor') AS a",
       )).rows?.[0]?.a ? 'analytics.mv_warehouse_box_factor' : 'analytics.v_warehouse_box_factor';
+      const vbfEsTabla = vbfSrc === 'analytics.mv_warehouse_box_factor';
       const inner = `
         -- ⛔ \`MATERIALIZED\` NO ES ADORNO: sin él esta pantalla devuelve 500. Medido en PROD el
         -- 2026-09-24, con **6 de 6 peticiones muertas exactas a los 120 s** de
@@ -2258,24 +2304,30 @@ export class CommercialReplenishmentService {
         -- Medido: 20 s → 2.73 s, y el Join Filter de 131,923,236 filas baja a 3,559,716.
         -- ⚠️ SIN ACENTOS GRAVES EN ESTE COMENTARIO: va dentro de un template literal de JS y lo
         -- TERMINA. Es la séptima vez que este repo lo paga.
-        WITH lad AS MATERIALIZED (
-          SELECT l.sku, l.u1_label, l.u2_label, l.u3_label,
-                 -- [RA-PRO.70] Factor de cada peldaño contra la base, del COSTO por peldaño
-                 -- (mismo criterio que factor_del_costo de v_kepler_unit_ladder): Kepler rellena
-                 -- los 3 rótulos aunque el artículo tenga 1 o 2 unidades (PAQ/PAQ/CJA con f2 = 1).
-                 CASE WHEN l.u1_cost > 0 AND l.u2_cost > 0 THEN round((l.u2_cost / l.u1_cost)::numeric, 4) END AS u2_factor,
-                 CASE WHEN l.u1_cost > 0 AND l.u3_cost > 0 THEN round((l.u3_cost / l.u1_cost)::numeric, 4) END AS u3_factor
-            FROM analytics.v_supplier_cost_ladder l
-           WHERE EXISTS (SELECT 1 FROM catalog.products pr WHERE pr.sku = l.sku AND ${where})
-        )${erpReady ? `, fre AS MATERIALIZED (${this.erpFillSubquery()}
-        )` : ''}, vbf AS MATERIALIZED (
+        --
+        -- [PQ.10] lad ya no vive aca: sus rotulos solo se MUESTRAN, no deciden el pedido ni el
+        -- orden, y se leen despues, para los renglones devueltos (ver rotulosDePagina). Y vbf, cuando su
+        -- fuente es la copia materializada (una TABLA con indice unico), se une directo: el
+        -- re-calculo por fila de arriba era de la VISTA. Medido 2026-11-04 sin filtro: el CTE
+        -- copiaba 245,080 filas para cruzar 25,619.
+        WITH ${erpReady ? `fre AS MATERIALIZED (${this.erpFillSubquery()}
+        ), ` : ''}${vbfEsTabla ? '' : `vbf AS MATERIALIZED (
           SELECT v.tenant_id, v.warehouse_id, v.product_id, v.base_label
             FROM ${vbfSrc} v
            WHERE v.tenant_id = :t
              AND EXISTS (SELECT 1 FROM catalog.products pr WHERE pr.id = v.product_id AND ${where})
-        ), base AS MATERIALIZED (
+        ), `}base AS MATERIALIZED (
           SELECT pr.id AS product_id, pr.sku, pr.nombre, pr.supplier_id,
-                 rp.suf, rp.bf, rp.display_bf, rp.caja_cost, rp.daily_pieces, rp.stock_pz, rp.transit_cajas,
+                 -- [PQ.78] El costo de caja es el que Kepler tiene HOY en la sucursal que recibe, para el
+                 -- proveedor del producto: la pantalla Costos por Proveedor por Productos de ESA
+                 -- sucursal, que es de donde la orden de compra toma su precio. Se lee del ODS en vivo
+                 -- (llave exacta del indice: sucursal, proveedor, sku). El fact trae la MEDIANA de
+                 -- las 9 sucursales y se rehace cada 15 min: un cambio guardado en una sola sucursal
+                 -- no se veia nunca, y uno guardado en todas tardaba hasta 15 min. Donde la llave no
+                 -- casa (rutas, Wincaja, o un proveedor distinto al de Kepler) queda el del fact.
+                 -- Medido 2026-11-05: 33,444 de 34,023 renglones de sucursal casan, 0 duplicados.
+                 COALESCE(kpp.c4, rp.caja_cost) AS caja_cost,
+                 rp.suf, rp.bf, rp.display_bf, rp.daily_pieces, rp.stock_pz, rp.transit_cajas,
                  -- [RA.TR] Las dos columnas viajan CRUDAS hasta donde la politica decide (abajo,
                  -- en la columna ped). El COALESCE que vivia aca duplicaba la caida que ahora hace
                  -- transitoDescontado, y era un sexto lugar donde la regla podia divergir.
@@ -2290,13 +2342,6 @@ export class CommercialReplenishmentService {
                  -- Kepler con paquetes de Wincaja y se dividía todo por un factor de piezas).
                  rop.reorder_point AS rop_reorder, rop.max_stock AS rop_max, rop.xyz_class AS rop_xyz,
                  rp.season_ratio, rp.season_src,
-                 -- RA-PRO.46 — el rótulo de la unidad base LO DICE KEPLER (kdii.c11 vía la vista
-                 -- derivada del ODS); antes la pantalla escribía "pz" a mano y mentía en los
-                 -- productos a granel (el azúcar 99029 se mide en 500 g, no en piezas).
-                 lad.u1_label AS unidad_base,
-                 -- [RA-PRO.68] Rotulos de los peldanos 2 y 3 de Kepler (kdii.c80 / c83): con 3 peldanos
-                 -- el 2 es el PAQUETE intermedio y el 3 la unidad mayor; con 2, el 2 es la mayor.
-                 lad.u2_label AS unidad_u2, lad.u3_label AS unidad_u3, lad.u2_factor AS unidad_f2, lad.u3_factor AS unidad_f3,
                  -- U.2 — VEREDICTO DEL PELDAÑO por (producto, almacén). Cuando el divisor no
                  -- cuadra con lo que se pagó, la conversion a cajas de ESTE almacen no es
                  -- confiable: ni la cantidad ni su valuado. Se DECLARA, no se dibuja.
@@ -2326,16 +2371,18 @@ export class CommercialReplenishmentService {
             FROM catalog.products pr
             JOIN ${rpSrc(vbfSrc)} rp ON rp.tenant_id = pr.tenant_id AND rp.product_id = pr.id
             JOIN commercial.warehouses w ON w.tenant_id = :t AND w.id = rp.warehouse_id
+            LEFT JOIN catalog.suppliers spk ON spk.tenant_id = pr.tenant_id AND spk.id = pr.supplier_id
+            LEFT JOIN kepler_ods.kdpv_prov_prod kpp
+                   ON kpp.sucursal = w.code AND kpp.c1 = spk.code AND kpp.c2 = pr.sku AND kpp.c4 > 0
             LEFT JOIN commercial.reorder_policy rop ON rop.tenant_id = pr.tenant_id AND rop.product_id = pr.id AND rop.warehouse_id = rp.warehouse_id
             LEFT JOIN commercial.replenishment_channel rcw ON rcw.tenant_id = pr.tenant_id AND rcw.warehouse_id = rp.warehouse_id AND rcw.supplier_id = pr.supplier_id
-            LEFT JOIN lad ON lad.sku = pr.sku
             -- [RA-DYN.U7] fre es un CTE MATERIALIZED, no una subconsulta en linea, por la misma
             -- razon que lad y vbf de arriba: en esta consulta el planificador ya eligio dos veces
             -- un nested loop que re-evaluaba la relacion una vez por fila (131.9 M de filas
             -- descartadas, 4 min 18 s). Materializado se evalua UNA vez: 40 ms medidos en prod.
             -- SIN ACENTOS GRAVES EN ESTE COMENTARIO: va dentro de un template literal de JS.
             ${erpReady ? 'LEFT JOIN fre ON fre.supplier_id = pr.supplier_id' : ''}
-            LEFT JOIN vbf
+            LEFT JOIN ${vbfEsTabla ? `${vbfSrc} vbf` : 'vbf'}
                    ON vbf.tenant_id = rp.tenant_id AND vbf.warehouse_id = rp.warehouse_id
                   AND vbf.product_id = rp.product_id
             ${stockJoin}
@@ -2418,16 +2465,13 @@ export class CommercialReplenishmentService {
                  COALESCE(sum(b.revenue30),0) AS rev, COALESCE(sum(b.stock_pz),0) AS stock_pz,
                  max(b.rop_xyz) AS xyz,
                  max(b.season_ratio) AS season_ratio, max(b.season_src) AS season_src,
-                 max(b.unidad_base) AS unidad_base, max(b.unidad_u2) AS unidad_u2, max(b.unidad_u3) AS unidad_u3,
-                 max(b.unidad_f2) AS unidad_f2, max(b.unidad_f3) AS unidad_f3, bool_or(b.fuera) AS fuera
+                 bool_or(b.fuera) AS fuera
             FROM base b
            GROUP BY b.product_id, b.sku, b.nombre, b.supplier_id, b.col_code
         ),
         prod AS (
           SELECT product_id, sku, nombre, supplier_id,
                  max(bf) AS uxc, round(max(caja_cost)::numeric, 2) AS caja_cost,
-                 max(unidad_base) AS unidad_base, max(unidad_u2) AS unidad_u2, max(unidad_u3) AS unidad_u3,
-                 max(unidad_f2) AS unidad_f2, max(unidad_f3) AS unidad_f3,
                  -- U.2 — cada celda declara su propio veredicto de peldaño. SIN BACKTICKS ACÁ: va
                  -- dentro de un template literal de JS. La clave rung sólo viaja cuando NO es
                  -- confiable, para no engordar el payload del 94% sano; el front la lee como "esta
@@ -2484,18 +2528,12 @@ export class CommercialReplenishmentService {
                -- proveedor, no con un renglón, así que resolverlo por fila daría un número que no
                -- significa nada. Lo agrupa la pantalla, que es quien sabe qué hay seleccionado.
                sup.min_order_boxes, sup.min_order_amount,
-               lp.box_size, lp.pack_size,
-               CASE WHEN lp.box_size > 1 AND lp.pack_size > 1 AND lp.box_size % lp.pack_size = 0
-                    THEN (lp.box_size / lp.pack_size) ELSE NULL END AS packs_per_box,
                da.iad, da.band AS iad_band, da.status AS iad_status,
                da.z_short AS iad_z_short, da.z_seasonal AS iad_z_seasonal, da.has_seasonal AS iad_has_seasonal,
                CASE WHEN p.fuera_calculo THEN (SELECT max(z.sale_date)::text FROM (SELECT s.sale_date, s.units FROM analytics.sales_daily s
                                                WHERE s.tenant_id = :t AND s.product_id = p.product_id OFFSET 0) z WHERE z.units > 0) END AS ultima_venta
           FROM prod p
           LEFT JOIN catalog.suppliers sup ON sup.tenant_id = :t AND sup.id = p.supplier_id
-          LEFT JOIN (SELECT product_id, max(box_size) box_size, max(pack_size) pack_size
-                       FROM commercial.v_product_label_prices WHERE tenant_id = :t GROUP BY product_id) lp
-            ON lp.product_id = p.product_id
           LEFT JOIN analytics.demand_acceleration da ON da.tenant_id = :t AND da.product_id = p.product_id
          ${wbWhere}`;
 
@@ -2581,6 +2619,7 @@ export class CommercialReplenishmentService {
         // Los ocho acarreos salen del payload: son del CONJUNTO, no de la fila, y repetirlos en cada
         // renglón engordaría el export (hasta 100,000 filas) sin decir nada nuevo.
         for (const r of filas) for (const k of TOT_COLS) delete r[k];
+        await this.rotulosDePagina(trx, tenantId, filas);
         // Columnas presentes → dinámicas. General = 1 columna; por sucursal = 1 almacén por columna.
         const sucursales = general
           ? [{ code: 'GENERAL', name: 'General (red)' }]
@@ -2724,6 +2763,56 @@ export class CommercialReplenishmentService {
    * (el mismo número de /compras/costo-estandar), sin recalcularlo. La plaza 00 (oficinas, sin
    * venta) queda fuera con `es_plaza_operativa`, igual que en esa pantalla.
    */
+  /**
+   * `[PQ.10]` **Lo que sólo se MUESTRA, leído para los renglones que se devuelven.** Los rótulos de
+   * la escalera de Kepler y la etiquetera no deciden el pedido, los totales ni el orden; dentro de
+   * la consulta del workbook se calculaban para todo el catálogo. Medido en prod el 2026-11-04 sin
+   * filtro: 650 ms la escalera y 370 ms la etiquetera, contra ~270 y ~90 ms para 20 renglones.
+   *
+   * ⛔ Van en una consulta APARTE y no unidas a la página en SQL: así se probó primero, y con
+   * proveedor el planificador volvió a calcular la etiquetera una vez por renglón (185 × 110 ms =
+   * 19 s). Con `= ANY(…)` no hay plan que elegir. Los valores salen de la misma expresión SQL que
+   * antes, con su mismo tipo.
+   */
+  private async rotulosDePagina(trx: Knex.Transaction, tenantId: string, filas: Array<Record<string, unknown>>): Promise<void> {
+    if (!filas.length) return;
+    const skus = [...new Set(filas.map((r) => String(r['sku'])))];
+    const ids = [...new Set(filas.map((r) => String(r['product_id'])))];
+    const lad = new Map(((await trx.raw(`
+      SELECT l.sku, l.u1_label, l.u2_label, l.u3_label,
+             -- [RA-PRO.70] Factor de cada peldaño contra la base, del COSTO por peldaño (mismo
+             -- criterio que factor_del_costo de v_kepler_unit_ladder): Kepler rellena los 3 rótulos
+             -- aunque el artículo tenga 1 o 2 unidades (PAQ/PAQ/CJA con f2 = 1).
+             CASE WHEN l.u1_cost > 0 AND l.u2_cost > 0 THEN round((l.u2_cost / l.u1_cost)::numeric, 4) END AS u2_factor,
+             CASE WHEN l.u1_cost > 0 AND l.u3_cost > 0 THEN round((l.u3_cost / l.u1_cost)::numeric, 4) END AS u3_factor
+        FROM analytics.v_supplier_cost_ladder l
+       WHERE l.sku = ANY(?)`, [skus])).rows as Array<Record<string, unknown>>).map((r) => [String(r['sku']), r]));
+    const lp = new Map(((await trx.raw(`
+      SELECT product_id, box_size, pack_size,
+             CASE WHEN box_size > 1 AND pack_size > 1 AND box_size % pack_size = 0
+                  THEN (box_size / pack_size) ELSE NULL END AS packs_per_box
+        FROM (SELECT product_id, max(box_size) box_size, max(pack_size) pack_size
+                FROM commercial.v_product_label_prices
+               WHERE tenant_id = ? AND product_id = ANY(?::uuid[])
+               GROUP BY product_id) x`, [tenantId, ids])).rows as Array<Record<string, unknown>>).map((r) => [String(r['product_id']), r]));
+    for (const r of filas) {
+      const l = lad.get(String(r['sku']));
+      const e = lp.get(String(r['product_id']));
+      // RA-PRO.46 — el rótulo de la unidad base LO DICE KEPLER (kdii.c11 vía la vista derivada del
+      // ODS); antes la pantalla escribía "pz" a mano y mentía en los productos a granel.
+      r['unidad_base'] = l?.['u1_label'] ?? null;
+      // [RA-PRO.68] Rótulos de los peldaños 2 y 3 (kdii.c80 / c83): con 3 peldaños el 2 es el
+      // PAQUETE intermedio y el 3 la unidad mayor; con 2, el 2 es la mayor.
+      r['unidad_u2'] = l?.['u2_label'] ?? null;
+      r['unidad_u3'] = l?.['u3_label'] ?? null;
+      r['unidad_f2'] = l?.['u2_factor'] ?? null;
+      r['unidad_f3'] = l?.['u3_factor'] ?? null;
+      r['box_size'] = e?.['box_size'] ?? null;
+      r['pack_size'] = e?.['pack_size'] ?? null;
+      r['packs_per_box'] = e?.['packs_per_box'] ?? null;
+    }
+  }
+
   private async skuSignals(
     trx: Knex.Transaction,
     tenantId: string,
@@ -3432,7 +3521,8 @@ export class CommercialReplenishmentService {
     const tenantId = this.tenantCtx.requireTenantId();
     const cov = Math.min(120, Math.max(1, Number(q.coverage_days) || 30));
     const page = Math.max(1, Number(q.page) || 1);
-    const cap = q.export ? 100000 : 500;
+    const pids = productIdsDe(q.product_ids);
+    const cap = q.export || pids.length ? 100000 : 500;
     const pageSize = Math.min(cap, Math.max(1, Number(q.pageSize) || (q.export ? cap : 50)));
     return this.tk.run(async (trx) => {
       const binds: Record<string, unknown> = { t: tenantId, cov };
@@ -3512,9 +3602,9 @@ export class CommercialReplenishmentService {
         LEFT JOIN catalog.suppliers sup ON sup.tenant_id = :t AND sup.id = bd.supplier_id
         WHERE ${where}`;
 
-      const rows = (await trx.raw(`
+      const crudas = (await trx.raw(`
         ${cte}
-        SELECT bd.product_id, bd.sku, bd.nombre,
+        ${aProductos(`SELECT bd.product_id, bd.sku, bd.nombre,
                bd.wh AS to_warehouse_id, dw.code AS to_code, dw.name AS to_name,
                bd.src AS from_warehouse_id, sw.code AS from_code,
                sup.name AS supplier_name,
@@ -3539,11 +3629,12 @@ export class CommercialReplenishmentService {
                ROUND(SUM(bd.transfer_cjs) OVER()::numeric, 0) AS _total_cajas,
                COUNT(*) FILTER (WHERE bd.rung_veredicto IS NOT NULL) OVER() AS _sin_medir,
                MAX(bd.omitidos) OVER() AS _omitidos
-        ${from}
-        ORDER BY (bd.rung_veredicto IS NULL) DESC, bd.transfer_cjs * bd.caja_cost DESC
-        LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, binds)).rows;
+        ${from}`,
+          '(bd.rung_veredicto IS NULL) DESC, bd.transfer_cjs * bd.caja_cost DESC',
+          `LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, pids, binds)}`, binds)).rows;
 
-      const agg: any = rows[0] || {};
+      const agg: Record<string, unknown> = crudas[0] || {};
+      const rows = filasDeProductos(crudas);
       return {
         total: Number(agg._total || 0),
         total_valor: Number(agg._total_valor || 0),
@@ -3572,7 +3663,8 @@ export class CommercialReplenishmentService {
     const tenantId = this.tenantCtx.requireTenantId();
     const over = Math.min(365, Math.max(7, Number(q.over_days) || 90));
     const page = Math.max(1, Number(q.page) || 1);
-    const cap = q.export ? 100000 : 500;
+    const pids = productIdsDe(q.product_ids);
+    const cap = q.export || pids.length ? 100000 : 500;
     const pageSize = Math.min(cap, Math.max(1, Number(q.pageSize) || (q.export ? cap : 50)));
     return this.tk.run(async (trx) => {
       const binds: Record<string, unknown> = { t: tenantId, over };
@@ -3625,9 +3717,9 @@ export class CommercialReplenishmentService {
         LEFT JOIN catalog.suppliers sup ON sup.tenant_id = :t AND sup.id = ov.supplier_id
         WHERE ${where}`;
 
-      const rows = (await trx.raw(`
+      const crudas = (await trx.raw(`
         ${cte}
-        SELECT ov.product_id, ov.sku, ov.nombre,
+        ${aProductos(`SELECT ov.product_id, ov.sku, ov.nombre,
                ov.wh AS warehouse_id, w.code AS warehouse_code, w.name AS warehouse_name,
                (w.source_warehouse_id IS NULL) AS is_hub,
                sup.name AS supplier_name, ov.uxc,
@@ -3645,11 +3737,12 @@ export class CommercialReplenishmentService {
                ROUND(SUM(ov.surplus_cjs * ov.caja_cost) FILTER (WHERE ov.rung_veredicto IS NULL) OVER()::numeric, 2) AS _total_valor,
                ROUND(SUM(ov.surplus_cjs) OVER()::numeric, 0) AS _total_cajas,
                COUNT(*) FILTER (WHERE ov.rung_veredicto IS NOT NULL) OVER() AS _sin_medir
-        ${from}
-        ORDER BY (ov.rung_veredicto IS NULL) DESC, ov.surplus_cjs * ov.caja_cost DESC
-        LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, binds)).rows;
+        ${from}`,
+          '(ov.rung_veredicto IS NULL) DESC, ov.surplus_cjs * ov.caja_cost DESC',
+          `LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, pids, binds)}`, binds)).rows;
 
-      const agg: any = rows[0] || {};
+      const agg: Record<string, unknown> = crudas[0] || {};
+      const rows = filasDeProductos(crudas);
       return {
         total: Number(agg._total || 0),
         total_valor: Number(agg._total_valor || 0),

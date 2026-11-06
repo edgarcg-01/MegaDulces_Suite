@@ -5,7 +5,7 @@ import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission, isPla
 import type {
   ReaperturaDecidida, ReaperturaPendiente, SolicitudReaperturaCreada,
 } from '@megadulces/contracts';
-import { ExpenseProofsService, CreateExpenseProofDto, ListExpenseProofsQuery, type RespuestaPorAprobar, type RespuestaDelDia, type ProofFile } from './expense-proofs.service';
+import { ExpenseProofsService, CreateExpenseProofDto, ListExpenseProofsQuery, type RespuestaPorAprobar, type RespuestaDelDia, type ProofFile, type ResultadoBusquedaGastos } from './expense-proofs.service';
 // `[GX.49]` La forma de la solicitud que devuelve el lookup exacto.
 import type { SolicitudKepler } from './expense-proofs.service';
 // `[GX.41]` El vale que Kepler asigna por la caja «Solicita»: la forma vive en el contrato.
@@ -145,6 +145,18 @@ export class ExpenseProofsController {
   @ApiOperation({ summary: '[GX.17] Lo que espera luz verde, agrupado por fecha y por departamento. Mismo permiso que aprobar/validar/rechazar: quien no puede firmar tampoco necesita la bandeja.' })
   porAprobar(@Query('limit') limit?: string): Promise<RespuestaPorAprobar> {
     return this.svc.porAprobar(limit ? Number(limit) : undefined);
+  }
+
+  /**
+   * `[GX.88]` El buscador de gastos: vales de cualquier fecha y estado, y solicitudes de Kepler
+   * que nunca se subieron. SOLO para quien aprueba: deja ver el gasto de toda la empresa, que
+   * es exactamente lo que `COMPROBAR` ya concede en el Expediente (`[GX.59]`).
+   */
+  @Get('buscar')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
+  @ApiOperation({ summary: '[GX.88] Busca en todos los vales (folio, proveedor, quién lo levantó, quién lo cerró, quién lo pidió en Kepler) y en las solicitudes de Kepler sin vale desde que se usa la Suite. Sólo quien aprueba.' })
+  buscar(@Query('q') q?: string, @Query('limit') limit?: string): Promise<ResultadoBusquedaGastos> {
+    return this.svc.buscarGastos(q ?? '', limit ? Number(limit) : undefined);
   }
 
   @Get('del-dia')

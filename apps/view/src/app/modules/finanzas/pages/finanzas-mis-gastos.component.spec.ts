@@ -6,7 +6,9 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideRouter } from '@angular/router';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { FinanzasMisGastosComponent } from './finanzas-mis-gastos.component';
-import type { ExpenseProofsReport } from '../comprobaciones.service';
+import type { ExpedienteDelDia, ExpenseProofsReport } from '../comprobaciones.service';
+import { BuscadorGastosEstado } from '../components/buscador-gastos.estado';
+import { PermissionsService } from '../../../core/services/permissions.service';
 
 /**
  * `[GX.33]` Candado de **Mis gastos**, la pantalla de quien LEVANTA el gasto.
@@ -43,7 +45,7 @@ describe('FinanzasMisGastosComponent', () => {
       imports: [FinanzasMisGastosComponent],
       // `[GX.41]` El router va de verdad: el botón «Subir evidencia» es un `routerLink` con
       // queryParams, y con un doble no se podría comprobar que el folio Y la sucursal viajan.
-      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([]), { provide: LOCALE_ID, useValue: 'es-MX' }],
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([]), { provide: LOCALE_ID, useValue: 'es-MX' }, BuscadorGastosEstado],
     });
     http = TestBed.inject(HttpTestingController);
   });
@@ -489,6 +491,45 @@ describe('FinanzasMisGastosComponent', () => {
       vi.advanceTimersByTime(60_000);
       http.expectNone((x) => x.url.includes('/mine'));
       primero.flush(REPORTE());
+    });
+  });
+
+  /**
+   * `[GX.88]` **El buscador de gastos vive ARRIBA de las pestañas** (en el shell). En Mis gastos
+   * sólo lo tiene quien aprueba; el vale elegido se abre aquí con lo que esta pantalla ofrece.
+   */
+  describe('[GX.88] el buscador de arriba', () => {
+    const estado = () => TestBed.inject(BuscadorGastosEstado);
+    const conPermiso = () => TestBed.inject(PermissionsService).load({ FINANCE_EXPENSES_COMPROBAR: true }, 'tesoreria', 'jwt');
+
+    it('con una búsqueda activa arriba, la pantalla se esconde — el visor no', () => {
+      conPermiso();
+      montar();
+      estado().busqueda.set('papeleria');
+      fix.detectChanges();
+      expect(c.buscandoArriba()).toBe(true);
+      expect(fix.nativeElement.querySelector('.surf-page-head')).toBeNull();
+      expect(fix.nativeElement.querySelector('app-vale-gasto-peek')).not.toBeNull();
+      estado().limpiar();
+      fix.detectChanges();
+      expect(fix.nativeElement.querySelector('.surf-page-head')).not.toBeNull();
+    });
+
+    it('⛔ quien sólo captura no busca: la pantalla nunca se esconde', () => {
+      TestBed.inject(PermissionsService).load({ FINANCE_EXPENSES_CAPTURAR: true }, 'capturista', 'jwt');
+      montar();
+      estado().busqueda.set('papeleria');
+      fix.detectChanges();
+      expect(c.buscandoArriba()).toBe(false);
+      expect(fix.nativeElement.querySelector('.surf-page-head')).not.toBeNull();
+    });
+
+    it('el vale elegido se abre aquí: se ve y se le puede sumar evidencia', () => {
+      conPermiso();
+      montar();
+      estado().abrir({ id: 'x1', folio_solicitud: '0010287', status: 'aprobada', files: [] } as unknown as ExpedienteDelDia);
+      expect(c.abierto()?.id).toBe('x1');
+      expect(c.accionesDelVale()).toEqual(['agregar_evidencia']);
     });
   });
 });

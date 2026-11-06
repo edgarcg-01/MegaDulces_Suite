@@ -2221,6 +2221,18 @@ export class ComercialService {
   commissionRun(runId: string) {
     return this.http.get<CommissionRunDetail>(`${this.base}/commissions/runs/${runId}`);
   }
+  /** `[RD.111]` Por qué una ruta cobra lo que cobra: escalones, bonos y la venta día por día. */
+  commissionDesglose(routeCode: string, periodId: string, scaleId: string | null | undefined) {
+    let params = new HttpParams().set('route_code', routeCode).set('period_id', periodId);
+    if (scaleId) params = params.set('scale_id', scaleId);
+    return this.http.get<CommissionDesglose>(`${this.base}/commissions/desglose`, { params });
+  }
+  /** `[RD.111]` Los tickets de una ruta en un día, cada uno con sus renglones. */
+  commissionDesgloseTickets(routeCode: string, dia: string) {
+    return this.http.get<CommissionDesgloseTickets>(`${this.base}/commissions/desglose/tickets`, {
+      params: new HttpParams().set('route_code', routeCode).set('dia', dia),
+    });
+  }
   /** borrador → aprobado → pagado. El motor calcula; aprobar es humano. */
   commissionSetStatus(runId: string, accion: 'approve' | 'pay' | 'void') {
     return this.http.post<CommissionRunDetail>(`${this.base}/commissions/runs/${runId}/${accion}`, {});
@@ -3225,6 +3237,9 @@ export interface SalesByRouteRow {
   route_code: string;
   route_no: string;
   label: string;
+  /** `[VEC.41]` Chofer de hoy (comisión de RD, o la persona que Kepler pone en una vecinal). `null` = nadie lo sabe. */
+  driver_name?: string | null;
+  driver_source?: 'comision' | 'kepler' | null;
   monthly: Record<string, SalesByRouteCell>;
   revenue_total: number;
   units_total: number;
@@ -4661,7 +4676,33 @@ export interface CommissionLine {
   bono_veredicto: string | null;
   nomina_banco: number; deduccion_status: string | null;
   a_pagar: number; motivo_no_pago: string | null;
+  /** `[RD.103.2]` Con qué tabulador se calculó. Nulo en las corridas anteriores (toda la Q21). */
+  scale_id?: string | null;
 }
+/** `[RD.111]` El desglose de una ruta en un periodo. Misma fuente que el motor. */
+export interface CommissionDesglose {
+  route_code: string;
+  period: { id: string; anio: number; period_no: number; date_from: string; date_to: string };
+  escala: {
+    id: string; code: string; familia: string; base_field: string; gate_field: string;
+    share_supervisor_pct: number; piso_chofer_venta: number | null;
+    /** `linea` = el que guardó la corrida · `vigente_al_cierre` = la línea no lo guardó. */
+    origen: 'linea' | 'vigente_al_cierre' | null;
+    escalones: { min_amount: number; max_amount: number | null; pct: number }[];
+  } | null;
+  bonos: { nombre: string; metrica: string; comparador: string; umbral: number; monto: number;
+    solo_esta_ruta: boolean; gate_venta_min: number | null }[];
+  dias: { dia: string; venta: number; subtotal: number; tickets: number | null; fuentes_dia: string | null }[];
+}
+export interface CommissionDesgloseRenglon {
+  sku: string; producto: string | null; unidad: string | null; qty: number;
+  precio_unitario: number | null; importe: number; venta: number;
+}
+export interface CommissionDesgloseTicket {
+  clave: string; source: string; consecutivo: string; doc_ref: string | null; cliente: string | null;
+  hora: string | null; forma_pago: string | null; venta: number; renglones: CommissionDesgloseRenglon[];
+}
+export interface CommissionDesgloseTickets { route_code: string; dia: string; tickets: CommissionDesgloseTicket[] }
 export interface CommissionRunPayload {
   run_id: string | null; status: string;
   period: { id: string; anio: number; period_no: number; date_from: string; date_to: string; pay_date: string | null };

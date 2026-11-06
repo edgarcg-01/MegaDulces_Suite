@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, ObjectStorageService } from '@megadulces/platform-core';
 import { BUDGET_LEDGER_PORT, type BudgetLedgerPort } from '../budget/budget-ledger.port';
@@ -6,6 +6,7 @@ import { GRUPOS_FINANCIEROS, PREFIJOS_FINANCIEROS } from '../creditor-statements
 import { sqlKeplerPayableId } from '@megadulces/contracts/finance/kepler-payable-key';
 import { sqlVentanaProntoPago } from '@megadulces/contracts/finance/pronto-pago-ventana';
 import { clabeValida } from '@megadulces/contracts/finance/clabe';
+import { destinosSugeridos, type FilaComprobanteClabe } from './destino-sugerido';
 import { SupplierPaymentAccountsService } from '../supplier-payment-accounts/supplier-payment-accounts.service';
 import type { PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 
@@ -120,7 +121,11 @@ export function paymentGroupKey(source: string, row: { supplier_id?: string | nu
   // `[TP.18]` La deuda derivada de Kepler agrupa IGUAL que la capturada: las dos son facturas del
   // mismo proveedor y la misma sucursal, y un pago las puede cubrir juntas (ADR-094 §5).
   const esFactura = source === 'supplier_payable' || source === 'kepler_payable';
-  const payee = esFactura ? `s:${row.supplier_id ?? ''}` : `b:${String(row.beneficiary ?? '').trim().toUpperCase()}`;
+  // `[PGP.78]` Un acreedor de Kepler que no está en el catálogo no trae `supplier_id`: con `s:` vacío,
+  // dos acreedores distintos de la misma sucursal cabían en UN pago. Sin id va por nombre, como el
+  // espejo de la pantalla (`payeeKey`), con su propio prefijo para no juntarse con un gasto.
+  const nombre = String(row.beneficiary ?? '').trim().toUpperCase();
+  const payee = !esFactura ? `b:${nombre}` : row.supplier_id ? `s:${row.supplier_id}` : `f:${nombre}`;
   const suc = esFactura ? String(row.kepler_sucursal ?? '').trim() : '';
   const branch = suc || 'sin sucursal';
   return { payee, branch };
@@ -182,8 +187,12 @@ interface AllocationRowLite {
   [col: string]: unknown;
 }
 /** `[TP.15]` Lo que el candado de saldo lee de una obligación a proveedor (columnas de la mig 20261016002604). */
+/** `[PGP.76]` El turno que quedó a cada pago del día después de reordenarlo. */
+export interface DayOrderRank { id: string; priority_rank: number }
 interface KeplerLinkedRow {
   supplier_id?: string; reserved_amount: number | string;
+  /** El código del acreedor en Kepler; sólo lo trae la deuda derivada (`kepler_payable`). */
+  kepler_proveedor?: string | null;
   kepler_sucursal?: string | null; kepler_folio?: string | null;
   kepler_doc_tipo?: number | string | null; kepler_doc_sub?: number | string | null;
 }
@@ -402,9 +411,15 @@ export class PaymentCalendarService {
     // `[TP.18]` Vale para los dos orígenes de factura: la capturada trae las columnas `kepler_*`
     // desde la mig `20261016002604`, y la derivada las trae por construcción.
     if ((source !== 'supplier_payable' && source !== 'kepler_payable') || !row.kepler_folio) return;
+    // `[PGP.78]` La derivada trae el código de Kepler y se busca por él. Ir por el catálogo dejaba
+    // en cero a un acreedor que no está dado de alta (medido 2026-11-05: 4 facturas, 3 acreedores)
+    // y la pantalla decía «Kepler ya no tiene saldo» de una factura que Kepler sí debe.
     const [doc] = await trx('analytics.v_supplier_payables')
       .where({ sucursal: row.kepler_sucursal, folio: row.kepler_folio, doc_tipo: row.kepler_doc_tipo, doc_sub: row.kepler_doc_sub })
-      .whereIn('proveedor', trx('catalog.suppliers').select('code').where({ id: row.supplier_id }))
+      .modify((w) => {
+        if (row.kepler_proveedor) w.where('proveedor', row.kepler_proveedor);
+        else w.whereIn('proveedor', trx('catalog.suppliers').select('code').where({ id: row.supplier_id }));
+      })
       .sum({ pendiente: 'pendiente' });
     const pendiente = Number(doc?.pendiente ?? 0);
     const tope = pendiente - alreadyReserved;
@@ -445,6 +460,7 @@ export class PaymentCalendarService {
         trx.raw(`coalesce(nullif(btrim(v.folio), ''), 'Factura') AS concept`),
         'v.sucursal AS kepler_sucursal', 'v.folio AS kepler_folio',
         'v.doc_tipo AS kepler_doc_tipo', 'v.doc_sub AS kepler_doc_sub',
+        'v.proveedor AS kepler_proveedor',
       );
     if (!row) return undefined;
     // Lo ya comprometido sale de los items, que son la fuente de verdad de la reserva para los
@@ -1557,7 +1573,36 @@ export class PaymentCalendarService {
         WHERE h.metodo_sugerido IS NOT NULL
            OR h.cuenta_origen_id IS NOT NULL
            OR h.cuenta_estado = 'caja_general'`, [tenantId]));
-    return rows as SupplierPaymentHabit[];
+    const habitos = rows as SupplierPaymentHabit[];
+
+    // `[PGP.75]` La CLABE destino, de los comprobantes del propio proveedor (ver `destino-sugerido.ts`).
+    // Medido contra prod el 2026-11-04: 55-118 ms. Un proveedor con CLABE y sin hábito de método
+    // también entra: la CLABE vale sola.
+    const { rows: comp } = await this.tk.run((trx) => trx.raw(
+      `SELECT btrim(m.c10) AS proveedor_code, x.clabe, count(*)::int AS comprobantes,
+              to_char(max(pr.pago_date), 'YYYY-MM-DD') AS ultima, max(pr.ocr_banco) AS banco, s.id AS supplier_id
+         FROM finance.supplier_payment_proofs pr
+        CROSS JOIN LATERAL (SELECT (regexp_match(pr.ocr_cuenta_dest, '([0-9]{18})'))[1] AS clabe) x
+         JOIN kepler_ods.kdm1 m ON m.sucursal = pr.sucursal AND m.c2 = 'X' AND m.c3 = 'D'
+                               AND m.c6 = pr.folio AND btrim(m.c63) = pr.doc_prefix || '-'
+         JOIN catalog.suppliers s ON btrim(s.code) = btrim(m.c10) AND s.tenant_id = pr.tenant_id
+        WHERE pr.tenant_id = ? AND x.clabe IS NOT NULL AND coalesce(pr.status, '') <> 'rechazado'
+        GROUP BY 1, 2, s.id`, [tenantId]));
+    const filas = comp as (FilaComprobanteClabe & { supplier_id: string })[];
+    const destinos = destinosSugeridos(filas);
+    const idDe = new Map(filas.map((f) => [f.proveedor_code.trim(), f.supplier_id]));
+    const porCode = new Map(habitos.map((h) => [String(h.proveedor_code).trim(), h]));
+    for (const [code, d] of destinos) {
+      const h = porCode.get(code);
+      if (h) { Object.assign(h, d); continue; }
+      habitos.push({
+        supplier_id: idDe.get(code)!, proveedor_code: code,
+        metodo_estado: 'sin_historial', metodo_sugerido: null, metodo_veces: null, metodo_de: null, metodo_ultima_vez: null,
+        cuenta_estado: 'sin_historial', cuenta_origen_id: null, cuenta_origen_nombre: null, cuenta_veces: null, cuenta_de: null,
+        ...d,
+      });
+    }
+    return habitos;
   }
 
   /** El lote del día tal cual (folio/status/released_by/at) — usado por el documento imprimible. */
@@ -2098,6 +2143,42 @@ export class PaymentCalendarService {
         rank++;
       }
       return result;
+    });
+  }
+
+  /**
+   * `[PGP.76]` **El orden del día entero, en UNA escritura.** Tesorería arrastra un pago (o lo
+   * mueve con el teclado) y la pantalla manda la lista completa de pendientes en su nuevo orden.
+   * Antes cada paso de las flechas eran tres `setPriorityRank` seguidos y una recarga: llevar el
+   * pago 20 al turno 1 costaba 19 clics y 57 escrituras (234 `POST …/orden` en 30 días, 71 con 4xx,
+   * medido el 2026-11-05). Aquí no hay choque posible: todos los turnos cambian en la misma
+   * sentencia, y si la lista no es exactamente la de pendientes del día —otra persona agregó o
+   * quitó un pago mientras se ordenaba— se rechaza entera en vez de dejar un orden a medias.
+   */
+  async reorderDay(date: string, ids: readonly string[], username: string): Promise<DayOrderRank[]> {
+    this.assertDate(date);
+    if (!Array.isArray(ids) || !ids.length || ids.some((x) => typeof x !== 'string' || !x)) {
+      throw new BadRequestException('ids debe ser la lista de pagos pendientes del día en su nuevo orden');
+    }
+    if (new Set(ids).size !== ids.length) throw new BadRequestException('Un pago aparece dos veces en el orden');
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const lot = await trx('finance.payment_calendar_lots').where({ tenant_id: tenantId, lot_date: date }).forUpdate().first();
+      if (!lot) throw new NotFoundException('No hay pagos asignados este día');
+      if (lot.status !== 'draft' && lot.status !== 'scheduled' && lot.status !== 'in_prep') {
+        throw new BadRequestException(`El día ya está en estado "${lot.status}": su orden de pago ya no cambia`);
+      }
+      const pend: Array<{ id: string }> = await trx('finance.payment_allocations').where({ lot_id: lot.id, status: 'pending' }).select('id');
+      const vivos = new Set(pend.map((r) => r.id));
+      if (pend.length !== ids.length || ids.some((id) => !vivos.has(id))) {
+        throw new ConflictException('Los pagos del día cambiaron mientras los ordenabas: recarga y vuelve a moverlo');
+      }
+      await trx.raw(`
+        UPDATE finance.payment_allocations a
+           SET priority_rank = v.r::int, updated_by = ?, updated_at = now()
+          FROM unnest(?::uuid[]) WITH ORDINALITY AS v(id, r)
+         WHERE a.id = v.id AND a.lot_id = ? AND a.priority_rank IS DISTINCT FROM v.r::int`, [username, ids, lot.id]);
+      return ids.map((id, i) => ({ id, priority_rank: i + 1 }));
     });
   }
 

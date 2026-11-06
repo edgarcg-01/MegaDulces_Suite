@@ -6,6 +6,7 @@ import {
   PaymentCalendarService, ObligationSource, CreateAllocationDto, AllocationItemDto,
   PrepareAllocationDto, CreateAgreementDto, ReprogramReason,
 } from './payment-calendar.service';
+import type { DayOrderRank } from './payment-calendar.service';
 import { PaymentCalendarDocumentService } from './payment-calendar-document.service';
 import type { PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 
@@ -205,6 +206,14 @@ export class PaymentCalendarController {
   @ApiOperation({ summary: 'Días ya pasados que todavía tienen pagos pendientes: fecha, cuántos y por cuánto.' })
   pendientesAtrasados(): Promise<PagosAtrasadosDia[]> {
     return this.svc.pendientesAtrasados();
+  }
+
+  /** `[PGP.76]` El orden completo de los pendientes del día, en una sola escritura (arrastrar o teclado). */
+  @Post('days/:date/orden')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_GESTIONAR)
+  @ApiOperation({ summary: 'Fija el orden de pago de TODOS los pendientes del día de una vez; rechaza si la lista no es exactamente la de pendientes.' })
+  reorderDay(@Param('date') date: string, @Body() body: { ids: string[] }, @Req() req: AuthedRequest): Promise<DayOrderRank[]> {
+    return this.svc.reorderDay(date, body?.ids, req.user?.username || 'sistema');
   }
 
   @Post('days/:date/proponer-orden')

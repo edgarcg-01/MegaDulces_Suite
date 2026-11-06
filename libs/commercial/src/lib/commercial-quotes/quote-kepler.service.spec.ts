@@ -19,6 +19,7 @@ interface Escenario {
   reclamo?: boolean;
   sink?: Record<string, unknown>;
   ajena?: boolean;
+  direcciones?: Array<{ key: string }>;
 }
 
 function armar(e: Escenario = {}) {
@@ -39,6 +40,7 @@ function armar(e: Escenario = {}) {
         sql.push(s.replace(/\s+/g, ' ').trim());
         if (s.includes('FROM commercial.quotes q')) return { rows: [cab] };
         if (s.includes('FROM commercial.quote_lines')) return { rows: lineas };
+        if (s.includes('FROM kepler_ods.kdudent')) return { rows: e.direcciones ?? [] };
         if (s.includes('SET kepler_sending_at = now()')) return { rows: e.reclamo === false ? [] : [{ id: ID }] };
         return { rows: [] };
       },
@@ -141,5 +143,77 @@ describe('[COT.7.4] Kepler rechaza: se anota y no se acepta', () => {
     await expect(svc.enviar(ID, {})).rejects.toThrow(/ECONNREFUSED/);
     expect(anotoError(sql)).toBe(true);
     expect(escribioAceptada(sql)).toBe(false);
+  });
+});
+
+describe('[COT.26] la dirección de entrega: con varias no se adivina', () => {
+  const tres = [{ key: '1' }, { key: '2' }, { key: '3' }];
+
+  it('cliente con 3 direcciones y ninguna elegida: 400 y NO llama al ERP', async () => {
+    const { svc, sink } = armar({ direcciones: tres });
+    await expect(svc.enviar(ID, {})).rejects.toThrow(/3 direcciones de entrega/);
+    expect(sink.entregar).not.toHaveBeenCalled();
+  });
+
+  it('la elegida viaja como Dir. envío', async () => {
+    const { svc, sink } = armar({ direcciones: tres, cab: { delivery_address_key: '2' } });
+    await svc.enviar(ID, {});
+    expect(sink.entregar.mock.calls[0][0].direccion_envio).toBe('2');
+  });
+
+  it('una elegida que ya no está en Kepler: 400', async () => {
+    const { svc, sink } = armar({ direcciones: tres, cab: { delivery_address_key: '7' } });
+    await expect(svc.enviar(ID, {})).rejects.toThrow(/ya no está en Kepler/);
+    expect(sink.entregar).not.toHaveBeenCalled();
+  });
+
+  it('con una sola, se usa ésa sin preguntar', async () => {
+    const { svc, sink } = armar({ direcciones: [{ key: '1' }] });
+    await svc.enviar(ID, {});
+    expect(sink.entregar.mock.calls[0][0].direccion_envio).toBe('1');
+  });
+
+  it('fijarDireccion: con folio de Kepler ya no se cambia aquí', async () => {
+    const { svc, sql } = armar({ direcciones: tres, cab: { kepler_folio: '0003788' } });
+    await expect(svc.fijarDireccion(ID, '2', {})).rejects.toThrow(/Dir. envío/);
+    expect(sql.some((x) => x.includes('SET delivery_address_key'))).toBe(false);
+  });
+
+  it('fijarDireccion: una clave ajena al cliente no se guarda', async () => {
+    const { svc, sql } = armar({ direcciones: tres });
+    await expect(svc.fijarDireccion(ID, '9', {})).rejects.toThrow(/no es del cliente/);
+    expect(sql.some((x) => x.includes('SET delivery_address_key'))).toBe(false);
+  });
+
+  it('fijarDireccion: la del cliente se guarda', async () => {
+    const { svc, sql } = armar({ direcciones: tres });
+    await expect(svc.fijarDireccion(ID, '3', {})).resolves.toMatchObject({ elegida: '3', editable: true });
+    expect(sql.some((x) => x.includes('SET delivery_address_key'))).toBe(true);
+  });
+});
+
+describe('[COT.28] observaciones del pedido', () => {
+  it('viajan al ERP con el pedido', async () => {
+    const { svc, sink } = armar({ cab: { order_notes: 'cobrar hoy para entregar hoy mismo' } });
+    await svc.enviar(ID, {});
+    expect(sink.entregar.mock.calls[0][0].observaciones).toBe('cobrar hoy para entregar hoy mismo');
+  });
+
+  it('se guardan en una línea, sin espacios de más', async () => {
+    const { svc, sql } = armar();
+    await expect(svc.fijarObservaciones(ID, '  REMISIÓN\n  urgente ', {})).resolves.toEqual({ order_notes: 'REMISIÓN urgente' });
+    expect(sql.some((x) => x.includes('SET order_notes'))).toBe(true);
+  });
+
+  it('más de 120 caracteres: 400 y no se guarda', async () => {
+    const { svc, sql } = armar();
+    await expect(svc.fijarObservaciones(ID, 'Z'.repeat(121), {})).rejects.toThrow(/120 caracteres/);
+    expect(sql.some((x) => x.includes('SET order_notes'))).toBe(false);
+  });
+
+  it('con folio de Kepler ya no se cambian aquí', async () => {
+    const { svc, sql } = armar({ cab: { kepler_folio: '0003789' } });
+    await expect(svc.fijarObservaciones(ID, 'algo', {})).rejects.toThrow(/Comentarios/);
+    expect(sql.some((x) => x.includes('SET order_notes'))).toBe(false);
   });
 });

@@ -16,7 +16,8 @@ import { countFocusGuard } from './core/guards/count-focus.guard';
 import { unsavedChangesGuard } from './core/guards/unsaved-changes.guard';
 
 /** `[LE.6.9]` Quien tiene la clave del cambio entra a la Ventanilla; los demás siguen en Captura (D34). */
-export const trabajaEnVentanilla: CanMatchFn = () => inject(PermissionsService).has(Permission.FINANCE_CAJA_VENTANILLA);
+// Con la clave EXPLÍCITA: el superadmin pasa todas las claves y no opera la caja (D23, D40).
+export const trabajaEnVentanilla: CanMatchFn = () => inject(PermissionsService).hasExplicit(Permission.FINANCE_CAJA_VENTANILLA);
 
 /**
  * El aux route del panel se activa **sólo si la URL trae algo para el panel**.
@@ -265,6 +266,16 @@ export const routes: Routes = [
         path: 'customers-360',
         loadComponent: () => import('./modules/comercial/pages/comercial-customers-360.component').then(m => m.ComercialCustomers360Component),
         canActivate: [permissionGuard(Permission.COMMERCIAL_CUSTOMERS360_VER)]
+      },
+      {
+        /**
+         * `[ALC]` **Alta de clientes**: desde la constancia del SAT o a mano → la ficha en el orden de
+         * Kepler → crédito (Crédito y Cobranza) → liga con la clave de Kepler. Capturar = `_ALTA_CLIENTES`;
+         * decidir crédito = `_ALTA_CLIENTES_CREDITO` (también ve la bandeja). Lo exige el servidor.
+         */
+        path: 'alta-clientes',
+        loadComponent: () => import('./modules/comercial/pages/comercial-alta-clientes.component').then(m => m.ComercialAltaClientesComponent),
+        canActivate: [anyPermissionGuard(Permission.COMMERCIAL_ALTA_CLIENTES, Permission.COMMERCIAL_ALTA_CLIENTES_CREDITO)]
       },
       // `[MKT.0]` Promos del ERP se mudó al proyecto MKT. Enlaces y marcadores viejos redirigen.
       { path: 'erp-promos', redirectTo: '/mkt/erp-promos', pathMatch: 'full' },

@@ -148,10 +148,15 @@ const ck = (l, c, d = '') => {
   ck('nunca lanza, aunque el cliente no sirva (el actor es metadata)', tiro === false);
   await c.query(`SELECT set_config('app.actor', '', false)`);
 
-  // Y que los 9 importers de datos maestros lo llamen. Uno que se quede sin la línea escribe
-  // historia anónima sin que nada falle — y `reorder_policy` la pisan TRES importers distintos.
+  // Y que los importers de datos maestros lo llamen. Uno que se quede sin la línea escribe
+  // historia anónima sin que nada falle.
+  // `[CANON.5.7]` Salieron dos que ya no existen: `import-kepler-prices` (borrado en PURGA.P1,
+  // y desde entonces esta prueba fallaba por un archivo ausente, no por una firma faltante) e
+  // `import-reorder-policy` (retirado: los umbrales `source=kepler` los mantiene el hop-2 de
+  // `services/feeds-ingest`). ⚠️ El hop-2 NO llama a declararActor: lo que escribe queda en la
+  // historia SIN actor. Es deuda con nombre (anexo CANON.5, H11), no algo que esta prueba cubra.
   const fs = require('fs'); const path = require('path');
-  const IMPORTERS = ['import-kepler-prices', 'import-reorder-policy', 'import-computed-reorder',
+  const IMPORTERS = ['import-computed-reorder',
     'import-network-reorder', 'import-label-data', 'repoint-catalog-cost',
     'repoint-catalog-names', 'repoint-catalog-prices', 'import-margin'];
   const sinFirma = IMPORTERS.filter((n) => {

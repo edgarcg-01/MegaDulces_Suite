@@ -125,6 +125,8 @@ export interface QuoteCatalogRow {
   /** Rótulo del ERP de la unidad mayor: `CJA`, `BTO` (bulto) o `CUB` (cubeta). NULL = no declara. */
   box_label: string | null;
   sold_by_kg: boolean;
+  /** [COT.27] Precio simbólico de Kepler ($0.01): regalo de promoción, la condición está en el nombre. */
+  precio_simbolico?: boolean;
 }
 
 /**
@@ -294,6 +296,8 @@ export interface QuoteDetail {
   kepler_folio?: string | null;
   kepler_sucursal?: string | null;
   kepler_error?: string | null;
+  /** [COT.28] Observaciones del pedido → «Comentarios» en Kepler. Ausente antes de su migración. */
+  order_notes?: string | null;
   created_by_username: string | null;
   /** [E.29] Nombre de quien la elaboró (identity.users.nombre). Ausente en un API anterior a E.29. */
   created_by_name?: string | null;
@@ -310,6 +314,10 @@ export interface EnvioKepler {
   ya_estaba: boolean;
   kepler: { sucursal: string; folio: string; renglones?: number; total?: number };
 }
+
+/** [COT.26] Un domicilio de entrega del cliente en Kepler (kdudent): key = «Dir. envío» del pedido. */
+export interface DireccionEntrega { key: string; calle: string; ciudad: string; telefono: string; ruta: string }
+export interface DireccionesCotizacion { direcciones: DireccionEntrega[]; elegida: string | null; editable: boolean }
 
 @Injectable({ providedIn: 'root' })
 export class QuotesService {
@@ -359,6 +367,18 @@ export class QuotesService {
   /** [COT.7] Acepta la cotización y la escribe como Pedido Telemarketing en el Kepler de su sucursal. */
   enviarAKepler(id: string): Observable<EnvioKepler> {
     return this.http.post<EnvioKepler>(`${this.base}/${id}/kepler`, {});
+  }
+
+  direccionesEntrega(id: string): Observable<DireccionesCotizacion> {
+    return this.http.get<DireccionesCotizacion>(`${this.base}/${id}/delivery-addresses`);
+  }
+
+  fijarDireccionEntrega(id: string, key: string | null): Observable<DireccionesCotizacion> {
+    return this.http.patch<DireccionesCotizacion>(`${this.base}/${id}/delivery-address`, { delivery_address_key: key });
+  }
+
+  fijarObservaciones(id: string, texto: string | null): Observable<{ order_notes: string | null }> {
+    return this.http.patch<{ order_notes: string | null }>(`${this.base}/${id}/order-notes`, { order_notes: texto });
   }
 
   reprice(id: string): Observable<{ quote_id: string; lines: number; changed: number }> {

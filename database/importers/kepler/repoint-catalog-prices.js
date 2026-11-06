@@ -17,8 +17,9 @@
  * clave promo/regalo Kepler $0.01/$0.05) que vivía en `import-prices-bulk` (.245, retirado).
  *
  *   SRC_URL = KP_CONCENTRADA (default .245)  ·  DST_URL / DATABASE_URL_NEW = destino (prod)
- *   node database/importers/kepler/repoint-catalog-prices.js            # dry-run (cuenta)
- *   node database/importers/kepler/repoint-catalog-prices.js --apply
+ *   node database/importers/kepler/repoint-catalog-prices.js            # dry-run: SOLO is_promo
+ *   node database/importers/kepler/repoint-catalog-prices.js --apply    # SOLO is_promo
+ *   node database/importers/kepler/repoint-catalog-prices.js --escribir-precio --apply   # ⛔ pisa el precio (VPR.3)
  */
 const { Client } = require('pg');
 const { declararActor } = require('../lib/declare-actor');
@@ -60,7 +61,12 @@ const SYNC = !process.argv.includes('--gap-fill-only');
 //
 // Lo que este script CONSERVA es `is_promo`: lo recalcula solo el (`ods-derived` unicamente lo
 // lee), asi que borrar el paso del carril habria apagado tambien esa marca sin que nadie lo note.
-const SOLO_PROMO = process.argv.includes('--solo-promo');
+//
+// `[CANON.5.5]` (2026-11-05) — y el apagado ahora es el DEFAULT. Antes `--solo-promo` era opt-in:
+// los carriles lo pasaban, pero quien corriera el script a mano sin bandera volvia a escribir
+// `commercial.product_prices` (SYNC) y deshacia los rechazos de `ods-derived`. Escribir precio
+// exige pedirlo con todas las letras: `--escribir-precio`. `--solo-promo` se sigue aceptando.
+const SOLO_PROMO = !process.argv.includes('--escribir-precio');
 
 (async () => {
   const dst = new Client({ connectionString: DST, ssl: /rlwy|railway|proxy/i.test(DST) ? { rejectUnauthorized: false } : false });

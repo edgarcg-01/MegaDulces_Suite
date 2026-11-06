@@ -167,3 +167,67 @@ export function hoyMx(ahora: Date = new Date()): string {
   // `en-CA` da `YYYY-MM-DD`, que es el formato con el que viaja la fecha en todo el repo.
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City' }).format(ahora);
 }
+
+/**
+ * `[GX.88]` Los estados en los que el vale **ya no espera nada**: se cerró (comprobado) o se
+ * dijo que no. Todo lo demás —incluido un estado que no se reconoce— sigue pendiente.
+ *
+ * ⚠️ Es la lista de los CERRADOS, no la de los pendientes, a propósito: así un estado nuevo
+ * en la tabla cae del lado de «pendiente» y se ve en Atrasados, en vez de desaparecer. Es la
+ * misma red que `sin_etapa`.
+ */
+export const ESTADOS_CERRADOS: readonly string[] = Object.freeze(['validada', 'rechazada']);
+
+/** `[GX.88]` Lo que hace falta saber de un vale atrasado para decir qué le falta. */
+export interface ValeAtrasado {
+  status: string | null | undefined;
+  provisional?: boolean | null;
+  requiere_evidencia?: boolean | null;
+  tiene_evidencia?: boolean | null;
+}
+
+/** `[GX.88]` Qué le falta a un vale atrasado y **a quién le toca** moverlo. */
+export interface QueFalta {
+  texto: string;
+  /** `aprueba` = lo resuelve quien firma; `levanto` = espera a quien lo levantó. */
+  toca: 'aprueba' | 'levanto';
+}
+
+/**
+ * `[GX.88]` **Qué le falta a un vale que se quedó atrás**, dicho en una frase.
+ *
+ * Pedido del usuario (2026-10-30): un apartado en Aprobación *«que te diga cuáles son los que se
+ * quedaron atrasados»*. Que diga **cuáles** no basta: quien aprueba necesita saber si el
+ * siguiente paso es suyo (firmar, revisar el comprobante) o de quien lo levantó (subir la
+ * evidencia). Un atrasado que no dice de quién depende se queda atrasado.
+ */
+export function queFalta(v: ValeAtrasado): QueFalta {
+  const s = String(v.status ?? '').trim().toLowerCase();
+  if (s === 'recibida') return { texto: 'Falta firmarlo: aprobarlo o rechazarlo.', toca: 'aprueba' };
+  if (s === 'revision') return { texto: 'Ya subieron el comprobante: falta revisarlo y darlo por comprobado.', toca: 'aprueba' };
+  if (s === 'aprobada') {
+    if (v.provisional) {
+      return { texto: 'Se aprobó como provisional: falta el comprobante definitivo para cerrarlo.', toca: 'levanto' };
+    }
+    if (v.requiere_evidencia && !v.tiene_evidencia) {
+      return { texto: 'Aprobado: espera que quien lo levantó suba la evidencia.', toca: 'levanto' };
+    }
+    return { texto: 'Aprobado y con evidencia: falta darlo por comprobado.', toca: 'aprueba' };
+  }
+  // Un estado que no conozco no se adivina: se dice, y le toca a quien revisa.
+  return { texto: `Estado desconocido («${s || 'vacío'}»): revísalo.`, toca: 'aprueba' };
+}
+
+/**
+ * `[GX.88]` Días entre el día en que se levantó y hoy (`YYYY-MM-DD`, los dos de México).
+ *
+ * Se cuenta por CALENDARIO, no por horas: un vale de ayer a las 23:50 lleva 1 día de atraso a
+ * las 00:10 de hoy, que es como lo cuenta la gente. Una fecha ilegible da `null`, no 0: cero
+ * diría «es de hoy», que sería falso.
+ */
+export function diasDeAtraso(levantado: string | null | undefined, hoy: string): number | null {
+  const a = diaValido(levantado);
+  const b = diaValido(hoy);
+  if (!a || !b) return null;
+  return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
+}

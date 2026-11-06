@@ -36,6 +36,13 @@ describe('[CG.154] traducirErrorDeCaja', () => {
     expect(frase('caja_exige_llave_chk')).not.toContain('Revisa los datos');
   });
 
+  it('[LE.6.12] el documento que ya tomó la Ventanilla lo dice, no «revisa los datos»', () => {
+    let msg = '';
+    try { traducirErrorDeCaja({ code: '23514', constraint: 'caja_documento_en_el_libro_chk' }); } catch (e) { msg = (e as BadRequestException).message; }
+    expect(msg).toContain('ya se registró en la Ventanilla');
+    expect(msg).not.toContain('Revisa los datos');
+  });
+
   it('un uuid mal formado (22P02) es culpa del dato, no del servidor', () => {
     expect(lanzar({ code: '22P02' })).toThrow(BadRequestException);
   });

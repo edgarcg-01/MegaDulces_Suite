@@ -103,12 +103,6 @@ function routeKind(r: Pick<SalesByRouteRow, 'route_no' | 'route_code'>): RouteKi
   return /^\d+V\d/i.test(r.route_no ?? '') || /VEC/i.test(r.route_code ?? '') ? 'vecinal' : 'directa';
 }
 
-/** `[VEC.36]` Una columna de la comparativa RD vs vecinal, sobre el periodo visible. */
-type KindSummary = {
-  kind: RouteKind; label: string; revenue: number; share: number; routes: number;
-  tickets: number; avgTicket: number | null; perRoute: number | null;
-};
-
 const MES: Record<string, string> = {
   '01': 'Ene', '02': 'Feb', '03': 'Mar', '04': 'Abr', '05': 'May', '06': 'Jun',
   '07': 'Jul', '08': 'Ago', '09': 'Sep', '10': 'Oct', '11': 'Nov', '12': 'Dic',
@@ -202,14 +196,14 @@ const MES: Record<string, string> = {
             <label for="rr-f-prod">Producto</label>
             <p-select inputId="rr-f-prod" [options]="productOpts()" [ngModel]="fProduct()" (ngModelChange)="fProduct.set($event); load()"
                       optionLabel="label" optionValue="value" placeholder="Todos" [showClear]="true"
-                      [filter]="true" filterBy="label" filterPlaceholder="Buscar SKU o nombre…" [resetFilterOnHide]="true"
+                      [filter]="true" filterBy="label,value" filterPlaceholder="Buscar SKU o nombre…" [resetFilterOnHide]="true"
                       [virtualScroll]="true" [virtualScrollItemSize]="34" appendTo="body" styleClass="w-full" ariaLabel="Filtrar por producto" />
           </div>
           <div class="rr-field rr-clientf">
             <label for="rr-f-client">Cliente</label>
             <p-select inputId="rr-f-client" [options]="clientOpts()" [ngModel]="fClient()" (ngModelChange)="fClient.set($event); load()"
                       optionLabel="label" optionValue="value" placeholder="Todos" [showClear]="true"
-                      [filter]="true" filterBy="label" filterPlaceholder="Buscar cliente…" [resetFilterOnHide]="true"
+                      [filter]="true" filterBy="label,value" filterPlaceholder="Buscar cliente o código…" [resetFilterOnHide]="true"
                       [virtualScroll]="true" [virtualScrollItemSize]="34" appendTo="body" styleClass="w-full" ariaLabel="Filtrar por cliente" />
           </div>
           <div class="rr-field">
@@ -217,7 +211,7 @@ const MES: Record<string, string> = {
             <p-iconfield class="rr-vf-search">
               <p-inputicon class="pi pi-search" />
               <input id="rr-f-q" pInputText type="text" [ngModel]="fQuery()" (ngModelChange)="fQuery.set($event)"
-                     placeholder="Ruta o sucursal…" />
+                     placeholder="Ruta, sucursal o chofer…" />
               @if (fQuery()) { <p-inputicon class="pi pi-times rr-vf-clear" (click)="fQuery.set('')" role="button" ariaLabel="Limpiar búsqueda" /> }
             </p-iconfield>
           </div>
@@ -261,47 +255,6 @@ const MES: Record<string, string> = {
         @if (r.rows.length) {
           <app-metric-strip [items]="kpiItems()" ariaLabel="Resumen de ventas por ruta" />
 
-          <!-- [VEC.36] RD contra vecinal, mismo periodo y filtros que la tabla. El encabezado de
-               cada columna filtra la tabla a ese tipo (el número lleva a sus rutas). -->
-          @if (showKindCompare()) {
-            <section class="card-premium card-flat rr-cmp" aria-labelledby="rr-cmp-title">
-              <h2 id="rr-cmp-title" class="rr-cmp-title">Ruta directa contra vecinal</h2>
-              <p-table [value]="cmpRows" styleClass="p-datatable-sm surf-table surf-table--plain">
-                <ng-template #header>
-                  <tr>
-                    <th scope="col"><span class="sr-only">Indicador</span></th>
-                    @for (k of kindSummary(); track k.kind) {
-                      <th scope="col" class="comm-num">
-                        <button type="button" class="rr-link" [class.rr-cmp-on]="fTipo() === k.kind"
-                                (click)="setTipo(fTipo() === k.kind ? 'todas' : k.kind)"
-                                [attr.aria-pressed]="fTipo() === k.kind"
-                                [attr.aria-label]="'Ver sólo ' + k.label">{{ k.label }}</button>
-                      </th>
-                    }
-                  </tr>
-                </ng-template>
-                <ng-template #body let-m>
-                  <tr>
-                    <th scope="row" class="rr-cmp-lbl">{{ m.label }}</th>
-                    @for (k of kindSummary(); track k.kind) {
-                      <td class="comm-num" [class.rr-strong]="m.key === 'revenue'">
-                        @switch (m.key) {
-                          @case ('revenue') { {{ k.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }} }
-                          @case ('share') { {{ k.share | number:'1.0-1' }}% }
-                          @case ('routes') { {{ k.routes | number }} }
-                          @case ('tickets') { {{ k.tickets | number }} }
-                          @case ('avgTicket') { @if (k.avgTicket != null) { {{ k.avgTicket | currency:'MXN':'symbol-narrow':'1.0-0' }} } @else { — } }
-                          @case ('perRoute') { @if (k.perRoute != null) { {{ k.perRoute | currency:'MXN':'symbol-narrow':'1.0-0' }} } @else { — } }
-                        }
-                      </td>
-                    }
-                  </tr>
-                </ng-template>
-              </p-table>
-              <p class="rr-note">Sin comparación contra el año anterior: la venta vecinal existe en el sistema desde abril de 2026.</p>
-            </section>
-          }
-
 
           <div class="so-actions-bar">
             <span class="text-xs text-content-muted">{{ filteredRows().length }}@if (filteredRows().length !== r.rows.length) { de {{ r.rows.length }}} rutas · año {{ r.year }}@if (periodLabel()) { · {{ periodLabel() }}}</span>
@@ -332,7 +285,9 @@ const MES: Record<string, string> = {
                   <td pFrozenColumn class="rr-strong">
                     <!-- Botón real: el drill es accesible por teclado (la fila (click) queda para mouse). -->
                     <button type="button" class="rr-link" (click)="$event.stopPropagation(); openRoute(row)"
-                            [attr.aria-label]="'Ver desglose de la ruta ' + row.route_no">Ruta {{ row.route_no }}</button>
+                            [attr.aria-label]="'Ver desglose de la ruta ' + row.route_no + (row.driver_name ? ', chofer ' + row.driver_name : '')">Ruta {{ row.route_no }}</button>
+                    <!-- [VEC.41] El chofer de hoy; sin fuente que lo sepa, se dice — no se deja en blanco. -->
+                    <span class="rr-chofer" [class.rr-chofer--sin]="!row.driver_name">{{ row.driver_name || 'sin chofer asignado' }}</span>
                   </td>
                   @for (m of visibleMonths(); track m) {
                     <td class="comm-num">
@@ -1139,6 +1094,9 @@ const MES: Record<string, string> = {
     .rr-dep-sub { margin:0 0 var(--sp-2); font-size:var(--fs-micro); color:var(--text-muted); }
     .rr-dep-sub:last-child { margin:var(--sp-2) 0 0; }
     .rr-tenue { color:var(--text-faint); }
+    /* [VEC.41] El chofer, debajo de la ruta: secundario, no compite con el número. */
+    .rr-chofer { display:block; font-size:var(--fs-micro); font-weight:400; color:var(--text-muted); white-space:nowrap; }
+    .rr-chofer--sin { color:var(--text-faint); }
     .rr-bad { color:var(--bad-fg); }
     .rr-warn { color:var(--warn-fg); }
     .rr-ok { color:var(--ok-fg); }
@@ -1187,10 +1145,6 @@ const MES: Record<string, string> = {
     :host ::ng-deep .rr-vf-num { width:8rem; }
     .rr-vf-chk { display:inline-flex; align-items:center; gap:.4rem; font-size:.82rem; color:var(--text-muted); cursor:pointer; }
     app-metric-strip { display:block; margin-bottom:1rem; }
-    .rr-cmp { padding:var(--sp-3) var(--sp-4); margin-bottom:var(--sp-4); max-width:640px; }
-    .rr-cmp-title { font-size:var(--fs-sm); font-weight:600; margin:0 0 var(--sp-2); }
-    .rr-cmp-lbl { font-weight:400; color:var(--text-muted); text-align:left; }
-    .rr-cmp-on { text-decoration:underline; text-underline-offset:3px; }
     .so-actions-bar { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1rem; }
     .rr-table-card { padding:1.25rem; }
     /* Sticky/frozen/tema los da PrimeNG + surf-table; sólo jerarquía visual acá. */
@@ -1390,44 +1344,6 @@ export class ComercialVentasPorRutaComponent {
     ];
   });
 
-  /**
-   * `[VEC.36]` RD contra vecinal en el MISMO periodo y con los mismos filtros de vista que la
-   * tabla (salvo el tipo, que es lo que se compara). El % es sobre la suma de las dos, o sea lo
-   * que está en pantalla. «Rutas» cuenta sólo las que vendieron en el periodo: una ruta en $0
-   * bajaría la venta por ruta sin decir nada de las que sí salen.
-   * ⚠️ Sin año anterior: la vecinal sale del ODS desde abr-2026 (medido 2026-11-04), así que una
-   * variación contra 2025 sería crecimiento inventado.
-   */
-  readonly kindSummary = computed<KindSummary[]>(() => {
-    const rows = this.rowsSinTipo();
-    const total = rows.reduce((s, r) => s + r._revenue, 0);
-    return (['directa', 'vecinal'] as RouteKind[]).map((kind) => {
-      const mine = rows.filter((r) => routeKind(r) === kind);
-      const revenue = mine.reduce((s, r) => s + r._revenue, 0);
-      const tickets = mine.reduce((s, r) => s + r._tickets, 0);
-      const routes = mine.filter((r) => r._revenue > 0).length;
-      return {
-        kind, label: kind === 'vecinal' ? 'Vecinal' : 'Ruta directa', revenue,
-        share: total > 0 ? (revenue / total) * 100 : 0, routes, tickets,
-        avgTicket: tickets > 0 ? revenue / tickets : null,
-        perRoute: routes > 0 ? revenue / routes : null,
-      };
-    });
-  });
-
-  /** Renglones de la comparativa, en el orden en que se leen: cuánto, qué peso, con qué. */
-  readonly cmpRows: { key: keyof KindSummary; label: string }[] = [
-    { key: 'revenue', label: 'Venta' },
-    { key: 'share', label: '% de la venta' },
-    { key: 'routes', label: 'Rutas con venta' },
-    { key: 'tickets', label: 'Tickets' },
-    { key: 'avgTicket', label: 'Ticket promedio' },
-    { key: 'perRoute', label: 'Venta por ruta' },
-  ];
-
-  /** La comparativa sólo se muestra si en pantalla hay de las dos. */
-  readonly showKindCompare = computed(() => this.kindSummary().every((k) => k.revenue > 0));
-
   /** Filas de los demás filtros de vista = `rowsBase` + sólo activas. */
   private readonly rowsSinTipo = computed<ViewRow[]>(() => {
     const rows = this.rowsBase();
@@ -1442,7 +1358,7 @@ export class ComercialVentasPorRutaComponent {
     const min = this.fMinRevenue(); const max = this.fMaxRevenue();
     return this.periodRows().filter((row) => {
       if (wh.length && !wh.includes(row.warehouse_code)) return false;
-      if (q) { const hay = `${row.warehouse_name} ${row.route_no} ${row.route_code}`.toLowerCase(); if (!hay.includes(q)) return false; }
+      if (q) { const hay = `${row.warehouse_name} ${row.route_no} ${row.route_code} ${row.driver_name ?? ''}`.toLowerCase(); if (!hay.includes(q)) return false; }
       if (only && row._revenue <= 0) return false;
       if (min != null && row._revenue < min) return false;
       if (max != null && row._revenue > max) return false;
@@ -1496,7 +1412,8 @@ export class ComercialVentasPorRutaComponent {
   readonly detailSubtitle = computed(() => {
     const d = this.detail();
     if (!d) return null;
-    const parts = [`Ruta ${d.route_no}`, String(d.year)];
+    const chofer = this.peekRow()?.driver_name;
+    const parts = [chofer ? `Ruta ${d.route_no} · ${chofer}` : `Ruta ${d.route_no}`, String(d.year)];
     if (this.periodLabel()) parts.push(this.periodLabel());
     if (this.fProduct() || this.fClient()) parts.push('filtrado');
     return parts.join(' · ');
@@ -2102,15 +2019,32 @@ export class ComercialVentasPorRutaComponent {
     };
   }
 
+  /**
+   * `[VEC.40]` **La última petición de cada carril manda; una respuesta vieja se descarta.**
+   *
+   * Lo mismo que `[VEC.24]` ya hizo para el arqueo y el crédito (`sigueSiendoMia`), que faltaba en
+   * el desglose, los tickets y el reporte. El desglose tarda de 1 a 7 s: abrir la ruta A y luego
+   * la B dejaba que la respuesta de A, si llegaba después, se pintara bajo la B — con la fila, los
+   * depósitos y el arqueo ya de la B. «Elijo una ruta y me sale otra».
+   */
+  private turnoDetalle = 0;
+  private turnoTickets = 0;
+  private turnoReporte = 0;
+
   loadTickets(reset = false) {
     if (!this.detail()) return;
     if (reset) this.tkOffset.set(0);
     this.tkLoading.set(true);
+    const turno = ++this.turnoTickets;
     this.svc.salesByRouteTickets(this.ticketParams())
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (p) => { this.tkPage.set(p); this.tkLoading.set(false); },
+        next: (p) => {
+          if (turno !== this.turnoTickets) return;
+          this.tkPage.set(p); this.tkLoading.set(false);
+        },
         error: (e) => {
+          if (turno !== this.turnoTickets) return;
           this.tkLoading.set(false);
           this.toast.add({ severity: 'error', summary: 'Error al cargar tickets', detail: e?.error?.message });
         },
@@ -2220,11 +2154,16 @@ export class ComercialVentasPorRutaComponent {
   load() {
     this.loading.set(true);
     this.error.set(null);
+    const turno = ++this.turnoReporte;
     this.svc.salesByRoute(this.params())
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (r) => { this.report.set(r); this.loading.set(false); },
+        next: (r) => {
+          if (turno !== this.turnoReporte) return;
+          this.report.set(r); this.loading.set(false);
+        },
         error: (e) => {
+          if (turno !== this.turnoReporte) return;
           this.loading.set(false);
           this.error.set(e?.error?.message || 'No se pudo consultar el reporte. Revisa la conexión e intenta de nuevo.');
         },
@@ -2300,6 +2239,9 @@ export class ComercialVentasPorRutaComponent {
     this.detailLoading.set(true);
     this.peekOpen.set(true);
     // El estado del panel es por ruta: si no se limpia, la ruta nueva hereda el drill anterior.
+    // `[VEC.40]` Y los tickets en vuelo de la ruta anterior quedan sin dueño.
+    this.turnoTickets++;
+    this.tkLoading.set(false);
     this.tkPage.set(null);
     this.ticket.set(null);
     this.tkQuery.set(''); this.tkUnit.set(null); this.tkDocType.set(null);
@@ -2326,6 +2268,7 @@ export class ComercialVentasPorRutaComponent {
   private fetchDetail(routeCode: string) {
     const b = this.dayBounds() ?? this.detailBounds();
     this.detailLoading.set(true);
+    const turno = ++this.turnoDetalle;
     this.svc.salesByRouteDetail(routeCode, this.year, {
       from: b.from, to: b.to,
       sku: this.dSku() || undefined,
@@ -2335,11 +2278,13 @@ export class ComercialVentasPorRutaComponent {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (d) => {
+          if (turno !== this.turnoDetalle) return;
           this.dailyMax = Math.max(1, ...d.daily.map((x) => x.revenue));
           this.detail.set(d);
           this.detailLoading.set(false);
         },
         error: (e) => {
+          if (turno !== this.turnoDetalle) return;
           this.detailLoading.set(false);
           if (!this.detail()) this.peekOpen.set(false);
           this.toast.add({ severity: 'error', summary: 'Error al cargar el desglose', detail: e?.error?.message });

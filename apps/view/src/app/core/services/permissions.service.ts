@@ -93,6 +93,15 @@ export class PermissionsService {
     return this.perms()[permission as string] === true;
   }
 
+  /**
+   * `[LE.6.9]` La clave EXPLÍCITA, sin el paso libre de los roles de plataforma: para lo que un
+   * superadmin no hace aunque pase todas las claves (operar la caja, D23). Hoy: quién trabaja en la
+   * Ventanilla. PM 2026-11-05: «hay que regresar al sistema de captura anterior».
+   */
+  hasExplicit(permission: Permission | string): boolean {
+    return this.perms()[permission as string] === true;
+  }
+
   hasAny(...permissions: Array<Permission | string>): boolean {
     if (this.isAdmin()) return true;
     const p = this.perms();

@@ -1,4 +1,4 @@
-import { ESTADOS_DECIDIDOS, PESTANAS, diaValido, esperaDecision, etapaDe, hoyMx, particionarDelDia, type EtapaGasto, type ExpedienteDelDia, visibleEn } from './etapas-del-dia';
+import { ESTADOS_CERRADOS, ESTADOS_DECIDIDOS, PESTANAS, diaValido, diasDeAtraso, esperaDecision, etapaDe, hoyMx, particionarDelDia, queFalta, type EtapaGasto, type ExpedienteDelDia, visibleEn } from './etapas-del-dia';
 
 /**
  * `[GX.20]` Esta partición decide **qué trabajo se ve y cuál no**. Un expediente que cae en
@@ -238,5 +238,81 @@ describe('[GX.67] ESTADOS_DECIDIDOS y esperaDecision', () => {
     for (const e of ['recibida', 'aprobada', 'revision', 'validada', 'rechazada', 'raro']) {
       expect(esperaDecision(e)).toBe(!ESTADOS_DECIDIDOS.includes(e));
     }
+  });
+});
+
+/**
+ * `[GX.88]` **Los atrasados.** Pedido del usuario (2026-10-30): un apartado que diga cuáles se
+ * quedaron atrasados, en orden. Medido en prod ese día: 5 vales ($78,804.91) esperaban que
+ * alguien los diera por comprobados y no aparecían en ningún lado de la pantalla.
+ */
+describe('[GX.88] qué cuenta como cerrado', () => {
+  it('sólo validada y rechazada: lo demás sigue abierto y va a Atrasados', () => {
+    expect(ESTADOS_CERRADOS).toEqual(['validada', 'rechazada']);
+  });
+
+  /** ⛔ El servidor filtra con `whereNotIn(ESTADOS_CERRADOS)`: un estado nuevo cae en Atrasados, a la vista. */
+  it('⛔ NEGATIVA: los estados abiertos del ciclo NO están en la lista de cerrados', () => {
+    for (const s of ['recibida', 'aprobada', 'revision']) expect(ESTADOS_CERRADOS).not.toContain(s);
+  });
+});
+
+describe('[GX.88] qué le falta a un atrasado, y a quién le toca', () => {
+  it('sin firmar: le toca a quien aprueba', () => {
+    expect(queFalta({ status: 'recibida' })).toEqual({ texto: 'Falta firmarlo: aprobarlo o rechazarlo.', toca: 'aprueba' });
+  });
+
+  it('con el comprobante subido después: le toca a quien aprueba revisarlo', () => {
+    const f = queFalta({ status: 'revision' });
+    expect(f.toca).toBe('aprueba');
+    expect(f.texto).toContain('falta revisarlo');
+  });
+
+  it('aprobado como provisional: espera el comprobante definitivo de quien lo levantó', () => {
+    const f = queFalta({ status: 'aprobada', provisional: true, requiere_evidencia: false });
+    expect(f.toca).toBe('levanto');
+    expect(f.texto).toContain('provisional');
+  });
+
+  it('aprobado sin evidencia que la pide: espera a quien lo levantó', () => {
+    const f = queFalta({ status: 'aprobada', provisional: false, requiere_evidencia: true, tiene_evidencia: false });
+    expect(f.toca).toBe('levanto');
+    expect(f.texto).toContain('suba la evidencia');
+  });
+
+  it('aprobado y con evidencia: falta darlo por comprobado, le toca a quien aprueba', () => {
+    const f = queFalta({ status: 'aprobada', provisional: false, requiere_evidencia: true, tiene_evidencia: true });
+    expect(f.toca).toBe('aprueba');
+    expect(f.texto).toContain('darlo por comprobado');
+  });
+
+  it('⛔ un estado desconocido se dice tal cual, no se adivina', () => {
+    const f = queFalta({ status: 'pagada' });
+    expect(f.texto).toContain('«pagada»');
+    expect(f.toca).toBe('aprueba');
+    expect(queFalta({ status: null }).texto).toContain('«vacío»');
+  });
+
+  it('no se cae por mayúsculas ni espacios', () => {
+    expect(queFalta({ status: ' RECIBIDA ' }).toca).toBe('aprueba');
+  });
+});
+
+describe('[GX.88] días de atraso', () => {
+  it('cuenta días de calendario', () => {
+    expect(diasDeAtraso('2026-10-29', '2026-10-30')).toBe(1);
+    expect(diasDeAtraso('2026-08-25', '2026-10-30')).toBe(66);
+    expect(diasDeAtraso('2026-10-30', '2026-10-30')).toBe(0);
+  });
+
+  it('cruza fin de mes y de año sin correrse', () => {
+    expect(diasDeAtraso('2026-12-31', '2027-01-01')).toBe(1);
+    expect(diasDeAtraso('2026-02-28', '2026-03-01')).toBe(1);
+  });
+
+  it('⛔ una fecha ilegible da null, no 0 (0 diría «es de hoy»)', () => {
+    expect(diasDeAtraso('25/10/2026', '2026-10-30')).toBeNull();
+    expect(diasDeAtraso(null, '2026-10-30')).toBeNull();
+    expect(diasDeAtraso('2026-10-29', 'basura')).toBeNull();
   });
 });

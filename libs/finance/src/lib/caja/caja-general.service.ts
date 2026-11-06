@@ -10,6 +10,24 @@ import {
   type CobroDeRuta, type ParLibro, type RenglonLibro,
 } from './caja-kepler-libro.engine';
 import { frescuraCaja, primerCorteDelLibro } from './caja-relevo';
+import { datosBalance, entradasDeHuecos, HUECOS_NO_MEDIDOS, type DatosBalance } from './caja-cuadre-huecos.query';
+import { armaHuecos, resumeHuecos, type Hueco, type ResumenHuecos, type TipoHueco } from './caja-huecos.engine';
+import { balanceFisico, type Balance } from './caja-balance-fisico.engine';
+
+/** `[LE.CU.3]` Los huecos de Caja General del periodo (`cuadreHuecos`). */
+export interface CuadreHuecosRespuesta {
+  period: { from: string; to: string };
+  datos_al: string | null;
+  huecos: Hueco[];
+  resumen: ResumenHuecos;
+  no_medido: TipoHueco[];
+  ms: { [fuente: string]: number };
+}
+
+/** `[LE.CU.3]` El balance físico del periodo (`cuadreBalance`); `balance: null` sin cortes cerrados. */
+export type CuadreBalanceRespuesta =
+  | { period: { from: string; to: string }; balance: null }
+  | ({ period: { from: string; to: string }; balance: Balance } & DatosBalance);
 
 /**
  * Fase CG.3 — Caja General (control venta diaria → depósito bancario + arqueo).
@@ -702,6 +720,47 @@ export class CajaGeneralService {
    * para el desglose por día del "Vs Workbook". Espejo del `/general` pero del lado
    * manual, para comparar movimiento a movimiento contra el .mdb en el día expandido.
    */
+  /**
+   * ⭐ `[LE.CU.3]` **Los huecos de Caja General**: cada peso sin explicación, con su dueño, su
+   * certeza y su acción (`FASE_LE_ANEXO_CUADRE.md`). Lo arma `caja-cuadre-huecos.query` y lo
+   * clasifica `caja-huecos.engine`; acá sólo se publica, con lo que NO se midió dicho por su nombre.
+   * Sólo lectura. Las cifras de la ventana 12-oct→3-nov se reproducen con
+   * `database/scripts/verify-lecu1-flujo-efectivo-caja.js`.
+   */
+  async cuadreHuecos(q: CajaQuery): Promise<CuadreHuecosRespuesta> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const [from, to] = this.range(q);
+    const hoy = diaMxDeInstante(new Date()) ?? to;
+    return this.tk.run(async (trx) => {
+      const { entradas, ms } = await entradasDeHuecos(trx, tenantId, from, to, hoy);
+      const huecos = armaHuecos(entradas);
+      return {
+        period: { from, to },
+        datos_al: await frescuraCaja(trx, tenantId),
+        huecos,
+        resumen: resumeHuecos(huecos),
+        // ADR-056: lo que esta versión no mide se publica como tal, nunca como cero.
+        no_medido: [...HUECOS_NO_MEDIDOS],
+        ms,
+      };
+    });
+  }
+
+  /**
+   * ⭐ `[LE.CU.3]` **El balance físico del periodo**: cajón contado + bóveda contra el libro, con el
+   * bulto tecleado como morralla aparte (§36.4–36.5). `medible: false` si falta la bóveda de un
+   * extremo; `null` si no hay cortes cerrados en el periodo.
+   */
+  async cuadreBalance(q: CajaQuery): Promise<CuadreBalanceRespuesta> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const [from, to] = this.range(q);
+    return this.tk.run(async (trx) => {
+      const d = await datosBalance(trx, tenantId, from, to);
+      if (!d) return { period: { from, to }, balance: null };
+      return { period: { from, to }, balance: balanceFisico(d.entrada), entrada: d.entrada, inicio: d.inicio, fin: d.fin, replay: d.replay, cortes: d.cortes };
+    });
+  }
+
   async workbookMovimientos(q: CajaQuery) {
     const tenantId = this.tenantCtx.requireTenantId();
     const [from, to] = this.range(q);

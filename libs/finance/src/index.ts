@@ -99,5 +99,6 @@ export * from './lib/payment-calendar/payment-calendar-document.service';
 export { CashbookService, type UsuarioDelLibro } from './lib/cashbook/cashbook.service';
 export { CashbookController } from './lib/cashbook/cashbook.controller';
 export { CashbookCaosCarril } from './lib/cashbook/cashbook-caos.carril';
+export { CashbookVentanillaService } from './lib/cashbook/cashbook-ventanilla.service';
 export * from './lib/supplier-payment-accounts/finance-supplier-payment-accounts.module';
 export * from './lib/supplier-payment-accounts/supplier-payment-accounts.service';

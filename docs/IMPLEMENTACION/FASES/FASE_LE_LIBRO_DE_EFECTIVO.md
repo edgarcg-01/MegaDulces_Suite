@@ -715,6 +715,143 @@ hallazgo con dueño. El gasto de oficinas no es reposición (D32): se paga direc
 Hoy son **dos personas** que nombró el PM el 2026-11-04; sus nombres viven en el catálogo de la base
 y en el Tablero PM, **no en este repo público**.
 
+### 5.6 Captura, medida: qué hace, cómo se trabaja hoy y qué le falta a la Ventanilla (2026-11-05)
+
+**Pedido literal** (Edgar, 2026-11-05): *«necesitas entender cómo funciona caja (captura) y cómo se
+trabaja hoy para poder fusionar ventanilla con caja (captura), porque al parecer no evaluaste todo»*
+→ *«un análisis profundo de toda la estructura, capa de datos, backend y muy importante frontend; ya
+era una arquitectura buena, pero mencionabas que la tuya ya era mejor»*.
+
+**La corrección, primero.** La Ventanilla se construyó contra el diseño de §5.2–§5.5 sin medir
+Captura. Como **modelo del libro** corrige defectos reales de Captura (abajo); como **reemplazo de la
+pantalla** no está lista: de los 55 actos que Captura ofrece, la Ventanilla no cubre entero ninguno,
+23 en parte y 32 no los tiene. La cifra «hoy cubre 509 de 784 movimientos (65 %)» de §5.3 no se
+sostiene: la cola de pagos de la Ventanilla sólo lista la sucursal 00 (ver G2).
+
+**Cómo se midió.**
+
+- **Uso**: copia de prod en local (`finance.*`, `analytics.*`, 60 días, copiada el 2026-11-05 11:12),
+  ventana de 30 días (06-oct → 05-nov). Sólo lectura.
+- **Pantalla**: Playwright contra `megadulcessuite.com` **como la cajera** (rol `finanzas` sin la
+  clave de la Ventanilla): la pantalla recibe el rol de la cajera, el servidor la sesión real, y toda
+  escritura se aborta; el blindaje se probó con una sonda antes de mirar. Capturas en el scratchpad de
+  la sesión, no en el repo.
+- **Código**: inventario de la pantalla (55 actos, `finanzas-caja-general.component.ts`, 9,279
+  líneas) y del servidor (26 actos que escriben en `libs/finance/src/lib/caja`, más las reglas de la
+  base), cada uno contra su equivalente en `cashbook`.
+
+#### Cómo se trabaja hoy (30 días, 835 movimientos, 4 cuentas capturan, ~30 al día, máximo 81)
+
+| Qué | Cuántos | Lo que dice del proceso |
+|---|---:|---|
+| Pagos X-D-26 / X-D-60 / X-D-25 | 549 | **411 (75 %) son documentos de las otras 8 sucursales**; sólo 138 son de la 00 |
+| Cobros U-A-5 de ruta | 173 | **95 mixtos (55 %)**: billetes a la máquina y el resto al cajón · 66 todo al cajón · 12 todo a la máquina |
+| Cobros U-A-5 de sucursal | 73 | 22 mixtos · 50 todo al cajón · 1 todo a la máquina |
+| Lo que la ruta deja en el cajón en un cobro mixto | — | **todas** las monedas, los billetes de $1,000 (la máquina no los toma) y billetes que rechaza; mediana $151, máximo $4,172 |
+| Pagos con origen declarado (desde el 27-oct) | 209 | 107 de la máquina (49 mixtos máquina + cajón) · **102 sólo del cajón, con billetes** |
+| Cobros y pagos con piezas contadas | 747 de 795 | el arqueo por pieza ya es la práctica |
+| Gastos con firma de conformidad | 68 | 18 pedidas al teléfono |
+| Capturados el mismo día | 67 % | cobros: **136 de 246 se capturan 2 días o más después** de su fecha en Kepler |
+| Movimientos de la máquina sin ninguna captura | 94 | 48 depósitos y 46 retiros (además Dotar, Vaciar, Fin de Día y Cambio) |
+| Cortes cerrados | 21 | **19 con diferencia** |
+| Cobros de varias rutas o de varios días (los que la Ventanilla detiene) | 0 | el caso no se presentó en el mes |
+
+#### Cómo funciona Captura (frontend, visto en prod)
+
+Una sola pantalla, **sin scroll de página** (la cola se desplaza adentro), con el patrón «cola → panel
+al lado»:
+
+1. **Arriba, la respuesta**: «Por confirmar 94 · De un clic 91 · Mal fechados 17», el saldo («sin corte
+   abierto — la caja no tiene punto de partida»), «Tu jornada» y «Reposición».
+2. **La cola**: cada movimiento que Kepler ya registró en la caja (U-A-5, X-D-26, X-D-60, X-D-25,
+   X-A-45, U-A-25) **de todas las sucursales**, con filtros (signo, grupo, caja del catálogo, búsqueda),
+   frescura de Kepler, motivos agrupados y actualización en vivo. Si el servidor encuentra el depósito
+   o el retiro de la máquina que le corresponde, lo adjunta en la fila («⇄ del cajero · retiene $Y»).
+3. **El panel «El arqueo»** (al abrir la fila, con el foco ya en la primera pieza): de dónde salió el
+   dinero (retiro de la máquina o cajón), los depósitos de la máquina ligados con sus billetes («$X ya
+   contado por la máquina») y la reja **«La diferencia, a mano»** para las monedas y lo rechazado,
+   cheque o papel, morralla, «¿Diste cambio?», firma «Recibí conforme» (en pantalla o en el teléfono),
+   veredicto contra Kepler y «N cosas por resolver». Guardar pide confirmación y puede imprimir ticket.
+4. **El día**: abrir corte con el fondo heredado → contar a ciegas → recontar una vez con motivo →
+   cheques, papeles y dólares → cerrar → **autoriza otra persona**.
+5. **Teclado**: atajos escritos en pantalla (`←` `→` acceso · `↑` `↓` fila · `Enter` arquear · `Esc`
+   volver; en el arqueo `↑` `↓` entre renglones y `↓` al final a Guardar). `Enter` abre el arqueo con el
+   foco en la primera pieza y `Esc` regresa el foco a la fila. Falta el foco inicial: **35 `Tab`** desde
+   que carga hasta la primera fila.
+6. **Medido**: 134 controles, 0 sin nombre, 0 campos sin etiqueta; 3 objetivos menores de 24 px;
+   contraste bajo en «17» (ámbar, 1.95:1) y «91» (verde, 3.00:1). Carga en ~7 s con 18 consultas; la
+   cola tarda 2.6 s.
+
+#### Lo que Captura hace mal y el libro nuevo corrige
+
+- **La caja y la bóveda en una sola cuenta.** El esperado del corte mezcla lo de la máquina con lo del
+  cajón, la jornada del libro es la fecha de captura y la de la máquina su fecha contable; con un
+  tercio capturado días después, 19 de 21 cortes no cuadran. El libro nuevo separa cajón, bóveda,
+  custodia y Suspenso por pieza.
+- **Lo que la máquina hace sin captura no se ve**: 94 movimientos en el mes. El libro nuevo lo manda a
+  Suspenso a nombre del usuario de la máquina.
+- **Nada frena un retiro**: no hay orden ni código; la Ventanilla sí (V2).
+- **Contar distinto de Kepler no levanta hallazgo**: `empujarDescuadre` existe y nadie la llama.
+- **Cancelar no libera el vínculo con la máquina**, y no hay cancelación en la pantalla.
+- **Defectos de pantalla**: «¿parte de esto salió de la bóveda?» aparece también en un ingreso;
+  `Enter` en «Qué pasó» guarda sin la confirmación; una captura a medias se pierde al cerrarla.
+
+#### Lo que le falta a la Ventanilla para reemplazar a Captura, por dinero
+
+| # | Hueco | Uso medido (30 días) | Dónde |
+|---|---|---|---|
+| G1 | **Cobro mixto**: obliga a elegir «cajón» o «máquina» y compara lo del cajón contra todo lo que espera Kepler («Faltan $X: la ruta los sigue debiendo», falso) | 95 de 173 cobros de ruta, 22 de 73 de sucursal | `finanzas-caja-ventanilla.component.ts` («¿Cómo llegó este dinero?»); `cashbook-ventanilla.service.ts` `recibir` |
+| G2 | **Pagos de otras sucursales**: «Por pagar» sólo lista la sucursal 00 | 411 de 549 pagos (75 %) | `movimientosPendientes({ … sucursal: SUCURSAL_CAJA_GENERAL })` |
+| G3 | **Pagar con billetes del cajón**: el cajón sólo pone monedas (V1, «los billetes viven en la bóveda») | 102 pagos sólo del cajón desde el 27-oct; 66 rutas entregaron todo al cajón | `conteo-cajon` con `conBilletes=false` en pagar |
+| G4 | **El día y el corte**: no hay reconteo, ni morralla, ni «no hay efectivo», ni cheques, papeles y dólares en el arqueo, ni doble llave al cerrar; el día del libro sigue abierto desde el 27-oct | 21 cortes | `ventanilla-dia.component.ts` |
+| G5 | **Firma de conformidad** con imagen (sólo pide el nombre) | 68 gastos firmados | — |
+| G6 | **Otros documentos**: X-A-45, U-A-25, X-D-25, sin clasificar, otras cajas | 3 X-D-25; los demás NO MEDIDOS | cola de la Ventanilla |
+| G7 | **Cuentas**: una fila sin cuenta queda detenida; no se declara ni se corrige | — | `ventanilla.util.ts` |
+| G8 | **Historial, folio, ticket y reporte del día** | — | — |
+| G9 | **Cheques y papeles por movimiento, cambio devuelto** | ~0 (D37) y 7 | — |
+| G10 | **Actualización en vivo** (Captura: socket + 20 s; Ventanilla: botón) | — | — |
+
+Lo que la Ventanilla hace y Captura no: orden con código para la máquina, Suspenso, custodias,
+reposición dentro del libro, tope del cajón, usuarios de la máquina, arqueo sorpresa con testigo y
+hallazgos.
+
+#### Riesgos de tener las dos vivas
+
+- **Doble registro.** La Ventanilla revisa el libro viejo antes de asentar; el viejo **no** revisa el
+  nuevo (la vista de pendientes no menciona `cashbook`): lo que se pague en la Ventanilla sigue en la
+  cola de Captura, del lote y del autollenado (que en prod corrió «hace 31 min» según «Tu jornada»; si
+  escribe depende de `ENABLE_CAJA_AUTOLLENADO`, NO MEDIDO). Y al recibir un cobro la Ventanilla no mira
+  `declared_doc_ref`, que es donde Captura deja el U-A-5 cuando captura desde la máquina.
+- **Hoy no muerde**: `20943a05f` (en prod desde el 2026-11-05) trae la Ventanilla, pero sólo la ve quien
+  tiene `FINANCE_CAJA_VENTANILLA`, y a las 11:16 nadie la tenía (copia de prod); después de esa hora,
+  NO MEDIDO. Los superadmin la ven y la base no los deja operar (D23).
+- **La cola de la Ventanilla sale del servidor viejo** (`movimientos-pendientes` y su resolvedor de
+  cuentas): retirar ese servidor sin portarla deja a la Ventanilla sin cola.
+
+#### Recomendación para la fusión (D38–D40, firmadas por el PM el 2026-11-05: *«hagámoslo»*)
+
+**La pantalla única se arma sobre el patrón de Captura** (cola de Kepler de todas las sucursales →
+arqueo al lado, con su teclado, firma y ticket), que es lo que la cajera ya sabe hacer y lo que cubre
+el 100 % del mes, **y gana lo de la Ventanilla** (Suspenso, custodias, reposición, orden con código,
+tope, día del libro) como grupos de la misma cola. **Guardar escribe el libro nuevo**, partiendo las
+piezas entre máquina y cajón. El orden, por el método (C2 antes que C3) y dinero × esfuerzo:
+
+0. **Seguridad**: el candado de doble registro en los dos sentidos, **antes de dar la clave a nadie**.
+1. G1, el cobro mixto: recibir acepta los depósitos ligados más las piezas del cajón, y lo que se
+   espera en el cajón es Kepler menos lo depositado.
+2. G2, las 9 sucursales.
+3. G3, los billetes del cajón (según D39).
+4. G4 y G5, el día y la firma.
+5. G6–G10.
+
+### 5.7 Decisiones que abre §5.6 (firmadas el 2026-11-05; también en §9)
+
+| # | Decisión | Recomendación |
+|---|---|---|
+| D38 | ¿Sobre qué pantalla se funde? | El patrón de Captura (cola + arqueo al lado) escribiendo el libro nuevo; la Ventanilla aporta sus grupos y el día |
+| D39 | V1 «los billetes viven en la bóveda» contra lo que pasa hoy (102 pagos y 66 rutas con billetes en el cajón) | Permitir billetes en el cajón al pagar y recibir mientras el tope (D20) y el depósito del excedente (E-13) no operen; medir y apretar después |
+| D40 | ¿Cuándo se da `FINANCE_CAJA_VENTANILLA`? | No antes del candado de doble registro (paso 0) |
+
 ## 6. Modelo de amenazas (qué puede salir mal y qué lo para)
 
 | Escenario | Control | Prueba |
@@ -980,6 +1117,13 @@ quién la abre.
 | LE.6.6 | Hallazgos y mayor: ventana desde la barra; todo total se abre hasta el asiento. **🔨 2026-11-04**: los hallazgos abiertos ya se ven desde «Tu día»; **falta** el mayor y abrir cada total hasta su asiento | 🔨 | ídem; < 500 ms |
 | LE.6.7 | **La Ventanilla hace todo el día de la cajera** (D34). Universo medido en `pg-prod` (sólo lectura) el 2026-11-04 sobre los movimientos vivos de `finance.cash_ledger` de 30 días: **784**, de los que **509 (65 %) son X-D-26** —lo único que la Ventanilla paga hoy—, **235 (30 %) cobros U-A-5**, **36 movimientos de CAOS** capturados a mano (todos en la semana del 12-oct; 0 desde el 19-oct), **3 anticipos X-D-60** y **2 manuales**; más **20 cortes**. Falta, en la misma cola: recibir el cobro de ruta (R3), los anticipos X-D-60, los movimientos de CAOS sin documento (Suspenso), la apertura con el saldo de arranque, el arqueo (LE.6.3), el cierre (LE.6.4) y las custodias (LE.6.5). **🔨 2026-11-04 — primer tramo: recibir en el cajón.** «Por recibir» en la misma pantalla, después de lo que sale: cada U-A-5 de la 0011 con de quién es (ruta o sucursal, D17) y lo que Kepler espera; la ventana pregunta primero cómo llegó el dinero (H19) y sólo cuenta lo del cajón, por pieza, con quién entrega; de ruta baja lo que la ruta debe rendir (E-04), de sucursal entra como otro ingreso; la diferencia se declara en palabras (faltan, sobran, o centavos que no se cuentan en monedas). API `GET cobros/estado` y `POST cobros` (Idempotency-Key); las dos consultas corridas tal cual en prod con los 138 cobros de 14 días: 102 de ruta (la ruta coincide en los 102) y 36 de sucursal, ninguno ambiguo, 9 y 5 ms. Medido: 5 pruebas contra Postgres (al peso, faltante, sucursal con centavos, arriba del umbral, negativas; mutante muerto), 4 de la parte pura, 6 de la cola, 4 de la pantalla montada (mutante muerto); `check:pantalla` 10/10; `check:templates-types` verde con su negativa. ⚠️ Sin validación visual. **Falta del cobro**: dólares y cheques de ruta. **🔨 2026-11-04 — segundo tramo: Suspenso.** Primero en la pantalla (§5.2): cada movimiento de la máquina que el libro dejó en Suspenso, con lo que se tecleó y el usuario de la máquina; se explica en la fila: un depósito, a qué ruta era o que venía del cajón; un retiro, que fue al cajón (con las piezas de la máquina, V7) o al banco. El importe y la dirección los lee el servidor del libro; un depósito no se va al banco y un retiro no es de una ruta. API `GET suspenso` y `POST suspenso/explicar` (Idempotency-Key; arriba del umbral, espera firma). Así se liga también el cobro que entró por la máquina sin decir la ruta. Medido: 3 pruebas contra Postgres (mutante muerto), 4 de la pantalla montada (mutante muerto); cashbook 116/116, finanzas pantalla 1224/1224; `check:pantalla` 10/10; `check:templates-types` verde. ⚠️ El SQL de Suspenso NO se midió en prod: el rol de lectura no lee `cashbook` (LE.5.8). Sin validación visual. **Falta de Suspenso**: la custodia como destino (LE.6.5) y el empleado del usuario de la máquina (LE.1.15). **🔨 2026-11-04 — tercer tramo: anticipos (X-D-60).** Entran a la misma cola de pagos; el respaldo por lote está medido sólo para el X-D-26, así que el anticipo se lee documento por documento (su folio puede repetir el de un X-D-26: probado que no se confunden, mutante muerto) y su respaldo es «no medido": **siempre lo firma Tesorería** (un anticipo todavía no tiene compra). Medido: 3 anticipos en 30 días. **Cuarto tramo: «Otro ingreso»** (E-23) en «Por recibir»: de qué es y sus piezas, nunca un importe tecleado (1 en 60 días; es el único camino para ese dinero sin Captura). Dólares y cheques de ruta: sin pantalla mientras no haya uso (D37) | 🔨 | inventario de lo que hace Captura (cada acción de su pantalla y cada tipo de su cola de 30 días) con su lugar en la Ventanilla: **0 sin destino**; lo que no se muda, dicho y firmado por el PM |
 | LE.6.8 | **La reposición en la cola** (§5.5): una fila por hoja aprobada; «Pagar» da UN código para todo el retiro, monedas por pieza, firma quien lleva el depósito (catálogo D35) y el dinero queda en custodia a su nombre; la conciliación del depósito la cierra. **🔨 2026-11-04 — primer tramo: pedir, firmar y pagar.** La hoja NO se reescribe: es `armarHojaAbierta` (la que cuadró al centavo con el banco en seis hojas de octubre), sin lo anterior a la apertura del libro (H21) ni lo que ya va en una orden. Pedirla crea la orden `reposicion` siempre por firmar (D-R1); la firma de Tesorería es la aprobación (D28) y da el código; lo del cajón pasa por pieza a la custodia de quien lleva el depósito y la máquina, con el código, entrega a la MISMA custodia (el carril ya lo hacía). Quién lleva el depósito sale de la responsabilidad `finanzas.caja_deposito` dada a la persona (migración `20261104152834`, sólo el catálogo): **la da el PM en Administración › Responsabilidades**; mientras nadie la tenga, la pantalla lo dice y no deja pedir. API `GET reposiciones`, `GET reposiciones/quien-lleva`, `POST reposiciones`. Medido: la hoja de hoy corrida con la consulta y el motor reales en prod (Morelia 30 ms, Canindo 10 ms); punta a punta contra Postgres (hoja, negativas, por firmar, firma de otra persona, cajón y máquina en la misma custodia: $1,550.50) con 2 mutantes muertos, 3 puras, 4 de la pantalla montada (mutante muerto); cashbook 153/153, finanzas pantalla 1233/1233; `check:pantalla` 10/10; `check:templates-types` verde. ⚠️ La prueba de punta a punta dio verde una vez SIN correr (la base de prueba no tenía la tabla de responsabilidades por persona y todo se salía al inicio): se cazó porque el mutante sobrevivió. Sin validación visual. **🧪 2026-11-04 — cerrada con el banco.** «Confirmar el depósito»: busca en la cuenta de la zona uno o dos depósitos que sumen el total ± $0.50 del día del retiro a siete después (`depositoDeHoja`, la regla de la hoja: 6 de 7 hojas de octubre con una sola combinación, 0.7 % de error con control); encontrado, cada pago de la hoja queda como gasto desde la custodia y la persona queda descargada; sin depósito, con dos combinaciones posibles o sin la cuenta de la zona medida (hoy Canindo), NO se cierra y se dice por qué. Un depósito sirve a una sola reposición. Probado de punta a punta contra Postgres (la custodia de $1,550.50 vuelve a cero). Sin validación visual | 🧪 | pagar una hoja de 14 pagos = 1 código y 14 renglones en un asiento, contra base real con el payload de la pantalla; sin la llave no se aprueba ni se paga; depósito no encontrado → custodia visible con antigüedad |
+| LE.6.10 | La Ventanilla en una pantalla sin scroll (barra, selector de colas, la cola) y **todo por teclado** (LE.6.11: atajos escritos, foco al cargar, `↓`/`↑` entre selector y lista, Enter abre la fila en las 5 colas, el foco regresa al cerrar —`appDevolverFoco`, primitivo compartido—, el conteo por pieza sin mouse). En el árbol, sin commit. ⚠️ Con D38 el diseño de la pantalla cambia al patrón de Captura; lo de teclado y el conteo se reusan | 🧪 | 1,261 specs de finanzas; plantillas tipadas (`check:templates-types`, con su negativa); recorrido de teclado en el navegador NO MEDIDO (el servidor de la PC del PM no recompiló) |
+| LE.6.12 | **Un documento entra a un solo libro** (D40, paso 0 de §5.6): la base rechaza en los dos sentidos —Captura no registra lo que tomó la Ventanilla (`caja_documento_en_el_libro_chk`), la Ventanilla no toma lo que Captura registró (`cashbook_documento_en_captura`)— con un candado por documento; cancelar en Captura libera el documento. Migración `20261105151333` | 🧪 | `test-newdb-caja-un-solo-libro.js`: 20 ✓ / 0 ✗ / 0 NO MEDIDO contra Postgres local (copia de prod), con dos mutaciones; sin aplicar en prod; falta sumarla al job `caja-db` del CI (el CI y `run-all-tests.js` tienen cambios de otra sesión en el índice) |
+| LE.6.13 | **G1 · El cobro mixto** (55 % de las rutas): recibir acepta los depósitos de la máquina ligados más las piezas del cajón; lo que se espera en el cajón es Kepler menos lo depositado; el servidor lo recalcula | ⬜ | cobro de ruta con depósito + monedas contra base real con el payload de la pantalla; la diferencia no inventa faltante |
+| LE.6.14 | **G2 · Los pagos de las 9 sucursales** (75 % de los pagos) | ⬜ | la cola trae los X-D-26/X-D-60/X-D-25 de todas las sucursales que Captura trae |
+| LE.6.15 | **G3 · Billetes del cajón** al pagar y recibir mientras el tope y el depósito del excedente no operen (D39) | ⬜ | pagar del cajón con billetes contra base real |
+| LE.6.16 | **G4–G5 · El día y la firma**: reconteo, morralla, «no hay efectivo», cheques/papeles/dólares en el arqueo, doble llave al cerrar; firma de quien recibe con imagen | ⬜ | cada acto contra base real |
+| LE.6.17 | **La pantalla única sobre el patrón de Captura** (D38): cola de Kepler de todas las sucursales → arqueo al lado, con su teclado, firma y ticket, escribiendo el libro nuevo; Suspenso, custodias, reposición y el día como grupos de la misma cola; G6–G10 | ⬜ | las 5 preguntas de `diseno` §0b por escrito antes; recorrido como la cajera en el navegador |
 
 ### E7 · Cambio y retiro — operación
 
@@ -1060,6 +1204,9 @@ quién la abre.
 | D35 | **Quién lleva el depósito de la reposición** (§5.5) | Siempre una persona con nombre, de un catálogo firmado; el dinero queda en custodia a su nombre hasta que la conciliación encuentra el depósito | ✅ decidida por el PM el 2026-11-04: dos personas, nombradas en el catálogo (no en el repo) |
 | D36 | **La nómina («nom»)** (§5.5) | Mismo camino que la reposición, con su propia hoja | ✅ decidida por el PM el 2026-11-04 |
 | D37 | **Dólares y cheques de ruta en la Ventanilla** | Sin pantalla mientras no haya uso: medido el 2026-11-04, 0 cheques o papeles en las capturas de 60 días y 1 solo ingreso sin documento de Kepler. Las reglas del libro (E-21, E-22) y el servidor ya los registran; la pantalla se hace el día que aparezca el primero (dinero × esfuerzo) | ✅ decidida por /pm el 2026-11-04 (encargo del PM: toda duda se decide con /pm) |
+| D38 | **Sobre qué pantalla se funde Ventanilla y Captura** (§5.6) | Sobre el patrón de Captura (cola de Kepler de todas las sucursales → arqueo al lado), escribiendo el libro nuevo; la Ventanilla aporta Suspenso, custodias, reposición, la orden con código, el tope y el día | ✅ firmada por el PM el 2026-11-05 («hagámoslo») |
+| D39 | **V1 contra lo que pasa hoy** (102 pagos y 66 rutas con billetes en el cajón en 30 días) | Billetes en el cajón al pagar y recibir mientras el tope (D20) y el depósito del excedente (E-13) no operen; se mide y se aprieta después | ✅ firmada por el PM el 2026-11-05 |
+| D40 | **Cuándo se da `FINANCE_CAJA_VENTANILLA`** | No antes de que la base impida el doble registro en los dos sentidos (LE.6.12) | ✅ firmada por el PM el 2026-11-05 |
 
 ---
 
@@ -1150,3 +1297,5 @@ frescura.
 | 2026-11-04 | **LE.5.8 🧪 — el libro se puede medir desde fuera.** El bloqueo era la función de la RLS, no la tabla: con su `EXECUTE` el rol de lectura lee y sigue sin poder escribir. Lo aplica el PM en `md`. |
 | 2026-11-04 | **LE.1.15 🧪 y LE.2.10 🧪 — los catálogos firmados y la regla del tope.** El tope de D20 no se siembra en la migración: un catálogo «firmado» que nace sin firma sería un valor inventado. Lo fija quien firma caja, en pantalla. |
 | 2026-11-04 | **LE.6.2 🔨 — las órdenes por firmar, firmables desde la Ventanilla.** Repasando la ruta completa: la lista de firmas sólo mostraba solicitudes del libro y ninguna orden con código; sin esa firma un pago sin respaldo, una reposición o una custodia grande nunca daban su código. |
+| 2026-11-05 | **§5.6 — Captura, medida antes de fusionar.** La Ventanilla se había hecho sin medir Captura: como reemplazo no está lista (G1 cobro mixto, 55 % de las rutas; G2 pagos de otras sucursales, 75 %; G3 billetes del cajón). Se recomienda fundir sobre el patrón de Captura escribiendo el libro nuevo (D38–D40). | Claude, por pedido del PM |
+| 2026-11-05 | **D38–D40 firmadas** («hagámoslo») y **LE.6.12 🧪 — un documento, un solo libro.** La base rechaza el doble registro en los dos sentidos con un candado por documento; 20 ✓ contra Postgres local con dos mutaciones. Sin aplicar en prod y fuera del job `caja-db` hasta que el CI quede libre. Sigue G1 (cobro mixto) | PM + Claude |

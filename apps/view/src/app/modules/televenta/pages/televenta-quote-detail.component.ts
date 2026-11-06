@@ -7,6 +7,8 @@ import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { ToastModule } from 'primeng/toast';
 import { ProgressSpinnerModule } from 'primeng/progressspinner';
+import { SelectModule } from 'primeng/select';
+import { TextareaModule } from 'primeng/textarea';
 import { ConfirmationService, MessageService } from 'primeng/api';
 import { Subject, debounceTime, distinctUntilChanged, switchMap, catchError, of } from 'rxjs';
 import { escalera, factorDe, type Presentacion } from '@megadulces/ui-web';
@@ -29,6 +31,8 @@ import {
   type PasoDesglose,
   type QuoteCheck,
   type QuoteCheckLine,
+  type DireccionEntrega,
+  type DireccionesCotizacion,
 } from '../quotes.service';
 import {
   exportQuotePdf,
@@ -85,6 +89,8 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
     TagModule,
     ToastModule,
     ProgressSpinnerModule,
+    SelectModule,
+    TextareaModule,
     FreshnessPillComponent,
     QuoteLinesTableComponent,
     ContextHelpComponent,
@@ -257,7 +263,8 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
                           </div>
                           <div class="cat-col-precio">
                             <span class="cat-precio-val">{{ dinero(p.piece_price) }}</span>
-                            <span class="cat-precio-lbl">base</span>
+                            <!-- [COT.27] $0.01 = regalo de promoción de Kepler; la condición está en el nombre. -->
+                            <span class="cat-precio-lbl">{{ p.precio_simbolico ? 'regalo de promoción' : 'base' }}</span>
                           </div>
                         </button>
                       </li>
@@ -606,9 +613,62 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
                 <i class="pi pi-check-circle" aria-hidden="true"></i>
                 <span>Pedido en Kepler <b class="mono">{{ q.kepler_folio }}</b> · {{ nombreSucursal(q.kepler_sucursal ?? q.source_branch) }}</span>
               </div>
+              @if (direccionElegida(); as d) {
+                <p class="tot-nota dir-fija">Entrega en {{ etiquetaDireccion(d) }}</p>
+              }
+              @if (q.order_notes) {
+                <p class="tot-nota dir-fija">Observaciones: {{ q.order_notes }}</p>
+              }
             } @else if (aceptable()) {
               <div class="rail-kepler">
-                <button pButton type="button" class="btn-kepler" [disabled]="enviandoKepler()" (click)="pedirEnviarKepler(q)">
+                <!-- [COT.26] A dónde va el pedido decide la ruta que lo entrega (Dir. envío en Kepler).
+                     Con una sola dirección no se pregunta; con varias, no se acepta sin elegir. -->
+                @if (direcciones(); as dd) {
+                  @if (dd.direcciones.length > 1) {
+                    <label class="dir-lbl" for="dirEntrega">Entregar en <span class="t-sub">({{ dd.direcciones.length }} direcciones en Kepler)</span></label>
+                    <p-select
+                      inputId="dirEntrega"
+                      class="dir-select"
+                      [options]="dd.direcciones"
+                      optionValue="key"
+                      [ngModel]="dd.elegida"
+                      (ngModelChange)="elegirDireccion($event)"
+                      placeholder="Elige a dónde se entrega…"
+                      [invalid]="!dd.elegida"
+                      [disabled]="guardandoDireccion() || enviandoKepler()"
+                      appendTo="body"
+                    >
+                      <ng-template #selectedItem let-o>{{ etiquetaDireccion(o) }}</ng-template>
+                      <ng-template #item let-o>
+                        <span class="dir-opt">
+                          <b>{{ o.ciudad || 'Sin ciudad' }}</b> · {{ o.calle || 'sin calle' }}
+                          @if (o.ruta) { <span class="t-sub">ruta {{ o.ruta }}</span> }
+                        </span>
+                      </ng-template>
+                    </p-select>
+                  } @else if (dd.direcciones.length === 1) {
+                    <p class="tot-nota dir-fija">Entrega en {{ etiquetaDireccion(dd.direcciones[0]) }}</p>
+                  }
+                }
+                <!-- [COT.28] Lo que el almacén y la ruta tienen que saber; va a «Comentarios» del pedido
+                     (renglones 2 y 3 de Kepler, 60 + 60). Se guarda al salir del campo. -->
+                <label class="dir-lbl" for="obsPedido">Observaciones del pedido <span class="t-sub">(van a Comentarios en Kepler)</span></label>
+                <textarea
+                  pTextarea
+                  id="obsPedido"
+                  class="obs-txt"
+                  rows="2"
+                  [maxlength]="LARGO_OBS"
+                  [ngModel]="obsTexto()"
+                  (ngModelChange)="obsTexto.set($event)"
+                  (blur)="guardarObservaciones()"
+                  [disabled]="enviandoKepler()"
+                  placeholder="Ej.: cobrar al entregar · entregar antes de las 10"
+                ></textarea>
+                <span class="t-sub obs-cont" aria-live="polite">
+                  {{ obsTexto().length }}/{{ LARGO_OBS }}@if (guardandoObs()) { · guardando… } @else if (obsSucio()) { · sin guardar }
+                </span>
+                <button pButton type="button" class="btn-kepler" [disabled]="enviandoKepler() || faltaDireccion()" (click)="pedirEnviarKepler(q)">
                   <span class="p-button-icon p-button-icon-left pi" [class.pi-send]="!enviandoKepler()"
                         [class.pi-spinner]="enviandoKepler()" [class.pi-spin]="enviandoKepler()" aria-hidden="true"></span>
                   <span class="p-button-label">{{ enviandoKepler() ? 'Armando el pedido…' : 'Aceptar y armar pedido en Kepler' }}</span>
@@ -723,6 +783,12 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
       .kepler-ok { flex-direction: row; align-items: center; gap: 0.45rem; font-size: var(--fs-sm); color: var(--text-main); }
       .kepler-ok i { color: var(--ok-fg); }
       .kepler-rechazo { margin: 0; font-size: var(--fs-xs); }
+      .dir-lbl { font-size: var(--fs-xs); font-weight: 600; color: var(--text-main); }
+      .dir-select { width: 100%; }
+      .dir-opt { display: flex; gap: 0.35rem; align-items: baseline; flex-wrap: wrap; }
+      .dir-fija { margin: 0; }
+      .obs-txt { width: 100%; resize: vertical; font-size: var(--fs-sm); }
+      .obs-cont { align-self: flex-end; font-size: var(--fs-xs); }
       .kepler-rechazo ul { margin: 0.25rem 0 0; padding-left: 1.1rem; }
       .ia-placeholder {
         border: 1px dashed var(--ember-border, rgba(240, 90, 40, 0.3)); border-radius: 8px; padding: 0.7rem 0.75rem;
@@ -1221,6 +1287,10 @@ export class TeleventaQuoteDetailComponent implements OnInit {
         this.cot.set(q);
         this.error.set(null);
         this.revisar();
+        this.cargarDirecciones(q);
+        // No pisar lo que se está tecleando si la recarga llega a media captura.
+        if (!this.obsSucio()) this.obsTexto.set(q.order_notes ?? '');
+        this.obsGuardada.set(q.order_notes ?? null);
         this.cargando.set(false);
         const pedido = this.descargarAlCargar;
         if (pedido) {
@@ -1548,13 +1618,87 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   readonly enviandoKepler = signal(false);
   readonly keplerRechazo = signal<{ mensaje: string; motivos: string[] } | null>(null);
 
+  // ── [COT.28] Observaciones del pedido (→ «Comentarios» c25/c26 en Kepler) ────────────────────
+  readonly LARGO_OBS = 120;
+  readonly obsTexto = signal('');
+  private readonly obsGuardada = signal<string | null>(null);
+  readonly guardandoObs = signal(false);
+  /** Lo tecleado difiere de lo guardado (comparado como lo normaliza el servidor). */
+  readonly obsSucio = computed(() => (this.obsTexto().replace(/\s+/g, ' ').trim() || null) !== this.obsGuardada());
+
+  private obsPendiente: Promise<boolean> | null = null;
+
+  /**
+   * Guarda si hay cambios. Devuelve la MISMA promesa mientras un guardado está en vuelo: aceptar
+   * espera a que termine, o el pedido saldría a Kepler con las observaciones de antes.
+   */
+  guardarObservaciones(): Promise<boolean> {
+    if (this.obsPendiente) return this.obsPendiente;
+    if (!this.obsSucio()) return Promise.resolve(true);
+    this.guardandoObs.set(true);
+    this.obsPendiente = new Promise<boolean>((resolve) => {
+      this.svc.fijarObservaciones(this.id, this.obsTexto()).subscribe({
+        next: (r) => {
+          this.obsGuardada.set(r.order_notes);
+          this.obsTexto.set(r.order_notes ?? '');
+          resolve(true);
+        },
+        // Lo tecleado se queda en el campo: no se pierde por un error del servidor.
+        error: (err) => { this.falla(err, 'No se guardaron las observaciones'); resolve(false); },
+      });
+    }).finally(() => { this.guardandoObs.set(false); this.obsPendiente = null; });
+    return this.obsPendiente;
+  }
+
+  // ── [COT.26] Dirección de entrega (kdudent → Dir. envío del pedido) ─────────────────────────
+  readonly direcciones = signal<DireccionesCotizacion | null>(null);
+  readonly guardandoDireccion = signal(false);
+  /** Con varias direcciones y ninguna elegida no se acepta: vacía, Kepler la manda a la 1. */
+  readonly faltaDireccion = computed(() => {
+    const d = this.direcciones();
+    return !!d && d.direcciones.length > 1 && !d.elegida;
+  });
+  readonly direccionElegida = computed(() => {
+    const d = this.direcciones();
+    return d?.direcciones.find((x) => x.key === d.elegida) ?? null;
+  });
+
+  etiquetaDireccion(d: DireccionEntrega | null | undefined): string {
+    if (!d) return '';
+    return [d.ciudad, d.calle].filter(Boolean).join(' · ') || 'dirección ' + d.key;
+  }
+
+  private cargarDirecciones(q: QuoteDetail): void {
+    if (!q.erp_customer_code) { this.direcciones.set(null); return; }
+    this.svc.direccionesEntrega(this.id).subscribe({
+      next: (d) => this.direcciones.set(d),
+      // Sin la lista no se bloquea el botón: el servidor aplica el mismo freno al aceptar.
+      error: () => this.direcciones.set(null),
+    });
+  }
+
+  elegirDireccion(key: string | null): void {
+    if (this.guardandoDireccion()) return;
+    const antes = this.direcciones();
+    this.guardandoDireccion.set(true);
+    this.svc.fijarDireccionEntrega(this.id, key).subscribe({
+      next: (d) => { this.guardandoDireccion.set(false); this.direcciones.set(d); this.keplerRechazo.set(null); },
+      error: (err) => {
+        this.guardandoDireccion.set(false);
+        this.direcciones.set(antes ? { ...antes } : null);
+        this.falla(err, 'No se guardó la dirección');
+      },
+    });
+  }
+
   pedirEnviarKepler(q: QuoteDetail): void {
     this.confirm.confirm({
       header: 'Aceptar y armar el pedido en Kepler',
       message:
         'Se escribe en el Kepler de ' + this.nombreSucursal(q.source_branch) + ' un Pedido Telemarketing en estado CREADO para '
         + q.recipient_name + ' por ' + this.dinero(q.total) + ', y la cotización queda aceptada. '
-        + 'Kepler factura el precio que se escribe: confirma que el cliente aceptó este total.',
+        + 'Kepler factura el precio que se escribe: confirma que el cliente aceptó este total.'
+        + (this.obsTexto().trim() ? ' Observaciones: «' + this.obsTexto().replace(/\s+/g, ' ').trim() + '».' : ''),
       icon: 'pi pi-send',
       acceptLabel: 'Sí, armar el pedido',
       rejectLabel: 'Cancelar',
@@ -1569,6 +1713,14 @@ export class TeleventaQuoteDetailComponent implements OnInit {
     if (this.enviandoKepler()) return;
     this.enviandoKepler.set(true);
     this.keplerRechazo.set(null);
+    // COT.28: primero quedan guardadas las observaciones; si no se pudieron guardar, no sale.
+    void this.guardarObservaciones().then((ok) => {
+      if (!ok) { this.enviandoKepler.set(false); return; }
+      this.enviarKeplerYa();
+    });
+  }
+
+  private enviarKeplerYa(): void {
     this.svc.enviarAKepler(this.id).subscribe({
       next: (res) => {
         this.enviandoKepler.set(false);

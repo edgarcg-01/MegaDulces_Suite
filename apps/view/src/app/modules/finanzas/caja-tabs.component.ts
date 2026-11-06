@@ -63,7 +63,7 @@ export class CajaTabsComponent {
    * `[LE.6.9]` Con la clave del cambio, la primera pestaña es la Ventanilla: la ruta ya la abre a ella
    * (`trabajaEnVentanilla`), y una pestaña que dijera «Captura» afirmaría lo que no es.
    */
-  readonly tabs = this.perms.has(Permission.FINANCE_CAJA_VENTANILLA)
+  readonly tabs = this.perms.hasExplicit(Permission.FINANCE_CAJA_VENTANILLA)
     ? CAJA_TABS.map((t, i) => (i === 0 ? { ...t, label: 'Ventanilla', icon: 'pi pi-building-columns' } : t))
     : [...CAJA_TABS];
 
