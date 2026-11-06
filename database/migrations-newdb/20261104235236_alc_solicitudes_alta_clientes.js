@@ -112,7 +112,9 @@ exports.up = async function up(knex) {
       deleted_at            timestamptz,
       deleted_by            uuid,
       CONSTRAINT customer_onboarding_requests_pkey PRIMARY KEY (id),
-      CONSTRAINT customer_onboarding_requests_tenant_fk FOREIGN KEY (tenant_id) REFERENCES public.tenants(id) ON DELETE RESTRICT,
+      -- ⚠️ identity.tenants, NO public.tenants: ésa es una VISTA (relkind 'v' en prod, medido 2026-11-06)
+      -- y una FK a una vista aborta la migración («referenced relation "tenants" is not a table»).
+      CONSTRAINT customer_onboarding_requests_tenant_fk FOREIGN KEY (tenant_id) REFERENCES identity.tenants(id) ON DELETE RESTRICT,
       CONSTRAINT customer_onboarding_requests_customer_fk FOREIGN KEY (tenant_id, customer_id)
         REFERENCES commercial.customers(tenant_id, id) ON DELETE SET NULL (customer_id),
       CONSTRAINT customer_onboarding_requests_status_ck

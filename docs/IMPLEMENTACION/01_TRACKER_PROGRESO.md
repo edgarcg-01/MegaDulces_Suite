@@ -79,7 +79,7 @@
 | 12808 | 12860 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
 | 12861 | 13232 | 55 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
 | 13233 | 13263 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 13264 | 13278 | 2 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 13264 | 13278 | 3 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -13266,8 +13266,8 @@ cerrar el puente**, que está a un clic de probarse.
 Plan: [FASE_ALC_ALTA_DE_CLIENTES.md](FASES/FASE_ALC_ALTA_DE_CLIENTES.md) · nace de `[MCP]` D7. Empezada por Francisco por encima del cupo de 4: falta que el PM la ratifique. D1-a (la Suite NO escribe en Kepler; `kdud` lo hará Edgar), D3 (quién da de alta y quién aprueba crédito) firmadas por Francisco.
 
 - [ ] **[ALC.0.3]** ⬜ Decodificar dónde guarda Kepler el régimen y el CP fiscal del receptor (no está en `kdud` ni en `kdfe33*`): contra el XML de un CFDI timbrado.
-- [ ] **[ALC.0.4]** 🧪 `commercial.customer_onboarding_requests` (mig `20261104235236`): RLS FORCE, sin DELETE, un RFC propio con una sola solicitud abierta. `up()` NO ejecutado en local; lo corre el CI. Aplicar en prod una por una.
-- [ ] **[ALC.0.5]** 🧪 Llaves `COMMERCIAL_ALTA_CLIENTES` (12 roles, incluye `facturacion` y `promotor_ruta`) y `COMMERCIAL_ALTA_CLIENTES_CREDITO` (por persona a `perla_garcia`; por rol `finanzas` y `direccion` en su ausencia; `credito_cobranza` no) en la misma migración. Regla 20: verificar en prod al aplicarla.
+- [ ] **[ALC.0.4]** 🧪 `commercial.customer_onboarding_requests` (mig `20261104235236`): RLS FORCE, sin DELETE, un RFC propio con una sola solicitud abierta. `up()` NO ejecutado en local; lo corre el CI. El CI del PR #493 lo cazó: la FK apuntaba a `public.tenants`, que es una VISTA (en prod también) → corregida a `identity.tenants`. Aplicar en prod una por una.
+- [ ] **[ALC.0.5]** 🧪 Llaves `COMMERCIAL_ALTA_CLIENTES` (13 roles con `superadmin`, incluye `facturacion` y `promotor_ruta`) y `COMMERCIAL_ALTA_CLIENTES_CREDITO` (por persona a `perla_garcia`; por rol `finanzas` y `direccion` en su ausencia; `credito_cobranza` no) en la misma migración. Regla 20: verificar en prod al aplicarla.
 - [ ] **[ALC.1.1]** 🧪 Lector de la constancia en `libs/platform-core/src/lib/sat/` (`pdf-texto` sobre `pdf-lib`, sin dependencia nueva). 12 pruebas sintéticas; las 2 constancias reales leídas completas fuera del repo.
 - [ ] **[ALC.1.2]** 🧪 RFC y CURP con dígito verificador + reglas de la solicitud. Testigo: 736 de 760 RFC bien formados de Kepler cuadran (96.8 %); 63 de 801 RFC distintos de Kepler están mal capturados hoy.
 - [ ] **[ALC.1.3]** 🧪 La constancia → la ficha de Kepler con la convención medida del maestro (`MICHOACAN`, sin «SA de CV», `AV.`).

@@ -119,7 +119,7 @@ const ORDEN_KEPLER: CasillaKepler[] = ['nombre', 'direccion_1', 'direccion_2', '
                       [emptyCta]="puedeCapturar() && !busqueda() ? 'Nuevo cliente' : null" (cta)="nuevo()" (retry)="bandejaRes.reload()">
         <p-table [value]="visibles()" dataKey="id" styleClass="p-datatable-sm surf-table surf-table--plain surf-table--sticky"
                  [scrollable]="true" scrollHeight="flex" [rowHover]="true" selectionMode="single" [selection]="seleccion()"
-                 (onRowSelect)="abrir($event.data)">
+                 (onRowSelect)="alSeleccionar($event.data)">
           <ng-template #header>
             <tr>
               <th scope="col">Cliente</th>
@@ -435,6 +435,16 @@ export class ComercialAltaClientesComponent {
     this.toast.add({ severity: 'success', summary: `Solicitud ${s.folio} guardada`, detail: this.siguientePaso(s) });
     this.bandejaRes.reload();
     this.abierta.set(s);
+  }
+
+  /**
+   * `TableRowSelectEvent.data` es `T | T[] | undefined` (PrimeNG admite selección múltiple) y el
+   * compilador de plantillas lo exige aunque aquí sea `single`. Se estrecha con una guarda, no con
+   * un `as`: si un día cambia el modo, el panel no se abre con un arreglo como si fuera una solicitud.
+   */
+  alSeleccionar(data: SolicitudAlta | SolicitudAlta[] | undefined): void {
+    const s = Array.isArray(data) ? data[0] : data;
+    if (s) this.abrir(s);
   }
 
   abrir(s: SolicitudAlta): void {
