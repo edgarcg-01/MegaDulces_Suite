@@ -18,8 +18,11 @@
  *      min_order_boxes     = pedido típico en cajas (piezas/caja = factor_sale; factor_purchase roto).
  *   Requiere ≥3 episodios en el almacén principal (≥2 gaps para una mediana estable).
  *
- * IDEMPOTENTE + NO PISA CAPTURA MANUAL: cada columna se llena con COALESCE(existente, derivado),
- * así que solo rellena los NULL. Re-correrlo completa lo que falte sin borrar lo ajustado a mano.
+ * IDEMPOTENTE + NO PISA CAPTURA MANUAL (CANON.5.25): `order_params_source` dice, por campo, quién
+ * lo puso. Lo `derivado` se refresca cada corrida; lo `manual` (lo marca la pantalla) y lo
+ * `desconocido` (había un valor que no coincidía con lo derivable) no se tocan. Un campo sin llave se
+ * clasifica la primera vez: NULL → se llena y queda derivado; igual a lo derivable → derivado;
+ * distinto → desconocido. Antes de CANON.5.25 sólo llenaba NULL, y lo derivado nunca se refrescaba.
  * lead_time_days NO se deriva (Kepler no lo codifica; queda manual, RA-PRO.3).
  *
  *   node database/importers/kepler/import-supplier-params.js          # dry-run (ROLLBACK)
@@ -30,7 +33,7 @@
 const { Client } = require('pg');
 
 const M = process.env.WINCAJA_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
-const DST = process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
+const DST = process.env.DATABASE_URL_NEW || (require.main !== module ? '' : (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })());
 const APPLY = process.argv.includes('--apply');
 const SSL = /@(localhost|127\.0\.0\.1|192\.168\.)/.test(DST) ? false : { rejectUnauthorized: false };
 
@@ -40,10 +43,34 @@ const MIN_EPISODES = Number(process.env.RA10_MIN_EPISODES || 3);
 const CAD_LO = 3, CAD_HI = 45, COLC_LO = 1, COLC_HI = 14;
 const DAY = 86400000;
 
+/**
+ * CANON.5.25 — qué hacer con UN proveedor: `cur` es su fila actual (valores + `order_params_source`),
+ * `d` lo derivado hoy. Devuelve los valores a escribir (`set`) y las marcas nuevas (`marca`).
+ * Pura: la prueba `test-newdb-supplier-params-procedencia.js` la ejerce sin base.
+ */
+function planearProveedor(cur, d, conProcedencia, cuenta = {}) {
+  const sum = (k) => { cuenta[k] = (cuenta[k] || 0) + 1; };
+  const src = cur.order_params_source || {};
+  const set = {}; const marca = {};
+  for (const [col, v] of [['cadence_days_override', d.cadence], ['colchon_days', d.colchon], ['min_order_amount', d.minAmt], ['min_order_boxes', d.minCaj]]) {
+    if (v == null) continue;
+    const prev = cur[col] == null ? null : Number(cur[col]);
+    if (!conProcedencia) { if (prev == null) { set[col] = v; sum('llenados'); } continue; }
+    const s = src[col];
+    if (s === 'manual' || s === 'desconocido') { sum('protegidos'); continue; }
+    if (s === 'derivado') { if (prev !== v) { set[col] = v; sum('refrescados'); } continue; }
+    // sin llave: es la primera vez que el importer lo ve con procedencia
+    if (prev == null) { set[col] = v; marca[col] = 'derivado'; sum('llenados'); }
+    else if (prev === v) { marca[col] = 'derivado'; sum('clasificados_derivado'); }
+    else { marca[col] = 'desconocido'; sum('clasificados_desconocido'); }
+  }
+  return { set, marca };
+}
+
 const median = (a) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); const m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
-(async () => {
+async function main() {
   const db = new Client({ connectionString: DST, ssl: SSL });
   await db.connect();
   console.log(`\n=== RA-PRO.10: derivar params de pedido por proveedor (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===`);
@@ -111,21 +138,33 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
     await db.query('BEGIN');
     await db.query(`SET LOCAL app.tenant_id = '${M}'`);
-    let filledCad = 0, filledColc = 0, filledA = 0, filledB = 0, touched = 0;
+    // CANON.5.25 — con `order_params_source` (mig 20261106135431) cada campo dice quién lo puso:
+    // lo `derivado` se refresca; lo `manual` (la pantalla) y lo `desconocido` (valor previo que no
+    // coincidía con lo derivable) no se tocan nunca. Sin la columna, el comportamiento viejo: sólo NULL.
+    const conProcedencia = (await db.query(`SELECT EXISTS(SELECT 1 FROM information_schema.columns
+      WHERE table_schema='catalog' AND table_name='suppliers' AND column_name='order_params_source') AS c`)).rows[0].c;
+    const actual = new Map((await db.query(`
+      SELECT id, cadence_days_override, colchon_days, min_order_amount, min_order_boxes,
+             ${conProcedencia ? 'order_params_source' : `'{}'::jsonb AS order_params_source`}
+        FROM catalog.suppliers WHERE tenant_id=$1 AND deleted_at IS NULL AND id = ANY($2::uuid[])
+         ${APPLY ? 'FOR UPDATE' : ''}`, // con --apply, una captura en pantalla espera a que esto acabe: no se planea sobre una marca vieja
+      [M, derived.map((d) => d.sid)])).rows.map((r) => [r.id, r]));
+    const cuenta = { llenados: 0, refrescados: 0, clasificados_derivado: 0, clasificados_desconocido: 0, protegidos: 0 };
+    let touched = 0;
     for (const d of derived) {
-      const res = await db.query(`
-        UPDATE catalog.suppliers SET
-          cadence_days_override = COALESCE(cadence_days_override, $2),
-          colchon_days          = COALESCE(colchon_days, $3),
-          min_order_amount      = COALESCE(min_order_amount, $4),
-          min_order_boxes       = COALESCE(min_order_boxes, $5),
-          updated_at = now()
-        WHERE tenant_id=$1 AND id=$6 AND deleted_at IS NULL
-          AND (cadence_days_override IS NULL OR colchon_days IS NULL OR min_order_amount IS NULL OR min_order_boxes IS NULL)
-        RETURNING cadence_days_override, colchon_days, min_order_amount, min_order_boxes`,
-        [M, d.cadence, d.colchon, d.minAmt, d.minCaj, d.sid]);
-      if (res.rowCount) touched++;
+      const cur = actual.get(d.sid);
+      if (!cur) continue;
+      const { set, marca } = planearProveedor(cur, d, conProcedencia, cuenta);
+      const cols = Object.keys(set);
+      if (!cols.length && !Object.keys(marca).length) continue;
+      const params = [M, d.sid, ...cols.map((c) => set[c])];
+      const asig = cols.map((c, i) => `${c} = $${i + 3}`);
+      if (Object.keys(marca).length) { params.push(JSON.stringify(marca)); asig.push(`order_params_source = order_params_source || $${params.length}::jsonb`); }
+      if (cols.length) asig.push('updated_at = now()');
+      const res = await db.query(`UPDATE catalog.suppliers SET ${asig.join(', ')} WHERE tenant_id=$1 AND id=$2 AND deleted_at IS NULL`, params);
+      if (res.rowCount && cols.length) touched++;
     }
+    console.log(`  procedencia: ${conProcedencia ? 'sí' : 'NO (falta la migración 20261106135431: sólo se llenan NULL)'} · ${JSON.stringify(cuenta)}`);
     // Conteo de columnas que quedaron llenas por el proceso (aprox: cuántos NULL había)
     const cov = (await db.query(`
       SELECT count(*) FILTER (WHERE cadence_days_override IS NOT NULL) cad,
@@ -154,4 +193,7 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
   } finally {
     await db.end();
   }
-})();
+}
+
+if (require.main === module) main();
+module.exports = { planearProveedor };

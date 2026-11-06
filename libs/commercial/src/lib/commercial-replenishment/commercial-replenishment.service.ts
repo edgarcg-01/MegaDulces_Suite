@@ -558,6 +558,8 @@ const ACCIONES = ['sobrante', 'traspaso', 'traspaso_parcial', 'comprar', 'ok'] a
  */
 const ACCIONES_FUERA_DE_CRITICO = ['sobrante', 'ok'];
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** `[CANON.5.25]` Los parámetros de pedido que deriva `import-supplier-params` y que una persona puede pisar. */
+const ORDER_PARAM_FIELDS = ['cadence_days_override', 'colchon_days', 'min_order_amount', 'min_order_boxes'] as const;
 
 /** `[PQ.76]` Los productos de `product_ids` (CSV): sólo UUIDs, sin repetidos, hasta 2,000. */
 export function productIdsDe(csv?: string): string[] {
@@ -717,6 +719,30 @@ export class CommercialReplenishmentService {
     } catch { this.raPro27Ready = false; }
     if (!this.raPro27Ready) this.logger.warn('RA-PRO.27: schema de personalización ausente — pedido en modo auto+global (aplica la migración 20260728170000).');
     return this.raPro27Ready;
+  }
+  // `[CANON.5.25]` — la migración 20261106135431 agrega `catalog.suppliers.order_params_source`.
+  // Mismo patrón que arriba: si el código llega antes que la columna, se guarda sin marcar (el
+  // importer clasifica lo que encuentre sin llave) en vez de dar 500. null = aún sin verificar.
+  private paramsSourceReady: boolean | null = null;
+  private async orderParamsSourceReady(trx: any): Promise<boolean> {
+    if (this.paramsSourceReady != null) return this.paramsSourceReady;
+    try {
+      const r = await trx.raw(`SELECT EXISTS(SELECT 1 FROM information_schema.columns
+        WHERE table_schema='catalog' AND table_name='suppliers' AND column_name='order_params_source') AS c`);
+      this.paramsSourceReady = !!r.rows[0]?.c;
+    } catch { this.paramsSourceReady = false; }
+    if (!this.paramsSourceReady) this.logger.warn('CANON.5.25: falta catalog.suppliers.order_params_source — los parámetros se guardan sin marcar «manual» (aplica la migración 20261106135431).');
+    return this.paramsSourceReady;
+  }
+  /** `[CANON.5.25]` Marca como capturados por una persona los campos de pedido que trae `upd`. */
+  private async marcarParamsManual(trx: any, upd: Record<string, unknown>): Promise<void> {
+    const campos = ORDER_PARAM_FIELDS.filter((c) => c in upd);
+    if (!campos.length) return;
+    const uid = this.tenantCtx.get()?.userId;
+    upd.updated_by = uid && UUID_RX.test(uid) ? uid : null;
+    if (!(await this.orderParamsSourceReady(trx))) return;
+    const marca = JSON.stringify(Object.fromEntries(campos.map((c) => [c, 'manual'])));
+    upd.order_params_source = trx.raw(`coalesce(order_params_source, '{}'::jsonb) || ?::jsonb`, [marca]);
   }
   // `fill_min_lines_erp` (25) es el umbral de la cadena de Kepler y NO comparte el 3 de arriba:
   // ese 3 nació para la evidencia app-nativa. Ver `[RA-DYN.U7]` y la migración 20261003120000.
@@ -5935,9 +5961,11 @@ export class CommercialReplenishmentService {
     if (!UUID_RX.test(supplierId)) throw new BadRequestException('supplier_id inválido');
     const val = boxes == null || Number.isNaN(Number(boxes)) ? null : Math.max(0, Number(boxes));
     return this.tk.run(async (trx) => {
+      const upd: Record<string, unknown> = { min_order_boxes: val, updated_at: trx.fn.now() };
+      await this.marcarParamsManual(trx, upd);
       const n = await trx('catalog.suppliers')
         .where({ tenant_id: tenantId, id: supplierId })
-        .update({ min_order_boxes: val, updated_at: trx.fn.now() });
+        .update(upd);
       if (!n) throw new NotFoundException('Proveedor no encontrado');
       return { id: supplierId, min_order_boxes: val };
     });
@@ -6141,9 +6169,10 @@ export class CommercialReplenishmentService {
       if (ready && 'fill_rate_override' in patch) upd.fill_rate_override = clampFill(patch.fill_rate_override);
       if (ready && 'safety_pct' in patch) upd.safety_pct = patch.safety_pct == null || Number.isNaN(Number(patch.safety_pct)) ? null : Math.min(100, Math.max(0, Number(patch.safety_pct)));
       if (ready && 'coverage_days_override' in patch) upd.coverage_days_override = clampInt(patch.coverage_days_override, 120);
+      await this.marcarParamsManual(trx, upd);
       const n = await trx('catalog.suppliers').where({ tenant_id: tenantId, id: supplierId }).update(upd);
       if (!n) throw new NotFoundException('Proveedor no encontrado');
-      return { id: supplierId, ...upd, updated_at: undefined };
+      return { id: supplierId, ...upd, updated_at: undefined, updated_by: undefined, order_params_source: undefined };
     });
   }
 
