@@ -10,6 +10,7 @@
  *       → lo corre, en una transacción por servidor, y comprueba el resultado.
  *   --servidores 01,06       sólo esos (por omisión, los 9)
  *   --usuario postgres       superusuario (por omisión: el de cada servidor, ver SERVIDORES)
+ *   --ssl                    conexión cifrada (los que responden «pg_hba … sin cifrado»)
  *
  * ⛔ La contraseña se PIDE al correrlo, sin mostrarse, y no se guarda en ningún lado (el repo es
  *    PÚBLICO y el archivo de secretos no debe guardar la de superusuario: ver kepler-push-secretos.js).
@@ -73,7 +74,14 @@ function pedirClave(pregunta) {
 }
 
 async function conectar(s, usuario, clave) {
-  const c = new Client({ host: SERVIDORES[s].host, port: SERVIDORES[s].port, database: `md_${s}`, user: usuario, password: clave, connectionTimeoutMillis: 8000, statement_timeout: 30000 });
+  const c = new Client({
+    host: SERVIDORES[s].host, port: SERVIDORES[s].port, database: `md_${s}`, user: usuario, password: clave,
+    connectionTimeoutMillis: 8000, statement_timeout: 30000,
+    // --ssl: varios servidores responden «no hay línea en pg_hba … sin cifrado» (medido 2026-11-06):
+    // su pg_hba sólo acepta al superusuario por conexión cifrada (hostssl). El certificado de Kepler
+    // es propio, por eso no se valida.
+    ssl: args.includes('--ssl') ? { rejectUnauthorized: false } : undefined,
+  });
   await c.connect();
   return c;
 }
