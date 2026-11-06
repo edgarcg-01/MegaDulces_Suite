@@ -227,6 +227,27 @@ describe('Tomar pedido · la camioneta no lee la copia commercial.stock [VEX.1]'
   });
 });
 
+describe('Tomar pedido · el precio que no es de la sucursal se dice [VEX.2]', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  const sinEscalera = (id: string, nombre: string, fuente: string) =>
+    ({ ...prod(id, nombre, 'con_existencia', 10), rungs: undefined, units: [], price_source: fuente }) as unknown as PriceRow;
+
+  it('⭐ sin escalera de Kepler y con price_source lista_red, la fila dice «precio de red»', () => {
+    const { fila, texto } = montar({ prices: [sinEscalera('p7', 'Legado sin sku', 'lista_red')] });
+    expect(texto(fila('Legado sin sku')?.querySelector('.pr-red'))).toBe('precio de red');
+  });
+
+  it('⛔ negativas: con escalera de Kepler, o con precio de la plaza, no hay rótulo', () => {
+    const conEscalera = { ...kinder, price_source: 'lista_red' } as unknown as PriceRow;
+    const dePlaza = sinEscalera('p8', 'Con precio de plaza', 'plaza_cobrado');
+    const { fila } = montar({ prices: [conEscalera, dePlaza] });
+    expect(fila('Kinder')).toBeTruthy();
+    expect(fila('Kinder')?.querySelector('.pr-red')).toBeNull();
+    expect(fila('Con precio de plaza')?.querySelector('.pr-red')).toBeNull();
+  });
+});
+
 describe('Tomar pedido · la tira de la zona con frescura [MCP.3.16]', () => {
   afterEach(() => TestBed.resetTestingModule());
 

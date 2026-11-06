@@ -20,12 +20,14 @@ export interface PriceRow {
   min_qty: number;
   /**
    * `[VPR.2]` De DONDE salio este precio. Un numero sin procedencia no se discute con nadie.
-   *   · `erp_plaza` — lo que ESTA sucursal cobra, dicho por el ERP. Es el bueno.
+   *   · `plaza_cobrado` — lo que ESTA sucursal cobró en caja (el árbitro). `[VPR.4]`
+   *   · `plaza_configurado` — el precio configurado en esta sucursal, validado.
    *   · `lista_red` — el numero unico de toda la red (la lista base). Pasa cuando el ERP no tiene
    *     fila para esta plaza, o cuando la pantalla no sabe desde que almacen se vende.
    *   · `sin_precio` — no hay ninguno de los dos. NO es cero.
+   * Describe `price`; si el renglón trae `rungs` (escalera de Kepler de la sucursal), ésa manda.
    */
-  price_source?: 'erp_plaza' | 'lista_red' | 'sin_precio';
+  price_source?: 'plaza_cobrado' | 'plaza_configurado' | 'lista_red' | 'sin_precio';
   /** El precio de la lista de red, al lado: es el que esta pantalla mostraba antes de `[VPR.2]`. */
   price_lista_red?: number | string | null;
   /** J.6.7: si el endpoint se llamó con `?warehouse_id=X`, contiene stock real disponible (quantity - reserved). Null si no se pidió. */
