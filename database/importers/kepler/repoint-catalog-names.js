@@ -20,6 +20,7 @@
  */
 const { Client } = require('pg');
 const { declararActor } = require('../lib/declare-actor');
+const { identitySnapshotSql } = require('../../../services/feeds-ingest/product-identity');
 
 const M = '00000000-0000-0000-0000-00000000d01c';
 const SRC = process.env.SRC_URL || process.env.KP_CONCENTRADA_URL || 'postgresql://postgres:superoot@192.168.0.245:5432/KP_CONCENTRADA';
@@ -49,18 +50,8 @@ const clean = (v) => { const s = (v == null ? '' : String(v)).trim(); return s =
     }
 
     // identidad fresca por sku, retail-first (excluir CEDIS '00'; fallback a CEDIS si no hay retail).
-    const fresh = (await readSrc.query(`
-      WITH retail AS (
-        SELECT DISTINCT ON (btrim(c1)) btrim(c1) AS sku, btrim(c2) AS nombre, btrim(c3::text) AS linea, btrim(coalesce(c7,'')) AS barcode
-          FROM ${KSCHEMA}.kdii WHERE btrim(coalesce(c1,'')) <> '' AND btrim(coalesce(c2,'')) <> '' AND btrim(sucursal) <> '00'
-          ORDER BY btrim(c1), c90::numeric DESC NULLS LAST),
-      cedis AS (
-        SELECT DISTINCT ON (btrim(c1)) btrim(c1) AS sku, btrim(c2) AS nombre, btrim(c3::text) AS linea, btrim(coalesce(c7,'')) AS barcode
-          FROM ${KSCHEMA}.kdii WHERE btrim(coalesce(c1,'')) <> '' AND btrim(coalesce(c2,'')) <> '' AND btrim(sucursal) = '00'
-          ORDER BY btrim(c1), c90::numeric DESC NULLS LAST)
-      SELECT sku, nombre, linea, barcode FROM retail
-      UNION ALL
-      SELECT c.sku, c.nombre, c.linea, c.barcode FROM cedis c WHERE NOT EXISTS (SELECT 1 FROM retail r WHERE r.sku=c.sku)`)).rows;
+    // [CANON.5.23] La misma regla que usa el hop-2 al llegar un cambio de kdii: una sola función.
+    const fresh = (await readSrc.query(identitySnapshotSql({ schema: KSCHEMA }))).rows;
     console.log(`  ${KSCHEMA}.kdii: ${fresh.length} SKUs`);
 
     // mapa marca (código Kepler línea → brand_id) — único egress notable, ~cientos de filas
