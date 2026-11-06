@@ -187,6 +187,8 @@ interface AllocationRowLite {
   [col: string]: unknown;
 }
 /** `[TP.15]` Lo que el candado de saldo lee de una obligación a proveedor (columnas de la mig 20261016002604). */
+/** `[PGP.76]` El turno que quedó a cada pago del día después de reordenarlo. */
+export interface DayOrderRank { id: string; priority_rank: number }
 interface KeplerLinkedRow {
   supplier_id?: string; reserved_amount: number | string;
   /** El código del acreedor en Kepler; sólo lo trae la deuda derivada (`kepler_payable`). */
@@ -2153,7 +2155,7 @@ export class PaymentCalendarService {
    * sentencia, y si la lista no es exactamente la de pendientes del día —otra persona agregó o
    * quitó un pago mientras se ordenaba— se rechaza entera en vez de dejar un orden a medias.
    */
-  async reorderDay(date: string, ids: readonly string[], username: string) {
+  async reorderDay(date: string, ids: readonly string[], username: string): Promise<DayOrderRank[]> {
     this.assertDate(date);
     if (!Array.isArray(ids) || !ids.length || ids.some((x) => typeof x !== 'string' || !x)) {
       throw new BadRequestException('ids debe ser la lista de pagos pendientes del día en su nuevo orden');
