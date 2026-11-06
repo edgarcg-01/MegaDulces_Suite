@@ -248,6 +248,30 @@ describe('Tomar pedido · el precio que no es de la sucursal se dice [VEX.2]', (
   });
 });
 
+describe('Tomar pedido · lo que Kepler no tiene con precio en la sucursal no se vende [VEX.7]', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  const sinPrecio = { ...prod('p9', 'Sin Precio Aqui', 'con_existencia', 10), price: null, price_source: 'sin_precio_sucursal', rungs: undefined, units: [] } as unknown as PriceRow;
+
+  it('⭐ al buscarlo se ve «Sin precio en tu sucursal», sin $0 y sin botones de cantidad', () => {
+    const { cmp, pintar, fila, texto } = montar({ prices: [kinder, sinPrecio] });
+    cmp.searchTerm.set('sin precio');
+    pintar();
+    const f = fila('Sin Precio Aqui');
+    expect(texto(f?.querySelector('.pr-sin'))).toBe('Sin precio en tu sucursal');
+    expect(f?.querySelector('.pr')).toBeNull();
+    expect(f?.querySelector('.row-stepper')).toBeNull();
+  });
+
+  it('⛔ negativas: no aparece en el catálogo navegable, y un producto con precio conserva sus botones', () => {
+    const { pintar, fila } = montar({ prices: [kinder, sinPrecio] });
+    pintar();
+    expect(fila('Sin Precio Aqui')).toBeUndefined();
+    expect(fila('Kinder')?.querySelector('.row-stepper')).toBeTruthy();
+    expect(fila('Kinder')?.querySelector('.pr-sin')).toBeNull();
+  });
+});
+
 describe('Tomar pedido · la tira de la zona con frescura [MCP.3.16]', () => {
   afterEach(() => TestBed.resetTestingModule());
 

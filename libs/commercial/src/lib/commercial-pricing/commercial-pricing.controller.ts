@@ -104,10 +104,13 @@ export class CommercialPricingController {
     // [MCP.3.16] Estado de existencia por renglón (vista canónica + gemelo + frescura de la
     // sucursal) y «no se maneja» al final. Sólo con warehouse_id; sin esto el catálogo no cambia.
     @Query('stock_state') stockState?: string,
+    // [VEX.7] Sólo el precio de Kepler de la sucursal: sin él, el renglón viaja sin precio (no con el de red).
+    @Query('kepler_price') keplerPrice?: string,
   ) {
     return this.service.listPrices(priceListId, {
       warehouseId,
       stockState: stockState === '1' || stockState === 'true',
+      keplerPrice: keplerPrice === '1' || keplerPrice === 'true',
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
       search,

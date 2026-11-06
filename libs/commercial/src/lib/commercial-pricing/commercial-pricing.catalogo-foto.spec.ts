@@ -15,11 +15,11 @@ function filas(n: number) {
   return Array.from({ length: n }, (_, i) => ({ id: `pp${i}`, product_id: `p${i}`, sku: String(1000 + i), price: 5 }));
 }
 
-function montar(nFilas: number, o: { legado?: { gemelo: string | null } } = {}) {
+function montar(nFilas: number, o: { legado?: { gemelo: string | null }; keplerPrice?: boolean; escaleraFalla?: boolean } = {}) {
   const tablas: string[] = [];
-  const productos: Array<{ id: string; product_id: string; sku: string | null; price: number }> = filas(nFilas);
+  const productos: Array<{ id: string; product_id: string; sku: string | null; price: number; price_source?: string }> = filas(nFilas);
   // [VEX.3] Un legado sin sku; su gemelo (si lo hay) lo resuelve la consulta de skusDeKepler.
-  if (o.legado) productos.push({ id: 'ppL', product_id: 'pL', sku: null, price: 7 });
+  if (o.legado) productos.push({ id: 'ppL', product_id: 'pL', sku: null, price: 7, price_source: 'lista_red' });
   function builder(tabla: string) {
     let esConteo = false;
     const valor = () => {
@@ -64,12 +64,15 @@ function montar(nFilas: number, o: { legado?: { gemelo: string | null } } = {}) 
     },
   };
   const quotePricing = {
-    ladders: vi.fn(async () => new Map(productos.map((p) => [p.sku, escalera]))),
+    ladders: vi.fn(async () => {
+      if (o.escaleraFalla) throw new Error('kdii caída');
+      return new Map(productos.map((p) => [p.sku, escalera]));
+    }),
   };
   const svc = new CommercialPricingService(tk as never, tenantCtx as never, quotePricing as never);
   const abrir = () =>
-    svc.listPrices(LISTA, { warehouseId: ALMACEN, pricedOnly: true, commercialOnly: true, sort: 'sales', pageSize: 10000 }) as Promise<{
-      data: Array<{ product_id?: string; tiers?: unknown[]; rungs?: unknown[] }>;
+    svc.listPrices(LISTA, { warehouseId: ALMACEN, pricedOnly: true, commercialOnly: true, sort: 'sales', pageSize: 10000, keplerPrice: o.keplerPrice }) as Promise<{
+      data: Array<{ product_id?: string; tiers?: unknown[]; rungs?: unknown[]; price?: unknown; price_source?: string }>;
       freshness: { tiers_at: string | null; ladders_at: string | null };
     }>;
   return { abrir, tablas, quotePricing };
@@ -126,5 +129,30 @@ describe('catálogo del vendedor · el legado sin sku lee la escalera de su geme
     const { abrir } = montar(20, { legado: { gemelo: null } });
     const r = await abrir();
     expect(r.data.find((x) => x.product_id === 'pL')?.rungs).toBeUndefined();
+  });
+});
+
+describe('catálogo del vendedor · sin precio de Kepler en la sucursal no se vende ahí [VEX.7]', () => {
+  it('⭐ con keplerPrice, el renglón sin escalera de la sucursal viaja sin precio (no con el de red)', async () => {
+    const { abrir } = montar(20, { legado: { gemelo: null }, keplerPrice: true });
+    const r = await abrir();
+    const l = r.data.find((x) => x.product_id === 'pL');
+    expect(l?.price).toBeNull();
+    expect(l?.price_source).toBe('sin_precio_sucursal');
+    expect(r.data.find((x) => x.product_id === 'p0')?.price).toBe(5);
+  });
+
+  it('⛔ negativa: sin keplerPrice (portal, view) el catálogo responde como antes', async () => {
+    const { abrir } = montar(20, { legado: { gemelo: null } });
+    const l = (await abrir()).data.find((x) => x.product_id === 'pL');
+    expect(l?.price).toBe(7);
+    expect(l?.price_source).toBe('lista_red');
+  });
+
+  it('⛔ negativa: si la escalera de Kepler no se pudo leer, no se anula nada (queda el rótulo de red)', async () => {
+    const { abrir } = montar(20, { legado: { gemelo: null }, keplerPrice: true, escaleraFalla: true });
+    const r = await abrir();
+    expect(r.data.find((x) => x.product_id === 'pL')?.price).toBe(7);
+    expect(r.data.every((x) => x.price != null)).toBe(true);
   });
 });

@@ -437,7 +437,7 @@ export class VendorService {
           // los renglones tal cual) conserva el estado y la fecha de lectura de cada producto.
           // [VEX.1] Siempre, también para la camioneta: sin él el backend lee la copia deprecada
           // `commercial.stock`. El camión no tiene saldo en Kepler y sale «sin dato», declarado.
-          .listPricesForList(list.id, warehouseId, { pricedOnly: true, sort: 'sales', stockState: true })
+          .listPricesForList(list.id, warehouseId, { pricedOnly: true, sort: 'sales', stockState: true, keplerPrice: true })
           .pipe(
             map((prices) => {
               // [VTK.11] Queda en memoria para el siguiente cliente de la ruta.

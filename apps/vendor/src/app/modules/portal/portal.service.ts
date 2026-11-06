@@ -27,7 +27,7 @@ export interface PriceRow {
    *   · `sin_precio` — no hay ninguno de los dos. NO es cero.
    * Describe `price`; si el renglón trae `rungs` (escalera de Kepler de la sucursal), ésa manda.
    */
-  price_source?: 'plaza_cobrado' | 'plaza_configurado' | 'lista_red' | 'sin_precio';
+  price_source?: 'plaza_cobrado' | 'plaza_configurado' | 'lista_red' | 'sin_precio' | 'sin_precio_sucursal';
   /** El precio de la lista de red, al lado: es el que esta pantalla mostraba antes de `[VPR.2]`. */
   price_lista_red?: number | string | null;
   /** J.6.7: si el endpoint se llamó con `?warehouse_id=X`, contiene stock real disponible (quantity - reserved). Null si no se pidió. */
@@ -347,7 +347,7 @@ export class PortalService {
   listPricesForList(
     priceListId: string,
     warehouseId?: string,
-    opts: { pricedOnly?: boolean; sort?: string; stockState?: boolean } = {},
+    opts: { pricedOnly?: boolean; sort?: string; stockState?: boolean; keplerPrice?: boolean } = {},
   ): Observable<PriceRow[]> {
     // priced_only: trae SOLO los productos pedibles (con precio) del price list,
     // completos en un fetch (sube el techo del backend a 10k). Sin él, el backend
@@ -366,6 +366,8 @@ export class PortalService {
     // [MCP.3.16] Opt-in: cada renglón trae además `stock_state`/`stock_checked_at`/`stock_twin_product_id`
     // y la existencia sale de la vista canónica. Sin él, el servidor responde exactamente como antes.
     if (opts.stockState && warehouseId) params = params.set('stock_state', '1');
+    // [VEX.7] Sólo el precio de Kepler de la sucursal: lo que Kepler no tiene ahí viaja sin precio (la app lo oculta).
+    if (opts.keplerPrice && warehouseId) params = params.set('kepler_price', '1');
     return this.http.get<{ data: PriceRow[] } | PriceRow[]>(
       `${this.base}/price-lists/${priceListId}/prices`,
       { params },
