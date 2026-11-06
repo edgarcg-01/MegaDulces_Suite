@@ -1084,6 +1084,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                 <span class="cb-rk warn">{{ r.totals.difieren }} difieren</span>
                 <span class="cb-rk bad">{{ r.totals.sin_match }} sin match</span>
                 @if (r.totals.revisar) { <span class="cb-rk sec">{{ r.totals.revisar }} revisar</span> }
+                @if (r.totals.agrupados) { <span class="cb-rk sec">{{ r.totals.agrupados }} agrupados en Kepler</span> }
                 @if (r.totals.kepler_orphans) { <span class="cb-rk sec">{{ r.totals.kepler_orphans }} solo en Kepler</span> }
               </div>
               }
@@ -1137,6 +1138,8 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                         <button type="button" class="cb-reflink mono" (click)="inspect.set(refSku(l.resolved_sku))"
                                 [attr.aria-label]="'Abrir el producto ' + l.resolved_sku">{{ l.resolved_sku }}</button>
                         {{ l.resolved_nombre || (l.kepler?.nombre) || '' }}
+                        <!-- [RE.56] Kepler capturó varias figuras del proveedor con un solo código: se dice, no se marca como diferencia. -->
+                        @if (l.grupo) { <span class="muted"> · junto con {{ l.grupo.renglones - 1 }} renglón(es) más suman la línea de Kepler</span> }
                       } @else { <span class="muted">sin producto de Kepler</span> }
                     </div>
                   </td>
@@ -3229,13 +3232,13 @@ export class ComprasEntradasComponent {
   }
 
   reconStatusLabel(s: ReconciledLine['status']): string {
-    return ({ cuadra: 'Cuadra', difiere_cantidad: 'Difiere cantidad', difiere_precio: 'Difiere precio', revisar: 'Revisar', sin_match: 'Sin match' } as Record<string, string>)[s] || s;
+    return ({ cuadra: 'Cuadra', difiere_cantidad: 'Difiere cantidad', difiere_precio: 'Difiere precio', revisar: 'Revisar', agrupado: 'Agrupado', sin_match: 'Sin match' } as Record<string, string>)[s] || s;
   }
   reconStatusSev(s: ReconciledLine['status']): 'success' | 'warn' | 'danger' | 'secondary' {
-    return ({ cuadra: 'success', difiere_cantidad: 'warn', difiere_precio: 'warn', revisar: 'secondary', sin_match: 'danger' } as Record<string, 'success' | 'warn' | 'danger' | 'secondary'>)[s] || 'secondary';
+    return ({ cuadra: 'success', agrupado: 'success', difiere_cantidad: 'warn', difiere_precio: 'warn', revisar: 'secondary', sin_match: 'danger' } as Record<string, 'success' | 'warn' | 'danger' | 'secondary'>)[s] || 'secondary';
   }
   reconMethodLabel(m: ReconciledLine['method']): string {
-    return ({ alias: 'Aprendido', barcode: 'Código barras', descripcion: 'Descripción', sin_match: '—' } as Record<string, string>)[m] || m;
+    return ({ alias: 'Aprendido', barcode: 'Código barras', descripcion: 'Descripción', numeros: 'Cantidad e importe', sin_match: '—' } as Record<string, string>)[m] || m;
   }
 
   /**

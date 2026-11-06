@@ -2523,6 +2523,8 @@ export class GoodsReceiptProofsService {
         cuadran: results.filter((r) => r.status === 'cuadra').length,
         difieren: results.filter((r) => r.status === 'difiere_cantidad' || r.status === 'difiere_precio').length,
         sin_match: results.filter((r) => r.status === 'sin_match').length,
+        // `[RE.56]` renglones que juntos forman UN renglón de Kepler
+        agrupados: results.filter((r) => r.status === 'agrupado').length,
         revisar: results.filter((r) => r.status === 'revisar').length,
         kepler_orphans: c.kepler_orphans.length,
       };

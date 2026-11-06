@@ -59,15 +59,19 @@ export interface ReconciledLine {
   kepler: RenglonKepler | null;
   resolved_sku: string | null;
   resolved_nombre: string | null;
-  method: 'alias' | 'barcode' | 'descripcion' | 'sin_match';
+  /** `[RE.56]` `numeros` = el nombre no alcanzaba, pero la cantidad y el importe cuadran exactos. */
+  method: 'alias' | 'barcode' | 'descripcion' | 'numeros' | 'sin_match';
   score: number;
   box_factor: number;
   qty_remision_pz: number | null;
   qty_kepler: number | null;
   qty_match: boolean | null;
   price_match: boolean | null;
-  status: 'cuadra' | 'difiere_cantidad' | 'difiere_precio' | 'revisar' | 'sin_match';
+  /** `[RE.56]` `agrupado` = junto con otros renglones de la remisión forma UN renglón de Kepler. */
+  status: 'cuadra' | 'difiere_cantidad' | 'difiere_precio' | 'revisar' | 'agrupado' | 'sin_match';
   alias_hit: boolean;
+  /** `[RE.56]` Si es parte de un grupo: la línea de Kepler y cuántos renglones lo forman. */
+  grupo?: { linea: string; renglones: number } | null;
 }
 
 export interface Conciliacion {
@@ -101,14 +105,34 @@ export function tokenize(s: string): string[] {
  */
 export function lineSimilarity(remTokens: string[], kepTokens: string[]): number {
   if (!remTokens.length || !kepTokens.length) return 0;
-  const kepSet = new Set(kepTokens);
-  const matched = remTokens.filter((t) => kepSet.has(t)).length;
+  const enKep = (t: string) => kepTokens.some((k) => k === t || casiIgual(t, k));
+  const matched = remTokens.filter(enKep).length;
   const coverage = matched / remTokens.length;
   const union = new Set([...remTokens, ...kepTokens]).size;
   const jaccard = matched / union;
   let score = 0.7 * coverage + 0.3 * jaccard;
-  if (remTokens[0] && kepSet.has(remTokens[0])) score = Math.min(1, score + 0.1);
+  if (remTokens[0] && enKep(remTokens[0])) score = Math.min(1, score + 0.1);
   return score;
+}
+
+/**
+ * `[RE.56]` Una falta de ortografía del proveedor: «OJUELA» por «HOJUELA» (0000276 de Canindo).
+ * Distancia de edición 1, sólo entre palabras de 5+ LETRAS: «400» y «600» siguen siendo distintos
+ * (es el cruce RED COLA 400↔600 de RE.53), y una palabra corta cambia de sentido con una letra.
+ */
+export function casiIgual(a: string, b: string): boolean {
+  if (a.length < 5 || b.length < 5 || Math.abs(a.length - b.length) > 1) return false;
+  if (!/^[a-z]+$/.test(a) || !/^[a-z]+$/.test(b)) return false;
+  // Levenshtein acotado a 1: se recorre una vez y se permite un solo tropiezo.
+  let i = 0, j = 0, tropiezos = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { i++; j++; continue; }
+    if (++tropiezos > 1) return false;
+    if (a.length > b.length) i++;
+    else if (b.length > a.length) j++;
+    else { i++; j++; }
+  }
+  return tropiezos + (a.length - i) + (b.length - j) <= 1;
 }
 
 const esCaja = (unidad: string | null | undefined) => /(CJA|CAJA|CJ|BULTO|PAQ|DISPLAY|MASTER)/.test((unidad || '').toUpperCase());
@@ -193,12 +217,31 @@ export function conciliarRenglones(e: EntradaConciliar): Conciliacion {
   }
   const base: BasePrecio = a1 + aIva === 0 ? 'sin_medir' : aIva > a1 ? 'con_iva' : 'sin_iva';
 
+  // 3b) `[RE.56]` Pares por NÚMEROS: el nombre no llegó al mínimo, pero la cantidad cuadra y el
+  //     importe también (o no se puede medir y esa cantidad es única en la entrada). En 0000276
+  //     «FRANCESA SABOR PAPA ADOBADA 10» sólo tenía por nombre a «HOJUELA PAPA ADOBADA 20»; el
+  //     suyo, «FRITURA ADOBADA 10», se parecía 0.22 y nunca entraba a competir.
+  const yaEs = new Set(cands.map((p) => `${p.i}|${p.j}`));
+  rem.forEach((r, i) => {
+    if (fijo.has(i)) return;
+    const t = tokenize(r.descripcion || '');
+    kep.forEach((k, j) => {
+      if (yaEs.has(`${i}|${j}`)) return;
+      const bf = bfDe(k.sku);
+      if (cuadraCantidad(cantidadPiezas(r, bf), k) !== true) return;
+      const imp = cuadraImporte(r, k, base);
+      if (imp === false) return;
+      if (imp === null && kep.filter((o) => Math.abs(o.cantidad - k.cantidad) / Math.max(Math.abs(k.cantidad), 1) <= QTY_TOL).length > 1) return;
+      cands.push({ i, j, sim: lineSimilarity(t, kepTokens[j]), metodo: 'numeros', bf });
+    });
+  });
+
   // 4) Emparejamiento GLOBAL: nombre + cantidad + importe. Un par fijo (alias/barras) va primero.
   const puntaje = (p: Par) => {
     const r = rem[p.i], k = kep[p.j];
     const q = cuadraCantidad(cantidadPiezas(r, p.bf), k) === true ? 0.5 : 0;
     const m = cuadraImporte(r, k, base) === true ? 0.5 : 0;
-    return (p.metodo === 'descripcion' ? 0 : 10) + p.sim + q + m;
+    return (p.metodo === 'descripcion' || p.metodo === 'numeros' ? 0 : 10) + p.sim + q + m;
   };
   const orden = cands.map((p) => ({ p, s: puntaje(p) }))
     .sort((a, b) => b.s - a.s || a.p.i - b.p.i || a.p.j - b.p.j);
@@ -209,9 +252,26 @@ export function conciliarRenglones(e: EntradaConciliar): Conciliacion {
     remUsado.set(p.i, p); kepUsado.add(p.j);
   }
 
+  // 5) `[RE.56]` N:1 — Kepler capturó varias figuras del proveedor con UN código (0000276:
+  //    MINIRRUEDA 40 + ENFRUTA DE HARINA 30 + ANILLO 30 = «FRITURA DE HARINA» 100). Para cada
+  //    renglón de Kepler sin pareja, se busca el subconjunto de renglones sueltos que suma su
+  //    cantidad y su importe. ⛔ Sólo si es ÚNICO: con dos combinaciones posibles no se elige.
+  const grupos = agruparHuerfanos(rem, kep, remUsado, kepUsado, fijo, bfDe, base);
+
   const lines: ReconciledLine[] = rem.map((r, i) => {
     const p = remUsado.get(i);
     const f = fijo.get(i);
+    const g = grupos.get(i);
+    if (!p && g) {
+      const k = kep[g.j];
+      return {
+        idx: i, remision: r, kepler: k, resolved_sku: k.sku, resolved_nombre: k.nombre,
+        method: 'numeros', score: 0, box_factor: bfDe(k.sku),
+        qty_remision_pz: cantidadPiezas(r, bfDe(k.sku)), qty_kepler: k.cantidad,
+        qty_match: null, price_match: null, status: 'agrupado', alias_hit: false,
+        grupo: { linea: k.linea, renglones: g.n },
+      };
+    }
     if (!p) {
       // Un SKU fijo cuyo renglón de Kepler no está en esta entrada sigue resuelto, sin par.
       return {
@@ -239,7 +299,60 @@ export function conciliarRenglones(e: EntradaConciliar): Conciliacion {
     };
   });
 
-  return { lines, kepler_orphans: kep.filter((_, j) => !kepUsado.has(j)), base_precio: base };
+  const agrupados = new Set([...grupos.values()].map((g) => g.j));
+  return { lines, kepler_orphans: kep.filter((_, j) => !kepUsado.has(j) && !agrupados.has(j)), base_precio: base };
+}
+
+/** `[RE.56]` Cuántos renglones sueltos se prueban como máximo, y de qué tamaño puede ser un grupo. */
+export const GRUPO_MAX_SUELTOS = 14;
+export const GRUPO_MAX = 5;
+
+/**
+ * `[RE.56]` renglón de la remisión → el renglón de Kepler que forma con otros. Un suelto con SKU fijo
+ * (alias o barras) sólo entra al grupo de SU SKU. Sin importes medibles en todo el subconjunto,
+ * decide la cantidad sola, y la regla de unicidad es la que evita adivinar.
+ */
+function agruparHuerfanos(
+  rem: RemisionLine[], kep: RenglonKepler[], remUsado: Map<number, Par>, kepUsado: Set<number>,
+  fijo: Map<number, { sku: string }>, bfDe: (sku: string | null) => number, base: BasePrecio,
+): Map<number, { j: number; n: number }> {
+  const out = new Map<number, { j: number; n: number }>();
+  kep.forEach((k, j) => {
+    if (kepUsado.has(j)) return;
+    const sueltos = rem.map((_, i) => i)
+      .filter((i) => !remUsado.has(i) && !out.has(i) && (!fijo.has(i) || fijo.get(i)!.sku === k.sku))
+      .slice(0, GRUPO_MAX_SUELTOS);
+    if (sueltos.length < 2) return;
+    const bf = bfDe(k.sku);
+    const qty = sueltos.map((i) => cantidadPiezas(rem[i], bf));
+    const imp = sueltos.map((i) => importeRemision(rem[i]));
+    const hallados: number[][] = [];
+    const elegir = (desde: number, tomados: number[]) => {
+      if (hallados.length > 1) return; // ya es ambiguo
+      if (tomados.length >= 2) {
+        const q = tomados.reduce((s, x) => s + (qty[x] ?? NaN), 0);
+        if (Math.abs(q - k.cantidad) / Math.max(Math.abs(k.cantidad), 1) <= QTY_TOL) {
+          const is = tomados.map((x) => imp[x]);
+          const ok = is.every((x) => x != null) && k.importe > 0
+            ? importeCuadra(is.reduce((s: number, x) => s + (x as number), 0), k.importe, base)
+            : true;
+          if (ok) hallados.push([...tomados]);
+        }
+      }
+      if (tomados.length === GRUPO_MAX) return;
+      for (let x = desde; x < sueltos.length; x++) if (qty[x] != null) elegir(x + 1, [...tomados, x]);
+    };
+    elegir(0, []);
+    if (hallados.length !== 1) return;
+    for (const x of hallados[0]) out.set(sueltos[x], { j, n: hallados[0].length });
+  });
+  return out;
+}
+
+/** El importe de la remisión (en la base del documento) contra el de Kepler, ±`PRICE_TOL`. */
+function importeCuadra(ri: number, kImporte: number, base: BasePrecio): boolean {
+  const dentro = (x: number) => Math.abs(x - kImporte) / kImporte <= PRICE_TOL;
+  return base === 'con_iva' ? dentro(ri / (1 + IVA)) || dentro(ri) : dentro(ri);
 }
 
 export interface Aprendible {

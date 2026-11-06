@@ -1,5 +1,5 @@
 import type { RemisionLine } from '@megadulces/platform-core';
-import { aprendibles, conciliarRenglones, lineSimilarity, tokenize, type EntradaConciliar, type RenglonKepler } from './conciliar-renglones';
+import { aprendibles, casiIgual, conciliarRenglones, lineSimilarity, tokenize, type EntradaConciliar, type RenglonKepler } from './conciliar-renglones';
 
 /**
  * `[RE.53]` El caso que lo trajo (entrada 0001088 de 8 Esquinas, AGA), con importes SINTÉTICOS
@@ -104,5 +104,74 @@ describe('[RE.53] qué se aprende solo al dar por buena la factura', () => {
     ]);
     const c = conciliarRenglones(entrada([rem('RED COLA 24/400', 8, conIva(1000)), rem('OTRA COLA', 8, conIva(1000))], { aliases }));
     expect(aprendibles(c).some((x) => x.sku === 'S400')).toBe(false);
+  });
+});
+
+/**
+ * `[RE.56]` La entrada 0000276 de Canindo, con las cantidades de la pantalla e importes SINTÉTICOS
+ * (precio parejo de $28 por pieza; el repo es público). La remisión y Kepler suman 340: la mercancía
+ * está completa, y lo que no cuadraba era el EMPAREJAMIENTO.
+ */
+describe('[RE.56] N:1, faltas de ortografía y pares por números', () => {
+  const P = 28;
+  const kepFr = [
+    kep('1', '07619', 'BOT DORADOS (500GR) / FABRICANTE', 150, 150 * P),
+    kep('2', '07611', 'FRITURA DE PAPA (500GR) / FABRICANTE', 40, 40 * P),
+    kep('3', '07622', 'CUADRO ENCHILADO / FABRICANTE', 20, 20 * P),
+    kep('4', '07614', 'HOJUELA PAPA ADOBADA (500GR) / FABRICANTE', 20, 20 * P),
+    kep('5', '07615', 'FRITURA DE HARINA (500GR) / FABRICANTE', 100, 100 * P),
+    kep('6', '07624', 'FRITURA ADOBADA (500G) / FABRICANTE', 10, 10 * P),
+  ];
+  const r = (d: string, q: number, imp: number | null = q * P) => rem(d, q, imp, 'KGM');
+  const remFr = [
+    r('Dorados Botsmas', 150), r('Minirrueda', 40), r('Sabor papa 0.5 KG', 40), r('Enfruta de harina francesa', 30),
+    r('Anillo', 30), r('Cacahuate enchilado 0.5 KG', 20), r('Ojuela', 20), r('Francesa sabor papa adobada', 10),
+  ];
+  const conc = (remision: RemisionLine[], k = kepFr) =>
+    conciliarRenglones({ remision, kepler: k, aliases: new Map(), barcodes: new Map(), boxFactor: new Map() });
+  const par = (c: ReturnType<typeof conc>, d: string) => c.lines.find((l) => l.remision.descripcion === d)!;
+
+  it('CONTROL: «Francesa sabor papa adobada» no llega por nombre a «FRITURA ADOBADA» (0.22 < mínimo)', () => {
+    expect(lineSimilarity(tokenize('Francesa sabor papa adobada'), tokenize('FRITURA ADOBADA (500G) / FABRICANTE'))).toBeLessThan(0.34);
+  });
+
+  it('una letra de diferencia es la misma palabra; números y palabras cortas no', () => {
+    expect(casiIgual('ojuela', 'hojuela')).toBe(true);
+    expect(casiIgual('400ml', '600ml')).toBe(false);
+    expect(casiIgual('papa', 'pepa')).toBe(false);
+    expect(casiIgual('fritura', 'enfruta')).toBe(false);
+  });
+
+  it('el caso completo: 5 pares cuadran, 3 renglones forman «FRITURA DE HARINA», nada sin pareja', () => {
+    const c = conc(remFr);
+    expect(par(c, 'Ojuela').resolved_sku).toBe('07614');
+    expect(par(c, 'Francesa sabor papa adobada')).toMatchObject({ resolved_sku: '07624', method: 'numeros', status: 'cuadra' });
+    for (const d of ['Minirrueda', 'Enfruta de harina francesa', 'Anillo']) {
+      expect(par(c, d)).toMatchObject({ resolved_sku: '07615', status: 'agrupado', grupo: { linea: '5', renglones: 3 } });
+    }
+    expect(c.lines.filter((l) => l.status === 'cuadra')).toHaveLength(5);
+    expect(c.lines.filter((l) => l.status === 'sin_match')).toHaveLength(0);
+    expect(c.kepler_orphans).toHaveLength(0);
+  });
+
+  it('NEGATIVA: si dos combinaciones suman lo mismo, no se elige ninguna', () => {
+    const c = conc([r('A', 50), r('B', 50), r('C', 50)], [kep('1', 'X', 'OTRO PRODUCTO', 100, 100 * P)]);
+    expect(c.lines.every((l) => l.status === 'sin_match')).toBe(true);
+    expect(c.kepler_orphans).toHaveLength(1);
+  });
+
+  it('NEGATIVA: la cantidad suma pero el importe no → no hay grupo', () => {
+    const c = conc([r('A', 60, 60 * P), r('B', 40, 40 * P * 2)], [kep('1', 'X', 'OTRO PRODUCTO', 100, 100 * P)]);
+    expect(c.lines.every((l) => l.status === 'sin_match')).toBe(true);
+  });
+
+  it('NEGATIVA: por números con importe desconocido sólo si la cantidad es única en la entrada', () => {
+    const k = [kep('1', 'X', 'UNO', 10, 10 * P), kep('2', 'Y', 'DOS', 10, 10 * P)];
+    const c = conc([r('ZZZ', 10, null)], k);
+    expect(c.lines[0].status).toBe('sin_match');
+  });
+
+  it('lo agrupado no se aprende solo (todavía): la cantidad del renglón no se puede probar sola', () => {
+    expect(aprendibles(conc(remFr)).some((a) => a.sku === '07615')).toBe(false);
   });
 });
