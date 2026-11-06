@@ -650,6 +650,9 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
                     </p-select>
                   } @else if (dd.direcciones.length === 1) {
                     <p class="tot-nota dir-fija">Entrega en {{ etiquetaDireccion(dd.direcciones[0]) }}</p>
+                  } @else {
+                    <!-- Sin direcciones en kdudent Kepler pone Dir. envío 0 (el domicilio del cliente). -->
+                    <p class="tot-nota dir-fija">Sin dirección de entrega en Kepler: se entrega en el domicilio del cliente.</p>
                   }
                 }
                 <!-- [COT.28] Lo que el almacén y la ruta tienen que saber; va a «Comentarios» del pedido
