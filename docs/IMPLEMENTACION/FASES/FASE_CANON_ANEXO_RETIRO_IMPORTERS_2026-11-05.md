@@ -182,6 +182,26 @@ medir la condición EXACTA que ejecuta el SQL, no una parecida.
 `--source=branch` (los POS sólo aceptan a md). La migración de CANON.5.26 sólo se ejerció en una base
 desechable.
 
+## 2g. Oleada 6 — lo que quedaba abierto (2026-11-06; Edgar: «sigamos»)
+
+| Item | Qué | Comparación | Lo que cambia |
+|---|---|---|---|
+| **CANON.5.17** `import-rotation-from-consolidado` | `mart` → `sales_daily` (ya en pieza/kg anclados al precio) | la unidad se probó contra el precio de pieza de Kepler (`kdii.c90`): en 3,640 de 3,646 SKUs que difieren >3×, `sales_daily` da el precio de la pieza; la rotación vieja daba piezas de centavos. Control con ventana de 60 días en rojo | **la rotación estaba inflada ~200×**: el `mart` convertía por la etiqueta `PAQ`, que Kepler pone también a la pieza. Cambia el tier de ~1,600 SKUs y los «N u./30d» muestran piezas reales |
+| **CANON.5.25** D5 parámetros de proveedor | `catalog.suppliers.order_params_source` (jsonb por campo: `manual`/`derivado`/`desconocido`); la service marca `manual` y firma `updated_by`; el importer refresca sólo lo derivado | primera corrida simulada en prod: 0 valores cambian, 378 campos `derivado`, 758 `desconocido` (protegidos); vitest 7/7 con negativa; prueba contra base real en `pruebas-db` | orden: migración → soltar la API → `ingesta` |
+| **CANON.5.27** D6 `import-transfers-monthly` | reemplaza (actualiza lo que cambió y borra lo que ya no sale) en vez de GREATEST; guarda si una sucursal lee 0 | 141 grupos: docs(tabla) − docs(borradas) = docs(nuevo); la salida del CEDIS cuadra con los folios del ODS los 11 meses; control en rojo | se van 119 llaves duplicadas por destino renombrado (~11 % de la salida del CEDIS ene–jul) y 54 bajan por **documentos cancelados** que la tabla conservaba |
+| **CANON.5.28** `import-pos-cashiers` + resync | el espejo agrega `kdpv_kdku` y `kdpv_gerentes` a su red de resync (el envío del carril hash se perdía y nada lo reponía); el importer lee el ODS | 1,351/1,357 iguales; las 6 explicadas (4 del ODS atrasado, que repara el resync; el resto, la tabla atrasada) | — |
+| **CANON.5.29** `import-kardex` | POS → ODS | 581/581 iguales a 30 días; las 3 «mermas perdidas» de la `06` eran mermas **canceladas** en Kepler, que el upsert nunca borró | — |
+
+**Huecos del ODS, medidos contra la réplica en md (jul-2025 → hoy):** `02/kdm2` falta un día (15-ago,
+29 documentos `U-D-6` con cabecera y sin renglones); `00/kdm2` faltan de 1 a 24 renglones por mes
+(dic–ago). `00/kdij` tiene de MÁS (el CEDIS purga su kardex; el ODS conserva). El reconciliador
+existente los repone (`reconcile-ods-window.js --branch=02|00 --tables=kdm2 --days=90|340`, primero
+en seco); lo corre Edgar fuera de horario.
+
+**Sueltos:** hay filas `wincaja_ruta` de `sales_daily` con fecha futura (2026-12-06), y
+`database/scripts/sync-erp-product-costs.js` escribe la rotación leyendo un servidor que ya no se usa
+(no está en ningún carril: candidato a borrar).
+
 ## 3. Los 51, clasificados
 
 **Leyenda.** **Lee:** `ods` = `kepler_ods` · `réplicas` = bases `md_*` por sucursal · `mart` = el
