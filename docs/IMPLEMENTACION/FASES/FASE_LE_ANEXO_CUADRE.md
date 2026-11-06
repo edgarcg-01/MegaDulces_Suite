@@ -74,7 +74,7 @@ de la mitad del dinero sin explicar, y cuando sí lo ve, no dice de quién es.
 
 1. **El veredicto del periodo, en una frase.** *«Falta explicar $X en N huecos: caja $A · Kepler y
    sucursales $B · Canindo $C · sin contar $D.»* Cada monto filtra la lista de abajo.
-2. **La línea del efectivo físico.** *«Contado (cajón + bóveda) contra el libro: +$2,106.70 ·
+2. **La línea del efectivo físico.** *«Contado (cajón + bóveda) contra el libro: −$48,047.70 ·
    $188,560 declarados sin contar.»* Es el único testigo que no depende de nadie, y va arriba.
 3. **La lista de huecos**, la tarea. Una fila por hueco, **lo más nuevo primero**, agrupable por
    dueño. Cada fila dice qué testigos lo vieron y cuáles no (cadena venta → corte → cobro → bóveda →
@@ -149,7 +149,7 @@ Cuadre de Caja General                                [?] Kepler hace 4 min · O
 ─────────────────────────────────────────────────────────────────────────────────────────
 Falta explicar $X en N huecos                                       ← primario
   Caja $A  ·  Kepler y sucursales $B  ·  Canindo $C  ·  Sin contar $188,560
-Efectivo contado contra el libro: +$2,106.70 · $188,560 declarados sin contar   [ver balance]
+Efectivo contado contra el libro: −$48,047.70 · $188,560 declarados sin contar  [ver balance]
 
 [ Huecos | Días ]   Dueño: [Todos ▾]   Certeza: [Todas ▾]   [Buscar folio, ruta, monto…]
 
@@ -176,9 +176,23 @@ reparte la regla de dueño de cada hueco, y un hueco con dos dueños posibles se
 en el primero que puede cerrarlo. Las filas de ejemplo sí son movimientos reales de §36.
 
 **Se conserva** (decisiones previas): el estado partido `[CGA-A.66]` (cuadra / falta capturar / no
-cuadra) dentro del modo «Días»; las pestañas de Caja (`[CGA-A.67]`); la frescura de Kepler; la
-exportación a Excel. **Cambia:** el nivel 0 pasa del día al hueco, y el veredicto pasa de «días que no
-cuadran» a **dinero sin explicar con dueño**.
+cuadra) dentro del modo «Días»; las pestañas de Caja (`[CGA-A.67]`); la frescura de Kepler.
+**Cambia:** el nivel 0 pasa del día al hueco, y el veredicto pasa de «días que no
+cuadran» a **dinero sin explicar con dueño**. ⛔ **Sin Excel** (PM, 2026-11-05: *«nada de Excel»*): se
+quitó la exportación de la lista y del día.
+
+**`[LE.CU.4b]` Revisión de las tablas (PM, 2026-11-05: *«el diseño de las tablas es poco amigable»*;
+auditoría nivel C, sin validación visual).** Medido sobre los 87 huecos de prod: el renglón era el
+texto técnico del servidor (códigos de Kepler en 46, hasta 175 caracteres); la acción se repetía en
+cada fila; la venta sin cobro iba una fila por día (32 días = 10 rutas); seis columnas, tres de
+metadatos; los avisos en ámbar a 2.15:1 y el verde a 3.30:1 (AA pide 4.5). La tabla de días tenía 7
+columnas de cifras, y el detalle del día, dos tablas que había que cruzar a ojo. Quedó:
+
+| tabla | antes | ahora |
+|---|---|---|
+| huecos | 6 columnas, 87 filas, acción en cada fila | 3 columnas (fecha · qué es · monto), agrupada por lo que hay que hacer con la acción una vez en el encabezado; la ruta junta sus días (87 → 65 filas); testigos y certeza al detalle, salvo «por confirmar», que se dice en la fila |
+| días | 7 columnas (caja, Kepler y diferencia, de entrada y de salida, más estado) | 4 columnas (día · estado · diferencia al entrar · al salir); los totales del día, en el subtítulo de su detalle |
+| detalle del día | dos tablas: la de la caja y, abajo, «En Kepler, sin caja» | una sola: caja · Kepler · par, lo que no tiene par primero; lo casado sólo por importe dice «por confirmar» y no cuenta como casado |
 
 ## Paso 11 · Criterios de aceptación (se miden en la pantalla viva)
 
@@ -211,8 +225,8 @@ cuadran» a **dinero sin explicar con dueño**.
 
 | item | capa | qué | estado |
 |---|---|---|---|
-| `[LE.CU.1]` | C0 | versionar las mediciones de §36 como `scripts/verify-cuadre-*.js` (sólo lectura, `system_identifier` verificado) | ⬜ |
-| `[LE.CU.2]` | C1 | motores puros con prueba: `caja-boveda-replay.engine` (replay validado 109/111), `caja-balance-fisico.engine`, `caja-huecos.engine` (clasifica cada hueco por testigos → dueño → certeza) | ⬜ |
-| `[LE.CU.3]` | C2 | `GET /finance/caja/cuadre/huecos` y `/balance`; consultas < 500 ms medidas en prod | ⬜ |
-| `[LE.CU.4]` | C3 | la pantalla de la maqueta; `check:pantalla` antes y después | ⬜ |
+| `[LE.CU.1]` | C0 | versionar las mediciones de §36: `database/scripts/verify-lecu1-flujo-efectivo-caja.js` (sólo lectura, `resolverProd`). ⭐ Al correrlo **no reprodujo** el balance publicado y cazó el error de §36.4 (sumar por fecha y no por corte): faltan $48,047.70, no sobran $2,106.70 | 🧪 `3429cfd4f` |
+| `[LE.CU.2]` | C1 | motores puros con prueba: `caja-boveda.engine` (replay validado 109/111), `caja-balance-fisico.engine` (bulto aparte), `caja-huecos.engine` (testigos → dueño → certeza → acción; un peso, un hueco). 24 casos reales de §36 en verde; mutantes «bulto como efectivo» y «certeza alta por importe» muertos | 🧪 `dc86d3b75` |
+| `[LE.CU.3]` | C2 | `GET /finance/caja/cuadre-huecos` y `/cuadre-balance` (`caja-cuadre-huecos.query.ts`). Ejercidos contra prod en sólo lectura con el guion de `[LE.CU.1]`: 95 huecos en 846 ms, ninguna consulta > 500 ms; el balance reproduce §36.4 al peso. ⭐ La corrida cazó y corrigió seis errores antes del commit (el más grave: una liga sólo por importe escondía el duplicado de $21,101). **No mide todavía:** salidas sólo de Control y capturas dobles (se publican en `no_medido`). Arranque no verificado: lo prueba el CI y `/api/health` | 🧪 `1aade4628` |
+| `[LE.CU.4]` | C3 | la pantalla de la maqueta; `check:pantalla` antes y después | 🧪 `8eccc0c0d` — 6 pruebas + 3 negativas; `check:pantalla` limpio antes y después. **Sin validación visual** (no hubo navegador); criterios 1, 2 y 7 del paso 11 se miden con la pantalla viva en prod |
 | `[LE.CU.5]` | C2 | arreglar los dos defectos de §36.2 (signo nulo y la cola que pide recapturar) | ⬜ |

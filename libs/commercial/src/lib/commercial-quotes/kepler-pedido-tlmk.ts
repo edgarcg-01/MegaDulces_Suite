@@ -146,3 +146,29 @@ export function armarPedidoTlmk(
   const c13 = p ? redondear2((t.importe - impuestosBrutos) * p / 100) : 0;
   return { ok: true, renglones: out, cabecera: { c19: p, c13, c14: t.iva, c15: t.ieps, c16: t.total } };
 }
+
+/** `[COT.28]` Largo de cada renglón de «Comentarios» en Kepler (`kdm1.c24`–`c26`, `varchar(60)` medido). */
+export const LARGO_COMENTARIO = 60;
+/** `[COT.28]` Las observaciones van en `c25` + `c26` (`c24` es la marca con el folio): 120 caracteres. */
+export const LARGO_OBSERVACIONES = LARGO_COMENTARIO * 2;
+
+/** Una sola línea: sin saltos ni espacios repetidos. Vacío = null. */
+export function normalizarObservaciones(texto: string | null | undefined): string | null {
+  const t = (texto ?? '').replace(/\s+/g, ' ').trim();
+  return t || null;
+}
+
+/**
+ * `[COT.28]` Reparte las observaciones en los dos renglones libres de «Comentarios» (`c25`, `c26`).
+ * Corta en el último espacio antes de 60 para no partir palabras; si así el resto no cabe, corta
+ * a 60 exactos. Más de 120 no se trunca en silencio: lanza (la API ya lo rechaza al guardar).
+ */
+export function renglonesObservaciones(texto: string | null | undefined): [string, string] {
+  const t = normalizarObservaciones(texto);
+  if (!t) return ['', ''];
+  if (t.length > LARGO_OBSERVACIONES) throw new Error(`Las observaciones pasan de ${LARGO_OBSERVACIONES} caracteres (${t.length}).`);
+  if (t.length <= LARGO_COMENTARIO) return [t, ''];
+  const espacio = t.lastIndexOf(' ', LARGO_COMENTARIO);
+  if (espacio > 0 && t.length - espacio - 1 <= LARGO_COMENTARIO) return [t.slice(0, espacio), t.slice(espacio + 1)];
+  return [t.slice(0, LARGO_COMENTARIO), t.slice(LARGO_COMENTARIO).trim()];
+}

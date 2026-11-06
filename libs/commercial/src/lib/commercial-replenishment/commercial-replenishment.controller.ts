@@ -74,8 +74,9 @@ export class CommercialReplenishmentController {
     @Query('scope') scope?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
+    @Query('product_ids') product_ids?: string,
   ) {
-    return this.svc.purchaseSuggestion({ warehouse_id, warehouse_ids, supplier_id, brand_id, category_id, search, coverage_days: coverage_days ? Number(coverage_days) : undefined, bucket, scope, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
+    return this.svc.purchaseSuggestion({ warehouse_id, warehouse_ids, supplier_id, brand_id, category_id, search, coverage_days: coverage_days ? Number(coverage_days) : undefined, bucket, scope, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined, product_ids });
   }
 
   @Get('transfer-suggestion')
@@ -90,8 +91,9 @@ export class CommercialReplenishmentController {
     @Query('coverage_days') coverage_days?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
+    @Query('product_ids') product_ids?: string,
   ) {
-    return this.svc.transferPlan({ warehouse_id, supplier_id, brand_id, category_id, search, coverage_days: coverage_days ? Number(coverage_days) : undefined, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
+    return this.svc.transferPlan({ warehouse_id, supplier_id, brand_id, category_id, search, coverage_days: coverage_days ? Number(coverage_days) : undefined, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined, product_ids });
   }
 
   @Get('overstock')
@@ -106,8 +108,9 @@ export class CommercialReplenishmentController {
     @Query('over_days') over_days?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
+    @Query('product_ids') product_ids?: string,
   ) {
-    return this.svc.overstockList({ warehouse_id, supplier_id, brand_id, category_id, search, over_days: over_days ? Number(over_days) : undefined, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
+    return this.svc.overstockList({ warehouse_id, supplier_id, brand_id, category_id, search, over_days: over_days ? Number(over_days) : undefined, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined, product_ids });
   }
 
   @Get('workbook')

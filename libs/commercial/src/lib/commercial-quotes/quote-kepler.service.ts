@@ -5,7 +5,7 @@ import { CommercialQuotesService } from './commercial-quotes.service';
 import { QuotePricingService } from './quote-pricing.service';
 import { KeplerPedidoTlmkSinkAdapter, type PedidoTlmkResultado } from './kepler-pedido-tlmk-sink.adapter';
 import type { QuienCotiza } from './quote-scope';
-import type { RenglonCotizacion } from './kepler-pedido-tlmk';
+import { LARGO_OBSERVACIONES, normalizarObservaciones, type RenglonCotizacion } from './kepler-pedido-tlmk';
 
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Cuánto vale un reclamo sin terminar antes de darlo por caído (un envío normal tarda segundos). */
@@ -35,6 +35,8 @@ interface CabeceraEnvio {
   id: string; code: string; status: string; vencida: boolean; source_branch: string | null;
   erp_customer_code: string | null; salesperson_code: string | null; terms_discount_pct: string | null;
   delivery_address_key: string | null; kepler_sucursal: string | null; kepler_folio: string | null;
+  /** COT.28. Por `to_jsonb`: la columna puede no existir si se desplegó antes de migrar. */
+  order_notes?: string | null;
 }
 
 /**
@@ -73,7 +75,8 @@ export class QuoteKeplerService {
       `SELECT q.id, q.code, q.status, (q.valid_until < CURRENT_DATE) AS vencida, q.source_branch,
               q.erp_customer_code, q.salesperson_code, q.terms_discount_pct::text AS terms_discount_pct,
               q.delivery_address_key,
-              to_jsonb(q) ->> 'kepler_sucursal' AS kepler_sucursal, to_jsonb(q) ->> 'kepler_folio' AS kepler_folio
+              to_jsonb(q) ->> 'kepler_sucursal' AS kepler_sucursal, to_jsonb(q) ->> 'kepler_folio' AS kepler_folio,
+              to_jsonb(q) ->> 'order_notes' AS order_notes
          FROM commercial.quotes q
         WHERE q.tenant_id = :t AND q.id = :id AND q.deleted_at IS NULL`, { t: tenantId, id }))).rows[0] as CabeceraEnvio | undefined;
     if (!cab) throw new NotFoundException('Cotización no encontrada');
@@ -165,7 +168,7 @@ export class QuoteKeplerService {
       res = await this.sink.entregar({
         cotizacion_id: cab.id, folio_suite: cab.code, sucursal: cab.source_branch,
         cliente: cab.erp_customer_code, vendedor: cab.salesperson_code,
-        fecha: todayMx(), pct_cliente: pct, direccion_envio: direccion,
+        fecha: todayMx(), pct_cliente: pct, direccion_envio: direccion, observaciones: cab.order_notes ?? null,
         renglones, tope_dia: sw.tope_dia,
       });
     } catch (err) {
@@ -199,6 +202,28 @@ export class QuoteKeplerService {
       elegida: cab.delivery_address_key?.trim() || null,
       editable: !cab.kepler_folio && (cab.status === 'draft' || cab.status === 'sent'),
     };
+  }
+
+  /** `[COT.28]` Observaciones del pedido (van a «Comentarios» de Kepler). Sólo antes del folio. */
+  async fijarObservaciones(id: string, texto: string | null, quien?: QuienCotiza | null): Promise<{ order_notes: string | null }> {
+    const cab = await this.cabeceraDireccion(id, quien);
+    if (cab.kepler_folio) {
+      throw new BadRequestException(`El pedido ya está en Kepler (folio ${cab.kepler_folio}): las observaciones se cambian ahí, en «Comentarios».`);
+    }
+    if (cab.status !== 'draft' && cab.status !== 'sent') throw new BadRequestException(`La cotización está ${cab.status}: ya no se edita.`);
+    if (!cab.source_branch) throw new BadRequestException('La cotización no tiene sucursal.');
+    await this.quotes.assertEscribeSucursal(cab.source_branch);
+    const limpia = normalizarObservaciones(texto);
+    if (limpia && limpia.length > LARGO_OBSERVACIONES) {
+      throw new BadRequestException(
+        `Las observaciones caben en ${LARGO_OBSERVACIONES} caracteres (dos renglones de Comentarios en Kepler); llevan ${limpia.length}.`,
+      );
+    }
+    await this.tk.run((k) => k.raw(
+      `UPDATE commercial.quotes SET order_notes = :o, updated_at = now(), updated_by = :u
+        WHERE tenant_id = :t AND id = :id`,
+      { o: limpia, u: this.tenantCtx.get()?.userId ?? null, t: this.tenantCtx.requireTenantId(), id }));
+    return { order_notes: limpia };
   }
 
   /** `[COT.26]` Elige la dirección de entrega. Sólo antes de que el pedido exista en Kepler. */

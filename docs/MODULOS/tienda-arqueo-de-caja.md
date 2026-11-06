@@ -1,3 +1,32 @@
+# Tienda › Arqueo de caja — la cajera escribe su caja; sin lista de turnos, avisos ni historial (SM.51)
+
+## Problema
+
+Antes de la primera casilla, la cajera veía una lista de «cortes sin arquear» con turnos de Kepler de hasta una semana
+(medido: 132 de 159 eran de días anteriores, hasta 11 por cajera), avisos de cajas abiertas de otros días y un
+recuadro de «lo que toca». Además, al elegir un turno, la caja la ponía Kepler, no ella.
+
+## Solución
+
+- La cajera escribe **su caja**; el equipo la recuerda por sucursal. El arqueo se guarda con esa caja.
+- El turno de Kepler se liga por detrás, por caja + hora (SM.48), sin que ella lo vea.
+- Se quitan la lista de turnos, los avisos de arriba y el recuadro de «lo que toca».
+- La cajera ya no tiene historial; quien valida lo ve en «Sucursales y sus cajas» (días pasados y reimprimir).
+- Pendiente (SM.52): elegir la caja de una lista con las cajas que Kepler usó en la sucursal.
+
+## Cómo se implementó
+
+- Sólo pantalla: la captura queda siempre en modo «con caja» (`manual` en verdadero); `elegirCaja` guarda la caja en
+  localStorage por sucursal y un `effect` la vuelve a poner al tener sucursal; ya no se preselecciona un turno; se
+  quitaron del template los avisos, la lista de turnos y el historial de la cajera.
+
+## Por qué así
+
+- La caja es lo que la cajera sabe con certeza; el turno lo resuelve el servidor por caja + hora.
+- Sin historial para la cajera: el arqueo es ciego y la revisión es de sus superiores.
+
+---
+
 # Tienda › Arqueo de caja — un solo menú para el tipo, y el concepto del retiro (SM.49)
 
 ## Problema

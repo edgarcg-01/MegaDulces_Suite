@@ -127,6 +127,8 @@ export interface PurchaseSuggestionResponse {
 export interface PurchaseSuggestionQuery {
   warehouse_id?: string; warehouse_ids?: string[]; supplier_id?: string; brand_id?: string; category_id?: string;
   search?: string; coverage_days?: number; bucket?: string; scope?: string; page?: number; pageSize?: number;
+  /** `[PQ.76]` Sólo los renglones de estos productos; los totales siguen siendo del filtro completo. */
+  product_ids?: string[];
 }
 
 // RA-PRO.20 — traspaso preciso CEDIS→sucursal
@@ -152,6 +154,8 @@ export interface TransferSuggestionResponse {
 }
 export interface TransferSuggestionQuery {
   warehouse_id?: string; supplier_id?: string; brand_id?: string; category_id?: string; search?: string; coverage_days?: number; page?: number; pageSize?: number;
+  /** `[PQ.76]` Sólo los renglones de estos productos; los totales siguen siendo del filtro completo. */
+  product_ids?: string[];
 }
 
 // RA-PRO.19 — sobrestock / capital inmovilizado
@@ -174,6 +178,8 @@ export interface OverstockResponse {
 }
 export interface OverstockQuery {
   warehouse_id?: string; supplier_id?: string; brand_id?: string; category_id?: string; search?: string; over_days?: number; page?: number; pageSize?: number;
+  /** `[PQ.76]` Sólo los renglones de estos productos; los totales siguen siendo del filtro completo. */
+  product_ids?: string[];
 }
 
 // RA-PRO.32 — réplica del workbook del comprador (una fila por SKU, columnas por PUNTO DE COMPRA
@@ -1316,6 +1322,7 @@ export class ComprasService {
     if (q.page) p.set('page', String(q.page));
     if (q.pageSize) p.set('pageSize', String(q.pageSize));
     if (q.brand_id) p.set('brand_id', q.brand_id);
+    if (q.product_ids?.length) p.set('product_ids', q.product_ids.join(','));
     const qs = p.toString();
     return this.http.get<PurchaseSuggestionResponse>(`${this.base}/purchase-suggestion${qs ? '?' + qs : ''}`);
   }
@@ -1437,6 +1444,7 @@ export class ComprasService {
     if (q.page) p.set('page', String(q.page));
     if (q.pageSize) p.set('pageSize', String(q.pageSize));
     if (q.brand_id) p.set('brand_id', q.brand_id);
+    if (q.product_ids?.length) p.set('product_ids', q.product_ids.join(','));
     const qs = p.toString();
     return this.http.get<TransferSuggestionResponse>(`${this.base}/transfer-suggestion${qs ? '?' + qs : ''}`);
   }
@@ -1452,6 +1460,7 @@ export class ComprasService {
     if (q.page) p.set('page', String(q.page));
     if (q.pageSize) p.set('pageSize', String(q.pageSize));
     if (q.brand_id) p.set('brand_id', q.brand_id);
+    if (q.product_ids?.length) p.set('product_ids', q.product_ids.join(','));
     const qs = p.toString();
     return this.http.get<OverstockResponse>(`${this.base}/overstock${qs ? '?' + qs : ''}`);
   }

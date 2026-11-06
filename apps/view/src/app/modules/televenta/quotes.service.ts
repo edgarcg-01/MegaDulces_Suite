@@ -296,6 +296,8 @@ export interface QuoteDetail {
   kepler_folio?: string | null;
   kepler_sucursal?: string | null;
   kepler_error?: string | null;
+  /** [COT.28] Observaciones del pedido → «Comentarios» en Kepler. Ausente antes de su migración. */
+  order_notes?: string | null;
   created_by_username: string | null;
   /** [E.29] Nombre de quien la elaboró (identity.users.nombre). Ausente en un API anterior a E.29. */
   created_by_name?: string | null;
@@ -373,6 +375,10 @@ export class QuotesService {
 
   fijarDireccionEntrega(id: string, key: string | null): Observable<DireccionesCotizacion> {
     return this.http.patch<DireccionesCotizacion>(`${this.base}/${id}/delivery-address`, { delivery_address_key: key });
+  }
+
+  fijarObservaciones(id: string, texto: string | null): Observable<{ order_notes: string | null }> {
+    return this.http.patch<{ order_notes: string | null }>(`${this.base}/${id}/order-notes`, { order_notes: texto });
   }
 
   reprice(id: string): Observable<{ quote_id: string; lines: number; changed: number }> {

@@ -6,7 +6,7 @@
  *   1) está activo (deleted_at IS NULL),
  *   2) NO aparece en el maestro de productos (kdii.c1) de NINGUNA sucursal viva,
  *   3) NO tiene existencia en commercial.stock (sum = 0 o sin fila),
- *   4) NO tiene venta en analytics.product_sales_monthly/daily,
+ *   4) NO tiene venta en analytics.product_sales_daily (la mensual era su rollup; CANON.5.9),
  *   5) supplier_id IS NULL (los que sí tienen proveedor no se tocan).
  * Con las 5, es un código que sólo vive en el catálogo agregado de .245 y no
  * existe en el ERP vivo → clutter. Se soft-deletea (deleted_at=now()); `activo`
@@ -79,7 +79,9 @@ const BRANCHES = process.env.SUPPLIERS_BRANCH_MAP
       WHERE p.tenant_id = $1 AND p.deleted_at IS NULL AND p.supplier_id IS NULL
         AND btrim(coalesce(p.sku,'')) <> ''
         AND NOT EXISTS (SELECT 1 FROM commercial.stock s WHERE s.tenant_id=$1 AND s.product_id=p.id AND s.quantity <> 0)
-        AND NOT EXISTS (SELECT 1 FROM analytics.product_sales_monthly m WHERE m.tenant_id=$1 AND m.product_id=p.id)
+        -- [CANON.5.9] Ya no se mira la venta MENSUAL: era el rollup de la diaria
+        -- (0 productos en la mensual sin venta diaria, medido 2026-11-05), así que esta condición
+        -- ya la implicaba. La tabla quedó sin escritor.
         AND NOT EXISTS (SELECT 1 FROM analytics.product_sales_daily d WHERE d.tenant_id=$1 AND d.product_id=p.id)`, [M]);
 
     // (2) filtrar los que NO están en ningún kdii vivo.

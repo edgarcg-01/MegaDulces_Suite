@@ -83,6 +83,33 @@ const urBody = `SELECT z.product_id,
 // conversión y el motor restaba ~bf veces de más. Ver GOTCHAS §25.
 const IN_TRANSIT_DAYS = Math.max(1, Number(process.env.IN_TRANSIT_DAYS) || 120);
 
+// `[CANON.5.8]` VELOCIDAD DE COMPRA, derivada aquí en vez de leerse de `analytics.purchase_velocity`.
+// Era su ÚNICO lector, y la tabla la llenaba `import-purchase-velocity.js` una vez por noche: el
+// plan del carril `stock` (cada 15 min) usaba la velocidad congelada a las 03:00. Mismo cálculo y
+// mismo redondeo que aquel importer (entrada X-A-40 de `analytics.stock_movements`, ventana
+// RA_PV_WINDOW_DAYS). Medido 2026-11-05: 6,857 de 7,011 iguales a la tabla; las 154 restantes son
+// compras posteriores a las 03:00. ~275 ms. La tabla queda sin escritor (borrarla es D2).
+const PV_WINDOW_DAYS = Math.max(1, Number(process.env.RA_PV_WINDOW_DAYS) || 90);
+const purchaseVelocity = `(
+  SELECT $1::uuid AS tenant_id, x.warehouse_id, x.product_id,
+         round(x.qty_win / ${PV_WINDOW_DAYS}::numeric, 4) AS daily_rate,
+         round(x.qty_win, 2) AS qty_90d,
+         COALESCE(round(x.amt_win / NULLIF(x.qty_win, 0), 4), 0) AS real_unit_cost,
+         x.order_days::int AS order_days, x.last_purchase   -- int, como la columna de la tabla
+    FROM (SELECT m.warehouse_id, m.product_id,
+                 SUM(m.qty) AS qty_win,
+                 SUM(COALESCE(m.amount, m.qty * m.unit_cost)) AS amt_win,
+                 COUNT(DISTINCT m.doc_date::date) AS order_days,
+                 MAX(m.doc_date::date) AS last_purchase
+            FROM analytics.stock_movements m
+           WHERE m.tenant_id = $1
+             AND m.movement_kind = 'entrada' AND m.genero = 'X' AND m.doc_type = '40'
+             AND m.doc_date >= current_date - ${PV_WINDOW_DAYS}
+             AND m.qty > 0
+             AND m.product_id IS NOT NULL AND m.warehouse_id IS NOT NULL
+           GROUP BY m.warehouse_id, m.product_id
+          HAVING SUM(m.qty) > 0) x)`;
+
 // RA-PRO.45 — NO TODO EL TRÁNSITO LLEGA. En Kepler la OC `X-A-35` se captura CUANDO SE RECIBE
 // (81% de las del CEDIS y 95–100% de las de sucursal cierran el MISMO día), así que una OC que
 // sigue abierta no es "el pipeline normal": es un documento estancado. Medido 2026-08-29 sobre las
@@ -365,8 +392,11 @@ const cte = (hist, tr, lead) => `
                 sum(v.daily_rate) AS buy_rate,
                 sum(v.qty_90d * v.real_unit_cost)/NULLIF(sum(v.qty_90d),0) AS cost,
                 max(v.last_purchase) AS last_purchase, max(v.order_days) AS order_days,
-                (array_agg(v.warehouse_id ORDER BY v.qty_90d DESC))[1] AS primary_wh
-           FROM analytics.purchase_velocity v
+                -- [CANON.5.8] desempate determinista: 189 productos empatan en el máximo (p.ej.
+                -- 65022: 360 en cuatro almacenes) y el ganador lo decidía el orden físico de las
+                -- filas. A igual cantidad gana donde se compró más reciente; luego el id.
+                (array_agg(v.warehouse_id ORDER BY v.qty_90d DESC, v.last_purchase DESC, v.warehouse_id))[1] AS primary_wh
+           FROM ${purchaseVelocity} v
            LEFT JOIN commercial.product_aliases al ON al.tenant_id=v.tenant_id AND al.alias_product_id=v.product_id AND al.deleted_at IS NULL
           WHERE v.tenant_id=$1 GROUP BY 1),
   econ AS (

@@ -31,7 +31,7 @@ import { textoSumaUnidades, textoUnidades } from './pedido-redondeo';
 import {
   INK, M, MUTED, RULE, altoPuntos, alinearTitulos, dias, dibujarEncabezado, encabezadoRequisicion,
   dibujarFirmas, dibujarNotas, dibujarPies, dibujarPuntos, dibujarRecuadro, fechaHoraArchivo, lastY, loadLibs,
-  loadLogo, money, num1, tablaBase, textoParaArchivo,
+  fecha, loadLogo, money, num1, tablaBase, textoParaArchivo,
 } from './compras-pdf-comun';
 
 // Se re-exporta: las pruebas y quien ya lo importaba de acá siguen funcionando.
@@ -39,6 +39,18 @@ import {
 const cobTxt = (d: number | string): string => (typeof d === 'number' ? `${d} días` : d);
 
 export { textoParaArchivo } from './compras-pdf-comun';
+
+/**
+ * `[PQ.78]` De dónde sale el precio, y qué hacer si el proveedor cotizó otro. Sin esta nota el papel
+ * se leía como precio final: el 5-nov-2026 un comprador corrigió a mano CHILE y SUPER de Tuby Ice
+ * ($297.83 → $282.15 la caja) porque Kepler seguía con el precio viejo, y el papel no decía que
+ * el número era el de Kepler ni de qué hora era.
+ */
+export function notaPrecio(datosAl: Date | null): string {
+  return 'Precio = costo de caja del proveedor, sin impuestos, en Kepler (Costos por Proveedor por Productos) '
+    + `de la sucursal que recibe${datosAl ? `, al ${fecha(datosAl)}` : ''}. `
+    + 'Si el proveedor cotizó otro precio, corríjalo en Kepler y vuelva a generar esta hoja.';
+}
 
 /** Un renglón de la tabla de repartición: a quién le toca, y cómo está esa sucursal hoy. */
 export interface ReqPdfFila {
@@ -182,7 +194,7 @@ export async function generarRequisicionPdf(data: ReqPdfData): Promise<void> {
 
   y = dibujarNotas(doc, y, [
     'Días de inventario = existencia (+ pedido) / (venta 30 d / 30.4). "s/venta" = sin venta en 30 días, no se puede calcular.',
-    'Valor = pedido en cajas x costo de caja registrado en cada sucursal.',
+    notaPrecio(data.datosAl),
     ...data.avisos,
   ]);
   dibujarFirmas(doc, y, data.elaboro);
@@ -315,6 +327,7 @@ export async function generarRequisicionGlobalPdf(data: ReqGlobalPdfData): Promi
     }
 
     const notas = [
+      notaPrecio(data.datosAl),
       'Precio cj = importe / cajas del producto (promedio si el costo de caja cambia entre sucursales).',
     ];
     if (h.nTraspasos) notas.push(`Esta requisición genera ${h.nTraspasos} traspaso${h.nTraspasos === 1 ? '' : 's'} CEDIS a sucursal.`);

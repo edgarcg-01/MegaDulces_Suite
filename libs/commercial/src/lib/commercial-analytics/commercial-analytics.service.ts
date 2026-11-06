@@ -817,6 +817,14 @@ export interface SalesByRouteRow {
   route_code: string;
   route_no: string;
   label: string;
+  /**
+   * `[VEC.41]` El chofer de la ruta, como lo tiene HOY quien paga la comisión de RD
+   * (`commercial.commission_route_config`), o la persona que Kepler pone como nombre de una ruta
+   * vecinal. `null` = ninguna fuente lo sabe: la pantalla dice «sin chofer asignado».
+   * ⚠️ Es el de hoy, no el de cada mes: si cambió de chofer, los meses anteriores lo llevan igual.
+   */
+  driver_name: string | null;
+  driver_source: 'comision' | 'kepler' | null;
   monthly: Record<string, SalesByRouteCell>;
   revenue_total: number;
   units_total: number;
@@ -7933,6 +7941,8 @@ export class CommercialAnalyticsService {
           route_code: r.route_code,
           route_no: r.route_no ?? '—',
           label: `${r.wname} · Ruta ${r.route_no ?? r.route_code}`,
+          driver_name: null,
+          driver_source: null,
           monthly: {},
           revenue_total: 0,
           units_total: 0,
@@ -7952,10 +7962,13 @@ export class CommercialAnalyticsService {
     }
 
     const rows = Array.from(byRoute.values());
+    const choferes = await this.tk.run((trx) => this.routeDrivers(trx, tenantId));
     for (const row of rows) {
       row.revenue_total = round(row.revenue_total);
       row.units_total = round(row.units_total);
       row.share_pct = totals.revenue > 0 ? round((row.revenue_total / totals.revenue) * 100, 1) : 0;
+      const ch = choferes.get(row.route_no);
+      if (ch) { row.driver_name = ch.name; row.driver_source = ch.source; }
     }
     for (const m of Object.values(monthlyTotals)) { m.revenue = round(m.revenue); m.units = round(m.units); }
     totals.revenue = round(totals.revenue); totals.units = round(totals.units);
@@ -8184,6 +8197,38 @@ export class CommercialAnalyticsService {
     const r = (await trx.raw(
       `SELECT warehouse_code FROM (${VECINAL_CASA_SQL}) c WHERE c.route_no = ?`, [tenantId, src])).rows[0];
     return r?.warehouse_code ?? null;
+  }
+
+  /**
+   * `[VEC.41]` El chofer de cada ruta, por número de ruta. Dos fuentes, y ninguna se inventa:
+   *
+   *  1. `commercial.commission_route_config.chofer_nombre` — a quien se le paga la comisión de RD
+   *     por esa ruta. La edita Comercial; es la respuesta de quien responde por la ruta.
+   *  2. Si no, el nombre que Kepler le da a una ruta VECINAL, **sólo si es una persona**: en
+   *     Michoacán la ruta se llama como su vendedor («RVMA01 HUMBERTO PLACENCIA BRA»); en La
+   *     Piedad se llama «RUTA VECINAL PH 01», que es un nombre de ruta y no un chofer —
+   *     publicarlo como chofer sería afirmar lo que no es.
+   *
+   * Sin ninguna, la ruta no entra al mapa y la pantalla dice «sin chofer asignado».
+   */
+  private async routeDrivers(
+    trx: Knex.Transaction, tenantId: string,
+  ): Promise<Map<string, { name: string; source: 'comision' | 'kepler' }>> {
+    const rows: Array<{ route_no: string; nombre: string; fuente: 'comision' | 'kepler' }> = (await trx.raw(
+      `SELECT btrim(route_code) AS route_no, btrim(chofer_nombre) AS nombre, 'comision' AS fuente
+         FROM commercial.commission_route_config
+        WHERE tenant_id = ? AND deleted_at IS NULL AND NULLIF(btrim(chofer_nombre), '') IS NOT NULL
+       UNION ALL
+       (SELECT DISTINCT ON (route_no) route_no, btrim(route_name), 'kepler'
+          FROM analytics.mv_kepler_vecinal_monthly
+         WHERE tenant_id = ? AND NULLIF(btrim(route_name), '') IS NOT NULL
+           AND btrim(route_name) !~* '^RUTA'
+         ORDER BY route_no, month DESC)`, [tenantId, tenantId])).rows;
+    const out = new Map<string, { name: string; source: 'comision' | 'kepler' }>();
+    // La comisión manda: se carga primero y la de Kepler sólo llena huecos.
+    for (const r of rows.filter((x) => x.fuente === 'comision')) out.set(r.route_no, { name: r.nombre, source: 'comision' });
+    for (const r of rows.filter((x) => x.fuente === 'kepler')) if (!out.has(r.route_no)) out.set(r.route_no, { name: r.nombre, source: 'kepler' });
+    return out;
   }
 
   /**

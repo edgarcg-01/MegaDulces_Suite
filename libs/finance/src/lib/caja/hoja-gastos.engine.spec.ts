@@ -5,8 +5,8 @@
  */
 import { ZONAS_HOJA_GASTOS } from '@megadulces/contracts';
 import {
-  armarHojaAbierta, cuadreDelRetiro, depositoDeHoja, instruccionDePago, motivoFueraDeHoja, requisitoDeHoja, retirosQueCuadran,
-  type DepositoBancoHoja, type PagoDeZona, type RetiroLibreHoja,
+  armarHojaAbierta, cuadreDelRetiro, depositoDeHoja, instruccionDePago, motivoFueraDeHoja, pagadoEnControl, requisitoDeHoja, retirosQueCuadran,
+  type DepositoBancoHoja, type PagoDeZona, type RetiroCaosConLigas, type RetiroLibreHoja,
 } from './hoja-gastos.engine';
 
 const MORELIA = ZONAS_HOJA_GASTOS.find((z) => z.clave === 'morelia')!;
@@ -286,5 +286,47 @@ describe('[CGA-A.65] al pagar: el depósito, en una o dos partes, del día del r
   it('en seis partes (la hoja del 14/10) no se reconoce sola: la liga una persona', () => {
     const seis = [55910.55, 46759.48, 33530, 31758, 1594, 144].map((v, i) => d(`s${i}`, '2026-10-15', v));
     expect(depositoDeHoja(169696.03, '2026-10-15', seis)).toEqual({ estado: 'no_encontrado' });
+  });
+});
+
+/**
+ * `[CGA-A.70]` Lo que ya se repuso con una hoja en papel. Datos REALES (prod, 2026-11-05): los 13 pagos
+ * del 23/10 suman $58,953.69 y Control anotó ese día «gnf ma» por $58,953.50; CAOS dio $58,900 en billetes.
+ *
+ * ⚠️ PRUEBA NEGATIVA (corrida el 2026-11-05): con la tolerancia en $1,000 en vez de $1 se pone roja la 2
+ * (el importe corrido casa); quitando el filtro de «gnf», la 3; sin la regla de «una sola vez», la 4.
+ */
+describe('[CGA-A.70] los pagos que ya pagó una hoja en papel, según Control', () => {
+  const h = armarHojaAbierta(MORELIA, DIA_23.map(pago('2026-10-23')), null);
+  const ctl = (total: number, dia = '2026-10-23', observaciones = 'gnf ma', folio = 'A23714') => ({ folio, dia, observaciones, total });
+  const caos = (external_id: number, total: number, ref = 'gnf ma', ligados = 0): RetiroCaosConLigas => ({
+    device: 'CAOS-1', external_id, dia: '2026-10-23', occurred_at: '2026-10-23T20:03:00.000Z', ref, total, ligados });
+
+  it('1 · el retiro de Control casa con el día entero de la zona, y trae su retiro de CAOS', () => {
+    const g = pagadoEnControl(MORELIA, h.renglones, [ctl(58953.5)], [caos(1707, 58900), caos(1706, 163080, 'gnf morelia', 1)]);
+    expect(g).toHaveLength(1);
+    expect([g[0].desde, g[0].hasta, g[0].sucursales, g[0].origen_refs.length, g[0].total, g[0].diferencia]).toEqual(['2026-10-23', '2026-10-23', ['08', '07'], 13, 58953.69, -0.19]);
+    expect(g[0].caos).toMatchObject({ external_id: 1707, total: 58900, cajon: 53.69, ligados: 0 });
+    expect(armarHojaAbierta(MORELIA, [], null).pagado_en_control).toEqual([]); // el motor solo no afirma nada
+  });
+
+  it('2 · CONTROL NEGATIVO: el mismo retiro con el importe corrido, fuera de fecha o anotado antes del pago, no casa', () => {
+    for (const d of [3170, -5310, 1.5]) expect(pagadoEnControl(MORELIA, h.renglones, [ctl(58953.5 + d)], [])).toEqual([]);
+    expect(pagadoEnControl(MORELIA, h.renglones, [ctl(58953.5, '2026-10-22')], [])).toEqual([]);
+    expect(pagadoEnControl(MORELIA, h.renglones, [ctl(58953.5, '2026-11-01')], [])).toEqual([]);
+  });
+
+  it('3 · sólo los retiros de reposición («gnf»): la nómina o una devolución con el mismo importe no pagan la hoja', () => {
+    for (const o of ['NOM MORELIA', 'DEV RUTA MORELIA', null]) {
+      expect(pagadoEnControl(MORELIA, h.renglones, [{ ...ctl(58953.5), observaciones: o }], [])).toEqual([]);
+    }
+    expect(pagadoEnControl(MORELIA, h.renglones, [ctl(58953.5, '2026-10-23', 'GNF MA 23/10')], [])).toHaveLength(1);
+  });
+
+  it('4 · lo que casa dos veces no se afirma: dos retiros por el mismo tramo, o dos retiros de CAOS posibles', () => {
+    expect(pagadoEnControl(MORELIA, h.renglones, [ctl(58953.5), ctl(58953.5, '2026-10-24', 'gnf ma', 'A23720')], [])).toEqual([]);
+    const g = pagadoEnControl(MORELIA, h.renglones, [ctl(58953.5)], [caos(1707, 58900), caos(1708, 58800)]);
+    expect(g).toHaveLength(1);
+    expect(g[0].caos).toBeNull();
   });
 });

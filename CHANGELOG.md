@@ -15,6 +15,9 @@
 - Por folio, solicitante, quien lo levantó, quien lo cerró, proveedor o concepto, en Aprobación, Mis gastos, Expediente e Historial. Incluye las solicitudes de Kepler que nunca se subieron. Sólo para quien aprueba.
 ### Changed — Expediente sin la tira de indicadores (GX.89) y más rápido (GX.90)
 - Expediente pasa de ~20 s a menos de 1 s en producción (Mis gastos e Historial también bajan); las cifras son las mismas.
+### Changed — Arqueo: la cajera escribe su caja; sin lista de turnos, avisos ni historial (SM.51, 2026-11-05)
+- `/tienda/arqueo`: la cajera escribe su caja (el equipo la recuerda por sucursal) y el arqueo se guarda con esa caja; el turno de Kepler se liga por detrás por caja + hora.
+- Se quitan la lista «cortes sin arquear», los avisos de cajas abiertas / de días anteriores y el recuadro de «lo que toca». La cajera ya no tiene historial; quien valida lo ve en «Sucursales y sus cajas».
 
 ### Fixed — Catálogo digital: la primera captura desde el celular (NP.7, 2026-11-03)
 - Las fotos del levantamiento **no llegaban al servidor**: el teléfono las medía bien y fallaba al prepararlas para subir ("No se pudo leer esa foto"), por una regla de seguridad que sólo existe en producción. Ya se preparan sin ese paso (probado con la regla de producción en el navegador; la primera subida real se confirma después del despliegue).
