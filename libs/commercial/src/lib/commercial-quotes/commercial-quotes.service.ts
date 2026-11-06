@@ -18,6 +18,7 @@ import {
 import { PALABRAS_RELLENO, SINONIMOS_CATALOGO } from './catalog-search-terms';
 import { AREA_COTIZACIONES, MENSAJE_COTIZACION_AJENA, autorVisible, type QuienCotiza } from './quote-scope';
 import { consultaBuscadorCatalogo, PRECIO_SIMBOLICO_MAX } from '../shared/catalogo-buscador';
+import { LARGO_OBSERVACIONES, normalizarObservaciones } from './kepler-pedido-tlmk';
 import { QuotePricingService, type Rung } from './quote-pricing.service';
 import { ligasAutomaticas, type UsuarioParaLiga, type VendedorKepler } from './vendedor-auto-liga';
 
@@ -935,6 +936,10 @@ export class CommercialQuotesService {
     internal_notes?: string | null;
     salesperson_code?: string | null;
     salesperson_name?: string | null;
+    /** `[COT.26]` Número de dirección de entrega del cliente en Kepler (`kdudent.c2`). */
+    delivery_address_key?: string | null;
+    /** `[COT.28]` Observaciones del pedido → «Comentarios» de Kepler (hasta 120). */
+    order_notes?: string | null;
     /**
      * `[E.21]` Los renglones, en la MISMA transacción que la cabecera: o entra todo o no entra
      * nada. Opcional: sin `lines` el alta es la de siempre (cabecera sola).
@@ -969,6 +974,14 @@ export class CommercialQuotesService {
       );
     }
     await this.assertEscribeSucursal(sourceBranch);
+    // `[COT.28]` Las observaciones del pedido, desde el alta: una línea, hasta 120 (c25 + c26 de Kepler).
+    const observacionesAlta = normalizarObservaciones(dto.order_notes);
+    if (observacionesAlta && observacionesAlta.length > LARGO_OBSERVACIONES) {
+      throw new BadRequestException(
+        `Las observaciones caben en ${LARGO_OBSERVACIONES} caracteres (dos renglones de Comentarios en Kepler); llevan ${observacionesAlta.length}.`,
+      );
+    }
+    const direccionAlta = dto.delivery_address_key?.trim() || null;
     const origin = dto.origin ?? 'telemarketing';
     if (!['telemarketing', 'route_visit', 'counter', 'portal'].includes(origin)) {
       throw new BadRequestException(`origin inválido: ${origin}`);
@@ -1036,6 +1049,17 @@ export class CommercialQuotesService {
         }
       }
 
+        // `[COT.26]` La dirección de entrega se puede elegir desde el alta: tiene que ser del
+        // cliente en Kepler, en esta sucursal (`kdudent`, la misma lectura que al aceptar).
+        if (direccionAlta) {
+          if (!erpCode) throw new BadRequestException('La dirección de entrega es de un cliente de Kepler: elige primero al cliente.');
+          const d = await trx.raw(
+            `SELECT 1 FROM kepler_ods.kdudent WHERE sucursal = :s AND btrim(c1) = :c AND btrim(c2) = :k`,
+            { s: sourceBranch, c: erpCode, k: direccionAlta },
+          );
+          if (!d.rows.length) throw new BadRequestException(`La dirección ${direccionAlta} no es del cliente ${erpCode} en Kepler.`);
+        }
+
         // Folio atómico, mismo patrón que commercial.order_sequences: el UPSERT de Postgres
         // garantiza que dos transacciones concurrentes obtengan valores distintos.
         const seq = await trx.raw(
@@ -1070,6 +1094,7 @@ export class CommercialQuotesService {
             quote_date, valid_until, customer_request, notes, internal_notes,
             source_branch, terms_source, terms_discount_pct, terms_credit_limit, terms_payment_days,
             salesperson_code, salesperson_name,
+            delivery_address_key, order_notes,
             created_by, updated_by
           ) VALUES (
             :tenant_id, :code, :customer_id, :erp_code, :erp_name,
@@ -1080,6 +1105,7 @@ export class CommercialQuotesService {
             :customer_request, :notes, :internal_notes,
             :branch, :terms_source, :discount, :credit_limit, :payment_days,
             :salesperson_code, :salesperson_name,
+            :delivery_address_key, :order_notes,
             :user_id, :user_id
           )
           RETURNING id, code, status, to_char(valid_until,'YYYY-MM-DD') AS valid_until,
@@ -1118,6 +1144,8 @@ export class CommercialQuotesService {
             payment_days: terms.payment_days,
             salesperson_code: dto.salesperson_code ?? null,
             salesperson_name: dto.salesperson_name ?? null,
+            delivery_address_key: direccionAlta,
+            order_notes: observacionesAlta,
           },
         );
 

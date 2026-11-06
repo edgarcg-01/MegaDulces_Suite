@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, ElementRef, Injector, OnInit, afterNextRender, computed, inject, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, Injector, OnInit, afterNextRender, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterModule } from '@angular/router';
@@ -40,6 +40,7 @@ import {
   type OpcionUnidad,
   type PasoDesglose,
   type QuoteBranches,
+  type DireccionEntrega,
 } from '../quotes.service';
 
 /** [E.20] Un renglón de la bandeja admite fracción sólo si se pesa y va en su unidad base. */
@@ -406,6 +407,37 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
           <div class="terms-bar terms-bar-generic">
             <span class="t-muted">Condiciones base del ERP en {{ branchName(sucursal()) }} (sin descuento de mayoreo registrado en esta plaza).</span>
           </div>
+        }
+        <!-- [COT.26] A dónde va el pedido decide la ruta que lo entrega (Dir. envío en Kepler). Con
+             una dirección no se pregunta; con varias se elige aquí o en el detalle antes de aceptar. -->
+        @if (cliente() && direccionesCliente(); as dd) {
+          @if (dd.length > 1) {
+            <div class="terms-bar dir-bar">
+              <label class="t-k" for="dirAlta">Entregar en:</label>
+              <p-select
+                inputId="dirAlta"
+                class="dir-select-alta"
+                [options]="dd"
+                optionValue="key"
+                [ngModel]="direccionAlta()"
+                (ngModelChange)="direccionAlta.set($event)"
+                [placeholder]="'Elige a dónde se entrega (' + dd.length + ' direcciones en Kepler)'"
+                [invalid]="!direccionAlta()"
+                [disabled]="guardando()"
+                appendTo="body"
+              >
+                <ng-template #selectedItem let-o>{{ etiquetaDireccion(o) }}</ng-template>
+                <ng-template #item let-o>
+                  <span><b>{{ o.ciudad || 'Sin ciudad' }}</b> · {{ o.calle || 'sin calle' }}@if (o.ruta) { <span class="t-muted"> · ruta {{ o.ruta }}</span> }</span>
+                </ng-template>
+              </p-select>
+            </div>
+          } @else if (dd.length === 1) {
+            <div class="terms-bar dir-bar">
+              <span class="t-k">Entrega en:</span>
+              <span class="t-v">{{ etiquetaDireccion(dd[0]) }}</span>
+            </div>
+          }
         }
       </div>
 
@@ -818,6 +850,23 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
               </div>
             </div>
 
+            <!-- [COT.28] Lo que el almacén y la ruta tienen que saber: va a «Comentarios» del pedido en
+                 Kepler (renglones 2 y 3, 60 + 60). Distinto del mensaje del cliente de abajo. -->
+            <div class="obs-alta">
+              <label class="obs-lbl" for="obsAlta">Observaciones del pedido <em>(van a Comentarios en Kepler)</em></label>
+              <textarea
+                pTextarea
+                id="obsAlta"
+                [fluid]="true"
+                rows="2"
+                maxlength="120"
+                [(ngModel)]="observaciones"
+                placeholder="Ej.: cobrar al entregar · entregar antes de las 10"
+                [disabled]="guardando()"
+              ></textarea>
+              <span class="obs-cont">{{ observaciones.length }}/120</span>
+            </div>
+
             <!-- Opcional y de varias líneas: plegado, se abre solo si ya trae texto. <details> es
                  nativo a propósito (DESIGN regla 3: plataforma antes que JS). -->
             <details class="mensaje-details" [attr.open]="listaCruda ? '' : null">
@@ -986,6 +1035,12 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
       .t-accent { color: var(--text-main); font-weight: 800; }
       .t-muted { font-style: italic; color: var(--text-muted); font-weight: 400; }
       .term-sep { width: 1px; height: 12px; background: var(--border-color); }
+      .dir-bar { align-items: center; }
+      .dir-select-alta { min-width: 22rem; max-width: 100%; }
+      .obs-alta { display: flex; flex-direction: column; gap: 0.3rem; }
+      .obs-lbl { font-size: var(--fs-xs); font-weight: 600; color: var(--text-main); }
+      .obs-lbl em { font-weight: 400; color: var(--text-muted); }
+      .obs-cont { align-self: flex-end; font-size: var(--fs-xs); color: var(--text-muted); }
       .term-warn { margin-left: auto; color: var(--warn-soft-fg); font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.7rem; }
 
       .card-body { padding: 0.5rem 0.65rem; }
@@ -1230,6 +1285,31 @@ export class TeleventaQuoteNewComponent implements OnInit {
   terminoCliente = '';
   resultadosClientes = signal<WholesaleCustomer[]>([]);
   cliente = signal<WholesaleCustomer | null>(null);
+
+  // ── [COT.26] Dirección de entrega y [COT.28] observaciones, desde el alta ────────────────────
+  /** null = todavía no se sabe (o la lectura falló): no se pinta nada y se decide en el detalle. */
+  readonly direccionesCliente = signal<DireccionEntrega[] | null>(null);
+  readonly direccionAlta = signal<string | null>(null);
+  observaciones = '';
+  private dirPedida = 0;
+  /** Cliente o sucursal cambian → se vuelven a leer sus direcciones (la respuesta vieja se descarta). */
+  private readonly _direcciones = effect(() => {
+    const c = this.cliente()?.customer_code;
+    const s = this.sucursal();
+    this.direccionAlta.set(null);
+    this.direccionesCliente.set(null);
+    if (!c || !s) return;
+    const n = ++this.dirPedida;
+    this.svc.direccionesDeCliente(s, c).subscribe({
+      next: (d) => { if (n === this.dirPedida) this.direccionesCliente.set(d); },
+      error: () => { if (n === this.dirPedida) this.direccionesCliente.set(null); },
+    });
+  });
+
+  etiquetaDireccion(d: DireccionEntrega | null | undefined): string {
+    if (!d) return '';
+    return [d.ciudad, d.calle].filter(Boolean).join(' · ') || 'dirección ' + d.key;
+  }
   /**
    * [COT.22] La búsqueda trae sólo a quien compró en la sucursal elegida en el último año.
    * Encendido, todo el padrón de esa sucursal: el cliente que todavía no compra aquí.
@@ -2152,9 +2232,13 @@ export class TeleventaQuoteNewComponent implements OnInit {
       source_branch: this.sucursal(),
       salesperson_code: this.vendedorSeleccionado() || undefined,
       salesperson_name: this.vendedorSeleccionadoObj()?.name || undefined,
+      order_notes: this.observaciones.replace(/\s+/g, ' ').trim() || undefined,
     };
     if (esMayoreo) {
       payload.erp_customer_code = this.cliente()!.customer_code;
+      // COT.26: la elegida, o la única que tiene; con varias sin elegir se decide en el detalle.
+      const dd = this.direccionesCliente() ?? [];
+      payload.delivery_address_key = this.direccionAlta() ?? (dd.length === 1 ? dd[0].key : undefined) ?? undefined;
     } else {
       payload.contact_name = this.contactoNombre().trim();
       payload.contact_phone = this.contactoTel.trim() || undefined;

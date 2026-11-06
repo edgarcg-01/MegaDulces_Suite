@@ -1,8 +1,8 @@
-import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 
-import { QuoteKeplerService, type DireccionesCotizacion, type EnvioKepler } from './quote-kepler.service';
+import { QuoteKeplerService, type DireccionEntrega, type DireccionesCotizacion, type EnvioKepler } from './quote-kepler.service';
 import type { QuienCotiza } from './quote-scope';
 
 /** Lo que `RolesGuard` deja en `request.user`: el mapa y los roles FRESCOS de DB (COT.21). */
@@ -32,6 +32,14 @@ export class QuoteKeplerController {
   })
   enviar(@Param('id') id: string, @Req() req: ConQuien): Promise<EnvioKepler> {
     return this.service.enviar(id, req?.user);
+  }
+
+  /** Tres segmentos a propósito: no choca con `GET :id` ni con `GET :id/…` del otro controlador. */
+  @Get('customers/:customer/delivery-addresses')
+  @RequirePermissions(Permission.COMMERCIAL_QUOTES_GESTIONAR)
+  @ApiOperation({ summary: '[COT.26] Direcciones de entrega de un cliente de Kepler en una sucursal (kdudent), para la pantalla de alta.' })
+  direccionesDeCliente(@Param('customer') customer: string, @Query('branch') branch: string): Promise<DireccionEntrega[]> {
+    return this.service.direccionesDeCliente(branch, customer);
   }
 
   @Get(':id/delivery-addresses')

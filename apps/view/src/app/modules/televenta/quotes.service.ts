@@ -369,6 +369,14 @@ export class QuotesService {
     return this.http.post<EnvioKepler>(`${this.base}/${id}/kepler`, {});
   }
 
+  /** [COT.26] Las direcciones de un cliente antes de crear la cotización (pantalla de alta). */
+  direccionesDeCliente(branch: string, customer: string): Observable<DireccionEntrega[]> {
+    return this.http.get<DireccionEntrega[]>(
+      `${this.base}/customers/${encodeURIComponent(customer)}/delivery-addresses`,
+      { params: { branch } },
+    );
+  }
+
   direccionesEntrega(id: string): Observable<DireccionesCotizacion> {
     return this.http.get<DireccionesCotizacion>(`${this.base}/${id}/delivery-addresses`);
   }
@@ -460,6 +468,10 @@ export class QuotesService {
     notes?: string;
     salesperson_code?: string;
     salesperson_name?: string;
+    /** [COT.26] Dirección de entrega del cliente en Kepler (kdudent.c2). */
+    delivery_address_key?: string;
+    /** [COT.28] Observaciones del pedido → «Comentarios» en Kepler (hasta 120). */
+    order_notes?: string;
     /**
      * `[E.21]` Los renglones viajan CON la cabecera y entran en la misma transacción: si uno
      * falla no se crea nada (ni folio) y el error dice cuál. Qué y cuánto; nunca a cuánto.
