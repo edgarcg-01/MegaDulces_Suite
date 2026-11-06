@@ -17,6 +17,11 @@ export type RenglonOc = OcRenglonDto;
  * del renglón y `cajas = cantidad / unidades_por_caja`. El resto son costos simbólicos ($0.0008)
  * o servicios, donde el factor no significa lo mismo.
  *
+ * `[PQ.82]` **Con 1 unidad por caja NO hay caja**: Kepler declara así la línea capturada en su unidad
+ * suelta (la «caja» de la línea es PZA o PAQ). El costo cuadra trivialmente (115.50 = 115.50 × 1) y el
+ * PDF para el proveedor decía «5 cj» donde Kepler pide 5 PZA. Medido 2026-11-06 en 90 días: 4,345 de
+ * 16,807 renglones de OC (1,312 de 2,685 OC). Se muestra la cantidad en su unidad: «5 pza».
+ *
  * Por eso no se convierte a ciegas: si el costo no cuadra (±1%) o falta un dato, devuelve `null`
  * y el PDF muestra la cantidad en su unidad con las cajas "sin verificar" — nunca un número
  * de cajas inventado (CLAUDE.md: nunca adivinar una unidad).
@@ -28,6 +33,8 @@ export function cajasDeRenglon(r: Pick<RenglonOc, 'cantidad' | 'unidades_por_caj
   const cant = Number(r.cantidad);
   // Cantidad negativa (ajuste/devolución capturado como OC): no hay cajas que mostrar.
   if (!(upc > 0) || !(cu > 0) || !(cc > 0) || !Number.isFinite(cant) || cant < 0) return null;
+  // [PQ.82] un factor de 1 no es una caja: es la misma unidad del renglón
+  if (upc === 1) return null;
   if (Math.abs(cc - cu * upc) > 0.01 * cc) return null;
   return cant / upc;
 }
