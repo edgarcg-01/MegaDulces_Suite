@@ -254,6 +254,28 @@ const TOPE_PARADA_DIAS = 14;
 const VECINAL_RX = '^[0-9]V[0-9]';
 
 /**
+ * `[VEC.40]` La SUCURSAL CASA de cada ruta vecinal: donde más vende en toda su historia. Un `?`
+ * (tenant).
+ *
+ * ⛔ Existe porque una ruta vecinal timbra a veces en la caja de OTRA sucursal (1V004 «RUTA
+ * VECINAL YURECUARO»: $1.09 M en 04, y $29 k en 02, $3.8 k en 05, $607 en 01 — mismo nombre,
+ * misma ruta). Partirla por sucursal daba cuatro filas de una ruta; el desglose, que va por
+ * número de ruta, abría la ruta ENTERA desde la fila chica («elijo una y me sale otra»), y con
+ * filtro de producto o cliente el JOIN contra esas N sucursales **multiplicaba la venta ×2 a ×5**
+ * (medido 2026-11-05, SKU 97245: 1V002 publicaba $79,493.90 siendo $15,898.78).
+ *
+ * Una ruta = una fila, en su casa; lo timbrado fuera se suma a su ruta. Medido contra
+ * `v_route_zone`: coincide en las 4 rutas que tienen zona. Es la misma regla con que `[VEC.35]`
+ * elige la sucursal del nombre del cliente.
+ */
+const VECINAL_CASA_SQL = `
+  SELECT DISTINCT ON (route_no) route_no, warehouse_code
+    FROM analytics.mv_kepler_vecinal_monthly
+   WHERE tenant_id = ?
+   GROUP BY route_no, warehouse_code
+   ORDER BY route_no, sum(revenue) DESC NULLS LAST, warehouse_code`;
+
+/**
  * `[RD.10]` Una ruta en el cuadre de inventario. **Las dos columnas cierran**:
  * `carga_* − (cogs_costo | venta_cliente) − inventario_* = 0`, y `delta_*` lo lleva a pantalla.
  */
@@ -730,7 +752,7 @@ export interface SalesByRouteTicketsQuery {
 export interface SalesByRouteTicket {
   /** Llave del drill: el folio del documento no basta (el push repite folio entre rutas). */
   key: string;
-  source: 'wincaja' | 'push';
+  source: 'wincaja' | 'push' | 'kepler_vecinal';
   route_no: string;
   folio: string;
   date: string;
@@ -7364,12 +7386,12 @@ export class CommercialAnalyticsService {
         WHERE s.tenant_id = ? AND s.route_code LIKE 'WIN-%'
           AND COALESCE(s.route_no, '') !~ '${VECINAL_RX}'
        UNION
-       SELECT v.warehouse_code, w.name, v.route_code, v.route_no
-         FROM analytics.v_kepler_vecinal_monthly v
-         JOIN commercial.warehouses w ON w.tenant_id = v.tenant_id
-          AND w.code = v.warehouse_code AND w.deleted_at IS NULL
-        WHERE v.tenant_id = ?
-        ORDER BY 2, 4`, [tenantId, tenantId])).rows);
+       -- [VEC.40] Una opción por ruta vecinal, en su sucursal casa (ver VECINAL_CASA_SQL).
+       SELECT c.warehouse_code, w.name, 'WIN-' || c.route_no, c.route_no
+         FROM (${VECINAL_CASA_SQL}) c
+         JOIN commercial.warehouses w ON w.tenant_id = ?
+          AND w.code = c.warehouse_code AND w.deleted_at IS NULL
+        ORDER BY 2, 4`, [tenantId, tenantId, tenantId])).rows);
     return rows.map((r) => ({
       value: `${r.warehouse_code}|${r.route_code}`,
       label: `${r.warehouse_name} · Ruta ${r.route_no ?? r.route_code}`,
@@ -7402,16 +7424,32 @@ export class CommercialAnalyticsService {
    */
   private async routeFilterOptions(kind: 'sku' | 'cliente'): Promise<{ value: string; label: string }[]> {
     const tenantId = this.tenantCtx.requireTenantId();
+    // `[VEC.39]` Dos matvistas: la historia de Wincaja (congelada desde el 2026-08-12, por mes, sin
+    // refresco) y lo que se mueve (push + vecinal del ODS, ciclo de 30 min). La que había leía una
+    // foto del 2026-09-29 que nadie refrescaba. La ventana de 2 años va por MES: el primer mes entra
+    // completo. Un código en las dos piernas se suma, y lleva el rótulo con nombre de más venta.
+    // ⛔ SIN tope: había un `LIMIT 5000` por venta y el universo es de 7,047 clientes / 5,792 SKU
+    // (medido 2026-11-05) — escondía en silencio a los 2,047 clientes más chicos, justo los nuevos.
+    // La ventana de 2 años ya acota la lista, y el combo pinta con scroll virtual.
     const rows: any[] = await this.tk.run(async (trx) => (await trx.raw(
-      `SELECT value, label FROM analytics.mv_route_filter_options
-        WHERE tenant_id = ? AND kind = ? ORDER BY rev DESC NULLS LAST LIMIT 5000`,
-      [tenantId, kind])).rows).catch(() => []);
+      `SELECT value,
+              (array_agg(label ORDER BY (label <> value) DESC, rev DESC NULLS LAST))[1] AS label,
+              sum(rev) AS rev
+         FROM (SELECT value, label, rev FROM analytics.mv_route_filter_options_live
+                WHERE tenant_id = ? AND kind = ?
+               UNION ALL
+               SELECT value, label, rev FROM analytics.mv_route_filter_options_wincaja
+                WHERE tenant_id = ? AND kind = ?
+                  AND month >= date_trunc('month', CURRENT_DATE - INTERVAL '2 years')) o
+        GROUP BY value ORDER BY 3 DESC NULLS LAST`,
+      [tenantId, kind, tenantId, kind])).rows).catch(() => []);
     if (rows.length) {
       return rows.map((r) => ({ value: r.value, label: r.label }));
     }
 
-    this.logger.warn(`[AUD-DAT.17] mv_route_filter_options vacía o ausente para kind=${kind} — `
-      + 'cayendo a la consulta en vivo (~12 s). Correr la migración 20260929170000 y su REFRESH.');
+    this.logger.warn(`[VEC.39] mv_route_filter_options_live/_wincaja vacías o ausentes para kind=${kind} — `
+      + 'cayendo a la consulta en vivo (minutos: la pierna Wincaja cuesta ~15 s por mes). '
+      + 'Aplicar la migración 20261105122624.');
     const live: any[] = await this.tk.run(async (trx) => (await trx.raw(
       `WITH lineas AS (
          SELECT vl.tenant_id, vl.cliente, vl.sku, vl.importe
@@ -7442,7 +7480,7 @@ export class CommercialAnalyticsService {
         WHERE l.tenant_id = ?
           AND CASE WHEN ? = 'sku' THEN l.sku IS NOT NULL
                    ELSE l.cliente IS NOT NULL AND btrim(l.cliente) <> '' AND l.cliente <> '0001' END
-        GROUP BY 1 ORDER BY 2 DESC NULLS LAST LIMIT 5000`,
+        GROUP BY 1 ORDER BY 2 DESC NULLS LAST`,
       [kind, tenantId, kind])).rows);
     return live.map((r) => ({ value: r.value, label: r.value }));
   }
@@ -7785,7 +7823,7 @@ export class CommercialAnalyticsService {
       ]);
       if (factFilter) {
         // `[VEC.2]` Los dos primeros tenant son del CTE `rutas` (ver abajo).
-        const params: Array<string | string[]> = [tenantId, tenantId, tenantId, from, to];
+        const params: Array<string | string[]> = [tenantId, tenantId, tenantId, tenantId, from, to];
         let extra = '';
         if (q.sku) { extra += ' AND sl.sku = ?'; params.push(q.sku); }
         if (q.client) { extra += ' AND sl.cliente = ?'; params.push(q.client); }
@@ -7807,11 +7845,12 @@ export class CommercialAnalyticsService {
               WHERE b.tenant_id=? AND b.is_route=true
                 AND COALESCE(b.source_branch,'') !~ '${VECINAL_RX}'
               UNION
-             SELECT DISTINCT v.route_no, v.warehouse_code, w.name
-               FROM analytics.v_kepler_vecinal_monthly v
-               JOIN commercial.warehouses w ON w.tenant_id=v.tenant_id
-                AND w.code=v.warehouse_code AND w.deleted_at IS NULL
-              WHERE v.tenant_id=?
+             -- [VEC.40] UNA fila por ruta (su casa). Con una por cada sucursal donde timbró, el
+             -- JOIN de abajo multiplicaba cada línea vecinal ×2 a ×5.
+             SELECT c.route_no, c.warehouse_code, w.name
+               FROM (${VECINAL_CASA_SQL}) c
+               JOIN commercial.warehouses w ON w.tenant_id=?
+                AND w.code=c.warehouse_code AND w.deleted_at IS NULL
            )
            SELECT r.wcode, r.wname,
                   ('WIN-' || sl.source_branch) AS route_code, sl.source_branch AS route_no,
@@ -7836,7 +7875,7 @@ export class CommercialAnalyticsService {
       // cabecera y líneas sin la CAJA (`c5`) y le pegaba a cada ticket las líneas de los
       // tickets homónimos de las otras cajas. Y como ese rollup sube con `GREATEST(...)`,
       // **nunca baja**: no se corrige re-corriendo nada, se corrige dejando de leerlo.
-      const params: Array<string | string[]> = [tenantId, from, to, tenantId, from, to];
+      const params: Array<string | string[]> = [tenantId, from, to, tenantId, tenantId, from, to];
       let filtro = '';
       if (routeFilter) { filtro = ` AND (wcode || '|' || route_code) = ANY(?)`; params.push(routeFilter); }
       else if (whFilter) { filtro = ' AND wcode = ANY(?)'; params.push(whFilter); }
@@ -7856,11 +7895,13 @@ export class CommercialAnalyticsService {
            -- copia, la consulta entera pasa de 1,101 ms a 5 ms.
            -- ⚠️ El precio es hasta 30 min de rezago en las rutas vecinales (se refresca con las
            -- demas). La vista viva sigue existiendo para quien necesite el dato al segundo.
-           SELECT v.warehouse_code, w.name, v.route_code, v.route_no,
+           -- [VEC.40] Lo timbrado en otra sucursal va a la fila de su ruta, en su casa.
+           SELECT c.warehouse_code, w.name, v.route_code, v.route_no,
                   to_char(v.month,'MM'), v.units, v.revenue, v.tickets
              FROM analytics.mv_kepler_vecinal_monthly v
+             JOIN (${VECINAL_CASA_SQL}) c ON c.route_no = v.route_no
              JOIN commercial.warehouses w ON w.tenant_id = v.tenant_id
-              AND w.code = v.warehouse_code AND w.deleted_at IS NULL
+              AND w.code = c.warehouse_code AND w.deleted_at IS NULL
             WHERE v.tenant_id = ? AND v.month >= ? AND v.month < ?
          )
          SELECT wcode, wname, route_code, route_no, mes,
@@ -7961,12 +8002,14 @@ export class CommercialAnalyticsService {
            AND pw.code=COALESCE(pb.kepler_code, pb.warehouse_code) AND pw.deleted_at IS NULL
          WHERE b.tenant_id=? AND b.source_branch=? AND b.is_route=true
          UNION ALL
-         SELECT v.route_no, COALESCE(w.name, v.route_name)
-         FROM analytics.v_kepler_vecinal_monthly v
-         LEFT JOIN commercial.warehouses w ON w.tenant_id=v.tenant_id
-           AND w.code=v.warehouse_code AND w.deleted_at IS NULL
-         WHERE v.tenant_id=? AND v.route_no=?
-         LIMIT 1`, [tenantId, src, tenantId, src])).rows[0];
+         -- [VEC.40] La sucursal del título es la CASA de la ruta. Antes era un LIMIT 1 sin orden
+         -- sobre una fila por cada sucursal donde timbró: el título podía nombrar cualquiera.
+         SELECT c.route_no, COALESCE(w.name, c.warehouse_code)
+         FROM (${VECINAL_CASA_SQL}) c
+         LEFT JOIN commercial.warehouses w ON w.tenant_id=?
+           AND w.code=c.warehouse_code AND w.deleted_at IS NULL
+         WHERE c.route_no=?
+         LIMIT 1`, [tenantId, src, tenantId, tenantId, src])).rows[0];
       if (!head) throw new NotFoundException('ruta no encontrada');
 
       // WHERE común (mismo scope que el feed: canal ruta, año, sin fechas futuras corruptas)
@@ -8032,19 +8075,30 @@ export class CommercialAnalyticsService {
                 count(distinct sl.consecutivo) tickets
          FROM analytics.v_route_sales_lines sl WHERE ${W} GROUP BY 1 ORDER BY 1`, P)).rows;
 
+      // [VEC.35] Se agrupa por código y se nombra DESPUÉS, sobre las ≤50 filas, en el maestro de
+      // la fuente del renglón: la camioneta en `wincaja.clientes`, la vecinal en `kdud`.
+      const kdudSuc = await this.vecinalKdudBranch(trx, tenantId, src);
       const clients = (await trx.raw(
-        `SELECT
-           (sl.cliente IS NULL OR btrim(sl.cliente)='' OR sl.cliente='0001') AS is_public,
-           CASE WHEN sl.cliente IS NULL OR btrim(sl.cliente)='' OR sl.cliente='0001'
-                THEN '—' ELSE sl.cliente END AS code,
-           CASE WHEN sl.cliente IS NULL OR btrim(sl.cliente)='' OR sl.cliente='0001'
-                THEN 'Mostrador a bordo (público)' ELSE COALESCE(c.nombre, sl.cliente) END AS name,
-           sum(sl.importe) revenue, sum(sl.qty) units, count(distinct sl.consecutivo) tickets
-         FROM analytics.v_route_sales_lines sl
-         LEFT JOIN (SELECT DISTINCT ON (source_branch, cliente) source_branch, cliente, nombre
-                    FROM wincaja.clientes WHERE tenant_id=? AND source_branch=? ORDER BY source_branch, cliente, source_dataset DESC) c
-           ON c.source_branch=sl.source_branch AND c.cliente=sl.cliente
-         WHERE ${W} GROUP BY 1,2,3 ORDER BY revenue DESC NULLS LAST LIMIT 50`, [tenantId, src, ...P])).rows;
+        `WITH c AS (
+           SELECT
+             (sl.cliente IS NULL OR btrim(sl.cliente)='' OR sl.cliente='0001') AS is_public,
+             CASE WHEN sl.cliente IS NULL OR btrim(sl.cliente)='' OR sl.cliente='0001'
+                  THEN '—' ELSE sl.cliente END AS code,
+             bool_or(sl.source = 'kepler_vecinal') AS vecinal,
+             sum(sl.importe) revenue, sum(sl.qty) units, count(distinct sl.consecutivo) tickets
+           FROM analytics.v_route_sales_lines sl
+           WHERE ${W} GROUP BY 1,2 ORDER BY revenue DESC NULLS LAST LIMIT 50)
+         SELECT c.is_public, c.code,
+                CASE WHEN c.is_public THEN 'Mostrador a bordo (público)'
+                     ELSE COALESCE(CASE WHEN c.vecinal THEN k.nombre ELSE w.nombre END, c.code) END AS name,
+                c.revenue, c.units, c.tickets
+         FROM c
+         LEFT JOIN (SELECT DISTINCT ON (cliente) cliente, nombre
+                    FROM wincaja.clientes WHERE tenant_id=? AND source_branch=? ORDER BY cliente, source_dataset DESC) w
+           ON w.cliente=c.code
+         LEFT JOIN (${CommercialAnalyticsService.kdudClientNameSql('SELECT code FROM c WHERE c.vecinal')}) k
+           ON c.vecinal AND k.cliente=c.code
+         ORDER BY c.revenue DESC NULLS LAST`, [...P, tenantId, src, kdudSuc])).rows;
 
       const tickets = (await trx.raw(
         `SELECT max(sl.doc_ref) folio, sl.consecutivo, max(sl.business_date::date) AS date,
@@ -8113,6 +8167,37 @@ export class CommercialAnalyticsService {
     return src;
   }
 
+  /**
+   * `[VEC.35]` El cliente de una ruta VECINAL se nombra en el maestro de Kepler (`kdud`), no en
+   * `wincaja.clientes`: el código sale de `kdm1.c10` y en Wincaja no existe, así que la pantalla
+   * mostraba el código pelado (2V005: 50 de 50 clientes).
+   *
+   * ⛔ `kdud` es POR SUCURSAL (PK `(sucursal, c2)`) y el mismo código es otra persona en otra
+   * sucursal (medido 2026-11-04: `00011` es «ANDREA MONTIEL SIERRA» en 04 y otro cliente en 01;
+   * 28 de 1,260 pares ruta×cliente salían con otro nombre sin acotar). La línea no trae su
+   * sucursal, así que se prefiere la DOMINANTE de la ruta: contra la sucursal exacta del renglón
+   * coincide en 1,259 de 1,260 pares (el que difiere pesa $0). `null` = la ruta no es vecinal.
+   */
+  private async vecinalKdudBranch(trx: Knex.Transaction, tenantId: string, src: string): Promise<string | null> {
+    if (!new RegExp(VECINAL_RX).test(src)) return null;
+    // `[VEC.40]` La misma regla que la fila y el título del reporte: una sola, en un solo lugar.
+    const r = (await trx.raw(
+      `SELECT warehouse_code FROM (${VECINAL_CASA_SQL}) c WHERE c.route_no = ?`, [tenantId, src])).rows[0];
+    return r?.warehouse_code ?? null;
+  }
+
+  /**
+   * `[VEC.35]` Nombre de cliente según `kdud`, prefiriendo la sucursal de `vecinalKdudBranch`
+   * (un `?`). `codes` acota el barrido a los códigos que se van a nombrar: sin él, el
+   * `DISTINCT ON` sobre las 22 mil filas costaba ~60 ms por llamada.
+   */
+  private static kdudClientNameSql(codes: string): string {
+    return `SELECT DISTINCT ON (btrim(u.c2)) btrim(u.c2) AS cliente, NULLIF(btrim(u.c3), '') AS nombre
+      FROM kepler_ods.kdud u
+     WHERE NULLIF(btrim(u.c3), '') IS NOT NULL AND btrim(u.c2) IN (${codes})
+     ORDER BY btrim(u.c2), (btrim(u.sucursal) = ?) DESC NULLS LAST, u.sucursal`;
+  }
+
   /** Llave del ticket: el folio NO es único (el push lo repite entre rutas y días). */
   private ticketKey(r: { source: string; source_branch: string; date: string; consecutivo: string }): string {
     return [r.source, r.source_branch, r.date, r.consecutivo].join('|');
@@ -8124,7 +8209,10 @@ export class CommercialAnalyticsService {
     const [source, sourceBranch, date] = parts;
     const consecutivo = parts.slice(3).join('|'); // el consecutivo puede traer separadores
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new BadRequestException('key de ticket inválida');
-    if (source !== 'wincaja' && source !== 'push') throw new BadRequestException('key de ticket inválida');
+    // [VEC.38] `kepler_vecinal` faltaba: la lista emitía esas llaves y el detalle las rechazaba (400).
+    if (source !== 'wincaja' && source !== 'push' && source !== 'kepler_vecinal') {
+      throw new BadRequestException('key de ticket inválida');
+    }
     return { source, sourceBranch, date, consecutivo };
   }
 
@@ -8192,6 +8280,7 @@ export class CommercialAnalyticsService {
         ['analytics.route_push_lines', 'imported_at', 'Empuje a ruta'],
         ['wincaja.maestro_mov_almacen', 'imported_at', 'Venta Wincaja (carga)'],
       ]);
+      const kdudSuc = await this.vecinalKdudBranch(trx, tenantId, src);
       return (await trx.raw(
       `WITH sel AS (
          SELECT DISTINCT sl.source, sl.source_branch, sl.business_date, sl.consecutivo
@@ -8214,12 +8303,14 @@ export class CommercialAnalyticsService {
          GROUP BY 1, 2, 3, 4
        ),
        enr AS (
-         SELECT a.*, c.nombre AS cliente_nombre,
+         SELECT a.*, CASE WHEN a.source = 'kepler_vecinal' THEN k.nombre ELSE c.nombre END AS cliente_nombre,
                 CASE WHEN a.revenue_with_cost > 0 THEN round((1 - a.cost / a.revenue_with_cost) * 100, 1) END AS margin_pct
          FROM agg a
          LEFT JOIN (SELECT DISTINCT ON (cliente) cliente, nombre FROM wincaja.clientes
                     WHERE tenant_id = ? AND source_branch = ? ORDER BY cliente, source_dataset DESC) c
            ON c.cliente = a.cliente
+         LEFT JOIN (${CommercialAnalyticsService.kdudClientNameSql(`SELECT cliente FROM agg WHERE source = 'kepler_vecinal'`)}) k
+           ON a.source = 'kepler_vecinal' AND k.cliente = a.cliente
        )
        SELECT *, count(*) OVER () AS total_rows,
               sum(revenue) OVER () AS grand_revenue,
@@ -8228,7 +8319,7 @@ export class CommercialAnalyticsService {
        WHERE true${tickW}
        ORDER BY ${sortCol} ${dir} NULLS LAST, folio ${dir}
        LIMIT ? OFFSET ?`,
-      [...scopeP, ...lineP, ...scopeP, tenantId, src, ...tickP, limit, offset],
+      [...scopeP, ...lineP, ...scopeP, tenantId, src, kdudSuc, ...tickP, limit, offset],
       )).rows;
     });
 
@@ -8309,18 +8400,30 @@ export class CommercialAnalyticsService {
          FROM analytics.v_route_sales_lines sl WHERE ${W}`, P)).rows[0];
       if (!head || !num(head.lines)) throw new NotFoundException('ticket no encontrado');
 
-      const wname = (await trx.raw(
-        `SELECT COALESCE(pw.name, initcap(pb.branch_name)) AS wname
-         FROM wincaja.branches b
-         LEFT JOIN wincaja.branches pb ON pb.tenant_id = b.tenant_id AND pb.source_branch = b.parent_branch
-         LEFT JOIN commercial.warehouses pw ON pw.tenant_id = b.tenant_id
-           AND pw.code = COALESCE(pb.kepler_code, pb.warehouse_code) AND pw.deleted_at IS NULL
-         WHERE b.tenant_id = ? AND b.source_branch = ?`, [tenantId, sourceBranch])).rows[0];
+      // [VEC.38] La vecinal no está en `wincaja`: su sucursal y su cliente se nombran con Kepler
+      // (la sucursal dominante de la ruta y `kdud`, ver `vecinalKdudBranch`).
+      const vecinal = source === 'kepler_vecinal';
+      const kdudSuc = vecinal ? await this.vecinalKdudBranch(trx, tenantId, sourceBranch) : null;
 
-      const clientRow = (await trx.raw(
-        `SELECT nombre FROM wincaja.clientes
-         WHERE tenant_id = ? AND cliente = ? ORDER BY (source_branch = ?) DESC, source_dataset DESC LIMIT 1`,
-        [tenantId, head.cliente || '', sourceBranch])).rows[0];
+      const wname = vecinal
+        ? (await trx.raw(
+          `SELECT name AS wname FROM commercial.warehouses
+            WHERE tenant_id = ? AND code = ? AND deleted_at IS NULL`, [tenantId, kdudSuc])).rows[0]
+        : (await trx.raw(
+          `SELECT COALESCE(pw.name, initcap(pb.branch_name)) AS wname
+           FROM wincaja.branches b
+           LEFT JOIN wincaja.branches pb ON pb.tenant_id = b.tenant_id AND pb.source_branch = b.parent_branch
+           LEFT JOIN commercial.warehouses pw ON pw.tenant_id = b.tenant_id
+             AND pw.code = COALESCE(pb.kepler_code, pb.warehouse_code) AND pw.deleted_at IS NULL
+           WHERE b.tenant_id = ? AND b.source_branch = ?`, [tenantId, sourceBranch])).rows[0];
+
+      const clientRow = vecinal
+        ? (await trx.raw(
+          `${CommercialAnalyticsService.kdudClientNameSql('?')}`, [head.cliente || '', kdudSuc])).rows[0]
+        : (await trx.raw(
+          `SELECT nombre FROM wincaja.clientes
+           WHERE tenant_id = ? AND cliente = ? ORDER BY (source_branch = ?) DESC, source_dataset DESC LIMIT 1`,
+          [tenantId, head.cliente || '', sourceBranch])).rows[0];
 
       const lines = (await trx.raw(
         `SELECT sl.sku, COALESCE(sl.producto, p.nombre) AS name, sl.unidad, sl.unidad_origen,
@@ -8343,7 +8446,7 @@ export class CommercialAnalyticsService {
 
       return {
         key,
-        source: source as 'wincaja' | 'push',
+        source: source as SalesByRouteTicket['source'],
         route_no: sourceBranch,
         folio: head.folio || consecutivo,
         date,

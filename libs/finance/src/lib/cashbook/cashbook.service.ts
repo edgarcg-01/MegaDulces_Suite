@@ -201,7 +201,7 @@ export class CashbookService {
   }
 
   /** Cierra quien hizo el último arqueo de cierre de la caja en la jornada; autoriza la sesión. */
-  async cerrarJornada(fecha: string, usuario: UsuarioDelLibro): Promise<{ cerro: string; autorizo: string }> {
+  async cerrarJornada(fecha: string, usuario: UsuarioDelLibro): Promise<{ cerro: string; autorizo: string; excedente: string | null }> {
     const autoriza = this.quien(usuario);
     return this.run(async (trx) => {
       const arqueo = (await trx.raw(`
@@ -213,8 +213,11 @@ export class CashbookService {
       if (!arqueo) {
         throw new UnprocessableEntityException({ codigo: 'cashbook_cierre_sin_arqueo', mensaje: 'Antes de cerrar la jornada falta el arqueo de cierre de la caja.' });
       }
+      // `[LE.2.10]` V1: si el cajón contado pasa del tope, un hallazgo a nombre de quien cerró (sin tope fijado no se aplica).
+      const regla = (await trx.raw(`SELECT to_regprocedure('cashbook.drawer_excess_finding(date, uuid)') IS NOT NULL AS ok`)).rows[0].ok as boolean;
+      const excedente = regla ? ((await trx.raw('SELECT cashbook.drawer_excess_finding(?::date, ?) AS id', [fecha, arqueo.counted_by])).rows[0].id as string | null) : null;
       await trx.raw('SELECT cashbook.close_day(?::date, ?, NULL, ?, NULL)', [fecha, arqueo.counted_by, autoriza]);
-      return { cerro: arqueo.counted_by, autorizo: autoriza };
+      return { cerro: arqueo.counted_by, autorizo: autoriza, excedente };
     });
   }
 

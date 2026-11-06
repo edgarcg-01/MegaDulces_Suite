@@ -2114,6 +2114,45 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
     ],
   },
 
+  // `[LE.2.13]` La Ventanilla: qué decide si un pago sale (D27, D29).
+  'caja-ventanilla': {
+    title: 'Ventanilla — qué decide si un pago sale',
+    intro: 'Pagar es registrar: el pago queda en el libro en el mismo acto. Lo que lo respalda lo dice Kepler, y una sola autorización basta.',
+    groups: [
+      {
+        heading: 'Lo que respalda un pago',
+        entries: [
+          { term: 'Compra', def: 'El X-D-26 paga órdenes de entrada de mercancía. La compra ya fue la autorización: sale sin otra firma, si ninguna entrada queda pagada de más.' },
+          { term: 'Gasto aprobado', def: 'El X-D-26 paga gastos cuya solicitud aprobó una persona en Aprobación de gastos. «Validado» sólo por el cierre de Kepler no cuenta: ahí el dinero ya había salido.' },
+          { term: 'Firma Tesorería', def: 'Kepler no dice qué gasto o compra paga. Sale, pero sólo con la firma de Tesorería desde su teléfono.' },
+        ],
+      },
+      {
+        heading: 'Lo detenido',
+        entries: [
+          { term: 'Gasto sin aprobar o sin expediente', def: 'Se arregla en Aprobación de gastos: se sube la solicitud y la aprueba una persona. Después sale solo.' },
+          { term: 'Gasto rechazado', def: 'Lo rechazaron en Aprobación de gastos: no se paga, ni con firma.' },
+          { term: 'Compra pagada de más', def: 'Una de sus entradas ya estaba pagada. Se aclara en Kepler.' },
+        ],
+      },
+      {
+        heading: 'Lo que se recibe',
+        entries: [
+          { term: 'Cobro de ruta', def: 'Lo que la ruta entrega en el cajón, contado por pieza. Baja lo que esa ruta debe rendir; si faltó, la ruta lo sigue debiendo.' },
+          { term: 'Cobro de sucursal', def: 'Un cobro de una sucursal que no es ruta. Entra como otro ingreso, con su sucursal.' },
+          { term: 'Ya se depositó en la máquina', def: 'No se cuenta aquí: lo registra la máquina. Contarlo también en el cajón lo contaría dos veces.' },
+          { term: 'La diferencia', def: 'Lo contado contra lo que Kepler espera. Se declara, nunca se ajusta sola; menos de 50 centavos son los que no se cuentan en monedas.' },
+        ],
+      },
+      {
+        heading: 'El dinero',
+        entries: [
+          { term: 'Máquina', def: 'Los billetes los entrega la máquina con el código del pago; vale hasta el fin del día.' },
+          { term: 'Cajón', def: 'Lo de menos de $20 sale del cajón en monedas, contadas por pieza. Se paga al medio peso y el redondeo queda declarado.' },
+        ],
+      },
+    ],
+  },
   // `[CGA-A.67]` El Cuadre de la caja. Las definiciones salen de `conciliacionWorkbook` (servidor) y
   // del contrato de la cola (`cajaColaDelLibroSql`), que es la misma de la bandeja de Captura.
   'caja-cuadre': {
@@ -2299,7 +2338,8 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
           { term: 'Fuente viva / rezagada / muerta', def: 'Qué tan nuevo es el último día de venta que llegó de esa ruta: viva hasta 3 días, rezagada hasta 30, muerta más allá. «Sin fuente» es distinto: nunca llegó nada, y por eso no publica número de días en vez de publicar un cero.' },
           { term: 'Cobra y su fuente no da señal', def: 'La ruta está encendida para cobrar y hace semanas que no llega su venta. El tabulador es escalonado, así que sin días no se paga «un poco menos»: se paga CERO. Es lo único de esta lista que mueve un depósito.' },
           { term: 'Le faltan días', def: 'Cobra y su fuente llegó, pero rezagada. Puede ser que el camión no salió o que la fuente perdió el día: desde acá no se distinguen.' },
-          { term: 'Vende y no comisiona', def: 'Vendió en los últimos 30 días y no está en el esquema de Ruta Directa. Puede ser correcto —las vecinales no son RD— pero el monto va al lado para que la exclusión se pueda revisar en vez de ser una lista de códigos raros.' },
+          { term: 'Vende y no comisiona', def: 'Vendió en los últimos 30 días y no está en el esquema de Ruta Directa ni es vecinal. El monto va al lado para que la exclusión se pueda revisar en vez de ser una lista de códigos raros.' },
+          { term: 'Comisiona, pero el cálculo no tiene su tabulador', def: 'Una ruta vecinal que vende. Las vecinales sí comisionan, pero esta pantalla todavía no tiene su tabulador ni sabe quién cobra: su comisión se paga fuera de la suite y aquí no aparece. Las dos reglas están en Definiciones de negocio.' },
           { term: 'Trae venta con fecha futura', def: 'Llegó una venta fechada después de hoy, que es un dato imposible. Se denuncia aparte de la frescura: si se mezclaran, esa ruta se vería como la MÁS fresca de todas en vez de como la que tiene el dato roto.' },
           { term: 'Subtotal (30 d)', def: 'La venta SIN IVA de los últimos 30 días — la misma base con la que se calcula la comisión. No es la venta con IVA: las dos difieren alrededor de 6%.' },
         ],

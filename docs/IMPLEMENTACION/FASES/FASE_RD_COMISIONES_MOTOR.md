@@ -750,6 +750,37 @@ desarrollador: mientras lo necesite, **el proceso no está aquí**, está en el 
   la pagó el libro (~$3,202.66) y el motor no (el día perdido del 15-oct la deja bajo el umbral);
   504, el motor $799 arriba, sin explicar todavía.
 
+- ⛔ **D5 SUSPENDIDA para Q22 (Edgar, 2026-11-04): «mañana pagamos nosotros».** La suite paga
+  Q22 (22-oct a 4-nov) el **5-nov** sin las 2 quincenas de control. Medido ese día (sólo
+  lectura): las 11 rutas activas con todos sus días hasta el 3-nov; padrón con nómina de banco en
+  las 11; bonos de quincena iguales a los del libro; la cadena de permisos existe (calcular:
+  Dirección/Finanzas · aprobar: Dirección · pagar: Finanzas). ⚠️ Riesgos para ese pago: (1) la
+  compuerta de frescura pasa con que UNA ruta tenga el último día — calcular antes de que
+  lleguen las 11 paga un día incompleto; (2) **el supervisor**: `commission_beneficiary_config`
+  tiene 0 filas, así que su línea sale «20 % sin deducción» (Q21: ~$8,000 contra los $2,400 fijos
+  que paga Canindo) — D3 sigue sin cerrar; (3) la 505 no tiene chofer en el padrón (Q22 bajo el
+  umbral: no cobra). Contraste de Q22 con el libro: NO MEDIDO hasta tener el libro.
+  - **D3 para Q22 = opción A (Edgar, 2026-11-04): la suite paga SÓLO a los choferes; el
+    supervisor se paga por fuera, como hasta hoy.** Las líneas `supervisor` de la corrida no se
+    depositan. ⚠️ **Deuda con nombre `[RD.108]`**: `setStatus('pagado')` marca la corrida
+    entera — no hay forma de decir «el supervisor se pagó fuera», así que el registro afirma
+    más de lo que la suite pagó; hasta que exista, la corrida de Q22 se lee con esta nota.
+    *(Nació como `[RD.105]` y chocaba con el bono de asistencia; renumerada el 4-nov.)*
+  - ⭐ **Antes de aprobar, se corre `[RD.110]`** — `database/tests/test-newdb-rd-quincena-lista-para-pagar.js`,
+    sólo lectura: una corrida viva y del motor · toda ruta con chofer · cada ruta con venta cada
+    día operado · la venta de la corrida = la de la fuente HOY (con su control: quitar un día
+    TIENE que marcar) · el corte de caja de la camioneta como testigo · aprobar y pagar con una
+    persona activa · el monto del supervisor separado. Medido el 4-nov a las ~19 h sobre Q22
+    (sin corrida todavía): rojo por la 505 sin chofer y por la 502 y la 504 sin el 4-nov; el
+    testigo cuadra 67 de 71 días; aprobar y pagar tienen persona. Sobre Q21: el comparador
+    marcó 8 rutas falsas en su primera versión (líneas `fuera_no_es_camion`) — corregido.
+    `ANIO=2026 QUINCENA=22 node database/tests/test-newdb-rd-quincena-lista-para-pagar.js`
+  - **Quién calcula Q22: el automático de las 07:30 del 5-nov** (`[RD.87]`,
+    `commission-auto-run.service.ts`): corre después del refresco de las 06:20 y sólo si la fuente
+    de todas las rutas vigentes está viva; deja `borrador`, nunca aprueba. ⛔ **Nadie oprime
+    «Calcular» el 4-nov**: el freno es `to > hoy`, así que ese día (`to = hoy`) deja escribir la
+    corrida con la venta del día a medias, y una corrida no se reescribe sola. Si a las 07:30 no
+    calcula (nombra rutas rezagadas), se calcula a mano con esas rutas a la vista.
 - **D3 firmado (Edgar, 2026-10-29): la fórmula — 20 % + bonos − nómina de banco — y «que todo
   se pueda configurar».** → `[RD.100]`.
 
@@ -841,12 +872,263 @@ desarrollador: mientras lo necesite, **el proceso no está aquí**, está en el 
 | Item | Pedido | Lo medido hoy | Lo que falta para empezar |
 |---|---|---|---|
 | `[RD.103]` ⬜ | **Rutas vecinales y TLMK** en el motor | El universo ya las ve y las deja fuera (`fuera_no_es_camion` ×8, `tipo_sin_declarar` ×1, `config_inactiva` 321/322 en Q21). `VERDAD_ABSOLUTA` §32.5: vecinales **$2.2M de venta en 30 días sin configurar**; 321+322 **$846,189.75 desde el 2026-09-08** sin comisión. TLMK: **cero** en el motor. El motor ya admite una escala por ruta (`commission_route_config.scale_id`) | El **tabulador** de cada tipo (escalones, % y base) y quién cobra · la decisión abierta: ¿la comisión sigue al **chofer** o al **tipo de ruta**? |
-| `[RD.104]` ⬜ | **Ausencia justificada** = promedio de los 3 últimos periodos pagados | Hay 20 quincenas pagadas para sacar el promedio, y el motor ya cuenta `dias_con_venta / dias_esperados` (Q21: la 505 vendió 3 de 11 días). **El motivo del día no existe en ningún lado**: `hr.attendance_incidents` = **0 filas** | Qué se promedia (comisión, venta o subtotal) y si cubre el día o la quincena entera · quién captura el motivo (vacaciones, incapacidad, taller, cómputo) y con qué comprobante. Sin motivo capturado, el motor no distingue «no salió» de «la fuente perdió el día» (la compuerta `cobertura_dias` ya lo dice así) |
+| `[RD.104]` ⬜ | **Ausencia justificada** = promedio de los 3 últimos periodos pagados — ⚠️ **2026-11-04: el libro YA la aplica y es OTRA regla**: por DÍA, `(mismo día de la semana 1+2+3 semanas antes)/3` sobre costo, subtotal y venta, sin motivo registrado; explica −$42,312 de las 77 diferencias motor↔libro (VERDAD_ABSOLUTA §32.6) | Hay 20 quincenas pagadas para sacar el promedio, y el motor ya cuenta `dias_con_venta / dias_esperados` (Q21: la 505 vendió 3 de 11 días). **El motivo del día no existe en ningún lado**: `hr.attendance_incidents` = **0 filas** | Qué se promedia (comisión, venta o subtotal) y si cubre el día o la quincena entera · quién captura el motivo (vacaciones, incapacidad, taller, cómputo) y con qué comprobante. Sin motivo capturado, el motor no distingue «no salió» de «la fuente perdió el día» (la compuerta `cobertura_dias` ya lo dice así) |
 | `[RD.105]` ⬜ | **Bono de asistencia y puntualidad**, último viernes de mes | `hr.attendance_logs` = **0**, `hr.attendance_days` = **0** en prod: la suite no tiene checadas (la fase RH está 🔨). El motor sólo paga bonos `periodo='quincena'`; los mensuales (`objetivo_mensual`) se calculan y no entran a la nómina (`[RD.59]`) | El monto y la regla (cuántas faltas o retardos lo pierden) · la fuente de asistencia: o RH aterriza las checadas, o se marca a mano con responsable y motivo, como «Desarrollo de marcas» |
 | `[RD.106]` ⬜ | **Cobro de faltante de mercancía** | El cliente existe: `kdud` **`RD001` «COBRO FALTANTE INVENTARIO»** en las 9 sucursales. **0 documentos** a su nombre en `kdm1` (`c10`…`c15`, `c85`) y **0** en `kdue`; control: 50 clientes reales de la matriz dan 5,103 documentos por `c10` | Cómo se cobra hoy y a quién (¿venta a `RD001` en Kepler, en Wincaja, o se descuenta de la comisión?) · de dónde sale el faltante: el inventario de ruta **no existe como saldo en Kepler** |
 
+| `[RD.107]` 🧪 | **La pantalla dejaba de decir que las vecinales «puede ser correcto» que no cobren** | Edgar, 2026-11-04: *«muchas de vecinal están activas, éstas también comisionan»*. Medido en prod: 8 vecinales venden **$2,664,904.61** de subtotal en 30 días (1V001–1V004, 2V001, 2V003, 2V005, 3V001; todas con fuente viva) y el libro de la suite (`commission_runs.origen = 'libro'`, 20 quincenas) **no trae ninguna**: sólo 21–28, 321, 322 y 501–505. O sea que su comisión se paga **fuera de la suite** y su tabulador no está en ningún lado que podamos leer. La pantalla ahora las separa («Comisiona, pero el cálculo no tiene su tabulador») y el diccionario dejó de decir «puede ser correcto» | Para `RD.103`: **dónde se calcula hoy** la comisión vecinal (hoja, quién) — de ahí sale el tabulador y quién cobra. Las preguntas `rd.vecinal.*` siguen sin dueño |
+
 **Orden recomendado (dinero × esfuerzo):** `RD.103` primero (es la venta más grande sin
 comisión) → `RD.104` → `RD.106` → `RD.105` (depende de que RH aterrice las checadas).
+
+#### `[RD.103]` rehecho: un tabulador por familia, el sistema PROPONE y la persona decide (Edgar, 2026-11-04)
+
+> *«Es por eso que debemos dejar un sistema de configuración para determinar estos parámetros.»*
+> *«El sistema propone cuánto debe ser con base en lo que generan, gastos, históricos, etc., pero
+> el último en considerar esto es el usuario.»* — Edgar, 2026-11-04
+
+**Lo medido hoy (prod, sólo lectura, sid `7688376744939610156`):**
+
+| Hecho | Cifra |
+|---|---|
+| Tabuladores que existen | **uno**: `RD-2026` (desde el 2026-01-01), 4 escalones de 3.75 % a 5 %; el primero empieza en $189,999.99 |
+| Cómo elige el motor | `loadScale()` toma la escala vigente **por fecha**, una para todas las rutas. `commission_route_config.scale_id` existe y **el motor no lo lee** |
+| ⚠️ Riesgo latente | «Quién cobra» acepta cualquier `route_code`: dar de alta una vecinal la pagaría con el tabulador RD **sin aviso** |
+| Lo que RD cuesta (libro, 20 quincenas, 238 líneas del chofer) | comisión = **3.36 %** del subtotal (3.66 % con bonos) = **21.4 % del margen bruto** (margen 15.7 %); 190 de 238 líneas cobraron |
+| Lo que venden las vecinales por quincena (Q14–Q21) | entre ~$52k y ~$327k; 1V001 ~$150–216k, el resto casi siempre bajo $140k. Con el tabulador RD casi ninguna cobraría |
+| ⚠️ Unidad | en la fuente vecinal **subtotal = venta** en todas las filas: no se sabe si es con o sin IVA (**NO MEDIDO**, regla 10) |
+| ⚠️ Costo | `costo_wincaja` vacío en todas las vecinales: **el margen vecinal no se puede calcular de esta fuente** |
+| Gastos por ruta vecinal | **NO MEDIDO** (candidato: `expense_entries.dpto`) |
+| Lo pagado a vecinales | **fuera de la suite**: el libro no trae ninguna (`[RD.107]`) |
+
+**Los items, por capa:**
+
+| # | Capa | Item | Árbitro |
+|---|---|---|---|
+| RD.103.0 ✅ 2026-11-04 | C0 | Medir para las vecinales: la unidad del monto (¿con IVA?), su **costo** desde Kepler (margen), sus **gastos** atribuibles y, si existe, la hoja con lo que se les paga hoy | La unidad contra el documento de Kepler; el costo contra lo pagado al proveedor; la hoja de pagos como testigo de la propuesta |
+| RD.103.1 ✅ 2026-11-04 | C0 | `familia` (`ruta_directa` · `vecinal` · `tlmk`) en `commission_scales` y en `commission_route_config`, con valor por omisión `ruta_directa`: lo que hay no cambia y la API desplegada sigue escribiendo | Las 13 filas del padrón y `RD-2026` quedan en `ruta_directa` |
+| RD.103.2 🧪 | C1 | El motor elige el tabulador **de la familia de cada ruta**; una ruta cuya familia no tiene tabulador vigente sale con motivo `sin_tabulador` (declarado, nunca $0 callado) | Antes/después: Q14–Q21 de Ruta Directa **idénticas al centavo** |
+| RD.103.3 | C1 | **La propuesta**: escalones armados sobre la venta real de la familia en las últimas quincenas, para que la comisión cueste la parte del margen que la persona fije (por omisión, la de RD: 21.4 %), con lo que habría costado quincena por quincena. Lo que no se midió (gastos) sale declarado, no como cero | Reproducir con la propuesta el costo de RD sobre el libro |
+| RD.103.4 | C2 | Tabuladores por familia; `GET` de la propuesta; «Quién cobra» exige la familia explícita para un código vecinal | Arranque (`design:paramtypes`) + servicio real contra base |
+| RD.103.5 🧪 | C3 | Tabulador › Vecinal: la propuesta **aparte**, con su fuente (sin costo simulado: no hay quincena vecinal pagada contra la cual simular); «usarla como base» la copia a los escalones editables; **la persona estrena** la versión. Contestar `rd.vecinal.tabulador` = estrenar ese tabulador | `check:pantalla` + vista viva |
+
+**`[RD.103.0]` medido (2026-11-04, sólo lectura, prod):**
+
+| Insumo | Hallazgo | Qué se hizo |
+|---|---|---|
+| **Unidad del monto** | ⛔ El «subtotal» vecinal de `v_rd_route_daily` era el importe de `kdm2.c13` **con IVA e IEPS**: Q14–Q21, **+9.3 % a +12.7 %** sobre el neto que declara el documento de Kepler. La venta sí era correcta. Con 2V001 en «Quién cobra» se habría pagado comisión sobre impuestos | Migración `20261104103527`: la rama vecinal deriva el neto con la tasa de Kepler (la misma fórmula que el push, `[RD.95]`). Ejercido el SQL contra la vista viva, 200 días: **push y Wincaja idénticos en 1,935 filas**; vecinal cambia el subtotal en 782 de 784 días y la venta en 0; contra el neto de Kepler queda en **±0.9 %**. Candado `test-newdb-rd-vecinal-subtotal-neto.js`, **rojo verificado** contra prod antes de aplicar (8 de 8 rutas) |
+| **SKUs sin tasa** | 1V001: $13,713 de $1,494,419 (0.92 %) en SKUs que no están en `kdii` de ninguna sucursal (17160, 17322, 96870, 65134, 17335); 17178 sólo en `07` | La vecinal toma la tasa de `00` y si falta, de otra sucursal; lo que no tiene tasa en ninguna queda **declarado** (`derivado_tasa_kepler_incompleto`), no adivinado. Deuda aparte: 59 líneas del push ($8,744 en 200 días) sin tasa en `00` |
+| **Costo** | ⛔ `kdm2.c62` **mezcla unidades**: a veces es el costo de la línea (18022: 1,913.82 ÷ 50 = 38.28 = su `c77`) y a veces el unitario (17067: 45.26 por 41.77 kg, `c77` 43.53/kg). Con él el «margen» vecinal daba 45–67 %, imposible | Se descarta `c62`. **Cantidad × `kdii.c77`** (costo estándar) da margen de **10.8–14.7 %** en Q21 (RD: 15.7 %) y cubre ≥97.6 % del importe. ⚠️ `c77` es el costo de HOY, no el de la fecha de venta: se declara |
+| **Gastos** | No hay gasto por ruta. Sí por **canal y plaza** en `analytics.expense_entries.dpto` (desde el 2026-08-06): «MORELIA MADERO VECINAL», «VECINAL PADRE HIDALGO», «ZAMORA CENTRO VECINAL», «LA PIEDAD ABASTOS VECINAL», y los TLMK. El grueso es **SUELDOS** y arrendamiento vehicular | La propuesta podrá usar el gasto del canal por plaza, prorrateado por venta, **declarado** como prorrateo |
+| **Lo pagado a vecinales** | La comisión vecinal no aparece como cuenta propia: «VIATICOS Y COMISIONES» y «BONOS POR VENTAS» son montos chicos; lo probable es que vaya dentro de SUELDOS. **NO MEDIDO** como cifra separable | Sigue haciendo falta la hoja (o la persona) que la calcula: es el único testigo |
+
+**`[RD.103.0]` el testigo apareció (2026-11-04): el libro de Comercial «COMISIONES RV (plaza) 2026».**
+Llegaron el de **Morelia completo** (xlsx, 7 hojas: gasto de operación, control de gasto, registro
+de ventas diario, comisiones, recibo del vendedor, recibo del supervisor, resumen) y la hoja de
+gasto del de **Padre Hidalgo** (CSV). Leído **con fórmulas**, no sólo valores. ⛔ Nombres, RFC,
+CURP, NSS y sueldos del libro **no se copian aquí** (repo público): se nombra la ruta, no a la persona.
+
+*La regla que el libro aplica hoy* — es la que `rd.vecinal.tabulador` y `rd.vecinal.quien_cobra`
+preguntaban:
+
+| Pieza | Lo que hace el libro | Lo que implica para el motor |
+|---|---|---|
+| **Periodo** | **Catorcena**, no quincena: 26 al año, cierra cada 14 días desde el 2026-01-14 (periodo 1 = 1 al 14 de enero); el recibo se paga al cierre + 3 días | El motor corre por quincena (`Q14–Q21`): el periodo vecinal es OTRO calendario. Pregunta nueva |
+| **Base del escalón** | «MARGEN %» = subtotal ÷ costo − 1: es **markup sobre costo**, no margen sobre venta (16.4 % de markup = 14.1 % de margen) | El escalón vecinal es por **rentabilidad**; el de RD, por **volumen**. `commission_scales` necesita declarar sobre qué se escalona |
+| **Tasa total** | markup < 12.01 % → 2.73 % · < 13.01 % → 2.95 % · < 15.01 % → 3.13 % · < 18.01 % → 3.41 % · < 25 % → 4.00 % · **≥ 25 % → la fórmula da FALSO (cero)** | Lo de ≥ 25 % es un hueco del `IF`, no una regla: se pregunta, no se copia |
+| **Reparto** | vendedor **80 %**, supervisor **20 %** de la tasa total; los dos × **subtotal** | Propuesta para `rd.vecinal.quien_cobra` = «ambos», 80/20 |
+| **Piso del vendedor** | cobra sólo si la **venta** de la catorcena pasa de $129,999.99, y se le paga **comisión − su sueldo base depositado en banco**. Sin `MAX(0, …)`: con venta apenas arriba del piso la resta sale **negativa** (2.728 % × ~$119k de subtotal < sueldo base) | Dos preguntas: el piso y qué pasa si la resta es negativa |
+| **Condición del supervisor** | cobra si la venta ≥ **95 % de la del mismo periodo del año anterior**; cobra aunque el vendedor quede en «NO APLICA». El recibo del supervisor usa OTRA regla (venta > año anterior, más un bono fijo por ruta cumplida) | La columna del año anterior está **vacía** (calendario 2022 sin datos): hoy la condición **siempre pasa**. Dos reglas para lo mismo → se pregunta cuál |
+| **Gasto de operación** | hoja aparte: cajero, surtidor, renta vehicular, combustible, almacén, mantenimiento; «gasto a cubrir por periodo» repartido por participación de ruta (60/40) | **No entra a la comisión**: sólo al resumen («utilidad después de gastos»). Es insumo de rentabilidad de ruta, no del motor |
+
+*Defectos del libro* (de fórmula, verificables abriendo el archivo):
+
+1. **Gasto**: combustible por catorcena/semana/día copiado de la fila de vehículos (3,600 en vez de
+   6,720 por periodo); almacén dividido entre 24/48/336 en vez de 26/52/364; mantenimiento entre
+   365; el total diario suma `G4:G8` y deja fuera mantenimiento. El gasto a cubrir por periodo sale
+   **~11 % bajo** (25,024 contra 27,824 con la misma cifra anual). El 8.04 % es gasto anual ÷
+   $9,000,000 **tecleado**, no una venta medida.
+2. La tasa se guarda como **texto** («3.410%»); el recibo del supervisor y su comisión final dan `#REF!`.
+3. Registro de ventas: **8 días de enero con la misma cifra copiada** (2 grupos) — captura a mano.
+4. Desde la catorcena 20 «venta» = «subtotal» (el neto): los pisos sobre venta ($130k, 95 %) se
+   miden **sin impuestos** desde ahí y **con impuestos** antes. El piso subió ~9 % sin que nadie lo decidiera.
+
+*Cruce contra Kepler* (pg-prod, sólo lectura, sid `7688376744939610156`; `kdm1` `U-D-10`, neto =
+`c16 − c14 − c15`):
+
+- El libro **cuadra al centavo con el neto de Kepler, sucursal `07`** (27 de 262 días con venta).
+  Pero su única columna «la ruta del vendedor» **salta de ruta**: catorcena 20 → `2V003` (8 días),
+  **21 → `2V001` (9 de 11 días)**, 22 → `2V003` (10 días). En la 21 el libro marca $95,077 y el
+  vendedor queda «NO APLICA» (bajo el piso), mientras `2V003` vendió ~$296k de neto en Kepler.
+  ⚠️ Lo más probable es que en la 21 se cargó la venta de otra ruta. **Por confirmar con quien
+  lleva el libro** antes de llamarlo pago faltante.
+- La columna del segundo vendedor (`2V001` según el padrón) está **vacía todo el año**.
+- `07` no tiene documentos vecinales en el ODS antes del **2026-09-07**: las catorcenas 1–17 del
+  libro **NO MEDIDAS** contra Kepler.
+- Días cercanos pero no iguales (10-13: libro 19,154.07, `2V001` 19,367.95; un día **negativo**,
+  09-29: −4,373.18): ¿devoluciones restadas? **NO MEDIDO**.
+
+*Qué cambia en `RD.103`:*
+
+- **`RD.103.3`** deja de partir sólo del 21.4 % del margen de RD: la regla vigente existe y es la
+  del libro → propuesta «fuente: libro de Comercial, 2026-11-04» = escalones por markup + 80/20 +
+  piso + descuento del sueldo base. **Control:** reproducir las catorcenas 18–22 del libro con la
+  venta de Kepler (las que sí se pueden medir) y explicar cada diferencia.
+- **`RD.103.2`**: el escalón necesita su **base** (`venta` · `markup`) y la familia su **periodo**
+  (quincena · catorcena). Sin eso el motor no puede reproducir el libro.
+- **Preguntas nuevas para DP** (entran en la próxima migración DP que cambie estructura: una que
+  sólo siembra la frena la compuerta), cada una con la propuesta del libro y su fuente:
+  `rd.vecinal.periodo` (catorcena) · `rd.vecinal.base_escalon` (markup) · `rd.vecinal.markup_25`
+  (¿qué tasa arriba de 25 %?) · `rd.vecinal.reparto` (80/20) · `rd.vecinal.piso_venta` ($130k;
+  ¿con o sin impuestos?) · `rd.vecinal.descuenta_sueldo_base` (¿y si sale negativo?) ·
+  `rd.vecinal.meta_supervisor` (95 % del año anterior, o «más que el año anterior + bono»).
+- **El gasto de operación** va a la rentabilidad de ruta (`/comercial/ruta-directa/rentabilidad`),
+  y se arbitra contra lo pagado en `analytics.expense_entries.dpto` («VECINAL PADRE HIDALGO»,
+  «MORELIA MADERO VECINAL»), no contra la estimación tecleada de la hoja.
+
+**`[RD.103.1]` en código:** migración `20261104103945` — `familia` (`ruta_directa` · `vecinal` · `tlmk`) en `commission_scales` y `commission_route_config`, `NOT NULL DEFAULT 'ruta_directa'` con CHECK; los tres caminos que insertan hoy (`createScaleVersion()`, alta del padrón, semilla `20260908120100`) no mandan la columna y el DEFAULT los cubre. Prueba `test-newdb-rd-familia-tabulador.js` (negativa: familia inventada → 23514; control: `vecinal` entra; un INSERT como el de la API desplegada queda en `ruta_directa`). **NO MEDIDO**: corre en el CI (contra prod sale «no medido» y no escribe). ⚠️ Las dos pruebas faltan de registrar en `run-all-tests.js` (el mismo bloqueo que DP).
+
+**`[RD.103.2]` en código (2026-11-04) — la regla del libro, sin inventar nada:**
+
+- **C0, migración `20261104124524`** (expand, compatible con la API desplegada): el costo vecinal
+  = cantidad × `kdii.c77` de `00` en `v_rd_route_daily` (`costo_status` `estandar_kepler_hoy` /
+  `_incompleto`) y `costo_vecinal` al final de `v_rd_commission_sales`; `gate_field` admite
+  `markup`; `piso_chofer_venta` en la escala; `scale_id` en cada línea de la corrida.
+  **Ejercido el SQL contra prod** (sólo lectura, 24-sep a 3-nov, contra el cuerpo de `103527`):
+  push y Wincaja **360 de 360 filas idénticas**; vecinal cambia sólo el costo (259 filas, venta y
+  subtotal iguales); costo por catorcena contra el libro **+2.2 % / +1.0 % / −0.9 %** (20, 21, 22);
+  SKUs sin costo < 0.01 % del importe en 7 de 8 rutas (1V001: 1.19 %); +1.1 s sobre 40 días (corre
+  en el refresco de la matview, no en pantalla).
+- **C1, motor**: `escalaVigente()` (`commission-escala.ts`) elige la versión **de una familia** y la
+  usan los cinco lectores que la elegían sin familia (motor, alta de versión, padrón, bonos,
+  nóminas). La corrida carga un tabulador por familia; una familia sin versión vigente sale
+  `sin_tabulador` (nunca cae al de RD). La regla pura (`commission-escalon.logic.ts`): escalón por
+  venta (RD, igual que antes) o por markup (vecinal; sin costo → `sin_costo`), y el piso del chofer
+  (`bajo_piso`; el supervisor cobra igual, como en el libro). **Árbitro**: la spec reproduce al
+  centavo las catorcenas 1, 18 y 21 del libro; rojo verificado rompiendo el piso; las 40 pruebas
+  del módulo siguen en verde.
+- **C2**: `POST /scales` acepta `familia`, `gate_field` y `piso_chofer_venta` (la primera versión de
+  una familia nueva exige `gate_field`); el alta del padrón **exige `familia` para un código
+  vecinal** (D-V2) y toma la escala vigente de esa familia.
+- **NO MEDIDO**: `test-newdb-rd-vecinal-escalon-markup.js` (negativas 23514 y la prueba de que la
+  consulta sin familia elegiría la vecinal) corre en el CI; falta registrarla en `run-all-tests.js`
+  con sus hermanas. El arranque de Nest no se verificó (no hay firmas inyectadas nuevas).
+- **Ruta Directa no cambia — antes/después medido (2026-11-04, sesión RD, sólo lectura contra prod):**
+  el cambio toca a RD por tres lados y los tres dan lo mismo.
+  1. *La escala*: prod tiene **una** versión (`RD-2026`, venta/subtotal, 20 %); con la familia en
+     `DEFAULT 'ruta_directa'` los cinco lectores eligen la misma fila que antes.
+  2. *La regla*: `decidirEscalon()` contra el `pickTier` viejo con los 4 escalones reales de
+     `RD-2026` y `piso_chofer_venta` NULL — **20,015 montos (los bordes de cada escalón ±1 centavo
+     más 20,000 al azar), 0 diferencias**. Control: con un piso de $300,000 difieren 1,503.
+  3. *El costo* (`?? costo_vecinal`, días de costo parcial, veredicto `estandar_kepler_hoy`): sólo
+     entra en días con venta vecinal. Las 13 rutas del padrón tienen **0 días con venta vecinal en
+     Q14–Q22** (1,118 días); control: 4 vecinales en las mismas fechas, 22 a 47 días por quincena.
+  ⚠️ Deja de valer el día que una ruta del padrón venda por el carril vecinal (p. ej. 2V001 dada de
+  alta como `ruta_directa`, D-V2): ahí su costo pasa a `cantidad × c77` — es lo buscado, pero ya no
+  es «igual que antes». Comisiones completas de la corrida (no la regla) **NO MEDIDAS**: el código
+  nuevo no corre contra prod hasta aplicar las tres migraciones.
+
+**Para que pague (en este orden, después de desplegar):**
+
+1. Aplicar `20261104103527`, `20261104103945` y `20261104124524` (una por una) y desplegar la API.
+   ⛔ Al revés no: el código nuevo lee `familia`, `piso_chofer_venta` y `costo_vecinal`.
+2. **Estrenar** la versión vecinal (Comercial; D-V1, nunca la migración): `POST
+   /commercial/commissions/scales` con `familia: 'vecinal'`, `gate_field: 'markup'`,
+   `share_supervisor_pct: 20`, `piso_chofer_venta: 129999.99`, `valid_from` = el día siguiente al
+   último periodo pagado o aprobado, y los escalones de markup −100→12.01 = 2.73 · 12.01→13.01 =
+   2.95 · 13.01→15.01 = 3.13 · 15.01→18.01 = 3.41 · 18.01→sin techo = 4.00. ⚠️ Arriba de 25 % el
+   libro da FALSO (cero): el último escalón abierto en 4.00 es lectura nuestra y va como
+   `rd.vecinal.markup_25`.
+3. Dar de alta cada vecinal en «Quién cobra» con `familia: 'vecinal'`, su sueldo base de banco
+   (`nomina_banco`), chofer, supervisor y `activo_desde`.
+
+**Deuda con nombre:** (a) ~~C3~~ cerrada por `[RD.103.5]` (abajo); (b) la meta del supervisor
+(95 % del año anterior) **no se aplica**: el libro la tiene vacía y la 07 no tiene venta vecinal en
+el ODS antes del 2026-09-07; (c) `c77` es el costo de HOY; (d) las preguntas nuevas `rd.vecinal.*`
+esperan la próxima migración DP con cambio de estructura; (e) ~~las pruebas `test-newdb-rd-*` de
+RD.103 sin registrar en `run-all-tests.js`~~ registradas en `25cb97a04` (familia, escalón por markup,
+subtotal neto); `rd-bonos-heredan-escala` y `rd-padron-vigencia` siguen fuera (no son de RD.103).
+
+**`[RD.103.5]` en código (2026-11-04) — la pantalla, con las cinco preguntas contestadas antes:**
+(1) qué ve: el tabulador **de una familia** (control segmentado Ruta Directa · Vecinal) y, en la
+corrida, cada motivo en palabras; (2) qué no: códigos crudos, ni vecinales contadas «fuera» del
+universo; (3) accesibilidad: cada motivo con su explicación (`tipPctChofer`, `tipCosto`); (4) liga:
+`sin_tabulador` dice dónde se estrena; (5) le toca: es la misma corrida y el mismo tabulador.
+
+- ⛔ **El riesgo que cerró:** el editor tomaba «la vigente» con `escalas.find(e => e.vigente)`, de
+  todas las familias. Con la versión vecinal en la lista habría partido de escalones de markup y,
+  al estrenar sin `familia`, **creado una versión de Ruta Directa con ellos**. Ahora cada familia
+  edita sólo su vigente, y la `familia` viaja siempre.
+- **Vecinal:** escalones en % de markup; la **propuesta del libro aparte, con su fuente**, y «Usar
+  como base» la copia al borrador (D-V1); piso del chofer y parte del supervisor; **sin simulación,
+  y se dice por qué** (no hay quincena vecinal pagada en la suite contra la cual comparar); la
+  confirmación nombra en palabras todo lo que la versión decide.
+- **Quién cobra:** el alta pide «cobra con el tabulador de» y **no deja enviar** un código vecinal
+  sin elegirlo (poka-yoke; el servidor también lo rechaza).
+- **Medido:** `check:pantalla -- comercial` → `comercial-comisiones` tipa con 0 errores y cumple las
+  10 reglas; `check:templates` verde; specs del módulo 5/5. **Sin validación visual**: no se levanta
+  nada en local; se mira en prod después de desplegar.
+
+**Estado al cierre del 2026-11-04 (medido en prod, sólo lectura):**
+- **En prod** (desplegado con `af56a1657`; migraciones `20261104103527`, `20261104103945` y
+  `20261104124524` aplicadas una por una y verificadas: columnas, GRANTs conservados, una sola
+  escala de Ruta Directa, costo vecinal presente). RD.103.0 y RD.103.1 ✅.
+- **RD.103.2 🧪, no ✅:** el camino vecinal del motor **no se ha ejercido en prod**. No hay tabulador
+  vecinal estrenado ni ninguna ruta vecinal en `commission_route_config` (13 filas, todas
+  `ruta_directa`): una corrida hoy deja a las vecinales fuera, no en $0 callado. Pasa a ✅ con la
+  primera corrida que pague una vecinal y su contraste contra el libro de esa catorcena.
+- **RD.103.5 🧪 — e2e con navegador contra prod** (`e2e/comisiones`, `cf1e8c266`): 7 de 8 verdes; la
+  octava es roja **a propósito** hasta desplegar `05d945e78`, que corrige tres defectos que el e2e
+  encontró con el tabulador sin cargar (la pestaña Vecinal afirmaba «todavía no hay tabulador», el
+  cambio de familia borraba el error, y «Rige desde» quedaba con `min="undefined"`).
+- ⛔ **Incidente del e2e, contenido:** en la primera corrida el `POST` del alta en «Quién cobra» salió
+  a prod sin interceptar — `page.route` no ve lo que atiende el service worker (ngsw) — y no escribió
+  sólo porque el limitador lo rechazó con 429 (verificado: 0 filas). Arreglo: `serviceWorkers:
+  'block'` + una prueba del blindaje que corre primero; el mismo hueco se cerró en
+  `e2e/libro-compras` y `e2e/contpaqi-puente` (`d6886ed13`).
+- **Para que una vecinal cobre falta (fuera del código):** Comercial estrena el tabulador vecinal
+  (vigencia desde el inicio de la catorcena) y da de alta cada ruta vecinal con chofer, supervisor y
+  nómina; Edgar decide margen ≥ 25 % (4 % o 0 %: el libro da FALSO) y la familia de 2V001.
+
+**`[RD.103.0]` El libro vecinal de Padre Hidalgo, contrastado contra Kepler (2026-11-04, sólo lectura):**
+hoja de Comercial «COMISIONES RV PADRE HIDALGO 2026», pestaña vecinal, catorcenas 1–22. ⛔ Trae
+nombres y sueldo base de banco por persona: **nunca al repo**; acá sólo rutas y reglas.
+
+*Lo que confirma:* la **misma regla que Morelia** — escalón por markup (12.52 % → 2.95 %, 14.85 % →
+3.13 %, 18.00 % → 3.41 %, 18.13 % → 4.00 %: mismos cortes), 80 % vendedor / 20 % supervisor sobre el
+subtotal, sueldo base descontado. Y la base es la de la suite: **la columna de la vendedora 43 es
+1V002, tickets `U-D-10` neto, del 22-oct al 3-nov, al centavo** (`$102,244.91` en los dos lados).
+
+*Los cinco defectos que encontramos en el libro* — cada uno con lo que la suite hace para no repetirlo:
+
+| # | Defecto del libro (medido) | Cómo lo evita la suite | Estado |
+|---|---|---|---|
+| L1 | **La tabla del supervisor de Q22 suma UNA ruta, no las dos**: en Q20 y Q21 su comisión es la suma de la parte de cada ruta, al centavo; en Q22 copia sólo la de 1V002 (38 % de lo que su propia regla da). Una fórmula que no se arrastró, y nadie la ve porque el número es plausible | La línea del supervisor se calcula **por ruta** y el neto por persona es la suma de esas líneas: no hay una celda que arrastrar | ✅ por construcción. ⚠️ Q22 el supervisor se paga **fuera** de la suite (D3 opción A), o sea con el libro: avisar a Comercial antes de pagar |
+| L2 | **Se armó antes de cerrar la catorcena**: corta el 3-nov y la catorcena termina el 4 (a 1V002 le faltan $7,954 de venta) | El motor no calcula un periodo con `to > hoy` (`[RD.87]`): el automático corre a las 07:30 del día siguiente al cierre | ✅. ⚠️ La compuerta de frescura pasa con **una** ruta al día: 502 y 504 no tenían el 4-nov a las 18:40 (deuda de RD.104) |
+| L3 | **El costo de Q14–Q19 es inventado**: las dos rutas, seis catorcenas seguidas, con markup **exacto** de 16.95 % (costo = subtotal ÷ 1.1695). El escalón depende del markup, así que esas catorcenas se pagaron con un escalón supuesto | El costo es `qty × kdii.c77` y cada día **declara** si está completo (`estandar_kepler_hoy` / `_incompleto`); sin costo, la ruta sale `sin_costo` y no paga | 🟡 Declarado, pero un costo **incompleto** sube el markup (falta costo → markup mayor → escalón mayor) y el motor igual escalona. Deuda con nombre: medir la cobertura del costo por ruta-catorcena y no escalonar debajo de un umbral |
+| L4 | **La columna del vendedor 41 trae venta que Kepler no tiene a nombre de 1V001**: +$27 k en Q22, +$40 k en Q20, +$56 k en Q21. No casa con ninguna ventana de 1V001, ni con otro tipo de documento (`U-D-5`, `U-D-8`, `U-D-12`, `U-D-40/41`, `U-A-7`), ni con otra sucursal | La venta sale **sólo de Kepler, por ruta**. Lo que el libro suma por fuera entra como **ajuste con motivo** (`[RD.104]`), no se copia | ✅ regla. ⬜ Preguntar a Comercial de dónde sale esa venta (`rd.vecinal.*` en DP) |
+| L5 | **La misma regla, dos fórmulas**: con la comisión debajo del sueldo base, una columna dice «NO APLICA» y la otra publica el negativo (−$178.93, −$590.53, −$69.69) | ⚠️ **La suite tiene el mismo hueco**: `a_pagar = comisión + bonos − nómina` puede salir negativo, y `total_a_pagar` lo **resta** del total de la corrida. Medido: 0 líneas negativas en Q1–Q21 de Ruta Directa (nunca se activó), pero en vecinal sí pasa | ⬜ **D-V4, para Edgar**: recomendación, la línea paga `max(0, …)` y el negativo se **declara** (`comision_bajo_sueldo_base`), nunca se descuenta de otra persona ni de otra catorcena |
+
+*Errores nuestros al contrastar, para no repetirlos:*
+- ⛔ **Persona ≠ ruta.** La columna 43 casa al centavo con 1V002 **en Q22** y **no** en Q20 ni en Q21
+  (ninguna ventana da su importe), y la 41 no es 1V001 en ninguna. Antes de comparar escalones,
+  casar la columna contra Kepler **al centavo y por ventana** (`analytics.v_kepler_vecinal_sales_docs`,
+  `U-D-10`, `c12` = ruta); si no casa, la diferencia es de **base**, no de regla.
+- ⛔ **El periodo del libro no es el del calendario por omisión**: probar la ventana con y sin el
+  último día antes de concluir.
+- ⛔ **Los códigos del libro (41, 42, 43) no están en `kduv`**: no son el `c12` de Kepler. La llave
+  es la ruta (`1V00N`), no el número de la persona.
+- El tercer vendedor (42) no tiene venta vecinal en todo 2026: en Kepler es chofer de Ruta Directa
+  (`01-004`). Una columna vacía no es una ruta caída.
+
+**Decisiones (las tomo y las anuncio; Edgar firma):**
+- **D-V1. La propuesta nunca se aplica sola.** Se guarda como propuesta (D2 de la fase DP) con su
+  fuente («calculada por el sistema el <fecha> con Q14–Q21»); sólo una versión estrenada por una
+  persona paga.
+- **D-V2. La familia va en la fila de «Quién cobra», no se deduce del código.** 2V001 es código
+  vecinal y, por «sigue al chofer», cobra con el tabulador de Ruta Directa.
+- **D-V3. Objetivo por omisión de la propuesta = la parte del margen que hoy cuesta RD (21.4 %).**
+  Es el único costo de comisión que la empresa ya paga y puede medirse; la persona lo mueve.
 
 #### Cómo se preguntan: dentro del sistema, como parámetro configurable (Edgar, 2026-11-03)
 
@@ -876,6 +1158,53 @@ Edgar: primitivo compartido o deuda con nombre.
 Las preguntas de esta tabla ya viven ahí como 17 filas de `platform.business_definitions`
 (`consumer = 'commercial.commissions'`), sin dueño todavía. `[RD.103]`–`[RD.106]` las LEEN; no
 las vuelven a preguntar.
+
+#### `[RD.109]` ⬜ La quincena se cierra DÍA POR DÍA (Edgar, 2026-11-04)
+
+*(Nació como `[RD.106]`, que ya era el cobro de faltante; renumerada el 4-nov.)*
+
+> *«Ya sabemos la venta por día y podemos ir trabajando día por día.»* — Edgar, al ver la trampa
+> de Q22 (calcular el 4-nov congela el día a medias). La unidad de verificación es el **día de
+> ruta**, no la quincena: cada día se cierra contra un testigo cuando llega, y la quincena es la
+> suma de días ya cerrados.
+
+**C0 — medido el 2026-11-04 (prod, sólo lectura, `system_identifier` verificado).** Venta del
+motor (`v_rd_commission_sales`, por ruta y día) contra el **corte de caja de su camioneta**
+(Kepler `U-D-23`, `kdm1.c1` = almacén `01-00N` ↔ ruta 21·22·23·26·27·28, `c16` = `c42`):
+
+| | días de ruta | al peso | a ≤1 % | difieren | placebo (corte del día siguiente) al peso |
+|---|---:|---:|---:|---:|---:|
+| Q22 (22-oct a 3-nov), Padre Hidalgo | 66 | **63** | 1 | 2 (+$337, +$266) | **0** de 48 |
+| 1-sep a 3-nov, Padre Hidalgo | 160 con corte | **148** | 4 | 8 | **0** de 122 |
+
+- ⭐ **El testigo existe y es fuerte**: 95 % de los días cuadran al peso y el placebo da cero.
+- **Desde cuándo:** los cortes `U-D-23` de las camionetas de Padre Hidalgo empiezan el
+  **2 / 3 / 5-oct** (el cambio de cobro del 2-oct). Antes no hay testigo diario: 163 días de
+  septiembre tienen venta y no corte.
+- ⛔ **Canindo (501–505) no tiene `U-D-23` en el ODS** (sólo cobros en `route_collections`,
+  hasta el 29–31-oct): sus días se cerrarían «sin testigo» y así se declararían, nunca verde.
+- Las diferencias grandes de octubre son **redondas y con el corte arriba** (−$3,000 el 19-oct
+  en la 28, −$2,000 el 21-oct en la 22): parece efectivo que entra al corte sin ser venta.
+  Hipótesis, no medida.
+
+**Lo que se construye (C1→C3, después del pago de Q22):**
+
+| Estado del día de ruta | Cuándo |
+|---|---|
+| `falta` | la camioneta no mandó venta de ese día hábil |
+| `llego` | hay venta y todavía no hay corte (o cambió hace poco) |
+| `cerrado` | la venta cuadra al peso con el corte del día |
+| `cerrado_sin_testigo` | no hay corte con qué arbitrar (Canindo); se dice así |
+| `difiere` | hay corte y no cuadra: va a la bandeja con el monto |
+| `corregido` | cambió después de cerrarse, con su porqué |
+
+- El estado se recalcula **por evento** (llega venta o llega corte), no por reloj.
+- Cada mañana, los días de ayer que no cerraron van a la bandeja de «Mi trabajo» de quien los
+  arregla (por responsabilidad, no por permiso).
+- La quincena se aprueba cuando **todos** sus días están cerrados; con eso desaparece la trampa
+  de la hora (`to > hoy`) y el automático de las 07:30 deja de ser el que decide.
+- Lo que llega después de pagar va como **ajuste** a la quincena siguiente, nunca reescribe lo
+  pagado; el mismo ajuste registra lo pagado por fuera (`[RD.108]`).
 
 ### 9.5 Lo que necesita firma antes de que el motor pague
 

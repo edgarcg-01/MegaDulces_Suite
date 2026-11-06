@@ -47,6 +47,8 @@ interface Hallazgo { regla: string; severidad: 'bloquea' | 'revisar' | 'aviso'; 
 interface Poliza { clave: string; lote: string; veredicto: Veredicto; hallazgos: Hallazgo[]; total: number }
 interface Dictamen {
   mes: string; polizas: Poliza[]; entregadas?: string[];
+  /** `[CP.8.99]` Ausente antes de soltar `[CP.8.99]`: las pruebas que lo piden se saltan, declarado. */
+  seguimiento?: { lote: string; estado: string; folio: number | null }[];
   resumen: { polizas: number; por_veredicto: Record<Veredicto, number> };
 }
 
@@ -103,6 +105,9 @@ async function paso4(page: Page) {
 }
 
 const filas = (page: Page) => page.locator('tr.cpp-lote');
+/** `[CP.8.99]` Cómo dice la pantalla cada lugar del cuadre: en la fila y en la línea. */
+const TEXTO_SEG: Record<string, string> = { en_contpaqi: 'En ContPAQi', por_confirmar: 'Por confirmar', esperando: 'Esperando', no_cuadra: 'No cuadra', no_aparecio: 'No apareció' };
+const PARTE_SEG: Record<string, string> = { en_contpaqi: 'ya en ContPAQi', por_confirmar: 'por confirmar', esperando: 'esperando', no_cuadra: 'no cuadra', no_aparecio: 'no apareci' };
 const veredictoDeFila = (page: Page, i: number) => filas(page).nth(i).locator('td').nth(1).innerText();
 
 async function chips(page: Page): Promise<Record<string, number>> {
@@ -154,7 +159,9 @@ test.describe(`${MES}: la entrega dice lo que sale, según el dictamen`, () => {
       await expect(page.locator('.cpp-chip', { hasText: chip })).toHaveAttribute('aria-pressed', 'true');
       await expect(filas(page), `filas con «${chip}»`).toHaveCount(esperado);
       const tags = await filas(page).locator('td:nth-child(2)').allInnerTexts();
-      expect(new Set(tags.map((t) => t.trim())), `todas dicen «${etiqueta}»`).toEqual(new Set([etiqueta]));
+      // `[CP.8.99]` Lo entregado dice dónde está (lo dijo el cuadre), no sólo «Ya entregada».
+      const validas = chip === 'Ya entregadas' && dic.seguimiento ? Object.values(TEXTO_SEG) : [etiqueta];
+      expect([...new Set(tags.map((t) => t.trim()))].every((t) => validas.includes(t)), `todas dicen «${validas.join(' / ')}»: ${[...new Set(tags)].join(', ')}`).toBe(true);
       await page.locator('.cpp-chip', { hasText: 'Todas' }).click();
     }
   });
@@ -202,6 +209,26 @@ test.describe(`${MES}: la entrega dice lo que sale, según el dictamen`, () => {
     await page.locator('.cpp-chip', { hasText: 'Todas' }).click();
     await page.getByRole('button', { name: 'Ver las pólizas frenadas por el dictamen' }).click();
     await expect(page.locator('.cpp-chip', { hasText: 'Frenadas' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  test('[CP.8.99] la línea del cuadre cuenta lo que dice la API, del mes, y cada parte abre su lista', async ({ page }) => {
+    test.skip(!dic.seguimiento, 'NO MEDIDO: prod todavía no tiene [CP.8.99] (GET dictamen sin `seguimiento`)');
+    test.skip(!dic.seguimiento!.length, 'NO MEDIDO: del mes no se ha marcado nada como cargado');
+    await abrir(page);
+    await paso4(page);
+    const n: Record<string, number> = {};
+    for (const s of dic.seguimiento!) n[s.estado] = (n[s.estado] ?? 0) + 1;
+    const linea = page.locator('.cpp-ojo', { hasText: 'De lo entregado de' });
+    await expect(linea).toBeVisible();
+    for (const [estado, cuantas] of Object.entries(n)) {
+      const parte = linea.locator('button', { hasText: PARTE_SEG[estado] });
+      expect(numero(await parte.innerText()), `«${PARTE_SEG[estado]}» = API`).toBe(cuantas);
+      if (cuantas > 120) continue;
+      await parte.click();
+      await expect(parte).toHaveAttribute('aria-pressed', 'true');
+      await expect(filas(page), `filas «${estado}»`).toHaveCount(cuantas);
+      await page.locator('.cpp-chip', { hasText: 'Todas' }).click();
+    }
   });
 
   test('la ayuda explica los veredictos', async ({ page }) => {

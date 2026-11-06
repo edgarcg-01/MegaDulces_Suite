@@ -1,6 +1,7 @@
 import type { Knex } from 'knex';
 import { Injectable, Logger, BadRequestException, ConflictException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { escalaVigente } from './commission-escala';
 
 /**
  * `[RD.100]` — **La nómina de banco del supervisor se configura desde la pantalla.**
@@ -156,11 +157,8 @@ export class CommissionBeneficiariosService {
   // ── Internos ───────────────────────────────────────────────────────────────────────────
 
   private async escalaVigente(trx: Knex.Transaction, onDate: string): Promise<string> {
-    const escala = await trx('commercial.commission_scales')
-      .whereNull('deleted_at')
-      .where('valid_from', '<=', onDate)
-      .andWhere((b: Knex.QueryBuilder) => b.whereNull('valid_to').orWhere('valid_to', '>', onDate))
-      .orderBy('valid_from', 'desc').first();
+    // [RD.103.2] La nómina del supervisor cuelga del tabulador de Ruta Directa, no de la vecinal.
+    const escala = await escalaVigente(trx, { familia: 'ruta_directa', onDate });
     if (!escala) {
       throw new ConflictException(`No hay tabulador vigente al ${onDate}. Creá la escala primero.`);
     }

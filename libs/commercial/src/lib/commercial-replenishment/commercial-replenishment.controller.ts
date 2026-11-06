@@ -127,8 +127,9 @@ export class CommercialReplenishmentController {
     @Query('iad') iad?: string,
     @Query('only_overstock') only_overstock?: string,
     @Query('agotados') agotados?: string,
+    @Query('coverage_mode') coverage_mode?: string,
   ) {
-    return this.svc.workbook({ supplier_id, brand_id, category_id, search, coverage_days: coverage_days ? Number(coverage_days) : undefined, scope, warehouse_ids, group, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined, iad, only_overstock: only_overstock === 'true' || only_overstock === '1', agotados: agotados === 'true' || agotados === '1' });
+    return this.svc.workbook({ supplier_id, brand_id, category_id, search, coverage_days: coverage_days ? Number(coverage_days) : undefined, coverage_mode, scope, warehouse_ids, group, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined, iad, only_overstock: only_overstock === 'true' || only_overstock === '1', agotados: agotados === 'true' || agotados === '1' });
   }
 
   @Get('workbook.xlsx')
@@ -147,11 +148,12 @@ export class CommercialReplenishmentController {
     @Query('iad') iad?: string,
     @Query('only_overstock') only_overstock?: string,
     @Query('flat') flat?: string,
+    @Query('coverage_mode') coverage_mode?: string,
   ) {
     // Mismos filtros que la tabla en pantalla (incluye group=desglosar/englobar + iad + sobrestock)
     // → el Excel refleja EXACTO lo que ve el comprador, sin paginar.
     const data = await this.svc.workbook({
-      supplier_id, brand_id, category_id, search, coverage_days: coverage_days ? Number(coverage_days) : undefined,
+      supplier_id, brand_id, category_id, search, coverage_days: coverage_days ? Number(coverage_days) : undefined, coverage_mode,
       scope, warehouse_ids, group,
       iad: iad === 'accel' || iad === 'decel' ? iad : undefined,
       only_overstock: only_overstock === 'true' || only_overstock === '1',
@@ -165,7 +167,9 @@ export class CommercialReplenishmentController {
       coverage_days: coverage_days ? Number(coverage_days) : undefined,
       export: true,
     });
-    const payload = { coverage_days: data.coverage_days, territories: data.territories, rows: data.rows, transfers: transfers.rows };
+    // [PQ.44] D25: las hojas de pedido dicen con qué cobertura salieron; la de traspasos, la suya.
+    const dias = [...new Set(Object.values(data.cobertura_columnas ?? {}))].sort((a, b) => a - b).join(' o ');
+    const payload = { coverage_days: transfers.coverage_days, coverage_label: data.coverage_mode === 'sucursal' ? `la de cada sucursal (${dias} días)` : data.coverage_days + ' días', territories: data.territories, rows: data.rows, transfers: transfers.rows };
     // Export unificado (canónico): hoja "Todos" (plano) + una hoja por proveedor + hoja "Traspasos".
     // `flat=true` conserva la variante de solo-plano (compat); default = unificado.
     const buf = (flat === 'true' || flat === '1')

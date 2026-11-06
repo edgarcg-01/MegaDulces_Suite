@@ -1,46 +1,47 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 111 KB, 1683 líneas, 34 secciones.
+> **Índice navegable** — 115 KB, 1725 líneas, 35 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/ERP_KEPLER.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
 
 | Desde | Hasta | KB | Sección |
 |---:|---:|---:|---|
-| 47 | 66 | 1 | ERP Kepler — decode y flujo hacia la plataforma |
-| 67 | 102 | 2 | 1. Qué es Kepler y por qué duele |
-| 103 | 126 | 5 | 2. Tablas clave decodificadas |
-| 127 | 244 | 7 | 2.1 La escalera de unidades y el costo (decodificado 2026-08-31) |
-| 245 | 260 | 1 | 2.2 Existencia y ventas — validadas contra Kepler (2026-08-31) |
-| 261 | 314 | 4 | 2.3 ⚠️ La sucursal `00` de Kepler es OFICINAS, **no** el CEDIS |
-| 315 | 363 | 4 | 2.4 ⭐ La forma del schema, medida (auditoría estructural 2026-09-11) |
-| 364 | 383 | 1 | 2.5 ⭐ La historia de precio que ya teníamos y nadie lee |
-| 384 | 420 | 3 | 2.6 ⭐ El DESCUENTO DEL CLIENTE vive en `kdud.c17` (decodificado 2026-09-28) |
-| 421 | 537 | 7 | 2.7 ⭐ El PRECIO POR VOLUMEN vive en `kdpv_prod_util`, y su nivel **NO se puede derivar** (decodificado 2026-10 |
-| 538 | 582 | 3 | 2.8 ⭐ Diccionario de columnas extraído de las FORMAS `.kpl` (2026-10-16) |
-| 583 | 606 | 3 | 2.9 ⭐ Los códigos SIMBÓLICOS: promociones, bonificaciones y ajustes viven en `kdii` a $0.01 (medido 2026-10-22 |
-| 607 | 645 | 2 | 3. El modelo de documentos (género · naturaleza · tipo) |
-| 646 | 804 | 10 | 3.1 ⭐⭐ El DESCUENTO de una venta son DOS capas distintas, y no se explican entre sí |
-| 805 | 919 | 9 | 3.y ⭐ El EMBARQUE `U-D-41` y su cabecera logística (decodificado 2026-09-17) |
-| 920 | 974 | 4 | 3.y.3 ⭐ El PEDIDO `U-D-40` y sus cantidades por etapa (decodificado 2026-10-06) |
-| 975 | 1012 | 2 | 3.y.4 ⭐ Códigos de barras: TRES casillas por unidad (corregido 2026-10-06) |
-| 1013 | 1042 | 1 | 3.x ⭐ El folio es POR SUCURSAL, no global — y es diseño, no un defecto |
-| 1043 | 1096 | 3 | 3.z ⭐⭐ `kdm1.c45` — POR QUÉ CUENTA se movió el dinero (decodificado 2026-09-22) |
-| 1097 | 1145 | 3 | 3.z.1 ⭐⭐ El COBRO `U-A-5` no es una venta: es lo que la salda (decodificado 2026-10-14) |
-| 1146 | 1177 | 2 | 3.z.2 ⭐⭐ QUIÉN vendió está en el TICKET (`c12` → `kduv`), y se pierde al agregar (2026-10-14) |
-| 1178 | 1238 | 3 | 3.z.3 ⛔⛔ `kdm1.c1` lleva SUCURSAL **+ RUTA**, y el anti-réplica canónico las descarta (2026-10-14) |
-| 1239 | 1273 | 2 | 3.z.4 ⭐⭐ Qué facturas paga cada pago a proveedor — y por qué el RFC del acreedor no es de fiar (2026-10-21) |
-| 1274 | 1385 | 6 | 3.c ⭐⭐ El CRM de Kepler: prospectos y cotización `U-D-35` (decodificado 2026-09-22) |
-| 1386 | 1416 | 2 | 3.d ⭐ La NOTA DE CRÉDITO / DEVOLUCIÓN sobre un ticket: va a la FACTURA, no al ticket (decodificado 2026-10-10, |
-| 1417 | 1464 | 3 | 3.x El kardex (`kdij`) y el reparto entre sucursales — `[NP.16]`, medido 2026-10-09 |
-| 1465 | 1492 | 2 | 4. Cómo llega Kepler a la plataforma — el pipeline `kepler_ods` |
-| 1493 | 1549 | 4 | 4.1 ⛔⛔ ANTES DE MEDIR EL ODS: asegurate de estar mirando PRODUCCIÓN |
-| 1550 | 1600 | 3 | 4.2b ⛔⛔⛔ LA CAUSA RAÍZ: `ods_repl` no puede leer las tablas NUEVAS (2026-09-12) |
-| 1601 | 1626 | 2 | 4.2 ⏰ La bomba de calendario — fecha exacta: **2027-01-01** |
-| 1627 | 1691 | 5 | 5. Reglas de oro (te ahorran bugs de datos) |
-| 1692 | 1711 | 1 | 6. Importers / feeds relevantes |
-| 1712 | 1719 | 1 | 7. Conexiones y credenciales |
-| 1720 | 1729 | 1 | 8. Para profundizar |
+| 48 | 67 | 1 | ERP Kepler — decode y flujo hacia la plataforma |
+| 68 | 103 | 2 | 1. Qué es Kepler y por qué duele |
+| 104 | 127 | 5 | 2. Tablas clave decodificadas |
+| 128 | 245 | 7 | 2.1 La escalera de unidades y el costo (decodificado 2026-08-31) |
+| 246 | 261 | 1 | 2.2 Existencia y ventas — validadas contra Kepler (2026-08-31) |
+| 262 | 315 | 4 | 2.3 ⚠️ La sucursal `00` de Kepler es OFICINAS, **no** el CEDIS |
+| 316 | 364 | 4 | 2.4 ⭐ La forma del schema, medida (auditoría estructural 2026-09-11) |
+| 365 | 384 | 1 | 2.5 ⭐ La historia de precio que ya teníamos y nadie lee |
+| 385 | 421 | 3 | 2.6 ⭐ El DESCUENTO DEL CLIENTE vive en `kdud.c17` (decodificado 2026-09-28) |
+| 422 | 538 | 7 | 2.7 ⭐ El PRECIO POR VOLUMEN vive en `kdpv_prod_util`, y su nivel **NO se puede derivar** (decodificado 2026-10 |
+| 539 | 583 | 3 | 2.8 ⭐ Diccionario de columnas extraído de las FORMAS `.kpl` (2026-10-16) |
+| 584 | 607 | 3 | 2.9 ⭐ Los códigos SIMBÓLICOS: promociones, bonificaciones y ajustes viven en `kdii` a $0.01 (medido 2026-10-22 |
+| 608 | 646 | 2 | 3. El modelo de documentos (género · naturaleza · tipo) |
+| 647 | 805 | 10 | 3.1 ⭐⭐ El DESCUENTO de una venta son DOS capas distintas, y no se explican entre sí |
+| 806 | 920 | 9 | 3.y ⭐ El EMBARQUE `U-D-41` y su cabecera logística (decodificado 2026-09-17) |
+| 921 | 975 | 4 | 3.y.3 ⭐ El PEDIDO `U-D-40` y sus cantidades por etapa (decodificado 2026-10-06) |
+| 976 | 1013 | 2 | 3.y.4 ⭐ Códigos de barras: TRES casillas por unidad (corregido 2026-10-06) |
+| 1014 | 1043 | 1 | 3.x ⭐ El folio es POR SUCURSAL, no global — y es diseño, no un defecto |
+| 1044 | 1097 | 3 | 3.z ⭐⭐ `kdm1.c45` — POR QUÉ CUENTA se movió el dinero (decodificado 2026-09-22) |
+| 1098 | 1146 | 3 | 3.z.1 ⭐⭐ El COBRO `U-A-5` no es una venta: es lo que la salda (decodificado 2026-10-14) |
+| 1147 | 1178 | 2 | 3.z.2 ⭐⭐ QUIÉN vendió está en el TICKET (`c12` → `kduv`), y se pierde al agregar (2026-10-14) |
+| 1179 | 1239 | 3 | 3.z.3 ⛔⛔ `kdm1.c1` lleva SUCURSAL **+ RUTA**, y el anti-réplica canónico las descarta (2026-10-14) |
+| 1240 | 1274 | 2 | 3.z.4 ⭐⭐ Qué facturas paga cada pago a proveedor — y por qué el RFC del acreedor no es de fiar (2026-10-21) |
+| 1275 | 1316 | 4 | 3.z.5 ⭐⭐ Qué ESCRIBE un pago a proveedor (`X-D-26` / `X-D-25`) — las 8 escrituras, deducidas (2026-11-04, `[PG |
+| 1317 | 1428 | 6 | 3.c ⭐⭐ El CRM de Kepler: prospectos y cotización `U-D-35` (decodificado 2026-09-22) |
+| 1429 | 1459 | 2 | 3.d ⭐ La NOTA DE CRÉDITO / DEVOLUCIÓN sobre un ticket: va a la FACTURA, no al ticket (decodificado 2026-10-10, |
+| 1460 | 1507 | 3 | 3.x El kardex (`kdij`) y el reparto entre sucursales — `[NP.16]`, medido 2026-10-09 |
+| 1508 | 1535 | 2 | 4. Cómo llega Kepler a la plataforma — el pipeline `kepler_ods` |
+| 1536 | 1592 | 4 | 4.1 ⛔⛔ ANTES DE MEDIR EL ODS: asegurate de estar mirando PRODUCCIÓN |
+| 1593 | 1643 | 3 | 4.2b ⛔⛔⛔ LA CAUSA RAÍZ: `ods_repl` no puede leer las tablas NUEVAS (2026-09-12) |
+| 1644 | 1669 | 2 | 4.2 ⏰ La bomba de calendario — fecha exacta: **2027-01-01** |
+| 1670 | 1734 | 5 | 5. Reglas de oro (te ahorran bugs de datos) |
+| 1735 | 1754 | 1 | 6. Importers / feeds relevantes |
+| 1755 | 1762 | 1 | 7. Conexiones y credenciales |
+| 1763 | 1772 | 1 | 8. Para profundizar |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -119,7 +120,7 @@ unas ramas y no en otras (nómina `kdrh*`, variantes `kdfe33*`).
 | `kdij` | Kardex de movimientos con fecha inline (595k) | |
 | `kdc2YYMM` | Pólizas contables por mes | |
 | `kdb1` | Cuentas bancarias | |
-| `kdxd/kdxe/kdxf` | CxP proveedores (estado de cuenta / saldos / facturas-cobros) | **`kdxd`** catálogo: `c2` clave · `c3` nombre · `c10` RFC · `c12` agente · **`c13` grupo** (11 códigos; nombres deducidos en `GRUPOS_KEPLER`) · `c14` zona · `c15` límite · `c16` días. **`kdxe`** documentos: `c1` almacén · `c2` acreedor · `c3` naturaleza (`A` sube la deuda / `D` la baja) · `c4/c5` tipo/subtipo (nombre en `kdmm` `c1='X'`) · `c6` folio · `c7` fecha · `c10` vence (1800 = sin fecha) · `c11` importe · `c16` referencia. **`kdxf`** casamiento: cargo `(c4,c5,c6)` aplicado al abono `(c7,c8,c9)` por `c10` — 30,073 de 30,073 son D→A (medido 2026-10-07). Prefijos de clave: `C` compra · `G` gasto (`GB` bancos = comisiones) · `A` préstamos · `TC` tarjetas · `B.B.FAC` factoraje · `TI` sucursales (traspaso interno). Ver [`FASE_ECA`](IMPLEMENTACION/FASES/FASE_ECA_ESTADO_CUENTA_ACREEDORES.md). |
+| `kdxd/kdxe/kdxf` | CxP proveedores (estado de cuenta / saldos / facturas-cobros) | **`kdxd`** catálogo: `c2` clave · `c3` nombre · `c10` RFC · `c12` agente · **`c13` grupo** (11 códigos; nombres deducidos en `GRUPOS_KEPLER`) · `c14` zona · `c15` límite · `c16` días. **`kdxe`** documentos: `c1` almacén · `c2` acreedor · `c3` naturaleza (`A` sube la deuda / `D` la baja) · `c4/c5` tipo/subtipo (nombre en `kdmm` `c1='X'`) · `c6` folio · `c7` fecha · `c10` vence (1800 = sin fecha) · `c11` importe · `c16` referencia · `c18` concepto (`kdxv`) · **`c20` saldo GUARDADO** (lo baja cada pago: ver §3.z.5). **`kdxf`** casamiento: cargo `(c4,c5,c6)` aplicado al abono `(c7,c8,c9)` por `c10` — 30,073 de 30,073 son D→A (medido 2026-10-07). Prefijos de clave: `C` compra · `G` gasto (`GB` bancos = comisiones) · `A` préstamos · `TC` tarjetas · `B.B.FAC` factoraje · `TI` sucursales (traspaso interno). Ver [`FASE_ECA`](IMPLEMENTACION/FASES/FASE_ECA_ESTADO_CUENTA_ACREEDORES.md). |
 
 **No existe tabla de conteo físico** — Kepler ajusta inventario vía documento (`kdm1`/`kdm2`).
 La "existencia actual" del reporte NO está en `kdii`; se deriva de `kdil`/`kdik`.
@@ -1270,6 +1271,48 @@ nota → factura están en el ADD de ContPAQi (`Pagos_Doc_Rel`, `CfdiRelacionado
 `FASE_CP8_ATERRIZAJE.md` §3.5 `[CP.8.64]`.
 
 ---
+
+### 3.z.5 ⭐⭐ Qué ESCRIBE un pago a proveedor (`X-D-26` / `X-D-25`) — las 8 escrituras, deducidas (2026-11-04, `[PGP.71]`)
+
+**Para qué sirve:** antes de escribir un pago desde la Suite (fase PGP, O3), y para leer cualquier
+pago de Kepler sin asumir que vive en una sola tabla. El detalle, con las mediciones y lo que queda
+abierto, está en [`FASE_PGP_PAGO_A_PROVEEDOR.md`](IMPLEMENTACION/FASES/FASE_PGP_PAGO_A_PROVEEDOR.md) §4.
+
+**Cómo se dedujo, para que se pueda repetir:**
+- En el Kepler vivo (`md_00`) **no hay disparadores, funciones ni reglas** en el schema `md`: todo lo
+  escribe el programa cliente.
+- `pg_stat_user_tables` deja ver inserciones, cambios y borrados de **las 360 tablas** sin permiso
+  sobre cada una. En un día de operación sólo se escribieron 46, y las 46 están en el ODS: las 118 que
+  el ODS no replica no se tocan en la operación normal.
+- Cada regla se probó contra el estado acumulado (saldos, pólizas, acumulados), con control placebo
+  donde aplicaba. Universo: 471 pagos por transferencia a proveedores de compra de oficinas,
+  ago–nov 2026.
+
+| # | Tabla | Qué guarda | Regla |
+|---|---|---|---|
+| 1 | `kdm1` | el documento | `c16`=`c42` importe · `c11` referencia · `c12` concepto (`kdxv`) · `c45` cuenta de tesorería (`kdb1`) · `c81`/`c82`/`c84` IVA redondeado / sin redondear / IEPS, proporcionales a lo aplicado de cada factura · `c85` banco destino (código ABM de la CLABE) · `c48` la sucursal del concepto, en texto. `c81`, `c82`, `c84` y `c17` son `varchar` |
+| 2 | **`kdm5`** | **un renglón por factura** | `c7` renglón · `c8 c9 c10 c11` la factura · `c12`=`c13` aplicado · `c14` la referencia del proveedor. ⚠️ El pago **no** usa `kdm2` |
+| 3 | `kdxe` (`c3='D'`) | el renglón de cuentas por pagar | `c11`=`c17` importe · `c16` referencia · `c18` concepto · `c22` cuenta de tesorería · `c20` remanente sin aplicar (0 si se aplicó todo) |
+| 4 | `kdxf` | las aplicaciones | cargo `(c4,c5,c6)` = el pago · abono `(c7,c8,c9)` = la factura · `c10`=`c11` aplicado |
+| 5 | `kdxe.c20` de la factura | **el saldo de la factura, GUARDADO** | `c20 − aplicado` (2,075 de 2,083 facturas abiertas; placebo 45 de 1,224) |
+| 6 | **`kdxg`** | acumulados del acreedor por mes | **abonos** `c35`–`c46` (enero–diciembre) += importe; **cargos** `c47`–`c58`. Votación unánime en los 12 meses. `c5` no casa con el saldo (sin deducir) |
+| 7 | **`kdc2AAMM`** | **la póliza contable**, una tabla por mes (`kdc22610` = oct-2026) | tipo `E` (egreso) · `c1` número = **MAX+1 por mes y tipo** (1..1,070 sin huecos en octubre) · un abono `102` (bancos) por el total y un cargo `201` (proveedores) por factura · `c15`–`c19` el documento. Sin renglones de IVA |
+| 8 | **`kdc126`** | catálogo de cuentas con acumulados por mes | **cargos** `c27`–`c38`, **abonos** `c63`–`c74` → `201` cargo y `102` abono del mes. Un segundo juego casi igual (`c51`–`c62` / `c75`–`c86`) que no está decodificado |
+
+**Lo que NO toca:** `kdcn26` (acumulados por centro de costo, que viven en `kdm6`; ningún pago a compra
+trae `kdm6`), `kdm2` y la entrada `kdm1` de la factura (su `c42` sigue igual al total).
+
+**El cheque (`X-D-25`)** escribe lo mismo, con `c31='Che'` y `c11 = CH-<folio del cheque>`. **La
+«transferencia a no proveedor» (`N-A-26`)** es otra cosa: sólo escribe `kdm1`, sin cuentas por pagar.
+
+**⭐ El motor de documentos de Kepler.** `kdmx_26` (y `kdmx_25`) guarda el XML con el que el programa
+da de alta algunos documentos (`k_docXml`: `Operacion ALTA`, los campos `k_67`, `k_81`… que son las
+columnas de `kdm1`, y la póliza armada con su `npoliza`/`tpoliza`). Lo usan la nota de crédito
+(`X-D-55`), el anticipo a proveedor (`X-D-60`) y `X-A-45`, **no** la transferencia `X-D-26`. Si ese
+motor se puede invocar desde fuera, escribir un documento por ahí haría las 8 escrituras con la
+contabilidad de Kepler en vez de reproducirla. Es la pregunta abierta al proveedor de Kepler.
+
+**`orglogtbl_26` no es una bitácora de documentos:** sólo registra sesiones (`sysConnect_26`, `sysUser`).
 
 ### 3.c ⭐⭐ El CRM de Kepler: prospectos y cotización `U-D-35` (decodificado 2026-09-22)
 

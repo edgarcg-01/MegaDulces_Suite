@@ -128,7 +128,8 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // `[AZ.2]` Las tres existian en rutas y en el menu pero NO en el arbol: sin fila aca no
           // hay casilla en /admin/roles, o sea que no habia forma de concederlas por separado
           // aunque tuvieran permiso propio. Declararlas es la mitad del trabajo de partirlas.
-          { id: 'db-health', label: 'Salud de la plataforma', route: '/admin/db-health', view: [Permission.PLATFORM_HEALTH_VER], manage: [] },
+          // `[TOR.3]` Un solo permiso para las dos torres (Sistemas y Desarrollo); el id se conserva.
+          { id: 'db-health', label: 'Torres de control (Sistemas y Desarrollo)', route: '/admin/torre/sistemas', view: [Permission.PLATFORM_HEALTH_VER], manage: [] },
           { id: 'expense-areas', label: 'Áreas de gasto', route: '/admin/areas-gasto', view: [], manage: [Permission.FINANCE_EXPENSE_AREAS_GESTIONAR] },
           { id: 'promoters', label: 'Promotores de marca', route: '/admin/promotores', view: [], manage: [Permission.COMMERCIAL_PROMOTERS_GESTIONAR] },
         ],
@@ -422,7 +423,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // TP.6 — dos permisos de manage a propósito: GESTIONAR prepara (asigna/reprograma/
           // prepara), AUTORIZAR libera el lote (separación de funciones, precedente
           // COMPRAS_ENTRADAS_GESTIONAR/VALIDAR). Ver el comentario largo en permissions.ts.
-          { id: 'caja-general', label: 'Caja General', route: '/finanzas/caja-general', view: [Permission.FINANCE_CAJA_VER], manage: [Permission.FINANCE_CAJA_GESTIONAR, Permission.FINANCE_CAJA_AUTORIZAR] },
+          { id: 'caja-general', label: 'Caja General', route: '/finanzas/caja-general', view: [Permission.FINANCE_CAJA_VER], manage: [Permission.FINANCE_CAJA_GESTIONAR, Permission.FINANCE_CAJA_AUTORIZAR, Permission.FINANCE_CAJA_VENTANILLA] },
           // `[CG.105]` El corte diario y el expediente del día, derivados del Access `Control`
           // (30,199 arqueos desde 2013-09-13). Es lo que se revisa cada mañana para ver si el
           // corte coincide con lo que hay físicamente. ⛔ `manage` VACÍO a propósito: se captura

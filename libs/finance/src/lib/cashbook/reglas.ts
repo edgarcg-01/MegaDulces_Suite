@@ -321,17 +321,100 @@ export function gasto(h: { concepto: string; desde: { tipo: 'cajon'; piezas: Pie
   return armar('gasto', ctx, [
     { cuenta: CUENTA.egreso(h.concepto), monto: m },
     { cuenta: CUENTA.custodia(h.desde.empleado, h.desde.nombre), monto: -m },
-  ]);
+  ], extra);
+}
+
+// ── E-09b · `[LE.2.9]` La parte del CAJÓN de un pago en la Ventanilla, con el redondeo declarado ─
+
+/**
+ * Un pago sale en dos partes: los billetes de la máquina (los asienta el carril de CAOS contra la
+ * orden, `movimientoCaos` con `{ tipo: 'pago' }`) y lo de menos de $20, del cajón por pieza. Ésta es la
+ * segunda, y lleva el redondeo de D26: el egreso queda al importe EXACTO del documento.
+ *
+ *   máquina (carril) ............ EGRESO +maquina · BÓVEDA −maquina
+ *   cajón (aquí) ................ EGRESO +(cajon − redondeo) · REDONDEO +redondeo · CAJA −cajon
+ *   ⇒ EGRESO suma el importe del documento; REDONDEO dice cuánto se pagó de más (+) o de menos (−).
+ *
+ * Devuelve `null` si no hay nada que asentar (todo de la máquina y sin redondeo).
+ */
+export function pagoDelCajon(h: { concepto: string; documento: string; orden: string; piezas?: PiezasTexto; redondeo: bigint; recibe: string },
+  ctx: Contexto, extra: { meta?: MetaAsiento } = {}): Propuesta | null {
+  const hayPiezas = !!h.piezas && Object.keys(h.piezas).length > 0;
+  const cajon = hayPiezas ? montoDe(h.piezas as PiezasTexto) : 0n;
+  if (cajon < 0n) throw new ReglaInvalida('cashbook_monto_invalido', 'pago: las piezas del cajón salen, se cuentan en positivo');
+  if (cajon === 0n && h.redondeo === 0n) return null;
+  const piernas: Pierna[] = [];
+  if (cajon - h.redondeo !== 0n) piernas.push({ cuenta: CUENTA.egreso(h.concepto), monto: cajon - h.redondeo });
+  if (h.redondeo !== 0n) piernas.push({ cuenta: CUENTA.redondeo(), monto: h.redondeo });
+  if (cajon !== 0n) piernas.push({ cuenta: F.CAJA_MXN, monto: -cajon, piezas: negarPiezas(h.piezas as PiezasTexto) });
+  return armar('gasto', ctx, piernas, {
+    // Por ORDEN, no por documento: si una orden vence a medias, el segundo intento no se confunde con el primero.
+    event_ref: `pago:${h.orden}`,
+    meta: { ...extra.meta, documento: h.documento, orden: h.orden, recibe: h.recibe, redondeo: centavosATexto(h.redondeo) },
+  });
 }
 
 // ── E-11 · Lo que sobró de una custodia regresa al cajón ──────────────────────────────────────
 
-export function regresoCustodiaAlCajon(h: { empleado: string; nombre: string; piezas: PiezasTexto }, ctx: Contexto): Propuesta {
+export function regresoCustodiaAlCajon(h: { empleado: string; nombre: string; piezas: PiezasTexto }, ctx: Contexto,
+  extra: { event_ref?: string; meta?: MetaAsiento } = {}): Propuesta {
   const m = montoDe(piezasValidas(h.piezas, 'regreso_custodia'));
   return armar('regreso_custodia', ctx, [
     { cuenta: F.CAJA_MXN, monto: m, piezas: h.piezas },
     { cuenta: CUENTA.custodia(h.empleado, h.nombre), monto: -m },
-  ]);
+  ], extra);
+}
+
+// ── E-29 · `[LE.2.11]` Monedas por billetes con alguien de fuera, en el acto ──────────────────
+
+/**
+ * Salen monedas por pieza, entran billetes por pieza, y la comisión (si el banco cobra) se declara
+ * como gasto: nunca se absorbe. Cuadre exacto: lo que sale = lo que entra + la comisión.
+ *
+ *   CAJA −salen · CAMBIO(con quién) +salen · CAMBIO −(entran + comisión) · CAJA +entran · EGRESO +comisión
+ *
+ * La cuenta del cambio es puente y queda en cero: las piezas no se conservan (cambian de forma), por
+ * eso no puede ser un traspaso entre dos cuentas que cuentan piezas.
+ */
+export function cambioDeMonedas(h: { conQuien: string; salen: PiezasTexto; entran: PiezasTexto; comision?: string },
+  ctx: Contexto, extra: { event_ref?: string; meta?: MetaAsiento } = {}): Propuesta {
+  const salen = piezasValidas(h.salen, 'cambio · lo que sale');
+  const entran = piezasValidas(h.entran, 'cambio · lo que entra');
+  const repetidas = Object.keys(salen).filter((k) => k in entran);
+  if (repetidas.length) {
+    throw new ReglaInvalida('cashbook_cambio_misma_pieza', `cambio: ${repetidas.join(', ')} sale y entra a la vez; eso no es un cambio`);
+  }
+  const vSale = positivo(montoDe(salen), 'cambio · lo que sale');
+  const vEntra = positivo(montoDe(entran), 'cambio · lo que entra');
+  const comision = h.comision === undefined || h.comision === '' ? 0n : centavos(h.comision);
+  if (comision < 0n) throw new ReglaInvalida('cashbook_monto_invalido', 'cambio: la comisión es un importe, no negativo');
+  if (vSale !== vEntra + comision) {
+    throw new ReglaInvalida('cashbook_cambio_no_cuadra',
+      `cambio: salen ${centavosATexto(vSale)} y entran ${centavosATexto(vEntra)} + comisión ${centavosATexto(comision)}; difieren ${centavosATexto(vSale - vEntra - comision)}`);
+  }
+  const otro = CUENTA.cambioDeEfectivo(h.conQuien);
+  const piernas: Pierna[] = [
+    { cuenta: F.CAJA_MXN, monto: -vSale, piezas: negarPiezas(salen) },
+    { cuenta: otro, monto: vSale },
+    { cuenta: otro, monto: -(vEntra + comision) },
+    { cuenta: F.CAJA_MXN, monto: vEntra, piezas: entran },
+  ];
+  if (comision > 0n) piernas.push({ cuenta: CUENTA.egreso('Comisión por cambio de monedas'), monto: comision });
+  return armar('cambio', ctx, piernas, { ...extra, meta: { ...extra.meta, motivo: 'cambio de monedas', con_quien: h.conQuien } });
+}
+
+/**
+ * `[LE.2.11]` «Se las lleva una persona»: las monedas salen del cajón a SU custodia, por pieza, hasta
+ * que regresa con los billetes (`regresoCustodiaAlCajon`) y, si hubo, la comisión como gasto desde su
+ * custodia (`gasto`). Mientras tanto la custodia dice a nombre de quién está el dinero.
+ */
+export function aCustodiaDesdeCajon(h: { empleado: string; nombre: string; piezas: PiezasTexto; para: string },
+  ctx: Contexto, extra: { event_ref?: string; meta?: MetaAsiento } = {}): Propuesta {
+  const m = positivo(montoDe(piezasValidas(h.piezas, 'a_custodia')), 'a_custodia');
+  return armar('retiro_a_custodia', ctx, [
+    { cuenta: F.CAJA_MXN, monto: -m, piezas: negarPiezas(h.piezas) },
+    { cuenta: CUENTA.custodia(h.empleado, h.nombre), monto: m },
+  ], { ...extra, meta: { motivo: h.para, ...extra.meta } });
 }
 
 // ── E-05, E-12, E-20 · Faltante y sobrante: SIEMPRE con nombre, SIEMPRE autorizados ───────────

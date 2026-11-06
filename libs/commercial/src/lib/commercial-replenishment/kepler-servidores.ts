@@ -1,6 +1,12 @@
 import type { KeplerDoctipo } from '@megadulces/contracts';
 
 import { DOCTIPOS } from './kepler-doctipo';
+// `[PGP.71]` La regla de qué conexión abre qué servidor se mudó a platform-core: la usan la
+// requisición y el pago a proveedor (finance no puede importar de commercial, ADR-028). Se
+// re-exporta tal cual para no tocar a sus consumidores.
+import { normalizarSucursal, valorDeEnv as val, type Env, type Resolucion } from '@megadulces/platform-core';
+export { normalizarSucursal, servidoresEncendidos, urlDeServidor, type Env, type Resolucion, type ConexionKepler as ServidorKepler } from '@megadulces/platform-core';
+
 
 /**
  * `[KR.11]` **Cada sucursal tiene su propio servidor Kepler, y un documento se escribe en el suyo.**
@@ -25,52 +31,6 @@ import { DOCTIPOS } from './kepler-doctipo';
  * Sin base de datos a propósito: el adapter necesita Postgres y un doble de Knex no ejecuta SQL.
  * La regla se prueba sola en `kepler-servidores.spec.ts`.
  */
-
-export type Env = Readonly<Record<string, string | undefined>>;
-
-export interface ServidorKepler {
-  sucursal: string;
-  url: string;
-}
-
-export type Resolucion<T> = { ok: true; valor: T } | { ok: false; motivo: string };
-
-const SUCURSAL_RX = /^\d{2}$/;
-
-const val = (env: Env, k: string): string => (env[k] ?? '').trim();
-
-export function normalizarSucursal(sucursal: string | null | undefined): Resolucion<string> {
-  const s = String(sucursal ?? '').trim();
-  if (!SUCURSAL_RX.test(s)) {
-    return { ok: false, motivo: `Sucursal Kepler inválida «${s}»: se esperan dos dígitos (00…08)` };
-  }
-  return { ok: true, valor: s };
-}
-
-/** Conexión del servidor de esa sucursal, o el motivo por el que su escritura está apagada. */
-export function urlDeServidor(sucursal: string, env: Env): Resolucion<string> {
-  const n = normalizarSucursal(sucursal);
-  if (!n.ok) return n;
-  const s = n.valor;
-  const propia = val(env, `KEPLER_PUSH_URL_${s}`);
-  if (propia) return { ok: true, valor: propia };
-  if (s === '00') {
-    const legada = val(env, 'KEPLER_PUSH_URL');
-    if (legada) return { ok: true, valor: legada };
-  }
-  return { ok: false, motivo: `La escritura a Kepler de la sucursal ${s} está apagada (falta KEPLER_PUSH_URL_${s})` };
-}
-
-/** Todas las sucursales con conexión configurada, en orden. */
-export function servidoresEncendidos(env: Env): ServidorKepler[] {
-  const out: ServidorKepler[] = [];
-  for (let i = 0; i <= 99; i++) {
-    const s = String(i).padStart(2, '0');
-    const u = urlDeServidor(s, env);
-    if (u.ok) out.push({ sucursal: s, url: u.valor });
-  }
-  return out;
-}
 
 /** Coordenada del documento plantilla de ese tipo EN ese servidor. */
 export function plantillaDe(tipo: KeplerDoctipo, sucursal: string, env: Env): Resolucion<{ serie: string; folio: string }> {

@@ -5,7 +5,7 @@ import { CommonModule } from '@angular/common';
 import { ActivatedRoute } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { catchError, of, forkJoin } from 'rxjs';
-import { accionesNegociacion, compareWarehouseCodes, type Freshness, type PedidoNegociacionDto, WAREHOUSE_DISPLAY_ORDER, warehouseName } from '@megadulces/contracts';
+import { accionesNegociacion, coberturaAutoabasto, compareWarehouseCodes, type Freshness, type PedidoNegociacionDto, WAREHOUSE_DISPLAY_ORDER, warehouseName } from '@megadulces/contracts';
 import { type EnlacesNegociacion, PedidoNegociacionPanelComponent } from '../pedido-negociacion-panel.component';
 import { PedidoNegociacionDetalleComponent } from '../pedido-negociacion-detalle.component';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -45,6 +45,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
+import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { LoPedidoComponent } from '../lo-pedido.component';
 import { ComprasFlujoComponent } from './compras-flujo.component';
 
@@ -107,6 +108,8 @@ interface BranchBuy {
   /** Días de cobertura que deja el sugerido topado. `null` = no medible. */
   diasTope: number | null;
   cc: number;            // costo de caja DE ESA SUCURSAL
+  /** `[PQ.44]` D33: el reorden frenó una cantidad que sí faltaba (la marca `sr` del motor). */
+  sr?: boolean;
   /** U.2 — peldaño de unidad contradicho por el costo: acá no se puede ni convertir ni pedir. */
   rung: string | null;
   nat: number;           // existencia en la unidad nativa del almacén (lo que sí es verdad)
@@ -156,6 +159,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     PedidoNegociacionPanelComponent,
     PedidoNegociacionDetalleComponent,
     LoPedidoComponent,
+    LoadStateComponent,
     CommonModule, FormsModule, ButtonModule, TableModule, PaginatorModule, ToastModule, SelectModule, MultiSelectModule,
     InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, TagModule, DialogModule, ConfirmDialogModule, PopoverModule, MetricStripComponent, ContextHelpComponent, SegmentedComponent, FreshnessPillComponent, SidePeekComponent, ComprasFlujoComponent,
     SucursalPipe,
@@ -302,7 +306,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
             <span>Cobertura</span>
             <!-- [RA-UX.6] Recalculaba sólo al perder el foco: con − / + el campo decía 31 d y la
                  tabla seguía calculada con 30. Ahora recalcula al detenerse (y al salir). -->
-            <p-inputnumber [(ngModel)]="coverage" (ngModelChange)="coberturaLuego()" (onBlur)="coberturaYa()" [min]="1" [max]="120" [showButtons]="true"
+            <p-inputnumber [ngModel]="coberturaSucursal ? null : coverage" (ngModelChange)="coberturaTecleada($event)" (onBlur)="coberturaYa()" [min]="1" [max]="120" [showButtons]="!coberturaSucursal" placeholder="cada suc."
                            buttonLayout="horizontal" [step]="1" suffix=" d" inputStyleClass="pr-cov-in"
                            decrementButtonClass="p-button-text" incrementButtonClass="p-button-text"
                            incrementButtonIcon="pi pi-plus" decrementButtonIcon="pi pi-minus" ariaLabel="Días de cobertura"></p-inputnumber>
@@ -312,8 +316,10 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                booleanos de al lado: mismo aspecto, semántica opuesta, y nadie podía saber
                cuáles se excluían. Ahora usan el segmented canónico (radiogroup accesible,
                navegable con flechas) y los toggles quedan visualmente aparte. -->
-          <app-segmented [options]="coverageOpts" [value]="coverage + ''" ariaLabel="Días de cobertura"
+          <app-segmented [options]="coverageOpts" [value]="coberturaSucursal ? 'suc' : coverage + ''" ariaLabel="Días de cobertura"
                          (valueChange)="setCoverage($event)"></app-segmented>
+          <!-- [PQ.44] D25: con qué cobertura sale el pedido, dicho en la barra y no en un title. -->
+          @if (coberturaNota(); as nota) { <small class="pr-cov-nota" role="note">{{ nota }}</small> }
           <span class="pr-fsep" aria-hidden="true"></span>
           <!-- Barra de herramientas ARIA: los toggles + Limpiar son UN solo tab stop y se recorren
                con ← →. Antes eran cinco paradas de tabulador seguidas, y para llegar a la tabla
@@ -360,11 +366,9 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
         }
 
         @if (error()) {
-          <div class="pr-state pr-error">
-            <i class="pi pi-exclamation-triangle"></i>
-            <div><p>No se pudo cargar el workbook.</p>
-              <p-button type="button" label="Reintentar" icon="pi pi-refresh" styleClass="p-button-sm p-button-text" (click)="loadWorkbook()"></p-button></div>
-          </div>
+          <!-- [PQ.53] El error canónico: role="alert" (se anuncia), mismo botón y mismo aspecto que el resto de la suite. -->
+          <app-load-state error="Revisa tu conexión y vuelve a intentarlo."
+                          errorTitle="No se pudo cargar el pedido" (retry)="loadWorkbook()"></app-load-state>
         } @else {
           <!-- U.2 — el inventario valuado declara su hueco. Sin este banner el total baja en
                silencio al dejar de sumar lo no verificado, y eso se lee como "hay menos
@@ -606,7 +610,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                       <th class="pr-r" title="Existencia de esa sucursal, en CAJAS.">Exist.</th>
                                       <th class="pr-r" title="Cuántos días aguanta HOY lo que hay: existencia ÷ (venta 30 d ÷ 30.4). Es lo que decide: rojo menos de 15, ámbar menos de 30. Ordena la lista.">Hoy dura</th>
                                       <th class="pr-r" title="Traspasos sugeridos para este producto: lo que LE LLEGA (desde dónde) o lo que MANDA a otras sucursales, en CAJAS. Se editan en «Traspasos».">Traspaso</th>
-                                      <th class="pr-r pr-ped-h" title="Lo que se le va a pedir. Arranca en el sugerido del motor (venta × estación × cobertura − existencia). NO resta lo que viene en camino ni lo que llega por traspaso: para restarlo, «descontar» arriba. Teclado: ↑ ↓ o Enter mueven al campo anterior/siguiente · ← → restan o suman uno · escribe para reemplazar.">Pedir ✎</th>
+                                      <th class="pr-r pr-ped-h" title="Lo que se le va a pedir. Arranca en el sugerido del motor (venta × estación × cobertura − existencia), sólo si la sucursal está en o bajo su punto de reorden; arriba del reorden arranca en 0. NO resta lo que viene en camino ni lo que llega por traspaso: para restarlo, «descontar» arriba. Teclado: ↑ ↓ o Enter mueven al campo anterior/siguiente · ← → restan o suman uno · escribe para reemplazar.">Pedir ✎</th>
                                       @if (verDetalle(r.product_id)) { <th class="pr-r" title="En qué unidad estás capturando ESTE renglón.">Unidad</th> }
                                       <th class="pr-r" title="Cuántos días queda con lo que pidas y el traspaso: (existencia + pedido + lo que llega − lo que manda) ÷ (venta 30 d ÷ 30.4).">Queda</th>
                                       @if (verDetalle(r.product_id)) { <th title="Dónde entrega el proveedor: directo en la sucursal, o consolidado en un CEDIS.">Entrega</th> }
@@ -1028,8 +1032,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
           @if (tranLoading()) {
             <div class="pr-peek-loading"><i class="pi pi-spin pi-spinner"></i> Consultando órdenes de compra…</div>
           } @else if (tranError()) {
-            <div class="pr-state pr-error"><i class="pi pi-exclamation-triangle"></i>
-              <p>No se pudieron leer las órdenes de compra.</p></div>
+            <app-load-state error="Revisa tu conexión y vuelve a intentarlo."
+                            errorTitle="No se pudieron leer las órdenes de compra" (retry)="reintentarTransito()"></app-load-state>
           } @else if (tranRows().length) {
             <p class="pr-uov-hint">
               <strong>{{ tranTotalCajas() | number:'1.0-1' }} cajas</strong> ya pedidas y sin recibir
@@ -1239,11 +1243,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
         </div>
         @if (wlVista() === 'proveedores') {
           @if (agError()) {
-            <div class="pr-state pr-error">
-              <i class="pi pi-exclamation-triangle"></i>
-              <div><p>No se pudo cargar la agenda de proveedores.</p>
-                <p-button type="button" label="Reintentar" icon="pi pi-refresh" styleClass="p-button-sm p-button-text" (click)="loadAgenda()"></p-button></div>
-            </div>
+            <app-load-state error="Revisa tu conexión y vuelve a intentarlo."
+                            errorTitle="No se pudo cargar la agenda de proveedores" (retry)="loadAgenda()"></app-load-state>
           } @else {
             <p-table [value]="agRows()" [loading]="agLoading()"
                      [paginator]="true" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]"
@@ -1296,11 +1297,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
             <p class="pr-foot">Un renglón por <strong>proveedor</strong>, ordenado por la fecha más urgente de sus sucursales. La cadencia es la <strong>derivada</strong> de sus entregas en Kepler (acierta en 1 de 4 canales): capturarla es el siguiente paso de esta fase.</p>
           }
         } @else if (wlError()) {
-          <div class="pr-state pr-error">
-            <i class="pi pi-exclamation-triangle"></i>
-            <div><p>No se pudo cargar el ciclo de reabasto.</p>
-              <p-button type="button" label="Reintentar" icon="pi pi-refresh" styleClass="p-button-sm p-button-text" (click)="loadWorklist()"></p-button></div>
-          </div>
+          <app-load-state error="Revisa tu conexión y vuelve a intentarlo."
+                          errorTitle="No se pudo cargar el ciclo de reabasto" (retry)="loadWorklist()"></app-load-state>
         } @else {
           <!-- [PQ.4] Cruce 1: el encabezado cuenta el universo y la lista pide 500. Lo que no entra
                se DICE, no se esconde. -->
@@ -1694,7 +1692,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-sob-lab { font-size: var(--fs-xs); color: var(--text-muted); }
     .pr-sob-val { font-size: var(--fs-md); font-weight: 600; font-variant-numeric: tabular-nums; }
     .pr-sob-sub { font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
-    .pr-sob-q { font-size: var(--fs-xs); color: var(--warn-fg); font-variant-numeric: tabular-nums; }
+    .pr-sob-q { font-size: var(--fs-xs); color: var(--warn-soft-fg); font-variant-numeric: tabular-nums; }
     .pr-sob-ok { border-left-color: var(--ok-fg); }
     .pr-sob-warn { border-left-color: var(--warn-fg); }
     .pr-sob-bad { border-left-color: var(--bad-fg); }
@@ -1709,6 +1707,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     }
     .pr-sob-err i { color: var(--bad-fg); margin-top: .12rem; }
     .pr-cov { display: inline-flex; align-items: center; gap: .4rem; font-size: var(--fs-sm); color: var(--text-muted); }
+    .pr-cov-nota { font-size: var(--fs-xs); color: var(--text-muted); max-width: 34ch; line-height: 1.25; }
     :host ::ng-deep .pr-cov-in { width: 4.5rem; text-align: right; font-variant-numeric: tabular-nums; }
     .pr-chips { display: inline-flex; gap: .25rem; }
     .pr-presets { display: inline-flex; gap: .25rem; }
@@ -1755,10 +1754,10 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     /* La celda que no se puede convertir a cajas: muestra la cantidad SUELTA con su rótulo. */
     .pr-rung { display: inline-flex; align-items: baseline; gap: .25rem;
       font-family: var(--font-mono, ui-monospace); font-variant-numeric: tabular-nums;
-      color: var(--warn-fg); cursor: help; }
+      color: var(--warn-soft-fg); cursor: help; }
     .pr-rung i { font-size: var(--fs-micro); }
     .pr-edad { font-variant-numeric: tabular-nums; color: var(--text-muted); }
-    .pr-edad-warn { color: var(--warn-fg); font-weight: 600; }
+    .pr-edad-warn { color: var(--warn-soft-fg); font-weight: 600; }
     .pr-edad-bad { color: var(--bad-fg); font-weight: 600; }
     .pr-uov-prod { margin: 0 0 .5rem; }
     .pr-uov-hint { font-size: var(--fs-sm); color: var(--text-muted); margin: 0 0 1rem; line-height: 1.4; }
@@ -1787,7 +1786,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-exp-hint { font-size: var(--fs-xs); color: var(--text-muted); }
     .pr-grp-sub { display: inline-flex; gap: .5rem; font-size: var(--fs-xs); }
     .pr-gs { font-variant-numeric: tabular-nums; }
-    .pr-gs-buy { color: var(--action); } .pr-gs-tr { color: var(--text-main); } .pr-gs-over { color: var(--warn-fg, var(--text-muted)); }
+    .pr-gs-buy { color: var(--action); } .pr-gs-tr { color: var(--text-main); } .pr-gs-over { color: var(--warn-soft-fg, var(--text-muted)); }
     .pr-grp-sp { flex: 1; }
     :host ::ng-deep .pr-grp-btn { --p-button-sm-font-size: var(--fs-xs); }
     .pr-link { color: var(--action); cursor: pointer; text-decoration: underline; }
@@ -1796,7 +1795,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-strong { font-weight: 700; }
     .pr-sug { background: var(--overlay-selected, transparent); }
     .pr-val { color: var(--text-main); }
-    .pr-over-val { color: var(--warn-fg, var(--text-muted)); }
+    .pr-over-val { color: var(--warn-soft-fg, var(--text-muted)); }
     .pr-row-over td { color: var(--text-muted); }
     /* input de cantidad — estilo propio (ya no depende de pInputText; ver primeng#12522). */
     .pr-qty { width: 4.5rem; text-align: right; font-variant-numeric: tabular-nums; padding: .2rem .35rem;
@@ -1817,8 +1816,6 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-empty i { font-size: 1.6rem /* glifo, no texto: la escala --fs-* es de TIPO y su tope util acá es 1.25rem */; display: block; margin-bottom: .5rem; color: var(--text-faint); }
     .pr-empty p { margin: 0 0 .25rem; font-weight: 600; color: var(--text-main); }
     .pr-empty span { font-size: var(--fs-sm); }
-    .pr-state { display: flex; gap: .75rem; align-items: center; padding: 1.25rem; border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); }
-    .pr-error { color: var(--bad-fg); } .pr-error i { font-size: 1.4rem /* glifo, no texto (idem .pr-empty i) */; } .pr-error p { margin: 0; color: var(--text-main); }
     .pr-foot { font-size: var(--fs-xs); color: var(--text-muted); margin-top: .5rem; }
     .pr-agotados { font-size: var(--fs-sm); color: var(--text-main); margin: 0 0 .5rem; }
     .pr-fresh { display: inline-flex; align-items: center; margin: -.25rem 0 .6rem; }
@@ -1849,7 +1846,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     /* [RA-DYN.U3] El piso del proveedor. Avisa, no bloquea: juntar la canasta puede ser
        legitimo, y tambien lo es mandar menos y negociarlo. La decision es del comprador. */
     .pr-min-warn { display: inline-flex; align-items: center; gap: .375rem; font-size: var(--fs-sm);
-      color: var(--warn-fg, var(--text-muted)); font-variant-numeric: tabular-nums; white-space: nowrap; }
+      color: var(--warn-soft-fg, var(--text-muted)); font-variant-numeric: tabular-nums; white-space: nowrap; }
     .pr-min-warn i { font-size: var(--fs-xs); }
     .pr-bulk-sp { flex: 1; }
     /* RA-PRO.32 — vista Excel (workbook) */
@@ -1928,7 +1925,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
       border: 1px solid var(--border-color); border-left: 3px solid var(--warn-fg); border-radius: var(--r-sm, 8px);
       background: var(--surface-ground); font-size: var(--fs-sm); line-height: 1.35; }
     .pr-acc.pr-acc-info { border-left-color: var(--info-fg); }
-    .pr-acc-haz { font-size: var(--fs-micro); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--warn-fg); }
+    .pr-acc-haz { font-size: var(--fs-micro); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--warn-soft-fg); }
     .pr-acc-info .pr-acc-haz { color: var(--info-fg); }
     .pr-acc-txt { min-width: 0; color: var(--text-main); }
     .pr-acc-txt b { font-weight: 600; }
@@ -1943,7 +1940,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-dur { display: inline-flex; align-items: center; gap: .4rem; font-variant-numeric: tabular-nums; }
     .pr-dur-bar { width: 2.5rem; height: 5px; border-radius: 3px; background: var(--border-color); position: relative; overflow: hidden; }
     .pr-dur-bar i { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: currentColor; }
-    .pr-dur-bad { color: var(--bad-fg); } .pr-dur-warn { color: var(--warn-fg); } .pr-dur-ok { color: var(--text-muted); }
+    .pr-dur-bad { color: var(--bad-fg); } .pr-dur-warn { color: var(--warn-soft-fg); } .pr-dur-ok { color: var(--text-muted); }
     .pr-tra-in { color: var(--info-fg); }
     .pr-tra-out { color: var(--text-faint); font-size: var(--fs-xs); display: block; }
     .pr-dx-u { color: var(--text-faint); font-size: var(--fs-xs); margin-left: .2rem; }
@@ -2020,9 +2017,9 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-sig { font-size: var(--fs-micro); color: var(--text-main); border: 1px solid var(--border-color);
       border-radius: var(--r-pill, 999px); padding: 0 .45rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
     .pr-sig-bad { color: var(--bad-fg); border-color: var(--bad-border); }
-    .pr-sig-warn { color: var(--warn-fg); border-color: var(--warn-border); }
+    .pr-sig-warn { color: var(--warn-soft-fg); border-color: var(--warn-border); }
     .pr-bflag-bad { color: var(--bad-fg); border-color: var(--bad-border); }
-    .pr-bflag-warn { color: var(--warn-fg); border-color: var(--warn-border); }
+    .pr-bflag-warn { color: var(--warn-soft-fg); border-color: var(--warn-border); }
     /* RA-PEND.1 — "ya requisado" es un AVISO, no un problema: un documento pendiente es el curso
        normal. Queda en el gris de la insignia base y sube a .pr-bflag-bad recien cuando son DOS o
        mas, que ahi si es lo mismo pedido dos veces. */
@@ -2115,7 +2112,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-cart-g { padding: .75rem 0; border-bottom: 1px solid var(--border-color); }
     .pr-cart-gh { display: flex; align-items: baseline; gap: .5rem; font-size: var(--fs-sm); }
     .pr-cart-m { font-variant-numeric: tabular-nums; }
-    .pr-cart-min { display: flex; align-items: center; gap: .35rem; margin: .35rem 0 0; font-size: var(--fs-xs); color: var(--warn-fg); }
+    .pr-cart-min { display: flex; align-items: center; gap: .35rem; margin: .35rem 0 0; font-size: var(--fs-xs); color: var(--warn-soft-fg); }
     .pr-cart-l { list-style: none; margin: .4rem 0 0; padding: 0; display: grid; gap: .35rem; }
     .pr-cart-i { display: grid; gap: .1rem; padding: .35rem 0 .35rem .75rem; }
     .pr-cart-i-off { opacity: .6; }
@@ -2141,7 +2138,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-ent-chip b { font-weight: 700; }
     .pr-ent-chip em { font-style: normal; font-size: var(--fs-nano); color: var(--text-faint); text-transform: uppercase; letter-spacing: .04em; }
     .pr-ent-dir { border-style: dashed; }
-    .pr-ent-warn { display: inline-flex; align-items: center; gap: .3rem; font-size: var(--fs-micro); color: var(--warn-fg, var(--text-muted)); }
+    .pr-ent-warn { display: inline-flex; align-items: center; gap: .3rem; font-size: var(--fs-micro); color: var(--warn-soft-fg, var(--text-muted)); }
     .pr-ordu { display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; margin: .1rem 0 .6rem; }
     .pr-ordu-lbl { font-size: var(--fs-xs); color: var(--text-muted); font-weight: 600; }
     .pr-ordu-hint { font-size: var(--fs-micro); color: var(--text-faint); margin-left: .4rem; font-variant-numeric: tabular-nums; }
@@ -2546,6 +2543,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
           hub: !!meta.get(code)?.hub,
           mx: c.mx == null ? null : Number(c.mx),
           rop: c.rop == null ? null : Number(c.rop),
+          sr: !!c.sr,
           added: false,
         });
       }
@@ -2618,6 +2616,10 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     if (!(b.exis > 0)) out.push('sin existencia');
     if (!(b.vta > 0)) out.push('sin venta');
     if (b.mx == null) out.push('sin mínimo');
+    // `[PQ.44]` D33: arriba de su punto de reorden el motor no sugiere nada (como la mesa). Se dice
+    // SÓLO cuando frenó algo que sí faltaba (la marca `sr` del motor): arriba del reorden está la
+    // mitad de las celdas (12,579 de 25,241) y a casi todas ya no les falta nada.
+    if (b.sr) out.push('arriba del reorden');
     return out;
   }
 
@@ -3715,7 +3717,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       emitido: new Date(),
       datosAl: this.datosAl(),
       elaboro: this.auth.user()?.username || 'Compras',
-      coberturaDias: this.coverage,
+      coberturaDias: this.coberturaSucursal ? this.coberturaCorta() : this.coverage,
       producto: {
         sku: r.sku, nombre: r.nombre, proveedor: r.supplier_name || '',
         uxc, unidad: this.unidadBase(r),
@@ -3758,7 +3760,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       emitido: new Date(),
       datosAl: this.datosAl(),
       elaboro: this.auth.user()?.username || 'Compras',
-      coberturaDias: this.coverage,
+      coberturaDias: this.coberturaSucursal ? this.coberturaCorta() : this.coverage,
       alcance: `${n} producto${n === 1 ? '' : 's'} seleccionado${n === 1 ? '' : 's'}`,
       // [RA-PRO.69] Cada hoja lleva el pedido TÍPICO de su proveedor como referencia (no mínimo).
       hojas: agruparPorProveedor(lineas).map((h) => {
@@ -4110,7 +4112,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     const quien = !compran.length ? 'ninguna sucursal compra'
       : compran.length <= 2 ? 'compra' + (compran.length > 1 ? 'n ' : ' ') + compran.join(' y ')
         : `compran ${compran.length} sucursales`;
-    return `${this.coverageAplicada ?? this.coverage} días · ${quien}` + (porTras ? ` · ${porTras} por traspaso` : '');
+    return `${this.coberturaCorta()} · ${quien}` + (porTras ? ` · ${porTras} por traspaso` : '');
   }
 
   // ── Las acciones: verbo + qué + la cifra que lo justifica ────────────────────────────────
@@ -4343,8 +4345,18 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   tranTotalValor = computed(() => this.tranRows().reduce((s, o) => s + (Number(o.valor) || 0), 0));
   tranGap = computed(() => Math.max(0, this.tranTotalCajas() - this.tranDescuenta()));
 
+  /** `[PQ.53]` La fila del último «ver órdenes», para que el error tenga «Reintentar». */
+  private tranFila: WorkbookRow | null = null;
+
   openTransit(r: WorkbookRow): void {
     this.recordarFoco();
+    this.tranFila = r;
+    this.cargarTransito(r);
+  }
+  reintentarTransito(): void {
+    if (this.tranFila) this.cargarTransito(this.tranFila);
+  }
+  private cargarTransito(r: WorkbookRow): void {
     this.tranProduct.set({ sku: r.sku, nombre: r.nombre });
     this.tranRows.set([]); this.tranError.set(false); this.tranLoading.set(true); this.tranVisible = true;
     this.api.inTransit(r.product_id)
@@ -4411,8 +4423,18 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     // El tope lo fija `fill_max_inflate` (1.30) en commercial.replenishment_settings.
     const factor = Math.min(1.30, 1 / Number(r.fill_rate));
     const topado = 1 / Number(r.fill_rate) > 1.3005;
+    // `[PQ.44]` D26: lo que llega por traspaso no se infla. Decir «va multiplicado» de esas
+    // columnas sería afirmar algo que el motor ya no hizo.
+    const celdas = Object.values(r.cells ?? {});
+    const traspasos = celdas.filter((c) => c.trf).length;
+    const multiplica = `×${factor.toFixed(2)}${topado ? ' (topado; sin tope sería ×' + (1 / Number(r.fill_rate)).toFixed(2) + ')' : ''}`;
+    const efecto = traspasos === 0
+      ? `El Pedido va multiplicado ${multiplica}. `
+      : traspasos === celdas.length
+        ? 'El Pedido NO se infla: todas sus sucursales lo reciben por traspaso, que no depende del proveedor. '
+        : `El Pedido va multiplicado ${multiplica} en las sucursales que le compran directo; en las que lo reciben por traspaso no se infla. `;
     return `Histórico: de cada $100 pedidos a este proveedor entrega $${pct.toFixed(1)}. `
-      + `El Pedido va multiplicado ×${factor.toFixed(2)}${topado ? ' (topado; sin tope sería ×' + (1 / Number(r.fill_rate)).toFixed(2) + ')' : ''}. `
+      + efecto
       + 'Ojo: Kepler no distingue un renglón que NOSOTROS cancelamos de uno que el proveedor no surtió.';
   }
   iadTitle(r: WorkbookRow): string {
@@ -4445,6 +4467,11 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   fCategory: string | null = null;                                    // RA-PRO.12 — categoría de compra
   search = '';
   coverage = 30;
+  /** `[PQ.44]` D25 (PM, 2026-11-04): por default cada sucursal pide con la cobertura de su mesa (21 o
+   *  30 días). Escribir un número o elegir un atajo la fija igual para todas, y la barra lo dice. */
+  coberturaSucursal = true;
+  /** `[PQ.44]` La cobertura con la que salió cada columna en la última consulta, según el backend. */
+  private readonly cobCols = signal<Record<string, number> | null>(null);
 
   // Condensado por sucursal (colapso MANUAL — PrimeNG 18 no trae grupos colapsables): signal para
   // que displayRows() reaccione. Vacío = TODAS colapsadas por default. Clic en el chevron despliega.
@@ -4531,7 +4558,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     try {
       localStorage.setItem(this.FKEY, JSON.stringify({
         mode: this.mode(), fSupplier: this.fSupplier, fBrand: this.fBrand, fCategory: this.fCategory, fWarehouse: this.fWarehouse,
-        search: this.search, coverage: this.coverage, cBuy: this.cBuy(), cTr: this.cTr(), cOver: this.cOver(),
+        search: this.search, coverage: this.coverage, coberturaSucursal: this.coberturaSucursal, cBuy: this.cBuy(), cTr: this.cTr(), cOver: this.cOver(),
         wbWarehouses: this.wbWarehouses, wbScopeNeeded: this.wbScopeNeeded(),
       }));
     } catch { /* localStorage no disponible */ }
@@ -4553,6 +4580,9 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       if ('fWarehouse' in s) this.fWarehouse = s.fWarehouse;
       if (typeof s.search === 'string') this.search = s.search;
       if (typeof s.coverage === 'number') this.coverage = s.coverage;
+      // `[PQ.44]` Un filtro guardado antes de D25 con otra cobertura la conserva fija; si no, cada sucursal.
+      if (typeof s.coberturaSucursal === 'boolean') this.coberturaSucursal = s.coberturaSucursal;
+      else if (typeof s.coverage === 'number' && s.coverage !== ComprasPedidoRealComponent.COVERAGE_DEF) this.coberturaSucursal = false;
       if (typeof s.cBuy === 'boolean') this.cBuy.set(s.cBuy);
       if (typeof s.cTr === 'boolean') this.cTr.set(s.cTr);
       if (typeof s.cOver === 'boolean') this.cOver.set(s.cOver);
@@ -4593,7 +4623,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   private fetchWorkbookPage(reloadEnrichment: boolean): void {
     const gen = ++this.reqGen;
     this.loading.set(true); this.error.set(false); this.saveFilters();
-    this.coverageAplicada = this.coverage;
+    this.coverageAplicada = this.coberturaSucursal ? null : this.coverage;
     // `[RA-UX.8]` Acá vivía `wbOpen.set(new Set())`: cambiar de página o de filtro —o generar una
     // requisición, que recarga— cerraba todo lo que el comprador tenía abierto. El conjunto está
     // indexado por producto, así que lo que no está en la página simplemente no se pinta.
@@ -4632,6 +4662,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         // sería la edad de un dato que ya no se está mostrando.
         if (!r) { this.error.set(true); this.wbRows.set([]); this.frescura.set(FRESCURA_SIN_MEDIR); return; }
         this.wbRows.set(r.rows); this.wbTotals.set(r.totals); this.wbTotal.set(r.total);
+        this.cobCols.set(r.coverage_mode === 'sucursal' ? (r.cobertura_columnas ?? null) : null);
         this.wbRung.set(r.unit_rung ?? null);
         this.wbAgotadosN.set(r.agotados_con_venta ?? null);
         this.frescura.set(r.freshness ?? FRESCURA_SIN_MEDIR);
@@ -4651,7 +4682,9 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     const iad = this.fIad();
     return {
       supplier_id: this.fSupplier || undefined, brand_id: this.fBrand || undefined, category_id: this.fCategory || undefined, search: this.search.trim() || undefined,
-      coverage_days: this.coverage, scope: this.wbScopeNeeded() ? ('needed' as const) : undefined,
+      coverage_days: this.coberturaSucursal ? undefined : this.coverage,
+      coverage_mode: this.coberturaSucursal ? ('sucursal' as const) : undefined,
+      scope: this.wbScopeNeeded() ? ('needed' as const) : undefined,
       warehouse_ids: this.wbWarehouses.length ? this.wbWarehouses : undefined, group: 'branch' as const,
       iad: iad === 'all' ? undefined : iad,
       only_overstock: this.wbOnlyOver() || undefined,
@@ -4696,7 +4729,9 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       this.diasInventario() == null
         ? { label: 'Días de existencia', value: '—', format: 'text', sub: this.diasInventarioSub() }
         : { label: 'Días de existencia', value: this.diasInventario()!, sub: this.diasInventarioSub() },
-      { label: 'Cobertura', value: this.coverage, sub: 'días objetivo' },
+      this.coberturaSucursal
+        ? { label: 'Cobertura', value: 'Cada sucursal', format: 'text', sub: this.coberturaCorta() }
+        : { label: 'Cobertura', value: this.coverage, sub: 'días objetivo' },
     ];
   }
 
@@ -4761,6 +4796,8 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   readonly piezasDeCajas = piezasDeCajas;
 
   readonly coverageOpts: SegOption[] = [
+    // `[PQ.44]` D25: la base es la cobertura de cada sucursal (la de su mesa); los días la fijan para todas.
+    { label: 'Cada sucursal', value: 'suc' },
     { label: '14d', value: '14' }, { label: '30d', value: '30' }, { label: '45d', value: '45' },
   ];
   /** Vista. Era un role="tablist" sin tabpanel; ahora radiogroup con teclado. */
@@ -4796,7 +4833,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     if (this.fCategory) n++;
     if (this.wbWarehouses.length) n++;
     if (this.search.trim()) n++;
-    if (this.coverage !== ComprasPedidoRealComponent.COVERAGE_DEF) n++;
+    if (!this.coberturaSucursal) n++;
     if (this.wbScopeNeeded()) n++;
     if (this.wbOnlyOver()) n++;
     if (this.wbAgotados()) n++;
@@ -4859,6 +4896,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     this.fSupplier = null; this.fBrand = null; this.fCategory = null;
     this.wbWarehouses = []; this.search = '';
     this.coverage = ComprasPedidoRealComponent.COVERAGE_DEF;
+    this.coberturaSucursal = true;
     this.wbScopeNeeded.set(false);
     this.wbOnlyOver.set(false);
     this.wbAgotados.set(false);
@@ -4959,10 +4997,51 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
    * (Este método existía desde antes llamando a `loadAll()` y no lo invocaba nadie: código muerto.)
    */
   setCoverage(d: string | number): void {
+    if (d === 'suc') { this.coberturaSucursal = true; this.loadWorkbook(); return; }
     const n = typeof d === 'number' ? d : parseInt(d, 10);
     if (!Number.isFinite(n)) return;
+    this.coberturaSucursal = false;
     this.coverage = n;
     this.loadWorkbook();
+  }
+  /** `[PQ.44]` Escribir un número fija la cobertura para todas; vaciar el campo no cambia nada. */
+  coberturaTecleada(v: number | null): void {
+    if (v == null) return;
+    this.coverage = v;
+    this.coberturaSucursal = false;
+    this.coberturaLuego();
+  }
+  /** Días → sucursales: los que usó el backend o, con cobertura fija, la tabla de la mesa por columna. */
+  private diasPorSucursal(): Map<number, string[]> {
+    const cols = this.cobCols();
+    const codes = cols ? Object.keys(cols)
+      : [...new Set(this.wbRows().flatMap((r) => Object.keys(r.cells ?? {})))].filter((c) => c !== 'GENERAL');
+    const m = new Map<number, string[]>();
+    for (const c of codes) {
+      const d = cols?.[c] ?? coberturaAutoabasto(c);
+      m.set(d, [...(m.get(d) ?? []), this.sucNom(c)]);
+    }
+    return m;
+  }
+  /** «la de cada sucursal (21 o 30 días)» o «45 días». Para la tarjeta, el resumen, el PDF y la exportación. */
+  coberturaCorta(): string {
+    if (!this.coberturaSucursal) return `${this.coverageAplicada ?? this.coverage} días`;
+    const dias = [...this.diasPorSucursal().keys()].sort((a, b) => a - b);
+    return dias.length ? `la de cada sucursal (${dias.join(' o ')} días)` : 'la de cada sucursal';
+  }
+  /** La línea de la barra: con qué cobertura sale, y si difiere de la que usa cada mesa. */
+  coberturaNota(): string {
+    const m = this.diasPorSucursal();
+    if (this.coberturaSucursal) {
+      const g = [...m.entries()].sort((a, b) => a[1].length - b[1].length);
+      if (g.length < 2) return g.length ? `Todas con ${g[0][0]} d, la de su mesa.` : 'Cada sucursal con la cobertura de su mesa.';
+      const [chico, ...resto] = g;
+      return `Como en su mesa: ${chico[0]} d en ${chico[1].join(', ')}; ${resto.map(([d]) => d + ' d').join(', ')} en las demás.`;
+    }
+    const dias = [...m.keys()].sort((a, b) => a - b);
+    return dias.some((d) => d !== this.coverage)
+      ? `Calculado con ${this.coverage} d para todas; en su mesa cada sucursal pide con ${dias.join(' o ')} d.`
+      : '';
   }
   // ── `[RA-UX.6]` Filtros que reaccionan solos ────────────────────────────────────────────────
   // La búsqueda sólo corría con Enter (sin botón ni pista: escribir y esperar no hacía nada, y
@@ -5000,6 +5079,8 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   }
   coberturaYa(): void {
     if (this.coberturaTimer) { clearTimeout(this.coberturaTimer); this.coberturaTimer = null; }
+    // `[PQ.44]` En «cada sucursal» el campo está vacío: salir de él no cambia nada que recargar.
+    if (this.coberturaSucursal) return;
     const n = Number(this.coverage);
     // Campo vacío o fuera de rango a medio teclear: no se pide nada con un número que nadie quiso.
     if (!Number.isFinite(n) || n < 1 || n > 120) return;
@@ -5697,7 +5778,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       idxCompra.set(k, dtos.length);
       dtos.push({
         warehouse_id: (ls[0].toWh ?? ls[0].wh)!, supplier_id: ls[0].r.supplier_id || null, source_type: 'supplier',
-        notes: `Demand-driven (venta × cobertura ${this.coverage}d) — por sucursal${nota}`,
+        notes: `Demand-driven (venta × cobertura ${this.coberturaCorta()}) — por sucursal${nota}`,
         lines: ls.map<CreateRequisitionLine>((l) => ({
           product_id: l.r.product_id, supplier_id: l.r.supplier_id || null, source_type: 'supplier',
           // `[RA-FIX.1]` La sucursal del renglón del desglose — el dato que el comprador capturó
@@ -6000,7 +6081,9 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     const iad = this.fIad();
     return {
       supplier_id: this.fSupplier || undefined, brand_id: this.fBrand || undefined, category_id: this.fCategory || undefined, search: this.search.trim() || undefined,
-      coverage_days: this.coverage, scope: this.wbScopeNeeded() ? 'needed' : undefined,
+      coverage_days: this.coberturaSucursal ? undefined : this.coverage,
+      coverage_mode: this.coberturaSucursal ? 'sucursal' : undefined,
+      scope: this.wbScopeNeeded() ? 'needed' : undefined,
       warehouse_ids: this.wbWarehouses.length ? this.wbWarehouses : undefined, group: 'branch',
       iad: iad === 'all' ? undefined : iad, only_overstock: this.wbOnlyOver() || undefined,
     } as const;
@@ -6080,7 +6163,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     const first = buyL[0]?.r ?? tr[0];
     const scopeName = pid ? (first?.nombre || 'producto') : code ? this.sucNom(code) : 'toda la red';
     const fileTag = pid ? (first?.sku || 'producto') : code || 'global';
-    this.api.exportPedidoXlsx({ title: `Pedido por sucursal — ${scopeName}`, basis: `cobertura ${this.coverage}d`, multi_warehouse: true, lines })
+    this.api.exportPedidoXlsx({ title: `Pedido por sucursal — ${scopeName}`, basis: `cobertura ${this.coberturaCorta()}`, multi_warehouse: true, lines })
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (resp) => { this.dl.set(false); saveXlsxResponse(resp, `pedido-${fileTag}.xlsx`); },
         error: () => { this.dl.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo exportar.' }); },

@@ -44,6 +44,7 @@ import { RutaCajaCaosComponent } from './comercial-ruta-caja-caos.component';
 import { CaosService, RutaCajaReporte } from '../../finanzas/caos.service';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { RoutePromoComponent } from './comercial-route-promo.component';
+import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
 
 type DetailTab = 'productos' | 'unidades' | 'dias' | 'clientes' | 'tickets' | 'deposito';
 
@@ -93,6 +94,21 @@ type ArqDia = {
 /** Fila con agregados del PERIODO visible (recalculados client-side según el rango de meses). */
 type ViewRow = SalesByRouteRow & { _revenue: number; _units: number; _tickets: number; _share: number };
 
+/**
+ * `[VEC.36]` Ruta directa (RD: camioneta, deposita en CAOS) o vecinal (Kepler `1V001`…, se
+ * arquea en su caja). El criterio es el CÓDIGO, el mismo del backend (`VECINAL_RX`).
+ */
+type RouteKind = 'directa' | 'vecinal';
+function routeKind(r: Pick<SalesByRouteRow, 'route_no' | 'route_code'>): RouteKind {
+  return /^\d+V\d/i.test(r.route_no ?? '') || /VEC/i.test(r.route_code ?? '') ? 'vecinal' : 'directa';
+}
+
+/** `[VEC.36]` Una columna de la comparativa RD vs vecinal, sobre el periodo visible. */
+type KindSummary = {
+  kind: RouteKind; label: string; revenue: number; share: number; routes: number;
+  tickets: number; avgTicket: number | null; perRoute: number | null;
+};
+
 const MES: Record<string, string> = {
   '01': 'Ene', '02': 'Feb', '03': 'Mar', '04': 'Abr', '05': 'May', '06': 'Jun',
   '07': 'Jul', '08': 'Ago', '09': 'Sep', '10': 'Oct', '11': 'Nov', '12': 'Dic',
@@ -108,6 +124,7 @@ const MES: Record<string, string> = {
     ToastModule, TableModule, TagModule, InputTextModule, InputNumberModule, CheckboxModule,
     IconFieldModule, InputIconModule,
     LoadStateComponent, PageTabsComponent, SidePeekComponent, MetricStripComponent, RouteClosureReconComponent, VecinalReconComponent, RutaCajaCaosComponent, RoutePromoComponent,
+    SegmentedComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -142,68 +159,95 @@ const MES: Record<string, string> = {
       <!-- RR-PROMO — Agente AI: calcula incentivos de ruta desde el enunciado de la promo -->
       <app-comercial-route-promo />
 
-      <div class="rr-filters card-premium card-flat">
-        <div class="rr-field rr-year">
-          <label>Año</label>
-          <p-select [options]="yearOpts()" [(ngModel)]="year" appendTo="body" (onChange)="load()" />
+      <!-- [VEC.37] UNA barra de filtros (antes eran dos: la del servidor y la de vista). Dos
+           renglones porque son dos preguntas: QUÉ rutas, y CÓMO acotarlas. Los de servidor
+           (año, rutas, producto, cliente) re-consultan; los demás filtran lo ya cargado. -->
+      <div class="rr-filters card-premium card-flat" role="search" aria-label="Filtros de ventas por ruta">
+        <div class="rr-frow">
+          <div class="rr-field">
+            <label id="rr-l-tipo">Tipo</label>
+            <!-- [VEC.36] RD o vecinal: va primero, es la división que más se pide. -->
+            <app-segmented [options]="tipoOpts()" [value]="fTipo()" (valueChange)="setTipo($event)"
+                           ariaLabel="Tipo de ruta" />
+          </div>
+          <div class="rr-field rr-year">
+            <label for="rr-f-year">Año</label>
+            <p-select inputId="rr-f-year" [options]="yearOpts()" [(ngModel)]="year" appendTo="body" (onChange)="load()" />
+          </div>
+          <div class="rr-field rr-branch">
+            <label for="rr-f-branch">Sucursal</label>
+            <p-multiselect inputId="rr-f-branch" [options]="branchOpts()" [ngModel]="fBranch()" (ngModelChange)="fBranch.set($event)"
+                           optionLabel="label" optionValue="value" placeholder="Todas" [showClear]="true"
+                           [filter]="true" filterBy="label" filterPlaceholder="Buscar sucursal…" appendTo="body"
+                           [maxSelectedLabels]="2" selectedItemsLabel="{0} sucursales" styleClass="w-full" ariaLabel="Filtrar por sucursal" />
+          </div>
+          <div class="rr-field rr-wh">
+            <label for="rr-f-routes">Rutas</label>
+            <p-multiselect inputId="rr-f-routes" [options]="routeOpts()" [(ngModel)]="routes" optionLabel="label" optionValue="value"
+                           placeholder="Todas" [showClear]="true" [filter]="true" appendTo="body" styleClass="w-full" (onPanelHide)="load()" />
+          </div>
+          <div class="rr-field">
+            <label id="rr-l-meses">Meses</label>
+            <div class="rr-vf-months" role="group" aria-labelledby="rr-l-meses">
+              <p-select [options]="monthOpts()" [ngModel]="fMonthFrom()" (ngModelChange)="fMonthFrom.set($event)"
+                        optionLabel="label" optionValue="value" placeholder="Desde" [showClear]="true" appendTo="body" styleClass="rr-vf-mo" ariaLabel="Mes desde" />
+              <span class="rr-vf-dash">–</span>
+              <p-select [options]="monthOpts()" [ngModel]="fMonthTo()" (ngModelChange)="fMonthTo.set($event)"
+                        optionLabel="label" optionValue="value" placeholder="Hasta" [showClear]="true" appendTo="body" styleClass="rr-vf-mo" ariaLabel="Mes hasta" />
+            </div>
+          </div>
         </div>
-        <div class="rr-field rr-wh">
-          <label>Rutas</label>
-          <p-multiselect [options]="routeOpts()" [(ngModel)]="routes" optionLabel="label" optionValue="value"
-                         placeholder="Todas" [showClear]="true" [filter]="true" appendTo="body" styleClass="w-full" (onPanelHide)="load()" />
+        <div class="rr-frow">
+          <div class="rr-field rr-prodf">
+            <label for="rr-f-prod">Producto</label>
+            <p-select inputId="rr-f-prod" [options]="productOpts()" [ngModel]="fProduct()" (ngModelChange)="fProduct.set($event); load()"
+                      optionLabel="label" optionValue="value" placeholder="Todos" [showClear]="true"
+                      [filter]="true" filterBy="label,value" filterPlaceholder="Buscar SKU o nombre…" [resetFilterOnHide]="true"
+                      [virtualScroll]="true" [virtualScrollItemSize]="34" appendTo="body" styleClass="w-full" ariaLabel="Filtrar por producto" />
+          </div>
+          <div class="rr-field rr-clientf">
+            <label for="rr-f-client">Cliente</label>
+            <p-select inputId="rr-f-client" [options]="clientOpts()" [ngModel]="fClient()" (ngModelChange)="fClient.set($event); load()"
+                      optionLabel="label" optionValue="value" placeholder="Todos" [showClear]="true"
+                      [filter]="true" filterBy="label,value" filterPlaceholder="Buscar cliente o código…" [resetFilterOnHide]="true"
+                      [virtualScroll]="true" [virtualScrollItemSize]="34" appendTo="body" styleClass="w-full" ariaLabel="Filtrar por cliente" />
+          </div>
+          <div class="rr-field">
+            <label for="rr-f-q">Buscar</label>
+            <p-iconfield class="rr-vf-search">
+              <p-inputicon class="pi pi-search" />
+              <input id="rr-f-q" pInputText type="text" [ngModel]="fQuery()" (ngModelChange)="fQuery.set($event)"
+                     placeholder="Ruta o sucursal…" />
+              @if (fQuery()) { <p-inputicon class="pi pi-times rr-vf-clear" (click)="fQuery.set('')" role="button" ariaLabel="Limpiar búsqueda" /> }
+            </p-iconfield>
+          </div>
+          <div class="rr-field">
+            <label id="rr-l-venta">Venta del periodo</label>
+            <div class="rr-vf-money" role="group" aria-labelledby="rr-l-venta">
+              <p-inputnumber [ngModel]="fMinRevenue()" (ngModelChange)="fMinRevenue.set($event)" mode="currency" currency="MXN"
+                             [maxFractionDigits]="0" [showButtons]="false" placeholder="Mín" inputStyleClass="rr-vf-num" ariaLabel="Venta mínima" />
+              <span class="rr-vf-dash">–</span>
+              <p-inputnumber [ngModel]="fMaxRevenue()" (ngModelChange)="fMaxRevenue.set($event)" mode="currency" currency="MXN"
+                             [maxFractionDigits]="0" [showButtons]="false" placeholder="Máx" inputStyleClass="rr-vf-num" ariaLabel="Venta máxima" />
+            </div>
+          </div>
+          <div class="rr-checks">
+            <!-- [VEC.37] Activa = vendió en alguno de los dos últimos meses del reporte. -->
+            <label class="rr-vf-chk"><p-checkbox [binary]="true" [ngModel]="fOnlyActive()" (ngModelChange)="fOnlyActive.set($event)" inputId="rr-active" />
+              Solo activas @if (report()) { <span class="rr-chk-n">{{ activeCount() | number }}</span> }</label>
+            <label class="rr-vf-chk"><p-checkbox [binary]="true" [ngModel]="fOnlyWithSales()" (ngModelChange)="fOnlyWithSales.set($event)" inputId="rr-only" /> Solo con venta en el periodo</label>
+          </div>
+          <div class="rr-actions">
+            @if (hasAnyFilter()) {
+              <button pButton type="button" class="p-button-sm p-button-text" (click)="clearAllFilters()"><span class="p-button-icon p-button-icon-left pi pi-filter-slash" aria-hidden="true"></span><span class="p-button-label">Limpiar filtros</span></button>
+            }
+            <button pButton size="small" [loading]="loading()" (click)="load()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
+          </div>
         </div>
-        <div class="rr-field rr-prodf">
-          <label>Producto</label>
-          <p-select [options]="productOpts()" [ngModel]="fProduct()" (ngModelChange)="fProduct.set($event); load()"
-                    optionLabel="label" optionValue="value" placeholder="Todos" [showClear]="true"
-                    [filter]="true" filterBy="label" filterPlaceholder="Buscar SKU o nombre…" [resetFilterOnHide]="true"
-                    [virtualScroll]="true" [virtualScrollItemSize]="34" appendTo="body" styleClass="w-full" ariaLabel="Filtrar por producto" />
-        </div>
-        <div class="rr-field rr-clientf">
-          <label>Cliente</label>
-          <p-select [options]="clientOpts()" [ngModel]="fClient()" (ngModelChange)="fClient.set($event); load()"
-                    optionLabel="label" optionValue="value" placeholder="Todos" [showClear]="true"
-                    [filter]="true" filterBy="label" filterPlaceholder="Buscar cliente…" [resetFilterOnHide]="true"
-                    [virtualScroll]="true" [virtualScrollItemSize]="34" appendTo="body" styleClass="w-full" ariaLabel="Filtrar por cliente" />
-        </div>
-        <div class="rr-actions">
-          <button pButton size="small" [loading]="loading()" (click)="load()"><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span><span class="p-button-label">Consultar</span></button>
-        </div>
+        @if (report() && fOnlyActive()) {
+          <p class="rr-note rr-fnote">Activa = vendió en {{ activeHint() }}.</p>
+        }
       </div>
-
-      <!-- Filtros de vista (client-side, instantáneos sobre lo cargado) -->
-      @if (report()?.rows?.length) {
-        <div class="rr-viewfilters">
-          <p-multiselect [options]="branchOpts()" [ngModel]="fBranch()" (ngModelChange)="fBranch.set($event)"
-                         optionLabel="label" optionValue="value" placeholder="Todas las sucursales" [showClear]="true"
-                         [filter]="true" filterBy="label" filterPlaceholder="Buscar sucursal…" appendTo="body"
-                         [maxSelectedLabels]="2" selectedItemsLabel="{0} sucursales" styleClass="rr-vf-branch" ariaLabel="Filtrar por sucursal" />
-          <div class="rr-vf-months" role="group" aria-label="Rango de meses">
-            <p-select [options]="monthOpts()" [ngModel]="fMonthFrom()" (ngModelChange)="fMonthFrom.set($event)"
-                      optionLabel="label" optionValue="value" placeholder="Mes desde" [showClear]="true" appendTo="body" styleClass="rr-vf-mo" ariaLabel="Mes desde" />
-            <span class="rr-vf-dash">–</span>
-            <p-select [options]="monthOpts()" [ngModel]="fMonthTo()" (ngModelChange)="fMonthTo.set($event)"
-                      optionLabel="label" optionValue="value" placeholder="Mes hasta" [showClear]="true" appendTo="body" styleClass="rr-vf-mo" ariaLabel="Mes hasta" />
-          </div>
-          <p-iconfield class="rr-vf-search">
-            <p-inputicon class="pi pi-search" />
-            <input pInputText type="text" [ngModel]="fQuery()" (ngModelChange)="fQuery.set($event)"
-                   placeholder="Buscar ruta o sucursal…" aria-label="Buscar ruta o sucursal" />
-            @if (fQuery()) { <p-inputicon class="pi pi-times rr-vf-clear" (click)="fQuery.set('')" role="button" ariaLabel="Limpiar búsqueda" /> }
-          </p-iconfield>
-          <div class="rr-vf-money" role="group" aria-label="Rango de venta">
-            <p-inputnumber [ngModel]="fMinRevenue()" (ngModelChange)="fMinRevenue.set($event)" mode="currency" currency="MXN"
-                           [maxFractionDigits]="0" [showButtons]="false" placeholder="Venta mín" inputStyleClass="rr-vf-num" ariaLabel="Venta mínima" />
-            <span class="rr-vf-dash">–</span>
-            <p-inputnumber [ngModel]="fMaxRevenue()" (ngModelChange)="fMaxRevenue.set($event)" mode="currency" currency="MXN"
-                           [maxFractionDigits]="0" [showButtons]="false" placeholder="Venta máx" inputStyleClass="rr-vf-num" ariaLabel="Venta máxima" />
-          </div>
-          <label class="rr-vf-chk"><p-checkbox [binary]="true" [ngModel]="fOnlyWithSales()" (ngModelChange)="fOnlyWithSales.set($event)" inputId="rr-only" /> Solo con venta</label>
-          @if (hasViewFilters()) {
-            <button pButton type="button" class="p-button-sm p-button-text" (click)="clearViewFilters()"><span class="p-button-icon p-button-icon-left pi pi-filter-slash" aria-hidden="true"></span><span class="p-button-label">Limpiar filtros</span></button>
-          }
-        </div>
-      }
 
       @if (error()) {
         <div class="rr-error" role="alert">
@@ -216,6 +260,47 @@ const MES: Record<string, string> = {
       @if (report(); as r) {
         @if (r.rows.length) {
           <app-metric-strip [items]="kpiItems()" ariaLabel="Resumen de ventas por ruta" />
+
+          <!-- [VEC.36] RD contra vecinal, mismo periodo y filtros que la tabla. El encabezado de
+               cada columna filtra la tabla a ese tipo (el número lleva a sus rutas). -->
+          @if (showKindCompare()) {
+            <section class="card-premium card-flat rr-cmp" aria-labelledby="rr-cmp-title">
+              <h2 id="rr-cmp-title" class="rr-cmp-title">Ruta directa contra vecinal</h2>
+              <p-table [value]="cmpRows" styleClass="p-datatable-sm surf-table surf-table--plain">
+                <ng-template #header>
+                  <tr>
+                    <th scope="col"><span class="sr-only">Indicador</span></th>
+                    @for (k of kindSummary(); track k.kind) {
+                      <th scope="col" class="comm-num">
+                        <button type="button" class="rr-link" [class.rr-cmp-on]="fTipo() === k.kind"
+                                (click)="setTipo(fTipo() === k.kind ? 'todas' : k.kind)"
+                                [attr.aria-pressed]="fTipo() === k.kind"
+                                [attr.aria-label]="'Ver sólo ' + k.label">{{ k.label }}</button>
+                      </th>
+                    }
+                  </tr>
+                </ng-template>
+                <ng-template #body let-m>
+                  <tr>
+                    <th scope="row" class="rr-cmp-lbl">{{ m.label }}</th>
+                    @for (k of kindSummary(); track k.kind) {
+                      <td class="comm-num" [class.rr-strong]="m.key === 'revenue'">
+                        @switch (m.key) {
+                          @case ('revenue') { {{ k.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }} }
+                          @case ('share') { {{ k.share | number:'1.0-1' }}% }
+                          @case ('routes') { {{ k.routes | number }} }
+                          @case ('tickets') { {{ k.tickets | number }} }
+                          @case ('avgTicket') { @if (k.avgTicket != null) { {{ k.avgTicket | currency:'MXN':'symbol-narrow':'1.0-0' }} } @else { — } }
+                          @case ('perRoute') { @if (k.perRoute != null) { {{ k.perRoute | currency:'MXN':'symbol-narrow':'1.0-0' }} } @else { — } }
+                        }
+                      </td>
+                    }
+                  </tr>
+                </ng-template>
+              </p-table>
+              <p class="rr-note">Sin comparación contra el año anterior: la venta vecinal existe en el sistema desde abril de 2026.</p>
+            </section>
+          }
 
 
           <div class="so-actions-bar">
@@ -522,6 +607,7 @@ const MES: Record<string, string> = {
                       } @else {
                         <button type="button" class="rr-link" (click)="$event.stopPropagation(); drillClient(c.code, c.name)"
                                 [attr.aria-label]="'Filtrar por el cliente ' + c.name">{{ c.name }}</button>
+                        @if (c.name === c.code) { <span class="rr-tenue">sin nombre en la fuente</span> }
                       }
                     </td>
                     <td class="comm-num">{{ c.tickets | number }}</td>
@@ -541,11 +627,11 @@ const MES: Record<string, string> = {
                   </button>
                   <span class="rr-mono rr-strong">{{ t.folio }}</span>
                   @if (t.doc_type) { <span class="rr-tag">{{ t.doc_type }}</span> }
-                  <span class="rr-tag rr-tag-src">{{ t.source === 'push' ? 'push' : 'wincaja' }}</span>
+                  <span class="rr-tag rr-tag-src">{{ t.source === 'push' ? 'push' : t.source === 'kepler_vecinal' ? 'kepler' : 'wincaja' }}</span>
                 </div>
                 <div class="rr-tk-meta">
                   <div><span>Fecha</span><b>{{ t.date }}@if (t.time) { · {{ t.time }}}</b></div>
-                  <div><span>Cliente</span><b>{{ t.client_name || '—' }}</b></div>
+                  <div><span>Cliente</span><b>{{ t.client_name || '—' }}@if (t.client_code && t.client_name === t.client_code) { <span class="rr-tenue"> · sin nombre en la fuente</span> }</b></div>
                   <div><span>Pago</span><b>{{ t.payment_method_label || '—' }}</b></div>
                   <div><span>Vendedor</span><b>{{ t.seller || '—' }}</b></div>
                   <div><span>Importe</span><b>{{ t.revenue | currency:'MXN':'symbol-narrow':'1.2-2' }}</b></div>
@@ -581,6 +667,7 @@ const MES: Record<string, string> = {
                   {{ t.lines | number }} renglones · {{ t.skus | number }} SKUs.
                   La equivalencia en cajas se imprime sólo con factor de empaque real y compra ≥ 1 caja.
                   @if (t.source === 'push') { El push de camionetas no trae costo ni impuestos por renglón. }
+                  @if (t.source === 'kepler_vecinal') { La venta vecinal de Kepler no trae costo ni impuestos por renglón. }
                 </p>
               } @else {
                 <!-- Lista paginada de tickets (server-side) -->
@@ -633,6 +720,7 @@ const MES: Record<string, string> = {
                       <td class="rr-tk-cli">
                         {{ t.client_name || '—' }}
                         @if (t.is_public) { <span class="rr-tag">público</span> }
+                        @if (t.client_code && t.client_name === t.client_code) { <span class="rr-tenue">sin nombre en la fuente</span> }
                       </td>
                       <td class="comm-num">{{ t.lines | number }}</td>
                       <td class="comm-num comm-muted">{{ ticketUnitsPerLine(t) | number:'1.0-2' }}</td>
@@ -1078,15 +1166,18 @@ const MES: Record<string, string> = {
     .rr-dep-bad-txt { color: var(--bad-fg); }
     .rr-dep-bad { border-color: color-mix(in srgb, var(--bad-fg) 38%, var(--border-color)); }
     .rr-dep-bad .pi { color: var(--bad-fg); }
-    .rr-filters { display:flex; flex-wrap:wrap; gap:.75rem 1rem; align-items:flex-end; margin-bottom:1rem; }
+    .rr-filters { display:flex; flex-direction:column; gap:var(--sp-3); padding:var(--sp-3) var(--sp-4); margin-bottom:var(--sp-4); }
+    .rr-frow { display:flex; flex-wrap:wrap; gap:var(--sp-3) var(--sp-4); align-items:flex-end; }
+    .rr-branch { min-width:12rem; flex:0 1 14rem; }
+    .rr-checks { display:flex; flex-direction:column; gap:var(--sp-1); }
+    .rr-chk-n { font-variant-numeric:tabular-nums; color:var(--text-faint); }
+    .rr-fnote { margin:0; }
     .rr-field { display:flex; flex-direction:column; gap:.3rem; }
     .rr-field > label { font-size:.72rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em; }
     .rr-year { max-width:110px; } .rr-wh { min-width:220px; flex:1 1 220px; }
     .rr-prodf, .rr-clientf { min-width:200px; flex:1 1 200px; }
     .rr-actions { margin-left:auto; }
     /* Filtros de vista (client-side) */
-    .rr-viewfilters { display:flex; flex-wrap:wrap; gap:.5rem .6rem; align-items:center; margin-bottom:1rem; }
-    .rr-vf-branch { min-width:16rem; }
     :host ::ng-deep .rr-vf-search input { min-width:14rem; }
     :host ::ng-deep .rr-vf-clear { pointer-events:auto; cursor:pointer; font-size:.72rem; color:var(--text-muted); }
     :host ::ng-deep .rr-vf-clear:hover { color:var(--text-main); }
@@ -1096,6 +1187,10 @@ const MES: Record<string, string> = {
     :host ::ng-deep .rr-vf-num { width:8rem; }
     .rr-vf-chk { display:inline-flex; align-items:center; gap:.4rem; font-size:.82rem; color:var(--text-muted); cursor:pointer; }
     app-metric-strip { display:block; margin-bottom:1rem; }
+    .rr-cmp { padding:var(--sp-3) var(--sp-4); margin-bottom:var(--sp-4); max-width:640px; }
+    .rr-cmp-title { font-size:var(--fs-sm); font-weight:600; margin:0 0 var(--sp-2); }
+    .rr-cmp-lbl { font-weight:400; color:var(--text-muted); text-align:left; }
+    .rr-cmp-on { text-decoration:underline; text-underline-offset:3px; }
     .so-actions-bar { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1rem; }
     .rr-table-card { padding:1.25rem; }
     /* Sticky/frozen/tema los da PrimeNG + surf-table; sólo jerarquía visual acá. */
@@ -1206,6 +1301,24 @@ export class ComercialVentasPorRutaComponent {
   fOnlyWithSales = signal(false);          // ocultar rutas en $0 del periodo
   fMinRevenue = signal<number | null>(null); // rango de venta del periodo
   fMaxRevenue = signal<number | null>(null);
+  fTipo = signal<RouteKind | 'todas'>('todas'); // [VEC.36] ruta directa / vecinal
+  fOnlyActive = signal(false);                  // [VEC.37] sólo rutas que siguen vendiendo
+
+  /**
+   * `[VEC.37]` Una ruta ACTIVA vendió en alguno de los DOS últimos meses del reporte. No depende
+   * del rango de meses elegido: «activa» es si la ruta sigue operando, no si vendió en enero.
+   * Dos meses y no uno porque el mes en curso arranca vacío los primeros días.
+   */
+  private readonly activeMonths = computed(() => (this.report()?.months ?? []).slice(-2));
+  private isActive(row: SalesByRouteRow): boolean {
+    return this.activeMonths().some((m) => (row.monthly[m]?.revenue ?? 0) > 0);
+  }
+  readonly activeHint = computed(() => this.activeMonths().map((m) => this.mes(m)).join(' u '));
+  /** Cuántas rutas activas hay con los demás filtros: el número dice qué queda al marcarla. */
+  readonly activeCount = computed(() => {
+    const t = this.fTipo();
+    return this.rowsBase().filter((r) => (t === 'todas' || routeKind(r) === t) && this.isActive(r)).length;
+  });
 
   /** Sucursales presentes en el reporte (para el multiselect). */
   readonly branchOpts = computed<{ label: string; value: string }[]>(() => {
@@ -1256,8 +1369,73 @@ export class ComercialVentasPorRutaComponent {
     });
   });
 
-  /** Filas visibles = periodo + sucursal + búsqueda + solo-con-venta + rango $. */
+  /** Filas visibles = tipo + todo lo de `rowsSinTipo`. */
   readonly filteredRows = computed<ViewRow[]>(() => {
+    const t = this.fTipo();
+    const rows = this.rowsSinTipo();
+    return t === 'todas' ? rows : rows.filter((row) => routeKind(row) === t);
+  });
+
+  /**
+   * `[VEC.36]` Las opciones del tipo, con cuántas rutas hay detrás de cada una (sobre los demás
+   * filtros de vista: el conteo dice lo que se va a ver al elegirla).
+   */
+  readonly tipoOpts = computed<SegOption[]>(() => {
+    const rows = this.rowsSinTipo();
+    const vec = rows.filter((r) => routeKind(r) === 'vecinal').length;
+    return [
+      { label: 'Todas', value: 'todas', count: rows.length },
+      { label: 'Ruta directa', value: 'directa', count: rows.length - vec },
+      { label: 'Vecinal', value: 'vecinal', count: vec },
+    ];
+  });
+
+  /**
+   * `[VEC.36]` RD contra vecinal en el MISMO periodo y con los mismos filtros de vista que la
+   * tabla (salvo el tipo, que es lo que se compara). El % es sobre la suma de las dos, o sea lo
+   * que está en pantalla. «Rutas» cuenta sólo las que vendieron en el periodo: una ruta en $0
+   * bajaría la venta por ruta sin decir nada de las que sí salen.
+   * ⚠️ Sin año anterior: la vecinal sale del ODS desde abr-2026 (medido 2026-11-04), así que una
+   * variación contra 2025 sería crecimiento inventado.
+   */
+  readonly kindSummary = computed<KindSummary[]>(() => {
+    const rows = this.rowsSinTipo();
+    const total = rows.reduce((s, r) => s + r._revenue, 0);
+    return (['directa', 'vecinal'] as RouteKind[]).map((kind) => {
+      const mine = rows.filter((r) => routeKind(r) === kind);
+      const revenue = mine.reduce((s, r) => s + r._revenue, 0);
+      const tickets = mine.reduce((s, r) => s + r._tickets, 0);
+      const routes = mine.filter((r) => r._revenue > 0).length;
+      return {
+        kind, label: kind === 'vecinal' ? 'Vecinal' : 'Ruta directa', revenue,
+        share: total > 0 ? (revenue / total) * 100 : 0, routes, tickets,
+        avgTicket: tickets > 0 ? revenue / tickets : null,
+        perRoute: routes > 0 ? revenue / routes : null,
+      };
+    });
+  });
+
+  /** Renglones de la comparativa, en el orden en que se leen: cuánto, qué peso, con qué. */
+  readonly cmpRows: { key: keyof KindSummary; label: string }[] = [
+    { key: 'revenue', label: 'Venta' },
+    { key: 'share', label: '% de la venta' },
+    { key: 'routes', label: 'Rutas con venta' },
+    { key: 'tickets', label: 'Tickets' },
+    { key: 'avgTicket', label: 'Ticket promedio' },
+    { key: 'perRoute', label: 'Venta por ruta' },
+  ];
+
+  /** La comparativa sólo se muestra si en pantalla hay de las dos. */
+  readonly showKindCompare = computed(() => this.kindSummary().every((k) => k.revenue > 0));
+
+  /** Filas de los demás filtros de vista = `rowsBase` + sólo activas. */
+  private readonly rowsSinTipo = computed<ViewRow[]>(() => {
+    const rows = this.rowsBase();
+    return this.fOnlyActive() ? rows.filter((r) => this.isActive(r)) : rows;
+  });
+
+  /** Periodo + sucursal + búsqueda + solo-con-venta + rango $ (sin tipo ni activas). */
+  private readonly rowsBase = computed<ViewRow[]>(() => {
     const wh = this.fBranch();
     const q = this.fQuery().trim().toLowerCase();
     const only = this.fOnlyWithSales();
@@ -1297,7 +1475,11 @@ export class ComercialVentasPorRutaComponent {
 
   readonly hasViewFilters = computed(() =>
     this.fBranch().length > 0 || !!this.fQuery() || !!this.fMonthFrom() || !!this.fMonthTo() ||
-    this.fOnlyWithSales() || this.fMinRevenue() != null || this.fMaxRevenue() != null);
+    this.fOnlyWithSales() || this.fMinRevenue() != null || this.fMaxRevenue() != null ||
+    this.fTipo() !== 'todas' || this.fOnlyActive());
+
+  /** `[VEC.37]` Con una sola barra, «Limpiar» cubre también los filtros que re-consultan. */
+  readonly hasAnyFilter = computed(() => this.hasViewFilters() || !!this.fProduct() || !!this.fClient());
 
   readonly kpiItems = computed<MetricStripItem[]>(() => {
     if (!this.report()) return [];
@@ -1324,6 +1506,24 @@ export class ComercialVentasPorRutaComponent {
     this.fBranch.set([]); this.fQuery.set('');
     this.fMonthFrom.set(null); this.fMonthTo.set(null);
     this.fOnlyWithSales.set(false); this.fMinRevenue.set(null); this.fMaxRevenue.set(null);
+    this.fTipo.set('todas'); this.fOnlyActive.set(false);
+  }
+
+  /**
+   * `[VEC.37]` Limpia la barra entera. Re-consulta sólo si había un filtro de servidor
+   * (producto o cliente); los de vista se quitan sin ir a la base.
+   * ⚠️ El año y las rutas se conservan: son el universo pedido (a menudo desde un enlace), no un
+   * acotamiento. Se quitan en su propio control.
+   */
+  clearAllFilters() {
+    const servidor = !!this.fProduct() || !!this.fClient();
+    this.clearViewFilters();
+    this.fProduct.set(null); this.fClient.set(null);
+    if (servidor) this.load();
+  }
+
+  setTipo(v: string) {
+    this.fTipo.set(v === 'directa' || v === 'vecinal' ? v : 'todas');
   }
 
   year = new Date().getFullYear();
@@ -1353,8 +1553,7 @@ export class ComercialVentasPorRutaComponent {
    */
   readonly esRutaVecinal = computed(() => {
     const r = this.peekRow();
-    if (!r) return false;
-    return /^\d+V\d/i.test(r.route_no ?? '') || /VEC/i.test(r.route_code ?? '');
+    return !!r && routeKind(r) === 'vecinal';
   });
 
   // ── `[VEC.12]` El dinero de una ruta VECINAL: el arqueo de la caja donde se timbró ────────
@@ -1903,15 +2102,32 @@ export class ComercialVentasPorRutaComponent {
     };
   }
 
+  /**
+   * `[VEC.40]` **La última petición de cada carril manda; una respuesta vieja se descarta.**
+   *
+   * Lo mismo que `[VEC.24]` ya hizo para el arqueo y el crédito (`sigueSiendoMia`), que faltaba en
+   * el desglose, los tickets y el reporte. El desglose tarda de 1 a 7 s: abrir la ruta A y luego
+   * la B dejaba que la respuesta de A, si llegaba después, se pintara bajo la B — con la fila, los
+   * depósitos y el arqueo ya de la B. «Elijo una ruta y me sale otra».
+   */
+  private turnoDetalle = 0;
+  private turnoTickets = 0;
+  private turnoReporte = 0;
+
   loadTickets(reset = false) {
     if (!this.detail()) return;
     if (reset) this.tkOffset.set(0);
     this.tkLoading.set(true);
+    const turno = ++this.turnoTickets;
     this.svc.salesByRouteTickets(this.ticketParams())
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (p) => { this.tkPage.set(p); this.tkLoading.set(false); },
+        next: (p) => {
+          if (turno !== this.turnoTickets) return;
+          this.tkPage.set(p); this.tkLoading.set(false);
+        },
         error: (e) => {
+          if (turno !== this.turnoTickets) return;
           this.tkLoading.set(false);
           this.toast.add({ severity: 'error', summary: 'Error al cargar tickets', detail: e?.error?.message });
         },
@@ -1983,6 +2199,10 @@ export class ComercialVentasPorRutaComponent {
 
     const sucursales = this.lista(qp.get('branch') ?? qp.get('branches'));
     if (sucursales.length) this.fBranch.set(sucursales);
+
+    // `[VEC.36]` `?tipo=vecinal` / `?tipo=directa`: filtro de vista, como `branch`.
+    const tipo = qp.get('tipo');
+    if (tipo) this.setTipo(tipo);
   }
 
   /** `'01,02 , 03'` → `['01','02','03']`. Vacío si no vino nada útil. */
@@ -2017,11 +2237,16 @@ export class ComercialVentasPorRutaComponent {
   load() {
     this.loading.set(true);
     this.error.set(null);
+    const turno = ++this.turnoReporte;
     this.svc.salesByRoute(this.params())
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (r) => { this.report.set(r); this.loading.set(false); },
+        next: (r) => {
+          if (turno !== this.turnoReporte) return;
+          this.report.set(r); this.loading.set(false);
+        },
         error: (e) => {
+          if (turno !== this.turnoReporte) return;
           this.loading.set(false);
           this.error.set(e?.error?.message || 'No se pudo consultar el reporte. Revisa la conexión e intenta de nuevo.');
         },
@@ -2097,6 +2322,9 @@ export class ComercialVentasPorRutaComponent {
     this.detailLoading.set(true);
     this.peekOpen.set(true);
     // El estado del panel es por ruta: si no se limpia, la ruta nueva hereda el drill anterior.
+    // `[VEC.40]` Y los tickets en vuelo de la ruta anterior quedan sin dueño.
+    this.turnoTickets++;
+    this.tkLoading.set(false);
     this.tkPage.set(null);
     this.ticket.set(null);
     this.tkQuery.set(''); this.tkUnit.set(null); this.tkDocType.set(null);
@@ -2123,6 +2351,7 @@ export class ComercialVentasPorRutaComponent {
   private fetchDetail(routeCode: string) {
     const b = this.dayBounds() ?? this.detailBounds();
     this.detailLoading.set(true);
+    const turno = ++this.turnoDetalle;
     this.svc.salesByRouteDetail(routeCode, this.year, {
       from: b.from, to: b.to,
       sku: this.dSku() || undefined,
@@ -2132,11 +2361,13 @@ export class ComercialVentasPorRutaComponent {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (d) => {
+          if (turno !== this.turnoDetalle) return;
           this.dailyMax = Math.max(1, ...d.daily.map((x) => x.revenue));
           this.detail.set(d);
           this.detailLoading.set(false);
         },
         error: (e) => {
+          if (turno !== this.turnoDetalle) return;
           this.detailLoading.set(false);
           if (!this.detail()) this.peekOpen.set(false);
           this.toast.add({ severity: 'error', summary: 'Error al cargar el desglose', detail: e?.error?.message });

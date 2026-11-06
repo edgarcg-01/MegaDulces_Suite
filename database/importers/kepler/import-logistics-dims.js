@@ -38,7 +38,7 @@ const APPLY = process.argv.includes('--apply');
  * existe sin clave, actualiza lo que ya la tiene, e inserta lo nuevo. Nunca borra: una unidad
  * dada de baja en Kepler puede seguir teniendo viajes, costos y fotos colgando en la Suite.
  */
-async function sincronizar(db, { tabla, filas, campo, insertar, normaliza }) {
+async function sincronizar(db, { tabla, filas, campo, insertar, normaliza, unico }) {
   // ⚠️ `normaliza` existe por un defecto REAL (EMB.5): comparar la placa literal creó 8 filas
   // duplicadas — Kepler la escribe `GA-2027-C` y MagniTracking `GA2027C`, así que el importer
   // no reconocía la unidad que el GPS ya había dado de alta y creaba un cascarón al lado. El
@@ -49,6 +49,7 @@ async function sincronizar(db, { tabla, filas, campo, insertar, normaliza }) {
     ? (c) => `regexp_replace(upper(btrim(${c})),'[^A-Z0-9]','','g')`
     : (c) => `upper(btrim(${c}))`;
   let adoptados = 0, actualizados = 0, insertados = 0;
+  const respetadas = [];
   for (const f of filas) {
     // 1) ¿ya la tenemos por clave?
     const porClave = await db.query(
@@ -74,11 +75,22 @@ async function sincronizar(db, { tabla, filas, campo, insertar, normaliza }) {
       adoptados++;
       continue;
     }
-    // 3) nueva.
+    // 3) `[CANON.5.6]` Si el atributo ya existe tal cual en CUALQUIER fila (borrada en la app, o
+    //    viva con otra clave), no se inserta: el índice único `(tenant_id, <campo>)` cuenta también
+    //    las borradas, y un solo choque hacía ROLLBACK de unidades, choferes y rutas a la vez.
+    //    Lo que una persona borró en la app se queda borrado (D3, anexo CANON.5); se declara.
+    if (unico) {
+      const ocupado = await db.query(
+        `SELECT deleted_at IS NOT NULL AS borrada FROM logistics.${tabla} WHERE tenant_id=$1 AND ${campo}=$2 LIMIT 1`,
+        [M, f.valor]);
+      if (ocupado.rowCount) { respetadas.push(`${f.valor}${ocupado.rows[0].borrada ? ' (borrada en la app)' : ' (viva con otra clave)'}`); continue; }
+    }
+    // 4) nueva.
     await insertar(db, f);
     insertados++;
   }
   console.log(`  ${tabla}: +${insertados} nuevas · ${adoptados} adoptadas · ${actualizados} al día (${filas.length} en Kepler)`);
+  if (respetadas.length) console.log(`  ⓘ ${tabla}: ${respetadas.length} no se dan de alta porque el ${campo} ya existe: ${respetadas.join(' · ')}`);
   return { insertados, adoptados, actualizados };
 }
 
@@ -104,7 +116,7 @@ async function main() {
        WHERE placas IS NOT NULL
        ORDER BY clave_kepler, sucursal`)).rows;
     await sincronizar(db, {
-      tabla: 'vehicles', filas: veh, campo: 'plate', normaliza: true,
+      tabla: 'vehicles', filas: veh, campo: 'plate', normaliza: true, unico: true,
       insertar: (d, f) => d.query(
         `INSERT INTO logistics.vehicles (tenant_id, plate, brand, model, status, active, kepler_code, notes)
          VALUES ($1,$2,'',$3,'disponible',true,$4,$5)`,
@@ -162,15 +174,25 @@ async function main() {
     const existRt = new Set((await db.query(
       `SELECT upper(btrim(name)) n FROM logistics.routes WHERE tenant_id=$1 AND deleted_at IS NULL`, [M]
     )).rows.map((r) => r.n));
+    // `[CANON.5.6]` El nombre de una ruta BORRADA en la app sigue ocupando el índice único
+    // `(tenant_id, name)`. Insertarla otra vez reventaba la transacción entera: «ZAMORA CANINDO»
+    // se borró el 2026-10-12 y desde esa noche no se actualizó ni una unidad ni un chofer.
+    // Se respeta el borrado (D3) y se declara.
+    const borradasRt = new Set((await db.query(
+      `SELECT name FROM logistics.routes WHERE tenant_id=$1 AND deleted_at IS NOT NULL`, [M]
+    )).rows.map((r) => r.name));
+    const rtRespetadas = [];
     let rIns = 0;
     for (const rt of rutas) {
       if (existRt.has(rt.valor)) continue;
+      if (borradasRt.has(rt.valor)) { rtRespetadas.push(rt.valor); continue; }
       await db.query(
         `INSERT INTO logistics.routes (tenant_id, name, active, notes) VALUES ($1,$2,true,$3)`,
         [M, rt.valor, 'Alta desde Kepler (catálogo de rutas)']);
       existRt.add(rt.valor); rIns++;
     }
     console.log(`  routes: +${rIns} nuevas (${rutas.length} nombres distintos en Kepler)`);
+    if (rtRespetadas.length) console.log(`  ⓘ routes: ${rtRespetadas.length} borradas en la app que Kepler sigue trayendo — se respetan: ${rtRespetadas.join(' · ')}`);
 
     if (APPLY) { await db.query('COMMIT'); console.log('\n[APPLY] COMMIT.'); }
     else { await db.query('ROLLBACK'); console.log('\n[DRY-RUN] ROLLBACK — nada cambió.'); }

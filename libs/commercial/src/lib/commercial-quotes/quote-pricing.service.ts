@@ -3,6 +3,7 @@ import { TenantKnexService, TenantContextService, ScopeService } from '@megadulc
 import { AREA_COTIZACIONES } from './quote-scope';
 import type { Knex } from 'knex';
 import { totalesCotizacion } from '@megadulces/contracts';
+import { FUENTE_PRECIOS_COTIZACION } from '../shared/catalogo-buscador';
 
 /**
  * `[COT.1]` — El motor de precio de una cotización.
@@ -449,7 +450,8 @@ export class QuotePricingService {
       'SELECT sku, name, piece_price, wholesale_piece_min_qty, wholesale_piece_price,'
         + ' pack_size, pack_price, wholesale_pack_price, wholesale_pack_min_qty,'
         + ' box_size, box_price, unit_base'
-        + ' FROM analytics.v_label_prices'
+        // COT.27: con los regalos de $0.01 de Kepler, que la vista de etiquetas excluye.
+        + ' FROM ' + FUENTE_PRECIOS_COTIZACION + ' v'
         + ' WHERE sucursal = ?' + inSkus('sku'),
       [branch, ...args],
     );

@@ -239,7 +239,7 @@ const COMPUERTAS = [
   // el push). Lo encontró la pregunta "¿queda algo pendiente?", no una corrida. Registradas acá
   // el 2026-10-03, que es lo que las mete en los DOS runners de una.
   { nombre: 'motion', script: 'check-motion.js', que: 'ninguna animación de Operations pasa el techo de 350ms (DESIGN §Motion)', push: true, ms: 376 },
-  { nombre: 'estilos', script: 'check-estilos.js', que: 'escala --fs-*, hex crudo, breakpoints en px y foco sin anillo (DESIGN pre-vuelo 2/6/12c y §R)', push: true, ms: 3106 },
+  { nombre: 'estilos', script: 'check-estilos.js', que: 'escala --fs-*, hex crudo, breakpoints en px, foco sin anillo y anillo hecho con el halo --action-ring (DESIGN pre-vuelo 2/6/12c y §R)', push: true, ms: 3106 },
   // `[NX.3]` Es la única de las cuatro que atrapa un defecto INVISIBLE en la máquina de quien lo
   // introduce: el contexto de Docker sólo se ejerce en el contenedor, y ahí el síntoma no
   // menciona ni Docker ni el COPY. Costó un deploy caído antes de existir.
