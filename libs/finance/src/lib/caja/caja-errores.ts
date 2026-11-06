@@ -110,6 +110,9 @@ const POR_CONSTRAINT: Record<string, string> = {
   cash_ledger_folio_no_se_borra_chk:
     'Ese folio ya se emitió: no se borra ni cambia de número. Si estaba mal, se cancela con su motivo.',
   folio_consecutivo_chk: 'El consecutivo de folios sólo avanza de uno en uno.',
+  // `[LE.6.12]` Un documento de Kepler entra a un solo libro (migración 20261105151333, D40).
+  caja_documento_en_el_libro_chk:
+    'Ese documento ya se registró en la Ventanilla: un documento entra a un solo libro. Si estaba mal allá, se revierte allá.',
 };
 
 /** Códigos de Postgres que SÍ son culpa de lo que se mandó, no del servidor. */

@@ -29,12 +29,14 @@
  * Ningún total suma las tres sin decirlo.
  */
 export type DestinoSalida = 'sucursal' | 'ruta' | 'cliente';
-export type UnidadImporte = 'valor_traspaso' | 'precio_venta' | 'mixta';
+/** `[MX.0.6]` `costo_compra` = importe de una entrada de compra, a lo que se le pagó al proveedor. */
+export type UnidadImporte = 'valor_traspaso' | 'precio_venta' | 'mixta' | 'costo_compra';
 export const UNIDAD_IMPORTE_SALIDA: Readonly<Record<DestinoSalida, UnidadImporte>> = {
   sucursal: 'valor_traspaso', cliente: 'precio_venta', ruta: 'mixta',
 };
 export const ETIQUETA_UNIDAD_IMPORTE: Readonly<Record<UnidadImporte, string>> = {
   valor_traspaso: 'valor de traspaso', precio_venta: 'a precio de venta', mixta: 'costo y precio mezclados',
+  costo_compra: 'a costo de compra',
 };
 
 /**
@@ -59,7 +61,8 @@ export interface ResumenAjusteDia {
 
 export interface ExcepcionMovimientoItem {
   /** `ajuste` = TODOS los ajustes de una tienda en un día (MX.2.5), no un folio suelto. */
-  tipo: 'traspaso' | 'ajuste';
+  /** `compra` = una orden de entrada de compra (X-A-40) con renglones en la unidad equivocada (MX.0.6). */
+  tipo: 'traspaso' | 'ajuste' | 'compra';
   excepciones: ExcepcionMovimiento[];
   fecha: string;
   /**
@@ -117,7 +120,8 @@ export interface MovimientosExcepcionesResponse {
     /** El importe, separado por unidad; `sin_unidad` = no medida. */
     importe_por_unidad: Record<UnidadImporte | 'sin_unidad', number>;
     /** De cuántos documentos salió la bandeja (para decir qué fracción es excepción). */
-    universo: { traspasos: number; ajustes: number };
+    /** `compras: null` = NO MEDIDO: sin las tablas del ODS que lo arbitran (`kdpv_prov_prod`, `kdii`, `kdij`). */
+    universo: { traspasos: number; ajustes: number; compras: number | null };
     /** `[MX.2.4]` Incidencias del rango ya resueltas CON motivo (fuera de `items`, fuera de la lista). */
     resueltas: number;
   };
@@ -133,7 +137,8 @@ export type ExcepcionMovimiento =
   | 'sin_acuse'           // salió a un almacén y nadie registró la recepción en el umbral
   | 'sin_origen'          // recepción sin una salida que la respalde
   | 'ajuste_inventario'   // InvOut1 / InvIn1: siempre se revisa
-  | 'importe_incompleto'; // renglones con costo 0 en Kepler: el dinero no se pudo verificar
+  | 'importe_incompleto'  // renglones con costo 0 en Kepler: el dinero no se pudo verificar
+  | 'unidad_cruzada';     // [MX.0.6] compra cuyo costo dice que la cantidad se capturó en otra unidad
 
 /** Qué es el documento para el motor, haya o no excepción. */
 export type EstadoMovimiento =
@@ -147,6 +152,77 @@ export type EstadoMovimiento =
 export const DOC_CODES_TRASPASO: readonly string[] = ['TrsfShip', 'TrsfRcv'];
 /** Ajustes de inventario: van siempre a la bandeja (decisión D3). */
 export const DOC_CODES_AJUSTE: readonly string[] = ['InvOut1', 'InvIn1'];
+/** `[MX.0.6]` Orden de entrada de compra (X-A-40): llega a la bandeja sólo con la unidad cruzada. */
+export const DOC_CODES_COMPRA: readonly string[] = ['EntryOr1'];
+
+// ════════════════════════════════════════════════════════════════════════════════════════════
+// [MX.0.6] La entrada de compra capturada en la unidad equivocada
+// ════════════════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * `[MX.0.6]` **¿La cantidad de este renglón de compra entró en la unidad que dice su costo?**
+ *
+ * El árbitro es el dinero: el importe del renglón lo pagó el proveedor y no miente; lo que se teclea
+ * mal es la cantidad. Si el costo capturado por la unidad en que ENTRÓ al kardex es 1/f del costo
+ * del proveedor para esa misma unidad (f = un factor de su escalera: paquetes por caja, piezas por
+ * paquete…), la cantidad se capturó f veces de más — o f veces de menos si el costo es f veces mayor.
+ *
+ * Caso que lo originó (8 Esquinas, X-A-40 0001062, 2026-10-02): 800 PAQ a $0.5067 = $405.36 contra
+ * $9.31 el PAQ del proveedor → razón 0.054 ≈ 1/20, y 20 es su factor PAQ→CJA: entraron 40 paquetes.
+ *
+ * Medido el 2026-11-05 sobre 18,306 renglones X-A-40 de 90 días: 5 `inflada` y 2 `encogida`; los
+ * placebos (el mismo factor ×1.5 y ÷1.5) dan 0 y 1. Un costo raro SIN factor que lo explique
+ * (promoción, precio especial: 302 renglones, casi todos el pseudo-producto contable) NO es esto y
+ * no se marca. `costoProveedor` nulo = no se sabe el costo de esa unidad: se declara, no se adivina.
+ */
+export type SentidoUnidadCruzada = 'inflada' | 'encogida';
+export interface VeredictoUnidadEntrada {
+  clase: 'normal' | SentidoUnidadCruzada | 'sin_factor' | 'sin_medir';
+  /** costo capturado ÷ costo del proveedor; `null` = sin medir. */
+  razon: number | null;
+  /** El factor de la escalera que explica la razón; `null` si ninguno. */
+  factor: number | null;
+}
+/** Normal: la razón cae aquí (±20 %, lo que se mueve un precio entre compras). */
+export const BANDA_NORMAL_UNIDAD: readonly [number, number] = [0.8, 1.25];
+/** Un factor explica la razón si razón × factor (o ÷) cae aquí. */
+export const BANDA_FACTOR_UNIDAD: readonly [number, number] = [0.85, 1.18];
+
+export function clasificarUnidadEntrada(
+  costoCapturado: number | null | undefined,
+  costoProveedor: number | null | undefined,
+  factores: readonly number[],
+): VeredictoUnidadEntrada {
+  const cu = Number(costoCapturado), cp = Number(costoProveedor);
+  if (!(cu > 0) || !(cp > 0)) return { clase: 'sin_medir', razon: null, factor: null };
+  const razon = cu / cp;
+  if (razon >= BANDA_NORMAL_UNIDAD[0] && razon <= BANDA_NORMAL_UNIDAD[1]) return { clase: 'normal', razon, factor: null };
+  const dentro = (v: number) => v >= BANDA_FACTOR_UNIDAD[0] && v <= BANDA_FACTOR_UNIDAD[1];
+  const fs = [...new Set(factores.filter((f) => Number.isFinite(f) && f >= 2))].sort((a, b) => a - b);
+  const f = razon < 1 ? fs.find((x) => dentro(razon * x)) : fs.find((x) => dentro(razon / x));
+  if (f == null) return { clase: 'sin_factor', razon, factor: null };
+  // el factor es un conteo de unidades (20 paquetes por caja): el de los costos trae ruido de precio
+  return { clase: razon < 1 ? 'inflada' : 'encogida', razon, factor: Math.round(f) };
+}
+
+/** `[MX.0.6]` Lo que dice un renglón de compra sobre su unidad (sólo en el detalle de una compra). */
+export interface EntradaUnidad {
+  /** La unidad en que entró al kardex (PAQ, CJA, PZA…). */
+  unidad: string;
+  capturado: number;
+  costo_capturado: number;
+  /** Costo del proveedor para ESA unidad en esa sucursal; `null` = no se sabe. */
+  costo_proveedor: number | null;
+  razon: number | null;
+  factor: number | null;
+  sentido: SentidoUnidadCruzada | null;
+  /**
+   * La cantidad que probablemente entró: lo capturado ÷ el factor (inflada) o × el factor (encogida).
+   * Por el factor y no por «importe ÷ costo de hoy»: el costo del proveedor se movió desde la compra
+   * (Tuby: $10.13 pagado, $9.31 hoy) y daba 43.54 donde fueron 40.
+   */
+  probable: number | null;
+}
 
 /** Estado del documento de traspaso como lo publica el motor (`transfer_status` del Diario). */
 export type EstadoTraspaso = 'en_transito' | 'sin_acuse' | 'sin_recepcion_esperada' | 'completado' | 'diferencia' | 'sin_origen';
@@ -212,6 +288,7 @@ export type MotivoResolucion =
   | 'error_de_captura'
   | 'ajuste_justificado'
   | 'costo_revisado'
+  | 'precio_especial'
   | 'otro';
 
 export interface MotivoResolucionDef {
@@ -221,7 +298,7 @@ export interface MotivoResolucionDef {
   pide_nota: boolean;
 }
 
-const TODAS: readonly ExcepcionMovimiento[] = ['diferencia', 'sin_acuse', 'sin_origen', 'ajuste_inventario', 'importe_incompleto'];
+const TODAS: readonly ExcepcionMovimiento[] = ['diferencia', 'sin_acuse', 'sin_origen', 'ajuste_inventario', 'importe_incompleto', 'unidad_cruzada'];
 
 export const MOTIVOS_RESOLUCION_MOVIMIENTO: readonly MotivoResolucionDef[] = [
   { codigo: 'corregido_en_kepler', etiqueta: 'Se corrigió el documento en Kepler', aplica: TODAS, pide_nota: false },
@@ -230,6 +307,8 @@ export const MOTIVOS_RESOLUCION_MOVIMIENTO: readonly MotivoResolucionDef[] = [
   { codigo: 'error_de_captura', etiqueta: 'Error de captura, la mercancía física está bien', aplica: ['diferencia', 'sin_acuse', 'sin_origen', 'ajuste_inventario'], pide_nota: false },
   { codigo: 'ajuste_justificado', etiqueta: 'Ajuste revisado y justificado', aplica: ['ajuste_inventario'], pide_nota: false },
   { codigo: 'costo_revisado', etiqueta: 'Costo 0 revisado: el producto no lleva costo', aplica: ['importe_incompleto'], pide_nota: false },
+  // [MX.0.6] la cantidad estaba bien y el costo raro es real (bonificación, precio especial): se dice cuál
+  { codigo: 'precio_especial', etiqueta: 'La cantidad está bien: el costo es un precio especial o bonificación', aplica: ['unidad_cruzada'], pide_nota: true },
   { codigo: 'otro', etiqueta: 'Otro motivo', aplica: TODAS, pide_nota: true },
 ];
 
@@ -267,7 +346,9 @@ export interface RenglonDocumento {
  * `pendiente` = la recepción no existe todavía · `sin_respaldo` = recepción sin salida ·
  * `ajustado` = renglón de un ajuste.
  */
-export type EstadoRenglonMovimiento = 'cuadra' | 'falta' | 'sobra' | 'no_llego' | 'no_venia' | 'pendiente' | 'sin_respaldo' | 'ajustado';
+export type EstadoRenglonMovimiento = 'cuadra' | 'falta' | 'sobra' | 'no_llego' | 'no_venia' | 'pendiente' | 'sin_respaldo' | 'ajustado'
+  | 'unidad_cruzada'   // [MX.0.6] compra: la cantidad no es la que dice su costo
+  | 'costo_coincide';  // [MX.0.6] compra: el costo cuadra con el del proveedor (o no se pudo medir: ver `entrada`)
 
 export interface RenglonComparado {
   sku: string;
@@ -286,6 +367,8 @@ export interface RenglonComparado {
   estado: EstadoRenglonMovimiento;
   /** `true` = este producto es parte de lo que hay que revisar. */
   con_error: boolean;
+  /** `[MX.0.6]` Sólo en una compra: la unidad, el costo y lo que alcanza el importe. */
+  entrada?: EntradaUnidad;
 }
 
 const TOL = 0.01;
@@ -417,6 +500,15 @@ export function resumirDonde(
     } else if (e === 'importe_incompleto') {
       const sc = renglones.filter((r) => r.sin_costo);
       if (sc.length) partes.push(`Sin costo en Kepler: ${sc[0].producto}${mas(sc.length - 1, 'producto')}`);
+    } else if (e === 'unidad_cruzada') {
+      // [MX.0.6] «NARANJA BOLI CHICO: entraron 800 PAQ a $0.51; por su costo eran 40 (800 ÷ 20)»
+      const mal = renglones.filter((r) => r.estado === 'unidad_cruzada' && r.entrada);
+      const x = mal[0]?.entrada;
+      if (!x) { partes.push('El costo de un renglón no corresponde a su cantidad'); continue; }
+      const c = (n: number) => '$' + n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const cuenta = x.factor ? ` (${pz(x.capturado)} ${x.sentido === 'encogida' ? '×' : '÷'} ${x.factor})` : '';
+      const eran = x.probable != null ? `; por su costo eran ${pz(x.probable)}${cuenta}` : '';
+      partes.push(`${mal[0].producto}: entraron ${pz(x.capturado)} ${x.unidad} a ${c(x.costo_capturado)}${eran}` + mas(mal.length - 1, 'producto'));
     }
   }
   return partes.join(' · ');

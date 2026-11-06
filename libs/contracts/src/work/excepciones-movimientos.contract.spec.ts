@@ -1,6 +1,6 @@
 // Sin `import ... from 'vitest'`: la config usa `globals: true`.
 import {
-  clasificarMovimiento, compararRenglones, ETIQUETA_UNIDAD_IMPORTE, motivosPara, resumirDonde, sumarPorProducto, UNIDAD_IMPORTE_SALIDA, validarResolucion,
+  clasificarMovimiento, clasificarUnidadEntrada, compararRenglones, ETIQUETA_UNIDAD_IMPORTE, motivosPara, resumirDonde, sumarPorProducto, UNIDAD_IMPORTE_SALIDA, validarResolucion,
   type DocumentoAClasificar, type RenglonDocumento,
 } from './excepciones-movimientos.contract';
 
@@ -128,7 +128,7 @@ describe('[MX.2.6] ajustes del día: entradas, salidas y neto', () => {
 
 describe('[MX.2.4] motivos de resolución', () => {
   it('cada excepción tiene al menos un motivo propio además de «otro»', () => {
-    for (const e of ['diferencia', 'sin_acuse', 'sin_origen', 'ajuste_inventario', 'importe_incompleto'] as const) {
+    for (const e of ['diferencia', 'sin_acuse', 'sin_origen', 'ajuste_inventario', 'importe_incompleto', 'unidad_cruzada'] as const) {
       expect(motivosPara([e]).filter((m) => m.codigo !== 'otro').length).toBeGreaterThan(0);
     }
     expect(motivosPara(['ajuste_inventario']).map((m) => m.codigo)).not.toContain('faltante_confirmado');
@@ -141,5 +141,50 @@ describe('[MX.2.4] motivos de resolución', () => {
     expect(validarResolucion('error_de_captura', 'x'.repeat(1001))).toMatch(/1,000/);
     expect(validarResolucion('corregido_en_kepler', null)).toBeNull();
     expect(validarResolucion('otro', 'Se devolvió al proveedor')).toBeNull();
+  });
+});
+
+describe('[MX.0.6] la entrada de compra capturada en la unidad equivocada', () => {
+  it('⛔ el caso real: 800 PAQ a $0.5067 contra $9.31 el PAQ es «inflada» por el factor 20 (entraron 40)', () => {
+    const v = clasificarUnidadEntrada(0.5067, 9.31, [20]);
+    expect(v.clase).toBe('inflada');
+    expect(v.factor).toBe(20);
+    expect(v.razon).toBeCloseTo(0.0544, 3);
+  });
+  it('al revés: 3 PAQ a $855.78 contra $213.95 es «encogida» por el factor 4', () => {
+    expect(clasificarUnidadEntrada(855.78, 213.95, [4, 20])).toMatchObject({ clase: 'encogida', factor: 4 });
+  });
+  it('un precio que se movió ±20 % es normal (control)', () => {
+    expect(clasificarUnidadEntrada(10.134, 9.31, [20]).clase).toBe('normal');
+    expect(clasificarUnidadEntrada(9.31, 9.31, []).clase).toBe('normal');
+  });
+  it('⛔ placebo: un costo raro que NINGÚN factor explica no se marca (promoción, bonificación)', () => {
+    expect(clasificarUnidadEntrada(9.31 / 30, 9.31, [20]).clase).toBe('sin_factor');
+    expect(clasificarUnidadEntrada(9.31 / 1.5 / 20, 9.31, [20]).clase).toBe('sin_factor');
+  });
+  it('sin costo del proveedor para esa unidad no se adivina: «sin_medir»', () => {
+    expect(clasificarUnidadEntrada(0.5, null, [20])).toEqual({ clase: 'sin_medir', razon: null, factor: null });
+    expect(clasificarUnidadEntrada(0, 9.31, [20]).clase).toBe('sin_medir');
+  });
+  it('el factor sale redondeado: la escalera de costos trae ruido (14.996 paquetes por caja son 15)', () => {
+    expect(clasificarUnidadEntrada(282.15 / 14.996 / 15, 282.15 / 14.996, [14.996]).factor).toBe(15);
+  });
+  it('los factores de 1 o inválidos no cuentan', () => {
+    expect(clasificarUnidadEntrada(9.31 / 20, 9.31, [1, NaN, 0]).clase).toBe('sin_factor');
+  });
+  it('el «dónde» dice el producto, lo capturado y lo que alcanza el importe', () => {
+    const renglones = [{
+      sku: '59059', producto: 'NARANJA BOLI CHICO /20', salida: null, recepcion: null, delta: -760, importe: 405.36,
+      importe_diferencia: null, sin_costo: false, estado: 'unidad_cruzada' as const, con_error: true,
+      entrada: { unidad: 'PAQ', capturado: 800, costo_capturado: 0.5067, costo_proveedor: 9.31, razon: 0.0544, factor: 20, sentido: 'inflada' as const, probable: 40 },
+    }];
+    expect(resumirDonde(['unidad_cruzada'], renglones)).toBe('NARANJA BOLI CHICO /20: entraron 800 PAQ a $0.51; por su costo eran 40 (800 ÷ 20)');
+  });
+  it('se resuelve con «corregido en Kepler» o con «precio especial» (y éste pide nota)', () => {
+    const cods = motivosPara(['unidad_cruzada']).map((m) => m.codigo);
+    expect(cods).toEqual(expect.arrayContaining(['corregido_en_kepler', 'precio_especial', 'otro']));
+    expect(cods).not.toContain('faltante_confirmado');
+    expect(validarResolucion('precio_especial', '')).toMatch(/nota/);
+    expect(validarResolucion('precio_especial', 'bonificación del proveedor')).toBeNull();
   });
 });

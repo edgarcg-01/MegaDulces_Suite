@@ -77,6 +77,33 @@ export interface ComputeRunOptions {
 }
 
 interface Tier { min_amount: string; max_amount: string | null; pct: string }
+
+/** `[RD.111]` El desglose de UNA ruta en UN periodo (`desgloseRuta`). */
+export interface DesgloseRuta {
+  route_code: string;
+  period: { id: string; anio: number; period_no: number; date_from: string; date_to: string };
+  escala: {
+    id: string; code: string; familia: string; base_field: string; gate_field: string;
+    share_supervisor_pct: number; piso_chofer_venta: number | null;
+    origen: 'linea' | 'vigente_al_cierre' | null;
+    escalones: { min_amount: number; max_amount: number | null; pct: number }[];
+  } | null;
+  bonos: {
+    nombre: string; metrica: string; comparador: string; umbral: number; monto: number;
+    solo_esta_ruta: boolean; gate_venta_min: number | null;
+  }[];
+  dias: unknown[];
+}
+
+/** `[RD.111]` Los tickets de una ruta en un día, con sus renglones (`desgloseTickets`). */
+export interface DesgloseTickets {
+  route_code: string;
+  dia: string;
+  tickets: {
+    clave: string; source: string; consecutivo: string; doc_ref: string | null; cliente: string | null;
+    hora: string | null; forma_pago: string | null; venta: number; renglones: unknown[];
+  }[];
+}
 interface Bonus {
   beneficiario: 'chofer' | 'supervisor';
   nombre: string;
@@ -879,6 +906,135 @@ export class CommercialCommissionsService {
       // `3.75` -> `"3.7500"`): la pantalla con la que se cuadra no seria la que queda.
       return { ...run, period, lines: lines.map((l) => this.numerizar(l)) };
     });
+  }
+
+  /**
+   * `[RD.111]` **El desglose de UNA ruta en UN periodo**: con qué tabulador se decidió su
+   * porcentaje, qué bonos tenía al alcance y la venta día por día.
+   *
+   * ⭐ Lee la MISMA fuente que el motor (`v_rd_commission_sales`), no la de «Ventas por ruta»:
+   * aquella usa otro código de ruta y otro universo, y un desglose que no suma a la comisión
+   * que explica es peor que no tenerlo. La suma de los días se compara en la pantalla contra la
+   * línea congelada: si la fuente cambió desde que se calculó, se DICE, no se esconde.
+   *
+   * La explicación de la línea (escalón → % → parte del chofer → bonos → nómina) la arma la
+   * pantalla con la línea que ya tiene y estos escalones: no hay una segunda copia de la regla.
+   */
+  async desgloseRuta(routeCode: string, periodId: string, scaleId: string | null): Promise<DesgloseRuta> {
+    const route = this.rutaValida(routeCode);
+    if (!periodId) throw new BadRequestException('period_id requerido');
+    return this.tk.run(async (trx) => {
+      const { rows: [period] } = await trx.raw(
+        `SELECT id, anio, period_no, to_char(date_from, 'YYYY-MM-DD') AS date_from,
+                to_char(date_to, 'YYYY-MM-DD') AS date_to
+           FROM commercial.commission_periods WHERE id = ? AND deleted_at IS NULL`, [periodId]);
+      if (!period) throw new NotFoundException(`Periodo ${periodId} no existe`);
+      // ⚠️ Las líneas calculadas antes de `[RD.103.2]` no guardaron con qué tabulador se hicieron
+      // (`scale_id` nulo: toda la Q21). Entonces se usa el vigente al CIERRE para la familia de la
+      // ruta —el mismo que eligió el motor— y se DECLARA en `escala_origen`, porque una versión
+      // insertada después con efecto retroactivo lo haría distinto.
+      let escalaOrigen: 'linea' | 'vigente_al_cierre' | null = null;
+      let scale: Record<string, unknown> | undefined;
+      if (scaleId) {
+        scale = await trx('commercial.commission_scales').where({ id: scaleId }).whereNull('deleted_at')
+          .first('id', 'code', 'familia', 'base_field', 'gate_field', 'share_supervisor_pct', 'piso_chofer_venta');
+        if (scale) escalaOrigen = 'linea';
+      } else {
+        const cfg = await trx('commercial.commission_route_config').where({ route_code: route }).whereNull('deleted_at')
+          .orderBy('activo', 'desc').first('familia');
+        const familia = esFamiliaTabulador(cfg?.familia) ? cfg.familia : 'ruta_directa';
+        scale = await escalaVigente(trx, { familia, onDate: period.date_to }) as Record<string, unknown> | undefined;
+        if (scale) escalaOrigen = 'vigente_al_cierre';
+      }
+      const [tiers, bonos, dias] = await Promise.all([
+        scale
+          ? trx('commercial.commission_scale_tiers').where({ scale_id: scale['id'] }).whereNull('deleted_at')
+            .orderBy('min_amount').select<Tier[]>('min_amount', 'max_amount', 'pct')
+          : Promise.resolve([] as Tier[]),
+        scale
+          ? trx('commercial.commission_bonuses')
+            .where({ scale_id: scale['id'], periodo: 'quincena', activo: true, beneficiario: 'chofer' })
+            .whereNull('deleted_at')
+            .where((q: Knex.QueryBuilder) => q.whereNull('route_code').orWhere('route_code', route))
+            .orderBy('umbral').select('nombre', 'metrica', 'comparador', 'umbral', 'monto', 'route_code', 'gate_venta_min')
+          : Promise.resolve([]),
+        trx.raw(
+          `SELECT to_char(business_date, 'YYYY-MM-DD') AS dia, venta::float8 AS venta,
+                  subtotal::float8 AS subtotal, tickets, fuentes_dia
+             FROM analytics.v_rd_commission_sales
+            WHERE route_code = ? AND business_date BETWEEN ?::date AND ?::date
+            ORDER BY business_date`, [route, period.date_from, period.date_to]).then((r: { rows: unknown[] }) => r.rows),
+      ]);
+      const num = (x: unknown) => (x === null || x === undefined ? null : Number(x));
+      return {
+        route_code: route,
+        period,
+        escala: scale ? {
+          id: String(scale['id']), code: String(scale['code']), familia: String(scale['familia']),
+          base_field: String(scale['base_field']), gate_field: String(scale['gate_field']),
+          share_supervisor_pct: Number(scale['share_supervisor_pct']),
+          piso_chofer_venta: num(scale['piso_chofer_venta']),
+          origen: escalaOrigen,
+          escalones: tiers.map((t) => ({ min_amount: Number(t.min_amount), max_amount: num(t.max_amount), pct: Number(t.pct) })),
+        } : null,
+        bonos: (bonos as Record<string, unknown>[]).map((b) => ({
+          nombre: String(b['nombre']), metrica: String(b['metrica']), comparador: String(b['comparador']),
+          umbral: Number(b['umbral']), monto: Number(b['monto']),
+          solo_esta_ruta: b['route_code'] !== null, gate_venta_min: num(b['gate_venta_min']),
+        })),
+        dias,
+      };
+    });
+  }
+
+  /**
+   * `[RD.111]` Los tickets de una ruta en UN día, cada uno con sus renglones — el último nivel
+   * del desglose. Misma fuente y misma aritmética que `v_rd_route_daily` (por eso la suma de los
+   * tickets es la venta del día que usó el motor, comprobado en la 21 y la 501 de Q22 al
+   * centavo): en el envío desde la camioneta (`push`) y en Kepler vecinal el importe YA trae
+   * impuestos; en Wincaja el importe es sin impuestos y la venta se le suma.
+   *
+   * ⚠️ El subtotal (sin IVA/IEPS) por renglón NO se calcula aquí: lo deriva la vista por día con
+   * la tasa de Kepler, y copiar esa regla dejaría dos versiones. Por renglón va el importe.
+   */
+  async desgloseTickets(routeCode: string, dia: string): Promise<DesgloseTickets> {
+    const route = this.rutaValida(routeCode);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dia ?? '')) throw new BadRequestException('dia debe ser YYYY-MM-DD');
+    return this.tk.run(async (trx) => {
+      const { rows } = await trx.raw(
+        `SELECT source, consecutivo, doc_ref, cliente, hora, forma_pago_desc,
+                sku, producto, unidad, qty::float8 AS qty, precio_unitario::float8 AS precio_unitario,
+                importe::float8 AS importe,
+                (CASE WHEN source IN ('push', 'kepler_vecinal') THEN importe
+                      ELSE importe * (1 + coalesce(iva, 0) / 100.0 + coalesce(ieps, 0) / 100.0) END)::float8 AS venta
+           FROM analytics.v_route_sales_lines
+          WHERE source_branch = ? AND business_date = ?::date
+          ORDER BY consecutivo, sku`, [route, dia]);
+      const porTicket = new Map<string, {
+        clave: string; source: string; consecutivo: string; doc_ref: string | null; cliente: string | null;
+        hora: string | null; forma_pago: string | null; venta: number; renglones: unknown[];
+      }>();
+      for (const r of rows) {
+        const clave = `${r.source}|${r.consecutivo}`;
+        let t = porTicket.get(clave);
+        if (!t) {
+          t = { clave, source: r.source, consecutivo: r.consecutivo, doc_ref: r.doc_ref, cliente: r.cliente,
+            hora: r.hora, forma_pago: r.forma_pago_desc, venta: 0, renglones: [] };
+          porTicket.set(clave, t);
+        }
+        t.venta += Number(r.venta) || 0;
+        t.renglones.push({ sku: r.sku, producto: r.producto, unidad: r.unidad, qty: r.qty,
+          precio_unitario: r.precio_unitario, importe: r.importe, venta: r.venta });
+      }
+      const tickets = [...porTicket.values()].map((t) => ({ ...t, venta: Math.round(t.venta * 100) / 100 }));
+      return { route_code: route, dia, tickets };
+    });
+  }
+
+  private rutaValida(routeCode: string): string {
+    const r = (routeCode ?? '').trim();
+    if (!/^[A-Za-z0-9-]{1,20}$/.test(r)) throw new BadRequestException('route_code inválido');
+    return r;
   }
 
   /**

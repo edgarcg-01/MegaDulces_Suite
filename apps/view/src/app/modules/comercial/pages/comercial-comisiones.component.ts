@@ -19,6 +19,8 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
+import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
+import { ComisionesDesgloseComponent } from './comisiones-desglose.component';
 import {
   ComercialService, CommissionBoardRow, CommissionRunDetail, CommissionLine,
   CommissionGate, CommissionRecalcResult, CommissionContrast, CommissionContrastRow,
@@ -101,7 +103,7 @@ type Vista = typeof VISTAS[number];
 @Component({
   selector: 'app-comercial-comisiones',
   standalone: true,
-  imports: [PageTabsComponent, RouterLink, NgTemplateOutlet, FormsModule, TagModule, LoadStateComponent, MetricStripComponent, SegmentedComponent, FreshnessPillComponent, TableModule, ContextHelpComponent, ComercialComisionesObjetivoComponent, ToastModule, ConfirmDialogModule, DialogModule, InputNumberModule],
+  imports: [PageTabsComponent, RouterLink, NgTemplateOutlet, FormsModule, TagModule, LoadStateComponent, MetricStripComponent, SegmentedComponent, FreshnessPillComponent, TableModule, ContextHelpComponent, ComercialComisionesObjetivoComponent, ToastModule, ConfirmDialogModule, DialogModule, InputNumberModule, SidePeekComponent, ComisionesDesgloseComponent],
   providers: [MessageService, ConfirmationService],
   template: `
     <div class="cm-page">
@@ -1394,7 +1396,7 @@ type Vista = typeof VISTAS[number];
                   peor del repo (12 columnas sin decir que hace en un telefono).
                 -->
                 <p-table [value]="choferes()" dataKey="route_code" size="small" [rowHover]="true"
-                         selectionMode="single" [(selection)]="filaSel"
+                         selectionMode="single" [(selection)]="filaSel" (onRowSelect)="abrirDesglose($event.data)"
                          class="dt-stack surf-table surf-table--plain surf-table--sticky surf-table--frozen-first"
                          [tableStyle]="{ 'min-width': '78rem' }">
                   <ng-template #header>
@@ -1461,6 +1463,16 @@ type Vista = typeof VISTAS[number];
                 </p-table>
               </div>
             }
+            <!-- [RD.111] Clic (o Enter) en un chofer: por qué cobra lo que cobra, del total al
+                 renglón del ticket. Ventana y no cajón: adentro van tres tablas anidadas. -->
+            <app-side-peek [(open)]="desgloseAbierto" mode="window"
+                           [title]="desgloseTitulo()" [subtitle]="sel() ? ('Quincena ' + sel()!.period_no + ' · ' + rango(sel()!)) : null">
+              @if (desgloseAbierto() && desgloseLinea() && sel()) {
+                <app-comisiones-desglose [linea]="desgloseLinea()!" [periodId]="sel()!.period_id"
+                                         [motivoTexto]="desgloseLinea()!.motivo_no_pago ? etiquetaVeredicto(desgloseLinea()!.motivo_no_pago) : ''"
+                                         [ventaMedida]="run()?.data_as_of ?? null" />
+              }
+            </app-side-peek>
           } @else if (!sel()!.run_id) {
             <div class="cm-card">
               <h2>Quincena {{ sel()!.period_no }} · {{ rango(sel()!) }}</h2>
@@ -1906,6 +1918,19 @@ export class ComercialComisionesComponent {
    * para dar flechas, Home/End y roving tabindex.
    */
   filaSel: CommissionLine | null = null;
+  /** `[RD.111]` El chofer cuyo desglose está abierto. */
+  readonly desgloseLinea = signal<CommissionLine | null>(null);
+  readonly desgloseAbierto = signal(false);
+  readonly desgloseTitulo = computed(() => {
+    const l = this.desgloseLinea();
+    return l ? `Ruta ${l.route_code} · ${l.beneficiario_nombre || 'sin chofer en «Quién cobra»'}` : '';
+  });
+  /** PrimeNG tipa `data` como fila o lista (por el modo múltiple); acá es selección simple. */
+  abrirDesglose(l: CommissionLine | CommissionLine[] | null | undefined): void {
+    if (!l || Array.isArray(l)) return;
+    this.desgloseLinea.set(l);
+    this.desgloseAbierto.set(true);
+  }
   /**
    * `[AUD-A6]` El eje del tiempo de la pantalla: la **quincena** o el **mes**.
    *

@@ -40,7 +40,7 @@ import {
   TransferSuggestionRow, TransferSuggestionResponse, OverstockRow, OverstockResponse, WorkbookRow, WorkbookResponse,
   InTransitOc, InTransitResponse, MonthlySalesResponse, WorklistRow, AgendaProveedorRow,
 } from '../compras.service';
-import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { MetricStripComponent, MetricStripItem, MetricTone } from '../../../shared/components/metric-strip/metric-strip.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
@@ -80,6 +80,8 @@ const SIN_FILAS: URow[] = [];
 const FRESCURA_SIN_MEDIR: Freshness = { data_as_of: null, status: 'unknown', stale: true, age_human: null, inputs: [] };
 /** `[RA-PERF.7]` Proveedor sin nada capturado todavía. Ceros REALES (no se midió nada mal). */
 const SIN_PEDIDO = { cajas: 0, monto: 0, productos: 0 };
+/** `[PQ.76]` Un producto que no existe: pide los totales de las tres listas sin traer renglones. */
+const NINGUN_PRODUCTO = '00000000-0000-0000-0000-000000000000';
 
 /**
  * RA-PRO.47 — Renglón de COMPRA por sucursal del desglose.
@@ -172,10 +174,21 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
       <p-confirmdialog />
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1 style="display:inline-flex;align-items:center;gap:.4rem">Pedido <span class="pr-badge">unificado</span> <app-context-help topic="pedido-compras" /></h1>
+          <!-- [PQ.74] Sin la pastilla «unificado»: no decidía nada y era lo primero que se leía en rojo. -->
+          <h1 style="display:inline-flex;align-items:center;gap:.4rem">Pedido <app-context-help topic="pedido-compras" /></h1>
           <!-- [RA-UX.7] Era un instructivo de ~70 palabras: si la pantalla necesita explicarse para
                usarse, la explicación va al "?" (diccionario versionado, regla P), no al encabezado. -->
           <p class="surf-page-sub">Qué pedir, producto por producto. Abre una fila para capturar por sucursal; lo que escribas se agrega a la requisición, que se genera toda junta desde la barra de abajo.</p>
+          <!-- [PQ.74] La frescura va con el título: era una fila propia antes de las cifras. -->
+          @if (mode() !== 'flujo') {
+            <div class="pr-fresh">
+              @if (mode() === 'pedido') {
+                <app-freshness-pill measures="data" [freshness]="frescura()" />
+              } @else {
+                <app-freshness-pill measures="fetch" [since]="loadedAt()" [staleAfterSec]="900" />
+              }
+            </div>
+          }
         </div>
         <!-- Era un role="tablist" con dos role="tab" y CERO role="tabpanel": un tab que no controla
              ningún panel es ARIA rota (el lector anuncia "pestaña 1 de 2" y no hay panel al que
@@ -223,16 +236,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
            2026-10-07: 415 sellos distintos en 34 días sobre una tabla sana; un max() diría "hace 4
            min" y un min() "hace 34 días"). Si el servidor todavía no lo manda, el veredicto llega
            'unknown' y la píldora dice "datos sin medir" — nunca se esconde ni dibuja un verde.
-           En "Flujo" no se muestra: esa pestaña tiene su propia fuente y daría una hora ajena. -->
-      @if (mode() !== 'flujo') {
-        <div class="pr-fresh">
-          @if (mode() === 'pedido') {
-            <app-freshness-pill measures="data" [freshness]="frescura()" />
-          } @else {
-            <app-freshness-pill measures="fetch" [since]="loadedAt()" [staleAfterSec]="900" />
-          }
-        </div>
-      }
+           En "Flujo" no se muestra: esa pestaña tiene su propia fuente y daría una hora ajena.
+           [PQ.74] La píldora vive ahora en el encabezado, junto al título. -->
 
       @if (mode()==='pedido') {
         <!-- RA-PRO.32.3 — PEDIDO unificado: workbook por SKU + desglose por sucursal (compra/traspaso/sobre) en el acordeón -->
@@ -249,7 +254,9 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
             <button type="button" class="pr-zlink" (click)="setMode('ciclo')">Ver el ciclo</button>
           </div>
         } @else if (cicloAviso(); as a) {
-          <div class="pr-borrador pr-ciclo" [class.pr-ciclo-urge]="a.vencidos > 0" role="status">
+          <!-- [PQ.74] Sin el rojo de urgencia: las fechas del ciclo son ESTIMADAS (lead time en 0, 25 % de
+               canales regulares; PQ.UI.5) y un rojo diario se aprende a ignorar. -->
+          <div class="pr-borrador pr-ciclo" role="status">
             <i class="pi pi-calendar" aria-hidden="true"></i>
             @if (a.vencidos + a.hoy > 0) {
               <p>Hoy te toca pedirle a <strong>{{ cicloAvisoProveedores(a) }}</strong>:
@@ -302,15 +309,19 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
             <p-inputicon class="pi pi-search" />
             <input pInputText type="text" [(ngModel)]="search" (ngModelChange)="buscarLuego()" (keyup.enter)="buscarYa()" placeholder="SKU o producto…" aria-label="Buscar producto" />
           </p-iconfield>
-          <label class="pr-cov">
+          <!-- [PQ.74] Con «cada sucursal», la caja de días repetía al segmentado (y su texto salía
+               truncado: «cada su…»). Aparece al elegir días, para afinarlos. -->
+          <div class="pr-cov">
             <span>Cobertura</span>
+            @if (!coberturaSucursal) {
             <!-- [RA-UX.6] Recalculaba sólo al perder el foco: con − / + el campo decía 31 d y la
                  tabla seguía calculada con 30. Ahora recalcula al detenerse (y al salir). -->
-            <p-inputnumber [ngModel]="coberturaSucursal ? null : coverage" (ngModelChange)="coberturaTecleada($event)" (onBlur)="coberturaYa()" [min]="1" [max]="120" [showButtons]="!coberturaSucursal" placeholder="cada suc."
+            <p-inputnumber [ngModel]="coverage" (ngModelChange)="coberturaTecleada($event)" (onBlur)="coberturaYa()" [min]="1" [max]="120" [showButtons]="true"
                            buttonLayout="horizontal" [step]="1" suffix=" d" inputStyleClass="pr-cov-in"
                            decrementButtonClass="p-button-text" incrementButtonClass="p-button-text"
                            incrementButtonIcon="pi pi-plus" decrementButtonIcon="pi pi-minus" ariaLabel="Días de cobertura"></p-inputnumber>
-          </label>
+            }
+          </div>
           <!-- Los presets de cobertura son un SELECTOR DE VALOR (mutuamente excluyente), no un
                toggle. Hasta 2026-09-14 usaban '.pr-chip', la misma clase que los filtros
                booleanos de al lado: mismo aspecto, semántica opuesta, y nadie podía saber
@@ -436,7 +447,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                       Producto
                     </span>
                   </th>
-                  <th class="pr-r" title="Total de lo que se va a pedir, en CAJAS. Es la suma de las sucursales del desglose y SE MUEVE al editarlas.">Σ Ped.<br/>cajas</th>
+                  <th class="pr-r" title="Total de lo que se va a pedir, en la unidad de compra de cada producto (la que dice la celda: cj, kg, bto…). Es la suma de las sucursales del desglose y SE MUEVE al editarlas.">Σ Ped.<br/>a pedir</th>
                   <th class="pr-r pr-val" title="Lo que cuesta ese pedido, valuado con el costo de caja de CADA sucursal.">$ Pedido</th>
                   <th class="pr-r" title="Existencia de toda la red, en CAJAS (suma de las sucursales). El desglose por sucursal está al abrir la fila.">Exist.<br/>red</th>
                   <th class="pr-c-m pr-r" title="Mercancía ya pedida que todavía no llega (OC abierta en Kepler). Clic para ver folios, antigüedad y cuándo llega. ⛔ El Pedido NO la descuenta: muchas OC llevan meses abiertas porque en Kepler la orden se captura al RECIBIR, así que restarlas taparía compras que sí hacen falta. Mira esta columna antes de pedir: lo de acá se SUMA a lo que pidas.">En camino</th>
@@ -459,19 +470,24 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                   <td><div class="pr-prod"><input type="checkbox" class="pr-chk" [checked]="isSel(r)" [disabled]="!isSel(r) && sumCajas(r) <= 0"
                            (click)="$event.stopPropagation()" (change)="toggleSel(r)"
                            [title]="sumCajas(r) > 0 ? 'En la requisición en armado (la barra de abajo)' : 'Sin pedido al proveedor: no hay nada que requerir'"
-                           [attr.aria-label]="'Agregar ' + r.sku + ' a la requisición'" /><i class="pi pr-wb-go" [ngClass]="isOpen(r) ? 'pi-angle-down' : 'pi-angle-right'"></i> {{ r.nombre }}</div><div class="pr-prod-meta">@if (esContable(r)) { <span class="pr-noncom" title="Pseudo-producto contable de Kepler (unidad SER): devoluciones, descuentos a factura, tiempo aire. No es mercancia y no se puede pedir; aparece porque el workbook todavia no los excluye en origen.">contable</span> }<span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span>@if (r.fuera_calculo) { <span class="pr-bflag pr-bflag-pend">sin existencia en la red · {{ ultimaVentaTexto(r) }}</span> }@if (abcOf(r.product_id); as a) { <p-tag [value]="a" [severity]="abcSev(a)" styleClass="pr-abc"></p-tag> }@for (t of prodTypes(r.product_id); track t) { <p-tag [value]="typeLabel(t)" [severity]="typeSev(t)" styleClass="pr-abc"></p-tag> }@if (unitRefOf(r.product_id); as u) { <button type="button" class="pr-unit-btn" (click)="openUnit(u); $event.stopPropagation()" title="Ajustar la unidad de venta de este producto"><p-tag [value]="unitLabel(u.unit_source)" [severity]="u.unit_source === 'revisar' ? 'warn' : 'contrast'" styleClass="pr-abc"></p-tag></button> }@if (costoFlag(r); as cf) { <span class="pr-bflag" [ngClass]="cf.cls" [title]="margenTitle(r) + ' ' + margenCompraTitle(r)">{{ cf.txt }}</span> }@if (perdida(r); as pd) { <span class="pr-bflag pr-bflag-warn" [title]="perdidaTitle(r)">perdió {{ dineroCorto(pd.total) }}</span> }@if (pendiente(r); as pq) { <span class="pr-bflag pr-bflag-pend" [ngClass]="pq.documentos > 1 ? 'pr-bflag-bad' : ''" [title]="pendienteTitle(r)">ya requisado {{ pq.cajas | number:'1.0-1' }} cj@if (pq.documentos > 1) { · {{ pq.documentos }} veces }</span> }</div></td>
+                           [attr.aria-label]="'Agregar ' + r.sku + ' a la requisición'" /><i class="pi pr-wb-go" [ngClass]="isOpen(r) ? 'pi-angle-down' : 'pi-angle-right'"></i> {{ r.nombre }}</div><div class="pr-prod-meta">@if (esContable(r)) { <span class="pr-noncom" title="Pseudo-producto contable de Kepler (unidad SER): devoluciones, descuentos a factura, tiempo aire. No es mercancia y no se puede pedir; aparece porque el workbook todavia no los excluye en origen.">contable</span> }<span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span>@if (r.fuera_calculo) { <span class="pr-bflag pr-bflag-pend">sin existencia en la red · {{ ultimaVentaTexto(r) }}</span> }@if (abcOf(r.product_id); as a) { <p-tag [value]="a" [severity]="abcSev(a)" styleClass="pr-abc"></p-tag> }@for (t of prodTypes(r.product_id); track t) { <p-tag [value]="typeLabel(t)" [severity]="typeSev(t)" styleClass="pr-abc"></p-tag> }@if (unitRefOf(r.product_id); as u) { <button type="button" class="pr-unit-btn" (click)="openUnit(u); $event.stopPropagation()" title="Ajustar la unidad de venta de este producto"><p-tag [value]="unitLabel(u.unit_source)" [severity]="u.unit_source === 'revisar' ? 'warn' : 'contrast'" styleClass="pr-abc"></p-tag></button> }@if (costoFlag(r); as cf) { <span class="pr-bflag" [ngClass]="cf.cls" [title]="margenTitle(r) + ' ' + margenCompraTitle(r)">{{ cf.txt }}</span> }@if (perdida(r); as pd) { <span class="pr-bflag pr-bflag-warn" [title]="perdidaTitle(r)">perdió {{ dineroCorto(pd.total) }}</span> }@if (pendiente(r); as pq) { <span class="pr-bflag pr-bflag-pend" [ngClass]="pq.documentos > 1 ? 'pr-bflag-bad' : ''" [title]="pendienteTitle(r)">ya requisado {{ pq.cajas | number:'1.0-1' }} {{ etOf(r).mayor }}@if (pq.documentos > 1) { · {{ pq.documentos }} veces }</span> }</div></td>
                   <!-- Los totales son la SUMA VIVA del desglose de abajo: al editar una sucursal
                        se mueven acá. Arrancan en el sugerido del motor, que es lo mismo que
                        publicaba antes la columna por sucursal. -->
+                  <!-- [PQ.79] Si NINGUNA sucursal se pudo calcular (peldano en contra en todas), el
+                       total no es 0: no se midio. Se pinta el guion con su razon (ADR-056). -->
                   <td class="pr-r pr-strong" [title]="pedidoTitle(r)">
+                    @if (pedidoSinCalcular(r)) { <span class="pr-rung" [title]="sinCalcularTitle(r)">— <i class="pi pi-exclamation-triangle" aria-hidden="true"></i></span> } @else {
                     {{ sumCajas(r) | number:'1.0-1' }} <span class="pr-unit">{{ etOf(r).mayor }}</span>@if (r.almacenes_sin_pedido) { <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> }
+                    }
                   </td>
-                  <td class="pr-r pr-val pr-strong" [class.pr-ped-on]="sumCajas(r) > 0">{{ money(sumValor(r)) }}</td>
+                  <td class="pr-r pr-val pr-strong" [class.pr-ped-on]="sumCajas(r) > 0">{{ pedidoSinCalcular(r) ? '—' : money(sumValor(r)) }}</td>
                   <!-- U.2 — la existencia de red suma SOLO los almacenes con el peldano verificado.
                        Si alguno quedo fuera se declara con el triangulo y el conteo en el tooltip,
                        porque un total mas chico se lee como "hay menos inventario". -->
                   <td class="pr-r pr-muted" [title]="exisRedTitle(r)">
-                    @if (r.almacenes_sin_valuar) {
+                    @if (sinCalcular(r)) { <span class="pr-rung" [title]="sinCalcularTitle(r)">— <i class="pi pi-exclamation-triangle" aria-hidden="true"></i></span> }
+                    @else if (r.almacenes_sin_valuar) {
                       <span class="pr-rung">{{ exisRed(r) | number:'1.0-1' }} <i class="pi pi-exclamation-triangle" aria-hidden="true"></i></span>
                     } @else { {{ exisRed(r) | number:'1.0-1' }} }
                   </td>
@@ -634,15 +650,13 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                               {{ b.vta | number:'1.0-1' }} <span class="pr-vmx-sep">/</span> @if (b.mx != null) { {{ b.mx | number:'1.0-1' }} } @else { — }
                                             </button>
                                           </td>
+                                          <!-- [PQ.80] Con el peldano en contra NO hay sugerido ni dias (se declaran «—»), pero la
+                                               captura queda ABIERTA: el comprador pide a mano. Antes el renglon entero era «—» y un
+                                               producto con una entrada mal capturada en UNA sucursal no se podia pedir en ninguna. -->
                                           @if (b.rung) {
                                             <td class="pr-r pr-dx-c-exi"><span class="pr-rung" [title]="bRungTitle(b)">{{ b.nat | number:'1.0-0' }} {{ b.natu }} <i class="pi pi-exclamation-triangle" aria-hidden="true"></i></span></td>
                                             <td class="pr-r pr-muted pr-dx-c-dur">—</td>
                                             <td class="pr-r pr-muted pr-dx-c-tra">—</td>
-                                            <td class="pr-r pr-rung pr-dx-c-ped" [title]="bRungTitle(b)">—</td>
-                                            @if (verDetalle(r.product_id)) { <td class="pr-r pr-muted pr-dx-c-uni">—</td> }
-                                            <td class="pr-r pr-muted pr-dx-c-que">—</td>
-                                            @if (verDetalle(r.product_id)) { <td class="pr-muted pr-dx-c-ent">—</td> }
-                                            <td class="pr-r pr-muted pr-dx-c-val">—</td>
                                           } @else {
                                             <td class="pr-r pr-muted pr-dx-c-exi" [title]="existTitle(b.exis, qtyOf(r, b))">{{ b.exis | number:'1.0-1' }}</td>
                                             <td class="pr-r pr-dx-c-dur">
@@ -658,7 +672,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                                 @if (t.sale > 0) { <span class="pr-tra-out" [title]="'Manda ' + (t.sale | number:'1.0-1') + ' cajas a ' + t.a">manda {{ t.sale | number:'1.0-1' }}</span> }
                                               } @else { <span class="pr-muted">—</span> }
                                             </td>
-                                            <td class="pr-r pr-dx-c-ped">
+                                          }
+                                          <td class="pr-r pr-dx-c-ped">
                                               <span class="pr-step">
                                                 <button type="button" class="pr-step-b" tabindex="-1" aria-hidden="true"
                                                         (pointerdown)="stepStart(r, b, -1, $event)" (pointerup)="stepStop()" (pointerleave)="stepStop()"
@@ -709,22 +724,23 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                               </td>
                                             }
                                             <td class="pr-r pr-val pr-dx-c-val" [class.pr-strong]="qtyOf(r, b) > 0">{{ qtyOf(r, b) > 0 ? money(qtyOf(r, b) * b.cc) : '—' }}</td>
-                                          }
                                         </tr>
                                       }
                                     </tbody>
                                     <tfoot><tr>
+                                      <!-- [PQ.79] El total suma SOLO las sucursales calculadas: si falta alguna lo
+                                           dice con el triangulo, y si no hay ninguna es guion, no 0. -->
                                       <td>Total</td>
-                                      <td class="pr-r">{{ totVta(r) | number:'1.0-1' }}</td>
-                                      <td class="pr-r">{{ totExis(r) | number:'1.0-1' }}</td>
+                                      <td class="pr-r">@if (sinCalcular(r)) { <span class="pr-rung" [title]="sinCalcularTitle(r)">— <i class="pi pi-exclamation-triangle" aria-hidden="true"></i></span> } @else { {{ totVta(r) | number:'1.0-1' }}@if (r.almacenes_sin_valuar) { <i class="pi pi-exclamation-triangle pr-rung" [title]="sinCalcularTitle(r)" aria-hidden="true"></i> } }</td>
+                                      <td class="pr-r">@if (sinCalcular(r)) { <span class="pr-rung" [title]="sinCalcularTitle(r)">— <i class="pi pi-exclamation-triangle" aria-hidden="true"></i></span> } @else { {{ totExis(r) | number:'1.0-1' }}@if (r.almacenes_sin_valuar) { <i class="pi pi-exclamation-triangle pr-rung" [title]="sinCalcularTitle(r)" aria-hidden="true"></i> } }</td>
                                       <td></td>
-                                      <td class="pr-r"><span class="pr-tra-in">@if (prodTrCajas(r.product_id) > 0) { +{{ prodTrCajas(r.product_id) | number:'1.0-1' }} cj }</span></td>
+                                      <td class="pr-r"><span class="pr-tra-in">@if (prodTrCajas(r.product_id) > 0) { +{{ prodTrCajas(r.product_id) | number:'1.0-1' }} {{ etOf(r).mayor }} }</span></td>
                                       <!-- [PQ.36] El total en cajas Y en la unidad base: «50 cj = 400 pz» se lee antes de mandar. -->
-                                      <td class="pr-r">{{ sumCajas(r) | number:'1.0-1' }} cj@if ((+r.uxc || 1) > 1 && sumCajas(r) > 0) { <span class="pr-muted"> = {{ piezasDeCajas(sumCajas(r), +r.uxc) | number:'1.0-0' }} {{ unidadBase(r) }}</span> }</td>
+                                      <td class="pr-r">@if (pedidoSinCalcular(r)) { — } @else { {{ sumCajas(r) | number:'1.0-1' }} {{ etOf(r).mayor }} }@if ((+r.uxc || 1) > 1 && sumCajas(r) > 0) { <span class="pr-muted"> = {{ piezasDeCajas(sumCajas(r), +r.uxc) | number:'1.0-0' }} {{ unidadBase(r) }}</span> }</td>
                                       @if (verDetalle(r.product_id)) { <td></td> }
                                       <td></td>
                                       @if (verDetalle(r.product_id)) { <td></td> }
-                                      <td class="pr-r pr-val">{{ money(sumValor(r)) }}</td>
+                                      <td class="pr-r pr-val">{{ pedidoSinCalcular(r) ? '—' : money(sumValor(r)) }}</td>
                                     </tr></tfoot>
                                   </table>
                                 </div>
@@ -987,7 +1003,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
               <section class="pr-cart-g" [attr.aria-label]="'Proveedor ' + g.nombre">
                 <header class="pr-cart-gh">
                   <strong>{{ g.nombre }}</strong>
-                  <span class="pr-muted">{{ g.items.length }} producto{{ g.items.length === 1 ? '' : 's' }} · {{ g.cajas | number:'1.0-1' }} cj</span>
+                  <span class="pr-muted">{{ g.items.length }} producto{{ g.items.length === 1 ? '' : 's' }}@if (unidadComun(g.items); as u) { · {{ g.cajas | number:'1.0-1' }} {{ u }} }</span>
                   <span class="pr-bulk-sp"></span>
                   <strong class="pr-cart-m">{{ money(g.valor) }}</strong>
                 </header>
@@ -1001,7 +1017,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                         <span class="pr-cart-nom">{{ it.r.nombre }}</span>
                         <span class="pr-sku">{{ it.r.sku }}</span>
                         @if (!it.entra) { <span class="pr-bflag" title="Sin cantidad para pedir ni traspasar: no se genera nada de este producto.">sin cantidad — no entra</span> }
-                        @if (pendiente(it.r); as pq) { <span class="pr-bflag pr-bflag-pend" [ngClass]="pq.documentos > 1 ? 'pr-bflag-bad' : ''" [title]="pendienteTitle(it.r)">ya requisado {{ pq.cajas | number:'1.0-1' }} cj</span> }
+                        @if (pendiente(it.r); as pq) { <span class="pr-bflag pr-bflag-pend" [ngClass]="pq.documentos > 1 ? 'pr-bflag-bad' : ''" [title]="pendienteTitle(it.r)">ya requisado {{ pq.cajas | number:'1.0-1' }} {{ etOf(it.r).mayor }}</span> }
                       </div>
                       <div class="pr-cart-d">
                         <span class="pr-muted">{{ it.sucursales }} sucursal{{ it.sucursales === 1 ? '' : 'es' }} · {{ it.cajas | number:'1.0-1' }} {{ etOf(it.r).mayor }}@if (it.traspaso > 0) { · traspaso {{ money(it.traspaso) }} }</span>
@@ -1648,14 +1664,16 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
   `,
   styles: [`
     :host { display: block; padding-bottom: 3.5rem; }
-    app-metric-strip { display: block; margin-bottom: 1rem; }
+    app-metric-strip { display: block; margin-bottom: 0; }   /* [PQ.74] el aire lo pone el gap de .pr-page */
     .surf-page-head { display: flex; align-items: flex-start; gap: 1rem; }
-    .pr-badge { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-nano); text-transform: uppercase; letter-spacing: .08em;
-      color: var(--action); border: 1px solid var(--action-ring, var(--border-color)); border-radius: var(--r-pill, 999px); padding: .05rem .45rem; vertical-align: middle; margin-left: .4rem; }
     /* (2026-09-14) .pr-mode se retira: el selector de vista pasó a app-segmented. */
     .pr-tab { font-size: var(--fs-sm); padding: .3rem .7rem; border: 0; background: transparent; color: var(--text-muted); border-radius: var(--r-sm, 8px); cursor: pointer; }
     .pr-tab-on { background: var(--overlay-selected, var(--hover-bg)); color: var(--text-main); font-weight: 600; }
-    .pr-filters { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-bottom: .75rem; }
+    .pr-filters { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0; }
+    /* [PQ.74] Entre bloques, 8 px y no 16 + el margen de cada uno: con 768 px de alto, el primer
+       producto quedaba en y=850 (debajo de la barra fija). La mitad de lo ganado era aire. */
+    .pr-page { gap: .5rem; }
+    .pr-page > .surf-page-head { padding-bottom: .5rem; }
     :host ::ng-deep .pr-sel-wide { min-width: 17rem; }
     :host ::ng-deep .pr-sel { min-width: 13rem; }
     :host ::ng-deep .pr-search input { min-width: 12rem; }
@@ -1724,7 +1742,9 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-chk:disabled { cursor: not-allowed; opacity: .35; }
     .pr-chk:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
     .pr-sel-all { display: inline-flex; align-items: center; gap: .15rem; cursor: pointer; font: inherit; }
-    .pr-prod-meta { display: flex; align-items: center; gap: .4rem; margin-top: .1rem; }
+    /* [PQ.74] Con varias pastillas, el proveedor se partía en seis renglones (17083): ahora las
+       pastillas bajan de línea y el nombre no se parte. */
+    .pr-prod-meta { display: flex; align-items: center; gap: .4rem; margin-top: .1rem; flex-wrap: wrap; }
     .pr-sku { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-micro); color: var(--text-faint); }
     .pr-unit-btn { border: 0; background: transparent; padding: 0; cursor: pointer; }
     /* RA-PRO.44 — "En camino": chip accionable que abre las OCs abiertas del SKU. */
@@ -1744,9 +1764,9 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     /* U.2 — el hueco del valuado, declarado. Mismo lenguaje visual que .pr-tran-gap (hairline +
        filete ámbar): es una advertencia de dato, no un error de la pantalla. */
     .pr-rung-banner { display: flex; gap: .5rem; align-items: flex-start; font-size: var(--fs-sm);
-      line-height: 1.5; margin: 0 0 1rem; padding: .6rem .75rem;
-      border: 1px solid var(--border-color); border-left: 2px solid var(--warn-fg);
-      border-radius: var(--r-sm, 8px); background: var(--surface-2, transparent);
+      line-height: 1.5; margin: 0; padding: 0 .25rem;
+      /* [PQ.74] Sin caja: la cifra ya está en «Valor existencia»; esto la explica, en una línea. */
+      border: 0; background: transparent;
       color: var(--text-muted); }
     .pr-rung-banner i { color: var(--warn-fg); margin-top: .18rem; flex: none; }
     .pr-rung-banner p { margin: 0; max-width: 78ch; }
@@ -1790,7 +1810,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-grp-sp { flex: 1; }
     :host ::ng-deep .pr-grp-btn { --p-button-sm-font-size: var(--fs-xs); }
     .pr-link { color: var(--action); cursor: pointer; text-decoration: underline; }
-    .pr-supp { color: var(--text-muted); font-size: var(--fs-sm); }
+    .pr-supp { color: var(--text-muted); font-size: var(--fs-sm); white-space: nowrap; }
     .pr-mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-sm); }
     .pr-strong { font-weight: 700; }
     .pr-sug { background: var(--overlay-selected, transparent); }
@@ -1817,8 +1837,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-empty p { margin: 0 0 .25rem; font-weight: 600; color: var(--text-main); }
     .pr-empty span { font-size: var(--fs-sm); }
     .pr-foot { font-size: var(--fs-xs); color: var(--text-muted); margin-top: .5rem; }
-    .pr-agotados { font-size: var(--fs-sm); color: var(--text-main); margin: 0 0 .5rem; }
-    .pr-fresh { display: inline-flex; align-items: center; margin: -.25rem 0 .6rem; }
+    .pr-agotados { font-size: var(--fs-sm); color: var(--text-main); margin: 0; }
+    .pr-fresh { display: flex; align-items: center; margin: .25rem 0 0; }
     /* Separador entre el selector de VALOR (cobertura) y los toggles booleanos: el ojo necesita
        ver que son dos grupos distintos, no siete botones iguales en fila. */
     .pr-fsep { width: 1px; align-self: stretch; margin: .15rem .35rem; background: var(--border-color); }
@@ -1893,7 +1913,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
        hace dudar de dónde sale un desalineo cuando se audita. */
     :host ::ng-deep .pr-wb th.pr-ped-h { color: var(--action); }
     .pr-ped { font-variant-numeric: tabular-nums; }
-    .pr-ped-on { color: var(--action); font-weight: 600; }
+    /* [PQ.73] Antes en --action: el color de acción en cada fila no decía nada y gastaba el que marca el botón. */
+    .pr-ped-on { color: var(--text-main); font-weight: 600; }
     .pr-uxc { line-height: 1.15; }
     .pr-unit { font-size: var(--fs-nano); color: var(--text-faint); }
     .pr-unit2 { font-size: var(--fs-nano); color: var(--info-fg, var(--text-muted)); }
@@ -2033,8 +2054,10 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-borrador i { color: var(--action); }
     .pr-borrador-sub { display: block; color: var(--text-muted); font-size: var(--fs-xs); }
     /* [PQ.5] El aviso del ciclo: mismo molde que el borrador; con vencidos, el filete avisa. */
-    .pr-ciclo-urge { border-left-color: var(--bad-fg); }
-    .pr-ciclo-urge i { color: var(--bad-fg); }
+    /* [PQ.74] El aviso del ciclo en UNA línea, sin caja ni rojo; su definición de «canal» va en la misma línea. */
+    .pr-ciclo { margin: 0; padding: 0 .25rem; border: 0; background: transparent; }
+    .pr-ciclo .pr-borrador-sub { display: inline; margin-left: .35rem; }
+    .pr-ciclo i { color: var(--text-muted); }
     /* RA-PEND.2 — lo que impide generar, arriba del boton apagado. */
     .pr-plan-stop { margin: .6rem 0 0; padding: .55rem .7rem; border: 1px solid var(--bad-border);
       border-radius: var(--r-sm, 8px); background: var(--bad-bg, transparent); color: var(--bad-fg); font-size: var(--fs-sm); }
@@ -2425,6 +2448,11 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   private readonly buyRows = signal<PurchaseSuggestionRow[]>([]);
   private readonly trRows = signal<TransferSuggestionRow[]>([]);
   private readonly ovRows = signal<OverstockRow[]>([]);
+  /** `[PQ.76]` Totales del filtro completo, del servidor. `undefined` = cargando · `null` = la lista no respondió. */
+  readonly trTotal = signal<number | null | undefined>(undefined);
+  readonly ovTotal = signal<number | null | undefined>(undefined);
+  /** `[PQ.76]` Productos cuyas tres listas ya están cargadas (página vista o marcados). */
+  private enriquecidos = new Set<string>();
   private readonly urows = signal<URow[]>([]);       // modelo unificado (qty editable vive aquí)
   private readonly tickN = signal(0);                 // fuerza recompute de subtotales al editar qty
 
@@ -2611,7 +2639,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
 
   /** Leyendas del renglón: lo que FALTA, dicho con palabras (no un cero que se lea "urge"). */
   branchFlags(b: BranchBuy): string[] {
-    if (b.rung) return [];
+    if (b.rung) return ['sin sugerido · pide a mano'];   // [PQ.80]
     const out: string[] = [];
     if (!(b.exis > 0)) out.push('sin existencia');
     if (!(b.vta > 0)) out.push('sin venta');
@@ -2702,6 +2730,11 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     for (const r of this.knownRows().values()) m.set(r.product_id, etiquetaUnidades(this.escInput(r)));
     return m;
   });
+  /** `[PQ.72]` La unidad que comparten todos los renglones, o `null`: sumar cajas con kilos no da un número. */
+  unidadComun(items: ReadonlyArray<{ r: WorkbookRow }>): string | null {
+    const u = new Set(items.map((it) => this.etOf(it.r).mayor));
+    return u.size === 1 ? [...u][0] : null;
+  }
   etOf(r: WorkbookRow): EtiquetaUnidades {
     return this.etMap().get(r.product_id) ?? etiquetaUnidades(this.escInput(r));
   }
@@ -2988,6 +3021,27 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       + 'por unidad de stock; el detalle está en la bandeja de hallazgos.';
   }
 
+  /**
+   * `[PQ.79]` ¿Ninguna sucursal del renglón se pudo calcular? Entonces sus totales NO son cero: no se
+   * midieron, y se pintan «—». Caso real (2026-11-05, 59059 NARANJA BOLI CHICO): las 5 sucursales con
+   * peldaño en contra y la pantalla decía «0 cj · $0 · Exist. red 0» con 939 paquetes en la red.
+   */
+  sinCalcular(r: WorkbookRow): boolean {
+    const bs = this.branchBuys(r);
+    return bs.length > 0 && bs.every((b) => !!b.rung);
+  }
+  /** `[PQ.80]` Lo PEDIDO es «—» sólo si no se calculó Y nadie capturó a mano: lo capturado es un hecho. */
+  pedidoSinCalcular(r: WorkbookRow): boolean { return this.sinCalcular(r) && !(this.sumCajas(r) > 0); }
+  sinCalcularTitle(r: WorkbookRow): string {
+    const bs = this.branchBuys(r);
+    const n = bs.filter((b) => b.rung).length;
+    if (!n) return '';
+    const cuales = n === bs.length ? `Ninguna de las ${n} sucursales` : `${n} de ${bs.length} sucursales no`;
+    return `${cuales} se pudo calcular: el divisor de cajas no cuadra con lo que se pagó por unidad. `
+      + 'No es cero: la existencia está en su unidad suelta dentro del desglose. Suele ser una entrada '
+      + 'de compra capturada en otra unidad en Kepler (piezas como paquetes).';
+  }
+
   /** Existencia de RED en cajas = Σ de las sucursales con el peldaño verificado (U.2). */
   exisRed(r: WorkbookRow): number {
     return this.branchBuys(r).reduce((s, b) => s + (b.rung ? 0 : b.exis), 0);
@@ -3011,8 +3065,9 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
 
   /** Cantidad en CAJAS: lo que el usuario escribió, o el sugerido del motor si no tocó nada. */
   qtyOf(r: WorkbookRow, b: BranchBuy): number {
-    if (b.rung) return 0;
     const ov = this.buyQty()[this.bk(r.product_id, b.code)];
+    // [PQ.80] Con el peldano en contra no hay sugerido, pero lo que el comprador escribe SÍ cuenta.
+    if (b.rung) return ov ?? 0;
     return ov === undefined ? b.seed : ov;
   }
   /** Factor (en unidades base) de la unidad en que se captura el renglón. */
@@ -4166,11 +4221,15 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   }
 
   /** «$667 K de $1.28 M» — el pedido típico que ya publica la fila. */
-  tipicoCorto(r: WorkbookRow): string | null {
+  /**
+   * `[PQ.75]` Las dos cifras por separado. Antes era «$686 mil de $241 mil» en una sola línea, y en la
+   * auditoría nivel A no se entendía cuál era el típico ni qué se comparaba con qué.
+   */
+  tipicoCorto(r: WorkbookRow): { tipico: string; llevas: string } | null {
     const pt = this.pedidoTipico(r);
     if (!pt) return null;
     const f = (v: number) => (pt.criterio === 'monto' ? this.dineroCorto(v) : `${Math.round(v).toLocaleString('es-MX')} cj`);
-    return `${f(pt.llevas)} de ${f(pt.tipico ?? 0)}`;
+    return { tipico: f(pt.tipico ?? 0), llevas: f(pt.llevas) };
   }
 
   /**
@@ -4629,6 +4688,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     // indexado por producto, así que lo que no está en la página simplemente no se pinta.
     if (reloadEnrichment) {
       this.detailReady.set(false);
+      this.trTotal.set(undefined); this.ovTotal.set(undefined);
       // `[RA-BORR.1]` ⛔ **ACÁ SE BORRABA EL PEDIDO, Y ÉSE ERA EL ACCIDENTE.**
       //
       // Vivían un `buyQty.set({})` + `buyUnit` + `buyDeliver` + `resetSel()` + `dirty.set(false)`,
@@ -4667,10 +4727,33 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         this.wbAgotadosN.set(r.agotados_con_venta ?? null);
         this.frescura.set(r.freshness ?? FRESCURA_SIN_MEDIR);
         this.loadedAt.set(Date.now());
+        // `[PQ.76]` El enriquecimiento (traspasos, sobrestock, ABC) se pide para los productos de la
+        // PÁGINA, no para «los primeros 500 de la red»: el servidor topaba ahí y se sumaban como si
+        // fueran el total. Al cambiar de filtro se pide la página más lo marcado; al paginar, sólo
+        // lo que falte, y se AGREGA (reconstruir borraría las cantidades de traspaso ya editadas).
+        if (!reloadEnrichment) {
+          const faltan = [...new Set(r.rows.map((x) => x.product_id))].filter((p) => !this.enriquecidos.has(p));
+          if (faltan.length) {
+            this.fetchConsolidated(true, faltan).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((res) => {
+              if (gen !== this.reqGen || !res.buy || !res.tr || !res.ov) return;
+              this.agregarEnriquecimiento(res.buy.rows, res.tr.rows, res.ov.rows);
+              faltan.forEach((p) => this.enriquecidos.add(p));
+            });
+          }
+        }
         if (reloadEnrichment) {
-          this.fetchConsolidated(true).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((res) => {
+          const pids = [...new Set([...r.rows.map((x) => x.product_id), ...[...this.selected()].slice(0, 300)])];
+          // Página vacía: igual se piden los totales (los KPIs son del filtro), pero sin renglones.
+          // Una lista vacía de productos el servidor la lee como «sin filtro» y mandaría los 500
+          // primeros de la red; un id que no existe trae sólo el renglón testigo con los totales.
+          this.fetchConsolidated(true, pids.length ? pids : [NINGUN_PRODUCTO]).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((res) => {
             if (gen !== this.reqGen) return;   // idem: el enriquecimiento de una consulta vieja
             this.buyRows.set(res.buy?.rows ?? []); this.trRows.set(res.tr?.rows ?? []); this.ovRows.set(res.ov?.rows ?? []);
+            this.enriquecidos = new Set(res.buy && res.tr && res.ov ? pids : []);
+            // Los KPIs son del filtro completo: el total del servidor, no la suma de lo que viajó.
+            // Una lista que no respondió se declara (null), no se dibuja en cero.
+            this.trTotal.set(res.tr ? Number(res.tr.total_valor) || 0 : null);
+            this.ovTotal.set(res.ov ? Number(res.ov.total_valor) || 0 : null);
             this.rebuild(); this.detailReady.set(true);
           });
         }
@@ -4693,27 +4776,40 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   }
 
   /** forkJoin de las 3 fuentes por-sucursal. ignoreWarehouse=true (Vista Excel) trae todas las sucursales. */
-  private fetchConsolidated(ignoreWarehouse: boolean) {
+  private fetchConsolidated(ignoreWarehouse: boolean, product_ids?: string[]) {
     const wh = ignoreWarehouse ? undefined : (this.fWarehouse || undefined);
     const sup = this.fSupplier || undefined, s = this.search.trim() || undefined, cat = this.fCategory || undefined;
     const brand = this.fBrand || undefined;
+    // `[PQ.76]` Con `product_ids` el servidor no topa en 500: trae todos los renglones de esos productos.
+    const pageSize = product_ids ? 5000 : 1000;
     return forkJoin({
-      buy: this.api.purchaseSuggestion({ supplier_id: sup, brand_id: brand, category_id: cat, warehouse_id: wh, scope: 'needed', search: s, coverage_days: this.coverage, pageSize: 1000 })
+      buy: this.api.purchaseSuggestion({ supplier_id: sup, brand_id: brand, category_id: cat, warehouse_id: wh, scope: 'needed', search: s, coverage_days: this.coverage, pageSize, product_ids })
         .pipe(catchError(() => of(null as PurchaseSuggestionResponse | null))),
-      tr: this.api.transferSuggestion({ warehouse_id: wh, supplier_id: sup, brand_id: brand, category_id: cat, search: s, coverage_days: this.coverage, pageSize: 1000 })
+      tr: this.api.transferSuggestion({ warehouse_id: wh, supplier_id: sup, brand_id: brand, category_id: cat, search: s, coverage_days: this.coverage, pageSize, product_ids })
         .pipe(catchError(() => of(null as TransferSuggestionResponse | null))),
-      ov: this.api.overstock({ warehouse_id: wh, supplier_id: sup, brand_id: brand, category_id: cat, search: s, over_days: 90, pageSize: 1000 })
+      ov: this.api.overstock({ warehouse_id: wh, supplier_id: sup, brand_id: brand, category_id: cat, search: s, over_days: 90, pageSize, product_ids })
         .pipe(catchError(() => of(null as OverstockResponse | null))),
     });
+  }
+
+  /** `[PQ.76]` Una cifra que sale de una lista: cargando, no medida o el total del servidor. Nunca un 0 inventado. */
+  private kpiDeLista(label: string, v: number | null | undefined, sub: string, tone?: MetricTone): MetricStripItem {
+    // `format: 'text'` explícito. El strip ya pinta como texto lo que no es número (`isText`), así que
+    // no es lo que evita el 0; lo que lo evita es no devolver nunca un número inventado.
+    if (v === undefined) return { label, value: '…', format: 'text', tone: 'muted', sub: 'cargando' };
+    if (v === null) return { label, value: '—', format: 'text', tone: 'muted', sub: 'no se pudo medir' };
+    return { label, value: v, format: 'currency', tone, sub };
   }
 
   pedidoKpi(): MetricStripItem[] {
     const t = this.wbTotals();
     return [
       { label: 'A comprar', value: t.pedido, format: 'currency', tone: 'brand', sub: 'venta × cobertura' },
-      { label: 'A traspasar', value: this.totTr(), format: 'currency', sub: 'desde CEDIS' },
-      { label: 'Sobrestock', value: this.totOver(), format: 'currency', tone: 'warn', sub: 'inmovilizado' },
-      { label: 'SKUs', value: this.wbTotal() },
+      // `[PQ.76]` Total del filtro completo (el del servidor). Antes era la suma de los primeros 500
+      // renglones: medido el 2026-11-05, $3.5 M de $5.0 M en traspasos y $9.5 M de $13.2 M en sobrestock.
+      this.kpiDeLista('A traspasar', this.trTotal(), 'desde CEDIS'),
+      this.kpiDeLista('Sobrestock', this.ovTotal(), 'inmovilizado', 'warn'),
+      // [PQ.74] «SKUs» salió: el paginador dice cuántos productos hay.
       // `[PQ.38]` Los dos operandos de «Días de existencia», a la vista y con los mismos filtros que
       // la tabla: la venta va A PRECIO (suma de «Valor venta»), la existencia AL COSTO (suma de
       // «Valor exist.»). Si hay almacenes sin valuar (U.2) la bajada lo dice: el total es parcial.
@@ -4726,12 +4822,13 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       // toma la rama numérica y `Number('—') || 0` lo pinta como **0** — justo el cero que este
       // KPI documenta que nunca hay que dibujar (ADR-056), y encima con la bajada diciendo
       // "sin demanda medida" al lado. Mismo patrón que ya usa `vendor-history` para km/h.
+      // ⚠️ (2026-11-05, PQ.74) Ya no es así: `isText()` del strip pinta como texto todo valor que no
+      // sea número, con o sin `format`. El `format: 'text'` se deja por explícito, no porque evite un 0.
       this.diasInventario() == null
         ? { label: 'Días de existencia', value: '—', format: 'text', sub: this.diasInventarioSub() }
-        : { label: 'Días de existencia', value: this.diasInventario()!, sub: this.diasInventarioSub() },
-      this.coberturaSucursal
-        ? { label: 'Cobertura', value: 'Cada sucursal', format: 'text', sub: this.coberturaCorta() }
-        : { label: 'Cobertura', value: this.coverage, sub: 'días objetivo' },
+        : { label: 'Días de existencia', value: this.diasInventario()!, sub: `${this.diasInventarioSub()} · objetivo ${this.objetivoCorto()}` },
+      // [PQ.74] «Cobertura» salió como cifra aparte: el selector de cobertura la dice con su nota, y
+      // el objetivo quedó en la bajada de «Días de existencia», que es con lo que se compara.
     ];
   }
 
@@ -5024,6 +5121,12 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     return m;
   }
   /** «la de cada sucursal (21 o 30 días)» o «45 días». Para la tarjeta, el resumen, el PDF y la exportación. */
+  /** `[PQ.74]` El objetivo en pocas letras, junto a «Días de existencia»: «30 d» o «21 o 30 d». */
+  objetivoCorto(): string {
+    if (!this.coberturaSucursal) return `${this.coverageAplicada ?? this.coverage} d`;
+    const dias = [...this.diasPorSucursal().keys()].sort((a, b) => a - b);
+    return dias.length ? `${dias.join(' o ')} d` : 'el de cada sucursal';
+  }
   coberturaCorta(): string {
     if (!this.coberturaSucursal) return `${this.coverageAplicada ?? this.coverage} días`;
     const dias = [...this.diasPorSucursal().keys()].sort((a, b) => a - b);
@@ -5105,8 +5208,26 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
 
   /** Reconstruye el modelo unificado (una sola vez por carga; qty editable persiste en cada URow). */
   private rebuild(): void {
+    this.urows.set(this.aURows(this.buyRows(), this.trRows(), this.ovRows()));
+    this.sellarCarga();
+  }
+
+  /**
+   * `[PQ.76]` Agrega las listas de productos que todavía no estaban (una página nueva) SIN
+   * reconstruir lo cargado: `rebuild()` crea renglones nuevos y perdería las cantidades de
+   * traspaso que el comprador ya editó en otra página.
+   */
+  private agregarEnriquecimiento(buy: PurchaseSuggestionRow[], tr: TransferSuggestionRow[], ov: OverstockRow[]): void {
+    this.buyRows.update((a) => [...a, ...buy]);
+    this.trRows.update((a) => [...a, ...tr]);
+    this.ovRows.update((a) => [...a, ...ov]);
+    this.urows.update((u) => [...u, ...this.aURows(buy, tr, ov)]);
+    this.tick();
+  }
+
+  private aURows(buyRows: PurchaseSuggestionRow[], trRows: TransferSuggestionRow[], ovRows: OverstockRow[]): URow[] {
     const out: URow[] = [];
-    for (const r of this.buyRows()) {
+    for (const r of buyRows) {
       out.push({
         type: 'comprar', product_id: r.product_id, sku: r.sku, nombre: r.nombre,
         warehouse_code: r.warehouse_code || '—', warehouse_id: r.warehouse_id ?? null,
@@ -5119,7 +5240,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         fill_rate: r.fill_rate ?? null, abc_class: r.abc_class ?? null, unit_source: r.unit_source, buy: r,
       });
     }
-    for (const r of this.trRows()) {
+    for (const r of trRows) {
       out.push({
         type: 'traspaso', product_id: r.product_id, sku: r.sku, nombre: r.nombre,
         warehouse_code: r.to_code || '—', warehouse_id: r.to_warehouse_id ?? null,
@@ -5131,7 +5252,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         fill_rate: null, abc_class: null, unit_source: undefined, buy: null,
       });
     }
-    for (const r of this.ovRows()) {
+    for (const r of ovRows) {
       out.push({
         type: 'sobre', product_id: r.product_id, sku: r.sku, nombre: r.nombre,
         warehouse_code: r.warehouse_code || '—', warehouse_id: r.warehouse_id ?? null,
@@ -5144,7 +5265,11 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         fill_rate: null, abc_class: null, unit_source: undefined, buy: null,
       });
     }
-    this.urows.set(out);
+    return out;
+  }
+
+  /** Lo que `rebuild()` hacía después de armar los renglones. */
+  private sellarCarga(): void {
     this.tick();
     this.loadedAt.set(Date.now());   // sella frescura
     // `[RA-BORR.1]` Datos frescos NO quiere decir "sin ediciones pendientes": desde que el cambio
@@ -5165,10 +5290,14 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   });
 
   /** Subtotales por sucursal (código → $ comprar/traspaso/sobre + cajas). */
+  /** `[PQ.76]` Los productos de la página: la barra dice «En esta página» y suma sólo éstos. */
+  private readonly paginaPids = computed(() => new Set(this.wbRows().map((r) => r.product_id)));
   private readonly subs = computed(() => {
     this.tickN();
     const m = new Map<string, Grp>();
+    const pag = this.paginaPids();
     for (const r of this.flatRows()) {
+      if (!pag.has(r.product_id)) continue;
       const g = m.get(r.warehouse_code) ?? { code: r.warehouse_code, name: this.nameOf(r.warehouse_code), buy: 0, tr: 0, over: 0, buyCj: 0, trCj: 0, n: 0 };
       const val = r.qty * r.unit_cost;
       if (r.type === 'comprar') { g.buy += val; g.buyCj += r.qty; }

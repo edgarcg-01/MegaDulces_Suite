@@ -232,7 +232,9 @@ export interface MetricStripItem {
        TEXTO va mas chico que el numerico (24.8) para que no grite. */
     .ms-v.is-text { font-family:var(--font-body,inherit); font-size:var(--fs-h3); font-weight:700; letter-spacing:-.01em; }
     .ms-item.tone-ok .ms-v { color:var(--ok-fg); }
-    .ms-item.tone-warn .ms-v { color:var(--warn-fg); }
+    /* [PQ.73] --warn-fg como TEXTO da 1.95:1 sobre claro (medido en /compras/pedido, 2026-11-05):
+       ni el 3:1 de texto grande. Para texto va --warn-soft-fg; --warn-fg queda para rellenos y barras. */
+    .ms-item.tone-warn .ms-v { color:var(--warn-soft-fg); }
     .ms-item.tone-bad .ms-v { color:var(--bad-fg); }
     .ms-item.tone-brand .ms-v { color:var(--action); }
     /* El valor que no se pudo medir baja de peso, no desaparece: sigue leyendose. */

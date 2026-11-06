@@ -1206,6 +1206,44 @@ motor (`v_rd_commission_sales`, por ruta y día) contra el **corte de caja de su
 - Lo que llega después de pagar va como **ajuste** a la quincena siguiente, nunca reescribe lo
   pagado; el mismo ajuste registra lo pagado por fuera (`[RD.108]`).
 
+#### `[RD.111]` 🧪 El desglose de cada chofer: del total al renglón del ticket (Edgar, 2026-11-04)
+
+> *«Necesito que la interfaz, yo al darle clic a cada vendedor, me pueda desglosar por qué esa
+> comisión; o sea absolutamente de todo, el desglose del desglose del desglose.»*
+
+**Las preguntas, antes de la plantilla** (`diseno` §0a):
+
+| # | Pregunta | Respuesta |
+|---|---|---|
+| 1 | Propósito | *¿De dónde sale lo que se le paga a este chofer?* — una pregunta, sin «y». Cierra el acto de **aprobar** con conocimiento de causa |
+| 2 | Quién entra | quien aprueba (Dirección), quien paga (Finanzas) y quien calcula (Comercial), con `COMMERCIAL_COMMISSIONS_VER`. Uso medido: **NO MEDIDO** |
+| 3 | Estado real | hasta hoy, clic en una fila de *Choferes* **no abría nada**; la única explicación era un `title` de bonos. C0 medido contra prod: los tickets de una ruta-día suman **al centavo** la venta del día del motor (21 y 501 de Q22; push, Wincaja y Kepler vecinal) y cada lectura tarda < 100 ms |
+| 4 | Nivel 0 | A pagar · venta · % del chofer · días, y una frase que lo dice en llano |
+| 5 | Qué no | costo y markup sólo si el tabulador de la familia escalona por markup; el supervisor no (tiene su pestaña) |
+| 6 | Mapa de desglose | **a pagar** → la escalera (venta → escalón → % × base → parte del chofer → cada bono, cumplido o no y cuánto le faltó → nómina) · **escalón** → el tabulador entero con «aquí cayó» · **venta** → día por día (tickets, venta, subtotal, fuente) → los tickets del día (folio, cliente, renglones, venta) → los renglones (SKU, producto, unidad, cantidad, precio, venta) |
+| 7 | Accesibilidad | 1 clic o Enter en la fila; 1 clic por nivel; el escalón marcado con texto, no sólo con color; botones con `aria-expanded` |
+| 8 | Ligas | el folio del ticket se ve en la fila. ⚠️ No hay archivo del ticket: el envío desde la camioneta no deja documento consultable |
+| 9 | ¿Le toca? | sí: es la pantalla donde se aprueba |
+| 12 | Lo que no puede resolver | el **nombre del cliente** (el envío trae la clave, p. ej. `R0010`, o nada) · **hora y forma de pago** vacías en el envío · el **subtotal por renglón** (la tasa de Kepler se aplica por día en la vista; copiarla dejaría dos reglas) · el **corte de caja por día** (no hay mapeo almacén→ruta en datos; vive en `[RD.110]` como prueba) |
+
+**Cómo se construyó.** Dos lecturas nuevas en el controlador de comisiones (`GET
+/commercial/commissions/desglose` y `/desglose/tickets`, permiso VER) sobre la **misma fuente que
+el motor** — no sobre «Ventas por ruta», que usa otro código de ruta y otro permiso, y cuyas cifras
+no sumarían a la comisión. La pantalla no tiene una segunda copia de la regla: elige el escalón con
+los escalones que guardó el motor y **comprueba** la cuenta contra la línea congelada; si la suma
+de los días no es la venta de la corrida, o la cuenta no da la comisión, lo dice.
+
+- Las corridas anteriores a `[RD.103.2]` (toda la Q21) no guardaron su tabulador: el desglose usa
+  el vigente al cierre para la familia de la ruta y lo declara («no guardó con qué tabulador»).
+- **Candado** `database/tests/test-newdb-rd-desglose.js` (servicio REAL vía ts-node, sólo lectura):
+  medido contra prod el 4-nov sobre Q21 — días = línea en **19 de 19** rutas, el escalón da el %
+  pagado en **7 de 7**, tickets = día y renglones = ticket en push, Wincaja y Kepler vecinal, 400/404
+  para lo que entra mal, todo bajo 500 ms. **Prueba negativa:** quitarle el impuesto a la aritmética
+  de Wincaja en una copia del servicio pone rojo el día de Wincaja (14,538.48 contra 15,783.87).
+- Compuertas: `ngc` 0 errores (con su control: antes marcó un `TS2345` real del evento de selección),
+  `check:pantalla` 0 fallas nuevas, `check:templates`, `check:tokens`, `check:estilos`.
+- ⚠️ **Sin validación visual**: no se puede ver sin desplegar (no se levanta nada en local).
+
 ### 9.5 Lo que necesita firma antes de que el motor pague
 
 | | Decisión | Por qué no la puedo tomar yo |

@@ -23,7 +23,7 @@
  * clase A sin colchón se aplica un piso de RA_SAFETY_FLOOR_DAYS (default 2) días para A/B.
  *
  * NUNCA pisa source='kepler' ni 'manual' (ON CONFLICT ... WHERE source='computed').
- * Sólo productos con demanda (avg_daily_units > 0). Correr DESPUÉS de import-reorder-policy
+ * Sólo productos con demanda (avg_daily_units > 0). Correr DESPUÉS de import-reorder-policy (retirado 2026-11-05: hoy los kepler los mantiene el hop-2)
  * (kepler manda) y de import-inventory-health (avg/σ frescos).
  *
  *   node database/importers/kepler/import-computed-reorder.js          # dry-run

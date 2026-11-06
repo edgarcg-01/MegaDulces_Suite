@@ -2,12 +2,18 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import {
-  DOC_CODES_AJUSTE, DOC_CODES_TRASPASO, MOTIVOS_RESOLUCION_MOVIMIENTO, UNIDAD_IMPORTE_SALIDA,
-  clasificarMovimiento, compararRenglones, motivosPara, resumirDonde, sumarPorProducto, validarResolucion,
+  DOC_CODES_AJUSTE, DOC_CODES_COMPRA, DOC_CODES_TRASPASO, MOTIVOS_RESOLUCION_MOVIMIENTO, UNIDAD_IMPORTE_SALIDA,
+  clasificarMovimiento, clasificarUnidadEntrada, compararRenglones, motivosPara, resumirDonde, sumarPorProducto, validarResolucion,
   type DestinoSalida, type DetalleIncidenciaMovimiento, type DocRef, type ExcepcionMovimiento, type ExcepcionMovimientoItem,
-  type MotivoResolucion, type MovimientosExcepcionesResponse, type RenglonDocumento, type ResolucionIncidencia,
+  type MotivoResolucion, type MovimientosExcepcionesResponse, type RenglonComparado, type RenglonDocumento, type ResolucionIncidencia,
   type ResumenAjusteDia, type UnidadImporte,
 } from '@megadulces/contracts';
+
+/** `[MX.0.6]` Un renglón de una orden de entrada de compra, ya juzgado por su unidad. */
+interface RenglonCompra {
+  warehouse_id: string; nombre: string; folio: string; doc_serie: string; fecha: unknown;
+  sku: string; producto: string; renglon: RenglonComparado;
+}
 
 /**
  * DM.1 — Diario de movimientos (mejora del reporte Kepler homónimo).
@@ -1360,6 +1366,41 @@ export class CommercialMovementsService {
         llaves.set(item, { principal: aLlave(documento), salida: null, recepcion: null, grupo: refs.map(aLlave) });
       }
 
+      // [MX.0.6] Órdenes de entrada de compra (X-A-40) con un renglón cuya cantidad no es la que dice
+      // su costo: 8 Esquinas 0001062 metió 800 PAQ por 40 y la existencia quedó 760 arriba. Sólo las que
+      // tienen el error; el resto de las compras no es incidencia.
+      const compras = await this.renglonesCompra(trx, tenantId, { from, to, whs });
+      const porCompra = new Map<string, RenglonCompra[]>();
+      for (const r of compras.renglones) {
+        if (r.renglon.estado !== 'unidad_cruzada') continue;
+        const kc = `${r.warehouse_id}|${r.doc_serie}|${r.folio}`;
+        porCompra.set(kc, [...(porCompra.get(kc) ?? []), r]);
+      }
+      for (const grupo of porCompra.values()) {
+        const g0 = grupo[0];
+        // el que más pesa primero: es el que nombra el «dónde»
+        const renglones = grupo.map((g) => g.renglon).sort((x, y) => Math.abs(y.importe_diferencia ?? 0) - Math.abs(x.importe_diferencia ?? 0));
+        const documento: DocRef = { warehouse_id: g0.warehouse_id, doc_code: DOC_CODES_COMPRA[0], doc_serie: g0.doc_serie, folio: g0.folio };
+        const delta = renglones.reduce((t, r) => t + r.delta, 0);
+        const item: ExcepcionMovimientoItem = {
+          tipo: 'compra', excepciones: ['unidad_cruzada'], fecha: iso(g0.fecha),
+          documento, documentos: [documento], ajuste: null,
+          origen: { warehouse_id: g0.warehouse_id, nombre: g0.nombre, folio: g0.folio, doc_code: documento.doc_code, doc_serie: g0.doc_serie },
+          destino: null, piezas_enviadas: null,
+          // lo capturado; delta = lo que probablemente entró − lo capturado (−760 = entró de más)
+          piezas_recibidas: renglones.reduce((t, r) => t + (r.entrada?.capturado ?? 0), 0),
+          delta_piezas: delta,
+          // el dinero en juego: esa existencia de más (o de menos) al precio que se pagó, con signo
+          importe: renglones.reduce((t, r) => t + (r.importe_diferencia ?? 0), 0),
+          unidad_importe: 'costo_compra',
+          lineas_sin_importe: 0,
+          dias: dias(g0.fecha),
+          donde: resumirDonde(['unidad_cruzada'], renglones), productos_con_error: renglones.length, resolucion: null,
+        };
+        items.push(item);
+        llaves.set(item, { principal: aLlave(documento), salida: null, recepcion: null, grupo: [aLlave(documento)] });
+      }
+
       // [MX.2.4] lo que ya resolvió una persona (D8). Resuelta = CON motivo; una marca del Diario sin
       // motivo se muestra pero no saca la incidencia de la bandeja.
       const resolucionDe = await this.resoluciones(trx, tenantId, [...llaves.values()].flatMap((l) => l.grupo));
@@ -1368,7 +1409,7 @@ export class CommercialMovementsService {
       const pendientes = items.filter((it) => !resuelta(it));
 
       const porExc: MovimientosExcepcionesResponse['totals']['por_excepcion'] = {};
-      const porUnidad: Record<UnidadImporte | 'sin_unidad', number> = { valor_traspaso: 0, precio_venta: 0, mixta: 0, sin_unidad: 0 };
+      const porUnidad: Record<UnidadImporte | 'sin_unidad', number> = { valor_traspaso: 0, precio_venta: 0, mixta: 0, costo_compra: 0, sin_unidad: 0 };
       // cuánto dinero mueve: en ajustes del día, lo que entró MÁS lo que salió (un cambio de producto
       // que se compensa en el neto no debe quedar al fondo de la lista)
       const peso = (it: ExcepcionMovimientoItem) => (it.ajuste ? it.ajuste.entradas.importe - it.ajuste.salidas.importe : Math.abs(it.importe ?? 0));
@@ -1388,7 +1429,7 @@ export class CommercialMovementsService {
         range: { from, to },
         totals: {
           items: pendientes.length, por_excepcion: porExc, importe_por_unidad: porUnidad,
-          universo: { traspasos: checkAll.length, ajustes: ajustes.length }, resueltas: items.length - pendientes.length,
+          universo: { traspasos: checkAll.length, ajustes: ajustes.length, compras: compras.documentos }, resueltas: items.length - pendientes.length,
         },
         capped: all.length >= 50000,
         page, pageSize, total: lista.length,
@@ -1476,13 +1517,13 @@ export class CommercialMovementsService {
     const pedir: LlaveDoc[] = [];
     for (const it of rows) {
       const l = llaves.get(it);
-      if (l) pedir.push(...[l.principal, l.salida, l.recepcion, ...l.grupo].filter((x): x is LlaveDoc => !!x));
+      if (l && it.tipo !== 'compra') pedir.push(...[l.principal, l.salida, l.recepcion, ...l.grupo].filter((x): x is LlaveDoc => !!x));
     }
     const ren = await this.renglonesDe(trx, tenantId, pedir);
     const de = (k: LlaveDoc | null) => (k ? ren.get(llaveTxt(k)) ?? [] : null);
     for (const it of rows) {
       const l = llaves.get(it);
-      if (!l) continue;
+      if (!l || it.tipo === 'compra') continue; // [MX.0.6] su «dónde» ya viene del juicio de su unidad
       const comparados = it.tipo === 'ajuste' ? compararRenglones({ ajuste: sumarPorProducto(l.grupo.map((g) => de(g) ?? [])) })
         : compararRenglones({ salida: de(l.salida), recepcion: de(l.recepcion) });
       it.donde = resumirDonde(it.excepciones, comparados, { destino: it.destino?.nombre, dias: it.dias });
@@ -1501,8 +1542,9 @@ export class CommercialMovementsService {
     if (!p?.warehouse_id || !UUID_RX.test(p.warehouse_id) || !p.doc_code || !p.folio) {
       throw new BadRequestException('warehouse_id, doc_code y folio son requeridos');
     }
+    if (DOC_CODES_COMPRA.includes(p.doc_code)) return this.detalleCompra(tenantId, p);
     if (!DOC_CODES_TRASPASO.includes(p.doc_code) && !DOC_CODES_AJUSTE.includes(p.doc_code)) {
-      throw new BadRequestException('Sólo los traspasos y los ajustes tienen incidencias.');
+      throw new BadRequestException('Sólo los traspasos, los ajustes y las compras tienen incidencias.');
     }
     const doc = await this.document({ folio: p.folio, warehouse_id: p.warehouse_id, doc_code: p.doc_code, doc_serie: p.doc_serie ?? '' });
     const h = doc.header;
@@ -1554,6 +1596,141 @@ export class CommercialMovementsService {
     });
   }
 
+  /**
+   * `[MX.0.6]` **Los renglones de las órdenes de entrada de compra, juzgados por su unidad.**
+   *
+   * El árbitro es el dinero (`clasificarUnidadEntrada`): el costo capturado por la unidad en que el
+   * renglón ENTRÓ al kardex, contra el costo del proveedor para esa misma unidad en esa sucursal
+   * (`kdpv_prov_prod`, con los rótulos de su escalera en `kdii`). Para no recorrer el kardex
+   * entero, primero se descartan los renglones cuyo costo ya cuadra con la unidad base del proveedor
+   * (±20 %: 17,808 de 18,306 en 90 días); sólo los raros se buscan en `kdij` por su llave
+   * (sucursal, almacén, SKU, documento). Con `doc` se juzgan TODOS los renglones de ese documento.
+   * Fuera: el pseudo-producto contable (unidad SER), que no es mercancía.
+   */
+  private async renglonesCompra(
+    trx: Knex.Transaction, tenantId: string,
+    o: { from?: string; to?: string; whs?: string[]; doc?: { warehouse_id: string; folio: string; doc_serie: string } },
+  ): Promise<{ renglones: RenglonCompra[]; documentos: number | null }> {
+    // sin las tablas que lo arbitran no se mide: se declara (null), no se dibuja como «0 compras con error»
+    const { rows: [hay] } = await trx.raw(`SELECT (to_regclass('kepler_ods.kdpv_prov_prod') IS NOT NULL
+      AND to_regclass('kepler_ods.kdii') IS NOT NULL AND to_regclass('kepler_ods.kdij') IS NOT NULL) AS ok`);
+    if (!hay?.ok) return { renglones: [], documentos: null };
+    const conds: string[] = ['m.tenant_id = ?', 'm.doc_code = ANY(?::text[])', 'm.qty > 0', 'm.unit_cost > 0', 'm.sku IS NOT NULL'];
+    const binds: Knex.RawBinding[] = [tenantId, DOC_CODES_COMPRA as string[]];
+    if (o.doc) {
+      conds.push('m.warehouse_id = ?', 'm.folio = ?', "coalesce(m.doc_serie, '') = ?");
+      binds.push(o.doc.warehouse_id, o.doc.folio, o.doc.doc_serie);
+    } else {
+      conds.push('m.doc_date >= ?', 'm.doc_date <= ?');
+      binds.push(o.from ?? null, o.to ?? null);
+      if (o.whs?.length) { conds.push('m.warehouse_id = ANY(?::uuid[])'); binds.push(o.whs); }
+    }
+    const todo = !!o.doc;
+    // SIN ACENTOS GRAVES EN ESTE SQL: va en un template literal de JS.
+    const { rows } = await trx.raw(`
+      WITH m AS (
+        SELECT m.warehouse_id, w.code AS suc, coalesce(w.name, w.code) AS nombre, m.folio, coalesce(m.doc_serie, '') AS doc_serie,
+               m.doc_date, m.sku, m.product_id, m.qty::numeric AS qty, m.unit_cost::numeric AS cu, m.amount::numeric AS importe
+          FROM analytics.stock_movements m
+          JOIN commercial.warehouses w ON w.tenant_id = m.tenant_id AND w.id = m.warehouse_id
+         WHERE ${conds.join(' AND ')}
+      ),
+      -- costo del proveedor por sucursal y SKU (uno por par: 14 de 87,313 pares traen dos proveedores).
+      -- MATERIALIZED y SIN filtrar por los pares de m: con el filtro, el planificador estimaba 45
+      -- compras donde habia 6,474 (30 dias) y buscaba el costo par por par por indice: 2.5 s medidos
+      -- en prod el 2026-11-05. Entero se lee una vez (87 mil filas) y se cruza por hash.
+      kp AS MATERIALIZED (
+        SELECT DISTINCT ON (p.sucursal COLLATE "C", p.c2 COLLATE "C") p.sucursal, p.c2 AS sku,
+               nullif(p.c8, 0)::numeric AS c1u, nullif(p.c9, 0)::numeric AS c2u, nullif(p.c10, 0)::numeric AS c3u
+          FROM kepler_ods.kdpv_prov_prod p
+         WHERE p.c4 > 0 AND p.c8 > 0
+         -- COLLATE C: ordenar 87 mil claves por bytes y no por idioma (235 ms -> ver bitacora MX.0.6)
+         ORDER BY p.sucursal COLLATE "C", p.c2 COLLATE "C", p.c1 COLLATE "C"
+      ),
+      -- los raros primero (o todos, si es UN documento); el catalogo por su llave exacta
+      -- (kdii.c1 no trae espacios: 0 de 86,127, medido 2026-11-05)
+      r AS (
+        SELECT m.*, kp.c1u, kp.c2u, kp.c3u
+          FROM m JOIN kp ON kp.sucursal = m.suc AND kp.sku = m.sku
+         WHERE ? OR m.cu / kp.c1u NOT BETWEEN 0.8 AND 1.25
+      ),
+      k AS (
+        SELECT r.*, btrim(i.c11) AS l1, btrim(i.c80) AS l2, btrim(i.c83) AS l3
+          FROM r LEFT JOIN kepler_ods.kdii i ON i.sucursal = r.suc AND i.c1 = r.sku
+         WHERE coalesce(btrim(i.c11), '') <> 'SER'
+      )
+      SELECT k.*, kj.ku, coalesce(pr.nombre, '(sin catalogo)') AS producto
+        FROM k
+        LEFT JOIN LATERAL (
+          SELECT btrim(j.c12) AS ku FROM kepler_ods.kdij j
+           WHERE j.sucursal = k.suc AND j.c1 = k.suc AND j.c2 = 1 AND j.c3 = k.sku
+             AND j.c4 = 'X' AND j.c5 = 'A' AND j.c6 = '40' AND j.c8 = k.folio
+           ORDER BY (j.c11::numeric = k.qty) DESC LIMIT 1) kj ON true
+        LEFT JOIN public.products pr ON pr.id = k.product_id AND pr.tenant_id = ?`,
+    [...binds, todo, tenantId]);
+    const { rows: [u] } = o.doc ? { rows: [{ n: 1 }] } : await trx.raw(`
+      SELECT count(DISTINCT (m.warehouse_id, m.folio, coalesce(m.doc_serie, '')))::int AS n
+        FROM analytics.stock_movements m WHERE ${conds.join(' AND ')}`, binds);
+    type Fila = { warehouse_id: string; nombre: string; folio: string; doc_serie: string; doc_date: unknown; sku: string; producto: string;
+      qty: string; cu: string; importe: string | null; c1u: string | null; c2u: string | null; c3u: string | null;
+      l1: string | null; l2: string | null; l3: string | null; ku: string | null };
+    const renglones = (rows as Fila[]).map((f): RenglonCompra => {
+      const c1 = Number(f.c1u) || null, c2 = Number(f.c2u) || null, c3 = Number(f.c3u) || null;
+      // la unidad en que entro: la del kardex; si no se busco (el costo ya cuadraba), la base del proveedor
+      const unidad = f.ku || f.l1 || '';
+      const costo = unidad && unidad === f.l1 ? c1 : unidad && unidad === f.l2 ? c2 : unidad && unidad === f.l3 ? c3 : null;
+      const factores = [c2 && c1 ? c2 / c1 : NaN, c3 && c1 ? c3 / c1 : NaN, c3 && c2 ? c3 / c2 : NaN];
+      const v = clasificarUnidadEntrada(Number(f.cu), costo, factores);
+      const capturado = Number(f.qty) || 0;
+      const importe = f.importe != null ? Number(f.importe) : null;
+      const cruzada = v.clase === 'inflada' || v.clase === 'encogida';
+      // lo que probablemente entro, por el factor de su escalera (no por el costo de hoy, que se movio)
+      const probable = cruzada && v.factor ? (v.clase === 'inflada' ? capturado / v.factor : capturado * v.factor) : null;
+      const delta = probable != null ? Math.round((probable - capturado) * 100) / 100 : 0;
+      // la diferencia, al precio que se PAGO por unidad (importe / lo que entro de verdad)
+      const pagado = probable && importe != null ? importe / probable : null;
+      return {
+        warehouse_id: f.warehouse_id, nombre: f.nombre, folio: f.folio, doc_serie: f.doc_serie, fecha: f.doc_date,
+        sku: f.sku, producto: f.producto,
+        renglon: {
+          sku: f.sku, producto: f.producto, salida: null, recepcion: null, delta, importe,
+          importe_diferencia: cruzada && pagado != null ? Math.round(delta * pagado * 100) / 100 : 0,
+          sin_costo: false, estado: cruzada ? 'unidad_cruzada' : 'costo_coincide', con_error: cruzada,
+          entrada: {
+            unidad, capturado, costo_capturado: Number(f.cu), costo_proveedor: costo, razon: v.razon, factor: v.factor,
+            sentido: cruzada ? v.clase as 'inflada' | 'encogida' : null, probable,
+          },
+        },
+      };
+    });
+    return { renglones, documentos: Number(u?.n) || 0 };
+  }
+
+  /** `[MX.0.6]` Detalle de una orden de entrada de compra: todos sus renglones, juzgados por su unidad. */
+  private async detalleCompra(
+    tenantId: string, p: { warehouse_id: string; doc_code: string; doc_serie?: string | null; folio: string },
+  ): Promise<DetalleIncidenciaMovimiento> {
+    return this.tk.run(async (trx) => {
+      const doc = { warehouse_id: p.warehouse_id, folio: p.folio, doc_serie: p.doc_serie ?? '' };
+      const { renglones: rs } = await this.renglonesCompra(trx, tenantId, { doc });
+      if (!rs.length) throw new BadRequestException('Esa compra no está en el diario de movimientos.');
+      const peso = (r: RenglonComparado) => Math.abs(r.importe_diferencia || r.importe || 0);
+      const renglones = rs.map((r) => r.renglon)
+        .sort((a, b) => Number(b.con_error) - Number(a.con_error) || peso(b) - peso(a) || a.producto.localeCompare(b.producto));
+      const excepciones: ExcepcionMovimiento[] = renglones.some((r) => r.con_error) ? ['unidad_cruzada'] : [];
+      const ref: DocRef = { warehouse_id: p.warehouse_id, doc_code: DOC_CODES_COMPRA[0], doc_serie: doc.doc_serie, folio: p.folio };
+      const resolucionDe = await this.resoluciones(trx, tenantId, [aLlave(ref)]);
+      return {
+        documento: { warehouse_id: p.warehouse_id, nombre: rs[0].nombre, doc_code: ref.doc_code, doc_serie: doc.doc_serie || null, folio: p.folio, fecha: isoDia(rs[0].fecha) ?? '' },
+        contraparte: null, destino: null, excepciones,
+        donde: resumirDonde(excepciones, renglones),
+        renglones, resolucion: resolucionDelGrupo([resolucionDe(aLlave(ref))]),
+        motivos: motivosPara(excepciones),
+        documentos: [ref],
+      };
+    });
+  }
+
   /** [MX.2.6] Los documentos de una resolución: `documentos` si viene (ajustes del día), si no el del cuerpo. */
   private documentosDe(dto: DocEntrada & { documentos?: DocEntrada[] | null }): DocRef[] {
     const lista = dto?.documentos?.length ? dto.documentos : [dto];
@@ -1562,8 +1739,8 @@ export class CommercialMovementsService {
       if (!d?.warehouse_id || !UUID_RX.test(d.warehouse_id) || !d.doc_code || !d.folio) {
         throw new BadRequestException('warehouse_id, doc_code y folio son requeridos');
       }
-      if (!DOC_CODES_TRASPASO.includes(d.doc_code) && !DOC_CODES_AJUSTE.includes(d.doc_code)) {
-        throw new BadRequestException('Sólo se resuelven traspasos y ajustes.');
+      if (!DOC_CODES_TRASPASO.includes(d.doc_code) && !DOC_CODES_AJUSTE.includes(d.doc_code) && !DOC_CODES_COMPRA.includes(d.doc_code)) {
+        throw new BadRequestException('Sólo se resuelven traspasos, ajustes y compras.');
       }
       return { warehouse_id: d.warehouse_id, doc_code: d.doc_code, doc_serie: d.doc_serie ?? '', folio: d.folio };
     });
