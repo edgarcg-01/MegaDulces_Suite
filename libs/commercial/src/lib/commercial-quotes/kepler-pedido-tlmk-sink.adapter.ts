@@ -22,7 +22,7 @@ export interface PedidoTlmkEntrada {
   fecha: string;
   /** `terms_discount_pct` congelado de la cotización. */
   pct_cliente: number | null;
-  /** Domicilio de entrega (`delivery_address_key` → `c85`). null = el domicilio 1 del cliente. */
+  /** Domicilio de entrega (`delivery_address_key` → `c85`). null = sin dirección de entrega: va `DIR_ENVIO_DOMICILIO`. */
   direccion_envio: string | null;
   /** COT.28: observaciones del pedido → «Comentarios» renglones 2 y 3 (`c25`, `c26`; 60 + 60). */
   observaciones?: string | null;
@@ -37,6 +37,12 @@ export type PedidoTlmkResultado =
 
 /** Lo que el pedido copia del cliente: nombre, RFC, domicilio (`c33`–`c35`) y condición de pago (`c30`). */
 interface DatosCliente { nombre: string; rfc: string; c33: string; c34: string; c35: string; c30: string }
+
+/**
+ * `c85` = 0 cuando el cliente no tiene direcciones de entrega (`kdudent`): así lo escribe Kepler
+ * (228 de 228 pedidos TELEMARK de ago–nov 2026 de clientes sin dirección). Vacío no lo usa nadie.
+ */
+export const DIR_ENVIO_DOMICILIO = '0';
 
 /** El documento: `U-D-40` con origen TELEMARK. Medido en 7,900 pedidos (ERP_KEPLER §3.y.3). */
 const DOC = { genero: 'U', naturaleza: 'D', grupo: '40', origen: 'TELEMARK', estado: 'CREADO' } as const;
@@ -228,7 +234,7 @@ export class KeplerPedidoTlmkSinkAdapter implements OnModuleDestroy {
           e.fecha, hora, CAPTURISTA_SUITE,
           e.cliente.trim(), e.vendedor.trim(), DOC.estado, DOC.origen, e.folio_suite,
           cli.rfc, cli.nombre, prev.c33, prev.c34, prev.c35, prev.c30,
-          e.direccion_envio ?? '']);
+          e.direccion_envio ?? DIR_ENVIO_DOMICILIO]);
       // Cada importe con su propio parámetro: los tipos de Kepler no son uniformes (KR.16).
       await c.query('UPDATE _h SET c13 = $1, c14 = $2, c15 = $3', [cabecera.c13, cabecera.c14, cabecera.c15]);
       await c.query('UPDATE _h SET c16 = $1, c42 = $2, c19 = $3', [cabecera.c16, cabecera.c16, cabecera.c19]);

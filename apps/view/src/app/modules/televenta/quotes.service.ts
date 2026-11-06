@@ -121,6 +121,8 @@ export interface QuoteCatalogRow {
   unit_base: string | null;
   piece_price: number | null;
   pack_size: number | null;
+  /** [COT.30] Rótulo del ERP de la unidad intermedia: `PAQ`, o `KG`/`BTO` cuando Kepler la declara así (70500: KG de 2 medios kilos). */
+  pack_label?: string | null;
   box_size: number | null;
   /** Rótulo del ERP de la unidad mayor: `CJA`, `BTO` (bulto) o `CUB` (cubeta). NULL = no declara. */
   box_label: string | null;

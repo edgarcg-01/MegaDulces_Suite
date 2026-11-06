@@ -650,6 +650,9 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
                     </p-select>
                   } @else if (dd.direcciones.length === 1) {
                     <p class="tot-nota dir-fija">Entrega en {{ etiquetaDireccion(dd.direcciones[0]) }}</p>
+                  } @else {
+                    <!-- Sin direcciones en kdudent Kepler pone Dir. envío 0 (el domicilio del cliente). -->
+                    <p class="tot-nota dir-fija">Sin dirección de entrega en Kepler: se entrega en el domicilio del cliente.</p>
                   }
                 }
                 <!-- [COT.28] Lo que el almacén y la ruta tienen que saber; va a «Comentarios» del pedido
@@ -1433,6 +1436,9 @@ export class TeleventaQuoteDetailComponent implements OnInit {
     const u = (l.qty_unit || '').toUpperCase();
     if (['CJA', 'CAJA'].includes(u)) return 'box';
     if (['BTO', 'BULTO', 'CUB', 'CUBETA'].includes(u) && (this.num(l.qty_factor) ?? 0) > 1) return 'box';
+    // [COT.30] Una unidad con factor que no es la mayor es la intermedia (KG de 2 del 70500), no la
+    // base: tomarla por base la repreciaba al precio del medio kilo.
+    if ((this.num(l.qty_factor) ?? 0) > 1) return 'pack';
     return l.qty_unit === 'PAQ' || l.qty_unit === 'Paquete' ? 'pack' : 'base';
   }
 
@@ -1563,7 +1569,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
         this.toast.add({
           severity: 'info',
           summary: 'Renglón quitado',
-          detail: `Se eliminó el renglón ${l.line_number}.`,
+          detail: `Se quitó el renglón ${l.line_number}: ${l.product_name || l.requested_text || 'sin nombre'}.`,
         });
         this.recargar(true);
       },

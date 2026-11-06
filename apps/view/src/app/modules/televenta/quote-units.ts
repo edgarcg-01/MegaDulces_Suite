@@ -20,6 +20,23 @@ export function nombreUnidadMayor(label: string | null | undefined): string {
 }
 
 /**
+ * `[COT.30]` Nombre para mostrar de la unidad INTERMEDIA (el peldaño `pack`). Casi siempre es el
+ * paquete, pero Kepler declara también KG (70500: base medio kilo, KG de 2) y BTO en esa ranura.
+ */
+export function nombreUnidadIntermedia(label: string | null | undefined): string {
+  const l = (label || '').trim().toUpperCase();
+  if (l === '' || l === 'PAQ') return 'Paquete';
+  if (l === 'KG') return 'Kilo';
+  return nombreUnidadMayor(l);
+}
+
+/** `[COT.30]` El paquete dentro de la caja sólo se desglosa si la intermedia ES un paquete. */
+export function esPaquete(label: string | null | undefined): boolean {
+  const l = (label || '').trim().toUpperCase();
+  return l === '' || l === 'PAQ';
+}
+
+/**
  * Nombre para mostrar de la unidad BASE (el peldaño `base`). Antes el botón decía "Pieza" siempre:
  * el cliente pedía "8 paquetes de gansito" y había que presionar "Pieza · 1 PAQ" (COT.16).
  * Rótulos que el ERP usa como unidad pero no lo son (`500`, `250`, `IND`…) se muestran como
@@ -119,7 +136,7 @@ export function opcionesUnidad(e: QuoteCatalogRow): OpcionUnidad[] {
     { rung: 'base', titulo: nombreUnidadBase(e.unit_base, e.sold_by_kg), tamano: 1, detalle: enBase(1), icono: 'pi-tag' },
   ];
   if (e.pack_size && e.pack_size > 1) {
-    out.push({ rung: 'pack', titulo: 'Paquete', tamano: e.pack_size, detalle: enBase(e.pack_size), icono: 'pi-clone' });
+    out.push({ rung: 'pack', titulo: nombreUnidadIntermedia(e.pack_label), tamano: e.pack_size, detalle: enBase(e.pack_size), icono: 'pi-clone' });
   }
   if (e.box_size || e.box_label) {
     out.push({

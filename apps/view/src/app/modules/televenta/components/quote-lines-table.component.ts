@@ -78,22 +78,24 @@ export interface CambioCantidad {
     <p-table class="dt-stack" [value]="renglones()" dataKey="id" [rowTrackBy]="porId" size="small" [tableStyle]="{ 'min-width': '70rem' }">
       <ng-template #header>
         <tr>
-          <th class="num">#</th>
-          <th>Producto</th>
+          <th class="num fijo fijo-num">#</th>
+          <th class="fijo fijo-prod">Producto</th>
           <th>Presentación</th>
           <th class="num">Cantidad</th>
           <th class="num">Existencia hoy</th>
           <th class="num">Lista</th>
           <th class="num">Precio</th>
-          <th>De dónde sale</th>
+          <th class="col-fuente">De dónde sale</th>
           <th class="num">Importe</th>
           <th><span class="sr-only">Acciones</span></th>
         </tr>
       </ng-template>
       <ng-template #body let-r>
         <tr [class.row-gift]="r.regaloDe !== null">
-          <td class="num mono dt-num" role="cell" data-label="Renglón">{{ r.numero }}</td>
-          <td class="dt-id" role="cell">
+          <!-- [COT.31] # y Producto quedan fijos al desplazar a la derecha: al quitar (la X está al
+               final) se ve QUÉ renglón se quita. Antes la tabla se corría y el nombre salía de vista. -->
+          <td class="num mono dt-num fijo fijo-num" role="cell" data-label="Renglón">{{ r.numero }}</td>
+          <td class="dt-id fijo fijo-prod" role="cell">
             @if (r.regaloDe !== null) {
               <span class="gift"><i class="pi pi-gift" aria-hidden="true"></i> regalo del {{ r.regaloDe }}</span>
             }
@@ -160,7 +162,7 @@ export interface CambioCantidad {
               <span class="t-none">sin precio</span>
             }
           </td>
-          <td role="cell" data-label="De dónde sale">
+          <td class="col-fuente" role="cell" data-label="De dónde sale">
             <p-tag [value]="etiqueta(r.fuente)" [severity]="tono(r.fuente)" />
             @if (r.dtoPct) { <span class="dto" [class.recargo]="r.dtoPct < 0">{{ textoDto(r.dtoPct) }}</span> }
             @if (r.explicacion) { <span class="explica">{{ r.explicacion }}</span> }
@@ -193,7 +195,8 @@ export interface CambioCantidad {
                 [text]="true"
                 [disabled]="bloqueado()"
                 (onClick)="quitar.emit(r.id)"
-                [ariaLabel]="'Quitar el renglón ' + r.numero"
+                [ariaLabel]="'Quitar el renglón ' + r.numero + ': ' + r.nombre"
+                [attr.title]="'Quitar ' + r.nombre"
               />
             }
           </td>
@@ -209,6 +212,14 @@ export interface CambioCantidad {
       @container densetable (min-width: 34rem) {
         :is(th, td) { white-space: nowrap; padding: 0.3rem 0.55rem; font-size: var(--fs-sm); }
         th { font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted); }
+        /* [COT.31] Columnas fijas a la izquierda; el fondo tapa lo que pasa por debajo. */
+        .fijo { position: sticky; z-index: 1; background: var(--surface-card); }
+        .row-gift .fijo { background: var(--surface-ground); }
+        th.fijo { background: var(--p-datatable-header-cell-background, var(--surface-card)); }
+        .fijo-num { left: 0; width: 2.5rem; min-width: 2.5rem; }
+        .fijo-prod { left: 2.5rem; box-shadow: 1px 0 0 var(--surface-border); }
+        /* «De dónde sale» parte en renglones: era la que empujaba la tabla fuera de la pantalla. */
+        .col-fuente { white-space: normal; min-width: 14rem; max-width: 22rem; }
       }
       .num { text-align: right; }
       .mono { font-family: var(--font-mono, monospace); }

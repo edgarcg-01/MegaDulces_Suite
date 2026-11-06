@@ -32,6 +32,7 @@ import {
   abrevUnidadBase,
   opcionesUnidad,
   paqueteDeCaja,
+  esPaquete,
   desglose,
   parseCantidad,
   vendedorDelCliente,
@@ -437,6 +438,12 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
               <span class="t-k">Entrega en:</span>
               <span class="t-v">{{ etiquetaDireccion(dd[0]) }}</span>
             </div>
+          } @else {
+            <!-- Sin direcciones en kdudent Kepler pone Dir. envío 0 (el domicilio del cliente). -->
+            <div class="terms-bar dir-bar">
+              <span class="t-k">Entrega en:</span>
+              <span class="t-muted">el domicilio del cliente (no tiene direcciones de entrega en Kepler)</span>
+            </div>
           }
         }
       </div>
@@ -548,6 +555,8 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                 @if (e.barcode) { <span class="pill-meta">EAN {{ e.barcode }}</span> }
                 @if (e.content) { <span class="pill-meta">Contenido {{ e.content }}</span> }
                 <span class="pill-meta">Base <b>{{ e.sold_by_kg ? 'Kilogramo' : (e.unit_base || 'Pieza') }}</b></span>
+                <!-- [COT.29] La existencia sigue a la vista con el artículo ya elegido. -->
+                <span class="pill-meta cat-exist" [class.cat-exist-sin]="existenciaElegido() === 0">{{ textoExistencia(e, existenciaElegido()) }}</span>
                 <p-button
                   class="btn-change-prod"
                   label="Cambiar artículo"
@@ -1415,12 +1424,27 @@ export class TeleventaQuoteNewComponent implements OnInit {
     return m.has(sku) ? m.get(sku) ?? null : null;
   }
 
-  textoExistencia(p: QuoteCatalogRow): string {
-    const q = this.existenciaDe(p.sku);
+  textoExistencia(p: QuoteCatalogRow, q: number | null | undefined = this.existenciaDe(p.sku)): string {
     if (q === undefined) return 'existencia…';
     if (q === null) return 'sin dato de existencia';
     if (q <= 0) return 'sin existencia';
     return 'hay ' + q.toLocaleString('es-MX', { maximumFractionDigits: 2 }) + ' ' + (p.sold_by_kg ? 'KG' : (p.unit_base || 'PZA'));
+  }
+
+  /** La existencia del artículo ELEGIDO, propia: la de la búsqueda cambia en cuanto se teclea otra. */
+  readonly existenciaElegido = signal<number | null | undefined>(undefined);
+  private existenciaElegidoPedida = 0;
+
+  private fijarExistenciaElegido(p: QuoteCatalogRow): void {
+    const n = ++this.existenciaElegidoPedida;
+    const yaLeida = this.existenciaDe(p.sku);
+    this.existenciaElegido.set(yaLeida);
+    const branch = this.sucursal();
+    if (yaLeida !== undefined || !branch) return;
+    this.svc.stock(branch, [p.sku]).subscribe({
+      next: (s) => { if (n === this.existenciaElegidoPedida) this.existenciaElegido.set(s.items.find((i) => i.sku === p.sku)?.base_qty ?? null); },
+      error: () => { if (n === this.existenciaElegidoPedida) this.existenciaElegido.set(null); },
+    });
   }
 
   articuloElegido = signal<QuoteCatalogRow | null>(null);
@@ -1854,6 +1878,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
   elegirArticulo(p: QuoteCatalogRow): void {
     this.agregarAlLlegarPrecio = false; // lo pendiente era del artículo anterior
     this.articuloElegido.set(p);
+    this.fijarExistenciaElegido(p);
     this.catalogoAbierto.set(false);
     this.cantidadArticulo.set(1);
     this.rung.set('base');
@@ -2013,7 +2038,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
         unit_label: prev!.unit_label || this.labelUnidadActiva(),
         base_unit: abrevUnidadBase(art.unit_base, art.sold_by_kg),
         // La unidad del MEDIO sólo existe dentro de una unidad mayor (COT.17).
-        pack_size: rung === 'box' ? paqueteDeCaja(factorNum, art.pack_size) : null,
+        pack_size: rung === 'box' && esPaquete(art.pack_label) ? paqueteDeCaja(factorNum, art.pack_size) : null,
         factor: factorNum,
         quantity: qty,
         unit_price: prev!.unit_price,
@@ -2214,7 +2239,10 @@ export class TeleventaQuoteNewComponent implements OnInit {
   }
 
   quitarDeBandeja(id: string): void {
-    this.bandeja.update((items) => items.filter((it) => it.id !== id));
+    const it = this.bandeja().find((x) => x.id === id);
+    this.bandeja.update((items) => items.filter((x) => x.id !== id));
+    // [COT.31] Se dice QUÉ se quitó: la X está al final de la fila y el nombre al principio.
+    if (it) this.toast.add({ severity: 'info', summary: 'Renglón quitado', detail: `${it.quantity} ${it.unit_label} de ${it.name}` });
   }
 
   // ── Guardado Final ──────────────────────────────────────────────────────────
