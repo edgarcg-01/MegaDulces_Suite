@@ -491,7 +491,7 @@ async function applyRawUpsert(client, tenantId, rows, meta) {
           const clave = `${table}:${norm.name}`;
           if (COALESCIBLES.has(clave)) { acumular(clave, norm, keys); continue; }
           // cada normalizador en su PROPIA tx → si uno falla, NO tumba a los otros ni al CDC (lo toma el barrido).
-          try { const nz = await norm(client, tenantId, keys); if (nz) console.log(`  [normalize:${table}:${norm.name}] ${nz} filas (${keys.length} llaves)`); }
+          try { const nz = await conActor(client, norm.name, () => norm(client, tenantId, keys)); if (nz) console.log(`  [normalize:${table}:${norm.name}] ${nz} filas (${keys.length} llaves)`); }
           catch (e) { console.error(`  [normalize:${table}:${norm.name}] ⚠ ${String(e.message).slice(0, 140)} (CDC ok; lo toma el barrido)`); }
         }
       }
@@ -573,6 +573,29 @@ async function applyCdcHeartbeat(client, tenantId, rows) {
            status=EXCLUDED.status, note=EXCLUDED.note, host=EXCLUDED.host, updated_at=now()`,
     [tenantId, jobKey, String(r.label || jobKey).slice(0, 120), String(r.status || 'ok').slice(0, 20), r.note ? String(r.note).slice(0, 500) : null, String(r.host || 'cdc-lan').slice(0, 80)]);
   return 1;
+}
+
+/**
+ * [CANON.5.24] El hop-2 firma lo que escribe en los datos maestros: `app.actor = 'hop2:<normalizador>'`
+ * mientras corre `fn`, y al salir deja el valor que había. Lo lee el trigger de
+ * `analytics.master_data_history` (VP.3.1); sin esto, cada cambio de nombre, precio, costo o reorden
+ * que hacía el hop-2 quedaba anónimo (H11 del anexo CANON.5).
+ *
+ * Mismo criterio que `declararActor` de los importers: el actor es metadata y NUNCA tumba al
+ * normalizador. Restaura en vez de borrar porque el mismo cliente puede ser el de un importer que ya
+ * firmó por su cuenta (`database/importers/lib/sink.js` corre estos handlers dentro del proceso).
+ */
+async function conActor(client, nombre, fn) {
+  let previo = null;
+  try {
+    previo = (await client.query(`SELECT current_setting('app.actor', true) AS a`)).rows[0].a;
+    await client.query(`SELECT set_config('app.actor', $1, false)`, [`hop2:${String(nombre || 'normalizador')}`]);
+  } catch { /* metadata: el normalizador corre igual */ }
+  try {
+    return await fn();
+  } finally {
+    await client.query(`SELECT set_config('app.actor', $1, false)`, [previo || '']).catch(() => {});
+  }
 }
 
 // ---- Normalize-al-llegar (hop 2): kepler_ods.<tabla> → tablas que la app LEE ----
@@ -845,7 +868,7 @@ async function vaciarCoalescidos(client, tenantId) {
       const lote = [];
       for (const s of st.skus) { lote.push(s); if (lote.length >= COALESCE_LOTE) break; }
       try {
-        filas += (await st.fn(client, tenantId, lote)) || 0;
+        filas += (await conActor(client, st.fn.name, () => st.fn(client, tenantId, lote))) || 0;
         hechos += lote.length;
         for (const s of lote) st.skus.delete(s);   // se sacan RECIÉN al confirmar: un fallo no pierde SKUs
       } catch (e) {
@@ -948,7 +971,7 @@ HANDLERS['raw-normalize'] = applyRawNormalize;
 
 module.exports = {
   HANDLERS, applyStockDelta, applyWincajaStock, applyWincajaSalesBronze, applyRawUpsert,
-  applyRawDelete, applyCdcHeartbeat, normalizeProductsFromOds, UUID_RE,
+  applyRawDelete, applyCdcHeartbeat, normalizeProductsFromOds, UUID_RE, conActor,
   normalizacionCoalescible, encolarNormalizacion,
   // [DB-MEM.20] Expuesto SOLO para `database/tests/test-newdb-price-coalesce.js`. Nada de
   // producción lo importa: el coalescedor se usa desde `applyRawUpsert`, que está arriba. Se
