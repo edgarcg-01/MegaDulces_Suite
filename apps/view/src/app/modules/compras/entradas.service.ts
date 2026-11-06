@@ -493,6 +493,12 @@ export interface ReconcileResult {
   /** `[RE.53]` Si los importes de la remisión traen IVA; se decide por documento, no se supone. */
   base_precio?: 'sin_iva' | 'con_iva' | 'sin_medir';
   totals: { lineas_remision: number; lineas_kepler: number; cuadran: number; difieren: number; sin_match: number; revisar: number; kepler_orphans: number };
+  /**
+   * `[RE.55]` De dónde salieron los renglones del proveedor: los conceptos del CFDI ligado, o el OCR
+   * del papel. Un OCR que no pasa las pruebas (dígito verificador, suma contra el total) no se
+   * concilia: `confiable: false` y `motivos` dicen por qué.
+   */
+  lectura?: { fuente: 'cfdi' | 'ocr'; confiable: boolean; motivos: string[]; uuid: string | null; renglones_leidos: number };
 }
 
 /** RE.pkt.1 — un documento detectado dentro del paquete, con su página y prueba. */

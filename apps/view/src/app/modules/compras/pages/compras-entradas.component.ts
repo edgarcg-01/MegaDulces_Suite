@@ -1077,7 +1077,8 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
         } @else if (recon(); as r) {
           <div class="cb-recon">
             <div class="cb-recon-head">
-              <h4>Conciliación por línea <span class="muted">· remisión vs Kepler</span></h4>
+              <h4>Conciliación por línea <span class="muted">· {{ r.lectura?.fuente === 'cfdi' ? 'factura (CFDI)' : 'remisión' }} vs Kepler</span></h4>
+              @if (r.lectura?.confiable !== false) {
               <div class="cb-recon-kpis">
                 <span class="cb-rk ok">{{ r.totals.cuadran }} cuadran</span>
                 <span class="cb-rk warn">{{ r.totals.difieren }} difieren</span>
@@ -1085,7 +1086,26 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                 @if (r.totals.revisar) { <span class="cb-rk sec">{{ r.totals.revisar }} revisar</span> }
                 @if (r.totals.kepler_orphans) { <span class="cb-rk sec">{{ r.totals.kepler_orphans }} solo en Kepler</span> }
               </div>
+              }
             </div>
+            <!-- [RE.55] Primero, de dónde salen los renglones y si se pueden creer. Un OCR que no pasa
+                 las pruebas no se concilia: pintar «sin match» sobre renglones inventados afirmaría
+                 una diferencia que no existe (0010028 de CEDIS: 8 renglones que no estaban en el papel). -->
+            @if (r.lectura?.fuente === 'cfdi') {
+              <p class="cb-recon-base">Renglones del XML del CFDI {{ r.lectura?.uuid }}, no de la lectura del papel.</p>
+            }
+            @if (r.lectura?.confiable === false) {
+              <div class="cb-recon-nolee" role="status">
+                <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                <div>
+                  <p class="strong">No se pudieron leer los renglones del papel; no se concilian.</p>
+                  <ul>
+                    @for (m of r.lectura?.motivos || []; track m) { <li>{{ m }}</li> }
+                  </ul>
+                  <p class="muted">Si el escaneo está girado o borroso, vuelve a subirlo derecho. Cuando el CFDI de esta factura llegue de ContPAQi, se concilia contra él solo.</p>
+                </div>
+              </div>
+            } @else {
             <!-- [RE.53] Contra qué se comparó el precio: la base de IVA se decide por documento. -->
             @if (r.base_precio === 'con_iva') {
               <p class="cb-recon-base">Los importes de esta remisión traen IVA: se comparan contra Kepler quitándoles el 16 %.</p>
@@ -1149,6 +1169,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                   <span class="cb-orphan">{{ o.sku || '—' }} · {{ o.nombre || '—' }} <span class="muted">({{ o.cantidad | number:'1.0-2' }} {{ o.unidad || '' }})</span></span>
                 }
               </div>
+            }
             }
           </div>
         }
@@ -1770,6 +1791,10 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
     .cb-peek .cb-table th, .cb-peek .cb-table td { padding: .3rem .5rem; font-size: var(--fs-xs); line-height: 1.35; }
     .cb-peek .cb-table th { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); font-weight: 600; }
     .cb-recon-base { margin: 0; font-size: var(--fs-xs); color: var(--text-muted); }
+    .cb-recon-nolee { display: flex; gap: var(--sp-2); align-items: flex-start; border: 1px solid var(--border-color); border-left: 4px solid var(--warn-fg); border-radius: var(--r-md); padding: var(--sp-2) var(--sp-3); font-size: var(--fs-sm); }
+    .cb-recon-nolee > .pi { margin-top: .15rem; color: var(--warn-fg); }
+    .cb-recon-nolee p, .cb-recon-nolee ul { margin: 0; }
+    .cb-recon-nolee ul { padding-left: var(--sp-4); }
     .cb-par { color: var(--text-muted); display: flex; align-items: baseline; gap: .3rem; flex-wrap: wrap; }
     .cb-par .pi { font-size: var(--fs-micro); }
     .cb-review { display: grid; grid-template-columns: 1fr; gap: 1.1rem; }
@@ -3181,9 +3206,10 @@ export class ComprasEntradasComponent {
           this.detailLoading.set(false);
           // La 1ª hoja se muestra sola: el trabajo es comparar, no hacer clics.
           this.hojaIdx.set(0);
-          // RE.11 — si alguna remisión trae renglones OCR, concilia automáticamente por línea.
+          // RE.11 — concilia por línea al abrir. `[RE.55]` Aunque el papel no traiga renglones: si la
+          // entrada tiene su CFDI ligado, el servidor concilia contra sus conceptos.
           const withLines = (d.deposits || []).find((dep) => (dep.ocr_lines || []).length > 0);
-          if (withLines) this.runReconcile(withLines.ocr_lines || []);
+          this.runReconcile(withLines?.ocr_lines || []);
         },
         error: () => { this.detailLoading.set(false); this.showDetail.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo cargar el detalle' }); },
       });
@@ -3192,11 +3218,12 @@ export class ComprasEntradasComponent {
   /** RE.11.2 — concilia los renglones de la remisión contra las líneas Kepler de la entrada. */
   runReconcile(lines: RemisionLine[]) {
     const c = this.detailTarget();
-    if (!c || !lines.length) { this.recon.set(null); return; }
+    if (!c) { this.recon.set(null); return; }
     this.reconLoading.set(true);
     this.svc.reconcile(c.sucursal, c.folio, lines).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (r) => { this.recon.set(r); this.reconLoading.set(false); },
+        // Sin CFDI y sin renglones leídos no hay nada que conciliar: la sección no se dibuja.
+        next: (r) => { this.recon.set(r.lectura?.fuente === 'ocr' && !r.lectura.renglones_leidos ? null : r); this.reconLoading.set(false); },
         error: () => { this.reconLoading.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo conciliar por línea' }); },
       });
   }
