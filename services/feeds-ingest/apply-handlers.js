@@ -20,6 +20,7 @@ const { computeLabels, toStageTuple, upsertLabels } = require('./label-compute')
 // `[TDA.1]` Aviso a las pantallas de que un precio de etiqueta cambió. Fail-open por diseño.
 const { notifyLabelPricesChanged } = require('./notify-store');
 const { computeBarcodes } = require('./barcode-compute');
+const { identitySnapshotSql } = require('./product-identity');
 const { normalizeCost, normalizeReorder, normalizeBoxFactor, normalizeBoxPrice, normalizeSalePrice } = require('./ods-derived');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -602,16 +603,13 @@ async function normalizeProductsFromOds(client, tenantId, skus) {
   try {
     await client.query(`SET LOCAL app.tenant_id = '${tenantId}'`);
 
-    // snapshot canónico SOLO de estos SKUs (una fila por sku, CEDIS '00' primero).
+    // snapshot canónico SOLO de estos SKUs, con la regla de identidad de CANON.1.3 (retail primero,
+    // CEDIS de respaldo) — la MISMA función que el barrido `repoint-catalog-names`. [CANON.5.23] Antes
+    // era CEDIS primero y los dos escritores se corregían uno al otro cada noche (H12).
     await client.query(`
       CREATE TEMP TABLE snap_p ON COMMIT DROP AS
-      SELECT DISTINCT ON (btrim(c1))
-             btrim(c1) AS sku, btrim(c2) AS nombre,
-             nullif(btrim(coalesce(c7,'')),'') AS barcode,
-             btrim(c3::text) AS linea, NULL::uuid AS brand_id
-        FROM kepler_ods.kdii
-       WHERE btrim(c1) = ANY($1) AND btrim(coalesce(c2,'')) <> ''
-       ORDER BY btrim(c1), (sucursal='00') DESC, sucursal`, [skus]);
+      SELECT i.sku, i.nombre, i.barcode, i.linea, NULL::uuid AS brand_id
+        FROM (${identitySnapshotSql({ skuParam: '$1' })}) i`, [skus]);
     await client.query(`UPDATE snap_p s SET brand_id=b.id FROM catalog.brands b
                          WHERE b.tenant_id=$1 AND b.deleted_at IS NULL AND btrim(b.code)=s.linea`, [tenantId]);
     const fallback = (await client.query(
