@@ -23,6 +23,11 @@ export interface EntradaRow {
   proveedor_nombre: string | null;
   proveedor_rfc: string | null;
   oc_folio: string | null;
+  /**
+   * `[PQ.81]` El folio de la ORDEN DE ENTRADA (X-A-40) de la que viene esta entrada. `folio` es el de
+   * la aplicación (X-A-20): Kepler los numera aparte y casi nunca coinciden. Ausente = API anterior.
+   */
+  orden_entrada_folio?: string | null;
   concepto: string | null;
   source_branch: string | null; // md_* = Kepler, wincaja_* = Wincaja (define el set de docs requeridos)
   monto: number;
@@ -570,6 +575,8 @@ export interface EntradaDetail {
     sucursal: string; folio: string; receipt_date: string | null;
     proveedor_code: string | null; proveedor_nombre: string | null; proveedor_rfc: string | null;
     oc_folio: string | null; vale_folio: string | null; concepto: string | null; monto: number;
+    /** `[PQ.81]` La orden de entrada (X-A-40) de la que viene, y la remisión que trae el papel. */
+    orden_entrada_folio?: string | null; referencia?: string | null;
     // `[RE.1]` — el vencimiento es la mitad de la decisión de pago; va en el expediente.
     fecha_vence?: string | null; condicion_pago?: string | null;
     dias_credito?: number | null; dias_para_vencer?: number | null;

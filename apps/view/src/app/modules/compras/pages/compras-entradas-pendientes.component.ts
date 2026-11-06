@@ -226,7 +226,7 @@ interface Hoja {
           <div class="ep-ac" role="combobox" [attr.aria-expanded]="sugOpen()" aria-haspopup="listbox">
             <input pInputText [ngModel]="search()" (ngModelChange)="onSearch($event)"
                    (keydown)="onSearchKey($event)" (focus)="abrirSug()" (blur)="cerrarSug()"
-                   placeholder="Últimos 4 del folio (ej. 0397) o proveedor…" class="ep-search"
+                   placeholder="Últimos 4 del folio de la entrada o de su orden de entrada, o proveedor…" class="ep-search"
                    aria-label="Buscar entrada" autocomplete="off"
                    [attr.aria-activedescendant]="sugIdx() >= 0 ? 'sug-' + sugIdx() : null" />
             @if (search()) {
@@ -255,7 +255,7 @@ interface Hoja {
                         class="ep-ac-op" [class.on]="sugIdx() === i"
                         (mousedown)="$event.preventDefault()" (click)="elegirSug(e)" (mouseenter)="sugIdx.set(i)">
                       <b class="mono">{{ ultimos4(e.folio) }}</b>
-                      <span>{{ e.proveedor_nombre || e.proveedor_code || '—' }}</span>
+                      <span>{{ e.proveedor_nombre || e.proveedor_code || '—' }}@if (difOrden(e)) { <small class="ep-ac-oe"> · orden de entrada {{ ultimos4(e.orden_entrada_folio!) }}</small> }</span>
                       <em class="mono">{{ money(e.monto) }}</em>
                       <i class="ep-ac-d" [class.late]="e.atrasada">{{ e.dias }}d</i>
                     </li>
@@ -376,10 +376,13 @@ interface Hoja {
                              proveedor y total, y para ver los productos tenía que irse a otra
                              pantalla del Control de entradas. -->
                         <button type="button" class="comm-code ep-folio-btn" (click)="abrirDetalle(c)"
-                                [pTooltip]="'Folio ' + c.folio + ' — ver qué trae'" tooltipPosition="top">
+                                [pTooltip]="'Entrada (aplicación) ' + c.folio + (c.orden_entrada_folio ? ' · orden de entrada ' + c.orden_entrada_folio : '') + ' — ver qué trae'" tooltipPosition="top">
                           {{ ultimos4(c.folio) }}
                         </button>
                         @if (variasSucursales()) { <em>{{ suc(c.sucursal) }}</em> }
+                        <!-- [PQ.81] el folio de su ORDEN DE ENTRADA, que casi nunca es el mismo número: buscar «1062»
+                             pensando en la orden 1062 llevaba a la entrada 1062, que es de la orden 1065 -->
+                        @if (difOrden(c)) { <em>orden {{ ultimos4(c.orden_entrada_folio!) }}</em> }
                       </td>
                       <td class="ep-prov">
                         <span [pTooltip]="c.proveedor_nombre || ''" tooltipPosition="top">{{ c.proveedor_nombre || c.proveedor_code || '—' }}</span>
@@ -489,7 +492,7 @@ interface Hoja {
       Todas las entradas). Es lectura, así que va en el cajón canónico de detalle y la lista se
       sigue viendo detrás.
     -->
-    <app-side-peek [(open)]="detalleAbierto" [width]="760" title="Qué trae esta orden"
+    <app-side-peek [(open)]="detalleAbierto" [width]="760" title="Qué trae esta entrada"
                    [subtitle]="detalleSubtitulo()">
       @if (detalleLoading()) {
         <div class="ep-det-skel" aria-busy="true" aria-label="Cargando el detalle">
@@ -501,6 +504,9 @@ interface Hoja {
         <dl class="ep-det-ficha">
           <div><dt>Proveedor</dt><dd>{{ d.entrada.proveedor_nombre || d.entrada.proveedor_code || '—' }}</dd></div>
           <div><dt>Recepción</dt><dd>{{ d.entrada.receipt_date | date:'dd/MM/yy' }}</dd></div>
+          <!-- [PQ.81] la cadena de Kepler con sus nombres: la entrada (aplicación) viene de una orden de
+               entrada, y ésa de un vale y una OC. La remisión es lo que trae el papel del proveedor. -->
+          <div><dt>Orden de entrada</dt><dd class="mono">{{ d.entrada.orden_entrada_folio || '—' }}@if (d.entrada.referencia) { <span class="ep-det-rem">· remisión {{ d.entrada.referencia }}</span> }</dd></div>
           <div><dt>OC / Vale</dt><dd class="mono">{{ d.entrada.oc_folio || '—' }} / {{ d.entrada.vale_folio || '—' }}</dd></div>
           <div><dt>Total Kepler</dt><dd class="mono ep-det-total">{{ money(d.entrada.monto) }}</dd></div>
         </dl>
@@ -963,6 +969,7 @@ interface Hoja {
 
     .ep-folio b { font-size: var(--fs-body); }
     .ep-folio em { display: block; font-style: normal; font-size: var(--fs-micro); color: var(--text-faint); }
+    .ep-ac-oe, .ep-det-rem { color: var(--text-muted); font-size: var(--fs-sm); }
     .ep-prov { max-width: 22rem; }
     .ep-prov > span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .ep-monto { font-weight: 600; }
@@ -1921,7 +1928,13 @@ export class ComprasEntradasPendientesComponent {
   detalleSubtitulo(): string {
     const c = this.detalleDe();
     if (!c) return '';
-    return [`${c.sucursal}/${c.folio}`, c.proveedor_nombre || c.proveedor_code || ''].filter(Boolean).join(' · ');
+    // [PQ.81] el folio dice de qué documento es: la aplicación (X-A-20), no la orden de entrada
+    return [`Entrada ${c.sucursal}/${c.folio}`, c.proveedor_nombre || c.proveedor_code || ''].filter(Boolean).join(' · ');
+  }
+
+  /** `[PQ.81]` ¿Su orden de entrada tiene otro número? Sólo entonces se dice (si es igual, repetirlo no informa). */
+  difOrden(c: Pick<EntradaRow, 'folio' | 'orden_entrada_folio'>): boolean {
+    return !!c.orden_entrada_folio && c.orden_entrada_folio.trim() !== c.folio.trim();
   }
 
   abrirDetalle(c: EntradaRow): void {
