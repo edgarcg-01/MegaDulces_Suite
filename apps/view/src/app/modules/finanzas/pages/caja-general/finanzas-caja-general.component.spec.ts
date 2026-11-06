@@ -550,6 +550,36 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(comp.truncada()).toBe(true);
   });
 
+  // ⭐ `[LE.6.22]` El repaso de 20 s armaba la cola entera cada vez: casi todo el servidor del módulo.
+  it('[LE.6.22] el repaso pregunta con la firma; sin cambios no toca la lista, y cada 5 min pide la cola entera', () => {
+    const fila = { origen_ref: '00|X-D-26|1|0011', monto: 10 } as unknown as PendientesResponse['rows'][number];
+    const siCambio = vi.fn(() => of({ sin_cambios: true as const, firma: 'F1', datos_al: '2026-11-06T18:00:10Z' }));
+    montar({ movimientosPendientes: vi.fn(() => of({ ...VACIA, rows: [fila], firma: 'F1' })), movimientosPendientesSiCambio: siCambio });
+    const repasar = () => (comp as unknown as { repasarPendientes(): void }).repasarPendientes();
+    const completos = svc['movimientosPendientes'].mock.calls.length;
+
+    repasar();
+    expect(siCambio).toHaveBeenCalledTimes(1);
+    expect((siCambio.mock.calls[0] as unknown[])[1]).toBe('F1');
+    expect(svc['movimientosPendientes'].mock.calls.length).toBe(completos);
+    expect(comp.pendientes()).toEqual([fila]);
+    expect(comp.datosAl()).toBe('2026-11-06T18:00:10Z');
+
+    // El repaso nº 15 (5 min) va sin firma: trae lo que la firma no cubre (las reglas de cuenta).
+    for (let i = 2; i <= 15; i++) repasar();
+    expect(siCambio).toHaveBeenCalledTimes(14);
+    expect(svc['movimientosPendientes'].mock.calls.length).toBe(completos + 1);
+  });
+
+  it('[LE.6.22] sin firma todavía (API anterior), el repaso pide la cola entera como antes', () => {
+    const siCambio = vi.fn();
+    montar({ movimientosPendientesSiCambio: siCambio });
+    const completos = svc['movimientosPendientes'].mock.calls.length;
+    (comp as unknown as { repasarPendientes(): void }).repasarPendientes();
+    expect(siCambio).not.toHaveBeenCalled();
+    expect(svc['movimientosPendientes'].mock.calls.length).toBe(completos + 1);
+  });
+
   it('el movimiento nace con la fecha de MÉXICO, no la de UTC', () => {
     montar();
     comp.abrirCaptura();
@@ -5243,6 +5273,51 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       expect(comp.neDeclarado()).toMatchObject({ cheques: 10121 });
     });
 
+    // ⭐ `[LE.6.23]` PM, 2026-11-06: «que se haga el arqueo de los dls, cheques, etc, pero entrega el valor por default».
+    const CON_USD = { origen: 'control', folio: 'A23706', dia: '2026-10-28', corte_id: null, cheques: 202671, papeles: 20782, usd: 12059, tipo_cambio: 19.101 };
+
+    it('[LE.6.23] los dólares llegan propuestos del último arqueo y cerrar el corte los guarda, diciendo que fueron tal cual', () => {
+      montar({ saldo: vi.fn(() => of(abierto(null))), contarCorte: contar(), cerrarCorte: cerrado(),
+        arqueosCaja: vi.fn(() => of({ rows: [CON_USD], limit: 30, fuente: 'prueba' })) });
+      comp.abrirCierre();
+      expect(comp.neUsd()).toBe(12059);
+      expect(comp.neTC()).toBe(19.101);
+      expect(comp.neTCFuente()).toContain('A23706');
+      expect(comp.neFalta()).toBeNull();
+      comp.setPiezasCorte(den('500'), 3);
+      comp.sellarConteo();
+      comp.cerrarCorte();
+      expect(svc['registrarArqueoCaja']).toHaveBeenCalledTimes(1);
+      const body = svc['registrarArqueoCaja'].mock.calls[0][0];
+      expect(body).toMatchObject({ tipo: 'intermedio', corte_id: 'c1', usd: 12059, tipo_cambio: 19.101 });
+      expect(body.nota).toContain('Confirmado tal cual se propuso del arqueo anterior: dólares (USD 12059 a 19.101, del arqueo A23706)');
+      expect(svc['cerrarCorte']).toHaveBeenCalledTimes(1);
+    });
+
+    it('[LE.6.23] [negativa] si se cambian los dólares, la nota no dice «tal cual»', () => {
+      montar({ saldo: vi.fn(() => of(abierto(null))), contarCorte: contar(), cerrarCorte: cerrado(),
+        arqueosCaja: vi.fn(() => of({ rows: [CON_USD], limit: 30, fuente: 'prueba' })) });
+      comp.abrirCierre();
+      comp.neUsd.set(12000);
+      comp.setPiezasCorte(den('500'), 3);
+      comp.sellarConteo();
+      comp.cerrarCorte();
+      const body = svc['registrarArqueoCaja'].mock.calls[0][0];
+      expect(body.usd).toBe(12000);
+      expect(body.nota).not.toContain('tal cual');
+    });
+
+    it('[LE.6.23] si al apartado le falta algo, cerrar lo dice y cierra igual: no mueve el esperado', () => {
+      montar({ saldo: vi.fn(() => of(abierto(null))), contarCorte: contar(), cerrarCorte: cerrado() });
+      comp.abrirCierre();
+      expect(comp.neFalta()).toMatch(/al menos un apartado/);
+      comp.setPiezasCorte(den('500'), 3);
+      comp.sellarConteo();
+      comp.cerrarCorte();
+      expect(svc['registrarArqueoCaja']).not.toHaveBeenCalled();
+      expect(svc['cerrarCorte']).toHaveBeenCalledTimes(1);
+    });
+
     it('⛔ si la relectura del saldo falla después de sellar, el corte del diálogo se puede cerrar igual', () => {
       let falla = false;
       const saldo = vi.fn(() => (falla ? throwError(() => ({ status: 500, error: {} })) : of(abierto(null))));
@@ -5621,9 +5696,7 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       const canindo: ReposicionGrupo = { ...grupo('c', 'sin_vincular'), sucursal: '06' };
       const fx = montar({ reposicion: vi.fn(() => of({ ...REPOSICION, grupos: [morelia, canindo] })) });
       fx.detectChanges();
-      const filtros = [...fx.nativeElement.querySelectorAll('app-caja-reposicion .seg-btn')] as HTMLElement[];
-      filtros.find((b) => b.textContent?.includes('Sin retiro'))!.click();
-      fx.detectChanges();
+      // `[LE.6.21]` Sin filtro: lo que ningún retiro explica va al final de «Reposiciones».
       const fila = (nombre: string) => ([...fx.nativeElement.querySelectorAll('app-caja-reposicion .rp-tbl tr')] as HTMLElement[])
         .find((tr) => tr.querySelector('[data-label="Sucursal"]')?.textContent?.includes(nombre))?.textContent ?? '';
       expect(fila('Morelia Madero'), 'el renglón de Morelia no se pintó').not.toBe('');
@@ -5631,6 +5704,41 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       expect(fila('Morelia Madero')).not.toContain('Sin retiro claro');
       expect(fila('Canindo')).toContain('Sin retiro claro de esta sucursal');
       expect(fila('Canindo')).not.toContain('Se repone por hoja de zona');
+    });
+
+    // ⭐ `[LE.6.21]` PM, 2026-11-06: «necesito solo dos pestañas, una donde se muestran las reposiciones, y otra de historial».
+    it('[LE.6.21] dos pestañas: «Reposiciones» lleva lo que pide un acto (lo sin retiro al final) y el historial lo explicado', () => {
+      const fx = montar({ reposicion: vi.fn(() => of(CON_PENDIENTES)) });
+      fx.detectChanges();
+      const seg = () => ([...fx.nativeElement.querySelectorAll('app-caja-reposicion .seg-btn')] as HTMLElement[]).map((b) => b.textContent?.replace(/\s+/g, ' ').trim());
+      expect(seg()).toEqual(['Reposiciones 3', 'Historial 1']);
+      const sucursales = () => ([...fx.nativeElement.querySelectorAll('app-caja-reposicion .rp-tbl tbody tr')] as HTMLElement[])
+        .map((tr) => tr.querySelector('[data-label="Sucursal"]')?.textContent?.trim()).filter(Boolean);
+      expect(sucursales()).toHaveLength(3);
+      // La cuenta ya no se repite arriba: la dice la pestaña.
+      expect(fx.nativeElement.querySelector('app-caja-reposicion .rp-lead')).toBeNull();
+      const c = fx.debugElement.query(By.directive(CajaReposicionComponent)).componentInstance as CajaReposicionComponent;
+      c.vista.set('historial');
+      fx.detectChanges();
+      expect(sucursales()).toHaveLength(1);
+      expect(fx.nativeElement.querySelector('app-caja-reposicion .rp-kpis')?.textContent).toContain('Del cajón');
+    });
+
+    it('[LE.6.21] en el historial cada fila dice con qué retiro se pagó, no «Nada pendiente»', () => {
+      const doc = { origen_ref: '07|X-D-26|1|0011', sucursal: '07', doc_tipo: 'X-D-26', folio: '1', fecha_valor: '2026-10-28', fecha_captura: '2026-10-28',
+        beneficiario: 'GASTOS', monto: 100, clase: 'gasto', en_kepler: true, ledger_id: 'l1', cg_folio: 'CG-1', origen_efectivo: null,
+        enlazado: 98.5, falta: 0, estado: 'explicado',
+        vinculos: [{ link_id: 'k1', device: 'AST700', external_id: 1830, ref: 'gnf ma', monto: 98.5 }] } as unknown as ReposicionGrupo['docs'][number];
+      const explicada: ReposicionGrupo = { ...grupo('d', 'explicada'), docs: [doc], caos: 98.5, cajon: 1.5 };
+      const fx = montar({ reposicion: vi.fn(() => of({ ...REPOSICION, grupos: [explicada] })) });
+      fx.detectChanges();
+      const c = fx.debugElement.query(By.directive(CajaReposicionComponent)).componentInstance as CajaReposicionComponent;
+      c.vista.set('historial');
+      fx.detectChanges();
+      const fila = (fx.nativeElement.querySelector('app-caja-reposicion .rp-tbl tbody tr') as HTMLElement).textContent ?? '';
+      expect(fila).toContain('«gnf ma» · $98.50 + del cajón · $1.50');
+      expect(fila).not.toContain('Nada pendiente');
+      expect(fila).not.toContain('Explicada');
     });
   });
   // ── `[CGA-A.65]` La ventana más sencilla, y la hoja de zona aprobada se paga en ella ──────────
@@ -5756,18 +5864,24 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
         { desde: '2026-10-16', hasta: '2026-10-16', renglones: 12, total: 92606.73, como: 'deposito' as const, testigo: 'depósito del 22/10 por $92,606.73' }];
       const fx = montar({ hojasDeGastos: vi.fn(() => of(HOJAS({ abiertas: [ABIERTA({ ya_repuestos: ya, sin_deposito: [sin] })], cerradas: [] }))) });
       fx.detectChanges();
+      // «Reposiciones»: lo que no tiene depósito (es lo que alguien tiene que resolver).
       const bloque = ventana(fx).querySelector('[data-testid="rp-repuesto"]') as HTMLElement;
-      expect(bloque, 'lo ya repuesto no se ve').not.toBeNull();
-      const t = bloque.textContent ?? '';
-      expect(t).toContain('2 tramos ya repuestos ($262,302.76)');
-      expect(t).toContain('1 pago sin depósito ($194,570.19)');
-      expect(t).toContain('cuenta 1604 cargada al 30/10/26');
-      expect(t).toContain('Hoja en papel: Control A23649 «GNF MORELIA» del 15/10');
-      expect(t).toContain('depósito del 22/10 por $92,606.73');
+      expect(bloque, 'lo sin depósito no se ve').not.toBeNull();
+      expect(bloque.textContent).toContain('1 pago sin depósito ($194,570.19)');
+      expect(bloque.textContent).toContain('cuenta 1604 cargada al 30/10/26');
+      expect(bloque.textContent).not.toContain('ya repuesto');
       expect(bloque.querySelector('[data-testid="rp-sin-deposito"]')?.textContent).toContain('si es gasto normal, se paga en la cola');
       // Lo que se paga sigue siendo sólo lo por reponer.
       expect(botonDe(fx, 'Pagar Zona Morelia')).not.toBeNull();
       expect(ventana(fx).querySelector('.rp-cifra')?.textContent).toContain('$83,981.89');
+      // `[LE.6.21]` El historial: lo ya repuesto, con su testigo.
+      reposicion(fx).vista.set('historial');
+      fx.detectChanges();
+      const hist = ventana(fx).querySelector('[data-testid="rp-repuesto"]')?.textContent ?? '';
+      expect(hist).toContain('2 tramos ya repuestos ($262,302.76)');
+      expect(hist).toContain('Hoja en papel: Control A23649 «GNF MORELIA» del 15/10');
+      expect(hist).toContain('depósito del 22/10 por $92,606.73');
+      expect(hist).not.toContain('sin depósito');
     });
 
     it('[LE.6.20] una zona sin cuenta medida y con algo por reponer lo dice: no se sabe qué ya se repuso', () => {
@@ -5781,16 +5895,18 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       fx.detectChanges();
       expect(ventana(fx).textContent).toContain('Las hojas de zona no se pudieron leer');
       // La reposición sigue con su propio estado (aquí, vacía), no con un error.
-      expect(ventana(fx).textContent).toContain('Nada por resolver');
+      expect(ventana(fx).textContent).toContain('Nada por reponer');
       expect(ventana(fx).textContent).not.toContain('No se pudo leer la reposición');
     });
 
-    it('tres cifras y cada una dice en qué lista está; la aprobación queda en el pie, no se pierde', () => {
+    it('[LE.6.21] dos cifras en «Reposiciones», de su lista; «Del cajón» (historia) va al historial; la aprobación en el pie', () => {
       const fx = montar({ hojasDeGastos: vi.fn(() => of(HOJAS())) });
       fx.detectChanges();
       const kpis = ventana(fx).querySelector('.rp-kpis')!.textContent ?? '';
       expect(kpis).toContain('Por resolver');
-      expect(kpis).toContain('en «Sin retiro»');
+      expect(kpis).toContain('Sin retiro que lo explique');
+      expect(kpis).toContain('al final de la lista');
+      expect(kpis).not.toContain('Del cajón');
       expect(kpis).not.toContain('Vincular con propuesta');
       expect(ventana(fx).querySelector('.rp-universo')!.textContent).toContain('Nada espera firma ni se pagó antes de aprobarse.');
     });

@@ -4311,19 +4311,20 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                 vales y papeles {{ g.papeles === null ? 'sin contar' : money(g.papeles) }} ·
                 {{ g.usd ? 'USD ' + g.usd + ' a ' + g.tipo_cambio : 'sin dólares' }}.</p>
             } @else {
-              <small class="fin-dim d-block">No cambian el esperado del corte. Anota cada cheque y cada papel; lo que había se marca si sigue.</small>
-              <app-arqueo-documentos #neCh tipo="cheque" [apartado]="neDocs()?.cheques ?? null" [bloqueo]="neDocsBloqueo()" />
+              <small class="fin-dim d-block">No cambian el esperado del corte. Va propuesto lo del arqueo anterior: cambia sólo lo que ya no esté
+                o lo nuevo, y se guarda al cerrar el corte.</small>
+              <app-arqueo-documentos #neCh tipo="cheque" [apartado]="neDocs()?.cheques ?? null" [bloqueo]="neDocsBloqueo()" [propuesto]="true" />
               @if (neSinDetalle().cheque; as monto) {
                 <ng-container *ngTemplateOutlet="explica; context: { $implicit: 'cheque', monto: monto, titulo: 'Cheques' }"></ng-container>
               }
-              <app-arqueo-documentos #nePa tipo="papel" [apartado]="neDocs()?.papeles ?? null" [bloqueo]="neDocsBloqueo()" />
+              <app-arqueo-documentos #nePa tipo="papel" [apartado]="neDocs()?.papeles ?? null" [bloqueo]="neDocsBloqueo()" [propuesto]="true" />
               @if (neSinDetalle().papel; as monto) {
                 <ng-container *ngTemplateOutlet="explica; context: { $implicit: 'papel', monto: monto, titulo: 'Vales y papeles' }"></ng-container>
               }
               <fieldset class="cg-ne-usd">
                 <legend>Dólares</legend>
-                @if (neUltimoUsd(); as u) {
-                  <small class="fin-dim d-block">El último arqueo con dólares ({{ u.folio }}, {{ u.dia }}) tenía USD {{ u.usd }} a {{ u.tipo_cambio }}. Cuéntalos: no se copia.</small>
+                @if (neUsdPropuesto(); as u) {
+                  <small class="fin-dim d-block">Propuesto del arqueo {{ u.folio }} ({{ u.dia }}): USD {{ u.usd }} a {{ u.tipo_cambio }}. Cámbialo sólo si no es así.</small>
                 }
                 <label for="cg-ne-usd">Dólares (USD)</label>
                 <p-inputnumber inputId="cg-ne-usd" mode="decimal" [minFractionDigits]="0" [maxFractionDigits]="2" [min]="0"
@@ -5997,7 +5998,12 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     return this.neRecientes().find((a) => a.origen === 'suite' && !!id && a.corte_id === id
       && (a.cheques !== null || a.papeles !== null || a.usd !== null)) ?? null;
   });
-  readonly neUltimoUsd = computed(() => this.neRecientes().find((a) => (a.usd ?? 0) > 0) ?? null);
+  /**
+   * ⭐ `[LE.6.23]` El último arqueo que contó dólares: de ahí sale lo PROPUESTO (PM, 2026-11-06: *«entrega
+   * el valor por default, ya que esos casi no cambian»*). Medido en `analytics.v_caja_arqueos`: en 913
+   * arqueos de Control los dólares cambiaron 33 veces. `null` = no hay de dónde proponer: se teclea.
+   */
+  readonly neUsdPropuesto = signal<ArqueoCajaDto | null>(null);
   /** Lo que Control (o un arqueo viejo) traía sin detalle, por apartado. */
   readonly neSinDetalle = computed(() => ({
     cheque: this.neDocsBloqueo() ? null : this.neDocs()?.cheques.sin_detalle?.monto ?? null,
@@ -6042,10 +6048,27 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       next: (d) => this.neDocs.set(d),
       error: () => this.neDocsError.set('No se pudo leer qué cheques y papeles había: esta vez quedan sin contar.'),
     });
+    this.neUsdPropuesto.set(null);
     this.svc.arqueosCaja(30).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => this.neRecientes.set(r.rows),
+      next: (r) => {
+        this.neRecientes.set(r.rows);
+        // `[LE.6.23]` Se proponen los dólares del último arqueo que los contó, con su tipo de cambio. Sólo
+        // si nadie tecleó todavía: una lectura tardía no pisa lo que la persona ya puso.
+        const u = r.rows.find((a) => a.usd !== null && a.tipo_cambio !== null) ?? null;
+        if (u && this.neUsd() === null) {
+          this.neUsdPropuesto.set(u);
+          this.neUsd.set(u.usd); this.neTC.set(u.tipo_cambio);
+          this.neTCFuente.set(`el del arqueo ${u.folio} (${u.dia})`);
+        }
+      },
       error: () => this.neRecientes.set([]),
     });
+  }
+
+  /** `[LE.6.23]` Los dólares van tal cual se propusieron. */
+  private usdSinCambios(): boolean {
+    const u = this.neUsdPropuesto();
+    return !!u && this.neUsd() === u.usd && this.neTC() === u.tipo_cambio;
   }
 
   /**
@@ -6062,6 +6085,14 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       .filter((x) => !!x.denom_key && x.piezas > 0)
       .map((x) => ({ denom_key: String(x.denom_key), piezas: x.piezas }));
     const notas = [`Declarado al cerrar el corte ${c.folio}: el efectivo es el conteo sellado del corte, no un recuento.`];
+    // `[LE.6.23]` Lo que se confirmó tal cual se propuso, escrito: un arqueo que copia el anterior no
+    // puede leerse igual que uno que se contó pieza por pieza.
+    const tal = [
+      this.neCh()?.sinCambios() ? 'cheques' : null,
+      this.nePa()?.sinCambios() ? 'vales y papeles' : null,
+      this.usdSinCambios() ? `dólares (USD ${this.neUsd()} a ${this.neTC()}, del arqueo ${this.neUsdPropuesto()?.folio})` : null,
+    ].filter(Boolean);
+    if (tal.length) notas.push(`Confirmado tal cual se propuso del arqueo anterior: ${tal.join(', ')}.`);
     for (const [tipo, titulo] of [['cheque', 'Cheques'], ['papel', 'Vales y papeles']] as const) {
       const monto = this.neSinDetalle()[tipo];
       if (monto !== null && this.docsDe(tipo)?.valor() != null) {
@@ -6785,7 +6816,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     // otro carril (tabla foránea del runner) que no avisa a nadie. Para ESA llegada el repaso es
     // el único mecanismo, así que su periodo es el techo de latencia. Medido el 2026-10-20: el
     // cobro de la ruta 26 aterrizó 17:02 y la pantalla no tenía forma de saberlo hasta el tick.
-    encuestarVisible(20000, () => this.cargarPendientes(true), { destroyRef: this.destroyRef, zone: this.zone });
+    //
+    // ⭐ `[LE.6.22]` El repaso pregunta con la FIRMA de lo que tiene delante y el servidor sólo arma
+    // la cola si cambió (`repasarPendientes`). Armarla entera cada 20 s por pestaña era casi todo el
+    // tiempo de servidor del módulo (449 min en 14 días, medido en `analytics.ui_usage`).
+    encuestarVisible(20000, () => this.repasarPendientes(), { destroyRef: this.destroyRef, zone: this.zone });
   }
 
   private suscribirCambios(): void {
@@ -7606,6 +7641,14 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     const c = this.corteEnCierre();
     if (!c || this.recontando() || !this.gateCierre().ok || this.cerrando()) return;
     this.cerrando.set(true); this.errorCierre.set(null);
+    // ⭐ `[LE.6.23]` El arqueo de lo que no es efectivo se hace EN el corte: cerrar lo guarda si nadie lo
+    // guardó y está completo. Va antes, porque cerrar limpia el diálogo; si le falta algo, se dice y
+    // el corte se cierra igual (no mueve el esperado: no es motivo para frenar el cierre).
+    if (!this.neDeclarado() && !this.neGuardando()) {
+      const falta = this.neFalta();
+      if (falta) this.toast.add({ severity: 'warn', summary: 'Cheques, papeles y dólares sin guardar', detail: falta, life: 8000 });
+      else this.guardarNoEfectivo();
+    }
     // [CGP-V.12] Con un conflicto a la vista, el botón confirma el esperado que la persona VIO.
     // ⭐ [CGP-V.2] La reja va VACÍA: lo que se firma es lo sellado, y el servidor lo usa cuando el
     // cuerpo no trae piezas ([CGP-L.1]; antes, el respaldo de [CG.159]). Mandar lo tecleado era
@@ -8306,10 +8349,26 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * contar→guardar→contar sigue igual. Lo que cambia es que ahora lo pide **quien guardó**, que
    * es el único que sabe que terminó de contar.
    */
-  cargarPendientes(bg = false, encadenar = false): void {
+  /** `[LE.6.22]` La firma de la cola que se ve (la manda el servidor con cada cola entera). */
+  private firmaCola: string | null = null;
+  private repasos = 0;
+  /** Cada cuántos repasos se pide la cola entera aunque la firma no cambie (15 × 20 s = 5 min). */
+  private static readonly REPASO_COMPLETO_CADA = 15;
+
+  /**
+   * ⭐ `[LE.6.22]` El repaso de fondo, con firma. La firma cubre la cola, el libro, los ligues y los
+   * retiros de CAOS; lo que NO cubre —las reglas de cuenta y el rezago anterior a la cola— lo trae
+   * la vuelta completa cada 5 min. Sin firma todavía (la primera carga no terminó, o la API
+   * desplegada no la manda), el repaso pide la cola entera como antes.
+   */
+  private repasarPendientes(): void {
+    const completo = ++this.repasos % FinanzasCajaGeneralComponent.REPASO_COMPLETO_CADA === 0;
+    this.cargarPendientes(true, false, completo ? null : this.firmaCola);
+  }
+
+  cargarPendientes(bg = false, encadenar = false, siCambio: string | null = null): void {
     if (!bg) this.cargandoPend.set(true);
-    // [CGA-A.43] Sin `from`: el servidor acota la cola en el primer corte del libro.
-    this.svc.movimientosPendientes({
+    const filtros = {
       tipo: this.signoBandeja() || undefined,
       // [CGA11Y-O3b] El grupo elegido en la tira. Acota la LISTA; los conteos de la tira no lo
       // heredan (ver filtrosCon en el servicio), o cada acceso tendria numero solo al estar activo.
@@ -8318,8 +8377,21 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       // CS.3.9 — el buscador universal de «por confirmar»: folio de Kepler, concepto, beneficiario, doc.
       search: this.searchPend() || undefined,
       limit: 100,
-    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => {
+    };
+    // [CGA-A.43] Sin `from`: el servidor acota la cola en el primer corte del libro.
+    const pedido = siCambio ? this.svc.movimientosPendientesSiCambio(filtros, siCambio) : this.svc.movimientosPendientes(filtros);
+    pedido.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (resp) => {
+        // `[LE.6.22]` La cola no cambió: las filas, la marca y el borrador se quedan como están. Sólo
+        // avanza la edad del dato, que sí es nueva (si no, la pantalla declararía una foto vieja).
+        if ('sin_cambios' in resp) {
+          this.datosAl.set(resp.datos_al ?? null);
+          this.errPend.set(null);
+          this.cargandoPend.set(false);
+          return;
+        }
+        const r = resp;
+        this.firmaCola = r.firma ?? null;
         this.pendientes.set(r.rows ?? []);
         // `[CG.93]` Lo único que tiene que hacer la persona es CONTAR. Ver `avanzarAlSiguiente()`.
         // ⚠️ SÓLO cuando quien llamó venía de guardar: ver el bloque de `encadenar` arriba.

@@ -99,9 +99,31 @@ export interface PuntajeCaos {
 /** Palabras del ref que NO discriminan (aparecen en casi todo) — no cuentan como coincidencia. */
 const STOP = new Set(['pagos', 'pago', 'caja', 'efectivo', 'varios', 'gastos', 'gasto']);
 
+/**
+ * `[LE.6.22]` Memoria acotada para las dos funciones puras que `rankearCaos` repite por cada par
+ * fila × retiro (y `diasEntre` otra vez en cada comparación del `sort`). Perfilado con 500 filas ×
+ * 215 retiros —el tamaño de la cola en prod el 2026-11-06—: `diasEntre` y `norm` eran el 75 % y el
+ * 20 % del CPU de un repaso que bloquea el servidor. Mismos textos, mismo resultado.
+ */
+const MEMO_TOPE = 20000;
+function memo<T>(m: Map<string, T>, k: string, calc: (k: string) => T): T {
+  const hit = m.get(k);
+  if (hit !== undefined) return hit;
+  const r = calc(k);
+  if (m.size >= MEMO_TOPE) m.clear();
+  m.set(k, r);
+  return r;
+}
+const NORM_MEMO = new Map<string, string>();
+const DIA_MEMO = new Map<string, number>();
+
 /** Normaliza: minúsculas, sin acentos, sin puntuación. */
 export function norm(s: string | null | undefined): string {
-  return String(s ?? '')
+  return memo(NORM_MEMO, String(s ?? ''), normar);
+}
+
+function normar(s: string): string {
+  return s
     .toLowerCase()
     .normalize('NFD').replace(/[̀-ͯ]/g, '')
     .replace(/[^a-z0-9\s]/g, ' ')
@@ -146,10 +168,14 @@ export function fechaNegocio(texto: string | null | undefined): string | null {
 
 /** Días absolutos entre dos fechas YYYY-MM-DD (sin TZ: ambas son fechas de negocio). */
 export function diasEntre(a: string, b: string): number {
-  const da = Date.parse(`${String(a).slice(0, 10)}T00:00:00Z`);
-  const db = Date.parse(`${String(b).slice(0, 10)}T00:00:00Z`);
+  const da = epocaDelDia(a);
+  const db = epocaDelDia(b);
   if (Number.isNaN(da) || Number.isNaN(db)) return 9999;
   return Math.round(Math.abs(da - db) / 86400000);
+}
+
+function epocaDelDia(v: string): number {
+  return memo(DIA_MEMO, String(v).slice(0, 10), (d) => Date.parse(`${d}T00:00:00Z`));
 }
 
 /**
