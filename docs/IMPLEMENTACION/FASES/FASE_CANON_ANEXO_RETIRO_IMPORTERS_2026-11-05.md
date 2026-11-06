@@ -155,6 +155,16 @@ cuadró **no se repuntó**. Todos aceptan `--source=` para volver a la fuente vi
 | **CANON.5.24** H11 | el hop-2 firma `app.actor = 'hop2:<normalizador>'` y lo restaura | prueba nueva en `test-newdb-master-data-history.js`; dos mutantes en rojo | `master_data_history` deja de tener escrituras anónimas |
 | **CANON.5.26** H9 + H9 bis | `import-sales-fact`: mapa SKU→id determinista, gana la fila viva; migración `20261106130742_sales_daily_reasigna_productos_borrados` | el mapa sin orden escribía la misma venta a nombre de las dos filas del SKU: ~0.02 % de la venta del periodo contada doble | la migración borra las copias y reasigna el resto; **va DESPUÉS de desplegar la imagen** |
 
+⚠️ **Corrección a CANON.5.26 (aplicada el 2026-11-06 13:47):** el «antes» medía **10** filas vivas
+con valor distinto; la migración corrigió **873**. La medición comparó sólo el importe y las
+unidades, pero el paso 1 compara 9 columnas (costo, tickets y el modelo de unidades además) y copia
+las 9. Las 863 de más tenían el mismo importe —el total se movió sólo por las 10— pero recibieron el
+costo y el modelo de unidades calculados con el producto BORRADO (`import-sales-fact` toma el markup
+y el modelo del producto al que asigna la venta). Que «la más reciente gana» no vale para esas
+columnas: el producto correcto es el vivo. **Se corrige solo:** el nocturno recalcula 13 meses desde
+la fuente con el mapa nuevo, y las copias empiezan el 2025-10-10, dentro de la ventana. Lección:
+medir la condición EXACTA que ejecuta el SQL, no una parecida.
+
 **No se repuntaron, con la causa medida:**
 - `import-rotation-from-consolidado`: su `u90` está en pieza suelta (`units × factor_sale`); `sales_daily`
   no, y 3,085 SKUs difieren de 10× a 94×. Pide pasarle su modelo de unidades.
