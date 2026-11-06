@@ -6,6 +6,47 @@ vendedoras y preventa en la app) y **Telemarketing** (lo que llega de Kepler). L
 
 ---
 
+## Cambiar lo que faltó por otro producto (MCP.13, 2026-11-04)
+
+### El problema
+
+- Cuando no hay un producto, el surtidor sólo podía quitarlo del pedido: la venta se perdía aunque en la bodega
+  hubiera algo equivalente. En prod, del 23-oct al 4-nov, 16 de 167 pedidos de preventa salieron con faltantes:
+  7 renglones quitados y 9 recortados (lo que no se vendió se mide con `total_before − total_after` del reporte).
+
+### La solución
+
+- En el renglón que no se surtió completo aparece **«Cambiar por otro producto»**. Abre sugerencias con
+  existencia en la sucursal y un buscador (nombre, SKU o código de barras). Al elegir uno se pone por lo que
+  faltó, en la unidad del original si el sustituto la tiene; el surtidor ajusta cantidad y unidad.
+- Lo cambia el surtidor sin esperar a nadie; la **cajera lo valida** al revisar («En lugar de X · lo cambió el
+  surtidor») y el **vendedor lo ve** en *Mis pedidos* («X · faltó 1 → Y · 1 PZA»).
+- Se cobra al **precio de Kepler del sustituto**, y sólo se cambia **lo que faltó** (si hubo 1 de 2, va 1 del
+  original y 1 del sustituto).
+
+### Cómo se implementó
+
+- `POST …/finish` acepta `substitute: { product_id, quantity, unit }` por renglón. `planearCierre` valida la forma
+  (sólo en un renglón con faltante, no el mismo producto, cantidad entera salvo peso).
+- `cerrarPedido` valida contra la base (activo, no promoción, no repetido en el pedido, unidad en la escalera de
+  Kepler, no agotado) y mete el renglón con `CommercialOrdersService.agregarSustitutos` **antes** de recortar,
+  para que un pedido con todo cambiado no quede vacío y el total se recalcule una sola vez.
+- El reporte del surtido guarda `substituted`. La revisión en caja (`armarRenglonesRevision`) da por cubierto el
+  faltante del original: no se le pide completarlo ni se cobra dos veces.
+- Sugerencias: `GET …/:id/lines/:lineId/substitutes?q=` (`presale-substitute.engine.ts` para el puntaje).
+
+### Por qué se hizo así
+
+- «Similar» no tiene fuente: el catálogo no trae familia ni línea, y la «categoría» es el nombre del proveedor.
+  Afirmar que dos productos son similares sería adivinar el dato, así que el sistema **sugiere** por palabras del
+  nombre (sin tamaño ni empaque) y proveedor, y **decide el surtidor**, que tiene el anaquel enfrente.
+- Sin migración: el cambio vive en el reporte (`presale_picks.report`, JSON) y el sustituto es un renglón normal,
+  así que la caja, el cobro en Kepler y la entrega no cambian.
+- Pendiente a propósito: el surtido por ruta (consola) no tiene el botón, y si el cliente rechaza el sustituto al
+  recibir no hay paso para eso todavía.
+
+---
+
 ## Indicaciones del vendedor y llegada pedido por pedido (MCP.3.15, 2026-10-26)
 
 ### El problema

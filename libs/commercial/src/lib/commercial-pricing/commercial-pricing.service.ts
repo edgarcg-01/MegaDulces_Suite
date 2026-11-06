@@ -11,6 +11,7 @@ import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
 import { QuotePricingService, type Ladder } from '../commercial-quotes/quote-pricing.service';
 import { FotoSwr } from '../shared/foto-swr';
+import { esNombreDePromocion } from '@megadulces/contracts';
 import {
   existenciaDeSucursalJoin,
   GEMELO_JOIN_SQL,
@@ -648,6 +649,13 @@ export class CommercialPricingService {
       // `stock_checked_at` / `stock_twin_product_id`, con la regla única de `@megadulces/contracts`.
       if (conEstado) {
         for (const r of rows as unknown as FilaConHechos[]) resolverFilaCatalogo(r, lecturaStock);
+      }
+      // [MCP.11] Las promociones de Kepler se dan de alta como PRODUCTOS («2 WAFER = GRATIS 1 MAS», $0.01):
+      // el renglón lo dice (`is_promo`) para que el vendedor las vea y las agregue. Su existencia en Kepler
+      // es 0 por construcción (no son mercancía): el estado NO aplica y se manda en null — nunca «agotado».
+      for (const r of rows as unknown as Array<{ product_name?: string | null; is_promo?: boolean; stock_state?: unknown; stock_available?: unknown }>) {
+        r.is_promo = esNombreDePromocion(r.product_name);
+        if (r.is_promo && conEstado) { r.stock_state = null; r.stock_available = null; }
       }
 
       // Incitar mayoreo: adjuntar la escalera de quiebres por cantidad a cada fila

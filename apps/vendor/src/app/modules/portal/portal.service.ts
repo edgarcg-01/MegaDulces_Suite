@@ -89,6 +89,11 @@ export interface PriceRow {
   stock_checked_at?: string | null;
   /** `[MCP.3.16]` Si el renglón es un producto legado (sku vacío), el gemelo vivo cuya existencia se usó. */
   stock_twin_product_id?: string | null;
+  /**
+   * `[MCP.11]` Es una PROMOCIÓN de Kepler dada de alta como producto («= GRATIS», $0.01). Se muestra como
+   * «Promoción», sin precio ni existencia, y se puede agregar al pedido. Ausente = servidor viejo.
+   */
+  is_promo?: boolean;
 }
 
 /**

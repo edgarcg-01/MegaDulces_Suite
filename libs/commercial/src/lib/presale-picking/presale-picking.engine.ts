@@ -8,6 +8,7 @@ import type {
   PresalePickReport,
   PresalePickReportLine,
   PresalePickRestore,
+  PresalePickSubstitution,
 } from '@megadulces/contracts';
 
 /** `YYYY-MM-DD` + n días, sin pasar por la zona horaria del servidor. */
@@ -51,6 +52,8 @@ export function cantidadMostrada(l: { quantity: number; qty_unit: string | null;
 
 export interface RenglonParaCerrar {
   line_id: string;
+  /** `[MCP.13]` Para no aceptar como sustituto el mismo producto. */
+  product_id?: string | null;
   product_name: string;
   quantity: number;
   qty_unit: string | null;
@@ -71,6 +74,18 @@ export interface PlanCierre {
   recortar: Array<{ line_id: string; quantity: number }>;
   removed: PresalePickReportLine[];
   adjusted: PresalePickReportLine[];
+  /**
+   * `[MCP.13]` Lo que el surtidor puso en lugar de lo que faltó. Cantidad en la unidad `unit` del
+   * sustituto: el factor y el precio los resuelve el servidor con la escalera de Kepler.
+   */
+  sustituir: Array<{ for_line_id: string; for_product_name: string; product_id: string; quantity: number; unit: string }>;
+}
+
+/** `[MCP.13]` Lo que marcó el surtidor en un renglón. */
+export interface MarcaSurtido {
+  line_id: string;
+  picked: number;
+  substitute?: { product_id: string; quantity: number; unit: string } | null;
 }
 
 export class CierreInvalido extends Error {}
@@ -83,19 +98,21 @@ export class CierreInvalido extends Error {}
  */
 export function planearCierre(
   renglones: RenglonParaCerrar[],
-  marcados: Array<{ line_id: string; picked: number }>,
+  marcados: MarcaSurtido[],
 ): PlanCierre {
   const porId = new Map<string, number>();
+  const cambios = new Map<string, NonNullable<MarcaSurtido['substitute']>>();
   for (const m of marcados ?? []) {
     if (!m || typeof m.line_id !== 'string') throw new CierreInvalido('Renglón sin identificador.');
     if (porId.has(m.line_id)) throw new CierreInvalido('Un renglón viene repetido.');
     porId.set(m.line_id, Number(m.picked));
+    if (m.substitute) cambios.set(m.line_id, m.substitute);
   }
   const ids = new Set(renglones.map((r) => r.line_id));
   for (const id of porId.keys()) {
     if (!ids.has(id)) throw new CierreInvalido('Llegó un renglón que no es de este pedido.');
   }
-  const plan: PlanCierre = { outcome: 'completo', quitar: [], recortar: [], removed: [], adjusted: [] };
+  const plan: PlanCierre = { outcome: 'completo', quitar: [], recortar: [], removed: [], adjusted: [], sustituir: [] };
   let algoHubo = false;
   for (const r of renglones) {
     if (!porId.has(r.line_id)) throw new CierreInvalido(`Falta marcar «${r.product_name}».`);
@@ -108,7 +125,25 @@ export function planearCierre(
       throw new CierreInvalido(`«${r.product_name}»: la cantidad en ${m.unit} va entera.`);
     }
     if (picked > 0) algoHubo = true;
-    if (picked >= m.qty - 1e-9) continue;
+    const cambio = cambios.get(r.line_id);
+    if (picked >= m.qty - 1e-9) {
+      if (cambio) throw new CierreInvalido(`«${r.product_name}»: hubo todo, no hay nada que cambiar.`);
+      continue;
+    }
+    if (cambio) {
+      // [MCP.13] Validación de forma; que el producto exista, tenga precio y existencia lo revisa el servidor.
+      const q = Number(cambio.quantity);
+      const unidad = String(cambio.unit ?? '').trim().toUpperCase();
+      if (typeof cambio.product_id !== 'string' || !cambio.product_id) throw new CierreInvalido(`«${r.product_name}»: el cambio no dice por qué producto.`);
+      if (r.product_id && cambio.product_id === r.product_id) throw new CierreInvalido(`«${r.product_name}»: no se puede cambiar por el mismo producto.`);
+      if (!unidad) throw new CierreInvalido(`«${r.product_name}»: el cambio no dice en qué unidad.`);
+      if (!Number.isFinite(q) || q <= 0) throw new CierreInvalido(`«${r.product_name}»: la cantidad del cambio tiene que ser mayor a cero.`);
+      if (!/^(KG|GR|LT|LTS|L|ML)$/i.test(unidad) && Math.abs(q - Math.round(q)) > 1e-9) {
+        throw new CierreInvalido(`«${r.product_name}»: la cantidad del cambio en ${unidad} va entera.`);
+      }
+      plan.sustituir.push({ for_line_id: r.line_id, for_product_name: r.product_name, product_id: cambio.product_id, quantity: q, unit: unidad });
+      algoHubo = true;
+    }
     plan.outcome = 'con_faltantes';
     // [MCP.10] El renglón va en el reporte: la revisión en caja lo encuentra sin adivinar por nombre.
     const linea: PresalePickReportLine = { product_name: r.product_name, unit: m.unit, ordered: m.qty, picked, line_id: r.line_id };
@@ -126,9 +161,21 @@ export function planearCierre(
   return plan;
 }
 
-export function armarReporte(plan: PlanCierre, totalAntes: number, totalDespues: number): PresalePickReport | null {
+export function armarReporte(
+  plan: PlanCierre,
+  totalAntes: number,
+  totalDespues: number,
+  sustituidos: PresalePickSubstitution[] = [],
+): PresalePickReport | null {
   if (plan.outcome === 'completo') return null;
-  return { removed: plan.removed, adjusted: plan.adjusted, total_before: totalAntes, total_after: totalDespues };
+  return {
+    removed: plan.removed,
+    adjusted: plan.adjusted,
+    // [MCP.13] Sólo si hubo cambios: los reportes sin cambio quedan idénticos a los de antes.
+    ...(sustituidos.length ? { substituted: sustituidos } : {}),
+    total_before: totalAntes,
+    total_after: totalDespues,
+  };
 }
 
 /**

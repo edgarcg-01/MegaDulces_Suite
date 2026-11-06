@@ -14,6 +14,7 @@ import type {
   PresalePickInboxResponse,
   PresalePickInboxRow,
   PresaleSellerStatusResponse,
+  PresaleSubstituteResponse,
   RouteBatchDetail,
   RouteBatchFinishRequest,
   RouteBatchFinishResponse,
@@ -86,6 +87,18 @@ export class PresalePickingController {
   @ApiOperation({ summary: 'Un pedido para surtir, con sus renglones en la unidad capturada' })
   detail(@Param('id') id: string, @Query() query: Record<string, unknown>): Promise<PresalePickDetail> {
     return this.service.detail(id, query);
+  }
+
+  @Get(':id/lines/:lineId/substitutes')
+  @RequirePermissions(Permission.COMMERCIAL_PICKING_GESTIONAR)
+  @ApiOperation({ summary: '[MCP.13] Qué poner en lugar de lo que faltó: sugerencias con precio y existencia, o lo que se busque' })
+  substitutes(
+    @Param('id') id: string,
+    @Param('lineId') lineId: string,
+    @Query('q') q: string,
+    @Query() query: Record<string, unknown>,
+  ): Promise<PresaleSubstituteResponse> {
+    return this.service.substitutes(id, lineId, q, query);
   }
 
   @Post(':id/start')

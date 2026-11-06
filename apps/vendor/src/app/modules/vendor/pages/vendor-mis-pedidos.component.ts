@@ -77,7 +77,18 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
                     </li>
                   }
                 </ol>
-                @if (p.report; as r) {
+                @if (p.review && (cambios(p).length || sustituciones(p).length)) {
+                  <!-- [MCP.10.1] La caja revisó el pedido: se cuenta cómo QUEDÓ, no sólo lo que pasó al surtir. -->
+                  <div class="mp-rep">
+                    <b>Cómo quedó el pedido</b>
+                    @if (cambios(p).length) { <ul>@for (c of cambios(p); track c.clave) { <li>{{ c.texto }}</li> }</ul> }
+                    @if (sustituciones(p).length) {
+                      <span>Se cambió por otro producto (lo eligió el surtidor):</span>
+                      <ul>@for (c of sustituciones(p); track c.clave) { <li>{{ c.texto }}</li> }</ul>
+                    }
+                    <span>Total del pedido: <s>{{ dinero(totalOriginal(p)) }}</s> → <b>{{ dinero(p.review.total_after) }}</b></span>
+                  </div>
+                } @else if (p.report; as r) {
                   <div class="mp-rep">
                     <b>Reporte de surtido</b>
                     @if (r.removed.length) {
@@ -87,6 +98,11 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
                     @if (r.adjusted.length) {
                       <span>Se ajustó a lo que hubo:</span>
                       <ul>@for (l of r.adjusted; track l.product_name) { <li>{{ l.product_name }} · {{ l.ordered }} → {{ l.picked }} {{ l.unit }}</li> }</ul>
+                    }
+                    <!-- [MCP.13] Lo que el surtidor cambió por otro producto con existencia. -->
+                    @if (sustituciones(p).length) {
+                      <span>Se cambió por otro producto (lo eligió el surtidor):</span>
+                      <ul>@for (c of sustituciones(p); track c.clave) { <li>{{ c.texto }}</li> }</ul>
                     }
                     <span>Total del pedido: <s>{{ dinero(r.total_before) }}</s> → <b>{{ dinero(r.total_after) }}</b></span>
                   </div>
@@ -201,6 +217,7 @@ export class VendorMisPedidosComponent implements OnInit {
     if (p.delivered_at) return { texto: 'Entregado', clase: 'ok' };
     if (p.charge?.source === 'liga') return { texto: 'Cobrado', clase: 'ok' };
     if (p.charge) return { texto: 'Cobrado (por confirmar)', clase: 'info' };
+    if (p.reviewed) return { texto: 'Revisado en caja', clase: 'ok' };
     if (p.finished) return p.finished.outcome === 'con_faltantes' ? { texto: 'Surtido con faltantes', clase: 'warn' } : { texto: 'Surtido completo', clase: 'ok' };
     if (p.started) return { texto: 'Surtiendo', clase: 'warn' };
     return { texto: 'Agendado', clase: 'info' };
@@ -222,13 +239,69 @@ export class VendorMisPedidosComponent implements OnInit {
         detalle: p.finished ? `${p.finished.name} · terminó ${this.horaDe(p.finished.at)}${p.finished.outcome === 'con_faltantes' ? ' · lo que faltó se quitó del pedido' : ' · hubo todo'}` : '',
         estado: surtido ? (p.finished?.outcome === 'con_faltantes' ? 'aviso' : 'hecho') : tomado ? 'ahora' : 'pendiente',
       },
+      // [MCP.10.1] La caja revisa antes de cobrar; si cambió algo, se dice qué.
+      {
+        titulo: 'Revisado en caja',
+        detalle: p.reviewed ? `${p.reviewed.name} · ${this.horaDe(p.reviewed.at)}${this.resumenRevision(p)}` : surtido ? 'Esperando a que la caja lo revise' : '',
+        estado: p.reviewed ? 'hecho' : surtido ? 'ahora' : 'pendiente',
+      },
       {
         titulo: 'Cobrado en Kepler',
         detalle: p.charge ? `Ticket ${p.charge.folio_digital}${p.charge.source === 'detectado' ? ' · por confirmar' : ''}` : 'Se detecta cuando la caja cierre el ticket',
-        estado: cobrado ? 'hecho' : surtido ? 'ahora' : 'pendiente',
+        estado: cobrado ? 'hecho' : p.reviewed ? 'ahora' : 'pendiente',
       },
       { titulo: 'Entregado', detalle: p.delivered_at ? this.horaDe(p.delivered_at) : '', estado: p.delivered_at ? 'hecho' : 'pendiente' },
     ];
+  }
+
+  /**
+   * [MCP.10.1] Los productos que cambiaron entre lo pedido y cómo quedó, con quién los cambió:
+   * «SALSA · pediste 2 → surtió 1 → quedó 2 CJA (lo completó la caja)». Lo que llegó igual no se lista.
+   */
+  cambios(p: PresaleSellerOrder): Array<{ clave: string; texto: string }> {
+    // [MCP.13] Los sustitutos se cuentan aparte (sustituciones): no son algo que «pediste».
+    const sustitutos = new Set((p.report?.substituted ?? []).map((x) => x.line_id));
+    return (p.review?.lines ?? [])
+      .filter((l) => !sustitutos.has(l.key))
+      .filter((l) => l.picked !== l.ordered || l.final !== l.ordered)
+      .map((l) => {
+        const quien = l.resolution === 'completo' ? ' (lo completó la caja)' : l.resolution === 'no_hubo' ? ' (no hubo)' : '';
+        const surtio = l.picked !== l.final ? ` → surtió ${l.picked}` : '';
+        return { clave: l.key, texto: `${l.product_name} · pediste ${l.ordered}${surtio} → quedó ${l.final} ${l.unit}${quien}` };
+      });
+  }
+
+  /**
+   * `[MCP.13]` Lo que el surtidor cambió por otro producto: «BANDERILLA · faltó 1 → TAMARINDO · 1 PZA».
+   * Si la caja después lo quitó, se dice.
+   */
+  sustituciones(p: PresaleSellerOrder): Array<{ clave: string; texto: string }> {
+    const rep = p.report;
+    if (!rep?.substituted?.length) return [];
+    const revisados = new Map((p.review?.lines ?? []).map((l) => [l.key, l]));
+    const faltante = new Map([...rep.removed, ...rep.adjusted].filter((l) => !!l.line_id).map((l) => [l.line_id as string, l]));
+    return rep.substituted.map((x) => {
+      const f = faltante.get(x.for_line_id);
+      const falto = f ? ` · faltó ${+(f.ordered - f.picked).toFixed(3)} ${f.unit}` : '';
+      const r = revisados.get(x.line_id);
+      const quito = r && r.final < r.ordered ? (r.final > 0 ? ` (la caja dejó ${r.final})` : ' (la caja lo quitó)') : '';
+      return { clave: x.line_id, texto: `${x.for_product_name}${falto} → ${x.product_name} · ${x.quantity} ${x.unit}${quito}` };
+    });
+  }
+
+  /** El total antes de cualquier ajuste: el del reporte del surtido si hubo; si no, el de la revisión. */
+  totalOriginal(p: PresaleSellerOrder): number {
+    return p.report?.total_before ?? p.review?.total_before ?? p.total;
+  }
+
+  /** « · la caja completó 1 y quitó 1» · « · todo bien». */
+  private resumenRevision(p: PresaleSellerOrder): string {
+    const ls = p.review?.lines ?? [];
+    const comp = ls.filter((l) => l.resolution === 'completo').length;
+    const quito = ls.filter((l) => l.resolution === 'no_hubo').length;
+    if (!comp && !quito) return ' · todo bien';
+    const partes = [comp ? `completó ${comp}` : '', quito ? `quitó ${quito}` : ''].filter(Boolean);
+    return ` · la caja ${partes.join(' y ')}`;
   }
 
   dinero(n: number | string | null | undefined): string { return pesos.format(Number(n) || 0); }

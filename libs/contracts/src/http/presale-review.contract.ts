@@ -69,6 +69,8 @@ export interface PresaleReviewLine {
   key: string;
   product_id: string | null;
   product_name: string;
+  /** `[VTK.15]` SKU del producto, siempre a la vista. `null` = no se conoce (renglón borrado sin copia). Opcional por compatibilidad. */
+  sku?: string | null;
   /** Unidad mostrada (la de captura) y piezas base por unidad. */
   unit: string;
   factor: number;
@@ -83,6 +85,8 @@ export interface PresaleReviewLine {
   restorable: boolean;
   /** `null` = no se pudo leer la existencia (se declara, no se dibuja como cero). */
   stock: PresaleReviewStock | null;
+  /** `[MCP.13]` El surtidor puso este producto EN LUGAR de otro que no hubo: el nombre del original. */
+  substitutes_for?: string | null;
 }
 
 export interface PresaleReviewDetail {

@@ -2,7 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { signal } from '@angular/core';
 import { Subject, of } from 'rxjs';
-import type { PresalePickDetail, PresalePickInboxResponse, PresalePickInboxRow } from '@megadulces/contracts';
+import type { PresalePickDetail, PresalePickInboxResponse, PresalePickInboxRow, PresaleSubstituteResponse } from '@megadulces/contracts';
 import { AlmacenSurtirPreventaComponent } from './almacen-surtir-preventa.component';
 import { PresalePickingService } from '../presale-picking.service';
 import { AlertsSocketService } from '../../dashboard/command-center/alerts-socket.service';
@@ -41,9 +41,25 @@ const DETALLE = (estado: PresalePickInboxRow['state'] = 'nuevo'): PresalePickDet
   ],
 });
 
+/** `[MCP.13]` Lo que el servidor sugiere en lugar de la SALSA que no hubo. */
+const SUGERENCIAS = (): PresaleSubstituteResponse => ({
+  for_line_id: 'l2', for_product_name: 'SALSA MAGA 1 1/2', missing: 1, unit: 'CJA',
+  data: [
+    {
+      product_id: 'p9', sku: '61842', product_name: 'SALSA CHAMOY 1L CHILERITO',
+      units: [{ unit: 'CJA', factor: 12, price: 455 }, { unit: 'PZA', factor: 1, price: 39.5 }],
+      stock_qty: 108, stock_state: 'con_existencia', match: 'nombre',
+    },
+    {
+      product_id: 'p8', sku: '61900', product_name: 'SALSA VALENTINA 1L',
+      units: [{ unit: 'PZA', factor: 1, price: 31 }], stock_qty: null, stock_state: 'sin_dato', match: 'nombre_y_proveedor',
+    },
+  ],
+});
+
 describe('AlmacenSurtirPreventaComponent · la bandeja del surtidor (MCP.3)', () => {
   let fix: ComponentFixture<AlmacenSurtirPreventaComponent>;
-  let api: Record<'inbox' | 'detail' | 'start' | 'finish', ReturnType<typeof vi.fn>>;
+  let api: Record<'inbox' | 'detail' | 'start' | 'finish' | 'substitutes', ReturnType<typeof vi.fn>>;
   let alert$: Subject<{ type: string }>;
 
   const el = (): HTMLElement => fix.nativeElement as HTMLElement;
@@ -63,6 +79,7 @@ describe('AlmacenSurtirPreventaComponent · la bandeja del surtidor (MCP.3)', ()
       detail: vi.fn(() => of(detalle)),
       start: vi.fn(() => of(fila({ state: 'surtiendo', started: { user_id: 'yo', name: 'Juan Pérez', at: '2026-10-14T15:43:00.000Z' } }))),
       finish: vi.fn(() => of({ order_id: 'o-rosy', outcome: 'con_faltantes', report: { removed: [], adjusted: [], total_before: 475.44, total_after: 161.4 } })),
+      substitutes: vi.fn(() => of(SUGERENCIAS())),
     };
     alert$ = new Subject();
     await TestBed.configureTestingModule({
@@ -144,6 +161,129 @@ describe('AlmacenSurtirPreventaComponent · la bandeja del surtidor (MCP.3)', ()
     fix.detectChanges();
     expect(boton('Confirmar: hubo todo')).toBeDefined();
     expect(boton('Enviar reporte')).toBeUndefined();
+  });
+
+  /** `[MCP.10.1]` La caja completó lo que faltó: el surtidor no debe ver como suyo lo que trajo la caja. */
+  it('un pedido revisado en caja dice «Revisado en caja» y separa lo que surtió de lo que quedó', async () => {
+    const revisado: PresalePickDetail = {
+      order: fila({
+        state: 'con_faltantes',
+        started: { user_id: 'yo', name: 'Juan Pérez', at: '2026-11-03T18:00:00.000Z' },
+        finished: { user_id: 'yo', name: 'Juan Pérez', at: '2026-11-03T18:10:00.000Z' },
+        reviewed: { user_id: 'c1', name: 'María Cajera', at: '2026-11-03T18:51:00.000Z' },
+      }),
+      lines: [
+        { line_id: 'l1', product_id: 'p1', sku: '1', product_name: 'SALSA CHAMOY 1L CHILERITO', qty: 2, unit: 'CJA', factor: 12, picked: 1, final: 2 },
+        { line_id: 'l2', product_id: 'p2', sku: '2', product_name: 'BOMBON GRANDE', qty: 5, unit: 'PAQ', factor: 1, picked: 5, final: 5 },
+      ],
+    };
+    await montar(revisado);
+    api.inbox.mockReturnValue(of({ ...BANDEJA(), data: [revisado.order] }));
+    fix.componentInstance.cargar();
+    fix.detectChanges();
+    expect(texto()).toContain('Revisado en caja');
+    await TestBed.inject(Router).navigate([], { queryParams: { pedido: 'o-rosy' } });
+    fix.detectChanges();
+    expect(texto()).toContain('Surtiste 1 · la caja dejó 2');
+    // [VTK.15] El SKU a la vista al surtir.
+    expect(texto()).toContain('SKU 1');
+    // Lo que no cambió en caja no lleva la nota.
+    expect(texto()).not.toContain('Surtiste 5');
+    expect(texto()).toContain('Revisado en caja por María Cajera');
+  });
+
+  describe('[MCP.13] cambiar lo que faltó por otro producto', () => {
+    async function conFaltante(): Promise<void> {
+      await montar(DETALLE('surtiendo'));
+      await TestBed.inject(Router).navigate([], { queryParams: { pedido: 'o-rosy' } });
+      fix.detectChanges();
+      const completos = Array.from(el().querySelectorAll('button')).filter((b) => b.textContent?.includes('Completo'));
+      (completos[0] as HTMLButtonElement).click();
+      fix.detectChanges();
+      (el().querySelector('[aria-label="Menos SALSA MAGA 1 1/2"]') as HTMLButtonElement).click();
+      fix.detectChanges();
+    }
+
+    it('el botón sólo aparece en el renglón que no se surtió completo', async () => {
+      await conFaltante();
+      expect(Array.from(el().querySelectorAll('button')).filter((b) => b.textContent?.includes('Cambiar por otro producto')).length).toBe(1);
+    });
+
+    it('⭐ sugiere con precio y existencia, y elegir uno lo manda al terminar por lo que faltó', async () => {
+      await conFaltante();
+      clic('Cambiar por otro producto');
+      expect(api.substitutes).toHaveBeenCalledWith('o-rosy', 'l2', '');
+      expect(texto()).toContain('Faltan 1 CJA');
+      expect(texto()).toContain('SALSA CHAMOY 1L CHILERITO');
+      expect(texto()).toContain('hay 9 CJA'); // 108 piezas / 12 por caja
+      // Lo que no se pudo medir se declara, no se pinta como cero.
+      expect(texto()).toContain('existencia sin dato');
+      clic('SALSA CHAMOY 1L CHILERITO');
+      expect(texto()).toContain('En lugar de lo que faltó');
+      expect(texto()).toContain('1 cambiado por otro');
+      clic('Enviar reporte');
+      expect(api.finish).toHaveBeenCalledWith('o-rosy', {
+        lines: [
+          { line_id: 'l1', picked: 5 },
+          { line_id: 'l2', picked: 0, substitute: { product_id: 'p9', quantity: 1, unit: 'CJA' } },
+        ],
+      });
+    });
+
+    it('se puede cambiar la unidad y la cantidad del sustituto', async () => {
+      await conFaltante();
+      clic('Cambiar por otro producto');
+      clic('SALSA CHAMOY 1L CHILERITO');
+      clic('PZA');
+      (el().querySelector('[aria-label="Más SALSA CHAMOY 1L CHILERITO"]') as HTMLButtonElement).click();
+      fix.detectChanges();
+      clic('Enviar reporte');
+      expect(api.finish.mock.calls[0][1].lines[1].substitute).toEqual({ product_id: 'p9', quantity: 2, unit: 'PZA' });
+    });
+
+    it('«Quitar el cambio» lo deja como «no hubo»; si al final sí hubo todo, el cambio se va solo', async () => {
+      await conFaltante();
+      clic('Cambiar por otro producto');
+      clic('SALSA CHAMOY 1L CHILERITO');
+      clic('Quitar el cambio');
+      expect(texto()).not.toContain('En lugar de lo que faltó');
+      clic('Cambiar por otro producto');
+      clic('SALSA CHAMOY 1L CHILERITO');
+      // Ahora sí apareció la salsa: «Completo» en ese renglón.
+      const completos = Array.from(el().querySelectorAll('button')).filter((b) => b.textContent?.includes('Completo'));
+      (completos[1] as HTMLButtonElement).click();
+      fix.detectChanges();
+      expect(texto()).not.toContain('En lugar de lo que faltó');
+      clic('Confirmar: hubo todo');
+      expect(api.finish.mock.calls[0][1].lines[1]).toEqual({ line_id: 'l2', picked: 1 });
+    });
+
+    it('buscar pide al servidor con lo tecleado', async () => {
+      vi.useFakeTimers();
+      try {
+        await conFaltante();
+        clic('Cambiar por otro producto');
+        const q = el().querySelector('input[type="search"]') as HTMLInputElement;
+        q.value = 'valentina';
+        q.dispatchEvent(new Event('input'));
+        vi.advanceTimersByTime(350);
+        expect(api.substitutes).toHaveBeenLastCalledWith('o-rosy', 'l2', 'valentina');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('un pedido cerrado dice qué renglón se puso en lugar de cuál', async () => {
+      const cerrado: PresalePickDetail = {
+        order: fila({ state: 'con_faltantes', finished: { user_id: 'yo', name: 'Juan Pérez', at: '2026-11-04T18:10:00.000Z' } }),
+        lines: [{ line_id: 'n1', product_id: 'p9', sku: '61842', product_name: 'SALSA CHAMOY 1L CHILERITO', qty: 1, unit: 'CJA', factor: 12, picked: 1,
+          substitutes: { product_name: 'SALSA MAGA 1 1/2', sku: '99124' } }],
+      };
+      await montar(cerrado);
+      await TestBed.inject(Router).navigate([], { queryParams: { pedido: 'o-rosy' } });
+      fix.detectChanges();
+      expect(texto()).toContain('En lugar de SALSA MAGA 1 1/2');
+    });
   });
 
   it('sin sucursal asignada lo dice en vez de mostrar una bandeja vacía muda', async () => {

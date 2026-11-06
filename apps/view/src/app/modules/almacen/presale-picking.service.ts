@@ -1,4 +1,4 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import type {
@@ -7,6 +7,7 @@ import type {
   PresalePickFinishResponse,
   PresalePickInboxResponse,
   PresalePickInboxRow,
+  PresaleSubstituteResponse,
   RouteBatchDetail,
   RouteBatchFinishRequest,
   RouteBatchFinishResponse,
@@ -35,6 +36,12 @@ export class PresalePickingService {
 
   finish(orderId: string, body: PresalePickFinishRequest): Observable<PresalePickFinishResponse> {
     return this.http.post<PresalePickFinishResponse>(`${this.base}/${orderId}/finish`, body);
+  }
+
+  /** `[MCP.13]` Qué poner en lugar de lo que faltó de un renglón (sugerencias, o lo que se busque). */
+  substitutes(orderId: string, lineId: string, q = ''): Observable<PresaleSubstituteResponse> {
+    const params = q.trim() ? new HttpParams().set('q', q.trim()) : undefined;
+    return this.http.get<PresaleSubstituteResponse>(this.base + '/' + orderId + '/lines/' + lineId + '/substitutes', { params });
   }
 
   // ── [MCP.3.6] La ruta del vendedor como UN pedido global ──
