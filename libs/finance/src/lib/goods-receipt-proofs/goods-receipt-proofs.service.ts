@@ -2550,7 +2550,9 @@ export class GoodsReceiptProofsService {
       if (conceptos.length) {
         return {
           usar: conceptos,
-          lectura: { fuente: 'cfdi' as FuenteRenglones, confiable: true, motivos: [] as string[], uuid: x.cfdi.uuid, renglones_leidos: conceptos.length },
+          // `[RE.59]` Si la liga es sólo SUGERENCIA (nombre + importe, RFC + importe…), la conciliación lo dice:
+          // sirve para confirmarla, no la da por buena.
+          lectura: { fuente: 'cfdi' as FuenteRenglones, confiable: true, motivos: [] as string[], uuid: x.cfdi.uuid, renglones_leidos: conceptos.length, liga_sugerida: !x.liga?.exacta },
         };
       }
     }
@@ -2571,7 +2573,7 @@ export class GoodsReceiptProofsService {
     const sinCfdi = x?.cfdi ? ['el CFDI ligado todavía no tiene su XML'] : [];
     return {
       usar: l.confiable ? leidas : [],
-      lectura: { fuente: 'ocr' as FuenteRenglones, confiable: l.confiable, motivos: [...l.motivos, ...sinCfdi], uuid: null as string | null, renglones_leidos: leidas.length },
+      lectura: { fuente: 'ocr' as FuenteRenglones, confiable: l.confiable, motivos: [...l.motivos, ...sinCfdi], uuid: null as string | null, renglones_leidos: leidas.length, liga_sugerida: false },
     };
   }
 

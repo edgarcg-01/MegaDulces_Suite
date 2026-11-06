@@ -171,6 +171,16 @@ export function ligarCfdi(k: LlavesLiga, candidatos: CfdiCandidato[]): Resultado
       'rfc_importe', false);
     if (r) return r;
   }
+  // `[RE.59]` Nombre + importe: para cuando el RFC no sirve en ningún lado (Kepler lo tiene mal y el
+  // OCR no lo leyó). Caso: la entrada 0010028 de CEDIS, cuyo CFDI tenía su XML en ContPAQi con el total
+  // de la entrada a 2 centavos y no se ligaba por ninguna llave. SUGERENCIA, igual que RFC + importe.
+  if (k.nombreKepler) {
+    const r = unico(
+      candidatos.filter((c) => (parecidoNombre(k.nombreKepler, c.emisor_nombre) ?? 0) >= UMBRAL_NOMBRE
+        && cercaDeEntrada(c) && igual(c.total, k.montoEntrada)),
+      'nombre_importe', false);
+    if (r) return r;
+  }
   if (k.totalLeido != null && k.fechaLeida) {
     const r = unico(
       candidatos.filter((c) => igual(c.total, k.totalLeido) && (dias(c.fecha, k.fechaLeida) ?? 99) <= 3 && (dias(c.fecha, k.fechaLeida) ?? -99) >= -3),

@@ -55,6 +55,7 @@ export type ExpedienteLigaMetodo =
   | 'rfc_folio'       // RFC + folio de la factura
   | 'folio_total'     // folio + total
   | 'rfc_importe'     // RFC + importe (del papel o de la entrada)
+  | 'nombre_importe'  // [RE.59] nombre del emisor + importe de la entrada (el RFC no sirve en ningún lado); sugerencia
   | 'total_fecha';    // total + fecha cercana
 
 export interface ExpedienteLiga {

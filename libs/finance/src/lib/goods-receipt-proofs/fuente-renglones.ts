@@ -86,6 +86,9 @@ export const SUMA_TOL = 0.02;
 
 export interface LecturaConfiable { confiable: boolean; motivos: string[] }
 
+/** Pesos con separador de miles, como el resto de la pantalla (el motivo se lee tal cual). */
+const pesos = (x: number) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(x);
+
 /**
  * `[RE.55]` ¿Los renglones que leyó el OCR son del papel? Dos pruebas independientes del modelo:
  *  · **códigos de barras**: si trae 2 o más, la mayoría debe pasar el dígito verificador (uno mal
@@ -119,7 +122,7 @@ export function lecturaConfiable(
     const suma = con.reduce((s, x) => s + x, 0);
     if (!refs.some((r) => Math.abs(suma - r) / r <= SUMA_TOL)) {
       confiable = false;
-      motivos.push(`los renglones suman $${suma.toFixed(2)} y el papel dice $${(doc.subtotal ?? doc.total ?? 0).toFixed(2)}`);
+      motivos.push(`los renglones suman ${pesos(suma)} y el papel dice ${pesos(doc.subtotal ?? doc.total ?? 0)}`);
     }
   }
   return { confiable, motivos };

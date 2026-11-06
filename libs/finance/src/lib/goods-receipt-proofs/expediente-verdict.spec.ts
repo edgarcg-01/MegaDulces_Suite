@@ -414,3 +414,29 @@ describe('[RE.58] un UUID leído sólo liga a un emisor coherente con la entrada
     expect(ligarCfdi(k(), [buena]).cfdi?.id).toBe('buena');
   });
 });
+
+/** `[RE.59]` Nombre + importe: el RFC está mal en Kepler y el papel no dejó leer ni RFC ni folio ni total. */
+describe('[RE.59] llave débil nombre + importe', () => {
+  const suya = cfdi({ id: 'suya', emisor_rfc: 'MME950101AB1', emisor_nombre: 'GOLOSINAS DEL NORTE', total: 276935.17, fecha: '2026-10-19' });
+  const k = (p: Partial<LlavesLiga> = {}): LlavesLiga => ({
+    uuidLeido: null, folioLeido: 'S27755355', rfcLeido: null, totalLeido: 60606.38, fechaLeida: null,
+    rfcKepler: 'PEXC620207AB1', montoEntrada: 276935.19, fechaEntrada: '2026-10-20', asignadoId: null,
+    nombreKepler: 'GOLOSINAS DEL NORTE SA DE CV', ...p,
+  });
+
+  it('sugiere (no exacta) el CFDI del mismo emisor con el total de la entrada', () => {
+    const r = ligarCfdi(k(), [suya]);
+    expect(r.cfdi?.id).toBe('suya');
+    expect(r.liga).toEqual({ metodo: 'nombre_importe', exacta: false, candidatos: 1 });
+  });
+  it('NEGATIVA: dos CFDI del emisor con ese total → no elige', () => {
+    expect(ligarCfdi(k(), [suya, { ...suya, id: 'gemela', uuid: '99999999-2222-3333-4444-555555555555' }]).cfdi).toBeNull();
+  });
+  it('NEGATIVA: otro emisor con el mismo total → no liga', () => {
+    expect(ligarCfdi(k(), [{ ...suya, emisor_nombre: 'DULCERA AJENA' }]).cfdi).toBeNull();
+  });
+  it('NEGATIVA: sin nombre de Kepler (papel suelto) la llave no existe', () => {
+    const { nombreKepler: _n, ...sinNombre } = k();
+    expect(ligarCfdi(sinNombre, [suya]).cfdi).toBeNull();
+  });
+});

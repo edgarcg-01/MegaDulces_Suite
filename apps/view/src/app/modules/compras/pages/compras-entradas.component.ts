@@ -1093,7 +1093,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                  las pruebas no se concilia: pintar «sin match» sobre renglones inventados afirmaría
                  una diferencia que no existe (0010028 de CEDIS: 8 renglones que no estaban en el papel). -->
             @if (r.lectura?.fuente === 'cfdi') {
-              <p class="cb-recon-base">Renglones del XML del CFDI {{ r.lectura?.uuid }}, no de la lectura del papel.</p>
+              <p class="cb-recon-base">Renglones del XML del CFDI {{ r.lectura?.uuid }}, no de la lectura del papel.@if (r.lectura?.liga_sugerida) { El CFDI es una sugerencia del expediente: si estos renglones cuadran con Kepler, confírmala allá.}</p>
             }
             @if (r.lectura?.confiable === false) {
               <div class="cb-recon-nolee" role="status">
@@ -1103,7 +1103,8 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                   <ul>
                     @for (m of r.lectura?.motivos || []; track m) { <li>{{ m }}</li> }
                   </ul>
-                  <p class="muted">Si el escaneo está girado o borroso, vuelve a subirlo derecho. Cuando el CFDI de esta factura llegue de ContPAQi, se concilia contra él solo.</p>
+                  <!-- [RE.59] Antes prometía «cuando el CFDI llegue de ContPAQi»: en 0010028 el CFDI ya estaba y no se ligaba. -->
+                  <p class="muted">Si el escaneo está girado o borroso, vuelve a subirlo derecho. Cuando el expediente ligue el CFDI de esta factura, se concilia contra sus renglones.</p>
                 </div>
               </div>
             } @else {

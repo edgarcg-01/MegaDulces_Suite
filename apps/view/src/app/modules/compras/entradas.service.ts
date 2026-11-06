@@ -500,7 +500,7 @@ export interface ReconcileResult {
    * del papel. Un OCR que no pasa las pruebas (dígito verificador, suma contra el total) no se
    * concilia: `confiable: false` y `motivos` dicen por qué.
    */
-  lectura?: { fuente: 'cfdi' | 'ocr'; confiable: boolean; motivos: string[]; uuid: string | null; renglones_leidos: number };
+  lectura?: { fuente: 'cfdi' | 'ocr'; confiable: boolean; motivos: string[]; uuid: string | null; renglones_leidos: number; liga_sugerida?: boolean };
 }
 
 /** RE.pkt.1 — un documento detectado dentro del paquete, con su página y prueba. */
