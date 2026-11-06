@@ -409,6 +409,12 @@ export class CommercialPricingService {
        * «no se maneja» al final. Sólo aplica con `warehouseId`; sin él (o sin esto) nada cambia.
        */
       stockState?: boolean;
+      /**
+       * `[VEX.7]` Sólo el precio de Kepler de la sucursal: el renglón sin escalera ni precio de la
+       * plaza viaja con `price = null` y `price_source = 'sin_precio_sucursal'` en vez de la lista de
+       * red. Sólo aplica con `warehouseId`; sin esto el catálogo responde como antes (portal, view).
+       */
+      keplerPrice?: boolean;
     } = {},
   ) {
     if (!UUID_REGEX.test(priceListId))
@@ -769,6 +775,17 @@ export class CommercialPricingService {
                 r.rungs = rungs;
                 r.units = rungs.map((x) => ({ unit: x.unit, factor: x.factor }));
                 r.units_source = 'kepler_ladder';
+              }
+              // [VEX.7] Kepler no tiene precio para este producto en ESTA sucursal (no está en su
+              // ficha, o está sin precio): no se vende aquí. Sin esto se pintaba —y se cobraba— la
+              // lista de toda la red (~179 por sucursal, medido 2026-11-06). Sólo si la escalera SE
+              // LEYÓ: si la lectura falla (catch), nada se anula y queda el rótulo «precio de red».
+              if (opts.keplerPrice) {
+                for (const r of filas as Array<FilaCatalogoConEscalera & { price?: unknown; price_source?: string }>) {
+                  if (r.rungs?.length || r.price_source !== 'lista_red') continue;
+                  r.price = null;
+                  r.price_source = 'sin_precio_sucursal';
+                }
               }
             }
           } catch (err) {

@@ -340,6 +340,9 @@ const foldText = (s: string | null | undefined): string =>
                   <!-- [MCP.11] Una promoción no muestra su $0.01 (no es un precio) ni existencia: dice qué es. -->
                   @if (p.is_promo) {
                     <span class="promo-tag"><i class="pi pi-tag" aria-hidden="true"></i> Promoción</span>
+                  } @else if (sinPrecioSucursal(p)) {
+                    <!-- [VEX.7] Lo que Kepler no tiene con precio en esta sucursal no se vende aquí: se dice, sin $0. -->
+                    <span class="pr-sin">Sin precio en tu sucursal</span>
                   } @else {
                     <span class="pr" [class.off]="mayoreoAplicado(p.product_id)">{{ fmtMoney(unitPriceDisplay(p)) }}<span class="pr-u">&nbsp;c/u</span></span>
                     <!-- [VEX.2] Sin escalera de Kepler ni precio de la plaza, el número es el de toda la red: se dice. -->
@@ -427,6 +430,8 @@ const foldText = (s: string | null | undefined): string =>
                   </div>
                 }
               </div>
+              <!-- [VEX.7] Sin precio en la sucursal no hay cantidad que pedir. -->
+              @if (!sinPrecioSucursal(p)) {
               <div class="row-stepper" [class.empty]="cartQty(p.product_id) === 0">
                 <div class="rs-row">
                   <button (click)="decProduct(p)" [disabled]="cartQty(p.product_id) === 0" aria-label="Menos">−</button>
@@ -445,6 +450,7 @@ const foldText = (s: string | null | undefined): string =>
                   <span class="rs-u" [class.warn]="offGrid(p)">{{ rowUnitLabel(p) }}</span>
                 }
               </div>
+              }
               </div>
             </ng-template>
             @if (cartLines().length === 0) {
@@ -702,6 +708,7 @@ const foldText = (s: string | null | undefined): string =>
       .prod .pm { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; font-size: 0.78rem; color: var(--text-muted); margin-top: 0.15rem; }
       .prod .pm .pr { font-family: var(--font-mono); font-weight: 700; color: var(--action); font-variant-numeric: tabular-nums; }
       .prod .pm .stk { font-weight: 600; }
+      .prod .pm .pr-sin { font-size: 0.78rem; font-weight: 600; color: var(--text-muted); }
       .prod .pm .pr-red { font-size: 0.72rem; font-weight: 600; color: var(--text-muted); border: 1px solid var(--border-color); border-radius: var(--r-sm); padding: 0 0.3rem; }
       /* [VTK.15] SKU visible en el catálogo y en «Tu pedido»: chico, en mono, sin competir con el nombre. */
       .sku { font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
@@ -3000,6 +3007,10 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   /** `[VEX.2]` El precio pintado no es de esta sucursal: ni escalera de Kepler ni precio de la plaza. */
   precioDeRed(p: PriceRow): boolean {
     return !this.rungOf(p) && p.price_source === 'lista_red';
+  }
+  /** `[VEX.7]` Kepler no tiene precio para este producto en la sucursal: se ve (al buscarlo) pero no se pide. */
+  sinPrecioSucursal(p: PriceRow): boolean {
+    return p.price == null || p.price_source === 'sin_precio_sucursal';
   }
 
   initials(name: string): string {
