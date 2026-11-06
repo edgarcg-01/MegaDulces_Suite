@@ -203,3 +203,13 @@ describe('myBranches: con qué sucursales cotiza y en cuál arranca', () => {
     expect(r.default_branch).toBe('01');
   });
 });
+
+describe('[COT.28] Crear: las observaciones del pedido desde el alta', () => {
+  it('más de 120 caracteres: 400 antes de tocar la base', async () => {
+    const { calls, quotes } = servicios(DIRECCION);
+    await expect(
+      quotes.create({ contact_name: 'Prospecto', origin: 'telemarketing', source_branch: '01', order_notes: 'Z'.repeat(121) }),
+    ).rejects.toThrow(/120 caracteres/);
+    expect(calls).toEqual([]);
+  });
+});

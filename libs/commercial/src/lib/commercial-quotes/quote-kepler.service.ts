@@ -204,6 +204,14 @@ export class QuoteKeplerService {
     };
   }
 
+  /** `[COT.26]` Las direcciones de un cliente ANTES de que exista la cotización (pantalla de alta). */
+  async direccionesDeCliente(sucursal: string, cliente: string): Promise<DireccionEntrega[]> {
+    const suc = (sucursal || '').trim();
+    if (!suc || !(cliente || '').trim()) throw new BadRequestException('Faltan la sucursal y el cliente.');
+    await this.quotes.assertEscribeSucursal(suc);
+    return this.leerDirecciones(suc, cliente.trim().toUpperCase());
+  }
+
   /** `[COT.28]` Observaciones del pedido (van a «Comentarios» de Kepler). Sólo antes del folio. */
   async fijarObservaciones(id: string, texto: string | null, quien?: QuienCotiza | null): Promise<{ order_notes: string | null }> {
     const cab = await this.cabeceraDireccion(id, quien);

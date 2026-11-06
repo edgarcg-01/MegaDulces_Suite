@@ -235,6 +235,10 @@ export class CommercialQuotesController {
       /** Ya los usaba el servicio sin estar declarados acá (auditoría, deriva de contrato). */
       salesperson_code?: string;
       salesperson_name?: string;
+      /** `[COT.26]` Dirección de entrega del cliente en Kepler (`kdudent.c2`). */
+      delivery_address_key?: string;
+      /** `[COT.28]` Observaciones del pedido → «Comentarios» de Kepler (hasta 120). */
+      order_notes?: string;
       /**
        * `[E.21]` Los renglones, en la misma transacción que la cabecera: entra todo o nada.
        * Qué y cuánto; el precio lo calcula el servidor.
