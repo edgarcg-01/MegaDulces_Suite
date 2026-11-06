@@ -363,6 +363,28 @@ export const GEMELO_JOIN_SQL = `LEFT JOIN catalog.products tw
          ON p.sku IS NULL AND tw.tenant_id = p.tenant_id AND tw.sku = btrim(p.articulo)
         AND tw.deleted_at IS NULL AND tw.id <> p.id`;
 
+/**
+ * `[VEX.3]` El SKU con el que Kepler conoce a cada producto: el suyo, o el de su gemelo si es un
+ * legado sin `sku` (la MISMA regla que `GEMELO_JOIN_SQL`). Lo usan el catálogo y el motor del
+ * pedido para leer la escalera de precios de la sucursal: sin esto el legado no tiene escalera y
+ * cae al precio de red, distinto del que Kepler cobra por el mismo artículo. Un id sin sku ni
+ * gemelo no aparece en el mapa.
+ */
+export async function skusDeKepler(trx: Knex, productIds: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const ids = [...new Set(productIds.filter(Boolean))];
+  if (!ids.length) return out;
+  const { rows } = (await trx.raw(
+    `SELECT p.id::text AS id, btrim(COALESCE(p.sku, tw.sku)) AS sku
+       FROM catalog.products p
+       ${GEMELO_JOIN_SQL}
+      WHERE p.id = ANY(?::uuid[]) AND COALESCE(p.sku, tw.sku) IS NOT NULL`,
+    [ids],
+  )) as { rows: Array<{ id: string; sku: string }> };
+  for (const r of rows) if (r.sku) out.set(r.id, r.sku);
+  return out;
+}
+
 /** La existencia canónica de UNA sucursal, como `ex`, contra el efectivo (gemelo o el producto). */
 export function existenciaDeSucursalJoin(warehouseId: string): { sql: string; bindings: string[] } {
   return {

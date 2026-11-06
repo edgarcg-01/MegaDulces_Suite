@@ -20,7 +20,7 @@ import { OrderStockService } from './order-stock.service';
 import { QuotePricingService, rungDeRotulo, type Ladder, type Rung } from '../commercial-quotes/quote-pricing.service';
 import type { Knex } from 'knex';
 import { SURTIDO_DE_RUTA } from '../presale-picking/presale-route.engine';
-import { bloqueosAlAgregar, llaveDestino } from '../commercial-inventory/stock-state';
+import { bloqueosAlAgregar, llaveDestino, skusDeKepler } from '../commercial-inventory/stock-state';
 import type { PresalePickRestore, StockBlockError } from '@megadulces/contracts';
 import { INVOICE_ISSUER_PORT, InvoiceIssuerPort, IssueInvoiceInput, IssueInvoiceResult } from '@megadulces/contracts';
 
@@ -304,8 +304,8 @@ export class CommercialOrdersService {
     const wh = await trx('commercial.warehouses').where({ id: warehouseId }).first('kepler_code');
     const branch = String(wh?.kepler_code ?? '').trim();
     if (!branch) return null;
-    const prod = await trx('catalog.products').where({ id: productId }).first('sku');
-    const sku = String(prod?.sku ?? '').trim();
+    // [VEX.3] El legado sin sku se tarifica con el SKU de su gemelo: es el mismo artículo de Kepler.
+    const sku = (await skusDeKepler(trx as Knex, [productId])).get(productId) ?? '';
     if (!sku) return null;
 
     const led = (await this.quotePricing.ladders(trx, branch, [sku])).get(sku);

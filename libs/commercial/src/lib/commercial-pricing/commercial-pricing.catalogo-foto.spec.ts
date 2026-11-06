@@ -15,9 +15,11 @@ function filas(n: number) {
   return Array.from({ length: n }, (_, i) => ({ id: `pp${i}`, product_id: `p${i}`, sku: String(1000 + i), price: 5 }));
 }
 
-function montar(nFilas: number) {
+function montar(nFilas: number, o: { legado?: { gemelo: string | null } } = {}) {
   const tablas: string[] = [];
-  const productos = filas(nFilas);
+  const productos: Array<{ id: string; product_id: string; sku: string | null; price: number }> = filas(nFilas);
+  // [VEX.3] Un legado sin sku; su gemelo (si lo hay) lo resuelve la consulta de skusDeKepler.
+  if (o.legado) productos.push({ id: 'ppL', product_id: 'pL', sku: null, price: 7 });
   function builder(tabla: string) {
     let esConteo = false;
     const valor = () => {
@@ -36,7 +38,16 @@ function montar(nFilas: number) {
   }
   const trx = Object.assign(
     (tabla: string) => { tablas.push(tabla); return builder(tabla); },
-    { raw: () => ({ then: (ok: (v: unknown) => unknown) => Promise.resolve({ rows: [{ t: true }] }).then(ok) }) },
+    {
+      raw: (sql: string) => ({
+        then: (ok: (v: unknown) => unknown) =>
+          Promise.resolve(
+            sql.includes('COALESCE(p.sku, tw.sku)')
+              ? { rows: o.legado?.gemelo ? [{ id: 'pL', sku: o.legado.gemelo }] : [] }
+              : { rows: [{ t: true }] },
+          ).then(ok),
+      }),
+    },
   );
   const tk = {
     run: (a: unknown, b?: unknown) => {
@@ -58,7 +69,7 @@ function montar(nFilas: number) {
   const svc = new CommercialPricingService(tk as never, tenantCtx as never, quotePricing as never);
   const abrir = () =>
     svc.listPrices(LISTA, { warehouseId: ALMACEN, pricedOnly: true, commercialOnly: true, sort: 'sales', pageSize: 10000 }) as Promise<{
-      data: Array<{ tiers?: unknown[]; rungs?: unknown[] }>;
+      data: Array<{ product_id?: string; tiers?: unknown[]; rungs?: unknown[] }>;
       freshness: { tiers_at: string | null; ladders_at: string | null };
     }>;
   return { abrir, tablas, quotePricing };
@@ -101,5 +112,19 @@ describe('catálogo del vendedor · las piezas caras se sirven de foto', () => {
     // Una sola lectura de la vista para todo el tenant, sin depender de qué productos trae la página.
     expect(tablas.filter((t) => t === 'analytics.product_volume_tiers')).toHaveLength(1);
     expect(tablas.filter((t) => t === 'analytics.product_units')).toHaveLength(1);
+  });
+});
+
+describe('catálogo del vendedor · el legado sin sku lee la escalera de su gemelo [VEX.3]', () => {
+  it('⭐ el legado toma la escalera de Kepler del gemelo (lo que se ve es lo que el pedido cobra)', async () => {
+    const { abrir } = montar(20, { legado: { gemelo: '1000' } });
+    const r = await abrir();
+    expect(r.data.find((x) => x.product_id === 'pL')?.rungs).toHaveLength(2);
+  });
+
+  it('⛔ negativa: sin gemelo, el legado se queda sin escalera (cae a su precio, rotulado de red)', async () => {
+    const { abrir } = montar(20, { legado: { gemelo: null } });
+    const r = await abrir();
+    expect(r.data.find((x) => x.product_id === 'pL')?.rungs).toBeUndefined();
   });
 });
