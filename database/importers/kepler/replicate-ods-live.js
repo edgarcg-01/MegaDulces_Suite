@@ -26,7 +26,7 @@
  *        SALTA con "no conecta — skip" (inofensivo). Al crear la subscription, se activa sola.)
  *      FEEDS_SINK=http + FEEDS_INGEST_URL + FEEDS_INGEST_KEY · CRON_TENANT_ID
  *      ODS_READ_BATCH (5000) · ODS_SHIP_BATCH (5000)
- *      ODS_HASH_RESYNC_SEC (3600) · ODS_HASH_RESYNC_TABLES (kdil,kdik) — red de seguridad del
+ *      ODS_HASH_RESYNC_SEC (3600) · ODS_HASH_RESYNC_TABLES (kdil,kdik,kdii,kdpv_kdku,kdpv_gerentes) — red de seguridad del
  *        carril hash: cada N s esa tabla ignora el shadow una pasada y re-shipea todo, para
  *        recuperar filas que el shadow dio por enviadas y el destino nunca aplicó.
  * Flags: --apply (default dry-run) · --tables=kdii,kdil · --branch=03 · --full (ignora watermark ctid)
@@ -275,8 +275,12 @@ const HASH_RESYNC_SEC = Number(process.env.ODS_HASH_RESYNC_SEC || 3600);
 // carril decía `0 candidatas` en las nueve. No era rezago: estaban ATASCADAS, y el único motivo
 // por el que kdil/kdik NO lo estaban es que son las dos únicas que sí tenían esta red.
 // ⛔ `kdc2*` sigue afuera a propósito: son las pólizas por mes, crecen sin techo y no publican precio.
+// [CANON.5.28] Entran `kdpv_kdku` y `kdpv_gerentes` (cajeros del POS, ~200 filas por rama; las lleva
+// el espejo, que no fija esta variable). Medido el 2026-11-06: 4 llaves con el shadow de la réplica
+// al día y el ODS con el nombre viejo —o sin la fila del gerente—, el mismo «shadow adelantado» de
+// arriba. Sin esta red `import-pos-cashiers` no puede leer del ODS.
 const HASH_RESYNC_TABLES = new Set(
-  (process.env.ODS_HASH_RESYNC_TABLES || 'kdil,kdik,kdii').split(',').map((s) => s.trim()).filter(Boolean));
+  (process.env.ODS_HASH_RESYNC_TABLES || 'kdil,kdik,kdii,kdpv_kdku,kdpv_gerentes').split(',').map((s) => s.trim()).filter(Boolean));
 
 // ── [NORM.3b] EL SHADOW NO SABÍA A DÓNDE HABÍA MANDADO ───────────────────────────────────────
 // `ods.shadow` es (table_name, pk_text, h): estado POR RÉPLICA, sin una sola columna que diga a qué

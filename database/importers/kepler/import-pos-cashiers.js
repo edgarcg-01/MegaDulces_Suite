@@ -8,14 +8,22 @@
  * gerentes se carga DESPUÉS de kdku → gana en códigos compartidos (los que
  * realmente cierran cortes son los prefijados de gerentes: 40VMC, 42GERNTA…).
  *
+ * [CANON.5.28] Fuente por defecto: `kepler_ods.kdpv_kdku` / `kdpv_gerentes`, las 9 sucursales en
+ * una consulta. `--source=branch` conserva la lectura de cada POS. Medido el 2026-11-06: de 1,359
+ * llaves, las únicas diferencias con el ODS eran 4 envíos perdidos del carril hash (los repone la
+ * red de resync de `replicate-ods-live.js`) y 4 en las que el ODS ya iba MÁS al día que la tabla.
+ *
  * Uso (desde database/):
  *   node importers/kepler/import-pos-cashiers.js            # dry-run
+ *   node importers/kepler/import-pos-cashiers.js --source=branch   # POS por sucursal
  *   DATABASE_URL_NEW='postgres://…' node importers/kepler/import-pos-cashiers.js --apply
  */
 const knexLib = require('knex');
 const { Client } = require('pg');
 
 const APPLY = process.argv.includes('--apply');
+const SOURCE = (process.argv.find((a) => a.startsWith('--source=')) || '').split('=')[1] || 'ods';
+if (!['ods', 'branch'].includes(SOURCE)) throw new Error(`--source desconocido: ${SOURCE} (ods | branch)`);
 const TENANT = process.env.MAAT_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 
 // Fuente única del mapa de sucursales (paso 3 normalización almacén). Las 6 (incluye CEDIS).
@@ -24,6 +32,30 @@ const { loadWarehouseMap } = require('../lib/warehouse-id'); // Paso 2b: warehou
 const BRANCHES = process.env.SALES_BRANCH_MAP ? JSON.parse(process.env.SALES_BRANCH_MAP) : salesMap();
 
 const clean = (s) => (s == null ? '' : String(s).replace(/[\r\n\t]+/g, ' ').trim());
+
+/** Misma regla que readBranch, sobre el ODS: kdku primero y gerentes (de su propia sucursal) después. */
+async function readOds() {
+  if (!process.env.DATABASE_URL_NEW) throw new Error('source=ods requiere DATABASE_URL_NEW (kepler_ods vive en prod)');
+  const c = new Client({ connectionString: process.env.DATABASE_URL_NEW, statement_timeout: 30000 });
+  await c.connect();
+  try {
+    const r = await c.query(
+      `SELECT sucursal AS wh, c1 AS code, c2 AS nombre, 'cajero' AS source, 1 AS orden FROM kepler_ods.kdpv_kdku
+        WHERE sucursal = ANY($1) AND c1 IS NOT NULL AND c1 <> '' AND c2 IS NOT NULL AND c2 <> ''
+       UNION ALL
+       SELECT sucursal, c2, c3, 'gerente', 2 FROM kepler_ods.kdpv_gerentes
+        WHERE sucursal = ANY($1) AND c1 = sucursal AND c2 IS NOT NULL AND c2 <> '' AND c3 IS NOT NULL AND c3 <> ''
+       ORDER BY wh, orden, code`,
+      [BRANCHES.map((b) => b.code)],
+    );
+    const out = [];
+    for (const r0 of r.rows) {
+      const code = clean(r0.code); const nombre = clean(r0.nombre);
+      if (code && nombre) out.push({ warehouse_code: r0.wh, cajero_code: code, nombre, source: r0.source });
+    }
+    return out;
+  } finally { await c.end(); }
+}
 
 async function readBranch(b) {
   const c = new Client(clientConfig(b, { connectionTimeoutMillis: 6000, statement_timeout: 30000 }));
@@ -62,13 +94,21 @@ async function upsert(db, rows) {
 
 (async () => {
   const all = [];
-  for (const b of BRANCHES) {
-    try {
-      const rows = await readBranch(b);
-      all.push(...rows);
-      const g = rows.filter((x) => x.source === 'gerente').length;
-      console.log(`[${b.db}] ${rows.length} cajeros (${g} gerentes)`);
-    } catch (e) { console.warn(`[${b.db}] ERROR: ${e.message}`); }
+  if (SOURCE === 'ods') {
+    all.push(...await readOds());
+    for (const b of BRANCHES) {
+      const rows = all.filter((x) => x.warehouse_code === b.code);
+      console.log(`[ods ${b.code}] ${rows.length} cajeros (${rows.filter((x) => x.source === 'gerente').length} gerentes)`);
+    }
+  } else {
+    for (const b of BRANCHES) {
+      try {
+        const rows = await readBranch(b);
+        all.push(...rows);
+        const g = rows.filter((x) => x.source === 'gerente').length;
+        console.log(`[${b.db}] ${rows.length} cajeros (${g} gerentes)`);
+      } catch (e) { console.warn(`[${b.db}] ERROR: ${e.message}`); }
+    }
   }
   console.log(`\nTOTAL: ${all.length} filas cajero`);
   all.filter((x) => x.source === 'gerente').slice(0, 8).forEach((r) => console.log(`  suc${r.warehouse_code} ${r.cajero_code} → ${r.nombre}`));
