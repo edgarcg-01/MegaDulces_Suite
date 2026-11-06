@@ -724,7 +724,7 @@ export class CommercialReplenishmentService {
   // Mismo patrón que arriba: si el código llega antes que la columna, se guarda sin marcar (el
   // importer clasifica lo que encuentre sin llave) en vez de dar 500. null = aún sin verificar.
   private paramsSourceReady: boolean | null = null;
-  private async orderParamsSourceReady(trx: any): Promise<boolean> {
+  private async orderParamsSourceReady(trx: Knex): Promise<boolean> {
     if (this.paramsSourceReady != null) return this.paramsSourceReady;
     try {
       const r = await trx.raw(`SELECT EXISTS(SELECT 1 FROM information_schema.columns
@@ -735,7 +735,7 @@ export class CommercialReplenishmentService {
     return this.paramsSourceReady;
   }
   /** `[CANON.5.25]` Marca como capturados por una persona los campos de pedido que trae `upd`. */
-  private async marcarParamsManual(trx: any, upd: Record<string, unknown>): Promise<void> {
+  private async marcarParamsManual(trx: Knex, upd: Record<string, unknown>): Promise<void> {
     const campos = ORDER_PARAM_FIELDS.filter((c) => c in upd);
     if (!campos.length) return;
     const uid = this.tenantCtx.get()?.userId;
