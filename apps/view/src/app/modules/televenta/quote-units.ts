@@ -3,7 +3,14 @@
  * en las pantallas de cotización y en el Excel/PDF, y se prueban en `quote-units.spec.ts`.
  * `quotes.service.ts` las re-exporta para no cambiar ninguna importación existente.
  */
-import type { QuoteCatalogRow, Rung } from './quotes.service';
+import type { QuoteCatalogRow, QuoteOrigin, Rung } from './quotes.service';
+
+/** De dónde llegó la cotización, con el rótulo que entiende una persona. Una lista para alta y detalle. */
+export const ORIGENES_COTIZACION: ReadonlyArray<{ value: QuoteOrigin; label: string; hint: string }> = [
+  { value: 'telemarketing', label: 'El cliente mandó su lista', hint: 'Llegó por correo o WhatsApp pidiendo precio' },
+  { value: 'route_visit', label: 'Visita de ruta', hint: 'Se levantó en el punto de venta' },
+  { value: 'counter', label: 'Mostrador', hint: 'Preguntó en la sucursal' },
+];
 
 /**
  * Nombre para mostrar de la unidad mayor (el peldaño `box`). No siempre es "Caja": el granel se

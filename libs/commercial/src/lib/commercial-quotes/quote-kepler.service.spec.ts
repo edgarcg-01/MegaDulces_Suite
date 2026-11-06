@@ -20,10 +20,13 @@ interface Escenario {
   sink?: Record<string, unknown>;
   ajena?: boolean;
   direcciones?: Array<{ key: string }>;
+  /** Filas de `v_erp_wholesale_customers` (COT.34: cambiar de cliente). */
+  padron?: Array<Record<string, unknown>>;
 }
 
 function armar(e: Escenario = {}) {
   const sql: string[] = [];
+  const binds: Array<Record<string, unknown> | undefined> = [];
   const cab = {
     id: ID, code: 'COT-2026-00200', status: 'draft', vencida: false, source_branch: '01',
     erp_customer_code: 'C1088', salesperson_code: '00002', terms_discount_pct: '2', delivery_address_key: null,
@@ -36,8 +39,10 @@ function armar(e: Escenario = {}) {
   const k: any = Object.assign(
     () => ({ where: () => ({ first: async () => (e.switch === undefined ? { encendida: true, tope_dia: 1 } : e.switch) }) }),
     {
-      raw: async (s: string) => {
+      raw: async (s: string, b?: Record<string, unknown>) => {
         sql.push(s.replace(/\s+/g, ' ').trim());
+        binds.push(b);
+        if (s.includes('analytics.v_erp_wholesale_customers')) return { rows: e.padron ?? [] };
         if (s.includes('FROM commercial.quotes q')) return { rows: [cab] };
         if (s.includes('FROM commercial.quote_lines')) return { rows: lineas };
         if (s.includes('FROM kepler_ods.kdudent')) return { rows: e.direcciones ?? [] };
@@ -56,7 +61,7 @@ function armar(e: Escenario = {}) {
   const sink: any = {
     entregar: vi.fn(async () => e.sink ?? { estado: 'entregado', kepler: { sucursal: '01', folio: '0003800', renglones: 1, total: 3520.16 } }),
   };
-  return { svc: new QuoteKeplerService(tk, ctx, quotes, pricing, sink), sink, sql, quotes };
+  return { svc: new QuoteKeplerService(tk, ctx, quotes, pricing, sink), sink, sql, binds, quotes };
 }
 
 const escribioAceptada = (sql: string[]) => sql.some((s) => s.includes("THEN 'accepted'"));
@@ -215,5 +220,81 @@ describe('[COT.28] observaciones del pedido', () => {
     const { svc, sql } = armar({ cab: { kepler_folio: '0003789' } });
     await expect(svc.fijarObservaciones(ID, 'algo', {})).rejects.toThrow(/Comentarios/);
     expect(sql.some((x) => x.includes('SET order_notes'))).toBe(false);
+  });
+});
+
+describe('[COT.34] editar la cabecera del borrador', () => {
+  const update = (sql: string[]) => sql.find((x) => x.startsWith('UPDATE commercial.quotes SET'));
+  const bindsDelUpdate = (sql: string[], binds: Array<Record<string, unknown> | undefined>) => binds[sql.findIndex((x) => x.startsWith('UPDATE commercial.quotes SET'))];
+
+  it('cambiar de cliente relee sus condiciones del ERP y suelta la dirección del anterior', async () => {
+    const { svc, sql, binds } = armar({
+      cab: { delivery_address_key: '2' },
+      padron: [{ name: 'NUEVA OPERADORA', credit_limit: '5000', payment_days: '15', discount_1_pct: '3' }],
+    });
+    await expect(svc.editarCabecera(ID, { erp_customer_code: 'c2001' }, {})).resolves.toMatchObject({ cambiados: expect.arrayContaining(['erp_customer_code', 'terms_discount_pct', 'delivery_address_key']) });
+    const b = bindsDelUpdate(sql, binds)!;
+    expect(b).toMatchObject({ erp_customer_code: 'C2001', erp_customer_name: 'NUEVA OPERADORA', terms_discount_pct: 3, terms_credit_limit: 5000, delivery_address_key: null });
+  });
+
+  it('el mismo cliente no relee nada ni toca la dirección', async () => {
+    const { svc, sql } = armar({ cab: { delivery_address_key: '2' } });
+    await expect(svc.editarCabecera(ID, { erp_customer_code: 'C1088' }, {})).resolves.toEqual({ cambiados: [] });
+    expect(sql.some((x) => x.includes('v_erp_wholesale_customers'))).toBe(false);
+    expect(update(sql)).toBeUndefined();
+  });
+
+  it('un cliente que no existe en Kepler: 404 y no se escribe', async () => {
+    const { svc, sql } = armar();
+    await expect(svc.editarCabecera(ID, { erp_customer_code: 'NOEXISTE' }, {})).rejects.toThrow(/no existe en el padrón/);
+    expect(update(sql)).toBeUndefined();
+  });
+
+  it('la dirección se valida contra el cliente en Kepler', async () => {
+    const { svc, sql } = armar({ direcciones: [{ key: '1' }] });
+    await expect(svc.editarCabecera(ID, { delivery_address_key: '9' }, {})).rejects.toThrow(/no es del cliente/);
+    expect(update(sql)).toBeUndefined();
+  });
+
+  it('vendedor, vigencia, origen, contacto, lista y observaciones en un solo cambio', async () => {
+    const { svc, sql, binds } = armar();
+    await svc.editarCabecera(ID, {
+      salesperson_code: '00007', salesperson_name: 'ANA', valid_until: '2099-01-31', origin: 'counter',
+      contact_phone: ' 3525550000 ', customer_request: '3 cajas de kinder', order_notes: ' cobrar   al entregar ',
+    }, {});
+    expect(bindsDelUpdate(sql, binds)).toMatchObject({
+      salesperson_code: '00007', salesperson_name: 'ANA', valid_until: '2099-01-31', origin: 'counter',
+      contact_phone: '3525550000', customer_request: '3 cajas de kinder', order_notes: 'cobrar al entregar',
+    });
+  });
+
+  it.each([
+    ['vigencia que ya pasó', { valid_until: '2020-01-01' }, /ya pasó/],
+    ['vigencia que no es fecha', { valid_until: 'mañana' }, /AAAA-MM-DD/],
+    ['origen inventado', { origin: 'tiktok' }, /origin inválido/],
+    ['observaciones de más de 120', { order_notes: 'Z'.repeat(121) }, /120 caracteres/],
+    ['quitar el cliente sin dejar contacto', { erp_customer_code: null }, /destinatario/],
+  ])('%s: 400 y no se escribe', async (_n, cambios, msg) => {
+    const { svc, sql } = armar();
+    await expect(svc.editarCabecera(ID, cambios as never, {})).rejects.toThrow(msg);
+    expect(update(sql)).toBeUndefined();
+  });
+
+  it('con folio de Kepler ya no se edita aquí', async () => {
+    const { svc, sql } = armar({ cab: { kepler_folio: '0003801' } });
+    await expect(svc.editarCabecera(ID, { origin: 'counter' }, {})).rejects.toThrow(/ya está en Kepler/);
+    expect(update(sql)).toBeUndefined();
+  });
+
+  it('cotización de otra persona: 403 sin leer nada', async () => {
+    const { svc, sql } = armar({ ajena: true });
+    await expect(svc.editarCabecera(ID, { origin: 'counter' }, {})).rejects.toBeInstanceOf(ForbiddenException);
+    expect(sql).toEqual([]);
+  });
+
+  it('una columna que no es editable no llega al SQL aunque venga en el cuerpo', async () => {
+    const { svc, sql } = armar();
+    await svc.editarCabecera(ID, { origin: 'counter', status: 'accepted', source_branch: '05' } as never, {});
+    expect(update(sql)).not.toMatch(/status|source_branch/);
   });
 });

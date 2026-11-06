@@ -45,6 +45,7 @@ import {
   opcionesUnidad,
   paqueteDeCaja,
   esPaquete,
+  ORIGENES_COTIZACION,
   desglose,
   parseCantidad,
   vendedorDelCliente,
@@ -109,11 +110,7 @@ export interface ItemBandeja {
   sin_redondear?: number | null;
 }
 
-const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
-  { value: 'telemarketing', label: 'El cliente mandó su lista', hint: 'Llegó por correo o WhatsApp pidiendo precio' },
-  { value: 'route_visit', label: 'Visita de ruta', hint: 'Se levantó en el punto de venta' },
-  { value: 'counter', label: 'Mostrador', hint: 'Preguntó en la sucursal' },
-];
+const ORIGENES = ORIGENES_COTIZACION;
 
 @Component({
   selector: 'app-televenta-quote-new',
