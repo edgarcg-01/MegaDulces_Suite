@@ -33,14 +33,17 @@ type VistaIncidencias = 'movimientos' | 'negativos';
 
 const ETIQUETA: Record<ExcepcionMovimiento, string> = {
   diferencia: 'Diferencia', sin_acuse: 'Sin acuse', sin_origen: 'Sin origen',
-  ajuste_inventario: 'Ajuste', importe_incompleto: 'Importe incompleto',
+  ajuste_inventario: 'Ajuste', importe_incompleto: 'Importe incompleto', unidad_cruzada: 'Unidad equivocada',
 };
 const SEVERIDAD: Record<ExcepcionMovimiento, 'danger' | 'warn' | 'info' | 'secondary'> = {
   diferencia: 'danger', sin_acuse: 'danger', sin_origen: 'warn', ajuste_inventario: 'info', importe_incompleto: 'secondary',
+  // [MX.0.6] existencia que no existe (o que falta): pesa como una diferencia
+  unidad_cruzada: 'danger',
 };
 const ESTADO_RENGLON: Record<EstadoRenglonMovimiento, string> = {
   cuadra: 'Cuadra', falta: 'Falta', sobra: 'Sobra', no_llego: 'No llegó', no_venia: 'No venía',
   pendiente: 'Sin recibir', sin_respaldo: 'Sin salida', ajustado: 'Ajustado',
+  unidad_cruzada: 'Unidad equivocada', costo_coincide: 'Costo correcto',
 };
 const ETIQUETA_MOTIVO = new Map(MOTIVOS_RESOLUCION_MOVIMIENTO.map((m) => [m.codigo, m.etiqueta]));
 
@@ -132,7 +135,7 @@ const ETIQUETA_MOTIVO = new Map(MOTIVOS_RESOLUCION_MOVIMIENTO.map((m) => [m.codi
                   @for (e of f.excepciones; track e) {
                     <p-tag [value]="etiqueta(e)" [severity]="severidad(e)" styleClass="inc-tag"></p-tag>
                   }
-                  <span class="inc-tipo">{{ f.tipo === 'ajuste' ? 'Ajustes del día' : 'Traspaso' }}</span>
+                  <span class="inc-tipo">{{ f.tipo === 'ajuste' ? 'Ajustes del día' : f.tipo === 'compra' ? 'Compra' : 'Traspaso' }}</span>
                 </div>
                 <span class="inc-donde">{{ f.donde || 'Sin detalle por producto' }}</span>
                 @if (f.resolucion?.motivo) {
@@ -155,6 +158,10 @@ const ETIQUETA_MOTIVO = new Map(MOTIVOS_RESOLUCION_MOVIMIENTO.map((m) => [m.codi
                 @if (f.tipo === 'traspaso') {
                   <span>{{ f.piezas_enviadas != null ? (f.piezas_enviadas | number:'1.0-2') : '—' }} → {{ f.piezas_recibidas != null ? (f.piezas_recibidas | number:'1.0-2') : '—' }}</span>
                   @if (f.delta_piezas) { <span class="inc-delta">Δ {{ f.delta_piezas > 0 ? '+' : '' }}{{ f.delta_piezas | number:'1.0-2' }}</span> }
+                } @else if (f.tipo === 'compra') {
+                  <!-- [MX.0.6] lo capturado → lo que dice su costo; el delta es la existencia de más (−) o de menos (+) -->
+                  <span [attr.aria-label]="'Se capturaron ' + f.piezas_recibidas + '; por su costo eran ' + ((f.piezas_recibidas ?? 0) + (f.delta_piezas ?? 0))">{{ f.piezas_recibidas | number:'1.0-2' }} → {{ (f.piezas_recibidas ?? 0) + (f.delta_piezas ?? 0) | number:'1.0-2' }}</span>
+                  <span class="inc-delta">{{ (f.delta_piezas ?? 0) < 0 ? 'de más ' : 'de menos ' }}{{ (f.delta_piezas ?? 0) < 0 ? -(f.delta_piezas ?? 0) : f.delta_piezas | number:'1.0-2' }}</span>
                 } @else {
                   <span>{{ f.delta_piezas > 0 ? '+' : '' }}{{ f.delta_piezas | number:'1.0-2' }}</span>
                 }
@@ -196,6 +203,10 @@ const ETIQUETA_MOTIVO = new Map(MOTIVOS_RESOLUCION_MOVIMIENTO.map((m) => [m.codi
                   {{ d.contraparte.folio }} de {{ d.contraparte.nombre || 'un almacén sin nombre' }} ({{ d.contraparte.fecha }}).</p>
               } @else if (d.documento.doc_code === 'TrsfShip') {
                 <p class="inc-peek-meta">No hay recepción registrada{{ d.destino ? ' en ' + d.destino : '' }}.</p>
+              } @else if (esCompra()) {
+                <!-- [MX.0.6] dónde se corrige y qué arrastra mientras tanto -->
+                <p class="inc-peek-meta">Se corrige en Kepler: orden de entrada X-A-40 {{ d.documento.folio }} de {{ d.documento.nombre || 'la sucursal' }} ({{ d.documento.fecha }}).
+                  Mientras tanto, la existencia de esa sucursal y el pedido de Compras cuentan lo capturado.</p>
               }
             </section>
 
@@ -206,6 +217,10 @@ const ETIQUETA_MOTIVO = new Map(MOTIVOS_RESOLUCION_MOVIMIENTO.map((m) => [m.codi
                   @if (esAjuste()) {
                     <th class="comm-num">Piezas</th>
                     <th class="comm-num">Importe</th>
+                  } @else if (esCompra()) {
+                    <th class="comm-num">Capturado</th>
+                    <th class="comm-num">Por su costo</th>
+                    <th class="comm-num">Diferencia</th>
                   } @else {
                     <th class="comm-num">Salió</th>
                     <th class="comm-num">Llegó</th>
@@ -222,6 +237,21 @@ const ETIQUETA_MOTIVO = new Map(MOTIVOS_RESOLUCION_MOVIMIENTO.map((m) => [m.codi
                   @if (esAjuste()) {
                     <td class="comm-num dt-num" data-label="Piezas" role="cell">{{ r.delta > 0 ? '+' : '' }}{{ r.delta | number:'1.0-2' }}</td>
                     <td class="comm-num dt-num" data-label="Importe" role="cell">{{ r.importe != null ? dinero(r.importe) : '—' }}</td>
+                  } @else if (esCompra()) {
+                    <td class="comm-num dt-num" data-label="Capturado" role="cell">
+                      {{ r.entrada?.capturado | number:'1.0-2' }} {{ r.entrada?.unidad }}
+                      <span class="inc-tenue">a {{ precio(r.entrada?.costo_capturado) }}</span>
+                    </td>
+                    <td class="comm-num dt-num" data-label="Por su costo" role="cell">
+                      {{ r.entrada?.probable != null ? (r.entrada!.probable | number:'1.0-2') : '—' }}
+                      <span class="inc-tenue">{{ r.entrada?.costo_proveedor != null ? 'proveedor ' + precio(r.entrada?.costo_proveedor) : 'sin costo del proveedor' }}</span>
+                    </td>
+                    <td class="comm-num dt-num" data-label="Diferencia" role="cell">
+                      @if (r.delta) {
+                        <span class="inc-delta-fuerte">{{ r.delta > 0 ? '+' : '' }}{{ r.delta | number:'1.0-2' }}</span>
+                        <span class="inc-tenue">{{ r.importe_diferencia != null ? dinero(r.importe_diferencia) : 'sin valuar' }}</span>
+                      } @else { <span class="inc-tenue">—</span> }
+                    </td>
                   } @else {
                     <td class="comm-num dt-num" data-label="Salió" role="cell">{{ r.salida != null ? (r.salida | number:'1.0-2') : '—' }}</td>
                     <td class="comm-num dt-num" data-label="Llegó" role="cell">{{ r.recepcion != null ? (r.recepcion | number:'1.0-2') : '—' }}</td>
@@ -237,7 +267,7 @@ const ETIQUETA_MOTIVO = new Map(MOTIVOS_RESOLUCION_MOVIMIENTO.map((m) => [m.codi
             </p-table>
             @if (renglonesCuadran() > 0) {
               <button pButton type="button" class="p-button-sm p-button-text inc-ver-todos" (click)="verTodos.set(!verTodos())">
-                <span class="p-button-label">{{ verTodos() ? 'Ocultar' : 'Ver' }} los {{ renglonesCuadran() }} productos que cuadran</span>
+                <span class="p-button-label">{{ verTodos() ? 'Ocultar' : 'Ver' }} los {{ renglonesCuadran() }} productos {{ esCompra() ? 'con el costo correcto' : 'que cuadran' }}</span>
               </button>
             }
 
@@ -388,7 +418,8 @@ export class AlmacenIncidenciasComponent implements OnInit {
   readonly kpis = computed<MetricStripItem[]>(() => {
     const r = this.resp(); if (!r) return [];
     const p = r.totals.por_excepcion;
-    const universo = r.totals.universo.traspasos + r.totals.universo.ajustes;
+    // [MX.0.6] `compras` falta en una API anterior, o es null si no se pudo medir: no suma
+    const universo = r.totals.universo.traspasos + r.totals.universo.ajustes + (r.totals.universo.compras ?? 0);
     return [
       { label: 'Pendientes', value: r.totals.items, format: 'number', tone: r.totals.items ? 'warn' : 'ok',
         sub: `de ${universo.toLocaleString('es-MX')} documentos revisados · ${r.totals.resueltas.toLocaleString('es-MX')} resueltas` },
@@ -396,6 +427,8 @@ export class AlmacenIncidenciasComponent implements OnInit {
       { label: 'Diferencias', value: p.diferencia?.n ?? 0, format: 'number', tone: p.diferencia?.n ? 'bad' : 'muted', sub: this.dinero(p.diferencia?.importe ?? 0) },
       { label: 'Ajustes', value: p.ajuste_inventario?.n ?? 0, format: 'number', tone: 'default', sub: this.dinero(p.ajuste_inventario?.importe ?? 0) },
       { label: 'Importe incompleto', value: p.importe_incompleto?.n ?? 0, format: 'number', tone: 'muted' },
+      // [MX.0.6] compras capturadas en otra unidad: existencia que no existe (o que falta)
+      { label: 'Unidad equivocada', value: p.unidad_cruzada?.n ?? 0, format: 'number', tone: p.unidad_cruzada?.n ? 'bad' : 'muted', sub: this.dinero(p.unidad_cruzada?.importe ?? 0) },
     ];
   });
 
@@ -406,6 +439,7 @@ export class AlmacenIncidenciasComponent implements OnInit {
       u.valor_traspaso ? `${this.dinero(u.valor_traspaso)} a valor de traspaso` : '',
       u.precio_venta ? `${this.dinero(u.precio_venta)} a precio de venta` : '',
       u.mixta ? `${this.dinero(u.mixta)} con costo y precio mezclados` : '',
+      u.costo_compra ? `${this.dinero(u.costo_compra)} a costo de compra (existencia de más o de menos)` : '',
       u.sin_unidad ? `${this.dinero(u.sin_unidad)} sin unidad medida (ajustes)` : '',
     ].filter(Boolean);
     return partes.length ? `Importe de las incidencias pendientes: ${partes.join(' · ')}.` : '';
@@ -420,9 +454,11 @@ export class AlmacenIncidenciasComponent implements OnInit {
 
   // [MX.2.4] el panel
   readonly esAjuste = computed(() => this.abierta()?.tipo === 'ajuste');
+  readonly esCompra = computed(() => this.abierta()?.tipo === 'compra');
   readonly tituloPeek = computed(() => {
     const f = this.abierta(); if (!f) return '';
     if (f.tipo === 'ajuste') return `Ajustes del ${f.fecha}`;
+    if (f.tipo === 'compra') return `Orden de entrada ${f.documento.folio}`;
     return `${f.documento.doc_code === 'TrsfRcv' ? 'Recepción' : 'Salida'} ${f.documento.folio}`;
   });
   readonly subtituloPeek = computed(() => {
@@ -535,6 +571,10 @@ export class AlmacenIncidenciasComponent implements OnInit {
   estadoRenglon(e: EstadoRenglonMovimiento): string { return ESTADO_RENGLON[e]; }
   motivo(m: MotivoResolucion | null | undefined): string { return (m && ETIQUETA_MOTIVO.get(m)) || 'Sin motivo'; }
   unidad(f: ExcepcionMovimientoItem): string { return f.unidad_importe ? ETIQUETA_UNIDAD_IMPORTE[f.unidad_importe] : 'unidad no medida'; }
+  /** `[MX.0.6]` Un costo unitario, con centavos: con el redondeo a pesos, $0.51 se leería $1. */
+  precio(n: number | null | undefined): string {
+    return n == null ? '—' : Number(n).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
   dinero(n: number | string): string {
     return (Number(n) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
   }

@@ -246,7 +246,8 @@ const STEPS = {
     // la PK, o sea los upserts del propio importer (idx por mes: 0 lecturas). La tabla se queda.
     [path.join(K, 'import-demand-clean.js'), '--hb=nightly'],  // RA-PRO.17.1 demanda LIMPIA (revenue÷precio_pieza) → analytics.product_demand — tras sales-fact `[RA.VA.6]` --hb: llave de latido propia de este carril (corre en live y nightly).
     path.join(K, 'import-inventory-health.js'), // KV.5 días cobertura/status (stock × sales_daily); demanda en PIEZAS crudas (canónico, ver import-inventory-health)
-    path.join(K, 'import-reorder-policy.js'),   // RA.2 umbrales reorden Kepler (kdii.c33/34/35 → reorder_policy source=kepler)
+    // RETIRADO 2026-11-05 [CANON.5.7]: import-reorder-policy.js — los umbrales `source=kepler` los
+    // mantiene el hop-2 (`normalizeReorder`, al cambiar kdii). En 34 noches escribió 0 filas.
     path.join(K, 'import-computed-reorder.js'), // RA.3/RA-PRO.1 reorden por demanda + safety stock por nivel de servicio + XYZ — tras inventory-health
     path.join(K, 'import-network-reorder.js'),  // RA-PRO.6 DRP: reorden del CEDIS por demanda dependiente (Σ sucursales) — tras computed-reorder
     // RETIRADO 2026-08-28: import-in-transit — el tránsito (X-A-35 sin X-A-40) se DERIVA del ODS
@@ -254,7 +255,9 @@ const STEPS = {
     // rename qty_in_transit → transit_cajas se comió la conversión de unidad. Ver GOTCHAS §25.
     path.join(K, 'import-auto-received.js'),     // RA.15.1 auto-received: X-A-40 Kepler → cierra nuestras OC abiertas (OE source=kepler, sin mover stock)
     path.join(K, 'import-stock-movements.js'),  // DM — Diario de movimientos (kdm1⋈kdm2 filtrado por doctype.k_binv) → analytics.stock_movements (ventana 120d)
-    path.join(K, 'import-purchase-velocity.js'), // RA-PRO.17 velocidad de compra real (entrada X-A-40) → analytics.purchase_velocity — TRAS stock-movements (ancla del sugerido)
+    // RETIRADO 2026-11-05 [CANON.5.8]: import-purchase-velocity.js — su único lector era
+    // import-replenishment-plan, que ahora deriva la velocidad de compra en línea de
+    // analytics.stock_movements (mismo cálculo). analytics.purchase_velocity queda sin escritor.
     // RETIRADO 2026-08-20: import-erp-promos — analytics.erp_promotions es VISTA derive-no-copy
     // sobre kepler_ods.kdpv_* (mig 20260820160000). Correrlo pegaría TRUNCATE/INSERT contra la vista.
     // RETIRADO 2026-08-20: import-erp-customers — analytics.erp_customers es VISTA derive-no-copy
@@ -268,7 +271,9 @@ const STEPS = {
     // publica la mensual con el dato de ayer — y "ordenar no es depender" (ADR-056): si la
     // diaria falla, la mensual se queda con lo de ayer, no se inventa nada.
     path.join(K, 'import-product-sales-daily.js'), // SAL.5 venta DIARIA x producto (rango 7/15/30d; upsert acumulativo 180d)
-    path.join(K, 'import-product-sales-monthly.js'), // SAL.1 venta mensual x producto ← rollup LOCAL de la diaria
+    // RETIRADO 2026-11-05 [CANON.5.9]: import-product-sales-monthly.js — era el rollup de la diaria
+    // y sólo lo leía thot-build-features, que ahora suma la diaria por mes (36,502 de 36,502 filas
+    // idénticas). El orden de AUD-DAT.10 de arriba ya no aplica: no queda mensual que publicar.
     path.join(K, 'import-sales-by-route-monthly.js'), // RR.2 venta mensual x RUTA (serie c63; upsert acumulativo)
     path.join(K, 'import-route-push-monthly.js'), // RR — venta en ruta del PUSH (.249 mart.ventas ruta_NN) → WIN-<NN> (PH migró de .mdb al push, jul→)
     path.join(K, 'import-route-push-lines.js'), // RR — line-level del push (.249) → route_push_lines (drill-down del reporte; incremental)
@@ -338,7 +343,10 @@ const STEPS = {
     path.join(SCRIPTS, 'thot-build-features.js'),     // intelligence.product_affinity (lift market-basket) + zone_demand
     path.join(SCRIPTS, 'thot-build-pdv-presence.js'), // intelligence.pdv_presence (desde capturas Trade)
     path.join(K, 'import-demand-acceleration.js'), // RA-PRO.36 IAD por SKU (−2..+2) para la matriz — tras demanda (usa piece_price)
-    path.join(K, 'import-box-factor.js'),          // RA-PRO.37 factor de caja autoritativo (kdii.c84) — ANTES del plan (el uxc lo usa)
+    // RETIRADO 2026-11-05 [CANON.5.7]: import-box-factor.js — `analytics.product_box_factor` la
+    // mantiene el hop-2 (`normalizeBoxFactor`, al cambiar kdii): 516 filas escritas en 30 días fuera
+    // del nocturno, y el nocturno 32 de 33 noches en 0. Se queda `import-box-price`: depende de
+    // `catalog.products.factor_sale`, que no dispara el hop-2, y sí escribe de noche.
     path.join(K, 'import-box-price.js'),           // RA-PRO.39 precio de CJA por producto (kdpv) — base de cajas money-anchored en sell-out
     // RETIRADO del nightly 2026-11-05 [CANON.5.0]: import-label-data.js — corre cada 30 min en
     // `prices` con los mismos argumentos; acá escribía 0 etiquetas cambiadas.

@@ -6,6 +6,8 @@ import { BancosRealtimeModule } from './bancos-realtime.module';
 import { FinanceJobsModule } from '../jobs/finance-jobs.module';
 import { CajaRealtimeModule } from '../caja/caja-realtime.module';
 import { BankReconPorAvisoService } from './bank-recon-aviso.service';
+import { EstadoDeCuentaService } from './estado-de-cuenta/estado-de-cuenta.service';
+import { EstadoDeCuentaController } from './estado-de-cuenta/estado-de-cuenta.controller';
 
 /**
  * CB.2 — Conciliación bancaria (ADR-033). Tablero de bancos sobre `finance.bank_*`:
@@ -21,6 +23,10 @@ import { BankReconPorAvisoService } from './bank-recon-aviso.service';
  * `caja_fuente`), no por reloj. Se registra acá, pero **sólo escucha en el worker**
  * (`WORKER=true`): en los pods de `api` se queda inerte y lo dice en el log.
  *
+ * CB.58 — EstadoDeCuentaService/Controller: subir el estado de cuenta descargado de la banca
+ * (revisar → confirmar) a `finance.bank_statement_files/lines`. Sólo pide los dos globales de
+ * platform-core (`TenantKnexService`, `TenantContextService`).
+ *
  * ⛔ **`CajaRealtimeModule` se importa por `PgListenService`, y NO se provee acá.** No es global:
  * lo exporta ese módulo a propósito —*«para que el autollenado se cuelgue del MISMO canal con la
  * MISMA conexión»* (`[CG.197]`)—. Declararlo en los `providers` de este módulo compila igual y
@@ -30,8 +36,8 @@ import { BankReconPorAvisoService } from './bank-recon-aviso.service';
  */
 @Module({
   imports: [BancosRealtimeModule, FinanceJobsModule, CajaRealtimeModule],
-  controllers: [FinanceBankController],
-  providers: [FinanceBankService, SheetSyncService, BankReconPorAvisoService],
+  controllers: [FinanceBankController, EstadoDeCuentaController],
+  providers: [FinanceBankService, SheetSyncService, BankReconPorAvisoService, EstadoDeCuentaService],
   exports: [FinanceBankService],
 })
 export class FinanceBankModule {}

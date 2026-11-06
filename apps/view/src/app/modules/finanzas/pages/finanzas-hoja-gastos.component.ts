@@ -12,7 +12,7 @@ import { RadioButtonModule } from 'primeng/radiobutton';
 import { MessageService } from 'primeng/api';
 import {
   MOTIVO_FUERA_DE_HOJA_TEXTO, diaMxDeInstante, pagableConBilletesCaos, revisarConteoCajon, textoConteoCajon, warehouseName,
-  type ClaseRenglonHoja, type ClaveZonaHoja, type EstadoDepositoHoja, type EstadoHojaGastos, type HojaAbierta, type HojaGastos,
+  type ClaseRenglonHoja, type ClaveZonaHoja, type EstadoDepositoHoja, type EstadoHojaGastos, type GrupoPagadoEnControl, type HojaAbierta, type HojaGastos,
   type HojasDeGastos, type PagoDeHojaGastos, type RenglonHoja, type RetiroParaHoja,
 } from '@megadulces/contracts';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
@@ -100,6 +100,36 @@ type Accion = 'rechazar' | 'cancelar';
             </div>
             @if (abierta(); as a) {
               @if (a.renglones.length) {
+                <!-- [CGA-A.70] Lo que ya se pagó con una hoja en papel: se cierra sola y se paga con su retiro, que sólo liga. -->
+                @if (papel().length) {
+                  <div class="hg-papel" role="region" aria-labelledby="hg-t-papel">
+                    <h3 id="hg-t-papel" class="hg-h3">Ya pagado con una hoja en papel: falta ligarlo</h3>
+                    <p class="hg-papel-sub hg-dim">Control registra el retiro con que se pagó cada una. Ciérrala sola y págala con ese retiro:
+                      sólo liga los pagos, no saca dinero. Juntarla con otros pagos dejaría una hoja que ningún retiro cuadra.</p>
+                    <ul class="hg-papel-l">
+                      @for (g of papel(); track g.control.folio) {
+                        <li>
+                          <div class="hg-papel-txt">
+                            <span><strong>{{ diasTexto(g) }}</strong> · {{ sucursalesTexto(g) }} · {{ g.origen_refs.length }} pagos
+                              · <span class="hg-mono">{{ money(g.total) }}</span></span>
+                            <small class="hg-dim">Retiro de Control {{ g.control.folio }} «{{ g.control.observaciones }}» del {{ dmy(g.control.dia) }},
+                              {{ money(g.control.total) }} ({{ diferenciaTexto(g.diferencia) }})
+                              @if (g.caos) { · de CAOS salieron {{ money(g.caos.total) }} y el cajón puso {{ money(g.caos.cajon) }} }
+                              @else { · no se reconoce un solo retiro de CAOS de ese día }</small>
+                            @if (g.caos?.ligados) {
+                              <small class="hg-warn">Ese retiro de CAOS ya tiene {{ g.caos?.ligados }} {{ g.caos?.ligados === 1 ? 'pago ligado' : 'pagos ligados' }}: revísalo antes de pagar con él.</small>
+                            }
+                          </div>
+                          <p-button label="Elegir estos pagos" size="small" severity="secondary" [outlined]="true" [disabled]="!!ocupado()"
+                                    [ariaLabel]="'Elegir los ' + g.origen_refs.length + ' pagos de la hoja en papel del ' + diasTexto(g)"
+                                    (onClick)="elegirHojaEnPapel(g)"></p-button>
+                        </li>
+                      }
+                    </ul>
+                  </div>
+                } @else if (!a.control_medido) {
+                  <p class="hg-warn" role="status">Control sin leer: no se sabe si alguno de estos pagos ya se pagó con una hoja en papel.</p>
+                }
                 <p class="hg-lead" aria-live="polite">
                   <strong class="hg-mono">{{ money(totalElegido()) }}</strong>
                   <span class="hg-dim">en {{ elegidos().length }} de {{ a.renglones.length }} pagos de {{ a.nombre }}
@@ -124,7 +154,11 @@ type Accion = 'rechazar' | 'cancelar';
                       <td data-label="Sucursal" role="cell">{{ nombre(r.sucursal) }}</td>
                       <td class="hg-mono" data-label="Día de pago" role="cell">{{ dmy(r.fecha_pago) }}</td>
                       <td class="hg-mono dt-id" data-label="Folio" role="cell">X{{ r.folio.slice(-4) }}</td>
-                      <td data-label="Beneficiario" role="cell">{{ r.beneficiario ?? '—' }}</td>
+                      <td data-label="Beneficiario" role="cell">{{ r.beneficiario ?? '—' }}
+                        @if (papelDe().get(r.origen_ref); as g) {
+                          <small class="hg-papel-tag">Pagado en papel · {{ g.control.folio }}</small>
+                        }
+                      </td>
                       <td data-label="Clase" role="cell">{{ claseTexto(r.clase) }}</td>
                       <td class="hg-num dt-num" data-label="Importe" role="cell">{{ money(r.importe) }}</td>
                     </tr>
@@ -142,6 +176,7 @@ type Accion = 'rechazar' | 'cancelar';
                       el cajón <span class="hg-mono">{{ money(i.cajon) }}</span>, y se depositan <span class="hg-mono">{{ money(i.deposito) }}</span>.</p>
                   }
                   <span class="hg-sp"></span>
+                  @if (mezcla(); as m) { <p class="hg-warn hg-mezcla" role="status">{{ m }}</p> }
                   @if (puedeCerrar()) {
                     <p-button [label]="'Cerrar hoja · ' + elegidos().length + ' pagos'" icon="pi pi-check" size="small"
                               [disabled]="!d.instalada || !elegidos().length || !venta() || !!ocupado()" [loading]="ocupado() === 'cerrar'"
@@ -433,6 +468,15 @@ type Accion = 'rechazar' | 'cancelar';
     .hg-opcion { display:flex; align-items:center; gap:var(--sp-2); }
     .hg-opcion label { cursor:pointer; }
     .hg-ancho { width:100%; }
+    .hg-papel { display:flex; flex-direction:column; gap:var(--sp-2); padding:var(--sp-3); border:1px solid var(--border-color);
+                border-radius:var(--r-md, 8px); background:var(--surface-2); }
+    .hg-h3 { margin:0; font-size:var(--fs-sm); font-weight:700; color:var(--fg-1); }
+    .hg-papel-sub { margin:0; font-size:var(--fs-sm); max-width:48rem; }
+    .hg-papel-l { margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:var(--sp-2); }
+    .hg-papel-l li { display:flex; align-items:center; flex-wrap:wrap; gap:var(--sp-3); }
+    .hg-papel-txt { display:flex; flex-direction:column; gap:var(--sp-1); flex:1 1 20rem; font-size:var(--fs-sm); }
+    .hg-papel-tag { display:block; color:var(--text-muted); font-size:var(--fs-xs); }
+    .hg-mezcla { margin:0; max-width:28rem; }
     `,
   ],
 })
@@ -496,6 +540,31 @@ export class FinanzasHojaGastosComponent implements OnInit {
     return a ? a.renglones.filter((r) => !fuera.has(r.origen_ref)) : [];
   });
   readonly totalElegido = computed(() => Math.round(this.elegidos().reduce((s, r) => s + Number(r.importe), 0) * 100) / 100);
+  /** `[CGA-A.70]` Las hojas en papel ya pagadas. `?? []`: una API anterior no las manda. */
+  readonly papel = computed<GrupoPagadoEnControl[]>(() => this.abierta()?.pagado_en_control ?? []);
+  /** `[CGA-A.70]` Cada pago de la abierta que ya pagó una hoja en papel, con esa hoja. */
+  readonly papelDe = computed(() => {
+    const m = new Map<string, GrupoPagadoEnControl>();
+    for (const g of this.papel()) for (const r of g.origen_refs) m.set(r, g);
+    return m;
+  });
+  /**
+   * `[CGA-A.70]` La selección junta una hoja en papel con otros pagos, o la deja a medias: ningún retiro
+   * la cuadraría y pagarla sacaría dinero por lo que ya se pagó. Se avisa; quien cierra decide.
+   */
+  readonly mezcla = computed<string | null>(() => {
+    const sel = new Set(this.elegidos().map((r) => r.origen_ref));
+    const tocadas = this.papel().filter((g) => g.origen_refs.some((r) => sel.has(r)));
+    if (!tocadas.length) return null;
+    const g = tocadas[0];
+    if (tocadas.length > 1) return `Lo elegido junta ${tocadas.length} hojas en papel ya pagadas: ciérralas una por una, cada una con su retiro.`;
+    const faltan = g.origen_refs.filter((r) => !sel.has(r)).length;
+    if (faltan) return `${faltan === 1 ? 'Falta 1 pago' : `Faltan ${faltan} pagos`} de la hoja en papel del ${this.diasTexto(g)}: así no cuadra con su retiro.`;
+    const otros = sel.size - g.origen_refs.length;
+    return otros > 0
+      ? `Lo elegido junta la hoja en papel del ${this.diasTexto(g)}, ya pagada, con ${otros} ${otros === 1 ? 'pago más' : 'pagos más'}: ningún retiro cuadraría. Ciérrala sola.`
+      : null;
+  });
   readonly instruccionElegida = computed(() => {
     const t = this.totalElegido();
     if (!(t > 0)) return null;
@@ -560,6 +629,30 @@ export class FinanzasHojaGastosComponent implements OnInit {
     if (!a) return;
     const dentro = new Set(sel.map((r) => r.origen_ref));
     this.fueraElegidos.update((f) => ({ ...f, [a.zona]: a.renglones.filter((r) => !dentro.has(r.origen_ref)).map((r) => r.origen_ref) }));
+  }
+
+  /** `[CGA-A.70]` Deja en la hoja sólo los pagos de esa hoja en papel, con su venta del día. */
+  elegirHojaEnPapel(g: GrupoPagadoEnControl): void {
+    const a = this.abierta();
+    if (!a) return;
+    const dentro = new Set(g.origen_refs);
+    this.fueraElegidos.update((f) => ({ ...f, [a.zona]: a.renglones.filter((r) => !dentro.has(r.origen_ref)).map((r) => r.origen_ref) }));
+    const [y, m, d] = g.hasta.split('-').map(Number);
+    this.venta.set(new Date(y, m - 1, d));
+  }
+
+  diasTexto(g: GrupoPagadoEnControl): string {
+    return g.desde === g.hasta ? dmy(g.desde) : `${dmy(g.desde)} al ${dmy(g.hasta)}`;
+  }
+
+  sucursalesTexto(g: GrupoPagadoEnControl): string {
+    return g.sucursales.map((s) => this.nombre(s)).join(' y ');
+  }
+
+  /** Control anota lo contado; la diferencia con los pagos se dice, no se esconde. */
+  diferenciaTexto(d: number): string {
+    if (Math.abs(d) < 0.005) return 'igual a los pagos';
+    return `${money(Math.abs(d))} ${d > 0 ? 'más' : 'menos'} que los pagos`;
   }
 
   cerrar(): void {

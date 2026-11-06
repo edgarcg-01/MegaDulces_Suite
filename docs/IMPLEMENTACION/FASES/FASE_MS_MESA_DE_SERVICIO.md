@@ -496,6 +496,7 @@ Entra una solicitud a una cola → quien la atiende ve una **ventana emergente**
 - **Front:** `app-service-desk-aviso-toast` (raíz de la app —sale también en «Mi trabajo»—, escucha el push `/alerts`; gris neutro, rojo si es urgente) + `DesktopNoticeService` + botón de permiso al pie de la campana. La ventana sólo anuncia `nueva_solicitud` y `nuevo_prioritario`; lo demás sigue en la campana.
 - **Sin migraciones ni permisos.**
 - **Probado en navegador** contra la API local (2026-10-28): media, urgente, clic al detalle y «Mi trabajo». **No cubre:** pestaña cerrada (service worker + VAPID); el aviso de Windows con la pestaña oculta no se pudo ver en el navegador de prueba.
+- **Windows, medido el 2026-11-04:** con la pestaña oculta (simulada: Playwright nunca reporta `hidden`) sale «Nueva solicitud» y se vio en el equipo real. **Hueco encontrado:** con la Suite abierta **detrás de otro programa** no sale (`hidden: false`, `hasFocus: false`) — es por qué en prod «no avisaba». Arreglo pendiente: `[MS.AVISO.2]`.
 
 ## Observaciones de diseño UI — revisión del plan (2026-10-26)
 

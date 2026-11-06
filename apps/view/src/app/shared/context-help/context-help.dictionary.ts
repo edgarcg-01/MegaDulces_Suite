@@ -2155,12 +2155,43 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
   },
   // `[CGA-A.67]` El Cuadre de la caja. Las definiciones salen de `conciliacionWorkbook` (servidor) y
   // del contrato de la cola (`cajaColaDelLibroSql`), que es la misma de la bandeja de Captura.
+  // `[LE.CU.4]` El Cuadre pasó del día al HUECO: cada peso sin explicación, con su dueño. Los
+  // términos salen del motor (`caja-huecos.engine.ts`) y de `VERDAD_ABSOLUTA.md` §36.
   'caja-cuadre': {
-    title: 'Cuadre — la caja contra Kepler',
-    intro: 'Cada día se compara lo que la caja registró contra lo que la Caja General de Kepler registró. No es el arqueo: el arqueo compara el cajón contra el libro; esto compara el libro contra el ERP.',
+    title: 'Cuadre — el efectivo sin explicación',
+    intro: 'Cada peso que entra o sale de Caja General debería verlo más de un testigo: la venta, el corte, el cobro de Kepler, la bóveda, el libro y el Control. Esta pantalla junta lo que todavía no tiene explicación, de quién es y qué se hace. No es el arqueo: el arqueo cuenta el cajón; esto busca de dónde viene cada peso.',
     groups: [
       {
-        heading: 'Los dos lados',
+        heading: 'Lo de arriba',
+        entries: [
+          { term: 'Falta explicar', def: 'El dinero que ningún testigo explica todavía: un cobro de Kepler sin captura, una captura sin documento, una venta de ruta sin cobro, un corte que nadie cobró. Cada peso cuenta una sola vez, en el dueño que primero puede cerrarlo.' },
+          { term: 'Por ligar', def: 'Ya está capturado en el libro, pero sin decir de qué documento es. Si se reconoció por la ruta y el día, ya está explicado y va aparte. Si sólo coincide el importe, sigue contando en lo que falta.' },
+          { term: 'Sin contar', def: 'Lo que se tecleó como morralla sin desglose de piezas. Nadie lo contó, así que no se sabe si falta: se declara aparte, nunca se suma como efectivo.' },
+          { term: 'Efectivo contado contra el libro', def: 'Lo que hay (cajón contado pieza por pieza más la bóveda) contra lo que debería haber según el libro. Es el único testigo que no depende de que alguien capture.' },
+          { term: 'No medido todavía', def: 'Lo que esta versión aún no busca. No aparece en la cifra, pero eso no quiere decir que no exista.' },
+        ],
+      },
+      {
+        heading: 'Los testigos (la cadena)',
+        entries: [
+          { term: 'Venta', def: 'Lo que la camioneta vendió ese día, según su Kepler.' },
+          { term: 'Corte', def: 'El corte de caja de la sucursal o la ruta (U-D-23).' },
+          { term: 'Cobro', def: 'El documento con que Kepler recibe ese corte en una cuenta (U-A-5). «Lo tiene distinto» = lo cobró a otra cuenta o por otro importe.' },
+          { term: 'Bóveda', def: 'El depósito o el retiro de la caja fuerte, con su hora.' },
+          { term: 'Libro', def: 'La captura en el libro de efectivo (folios CI- y CG-).' },
+          { term: 'Control', def: 'El renglón del Access de la cajera, que se sigue capturando.' },
+        ],
+      },
+      {
+        heading: 'La certeza',
+        entries: [
+          { term: 'Alta', def: 'Casó por el documento (el mismo folio de los dos lados) o por identidad (la misma ruta y el mismo día), o dos testigos dicen lo mismo.' },
+          { term: 'Media', def: 'Un solo testigo lo sostiene.' },
+          { term: 'Por confirmar', def: 'Casó sólo por importe. Un importe igual no se distingue de una coincidencia, así que no se da por explicado.' },
+        ],
+      },
+      {
+        heading: 'Los días: la caja contra Kepler',
         entries: [
           { term: 'Caja', def: 'Hasta el día anterior al primer corte del libro, lo que registró el Control (el Access). Desde ese día, el libro nuevo, por la fecha del documento.' },
           { term: 'Kepler', def: 'La Caja General del ERP (cuenta 0011) más los cobros de camioneta que van a esa cuenta.' },
@@ -2180,7 +2211,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         heading: 'Dentro de un día',
         entries: [
           { term: 'Casado por documento', def: 'El movimiento del libro trae el folio de Kepler, así que se liga con certeza.' },
-          { term: 'Casado por importe', def: 'El Control no guarda el folio de Kepler: se liga por importe dentro de la tolerancia. La virgulilla (~) marca que había más de un candidato con el mismo importe.' },
+          { term: 'Casado por importe', def: 'El Control no guarda el folio de Kepler: se liga por importe dentro de la tolerancia, y por eso dice «por confirmar». La virgulilla (~) marca que había más de un candidato con el mismo importe.' },
           { term: 'Por identidad', def: 'La venta de ruta declara la ruta y el día de los dos lados, así que se liga sin tolerancia.' },
           { term: 'En Kepler, sin caja', def: 'Lo que el ERP registró y la caja no. Si dice «por capturar», está en la cola; si dice «en libro», ya se capturó en otra fecha.' },
         ],

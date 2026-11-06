@@ -53,4 +53,17 @@ export class QuoteKeplerController {
   ): Promise<DireccionesCotizacion> {
     return this.service.fijarDireccion(id, body?.delivery_address_key ?? null, req?.user);
   }
+
+  @Patch(':id/order-notes')
+  @RequirePermissions(Permission.COMMERCIAL_QUOTES_GESTIONAR)
+  @ApiOperation({
+    summary: '[COT.28] Observaciones del pedido (hasta 120 caracteres) → «Comentarios» del pedido en Kepler (kdm1.c25/c26). Sólo antes de que exista en Kepler.',
+  })
+  fijarObservaciones(
+    @Param('id') id: string,
+    @Body() body: { order_notes: string | null },
+    @Req() req: ConQuien,
+  ): Promise<{ order_notes: string | null }> {
+    return this.service.fijarObservaciones(id, body?.order_notes ?? null, req?.user);
+  }
 }

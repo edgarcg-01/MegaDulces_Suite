@@ -291,6 +291,120 @@ Pendientes: memoria por beneficiario + aviso «N sin categoría» en Bancos; Caj
 
 ---
 
+## 8. `[CB.55–CB.61]` ⬜ El estado de cuenta lo da el banco, no el libro «CUENTAS» (2026-11-05)
+
+**Pedido (Edgar, 2026-11-05):** un lugar donde subir el CSV del estado de cuenta de cada banco, y que
+Tesorería deje de armar el libro «CUENTAS …» (Google Sheet / `.xlsx` mensual).
+
+**Qué hace hoy el libro y por qué no se apaga de golpe.** El libro no es sólo el estado de cuenta copiado:
+Tesorería le agrega a mano cuatro cosas que el banco no trae, y el código las consume.
+
+| Lo que agrega el libro | Quién lo consume hoy | Con el CSV del banco, ¿de dónde sale? |
+|---|---|---|
+| **M** (tipo: TE/TI, I, C, CF/PF, DS…) | `classifyWith` — reglas 10–61 de `bank_classify_rules` | Traspaso TE/TI: el otro lado está en nuestra otra cuenta (mismo importe, misma clave de rastreo). Cobranza: el depósito casado con Kepler (`runMatchTreasury`). Lo demás: **a medir** |
+| **C** (cuenta contable: 102, 510, 610, 612…) | reglas 70–151 y 880–903; `contpaqi/beneficiario.ts`; `contpaqi-categoria.service.ts`; Caja General | Del documento de Kepler o de PGP con el que case el movimiento; si no casa, reglas por concepto. **No se adivina**: si no sale, queda `sin_clasificar` y se declara |
+| **S** (sucursal) | Caja General, cobranza | Del documento casado; sin documento, sin sucursal (se declara) |
+| Hoja **CAJA GENERAL** (`kind='cash'`) | testigo manual de Caja General | **No es banco: ningún CSV la reemplaza.** Su retiro es de la fase LE (libro de efectivo), no de ésta |
+
+Conclusión: **la meta es correcta** —el libro es captura a mano de un dato que el banco ya da—, pero se retira
+**por cuenta**, cuando la cuenta pasa la compuerta de CB.60, no por decreto. Apagarlo hoy dejaría sin
+categoría, sin sucursal y sin beneficiario de ContPAQi todo lo que hoy depende de M/C/S.
+
+**Reglas que gobiernan los items:** sin importer (el archivo entra por la pantalla, como el `.xlsx` de hoy,
+ADR-033) · **misma tabla** `finance.bank_movements`, sin copia · formato de cada banco **verificado contra un
+archivo real**, nunca supuesto · ⛔ **el repo es público**: los archivos reales no entran al repo; las pruebas
+usan archivos fabricados con el mismo encabezado.
+
+| # | Capa | Item | Criterio de aceptación |
+|---|---|---|---|
+| **CB.55** | C0 | **Muestras reales**: un export por banco (Santander, BBVA, Banorte, BanBajío, Banamex) **y de la factorera**: la consulta de movimientos en Excel/CSV/TXT tal como sale del portal (sin abrir ni re-guardar: Excel altera fechas y ceros), del mes completo de **octubre 2026** (ya capturado en el libro), **más el PDF del estado de cuenta del mismo mes como testigo de saldo inicial y final**. Pedido a Tesorería el 2026-11-05, junto con el significado de la columna S. **Tesorería (2026-11-05): el estado de cuenta completo el banco sólo lo da en PDF; los movimientos los descarga ella de la banca en línea.** La descarga sigue siendo un paso manual por cuenta; lo que se elimina es copiar y codificar M/C/S. La conexión directa banco→sistema (host-to-host) es contrato con cada banco: diferida, decisión de Edgar. ⚠️ **Bloquea a todo lo demás; lo consigue Edgar con Tesorería.** | Por banco, documentado aquí: formato (CSV/TXT/XLS), encabezado, codificación, separador, formato de fecha e importe, si trae saldo corrido, referencia, clave de rastreo, contraparte y hora. Los totales del archivo contra el mes ya cargado del libro: cuadran, o se explica la diferencia |
+| **CB.56** ✅ 2026-11-05 | C0 | **Aplicada en prod el 2026-11-05** (Edgar: «aplícala»), sola y antes que el código que la usa: empujada como commit de un solo archivo (`bd13ecf74`) y aplicada con `aplicar-migracion.sh` (identidad 7688376744939610156, batch 1113, 0.1 s). Verificado con el rol de sólo lectura: las dos tablas con RLS forzado y 1 política, `app_runtime` SELECT/INSERT/UPDATE (sin DELETE), `dev_ro` SELECT, 0 filas. **Decisión al construir (cambia el plan):** no se agregan columnas a `bank_movements`: el banco va a **dos tablas propias**, `finance.bank_statement_files` (cada descarga y su control de saldo) y `finance.bank_statement_lines` (cada renglón con hora, referencia, rastreo, contraparte, texto original, `seq` cronológico y `line_key` contra descargas encimadas), mig `20261105113858`. Razón: ~40 lectores leen `bank_movements` (Bancos, Caja, ContPAQi, Presupuesto); meter ahí los renglones del banco durante el mes en paralelo duplicaría todos sus totales. No es copia: es otro dato (el del banco, no el capturado); el reemplazo en `bank_movements` es CB.60. Plan original: | Ninguna columna `NOT NULL` (la API desplegada no las manda); `grep` de **todos** los caminos que insertan en `bank_movements` (upload, sheet, WhatsApp) sigue funcionando |
+| **CB.57** 🧪 2026-11-05 | C1 | **Hecho para 4 de 5 bancos (falta Banamex):** [`estado-de-cuenta/lectores.ts`](../../../libs/finance/src/lib/bank/estado-de-cuenta/lectores.ts), 13 pruebas con archivos fabricados (5 negativas; dos mutaciones —«siempre cuadra» y «tirar el renglón que no se entiende»— las cazan). Contra las 4 muestras reales: 230 movimientos, 0 sin leer, las 4 cuadran; BanBajío además coincide con sus totales declarados. Plan original: un lector por banco, funciones puras: detecta banco y cuenta por encabezado / número de cuenta; huella de cada fila por (cuenta, fecha, clave de rastreo o referencia, importe, ocurrencia) | Spec por banco con archivo fabricado; **control obligatorio: saldo inicial + depósitos − retiros = saldo final**; un archivo con una fila borrada se pone rojo (prueba negativa). Una fila que no se entiende se reporta, nunca se tira en silencio (el lector viejo tiró ~82) |
+| **CB.58** 🔨 2026-11-05 | C2 | **Código hecho:** `POST /finance/bank/statement-files/preview` (no escribe) y `POST /finance/bank/statement-files` (escribe sólo sin motivos de bloqueo), `GET` la lista; permisos `FINANCE_BANK_VER/GESTIONAR` (los de subir el libro hoy, ya repartidos). La cuenta: del archivo (Santander) o elegida y **atestiguada por continuidad de saldo**; sin testigo se acepta declarada `sin_testigo`; si el saldo es de OTRA cuenta del banco, se niega. Prueba contra base real `test-newdb-bank-estado-de-cuenta.js` (9 bloques, 4 negativas): **✅ 22/22 en LOCAL (2026-11-05)** sobre un clúster temporal 127.0.0.1:5442 con el esquema mínimo copiado de las migraciones reales + **la migración CB.56 real** (aplicada dos veces: idempotente; RLS forzado; grants de `app_runtime`), como `app_runtime` con RLS; quitar el candado de `confirmar` la pone roja (2 ✗). Las **4 descargas reales** pasaron por el servicio: 230 renglones guardados; BB 4166 quedó **atestiguada por saldo** (su inicial = último saldo del libro en prod) y elegir BB 3660 con ese archivo **se niega nombrando a BB 4166**. ⚠️ Falta verla con la cadena completa de migraciones (`pruebas-db`, al empujar). ✅ «revisar» ya avisa si ese mismo archivo se subió (`ya_subido`: cuándo y quién), y la lista devuelve las fechas como texto (sin `setTypeParser`, un `date` cruzaba el JSON corrido de día). Plan original: subida en dos pasos: **revisar** (no escribe: cuenta, mes, N movimientos, cuadre de saldo, cuántos ya existían) y **confirmar** (escribe). Archivo original al almacenamiento con su sha1; el mismo archivo dos veces no duplica | Prueba contra base real (CI) con el archivo de la pantalla; permiso nuevo **repartido en prod** a quien concilia hoy |
+| **CB.59** 🧪 2026-11-05 | C3 | **Hecho (v1), `bancos-estado-banco.component.ts`, arriba de «Cuadre de saldos» en Bancos › Cuentas:** resumen (cuentas con descarga «N de M» nombrando las que faltan · hasta qué día llega la más atrasada · archivos sin testigo; sin catálogo de cuentas se declara `no_medido`, no «N de N») + edad de la última subida + lista de lo subido (lo más nuevo primero). «Subir descarga del banco» (sólo con `FINANCE_BANK_GESTIONAR`) → diálogo con el **veredicto primero** (se puede guardar N / por qué no / ya se subió el día X), la cuenta del archivo o un selector donde **la que coincide por saldo ya viene elegida**, y el control (periodo, saldo inicial → final, ¿falta algún renglón?, totales del banco). La tarjeta dice que **todavía no alimenta Movimientos ni la conciliación**. El botón viejo del encabezado se llamaba «Subir estado de cuenta» y sube el libro: ahora dice «Subir libro CUENTAS». Pruebas: spec de 5 (3 negativas; quitar el candado de «Guardar» y la elección automática la pone roja: 3 ✗), `check:pantalla` 0 fallas nuevas, `check:templates`/`tokens`/`teclado`/`tables` verdes. ⚠️ **Sin validación visual** (no se levantó la app). ⚠️ **No construido de lo planeado:** la matriz cuenta × mes y el arrastre de varios archivos — quedan para cuando haya meses que mostrar. **Auditoría de diseño 2026-11-05** (nivel C + B en prod sólo lectura + captura del vacío; diálogo sin validación visual). Arregladas: 🔴 el testigo del libro tomaba el «último capturado» del día y no el cierre (el libro no guarda el orden): con las 4 descargas reales sólo BanBajío se reconocía, y por suerte; con el cierre reconstruido por la cadena (`saldo-del-libro.ts`) **se reconocen las 4 solas** · 🔴 guardar «sin testigo» se pintaba en verde y aceptaba cualquier cuenta del banco: ahora el veredicto lo dice y el servidor exige `aceptar_sin_testigo` · 🔴 el resumen salía de la lista con tope de 100 (con 17 cuentas diarias, en una semana habría dicho que faltan cuentas que no faltan): lo calcula el servidor sobre todos los archivos y la lista declara su tope · 🟠 el denominador contaba Banamex, que no tiene lector (nunca llegaría a «todas»): se excluye y se nombra · 🟠 «10 de 10» en Movimientos se leía como completo/incompleto: ahora «N (M ya estaban)» · 🟠 la tarjeta no decía que ignora el periodo de arriba · 🟠 veredicto verde con `--ok-fg` (3.30:1 en claro) → `--ok-soft-fg`; el título del diálogo (18 px) pesaba más que el veredicto (14 px): veredicto a `--fs-lg` y título terciario. Pruebas: DB 28/28 (base con las migraciones REALES de Bancos), unitarias 27/27, pantalla 6/6 (mutantes → rojo). **Rehecha el mismo día (Edgar: «el 80 % de la pantalla se lo lleva donde adjuntar; que sea un espacio pequeño donde se arrastre uno o más documentos y los detecte»):** sin diálogo ni vacío grande; una franja de una línea para **soltar o elegir varios archivos**; cada uno en su fila con banco, cuenta (sola si coincide por saldo, si no un selector en la fila), periodo, movimientos, saldo y veredicto en palabras; **un botón «Guardar N listos»**; guardado parcial: los que fallan se quedan con su motivo; soltar fuera de la tarjeta ya no abre el archivo en el navegador. Spec 7/7 (4 negativas; mutante del guardado parcial → rojo). **Deuda con nombre:** la tabla sin `aria-label` (patrón de toda la suite) · vacío centrado (`app-load-state`, compartido) · NO MEDIDO: foco al cerrar el diálogo, `forced-colors`, 320 px. Plan original: En Bancos › Cuentas, la matriz cuenta × mes de **CB.UI.3** («N movimientos» · «Cargado sin movimientos — revisar» · «Sin estado de cuenta» · «Sin medir»), con «Subir estado de cuenta» en cada celda y arrastre de varios archivos | `diseno` + `check:pantalla` antes y después; la vista previa del paso «revisar» se ve antes de escribir |
+| **CB.60** | C1 | **Precedencia y compuerta de retiro del libro, por cuenta × mes.** Con CSV cargado, el CSV manda y el libro queda como testigo: cada movimiento del CSV sin par en el libro y viceversa se lista | Un mes completo en paralelo. La cuenta deja de requerir el libro cuando: diferencias CSV↔libro explicadas, y el «sin categoría» de la cuenta **no sube** contra el mismo mes con el libro (medición antes/después) |
+| **CB.61** | C1 | Categoría, sucursal y beneficiario sin M/C/S: del documento casado (Kepler / PGP por clave de rastreo), traspasos por par de cuentas propias, y reglas por concepto | Medido por cuenta: % de movimientos que obtienen categoría sin el libro. Lo que no la obtiene queda `sin_clasificar` y se ve en la bandeja de CB.UI.7 |
+
+**Lo que se gana (por qué vale el esfuerzo):** (1) Tesorería deja de copiar del portal al Excel; (2) la clave
+de rastreo y la referencia permiten **casar por identidad** (pago a proveedor de PGP, depósito de cliente) en
+lugar de por importe; (3) el saldo del banco es el árbitro de que no falta ninguna fila; (4) durante la
+transición, CSV y libro son dos implementaciones del mismo dato y sus diferencias son errores de captura.
+
+**Medido en prod, sólo lectura (2026-11-05, ago–oct 2026, cuentas de banco, sin Caja General):** de
+**15,862 movimientos**, **10,851 (68 %) ya están casados con un documento de Kepler** (`bank_recon_matches`):
+para ésos, M/C/S del libro son redundantes —el documento ya trae sucursal, cuenta y tipo—. Son ~3/4 del
+dinero. El resto, **5,011 movimientos**, sin documento de Kepler:
+
+| Grupo (según el libro) | Movs | Cómo se obtendría sin el libro |
+|---|---:|---|
+| Ingreso | 2,815 | El banco agrupa o es de otro mes (CB.50): casar por referencia / agrupación, no por importe |
+| Gasto | 1,738 | Comisiones, terminal, servicios: reglas por concepto (CB.52/CB.54) — poco dinero, muchos renglones |
+| Traspaso | 143 | Par de cuentas propias (mismo importe, misma clave de rastreo) |
+| Compra | 137 | PGP / pago a proveedor por clave de rastreo |
+| Sin clasificar / devolución / factoraje / financiero | 178 | A medir en CB.61 |
+
+⚠️ El pareo con Kepler **casi** no depende del libro: sólo usa la categoría para excluir factoraje y, en la
+segunda pasada, traspasos. CB.61 debe dar esa categoría antes de retirar el libro de una cuenta.
+**Meta fijada por Edgar (2026-11-05): cubrir el 100 % del libro y que deje de llenarse a mano.** Inventario
+de lo que el libro aporta y de dónde sale cada pieza sin él:
+
+| Pieza del libro | Fuente sin captura | Estado (medido 2026-11-05, ago–oct) |
+|---|---|---|
+| Renglones de las 18 cuentas (fecha, concepto, importe, saldo) | Export del banco (CB.55–CB.58) | ⚠️ bloqueado: sin muestras |
+| **M → grupo**, movimientos casados con Kepler (68 %) | Tipo de documento de Kepler | `N-A-26`→traspaso 871/893 · `U-A-5/7/25`→ingreso 4,804/4,810 · `X-D-60`→compra 12/13 · **`X-D-25/26`→gasto 4,477 o compra 474: el tipo NO los separa** — falta medir si el beneficiario / cuenta de Kepler sí |
+| M → grupo, sin documento de Kepler (32 %) | Reglas por concepto, par de cuentas propias, PGP por rastreo | A medir (CB.61) |
+| **C** | **No es cuenta contable de ningún sistema** (refutado contra ContPAQi, Kepler y Control): clave propia de Tesorería. Su significado se deduce del concepto del banco (`147` IVA de comisión, `612` comisión/tasa de descuento, `613` compra con tarjeta) y del documento de Kepler (`102` cobranza, `510` pago a proveedor); `610` (nómina y pagos a personas) necesita al beneficiario | ✅ Resuelto — [VERDAD_ABSOLUTA §37.2](../../VERDAD_ABSOLUTA.md). No se reproduce C: se deriva la categoría |
+| **S** | **La unidad de negocio** (sucursal o canal) con los códigos de almacén de Control = segmentos de `kdc3` (`10` PH, `30` Morelia Abastos, `50` Canindo, `70` TLMK PH, `73` TLMK Morelia…). Se deriva de la sucursal del documento de Kepler casado | ✅ Resuelto — [VERDAD_ABSOLUTA §37.1](../../VERDAD_ABSOLUTA.md): coincide en 90.3 % de los depósitos (99.1 % del dinero) contra 18.6–21.2 % barajada. En gastos, sólo contra catálogo |
+| Hojas CONCENTRADO / RESUMEN DE SALDOS / MOVIMIENTOS GENERAL | Ya las calcula Bancos (`concentrado`, `balances`) | Derivadas: sobran en cuanto existan los renglones |
+| Hoja POR IDENTIFICAR | Bancos › control de ingresos (`ingresosControl`) | Derivada |
+| Hoja FACTORAJE | Estado de cuenta de la factorera (no es banco) | Sin muestra: pedirla junto con CB.55 |
+| Hoja CAJA GENERAL | Libro de efectivo (fase LE, ventanilla) | Fuera de esta fase; el 100 % del libro exige que LE la cubra |
+
+**Muestras recibidas (2026-11-05, Tesorería; viven fuera del repo).** 4 de 5 bancos, **de noviembre, no de
+octubre**; falta Banamex. Las 4 se leen y **su saldo corrido encadena sin un eslabón roto** (saldo anterior ±
+movimiento = saldo del renglón):
+
+| Banco | Formato | Orden | Trae la cuenta | Lo que trae además | Ojo |
+|---|---|---|---|---|---|
+| Santander | CSV, coma; valores con apóstrofo (`'65507301604`) | viejo→nuevo | ✅ en cada renglón (→ 1604) | **hora, referencia, clave de rastreo, CLABE, RFC y nombre de ordenante y beneficiario** | el más rico |
+| Banorte | CSV Latin-1, fin de línea **sólo CR**, `$` y comas en importes, fecha `31/Oct./2026` | viejo→nuevo | ❌ (identificada por saldo: **BTE 7744**) | rastreo, CLABE, RFC y referencia **dentro del concepto** | |
+| BBVA | `.exp` de texto, tabuladores, Latin-1, fecha `03-11-2026` | **nuevo→viejo** | ❌ | sólo concepto/referencia | sin rastreo |
+| BanBajío | `.xlsx` con encabezado de 9 filas y **totales declarados** (n, cargos, abonos: coinciden con la suma) | **nuevo→viejo** | ❌ (sólo número de cliente) | hora, recibo, RFC/tarjeta en el concepto | |
+
+Consecuencias para CB.57/CB.58: (1) **la cuenta no siempre viene en el archivo** → se elige al subir, y el
+sistema la confirma porque el saldo inicial del archivo debe ser el último saldo conocido de esa cuenta; (2) el
+orden no es fijo → el lector prueba los dos y se queda con el que encadena; (3) Banorte casó con el libro: sus
+dos depósitos del 31-oct ($180,139.01) están en BTE 7744 con el mismo saldo. **El libro aún no tiene noviembre**
+(último cargado: octubre) mientras el banco ya trae el 3-nov: el export es más fresco que la captura.
+**Las muestras contra Kepler (sólo lectura, cuenta + importe exacto + dirección + fecha ±3 días, sin reusar
+documento; placebo = el mismo pareo contra otra cuenta del mismo banco):** BanBajío 9/10 (placebo 0) · Banorte
+8/21 (placebo 0) · Santander 2/19 (placebo 0) · BBVA 25/180, **todos en la 4885 y cero en las otras cinco
+BBVA** → la cuenta del `.exp` queda identificada sin que el archivo la diga (BanBajío, por continuidad de
+saldo: su saldo inicial es exactamente el último del libro en BB 4166). Lo que no casa, por clase (leída
+**sólo del concepto del banco**):
+- **Comisiones e IVA del banco** (139 renglones, poco dinero): Kepler no las registra renglón por renglón;
+  se clasifican por concepto (renta de terminal, cuota de afiliación TPV, tasa de descuento, IVA).
+- **Efectivo por traslado de valores:** Santander recibe **un** depósito partido en 3 renglones con la **misma
+  referencia** y la misma hora, mientras Kepler registra un documento por sucursal y corte (CB.50, «el banco
+  agrupa»). La referencia —que el libro no tiene— permite agrupar antes de casar.
+- **Ventas TPV** (BBVA): 25 de 60 casan; el resto, a medir con más días (Kepler puede agruparlas por corte).
+- **Depósitos de clientes por nombre** (Banorte, «DULCERIA LOS ALTOS …»): cobranza aún sin documento en Kepler.
+Ningún renglón de la muestra se quedó sin clase legible: el tipo (M) sale del concepto del banco. Muestra de
+un día: confirma el mecanismo, no mide la cobertura; la cobertura se mide con octubre completo contra el libro.
+
+⚠️ **Hallazgo:** 17 renglones de BTE 7744 ($1.43 M) están en el libro con fecha **2027-08-06** (vienen del
+Sheet); con fecha futura quedan fuera de todo reporte. No se determinó si es captura o lector.
+
+**Cómo se demuestra el 100 % sin apostar:** el clasificador sin libro (CB.61) corre **en sombra** sobre los
+meses que sí tienen libro y se compara renglón por renglón contra la captura manual (dos implementaciones
+del mismo dato). Una cuenta deja de pedir el libro cuando, con su export del banco cargado, la sombra
+coincide con la captura y lo que no coincide está explicado. El libro se retira cuenta por cuenta, no por fecha.
+
+⚠️ El sync del Sheet (CB.23) está **apagado** desde el 2026-10-13 (`active=false`, último periodo 2026-08):
+hoy el libro se **sube a mano** como `.xlsx`.
+
+---
+
 ## Observaciones de diseño UI — revisión del plan (2026-10-26)
 
 > **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que

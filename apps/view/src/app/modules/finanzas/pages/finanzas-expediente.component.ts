@@ -13,9 +13,12 @@ import { filtrarPorBusqueda } from '@megadulces/ui-web';
 import {
   DEPARTAMENTO_SIN, ETAPA_PROTOCOLO_LABEL, ORDEN_ETAPA_PROTOCOLO, resumenTransferencias,
   type EtapaProtocolo, type PersonaExpediente, type RespuestaExpediente, type ResumenTransferencias,
-  type TransferenciaGasto, type ValeExpediente,
+  type TransferenciaGasto, type ValeExpediente, aceptaEvidenciaAdicional,
 } from '@megadulces/contracts';
-import { ComprobacionesService } from '../comprobaciones.service';
+import { ComprobacionesService, type ExpedienteDelDia } from '../comprobaciones.service';
+import { ValeGastoPeekComponent, type AccionVale } from '../components/vale-gasto-peek.component';
+import { EvidenciaAdicionalDialogComponent, type EvidenciaAgregada } from '../components/evidencia-adicional-dialog.component';
+import { BuscadorGastosEstado } from '../components/buscador-gastos.estado';
 import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
 import { encuestarVisible } from '../../../core/utils/poll-visible';
 import { REFRESCO_VALES_MS } from '../vales-refresco';
@@ -55,11 +58,16 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 @Component({
   selector: 'app-finanzas-expediente',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, ToastModule, InputTextModule, SelectModule],
+  imports: [CommonModule, FormsModule, RouterLink, ToastModule, InputTextModule, SelectModule,
+    ValeGastoPeekComponent, EvidenciaAdicionalDialogComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in exp">
+      <!-- [GX.88] Mientras hay una búsqueda arriba de las pestañas, la pantalla se esconde entera:
+           los resultados la reemplazan. El visor y el diálogo de abajo NO se esconden: son los
+           que abren el vale elegido en el buscador. -->
+      @if (!buscandoArriba()) {
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Expediente</h1>
@@ -110,17 +118,20 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
           cierra, asi que esa frase seria FALSA (si pueden salir completos sin la tabla).
         -->
 
-        <div class="exp-kpis">
-          <div class="exp-kpi"><span class="k">Personas</span><b>{{ d.total.personas }}</b></div>
-          <div class="exp-kpi"><span class="k">Vales</span><b>{{ d.total.vales }}</b></div>
-          <div class="exp-kpi ok"><span class="k">Protocolo completo</span><b>{{ d.total.completos }}</b></div>
-          <div class="exp-kpi bad"><span class="k">Firmados sin cerrar</span><b>{{ d.total.incompletos }}</b></div>
-          <div class="exp-kpi"><span class="k">Esperan firma</span><b>{{ d.total.en_captura }}</b></div>
-          @if (d.total.sin_medir > 0) {
-            <div class="exp-kpi warn"><span class="k">Sin medir</span><b>{{ d.total.sin_medir }}</b></div>
-          }
-          <div class="exp-kpi"><span class="k">Monto</span><b>{{ money(d.total.monto) }}</b></div>
-        </div>
+        <!--
+          [GX.89] Aca vivia la franja de totales (Personas · Vales · Protocolo completo · Firmados
+          sin cerrar · Esperan firma · Monto). Se retiro por pedido del usuario (2026-10-30).
+          ⚠️ Lo unico que NO se va es «sin medir»: lo que no se pudo medir se DECLARA (ADR-056).
+          Sin la franja, esta linea es lo que dice cuantos son en toda la pantalla; ademas cada
+          persona y cada vale siguen marcados.
+        -->
+        @if (d.total.sin_medir > 0) {
+          <p class="exp-sin-medir">
+            <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+            {{ d.total.sin_medir }} {{ d.total.sin_medir === 1 ? 'vale' : 'vales' }} sin medir: no se pudo saber si
+            {{ d.total.sin_medir === 1 ? 'cerró' : 'cerraron' }}. Van marcados «sin medir».
+          </p>
+        }
         <!-- [GX.72] Lo que se conto, dicho con el filtro que DEVOLVIO el servidor, no con el
              que la pantalla cree haber mandado: asi el rotulo y los numeros no se separan. -->
         @if (resumenFiltro(); as r) {
@@ -301,7 +312,15 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
         </div>
         }
       }
+      }
       <p-toast />
+      <!-- [GX.88] El visor del vale, el mismo de Aprobación e Historial, para lo que se abre desde
+           el buscador. Aquí no se firma: sólo se mira y se le puede sumar evidencia [GX.87]. -->
+      <app-vale-gasto-peek [open]="valeAbierto() !== null" (openChange)="cerrarVale($event)"
+                           [vale]="valeAbierto()" [acciones]="accionesDelVale()"
+                           (agregarEvidencia)="paraEvidencia.set($any($event))" />
+      <app-evidencia-adicional-dialog [open]="paraEvidencia() !== null" (openChange)="cerrarEvidencia($event)"
+                                      [vale]="paraEvidencia()" (agregado)="alAgregarEvidencia($event)" />
     </div>
   `,
   styles: [FINANZAS_SHARED_STYLES, `
@@ -328,15 +347,9 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
     .exp-f-aviso { margin: 0; font-size: var(--fs-sm); color: var(--bad-fg); }
     .exp-f-resumen { margin: 0; font-size: var(--fs-sm); color: var(--fg-2); }
 
-    .exp-kpis { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
-    .exp-kpi { flex: 1 1 140px; background: var(--surface-card); border: 1px solid var(--surface-border);
-      border-radius: var(--radius-md); padding: var(--sp-3) var(--sp-4); }
-    .exp-kpi .k { display: block; font-size: var(--fs-xs); text-transform: uppercase;
-      letter-spacing: .06em; color: var(--fg-2); font-weight: var(--fw-bold); }
-    .exp-kpi b { font-size: 1.5rem; font-weight: var(--fw-black); font-variant-numeric: tabular-nums; }
-    .exp-kpi.ok b { color: var(--ok-fg); }
-    .exp-kpi.bad b { color: var(--bad-fg); }
-    .exp-kpi.warn b { color: var(--warn-fg); }
+    /* [GX.89] Lo que quedó de la franja de totales: sólo la declaración de «sin medir». */
+    .exp-sin-medir { display: flex; align-items: center; gap: var(--sp-2); margin: 0;
+      font-size: var(--fs-sm); color: var(--warn-soft-fg); }
     .exp-trunc { font-size: var(--fs-sm); color: var(--warn-soft-fg); margin: 0; }
 
     .exp-split { display: grid; grid-template-columns: 300px 1fr; gap: var(--sp-3); align-items: start; }
@@ -421,6 +434,42 @@ export class FinanzasExpedienteComponent {
   private readonly toast = inject(MessageService);
 
   readonly datos = signal<RespuestaExpediente | null>(null);
+
+  // ── [GX.88] El vale que se abre desde el buscador ───────────────────────────────
+
+  /**
+   * `[GX.88]` El buscador de gastos vive ARRIBA de las pestañas (en el shell, que provee su
+   * estado). Esta pantalla sólo esconde lo suyo mientras hay búsqueda y abre el vale elegido.
+   * `optional`: fuera del shell (una prueba, otra ruta) no hay buscador y nada cambia.
+   */
+  private readonly busqueda = inject(BuscadorGastosEstado, { optional: true });
+  readonly buscandoArriba = computed(() => this.busqueda?.buscando() ?? false);
+  /** El vale abierto en el visor. Aquí sólo llega desde el buscador. */
+  readonly valeAbierto = signal<ExpedienteDelDia | null>(null);
+  abrirDesdeBusqueda(v: ExpedienteDelDia): void { this.valeAbierto.set(v); }
+  cerrarVale(abierto: boolean): void { if (!abierto) this.valeAbierto.set(null); }
+
+  /**
+   * Qué ofrece el visor aquí: sólo sumar evidencia. El Expediente es de CONSULTA; las
+   * decisiones de firma viven en Aprobación. Esta pantalla ya exige `COMPROBAR`, que es lo que
+   * el servidor pide para sumar evidencia a un vale ajeno.
+   */
+  accionesDelVale(): readonly AccionVale[] {
+    const v = this.valeAbierto();
+    return v && aceptaEvidenciaAdicional(v.status) ? ['agregar_evidencia'] : [];
+  }
+
+  /** `[GX.87]` El vale al que se le está sumando evidencia (abre el diálogo). */
+  readonly paraEvidencia = signal<ExpedienteDelDia | null>(null);
+  cerrarEvidencia(abierto: boolean): void { if (!abierto) this.paraEvidencia.set(null); }
+
+  /** `[GX.87]` Lo agregado se ve ya, en el visor y en los resultados: viene firmado del servidor. */
+  alAgregarEvidencia(e: EvidenciaAgregada): void {
+    this.valeAbierto.update((v) => (v && v.id === e.id ? { ...v, files: e.files } : v));
+    this.busqueda?.conArchivos(e.id, e.files);
+    this.toast.add({ severity: 'success', summary: 'Evidencia agregada', life: 5000,
+      detail: 'Quedó en el expediente con su porqué. El estado del vale no cambió.' });
+  }
   readonly cargando = signal(true);
   readonly error = signal<string | null>(null);
   /** SENAL, no campo plano: la lee un `computed` y como propiedad quedaria congelado. */
@@ -661,6 +710,8 @@ export class FinanzasExpedienteComponent {
   }
 
   constructor() {
+    // `[GX.88]` El vale elegido en el buscador de arriba se abre AQUÍ, con lo que esta pantalla ofrece.
+    this.busqueda?.aperturas$.pipe(takeUntilDestroyed()).subscribe((v) => this.abrirDesdeBusqueda(v));
     this.cargar();
     // `[GX.73]` Se refresca sola mientras la pestaña se ve.
     encuestarVisible(REFRESCO_VALES_MS, () => this.refrescar());

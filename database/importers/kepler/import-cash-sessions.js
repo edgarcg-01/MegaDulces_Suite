@@ -31,10 +31,15 @@ const APPLY = process.argv.includes('--apply');
 const SOURCE = (process.argv.find((a) => a.startsWith('--source=')) || '').split('=')[1] || 'ods';
 const KP_SRC = process.env.KP_SRC_URL || process.env.KP_DEST_URL || 'postgresql://postgres:superoot@192.168.0.245:5432/KP_CONCENTRADA';
 const TENANT = process.env.MAAT_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
-const BRANCH_NAMES = { '00': 'CEDIS', '01': 'Padre Hidalgo', '02': 'La Piedad Abastos', '03': '8ESQ', '04': 'Yurécuaro', '05': 'Zamora Centro' };
-
 // Fuente única del mapa de sucursales (paso 3 normalización almacén). Las 6 (incluye CEDIS).
 const { salesMap, clientConfig } = require('../lib/kepler-branches');
+
+// `[CANON.5.10]` Los nombres que ya se publicaban se conservan tal cual (la 03 sale «8ESQ» en la
+// tabla y cambiarlo es otro cambio); los que faltaban salen del mapa único de sucursales.
+const BRANCH_NAMES = {
+  ...Object.fromEntries(salesMap().map((b) => [b.code, b.name])),
+  '00': 'CEDIS', '01': 'Padre Hidalgo', '02': 'La Piedad Abastos', '03': '8ESQ', '04': 'Yurécuaro', '05': 'Zamora Centro',
+};
 const { loadWarehouseMap } = require('../lib/warehouse-id'); // Paso 2b: warehouse_id inline
 const BRANCHES = process.env.SALES_BRANCH_MAP ? JSON.parse(process.env.SALES_BRANCH_MAP) : salesMap();
 
@@ -80,7 +85,10 @@ async function readFromConsolidated({ connStr, schema, ssl }) {
   const c = new Client({ connectionString: connStr, connectionTimeoutMillis: 8000, statement_timeout: 60000, ssl });
   await c.connect();
   try {
-    const codes = ['01', '02', '03', '04', '05'];
+    // `[CANON.5.10]` Antes ['01'..'05'] fijo: Canindo (06), Morelia Madero (07) y Morelia Abastos
+    // (08) quedaban fuera de /tienda/cajas — medido 2026-11-05: 11 cajas ABIERTAS en el ODS que la
+    // pantalla no mostraba. Ahora, todas las sucursales del mapa único (la 00 no tiene cajas).
+    const codes = salesMap().map((b) => b.code);
     const r = await c.query(
       `SELECT sucursal AS suc, c2 AS caja, c3 AS folio, c5::date AS fecha,
               -- opened_at = hora de pared MX → timestamptz explícito (TZ-safe sin importar

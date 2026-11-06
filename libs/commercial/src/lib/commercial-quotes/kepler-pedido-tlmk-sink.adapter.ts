@@ -6,7 +6,7 @@ import {
 } from '../commercial-replenishment/kepler-servidores';
 import { CAPTURISTA_SUITE, horaMx, textoKepler } from '../commercial-replenishment/kepler-requisition-sink.adapter';
 import { factorPresentacionFicha } from '../commercial-replenishment/ficha-kepler';
-import { armarPedidoTlmk, type FichaTlmk, type RenglonCotizacion } from './kepler-pedido-tlmk';
+import { armarPedidoTlmk, renglonesObservaciones, type FichaTlmk, type RenglonCotizacion } from './kepler-pedido-tlmk';
 
 export interface PedidoTlmkEntrada {
   cotizacion_id: string;
@@ -24,6 +24,8 @@ export interface PedidoTlmkEntrada {
   pct_cliente: number | null;
   /** Domicilio de entrega (`delivery_address_key` → `c85`). null = el domicilio 1 del cliente. */
   direccion_envio: string | null;
+  /** COT.28: observaciones del pedido → «Comentarios» renglones 2 y 3 (`c25`, `c26`; 60 + 60). */
+  observaciones?: string | null;
   renglones: RenglonCotizacion[];
   /** Tope diario del interruptor (`kepler_push_switch.tope_dia`); null = sin tope. */
   tope_dia: number | null;
@@ -117,6 +119,8 @@ export class KeplerPedidoTlmkSinkAdapter implements OnModuleDestroy {
     const pl = plantillaTlmkDe(e.sucursal, process.env);
     if (!pl.ok) return { estado: 'rechazado', motivo: pl.motivo };
     const tmpl = pl.valor;
+    let obs: [string, string];
+    try { obs = renglonesObservaciones(e.observaciones); } catch (err) { return { estado: 'rechazado', motivo: (err as Error).message }; }
 
     const c = await this.poolDe(srv.valor).connect();
     try {
@@ -229,6 +233,8 @@ export class KeplerPedidoTlmkSinkAdapter implements OnModuleDestroy {
       await c.query('UPDATE _h SET c13 = $1, c14 = $2, c15 = $3', [cabecera.c13, cabecera.c14, cabecera.c15]);
       await c.query('UPDATE _h SET c16 = $1, c42 = $2, c19 = $3', [cabecera.c16, cabecera.c16, cabecera.c19]);
       for (const col of LIMPIAR) await c.query(`UPDATE _h SET ${col} = ''`);
+      // COT.28: siempre se escriben, también vacíos: así no se hereda el comentario de la plantilla.
+      await c.query('UPDATE _h SET c25 = $1, c26 = $2', obs);
       const folio: string = (await c.query('SELECT c6 FROM _h')).rows[0].c6;
 
       const n = renglones.length;

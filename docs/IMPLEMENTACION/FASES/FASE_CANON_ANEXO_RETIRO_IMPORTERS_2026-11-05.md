@@ -82,6 +82,58 @@ desplegada). **El después:** tras esa noche, el dry-run de `import-margin` debe
 
 `import-pos-ticket-sales` sigue siendo tabla: volverla vista pide borrarla (D2).
 
+## 2c. Oleada 2 — respaldos que repetían al hop-2 (CANON.5.7, 2026-11-05)
+
+El hop-2 de `services/feeds-ingest/apply-handlers.js` llama a las mismas funciones de
+`ods-derived.js` cada vez que cambia `kdii`, `kdik` o `kdpv_prod_util`. El nocturno las volvía a
+pasar sobre todos los SKUs. Medido en `analytics.cron_run_log` (30 días):
+
+| Paso nocturno | Noches que escribieron | Decisión |
+|---|---|---|
+| `import-box-factor` | 1 de 33 (2 filas, 5-oct). El hop-2 escribió 516 filas en el mes | **retirado** |
+| `import-reorder-policy` | 0 de 34 | **retirado** (misma ruta de código que box-factor) |
+| `repoint-catalog-cost` | 2 de 33 (el 30-oct atrapó un costo que el hop-2 no vio) | se queda como red |
+| `import-box-price` | la mayoría (depende de `factor_sale` de la app, que no dispara el hop-2) | se queda |
+| `repoint-catalog-presence` | 1 de 29 | se queda |
+
+De paso, `test-newdb-master-data-history.js` estaba rojo desde PURGA.P1 por un archivo borrado
+(`import-kepler-prices`): la lista se corrigió.
+
+## 2d. Oleada 3 — la velocidad de compra entra al plan (CANON.5.8, 2026-11-05)
+
+`import-purchase-velocity` llenaba `analytics.purchase_velocity` una vez por noche, y su único
+lector era `import-replenishment-plan`. El plan ahora deriva la velocidad en línea de
+`analytics.stock_movements`, con el mismo cálculo y el mismo redondeo (~275 ms). El importer se
+retiró; la tabla queda sin escritor (borrarla es D2).
+
+Antes y después, comparando el plan COMPLETO de las dos versiones en prod (sólo lectura, 44,175
+filas almacén×producto): 41,429 idénticas. Todas las diferencias se explican:
+- **Frescura (181 productos):** compras registradas después de las 03:00. El plan del carril
+  `stock` (cada 15 min) ahora las ve; antes usaba la foto de la noche.
+- **Desempate (H13):** 189 productos empatan en la cantidad máxima comprada entre almacenes, y
+  `primary_wh` (el almacén de compra) lo decidía el orden físico de las filas. Ahora a igual
+  cantidad gana donde se compró más reciente.
+- **`stock_pz` (84 filas):** existencia que se movió entre las dos corridas, no el cambio.
+
+Control: la misma comparación sin clasificar los empates da 885 fuera de explicación, así que la
+prueba sí distingue.
+
+## 2e. Oleada 4 — la mensual por producto se vuelve rollup en línea (CANON.5.9, 2026-11-05)
+
+`import-product-sales-monthly` era el rollup de `analytics.product_sales_daily` (Σ por
+producto×almacén×mes, sólo productos del catálogo). Lectores medidos: `thot-build-features.js`
+(nocturno) y `deactivate-legacy-skus.js` (manual); ninguna vista ni función de la base, y las
+lecturas por índice eran los upserts del propio importer.
+
+- **Thot** suma la diaria por mes en su consulta: 36,502 de 36,502 filas de `zone_demand`
+  idénticas a la versión anterior; control con ventana de 11 meses en rojo (5,655 distintas).
+- **`deactivate-legacy-skus`** ya exigía «sin venta diaria», y 0 productos de la mensual faltan
+  en la diaria: la condición sobre la mensual era redundante y salió.
+- **`test-newdb-product-sales-parity`** guardaba «mensual = rollup(diaria)», que sin escritor se
+  pondría rojo al cerrar el mes. Ahora guarda lo que importa: **nadie lee la tabla congelada**
+  (con prueba negativa). En su primera corrida atrapó dos textos que todavía nombraban la
+  mensual. Su etiqueta en `run-all-tests.js` quedó vieja: ese archivo tiene cambios de otra sesión.
+
 ## 3. Los 51, clasificados
 
 **Leyenda.** **Lee:** `ods` = `kepler_ods` · `réplicas` = bases `md_*` por sucursal · `mart` = el
@@ -170,13 +222,22 @@ se decide dinero: margen, pagos, precios»), no de un monto.
   pero el importer sólo busca las vivas. Una ruta borrada en la app que Kepler sigue trayendo se
   vuelve a insertar, choca y hace ROLLBACK de vehículos, choferes y rutas a la vez. **No se vio**
   porque el `nightly` sólo marca error si fallan todos sus pasos. Arreglarlo es S, pero pide D3.
-- **H2 — `import-cash-sessions` tiene fijos los códigos `01`–`05`**: deja fuera las cajas de las
-  sucursales `00`, `06`, `07` y `08`. NO MEDIDO en prod.
+- ✅ **H2 — `import-cash-sessions` tenía fijos los códigos `01`–`05`** (cerrado en CANON.5.10).
+  Medido el 2026-11-05: Canindo, Morelia Madero y Morelia Abastos tenían 11 cajas abiertas en el
+  ODS que `/tienda/cajas` no mostraba; la `00` no tiene cajas. Ahora lee todas las sucursales del
+  mapa único (dry-run: 113 sesiones y 23 abiertas, igual que el ODS).
 - **H3 — `repoint-catalog-prices` sin bandera vuelve a sincronizar el precio.** En los carriles corre
   con `--solo-promo`, pero quien lo lance a mano sin ella escribe `commercial.product_prices` y
   deshace los rechazos de `ods-derived`. Es una mina: el modo por defecto debería ser el seguro. S.
-- **H4 — `import-ap-findings` podría contar doble**: no filtra `c14 = sucursal propia`, y
-  `import-ledger-chain` sí lo hace. NO MEDIDO.
+- **H4 — `import-ap-findings` cuenta doble, poco** (medido el 2026-11-05 en el ODS, 12 meses,
+  cuenta 201): sólo la base de la `03` trae movimientos con `c14` de otra sucursal, 41 por unos
+  $0.68 M, alrededor del 0.1 % de las compras del año, aunque infla ~2.6 % el auxiliar de la `03`.
+  **29 de esos 41 también están en su base dueña** (duplicado real); los otros 12 sólo existen ahí.
+  Un filtro `c14 = propia` como el de `ledger-chain` perdería esos 12: el arreglo es deduplicar
+  contra la base dueña, y se hace al repuntarlo al ODS (item M de prioridad 1).
+- **H9 bis — el arreglo de H9 no es chico:** si `sales-fact` empieza a escribir a nombre de la fila
+  viva, las filas viejas a nombre de la borrada siguen en `sales_daily` y la venta se cuenta doble.
+  Requiere una migración que reasigne esas filas en el mismo cambio.
 - **H5 — `import-supplier-params` sólo llena columnas en NULL**, así que lo que deriva una vez no
   vuelve a refrescarse nunca.
 - **H6 — Reglas opuestas sobre el mismo producto.** El hop-2 (`normalizeProductsFromOds`, en
@@ -194,6 +255,21 @@ se decide dinero: margen, pagos, precios»), no de un monto.
   01–08 tienen **487 ajustes X-D-40/55 propios en 2026** que la tabla nunca leyó. Su monto **NO
   está validado**: en las sucursales `c16` no parece significar lo mismo (147 ajustes de la 01
   suman casi lo mismo que los 1,690 del CEDIS). Ampliar el universo es cambio de alcance.
+- **H11 — El hop-2 escribe datos maestros sin declarar actor.** `services/feeds-ingest/` no llama
+  a `declararActor`: lo que escribe en `catalog.products`, `commercial.reorder_policy` y demás
+  queda en `analytics.master_data_history` como anónimo.
+- **H12 — H6 está activo, pero es UN producto** (diagnosticado el 2026-11-05 con
+  `analytics.master_data_history`). Cada noche `repoint-catalog-names` (retail primero) pone
+  «AGUA DOÑA VITA 500M/ 1 ZORRO» a las ~03:28, y entre 03:32 y 03:47 el hop-2 (sin actor, CEDIS
+  primero) lo regresa a «\*\*\*DESC DOÑA VITA 500 ML / 1 ZORRO», el nombre que el CEDIS le dio al
+  descontinuarlo. Mismo producto las 4 noches medidas. Se arregla aplicando CANON.1.3 (retail
+  primero) **en el hop-2**, que se despliega con los carriles del ODS.
+  ⚠️ **Corrección:** este hallazgo decía que `import-product-barcodes` escribía en 953 de 1,417
+  corridas. Era cierto **hasta el 29-oct** (4–5 cambios en cada media hora desde el 6-oct); desde
+  el 30-oct está en 0 salvo algún cambio aislado. El promedio de 30 días escondía que ya se había
+  resuelto.
+- **H13 — El almacén de compra del plan era una moneda al aire para 189 productos** (ver §2d).
+  Cerrado en CANON.5.8 con un desempate determinista.
 - **H8 — Duplicados de significado**: `product_sales_daily` contra `sales_daily` (otro linaje),
   `stock_ledger` contra `stock_movements`, y `transfers_monthly` contra los traspasos de
   `stock_movements`.

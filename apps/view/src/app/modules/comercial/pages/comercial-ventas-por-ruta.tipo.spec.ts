@@ -7,14 +7,12 @@ import { ComercialService, SalesByRouteRow } from '../comercial.service';
 import { ComercialVentasPorRutaComponent } from './comercial-ventas-por-ruta.component';
 
 /**
- * `[VEC.36]` — Filtro «Ruta directa / Vecinal» y la comparativa entre las dos.
+ * `[VEC.36]` — Filtro «Ruta directa / Vecinal» (la comparativa RD vs vecinal se retiró a pedido del PM, 2026-11-04).
  *
  * ── Qué se vigila ────────────────────────────────────────────────────────────────────────────
  *  1. **El criterio es el código** (`2V005` = vecinal, `25`/`501` = directa), el mismo del backend.
- *  2. **La comparativa ignora el filtro de tipo** —es lo que compara— pero respeta los demás:
- *     con la sucursal acotada, cuenta sólo esa sucursal.
- *  3. **Una ruta en $0 no es «ruta con venta»**: si contara, la venta por ruta bajaría sola.
- *  4. **`?tipo=` basura no filtra nada** (negativa): cae a «Todas».
+ *  2. **El tipo se suma a los demás filtros** (sucursal), y el conteo del selector los respeta.
+ *  3. **`?tipo=` basura no filtra nada** (negativa): cae a «Todas».
  */
 
 const fila = (route_no: string, warehouse_code: string, revenue: number, tickets: number): SalesByRouteRow => ({
@@ -56,7 +54,7 @@ function montar(queryParams: Record<string, string> = {}) {
 
 const rutas = (cmp: ComercialVentasPorRutaComponent) => cmp.filteredRows().map((r) => r.route_no);
 
-describe('VEC.36 · Ventas por ruta: filtro directa/vecinal y comparativa', () => {
+describe('VEC.36 · Ventas por ruta: filtro directa/vecinal', () => {
   afterEach(() => TestBed.resetTestingModule());
 
   it('el filtro separa por CÓDIGO de ruta', () => {
@@ -76,28 +74,12 @@ describe('VEC.36 · Ventas por ruta: filtro directa/vecinal y comparativa', () =
     expect(cmp.tipoOpts().map((o) => o.count)).toEqual([5, 2, 3]);
   });
 
-  it('la comparativa: venta, peso, rutas CON venta, ticket promedio y venta por ruta', () => {
-    const { cmp } = montar();
-    cmp.setTipo('vecinal'); // ⛔ no debe cambiarla: compara los dos tipos
-    const [d, v] = cmp.kindSummary();
-    expect(d).toMatchObject({ kind: 'directa', revenue: 1000, routes: 2, tickets: 8, avgTicket: 125, perRoute: 500 });
-    expect(v).toMatchObject({ kind: 'vecinal', revenue: 400, routes: 2, tickets: 4, avgTicket: 100, perRoute: 200 });
-    expect(d.share + v.share).toBeCloseTo(100, 6);
-    expect(cmp.showKindCompare()).toBe(true);
-  });
-
   it('respeta los demás filtros de vista (sucursal)', () => {
     const { cmp } = montar();
     cmp.fBranch.set(['01']);
-    const [d, v] = cmp.kindSummary();
-    expect(d.revenue).toBe(600);
-    expect(v.revenue).toBe(100);
-  });
-
-  it('sin uno de los dos tipos en pantalla, no se dibuja la comparativa', () => {
-    const { cmp } = montar();
-    cmp.fBranch.set(['02']); // sólo la 501
-    expect(cmp.showKindCompare()).toBe(false);
+    cmp.setTipo('vecinal');
+    expect(rutas(cmp)).toEqual(['1V001']);
+    expect(cmp.tipoOpts().map((o) => o.count)).toEqual([2, 1, 1]);
   });
 
   it('`?tipo=vecinal` aterriza filtrada', () => {

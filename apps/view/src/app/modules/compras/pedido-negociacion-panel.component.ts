@@ -109,7 +109,8 @@ const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'o
             @if (plazoKepler(); as pk) { <span class="ng-s">Kepler: {{ pk }}</span> }
           </dd></div>
           <div [title]="tipicoTitle()"><dt>Pedido típico</dt><dd>
-            @if (tipico(); as t) { <b class="num">{{ t }}</b> } @else { <span class="ng-faint">sin dato</span> }
+            <!-- [PQ.75] El típico arriba y lo que llevas abajo: «$686 mil de $241 mil» no se entendía. -->
+            @if (tipico(); as t) { <b class="num">{{ t.tipico }}</b> <span class="ng-s num">llevas {{ t.llevas }}</span> } @else { <span class="ng-faint">sin dato</span> }
           </dd></div>
           <div><dt>Surte</dt><dd>
             @if (surte() != null) { <b class="num">{{ pct(surte()! * 100) }}</b> <span class="ng-s">de lo pedido, en dinero</span> }
@@ -180,8 +181,8 @@ export class PedidoNegociacionPanelComponent {
   readonly d = input.required<PedidoNegociacionDto>();
   /** Cajas que lleva ESTE producto en el pedido (la suma viva del desglose). */
   readonly cajas = input(0);
-  /** «$667 K de $1.28 M» — el pedido típico que ya publica la fila (`[RA-PRO.69]`), no un segundo cálculo. */
-  readonly tipico = input<string | null>(null);
+  /** El pedido típico que ya publica la fila (`[RA-PRO.69]`), no un segundo cálculo; `[PQ.75]` en dos cifras. */
+  readonly tipico = input<{ tipico: string; llevas: string } | null>(null);
   readonly tipicoTitle = input('');
   /** Surtido del proveedor (0–1), el mismo de la fila. */
   readonly surte = input<number | null>(null);

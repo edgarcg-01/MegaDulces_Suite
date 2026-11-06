@@ -2,6 +2,7 @@ import { Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/comm
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequireAnyPermission, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { CajaGeneralService, CajaQuery } from './caja-general.service';
+import type { CuadreHuecosRespuesta, CuadreBalanceRespuesta } from './caja-general.service';
 
 interface AuthedRequest { user?: { username?: string } }
 
@@ -72,6 +73,22 @@ export class CajaGeneralController {
   @ApiOperation({ summary: 'Movimientos del lado KEPLER (tesorería CAJA GENERAL, account_label=CG) para el desglose por día del Vs Workbook.' })
   keplerMovimientos(@Query('month') month?: string, @Query('from') from?: string, @Query('to') to?: string) {
     return this.svc.keplerMovimientos(this.q(month, from, to));
+  }
+
+  /** `[LE.CU.3]` Los huecos del Cuadre nuevo. Mismo permiso que la ruta del Cuadre (VER caja O bancos). */
+  @Get('cuadre-huecos')
+  @RequireAnyPermission(Permission.FINANCE_BANK_VER, Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: 'Huecos de Caja General: cada peso sin explicación, con su dueño, su certeza y su acción (FASE_LE_ANEXO_CUADRE).' })
+  cuadreHuecos(@Query('month') month?: string, @Query('from') from?: string, @Query('to') to?: string): Promise<CuadreHuecosRespuesta> {
+    return this.svc.cuadreHuecos(this.q(month, from, to));
+  }
+
+  /** `[LE.CU.3]` El balance físico del periodo (cajón contado + bóveda contra el libro). */
+  @Get('cuadre-balance')
+  @RequireAnyPermission(Permission.FINANCE_BANK_VER, Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: 'Balance físico de Caja General: cajón contado + bóveda contra el libro, con el bulto sin contar aparte.' })
+  cuadreBalance(@Query('month') month?: string, @Query('from') from?: string, @Query('to') to?: string): Promise<CuadreBalanceRespuesta> {
+    return this.svc.cuadreBalance(this.q(month, from, to));
   }
 
   @Get('conciliacion-dia')

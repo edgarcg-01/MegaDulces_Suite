@@ -28,6 +28,7 @@ const T = '00000000-0000-0000-0000-00000000d01c';
 const FOLIO = 'TEST-MX24-0001';
 const FOLIO2 = 'TEST-MX24-0002';
 const FOLIO3 = 'TEST-MX24-0003';
+const FOLIO_COMPRA = 'TEST-MX06-0001'; // [MX.0.6] orden de entrada de compra
 const DIA = '2026-01-15';
 
 let pass = 0, fail = 0, nm = 0;
@@ -109,7 +110,8 @@ function cargarServicio() {
       ok(await rechaza(() => svc.resolveException({ ...doc, motivo: 'porque_si', nota: null }), /motivo/) === true, 'motivo inventado se RECHAZA');
       ok(await rechaza(() => svc.resolveException({ ...doc, motivo: 'otro', nota: '  ' }), /nota/) === true, '«otro» sin nota se RECHAZA');
       ok(await rechaza(() => svc.resolveException({ ...doc, folio: 'NO-EXISTE', motivo: 'ajuste_justificado' }), /no está en el diario/) === true, 'un documento que no existe se RECHAZA');
-      ok(await rechaza(() => svc.resolveException({ ...doc, doc_code: 'EntryOr1', motivo: 'ajuste_justificado' }), /traspasos y ajustes/) === true, 'un tipo que no es traspaso ni ajuste se RECHAZA');
+      // [MX.0.6] la orden de entrada de compra (EntryOr1) YA se resuelve; la factura (ApEntOr1) no
+      ok(await rechaza(() => svc.resolveException({ ...doc, doc_code: 'ApEntOr1', motivo: 'ajuste_justificado' }), /traspasos, ajustes y compras/) === true, 'un tipo que no es traspaso, ajuste ni compra se RECHAZA');
       ok((await filas()).length === 0, 'ninguno de los rechazos escribió una fila');
 
       console.log('\n[3] CONTROL POSITIVO: el payload de la pantalla');
@@ -143,6 +145,20 @@ function cargarServicio() {
       const f2 = await filas();
       ok(f2.length === 1 && f2[0].resolution_reason === 'error_de_captura' && f2[0].note === null, 'una sola fila, con el motivo nuevo');
 
+      console.log('\n[4b] [MX.0.6] Una compra con la unidad equivocada se resuelve con su motivo');
+      const compra = { warehouse_id: whId, doc_code: 'EntryOr1', doc_serie: '', folio: FOLIO_COMPRA };
+      await trx('analytics.stock_movements').insert({
+        id: 990000000000009, tenant_id: T, warehouse_id: whId, doc_date: DIA, genero: 'X', naturaleza: 'A', doc_type: '40',
+        doc_code: 'EntryOr1', movement_kind: 'entrada', movement_label: 'Compra', folio: FOLIO_COMPRA,
+        signed_qty: 800, qty: 800, unit_cost: 0.5067, amount: 405.36, source_branch: 'TEST', sku: 'TEST-SKU-C',
+      });
+      ok(await rechaza(() => svc.resolveException({ ...compra, motivo: 'precio_especial', nota: '' }), /nota/) === true, '«precio especial» sin nota se RECHAZA');
+      const rc = await svc.resolveException({ ...compra, motivo: 'precio_especial', nota: 'Bonificación del proveedor' });
+      const fc = await trx('commercial.stock_movement_audits').where({ tenant_id: T, warehouse_id: whId, folio: FOLIO_COMPRA, doc_code: 'EntryOr1' });
+      ok(rc.motivo === 'precio_especial' && fc.length === 1 && fc[0].note === 'Bonificación del proveedor', 'la compra queda resuelta con motivo y nota');
+      const bc = await bandeja();
+      ok(bc.totals.universo.compras === null || typeof bc.totals.universo.compras === 'number', 'la bandeja responde con o sin las tablas del ODS (compras: ' + bc.totals.universo.compras + ')');
+
       console.log('\n[5] Una marca del Diario SIN motivo no es una resolución');
       const todos = delDia(await bandeja('resueltas')).documentos;
       await svc.reopenException({ ...todos[0], documentos: todos });
@@ -152,7 +168,7 @@ function cargarServicio() {
       ok(!!it && it.resolucion && it.resolucion.motivo === null, 'marcada «auditado» sin motivo: sigue pendiente y se ve la marca');
       throw new Error(RB);
     }).catch((e) => { if (!e.message.includes(RB)) throw e; });
-    const quedo = await knex('commercial.stock_movement_audits').where({ tenant_id: T }).whereIn('folio', [FOLIO, FOLIO2, FOLIO3]);
+    const quedo = await knex('commercial.stock_movement_audits').where({ tenant_id: T }).whereIn('folio', [FOLIO, FOLIO2, FOLIO3, FOLIO_COMPRA]);
     ok(quedo.length === 0, 'ROLLBACK: no quedó ninguna fila');
   } catch (e) {
     fail++;

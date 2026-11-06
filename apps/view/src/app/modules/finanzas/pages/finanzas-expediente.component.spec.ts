@@ -7,6 +7,9 @@ import {
   DEPARTAMENTO_SIN, type RespuestaExpediente, type TransferenciaGasto, type ValeExpediente, type VeredictoProtocolo,
 } from '@megadulces/contracts';
 import { FinanzasExpedienteComponent } from './finanzas-expediente.component';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { BuscadorGastosEstado } from '../components/buscador-gastos.estado';
+import type { ExpedienteDelDia } from '../comprobaciones.service';
 
 /**
  * `[GX.59]` — **El Expediente**: los vales de todas las personas, agrupados por persona.
@@ -84,7 +87,7 @@ describe('[GX.59] FinanzasExpedienteComponent', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [FinanzasExpedienteComponent],
-      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([]), BuscadorGastosEstado],
     }).compileComponents();
     fix = TestBed.createComponent(FinanzasExpedienteComponent);
     c = fix.componentInstance;
@@ -411,19 +414,22 @@ describe('[GX.59] FinanzasExpedienteComponent', () => {
       expect(fix.nativeElement.textContent).not.toContain('ningún vale');
     });
 
-    /** Un mosaico en cero ensucia el tablero y entrena a ignorarlo: sin casos, no se pinta. */
-    it('el KPI de «sin medir» sólo sale cuando hay alguno', () => {
+    /** Un aviso en cero ensucia el tablero y entrena a ignorarlo: sin casos, no se pinta. */
+    it('el aviso de «sin medir» sólo sale cuando hay alguno', () => {
       montar();
-      const kpis = fix.nativeElement.querySelector('.exp-kpis') as HTMLElement;
-      expect(kpis.textContent).not.toContain('Sin medir');
+      expect(fix.nativeElement.querySelector('.exp-sin-medir')).toBeNull();
     });
 
-    it('y SÍ sale cuando los hay', () => {
+    /**
+     * ⛔ `[GX.89]` Sin la franja de totales, esta línea es lo único que dice cuántos vales no se
+     * pudieron medir en toda la pantalla. Lo que no se midió se DECLARA (ADR-056).
+     */
+    it('⛔ y SÍ sale cuando los hay, aunque ya no haya franja de totales', () => {
       montar(REPORTE({
         total: { personas: 2, vales: 3, completos: 1, incompletos: 1, en_captura: 0, sin_medir: 1, monto: 3500 },
       }));
-      const kpis = fix.nativeElement.querySelector('.exp-kpis') as HTMLElement;
-      expect(kpis.textContent).toContain('Sin medir');
+      const aviso = fix.nativeElement.querySelector('.exp-sin-medir') as HTMLElement;
+      expect(aviso.textContent).toContain('1 vale sin medir');
     });
   });
 
@@ -442,11 +448,16 @@ describe('[GX.59] FinanzasExpedienteComponent', () => {
   });
 
   describe('el tablero', () => {
-    it('publica los totales que manda el servidor, sin recalcularlos', () => {
+    /**
+     * `[GX.89]` La franja de totales se retiró por pedido del usuario (2026-10-30).
+     * ⚠️ Se mira el DOM, no el texto: «Protocolo completo» sigue siendo el rótulo de la etapa de
+     * cada vale (sale del contrato), y ése se queda.
+     */
+    it('ya no pinta la franja de totales', () => {
       montar();
-      const kpis = fix.nativeElement.querySelector('.exp-kpis') as HTMLElement;
-      expect(kpis.textContent).toContain('2');   // personas
-      expect(kpis.textContent).toContain('3');   // vales
+      expect(fix.nativeElement.querySelector('.exp-kpis')).toBeNull();
+      expect(fix.nativeElement.querySelectorAll('.exp-kpi').length).toBe(0);
+      expect(txt()).not.toContain('Esperan firma');
     });
 
     it('avisa cuando la lista viene cortada', () => {
@@ -655,6 +666,53 @@ describe('[GX.59] FinanzasExpedienteComponent', () => {
       pedido().flush({ message: 'boom' }, { status: 500, statusText: 'Server Error' });
       expect(c.error()).toBeNull();
       expect(c.datos()?.total.vales).toBe(3);
+    });
+  });
+  /**
+   * `[GX.88]` **El buscador de gastos vive ARRIBA de las pestañas** (en el shell). Aquí se
+   * CONSULTA: un vale encontrado se abre en el visor, sin decisiones de firma.
+   */
+  describe('[GX.88] el buscador de arriba', () => {
+    const conPermiso = () => TestBed.inject(PermissionsService).load({ FINANCE_EXPENSES_COMPROBAR: true }, 'tesoreria', 'jwt');
+    const estado = () => TestBed.inject(BuscadorGastosEstado);
+    const VALE = {
+      id: 'x1', folio_solicitud: '0010287', sucursal: '00', fecha_gasto: '2026-10-12', created_at: '2026-10-12',
+      created_hora: '10:00', importe: 500, departamento: 'COMPRAS', solicitante: null, concepto: 'Mantenimiento',
+      proveedor: 'PROV', clasificacion: 'fiscal', forma_pago: 'efectivo', forma_pago_detalle: null, comentarios: null,
+      created_by: 'otra.persona', status: 'aprobada', etapa: 'aprobados', motivo_rechazo: null, revision_nota: null,
+      validated_by: 'maria', validated_at: null, requiere_evidencia: true, tiene_evidencia: false,
+      evidencia_en_vivo: false, files: [],
+    } as ExpedienteDelDia;
+
+    it('con una búsqueda activa arriba, los filtros y la lista se esconden — el visor no', () => {
+      conPermiso();
+      montar();
+      estado().busqueda.set('mantenimiento');
+      fix.detectChanges();
+      expect(fix.nativeElement.querySelector('.exp-filtros')).toBeNull();
+      expect(fix.nativeElement.querySelector('app-vale-gasto-peek')).not.toBeNull();
+      estado().limpiar();
+      fix.detectChanges();
+      expect(fix.nativeElement.querySelector('.exp-filtros')).not.toBeNull();
+    });
+
+    it('el vale elegido se abre en el visor, sólo para consultar y sumar evidencia', () => {
+      conPermiso();
+      montar();
+      estado().abrir(VALE);
+      fix.detectChanges();
+      expect(c.valeAbierto()?.id).toBe('x1');
+      // ⛔ Aquí no se firma: ni aprobar, ni comprobar, ni rechazar.
+      expect(c.accionesDelVale()).toEqual(['agregar_evidencia']);
+      c.cerrarVale(false);
+      expect(c.valeAbierto()).toBeNull();
+    });
+
+    it('un rechazado encontrado no ofrece nada', () => {
+      conPermiso();
+      montar();
+      c.abrirDesdeBusqueda({ ...VALE, status: 'rechazada' } as ExpedienteDelDia);
+      expect(c.accionesDelVale()).toEqual([]);
     });
   });
 });

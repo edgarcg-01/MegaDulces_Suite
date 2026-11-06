@@ -8,6 +8,7 @@ import { CashLedgerService, type MovimientoPendiente, type PendientesResponse } 
 import { LibroEfectivoService } from '../../libro-efectivo.service';
 import { AuthService } from '../../../../core/services/auth.service';
 import { PermissionsService } from '../../../../core/services/permissions.service';
+import { Permission } from '../../../../core/constants/permissions';
 import { CONTEXT_HELP } from '../../../../shared/context-help/context-help.dictionary';
 
 /**
@@ -120,7 +121,9 @@ function montar(opciones: { jornada?: string | null; saldosFalla?: boolean; gest
       { provide: CashLedgerService, useValue: ledger },
       { provide: LibroEfectivoService, useValue: libro },
       { provide: AuthService, useValue: { user: () => ({ sub: 'u1' }), token: () => null } },
-      { provide: PermissionsService, useValue: { has: () => opciones.gestionar !== false, hasAny: () => true, isAdmin: () => false } },
+      { provide: PermissionsService, useValue: { has: () => opciones.gestionar !== false, hasAny: () => true, isAdmin: () => false,
+        // `[LE.6.9]` Quien monta esta pantalla trabaja en la Ventanilla: tiene esa clave EXPLÍCITA.
+        hasExplicit: (p: Permission) => p === Permission.FINANCE_CAJA_VENTANILLA } },
     ],
   });
   const fixture = TestBed.createComponent(FinanzasCajaVentanillaComponent);
