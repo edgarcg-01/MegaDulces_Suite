@@ -382,3 +382,61 @@ describe('[RE.50] candidatosPosibles: ligarCfdi da lo mismo con el índice que c
     expect(ligarCfdi(k, solos).cfdi?.id).toBe('z');
   });
 });
+
+/**
+ * `[RE.58]` El OCR copió el UUID de ejemplo del prompt en 22 entradas de 15 proveedores, y las 22 se
+ * ligaron «exactas» a la factura real de otro emisor. Datos SINTÉTICOS con la misma forma.
+ */
+describe('[RE.58] un UUID leído sólo liga a un emisor coherente con la entrada', () => {
+  const ajena = cfdi({ id: 'ajena', emisor_rfc: 'DAJ830210XX1', emisor_nombre: 'DULCERA AJENA', total: 412000 });
+  const k = (p: Partial<LlavesLiga> = {}): LlavesLiga => ({
+    uuidLeido: UUID, folioLeido: null, rfcLeido: null, totalLeido: null, fechaLeida: null,
+    rfcKepler: 'MME980101AB1', montoEntrada: 276935.19, fechaEntrada: '2026-10-20', asignadoId: null,
+    nombreKepler: 'GOLOSINAS DEL NORTE SA DE CV', ...p,
+  });
+
+  it('CONTROL: sin el nombre de Kepler (papel suelto) el UUID liga como antes', () => {
+    const { nombreKepler: _n, ...sinNombre } = k();
+    expect(ligarCfdi(sinNombre, [ajena]).liga?.metodo).toBe('uuid');
+  });
+  it('emisor ajeno por RFC, nombre y total → no se liga', () => {
+    expect(ligarCfdi(k(), [ajena]).cfdi).toBeNull();
+  });
+  it('tampoco por UUID «corregido» (hasta 3 caracteres)', () => {
+    expect(ligarCfdi(k({ uuidLeido: UUID.slice(0, -1) + (UUID.endsWith('0') ? '1' : '0') }), [ajena]).cfdi).toBeNull();
+  });
+  it('RFC mal leído y mal capturado pero mismo nombre → sí liga (los 23 legítimos de prod)', () => {
+    const buena = cfdi({ id: 'buena', emisor_rfc: 'GOND800101AB1', emisor_nombre: 'GOLOSINAS DEL NORTE', total: 5237 });
+    expect(ligarCfdi(k({ rfcLeido: 'GQND800101AB1', rfcKepler: 'GOND800101A81', montoEntrada: 5236 }), [buena]).cfdi?.id).toBe('buena');
+  });
+  it('nombre distinto pero total igual al de la entrada → sí liga', () => {
+    const buena = cfdi({ id: 'buena', emisor_rfc: 'XAXX010101000', emisor_nombre: 'RAZON SOCIAL NUEVA', total: 276935.19 });
+    expect(ligarCfdi(k(), [buena]).cfdi?.id).toBe('buena');
+  });
+});
+
+/** `[RE.59]` Nombre + importe: el RFC está mal en Kepler y el papel no dejó leer ni RFC ni folio ni total. */
+describe('[RE.59] llave débil nombre + importe', () => {
+  const suya = cfdi({ id: 'suya', emisor_rfc: 'MME950101AB1', emisor_nombre: 'GOLOSINAS DEL NORTE', total: 276935.17, fecha: '2026-10-19' });
+  const k = (p: Partial<LlavesLiga> = {}): LlavesLiga => ({
+    uuidLeido: null, folioLeido: 'S27755355', rfcLeido: null, totalLeido: 60606.38, fechaLeida: null,
+    rfcKepler: 'PEXC620207AB1', montoEntrada: 276935.19, fechaEntrada: '2026-10-20', asignadoId: null,
+    nombreKepler: 'GOLOSINAS DEL NORTE SA DE CV', ...p,
+  });
+
+  it('sugiere (no exacta) el CFDI del mismo emisor con el total de la entrada', () => {
+    const r = ligarCfdi(k(), [suya]);
+    expect(r.cfdi?.id).toBe('suya');
+    expect(r.liga).toEqual({ metodo: 'nombre_importe', exacta: false, candidatos: 1 });
+  });
+  it('NEGATIVA: dos CFDI del emisor con ese total → no elige', () => {
+    expect(ligarCfdi(k(), [suya, { ...suya, id: 'gemela', uuid: '99999999-2222-3333-4444-555555555555' }]).cfdi).toBeNull();
+  });
+  it('NEGATIVA: otro emisor con el mismo total → no liga', () => {
+    expect(ligarCfdi(k(), [{ ...suya, emisor_nombre: 'DULCERA AJENA' }]).cfdi).toBeNull();
+  });
+  it('NEGATIVA: sin nombre de Kepler (papel suelto) la llave no existe', () => {
+    const { nombreKepler: _n, ...sinNombre } = k();
+    expect(ligarCfdi(sinNombre, [suya]).cfdi).toBeNull();
+  });
+});

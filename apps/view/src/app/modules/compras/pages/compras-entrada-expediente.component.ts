@@ -23,6 +23,8 @@ const LIGA: Record<string, string> = {
   rfc_importe: 'sugerida por RFC e importe: confírmala',
   // [RE.35.6] RFC + importe es exacta cuando ninguna otra entrada tiene ese importe (promoverRfcImporte).
   rfc_importe_exacta: 'por RFC e importe exacto (ninguna otra entrada tiene ese importe)',
+  // [RE.59] Cuando el RFC no sirve (Kepler lo tiene mal y el papel no lo dejó leer).
+  nombre_importe: 'sugerida por el nombre del emisor y el importe de la entrada: confírmala',
   total_fecha: 'sugerida por total y fecha: confírmala',
 };
 
