@@ -136,7 +136,13 @@ git fetch --depth 50 origin "+refs/heads/$RAMA:refs/remotes/origin/$RAMA" >/dev/
 # no "no hay nada nuevo".
 git reset --hard "origin/$RAMA" >/dev/null 2>&1 \
   || { di "FALLO: no se pudo resolver origin/$RAMA — ¿existe la rama?"; latir error "no se pudo resolver origin/$RAMA"; exit 1; }
-DESEADO=$(git rev-parse --short HEAD)
+# ⛔ `[OPS.SHA.1]` 9 caracteres FIJOS, nunca `--short`. `--short` ALARGA la abreviatura cuando el
+# prefijo es ambiguo en ESTE clon, y el CI hornea siempre 9 (`imagenes.yml`, `sha9`), que es lo
+# que contesta `/api/health`. Medido el 2026-11-06: `41fd0a6bb` salió como `41fd0a6bb7` acá, la
+# compuerta de GHCR lo dio por «otro sello» y frenó un despliegue sano — y de haber pasado, la
+# verificación del pod lo habría REVERTIDO por la misma diferencia. `DESEADO` es un RÓTULO (lo
+# que dice `/api/health` y la etiqueta de la imagen); para git se usa HEAD o el sha completo.
+DESEADO=$(git rev-parse HEAD | cut -c1-9)
 
 # ⛔⛔ `[OPS.CONF.1]` 2026-10-31 — LOS MANIFIESTOS SALEN DE ESTE CHECKOUT, NO DE LA COPIA A MANO.
 # Hasta hoy esto y `aplicar-k3s-prod.sh` leían `$HOME/ops/k3s`, una copia que se actualizaba a mano.
@@ -238,7 +244,7 @@ fi
 SERVICIOS="api worker"
 _extra=''
 if [ "$VIVO" != desconocido ] && git cat-file -e "$VIVO^{commit}" 2>/dev/null; then
-  _cambios=$(git diff --name-only "$VIVO" "$DESEADO" 2>/dev/null)
+  _cambios=$(git diff --name-only "$VIVO" HEAD 2>/dev/null)
   if echo "$_cambios" | grep -qE '^(libs/|package(-lock)?\.json|nx\.json|tsconfig|eslint\.config\.js|vitest\.shared\.ts|Dockerfile)'; then
     _extra='portal vendor'
     di "cambió algo compartido ⇒ entran también portal y vendedor"
@@ -377,7 +383,7 @@ if [ -n "$PEND" ]; then
   # de estar funcionando. `clasificar-migraciones.awk` ya era awk por el mismo motivo.
   SALIDA_CG=$(printf '%s\n' "$PEND" | sh "$COMPUERTA" \
        --repo "$REPO_DIR" --dir database/migrations-newdb \
-       --desplegado "$VIVO" --objetivo "$DESEADO" 2>&1)
+       --desplegado "$VIVO" --objetivo "$(git rev-parse HEAD)" 2>&1)
   VEREDICTO_CG=$?
   printf '%s\n' "$SALIDA_CG" | sed 's/^/      /'
 
