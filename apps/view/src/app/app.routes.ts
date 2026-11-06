@@ -267,6 +267,16 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/comercial/pages/comercial-customers-360.component').then(m => m.ComercialCustomers360Component),
         canActivate: [permissionGuard(Permission.COMMERCIAL_CUSTOMERS360_VER)]
       },
+      {
+        /**
+         * `[ALC]` **Alta de clientes**: desde la constancia del SAT o a mano → la ficha en el orden de
+         * Kepler → crédito (Crédito y Cobranza) → liga con la clave de Kepler. Capturar = `_ALTA_CLIENTES`;
+         * decidir crédito = `_ALTA_CLIENTES_CREDITO` (también ve la bandeja). Lo exige el servidor.
+         */
+        path: 'alta-clientes',
+        loadComponent: () => import('./modules/comercial/pages/comercial-alta-clientes.component').then(m => m.ComercialAltaClientesComponent),
+        canActivate: [anyPermissionGuard(Permission.COMMERCIAL_ALTA_CLIENTES, Permission.COMMERCIAL_ALTA_CLIENTES_CREDITO)]
+      },
       // `[MKT.0]` Promos del ERP se mudó al proyecto MKT. Enlaces y marcadores viejos redirigen.
       { path: 'erp-promos', redirectTo: '/mkt/erp-promos', pathMatch: 'full' },
       {

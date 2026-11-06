@@ -47,6 +47,8 @@ export * from './lib/presale-control/presale-control.module';
 export * from './lib/presale-picking/presale-picking.module';
 // [MCP.3.8] Cliente nuevo: alta en la Suite y liga con su clave de Kepler.
 export * from './lib/new-customers-kepler/new-customers-kepler.module';
+// `[ALC]` Alta de clientes: constancia del SAT → solicitud → crédito → liga con Kepler.
+export * from './lib/customer-onboarding/customer-onboarding.module';
 export * from './lib/commercial-carga/commercial-carga.module';
 export * from './lib/commercial-analytics/commercial-analytics.module';
 export * from './lib/commercial-replenishment/commercial-replenishment.module';

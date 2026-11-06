@@ -88,6 +88,10 @@ export * from './lib/date/mx-date';
 // [PGP.71] Qué conexión abre qué servidor Kepler: requisición (commercial) y pago (finance).
 export * from './lib/kepler/kepler-servidor';
 export * from './lib/phone/mx-phone';
+// `[ALC.1.1]`/`[ALC.1.2]` Identidad fiscal (RFC y CURP con verificador) y lector de la constancia del SAT.
+export * from './lib/sat/identidad-fiscal';
+export * from './lib/sat/pdf-texto';
+export * from './lib/sat/constancia-situacion-fiscal';
 
 // ── scope (alcance de datos — ADR-050) ──
 export * from './lib/scope/scope.module';
