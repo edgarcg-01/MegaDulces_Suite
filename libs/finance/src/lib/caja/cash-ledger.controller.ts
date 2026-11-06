@@ -134,12 +134,17 @@ export class CashLedgerController {
      * · `D-23-1` = cobro de ruta de detalle.
      */
     @Query('doc_tipo') docTipo?: string,
+    /**
+     * ⭐ `[LE.6.22]` La firma de lo que la pantalla tiene delante. Si la cola no cambió, responde
+     * `{ sin_cambios: true }` sin armarla: el repaso de 20 s dejó de costar la cola entera.
+     */
+    @Query('si_cambio') siCambio?: string,
   ) {
-    return this.svc.movimientosPendientes({
+    return this.svc.movimientosPendientesSiCambio({
       tipo, caja, sucursal, from, to, search,
       doc_tipo: docTipo,
       limit: limit ? Number(limit) : undefined,
-    });
+    }, siCambio);
   }
 
   // CS.3 — va ANTES de `@Get(':id')` (Nest resuelve por orden; `caos-capturables` se comería como id).

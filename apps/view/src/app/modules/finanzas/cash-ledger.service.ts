@@ -268,6 +268,19 @@ export class CashLedgerService {
   }
 
   /**
+   * ⭐ `[LE.6.22]` La misma cola, pero preguntando con la firma de lo que la pantalla tiene delante:
+   * si no cambió, el servidor no la arma y contesta `{ sin_cambios: true }`. Es para el REPASO de
+   * fondo; la primera carga, un filtro o el buscador piden la cola entera (`movimientosPendientes`).
+   */
+  movimientosPendientesSiCambio(
+    f: Parameters<CashLedgerService['movimientosPendientes']>[0], firma: string,
+  ): Observable<PendientesResponse | ColaSinCambios> {
+    let p = new HttpParams().set('si_cambio', firma);
+    for (const [k, v] of Object.entries(f ?? {})) if (v !== undefined && v !== null && v !== '') p = p.set(k, String(v));
+    return this.leer<PendientesResponse | ColaSinCambios>(`${this.base}/movimientos-pendientes`, { params: p });
+  }
+
+  /**
    * CS.3 — Movimientos de CAOS (caja fuerte) pendientes de capturar, con sus denominaciones ya
    * contadas por la máquina para autorrellenar el arqueo. Segunda fuente de la bandeja.
    */
@@ -806,7 +819,16 @@ export interface CoberturaCuentasKepler {
   medido_ms: number;
 }
 
+/** `[LE.6.22]` La cola no cambió desde la firma que mandó la pantalla: no viajan filas, sólo la edad del dato. */
+export interface ColaSinCambios {
+  sin_cambios: true;
+  firma: string;
+  datos_al: string | null;
+}
+
 export interface PendientesResponse {
+  /** `[LE.6.22]` La firma de esta cola: el repaso la devuelve en `si_cambio`. Opcional: una API anterior no la manda. */
+  firma?: string;
   /** Desde qué fecha se está mirando. `ventana_dias` null = el filtro lo puso la persona. */
   desde?: string;
   ventana_dias?: number | null;
