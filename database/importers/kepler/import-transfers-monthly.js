@@ -18,9 +18,21 @@
  * Lee los 6 servidores Kepler de sucursal EN VIVO (192.168.x). Como purgan historia,
  * el upsert es ACUMULATIVO con GREATEST. Aditivo. NO usa mart.ventas ni toca ventas.
  *
+ * `[CANON.5.21]` (2026-11-06) — por default lee `kepler_ods` (kdm1, kdm2 y el catálogo kdud
+ * dentro de la misma `sucursal`) en la conexión de prod, en vez de los 9 POS. Comparación en seco
+ * de 2026 contra la tabla: 1,070 filas idénticas; sumando sin el destino, las 121 combinaciones
+ * sucursal × tipo × mes fuera de `00/salida_cedis` cuadran exacto salvo 2 de noviembre con el ODS
+ * más alto. Control (la 01 lee el ODS de la 08): rojo.
+ * ⚠️ `00/salida_cedis` NO cuadra y el defecto es de la TABLA: el destino se resuelve contra el
+ * catálogo `kdud`, que cambió de nombre (p. ej. `RD028` → `123`), y el upsert GREATEST nunca retira
+ * la fila con el nombre viejo. El mismo documento queda bajo dos destinos: en enero, 1,110 docs
+ * contra 741 folios reales (~$6 M de más por mes en el primer semestre). Esto no lo arregla ni lo
+ * empeora el cambio de fuente; lo arregla `--reset` (o volverla vista), y es decisión aparte.
+ * `--source=branch` conserva la lectura de cada POS.
+ *
  *   DST_URL=…railway node database/importers/kepler/import-transfers-monthly.js          # dry-run
  *   DST_URL=…             node database/importers/kepler/import-transfers-monthly.js --apply
- *   ... [--year 2026]
+ *   ... [--year 2026] [--source=branch]
  */
 
 const { Client } = require('pg');
@@ -37,6 +49,12 @@ const YEAR = yi !== -1 ? Number(process.argv[yi + 1]) : new Date().getFullYear()
 // Fuente única del mapa de sucursales (paso 3 normalización almacén). Las 6 (incluye CEDIS).
 const { salesMap, clientConfig } = require('../lib/kepler-branches');
 const BRANCHES = process.env.SALES_BRANCH_MAP ? JSON.parse(process.env.SALES_BRANCH_MAP) : salesMap();
+const SOURCE = (process.argv.find((a) => a.startsWith('--source=')) || '').split('=')[1] || 'ods';
+if (!['ods', 'branch'].includes(SOURCE)) throw new Error(`--source desconocido: ${SOURCE} (ods | branch)`);
+// En el ODS cada tabla trae su base de origen en `sucursal` ($3): cabecera, renglón y catálogo
+// se leen dentro de la misma base, igual que al leer el POS de esa sucursal.
+const SCH = SOURCE === 'ods' ? 'kepler_ods' : 'md';
+const SUC = (alias) => (SOURCE === 'ods' ? `AND ${alias}.sucursal = $3` : '');
 
 const KIND = `CASE
   WHEN h.c2='U' AND h.c3='D' AND h.c4=13 THEN 'salida_cedis'
@@ -80,12 +98,13 @@ const WHERE_TRANSFER = `(
     for (const b of BRANCHES) {
       const wid = whTo.get(b.code);
       if (!wid) { console.log(`  ⚠️  sucursal ${b.code} sin warehouse en destino — skip`); continue; }
-      const src = new Client(clientConfig(b, { connectionTimeoutMillis: 8000, statement_timeout: 180000 }));
+      const src = SOURCE === 'ods' ? db : new Client(clientConfig(b, { connectionTimeoutMillis: 8000, statement_timeout: 180000 }));
+      const params = SOURCE === 'ods' ? [from, to, b.code] : [from, to];
       const t0 = Date.now();
       try {
-        await src.connect();
+        if (src !== db) await src.connect();
         const DEST = `CASE WHEN h.c2='U' AND h.c3='D' AND h.c4=13 THEN coalesce(cat.c3, h.c10) ELSE '' END`;
-        const CAT = `LEFT JOIN (SELECT DISTINCT ON (c2) c2, c3 FROM md.kdud ORDER BY c2) cat ON cat.c2 = h.c10`;
+        const CAT = `LEFT JOIN (SELECT DISTINCT ON (c2) c2, c3 FROM ${SCH}.kdud k WHERE true ${SUC('k')} ORDER BY c2) cat ON cat.c2 = h.c10`;
         const mkey = (m) => (m instanceof Date ? m.toISOString().slice(0, 10) : String(m));
 
         // A) VALOR + docs desde el HEADER (kdm1.c16). Correcto para todos los kinds,
@@ -94,20 +113,21 @@ const WHERE_TRANSFER = `(
           `SELECT ${KIND} AS kind, ${DEST} AS dest_label,
                   date_trunc('month', h.c9)::date AS mes,
                   count(DISTINCT h.c6) AS docs, sum(coalesce(h.c16,0))::numeric AS value
-             FROM md.kdm1 h ${CAT}
-            WHERE ${WHERE_TRANSFER} AND h.c9 >= $1 AND h.c9 < $2
-            GROUP BY 1, 2, 3`, [from, to]);
+             FROM ${SCH}.kdm1 h ${CAT}
+            WHERE ${WHERE_TRANSFER} AND h.c9 >= $1 AND h.c9 < $2 ${SUC('h')}
+            GROUP BY 1, 2, 3`, params);
 
         // B) UNIDADES desde kdm2 (donde haya líneas).
         const uq = await src.query(
           `SELECT ${KIND} AS kind, ${DEST} AS dest_label,
                   date_trunc('month', h.c9)::date AS mes, sum(coalesce(d.c9,0))::numeric AS units
-             FROM md.kdm2 d
-             JOIN md.kdm1 h ON h.c1=d.c1 AND h.c2=d.c2 AND h.c3=d.c3 AND h.c4=d.c4 AND h.c5=d.c5 AND h.c6=d.c6
+             FROM ${SCH}.kdm2 d
+             JOIN ${SCH}.kdm1 h ON h.c1=d.c1 AND h.c2=d.c2 AND h.c3=d.c3 AND h.c4=d.c4 AND h.c5=d.c5 AND h.c6=d.c6
+                  ${SOURCE === 'ods' ? 'AND h.sucursal=d.sucursal' : ''}
              ${CAT}
-            WHERE ${WHERE_TRANSFER} AND h.c9 >= $1 AND h.c9 < $2
+            WHERE ${WHERE_TRANSFER} AND h.c9 >= $1 AND h.c9 < $2 ${SUC('h')}
               AND d.c8 NOT IN ('00001','00002') AND btrim(d.c8) <> ''
-            GROUP BY 1, 2, 3`, [from, to]);
+            GROUP BY 1, 2, 3`, params);
 
         const uMap = new Map(uq.rows.filter((r) => r.kind).map((r) => [`${r.kind}|${r.dest_label || ''}|${mkey(r.mes)}`, Number(r.units) || 0]));
         for (const r of hq.rows) {
@@ -121,7 +141,7 @@ const WHERE_TRANSFER = `(
       } catch (e) {
         console.log(`  ❌ ${b.db} (${b.code}): ${e.message}`);
       } finally {
-        try { await src.end(); } catch { /* noop */ }
+        if (src !== db) { try { await src.end(); } catch { /* noop */ } }
       }
     }
     console.log(`\n  total a upsert: ${all.length} filas`);
