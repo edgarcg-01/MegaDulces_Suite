@@ -240,7 +240,7 @@ const foldText = (s: string | null | undefined): string =>
                  reparte desde la sucursal. Si no se dice, el vendedor cree que está
                  pidiendo de lo que trae hoy. -->
             @if (stockView() === 'camioneta') {
-              <p class="ss-note"><i class="pi pi-info-circle"></i> Estás viendo lo que traes en la camioneta. El pedido se surte igual desde {{ stockSources().sucursal?.name || 'tu sucursal' }} al repartir.</p>
+              <p class="ss-note"><i class="pi pi-info-circle"></i> Kepler no lleva la existencia de la camioneta: se muestra «sin dato». El pedido se surte igual desde {{ stockSources().sucursal?.name || 'tu sucursal' }} al repartir.</p>
             }
           }
           <!-- [VTK.11] Se abrió con el catálogo guardado: se dice de cuándo es mientras llega el nuevo. -->
@@ -1890,9 +1890,9 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     this.stockWarehouseId.set(src.id);
     this.stockLoading.set(true);
     this.api
-      // [MCP.3.16] La camioneta sin `stock_state`: la vista canónica es de sucursales y el camión
-      // saldría «sin dato» en vez de lo que trae. La sucursal, con él.
-      .catalogForCustomer(c, src.id, view === 'sucursal')
+      // [VEX.1] La camioneta también con `stock_state`: Kepler no lleva su saldo (la vista canónica
+      // es de sucursales), así que sale «sin dato» en vez de la copia `commercial.stock`.
+      .catalogForCustomer(c, src.id)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (cat) => {

@@ -203,6 +203,30 @@ describe('Tomar pedido · estado de la existencia [MCP.3.16]', () => {
   });
 });
 
+describe('Tomar pedido · la camioneta no lee la copia commercial.stock [VEX.1]', () => {
+  afterEach(() => TestBed.resetTestingModule());
+
+  // Sin `stock_state` el backend une `commercial.stock` (copia deprecada, ADR-055). Kepler no lleva
+  // saldo de camioneta: lo correcto es «sin dato» declarado, que es lo que da la vista canónica.
+  it('⭐ ver la camioneta pide el catálogo igual que la sucursal (sin apagar stock_state) y lo dice', () => {
+    const { cmp, el, pintar, llamadas, texto } = montar({
+      extra: {
+        myStockSources: {
+          sucursal: { id: 'w2', code: '02', name: 'La Piedad Abastos' },
+          camioneta: { id: 't1', code: 'RUTA-26', name: 'Ruta 26' },
+        },
+      },
+    });
+    pintar();
+    cmp.switchStockView('camioneta');
+    pintar();
+    const ultima = llamadas['catalogForCustomer'].at(-1)!;
+    expect(ultima[1]).toBe('t1');
+    expect(ultima.length).toBe(2);
+    expect(texto(el.querySelector('.ss-note'))).toContain('Kepler no lleva la existencia de la camioneta');
+  });
+});
+
 describe('Tomar pedido · la tira de la zona con frescura [MCP.3.16]', () => {
   afterEach(() => TestBed.resetTestingModule());
 
