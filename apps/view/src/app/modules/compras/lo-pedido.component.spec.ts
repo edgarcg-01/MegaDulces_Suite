@@ -91,6 +91,21 @@ describe('[PQ.28] Lo pedido', () => {
     expect(c.enKepler(falla)).toContain('CA027');
   });
 
+  it('⛔ [PQ.85] el freno de duplicados se lee en dos piezas, no en un párrafo de 12 renglones', () => {
+    const { c } = montar({});
+    const nuevo = fila({ kepler_folio: null, kepler_error: 'No se envió: Kepler ya tiene requisición 0003143 del 04-11 (la mandó la Suite con la RQ-2026-02055), del mismo proveedor en esta sucursal y con productos de esta requisición. Si es la misma compra, no hay que hacer nada más. Si ésta la reemplaza, cancela aquélla en Kepler y reintenta desde la ficha.' });
+    expect(c.enKepler(nuevo)).toBe('Detenida: Kepler ya tiene la requisición 0003143 del 04-11 (la mandó la Suite con la RQ-2026-02055).');
+    expect(c.accionKepler(nuevo)).toMatch(/cancela aquélla en Kepler y reintenta/);
+    expect(c.malEnKepler(nuevo)).toBe(true);
+    // el texto anterior (filas que nadie ha reintentado) también se acorta
+    const viejo = fila({ kepler_folio: null, kepler_error: 'No se envió: Kepler ya tiene requisición 0000013 del 30-10 de este proveedor en esta sucursal, con productos de esta requisición, hecha fuera de la Suite. Si es ésta, no hay que hacer nada más; si no, reintenta desde la ficha.' });
+    expect(c.enKepler(viejo)).toBe('Detenida: Kepler ya tiene la requisición 0000013 del 30-10.');
+    // NEGATIVA: otra falla sigue completa y sin la línea de acción
+    const otra = fila({ kepler_folio: null, kepler_error: 'Kepler (sucursal 04) no conoce al proveedor CA027' });
+    expect(c.enKepler(otra)).toContain('CA027');
+    expect(c.accionKepler(otra)).toBeNull();
+  });
+
   it('en Kepler el traspaso es un PEDIDO, no una requisición', () => {
     const { c } = montar({});
     expect(c.enKepler(fila({ source_type: 'branch', kepler_folio: '0000077' }))).toBe('Pedido 0000077');

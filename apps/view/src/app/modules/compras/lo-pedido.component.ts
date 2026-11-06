@@ -113,7 +113,9 @@ import { MetricStripComponent, type MetricStripItem } from '../../shared/compone
                     <td>{{ que(r) }}</td>
                     <td class="lp-r">{{ dinero(r.total_cost) }}</td>
                     <td>{{ estado(r.estado) }}</td>
-                    <td [class.lp-mal]="malEnKepler(r)" [class.lp-muted]="keplerApagado(r)">{{ enKepler(r) }}</td>
+                    <!-- [PQ.85] El freno de duplicados en DOS piezas: el hecho y, abajo y tenue, qué hacer. Entero
+                         era un párrafo de 12 renglones en rojo que partía la tabla (RQ-2026-02269, 2026-11-06). -->
+                    <td [class.lp-mal]="malEnKepler(r)" [class.lp-muted]="keplerApagado(r)">{{ enKepler(r) }}@if (accionKepler(r); as a) { <span class="lp-accion">{{ a }}</span> }</td>
                   </tr>
                   @if (detalleDe() === r.id) { <tr><td colspan="6"><ng-container *ngTemplateOutlet="detalleTpl; context: { $implicit: r }"></ng-container></td></tr> }
                 </ng-template>
@@ -176,6 +178,7 @@ import { MetricStripComponent, type MetricStripItem } from '../../shared/compone
     .lp-motivo { width: 12rem; }
     .lp-muted { color: var(--fg-2); font-size: var(--fs-sm); margin: .25rem 0; }
     .lp-mal { color: var(--bad-fg); }
+    .lp-accion { display: block; margin-top: .15rem; color: var(--fg-2); font-size: var(--fs-sm); }
     .lp-link { font-size: var(--fs-sm); }
     .lp-folio { all: unset; cursor: pointer; font-family: var(--font-mono, ui-monospace, monospace); font-weight: 600; color: var(--fg-1); text-decoration: underline; text-underline-offset: 2px; }
     .lp-folio:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
@@ -348,6 +351,22 @@ export class LoPedidoComponent {
     return !r.kepler_folio && !!r.kepler_error && /apagad|sin configurar/i.test(r.kepler_error);
   }
 
+  /**
+   * `[PQ.85]` ¿Lo detuvo el freno de duplicados (PQ.70/PQ.83)? Devuelve qué documento de Kepler lo
+   * detuvo, tal como lo escribió el servidor («requisición 0003143 del 04-11 (la mandó la Suite con la
+   * RQ-2026-02055)»), o `null`. Lee los dos textos que el servidor ha escrito: el de PQ.83 y el
+   * anterior («…hecha fuera de la Suite»), que sigue en las filas que nadie ha reintentado.
+   */
+  frenoKepler(r: RequisitionRow): string | null {
+    if (r.kepler_folio || !r.kepler_error) return null;
+    const m = /^No se envió: Kepler ya tiene (.+?)(?:, del mismo proveedor| de este proveedor en esta sucursal)/.exec(r.kepler_error);
+    return m ? m[1] : null;
+  }
+  /** `[PQ.85]` La acción del freno, en una línea: lo demás del mensaje ya está en el hecho. */
+  accionKepler(r: RequisitionRow): string | null {
+    return this.frenoKepler(r) ? 'Si es la misma compra, no hay nada que hacer. Si ésta la reemplaza: cancela aquélla en Kepler y reintenta.' : null;
+  }
+
   /** Lo que pasó en Kepler, en palabras. El motivo de una falla va completo: es lo que hay que arreglar. */
   enKepler(r: RequisitionRow): string {
     // En Kepler el traspaso es un PEDIDO (U-D-40), no una requisición (X-A-30).
@@ -356,6 +375,8 @@ export class LoPedidoComponent {
       : `Requisición ${r.kepler_folio}${r.oc_folio ? ` · OC ${r.oc_folio}` : ' · sin OC todavía'}`;
     if (r.oc_folio) return `OC ${r.oc_folio}`;
     if (this.keplerApagado(r)) return 'sale cuando se encienda su escritura a Kepler';
+    const freno = this.frenoKepler(r);
+    if (freno) return `Detenida: Kepler ya tiene la ${freno}.`;
     if (r.kepler_error) return r.kepler_error;
     if (r.estado === 'approved') return 'por enviar';
     if (r.estado === 'cancelled') return '—';
