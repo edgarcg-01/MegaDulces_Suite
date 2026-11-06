@@ -70,6 +70,9 @@ import { ESTADOS_ABIERTOS, TOPE_ABIERTOS, unirAbiertosYCerrados } from './mis-ga
 import { debeComprobante, soloCotizacion as esSoloCotizacion } from './debe-comprobante';
 import { agruparGastosPorSolicitud, datosKeplerDeLaFila } from './mis-gastos-kepler';
 import { esDuenoDelVale, puedeVerCualquierExpediente, MENSAJE_EXPEDIENTE_AJENO, MENSAJE_PROPIO_VALE, type IdentidadQueDecide, type QuienAbreExpediente } from '@megadulces/contracts';
+// `[PGP.79]` Firmar autoriza la solicitud en Kepler (kdm1.c43 N→A). Apagado por default.
+import { KeplerAutorizacionGastoAdapter } from './autorizacion-kepler/kepler-autorizacion-gasto.adapter';
+import type { ResultadoAutorizacionKepler } from './autorizacion-kepler/autorizacion-kepler';
 
 /**
  * GX.7 — Solicitud de autorización de gastos (reembolso). Captura de la solicitud
@@ -531,6 +534,11 @@ export class ExpenseProofsService {
      * sale -- nunca al reves.
      */
     @Optional() @Inject(FINANCE_NOTIFIER_PORT) private readonly notifier?: FinanceNotifierPort,
+    /**
+     * `[PGP.79]` Autoriza en Kepler la solicitud del vale firmado. `@Optional` y al FINAL: sin el
+     * binding la firma se guarda igual y Kepler no se toca — nunca al revés.
+     */
+    @Optional() private readonly autorizacionKepler?: KeplerAutorizacionGastoAdapter,
   ) {}
 
   /** Aviso WS al autorizador (best-effort; nunca rompe la operación). */
@@ -1177,7 +1185,7 @@ export class ExpenseProofsService {
     // `nextStatus`: esa decisión ya está tomada arriba, por la persona.
     const aviso = hasEvidence ? await this.leerParaAvisar(files, Number(base.cur.importe) || 0) : null;
 
-    return this.tk.run(async (trx) => {
+    const firmado = await this.tk.run(async (trx) => {
       const cierra = nextStatus === 'validada';
       // `[CGA-A.62]` La hora y el autor de la FIRMA, aparte del cierre: sin esto un vale que queda
       // `aprobada` no dice cuándo se aprobó, y no se puede revisar si fue antes del pago. Con
@@ -1224,8 +1232,32 @@ export class ExpenseProofsService {
       // aviso es otro mensaje, no este. Avisar «aprobado» ahi diria que ya termino.
       if (full && cierra) this.avisarAlSolicitante('aprobado', full);
       this.logger.log(`solicitud de gasto folio ${base.cur?.folio_solicitud} aprobada [${finalClas}] → ${nextStatus}, por ${actor || '?'}`);
-      return row;
+      return { row, sucursal: (full?.sucursal ?? null) as string | null };
     });
+
+    // `[PGP.79]` DESPUÉS del commit de la firma: si Kepler falla, el vale ya quedó aprobado aquí.
+    const kepler = await this.autorizarEnKepler(id, { sucursal: firmado.sucursal, folio_solicitud: base.cur.folio_solicitud });
+    return kepler ? { ...firmado.row, kepler } : firmado.row;
+  }
+
+  /**
+   * `[PGP.79]` **Autoriza en Kepler la solicitud del vale recién firmado** y guarda qué pasó en el
+   * vale. Nunca lanza: la firma ya está guardada. Apagada (o sin el adaptador) no escribe NI
+   * guarda nada —apagada no es un resultado, es que no se intentó (`NULL`)—.
+   */
+  private async autorizarEnKepler(id: string, v: { sucursal: string | null; folio_solicitud?: string | null }): Promise<ResultadoAutorizacionKepler | null> {
+    if (!this.autorizacionKepler?.encendida()) return null;
+    const r = await this.autorizacionKepler.autorizar(v);
+    const nota = r.estado === 'no_escrito' ? r.motivo : r.estado === 'ya_estaba' ? `Kepler ya la tenía en ${r.kepler}` : null;
+    await this.tk.run(async (trx) => {
+      // Con guarda de columna: el código puede llegar antes que la migración.
+      if (!(await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'kepler_authorization_status'))) return;
+      await trx('finance.expense_proofs').where({ id }).update({
+        kepler_authorization_status: r.estado, kepler_authorization_at: trx.fn.now(), kepler_authorization_note: nota,
+      });
+    }).catch((e) => this.logger.error(`vale ${id}: Kepler respondió «${r.estado}» pero no se pudo anotar: ${e?.message ?? e}`));
+    if (r.estado === 'no_escrito') this.logger.warn(`vale ${id}: la solicitud ${v.sucursal}-${v.folio_solicitud} NO se autorizó en Kepler: ${r.motivo}`);
+    return r;
   }
 
   /**
