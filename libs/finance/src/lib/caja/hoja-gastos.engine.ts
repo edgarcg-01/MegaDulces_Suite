@@ -1,6 +1,6 @@
 import {
   DIAS_RETIRO_HOJA, TOPE_CAJON_HOJA, ZONAS_HOJA_GASTOS, claseDeClave, folioHoja, leerFolioHoja, pagableConBilletesCaos,
-  type ClaseRenglonHoja, type GrupoPagadoEnControl, type HojaAbierta, type InstruccionPagoHoja, type MotivoFueraDeHoja,
+  type ClaseRenglonHoja, type DiaYaRepuesto, type GrupoPagadoEnControl, type HojaAbierta, type InstruccionPagoHoja, type MotivoFueraDeHoja,
   type RenglonHoja, type RetiroControlHoja, type RetiroParaHoja, type ZonaHojaGastos,
 } from '@megadulces/contracts';
 import { redondea2 } from './caja-lote.engine';
@@ -120,7 +120,38 @@ export function armarHojaAbierta(zona: ZonaHojaGastos, pagos: readonly PagoDeZon
     // Lo pone el servicio con `pagadoEnControl`, que necesita leer Control: sin leerlo no se afirma.
     pagado_en_control: [],
     control_medido: false,
+    // `[LE.6.19]` Los pone el servicio: el juicio de cada pago y los retiros que la pagan necesitan leer la base.
+    detenidos: [],
+    retiros_que_cuadran: [],
+    // `[LE.6.20]` Los pone el servicio con `loYaRepuesto`: necesitan Control y el banco.
+    ya_repuestos: [],
+    sin_deposito: [],
+    banco: { cuenta: null, cargado_hasta: null },
   };
+}
+
+/** `[LE.6.19]` El juicio de un pago (el de `juiciosDePagos`, LE.2.13): si no puede salir, o si le falta quién lo autorice. */
+export interface JuicioDePagoHoja { detenido: string | null; firma: string | null }
+
+/**
+ * ⭐ `[LE.6.19]` La hoja abierta que se PAGA: sólo lo que trae su autorización (la compra o el gasto aprobado
+ * por una persona, D27). Como ya nadie aprueba la hoja aparte, aquí no hay firma que lo cubra: lo que la
+ * pediría (sin lo que Kepler dice que paga) también queda detenido, y un pago sin juicio (no medido)
+ * también. Los detenidos se ven con su motivo y no suman. Pura.
+ */
+export function hojaAbiertaAutorizada(zona: ZonaHojaGastos, pagos: readonly PagoDeZona[], datosAl: string | null,
+  juicios: ReadonlyMap<string, JuicioDePagoHoja>): HojaAbierta {
+  const toda = armarHojaAbierta(zona, pagos, datosAl);
+  const motivo = (ref: string): string | null => {
+    const j = juicios.get(ref);
+    if (!j) return 'No se pudo leer en Kepler qué autoriza este pago';
+    if (j.detenido) return j.detenido;
+    return j.firma ? `Sin autorización: ${j.firma}` : null;
+  };
+  const detenidos = toda.renglones.flatMap((r) => { const m = motivo(r.origen_ref); return m ? [{ ...r, motivo: m }] : []; });
+  if (!detenidos.length) return toda;
+  const fuera = new Set(detenidos.map((d) => d.origen_ref));
+  return { ...armarHojaAbierta(zona, pagos.filter((p) => !fuera.has(p.origen_ref)), datosAl), detenidos };
 }
 
 // ── Lo que ya se repuso con una hoja en papel ─────────────────────────────────────────────────
@@ -324,4 +355,87 @@ export function depositoDeHoja(total: number, desde: string, depositos: readonly
   if (opciones.length > 1) return { estado: 'ambiguo', opciones: opciones.length };
   const [o] = opciones;
   return { estado: 'encontrado', ids: o.map((d) => d.id), suma: redondea2(o.reduce((a, d) => a + d.importe, 0)) };
+}
+
+/** `[LE.6.20]` La cuenta de la zona tal como la lee el servicio: sus depósitos y hasta qué día está cargada. */
+export interface BancoDeZona {
+  cuenta: string;
+  /** Último día con movimientos en el estado de cuenta. `null` = la cuenta no tiene ninguno. */
+  cargado_hasta: string | null;
+  depositos: readonly DepositoBancoHoja[];
+}
+
+export interface LoYaRepuesto {
+  ya_repuestos: DiaYaRepuesto[];
+  /** Los pagos que salen de la reposición porque ya se repusieron. */
+  repuestos: Set<string>;
+  /** Los pagos de días que el banco ya cubre y no traen depósito: con su motivo. */
+  sin_deposito: Map<string, string>;
+}
+
+const dm = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
+
+/**
+ * ⭐ `[LE.6.20]` **Qué pagos de la abierta ya se repusieron.** Edgar, 2026-11-06: *«lo que venga con un
+ * depósito es reposición, lo que no es un gasto normal que se paga»* — por eso se llama REposición.
+ *
+ * Medido ese día en prod: la abierta de Morelia ofrecía 72 pagos ($636k) desde el 14/10 y la única
+ * forma de pagarla era «del cajón entero». Los de octubre ya se habían repuesto en papel (Control) o
+ * depositado en la 1604: reponerlos otra vez es pagar dos veces.
+ *
+ * Por día de pago (la hoja en papel es un día), en orden y sin usar un depósito dos veces:
+ *  · los pagos de una hoja en papel que Control prueba pagada (`papel`) ya se repusieron;
+ *  · un día cuyo total cuadra con su depósito (`depositoDeHoja`: uno o dos, ±$0.50, siete días) también;
+ *  · un día que el banco ya cubre (cargado `DIAS_DEPOSITO_HOJA` o más después) SIN depósito no se ofrece
+ *    para reponer: o es gasto normal o su depósito no se reconoce solo (varias partes, varias opciones);
+ *  · lo demás sigue por reponer. Sin cuenta medida (`banco` null) no se afirma nada: todo sigue.
+ */
+export function loYaRepuesto(
+  renglones: readonly RenglonHoja[], papel: readonly GrupoPagadoEnControl[], banco: BancoDeZona | null,
+): LoYaRepuesto {
+  const ya: DiaYaRepuesto[] = [];
+  const repuestos = new Set<string>();
+  const sinDeposito = new Map<string, string>();
+  const usados = new Set<string>();
+  const libres = () => (banco?.depositos ?? []).filter((d) => !usados.has(d.id));
+  const testigoDeposito = (ids: string[]) => (banco?.depositos ?? []).filter((d) => ids.includes(d.id))
+    .map((d) => `depósito del ${dm(d.dia)} por ${pesos(d.importe)}`).join(' + ');
+
+  for (const g of papel) {
+    g.origen_refs.forEach((r) => repuestos.add(r));
+    ya.push({ desde: g.desde, hasta: g.hasta, renglones: g.origen_refs.length, total: g.total, como: 'papel',
+      testigo: `Control ${g.control.folio}${g.control.observaciones ? ` «${g.control.observaciones.trim()}»` : ''} del ${dm(g.control.dia)}` });
+    // Su depósito, si se reconoce, ya no le sirve a otro día.
+    if (banco) {
+      const d = depositoDeHoja(g.total, g.hasta, libres());
+      if (d.estado === 'encontrado') d.ids.forEach((i) => usados.add(i));
+    }
+  }
+
+  const porDia = new Map<string, RenglonHoja[]>();
+  for (const r of renglones) {
+    if (repuestos.has(r.origen_ref)) continue;
+    porDia.set(r.fecha_pago, [...(porDia.get(r.fecha_pago) ?? []), r]);
+  }
+  for (const dia of [...porDia.keys()].sort()) {
+    const xs = porDia.get(dia) as RenglonHoja[];
+    if (!banco) continue;
+    const total = redondea2(xs.reduce((a, r) => a + r.importe, 0));
+    const d = depositoDeHoja(total, dia, libres());
+    if (d.estado === 'encontrado') {
+      d.ids.forEach((i) => usados.add(i));
+      xs.forEach((r) => repuestos.add(r.origen_ref));
+      ya.push({ desde: dia, hasta: dia, renglones: xs.length, total, como: 'deposito', testigo: testigoDeposito(d.ids) });
+      continue;
+    }
+    const cubierto = banco.cargado_hasta != null && diasEntre(dia, banco.cargado_hasta) >= DIAS_DEPOSITO_HOJA;
+    if (!cubierto) continue;
+    // El día y el total ya van en su renglón: el motivo dice sólo por qué.
+    const motivo = d.estado === 'ambiguo'
+      ? `Hay ${d.opciones} formas de llegar al total con los depósitos de la ${banco.cuenta}: lo liga una persona`
+      : `Ningún depósito en la ${banco.cuenta} lo repone: si es gasto normal, se paga en la cola`;
+    xs.forEach((r) => sinDeposito.set(r.origen_ref, motivo));
+  }
+  ya.sort((a, b) => a.desde.localeCompare(b.desde));
+  return { ya_repuestos: ya, repuestos, sin_deposito: sinDeposito };
 }

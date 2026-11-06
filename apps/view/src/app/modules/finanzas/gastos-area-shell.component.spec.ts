@@ -26,12 +26,12 @@ describe('[GX.80] GastosAreaShellComponent', () => {
 
   afterEach(() => TestBed.resetTestingModule());
 
-  /** Las seis, en orden. `[CGA-A.65]` sumó «Hoja de zona»: la aprueba quien firma. */
-  const SEIS = ['Aprobación de gastos', 'Mis gastos', 'Expediente', 'Historial', 'Comisiones de logística', 'Hoja de zona'];
+  /** Las cinco, en orden. `[LE.6.19]` quitó «Hoja de zona»: se paga en Caja General, sin aprobarla aparte. */
+  const CINCO = ['Aprobación de gastos', 'Mis gastos', 'Expediente', 'Historial', 'Comisiones de logística'];
 
-  it('quien firma ve la barra con las seis pantallas (EMB.29: + Comisiones de logística; CGA-A.65: + Hoja de zona)', async () => {
+  it('quien firma ve la barra con las cinco pantallas (EMB.29: + Comisiones de logística)', async () => {
     const el = await render({ FINANCE_EXPENSES_COMPROBAR: true, FINANCE_EXPENSES_VER: true });
-    expect(etiquetas(el)).toEqual(SEIS);
+    expect(etiquetas(el)).toEqual(CINCO);
   });
 
   it('con VER (sin firmar) ve Mis gastos e Historial', async () => {
@@ -46,9 +46,9 @@ describe('[GX.80] GastosAreaShellComponent', () => {
     expect(el.querySelector('router-outlet')).not.toBeNull();
   });
 
-  it('el administrador de plataforma ve las seis', async () => {
+  it('el administrador de plataforma ve las cinco', async () => {
     const el = await render({}, true);
-    expect(etiquetas(el)).toEqual(SEIS);
+    expect(etiquetas(el)).toEqual(CINCO);
   });
 
   /** EMB.29: Logística arma los vales de comisiones, pero no ve el resto de Gastos. */
@@ -57,15 +57,15 @@ describe('[GX.80] GastosAreaShellComponent', () => {
     expect(el.querySelector('.gx-area-tabs')).toBeNull();
   });
 
-  /** CGA-A.65: la zona cierra su hoja, pero no ve el resto de Gastos. */
-  it('quien sólo cierra la hoja de zona tiene UNA pantalla: sin barra', async () => {
+  /** `[LE.6.19]` Cerrar la hoja ya no es un acto: ese permiso solo no abre ninguna pestaña de Gastos. */
+  it('quien sólo tenía «cerrar la hoja de zona» no ve barra', async () => {
     const el = await render({ FINANCE_HOJA_GASTOS_CERRAR: true });
     expect(el.querySelector('.gx-area-tabs')).toBeNull();
   });
 
-  /** CGA-A.65: con VER y la caja, la hoja se suma a lo que ya veía — sin las de quien firma. */
-  it('con VER y la caja ve Mis gastos, Historial y Hoja de zona', async () => {
+  /** `[LE.6.19]` La caja ya no suma una pestaña de Gastos: la hoja se paga en Caja General. */
+  it('con VER y la caja ve Mis gastos e Historial (la hoja está en Caja)', async () => {
     const el = await render({ FINANCE_EXPENSES_VER: true, FINANCE_CAJA_VER: true });
-    expect(etiquetas(el)).toEqual(['Mis gastos', 'Historial', 'Hoja de zona']);
+    expect(etiquetas(el)).toEqual(['Mis gastos', 'Historial']);
   });
 });

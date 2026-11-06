@@ -5,8 +5,8 @@
  */
 import { ZONAS_HOJA_GASTOS } from '@megadulces/contracts';
 import {
-  armarHojaAbierta, cuadreDelRetiro, depositoDeHoja, instruccionDePago, motivoFueraDeHoja, pagadoEnControl, requisitoDeHoja, retirosQueCuadran,
-  type DepositoBancoHoja, type PagoDeZona, type RetiroCaosConLigas, type RetiroLibreHoja,
+  armarHojaAbierta, cuadreDelRetiro, hojaAbiertaAutorizada, depositoDeHoja, instruccionDePago, loYaRepuesto, motivoFueraDeHoja, pagadoEnControl, requisitoDeHoja, retirosQueCuadran,
+  type BancoDeZona, type DepositoBancoHoja, type JuicioDePagoHoja, type PagoDeZona, type RetiroCaosConLigas, type RetiroLibreHoja,
 } from './hoja-gastos.engine';
 
 const MORELIA = ZONAS_HOJA_GASTOS.find((z) => z.clave === 'morelia')!;
@@ -328,5 +328,92 @@ describe('[CGA-A.70] los pagos que ya pagó una hoja en papel, según Control', 
     const g = pagadoEnControl(MORELIA, h.renglones, [ctl(58953.5)], [caos(1707, 58900), caos(1708, 58800)]);
     expect(g).toHaveLength(1);
     expect(g[0].caos).toBeNull();
+  });
+});
+
+describe('[LE.6.19] la hoja que se paga en un acto: sólo lo que trae su autorización', () => {
+  const pagos = DIA_23.map(pago('2026-10-23'));
+  const toda = armarHojaAbierta(MORELIA, pagos, null);
+  const libre: JuicioDePagoHoja = { detenido: null, firma: null };
+  const todos = () => new Map<string, JuicioDePagoHoja>(toda.renglones.map((r) => [r.origen_ref, { ...libre }]));
+
+  it('con todo autorizado es la misma hoja que el papel (8,953.69), sin detenidos', () => {
+    const h = hojaAbiertaAutorizada(MORELIA, pagos, null, todos());
+    expect(h.total).toBe(toda.total);
+    expect(h.total).toBe(58953.69);
+    expect(h.detenidos).toEqual([]);
+  });
+
+  it('un gasto sin aprobar no entra: queda detenido con su motivo y no suma', () => {
+    const j = todos();
+    j.set('07|X-D-26|0000285|0011', { detenido: 'El gasto todavía no lo aprueba nadie', firma: null });
+    const h = hojaAbiertaAutorizada(MORELIA, pagos, null, j);
+    expect(h.detenidos.map((d) => [d.folio, d.motivo])).toEqual([['0000285', 'El gasto todavía no lo aprueba nadie']]);
+    expect(h.renglones.some((r) => r.folio === '0000285')).toBe(false);
+    expect(h.total).toBe(Math.round((58953.69 - 1430.95) * 100) / 100);
+  });
+
+  it('lo que pediría firma tampoco entra: ya nadie aprueba la hoja aparte', () => {
+    const j = todos();
+    j.set('08|X-D-26|0000533|0011', { detenido: null, firma: 'Kepler no dice qué gasto o compra paga' });
+    const h = hojaAbiertaAutorizada(MORELIA, pagos, null, j);
+    expect(h.detenidos.map((d) => d.motivo)).toEqual(['Sin autorización: Kepler no dice qué gasto o compra paga']);
+  });
+
+  it('sin juicio (Kepler no se pudo leer) NADA entra como autorizado', () => {
+    const h = hojaAbiertaAutorizada(MORELIA, pagos, null, new Map());
+    expect(h.renglones).toEqual([]);
+    expect(h.detenidos).toHaveLength(toda.renglones.length);
+    expect(h.total).toBe(0);
+  });
+});
+
+// ⭐ `[LE.6.20]` Edgar, 2026-11-06: «lo que venga con un depósito es reposición, lo que no es un gasto normal
+// que se paga». La abierta de Morelia ofrecía otra vez los pagos de octubre que ya se habían repuesto.
+describe('[LE.6.20] lo que ya se repuso no se repone otra vez', () => {
+  const h = armarHojaAbierta(MORELIA, DIA_23.map(pago('2026-10-23')), null);
+  const dep = (id: string, dia: string, importe: number): DepositoBancoHoja => ({ id, dia, importe });
+  const banco = (depositos: DepositoBancoHoja[], cargado_hasta: string | null = '2026-10-31'): BancoDeZona => ({ cuenta: '1604', cargado_hasta, depositos });
+  const ctl = { folio: 'A23714', dia: '2026-10-23', observaciones: 'gnf ma', total: 58953.5 };
+
+  it('1 · el día cuyo total se depositó (la venta del 23: $58,953.50 el 23/10) ya se repuso: sale con su depósito', () => {
+    const r = loYaRepuesto(h.renglones, [], banco([dep('d1', '2026-10-23', 58953.5)]));
+    expect(r.repuestos.size).toBe(h.renglones.length);
+    expect(r.ya_repuestos).toEqual([{ desde: '2026-10-23', hasta: '2026-10-23', renglones: 13, total: 58953.69, como: 'deposito',
+      testigo: 'depósito del 23/10 por $58,953.50' }]);
+    expect(r.sin_deposito.size).toBe(0);
+  });
+
+  it('2 · la hoja en papel que Control prueba pagada sale, y su depósito no le sirve a otro día', () => {
+    const papel = pagadoEnControl(MORELIA, h.renglones, [ctl], []);
+    const r = loYaRepuesto(h.renglones, papel, banco([dep('d1', '2026-10-23', 58953.5)]));
+    expect(r.ya_repuestos).toHaveLength(1);
+    expect(r.ya_repuestos[0]).toMatchObject({ como: 'papel', renglones: 13, testigo: 'Control A23714 «gnf ma» del 23/10' });
+  });
+
+  it('3 · CONTROL NEGATIVO: con el total corrido no hay depósito; con el banco ya cargado se declara «sin depósito», no se ofrece', () => {
+    for (const d of [3170, -5310, 1]) {
+      const r = loYaRepuesto(h.renglones, [], banco([dep('d1', '2026-10-23', 58953.5 + d)]));
+      expect(r.repuestos.size).toBe(0);
+      expect(r.sin_deposito.size).toBe(13);
+      expect([...r.sin_deposito.values()][0]).toContain('si es gasto normal, se paga en la cola');
+    }
+  });
+
+  it('4 · lo reciente (el banco no llega a 7 días después) sigue por reponer: su depósito todavía no se ve', () => {
+    const r = loYaRepuesto(h.renglones, [], banco([], '2026-10-29'));
+    expect(r.repuestos.size + r.sin_deposito.size).toBe(0);
+    expect(loYaRepuesto(h.renglones, [], banco([], null)).sin_deposito.size).toBe(0);
+  });
+
+  it('5 · sin cuenta medida no se afirma nada: todo sigue por reponer', () => {
+    const r = loYaRepuesto(h.renglones, [], null);
+    expect([r.repuestos.size, r.sin_deposito.size, r.ya_repuestos.length]).toEqual([0, 0, 0]);
+  });
+
+  it('6 · dos formas de llegar al total no se eligen: se declara para que lo ligue una persona', () => {
+    const r = loYaRepuesto(h.renglones, [], banco([dep('a', '2026-10-24', 58953.5), dep('b', '2026-10-25', 58953.6)]));
+    expect(r.repuestos.size).toBe(0);
+    expect([...r.sin_deposito.values()][0]).toContain('2 formas de llegar');
   });
 });

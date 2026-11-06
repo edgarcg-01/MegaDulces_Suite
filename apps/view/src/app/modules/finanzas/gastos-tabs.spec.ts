@@ -17,29 +17,23 @@ const con = (...ps: Permission[]) => (p: Permission) => ps.includes(p);
 const visibles = (tiene: (p: Permission) => boolean) => GASTOS_TABS.filter((t) => pestanaVisible(t, tiene)).map((t) => t.label);
 
 describe('[GX.80] las pestañas de Gastos', () => {
-  it('son las seis pantallas, en este orden', () => {
+  it('son las cinco pantallas, en este orden ([LE.6.19]: la hoja de zona se paga en Caja)', () => {
     expect(GASTOS_TABS.map((t) => t.route)).toEqual([
       '/finanzas/aprobacion-gastos', '/finanzas/mis-gastos', '/finanzas/expediente', '/finanzas/gastos-historial',
-      '/finanzas/comisiones-logistica', '/finanzas/hoja-gastos',
+      '/finanzas/comisiones-logistica',
     ]);
   });
 
   it('quien firma entra a Aprobación y ve todas', () => {
     const firma = con(Permission.FINANCE_EXPENSES_COMPROBAR, Permission.FINANCE_EXPENSES_VER);
     expect(primeraPestanaVisible(GASTOS_TABS, firma)?.route).toBe('/finanzas/aprobacion-gastos');
-    expect(visibles(firma)).toEqual(['Aprobación de gastos', 'Mis gastos', 'Expediente', 'Historial', 'Comisiones de logística', 'Hoja de zona']);
+    expect(visibles(firma)).toEqual(['Aprobación de gastos', 'Mis gastos', 'Expediente', 'Historial', 'Comisiones de logística']);
   });
 
-  /** `[CGA-A.65]` Quien cierra la hoja de su zona no tiene permisos de gastos: entra directo a ella. */
-  it('quien cierra la hoja de zona entra directo a ella, y es su única pestaña', () => {
-    const zona = con(Permission.FINANCE_HOJA_GASTOS_CERRAR);
-    expect(primeraPestanaVisible(GASTOS_TABS, zona)?.route).toBe('/finanzas/hoja-gastos');
-    expect(visibles(zona)).toEqual(['Hoja de zona']);
-  });
-
-  /** `[CGA-A.65]` Caja General la paga: con sólo ver la caja, la ve. */
-  it('quien ve Caja General ve la Hoja de zona', () => {
-    expect(visibles(con(Permission.FINANCE_CAJA_VER))).toEqual(['Hoja de zona']);
+  /** `[LE.6.19]` La hoja de zona ya no es pestaña: se paga en Caja General › Reposición. */
+  it('la hoja de zona no es una pestaña de Gastos', () => {
+    expect(GASTOS_TABS.some((t) => t.route === '/finanzas/hoja-gastos')).toBe(false);
+    expect(primeraPestanaVisible(GASTOS_TABS, con(Permission.FINANCE_HOJA_GASTOS_CERRAR))).toBeNull();
   });
 
   /** ⭐ Quien sólo captura entra a SUS gastos y no ve barra (una sola pestaña). */
@@ -85,7 +79,8 @@ describe('[GX.80] las rutas viven en el shell, con su guard', () => {
     expect(s).toMatch(/path: 'mis-gastos',[\s\S]*?canActivate: \[anyPermissionGuard\(Permission\.FINANCE_EXPENSES_VER, Permission\.FINANCE_EXPENSES_CAPTURAR\)\]/);
     expect(s).toMatch(/path: 'gastos-historial',[\s\S]*?canActivate: \[anyPermissionGuard\(Permission\.FINANCE_EXPENSES_VER, Permission\.FINANCE_EXPENSES_COMPROBAR, Permission\.FINANCE_EXPENSES_HISTORIAL_TODOS\)\]/);
     expect(s).toMatch(/path: 'comisiones-logistica',[\s\S]*?canActivate: \[anyPermissionGuard\(Permission\.FINANCE_EXPENSES_COMPROBAR, Permission\.LOGISTICS_SHIPMENTS_GESTIONAR\)\]/);
-    expect(s).toMatch(/path: 'hoja-gastos',[\s\S]*?canActivate: \[anyPermissionGuard\(Permission\.FINANCE_HOJA_GASTOS_CERRAR, Permission\.FINANCE_EXPENSES_COMPROBAR, Permission\.FINANCE_CAJA_VER\)\]/);
+    // `[LE.6.19]` La ruta vieja de la hoja lleva a Caja General, donde ahora se paga.
+    expect(s).toMatch(/path: 'hoja-gastos',\s*redirectTo: '\/finanzas\/caja-general'/);
   });
 
   it('las cuatro ya no están fuera del shell (no hay rutas duplicadas)', () => {

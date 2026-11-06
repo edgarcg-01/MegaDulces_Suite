@@ -13,13 +13,16 @@ import {
   ZONAS_HOJA_GASTOS, pagableConBilletesCaos, revisarConteoCajon, warehouseName,
   type HojaGastos, type HojasDeGastos, type ReposicionDoc, type ReposicionGrupo, type ReposicionRetiro,
   type ReposicionSucursales, type ReposicionVinculo, type AprobacionPago, type PagarHojaInput,
+  type ConteoCajonHoja, type HojaAbierta, type RetiroParaHoja,
 } from '@megadulces/contracts';
+import { uuidV4 } from '../../../../core/utils/uuid';
 import { LoadStateComponent } from '../../../../shared/components/load-state/load-state.component';
 import { FreshnessPillComponent } from '../../../../shared/components/freshness-pill/freshness-pill.component';
 import { MetricStripComponent, type MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent, type SegOption } from '../../../../shared/components/segmented/segmented.component';
 import { SidePeekComponent } from '../../../../shared/components/side-peek/side-peek.component';
 import { PermissionsService } from '../../../../core/services/permissions.service';
+import { Permission } from '../../../../core/constants/permissions';
 import { AuthService } from '../../../../core/services/auth.service';
 import { CashLedgerService, type ResumenLote } from '../../cash-ledger.service';
 import { CaosService } from '../../caos.service';
@@ -29,10 +32,17 @@ import { ConteoCajonComponent } from '../../components/conteo-cajon.component';
 
 interface OpcionOrigen { label: string; value: string }
 
-/** Un renglón de la lista: lo que una sucursal pagó en un día, o una hoja de zona aprobada. */
+/**
+ * Un renglón de la lista: lo que una sucursal pagó en un día, la hoja ABIERTA de una zona (`[LE.6.19]`:
+ * se paga aquí en un acto) o una hoja de zona del carril viejo (aprobada, o pagada con algo sin capturar).
+ */
 type Fila =
   | { tipo: 'grupo'; clave: string; g: ReposicionGrupo }
+  | { tipo: 'abierta'; clave: string; a: HojaAbierta }
   | { tipo: 'hoja'; clave: string; h: HojaGastos };
+
+/** `[LE.6.19]` Lo que se está contando antes de pagar: todo lo que sale del cajón se cuenta. */
+interface Conteo { clave: string; titulo: string; total: number; pagar: (conteo: ConteoCajonHoja) => void }
 
 /**
  * Lo que dice el aviso después de «Reponer»: cuántos entraron y, de los que no, CUÁL y POR QUÉ.
@@ -136,16 +146,64 @@ export function avisoDeReposicion(
         <app-metric-strip class="rp-kpis" [items]="kpis()"></app-metric-strip>
       }
 
-      <!-- Las hojas que esperan a OTRA persona (la zona o finanzas): se dicen aquí, no son trabajo de esta lista. -->
+      <!-- [LE.6.19] La hoja de zona se paga aquí, en la lista. Sólo se dice lo que quedó del carril viejo, o que no se leyó. -->
       @if (enEspera().length || hojasNoLeidas()) {
         <p class="rp-hojas" role="status">
           <i class="pi pi-file-check" aria-hidden="true"></i>
           <span>
-            @if (hojasNoLeidas()) { Las hojas de zona no se pudieron leer. }
+            @if (hojasNoLeidas()) { Las hojas de zona no se pudieron leer: su reposición no aparece en la lista. }
             @for (x of enEspera(); track x.clave) { {{ x.texto }}@if (!$last) { · } }
           </span>
-          <a routerLink="/finanzas/hoja-gastos">Ver las hojas</a>
         </p>
+      }
+
+      <!-- [LE.6.20] Lo que ya se repuso (hoja en papel o depósito) y lo que el banco cubre sin depósito: no se
+           reponen aquí, pero se ven con su testigo. «Lo que venga con un depósito es reposición.» -->
+      @for (z of repuestoDeZonas(); track z.zona) {
+        <details class="rp-repuesto" data-testid="rp-repuesto">
+          <summary>
+            <strong>{{ z.nombre }}:</strong>
+            @if (z.dias.length) { {{ z.dias.length }} {{ z.dias.length === 1 ? 'tramo ya repuesto' : 'tramos ya repuestos' }} ({{ money(z.repuesto) }}) }
+            @if (z.dias.length && z.sinDeposito.length) { · }
+            @if (z.sinDeposito.length) { {{ z.nSinDeposito }} {{ z.nSinDeposito === 1 ? 'pago' : 'pagos' }} sin depósito ({{ money(z.sinDepositoTotal) }}) }
+            @if (z.cuenta) {
+              <span class="rp-dim"> · cuenta {{ z.cuenta }} cargada al {{ z.cargadoHasta ? dmy(z.cargadoHasta) : 'sin movimientos' }}</span>
+            } @else {
+              <span class="rp-warn"> · la cuenta donde se deposita su reposición no está medida: no se sabe qué ya se repuso</span>
+            }
+          </summary>
+          @if (z.dias.length) {
+            <p-table [value]="z.dias" size="small" class="rp-mini">
+              <ng-template #header>
+                <tr><th>Días de pago</th><th class="rp-num-h">Pagos</th><th class="rp-num-h">Total</th><th>Ya se repuso con</th></tr>
+              </ng-template>
+              <ng-template #body let-d>
+                <tr>
+                  <td class="rp-mono" data-label="Días de pago" role="cell">{{ dmy(d.desde) }}@if (d.hasta !== d.desde) { – {{ dmy(d.hasta) }} }</td>
+                  <td class="rp-num dt-num" data-label="Pagos" role="cell">{{ d.renglones }}</td>
+                  <td class="rp-num dt-num" data-label="Total" role="cell">{{ money(d.total) }}</td>
+                  <td data-label="Ya se repuso con" role="cell">{{ d.como === 'papel' ? 'Hoja en papel: ' : '' }}{{ d.testigo }}</td>
+                </tr>
+              </ng-template>
+            </p-table>
+          }
+          @if (z.sinDeposito.length) {
+            <p class="rp-desglose">Sin depósito que los reponga: no se reponen aquí. Si son gasto normal, se pagan en la cola de Captura.</p>
+            <p-table [value]="z.sinDeposito" size="small" class="rp-mini" data-testid="rp-sin-deposito">
+              <ng-template #header>
+                <tr><th>Día de pago</th><th class="rp-num-h">Pagos</th><th class="rp-num-h">Total</th><th>Por qué</th></tr>
+              </ng-template>
+              <ng-template #body let-d>
+                <tr>
+                  <td class="rp-mono" data-label="Día de pago" role="cell">{{ dmy(d.dia) }}</td>
+                  <td class="rp-num dt-num" data-label="Pagos" role="cell">{{ d.n }}</td>
+                  <td class="rp-num dt-num" data-label="Total" role="cell">{{ money(d.total) }}</td>
+                  <td data-label="Por qué" role="cell">{{ d.motivo }}</td>
+                </tr>
+              </ng-template>
+            </p-table>
+          }
+        </details>
       }
 
       <app-load-state class="dt-scope" [loading]="cargando() && !datos()" [error]="error()" [isEmpty]="!filas().length" [skeletonRows]="3"
@@ -171,7 +229,43 @@ export function avisoDeReposicion(
                           severity="secondary" [ariaLabel]="(expanded ? 'Ocultar' : 'Ver') + ' el desglose de ' + quien(f)"
                           (onClick)="alternar(f.clave)"></p-button>
               </td>
-              @if (f.tipo === 'hoja') {
+              @if (f.tipo === 'abierta') {
+                <!-- [LE.6.19] La hoja abierta de la zona: se cierra y se paga en un acto, sin aprobarla aparte. -->
+                <td class="rp-quien dt-id" data-label="Sucursal" role="cell">
+                  <strong>{{ f.a.nombre }}</strong>
+                  <small>{{ f.a.renglones.length }} {{ f.a.renglones.length === 1 ? 'pago' : 'pagos' }} con su compra o su gasto aprobado</small>
+                </td>
+                <td class="rp-cifra dt-num" data-label="Por resolver" role="cell">
+                  <strong>{{ money(f.a.total) }}</strong>
+                  <small>se deposita en la cuenta de la zona</small>
+                </td>
+                <td class="rp-que dt-actions" data-label="Qué sigue" role="cell">
+                  @if (!puedeGestionar()) {
+                    <small class="fin-dim">La paga quien gestiona la caja.</small>
+                  } @else {
+                    <div class="rp-accion">
+                      <p-select [options]="opcionesAbierta(f.a)" [ngModel]="eleccionAbierta(f.a)" (ngModelChange)="elegirAbierta(f.a, $event)"
+                                optionLabel="label" optionValue="value" placeholder="¿Con qué retiro?" size="small"
+                                appendTo="body" class="rp-sel" [ariaLabel]="'Con qué se paga la reposición de ' + f.a.nombre"></p-select>
+                      <p-button [label]="'Pagar ' + f.a.nombre" icon="pi pi-check" size="small"
+                                [disabled]="!eleccionAbierta(f.a) || !!ocupado()" [loading]="ocupado() === f.clave"
+                                (onClick)="pagarAbierta(f.a)"></p-button>
+                    </div>
+                    <small class="fin-dim">{{ textoCuadreAbierta(f.a) }}</small>
+                  }
+                  @if (f.a.detenidos.length) {
+                    <!-- [LE.6.20] El enlace afirma que se puede abrir: sólo a quien aprueba gastos; a los demás, en texto. -->
+                    @if (puedeAprobar()) {
+                      <a class="rp-link" routerLink="/finanzas/aprobacion-gastos">
+                        <i class="pi pi-arrow-right" aria-hidden="true"></i>
+                        {{ f.a.detenidos.length === 1 ? '1 pago espera su aprobación y no entra' : f.a.detenidos.length + ' pagos esperan su aprobación y no entran' }}. Ir a Aprobación de gastos
+                      </a>
+                    } @else {
+                      <small class="fin-dim">{{ f.a.detenidos.length === 1 ? '1 pago espera su aprobación en Aprobación de gastos y no entra' : f.a.detenidos.length + ' pagos esperan su aprobación en Aprobación de gastos y no entran' }}.</small>
+                    }
+                  }
+                </td>
+              } @else if (f.tipo === 'hoja') {
                 <td class="rp-quien dt-id" data-label="Sucursal" role="cell">
                   <strong>{{ f.h.nombre_zona }} · {{ f.h.folio }}</strong>
                   <small>{{ textoHoja(f.h) }}</small>
@@ -259,10 +353,14 @@ export function avisoDeReposicion(
                   }
                   @if (f.g.n_sin_aprobar) {
                     <!-- [CGA-A.62] Sin aprobación no se repone: se firma en su pantalla y vuelve solo. -->
-                    <a class="rp-link" routerLink="/finanzas/aprobacion-gastos">
-                      <i class="pi pi-arrow-right" aria-hidden="true"></i>
-                      {{ f.g.n_sin_aprobar === 1 ? '1 gasto espera' : f.g.n_sin_aprobar + ' gastos esperan' }} firma o se rechazó: no se repone. Ir a Aprobación de gastos
-                    </a>
+                    @if (puedeAprobar()) {
+                      <a class="rp-link" routerLink="/finanzas/aprobacion-gastos">
+                        <i class="pi pi-arrow-right" aria-hidden="true"></i>
+                        {{ f.g.n_sin_aprobar === 1 ? '1 gasto espera' : f.g.n_sin_aprobar + ' gastos esperan' }} firma o se rechazó: no se repone. Ir a Aprobación de gastos
+                      </a>
+                    } @else {
+                      <small class="fin-dim">{{ f.g.n_sin_aprobar === 1 ? '1 gasto espera' : f.g.n_sin_aprobar + ' gastos esperan' }} firma en Aprobación de gastos o se rechazó: no se repone.</small>
+                    }
                   }
                 </td>
               }
@@ -271,7 +369,43 @@ export function avisoDeReposicion(
           <ng-template #expandedrow let-f>
             <tr>
               <td colspan="4" class="rp-det" role="cell">
-                @if (f.tipo === 'hoja') {
+                @if (f.tipo === 'abierta') {
+                  <p class="rp-desglose">
+                    Al pagarla, sus {{ f.a.renglones.length }} pagos quedan ligados a un solo retiro y se deposita el total en la cuenta de la zona.
+                    Lo que sale del cajón se cuenta por pieza antes de pagar.
+                  </p>
+                  <p-table [value]="f.a.renglones" size="small" class="rp-mini">
+                    <ng-template #header>
+                      <tr><th>Sucursal</th><th>Día de pago</th><th>Documento de Kepler</th><th>Beneficiario</th><th class="rp-num-h">Importe</th></tr>
+                    </ng-template>
+                    <ng-template #body let-r>
+                      <tr>
+                        <td data-label="Sucursal" role="cell">{{ nombre(r.sucursal) }}</td>
+                        <td class="rp-mono" data-label="Día de pago" role="cell">{{ dmy(r.fecha_pago) }}</td>
+                        <td class="rp-mono dt-id" data-label="Documento de Kepler" role="cell">{{ r.doc_tipo }} {{ r.folio }}</td>
+                        <td data-label="Beneficiario" role="cell">{{ r.beneficiario ?? '—' }}</td>
+                        <td class="rp-num dt-num" data-label="Importe" role="cell">{{ money(r.importe) }}</td>
+                      </tr>
+                    </ng-template>
+                  </p-table>
+                  @if (f.a.detenidos.length) {
+                    <p class="rp-desglose">Esperan su aprobación y no entran a esta reposición:</p>
+                    <p-table [value]="f.a.detenidos" size="small" class="rp-mini" data-testid="rp-detenidos">
+                      <ng-template #header>
+                        <tr><th>Sucursal</th><th>Documento de Kepler</th><th>Beneficiario</th><th class="rp-num-h">Importe</th><th>Por qué</th></tr>
+                      </ng-template>
+                      <ng-template #body let-r>
+                        <tr>
+                          <td data-label="Sucursal" role="cell">{{ nombre(r.sucursal) }}</td>
+                          <td class="rp-mono dt-id" data-label="Documento de Kepler" role="cell">{{ r.doc_tipo }} {{ r.folio }}</td>
+                          <td data-label="Beneficiario" role="cell">{{ r.beneficiario ?? '—' }}</td>
+                          <td class="rp-num dt-num" data-label="Importe" role="cell">{{ money(r.importe) }}</td>
+                          <td data-label="Por qué" role="cell">{{ r.motivo }}</td>
+                        </tr>
+                      </ng-template>
+                    </p-table>
+                  }
+                } @else if (f.tipo === 'hoja') {
                   <p class="rp-desglose">
                     Cerró {{ f.h.cerrada_por_nombre ?? 'sin nombre' }} · aprobó {{ f.h.aprobada_por_nombre ?? 'sin nombre' }} ·
                     al pagarla, sus {{ f.h.renglones.length }} pagos quedan ligados a un solo retiro y se deposita el total en la cuenta de la zona.
@@ -412,16 +546,17 @@ export function avisoDeReposicion(
       </ng-template>
     </p-dialog>
 
-    <!-- Edgar, 2026-10-30: «cuando sea de cajón que se haga un arqueo». Pagar una hoja con el cajón cuenta lo que sale. -->
+    <!-- Edgar, 2026-10-30: «cuando sea de cajón que se haga un arqueo». [LE.6.19] PM, 2026-11-06: «toda reposición
+         que salga del cajón se hace con arqueo» — también el pico que el cajón pone a un retiro de CAOS. -->
     <p-dialog [visible]="contando() !== null" (visibleChange)="$event ? null : contando.set(null)" [modal]="true" appendTo="body"
-              [header]="'Pagar ' + (contando()?.folio ?? '') + ' con el cajón'" [style]="{ width: '38rem' }" [draggable]="false">
-      @if (contando(); as h) {
-        <app-conteo-cajon [total]="h.total" [(piezas)]="conteoPiezas" [(morralla)]="conteoMorralla" />
+              [header]="'Pagar ' + (contando()?.titulo ?? '') + ': arqueo de lo que sale del cajón'" [style]="{ width: '38rem' }" [draggable]="false">
+      @if (contando(); as c) {
+        <app-conteo-cajon [total]="c.total" [(piezas)]="conteoPiezas" [(morralla)]="conteoMorralla" />
       }
       <ng-template #footer>
         <p-button label="Volver" severity="secondary" [text]="true" (onClick)="contando.set(null)"></p-button>
-        <p-button [label]="'Pagar ' + (contando()?.folio ?? '')" icon="pi pi-check" [disabled]="!conteoListo() || !!ocupado()"
-                  [loading]="ocupado() === 'hoja|' + contando()?.id" (onClick)="pagarConCajon()"></p-button>
+        <p-button [label]="'Pagar ' + (contando()?.titulo ?? '')" icon="pi pi-check" [disabled]="!conteoListo() || !!ocupado()"
+                  [loading]="ocupado() === contando()?.clave" (onClick)="pagarConCajon()"></p-button>
       </ng-template>
     </p-dialog>
   `,
@@ -453,6 +588,10 @@ export function avisoDeReposicion(
     .rp-kpis { display:block; margin-bottom:var(--sp-2); }
     .rp-hojas { display:flex; align-items:baseline; flex-wrap:wrap; gap:var(--sp-2); margin:0 0 var(--sp-2);
                 font-size:var(--fs-sm); color:var(--fg-2); }
+    .rp-repuesto { margin:0 0 var(--sp-2); font-size:var(--fs-sm); color:var(--fg-2); }
+    .rp-repuesto > summary { cursor:pointer; padding:var(--sp-1) 0; }
+    .rp-repuesto > summary:focus-visible { outline:2px solid var(--focus-ring, var(--action)); outline-offset:2px; }
+    .rp-dim { color:var(--text-muted); }
     .rp-num-h { text-align:right; }
     .rp-num { text-align:right; font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
     .rp-mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
@@ -537,20 +676,24 @@ export class CajaReposicionComponent implements OnInit {
   /** Lo que está escribiendo (idempotencia visual): la clave de la fila, o `'mover'`. */
   readonly ocupado = signal<string | null>(null);
   private readonly elegidos = signal<Record<string, string>>({});
-  /** La hoja que se está contando para pagarla con el cajón. */
-  readonly contando = signal<HojaGastos | null>(null);
+  /** Lo que se está contando antes de pagar: lo que sale del cajón, todo o el pico del retiro. */
+  readonly contando = signal<Conteo | null>(null);
   readonly conteoPiezas = signal<Record<string, number>>({});
   readonly conteoMorralla = signal<number | null>(null);
   readonly conteoListo = computed(() => {
-    const h = this.contando();
-    return !!h && revisarConteoCajon({ piezas: this.conteoPiezas(), morralla: Number(this.conteoMorralla() ?? 0) }, h.total).ok;
+    const c = this.contando();
+    return !!c && revisarConteoCajon({ piezas: this.conteoPiezas(), morralla: Number(this.conteoMorralla() ?? 0) }, c.total).ok;
   });
   private readonly elegidosHoja = signal<Record<string, string>>({});
+  /** `[LE.6.19]` La llave de cada pago de una abierta: un reintento (o el doble clic) no paga dos hojas. */
+  private readonly llavesAbierta: Record<string, string> = {};
   readonly mover = signal<{ vinculo: ReposicionVinculo; folio: string } | null>(null);
   destinoMover: string | null = null;
   motivoMover = '';
 
   readonly esSuperadmin = computed(() => this.perms.isSuperadmin());
+  /** `[LE.6.20]` ¿Puede abrir Aprobación de gastos? Un enlace a otra pantalla afirma que se puede (su guard pide COMPROBAR). */
+  readonly puedeAprobar = computed(() => !this.perms.cargado() || this.perms.has(Permission.FINANCE_EXPENSES_COMPROBAR));
   readonly yo = computed(() => this.auth.user()?.sub ?? null);
   readonly grupos = computed(() => this.datos()?.grupos ?? []);
   /** Se resuelven en la fila: lo que sigue en la cola, o egresos con propuesta de retiro. */
@@ -562,14 +705,20 @@ export class CajaReposicionComponent implements OnInit {
   /** `[CGA-A.65]` Las hojas que paga Caja General: aprobadas, o pagadas con renglones que no entraron al libro. */
   readonly hojasPorPagar = computed(() => (this.hojas()?.cerradas ?? [])
     .filter((h) => h.estado === 'aprobada' || (h.estado === 'pagada' && (h.pago?.sin_capturar ?? 0) > 0)));
-  readonly nPorResolver = computed(() => this.accionables().length + this.hojasPorPagar().length);
+  /** `[LE.6.19]` La hoja abierta de cada zona con algo que pagar: se paga aquí, en un acto. */
+  readonly abiertasPorPagar = computed(() => (this.hojas()?.abiertas ?? []).filter((a) => a.renglones.length > 0));
+  readonly nPorResolver = computed(() => this.accionables().length + this.hojasPorPagar().length + this.abiertasPorPagar().length);
 
   readonly filas = computed<Fila[]>(() => {
     const v = this.vista();
     const deGrupo = (gs: ReposicionGrupo[]): Fila[] => gs.map((g) => ({ tipo: 'grupo' as const, clave: g.clave, g }));
     if (v === 'sin_retiro') return deGrupo(this.sinRetiro());
     if (v === 'explicadas') return deGrupo(this.explicadas());
-    return [...this.hojasPorPagar().map((h) => ({ tipo: 'hoja' as const, clave: `hoja|${h.id}`, h })), ...deGrupo(this.accionables())];
+    return [
+      ...this.abiertasPorPagar().map((a) => ({ tipo: 'abierta' as const, clave: `abierta|${a.zona}`, a })),
+      ...this.hojasPorPagar().map((h) => ({ tipo: 'hoja' as const, clave: `hoja|${h.id}`, h })),
+      ...deGrupo(this.accionables()),
+    ];
   });
   readonly opcionesVista = computed<SegOption[]>(() => [
     { label: 'Por resolver', value: 'resolver', count: this.nPorResolver() },
@@ -577,19 +726,36 @@ export class CajaReposicionComponent implements OnInit {
     { label: 'Explicadas', value: 'explicadas', count: this.explicadas().length },
   ]);
 
-  /** `[CGA-A.65]` Las hojas que esperan a otra persona —la zona o finanzas—, en una línea cada una. */
-  readonly enEspera = computed<Array<{ clave: string; texto: string }>>(() => {
-    const h = this.hojas();
-    if (!h) return [];
-    const abiertas = h.abiertas.filter((a) => a.renglones.length).map((a) => ({
-      clave: `a|${a.zona}`,
-      texto: `${a.nombre}: hoja abierta con ${a.renglones.length} ${a.renglones.length === 1 ? 'pago' : 'pagos'} (${money(a.total)}), la cierra la zona`,
-    }));
-    const cerradas = h.cerradas.filter((c) => c.estado === 'cerrada').map((c) => ({
-      clave: `c|${c.id}`, texto: `${c.folio} (${c.nombre_zona}, ${money(c.total)}) espera la aprobación de finanzas`,
-    }));
-    return [...abiertas, ...cerradas];
-  });
+  /**
+   * `[CGA-A.65]` Lo que quedó del carril viejo esperando a otra persona: una hoja cerrada sin aprobar. Desde
+   * `[LE.6.19]` la abierta se paga en la lista, sin cerrarla ni aprobarla aparte.
+   */
+  /**
+   * `[LE.6.20]` Por zona: lo que ya se repuso (con su testigo) y lo que el banco cubre sin depósito, agrupado
+   * por día. Una zona sin cuenta medida y con algo por reponer también sale: no se sabe qué ya se repuso.
+   */
+  readonly repuestoDeZonas = computed(() => (this.hojas()?.abiertas ?? []).map((a) => {
+    const porDia = new Map<string, { dia: string; n: number; total: number; motivo: string }>();
+    for (const r of a.sin_deposito ?? []) {
+      const x = porDia.get(r.fecha_pago) ?? { dia: r.fecha_pago, n: 0, total: 0, motivo: r.motivo };
+      x.n += 1;
+      x.total = Math.round((x.total + r.importe) * 100) / 100;
+      porDia.set(r.fecha_pago, x);
+    }
+    const dias = a.ya_repuestos ?? [];
+    const sinDeposito = [...porDia.values()].sort((p, q) => p.dia.localeCompare(q.dia));
+    return {
+      zona: a.zona, nombre: a.nombre, dias, sinDeposito,
+      repuesto: Math.round(dias.reduce((t, d) => t + d.total, 0) * 100) / 100,
+      nSinDeposito: (a.sin_deposito ?? []).length,
+      sinDepositoTotal: Math.round(sinDeposito.reduce((t, d) => t + d.total, 0) * 100) / 100,
+      cuenta: a.banco?.cuenta ?? null, cargadoHasta: a.banco?.cargado_hasta ?? null,
+    };
+  }).filter((z) => z.dias.length || z.sinDeposito.length || (!z.cuenta && (this.hojas()?.abiertas ?? []).some((a) => a.zona === z.zona && a.renglones.length))));
+
+  readonly enEspera = computed<Array<{ clave: string; texto: string }>>(() => (this.hojas()?.cerradas ?? [])
+    .filter((c) => c.estado === 'cerrada')
+    .map((c) => ({ clave: `c|${c.id}`, texto: `${c.folio} (${c.nombre_zona}, ${money(c.total)}) quedó cerrada en el carril de antes y espera aprobación` })));
 
   /**
    * `[CGA-A.63]` Lo que dice el botón de la barra sin abrir nada: las mismas cuentas que los
@@ -620,7 +786,8 @@ export class CajaReposicionComponent implements OnInit {
    */
   readonly kpis = computed<MetricStripItem[]>(() => {
     const porResolver = Math.round((this.accionables().reduce((a, g) => a + this.porResolverDe(g), 0)
-      + this.hojasPorPagar().filter((h) => h.estado === 'aprobada').reduce((a, h) => a + h.total, 0)) * 100) / 100;
+      + this.hojasPorPagar().filter((h) => h.estado === 'aprobada').reduce((a, h) => a + h.total, 0)
+      + this.abiertasPorPagar().reduce((a, h) => a + h.total, 0)) * 100) / 100;
     const sinRetiro = this.sinRetiro().reduce((a, g) => a + g.sin_vincular, 0);
     const cajon = this.grupos().reduce((a, g) => a + g.cajon, 0);
     const n = this.nPorResolver();
@@ -705,7 +872,10 @@ export class CajaReposicionComponent implements OnInit {
   nombreZona(clave: string): string { return ZONAS_HOJA_GASTOS.find((z) => z.clave === clave)?.nombre ?? clave; }
   folioDoc(origenRef: string): string { const [, tipo, folio] = origenRef.split('|'); return `${tipo} ${folio}`; }
   porResolverDe(g: ReposicionGrupo): number { return Math.round((g.sin_vincular + g.por_capturar) * 100) / 100; }
-  quien(f: Fila): string { return f.tipo === 'hoja' ? f.h.folio : `${this.nombre(f.g.sucursal)} del ${dmy(f.g.fecha)}`; }
+  quien(f: Fila): string {
+    if (f.tipo === 'abierta') return `la reposición de ${f.a.nombre}`;
+    return f.tipo === 'hoja' ? f.h.folio : `${this.nombre(f.g.sucursal)} del ${dmy(f.g.fecha)}`;
+  }
 
   /** `[CGA-A.62]` Lo que sigue en la cola y SÍ se puede reponer: lo que espera firma o se rechazó, no. */
   reponibles(g: ReposicionGrupo): ReposicionDoc[] {
@@ -789,19 +959,105 @@ export class CajaReposicionComponent implements OnInit {
     if (e !== 'cajon' && !r) return;
     // Con el cajón primero se cuenta: la ventana del conteo manda el pago.
     if (!r) {
-      this.conteoPiezas.set({});
-      this.conteoMorralla.set(null);
-      this.contando.set(h);
+      this.contar({ clave: `hoja|${h.id}`, titulo: h.folio, total: h.total, pagar: (conteo) => this.enviarPagoHoja(h, { medio: 'cajon', conteo }, false) });
       return;
     }
     this.enviarPagoHoja(h, { medio: 'caos', device: r.device, external_id: r.external_id }, true);
   }
 
-  /** El pago con el cajón, ya contado. */
+  private contar(c: Conteo): void {
+    this.conteoPiezas.set({});
+    this.conteoMorralla.set(null);
+    this.contando.set(c);
+  }
+
+  /** El pago, ya contado lo que sale del cajón. */
   pagarConCajon(): void {
-    const h = this.contando();
-    if (!h || !this.conteoListo() || this.ocupado()) return;
-    this.enviarPagoHoja(h, { medio: 'cajon', conteo: { piezas: this.conteoPiezas(), morralla: Number(this.conteoMorralla() ?? 0) } }, false);
+    const c = this.contando();
+    if (!c || !this.conteoListo() || this.ocupado()) return;
+    c.pagar({ piezas: this.conteoPiezas(), morralla: Number(this.conteoMorralla() ?? 0) });
+  }
+
+  // ── `[LE.6.19]` La hoja abierta de la zona: se cierra y se paga aquí, en un acto ───────────────
+
+  opcionesAbierta(a: HojaAbierta): OpcionOrigen[] {
+    return [
+      ...a.retiros_que_cuadran.map((r) => ({
+        label: `«${r.ref ?? 'retiro ' + r.external_id}» · ${dmy(r.dia)} · ${money(r.total)}${r.cajon > 0 ? ` · cajón ${money(r.cajon)}` : ''}`,
+        value: this.llave(r),
+      })),
+      { label: 'Del cajón entero (sin retiro)', value: 'cajon' },
+    ];
+  }
+
+  /** La propuesta ya elegida cuando UN solo retiro cuadra; con varios o ninguno, elige la persona. */
+  eleccionAbierta(a: HojaAbierta): string | null {
+    const elegido = this.elegidosHoja()[`abierta|${a.zona}`];
+    if (elegido) return elegido;
+    return a.retiros_que_cuadran.length === 1 ? this.llave(a.retiros_que_cuadran[0]) : null;
+  }
+
+  elegirAbierta(a: HojaAbierta, valor: string | null): void {
+    this.elegidosHoja.update((e) => ({ ...e, [`abierta|${a.zona}`]: valor ?? '' }));
+  }
+
+  textoCuadreAbierta(a: HojaAbierta): string {
+    const rs = a.retiros_que_cuadran;
+    const i = a.instruccion;
+    if (rs.length === 1) {
+      return `Cuadra «${rs[0].ref ?? rs[0].external_id}» del ${dmy(rs[0].dia)}`
+        + (rs[0].cajon > 0 ? `; el cajón pone ${money(rs[0].cajon)} y se cuenta al pagar.` : '.');
+    }
+    if (rs.length > 1) return `${rs.length} retiros cuadran: elige el suyo.`;
+    return i ? `Ningún retiro libre cuadra: saca ${money(i.retiro)} de CAOS y vuelve a leer, o págala del cajón contándolo.` : '';
+  }
+
+  /** Lo que sale del cajón se cuenta antes; si nada sale del cajón, se paga directo. */
+  pagarAbierta(a: HojaAbierta): void {
+    const e = this.eleccionAbierta(a);
+    if (!e || this.ocupado()) return;
+    const r = a.retiros_que_cuadran.find((x) => this.llave(x) === e) ?? null;
+    if (e !== 'cajon' && !r) return;
+    const cajon = r ? r.cajon : a.total;
+    const pagar = (conteo?: ConteoCajonHoja) => this.enviarPagoAbierta(a, r, conteo);
+    if (cajon > 0.005) {
+      this.contar({ clave: `abierta|${a.zona}`, titulo: a.nombre, total: cajon, pagar: (conteo) => pagar(conteo) });
+      return;
+    }
+    pagar();
+  }
+
+  private enviarPagoAbierta(a: HojaAbierta, r: RetiroParaHoja | null, conteo?: ConteoCajonHoja): void {
+    const clave = `abierta|${a.zona}`;
+    const pago: PagarHojaInput = r
+      ? { medio: 'caos', device: r.device, external_id: r.external_id, ...(conteo ? { conteo } : {}) }
+      : { medio: 'cajon', conteo: conteo as ConteoCajonHoja };
+    const llave = this.llavesAbierta[clave] ??= uuidV4();
+    this.ocupado.set(clave);
+    this.api.pagarHojaAbierta(a.zona, { origen_refs: a.renglones.map((x) => x.origen_ref), client_key: llave, pago })
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (x) => {
+          delete this.llavesAbierta[clave];
+          this.ocupado.set(null);
+          this.contando.set(null);
+          const faltan = x.sin_capturar.length;
+          this.toast.add({
+            severity: faltan ? 'warn' : 'success', summary: `${a.nombre}: ${x.hoja.folio} pagada`,
+            detail: `${x.capturados + x.ligados} ${x.capturados + x.ligados === 1 ? 'pago quedó explicado' : 'pagos quedaron explicados'} por ${r ? 'el retiro' : 'el cajón'}.`
+              + (faltan ? ` ${faltan} sin capturar: ${x.sin_capturar[0].motivo ?? 'reintenta con «Capturar lo que falta»'}.` : ''),
+            life: 8000,
+          });
+          this.cargar();
+          this.cambio.emit();
+        },
+        error: (err) => {
+          this.ocupado.set(null);
+          // Un rechazo del servidor no pagó nada: la siguiente vez es otro intento, con otra llave.
+          if (err?.status && err.status < 500) delete this.llavesAbierta[clave];
+          this.toast.add({ severity: 'error', summary: `No se pagó la reposición de ${a.nombre}`, detail: this.textoError(err), life: 10000 });
+          this.cargar();
+        },
+      });
   }
 
   private enviarPagoHoja(h: HojaGastos, body: PagarHojaInput, conRetiro: boolean): void {

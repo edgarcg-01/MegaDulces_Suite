@@ -41,7 +41,7 @@ import {
 import {
   CUENTAS_FIJAS, aCustodiaDesdeCajon, clasificarSuspenso, entregaRuta, gasto, otroIngreso, pagoDelCajon, regresoCustodiaAlCajon, type Contexto, type Propuesta,
 } from './reglas';
-import { hojaDeReposicion } from './reposicion-en-ventanilla';
+import { candidatosDeReposicion, hojaDeReposicion, juiciosDePagos, type JuicioDePago } from './reposicion-en-ventanilla';
 import { depositoDeHoja, type DepositoBancoHoja, type PagoDeZona } from '../caja/hoja-gastos.engine';
 import { consultasHoja } from '../caja/hoja-gastos.query';
 import {
@@ -98,7 +98,7 @@ export const SQL_VALE = `
  * días (21 documentos) + 5 testigos: gasto 80–149 ms, compra 52–93 ms, documentos 7–9 ms; los
  * testigos dan lo mismo que la versión de un documento (08/0000699 = 3 entradas de compra;
  * 08/0000707 = 6 gastos; 00/0023782 = un gasto SIN expediente en la Suite).
- *  · Gasto: `kdm5` (transferencia → gasto XA1001) → `expense_documents` (su solicitud) → el vale de
+ *  · Gasto: `analytics.kepler_kdm5_vigente` (transferencia → gasto XA1001) → `expense_documents` (su solicitud) → el vale de
  *    `expense_proofs`; si hay varios, el aprobado por una persona, y si no, el más nuevo.
  *  · Compra: `kdxf` (transferencia → entrada A-20) con el importe de la entrada (`kdxe`) y todo lo que
  *    se le ha aplicado sin contar cargos cancelados (`kdm1.c43 = 'C'`, la trampa de ECA.7).
@@ -109,7 +109,7 @@ export const SQL_RESPALDO_GASTO = `
   SELECT g.sucursal, g.folio, g.gasto, g.aplicado::text AS aplicado, ep.id AS vale_id, ep.folio AS vale_folio,
          ep.status AS vale_estado, ep.importe::text AS vale_importe, ep.aprobado_at::text AS vale_aprobado_at
     FROM (SELECT m.sucursal, btrim(m.c6) AS folio, btrim(m.c11) AS gasto, sum(m.c13) AS aplicado
-            FROM kepler_ods.kdm5 m
+            FROM analytics.kepler_kdm5_vigente m
            WHERE m.sucursal = ANY(?::text[]) AND btrim(m.c6) = ANY(?::text[])
              AND (m.sucursal, btrim(m.c6)) IN (SELECT * FROM unnest(?::text[], ?::text[]))
              AND btrim(m.c1) = m.sucursal AND m.c2 = 'X' AND m.c3 = 'D' AND m.c4 = 26 AND m.c5 = 1
@@ -245,11 +245,68 @@ export interface FilaRespaldoGasto {
   vale_importe: string | null; vale_aprobado_at: string | null;
 }
 export interface FilaRespaldoCompra { sucursal: string; folio: string; doc: string; aplicado: string; importe_doc: string | null; aplicado_total: string | null }
-type ValeConId = ValeElegido & { id: string };
+export type ValeConId = ValeElegido & { id: string };
 
 function sumaDePiezas(p: PiezasTexto | undefined): bigint {
   if (!p || Object.keys(p).length === 0) return 0n;
   return valorDePiezas(Object.fromEntries(Object.entries(p).map(([k, v]) => [k, Number(v)])), 'MXN');
+}
+
+/** `[LE.2.13]` Lo que Kepler devolvió para el respaldo; `null` = sin ODS (no medido). */
+export interface FilasDelRespaldo { gastos: FilaRespaldoGasto[]; compras: FilaRespaldoCompra[] }
+
+/** `[LE.2.13]` El respaldo de un documento y sus vales (`respaldo: undefined` = sin ODS: no medido). */
+export interface RespaldoDelDocumento { respaldo: Respaldo | undefined; vales: ValeConId[]; detalle: VeredictoDePago['detalle'] }
+
+/**
+ * `[LE.2.13]` Lee lo que Kepler dice que paga cada X-D-26 (`null` = no hay ODS en esta base). Es la MISMA
+ * lectura para el pago suelto, la reposición de la Ventanilla y, desde `[LE.6.19]`, la hoja de zona en Caja.
+ */
+export async function leerFilasDelRespaldo(trx: Knex.Transaction, tenantId: string, pares: ReadonlyArray<[string, string]>)
+  : Promise<FilasDelRespaldo | null> {
+  const hay = (await trx.raw(`SELECT (to_regclass('analytics.kepler_kdm5_vigente') IS NOT NULL AND to_regclass('kepler_ods.kdxf') IS NOT NULL
+    AND to_regclass('kepler_ods.kdxe') IS NOT NULL AND to_regclass('kepler_ods.kdm1') IS NOT NULL
+    AND to_regclass('analytics.expense_documents') IS NOT NULL) AS ok`)).rows[0]?.ok === true;
+  if (!hay) return null;
+  const s = pares.map((p) => p[0]), f = pares.map((p) => p[1]);
+  const gastos = (await trx.raw(SQL_RESPALDO_GASTO, [s, f, s, f, tenantId, tenantId])).rows as FilaRespaldoGasto[];
+  const compras = (await trx.raw(SQL_RESPALDO_COMPRA, [s, f, s, f])).rows as FilaRespaldoCompra[];
+  return { gastos, compras };
+}
+
+/**
+ * `[LE.2.13]` El respaldo de varios documentos, por `sucursal|folio`. Una entrada cuyo importe Kepler no
+ * tiene no se puede verificar: ese documento cae a «ninguno» (firma Tesorería), no a «cuadra». Pura.
+ */
+export function respaldosDeFilas(f: FilasDelRespaldo | null, pares: ReadonlyArray<[string, string]>): Map<string, RespaldoDelDocumento> {
+  const out = new Map<string, RespaldoDelDocumento>();
+  for (const [sucursal, folio] of pares) {
+    const k = `${sucursal}|${folio}`;
+    // Sin ODS no se afirma «Kepler no dice qué paga»: no se midió. Queda la regla de siempre (el vale de la cajera).
+    if (!f) { out.set(k, { respaldo: undefined, vales: [], detalle: [] }); continue; }
+    const gs = f.gastos.filter((g) => g.sucursal === sucursal && g.folio === folio);
+    const cs = f.compras.filter((c) => c.sucursal === sucursal && c.folio === folio);
+    if (gs.length) {
+      const gastos = gs.map((g) => ({
+        folio: g.gasto,
+        vale: g.vale_id ? { id: g.vale_id, folio: String(g.vale_folio), estado: String(g.vale_estado),
+          importeCentavos: pesosACentavos(String(g.vale_importe ?? '0')), aprobadoAt: g.vale_aprobado_at } : null,
+      }));
+      out.set(k, { respaldo: { tipo: 'gasto', aplicadoCentavos: gs.reduce((t, g) => t + pesosACentavos(g.aplicado), 0n), gastos },
+        vales: gastos.flatMap((g) => (g.vale ? [g.vale] : [])),
+        detalle: gs.map((g, i) => ({ tipo: 'gasto' as const, folio: g.gasto, aplicado_minor: centavosATexto(pesosACentavos(g.aplicado)),
+          vale_folio: g.vale_folio ?? null, aprobado: gastos[i].vale ? gastos[i].vale?.estado !== 'rechazada' && !!gastos[i].vale?.aprobadoAt : null })) });
+    } else if (cs.length && cs.every((c) => c.importe_doc !== null && c.aplicado_total !== null)) {
+      const pagadosDeMas = cs.filter((c) => pesosACentavos(String(c.aplicado_total)) > pesosACentavos(String(c.importe_doc))).length;
+      out.set(k, { respaldo: { tipo: 'compra', aplicadoCentavos: cs.reduce((t, c) => t + pesosACentavos(c.aplicado), 0n),
+        documentos: cs.length, pagadosDeMas }, vales: [],
+        detalle: cs.map((c) => ({ tipo: 'entrada' as const, folio: c.doc, aplicado_minor: centavosATexto(pesosACentavos(c.aplicado)),
+          vale_folio: null, aprobado: null })) });
+    } else {
+      out.set(k, { respaldo: { tipo: 'ninguno' }, vales: [], detalle: [] });
+    }
+  }
+  return out;
 }
 
 @Injectable()
@@ -297,15 +354,8 @@ export class CashbookVentanillaService {
 
   /** `[LE.2.13]` `null` = no hay ODS de Kepler en esta base: el respaldo es «no medido», nunca «no paga nada». */
   protected async filasDelRespaldo(trx: Knex.Transaction, tenantId: string, pares: ReadonlyArray<[string, string]>)
-    : Promise<{ gastos: FilaRespaldoGasto[]; compras: FilaRespaldoCompra[] } | null> {
-    const hay = (await trx.raw(`SELECT (to_regclass('kepler_ods.kdm5') IS NOT NULL AND to_regclass('kepler_ods.kdxf') IS NOT NULL
-      AND to_regclass('kepler_ods.kdxe') IS NOT NULL AND to_regclass('kepler_ods.kdm1') IS NOT NULL
-      AND to_regclass('analytics.expense_documents') IS NOT NULL) AS ok`)).rows[0]?.ok === true;
-    if (!hay) return null;
-    const s = pares.map((p) => p[0]), f = pares.map((p) => p[1]);
-    const gastos = (await trx.raw(SQL_RESPALDO_GASTO, [s, f, s, f, tenantId, tenantId])).rows as FilaRespaldoGasto[];
-    const compras = (await trx.raw(SQL_RESPALDO_COMPRA, [s, f, s, f])).rows as FilaRespaldoCompra[];
-    return { gastos, compras };
+    : Promise<FilasDelRespaldo | null> {
+    return leerFilasDelRespaldo(trx, tenantId, pares);
   }
 
   /** `[LE.2.13]` El importe de los documentos de la cola, por lote. `protected`: la prueba contra base real lo sustituye. */
@@ -330,36 +380,8 @@ export class CashbookVentanillaService {
    * a «ninguno» (firma Tesorería), no a «cuadra».
    */
   private async respaldosDe(trx: Knex.Transaction, tenantId: string, pares: ReadonlyArray<[string, string]>)
-    : Promise<Map<string, { respaldo: Respaldo | undefined; vales: ValeConId[]; detalle: VeredictoDePago['detalle'] }>> {
-    const out = new Map<string, { respaldo: Respaldo | undefined; vales: ValeConId[]; detalle: VeredictoDePago['detalle'] }>();
-    const f = pares.length ? await this.filasDelRespaldo(trx, tenantId, pares) : null;
-    for (const [sucursal, folio] of pares) {
-      const k = `${sucursal}|${folio}`;
-      // Sin ODS no se afirma «Kepler no dice qué paga»: no se midió. Queda la regla de siempre (el vale de la cajera).
-      if (!f) { out.set(k, { respaldo: undefined, vales: [], detalle: [] }); continue; }
-      const gs = f.gastos.filter((g) => g.sucursal === sucursal && g.folio === folio);
-      const cs = f.compras.filter((c) => c.sucursal === sucursal && c.folio === folio);
-      if (gs.length) {
-        const gastos = gs.map((g) => ({
-          folio: g.gasto,
-          vale: g.vale_id ? { id: g.vale_id, folio: String(g.vale_folio), estado: String(g.vale_estado),
-            importeCentavos: pesosACentavos(String(g.vale_importe ?? '0')), aprobadoAt: g.vale_aprobado_at } : null,
-        }));
-        out.set(k, { respaldo: { tipo: 'gasto', aplicadoCentavos: gs.reduce((t, g) => t + pesosACentavos(g.aplicado), 0n), gastos },
-          vales: gastos.flatMap((g) => (g.vale ? [g.vale] : [])),
-          detalle: gs.map((g, i) => ({ tipo: 'gasto' as const, folio: g.gasto, aplicado_minor: centavosATexto(pesosACentavos(g.aplicado)),
-            vale_folio: g.vale_folio ?? null, aprobado: gastos[i].vale ? gastos[i].vale?.estado !== 'rechazada' && !!gastos[i].vale?.aprobadoAt : null })) });
-      } else if (cs.length && cs.every((c) => c.importe_doc !== null && c.aplicado_total !== null)) {
-        const pagadosDeMas = cs.filter((c) => pesosACentavos(String(c.aplicado_total)) > pesosACentavos(String(c.importe_doc))).length;
-        out.set(k, { respaldo: { tipo: 'compra', aplicadoCentavos: cs.reduce((t, c) => t + pesosACentavos(c.aplicado), 0n),
-          documentos: cs.length, pagadosDeMas }, vales: [],
-          detalle: cs.map((c) => ({ tipo: 'entrada' as const, folio: c.doc, aplicado_minor: centavosATexto(pesosACentavos(c.aplicado)),
-            vale_folio: null, aprobado: null })) });
-      } else {
-        out.set(k, { respaldo: { tipo: 'ninguno' }, vales: [], detalle: [] });
-      }
-    }
-    return out;
+    : Promise<Map<string, RespaldoDelDocumento>> {
+    return respaldosDeFilas(pares.length ? await this.filasDelRespaldo(trx, tenantId, pares) : null, pares);
   }
 
   /**
@@ -575,14 +597,7 @@ export class CashbookVentanillaService {
         await this.asentarCajon(trx, { id: r.id, documento: r.source_ref, concepto: r.classification.concepto, cajera: r.issued_by,
           llave: r.idempotency_key, acto: r.act, firmo: firma });
       }
-      // `[LE.6.8]` En una reposición, lo del cajón se va con quien lleva el depósito (su custodia), por pieza.
-      if (r.kind === 'reposicion' && r.act && BigInt(r.act.cajon_minor ?? '0') > 0n && r.act.recibe_empleado) {
-        const ctx: Contexto = { actor: { kind: 'persona', user_id: r.issued_by }, valueAt: new Date().toISOString() };
-        const p = aCustodiaDesdeCajon({ empleado: r.act.recibe_empleado, nombre: r.act.recibe, piezas: r.act.piezas_cajon,
-          para: `reposición ${r.source_ref.split(':')[1] ?? ''}` }, ctx, { event_ref: `pago:${r.id}`, meta: { orden: r.id, firmo: firma } });
-        for (const c of p.cuentas) await trx.raw('SELECT cashbook.open_account(?::jsonb)', [JSON.stringify({ ...c, user_id: r.issued_by })]);
-        await trx.raw('SELECT cashbook.post_entry(?::jsonb)', [JSON.stringify(p.asiento)]);
-      }
+      if (r.kind === 'reposicion') await this.cajonACustodiaDeReposicion(trx, r, firma);
       this.logger.log(`[LE.4.10] orden ${r.id} firmada por ${usuario.username ?? firma}`);
       return this.resultadoDe(trx, r.id);
     });
@@ -851,11 +866,29 @@ export class CashbookVentanillaService {
     return new Set(filas.map((f) => f.ref));
   }
 
+  /**
+   * `[LE.6.18]` El veredicto de cada pago que entraría a la hoja: el MISMO `veredictoDePago` (LE.2.13) que
+   * el pago suelto, con lo que Kepler dice que paga (la compra o el gasto y su vale). Sin ODS no hay
+   * veredicto y la hoja pide firma (no medido ≠ autorizado). Medido en prod el 2026-11-06 (sólo
+   * lectura): la hoja de Morelia, 7 de 7 respaldados (4 compras, 3 gastos aprobados), 248 ms.
+   */
+  private async juiciosDeZona(trx: Knex.Transaction, tenantId: string, pagos: readonly PagoDeZona[]): Promise<Map<string, JuicioDePago>> {
+    const xd = pagos.filter((p) => p.doc_tipo === 'X-D-26');
+    return juiciosDePagos(xd, await this.respaldosDe(trx, tenantId, xd.map((p) => [p.sucursal, p.folio] as [string, string])));
+  }
+
+  private async hojaDeZona(trx: Knex.Transaction, tenantId: string, z: ZonaHojaGastos, arranque: string | null, tomados: ReadonlySet<string>)
+    : Promise<HojaDeReposicion> {
+    const pagos = await this.pagosDeZona(trx, tenantId, z);
+    const juicios = await this.juiciosDeZona(trx, tenantId, candidatosDeReposicion(pagos, arranque, tomados));
+    return hojaDeReposicion(z, pagos, arranque, tomados, juicios);
+  }
+
   private async hojas(trx: Knex.Transaction, tenantId: string): Promise<HojaDeReposicion[]> {
     const arranque = await this.arranque(trx, tenantId);
     const tomados = await this.tomados(trx, tenantId);
     const out: HojaDeReposicion[] = [];
-    for (const z of ZONAS_HOJA_GASTOS) out.push(hojaDeReposicion(z, await this.pagosDeZona(trx, tenantId, z), arranque, tomados));
+    for (const z of ZONAS_HOJA_GASTOS) out.push(await this.hojaDeZona(trx, tenantId, z, arranque, tomados));
     return out;
   }
 
@@ -870,9 +903,11 @@ export class CashbookVentanillaService {
   }
 
   /**
-   * Pedir la reposición de una zona: la orden nace «por firmar» SIEMPRE (D-R1); la firma de Tesorería
-   * es la aprobación de la hoja (D28) y es la única. Lo que da la máquina y lo del cajón quedan en
-   * custodia de quien lleva el depósito hasta que el banco lo confirma (§5.5).
+   * Pedir la reposición de una zona. ⭐ `[LE.6.18]` Una sola autorización por pago (D27, que reemplaza a
+   * D-R1 «toda reposición se firma»): si cada pago trae la suya —la compra o el gasto aprobado por una
+   * persona— sale el código sin otra firma; si alguno no la trae, la orden nace «por firmar» y la firma
+   * de Tesorería es la única. Lo detenido ni siquiera entra a la hoja. Lo que da la máquina y lo del
+   * cajón quedan en custodia de quien lleva el depósito hasta que el banco lo confirma (§5.5).
    */
   async pedirReposicion(body: PedirReposicion, usuario: UsuarioDelLibro, idempotencyKey: string | undefined): Promise<ResultadoPago> {
     const cajera = this.quien(usuario);
@@ -895,7 +930,7 @@ export class CashbookVentanillaService {
         throw new UnprocessableEntityException({ codigo: 'sin_quien_lleva',
           mensaje: 'Quien lleva el depósito tiene que tener la responsabilidad «lleva el depósito de la reposición» (D35).' });
       }
-      const hoja = hojaDeReposicion(zona, await this.pagosDeZona(trx, tenantId, zona), await this.arranque(trx, tenantId), await this.tomados(trx, tenantId));
+      const hoja = await this.hojaDeZona(trx, tenantId, zona, await this.arranque(trx, tenantId), await this.tomados(trx, tenantId));
       if (!hoja.renglones.length) throw new UnprocessableEntityException({ codigo: 'hoja_vacia', mensaje: 'La hoja de esa zona no tiene pagos que reponer.' });
       const enHoja = hoja.renglones.map((r) => r.origen_ref);
       if (enHoja.length !== documentos.length || enHoja.some((r) => !documentos.includes(r))) {
@@ -911,7 +946,7 @@ export class CashbookVentanillaService {
       }
       const acto = {
         piezas_cajon: piezas, recibe: lleva.nombre, recibe_empleado: lleva.usuario_id, cajon_minor: hoja.cajon_minor, redondeo_minor: '0',
-        beneficiario: `Reposición ${zona.nombre}`, folio: `${enHoja.length} pagos`, motivo_firma: 'la reposición la firma Tesorería (D-R1)',
+        beneficiario: `Reposición ${zona.nombre}`, folio: `${enHoja.length} pagos`, motivo_firma: hoja.motivo_firma,
         documentos: enHoja, zona: zona.clave, total_minor: hoja.total_minor,
       };
       const vence = (await trx.raw(`SELECT ${FIN_DEL_DIA} AS fin`)).rows[0].fin as Date;
@@ -919,11 +954,27 @@ export class CashbookVentanillaService {
         kind: 'reposicion', amount_minor: hoja.maquina_minor, source_ref: `reposicion:${zona.clave}:${key}`,
         classification: { tipo: 'custodia', empleado: lleva.usuario_id, nombre: lleva.nombre },
         actor: { kind: 'persona', user_id: cajera }, expires_at: new Date(vence).toISOString(),
-        por_firmar: true, act: acto, idempotency_key: key,
+        por_firmar: !!hoja.motivo_firma, act: acto, idempotency_key: key,
       })])).rows[0].o as OrdenEmitida;
-      this.logger.log(`[LE.6.8] reposición ${zona.clave} (${enHoja.length} pagos) por firmar`);
-      return { estado: 'por_firmar', orden_id: o.id, motivo: acto.motivo_firma };
+      if (hoja.motivo_firma) {
+        this.logger.log(`[LE.6.8] reposición ${zona.clave} (${enHoja.length} pagos) por firmar: ${hoja.motivo_firma}`);
+        return { estado: 'por_firmar', orden_id: o.id, motivo: hoja.motivo_firma };
+      }
+      await this.cajonACustodiaDeReposicion(trx, { id: o.id, source_ref: `reposicion:${zona.clave}:${key}`, act: acto, issued_by: cajera });
+      this.logger.log(`[LE.6.18] reposición ${zona.clave} (${enHoja.length} pagos): cada pago trae su autorización, sale el código`);
+      return this.resultadoDe(trx, o.id);
     });
+  }
+
+  /** `[LE.6.8]` En una reposición, lo del cajón se va con quien lleva el depósito (su custodia), por pieza. */
+  private async cajonACustodiaDeReposicion(trx: Knex.Transaction,
+    r: { id: string; source_ref: string; act: ActoDePago | null; issued_by: string }, firmo?: string): Promise<void> {
+    if (!r.act || BigInt(r.act.cajon_minor ?? '0') <= 0n || !r.act.recibe_empleado) return;
+    const ctx: Contexto = { actor: { kind: 'persona', user_id: r.issued_by }, valueAt: new Date().toISOString() };
+    const p = aCustodiaDesdeCajon({ empleado: r.act.recibe_empleado, nombre: r.act.recibe, piezas: r.act.piezas_cajon,
+      para: `reposición ${r.source_ref.split(':')[1] ?? ''}` }, ctx, { event_ref: `pago:${r.id}`, meta: { orden: r.id, ...(firmo ? { firmo } : {}) } });
+    for (const c of p.cuentas) await trx.raw('SELECT cashbook.open_account(?::jsonb)', [JSON.stringify({ ...c, user_id: r.issued_by })]);
+    await trx.raw('SELECT cashbook.post_entry(?::jsonb)', [JSON.stringify(p.asiento)]);
   }
 
   // ── `[LE.6.5]` Custodias: dinero a cargo de una persona hasta que rinde (V6) ──────────────────

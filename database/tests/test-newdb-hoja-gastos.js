@@ -17,6 +17,8 @@ const migracion = require('../migrations-newdb/20261029143450_cga_a65_hoja_gasto
 // El cuadre leía NEW.sheet_id también cuando dispara expense_sheets: cerrar daba 500 en prod (2026-10-30).
 const arregloCuadre = require('../migrations-newdb/20261030133058_cga_a65_hoja_cerrar_y_pagar.js');
 const conConteo = require('../migrations-newdb/20261030140503_cga_a65_hoja_cajon_con_conteo.js');
+// [LE.6.19] La hoja se paga en un acto (cerrada → pagada), sin aprobación aparte, y todo lo del cajón con arqueo.
+const unActo = require('../migrations-newdb/20261106102659_le619_hoja_de_zona_se_paga_en_un_acto.js');
 
 const uuid = () => crypto.randomUUID();
 const TT = uuid();
@@ -209,6 +211,35 @@ async function hoja(trx, numero, renglones, extra = {}) {
       ok(h7b.conteo && h7b.conteo['200'] === 2 && h7b.estado === 'pagada', 'la pagada sin conteo recibe el suyo: 1 × $500 + 2 × $200');
       const errOtroConteo = await intento(trx, () => trx('finance.expense_sheets').where({ id: h7.id }).update(tarde({ conteo: { '500': 1, '100': 4 } })));
       ok(conMensaje(errOtroConteo, 'expense_sheet_resuelta'), `y con su conteo puesto ya no se cambia (${muestra(errOtroConteo)})`);
+
+      console.log('\n── 3d. [LE.6.19] En un acto: cerrada → pagada sin aprobación; todo lo del cajón, contado ──');
+      // PM, 2026-11-06: «¿por qué volver a confirmar una hoja que ya tiene todos los gastos aprobados?» y
+      // «toda reposición que salga del cajón se hace con arqueo».
+      await trx.raw('RESET ROLE');
+      await unActo.up(trx);
+      await comoApp(trx);
+      const h8 = await hoja(trx, 8, [['0000620', 1065]]);
+      await verificaCuadre(trx);
+      const enUnActo = (extra) => pago({ caos_external_id: 9101, caos_total: 1000, cajon: 65, ...extra });
+      const errPicoSinConteo = await intento(trx, () => trx('finance.expense_sheets').where({ id: h8.id }).update(enUnActo({})));
+      ok(conMensaje(errPicoSinConteo, 'expense_sheet_conteo'), `el pico que pone el cajón a un retiro de CAOS también se cuenta (${muestra(errPicoSinConteo)})`);
+      const errInventa = await intento(trx, () => trx('finance.expense_sheets').where({ id: h8.id })
+        .update({ ...enUnActo({ conteo: { '50': 1, '10': 1, '5': 1 }, conteo_morralla: 0 }), aprobada_por: FIN, aprobada_at: trx.fn.now() }));
+      ok(conMensaje(errInventa, 'expense_sheet_resuelta'), `al pagar en un acto no se escribe una aprobación (${muestra(errInventa)})`);
+      const errSinNadie = await intento(trx, () => trx('finance.expense_sheets').where({ id: h8.id }).update({ estado: 'aprobada' }));
+      ok(!!errSinNadie && errSinNadie.constraint === 'expense_sheet_aprobada', `aprobada sigue exigiendo quién y cuándo (${muestra(errSinNadie)})`);
+      await trx('finance.expense_sheets').where({ id: h8.id }).update(enUnActo({ conteo: { '50': 1, '10': 1, '5': 1 }, conteo_morralla: 0 }));
+      const h8b = await trx('finance.expense_sheets').where({ id: h8.id }).first();
+      ok(h8b.estado === 'pagada' && h8b.aprobada_por === null && h8b.conteo['50'] === 1,
+        'cerrada → pagada en un acto, sin aprobación, con el pico del cajón contado (1 × $50 + 1 × $10 + 1 × $5)');
+      const h9 = await hoja(trx, 9, [['0000621', 1000]]);
+      await verificaCuadre(trx);
+      await trx('finance.expense_sheets').where({ id: h9.id }).update(pago({ caos_external_id: 9102, caos_total: 1000, cajon: 0 }));
+      ok((await trx('finance.expense_sheets').where({ id: h9.id }).first()).estado === 'pagada', 'sin un peso del cajón no hay nada que contar: el retiro la cubre entera');
+      const h10 = await hoja(trx, 10, [['0000622', 900]]);
+      await verificaCuadre(trx);
+      const errCajonEntero = await intento(trx, () => trx('finance.expense_sheets').where({ id: h10.id }).update(conCajon({})));
+      ok(conMensaje(errCajonEntero, 'expense_sheet_conteo'), `del cajón entero, en un acto, sin conteo no se paga (${muestra(errCajonEntero)})`);
 
       console.log('\n── 4. Rechazada: sus pagos vuelven a la hoja abierta y pueden ir en otra ──');
       const h3 = await hoja(trx, 3, [['0000600', 500]]);

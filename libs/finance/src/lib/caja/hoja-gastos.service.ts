@@ -6,14 +6,14 @@ import { TenantKnexService, TenantContextService } from '@megadulces/platform-co
 import {
   DIAS_RETIRO_HOJA, ZONAS_HOJA_GASTOS, diaMxDeInstante, folioHoja, revisarConteoCajon,
   type CerrarHojaInput, type ClaveZonaHoja, type HojaAbierta, type HojaGastos, type HojasDeGastos, type MedioPagoHoja,
-  type MotivoHojaInput, type PagarHojaInput, type PagoDeHojaGastos, type PagoHojaResultado, type RegistrarConteoHojaInput,
+  type MotivoHojaInput, type PagarHojaAbiertaInput, type PagarHojaInput, type PagoDeHojaGastos, type PagoHojaResultado, type RegistrarConteoHojaInput,
   type RenglonHoja, type RetiroControlHoja,
   type ZonaHojaGastos,
 } from '@megadulces/contracts';
 import { consultasHoja } from './hoja-gastos.query';
 import {
-  armarHojaAbierta, cuadreDelRetiro, depositoDeHoja, instruccionDePago, pagadoEnControl, retirosQueCuadran,
-  type DepositoBancoHoja, type PagoDeZona, type RetiroCaosConLigas, type RetiroLibreHoja,
+  armarHojaAbierta, cuadreDelRetiro, depositoDeHoja, hojaAbiertaAutorizada, instruccionDePago, loYaRepuesto, pagadoEnControl, retirosQueCuadran,
+  type BancoDeZona, type DepositoBancoHoja, type PagoDeZona, type RetiroCaosConLigas, type RetiroLibreHoja,
 } from './hoja-gastos.engine';
 import { hojasInstaladas } from './hoja-gastos.gate';
 import { redondea2, tomaDelRetiro } from './caja-lote.engine';
@@ -21,6 +21,8 @@ import { leerCandado, sinLlaveDeCaja } from './caja-candado.query';
 import { CajaCustodiaService, sqlCustodiaCerrada, sqlDisponibleCaos } from './caja-custodia.service';
 import { CashLedgerService } from './cash-ledger.service';
 import { altaVinculoCaos } from '../caos/caos.service';
+import { leerFilasDelRespaldo, respaldosDeFilas } from '../cashbook/cashbook-ventanilla.service';
+import { juiciosDePagos } from '../cashbook/reposicion-en-ventanilla';
 
 type Usuario = { id?: string; username?: string };
 
@@ -121,7 +123,8 @@ export class HojaGastosService {
       await trx.raw(`SELECT pg_advisory_xact_lock(hashtext(? || ':hoja-gastos'))`, [tenantId]);
 
       const filas = (await consultasHoja.pagos(trx, tenantId, [...zona.sucursales], zona.desde, { conHojas: true })) as PagoDeZona[];
-      const abierta = armarHojaAbierta(zona, filas, null);
+      // `[LE.6.19]` Lo que espera su aprobación no se cierra, tampoco por este carril.
+      const abierta = await this.autorizada(trx, tenantId, zona, filas, null);
       const porRef = new Map(abierta.renglones.map((r) => [r.origen_ref, r]));
       const ajenos = refs.filter((r) => !porRef.has(r));
       if (ajenos.length) {
@@ -185,104 +188,181 @@ export class HojaGastosService {
   async pagar(id: string, input: PagarHojaInput, user: Usuario): Promise<PagoHojaResultado> {
     const u = this.requireUser(user);
     const tenantId = this.tenantCtx.requireTenantId();
+    const pago = this.pagoPedido(input);
+    const paso = await this.tk.run(async (trx) => {
+      await this.exigePagar(trx, tenantId, u);
+      return this.pagarEnTrx(trx, tenantId, u, id, input, pago, false);
+    });
+    const lote = await this.capturarRefs(paso.porCapturar, pago.medio, paso.mov, u);
+    return this.resultado(tenantId, id, paso.ligados, lote);
+  }
+
+  /**
+   * ⭐ `[LE.6.19]` Pagar la hoja ABIERTA de una zona en UN acto, desde Caja: se cierra y se paga en la misma
+   * transacción, sin aprobación aparte (D27 sobre D28; PM, 2026-11-06: *«¿por qué volver a confirmar una hoja
+   * que ya tiene todos los gastos aprobados?»*). Sólo entra lo que trae su autorización (`hojaAbiertaAutorizada`):
+   * lo detenido se queda en la abierta con su motivo. Si sale un peso del cajón —todo, o el pico que completa
+   * el retiro de CAOS— va su arqueo (*«toda reposición que salga del cajón se hace con arqueo»*); la base lo
+   * vuelve a exigir (`20261106102659`).
+   */
+  async pagarAbierta(zonaClave: string, input: PagarHojaAbiertaInput, user: Usuario): Promise<PagoHojaResultado> {
+    const u = this.requireUser(user);
+    const tenantId = this.tenantCtx.requireTenantId();
+    const zona = this.zona(zonaClave);
+    const refs = Array.isArray(input?.origen_refs) ? [...new Set(input.origen_refs.map((r) => String(r)))] : [];
+    if (!refs.length) throw new BadRequestException('Una reposición sin pagos no se paga: elige al menos uno.');
+    const clientKey = String(input?.client_key ?? '').trim();
+    if (clientKey.length < 8 || clientKey.length > 200) throw new BadRequestException('Falta la llave de la pantalla (client_key).');
+    const pago = this.pagoPedido(input?.pago);
+
+    const paso = await this.tk.run(async (trx) => {
+      await this.exigePagar(trx, tenantId, u);
+      // El doble clic: la misma llave devuelve la misma hoja, no paga otra.
+      const ya = await trx('finance.expense_sheets').where({ tenant_id: tenantId, client_key: clientKey }).first('id', 'zona');
+      if (ya) {
+        if (ya.zona !== zona.clave) throw new ConflictException('Esa llave ya pagó la reposición de otra zona.');
+        return { id: String(ya.id), porCapturar: [] as string[], ligados: 0, mov: null };
+      }
+      // Un cierre a la vez por empresa: el número es consecutivo y un pago no entra en dos hojas.
+      await trx.raw(`SELECT pg_advisory_xact_lock(hashtext(? || ':hoja-gastos'))`, [tenantId]);
+
+      const filas = (await consultasHoja.pagos(trx, tenantId, [...zona.sucursales], zona.desde, { conHojas: true })) as PagoDeZona[];
+      const abierta = await this.autorizada(trx, tenantId, zona, filas, null);
+      const porRef = new Map(abierta.renglones.map((r) => [r.origen_ref, r]));
+      const ajenos = refs.filter((r) => !porRef.has(r));
+      if (ajenos.length) {
+        throw new ConflictException(`La reposición cambió mientras la veías (${ajenos.length} ${ajenos.length === 1 ? 'pago ya no está' : 'pagos ya no están'} o espera su aprobación): vuelve a cargarla.`);
+      }
+      const renglones = refs.map((r) => porRef.get(r) as RenglonHoja);
+      const total = redondea2(renglones.reduce((a, r) => a + r.importe, 0));
+      const max = await trx('finance.expense_sheets').where({ tenant_id: tenantId }).max({ n: 'numero' }).first();
+      const numero = Number(max?.n ?? 0) + 1;
+      // La venta del día ya no la teclea nadie: es el día en que se repone (en las de noviembre decía el 13-oct).
+      const [hoja] = await trx('finance.expense_sheets').insert({
+        tenant_id: tenantId, numero, zona: zona.clave, venta_del_dia: diaMxDeInstante(new Date()), total, renglones: renglones.length,
+        client_key: clientKey, cerrada_por: u.id, created_by: u.id, updated_by: u.id,
+      }).returning('id');
+      await trx('finance.expense_sheet_lines').insert(renglones.map((r) => ({
+        tenant_id: tenantId, sheet_id: hoja.id, origen_ref: r.origen_ref, sucursal: r.sucursal, doc_tipo: r.doc_tipo,
+        folio: r.folio, fecha_pago: r.fecha_pago, fecha_captura: r.fecha_captura, beneficiario: r.beneficiario,
+        clave: r.clave, centro: r.centro, clase: r.clase, importe: r.importe, created_by: u.id, updated_by: u.id,
+      })));
+      return this.pagarEnTrx(trx, tenantId, u, String(hoja.id), input.pago, pago, true);
+    });
+    const lote = await this.capturarRefs(paso.porCapturar, pago.medio, paso.mov, u);
+    return this.resultado(tenantId, paso.id, paso.ligados, lote);
+  }
+
+  /** Con qué se paga, validado antes de abrir la transacción. */
+  private pagoPedido(input: PagarHojaInput | undefined): { medio: MedioPagoHoja; pedido: { device: string; external_id: number } | null } {
     const medio: MedioPagoHoja = input?.medio === 'cajon' ? 'cajon' : 'caos';
     const pedido = input?.medio === 'caos' ? { device: String(input.device ?? '').trim(), external_id: Number(input.external_id) } : null;
     if (medio === 'caos' && (!pedido?.device || !Number.isInteger(pedido.external_id) || pedido.external_id <= 0)) {
       throw new BadRequestException('Falta el retiro de CAOS que paga la hoja.');
     }
+    return { medio, pedido };
+  }
 
-    const paso = await this.tk.run(async (trx) => {
-      if (!(await HojaGastosService.instalada(trx))) throw new ConflictException(NO_INSTALADA);
-      // Con la caja bloqueada (sin corte de ayer) el lote no guarda nada: se dice ANTES de marcarla pagada.
-      const candado = await leerCandado(trx, tenantId, u.id);
-      if (candado.bloqueado) throw new HttpException({ statusCode: HttpStatus.LOCKED, message: candado.texto, candado }, HttpStatus.LOCKED);
-      // `[LE.0.9]` Y sin la llave de la caja la base rechaza cada pago del lote: también ANTES.
-      if (await sinLlaveDeCaja(trx, tenantId, u.id)) throw new ForbiddenException(SIN_LLAVE);
+  /** Lo que se exige ANTES de marcar una hoja pagada: la caja abierta y la llave de quien paga. */
+  private async exigePagar(trx: Knex.Transaction, tenantId: string, u: { id: string }): Promise<void> {
+    if (!(await HojaGastosService.instalada(trx))) throw new ConflictException(NO_INSTALADA);
+    // Con la caja bloqueada (sin corte de ayer) el lote no guarda nada: se dice ANTES de marcarla pagada.
+    const candado = await leerCandado(trx, tenantId, u.id);
+    if (candado.bloqueado) throw new HttpException({ statusCode: HttpStatus.LOCKED, message: candado.texto, candado }, HttpStatus.LOCKED);
+    // `[LE.0.9]` Y sin la llave de la caja la base rechaza cada pago del lote: también ANTES.
+    if (await sinLlaveDeCaja(trx, tenantId, u.id)) throw new ForbiddenException(SIN_LLAVE);
+  }
 
-      const h = await trx('finance.expense_sheets').where({ tenant_id: tenantId, id }).forUpdate()
-        .first('id', 'numero', 'estado', 'total', 'aprobada_por', 'zona');
-      if (!h) throw new NotFoundException('Esa hoja no existe.');
-      const folio = folioHoja(Number(h.numero));
+  /**
+   * El pago de una hoja, dentro de la transacción de quien llama. `unActo`: la hoja se acaba de cerrar en
+   * esta misma transacción (`pagarAbierta`) y no lleva aprobación; si no, es el carril viejo (aprobada → pagada).
+   */
+  private async pagarEnTrx(trx: Knex.Transaction, tenantId: string, u: { id: string; username?: string }, id: string,
+    input: PagarHojaInput | undefined, pago: { medio: MedioPagoHoja; pedido: { device: string; external_id: number } | null }, unActo: boolean) {
+    const { medio, pedido } = pago;
+    const h = await trx('finance.expense_sheets').where({ tenant_id: tenantId, id }).forUpdate()
+      .first('id', 'numero', 'estado', 'total', 'aprobada_por', 'zona');
+    if (!h) throw new NotFoundException('Esa hoja no existe.');
+    const folio = folioHoja(Number(h.numero));
+    if (unActo) {
+      if (h.estado !== 'cerrada') throw new ConflictException(`La hoja ${folio} ya está ${h.estado}.`);
+    } else {
       if (h.estado === 'cerrada') throw new ConflictException(`La hoja ${folio} todavía no está aprobada: sin aprobación no se paga.`);
       if (h.estado !== 'aprobada') throw new ConflictException(`La hoja ${folio} ya está ${h.estado}.`);
       if (String(h.aprobada_por) === u.id) throw new ForbiddenException('Quien aprobó la hoja no la paga: la paga otra persona.');
-      const total = redondea2(Number(h.total));
+    }
+    const total = redondea2(Number(h.total));
 
-      // Edgar, 2026-10-30: «cuando sea de cajón que se haga un arqueo». La misma regla que la pantalla
-      // (contrato) y, debajo, la base (`expense_sheets_transicion`).
-      let conteo: { piezas: Record<string, number>; morralla: number } | null = null;
-      if (medio === 'cajon') {
-        if (!(await HojaGastosService.conConteo(trx))) {
-          throw new ConflictException(SIN_CONTEO);
-        }
-        const v = revisarConteoCajon(input?.medio === 'cajon' ? input.conteo : null, total);
-        if (!v.ok) throw new BadRequestException(`Para pagar ${folio} con el cajón hay que contar lo que sale. ${v.texto}`);
-        conteo = { piezas: v.piezas, morralla: v.morralla };
-      }
+    const renglones = await this.renglonesEnLibro(trx, tenantId, String(h.id), this.zona(String(h.zona)));
+    const pagados = renglones.filter((x) => x.ledger && (x.ledger.ligado || x.ledger.origen_efectivo === 'cajon'));
+    if (pagados.length) {
+      throw new ConflictException(`${pagados.length === 1 ? 'Un pago' : `${pagados.length} pagos`} de la hoja ${folio} ya salieron de otro lado (${pagados.map((x) => x.ledger?.folio).join(', ')}): esta hoja no se puede pagar entera con un solo movimiento. Rechácenla para sacarlos.`);
+    }
+    const sinOrigen = renglones.filter((x) => x.ledger);
+    if (medio === 'cajon' && sinOrigen.length) {
+      throw new ConflictException(`${sinOrigen.length} ${sinOrigen.length === 1 ? 'pago ya está' : 'pagos ya están'} en el libro sin decir de dónde salió el dinero: esta hoja se paga con un retiro de CAOS.`);
+    }
 
-      const renglones = await this.renglonesEnLibro(trx, tenantId, String(h.id), this.zona(String(h.zona)));
-      const pagados = renglones.filter((x) => x.ledger && (x.ledger.ligado || x.ledger.origen_efectivo === 'cajon'));
-      if (pagados.length) {
-        throw new ConflictException(`${pagados.length === 1 ? 'Un pago' : `${pagados.length} pagos`} de la hoja ${folio} ya salieron de otro lado (${pagados.map((x) => x.ledger?.folio).join(', ')}): esta hoja no se puede pagar entera con un solo movimiento. Rechácenla para sacarlos.`);
+    let mov: { device: string; external_id: number; type_id: number; ref: string | null; libre: number } | null = null;
+    let cajon = total;
+    if (pedido) {
+      const custodia = await CajaCustodiaService.hayCustodia(trx);
+      const m = await trx('analytics.caos_cash_movements as m')
+        .where({ 'm.tenant_id': tenantId, 'm.device': pedido.device, 'm.external_id': pedido.external_id })
+        .first('m.device', 'm.external_id', 'm.type_id', 'm.ref', trx.raw('abs(m.total) AS total'),
+          trx.raw(`${sqlDisponibleCaos('m')} AS libre`),
+          trx.raw(`${custodia ? sqlCustodiaCerrada('m') : 'false'} AS cerrada`),
+          trx.raw(`EXISTS (SELECT 1 FROM finance.cash_ledger c WHERE c.tenant_id = m.tenant_id AND c.origen_tipo = 'caos'
+              AND c.origen_ref = m.device || '|' || m.external_id AND c.deleted_at IS NULL AND c.estado <> 'cancelado') AS capturado`));
+      if (!m) throw new NotFoundException('Ese retiro de CAOS no existe.');
+      if (Number(m.type_id) !== TIPO_RETIRO) throw new BadRequestException('Sólo un RETIRO de CAOS (Dispensar) paga la hoja.');
+      if (m.cerrada) throw new ConflictException('Ese retiro tiene su custodia cerrada: ya no paga egresos.');
+      if (m.capturado || Math.abs(Number(m.libre) - Number(m.total)) > 0.005) {
+        throw new ConflictException(`El retiro «${m.ref ?? m.external_id}» ya explica otros egresos: la hoja se paga con un retiro entero, libre.`);
       }
-      const sinOrigen = renglones.filter((x) => x.ledger);
-      if (medio === 'cajon' && sinOrigen.length) {
-        throw new ConflictException(`${sinOrigen.length} ${sinOrigen.length === 1 ? 'pago ya está' : 'pagos ya están'} en el libro sin decir de dónde salió el dinero: esta hoja se paga con un retiro de CAOS.`);
-      }
+      const otra = await trx('finance.expense_sheets').where({ tenant_id: tenantId, caos_device: m.device, caos_external_id: m.external_id }).first('numero');
+      if (otra) throw new ConflictException(`Ese retiro ya pagó la hoja ${folioHoja(Number(otra.numero))}.`);
+      const c = cuadreDelRetiro(total, Number(m.libre));
+      if (!c.ok) throw new ConflictException(c.texto);
+      cajon = c.cajon;
+      mov = { device: String(m.device), external_id: Number(m.external_id), type_id: Number(m.type_id), ref: m.ref ?? null, libre: redondea2(Number(m.libre)) };
+    }
 
-      let mov: { device: string; external_id: number; type_id: number; ref: string | null; libre: number } | null = null;
-      let cajon = total;
-      if (pedido) {
-        const custodia = await CajaCustodiaService.hayCustodia(trx);
-        const m = await trx('analytics.caos_cash_movements as m')
-          .where({ 'm.tenant_id': tenantId, 'm.device': pedido.device, 'm.external_id': pedido.external_id })
-          .first('m.device', 'm.external_id', 'm.type_id', 'm.ref', trx.raw('abs(m.total) AS total'),
-            trx.raw(`${sqlDisponibleCaos('m')} AS libre`),
-            trx.raw(`${custodia ? sqlCustodiaCerrada('m') : 'false'} AS cerrada`),
-            trx.raw(`EXISTS (SELECT 1 FROM finance.cash_ledger c WHERE c.tenant_id = m.tenant_id AND c.origen_tipo = 'caos'
-                AND c.origen_ref = m.device || '|' || m.external_id AND c.deleted_at IS NULL AND c.estado <> 'cancelado') AS capturado`));
-        if (!m) throw new NotFoundException('Ese retiro de CAOS no existe.');
-        if (Number(m.type_id) !== TIPO_RETIRO) throw new BadRequestException('Sólo un RETIRO de CAOS (Dispensar) paga la hoja.');
-        if (m.cerrada) throw new ConflictException('Ese retiro tiene su custodia cerrada: ya no paga egresos.');
-        if (m.capturado || Math.abs(Number(m.libre) - Number(m.total)) > 0.005) {
-          throw new ConflictException(`El retiro «${m.ref ?? m.external_id}» ya explica otros egresos: la hoja se paga con un retiro entero, libre.`);
-        }
-        const otra = await trx('finance.expense_sheets').where({ tenant_id: tenantId, caos_device: m.device, caos_external_id: m.external_id }).first('numero');
-        if (otra) throw new ConflictException(`Ese retiro ya pagó la hoja ${folioHoja(Number(otra.numero))}.`);
-        const c = cuadreDelRetiro(total, Number(m.libre));
-        if (!c.ok) throw new ConflictException(c.texto);
-        cajon = c.cajon;
-        mov = { device: String(m.device), external_id: Number(m.external_id), type_id: Number(m.type_id), ref: m.ref ?? null, libre: redondea2(Number(m.libre)) };
-      }
+    // Edgar, 2026-10-30: «cuando sea de cajón que se haga un arqueo». `[LE.6.19]` PM, 2026-11-06: «toda
+    // reposición que salga del cajón se hace con arqueo» — en el acto nuevo, también el pico que completa
+    // el retiro de CAOS. La misma regla que la pantalla (contrato) y, debajo, la base (`expense_sheets_transicion`).
+    let conteo: { piezas: Record<string, number>; morralla: number } | null = null;
+    if (unActo ? cajon > 0.005 : medio === 'cajon') {
+      if (!(await HojaGastosService.conConteo(trx))) throw new ConflictException(SIN_CONTEO);
+      const v = revisarConteoCajon(input?.conteo ?? null, cajon);
+      if (!v.ok) throw new BadRequestException(`Para pagar ${folio} hay que contar lo que sale del cajón. ${v.texto}`);
+      conteo = { piezas: v.piezas, morralla: v.morralla };
+    }
 
-      await trx('finance.expense_sheets').where({ id: h.id }).update({
-        estado: 'pagada', medio, pagada_por: u.id, pagada_at: trx.fn.now(),
-        caos_device: mov?.device ?? null, caos_external_id: mov?.external_id ?? null, caos_total: mov?.libre ?? null,
-        cajon, updated_by: u.id,
-        ...(conteo ? { conteo: JSON.stringify(conteo.piezas), conteo_morralla: conteo.morralla, conteo_por: u.id, conteo_at: trx.fn.now() } : {}),
-      });
-
-      // Lo capturado sin origen se liga al retiro de la hoja, con las reglas de siempre, en un solo fajo.
-      // ⭐ Pero primero se aparta lo que el lote va a capturar HOY: así el retiro lo cubre entero y la
-      // diferencia que pone el cajón cae en los egresos que ya estaban en el libro (su jornada), no en el
-      // corte de hoy. Una hoja en papel de octubre registrada hoy no inventa un faltante en el cajón de hoy.
-      const porCapturar = redondea2(renglones.filter((x) => !x.ledger).reduce((a, x) => a + x.importe, 0));
-      let libre = redondea2(Math.max(0, (mov?.libre ?? 0) - porCapturar));
-      let ligados = 0;
-      for (const x of sinOrigen) {
-        if (!mov || !x.ledger) break;
-        const toma = tomaDelRetiro(Number(x.ledger.monto), libre);
-        if (toma <= 0) break;
-        await altaVinculoCaos(trx as Knex.Transaction, tenantId, x.ledger, mov, toma,
-          { manual: true, via: 'hoja_gastos', hoja: folio, por: u.username ?? null }, { id: u.id });
-        libre = redondea2(libre - toma);
-        ligados++;
-      }
-      return { porCapturar: renglones.filter((x) => !x.ledger).map((x) => x.origen_ref), ligados, mov };
+    await trx('finance.expense_sheets').where({ id: h.id }).update({
+      estado: 'pagada', medio, pagada_por: u.id, pagada_at: trx.fn.now(),
+      caos_device: mov?.device ?? null, caos_external_id: mov?.external_id ?? null, caos_total: mov?.libre ?? null,
+      cajon, updated_by: u.id,
+      ...(conteo ? { conteo: JSON.stringify(conteo.piezas), conteo_morralla: conteo.morralla, conteo_por: u.id, conteo_at: trx.fn.now() } : {}),
     });
 
-    const lote = await this.capturarRefs(paso.porCapturar, medio, paso.mov, u);
-    return this.resultado(tenantId, id, paso.ligados, lote);
+    // Lo capturado sin origen se liga al retiro de la hoja, con las reglas de siempre, en un solo fajo.
+    // ⭐ Pero primero se aparta lo que el lote va a capturar HOY: así el retiro lo cubre entero y la
+    // diferencia que pone el cajón cae en los egresos que ya estaban en el libro (su jornada), no en el
+    // corte de hoy. Una hoja en papel de octubre registrada hoy no inventa un faltante en el cajón de hoy.
+    const porCapturar = redondea2(renglones.filter((x) => !x.ledger).reduce((a, x) => a + x.importe, 0));
+    let libre = redondea2(Math.max(0, (mov?.libre ?? 0) - porCapturar));
+    let ligados = 0;
+    for (const x of sinOrigen) {
+      if (!mov || !x.ledger) break;
+      const toma = tomaDelRetiro(Number(x.ledger.monto), libre);
+      if (toma <= 0) break;
+      await altaVinculoCaos(trx as Knex.Transaction, tenantId, x.ledger, mov, toma,
+        { manual: true, via: 'hoja_gastos', hoja: folio, por: u.username ?? null }, { id: u.id });
+      libre = redondea2(libre - toma);
+      ligados++;
+    }
+    return { id: String(h.id), porCapturar: renglones.filter((x) => !x.ledger).map((x) => x.origen_ref), ligados, mov };
   }
 
   /**
@@ -340,12 +420,69 @@ export class HojaGastosService {
 
   private async abierta(trx: Knex.Transaction, tenantId: string, zona: ZonaHojaGastos, instalada: boolean, datosAl: string | null) {
     const filas = (await consultasHoja.pagos(trx, tenantId, [...zona.sucursales], zona.desde, { conHojas: instalada })) as PagoDeZona[];
-    const h = armarHojaAbierta(zona, filas, datosAl);
-    if (!h.renglones.length) return { ...h, control_medido: true };
+    const h = await this.autorizada(trx, tenantId, zona, filas, datosAl);
+    if (!h.renglones.length) return h;
+    // `[LE.6.19]` Los retiros de CAOS que la pagan entera: de su último pago a hoy (más los días de gracia).
+    const ultimo = h.renglones.map((r) => r.fecha_pago).sort().pop() as string;
+    const retiros = (await this.retirosQueLasCuadran(trx, tenantId,
+      [{ clave: zona.clave, total: h.total, numero: null, desde: ultimo, hasta: diaMxDeInstante(new Date()) as string }])).get(zona.clave) ?? [];
+    return { ...h, retiros_que_cuadran: retiros };
+  }
+
+  /**
+   * `[LE.6.19]` La abierta con el juicio de cada pago (LE.2.13, el mismo de la Ventanilla): sólo entra lo que
+   * trae su autorización; lo demás queda en `detenidos` con su motivo. Medido en prod el 2026-11-06 (sólo
+   * lectura): la lectura de Kepler para 105 pagos de Morelia, 341 ms.
+   *
+   * ⭐ `[LE.6.20]` Y sólo lo que falta REPONER: lo que una hoja en papel ya pagó (Control) o un depósito ya
+   * repuso sale de `renglones`; lo que el banco ya cubre sin depósito va a `sin_deposito`. Es la misma
+   * función para ver, cerrar y pagar: el servidor rechaza pagar otra vez lo ya repuesto.
+   */
+  private async autorizada(trx: Knex.Transaction, tenantId: string, zona: ZonaHojaGastos, filas: PagoDeZona[], datosAl: string | null) {
+    // Todos los pagos de la zona, con o sin autorización: la hoja en papel y su depósito cubrieron el día
+    // ENTERO. Medido el 2026-11-06: filtrando antes, al 23/10 le faltaban $2,196.84 de pagos hoy
+    // detenidos y ni Control ni el depósito lo reconocían; se ofrecía otra vez.
+    const base = armarHojaAbierta(zona, filas, datosAl).renglones;
+    const candidatos = base.filter((r) => r.doc_tipo === 'X-D-26');
+    const pares = candidatos.map((r) => [r.sucursal, r.folio] as [string, string]);
+    const respaldos = respaldosDeFilas(pares.length ? await leerFilasDelRespaldo(trx, tenantId, pares) : null, pares);
+    const juicios = juiciosDePagos(candidatos, respaldos);
+    if (!base.length) return { ...hojaAbiertaAutorizada(zona, filas, datosAl, juicios), control_medido: true };
     const testigos = await this.testigosDelPapel(trx, tenantId, zona.desde);
-    return testigos
-      ? { ...h, pagado_en_control: pagadoEnControl(zona, h.renglones, testigos.control, testigos.caos), control_medido: true }
-      : h;
+    const papel = testigos ? pagadoEnControl(zona, base, testigos.control, testigos.caos) : [];
+    const banco = await this.bancoDeZona(trx, tenantId, zona);
+    const ya = loYaRepuesto(base, papel, banco);
+    const fuera = new Set([...ya.repuestos, ...ya.sin_deposito.keys()]);
+    const h = hojaAbiertaAutorizada(zona, filas.filter((f) => !fuera.has(f.origen_ref)), datosAl, juicios);
+    return {
+      ...h,
+      pagado_en_control: papel,
+      control_medido: !!testigos,
+      ya_repuestos: ya.ya_repuestos,
+      sin_deposito: base.filter((r) => ya.sin_deposito.has(r.origen_ref))
+        .map((r) => ({ ...r, motivo: ya.sin_deposito.get(r.origen_ref) as string })),
+      banco: { cuenta: banco?.cuenta ?? null, cargado_hasta: banco?.cargado_hasta ?? null },
+    };
+  }
+
+  /**
+   * `[LE.6.20]` La cuenta donde se deposita la reposición de la zona: sus depósitos desde que arranca la
+   * zona y el último día que el estado de cuenta trae. `null` = la zona no tiene cuenta medida o no está en
+   * el catálogo de bancos: no se afirma que nada esté repuesto.
+   */
+  private async bancoDeZona(trx: Knex.Transaction, tenantId: string, zona: ZonaHojaGastos): Promise<BancoDeZona | null> {
+    if (!zona.cuenta_deposito) return null;
+    const cuentas = (await trx('finance.bank_accounts').where('tenant_id', tenantId)
+      .whereRaw('upper(btrim(bank)) = ?', [zona.cuenta_deposito.banco.toUpperCase()])
+      .where('account_label', zona.cuenta_deposito.terminacion).select('id')).map((r) => String(r.id));
+    if (!cuentas.length) return null;
+    const movs = () => trx('finance.bank_movements').where('tenant_id', tenantId).whereNull('deleted_at').whereIn('bank_account_id', cuentas);
+    const [{ hasta }] = await movs().select(trx.raw(`to_char(max(movement_date), 'YYYY-MM-DD') AS hasta`));
+    const depositos: DepositoBancoHoja[] = (await movs().where('amount_in', '>', 0).where('movement_date', '>=', zona.desde)
+      .orderBy([{ column: 'movement_date', order: 'asc' }, { column: 'id', order: 'asc' }])
+      .select(trx.raw('id::text AS id'), trx.raw(`to_char(movement_date, 'YYYY-MM-DD') AS dia`), 'amount_in'))
+      .map((d) => ({ id: d.id, dia: d.dia, importe: redondea2(Number(d.amount_in)) }));
+    return { cuenta: zona.cuenta_deposito.terminacion, cargado_hasta: hasta ?? null, depositos };
   }
 
   /**
@@ -430,7 +567,11 @@ export class HojaGastosService {
         .sort((a, b) => orden(a.sucursal) - orden(b.sucursal) || a.fecha_pago.localeCompare(b.fecha_pago) || a.folio.localeCompare(b.folio));
     };
     const renglones = new Map(filas.map((f) => [String(f.id), renglonesDe(f)]));
-    const cuadran = await this.retirosQueLasCuadran(trx, tenantId, filas.filter((f) => f.estado === 'aprobada'), renglones);
+    const cuadran = await this.retirosQueLasCuadran(trx, tenantId, filas.filter((f) => f.estado === 'aprobada').map((h) => {
+      const ultimo = (renglones.get(String(h.id)) ?? []).map((r) => r.fecha_pago).sort().pop() ?? (diaMxDeInstante(h.cerrada_at) as string);
+      const aprobada = diaMxDeInstante(h.aprobada_at) as string;
+      return { clave: String(h.id), total: Number(h.total), numero: Number(h.numero), desde: ultimo, hasta: aprobada > ultimo ? aprobada : ultimo };
+    }));
     const pagos = await this.pagos(trx, tenantId, filas.filter((f) => f.estado === 'pagada'));
 
     return filas.map((f): HojaGastos => {
@@ -464,14 +605,10 @@ export class HojaGastosService {
    * de su aprobación, si fue después) a `DIAS_RETIRO_HOJA` días; sin nada ligado, sin capturar
    * como movimiento propio, sin custodia cerrada y sin haber pagado otra hoja.
    */
-  private async retirosQueLasCuadran(trx: Knex.Transaction, tenantId: string, aprobadas: Array<Record<string, unknown>>, renglones: Map<string, RenglonHoja[]>) {
+  private async retirosQueLasCuadran(trx: Knex.Transaction, tenantId: string,
+    ventana: Array<{ clave: string; total: number; numero: number | null; desde: string; hasta: string }>) {
     const out = new Map<string, ReturnType<typeof retirosQueCuadran>>();
-    if (!aprobadas.length) return out;
-    const ventana = aprobadas.map((h) => {
-      const ultimo = (renglones.get(String(h['id'])) ?? []).map((r) => r.fecha_pago).sort().pop() ?? (diaMxDeInstante(h['cerrada_at']) as string);
-      const aprobada = diaMxDeInstante(h['aprobada_at']) as string;
-      return { h, desde: ultimo, hasta: aprobada > ultimo ? aprobada : ultimo };
-    });
+    if (!ventana.length) return out;
     const desde = ventana.map((v) => v.desde).sort()[0];
     const hasta = ventana.map((v) => v.hasta).sort().pop() as string;
     const custodia = await CajaCustodiaService.hayCustodia(trx);
@@ -489,9 +626,7 @@ export class HojaGastosService {
     const libres: RetiroLibreHoja[] = (await q.select('m.device', 'm.external_id', 'm.occurred_at', 'm.ref', trx.raw('abs(m.total) AS total')))
       .map((r) => ({ device: String(r.device), external_id: Number(r.external_id), occurred_at: new Date(r.occurred_at).toISOString(),
         dia: diaMxDeInstante(r.occurred_at) as string, ref: r.ref ?? null, total: redondea2(Number(r.total)) }));
-    for (const v of ventana) {
-      out.set(String(v.h['id']), retirosQueCuadran(Number(v.h['total']), Number(v.h['numero']), v.desde, v.hasta, libres));
-    }
+    for (const v of ventana) out.set(v.clave, retirosQueCuadran(v.total, v.numero, v.desde, v.hasta, libres));
     return out;
   }
 
