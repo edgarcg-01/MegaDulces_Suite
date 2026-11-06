@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { abrevUnidadBase, desglose, nombreUnidadBase, opcionesUnidad, paqueteDeCaja, parseCantidad, vendedorDelCliente, descuentoDerivado, descuentoDelMecanismo, textoDescuento, existenciaEnUnidad, tonoFuentePrecio } from './quote-units';
+import { abrevUnidadBase, desglose, esPaquete, nombreUnidadBase, opcionesUnidad, paqueteDeCaja, parseCantidad, vendedorDelCliente, descuentoDerivado, descuentoDelMecanismo, textoDescuento, existenciaEnUnidad, tonoFuentePrecio } from './quote-units';
 import { pasosDelPrecio } from './quote-discount-breakdown';
 import { etiquetaDesglose } from './quote-deliverable-export';
 import type { QuoteCatalogRow } from './quotes.service';
@@ -41,6 +41,17 @@ describe('opcionesUnidad — de menor a mayor, sólo las que el ERP declara', ()
   it('granel por kilo con bulto: Kilo · Bulto 20 kg', () => {
     const o = opcionesUnidad(fila({ unit_base: 'KG', sold_by_kg: true, box_size: 20, box_label: 'BTO' }));
     expect(o.map((x) => `${x.titulo} ${x.detalle}`)).toEqual(['Kilo 1 kg', 'Bulto 20 kg']);
+  });
+
+  it('[COT.30] 70500 (base medio kilo, KG de 2, CJA de 20): el KG sale como «Kilo», no se pierde', () => {
+    const o = opcionesUnidad(fila({ unit_base: '500', pack_size: 2, pack_label: 'KG', box_size: 20, box_label: 'CJA' }));
+    expect(o.map((x) => `${x.rung} ${x.titulo} ${x.tamano}`)).toEqual(['base Unidad 1', 'pack Kilo 2', 'box Caja 20']);
+  });
+
+  it('[COT.30] la intermedia sin rótulo o PAQ sigue siendo «Paquete»; el paquete se desglosa en la caja sólo si ES paquete', () => {
+    expect(opcionesUnidad(fila({ unit_base: 'PZA', pack_size: 10, pack_label: 'PAQ', box_size: 140 }))[1].titulo).toBe('Paquete');
+    expect(esPaquete('KG')).toBe(false);
+    expect(esPaquete(null)).toBe(true);
   });
 });
 

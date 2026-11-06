@@ -32,6 +32,7 @@ import {
   abrevUnidadBase,
   opcionesUnidad,
   paqueteDeCaja,
+  esPaquete,
   desglose,
   parseCantidad,
   vendedorDelCliente,
@@ -2037,7 +2038,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
         unit_label: prev!.unit_label || this.labelUnidadActiva(),
         base_unit: abrevUnidadBase(art.unit_base, art.sold_by_kg),
         // La unidad del MEDIO sólo existe dentro de una unidad mayor (COT.17).
-        pack_size: rung === 'box' ? paqueteDeCaja(factorNum, art.pack_size) : null,
+        pack_size: rung === 'box' && esPaquete(art.pack_label) ? paqueteDeCaja(factorNum, art.pack_size) : null,
         factor: factorNum,
         quantity: qty,
         unit_price: prev!.unit_price,
@@ -2238,7 +2239,10 @@ export class TeleventaQuoteNewComponent implements OnInit {
   }
 
   quitarDeBandeja(id: string): void {
-    this.bandeja.update((items) => items.filter((it) => it.id !== id));
+    const it = this.bandeja().find((x) => x.id === id);
+    this.bandeja.update((items) => items.filter((x) => x.id !== id));
+    // [COT.31] Se dice QUÉ se quitó: la X está al final de la fila y el nombre al principio.
+    if (it) this.toast.add({ severity: 'info', summary: 'Renglón quitado', detail: `${it.quantity} ${it.unit_label} de ${it.name}` });
   }
 
   // ── Guardado Final ──────────────────────────────────────────────────────────

@@ -153,13 +153,38 @@ export function aCentavosPorBase(precio: number, enBase: number, cantidad: numbe
 }
 
 /** `[VTK.1]` Fila de `analytics.v_label_presentations` con la unidad mayor (CJA/BTO/CUB) de un SKU. */
-interface MayorRow {
+export interface MayorRow {
   sku: string;
   unidad: string;
   factor: string | number | null;
   precio_lista: string | number | null;
   mayoreo_precio: string | number | null;
   mayoreo_desde: string | number | null;
+  origen?: string | null;
+}
+
+/**
+ * `[COT.30]` La unidad INTERMEDIA cuando no es PAQ: 70500 «LA ROSA CERETZZA 1 KG» = base `500`
+ * (medio kilo) · KG de 2 a $151.42 · CJA de 20. Kepler vende el KG y el cotizador lo tiraba, porque
+ * `v_label_prices` sólo reconoce PAQ en la ranura 2. Medido 2026-11-06 en las 9 sucursales: 522
+ * filas KG y 9 BTO, las 531 con factor y precio IDÉNTICOS entre `kdii` y `v_label_presentations`.
+ * Va en el peldaño `pack` con su rótulo real; nunca el mismo rótulo que la base o la mayor, y
+ * siempre MENOR que la mayor (si no, no es intermedia).
+ */
+export function unidadIntermedia(
+  filas: MayorRow[],
+  unidadBase: string | null,
+  mayor: { label: string | null; size: number | null },
+): MayorRow | null {
+  const base = norm(unidadBase);
+  const candidatas = filas.filter((r) => {
+    const f = Number(r.factor);
+    return r.origen === 'ranura' && !['PAQ', 'CJA'].includes(r.unidad) && r.unidad !== base
+      && r.unidad !== norm(mayor.label) && Number.isFinite(f) && f > 1 && r.precio_lista !== null
+      && (mayor.size === null || f < mayor.size);
+  });
+  candidatas.sort((a, b) => Number(a.factor) - Number(b.factor));
+  return candidatas[0] ?? null;
 }
 
 /** `[VTK.1]` Escalón de volumen de la unidad mayor leído directo de `kepler_ods.kdpv_prod_util`. */
@@ -479,17 +504,33 @@ export class QuotePricingService {
     //
     // Costo (re-medido 2026-10-04): ~0.15–0.2 s por SKU y ~0.3 s la sucursal completa. El
     // "~3.6 s por SKU" que decía este comentario ya no se reproduce.
+    // `[COT.30]` En la MISMA lectura (la vista es la parte cara) vienen también las candidatas a
+    // unidad intermedia; la mayor se elige igual que antes (CJA primero, luego el factor mayor).
+    const esMayor = (r: MayorRow) => r.unidad === 'CJA'
+      ? r.precio_lista !== null || r.factor !== null
+      : ['BTO', 'CUB'].includes(r.unidad) && Number(r.factor) > 1 && r.precio_lista !== null;
     const mayores = await knex.raw(
-      'SELECT DISTINCT ON (sku) sku, upper(btrim(unidad)) AS unidad, factor, precio_lista, mayoreo_precio, mayoreo_desde'
+      'SELECT sku, upper(btrim(unidad)) AS unidad, factor, precio_lista, mayoreo_precio, mayoreo_desde, origen'
         + ' FROM analytics.v_label_presentations'
         + ' WHERE sucursal = ?' + inSkus('sku')
         + " AND ( (upper(btrim(unidad)) = 'CJA' AND (precio_lista IS NOT NULL OR factor IS NOT NULL))"
-        + "    OR (upper(btrim(unidad)) IN ('BTO', 'CUB') AND factor > 1 AND precio_lista IS NOT NULL) )"
-        + " ORDER BY sku, CASE WHEN upper(btrim(unidad)) = 'CJA' THEN 0 ELSE 1 END, factor DESC NULLS LAST",
+        + "    OR (upper(btrim(unidad)) IN ('BTO', 'CUB') AND factor > 1 AND precio_lista IS NOT NULL)"
+        + "    OR (origen = 'ranura' AND upper(btrim(unidad)) NOT IN ('PAQ', 'CJA') AND factor > 1 AND precio_lista IS NOT NULL) )",
       [branch, ...args],
     );
-    const mayorRows = mayores.rows as MayorRow[];
-    const mayorBySku = new Map<string, MayorRow>(mayorRows.map((r) => [String(r.sku).trim(), r]));
+    const presPorSku = new Map<string, MayorRow[]>();
+    for (const r of mayores.rows as MayorRow[]) {
+      const k = String(r.sku).trim();
+      presPorSku.set(k, [...(presPorSku.get(k) ?? []), r]);
+    }
+    const mayorBySku = new Map<string, MayorRow>();
+    for (const [k, filas] of presPorSku) {
+      const m = filas.filter(esMayor).sort((a, b) =>
+        (a.unidad === 'CJA' ? 0 : 1) - (b.unidad === 'CJA' ? 0 : 1)
+        || (a.factor === null ? 1 : 0) - (b.factor === null ? 1 : 0)
+        || Number(b.factor) - Number(a.factor))[0];
+      if (m) mayorBySku.set(k, m);
+    }
 
     // Volumen de la caja directo de kdpv_prod_util cuando la vista no lo trae: el escalón más
     // chico (> 1) y, a igual escalón, el más barato, por SKU y rótulo.
@@ -569,6 +610,11 @@ export class QuotePricingService {
         if (k) boxVolume = volumeOf(k.min_qty, k.price);
       }
 
+      const boxLabelFinal = boxLabel ?? ((boxSize || p.box_size) ? 'CJA' : null);
+      const medio = num(p.pack_size) === null
+        ? unidadIntermedia(presPorSku.get(sku) ?? [], p.unit_base ?? null, { label: boxLabelFinal, size: boxSize })
+        : null;
+
       out.set(sku, {
         name: p.name ?? null,
         unit_base: p.unit_base ?? null,
@@ -583,7 +629,14 @@ export class QuotePricingService {
               : volumeOf(p.wholesale_piece_min_qty, p.wholesale_piece_price),
             tiers: tiersDe(sku, p.unit_base ?? null),
           },
-          pack: {
+          pack: medio ? {
+            rung: 'pack',
+            label: medio.unidad,
+            price: num(medio.precio_lista),
+            size: num(medio.factor),
+            volume: volumeOf(medio.mayoreo_desde, medio.mayoreo_precio),
+            tiers: tiersDe(sku, medio.unidad),
+          } : {
             rung: 'pack',
             label: p.pack_size ? 'PAQ' : null,
             price: num(p.pack_price),
@@ -594,7 +647,7 @@ export class QuotePricingService {
           },
           box: {
             rung: 'box',
-            label: boxLabel ?? ((boxSize || p.box_size) ? 'CJA' : null),
+            label: boxLabelFinal,
             price: boxPrice,
             size: boxSize,
             volume: boxVolume,
@@ -741,7 +794,7 @@ export class QuotePricingService {
     const rRung: Rung = rung;
     const rStep = step;
     const rQty = quantity;
-    const unitName = rRung === 'box' ? (rStep.label || 'CJA') : (rRung === 'pack' ? 'PAQ' : (rStep.label || 'PZA'));
+    const unitName = rRung === 'box' ? (rStep.label || 'CJA') : (rRung === 'pack' ? (rStep.label || 'PAQ') : (rStep.label || 'PZA'));
     // `[E.27]` Con precarga se filtra en memoria con la MISMA condición que el SQL de abajo.
     const rules: { rows: ReglaDescuento[] } = pre
       ? {

@@ -1,6 +1,6 @@
 // [CG.38.1] Sin `import ... from 'vitest'`: la config usa `globals: true`. Importarlo hace que el
 // archivo NO CARGUE y entonces reporta **0 tests**, no sus casos fallando.
-import { LadderParaRotulo, motivoPromoSinSaldo, PricedLine, rungDeRotulo } from './quote-pricing.service';
+import { LadderParaRotulo, motivoPromoSinSaldo, PricedLine, rungDeRotulo, unidadIntermedia } from './quote-pricing.service';
 
 describe('QuotePricing — Descuentos por Volumen y Peldaño Caja (CJA)', () => {
   it('identifica y expone el volumen tier cuando existe precio de mayoreo por escala', () => {
@@ -161,5 +161,32 @@ describe('[PDV.4] motivoPromoSinSaldo — saldo 0 en una tienda que lleva saldo 
   });
   it('sólo descuento por cantidad: el regalo no está medido', () => {
     expect(motivoPromoSinSaldo(r('sin_control', true, 'gratis_cantidad'))).toBeNull();
+  });
+});
+
+// [COT.30] La unidad intermedia que no es PAQ. Caso real (01, 2026-11-06): 70500 LA ROSA CERETZZA
+// = base `500` (medio kilo) · KG de 2 a $151.42 · CJA de 20 a $1,389.05.
+describe('unidadIntermedia — KG/BTO en la ranura del paquete', () => {
+  const fila = (unidad: string, factor: number | null, precio: number | null, origen = 'ranura') =>
+    ({ sku: '70500', unidad, factor, precio_lista: precio, mayoreo_precio: null, mayoreo_desde: null, origen });
+  const vista = [fila('CJA', 20, 1389.05), fila('KG', 2, 151.42)];
+
+  it('70500: el KG de 2 es la intermedia, por debajo de la caja', () => {
+    expect(unidadIntermedia(vista, '500', { label: 'CJA', size: 20 })?.unidad).toBe('KG');
+  });
+  it('no es intermedia si iguala o rebasa a la mayor', () => {
+    expect(unidadIntermedia([fila('BTO', 20, 900)], 'KG', { label: 'CJA', size: 20 })).toBeNull();
+  });
+  it('nunca la misma unidad que la mayor ni que la base', () => {
+    expect(unidadIntermedia([fila('BTO', 10, 500)], 'KG', { label: 'BTO', size: 10 })).toBeNull();
+    expect(unidadIntermedia([fila('KG', 2, 151.42)], 'KG', { label: 'CJA', size: 20 })).toBeNull();
+  });
+  it('sin precio o de la escalera derivada no cuenta (no se ofrece un botón sin precio detrás)', () => {
+    expect(unidadIntermedia([fila('KG', 2, null)], '500', { label: 'CJA', size: 20 })).toBeNull();
+    expect(unidadIntermedia([fila('KG', 2, 151.42, 'escalera')], '500', { label: 'CJA', size: 20 })).toBeNull();
+  });
+  it('un rótulo KG guardado se resuelve al peldaño pack, no a la base del medio kilo', () => {
+    const led = { unit_base: '500', rungs: { base: { label: '500' }, pack: { label: 'KG' }, box: { label: 'CJA' } } } as unknown as LadderParaRotulo;
+    expect(rungDeRotulo('KG', led)).toBe('pack');
   });
 });

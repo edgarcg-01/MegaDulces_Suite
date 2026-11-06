@@ -154,6 +154,8 @@ export interface QuoteCatalogRow {
   /** Precio de la unidad base. NULL = el ERP no lo publica; **nunca 0** (ADR-056). */
   piece_price: number | null;
   pack_size: number | null;
+  /** [COT.30] `PAQ`, o el rótulo de Kepler de la intermedia (`KG`, `BTO`). NULL = sin intermedia. */
+  pack_label: string | null;
   box_size: number | null;
   /**
    * Rótulo del ERP de la unidad mayor: `CJA`, o `BTO`/`CUB` cuando el producto no tiene caja
@@ -860,7 +862,9 @@ export class CommercialQuotesService {
         // y **0 en la peligrosa**, que sería ofrecer un botón sin precio detrás. El candado exige
         // que ese 0 siga en 0; el 182 se declara, no se esconde.
         `
-        SELECT v.sku, v.name, v.content, v.barcode, v.unit_base, v.piece_price, v.pack_size,
+        SELECT v.sku, v.name, v.content, v.barcode, v.unit_base, v.piece_price,
+               COALESCE(v.pack_size, md.factor) AS pack_size,
+               CASE WHEN v.pack_size IS NOT NULL THEN 'PAQ' ELSE md.unidad END AS pack_label,
                COALESCE(v.box_size, m.factor) AS box_size,
                CASE WHEN v.box_size IS NOT NULL OR v.box_price IS NOT NULL THEN 'CJA'
                     ELSE m.unidad END AS box_label,
@@ -879,6 +883,20 @@ export class CommercialQuotesService {
              ORDER BY s.prioridad
              LIMIT 1
           ) m ON true
+          -- [COT.30] La unidad intermedia que no es PAQ (KG/BTO en la ranura 2 de kdii), con la misma
+          -- regla que unidadIntermedia del motor de precios: medido 2026-11-06, 531 de 531 filas
+          -- con factor y precio idénticos a v_label_presentations (sin botón sin precio detrás).
+          LEFT JOIN LATERAL (
+            SELECT upper(btrim(k.c80)) AS unidad, floor(k.c81)::int AS factor
+              FROM kepler_ods.kdii k
+             WHERE v.pack_size IS NULL
+               AND btrim(k.sucursal) = :branch AND btrim(k.c1) = v.sku
+               AND upper(btrim(k.c80)) NOT IN ('PAQ', 'CJA', '') AND floor(k.c81) > 1 AND NULLIF(k.c91, 0) IS NOT NULL
+               AND upper(btrim(k.c80)) <> upper(coalesce(btrim(v.unit_base), ''))
+               AND upper(btrim(k.c80)) IS DISTINCT FROM m.unidad
+               AND floor(k.c81) < COALESCE(v.box_size, m.factor, 2147483647)
+             LIMIT 1
+          ) md ON true
          ORDER BY
            CASE WHEN upper(v.sku) = upper(:term) THEN 0
                 WHEN v.barcode = :term          THEN 1
@@ -902,6 +920,7 @@ export class CommercialQuotesService {
         unit_base: (r['unit_base'] as string) ?? null,
         piece_price: num(r['piece_price']),
         pack_size: num(r['pack_size']),
+        pack_label: (r['pack_label'] as string) ?? null,
         box_size: num(r['box_size']),
         box_label: (r['box_label'] as string) ?? null,
         sold_by_kg: r['sold_by_kg'] === true,
