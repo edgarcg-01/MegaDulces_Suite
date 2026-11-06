@@ -45,6 +45,10 @@ import {
   opcionesUnidad,
   paqueteDeCaja,
   esPaquete,
+  gramosDeBase,
+  unidadBaseLegible,
+  unidadBaseDesglose,
+  textoHay,
   ORIGENES_COTIZACION,
   desglose,
   parseCantidad,
@@ -438,8 +442,9 @@ const ORIGENES = ORIGENES_COTIZACION;
               <p-select
                 inputId="dirAlta"
                 class="dir-select-alta"
-                [options]="dd"
+                [options]="opcionesDireccion()"
                 optionValue="key"
+                optionLabel="etiqueta"
                 [ngModel]="direccionAlta()"
                 (ngModelChange)="direccionAlta.set($event)"
                 [placeholder]="'Elige a dónde se entrega (' + dd.length + ' direcciones en Kepler)'"
@@ -532,7 +537,7 @@ const ORIGENES = ORIGENES_COTIZACION;
                       <div class="cat-col-meta">
                         <span class="cat-sku">{{ p.sku }}</span>
                         @if (p.barcode) { <span class="cat-bc">EAN: {{ p.barcode }}</span> }
-                        <span class="cat-un">{{ p.sold_by_kg ? 'KG' : (p.unit_base || 'PZA') }}</span>
+                        <span class="cat-un">{{ baseLegible(p) }}</span>
                         <!-- [COT.29] La existencia desde la búsqueda, en la unidad base de Kepler. -->
                         <span class="cat-exist" [class.cat-exist-sin]="existenciaDe(p.sku) === 0">{{ textoExistencia(p) }}</span>
                       </div>
@@ -574,7 +579,7 @@ const ORIGENES = ORIGENES_COTIZACION;
                 <span class="pill-meta">SKU <b>{{ e.sku }}</b></span>
                 @if (e.barcode) { <span class="pill-meta">EAN {{ e.barcode }}</span> }
                 @if (e.content) { <span class="pill-meta">Contenido {{ e.content }}</span> }
-                <span class="pill-meta">Base <b>{{ e.sold_by_kg ? 'Kilogramo' : (e.unit_base || 'Pieza') }}</b></span>
+                <span class="pill-meta">Base <b>{{ e.sold_by_kg ? 'Kilogramo' : (gramosDeBase(e) ? baseLegible(e) : (e.unit_base || 'Pieza')) }}</b></span>
                 <!-- [COT.29] La existencia sigue a la vista con el artículo ya elegido. -->
                 <span class="pill-meta cat-exist" [class.cat-exist-sin]="existenciaElegido() === 0">{{ textoExistencia(e, existenciaElegido()) }}</span>
                 <p-button
@@ -1339,6 +1344,11 @@ export class TeleventaQuoteNewComponent implements OnInit {
   // ── [COT.26] Dirección de entrega y [COT.28] observaciones, desde el alta ────────────────────
   /** null = todavía no se sabe (o la lectura falló): no se pinta nada y se decide en el detalle. */
   readonly direccionesCliente = signal<DireccionEntrega[] | null>(null);
+  /**
+   * [COT.38] Las opciones con su rótulo de texto: sin `optionLabel`, p-select anunciaba la opción
+   * elegida como «[object Object]» al lector de pantalla (medido en la pantalla viva, 2026-11-06).
+   */
+  readonly opcionesDireccion = computed(() => (this.direccionesCliente() ?? []).map((d) => ({ ...d, etiqueta: this.etiquetaDireccion(d) })));
   readonly direccionAlta = signal<string | null>(null);
   observaciones = '';
   private dirPedida = 0;
@@ -1597,7 +1607,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
     if (q === undefined) return 'existencia…';
     if (q === null) return 'sin dato de existencia';
     if (q <= 0) return 'sin existencia';
-    return 'hay ' + q.toLocaleString('es-MX', { maximumFractionDigits: 2 }) + ' ' + (p.sold_by_kg ? 'KG' : (p.unit_base || 'PZA'));
+    return textoHay(q, p);
   }
 
   /** La existencia del artículo ELEGIDO, propia: la de la búsqueda cambia en cuanto se teclea otra. */
@@ -2108,7 +2118,13 @@ export class TeleventaQuoteNewComponent implements OnInit {
   onTecla(ev: KeyboardEvent): void {
     const a = atajoDeTecla(ev, { crear: true });
     if (!a) return;
-    if (a.tipo === 'buscar') { ev.preventDefault(); this.volverAlBuscador(); return; }
+    if (a.tipo === 'buscar') {
+      ev.preventDefault();
+      // [COT.38] Sin sucursal el buscador está apagado: «/» lleva al selector de sucursal, que es lo que falta.
+      if (!this.sucursal()) { this.host.nativeElement.querySelector<HTMLElement>('#sucursalSelect')?.focus(); return; }
+      this.volverAlBuscador();
+      return;
+    }
     if (a.tipo === 'crear') { ev.preventDefault(); if (this.puedeCrear() && !this.guardando()) this.crear(); return; }
     const o = this.articuloElegido() ? this.opcionesUnidadElegido()[a.indice] : undefined;
     if (o) { ev.preventDefault(); this.setRung(o.rung); }
@@ -2144,7 +2160,17 @@ export class TeleventaQuoteNewComponent implements OnInit {
 
   /** Abreviatura de la unidad base para el desglose ("12 PAQ $41.82"), nunca "PZS" fijo. */
   abrevBase(e: QuoteCatalogRow | null): string {
-    return abrevUnidadBase(e?.unit_base, !!e?.sold_by_kg);
+    return e ? unidadBaseDesglose(e) : abrevUnidadBase(null, false);
+  }
+
+  /** [COT.38] «500 g» si el ERP prueba los gramos; si no, KG/PAQ/PZA. */
+  baseLegible(e: QuoteCatalogRow): string {
+    return unidadBaseLegible(e);
+  }
+
+  /** [COT.38] Para la plantilla: ¿el ERP prueba los gramos de la base? */
+  gramosDeBase(e: QuoteCatalogRow): number | null {
+    return gramosDeBase(e);
   }
 
   labelUnidadActiva(): string {
@@ -2221,7 +2247,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
         content: art.content,
         rung,
         unit_label: prev!.unit_label || this.labelUnidadActiva(),
-        base_unit: abrevUnidadBase(art.unit_base, art.sold_by_kg),
+        base_unit: unidadBaseDesglose(art),
         // La unidad del MEDIO sólo existe dentro de una unidad mayor (COT.17).
         pack_size: rung === 'box' && esPaquete(art.pack_label) ? paqueteDeCaja(factorNum, art.pack_size) : null,
         factor: factorNum,

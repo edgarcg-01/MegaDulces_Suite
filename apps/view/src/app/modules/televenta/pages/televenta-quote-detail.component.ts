@@ -40,6 +40,10 @@ import {
   type DireccionEntrega,
   type DireccionesCotizacion,
   type CambiosCabecera,
+  gramosDeBase,
+  unidadBaseLegible,
+  unidadBaseDesglose,
+  textoHay,
   type QuoteOrigin,
   type WholesaleCustomer,
   ORIGENES_COTIZACION,
@@ -253,7 +257,7 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
                 <label class="ed-lbl" for="edDir">Entregar en</label>
                 @if (edDirecciones(); as dd) {
                   @if (dd.length) {
-                    <p-select inputId="edDir" [options]="dd" optionValue="key" [ngModel]="edDireccion()" (ngModelChange)="edDireccion.set($event)"
+                    <p-select inputId="edDir" [options]="edOpcionesDir()" optionValue="key" optionLabel="etiqueta" [ngModel]="edDireccion()" (ngModelChange)="edDireccion.set($event)"
                       [showClear]="true" placeholder="Sin elegir (se pide antes de mandar a Kepler)" appendTo="body" [fluid]="true">
                       <ng-template #selectedItem let-o>{{ etiquetaDireccion(o) }}</ng-template>
                       <ng-template #item let-o>{{ etiquetaDireccion(o) }}@if (o.ruta) { <span class="t-sub"> · ruta {{ o.ruta }}</span> }</ng-template>
@@ -387,7 +391,7 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
                           <div class="cat-col-meta">
                             <span class="cat-sku">{{ p.sku }}</span>
                             @if (p.barcode) { <span class="cat-bc">EAN: {{ p.barcode }}</span> }
-                            <span class="cat-un">{{ p.sold_by_kg ? 'KG' : (p.unit_base || 'PZA') }}</span>
+                            <span class="cat-un">{{ baseLegible(p) }}</span>
                             <!-- [COT.29] La existencia desde la búsqueda, en la unidad base de Kepler. -->
                             <span class="cat-exist" [class.cat-exist-sin]="existenciaDe(p.sku) === 0">{{ textoExistencia(p) }}</span>
                           </div>
@@ -427,7 +431,7 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
                       <span class="pill-meta">SKU: <b>{{ e.sku }}</b></span>
                       @if (e.barcode) { <span class="pill-meta">EAN: {{ e.barcode }}</span> }
                       @if (e.content) { <span class="pill-meta">Contenido: {{ e.content }}</span> }
-                      <span class="pill-meta">Unidad base: <b>{{ e.sold_by_kg ? 'Kilogramo' : (e.unit_base || 'Pieza') }}</b></span>
+                      <span class="pill-meta">Unidad base: <b>{{ e.sold_by_kg ? 'Kilogramo' : (gramosDeBase(e) ? baseLegible(e) : (e.unit_base || 'Pieza')) }}</b></span>
                     </div>
                   </div>
 
@@ -778,8 +782,9 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
                     <p-select
                       inputId="dirEntrega"
                       class="dir-select"
-                      [options]="dd.direcciones"
+                      [options]="opcionesDireccion()"
                       optionValue="key"
+                      optionLabel="etiqueta"
                       [ngModel]="dd.elegida"
                       (ngModelChange)="elegirDireccion($event)"
                       placeholder="Elige a dónde se entrega…"
@@ -1292,7 +1297,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
     if (q === undefined) return 'existencia…';
     if (q === null) return 'sin dato de existencia';
     if (q <= 0) return 'sin existencia';
-    return 'hay ' + q.toLocaleString('es-MX', { maximumFractionDigits: 2 }) + ' ' + (p.sold_by_kg ? 'KG' : (p.unit_base || 'PZA'));
+    return textoHay(q, p);
   }
 
   readonly buscando = signal(false);
@@ -1565,6 +1570,8 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   readonly edBuscando = signal(false);
   readonly edResultados = signal<WholesaleCustomer[]>([]);
   readonly edDirecciones = signal<DireccionEntrega[] | null>(null);
+  /** [COT.38] Con rótulo de texto: sin `optionLabel` el lector de pantalla oía «[object Object]». */
+  readonly edOpcionesDir = computed(() => (this.edDirecciones() ?? []).map((d) => ({ ...d, etiqueta: this.etiquetaDireccion(d) })));
   readonly edDireccion = signal<string | null>(null);
   readonly edVendedores = signal<Array<{ code: string; etiqueta: string; name: string }>>([]);
   readonly edVendedor = signal<string | null>(null);
@@ -1739,7 +1746,17 @@ export class TeleventaQuoteDetailComponent implements OnInit {
 
   /** Abreviatura de la unidad base para el desglose ("12 PAQ $41.82"), nunca "PZS" fijo. */
   abrevBase(e: QuoteCatalogRow | null): string {
-    return abrevUnidadBase(e?.unit_base, !!e?.sold_by_kg);
+    return e ? unidadBaseDesglose(e) : abrevUnidadBase(null, false);
+  }
+
+  /** [COT.38] «500 g» si el ERP prueba los gramos; si no, KG/PAQ/PZA. */
+  baseLegible(e: QuoteCatalogRow): string {
+    return unidadBaseLegible(e);
+  }
+
+  /** [COT.38] Para la plantilla: ¿el ERP prueba los gramos de la base? */
+  gramosDeBase(e: QuoteCatalogRow): number | null {
+    return gramosDeBase(e);
   }
 
   /** "Padre Hidalgo" para la tira de condiciones (mismo catálogo que rotula el entregable). */
@@ -2028,6 +2045,8 @@ export class TeleventaQuoteDetailComponent implements OnInit {
 
   // ── [COT.26] Dirección de entrega (kdudent → Dir. envío del pedido) ─────────────────────────
   readonly direcciones = signal<DireccionesCotizacion | null>(null);
+  /** [COT.38] Las del riel, con rótulo de texto para el lector de pantalla. */
+  readonly opcionesDireccion = computed(() => (this.direcciones()?.direcciones ?? []).map((d) => ({ ...d, etiqueta: this.etiquetaDireccion(d) })));
   readonly guardandoDireccion = signal(false);
   /** Con varias direcciones y ninguna elegida no se acepta: vacía, Kepler la manda a la 1. */
   readonly faltaDireccion = computed(() => {
