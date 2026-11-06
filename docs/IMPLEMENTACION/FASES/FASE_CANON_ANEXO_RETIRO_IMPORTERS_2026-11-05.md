@@ -134,6 +134,44 @@ lecturas por índice eran los upserts del propio importer.
   (con prueba negativa). En su primera corrida atrapó dos textos que todavía nombraban la
   mensual. Su etiqueta en `run-all-tests.js` quedó vieja: ese archivo tiene cambios de otra sesión.
 
+## 2f. Oleada 5 — repuntes y errores (2026-11-06; Edgar: «termina con todos los innecesarios o erróneos»)
+
+Mismo método que la oleada 1: comparación en seco contra la tabla de prod (sólo lectura,
+`system_identifier` verificado), cada diferencia clasificada y un control negativo en rojo. Lo que no
+cuadró **no se repuntó**. Todos aceptan `--source=` para volver a la fuente vieja.
+
+| Item | Qué | Comparación | Lo que cambia |
+|---|---|---|---|
+| **CANON.5.11** consolidado | `mart.refresh_si_cambio` por servidores `dblink_fdw` con keepalives y `statement_timeout` remoto; sin contraseña en el código | prueba de corte de red: 9 s contra colgado indefinido; prueba negativa 2 s | aplicado en md el 2026-11-06 |
+| **CANON.5.12** `import-ap-findings` | POS → ODS + **H4**: se descarta el renglón ajeno sólo si existe idéntico en su base dueña | 1,135/1,154 proveedores iguales; las 19 son frescura (captura posterior al nocturno, por `kdm1.c68`) | 9 proveedores de la `03` bajan (H4 cerrado) |
+| **CANON.5.13** `import-ledger-chain` | POS → ODS; la cadena se arma en orden estable | balanza 2,467/2,562 (95 frescura, 0 sin explicar); cadena 14,749/14,806, 44 desempates igual de válidos | la cadena deja de depender del orden físico |
+| **CANON.5.14** `import-expenses-polizas` | POS → ODS; líneas numeradas por el renglón de Kepler (`c7`); un folio sin líneas en el ODS ya no borra las de la tabla | 19,459/19,459 presentes + 73 frescura; 4 filas toman un departamento que el ODS no borró | la numeración deja de cambiar cada noche |
+| **CANON.5.15** `import-top-sellers-from-consolidado` | `mart` → `sales_daily` | top-100 idéntico; el `mart` contaba doble las rutas de Padre Hidalgo (base 01 + push) | `units_sold` en unidad canónica |
+| **CANON.5.16** `import-route-push-monthly` | `mart` → Σ `route_push_lines`; en el carril las líneas van antes | las 77 ruta×mes ya existen y ninguna cambia | — |
+| **CANON.5.18** `import-sales-by-route-monthly` | POS → ODS | 224/248; las 24 son noviembre con el ODS más alto | no toca H7 (escribe `UD…`, no `WIN-`) |
+| **CANON.5.19** `import-product-sales-daily` | POS → ODS | 726,835/726,835 en 180 días | — |
+| **CANON.5.21** `import-transfers-monthly` | POS → ODS | 1,070 filas iguales | ver D6 |
+| **CANON.5.23** H12/H6 | una sola función de identidad (retail primero) para el hop-2 y `repoint-catalog-names` | 0 diferencias contra el barrido en 9,554 SKUs; la regla vieja del hop-2 da 6 en rojo | al desplegar: 1 nombre y 4 códigos de barras (gana el de las tiendas) |
+| **CANON.5.24** H11 | el hop-2 firma `app.actor = 'hop2:<normalizador>'` y lo restaura | prueba nueva en `test-newdb-master-data-history.js`; dos mutantes en rojo | `master_data_history` deja de tener escrituras anónimas |
+| **CANON.5.26** H9 + H9 bis | `import-sales-fact`: mapa SKU→id determinista, gana la fila viva; migración `20261106130742_sales_daily_reasigna_productos_borrados` | el mapa sin orden escribía la misma venta a nombre de las dos filas del SKU: ~0.02 % de la venta del periodo contada doble | la migración borra las copias y reasigna el resto; **va DESPUÉS de desplegar la imagen** |
+
+**No se repuntaron, con la causa medida:**
+- `import-rotation-from-consolidado`: su `u90` está en pieza suelta (`units × factor_sale`); `sales_daily`
+  no, y 3,085 SKUs difieren de 10× a 94×. Pide pasarle su modelo de unidades.
+- `import-kardex`: 3 mermas reales de la `06` cuya cabecera llegó al ODS y su renglón `kdij` no
+  (el hueco de OBS.15.9, que estaba registrado sólo para la `00`). Repuntar perdería mermas.
+- `import-pos-cashiers`: el ODS tiene `kdpv_kdku` pero no recoge las ediciones de nombre (6 de 1,359).
+- `import-supplier-params` (H5): ver D5.
+
+**Lo que sigue sin esto (declarado):** las VISTAS que exigen borrar la tabla (`cash-sessions`,
+`box-price`, `pos-ticket-sales`) esperan D2; `branch-stock-live` (~40 lectores) y `sales-fact` /
+`customer-sales` (D4) son trabajo de fase. Los huecos viejos del `kdm2`/`kdij` del ODS (bases 00, 01,
+06 y 08, antes del 26-oct) no tienen relleno y pegan a otros lectores además de éstos.
+
+**NO MEDIDO:** el camino `--apply` de los repuntados (corre en la primera noche desplegada) y el
+`--source=branch` (los POS sólo aceptan a md). La migración de CANON.5.26 sólo se ejerció en una base
+desechable.
+
 ## 3. Los 51, clasificados
 
 **Leyenda.** **Lee:** `ods` = `kepler_ods` · `réplicas` = bases `md_*` por sucursal · `mart` = el
@@ -178,6 +216,11 @@ SE QUEDA · RETIRADO.
 > hora) e `import-replenishment-plan` **~23 h**. Son los más caros del carril, con diferencia.
 
 ### 3.3 La deuda de la regla 1 (24), por prioridad
+
+> **Al 2026-11-06** la tabla de abajo es el inventario del 11-05. Ya repuntados en la oleada 5 (§2f):
+> `ap-findings`, `ledger-chain`, `expenses-polizas`, `top-sellers`, `route-push-monthly`,
+> `sales-by-route-monthly`, `product-sales-daily`, `transfers-monthly`. No repuntados con causa medida:
+> `rotation`, `kardex`, `pos-cashiers`.
 
 Prioridad = dinero en juego × esfuerzo ([criterios del PM](../../../.claude/skills/pm/references/criterios.md) §1).
 ⚠️ **El monto en pesos NO SE MIDIÓ en ningún renglón.** «Alto» sale de la clase («una cifra con la que
@@ -303,6 +346,17 @@ se decide dinero: margen, pagos, precios»), no de un monto.
 - **D4 — El push de las camionetas: ¿se replica al ODS o sigue como única fuente en el `mart`?**
   Decide si `sales-fact` y `customer-sales` pueden terminar de repuntarse. **Recomendación: que siga
   en el `mart` hasta que el proyecto de camionetas (`route-push`) se estabilice.**
+
+- **D5 — Parámetros de proveedor (H5): ¿se marca qué valor es manual?** Medido el 2026-11-06: de 290
+  proveedores derivables, 260 tienen hoy al menos un valor distinto del que se derivaría (cadencia,
+  colchón, mínimos). El importer sólo llena NULL porque la app los edita sin `updated_by` y no hay
+  historia: no se sabe qué capturó una persona. **Recomendación:** una columna de procedencia
+  (`derivado`/`manual`) por migración, que la app marque `manual` al editar, y que el importer refresque
+  sólo lo derivado.
+- **D6 — `analytics.transfers_monthly` (CEDIS, salida) está inflada ~10 % en el primer semestre.** El
+  catálogo de destinos `kdud` se renombró y el upsert GREATEST nunca retira el renglón con el nombre
+  viejo: el mismo documento queda bajo dos destinos. **Recomendación:** volverla vista sobre el ODS
+  (junto con D2); mientras, una corrida con `--reset`.
 
 ## 7. Qué NO incluye este anexo
 
