@@ -854,7 +854,7 @@ export class StoreService {
 
   /**
    * SM.10 — Cajas ABIERTAS ahora + quién está cobrando. Atribución POR CAJA:
-   *  - `analytics.cash_sessions` (status=open, hoy) da qué CAJA está abierta, la hora de
+   *  - `analytics.v_cash_sessions` (status=open, de la tienda) da qué CAJA está abierta, la hora de
    *    apertura y el cajero ASIGNADO (`cajero_code` = kdpv c8; NO el c7/opener, que suele
    *    ser un supervisor que abre todas las cajas).
    *  - `analytics.store_live_tickets` de hoy, agrupado por (sucursal, CAJA) (kdm1.c5),
@@ -928,7 +928,10 @@ export class StoreService {
     });
     const odsMap = new Map(ods.map((o: any) => [`${o.warehouse_code}|${o.caja}`, o]));
 
-    const sesQ = k('analytics.cash_sessions as s')
+    // `[VEX.9]` La vista sobre el ODS (`kepler_ods.kdpv_folio_caja`), no la tabla del importer. Sólo
+    // las cajas de la TIENDA (`es_tienda`): la `01` guarda en el mismo libro las sesiones de sus
+    // camionetas (`c1` = 01-001…01-006), que el importer mezclaba aquí como «caja 1».
+    const sesQ = k('analytics.v_cash_sessions as s')
       .leftJoin('analytics.pos_cashiers as pc', function (this: any) {
         this.on('pc.tenant_id', '=', 's.tenant_id').andOn('pc.warehouse_code', '=', 's.warehouse_code').andOn('pc.cajero_code', '=', 's.cajero_code');
       })
@@ -940,12 +943,10 @@ export class StoreService {
        * mirar. Medido en la data: 14 sesiones en `open` y la pantalla mostrando 0,
        * una de ellas arrastrada desde hacía dos días.
        *
-       * La ventana son 2 días porque es la que refresca `import-cash-sessions`
-       * (lee las aperturas recientes): más atrás no re-verifica, y una sesión que
-       * se cerró en Kepler fuera de esa ventana se quedaría marcada abierta para
-       * siempre. Mostrar solo lo que el importer confirma evita inventar cajas.
+       * La ventana son 2 días: más atrás, Kepler conserva sesiones que nadie cerró
+       * nunca (18 «abiertas» en la `01`, medido 2026-11-06) y no son cajas vivas.
        */
-      .where('s.tenant_id', TENANT).where('s.status', 'open')
+      .where('s.tenant_id', TENANT).where('s.status', 'open').where('s.es_tienda', true)
       .andWhereRaw(`s.business_date >= (${todayMX} - INTERVAL '2 days')`)
       .select('s.warehouse_code', 's.warehouse_name', 's.caja', 's.cajero_code',
         k.raw('pc.nombre AS cajero_nombre'),
@@ -998,22 +999,32 @@ export class StoreService {
      * durante esas 48 h esta pantalla habría dicho "no hay cajas abiertas" y todo
      * el mundo lo habría creído. Se devuelven dos relojes distintos:
      *
-     *   `al`         — cuándo corrió por última vez el importer (¿nos llegan datos?)
+     *   `al`         — la última lectura sin error del carril del ODS que trae las cajas
+     *                  (`ods_live_hot`), de la sucursal MÁS atrasada (¿nos llegan datos?)
      *   `ultimo_dia` — el día más reciente del que sabemos algo (¿son de hoy?)
      *
-     * El importer puede estar corriendo puntual y aun así traer el día equivocado si
-     * el CDC que lo alimenta se quedó atrás — por eso hacen falta los dos.
+     * El carril puede estar corriendo puntual y aun así traer el día equivocado si
+     * Kepler o su réplica se quedaron atrás — por eso hacen falta los dos.
+     * `[VEX.9]` Antes `al` era la última corrida de `import-cash-sessions`, que ya no existe.
      */
-    const feedQ = this.knex('analytics.cash_sessions')
-      .where('tenant_id', TENANT)
-      .select(
-        k.raw('MAX(updated_at) AS al'),
-        k.raw('MAX(business_date)::text AS ultimo_dia'),
-        k.raw(`(${todayMX})::text AS hoy`),
+    const sucs: string[] | null = filtrar ? (warehouses as string[]) : null;
+    const f: any = (await this.knex
+      .raw(
+        `SELECT (SELECT min(x.al) FROM (
+                   SELECT btrim(b.sucursal) AS suc, max(b.last_check_at) AS al
+                     FROM analytics.ods_branch_checks b
+                    WHERE b.lane = 'ods_live_hot' AND b.last_error IS NULL
+                      AND (?::text[] IS NULL OR btrim(b.sucursal) = ANY(?::text[]))
+                      AND btrim(b.sucursal) IN (SELECT DISTINCT v.warehouse_code FROM analytics.v_cash_sessions v WHERE v.es_tienda)
+                    GROUP BY 1) x) AS al,
+                (SELECT max(v.business_date)::text FROM analytics.v_cash_sessions v
+                  WHERE v.tenant_id = ? AND v.es_tienda
+                    AND (?::text[] IS NULL OR v.warehouse_code = ANY(?::text[]))) AS ultimo_dia,
+                (${todayMX})::text AS hoy`,
+        [sucs, sucs, TENANT, sucs, sucs],
       )
-      .first();
-    if (filtrar) feedQ.whereIn('warehouse_code', warehouses as string[]);
-    const f: any = (await feedQ.catch(() => null)) || {};
+      .then((r: any) => r.rows?.[0])
+      .catch(() => null)) || {};
     const alMs = f.al ? new Date(f.al).getTime() : null;
     const minutos = alMs != null ? Math.round((NOW - alMs) / 60000) : null;
     const atrasado = !!(f.ultimo_dia && f.hoy && f.ultimo_dia < f.hoy);
@@ -1036,7 +1047,7 @@ export class StoreService {
      *     daría por fresco cuando el dato ya no es de hoy.
      */
     const freshness = composeFreshness([
-      evalInput('store_cash_sessions', 'Cajas (carga del importer)', f.al || null, 0.75),
+      evalInput('store_cash_sessions', 'Cajas (lectura del ODS de Kepler)', f.al || null, 0.75),
       {
         key: 'store_business_day',
         label: 'Día de los datos',
