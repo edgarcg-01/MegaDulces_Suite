@@ -315,6 +315,10 @@ const foldText = (s: string | null | undefined): string =>
                 <div class="pn">{{ p.product_name }}</div>
                 <div class="pm">
                   <span class="pr" [class.off]="mayoreoAplicado(p.product_id)">{{ fmtMoney(unitPriceDisplay(p)) }}<span class="pr-u">&nbsp;c/u</span></span>
+                  <!-- [VEX.2] Sin escalera de Kepler ni precio de la plaza, el número es el de toda la red: se dice. -->
+                  @if (precioDeRed(p)) {
+                    <span class="pr-red" title="Esta sucursal no tiene precio propio para este producto: es el de la lista de toda la red">precio de red</span>
+                  }
                   <!-- Selector de medida (de menor a mayor): solo si el SKU ofrece más de una. -->
                   @if (hasUnitChoice(p)) {
                     <span class="unit-sel" role="group" aria-label="Unidad">
@@ -669,6 +673,7 @@ const foldText = (s: string | null | undefined): string =>
       .prod .pm { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; font-size: 0.78rem; color: var(--text-muted); margin-top: 0.15rem; }
       .prod .pm .pr { font-family: var(--font-mono); font-weight: 700; color: var(--action); font-variant-numeric: tabular-nums; }
       .prod .pm .stk { font-weight: 600; }
+      .prod .pm .pr-red { font-size: 0.72rem; font-weight: 600; color: var(--text-muted); border: 1px solid var(--border-color); border-radius: var(--r-sm); padding: 0 0.3rem; }
       /* [MCP.3.6] Precio normal + mayoreo. El aplicado se dice con icono y texto, no sólo color. */
       .prod .pm .pr.off { color: var(--text-muted); }
       .prod .may { display: flex; align-items: center; gap: 0.3rem; margin-top: 0.15rem; font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
@@ -2923,6 +2928,10 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   unitPriceDisplay(p: PriceRow): number {
     const rung = this.rungOf(p);
     return rung ? rung.price : Number(p.price) * this.unitFactor(p);
+  }
+  /** `[VEX.2]` El precio pintado no es de esta sucursal: ni escalera de Kepler ni precio de la plaza. */
+  precioDeRed(p: PriceRow): boolean {
+    return !this.rungOf(p) && p.price_source === 'lista_red';
   }
 
   initials(name: string): string {
