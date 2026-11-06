@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Fixed — Gastos: los vales de días anteriores ya le aparecen a quien aprueba (GX.88, 2026-11-05)
+- Aprobación tenía dos reglas «sólo hoy»: un vale de ayer sin cerrar desaparecía de la bandeja. Ahora hay una pestaña **Atrasados**, del más viejo al más nuevo, con los días de atraso y a quién le toca.
+### Added — Gastos: buscador arriba de las pestañas (GX.88)
+- Por folio, solicitante, quien lo levantó, quien lo cerró, proveedor o concepto, en Aprobación, Mis gastos, Expediente e Historial. Incluye las solicitudes de Kepler que nunca se subieron. Sólo para quien aprueba.
+### Changed — Expediente sin la tira de indicadores (GX.89) y más rápido (GX.90)
+- Expediente pasa de ~20 s a menos de 1 s en producción (Mis gastos e Historial también bajan); las cifras son las mismas.
 ### Changed — Arqueo: la cajera escribe su caja; sin lista de turnos, avisos ni historial (SM.51, 2026-11-05)
 - `/tienda/arqueo`: la cajera escribe su caja (el equipo la recuerda por sucursal) y el arqueo se guarda con esa caja; el turno de Kepler se liga por detrás por caja + hora.
 - Se quitan la lista «cortes sin arquear», los avisos de cajas abiertas / de días anteriores y el recuadro de «lo que toca». La cajera ya no tiene historial; quien valida lo ve en «Sucursales y sus cajas».

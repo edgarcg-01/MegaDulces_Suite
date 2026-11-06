@@ -58,7 +58,9 @@ interface SelSolicitud {
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Capturar gasto</h1>
-          <p class="surf-page-sub">Pega el folio de la solicitud de HOY, di cómo se pagó y toma la foto. Lo demás lo llena el sistema.</p>
+          <!-- [GX.88] El folio completo encuentra también la solicitud de días anteriores que no se
+               haya subido: «de HOY» ya no es cierto y dejaba creer que lo de ayer no tenía camino. -->
+          <p class="surf-page-sub">Pega el folio de la solicitud (también sirve una de días anteriores que no hayas subido), di cómo se pagó y toma la foto. Lo demás lo llena el sistema.</p>
         </div>
       </header>
 

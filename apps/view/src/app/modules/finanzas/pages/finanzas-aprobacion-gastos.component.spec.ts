@@ -5,8 +5,10 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { registerLocaleData } from '@angular/common';
 import localeEsMx from '@angular/common/locales/es-MX';
 import { FinanzasAprobacionGastosComponent } from './finanzas-aprobacion-gastos.component';
-import type { ExpedienteDelDia, GastosDelDia } from '../comprobaciones.service';
+import type { ExpedienteAtrasado, ExpedienteDelDia, GastosDelDia, ResultadoBusquedaGastos } from '../comprobaciones.service';
 import { AuthService, type JwtPayload } from '../../../core/services/auth.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { BuscadorGastosEstado } from '../components/buscador-gastos.estado';
 
 /**
  * `[GX.20]` Candado de la pantalla de **Aprobación de gastos**.
@@ -50,23 +52,30 @@ const F = (over: Partial<ExpedienteDelDia> = {}): ExpedienteDelDia => ({
   ...over,
 });
 
+/** `[GX.88]` Un vale de OTRO día que sigue abierto. Por omisión, aprobado esperando su evidencia. */
+const A = (over: Partial<ExpedienteAtrasado> = {}): ExpedienteAtrasado => ({
+  ...F({ status: 'aprobada', etapa: 'aprobados', importe: 300, created_at: '2026-09-20', tiene_evidencia: false }),
+  dias_atraso: 5,
+  falta: { texto: 'Aprobado: espera que quien lo levantó suba la evidencia.', toca: 'levanto' },
+  ...over,
+} as ExpedienteAtrasado);
+
 const DIA = (over: Partial<GastosDelDia> = {}): GastosDelDia => ({
   fecha: '2026-09-25',
   es_hoy: true,
   hoy: '2026-09-25',
   fecha_pedida: null,
-  total: 5,
-  monto_total: 485,
+  total: 4,
+  monto_total: 185,
   etapas: {
     entrada: { n: 2, monto: 150 },
-    aprobados: { n: 2, monto: 310 },
+    aprobados: { n: 1, monto: 10 },
     rechazados: { n: 1, monto: 25 },
     sin_etapa: { n: 0, monto: 0 },
   },
   filas: [
     F({ id: 'a1', status: 'recibida', etapa: 'entrada', importe: 100, departamento: 'LOGISTICA' }),
     F({ id: 'a2', status: 'recibida', etapa: 'entrada', importe: 50, departamento: 'SISTEMAS' }),
-    F({ id: 'e1', status: 'aprobada', etapa: 'aprobados', importe: 300, tiene_evidencia: false }),
     F({ id: 'c1', status: 'validada', etapa: 'aprobados', importe: 10, validated_by: 'maria', tiene_evidencia: true }),
     F({ id: 'r1', status: 'rechazada', etapa: 'rechazados', importe: 25, motivo_rechazo: 'falta el ticket' }),
   ],
@@ -78,8 +87,10 @@ const DIA = (over: Partial<GastosDelDia> = {}): GastosDelDia => ({
       { clave: 'SISTEMAS', etiqueta: 'SISTEMAS', origen: 'capturado', n: 1, monto: 50, ids: ['a2'] },
     ],
   },
-  entrada_de_otros_dias: { n: 0, monto: 0 },
   entrada_truncada: false,
+  atrasados: [A({ id: 'e1', status: 'aprobada', etapa: 'aprobados', importe: 300, tiene_evidencia: false })],
+  atrasados_total: { n: 1, monto: 300 },
+  atrasados_truncada: false,
   ...over,
 });
 
@@ -110,69 +121,66 @@ describe('FinanzasAprobacionGastosComponent', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [FinanzasAprobacionGastosComponent],
-      providers: [provideHttpClient(), provideHttpClientTesting(), { provide: LOCALE_ID, useValue: 'es-MX' }],
+      providers: [provideHttpClient(), provideHttpClientTesting(), { provide: LOCALE_ID, useValue: 'es-MX' }, BuscadorGastosEstado],
     });
     http = TestBed.inject(HttpTestingController);
   });
 
   afterEach(() => http.verify());
 
-  it('monta y arranca en la bandeja de entrada', () => {
+  it('monta y arranca en la bandeja de hoy', () => {
     montar();
     expect(c.pestana()).toBe('entrada');
     expect(fix.nativeElement.textContent).toContain('Aprobación de gastos');
     const tabs = [...fix.nativeElement.querySelectorAll('.ap-tab-t')].map((e: Element) => e.textContent?.trim());
-    // `[GX.60]` UNA sola pestana. Pedido del usuario: lo aprobado y lo rechazado DESAPARECEN
-    // para que la seccion quede siempre limpia. Lo decidido no se perdio -- se mudo al
-    // Expediente (`[GX.59]`), que es donde ahora se mira el tramite completo.
-    expect(tabs).toEqual(['Bandeja de entrada']);
+    // `[GX.60]` Lo aprobado y lo rechazado DESAPARECEN de esta pantalla (se mudaron al
+    // Expediente). `[GX.88]` Se suma «Atrasados»: lo de días anteriores que sigue abierto.
+    expect(tabs).toEqual(['Bandeja de hoy', 'Atrasados']);
   });
 
-  describe('las tres pestañas', () => {
+  describe('[GX.88] las dos pestañas: hoy y atrasados', () => {
     it('cada pestaña cuenta lo suyo', () => {
       montar();
       expect(c.conteo('entrada')).toEqual({ n: 2, monto: 150 });
-      expect(c.conteo('aprobados')).toEqual({ n: 2, monto: 310 });
-      expect(c.conteo('rechazados')).toEqual({ n: 1, monto: 25 });
+      expect(c.conteo('atrasados')).toEqual({ n: 1, monto: 300 });
     });
 
-    /**
-     * ⭐ Sin «Todos», los tres contadores son lo único que dice cuánto hubo. Si no suman el
-     * día, hay expedientes que no aparecen en ninguna cuenta.
-     */
-    it('los tres contadores suman el día completo', () => {
+    it('la bandeja sólo muestra lo de HOY que espera decisión', () => {
       montar();
-      const t = (['entrada', 'aprobados', 'rechazados'] as const).map((p) => c.conteo(p));
-      expect(t.reduce((a, x) => a + x.n, 0)).toBe(5);
-      expect(Math.round(t.reduce((a, x) => a + x.monto, 0) * 100) / 100).toBe(485);
-    });
-
-    it('la bandeja de entrada sólo muestra lo que espera decisión', () => {
-      montar();
+      // c1 (validada) y r1 (rechazada) son de hoy pero ya se decidieron: no son trabajo.
       expect(c.visibles().map((f) => f.id)).toEqual(['a1', 'a2']);
     });
 
-    /** Los tres momentos del cierre viven juntos: la decisión fue una sola. */
-    it('Aprobados junta lo que falta ejercer con lo ya cerrado', () => {
-      montar();
-      c.verPestana('aprobados');
-      expect(c.visibles().map((f) => f.id)).toEqual(['e1', 'c1']);
-    });
-
-    it('Rechazados muestra lo rechazado, con su motivo', () => {
-      montar();
-      c.verPestana('rechazados');
-      expect(c.visibles().map((f) => f.id)).toEqual(['r1']);
-      fix.detectChanges();
-      expect(fix.nativeElement.textContent).toContain('falta el ticket');
+    it('Atrasados muestra lo de otros días, en el orden del servidor', () => {
+      montar(DIA({
+        atrasados: [
+          A({ id: 'viejo', created_at: '2026-08-25', dias_atraso: 31 }),
+          A({ id: 'menos', created_at: '2026-09-24', dias_atraso: 1 }),
+        ],
+        atrasados_total: { n: 2, monto: 600 },
+      }));
+      c.verPestana('atrasados');
+      // El servidor ya los manda del más viejo al más nuevo: la pantalla no los reordena.
+      expect(c.visibles().map((f) => f.id)).toEqual(['viejo', 'menos']);
     });
 
     /**
-     * ⛔ Un estado que el servidor no reconoció cae en `sin_etapa`. No aparece en ninguna
-     * pestaña de trabajo — pero **tiene** que seguir existiendo en «Todos», o el expediente
-     * no existiría en ninguna pantalla.
+     * ⛔ El contador de Atrasados es el TOTAL real, no los renglones que llegaron. Si la lista se
+     * cortó, contar renglones diría menos de lo que hay — y lo que no se cuenta no se atiende.
      */
-    it('un estado desconocido no desaparece: entra por la bandeja de entrada, y marcado', () => {
+    it('⛔ el contador de Atrasados es el total, aunque la lista venga cortada', () => {
+      montar(DIA({ atrasados: [A({ id: 'x' })], atrasados_total: { n: 7, monto: 2100 }, atrasados_truncada: true }));
+      expect(c.conteo('atrasados')).toEqual({ n: 7, monto: 2100 });
+      c.verPestana('atrasados');
+      fix.detectChanges();
+      expect(fix.nativeElement.textContent).toContain('Se muestran 1 de 7 atrasados');
+    });
+
+    /**
+     * ⛔ Un estado que el servidor no reconoció cae en `sin_etapa`. Tiene que seguir existiendo:
+     * entra por la bandeja, contado y marcado.
+     */
+    it('un estado desconocido no desaparece: entra por la bandeja, y marcado', () => {
       montar(DIA({
         total: 1, monto_total: 7,
         etapas: { entrada: { n: 0, monto: 0 }, aprobados: { n: 0, monto: 0 }, rechazados: { n: 0, monto: 0 }, sin_etapa: { n: 1, monto: 7 } },
@@ -182,12 +190,6 @@ describe('FinanzasAprobacionGastosComponent', () => {
       expect(c.visibles().map((f) => f.id)).toEqual(['raro']);
       // Y se CUENTA: si no, el renglón estaría en la lista y el contador diría 0.
       expect(c.conteo('entrada')).toEqual({ n: 1, monto: 7 });
-      c.verPestana('aprobados');
-      expect(c.visibles()).toEqual([]);
-      c.verPestana('rechazados');
-      expect(c.visibles()).toEqual([]);
-      c.verPestana('entrada');
-      fix.detectChanges();
       expect(fix.nativeElement.textContent).toContain('estado desconocido');
     });
 
@@ -213,13 +215,13 @@ describe('FinanzasAprobacionGastosComponent', () => {
       expect(c.visibles().map((f) => f.id)).toEqual(['a1']);
     });
 
-    /** Arrastrarlo a otra pestaña dejaría la lista recortada sin que se vea por qué. */
+    /** Arrastrarlo a Atrasados dejaría la lista recortada sin que se vea por qué. */
     it('se suelta al cambiar de pestaña', () => {
       montar();
       c.grupo.set('LOGISTICA');
-      c.verPestana('aprobados');
+      c.verPestana('atrasados');
       expect(c.grupo()).toBeNull();
-      expect(c.visibles().map((f) => f.id)).toEqual(['e1', 'c1']);
+      expect(c.visibles().map((f) => f.id)).toEqual(['e1']);
     });
 
     it('un grupo que ya no existe no vacía la lista', () => {
@@ -230,16 +232,10 @@ describe('FinanzasAprobacionGastosComponent', () => {
   });
 
   /**
-   * La barra de navegación de días se retiró por pedido del usuario (2026-09-25). Lo que
-   * queda es el candado de que la pantalla **sigue diciendo qué día muestra** y de que no
-   * se calla lo que quedó afuera: sin barra, ese aviso es lo único que revela ese trabajo.
+   * La barra de navegación de días se retiró por pedido del usuario (2026-09-25). `[GX.88]` no
+   * la devuelve: lo de otros días se ve en Atrasados, sin tener que adivinar en qué día hay trabajo.
    */
   describe('la pantalla no ofrece controles de día', () => {
-    /**
-     * ⚠️ Sigue sin haber barra de días, y `[GX.67]` lo refuerza en vez de contradecirlo: con
-     * pendientes repartidos en ~25 días, una barra obliga a adivinar en cuál hay trabajo. La
-     * bandeja los trae todos, así que no hay nada que elegir.
-     */
     it('no hay controles para cambiar de día', () => {
       montar();
       const html = fix.nativeElement.innerHTML as string;
@@ -248,12 +244,8 @@ describe('FinanzasAprobacionGastosComponent', () => {
       expect(fix.nativeElement.querySelectorAll('input[type=date]').length).toBe(0);
     });
 
-    /**
-     * ⛔ NEGATIVA de `[GX.67]`: el encabezado **no puede volver a anunciar un día**. Decía
-     * «Los levantamientos del viernes 25 de septiembre» sobre una lista que ahora trae julio
-     * — sería la misma mentira al revés, y es la frase que describía el defecto.
-     */
-    it('⛔ el encabezado ya NO nombra un día: la lista no es de un día', () => {
+    /** ⛔ NEGATIVA de `[GX.67]`: el encabezado no vuelve a anunciar un día con nombre. */
+    it('⛔ el encabezado no nombra un día: dice los dos alcances', () => {
       montar();
       const txt = fix.nativeElement.textContent as string;
       expect(txt).not.toContain('viernes 25 de septiembre');
@@ -267,56 +259,83 @@ describe('FinanzasAprobacionGastosComponent', () => {
   });
 
   /**
-   * `[GX.67]` **La bandeja no se acota por día.**
+   * `[GX.88]` **Lo de días pasados vive en Atrasados.**
    *
-   * Pedido del usuario (2026-10-05): *«sólo se pueden autorizar los que se levanten del día,
-   * cambialo a que también se puedan pasado»*.
-   *
-   * ⛔ Lo que había antes era peor que un filtro: la pantalla **sabía** que había trabajo de
-   * otros días —lo avisaba con su monto— y no daba ninguna forma de llegar a él, porque la
-   * barra de días se había retirado el 2026-09-25. Medido en la base local el 2026-10-05:
-   * **78 esperando firma en ~25 días y cero levantados hoy**, o sea la bandeja salía vacía.
+   * Pedido del usuario (2026-10-30): *«un apartado en aprobar en donde estén los atrasados en
+   * orden, que te diga cuáles son los que se quedaron atrasados»*. Antes (`[GX.67]`) sólo lo
+   * SIN FIRMAR de otro día entraba a la bandeja, mezclado con lo de hoy; lo ya aprobado o con el
+   * comprobante por revisar no aparecía en ningún lado (medido en prod: 5 vales, $78,804.91).
    */
-  describe('[GX.67] se autoriza lo de días pasados, no sólo lo de hoy', () => {
-    /** Un vale viejo y uno de hoy, en la misma lista. */
+  describe('[GX.88] los atrasados', () => {
     const CON_VIEJOS = () => DIA({
       hoy: '2026-09-25',
-      etapas: { entrada: { n: 2, monto: 150 }, aprobados: { n: 0, monto: 0 },
+      etapas: { entrada: { n: 1, monto: 100 }, aprobados: { n: 0, monto: 0 },
         rechazados: { n: 0, monto: 0 }, sin_etapa: { n: 0, monto: 0 } },
-      filas: [
-        F({ id: 'hoy1', importe: 100, created_at: '2026-09-25', folio_solicitud: 'DEHOY' }),
-        F({ id: 'viejo1', importe: 50, created_at: '2026-07-01', folio_solicitud: 'DEJULIO' }),
+      filas: [F({ id: 'hoy1', importe: 100, created_at: '2026-09-25', folio_solicitud: 'DEHOY' })],
+      entrada: { total: 1, monto_total: 100, por_fecha: [], por_departamento: [] },
+      atrasados: [
+        A({ id: 'viejo1', status: 'recibida', etapa: 'entrada', importe: 50, created_at: '2026-07-01', folio_solicitud: 'DEJULIO',
+          dias_atraso: 86, falta: { texto: 'Falta firmarlo: aprobarlo o rechazarlo.', toca: 'aprueba' } }),
+        A({ id: 'prov1', status: 'aprobada', provisional: true, importe: 300, created_at: '2026-09-24', folio_solicitud: 'PROV',
+          dias_atraso: 1, falta: { texto: 'Se aprobó como provisional: falta el comprobante definitivo para cerrarlo.', toca: 'levanto' } }),
       ],
-      entrada: { total: 2, monto_total: 150, por_fecha: [], por_departamento: [] },
-      entrada_de_otros_dias: { n: 1, monto: 50 },
+      atrasados_total: { n: 2, monto: 350 },
     });
 
-    /** ⭐ El candado central: el vale de julio se VE y se puede abrir para decidirlo. */
-    it('un vale levantado hace meses aparece en la bandeja', () => {
+    it('lo de otro día NO se mezcla con la bandeja de hoy', () => {
       montar(CON_VIEJOS());
-      expect(c.visibles().map((f) => f.id)).toEqual(['hoy1', 'viejo1']);
-      expect(fix.nativeElement.textContent).toContain('DEJULIO');
+      expect(c.visibles().map((f) => f.id)).toEqual(['hoy1']);
+      expect(fix.nativeElement.textContent).not.toContain('DEJULIO');
     });
 
-    it('⭐ y se puede ABRIR para firmarlo, igual que el de hoy', () => {
+    /** ⭐ El candado central: el vale de julio se VE en Atrasados y se puede abrir para decidirlo. */
+    it('⭐ aparece en Atrasados y se puede ABRIR para firmarlo', () => {
       montar(CON_VIEJOS());
-      const viejo = c.visibles().find((f) => f.id === 'viejo1')!;
-      c.abrir(viejo);
+      c.verPestana('atrasados');
       fix.detectChanges();
-      // Que se abra es lo que habilita autorizarlo: no se firma desde la lista.
+      expect(fix.nativeElement.textContent).toContain('DEJULIO');
+      (fix.nativeElement.querySelector('.ap-item') as HTMLElement).click();
+      fix.detectChanges();
       expect(c.abierto()?.id).toBe('viejo1');
+      expect(c.accionesDe(c.abierto())).toEqual(['aprobar', 'rechazar']);
     });
 
-    /**
-     * ⚠️ En una lista mezclada, un vale de julio y uno de hace diez minutos se ven igual si
-     * sólo se muestra la hora. El día aparece **sólo cuando no es hoy**, para no repetir en
-     * cada renglón lo que ya dice el encabezado.
-     */
+    /** El aprobado de otro día también: es lo que antes no aparecía en ningún lado. */
+    it('⭐ el aprobado provisional de otro día se ve y ofrece darlo por comprobado', () => {
+      montar(CON_VIEJOS());
+      c.verPestana('atrasados');
+      const prov = c.visibles().find((f) => f.id === 'prov1');
+      expect(prov).toBeDefined();
+      expect(c.accionesDe(prov ?? null)).toEqual(['comprobar', 'rechazar']);
+    });
+
+    it('cada atrasado dice cuántos días lleva, qué le falta y a quién le toca', () => {
+      montar(CON_VIEJOS());
+      c.verPestana('atrasados');
+      fix.detectChanges();
+      const filas = [...fix.nativeElement.querySelectorAll('.ap-atraso')].map((e: Element) => e.textContent?.replace(/\s+/g, ' ').trim());
+      expect(filas[0]).toContain('86 días');
+      expect(filas[0]).toContain('Falta firmarlo');
+      expect(filas[0]).toContain('te toca');
+      expect(filas[1]).toContain('1 día');
+      expect(filas[1]).toContain('espera a quien lo levantó');
+    });
+
+    it('los días se dicen en palabras, y una fecha ilegible no se pinta como 0', () => {
+      montar();
+      expect(c.diasTexto(0)).toBe('hoy');
+      expect(c.diasTexto(1)).toBe('1 día');
+      expect(c.diasTexto(18)).toBe('18 días');
+      expect(c.diasTexto(null)).toBe('sin fecha');
+    });
+
     it('el renglón viejo muestra su día de captura; el de hoy no', () => {
       montar(CON_VIEJOS());
+      expect(fix.nativeElement.querySelectorAll('.ap-dia-chip').length).toBe(0); // bandeja: sólo hoy
+      c.verPestana('atrasados');
+      fix.detectChanges();
       const chips = Array.from(fix.nativeElement.querySelectorAll('.ap-dia-chip')) as HTMLElement[];
-      expect(chips.length).toBe(1);
-      expect(chips[0].textContent!.trim()).toBe('01/07/26');
+      expect(chips.map((x) => x.textContent?.trim())).toEqual(['01/07/26', '24/09/26']);
     });
 
     /** ⛔ `hoy` sale del SERVIDOR. Con el reloj del navegador, otra zona marca mal los días. */
@@ -328,29 +347,61 @@ describe('FinanzasAprobacionGastosComponent', () => {
       expect(c.hoy()).toBe('2026-01-02');
     });
 
-    /** El encabezado ya no puede prometer un día: la lista trae cualquiera. */
-    it('el subtítulo declara el alcance, no una fecha', () => {
+    it('el subtítulo declara los dos alcances: hoy en la bandeja, lo anterior en Atrasados', () => {
       montar(CON_VIEJOS());
-      const sub = fix.nativeElement.querySelector('.surf-page-sub')!.textContent as string;
-      expect(sub).toContain('cualquier fecha');
-      expect(sub).not.toContain('Los levantamientos del');
+      const sub = fix.nativeElement.querySelector('.surf-page-sub')?.textContent as string;
+      expect(sub).toContain('hoy');
+      expect(sub).toContain('Atrasados');
+    });
+
+    it('sin atrasados, la pestaña lo dice con todas las letras', () => {
+      montar(DIA({ atrasados: [], atrasados_total: { n: 0, monto: 0 } }));
+      c.verPestana('atrasados');
+      fix.detectChanges();
+      expect(fix.nativeElement.textContent).toContain('No se quedó nada atrasado');
+    });
+
+    /**
+     * ⛔ Medido en local el 2026-10-30: la view nueva contra una API sin actualizar. La respuesta
+     * no trae `atrasados` y la plantilla tronaba al leer `atrasados_total.n`: Angular dejaba de
+     * responder y «los clics no funcionaban». Lo mismo pasaría en prod si la view sale antes que la
+     * API. La pantalla no truena, y tampoco dice «no hay»: dice que no se midió.
+     */
+    it('⛔ con una API vieja (sin atrasados) no truena: los declara sin medir, nunca 0', () => {
+      const vieja = DIA() as unknown as Record<string, unknown>;
+      delete vieja['atrasados']; delete vieja['atrasados_total']; delete vieja['atrasados_truncada'];
+      montar(vieja as unknown as GastosDelDia);
+      expect(c.atrasadosMedidos()).toBe(false);
+      c.verPestana('atrasados');
+      fix.detectChanges();
+      const txt = fix.nativeElement.textContent as string;
+      expect(txt).toContain('no se puede saber si hay');
+      expect(txt).not.toContain('No se quedó nada atrasado');
+      expect(txt).toContain('sin medir');
+      // Y la pantalla sigue viva: el clic en un renglón de la bandeja abre el vale.
+      c.verPestana('entrada');
+      fix.detectChanges();
+      (fix.nativeElement.querySelector('.ap-item') as HTMLElement).click();
+      fix.detectChanges();
+      expect(c.abierto()?.id).toBe('a1');
     });
   });
 
   describe('lo que la pantalla no puede callar', () => {
     /**
-     * ⭐ El aviso cambió de significado con `[GX.67]`: antes decía «hay trabajo que NO ves»,
-     * ahora es contexto de lo que SÍ estás viendo. Lo que no puede volver a decir es que la
-     * pantalla muestra sólo hoy — sería falso, y es la frase que describía el defecto.
+     * ⛔ La bandeja de hoy vacía NO puede leerse como «no hay nada pendiente»: si hay atrasados,
+     * se dice dónde están.
      */
-    it('dice cuántos vienen de días anteriores, y que se pueden autorizar', () => {
-      montar(DIA({ entrada_de_otros_dias: { n: 7, monto: 12_345.67 } }));
+    it('⛔ hoy vacío con atrasados: dice que lo anterior está en Atrasados', () => {
+      montar(DIA({
+        total: 0, monto_total: 0, filas: [],
+        etapas: { entrada: { n: 0, monto: 0 }, aprobados: { n: 0, monto: 0 }, rechazados: { n: 0, monto: 0 }, sin_etapa: { n: 0, monto: 0 } },
+        entrada: { total: 0, monto_total: 0, por_fecha: [], por_departamento: [] },
+        atrasados: [A({ id: 'x' })], atrasados_total: { n: 1, monto: 300 },
+      }));
       const txt = fix.nativeElement.textContent as string;
-      expect(txt).toContain('7');
-      expect(txt).toContain('$12,345.67');
-      expect(txt).toContain('se pueden autorizar igual');
-      // ⛔ NEGATIVA: la frase del defecto no puede volver.
-      expect(txt).not.toContain('sólo hoy');
+      expect(txt).toContain('Hoy no hay nada esperando tu firma');
+      expect(txt).toContain('Lo de días anteriores está en Atrasados');
     });
 
     /**
@@ -379,7 +430,7 @@ describe('FinanzasAprobacionGastosComponent', () => {
         filas: [F({ id: 'ya1', status: 'validada', etapa: 'aprobados', importe: 300 })],
         entrada: { total: 0, monto_total: 0, por_fecha: [], por_departamento: [] },
       }));
-      expect(fix.nativeElement.textContent).toContain('No hay nada esperando tu firma');
+      expect(fix.nativeElement.textContent).toContain('Hoy no hay nada esperando tu firma');
     });
 
     /** Un parámetro roto no puede verse igual que un día sin movimiento. */
@@ -397,28 +448,20 @@ describe('FinanzasAprobacionGastosComponent', () => {
       const txt = fix.nativeElement.textContent as string;
       expect(c.error()).toBeTruthy();
       expect(txt).toContain('No se pudo cargar el día');
-      expect(txt).not.toContain('no se levantó ningún gasto');
-      expect(txt).not.toContain('Nada de este día espera');
+      expect(txt).not.toContain('no hay nada esperando');
     });
 
-    /**
-     * `[GX.67]` La bandeja vacía ya no significa «hoy no se levantó nada» —significa **no hay
-     * nada esperando firma, de ninguna fecha**, que es una afirmación mucho más fuerte y la
-     * única que la pantalla puede sostener ahora.
-     */
-    it('una bandeja vacía lo dice con todas las letras', () => {
+    it('una bandeja vacía sin atrasados lo dice, sin mandar a otro lado', () => {
       montar(DIA({
         total: 0, monto_total: 0, filas: [],
         etapas: { entrada: { n: 0, monto: 0 }, aprobados: { n: 0, monto: 0 }, rechazados: { n: 0, monto: 0 }, sin_etapa: { n: 0, monto: 0 } },
         entrada: { total: 0, monto_total: 0, por_fecha: [], por_departamento: [] },
-        entrada_de_otros_dias: { n: 0, monto: 0 },
+        atrasados: [], atrasados_total: { n: 0, monto: 0 },
       }));
       const txt = fix.nativeElement.textContent as string;
-      expect(txt).toContain('No hay nada esperando tu firma');
-      // Y no manda a «probar otro día»: ya no hay cómo, y tampoco haría falta.
-      expect(txt).not.toContain('otro día');
-      // ⛔ NEGATIVA: no puede volver a decir que el problema es el DÍA.
-      expect(txt).not.toContain('no se levantó ningún gasto');
+      expect(txt).toContain('Hoy no hay nada esperando tu firma');
+      // El subtítulo siempre nombra Atrasados; lo que no puede hacer es el recuadro de vacío.
+      expect(fix.nativeElement.querySelector('.ap-vacio')?.textContent).not.toContain('está en Atrasados');
     });
 
     /** Las dos fechas son cosas distintas: cuándo se levantó y cuándo ocurrió el gasto. */
@@ -428,8 +471,8 @@ describe('FinanzasAprobacionGastosComponent', () => {
     });
 
     it('marca el expediente que sigue esperando su evidencia', () => {
-      montar(DIA({ total: 1, filas: [F({ id: 'e1', status: 'aprobada', etapa: 'aprobados', requiere_evidencia: true, tiene_evidencia: false })] }));
-      c.verPestana('aprobados');
+      montar();
+      c.verPestana('atrasados');
       fix.detectChanges();
       expect(fix.nativeElement.textContent).toContain('falta la evidencia');
     });
@@ -446,7 +489,7 @@ describe('FinanzasAprobacionGastosComponent', () => {
     it('ningún renglón trae botones de decisión', () => {
       montar();
       expect(botonesDeFila()).toEqual([]);
-      c.verPestana('aprobados');
+      c.verPestana('atrasados');
       fix.detectChanges();
       expect(botonesDeFila()).toEqual([]);
     });
@@ -481,21 +524,23 @@ describe('FinanzasAprobacionGastosComponent', () => {
       montar();
       c.abrir(c.visibles()[0]);                      // recibida
       expect(c.accionesDe(c.abierto()!)).toEqual(['aprobar', 'rechazar']);
-      c.verPestana('aprobados');
-      c.abrir(c.visibles()[0]);                      // aprobada
+      c.verPestana('atrasados');
+      c.abrir(c.visibles()[0]);                      // aprobada (de otro día)
       expect(c.accionesDe(c.abierto()!)).toEqual(['comprobar', 'rechazar']);
-      c.abrir(c.visibles()[1]);                      // validada
+      // Lo cerrado ya no está en ninguna pestaña (`[GX.60]`); se abre desde el buscador. Sin acciones.
+      c.abrir(F({ id: 'c1', status: 'validada', etapa: 'aprobados', validated_by: 'maria' }));
       expect(c.accionesDe(c.abierto()!)).toEqual([]);
       fix.detectChanges();
       expect(c.accionesDe(c.abierto())).toEqual([]);
     });
 
-    /** ⛔ En Rechazados también se abre: mirar el vale no es lo mismo que poder cambiarlo. */
+    /**
+     * ⛔ Un rechazado también se abre (hoy, desde el buscador): mirar el vale no es lo mismo que
+     * poder cambiarlo.
+     */
     it('un vale rechazado se abre igual, con su motivo, y sin botones', () => {
       montar();
-      c.verPestana('rechazados');
-      fix.detectChanges();
-      (fix.nativeElement.querySelector('.ap-item') as HTMLElement).click();
+      c.abrir(F({ id: 'r1', status: 'rechazada', etapa: 'rechazados', motivo_rechazo: 'falta el ticket' }));
       fix.detectChanges();
       expect(c.abierto()?.id).toBe('r1');
       expect(c.accionesDe(c.abierto()!)).toEqual([]);
@@ -601,7 +646,7 @@ describe('FinanzasAprobacionGastosComponent', () => {
       fix.detectChanges();
       expect(c.error()).toBe('');
       expect(c.reaperturas()).toEqual([]);
-      expect(fix.nativeElement.textContent).toContain('Bandeja de entrada');
+      expect(fix.nativeElement.textContent).toContain('Bandeja de hoy');
     });
   });
 
@@ -625,7 +670,7 @@ describe('FinanzasAprobacionGastosComponent', () => {
 
     it('«dar por comprobado» es validate, el mismo que resuelve lo que no cuadró', () => {
       montar();
-      c.verPestana('aprobados');
+      c.verPestana('atrasados');
       c.darPorComprobado(c.visibles()[0]);
       http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/e1/validate')).flush({ ok: true });
       http.expectOne((r) => r.url.includes('/del-dia')).flush(DIA());
@@ -692,17 +737,15 @@ describe('FinanzasAprobacionGastosComponent', () => {
 
     /** Lo cerrado no ofrece botones: no hay nada que hacerle. */
     it('un expediente cerrado no trae acciones', () => {
-      montar(DIA({
-        total: 1, filas: [F({ id: 'c1', status: 'validada', etapa: 'aprobados', validated_by: 'maria' })],
-        etapas: { entrada: { n: 0, monto: 0 }, aprobados: { n: 1, monto: 10 }, rechazados: { n: 0, monto: 0 }, sin_etapa: { n: 0, monto: 0 } },
-        entrada: { total: 0, monto_total: 0, por_fecha: [], por_departamento: [] },
-      }));
-      c.verPestana('aprobados');
-      c.abrir(c.visibles()[0]);
+      montar();
+      // Lo cerrado sólo se alcanza desde el buscador (`[GX.88]`): se abre igual, sin acciones.
+      c.abrir(F({ id: 'c1', status: 'validada', etapa: 'aprobados', validated_by: 'maria' }));
       fix.detectChanges();
       expect(c.accionesDe(c.abierto()!)).toEqual([]);
-      expect(fix.nativeElement.textContent).toContain('no hay nada que decidir');
-      expect(fix.nativeElement.textContent).toContain('Cerrado por maria');
+      const txt = fix.nativeElement.textContent as string;
+      expect(txt).toContain('no hay nada que decidir');
+      expect(txt).toContain('Cerrado por');
+      expect(txt).toContain('maria');
     });
   });
   /**
@@ -814,7 +857,51 @@ describe('FinanzasAprobacionGastosComponent', () => {
       dia.flush('boom', { status: 500, statusText: 'Server Error' });
       reap.flush([]);
       expect(c.error()).toBe('');
-      expect(c.datos()?.total).toBe(5);
+      expect(c.datos()?.total).toBe(4);
+    });
+  });
+  /**
+   * `[GX.88]` **El buscador de gastos vive ARRIBA de las pestañas** (en el shell, que provee su
+   * estado). Sus reglas se prueban en su propio spec; acá, el cableado con esta pantalla.
+   */
+  describe('[GX.88] el buscador de arriba (cableado)', () => {
+    const estado = () => TestBed.inject(BuscadorGastosEstado);
+    const conPermiso = () => TestBed.inject(PermissionsService).load({ FINANCE_EXPENSES_COMPROBAR: true }, 'tesoreria', 'jwt');
+
+    it('con una búsqueda activa arriba, la pantalla se esconde entera — el visor no', () => {
+      conPermiso();
+      montar();
+      estado().busqueda.set('papeleria');
+      fix.detectChanges();
+      expect(c.buscandoArriba()).toBe(true);
+      expect(fix.nativeElement.querySelector('.ap-tabs')).toBeNull();
+      expect(fix.nativeElement.querySelector('.surf-page-head')).toBeNull();
+      expect(fix.nativeElement.querySelector('app-vale-gasto-peek')).not.toBeNull();
+      estado().limpiar();
+      fix.detectChanges();
+      expect(fix.nativeElement.querySelector('.ap-tabs')).not.toBeNull();
+    });
+
+    /** ⭐ En Aprobación el vale elegido se DECIDE: se abre con las acciones de su estado. */
+    it('⭐ el vale elegido en el buscador se abre aquí, con las decisiones de su estado', () => {
+      conPermiso();
+      montar();
+      estado().abrir(F({ id: 'v1', folio_solicitud: '0010287', status: 'aprobada', etapa: 'aprobados' }));
+      fix.detectChanges();
+      expect(c.abierto()?.id).toBe('v1');
+      expect(c.accionesDe(c.abierto())).toEqual(['comprobar', 'rechazar']);
+    });
+
+    /** Después de decidir sobre un vale encontrado, su renglón tiene que decir el estado nuevo. */
+    it('al recargar, la búsqueda abierta también se pone al día', () => {
+      conPermiso();
+      montar();
+      estado().busqueda.set('papeleria');
+      c.cargar();
+      http.expectOne((r) => r.url.includes('/del-dia')).flush(DIA());
+      http.expectOne((r) => r.url.includes('/reaperturas/pendientes')).flush([]);
+      http.expectOne((r) => r.url.includes('/finance/expenses/proofs/buscar')).flush(
+        { q: 'papeleria', vales: [], vales_truncado: false, sin_vale: [], sin_vale_truncado: false, solicitudes_desde: null });
     });
   });
 });

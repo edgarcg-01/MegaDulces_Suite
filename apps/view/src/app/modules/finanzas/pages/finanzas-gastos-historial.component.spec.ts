@@ -8,7 +8,8 @@ import { FinanzasGastosHistorialComponent } from './finanzas-gastos-historial.co
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { todayMx } from '../../../core/utils/mx-date';
-import type { CalendarioDelMes, ExpenseProofsReport } from '../comprobaciones.service';
+import type { CalendarioDelMes, ExpedienteDelDia, ExpenseProofsReport } from '../comprobaciones.service';
+import { BuscadorGastosEstado } from '../components/buscador-gastos.estado';
 
 /**
  * `[GX.27]` Candado del **Historial como calendario**.
@@ -77,7 +78,7 @@ describe('FinanzasGastosHistorialComponent', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({
       imports: [FinanzasGastosHistorialComponent],
-      providers: [provideHttpClient(), provideHttpClientTesting(), { provide: LOCALE_ID, useValue: 'es-MX' }],
+      providers: [provideHttpClient(), provideHttpClientTesting(), { provide: LOCALE_ID, useValue: 'es-MX' }, BuscadorGastosEstado],
     });
     http = TestBed.inject(HttpTestingController);
     perms = TestBed.inject(PermissionsService);
@@ -592,6 +593,60 @@ describe('FinanzasGastosHistorialComponent', () => {
       fix.detectChanges();
       expect(c.filtroNoCoincide()).toBe(false);
       expect(texto()).not.toContain('El servidor no aplicó este filtro');
+    });
+  });
+  /**
+   * `[GX.88]` **El buscador de gastos vive ARRIBA de las pestañas** (en el shell). Aquí se
+   * CONSULTA: un vale encontrado se abre sin decisiones de firma.
+   */
+  describe('[GX.88] el buscador de arriba', () => {
+    const estado = () => TestBed.inject(BuscadorGastosEstado);
+    const VALE_AJENO = {
+      id: 'x1', folio_solicitud: '0010287', sucursal: '00', fecha_gasto: D1, created_at: D1, created_hora: '10:00',
+      importe: 500, departamento: 'COMPRAS', solicitante: null, concepto: null, proveedor: 'PROV', clasificacion: 'fiscal',
+      forma_pago: 'efectivo', forma_pago_detalle: null, comentarios: null, created_by: 'otra.persona', status: 'validada',
+      etapa: 'aprobados', motivo_rechazo: null, revision_nota: null, validated_by: 'maria', validated_at: null,
+      requiere_evidencia: true, tiene_evidencia: true, evidencia_en_vivo: false, files: [],
+    } as ExpedienteDelDia;
+
+    it('con una búsqueda activa arriba, el calendario se esconde — el visor no', () => {
+      montar('tesoreria', { FINANCE_EXPENSES_COMPROBAR: true });
+      estado().busqueda.set('papeleria');
+      fix.detectChanges();
+      expect(fix.nativeElement.querySelector('.hist-barra')).toBeNull();
+      expect(fix.nativeElement.querySelector('app-vale-gasto-peek')).not.toBeNull();
+      estado().limpiar();
+      fix.detectChanges();
+      expect(fix.nativeElement.querySelector('.hist-barra')).not.toBeNull();
+    });
+
+    /** ⛔ Sin permiso de aprobar no hay búsqueda: la pantalla no se esconde aunque haya texto. */
+    it('⛔ con VER (sin aprobar) la pantalla nunca se esconde', () => {
+      montar('consulta', { FINANCE_EXPENSES_VER: true });
+      estado().busqueda.set('papeleria');
+      fix.detectChanges();
+      expect(c.buscandoArriba()).toBe(false);
+      expect(fix.nativeElement.querySelector('.hist-barra')).not.toBeNull();
+    });
+
+    /**
+     * ⛔ Desde el buscador NO se ofrece «pedir que lo reabran», ni siquiera en «Míos»: el buscador
+     * trae vales de cualquier persona, y la reapertura es sólo para el propio. Sí sumar evidencia.
+     */
+    it('⛔ el vale elegido se abre sólo para consultar y sumar evidencia', () => {
+      montar('tesoreria', { FINANCE_EXPENSES_COMPROBAR: true });
+      estado().abrir(VALE_AJENO);
+      expect(c.desdeBusqueda()).toBe(true);
+      expect(c.ambito()).toBe('mios');
+      expect(c.accionesDelVale()).toEqual(['agregar_evidencia']);
+      c.cerrarVale(false);
+      expect(c.desdeBusqueda()).toBe(false);
+    });
+
+    it('un rechazado encontrado no ofrece nada', () => {
+      montar('tesoreria', { FINANCE_EXPENSES_COMPROBAR: true });
+      c.abrirDesdeBusqueda({ ...VALE_AJENO, status: 'rechazada' } as ExpedienteDelDia);
+      expect(c.accionesDelVale()).toEqual([]);
     });
   });
 });

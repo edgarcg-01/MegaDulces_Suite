@@ -5384,6 +5384,46 @@ prod ANTES del redeploy** (si el código sale primero, `/attach` escribe columna
 falla). · Redeploy api+view. **Sin permisos nuevos → sin re-login.** · Considerar un cron para
 «Volver a comparar» (hoy es manual) con su latido en `CRON_JOBS`.
 
+### 🔨 [GX.88] · atrasados en Aprobación + buscador de gastos arriba de las pestañas — 2026-11-05
+
+- [x] **[GX.88]** 🧪 Hallazgo (30-oct): vales subidos que **no le aparecían a quien aprueba**. Causa medida: dos reglas
+  «sólo hoy» — la bandeja de Aprobación sólo listaba lo de HOY, y la búsqueda de solicitudes de Kepler sólo
+  encontraba las del día. Un vale de ayer sin cerrar desaparecía de la vista.
+  - **Se quitan las dos reglas.** `del-dia` devuelve además `atrasados` (todo vale **abierto** de otro día, del más
+    viejo al más nuevo; los cerrados = `validada`/`rechazada`) con `dias_atraso` y `falta` («te toca» / «espera a
+    quien lo levantó»). Aprobación tiene dos pestañas: **Bandeja de hoy** y **Atrasados**. Una API vieja sin el campo
+    se pinta «sin medir», nunca como cero.
+  - **Buscador de gastos** (`GET /finance/expenses/proofs/buscar`, `COMPROBAR`): folio, solicitante, quien lo
+    levantó, quien lo cerró, proveedor, concepto; trae los vales y, aparte, las **solicitudes de Kepler sin vale**
+    desde el arranque de la Suite en cada sucursal (antes de esa fecha «sin vale» no es pendiente). Va **una vez,
+    arriba de las pestañas** de Aprobación, Mis gastos, Expediente e Historial (no en Hoja de zona ni Comisiones),
+    sólo para quien aprueba. El vale elegido se abre en la pestaña donde estás: en Aprobación con sus decisiones; en
+    las demás sólo para consultar y sumar evidencia.
+  - La captura de una solicitud por folio exacto encuentra la de cualquier día desde el arranque, si no tiene vale.
+  - **Pruebas:** view finanzas 1293 ✔ · `libs/finance` 2267 ✔ + 151 omitidas (piden base: **NO MEDIDAS**) · arranque
+    del endpoint (`finance-buscar-gastos.metadata.spec.ts`: ruta, permiso, declarada antes de `:id`, paramtypes).
+    Negativas: sin el filtro de cerrados → rojo; sin el permiso → rojo; plantilla con API vieja → rojo «sin medir»;
+    rutas del shell → rojo en Hoja de zona. `check:pantalla` 0 fallas nuevas en las cuatro pantallas.
+- [ ] **[GX.88.x]** Declarado: **sin validación visual en prod** (sí en local con datos de prueba,
+  `database/scripts/dev-seed-gx88-atrasados.js`, sólo destino seguro); sin migraciones ni permisos nuevos → sin
+  re-login. Pendiente de decidir: marcar urgente un atrasado viejo; llevar el buscador a ⌘K.
+
+### 🔨 [GX.89] · Expediente sin la tira de KPIs — 2026-11-05
+
+- [x] **[GX.89]** 🧪 Pedido del usuario: se quita la tira de indicadores del Expediente (repetía lo que dice la lista).
+
+### 🔨 [GX.90] · Expediente y Mis gastos más rápidos (mismas cifras) — 2026-11-05
+
+- [x] **[GX.90]** 🧪 Medido en prod (sólo lectura, código `7a399609b` contra el árbol): **Expediente 20,076 ms
+  (máx. 25 s) → 768 ms** · Mis gastos 779 → 419 ms · Historial del día 448 → 167 ms · `del-dia` 201 → 184 ms.
+  - Causas: una subconsulta correlacionada por renglón sobre `analytics.expense_documents` (su `solicitud_folio` es
+    un CASE, no indexable) y el `acreedor` de `analytics.expense_requests` (LATERAL sobre `kdxd` con `btrim`, sin
+    índice). Ahora: los gastos se piden una vez por lote (`gastosPorSolicitud`), los acreedores una vez por clave
+    (`acreedoresPorClave`) y el detalle de Kepler en UNA consulta para todas las sucursales.
+  - **Mismas cifras:** salida antes/después comparada campo por campo, idéntica; el comparador detecta un cambio de
+    1 centavo (control). Sin migraciones ni índices nuevos. Optimizar va aparte de alcance: no cambia ningún `WHERE`
+    de negocio.
+
 ### 🔨 [GX.87] · agregar evidencia a cada vale, con su porqué — 2026-10-29
 
 - [x] **[GX.87]** 🧪 Pedido del usuario: *«hay que agregar un botón en la sección de expediente para cada vale en

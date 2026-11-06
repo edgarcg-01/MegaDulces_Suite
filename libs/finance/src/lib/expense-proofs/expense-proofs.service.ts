@@ -1,7 +1,7 @@
 import { Inject, Injectable, BadRequestException, ForbiddenException, NotFoundException, Logger, Optional } from '@nestjs/common';
 import { ExpenseProofsGateway } from './expense-proofs.gateway';
 import { Knex } from 'knex';
-import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, LlmExtractorService, isPlatformAdminRole, Permission } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, LlmExtractorService, isPlatformAdminRole, Permission, applySmartSearch } from '@megadulces/platform-core';
 // [GX.14] La compuerta y el catalogo de formas de pago viven en libs/contracts: los lee
 // este servicio (que devuelve el 400) y el boton del frontend. Una sola regla, no dos.
 import { FINANCE_NOTIFIER_PORT, type FinanceNotifierPort, esFormaPagoValida, exigeDetalle, faltaParaMandar, type EstadoAporte } from '@megadulces/contracts';
@@ -58,8 +58,8 @@ interface DatosKepler {
   acreedor?: string | null;
 }
 import {
-  diaValido, etapaDe, hoyMx, particionarDelDia, ESTADOS_DECIDIDOS,
-  type EtapaGasto, type ParticionDelDia,
+  diaValido, diasDeAtraso, etapaDe, hoyMx, particionarDelDia, queFalta, ESTADOS_CERRADOS,
+  type EtapaGasto, type ParticionDelDia, type QueFalta,
 } from './etapas-del-dia';
 import {
   facetasDelMes, mesValido, rangoDelMes, totalDelMes,
@@ -244,6 +244,43 @@ export interface ExpedienteDelDiaDetallado extends ExpedienteParaAprobar {
   requiere_evidencia: boolean;
   /** Ya la subieron? Es lo que separa "falta ejercer" de "falta firmar el cierre". */
   tiene_evidencia: boolean;
+  /** `[GX.88]` Se aprobó debiendo el comprobante (prefactura o cotización). */
+  provisional: boolean;
+}
+
+/**
+ * `[GX.88]` Un vale de OTRO día que sigue abierto: el renglón de «Atrasados». Es el mismo
+ * expediente, más cuánto lleva esperando y qué le falta.
+ */
+export interface ExpedienteAtrasado extends ExpedienteDelDiaDetallado {
+  /** Días de calendario desde que se levantó. `null` = fecha ilegible (no se inventa un 0). */
+  dias_atraso: number | null;
+  falta: QueFalta;
+}
+
+/** `[GX.88]` Una solicitud de Kepler que coincide con la búsqueda y NO tiene vale en la Suite. */
+export interface SolicitudSinVale {
+  sucursal: string;
+  folio: string;
+  fecha: string | null;
+  importe: number;
+  solicitante: string | null;
+  beneficiario: string | null;
+  concepto: string | null;
+  /** Estado en Kepler: `N` sin aplicar, `A` autorizada, `F` aplicada (el dinero salió). */
+  estado: string | null;
+}
+
+/** `[GX.88]` Lo que devuelve el buscador de gastos. Cruza el boundary REST (ADR-052). */
+export interface ResultadoBusquedaGastos {
+  q: string;
+  vales: ExpedienteDelDiaDetallado[];
+  /** Hay más vales que los que se devolvieron: la pantalla lo dice, no lo calla. */
+  vales_truncado: boolean;
+  sin_vale: SolicitudSinVale[];
+  sin_vale_truncado: boolean;
+  /** Desde qué día se buscan solicitudes de Kepler: el primer vale de la Suite. */
+  solicitudes_desde: string | null;
 }
 
 /**
@@ -294,6 +331,22 @@ interface ValeLeido {
   evidencia_por?: string | null;
 }
 
+/**
+ * Un renglon de `finance.v_expense_proofs` tal como lo traen `columnasDelDia()`: el dia, los
+ * atrasados y el buscador leen la misma forma y la arma `detallarDelDia()`.
+ */
+interface FilaDelDiaCruda {
+  id: string; folio_solicitud: string | null; sucursal: string | null;
+  fecha_gasto: string | null; created_dia: string; created_hora: string;
+  departamento: string | null; proveedor: string | null; clasificacion: string | null;
+  forma_pago: string | null; forma_pago_detalle: string | null;
+  files: string | ProofFile[] | null; comentarios: string | null;
+  created_by: string | null; importe: string | number; status: string;
+  motivo_rechazo: string | null; revision_nota: string | null;
+  validated_by: string | null; validated_at: string | Date | null;
+  provisional: boolean | null;
+}
+
 /** `[GX.20]` Lo que devuelve `delDia()`. Cruza el boundary REST (ADR-052), asi que se declara. */
 export interface RespuestaDelDia extends ParticionDelDia {
   /** El dia que se esta mirando (`YYYY-MM-DD`, Mexico). */
@@ -306,17 +359,21 @@ export interface RespuestaDelDia extends ParticionDelDia {
   filas: ExpedienteDelDiaDetallado[];
   /** Los grupos por departamento de lo que espera decision ESE dia (la bandeja de entrada). */
   entrada: AgrupadoAprobacion;
-  /** Lo que espera firma y NO cayo en este dia. El dia filtra lo que se lee, no lo que existe. */
   /**
-   * `[GX.67]` De la bandeja de entrada, cuanto **NO es del dia que se mira**. Se MUESTRA
-   * igual -- este numero es contexto, no una excusa para esconderlo.
-   */
-  entrada_de_otros_dias: { n: number; monto: number };
-  /**
-   * `[GX.67]` La bandeja de entrada toco el tope de `limit` y hay mas esperando firma.
+   * `[GX.67]` El dia que se mira toco el tope de `limit`.
    * ⛔ Nunca se lee como "no hay mas": una lista truncada en silencio es trabajo invisible.
    */
   entrada_truncada: boolean;
+  /**
+   * `[GX.88]` **Los atrasados**: vales de OTRO dia que siguen abiertos (sin firmar, con el
+   * comprobante por revisar o aprobados esperando su evidencia), del mas viejo al mas nuevo.
+   * Reemplaza a `entrada_de_otros_dias`: lo viejo ya no se mezcla con lo de hoy en la bandeja.
+   */
+  atrasados: ExpedienteAtrasado[];
+  /** El total real de los atrasados (no sólo los que se devolvieron). */
+  atrasados_total: { n: number; monto: number };
+  /** `atrasados` toco el tope: hay mas. Se dice, no se calla. */
+  atrasados_truncada: boolean;
 }
 
 /** Lo que el tablero necesita saber de un folio sin abrir el expediente. */
@@ -1341,6 +1398,20 @@ export class ExpenseProofsService {
    * fase: `false` afirma que Kepler NO lo aplico, `null` dice que no lo sabemos, y el
    * contrato traduce eso a `sin_medir` en vez de a `por_ejercer`.
    */
+  /**
+   * `[GX.90]` Nombre del proveedor por clave de Kepler, en UNA consulta (ver `keplerPorFolio`).
+   * Misma regla que `analytics.expense_requests.acreedor`. Sin claves no consulta.
+   */
+  private async acreedoresPorClave(trx: Knex, claves: string[]): Promise<Map<string, string | null>> {
+    if (!claves.length) return new Map();
+    const filas: { clave: string; nombre: string | null }[] = (await trx.raw(
+      `SELECT btrim(d.c2) AS clave, NULLIF(btrim(max(btrim(d.c3))), '') AS nombre
+         FROM kepler_ods.kdxd d
+        WHERE btrim(d.c2) = ANY(?::text[])
+        GROUP BY 1`, [claves])).rows;
+    return new Map(filas.map((f) => [String(f.clave), f.nombre ?? null]));
+  }
+
   private async keplerPorFolio(
     trx: Knex, filas: { folio_solicitud?: string | null; sucursal?: string | null }[],
   ): Promise<Map<string, DatosKepler>> {
@@ -1370,7 +1441,27 @@ export class ExpenseProofsService {
          */
         .select('folio', 'sucursal', 'aplicada', 'estado', 'importe', 'beneficiario',
           'concepto', 'autoriza', trx.raw(`to_char(fecha,'YYYY-MM-DD') AS fecha`),
-          ...colsProv);
+          // `[GX.90]` `acreedor` NO se pide a la vista: ver abajo.
+          ...colsProv.filter((c) => c !== 'acreedor'));
+
+    /**
+     * `[GX.90]` **El nombre del proveedor, una vez por CLAVE — no una vez por fila.**
+     *
+     * En la vista, `acreedor` es un `LATERAL` sobre `kepler_ods.kdxd` con `btrim(c2) = btrim(c10)`,
+     * y el único índice de `kdxd` es `(sucursal, c2)`, sin `btrim`: cada fila recorre el catálogo.
+     * **Medido en prod (2026-11-05), 200 vales de Mis gastos: 446 ms con `acreedor`, 85 ms sin él.**
+     * Aparte, por las claves distintas, son ~45 ms y el resultado es el MISMO (control: 0 de 200
+     * filas distintas).
+     *
+     * ⚠️ La regla es la de la vista (`20260821200000_expense_requests_more_kepler_fields`):
+     * `NULLIF(btrim(max(btrim(c3))), '')` de `kdxd` donde `btrim(c2)` = la clave. Si esa regla
+     * cambia allá, cambia acá. Sólo se usa cuando la vista tiene `acreedor` (o sea, hay `kdxd`).
+     */
+    if (colsProv.includes('acreedor')) {
+      const claves = [...new Set(vistas.map((v) => String(v.cuenta_clave ?? '').trim()).filter(Boolean))];
+      const nombres = await this.acreedoresPorClave(trx, claves);
+      for (const v of vistas) v.acreedor = nombres.get(String(v.cuenta_clave ?? '').trim()) ?? null;
+    }
 
     const porFolio = new Map<string, typeof vistas>();
     for (const v of vistas) {
@@ -2112,12 +2203,41 @@ export class ExpenseProofsService {
      * El día es el de México, no el del servidor: `fecha` es un `date` de Kepler y a las 19:00
      * de Morelia ya es el día siguiente en UTC. Con `current_date` pelado, media tarde de
      * trabajo desaparecería del buscador.
+     *
+     * ## `[GX.88]` Salvo el FOLIO EXACTO (2026-10-30)
+     * «Sólo hoy» dejaba sin camino a la solicitud de ayer: medido en prod, 104 solicitudes de
+     * Kepler desde el 2-oct no tenían vale, 99 de días anteriores, y 53 de ellas tampoco le
+     * aparecían a nadie en «Mis gastos» (el solicitante de Kepler no casa con ningún usuario).
+     * Ahora el folio EXACTO encuentra la solicitud de cualquier fecha **que todavía no tenga
+     * vale**. Lo demás (parcial, monto, texto) sigue siendo de hoy: ahí sí es ruido.
+     *
+     * ⛔ «Cualquier fecha» = desde el primer vale de la Suite, con la fecha como constante. Sin
+     * ese límite la igualdad de folio recorre `kepler_ods.kdm1` entero (30 s medido); con él usa
+     * `ix_kdm1_compra_fecha`.
      */
-    b.andWhereRaw("r.fecha = (now() AT TIME ZONE 'America/Mexico_City')::date");
+    const hoySql = "r.fecha = (now() AT TIME ZONE 'America/Mexico_City')::date";
+    const folioIgual = "NULLIF(regexp_replace(r.folio,'[^0-9]','','g'),'')::bigint = ?";
       if (soloNumeros) {
-        // Igualdad numérica: '23' encuentra '0000023' y nada más.
-        b.andWhere((w: any) => {
-          w.whereRaw("NULLIF(regexp_replace(r.folio,'[^0-9]','','g'),'')::bigint = ?", [Number(q)]);
+        const desdeSuite = await this.inicioDeLaSuite(trx, tenantId);
+        b.andWhere((top: Knex.QueryBuilder) => {
+          // [GX.88] El folio exacto, de cualquier fecha desde la Suite, si todavía no tiene vale.
+          if (desdeSuite) {
+            top.orWhere((v: Knex.QueryBuilder) => {
+              v.where('r.fecha', '>=', desdeSuite).whereRaw(folioIgual, [Number(q)])
+                .whereNotExists(function (this: Knex.QueryBuilder) {
+                  this.select(trx.raw('1')).from('finance.expense_proofs as p')
+                    .whereRaw('p.tenant_id = r.tenant_id')
+                    .whereRaw('p.folio_solicitud = r.folio')
+                    .whereRaw('p.sucursal = r.sucursal');
+                });
+            });
+          }
+          // Lo de hoy, igual que siempre (con vale o sin él: el alta ya avisa si está repetido).
+          top.orWhere((w: Knex.QueryBuilder) => {
+          w.whereRaw(hoySql);
+          w.andWhere((x: Knex.QueryBuilder) => {
+          // Igualdad numérica: '23' encuentra '0000023' y nada más.
+          x.whereRaw(folioIgual, [Number(q)]);
           /**
            * `[GX.17]` **Y las coincidencias PARCIALES, para quien ya puede ver su cartera.**
            *
@@ -2132,13 +2252,16 @@ export class ExpenseProofsService {
            * hay que saber el folio. Abrir el parcial con esa misma manga dejaría teclear `1`
            * y enumerar el gasto ajeno. Quien no tiene áreas sigue con la igualdad de antes.
            */
-          if (veTodo || claves.length) w.orWhereILike('r.folio', `%${q}%`);
-          if (montoBuscable) w.orWhereRaw('round(r.importe::numeric) = ?', [Math.round(Number(q))]);
+          if (veTodo || claves.length) x.orWhereILike('r.folio', `%${q}%`);
+          if (montoBuscable) x.orWhereRaw('round(r.importe::numeric) = ?', [Math.round(Number(q))]);
+          });
+          });
         });
       } else if (veTodo || claves.length) {
         // [GX.14] Antes sólo beneficiario. Se suman CONCEPTO y CUENTA porque es como la
         // gente busca de verdad («maniobras», «GG014»), y los dos campos ya viajan en el
         // SELECT de abajo — mostrarlos y no dejar buscarlos era el defecto.
+        b.andWhereRaw(hoySql);
         b.andWhere((w: any) => {
           w.whereILike('r.beneficiario', `%${q}%`);
           if (conAcreedor) w.orWhereILike('r.acreedor', `%${q}%`);
@@ -2426,6 +2549,17 @@ export class ExpenseProofsService {
    *
    * (X) El tope de `limit` se aplica a cada mitad y `entrada_truncada` lo declara. Una lista
    * cortada en silencio se lee igual que una lista completa.
+   *
+   * ## (X) `[GX.88]` LO DE OTRO DIA SE VA A «ATRASADOS» (2026-10-30)
+   * Lo de arriba resolvio la firma vieja, pero solo para `recibida`. Un vale ya aprobado
+   * (`aprobada`) o con el comprobante subido despues (`revision`) quedaba en la pestaña del dia
+   * en que se levanto, y esa pestaña no se podia volver a abrir: medido en prod, 5 vales
+   * ($78,804.91) esperaban que alguien los diera por comprobados sin aparecer en ningun lado.
+   * Pedido del usuario: *«un apartado en aprobar en donde esten los atrasados en orden, que te
+   * diga cuales son los que se quedaron atrasados»*.
+   *
+   * Ahora la bandeja (`filas`) es SOLO el dia, y todo lo de otro dia que sigue abierto viaja en
+   * `atrasados`, del mas viejo al mas nuevo, con sus dias de atraso y que le falta (`queFalta`).
    */
   async delDia(fecha?: string, limit = 500): Promise<RespuestaDelDia> {
     const tenantId = this.tenantCtx.requireTenantId();
@@ -2437,69 +2571,44 @@ export class ExpenseProofsService {
     const dia = diaValido(pedida) ?? hoy;
 
     return this.tk.run(async (trx) => {
-      interface FilaCruda {
-        id: string; folio_solicitud: string | null; sucursal: string | null;
-        fecha_gasto: string | null; created_dia: string; created_hora: string;
-        departamento: string | null; proveedor: string | null; clasificacion: string | null;
-        forma_pago: string | null; forma_pago_detalle: string | null;
-        files: string | ProofFile[] | null; comentarios: string | null;
-        created_by: string | null; importe: string | number; status: string;
-        motivo_rechazo: string | null; revision_nota: string | null;
-        validated_by: string | null; validated_at: string | Date | null;
-      }
-
       // El dia de Mexico como rango de timestamps: [00:00, 00:00 del siguiente).
       const desde = trx.raw(`(?::date)::timestamp AT TIME ZONE 'America/Mexico_City'`, [dia]);
       const hasta = trx.raw(`((?::date) + interval '1 day')::timestamp AT TIME ZONE 'America/Mexico_City'`, [dia]);
 
-      // Las columnas son las mismas en los dos viajes: una sola lista evita que uno traiga
-      // un campo que el otro no, y que la pantalla muestre `undefined` en media bandeja.
-      const COLS = [
-        'id', 'folio_solicitud', 'sucursal', 'departamento', 'proveedor', 'clasificacion',
-        'forma_pago', 'forma_pago_detalle', 'files', 'comentarios', 'created_by', 'status',
-        'motivo_rechazo', 'revision_nota', 'validated_by', 'validated_at',
-        trx.raw('importe::numeric AS importe'),
-        trx.raw(`to_char(fecha_gasto, 'YYYY-MM-DD') AS fecha_gasto`),
-        trx.raw(`to_char(created_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS created_dia`),
-        trx.raw(`to_char(created_at AT TIME ZONE 'America/Mexico_City', 'HH24:MI') AS created_hora`),
-      ];
-
-      // (1) El dia que se mira, completo: alimenta las tres pestanas.
-      const filasDelDia: FilaCruda[] = await trx('finance.v_expense_proofs')
+      // (1) El dia que se mira, completo: alimenta la bandeja de entrada.
+      const filasDelDia: FilaDelDiaCruda[] = await trx('finance.v_expense_proofs')
         .where({ tenant_id: tenantId })
         .where('created_at', '>=', desde)
         .where('created_at', '<', hasta)
         .orderBy('created_at', 'desc')
         .limit(lim)
-        .select(...COLS);
+        .select(...this.columnasDelDia(trx));
 
-      // (2) `[GX.67]` Lo que espera decision y es de OTRO dia. Entra entero a la bandeja.
+      // (2) `[GX.88]` LOS ATRASADOS: de OTRO dia y todavia abiertos, del mas viejo al mas nuevo.
       //
-      // (X) `whereNotIn` contra `ESTADOS_DECIDIDOS`, que sale del mapa del repartidor -- NO
-      // `status = 'recibida'`. Con el literal, un estado nuevo en la tabla (o el `sin_etapa`
-      // que el repartidor usa de red) quedaria fuera de la bandeja sin que nada avise, que
-      // es justo el trabajo invisible que este cambio vino a terminar.
-      const deOtrosDias: FilaCruda[] = await trx('finance.v_expense_proofs')
+      // (X) Antes (`[GX.67]`) aca entraba SOLO `recibida`, mezclado en la bandeja con lo de hoy.
+      // `aprobada` y `revision` quedaban en una pestana del dia en que se levantaron, que la
+      // pantalla no podia volver a abrir: medido en prod el 2026-10-30, 5 vales ($78,804.91)
+      // esperaban que alguien los diera por comprobados y no aparecian en ningun lado.
+      //
+      // (X) `whereNotIn` contra los CERRADOS, no `whereIn` contra los pendientes: un estado
+      // nuevo en la tabla cae aca, a la vista, en vez de desaparecer.
+      const atrasadosCrudos: FilaDelDiaCruda[] = await trx('finance.v_expense_proofs')
         .where({ tenant_id: tenantId })
-        .whereNotIn('status', [...ESTADOS_DECIDIDOS])
+        .whereNotIn('status', [...ESTADOS_CERRADOS])
         .where((w) => w.where('created_at', '<', desde).orWhere('created_at', '>=', hasta))
-        .orderBy('created_at', 'desc')
+        .orderBy('created_at', 'asc')
         .limit(lim)
-        .select(...COLS);
+        .select(...this.columnasDelDia(trx));
 
-      // El total real de (2), para saber si la lista se corto. El COUNT es sobre el mismo
-      // WHERE: si no coincide con las filas traidas, hay mas y la pantalla lo dice.
-      const [fuera] = await trx('finance.v_expense_proofs')
+      // El total real de (2), para saber si la lista se corto. Mismo WHERE.
+      const [tot] = await trx('finance.v_expense_proofs')
         .where({ tenant_id: tenantId })
-        .whereNotIn('status', [...ESTADOS_DECIDIDOS])
+        .whereNotIn('status', [...ESTADOS_CERRADOS])
         .where((w) => w.where('created_at', '<', desde).orWhere('created_at', '>=', hasta))
         .select(trx.raw('COUNT(*)::int AS n'), trx.raw('COALESCE(SUM(importe), 0)::numeric AS monto'));
 
-      // Una sola lista, ordenada por captura descendente: lo de hoy arriba, lo viejo abajo.
-      const filas: FilaCruda[] = [...filasDelDia, ...deOtrosDias]
-        .sort((a, b) => `${b.created_dia} ${b.created_hora}`.localeCompare(`${a.created_dia} ${a.created_hora}`));
-
-      const particion = particionarDelDia(filas.map((f) => ({
+      const particion = particionarDelDia(filasDelDia.map((f) => ({
         id: f.id, status: f.status, importe: Number(f.importe) || 0,
       })));
 
@@ -2510,73 +2619,17 @@ export class ExpenseProofsService {
         hoy,
         // No-null = la fecha pedida era ilegible y se cayo a hoy. La pantalla lo dice.
         fecha_pedida: pedida != null && diaValido(pedida) == null ? pedida : null,
-        entrada_de_otros_dias: {
-          n: Number(fuera?.n) || 0,
-          monto: Math.round((Number(fuera?.monto) || 0) * 100) / 100,
+        entrada_truncada: filasDelDia.length >= lim,
+        atrasados_total: {
+          n: Number(tot?.n) || 0,
+          monto: Math.round((Number(tot?.monto) || 0) * 100) / 100,
         },
-        entrada_truncada: deOtrosDias.length >= lim || filasDelDia.length >= lim,
+        atrasados_truncada: atrasadosCrudos.length >= lim,
       };
 
-      if (!filas.length) {
-        return { ...base, filas: [], entrada: { total: 0, monto_total: 0, por_fecha: [], por_departamento: [] } };
-      }
-
-      // Segundo viaje: el area y el concepto de la solicitud de Kepler, por (sucursal, folio).
-      // Mismo criterio que `porAprobar`: sin folio no hay llave, y no se inventa.
-      const porSucursal = new Map<string, Set<string>>();
-      for (const f of filas) {
-        const suc = String(f.sucursal ?? '');
-        const folio = f.folio_solicitud ? String(f.folio_solicitud).trim() : '';
-        if (!suc || !folio) continue;
-        if (!porSucursal.has(suc)) porSucursal.set(suc, new Set());
-        porSucursal.get(suc)!.add(folio);
-      }
-      interface SolicitudMinima { sucursal: string; folio: string; solicitante: string | null; concepto: string | null }
-      const sol = new Map<string, SolicitudMinima>();
-      for (const [suc, folios] of porSucursal) {
-        if (!suc) continue;
-        const rows = await trx('analytics.expense_requests')
-          .where({ tenant_id: tenantId, sucursal: suc })
-          .whereRaw('folio = ANY(?::text[])', [[...folios]])
-          .select('sucursal', 'folio', 'solicitante', 'concepto');
-        for (const r of rows) sol.set(`${r.sucursal}|${r.folio}`, r);
-      }
-
-      const detalladas: ExpedienteDelDiaDetallado[] = await Promise.all(filas.map(async (f) => {
-        const arch: ProofFile[] = typeof f.files === 'string' ? JSON.parse(f.files || '[]') : (f.files ?? []);
-        const s = sol.get(`${f.sucursal}|${f.folio_solicitud}`);
-        const clasificacion = f.clasificacion ?? null;
-        return {
-          id: f.id,
-          folio_solicitud: f.folio_solicitud ?? '',
-          sucursal: f.sucursal,
-          fecha_gasto: f.fecha_gasto ?? null,
-          created_at: f.created_dia,
-          created_hora: f.created_hora,
-          importe: Number(f.importe) || 0,
-          departamento: f.departamento,
-          solicitante: s?.solicitante ?? null,
-          concepto: s?.concepto ?? null,
-          proveedor: f.proveedor,
-          clasificacion,
-          forma_pago: f.forma_pago ?? null,
-          forma_pago_detalle: f.forma_pago_detalle ?? null,
-          comentarios: f.comentarios ?? null,
-          created_by: f.created_by ?? null,
-          status: f.status,
-          etapa: etapaDe(f.status),
-          motivo_rechazo: f.motivo_rechazo ?? null,
-          revision_nota: f.revision_nota ?? null,
-          validated_by: f.validated_by ?? null,
-          validated_at: f.validated_at == null ? null : String(f.validated_at),
-          requiere_evidencia: requiereEvidencia(clasificacion),
-          // Lo que decide si "Ejercer" ya tiene con que cerrarse. Que exista un comprobante
-          // de la captura no alcanza: la evidencia del gasto es otro rol de archivo.
-          tiene_evidencia: arch.some((a) => String(a?.role ?? '').startsWith('evidencia') && !!a?.url),
-          evidencia_en_vivo: arch.some((a) => String(a?.role ?? '').startsWith('comprobante') && a?.live === true),
-          files: await this.storage.signFiles(arch, 1800),
-        };
-      }));
+      const detalladas = await this.detallarDelDia(trx, tenantId, filasDelDia);
+      const atrasados: ExpedienteAtrasado[] = (await this.detallarDelDia(trx, tenantId, atrasadosCrudos))
+        .map((d) => ({ ...d, dias_atraso: diasDeAtraso(d.created_at, hoy), falta: queFalta(d) }));
 
       // Los grupos por departamento de la bandeja de entrada. Quien autoriza no revisa
       // renglones sueltos: revisa "lo de Logistica". Se reusa el agrupador de GX.17.
@@ -2589,7 +2642,212 @@ export class ExpenseProofsService {
           evidencia_en_vivo: d.evidencia_en_vivo,
         })));
 
-      return { ...base, filas: detalladas, entrada };
+      return { ...base, filas: detalladas, entrada, atrasados };
+    });
+  }
+
+  /**
+   * Las columnas de un renglon del dia. Una sola lista para todos los viajes (el dia, los
+   * atrasados y el buscador): evita que uno traiga un campo que otro no, y que la pantalla
+   * muestre `undefined` en media lista.
+   */
+  private columnasDelDia(trx: Knex.Transaction): (string | Knex.Raw)[] {
+    return [
+      'id', 'folio_solicitud', 'sucursal', 'departamento', 'proveedor', 'clasificacion',
+      'forma_pago', 'forma_pago_detalle', 'files', 'comentarios', 'created_by', 'status',
+      'motivo_rechazo', 'revision_nota', 'validated_by', 'validated_at', 'provisional',
+      trx.raw('importe::numeric AS importe'),
+      trx.raw(`to_char(fecha_gasto, 'YYYY-MM-DD') AS fecha_gasto`),
+      trx.raw(`to_char(created_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS created_dia`),
+      trx.raw(`to_char(created_at AT TIME ZONE 'America/Mexico_City', 'HH24:MI') AS created_hora`),
+    ];
+  }
+
+  /**
+   * El renglon listo para la pantalla: con el area y el concepto de la solicitud de Kepler y
+   * los archivos ya firmados (30 min).
+   *
+   * (X) Kepler se lee por PUNTO (sucursal + folio = ANY), nunca con un filtro de texto sobre la
+   * vista entera: `analytics.expense_requests` corre sobre `kepler_ods.kdm1` (751 mil filas) y
+   * un `ILIKE` sobre toda la vista tardo 20-30 s medido en prod el 2026-10-30.
+   */
+  private async detallarDelDia(trx: Knex.Transaction, tenantId: string, filas: FilaDelDiaCruda[]): Promise<ExpedienteDelDiaDetallado[]> {
+    if (!filas.length) return [];
+    // Sin folio no hay llave, y no se inventa.
+    const porSucursal = new Map<string, Set<string>>();
+    for (const f of filas) {
+      const suc = String(f.sucursal ?? '');
+      const folio = f.folio_solicitud ? String(f.folio_solicitud).trim() : '';
+      if (!suc || !folio) continue;
+      if (!porSucursal.has(suc)) porSucursal.set(suc, new Set());
+      porSucursal.get(suc)?.add(folio);
+    }
+    interface SolicitudMinima { sucursal: string; folio: string; solicitante: string | null; concepto: string | null }
+    const sol = new Map<string, SolicitudMinima>();
+    // `[GX.90]` UNA consulta para todas las sucursales, no una tras otra (eran 3-5 de 15-25 ms).
+    // `sucursal = ANY` + `folio = ANY` sigue usando el índice `(sucursal, c4, c6)`. Puede traer
+    // cruces de más (el folio de una sucursal en otra): no estorban, porque se toma por la llave
+    // exacta `sucursal|folio`.
+    if (porSucursal.size) {
+      const rows: SolicitudMinima[] = await trx('analytics.expense_requests')
+        .where({ tenant_id: tenantId })
+        .whereIn('sucursal', [...porSucursal.keys()])
+        .whereRaw('folio = ANY(?::text[])', [[...new Set([...porSucursal.values()].flatMap((s) => [...s]))]])
+        .select('sucursal', 'folio', 'solicitante', 'concepto');
+      for (const r of rows) sol.set(`${r.sucursal}|${r.folio}`, r);
+    }
+
+    return Promise.all(filas.map(async (f): Promise<ExpedienteDelDiaDetallado> => {
+      const arch: ProofFile[] = typeof f.files === 'string' ? JSON.parse(f.files || '[]') : (f.files ?? []);
+      const s = sol.get(`${f.sucursal}|${f.folio_solicitud}`);
+      const clasificacion = f.clasificacion ?? null;
+      return {
+        id: f.id,
+        folio_solicitud: f.folio_solicitud ?? '',
+        sucursal: f.sucursal,
+        fecha_gasto: f.fecha_gasto ?? null,
+        created_at: f.created_dia,
+        created_hora: f.created_hora,
+        importe: Number(f.importe) || 0,
+        departamento: f.departamento,
+        solicitante: s?.solicitante ?? null,
+        concepto: s?.concepto ?? null,
+        proveedor: f.proveedor,
+        clasificacion,
+        forma_pago: f.forma_pago ?? null,
+        forma_pago_detalle: f.forma_pago_detalle ?? null,
+        comentarios: f.comentarios ?? null,
+        created_by: f.created_by ?? null,
+        status: f.status,
+        etapa: etapaDe(f.status),
+        motivo_rechazo: f.motivo_rechazo ?? null,
+        revision_nota: f.revision_nota ?? null,
+        validated_by: f.validated_by ?? null,
+        validated_at: f.validated_at == null ? null : String(f.validated_at),
+        requiere_evidencia: requiereEvidencia(clasificacion),
+        // Lo que decide si "Ejercer" ya tiene con que cerrarse. Que exista un comprobante
+        // de la captura no alcanza: la evidencia del gasto es otro rol de archivo.
+        tiene_evidencia: arch.some((a) => String(a?.role ?? '').startsWith('evidencia') && !!a?.url),
+        evidencia_en_vivo: arch.some((a) => String(a?.role ?? '').startsWith('comprobante') && a?.live === true),
+        provisional: f.provisional === true,
+        files: await this.storage.signFiles(arch, 1800),
+      };
+    }));
+  }
+
+  /**
+   * `[GX.88]` El primer día con un vale en la Suite (`YYYY-MM-DD`, México). Antes no hay nada
+   * que subir: una solicitud de Kepler de antes es historia, no trabajo pendiente. Y es lo que
+   * deja usar el índice por fecha de `kdm1` en vez de recorrerlo entero. `null` = no hay vales.
+   */
+  private async inicioDeLaSuite(trx: Knex.Transaction, tenantId: string): Promise<string | null> {
+    const [r] = await trx('finance.expense_proofs').where({ tenant_id: tenantId })
+      .select(trx.raw(`to_char(min(created_at AT TIME ZONE 'America/Mexico_City'), 'YYYY-MM-DD') AS desde`));
+    return (r as { desde?: string | null } | undefined)?.desde ?? null;
+  }
+
+  /**
+   * `[GX.88]` — **El buscador de gastos**, para quien aprueba.
+   *
+   * Pedido del usuario (2026-10-30): *«un buscador universal para los gastos, con folios,
+   * nombre, quien lo levanto, quien aprobo»*, y que encuentre tambien **las solicitudes de
+   * Kepler que nunca se subieron**. Lo usa SOLO quien tiene `FINANCE_EXPENSES_COMPROBAR` (lo
+   * gatea el controller).
+   *
+   * Busca en dos lados, y los devuelve aparte porque no son lo mismo:
+   *  · **vales** de la Suite, de cualquier fecha y estado: por sus campos (folio, proveedor,
+   *    quien lo levanto, quien lo cerro, quien subio la evidencia, departamento) **o** por estar
+   *    ligados a una solicitud de Kepler que coincidio (asi «quien lo pidio» tambien los trae);
+   *  · **solicitudes de Kepler sin vale**: coinciden y nadie las subio a la Suite.
+   *
+   * Palabras en cualquier orden, sin acentos, y tolera errores de dedo: es `applySmartSearch`,
+   * el mismo primitivo de Caja General — no una regla nueva de busqueda.
+   *
+   * ⛔ **Kepler se busca SOLO desde el primer vale de la Suite**, con la fecha como constante.
+   * Medido en prod el 2026-10-30: la misma busqueda sobre la vista entera tardo **20-30 s**; con
+   * la fecha acotada usa `ix_kdm1_compra_fecha` y tarda **~130 ms**. Antes de ese dia no hay
+   * vales que buscar, y una solicitud de enero «sin vale» no es trabajo pendiente: es de antes
+   * de que existiera la Suite. El limite se DEVUELVE (`solicitudes_desde`) para que la pantalla
+   * lo diga.
+   */
+  async buscarGastos(texto: string, limit = 30): Promise<ResultadoBusquedaGastos> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const q = String(texto ?? '').trim().slice(0, 80);
+    const lim = Math.min(100, Math.max(1, Number(limit) || 30));
+    const vacio: ResultadoBusquedaGastos = {
+      q, vales: [], vales_truncado: false, sin_vale: [], sin_vale_truncado: false, solicitudes_desde: null,
+    };
+    // Una letra suelta trae media base. Un digito si vale: el folio se busca por digitos.
+    if (q.length < 2 && !/^\d$/.test(q)) return vacio;
+
+    return this.tk.run(async (trx) => {
+      // Desde cuando usa la Suite cada sucursal. Una solicitud de antes no es «sin vale».
+      const inicios: { sucursal: string; desde: string }[] = await trx('finance.expense_proofs')
+        .where({ tenant_id: tenantId })
+        .whereNotNull('sucursal')
+        .groupBy('sucursal')
+        .select('sucursal', trx.raw(`to_char(min(created_at AT TIME ZONE 'America/Mexico_City'), 'YYYY-MM-DD') AS desde`));
+      const desdePorSucursal = new Map(inicios.map((i) => [String(i.sucursal), i.desde]));
+      const desde = inicios.map((i) => i.desde).sort()[0] ?? null;
+      if (!desde) return vacio;
+
+      // (1) Las solicitudes de Kepler que coinciden. Sin `aplicada` ni `acreedor`: son
+      // subconsultas por fila dentro de la vista, y no hacen falta para encontrar.
+      const kq = trx('analytics.expense_requests as r')
+        .where('r.tenant_id', tenantId)
+        .where('r.fecha', '>=', desde)
+        .whereRaw(`coalesce(btrim(r.estado), '') <> 'C'`)
+        .select('r.sucursal', 'r.folio', 'r.solicitante', 'r.beneficiario', 'r.concepto', 'r.estado',
+          trx.raw(`to_char(r.fecha, 'YYYY-MM-DD') AS fecha`), trx.raw('r.importe::numeric AS importe'))
+        .orderBy('r.fecha', 'desc')
+        .limit(300);
+      applySmartSearch(kq, q, { columns: ['r.folio', 'r.solicitante', 'r.beneficiario', 'r.concepto'], numeric: ['r.folio'] });
+      const kepler: { sucursal: string; folio: string; solicitante: string | null; beneficiario: string | null;
+        concepto: string | null; estado: string | null; fecha: string | null; importe: string | number | null }[] = await kq;
+      const llavesKepler = kepler.map((k) => `${k.sucursal}|${k.folio}`);
+
+      // (2) Los vales: por sus campos, o por estar ligados a una solicitud que coincidio.
+      const filas: FilaDelDiaCruda[] = await trx('finance.v_expense_proofs as p')
+        .where('p.tenant_id', tenantId)
+        .where((w) => {
+          applySmartSearch(w, q, {
+            columns: ['p.folio_solicitud', 'p.proveedor', 'p.created_by', 'p.validated_by', 'p.evidencia_por', 'p.departamento'],
+            numeric: ['p.folio_solicitud'],
+          });
+          if (llavesKepler.length) w.orWhereRaw(`(p.sucursal || '|' || p.folio_solicitud) = ANY(?::text[])`, [llavesKepler]);
+        })
+        .orderBy('p.created_at', 'desc')
+        .limit(lim + 1)
+        .select(...this.columnasDelDia(trx).map((c) => (typeof c === 'string' ? `p.${c}` : c)));
+
+      // (3) Las solicitudes que coincidieron y NO tienen vale (de ninguna fecha).
+      const conVale = new Set<string>();
+      if (llavesKepler.length) {
+        const ligadas: { llave: string }[] = await trx('finance.expense_proofs')
+          .where({ tenant_id: tenantId })
+          .whereRaw(`(sucursal || '|' || folio_solicitud) = ANY(?::text[])`, [llavesKepler])
+          .select(trx.raw(`sucursal || '|' || folio_solicitud AS llave`));
+        for (const l of ligadas) conVale.add(l.llave);
+      }
+      const sinVale: SolicitudSinVale[] = kepler
+        .filter((k) => !conVale.has(`${k.sucursal}|${k.folio}`))
+        // De antes de que ESA sucursal usara la Suite no es pendiente: es historia.
+        .filter((k) => !k.fecha || k.fecha >= (desdePorSucursal.get(String(k.sucursal)) ?? desde))
+        .map((k) => ({
+          sucursal: String(k.sucursal), folio: String(k.folio), fecha: k.fecha ?? null,
+          importe: Number(k.importe) || 0, solicitante: k.solicitante ?? null,
+          beneficiario: k.beneficiario ?? null, concepto: k.concepto ?? null, estado: k.estado ?? null,
+        }));
+
+      return {
+        q,
+        vales: await this.detallarDelDia(trx, tenantId, filas.slice(0, lim)),
+        vales_truncado: filas.length > lim,
+        sin_vale: sinVale.slice(0, lim),
+        // 300 = el tope de (1): si se lleno, puede haber mas solicitudes que no se miraron.
+        sin_vale_truncado: sinVale.length > lim || kepler.length >= 300,
+        solicitudes_desde: desde,
+      };
     });
   }
 
@@ -2724,16 +2982,21 @@ export class ExpenseProofsService {
        *
        * El puente es `c39` y es limpio: `analytics.expense_documents` lo deriva, y GX.15
        * lo midio en el **100%** de los 9,073 gastos aplicados.
+       *
+       * ## (X) `[GX.90]` UNA consulta para todos los vales, no una por vale (2026-11-05)
+       * Esto era una subconsulta correlacionada: una búsqueda en la vista POR CADA vale. En la
+       * vista, `solicitud_folio` es un `CASE` sobre `c39`, así que Postgres no puede usar el índice
+       * por folio y recorre todos los gastos de la sucursal en cada búsqueda. **Medido en prod:
+       * el Expediente tardaba 20 s de mediana (25 s máximo), 24.7 s en esta sola consulta.** La
+       * misma vista, preguntada UNA vez por todos los folios, tarda ~120 ms y da lo mismo
+       * (control en 40 vales: 36 con gasto por las dos formas). Es `gastosPorSolicitud`, el
+       * mismo puente que ya usan Mis gastos y el Historial.
        */
-      q.select(
-        trx.raw(`(SELECT array_agg(d.doc_folio ORDER BY d.doc_folio)
-                    FROM analytics.expense_documents d
-                   WHERE d.tenant_id = p.tenant_id
-                     AND d.sucursal = p.sucursal
-                     AND d.solicitud_folio = p.folio_solicitud
-                     AND d.doc_tipo = 'XA1001') AS gasto_folios`));
-
       const filas: Cruda[] = await q;
+      const gastos = await this.gastosPorSolicitud(trx, filas);
+      for (const f of filas) {
+        f.gasto_folios = datosKeplerDeLaFila(undefined, gastos, f.folio_solicitud, f.sucursal).gasto_folios;
+      }
 
       /**
        * `[GX.75]` El tercer número: la transferencia `XD2601` que pagó cada gasto. UN viaje
