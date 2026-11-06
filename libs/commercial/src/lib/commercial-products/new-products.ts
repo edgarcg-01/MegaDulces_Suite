@@ -1,4 +1,8 @@
-import { escaleraUnidades, factorDeRotulo, type UnidadEscalera } from '@megadulces/contracts';
+import {
+  clasificarKpi, escaleraUnidades, factorDeRotulo, umbralPara,
+  type KpiUmbral, type KpiVeredicto, type UnidadEscalera,
+} from '@megadulces/contracts';
+import { costoSinImpuestos } from './catalogo-ficha';
 
 /**
  * `[NP.2]` Productos nuevos — la lógica pura: junta la historia (matvista) con lo de hoy (ODS en
@@ -13,9 +17,20 @@ import { escaleraUnidades, factorDeRotulo, type UnidadEscalera } from '@megadulc
  *   · Un hito que todavía no llega no es un hito cerrado: se publica marcado como EN CURSO.
  *   · "Venta por cada peso invertido" sólo se calcula sobre productos con inversión medida, y en
  *     la cohorte sobre el MISMO universo en el numerador y en el denominador.
+ *   · `[NP.UI.1]` Y en la MISMA base: venta SIN IVA/IEPS contra compra SIN impuestos. Antes era
+ *     venta con impuestos contra compra sin ellos (salía 8–16 % alta y disparaba «Recomprar»).
  *   · La recomendación es del SISTEMA y se dice con sus motivos; la decide Compras. Mide
  *     ROTACIÓN y RECUPERACIÓN de lo invertido, no margen: el costo de lo vendido todavía no se
  *     puede medir bien para un producto nuevo (ADR-051).
+ *   · `[NP.20]` (NP.UI.3, decisión de David 2026-11-03) **Un solo motor de compra.** Esta pantalla ya
+ *     NO dice si hay que comprar: eso lo contesta Productos (`product-flow.ts`, por cobertura). Aquí
+ *     se contesta «¿el lanzamiento funcionó?»: Se queda · Revisar · Sacar · Aún es pronto. Mapeo con
+ *     el vocabulario anterior: recomprar → se_queda · esperar → se_queda · revisar → revisar ·
+ *     no_recomprar → sacar · pronto → pronto (y lo que cambia por `[NP.21]`, abajo).
+ *   · `[NP.21]` **Agotado no es «no se vende».** Si no hay existencia donde se vendía (o en ninguna
+ *     sucursal), «lleva N días sin venderse» no es evidencia contra el producto: el veredicto es
+ *     `agotado` («no se puede juzgar la venta») y la compra la decide Productos. Es la misma regla que
+ *     PF ya tenía («una caída con sucursales agotadas no es falta de demanda»).
  */
 
 export const NEW_PRODUCT_KINDS = ['nuevo', 'recodificacion', 'promocion', 'no_mercancia'] as const;
@@ -28,10 +43,14 @@ export const HITOS = [30, 60, 90] as const;
 export type Hito = (typeof HITOS)[number];
 
 /**
- * El criterio de la recomendación. Es una PROPUESTA para calibrar con Compras, no una verdad: por
- * eso vive en un solo lugar, con nombre, y la pantalla lo muestra en "Cómo se decide".
+ * El criterio del juicio del lanzamiento. Es una PROPUESTA para calibrar con Compras, no una verdad:
+ * por eso vive en un solo lugar, con nombre, y la pantalla lo muestra en "Cómo se decide".
+ * `[NP.20]` Antes `CRITERIO_RECOMPRA`. Ya no lleva `recuperadoAlto` (0.80): era el disparador de
+ * «Recomprar», una pregunta de compra que ahora contesta sólo Productos. La recuperación de lo
+ * invertido se juzga en cada corte 30/60/90 contra la meta que registre Compras
+ * (`analytics.kpi_thresholds`, `kpiHito`); sin meta, se dice «sin meta» y no entra al veredicto.
  */
-export const CRITERIO_RECOMPRA = {
+export const CRITERIO_LANZAMIENTO = {
   /** Antes de este día no se recomienda nada: hay muy poca venta para juzgar. */
   diasMinimos: 21,
   /** La ventana de "venta reciente". */
@@ -40,8 +59,6 @@ export const CRITERIO_RECOMPRA = {
   diasConVentaSano: 8,
   /** Si la venta de la ventana cae por debajo de esta fracción de la ventana anterior, se revisa. */
   caidaMaxima: 0.6,
-  /** Pesos vendidos por cada peso invertido (a precio de venta) para decir que ya se recuperó. */
-  recuperadoAlto: 0.8,
   /** Días seguidos sin venta para decir que dejó de venderse. */
   sinVentaDias: 21,
 } as const;
@@ -58,7 +75,16 @@ export type Etapa = 'sin_movimiento' | 'mes_1' | 'mes_2' | 'mes_3' | 'graduado';
  */
 export type Estado = 'seguimiento' | 'sin_movimiento' | 'no_medible' | 'excluido';
 
-export type Veredicto = 'recomprar' | 'esperar' | 'revisar' | 'no_recomprar' | 'pronto';
+/**
+ * `[NP.20]` «¿El lanzamiento funcionó?» — NO «¿compro?» (eso es de Productos).
+ *   se_queda — se vende de forma sostenida: el lanzamiento funcionó.
+ *   revisar  — se vende poco, la venta cayó, o un corte quedó fuera de la tolerancia de Compras.
+ *   sacar    — nunca se vendió o dejó de venderse, CON existencia donde se vendía.
+ *   pronto   — antes del día `diasMinimos`.
+ *   agotado  — `[NP.21]` la venta no se puede juzgar: no hay existencia donde se vendía.
+ */
+export type Veredicto = 'se_queda' | 'revisar' | 'sacar' | 'pronto' | 'agotado';
+export const VEREDICTOS: readonly Veredicto[] = ['se_queda', 'revisar', 'sacar', 'agotado', 'pronto'];
 
 export interface Recomendacion {
   veredicto: Veredicto;
@@ -217,6 +243,12 @@ export interface Movimiento {
   unidad?: string | null;
   cantidad?: number | string | null;
   importe: number | string;
+  /**
+   * `[NP.UI.1]` La venta SIN IVA/IEPS del renglón (`importe_neto` de la función). En una entrada es el
+   * mismo importe (la compra ya va sin impuestos). Ausente en una venta = no se sabe: la venta neta del
+   * producto se declara no medida, nunca se toma la venta con impuestos en su lugar.
+   */
+  importe_neto?: number | string | null;
 }
 
 /** Existencia de hoy, por plaza, en la unidad de inventario de esa plaza. */
@@ -271,12 +303,26 @@ export interface ExistenciaDuda {
 }
 
 export interface HitoValores {
-  /** El día del hito ya pasó: la cifra es definitiva. `false` = va en curso. */
+  /**
+   * El día del hito ya pasó: la cifra es DEFINITIVA, calculada desde la historia del ODS (`[NP.6]`, sin foto
+   * guardada). `false` = va en curso.
+   */
   cerrado: boolean;
   inversion: number | null;
+  /** Venta CON impuestos (lo que cobró la caja). */
   venta: number | null;
+  /**
+   * `[NP.UI.1]` Venta SIN IVA/IEPS del tramo. NULL = la venta neta del producto no se pudo medir.
+   * Se deriva con el factor de impuesto del producto (neta ÷ con impuestos de toda su venta): sus
+   * tasas no cambian de un renglón a otro (medido 2026-11-03: 0 de 80 SKUs nuevos con dos tasas).
+   */
+  venta_neta: number | null;
+  /** `[NP.UI.1]` Venta sin impuestos por cada $1 invertido (sin impuestos) en el tramo. */
+  venta_por_peso: number | null;
   /** `[NP.16]` Lo vendido en tienda Kepler en ese tramo, en las unidades en que se vendió. */
   unidades: Unidades;
+  /** `[NP.6]` El semáforo contra el umbral registrado. NULL = el hito no ha cerrado, o sin permiso de costo. */
+  semaforo: SemaforoHito | null;
 }
 
 /**
@@ -306,6 +352,11 @@ export const tipoEntradaTexto = (doc: string): string => TIPO_ENTRADA[doc] ?? `o
 export interface Senales {
   dia: number | null;
   venta_total: number;
+  /**
+   * `[NP.UI.1]` La venta SIN impuestos: la que se compara contra lo invertido. NULL (o ausente) = no
+   * medida, y entonces NO se dice cuánto recuperó (nunca se usa la venta con impuestos en su lugar).
+   */
+  venta_neta?: number | null;
   inversion_total: number | null;
   dias_con_venta_28: number;
   venta_28: number;
@@ -318,6 +369,11 @@ export interface Senales {
   plazas_con_existencia: number;
   /** `[NP.16]` Plazas con la existencia en duda: no se dan por agotadas, se mandan a contar. */
   en_duda?: number;
+  /**
+   * `[NP.21]` Plazas que lo VENDIERON alguna vez y hoy tienen existencia. 0 con venta = se agotó en
+   * todas las que lo vendían. Ausente = no se midió (la regla del agotado se apoya sólo en lo demás).
+   */
+  vendio_con_existencia?: number;
 }
 
 export interface NewProductRow {
@@ -343,8 +399,14 @@ export interface NewProductRow {
   clasificado_por: string | null;
   hitos: Record<Hito, HitoValores>;
   inversion_total: number | null;
+  /** Venta CON impuestos (lo que cobró la caja). */
   venta_total: number | null;
-  /** Venta acumulada por cada peso invertido. NULL si la inversión no se midió. */
+  /** `[NP.UI.1]` Venta SIN IVA/IEPS. NULL = no se pudo medir (nunca la venta con impuestos en su lugar). */
+  venta_neta_total: number | null;
+  /**
+   * Venta SIN impuestos por cada peso invertido (sin impuestos). NULL si la inversión o la venta neta
+   * no se midió. `[NP.UI.1]` Antes: venta con impuestos contra compra sin ellos.
+   */
   venta_por_peso: number | null;
   entradas: number;
   plazas_recibido: number;
@@ -398,6 +460,8 @@ export interface PlazaRow {
   dia: number | null;
   primera_actividad: string | null;
   venta_total: number;
+  /** `[NP.UI.1]` Venta SIN impuestos de la plaza. NULL = no se pudo medir. */
+  venta_neta_total: number | null;
   venta_28: number;
   dias_con_venta_28: number;
   inversion_total: number | null;
@@ -437,10 +501,13 @@ export interface Cohorte {
   /** `YYYY-MM` del lanzamiento. */
   mes: string;
   productos: number;
-  /** Cuántos de esos tienen inversión medida: el universo del cociente. */
+  /** Cuántos de esos tienen inversión Y venta neta medidas: el universo del cociente. */
   con_inversion: number;
   inversion: number | null;
+  /** Venta CON impuestos de toda la cohorte. */
   venta: number;
+  /** `[NP.UI.1]` Venta SIN impuestos del universo del cociente (`con_inversion`). */
+  venta_neta: number | null;
   venta_por_peso: number | null;
   recomprados: number;
   /** Los que ya cumplieron 30 días: el denominador de `sin_venta_30`. */
@@ -459,6 +526,10 @@ export interface Resumen {
   por_veredicto: Record<Veredicto, number>;
   inversion: number | null;
   venta: number;
+  /** `[NP.UI.1]` Venta SIN impuestos del universo del cociente. */
+  venta_neta: number | null;
+  /** Cuántos productos entran al cociente (inversión y venta neta medidas). */
+  con_inversion: number;
   venta_hoy: number;
   venta_por_peso: number | null;
   recomprados: number;
@@ -668,60 +739,97 @@ function primeraRecompra(entradas: Array<{ f: string; p: string }>): string | nu
 
 // ─────────────────────────────── la recomendación ───────────────────────────────
 
+/** `[NP.20]` La frase que manda a la otra pregunta: la compra la contesta Productos, no esta pantalla. */
+export const VER_PRODUCTOS = 'Si hay que comprar lo dice Productos (por cobertura)';
+
 /**
- * ¿Conviene volver a comprarlo? Determinista y explicable: cada veredicto sale con sus motivos.
- * `conCosto = false` no cambia la decisión, sólo calla las cifras de inversión en los motivos.
+ * `[NP.21]` ¿Se puede juzgar la venta, o falta mercancía? NULL = sí se puede. Si no, el porqué en palabras.
+ * Falta mercancía cuando no hay existencia en ninguna sucursal, cuando se agotó en una que lo vendía en
+ * las últimas 4 semanas, o cuando ninguna de las que lo vendieron alguna vez tiene existencia hoy.
  */
-export function recomendar(s: Senales, opts: { conCosto: boolean } = { conCosto: true }): Recomendacion {
-  const C = CRITERIO_RECOMPRA;
+export function faltaMercancia(s: Senales, opts: { sucursal?: boolean } = {}): string | null {
+  const plural = (n: number, uno: string, varios: string) => (n === 1 ? uno : varios);
+  // Las señales de UNA sucursal: la frase habla de ella, no de la red.
+  if (opts.sucursal) {
+    if (s.plazas_con_existencia > 0) return null;
+    return s.en_duda ? 'La existencia de esta sucursal está en duda' : 'No hay existencia en esta sucursal';
+  }
+  if (s.plazas_con_existencia === 0) {
+    return s.en_duda
+      ? `No hay existencia segura en ninguna sucursal (en duda en ${s.en_duda})`
+      : 'No hay existencia en ninguna sucursal';
+  }
+  if (s.vendio_con_existencia !== undefined && s.venta_total > 0 && s.vendio_con_existencia === 0) {
+    return 'Se agotó en todas las sucursales donde se vendía';
+  }
+  if (s.agotado_en > 0) {
+    return `Se agotó en ${s.agotado_en} ${plural(s.agotado_en, 'sucursal que lo vende', 'sucursales que lo venden')}`;
+  }
+  return null;
+}
+
+/**
+ * ¿El lanzamiento funcionó? Determinista y explicable: cada veredicto sale con sus motivos.
+ * `conCosto = false` no cambia la decisión, sólo calla las cifras de inversión en los motivos.
+ *
+ * `[NP.20]` Juzga ROTACIÓN con `CRITERIO_LANZAMIENTO` (los mismos números de antes, sin umbrales nuevos).
+ * La recuperación de lo invertido se informa aquí y se JUZGA en `conHitos`, contra la meta de cada corte.
+ * `[NP.21]` Toda conclusión negativa que sale de la FALTA de venta (sin venta, dejó de venderse, cayó, se
+ * vende poco) se descarta si falta mercancía: el veredicto pasa a `agotado`, nunca a `sacar`.
+ */
+export function recomendar(s: Senales, opts: { conCosto: boolean; sucursal?: boolean } = { conCosto: true }): Recomendacion {
+  const C = CRITERIO_LANZAMIENTO;
   const dia = s.dia ?? 0;
-  const recuperado = s.inversion_total !== null && s.inversion_total > 0 ? s.venta_total / s.inversion_total : null;
+  // [NP.UI.1] Lo mismo con lo mismo: venta SIN impuestos contra compra SIN impuestos. Si la venta neta no
+  // se midió, no se dice cuánto recuperó (la venta con impuestos lo inflaría 8-16 %).
+  const neta = s.venta_neta ?? null;
+  const recuperado = s.inversion_total !== null && s.inversion_total > 0 && neta !== null ? neta / s.inversion_total : null;
   const sostenida = `Se vendió ${s.dias_con_venta_28} de los últimos ${C.ventana} días`;
 
   if (s.dia === null) return { veredicto: 'pronto', motivos: ['Todavía no entra ni se vende'] };
   if (dia < C.diasMinimos) {
     return {
       veredicto: 'pronto',
-      motivos: [`Lleva ${dia} día${dia === 1 ? '' : 's'}; se decide a partir del día ${C.diasMinimos}`,
+      motivos: [`Lleva ${dia} día${dia === 1 ? '' : 's'}; se juzga a partir del día ${C.diasMinimos}`,
         s.venta_total > 0 ? `Ya vendió ${pesos(s.venta_total)}` : 'Todavía no se vende'],
     };
   }
+
+  // Lo que se concluiría de la FALTA de venta. Se evalúa primero y se descarta si falta mercancía.
+  let negativo: Recomendacion | null = null;
   if (s.venta_total <= 0) {
-    return { veredicto: 'no_recomprar', motivos: [`No se ha vendido en ${dia} días desde que llegó`] };
-  }
-  if (s.dias_sin_venta !== null && s.dias_sin_venta >= C.sinVentaDias) {
-    return { veredicto: 'no_recomprar', motivos: [`Lleva ${s.dias_sin_venta} días sin venderse`] };
-  }
-  if (s.venta_28_previa !== null && s.venta_28_previa > 0 && s.venta_28 / s.venta_28_previa < C.caidaMaxima) {
+    negativo = { veredicto: 'sacar', motivos: [`No se ha vendido en ${dia} días desde que llegó`] };
+  } else if (s.dias_sin_venta !== null && s.dias_sin_venta >= C.sinVentaDias) {
+    negativo = { veredicto: 'sacar', motivos: [`Lleva ${s.dias_sin_venta} días sin venderse`] };
+  } else if (s.venta_28_previa !== null && s.venta_28_previa > 0 && s.venta_28 / s.venta_28_previa < C.caidaMaxima) {
     const caida = Math.round((1 - s.venta_28 / s.venta_28_previa) * 100);
-    return {
-      veredicto: 'revisar',
-      motivos: [`La venta de las últimas 4 semanas cayó ${caida}% contra las 4 anteriores`, sostenida],
-    };
+    negativo = { veredicto: 'revisar', motivos: [`La venta de las últimas 4 semanas cayó ${caida}% contra las 4 anteriores`, sostenida] };
+  } else if (s.dias_con_venta_28 < C.diasConVentaSano) {
+    negativo = { veredicto: 'revisar', motivos: [`Se vende poco: ${s.dias_con_venta_28} de los últimos ${C.ventana} días`] };
   }
-  if (s.dias_con_venta_28 < C.diasConVentaSano) {
-    return { veredicto: 'revisar', motivos: [`Se vende poco: ${s.dias_con_venta_28} de los últimos ${C.ventana} días`] };
+  const falta = faltaMercancia(s, { sucursal: opts.sucursal });
+  if (negativo) {
+    if (!falta) return negativo;
+    return {
+      veredicto: 'agotado',
+      motivos: [
+        `${falta}: la venta no se puede juzgar`,
+        `${negativo.motivos[0]}, pero sin mercancía no se puede vender`,
+        VER_PRODUCTOS,
+      ],
+    };
   }
 
   const motivos = [sostenida];
-  const agotado = s.agotado_en > 0;
-  const sinExistencia = s.plazas_con_existencia === 0;
-  const recuperadoAlto = recuperado !== null && recuperado >= C.recuperadoAlto;
-  if (agotado) motivos.push(`Se agotó en ${s.agotado_en} plaza${s.agotado_en === 1 ? '' : 's'} que lo vende${s.agotado_en === 1 ? '' : 'n'}`);
-  else if (sinExistencia) motivos.push('Ya no hay existencia en ninguna plaza');
-  if (recuperado !== null) {
-    motivos.push(opts.conCosto
-      ? `Vendió $${recuperado.toFixed(2)} por cada $1 invertido`
-      : (recuperadoAlto ? 'Ya vendió la mayor parte de lo que se compró' : 'Todavía no vende lo que se compró'));
+  if (falta) motivos.push(`${falta}. ${VER_PRODUCTOS}`);
+  // Sin permiso de costo no se dice nada de la recuperación: con la venta, cualquier frase deja despejarlo.
+  if (recuperado !== null && opts.conCosto) {
+    motivos.push(`Vendió $${recuperado.toFixed(2)} (sin impuestos) por cada $1 invertido`);
   }
   if (s.en_duda) {
-    motivos.push(`La existencia de Kepler está en duda en ${s.en_duda} plaza${s.en_duda === 1 ? '' : 's'}: conviene contarla antes de recomprar`);
+    motivos.push(`La existencia de Kepler está en duda en ${s.en_duda} sucursal${s.en_duda === 1 ? '' : 'es'}: conviene contarla`);
   }
-  if (agotado || sinExistencia || recuperadoAlto) return { veredicto: 'recomprar', motivos };
-  return {
-    veredicto: 'esperar',
-    motivos: ['Se vende bien, pero todavía hay existencia', ...motivos],
-  };
+  return { veredicto: 'se_queda', motivos };
 }
 
 // ─────────────────────────────── los márgenes (NP.15) ───────────────────────────────
@@ -855,7 +963,7 @@ export function armarProducto(
   const serie = lanzamiento
     ? serieDiaria(lanzamiento, hoy, f.corte, f.venta_dia ?? [], ventasVivo.map((m) => ({ fecha: m.fecha, importe: m.importe })))
     : [];
-  const v = ventana(serie, CRITERIO_RECOMPRA.ventana);
+  const v = ventana(serie, CRITERIO_LANZAMIENTO.ventana);
 
   const exPorPlaza = new Map<string, { cantidad: number; fila: Existencia }>();
   for (const e of existencia) {
@@ -865,6 +973,8 @@ export function armarProducto(
   const unidadesRecibidas: Unidades = {};
   const unidadesHoy: Unidades = {};
   let cubierto = 0;
+  // [NP.UI.1] La venta SIN impuestos del producto: la suma de las plazas. NULL en cuanto una no se pudo medir.
+  let netaGlobal: number | null = 0;
 
   // ── Por plaza ──
   const codigos = new Set<string>([
@@ -880,6 +990,8 @@ export function armarProducto(
   let agotadoEn = 0;
   let enDuda = 0;
   let conExistencia = 0;
+  // [NP.21] Plazas que lo vendieron alguna vez y hoy tienen existencia.
+  let vendioConExistencia = 0;
   const escaleras: Array<UnidadEscalera[] | null> = [];
   for (const p of [...codigos].sort()) {
     const serieP = lanzamiento
@@ -899,7 +1011,7 @@ export function armarProducto(
     // La serie de la plaza arranca en SU primera actividad, no en la del producto.
     const desde = primeraAct && lanzamiento ? Math.max(0, diasEntre(lanzamiento, primeraAct) ?? 0) : serieP.length;
     const serieDesde = serieP.slice(desde);
-    const vp = ventana(serieDesde, CRITERIO_RECOMPRA.ventana);
+    const vp = ventana(serieDesde, CRITERIO_LANZAMIENTO.ventana);
     const ex = exPorPlaza.get(p);
     const totalP = serieP.reduce((a, b) => a + b, 0);
     const invP = entradasP.length ? entradasP.reduce((a, e) => a + e.i, 0) : null;
@@ -912,6 +1024,7 @@ export function armarProducto(
     const cantidadP = duda ? duda.estimada : ex ? ex.cantidad : null;
     const hayExistencia = cantidadP !== null && cantidadP > 0;
     if (hayExistencia) conExistencia += 1;
+    if (hayExistencia && totalP > 0) vendioConExistencia += 1;
     const agotadaAqui = vp.dias > 0 && !hayExistencia && !(duda && duda.estimada === null);
     if (agotadaAqui) agotadoEn += 1;
     const diaP = primeraAct ? diasEntre(primeraAct, hoy) : null;
@@ -932,6 +1045,15 @@ export function armarProducto(
     const fuenteP = f.margen_plaza?.[p];
     const diasHist = primeraAct && primeraAct < f.corte ? diasEntre(primeraAct, f.corte) : null;
     const netaP = num(fuenteP?.n);
+    // [NP.UI.1] Venta SIN impuestos de la plaza: la historia (`margen_plaza.n`, la misma venta de la
+    // serie sin IVA/IEPS) + lo de hoy (`importe_neto`). Si la historia vendió y no trae su neta, o un
+    // renglón de hoy no la trae, NO se mide: la venta con impuestos no entra en su lugar.
+    const brutaHistP = (f.venta_por_plaza?.[p] ?? []).reduce<number>((a, x) => a + (num(x) ?? 0), 0);
+    const netosVivoP = ventasVivoP.map((m) => num(m.importe_neto));
+    const netaTotalP: number | null = (brutaHistP > 0.005 && netaP === null) || netosVivoP.some((x) => x === null)
+      ? null
+      : (netaP ?? 0) + netosVivoP.reduce<number>((a, x) => a + (x ?? 0), 0);
+    netaGlobal = netaGlobal === null || netaTotalP === null ? null : netaGlobal + netaTotalP;
     const unidadEx = ex && ex.fila.fuente !== 'wincaja' ? (ex.fila.unidad ?? '').trim().toUpperCase() : '';
     const vendidoBase = unidadEx ? num(fuenteP?.b?.[unidadEx]?.q) : null;
     // [NP.16] El reparto de la plaza: historia (matvista) + lo de hoy, cada tipo por su lado.
@@ -946,6 +1068,7 @@ export function armarProducto(
       dia: diaP,
       primera_actividad: primeraAct,
       venta_total: Math.round(totalP * 100) / 100,
+      venta_neta_total: r2(netaTotalP),
       venta_28: Math.round(vp.venta * 100) / 100,
       dias_con_venta_28: vp.dias,
       inversion_total: r2(invP),
@@ -968,10 +1091,11 @@ export function armarProducto(
       venta_hoy: Math.round(ventasVivo.filter((m) => m.plaza === p && m.fecha === hoy)
         .reduce((a, m) => a + (num(m.importe) ?? 0), 0) * 100) / 100,
       recomendacion: recomendar({
-        dia: diaP, venta_total: totalP, inversion_total: invP, dias_con_venta_28: vp.dias, venta_28: vp.venta,
+        dia: diaP, venta_total: totalP, venta_neta: netaTotalP, inversion_total: invP, dias_con_venta_28: vp.dias, venta_28: vp.venta,
         venta_28_previa: vp.previa, dias_sin_venta: vp.ultima,
         agotado_en: agotadaAqui ? 1 : 0, plazas_con_existencia: hayExistencia ? 1 : 0, en_duda: duda ? 1 : 0,
-      }, { conCosto: opts.conCosto }),
+        vendio_con_existencia: hayExistencia && totalP > 0 ? 1 : 0,
+      }, { conCosto: opts.conCosto, sucursal: true }),
       margenes: fuenteP ? margenesDe([fuenteP], f.compra_base) : null,
       movimiento: {
         venta_neta_dia: diasHist !== null && diasHist > 0 && netaP !== null ? r2(netaP / diasHist) : null,
@@ -998,6 +1122,10 @@ export function armarProducto(
   // ── Global ──
   const ventaTotal = serie.reduce((a, b) => a + b, 0);
   const invTotal = todasEntradas.length ? todasEntradas.reduce((a, e) => a + e.i, 0) : null;
+  // [NP.UI.1] El factor de impuesto del producto (neta ÷ con impuestos). Sus tasas no cambian de un renglón
+  // a otro (medido 2026-11-03: 0 de 80 SKUs nuevos con dos pares IVA/IEPS), así que la neta de un tramo es
+  // su venta con impuestos por este factor. NULL = sin venta, o sin neta medida.
+  const factorNeto = netaGlobal !== null && ventaTotal > 0 ? netaGlobal / ventaTotal : null;
   const hitos = Object.fromEntries((HITOS as readonly Hito[]).map((n) => {
     const ven = serie.slice(0, n);
     const inv = lanzamiento ? todasEntradas.filter((e) => (diasEntre(lanzamiento, e.f) ?? 0) < n) : [];
@@ -1006,12 +1134,20 @@ export function armarProducto(
     if (lanzamiento) {
       for (const m of ventasVivo.filter((x) => (diasEntre(lanzamiento, x.fecha) ?? n) < n)) sumarUnidades(uni, unidadesDe(m));
     }
-    return [n, {
+    const ventaN = ven.some((x) => x > 0) ? r2(ven.reduce((a, b) => a + b, 0)) : null;
+    const netaN = ventaN === null ? null : factorNeto === null ? null : r2(ventaN * factorNeto);
+    const invN = inv.length ? r2(inv.reduce((a, e) => a + e.i, 0)) : null;
+    const valores: HitoValores = {
       cerrado: dia !== null && dia >= n,
-      inversion: inv.length ? r2(inv.reduce((a, e) => a + e.i, 0)) : null,
-      venta: ven.some((x) => x > 0) ? r2(ven.reduce((a, b) => a + b, 0)) : null,
+      inversion: invN,
+      venta: ventaN,
+      venta_neta: netaN,
+      // Sin venta en el tramo es un cero MEDIDO (no vendió nada de lo invertido); sin neta, no se dice.
+      venta_por_peso: invN !== null && invN > 0 ? (ventaN === null ? 0 : netaN === null ? null : r2(netaN / invN)) : null,
       unidades: limpiarUnidades(uni),
-    }];
+      semaforo: null,
+    };
+    return [n, valores];
   })) as Record<Hito, HitoValores>;
   const recompra = primeraRecompra(todasEntradas);
   // [NP.16] Contadas en el ciclo de plazas, con la existencia estimada donde la de Kepler está en duda
@@ -1042,7 +1178,8 @@ export function armarProducto(
     hitos,
     inversion_total: r2(invTotal),
     venta_total: lanzamiento ? Math.round(ventaTotal * 100) / 100 : null,
-    venta_por_peso: invTotal !== null && invTotal > 0 ? r2(ventaTotal / invTotal) : null,
+    venta_neta_total: lanzamiento ? r2(netaGlobal) : null,
+    venta_por_peso: invTotal !== null && invTotal > 0 && netaGlobal !== null ? r2(netaGlobal / invTotal) : null,
     entradas: new Set(todasEntradas.map((e) => `${e.f}|${e.p}`)).size,
     plazas_recibido: new Set(todasEntradas.map((e) => e.p)).size,
     primera_recompra: recompra,
@@ -1065,9 +1202,9 @@ export function armarProducto(
     unidades_hoy: limpiarUnidades(unidadesHoy),
     recomendacion: estado === 'seguimiento'
       ? recomendar({
-        dia, venta_total: ventaTotal, inversion_total: invTotal, dias_con_venta_28: v.dias, venta_28: v.venta,
+        dia, venta_total: ventaTotal, venta_neta: netaGlobal, inversion_total: invTotal, dias_con_venta_28: v.dias, venta_28: v.venta,
         venta_28_previa: v.previa, dias_sin_venta: v.ultima, agotado_en: agotadoEn,
-        plazas_con_existencia: plazasConExistencia, en_duda: enDuda,
+        plazas_con_existencia: plazasConExistencia, en_duda: enDuda, vendio_con_existencia: vendioConExistencia,
       }, { conCosto: opts.conCosto })
       : null,
     margenes: margenesDe(Object.values(f.margen_plaza ?? {}), f.compra_base),
@@ -1119,16 +1256,21 @@ export const cuentaParaKpis = (f: NewProductRow): boolean => f.estado === 'segui
 function acumular(filas: NewProductRow[]) {
   const conInv = filas.filter((f) => f.inversion_total !== null);
   const inversion = conInv.length ? conInv.reduce((s, f) => s + (f.inversion_total ?? 0), 0) : null;
-  const ventaConInv = conInv.reduce((s, f) => s + (f.venta_total ?? 0), 0);
+  // [NP.UI.1] El universo del cociente: inversión Y venta neta medidas. Venta SIN impuestos contra
+  // compra SIN impuestos, los dos sobre los MISMOS productos.
+  const medibles = conInv.filter((f) => f.venta_neta_total !== null);
+  const invMedible = medibles.reduce((s, f) => s + (f.inversion_total ?? 0), 0);
+  const netaMedible = medibles.reduce((s, f) => s + (f.venta_neta_total ?? 0), 0);
   const con30 = filas.filter((f) => f.dia !== null && f.dia >= 30);
   return {
     productos: filas.length,
-    con_inversion: conInv.length,
+    con_inversion: medibles.length,
     inversion: r2(inversion),
     venta: r2(filas.reduce((s, f) => s + (f.venta_total ?? 0), 0)) ?? 0,
-    // Mismo universo arriba y abajo: la venta de los productos SIN inversión medida no se cuela
-    // en el numerador.
-    venta_por_peso: inversion !== null && inversion > 0 ? r2(ventaConInv / inversion) : null,
+    venta_neta: medibles.length ? r2(netaMedible) : null,
+    // Mismo universo arriba y abajo: la venta de los productos SIN inversión (o sin neta) medida no se
+    // cuela en el numerador.
+    venta_por_peso: invMedible > 0 ? r2(netaMedible / invMedible) : null,
     recomprados: filas.filter((f) => f.primera_recompra !== null).length,
     con_30_dias: con30.length,
     sin_venta_30: con30.filter((f) => f.sin_venta_30).length,
@@ -1167,12 +1309,11 @@ export function construirResumen(filas: NewProductRow[]): Resumen {
       mes_3: kpi.filter((f) => f.etapa === 'mes_3').length,
       graduado: kpi.filter((f) => f.etapa === 'graduado').length,
     },
-    por_veredicto: {
-      recomprar: ver('recomprar'), esperar: ver('esperar'), revisar: ver('revisar'),
-      no_recomprar: ver('no_recomprar'), pronto: ver('pronto'),
-    },
+    por_veredicto: Object.fromEntries(VEREDICTOS.map((v) => [v, ver(v)])) as Record<Veredicto, number>,
     inversion: a.inversion,
     venta: a.venta,
+    venta_neta: a.venta_neta,
+    con_inversion: a.con_inversion,
     venta_hoy: Math.round(kpi.reduce((s, f) => s + f.venta_hoy, 0) * 100) / 100,
     venta_por_peso: a.venta_por_peso,
     recomprados: a.recomprados,
@@ -1190,7 +1331,15 @@ export function ocultarCosto(filas: NewProductRow[]): NewProductRow[] {
     ...f,
     inversion_total: null,
     venta_por_peso: null,
-    hitos: Object.fromEntries((HITOS as readonly Hito[]).map((n) => [n, { ...f.hitos[n], inversion: null }])) as Record<Hito, HitoValores>,
+    hitos: Object.fromEntries((HITOS as readonly Hito[]).map((n) => {
+      const h = f.hitos[n];
+      const oculto: HitoValores = {
+        ...h, inversion: null, venta_por_peso: null,
+        // [NP.6] El semáforo juzga la venta por peso invertido: con la venta y el umbral se despeja la inversión.
+        semaforo: null,
+      };
+      return [n, oculto];
+    })) as Record<Hito, HitoValores>,
     // [NP.15] Un margen deja ver el costo (venta y % de margen bastan para despejarlo).
     margenes: null,
   }));
@@ -1200,6 +1349,186 @@ export function ocultarCostoPlazas(plazas: PlazaRow[]): PlazaRow[] {
   return plazas.map((p) => ({ ...p, inversion_total: null, margenes: null }));
 }
 
+// ─────────────────────────────── [NP.18] la compra sin impuestos, en el servidor ───────────────────────────────
+
+/** `[NP.18]` Un renglón de compra (`X-A-20`) con sus tasas, como lo lee `COMPRA_RENGLONES_SQL`. */
+export interface RenglonCompra {
+  sku: string;
+  plaza: string;
+  fecha: string;
+  folio: string;
+  importe: number | string | null;
+  iva: number | string | null;
+  ieps: number | string | null;
+}
+
+/** Lo que pesa un documento de compra de un SKU: con lo que Kepler escribió y sin impuestos. */
+export interface CompraDocumento {
+  bruto: number;
+  neto: number;
+  /** Algún renglón traía el impuesto adentro (tasa negativa) y se le quitó. */
+  descontado: boolean;
+}
+
+export const llaveCompra = (sku: string, plaza: string, fecha: string, folio: string): string =>
+  `${sku}|${plaza}|${fecha.slice(0, 10)}|${folio}`;
+
+/**
+ * `[NP.18]` Suma los renglones por (SKU, sucursal, fecha, folio) — el grano de las entradas de la matvista —
+ * y le quita el impuesto a cada renglón con la MISMA regla del catálogo (`costoSinImpuestos`, `[PF.12.3]`):
+ * sólo una tasa negativa viene adentro; positiva o cero, el importe ya es neto; sin tasa, va tal cual.
+ * Una sola implementación de la regla: antes vivía también en SQL (migración `20261103172230`, retirada).
+ */
+export function compraPorDocumento(renglones: readonly RenglonCompra[]): Map<string, CompraDocumento> {
+  const out = new Map<string, CompraDocumento>();
+  for (const r of renglones) {
+    const c = num(r.importe) ?? 0;
+    const sin = c > 0 ? costoSinImpuestos(c, r.iva, r.ieps) : null;
+    const neto = sin && sin.costo !== null ? sin.costo : c;
+    const k = llaveCompra(r.sku, r.plaza, r.fecha, r.folio);
+    const d = out.get(k) ?? { bruto: 0, neto: 0, descontado: false };
+    d.bruto += c;
+    d.neto += neto;
+    d.descontado = d.descontado || sin?.impuesto === 'descontado';
+    out.set(k, d);
+  }
+  for (const d of out.values()) { d.bruto = Math.round(d.bruto * 100) / 100; d.neto = Math.round(d.neto * 100) / 100; }
+  return out;
+}
+
+/** Cuánto se netea: las entradas cambiadas, las que no se encontraron y las que no cuadraron con la historia. */
+export interface CompraNetaInfo {
+  documentos: number;
+  descontados: number;
+  /** Entradas con folio cuyo documento no apareció en el ODS: se quedan como estaban (se declara). */
+  sin_documento: number;
+  /** El documento existe pero su importe no es el de la historia (más de 5 centavos): se queda como estaba. */
+  no_cuadra: number;
+}
+
+/**
+ * `[NP.18]` Pone el importe SIN impuestos en las entradas de un producto — las de la historia (`f.entradas`) y
+ * las de hoy (`vivo`, tipo `entrada`) — cuando su documento está en `mapa` y su importe cuadra con lo que
+ * Kepler escribió. Si no cuadra o no aparece, NO se adivina: se deja y se cuenta en `info`.
+ */
+export function compraSinImpuestos<T extends Pick<NewProductSource, 'sku' | 'entradas'>>(
+  f: T, vivo: Movimiento[], mapa: ReadonlyMap<string, CompraDocumento>, info: CompraNetaInfo,
+): { fuente: T; vivo: Movimiento[] } {
+  // La historia trae el documento SUMADO (debe cuadrar con su bruto); lo de hoy trae RENGLONES (cada uno cabe en
+  // su documento). En los dos casos se aplica la proporción neto ÷ bruto del documento.
+  const netear = (plaza: string, fecha: string, folio: string | null | undefined, importe: number, renglon: boolean): number => {
+    if (!folio) { info.sin_documento += 1; return importe; }
+    const d = mapa.get(llaveCompra(f.sku, plaza, fecha, folio));
+    if (!d) { info.sin_documento += 1; return importe; }
+    const cuadra = renglon ? importe <= d.bruto + 0.05 : Math.abs(d.bruto - importe) <= 0.05;
+    if (!cuadra || d.bruto <= 0) { info.no_cuadra += 1; return importe; }
+    info.documentos += 1;
+    if (d.descontado) info.descontados += 1;
+    return renglon ? Math.round(importe * (d.neto / d.bruto) * 100) / 100 : d.neto;
+  };
+  const entradas = (Array.isArray(f.entradas) ? f.entradas : []).map((e) =>
+    ({ ...e, i: netear(e.p, e.f, e.folio, num(e.i) ?? 0, false) }));
+  const vivoNeto = vivo.map((m) => {
+    if (m.tipo !== 'entrada') return m;
+    const i = netear(m.plaza, m.fecha, m.folio, num(m.importe) ?? 0, true);
+    return { ...m, importe: i, importe_neto: i };
+  });
+  return { fuente: { ...f, entradas }, vivo: vivoNeto };
+}
+
 export function esKindValido(v: unknown): v is NewProductKind {
   return typeof v === 'string' && (NEW_PRODUCT_KINDS as readonly string[]).includes(v);
+}
+
+// ─────────────────────────────── [NP.6] hitos 30/60/90, derivados, y su semáforo ───────────────────────────────
+
+/**
+ * `[NP.6]` (reformulado 2026-11-04, decisión de David: CERO migraciones). El corte de 30/60/90 días NO se
+ * guarda en ninguna tabla: se DERIVA de la historia del ODS que ya trae la matvista (`venta_dia`, día por
+ * día desde el lanzamiento, y las entradas con su fecha). Un hito cumplido es la cifra DEFINITIVA de esos
+ * N días calculada desde la historia; uno que no llega va «en curso».
+ *
+ * Lo que esto deja de poder contestar (se DECLARA en pantalla, no se inventa):
+ *   · La recomendación de AQUEL día: dependía de la existencia de ese día, que no tiene historia.
+ *   · Si Kepler corrige un documento viejo, el corte se recalcula con la corrección (no hay foto contra
+ *     qué compararlo).
+ *   · Después del día 180 el producto sale de la matvista (`least(primera_recepcion, primera_venta) >=
+ *     corte − 180`), y con él sus cortes y su mes de cohorte. El 90 nunca se pierde mientras el producto
+ *     está en pantalla (90 < 180). Ampliar la ventana es cambiar la matvista = migración: PENDIENTE.
+ *
+ * La clave de cada hito en `analytics.kpi_thresholds` (`[CDRP.2]`). El valor juzgado es la venta SIN
+ * impuestos por cada $1 invertido en los primeros N días (`higher_is_better`). El periodo es `mes` por
+ * convención: un hito es un tramo de ~1 mes y el registro no tiene un grano «hito». Sin umbral, el
+ * semáforo dice «sin meta», nunca verde (ADR-056).
+ */
+export const kpiHito = (n: Hito): string => `compras.productos_nuevos.venta_por_peso.d${n}`;
+export const PERIODO_KPI_HITO: KpiUmbral['period'] = 'mes';
+
+/** El semáforo de un hito contra su umbral (`clasificarKpi` del registro `[CDRP.2]`). */
+export interface SemaforoHito extends KpiVeredicto {
+  kpi_key: string;
+  /** La venta sin impuestos por cada $1 invertido que se juzgó. */
+  valor: number | null;
+}
+
+/**
+ * `[NP.6]` El semáforo de un hito cerrado contra `analytics.kpi_thresholds`. `umbrales = null` = el
+ * registro no se pudo leer: se dice así, y NO es verde. Un hito que no ha cerrado no se juzga.
+ */
+export function semaforoHito(h: HitoValores, n: Hito, umbrales: readonly KpiUmbral[] | null): SemaforoHito | null {
+  if (!h.cerrado) return null;
+  const kpi_key = kpiHito(n);
+  const valor = h.venta_por_peso;
+  if (umbrales === null) {
+    return {
+      kpi_key, valor, estado: 'sin_meta', escala_a: null, avance: null,
+      motivo: 'No se pudo leer el registro de umbrales: no hay contra qué juzgar este hito.',
+    };
+  }
+  return { kpi_key, valor, ...clasificarKpi(valor, umbralPara(umbrales, kpi_key, null, PERIODO_KPI_HITO)) };
+}
+
+/**
+ * `[NP.20]` La recuperación de lo invertido entra al juicio del lanzamiento SÓLO contra la meta que
+ * registró Compras (`kpi_thresholds`), en el último corte cerrado — nunca contra un número de aquí:
+ *   · `bad` (fuera de tolerancia) → un «Se queda» pasa a «Revisar».
+ *   · `warn` → se dice, no cambia el veredicto.
+ *   · `sin_meta` / `sin_medir` → se dice que la recuperación no entró, y por qué.
+ * Los motivos no llevan cifras: viajan aunque quien mire no tenga permiso de costo.
+ */
+export function juzgarRecuperacion(rec: Recomendacion | null, hitos: Record<Hito, HitoValores>): Recomendacion | null {
+  if (!rec || rec.veredicto !== 'se_queda') return rec;
+  const n = [...(HITOS as readonly Hito[])].reverse().find((h) => hitos[h].cerrado && hitos[h].semaforo);
+  if (n === undefined) return rec;
+  const s = hitos[n].semaforo!;
+  switch (s.estado) {
+    case 'bad':
+      return {
+        veredicto: 'revisar',
+        motivos: [`A ${n} días la venta contra lo invertido quedó fuera de la tolerancia que fijó Compras`, ...rec.motivos],
+      };
+    case 'warn':
+      return { ...rec, motivos: [...rec.motivos, `A ${n} días la venta contra lo invertido quedó debajo de la meta de Compras`] };
+    case 'sin_meta':
+      return {
+        ...rec,
+        motivos: [...rec.motivos, s.motivo?.startsWith('No se pudo leer')
+          ? `La meta de Compras no se pudo leer: la recuperación a ${n} días no entra al veredicto`
+          : `Sin meta de Compras para el corte de ${n} días: la recuperación de lo invertido no entra al veredicto`],
+      };
+    case 'sin_medir':
+      return { ...rec, motivos: [...rec.motivos, `La recuperación a ${n} días no se pudo medir: no entra al veredicto`] };
+    default:
+      return rec;
+  }
+}
+
+/**
+ * `[NP.6]` El semáforo de cada corte cerrado (derivado de la historia) y, `[NP.20]`, el del último corte
+ * cerrado entra al juicio del lanzamiento (`juzgarRecuperacion`).
+ */
+export function conHitos(fila: NewProductRow, umbrales: readonly KpiUmbral[] | null): NewProductRow {
+  const hitos = { ...fila.hitos };
+  for (const n of HITOS as readonly Hito[]) hitos[n] = { ...hitos[n], semaforo: semaforoHito(hitos[n], n, umbrales) };
+  return { ...fila, hitos, recomendacion: juzgarRecuperacion(fila.recomendacion, hitos) };
 }

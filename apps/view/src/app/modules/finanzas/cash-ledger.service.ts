@@ -7,7 +7,7 @@ import type { JornadasPendientes, CorteCajaDto, CandadoCajaDto, PosicionCajaDto,
 // `[CGA-A.61]` La reposición por sucursal: el contrato lo comparten el endpoint y la pantalla.
 import type { ReposicionSucursales } from '@megadulces/contracts';
 import type {
-  CerrarHojaInput, HojaGastos, HojasDeGastos, PagarHojaInput, PagoHojaResultado, RegistrarConteoHojaInput,
+  CerrarHojaInput, HojaGastos, HojasDeGastos, PagarHojaAbiertaInput, PagarHojaInput, PagoHojaResultado, RegistrarConteoHojaInput,
 } from '@megadulces/contracts';
 import { reintentarSi429 } from '../../core/utils/reintentar-429';
 // `Freshness` se IMPORTA, no se redeclara: es el contrato de procedencia de ADR-056 y es el mismo
@@ -362,6 +362,11 @@ export class CashLedgerService {
   /** `[CGA-A.65]` Pagar una hoja aprobada de un solo acto: con un retiro de CAOS que la cuadra, o con el cajón. */
   pagarHojaDeGastos(id: string, body: PagarHojaInput): Observable<PagoHojaResultado> {
     return this.http.post<PagoHojaResultado>(`${environment.apiUrl}/finance/hoja-gastos/${encodeURIComponent(id)}/pagar`, body);
+  }
+
+  /** `[LE.6.19]` Pagar la hoja ABIERTA de una zona en un acto (se cierra y se paga): sin aprobación aparte; lo del cajón, contado. */
+  pagarHojaAbierta(zona: string, body: PagarHojaAbiertaInput): Observable<PagoHojaResultado> {
+    return this.http.post<PagoHojaResultado>(`${environment.apiUrl}/finance/hoja-gastos/abierta/${encodeURIComponent(zona)}/pagar`, body);
   }
 
   /** `[CGA-A.65]` Reintentar la captura de lo que el lote no pudo confirmar al pagar. */

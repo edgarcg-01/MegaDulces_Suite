@@ -18,6 +18,12 @@
  *      renglón que dice "caja" sin que su identidad cierre se cuenta en su base; y la fecha de la
  *      primera entrada de la lista contra `primera_recepcion`, que sale de OTRA consulta.
  *
+ *   12. `[NP.18]` La compra SIN impuestos en el SERVIDOR (`COMPRA_RENGLONES_SQL` + `costoSinImpuestos`) contra una
+ *       segunda implementación en SQL, documento por documento; la función de base intacta como negativa.
+ *   13. `[NP.6]` Los cortes 30/60/90 DERIVADOS de la historia (sin tabla ni cron, 2026-11-04): su cifra contra lo
+ *       sembrado, «en curso» sin semáforo, «sin meta» nunca verde.
+ *   14. `[NP.20]` `[NP.21]` Vocabulario nuevo, ningún «sacar» sin existencia y el CONTROL 28034.
+ *
  * Además vigila: un producto que se mueve desde hace 262 días NO es nuevo; la historia se exige
  * POR FUENTE; la recompra es en una plaza que ya lo tenía; sin entrada en Kepler la inversión es
  * NULL; el código DESC se excluye solo; el código de barras repetido levanta la señal.
@@ -33,9 +39,18 @@ require('./_lib/assert-safe-target').assertSafeTarget('test-newdb-new-products')
 const knex = require('knex')(require('../knexfile-newdb.js').development);
 const esc = require('./_lib/new-products-scenario');
 // [NP.17] El SQL REAL de la existencia que usa el servidor (no una copia), para compararlo con la vista.
+// [NP.6] Y el SERVICIO real (su cron de hitos y su lista), con los alias del monorepo y los decoradores de Nest.
+const RAIZ = path.resolve(__dirname, '..', '..');
+const ts = require('typescript');
+require('tsconfig-paths').register({
+  baseUrl: RAIZ,
+  paths: ts.parseConfigFileTextToJson('tsconfig.base.json',
+    require('fs').readFileSync(path.join(RAIZ, 'tsconfig.base.json'), 'utf8')).config.compilerOptions.paths,
+});
 require('ts-node').register({
   transpileOnly: true, skipProject: true,
-  compilerOptions: { module: 'commonjs', target: 'es2020', esModuleInterop: true, moduleResolution: 'node', ignoreDeprecations: '6.0' },
+  compilerOptions: { module: 'commonjs', target: 'es2020', esModuleInterop: true, moduleResolution: 'node',
+    experimentalDecorators: true, ignoreDeprecations: '6.0' },
 });
 const { EXISTENCIA_KEPLER_SQL } = require(path.resolve(__dirname, '../../libs/commercial/src/lib/commercial-products/new-products.sql.ts'));
 
@@ -521,6 +536,100 @@ const nulo = (v) => (v === 0 ? null : v);
     const ep = (fila('03') && fila('03').escalera_plaza) || {};
     check('la ficha de cada sucursal viaja con el producto (rótulos y factor de la caja)',
       ep['04'] && ep['04'].u1 === 'PZA' && ep['04'].u2 === 'CJA' && Number(ep['04'].uxc) === 12, ep['04']);
+
+    console.log('\n── 12. [NP.18] La compra SIN impuestos en el SERVIDOR (sin migración): el SQL real + costoSinImpuestos ──');
+    // El SQL REAL del servidor (`COMPRA_RENGLONES_SQL`) + la regla en TS (`compraPorDocumento` → `costoSinImpuestos`,
+    // [PF.12.3]), contra una SEGUNDA implementación escrita aquí en SQL (el signo de la tasa decide). Cuatro
+    // documentos XA20 de un SKU fuera del catálogo (no toca la matvista ni las secciones de arriba).
+    const { COMPRA_RENGLONES_SQL } = require(path.join(RAIZ, 'libs/commercial/src/lib/commercial-products/new-products.sql.ts'));
+    const { compraPorDocumento, llaveCompra } = require(path.join(RAIZ, 'libs/commercial/src/lib/commercial-products/new-products.ts'));
+    const SKU_TAX = `${esc.PREFIJO_SKU}TAX`;
+    const casosTax = [
+      { folio: 'NPTX000001', c13: 108, iva: '0', ieps: '-8' },   // IEPS incluido (tasa negativa)
+      { folio: 'NPTX000002', c13: 100, iva: '0', ieps: '8' },    // IEPS aparte (tasa positiva)
+      { folio: 'NPTX000003', c13: 116, iva: '-16', ieps: '0' },  // IVA incluido
+      { folio: 'NPTX000004', c13: 50, iva: null, ieps: null },   // sin tasa: no hay con qué descontar
+    ];
+    const fechaTax = esc.fecha(hoy, -5);
+    for (const c of casosTax) {
+      await trx.raw(`INSERT INTO kepler_ods.kdm1 (sucursal, c1, c2, c3, c4, c5, c6, c9, c43)
+                     VALUES ('03', '03', 'X', 'A', 20, ?, ?, ?::timestamp, 'N')`, [esc.SERIE, c.folio, fechaTax]);
+      await trx.raw(`INSERT INTO kepler_ods.kdm2 (sucursal, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c17, c18)
+                     VALUES ('03', '03', 'X', 'A', 20, ?, ?, 1, ?, 1, 'PRUEBA IMPUESTOS', 'PZA', ?, ?, ?, ?)`,
+      [esc.SERIE, c.folio, SKU_TAX, c.c13, c.c13, c.iva, c.ieps]);
+    }
+    const folios = casosTax.map((c) => c.folio);
+    const renglones = (await trx.raw(COMPRA_RENGLONES_SQL, [folios.map(() => '03'), folios, fechaTax, fechaTax, [SKU_TAX]])).rows;
+    const mapaTax = compraPorDocumento(renglones);
+    const segunda = new Map((await trx.raw(`
+      SELECT btrim(h.c6) AS folio,
+             round(l.c13::numeric / ((1 + CASE WHEN l.c18::numeric < 0 THEN abs(l.c18::numeric) / 100 ELSE 0 END)
+                                   * (1 + CASE WHEN l.c17::numeric < 0 THEN abs(l.c17::numeric) / 100 ELSE 0 END)), 2)::float8 AS neto
+        FROM kepler_ods.kdm1 h JOIN kepler_ods.kdm2 l USING (sucursal, c1, c2, c3, c4, c5, c6)
+       WHERE h.sucursal = '03' AND btrim(h.c6) = ANY(?::text[])`, [folios])).rows.map((r) => [r.folio, r.neto]));
+    const malasTax = casosTax.filter((c) => {
+      const d = mapaTax.get(llaveCompra(SKU_TAX, '03', fechaTax, c.folio));
+      return !d || d.bruto !== c.c13 || Math.abs(d.neto - segunda.get(c.folio)) > 0.005;
+    }).map((c) => ({ ...c, ts: mapaTax.get(llaveCompra(SKU_TAX, '03', fechaTax, c.folio)), sql: segunda.get(c.folio) }));
+    check('⭐ la compra neta del servidor = la segunda implementación en SQL, documento por documento (−8, +8, −16, sin tasa)',
+      renglones.length === 4 && malasTax.length === 0, malasTax);
+    check('[negativa] la función de base NO se tocó: el renglón con IEPS −8 sigue saliendo $108 de ella',
+      (await trx.raw(`SELECT importe::float8 AS i FROM analytics.fn_new_products_movimientos(?::uuid, ?::text[], ?::date, ?::date)
+                       WHERE folio = 'NPTX000001'`, [esc.TENANT, [SKU_TAX], esc.fecha(hoy, -400), hoy])).rows[0]?.i === 108);
+    const cancel = (await trx.raw(COMPRA_RENGLONES_SQL, [['03'], ['NPTX000001'], fechaTax, fechaTax, ['OTRO-SKU']])).rows;
+    check('[negativa] otro SKU en el mismo documento no se cuela', cancel.length === 0, cancel);
+    const fuera = (await trx.raw(COMPRA_RENGLONES_SQL, [['03'], ['NPTX000001'], esc.fecha(hoy, -400), esc.fecha(hoy, -300), [SKU_TAX]])).rows;
+    check('[negativa] un documento fuera de la ventana de fechas no se lee', fuera.length === 0, fuera);
+
+    console.log('\n── 13. [NP.6] Los cortes 30/60/90 DERIVADOS de la historia, con el servicio REAL (sin tabla ni cron) ──');
+    require(path.join(RAIZ, 'node_modules', 'reflect-metadata'));
+    const { NewProductsService } = require(path.join(RAIZ, 'libs/commercial/src/lib/commercial-products/new-products.service.ts'));
+    const tk = { run: async (a, b) => (typeof a === 'function' ? a : b)(trx), global: trx };
+    const svc = new NewProductsService(tk, { get: () => null });
+    check('el servicio ya no tiene cron que congele (nada escribe)', typeof svc.congelarHitos === 'undefined');
+    const lista13 = await svc.list({ puedeVerCosto: true });
+    // La cifra de cada corte cumplido contra lo SEMBRADO (no contra la matvista): venta de los primeros N días.
+    const contra = [];
+    for (const c of ['01', '02', '03', '05', '06']) {
+      const f = lista13.filas.find((x) => x.sku === P(c).sku);
+      if (!f) continue;
+      for (const n of [30, 60, 90]) {
+        if (!f.hitos[n].cerrado) continue;
+        contra.push({ c, n, servicio: f.hitos[n].venta, esperado: P(c).esperado[`venta_${n}`] });
+      }
+    }
+    check(`⭐ cada corte cumplido = lo sembrado (${contra.length} cortes de NPDEMO, segunda implementación)`,
+      contra.length > 0 && contra.every((x) => nulo(x.servicio) === x.esperado || (x.servicio === null && x.esperado === null)), contra);
+    const enCurso = lista13.filas.filter((f) => f.estado === 'seguimiento' && f.dia !== null && f.dia < 90);
+    check('un corte que no llega va en curso (cerrado = false) y sin semáforo',
+      enCurso.length > 0 && enCurso.every((f) => !f.hitos[90].cerrado && f.hitos[90].semaforo === null), enCurso.length);
+    const hm = lista13.filas.find((f) => f.hitos[30].cerrado && f.hitos[30].semaforo)?.hitos[30];
+    check('sin umbral registrado el semáforo dice «sin meta», nunca verde',
+      hm && ['sin_meta', 'sin_medir'].includes(hm.semaforo.estado), hm && hm.semaforo);
+    check('hitos_info ya no habla de fotos; compra_info dice cuánto se neteó',
+      lista13.hitos_info && !('fotos' in lista13.hitos_info) && lista13.compra_info && lista13.compra_info.medida === true
+        && lista13.compra_info.documentos > 0, { hitos_info: lista13.hitos_info, compra_info: lista13.compra_info });
+
+    console.log('\n── 14. [NP.20] [NP.21] El juicio del lanzamiento con el servicio REAL: vocabulario nuevo y agotado no juzga ──');
+    const NUEVOS = new Set(['se_queda', 'revisar', 'sacar', 'agotado', 'pronto']);
+    const lista14 = await svc.list({ puedeVerCosto: true });
+    const seg14 = lista14.filas.filter((f) => f.estado === 'seguimiento' && f.recomendacion);
+    check(`sólo el vocabulario nuevo en ${seg14.length} productos en seguimiento (nada de recomprar / esperar / no recomprar)`,
+      seg14.length > 0 && seg14.every((f) => NUEVOS.has(f.recomendacion.veredicto)),
+      [...new Set(seg14.map((f) => f.recomendacion.veredicto))]);
+    const sacarSin = seg14.filter((f) => f.recomendacion.veredicto === 'sacar' && f.plazas_con_existencia === 0);
+    check('⭐ [NP.21] ningún «sacar» sin existencia en ninguna sucursal (sin mercancía no se juzga la venta)',
+      sacarSin.length === 0, sacarSin.slice(0, 5).map((f) => f.sku));
+    // CONTROL con dato real (no sembrado): el SKU 28034 de la base local, sin existencia en ninguna sucursal, salía
+    // «No recomprar: lleva N días sin venderse» (2026-11-03). Si la base no lo trae, NO MEDIDO.
+    const c28034 = lista14.filas.find((f) => f.sku === '28034');
+    if (c28034 && c28034.recomendacion && c28034.plazas_con_existencia === 0) {
+      check('⭐ CONTROL 28034: sin existencia y sin venta → «agotado», y manda a Productos',
+        c28034.recomendacion.veredicto === 'agotado' && c28034.recomendacion.motivos.some((m) => /Productos/.test(m)), c28034.recomendacion);
+    } else {
+      noMedido += 1;
+      console.log('  ○ NO MEDIDO — el control 28034 no está en esta base (o ya tiene existencia)');
+    }
   } catch (e) {
     ko += 1;
     console.log(`  ✗ excepción: ${e.message}`);

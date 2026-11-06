@@ -1,5 +1,6 @@
 import type { Knex } from 'knex';
 import {
+  esNombreDePromocion,
   estadoDeExistencia,
   mensajeSinExistencia,
   ODS_HOT_TOLERANCIA_H,
@@ -309,6 +310,10 @@ export async function bloqueosAlAgregar(
   );
 
   for (const d of destinos) {
+    // [MCP.11] Una promoción es un PRODUCTO de Kepler que no es mercancía («= GRATIS», $0.01): su
+    // existencia es 0 por construcción. No se bloquea — el vendedor la agrega para que el surtidor dé el
+    // regalo y la caja la cobre (decisión de David, 2026-11-03).
+    if (esNombreDePromocion(nombres.get(d.product_id))) continue;
     const e = estado(d.warehouse_id, d.product_id);
     if (e.state !== 'agotado' && e.state !== 'no_se_maneja') continue;
     const alternatives = deZona

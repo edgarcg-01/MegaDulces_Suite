@@ -333,6 +333,46 @@ export interface ExpedienteDelDia {
   tiene_evidencia: boolean;
   evidencia_en_vivo: boolean;
   files: ProofFile[];
+  /** `[GX.88]` Se aprobó debiendo el comprobante (prefactura o cotización). */
+  provisional?: boolean;
+}
+
+/** `[GX.88]` Qué le falta a un vale atrasado y a quién le toca moverlo. Lo decide el SERVIDOR. */
+export interface QueFaltaVale {
+  texto: string;
+  /** `aprueba` = lo resuelve quien firma; `levanto` = espera a quien lo levantó. */
+  toca: 'aprueba' | 'levanto';
+}
+
+/** `[GX.88]` Un vale de OTRO día que sigue abierto: el renglón de «Atrasados». */
+export interface ExpedienteAtrasado extends ExpedienteDelDia {
+  /** Días de calendario desde que se levantó. `null` = fecha ilegible (no se pinta como 0). */
+  dias_atraso: number | null;
+  falta: QueFaltaVale;
+}
+
+/** `[GX.88]` Una solicitud de Kepler que coincide con la búsqueda y NO tiene vale en la Suite. */
+export interface SolicitudSinVale {
+  sucursal: string;
+  folio: string;
+  fecha: string | null;
+  importe: number;
+  solicitante: string | null;
+  beneficiario: string | null;
+  concepto: string | null;
+  /** Estado en Kepler: `N` sin aplicar, `A` autorizada, `F` aplicada (el dinero salió). */
+  estado: string | null;
+}
+
+/** `[GX.88]` Lo que devuelve el buscador de gastos (sólo para quien aprueba). */
+export interface ResultadoBusquedaGastos {
+  q: string;
+  vales: ExpedienteDelDia[];
+  vales_truncado: boolean;
+  sin_vale: SolicitudSinVale[];
+  sin_vale_truncado: boolean;
+  /** Desde qué día se buscan solicitudes de Kepler: el primer vale de la Suite. */
+  solicitudes_desde: string | null;
 }
 
 /**
@@ -400,10 +440,17 @@ export interface GastosDelDia {
   filas: ExpedienteDelDia[];
   /** Los grupos por departamento de la bandeja de entrada de ESE dia. */
   entrada: { total: number; monto_total: number; por_fecha: GrupoAprobacion[]; por_departamento: GrupoAprobacion[] };
-  /** `[GX.67]` De la bandeja, cuánto NO es del día que se mira. Se MUESTRA igual. */
-  entrada_de_otros_dias: { n: number; monto: number };
-  /** `[GX.67]` La bandeja tocó el tope y hay más esperando firma. Nunca se lee como «no hay». */
+  /** `[GX.67]` El día tocó el tope de la lista. Nunca se lee como «no hay más». */
   entrada_truncada: boolean;
+  /**
+   * `[GX.88]` Los vales de OTRO día que siguen abiertos, del más viejo al más nuevo. Reemplaza
+   * a `entrada_de_otros_dias`: lo viejo ya no se mezcla con lo de hoy en la bandeja.
+   */
+  atrasados: ExpedienteAtrasado[];
+  /** El total real de los atrasados (no sólo los que llegaron). */
+  atrasados_total: { n: number; monto: number };
+  /** La lista de atrasados tocó el tope: hay más. */
+  atrasados_truncada: boolean;
 }
 
 /**
@@ -471,6 +518,14 @@ export class ComprobacionesService {
    * Todos por el servidor. Sin `fecha` contesta con HOY en hora de Mexico — que es el
    * unico reloj que vale: el del navegador puede estar en otra zona.
    */
+  /**
+   * `[GX.88]` El buscador de gastos: vales de cualquier fecha y estado, y solicitudes de Kepler
+   * que nunca se subieron. El servidor lo niega a quien no aprueba (403).
+   */
+  buscarGastos(q: string): Observable<ResultadoBusquedaGastos> {
+    return this.http.get<ResultadoBusquedaGastos>(`${this.base}/buscar`, { params: new HttpParams().set('q', q) });
+  }
+
   delDia(fecha?: string, limit = 500): Observable<GastosDelDia> {
     let params = new HttpParams().set('limit', String(limit));
     if (fecha) params = params.set('fecha', fecha);

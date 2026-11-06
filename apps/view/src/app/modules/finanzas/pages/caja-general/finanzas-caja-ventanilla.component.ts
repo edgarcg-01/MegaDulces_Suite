@@ -249,6 +249,9 @@ type EstadoLibro = 'abierto' | 'sin_dia' | 'sin_medir';
                 <tr [attr.data-zona]="h.zona">
                   <td data-label="Zona">{{ h.nombre }}
                     @if (h.anteriores.n) { <span class="vt-motivo">{{ h.anteriores.n }} de antes de la apertura: los reconstruye la historia, no esta hoja.</span> }
+                    @if (h.detenidos.length) {
+                      <span class="vt-motivo" data-testid="reposicion-detenidos">{{ h.detenidos.length === 1 ? '1 pago espera su aprobación y no entra' : h.detenidos.length + ' pagos esperan su aprobación y no entran' }} hasta aprobarse.</span>
+                    }
                   </td>
                   <td class="ta-r num" data-label="Pagos">{{ h.renglones.length }}</td>
                   <td class="ta-r num dt-num" data-label="Total">{{ minor(h.total_minor) }}</td>
@@ -411,12 +414,17 @@ type EstadoLibro = 'abierto' | 'sin_dia' | 'sin_medir';
         @if (resultadoReposicion(); as r) {
           <p class="vt-resultado" role="status" data-testid="resultado-reposicion">
             @if (r.estado === 'por_firmar') {
-              Quedó por firmar. Tesorería la aprueba con su firma —es la única— y entonces sale el código para la máquina.
+              Quedó por firmar: {{ r.motivo }}. Al firmar sale el código para la máquina.
             } @else {
-              Firmada: el código es <b class="vt-codigo">{{ r.codigo }}</b>.
+              El código es <b class="vt-codigo">{{ r.codigo }}</b>.
             }
           </p>
         } @else {
+          @if (h.motivo_firma) {
+            <p class="vt-aviso" role="status" data-testid="reposicion-firma">{{ h.motivo_firma }}. Al pedirla queda por firmar y no sale un peso hasta la firma.</p>
+          } @else {
+            <p class="vt-respalda muted" data-testid="reposicion-sin-firma">Cada pago trae su autorización (la compra o el gasto aprobado): al pedirla sale el código.</p>
+          }
           <dl class="vt-plan">
             <div><dt>La máquina entrega</dt><dd class="num">{{ minor(h.maquina_minor) }}</dd></div>
             <div><dt>Del cajón, en monedas</dt><dd class="num">{{ minor(h.cajon_minor) }}</dd></div>
@@ -429,6 +437,21 @@ type EstadoLibro = 'abierto' | 'sin_dia' | 'sin_medir';
               }
             </ul>
           </details>
+          @if (h.detenidos.length) {
+            <details class="vt-renglones" data-testid="reposicion-detenidos-lista">
+              <summary>{{ h.detenidos.length }} {{ h.detenidos.length === 1 ? 'pago espera' : 'pagos esperan' }} su aprobación y no {{ h.detenidos.length === 1 ? 'entra' : 'entran' }}</summary>
+              <ul>
+                @for (p of h.detenidos; track p.origen_ref) {
+                  <li class="num">X-D-26 {{ p.folio }} · {{ p.beneficiario ?? '—' }} · {{ minor(p.importe_minor) }} · {{ p.motivo }}</li>
+                }
+              </ul>
+              @if (puedeAprobar()) {
+                <a routerLink="/finanzas/aprobacion-gastos">Ir a Aprobación de gastos</a>
+              } @else {
+                <p class="vt-respalda muted">Los aprueba quien firma gastos, en Aprobación de gastos.</p>
+              }
+            </details>
+          }
           @if (cajonReposicion() > 0) {
             <app-conteo-cajon [total]="cajonReposicion()" [(piezas)]="piezasReposicion" [conBilletes]="false" [conMorralla]="false" />
           }
@@ -455,7 +478,7 @@ type EstadoLibro = 'abierto' | 'sin_dia' | 'sin_medir';
           <p-button label="Listo" (onClick)="cerrarReposicion()" />
         } @else {
           <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="cerrarReposicion()" />
-          <p-button label="Pedir la firma" [disabled]="!listoParaReponer()" [loading]="enviandoReposicion()" (onClick)="pedirReposicion()" />
+          <p-button [label]="reponiendo()?.motivo_firma ? 'Pedir la firma' : 'Sacar el código'" [disabled]="!listoParaReponer()" [loading]="enviandoReposicion()" (onClick)="pedirReposicion()" />
         }
       </ng-template>
     </p-dialog>
@@ -774,6 +797,8 @@ export class FinanzasCajaVentanillaComponent implements OnInit {
   private llaveCobro = '';
 
   readonly puedePagar = computed(() => this.perms.has(Permission.FINANCE_CAJA_GESTIONAR) && this.libro() !== 'sin_dia');
+  /** `[LE.6.18]` El enlace a Aprobación de gastos sólo a quien la puede abrir (su guard pide COMPROBAR). */
+  readonly puedeAprobar = computed(() => this.perms.has(Permission.FINANCE_EXPENSES_COMPROBAR));
   /** Lo contado en centavos, con la misma valuación que el servidor (`valorDePiezas`). */
   readonly contadoCobro = computed(() => valorDePiezas(Object.fromEntries(Object.entries(this.piezasCobro()).filter(([, n]) => Number(n) > 0)), 'MXN'));
   /** Las plantillas no tienen literales `bigint`: la comparación vive aquí. */

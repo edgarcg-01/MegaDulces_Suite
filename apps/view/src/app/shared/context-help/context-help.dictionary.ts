@@ -2252,6 +2252,39 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       },
     ],
   },
+  // `[NP.20]` Productos nuevos (Compras › Catálogo › Productos nuevos). Desde 2026-11-03 contesta «¿el lanzamiento
+  // funcionó?» y ya no si hay que comprar (eso es de Productos: un solo motor de compra, decisión de David).
+  'productos-nuevos': {
+    title: 'Productos nuevos — ¿el lanzamiento funcionó?',
+    intro: 'Cada código nuevo se sigue desde su primera entrada o venta en Kepler (hasta el día 180). En Productos › Mostrar › Productos nuevos la lista dice si el lanzamiento funcionó, y al abrir un producto su sección «Lanzamiento» trae los cortes de 30, 60 y 90 días y cada sucursal. Si hay que comprarlo, y cuánto, lo dice «Qué hacer» en la vista Detallado. Es preliminar: la fecha de alta de Kepler no está decodificada, así que lo nuevo se reconoce por su primera entrada o venta y pueden entrar códigos que no son productos nuevos.',
+    groups: [
+      {
+        heading: 'El resultado de cada producto',
+        entries: [
+          { term: 'Se queda', def: 'Se vende de forma sostenida y la venta no cayó. El lanzamiento funcionó. Hay que venderse 8 o más de los últimos 28 días (el criterio vigente lo calcula el servidor).' },
+          { term: 'Revisar', def: 'Se vende pocos días, la venta de las últimas 4 semanas cayó fuerte contra las 4 anteriores, o en el último corte la venta contra lo invertido quedó fuera de la tolerancia que fijó Compras.' },
+          { term: 'Sacar', def: 'Nunca se vendió, o dejó de venderse hace semanas, y sí hay mercancía donde se vendía. Es la señal para pensar en quitarlo del catálogo.' },
+          { term: 'Agotado: no se juzga', def: 'No hay existencia donde se vendía. Que no se venda no dice nada del producto: no se puede vender lo que no hay. Para saber si hay que comprarlo, ve Productos.' },
+          { term: 'Aún es pronto', def: 'Lleva muy pocos días en el catálogo: hay muy poca venta para juzgar.' },
+        ],
+      },
+      {
+        heading: 'Cómo se mide',
+        entries: [
+          { term: 'Venta por cada $1 invertido', def: 'La venta sin IVA ni IEPS contra lo comprado sin impuestos (si Kepler trae el impuesto dentro de la compra, se le quita). Lo mismo con lo mismo.' },
+          { term: 'Cortes de 30, 60 y 90 días', def: 'Definitivo: el corte ya se cumplió y su cifra sale de la historia de Kepler de esos días (si Kepler corrige después un documento, se recalcula). En curso: el tramo de hoy. Todavía no llega: aún no se cumple, va con guion. Lo que no se guarda es qué recomendaba la pantalla aquel día: no se puede reconstruir.' },
+          { term: 'Meta de Compras', def: 'La recuperación de lo invertido sólo entra al resultado contra la meta que Compras registre para cada corte. Mientras no la registre, el corte dice «Sin meta» y no cambia el resultado.' },
+          { term: 'Lo que no se ve', def: 'Sólo cuenta lo que registra Kepler: la venta de las tiendas y las entradas de mercancía. No incluye Wincaja ni la venta de camionetas que no se registra en Kepler.' },
+        ],
+      },
+      {
+        heading: 'Lo que cambió el 3 de noviembre de 2026',
+        entries: [
+          { term: 'Antes decía Recomprar', def: 'Recomprar y Esperar ahora son «Se queda»; No recomprar es «Sacar», o «Agotado» si lo que faltaba era mercancía. La compra la contesta Productos, para que dos pantallas no digan cosas distintas del mismo producto.' },
+        ],
+      },
+    ],
+  },
   // `[CAT-PRECIO.1]` Diferencias de la ficha de venta entre sucursales. Columnas de `kdii` verificadas
   // el 2026-10-16 contra la ficha 02073 en pantalla de Kepler («Productos POS»).
   'precios-sucursales': {
@@ -2369,8 +2402,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
           { term: 'Fuente viva / rezagada / muerta', def: 'Qué tan nuevo es el último día de venta que llegó de esa ruta: viva hasta 3 días, rezagada hasta 30, muerta más allá. «Sin fuente» es distinto: nunca llegó nada, y por eso no publica número de días en vez de publicar un cero.' },
           { term: 'Cobra y su fuente no da señal', def: 'La ruta está encendida para cobrar y hace semanas que no llega su venta. El tabulador es escalonado, así que sin días no se paga «un poco menos»: se paga CERO. Es lo único de esta lista que mueve un depósito.' },
           { term: 'Le faltan días', def: 'Cobra y su fuente llegó, pero rezagada. Puede ser que el camión no salió o que la fuente perdió el día: desde acá no se distinguen.' },
-          { term: 'Vende y no comisiona', def: 'Vendió en los últimos 30 días y no está en el esquema de Ruta Directa ni es vecinal. El monto va al lado para que la exclusión se pueda revisar en vez de ser una lista de códigos raros.' },
-          { term: 'Comisiona, pero el cálculo no tiene su tabulador', def: 'Una ruta vecinal que vende. Las vecinales sí comisionan, pero esta pantalla todavía no tiene su tabulador ni sabe quién cobra: su comisión se paga fuera de la suite y aquí no aparece. Las dos reglas están en Definiciones de negocio.' },
+          { term: 'Vende y no comisiona', def: 'Vendió en los últimos 30 días y no está en el esquema de Ruta Directa. Puede ser correcto —las vecinales no son RD— pero el monto va al lado para que la exclusión se pueda revisar en vez de ser una lista de códigos raros.' },
           { term: 'Trae venta con fecha futura', def: 'Llegó una venta fechada después de hoy, que es un dato imposible. Se denuncia aparte de la frescura: si se mezclaran, esa ruta se vería como la MÁS fresca de todas en vez de como la que tiene el dato roto.' },
           { term: 'Subtotal (30 d)', def: 'La venta SIN IVA de los últimos 30 días — la misma base con la que se calcula la comisión. No es la venta con IVA: las dos difieren alrededor de 6%.' },
         ],

@@ -5,7 +5,15 @@ import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { CATALOGO_TABS } from '../catalogo-tabs';
-import { CATALOGO_OCULTAS, CatalogoMenuComponent, gruposDelMenu, opcionActual } from './catalogo-menu.component';
+import { CATALOGO_GRUPOS, CatalogoMenuComponent, gruposDelMenu, opcionActual } from './catalogo-menu.component';
+
+/** `[PF.12.1]` Las cuatro rutas de marcador vacío. Ya no las filtra el menú: no están en CATALOGO_TABS. */
+const VACIAS = [
+  '/compras/catalogo/resumen',
+  '/compras/catalogo/solicitudes',
+  '/compras/catalogo/incidencias',
+  '/compras/catalogo/listas-precios',
+];
 
 /**
  * El menú «Ver» del catálogo: reemplaza la fila de pestañas. Lo que se defiende: agrupa por para qué sirve,
@@ -22,19 +30,43 @@ describe('gruposDelMenu', () => {
   it('⭐ agrupa en Productos · Precios y costos · Por corregir, cada opción con su descripción', () => {
     const g = gruposDelMenu(CATALOGO_TABS, todas);
     expect(etiquetas(g)).toEqual([
-      ['Productos', ['Productos', 'Productos nuevos', 'Catálogo digital']],
+      ['Productos', ['Productos', 'Catálogo digital']],
       ['Precios y costos', ['Precios', 'Costos', 'Reportes']],
       ['Por corregir', ['Códigos', 'No registrados', 'Mantenimiento']],
     ]);
-    expect(g[0].opciones[0].descripcion).toBe('Buscar un producto, sus unidades y precio');
+    expect(g[0].opciones[0].descripcion).toBe('Buscar un producto, sus unidades y precio; también los productos nuevos');
     expect(g.flatMap((x) => x.opciones).every((o) => !!o.descripcion)).toBe(true);
+  });
+
+  /**
+   * `[NP.22]` Productos nuevos se unió a Productos («Mostrar › Productos nuevos», decisión de David 2026-11-04).
+   * `[negativa]` Si alguien vuelve a poner «Productos nuevos» como opción del menú «Ver» —en las pestañas o en los
+   * grupos—, esta prueba se pone roja.
+   */
+  it('⛔ [NP.22] «Productos nuevos» NO es opción del menú «Ver»: vive en Productos › Mostrar', () => {
+    const opciones = gruposDelMenu(CATALOGO_TABS, todas).flatMap((x) => x.opciones);
+    expect(opciones.map((o) => o.label)).not.toContain('Productos nuevos');
+    expect(opciones.map((o) => o.route)).not.toContain('/compras/catalogo/nuevos');
+    expect(CATALOGO_GRUPOS.flatMap((g) => g.items.map((i) => i.route))).not.toContain('/compras/catalogo/nuevos');
+    // CONTROL: si estuviera en las pestañas, el menú SÍ la ofrecería (la negativa no mide un vacío).
+    const conNuevos = gruposDelMenu([...CATALOGO_TABS, { label: 'Productos nuevos', route: '/compras/catalogo/nuevos' }], todas);
+    expect(conNuevos.flatMap((x) => x.opciones.map((o) => o.label))).toContain('Productos nuevos');
   });
 
   it('⛔ no ofrece las cuatro vacías: Resumen, Solicitudes, Incidencias, Listas de precios', () => {
     const rutas = gruposDelMenu(CATALOGO_TABS, todas).flatMap((x) => x.opciones.map((o) => o.route));
-    for (const r of CATALOGO_OCULTAS) expect(rutas).not.toContain(r);
+    for (const r of VACIAS) expect(rutas).not.toContain(r);
     const labels = gruposDelMenu(CATALOGO_TABS, todas).flatMap((x) => x.opciones.map((o) => o.label));
     for (const l of ['Resumen', 'Solicitudes', 'Incidencias', 'Listas de precios']) expect(labels).not.toContain(l);
+  });
+
+  it('`[PF.12.1]` una sola fuente: el menú ofrece EXACTAMENTE las pestañas de CATALOGO_TABS, sin lista propia de ocultas', () => {
+    const rutas = gruposDelMenu(CATALOGO_TABS, todas).flatMap((x) => x.opciones.map((o) => o.route));
+    expect([...rutas].sort()).toEqual(CATALOGO_TABS.map((t) => t.route).sort());
+    // ⛔ [negativa] si alguien vuelve a poner una vacía en las pestañas, el menú la ofrece (no la esconde por su lado)
+    // y la prueba de catalogo-tabs.spec.ts es la que se pone roja.
+    const conVacia = gruposDelMenu([...CATALOGO_TABS, { label: 'Resumen', route: VACIAS[0] }], todas);
+    expect(conVacia.flatMap((x) => x.opciones.map((o) => o.route))).toContain(VACIAS[0]);
   });
 
   it('respeta el permiso: sin el del costo, Costos no aparece (y un grupo sin opciones no se pinta)', () => {

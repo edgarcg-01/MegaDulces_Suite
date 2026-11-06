@@ -1028,6 +1028,7 @@ jobs:
                  libs/finance/src/lib/cashbook/cashbook-caos.carril.servicio-real.spec.ts \
                  libs/finance/src/lib/cashbook/cashbook-kepler.carril.servicio-real.spec.ts \
                  libs/finance/src/lib/cashbook/cashbook-ventanilla.servicio-real.spec.ts \
+                 libs/finance/src/lib/caja/hoja-gastos.servicio-real.spec.ts \
                  libs/finance/src/lib/goods-receipt-proofs/aprender-alias.servicio-real.spec.ts \
                  libs/finance/src/lib/caja/cash-ledger.documentos-real.spec.ts 2>&1 | tee servicio.log; then
             echo "::error title=Servicio real del corte::$(grep -E 'FAIL|Error|×' servicio.log | head -6 | tr '\n' ' ' | cut -c1-900)"

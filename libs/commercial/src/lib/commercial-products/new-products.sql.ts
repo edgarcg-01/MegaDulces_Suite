@@ -26,3 +26,45 @@ export const EXISTENCIA_KEPLER_SQL = `
           OR GREATEST(k.c6, k.c7)::date >= (SELECT min(c.cutover_date) FROM analytics.v_branch_erp_cutover c
                                              WHERE c.kepler_code = '00'))
    GROUP BY pr.id, w.code, w.kepler_code`;
+
+/** `[NP.6]` Los umbrales de los hitos en el registro `[CDRP.2]`, con la forma de `KpiUmbral`. RLS por tenant. */
+export const LEER_UMBRALES_HITOS_SQL = `
+  SELECT kpi_key, position_code, period, target::float8 AS target, warn_at::float8 AS warn_at,
+         escalate_at::float8 AS escalate_at, direction, escalate_to, source, manual_lock,
+         auto_tuned_at::text AS auto_tuned_at
+    FROM analytics.kpi_thresholds
+   WHERE tenant_id = public.current_tenant_id() AND deleted_at IS NULL
+     AND kpi_key LIKE 'compras.productos_nuevos.%'`;
+
+/**
+ * `[NP.18]` (sin migración, 2026-11-04) Los renglones de COMPRA (`X-A-20`) de los documentos que ya trae la
+ * historia, con sus tasas, para quitarles el impuesto en el SERVIDOR con `costoSinImpuestos` (`[PF.12.3]`):
+ * en `kdm2` una tasa NEGATIVA (`c17` IVA, `c18` IEPS) quiere decir que `c13` trae el impuesto adentro.
+ * La función de base `fn_new_products_movimientos` no se toca: devuelve `c13` crudo.
+ *
+ * Entra por DOCUMENTO (la plaza y el folio de cada entrada de la historia), con el índice parcial
+ * `idx_kdm1_xa_doc (sucursal, btrim(c4), btrim(c6)) WHERE c2='X' AND c3='A'`, y del documento al renglón
+ * por la llave de `kdm2`. Mismas condiciones que la rama de entradas de la función: almacén principal
+ * (`c1 = sucursal`), sin cancelados (`c43 <> 'C'`), el SKU por `c8`.
+ * Parámetros: `?::text[]` plazas, `?::text[]` folios (pares, misma posición), `?::date` desde y `?::date` hasta (la
+ * primera y la última fecha de esas entradas: acota el peor plan a esa ventana, `ix_kdm1_compra_fecha`) y `?::text[]`
+ * los SKU. Medido en la base local (213 documentos, 14 SKU): 2.3 ms. En prod NO MEDIDO.
+ */
+export const COMPRA_RENGLONES_SQL = `
+  SELECT btrim(l.c8::text)                    AS sku,
+         btrim(h.sucursal::text)              AS plaza,
+         to_char(h.c9::date, 'YYYY-MM-DD')    AS fecha,
+         btrim(h.c6::text)                    AS folio,
+         round(coalesce(nullif(regexp_replace(l.c13::text, '[^0-9.-]', '', 'g'), '')::numeric, 0), 2) AS importe,
+         nullif(regexp_replace(l.c17::text, '[^0-9.-]', '', 'g'), '')::numeric AS iva,
+         nullif(regexp_replace(l.c18::text, '[^0-9.-]', '', 'g'), '')::numeric AS ieps
+    FROM (SELECT DISTINCT d.plaza, d.folio FROM unnest(?::text[], ?::text[]) AS d(plaza, folio)) d
+    JOIN kepler_ods.kdm1 h
+      ON h.sucursal = d.plaza AND h.c2 = 'X' AND h.c3 = 'A' AND btrim(h.c4::text) = '20' AND btrim(h.c6) = d.folio
+    JOIN kepler_ods.kdm2 l
+      ON l.sucursal = h.sucursal AND l.c1 = h.c1 AND l.c2 = h.c2 AND l.c3 = h.c3
+     AND l.c4 = h.c4 AND l.c5 = h.c5 AND l.c6 = h.c6
+   WHERE btrim(h.c1::text) = h.sucursal::text
+     AND btrim(coalesce(h.c43::text, '')) <> 'C'
+     AND h.c9::date BETWEEN ?::date AND ?::date
+     AND nullif(btrim(l.c8::text), '') = ANY(?::text[])`;

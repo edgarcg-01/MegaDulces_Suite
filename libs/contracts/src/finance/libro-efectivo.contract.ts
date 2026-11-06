@@ -437,6 +437,16 @@ export interface HojaDeReposicion {
   cajon_minor: string;
   /** Lo que no se repone (nómina, apoyo de proveedores, compras, comisiones), con su motivo. */
   fuera: PagoDeReposicion[];
+  /**
+   * `[LE.6.18]` Lo que sí se repone pero hoy no puede salir (gasto sin aprobar o rechazado, respaldo que no
+   * cuadra), con su motivo: entra a la hoja cuando se arregla donde se autoriza (D27, D29).
+   */
+  detenidos: PagoDeReposicion[];
+  /**
+   * `[LE.6.18]` `null` = cada pago trae su autorización (la compra o el gasto aprobado por una persona,
+   * D27) y pedirla da el código sin otra firma. Si no, por qué la firma Tesorería.
+   */
+  motivo_firma: string | null;
   anteriores: { n: number; monto_minor: string };
 }
 

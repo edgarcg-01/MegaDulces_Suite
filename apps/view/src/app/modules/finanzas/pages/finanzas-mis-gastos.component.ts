@@ -14,6 +14,7 @@ import { encuestarVisible } from '../../../core/utils/poll-visible';
 import { REFRESCO_VALES_MS } from '../vales-refresco';
 import { ValeGastoPeekComponent, type AccionVale } from '../components/vale-gasto-peek.component';
 import { EvidenciaAdicionalDialogComponent, type EvidenciaAgregada } from '../components/evidencia-adicional-dialog.component';
+import { BuscadorGastosEstado } from '../components/buscador-gastos.estado';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 import { parseLocalDate } from '../../../core/utils/mx-date';
 // `[GX.39]` La etapa la decide el SERVIDOR con `etapaDeEjercicio()`; acá sólo se lee el tipo.
@@ -105,6 +106,10 @@ interface Columna {
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in mg">
+      <!-- [GX.88] Mientras hay una búsqueda arriba de las pestañas, la pantalla se esconde entera:
+           los resultados la reemplazan. El visor y el diálogo de abajo NO se esconden: son los
+           que abren el vale elegido en el buscador. -->
+      @if (!buscandoArriba()) {
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Mis gastos</h1>
@@ -293,6 +298,8 @@ interface Columna {
         </article>
       </ng-template>
 
+      }
+
       <!-- El mismo visor que usan Aprobación y el Historial. Acá no se DECIDE nada: es lo tuyo,
            pero quien decide sobre el dinero es otra persona. Lo único que se ofrece es sumar
            evidencia con su porqué ([GX.87]), que no mueve el estado. -->
@@ -416,6 +423,13 @@ export class FinanzasMisGastosComponent {
   readonly abierto = signal<ValeGasto | null>(null);
   /** `[GX.87]` El vale al que se le está sumando evidencia (abre el diálogo). */
   readonly paraEvidencia = signal<ValeGasto | null>(null);
+  /**
+   * `[GX.88]` El buscador de gastos vive ARRIBA de las pestañas (en el shell). Sólo lo tiene quien
+   * aprueba. Esta pantalla esconde lo suyo mientras hay búsqueda y abre el vale elegido con lo que
+   * ya ofrece: verlo y sumarle evidencia (quien aprueba puede sumarla a cualquier vale).
+   */
+  private readonly busqueda = inject(BuscadorGastosEstado, { optional: true });
+  readonly buscandoArriba = computed(() => this.busqueda?.buscando() ?? false);
   q = '';
 
   /**
@@ -530,6 +544,8 @@ export class FinanzasMisGastosComponent {
 
   constructor() {
     this.cargar();
+    // `[GX.88]` El vale elegido en el buscador de arriba se abre AQUÍ.
+    this.busqueda?.aperturas$.pipe(takeUntilDestroyed()).subscribe((v) => this.abierto.set(v));
     // `[GX.73]` Se refresca sola mientras la pestaña se ve: el estado del vale cambia afuera de
     // esta pantalla (lo aprueban en la Suite, lo autoriza Kepler) y antes sólo se veía al recargar.
     encuestarVisible(REFRESCO_VALES_MS, () => this.refrescar());
@@ -593,6 +609,7 @@ export class FinanzasMisGastosComponent {
   alAgregarEvidencia(e: EvidenciaAgregada): void {
     this.abierto.update((v) => (v && v.id === e.id ? { ...v, files: e.files } : v));
     this.filas.update((l) => l.map((p) => (p.id === e.id ? { ...p, files: e.files } : p)));
+    this.busqueda?.conArchivos(e.id, e.files);
   }
 
   diaLocal(iso: string | null | undefined): Date | null { return parseLocalDate(iso); }

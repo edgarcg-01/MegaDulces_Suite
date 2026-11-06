@@ -64,9 +64,11 @@ describe('[PGP.46] (A) el grafo del Calendario cierra con el catálogo de cuenta
   });
 
   it('PRUEBA NEGATIVA: sin ese import, la comprobación se pone roja', () => {
-    @Reflect.metadata('providers', [PaymentCalendarService])
-    @Reflect.metadata('imports', [])
+    // Sin decorador: un decorador DENTRO del spec no se transforma y Node lo rechaza al cargar el archivo
+    // («SyntaxError: Invalid or unexpected token»: las pruebas no corrían). Es la misma metadata que pondría.
     class ModuloSinElImport {}
+    Reflect.defineMetadata('providers', [PaymentCalendarService], ModuloSinElImport);
+    Reflect.defineMetadata('imports', [], ModuloSinElImport);
     expect(alcanceDe(ModuloSinElImport).has(SupplierPaymentAccountsService)).toBe(false);
   });
 

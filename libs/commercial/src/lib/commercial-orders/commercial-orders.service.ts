@@ -17,7 +17,7 @@ import { CommercialInventoryService } from '../commercial-inventory/commercial-i
 import { AlertsService } from '../commercial-alerts/alerts.service';
 import { CommercialPushService } from '../commercial-push/commercial-push.service';
 import { OrderStockService } from './order-stock.service';
-import { QuotePricingService, rungDeRotulo, type Rung } from '../commercial-quotes/quote-pricing.service';
+import { QuotePricingService, rungDeRotulo, type Ladder, type Rung } from '../commercial-quotes/quote-pricing.service';
 import type { Knex } from 'knex';
 import { SURTIDO_DE_RUTA } from '../presale-picking/presale-route.engine';
 import { bloqueosAlAgregar, llaveDestino, skusDeKepler } from '../commercial-inventory/stock-state';
@@ -1463,6 +1463,75 @@ export class CommercialOrdersService {
     await this.recordHistory(trx, orderId, 'confirmed', 'confirmed', reason);
     const after = await trx('commercial.orders').where({ id: orderId }).first('total');
     return { total_before: totalBefore, total_after: Number(after?.total ?? 0) };
+  }
+
+  /**
+   * `[MCP.13]` La escalera de unidades (con precio de lista) de unos SKUs en la sucursal de un
+   * almacén. Es la misma lectura con la que se tarifa: lo que ve el surtidor es lo que se cobra.
+   * Sin `kepler_code` en el almacén → vacía (no se inventa sucursal).
+   */
+  async escalerasDeAlmacen(trx: Knex | Knex.Transaction, warehouseId: string, skus: string[]): Promise<Map<string, Ladder>> {
+    const wh = await trx('commercial.warehouses').where({ id: warehouseId }).first('kepler_code');
+    const branch = String(wh?.kepler_code ?? '').trim();
+    if (!branch || !skus.length) return new Map();
+    return this.quotePricing.ladders(trx, branch, skus);
+  }
+
+  /**
+   * `[MCP.13]` Agrega al pedido de preventa los productos que el surtidor puso en lugar de lo que
+   * no hubo, en la transacción del cierre del surtido. Cada uno se tarifa con el motor de Kepler de
+   * la sucursal del pedido —SU precio, no el del original (decisión de David, 2026-11-04)—; si el
+   * motor no puede tarificarlo, se rechaza: un renglón sin precio de Kepler no se cobra a ojo.
+   *
+   * No recalcula el total: lo hace quien llama al final (`recortarTrasSurtido`), una sola vez.
+   */
+  async agregarSustitutos(
+    trx: Knex.Transaction,
+    orderId: string,
+    items: Array<{ product_id: string; quantity: number; qty_unit: string; qty_factor: number; for_product_name: string }>,
+  ): Promise<Array<{ line_id: string; product_id: string; line_total: number }>> {
+    if (!items.length) return [];
+    const order = await trx('commercial.orders').where({ id: orderId }).forUpdate().first();
+    if (!order) throw new NotFoundException('Pedido no encontrado');
+    if (order.status !== 'confirmed' || !order.requested_delivery_date) {
+      throw new ConflictException('Sólo a un pedido de preventa confirmado se le cambian productos al surtir.');
+    }
+    const ultimo = await trx('commercial.order_lines').where({ order_id: orderId }).max('line_number as mx').first();
+    let siguiente = Number(ultimo?.mx) || 0;
+    const out: Array<{ line_id: string; product_id: string; line_total: number }> = [];
+    for (const it of items) {
+      const quantity = +(Number(it.quantity) * Number(it.qty_factor)).toFixed(4);
+      const p = await this.tarificarConMotor(trx, order.warehouse_id, it.product_id, quantity, it.qty_unit, 0);
+      if (!p) {
+        throw new BadRequestException(`El producto que pusiste en lugar de «${it.for_product_name}» no tiene precio en Kepler para esta sucursal: elige otro.`);
+      }
+      siguiente += 1;
+      const [fila] = await trx('commercial.order_lines')
+        .insert({
+          tenant_id: trx.raw('public.current_tenant_id()'),
+          order_id: orderId,
+          product_id: it.product_id,
+          source_warehouse_id: null,
+          line_number: siguiente,
+          quantity,
+          // Lo que se puso es lo «pedido» de este renglón: la caja lo revisa contra eso.
+          requested_quantity: quantity,
+          unit_price: p.unit_price,
+          tax_rate: p.tax_rate,
+          discount_percent: 0,
+          line_subtotal: p.line_subtotal,
+          line_tax: p.line_tax,
+          line_total: p.line_total,
+          erp_gross_total: p.erp_gross_total,
+          notes: `En lugar de «${it.for_product_name}» (no hubo al surtir)`.slice(0, 500),
+          qty_unit: it.qty_unit,
+          qty_factor: it.qty_factor,
+          qty_factor_source: it.qty_factor > 1 ? 'kepler_ladder' : 'captura_directa',
+        })
+        .returning(['id']);
+      out.push({ line_id: String((fila as { id: string }).id), product_id: it.product_id, line_total: p.line_total });
+    }
+    return out;
   }
 
   // ─────────────────────────────────────────────────────────────────

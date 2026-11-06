@@ -1,8 +1,7 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
-import { CATALOGO_TABS } from '../catalogo-tabs';
+import { CatalogoMenuComponent } from './catalogo-menu.component';
 
 type CatalogoApartado =
   | 'resumen'
@@ -78,7 +77,7 @@ const APARTADOS: Record<CatalogoApartado, ApartadoConfig> = {
 @Component({
   selector: 'app-compras-catalogo-apartado',
   standalone: true,
-  imports: [RouterLink, ButtonModule, PageTabsComponent],
+  imports: [RouterLink, ButtonModule, CatalogoMenuComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <main class="surf-page ca-page">
@@ -89,7 +88,7 @@ const APARTADOS: Record<CatalogoApartado, ApartadoConfig> = {
         </div>
       </header>
 
-      <app-page-tabs [tabs]="tabs" />
+      <app-catalogo-menu />
 
       <section class="ca-stage" aria-labelledby="catalogo-apartado-title">
         <div class="ca-mark" aria-hidden="true">
@@ -226,7 +225,6 @@ const APARTADOS: Record<CatalogoApartado, ApartadoConfig> = {
   ],
 })
 export class ComprasCatalogoApartadoComponent {
-  readonly tabs = CATALOGO_TABS;
 
   private readonly route = inject(ActivatedRoute);
   private readonly apartado = this.route.snapshot.data[

@@ -41,9 +41,11 @@ const falla = async (fn) => { try { await fn(); return null; } catch (e) { retur
 function cargar() {
   const d = (n) => path.join(__dirname, `.stub-mcp316-${n}.js`);
   const contrato = path.join(RAIZ, 'libs/contracts/src/http/stock-state.contract.ts').replace(/\\/g, '/');
+  // [MCP.11] La regla de promociones (esNombreDePromocion) la usan ahora el bloqueo y el catálogo.
+  const simbolico = path.join(RAIZ, 'libs/contracts/src/http/codigo-simbolico.contract.ts').replace(/\\/g, '/');
   const stubs = {
     '@megadulces/platform-core': [d('platform-core'), 'module.exports = { TenantKnexService: class {}, TenantContextService: class {}, isPlatformAdminRole: (r) => r === "superadmin" || r === "admin" };'],
-    '@megadulces/contracts': [d('contracts'), `module.exports = { ...require(${JSON.stringify(contrato)}), INVOICE_ISSUER_PORT: "INVOICE_ISSUER_PORT" };`],
+    '@megadulces/contracts': [d('contracts'), `module.exports = { ...require(${JSON.stringify(contrato)}), ...require(${JSON.stringify(simbolico)}), INVOICE_ISSUER_PORT: "INVOICE_ISSUER_PORT" };`],
     '../commercial-pricing/commercial-pricing.service': [d('pricing'), 'module.exports = { CommercialPricingService: class {} };'],
     '../commercial-inventory/commercial-inventory.service': [d('inventory'), 'module.exports = { CommercialInventoryService: class {} };'],
     '../commercial-alerts/alerts.service': [d('alerts'), 'module.exports = { AlertsService: class {} };'],
@@ -126,7 +128,10 @@ function pedidos(Orders, trx, userId, rol, quotes = { ladders: async () => new M
       const NADIE = await prod('ZZ316 NADIE', 'ZZ316C');
       const VIVO = await prod('ZZ316 VIVO', 'ZZ316D');
       const LEGADO = await prod('ZZ316 LEGADO', null, ' ZZ316D ');
-      for (const p of [HAY, CERO, NADIE, VIVO, LEGADO]) {
+      // [MCP.11] Una promoción de Kepler dada de alta como producto: sin registro en kdil (en Z1 sería
+      // «no se maneja», que bloquea a un producto normal). Nombre y sku fuera de «ZZ316» para no tocar §3.
+      const PROMO = await prod('2 ZZPROMO = GRATIS 1 MAS', 'ZZ317P');
+      for (const p of [HAY, CERO, NADIE, VIVO, LEGADO, PROMO]) {
         await trx('commercial.product_prices').insert({ tenant_id: T, price_list_id: lista.id, product_id: p, price: 10, tax_rate: 0.16 });
       }
       const kd = (suc, sku, qty) => trx('kepler_ods.kdil').insert({
@@ -241,6 +246,9 @@ function pedidos(Orders, trx, userId, rol, quotes = { ladders: async () => new M
         // sale del gemelo (9 en Z1), así que pasa.
         const l6 = await vend.addLine(o.id, { product_id: LEGADO, quantity: 1 });
         ok(l6 && l6.product_id === LEGADO, `el LEGADO se guarda con su propio id, no el del gemelo (vino ${l6 && l6.product_id})`);
+        // [MCP.11] La promoción no es mercancía: el vendedor la agrega aunque Z1 «no la maneje».
+        const e7 = await falla(() => vend.addLine(o.id, { product_id: PROMO, quantity: 1 }));
+        ok(e7 === null, `[MCP.11] una promoción («= GRATIS») se agrega aunque no haya existencia (${e7 ? e7.message : 'pasó'})`);
         const guardados = await trx('commercial.order_lines').where({ order_id: o.id }).pluck('product_id');
         ok(guardados.filter((p) => p === CERO).length === 1,
           'el agotado sólo entró por el rol sin la clave, nunca por el vendedor');

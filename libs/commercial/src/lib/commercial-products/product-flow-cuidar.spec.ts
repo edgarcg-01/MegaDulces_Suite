@@ -35,7 +35,9 @@ describe('[PF.2] líderes', () => {
     expect(resumirProducto('p', P, plazas).compra.veredicto).toBe('esperar');
     const lider = resumirProducto('p', P, plazas, { lider: { rank: 3, participacion: 0.012 } });
     expect(lider.compra.veredicto).toBe('comprar');
-    expect(lider.compra.motivos[0]).toBe('Es líder: el #3 en venta de la red en 90 días (1.2% de la venta). No debe faltar');
+    // [PF.UI.5] El rótulo no afirma liderazgo de mercado: es el ranking de NUESTRA venta.
+    expect(lider.compra.motivos[0]).toBe('Top de nuestra venta: el #3 de la red en 90 días (1.2% de lo que vendemos; no es participación de mercado). No debe faltar');
+    expect(lider.compra.motivos.join(' ')).not.toMatch(/líder/i);
     expect(lider.lider).toEqual({ rank: 3, participacion: 0.012 });
   });
 

@@ -18,9 +18,15 @@ import type {
   PresalePickLine,
   PresalePickReport,
   PresalePickState,
+  PresalePickSubstitution,
+  PresaleReviewResult,
   PresaleSellerOrder,
   PresaleSellerStatusResponse,
+  PresaleSubstituteCandidate,
+  PresaleSubstituteResponse,
 } from '@megadulces/contracts';
+import { esNombreDePromocion } from '@megadulces/contracts';
+import { estadoDeProductos } from '../commercial-inventory/stock-state';
 import { relojMx } from '../warehouse-orders/warehouse-orders.engine';
 import { CommercialOrdersService } from '../commercial-orders/commercial-orders.service';
 import { PresaleControlService } from '../presale-control/presale-control.service';
@@ -36,6 +42,7 @@ import {
   planearCierre,
   sumarDias,
 } from './presale-picking.engine';
+import { ordenarSugerencias, palabrasClave, puntuarSustituto, unidadesDeEscalera, unidadSugerida } from './presale-substitute.engine';
 import { PEDIDO_EN_RUTA_SQL, SURTIDO_DE_RUTA } from './presale-route.engine';
 
 /**
@@ -82,6 +89,8 @@ type FilaPick = {
   id: string; order_id: string; started_by: string; started_by_name: string; started_at: Date | string;
   finished_by: string | null; finished_by_name: string | null; finished_at: Date | string | null;
   outcome: 'completo' | 'con_faltantes' | null; report: PresalePickReport | null; seller_seen_at: Date | string | null;
+  // [MCP.10.1] La revisión en caja (mig 20261029125146).
+  reviewed_by?: string | null; reviewed_by_name?: string | null; reviewed_at?: Date | string | null; review?: PresaleReviewResult | null;
 };
 
 /**
@@ -137,13 +146,21 @@ export class PresalePickingService {
         .where('l.order_id', orderId)
         .orderBy('l.created_at', 'asc')
         .select('l.id', 'l.product_id', 'l.quantity', 'l.qty_unit', 'l.qty_factor', 'p.sku', 'p.barcode', 'p.nombre as product_name');
+      const reporte = (fila['report'] as PresalePickReport | null) ?? null;
+      const revisado = !!fila['reviewed_at'];
+      // [MCP.13] Los renglones que el surtidor puso en lugar de otro.
+      const enLugarDe = new Map((reporte?.substituted ?? []).map((x) => [x.line_id, { product_name: x.for_product_name, sku: x.for_sku }]));
       const lines: PresalePickLine[] = (lineas as FilaRenglon[]).map((l) => {
         const m = cantidadMostrada({ quantity: Number(l.quantity), qty_unit: l.qty_unit, qty_factor: l.qty_factor == null ? null : Number(l.qty_factor) });
+        // [MCP.10.1] Cerrado: lo que quedó en el pedido es lo que hubo... SALVO que la caja lo haya cambiado.
+        // Lo que surtió el surtidor sale del reporte; si no aparece ahí, surtió lo que dice el pedido.
+        const surtido = fila['finished_at'] ? surtidoPorElSurtidor({ line_id: l.id, product_id: l.product_id, product_name: l.product_name ?? 'Producto', unit: m.unit }, reporte, m.qty) : null;
         return {
           line_id: l.id, product_id: l.product_id, sku: l.sku ?? null, barcode: l.barcode ?? null, product_name: l.product_name ?? 'Producto',
           qty: m.qty, unit: m.unit, factor: m.factor,
-          // Cerrado: lo que quedó en el pedido ES lo que hubo (lo demás se quitó).
-          picked: fila['finished_at'] ? m.qty : null,
+          picked: surtido,
+          ...(revisado ? { final: m.qty } : {}),
+          ...(enLugarDe.has(l.id) ? { substitutes: enLugarDe.get(l.id) } : {}),
         };
       });
       return { order: this.aRenglon(fila, hoy), lines };
@@ -203,7 +220,9 @@ export class PresalePickingService {
       const parte = parteDe(fila);
       if (report) {
         const n = report.removed.length + report.adjusted.length;
-        const falto = `faltó ${n} ${n === 1 ? 'producto' : 'productos'}`;
+        const c = report.substituted?.length ?? 0;
+        // [MCP.13] Si el surtidor cambió algo por otro producto, la vendedora lo sabe desde el aviso.
+        const falto = `faltó ${n} ${n === 1 ? 'producto' : 'productos'}${c ? ` · ${c} ${c === 1 ? 'cambiado' : 'cambiados'} por otro` : ''}`;
         this.avisarVendedora(fila, parte ? `${parte}: ${falto}` : `Reporte de surtido: ${falto}`, `${cliente} · nuevo total ${report.total_after.toFixed(2)}`);
       } else {
         this.avisarVendedora(fila, parte ? `${parte}: surtido completo` : 'Tu pedido se surtió completo', `${cliente} · listo para cobrar`);
@@ -224,7 +243,7 @@ export class PresalePickingService {
     trx: Knex.Transaction,
     fila: Record<string, unknown>,
     pickId: string,
-    marcados: Array<{ line_id: string; picked: number }>,
+    marcados: PresalePickFinishRequest['lines'],
     quien: { userId: string; nombre: string },
   ): Promise<{ outcome: PlanCierre['outcome']; report: PresalePickReport | null; plan: PlanCierre }> {
     const orderId = fila['id'] as string;
@@ -235,13 +254,13 @@ export class PresalePickingService {
         'l.id', 'l.quantity', 'l.qty_unit', 'l.qty_factor', 'l.line_total', 'p.nombre as product_name',
         // [MCP.10] Para la copia del renglón que se borre (la caja puede reponerlo).
         'l.product_id', 'l.qty_factor_source', 'l.discount_percent', 'l.unit_price', 'l.tax_rate',
-        'l.source_warehouse_id', 'l.line_number', 'l.notes',
+        'l.source_warehouse_id', 'l.line_number', 'l.notes', 'p.sku',
       );
     let plan: PlanCierre;
     try {
       plan = planearCierre(
         (lineas as Array<FilaRenglon & FilaCopia>).map((l) => ({
-          line_id: l.id, product_name: l.product_name ?? 'Producto', quantity: Number(l.quantity),
+          line_id: l.id, product_id: l.product_id, product_name: l.product_name ?? 'Producto', quantity: Number(l.quantity),
           qty_unit: l.qty_unit, qty_factor: l.qty_factor == null ? null : Number(l.qty_factor), line_total: Number(l.line_total),
           restore: {
             product_id: l.product_id, quantity: Number(l.quantity), qty_unit: l.qty_unit,
@@ -258,10 +277,19 @@ export class PresalePickingService {
       throw e;
     }
     let totales = { total_before: Number(fila['total']), total_after: Number(fila['total']) };
+    // [MCP.13] Lo que el surtidor puso en lugar de lo que faltó entra ANTES de recortar: así el
+    // pedido nunca queda sin renglones aunque el original se borre, y el total se recalcula una vez.
+    const sustituidos = plan.sustituir.length
+      ? await this.ponerSustitutos(trx, orderId, String(fila['warehouse_id']), plan, lineas as Array<{ id: string; product_id: string; sku?: string | null }>)
+      : [];
     if (plan.outcome === 'con_faltantes') {
-      totales = await this.orders.recortarTrasSurtido(trx, orderId, plan, `surtido: ${quien.nombre} quitó lo que no hubo`);
+      const r = await this.orders.recortarTrasSurtido(
+        trx, orderId, plan,
+        `surtido: ${quien.nombre} quitó lo que no hubo${sustituidos.length ? ` y cambió ${sustituidos.length} por otro producto` : ''}`,
+      );
+      totales = { total_before: Number(fila['total']), total_after: r.total_after };
     }
-    const report = armarReporte(plan, totales.total_before, totales.total_after);
+    const report = armarReporte(plan, totales.total_before, totales.total_after, sustituidos);
     await trx('commercial.presale_picks').where({ id: pickId }).update({
       finished_by: quien.userId,
       finished_by_name: quien.nombre,
@@ -271,6 +299,165 @@ export class PresalePickingService {
       updated_at: trx.fn.now(),
     });
     return { outcome: plan.outcome, report, plan };
+  }
+
+  /**
+   * `[MCP.13]` Valida y agrega al pedido lo que el surtidor puso en lugar de lo que faltó. Cada
+   * sustituto tiene que: existir y estar activo, no ser una promoción, no venir ya en el pedido,
+   * tener en la escalera de Kepler de la sucursal la unidad que se eligió, y no estar agotado.
+   */
+  private async ponerSustitutos(
+    trx: Knex.Transaction,
+    orderId: string,
+    warehouseId: string,
+    plan: PlanCierre,
+    originales: Array<{ id: string; product_id: string; sku?: string | null }>,
+  ): Promise<PresalePickSubstitution[]> {
+    const ids = [...new Set(plan.sustituir.map((x) => x.product_id))];
+    if (ids.length !== plan.sustituir.length) {
+      throw new BadRequestException('Pusiste el mismo producto en lugar de dos renglones: elige uno distinto para cada uno.');
+    }
+    const prods = (await trx('catalog.products')
+      .whereIn('id', ids).whereNull('deleted_at').where('activo', true)
+      .select('id', 'sku', 'nombre')) as Array<{ id: string; sku: string | null; nombre: string | null }>;
+    const porId = new Map(prods.map((p) => [p.id, p]));
+    const yaEnPedido = new Set(originales.map((o) => o.product_id));
+    const escaleras = await this.orders.escalerasDeAlmacen(trx, warehouseId, prods.map((p) => String(p.sku ?? '').trim()).filter(Boolean));
+    const estado = await this.existenciaEn(trx, warehouseId, ids);
+    const items: Array<{ product_id: string; quantity: number; qty_unit: string; qty_factor: number; for_product_name: string }> = [];
+    for (const x of plan.sustituir) {
+      const p = porId.get(x.product_id);
+      if (!p) throw new BadRequestException(`El producto que pusiste en lugar de «${x.for_product_name}» no existe o está dado de baja.`);
+      if (esNombreDePromocion(p.nombre)) throw new BadRequestException(`«${p.nombre}» es una promoción: no se usa para cambiar un producto.`);
+      if (yaEnPedido.has(p.id)) throw new BadRequestException(`«${p.nombre}» ya viene en este pedido: elige otro producto.`);
+      const unidad = unidadesDeEscalera(escaleras.get(String(p.sku ?? '').trim())).find((u) => u.unit === x.unit);
+      if (!unidad) throw new BadRequestException(`«${p.nombre}» no se vende en ${x.unit} en esta sucursal.`);
+      const st = estado?.(warehouseId, p.id).state;
+      if (st === 'agotado' || st === 'no_se_maneja') {
+        throw new BadRequestException(`«${p.nombre}» ${st === 'agotado' ? 'está agotado' : 'no se maneja'} en esta sucursal: elige otro.`);
+      }
+      items.push({ product_id: p.id, quantity: x.quantity, qty_unit: unidad.unit, qty_factor: unidad.factor, for_product_name: x.for_product_name });
+    }
+    const puestos = await this.orders.agregarSustitutos(trx, orderId, items);
+    const skuOriginal = new Map(originales.map((o) => [o.id, o.sku ?? null]));
+    return plan.sustituir.map((x, i) => {
+      const p = porId.get(x.product_id) as { id: string; sku: string | null; nombre: string | null };
+      return {
+        line_id: puestos[i].line_id,
+        for_line_id: x.for_line_id,
+        for_product_name: x.for_product_name,
+        for_sku: skuOriginal.get(x.for_line_id) ?? null,
+        product_id: p.id,
+        product_name: p.nombre ?? 'Producto',
+        sku: p.sku ?? null,
+        quantity: x.quantity,
+        unit: items[i].qty_unit,
+        line_total: puestos[i].line_total,
+      };
+    });
+  }
+
+  /** `[MCP.13]` La existencia en una sucursal; `null` si no se pudo leer (no bloquea: se declara). */
+  private async existenciaEn(
+    trx: Knex.Transaction,
+    warehouseId: string,
+    productIds: string[],
+  ): Promise<((w: string, p: string) => { state: PresaleSubstituteCandidate['stock_state']; qty: number | null }) | null> {
+    if (!productIds.length) return null;
+    try {
+      const wh = await trx('commercial.warehouses').where({ id: warehouseId }).first('code');
+      return (await estadoDeProductos(trx, [{ id: warehouseId, code: (wh?.code as string) ?? null }], productIds)).estado;
+    } catch (e) {
+      this.logger.warn(`[MCP.13] no se pudo leer la existencia: ${(e as Error).message}`);
+      return null;
+    }
+  }
+
+  /**
+   * `[MCP.13]` Qué poner en lugar de lo que faltó de un renglón. Sin `q`: lo que comparte palabras
+   * del nombre o el proveedor, con precio en la sucursal y sin estar agotado. Con `q`: lo que busque
+   * el surtidor (nombre, SKU o código de barras), con las mismas condiciones. Máximo 12.
+   */
+  async substitutes(orderId: string, lineId: string, q: string, query: Record<string, unknown> = {}): Promise<PresaleSubstituteResponse> {
+    if (!UUID_RE.test(orderId) || !UUID_RE.test(lineId)) throw new BadRequestException('id inválido');
+    const almacenes = await this.scope.warehouseIds(query, AREA);
+    return this.tk.run(async (trx) => {
+      const fila = await this.pedidoEnAlcance(trx, orderId, almacenes);
+      const warehouseId = String(fila['warehouse_id']);
+      const renglon = (await trx('commercial.order_lines as l')
+        .join('catalog.products as p', 'p.id', 'l.product_id')
+        .where({ 'l.order_id': orderId, 'l.id': lineId })
+        .first('l.product_id', 'l.quantity', 'l.qty_unit', 'l.qty_factor', 'p.nombre', 'p.supplier_id')) as
+        | { product_id: string; quantity: string; qty_unit: string | null; qty_factor: string | null; nombre: string | null; supplier_id: string | null }
+        | undefined;
+      if (!renglon) throw new NotFoundException('Ese renglón no es de este pedido.');
+      const m = cantidadMostrada({ quantity: Number(renglon.quantity), qty_unit: renglon.qty_unit, qty_factor: renglon.qty_factor == null ? null : Number(renglon.qty_factor) });
+      const original = { product_id: renglon.product_id, nombre: renglon.nombre ?? '', supplier_id: renglon.supplier_id };
+      const vacio: PresaleSubstituteResponse = { for_line_id: lineId, for_product_name: original.nombre, missing: m.qty, unit: m.unit, data: [] };
+      const yaEnPedido = (await trx('commercial.order_lines').where({ order_id: orderId }).pluck('product_id')) as string[];
+      const busca = String(q ?? '').trim().slice(0, 60);
+
+      type Fila = { id: string; sku: string; nombre: string; supplier_id: string | null };
+      const base = trx('catalog.products as p')
+        .whereNull('p.deleted_at').where('p.activo', true)
+        .whereNotIn('p.id', yaEnPedido)
+        .whereNotNull('p.sku');
+      let filas: Fila[];
+      if (busca) {
+        filas = await base
+          .where((w) => { w.whereILike('p.nombre', `%${busca}%`).orWhere('p.sku', busca).orWhere('p.barcode', busca); })
+          .orderByRaw('p.sales_units_90d DESC NULLS LAST').limit(60)
+          .select('p.id', 'p.sku', 'p.nombre', 'p.supplier_id');
+      } else {
+        // Candidatos: hasta 150, primero los que comparten más palabras del nombre.
+        const palabras = palabrasClave(original.nombre).map((w) => `%${w}%`);
+        if (!palabras.length && !original.supplier_id) return vacio;
+        filas = await base
+          .where((w) => {
+            if (palabras.length) w.orWhereRaw('p.nombre ILIKE ANY(?::text[])', [palabras]);
+            if (original.supplier_id) w.orWhere('p.supplier_id', original.supplier_id);
+          })
+          .orderByRaw(
+            palabras.length
+              ? '(SELECT count(*) FROM unnest(?::text[]) t WHERE p.nombre ILIKE t) DESC, p.sales_units_90d DESC NULLS LAST'
+              : 'p.sales_units_90d DESC NULLS LAST',
+            palabras.length ? [palabras] : [],
+          )
+          .limit(150)
+          .select('p.id', 'p.sku', 'p.nombre', 'p.supplier_id');
+      }
+      const puntuados: Array<{ p: Fila; score: number; match: PresaleSubstituteCandidate['match'] }> = [];
+      for (const p of filas) {
+        if (esNombreDePromocion(p.nombre)) continue;
+        if (busca) { puntuados.push({ p, score: 0, match: 'busqueda' }); continue; }
+        const s = puntuarSustituto(original, { product_id: p.id, nombre: p.nombre, supplier_id: p.supplier_id });
+        if (s) puntuados.push({ p, ...s });
+      }
+      if (!puntuados.length) return vacio;
+
+      const escaleras = await this.orders.escalerasDeAlmacen(trx, warehouseId, puntuados.map((x) => String(x.p.sku).trim()));
+      const conPrecio = puntuados
+        .map((x) => ({ ...x, units: unidadesDeEscalera(escaleras.get(String(x.p.sku).trim())).filter((u) => u.price != null) }))
+        .filter((x) => x.units.length > 0);
+      const estado = await this.existenciaEn(trx, warehouseId, conPrecio.map((x) => x.p.id));
+      const filasSugeridas = conPrecio
+        .map((x) => {
+          const e = estado?.(warehouseId, x.p.id);
+          const stockState = e?.state ?? 'sin_dato';
+          const stockQty = e && e.state !== 'sin_dato' ? e.qty : null;
+          const sugerida = unidadSugerida(x.units, m.unit);
+          const candidate: PresaleSubstituteCandidate = {
+            product_id: x.p.id, sku: x.p.sku, product_name: x.p.nombre,
+            // La unidad del original va primero: es la que el surtidor busca en el anaquel.
+            units: sugerida ? [sugerida, ...x.units.filter((u) => u !== sugerida)] : x.units,
+            stock_qty: stockQty, stock_state: stockState, match: x.match,
+          };
+          return { score: x.score, stock_qty: stockQty, candidate };
+        })
+        // Agotado o no manejado no se ofrece; sin dato sí (la pantalla lo declara).
+        .filter((x) => x.candidate.stock_state === 'con_existencia' || x.candidate.stock_state === 'sin_dato');
+      return { ...vacio, data: ordenarSugerencias(filasSugeridas).slice(0, 12).map((x) => x.candidate) };
+    });
   }
 
   // ───────────────────────────── Vendedora ─────────────────────────────
@@ -329,6 +516,8 @@ export class PresalePickingService {
             ? { user_id: pk.finished_by ?? '', name: pk.finished_by_name ?? '', at: iso(pk.finished_at) as string, outcome: pk.outcome ?? 'completo' }
             : null,
           report: pk?.report ?? null,
+          review: pk?.reviewed_at ? (pk.review ?? null) : null,
+          reviewed: pk?.reviewed_at ? { user_id: pk.reviewed_by ?? '', name: pk.reviewed_by_name ?? '', at: iso(pk.reviewed_at) as string } : null,
           charge,
           delivered_at: p.delivery?.delivered_at ?? null,
           report_unseen: !!pk?.finished_at && !pk.seller_seen_at,
@@ -434,6 +623,7 @@ export class PresalePickingService {
         'u.username as seller_username',
         'pp.started_by', 'pp.started_by_name', 'pp.started_at',
         'pp.finished_by', 'pp.finished_by_name', 'pp.finished_at', 'pp.outcome', 'pp.report',
+        'pp.reviewed_by', 'pp.reviewed_by_name', 'pp.reviewed_at',
         trx.raw('(SELECT count(*) FROM commercial.order_lines ol WHERE ol.order_id = o.id)::int AS lines'),
         trx.raw(`EXISTS (SELECT 1 FROM commercial.wave_orders wo WHERE wo.order_id = o.id AND wo.stage <> 'listo_embarque') AS en_ola`),
         trx.raw(`EXISTS (SELECT 1 FROM commercial.order_notifications n WHERE n.order_id = o.id AND n.seen_at IS NULL) AS unseen`),
@@ -468,6 +658,8 @@ export class PresalePickingService {
       started: f['started_at'] ? { user_id: f['started_by'] as string, name: f['started_by_name'] as string, at: iso(f['started_at']) as string } : null,
       finished: f['finished_at'] ? { user_id: f['finished_by'] as string, name: f['finished_by_name'] as string, at: iso(f['finished_at']) as string } : null,
       unseen: !!f['unseen'],
+      // [MCP.10.1] Revisado en caja: el surtidor ve que el pedido ya no es como él lo dejó.
+      reviewed: f['reviewed_at'] ? { user_id: f['reviewed_by'] as string, name: f['reviewed_by_name'] as string, at: iso(f['reviewed_at']) as string } : null,
       // [MCP.3.13] Pedido agrupado; suelto = null / [].
       group_code: (f['group_code'] as string | null | undefined) ?? null,
       group_parts: f['group_parts'] == null ? null : Number(f['group_parts']),
@@ -516,6 +708,26 @@ function parteDe(fila: Record<string, unknown>): string | null {
   if (!fila['group_code'] || !Array.isArray(otras) || !otras.length) return null;
   const sucursal = String(fila['warehouse_name'] ?? '').trim() || 'tu sucursal';
   return `Tu pedido ${fila['group_code']} · parte de ${sucursal}`;
+}
+
+/**
+ * `[MCP.10.1]` Lo que surtió el surtidor de un renglón del pedido cerrado, en la unidad mostrada.
+ *  · recortado al surtir → `adjusted.picked` (por `line_id`; reportes viejos, por nombre y unidad únicos);
+ *  · repuesto por la caja (el surtido lo había borrado) → 0: el renglón nuevo tiene otro `line_id`, se
+ *    reconoce por el `product_id` de su copia en `removed`;
+ *  · si no está en el reporte, surtió todo: lo que hoy dice el pedido.
+ */
+export function surtidoPorElSurtidor(
+  l: { line_id: string; product_id: string; product_name: string; unit: string },
+  reporte: PresalePickReport | null,
+  hoy: number,
+): number {
+  if (!reporte) return hoy;
+  const exacto = reporte.adjusted.find((r) => r.line_id === l.line_id);
+  if (exacto) return exacto.picked;
+  if (reporte.removed.some((r) => r.restore?.product_id === l.product_id)) return 0;
+  const porNombre = reporte.adjusted.filter((r) => !r.line_id && r.product_name === l.product_name && r.unit === l.unit);
+  return porNombre.length === 1 ? porNombre[0].picked : hoy;
 }
 
 function iso(v: unknown): string | null {

@@ -621,3 +621,60 @@ describe('PortalService · el catálogo del vendedor pide stock_state [MCP.3.16]
     http.verify();
   });
 });
+
+// `[MCP.11]` Las promociones de Kepler se dan de alta como PRODUCTOS («2 WAFER = GRATIS 1 MAS», $0.01) y
+// su existencia es 0 por construcción. El servidor las marca `is_promo` y les quita el estado.
+describe('Tomar pedido · promociones de la sucursal [MCP.11]', () => {
+  afterEach(() => TestBed.resetTestingModule());
+  const promo = (id: string, nombre: string): PriceRow =>
+    ({ ...prod(id, nombre, undefined, null), price: 0.01, is_promo: true, stock_state: null, stock_available: null }) as unknown as PriceRow;
+  const encabezados = (el: HTMLElement) => Array.from(el.querySelectorAll('.list-head .lh-t')).map((h) => (h.textContent || '').trim());
+
+  it('⭐ tienen su sección, dicen «Promoción» en vez del $0.01 y no muestran existencia', () => {
+    const { el, fila, stk, texto } = montar({ prices: [kinder, promo('pr1', '2 WAFER = GRATIS 1 MAS'), pulparindo] });
+    expect(encabezados(el)).toContain('Promociones de tu sucursal');
+    const f = fila('2 WAFER');
+    expect(texto(f?.querySelector('.promo-tag'))).toBe('Promoción');
+    expect(texto(f)).not.toContain('$0.01');
+    expect(stk('2 WAFER')).toBeNull();
+    // CONTROL: un producto normal sigue con su precio y su existencia.
+    expect(texto(fila('Kinder')?.querySelector('.pr'))).toContain('$');
+    expect(texto(stk('Kinder'))).toBe('Existencias: 50 pzas');
+  });
+
+  it('⭐ se pueden agregar aunque su existencia sea 0; un producto agotado sigue bloqueado', () => {
+    const { cmp, p } = montar({ prices: [promo('pr1', '2 WAFER = GRATIS 1 MAS'), pulparindo] });
+    expect(cmp.bloqueoDe(p('pr1'), null)).toBeNull();
+    expect(cmp.bloqueoDe(p('p1'), null)).not.toBeNull();
+  });
+
+  it('no se repiten en el catálogo y se ven 5 de entrada, con «Ver las N promociones»', () => {
+    const muchas = Array.from({ length: 7 }, (_, i) => promo(`pr${i}`, `${i + 1} WAFER = GRATIS ${i + 1} MAS`));
+    const { cmp, el, pintar } = montar({ prices: [kinder, ...muchas] });
+    expect(cmp.promoVisibles()).toHaveLength(5);
+    expect(cmp.browseRows().some((x) => x.is_promo)).toBe(false);
+    const boton = Array.from(el.querySelectorAll('button.promo-mas'))[0] as HTMLButtonElement;
+    expect((boton.textContent || '').trim()).toBe('Ver las 7 promociones');
+    boton.click();
+    pintar();
+    expect(cmp.promoVisibles()).toHaveLength(7);
+  });
+
+  it('⛔ sin promociones no aparece la sección', () => {
+    const { el } = montar({ prices: [kinder, pulparindo] });
+    expect(encabezados(el)).not.toContain('Promociones de tu sucursal');
+  });
+});
+
+// `[VTK.15]` El SKU siempre a la vista al vender (catálogo y «Tu pedido»).
+describe('Tomar pedido · SKU visible [VTK.15]', () => {
+  afterEach(() => TestBed.resetTestingModule());
+  it('cada fila del catálogo dice su SKU; sin SKU no se inventa', () => {
+    const sinSku = { ...prod('p9', 'Producto sin clave', 'con_existencia', 3), sku: null } as unknown as PriceRow;
+    const { fila, texto, cmp } = montar({ prices: [kinder, sinSku] });
+    expect(texto(fila('Kinder')?.querySelector('.sku'))).toBe('SKU p3');
+    expect(fila('Producto sin clave')?.querySelector('.sku')).toBeNull();
+    expect(cmp.skuById('p3')).toBe('p3');
+    expect(cmp.skuById('no-existe')).toBeNull();
+  });
+});

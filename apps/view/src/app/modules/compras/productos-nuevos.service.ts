@@ -14,7 +14,11 @@ import type { UnidadEscalera } from '@megadulces/contracts';
 export type ClasificacionNueva = 'nuevo' | 'recodificacion' | 'promocion' | 'no_mercancia';
 export type EtapaNueva = 'sin_movimiento' | 'mes_1' | 'mes_2' | 'mes_3' | 'graduado';
 export type EstadoNuevo = 'seguimiento' | 'sin_movimiento' | 'no_medible' | 'excluido';
-export type VeredictoNuevo = 'recomprar' | 'esperar' | 'revisar' | 'no_recomprar' | 'pronto';
+/**
+ * `[NP.20]` «¿El lanzamiento funcionó?» — la compra la contesta Productos, no esta pantalla. `[NP.21]` `agotado`:
+ * sin mercancía donde se vendía, la venta no se puede juzgar. Antes: recomprar · esperar · revisar · no_recomprar.
+ */
+export type VeredictoNuevo = 'se_queda' | 'revisar' | 'sacar' | 'agotado' | 'pronto';
 export type HitoNuevo = 30 | 60 | 90;
 
 export interface Recomendacion {
@@ -31,9 +35,48 @@ export type UnidadesKepler = Record<string, number>;
 export interface HitoValores {
   cerrado: boolean;
   inversion: number | null;
+  /** Venta CON impuestos (lo que cobró la caja). */
   venta: number | null;
+  /** `[NP.UI.1]` Venta SIN IVA/IEPS del tramo. NULL = no se pudo medir. Opcional: un servidor anterior no la manda. */
+  venta_neta?: number | null;
+  /** `[NP.UI.1]` Venta sin impuestos por cada $1 invertido (sin impuestos) en el tramo. */
+  venta_por_peso?: number | null;
   /** `[NP.16]` Lo vendido en tienda Kepler en ese tramo, en las unidades en que se vendió. */
   unidades: UnidadesKepler;
+  /** `[NP.6]` Semáforo contra el umbral registrado. NULL = no ha cerrado, o sin permiso de costo. */
+  semaforo?: SemaforoHitoNuevo | null;
+}
+
+/** `[NP.6]` Los cinco estados del registro de umbrales: `sin_meta` y `sin_medir` NO son verde. */
+export type EstadoSemaforo = 'ok' | 'warn' | 'bad' | 'sin_meta' | 'sin_medir';
+export interface SemaforoHitoNuevo {
+  kpi_key: string;
+  valor: number | null;
+  estado: EstadoSemaforo;
+  motivo: string | null;
+  escala_a: string | null;
+  avance: number | null;
+}
+
+/**
+ * `[NP.6]` Qué se pudo leer de los umbrales (no es lo mismo «no hay» que «no se pudo leer»). Los cortes no se guardan:
+ * se derivan de la historia (sin tabla, 2026-11-04).
+ */
+export interface HitosInfoNuevos {
+  umbrales_disponibles: boolean;
+  umbrales: number;
+}
+
+/**
+ * `[NP.18]` Cómo quedó la compra sin impuestos (la calcula el servidor). `medida = false` = no se pudieron leer los
+ * renglones de compra: la inversión va como la escribió Kepler y puede traer impuestos.
+ */
+export interface CompraInfoNuevos {
+  medida: boolean;
+  documentos: number;
+  descontados: number;
+  sin_documento: number;
+  no_cuadra: number;
 }
 
 /** `[NP.16]` Cuándo llegó a la empresa (barrido del kardex de Kepler). */
@@ -69,7 +112,11 @@ export interface ProductoNuevo {
   clasificado_por: string | null;
   hitos: Record<HitoNuevo, HitoValores>;
   inversion_total: number | null;
+  /** Venta CON impuestos. */
   venta_total: number | null;
+  /** `[NP.UI.1]` Venta SIN IVA/IEPS. NULL = no se pudo medir. */
+  venta_neta_total?: number | null;
+  /** `[NP.UI.1]` Venta SIN impuestos por cada $1 invertido (compra sin impuestos). */
   venta_por_peso: number | null;
   entradas: number;
   plazas_recibido: number;
@@ -156,6 +203,8 @@ export interface PlazaNueva {
   dia: number | null;
   primera_actividad: string | null;
   venta_total: number;
+  /** `[NP.UI.1]` Venta SIN impuestos de la sucursal. NULL = no se pudo medir. */
+  venta_neta_total?: number | null;
   venta_28: number;
   dias_con_venta_28: number;
   inversion_total: number | null;
@@ -190,9 +239,12 @@ export interface PlazaNueva {
 export interface CohorteNuevos {
   mes: string;
   productos: number;
+  /** Productos con inversión Y venta neta medidas: el universo del cociente. */
   con_inversion: number;
   inversion: number | null;
   venta: number;
+  /** `[NP.UI.1]` Venta SIN impuestos del universo del cociente. */
+  venta_neta?: number | null;
   venta_por_peso: number | null;
   recomprados: number;
   con_30_dias: number;
@@ -210,6 +262,10 @@ export interface ResumenNuevos {
   por_veredicto: Record<VeredictoNuevo, number>;
   inversion: number | null;
   venta: number;
+  /** `[NP.UI.1]` Venta SIN impuestos del universo del cociente. */
+  venta_neta?: number | null;
+  /** Productos que entran al cociente (inversión y venta neta medidas). */
+  con_inversion?: number;
   venta_hoy: number;
   venta_por_peso: number | null;
   recomprados: number;
@@ -224,12 +280,12 @@ export interface FrescuraNuevos {
   hoy: string;
 }
 
-export interface CriterioRecompra {
+/** `[NP.20]` El criterio del juicio del lanzamiento (antes `CriterioRecompra`; ya sin `recuperadoAlto`). */
+export interface CriterioLanzamiento {
   diasMinimos: number;
   ventana: number;
   diasConVentaSano: number;
   caidaMaxima: number;
-  recuperadoAlto: number;
   sinVentaDias: number;
 }
 
@@ -237,10 +293,14 @@ export interface RespuestaNuevos {
   calculado: boolean;
   frescura: FrescuraNuevos | null;
   costo_visible: boolean;
-  criterio: CriterioRecompra;
+  criterio: CriterioLanzamiento;
   resumen: ResumenNuevos | null;
   cohortes: CohorteNuevos[];
   filas: ProductoNuevo[];
+  /** `[NP.6]` NULL/ausente = la lista no se calculó o el servidor es anterior a NP.6. */
+  hitos_info?: HitosInfoNuevos | null;
+  /** `[NP.18]` NULL/ausente = no se calculó o el servidor es anterior. */
+  compra_info?: CompraInfoNuevos | null;
 }
 
 export interface DetalleNuevo {
@@ -248,6 +308,8 @@ export interface DetalleNuevo {
   costo_visible: boolean;
   producto: ProductoNuevo;
   plazas: PlazaNueva[];
+  hitos_info?: HitosInfoNuevos | null;
+  compra_info?: CompraInfoNuevos | null;
 }
 
 @Injectable({ providedIn: 'root' })

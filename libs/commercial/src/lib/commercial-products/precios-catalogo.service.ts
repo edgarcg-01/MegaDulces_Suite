@@ -73,8 +73,11 @@ export class PreciosCatalogoService {
   /**
    * Las sucursales que esta persona puede consultar: las que venden al público, recortadas a su
    * alcance. Se resuelve FUERA de `tk.run` porque `ScopeService` usa su propia conexión.
+   *
+   * `[PF.21]` Pública: la lista y la ficha de Compras › Catálogo recortan su sucursal con ESTA misma regla
+   * (`sucursalDelCatalogo`). Una sola fuente de «qué sucursales ve esta persona» para las dos pantallas.
    */
-  private async sucursalesPermitidas(): Promise<{ codigo: string; nombre: string }[]> {
+  async sucursalesPermitidas(): Promise<{ codigo: string; nombre: string }[]> {
     // El área la declara el servicio (`[ZN.8]`): sin ella sólo se aplican las reglas '*' y cualquier
     // regla de alcance escrita para Compras se ignoraría en silencio.
     const visibles = this.scope.intersect(await this.scope.current(AREA), 'warehouse', null);

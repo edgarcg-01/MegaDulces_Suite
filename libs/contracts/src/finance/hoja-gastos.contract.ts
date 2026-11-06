@@ -155,13 +155,46 @@ export interface HojaAbierta {
   datos_al: string | null;
   /**
    * `[CGA-A.70]` Los pagos de la abierta que ya se repusieron con una hoja en PAPEL: un retiro «gnf»
-   * de Control que cuadra al peso con un tramo de días. Siguen en `renglones`: se cierran como su
-   * propia hoja y se pagan con ese retiro, que sólo LIGA. Vacío también cuando Control no se pudo leer
+   * de Control que cuadra al peso con un tramo de días. `[LE.6.20]` Ya NO están en `renglones` (se
+   * reponían dos veces): van en `ya_repuestos`. Vacío también cuando Control no se pudo leer
    * (`control_medido`).
    */
   pagado_en_control: GrupoPagadoEnControl[];
   /** `false` = Control no se pudo leer: no se afirma que nada esté pagado. */
   control_medido: boolean;
+  /**
+   * `[LE.6.19]` Los pagos que sí son reposición pero hoy no salen: sin la autorización de una persona (gasto
+   * sin aprobar o rechazado), sin lo que Kepler dice que pagan, o con un respaldo que no cuadra. Con su
+   * motivo; entran solos a la hoja cuando se arreglan donde se autorizan. No suman a `total`.
+   */
+  detenidos: Array<RenglonHoja & { motivo: string }>;
+  /** `[LE.6.19]` Los retiros de CAOS libres que pagan la abierta entera (la propuesta va primero). */
+  retiros_que_cuadran: RetiroParaHoja[];
+  /**
+   * `[LE.6.20]` Lo que ya se repuso y por eso NO está en `renglones`: una hoja en papel pagada según Control
+   * (`pagado_en_control`) o un día cuyo total ya se depositó en la cuenta de la zona. Edgar, 2026-11-06:
+   * «lo que venga con un depósito es reposición, lo que no es un gasto normal que se paga».
+   */
+  ya_repuestos: DiaYaRepuesto[];
+  /**
+   * `[LE.6.20]` Pagos de días que el banco ya cubre (cargado al menos `DIAS_DEPOSITO_HOJA` después) sin un
+   * depósito que los reponga. No se ofrecen para reponer: o son gasto normal (se pagan en la cola) o su
+   * depósito no se reconoce solo (lo liga una persona). No suman a `total`.
+   */
+  sin_deposito: Array<RenglonHoja & { motivo: string }>;
+  /** `[LE.6.20]` La cuenta donde se busca el depósito y hasta qué día está cargada. `cuenta: null` = no medida. */
+  banco: { cuenta: string | null; cargado_hasta: string | null };
+}
+
+/** `[LE.6.20]` Un tramo de la abierta que ya se repuso, con el testigo que lo prueba. */
+export interface DiaYaRepuesto {
+  desde: string;
+  hasta: string;
+  renglones: number;
+  total: number;
+  como: 'papel' | 'deposito';
+  /** En palabras: «Control 1234 «GNF MORELIA» del 19/10» o «depósito del 22/10 por $92,606.73». */
+  testigo: string;
 }
 
 /** Un retiro de Control (el Access de Caja General), tal como lo anota la cajera. */
@@ -330,8 +363,22 @@ export interface MotivoHojaInput {
  * Lo hace otra persona que quien la aprobó. Los importes los pone el servidor.
  */
 export type PagarHojaInput =
-  | { medio: 'caos'; device: string; external_id: number }
+  | { medio: 'caos'; device: string; external_id: number; conteo?: ConteoCajonHoja }
   | { medio: 'cajon'; conteo: ConteoCajonHoja };
+
+/**
+ * ⭐ `[LE.6.19]` Pagar la hoja ABIERTA de una zona en un solo acto, desde Caja: se cierra y se paga en la
+ * misma transacción, sin aprobación aparte (D27: cada pago trae la suya). PM, 2026-11-06: *«toda reposición
+ * que salga del cajón se hace con arqueo»*: si sale un peso del cajón —todo, o el pico que completa el
+ * retiro de CAOS— va su `conteo`. Los importes los pone el servidor; `origen_refs` es lo que se vio, para
+ * que una hoja que cambió no se pague a ciegas.
+ */
+export interface PagarHojaAbiertaInput {
+  origen_refs: string[];
+  /** Llave de la pantalla: el doble clic no paga dos hojas. */
+  client_key: string;
+  pago: PagarHojaInput;
+}
 
 /**
  * Traer el conteo de una hoja YA PAGADA con el cajón que no lo tiene (se pagó antes de exigirlo).

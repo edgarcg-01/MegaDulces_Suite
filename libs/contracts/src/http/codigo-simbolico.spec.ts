@@ -1,4 +1,4 @@
-import { esCodigoSimbolico, esNombreDePromocion, marcarCodigosSimbolicos } from './codigo-simbolico.contract';
+import { PATRON_PROMOCION_PG, esCodigoSimbolico, esNombreDePromocion, marcarCodigosSimbolicos } from './codigo-simbolico.contract';
 
 /**
  * `[ETQ-PROMO.1]` Casos tomados de producción (2026-10-22): lo que SÍ es un código simbólico de Kepler y,
@@ -74,5 +74,63 @@ describe('marcarCodigosSimbolicos', () => {
   });
   it('⛔ [negativa] ninguna promoción se pierde: la lista devuelta tiene los mismos elementos', () => {
     expect(marcarCodigosSimbolicos([OREO, REAL, POOSH], centavo)).toHaveLength(3);
+  });
+});
+
+/**
+ * `[PF.12.1]` La regla en SQL (`PATRON_PROMOCION_PG`, con `~*`) clasifica IGUAL que `esNombreDePromocion`.
+ *
+ * La prueba unitaria no tiene Postgres: traduce las dos únicas escrituras que cambian entre dialectos
+ * —`\y` (frontera de palabra en Postgres) y `\b` (RETROCESO en Postgres)— y compara nombre por nombre.
+ * La comprobación contra un Postgres real (todos los nombres del catálogo local) va en el reporte de
+ * `[PF.12.1]`; ésta cuida que nadie reescriba el patrón con la sintaxis de JS.
+ */
+describe('PATRON_PROMOCION_PG', () => {
+  /** Cómo LEE Postgres el patrón, escrito en JS: `\b` es el carácter 0x08 y `\y` la frontera; `~*` = bandera i. */
+  const comoLoLeePostgres = (pg: string) => new RegExp(pg.replace(/\\b/g, '\\x08').replace(/\\y/g, '\\b'), 'i');
+
+  const NOMBRES = [
+    // los del spec de arriba
+    '10 CJS OREO BASE 9 KG = GRATIS 1 CJ MAS',
+    '$15,000 MONDELEZ = GRATIS 1 CJ CH TRIDENT VALUPACK',
+    '5 CJS CAR SUAVE WINIS =GRATIS 1 CJ',
+    '3 cjs trident = gratis 1 cj paq diversión',
+    'JABON FOCA 250GR',
+    '10 CJS OREO BASE 9 KG',
+    'GRATIS POR COMPRA',
+    '',
+    // los que encabezaban la lista del catálogo (medidos en la base local el 2026-10-29)
+    '$1,500.00 MERCA BIMBO Y BARCEL = GRATIS 1 CARRITO',
+    '$12,000 LA ROSA = GRACIS 1 CJ BOMBÓN MINI MINI /50',
+    '$250 MCÍA ICEE = GRATS 1 ICEE CEREZA',
+    '3 PROD ANAHUAC= GRATUS 1 CHIPILETA SOLAPA NARANJA',
+    // frontera de palabra: «GRATISIMO» no es «= GRATIS»; al final del nombre, sí
+    'X = GRATISIMO',
+    'X = GRATIS',
+    'X =\tgratis 1',
+    '***',
+    '.',
+  ];
+
+  it('⭐ clasifica cada nombre igual que esNombreDePromocion', () => {
+    const sql = comoLoLeePostgres(PATRON_PROMOCION_PG);
+    const distintos = NOMBRES.filter((n) => sql.test(n) !== esNombreDePromocion(n));
+    expect(distintos).toEqual([]);
+    // CONTROL: la lista trae de los dos lados, o la igualdad no probaría nada.
+    expect(NOMBRES.filter((n) => esNombreDePromocion(n)).length).toBeGreaterThanOrEqual(5);
+    expect(NOMBRES.filter((n) => !esNombreDePromocion(n)).length).toBeGreaterThanOrEqual(5);
+  });
+
+  it('⛔ [negativa] el mismo patrón escrito con la frontera de JS NO es la regla en Postgres (no casa ninguna)', () => {
+    const conFronteraDeJs = '=\\s*GRATIS\\b';
+    const sql = comoLoLeePostgres(conFronteraDeJs);
+    const promos = NOMBRES.filter((n) => esNombreDePromocion(n));
+    expect(promos.filter((n) => sql.test(n))).toEqual([]);
+    expect(PATRON_PROMOCION_PG).not.toContain('\\b');
+    expect(PATRON_PROMOCION_PG).toContain('\\y');
+  });
+
+  it('no trae «?» (knex lo tomaría como binding) ni comillas (viaja como binding)', () => {
+    expect(PATRON_PROMOCION_PG).not.toMatch(/[?']/);
   });
 });

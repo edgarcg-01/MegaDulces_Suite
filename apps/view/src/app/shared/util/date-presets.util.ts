@@ -49,6 +49,10 @@ export function datePresetRange(key: string, now: Date = new Date()): { from: Da
     case 'mes': from = new Date(y, m, 1); break;
     case 'mes_prev': from = new Date(y, m - 1, 1); to = new Date(y, m, 0); break;
     case 'anio': from = new Date(y, 0, 1); break;
+    // `[PF.23]` Aditivos (no están en DATE_PRESET_OPTIONS, así que ningún menú existente cambia): la ficha de
+    // Compras › Catálogo los ofrece en su propio selector de periodo.
+    case 'd90': from = new Date(y, m, d - 89); break;
+    case 'anio_prev': from = new Date(y - 1, 0, 1); to = new Date(y - 1, 11, 31); break;
     default: return null;
   }
   return { from, to };

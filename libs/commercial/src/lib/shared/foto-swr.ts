@@ -54,6 +54,19 @@ export class FotoSwr<T> {
     return this.recargar(clave, armar);
   }
 
+  /**
+   * `[NP.22]` La foto SIN esperar a nadie: la que hay si todavía no vence; null si no hay o ya venció. Si hace
+   * falta recargar (no hay, o pasó `recargarMs`), la recarga queda en marcha detrás y la siguiente llamada la
+   * encuentra. Para un dato ACCESORIO de una respuesta rápida (un conteo de más): esperarlo le cargaría a la
+   * lista entera el costo de armarlo. Quien recibe null lo DECLARA («sin medir»), no lo pinta como cero.
+   */
+  vigente(clave: string, armar: () => Promise<T>): Foto<T> | null {
+    const f = this.fotos.get(clave);
+    const edad = f ? this.ahora() - f.at : Infinity;
+    if (edad >= this.opts.recargarMs) this.recargar(clave, armar).catch((e) => this.opts.alFallar?.(clave, e));
+    return f && edad < this.opts.venceMs ? f : null;
+  }
+
   /** Tira la foto (una clave, o todas). */
   olvidar(clave?: string): void {
     if (clave === undefined) this.fotos.clear();

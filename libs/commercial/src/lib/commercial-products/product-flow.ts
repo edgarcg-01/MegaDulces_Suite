@@ -14,7 +14,7 @@
  *    motivo; sin ritmo de venta no hay cobertura (no se dibuja "infinito" ni cero).
  *  - Los umbrales son una PROPUESTA a calibrar con Compras (`CRITERIO_FLUJO`), no una verdad.
  */
-import type { UnidadEscalera } from '@megadulces/contracts';
+import { componerEnEscalera, factorDeRotulo, warehouseName, type UnidadEscalera } from '@megadulces/contracts';
 import {
   escaleraDeFicha, existenciaEnDuda, margenesDe,
   type ExistenciaDuda, type FichaPlaza, type KardexPlaza, type Margen, type MargenFuente, type Margenes,
@@ -55,6 +55,11 @@ export const CRITERIO_FLUJO = {
   limiteNoSeVenden: 300,
   /** `[PF.5]` Días CERRADOS para los márgenes (hasta ayer). */
   ventanaMargen: 30,
+  /**
+   * `[PF.13]` Una orden de compra abierta de estos días o menos es «reciente»: según la curva de `[RA.TR]`
+   * (prod, 2026-10-08) las de 0–14 días llegan el 66–86 %; las de más de 60, el 9.8 %.
+   */
+  transitoReciente: 14,
 } as const;
 
 // ─────────────────────────────── utilidades ───────────────────────────────
@@ -154,6 +159,18 @@ export interface DatosPlaza {
   escalera: UnidadEscalera[] | null;
   /** Costo estándar de Kepler por unidad base (`kdii.c77`). NULL = sin costo o sin permiso. */
   costo: number | null;
+  /**
+   * `[PF.15]` Lo que esta sucursal cargó a camioneta (`U-D-41` a `RUTA`/`RD`) en la ventana del ritmo. NULL o
+   * ausente = no cargó (o no se buscó). La venta de las camionetas de Canindo no está en Kepler (FASE_AB
+   * §16.17.1) y la de Padre Hidalgo, incompleta: la carga es lo único de ellas que sí está.
+   */
+  ruta?: SalidaRuta | null;
+}
+
+/** `[PF.15]` Carga a camioneta de una sucursal: unidades base (`kdm2.c9`) y la fecha de la última. */
+export interface SalidaRuta {
+  q: number;
+  ultima: string;
 }
 
 /** Suma la historia cerrada y lo en vivo de una sucursal. */
@@ -209,6 +226,17 @@ export interface PlazaFlujo {
   escalera: UnidadEscalera[] | null;
   /** Pesos inmovilizados a costo estándar. NULL = sin costo o sin permiso. */
   inmovilizado: number | null;
+  /**
+   * `[PF.15]` Cargó a camioneta en los últimos `diasEstancado` días: su venta no se ve en Kepler, así que no
+   * se le llama «estancado» ni «no se vende». NULL/ausente = no cargó.
+   */
+  por_camioneta?: SalidaRuta | null;
+}
+
+/** `[PF.15]` La carga a camioneta que cuenta: la que ocurrió dentro de los días con que se juzga el estancado. */
+export function cargaReciente(p: Periodos, ruta: SalidaRuta | null | undefined): SalidaRuta | null {
+  if (!ruta || !(ruta.q > 0) || !ruta.ultima) return null;
+  return diasEntre(ruta.ultima, p.hoy) < CRITERIO_FLUJO.diasEstancado ? ruta : null;
 }
 
 export function juzgarPlaza(p: Periodos, d: DatosPlaza): PlazaFlujo {
@@ -220,9 +248,14 @@ export function juzgarPlaza(p: Periodos, d: DatosPlaza): PlazaFlujo {
   const hay = usada !== null && usada > 0;
   const cobertura = hay && unidadesDia > 0 ? r1(usada / unidadesDia) : null;
   const vari = variacion(d.mes, d.mes_anterior_mismo);
+  const camioneta = cargaReciente(p, d.ruta);
   let estado: EstadoPlaza;
   let motivo: string;
-  if (hay && (diasSin === null || diasSin >= C.diasEstancado)) {
+  if (hay && (diasSin === null || diasSin >= C.diasEstancado) && camioneta) {
+    // [PF.15] Sin venta de mostrador pero cargando camionetas: se mueve, sólo que su venta no está en Kepler.
+    estado = 'se_mueve';
+    motivo = `Sale por camioneta (última carga: ${fechaTexto(camioneta.ultima)}); lo que vende la camioneta no está en Kepler`;
+  } else if (hay && (diasSin === null || diasSin >= C.diasEstancado)) {
     estado = 'estancado';
     motivo = diasSin === null
       ? `Hay existencia y no se vendió en más de ${C.ventanaHistoria} días`
@@ -252,6 +285,7 @@ export function juzgarPlaza(p: Periodos, d: DatosPlaza): PlazaFlujo {
     existencia: d.existencia, existencia_duda: d.duda, existencia_usada: usada,
     cobertura_dias: cobertura, estado, motivo, escalera: d.escalera,
     inmovilizado: d.costo !== null && usada !== null && usada > 0 ? r2(usada * d.costo) : null,
+    ...(camioneta ? { por_camioneta: camioneta } : {}),
   };
 }
 
@@ -283,6 +317,115 @@ export interface AnalisisCompra {
   venta_en_riesgo_dia: number;
   /** Pesos inmovilizados (a costo estándar). NULL = sin permiso o sin costo. */
   inmovilizado: number | null;
+  /**
+   * `[PF.13]` Lo que ya viene en órdenes de compra abiertas de Kepler. Ausente = no se buscó (la lista no lo
+   * busca; el detalle sí). NULL = se buscó y no se pudo leer (se dice en los motivos). NO se resta del
+   * veredicto: es la misma política que el Pedido (`POLITICA_TRANSITO = 'ignorar'`, Edgar 2026-10-08).
+   */
+  transito?: TransitoProducto | null;
+}
+
+/** `[PF.13]` Un renglón de `TRANSITO_SQL`: una orden abierta, en la unidad de su renglón. */
+export interface TransitoFila {
+  plaza: string;
+  folio: string;
+  dias: number | string | null;
+  unidad: string | null;
+  q: number | string;
+}
+
+/** `[PF.13]` Lo que ya viene en órdenes de compra abiertas de Kepler (X-A-35 sin entrada ni cancelación). */
+export interface TransitoProducto {
+  ordenes: number;
+  /** Las de `transitoReciente` días o menos: las que la curva de RA.TR dice que sí suelen llegar. */
+  ordenes_recientes: number;
+  /** En unidad base. NULL = algún renglón en una unidad que no está en la escalera (se dice, no se suma). */
+  unidades: number | null;
+  unidades_recientes: number | null;
+  /** «29 CJA 7 PAQ 2 PZA» (o «120 PZA» sin escalera). NULL = no se pudo escribir. */
+  texto: string | null;
+  /** Días de la orden abierta más vieja. NULL = no hay órdenes. */
+  dias_mas_vieja: number | null;
+  plazas: Array<{ plaza: string; nombre: string | null; ordenes: number }>;
+  /** Folios, de la más nueva a la más vieja, para buscarlos en OC abiertas. */
+  folios: Array<{ plaza: string; folio: string; dias: number | null }>;
+}
+
+const fmtQ = (q: number) => new Intl.NumberFormat('es-MX', { maximumFractionDigits: 3 }).format(q);
+
+/**
+ * `[PF.13]` Junta las órdenes abiertas de un producto. Cada renglón viene en la unidad de su renglón
+ * (`kdm2.c11`); se pasa a la base con la escalera de la ficha (`factorDeRotulo`). Un rótulo que no está en la
+ * escalera NO se suma: `unidades` queda NULL y el texto lo dice (ADR-056: no se inventa un factor).
+ */
+export function armarTransito(filas: TransitoFila[], esc: UnidadEscalera[] | null, nombres: Map<string, string>): TransitoProducto {
+  const C = CRITERIO_FLUJO;
+  const porFolio = new Map<string, { plaza: string; folio: string; dias: number | null }>();
+  const cant: Record<string, number> = {};
+  const cantRec: Record<string, number> = {};
+  for (const f of filas) {
+    const q = num(f.q) ?? 0;
+    if (q <= 0) continue;
+    const dias = num(f.dias);
+    const u = (f.unidad ?? '').trim().toUpperCase() || '?';
+    porFolio.set(`${f.plaza}|${f.folio}`, { plaza: f.plaza, folio: f.folio, dias });
+    cant[u] = (cant[u] ?? 0) + q;
+    if (dias !== null && dias <= C.transitoReciente) cantRec[u] = (cantRec[u] ?? 0) + q;
+  }
+  const aBase = (c: Record<string, number>): number | null => {
+    let t = 0;
+    for (const [u, q] of Object.entries(c)) {
+      const f = esc?.length ? factorDeRotulo(u, esc) : null;
+      // Sin escalera sólo se suma si todo viene en UNA unidad: la base es ésa.
+      if (f === null && !(!esc?.length && Object.keys(cant).length === 1)) return null;
+      t += q * (f ?? 1);
+    }
+    return Math.round(t * 1000) / 1000;
+  };
+  const unidades = aBase(cant);
+  let texto: string | null = null;
+  if (Object.keys(cant).length) {
+    const comp = esc?.length ? componerEnEscalera(cant, esc) : null;
+    texto = comp && !Object.keys(comp.sin_convertir).length
+      ? comp.partes.map((x) => `${fmtQ(x.cantidad)} ${x.rotulo}`).join(' ')
+      : Object.entries(cant).map(([u, q]) => `${fmtQ(q)} ${u}`).join(' + ');
+  }
+  const folios = [...porFolio.values()].sort((a, b) => (a.dias ?? 1e9) - (b.dias ?? 1e9) || a.folio.localeCompare(b.folio));
+  const porPlaza = agruparPor(folios, (x) => x.plaza);
+  return {
+    ordenes: folios.length,
+    ordenes_recientes: folios.filter((x) => x.dias !== null && x.dias <= C.transitoReciente).length,
+    unidades, unidades_recientes: Object.keys(cantRec).length ? aBase(cantRec) : 0, texto,
+    dias_mas_vieja: folios.reduce<number | null>((m, x) => (x.dias !== null && (m === null || x.dias > m) ? x.dias : m), null),
+    plazas: [...porPlaza].sort(([a], [b]) => a.localeCompare(b))
+      .map(([plaza, xs]) => ({ plaza, nombre: nombres.get(plaza) ?? null, ordenes: xs.length })),
+    folios,
+  };
+}
+
+const agruparPor = <T,>(xs: T[], k: (x: T) => string) => {
+  const m = new Map<string, T[]>();
+  for (const x of xs) m.set(k(x), [...(m.get(k(x)) ?? []), x]);
+  return m;
+};
+
+/**
+ * `[PF.13]` La frase de lo que ya viene, para los motivos del veredicto. `undefined` = no se buscó (nada que
+ * decir); `null` = no se pudo leer (se declara). Con cobertura: para cuántos días alcanzaría contándolo.
+ */
+export function motivoTransito(t: TransitoProducto | null | undefined, ctx: { existencia: number; unidadesDia: number }): string | null {
+  if (t === undefined) return null;
+  if (t === null) return 'No se pudo leer lo que ya viene en órdenes de compra de Kepler: revísalo en OC abiertas antes de pedir';
+  if (!t.ordenes) return 'No hay órdenes de compra abiertas en Kepler para este producto';
+  const ordenes = `${t.ordenes} ${t.ordenes === 1 ? 'orden de compra abierta' : 'órdenes de compra abiertas'} de Kepler`;
+  const edad = t.ordenes_recientes === t.ordenes
+    ? `, todas de ${CRITERIO_FLUJO.transitoReciente} días o menos`
+    : `; ${t.ordenes_recientes} de ${CRITERIO_FLUJO.transitoReciente} días o menos, la más vieja de hace ${t.dias_mas_vieja} días`;
+  const alcanzaria = t.unidades !== null && ctx.unidadesDia > 0
+    ? `: con eso alcanzaría para ${Math.round((Math.max(0, ctx.existencia) + t.unidades) / ctx.unidadesDia)} días`
+    : t.unidades === null ? ' (alguna en una unidad que no se pudo convertir: no se suma)' : '';
+  return `Ya vienen ${t.texto ?? 'unidades'} en ${ordenes}${edad}${alcanzaria}. `
+    + 'Este veredicto no las resta, igual que el Pedido: muchas órdenes no se surten';
 }
 
 const pesos = (v: number) => `$${Math.round(v).toLocaleString('es-MX')}`;
@@ -320,8 +463,19 @@ export function sugerirTraspasos(plazas: PlazaFlujo[]): TraspasoSugerido[] {
   return out;
 }
 
+/** Extras del análisis: líder, caducidad y (sólo en el detalle) lo que ya viene en órdenes de compra. */
+export interface ExtraAnalisis {
+  lider?: Lider | null;
+  caducidad?: CaducidadResumen | null;
+  /** `[PF.13]` Ausente = no se buscó; NULL = no se pudo leer. */
+  transito?: TransitoProducto | null;
+}
+
+/** Nombre de la sucursal: el de la base y, si no, el del resolvedor común. Nunca «Sucursal 07» (PM, 2026-10-22). */
+const nombrePlaza = (x: { plaza: string; nombre: string | null }) => x.nombre || warehouseName(x.plaza) || x.plaza;
+
 export function analizarCompra(p: Periodos, plazas: PlazaFlujo[], total: { mes: number; mes_anterior_mismo: number },
-  extra: { lider?: Lider | null; caducidad?: CaducidadResumen | null } = {}): AnalisisCompra {
+  extra: ExtraAnalisis = {}): AnalisisCompra {
   const C = CRITERIO_FLUJO;
   const lider = extra.lider ?? null;
   // A un líder se le compra antes: que falte cuesta más que tener unos días de más.
@@ -341,10 +495,15 @@ export function analizarCompra(p: Periodos, plazas: PlazaFlujo[], total: { mes: 
   const motivos: string[] = [];
   const impacto: string[] = [];
   const vari = variacion(total.mes, total.mes_anterior_mismo);
-  const nombres = (xs: PlazaFlujo[]) => xs.map((x) => x.nombre || `Sucursal ${x.plaza}`).join(', ');
+  const nombres = (xs: PlazaFlujo[]) => xs.map(nombrePlaza).join(', ');
+  const porCamioneta = plazas.filter((x) => x.por_camioneta);
 
   if (lider) {
-    motivos.push(`Es líder: el #${lider.rank} en venta de la red en 90 días (${(lider.participacion * 100).toFixed(1)}% de la venta). No debe faltar`);
+    // [PF.UI.5] Es el ranking de NUESTRA venta, no participación de mercado: el rótulo no afirma lo que nadie midió.
+    motivos.push(`Top de nuestra venta: el #${lider.rank} de la red en 90 días (${(lider.participacion * 100).toFixed(1)}% de lo que vendemos; no es participación de mercado). No debe faltar`);
+  }
+  if (porCamioneta.length) {
+    motivos.push(`Sale por camioneta desde ${nombres(porCamioneta)}: lo que vende la camioneta no está en Kepler y no cuenta en el ritmo de venta`);
   }
   if (enDuda.length) {
     motivos.push(`La existencia de Kepler está en duda en ${nombres(enDuda)}: conviene contarla antes de decidir`);
@@ -363,7 +522,13 @@ export function analizarCompra(p: Periodos, plazas: PlazaFlujo[], total: { mes: 
 
   let veredicto: VeredictoCompra;
   let titulo: string;
-  if (unidadesDia <= 0) {
+  if (unidadesDia <= 0 && existencia > 0 && porCamioneta.length) {
+    // [PF.15] No se vende en mostrador pero sale por camioneta: «no se vende» sería falso. No hay ritmo para
+    // juzgar la compra (la venta de la camioneta no está en Kepler): se dice y se espera.
+    veredicto = 'esperar';
+    titulo = 'Sale por camioneta: su venta no está en Kepler';
+    impacto.push('Decidir con lo que vende la camioneta: aquí sólo se ve lo que se le carga');
+  } else if (unidadesDia <= 0) {
     veredicto = existencia > 0 ? 'no_comprar' : 'sin_movimiento';
     titulo = existencia > 0 ? 'No comprar: no se vende' : 'Sin movimiento';
     if (existencia > 0) {
@@ -419,9 +584,19 @@ export function analizarCompra(p: Periodos, plazas: PlazaFlujo[], total: { mes: 
   if (vari !== null && vari <= -C.caidaFrenado && p.dias >= C.diasMinimosComparar && veredicto === 'comprar' && !caidaPorAgotado) {
     impacto.push('Ojo: la venta del mes va muy abajo; comprar al ritmo de antes podría sobrar');
   }
+  // [PF.UI.1] Lo que ya viene, sólo donde decide algo (comprar o mover): sin restarlo, dicho con todas sus letras.
+  if (veredicto === 'comprar' || veredicto === 'traspasar') {
+    const t = motivoTransito(extra.transito, { existencia, unidadesDia });
+    if (t) motivos.push(t);
+  }
+  // [PF.UI.1] El umbral es una propuesta: lo dice el veredicto mismo, no sólo este archivo.
+  if ((veredicto === 'comprar' || veredicto === 'esperar') && cobertura !== null) {
+    motivos.push(`Criterio: comprar con menos de ${umbralComprar} días de inventario${lider ? ' (a un top de venta se le compra antes)' : ''}. Es una propuesta todavía sin calibrar con Compras`);
+  }
   return {
     veredicto, titulo, motivos, impacto, traspasos,
     cobertura_dias: cobertura, se_acaba: seAcaba, venta_en_riesgo_dia: ventaDia, inmovilizado: inmov,
+    ...(extra.transito !== undefined ? { transito: extra.transito } : {}),
   };
 }
 
@@ -459,7 +634,7 @@ export interface FlujoListaRespuesta {
 }
 
 export function resumirProducto(productId: string, p: Periodos, plazas: PlazaFlujo[],
-  extra: { lider?: Lider | null; caducidad?: CaducidadResumen | null } = {}): FlujoResumen {
+  extra: ExtraAnalisis = {}): FlujoResumen {
   const mes = r2(plazas.reduce((a, x) => a + x.mes, 0));
   const ant = r2(plazas.reduce((a, x) => a + x.mes_anterior_mismo, 0));
   return {
@@ -786,7 +961,7 @@ export function juzgarLotes(p: Periodos, lotes: LoteFila[], plazas: PlazaFlujo[]
 
 export function resumirCaducidad(lotes: LoteCaducidad[]): CaducidadResumen | null {
   if (!lotes.length) return null;
-  const nombre = (l: LoteCaducidad) => l.nombre || `Sucursal ${l.plaza}`;
+  const nombre = (l: LoteCaducidad) => l.nombre || warehouseName(l.plaza) || l.plaza;
   const unicos = (xs: string[]) => [...new Set(xs)];
   const presente = (l: LoteCaducidad) => l.en_existencia ?? l.registrado;
   const caducados = lotes.filter((l) => l.estado === 'caducado');
@@ -943,7 +1118,7 @@ export function margenRealDe(n: number | string | null, nc: number | string | nu
 
 /** "Yurécuaro" / "Yurécuaro y Canindo" / "Yurécuaro, Canindo y 2 más". */
 export function listaNombres(xs: Array<{ plaza: string; nombre: string | null }>): string {
-  const n = xs.map((x) => x.nombre || `Sucursal ${x.plaza}`);
+  const n = xs.map((x) => nombrePlaza(x));
   if (n.length <= 2) return n.join(' y ');
   return `${n.slice(0, 2).join(', ')} y ${n.length - 2} más`;
 }
@@ -963,7 +1138,7 @@ export function motivoCorto(r: Pick<FlujoResumen, 'agotadas' | 'estancadas' | 'f
     switch (r.compra.veredicto) {
       case 'comprar':
         if (cob === null || cob <= 0) partes.push('ya no hay existencia');
-        else if (r.lider && cob >= C.coberturaComprar) partes.push(`es líder: se le compra antes de los ${C.coberturaComprarLider} días`);
+        else if (r.lider && cob >= C.coberturaComprar) partes.push(`top de nuestra venta: se le compra antes de los ${C.coberturaComprarLider} días`);
         else partes.push(cob < 1 ? 'se acaba hoy' : `se acaba en ${Math.floor(cob)} ${Math.floor(cob) === 1 ? 'día' : 'días'}`);
         break;
       case 'traspasar': partes.push('bien repartido no haría falta comprar'); break;
@@ -1153,6 +1328,16 @@ export interface CuidarRespuesta {
     nuevos_excluidos: boolean;
     /** Cuántos hay (puede ser más que los que se traen). */
     total: number;
+    /**
+     * `[PF.UI.3]` true = la consulta llegó a su tope (`limiteNoSeVenden × 4`): `total` y `valor_total` son un
+     * MÍNIMO, no el universo. Se dice «N o más», nunca N a secas.
+     */
+    total_es_minimo?: boolean;
+    /**
+     * `[PF.15]` Cuántos se sacaron de la lista porque su sucursal los cargó a camioneta en los días que se miran
+     * (su venta no está en Kepler: «no se vende» sería falso). No entran ni en `total` ni en `valor_total`.
+     */
+    por_camioneta?: number;
     /** Dinero detenido de todos, a costo estándar. NULL = sin permiso de costo. */
     valor_total: number | null;
     por_tramo: Record<TramoSinVenta, number>;

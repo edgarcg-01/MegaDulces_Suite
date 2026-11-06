@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/comm
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequireAnyPermission, RequirePermissions, Permission } from '@megadulces/platform-core';
 import type {
-  CerrarHojaInput, HojaGastos, HojasDeGastos, MotivoHojaInput, PagarHojaInput, PagoHojaResultado, RegistrarConteoHojaInput,
+  CerrarHojaInput, HojaGastos, HojasDeGastos, MotivoHojaInput, PagarHojaAbiertaInput, PagarHojaInput, PagoHojaResultado, RegistrarConteoHojaInput,
 } from '@megadulces/contracts';
 import { HojaGastosService } from './hoja-gastos.service';
 
@@ -54,6 +54,13 @@ export class HojaGastosController {
   @ApiOperation({ summary: '[CGA-A.65] Finanzas rechaza la hoja con motivo: sus pagos vuelven a la hoja abierta.' })
   rechazar(@Param('id') id: string, @Body() body: MotivoHojaInput, @Req() req: AuthedRequest): Promise<HojaGastos> {
     return this.svc.rechazar(id, body, this.user(req));
+  }
+
+  @Post('abierta/:zona/pagar')
+  @RequirePermissions(Permission.FINANCE_CAJA_GESTIONAR)
+  @ApiOperation({ summary: '[LE.6.19] Caja paga la hoja ABIERTA de una zona en UN acto: la cierra y la paga en la misma transacción, sin aprobación aparte (D27: cada pago trae la suya; lo que no, no entra). Con un retiro de CAOS que la cuadra o con el cajón; todo lo que sale del cajón va con su arqueo.' })
+  pagarAbierta(@Param('zona') zona: string, @Body() body: PagarHojaAbiertaInput, @Req() req: AuthedRequest): Promise<PagoHojaResultado> {
+    return this.svc.pagarAbierta(zona, body, this.user(req));
   }
 
   @Post(':id/pagar')

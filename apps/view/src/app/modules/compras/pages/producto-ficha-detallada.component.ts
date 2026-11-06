@@ -1,14 +1,21 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, linkedSignal, signal } from '@angular/core';
 import { rxResource } from '@angular/core/rxjs-interop';
+import { RouterLink } from '@angular/router';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { CatalogoProductosService } from '../catalogo-productos.service';
 import { ProductosFlujoService } from '../productos-flujo.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
 import { armarFicha, numeroFicha } from './producto-ficha.component';
+import { ProductoLanzamientoComponent } from './producto-lanzamiento.component';
+import { PeriodoFichaComponent } from '../components/periodo-ficha.component';
+import type { PeriodoFicha } from '../periodo-ficha';
+import type { ComprasProducto } from '../catalogo-productos.service';
 import {
-  EtiquetasProducto, comoVaLaVenta, comprasTexto, etiquetasTexto, factoresDe, loteTexto, margenReal, queHacer, sucursalesDetalladas,
+  EtiquetasProducto, comoVaLaVenta, comprasTexto, etiquetasTexto, factoresDe, loteTexto, margenReal, periodoComprasTexto, queHacer, sucursalesDetalladas,
 } from '../catalogo-detallado';
 
 /** Un error de HTTP en una frase (el mensaje del servidor si lo trae). */
@@ -25,10 +32,13 @@ function mensajeDe(e: unknown, porDefecto: string): string {
  *   1. Etiquetas (las del renglón: Líder, Nuevo, Caducidad).
  *   2. Identidad y «Unidades y precio»: lo mismo que Sencillo (mismos datos y la misma `armarFicha`).
  *   3. Qué hacer: el veredicto del motor PF, su porqué y «Mover antes de comprar» en cajas/paquetes.
+ *   `[NP.22]` Si el producto es NUEVO: «Lanzamiento» (`app-producto-lanzamiento`: ¿funcionó?, cortes 30/60/90,
+ *      sucursales). No repite «¿Hay que comprar?»: eso es Qué hacer, y si los dos tiran en contra se explica ahí.
  *   4. Dónde se mueve y dónde se estancó: vendido este mes, existencia y días sin vender por sucursal.
  *   5. ¿Cómo va la venta este mes?: en palabras y dos barras (sin gráfica).
  *   6. Margen real (30 días) — sólo con permiso de costo.
- *   7. Compras (90 días); el costo de la última sólo con permiso de costo.
+ *   7. Compras (90 días); el costo de la última SIN impuestos, visible para quien ve el catálogo (`[PF.12.3]`: el
+ *      mismo dato y la misma regla que la columna «Último costo»; el margen sigue con su permiso).
  *   8. Caducidad por lote (sólo si tiene lotes registrados).
  * Sin «Editar producto» (el usuario lo quitó).
  *
@@ -38,13 +48,18 @@ function mensajeDe(e: unknown, porDefecto: string): string {
 @Component({
   selector: 'app-producto-ficha-detallada',
   standalone: true,
-  imports: [TableModule, TagModule, LoadStateComponent, FreshnessPillComponent],
+  imports: [TableModule, TagModule, LoadStateComponent, FreshnessPillComponent, RouterLink, ProductoLanzamientoComponent, PeriodoFichaComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-load-state [loading]="cargando()" [error]="error()" [isEmpty]="false" [skeletonRows]="8"
                     errorTitle="No se pudo cargar la ficha del producto" (retry)="recargar()">
       @if (vm(); as v) {
         <article class="fd" [attr.aria-label]="'Ficha de ' + v.nombre">
+          <!-- [PF.23] El periodo, arriba de todo (pedido de David). Dice a qué aplica: lo demás no lo sigue todavía. -->
+          <div class="periodo-top">
+            <app-periodo-ficha porOmision="d90" [valor]="periodoCompras()" etiqueta="Periodo de las compras" (cambio)="periodoCompras.set($event)" />
+            <small class="nota">Aplica a las compras · precio, existencia y venta del mes no cambian</small>
+          </div>
           @if (etiquetasVm().length) {
             <div class="tags" aria-label="Etiquetas">
               @for (t of etiquetasVm(); track t.texto) { <span class="tag" [class]="'tag tag--' + t.clase">{{ t.texto }}</span> }
@@ -89,6 +104,21 @@ function mensajeDe(e: unknown, porDefecto: string): string {
               <dt>Proveedor</dt>
               <dd>@if (v.proveedor) { {{ v.proveedor }} } @else { <span class="sin">Sin proveedor</span> }</dd>
             </div>
+            <!-- [PF.12.3]/[PF.22] El costo junto a la identidad: el de la ultima entrada, sin impuestos, por CADA unidad
+                 (paquete y caja), con la regla de la columna Ultimo costo. El mismo bloque y el mismo dato que Sencillo. -->
+            @if (v.costoVisible) {
+              <div>
+                <dt>Último costo</dt>
+                <dd>
+                  @if (v.entrada?.costo && v.entrada!.costos.length) {
+                    <span class="costos">@for (c of v.entrada!.costos; track c.unidad) { <span><span class="mono">{{ c.monto }}</span>&ngsp;<span class="ud">por {{ c.unidad }}</span></span>&ngsp;}</span>&ngsp;
+                    <small class="nota">{{ v.entrada!.costoNota }}</small>
+                  } @else if (v.entrada?.costo; as k) { <span class="mono">{{ k }}</span>&ngsp;<span class="ud">por {{ v.entrada!.unidad }}</span>&ngsp;<small class="nota">{{ v.entrada!.costoNota }}</small> }
+                  @else if (v.entrada) { <span class="sin">Sin costo en la entrada</span> }
+                  @else { <span class="sin">Sin entradas</span> }
+                </dd>
+              </div>
+            }
             @if (v.descripcion) {
               <div class="ancho"><dt>Descripción</dt><dd>{{ v.descripcion }}</dd></div>
             }
@@ -140,12 +170,22 @@ function mensajeDe(e: unknown, porDefecto: string): string {
                   @for (t of q.traspasos; track $index) { <li><b class="mono">{{ t.cantidad }}</b> de {{ t.desde }} a {{ t.hacia }}</li> }
                 </ul>
               }
+              <!-- [PF.UI.1] Q.4: del veredicto al lugar donde se compra, con el producto ya buscado (Pedido lee ?search=). -->
+              @if (skuPedido(); as sku) {
+                <a class="ir-pedido" routerLink="/compras/pedido" [queryParams]="{ search: sku }">
+                  Ir a Pedido con este producto <i class="pi pi-arrow-right" aria-hidden="true"></i>
+                </a>
+              }
             } @else if (flujoError()) {
               <p class="aviso" role="alert">{{ flujoError() }}</p>
             } @else {
               <p class="nota-bloque">Calculando…</p>
             }
           </section>
+
+          <!-- [NP.22] Si es un producto nuevo: su lanzamiento (lo que era el panel de Productos nuevos). Si no, no pinta nada.
+               Recibe el veredicto de Que hacer para explicar si los dos tiran en contra. -->
+          <app-producto-lanzamiento [productId]="productId()" [esNuevo]="esNuevo()" [veredictoCompra]="que()?.veredicto ?? null" />
 
           <!-- 4. Sucursales -->
           <section class="bloque" aria-labelledby="fd-suc-t">
@@ -233,20 +273,23 @@ function mensajeDe(e: unknown, porDefecto: string): string {
           }
 
           <!-- 7. Compras -->
-          <section class="bloque" aria-labelledby="fd-co-t">
-            <h3 class="bloque-t" id="fd-co-t">Compras (últimos {{ compras()?.dias ?? 90 }} días)</h3>
+          <section class="bloque" aria-labelledby="fd-co-t" [attr.aria-busy]="comprasActualizando() ? 'true' : null" [class.is-act]="comprasActualizando()">
+            <!-- [PF.23] El periodo de las COMPRAS (por omisión, los últimos 90 días). El último costo de arriba es de la
+                 última entrada de cualquier fecha y no lo sigue. -->
+            <h3 class="bloque-t" id="fd-co-t">Compras</h3>
+            @if (comprasPeriodo(); as cp) {
+              <p class="nota-bloque">{{ cp.periodo }}</p>
+              @if (cp.incompletas) { <p class="nota-bloque nota-sin">No incluye lo que compraron antes de entrar a Kepler: {{ cp.incompletas }}.</p> }
+            }
             @if (comprasRes.error()) {
               <p class="aviso" role="alert">No se pudieron cargar las compras.</p>
             } @else if (compras(); as c) {
               @if (c.entradas || c.ultima) {
                 <dl class="ident ent">
                   <div><dt>Entradas</dt><dd><span class="mono">{{ c.entradas }}</span></dd></div>
-                  <div><dt>Comprado</dt><dd>@if (c.comprado) { <span class="mono">{{ c.comprado }}</span> } @else { <span class="sin">Nada en la ventana</span> }</dd></div>
+                  <div><dt>Comprado</dt><dd>@if (c.comprado) { <span class="mono">{{ c.comprado }}</span> } @else { <span class="sin">Nada en el periodo</span> }</dd></div>
                   <div><dt>Primera</dt><dd>@if (c.primera) { {{ c.primera }} } @else { <span class="sin">—</span> }</dd></div>
                   <div><dt>Última</dt><dd>@if (c.ultima) { {{ c.ultima }} } @else { <span class="sin">—</span> }</dd></div>
-                  @if (c.costoUltima; as k) {
-                    <div><dt>Costo de la última</dt><dd><span class="mono">{{ k.monto }}</span>&ngsp;por {{ k.unidad }}<small class="nota candado"><i class="pi pi-lock" aria-hidden="true"></i> sólo con permiso de costo</small></dd></div>
-                  }
                 </dl>
               } @else {
                 <p class="sin">Sin entradas de mercancía registradas.</p>
@@ -315,6 +358,10 @@ function mensajeDe(e: unknown, porDefecto: string): string {
 
     /* Bloques */
     .bloque { display: flex; flex-direction: column; min-width: 0; }
+    .bloque.is-act .ident { opacity: .55; transition: opacity var(--dur-micro) ease; }
+    .nota-sin { color: var(--warn-fg); }
+    .periodo-top { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-3); }
+    .periodo-top .nota { margin: 0; }
     .bloque-cab { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; }
     .bloque-t { margin: 0 0 var(--sp-2); font-size: var(--fs-micro); letter-spacing: .07em; text-transform: uppercase; color: var(--text-faint); font-weight: var(--fw-bold); }
     .nota-bloque { margin: 0; font-size: var(--fs-xs); color: var(--text-muted); }
@@ -323,6 +370,7 @@ function mensajeDe(e: unknown, porDefecto: string): string {
 
     /* Tablas */
     .r { text-align: right; white-space: nowrap; }
+    .costos { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-1) var(--sp-3); }
     .ud { font-family: var(--font-mono); font-weight: var(--fw-bold); font-size: var(--fs-xs); padding: 0 var(--sp-2); border-radius: var(--r-sm);
       background: var(--overlay-hover); border: 1px solid var(--border-color); }
     .equiv { color: var(--text-muted); font-size: var(--fs-sm); }
@@ -339,6 +387,10 @@ function mensajeDe(e: unknown, porDefecto: string): string {
     /* 3. Que hacer: el primario de la ficha */
     .compra { border: 1px solid var(--border-color); border-left-width: 3px; border-radius: var(--r-lg); padding: var(--sp-3) var(--sp-4); }
     .compra.q-comprar { border-left-color: var(--bad-fg); }
+    .ir-pedido { align-self: flex-start; display: inline-flex; align-items: center; gap: var(--sp-1); margin-top: var(--sp-2);
+      font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--action); text-decoration: none; }
+    .ir-pedido:hover { text-decoration: underline; }
+    .ir-pedido:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--r-sm); }
     .compra.q-traspasar { border-left-color: var(--warn-fg); }
     .compra.q-sobra, .compra.q-no_comprar { border-left-color: var(--ok-fg); }
     .q-linea { margin: 0; display: flex; gap: var(--sp-2); align-items: baseline; flex-wrap: wrap; }
@@ -404,6 +456,10 @@ export class ProductoFichaDetalladaComponent {
   readonly productId = input.required<string>();
   /** Las etiquetas del renglón (Líder, Nuevo, Caducidad): las mismas que la lista, de la misma respuesta. */
   readonly etiquetas = input<EtiquetasProducto | null>(null);
+  /** `[NP.22]` ¿El renglón dice que es nuevo? null = no se sabe (la sección «Lanzamiento» lo pregunta). */
+  readonly esNuevo = input<boolean | null>(null);
+  /** `[PF.21]` La sucursal del precio que eligió la lista: la ficha no puede decir otro precio que el renglón. */
+  readonly sucursal = input<string | null>(null);
 
   private readonly catalogo = inject(CatalogoProductosService);
   private readonly flujo = inject(ProductosFlujoService);
@@ -411,16 +467,28 @@ export class ProductoFichaDetalladaComponent {
   readonly copiado = signal<string | null>(null);
 
   private readonly fichaRes = rxResource({
-    params: () => ({ id: this.productId(), v: this.recarga() }),
-    stream: ({ params }) => this.catalogo.ficha(params.id, null),
+    params: () => ({ id: this.productId(), suc: this.sucursal(), v: this.recarga() }),
+    stream: ({ params }) => this.catalogo.ficha(params.id, params.suc),
   });
   private readonly flujoRes = rxResource({
     params: () => ({ id: this.productId(), v: this.recarga() }),
     stream: ({ params }) => this.flujo.detalle(params.id),
   });
+  /** `[PF.23]` El periodo de las compras; null = los últimos 90 días (lo de siempre, lo decide el servidor). */
+  readonly periodoCompras = signal<PeriodoFicha | null>(null);
   readonly comprasRes = rxResource({
-    params: () => ({ id: this.productId(), v: this.recarga() }),
-    stream: ({ params }) => this.catalogo.compras(params.id),
+    params: () => ({ id: this.productId(), periodo: this.periodoCompras(), v: this.recarga() }),
+    stream: ({ params }) => (params.periodo ? this.catalogo.compras(params.id, params.periodo) : this.catalogo.compras(params.id)),
+  });
+  /** Las últimas compras recibidas DE ESTE producto: al cambiar el periodo no parpadea el bloque (ni el último costo). */
+  private readonly comprasUltimas = linkedSignal<{ c: ComprasProducto | undefined; id: string }, { c: ComprasProducto; id: string } | null>({
+    source: () => ({ c: this.comprasRes.hasValue() ? this.comprasRes.value() : undefined, id: this.productId() }),
+    computation: (nuevo, previo) => (nuevo.c ? { c: nuevo.c, id: nuevo.id } : previo?.value && previo.value.id === nuevo.id ? previo.value : null),
+  });
+  readonly comprasActualizando = computed(() => this.comprasRes.isLoading() && !!this.comprasUltimas());
+  readonly comprasPeriodo = computed(() => {
+    const u = this.comprasUltimas();
+    return u ? periodoComprasTexto(u.c) : null;
   });
   /** El margen sólo se pide con permiso de costo (el servidor lo niega sin él). */
   readonly margenesRes = rxResource({
@@ -450,6 +518,16 @@ export class ProductoFichaDetalladaComponent {
   private readonly base = computed(() => this.ficha()?.unidadBase ?? '');
 
   readonly etiquetasVm = computed(() => etiquetasTexto(this.etiquetas()));
+  private readonly perms = inject(PermissionsService);
+  /**
+   * `[PF.UI.1]` El SKU para abrir Pedido con el producto puesto; NULL = sin SKU o sin permiso de Pedido (el enlace
+   * llevaría a una pantalla que el guard rechaza). El permiso se lee SIEMPRE, antes del SKU (reactividad).
+   */
+  readonly skuPedido = computed(() => {
+    const puede = this.perms.has(Permission.COMPRAS_PEDIDO_VER);
+    const sku = this.vm()?.sku ?? null;
+    return puede && sku ? sku : null;
+  });
   readonly que = computed(() => {
     const d = this.det();
     const factores = this.factores();
@@ -467,7 +545,7 @@ export class ProductoFichaDetalladaComponent {
   });
   readonly margen = computed(() => (this.margenesRes.hasValue() ? margenReal(this.margenesRes.value()) : null));
   readonly compras = computed(() => {
-    const c = this.comprasRes.hasValue() ? this.comprasRes.value() : null;
+    const c = this.comprasUltimas()?.c ?? null;
     const factores = this.factores();
     const base = this.base();
     return c ? comprasTexto(c, factores, base) : null;

@@ -26,6 +26,9 @@ import { of, throwError, Subject } from 'rxjs';
 
 import { DENOMINACIONES_MXN, denomDe, type Denominacion } from '@megadulces/contracts';
 import { FinanzasCajaGeneralComponent } from './finanzas-caja-general.component';
+import { CajaReposicionComponent } from './caja-reposicion.component';
+import { By } from '@angular/platform-browser';
+import type { DebugElement } from '@angular/core';
  import { CONTEXT_HELP } from '../../../../shared/context-help/context-help.dictionary';
 import {
   CashLedgerService, type CoberturaResponse, type LibroResponse, type SaldoResponse,
@@ -5681,23 +5684,102 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       expect(ventana(fx).textContent).toContain('La aprobaste tú: la paga otra persona.');
     });
 
-    it('las hojas que esperan a la zona o a finanzas se dicen arriba, y no son renglones con acción', () => {
-      const abierta: HojaAbierta = { zona: 'morelia', nombre: 'Zona Morelia', desde: '2026-10-29', renglones: [RENGLON], total: 83981.89,
-        por_sucursal: [], por_clase: [], fuera: [], pagados_aparte: [], instruccion: null, datos_al: null,
-        pagado_en_control: [], control_medido: true };
+    // ⭐ `[LE.6.19]` PM, 2026-11-06: «¿por qué volver a confirmar una hoja que ya tiene todos los gastos
+    // aprobados?» y «toda reposición que salga del cajón se hace con arqueo». La abierta se paga AQUÍ en un acto.
+    const RETIRO = { device: 'AST700-19758', external_id: 1830, ref: 'gnf morelia', total: 83980, dia: '2026-10-30', cajon: 1.89 };
+    const ABIERTA = (extra: Partial<HojaAbierta> = {}): HojaAbierta => ({ zona: 'morelia', nombre: 'Zona Morelia', desde: '2026-10-29',
+      renglones: [RENGLON], total: 83981.89, por_sucursal: [], por_clase: [], fuera: [], pagados_aparte: [],
+      instruccion: { retiro: 83980, cajon: 1.89, deposito: 83981.89, referencia: null }, datos_al: null,
+      pagado_en_control: [], control_medido: true, detenidos: [], retiros_que_cuadran: [RETIRO],
+      ya_repuestos: [], sin_deposito: [], banco: { cuenta: '1604', cargado_hasta: '2026-10-30' }, ...extra });
+    const reposicion = (fx: { debugElement: DebugElement }) =>
+      fx.debugElement.query(By.directive(CajaReposicionComponent)).componentInstance as CajaReposicionComponent;
+    const PAGADA = { hoja: HOJA({ estado: 'pagada' }), ligados: 0, capturados: 1, sin_capturar: [] };
+
+    it('[LE.6.19] la abierta es un renglón con «Pagar»: nadie la cierra ni la aprueba aparte; lo del carril viejo se dice arriba', () => {
       const espera = HOJA({ estado: 'cerrada', aprobada_por: null, aprobada_por_nombre: null, aprobada_at: null });
-      const fx = montar({ hojasDeGastos: vi.fn(() => of(HOJAS({ abiertas: [abierta], cerradas: [espera] }))) });
+      const fx = montar({ hojasDeGastos: vi.fn(() => of(HOJAS({ abiertas: [ABIERTA()], cerradas: [espera] }))) });
       fx.detectChanges();
       const t = ventana(fx).textContent ?? '';
-      expect(t).toContain('Zona Morelia: hoja abierta con 1 pago');
-      expect(t).toContain('HG-3 (Zona Morelia, $83,981.89) espera la aprobación de finanzas');
+      expect(t).not.toContain('la cierra la zona');
+      expect(t).toContain('HG-3 (Zona Morelia, $83,981.89) quedó cerrada en el carril de antes y espera aprobación');
+      expect(botonDe(fx, 'Pagar Zona Morelia'), 'la abierta no ofrece «Pagar»').not.toBeNull();
       expect(botonDe(fx, 'Pagar HG-3')).toBeNull();
+      expect(t).toContain('Cuadra «gnf morelia» del 30/10');
+    });
+
+    it('[LE.6.19] el pico que el cajón pone al retiro se CUENTA antes de pagar: sin conteo no sale la petición', () => {
+      const pagar = vi.fn(() => of(PAGADA));
+      const fx = montar({ hojasDeGastos: vi.fn(() => of(HOJAS({ abiertas: [ABIERTA()], cerradas: [] }))), pagarHojaAbierta: pagar });
+      fx.detectChanges();
+      botonDe(fx, 'Pagar Zona Morelia')!.click();
+      const c = reposicion(fx);
+      expect(pagar, 'pagó sin contar lo del cajón').not.toHaveBeenCalled();
+      expect(c.contando()?.total).toBe(1.89);
+      c.pagarConCajon();
+      expect(pagar, 'con el conteo vacío no se paga').not.toHaveBeenCalled();
+      c.conteoPiezas.set({ '1': 1, '0.5': 1 });
+      c.conteoMorralla.set(0.39);
+      expect(c.conteoListo()).toBe(true);
+      c.pagarConCajon();
+      expect(pagar).toHaveBeenCalledTimes(1);
+      const [zona, body] = pagar.mock.calls[0] as unknown as [string, { origen_refs: string[]; client_key: string; pago: unknown }];
+      expect(zona).toBe('morelia');
+      expect(body.origen_refs).toEqual(['08|X-D-26|0000700|0011']);
+      expect(body.client_key).toMatch(/^[0-9a-f-]{36}$/);
+      expect(body.pago).toEqual({ medio: 'caos', device: 'AST700-19758', external_id: 1830, conteo: { piezas: { '1': 1, '0.5': 1 }, morralla: 0.39 } });
+    });
+
+    it('[LE.6.19] si el retiro la cubre entera no hay nada que contar: paga directo', () => {
+      const pagar = vi.fn(() => of(PAGADA));
+      const exacto = { ...RETIRO, total: 83981.89, cajon: 0 };
+      const fx = montar({ hojasDeGastos: vi.fn(() => of(HOJAS({ abiertas: [ABIERTA({ retiros_que_cuadran: [exacto] })], cerradas: [] }))), pagarHojaAbierta: pagar });
+      fx.detectChanges();
+      botonDe(fx, 'Pagar Zona Morelia')!.click();
+      expect(reposicion(fx).contando()).toBeNull();
+      expect((pagar.mock.calls[0] as unknown as [string, { pago: unknown }])[1].pago).toEqual({ medio: 'caos', device: 'AST700-19758', external_id: 1830 });
+    });
+
+    it('[LE.6.19] lo que espera su aprobación no entra y se ve con su enlace a Aprobación de gastos', () => {
+      const detenido = { ...RENGLON, origen_ref: '08|X-D-26|0000701|0011', folio: '0000701', importe: 480, motivo: 'El gasto todavía no lo aprueba nadie' };
+      const fx = montar({ hojasDeGastos: vi.fn(() => of(HOJAS({ abiertas: [ABIERTA({ detenidos: [detenido] })], cerradas: [] }))) });
+      fx.detectChanges();
+      const enlace = ([...ventana(fx).querySelectorAll('a')] as HTMLAnchorElement[]).find((a) => a.textContent?.includes('1 pago espera'));
+      expect(enlace?.getAttribute('href')).toBe('/finanzas/aprobacion-gastos');
+    });
+
+    // ⭐ `[LE.6.20]` «Lo que venga con un depósito es reposición»: lo ya repuesto no se ofrece otra vez y se ve con su testigo.
+    it('[LE.6.20] lo ya repuesto y lo que no tiene depósito se ven con su testigo, y no suman a «Pagar»', () => {
+      const sin = { ...RENGLON, origen_ref: '08|X-D-26|0000650|0011', folio: '0000650', fecha_pago: '2026-10-21', importe: 194570.19,
+        motivo: 'Ningún depósito en la 1604 lo repone: si es gasto normal, se paga en la cola' };
+      const ya = [{ desde: '2026-10-14', hasta: '2026-10-14', renglones: 36, total: 169696.03, como: 'papel' as const, testigo: 'Control A23649 «GNF MORELIA» del 15/10' },
+        { desde: '2026-10-16', hasta: '2026-10-16', renglones: 12, total: 92606.73, como: 'deposito' as const, testigo: 'depósito del 22/10 por $92,606.73' }];
+      const fx = montar({ hojasDeGastos: vi.fn(() => of(HOJAS({ abiertas: [ABIERTA({ ya_repuestos: ya, sin_deposito: [sin] })], cerradas: [] }))) });
+      fx.detectChanges();
+      const bloque = ventana(fx).querySelector('[data-testid="rp-repuesto"]') as HTMLElement;
+      expect(bloque, 'lo ya repuesto no se ve').not.toBeNull();
+      const t = bloque.textContent ?? '';
+      expect(t).toContain('2 tramos ya repuestos ($262,302.76)');
+      expect(t).toContain('1 pago sin depósito ($194,570.19)');
+      expect(t).toContain('cuenta 1604 cargada al 30/10/26');
+      expect(t).toContain('Hoja en papel: Control A23649 «GNF MORELIA» del 15/10');
+      expect(t).toContain('depósito del 22/10 por $92,606.73');
+      expect(bloque.querySelector('[data-testid="rp-sin-deposito"]')?.textContent).toContain('si es gasto normal, se paga en la cola');
+      // Lo que se paga sigue siendo sólo lo por reponer.
+      expect(botonDe(fx, 'Pagar Zona Morelia')).not.toBeNull();
+      expect(ventana(fx).querySelector('.rp-cifra')?.textContent).toContain('$83,981.89');
+    });
+
+    it('[LE.6.20] una zona sin cuenta medida y con algo por reponer lo dice: no se sabe qué ya se repuso', () => {
+      const fx = montar({ hojasDeGastos: vi.fn(() => of(HOJAS({ abiertas: [ABIERTA({ banco: { cuenta: null, cargado_hasta: null } })], cerradas: [] }))) });
+      fx.detectChanges();
+      expect(ventana(fx).querySelector('[data-testid="rp-repuesto"]')?.textContent).toContain('no está medida: no se sabe qué ya se repuso');
     });
 
     it('NEGATIVA: si las hojas no se pueden leer se dice, y la reposición se ve igual', () => {
       const fx = montar({ hojasDeGastos: vi.fn(() => throwError(() => ({ status: 404, error: {} }))) });
       fx.detectChanges();
-      expect(ventana(fx).textContent).toContain('Las hojas de zona no se pudieron leer.');
+      expect(ventana(fx).textContent).toContain('Las hojas de zona no se pudieron leer');
       // La reposición sigue con su propio estado (aquí, vacía), no con un error.
       expect(ventana(fx).textContent).toContain('Nada por resolver');
       expect(ventana(fx).textContent).not.toContain('No se pudo leer la reposición');

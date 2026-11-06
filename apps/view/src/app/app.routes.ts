@@ -267,6 +267,16 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/comercial/pages/comercial-customers-360.component').then(m => m.ComercialCustomers360Component),
         canActivate: [permissionGuard(Permission.COMMERCIAL_CUSTOMERS360_VER)]
       },
+      {
+        /**
+         * `[ALC]` **Alta de clientes**: desde la constancia del SAT o a mano → la ficha en el orden de
+         * Kepler → crédito (Crédito y Cobranza) → liga con la clave de Kepler. Capturar = `_ALTA_CLIENTES`;
+         * decidir crédito = `_ALTA_CLIENTES_CREDITO` (también ve la bandeja). Lo exige el servidor.
+         */
+        path: 'alta-clientes',
+        loadComponent: () => import('./modules/comercial/pages/comercial-alta-clientes.component').then(m => m.ComercialAltaClientesComponent),
+        canActivate: [anyPermissionGuard(Permission.COMMERCIAL_ALTA_CLIENTES, Permission.COMMERCIAL_ALTA_CLIENTES_CREDITO)]
+      },
       // `[MKT.0]` Promos del ERP se mudó al proyecto MKT. Enlaces y marcadores viejos redirigen.
       { path: 'erp-promos', redirectTo: '/mkt/erp-promos', pathMatch: 'full' },
       {
@@ -861,11 +871,11 @@ export const routes: Routes = [
         canActivate: [anyPermissionGuard(Permission.FINANCE_EXPENSES_COMPROBAR, Permission.LOGISTICS_SHIPMENTS_GESTIONAR)]
       },
       {
-        // `[CGA-A.65]` La hoja de gastos de zona (el Excel de Morelia, armado de Kepler): la cierra la
-        // zona, la aprueba quien firma y la paga Caja General. El mismo trío de permisos que la API.
+        // `[LE.6.19]` La hoja de zona ya no es pantalla: se paga en un acto en Caja General › Reposición
+        // (PM, 2026-11-06). Un enlace o un marcador viejo llega a donde ahora vive.
         path: 'hoja-gastos',
-        loadComponent: () => import('./modules/finanzas/pages/finanzas-hoja-gastos.component').then(m => m.FinanzasHojaGastosComponent),
-        canActivate: [anyPermissionGuard(Permission.FINANCE_HOJA_GASTOS_CERRAR, Permission.FINANCE_EXPENSES_COMPROBAR, Permission.FINANCE_CAJA_VER)]
+        redirectTo: '/finanzas/caja-general',
+        pathMatch: 'full'
       },
         ],
       },
@@ -1351,11 +1361,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.CATALOGO_FICHAS_REVISAR)]
       },
       {
-        // [NP.5] Productos nuevos: seguimiento a 30/60/90 dias de cada codigo que entra al catalogo.
-        // Mismo permiso que el catalogo; la inversion la recorta el SERVIDOR sin permiso de costo.
+        // [NP.22] Productos nuevos se unio a Productos (decision de David, 2026-11-04): «Mostrar › Productos nuevos».
+        // La ruta vieja NO se rompe: marcadores y enlaces aterrizan en la lista con el filtro puesto, conservando lo
+        // demas de la URL (p. ej. ?resultado=sacar). El permiso lo pide la ruta destino (el mismo del catalogo).
         path: 'catalogo/nuevos',
-        loadComponent: () => import('./modules/compras/pages/compras-catalogo-nuevos.component').then(m => m.ComprasCatalogoNuevosComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)]
+        redirectTo: ({ queryParams, fragment }) =>
+          inject(Router).createUrlTree(['/compras/catalogo'], { queryParams: { ...queryParams, mostrar: 'nuevos' }, fragment: fragment ?? undefined }),
       },
       {
         // [CAT-PRECIO.1]/[CAT-PRECIO.5] Mantenimiento: la ficha que no coincide entre sucursales y

@@ -175,6 +175,10 @@ const foldText = (s: string | null | undefined): string =>
               </button>
             </span>
           }
+          <!-- [MCP.12] Cotizar: darle precios al cliente sin levantar pedido. -->
+          @if (!offlineMode()) {
+            <button type="button" class="chip" (click)="irACotizar()"><i class="pi pi-file"></i> Cotizar</button>
+          }
           <!-- Fecha de entrega (preventa) -->
           <label class="chip date">
             <i class="pi pi-calendar"></i> Entrega
@@ -281,6 +285,23 @@ const foldText = (s: string | null | undefined): string =>
                 }
               </div>
             }
+            <!-- [MCP.11] Las promociones de la sucursal (productos de Kepler «= GRATIS»): para ofrecerlas y agregarlas. -->
+            @if (promoRows().length) {
+              <div class="list-head">
+                <span class="lh-t"><i class="pi pi-tag"></i> Promociones de tu sucursal</span>
+                <span class="lh-s">{{ promoRows().length }}</span>
+              </div>
+              <div class="catalog">
+                @for (p of promoVisibles(); track trackProduct($index, p)) {
+                  <ng-container *ngTemplateOutlet="prodRow; context: { $implicit: p }"></ng-container>
+                }
+              </div>
+              @if (promoRows().length > PROMOS_VISTAS) {
+                <button type="button" class="promo-mas" (click)="verTodasPromos.set(!verTodasPromos())">
+                  {{ verTodasPromos() ? 'Ver menos' : 'Ver las ' + promoRows().length + ' promociones' }}
+                </button>
+              }
+            }
             <!-- Catálogo navegable: más vendido → menos vendido (sin tener que buscar) -->
             @if (browseRows().length) {
               <div class="list-head">
@@ -313,9 +334,14 @@ const foldText = (s: string | null | undefined): string =>
             <div class="prod" [class.in]="cartQty(p.product_id) > 0">
               <div class="pb">
                 <div class="pn">{{ p.product_name }}</div>
+                <!-- [VTK.15] El SKU siempre a la vista: con él se ubica el producto en Kepler y en la bodega. -->
+                @if (p.sku) { <div class="sku">SKU {{ p.sku }}</div> }
                 <div class="pm">
-                  <!-- [VEX.7] Lo que Kepler no tiene con precio en esta sucursal no se vende aquí: se dice, sin $0. -->
-                  @if (sinPrecioSucursal(p)) {
+                  <!-- [MCP.11] Una promoción no muestra su $0.01 (no es un precio) ni existencia: dice qué es. -->
+                  @if (p.is_promo) {
+                    <span class="promo-tag"><i class="pi pi-tag" aria-hidden="true"></i> Promoción</span>
+                  } @else if (sinPrecioSucursal(p)) {
+                    <!-- [VEX.7] Lo que Kepler no tiene con precio en esta sucursal no se vende aquí: se dice, sin $0. -->
                     <span class="pr-sin">Sin precio en tu sucursal</span>
                   } @else {
                     <span class="pr" [class.off]="mayoreoAplicado(p.product_id)">{{ fmtMoney(unitPriceDisplay(p)) }}<span class="pr-u">&nbsp;c/u</span></span>
@@ -475,6 +501,7 @@ const foldText = (s: string | null | undefined): string =>
                   <div class="cline">
                     <div class="cl-info">
                       <div class="cl-n">{{ productNameById(l.product_id) }}</div>
+                      @if (skuById(l.product_id); as s) { <div class="sku">SKU {{ s }}</div> }
                       <div class="cl-t">{{ fmtMoney(l.line_total) }}@if (l.source_warehouse_id) {<span class="cl-src"> · se surte en {{ l.source_warehouse_short || l.source_warehouse_name }}</span>}</div>
                       <!-- Mayoreo por cantidad: precio nuevo + cuánto se descuenta vs base. -->
                       @if (mayoreoInfo(l); as m) {
@@ -683,6 +710,14 @@ const foldText = (s: string | null | undefined): string =>
       .prod .pm .stk { font-weight: 600; }
       .prod .pm .pr-sin { font-size: 0.78rem; font-weight: 600; color: var(--text-muted); }
       .prod .pm .pr-red { font-size: 0.72rem; font-weight: 600; color: var(--text-muted); border: 1px solid var(--border-color); border-radius: var(--r-sm); padding: 0 0.3rem; }
+      /* [VTK.15] SKU visible en el catálogo y en «Tu pedido»: chico, en mono, sin competir con el nombre. */
+      .sku { font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+      /* [MCP.11] La marca de promoción: tinta de la marca sobre su fondo suave, como los chips de sugerido. */
+      .prod .pm .promo-tag { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.1rem 0.5rem; border-radius: var(--r-pill, 999px);
+        background: var(--ember-soft); color: var(--brand-900); font-weight: 800; font-size: 0.72rem; }
+      .promo-mas { display: block; width: 100%; margin: -0.25rem 0 0.9rem; padding: 0.55rem; border: 1px dashed var(--border-color);
+        border-radius: var(--r-md, 12px); background: transparent; color: var(--text-main); font: inherit; font-size: 0.82rem; font-weight: 700; cursor: pointer; }
+      .promo-mas:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
       /* [MCP.3.6] Precio normal + mayoreo. El aplicado se dice con icono y texto, no sólo color. */
       .prod .pm .pr.off { color: var(--text-muted); }
       .prod .may { display: flex; align-items: center; gap: 0.3rem; margin-top: 0.15rem; font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
@@ -1169,6 +1204,8 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
 
   /** `[MCP.3.12]` La tira de la zona de este producto, en la unidad que se está pidiendo. */
   zonaDe(p: PriceRow): ChipZona[] | null {
+    // [MCP.11] Una promoción no es mercancía: su existencia en la zona siempre es 0 y no dice nada.
+    if (p.is_promo) return null;
     return this.offlineMode() ? null : chipsDeZona(this.zona(), p.product_id, this.unitFactor(p));
   }
 
@@ -1225,6 +1262,9 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
    */
   bloqueoDe(p: PriceRow, origen: string | null): string | null {
     if (this.offlineMode()) return null;
+    // [MCP.11] Las promociones se agregan siempre: su existencia es 0 por construcción (el servidor
+    // tampoco las bloquea). Así llegan al surtidor (da el regalo) y a la caja (la cobra).
+    if (p.is_promo) return null;
     if (!bloqueaAgregar(this.estadoSurtido(p, origen))) return null;
     const z = this.zonaFallo() ? null : this.zona();
     const bloqueada = origen ?? this.sucursalMia()?.id ?? null;
@@ -1458,6 +1498,8 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     for (const p of this.prices()) {
       if (p.price == null || Number(p.price) <= 0) continue;
       if (skip.has(p.product_id)) continue;
+      // [MCP.11] Las promociones tienen su propia sección: no se repiten en el catálogo.
+      if (p.is_promo) continue;
       if (p.stock_state === 'no_se_maneja') { alFinal.push(p); continue; }
       out.push(p);
       if (out.length >= this.BROWSE_CAP) break;
@@ -1505,6 +1547,21 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     }
     return out;
   });
+
+  /**
+   * `[MCP.11]` Las promociones de la sucursal: los productos de Kepler que son promoción («= GRATIS»),
+   * del catálogo YA cargado (sin otra consulta), en su orden (el servidor los manda por venta). Las que ya
+   * están en «Lo que suele pedir» no se repiten. Se ven 5; «Ver todas» abre el resto.
+   */
+  readonly PROMOS_VISTAS = 5;
+  readonly verTodasPromos = signal(false);
+  readonly promoRows = computed(() => {
+    const skip = new Set<string>(this.habitualRows().map((p) => p.product_id));
+    return this.prices().filter((p) => p.is_promo === true && !skip.has(p.product_id));
+  });
+  readonly promoVisibles = computed(() =>
+    this.verTodasPromos() ? this.promoRows() : this.promoRows().slice(0, this.PROMOS_VISTAS),
+  );
 
   /** ¿el pedido se pre-cargó con la canasta predicha? (para el banner + "Vaciar"). */
   readonly prefilled = signal(false);
@@ -2002,6 +2059,11 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   /** Ir a "Por entregar" para resolver el pendiente en vez de duplicarlo. */
   goPending(): void {
     this.router.navigate(['/vendor/pending']);
+  }
+
+  /** [MCP.12] Cotizar a este cliente (no es pedido: no aparta mercancía ni llega al surtidor). */
+  irACotizar(): void {
+    this.router.navigate(['/vendor/cotizar', this.customerId]);
   }
 
   /** "+" en la fila → sube UN escalón de la presentación activa, o crea la línea. */
@@ -2677,6 +2739,10 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
 
   productNameById(id: string): string {
     return this.prices().find((p) => p.product_id === id)?.product_name || id.slice(0, 8);
+  }
+  /** [VTK.15] El SKU del producto del renglón (del catálogo cargado); `null` = no se conoce. */
+  skuById(id: string): string | null {
+    return this.byIdMap().get(id)?.sku || null;
   }
   /**
    * Costo NETO (sin IVA) del producto. `cost_with_tax` (ERP costo_civa) viene

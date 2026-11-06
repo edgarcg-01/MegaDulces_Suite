@@ -8,6 +8,7 @@ import { CashLedgerService, type MovimientoPendiente, type PendientesResponse } 
 import { LibroEfectivoService } from '../../libro-efectivo.service';
 import { AuthService } from '../../../../core/services/auth.service';
 import { PermissionsService } from '../../../../core/services/permissions.service';
+import { Permission } from '../../../../core/constants/permissions';
 import { CONTEXT_HELP } from '../../../../shared/context-help/context-help.dictionary';
 
 /**
@@ -74,16 +75,17 @@ const HOJAS: HojaDeReposicion[] = [
   { zona: 'morelia', nombre: 'Zona Morelia', sin_arranque: false, total_minor: '155050', maquina_minor: '155000', cajon_minor: '50',
     renglones: [{ origen_ref: '07|X-D-26|9002|0011', sucursal: '07', folio: '9002', fecha_pago: '2026-11-05', beneficiario: 'GASTOS', importe_minor: '125050' },
       { origen_ref: '07|X-D-26|9003|0011', sucursal: '07', folio: '9003', fecha_pago: '2026-11-05', beneficiario: 'GASTOS', importe_minor: '30000' }],
-    fuera: [], anteriores: { n: 1, monto_minor: '100000' } },
+    fuera: [], detenidos: [], motivo_firma: '1 pago no trae su autorización (Kepler no dice qué gasto o compra paga): la firma Tesorería',
+    anteriores: { n: 1, monto_minor: '100000' } },
   { zona: 'canindo', nombre: 'Zona Canindo', sin_arranque: false, total_minor: '0', maquina_minor: '0', cajon_minor: '0', renglones: [], fuera: [],
-    anteriores: { n: 0, monto_minor: '0' } },
+    detenidos: [], motivo_firma: null, anteriores: { n: 0, monto_minor: '0' } },
 ];
 
 // `[LE.6.5]` Una persona con dinero a su cargo y una reposición que espera su depósito.
 const CUSTODIAS: CustodiaAbierta[] = [{ persona: 'u-lleva', nombre: 'Quien Lleva', saldo_minor: '155050', desde: '2026-11-05T10:00:00Z',
   reposiciones: [{ orden_id: 'o9', zona: 'morelia', total_minor: '155050', documentos: 2, dia: '2026-11-05' }] }];
 
-function montar(opciones: { jornada?: string | null; saldosFalla?: boolean; gestionar?: boolean; suspenso?: PartidaEnSuspenso[] | 'falla';
+function montar(opciones: { jornada?: string | null; saldosFalla?: boolean; gestionar?: boolean; aprobar?: boolean; suspenso?: PartidaEnSuspenso[] | 'falla';
   hojas?: HojaDeReposicion[]; quien?: QuienLlevaDeposito[]; custodias?: CustodiaAbierta[] } = {}) {
   const ledger = { movimientosPendientes: vi.fn((f: { doc_tipo?: string }) => of(f.doc_tipo === 'U-A-5' ? COBROS : f.doc_tipo === 'X-D-60' ? ANTICIPOS : COLA)) };
   const libro = {
@@ -120,7 +122,9 @@ function montar(opciones: { jornada?: string | null; saldosFalla?: boolean; gest
       { provide: CashLedgerService, useValue: ledger },
       { provide: LibroEfectivoService, useValue: libro },
       { provide: AuthService, useValue: { user: () => ({ sub: 'u1' }), token: () => null } },
-      { provide: PermissionsService, useValue: { has: () => opciones.gestionar !== false, hasAny: () => true, isAdmin: () => false } },
+      { provide: PermissionsService, useValue: { has: (p: Permission) => (p === Permission.FINANCE_EXPENSES_COMPROBAR ? opciones.aprobar !== false : opciones.gestionar !== false), hasAny: () => true, isAdmin: () => false,
+        // `[LE.6.9]` Quien monta esta pantalla trabaja en la Ventanilla: tiene esa clave EXPLÍCITA.
+        hasExplicit: (p: Permission) => p === Permission.FINANCE_CAJA_VENTANILLA } },
     ],
   });
   const fixture = TestBed.createComponent(FinanzasCajaVentanillaComponent);
@@ -358,6 +362,53 @@ describe('[LE.2.13] la Ventanilla', () => {
     expect(body).toEqual({ zona: 'morelia', documentos: ['07|X-D-26|9002|0011', '07|X-D-26|9003|0011'], lleva: 'u-lleva', piezas_cajon: { '0.5': '1' } });
     expect(llave).toMatch(/^[0-9a-f-]{36}$/);
     expect(document.body.querySelector('[data-testid="resultado-reposicion"]')?.textContent).toContain('Quedó por firmar');
+  });
+
+  // ⭐ `[LE.6.18]` PM, 2026-11-06: «¿por qué volver a confirmar una hoja que ya tiene todos los gastos aprobados?»
+  it('[LE.6.18] con cada pago autorizado no se pide firma: el botón saca el código y lo detenido se ve con su motivo', () => {
+    const detenido = { origen_ref: '07|X-D-26|9004|0011', sucursal: '07', folio: '9004', fecha_pago: '2026-11-05', beneficiario: 'GASTOS',
+      importe_minor: '48000', motivo: 'El gasto todavía no lo aprueba nadie en Aprobación de gastos: se aprueba ahí antes de pagar.' };
+    const hoja: HojaDeReposicion = { ...HOJAS[0], motivo_firma: null, detenidos: [detenido] };
+    const m = montar({ hojas: [hoja, HOJAS[1]] });
+    expect(m.el.querySelector('[data-testid="reposicion-detenidos"]')?.textContent).toContain('1 pago espera su aprobación y no entra');
+
+    m.libro.pedirReposicion.mockReturnValue(of({ estado: 'pagado' as const, orden_id: 'o10', codigo: '4821', maquina_minor: '155000',
+      cajon_minor: '50', redondeo_minor: '0', entry_id: null, vence: '2026-11-06 23:59:59-06' }) as never);
+    m.comp.abrirReposicion(hoja);
+    m.comp.piezasReposicion.set({ '0.5': 1 });
+    m.fixture.detectChanges();
+    expect(document.body.querySelector('[data-testid="reposicion-sin-firma"]')).not.toBeNull();
+    expect(document.body.querySelector('[data-testid="reposicion-firma"]')).toBeNull();
+    const lista = document.body.querySelector('[data-testid="reposicion-detenidos-lista"]');
+    expect(lista?.textContent).toContain('9004');
+    expect(lista?.querySelector('a')?.getAttribute('href')).toBe('/finanzas/aprobacion-gastos');
+    const botones = [...document.body.querySelectorAll('button')].map((b) => b.textContent?.trim());
+    expect(botones).toContain('Sacar el código');
+    expect(botones).not.toContain('Pedir la firma');
+    m.comp.pedirReposicion();
+    m.fixture.detectChanges();
+    expect(document.body.querySelector('[data-testid="resultado-reposicion"]')?.textContent).toContain('El código es 4821');
+  });
+
+  it('[LE.6.18] si a un pago le falta su autorización lo dice antes, y el botón pide la firma', () => {
+    const m = montar();
+    m.comp.abrirReposicion(HOJAS[0]);
+    m.fixture.detectChanges();
+    expect(document.body.querySelector('[data-testid="reposicion-firma"]')?.textContent).toContain('la firma Tesorería');
+    expect([...document.body.querySelectorAll('button')].map((b) => b.textContent?.trim())).toContain('Pedir la firma');
+  });
+
+  // Un enlace a otra pantalla afirma que se puede abrir: a quien no aprueba gastos lo mandaría a «sin acceso».
+  it('[LE.6.18] NEGATIVA: sin permiso de aprobar gastos, lo detenido se dice sin enlace', () => {
+    const detenido = { origen_ref: '07|X-D-26|9004|0011', sucursal: '07', folio: '9004', fecha_pago: '2026-11-05', beneficiario: 'GASTOS',
+      importe_minor: '48000', motivo: 'El gasto todavía no lo aprueba nadie.' };
+    const hoja: HojaDeReposicion = { ...HOJAS[0], motivo_firma: null, detenidos: [detenido] };
+    const m = montar({ hojas: [hoja, HOJAS[1]], aprobar: false });
+    m.comp.abrirReposicion(hoja);
+    m.fixture.detectChanges();
+    const lista = document.body.querySelector('[data-testid="reposicion-detenidos-lista"]');
+    expect(lista?.textContent).toContain('Los aprueba quien firma gastos');
+    expect(lista?.querySelector('a')).toBeNull();
   });
 
   it('[LE.6.8] NEGATIVA: sin nadie nombrado para llevar el depósito, lo dice y no se pide', () => {

@@ -188,6 +188,9 @@ function cargar() {
       ok(por.get('borrado:0')?.restorable === true && por.get('borrado:0')?.product_id === p3 && por.get('borrado:0')?.ordered === 2,
         'el borrado vuelve al final, reponible, con lo pedido');
       ok(det.lines.every((l) => 'stock' in l), 'cada renglón dice la existencia (o null si no se pudo leer)');
+      const skuDe = async (id) => (await trx('catalog.products').where({ id }).first('sku')).sku;
+      ok(por.get(l2.id)?.sku === (await skuDe(p2)) && por.get('borrado:0')?.sku === (await skuDe(p3)),
+        '[VTK.15] cada renglón trae su SKU, también el que el surtido borró (del catálogo)');
 
       console.log('\n[3] Negativas que no escriben');
       const total0 = Number((await trx('commercial.orders').where({ id: A }).first('total')).total);

@@ -15,6 +15,9 @@ import type {
   PresalePickInboxRow,
   PresalePickLine,
   PresalePickState,
+  PresaleSubstituteCandidate,
+  PresaleSubstituteResponse,
+  PresaleSubstituteUnit,
 } from '@megadulces/contracts';
 import { PresalePickingService } from '../presale-picking.service';
 import { AlertsSocketService } from '../../dashboard/command-center/alerts-socket.service';
@@ -22,6 +25,16 @@ import { encuestarVisible } from '../../../core/utils/poll-visible';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
+
+/** `[MCP.13]` Lo que el surtidor eligió poner en lugar de lo que faltó de un renglón. */
+interface CambioElegido {
+  product_id: string;
+  product_name: string;
+  sku: string | null;
+  units: PresaleSubstituteUnit[];
+  unit: string;
+  quantity: number;
+}
 
 /** Cada cuánto se vuelve a pedir la bandeja mientras se está viendo. El aviso en vivo la adelanta. */
 const REFRESCO_MS = 20_000;
@@ -44,7 +57,9 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
  *  · llegan solos: la bandeja se vuelve a pedir cada 20 s mientras se ve, y el aviso en vivo
  *    (`order_to_pick`) la adelanta; tocar el aviso de la campana abre el pedido (`?pedido=`);
  *  · al tocar «Empezar a surtir» queda registrado quién y a qué hora;
- *  · lo que no hubo se QUITA del pedido y el total se recalcula; la vendedora recibe el reporte.
+ *  · lo que no hubo se QUITA del pedido y el total se recalcula; la vendedora recibe el reporte;
+ *  · `[MCP.13]` lo que faltó se puede CAMBIAR por otro producto con existencia (2026-11-04): lo
+ *    elige el surtidor, se cobra a su propio precio y la cajera lo valida al revisar.
  *
  * Dentro del día se ordena por llegada (D5 de la Fase MCP): la fecha de entrega sólo separa la
  * pestaña. Lo vencido cae en «Hoy» con sus días de atraso.
@@ -94,7 +109,12 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
               <button type="button" class="sp-card" [class.sp-card-nuevo]="p.state === 'nuevo' && p.unseen" (click)="abrir(p.order_id)">
                 <span class="sp-card-r1">
                   <strong class="sp-cliente">{{ p.customer_name || p.code }}</strong>
-                  <p-tag [value]="estado(p.state).label" [severity]="estado(p.state).severity"></p-tag>
+                  <!-- [MCP.10.1] Revisado en caja: el pedido ya no es como lo dejó el surtidor. -->
+                  @if (p.reviewed) {
+                    <p-tag value="Revisado en caja" severity="success"></p-tag>
+                  } @else {
+                    <p-tag [value]="estado(p.state).label" [severity]="estado(p.state).severity"></p-tag>
+                  }
                 </span>
                 <span class="sp-card-r2">
                   <span class="sp-folio">{{ p.code }}</span>
@@ -140,7 +160,7 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
               <ul class="sp-renglones">
                 @for (l of d.lines; track l.line_id) {
                   <li class="sp-ren">
-                    <span class="sp-ren-n">{{ l.product_name }}</span>
+                    <span class="sp-ren-n">{{ l.product_name }}@if (l.sku) {<span class="sp-sku">SKU {{ l.sku }}</span>}</span>
                     <span class="sp-ren-q"><strong>{{ l.qty }}</strong> {{ l.unit }}</span>
                   </li>
                 }
@@ -161,7 +181,7 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
               <ul class="sp-renglones">
                 @for (l of d.lines; track l.line_id) {
                   <li class="sp-ren sp-ren-edit" [class.sp-ren-ok]="marca(l) === l.qty" [class.sp-ren-falta]="marca(l) !== null && marca(l)! < l.qty">
-                    <span class="sp-ren-n">{{ l.product_name }}</span>
+                    <span class="sp-ren-n">{{ l.product_name }}@if (l.sku) {<span class="sp-sku">SKU {{ l.sku }}</span>}</span>
                     <span class="sp-ren-pedido">Pedido: <strong>{{ l.qty }} {{ l.unit }}</strong></span>
                     <div class="sp-ctrl">
                       <button type="button" class="sp-ok" [class.sp-ok-on]="marca(l) === l.qty" (click)="completo(l)">
@@ -174,11 +194,77 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
                       </div>
                       <span class="sp-ctrl-l">{{ leyenda(l) }}</span>
                     </div>
+                    <!-- [MCP.13] Lo que faltó se puede cambiar por otro producto con existencia. -->
+                    @if (marca(l) !== null && marca(l)! < l.qty) {
+                      @if (cambioDe(l); as c) {
+                        <div class="sp-cambio">
+                          <span class="sp-cambio-t"><i class="pi pi-sync" aria-hidden="true"></i> En lugar de lo que faltó</span>
+                          <span class="sp-ren-n">{{ c.product_name }}@if (c.sku) {<span class="sp-sku">SKU {{ c.sku }}</span>}</span>
+                          <div class="sp-ctrl">
+                            <div class="sp-step" role="group" [attr.aria-label]="'Cuánto de ' + c.product_name">
+                              <button type="button" (click)="moverCambio(l, -1)" [disabled]="c.quantity <= 1" [attr.aria-label]="'Menos ' + c.product_name"><i class="pi pi-minus" aria-hidden="true"></i></button>
+                              <span class="sp-step-n">{{ c.quantity }}</span>
+                              <button type="button" (click)="moverCambio(l, 1)" [attr.aria-label]="'Más ' + c.product_name"><i class="pi pi-plus" aria-hidden="true"></i></button>
+                            </div>
+                            @if (c.units.length > 1) {
+                              <span class="sp-units" role="group" aria-label="Unidad">
+                                @for (u of c.units; track u.unit) {
+                                  <button type="button" [class.sp-unit-on]="u.unit === c.unit" [attr.aria-pressed]="u.unit === c.unit" (click)="unidadCambio(l, u.unit)">{{ u.unit }}</button>
+                                }
+                              </span>
+                            } @else {
+                              <span class="sp-ren-pedido">{{ c.unit }}</span>
+                            }
+                            <span class="sp-ctrl-l">{{ precioCambio(c) }}</span>
+                          </div>
+                          <div class="sp-cambio-acc">
+                            <button pButton type="button" [text]="true" size="small" (click)="abrirCambio(l)"><span class="p-button-label">Elegir otro</span></button>
+                            <button pButton type="button" [text]="true" size="small" severity="danger" (click)="quitarCambio(l)"><span class="p-button-label">Quitar el cambio</span></button>
+                          </div>
+                        </div>
+                      } @else if (sustituyendo() !== l.line_id) {
+                        <button type="button" class="sp-cambiar" (click)="abrirCambio(l)">
+                          <i class="pi pi-sync" aria-hidden="true"></i> Cambiar por otro producto
+                        </button>
+                      }
+                      @if (sustituyendo() === l.line_id) {
+                        <section class="sp-sus" [attr.aria-label]="'Cambiar ' + l.product_name">
+                          <div class="sp-sus-h">
+                            <b>Faltan {{ faltanDe(l) }} {{ l.unit }}. ¿Con qué lo cambias?</b>
+                            <button pButton type="button" [text]="true" size="small" severity="secondary" aria-label="Cerrar" (click)="cerrarCambio()"><span class="p-button-icon pi pi-times" aria-hidden="true"></span></button>
+                          </div>
+                          <input type="search" class="sp-sus-q" placeholder="Buscar por nombre, SKU o código" autocomplete="off"
+                                 [value]="buscaSug()" (input)="buscar($any($event.target).value)" aria-label="Buscar otro producto" />
+                          <app-load-state [loading]="cargandoSug()" [error]="errorSug()" [isEmpty]="!!sugerencias() && !sugerencias()!.data.length"
+                                          emptyIcon="pi-search" [emptyTitle]="buscaSug().trim() ? 'Nada con existencia con esa búsqueda' : 'Sin sugerencias'"
+                                          emptyHint="Busca el producto por su nombre, SKU o código de barras."
+                                          (retry)="cargarSugerencias(l)">
+                            @if (!buscaSug().trim()) {
+                              <p class="sp-sus-nota">Con existencia en tu sucursal y palabras del nombre o proveedor en común. Tú decides si se parece.</p>
+                            }
+                            <ul class="sp-sus-lista">
+                              @for (x of sugerencias()?.data ?? []; track x.product_id) {
+                                <li>
+                                  <button type="button" class="sp-sus-item" (click)="elegirCambio(l, x)">
+                                    <span class="sp-ren-n">{{ x.product_name }}@if (x.sku) {<span class="sp-sku">SKU {{ x.sku }}</span>}</span>
+                                    <span class="sp-sus-meta">
+                                      <span>{{ precioUnidad(x.units[0]) }}</span>
+                                      <span [class.sp-sus-sin]="x.stock_qty === null">{{ existenciaTexto(x) }}</span>
+                                      @if (x.match === 'nombre_y_proveedor' || x.match === 'proveedor') { <span>mismo proveedor</span> }
+                                    </span>
+                                  </button>
+                                </li>
+                              }
+                            </ul>
+                          </app-load-state>
+                        </section>
+                      }
+                    }
                   </li>
                 }
               </ul>
               <div class="sp-pie">
-                <p class="sp-tip">{{ marcados() }} de {{ d.lines.length }} marcados{{ conFaltante() ? ' · ' + conFaltante() + ' con faltante' : '' }}</p>
+                <p class="sp-tip">{{ marcados() }} de {{ d.lines.length }} marcados{{ conFaltante() ? ' · ' + conFaltante() + ' con faltante' : '' }}{{ numCambios() ? ' · ' + numCambios() + (numCambios() === 1 ? ' cambiado' : ' cambiados') + ' por otro' : '' }}</p>
                 @if (marcados() < d.lines.length) {
                   <button type="button" class="sp-btn sp-btn-go" disabled><span>Marca todos los productos para terminar</span></button>
                 } @else if (conFaltante()) {
@@ -195,11 +281,18 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
             } @else {
               <ul class="sp-renglones">
                 @for (l of d.lines; track l.line_id) {
-                  <li class="sp-ren"><span class="sp-ren-n">{{ l.product_name }}</span><span class="sp-ren-q"><strong>{{ l.qty }}</strong> {{ l.unit }}</span></li>
+                  <li class="sp-ren" [class.sp-ren-caja]="cambioEnCaja(l)">
+                    <span class="sp-ren-n">{{ l.product_name }}@if (l.sku) {<span class="sp-sku">SKU {{ l.sku }}</span>}
+                      @if (cambioEnCaja(l)) { <span class="sp-ren-pedido">Surtiste {{ l.picked }} · la caja dejó {{ l.final }}</span> }
+                      @if (l.substitutes; as o) { <span class="sp-ren-pedido sp-en-lugar"><i class="pi pi-sync" aria-hidden="true"></i> En lugar de {{ o.product_name }}</span> }
+                    </span>
+                    <span class="sp-ren-q"><strong>{{ l.final ?? l.picked ?? l.qty }}</strong> {{ l.unit }}</span>
+                  </li>
                 }
               </ul>
               <p class="sp-tip">Surtido{{ d.order.finished ? ' por ' + d.order.finished.name + ' a las ' + horaDe(d.order.finished.at) : '' }}.
-                {{ d.order.state === 'con_faltantes' ? 'Lo que no hubo ya se quitó del pedido.' : 'Hubo todo.' }}</p>
+                {{ d.order.state === 'con_faltantes' ? 'Lo que no hubo se quitó del pedido.' : 'Hubo todo.' }}
+                @if (d.order.reviewed) { Revisado en caja por {{ d.order.reviewed.name }} a las {{ horaDe(d.order.reviewed.at) }}. }</p>
             }
           }
         </app-load-state>
@@ -238,7 +331,11 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
     .sp-ren-edit { flex-direction: column; align-items: stretch; }
     .sp-ren-ok { border-left: 4px solid var(--ok-fg); }
     .sp-ren-falta { border-left: 4px solid var(--warn-fg); background: var(--warn-soft-bg); }
+    .sp-ren-caja { border-left: 4px solid var(--info-fg); }
+    .sp-ren-caja .sp-ren-pedido { display: block; font-weight: 600; }
     .sp-ren-n { font-size: var(--fs-body); font-weight: 700; line-height: 1.25; }
+    /* [VTK.15] El SKU siempre a la vista: con él se ubica el producto en la bodega. */
+    .sp-sku { display: block; font-family: var(--font-mono); font-size: var(--fs-xs); font-weight: 500; color: var(--text-muted); font-variant-numeric: tabular-nums; }
     .sp-ren-q { white-space: nowrap; font-size: var(--fs-body); }
     .sp-ren-q strong { font-size: var(--fs-lg); font-variant-numeric: tabular-nums; }
     .sp-ren-pedido { font-size: var(--fs-sm); color: var(--text-muted); }
@@ -261,6 +358,30 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
     .sp-btn-go:not(:disabled):hover { background: var(--action-hover); }
     .sp-btn-ok:not(:disabled) { background: var(--ok-fg); color: var(--card-bg); }
     .sp-btn-warn:not(:disabled) { background: var(--warn-fg); color: var(--card-bg); }
+    /* [MCP.13] Cambiar lo que faltó por otro producto. */
+    .sp-cambiar { align-self: flex-start; min-height: var(--tap-min); display: inline-flex; align-items: center; gap: var(--sp-1); padding: 0 var(--sp-3);
+      border-radius: var(--r-md); border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-main); font-weight: 700; cursor: pointer; }
+    .sp-cambiar:hover { background: var(--surface-hover); }
+    .sp-cambiar:focus-visible, .sp-sus-item:focus-visible, .sp-units button:focus-visible, .sp-sus-q:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+    .sp-cambio { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); border-radius: var(--r-md);
+      border: 1px solid var(--info-fg); background: var(--card-bg); }
+    .sp-cambio-t { font-size: var(--fs-xs); font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--info-fg); display: inline-flex; gap: var(--sp-1); align-items: center; }
+    .sp-cambio-acc { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+    .sp-units { display: inline-flex; border: 1px solid var(--border-color); border-radius: var(--r-md); overflow: hidden; }
+    .sp-units button { min-height: var(--tap-min); min-width: 3rem; border: 0; background: transparent; color: var(--text-muted); font-weight: 800; cursor: pointer; }
+    .sp-units button.sp-unit-on { background: var(--text-main); color: var(--card-bg); }
+    .sp-sus { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3); border-radius: var(--r-md); border: 1px solid var(--border-color); background: var(--surface-ground); }
+    .sp-sus-h { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); font-size: var(--fs-body); }
+    .sp-sus-q { width: 100%; min-height: var(--tap-min); padding: 0 var(--sp-3); border-radius: var(--r-md); border: 1px solid var(--border-color);
+      background: var(--card-bg); color: var(--text-main); font: inherit; }
+    .sp-sus-nota { margin: 0; font-size: var(--fs-xs); color: var(--text-muted); }
+    .sp-sus-lista { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+    .sp-sus-item { width: 100%; text-align: left; display: flex; flex-direction: column; gap: var(--sp-1); padding: var(--sp-2) var(--sp-3); cursor: pointer;
+      border-radius: var(--r-md); border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-main); }
+    .sp-sus-item:hover { background: var(--surface-hover); }
+    .sp-sus-meta { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3); font-size: var(--fs-sm); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+    .sp-sus-sin { font-style: italic; }
+    .sp-en-lugar { display: inline-flex; align-items: center; gap: var(--sp-1); color: var(--info-fg); font-weight: 600; }
   `],
 })
 export class AlmacenSurtirPreventaComponent implements OnInit {
@@ -287,6 +408,16 @@ export class AlmacenSurtirPreventaComponent implements OnInit {
   readonly trabajando = signal(false);
   /** Lo que marcó el surtidor por renglón, en la unidad mostrada. */
   readonly marcas = signal<Record<string, number>>({});
+  /** `[MCP.13]` Lo que puso en lugar de lo que faltó, por renglón. */
+  readonly cambios = signal<Record<string, CambioElegido>>({});
+  /** El renglón cuyo panel de «Cambiar por otro producto» está abierto. */
+  readonly sustituyendo = signal<string | null>(null);
+  readonly sugerencias = signal<PresaleSubstituteResponse | null>(null);
+  readonly cargandoSug = signal(false);
+  readonly errorSug = signal<string | null>(null);
+  readonly buscaSug = signal('');
+  private temporizadorSug: ReturnType<typeof setTimeout> | null = null;
+  readonly numCambios = computed(() => Object.keys(this.cambios()).length);
 
   readonly pestanas = computed<SegOption[]>(() => {
     const c = this.bandeja()?.counts ?? { hoy: 0, manana: 0, proximos: 0 };
@@ -364,6 +495,7 @@ export class AlmacenSurtirPreventaComponent implements OnInit {
     this.abierto.set(orderId);
     this.detalle.set(null);
     this.marcas.set({});
+    this.limpiarCambios();
     this.errorDetalle.set(null);
     this.cargandoDetalle.set(true);
     this.api.detail(orderId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -401,6 +533,89 @@ export class AlmacenSurtirPreventaComponent implements OnInit {
   }
   private poner(l: PresalePickLine, v: number): void {
     this.marcas.update((m) => ({ ...m, [l.line_id]: v }));
+    // [MCP.13] Si ahora sí hubo todo, ya no hay nada que cambiar.
+    if (v >= l.qty) {
+      if (this.cambios()[l.line_id]) this.quitarCambio(l);
+      if (this.sustituyendo() === l.line_id) this.cerrarCambio();
+    }
+  }
+
+  // ───────── [MCP.13] Cambiar lo que faltó por otro producto ─────────
+
+  cambioDe(l: PresalePickLine): CambioElegido | null { return this.cambios()[l.line_id] ?? null; }
+  faltanDe(l: PresalePickLine): number { return +(l.qty - (this.marca(l) ?? l.qty)).toFixed(3); }
+
+  abrirCambio(l: PresalePickLine): void {
+    this.sustituyendo.set(l.line_id);
+    this.buscaSug.set('');
+    this.cargarSugerencias(l);
+  }
+  cerrarCambio(): void {
+    this.sustituyendo.set(null);
+    this.sugerencias.set(null);
+    this.errorSug.set(null);
+    if (this.temporizadorSug) clearTimeout(this.temporizadorSug);
+  }
+  buscar(q: string): void {
+    this.buscaSug.set(q);
+    if (this.temporizadorSug) clearTimeout(this.temporizadorSug);
+    const l = this.detalle()?.lines.find((x) => x.line_id === this.sustituyendo());
+    if (l) this.temporizadorSug = setTimeout(() => this.cargarSugerencias(l), 300);
+  }
+  cargarSugerencias(l: PresalePickLine): void {
+    const d = this.detalle();
+    if (!d) return;
+    const q = this.buscaSug().trim();
+    this.cargandoSug.set(true);
+    this.errorSug.set(null);
+    this.api.substitutes(d.order.order_id, l.line_id, q).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        // Si mientras tanto se cerró el panel o se tecleó otra cosa, esta respuesta ya no aplica.
+        if (this.sustituyendo() !== l.line_id || this.buscaSug().trim() !== q) return;
+        this.sugerencias.set(r);
+        this.cargandoSug.set(false);
+      },
+      error: (e) => { this.cargandoSug.set(false); this.errorSug.set(mensaje(e, 'No se pudieron cargar los productos.')); },
+    });
+  }
+  elegirCambio(l: PresalePickLine, x: PresaleSubstituteCandidate): void {
+    const u = x.units[0];
+    if (!u) return;
+    // Misma unidad que el original: lo que faltó. Otra unidad: una, y el surtidor ajusta.
+    const quantity = u.unit === l.unit ? Math.max(1, Math.ceil(this.faltanDe(l))) : 1;
+    this.cambios.update((m) => ({ ...m, [l.line_id]: { product_id: x.product_id, product_name: x.product_name, sku: x.sku, units: x.units, unit: u.unit, quantity } }));
+    this.anuncio.set(`${l.product_name}: se cambia por ${x.product_name}`);
+    this.cerrarCambio();
+  }
+  moverCambio(l: PresalePickLine, d: number): void {
+    const c = this.cambioDe(l);
+    if (!c) return;
+    this.cambios.update((m) => ({ ...m, [l.line_id]: { ...c, quantity: Math.max(1, c.quantity + d) } }));
+  }
+  unidadCambio(l: PresalePickLine, unit: string): void {
+    const c = this.cambioDe(l);
+    if (c) this.cambios.update((m) => ({ ...m, [l.line_id]: { ...c, unit } }));
+  }
+  quitarCambio(l: PresalePickLine): void {
+    this.cambios.update((m) => { const { [l.line_id]: _fuera, ...resto } = m; return resto; });
+  }
+  /** Precio de lista de lo elegido (IVA incluido). El total exacto lo calcula el sistema al terminar. */
+  precioCambio(c: CambioElegido): string {
+    const u = c.units.find((x) => x.unit === c.unit);
+    return u?.price != null ? `≈ ${this.dinero(u.price * c.quantity)}` : 'sin precio';
+  }
+  precioUnidad(u: PresaleSubstituteUnit | undefined): string {
+    return u?.price != null ? `${this.dinero(u.price)} / ${u.unit}` : 'sin precio';
+  }
+  existenciaTexto(x: PresaleSubstituteCandidate): string {
+    if (x.stock_qty === null) return 'existencia sin dato';
+    const u = x.units[0];
+    const q = u && u.factor > 1 ? Math.floor((x.stock_qty + 1e-9) / u.factor) : x.stock_qty;
+    return `hay ${q} ${u?.unit ?? 'PZA'}`;
+  }
+  private limpiarCambios(): void {
+    this.cambios.set({});
+    this.cerrarCambio();
   }
   leyenda(l: PresalePickLine): string {
     const v = this.marca(l);
@@ -413,7 +628,13 @@ export class AlmacenSurtirPreventaComponent implements OnInit {
   terminar(d: PresalePickDetail): void {
     const m = this.marcas();
     this.trabajando.set(true);
-    this.api.finish(d.order.order_id, { lines: d.lines.map((l) => ({ line_id: l.line_id, picked: m[l.line_id] })) })
+    const c = this.cambios();
+    this.api.finish(d.order.order_id, {
+      lines: d.lines.map((l) => {
+        const x = m[l.line_id] < l.qty ? c[l.line_id] : undefined;
+        return { line_id: l.line_id, picked: m[l.line_id], ...(x ? { substitute: { product_id: x.product_id, quantity: x.quantity, unit: x.unit } } : {}) };
+      }),
+    })
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (r) => {
           this.trabajando.set(false);
@@ -433,6 +654,12 @@ export class AlmacenSurtirPreventaComponent implements OnInit {
     this.abierto.set(null);
     this.detalle.set(null);
     this.marcas.set({});
+    this.limpiarCambios();
+  }
+
+  /** [MCP.10.1] La caja dejó otra cantidad de la que surtió el surtidor (completó o quitó). */
+  cambioEnCaja(l: PresalePickLine): boolean {
+    return l.final != null && l.picked != null && l.final !== l.picked;
   }
 
   estado(s: PresalePickState) { return ESTADO[s]; }

@@ -456,6 +456,10 @@ export class LayoutComponent implements OnInit, OnDestroy {
         { label: 'Pedidos',           icon: 'pi pi-file-edit',  route: '/comercial/orders',         permission: Permission.COMMERCIAL_ORDERS_VER },
         // [NAV.1] Clientes y Clientes 360 son la misma ficha en dos vistas: una entrada, dos pestañas.
         { label: 'Clientes', icon: 'pi pi-users', route: '/comercial/customers', tabs: CUSTOMERS_TABS },
+        // `[ALC]` Alta de clientes: la captura la caja, los encargados y los vendedores; el crédito lo
+        // decide Crédito y Cobranza en la misma bandeja (por eso cualquiera de las dos llaves).
+        { label: 'Alta de clientes', icon: 'pi pi-user-plus', route: '/comercial/alta-clientes',
+          anyOf: [Permission.COMMERCIAL_ALTA_CLIENTES, Permission.COMMERCIAL_ALTA_CLIENTES_CREDITO] },
         // [TK.2] Va en Ventas y no en Reportes: no es un reporte, es la consulta de UN documento
         // para reimprimírselo al cliente que lo está pidiendo. Al lado de "Documentos"
         // (Reportes) hay solape aparente, pero aquél lista facturas de telemarketing con su
@@ -983,7 +987,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
       // Lo que se consulta o se mantiene, no lo que se opera.
       title: 'Catálogo y costos',
       items: [
-        // [CAT.1] Vino de Ventas. [NAV.1] El catálogo entero en UNA entrada (eran DIEZ renglones); aterriza en «Resumen».
+        // [CAT.1] Vino de Ventas. [NAV.1] El catálogo entero en UNA entrada (eran DIEZ renglones). [PF.12.1] Aterriza
+        // en «Productos»: conDestino() abre la PRIMERA pestaña visible, y las vacías salieron de CATALOGO_TABS.
         { label: 'Catálogo', icon: 'pi pi-shopping-bag', route: '/compras/catalogo', tabs: CATALOGO_TABS },
         // `[NAV.5]` Proveedores, Categorías y Red de abasto: configuran el motor del pedido.
         { label: PARAMETROS_COMPRA_LABEL, icon: 'pi pi-sliders-h', route: '/compras/proveedores', tabs: PARAMETROS_COMPRA_TABS },

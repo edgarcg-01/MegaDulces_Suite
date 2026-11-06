@@ -28,6 +28,8 @@ export interface RenglonVivo {
   line_id: string;
   product_id: string;
   product_name: string;
+  /** `[VTK.15]` SKU del catálogo; opcional. */
+  sku?: string | null;
   quantity: number;
   qty_unit: string | null;
   qty_factor: number | null;
@@ -54,6 +56,10 @@ function delReporte(linea: RenglonVivo, unidad: string, reportadas: PresalePickR
 /** Los renglones que la caja revisa: los vivos del pedido y, al final, los que el surtido borró. */
 export function armarRenglonesRevision(vivos: RenglonVivo[], reporte: PresalePickReport | null): RenglonRevision[] {
   const ajustados = reporte?.adjusted ?? [];
+  // [MCP.13] Lo que el surtidor cambió por otro producto: el faltante del original ya está cubierto
+  // (no se le pide a la caja completarlo) y el sustituto dice en lugar de qué va.
+  const cubiertos = new Set((reporte?.substituted ?? []).map((x) => x.for_line_id));
+  const enLugarDe = new Map((reporte?.substituted ?? []).map((x) => [x.line_id, x.for_product_name]));
   const out: RenglonRevision[] = vivos.map((l) => {
     const m = cantidadMostrada({ quantity: l.quantity, qty_unit: l.qty_unit, qty_factor: l.qty_factor });
     const rep = delReporte(l, m.unit, ajustados);
@@ -62,16 +68,19 @@ export function armarRenglonesRevision(vivos: RenglonVivo[], reporte: PresalePic
       line_id: l.line_id,
       product_id: l.product_id,
       product_name: l.product_name,
+      sku: l.sku ?? null,
       unit: m.unit,
       factor: m.factor,
-      ordered: rep && rep.ordered > m.qty ? rep.ordered : m.qty,
+      ordered: rep && rep.ordered > m.qty && !cubiertos.has(l.line_id) ? rep.ordered : m.qty,
       picked: m.qty,
       // El renglón existe: se puede subir hasta lo pedido repreciándolo.
       restorable: true,
       restore: null,
+      ...(enLugarDe.has(l.line_id) ? { substitutes_for: enLugarDe.get(l.line_id) } : {}),
     };
   });
   (reporte?.removed ?? []).forEach((r, i) => {
+    if (r.line_id && cubiertos.has(r.line_id)) return;
     const restore = r.restore ?? null;
     const factor = restore && r.ordered > 0 ? restore.quantity / r.ordered : 1;
     out.push({
@@ -79,6 +88,8 @@ export function armarRenglonesRevision(vivos: RenglonVivo[], reporte: PresalePic
       line_id: null,
       product_id: restore?.product_id ?? null,
       product_name: r.product_name,
+      // El renglón ya no existe: el SKU lo pone el servidor desde el catálogo (por `product_id`).
+      sku: null,
       unit: r.unit,
       factor: Number.isFinite(factor) && factor > 0 ? factor : 1,
       ordered: r.ordered,

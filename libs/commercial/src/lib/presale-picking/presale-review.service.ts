@@ -74,6 +74,14 @@ export class PresaleReviewService {
         // La existencia es ayuda, no requisito: sin ella la caja revisa igual y se DECLARA «sin dato».
         this.logger.warn(`[MCP.10] no se pudo leer la existencia de ${fila['code']}: ${(e as Error).message}`);
       }
+      // [VTK.15] El SKU de los renglones que el surtido borró sale del catálogo (ya no hay renglón).
+      const sinSku = [...new Set(renglones.filter((r) => !r.sku && r.product_id).map((r) => r.product_id as string))];
+      const skuDe = new Map<string, string>(
+        sinSku.length
+          ? ((await trx('catalog.products').whereIn('id', sinSku).select('id', 'sku')) as Array<{ id: string; sku: string | null }>)
+              .filter((p) => !!p.sku).map((p) => [p.id, String(p.sku)])
+          : [],
+      );
       const lines: PresaleReviewLine[] = renglones.map((r) => {
         let stock: PresaleReviewLine['stock'] = null;
         if (estado && r.product_id) {
@@ -81,8 +89,10 @@ export class PresaleReviewService {
           stock = { state: e.state, qty: e.qty == null ? null : Math.floor((e.qty + 1e-9) / (r.factor || 1)), checked_at: e.checked_at };
         }
         return {
-          key: r.key, product_id: r.product_id, product_name: r.product_name, unit: r.unit, factor: r.factor,
+          key: r.key, product_id: r.product_id, product_name: r.product_name,
+          sku: r.sku ?? (r.product_id ? skuDe.get(r.product_id) ?? null : null), unit: r.unit, factor: r.factor,
           ordered: r.ordered, picked: r.picked, restorable: r.restorable, stock,
+          ...(r.substitutes_for ? { substitutes_for: r.substitutes_for } : {}),
         };
       });
       return { order: this.aRenglon(fila), lines };
@@ -143,10 +153,10 @@ export class PresaleReviewService {
       .leftJoin('catalog.products as p', 'p.id', 'l.product_id')
       .where('l.order_id', orderId)
       .orderBy('l.line_number', 'asc')
-      .select('l.id', 'l.product_id', 'l.quantity', 'l.qty_unit', 'l.qty_factor', 'p.nombre as product_name');
-    return (filas as Array<{ id: string; product_id: string; quantity: string | number; qty_unit: string | null; qty_factor: string | number | null; product_name: string | null }>)
+      .select('l.id', 'l.product_id', 'l.quantity', 'l.qty_unit', 'l.qty_factor', 'p.nombre as product_name', 'p.sku');
+    return (filas as Array<{ id: string; product_id: string; quantity: string | number; qty_unit: string | null; qty_factor: string | number | null; product_name: string | null; sku?: string | null }>)
       .map((l) => ({
-        line_id: l.id, product_id: l.product_id, product_name: l.product_name ?? 'Producto',
+        line_id: l.id, product_id: l.product_id, product_name: l.product_name ?? 'Producto', sku: l.sku ?? null,
         quantity: Number(l.quantity), qty_unit: l.qty_unit, qty_factor: l.qty_factor == null ? null : Number(l.qty_factor),
       }));
   }

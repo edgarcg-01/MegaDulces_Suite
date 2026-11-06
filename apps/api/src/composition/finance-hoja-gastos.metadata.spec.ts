@@ -26,6 +26,12 @@ describe('[CGA-A.65] FinanceCajaGeneralModule: la hoja de gastos de zona arranca
     expect(tipos).toContain(por(providers, 'HojaGastosService'));
   });
 
+  it('[LE.6.19] «pagar la abierta» es su propia ruta y no la come «:id/pagar»', () => {
+    const c = por(controllers, 'HojaGastosController') as unknown as { prototype: Record<string, unknown> };
+    expect(Reflect.getMetadata('path', c.prototype['pagarAbierta'] as object)).toBe('abierta/:zona/pagar');
+    expect(Reflect.getMetadata('path', c.prototype['pagar'] as object)).toBe(':id/pagar');
+  });
+
   it('el servicio recibe sus tres dependencias por su clase, CashLedgerService incluido', () => {
     const tipos = Reflect.getMetadata('design:paramtypes', por(providers, 'HojaGastosService')!) as Clase[] | undefined;
     expect(Array.isArray(tipos) && tipos.length === 3, 'sin design:paramtypes esta prueba no mide nada').toBe(true);

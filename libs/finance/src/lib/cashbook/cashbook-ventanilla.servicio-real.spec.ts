@@ -573,6 +573,64 @@ describe.skipIf(!URL)('[LE.4.10] la Ventanilla contra Postgres', () => {
     expect(await v.confirmarDeposito(r.orden_id, CAJERA)).toEqual(cierre);   // reintento: lo mismo
   });
 
+  /**
+   * `[LE.6.18]` Una sola autorización por pago (D27 sobre D-R1). PM, 2026-11-06: *«¿por qué volver a
+   * confirmar una hoja que ya tiene todos los gastos aprobados?»*. Con la compra y el gasto aprobado
+   * por una persona, pedir la reposición da el código sin firma; el gasto sin aprobar no entra.
+   */
+  it('[LE.6.18] la hoja con cada pago autorizado sale sin firma: código al pedirla, cajón a custodia, y lo sin aprobar queda detenido', async () => {
+    if (!hay) return;
+    const LLEVA = { id: randomUUID(), username: 'lleva_deposito_2' };
+    const ADMIN = process.env['CAJA_TEST_DB_ADMIN_URL'] ?? String(URL).replace('app_runtime:app_runtime@', 'postgres:postgres@');
+    const dueno = knexFactory({ client: 'pg', connection: ADMIN, pool: { min: 0, max: 1 } });
+    try {
+      await dueno.raw(`INSERT INTO identity.users (id, tenant_id, username, nombre, role_name, activo, kind, created_at, updated_at)
+        VALUES (?, ?, ?, 'Otra Quien Lleva', 'finanzas_operativo', true, 'interno', now(), now())`, [LLEVA.id, T, LLEVA.username]);
+      await dueno.raw(`INSERT INTO identity.user_responsibilities (id, tenant_id, user_id, responsibility_key, accion, nota, valid_from, created_at, updated_at)
+        VALUES (gen_random_uuid(), ?, ?, 'finanzas.caja_deposito', 'suma', 'prueba LE.6.18', current_date, now(), now())`, [T, LLEVA.id]);
+    } catch (e) {
+      console.warn(`[LE.6.18] NO MEDIDO: sin el dueño de la base no se siembra quién lleva el depósito (${(e as Error).message})`);
+      return;
+    } finally { await dueno.destroy(); }
+
+    const pagoZ = (folio: string, importe: number) => ({ origen_ref: `07|X-D-26|${folio}|0011`, sucursal: '07', doc_tipo: 'X-D-26',
+      folio, fecha_pago: HOY, fecha_captura: HOY, beneficiario: 'GASTOS GENERALES', clave: 'G001', centro: '007', referencia: null, importe,
+      en_libro: null, cg_folio: null, en_hoja: false });
+    v.pagosZona.set('morelia', [pagoZ('9101', 1250.5), pagoZ('9102', 300), pagoZ('9103', 480)]);
+    const gasto = (g: string, pesos: string, vale: Partial<FilaRespaldoGasto>) => ({
+      gasto: g, aplicado: pesos, vale_id: randomUUID(), vale_folio: g, vale_estado: 'validada', vale_importe: pesos, vale_aprobado_at: null, ...vale });
+    // 9101 paga una compra; 9102, un gasto aprobado por una persona; 9103, un gasto que nadie ha aprobado.
+    v.respaldos.set('07|9101', { gastos: [], compras: [{ doc: '0000901', aplicado: '1250.50', importe_doc: '1250.50', aplicado_total: '1250.50' }] });
+    v.respaldos.set('07|9102', { gastos: [gasto('0000902', '300.00', { vale_aprobado_at: '2026-11-05 10:00:00-06' })], compras: [] });
+    v.respaldos.set('07|9103', { gastos: [gasto('0000903', '480.00', { vale_estado: 'recibida' })], compras: [] });
+
+    const hoja = (await v.reposiciones()).find((h) => h.zona === 'morelia');
+    expect(hoja).toMatchObject({ motivo_firma: null, total_minor: '155050', maquina_minor: '155000', cajon_minor: '50' });
+    expect(hoja?.renglones.map((r) => r.folio)).toEqual(['9101', '9102']);
+    expect(hoja?.detenidos.map((d) => d.folio)).toEqual(['9103']);
+    const docs = (hoja?.renglones ?? []).map((r) => r.origen_ref);
+
+    // El payload de la pantalla. Sin firma: el código sale al pedirla y lo del cajón ya está en custodia.
+    const custodia = `CUSTODIA:${LLEVA.id.toUpperCase()}`;
+    const cajaAntes = await saldo('CAJA_MXN');
+    const key = randomUUID();
+    const r = await v.pedirReposicion({ zona: 'morelia', documentos: docs, lleva: LLEVA.id, piezas_cajon: { '0.5': '1' } }, CAJERA, key);
+    expect(r.estado).toBe('pagado');
+    if (r.estado !== 'pagado') return;
+    expect(r.codigo).toBeTruthy();
+    expect(r.maquina_minor).toBe('155000');
+    expect(cajaAntes - (await saldo('CAJA_MXN'))).toBe(50n);
+    expect(await saldo(custodia)).toBe(50n);
+    expect((await v.porFirmar()).some((o) => o.id === r.orden_id)).toBe(false);
+    expect(await v.pedirReposicion({ zona: 'morelia', documentos: docs, lleva: LLEVA.id, piezas_cajon: { '0.5': '1' } }, CAJERA, key)).toEqual(r);
+    expect(await saldo(custodia)).toBe(50n);   // el reintento no vuelve a sacar el cajón
+
+    // Lo pedido no vuelve a entrar; lo detenido sigue esperando su aprobación.
+    const despues = (await v.reposiciones()).find((h) => h.zona === 'morelia');
+    expect(despues?.renglones).toEqual([]);
+    expect(despues?.detenidos.map((d) => d.folio)).toEqual(['9103']);
+  });
+
   // ── `[LE.6.5]` Custodias ───────────────────────────────────────────────────────────────
 
   it('[LE.6.5] custodia del cajón: se lleva monedas, rinde con un documento de Kepler y regresa lo demás; una vez', async () => {

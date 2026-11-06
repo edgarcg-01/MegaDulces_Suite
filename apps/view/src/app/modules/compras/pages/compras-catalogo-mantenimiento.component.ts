@@ -1,9 +1,8 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { CatalogoMenuComponent } from './catalogo-menu.component';
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
-import { CATALOGO_TABS } from '../catalogo-tabs';
 import { ComprasMantenimientoDiferenciasComponent } from './compras-mantenimiento-diferencias.component';
 import { ComprasMantenimientoSinClasificarComponent } from './compras-mantenimiento-sin-clasificar.component';
 
@@ -25,7 +24,7 @@ const SUBTITULO: Record<VistaMantenimiento, string> = {
 @Component({
   selector: 'app-compras-catalogo-mantenimiento',
   standalone: true,
-  imports: [PageTabsComponent, SegmentedComponent, ComprasMantenimientoDiferenciasComponent, ComprasMantenimientoSinClasificarComponent],
+  imports: [CatalogoMenuComponent, SegmentedComponent, ComprasMantenimientoDiferenciasComponent, ComprasMantenimientoSinClasificarComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page cm">
@@ -36,7 +35,7 @@ const SUBTITULO: Record<VistaMantenimiento, string> = {
         </div>
       </header>
 
-      <app-page-tabs [tabs]="tabs" />
+      <app-catalogo-menu />
 
       <app-segmented [options]="vistas" [value]="vista()" ariaLabel="Vistas de mantenimiento" (valueChange)="irA($any($event))" />
 
@@ -52,7 +51,6 @@ const SUBTITULO: Record<VistaMantenimiento, string> = {
   `],
 })
 export class ComprasCatalogoMantenimientoComponent {
-  readonly tabs = CATALOGO_TABS;
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
 

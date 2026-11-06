@@ -57,12 +57,6 @@ export const GASTOS_TABS: readonly PageTab[] = [
     icon: 'pi pi-truck',
     anyOf: [Permission.FINANCE_EXPENSES_COMPROBAR, Permission.LOGISTICS_SHIPMENTS_GESTIONAR],
   },
-  {
-    // `[CGA-A.65]` La hoja de gastos de zona (el Excel que Morelia llenaba a mano): la cierra la zona,
-    // la aprueba quien firma y la paga Caja General. ⛔ No para quien sólo captura.
-    label: 'Hoja de zona',
-    route: '/finanzas/hoja-gastos',
-    icon: 'pi pi-file-check',
-    anyOf: [Permission.FINANCE_HOJA_GASTOS_CERRAR, Permission.FINANCE_EXPENSES_COMPROBAR, Permission.FINANCE_CAJA_VER],
-  },
+  // `[LE.6.19]` La «Hoja de zona» ya no es una pestaña (PM, 2026-11-06: «hay que moverlo a caja»): se paga
+  // en un acto en Caja General › Reposición, sin cerrarla ni aprobarla aparte. La ruta vieja lleva ahí.
 ];

@@ -85,7 +85,9 @@ const LEE_EL_SERVICIO = ['analytics.caos_cash_movements', 'analytics.v_caja_repa
   'finance.caos_retiro_custodia',
   // `[LE.0.0]` El reparto automático de depósitos (`CG.58`): su regla «cada peso, una explicación»
   // se prueba contra el libro, y sin la tabla la migración de LE.0.0 sale sin hacer nada.
-  'finance.caos_ingreso_atribucion'];
+  'finance.caos_ingreso_atribucion',
+  // `[LE.6.19]` La hoja de zona que Caja paga en un acto (regla 13: el pago se ejerce contra esta base).
+  'finance.expense_sheets'];
 /**
  * `[CGA-A.55]` Migraciones que ALTERAN una tabla de `LEE_EL_SERVICIO` con REGLAS (no con datos).
  * De esas tablas sólo se trae la migración que las crea; una regla agregada después no entraba, y
@@ -120,7 +122,18 @@ const REGLAS_SOBRE_LO_QUE_LEE = ['20261026110741_cga_a55_billetes_por_enlace_de_
   // `[LE.6.8]` La responsabilidad «lleva el depósito de la reposición» (D35): la Ventanilla la lee.
   '20261104152834_le68_responsabilidad_lleva_el_deposito.js',
   // `[LE.1.15]` `[LE.2.10]` Los catálogos firmados (tope, usuarios de la máquina) y la regla del tope.
-  '20261104173710_le115_catalogos_y_tope_del_cajon.js'];
+  '20261104173710_le115_catalogos_y_tope_del_cajon.js',
+  // `[LE.6.19]` Las reglas de la hoja de zona: cerrar y pagar, el conteo del cajón y el pago en un acto
+  // (cerrada → pagada sin aprobación). Sin ellas `hoja-gastos.servicio-real` sale NO MEDIDO.
+  '20261030133058_cga_a65_hoja_cerrar_y_pagar.js',
+  '20261030140503_cga_a65_hoja_cajon_con_conteo.js',
+  '20261106102659_le619_hoja_de_zona_se_paga_en_un_acto.js'];
+/**
+ * `[LE.6.19]` Tablas que el servicio LEE y ninguna migración del conjunto pide: la hoja de zona busca el
+ * depósito de su reposición en el banco al contestar. Llegan vacías desde el snapshot (basta su forma),
+ * con SELECT para `app_runtime`, como en prod.
+ */
+const SOLO_LEE_EL_SERVICIO = ['finance.bank_accounts', 'finance.bank_movements'];
 const MAX_REMEDIOS = 200;
 /** Los GRANT de prod a `app_runtime` sobre tablas que llegan vacías del snapshot y una prueba escribe. */
 const GRANTS_DE_PROD = {
@@ -410,6 +423,19 @@ async function main() {
     if (sinFilasDeProd.length) {
       console.log(`   ⚠️ NO MEDIDO — corrección de filas de prod sin sus filas (${sinFilasDeProd.length}; la estructura SÍ se aplicó):`);
       for (const s of sinFilasDeProd) console.log(`      · ${s}`);
+    }
+    for (const t of SOLO_LEE_EL_SERVICIO) {
+      if ((await knex.raw('SELECT to_regclass(?) IS NOT NULL AS t', [t])).rows[0].t) continue;
+      const cols = snapshot.get(t);
+      if (!cols) throw new Error(`el servicio lee ${t} y no está en el snapshot de prod.`);
+      const [schema] = t.split('.');
+      const defs = cols.sort((a, b) => a.orden - b.orden).map((c) => `"${c.columna}" ${tipoSql(c)}`).join(', ');
+      await knex.raw(`CREATE SCHEMA IF NOT EXISTS ${schema}`);
+      await knex.raw(`CREATE TABLE ${t} (${defs})`);
+      await knex.raw(`GRANT USAGE ON SCHEMA ${schema} TO app_runtime`);
+      await knex.raw(`GRANT SELECT ON ${t} TO app_runtime`);
+      moldes.push(t);
+      await anotar('tabla_vacia', t, 'desde el snapshot de prod; la lee el servicio (sin migración que la pida)');
     }
     if (moldes.length) console.log(`   tablas ajenas vacías desde el snapshot (${moldes.length}): ${moldes.join(', ')}`);
     // `[LE.4.8]` Una tabla del snapshot nace sin GRANT. Las que una prueba escribe COMO `app_runtime`

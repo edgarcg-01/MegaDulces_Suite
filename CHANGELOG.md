@@ -9,6 +9,23 @@
 ---
 
 ## [Unreleased]
+### Added — Comercial: Alta de clientes desde la constancia del SAT (ALC, 2026-11-04 · en código, sin soltar)
+- Nueva pantalla **Comercial › Alta de clientes**. Se sube la **Constancia de Situación Fiscal** (el PDF del SAT) y la Suite llena RFC, nombre o razón social, régimen fiscal, código postal y domicilio; o se captura a mano, que vale lo mismo: **la constancia no se le puede exigir al cliente** para facturar.
+- Revisa lo que se tecleó antes de guardar: el RFC y la CURP con su **dígito verificador** (hoy, 63 de 801 RFC distintos en Kepler están mal capturados), el código postal contra el catálogo del SAT, que el régimen corresponda a persona física o moral, y si **el RFC ya está en Kepler** (avisa con su clave y sus sucursales, para no dar de alta dos veces).
+- Arma la ficha **en el mismo orden que la forma «Datos del cliente» de Kepler**, con un botón de copiar por casilla, y con la forma en que Kepler ya escribe sus fichas (estado «MICHOACAN», razón social sin «SA de CV»).
+- **Crédito con firma**: si se pide crédito, plazo o descuento, la solicitud espera a **Crédito y Cobranza** (o, en su ausencia, Gerencia Administrativa y Financiera o Dirección General), que decide con motivo; queda quién y cuándo.
+- Cuando la ficha ya está en Kepler, se liga con su clave en un clic: la Suite revisa que la clave exista y traiga el mismo RFC, y deja la ficha del cliente con sus datos fiscales. Si en Kepler se capturó otro límite de crédito que el aprobado, lo deja escrito.
+- ⚠️ **La Suite no escribe la ficha en Kepler**: se captura allá. Escribirla directo queda para una segunda etapa, con su propia autorización.
+### Fixed — Gastos: los vales de días anteriores ya le aparecen a quien aprueba (GX.88, 2026-11-05)
+- Aprobación tenía dos reglas «sólo hoy»: un vale de ayer sin cerrar desaparecía de la bandeja. Ahora hay una pestaña **Atrasados**, del más viejo al más nuevo, con los días de atraso y a quién le toca.
+### Added — Gastos: buscador arriba de las pestañas (GX.88)
+- Por folio, solicitante, quien lo levantó, quien lo cerró, proveedor o concepto, en Aprobación, Mis gastos, Expediente e Historial. Incluye las solicitudes de Kepler que nunca se subieron. Sólo para quien aprueba.
+### Changed — Expediente sin la tira de indicadores (GX.89) y más rápido (GX.90)
+- Expediente pasa de ~20 s a menos de 1 s en producción (Mis gastos e Historial también bajan); las cifras son las mismas.
+### Changed — Arqueo: la cajera escribe su caja; sin lista de turnos, avisos ni historial (SM.51, 2026-11-05)
+- `/tienda/arqueo`: la cajera escribe su caja (el equipo la recuerda por sucursal) y el arqueo se guarda con esa caja; el turno de Kepler se liga por detrás por caja + hora.
+- Se quitan la lista «cortes sin arquear», los avisos de cajas abiertas / de días anteriores y el recuadro de «lo que toca». La cajera ya no tiene historial; quien valida lo ve en «Sucursales y sus cajas».
+
 ### Fixed — Catálogo digital: la primera captura desde el celular (NP.7, 2026-11-03)
 - Las fotos del levantamiento **no llegaban al servidor**: el teléfono las medía bien y fallaba al prepararlas para subir ("No se pudo leer esa foto"), por una regla de seguridad que sólo existe en producción. Ya se preparan sin ese paso (probado con la regla de producción en el navegador; la primera subida real se confirma después del despliegue).
 - La pantalla de inicio del levantamiento mostraba "No se pudo cargar la información" (error del servidor). Corregido.

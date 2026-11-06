@@ -8,7 +8,15 @@
 import type { CatalogoListaDetallada, ComprasProducto, FichaProducto, FiltroDetallado, FilaCatalogoDetallada } from './catalogo-productos.service';
 import type { FlujoDetalle, LoteCaducidad, MargenesProducto, PlazaFlujo, VeredictoCompra } from './productos-flujo.service';
 import { CantidadEnUnidad, UnidadFactor, componerEnUnidades } from './unidades-composicion';
+import { warehouseName } from '@megadulces/contracts';
+import { fechaCortaPeriodo, textoPeriodo } from './periodo-ficha';
 import { nombrePropio } from './catalogo-proveedor';
+
+/**
+ * Una sucursal se NOMBRA, jamás se numera (PM, 2026-10-22): el nombre del motor o de la ficha y, si no viene,
+ * `warehouseName` (el resolvedor único). Antes el respaldo era «Sucursal 06» (`[PF.16]`).
+ */
+const sucursalNombre = (nombre: string | null | undefined, codigo: string) => (nombre ? nombrePropio(nombre) : warehouseName(codigo));
 
 // ─────────────────────────────── el menú «Mostrar» ───────────────────────────────
 
@@ -25,7 +33,8 @@ export const GRUPOS_DETALLADO: readonly GrupoDetallado[] = [
     { id: 'no_comprar', label: 'No comprar' },
   ] },
   { titulo: 'Para cuidar hoy', opciones: [
-    { id: 'lideres_pendiente', label: 'Líderes con pendiente' },
+    // [PF.16] «Líder» sonaba a participación de mercado: es el top de NUESTRA venta (PF.UI.5).
+    { id: 'lideres_pendiente', label: 'Top de venta con pendiente' },
     { id: 'no_se_venden', label: 'No se venden' },
     { id: 'caducidad', label: 'Por caducar o caducado' },
     { id: 'nuevos', label: 'Productos nuevos' },
@@ -110,7 +119,7 @@ export interface EtiquetasProducto { lider: number | null; nuevo: string | null;
 export function etiquetasTexto(e: EtiquetasProducto | null | undefined): Array<{ clase: 'lider' | 'nuevo' | 'cad'; texto: string }> {
   if (!e) return [];
   const out: Array<{ clase: 'lider' | 'nuevo' | 'cad'; texto: string }> = [];
-  if (e.lider !== null) out.push({ clase: 'lider', texto: `Líder #${e.lider}` });
+  if (e.lider !== null) out.push({ clase: 'lider', texto: `Top venta #${e.lider}` });
   if (e.nuevo) out.push({ clase: 'nuevo', texto: e.nuevo });
   if (e.caducidad) out.push({ clase: 'cad', texto: e.caducidad === 'caducado' ? 'Caducado' : 'Caduca pronto' });
   return out;
@@ -126,8 +135,8 @@ export function queHacer(d: Pick<FlujoDetalle, 'resumen'>, factores: UnidadFacto
     motivos: c.motivos,
     traspasos: c.traspasos.map((t) => ({
       cantidad: cantidadCompuesta(t.cantidad, factores, base) ?? '0',
-      desde: t.desde_nombre ? nombrePropio(t.desde_nombre) : `Sucursal ${t.desde}`,
-      hacia: t.hacia_nombre ? nombrePropio(t.hacia_nombre) : `Sucursal ${t.hacia}`,
+      desde: sucursalNombre(t.desde_nombre, t.desde),
+      hacia: sucursalNombre(t.hacia_nombre, t.hacia),
     })),
   };
 }
@@ -143,8 +152,14 @@ export interface FilaSucursalDetallada {
   sinVender: string;
 }
 
-/** «Hoy vendió» / «1 día» / «45 días» / «Más de 120 días». */
-export function sinVenderTexto(p: Pick<PlazaFlujo, 'dias_sin_venta'> | null | undefined, ventanaHistoria: number): string {
+/**
+ * «Hoy vendió» / «1 día» / «45 días» / «Más de 120 días». `[PF.15]` Si la sucursal no vende en mostrador desde
+ * hace `diasEstancado` días o más pero carga a camioneta (la misma regla con que el motor la llama «se mueve»),
+ * «Sale por camioneta»: su venta no está en Kepler y los días sin venta contradirían al veredicto (PF.UI.2).
+ * Con venta de mostrador reciente se dicen los días, aunque también cargue a camioneta.
+ */
+export function sinVenderTexto(p: Pick<PlazaFlujo, 'dias_sin_venta' | 'por_camioneta'> | null | undefined, ventanaHistoria: number, diasEstancado = Infinity): string {
+  if (p?.por_camioneta && (p.dias_sin_venta === null || p.dias_sin_venta >= diasEstancado)) return 'Sale por camioneta';
   if (!p || p.dias_sin_venta === null) return `Más de ${ventanaHistoria} días`;
   if (p.dias_sin_venta <= 0) return 'Hoy vendió';
   return p.dias_sin_venta === 1 ? '1 día' : `${p.dias_sin_venta} días`;
@@ -160,6 +175,7 @@ export function sucursalesDetalladas(f: FichaProducto, d: Pick<FlujoDetalle, 'pl
   const base = f.unidadBase ?? '';
   const pf = new Map((d?.plazas ?? []).map((p) => [p.plaza, p]));
   const ventana = d?.criterio.ventanaHistoria ?? 120;
+  const estancado = d?.criterio.diasEstancado ?? Infinity;
   const existenciaDe = (q: number | null, vendio: boolean): FilaSucursalDetallada['existencia'] => {
     if (q === null) return { tipo: 'sin_dato', texto: 'Sin dato' };
     if (q === 0) return vendio ? { tipo: 'agotado', texto: 'Agotado' } : { tipo: 'cero', texto: `0 ${base}`.trim() };
@@ -175,12 +191,12 @@ export function sucursalesDetalladas(f: FichaProducto, d: Pick<FlujoDetalle, 'pl
     if (!loManeja && ex !== null) continue;
     filas.push({
       codigo: s.codigo,
-      nombre: s.nombre ? nombrePropio(s.nombre) : `Sucursal ${s.codigo}`,
+      nombre: sucursalNombre(s.nombre, s.codigo),
       monto,
       vendidoMedido: !!s.vendidoMes,
       unidades: cantidadCompuesta(vendidas, factores, base),
       existencia: existenciaDe(ex, vendidas > 0),
-      sinVender: sinVenderTexto(p, ventana),
+      sinVender: sinVenderTexto(p, ventana, estancado),
     });
   }
   const enFicha = new Set((f.sucursales ?? []).map((s) => s.codigo));
@@ -188,16 +204,22 @@ export function sucursalesDetalladas(f: FichaProducto, d: Pick<FlujoDetalle, 'pl
     if (enFicha.has(p.plaza) || p.estado === 'sin_movimiento') continue;
     filas.push({
       codigo: p.plaza,
-      nombre: p.nombre ? nombrePropio(p.nombre) : `Sucursal ${p.plaza}`,
+      nombre: sucursalNombre(p.nombre, p.plaza),
       monto: p.mes ? dineroEntero(p.mes) : null,
       vendidoMedido: true,
       unidades: null,
       existencia: existenciaDe(p.existencia, p.mes > 0),
-      sinVender: sinVenderTexto(p, ventana),
+      sinVender: sinVenderTexto(p, ventana, estancado),
     });
   }
   return filas;
 }
+
+/**
+ * `[PF.UI.4]`/`[PF.UI.2]` La base de la venta, dicha donde se lee el número: con impuestos y sólo la que registra
+ * Kepler (las camionetas no están). Sin esto «Vende menos» puede ser sólo que se movió a ruta.
+ */
+export const BASE_VENTA_MES = 'Venta con IVA e IEPS registrada en Kepler (sin lo que venden las camionetas).';
 
 /** ¿Cómo va la venta este mes? En palabras y dos barras: para quien no lee gráficas. */
 export interface ComoVa {
@@ -239,6 +261,7 @@ export function comoVaLaVenta(mes: number, ant: number, variacion: number | null
   }
   const max = Math.max(mes, ant, 1);
   const pct = (v: number) => (v > 0 ? Math.max(2, Math.round((v / max) * 100)) : 0);
+  frase = `${frase} ${BASE_VENTA_MES}`;
   return {
     tono, flecha: tono === 'sube' ? '▲' : tono === 'baja' ? '▼' : '=', titulo, frase,
     barras: [
@@ -266,6 +289,20 @@ const fechaFmt = new Intl.DateTimeFormat('es-MX', { day: 'numeric', month: 'shor
 export const fechaDia = (iso: string | null | undefined) => (iso ? fechaFmt.format(Date.parse(iso.slice(0, 10) + 'T00:00:00Z')) : null);
 
 /** Compras de la ventana: lo comprado compuesto en las unidades del producto (si todas sus unidades se conocen). */
+/**
+ * `[PF.23]` El periodo de las compras, dicho: «Del 1 ene 2025 al 31 dic 2025» (o «Últimos 90 días» de un servidor
+ * anterior), y qué sucursales NO lo tienen completo en Kepler (antes de su corte compraban en Wincaja) — se dice,
+ * para que «Comprado» no se lea como el total de la red.
+ */
+export function periodoComprasTexto(c: Pick<ComprasProducto, 'desde' | 'hasta' | 'dias' | 'incompletas'>): { periodo: string; incompletas: string | null } {
+  const periodo = c.hasta ? textoPeriodo({ desde: c.desde, hasta: c.hasta }) : `en los últimos ${c.dias} días`;
+  const faltan = c.incompletas ?? [];
+  const incompletas = faltan.length
+    ? faltan.map((s) => sucursalNombre(s.nombre, s.codigo) + (s.corte ? ` (en Kepler desde el ${fechaCortaPeriodo(s.corte)})` : ' (sin corte a Kepler)')).join(', ')
+    : null;
+  return { periodo: periodo.charAt(0).toUpperCase() + periodo.slice(1), incompletas };
+}
+
 export function comprasTexto(c: ComprasProducto, factores: UnidadFactor[], base: string) {
   const factor = new Map(factores.map((u) => [u.unidad.toUpperCase(), u.factorBase]));
   const todas = c.comprado.every((x) => factor.has(x.unidad.toUpperCase()));
@@ -281,8 +318,16 @@ export function comprasTexto(c: ComprasProducto, factores: UnidadFactor[], base:
     entradas: c.entradas,
     comprado,
     primera: fechaDia(c.primera),
-    ultima: u ? `${fechaDia(u.fecha)} · ${u.nombreSucursal ? nombrePropio(u.nombreSucursal) : 'Sucursal ' + u.sucursal}` : null,
-    costoUltima: u && u.costo !== null ? { monto: new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(u.costo), unidad: u.unidad } : null,
+    ultima: u ? `${fechaDia(u.fecha)} · ${sucursalNombre(u.nombreSucursal, u.sucursal)}` : null,
+    // `[PF.12.3]` Sin IVA ni IEPS (lo quita el servidor con la regla del catálogo) y lo ve quien ve el catálogo.
+    // Con costo visible pero sin costo en la entrada, `monto` null: se dice, nunca $0.
+    costoUltima: u && c.costo_visible
+      ? {
+          monto: u.costo === null || u.costo === undefined ? null : new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(Number(u.costo)),
+          unidad: u.unidad,
+          nota: u.impuesto === 'sin_dato' ? 'sin saber si trae impuestos' : 'sin IVA ni IEPS',
+        }
+      : null,
   };
 }
 
@@ -291,7 +336,7 @@ export function loteTexto(l: LoteCaducidad, factores: UnidadFactor[], base: stri
   const fecha = fechaDia(l.caduca) ?? l.caduca;
   const vencido = l.dias < 0;
   return {
-    sucursal: l.nombre ? nombrePropio(l.nombre) : `Sucursal ${l.plaza}`,
+    sucursal: sucursalNombre(l.nombre, l.plaza),
     lote: l.lote,
     caduca: `${vencido ? 'Caducó' : 'Caduca'} ${fecha}`,
     cuando: vencido ? (l.dias === -1 ? 'ayer' : `hace ${-l.dias} días`) : l.dias === 0 ? 'hoy' : l.dias === 1 ? 'mañana' : `en ${l.dias} días`,
