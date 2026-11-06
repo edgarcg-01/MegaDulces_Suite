@@ -21,7 +21,7 @@ import { leerCandado, sinLlaveDeCaja } from './caja-candado.query';
 import { CajaCustodiaService, sqlCustodiaCerrada, sqlDisponibleCaos } from './caja-custodia.service';
 import { CashLedgerService } from './cash-ledger.service';
 import { altaVinculoCaos } from '../caos/caos.service';
-import { leerFilasDelRespaldo, respaldosDeFilas } from '../cashbook/cashbook-ventanilla.service';
+import { leerFilasDelRespaldo, respaldosDeFilas, type FilasDelRespaldo } from '../cashbook/cashbook-ventanilla.service';
 import { juiciosDePagos } from '../cashbook/reposicion-en-ventanilla';
 
 type Usuario = { id?: string; username?: string };
@@ -122,7 +122,7 @@ export class HojaGastosService {
       // Un cierre a la vez por empresa: el número es consecutivo y un pago no entra en dos hojas.
       await trx.raw(`SELECT pg_advisory_xact_lock(hashtext(? || ':hoja-gastos'))`, [tenantId]);
 
-      const filas = (await consultasHoja.pagos(trx, tenantId, [...zona.sucursales], zona.desde, { conHojas: true })) as PagoDeZona[];
+      const filas = await this.pagosDeZona(trx, tenantId, zona, true);
       // `[LE.6.19]` Lo que espera su aprobación no se cierra, tampoco por este carril.
       const abierta = await this.autorizada(trx, tenantId, zona, filas, null);
       const porRef = new Map(abierta.renglones.map((r) => [r.origen_ref, r]));
@@ -226,7 +226,7 @@ export class HojaGastosService {
       // Un cierre a la vez por empresa: el número es consecutivo y un pago no entra en dos hojas.
       await trx.raw(`SELECT pg_advisory_xact_lock(hashtext(? || ':hoja-gastos'))`, [tenantId]);
 
-      const filas = (await consultasHoja.pagos(trx, tenantId, [...zona.sucursales], zona.desde, { conHojas: true })) as PagoDeZona[];
+      const filas = await this.pagosDeZona(trx, tenantId, zona, true);
       const abierta = await this.autorizada(trx, tenantId, zona, filas, null);
       const porRef = new Map(abierta.renglones.map((r) => [r.origen_ref, r]));
       const ajenos = refs.filter((r) => !porRef.has(r));
@@ -418,8 +418,21 @@ export class HojaGastosService {
 
   // ── Lectura ─────────────────────────────────────────────────────────────────────────────────
 
+  /**
+   * `[LE.6.20]` Las dos lecturas del ODS (los pagos de la zona y lo que Kepler dice que paga cada X-D-26).
+   * Protegidas para que la prueba contra base real las sustituya con filas: esas tablas no existen ahí. La
+   * escritura —la hoja, el pago, el conteo— es la real.
+   */
+  protected async pagosDeZona(trx: Knex.Transaction, tenantId: string, zona: ZonaHojaGastos, conHojas: boolean): Promise<PagoDeZona[]> {
+    return (await consultasHoja.pagos(trx, tenantId, [...zona.sucursales], zona.desde, { conHojas })) as PagoDeZona[];
+  }
+
+  protected filasDelRespaldo(trx: Knex.Transaction, tenantId: string, pares: ReadonlyArray<[string, string]>): Promise<FilasDelRespaldo | null> {
+    return leerFilasDelRespaldo(trx, tenantId, pares);
+  }
+
   private async abierta(trx: Knex.Transaction, tenantId: string, zona: ZonaHojaGastos, instalada: boolean, datosAl: string | null) {
-    const filas = (await consultasHoja.pagos(trx, tenantId, [...zona.sucursales], zona.desde, { conHojas: instalada })) as PagoDeZona[];
+    const filas = await this.pagosDeZona(trx, tenantId, zona, instalada);
     const h = await this.autorizada(trx, tenantId, zona, filas, datosAl);
     if (!h.renglones.length) return h;
     // `[LE.6.19]` Los retiros de CAOS que la pagan entera: de su último pago a hoy (más los días de gracia).
@@ -445,7 +458,7 @@ export class HojaGastosService {
     const base = armarHojaAbierta(zona, filas, datosAl).renglones;
     const candidatos = base.filter((r) => r.doc_tipo === 'X-D-26');
     const pares = candidatos.map((r) => [r.sucursal, r.folio] as [string, string]);
-    const respaldos = respaldosDeFilas(pares.length ? await leerFilasDelRespaldo(trx, tenantId, pares) : null, pares);
+    const respaldos = respaldosDeFilas(pares.length ? await this.filasDelRespaldo(trx, tenantId, pares) : null, pares);
     const juicios = juiciosDePagos(candidatos, respaldos);
     if (!base.length) return { ...hojaAbiertaAutorizada(zona, filas, datosAl, juicios), control_medido: true };
     const testigos = await this.testigosDelPapel(trx, tenantId, zona.desde);
@@ -470,7 +483,7 @@ export class HojaGastosService {
    * zona y el último día que el estado de cuenta trae. `null` = la zona no tiene cuenta medida o no está en
    * el catálogo de bancos: no se afirma que nada esté repuesto.
    */
-  private async bancoDeZona(trx: Knex.Transaction, tenantId: string, zona: ZonaHojaGastos): Promise<BancoDeZona | null> {
+  protected async bancoDeZona(trx: Knex.Transaction, tenantId: string, zona: ZonaHojaGastos): Promise<BancoDeZona | null> {
     if (!zona.cuenta_deposito) return null;
     const cuentas = (await trx('finance.bank_accounts').where('tenant_id', tenantId)
       .whereRaw('upper(btrim(bank)) = ?', [zona.cuenta_deposito.banco.toUpperCase()])
@@ -491,7 +504,7 @@ export class HojaGastosService {
    * pagos del libro cuelgan ya de cada uno. Va en SAVEPOINT: si Control no se puede leer, la hoja
    * abierta se ve igual y dice «sin medir» en vez de no afirmar nada en silencio.
    */
-  private async testigosDelPapel(trx: Knex.Transaction, tenantId: string, desde: string)
+  protected async testigosDelPapel(trx: Knex.Transaction, tenantId: string, desde: string)
     : Promise<{ control: RetiroControlHoja[]; caos: RetiroCaosConLigas[] } | null> {
     await trx.raw('SAVEPOINT cga_a70_control');
     try {
