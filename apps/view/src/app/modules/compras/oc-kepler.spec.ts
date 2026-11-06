@@ -16,6 +16,14 @@ describe('[RA-PRO.61] cajasDeRenglon — sólo cuando el costo confirma la unida
     expect(cajasDeRenglon({ cantidad: 1, unidades_por_caja: 1, costo_unitario: 69312.31, costo_caja: 128434.25 })).toBeNull();
   });
 
+  it('⛔ [PQ.82] el caso real: 5 PZA con 1 por caja NO son «5 cj» (OC 07/0000092, BOCADILLOS NUEZ LICO)', () => {
+    const r = { cantidad: 5, unidades_por_caja: 1, costo_unitario: 115.5, costo_caja: 115.5, unidad: 'PZA' };
+    expect(cajasDeRenglon(r)).toBeNull();
+    expect(textoCajasRenglon(r)).toBeNull();   // el PDF cae a la cantidad en su unidad: «5 pza»
+    // control: con caja de verdad sigue diciendo cajas
+    expect(textoCajasRenglon({ ...r, cantidad: 100, unidades_por_caja: 20, costo_caja: 2310 })).toBe('5 cj');
+  });
+
   it('cantidad negativa (ajuste capturado como OC) → null, no "-2 cj"', () => {
     expect(cajasDeRenglon({ cantidad: -40, unidades_por_caja: 20, costo_unitario: 5, costo_caja: 100 })).toBeNull();
   });
