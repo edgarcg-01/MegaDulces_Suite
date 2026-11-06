@@ -129,6 +129,8 @@ export interface CambioCantidad {
                   [value]="r.cantidad"
                   (change)="cantidad.emit({ id: r.id, valor: $any($event.target).value, input: $any($event.target) })"
                   (keydown.enter)="$any($event.target).blur()"
+                  (keydown.arrowdown)="moverFoco($event, 1)"
+                  (keydown.arrowup)="moverFoco($event, -1)"
                   (focus)="$any($event.target).select()"
                   [attr.inputmode]="r.admiteFraccion ? 'decimal' : 'numeric'"
                   [disabled]="bloqueado()"
@@ -250,6 +252,19 @@ export interface CambioCantidad {
   ],
 })
 export class QuoteLinesTableComponent {
+  /**
+   * [COT.33] ↑/↓ en la cantidad pasan a la del renglón de al lado. Salir del campo dispara su
+   * `change`: lo tecleado se guarda igual que con Enter.
+   */
+  moverFoco(ev: Event, delta: number): void {
+    const input = ev.target as HTMLInputElement;
+    const todos = Array.from(input.closest('tbody')?.querySelectorAll<HTMLInputElement>('input.qty-inline') ?? []);
+    const sig = todos[todos.indexOf(input) + delta];
+    if (!sig) return;
+    ev.preventDefault();
+    sig.focus();
+  }
+
   readonly renglones = input.required<RenglonTabla[]>();
   /** Mientras se guarda: la cantidad y el quitar quedan deshabilitados. */
   readonly bloqueado = input(false);

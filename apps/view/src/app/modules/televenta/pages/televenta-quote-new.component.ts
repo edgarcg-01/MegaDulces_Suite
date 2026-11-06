@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, ElementRef, Injector, OnInit, afterNextRender, computed, effect, inject, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, Injector, OnInit, afterNextRender, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterModule } from '@angular/router';
@@ -18,6 +18,18 @@ import { InputGroupModule } from 'primeng/inputgroup';
 import { InputGroupAddonModule } from 'primeng/inputgroupaddon';
 import { MessageService } from 'primeng/api';
 import { isoLocalDate } from '../../../shared/util/date-presets.util';
+import { AuthService } from '../../../core/services/auth.service';
+import { atajoDeTecla } from '../quote-atajos';
+import { bloquearRecargaAutomatica } from '../../../core/services/recarga-segura';
+import {
+  type BorradorCotizacion,
+  VERSION_BORRADOR,
+  borrarBorrador,
+  claveBorrador,
+  guardarBorrador,
+  haceCuanto,
+  leerBorrador,
+} from '../cotizacion-a-medias';
 import { Subject, debounceTime, distinctUntilChanged, switchMap, catchError, of, map } from 'rxjs';
 import { STORE_BRANCHES, type StoreBranch } from '../../../core/constants/store-branches';
 import {
@@ -33,6 +45,7 @@ import {
   opcionesUnidad,
   paqueteDeCaja,
   esPaquete,
+  ORIGENES_COTIZACION,
   desglose,
   parseCantidad,
   vendedorDelCliente,
@@ -97,11 +110,7 @@ export interface ItemBandeja {
   sin_redondear?: number | null;
 }
 
-const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
-  { value: 'telemarketing', label: 'El cliente mandó su lista', hint: 'Llegó por correo o WhatsApp pidiendo precio' },
-  { value: 'route_visit', label: 'Visita de ruta', hint: 'Se levantó en el punto de venta' },
-  { value: 'counter', label: 'Mostrador', hint: 'Preguntó en la sucursal' },
-];
+const ORIGENES = ORIGENES_COTIZACION;
 
 @Component({
   selector: 'app-televenta-quote-new',
@@ -142,6 +151,17 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
         <span class="crumb-sep" aria-hidden="true">/</span>
         <h1>Nueva cotización</h1>
       </header>
+
+      <!-- [COT.32] Lo que se cortó (recarga de versión, sesión vencida, navegador cerrado) no se
+           pierde: queda en ESTE navegador y se ofrece aquí. Los precios se vuelven a pedir. -->
+      @if (borradorPendiente(); as b) {
+        <div class="borrador-aviso" role="status">
+          <i class="pi pi-history" aria-hidden="true"></i>
+          <span class="borrador-txt"><b>Tienes una cotización sin terminar</b> · {{ resumenBorrador(b) }}</span>
+          <p-button label="Recuperar" icon="pi pi-replay" size="small" (onClick)="recuperarBorrador()" [disabled]="!misRamas()" />
+          <p-button label="Descartar" severity="secondary" [text]="true" size="small" (onClick)="descartarBorrador()" />
+        </div>
+      }
 
       <!-- Zona de trabajo (izquierda) + riel fijo (derecha: totales, cierre y asistente IA) -->
       <div class="layout">
@@ -616,6 +636,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                     [value]="cantidadArticulo()"
                     (input)="onCantidadTecleada($any($event.target).value)"
                     (keydown.enter)="$event.preventDefault(); agregarABandeja()"
+                    (keydown.escape)="$event.preventDefault(); limpiarArticulo()"
                     (focus)="$any($event.target).select()"
                     [disabled]="guardando()"
                     [attr.aria-label]="'Cantidad en ' + labelUnidadActiva()"
@@ -754,6 +775,13 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
               }
             </div>
           }
+          <!-- [COT.33] La cotización completa sin mouse; los atajos se escriben, no se adivinan. -->
+          <p class="atajos card-body">
+            Teclado: <kbd>/</kbd> buscar artículo · <kbd>↑</kbd><kbd>↓</kbd> y <kbd>Enter</kbd> eligen ·
+            <kbd>Alt</kbd>+<kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> unidad · <kbd>Enter</kbd> agrega · <kbd>Esc</kbd> cambia de artículo ·
+            en los renglones <kbd>↑</kbd><kbd>↓</kbd> cambian de renglón y <kbd>Tab</kbd> llega a quitar ·
+            <kbd>Ctrl</kbd>+<kbd>Enter</kbd> crea la cotización
+          </p>
       </div>
 
       <!-- ── BLOQUE 3: Los renglones, tal cual se verán en la cotización ─────────────────
@@ -936,7 +964,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                 ariaLabel="Crear la cotización y descargar el PDF"
               />
             </div>
-            <a routerLink="/telemarketing/cotizaciones" class="rail-cancel" [class.is-disabled]="guardando()">Cancelar</a>
+            <a routerLink="/telemarketing/cotizaciones" class="rail-cancel" [class.is-disabled]="guardando()" (click)="cancelar($event)">Cancelar</a>
           </div>
         </div>
 
@@ -973,6 +1001,13 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
   `,
   styles: [
     `
+      /* [COT.33] Los atajos, escritos donde se usan (DESIGN §10.7: el atajo que nadie sabe no existe). */
+      .atajos { margin: 0.4rem 0 0; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.7; }
+      .atajos kbd { font-family: var(--font-mono, monospace); font-size: var(--fs-micro); padding: 0 0.3rem; border: 1px solid var(--surface-border); border-radius: 4px; background: var(--surface-ground); color: var(--text-main); }
+      /* [COT.32] El aviso de la cotización que se cortó. */
+      .borrador-aviso { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2, 0.5rem); margin-bottom: var(--sp-3, 0.75rem); padding: 0.5rem 0.75rem; border: 1px solid var(--surface-border); border-radius: var(--radius-md, 8px); background: var(--surface-card); }
+      .borrador-aviso .pi-history { color: var(--action); }
+      .borrador-txt { flex: 1 1 18rem; font-size: var(--fs-sm); }
       /* COT.16: pantalla apaisada. Zona de trabajo + riel fijo a la derecha; cada línea vertical
          cuenta (maqueta aprobada 2026-10-01). Con poco ancho el riel baja debajo de la bandeja.
          [E.29] El ancho se mide contra ESTA pantalla (contenedor cot), no contra la ventana: en
@@ -1281,6 +1316,8 @@ export class TeleventaQuoteNewComponent implements OnInit {
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly toast = inject(MessageService);
   private readonly router = inject(Router);
+  private readonly auth = inject(AuthService);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly TOTAL_MAYOREO = 207;
   readonly origenes = ORIGENES;
@@ -1314,10 +1351,142 @@ export class TeleventaQuoteNewComponent implements OnInit {
     if (!c || !s) return;
     const n = ++this.dirPedida;
     this.svc.direccionesDeCliente(s, c).subscribe({
-      next: (d) => { if (n === this.dirPedida) this.direccionesCliente.set(d); },
+      next: (d) => {
+        if (n !== this.dirPedida) return;
+        this.direccionesCliente.set(d);
+        // [COT.32] La dirección de una cotización recuperada, si sigue existiendo en Kepler.
+        const p = this.direccionPendiente;
+        this.direccionPendiente = null;
+        if (p && d.some((x) => x.key === p)) this.direccionAlta.set(p);
+      },
       error: () => { if (n === this.dirPedida) this.direccionesCliente.set(null); },
     });
   });
+
+  // ── [COT.32] La cotización a medias (ver cotizacion-a-medias.ts) ───────────────────────────
+  private readonly claveBorrador = claveBorrador(this.auth.user()?.sub);
+  /** El borrador que encontró al abrir; mientras se decide, lo nuevo no lo pisa. */
+  readonly borradorPendiente = signal<BorradorCotizacion | null>(leerBorrador(this.claveBorrador));
+  /** Ya se creó en el servidor (o se canceló a propósito): lo que quede no es «a medias». */
+  private creada = false;
+  private direccionPendiente: string | null = null;
+  private vendedorPendiente: string | null = null;
+  private soltarRecarga: (() => void) | null = null;
+
+  /** Hay algo que una recarga tiraría. */
+  readonly hayTrabajo = computed(() => this.bandeja().length > 0 || !!this.cliente() || !!this.contactoNombre().trim());
+
+  /** Se guarda con cada cambio de lo que es señal; lo que es campo plano, al ocultar o salir. */
+  private readonly _autoguardado = effect(() => {
+    this.bandeja(); this.cliente(); this.sucursal(); this.modo(); this.direccionAlta(); this.vendedorSeleccionado(); this.contactoNombre();
+    if (this.borradorPendiente()) return;
+    this.guardarAhora();
+  });
+
+  /** Con trabajo en pantalla la app no se recarga sola por una versión nueva ([SW.2] / CG.205). */
+  private readonly _bloqueoRecarga = effect(() => {
+    if (this.hayTrabajo() && !this.soltarRecarga) this.soltarRecarga = bloquearRecargaAutomatica('cotizacion-a-medias');
+    if (!this.hayTrabajo() && this.soltarRecarga) { this.soltarRecarga(); this.soltarRecarga = null; }
+  });
+
+  private readonly _alOcultar = (() => {
+    const guardar = () => { if (!this.borradorPendiente()) this.guardarAhora(); };
+    const vis = () => { if (document.visibilityState === 'hidden') guardar(); };
+    document.addEventListener('visibilitychange', vis);
+    window.addEventListener('pagehide', guardar);
+    this.destroyRef.onDestroy(() => {
+      document.removeEventListener('visibilitychange', vis);
+      window.removeEventListener('pagehide', guardar);
+      guardar(); // salir por el menú o por sesión vencida
+      this.soltarRecarga?.();
+    });
+    return true;
+  })();
+
+  private guardarAhora(): void {
+    if (this.creada) return;
+    guardarBorrador(this.claveBorrador, {
+      v: VERSION_BORRADOR,
+      guardado: Date.now(),
+      modo: this.modo(),
+      sucursal: this.sucursal(),
+      cliente: this.cliente(),
+      direccion: this.direccionAlta(),
+      vendedor: this.vendedorSeleccionado(),
+      contacto: { nombre: this.contactoNombre(), tel: this.contactoTel, mail: this.contactoMail },
+      origen: this.origen,
+      vigencia: this.vigencia ? isoLocalDate(this.vigencia) : null,
+      lista: this.listaCruda,
+      observaciones: this.observaciones,
+      bandeja: this.bandeja(),
+    });
+  }
+
+  resumenBorrador(b: BorradorCotizacion): string {
+    const quien = b.cliente?.name || b.contacto.nombre.trim() || 'sin cliente';
+    const n = b.bandeja.length;
+    return [quien, n === 1 ? '1 artículo' : n + ' artículos', b.sucursal ? this.branchName(b.sucursal) : null, haceCuanto(b.guardado)]
+      .filter(Boolean).join(' · ');
+  }
+
+  recuperarBorrador(): void {
+    const b = this.borradorPendiente();
+    if (!b) return;
+    const permitida = !!b.sucursal && this.sucursalesPermitidas().some((x) => x.code === b.sucursal);
+    this.modo.set(b.modo);
+    this.contactoNombre.set(b.contacto.nombre);
+    this.contactoTel = b.contacto.tel;
+    this.contactoMail = b.contacto.mail;
+    this.origen = b.origen;
+    // Una vigencia que ya pasó no se recupera: se queda la de hoy + 15 días.
+    const vig = b.vigencia ? new Date(b.vigencia + 'T00:00:00') : null;
+    if (vig && vig >= this.hoy) this.vigencia = vig;
+    this.listaCruda = b.lista;
+    this.observaciones = b.observaciones;
+    this.bandeja.set(b.bandeja);
+    this.vendedorPendiente = b.vendedor;
+    this.borradorPendiente.set(null);
+    if (!permitida) {
+      this.toast.add({ severity: 'warn', summary: 'Recuperada sin sucursal', detail: 'Ya no puedes cotizar en la sucursal de esa cotización: elige una y revisa los precios.' });
+      return;
+    }
+    if (b.sucursal !== this.sucursal()) {
+      this.onSucursalChange(b.sucursal); // existencia, vendedores y precios de esa sucursal
+    } else {
+      this.revisarExistencia();
+      this.repreciarBandeja();
+    }
+    if (b.modo === 'mayoreo' && b.cliente) {
+      this.direccionPendiente = b.direccion;
+      this.cliente.set(b.cliente);
+      this.asignarVendedorSugerido();
+    }
+    this.aplicarVendedorPendiente();
+    this.toast.add({ severity: 'success', summary: 'Cotización recuperada', detail: 'Los precios se vuelven a calcular con los de hoy.' });
+  }
+
+  /** El vendedor que tenía la cotización, cuando el padrón de la sucursal ya llegó y lo trae. */
+  private aplicarVendedorPendiente(): void {
+    const v = this.vendedorPendiente;
+    if (v && this.vendedores().some((x) => x.code === v)) {
+      this.vendedorSeleccionado.set(v);
+      this.vendedorPendiente = null;
+    }
+  }
+
+  descartarBorrador(): void {
+    borrarBorrador(this.claveBorrador);
+    this.borradorPendiente.set(null);
+    this.guardarAhora(); // lo que ya se haya capturado mientras se decidía
+  }
+
+  /** Cancelar es querer tirarla: se pregunta si hay renglones y se borra el borrador. */
+  cancelar(ev: Event): void {
+    if (this.guardando()) { ev.preventDefault(); return; }
+    if (this.bandeja().length && !window.confirm('¿Descartar esta cotización sin terminar?')) { ev.preventDefault(); return; }
+    this.creada = true; // que la salida no la vuelva a guardar
+    borrarBorrador(this.claveBorrador);
+  }
 
   etiquetaDireccion(d: DireccionEntrega | null | undefined): string {
     if (!d) return '';
@@ -1799,6 +1968,7 @@ export class TeleventaQuoteNewComponent implements OnInit {
         this.vendedores.set(list);
         this.cargandoVendedores.set(false);
         this.asignarVendedorSugerido();
+        this.aplicarVendedorPendiente();
       });
   }
 
@@ -1927,6 +2097,21 @@ export class TeleventaQuoteNewComponent implements OnInit {
     const r = this.resultadosArticulos();
     if (!r.length) return;
     this.elegirArticulo(r[this.resaltado()] ?? r[0]);
+  }
+
+  /**
+   * [COT.33] Atajos de la pantalla. «/» lleva al buscador (convención de la suite: Calendario de
+   * pagos, Catálogo digital) sólo fuera de un campo, donde «/» es texto. Alt+1/2/3 eligen la unidad
+   * de menor a mayor (por `code`: con Alt la tecla puede llegar como otro carácter). Ctrl+Enter crea.
+   */
+  @HostListener('document:keydown', ['$event'])
+  onTecla(ev: KeyboardEvent): void {
+    const a = atajoDeTecla(ev, { crear: true });
+    if (!a) return;
+    if (a.tipo === 'buscar') { ev.preventDefault(); this.volverAlBuscador(); return; }
+    if (a.tipo === 'crear') { ev.preventDefault(); if (this.puedeCrear() && !this.guardando()) this.crear(); return; }
+    const o = this.articuloElegido() ? this.opcionesUnidadElegido()[a.indice] : undefined;
+    if (o) { ev.preventDefault(); this.setRung(o.rung); }
   }
 
   setRung(r: Rung): void {
@@ -2329,6 +2514,9 @@ export class TeleventaQuoteNewComponent implements OnInit {
         next: (quote) => {
           const linesAdded = quote.lines ?? 0;
           this.guardando.set(false);
+          // [COT.32] Ya existe en el servidor: deja de ser «a medias».
+          this.creada = true;
+          borrarBorrador(this.claveBorrador);
           this.toast.add({
             severity: 'success',
             summary: `Cotización ${quote.code} generada`,

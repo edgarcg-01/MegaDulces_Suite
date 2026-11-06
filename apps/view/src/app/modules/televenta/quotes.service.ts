@@ -260,6 +260,20 @@ export interface QuoteCheck {
   total_now: number;
 }
 
+/** [COT.34] Lo que se puede cambiar de un borrador (PATCH /:id/header). Ausente = no se toca. */
+export interface CambiosCabecera {
+  erp_customer_code?: string | null;
+  delivery_address_key?: string | null;
+  salesperson_code?: string | null;
+  salesperson_name?: string | null;
+  valid_until?: string;
+  origin?: QuoteOrigin;
+  customer_request?: string | null;
+  contact_name?: string | null;
+  contact_phone?: string | null;
+  contact_email?: string | null;
+}
+
 export interface QuoteDetail {
   id: string;
   code: string;
@@ -270,6 +284,8 @@ export interface QuoteDetail {
   erp_customer_code: string | null;
   /** Nombre del cliente de mayoreo, congelado al crear. Es lo que rotula el entregable. */
   erp_customer_name: string | null;
+  /** Nombre del contacto (prospecto, o quien atiende del cliente). Viaja con q.*. */
+  contact_name?: string | null;
   contact_phone: string | null;
   contact_email: string | null;
   salesperson_code: string | null;
@@ -385,6 +401,11 @@ export class QuotesService {
 
   fijarDireccionEntrega(id: string, key: string | null): Observable<DireccionesCotizacion> {
     return this.http.patch<DireccionesCotizacion>(`${this.base}/${id}/delivery-address`, { delivery_address_key: key });
+  }
+
+  /** [COT.34] Edita la cabecera de un borrador; sólo viajan los campos que cambiaron. */
+  editarCabecera(id: string, cambios: CambiosCabecera): Observable<{ cambiados: string[] }> {
+    return this.http.patch<{ cambiados: string[] }>(`${this.base}/${id}/header`, cambios);
   }
 
   fijarObservaciones(id: string, texto: string | null): Observable<{ order_notes: string | null }> {

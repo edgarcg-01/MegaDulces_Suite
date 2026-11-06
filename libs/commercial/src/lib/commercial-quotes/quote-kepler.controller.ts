@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 
-import { QuoteKeplerService, type DireccionEntrega, type DireccionesCotizacion, type EnvioKepler } from './quote-kepler.service';
+import { QuoteKeplerService, type CambiosCabecera, type DireccionEntrega, type DireccionesCotizacion, type EnvioKepler } from './quote-kepler.service';
 import type { QuienCotiza } from './quote-scope';
 
 /** Lo que `RolesGuard` deja en `request.user`: el mapa y los roles FRESCOS de DB (COT.21). */
@@ -60,6 +60,20 @@ export class QuoteKeplerController {
     @Req() req: ConQuien,
   ): Promise<DireccionesCotizacion> {
     return this.service.fijarDireccion(id, body?.delivery_address_key ?? null, req?.user);
+  }
+
+  @Patch(':id/header')
+  @RequirePermissions(Permission.COMMERCIAL_QUOTES_GESTIONAR)
+  @ApiOperation({
+    summary: '[COT.34] Edita la cabecera de un borrador (cliente, dirección, vendedor, vigencia, origen, contacto, lista del cliente, '
+      + 'observaciones). Sólo antes de que exista en Kepler. Las condiciones del cliente se leen del ERP; la sucursal no se cambia.',
+  })
+  editarCabecera(
+    @Param('id') id: string,
+    @Body() body: CambiosCabecera,
+    @Req() req: ConQuien,
+  ): Promise<{ cambiados: string[] }> {
+    return this.service.editarCabecera(id, body ?? {}, req?.user);
   }
 
   @Patch(':id/order-notes')

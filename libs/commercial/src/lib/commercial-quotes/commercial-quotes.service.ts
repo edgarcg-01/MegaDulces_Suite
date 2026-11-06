@@ -59,6 +59,63 @@ export type QuoteOrigin = 'telemarketing' | 'route_visit' | 'counter' | 'portal'
 /** Vigencia por default cuando quien cotiza no la fija. Es una decisión de negocio, no técnica. */
 const DEFAULT_VALIDITY_DAYS = 15;
 
+/** Lo mínimo de knex que usa `condicionesDelCliente`: así la prueban un doble y una trx real. */
+type ConRaw = { raw: (sql: string, bindings?: Record<string, unknown>) => PromiseLike<{ rows: Record<string, unknown>[] }> };
+
+/** Condiciones del cliente en una sucursal, tal como se congelan en la cotización. */
+export interface CondicionesCliente {
+  source: 'kepler_kdud' | 'manual' | 'unknown';
+  branch: string | null;
+  discount: number | null;
+  credit_limit: number | null;
+  payment_days: number | null;
+  name: string | null;
+}
+
+/**
+ * `[COT.34]` Las condiciones se LEEN del ERP por (código, sucursal) y se congelan; NUNCA se
+ * aceptan del request: si el cliente las mandara, la cotización podría afirmar un descuento que el
+ * ERP nunca dio. La usan el alta y la edición del borrador (cambiar de cliente), con UNA lectura.
+ * Cliente que existe en otra sucursal y no en ésta: nombre sí, condiciones NULL (no 0: ADR-056).
+ */
+export async function condicionesDelCliente(trx: ConRaw, erpCode: string, branch: string): Promise<CondicionesCliente> {
+  const found = await trx.raw(
+    `
+    SELECT name, credit_limit, payment_days, discount_1_pct
+    FROM analytics.v_erp_wholesale_customers
+    WHERE customer_code = :code AND sucursal = :branch
+    `,
+    { code: erpCode, branch },
+  );
+  if (!found.rows.length) {
+    const anyBranch = await trx.raw(
+      `
+      SELECT name
+      FROM analytics.v_erp_wholesale_customers
+      WHERE customer_code = :code
+      LIMIT 1
+      `,
+      { code: erpCode },
+    );
+    if (!anyBranch.rows.length) {
+      throw new NotFoundException(`El cliente ${erpCode} no existe en el padrón de clientes de Kepler.`);
+    }
+    return { source: 'kepler_kdud', branch, discount: null, credit_limit: null, payment_days: null, name: (anyBranch.rows[0]['name'] as string) ?? null };
+  }
+  const r = found.rows[0];
+  const n = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+  return {
+    source: 'kepler_kdud',
+    branch,
+    // NULL se queda NULL: "sin descuento configurado" no es "0% de descuento" hasta que
+    // alguien lo verifique. El 0 lo dibujaría como una decisión que nadie tomó (ADR-056).
+    discount: n(r['discount_1_pct']),
+    credit_limit: n(r['credit_limit']),
+    payment_days: n(r['payment_days']),
+    name: (r['name'] as string) ?? null,
+  };
+}
+
 export interface ListQuotesQuery {
   status?: string;
   origin?: string;
@@ -1023,50 +1080,8 @@ export class CommercialQuotesService {
         payment_days: null as number | null,
         name: null as string | null,
       };
-      if (erpCode) {
-        const found = await trx.raw(
-          `
-          SELECT name, credit_limit, payment_days, discount_1_pct
-          FROM analytics.v_erp_wholesale_customers
-          WHERE customer_code = :code AND sucursal = :branch
-          `,
-          { code: erpCode, branch: dto.source_branch },
-        );
-        if (!found.rows.length) {
-          const anyBranch = await trx.raw(
-            `
-            SELECT name
-            FROM analytics.v_erp_wholesale_customers
-            WHERE customer_code = :code
-            LIMIT 1
-            `,
-            { code: erpCode },
-          );
-          if (!anyBranch.rows.length) {
-            throw new NotFoundException(`El cliente ${erpCode} no existe en el padrón de clientes de Kepler.`);
-          }
-          terms = {
-            source: 'kepler_kdud',
-            branch: String(dto.source_branch),
-            discount: null,
-            credit_limit: null,
-            payment_days: null,
-            name: anyBranch.rows[0].name,
-          };
-        } else {
-          const r = found.rows[0];
-          terms = {
-            source: 'kepler_kdud',
-            branch: String(dto.source_branch),
-            // NULL se queda NULL: "sin descuento configurado" no es "0% de descuento" hasta que
-            // alguien lo verifique. El 0 lo dibujaría como una decisión que nadie tomó (ADR-056).
-            discount: r.discount_1_pct === null ? null : Number(r.discount_1_pct),
-            credit_limit: r.credit_limit === null ? null : Number(r.credit_limit),
-            payment_days: r.payment_days === null ? null : Number(r.payment_days),
-            name: r.name,
-          };
-        }
-      }
+      // `[COT.34]` La misma lectura que la edición del borrador al cambiar de cliente.
+      if (erpCode) terms = await condicionesDelCliente(trx, erpCode, sourceBranch);
 
         // `[COT.26]` La dirección de entrega se puede elegir desde el alta: tiene que ser del
         // cliente en Kepler, en esta sucursal (`kdudent`, la misma lectura que al aceptar).

@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, todayMx } from '@megadulces/platform-core';
 
-import { CommercialQuotesService } from './commercial-quotes.service';
+import { CommercialQuotesService, condicionesDelCliente } from './commercial-quotes.service';
 import { QuotePricingService } from './quote-pricing.service';
 import { KeplerPedidoTlmkSinkAdapter, type PedidoTlmkResultado } from './kepler-pedido-tlmk-sink.adapter';
 import type { QuienCotiza } from './quote-scope';
@@ -51,6 +51,30 @@ interface CabeceraEnvio {
  * Proveedor aparte a propósito: no cambia la firma inyectada de `CommercialQuotesService` ni la
  * del controlador que ya está en producción.
  */
+/** `[COT.34]` Lo que se puede cambiar de un borrador. `undefined` = no se toca; `null` = se borra. */
+export interface CambiosCabecera {
+  erp_customer_code?: string | null;
+  delivery_address_key?: string | null;
+  salesperson_code?: string | null;
+  salesperson_name?: string | null;
+  /** `YYYY-MM-DD`, hoy o después. */
+  valid_until?: string | null;
+  origin?: string;
+  customer_request?: string | null;
+  contact_name?: string | null;
+  contact_phone?: string | null;
+  contact_email?: string | null;
+  order_notes?: string | null;
+}
+
+const ORIGENES = ['telemarketing', 'route_visit', 'counter', 'portal'];
+/** Las únicas columnas que `editarCabecera` escribe: el nombre de columna nunca sale del request. */
+const COLUMNAS_EDITABLES = new Set([
+  'erp_customer_code', 'erp_customer_name', 'terms_source', 'terms_discount_pct', 'terms_credit_limit', 'terms_payment_days',
+  'delivery_address_key', 'contact_name', 'contact_phone', 'contact_email', 'salesperson_code', 'salesperson_name',
+  'valid_until', 'origin', 'customer_request', 'order_notes',
+]);
+
 @Injectable()
 export class QuoteKeplerService {
   private readonly logger = new Logger(QuoteKeplerService.name);
@@ -256,16 +280,111 @@ export class QuoteKeplerService {
     return { direcciones, elegida: limpia, editable: true };
   }
 
+  /**
+   * `[COT.34]` Editar la cabecera de un borrador: cliente, dirección, vendedor, vigencia, origen,
+   * contacto, la lista del cliente y las observaciones. Antes sólo dirección y observaciones se
+   * podían cambiar después de crear; un cliente mal elegido obligaba a cotizar de nuevo.
+   *
+   * Mismos frenos que `fijarDireccion`: sólo antes de que exista en Kepler, sólo borrador o
+   * enviada, quien puede abrirla y escribir en su sucursal. `undefined` = no se toca.
+   *
+   * - **Cliente:** sus condiciones se vuelven a LEER del ERP en la sucursal de la cotización
+   *   (`condicionesDelCliente`, la misma lectura del alta); la dirección del anterior se suelta.
+   *   Los precios de los renglones no dependen del cliente (el % del cliente va sobre la suma).
+   * - **Sucursal:** NO se cambia aquí: precios, existencias, cliente y direcciones son de ella.
+   */
+  async editarCabecera(id: string, cambios: CambiosCabecera, quien?: QuienCotiza | null): Promise<{ cambiados: string[] }> {
+    if (!cambios || typeof cambios !== 'object') throw new BadRequestException('No llegó ningún cambio.');
+    const cab = await this.cabeceraDireccion(id, quien);
+    if (cab.kepler_folio) {
+      throw new BadRequestException(`El pedido ya está en Kepler (folio ${cab.kepler_folio}): los cambios se hacen ahí.`);
+    }
+    if (cab.status !== 'draft' && cab.status !== 'sent') throw new BadRequestException(`La cotización está ${cab.status}: ya no se edita.`);
+    if (!cab.source_branch) throw new BadRequestException('La cotización no tiene sucursal.');
+    await this.quotes.assertEscribeSucursal(cab.source_branch);
+
+    const viene = (k: keyof CambiosCabecera) => Object.prototype.hasOwnProperty.call(cambios, k) && cambios[k] !== undefined;
+    const txt = (v: unknown) => (v === null || v === undefined ? null : String(v).trim() || null);
+    const set: Record<string, unknown> = {};
+
+    let cliente = cab.erp_customer_code?.trim() || null;
+    if (viene('erp_customer_code')) {
+      const nuevo = txt(cambios.erp_customer_code)?.toUpperCase() ?? null;
+      if (nuevo !== cliente) {
+        const t = nuevo ? await this.tk.run((k) => condicionesDelCliente(k, nuevo, cab.source_branch as string)) : null;
+        Object.assign(set, {
+          erp_customer_code: nuevo,
+          erp_customer_name: t?.name ?? null,
+          terms_source: t?.source ?? 'unknown',
+          terms_discount_pct: t?.discount ?? null,
+          terms_credit_limit: t?.credit_limit ?? null,
+          terms_payment_days: t?.payment_days ?? null,
+          delivery_address_key: null, // era del cliente anterior
+        });
+        cliente = nuevo;
+      }
+    }
+    if (viene('delivery_address_key')) {
+      const key = txt(cambios.delivery_address_key);
+      if (key) {
+        if (!cliente) throw new BadRequestException('La dirección de entrega es de un cliente de Kepler: elige primero al cliente.');
+        const dd = await this.leerDirecciones(cab.source_branch, cliente);
+        if (!dd.some((d) => d.key === key)) throw new BadRequestException(`La dirección ${key} no es del cliente ${cliente} en Kepler.`);
+      }
+      set['delivery_address_key'] = key;
+    }
+    for (const k of ['contact_name', 'contact_phone', 'contact_email'] as const) if (viene(k)) set[k] = txt(cambios[k]);
+    const contacto = 'contact_name' in set ? (set['contact_name'] as string | null) : cab.contact_name?.trim() || null;
+    if (!cliente && !contacto && !cab.customer_id) {
+      throw new BadRequestException('La cotización necesita destinatario: un cliente de Kepler o al menos el nombre del contacto.');
+    }
+    if (viene('salesperson_code')) {
+      set['salesperson_code'] = txt(cambios.salesperson_code);
+      set['salesperson_name'] = set['salesperson_code'] ? txt(cambios.salesperson_name) : null;
+    }
+    if (viene('valid_until')) {
+      const v = txt(cambios.valid_until);
+      if (!v || !/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new BadRequestException('La vigencia va como fecha AAAA-MM-DD.');
+      if (v < todayMx()) throw new BadRequestException(`La vigencia (${v}) ya pasó.`);
+      set['valid_until'] = v;
+    }
+    if (viene('origin')) {
+      if (!ORIGENES.includes(String(cambios.origin))) throw new BadRequestException(`origin inválido: ${cambios.origin}`);
+      set['origin'] = cambios.origin;
+    }
+    if (viene('customer_request')) set['customer_request'] = txt(cambios.customer_request);
+    if (viene('order_notes')) {
+      const o = normalizarObservaciones(cambios.order_notes);
+      if (o && o.length > LARGO_OBSERVACIONES) {
+        throw new BadRequestException(`Las observaciones caben en ${LARGO_OBSERVACIONES} caracteres (dos renglones de Comentarios en Kepler); llevan ${o.length}.`);
+      }
+      set['order_notes'] = o;
+    }
+
+    const cols = Object.keys(set).filter((c) => COLUMNAS_EDITABLES.has(c));
+    if (!cols.length) return { cambiados: [] };
+    // Las columnas salen de una lista fija (COLUMNAS_EDITABLES), nunca del request.
+    await this.tk.run((k) => k.raw(
+      `UPDATE commercial.quotes SET ${cols.map((c) => `${c} = :${c}`).join(', ')}, updated_at = now(), updated_by = :u
+        WHERE tenant_id = :t AND id = :id AND deleted_at IS NULL`,
+      { ...set, u: this.tenantCtx.get()?.userId ?? null, t: this.tenantCtx.requireTenantId(), id }));
+    return { cambiados: cols };
+  }
+
   private async cabeceraDireccion(id: string, quien?: QuienCotiza | null) {
     if (!UUID_RX.test(id)) throw new BadRequestException('id inválido');
     await this.quotes.assertPuedeAbrir(id, quien);
     const cab = (await this.tk.run((k) => k.raw(
       `SELECT q.status, q.source_branch, q.erp_customer_code, q.delivery_address_key,
+              q.contact_name, q.customer_id,
               to_jsonb(q) ->> 'kepler_folio' AS kepler_folio
          FROM commercial.quotes q
         WHERE q.tenant_id = :t AND q.id = :id AND q.deleted_at IS NULL`,
       { t: this.tenantCtx.requireTenantId(), id }))).rows[0] as
-      | { status: string; source_branch: string | null; erp_customer_code: string | null; delivery_address_key: string | null; kepler_folio: string | null }
+      | {
+          status: string; source_branch: string | null; erp_customer_code: string | null; delivery_address_key: string | null;
+          contact_name: string | null; customer_id: string | null; kepler_folio: string | null;
+        }
       | undefined;
     if (!cab) throw new NotFoundException('Cotización no encontrada');
     return cab;

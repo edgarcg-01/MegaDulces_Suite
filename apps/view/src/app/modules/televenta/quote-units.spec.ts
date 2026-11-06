@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { abrevUnidadBase, desglose, esPaquete, nombreUnidadBase, opcionesUnidad, paqueteDeCaja, parseCantidad, vendedorDelCliente, descuentoDerivado, descuentoDelMecanismo, textoDescuento, existenciaEnUnidad, tonoFuentePrecio } from './quote-units';
+import { abrevUnidadBase, desglose, esPaquete, gramosDeBase, nombreUnidadBase, opcionesUnidad, paqueteDeCaja, parseCantidad, vendedorDelCliente, descuentoDerivado, descuentoDelMecanismo, textoDescuento, existenciaEnUnidad, tonoFuentePrecio } from './quote-units';
 import { pasosDelPrecio } from './quote-discount-breakdown';
 import { etiquetaDesglose } from './quote-deliverable-export';
 import type { QuoteCatalogRow } from './quotes.service';
@@ -45,7 +45,15 @@ describe('opcionesUnidad — de menor a mayor, sólo las que el ERP declara', ()
 
   it('[COT.30] 70500 (base medio kilo, KG de 2, CJA de 20): el KG sale como «Kilo», no se pierde', () => {
     const o = opcionesUnidad(fila({ unit_base: '500', pack_size: 2, pack_label: 'KG', box_size: 20, box_label: 'CJA' }));
-    expect(o.map((x) => `${x.rung} ${x.titulo} ${x.tamano}`)).toEqual(['base Unidad 1', 'pack Kilo 2', 'box Caja 20']);
+    expect(o.map((x) => `${x.rung} ${x.titulo} ${x.tamano}`)).toEqual(['base Medio kilo 1', 'pack Kilo 2', 'box Caja 20']);
+    // El KG de 2 de Kepler prueba que «500» son gramos: los botones hablan en peso, no en «u.».
+    expect(o.map((x) => x.detalle)).toEqual(['500 g', '1 kg', '10 kg']);
+  });
+
+  it('[COT.30] un «500» sin KG que lo pruebe sigue siendo unidad desconocida', () => {
+    expect(gramosDeBase({ unit_base: '500', pack_label: null, pack_size: null })).toBeNull();
+    expect(gramosDeBase({ unit_base: '500', pack_label: 'KG', pack_size: 3 })).toBeNull();
+    expect(opcionesUnidad(fila({ unit_base: '500' }))[0].titulo).toBe('500');
   });
 
   it('[COT.30] la intermedia sin rótulo o PAQ sigue siendo «Paquete»; el paquete se desglosa en la caja sólo si ES paquete', () => {
@@ -56,8 +64,8 @@ describe('opcionesUnidad — de menor a mayor, sólo las que el ERP declara', ()
 });
 
 describe('unidad base — nunca un rótulo inventado', () => {
-  it('rótulos que el ERP usa como unidad pero no lo son ("500") se muestran como "Unidad"', () => {
-    expect(nombreUnidadBase('500')).toBe('Unidad');
+  it('rótulos que el ERP usa como unidad pero no lo son ("500") se muestran como los dice Kepler, no como "Unidad"', () => {
+    expect(nombreUnidadBase('500')).toBe('500');
     expect(abrevUnidadBase('500')).toBe('u.');
   });
   it('vendido por kilo gana sobre el rótulo', () => {

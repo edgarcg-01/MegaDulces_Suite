@@ -3,7 +3,14 @@
  * en las pantallas de cotización y en el Excel/PDF, y se prueban en `quote-units.spec.ts`.
  * `quotes.service.ts` las re-exporta para no cambiar ninguna importación existente.
  */
-import type { QuoteCatalogRow, Rung } from './quotes.service';
+import type { QuoteCatalogRow, QuoteOrigin, Rung } from './quotes.service';
+
+/** De dónde llegó la cotización, con el rótulo que entiende una persona. Una lista para alta y detalle. */
+export const ORIGENES_COTIZACION: ReadonlyArray<{ value: QuoteOrigin; label: string; hint: string }> = [
+  { value: 'telemarketing', label: 'El cliente mandó su lista', hint: 'Llegó por correo o WhatsApp pidiendo precio' },
+  { value: 'route_visit', label: 'Visita de ruta', hint: 'Se levantó en el punto de venta' },
+  { value: 'counter', label: 'Mostrador', hint: 'Preguntó en la sucursal' },
+];
 
 /**
  * Nombre para mostrar de la unidad mayor (el peldaño `box`). No siempre es "Caja": el granel se
@@ -40,7 +47,8 @@ export function esPaquete(label: string | null | undefined): boolean {
  * Nombre para mostrar de la unidad BASE (el peldaño `base`). Antes el botón decía "Pieza" siempre:
  * el cliente pedía "8 paquetes de gansito" y había que presionar "Pieza · 1 PAQ" (COT.16).
  * Rótulos que el ERP usa como unidad pero no lo son (`500`, `250`, `IND`…) se muestran como
- * "Unidad" — UNIDADES_DE_MEDIDA §7.6: son unidad desconocida, no texto válido.
+ * TAL CUAL los dice Kepler (UNIDADES_DE_MEDIDA §7.6: unidad desconocida). Antes decían «Unidad», que no
+ * nombra nada (lo señaló el PM, 2026-11-06); el rótulo del ERP es el que el capturista ve en Kepler.
  */
 export function nombreUnidadBase(unitBase: string | null | undefined, soldByKg = false): string {
   if (soldByKg) return 'Kilo';
@@ -51,7 +59,7 @@ export function nombreUnidadBase(unitBase: string | null | undefined, soldByKg =
   if (u === 'BTO') return 'Bulto';
   if (u === 'CUB') return 'Cubeta';
   if (u === 'PZA' || u === '') return 'Pieza';
-  return 'Unidad';
+  return u;
 }
 
 /**
@@ -113,6 +121,23 @@ export function desglose(
   return pasos;
 }
 
+/**
+ * `[COT.30]` Gramos de la unidad base cuando el ERP lo DEMUESTRA: rótulo numérico (`500`) y una
+ * intermedia KG cuyo factor la completa a 1,000 g (70500: base `500`, KG de 2). Sin esa prueba el
+ * número sigue siendo unidad desconocida (UNIDADES_DE_MEDIDA §7.6) y se devuelve null.
+ */
+export function gramosDeBase(e: Pick<QuoteCatalogRow, 'unit_base' | 'pack_label' | 'pack_size'>): number | null {
+  const u = (e.unit_base || '').trim();
+  if (!/^\d+$/.test(u) || (e.pack_label || '').trim().toUpperCase() !== 'KG') return null;
+  const g = Number(u);
+  return g > 0 && Math.abs(g * Number(e.pack_size) - 1000) < 0.001 ? g : null;
+}
+
+/** «500 g», «1 kg», «10 kg». */
+function pesoTexto(gramos: number): string {
+  return gramos < 1000 ? `${gramos} g` : `${Math.round((gramos / 1000) * 1000) / 1000} kg`;
+}
+
 /** Un botón de unidad de venta del artículo. */
 export interface OpcionUnidad {
   rung: Rung;
@@ -131,9 +156,11 @@ export interface OpcionUnidad {
  */
 export function opcionesUnidad(e: QuoteCatalogRow): OpcionUnidad[] {
   const base = abrevUnidadBase(e.unit_base, e.sold_by_kg);
-  const enBase = (n: number) => `${n} ${e.sold_by_kg ? 'kg' : base}`;
+  const g = gramosDeBase(e);
+  const enBase = (n: number) => (g ? pesoTexto(n * g) : `${n} ${e.sold_by_kg ? 'kg' : base}`);
+  const tituloBase = g ? (g === 500 ? 'Medio kilo' : pesoTexto(g)) : nombreUnidadBase(e.unit_base, e.sold_by_kg);
   const out: OpcionUnidad[] = [
-    { rung: 'base', titulo: nombreUnidadBase(e.unit_base, e.sold_by_kg), tamano: 1, detalle: enBase(1), icono: 'pi-tag' },
+    { rung: 'base', titulo: tituloBase, tamano: 1, detalle: enBase(1), icono: 'pi-tag' },
   ];
   if (e.pack_size && e.pack_size > 1) {
     out.push({ rung: 'pack', titulo: nombreUnidadIntermedia(e.pack_label), tamano: e.pack_size, detalle: enBase(e.pack_size), icono: 'pi-clone' });

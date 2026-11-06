@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, ElementRef, Injector, OnInit, afterNextRender, computed, inject, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, HostListener, Injector, OnInit, afterNextRender, computed, inject, signal, viewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
@@ -9,7 +9,13 @@ import { ToastModule } from 'primeng/toast';
 import { ProgressSpinnerModule } from 'primeng/progressspinner';
 import { SelectModule } from 'primeng/select';
 import { TextareaModule } from 'primeng/textarea';
+import { DialogModule } from 'primeng/dialog';
+import { AutoCompleteModule } from 'primeng/autocomplete';
+import { DatePickerModule } from 'primeng/datepicker';
+import { InputTextModule } from 'primeng/inputtext';
+import { isoLocalDate } from '../../../shared/util/date-presets.util';
 import { ConfirmationService, MessageService } from 'primeng/api';
+import { atajoDeTecla } from '../quote-atajos';
 import { Subject, debounceTime, distinctUntilChanged, switchMap, catchError, of } from 'rxjs';
 import { escalera, factorDe, type Presentacion } from '@megadulces/ui-web';
 import {
@@ -33,6 +39,10 @@ import {
   type QuoteCheckLine,
   type DireccionEntrega,
   type DireccionesCotizacion,
+  type CambiosCabecera,
+  type QuoteOrigin,
+  type WholesaleCustomer,
+  ORIGENES_COTIZACION,
 } from '../quotes.service';
 import {
   exportQuotePdf,
@@ -91,6 +101,10 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
     ProgressSpinnerModule,
     SelectModule,
     TextareaModule,
+    DialogModule,
+    AutoCompleteModule,
+    DatePickerModule,
+    InputTextModule,
     FreshnessPillComponent,
     QuoteLinesTableComponent,
     ContextHelpComponent,
@@ -186,7 +200,117 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
             <span class="tl-sep" aria-hidden="true"></span>
             <span class="tl"><i class="pi pi-user tl-ico" aria-hidden="true"></i><span class="tl-lbl">Vendedor:</span> <b>{{ vend }}</b></span>
           }
+          <!-- [COT.34] Mientras no esté en Kepler, todo lo de la cabecera se corrige aquí. -->
+          @if (cabeceraEditable()) {
+            <p-button class="tl-editar" label="Editar datos" icon="pi pi-pencil" size="small" [text]="true"
+              (onClick)="abrirEdicion(q)" ariaLabel="Editar cliente, dirección, vendedor, vigencia, origen y contacto" />
+          }
         </div>
+
+        <!-- [COT.34] Editar la cabecera del borrador. La sucursal no se cambia: precios, existencias,
+             cliente y direcciones son de ella. -->
+        <p-dialog header="Editar datos de la cotización" [visible]="edAbierta()" (visibleChange)="edAbierta.set($event)"
+          [modal]="true" [draggable]="false" [style]="{ width: 'min(40rem, 96vw)' }" appendTo="body">
+          <div class="ed-form" (keydown.control.enter)="guardarEdicion()">
+            <div class="ed-grupo">
+              <span class="ed-lbl">Cliente de Kepler <span class="t-sub">({{ nombreSucursal(q.source_branch) }})</span></span>
+              @if (edCliente() && !edBuscando()) {
+                <div class="ed-cliente">
+                  <b class="mono">{{ edCliente()!.code }}</b> <span>{{ edCliente()!.name }}</span>
+                  <p-button label="Cambiar cliente" icon="pi pi-search" size="small" [text]="true" (onClick)="edBuscando.set(true)" />
+                </div>
+              } @else {
+                <p-autocomplete
+                  inputId="edCliente"
+                  [ngModel]="edTermino"
+                  (ngModelChange)="edTermino = $any($event) && $any($event).name ? '' : $event"
+                  [suggestions]="edResultados()"
+                  (completeMethod)="buscarClienteEd($event.query)"
+                  (onSelect)="elegirClienteEd($event.value)"
+                  optionLabel="name"
+                  [delay]="250"
+                  [minQueryLength]="1"
+                  [autoOptionFocus]="true"
+                  [showEmptyMessage]="true"
+                  [fluid]="true"
+                  appendTo="body"
+                  placeholder="Código, nombre o RFC del cliente…"
+                  ariaLabel="Buscar el cliente de Kepler"
+                >
+                  <ng-template #item let-c>
+                    <span><b class="mono">{{ c.customer_code }}</b> {{ c.name }}</span>
+                  </ng-template>
+                  <ng-template #empty>Ningún cliente de {{ nombreSucursal(q.source_branch) }} coincide.</ng-template>
+                </p-autocomplete>
+                @if (edCliente()) {
+                  <p-button label="Dejar el cliente que tenía" size="small" [text]="true" (onClick)="edBuscando.set(false)" />
+                }
+              }
+            </div>
+
+            @if (edCliente()) {
+              <div class="ed-grupo">
+                <label class="ed-lbl" for="edDir">Entregar en</label>
+                @if (edDirecciones(); as dd) {
+                  @if (dd.length) {
+                    <p-select inputId="edDir" [options]="dd" optionValue="key" [ngModel]="edDireccion()" (ngModelChange)="edDireccion.set($event)"
+                      [showClear]="true" placeholder="Sin elegir (se pide antes de mandar a Kepler)" appendTo="body" [fluid]="true">
+                      <ng-template #selectedItem let-o>{{ etiquetaDireccion(o) }}</ng-template>
+                      <ng-template #item let-o>{{ etiquetaDireccion(o) }}@if (o.ruta) { <span class="t-sub"> · ruta {{ o.ruta }}</span> }</ng-template>
+                    </p-select>
+                  } @else {
+                    <span class="t-sub">El cliente no tiene direcciones de entrega en Kepler: se entrega en su domicilio.</span>
+                  }
+                } @else {
+                  <span class="t-sub">Leyendo direcciones…</span>
+                }
+              </div>
+            }
+
+            <div class="ed-fila">
+              <div class="ed-grupo">
+                <label class="ed-lbl" for="edVend">Vendedor</label>
+                <p-select inputId="edVend" [options]="edVendedores()" optionValue="code" optionLabel="etiqueta" [ngModel]="edVendedor()"
+                  (ngModelChange)="edVendedor.set($event)" [filter]="true" filterBy="etiqueta" [showClear]="true" placeholder="Sin vendedor" appendTo="body" [fluid]="true" />
+              </div>
+              <div class="ed-grupo">
+                <label class="ed-lbl" for="edVig">Vigencia hasta</label>
+                <p-datepicker inputId="edVig" [(ngModel)]="edVigencia" [minDate]="hoy" dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body" [fluid]="true" />
+              </div>
+            </div>
+
+            <div class="ed-grupo">
+              <label class="ed-lbl" for="edOrigen">Origen</label>
+              <p-select inputId="edOrigen" [options]="origenes" optionValue="value" optionLabel="label" [(ngModel)]="edOrigen" appendTo="body" [fluid]="true" />
+            </div>
+
+            <div class="ed-fila ed-fila-3">
+              <div class="ed-grupo">
+                <label class="ed-lbl" for="edCNom">Contacto</label>
+                <input pInputText id="edCNom" [(ngModel)]="edContactoNombre" autocomplete="off" />
+              </div>
+              <div class="ed-grupo">
+                <label class="ed-lbl" for="edCTel">Teléfono</label>
+                <input pInputText id="edCTel" [(ngModel)]="edContactoTel" inputmode="tel" autocomplete="off" />
+              </div>
+              <div class="ed-grupo">
+                <label class="ed-lbl" for="edCMail">Correo</label>
+                <input pInputText id="edCMail" [(ngModel)]="edContactoMail" inputmode="email" autocomplete="off" />
+              </div>
+            </div>
+
+            <div class="ed-grupo">
+              <label class="ed-lbl" for="edLista">Mensaje original o lista del cliente</label>
+              <textarea pTextarea id="edLista" rows="3" [(ngModel)]="edLista"></textarea>
+            </div>
+
+            <div class="ed-pie">
+              <span class="t-sub">Atajos: <kbd>Ctrl</kbd>+<kbd>Enter</kbd> guarda · <kbd>Esc</kbd> cierra sin guardar</span>
+              <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="edAbierta.set(false)" [disabled]="edGuardando()" />
+              <p-button label="Guardar cambios" icon="pi pi-check" (onClick)="guardarEdicion()" [loading]="edGuardando()" />
+            </div>
+          </div>
+        </p-dialog>
 
         @if (q.status !== 'draft') {
           <div class="aviso" role="note">
@@ -229,7 +353,10 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
                     (ngModelChange)="onTermino($event)"
                     (focus)="onFoco()"
                     (keydown.escape)="catalogoAbierto.set(false)"
-                    placeholder="Escribe código SKU, código de barras o nombre del producto..."
+                    (keydown.arrowdown)="$event.preventDefault(); moverResaltado(1)"
+                    (keydown.arrowup)="$event.preventDefault(); moverResaltado(-1)"
+                    (keydown.enter)="$event.preventDefault(); elegirResaltado()"
+                    placeholder="Escribe código SKU, código de barras o nombre del producto · ↑↓ y Enter eligen"
                     autocorrect="off"
                     spellcheck="false"
                     [disabled]="guardando()"
@@ -242,14 +369,15 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
                 <!-- Desplegable ordenado por orden alfabético del nombre del producto -->
                 @if (catalogoAbierto() && resultados().length > 0) {
                   <ul class="cat-dropdown" role="listbox" aria-label="Productos de la sucursal en orden alfabético">
-                    @for (p of resultados(); track p.sku) {
+                    @for (p of resultados(); track p.sku; let i = $index) {
                       <li>
                         <button
                           type="button"
                           class="cat-row"
                           role="option"
-                          [attr.aria-selected]="elegido()?.sku === p.sku"
-                          [class.cat-row-active]="elegido()?.sku === p.sku"
+                          [attr.aria-selected]="i === resaltado()"
+                          [class.cat-row-active]="i === resaltado()"
+                          (mouseenter)="resaltado.set(i)"
                           (click)="elegir(p)"
                         >
                           <div class="cat-col-nom">
@@ -348,8 +476,21 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
                         <i class="pi pi-minus" aria-hidden="true"></i>
                       </button>
 
-                      <div class="touch-qty-readout" aria-live="polite">
-                        <span class="qty-num">{{ cantidad }}</span>
+                      <div class="touch-qty-readout">
+                        <!-- [COT.33] La cantidad se TECLEA: con sólo −/+ y presets, 37 costaba 8 pulsaciones. -->
+                        <input
+                          #cantidadInput
+                          type="text"
+                          class="qty-num qty-num-input"
+                          [value]="cantidad"
+                          (input)="onCantidadTecleada($any($event.target).value)"
+                          (keydown.enter)="$event.preventDefault(); agregarConEnter()"
+                          (keydown.escape)="$event.preventDefault(); limpiarEleccion()"
+                          (focus)="$any($event.target).select()"
+                          [attr.inputmode]="admiteFraccionElegido() ? 'decimal' : 'numeric'"
+                          [disabled]="guardando()"
+                          [attr.aria-label]="'Cantidad en ' + labelUnidadActiva()"
+                        />
                         <span class="qty-lbl">{{ labelUnidadActiva() }}{{ cantidad > 1 ? (rung() === 'box' ? 's' : (rung() === 'base' && e.sold_by_kg ? '' : 's')) : '' }}</span>
                       </div>
 
@@ -521,6 +662,12 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
                   </div>
                 }
               }
+              <!-- [COT.33] Agregar sin mouse; los atajos se escriben, no se adivinan. -->
+              <p class="atajos">
+                Teclado: <kbd>/</kbd> buscar artículo · <kbd>↑</kbd><kbd>↓</kbd> y <kbd>Enter</kbd> eligen ·
+                <kbd>Alt</kbd>+<kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> unidad · <kbd>Enter</kbd> agrega · <kbd>Esc</kbd> cambia de artículo ·
+                en los renglones <kbd>↑</kbd><kbd>↓</kbd> cambian de renglón y <kbd>Tab</kbd> llega a quitar
+              </p>
             </div>
           </div>
         }
@@ -947,6 +1094,22 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
         font-variant-numeric: tabular-nums; line-height: 32px;
       }
       .qty-num { font-size: 1rem; font-weight: 800; color: var(--text-main); }
+      /* [COT.33] La cantidad tecleable conserva el aspecto de la lectura que reemplaza. */
+      /* [COT.34] Editar la cabecera del borrador. */
+      .tl-editar { margin-left: auto; }
+      .ed-form { display: flex; flex-direction: column; gap: 0.75rem; }
+      .ed-grupo { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
+      .ed-fila { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 0.75rem; }
+      .ed-lbl { font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted); }
+      .ed-cliente { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
+      .ed-pie { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--border-color); }
+      .ed-pie .t-sub { margin-right: auto; }
+      .ed-pie kbd { font-family: var(--font-mono, monospace); font-size: var(--fs-micro); padding: 0 0.3rem; border: 1px solid var(--surface-border); border-radius: 4px; }
+      .qty-num-input { width: 5rem; text-align: center; font-variant-numeric: tabular-nums; background: transparent; border: 1px solid var(--surface-border); border-radius: 6px; padding: 0.15rem 0.3rem; font-family: inherit; }
+      .qty-num-input:focus-visible { outline: 2px solid var(--action); outline-offset: 1px; }
+      /* [COT.33] Los atajos, escritos donde se usan (DESIGN §10.7). */
+      .atajos { margin: 0.5rem 0 0; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.7; }
+      .atajos kbd { font-family: var(--font-mono, monospace); font-size: var(--fs-micro); padding: 0 0.3rem; border: 1px solid var(--surface-border); border-radius: 4px; background: var(--surface-ground); color: var(--text-main); }
       .qty-lbl { font-size: var(--fs-micro); color: var(--text-muted); text-transform: uppercase; font-weight: 600; }
 
       .touch-presets { display: flex; gap: 0.25rem; flex-wrap: wrap; }
@@ -1137,6 +1300,12 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   readonly elegido = signal<QuoteCatalogRow | null>(null);
   /** El buscador de artículo: al agregar un renglón el cursor vuelve acá para el siguiente. */
   private readonly buscadorArticulo = viewChild<ElementRef<HTMLInputElement>>('buscadorArticulo');
+  /** [COT.33] El campo de cantidad del artículo elegido: recibe el cursor al elegir. */
+  private readonly cantidadInput = viewChild<ElementRef<HTMLInputElement>>('cantidadInput');
+  /** [COT.33] Renglón resaltado de la lista de artículos (↑/↓ + Enter), como en el alta. */
+  readonly resaltado = signal(0);
+  /** [E.20] Fracción sólo si el artículo se pesa y se cotiza en su unidad base. */
+  readonly admiteFraccionElegido = computed(() => !!this.elegido()?.sold_by_kg && this.rung() === 'base');
   /** [E.29] El foco está en el buscador: sólo entonces una respuesta puede abrir la lista. */
   private buscadorEnFoco = false;
 
@@ -1304,6 +1473,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
           return nomA.localeCompare(nomB, 'es', { sensitivity: 'base' });
         });
         this.resultados.set(ordenados);
+        this.resaltado.set(0);
         this.pedirExistenciaBusqueda(this.cot()?.source_branch, ordenados);
         this.buscando.set(false);
         // [E.29] Sólo si la persona sigue en el buscador: una respuesta tardía no la reabre encima.
@@ -1377,6 +1547,166 @@ export class TeleventaQuoteDetailComponent implements OnInit {
     this.elegido.set(p);
     this.catalogoAbierto.set(false);
     this.previa$.next();
+    // [COT.33] Elegido el artículo, el cursor pasa a la cantidad (con el 1 seleccionado).
+    afterNextRender(() => this.cantidadInput()?.nativeElement.focus(), { injector: this.injector });
+  }
+
+  // ── [COT.34] Editar la cabecera del borrador ─────────────────────────────────────────────
+  readonly origenes = ORIGENES_COTIZACION;
+  readonly hoy = new Date(new Date().setHours(0, 0, 0, 0));
+  /** Mientras no esté en Kepler y se pueda escribir en su sucursal. */
+  readonly cabeceraEditable = computed(() => {
+    const q = this.cot();
+    return !!q && !q.kepler_folio && (q.status === 'draft' || q.status === 'sent') && q.branch_writable !== false;
+  });
+  readonly edAbierta = signal(false);
+  readonly edGuardando = signal(false);
+  readonly edCliente = signal<{ code: string; name: string } | null>(null);
+  readonly edBuscando = signal(false);
+  readonly edResultados = signal<WholesaleCustomer[]>([]);
+  readonly edDirecciones = signal<DireccionEntrega[] | null>(null);
+  readonly edDireccion = signal<string | null>(null);
+  readonly edVendedores = signal<Array<{ code: string; etiqueta: string; name: string }>>([]);
+  readonly edVendedor = signal<string | null>(null);
+  edTermino = '';
+  edVigencia: Date | null = null;
+  edOrigen: QuoteOrigin = 'telemarketing';
+  edContactoNombre = '';
+  edContactoTel = '';
+  edContactoMail = '';
+  edLista = '';
+  private edDirPedida = 0;
+  private edOriginal: { cliente: string | null; direccion: string | null; vendedor: string | null; vigencia: string; origen: QuoteOrigin; nombre: string; tel: string; mail: string; lista: string } | null = null;
+
+  abrirEdicion(q: QuoteDetail): void {
+    const cliente = q.erp_customer_code?.trim() || null;
+    this.edCliente.set(cliente ? { code: cliente, name: q.erp_customer_name || cliente } : null);
+    this.edBuscando.set(!cliente);
+    this.edTermino = '';
+    this.edResultados.set([]);
+    this.edDireccion.set(this.direcciones()?.elegida ?? null);
+    this.edVendedor.set(q.salesperson_code?.trim() || null);
+    this.edVigencia = q.valid_until ? new Date(q.valid_until.slice(0, 10) + 'T00:00:00') : null;
+    this.edOrigen = q.origin;
+    this.edContactoNombre = q.contact_name ?? '';
+    this.edContactoTel = q.contact_phone ?? '';
+    this.edContactoMail = q.contact_email ?? '';
+    this.edLista = q.customer_request ?? '';
+    this.edOriginal = {
+      cliente, direccion: this.edDireccion(), vendedor: this.edVendedor(), vigencia: q.valid_until?.slice(0, 10) ?? '',
+      origen: q.origin, nombre: this.edContactoNombre, tel: this.edContactoTel, mail: this.edContactoMail, lista: this.edLista,
+    };
+    this.cargarDireccionesEd(cliente);
+    const suc = q.source_branch;
+    if (suc) {
+      this.svc.listSalespersons(suc).pipe(catchError(() => of([] as Array<{ code: string; name: string }>))).subscribe((l) => {
+        const lista = l.map((v) => ({ ...v, etiqueta: `${v.code} — ${v.name}` }));
+        // El que ya tenía se conserva aunque ya no esté en el padrón: no se borra en silencio.
+        const actual = this.edVendedor();
+        if (actual && !lista.some((v) => v.code === actual)) lista.unshift({ code: actual, name: q.salesperson_name ?? '', etiqueta: `${actual} — ${q.salesperson_name ?? 'fuera del padrón'}` });
+        this.edVendedores.set(lista);
+      });
+    }
+    this.edAbierta.set(true);
+  }
+
+  buscarClienteEd(t: string): void {
+    const suc = this.cot()?.source_branch;
+    if (!suc) return;
+    this.svc.searchWholesaleCustomers((t || '').trim(), 20, suc, true)
+      .pipe(catchError(() => of([] as WholesaleCustomer[])))
+      .subscribe((r) => this.edResultados.set(r));
+  }
+
+  elegirClienteEd(c: WholesaleCustomer): void {
+    this.edCliente.set({ code: c.customer_code, name: c.name });
+    this.edBuscando.set(false);
+    this.edTermino = '';
+    this.edDireccion.set(null); // las direcciones son del cliente: la anterior no aplica
+    this.cargarDireccionesEd(c.customer_code);
+  }
+
+  private cargarDireccionesEd(cliente: string | null): void {
+    const n = ++this.edDirPedida;
+    this.edDirecciones.set(null);
+    const suc = this.cot()?.source_branch;
+    if (!cliente || !suc) { this.edDirecciones.set([]); return; }
+    this.svc.direccionesDeCliente(suc, cliente).subscribe({
+      next: (d) => { if (n === this.edDirPedida) this.edDirecciones.set(d); },
+      error: () => { if (n === this.edDirPedida) this.edDirecciones.set([]); },
+    });
+  }
+
+  guardarEdicion(): void {
+    const o = this.edOriginal;
+    if (!o || this.edGuardando()) return;
+    const c: CambiosCabecera = {};
+    const cliente = this.edCliente()?.code ?? null;
+    if (cliente !== o.cliente) c.erp_customer_code = cliente;
+    if (cliente !== o.cliente || this.edDireccion() !== o.direccion) c.delivery_address_key = this.edDireccion();
+    if (this.edVendedor() !== o.vendedor) {
+      c.salesperson_code = this.edVendedor();
+      c.salesperson_name = this.edVendedores().find((v) => v.code === this.edVendedor())?.name ?? null;
+    }
+    const vig = this.edVigencia ? isoLocalDate(this.edVigencia) : '';
+    if (vig && vig !== o.vigencia) c.valid_until = vig;
+    if (this.edOrigen !== o.origen) c.origin = this.edOrigen;
+    if (this.edContactoNombre.trim() !== o.nombre.trim()) c.contact_name = this.edContactoNombre.trim() || null;
+    if (this.edContactoTel.trim() !== o.tel.trim()) c.contact_phone = this.edContactoTel.trim() || null;
+    if (this.edContactoMail.trim() !== o.mail.trim()) c.contact_email = this.edContactoMail.trim() || null;
+    if (this.edLista.trim() !== o.lista.trim()) c.customer_request = this.edLista.trim() || null;
+    if (!Object.keys(c).length) { this.edAbierta.set(false); return; }
+    this.edGuardando.set(true);
+    this.svc.editarCabecera(this.id, c).subscribe({
+      next: () => {
+        this.edGuardando.set(false);
+        this.edAbierta.set(false);
+        this.toast.add({ severity: 'success', summary: 'Datos guardados', detail: c.erp_customer_code !== undefined ? 'Cliente cambiado: sus condiciones se leyeron de Kepler.' : 'La cotización quedó actualizada.' });
+        this.recargar(true);
+      },
+      error: (err) => {
+        this.edGuardando.set(false);
+        this.toast.add({ severity: 'error', summary: 'No se guardaron los cambios', detail: err?.error?.message || 'El servidor no respondió.' });
+      },
+    });
+  }
+
+  /** [COT.33] ↑/↓ en el buscador mueven el resaltado de la lista sin soltar el teclado. */
+  moverResaltado(delta: number): void {
+    const n = this.resultados().length;
+    if (!n) return;
+    this.catalogoAbierto.set(true);
+    this.resaltado.set((this.resaltado() + delta + n) % n);
+  }
+
+  /** [COT.33] Enter en el buscador elige el resaltado (o el primero). */
+  elegirResaltado(): void {
+    const r = this.resultados();
+    if (r.length) this.elegir(r[this.resaltado()] ?? r[0]);
+  }
+
+  /** [COT.33] La cantidad tecleada, con la misma lectura que el alta (parseCantidad). */
+  onCantidadTecleada(valor: string): void {
+    const q = parseCantidad(valor, this.admiteFraccionElegido());
+    if (q === null) return; // lo tecleado todavía no es una cantidad: se conserva la anterior
+    this.cantidad = q;
+    this.previa$.next();
+  }
+
+  agregarConEnter(): void {
+    if (this.puedeAgregar() && !this.guardando()) this.agregar();
+  }
+
+  /** [COT.33] «/» lleva al buscador (fuera de un campo) y Alt+1/2/3 eligen la unidad. */
+  @HostListener('document:keydown', ['$event'])
+  onTecla(ev: KeyboardEvent): void {
+    if (!this.editable()) return;
+    const a = atajoDeTecla(ev);
+    if (!a) return;
+    if (a.tipo === 'buscar') { ev.preventDefault(); this.volverAlBuscador(); return; }
+    const e = this.elegido();
+    const o = e && a.tipo === 'unidad' ? this.opcionesUnidad(e)[a.indice] : undefined;
+    if (o) { ev.preventDefault(); this.setRung(o.rung); }
   }
 
   limpiarEleccion(): void {
