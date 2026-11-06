@@ -72,6 +72,12 @@ const DEUDA_DECLARADA = [
     motivo: 'MUESTRA la transferencia cancelada marcada como tal (no la suma): necesita verla',
     salida: 'leer la vista para lo vigente y `analytics.kepler_cancelled_docs` para marcar lo cancelado',
   },
+  {
+    rel: rel('libs', 'finance', 'src', 'lib', 'caja', 'caja-cuadre-huecos.query.ts'),
+    n: 1,
+    motivo: '[LE.CU.3] `huecosCorteSinCobro` baja a kdm5 desde el abono de kdm1 ya filtrado sin cancelados (c43 <> C): regla duplicada, no defecto',
+    salida: 'leer la vista y quitar el filtro propio del abono',
+  },
 ];
 
 /** El archivo que documenta la trampa puede nombrarla sin ser culpable de ella. */

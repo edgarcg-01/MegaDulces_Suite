@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import { cierreDelDia } from './saldo-del-libro';
 
 // La forma del 30-oct de una cuenta Banorte en prod, con importes cambiados (el repo es público):

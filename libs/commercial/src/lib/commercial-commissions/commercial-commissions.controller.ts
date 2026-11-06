@@ -5,7 +5,7 @@ import {
   BusinessDefinitionsService,
 } from '@megadulces/platform-core';
 import type { DefinicionVista } from '@megadulces/contracts';
-import { CommercialCommissionsService, type SimulacionEscala, type CorridaConLineas } from './commercial-commissions.service';
+import { CommercialCommissionsService, type SimulacionEscala, type CorridaConLineas, type DesgloseRuta, type DesgloseTickets } from './commercial-commissions.service';
 import { CommissionRecalcService, type RecalcResultado } from './commission-recalc.service';
 import { CommissionContrastService, type FaltoResumen, type FaltoFila } from './commission-contrast.service';
 import {
@@ -444,7 +444,7 @@ export class CommercialCommissionsController {
     @Query('route_code') routeCode: string,
     @Query('period_id') periodId: string,
     @Query('scale_id') scaleId?: string,
-  ) {
+  ): Promise<DesgloseRuta> {
     return this.service.desgloseRuta(routeCode, periodId, scaleId?.trim() || null);
   }
 
@@ -454,7 +454,7 @@ export class CommercialCommissionsController {
     summary: 'RD.111 — Los tickets de una ruta en un día, cada uno con sus renglones',
     description: 'Query: `route_code`, `dia` (YYYY-MM-DD). La suma de los tickets es la venta del día del motor.',
   })
-  desgloseTickets(@Query('route_code') routeCode: string, @Query('dia') dia: string) {
+  desgloseTickets(@Query('route_code') routeCode: string, @Query('dia') dia: string): Promise<DesgloseTickets> {
     return this.service.desgloseTickets(routeCode, dia);
   }
 

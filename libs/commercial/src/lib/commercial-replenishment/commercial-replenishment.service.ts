@@ -2035,7 +2035,7 @@ export class CommercialReplenishmentService {
         'z.suggested_cost DESC NULLS LAST, z.sell_month_mxn DESC, z.on_hand_pieces DESC',
         `LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, pids, binds), binds)).rows;
 
-      const agg: any = crudas[0] || {};
+      const agg: Record<string, unknown> = crudas[0] || {};
       const rows = filasDeProductos(crudas);
       return {
         total: Number(agg._total || 0),
@@ -3633,7 +3633,7 @@ export class CommercialReplenishmentService {
           '(bd.rung_veredicto IS NULL) DESC, bd.transfer_cjs * bd.caja_cost DESC',
           `LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, pids, binds)}`, binds)).rows;
 
-      const agg: any = crudas[0] || {};
+      const agg: Record<string, unknown> = crudas[0] || {};
       const rows = filasDeProductos(crudas);
       return {
         total: Number(agg._total || 0),
@@ -3741,7 +3741,7 @@ export class CommercialReplenishmentService {
           '(ov.rung_veredicto IS NULL) DESC, ov.surplus_cjs * ov.caja_cost DESC',
           `LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, pids, binds)}`, binds)).rows;
 
-      const agg: any = crudas[0] || {};
+      const agg: Record<string, unknown> = crudas[0] || {};
       const rows = filasDeProductos(crudas);
       return {
         total: Number(agg._total || 0),

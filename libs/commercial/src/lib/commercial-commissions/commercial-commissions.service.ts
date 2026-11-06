@@ -77,6 +77,33 @@ export interface ComputeRunOptions {
 }
 
 interface Tier { min_amount: string; max_amount: string | null; pct: string }
+
+/** `[RD.111]` El desglose de UNA ruta en UN periodo (`desgloseRuta`). */
+export interface DesgloseRuta {
+  route_code: string;
+  period: { id: string; anio: number; period_no: number; date_from: string; date_to: string };
+  escala: {
+    id: string; code: string; familia: string; base_field: string; gate_field: string;
+    share_supervisor_pct: number; piso_chofer_venta: number | null;
+    origen: 'linea' | 'vigente_al_cierre' | null;
+    escalones: { min_amount: number; max_amount: number | null; pct: number }[];
+  } | null;
+  bonos: {
+    nombre: string; metrica: string; comparador: string; umbral: number; monto: number;
+    solo_esta_ruta: boolean; gate_venta_min: number | null;
+  }[];
+  dias: unknown[];
+}
+
+/** `[RD.111]` Los tickets de una ruta en un día, con sus renglones (`desgloseTickets`). */
+export interface DesgloseTickets {
+  route_code: string;
+  dia: string;
+  tickets: {
+    clave: string; source: string; consecutivo: string; doc_ref: string | null; cliente: string | null;
+    hora: string | null; forma_pago: string | null; venta: number; renglones: unknown[];
+  }[];
+}
 interface Bonus {
   beneficiario: 'chofer' | 'supervisor';
   nombre: string;
@@ -893,7 +920,7 @@ export class CommercialCommissionsService {
    * La explicación de la línea (escalón → % → parte del chofer → bonos → nómina) la arma la
    * pantalla con la línea que ya tiene y estos escalones: no hay una segunda copia de la regla.
    */
-  async desgloseRuta(routeCode: string, periodId: string, scaleId: string | null) {
+  async desgloseRuta(routeCode: string, periodId: string, scaleId: string | null): Promise<DesgloseRuta> {
     const route = this.rutaValida(routeCode);
     if (!periodId) throw new BadRequestException('period_id requerido');
     return this.tk.run(async (trx) => {
@@ -970,7 +997,7 @@ export class CommercialCommissionsService {
    * ⚠️ El subtotal (sin IVA/IEPS) por renglón NO se calcula aquí: lo deriva la vista por día con
    * la tasa de Kepler, y copiar esa regla dejaría dos versiones. Por renglón va el importe.
    */
-  async desgloseTickets(routeCode: string, dia: string) {
+  async desgloseTickets(routeCode: string, dia: string): Promise<DesgloseTickets> {
     const route = this.rutaValida(routeCode);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dia ?? '')) throw new BadRequestException('dia debe ser YYYY-MM-DD');
     return this.tk.run(async (trx) => {

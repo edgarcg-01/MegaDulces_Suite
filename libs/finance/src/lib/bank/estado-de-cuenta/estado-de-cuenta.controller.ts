@@ -3,6 +3,8 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { EstadoDeCuentaService, type SubirEstadoDeCuentaBody } from './estado-de-cuenta.service';
 
+type Svc = EstadoDeCuentaService;
+
 interface AuthedRequest { user?: { username?: string; full_name?: string }; }
 
 /**
@@ -21,21 +23,21 @@ export class EstadoDeCuentaController {
   @Get()
   @RequirePermissions(Permission.FINANCE_BANK_VER)
   @ApiOperation({ summary: 'Estados de cuenta subidos (del más reciente al más viejo), con su control de saldo.' })
-  list(@Query('limit') limit?: string) {
+  list(@Query('limit') limit?: string): ReturnType<Svc['archivos']> {
     return this.svc.archivos(limit ? Number(limit) : undefined);
   }
 
   @Post('preview')
   @RequirePermissions(Permission.FINANCE_BANK_GESTIONAR)
   @ApiOperation({ summary: 'Lee el archivo (base64) y dice qué entraría: banco, cuenta y cómo se fijó, cuadre de saldo, nuevos vs ya cargados y motivos de bloqueo. No escribe.' })
-  preview(@Body() body: SubirEstadoDeCuentaBody) {
+  preview(@Body() body: SubirEstadoDeCuentaBody): ReturnType<Svc['revisar']> {
     return this.svc.revisar(body);
   }
 
   @Post()
   @RequirePermissions(Permission.FINANCE_BANK_GESTIONAR)
   @ApiOperation({ summary: 'Guarda el estado de cuenta si la revisión no tiene motivos de bloqueo. El mismo archivo dos veces no duplica; los renglones que ya venían en otra descarga tampoco.' })
-  confirm(@Body() body: SubirEstadoDeCuentaBody, @Req() req: AuthedRequest) {
+  confirm(@Body() body: SubirEstadoDeCuentaBody, @Req() req: AuthedRequest): ReturnType<Svc['confirmar']> {
     return this.svc.confirmar(body, req?.user?.full_name || req?.user?.username);
   }
 }
