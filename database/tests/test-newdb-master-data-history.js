@@ -153,8 +153,7 @@ const ck = (l, c, d = '') => {
   // `[CANON.5.7]` Salieron dos que ya no existen: `import-kepler-prices` (borrado en PURGA.P1,
   // y desde entonces esta prueba fallaba por un archivo ausente, no por una firma faltante) e
   // `import-reorder-policy` (retirado: los umbrales `source=kepler` los mantiene el hop-2 de
-  // `services/feeds-ingest`). ⚠️ El hop-2 NO llama a declararActor: lo que escribe queda en la
-  // historia SIN actor. Es deuda con nombre (anexo CANON.5, H11), no algo que esta prueba cubra.
+  // `services/feeds-ingest`). El hop-2 firma con su propio helper (`conActor`): se prueba abajo.
   const fs = require('fs'); const path = require('path');
   const IMPORTERS = ['import-computed-reorder',
     'import-network-reorder', 'import-label-data', 'repoint-catalog-cost',
@@ -167,6 +166,30 @@ const ck = (l, c, d = '') => {
   });
   ck(`los ${IMPORTERS.length} importers de datos maestros declaran quién escriben`, sinFirma.length === 0,
     sinFirma.length ? `sin firmar: ${sinFirma.join(', ')}` : '');
+
+  // ── 2c. [CANON.5.24] El hop-2 también firma (H11) ─────────────────────────────────────
+  // Sus normalizadores escriben catalog.products, product_prices, label_prices y reorder_policy
+  // al llegar cada cambio de Kepler. Dos llamadas los disparan (al momento y la coalescida); las dos
+  // tienen que pasar por `conActor`, y `conActor` tiene que firmar Y devolver lo que había (el mismo
+  // cliente puede ser el de un importer que ya firmó: sink.js corre estos handlers en su proceso).
+  console.log('\n2c · EL HOP-2 FIRMA (CANON.5.24)');
+  const hop2 = fs.readFileSync(path.join(__dirname, '..', '..', 'services', 'feeds-ingest', 'apply-handlers.js'), 'utf8');
+  const llamadasNorm = (hop2.match(/await norm\(client|await st\.fn\(client/g) || []).length;
+  const firmadas = (hop2.match(/conActor\(client, (norm|st\.fn)\.name, \(\) => (norm|st\.fn)\(client/g) || []).length;
+  ck('las 2 llamadas a normalizadores del hop-2 pasan por conActor', llamadasNorm === 0 && firmadas === 2,
+    `sin firmar: ${llamadasNorm} · firmadas: ${firmadas}`);
+  const { conActor } = require('../../services/feeds-ingest/apply-handlers');
+  await declararActor(c, 'importer-previo');
+  const dentro = await conActor(c, 'normalizeCost', async () =>
+    (await q(`SELECT current_setting('app.actor', true) AS a`))[0].a);
+  ck('dentro del normalizador el actor es hop2:<nombre>', dentro === 'hop2:normalizeCost', `leyó "${dentro}"`);
+  const despues = (await q(`SELECT current_setting('app.actor', true) AS a`))[0].a;
+  ck('al salir devuelve el actor que había', despues === 'importer:importer-previo', `leyó "${despues}"`);
+  let propago = false;
+  try { await conActor(c, 'x', async () => { throw new Error('falla del normalizador'); }); } catch { propago = true; }
+  const trasFalla = (await q(`SELECT current_setting('app.actor', true) AS a`))[0].a;
+  ck('si el normalizador falla, el error sale y el actor se restaura', propago && trasFalla === 'importer:importer-previo', `propagó=${propago} actor="${trasFalla}"`);
+  await c.query(`SELECT set_config('app.actor', '', false)`);
 
   // ── 3. No se puede reescribir ─────────────────────────────────────────────────────────
   console.log('\n3 · INMUTABILIDAD');
