@@ -109,89 +109,8 @@ describe('TiendaArqueoComponent · [SM.40] la cajera siempre puede contar', () =
     await tick();
   };
 
-  it('⭐ dos cajas abiertas ya NO esconden la captura — se avisa y se sigue contando', async () => {
-    const aviso: AvisoDobleCaja = {
-      cajas: [
-        { warehouse_code: '07', caja: '1', folio: '14', business_date: '2026-09-29', hora_apertura: '08:00', dias_abierta: 0 },
-        { warehouse_code: '08', caja: '1', folio: '5', business_date: '2026-09-29', hora_apertura: '09:10', dias_abierta: 0 },
-      ],
-      arrastradas: [],
-    };
-    svc.resp = { turnos: [turno()], aviso };
-    cmp.ngOnInit();
-    await tick();
 
-    // El aviso se ve…
-    expect(cmp.aviso()).toEqual(aviso);
-    expect(html()).toContain('Tienes dos cajas abiertas con tu usuario');
-    // …y NO dice que algo quedó bloqueado.
-    expect(html()).not.toContain('bloqueado');
-    // Lo que importa: el formulario de captura sigue en pantalla —antes el
-    // bloqueo lo reemplazaba entero— con el turno ya elegido.
-    //
-    // Se afirma sobre la REJILLA, no sobre el encabezado «Nuevo arqueo»: ese
-    // rótulo lo retiró `cb635e5ed` al darle el alto al conteo, y la prueba se
-    // quedó clavada en él. Llegó roja a `main` porque `Lint & test` es
-    // informativo, no compuerta. La rejilla es lo que de verdad hay que ver:
-    // si el bloqueo volviera a reemplazar la captura, desaparecería.
-    //
-    // [SM.42] La rejilla dejo de ser billetes | monedas y paso a ser UNA lista «Monedas /
-    // billetes»; se afirma sobre esa lista y su total, que es lo que desapareceria.
-    expect(html()).toContain('Monedas / billetes');
-    expect(html()).toContain('Total en efectivo');
-    expect(cmp.turnoSel()?.folio).toBe('87');
-    await contar();
-    expect(cmp.canSubmit()).toBe(true);
-  });
 
-  it('⭐ con varios turnos pendientes se puede elegir CUALQUIERA, no sólo el más viejo', async () => {
-    // El escenario que trabó a 40VMC 235 días: un turno viejo que nadie va a
-    // cerrar, primero en la fila, y el de hoy detrás.
-    svc.resp = {
-      turnos: [
-        turno({ folio: '1', caja: '7', business_date: '2026-01-31', abierto: true }),
-        turno({ folio: '285', caja: '2', business_date: '2026-09-29', abierto: true }),
-      ],
-      aviso: null,
-    };
-    cmp.ngOnInit();
-    await tick();
-
-    // Los DOS son accionables: antes sólo el primero, con el resto `disabled`.
-    expect(turnosPulsables().length).toBe(2);
-    expect(html()).not.toContain('Después de cerrar el anterior');
-
-    // Y elegir el de hoy —el segundo— funciona.
-    const hoy = cmp.turnosOrdenados().find((t) => t.folio === '285');
-    expect(hoy).toBeTruthy();
-    cmp.elegirTurno('285');
-    await contar();
-    expect(cmp.turnoSel()?.folio).toBe('285');
-    expect(cmp.canSubmit()).toBe(true);
-  });
-
-  it('⭐ sin ningún turno la cajera puede contar igual — es el caso de la ingesta caída', async () => {
-    svc.resp = { turnos: [], aviso: null };
-    cmp.ngOnInit();
-    await tick();
-
-    // Se le OFRECE contar a mano (antes el botón sólo existía para el supervisor).
-    expect(html()).toContain('Contar sin turno');
-    expect(cmp.manual()).toBe(false);
-
-    cmp.manual.set(true);
-    cmp.aCaja = '2';
-    await contar();
-
-    expect(cmp.canSubmit()).toBe(true);
-    cmp.submit();
-    await tick();
-    // Va sin folio: queda registrado y sin comparación contra Kepler, que es
-    // exactamente lo que se quiere decir.
-    expect(svc.enviado).toBeTruthy();
-    expect(svc.enviado.cash_cut_folio).toBeUndefined();
-    expect(svc.enviado.caja).toBe('2');
-  });
 
   // ── `[SM.41]` La frescura del DATO, no la del fetch ─────────────────────────────────────
   //
@@ -199,33 +118,7 @@ describe('TiendaArqueoComponent · [SM.40] la cajera siempre puede contar', () =
   // arquear», que se lee igual que «ya contaste todo». Pasó seis días en septiembre de
   // 2026 con 25 cajeras y el turno congelado. Lo que se prueba acá es que la pantalla
   // NUNCA se pinta fresca por omisión: sin latido lo declara, y con el dato viejo lo grita.
-  it('⭐ sin latido del ODS la frescura se DECLARA sin medir — no se pinta fresca', async () => {
-    svc.resp = { turnos: [], aviso: null };   // backend que no manda datos_al
-    cmp.ngOnInit();
-    await tick();
 
-    expect(cmp.datosAl()).toBeNull();
-    expect(html()).toContain('Frescura sin medir');
-    // Y NO se inventa un banner de alarma: no medir no es lo mismo que estar viejo.
-    expect(cmp.odsViejo()).toBeNull();
-  });
-
-  it('⭐ con el dato viejo lo dice, y dice que la lista vacía no significa "ya contaste todo"', async () => {
-    const hace3h = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
-    svc.resp = { turnos: [], aviso: null, datos_al: hace3h, status: 'ok' };
-    cmp.ngOnInit();
-    await tick();
-
-    expect(cmp.odsViejo()).toBeTruthy();
-    expect(html()).toContain('No estamos recibiendo turnos de Kepler');
-    expect(html()).toContain('NO significa que ya contaste todo');
-    // CONTROL POSITIVO: con el dato de hace un minuto, nada de esto aparece.
-    svc.resp = { turnos: [], aviso: null, datos_al: new Date().toISOString(), status: 'ok' };
-    cmp.ngOnInit();
-    await tick();
-    expect(cmp.odsViejo()).toBeNull();
-    expect(html()).not.toContain('No estamos recibiendo turnos de Kepler');
-  });
 
   // ── `[SM.41]` Una alarma que grita en falso enseña a ignorar el tablero ──────────────────
   //
@@ -235,47 +128,7 @@ describe('TiendaArqueoComponent · [SM.40] la cajera siempre puede contar', () =
   // con **2,690 corridas buenas contra 2 fallidas** en 24 h. La franja roja «la ingesta de
   // Kepler está fallando» quedaba encendida más de media jornada sobre un carril que
   // acierta el 99.93 %, y las dos fallas reales eran indistinguibles del ruido.
-  it('⭐ el carril tropezando NO enciende la alarma si el dato está fresco', async () => {
-    svc.resp = { turnos: [], aviso: null, datos_al: new Date().toISOString(), status: 'error' };
-    cmp.ngOnInit();
-    await tick();
 
-    // El dato es de hace un instante: la cajera no puede hacer nada con el tropiezo,
-    // y su conteo se compara igual. No se le ocupa media pantalla con una alarma.
-    expect(cmp.odsViejo()).toBeNull();
-    expect(html()).not.toContain('ingesta');
-
-    // PRUEBA NEGATIVA: el mismo estado de falla CON el dato viejo sí tiene que gritar,
-    // y además explicar por qué está viejo. Si esto pasara en verde, el arreglo habría
-    // apagado la alarma de verdad en vez de apagar el ruido.
-    svc.resp = {
-      turnos: [], aviso: null,
-      datos_al: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(), status: 'error',
-    };
-    cmp.ngOnInit();
-    await tick();
-    expect(cmp.odsViejo()).toBeTruthy();
-    expect(html()).toContain('No estamos recibiendo turnos de Kepler');
-    expect(html()).toContain('La ingesta viene fallando');
-  });
-
-  it('⭐ sin una sola corrida buena lo dice, en vez de callarse', async () => {
-    // `datos_al` nulo CON la ingesta fallando no es «no medí»: es «no hay de dónde
-    // medir». Eso sí se declara, porque la lista puede estar vacía por esa razón.
-    svc.resp = { turnos: [], aviso: null, datos_al: null, status: 'error' };
-    cmp.ngOnInit();
-    await tick();
-
-    expect(cmp.odsViejo()).toBeTruthy();
-    expect(html()).toContain('No sabemos de cuándo es esta lista');
-
-    // CONTROL: el mismo nulo SIN falla declarada se queda en la píldora chica.
-    svc.resp = { turnos: [], aviso: null, datos_al: null, status: 'desconocido' };
-    cmp.ngOnInit();
-    await tick();
-    expect(cmp.odsViejo()).toBeNull();
-    expect(html()).toContain('Frescura sin medir');
-  });
 
   // ── `[SM.41]` `dirty` significaba dos cosas y apagaba tres ──────────────────────────────
   it('⭐ cambiar de pestaña NO cuenta como dinero sin guardar; teclear un billete SÍ', async () => {
@@ -295,8 +148,8 @@ describe('TiendaArqueoComponent · [SM.40] la cajera siempre puede contar', () =
 
   // ── `[SM.41]` «Conté y había $0» es un hecho ────────────────────────────────────────────
   it('⭐ el cajón vacío se puede declarar — antes el botón quedaba apagado para siempre', async () => {
-    svc.resp = { turnos: [turno()], aviso: null };
-    cmp.ngOnInit();
+    // [SM.51] Ya no se elige un turno: se elige la caja.
+    cmp.elegirCaja('2');
     await tick();
 
     // NEGATIVA: sin contar nada y sin declararlo, no se sella.
@@ -403,8 +256,8 @@ describe('TiendaArqueoComponent · [SM.40] la cajera siempre puede contar', () =
   // TODAS las pestanas. Lo que cambia por tipo es la columna de al lado: el retiro muestra sus retiros del turno (no
   // lleva medios), el cierre y las rutas sus medios de pago, el relevo nada.
   const retiroListo = async (): Promise<void> => {
-    svc.resp = { turnos: [turno()], aviso: null };
-    cmp.ngOnInit();
+    // [SM.51] Sin turno de Kepler: la cajera elige su caja.
+    cmp.elegirCaja('2');
     await tick();
     // [SM.49] Un retiro se guarda con concepto: el normal es «Retiro de caja».
     cmp.elegirMenu('retiro:retiro_caja');
@@ -494,8 +347,7 @@ describe('TiendaArqueoComponent · [SM.40] la cajera siempre puede contar', () =
   });
 
   it('⭐ un medio escrito en el cierre NO se cuela al retiro', async () => {
-    svc.resp = { turnos: [turno()], aviso: null };
-    cmp.ngOnInit();
+    cmp.elegirCaja('2');
     await tick();
     cmp.elegirTipo('cierre');
     cmp.onMedioInput('tarjeta', { target: { value: '500' } } as unknown as Event);
@@ -518,19 +370,21 @@ describe('TiendaArqueoComponent · [SM.40] la cajera siempre puede contar', () =
 
   it('⭐ al lado de la lista van los retiros que ya guardó en ESTE turno, y nada más', async () => {
     await retiroListo();
+    const d = new Date();
+    const hoy = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
     const fila = (over: Partial<ArqueoRow>): ArqueoRow => ({
-      id: 'r', tipo: 'retiro', warehouse_code: '01', caja: '2', business_date: '2026-09-29', turno: '01',
+      id: 'r', tipo: 'retiro', warehouse_code: '01', caja: '2', business_date: hoy, turno: '01',
       cajero_code: '10C02', cajero_entrante: null, cajero_nombre: null, total_contado: 0,
       captured_by: '10c02', captured_at: '2026-09-29T15:00:00.000Z', nota: null, incidencia_tipo: null,
-      cash_cut_folio: '87',
+      cash_cut_folio: null,
       ...over,
     });
     cmp.rows.set([
       fila({ id: 'b', secuencia: 2, total_contado: 10500, captured_at: '2026-09-29T16:31:00.000Z' }),
       fila({ id: 'a', secuencia: 1, total_contado: 8000, captured_at: '2026-09-29T15:12:00.000Z' }),
-      // NEGATIVAS: otra caja, otro corte y un cierre no son retiros de este turno.
+      // NEGATIVAS: otra caja, otro día y un cierre no son retiros de esta caja hoy.
       fila({ id: 'x', caja: '7', total_contado: 999 }),
-      fila({ id: 'y', cash_cut_folio: '12', total_contado: 555 }),
+      fila({ id: 'y', business_date: '2026-01-02', total_contado: 555 }),
       fila({ id: 'z', tipo: 'cierre', total_contado: 777 }),
     ]);
     await tick();
@@ -556,66 +410,7 @@ describe('TiendaArqueoComponent · [SM.40] la cajera siempre puede contar', () =
     await tick();
   };
 
-  it('⭐ el buscador encuentra por monto, hora, caja y cajera — y varias palabras acotan', async () => {
-    const a = filaH({ id: 'a', caja: '2', cajero_nombre: 'LUPITA PEREZ', tipo: 'retiro', secuencia: 1, total_contado: 8000 });
-    const b = filaH({ id: 'b', caja: '7', cajero_nombre: 'MARÍA LÓPEZ', total_contado: 10500.5, captured_at: '2026-10-07T22:40:00.000Z' });
-    await historial([a, b]);
-    const ids = (q: string): string[] => { cmp.busqueda.set(q); return cmp.filasVisibles().map((r) => r.id); };
 
-    expect(ids('')).toEqual(['a', 'b']);
-    // Monto, escrito como sea.
-    expect(ids('8000')).toEqual(['a']);
-    expect(ids('8,000')).toEqual(['a']);
-    expect(ids('$10,500.50')).toEqual(['b']);
-    // Hora (la que se ve en la columna).
-    expect(ids(cmp.horaDe(b.captured_at))).toEqual(['b']);
-    // Cajera, sin importar mayúsculas ni acentos.
-    expect(ids('lupita')).toEqual(['a']);
-    expect(ids('maria')).toEqual(['b']);
-    // «caja 7» es la caja 7 — NO la caja 2 de un 7 de octubre (la fecha lleva un 7).
-    expect(ids('caja 7')).toEqual(['b']);
-    // Varias palabras acotan.
-    expect(ids('caja 2 retiro')).toEqual(['a']);
-    expect(ids('caja 2 cierre')).toEqual([]);
-
-    // Sin resultados se DICE, no se deja la tabla muda.
-    cmp.busqueda.set('zzz');
-    await tick();
-    expect(html()).toContain('Ningún arqueo coincide');
-  });
-
-  it('⭐ cada arqueo se reimprime con lo GUARDADO, marcado REIMPRESION, y sigue ciego', async () => {
-    const r = filaH({
-      id: 'r1', tipo: 'retiro', secuencia: 2, total_contado: 10500,
-      denominaciones: [
-        { key: '1000', denominacion: 1000, cantidad: 3, subtotal: 3000, familia: 'billete', label: '$1,000' },
-        { key: '500', denominacion: 500, cantidad: 15, subtotal: 7500, familia: 'billete', label: '$500' },
-      ],
-      medios: { tarjeta: 1234.5 },
-      // Un esperado que la cajera NO puede ver: el papel tampoco.
-      esperado: 99999,
-    });
-    await historial([r]);
-    const antes = document.querySelectorAll('iframe').length;
-
-    // Desde el botón de la fila, como lo usa la cajera.
-    const boton = Array.from((fix.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('button'))
-      .find((x) => (x.getAttribute('aria-label') || '').startsWith('Reimprimir'));
-    expect(boton).toBeTruthy();
-    boton!.click();
-
-    const marcos = document.querySelectorAll('iframe');
-    expect(marcos.length).toBe(antes + 1);
-    const papel = (marcos[marcos.length - 1] as HTMLIFrameElement).contentDocument?.body.textContent ?? '';
-    expect(papel).toContain('REIMPRESION');
-    expect(papel).toContain('RETIRO DE CAJA');
-    // Las denominaciones guardadas (el ticket las rotula sin `$`; el subtotal sí va en pesos).
-    expect(papel).toContain('$3,000.00');
-    expect(papel).toContain('$7,500.00');
-    expect(papel).toContain('Tarjeta');          // los medios guardados viajan en la copia
-    expect(papel).toContain('$10,500.00');
-    expect(papel).not.toContain('99,999');      // ciego: sin esperado para la cajera
-  });
 
   // ── `[SM.44]` La confirmación del corte desglosa pieza por pieza ─────────────────────────
   it('⭐ la confirmación lista cada denominación con piezas e importe, y omite las que van en cero', async () => {
@@ -1095,5 +890,96 @@ describe('TiendaArqueoComponent · [SM.49] menú del tipo de arqueo y concepto d
     const g = cmp.menuTipos();
     expect(g.length).toBe(1);
     expect(g[0].items.map((i) => i.label)).toEqual(['Conteo de efectivo']);
+  });
+});
+
+/**
+ * [SM.51] La cajera escribe SU caja (el equipo la recuerda) y el arqueo se guarda con ella.
+ * Se quitaron la lista de turnos de Kepler, los avisos de arriba y su historial.
+ */
+describe('TiendaArqueoComponent · [SM.51] la caja la elige la cajera', () => {
+  let fix: ComponentFixture<TiendaArqueoComponent>;
+  let cmp: TiendaArqueoComponent;
+  let svc: ArqueoStub;
+  const el = (): HTMLElement => fix.nativeElement as HTMLElement;
+  const tick = async (): Promise<void> => { await fix.whenStable(); await new Promise((r) => setTimeout(r, 0)); fix.detectChanges(); };
+
+  const montar = async (resp: TurnosResp = { turnos: [], aviso: null }) => {
+    svc = new ArqueoStub();
+    svc.resp = resp;
+    await TestBed.configureTestingModule({
+      imports: [TiendaArqueoComponent],
+      providers: [
+        provideRouter([]), provideHttpClient(), provideHttpClientTesting(), MessageService,
+        { provide: ArqueoService, useValue: svc },
+        { provide: AuthService, useValue: { user: () => ({ username: '10c02', warehouse_code: '01', role_name: 'cajero', permissions: { STORE_ARQUEO_CAPTURAR: true, STORE_ARQUEO_VER: true } }), token: () => null } },
+        { provide: PermissionsService, useValue: { isAdmin: () => false, has: () => false } },
+        { provide: DataScopeService, useValue: { warehouses: () => of([{ value: '01', label: 'PADRE HIDALGO' }]) } },
+      ],
+    }).compileComponents();
+    fix = TestBed.createComponent(TiendaArqueoComponent);
+    cmp = fix.componentInstance;
+    fix.detectChanges();
+    await tick();
+  };
+  beforeEach(() => { try { localStorage.clear(); } catch { /* sin almacenamiento */ } });
+
+  it('⭐ la caja se escribe y el arqueo se guarda con ESA caja', async () => {
+    await montar();
+    expect(el().querySelector('.arq-head input.arq-fld-sm')).not.toBeNull();
+    cmp.elegirCaja(' 3 ');
+    cmp.elegirMenu('retiro:retiro_caja');
+    cmp.denomCount['1000'] = 1; cmp.recalc();
+    expect(cmp.canSubmit()).toBe(true);
+    cmp.submit();
+    expect(svc.enviado).toMatchObject({ caja: '3', warehouse_code: '01' });
+    // NEGATIVA: no viaja un folio de Kepler elegido en pantalla (lo pone el servidor por caja + hora).
+    expect(svc.enviado.cash_cut_folio).toBeUndefined();
+  });
+
+  it('⭐ sin caja elegida no se guarda', async () => {
+    await montar();
+    cmp.elegirMenu('retiro:retiro_caja');
+    cmp.denomCount['1000'] = 1; cmp.recalc();
+    expect(cmp.canSubmit()).toBe(false);
+  });
+
+  it('⭐ el equipo recuerda la última caja elegida en esa sucursal', async () => {
+    await montar();
+    cmp.elegirCaja('2');
+    TestBed.resetTestingModule();
+    await montar();
+    expect(cmp.aCaja).toBe('2');
+  });
+
+  it('NEGATIVA: la caja recordada es por sucursal — la de otra tienda no se arrastra', async () => {
+    try { localStorage.setItem('arqueo.caja.07', '9'); } catch { /* idem */ }
+    await montar();
+    expect(cmp.aCaja).toBe('');
+  });
+
+  it('⭐ con turnos de Kepler pendientes, NO se ven ni la lista ni los avisos, y no se preselecciona turno', async () => {
+    await montar({
+      turnos: [turno(), turno({ folio: '88', caja: '3' })],
+      aviso: { cajas: [{ warehouse_code: '01', caja: '1', folio: '1', business_date: '2026-09-29', hora_apertura: '08:00', dias_abierta: 0 }], arrastradas: [{ warehouse_code: '01', caja: '4', folio: '2', business_date: '2026-09-20', hora_apertura: '08:00', dias_abierta: 9 }] },
+    });
+    const t = el().textContent ?? '';
+    expect(t).not.toContain('cortes');
+    expect(t).not.toContain('sin arquear');
+    expect(t).not.toContain('Tienes dos cajas abiertas');
+    expect(t).not.toContain('días anteriores');
+    expect(el().querySelectorAll('button.arq-turno').length).toBe(0);
+    expect(cmp.turnoSel()).toBeNull();
+  });
+
+  it('⭐ la cajera NO tiene historial (ni «Tus cortes de hoy» ni buscador)', async () => {
+    await montar();
+    cmp.rows.set([{ id: 'a', tipo: 'cierre', warehouse_code: '01', caja: '2', business_date: '2026-11-05', turno: null,
+      cajero_code: '10C02', cajero_entrante: null, cajero_nombre: null, total_contado: 500, captured_by: '10c02',
+      captured_at: '2026-11-05T15:00:00.000Z', nota: null, incidencia_tipo: null } as ArqueoRow]);
+    await tick();
+    expect(el().textContent).not.toContain('Tus cortes de hoy');
+    expect(el().querySelector('.arq-hist-bar')).toBeNull();
+    expect(el().querySelector('p-table')).toBeNull();
   });
 });
