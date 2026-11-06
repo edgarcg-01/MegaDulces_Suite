@@ -82,12 +82,11 @@ function cargar() {
 
 const ctxDe = (userId, roleName) => ({ get: () => ({ tenantId: T, userId, roleName }), requireTenantId: () => T });
 
-function pedidos(Orders, trx, userId, rol) {
+function pedidos(Orders, trx, userId, rol, quotes = { ladders: async () => new Map(), priceLine: async () => ({ line_total: null, unit_price: null }) }) {
   const pricing = { resolvePriceForQty: async () => ({ price: 10, tax_rate: 0.16, min_purchase: 1, source: 'list' }) };
   const alerts = { emitLargeOrder: () => undefined, emitOrderConfirmed: () => undefined, emitTo: () => undefined };
   const push = { sendToCustomer: async () => undefined };
   const stock = { reserve: async () => undefined, release: async () => undefined, consume: async () => undefined };
-  const quotes = { ladders: async () => new Map(), priceLine: async () => ({ line_total: null, unit_price: null }) };
   return new Orders({ run: (fn) => fn(trx) }, ctxDe(userId, rol), pricing, {}, alerts, push, stock, quotes);
 }
 
@@ -260,6 +259,25 @@ function pedidos(Orders, trx, userId, rol) {
         const g7 = await trx('commercial.order_lines').where({ order_id: o2.id }).pluck('product_id');
         ok(r7 && r7.added === 2 && g7.includes(CERO) && g7.includes(HAY),
           `el agotado del lote se guarda (no desaparece de un pedido que la sincronización va a colocar): added=${r7 && r7.added}, skipped=${JSON.stringify(r7 && r7.skipped)}`);
+
+        console.log('\n[6] VEX.3 — el legado se cobra con la escalera de Kepler de su GEMELO');
+        // Un motor que SÓLO conoce el sku del gemelo (ZZ316D) y cobra 23.20 con IVA (20 sin IVA). Si el
+        // pedido no resuelve el gemelo, no hay escalera y cae al cálculo anterior (10): ése es el rojo.
+        const pedidosSku = [];
+        const motorGemelo = {
+          ladders: async (_t, branch, skus) => { pedidosSku.push(...(skus || [])); return new Map((skus || []).filter((s) => s === 'ZZ316D').map((s) => [s, { rungs: {} }])); },
+          priceLine: async (_t, a) => (a.sku === 'ZZ316D' ? { line_total: 23.2, unit_price: 20, tax_rate: 0.16 } : { line_total: null, unit_price: null }),
+        };
+        const vendMotor = pedidos(M.Orders, trx, user.id, 'vendedor_ruta', motorGemelo);
+        const o3 = await vendMotor.createDraft({ customer_id: cli.id, warehouse_id: Z1, requested_delivery_date: '2030-01-04' });
+        const l8 = await vendMotor.addLine(o3.id, { product_id: LEGADO, quantity: 1 });
+        const g8 = await trx('commercial.order_lines').where({ id: l8.id }).first('product_id', 'unit_price', 'line_total');
+        ok(pedidosSku.includes('ZZ316D'), `la escalera se pidió con el sku del gemelo (pidió ${JSON.stringify(pedidosSku)})`);
+        ok(g8 && g8.product_id === LEGADO && Number(g8.unit_price) === 20 && Number(g8.line_total) === 23.2,
+          `el renglón GUARDADO del legado lleva el precio de Kepler del gemelo: unit ${g8 && g8.unit_price}, total ${g8 && g8.line_total} (sin gemelo serían 10 / 11.60)`);
+        const l9 = await vendMotor.addLine(o3.id, { product_id: HAY, quantity: 1 });
+        const g9 = await trx('commercial.order_lines').where({ id: l9.id }).first('unit_price');
+        ok(g9 && Number(g9.unit_price) === 10, `NEGATIVA: un producto con su propio sku (ZZ316A) sin escalera cae al cálculo anterior (${g9 && g9.unit_price})`);
       }
 
       throw new Error(RB);
