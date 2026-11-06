@@ -18,6 +18,7 @@ import {
   lecturaDeSucursales,
   noSeManejaAlFinalSql,
   resolverFilaCatalogo,
+  skusDeKepler,
   vistaCanonicaLista,
   type FilaConHechos,
   type LecturaSucursal,
@@ -40,6 +41,7 @@ export interface PeldanoCatalogo {
 
 /** `[VTK.3]` Lo que la escalera le agrega a una fila del catálogo con almacén. */
 interface FilaCatalogoConEscalera {
+  product_id?: string;
   sku?: string | null;
   rungs?: PeldanoCatalogo[];
   units?: Array<{ unit: string; factor: number }>;
@@ -712,7 +714,13 @@ export class CommercialPricingService {
             const branch = String(wh?.kepler_code ?? '').trim();
             if (branch) {
               const filas = rows as FilaCatalogoConEscalera[];
-              const skus = filas.map((r) => String(r.sku ?? '').trim()).filter(Boolean);
+              // [VEX.3] El legado sin sku lee la escalera de su gemelo (el mismo artículo de Kepler),
+              // igual que el motor del pedido: lo que se ve es lo que se cobra.
+              const sinSku = filas.filter((r) => !String(r.sku ?? '').trim()).map((r) => String(r.product_id));
+              const gemelos = sinSku.length ? await skusDeKepler(trx, sinSku) : new Map<string, string>();
+              const skuDe = (r: FilaCatalogoConEscalera) =>
+                String(r.sku ?? '').trim() || gemelos.get(String(r.product_id)) || '';
+              const skus = filas.map(skuDe).filter(Boolean);
               // Con muchas filas se lee la sucursal completa en vez de una lista enorme de IN, y
               // `[VTK.10]` esa lectura (~1.5 s) se sirve como foto de la sucursal. Con pocas filas
               // (búsqueda puntual) se lee en vivo, como antes.
@@ -728,7 +736,7 @@ export class CommercialPricingService {
                 leds = await this.quotePricing.ladders(trx, branch, skus);
               }
               for (const r of filas) {
-                const led = leds.get(String(r.sku ?? '').trim());
+                const led = leds.get(skuDe(r));
                 if (!led) continue;
                 const rungs: PeldanoCatalogo[] = [];
                 const factores = new Set<number>();
