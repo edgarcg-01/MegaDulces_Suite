@@ -162,7 +162,7 @@ Un código sin match también pasa al paso 2 (la hoja acepta el renglón raw, re
 
 ### P2.9 — Unidades de medida de la captura: pieza · paquete · caja · bulto · kg · bolsa de 250 g · bolsa de 500 g (2026-10-19)
 
-> **Estado (2026-11-02): paso 0 ✅ medido · pasos 1 y 2 🧪 en PR (2026-11-04; prueba contra Postgres real 9/9) · pasos 3 y 4 ⬜.** Antes: ⬜ decisiones tomadas el 2026-10-19. Pedido del PM: *«en el módulo de caducidades necesitamos agregar las unidades de medida: pieza, paquete, caja, bulto, kilogramo, 250 gr y 500 gr»*. El PM contestó D1–D6 (§3); lo que sigue en §4 puede empezar, salvo el paso 0 (necesita la cuenta de sólo lectura de prod).
+> **Estado (2026-11-02): paso 0 ✅ medido · pasos 1 y 2 🚀 en prod (2026-11-04, PR #484; uso real aún sin medir) · pasos 3 y 4 ⬜.** Antes: ⬜ decisiones tomadas el 2026-10-19. Pedido del PM: *«en el módulo de caducidades necesitamos agregar las unidades de medida: pieza, paquete, caja, bulto, kilogramo, 250 gr y 500 gr»*. El PM contestó D1–D6 (§3); lo que sigue en §4 puede empezar, salvo el paso 0 (necesita la cuenta de sólo lectura de prod).
 
 ```
 OBJETIVO:  que quien captura una caducidad pueda decir en qué unidad la contó, y que se guarde ESA y no otra
@@ -243,7 +243,7 @@ Script: dos consultas de sólo lectura (`commercial.expiry_review_lines` × `pub
 
 **Lectura:** el problema no es la gente: con 3 de cada 4 productos de base **paquete**, la pantalla no ofrecía «paquete» y obligaba a escoger entre caja y pieza. Lo **no medido**: cuántas de las 28 «caja» eran paquetes, y el efecto en FEFO (paso 4).
 
-#### 4c. Pasos 1 y 2 — lo construido (2026-11-02; 🧪 en PR el 2026-11-04, Postgres real 9/9)
+#### 4c. Pasos 1 y 2 — lo construido (2026-11-02; 🚀 en prod el 2026-11-04, PR #484)
 
 - **Contrato `caducidad-unidad`** (`libs/contracts`): las 7 unidades con etiqueta, singular/plural (de `unidadLegible`, sin vocabulario nuevo), rótulo Kepler, tipo y pista; `unidadDesdeKepler()` reemplaza a `unitHint` (**`PAQ → paquete`**, `250 → g250`, `500 → g500`); `unidadEnTexto()` reemplaza el `${u}s` (que habría dado «g250s»). Spec de 7 pruebas, con la negativa de D2.
 - **Migración `20261102123053`**: amplía el CHECK a las 7, idempotente, sin tocar filas. ⛔ **Va en prod ANTES del código.**

@@ -367,6 +367,34 @@ export interface SheetSyncRunResult {
   total?: number; swept?: number; sin_clasificar?: number;
 }
 
+/** [CB.58] La descarga de la banca: revisar (no escribe) → confirmar. Espejo de `estado-de-cuenta.service.ts`. */
+export type ComoSeFijoLaCuenta = 'en_archivo' | 'saldo_continuo' | 'sin_testigo';
+export interface RevisionEstadoBanco {
+  banco: 'santander' | 'banorte' | 'bbva' | 'banbajio';
+  archivo: string | null; cuenta_en_archivo: string | null; cliente_en_archivo: string | null;
+  cuenta: { id: string; alias: string } | null; como_se_fijo: ComoSeFijoLaCuenta | null;
+  candidatas: { id: string; alias: string; saldo_conocido: number | null; coincide: boolean }[];
+  desde: string | null; hasta: string | null;
+  movimientos: number; nuevos: number; ya_cargados: number;
+  saldo_inicial: number | null; saldo_final: number | null; total_abonos: number; total_cargos: number;
+  cuadra: boolean; eslabones_rotos: number[]; totales_declarados_coinciden: boolean | null;
+  no_leidos: { linea: number; motivo: string }[];
+  motivos_bloqueo: string[]; puede_confirmar: boolean;
+  ya_subido: { archivo_id: string; subido_el: string; subido_por: string | null } | null;
+}
+export interface ArchivoEstadoBanco {
+  id: string; bank: string; alias: string | null; account_label: string; file_name: string | null;
+  date_from: string; date_to: string; lines_in_file: number; lines_new: number;
+  opening_balance: number; closing_balance: number; total_in: number; total_out: number;
+  balance_ok: boolean; declared_ok: boolean | null; account_check: ComoSeFijoLaCuenta;
+  created_at: string; created_by: string | null;
+}
+/** La lista trae tope; `cuentas` no: es cada cuenta de banco activa y hasta dónde llega su descarga. */
+export interface ArchivosDelBanco {
+  archivos: ArchivoEstadoBanco[]; total: number; tope: number;
+  cuentas: { id: string; bank: string; alias: string; hasta: string | null; archivos: number; sin_testigo: number; con_lector: boolean }[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class BankService {
   private readonly http = inject(HttpClient);
@@ -448,6 +476,17 @@ export class BankService {
    */
   importWorkbook(fileBase64: string, period: string, sourceFile: string): Observable<JobAccepted> {
     return this.http.post<JobAccepted>(`${this.base}/import`, { file_base64: fileBase64, period, source_file: sourceFile });
+  }
+
+  // ── CB.58/CB.59 La descarga del banco ──
+  archivosDelBanco(): Observable<ArchivosDelBanco> {
+    return this.http.get<ArchivosDelBanco>(`${this.base}/statement-files`);
+  }
+  revisarEstadoBanco(fileBase64: string, fileName: string, bankAccountId?: string | null): Observable<RevisionEstadoBanco> {
+    return this.http.post<RevisionEstadoBanco>(`${this.base}/statement-files/preview`, { file_base64: fileBase64, file_name: fileName, bank_account_id: bankAccountId || undefined });
+  }
+  confirmarEstadoBanco(fileBase64: string, fileName: string, bankAccountId?: string | null, aceptarSinTestigo = false): Observable<RevisionEstadoBanco & { archivo_id: string; ya_existia: boolean }> {
+    return this.http.post<RevisionEstadoBanco & { archivo_id: string; ya_existia: boolean }>(`${this.base}/statement-files`, { file_base64: fileBase64, file_name: fileName, bank_account_id: bankAccountId || undefined, aceptar_sin_testigo: aceptarSinTestigo || undefined });
   }
 
   // ── CB.6 Admin ──

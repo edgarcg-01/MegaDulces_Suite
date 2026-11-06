@@ -3,7 +3,7 @@ import { signal } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
-import type { HojaGastos, HojasDeGastos, PagoHojaResultado, RenglonHoja } from '@megadulces/contracts';
+import type { GrupoPagadoEnControl, HojaGastos, HojasDeGastos, PagoHojaResultado, RenglonHoja } from '@megadulces/contracts';
 import { FinanzasHojaGastosComponent } from './finanzas-hoja-gastos.component';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { AuthService } from '../../../core/services/auth.service';
@@ -42,9 +42,10 @@ const DATOS = (o: Partial<HojasDeGastos> = {}): HojasDeGastos => ({
       fuera: [{ ...r('08', '0000530', 'CAPITAN DE MARCA', 1050, 'gasto'), motivo: 'apoyo_proveedores' }],
       pagados_aparte: [{ ...r('07', '0000290', 'ESTACION DE SERVICIO TAVISA', 400, 'gasto'), como: 'cajon', cg_folio: 'CG-2026-00600' }],
       instruccion: { retiro: 10780, cajon: 5.89, deposito: 10785.89, referencia: null }, datos_al: '2026-10-29T18:00:00Z',
+      pagado_en_control: [], control_medido: true,
     },
     { zona: 'canindo', nombre: 'Zona Canindo', desde: '2026-10-29', renglones: [], total: 0, por_sucursal: [{ sucursal: '06', renglones: 0, total: 0 }],
-      por_clase: [], fuera: [], pagados_aparte: [], instruccion: null, datos_al: '2026-10-29T18:00:00Z' },
+      por_clase: [], fuera: [], pagados_aparte: [], instruccion: null, datos_al: '2026-10-29T18:00:00Z', pagado_en_control: [], control_medido: true },
   ],
   cerradas: [
     hoja(3, 'pagada', 'u-zona', { ...aprobada, pago: {
@@ -120,6 +121,63 @@ describe('[CGA-A.65] FinanzasHojaGastosComponent', () => {
     expect(Object.keys(req.request.body).sort()).toEqual(['client_key', 'origen_refs', 'venta_del_dia']);
     req.flush(hoja(4, 'cerrada', 'u-zona'));
     http.expectOne((q) => q.url.endsWith('/finance/hoja-gastos')).flush(DATOS());
+  });
+
+  /**
+   * `[CGA-A.70]` La hoja en papel ya pagada: se ve con su retiro de Control, se elige de un clic y se
+   * avisa si se junta con otros pagos (ningún retiro la cuadraría y pagarla sacaría dinero otra vez).
+   *
+   * ⚠️ PRUEBA NEGATIVA (corrida el 2026-11-05): con `mezcla` devolviendo siempre `null` se pone roja la
+   * primera; con `elegirHojaEnPapel` sin tocar la selección, la segunda.
+   */
+  const PAPEL: GrupoPagadoEnControl = {
+    desde: '2026-10-23', hasta: '2026-10-23', sucursales: ['08', '07'], origen_refs: [RENGLONES[0].origen_ref, RENGLONES[2].origen_ref],
+    total: 10180, control: { folio: 'A23714', dia: '2026-10-23', observaciones: 'gnf ma', total: 10180 }, diferencia: 0,
+    caos: { ...RETIRO, total: 10100, cajon: 80, ligados: 2 },
+  };
+  const conPapel = (o: Partial<HojasDeGastos['abiertas'][number]> = {}) => {
+    const d = DATOS();
+    return { ...d, abiertas: [{ ...d.abiertas[0], pagado_en_control: [PAPEL], ...o }, d.abiertas[1]] };
+  };
+
+  it('⭐ [CGA-A.70] la hoja en papel ya pagada se ve con su retiro, marca sus pagos y avisa si se junta con otro', () => {
+    montar([Permission.FINANCE_HOJA_GASTOS_CERRAR], 'u-zona', conPapel());
+    expect(txt()).toContain('Ya pagado con una hoja en papel');
+    expect(txt()).toContain('Retiro de Control A23714 «gnf ma»');
+    expect(txt()).toContain('igual a los pagos');
+    expect(txt()).toContain('de CAOS salieron $10,100.00 y el cajón puso $80.00');
+    expect(txt()).toContain('ya tiene 2 pagos ligados');
+    expect(txt()).toContain('Pagado en papel · A23714');
+    expect(txt()).toContain('Morelia Abastos y Morelia Madero');
+    // Por defecto van los 3: junta la hoja en papel con el de caja chica.
+    expect(txt()).toContain('ya pagada, con 1 pago más');
+    fix.componentInstance.elegir([RENGLONES[0]]);
+    fix.detectChanges();
+    expect(txt()).toContain('Falta 1 pago de la hoja en papel');
+  });
+
+  it('⭐ [CGA-A.70] «Elegir estos pagos» deja sólo los de esa hoja, sin aviso, y el cierre manda exactamente ésos', () => {
+    montar([Permission.FINANCE_HOJA_GASTOS_CERRAR], 'u-zona', conPapel());
+    boton('Elegir estos pagos')!.click();
+    fix.detectChanges();
+    expect(fix.componentInstance.mezcla()).toBeNull();
+    boton('Cerrar hoja')!.click();
+    const req = http.expectOne((q) => q.url.endsWith('/finance/hoja-gastos/morelia/cerrar'));
+    expect(req.request.body.origen_refs).toEqual(PAPEL.origen_refs);
+    expect(req.request.body.venta_del_dia).toBe('2026-10-23');
+    req.flush(hoja(4, 'cerrada', 'u-zona'));
+    http.expectOne((q) => q.url.endsWith('/finance/hoja-gastos')).flush(DATOS());
+  });
+
+  it('[CGA-A.70] sin leer Control lo dice; y una API que todavía no manda el dato no rompe la pantalla', () => {
+    montar([Permission.FINANCE_HOJA_GASTOS_CERRAR], 'u-zona', conPapel({ pagado_en_control: [], control_medido: false }));
+    expect(txt()).toContain('Control sin leer');
+    TestBed.resetTestingModule();
+    const d = DATOS();
+    const { pagado_en_control: _p, control_medido: _c, ...vieja } = d.abiertas[0];
+    montar([Permission.FINANCE_HOJA_GASTOS_CERRAR], 'u-zona', { ...d, abiertas: [vieja as never, d.abiertas[1]] });
+    expect(txt()).toContain('BOTANAS PAU');
+    expect(txt()).not.toContain('Ya pagado con una hoja en papel');
   });
 
   it('NEGATIVA: sin la clave de cerrar no hay botón, y dice quién la cierra', () => {

@@ -1250,7 +1250,8 @@ describe('[RA-NEG.2] el desglose compacto: qué hacer, en pocas palabras', () =>
 describe('[PQ.5] «hoy te toca pedirle a…» en la pestaña Pedido', () => {
   const CICLO = { total: 1049, vencidos: 637, hoy: 24, prox7: 89, prov_vencidos: 180, prov_hoy: 12, page: 1, pageSize: 1, rows: [] };
 
-  it('con vencidos, el aviso nombra proveedores y canales, y marca urgencia', () => {
+  // [PQ.74] Ya no se marca en rojo: las fechas del ciclo son ESTIMADAS (PQ.UI.5) y un rojo diario se aprende a ignorar.
+  it('con vencidos, el aviso nombra proveedores y canales, sin rojo de urgencia', () => {
     const fix = montar(VACIO, CICLO);
     const c = fix.componentInstance;
     expect(c.mode()).toBe('pedido');
@@ -1259,7 +1260,7 @@ describe('[PQ.5] «hoy te toca pedirle a…» en la pestaña Pedido', () => {
     const t = fix.nativeElement.textContent as string;
     expect(t).toContain('Hoy te toca pedirle a 192 proveedores');
     expect(t).toContain('637 canales vencidos');
-    expect(fix.nativeElement.querySelector('.pr-ciclo-urge')).not.toBeNull();
+    expect(fix.nativeElement.querySelector('.pr-ciclo-urge')).toBeNull();
   });
 
   it('⛔ si la consulta FALLA dice «no se pudo medir», nunca «no toca nadie»', () => {
@@ -1479,5 +1480,227 @@ describe('[PQ.44] D33: la sucursal en 0 por estar arriba del reorden lo dice, y 
 
   it('⛔ en o bajo el reorden: no lo dice (ahí sí se pide)', () => {
     expect(montar(VACIO).componentInstance.branchFlags(suc({ exis: 3, rop: 8 }))).not.toContain('arriba del reorden');
+  });
+});
+
+describe('[PQ.72] la cantidad dice la unidad de SU fila (auditoría nivel A, 2026-11-05)', () => {
+  // Medido en prod: el desglose de 17499 (se pide en kg) cerraba en «19,899 cj», y la columna se
+  // llamaba «cajas» mostrando kg y bto. Un rótulo que nombra una unidad y muestra otra se cree.
+  const FUENTE = readFileSync(join(__dirname, 'compras-pedido-real.component.ts'), 'utf8');
+
+  it('⛔ ningún total ni «ya requisado» lleva «cj» fijo', () => {
+    expect(FUENTE).not.toMatch(/sumCajas\(r\) \| number:'1\.0-1' \}\} cj/);
+    expect(FUENTE).not.toMatch(/ya requisado \{\{ pq\.cajas \| number:'1\.0-1' \}\} cj/);
+    expect(FUENTE).not.toMatch(/prodTrCajas\(r\.product_id\) \| number:'1\.0-1' \}\} cj/);
+    expect(FUENTE).not.toMatch(/Σ Ped\.<br\/>cajas/);
+  });
+
+  it('el total por proveedor sólo suma cuando todos comparten unidad (cajas + kilos no es un número)', () => {
+    const c = montar(VACIO).componentInstance;
+    const et = (mayor: string) => ({ mayor }) as never;
+    const spy = vi.spyOn(c, 'etOf');
+    spy.mockImplementation((r: { product_id: string }) => et(r.product_id === 'kg-1' ? 'kg' : 'cj'));
+    const it = (pid: string) => ({ r: { product_id: pid } as never });
+    expect(c.unidadComun([it('a'), it('b')])).toBe('cj');
+    expect(c.unidadComun([it('a'), it('kg-1')])).toBeNull();
+    expect(c.unidadComun([])).toBeNull();
+  });
+});
+
+describe('[PQ.73] el color dice algo o no se usa (auditoría nivel A, 2026-11-05)', () => {
+  const FUENTE = readFileSync(join(__dirname, 'compras-pedido-real.component.ts'), 'utf8');
+  const STRIP = readFileSync(join(__dirname, '../../../shared/components/metric-strip/metric-strip.component.ts'), 'utf8');
+
+  it('⛔ el valor de cada fila no lleva el color de acción', () => {
+    expect(FUENTE).toMatch(/\.pr-ped-on \{ color: var\(--text-main\)/);
+  });
+
+  it('⛔ la cifra en ámbar usa el tono legible (--warn-fg como texto daba 1.95:1)', () => {
+    expect(STRIP).toContain('.ms-item.tone-warn .ms-v { color:var(--warn-soft-fg); }');
+    expect(STRIP).not.toContain('.ms-item.tone-warn .ms-v { color:var(--warn-fg); }');
+  });
+});
+
+describe('[PQ.76] las tres listas: por producto de la página, y los KPIs con el total del servidor', () => {
+  // Medido el 2026-11-05 contra prod: el servidor topaba las tres listas en 500 y la pantalla sumaba
+  // esos 500 como total («A traspasar» $3.5 M de $5.0 M; «Sobrestock» $9.5 M de $13.2 M).
+  type Priv = {
+    trTotal: { (): number | null | undefined };
+    ovTotal: { (): number | null | undefined };
+    urows: { (): Array<{ product_id: string; qty: number; type: string }>; set(v: unknown[]): void };
+    wbRows: { set(v: unknown[]): void };
+    buyRows: { set(v: unknown[]): void }; trRows: { set(v: unknown[]): void }; ovRows: { set(v: unknown[]): void };
+    rebuild(): void;
+    agregarEnriquecimiento(b: unknown[], t: unknown[], o: unknown[]): void;
+    totTr(): number;
+  };
+  const tr = (pid: string, qty: number, cost = 10) => ({ product_id: pid, sku: pid, nombre: pid, to_code: '01', transfer_cajas: qty, unit_cost: cost, uxc: 1 });
+
+  it('⛔ al cargar, pide las tres listas SÓLO para los productos de la página', () => {
+    const vistos: Array<Record<string, unknown>> = [];
+    const espia = (q: Record<string, unknown>) => { vistos.push(q); return of({ rows: [], total_valor: 0 }); };
+    montar({ ...VACIO, rows: [] }, undefined, 'u1', { purchaseSuggestion: espia, transferSuggestion: espia, overstock: espia });
+    expect(vistos).toHaveLength(3);
+    // Página vacía: un id que no existe, para traer los totales sin los 500 primeros de la red.
+    for (const q of vistos) expect(q['product_ids']).toEqual(['00000000-0000-0000-0000-000000000000']);
+  });
+
+  it('⛔ «A traspasar» y «Sobrestock» son el total del servidor, no la suma de lo que viajó', () => {
+    const c = montar(VACIO, undefined, 'u1', {
+      transferSuggestion: () => of({ rows: [tr('p1', 1)], total_valor: 5049069 }),
+      overstock: () => of({ rows: [], total_valor: 13233925 }),
+    }).componentInstance;
+    const k = c.pedidoKpi();
+    expect(k.find((x) => x.label === 'A traspasar')?.value).toBe(5049069);
+    expect(k.find((x) => x.label === 'Sobrestock')?.value).toBe(13233925);
+  });
+
+  it('⛔ si la lista no responde, la cifra se declara («—»), no se dibuja en 0', () => {
+    const c = montar(VACIO, undefined, 'u1', { overstock: () => throwError(() => new Error('500')) }).componentInstance;
+    const s = c.pedidoKpi().find((x) => x.label === 'Sobrestock');
+    expect(s?.value).toBe('—');
+    expect(s?.sub).toBe('no se pudo medir');
+  });
+
+  it('⛔ al paginar se AGREGA lo nuevo sin reconstruir: la cantidad de traspaso editada sobrevive', () => {
+    const c = montar(VACIO).componentInstance as unknown as Priv;
+    c.trRows.set([tr('p1', 4)]); c.buyRows.set([]); c.ovRows.set([]);
+    c.rebuild();
+    const editada = c.urows().find((u) => u.product_id === 'p1');
+    if (!editada) throw new Error('sin p1');
+    editada.qty = 99;   // el comprador la cambió en el desglose
+    c.agregarEnriquecimiento([], [tr('p2', 3)], []);
+    expect(c.urows().find((u) => u.product_id === 'p1')?.qty).toBe(99);
+    expect(c.urows().map((u) => u.product_id)).toEqual(['p1', 'p2']);
+  });
+
+  it('⛔ la barra «En esta página» suma sólo los productos de la página', () => {
+    const c = montar(VACIO).componentInstance as unknown as Priv;
+    c.trRows.set([tr('p1', 2, 10), tr('fuera', 50, 10)]); c.buyRows.set([]); c.ovRows.set([]);
+    c.rebuild();
+    c.wbRows.set([{ product_id: 'p1' }]);
+    expect(c.totTr()).toBe(20);
+  });
+});
+
+describe('[PQ.74] el primer producto se ve al entrar (auditoría nivel A, 2026-11-05)', () => {
+  // Medido en prod a 1366×768: el primer producto empezaba en y=850 y la barra fija tapa desde y=701.
+  // Simulado en la página viva, estos cambios lo dejan en y=583. Aquí se cuida que no vuelvan.
+  const FUENTE = readFileSync(join(__dirname, 'compras-pedido-real.component.ts'), 'utf8');
+
+  it('⛔ las cifras de arriba caben en una fila: sin «SKUs» ni «Cobertura» (los dicen el paginador y el selector)', () => {
+    const labels = montar(VACIO).componentInstance.pedidoKpi().map((k) => k.label);
+    expect(labels).not.toContain('SKUs');
+    expect(labels).not.toContain('Cobertura');
+    expect(labels.length).toBeLessThanOrEqual(6);
+  });
+
+  it('el objetivo de cobertura queda junto a «Días de existencia» (el par «tengo N, quiero M»)', () => {
+    const c = montar({ ...VACIO, totals: { pedido: 0, venta: 3000, exis: 900, venta_costo: 1500 } }).componentInstance;
+    const d = c.pedidoKpi().find((k) => k.label === 'Días de existencia');
+    expect(d?.sub).toMatch(/objetivo/);
+  });
+
+  it('⛔ con «cada sucursal» no hay caja de días: repetía al segmentado', () => {
+    const fix = montar(VACIO);
+    fix.componentInstance.coberturaSucursal = true;
+    fix.detectChanges();
+    expect((fix.nativeElement as HTMLElement).querySelector('.pr-cov p-inputnumber')).toBeNull();
+  });
+
+  it('⛔ sin la pastilla «unificado» y con la frescura dentro del encabezado', () => {
+    const el = montar(VACIO).nativeElement as HTMLElement;
+    expect(el.querySelector('.pr-badge')).toBeNull();
+    expect(el.querySelector('.surf-page-head .pr-fresh')).not.toBeNull();
+  });
+
+  it('⛔ el aire entre bloques es de 8 px (16 + márgenes dejaba el primer producto bajo la barra)', () => {
+    expect(FUENTE).toMatch(/\.pr-page \{ gap: \.5rem; \}/);
+    expect(FUENTE).toMatch(/\.pr-filters \{[^}]*margin-bottom: 0;/);
+  });
+});
+
+describe('[PQ.76] una cifra no medida se PINTA como «—», no como 0', () => {
+  it('⛔ con la lista caída, el strip muestra el guion y no un cero', () => {
+    const fix = montar(VACIO, undefined, 'u1', { overstock: () => throwError(() => new Error('500')) });
+    fix.detectChanges();
+    const items = [...(fix.nativeElement as HTMLElement).querySelectorAll('.ms-item')].map((e) => (e.textContent || '').replace(/\s+/g, ' ').trim());
+    const sob = items.find((t) => t.startsWith('Sobrestock'));
+    expect(sob).toBeDefined();
+    expect(sob).toContain('—');
+    expect(sob).toContain('no se pudo medir');
+    expect(sob).not.toMatch(/\$\s?0\b|\b0\b/);
+  });
+});
+
+describe('[PQ.79] lo que ninguna sucursal pudo calcular se pinta «—», no 0', () => {
+  // Caso real (2026-11-05, 59059 NARANJA BOLI CHICO): las 5 sucursales con peldaño en contra y el
+  // renglón decía «0 cj · $0 · Exist. red 0», y el Total del desglose «0 / 0», con 939 paquetes.
+  const celda = (exis: number, nat: number) => ({ cc: 186.21, mx: 1, nat, rop: 1, vta: 0.5, exis, natu: 'PAQ', rung: 'x1_inflada', tran: 0 });
+  const R59 = {
+    product_id: 'p-59059', sku: '59059', nombre: 'NARANJA BOLI CHICO /20', supplier_id: 's-1', supplier_name: 'OSWALDO PEREZ ARIAS',
+    uxc: '20', caja_cost: '186.21', cells: { '01': celda(1.4, 27), '03': celda(45.3, 905), '08': celda(0.2, 3) },
+    almacenes_sin_pedido: 3, almacenes_sin_valuar: 3, suma_pedido_cajas: null, pedido_valor: null, valor_exis: null, signals: null,
+  };
+  const fila0 = (fix: { nativeElement: HTMLElement }) => fix.nativeElement.querySelector('.pr-wb-tbl > tbody > tr') as HTMLElement;
+
+  it('⛔ con TODAS las sucursales sin calcular, Σ Ped., $ Pedido y Exist. red dicen «—»', () => {
+    const fix = montar({ ...VACIO, total: 1, rows: [R59] });
+    fix.detectChanges();
+    const c = fix.componentInstance;
+    expect(c.sinCalcular(R59 as never)).toBe(true);
+    const tds = [...fila0(fix).querySelectorAll('td')].map((td) => (td.textContent || '').replace(/\s+/g, ' ').trim());
+    // Σ Ped., $ Pedido y Exist. red son las tres celdas después del producto.
+    expect(tds.slice(1, 4)).toEqual(['—', '—', '—']);
+    expect(c.sinCalcularTitle(R59 as never)).toMatch(/Ninguna de las 3 sucursales/);
+  });
+
+  it('con UNA sucursal calculada vuelve el número (la suma parcial lleva su triángulo)', () => {
+    const r = { ...R59, cells: { ...R59.cells, '05': { ...celda(2, 40), rung: null } }, almacenes_sin_valuar: 3 };
+    // El desglose sale de los renglones CARGADOS en la pantalla, no del objeto que se pasa.
+    const c = montar({ ...VACIO, total: 1, rows: [r] }).componentInstance;
+    expect(c.branchBuys(r as never)).toHaveLength(4);
+    expect(c.sinCalcular(r as never)).toBe(false);
+    expect(c.exisRed(r as never)).toBe(2);
+    expect(c.sinCalcularTitle(r as never)).toMatch(/3 de 4 sucursales no/);
+  });
+});
+
+describe('[PQ.80] con el peldaño en contra no hay sugerido, pero SÍ se puede pedir a mano', () => {
+  // Edgar, 2026-11-05: «si necesito pedir el boli naranja no me deja». Una entrada mal capturada en
+  // 8 Esquinas (800 paq por 40) dejaba el renglón entero en «—» en las 5 sucursales.
+  const celda = (exis: number, nat: number) => ({ cc: 186.21, mx: 1, nat, rop: 1, vta: 0.5, exis, natu: 'PAQ', rung: 'x1_inflada', tran: 0 });
+  const R = {
+    product_id: 'p-80', sku: '59059', nombre: 'NARANJA BOLI CHICO /20', supplier_id: 's-1', supplier_name: 'DEMO',
+    uxc: '20', caja_cost: '186.21', cells: { '01': celda(1.4, 27), '08': celda(0.2, 3) },
+    almacenes_sin_pedido: 2, almacenes_sin_valuar: 2, signals: null,
+  };
+
+  it('⛔ el desglose abierto trae el campo para pedir en una sucursal con ⚠', () => {
+    const fix = montar({ ...VACIO, total: 1, rows: [R] });
+    fix.detectChanges();
+    const c = fix.componentInstance;
+    c.toggleRow(R as never);
+    fix.detectChanges();
+    const inputs = (fix.nativeElement as HTMLElement).querySelectorAll('.pr-dx-c-ped input.pr-qty');
+    expect(inputs.length).toBe(2);
+  });
+
+  it('lo capturado cuenta (sin sugerido inventado) y el total deja de ser «—»', () => {
+    const c = montar({ ...VACIO, total: 1, rows: [R] }).componentInstance;
+    const b = c.branchBuys(R as never).find((x) => x.code === '08')!;
+    expect(c.qtyOf(R as never, b)).toBe(0);                 // sin sugerido: no se inventa
+    expect(c.pedidoSinCalcular(R as never)).toBe(true);
+    c.setDispOf(R as never, b, 3 * c.bFactor(R as never, b)); // 3 cajas, en la unidad de captura
+    expect(c.qtyOf(R as never, b)).toBeCloseTo(3);
+    expect(c.sinCalcular(R as never)).toBe(true);           // la existencia sigue sin medirse
+    expect(c.pedidoSinCalcular(R as never)).toBe(false);    // lo pedido es un hecho
+    expect(c.sumValor(R as never)).toBeCloseTo(3 * 186.21);
+  });
+
+  it('el renglón dice por qué no hay sugerido y que se pide a mano', () => {
+    const c = montar({ ...VACIO, total: 1, rows: [R] }).componentInstance;
+    const b = c.branchBuys(R as never)[0];
+    expect(c.branchFlags(b)).toEqual(['sin sugerido · pide a mano']);
   });
 });

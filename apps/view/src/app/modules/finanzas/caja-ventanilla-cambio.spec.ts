@@ -30,7 +30,10 @@ const conClave = (tiene: boolean, admin = false) => {
   TestBed.configureTestingModule({
     providers: [
       provideZonelessChangeDetection(),
-      { provide: PermissionsService, useValue: { has: (p: Permission) => admin || (tiene && p === Permission.FINANCE_CAJA_VENTANILLA), isAdmin: () => admin } },
+      { provide: PermissionsService, useValue: {
+        has: (p: Permission) => admin || (tiene && p === Permission.FINANCE_CAJA_VENTANILLA),
+        hasExplicit: (p: Permission) => tiene && p === Permission.FINANCE_CAJA_VENTANILLA,
+        isAdmin: () => admin } },
       { provide: AuthService, useValue: { user: signal({ permissions: { FINANCE_CAJA_VER: true, FINANCE_CAJA_GESTIONAR: true, FINANCE_CAJA_VENTANILLA: tiene } }) } },
     ],
   });
@@ -68,6 +71,13 @@ describe('[LE.6.9] la Ventanilla toma Caja General por clave', () => {
 
   it('4 · sin la clave, todo sigue como hoy: Captura', () => {
     conClave(false);
+    const tabs = TestBed.createComponent(CajaTabsComponent).componentInstance.tabs;
+    expect(tabs[0]).toMatchObject({ label: 'Captura', route: '/finanzas/caja-general' });
+  });
+
+  it('5 · [negativa] un superadmin SIN la clave explícita sigue en Captura (D23: no opera la caja)', () => {
+    conClave(false, true);
+    expect(TestBed.runInInjectionContext(() => trabajaEnVentanilla({} as Route, []))).toBe(false);
     const tabs = TestBed.createComponent(CajaTabsComponent).componentInstance.tabs;
     expect(tabs[0]).toMatchObject({ label: 'Captura', route: '/finanzas/caja-general' });
   });

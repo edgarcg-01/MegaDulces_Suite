@@ -6,7 +6,7 @@
  * función lo que la cotización habría guardado para esos renglones y tiene que devolver lo que
  * Kepler guardó: `c16` 10,154.17 · `c15` 752.16 · `c14` 0 · `c13` 191.88.
  */
-import { armarPedidoTlmk, type FichaTlmk, type RenglonCotizacion } from './kepler-pedido-tlmk';
+import { armarPedidoTlmk, renglonesObservaciones, type FichaTlmk, type RenglonCotizacion } from './kepler-pedido-tlmk';
 
 const ficha = (nombre: string, unidad: string, factor: number, costo = 10): FichaTlmk =>
   ({ nombre, unidad_base: unidad, iva: 0, ieps: -8, costo_base: costo, factor_presentacion: factor });
@@ -92,5 +92,41 @@ describe('[COT.7.1] falla cerrada: un renglón que no se puede escribir rechaza 
 
   it('sin renglones', () => {
     expect(armarPedidoTlmk([], FICHAS, 0)).toEqual({ ok: false, motivos: ['La cotización no tiene renglones con precio'] });
+  });
+});
+
+describe('[COT.28] observaciones → «Comentarios» c25/c26 (varchar(60) en Kepler)', () => {
+  it('vacío o puros espacios = dos renglones vacíos', () => {
+    expect(renglonesObservaciones('   ')).toEqual(['', '']);
+    expect(renglonesObservaciones(null)).toEqual(['', '']);
+  });
+
+  it('una línea cabe en c25; los saltos de línea se vuelven espacios', () => {
+    expect(renglonesObservaciones('cobrar hoy\npara entregar   hoy mismo')).toEqual(['cobrar hoy para entregar hoy mismo', '']);
+  });
+
+  it('más de 60: corta en el último espacio, sin partir palabras, y ninguno pasa de 60', () => {
+    const t = 'ENTREGAR ANTES DE LAS 10 AM EN LA BODEGA DE ATRAS, PREGUNTAR POR DON JOSE Y COBRAR EN EFECTIVO';
+    const [a, b] = renglonesObservaciones(t);
+    expect(a.length).toBeLessThanOrEqual(60);
+    expect(b.length).toBeLessThanOrEqual(60);
+    expect(`${a} ${b}`).toBe(t);
+  });
+
+  it('una palabra larga sin espacios: corta a 60 exactos', () => {
+    const t = 'X'.repeat(100);
+    expect(renglonesObservaciones(t)).toEqual(['X'.repeat(60), 'X'.repeat(40)]);
+  });
+
+  it('120 justos con el espacio mal puesto: el resto no cabría, corta a 60 y no pierde nada', () => {
+    const t = 'A'.repeat(10) + ' ' + 'B'.repeat(109);
+    const [a, b] = renglonesObservaciones(t);
+    expect(a.length).toBe(60);
+    expect(b.length).toBeLessThanOrEqual(60);
+    expect(a + b).toBe(t);
+  });
+
+  it('más de 120 no se trunca en silencio', () => {
+    expect(() => renglonesObservaciones('Y'.repeat(121))).toThrow(/120/);
   });
 });

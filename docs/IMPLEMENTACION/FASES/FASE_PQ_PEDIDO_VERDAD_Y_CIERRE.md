@@ -1471,6 +1471,338 @@ Pedido. Sube a ✅ cuando esté en prod y se vea en la pantalla viva.
 **Deuda nombrada:** `workbook` tarda 1.9–2.2 s por sucursal y 3–6 s la primera página de toda la
   red, antes y después de estos cambios. Una consulta de más de 500 ms no funciona.
 
+### 17.14 PQ.10, primer paso — lo que sólo se muestra, fuera de la consulta (2026-11-04)
+
+**Dónde se iba el tiempo** (EXPLAIN ANALYZE en prod, sólo lectura, la página que pide la pantalla al
+abrir: toda la red, cobertura de cada sucursal, sólo con pedido, 20 renglones; 2.67 s):
+
+| Pieza | Tiempo | ¿Decide algo? |
+|---|---:|---|
+| escalera de Kepler (`lad`, rótulos y factores de unidad) | ~650 ms | no: sólo se muestra |
+| factor de caja (`vbf`): el CTE copiaba 245,080 filas para cruzar 25,619 | ~400 ms | sí (rótulo nativo de la celda), pero la fuente es una tabla con índice único |
+| etiquetera (`lp`, caja y paquete) | ~370 ms | no: sólo se muestra |
+| armar las celdas (`jsonb_object_agg` sobre 3,208 productos) | ~400 ms | sí |
+| `base` (plan × productos × políticas) | ~800 ms | sí |
+
+**Hecho** (código, sin cambio de negocio): la escalera y la etiquetera se leen en una consulta
+aparte, con `= ANY(…)`, sólo para los renglones devueltos (`rotulosDePagina`); con la copia
+materializada, `vbf` se une directo a la tabla.
+⛔ **Primer intento descartado:** unirlas a la página en SQL. Con proveedor, el planificador volvió a
+calcular la etiquetera una vez por renglón (185 × 110 ms = **19 s**, contra 1.5 s antes). En consulta
+aparte no hay plan que elegir.
+
+**Medido** con las dos versiones en el mismo proceso, contra prod (sólo lectura), 10 escenarios:
+**respuesta idéntica en los 10** (la única diferencia que apareció era deriva del dato: corriendo
+antes-después-antes salió igual). Tiempos, antes → después:
+
+| Escenario | Antes | Después |
+|---|---:|---:|
+| red, página 1 | 2.67 s | 2.20 s |
+| red, sin «sólo con pedido» | 2.68 s | 2.02 s |
+| un proveedor (185 renglones) | 1.55 s | 0.99 s |
+| una sucursal | 1.37 s | 0.79 s |
+| agotados | 4.88 s | 3.55 s |
+| página de 1,000 | 3.86 s | 2.71 s |
+| exportación | 2.85 s | 2.49 s |
+
+Prueba: `rotulos-pagina.spec.ts` (5), con mutante muerto (caja ← paquete: rojo).
+
+**PQ.10 sigue 🔨: ninguna de estas llega a 500 ms.** Lo que queda (~2 s en la red) es lo que sí
+decide el pedido: `base` y el armado de celdas sobre todo el catálogo, que la pantalla necesita para
+los totales y el orden. Bajarlo de verdad es mantener el resultado por evento (como PQ.61 con la
+venta diaria), no reescribir la consulta: es diseño, va con su propia medición.
+
+### 17.15 PQ.55 — cuánto se abre cada vista de Pedido (2026-11-05)
+
+**La fuente no son los logs** (que seguían bloqueados), sino `analytics.ui_usage` y
+`analytics.ui_usage_users`. Las llena el interceptor de uso (`usage-metrics.interceptor.ts`) con el
+patrón de cada ruta, por día, rol y usuario, desde el 30-sep. Lectura de sólo lectura contra prod
+(sysid verificado), 30 días al 5-nov. **Control:** el 23-oct se publicó `workbook` con 3,734 hits.
+La tabla da 3,901 entre el 30-sep y el 23-oct. La diferencia cabe en el resto del día 23 y en que
+la ventana del 23-oct era más corta.
+
+⛔ **Trampa en el conteo crudo:** `worklist` da 630 hits y 22 personas, pero desde PQ.5 (23-oct)
+Pedido lo llama **cada vez que se abre**, con `pageSize: 1`, para el aviso «hoy te toca». La
+señal limpia del Ciclo es `worklist/proveedores`, que sólo carga la agenda de esa pestaña. Las
+otras tres también pueden cargar solas al restaurar la última vista guardada, así que sus cifras
+son un **techo**.
+
+| Vista | Llamadas en 30 d | De roles de Compras | Personas sin contar superadmin | Desde |
+|---|---:|---:|---:|---|
+| Pedido (`workbook`) | 5,994 | 4,996 | 23 | — |
+| Ciclo (agenda, `worklist/proveedores`) | 26 | 22 | 3 | 23-oct (nació con PQ.4) |
+| Stock muerto (`dead-stock`) | 20 | 13 | 4 | — |
+| Sobrante (`sobrante`) | 8 | 3 | 4 | — |
+| Flujo (`purchase-flow`) | 4 | 1 | 1 | último uso 22-oct |
+
+**Lectura.** Por cada vez que alguien de Compras abre Sobrante, abre Pedido más de mil veces. El
+Ciclo es distinto: su agenda existe desde hace 13 días, la abrieron tres compradores en seis días, y
+el aviso de Pedido es lo que lleva a ella. Se deja y se vuelve a medir el 5-dic.
+
+**D34 (propuesta, sin firma).** Quitar de Pedido las pestañas Stock muerto, Sobrante y Flujo:
+- **Sobrante** entra a la fila con PQ.UI.11: la celda ya trae `surplus_network` y `transfer_in`.
+- **Stock muerto** tiene su pantalla en `/almacen/dead-stock`. Antes de quitarlo hay que comparar
+  las dos fuentes (`replenishment/dead-stock` contra `analytics/dead-stock`), porque no son el mismo
+  endpoint.
+- **Flujo** se queda en su ruta propia.
+
+El corte lo hace **PQ.71**, una vez que la auditoría en pantalla (PQ.56) confirme que nada que
+importe vive sólo ahí. Lo que se gana: cinco vistas pasan a dos, y ~210 líneas de plantilla salen
+del componente (Sobrante 166, Stock muerto 38, Flujo 3; la lógica que las carga, NO MEDIDA). La
+ganancia es de comprensión (dos pestañas menos que nadie abre), no de tamaño.
+
+**De paso, la línea base real de PQ.10.** Es lo que ve la gente, antes del primer paso (que todavía
+no está desplegado):
+- `workbook` promedia 1.6–1.8 s por día de trabajo, del 26-oct al 5-nov.
+- Su máximo diario va de 4 a 10 s.
+- En los 30 días hubo una llamada de 192 s.
+
+Cuando PQ.10 llegue a prod, ésta es la cifra contra la que se compara, con la misma tabla.
+
+### 17.16 PQ.56 — auditoría nivel A de Pedido (2026-11-05)
+
+**Evidencia: nivel A.** La pantalla corrió en prod (build `381ef5860`) con Chromium a 1366×768, en
+claro, oscuro y `forced-colors`.
+- **Sesión:** `superadmin`, no un usuario de Compras. Lo que depende del rol queda NO MEDIDO.
+- **Blindaje:** service worker bloqueado y toda petición que no fuera GET abortada, salvo el login.
+  Control: un `POST` lanzado desde la página salió `ABORTADO`. En las cuatro corridas sólo se
+  abortó la telemetría.
+- **Trampa evitada:** la primera `tbody tr` de la página es la bandeja «Lo pedido», con botones
+  Aprobar/Rechazar en un panel cerrado. El recorrido se apunta a `.pr-wb-tbl`, nunca a «la primera
+  fila».
+- **Contraste:** calculado de los estilos reales con un instrumento que acierta sus dos controles
+  (21.00 y 4.48).
+
+**Las cinco preguntas (diseno §0b), contestadas con la pantalla viva:**
+1. *Qué ve al entrar.* Siete cifras del mismo tamaño, el aviso del Ciclo, los filtros y el aviso
+   de «sin valuar». **Ni un producto:** el primero empieza a 850 px, en una ventana de 768.
+2. *Qué no debería ver.* El aviso rojo de 249 canales vencidos (PQ.UI.5 sigue vigente), la
+   pastilla «UNIFICADO» y la cobertura dos veces.
+3. *Accesibilidad.* El contraste pasa salvo en una cifra. Teclado, objetivos de 44 px y lector de
+   pantalla: NO MEDIDOS.
+4. *Liga a otro proceso.* «ya requisado 580 cj · 3 veces» sí liga. «Entrega: capturarlo en otra
+   pestaña» manda fuera.
+5. *¿Le toca?* Sí. Sobre las tres pestañas de D34 no se juzga aquí (§17.15).
+
+**Hallazgos, del más caro al más barato:**
+
+| # | Capa | Hallazgo | Item |
+|---|---|---|---|
+| 1 | Veracidad | **La primera fila de Pedido es la bolsa 17499: 19,899 kg, $686,118 a comprar.** Sale de una sola venta (PQ.47). La fila no lo dice, y «Agregar a la requisición · $686,118» queda a un clic | PQ.47, espera **D31** |
+| 2 | Veracidad | **El rótulo dice cajas y la celda no lo es.** La columna se llama «Σ Ped. cajas» y muestra kg o bto. En el desglose de 17499, el total dice «19,899 cj» de un producto que se pide en kg | **PQ.72** |
+| 3 | Comprensión | **La primera pantalla es puro marco.** Las 7 cifras miden 24.8 px (aplanamiento, §Q.5). La cobertura se elige dos veces: una caja de texto truncada («cada su…») y un segmentado. El aviso del Ciclo va en rojo | **PQ.74** |
+| 4 | Accesibilidad | **«Sobrestock $9,579,351» en ámbar sobre claro: 1.95:1** (texto grande, pide 3:1). Se le escapó a PQ.52 | **PQ.73** |
+| 5 | Carga | **El color de acción se usa como decoración.** «$ Pedido» va en `--action` en todas las filas. ⛔ **Corrección:** al leer el código resultó que no es el rojo de error, sino el sunset de la marca, que en pantalla se ve rojo. El sistema lo reserva para botón, activo y foco: en cada fila gasta el color que marca «Generar requisición». «A comprar» lleva el tono `brand` del componente de cifras y se deja, porque es la cifra primaria | **PQ.73** |
+| 6 | Visual | El proveedor se parte en seis renglones cuando la fila trae cuatro pastillas (17083), y la fila triplica su alto | **PQ.74** |
+| 7 | Comprensión | En el panel de negociación, «Pedido típico $686 mil de $241 mil» no se entiende. «Entrega: capturarlo en otra pestaña» saca de la pantalla | **PQ.75** |
+| 8 | Respeto | **11 s hasta que Pedido termina de cargar.** `workbook` tardó 5.4 s en frío, y cada apertura pide además `purchase-suggestion`, `transfer-suggestion` y `overstock` con `pageSize=1000`, unas 4,490 veces al mes cada una | PQ.10 |
+
+**PQ.UI.1–5, revisadas en pantalla:**
+- **PQ.UI.3 resuelta en la celda:** la unidad dice su contenido («6 paq por cj», «15 kg / 3 paq × 5»).
+- **PQ.UI.2 parcial:** la cobertura sale «como en su mesa» (D25). Que la celda reste lo que ya
+  viene no se vio en la fila.
+- **PQ.UI.5 vigente.**
+- **PQ.UI.1 es de dato** y no se ve en pantalla.
+- **PQ.UI.4 (filtrar al CEDIS): NO MEDIDA.** No se eligió esa sucursal.
+
+**Lo que esta auditoría no cubre:** la vista de un usuario de Compras, el recorrido con teclado, los
+objetivos táctiles, el lector de pantalla y las pestañas Ciclo, Sobrante, Stock muerto y Flujo.
+
+### 17.17 PQ.76 — las tres listas de Pedido se topaban en 500 y se sumaban como total (2026-11-05)
+
+**Cómo salió.** Lo encontré revisando por qué cada apertura de Pedido pide además
+`purchase-suggestion`, `transfer-suggestion` y `overstock` (hallazgo #8 de §17.16).
+- La pantalla las pedía con `pageSize=1000`, pero el servidor las topa en 500.
+- Ni la pantalla ni el servidor decían que la lista venía cortada (Cruce 1 de `auditoria-diseno`).
+- Con esos 500 renglones se armaban las cifras de arriba, las pastillas y los traspasos.
+
+**El daño, medido contra prod** (servicio real empaquetado, sólo lectura):
+
+| | Renglones que llegaban | Lo que publicaba la pantalla | Total del servidor (`total_valor`) |
+|---|---:|---:|---:|
+| A traspasar | 500 de 4,457 | $3,429,912 | $4,859,350 |
+| Sobrestock | 500 de 4,622 | $9,530,616 | $12,977,426 |
+| Compra (pastillas ABC y «comprar») | 500 de 752 | — | — |
+
+Además, en un producto que quedaba fuera de esos 500 renglones:
+- la columna Traspaso del desglose decía «—» aunque sí hubiera traspaso;
+- ese traspaso no entraba a la requisición;
+- le faltaba su pastilla ABC.
+
+**El arreglo** (C2 + C3):
+- **Servidor.** `product_ids` en las tres rutas (`aProductos`).
+  - El filtro se aplica por fuera de la consulta, así que los totales siguen siendo de todo el filtro.
+  - Siempre viaja un renglón testigo con los totales, que `filasDeProductos` descarta.
+  - Sin `product_ids`, el SQL es el mismo de antes.
+- **Pantalla.** Pide las tres listas para los productos de la página, más lo marcado.
+  - Al paginar pide sólo lo que falta y lo **agrega**. Si lo reconstruyera, se borrarían las
+    cantidades de traspaso que el comprador ya editó.
+  - «A traspasar» y «Sobrestock» leen `total_valor` del servidor. Muestran «cargando» o «no se pudo
+    medir», nunca un 0 inventado.
+  - La barra «En esta página» suma sólo la página, como dice su rótulo.
+
+**Pruebas.**
+- **Contra prod, en sólo lectura:**
+  - Sin `product_ids`, las tres respuestas son idénticas a la versión anterior.
+  - Con los productos de la página 1 más 5 que estaban fuera del tope, vienen sólo esos productos,
+    con los totales iguales y las filas iguales a las de la lista completa.
+  - **Control negativo:** con un id que no existe vienen 0 filas y los totales de la red. Ese control
+    encontró que el primer diseño devolvía total 0, y por eso existe el renglón testigo.
+- **Unitarias:**
+  - `pq76-productos.spec.ts` (6) y 5 más en el spec de Pedido.
+  - Tres mutantes, los tres muertos: la cifra suma lo que viajó; la barra no filtra por página;
+    paginar reconstruye.
+  - `libs/commercial` 339/339 y Pedido 130/130.
+
+**Lo que no cambió y queda declarado:**
+- Las tres listas siguen calculándose sobre toda la red en cada apertura, porque los totales lo
+  necesitan. Ganar velocidad aquí es PQ.10, aparte.
+- El traspaso sigue con cobertura de 30 días fijos mientras la tabla usa la de cada sucursal
+  (PQ.UI.2).
+- Nest: sólo se agregaron parámetros `@Query` a tres métodos. El constructor no cambió, pero el
+  arranque NO está verificado.
+
+### 17.18 PQ.74 — el primer producto se ve al entrar (2026-11-05)
+
+**Las cinco preguntas (diseno §0b), antes de tocar la plantilla:**
+1. *Qué debe ver, y en qué orden.* Cuánto hay que comprar (la cifra primaria), y enseguida los
+   productos, del de más dinero al de menos. Hoy el primero empieza en y=850 de una ventana de 768, y
+   la barra fija de abajo tapa desde y=701.
+2. *Qué no debe ver:*
+   - la pastilla «UNIFICADO», que no decide nada;
+   - la cifra «Cobertura», que repite el selector de cobertura con su nota;
+   - «SKUs», que repite el paginador;
+   - la caja de días mientras rige «cada sucursal», que repite el segmentado;
+   - el rojo del aviso del Ciclo: sus fechas son estimadas (PQ.UI.5) y no deben gritar.
+3. *Accesibilidad.* Nada se esconde tras un clic nuevo. Lo que sale repetía algo que sigue a la
+   vista. El aviso «sin valuar» conserva su «por qué».
+4. *Liga a otro proceso.* «Ver el ciclo» y «Lo pedido» se quedan donde están.
+5. *¿Le toca?* Sí. Lo que se quita es repetición, no información.
+
+**Medición previa, simulada en la página viva** (sólo en el navegador de la prueba, sin escribir):
+- Con estos cambios más el aire entre bloques (gap de 16 → 8 px y sin márgenes sumados), el primer
+  producto pasa de y=850 a y=583.
+- Antes de la barra se ven dos productos completos.
+- Sin reducir el aire quedaba en y=687, todavía debajo de la barra: la mitad de la ganancia es aire.
+
+**Lo hecho:**
+- Sin la pastilla. La frescura pasa al encabezado.
+- Las cifras quedan en una fila (seis): salen «SKUs» y «Cobertura». El objetivo («objetivo 21 o
+  30 d») queda en la bajada de «Días de existencia», para conservar el par «tengo N, quiero M» de
+  RA-PRO.49.
+- El aviso del Ciclo en una línea, sin caja y sin rojo.
+- La caja de días sólo aparece cuando la cobertura no es «cada sucursal».
+- «Sin valuar» en una línea, sin caja.
+- 8 px entre bloques y sin márgenes sumados.
+- El proveedor ya no se parte: las pastillas bajan de línea.
+
+**Pruebas:**
+- Pedido 136/136, y compras + componente de cifras 763/763.
+- Plantillas tipadas. `check:pantalla` sin fallas.
+- La prueba de PQ.5 que exigía el rojo de urgencia se cambió a propósito, con su motivo.
+- Mutante: devolver «SKUs» → rojo.
+
+⛔ **Corrección de esta misma sesión.** Creí que el «—» de PQ.76 sin `format: 'text'` se pintaba
+como 0, porque así lo decía un comentario del archivo. El mutante sobrevivió. Al leer el componente
+de cifras resultó que `isText()` ya pinta como texto todo valor que no es número: el comentario
+estaba desactualizado y PQ.76 nunca tuvo ese defecto. Se dejó el `format` explícito y se anotó el
+comentario viejo.
+
+**Sin validación visual del código real.** La medición fue una simulación en el navegador. Al
+soltar, se repite la medida de y=850 con el mismo script (`a56e.js`).
+
+### 17.19 PQ.75 — el panel de negociación, y por qué la entrega no se captura todavía ahí (2026-11-05)
+
+**Hecho: el pedido típico en dos cifras.** Antes se leía «$686 mil de $241 mil». Ahora va el típico
+en grande («$241 mil») y debajo «llevas $686 mil». Es la misma cuenta (`evaluarPedidoTipico`),
+sólo se separa. Prueba en el spec del panel, con mutante muerto (volver a «X de Y» → rojo).
+
+**No hecho, a propósito: capturar la entrega en el panel.** «Una sola interfaz por flujo» pide
+quitar el «capturarlo en otra pestaña». Antes de exponer esa escritura en Pedido se midió en prod
+(sólo lectura):
+- `catalog.suppliers.lead_time_days`: **0 de 1,347 proveedores** capturados.
+- `POST suppliers/:id/lead-time`: **0 llamadas** desde que hay registro de uso (30-sep).
+- Ninguna prueba en `database/tests` ejerce ese endpoint contra una base real.
+- Pide `COMPRAS_PROVEEDORES_GESTIONAR`, que no se verificó en el puesto de comprador.
+
+Cero filas por defecto no se distingue de cero por desuso (regla 13). Por eso nace **PQ.77**:
+1. La prueba contra base real del endpoint, con el payload de la pantalla.
+2. Verificar el permiso en los puestos de Compras.
+3. Después, la captura en el panel.
+
+Pesa más de lo que parece: el lead time en 0 es la mitad de por qué las fechas del Ciclo no se
+sostienen (PQ.UI.5).
+
+### 17.20 PQ.78 y PQ.79 — dos papeles que traen los compradores (2026-11-05)
+
+**PQ.78: el precio de la sucursal que recibe, leído del ODS en vivo.** Un comprador corrigió a mano
+la requisición de Tuby Ice (proveedor CF010): CHILE y SUPER salían a $297.83 y $397.10 la caja, y el
+proveedor cotizó $282.15 y $376.20 ($18.81 por paquete). Medido:
+
+- el PDF imprimía lo que Kepler tenía: 9 de 9 sucursales en $297.83, aún a las 13:46. El precio
+  nuevo no estaba guardado en Kepler. La corrección del precio se hace en Kepler (*Costos por
+  Proveedor por Productos*), no en la suite;
+- pero la suite tenía dos defectos propios. El fact `replenishment_plan.caja_cost` trae la
+  **mediana de las 9 sucursales** (`v_supplier_cost_ladder`) y se rehace cada 15 min, así que un
+  precio corregido en una sola sucursal no se veía nunca, y uno corregido en todas tardaba hasta
+  15 min. Además, el papel no decía de dónde salía el precio ni de qué hora era.
+
+Lo hecho: `workbook` lee `kepler_ods.kdpv_prov_prod` con la llave exacta del índice (sucursal,
+código de proveedor y SKU). Resultados:
+
+- casan 33,444 de 34,023 renglones de sucursal, sin duplicados;
+- donde no casa queda el valor del fact: rutas, Wincaja y 479 renglones cuyo proveedor en la suite
+  no es el de Kepler;
+- **antes/después** (sólo lectura contra prod): cambian 37 precios; el pedido sugerido de la red baja
+  $106 ($21,081,318.97 → $21,081,212.84) y la existencia valuada $114. Ejemplo: en 97150, Yurécuaro y
+  Morelia Madero pasan a $346 (su Kepler) y las demás siguen en $370;
+- control: Tuby en Morelia Abastos se queda en $297.83, porque Kepler no ha cambiado;
+- costo: unos 100 ms en frío sobre el catálogo entero y +26 ms con caché caliente.
+
+El PDF (las dos formas) dice ahora: «Precio = costo de caja del proveedor, sin impuestos, en Kepler
+(Costos por Proveedor por Productos) de la sucursal que recibe, al <hora>. Si el proveedor cotizó
+otro precio, corríjalo en Kepler y vuelva a generar esta hoja». La prueba se probó con un mutante.
+
+⚠️ **Deuda con nombre:** Autoabasto, Existencia y las listas de traspaso o sobrestock siguen leyendo
+la mediana del fact. Hoy difieren en 37 renglones. Se alinean cuando el motor se mude a vistas del
+ODS (D17); no se tocó el importer.
+
+**PQ.79: lo que ninguna sucursal pudo calcular se pinta «—», no 0.** El caso fue 59059 NARANJA BOLI
+CHICO: el renglón decía «0 cj · $0 · Exist. red 0», y el Total del desglose «0 / 0», con 939
+paquetes en la red.
+
+La causa está en Kepler:
+
+| | Folio | Cantidad | Costo unitario | Importe |
+|---|---|---|---|---|
+| Entrada normal | 0001065 | 40 PAQ | $9.32 | $372.96 |
+| Entrada del 2-oct en 8 Esquinas | X-A-40 0001062 | 800 PAQ | $0.5067 | $405.36 |
+
+El 0001062 vale lo de 40 paquetes: se capturaron las piezas (40 × 20) en la unidad de paquete. 8
+Esquinas trae unos **760 paquetes que no existen**. Consecuencias:
+
+1. Lo pagado se promedia en toda la red, así que esa sola entrada pone el veredicto `x1_inflada` en
+   las 5 sucursales.
+2. El motor ve sobrante en 8 Esquinas y propone traspasar mercancía inexistente.
+
+Lo hecho en la suite: `sinCalcular(r)` pinta «—», con la razón en el título, en Σ Ped., $ Pedido,
+Exist. red y el renglón Total. Si faltan sólo algunas sucursales, la suma parcial lleva su
+triángulo también en el Total. Dos pruebas, una de render con el renglón real; mutante muerto.
+
+**Fuera de la suite (Edgar):** corregir en Kepler la entrada 0001062 de 8 Esquinas, o ajustar su
+existencia. Dos hallazgos quedan registrados sin item: el árbitro de peldaño promedia lo pagado en
+toda la red, de modo que una captura mala en una sucursal bloquea a todas; y el motor puede proponer
+traspasos de existencia fantasma.
+
+**PQ.80: con ⚠ no hay sugerido, pero se puede pedir a mano.** Edgar: *«si necesito pedir el boli naranja no me deja»*. Con el peldaño en contra, el renglón de la sucursal era «—» entero y `qtyOf` devolvía 0 aunque se escribiera. Ahora quedan «—» la existencia en cajas, los días y el traspaso (no se midieron), pero el campo para pedir está abierto: lo capturado cuenta y viaja a la requisición y al PDF, sin un sugerido inventado. El renglón dice «sin sugerido · pide a mano». Σ Ped. y $ Pedido sólo son «—» si además nadie capturó nada. El servidor no revisa el peldaño al registrar la requisición. Probado: la prueba de render falla contra la versión anterior, y un mutante de `qtyOf` muerto.
+
+**PQ.81 (registrado): la búsqueda por folio de Control de entradas sólo encuentra la factura.** Edgar buscó «1062» en `/compras/entradas` y vio la **X-A-20 0001062**, que es la factura (remisión 40-3586, $1,710.57) y viene de la orden X-A-40 **0001065**. Ahí el BOLI NARANJA dice 40 paq, y por eso lo tomó por corregido. La entrada mala es la **X-A-40 0001062**, la orden de entrada (remisión 40-3588, $470.22, abierta), que sigue en 800. La vista `analytics.erp_goods_receipt_lines` filtra `c4 = '20'`, y en Kepler el folio se repite entre tipos de documento (`ERP_KEPLER.md` lo advierte). Arreglo propuesto: que la búsqueda por folio diga el tipo de documento y ofrezca también la orden de entrada (X-A-40) con ese número, con su remisión, para que no se confundan. Pendiente de decidir dónde vive: es la pantalla de la fase RE.
+
+**Proveedores con «?» en el nombre:** 6 de 804 claves de Kepler (CF010, CC021, CG005, CB009, CC002…). El ODS guarda bien la Ñ de otros 29 proveedores, escritos con Ñ. Entonces el «?» **está guardado así en el catálogo de Kepler** (`kdxd.c3`) y se corrige
+allá; el importer de proveedores lo traerá corregido. Parcharlo en la suite lo pisaría la siguiente
+corrida. Además CF010 aparece dos veces en `catalog.suppliers`: «853», bien escrito y sin
+productos, y «CF010», con «?» y con los 3 productos.
+
 ---
 
 ## 18. Unidades de medida al 100 %: verificado o con dueño (2026-11-04)
@@ -1620,6 +1952,14 @@ de hoy de esos 65 productos se cuenta distinto que su historia hasta que se cier
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-05 | **PQ.80 🧪** (§17.20): con ⚠ de peldaño ya se puede pedir a mano (antes la sucursal quedaba cerrada, y una mala entrada en una sucursal bloqueaba el producto en todas). Sin sugerido inventado | Claude |
+| 2026-11-05 | **PQ.78 🧪 · PQ.79 🧪** (§17.20): el precio del pedido es el de Kepler en la sucursal que recibe, leído en vivo (antes, la mediana de la red con 15 min de atraso); el papel dice de dónde sale y de qué hora es. Lo que ninguna sucursal pudo calcular se pinta «—», no 0. Causas en Kepler, para Edgar: el precio nuevo de Tuby no estaba guardado, una entrada de 8 Esquinas metió 800 paquetes donde eran 40, y 6 proveedores tienen «?» en el nombre | Claude |
+| 2026-11-05 | **PQ.75 🧪** (§17.19): el pedido típico en dos cifras («$241 mil · llevas $686 mil»). La captura de la entrega en el panel pasa a **PQ.77**: 0 de 1,347 proveedores la tienen, su endpoint nunca se ha llamado y no tiene prueba contra base real; primero va la prueba | Claude |
+| 2026-11-05 | **PQ.74 🧪** (§17.18): el primer producto se ve al entrar. Simulado en la página viva, pasa de y=850 (debajo de la barra) a y=583, y se ven dos productos completos. Salen la pastilla, dos cifras repetidas, la caja de días duplicada y el rojo del Ciclo; la mitad de lo ganado era aire. Sin validación visual del código real | Claude |
+| 2026-11-05 | **PQ.76 🧪** (§17.17): las tres listas de Pedido se topaban en 500 renglones y la pantalla los sumaba como total. «A traspasar» $3.4 M → $4.9 M y «Sobrestock» $9.5 M → $13.0 M, con el mismo dato. Los productos que quedaban fuera perdían su traspaso en el desglose y en la requisición. Ahora se piden por producto de la página y los totales vienen del servidor. Probado contra prod en sólo lectura, con control negativo; tres mutantes muertos | Claude |
+| 2026-11-05 | **PQ.56 ✅** (§17.16): nivel A en prod, en sólo lectura y con blindaje probado. Lo más caro: la primera fila es 17499 ($686 mil por una sola venta; espera D31). Le siguen un rótulo de cajas que muestra kg, una primera pantalla sin ningún producto, «Sobrestock» a 1.95:1 y el rojo como decoración. Nacen **PQ.72–PQ.75** | Claude |
+| 2026-11-05 | **PQ.55 ✅** (§17.15), medido desde `analytics.ui_usage` (no hacían falta los logs). En 30 días, Compras abrió Pedido 4,996 veces, Stock muerto 13, Sobrante 3 y Flujo 1. La agenda del Ciclo, que nació el 23-oct, la abrieron 3 compradores: se deja y se re-mide. El conteo crudo de `worklist` engaña porque el aviso de PQ.5 lo llama al abrir Pedido. Nace **D34** (sin firma: quitar las tres pestañas) con **PQ.71**, que espera a PQ.56. **PQ.49** pasa a ✅ (la medición ya estaba en §17.5). Línea base real de PQ.10: `workbook` promedia 1.6–1.8 s en uso | Claude |
+| 2026-11-04 | **PQ.10 primer paso** (§17.14): escalera y etiquetera se leen sólo para los renglones devueltos, y el factor de caja se une directo a su tabla. Respuesta idéntica en 10 escenarios; la red 2.67 → 2.20 s, un proveedor 1.55 → 0.99 s, una sucursal 1.37 → 0.79 s. El primer intento (unirlas en SQL) subía el caso con proveedor a 19 s y se descartó. Sigue 🔨: lo que queda decide el pedido. Mismo día: PQ.44/50/68/69/70 y 28 renglones más de PQ verificados en prod y pasados a ✅ en el tracker. | Claude |
 | 2026-11-04 | **PQ.44 🧪** (`3ea70328e`, §17.13): la sucursal que sale en 0 porque el reorden frenó algo que sí faltaba dice «arriba del reorden», y sólo ahí. El motor la marca con la misma cantidad que decide el pedido: 1,075 de 25,564 celdas. El primer intento (comparar en pantalla) la habría puesto en la mitad de la grilla | PM + sesión Claude |
 | 2026-11-04 | **PQ.44 D26 y D25** (§17.13). D26 (`95f1b7d3c`): lo que llega por traspaso no se infla por cumplimiento; 606 → 280 renglones de diferencia, Pedido $21.4 M → $20.8 M. D25 (`d9660bdd4`): Pedido abre con la cobertura de cada sucursal; en la red $22.68 M → $20.71 M frente a 30 días fijos; control 0 diferencias en 25,296 renglones. Falta explicar en pantalla la celda en 0 | PM + sesión Claude |
 | 2026-11-04 | PM firmó **D33**. **PQ.44, primer paso** (`0aeec91fc`, §17.12): Pedido pide al llegar al reorden con la misma regla que la mesa (`faltante.ts`). «Pedido lo pide y la mesa no» 681 → 2; Pedido en 8 sucursales $24.4 M → $21.4 M; las otras diferencias no se movieron. Falta D25, D26 y explicarlo en pantalla | PM + sesión Claude |

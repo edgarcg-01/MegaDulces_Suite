@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { FinanceCajaGeneralModule, CashbookService, CashbookCaosCarril } from '@megadulces/finance';
+import { FinanceCajaGeneralModule, CashbookService, CashbookVentanillaService, CashbookCaosCarril } from '@megadulces/finance';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 
 /**
@@ -19,10 +19,10 @@ describe('[LE.4] FinanceCajaGeneralModule: el libro de efectivo', () => {
     expect(por(providers, 'CashbookService'), 'falta registrar CashbookService').toBeDefined();
   });
 
-  it('CashbookController recibe CashbookService por su clase', () => {
+  it('CashbookController recibe CashbookService y CashbookVentanillaService por su clase', () => {
     const tipos = Reflect.getMetadata('design:paramtypes', por(controllers, 'CashbookController')!) as Clase[] | undefined;
-    expect(Array.isArray(tipos) && tipos.length === 1, 'sin design:paramtypes esta prueba no mide nada').toBe(true);
-    expect(tipos).toEqual([CashbookService]);
+    expect(Array.isArray(tipos) && tipos.length === 2, 'sin design:paramtypes esta prueba no mide nada').toBe(true);
+    expect(tipos).toEqual([CashbookService, CashbookVentanillaService]);
   });
 
   it('CashbookService recibe el acceso a la base y el tenant por su clase', () => {

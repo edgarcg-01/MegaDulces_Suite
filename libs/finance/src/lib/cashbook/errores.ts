@@ -66,12 +66,15 @@ const FRASES: Readonly<Record<string, string>> = {
   cashbook_orden_documento_una_vez: 'Este documento ya tiene su orden de pago: no se paga dos veces.',
   cashbook_orden_vale_una_vez: 'Ese vale ya amparó otro pago.',
   cashbook_orden_llave_unica: 'Esa petición ya se registró con otro contenido.',
+  // `[LE.6.12]` Un documento de Kepler entra a un solo libro (D40); el folio de Captura va en `detalle`.
+  cashbook_documento_en_captura: 'Ese documento ya está registrado en Captura: un documento entra a un solo libro.',
 };
 
 /** Los que hablan de un ESTADO (otra persona ya actuó, ya existe): 409. Los demás, 422. */
 const CONFLICTO = new Set(['cashbook_ya_hay_jornada_abierta', 'cashbook_solicitud_no_pendiente', 'cashbook_asiento_una_reversa',
   'cashbook_peticion_reusada', 'cashbook_evento_cambio', 'cashbook_estado_final', 'cashbook_cuenta_distinta',
-  'cashbook_orden_no_por_firmar', 'cashbook_orden_documento_una_vez', 'cashbook_orden_vale_una_vez', 'cashbook_orden_llave_unica']);
+  'cashbook_orden_no_por_firmar', 'cashbook_orden_documento_una_vez', 'cashbook_orden_vale_una_vez', 'cashbook_orden_llave_unica',
+  'cashbook_documento_en_captura']);
 /** `[LE.4.9]` Quién PUEDE firmar (el puesto), no qué se firmó: 403. */
 const PROHIBIDO = new Set(['cashbook_firma_por_puesto']);
 

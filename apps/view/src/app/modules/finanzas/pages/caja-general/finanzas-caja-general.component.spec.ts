@@ -5683,7 +5683,8 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
 
     it('las hojas que esperan a la zona o a finanzas se dicen arriba, y no son renglones con acción', () => {
       const abierta: HojaAbierta = { zona: 'morelia', nombre: 'Zona Morelia', desde: '2026-10-29', renglones: [RENGLON], total: 83981.89,
-        por_sucursal: [], por_clase: [], fuera: [], pagados_aparte: [], instruccion: null, datos_al: null };
+        por_sucursal: [], por_clase: [], fuera: [], pagados_aparte: [], instruccion: null, datos_al: null,
+        pagado_en_control: [], control_medido: true };
       const espera = HOJA({ estado: 'cerrada', aprobada_por: null, aprobada_por_nombre: null, aprobada_at: null });
       const fx = montar({ hojasDeGastos: vi.fn(() => of(HOJAS({ abiertas: [abierta], cerradas: [espera] }))) });
       fx.detectChanges();

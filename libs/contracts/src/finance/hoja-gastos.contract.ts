@@ -153,6 +153,48 @@ export interface HojaAbierta {
   instruccion: InstruccionPagoHoja | null;
   /** Edad del dato de Kepler. `null` = sin medir. */
   datos_al: string | null;
+  /**
+   * `[CGA-A.70]` Los pagos de la abierta que ya se repusieron con una hoja en PAPEL: un retiro «gnf»
+   * de Control que cuadra al peso con un tramo de días. Siguen en `renglones`: se cierran como su
+   * propia hoja y se pagan con ese retiro, que sólo LIGA. Vacío también cuando Control no se pudo leer
+   * (`control_medido`).
+   */
+  pagado_en_control: GrupoPagadoEnControl[];
+  /** `false` = Control no se pudo leer: no se afirma que nada esté pagado. */
+  control_medido: boolean;
+}
+
+/** Un retiro de Control (el Access de Caja General), tal como lo anota la cajera. */
+export interface RetiroControlHoja {
+  folio: string;
+  /** Día en que se anotó (México). */
+  dia: string;
+  observaciones: string | null;
+  /** Lo que Control declara que salió: billetes + monedas. */
+  total: number;
+}
+
+/**
+ * `[CGA-A.70]` Una hoja en papel ya pagada: los pagos de la abierta que suman, al peso, un retiro «gnf»
+ * de Control anotado de su último día a `DIAS_RETIRO_HOJA` después. Medido el 2026-11-05 en Morelia:
+ * el 14, el 15 y el 23-oct casan con «GNF MORELIA», «GNF MA 13/10» y «gnf ma» (diferencias de $0.00 a
+ * $0.19); con los importes corridos ±$3,170 y ±$5,310, ninguno de 135 tramos casa.
+ */
+export interface GrupoPagadoEnControl {
+  desde: string;
+  hasta: string;
+  sucursales: string[];
+  origen_refs: string[];
+  total: number;
+  control: RetiroControlHoja;
+  /** Control menos los pagos: lo que la cajera contó de más (+) o de menos (−). */
+  diferencia: number;
+  /**
+   * El retiro de CAOS del mismo día con que salió (los billetes; el cajón puso el resto), o `null` si
+   * no hay uno solo. `ligados` = pagos del libro que ya cuelgan de él: si no es 0, hay que revisarlo
+   * antes de pagar la hoja con él.
+   */
+  caos: (RetiroParaHoja & { ligados: number }) | null;
 }
 
 // ── La hoja cerrada, sus firmas y su pago ───────────────────────────────────────────────────────

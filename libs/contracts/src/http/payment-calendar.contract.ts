@@ -360,4 +360,18 @@ export interface SupplierPaymentHabit {
   cuenta_origen_nombre: string | null;
   cuenta_veces: number | null;
   cuenta_de: number | null;
+
+  /**
+   * `[PGP.75]` La CLABE destino que traen los comprobantes de pago del propio proveedor (OCR de
+   * `finance.supplier_payment_proofs`, ligados a su pago de Kepler). `unica` trae `clabe_sugerida`;
+   * `varias` NO propone (es decisión de persona) y dice cuántas son. Ausente = sin comprobantes con
+   * CLABE, que no es lo mismo que «no tiene cuenta». Opcional: un backend anterior no lo manda.
+   */
+  clabe_estado?: 'unica' | 'varias';
+  clabe_sugerida?: string | null;
+  /** El banco como lo leyó el OCR (texto de la persona/banco, no resolución del código). */
+  clabe_banco?: string | null;
+  clabe_comprobantes?: number | null;
+  clabe_ultima_vez?: string | null;
+  clabes_distintas?: number | null;
 }

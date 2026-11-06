@@ -26,7 +26,7 @@ import { EntityInspectorComponent } from '../../../shared/components/entity-insp
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
-import { agruparObligaciones, allocationKey, fechaCorta, obligationKey, pasosIntercambio, sugerirArmado, vencimiento, type ArmadoGrupo, type ObligationGroup } from './calendario-pagos-grupos';
+import { agruparObligaciones, allocationKey, fechaCorta, obligationKey, moverEnOrden, sugerirArmado, vencimiento, type ArmadoGrupo, type ObligationGroup } from './calendario-pagos-grupos';
 import { firstValueFrom } from 'rxjs';
 import { PagosTabsComponent } from '../pagos-tabs.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
@@ -261,7 +261,9 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                 @if (verdict().why) { <p class="pg-vd-why">{{ verdict().why }}</p> }
               </div>
               @if (verdict().action; as act) {
-                <button pButton type="button" class="pg-vd-cta" [disabled]="saving()" [loading]="saving()" (click)="runVerdict(act.kind)">
+                <!-- [PGP.77] Chico, y en lo que está mal sin relleno: el aviso ya dice qué pasa; el botón no tiene que gritarlo otra vez. -->
+                <button pButton type="button" class="pg-vd-cta p-button-sm" [class.p-button-outlined]="verdict().tone === 'bad'" [class.p-button-secondary]="verdict().tone === 'bad'"
+                        [disabled]="saving()" [loading]="saving()" (click)="runVerdict(act.kind)">
                   <span class="pi" [ngClass]="act.icon" aria-hidden="true"></span>&nbsp;{{ act.label }}
                 </button>
               }
@@ -611,13 +613,19 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                    cuenta favorita de cada proveedor. Sólo en el paso de preparar. -->
               <div class="pg-applyall">
                 <span class="pg-aa-lb">{{ unpreparedCount() === 1 ? 'El pago sin preparar' : 'Los ' + unpreparedCount() + ' sin preparar' }}:</span>
+                <!-- [PGP.75] El método y la CLABE vienen del historial de cada proveedor (se ven en su renglón);
+                     lo único que se decide aquí es de qué cuenta sale el día: la cuenta de origen NO se propone
+                     por proveedor (decisión medida, FASE_PGP «Lo que NO se va a autorrellenar»). -->
                 <span class="pg-aa-f"><label for="pg-bulk-method">Método</label>
-                  <p-select appendTo="body" inputId="pg-bulk-method" [options]="methodOpts" [(ngModel)]="bulkMethod" optionLabel="label" optionValue="value" placeholder="Elegir…" size="small" class="cal-sel" /></span>
+                  <p-select appendTo="body" inputId="pg-bulk-method" [options]="methodOpts" [(ngModel)]="bulkMethod" optionLabel="label" optionValue="value" placeholder="El de su historial" [showClear]="true" size="small" class="cal-sel" /></span>
                 @if (bulkMethod !== 'efectivo') {
                   <span class="pg-aa-f"><label for="pg-bulk-origin">Sale de</label>
                     <p-select appendTo="body" inputId="pg-bulk-origin" [options]="originOpts()" [(ngModel)]="bulkOriginId" optionLabel="label" optionValue="id" placeholder="Elegir cuenta…" [filter]="true" filterBy="label" size="small" class="cal-sel" /></span>
                 }
-                <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [disabled]="!bulkMethod || (bulkMethod !== 'efectivo' && !bulkOriginId) || saving()" [loading]="saving()" (click)="aplicarATodos()">{{ unpreparedCount() === 1 ? 'Aplicar' : 'Aplicar a los ' + unpreparedCount() }}</button>
+                <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [disabled]="!puedeAplicar() || saving()" [loading]="saving()" (click)="aplicarATodos()">{{ unpreparedCount() === 1 ? 'Aplicar' : 'Aplicar a los ' + unpreparedCount() }}</button>
+                @if (!bulkMethod) {
+                  <span class="pg-aa-n">{{ resumenSugerencias() }}</span>
+                }
                 <!-- [PGP.62] Sin el renglón «El destino sale de la cuenta favorita…»: al aplicar, el aviso nombra a los que no tienen. -->
               </div>
             }
@@ -678,9 +686,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                 <p class="cal-empty">Sin pagos este día.</p>
               }
             } @else {
-              <!-- [PGP.52] UN renglón por pago: quién, cómo sale, cuánto y su acción. Las flechas de orden
-                   aparecen al pasar el cursor o con el foco del teclado. El resto vive en el desglose (›). -->
-              <p-table [value]="allocations()" size="small" dataKey="id" [expandedRowKeys]="abiertos()" class="surf-table surf-table--plain surf-table--sticky pg-prep">
+              <!-- [PGP.52] UN renglón por pago: quién, cómo sale, cuánto y su acción. El resto vive en el desglose (›).
+                   [PGP.76] El orden se cambia arrastrando la fila por su asa (≡) o, con el foco en el asa, ↑ ↓ Inicio Fin. -->
+              <span class="sr-only" aria-live="polite">{{ ordenAviso() }}</span>
+              <p-table [value]="allocations()" size="small" dataKey="id" [expandedRowKeys]="abiertos()" (onRowReorder)="alSoltar($event)" class="surf-table surf-table--plain surf-table--sticky pg-prep">
                 <ng-template #header>
                   <tr>
                     <th class="pg-c-tg"><span class="sr-only">Desglose</span></th>
@@ -693,7 +702,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                   </tr>
                 </ng-template>
                 <ng-template #body let-a let-i="rowIndex" let-expanded="expanded">
-                  <tr [class.is-bad]="a.status === 'failed'" [class.is-corte]="a.id === corteDelTope()">
+                  <tr [class.is-bad]="a.status === 'failed'" [class.is-corte]="a.id === corteDelTope()" [pReorderableRow]="i" [pReorderableRowDisabled]="a.status !== 'pending' || isReleased()">
                     <td class="pg-c-tg">
                       <button type="button" class="pg-tg" [attr.aria-expanded]="expanded" [attr.aria-label]="(expanded ? 'Ocultar el detalle de ' : 'Ver el detalle de ') + allocationTitle(a)" (click)="toggleAbierto(a.id)">
                         <span class="pi" [class.pi-angle-down]="expanded" [class.pi-angle-right]="!expanded" aria-hidden="true"></span>
@@ -701,11 +710,13 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                     </td>
                     <td class="pg-c-ord">
                       @if (a.status === 'pending' && !isReleased()) {
-                        <!-- [PGP.13] Ordenar CON TECLADO: el orden decide el turno en que se dispersa. -->
-                        <span class="pg-ord">
-                          <button pButton type="button" class="p-button-sm p-button-text p-button-secondary pg-ico pg-ord-b" [disabled]="i === 0 || saving()" (click)="moverPago(a, -1)" [attr.aria-label]="'Subir ' + allocationTitle(a)"><span class="pi pi-chevron-up" aria-hidden="true"></span></button>
-                          <b class="comm-num pg-ordn">{{ a.priority_rank ?? '—' }}</b>
-                          <button pButton type="button" class="p-button-sm p-button-text p-button-secondary pg-ico pg-ord-b" [disabled]="i === allocations().length - 1 || saving()" (click)="moverPago(a, 1)" [attr.aria-label]="'Bajar ' + allocationTitle(a)"><span class="pi pi-chevron-down" aria-hidden="true"></span></button>
+                        <!-- [PGP.76] El asa: se arrastra con el mouse, o con el foco ↑ ↓ Inicio Fin. El orden decide el turno en que se dispersa. -->
+                        <span class="pg-ord" pReorderableRowHandle tabindex="0" role="button" [attr.data-ord]="a.id"
+                              aria-keyshortcuts="ArrowUp ArrowDown Home End" (keydown)="teclaOrden($event, a)"
+                              [attr.aria-label]="'Turno ' + turno(a) + ' de ' + pendingCount() + ', ' + allocationTitle(a) + '. Arrastra la fila, o usa flecha arriba y abajo; Inicio y Fin lo llevan al principio o al final'"
+                              title="Arrastra para cambiar el orden (o ↑ ↓ con el teclado)">
+                          <span class="pi pi-bars pg-ord-h" aria-hidden="true"></span>
+                          <b class="comm-num pg-ordn">{{ turno(a) }}</b>
                         </span>
                       } @else {
                         <span class="comm-num pg-ordn">{{ a.folio || a.priority_rank || '—' }}</span>
@@ -737,6 +748,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                       } @else if (comoSale(a); as cs) {
                         <span class="pg-how">
                           @if (cs.texto) { <span class="pg-how-t">{{ cs.texto }}</span> }
+                          @else if (sugerencias().get(a.id); as sg) {
+                            <!-- [PGP.75] Lo que el historial propone, con su procedencia: todavía no está guardado. -->
+                            <span class="pg-how-t pg-sug" [title]="sg.porque"><i class="pi pi-history" aria-hidden="true"></i>{{ sg.texto }}</span>
+                          }
                           <span class="pg-st" [class.is-bad]="a.status === 'failed'" [class.is-todo]="a.status === 'pending' && !!cs.falta">
                             <i class="pi" [ngClass]="estadoIcono(a)" aria-hidden="true"></i>{{ estadoTexto(a) }}
                           </span>
@@ -1000,6 +1015,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
         }
         <label class="cal-dlg-label" for="cal-prep-clabe">Cuenta destino — banco y CLABE (si no está en el catálogo)</label>
         <input id="cal-prep-clabe" pInputText type="text" [(ngModel)]="prepDestination" [disabled]="!!prepAccountId" placeholder="Ej. BBVA · CLABE 012180001234567891" class="cal-dlg-full" />
+        @if (prepDestHistorial && prepDestination === prepDestHistorial && prepAllocation) {
+          <!-- [PGP.75] Un valor puesto solo, sin decir con qué, es una orden disfrazada (PGP.30): se dice de dónde salió. -->
+          <p class="cal-dlg-hint cal-habito"><i class="pi pi-history" aria-hidden="true"></i> Precargada de sus comprobantes de pago: {{ sugerencias().get(prepAllocation.id)?.porque }}. Revísala antes de pagar; al guardar queda pedida de alta en el catálogo.</p>
+        }
         <p class="cal-dlg-hint">Si escribes una CLABE de 18 dígitos se valida su dígito de control.</p>
       }
       @if (prepMethod === 'cheque') {
@@ -1271,19 +1290,22 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
 
     /* ── El veredicto, compacto: frase y boton; tope y avance lado a lado ── */
     .pg-lot { display:grid; gap:var(--sp-2); min-width:0; }
-    .pg-vd { display:grid; gap:var(--sp-1); padding:var(--sp-3) 0; border-block:1px solid var(--border-color); }
+    .pg-vd { display:grid; gap:var(--sp-1); padding:var(--sp-1) 0; border-block:1px solid var(--border-color); }
     /* Rojo SOLO cuando algo esta mal. «Bien» y «falta» no llevan tono: lo dice la frase. */
-    .pg-vd.is-bad { border-left:4px solid var(--bad-fg); padding-left:var(--sp-3); }
-    .pg-vd-ico { color:var(--bad-soft-fg); margin-right:var(--sp-2); font-size:var(--fs-lg); }
+    /* [PGP.77] Lo que está mal lo marca SÓLO el icono rojo junto a la frase: la barra lateral roja más
+       el botón de color eran dos llamadas de atención para un mismo aviso («me desconcentra»). */
+    .pg-vd-ico { color:var(--bad-soft-fg); margin-right:var(--sp-1); font-size:var(--fs-body); }
     .pg-vd-id { display:flex; align-items:baseline; gap:var(--sp-2); flex-wrap:wrap; }
     .pg-vd-id h2 { margin:0; font-size:var(--fs-xs); font-weight:600; color:var(--text-muted); }
     .pg-vd-sub { font-size:var(--fs-sm); color:var(--text-muted); }
     .pg-pill { display:inline-flex; align-items:center; font-size:var(--fs-micro); font-weight:700; text-transform:uppercase; letter-spacing:.03em; padding:0 7px; border-radius:var(--r-pill); color:var(--text-muted); background:var(--surface-2); }
     .pg-vd-main { display:flex; align-items:center; gap:var(--sp-4); flex-wrap:wrap; }
-    .pg-vd-txt { flex:1; min-width:15rem; }
+    /* [PGP.77] Frase y explicacion en UN renglon cuando caben (Edgar, 2026-11-05: «necesita demasiado
+       espacio»); si no caben, la explicacion baja sola. */
+    .pg-vd-txt { flex:1; min-width:15rem; display:flex; flex-wrap:wrap; align-items:baseline; gap:2px var(--sp-3); }
     /* [PGP.14] La respuesta de la pantalla es lo primero que se lee: la frase mas grande. */
-    .pg-vd-say { margin:0; font-size:var(--fs-h2); font-weight:600; line-height:1.25; letter-spacing:-.01em; color:var(--text-main); }
-    .pg-vd-why { margin:2px 0 0; display:flex; flex-wrap:wrap; align-items:baseline; gap:2px var(--sp-2); font-size:var(--fs-sm); color:var(--text-muted); }
+    .pg-vd-say { margin:0; font-size:var(--fs-h3); font-weight:600; line-height:1.3; color:var(--text-main); }
+    .pg-vd-why { margin:0; display:flex; flex-wrap:wrap; align-items:baseline; gap:2px var(--sp-2); font-size:var(--fs-sm); color:var(--text-muted); }
     :host ::ng-deep .pg-vd-cta.p-button { flex-shrink:0; }
     .pg-vd-row2 { display:grid; grid-template-columns:minmax(0, auto) minmax(26rem, 1fr); gap:var(--sp-2) var(--sp-5); align-items:center;
       margin-top:6px; padding-top:6px; border-top:1px solid var(--border-color); }
@@ -1352,9 +1374,9 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     td.pg-c-how .pg-how-t { color:var(--text-main); }
     td.pg-c-how .pg-st { margin-top:0; }
     /* Las flechas de orden: al pasar el cursor o con el foco del teclado (el numero se ve siempre). */
-    :host ::ng-deep .pg-prep .pg-ord-b { opacity:0; }
-    :host ::ng-deep .pg-prep tr:hover .pg-ord-b, :host ::ng-deep .pg-prep tr:focus-within .pg-ord-b { opacity:1; }
-    @media (hover: none) { :host ::ng-deep .pg-prep .pg-ord-b { opacity:1; } }
+    /* [PGP.76] El asa se ve siempre (atenuada); se enciende al pasar el cursor o con el foco. */
+    .pg-ord-h { font-size:var(--fs-xs); color:var(--text-muted); }
+    :host ::ng-deep .pg-prep tr:hover .pg-ord-h, .pg-ord:focus-visible .pg-ord-h { color:var(--text-main); }
     /* El desglose junta lo que antes llenaba el renglon. */
     .pg-x-info { display:grid; gap:4px; margin:0 0 var(--sp-2); }
     .pg-x-info p { margin:0; }
@@ -1466,6 +1488,9 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-tg:hover { background:var(--overlay-hover); color:var(--text-main); }
     .pg-tg:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
     .pg-how-t { color:var(--text-main); overflow-wrap:anywhere; }
+    .pg-how-t.pg-sug { color:var(--text-muted); }
+    .pg-sug .pi { margin-right:var(--sp-1); font-size:var(--fs-xs); }
+    .pg-aa-n { font-size:var(--fs-sm); color:var(--text-muted); }
     /* El estado del pago: palabra + icono. Solo el rebote lleva color. */
     .pg-st { display:inline-flex; align-items:center; gap:4px; margin-top:2px; font-size:var(--fs-sm); color:var(--text-muted); }
     /* [PGP.49] «Falta el método» era pastilla ambar en CADA renglon: 26 de 31 el 3-nov, repitiendo lo que
@@ -1481,10 +1506,11 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-ev-retry:hover { background:var(--overlay-hover); }
     .pg-ev-retry:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
     .pg-st.is-bad { color:var(--bad-soft-fg); font-weight:700; }
-    .pg-ord { display:inline-flex; align-items:center; gap:1px; }
+    .pg-ord { display:inline-flex; align-items:center; gap:var(--sp-2); padding:var(--sp-1) var(--sp-2); border-radius:var(--radius-sm); cursor:grab; user-select:none; }
+    .pg-ord:active { cursor:grabbing; }
+    .pg-ord:focus-visible { outline:2px solid var(--action); outline-offset:1px; }
     .pg-ordn { min-width:1.2rem; text-align:center; font-weight:700; color:var(--text-main); }
-    :host ::ng-deep .pg-ord .p-button { color:var(--text-muted); }
-    :host ::ng-deep .pg-ord .p-button:not(:disabled):hover, :host ::ng-deep .pg-x.p-button:hover { color:var(--text-main); }
+    :host ::ng-deep .pg-x.p-button:hover { color:var(--text-main); }
     :host ::ng-deep .pg-x.p-button { color:var(--text-muted); }
     /* El desglose: las facturas del pago, a la escala de la tabla y sin otra caja. */
     :host ::ng-deep .pg-prep .p-datatable-tbody > tr.pg-xrow > td { background:var(--surface-2); padding:var(--sp-2) var(--sp-3) var(--sp-2) 3rem; }
@@ -1710,7 +1736,19 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     const sel = this.selectedDate();
     return this.week()?.days.find((d) => d.date === sel) ?? null;
   });
-  readonly allocations = computed<PaymentCalendarAllocation[]>(() => this.selectedDay()?.allocations ?? []);
+  /**
+   * `[PGP.76]` El orden que Tesorería acaba de dar (arrastrando o con el teclado) y que todavía no
+   * vuelve del servidor. La lista se pinta así AL INSTANTE; se guarda completa, de una vez.
+   */
+  private readonly ordenLocal = signal<{ date: string; ids: readonly string[] } | null>(null);
+  readonly allocations = computed<PaymentCalendarAllocation[]>(() => {
+    const base = this.selectedDay()?.allocations ?? [];
+    const o = this.ordenLocal();
+    if (!o || o.date !== this.selectedDate()) return base;
+    const pos = new Map(o.ids.map((id, i) => [id, i]));
+    return [...base].sort((x, y) => (pos.get(x.id) ?? Number.MAX_SAFE_INTEGER) - (pos.get(y.id) ?? Number.MAX_SAFE_INTEGER));
+  });
+  private readonly pendientesEnOrden = computed(() => this.allocations().filter((a) => a.status === 'pending').map((a) => a.id));
   readonly pendingCount = computed(() => this.allocations().filter((a) => a.status === 'pending').length);
   readonly unrankedCount = computed(() => this.allocations().filter((a) => a.status === 'pending' && a.priority_rank == null).length);
   readonly unpreparedCount = computed(() => this.allocations().filter((a) => a.status === 'pending' && !isPrepared(a)).length);
@@ -2454,7 +2492,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
         why: 'Se pueden armar pagos, pero el día no se autoriza hasta que lo fije.', action: null };
     }
     if (s.exceeded) {
-      const say = `Lo comprometido excede el tope del día por ${this.money(Math.abs(Number(s.remaining_amount ?? 0)))}.`;
+      const say = `Excede el tope del día por ${this.money(Math.abs(Number(s.remaining_amount ?? 0)))}.`;
       // [PGP.51] PRIMERO lo que el ERP ya no debe: quitarlo no cuesta nada y baja el exceso. Mover
       // pagos que sí se deben mientras eso sigue adentro es mover dinero de más.
       const exceso = Math.abs(Number(s.remaining_amount ?? 0));
@@ -2470,17 +2508,19 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       // [PGP.50] Decía «Mueve o quita pagos» sin botón, y el sistema ya sabe qué mover y a dónde.
       const p = this.propuestaExceso();
       if (p) {
-        const cuantos = p.pagos.length === 1 ? 'el último pago del orden' : `los últimos ${p.pagos.length} del orden`;
+        const cuantos = p.pagos.length === 1 ? 'el último pago' : `los últimos ${p.pagos.length}`;
         const n = p.pagos.length === 1 ? '1 pago' : `${p.pagos.length} pagos`;
         // [PGP.73] Lo que se juega antes del clic: los que se mueven y traen pronto pago abierto.
         const conPronto = p.pagos.filter((a) => (a.pronto_captura ?? 0) > 0);
         const pronto = conPronto.length
-          ? ` Ojo: ${conPronto.length === 1 ? 'uno trae' : `${conPronto.length} traen`} pronto pago (${this.money(conPronto.reduce((s, a) => s + (a.pronto_captura ?? 0), 0))}); en la ventana se ve cuál.`
+          ? ` Ojo: ${conPronto.length === 1 ? 'uno trae' : `${conPronto.length} traen`} pronto pago (${this.money(conPronto.reduce((s, a) => s + (a.pronto_captura ?? 0), 0))}).`
           : '';
+        // [PGP.77] Sólo lo que el botón no dice: cuánto se mueve. A dónde va lo dice el botón, y
+        // cuál va a qué día, la ventana que abre.
         return { tone: 'bad', say,
           why: p.destinos
-            ? `Mover ${cuantos} (${this.money(p.total)}) lo deja dentro del tope; caben en lo libre del ${this.diasDestino(p.destinos)}. En la ventana se ve cuál va a qué día. También puedes pedir a Presupuestos ampliarlo.${pronto}`
-            : `Mover ${cuantos} (${this.money(p.total)}) lo deja dentro del tope, pero lo libre de esta semana no alcanza para todos: elige la fecha, o pide a Presupuestos ampliarlo.${pronto}`,
+            ? `Mover ${cuantos} del orden (${this.money(p.total)}) lo resuelve.${pronto}`
+            : `Mover ${cuantos} del orden (${this.money(p.total)}) lo resuelve, pero lo libre de la semana no alcanza: elige la fecha.${pronto}`,
           action: { kind: 'exceso', label: p.destinos ? `Mover ${n} al ${this.diasDestino(p.destinos)}` : `Mover ${n} a otro día`, icon: 'pi-calendar' } };
       }
       return { tone: 'bad', say, why: 'Mueve o quita pagos, o pide a Presupuestos ampliarlo.', action: null };
@@ -2532,7 +2572,11 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       // [PGP.49] El rótulo de la barra cambió a «Para los N sin preparar»: se cita igual.
       // [PGP.60] Y volvió a cambiar a «Los N sin preparar:» (PGP.52) sin que esto lo siguiera: el
       // veredicto citaba un rótulo que no existía en pantalla (visto en captura el 2026-11-04).
-      const donde = sinMetodo > 1 ? `Elige método y cuenta de origen abajo, en «Los ${this.unpreparedCount()} sin preparar»` : `Usa «Preparar» en su fila`;
+      // [PGP.75] Con el historial cubriendo a alguno, lo único que se decide es de qué cuenta sale el día.
+      const conHistorial = [...this.sugerencias().values()].filter((x) => x.metodo).length;
+      const donde = conHistorial > 1
+        ? `El historial trae el método de ${conHistorial}: elige abajo de qué cuenta sale el día y aplica, en «Los ${this.unpreparedCount()} sin preparar»`
+        : sinMetodo > 1 ? `Elige método y cuenta de origen abajo, en «Los ${this.unpreparedCount()} sin preparar»` : `Usa «Preparar» en su fila`;
       return { tone: 'ok',
         say: n === 1 ? `Falta ${this.faltaDe(a)} de 1 pago para poder autorizar el día.`
                      : `Faltan ${n} de ${this.pendingCount()} pagos por preparar.`,
@@ -2623,6 +2667,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
 
   prepMethod: string | null = null;
   prepDestination = '';
+  /** `[PGP.75]` La CLABE que el diálogo precargó de los comprobantes del proveedor (para decirlo y para cederle el lugar al catálogo). */
+  prepDestHistorial: string | null = null;
   prepReference = '';
   prepCash = '';
   prepAccountId: string | null = null;
@@ -3225,6 +3271,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     if (a.status === 'executed') return 'Marcado pagado';
     if (a.status === 'cancelled') return 'Cancelado';
     const falta = this.comoSale(a).falta;
+    // `[PGP.75]` Con el método en su historial, lo que falta es aplicarlo (y elegir de qué cuenta sale el día).
+    if (falta === 'el método' && this.sugerencias().get(a.id)?.metodo) return 'Por aplicar';
     if (falta) return `Falta ${falta}`;
     return this.isReleased() ? 'Por pagar' : 'Listo';
   }
@@ -3587,27 +3635,71 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    * no usa mouse no podía ordenar, y el orden decide el turno en que Caja General dispersa.
    * Mueve el pago una posición y reescribe los turnos de los dos que se cruzan.
    */
-  moverPago(a: PaymentCalendarAllocation, delta: 1 | -1): void {
+  /**
+   * `[PGP.76]` **Reordenar sin pasos.** Antes eran flechas ↑↓ escondidas que movían de a un lugar,
+   * y cada clic eran tres escrituras y una recarga de la semana: llevar el pago 20 al turno 1 eran
+   * 19 clics y ~19 recargas (234 `POST …/orden` en 30 días, 71 con error, medido el 2026-11-05).
+   * Ahora se ARRASTRA la fila por su asa, o con el foco en el asa: ↑ ↓ de a uno, Inicio y Fin al
+   * principio o al final. La lista cambia al instante y se guarda completa en una sola escritura
+   * (`POST days/:date/orden`), 0.6 s después del último movimiento: diez flechazos son un guardado.
+   */
+  readonly ordenAviso = signal('');
+  private ordenTimer: ReturnType<typeof setTimeout> | null = null;
+  private ordenCola: Promise<unknown> = Promise.resolve();
+
+  turno(a: PaymentCalendarAllocation): number { return this.pendientesEnOrden().indexOf(a.id) + 1; }
+
+  /** PrimeNG ya reacomodó el arreglo que pinta: de ahí sale el orden nuevo. */
+  alSoltar(e: { dropIndex?: number }): void {
     const lista = this.allocations();
-    const i = lista.findIndex((x) => x.id === a.id);
-    const j = i + delta;
-    if (i < 0 || j < 0 || j >= lista.length) return;
-    /**
-     * ⛔ `[PGP.60]` **Fallaba 4 de cada 10 veces** (medido en `analytics.ui_usage`, 14 días al
-     * 2026-11-04: 68 de 178 `POST …/orden` con 4xx). Eran dos `POST` en PARALELO, y el backend
-     * (`setPriorityRank`) rechaza un orden que otro pago pendiente del día ya tiene: en el instante del
-     * intercambio cada uno tenía el número del otro → «El orden N ya lo tiene otro pago de este día».
-     * Ahora va en TRES pasos seguidos que nunca chocan: el mío a un número libre (uno más que el
-     * mayor del día), el otro al mío, el mío al suyo. Si un paso falla, los números siguen siendo
-     * únicos y la recarga muestra el orden real.
-     */
-    const pasos = pasosIntercambio(lista, i, j);
-    if (!pasos.length) return;
-    this.saving.set(true);
-    pasos.reduce<Promise<unknown>>((prev, [id, rank]) => prev.then(() =>
-      firstValueFrom(this.http.post(`${this.base}/allocations/${id}/orden`, { priority_rank: rank }))), Promise.resolve())
-      .catch((e) => this.toast.add({ severity: 'error', summary: 'No se pudo reordenar', detail: String(e?.error?.message ?? e?.message ?? e) }))
-      .finally(() => { this.saving.set(false); this.loadWeek(); });
+    const movido = e.dropIndex != null ? lista[e.dropIndex]?.id ?? null : null;
+    this.fijarOrden(lista.filter((a) => a.status === 'pending').map((a) => a.id), movido, false);
+  }
+
+  teclaOrden(ev: KeyboardEvent, a: PaymentCalendarAllocation): void {
+    const ids = this.pendientesEnOrden();
+    const i = ids.indexOf(a.id);
+    const j = ev.key === 'ArrowUp' ? i - 1 : ev.key === 'ArrowDown' ? i + 1 : ev.key === 'Home' ? 0 : ev.key === 'End' ? ids.length - 1 : null;
+    if (i < 0 || j == null) return;
+    ev.preventDefault();
+    if (j < 0 || j >= ids.length || j === i) return;
+    this.fijarOrden(moverEnOrden(ids, i, j), a.id, true);
+  }
+
+  private fijarOrden(ids: string[], movido: string | null, enfocar: boolean): void {
+    const date = this.selectedDate();
+    this.ordenLocal.set({ date, ids });
+    const a = movido ? this.allocations().find((x) => x.id === movido) : null;
+    if (a) this.ordenAviso.set(`${this.allocationTitle(a)}: turno ${ids.indexOf(a.id) + 1} de ${ids.length}`);
+    // La fila se vuelve a pintar en su lugar nuevo: el foco la sigue para la siguiente flecha.
+    if (enfocar && movido) setTimeout(() => (document.querySelector(`[data-ord="${movido}"]`) as HTMLElement | null)?.focus());
+    if (this.ordenTimer) clearTimeout(this.ordenTimer);
+    this.ordenTimer = setTimeout(() => this.guardarOrden(date), 600);
+  }
+
+  private guardarOrden(date: string): void {
+    this.ordenTimer = null;
+    const o = this.ordenLocal();
+    if (!o || o.date !== date) return;
+    const ids = [...o.ids];
+    this.ordenCola = this.ordenCola.then(async () => {
+      try {
+        await firstValueFrom(this.http.post(`${this.base}/days/${date}/orden`, { ids }));
+        const pos = new Map(ids.map((id, i) => [id, i + 1]));
+        const llave = (x: PaymentCalendarAllocation, k: number) => pos.get(x.id) ?? ids.length + 1 + k;
+        this.week.update((w) => w && ({ ...w, days: w.days.map((d) => d.date !== date ? d : {
+          ...d,
+          allocations: d.allocations.map((x, k) => ({ x, k })).sort((p, q) => llave(p.x, p.k) - llave(q.x, q.k))
+            .map(({ x }) => (pos.has(x.id) ? { ...x, priority_rank: pos.get(x.id) ?? x.priority_rank } : x)),
+        }) }));
+        // Si mientras tanto se movió otra vez, ese orden más nuevo se queda y se guarda en su turno.
+        if (this.ordenLocal() === o) this.ordenLocal.set(null);
+      } catch (e) {
+        this.ordenLocal.set(null);
+        this.toast.add({ severity: 'error', summary: 'No se guardó el orden', detail: this.errMsg(e, 'No se pudo guardar el orden.'), life: 8000 });
+        this.loadWeek();
+      }
+    });
   }
 
   /** El proveedor del catálogo detrás de un pago (sólo facturas de mercancía lo traen). */
@@ -3625,6 +3717,54 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   habitoDe(a: PaymentCalendarAllocation): SupplierPaymentHabit | null {
     const id = this.proveedorDe(a);
     return id ? this.habitos().get(id) ?? null : null;
+  }
+
+  /**
+   * `[PGP.75]` **Lo que el historial propone para cada pago sin preparar**: el método de su hábito
+   * (`metodo_estado = estable`, PGP.30) y la CLABE de sus propios comprobantes (sólo si es UNA, con
+   * dígito de control válido). La cuenta de ORIGEN no: es la decisión del día de Tesorería y se elige
+   * una vez en la barra. Medido el 2026-11-04 sobre 76 pagos pendientes: método en 55, CLABE en 48.
+   */
+  readonly sugerencias = computed<ReadonlyMap<string, { metodo: string | null; destino: string | null; texto: string; porque: string }>>(() => {
+    const out = new Map<string, { metodo: string | null; destino: string | null; texto: string; porque: string }>();
+    const habitos = this.habitos();
+    for (const a of this.allocations()) {
+      if (a.status !== 'pending' || isPrepared(a)) continue;
+      const sid = this.proveedorDe(a);
+      const h = sid ? habitos.get(sid) : undefined;
+      if (!h) continue;
+      const metodo = h.metodo_estado === 'estable' ? h.metodo_sugerido : null;
+      const usaDestino = (metodo ?? 'transferencia') === 'transferencia' || metodo === 'cargo_automatico';
+      const destino = usaDestino && h.clabe_estado === 'unica' && h.clabe_sugerida
+        ? `${(h.clabe_banco ?? '').trim() ? (h.clabe_banco ?? '').trim() + ' · ' : ''}CLABE ${h.clabe_sugerida}` : null;
+      if (!metodo && !destino) continue;
+      const partes = [metodo ? this.methodLabel(metodo) : null, destino && h.clabe_sugerida ? `→ ${(h.clabe_banco ?? '').trim() || 'CLABE'} ··${h.clabe_sugerida.slice(-4)}` : null].filter(Boolean);
+      const porque = [
+        metodo ? `Método: así se le pagó ${h.metodo_veces} de ${h.metodo_de} veces` : null,
+        destino ? `CLABE: la de sus ${h.clabe_comprobantes} comprobantes de pago${h.clabe_ultima_vez ? `, el último del ${h.clabe_ultima_vez}` : ''}` : null,
+        h.clabe_estado === 'varias' ? `Sus comprobantes traen ${h.clabes_distintas} CLABEs distintas: elígela en «Preparar»` : null,
+      ].filter(Boolean).join('. ');
+      out.set(a.id, { metodo, destino, texto: `Sugerido: ${partes.join(' ')}`, porque });
+    }
+    return out;
+  });
+  /** `[PGP.75]` En una línea, cuánto trae el historial y qué queda por decidir. */
+  readonly resumenSugerencias = computed(() => {
+    const pend = this.allocations().filter((a) => a.status === 'pending' && !isPrepared(a)).length;
+    const s = [...this.sugerencias().values()];
+    const conMetodo = s.filter((x) => x.metodo).length;
+    const conClabe = s.filter((x) => x.destino).length;
+    if (!pend) return '';
+    if (!conMetodo) return 'Ningún proveedor trae método en su historial: elige el método.';
+    const sin = pend - conMetodo;
+    return `El historial trae el método de ${conMetodo} de ${pend} y la CLABE de ${conClabe}.` + (sin ? ` Los otros ${sin} se quedan sin preparar: elige un método para ellos o usa «Preparar».` : '');
+  });
+  /** `[PGP.75]` Con método elegido, como antes; sin él, basta que el historial cubra a alguno. Siempre con origen (salvo efectivo). */
+  puedeAplicar(): boolean {
+    const m = this.bulkMethod;
+    if (m === 'efectivo') return true;
+    if (!this.bulkOriginId) return false;
+    return !!m || [...this.sugerencias().values()].some((x) => x.metodo);
   }
 
   /** El hábito del pago que tiene abierto el diálogo — para explicar por qué NO se precargó nada. */
@@ -3655,18 +3795,25 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    * transferencia). Lo ya preparado se cambia en su fila, con «Cambiar».
    */
   async aplicarATodos(): Promise<void> {
-    const m = this.bulkMethod;
-    const filas = this.allocations().filter((a) => a.status === 'pending' && !isPrepared(a));
-    if (!m || !filas.length || (m !== 'efectivo' && !this.bulkOriginId)) return;
-    const usaDestino = m === 'transferencia' || m === 'cargo_automatico';
+    if (!this.puedeAplicar() || this.saving()) return;
+    const elegido = this.bulkMethod;
+    const sugerencias = this.sugerencias();
+    // `[PGP.75]` Sin método elegido, cada pago lleva el de su historial; el que no tiene historial se queda.
+    const todas = this.allocations().filter((a) => a.status === 'pending' && !isPrepared(a));
+    const filas = elegido ? todas : todas.filter((a) => sugerencias.get(a.id)?.metodo);
+    const sinHistorial = todas.length - filas.length;
+    if (!filas.length) return;
     this.saving.set(true);
     const favs = new Map<string, string | null | 'error'>();
-    let ok = 0, conFavorita = 0;
+    let ok = 0, conFavorita = 0, conHistorial = 0;
     const sinDestino: string[] = [], sinCatalogo: string[] = [], fallas: string[] = [];
     for (const a of filas) {
+      const sg = sugerencias.get(a.id);
+      const m = elegido ?? sg!.metodo!;
+      const usaDestino = m === 'transferencia' || m === 'cargo_automatico';
       const cambio: Record<string, unknown> = { payment_method: m, bank_account_id: m === 'efectivo' ? null : this.bulkOriginId };
       const tieneDestino = !!a.supplier_payment_account_id || !!(a.destination_account_text ?? '').trim();
-      let puso = false, catalogoCaido = false;
+      let puso = false, catalogoCaido = false, pusoHistorial = false;
       if (usaDestino && !tieneDestino) {
         const sid = this.proveedorDe(a);
         if (sid) {
@@ -3675,12 +3822,16 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
           if (fav === 'error') catalogoCaido = true;
           else if (fav) { cambio['supplier_payment_account_id'] = fav; puso = true; }
         }
+        // `[PGP.75]` Sin favorita aprobada, la CLABE de sus comprobantes. Al guardarse queda pedida de
+        // alta en el catálogo (PGP.46), para que la apruebe Compras/Dirección.
+        if (!puso && sg?.destino) { cambio['destination_account_text'] = sg.destino; pusoHistorial = true; }
       }
       try {
         await firstValueFrom(this.http.post(`${this.base}/allocations/${a.id}/preparar`, this.cuerpoPreparar(a, cambio)));
         ok++;
         if (puso) conFavorita++;
-        if (usaDestino && !tieneDestino && !puso) (catalogoCaido ? sinCatalogo : sinDestino).push(this.allocationTitle(a));
+        if (pusoHistorial) conHistorial++;
+        if (usaDestino && !tieneDestino && !puso && !pusoHistorial) (catalogoCaido ? sinCatalogo : sinDestino).push(this.allocationTitle(a));
       } catch (e) {
         fallas.push(`${this.allocationTitle(a)}: ${this.errMsg(e, 'error')}`);
       }
@@ -3688,8 +3839,11 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     this.saving.set(false);
     this.recordarPreparacion();
     this.loadWeek();
-    if (ok) this.toast.add({ severity: 'success', summary: `${ok} de ${this.pagos(filas.length)} preparados`, detail: conFavorita ? `${conFavorita} con la cuenta favorita de su proveedor.` : undefined });
-    if (sinDestino.length) this.toast.add({ severity: 'warn', summary: `${sinDestino.length} sin cuenta destino`, detail: `${sinDestino.join(', ')}: su proveedor no tiene cuenta favorita en el catálogo. Captúrala con «Preparar».`, life: 10000 });
+    const detalle = [conFavorita ? `${conFavorita} con la cuenta favorita de su proveedor` : null,
+      conHistorial ? `${conHistorial} con la CLABE de sus comprobantes (queda pedida de alta)` : null,
+      sinHistorial ? `${sinHistorial} sin historial se quedaron sin preparar` : null].filter(Boolean).join(' · ');
+    if (ok) this.toast.add({ severity: 'success', summary: `${ok} de ${this.pagos(filas.length)} preparados`, detail: detalle || undefined });
+    if (sinDestino.length) this.toast.add({ severity: 'warn', summary: `${sinDestino.length} sin cuenta destino`, detail: `${sinDestino.join(', ')}: su proveedor no tiene cuenta favorita en el catálogo ni CLABE en sus comprobantes. Captúrala con «Preparar».`, life: 10000 });
     if (sinCatalogo.length) this.toast.add({ severity: 'warn', summary: 'No se pudo leer el catálogo de cuentas', detail: `${sinCatalogo.join(', ')}: elige su destino con «Preparar».`, life: 10000 });
     if (fallas.length) this.toast.add({ severity: 'error', summary: `${fallas.length} no se prepararon`, detail: fallas.join(' · '), life: 10000 });
   }
@@ -3700,7 +3854,9 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   private recuperarPreparacion(): void {
     try {
       const v = JSON.parse(localStorage.getItem(PREF_PREPARAR) || 'null') as { m?: string | null; o?: string | null } | null;
-      if (v && !this.bulkMethod) { this.bulkMethod = v.m ?? null; this.bulkOriginId = v.o ?? null; }
+      // `[PGP.75]` Sólo el ORIGEN se recuerda: un método recordado le ganaría al historial de cada
+      // proveedor sin que nadie lo eligiera hoy.
+      if (v && !this.bulkOriginId) { this.bulkOriginId = v.o ?? null; }
     } catch { /* sin almacenamiento o valor viejo: se elige de nuevo */ }
   }
   /**
@@ -3862,12 +4018,19 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     this.prepAccountsError.set(null);
     this.prepPedida.set(null);
     this.prepSupplierId = this.proveedorDe(a);
+    // `[PGP.75]` La CLABE de sus comprobantes, si no hay nada puesto. Es lo ÚLTIMO en precedencia: la
+    // cuenta aprobada del catálogo y la captura pendiente la reemplazan si llegan y nadie la tocó.
+    const histDest = this.sugerencias().get(a.id)?.destino ?? null;
+    this.prepDestHistorial = !this.prepDestination.trim() && !a.supplier_payment_account_id ? histDest : null;
+    if (this.prepDestHistorial) this.prepDestination = this.prepDestHistorial;
+    const intacto = () => !!this.prepDestHistorial && this.prepDestination === this.prepDestHistorial;
     if (this.prepSupplierId) {
       this.http.get<PaymentAccount[]>(`${this.accountsBase}/by-supplier/${this.prepSupplierId}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (rows) => {
           this.prepAccounts.set(rows.map((r) => ({ id: r.id, label: `${r.bank_name}${r.clabe ? ' · ' + r.clabe : ''}${r.alias ? ' (' + r.alias + ')' : ''}${r.es_favorita ? ' ★' : ''}` })));
-          // La favorita se propone sola; el usuario puede cambiarla.
-          if (!this.prepAccountId && !this.prepDestination) this.prepAccountId = rows.find((r) => r.es_favorita)?.id ?? null;
+          // La favorita se propone sola; el usuario puede cambiarla. [PGP.75] Gana sobre la CLABE del historial.
+          const fav = rows.find((r) => r.es_favorita)?.id ?? null;
+          if (!this.prepAccountId && fav && (!this.prepDestination || intacto())) { this.prepAccountId = fav; if (intacto()) { this.prepDestination = ''; this.prepDestHistorial = null; } }
         },
         error: (e) => { this.prepAccounts.set([]); this.prepAccountsError.set(e?.status === 403 ? 'sin permiso de Compras' : 'error del servidor'); },
       });
@@ -3891,8 +4054,9 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
           });
           // Se precarga SOLO si no hay nada elegido: nunca pisa lo que la persona ya puso ni una
           // cuenta del catálogo, que está aprobada y gana sobre una captura pendiente.
-          if (!this.prepAccountId && !this.prepDestination.trim()) {
+          if (!this.prepAccountId && (!this.prepDestination.trim() || intacto())) {
             this.prepDestination = `${r.proposed_bank_name && !r.proposed_bank_name.startsWith('(') ? r.proposed_bank_name + ' · CLABE ' : ''}${r.proposed_clabe}`;
+            this.prepDestHistorial = null;
           }
         },
         error: () => this.prepPedida.set(null),
