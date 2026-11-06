@@ -16,7 +16,8 @@ import { countFocusGuard } from './core/guards/count-focus.guard';
 import { unsavedChangesGuard } from './core/guards/unsaved-changes.guard';
 
 /** `[LE.6.9]` Quien tiene la clave del cambio entra a la Ventanilla; los demás siguen en Captura (D34). */
-export const trabajaEnVentanilla: CanMatchFn = () => inject(PermissionsService).has(Permission.FINANCE_CAJA_VENTANILLA);
+// Con la clave EXPLÍCITA: el superadmin pasa todas las claves y no opera la caja (D23, D40).
+export const trabajaEnVentanilla: CanMatchFn = () => inject(PermissionsService).hasExplicit(Permission.FINANCE_CAJA_VENTANILLA);
 
 /**
  * El aux route del panel se activa **sólo si la URL trae algo para el panel**.
