@@ -12,14 +12,13 @@ import { TooltipModule } from 'primeng/tooltip';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import type { FilaListaPrecios, OpcionClasificacion, OrdenListaPrecios, PrecioUnidad, RespuestaListaPrecios } from '@megadulces/contracts';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { CatalogoMenuComponent } from './catalogo-menu.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { isoLocalDate, makeDebouncedSearch, makeLazyLoad } from '../../../shared/util';
-import { CATALOGO_TABS } from '../catalogo-tabs';
 import { PreciosService } from '../precios.service';
 import { NOMBRE_ORDEN, generarPdfPrecios } from '../precios-lista-pdf';
 import { ComprasPreciosHistoriaComponent } from './compras-precios-historia.component';
@@ -44,7 +43,7 @@ const ORDENES: OrdenListaPrecios[] = ['articulo', 'linea', 'tipo', 'grupo'];
   standalone: true,
   imports: [
     FormsModule, TableModule, SelectModule, CheckboxModule, DatePickerModule, ButtonModule, TooltipModule, ToastModule,
-    PageTabsComponent, LoadStateComponent, MetricStripComponent, FreshnessPillComponent, SidePeekComponent,
+    CatalogoMenuComponent, LoadStateComponent, MetricStripComponent, FreshnessPillComponent, SidePeekComponent,
     ContextHelpComponent, ComprasPreciosHistoriaComponent,
   ],
   providers: [MessageService],
@@ -59,7 +58,7 @@ const ORDENES: OrdenListaPrecios[] = ['articulo', 'linea', 'tipo', 'grupo'];
         </div>
       </header>
 
-      <app-page-tabs [tabs]="tabs" />
+      <app-catalogo-menu />
 
       <div class="lp-cabeza">
         @if (datos(); as d) {
@@ -283,7 +282,6 @@ const ORDENES: OrdenListaPrecios[] = ['articulo', 'linea', 'tipo', 'grupo'];
   `],
 })
 export class ComprasCatalogoPreciosComponent {
-  readonly tabs = CATALOGO_TABS;
   readonly espejoDetenido = ESPEJO_DETENIDO_SEG;
   readonly hoyComoFecha = new Date();
   readonly opcionesOrden = ORDENES.map((o) => ({ label: `Por ${NOMBRE_ORDEN[o]}`, value: o }));

@@ -13,7 +13,8 @@
  *
  * ── Dónde se usa (una sola regla, tres consumidores) ───────────────────────────────────────────
  *  · etiquetera: el mensaje de «por qué no hay precio» y la marca «Promoción» en su buscador (`[ETQ-PROMO.1/.2]`);
- *  · verificador de precios: avisa «es una promoción» en vez de un precio (`es_promocion`, `pm`).
+ *  · verificador de precios: avisa «es una promoción» en vez de un precio (`es_promocion`, `pm`);
+ *  · Compras › Catálogo: la lista manda las promociones al final (`[PF.12.1]`, en SQL con `PATRON_PROMOCION_PG`).
  *
  * ── Qué cuenta como simbólico (dos señales, cualquiera basta) ──────────────────────────────────────
  *  1. El nombre trae «= GRATIS»: el propio nombre describe una bonificación. Cubre además los que en
@@ -32,6 +33,22 @@ const PATRON_GRATIS = /=\s*GRATIS\b/i;
 export function esNombreDePromocion(nombre: string | null | undefined): boolean {
   return PATRON_GRATIS.test(String(nombre ?? ''));
 }
+
+/**
+ * `[PF.12.1]` La MISMA regla de `esNombreDePromocion`, en sintaxis de expresión regular de Postgres, para
+ * que una consulta (p. ej. el orden de Compras › Catálogo, que manda las promociones al final) la aplique
+ * sin copiarla a otro archivo. Se usa con `~*` (sin distinguir mayúsculas, como la bandera `i`) y viaja
+ * como BINDING, no pegada en el SQL: `coalesce(p.nombre, '') ~* ?`.
+ *
+ * ⛔ La única diferencia de escritura es la frontera de palabra: en Postgres `\b` NO es frontera, es el
+ * carácter de retroceso (backspace), así que `=\s*GRATIS\b` no casaría NUNCA y la regla se apagaría sin
+ * error. La frontera de Postgres es `\y`. La prueba de `codigo-simbolico.spec.ts` lo fija.
+ *
+ * Medido contra Postgres el 2026-10-29 (base local, 13,634 nombres distintos de `catalog.products`): las dos
+ * versiones clasifican igual todos. Única diferencia conocida, sin ningún caso real: una letra ACENTUADA
+ * pegada a GRATIS («= GRATISÁ») — la frontera de JS sólo conoce letras ASCII y la de Postgres todas.
+ */
+export const PATRON_PROMOCION_PG = '=\\s*GRATIS\\y';
 
 /**
  * `[ETQ-PROMO.2]` Marca en los resultados de una BÚSQUEDA cuáles son códigos simbólicos y los manda AL FINAL

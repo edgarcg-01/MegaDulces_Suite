@@ -33,6 +33,7 @@ import {
   llegadaDeKardex,
   ordenPlazasFlujo,
   armarProveedores,
+  armarTransito,
   filaProveedor,
   periodos,
   resumirCaducidad,
@@ -45,6 +46,9 @@ import {
   type MargenFila,
   type MargenesProducto,
   type NoSeVendeFila,
+  type SalidaRuta,
+  type TransitoFila,
+  type TransitoProducto,
 } from './product-flow';
 import {
   CORTE_SQL,
@@ -67,7 +71,9 @@ import {
   PROVEEDORES_SQL,
   NUEVOS_POBLADA_SQL,
   RESUMEN_HISTORIA_SQL,
+  SALIDAS_RUTA_SQL,
   SALIDAS_SQL,
+  TRANSITO_SQL,
   TRASPASOS_SQL,
   VENTA_VIVO_SQL,
 } from './product-flow.sql';
@@ -160,6 +166,39 @@ export class ProductFlowService {
     const kardex = (await trx.raw(KARDEX_SQL, [desde, skus])).rows as KardexFila[];
     const kdil = (await trx.raw(KDIL_CRUDO_SQL, [skus])).rows as Array<{ plaza: string; sku: string; kdil: string; costo: string | null }>;
     return { kardex, kdil };
+  }
+
+  /**
+   * Una lectura OPCIONAL dentro de la transacción: en un SAVEPOINT, para que si falla (vista que todavía no existe,
+   * columna que cambió) no aborte la transacción y tumbe el resto del cálculo. NULL = no se pudo leer: quien la
+   * llama lo DECLARA (ADR-056), no lo dibuja como «no hay».
+   */
+  private async opcional<T>(trx: Knex.Transaction, nombre: string, sql: string, binds: unknown[]): Promise<T[] | null> {
+    await trx.raw(`SAVEPOINT ${nombre}`);
+    try {
+      const rows = (await trx.raw(sql, binds as Knex.RawBinding[])).rows as T[];
+      await trx.raw(`RELEASE SAVEPOINT ${nombre}`);
+      return rows;
+    } catch (e) {
+      await trx.raw(`ROLLBACK TO SAVEPOINT ${nombre}`);
+      this.logger.warn(`Lectura opcional ${nombre} no disponible: ${(e as Error).message.slice(0, 160)}`);
+      return null;
+    }
+  }
+
+  /** `[PF.15]` Cargas a camioneta por SKU y sucursal entre dos fechas. NULL = no se pudieron leer. */
+  private async cargasRuta(trx: Knex.Transaction, skus: string[], desde: string, hasta: string): Promise<Map<string, Map<string, SalidaRuta>> | null> {
+    if (!skus.length) return new Map();
+    const rows = await this.opcional<{ sku: string; plaza: string; q: string; ultima: string }>(
+      trx, 'pf_cargas_ruta', SALIDAS_RUTA_SQL, [desde, hasta, skus]);
+    if (!rows) return null;
+    const out = new Map<string, Map<string, SalidaRuta>>();
+    for (const r of rows) {
+      const m = out.get(r.sku) ?? new Map<string, SalidaRuta>();
+      m.set(r.plaza, { q: num(r.q) ?? 0, ultima: r.ultima });
+      out.set(r.sku, m);
+    }
+    return out;
   }
 
   /** `[PF.2]` Los líderes (de unos productos, o todos con `ids = null`) y la fecha de su cálculo. */
@@ -405,6 +444,8 @@ export class ProductFlowService {
         ? (await trx.raw(KDIL_CRUDO_SQL, [skus])).rows as Array<{ plaza: string; sku: string; costo: string | null }>
         : [];
       const fichas = await this.fichas(trx, skusKardex);
+      // [PF.15] Lo que se cargó a camioneta en la ventana del ritmo (su venta no está en Kepler).
+      const ruta = await this.cargasRuta(trx, skus, p.desde30, p.hoy);
 
       // [PF.5] El margen real de los últimos días cerrados, sólo con permiso de costo (un margen deja ver el costo).
       const margen = new Map<string, { n: string; nc: string; c: string }>();
@@ -421,6 +462,7 @@ export class ProductFlowService {
           costos: puedeVerCosto ? costos.filter((c) => c.sku === x.sku) : [], fichas: fichas.get(x.sku) ?? new Map(), nombres,
           // Con lotes se juzgan TODAS sus sucursales: un lote donde no se vende es justo el que caduca.
           todas: lotes.length > 0,
+          ruta: ruta?.get(x.sku),
         });
         const caducidad = resumirCaducidad(juzgarLotes(p, lotes, plazas, nombres));
         const r = resumirProducto(x.id, p, plazas.filter((pl) => pl.estado !== 'sin_movimiento'), { lider: lideres.get(x.id) ?? null, caducidad });
@@ -458,6 +500,9 @@ export class ProductFlowService {
         Array<{ plaza: string; unidad: string; q: string }>;
       const lider = (await this.lideres(trx, [prod.id])).mapa.get(prod.id) ?? null;
       const lotesFilas = await this.lotes(trx, [prod.id]);
+      // [PF.15] Cargas a camioneta y [PF.13] lo que ya viene en órdenes de compra: lecturas opcionales.
+      const ruta = await this.cargasRuta(trx, [prod.sku], p.desde30, p.hoy);
+      const transitoFilas = await this.opcional<TransitoFila>(trx, 'pf_transito', TRANSITO_SQL, [prod.sku]);
 
       // La historia diaria, partida en periodos como en la lista (misma regla en un solo lugar).
       const hist: HistoriaPlaza[] = [...agrupar(diario, (d) => d.plaza)].map(([plaza, ds]) => {
@@ -476,10 +521,12 @@ export class ProductFlowService {
       });
       const plazas = this.armarPlazas(p, {
         hist, vivo, exist, kardex, kdil, costos: opts.puedeVerCosto ? kdil : [], fichas, nombres,
-        todas: true,
+        todas: true, ruta: ruta?.get(prod.sku),
       }).sort(ordenPlazasFlujo);
       const lotes = juzgarLotes(p, lotesFilas, plazas, nombres);
-      const resumen = resumirProducto(prod.id, p, plazas, { lider, caducidad: resumirCaducidad(lotes) });
+      const escalera = escaleraComun(plazas.map((x) => x.escalera));
+      const transito: TransitoProducto | null = transitoFilas ? armarTransito(transitoFilas, escalera, nombres) : null;
+      const resumen = resumirProducto(prod.id, p, plazas, { lider, caducidad: resumirCaducidad(lotes), transito });
 
       const porDia = new Map<string, number>();
       for (const d of diario) porDia.set(d.fecha, (porDia.get(d.fecha) ?? 0) + (num(d.monto) ?? 0));
@@ -510,7 +557,7 @@ export class ProductFlowService {
         plazas,
         llegada: llegadaDeKardex(kardex, nombres),
         reparto: [...reparto.values()].sort((a, b) => a.plaza.localeCompare(b.plaza)),
-        escalera: escaleraComun(plazas.map((x) => x.escalera)),
+        escalera,
         lotes,
       };
     });
@@ -529,7 +576,14 @@ export class ProductFlowService {
     ])).rows as NoSeVendeFila[];
     const vivo = filas.length ? (await trx.raw(VENTA_VIVO_SQL, [filas.map((f) => f.sku), corte, p.hoy])).rows as VentaVivo[] : [];
     const vendioHoy = new Set(vivo.filter((v) => (num(v.unidades) ?? 0) > 0).map((v) => v.sku));
-    const quedan = filas.filter((f) => !vendioHoy.has(f.sku));
+    // [PF.15] Lo que su sucursal cargó a camioneta en los días que se miran SÍ se mueve (su venta no está en
+    // Kepler): «no se vende» sería falso. Se saca y se cuenta aparte; si no se pudo leer, se queda (como antes).
+    const sinHoy = filas.filter((f) => !vendioHoy.has(f.sku));
+    const cargas = await this.cargasRuta(trx, sinHoy.map((f) => f.sku), sumarDias(p.hoy, -C.diasSinVenta), p.hoy);
+    const quedan = cargas ? sinHoy.filter((f) => !cargas.has(f.sku)) : sinHoy;
+    const porCamioneta = sinHoy.length - quedan.length;
+    // [PF.UI.3] La consulta tiene tope: si lo alcanzó, el total es un MÍNIMO y se dice («N o más»).
+    const totalEsMinimo = filas.length >= C.limiteNoSeVenden * 4;
     const muestra = quedan.slice(0, C.limiteNoSeVenden);
     const fichas = await this.fichas(trx, muestra.map((f) => f.sku));
     const nombres = await this.nombres(trx);
@@ -540,6 +594,8 @@ export class ProductFlowService {
     return new Map(variantes.map((puedeVerCosto) => [puedeVerCosto, {
       nuevos_excluidos: nuevosExcluidos,
       total: quedan.length,
+      total_es_minimo: totalEsMinimo,
+      por_camioneta: porCamioneta,
       valor_total: puedeVerCosto ? Math.round(quedan.reduce((a, f) => a + (num(f.valor) ?? 0), 0) * 100) / 100 : null,
       por_tramo: { ...porTramo },
       productos: muestra.map((f) => noSeVende(f, nombres, escaleras.get(f.sku) ?? null, puedeVerCosto, caducidad.get(f.product_id) ?? null)),
@@ -648,6 +704,8 @@ export class ProductFlowService {
     kardex: KardexFila[]; kdil: Array<{ plaza: string; kdil: string }>;
     costos: Array<{ plaza: string; costo: string | null }>;
     fichas: Map<string, FichaPlaza>; nombres: Map<string, string>; todas?: boolean;
+    /** `[PF.15]` Cargas a camioneta por sucursal. Ausente = no se pudieron leer (se juzga como antes). */
+    ruta?: Map<string, SalidaRuta>;
   }): PlazaFlujo[] {
     const kdil = new Map(x.kdil.map((k) => [k.plaza, num(k.kdil) ?? 0]));
     const porKardex: Map<string, KardexPlaza> = kardexPorPlaza(x.kardex, kdil);
@@ -667,6 +725,7 @@ export class ProductFlowService {
         plaza, nombre: x.nombres.get(plaza) ?? null,
         ...juntarPlaza(p, histPor.get(plaza), vivoPor.get(plaza) ?? []),
         existencia, duda, escalera: esc, costo: costo.get(plaza) ?? null,
+        ruta: x.ruta?.get(plaza) ?? null,
       };
       return juzgarPlaza(p, datos);
     }).filter((pl) => x.todas || pl.estado !== 'sin_movimiento');

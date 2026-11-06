@@ -1,19 +1,25 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, linkedSignal, signal } from '@angular/core';
 import { rxResource } from '@angular/core/rxjs-interop';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+import { esNombreDescontinuado, warehouseName } from '@megadulces/contracts';
 import { CatalogoProductosService, FichaProducto } from '../catalogo-productos.service';
 import { nombrePropio, nombreProveedor } from '../catalogo-proveedor';
 import { CantidadEnUnidad, UnidadFactor, componerEnUnidades } from '../unidades-composicion';
+import { ProductoLanzamientoComponent, type VentaPeriodoSucursal } from './producto-lanzamiento.component';
+import { PeriodoFichaComponent } from '../components/periodo-ficha.component';
+import { PeriodoFicha, fechaCortaPeriodo, textoPeriodo } from '../periodo-ficha';
 
 /**
  * Ficha de un producto, vista Sencillo del Catálogo de Compras. En este orden:
  *   1. Identidad: SKU (copiable), estado, códigos de barras (el principal marcado), proveedor legible.
  *   2. Unidades y precio: una fila por unidad, «Sin precio» donde no hay lista, y si la red coincide.
  *   3. Venta y existencia por sucursal, en unidades compuestas (65 CJA 5 PAQ), con total.
- *   4. Última entrada (el costo sólo llega con permiso de costo).
+ *   4. Última entrada; su costo sin IVA ni IEPS lo ve quien ve el catálogo (`[PF.12.3]`, la regla de la lista).
+ *   `[NP.22]` Entre 2 y 3, si el producto es NUEVO: «Lanzamiento» (`app-producto-lanzamiento`, lo que era el panel
+ *   de la pantalla Productos nuevos). Si no lo es, no pinta nada.
  *
  * Jerarquía: primario = el precio por unidad; secundario = venta y existencia por sucursal;
  * terciario = códigos, proveedor, última entrada.
@@ -47,18 +53,25 @@ interface FilaSucursalVm {
   monto: string | null;
   vendido: CantidadEnUnidad[];
   existencia: Existencia;
+  /** `[PF.23]` Por qué no hay venta que mostrar (nunca un $0): antes de su corte a Kepler, o sin corte. */
+  sinVentaPor: string;
 }
 
 @Component({
   selector: 'app-producto-ficha',
   standalone: true,
-  imports: [TableModule, TagModule, LoadStateComponent, FreshnessPillComponent],
+  imports: [TableModule, TagModule, LoadStateComponent, FreshnessPillComponent, ProductoLanzamientoComponent, PeriodoFichaComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-load-state [loading]="cargando()" [error]="error()" [isEmpty]="false" [skeletonRows]="8"
                     errorTitle="No se pudo cargar la ficha del producto" (retry)="recargar()">
       @if (vm(); as v) {
         <article class="ficha" [attr.aria-label]="'Ficha de ' + v.nombre">
+          <!-- [PF.23] El periodo, arriba de todo (pedido de David). Dice a qué aplica: precio y existencia son de hoy. -->
+          <div class="periodo-top">
+            <app-periodo-ficha porOmision="mes" [valor]="periodo()" etiqueta="Periodo de la venta" (cambio)="periodo.set($event)" />
+            <small class="nota">Aplica a la venta por sucursal · precio y existencia son de hoy</small>
+          </div>
           <dl class="ident">
             <div>
               <dt>SKU</dt>
@@ -76,7 +89,8 @@ interface FilaSucursalVm {
             </div>
             <div>
               <dt>Estado</dt>
-              <dd><p-tag [severity]="v.activo ? 'success' : 'secondary'" [value]="v.activo ? 'Activo' : 'Inactivo'" [rounded]="true" /></dd>
+              <!-- [PF.20] Kepler marca el descontinuado en el NOMBRE («* DESCONTINUADO»), no en su campo Obsoleto: manda sobre «Activo». -->
+              <dd><p-tag [severity]="v.descontinuado || !v.activo ? 'secondary' : 'success'" [value]="v.descontinuado ? 'Descontinuado' : v.activo ? 'Activo' : 'Inactivo'" [rounded]="true" /></dd>
             </div>
             <div>
               <dt>{{ v.codigos.length > 1 ? 'Códigos de barras' : 'Código de barras' }}</dt>
@@ -98,10 +112,39 @@ interface FilaSucursalVm {
                 @if (v.proveedor) { {{ v.proveedor }} } @else { <span class="sin">Sin proveedor</span> }
               </dd>
             </div>
+            <!-- [PF.12.3] El costo junto a la identidad: el de la ultima entrada, la misma regla y el mismo numero que la columna Ultimo costo. -->
+            @if (v.costoVisible) {
+              <div>
+                <dt>Último costo</dt>
+                <dd>
+                  <!-- [PF.22] Por cada unidad (paquete y caja), como el renglon de la lista; sin escalera, el de la entrada. -->
+                  @if (v.entrada?.costo && v.entrada!.costos.length) {
+                    <span class="costos">@for (c of v.entrada!.costos; track c.unidad) { <span><span class="mono">{{ c.monto }}</span>&ngsp;<span class="ud">por {{ c.unidad }}</span></span>&ngsp;}</span>&ngsp;
+                    <small class="nota">{{ v.entrada!.costoNota }}</small>
+                  } @else if (v.entrada?.costo; as k) { <span class="mono">{{ k }}</span>&ngsp;<span class="ud">por {{ v.entrada!.unidad }}</span>&ngsp;<small class="nota">{{ v.entrada!.costoNota }}</small> }
+                  @else if (v.entrada) { <span class="sin">Sin costo en la entrada</span> }
+                  @else { <span class="sin">Sin entradas</span> }
+                </dd>
+              </div>
+            }
             @if (v.descripcion) {
               <div class="ancho"><dt>Descripción</dt><dd>{{ v.descripcion }}</dd></div>
             }
           </dl>
+
+          <!-- [PF.23] «Última entrada» arriba, junto al Último costo que sale de ella (pedido de David, 2026-11-04). -->
+          <section class="bloque" aria-labelledby="ficha-ent-t">
+            <h3 class="bloque-t" id="ficha-ent-t">Última entrada</h3>
+            @if (v.entrada; as e) {
+              <dl class="ident ent">
+                <div><dt>Fecha</dt><dd>{{ e.fecha }}</dd></div>
+                <div><dt>Sucursal</dt><dd>{{ e.sucursal }}</dd></div>
+                <div><dt>Cantidad</dt><dd><span class="mono">{{ e.cantidad }}</span>&ngsp;<span class="ud">{{ e.unidad }}</span></dd></div>
+              </dl>
+            } @else {
+              <p class="sin">Sin entradas registradas.</p>
+            }
+          </section>
 
           <section class="bloque" aria-labelledby="ficha-up-t">
             <h3 class="bloque-t" id="ficha-up-t">Unidades y precio</h3>
@@ -138,25 +181,35 @@ interface FilaSucursalVm {
             }
           </section>
 
-          <section class="bloque" aria-labelledby="ficha-suc-t">
+          <!-- [NP.22] Si es un producto nuevo: su lanzamiento (lo que era el panel de Productos nuevos). Si no, no pinta nada. -->
+          <!-- [PF.23] Opción A (David, 2026-11-04): en un producto nuevo, sus tarjetas «Por sucursal» llevan la venta del periodo
+               y la tabla de abajo (que repetía venta y existencia por sucursal) no se pinta. -->
+          <app-producto-lanzamiento [productId]="productId()" [esNuevo]="esNuevo()"
+                                    [ventaPeriodo]="ventaPeriodo()" [periodoTexto]="v.periodoTexto"
+                                    (conDetalle)="lanzamientoConDetalle.set($event)" />
+
+          @if (!lanzamientoConDetalle()) {
+
+          <section class="bloque" aria-labelledby="ficha-suc-t" [attr.aria-busy]="actualizando() ? 'true' : null" [class.is-act]="actualizando()">
             <div class="bloque-cab">
               <h3 class="bloque-t" id="ficha-suc-t">Venta y existencia por sucursal</h3>
+              <!-- [PF.23] El periodo de la VENTA. La existencia es de hoy y no lo sigue (se dice abajo). -->
               <app-freshness-pill measures="fetch" [since]="v.calculadoAl" />
             </div>
-            @if (v.corteVenta) { <p class="nota-bloque">Vendido del 1 del mes al {{ v.corteVenta }}</p> }
+            <p class="nota-bloque">Vendido {{ v.periodoTexto }}@if (v.corteVenta) { · última venta el {{ v.corteVenta }}} · la existencia es la de hoy</p>
             @if (v.sucursales.length) {
               <p-table [value]="v.sucursales" class="surf-table surf-table--plain" styleClass="ficha-tabla ficha-suc" [tableStyle]="{ width: '100%' }">
                 <ng-template #header>
                   <tr class="cab">
                     <th scope="col">Sucursal</th>
-                    <th scope="col" class="r comm-num">Vendido este mes</th>
+                    <th scope="col" class="r comm-num">Vendido</th>
                     <th scope="col" class="r comm-num">Existencia</th>
                   </tr>
                 </ng-template>
                 <ng-template #body let-s>
                   <tr>
                     <td role="cell" class="c-suc">{{ s.nombre }}</td>
-                    <td role="cell" class="r comm-num" data-label="Vendido este mes">
+                    <td role="cell" class="r comm-num" data-label="Vendido">
                       @if (s.monto) {
                         <span class="pila">
                           <span class="precio">{{ s.monto }}</span>
@@ -165,7 +218,7 @@ interface FilaSucursalVm {
                           }
                         </span>
                       } @else {
-                        <span class="sin">Sin dato</span>
+                        <span class="sin">{{ s.sinVentaPor }}</span>
                       }
                     </td>
                     <td role="cell" class="r comm-num" data-label="Existencia">
@@ -183,7 +236,7 @@ interface FilaSucursalVm {
                 <ng-template #footer>
                   <tr class="tot">
                     <td role="cell" class="c-suc">Total</td>
-                    <td role="cell" class="r comm-num" data-label="Vendido este mes">
+                    <td role="cell" class="r comm-num" data-label="Vendido">
                       @if (v.total.monto) {
                         <span class="pila">
                           <span class="precio">{{ v.total.monto }}</span>
@@ -207,6 +260,10 @@ interface FilaSucursalVm {
                   </tr>
                 </ng-template>
               </p-table>
+              <!-- [PF.23] El total de venta suma SÓLO las sucursales medibles: se dice cuáles faltan (antes no se decía). -->
+              @if (v.total.faltanVenta) {
+                <p class="red red--sin">La venta total no incluye {{ v.total.faltanVenta === 1 ? '1 sucursal sin dato' : v.total.faltanVenta + ' sucursales sin dato' }} en el periodo: {{ v.total.faltanVentaNombres }}</p>
+              }
               @if (v.total.faltan) {
                 <p class="red red--sin">La existencia total no incluye {{ v.total.faltan === 1 ? '1 sucursal sin dato' : v.total.faltan + ' sucursales sin dato' }}: {{ v.total.faltanNombres }}</p>
               }
@@ -217,22 +274,8 @@ interface FilaSucursalVm {
               <p class="sin">Sin sucursales con dato de venta o existencia.</p>
             }
           </section>
+          }
 
-          <section class="bloque" aria-labelledby="ficha-ent-t">
-            <h3 class="bloque-t" id="ficha-ent-t">Última entrada</h3>
-            @if (v.entrada; as e) {
-              <dl class="ident ent">
-                <div><dt>Fecha</dt><dd>{{ e.fecha }}</dd></div>
-                <div><dt>Sucursal</dt><dd>{{ e.sucursal }}</dd></div>
-                <div><dt>Cantidad</dt><dd><span class="mono">{{ e.cantidad }}</span>&ngsp;<span class="ud">{{ e.unidad }}</span></dd></div>
-                @if (e.costo) {
-                  <div><dt>Costo por {{ e.unidad }}</dt><dd><span class="mono">{{ e.costo }}</span><small class="nota candado"><i class="pi pi-lock" aria-hidden="true"></i> sólo con permiso de costo</small></dd></div>
-                }
-              </dl>
-            } @else {
-              <p class="sin">Sin entradas registradas.</p>
-            }
-          </section>
         </article>
       }
     </app-load-state>
@@ -263,6 +306,9 @@ interface FilaSucursalVm {
 
     /* Bloques */
     .bloque { display: flex; flex-direction: column; min-width: 0; }
+    .bloque.is-act p-table { opacity: .55; transition: opacity var(--dur-micro) ease; }
+    .periodo-top { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-3); }
+    .periodo-top .nota { margin: 0; }
     .bloque-cab { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; }
     .bloque-t {
       margin: 0 0 var(--sp-2); font-size: var(--fs-micro); letter-spacing: .07em; text-transform: uppercase;
@@ -272,6 +318,7 @@ interface FilaSucursalVm {
 
     /* Tablas */
     .r { text-align: right; white-space: nowrap; }
+    .costos { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-1) var(--sp-3); }
     .ud {
       font-family: var(--font-mono); font-weight: var(--fw-bold); font-size: var(--fs-xs);
       padding: 0 var(--sp-2); border-radius: var(--r-sm); background: var(--overlay-hover); border: 1px solid var(--border-color);
@@ -293,7 +340,6 @@ interface FilaSucursalVm {
     .red--sin::before { background: transparent; box-shadow: inset 0 0 0 1px var(--text-faint); }
     .red--alerta { color: var(--bad-fg); }
     .red--alerta::before { background: var(--bad-fg); }
-    .candado .pi { font-size: var(--fs-micro); }
 
     /* Ancho: identidad en 4 columnas */
     @container ficha (min-width: 30rem) {
@@ -335,17 +381,34 @@ interface FilaSucursalVm {
 export class ProductoFichaComponent {
   readonly productId = input.required<string>();
   readonly sucursal = input<string | null>(null);
+  /** `[NP.22]` ¿El renglón dice que es nuevo? null = no se sabe (la sección «Lanzamiento» lo pregunta). */
+  readonly esNuevo = input<boolean | null>(null);
 
   private readonly api = inject(CatalogoProductosService);
   private readonly recarga = signal(0);
   readonly copiado = signal<string | null>(null);
+  /** `[PF.23]` El periodo de la venta por sucursal; null = el mes en curso (lo de siempre, lo decide el servidor). */
+  readonly periodo = signal<PeriodoFicha | null>(null);
 
   private readonly res = rxResource({
-    params: () => ({ id: this.productId(), sucursal: this.sucursal(), v: this.recarga() }),
-    stream: ({ params }) => this.api.ficha(params.id, params.sucursal),
+    params: () => ({ id: this.productId(), sucursal: this.sucursal(), periodo: this.periodo(), v: this.recarga() }),
+    stream: ({ params }) => (params.periodo
+      ? this.api.ficha(params.id, params.sucursal, params.periodo)
+      : this.api.ficha(params.id, params.sucursal)),
   });
 
-  readonly cargando = computed(() => this.res.isLoading() && !this.res.hasValue());
+  /**
+   * `[PF.23]` La última ficha recibida DE ESTE producto: al cambiar el periodo, la ficha (y su selector) no se
+   * desmonta mientras llega la nueva — si se desmontara, el selector renacería en «Este mes» con los datos de otro
+   * periodo. De OTRO producto nunca se conserva (no se muestra la ficha anterior).
+   */
+  private readonly ultima = linkedSignal<{ f: FichaProducto | undefined; id: string }, FichaProducto | null>({
+    source: () => ({ f: this.res.hasValue() ? this.res.value() : undefined, id: this.productId() }),
+    computation: (nuevo, previo) => nuevo.f ?? (previo?.value && previo.value.id === nuevo.id ? previo.value : null),
+  });
+  /** Recargando con datos a la vista (otro periodo): se marca el bloque, no se borra la ficha. */
+  readonly actualizando = computed(() => this.res.isLoading() && !!this.ultima());
+  readonly cargando = computed(() => this.res.isLoading() && !this.ultima());
   readonly error = computed(() => {
     const e = this.res.error();
     if (!e) return null;
@@ -354,8 +417,22 @@ export class ProductoFichaComponent {
   });
 
   readonly vm = computed(() => {
-    const f = this.res.hasValue() ? this.res.value() : null;
+    const f = this.ultima();
     return f ? armarFicha(f) : null;
+  });
+
+  /** `[PF.23]` La sección «Lanzamiento» tiene detalle (producto nuevo): su «Por sucursal» reemplaza a la tabla. */
+  readonly lanzamientoConDetalle = signal(false);
+  /** La venta del periodo por sucursal, ya dicha, para las tarjetas de «Lanzamiento». */
+  readonly ventaPeriodo = computed<VentaPeriodoSucursal[] | null>(() => {
+    const v = this.vm();
+    if (!v) return null;
+    return v.sucursales.map((s) => ({
+      codigo: s.codigo,
+      monto: s.monto,
+      unidades: s.vendido.map((p) => `${numeroFicha(p.cantidad)} ${p.unidad}`).join(' '),
+      sinVentaPor: s.sinVentaPor,
+    }));
   });
 
   readonly num = numeroFicha;
@@ -411,6 +488,8 @@ export function armarFicha(f: FichaProducto) {
       monto: s.vendidoMes ? dineroFicha(s.vendidoMes.monto) : null,
       vendido: s.vendidoMes ? comp(vendidas) : [],
       existencia,
+      sinVentaPor: s.sinCorte ? 'Sin dato: sin corte a Kepler'
+        : s.corteKepler ? `Sin dato: en Kepler desde el ${fechaCortaPeriodo(s.corteKepler)}` : 'Sin dato',
     };
   });
 
@@ -423,6 +502,9 @@ export function armarFicha(f: FichaProducto) {
     existencia: conExistencia.length ? comp(conExistencia.reduce((a, s) => a + Number(s.existenciaBase), 0)) : null,
     faltan: sinExistencia.length && conExistencia.length ? sinExistencia.length : 0,
     faltanNombres: sinExistencia.map((s) => (s.nombre ? nombrePropio(s.nombre) : `Sucursal ${s.codigo}`)).join(', '),
+    /** `[PF.23]` Sucursales sin venta medible en el periodo (sólo se dice si hay alguna con venta: si no, el total ya dice «Sin dato»). */
+    faltanVenta: conVenta.length ? (f.sucursales ?? []).length - conVenta.length : 0,
+    faltanVentaNombres: (f.sucursales ?? []).filter((s) => !s.vendidoMes).map((s) => (s.nombre ? nombrePropio(s.nombre) : `Sucursal ${s.codigo}`)).join(', '),
   };
   const agotadas = sucursales.filter((s) => s.existencia.tipo === 'agotado').length;
 
@@ -430,10 +512,15 @@ export function armarFicha(f: FichaProducto) {
   const entrada = e
     ? {
         fecha: fechaFicha(e.fecha) ?? e.fecha,
-        sucursal: e.nombreSucursal ? nombrePropio(e.nombreSucursal) : `Sucursal ${e.sucursal}`,
+        // `[PF.23]` Sin nombre del servidor, el resolvedor único (`warehouseName`): «00» es el CEDIS, nunca «Sucursal 00».
+        sucursal: e.nombreSucursal ? nombrePropio(e.nombreSucursal) : warehouseName(e.sucursal),
         cantidad: numeroFicha(e.cantidad),
         unidad: e.unidad,
         costo: e.costo === null || e.costo === undefined ? null : dineroFicha(e.costo),
+        // `[PF.12.3]` Lo dice el servidor: sin impuestos, o que no se sabe (sin tasa en el renglón).
+        costoNota: e.impuesto === 'sin_dato' ? 'sin saber si trae impuestos' : 'sin IVA ni IEPS',
+        /** `[PF.22]` El costo en cada unidad (por paquete Y por caja). [] = sólo el de la entrada, en su unidad. */
+        costos: (e.porUnidad ?? []).map((c) => ({ unidad: c.unidad, monto: dineroFicha(c.costo) ?? '' })),
       }
     : null;
 
@@ -441,6 +528,8 @@ export function armarFicha(f: FichaProducto) {
     nombre: nombrePropio(f.nombre),
     sku: f.sku,
     activo: !!f.activo,
+    /** `[PF.20]` La regla única del contrato, sobre el nombre crudo de Kepler. */
+    descontinuado: esNombreDescontinuado(f.nombre),
     codigos: f.codigos ?? [],
     proveedor: f.proveedor ? nombreProveedor(f.proveedor.nombre) : null,
     descripcion: f.descripcion,
@@ -451,7 +540,11 @@ export function armarFicha(f: FichaProducto) {
     total,
     agotadas,
     corteVenta: fechaFicha(f.corteVenta),
+    /** `[PF.23]` «del 1 nov 2026 al 4 nov 2026»; un servidor anterior no lo manda: era el mes en curso. */
+    periodoTexto: f.periodo ? textoPeriodo(f.periodo) : 'en el mes',
     entrada,
+    /** `[PF.12.3]` Lo decide el servidor (`puedeVerCostoCatalogo`): la misma regla que la columna de la lista. */
+    costoVisible: f.costo_visible === true,
     calculadoAl: f.calculado_al,
   };
 }

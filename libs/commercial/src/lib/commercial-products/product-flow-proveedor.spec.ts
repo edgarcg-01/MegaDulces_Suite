@@ -32,8 +32,10 @@ describe('[PF.9] listaNombres', () => {
     expect(listaNombres([{ plaza: '01', nombre: 'A' }, { plaza: '02', nombre: 'B' }, { plaza: '03', nombre: 'C' }, { plaza: '04', nombre: null }]))
       .toBe('A, B y 2 más');
   });
-  it('sin nombre usa el código de la sucursal', () => {
-    expect(listaNombres([{ plaza: '07', nombre: null }])).toBe('Sucursal 07');
+  it('⛔ sin nombre de la base la NOMBRA con el resolvedor común, jamás «Sucursal 07» (PM, 2026-10-22)', () => {
+    expect(listaNombres([{ plaza: '07', nombre: null }])).toBe('Morelia Madero');
+    // Un código que el resolvedor no conoce se devuelve tal cual: no se inventa un nombre.
+    expect(listaNombres([{ plaza: '99', nombre: null }])).toBe('99');
   });
 });
 
@@ -52,7 +54,8 @@ describe('[PF.9] motivoCorto — el porqué en una frase', () => {
   it('⭐ líder con cobertura que a otro no lo haría comprar: lo dice', () => {
     const r = resumirProducto('p', P, [plaza('01', 10, 180)], { lider: { rank: 3, participacion: 0.01 } });
     expect(r.compra.veredicto).toBe('comprar');
-    expect(motivoCorto(r)).toMatch(/^Es líder: se le compra antes de los \d+ días$/);
+    // [PF.UI.5] Es el top de NUESTRA venta, no un líder de mercado.
+    expect(motivoCorto(r)).toMatch(/^Top de nuestra venta: se le compra antes de los \d+ días$/);
   });
 
   it('esperar, sobra y no se vende', () => {

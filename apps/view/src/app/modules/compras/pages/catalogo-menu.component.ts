@@ -17,26 +17,21 @@ import { CATALOGO_TABS } from '../catalogo-tabs';
  * la MISMA regla que app-page-tabs (pestanaVisible + manage:all), así que el menú nunca ofrece algo que la
  * barra no ofrecería ni esconde algo que sí.
  *
- * Agrupado por para qué sirve, cada opción con una línea que dice qué hay adentro. Las cuatro pantallas
- * vacías (Resumen, Solicitudes, Incidencias, Listas de precios) no se ofrecen: un destino vacío en un menú
- * es una promesa que no se cumple. Una pestaña nueva que nadie agrupó NO se pierde: cae en «Más».
+ * Agrupado por para qué sirve, cada opción con una línea que dice qué hay adentro. Una pestaña nueva que nadie
+ * agrupó NO se pierde: cae en «Más».
+ *
+ * `[PF.12.1]` Las cuatro pantallas vacías (Resumen, Solicitudes, Incidencias, Listas de precios) ya no se
+ * esconden AQUÍ: salieron de CATALOGO_TABS, que es la única fuente. Antes este menú las filtraba con su propia
+ * lista mientras el menú lateral seguía mandando a la primera de ellas (Resumen): dos listas, dos respuestas.
  */
-
-/** Las pantallas que hoy están vacías: no se ofrecen en el menú. */
-export const CATALOGO_OCULTAS: readonly string[] = [
-  '/compras/catalogo/resumen',
-  '/compras/catalogo/solicitudes',
-  '/compras/catalogo/incidencias',
-  '/compras/catalogo/listas-precios',
-];
 
 /** Grupos del menú: ruta → la línea que dice qué hay adentro (textos de la maqueta aprobada). */
 export const CATALOGO_GRUPOS: ReadonlyArray<{ titulo: string; items: ReadonlyArray<{ route: string; descripcion: string }> }> = [
   {
     titulo: 'Productos',
     items: [
-      { route: '/compras/catalogo', descripcion: 'Buscar un producto, sus unidades y precio' },
-      { route: '/compras/catalogo/nuevos', descripcion: 'Seguimiento a 30, 60 y 90 días' },
+      // [NP.22] Productos nuevos ya no es opción propia: es «Mostrar › Productos nuevos» dentro de Productos.
+      { route: '/compras/catalogo', descripcion: 'Buscar un producto, sus unidades y precio; también los productos nuevos' },
       // `[NP.7.L.3b]` Sólo con CATALOGO_FICHAS_REVISAR (la misma regla de visibilidad que la barra).
       { route: '/compras/catalogo/digital', descripcion: 'Lo que se levantó desde el celular, por revisar' },
     ],
@@ -64,7 +59,7 @@ export interface GrupoMenu { titulo: string; opciones: OpcionMenu[] }
 
 /** Arma los grupos con las pestañas que la persona ve. Pura: la prueba la corre sin Angular. */
 export function gruposDelMenu(tabs: readonly PageTab[], ve: (t: PageTab) => boolean): GrupoMenu[] {
-  const visibles = tabs.filter((t) => ve(t) && !CATALOGO_OCULTAS.includes(t.route));
+  const visibles = tabs.filter((t) => ve(t));
   const usadas = new Set<string>();
   const grupos: GrupoMenu[] = CATALOGO_GRUPOS.map((g) => ({
     titulo: g.titulo,

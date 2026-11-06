@@ -1361,11 +1361,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.CATALOGO_FICHAS_REVISAR)]
       },
       {
-        // [NP.5] Productos nuevos: seguimiento a 30/60/90 dias de cada codigo que entra al catalogo.
-        // Mismo permiso que el catalogo; la inversion la recorta el SERVIDOR sin permiso de costo.
+        // [NP.22] Productos nuevos se unio a Productos (decision de David, 2026-11-04): «Mostrar › Productos nuevos».
+        // La ruta vieja NO se rompe: marcadores y enlaces aterrizan en la lista con el filtro puesto, conservando lo
+        // demas de la URL (p. ej. ?resultado=sacar). El permiso lo pide la ruta destino (el mismo del catalogo).
         path: 'catalogo/nuevos',
-        loadComponent: () => import('./modules/compras/pages/compras-catalogo-nuevos.component').then(m => m.ComprasCatalogoNuevosComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)]
+        redirectTo: ({ queryParams, fragment }) =>
+          inject(Router).createUrlTree(['/compras/catalogo'], { queryParams: { ...queryParams, mostrar: 'nuevos' }, fragment: fragment ?? undefined }),
       },
       {
         // [CAT-PRECIO.1]/[CAT-PRECIO.5] Mantenimiento: la ficha que no coincide entre sucursales y

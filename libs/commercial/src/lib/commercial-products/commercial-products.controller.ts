@@ -24,8 +24,9 @@ import {
 import { ProductFlowService } from './product-flow.service';
 import { FichaSucursalesService } from './ficha-sucursales.service';
 import { PreciosCatalogoService } from './precios-catalogo.service';
-import { CatalogoFichaService } from './catalogo-ficha.service';
+import { CatalogoFichaService, puedeVerCostoCatalogo } from './catalogo-ficha.service';
 import type { CatalogoLista, FichaProducto } from './catalogo-ficha';
+import { sucursalDelCatalogo } from './catalogo-ficha';
 import { CatalogoDetalladoService } from './catalogo-detallado.service';
 import type { CatalogoListaDetallada, Compras90 } from './catalogo-detallado';
 import type {
@@ -288,9 +289,16 @@ export class CommercialProductsController {
       + 'entera (conteos.sinPrecio null = no medible: la base no tiene precio por sucursal). '
       + 'vista=detallado (aditivo; sin él, la respuesta de siempre): + venta del mes, etiquetas y mostrar=comprar|traspasar|'
       + 'esperar|sobra|no_comprar|lideres_pendiente|no_se_venden|caducidad|nuevos|sin_proveedor; orden=producto|mes, dir=asc|desc. '
-      + 'Un conteo null = no medido (su porqué en notas).',
+      + 'Un conteo null = no medido (su porqué en notas). '
+      + '[PF.12.3] Sencillo y Detallado: cada renglón de la página trae ultimoCosto (la última entrada XA20, sin IVA '
+      + 'ni IEPS, en cada unidad; null = sin compras) si costo_visible (puedeVerCostoCatalogo); costo_medido=false = '
+      + 'no se pudo leer ahora. '
+      + '[NP.22] Detallado con mostrar=nuevos (los que están en seguimiento de Productos nuevos) acepta resultado='
+      + 'seguimiento|sacar|revisar|agotado|se_queda|pronto|sin_venta_30|sin_movimiento|no_medible|excluido y orden=lanzamiento; '
+      + 'cada renglón trae lanzamiento (día, resultado y motivo) y conteos_lanzamiento cuenta la búsqueda entera. '
+      + 'Sencillo trae conteos.nuevos (null = Productos nuevos se está calculando).',
   })
-  catalogoLista(
+  async catalogoLista(
     @Query('search') search?: string,
     @Query('sucursal') sucursal?: string,
     @Query('page') page?: string,
@@ -299,43 +307,60 @@ export class CommercialProductsController {
     @Query('vista') vista?: string,
     @Query('orden') orden?: string,
     @Query('dir') dir?: string,
+    @Query('resultado') resultado?: string,
+    @Req() req?: { user?: { permissions?: Record<string, boolean>; role_name?: string } },
   ): Promise<CatalogoLista | CatalogoListaDetallada> {
+    // `[PF.12.3]` Las dos vistas con la MISMA regla de quién ve el último costo.
+    const verCosto = puedeVerCostoCatalogo(req?.user);
+    // `[PF.21]` La sucursal del precio, recortada al alcance con la regla de Precios.
+    const permitidas = await this.precios.sucursalesPermitidas();
+    const suc = sucursalDelCatalogo(permitidas, sucursal);
+    if (suc === null) throw new ForbiddenException(`La sucursal ${sucursal} no está en tu alcance.`);
     if (vista === 'detallado') {
-      return this.detallado.lista({ search, sucursal, page: Number(page), pageSize: Number(pageSize), mostrar, orden, dir });
+      const r = await this.detallado.lista({ search, sucursal: suc, page: Number(page), pageSize: Number(pageSize), mostrar, orden, dir, resultado }, { verCosto });
+      return { ...r, sucursales: permitidas };
     }
-    return this.catalogo.lista({ search, sucursal, page: Number(page), pageSize: Number(pageSize), mostrar });
+    // `[NP.22]` Sencillo sólo CUENTA «Productos nuevos» (la lista con ese filtro la sirve Detallado), sin esperar su foto.
+    let nuevos: string[] | null = null;
+    try { nuevos = this.detallado.idsNuevosSinEsperar(); } catch { nuevos = null; }
+    return this.catalogo.lista({ search, sucursal: suc, page: Number(page), pageSize: Number(pageSize), mostrar }, { verCosto, nuevos });
   }
 
   @Get('catalogo/:id/compras')
   @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
   @ApiOperation({
-    summary: 'Ficha detallada: compras (entradas XA20) de los últimos 90 días y la última entrada; el costo sólo con permiso de costo.',
+    summary: 'Ficha detallada: compras (entradas XA20) de los últimos 90 días y la última entrada; su costo sin IVA ni '
+      + 'IEPS, con la regla del catálogo (puedeVerCostoCatalogo). El margen sigue con su permiso, en su endpoint.',
   })
   catalogoCompras(
     @Param('id') id: string,
+    @Query('desde') desde?: string,
+    @Query('hasta') hasta?: string,
     @Req() req?: { user?: { permissions?: Record<string, boolean>; role_name?: string } },
   ): Promise<Compras90> {
-    const puedeVerCosto =
-      req?.user?.permissions?.[Permission.COMPRAS_COSTO_ESTANDAR_VER] === true ||
-      isPlatformAdminRole(req?.user?.role_name);
-    return this.detallado.compras(id, { puedeVerCosto });
+    // `[PF.12.3]` El costo de la última entrada es el mismo dato que la columna del catálogo: la misma regla.
+    return this.detallado.compras(id, { puedeVerCosto: puedeVerCostoCatalogo(req?.user), desde, hasta });
   }
 
   @Get('catalogo/:id/ficha')
   @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
   @ApiOperation({
     summary: 'Ficha de catálogo de un producto: unidades y precios de la sucursal, rango de la red, existencia '
-      + 'y venta del mes por sucursal, última entrada (el costo sólo con permiso de costo).',
+      + 'y venta del mes por sucursal, última entrada (su costo sin IVA ni IEPS, con la regla de la lista: '
+      + 'puedeVerCostoCatalogo).',
   })
-  catalogoFicha(
+  async catalogoFicha(
     @Param('id') id: string,
     @Query('sucursal') sucursal?: string,
+    @Query('desde') desde?: string,
+    @Query('hasta') hasta?: string,
     @Req() req?: { user?: { permissions?: Record<string, boolean>; role_name?: string } },
   ): Promise<FichaProducto> {
-    const puedeVerCosto =
-      req?.user?.permissions?.[Permission.COMPRAS_COSTO_ESTANDAR_VER] === true ||
-      isPlatformAdminRole(req?.user?.role_name);
-    return this.catalogo.ficha(id, { sucursal, puedeVerCosto });
+    // `[PF.21]` La misma sucursal que la lista, con el mismo recorte al alcance.
+    const suc = sucursalDelCatalogo(await this.precios.sucursalesPermitidas(), sucursal);
+    if (suc === null) throw new ForbiddenException(`La sucursal ${sucursal} no está en tu alcance.`);
+    // `[PF.12.3]` La misma regla que la lista: si el renglón muestra el costo y la ficha no, se contradicen.
+    return this.catalogo.ficha(id, { sucursal: suc, puedeVerCosto: puedeVerCostoCatalogo(req?.user), desde, hasta });
   }
 
   // `[NP.2]` Productos nuevos. Van ANTES de `@Get(':id')` por la misma razón que `price-report`.

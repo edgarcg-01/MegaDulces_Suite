@@ -987,7 +987,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
       // Lo que se consulta o se mantiene, no lo que se opera.
       title: 'Catálogo y costos',
       items: [
-        // [CAT.1] Vino de Ventas. [NAV.1] El catálogo entero en UNA entrada (eran DIEZ renglones); aterriza en «Resumen».
+        // [CAT.1] Vino de Ventas. [NAV.1] El catálogo entero en UNA entrada (eran DIEZ renglones). [PF.12.1] Aterriza
+        // en «Productos»: conDestino() abre la PRIMERA pestaña visible, y las vacías salieron de CATALOGO_TABS.
         { label: 'Catálogo', icon: 'pi pi-shopping-bag', route: '/compras/catalogo', tabs: CATALOGO_TABS },
         // `[NAV.5]` Proveedores, Categorías y Red de abasto: configuran el motor del pedido.
         { label: PARAMETROS_COMPRA_LABEL, icon: 'pi pi-sliders-h', route: '/compras/proveedores', tabs: PARAMETROS_COMPRA_TABS },

@@ -1,14 +1,18 @@
 import { PageTab } from '../../shared/components/page-tabs/page-tabs.component';
 import { Permission } from '../../core/constants/permissions';
 
-/** Navegación del Centro de catálogo de Compras. */
+/**
+ * Navegación del Centro de catálogo de Compras.
+ *
+ * `[PF.12.1]` **Productos va PRIMERA y las cuatro pantallas vacías no son pestañas.** El menú lateral manda a
+ * la primera pestaña que la persona ve (`conDestino()` en el layout) y la primera era «Resumen», un marcador
+ * vacío («Estructura preparada · Contenido por desarrollar»): medido en prod el 2026-10-29, todo el que
+ * entraba a Compras › Catálogo caía ahí y no veía la lista de productos. Resumen, Solicitudes, Incidencias
+ * y Listas de precios salen de las pestañas; sus RUTAS siguen en `app.routes.ts`. Esta lista es la única
+ * fuente: la leen el menú lateral, la barra de pestañas y el menú «Ver» del catálogo.
+ * Cuando una de esas pantallas tenga contenido, se vuelve a agregar su pestaña aquí.
+ */
 export const CATALOGO_TABS: PageTab[] = [
-  {
-    label: 'Resumen',
-    route: '/compras/catalogo/resumen',
-    icon: 'pi pi-chart-bar',
-    permission: Permission.COMMERCIAL_PRODUCTS_VER,
-  },
   {
     label: 'Productos',
     route: '/compras/catalogo',
@@ -16,15 +20,10 @@ export const CATALOGO_TABS: PageTab[] = [
     permission: Permission.COMMERCIAL_PRODUCTS_VER,
   },
   /**
-   * `[NP.5]` Productos nuevos: cada código que entra al catálogo, seguido 30, 60 y 90 días desde
-   * su primera entrada o venta. Junto a Productos porque es una vista del mismo catálogo.
+   * `[NP.22]` «Productos nuevos» YA NO es pestaña: vive dentro de Productos como «Mostrar › Productos nuevos»
+   * (decisión de David, 2026-11-04: una sola pantalla, menos ventanas). `/compras/catalogo/nuevos` redirige a
+   * `/compras/catalogo?mostrar=nuevos` (`app.routes.ts`). No la vuelvas a agregar aquí: `catalogo-tabs.spec.ts` se pone rojo.
    */
-  {
-    label: 'Productos nuevos',
-    route: '/compras/catalogo/nuevos',
-    icon: 'pi pi-star',
-    permission: Permission.COMMERCIAL_PRODUCTS_VER,
-  },
   /**
    * `[NP.7.L.3b]` Catálogo digital: lo que levanta el personal desde el celular, por revisar. Su propia clave:
    * no la ve quien sólo consulta el catálogo.
@@ -34,18 +33,6 @@ export const CATALOGO_TABS: PageTab[] = [
     route: '/compras/catalogo/digital',
     icon: 'pi pi-camera',
     permission: Permission.CATALOGO_FICHAS_REVISAR,
-  },
-  {
-    label: 'Solicitudes',
-    route: '/compras/catalogo/solicitudes',
-    icon: 'pi pi-file-edit',
-    permission: Permission.COMMERCIAL_PRODUCTS_VER,
-  },
-  {
-    label: 'Incidencias',
-    route: '/compras/catalogo/incidencias',
-    icon: 'pi pi-exclamation-triangle',
-    permission: Permission.COMMERCIAL_PRODUCTS_VER,
   },
   /**
    * `[MOS.2]` No registrados: lo que se escaneó en el mostrador y Kepler no tiene en esa sucursal.
@@ -88,12 +75,6 @@ export const CATALOGO_TABS: PageTab[] = [
     label: 'Precios',
     route: '/compras/catalogo/precios',
     icon: 'pi pi-dollar',
-    permission: Permission.COMMERCIAL_PRODUCTS_VER,
-  },
-  {
-    label: 'Listas de precios',
-    route: '/compras/catalogo/listas-precios',
-    icon: 'pi pi-list',
     permission: Permission.COMMERCIAL_PRODUCTS_VER,
   },
   {

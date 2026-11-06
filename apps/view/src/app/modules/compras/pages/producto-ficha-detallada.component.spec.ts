@@ -1,11 +1,16 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { provideHttpClient } from '@angular/common/http';
+import { HttpErrorResponse, provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { provideRouter } from '@angular/router';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
 import { Observable, of, throwError } from 'rxjs';
 import { vi } from 'vitest';
 import { CatalogoProductosService, ComprasProducto, FichaProducto } from '../catalogo-productos.service';
 import { FlujoDetalle, MargenesProducto, PlazaFlujo, ProductosFlujoService } from '../productos-flujo.service';
 import { ProductoFichaDetalladaComponent } from './producto-ficha-detallada.component';
+import { ProductosNuevosService } from '../productos-nuevos.service';
+import { DETALLE as DETALLE_NUEVO, producto as productoNuevo } from '../../../../testing/productos-nuevos.fixture';
 
 // Mazapán: base PAQ, caja de 20 PAQ.
 const FICHA: FichaProducto = {
@@ -74,23 +79,44 @@ const texto = (el: Element | null | undefined) => {
   return xs.join(' ').replace(/\s+/g, ' ').trim();
 };
 
+/** [PF.22] La ficha con la última entrada (CJA) y su costo en cada unidad. */
+const CON_COSTO = (costo: number | null, impuesto: 'neto' | 'descontado' | 'sin_dato' = 'neto'): FichaProducto => ({
+  ...FICHA, costo_visible: true,
+  ultimaEntrada: { sucursal: '01', nombreSucursal: 'PADRE HIDALGO', fecha: '2026-10-21', cantidad: 4, unidad: 'CJA', costo, impuesto,
+    porUnidad: costo === null ? [] : [
+      { unidad: 'PAQ', costo: costo / 20, precioSinImpuestos: null, bajoCosto: null },
+      { unidad: 'CJA', costo, precioSinImpuestos: null, bajoCosto: null },
+    ] },
+});
+
 async function montar(opts: {
   detalle?: () => Observable<FlujoDetalle>; margenes?: () => Observable<MargenesProducto>; compras?: () => Observable<ComprasProducto>;
+  /** [PF.22] La ficha: de ella sale el último costo (por cada unidad), igual que en Sencillo. */
+  ficha?: () => Observable<FichaProducto>;
   etiquetas?: { lider: number | null; nuevo: string | null; caducidad: 'caducado' | 'pronto' | null } | null;
+  /** Las claves que tiene el usuario (por defecto, la de Pedido). */
+  permisos?: string[];
+  /** [NP.22] GET new-products/:id. Por default 404: el producto no es nuevo y «Lanzamiento» no pinta nada. */
+  nuevo?: () => Observable<unknown>; esNuevo?: boolean | null;
 } = {}) {
+  const permisos = new Set(opts.permisos ?? [Permission.COMPRAS_PEDIDO_VER]);
   const flujo = { detalle: vi.fn(opts.detalle ?? (() => of(DETALLE()))), margenes: vi.fn(opts.margenes ?? (() => of({ total: null } as unknown as MargenesProducto))) };
-  const catalogo = { ficha: vi.fn(() => of(FICHA)), compras: vi.fn(opts.compras ?? (() => of(COMPRAS))), lista: vi.fn() };
+  const catalogo = { ficha: vi.fn(opts.ficha ?? (() => of(FICHA))), compras: vi.fn(opts.compras ?? (() => of(COMPRAS))), lista: vi.fn() };
   await TestBed.configureTestingModule({
     imports: [ProductoFichaDetalladaComponent],
     providers: [
-      provideHttpClient(), provideHttpClientTesting(),
+      provideHttpClient(), provideHttpClientTesting(), provideRouter([]),
+      { provide: PermissionsService, useValue: { has: (k: string) => permisos.has(k) } },
       { provide: CatalogoProductosService, useValue: catalogo },
       { provide: ProductosFlujoService, useValue: flujo },
+      { provide: ProductosNuevosService, useValue: { listar: vi.fn(),
+        detalle: vi.fn(opts.nuevo ?? (() => throwError(() => new HttpErrorResponse({ status: 404, statusText: 'Not Found' })))) } },
     ],
   }).compileComponents();
   const fix = TestBed.createComponent(ProductoFichaDetalladaComponent);
   fix.componentRef.setInput('productId', 'p-1');
   fix.componentRef.setInput('etiquetas', opts.etiquetas === undefined ? { lider: 4, nuevo: null, caducidad: 'caducado' } : opts.etiquetas);
+  if (opts.esNuevo !== undefined) fix.componentRef.setInput('esNuevo', opts.esNuevo);
   await tick(fix);
   return { fix, flujo, catalogo };
 }
@@ -98,12 +124,24 @@ async function montar(opts: {
 describe('Ficha detallada (Compras › Catálogo › Detallado)', () => {
   afterEach(() => TestBed.resetTestingModule());
 
+  it('[PF.UI.1] «Ir a Pedido con este producto» abre Pedido con el SKU buscado; sin permiso de Pedido no aparece', async () => {
+    const { fix } = await montar();
+    const a = (fix.nativeElement as HTMLElement).querySelector('.compra a.ir-pedido') as HTMLAnchorElement | null;
+    expect(a).not.toBeNull();
+    expect(texto(a)).toBe('Ir a Pedido con este producto');
+    expect(a!.getAttribute('href')).toBe('/compras/pedido?search=70001');
+    TestBed.resetTestingModule();
+    // [negativa] sin la clave de Pedido el enlace llevaría a una pantalla que el guard rechaza: no se pinta.
+    const sin = await montar({ permisos: [] });
+    expect((sin.fix.nativeElement as HTMLElement).querySelector('a.ir-pedido')).toBeNull();
+  });
+
   it('⭐ el orden aprobado: etiquetas, identidad, unidades, qué hacer, sucursales, cómo va, compras; sin «Editar producto»', async () => {
     const { fix } = await montar();
     const el = fix.nativeElement as HTMLElement;
-    expect(Array.from(el.querySelectorAll('.tag')).map((t) => texto(t))).toEqual(['Líder #4', 'Caducado']);
+    expect(Array.from(el.querySelectorAll('.tag')).map((t) => texto(t))).toEqual(['Top venta #4', 'Caducado']);
     expect(Array.from(el.querySelectorAll('.bloque-t')).map((h) => texto(h))).toEqual([
-      'Unidades y precio', 'Qué hacer', 'Dónde se mueve y dónde se estancó', '¿Cómo va la venta este mes?', 'Compras (últimos 90 días)',
+      'Unidades y precio', 'Qué hacer', 'Dónde se mueve y dónde se estancó', '¿Cómo va la venta este mes?', 'Compras', // [PF.23] el periodo lo dice su selector
     ]);
     // Etiquetas antes que la identidad.
     expect(el.querySelector('.tags')!.compareDocumentPosition(el.querySelector('.ident')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -111,6 +149,32 @@ describe('Ficha detallada (Compras › Catálogo › Detallado)', () => {
     // [negativa] sin lotes no hay bloque de caducidad; sin permiso de costo no hay margen.
     expect(el.textContent).not.toContain('Caducidad por lote');
     expect(el.textContent).not.toContain('Margen real');
+  });
+
+  /**
+   * `[NP.22]` Un producto NUEVO trae «Lanzamiento» (lo que era el panel de Productos nuevos) justo después de Qué hacer,
+   * y no repite «¿Hay que comprar?». Si el lanzamiento dice «Sacar» y Qué hacer pide mover o comprar, se explica.
+   */
+  it('⭐ [NP.22] producto nuevo: «Lanzamiento» después de Qué hacer, sin repetir la compra; el cruce se explica', async () => {
+    const sacar = { ...DETALLE_NUEVO, producto: productoNuevo({ recomendacion: { veredicto: 'sacar', motivos: ['Lleva 25 días sin venderse'] } }) };
+    const { fix } = await montar({ nuevo: () => of(sacar), esNuevo: true });
+    const el = fix.nativeElement as HTMLElement;
+    const lz = el.querySelector('app-producto-lanzamiento .lz')!;
+    expect(lz).not.toBeNull();
+    expect(el.querySelector('.compra')!.compareDocumentPosition(lz) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // La tarjeta del resultado se retiró (David): el «Sacar» está en la lista. Qué hacer de este DETALLE es «traspasar»:
+    // tiran en contra, y queda UNA línea que lo explica.
+    expect(lz.querySelector('.lz-ver')).toBeNull();
+    expect(texto(lz.querySelector('.lz-cruce'))).toContain('Antes de reponer');
+    expect(lz.querySelectorAll('.lz-corte').length).toBe(3);
+    expect(el.textContent).not.toContain('¿Hay que comprar?');
+  });
+
+  it('[negativa] [NP.22] un producto que no es nuevo (404) no trae «Lanzamiento» ni un error', async () => {
+    const { fix } = await montar();
+    const el = fix.nativeElement as HTMLElement;
+    expect(el.querySelector('app-producto-lanzamiento .lz')).toBeNull();
+    expect(el.textContent).not.toContain('No se pudo leer el lanzamiento');
   });
 
   it('⭐ Qué hacer: el veredicto del motor, su porqué y los traspasos en cajas y paquetes', async () => {
@@ -141,7 +205,8 @@ describe('Ficha detallada (Compras › Catálogo › Detallado)', () => {
     const vb = fix.nativeElement.querySelector('.vb') as HTMLElement;
     expect(texto(vb.querySelector('.vb-titulo'))).toBe('▲ Vende más que el mes pasado');
     expect(vb.querySelector('.vb-sube')).not.toBeNull();
-    expect(texto(vb.querySelector('.vb-frase'))).toBe('Del 1 al 26 lleva $15,000: $3,000 más que en los mismos días de septiembre.');
+    // [PF.UI.4] la frase termina diciendo la base de la venta: con impuestos y sin camionetas.
+    expect(texto(vb.querySelector('.vb-frase'))).toBe('Del 1 al 26 lleva $15,000: $3,000 más que en los mismos días de septiembre. Venta con IVA e IEPS registrada en Kepler (sin lo que venden las camionetas).');
     expect(Array.from(vb.querySelectorAll('.vb-fila')).map((f) => texto(f))).toEqual(['Octubre (1 al 26) $15,000', 'Septiembre (1 al 26) $12,000']);
     expect(vb.querySelector('svg')).toBeNull();
   });
@@ -150,7 +215,7 @@ describe('Ficha detallada (Compras › Catálogo › Detallado)', () => {
     const { fix, flujo } = await montar({
       detalle: () => of(DETALLE({ costo_visible: true })),
       margenes: () => of({ total: { venta_neta: 10500, real: { pct: 13.6, utilidad: 1428, cobertura: 0.82, nota: null } } } as unknown as MargenesProducto),
-      compras: () => of({ ...COMPRAS, costo_visible: true, ultima: { ...COMPRAS.ultima!, costo: 1250 } }),
+      ficha: () => of(CON_COSTO(1250)),
     });
     const t = texto(fix.nativeElement);
     expect(flujo.margenes).toHaveBeenCalledWith('p-1');
@@ -158,13 +223,57 @@ describe('Ficha detallada (Compras › Catálogo › Detallado)', () => {
     expect(t).toContain('13.6%');
     expect(t).toContain('$10,500');
     expect(t).toContain('el costo cubre el 82 %');
-    expect(t).toContain('Costo de la última $1,250.00 por CJA');
+    expect(t).toContain('Último costo $62.50 por PAQ $1,250.00 por CJA');
+  });
+
+  it('⭐ [PF.12.3] el costo de la última se ve con la regla del CATÁLOGO, separado del margen: sin permiso de costo no hay margen, pero sí el costo sin IVA ni IEPS', async () => {
+    const { fix, flujo } = await montar({
+      // El flujo (margen) dice que no; la ficha (regla del catálogo) dice que sí.
+      ficha: () => of(CON_COSTO(1250, 'neto')),
+    });
+    const t = texto(fix.nativeElement);
+    expect(flujo.margenes).not.toHaveBeenCalled();
+    expect(t).not.toContain('Margen real');
+    // [PF.22] Por paquete Y por caja, a un lado (como Sencillo).
+    expect(t).toContain('Último costo $62.50 por PAQ $1,250.00 por CJA sin IVA ni IEPS');
+    // El candado de «sólo con permiso de costo» ya no aplica a este dato.
+    expect(t).not.toContain('sólo con permiso de costo');
+  });
+
+  it('⭐ [PF.23] Compras con periodo: lo dice, pide ese periodo al servidor y declara las sucursales que no lo tienen completo en Kepler', async () => {
+    const compras = vi.fn((_id: string, p?: { desde: string; hasta: string } | null) => of({
+      ...COMPRAS,
+      ...(p ? { desde: p.desde, hasta: p.hasta, dias: 365 } : {}),
+      incompletas: p ? [{ codigo: '01', nombre: 'PADRE HIDALGO', corte: '2026-07-01' }, { codigo: '09', nombre: null, corte: null }] : [],
+    }));
+    const { fix, catalogo } = await montar({ compras: compras as unknown as () => Observable<ComprasProducto> });
+    const el = fix.nativeElement as HTMLElement;
+    // Por omisión: sin fechas (el servidor usa los últimos 90 días) y sin aviso de incompletas.
+    expect(catalogo.compras).toHaveBeenCalledWith('p-1');
+    expect(el.querySelector('app-periodo-ficha')).not.toBeNull();
+    expect(texto(el)).not.toContain('No incluye lo que compraron');
+    // Elegir «Año pasado» manda las fechas.
+    const sel = fix.debugElement.query((d) => d.name === 'app-periodo-ficha').componentInstance as { cambio: { emit: (p: unknown) => void } };
+    sel.cambio.emit({ desde: '2025-01-01', hasta: '2025-12-31' });
+    fix.detectChanges(); await Promise.resolve(); await Promise.resolve(); fix.detectChanges();
+    expect(catalogo.compras).toHaveBeenLastCalledWith('p-1', { desde: '2025-01-01', hasta: '2025-12-31' });
+    const t = texto(el);
+    expect(t).toContain('Del 1 ene 2025 al 31 dic 2025');
+    expect(t).toContain('No incluye lo que compraron antes de entrar a Kepler: Padre Hidalgo (en Kepler desde el 1 jul 2026)');
+    expect(t).toContain('(sin corte a Kepler)');
+  });
+
+  it('⛔ [PF.12.3] visible pero la entrada no trae costo: lo dice (nunca $0)', async () => {
+    const { fix } = await montar({ ficha: () => of(CON_COSTO(null)) });
+    const t = texto(fix.nativeElement);
+    expect(t).toContain('Último costo Sin costo en la entrada');
+    expect(t).not.toContain('$0.00');
   });
 
   it('[negativa] sin permiso de costo NO se pide el margen ni se pinta un costo', async () => {
     const { fix, flujo } = await montar();
     expect(flujo.margenes).not.toHaveBeenCalled();
-    expect(texto(fix.nativeElement)).not.toContain('Costo de la última');
+    expect(texto(fix.nativeElement)).not.toContain('Último costo');
     expect(texto(fix.nativeElement)).toContain('Entradas 3');
     expect(texto(fix.nativeElement)).toContain('Comprado 10 CJA');
   });

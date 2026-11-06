@@ -80,6 +80,38 @@ describe('FotoSwr · servir la foto y recargarla detrás', () => {
     expect((await c.obtener('k', () => Promise.resolve(1))).at).toBe(5_000);
   });
 
+  it('[NP.22] ⭐ vigente: sin foto NO espera (null) y deja la carga en marcha; la siguiente la encuentra', async () => {
+    const r = reloj();
+    const c = new FotoSwr<number>({ recargarMs: 60_000, venceMs: 300_000, ahora: r.ahora });
+    let soltar!: (v: number) => void;
+    const lenta = new Promise<number>((res) => { soltar = res; });
+    const armar = vi.fn(() => lenta);
+    // Prueba negativa: si esperara la carga, esta línea no devolvería nada hasta `soltar`.
+    expect(c.vigente('k', armar)).toBeNull();
+    expect(c.vigente('k', armar)).toBeNull();
+    expect(armar).toHaveBeenCalledTimes(1);
+    soltar(5);
+    await lenta;
+    await Promise.resolve();
+    expect(c.vigente('k', armar)?.valor).toBe(5);
+  });
+
+  it('[NP.22] vigente: vencida es null (no publica un dato de edad indefinida) y la recarga arranca', async () => {
+    const r = reloj();
+    const c = new FotoSwr<number>({ recargarMs: 60_000, venceMs: 300_000, ahora: r.ahora });
+    await c.obtener('k', () => Promise.resolve(1));
+    r.avanzar(90_000);
+    // Entre recargar y vencer: se sirve la que hay y se recarga detrás.
+    const armar = vi.fn().mockResolvedValue(2);
+    expect(c.vigente('k', armar)?.valor).toBe(1);
+    expect(armar).toHaveBeenCalledTimes(1);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(c.vigente('k', armar)?.valor).toBe(2);
+    r.avanzar(400_000);
+    expect(c.vigente('k', () => Promise.resolve(3))).toBeNull();
+  });
+
   it('rechaza una política incoherente', () => {
     expect(() => new FotoSwr({ recargarMs: 0, venceMs: 10 })).toThrow();
     expect(() => new FotoSwr({ recargarMs: 100, venceMs: 10 })).toThrow();

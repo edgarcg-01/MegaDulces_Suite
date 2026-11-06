@@ -7,9 +7,8 @@ import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
 import { TooltipModule } from 'primeng/tooltip';
 import { filtrarPorBusqueda } from '@megadulces/ui-web';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { CatalogoMenuComponent } from './catalogo-menu.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
-import { CATALOGO_TABS } from '../catalogo-tabs';
 import { FaltantesService, type NoRegistrado } from '../../tienda/faltantes.service';
 
 interface Opcion { label: string; value: string }
@@ -31,7 +30,7 @@ interface Opcion { label: string; value: string }
   selector: 'app-compras-catalogo-no-registrados',
   standalone: true,
   imports: [CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, TooltipModule,
-    PageTabsComponent, LoadStateComponent],
+    CatalogoMenuComponent, LoadStateComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page nr">
@@ -45,7 +44,7 @@ interface Opcion { label: string; value: string }
         </button>
       </header>
 
-      <app-page-tabs [tabs]="tabs" />
+      <app-catalogo-menu />
 
       <div class="nr-filtros">
         <p-select [options]="opcionesSucursal()" optionLabel="label" optionValue="value"
@@ -135,7 +134,6 @@ interface Opcion { label: string; value: string }
   `],
 })
 export class ComprasCatalogoNoRegistradosComponent implements OnInit {
-  readonly tabs = CATALOGO_TABS;
   private readonly api = inject(FaltantesService);
   private readonly destroyRef = inject(DestroyRef);
 

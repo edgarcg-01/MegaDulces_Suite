@@ -1,4 +1,5 @@
 import type { Knex } from 'knex';
+import { PATRON_DESCONTINUADO_PG, PATRON_PROMOCION_PG, esNombreDePromocion, esNombreDescontinuado } from '@megadulces/contracts';
 
 /**
  * Buscador de Compras › Catálogo.
@@ -121,6 +122,97 @@ export function aplicarBusquedaCatalogo(
     qb.andWhereRaw(`(${partes.join(' OR ')})`, valores as readonly Knex.Value[]);
   }
   return qb;
+}
+
+/**
+ * `[PF.12.1]` El orden por omisión de la lista Sencillo de Compras › Catálogo: **lo vendible primero**.
+ *
+ * Ordenaba por `p.nombre`. Medido en producción el 2026-10-29: 49 de los 50 renglones de la primera página
+ * no eran mercancía —nombres `***` y `.`, promociones «= GRATIS» (339) y productos sin SKU ni unidades
+ * (1,132)—, y buscar «70001» ponía primero los productos cuyo CÓDIGO DE BARRAS contiene 70001.
+ *
+ * Las llaves, en este orden (cada una decide sólo si empatan las anteriores):
+ *  1. coincidencia EXACTA con lo buscado: el SKU o el código de barras principal (sólo si hay texto);
+ *  2. con SKU antes que sin SKU;
+ *  3. nombre con al menos una letra antes que sin letras (`***`, `.`);
+ *  4. promociones y descontinuados al final, con las reglas de `esNombreDePromocion` y `esNombreDescontinuado`
+ *     (en SQL, `PATRON_PROMOCION_PG` y `PATRON_DESCONTINUADO_PG`: las mismas). `[PF.20]` Kepler marca el
+ *     descontinuado reemplazando el nombre por «* DESCONTINUADO»: tampoco es lo que se busca primero;
+ *  5. con unidades antes que sin unidades — SÓLO con precio por sucursal: la columna sale del lateral `sp`
+ *     (`SIN_PRECIO_LATERAL_SQL`), que sin ese grano no se une; sin él, esta llave no aplica (no se inventa);
+ *  6. nombre sin signos al inicio, sin acentos, en minúsculas y comparado byte a byte (`COLLATE "C"`: igual en
+ *     cualquier servidor), y `p.id` para que el corte entre páginas sea estable.
+ *
+ * Sólo ORDENA: no filtra ni une nada, así que los conteos y el total no cambian. El texto viaja como binding.
+ * Requiere `p` (`catalog.products`) y, con `conUnidades`, el lateral `sp`. Su testigo en JS es
+ * `claveDeOrdenCatalogo`: cada llave lleva el mismo número; si cambia una, cambia la otra.
+ */
+export function ordenListaCatalogo(
+  texto: string | null | undefined,
+  conUnidades: boolean,
+): { llaves: string[]; sql: string; bindings: string[] } {
+  const exacto = (texto ?? '').trim();
+  const llaves: string[] = [];
+  const bindings: string[] = [];
+  if (exacto) {
+    llaves.push('CASE WHEN btrim(p.sku) = ? OR btrim(p.barcode) = ? THEN 0 ELSE 1 END'); // 1
+    bindings.push(exacto, exacto);
+  }
+  llaves.push(`CASE WHEN nullif(btrim(p.sku), '') IS NULL THEN 1 ELSE 0 END`); // 2
+  llaves.push(`CASE WHEN p.nombre ~ '[[:alpha:]]' THEN 0 ELSE 1 END`); // 3
+  llaves.push(`CASE WHEN coalesce(p.nombre, '') ~* ? OR coalesce(p.nombre, '') ~* ? THEN 1 ELSE 0 END`); // 4
+  bindings.push(PATRON_PROMOCION_PG, PATRON_DESCONTINUADO_PG);
+  if (conUnidades) llaves.push('CASE WHEN sp.con_unidades THEN 0 ELSE 1 END'); // 5
+  llaves.push(`public.f_unaccent(lower(regexp_replace(coalesce(p.nombre, ''), '^[^[:alnum:]]+', ''))) COLLATE "C"`); // 6
+  llaves.push('p.id'); // 6
+  return { llaves, sql: llaves.join(', '), bindings };
+}
+
+/** Lo que mira el orden de la lista de un renglón. `conUnidades` = el lateral `sp.con_unidades`. */
+export interface FilaParaOrden {
+  id: string;
+  sku: string | null;
+  barcode: string | null;
+  nombre: string | null;
+  conUnidades?: boolean | null;
+}
+
+/** Llave 6: sin signos al inicio, sin acentos, minúsculas (como `f_unaccent(lower(regexp_replace(...)))`). */
+export function nombreParaOrden(nombre: string | null | undefined): string {
+  return (nombre ?? '').replace(/^[^\p{L}\p{N}]+/u, '').normalize('NFD').replace(DIACRITICS, '').toLowerCase();
+}
+
+/**
+ * `[PF.12.1]` El MISMO orden que `ordenListaCatalogo`, en JS. No ordena nada en producción: es el testigo con
+ * el que se prueba la regla con datos de ejemplo (sin base) y con el que se cruzó la consulta contra la base.
+ *
+ * Cruce del 2026-10-29 (base local, 11,008 productos activos, 20 combinaciones de búsqueda/sucursal/llave 5):
+ * mismo orden salvo 5 posiciones de 11,008 en la lista sin búsqueda, todas por «½»: `f_unaccent` lo vuelve
+ * « 1/2» y la normalización de JS lo deja igual. Diferencia conocida; no mueve nada de la primera página.
+ */
+export function claveDeOrdenCatalogo(f: FilaParaOrden, texto: string | null | undefined, conUnidades: boolean): Array<number | string> {
+  const exacto = (texto ?? '').trim();
+  const clave: Array<number | string> = [];
+  if (exacto) clave.push((f.sku ?? '').trim() === exacto || (f.barcode ?? '').trim() === exacto ? 0 : 1); // 1
+  clave.push((f.sku ?? '').trim() ? 0 : 1); // 2
+  clave.push(/\p{L}/u.test(f.nombre ?? '') ? 0 : 1); // 3
+  clave.push(esNombreDePromocion(f.nombre) || esNombreDescontinuado(f.nombre) ? 1 : 0); // 4
+  if (conUnidades) clave.push(f.conUnidades ? 0 : 1); // 5
+  clave.push(nombreParaOrden(f.nombre), f.id); // 6
+  return clave;
+}
+
+/** Ordena una copia como la lista (testigo de `ordenListaCatalogo`). Comparación byte a byte, como `COLLATE "C"`. */
+export function ordenarComoLaLista<T extends FilaParaOrden>(filas: readonly T[], texto: string | null | undefined, conUnidades: boolean): T[] {
+  const conClave = filas.map((f) => ({ f, k: claveDeOrdenCatalogo(f, texto, conUnidades) }));
+  conClave.sort((a, b) => {
+    for (let i = 0; i < a.k.length; i++) {
+      if (a.k[i] < b.k[i]) return -1;
+      if (a.k[i] > b.k[i]) return 1;
+    }
+    return 0;
+  });
+  return conClave.map((x) => x.f);
 }
 
 /** Datos de un producto para explicar por qué coincidió. */

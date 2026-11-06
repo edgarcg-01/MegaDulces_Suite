@@ -1,7 +1,8 @@
 import type { FichaProducto } from './catalogo-productos.service';
 import type { FlujoDetalle, LoteCaducidad, PlazaFlujo } from './productos-flujo.service';
+import { warehouseName } from '@megadulces/contracts';
 import {
-  GRUPOS_DETALLADO, OPCIONES_DETALLADO, cantidadCompuesta, celdaMes, comoVaLaVenta, comprasTexto, conteoDetallado, etiquetasTexto,
+  BASE_VENTA_MES, GRUPOS_DETALLADO, OPCIONES_DETALLADO, cantidadCompuesta, celdaMes, comoVaLaVenta, comprasTexto, conteoDetallado, etiquetasTexto,
   factoresDe, loteTexto, margenReal, noMedibleDetallado, queHacer, sucursalesDetalladas,
 } from './catalogo-detallado';
 
@@ -34,7 +35,7 @@ describe('Detallado › el menú «Mostrar»', () => {
     expect(GRUPOS_DETALLADO.map((g) => g.titulo)).toEqual(['Qué hacer', 'Para cuidar hoy', 'Catálogo']);
     expect(OPCIONES_DETALLADO.map((o) => o.label)).toEqual([
       'Comprar', 'Mover entre sucursales', 'Esperar', 'Le sobra', 'No comprar',
-      'Líderes con pendiente', 'No se venden', 'Por caducar o caducado', 'Productos nuevos',
+      'Top de venta con pendiente', 'No se venden', 'Por caducar o caducado', 'Productos nuevos',
       'Todos', 'Con varios códigos', 'Sin código de barras', 'Alguna unidad sin precio', 'Sin proveedor asignado',
     ]);
   });
@@ -79,12 +80,14 @@ describe('Ficha detallada › cantidades compuestas', () => {
       cobertura_dias: 40, se_acaba: null, venta_en_riesgo_dia: 0, inmovilizado: null,
     } } } as unknown as FlujoDetalle, FACTORES, 'PAQ');
     expect(q).toMatchObject({ etiqueta: 'Mover entre sucursales', titulo: 'No comprar: mover entre sucursales', motivos: ['Sobra en Padre Hidalgo'] });
-    expect(q.traspasos).toEqual([{ cantidad: '2 CJA 5 PAQ', desde: 'Padre Hidalgo', hacia: 'Sucursal 04' }]);
+    // [PF.16] Sin nombre del motor, la sucursal se nombra con el resolvedor único: nunca «Sucursal 04».
+    expect(q.traspasos).toEqual([{ cantidad: '2 CJA 5 PAQ', desde: 'Padre Hidalgo', hacia: warehouseName('04') }]);
+    expect(q.traspasos[0].hacia).not.toMatch(/^Sucursal /);
   });
 
   it('etiquetas de la ficha: las del renglón, en el mismo orden', () => {
     expect(etiquetasTexto({ lider: 4, nuevo: 'Nuevo · día 12', caducidad: 'pronto' }).map((e) => e.texto))
-      .toEqual(['Líder #4', 'Nuevo · día 12', 'Caduca pronto']);
+      .toEqual(['Top venta #4', 'Nuevo · día 12', 'Caduca pronto']);
     expect(etiquetasTexto(null)).toEqual([]);
   });
 });
@@ -104,6 +107,17 @@ describe('Ficha detallada › dónde se mueve y dónde se estancó', () => {
     expect(xs[3]).toMatchObject({ nombre: 'Cedis', monto: '$5,000', existencia: { texto: '20 CJA' }, sinVender: '1 día' });
   });
 
+  it('[PF.15] la sucursal que no vende en mostrador pero carga a camioneta dice «Sale por camioneta», no los días', () => {
+    const d = { criterio: { ventanaHistoria: 120, diasEstancado: 14 }, plazas: [
+      plaza('01', { dias_sin_venta: 40, existencia: 100, por_camioneta: { q: 30, ultima: '2026-10-20' } }),
+      plaza('04', { dias_sin_venta: 2, por_camioneta: { q: 5, ultima: '2026-10-20' } }),
+    ] } as unknown as FlujoDetalle;
+    const xs = sucursalesDetalladas(FICHA, d);
+    expect(xs.find((x) => x.codigo === '01')?.sinVender).toBe('Sale por camioneta');
+    // [negativa] con venta de mostrador reciente se dicen los días aunque también cargue a camioneta.
+    expect(xs.find((x) => x.codigo === '04')?.sinVender).toBe('2 días');
+  });
+
   it('[negativa] una sucursal que ni vende ni tiene (y el motor no ve) no se lista: no lo maneja', () => {
     const xs = sucursalesDetalladas(FICHA, null);
     expect(xs.some((x) => x.codigo === '05')).toBe(false);
@@ -114,7 +128,9 @@ describe('Ficha detallada › ¿cómo va la venta este mes?', () => {
   it('▲ vende más: la frase dice cuánto lleva y cuánto más; dos barras con su monto', () => {
     const c = comoVaLaVenta(15000, 12000, 0.25, PER);
     expect(c).toMatchObject({ tono: 'sube', flecha: '▲', titulo: 'Vende más que el mes pasado' });
-    expect(c.frase).toBe('Del 1 al 26 lleva $15,000: $3,000 más que en los mismos días de septiembre.');
+    expect(c.frase).toBe('Del 1 al 26 lleva $15,000: $3,000 más que en los mismos días de septiembre. ' + BASE_VENTA_MES);
+    // [PF.UI.4] La base de la venta se dice en la frase: con impuestos y sin camionetas.
+    expect(BASE_VENTA_MES).toBe('Venta con IVA e IEPS registrada en Kepler (sin lo que venden las camionetas).');
     expect(c.barras).toEqual([
       { etiqueta: 'Octubre (1 al 26)', monto: '$15,000', pct: 100, clase: 'act' },
       { etiqueta: 'Septiembre (1 al 26)', monto: '$12,000', pct: 80, clase: 'ant' },
@@ -123,13 +139,13 @@ describe('Ficha detallada › ¿cómo va la venta este mes?', () => {
 
   it('▼ vende menos, = vende igual con menos de 5 %, sin venta y empezó a venderse', () => {
     expect(comoVaLaVenta(9000, 12000, -0.25, PER)).toMatchObject({ tono: 'baja', titulo: 'Vende menos que el mes pasado',
-      frase: 'Del 1 al 26 lleva $9,000: $3,000 menos que en los mismos días de septiembre.' });
+      frase: 'Del 1 al 26 lleva $9,000: $3,000 menos que en los mismos días de septiembre. ' + BASE_VENTA_MES });
     expect(comoVaLaVenta(12300, 12000, 0.03, PER)).toMatchObject({ tono: 'igual', flecha: '=', titulo: 'Vende igual que el mes pasado' });
     // [negativa] 5 % justos ya NO es «igual».
     expect(comoVaLaVenta(12600, 12000, 0.05, PER).tono).toBe('sube');
     expect(comoVaLaVenta(0, 0, null, PER)).toMatchObject({ tono: 'igual', titulo: 'Sin venta' });
     expect(comoVaLaVenta(500, 0, null, PER).titulo).toBe('Empezó a venderse');
-    expect(comoVaLaVenta(0, 800, -1, PER).frase).toBe('Del 1 al 26 no se ha vendido; en los mismos días de septiembre llevaba $800.');
+    expect(comoVaLaVenta(0, 800, -1, PER).frase).toBe('Del 1 al 26 no se ha vendido; en los mismos días de septiembre llevaba $800. ' + BASE_VENTA_MES);
   });
 
   it('un 31 contra un mes de 30: la barra del mes anterior dice hasta el 30', () => {
@@ -155,8 +171,16 @@ describe('Ficha detallada › margen, compras y lotes', () => {
       entradas: 3, comprado: '10 CJA 5 PAQ', primera: '2 ago', ultima: '21 oct · Padre Hidalgo', costoUltima: { monto: '$1,250.00', unidad: 'CJA' },
     });
     expect(comprasTexto({ ...c, comprado: [{ unidad: 'BTO', cantidad: 2 }] }, FACTORES, 'PAQ').comprado).toBe('2 BTO');
-    // [negativa] sin permiso de costo el servidor manda null: no hay costo que pintar.
-    expect(comprasTexto({ ...c, ultima: { ...c.ultima, costo: null } }, FACTORES, 'PAQ').costoUltima).toBeNull();
+    // [negativa] si el servidor no lo deja ver (costo_visible=false), no hay costo que pintar.
+    expect(comprasTexto({ ...c, costo_visible: false, ultima: { ...c.ultima, costo: null } }, FACTORES, 'PAQ').costoUltima).toBeNull();
+  });
+
+  it('⭐ [PF.12.3] el costo de la última dice que va sin IVA ni IEPS; visible sin costo lo declara (nunca $0)', () => {
+    const c = { desde: '2026-07-29', dias: 90, entradas: 1, primera: '2026-10-21', costo_visible: true, comprado: [{ unidad: 'PAQ', cantidad: 6 }],
+      ultima: { fecha: '2026-10-21', sucursal: '00', nombreSucursal: null, cantidad: 6, unidad: 'PAQ', costo: 52.68, impuesto: 'descontado' as const } };
+    expect(comprasTexto(c, FACTORES, 'PAQ').costoUltima).toEqual({ monto: '$52.68', unidad: 'PAQ', nota: 'sin IVA ni IEPS' });
+    expect(comprasTexto({ ...c, ultima: { ...c.ultima, costo: null } }, FACTORES, 'PAQ').costoUltima).toEqual({ monto: null, unidad: 'PAQ', nota: 'sin IVA ni IEPS' });
+    expect(comprasTexto({ ...c, ultima: { ...c.ultima, impuesto: 'sin_dato' as const } }, FACTORES, 'PAQ').costoUltima?.nota).toBe('sin saber si trae impuestos');
   });
 
   it('lotes: «Caducó … / hace N días» o «Caduca … / en N días», con lo registrado compuesto', () => {

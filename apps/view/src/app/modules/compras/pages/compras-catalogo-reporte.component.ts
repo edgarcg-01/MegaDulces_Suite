@@ -18,8 +18,7 @@ import {
   ProductSupplierOption,
 } from '../../comercial/comercial.service';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
-import { CATALOGO_TABS } from '../catalogo-tabs';
+import { CatalogoMenuComponent } from './catalogo-menu.component';
 import { nombrePropio } from '../catalogo-proveedor';
 import { printIsolated } from '../../../shared/util/print-isolated';
 import {
@@ -91,7 +90,7 @@ interface GrupoImpresion {
     TooltipModule,
     SkeletonModule,
     MetricStripComponent,
-    PageTabsComponent,
+    CatalogoMenuComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -105,7 +104,7 @@ interface GrupoImpresion {
         </div>
       </header>
 
-      <div class="no-print"><app-page-tabs [tabs]="tabs" /></div>
+      <div class="no-print"><app-catalogo-menu /></div>
 
       <!-- ── 1. De quién ──────────────────────────────────────────────────── -->
       <section class="sheet cols-12 no-print">
@@ -699,7 +698,6 @@ interface GrupoImpresion {
   `],
 })
 export class ComprasCatalogoReporteComponent {
-  readonly tabs = CATALOGO_TABS;
   readonly todasLasColumnas = COLUMNAS_REPORTE;
 
   /** Los tres grupos de apartados, como se pintan. */
