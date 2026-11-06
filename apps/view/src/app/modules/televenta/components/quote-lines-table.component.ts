@@ -75,7 +75,10 @@ export interface CambioCantidad {
   host: { class: 'dt-scope' },
   template: `
     <!-- rowTrackBy por id: al cambiar una cantidad la fila no se rehace y el campo no pierde el foco. -->
-    <p-table class="dt-stack" [value]="renglones()" dataKey="id" [rowTrackBy]="porId" size="small" [tableStyle]="{ 'min-width': '70rem' }">
+    <!-- [COT.35] Sin ancho mínimo: la tabla cabe en su espacio (medido: 1,326 px fijos contra 901 px
+         disponibles a 1366 de ancho; ahora mide lo que su contenedor a 1280, 1366 y 1600). Sin la
+         columna «Lista»: repetía lo que «De dónde sale» ya dice (lista → volumen, o el redondeo). -->
+    <p-table class="dt-stack" [value]="renglones()" dataKey="id" [rowTrackBy]="porId" size="small" [tableStyle]="{ width: '100%' }">
       <ng-template #header>
         <tr>
           <th class="num fijo fijo-num">#</th>
@@ -83,7 +86,6 @@ export interface CambioCantidad {
           <th>Presentación</th>
           <th class="num">Cantidad</th>
           <th class="num">Existencia hoy</th>
-          <th class="num">Lista</th>
           <th class="num">Precio</th>
           <th class="col-fuente">De dónde sale</th>
           <th class="num">Importe</th>
@@ -151,7 +153,6 @@ export interface CambioCantidad {
               }
             }
           </td>
-          <td class="num muted dt-num" role="cell" data-label="Lista">{{ dinero(r.lista) }}</td>
           <td class="num dt-num" role="cell" data-label="Precio">
             @if (r.precio !== null) {
               <div class="p-unit-cell">
@@ -183,7 +184,7 @@ export interface CambioCantidad {
           <td class="num dt-num" role="cell" data-label="Importe">
             @if (r.neto !== null && r.neto !== r.importe) {
               <span class="p-unit-main">{{ r.neto | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-              <span class="imp-antes">{{ r.importe | currency:'MXN':'symbol-narrow':'1.2-2' }} − {{ clientePct() }} % cliente</span>
+              <span class="imp-antes">{{ r.importe | currency:'MXN':'symbol-narrow':'1.2-2' }} <span class="junto">− {{ clientePct() }} % cliente</span></span>
             } @else {
               {{ r.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}
             }
@@ -212,8 +213,11 @@ export interface CambioCantidad {
       :host { display: block; overflow-x: auto; container-type: inline-size; container-name: densetable; }
       /* Sin cortes de línea sólo cuando la tabla NO está apilada. */
       @container densetable (min-width: 34rem) {
-        :is(th, td) { white-space: nowrap; padding: 0.3rem 0.55rem; font-size: var(--fs-sm); }
-        th { font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted); }
+        :is(th, td) { white-space: nowrap; padding: 0.3rem 0.35rem; font-size: var(--fs-sm); }
+        /* [COT.35] El encabezado parte en dos («Existencia / hoy») para no ensanchar su columna. */
+        th { font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted); white-space: normal; }
+        /* [COT.35] El nombre del producto parte en renglones en vez de cortarse con «…» o empujar la tabla. */
+        td.dt-id { white-space: normal; min-width: 9rem; }
         /* [COT.31] Columnas fijas a la izquierda; el fondo tapa lo que pasa por debajo. */
         .fijo { position: sticky; z-index: 1; background: var(--surface-card); }
         .row-gift .fijo { background: var(--surface-ground); }
@@ -221,13 +225,13 @@ export interface CambioCantidad {
         .fijo-num { left: 0; width: 2.5rem; min-width: 2.5rem; }
         .fijo-prod { left: 2.5rem; box-shadow: 1px 0 0 var(--surface-border); }
         /* «De dónde sale» parte en renglones: era la que empujaba la tabla fuera de la pantalla. */
-        .col-fuente { white-space: normal; min-width: 14rem; max-width: 22rem; }
+        .col-fuente { white-space: normal; min-width: 9rem; max-width: 16rem; }
       }
       .num { text-align: right; }
       .mono { font-family: var(--font-mono, monospace); }
       .muted { color: var(--text-muted); }
       .row-gift { background: var(--surface-ground); }
-      .p-name { display: inline-block; max-width: 22rem; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+      .p-name { display: block; }
       .p-sku { display: block; font-size: var(--fs-micro); color: var(--text-muted); }
       .gift { font-size: 0.7rem; color: var(--ok-soft-fg); margin-right: 0.35rem; }
       .gift-nota { display: block; font-size: 0.7rem; color: var(--ok-soft-fg); }
@@ -241,12 +245,14 @@ export interface CambioCantidad {
       .falta { color: var(--bad-fg); font-weight: 600; }
       .falta-nota { display: block; font-size: var(--fs-xs); color: var(--bad-fg); }
       .t-none { font-style: italic; color: var(--text-muted); }
-      .p-unit-cell { display: flex; align-items: baseline; justify-content: flex-end; gap: 0.35rem; white-space: nowrap; }
+      /* [COT.35] El desglose («12 PAQ $34.99») va DEBAJO del precio: en la misma línea ensanchaba la columna. */
+      .p-unit-cell { display: flex; flex-direction: column; align-items: flex-end; white-space: nowrap; }
       .p-unit-main { font-weight: 700; }
       .p-unit-sub-breakdown { font-size: var(--fs-micro); color: var(--text-muted); font-weight: 500; }
-      .imp-antes { display: block; font-size: var(--fs-micro); color: var(--text-muted); white-space: nowrap; }
+      .imp-antes { display: block; font-size: var(--fs-micro); color: var(--text-muted); white-space: normal; }
+      .imp-antes .junto { white-space: nowrap; }
       .inline-qty-box { display: flex; justify-content: flex-end; }
-      .qty-inline { width: 4.5rem; text-align: right; font-variant-numeric: tabular-nums; }
+      .qty-inline { width: 4rem; text-align: right; font-variant-numeric: tabular-nums; }
       .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; }
     `,
   ],

@@ -328,6 +328,21 @@ ensayo en 00, 02–05, 07, 08 · pedidos con regalos (rechazados a propósito).
 
 ## Bitácora
 
+- **2026-11-06** — 🚀 **COT.26–COT.36: lo que pidió el primer día de uso real.**
+  - **COT.26:** dirección de entrega elegible en el alta y el detalle. Con varias no se acepta sin elegir. Sin direcciones va «Dir. envío» 0, como Kepler (228 de 228 pedidos TELEMARK de clientes sin dirección).
+  - **COT.27:** los regalos de promoción a $0.01 se cotizan.
+  - **COT.28:** las observaciones (hasta 120 caracteres) van a «Comentarios» renglones 2 y 3.
+  - **COT.29:** existencia visible desde la búsqueda y en el artículo elegido.
+  - **COT.30:** la unidad intermedia que Kepler declara en la ranura 2 aunque no sea PAQ (KG o BTO; 531 filas en las 9 sucursales, factor y precio idénticos a `v_label_presentations`). Los botones van en peso cuando el KG de Kepler prueba los gramos de la base.
+  - **COT.31:** número y producto fijos en la tabla; quitar dice qué se quitó.
+  - **COT.32:** la cotización a medias bloquea la recarga automática y se guarda en el navegador por usuario («Recuperar / Descartar»).
+  - **COT.33:** teclado completo, con atajos escritos en pantalla: `/`, flechas, Enter, Esc, Alt+1/2/3, Ctrl+Enter.
+  - **COT.34:** «Editar datos» del borrador: cliente (sus condiciones se releen del ERP), dirección, vendedor, vigencia, origen, contacto y lista del cliente. La sucursal no se cambia.
+  - **COT.35:** la tabla cabe sin scroll horizontal. Medía 1,326 px fijos contra 901 disponibles a 1366 de ancho; se quitó la columna «Lista», que repetía «De dónde sale».
+  - **COT.36:** migración `20261106142922`. 10 pedidos toman su «Dir. envío» de Kepler por sucursal y folio, y 33 borradores la única dirección de su cliente. El envío reconoce un pedido ya escrito aunque el personal le agregue texto después del folio en `c24`.
+  - **COT.37:** ⛔ la «Dirección Envío» de la pantalla del pedido es `c115`, no `c85`. Se supo por una captura de Kepler de un pedido surtido con la casilla vacía, mientras `c85` = 1. Kepler crea los pedidos con `c85` = 0 y la dirección en `c115`, y los iguala al embarcar. El envío ahora escribe `c85` = 0 y `c115` = la dirección elegida (vacía si el cliente no tiene); antes `c115` se heredaba de la plantilla clonada. Cuatro pedidos de la Suite ya escritos y sin embarcar (3 de Padre Hidalgo, 1 de Morelia Abastos) necesitan «Dirección Envío» con F9 en Kepler: el usuario de la Suite no tiene permiso de UPDATE.
+  - **NO MEDIDO:** el recorrido con teclado en un navegador real, y las rutas que escriben contra una base real (regla 13). La escritura de `c115` contra Kepler real queda para el primer pedido.
+
 - **2026-11-04** — 🧪 **[COT.25] Liga automática usuario ↔ vendedor de Kepler** (Edgar: «liguemos los usuarios
   automáticamente»). Por nombre y calculada al pedirla (sin copiar, sin cron): un usuario nuevo queda ligado en cuanto su
   nombre coincide. Regla estricta, porque una liga mala le atribuye la venta a otro: todas las palabras del vendedor

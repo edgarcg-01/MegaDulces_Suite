@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 116 KB, 1732 líneas, 35 secciones.
+> **Índice navegable** — 117 KB, 1740 líneas, 35 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/ERP_KEPLER.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -21,27 +21,27 @@
 | 584 | 614 | 4 | 2.9 ⭐ Los códigos SIMBÓLICOS: promociones, bonificaciones y ajustes viven en `kdii` a $0.01 (medido 2026-10-22 |
 | 615 | 653 | 2 | 3. El modelo de documentos (género · naturaleza · tipo) |
 | 654 | 812 | 10 | 3.1 ⭐⭐ El DESCUENTO de una venta son DOS capas distintas, y no se explican entre sí |
-| 813 | 927 | 9 | 3.y ⭐ El EMBARQUE `U-D-41` y su cabecera logística (decodificado 2026-09-17) |
-| 928 | 982 | 4 | 3.y.3 ⭐ El PEDIDO `U-D-40` y sus cantidades por etapa (decodificado 2026-10-06) |
-| 983 | 1020 | 2 | 3.y.4 ⭐ Códigos de barras: TRES casillas por unidad (corregido 2026-10-06) |
-| 1021 | 1050 | 1 | 3.x ⭐ El folio es POR SUCURSAL, no global — y es diseño, no un defecto |
-| 1051 | 1104 | 3 | 3.z ⭐⭐ `kdm1.c45` — POR QUÉ CUENTA se movió el dinero (decodificado 2026-09-22) |
-| 1105 | 1153 | 3 | 3.z.1 ⭐⭐ El COBRO `U-A-5` no es una venta: es lo que la salda (decodificado 2026-10-14) |
-| 1154 | 1185 | 2 | 3.z.2 ⭐⭐ QUIÉN vendió está en el TICKET (`c12` → `kduv`), y se pierde al agregar (2026-10-14) |
-| 1186 | 1246 | 3 | 3.z.3 ⛔⛔ `kdm1.c1` lleva SUCURSAL **+ RUTA**, y el anti-réplica canónico las descarta (2026-10-14) |
-| 1247 | 1281 | 2 | 3.z.4 ⭐⭐ Qué facturas paga cada pago a proveedor — y por qué el RFC del acreedor no es de fiar (2026-10-21) |
-| 1282 | 1323 | 4 | 3.z.5 ⭐⭐ Qué ESCRIBE un pago a proveedor (`X-D-26` / `X-D-25`) — las 8 escrituras, deducidas (2026-11-04, `[PG |
-| 1324 | 1435 | 6 | 3.c ⭐⭐ El CRM de Kepler: prospectos y cotización `U-D-35` (decodificado 2026-09-22) |
-| 1436 | 1466 | 2 | 3.d ⭐ La NOTA DE CRÉDITO / DEVOLUCIÓN sobre un ticket: va a la FACTURA, no al ticket (decodificado 2026-10-10, |
-| 1467 | 1514 | 3 | 3.x El kardex (`kdij`) y el reparto entre sucursales — `[NP.16]`, medido 2026-10-09 |
-| 1515 | 1542 | 2 | 4. Cómo llega Kepler a la plataforma — el pipeline `kepler_ods` |
-| 1543 | 1599 | 4 | 4.1 ⛔⛔ ANTES DE MEDIR EL ODS: asegurate de estar mirando PRODUCCIÓN |
-| 1600 | 1650 | 3 | 4.2b ⛔⛔⛔ LA CAUSA RAÍZ: `ods_repl` no puede leer las tablas NUEVAS (2026-09-12) |
-| 1651 | 1676 | 2 | 4.2 ⏰ La bomba de calendario — fecha exacta: **2027-01-01** |
-| 1677 | 1741 | 5 | 5. Reglas de oro (te ahorran bugs de datos) |
-| 1742 | 1761 | 1 | 6. Importers / feeds relevantes |
-| 1762 | 1769 | 1 | 7. Conexiones y credenciales |
-| 1770 | 1779 | 1 | 8. Para profundizar |
+| 813 | 935 | 10 | 3.y ⭐ El EMBARQUE `U-D-41` y su cabecera logística (decodificado 2026-09-17) |
+| 936 | 990 | 4 | 3.y.3 ⭐ El PEDIDO `U-D-40` y sus cantidades por etapa (decodificado 2026-10-06) |
+| 991 | 1028 | 2 | 3.y.4 ⭐ Códigos de barras: TRES casillas por unidad (corregido 2026-10-06) |
+| 1029 | 1058 | 1 | 3.x ⭐ El folio es POR SUCURSAL, no global — y es diseño, no un defecto |
+| 1059 | 1112 | 3 | 3.z ⭐⭐ `kdm1.c45` — POR QUÉ CUENTA se movió el dinero (decodificado 2026-09-22) |
+| 1113 | 1161 | 3 | 3.z.1 ⭐⭐ El COBRO `U-A-5` no es una venta: es lo que la salda (decodificado 2026-10-14) |
+| 1162 | 1193 | 2 | 3.z.2 ⭐⭐ QUIÉN vendió está en el TICKET (`c12` → `kduv`), y se pierde al agregar (2026-10-14) |
+| 1194 | 1254 | 3 | 3.z.3 ⛔⛔ `kdm1.c1` lleva SUCURSAL **+ RUTA**, y el anti-réplica canónico las descarta (2026-10-14) |
+| 1255 | 1289 | 2 | 3.z.4 ⭐⭐ Qué facturas paga cada pago a proveedor — y por qué el RFC del acreedor no es de fiar (2026-10-21) |
+| 1290 | 1331 | 4 | 3.z.5 ⭐⭐ Qué ESCRIBE un pago a proveedor (`X-D-26` / `X-D-25`) — las 8 escrituras, deducidas (2026-11-04, `[PG |
+| 1332 | 1443 | 6 | 3.c ⭐⭐ El CRM de Kepler: prospectos y cotización `U-D-35` (decodificado 2026-09-22) |
+| 1444 | 1474 | 2 | 3.d ⭐ La NOTA DE CRÉDITO / DEVOLUCIÓN sobre un ticket: va a la FACTURA, no al ticket (decodificado 2026-10-10, |
+| 1475 | 1522 | 3 | 3.x El kardex (`kdij`) y el reparto entre sucursales — `[NP.16]`, medido 2026-10-09 |
+| 1523 | 1550 | 2 | 4. Cómo llega Kepler a la plataforma — el pipeline `kepler_ods` |
+| 1551 | 1607 | 4 | 4.1 ⛔⛔ ANTES DE MEDIR EL ODS: asegurate de estar mirando PRODUCCIÓN |
+| 1608 | 1658 | 3 | 4.2b ⛔⛔⛔ LA CAUSA RAÍZ: `ods_repl` no puede leer las tablas NUEVAS (2026-09-12) |
+| 1659 | 1684 | 2 | 4.2 ⏰ La bomba de calendario — fecha exacta: **2027-01-01** |
+| 1685 | 1749 | 5 | 5. Reglas de oro (te ahorran bugs de datos) |
+| 1750 | 1769 | 1 | 6. Importers / feeds relevantes |
+| 1770 | 1777 | 1 | 7. Conexiones y credenciales |
+| 1778 | 1787 | 1 | 8. Para profundizar |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -829,6 +829,14 @@ Embarque*. Cadena: **Pedido `U-D-40` → Embarque `U-D-41` → Factura `U-D-8`**
 | Fecha de Pago · Descuento Cliente | `c18` · `c19` | ⚠️ `c18` se contradice en el 10.9% (anterior al propio embarque) |
 | Subtotal / IEPS / IMPORTE | — · `c15` · `c16` | |
 | Cliente · destino | `c10` · `c32`–`c35` | |
+
+**⛔ El PEDIDO `U-D-40` NO usa este mapa** (2026-11-06, `[COT.37]`). Su panel «Telemarketing» se
+ancló a una captura del pedido 0003826 de Padre Hidalgo contra su fila en el ODS:
+**Responsable Surtido = `c100`** (no `c80`) y **«Dirección Envío» = `c115`** (no `c85`). Medido en
+los pedidos TELEMARK del personal, todas las sucursales desde sep-2026: mientras no se embarca,
+`c85` = `0` en el 100 % y la dirección va en `c115` (vacía si el cliente no tiene filas en
+`kdudent`); al embarcar, Kepler iguala `c85` a `c115` (2,658 de 2,668). Leer `c85` como la
+dirección de un pedido abierto da 0; de uno embarcado coincide con `c115`.
 
 **⭐ La GUÍA es el viaje; el EMBARQUE es la parada.** Medido 2026: ~2,500 guías agrupan ~5,700
 embarques (hasta 32 paradas en una), y de las 388 multiparada **386 llevan una sola unidad y

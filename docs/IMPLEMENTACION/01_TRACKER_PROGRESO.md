@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 2168 KB, 13299 líneas, 74 secciones.
+> **Índice navegable** — 2171 KB, 13302 líneas, 74 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -71,16 +71,16 @@
 | 12528 | 12678 | 67 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
 | 12679 | 12709 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
 | 12710 | 12757 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
-| 12758 | 12798 | 42 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 12799 | 12828 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 12835 | 12844 | 1 | 📝 Convenciones |
-| 12845 | 12882 | 14 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 12883 | 12901 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 12902 | 12954 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 12955 | 13326 | 55 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 13327 | 13357 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 13358 | 13372 | 3 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 13373 | 13385 | 2 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 12758 | 12801 | 46 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 12802 | 12831 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 12838 | 12847 | 1 | 📝 Convenciones |
+| 12848 | 12885 | 14 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 12886 | 12904 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 12905 | 12957 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 12958 | 13329 | 55 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 13330 | 13360 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 13361 | 13375 | 3 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 13376 | 13388 | 2 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
 
 <!-- INDICE-AUTO:FIN -->
 

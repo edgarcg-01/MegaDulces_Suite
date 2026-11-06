@@ -89,7 +89,7 @@ const servidores = ACTIVO ? cargarMaestro() : [];
     const url = process.env[`KEPLER_PUSH_URL_${s}`]!;
     const cli = new Client({ connectionString: url });
     await cli.connect();
-    let plantilla: { c5: string; c6: string; c10: string; c12: string; c13: string; c14: string; c15: string; c16: string; c19: string; c85: string } | undefined;
+    let plantilla: { c5: string; c6: string; c10: string; c12: string; c13: string; c14: string; c15: string; c16: string; c19: string; c115: string } | undefined;
     let ren: Array<Record<string, string>> = [];
     try {
       await cli.query('BEGIN READ ONLY');
@@ -98,7 +98,7 @@ const servidores = ACTIVO ? cargarMaestro() : [];
       const elegida = process.env[`KEPLER_TLMK_TEMPLATE_FOLIO_${s}`] || null;
       plantilla = (await cli.query(
         `SELECT btrim(c5::text) c5, c6, btrim(c10) c10, btrim(c12) c12, c13::text c13, c14::text c14, c15::text c15, c16::text c16,
-                coalesce(nullif(btrim(c19::text),''),'0') c19, btrim(coalesce(c85::text,'')) c85
+                coalesce(nullif(btrim(c19::text),''),'0') c19, btrim(coalesce(c115::text,'')) c115
            FROM md.kdm1 WHERE c1 = $1 AND c2 = 'U' AND c3 = 'D' AND btrim(c4::text) = '40'
             AND btrim(c27) = 'TELEMARK' AND btrim(c11) = 'CREADO' AND ($2::text IS NULL OR c6 = $2)
           ORDER BY c9 DESC, c6 DESC LIMIT 1`, [s, elegida])).rows[0];
@@ -135,7 +135,7 @@ const servidores = ACTIVO ? cargarMaestro() : [];
         cotizacion_id: '00000000-0000-0000-0000-000000000000', folio_suite: 'COT-ENSAYO-00000',
         sucursal: s, cliente: plantilla.c10, vendedor: plantilla.c12,
         fecha: new Date().toISOString().slice(0, 10), pct_cliente: n(plantilla.c19),
-        direccion_envio: plantilla.c85 || null, renglones, tope_dia: null,
+        direccion_envio: plantilla.c115 || null, renglones, tope_dia: null,
       });
       // El ROLLBACK de `confirmar` hace que entregar() siga y reporte "entregado": lo que importa
       // es que llegó hasta ahí sin que Postgres rechazara un tipo, y lo que `confirmar` midió.
