@@ -181,6 +181,13 @@ interface DiagProbe {
             <span>Cierre</span>
           </a>
         }
+        @if (canVerEquipo) {
+          <!-- [SUP.2] El supervisor ve a su equipo del día (vendedor_ruta no tiene la llave). -->
+          <a routerLink="supervisor/equipo" routerLinkActive="active">
+            <i class="pi pi-users"></i>
+            <span>Equipo</span>
+          </a>
+        }
         @if (canAssignRoutes) {
           <a routerLink="supervisor/routes" routerLinkActive="active">
             <i class="pi pi-directions"></i>
@@ -430,6 +437,8 @@ export class VendorShellComponent {
   private readonly router = inject(Router);
   /** ¿Es supervisor con plan de ruta? → muestra el item "Rutas" (asignar rutas). */
   readonly canAssignRoutes = this.perms.has(Permission.TRADE_ROUTE_PLAN_GESTIONAR);
+  /** [SUP.2] ¿Supervisa vendedores vecinales? → muestra «Equipo». */
+  readonly canVerEquipo = this.perms.has(Permission.COMMERCIAL_MONITOREO_VECINAL_VER);
   /** Nav 'Cierre' / 'Carga' solo para quien puede usarlos (no 403 al abrir). */
   readonly canCierre = this.perms.has(Permission.ROUTE_TICKET_CAPTURE);
   readonly canCarga = this.perms.has(Permission.COMMERCIAL_CARGA_GESTIONAR);

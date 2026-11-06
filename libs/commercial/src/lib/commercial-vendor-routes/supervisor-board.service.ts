@@ -453,39 +453,88 @@ export class SupervisorBoardService {
   }
 
   /** Venta Kepler por `CÓDIGO|día` (ver el comentario de la clase: qué incluye y qué no). */
-  private async keplerSales(
-    trx: Knex.Transaction,
-    codes: string[],
-    from: string,
-    to: string,
-  ): Promise<Map<string, RouteDaySale> | null> {
-    const out = new Map<string, RouteDaySale>();
-    if (!codes.length) return out;
-    // `[MCP.3.10]` Lectura OPCIONAL en un SAVEPOINT: si la vista no responde (o no existe, como en
-    // la base local, que no tiene el ODS), la venta se DECLARA sin medir (`null`) y el resto del
-    // tablero sigue. Antes tiraba la pantalla entera con un 500.
-    let r: { rows: unknown[] };
-    try {
-      r = await trx.transaction((sp) => sp.raw(
-        `SELECT upper(d.route_no) AS code, to_char(d.business_date, 'YYYY-MM-DD') AS day,
-                sum(d.total) AS amount,
-                count(DISTINCT (d.warehouse_code, d.caja, d.folio))::int AS tickets
-           FROM analytics.v_kepler_vecinal_sales_docs d
-          WHERE d.tenant_id = public.current_tenant_id()
-            AND upper(d.route_no) = ANY(?::text[])
-            AND d.business_date >= ?::date AND d.business_date <= ?::date
-          GROUP BY 1, 2`,
-        [codes, from, to],
-      ));
-    } catch (e) {
-      this.logger.warn(`Venta Kepler sin medir (${from}..${to}): ${(e as Error)?.message ?? e}`);
-      return null;
-    }
-    for (const x of r.rows as { code: string; day: string; amount: string | number; tickets: number }[]) {
-      out.set(saleKey(x.code, x.day), { amount: Number(x.amount) || 0, tickets: Number(x.tickets) || 0 });
-    }
-    return out;
+  private keplerSales(trx: Knex.Transaction, codes: string[], from: string, to: string): Promise<Map<string, RouteDaySale> | null> {
+    return ventaKeplerPorRutaDia(trx, codes, from, to, this.logger);
   }
+}
+
+/**
+ * Venta cobrada en Kepler por `CÓDIGO|día` de ruta vecinal (ver el comentario de
+ * `SupervisorBoardService`: qué incluye y qué no). `[MV.1]` Sale de la clase para que el Monitoreo
+ * vecinal use EXACTAMENTE la misma lectura que el tablero: dos consultas de «la venta de la ruta»
+ * terminarían diciendo cifras distintas.
+ *
+ * `[MCP.3.10]` Lectura OPCIONAL en un SAVEPOINT: si la vista no responde (o no existe, como en la
+ * base local, que no tiene el ODS), la venta se DECLARA sin medir (`null`) y el resto sigue.
+ */
+export async function ventaKeplerPorRutaDia(
+  trx: Knex.Transaction,
+  codes: string[],
+  from: string,
+  to: string,
+  logger?: Logger,
+): Promise<Map<string, RouteDaySale> | null> {
+  const out = new Map<string, RouteDaySale>();
+  if (!codes.length) return out;
+  let r: { rows: unknown[] };
+  try {
+    r = await trx.transaction((sp) => sp.raw(
+      `SELECT upper(d.route_no) AS code, to_char(d.business_date, 'YYYY-MM-DD') AS day,
+              sum(d.total) AS amount,
+              count(DISTINCT (d.warehouse_code, d.caja, d.folio))::int AS tickets
+         FROM analytics.v_kepler_vecinal_sales_docs d
+        WHERE d.tenant_id = public.current_tenant_id()
+          AND upper(d.route_no) = ANY(?::text[])
+          AND d.business_date >= ?::date AND d.business_date <= ?::date
+        GROUP BY 1, 2`,
+      [codes, from, to],
+    ));
+  } catch (e) {
+    logger?.warn(`Venta Kepler sin medir (${from}..${to}): ${(e as Error)?.message ?? e}`);
+    return null;
+  }
+  for (const x of r.rows as { code: string; day: string; amount: string | number; tickets: number }[]) {
+    out.set(saleKey(x.code, x.day), { amount: Number(x.amount) || 0, tickets: Number(x.tickets) || 0 });
+  }
+  return out;
+}
+
+/**
+ * `[MV.1]` La misma venta, por CLIENTE y día: lo que Kepler le cobró a cada cliente en esas rutas.
+ * El cliente de Kepler (`cliente` + sucursal) se liga a `commercial.customers` por
+ * `erp_customer_code` + `erp_source_branch` (medido en prod el 2026-11-05: 398 de 400 clientes de
+ * 14 días ligan). Llave `customer_id|YYYY-MM-DD`. `null` = no se pudo leer la fuente.
+ */
+export async function ventaKeplerPorClienteDia(
+  trx: Knex.Transaction,
+  codes: string[],
+  from: string,
+  to: string,
+  logger?: Logger,
+): Promise<Map<string, number> | null> {
+  const out = new Map<string, number>();
+  if (!codes.length) return out;
+  let r: { rows: unknown[] };
+  try {
+    r = await trx.transaction((sp) => sp.raw(
+      `SELECT c.id AS customer_id, to_char(d.business_date, 'YYYY-MM-DD') AS day, sum(d.total) AS amount
+         FROM analytics.v_kepler_vecinal_sales_docs d
+         JOIN commercial.customers c
+           ON c.tenant_id = d.tenant_id AND c.erp_customer_code = d.cliente AND c.erp_source_branch = d.warehouse_code
+        WHERE d.tenant_id = public.current_tenant_id()
+          AND upper(d.route_no) = ANY(?::text[])
+          AND d.business_date >= ?::date AND d.business_date <= ?::date
+        GROUP BY 1, 2`,
+      [codes, from, to],
+    ));
+  } catch (e) {
+    logger?.warn(`Venta Kepler por cliente sin medir (${from}..${to}): ${(e as Error)?.message ?? e}`);
+    return null;
+  }
+  for (const x of r.rows as { customer_id: string; day: string; amount: string | number }[]) {
+    out.set(`${x.customer_id}|${x.day}`, Math.round((Number(x.amount) || 0) * 100) / 100);
+  }
+  return out;
 }
 
 /** Visitados primero (por hora de llegada), luego los no visitados en el orden de la ruta. */

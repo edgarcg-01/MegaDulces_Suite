@@ -515,6 +515,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // Directa**, que cuelgan de Ventas por ruta» y «ahora hay un nombre para el conjunto»—
         // pero el conjunto se quedó con el nombre de su primera parte. La ruta NO cambia.
         { label: RUTA_DIRECTA_LABEL, icon: 'pi pi-directions', route: '/comercial/ventas-por-ruta', tabs: RUTA_DIRECTA_TABS },
+        // [MV.3] Monitoreo vecinal: vendedores, surtidores y cajeras de la preventa vecinal.
+        { label: 'Monitoreo vecinal', icon: 'pi pi-eye', route: '/comercial/monitoreo-vecinal', permission: Permission.COMMERCIAL_MONITOREO_VECINAL_VER },
       ],
     },
     {

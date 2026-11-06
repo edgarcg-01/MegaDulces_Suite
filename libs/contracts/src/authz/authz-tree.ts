@@ -158,6 +158,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // crédito, aparte, porque es dinero y lo decide otro puesto.
           { id: 'alta-clientes', label: 'Alta de clientes', route: '/comercial/alta-clientes', view: [Permission.COMMERCIAL_ALTA_CLIENTES], manage: [Permission.COMMERCIAL_ALTA_CLIENTES_CREDITO] },
           { id: 'cartera', label: 'Cartera / asignación', route: '/comercial/cartera', view: [Permission.COMMERCIAL_CARTERA_VER], manage: [Permission.COMMERCIAL_CARTERA_GESTIONAR] },
+          { id: 'monitoreo-vecinal', label: 'Monitoreo vecinal', route: '/comercial/monitoreo-vecinal', view: [Permission.COMMERCIAL_MONITOREO_VECINAL_VER], manage: [] },
           // `[MCP.3.11]` Módulo propio a propósito: dentro de «Cartera» el G daría las dos llaves juntas.
           { id: 'route-warehouse', label: 'Sucursal de surtido por ruta', route: '/comercial/cartera', view: [], manage: [Permission.COMMERCIAL_ROUTE_WAREHOUSE_GESTIONAR] },
           { id: 'pricing', label: 'Precios', route: '/comercial/pricing', view: [Permission.COMMERCIAL_PRICING_VER], manage: [Permission.COMMERCIAL_PRICING_GESTIONAR] },
