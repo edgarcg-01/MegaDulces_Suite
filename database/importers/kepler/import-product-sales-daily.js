@@ -13,9 +13,17 @@
  * (default 180 días) para acotar volumen; el modo Año del reporte sigue usando
  * product_sales_monthly para historia completa.
  *
+ * `[CANON.5.19]` (2026-11-06) — por default lee `kepler_ods` (el mismo join, dentro de la misma
+ * `sucursal`) en la conexión de prod, en vez de los 9 POS. Comparación en seco de 180 días (sin
+ * hoy) contra lo que la tabla tenía, por SKU × almacén × día: 726,835 de 726,835 idénticas; ninguna
+ * de un solo lado del ODS. Lo que sólo está en la tabla no es de este importer (06 y MD-32 los
+ * escribe otro camino) salvo 11 filas de un SKU de la 05 de may–jul que no existe en el ODS en
+ * ningún documento. Control (la 01 lee el ODS de la 08): rojo. El ODS no propaga borrados, así que
+ * no pierde lo que el POS purga. `--source=branch` conserva la lectura de cada POS.
+ *
  *   DST_URL=…railway node database/importers/kepler/import-product-sales-daily.js            # dry-run (180d)
  *   DST_URL=…         node database/importers/kepler/import-product-sales-daily.js --apply    # commit
- *   ... [--days 180]
+ *   ... [--days 180] [--source=branch]
  */
 
 const { Client } = require('pg');
@@ -30,6 +38,21 @@ const DAYS = di !== -1 ? Number(process.argv[di + 1]) : 180;
 const BRANCHES = process.env.SALES_BRANCH_MAP ? JSON.parse(process.env.SALES_BRANCH_MAP) : salesMap();
 
 const SALES = `h.c2='U' AND h.c3='D' AND h.c4=10`;
+const SOURCE = (process.argv.find((a) => a.startsWith('--source=')) || '').split('=')[1] || 'ods';
+if (!['ods', 'branch'].includes(SOURCE)) throw new Error(`--source desconocido: ${SOURCE} (ods | branch)`);
+// En el ODS la base de origen es `sucursal` ($2): el renglón se une dentro de la misma base.
+const DAILY_SQL = SOURCE === 'ods' ? `
+  SELECT d.c8 AS sku, h.c9::date AS dia, sum(d.c9)::numeric AS units
+    FROM kepler_ods.kdm2 d JOIN kepler_ods.kdm1 h
+      ON h.sucursal=d.sucursal AND h.c1=d.c1 AND h.c4=d.c4 AND h.c5=d.c5 AND h.c6=d.c6
+   WHERE ${SALES} AND h.c9 >= $1 AND h.sucursal = $2
+     AND d.c8 NOT IN ('00001','00002') AND btrim(d.c8) <> ''
+   GROUP BY d.c8, 2` : `
+  SELECT d.c8 AS sku, h.c9::date AS dia, sum(d.c9)::numeric AS units
+    FROM md.kdm2 d JOIN md.kdm1 h ON h.c1=d.c1 AND h.c4=d.c4 AND h.c5=d.c5 AND h.c6=d.c6
+   WHERE ${SALES} AND h.c9 >= $1
+     AND d.c8 NOT IN ('00001','00002') AND btrim(d.c8) <> ''
+   GROUP BY d.c8, 2`;
 
 (async () => {
   const db = new Client({
@@ -60,16 +83,11 @@ const SALES = `h.c2='U' AND h.c3='D' AND h.c4=10`;
     for (const b of BRANCHES) {
       const wid = whTo.get(b.code);
       if (!wid) { console.log(`  ⚠️  sucursal ${b.code} sin warehouse en destino — skip`); continue; }
-      const src = new Client(clientConfig(b, { connectionTimeoutMillis: 8000, statement_timeout: 180000 }));
+      const src = SOURCE === 'ods' ? db : new Client(clientConfig(b, { connectionTimeoutMillis: 8000, statement_timeout: 180000 }));
       const t0 = Date.now();
       try {
-        await src.connect();
-        const { rows } = await src.query(
-          `SELECT d.c8 AS sku, h.c9::date AS dia, sum(d.c9)::numeric AS units
-             FROM md.kdm2 d JOIN md.kdm1 h ON h.c1=d.c1 AND h.c4=d.c4 AND h.c5=d.c5 AND h.c6=d.c6
-            WHERE ${SALES} AND h.c9 >= $1
-              AND d.c8 NOT IN ('00001','00002') AND btrim(d.c8) <> ''
-            GROUP BY d.c8, 2`, [from]);
+        if (src !== db) await src.connect();
+        const { rows } = await src.query(DAILY_SQL, SOURCE === 'ods' ? [from, b.code] : [from]);
         let matched = 0;
         for (const r of rows) {
           const pid = skuTo.get(r.sku);
@@ -81,7 +99,7 @@ const SALES = `h.c2='U' AND h.c3='D' AND h.c4=10`;
       } catch (e) {
         console.log(`  ❌ ${b.db} (${b.code}): ${e.message}`);
       } finally {
-        try { await src.end(); } catch { /* noop */ }
+        if (src !== db) { try { await src.end(); } catch { /* noop */ } }
       }
     }
     console.log(`\n  total a upsert: ${all.length} (sku sin catálogo: ${noSku})`);
