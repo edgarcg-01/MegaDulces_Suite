@@ -9,14 +9,23 @@
  *   c6=grupo c8=folio c9=unidades c10=fecha c12=unidad c13/c21=importe c19=almacén.
  * clase_mov derivada de género/nat/grupo (ver migración 20260707200000).
  *
+ * [CANON.5.29] Fuente por defecto: `kepler_ods.kdij`, las 9 sucursales en una consulta.
+ * `--source=branch` conserva la lectura de cada POS. Medido el 2026-11-06 (45 días): las únicas
+ * llaves de `stock_ledger` que el ODS no trae son 3 mermas de la `06` que Kepler CANCELÓ
+ * (`kdm1.c43='C'`, total 0) y cuyo kardex ya no existe ni en el POS. El upsert no borra, así que
+ * esas siguen en la tabla con cualquier fuente.
+ *
  * Uso (desde database/):
  *   node importers/kepler/import-kardex.js            # dry-run (resume, NO escribe)
+ *   node importers/kepler/import-kardex.js --source=branch   # POS por sucursal
  *   DATABASE_URL_NEW='postgres://…?sslmode=no-verify' node importers/kepler/import-kardex.js --apply
  */
 const knexLib = require('knex');
 const { Client } = require('pg');
 
 const APPLY = process.argv.includes('--apply');
+const SOURCE = (process.argv.find((a) => a.startsWith('--source=')) || '').split('=')[1] || 'ods';
+if (!['ods', 'branch'].includes(SOURCE)) throw new Error(`--source desconocido: ${SOURCE} (ods | branch)`);
 const TENANT = process.env.MAAT_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 // Ventana rodante (días). El feed corre intradía (@1h) → basta leer lo reciente en vez de
 // TODA la historia cada corrida (era la causa del cuelgue: full-scan + upsert fila-por-fila
@@ -46,6 +55,36 @@ function claseMov(gen, nat, grupo) {
   return 'otro';
 }
 
+const toRow = (code) => (x) => ({
+  warehouse_code: code || x.suc,
+  almacen: x.almacen ? String(x.almacen).trim() : null,
+  sku: String(x.sku).trim(),
+  genero: x.gen, naturaleza: x.nat, grupo: x.grupo ? String(x.grupo).trim() : null,
+  clase_mov: claseMov(x.gen, x.nat, x.grupo),
+  folio: String(x.folio).trim(),
+  unidades: num(x.unidades), unidad: x.unidad ? String(x.unidad).trim() : null,
+  importe: Math.abs(num(x.importe)), fecha: x.fecha,
+});
+
+/** Misma consulta que readBranch, sobre el ODS y para todas las sucursales a la vez. */
+async function readOds() {
+  if (!process.env.DATABASE_URL_NEW) throw new Error('source=ods requiere DATABASE_URL_NEW (kepler_ods vive en prod)');
+  const c = new Client({ connectionString: process.env.DATABASE_URL_NEW, statement_timeout: 120000 });
+  await c.connect();
+  try {
+    const r = await c.query(
+      `SELECT sucursal AS suc, c19 AS almacen, c3 AS sku, c4 AS gen, c5 AS nat, c6 AS grupo,
+              c8 AS folio, c9::numeric AS unidades, c12 AS unidad,
+              COALESCE(NULLIF(c13::numeric,0), c21::numeric) AS importe, c10::date AS fecha
+       FROM kepler_ods.kdij
+       WHERE sucursal = ANY($1) AND c1 = sucursal AND c4 = 'N'
+         AND ($2::int <= 0 OR c10::date >= CURRENT_DATE - $2::int)`,
+      [BRANCHES.map((b) => b.code), WINDOW_DAYS],
+    );
+    return r.rows.map(toRow(null));
+  } finally { await c.end(); }
+}
+
 async function readBranch(b) {
   const c = new Client(clientConfig(b, { connectionTimeoutMillis: 6000, statement_timeout: 60000 }));
   await c.connect();
@@ -63,16 +102,7 @@ async function readBranch(b) {
          AND ($2::int <= 0 OR c10::date >= CURRENT_DATE - $2::int)`,
       [b.code, WINDOW_DAYS],
     );
-    return r.rows.map((x) => ({
-      warehouse_code: b.code,
-      almacen: x.almacen ? String(x.almacen).trim() : null,
-      sku: String(x.sku).trim(),
-      genero: x.gen, naturaleza: x.nat, grupo: x.grupo ? String(x.grupo).trim() : null,
-      clase_mov: claseMov(x.gen, x.nat, x.grupo),
-      folio: String(x.folio).trim(),
-      unidades: num(x.unidades), unidad: x.unidad ? String(x.unidad).trim() : null,
-      importe: Math.abs(num(x.importe)), fecha: x.fecha,
-    }));
+    return r.rows.map(toRow(b.code));
   } finally {
     await c.end();
   }
@@ -124,13 +154,18 @@ async function upsert(db, rows) {
 
 (async () => {
   const all = [];
-  for (const b of BRANCHES) {
-    try {
-      const rows = await readBranch(b);
-      all.push(...rows);
-      console.log(`[${b.db}] ${rows.length} movimientos N-género`);
-    } catch (e) {
-      console.warn(`[${b.db}] ERROR: ${e.message}`);
+  if (SOURCE === 'ods') {
+    all.push(...await readOds());
+    for (const b of BRANCHES) console.log(`[ods ${b.code}] ${all.filter((r) => r.warehouse_code === b.code).length} movimientos N-género`);
+  } else {
+    for (const b of BRANCHES) {
+      try {
+        const rows = await readBranch(b);
+        all.push(...rows);
+        console.log(`[${b.db}] ${rows.length} movimientos N-género`);
+      } catch (e) {
+        console.warn(`[${b.db}] ERROR: ${e.message}`);
+      }
     }
   }
   const deduped = dedupeAggregate(all);
