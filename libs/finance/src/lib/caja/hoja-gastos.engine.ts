@@ -433,7 +433,9 @@ export function loYaRepuesto(
     // El día y el total ya van en su renglón: el motivo dice sólo por qué.
     const motivo = d.estado === 'ambiguo'
       ? `Hay ${d.opciones} formas de llegar al total con los depósitos de la ${banco.cuenta}: lo liga una persona`
-      : `Ningún depósito en la ${banco.cuenta} lo repone: si es gasto normal, se paga en la cola`;
+      // ⚠️ No se afirma que sea gasto normal: el 21/10 de Morelia se repuso en dos hojas (Control A23713 y un
+      // depósito) y ninguna cuadra con el día entero. Capturarlo del cajón lo pagaría otra vez.
+      : `Ningún depósito en la ${banco.cuenta} lo repone solo: si se repuso en partes, lo liga una persona a su retiro; si es gasto normal, se paga en la cola`;
     xs.forEach((r) => sinDeposito.set(r.origen_ref, motivo));
   }
   ya.sort((a, b) => a.desde.localeCompare(b.desde));
