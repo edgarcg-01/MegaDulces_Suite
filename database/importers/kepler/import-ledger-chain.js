@@ -15,9 +15,13 @@
  *   Cada salto se valida con beneficiario+total idénticos; si el puntero falla,
  *   se infiere por (beneficiario, total, fecha ±10d). confidence: exact|inferred|partial.
  *
+ * `[CANON.5.13]` (2026-11-06) — por default lee `kepler_ods` (la columna `sucursal` es la base de
+ * origen; el mismo filtro de la propia: c14 en la póliza, c1 en el documento). `--source=branch`
+ * conserva la conexión a cada POS.
+ *
  *   node database/importers/kepler/import-ledger-chain.js               # dry-run (12 meses)
  *   node database/importers/kepler/import-ledger-chain.js --apply       # commit
- *   ... --months 19                                                     # ventana balanza
+ *   ... --months 19 · --source=branch                                   # ventana balanza · POS
  *   EXPENSES_BRANCH_MAP='[{"code":"03","url":"..."}]' node ...          # override sucursales
  */
 
@@ -33,6 +37,8 @@ function arg(name, def) {
   return i !== -1 && process.argv[i + 1] && !process.argv[i + 1].startsWith('--') ? process.argv[i + 1] : def;
 }
 const MONTHS = Math.max(1, Math.min(36, Number(arg('months', 12))));
+const SOURCE = (process.argv.find((a) => a.startsWith('--source=')) || '').split('=')[1] || 'ods';
+if (!['ods', 'branch'].includes(SOURCE)) throw new Error(`--source desconocido: ${SOURCE} (ods | branch)`);
 
 // Fuente única del mapa de sucursales (paso 3 normalización almacén). Las 6 (incluye CEDIS).
 const { stockMap } = require('../lib/kepler-branches');
@@ -67,17 +73,165 @@ const sameTotal = (a, b) => Math.abs(Number(a || 0) - Number(b || 0)) < 0.5;
 const DAY = 86400000;
 const daysBetween = (a, b) => (a && b ? Math.round((new Date(b) - new Date(a)) / DAY) : null);
 
-(async () => {
+const DOC_TIPO = `(c2||c3||lpad(c4::text,2,'0')||lpad(c5::text,2,'0'))`;
+// La inferencia de la cadena consume candidatos en el orden en que llegan: sin ORDER BY, el orden físico
+// de las filas decidía qué factura se quedaba con un candidato compartido (28 de 14,806 cambiaban al
+// pasar de las bases al ODS). Ahora gana la factura más antigua.
+const DOCS_ORDEN = 'tipo, fecha, folio';
+const CADENA = `('XA3501','XA3701','XA2001','XA4001')`;
+const balanzaSql = (from, suc) => `SELECT ${suc} AS sucursal, c3 AS cuenta,
+        SUM(CASE WHEN c4='C' THEN c5 ELSE 0 END)::numeric AS cargos,
+        SUM(CASE WHEN c4='A' THEN c5 ELSE 0 END)::numeric AS abonos,
+        COUNT(*)::int AS movs
+   FROM ${from}
+  WHERE c3 IS NOT NULL AND COALESCE(c5,0) <> 0
+    AND (c14 IS NULL OR btrim(c14) = '' OR btrim(c14) = ${suc})`;
+const docsSql = (from, suc) => `SELECT ${suc} AS sucursal, ${DOC_TIPO} AS tipo, c6 AS folio,
+        c9::date AS fecha, NULLIF(btrim(c32),'') AS benef, c16::numeric AS total,
+        NULLIF(btrim(c39::text),'') AS next_folio
+   FROM ${from}
+  WHERE c63 ~ '^X' AND c6 IS NOT NULL
+    AND (c1 IS NULL OR btrim(c1) = '' OR btrim(c1) = ${suc})
+    AND ${DOC_TIPO} IN ${CADENA}`;
+
+/** Por base: catálogo de cuentas, balanza por mes y documentos de la cadena.
+ *  Map(code → { acc, balanza: Map(tbl → rows), docs }). Una base sin conexión (branch) o sin un
+ *  solo renglón (ods) queda fuera: sus filas no se tocan. */
+async function readSource(db, tables) {
+  const porBase = new Map();
+  const skipped = [];
+  const nueva = () => ({ acc: new Map(), balanza: new Map(), docs: [] });
+  if (SOURCE === 'ods') {
+    const codes = MAP.map((b) => b.code);
+    for (const c of codes) porBase.set(c, nueva());
+    // catálogo (kdco es sucio: min(c2) por código — un JOIN plano duplica en familia 6)
+    for (const r of (await db.query(`SELECT sucursal, c3 AS code, min(c2) AS nombre FROM kepler_ods.kdco
+         WHERE sucursal = ANY($1) AND c3 IS NOT NULL GROUP BY 1, 2`, [codes])).rows) porBase.get(r.sucursal).acc.set(r.code, r.nombre);
+    for (const t of tables) {
+      if (!(await db.query(`SELECT to_regclass('kepler_ods.${t.tbl}') AS r`)).rows[0].r) continue;
+      for (const r of (await db.query(`${balanzaSql(`kepler_ods.${t.tbl}`, 'sucursal')} AND sucursal = ANY($1) GROUP BY 1, 2`, [codes])).rows) {
+        const m = porBase.get(r.sucursal).balanza; if (!m.has(t.tbl)) m.set(t.tbl, []); m.get(t.tbl).push(r);
+      }
+    }
+    for (const r of (await db.query(`${docsSql('kepler_ods.kdm1', 'sucursal')} AND sucursal = ANY($1) ORDER BY ${DOCS_ORDEN}`, [codes])).rows) porBase.get(r.sucursal).docs.push(r);
+    for (const [code, x] of porBase) if (!x.balanza.size && !x.docs.length) { porBase.delete(code); skipped.push({ code, nota: 'sin renglones en el ODS' }); }
+    return { porBase, skipped };
+  }
+  for (const b of MAP) {
+    const src = new Client({ connectionString: b.url });
+    try { await src.connect(); }
+    catch (e) { console.log(`  ⚠ sucursal ${b.code}: sin conexión (${e.message}) — skip`); skipped.push({ code: b.code, nota: 'sin conexión' }); continue; }
+    try {
+      const x = nueva();
+      for (const r of (await src.query(`SELECT c3 AS code, min(c2) AS nombre FROM md.kdco WHERE c3 IS NOT NULL GROUP BY c3`)).rows) x.acc.set(r.code, r.nombre);
+      for (const t of tables) {
+        if (!(await src.query(`SELECT to_regclass('md.${t.tbl}') AS r`)).rows[0].r) continue;
+        // Solo la sucursal PROPIA: las DBs arrastran réplicas de otras sucursales
+        // (verificado: DB03 tiene las filas '02' de dic/ene 100% duplicadas en DB02).
+        x.balanza.set(t.tbl, (await src.query(`${balanzaSql(`md.${t.tbl}`, '$1::text')} GROUP BY 2`, [b.code])).rows);
+      }
+      // c1 = sucursal del documento — filtrar a la propia (DB03 arrastra ~2k docs de la 02).
+      x.docs = (await src.query(`${docsSql('md.kdm1', '$1::text')} ORDER BY ${DOCS_ORDEN}`, [b.code])).rows;
+      porBase.set(b.code, x);
+    } finally { await src.end(); }
+  }
+  return { porBase, skipped };
+}
+
+/** Lo que el importer escribiría: filas de balanza y de cadena (mismo orden de columnas que el staging). */
+async function collect(db, tables) {
+  const { porBase, skipped } = await readSource(db, tables);
+  const ledgerRows = [], chainRows = [];
+  const summary = skipped.map((s) => ({ code: s.code, cuentas_mes: 0, facturas: 0, exact: 0, nota: s.nota }));
+  for (const b of MAP) {
+    const x = porBase.get(b.code);
+    if (!x) continue;
+    const { acc } = x;
+
+    // ── Feed 1: balanza por mes ──
+    let cuentasMes = 0;
+    for (const t of tables) {
+      const rows = x.balanza.get(t.tbl);
+      if (!rows) continue;
+      for (const r of rows) {
+        const mayor = String(r.cuenta).split('-')[0];
+        ledgerRows.push([r.sucursal, r.cuenta, acc.get(r.cuenta) || null, mayor, acc.get(mayor) || null,
+          String(r.cuenta).slice(0, 1), t.ym, Number(r.cargos) || 0, Number(r.abonos) || 0, Number(r.movs) || 0]);
+        cuentasMes++;
+      }
+    }
+
+    // ── Feed 2: cadena de aprovisionamiento (kdm1, snapshot completo) ──
+    const byType = { XA3501: new Map(), XA3701: new Map(), XA2001: new Map(), XA4001: new Map() };
+    const byBT = { XA3501: new Map(), XA3701: new Map(), XA4001: new Map() }; // (benef|total) → rows, para inferencia
+    for (const d of x.docs) {
+      byType[d.tipo].set(String(d.folio).trim(), d);
+      if (byBT[d.tipo]) {
+        const k = `${normBenef(d.benef)}|${Number(d.total || 0).toFixed(2)}`;
+        if (!byBT[d.tipo].has(k)) byBT[d.tipo].set(k, []);
+        byBT[d.tipo].get(k).push(d);
+      }
+    }
+
+    const usedInferred = new Set(); // tipo|folio ya consumido por inferencia (evita reusar el mismo candidato)
+    // Salto de la cadena: puntero c39 validado con benef+total; fallback inferencia por (benef, total, fecha ±10d).
+    const hop = (fromRow, toType, benef, total, refFecha) => {
+      const ptr = fromRow?.next_folio ? byType[toType].get(String(fromRow.next_folio).trim()) : null;
+      if (ptr && normBenef(ptr.benef) === normBenef(benef) && sameTotal(ptr.total, total)) return { row: ptr, exact: true };
+      const cands = byBT[toType]?.get(`${normBenef(benef)}|${Number(total || 0).toFixed(2)}`) || [];
+      let best = null, bestDist = 11;
+      for (const c of cands) {
+        if (usedInferred.has(`${toType}|${c.folio}`)) continue;
+        const dist = Math.abs(daysBetween(refFecha, c.fecha) ?? 99);
+        if (dist < bestDist) { best = c; bestDist = dist; }
+      }
+      if (best) { usedInferred.add(`${toType}|${best.folio}`); return { row: best, exact: false }; }
+      return null;
+    };
+
+    let exactN = 0, inferredN = 0, partialN = 0, facturas = 0;
+    for (const f of byType.XA2001.values()) {
+      const pago = hop(f, 'XA4001', f.benef, f.total, f.fecha);
+      const recep = hop(pago?.row || f, 'XA3701', f.benef, f.total, f.fecha);
+      const orden = hop(recep?.row || f, 'XA3501', f.benef, f.total, f.fecha);
+      const allExact = pago?.exact && recep?.exact && orden?.exact;
+      const complete = pago && recep && orden;
+      const confidence = complete ? (allExact ? 'exact' : 'inferred') : 'partial';
+      if (confidence === 'exact') exactN++; else if (confidence === 'inferred') inferredN++; else partialN++;
+      facturas++;
+      chainRows.push([
+        b.code, f.folio, f.fecha,
+        orden?.row.folio || null, orden?.row.fecha || null,
+        recep?.row.folio || null, recep?.row.fecha || null,
+        pago?.row.folio || null, pago?.row.fecha || null,
+        f.benef || null, Number(f.total) || 0,
+        daysBetween(orden?.row.fecha, f.fecha), daysBetween(f.fecha, pago?.row.fecha),
+        confidence,
+      ]);
+    }
+    summary.push({ code: b.code, cuentas_mes: cuentasMes, facturas, exact: exactN, inferred: inferredN, partial: partialN });
+  }
+  return { ledgerRows, chainRows, okCodes: [...porBase.keys()], summary };
+}
+
+async function run() {
   const tables = monthWindow(MONTHS);
   const yms = tables.map((t) => t.ym);
   const db = new Client({ connectionString: DST });
   await db.connect();
   try {
-    console.log(`\n=== MAAT.1 balanza + cadena (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===`);
+    console.log(`\n=== MAAT.1 balanza + cadena (${APPLY ? 'APPLY' : 'DRY-RUN'}) · fuente ${SOURCE} ===`);
     console.log(`Balanza: ${MONTHS} meses (${yms[yms.length - 1]} … ${yms[0]})\n`);
 
     await db.query('BEGIN');
     await db.query(`SET LOCAL app.tenant_id = '${M}'`);
+    const { ledgerRows, chainRows, okCodes, summary } = await collect(db, tables);
+    console.table(summary);
+    console.log(`Staging: ${ledgerRows.length} filas de balanza · ${chainRows.length} cadenas.`);
+
+    if (!APPLY) { await db.query('ROLLBACK'); console.log('\n[DRY-RUN] ROLLBACK — nada cambió.'); return; }
+    if (!okCodes.length) { await db.query('ROLLBACK'); console.log('\n[APPLY] Ninguna sucursal conectó — nada que aplicar.'); return; }
+
     await db.query(`CREATE TEMP TABLE stg_ledger (
       sucursal text, cuenta text, cuenta_nombre text, cuenta_mayor text, cuenta_mayor_nombre text,
       familia text, anio_mes text, cargos numeric, abonos numeric, movs int) ON COMMIT DROP`);
@@ -85,131 +239,13 @@ const daysBetween = (a, b) => (a && b ? Math.round((new Date(b) - new Date(a)) /
       sucursal text, factura_folio text, factura_fecha date, orden_folio text, orden_fecha date,
       recepcion_folio text, recepcion_fecha date, pago_folio text, pago_fecha date,
       beneficiario text, total numeric, lead_days int, pago_days int, match_confidence text) ON COMMIT DROP`);
-
-    const summary = [];
-    const okCodes = [];
-    for (const b of MAP) {
-      const src = new Client({ connectionString: b.url });
-      try {
-        await src.connect();
-      } catch (e) {
-        console.log(`  ⚠ sucursal ${b.code}: sin conexión (${e.message}) — skip`);
-        summary.push({ code: b.code, cuentas_mes: 0, facturas: 0, exact: 0, nota: 'sin conexión' });
-        continue;
-      }
-      okCodes.push(b.code);
-      try {
-        // catálogo (kdco es sucio: min(c2) por código — un JOIN plano duplica en familia 6)
-        const acc = new Map(
-          (await src.query(`SELECT c3 AS code, min(c2) AS nombre FROM md.kdco WHERE c3 IS NOT NULL GROUP BY c3`)).rows
-            .map((r) => [r.code, r.nombre]),
-        );
-
-        // ── Feed 1: balanza por mes ──
-        let cuentasMes = 0;
-        for (const t of tables) {
-          const exists = (await src.query(`SELECT to_regclass('md.${t.tbl}') AS r`)).rows[0].r;
-          if (!exists) continue;
-          // Solo la sucursal PROPIA: las DBs arrastran réplicas de otras sucursales
-          // (verificado: DB03 tiene las filas '02' de dic/ene 100% duplicadas en DB02).
-          // La DB de cada sucursal es la fuente de verdad de su código.
-          const rows = (await src.query(
-            `SELECT $1::text AS sucursal, c3 AS cuenta,
-                    SUM(CASE WHEN c4='C' THEN c5 ELSE 0 END)::numeric AS cargos,
-                    SUM(CASE WHEN c4='A' THEN c5 ELSE 0 END)::numeric AS abonos,
-                    COUNT(*)::int AS movs
-               FROM md.${t.tbl}
-              WHERE c3 IS NOT NULL AND COALESCE(c5,0) <> 0
-                AND (c14 IS NULL OR btrim(c14) = '' OR btrim(c14) = $1)
-              GROUP BY 2`, [b.code],
-          )).rows;
-          const staged = rows.map((r) => {
-            const mayor = String(r.cuenta).split('-')[0];
-            return [r.sucursal, r.cuenta, acc.get(r.cuenta) || null, mayor, acc.get(mayor) || null,
-              String(r.cuenta).slice(0, 1), t.ym, Number(r.cargos) || 0, Number(r.abonos) || 0, Number(r.movs) || 0];
-          });
-          await bulkInsert(db, 'stg_ledger',
-            ['sucursal', 'cuenta', 'cuenta_nombre', 'cuenta_mayor', 'cuenta_mayor_nombre', 'familia', 'anio_mes', 'cargos', 'abonos', 'movs'],
-            staged);
-          cuentasMes += staged.length;
-        }
-
-        // ── Feed 2: cadena de aprovisionamiento (kdm1, snapshot completo) ──
-        // c1 = sucursal del documento — filtrar a la propia (DB03 arrastra ~2k docs de la 02).
-        const docs = (await src.query(
-          `SELECT (c2||c3||lpad(c4::text,2,'0')||lpad(c5::text,2,'0')) AS tipo, c6 AS folio,
-                  c9::date AS fecha, NULLIF(btrim(c32),'') AS benef, c16::numeric AS total,
-                  NULLIF(btrim(c39::text),'') AS next_folio
-             FROM md.kdm1
-            WHERE c63 ~ '^X' AND c6 IS NOT NULL
-              AND (c1 IS NULL OR btrim(c1) = '' OR btrim(c1) = $1)
-              AND (c2||c3||lpad(c4::text,2,'0')||lpad(c5::text,2,'0')) IN ('XA3501','XA3701','XA2001','XA4001')`,
-          [b.code],
-        )).rows;
-
-        const byType = { XA3501: new Map(), XA3701: new Map(), XA2001: new Map(), XA4001: new Map() };
-        const byBT = { XA3501: new Map(), XA3701: new Map(), XA4001: new Map() }; // (benef|total) → rows, para inferencia
-        for (const d of docs) {
-          byType[d.tipo].set(String(d.folio).trim(), d);
-          if (byBT[d.tipo]) {
-            const k = `${normBenef(d.benef)}|${Number(d.total || 0).toFixed(2)}`;
-            if (!byBT[d.tipo].has(k)) byBT[d.tipo].set(k, []);
-            byBT[d.tipo].get(k).push(d);
-          }
-        }
-
-        const usedInferred = new Set(); // tipo|folio ya consumido por inferencia (evita reusar el mismo candidato)
-        // Salto de la cadena: puntero c39 validado con benef+total; fallback inferencia por (benef, total, fecha ±10d).
-        const hop = (fromRow, toType, benef, total, refFecha) => {
-          const ptr = fromRow?.next_folio ? byType[toType].get(String(fromRow.next_folio).trim()) : null;
-          if (ptr && normBenef(ptr.benef) === normBenef(benef) && sameTotal(ptr.total, total)) return { row: ptr, exact: true };
-          const cands = byBT[toType]?.get(`${normBenef(benef)}|${Number(total || 0).toFixed(2)}`) || [];
-          let best = null, bestDist = 11;
-          for (const c of cands) {
-            if (usedInferred.has(`${toType}|${c.folio}`)) continue;
-            const dist = Math.abs(daysBetween(refFecha, c.fecha) ?? 99);
-            if (dist < bestDist) { best = c; bestDist = dist; }
-          }
-          if (best) { usedInferred.add(`${toType}|${best.folio}`); return { row: best, exact: false }; }
-          return null;
-        };
-
-        const chainStg = [];
-        let exactN = 0, inferredN = 0, partialN = 0;
-        for (const f of byType.XA2001.values()) {
-          const pago = hop(f, 'XA4001', f.benef, f.total, f.fecha);
-          const recep = hop(pago?.row || f, 'XA3701', f.benef, f.total, f.fecha);
-          const orden = hop(recep?.row || f, 'XA3501', f.benef, f.total, f.fecha);
-          const allExact = pago?.exact && recep?.exact && orden?.exact;
-          const complete = pago && recep && orden;
-          const confidence = complete ? (allExact ? 'exact' : 'inferred') : 'partial';
-          if (confidence === 'exact') exactN++; else if (confidence === 'inferred') inferredN++; else partialN++;
-          chainStg.push([
-            b.code, f.folio, f.fecha,
-            orden?.row.folio || null, orden?.row.fecha || null,
-            recep?.row.folio || null, recep?.row.fecha || null,
-            pago?.row.folio || null, pago?.row.fecha || null,
-            f.benef || null, Number(f.total) || 0,
-            daysBetween(orden?.row.fecha, f.fecha), daysBetween(f.fecha, pago?.row.fecha),
-            confidence,
-          ]);
-        }
-        await bulkInsert(db, 'stg_chain',
-          ['sucursal', 'factura_folio', 'factura_fecha', 'orden_folio', 'orden_fecha', 'recepcion_folio', 'recepcion_fecha',
-            'pago_folio', 'pago_fecha', 'beneficiario', 'total', 'lead_days', 'pago_days', 'match_confidence'],
-          chainStg);
-
-        summary.push({ code: b.code, cuentas_mes: cuentasMes, facturas: chainStg.length, exact: exactN, inferred: inferredN, partial: partialN });
-      } finally { await src.end(); }
-    }
-    console.table(summary);
-
-    const nl = (await db.query(`SELECT count(*)::int n FROM stg_ledger`)).rows[0].n;
-    const nc = (await db.query(`SELECT count(*)::int n FROM stg_chain`)).rows[0].n;
-    console.log(`Staging: ${nl} filas de balanza · ${nc} cadenas.`);
-
-    if (!APPLY) { await db.query('ROLLBACK'); console.log('\n[DRY-RUN] ROLLBACK — nada cambió.'); return; }
-    if (!okCodes.length) { await db.query('ROLLBACK'); console.log('\n[APPLY] Ninguna sucursal conectó — nada que aplicar.'); return; }
+    await bulkInsert(db, 'stg_ledger',
+      ['sucursal', 'cuenta', 'cuenta_nombre', 'cuenta_mayor', 'cuenta_mayor_nombre', 'familia', 'anio_mes', 'cargos', 'abonos', 'movs'],
+      ledgerRows);
+    await bulkInsert(db, 'stg_chain',
+      ['sucursal', 'factura_folio', 'factura_fecha', 'orden_folio', 'orden_fecha', 'recepcion_folio', 'recepcion_fecha',
+        'pago_folio', 'pago_fecha', 'beneficiario', 'total', 'lead_days', 'pago_days', 'match_confidence'],
+      chainRows);
 
     // UPSERT update-in-place (SIN DELETE): re-postear un mes actualiza los importes de las
     // cuentas presentes; no churn de filas en Railway (regla del proyecto: actualizar, no
@@ -254,4 +290,7 @@ const daysBetween = (a, b) => (a && b ? Math.round((new Date(b) - new Date(a)) /
     console.error('\nERROR (rollback):', e.message);
     process.exitCode = 1;
   } finally { await db.end(); }
-})();
+}
+
+module.exports = { collect, monthWindow };
+if (require.main === module) run();
