@@ -1,0 +1,298 @@
+// `[ALC]` Alta de clientes: la constancia del SAT, la ficha de Kepler y la solicitud de alta.
+//
+// Plan: docs/IMPLEMENTACION/FASES/FASE_ALC_ALTA_DE_CLIENTES.md.
+//
+// ⛔ La constancia NO se exige para facturar (CFF 83 fr. IX, 2026): sólo prellena. Todo lo que trae
+// se puede capturar a mano y vale lo mismo (`origen: 'manual'`).
+// ⛔ La Suite NO escribe la ficha en Kepler (D1-a, firmado por Francisco el 2026-11-04: la escritura
+// es de Edgar). La arma en el orden de la forma `md_cat_cli_sc.kpl` para copiarla casilla por casilla
+// y la liga sola cuando la clave aparece en el ODS.
+
+export type TipoPersona = 'fisica' | 'moral';
+
+// ── La constancia (lo que imprimió el SAT, sin corregir nada) ──────────────────────────────
+export interface RegimenDeConstancia {
+  descripcion: string;
+  /** ISO `AAAA-MM-DD`. */
+  desde: string | null;
+  hasta: string | null;
+  /** Sin fecha de fin, o con fecha de fin posterior a la emisión. */
+  vigente: boolean;
+}
+
+export interface DomicilioDeConstancia {
+  codigo_postal: string | null;
+  tipo_vialidad: string | null;
+  vialidad: string | null;
+  numero_exterior: string | null;
+  numero_interior: string | null;
+  colonia: string | null;
+  localidad: string | null;
+  municipio: string | null;
+  entidad: string | null;
+  entre_calle: string | null;
+  y_calle: string | null;
+}
+
+export interface ConstanciaSituacionFiscal {
+  tipo: TipoPersona;
+  rfc: string;
+  curp: string | null;
+  nombre: string | null;
+  primer_apellido: string | null;
+  segundo_apellido: string | null;
+  razon_social: string | null;
+  regimen_capital: string | null;
+  nombre_comercial: string | null;
+  /** Como va en el CFDI 4.0: nombre y apellidos, o la razón social SIN régimen de capital. */
+  nombre_fiscal: string;
+  estatus_padron: string | null;
+  inicio_operaciones: string | null;
+  ultimo_cambio_estado: string | null;
+  domicilio: DomicilioDeConstancia;
+  regimenes: RegimenDeConstancia[];
+  emitida_el: string | null;
+  lugar_emision: string | null;
+  id_cif: string | null;
+}
+
+export type MotivoConstanciaIlegible =
+  | 'no_es_pdf' | 'cifrado' | 'sin_texto' | 'fuente_no_soportada' | 'ilegible' | 'no_es_constancia' | 'sin_rfc';
+
+export type LecturaConstancia =
+  | { ok: true; constancia: ConstanciaSituacionFiscal; faltantes: string[]; avisos: string[] }
+  | { ok: false; motivo: MotivoConstanciaIlegible; detalle: string };
+
+// ── La ficha de Kepler (forma «Datos del cliente», tabla `kdud`) ───────────────────────────
+/** Casillas de la forma con su columna y su largo máximo en Kepler (diccionario de formas). */
+export const CASILLAS_KEPLER = {
+  nombre: { columna: 'c3', largo: 100, rotulo: 'Nombre' },
+  direccion_1: { columna: 'c4', largo: 40, rotulo: 'Dirección (renglón 1)' },
+  direccion_2: { columna: 'c5', largo: 40, rotulo: 'Dirección (renglón 2)' },
+  estado: { columna: 'c6', largo: 40, rotulo: 'Estado' },
+  codigo_postal: { columna: 'c27', largo: 5, rotulo: 'Código postal' },
+  telefono_1: { columna: 'c7', largo: 14, rotulo: 'Tel .1' },
+  telefono_2: { columna: 'c8', largo: 14, rotulo: 'Tel .2' },
+  telefono_3: { columna: 'c9', largo: 14, rotulo: 'Tel .3' },
+  rfc: { columna: 'c10', largo: 13, rotulo: 'RFC' },
+  curp: { columna: 'c30', largo: 20, rotulo: 'CURP' },
+  email: { columna: 'c11', largo: 60, rotulo: 'Email' },
+} as const;
+export type CasillaKepler = keyof typeof CASILLAS_KEPLER;
+
+export type FichaKeplerCliente = Record<CasillaKepler, string>;
+
+/** Una casilla cuyo valor completo no cabe: se muestra lo que entra, nunca se corta en silencio. */
+export interface CasillaRecortada {
+  casilla: CasillaKepler;
+  completo: string;
+  cabe: string;
+  largo: number;
+}
+
+export interface ArmadoDeFicha {
+  ficha: FichaKeplerCliente;
+  recortes: CasillaRecortada[];
+}
+
+// ── Validación (la misma regla en la pantalla y en el servidor) ─────────────────────────────
+export type GravedadHallazgo = 'bloquea' | 'aviso';
+
+export interface HallazgoAlta {
+  campo: string;
+  gravedad: GravedadHallazgo;
+  mensaje: string;
+}
+
+/** Un cliente de Kepler que ya tiene ese RFC (o un nombre muy parecido, si el RFC es genérico). */
+export interface PosibleDuplicado {
+  clave: string;
+  nombre: string;
+  rfc: string | null;
+  /** Sucursales de Kepler donde existe esa clave. */
+  sucursales: string[];
+  por: 'rfc' | 'nombre';
+}
+
+// ── Catálogos que pide la forma ─────────────────────────────────────────────────────────────
+export interface OpcionCatalogo {
+  clave: string;
+  nombre: string;
+}
+
+export interface RegimenFiscalOpcion {
+  clave: string;
+  descripcion: string;
+  persona_fisica: boolean;
+  persona_moral: boolean;
+}
+
+/** `GET /commercial/customer-onboarding/catalogs?branch=` */
+export interface CatalogosAlta {
+  branch: string;
+  sucursales: OpcionCatalogo[];
+  vendedores: OpcionCatalogo[];
+  grupos: OpcionCatalogo[];
+  zonas: OpcionCatalogo[];
+  regimenes: RegimenFiscalOpcion[];
+}
+
+// ── La solicitud de alta ────────────────────────────────────────────────────────────────────
+export type EstadoSolicitudAlta =
+  | 'credito_por_aprobar'   // pidió crédito, plazo o descuento: espera a Crédito y Cobranza
+  | 'lista_para_kepler'     // de contado, o con el crédito resuelto: falta capturarla en Kepler
+  | 'ligada'                // ya tiene su clave de Kepler
+  | 'cancelada';
+
+export type OrigenSolicitudAlta = 'constancia' | 'manual';
+
+/** Lo que captura la pantalla. Con o sin constancia, los mismos campos. */
+export interface SolicitudAltaBody {
+  branch: string;
+  origen: OrigenSolicitudAlta;
+  /** Llave del PDF guardado por `POST …/constancia` (sólo con `origen: 'constancia'`). */
+  constancia_key?: string | null;
+  tipo_persona: TipoPersona;
+  rfc: string;
+  curp?: string | null;
+  nombre_fiscal: string;
+  regimen_capital?: string | null;
+  nombre_comercial?: string | null;
+  regimen_fiscal: string;
+  codigo_postal_fiscal: string;
+  ficha: FichaKeplerCliente;
+  vendedor_code?: string | null;
+  grupo_code?: string | null;
+  zona_code?: string | null;
+  credito_solicitado?: number;
+  plazo_dias?: number;
+  descuento_pct?: number;
+  comentarios?: string | null;
+  /** Cliente de la Suite que se completa (p. ej. un `V-…` del vendedor). */
+  customer_id?: string | null;
+  /**
+   * El RFC ya tiene ficha en Kepler y aun así se pide otra (p. ej. otra sucursal de entrega).
+   * Sin esto, el servidor responde 409 con los duplicados: nunca se duplica sin que alguien lo diga.
+   */
+  confirmar_duplicado?: boolean;
+}
+
+export interface DecisionCredito {
+  decision: 'aprobado' | 'rechazado';
+  por: string;
+  por_nombre: string | null;
+  el: string;
+  motivo: string;
+  credito_aprobado: number;
+  plazo_aprobado: number;
+  descuento_aprobado: number;
+}
+
+export interface SolicitudAlta {
+  id: string;
+  folio: string;
+  estado: EstadoSolicitudAlta;
+  origen: OrigenSolicitudAlta;
+  branch: string;
+  tipo_persona: TipoPersona;
+  rfc: string;
+  curp: string | null;
+  nombre_fiscal: string;
+  regimen_capital: string | null;
+  nombre_comercial: string | null;
+  regimen_fiscal: string;
+  codigo_postal_fiscal: string;
+  ficha: FichaKeplerCliente;
+  vendedor_code: string | null;
+  grupo_code: string | null;
+  zona_code: string | null;
+  credito_solicitado: number;
+  plazo_dias: number;
+  descuento_pct: number;
+  comentarios: string | null;
+  credito: DecisionCredito | null;
+  constancia_key: string | null;
+  constancia_emitida_el: string | null;
+  customer_id: string | null;
+  erp_customer_code: string | null;
+  ligada_el: string | null;
+  creada_por: string | null;
+  creada_por_nombre: string | null;
+  creada_el: string;
+  /**
+   * Sólo en «lista para Kepler»: fichas de Kepler (su sucursal) con el mismo RFC propio. Si ya la
+   * capturaron allá, ligarla es un clic. La bandeja NO liga sola: ligar escribe y lo firma alguien.
+   */
+  coincidencias_kepler: CoincidenciaKepler[];
+  /** `true` si quien la creó tiene la llave de crédito y la decisión fue suya (se dice en pantalla). */
+  credito_decidido_por_quien_la_creo: boolean;
+}
+
+/** `POST /commercial/customer-onboarding/constancia` — el PDF, en data URI. */
+export interface SubirConstanciaBody {
+  pdf: string;
+  branch?: string | null;
+}
+
+export interface SubirConstanciaRespuesta {
+  lectura: LecturaConstancia;
+  /** `null` si la lectura falló o el almacén no está configurado (se dice en `aviso_guardado`). */
+  constancia_key: string | null;
+  aviso_guardado: string | null;
+  /** Prellenado de la forma (sólo con lectura `ok`). */
+  armado: ArmadoDeFicha | null;
+  /** Sólo si la constancia trae UN régimen vigente; con dos o más, elige la persona. */
+  regimen_sugerido: string | null;
+  /** Claves del catálogo de los regímenes vigentes de la constancia (para ofrecerlos primero). */
+  regimenes_vigentes: string[];
+  hallazgos: HallazgoAlta[];
+  duplicados: PosibleDuplicado[];
+}
+
+/** `POST /commercial/customer-onboarding/validate` — revisar antes de guardar. */
+export interface RevisionAlta {
+  hallazgos: HallazgoAlta[];
+  duplicados: PosibleDuplicado[];
+  recortes: CasillaRecortada[];
+}
+
+export interface CrearSolicitudRespuesta {
+  solicitud: SolicitudAlta;
+  revision: RevisionAlta;
+}
+
+/** `POST /commercial/customer-onboarding/:id/credit` */
+export interface DecidirCreditoBody {
+  decision: 'aprobado' | 'rechazado';
+  motivo: string;
+  credito_aprobado?: number;
+  plazo_aprobado?: number;
+  descuento_aprobado?: number;
+}
+
+/** `POST /commercial/customer-onboarding/:id/link` — la clave que Kepler le dio. */
+export interface LigarSolicitudBody {
+  erp_customer_code: string;
+}
+
+/** La ficha de Kepler encontrada para ligar: lo que dice Kepler contra lo que se capturó. */
+export interface CoincidenciaKepler {
+  clave: string;
+  nombre: string;
+  rfc: string | null;
+  sucursales: string[];
+  coincide_rfc: boolean;
+}
+
+export interface BandejaAlta {
+  /** `'todos'` = sin recorte de sucursal; `'propios'` = las sucursales de tu alcance. */
+  alcance: 'todos' | 'propios' | 'ninguno';
+  solicitudes: SolicitudAlta[];
+  conteo: Record<EstadoSolicitudAlta, number>;
+  /** Si se topó el máximo, se dice (no se esconde). */
+  truncada: boolean;
+  /** ¿Quien consulta puede decidir crédito? (para mostrar u ocultar la acción). */
+  puede_aprobar_credito: boolean;
+  /** Última escritura del maestro de clientes de Kepler en el ODS (frescura de las coincidencias). */
+  kepler_as_of: string | null;
+}

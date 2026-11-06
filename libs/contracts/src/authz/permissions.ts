@@ -810,4 +810,12 @@ export enum Permission {
   DEFINICIONES_VER = 'DEFINICIONES_VER',
   DEFINICIONES_GESTIONAR = 'DEFINICIONES_GESTIONAR',
   DEFINICIONES_CONTESTAR = 'DEFINICIONES_CONTESTAR',
+  // `[ALC]` Alta de clientes (/comercial/alta-clientes): desde la constancia del SAT o a mano.
+  // Dos claves porque son dos oficios (decisión de Francisco, 2026-11-04):
+  //  · ALTA_CLIENTES — capturar y ver solicitudes: caja, encargados, auxiliar de tienda,
+  //    vendedores, gerente y Dirección.
+  //  · ALTA_CLIENTES_CREDITO — decidir crédito, plazo y descuento (es dinero): Crédito y
+  //    Cobranza y, en su ausencia, la Gerencia Administrativa y Financiera y Dirección General.
+  COMMERCIAL_ALTA_CLIENTES = 'COMMERCIAL_ALTA_CLIENTES',
+  COMMERCIAL_ALTA_CLIENTES_CREDITO = 'COMMERCIAL_ALTA_CLIENTES_CREDITO',
 }

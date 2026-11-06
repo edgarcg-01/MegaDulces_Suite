@@ -154,6 +154,9 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'customers360', label: 'Clientes 360', route: '/comercial/customers-360', view: [Permission.COMMERCIAL_CUSTOMERS360_VER], manage: [] },
           { id: 'historical', label: 'Histórico de venta', route: '/comercial/historical', view: [Permission.COMMERCIAL_HISTORICAL_VER], manage: [] },
           { id: 'customers', label: 'Clientes', route: '/comercial/customers', view: [Permission.COMMERCIAL_CUSTOMERS_VER], manage: [Permission.COMMERCIAL_CUSTOMERS_GESTIONAR] },
+          // `[ALC]` Módulo propio: la caja y los vendedores dan de alta sin ver la cartera; el
+          // crédito, aparte, porque es dinero y lo decide otro puesto.
+          { id: 'alta-clientes', label: 'Alta de clientes', route: '/comercial/alta-clientes', view: [Permission.COMMERCIAL_ALTA_CLIENTES], manage: [Permission.COMMERCIAL_ALTA_CLIENTES_CREDITO] },
           { id: 'cartera', label: 'Cartera / asignación', route: '/comercial/cartera', view: [Permission.COMMERCIAL_CARTERA_VER], manage: [Permission.COMMERCIAL_CARTERA_GESTIONAR] },
           // `[MCP.3.11]` Módulo propio a propósito: dentro de «Cartera» el G daría las dos llaves juntas.
           { id: 'route-warehouse', label: 'Sucursal de surtido por ruta', route: '/comercial/cartera', view: [], manage: [Permission.COMMERCIAL_ROUTE_WAREHOUSE_GESTIONAR] },

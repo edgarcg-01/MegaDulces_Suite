@@ -82,7 +82,7 @@ import { CommercialPaymentsModule } from '@megadulces/commercial';
 import { CommercialHomeDeliveryModule } from '@megadulces/commercial';
 // Fase LM.5 — corte de caja del repartidor (arqueo)
 import { CommercialRiderLiquidationModule } from '@megadulces/commercial';
-import { CommercialPickingModule, WarehouseOrdersModule, WarehouseLocationsModule, PresaleControlModule, PresalePickingModule, NewCustomersKeplerModule } from '@megadulces/commercial';
+import { CommercialPickingModule, WarehouseOrdersModule, WarehouseLocationsModule, PresaleControlModule, PresalePickingModule, NewCustomersKeplerModule, CustomerOnboardingModule } from '@megadulces/commercial';
 // [NP.7] Catálogo digital: levantamiento de fichas desde el celular.
 import { ProductSheetsModule } from '@megadulces/commercial';
 import { CommercialCargaModule } from '@megadulces/commercial';
@@ -228,6 +228,8 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       PresalePickingModule,
       // [MCP.3.8] Cliente nuevo: bandeja para ligarlo con su clave de Kepler.
       NewCustomersKeplerModule,
+      // [ALC] Alta de clientes desde la constancia del SAT (o a mano) → crédito → liga con Kepler.
+      CustomerOnboardingModule,
       CommercialCargaModule,
       CommercialAnalyticsModule,
       CommercialReplenishmentModule,
