@@ -8,6 +8,7 @@ import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { SelectModule } from 'primeng/select';
 import { DialogModule } from 'primeng/dialog';
+import { InputTextModule } from 'primeng/inputtext';
 import { Subscription } from 'rxjs';
 import {
   CLASES_OC, CLASE_OC_ACCION, CLASE_OC_LABEL, ClaseOc, clasificarOc,
@@ -24,6 +25,7 @@ import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { RouterLink } from '@angular/router';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { SEGUIMIENTO_COMPRA_TABS } from '../seguimiento-compra-tabs';
+import { coincideOc, origenOc, ORIGEN_OC_LABEL, type OrigenOc } from '../oc-abiertas-filtros';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 
@@ -49,7 +51,7 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
 @Component({
   selector: 'app-compras-oc-abiertas',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, DialogModule, SidePeekComponent, PageTabsComponent, SucursalPipe, RouterLink],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, DialogModule, InputTextModule, SidePeekComponent, PageTabsComponent, SucursalPipe, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in oa-page">
@@ -91,6 +93,17 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
       </p>
 
       <div class="oa-filters">
+        <!-- [PQ.84] Encontrar UNA orden: por su folio, por la requisición de la que salió (Suite o
+             Kepler) o por proveedor. Filtra lo que la tabla ya trajo; no vuelve al servidor. -->
+        <span class="oa-buscar">
+          <i class="pi pi-search" aria-hidden="true"></i>
+          <input pInputText type="search" [ngModel]="fBuscar()" (ngModelChange)="fBuscar.set($event); syncUrl()"
+                 placeholder="Folio de OC, requisición o proveedor" aria-label="Buscar por folio de OC, requisición o proveedor"
+                 autocomplete="off" class="oa-buscar-in" />
+        </span>
+        <p-select [options]="origenOpts()" [ngModel]="fOrigen()" (ngModelChange)="fOrigen.set($event ?? ''); syncUrl()"
+                  optionLabel="label" optionValue="value" placeholder="Cualquier origen" [showClear]="true"
+                  styleClass="oa-sel" appendTo="body" ariaLabel="De qué requisición salió"></p-select>
         <p-select [options]="edadOpts" [(ngModel)]="fMinDays" (onChange)="reload(); syncUrl()"
                   optionLabel="label" optionValue="value" styleClass="oa-sel" appendTo="body"></p-select>
         <p-select [options]="sucOpts()" [(ngModel)]="fSuc" (onChange)="reload(); syncUrl()"
@@ -161,6 +174,7 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
           La tabla muestra las {{ mostradas() | number }} órdenes más antiguas de {{ total() | number }}@if (totalMinimo()) {+}.
           Los indicadores de arriba cuentan todas. Filtra por sucursal o antigüedad para ver el resto.
           @if (fSeg()) { El filtro de seguimiento sólo recorre las órdenes mostradas: puede haber más con ese estatus fuera de la tabla (el número del botón sí cuenta todas). }
+          @if (fBuscar() || fOrigen()) { La búsqueda y el origen también recorren sólo las órdenes mostradas. }
         </p>
       }
       @if (pdfError()) {
@@ -465,6 +479,9 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
     .oa-lede b { font-weight: 700; }
     .oa-bad { color: var(--bad-fg); }
     .oa-filters { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: .75rem; }
+    .oa-buscar { position: relative; display: inline-flex; align-items: center; }
+    .oa-buscar .pi-search { position: absolute; left: .6rem; color: var(--text-muted); font-size: var(--fs-sm); pointer-events: none; }
+    .oa-buscar-in { padding-left: 1.9rem; min-width: 18rem; }
     .oa-sel { min-width: 12rem; }
     .oa-count { color: var(--text-muted); font-size: .82rem; margin-left: auto; }
     .oa-table { font-size: .82rem; }
@@ -646,6 +663,16 @@ export class ComprasOcAbiertasComponent implements OnInit {
   readonly porSeguimiento = signal<Record<string, number>>({});
   /** Filtro de la tabla por estatus ('' = todas, 'sin_revisar' = sin registro). */
   readonly fSeg = signal<string>('');
+  /** `[PQ.84]` Folio de la OC, de su requisición (Suite o Kepler) o proveedor. */
+  readonly fBuscar = signal<string>('');
+  /** `[PQ.84]` De qué requisición salió ('' = cualquiera). */
+  readonly fOrigen = signal<OrigenOc | ''>('');
+  /** Las opciones llevan su cuenta sobre lo que trajo la tabla: se ve cuántas hay antes de elegir. */
+  readonly origenOpts = computed(() => {
+    const n: Record<OrigenOc, number> = { suite: 0, kepler: 0, sin: 0 };
+    for (const o of this.rows()) n[origenOc(o)]++;
+    return (Object.keys(ORIGEN_OC_LABEL) as OrigenOc[]).map((k) => ({ value: k, label: `${ORIGEN_OC_LABEL[k]} (${n[k].toLocaleString('es-MX')})` }));
+  });
 
   // ── [RA-PRO.67] Por qué sigue abierta ──────────────────────────────────────────────────
   /** Conteo y dinero por clase sobre TODAS las órdenes (lo calcula el servidor). */
@@ -672,7 +699,7 @@ export class ComprasOcAbiertasComponent implements OnInit {
   }
 
   /** Quita los dos filtros de cliente (chips). La sucursal y la antigüedad son del servidor. */
-  limpiarFiltros(): void { this.fSeg.set(''); this.fClase.set(''); this.syncUrl(); }
+  limpiarFiltros(): void { this.fSeg.set(''); this.fClase.set(''); this.fBuscar.set(''); this.fOrigen.set(''); this.syncUrl(); }
 
   /**
    * `[RA-PRO.69]` DESIGN.md §800 (binding): en Operations el filtro activo vive en la URL.
@@ -687,6 +714,8 @@ export class ComprasOcAbiertasComponent implements OnInit {
         dias: this.fMinDays || null,
         clase: this.fClase() || null,
         seg: this.fSeg() || null,
+        q: this.fBuscar().trim() || null,
+        origen: this.fOrigen() || null,
       },
       queryParamsHandling: 'merge',
       replaceUrl: true,
@@ -713,6 +742,11 @@ export class ComprasOcAbiertasComponent implements OnInit {
     // [RA-PRO.67] Mismo límite que el filtro de seguimiento: recorre sólo lo que la tabla trajo
     // (el número del chip sí cuenta todas). Ya lo declara el aviso de `truncado`.
     if (c) r = r.filter((o) => o._clase === c);
+    // [PQ.84]
+    const b = this.fBuscar();
+    if (b.trim()) r = r.filter((o) => coincideOc(o, b));
+    const og = this.fOrigen();
+    if (og) r = r.filter((o) => origenOc(o) === og);
     return r;
   });
 
@@ -721,7 +755,7 @@ export class ComprasOcAbiertasComponent implements OnInit {
   // solo la tabla: tocabas "Compra abortada - 10", veias 10 filas y el contador seguia diciendo
   // "296 de 296". El numero contradecia lo que tenias enfrente.
   /** `true` cuando hay algun filtro de cliente puesto (chip de clase o de seguimiento). */
-  readonly filtrado = computed(() => !!this.fSeg() || !!this.fClase() || this.noSurtidas() > 0);
+  readonly filtrado = computed(() => !!this.fSeg() || !!this.fClase() || !!this.fBuscar().trim() || !!this.fOrigen() || this.noSurtidas() > 0);
   /** `[PQ.29]` Las que Compras marcó «No surtida / cancelada» (sobre TODAS, como los demás botones). */
   readonly noSurtidas = computed(() => this.porSeguimiento()['no_surtida_cancelada'] ?? 0);
   readonly filtroValor = computed(() => this.filas().reduce((a, o) => a + (Number(o.valor) || 0), 0));
@@ -876,6 +910,11 @@ export class ComprasOcAbiertasComponent implements OnInit {
     if (clase && (CLASES_OC as readonly string[]).includes(clase)) this.fClase.set(clase);
     const seg = q.get('seg');
     if (seg && this.segOpts.some((o) => o.value === seg)) this.fSeg.set(seg);
+    // [PQ.84]
+    const buscar = q.get('q');
+    if (buscar) this.fBuscar.set(buscar.slice(0, 80));
+    const origen = q.get('origen');
+    if (origen && origen in ORIGEN_OC_LABEL) this.fOrigen.set(origen as OrigenOc);
 
     this.api.filters().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (f) => {

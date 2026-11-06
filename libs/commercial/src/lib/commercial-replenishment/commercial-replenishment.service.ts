@@ -5178,8 +5178,14 @@ export class CommercialReplenishmentService {
    * pedir otra vez lo que ya llegó es decisión de Compras, no un duplicado en Kepler.
    */
   private yaEnKeplerSql(): string {
+    // [PQ.83] Cada documento dice QUIÉN lo hizo: la Suite lo firma como usuario SUITE y pone la RQ
+    // en la referencia (c11). El aviso decía «hecha fuera de la Suite» siempre, y RQ-2026-02269 se
+    // detuvo contra la requisición 0003143, que era la RQ-2026-02055 mandada por la propia Suite.
     return `(SELECT string_agg(CASE btrim(k.c4::text) WHEN '35' THEN 'OC ' ELSE 'requisición ' END
-                               || btrim(k.c6) || ' del ' || to_char(k.c9::date, 'DD-MM'), ', ' ORDER BY k.c6)
+                               || btrim(k.c6) || ' del ' || to_char(k.c9::date, 'DD-MM')
+                               || CASE WHEN upper(btrim(COALESCE(k.c67, ''))) = 'SUITE'
+                                       THEN ' (la mandó la Suite' || COALESCE(' con la ' || NULLIF(btrim(k.c11), ''), '') || ')'
+                                       ELSE ' (capturada en Kepler)' END, ', ' ORDER BY k.c6)
                FROM kepler_ods.kdm1 k
               WHERE k.sucursal = w.kepler_code AND k.c2 = 'X' AND k.c3 = 'A' AND btrim(k.c4::text) IN ('30', '35')
                 AND (k.c9::date >= r.approved_at::date
@@ -5195,7 +5201,9 @@ export class CommercialReplenishmentService {
   }
   /** `[PQ.70]` Lo que queda escrito en `kepler_error` cuando el freno detiene el envío. */
   private motivoYaEnKepler(docs: string): string {
-    return `No se envió: Kepler ya tiene ${docs} de este proveedor en esta sucursal, con productos de esta requisición, hecha fuera de la Suite. Si es ésta, no hay que hacer nada más; si no, reintenta desde la ficha.`;
+    // [PQ.83] Ya no afirma «hecha fuera de la Suite»: cada documento lo dice. Y si ésta REEMPLAZA a
+    // aquélla, reintentar no basta: el freno la volvería a detener mientras la otra siga abierta.
+    return `No se envió: Kepler ya tiene ${docs}, del mismo proveedor en esta sucursal y con productos de esta requisición. Si es la misma compra, no hay que hacer nada más. Si ésta la reemplaza, cancela aquélla en Kepler y reintenta desde la ficha.`;
   }
   private async reintentarKepler(tenantId: string): Promise<void> {
     if (!this.keplerSink) return;
