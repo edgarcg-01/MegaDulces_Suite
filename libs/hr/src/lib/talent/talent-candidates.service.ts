@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { Knex } from 'knex';
-import { ObjectStorageService, TenantContextService, TenantKnexService, sanitizarNombre, validarAdjunto } from '@megadulces/platform-core';
+import { ObjectStorageService, TenantContextService, TenantKnexService, sanitizarNombre, validarAdjunto, applySmartSearch } from '@megadulces/platform-core';
 import type {
   HrCandidatoEdicion, HrCandidatoEventoDto, HrCandidatoEventoNuevo, HrCandidatoFichaDto, HrCandidatoFilaDto,
   HrCandidatosListaDto, HrCasilleroDto, HrDocumentoDto, HrDocumentoNuevo, HrDuplicadoGrupoDto, HrFusionResultadoDto, HrReingresoAlertaDto, HrTiempoPorEtapaDto,
@@ -153,12 +153,12 @@ export class HrTalentCandidatesService {
         const q = trx(`${T} as c`);
         whereApartado(q, ap);
         if (f.branch) q.where('c.city_branch', f.branch);
+        // [BU.2.2] Motor único `applySmartSearch`: nombre + puesto de interés por texto, y el
+        // teléfono por dígitos (vía numérica cuando la consulta es un número).
         if (f.q && f.q.trim()) {
-          const texto = `%${f.q.trim()}%`;
-          const digitos = f.q.replace(/\D/g, '');
-          q.where((w) => {
-            w.whereILike('c.full_name', texto).orWhereILike('c.position_interest', texto);
-            if (digitos.length >= 4) w.orWhere('c.phone_key', 'like', `%${digitos}%`);
+          applySmartSearch(q, f.q, {
+            columns: ['c.full_name', 'c.position_interest'],
+            numeric: ['c.phone_key'],
           });
         }
         return q;

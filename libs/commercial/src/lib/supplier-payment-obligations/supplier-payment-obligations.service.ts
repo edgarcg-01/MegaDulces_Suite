@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, applySmartSearch } from '@megadulces/platform-core';
 import type {
   DeudaProgramableResponse, ProgramarDocumentoDto, ProgramarDocumentoResultado,
 } from '@megadulces/contracts';
@@ -207,7 +207,13 @@ export class SupplierPaymentObligationsService {
       if (q.status) b.where('o.status', q.status); else b.whereNotIn('o.status', ['cancelled']);
       if (q.supplier_id) b.where('o.supplier_id', q.supplier_id);
       if (q.onlyCritical) b.where('s.is_critical', true);
-      if (q.search?.trim()) b.andWhere((w) => w.whereILike('s.name', `%${q.search!.trim()}%`).orWhereILike('o.invoice_folio', `%${q.search!.trim()}%`).orWhereILike('o.concept', `%${q.search!.trim()}%`));
+      // `[BU.2.8]` Motor único `applySmartSearch`: proveedor + folio + concepto + monto en una sola
+      // consulta multi-palabra. El monto va también en `columns` para que pegue dentro de una
+      // búsqueda mixta (la vía numérica sólo se activa si TODA la consulta es número).
+      if (q.search?.trim()) applySmartSearch(b, q.search, {
+        columns: ['s.name', 'o.invoice_folio', 'o.concept', 'o.original_amount'],
+        numeric: ['o.original_amount'],
+      });
       if (q.dueFrom) b.where('o.original_due_date', '>=', q.dueFrom);
       if (q.dueTo) b.where('o.original_due_date', '<=', q.dueTo);
       return b.orderByRaw('o.original_due_date ASC NULLS LAST');

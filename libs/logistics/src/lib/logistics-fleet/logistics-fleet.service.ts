@@ -4,7 +4,7 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import { TenantKnexService } from '@megadulces/platform-core';
+import { TenantKnexService, applySmartSearch } from '@megadulces/platform-core';
 import type { AltaRapidaBody, AltaRapidaResultado, PersonaPadron } from '@megadulces/contracts';
 import { decidirAltaRapida, erroresDeAltaRapida, nombreParaGuardar } from '@megadulces/contracts';
 
@@ -273,9 +273,8 @@ export class LogisticsFleetService {
         // roles es text[] → usar ANY operator
         q = q.whereRaw('? = ANY(roles)', [query.role]);
       }
-      if (query.search) {
-        q = q.whereILike('full_name', `%${query.search}%`);
-      }
+      // [BU.2.2] Motor único `applySmartSearch` sobre el nombre del chofer.
+      if (query.search) applySmartSearch(q, query.search, { columns: ['full_name'] });
       return q.orderBy('full_name', 'asc');
     });
   }

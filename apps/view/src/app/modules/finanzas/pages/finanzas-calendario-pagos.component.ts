@@ -398,8 +398,8 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                   <span class="pi pi-search" aria-hidden="true"></span>
                   <input id="pg-buscar" pInputText type="search" autocomplete="off" class="pg-buscar-in"
                          [ngModel]="busqueda()" (ngModelChange)="alEscribir($event)" (keydown.enter)="buscarYa()" (keydown.escape)="limpiarBusqueda($event)"
-                         placeholder="Proveedor, folio, referencia o código"
-                         aria-label="Buscar facturas por proveedor, folio, referencia o código del acreedor" aria-describedby="pg-buscar-dice" />
+                         placeholder="Proveedor, folio o monto — ej. delicias 396 248"
+                         aria-label="Buscar facturas por proveedor, folio, monto o referencia. Varias palabras, en cualquier orden." aria-describedby="pg-buscar-dice" />
                   <kbd class="pg-kbd" aria-hidden="true">/</kbd>
                 </span>
                 <span id="pg-buscar-dice" class="pg-add-n" aria-live="polite">

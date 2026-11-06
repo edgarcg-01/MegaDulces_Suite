@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
-import { TenantKnexService, TenantContextService, ScopeService, branchKeyFilterSql } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, ScopeService, branchKeyFilterSql, applySmartSearch } from '@megadulces/platform-core';
 import type { Knex } from 'knex';
 import { unitTruth } from '../shared/unit-truth';
 import { CommercialMovementsService } from '../commercial-movements/commercial-movements.service';
@@ -347,7 +347,8 @@ export class CommercialBiAlmacenService {
         .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
         .where('p.tenant_id', tenantId).whereNull('p.deleted_at')
         .modify((qb: any) => {
-          if (term) qb.andWhere((w: any) => w.whereILike('p.nombre', `%${term}%`).orWhereILike('p.sku', `%${term}%`));
+          // `[BU.2.2]` Motor único `applySmartSearch`: varias palabras, cualquier orden. SKU exacto, por eso `fuzzy:false`.
+          if (term) applySmartSearch(qb, term, { columns: ['p.nombre', 'p.sku'], fuzzy: false });
         });
       const [{ count }] = await base.clone().count<{ count: string }[]>('p.id as count');
       const rows = await base.clone()

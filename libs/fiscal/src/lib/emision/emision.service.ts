@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
-import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, applySmartSearch } from '@megadulces/platform-core';
 import { CfdiParserService } from '../cfdi/cfdi-parser.service';
 import { CfdiHeader } from '../cfdi/cfdi.types';
 import { PAC_PORT, PacPort, PacStampResult } from './pac.port';
@@ -310,9 +310,10 @@ export class EmisionService {
       const q = trx('fiscal.cfdis').where('rol', 'emitidas').modify((b: any) => {
         if (f.from) b.where('fecha', '>=', f.from);
         if (f.to) b.where('fecha', '<=', `${f.to} 23:59:59`);
+        // [BU.2.2] Motor único `applySmartSearch`. `fuzzy:false`: el UUID y el folio fiscal se
+        // escriben exactos; un "parecido" por trigramas sería ruido peligroso en fiscal.
         if (f.search) {
-          const s = `%${f.search}%`;
-          b.where((w: any) => w.whereILike('receptor_nombre', s).orWhereILike('uuid', s).orWhereILike('folio', s));
+          applySmartSearch(b, f.search, { columns: ['receptor_nombre', 'uuid', 'folio'], fuzzy: false });
         }
       });
       const [{ count }] = await q.clone().count<{ count: string }[]>('* as count');

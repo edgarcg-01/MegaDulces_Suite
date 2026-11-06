@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import type { Knex } from 'knex';
-import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, applySmartSearch } from '@megadulces/platform-core';
 import {
   DOC_CODES_AJUSTE, DOC_CODES_COMPRA, DOC_CODES_TRASPASO, MOTIVOS_RESOLUCION_MOVIMIENTO, UNIDAD_IMPORTE_SALIDA,
   clasificarMovimiento, clasificarUnidadEntrada, compararRenglones, motivosPara, resumirDonde, sumarPorProducto, validarResolucion,
@@ -542,9 +542,11 @@ export class CommercialMovementsService {
     // DM.11b — destino: por defecto oculta traspasos a rutas de reparto (no primordial)
     this.applyDestFilter(b, q, tenantId);
     if (q.search) {
-      b.whereIn('m.product_id',
-        trx('public.products').select('id').where('tenant_id', tenantId)
-          .andWhere((w: any) => w.whereILike('nombre', `%${q.search}%`).orWhereILike('sku', `%${q.search}%`)));
+      // `[BU.2.6]` Motor único `applySmartSearch` sobre el subselect de productos: nombre o SKU,
+      // varias palabras. `fuzzy:false` (SKU exacto).
+      const sub = trx('public.products').select('id').where('tenant_id', tenantId);
+      applySmartSearch(sub, q.search, { columns: ['nombre', 'sku'], fuzzy: false });
+      b.whereIn('m.product_id', sub);
     }
     return b;
   }

@@ -1650,8 +1650,8 @@ export class ExpenseProofsService {
         if (q.from) qb.where('created_at', '>=', q.from);
         if (q.to) qb.where('created_at', '<=', `${q.to} 23:59:59`);
         if (q.search) {
-          const s = `%${q.search.trim()}%`;
-          qb.where((w: Knex.QueryBuilder) => w.whereILike('proveedor', s).orWhereILike('folio_solicitud', s).orWhereILike('solicitante', s));
+          // `[BU.2.2]` Motor único: cada palabra en cualquier orden (proveedor, folio, solicitante).
+          applySmartSearch(qb, q.search, { columns: ['proveedor', 'folio_solicitud', 'solicitante'] });
         }
         return qb;
       };
@@ -3423,12 +3423,9 @@ export class ExpenseProofsService {
     return this.tk.run(async (trx) => {
       const base = () => {
         const b = trx('finance.expense_proofs as p').whereNull('p.folio_solicitud');
-        const s = (q?.search || '').trim();
-        if (s) {
-          b.andWhere((w: any) => w
-            .whereILike('p.proveedor', `%${s}%`)
-            .orWhereILike('p.solicitante', `%${s}%`)
-            .orWhereILike('p.comentarios', `%${s}%`));
+        if (q?.search?.trim()) {
+          // `[BU.2.2]` Motor único: proveedor, solicitante y comentarios, palabra por palabra.
+          applySmartSearch(b, q.search, { columns: ['p.proveedor', 'p.solicitante', 'p.comentarios'] });
         }
         return b;
       };

@@ -6,7 +6,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import type { Knex } from 'knex';
-import { TenantKnexService } from '@megadulces/platform-core';
+import { TenantKnexService, applySmartSearch } from '@megadulces/platform-core';
 import {
   CambioDeTarifa, cambiosDeConfig, cambiosDeRuta, configFijada, mensajeTarifaFijada, rutaFijada,
 } from './tarifas-fijas.logic';
@@ -211,7 +211,8 @@ export class LogisticsConfigService {
     return this.tk.run(async (trx) => {
       let q = trx('logistics.routes').whereNull('deleted_at');
       if (opts.active !== undefined) q = q.where('active', opts.active);
-      if (opts.search) q = q.whereILike('name', `%${opts.search}%`);
+      // [BU.2.2] Motor único `applySmartSearch`: varias palabras, cualquier orden, sin acentos.
+      if (opts.search) applySmartSearch(q, opts.search, { columns: ['name'] });
       return q.orderBy('name', 'asc');
     });
   }

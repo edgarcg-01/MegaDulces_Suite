@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
-import { TenantKnexService, TenantContextService, ScopeService, TenantCacheService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, ScopeService, TenantCacheService, applySmartSearch } from '@megadulces/platform-core';
 import {
   compareWarehouseCodes, MonthlySalesResponse, OcDetalleDto, OcSeguimientoEstatus, OcSeguimientoGuardadoDto,
   WorkbookSkuSignals,
@@ -1253,8 +1253,8 @@ export class CommercialReplenishmentService {
     if (abcPedido) b.andWhere((w: any) => w.where('abc.abc_class', q.abc!.toUpperCase()).orWhere('rp.abc_class', q.abc!.toUpperCase()));
     if (q.xyz && ['X', 'Y', 'Z'].includes(q.xyz.toUpperCase())) b.andWhere('rp.xyz_class', q.xyz.toUpperCase());
     if (q.search && q.search.trim()) {
-      const s = `%${q.search.trim()}%`;
-      b.andWhere((w: any) => w.whereILike('pr.sku', s).orWhereILike('pr.nombre', s));
+      // `[BU.2.7]` Motor único `applySmartSearch`: SKU o nombre, varias palabras. `fuzzy:false` (SKU exacto).
+      applySmartSearch(b, q.search, { columns: ['pr.sku', 'pr.nombre'], fuzzy: false });
     }
     // Filtro por bucket / scope
     if (q.bucket && BUCKETS.includes(q.bucket as Bucket)) {
@@ -1702,14 +1702,15 @@ export class CommercialReplenishmentService {
       if (q.category_id && UUID_RX.test(q.category_id)) base.andWhere('pr.category_id', q.category_id);
       // Filtro por nombre de proveedor (el cockpit filtra por nombre, no por id).
       if (q.search && q.search.trim()) {
-        base.join('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'rp.tenant_id').andOn('sup.id', 'pr.supplier_id'))
-          .andWhereRaw('sup.name ILIKE ?', [`%${q.search.trim()}%`]);
+        // `[BU.2.7]` Motor único `applySmartSearch` sobre el nombre del proveedor (varias palabras).
+        base.join('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'rp.tenant_id').andOn('sup.id', 'pr.supplier_id'));
+        applySmartSearch(base, q.search, { columns: ['sup.name'] });
       }
       // `[AB.14]` Por SKU o nombre de producto — el mismo criterio que `criticalFilters()` usa para
       // la tabla, para que la mesa de Autoabasto cuente lo mismo que lista.
       if (q.product_search && q.product_search.trim()) {
-        const s = `%${q.product_search.trim()}%`;
-        base.andWhere((w) => w.whereILike('pr.sku', s).orWhereILike('pr.nombre', s));
+        // `[BU.2.7]` Motor único: SKU o nombre, varias palabras. `fuzzy:false` (SKU exacto).
+        applySmartSearch(base, q.product_search, { columns: ['pr.sku', 'pr.nombre'], fuzzy: false });
       }
       const cost = this.costUnit();
       const cf = this.cajaFactor(); // divisor por-almacén para SUMar cajas reales (display)
@@ -4150,8 +4151,8 @@ export class CommercialReplenishmentService {
       if (whIds) base.whereIn('w.id', whIds);
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) base.andWhere('pr.supplier_id', q.supplier_id);
       if (q.search && q.search.trim()) {
-        const t = `%${q.search.trim()}%`;
-        base.andWhere((b) => b.whereILike('pr.sku', t).orWhereILike('pr.nombre', t));
+        // `[BU.2.7]` Motor único `applySmartSearch`: SKU o nombre, varias palabras. `fuzzy:false` (SKU exacto).
+        applySmartSearch(base, q.search, { columns: ['pr.sku', 'pr.nombre'], fuzzy: false });
       }
       // `[RA-UX.11]` UNA pasada, no tres. Acá había un `count(*)` y un `SUM()` sobre la MISMA base,
       // cada uno pagando entero el cruce producto×almacén y las tres vistas del ODS (existencia,
@@ -4322,7 +4323,8 @@ export class CommercialReplenishmentService {
       const base = trx('catalog.categories as c')
         .leftJoin('catalog.products as p', (j) => j.on('p.tenant_id', 'c.tenant_id').andOn('p.category_id', 'c.id'))
         .where('c.tenant_id', tenantId).whereNull('c.deleted_at');
-      if (q.search && q.search.trim()) { const s = `%${q.search.trim()}%`; base.andWhere((b) => b.whereILike('c.name', s).orWhereILike('c.code', s)); }
+      // `[BU.2.7]` Motor único `applySmartSearch`: nombre o código de categoría, varias palabras. `fuzzy:false` (código exacto).
+      if (q.search && q.search.trim()) applySmartSearch(base, q.search, { columns: ['c.name', 'c.code'], fuzzy: false });
       const rows: any[] = await base
         .groupBy('c.id', 'c.code', 'c.name')
         .select('c.id as id', 'c.code as code', 'c.name as name',

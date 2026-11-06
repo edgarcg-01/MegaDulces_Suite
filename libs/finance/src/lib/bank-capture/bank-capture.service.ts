@@ -7,6 +7,7 @@ import {
   ObjectStorageService,
   LlmExtractorService,
   normalizeMxPhone,
+  applySmartSearch,
 } from '@megadulces/platform-core';
 import {
   FINANCE_NOTIFIER_PORT,
@@ -243,10 +244,8 @@ export class BankCaptureService {
       if (q.from) base.where('i.created_at', '>=', `${q.from} 00:00:00`);
       if (q.to) base.where('i.created_at', '<=', `${q.to} 23:59:59`);
       if (q.search) {
-        const s = `%${q.search}%`;
-        base.where((b: any) =>
-          b.whereILike('s.full_name', s).orWhereILike('i.ocr_banco', s).orWhereILike('i.concept', s).orWhereILike('i.from_phone', s),
-        );
+        // `[BU.2.2]` Motor único: nombre, banco OCR, concepto y teléfono, palabra por palabra.
+        applySmartSearch(base, q.search, { columns: ['s.full_name', 'i.ocr_banco', 'i.concept', 'i.from_phone'] });
       }
       const rows = await base
         .clone()
