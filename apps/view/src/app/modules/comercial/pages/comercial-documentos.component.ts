@@ -63,7 +63,8 @@ import { abrirPestanaParaPdf, entregarPdf, cerrarPestanaDePdf } from '../../../s
         </p>
       </div>
       <!-- [AX.18] Lo secundario de esta pantalla: un boton que ya dice cuanto falta y abre una
-           ventana encima, sin empujar la tabla de facturas. Sigue la sucursal elegida abajo. -->
+           ventana encima, sin empujar la tabla de facturas. Sigue la sucursal elegida abajo.
+           [AX.19] Va a la derecha del titulo, alineado con el: el componente es UN bloque. -->
       <app-embarques-sin-factura [sucursal]="filtros().sucursal" />
     </div>
 

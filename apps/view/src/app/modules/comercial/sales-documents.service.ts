@@ -101,6 +101,13 @@ export interface EmbarqueSinFactura {
   situacion: 'sin_factura' | 'facturas_en_cero';
   /** folios de las facturas en $0 */
   facturas: string[];
+  /** `[AX.19]` estatus del embarque en Kepler (EMBARCADO = la mercancía salió) */
+  estatus_embarque?: string | null;
+  /**
+   * `[AX.19]` cada factura en $0 con su estado en Kepler. `cancelada: null` = no se pudo saber.
+   * Opcional: una API anterior no lo manda, y entonces la pantalla dice «no se sabe», no «viva».
+   */
+  facturas_detalle?: { folio: string; fecha: string | null; cancelada: boolean | null }[];
 }
 export interface EmbarquesSinFacturaReport {
   /** ventana en días (la del detector de Finanzas) */
