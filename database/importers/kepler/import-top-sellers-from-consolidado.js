@@ -10,8 +10,21 @@
  * endpoint del portal apunta a esta tabla nueva. READ-ONLY sobre las sucursales
  * (mart.ventas ya es local). TRUNCATE+INSERT (tabla propia, top 1000 por venta).
  *
+ * `[CANON.5.15]` (2026-11-06) — por default se calcula de `analytics.sales_daily` en prod, no del
+ * `mart`. El `mart` contaba DOS veces la venta de las rutas de Padre Hidalgo: la trae la base de la
+ * `01` (almacenes `01-00N`) y otra vez el push `ruta_NN` ($6.4 M en 90 días, 4.2 %); `sales_daily`
+ * ya la deduplica (`import-sales-fact`). Comparación en seco (90 días sin hoy): quitada esa doble
+ * cuenta del `mart`, 5,333 de 5,413 SKUs iguales al peso, top-100 idéntico y 999 de 1,000 en el
+ * top; los 80 distintos (Δ $25 mil de $145 M) son filas viejas de `sales_daily` que su upsert no
+ * borra. Control sin deduplicar: 1,675 SKUs distintos. Mismo universo que antes: sin los canales
+ * `wincaja_*` (el `mart` no los trae). `units_sold` pasa a ser la unidad canónica del producto
+ * (`sales_daily.units`): el `mart` sumaba `cantidad` cruda, cajas y piezas juntas, y el portal la
+ * rotula «piezas vendidas». `max()` por llave aguanta la venta escrita a nombre de una fila borrada
+ * y de su gemela viva (H9 bis) mientras no se limpie. `--source=mart` conserva la fuente vieja.
+ *
  *   node database/importers/kepler/import-top-sellers-from-consolidado.js          # dry-run
  *   node database/importers/kepler/import-top-sellers-from-consolidado.js --apply  # commit
+ *   node database/importers/kepler/import-top-sellers-from-consolidado.js --source=mart
  */
 
 const { Client } = require('pg');
@@ -21,27 +34,44 @@ const TOP_N = 1000;
 const SRC = process.env.DATABASE_URL_KEPLER_CONSOLIDADO || 'postgresql://postgres:superoot@localhost:5433/kepler_consolidado';
 const DST = process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
 const APPLY = process.argv.includes('--apply');
+const SOURCE = (process.argv.find((a) => a.startsWith('--source=')) || '').split('=')[1] || 'sales_daily';
+if (!['sales_daily', 'mart'].includes(SOURCE)) throw new Error(`--source desconocido: ${SOURCE} (sales_daily | mart)`);
+
+const TOP_SQL = {
+  sales_daily: `
+    SELECT sku, round(sum(units))::numeric AS units_sold, round(sum(revenue),2) AS revenue,
+           round(sum(units))::numeric AS units_total
+      FROM (SELECT pr.sku, max(d.units) AS units, max(d.revenue) AS revenue
+              FROM analytics.sales_daily d
+              JOIN catalog.products pr ON pr.id = d.product_id
+             WHERE d.tenant_id = '${M}' AND d.sale_date >= current_date - 90 AND d.channel NOT LIKE 'wincaja%'
+             GROUP BY pr.sku, d.warehouse_id, d.channel, d.sale_date) x
+     GROUP BY sku
+     ORDER BY sum(revenue) DESC
+     LIMIT $1`,
+  mart: `
+    SELECT sku,
+           round(sum(cantidad))::numeric AS units_sold,
+           round(sum(importe),2)         AS revenue,
+           round(sum(cantidad))::numeric AS units_total
+      FROM mart.ventas
+     WHERE fecha >= current_date - 90 AND sku IS NOT NULL
+     GROUP BY sku
+     ORDER BY sum(importe) DESC
+     LIMIT $1`,
+};
 
 (async () => {
-  const src = new Client({ connectionString: SRC });
   const db = new Client({ connectionString: DST });
-  await src.connect();
+  const src = SOURCE === 'mart' ? new Client({ connectionString: SRC }) : db;
+  if (src !== db) await src.connect();
   await db.connect();
 
   try {
-    console.log(`\n=== Best-sellers vivos red (90d) → catalog.top_sellers_live (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
+    console.log(`\n=== Best-sellers vivos red (90d, ${SOURCE}) → catalog.top_sellers_live (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
 
     // Top N por venta (importe) en 90d.
-    const { rows: top } = await src.query(
-      `SELECT sku,
-              round(sum(cantidad))::numeric AS units_sold,
-              round(sum(importe),2)         AS revenue,
-              round(sum(cantidad))::numeric AS units_total
-         FROM mart.ventas
-        WHERE fecha >= current_date - 90 AND sku IS NOT NULL
-        GROUP BY sku
-        ORDER BY sum(importe) DESC
-        LIMIT $1`, [TOP_N]);
+    const { rows: top } = await src.query(TOP_SQL[SOURCE], [TOP_N]);
     console.log(`Best-sellers calculados: ${top.length}`);
 
     // Metadata de catálogo por sku (base table: la vista public.products no expone is_promo).
@@ -119,7 +149,7 @@ const APPLY = process.argv.includes('--apply');
     console.error('\nERROR (rollback):', e.message);
     process.exitCode = 1;
   } finally {
-    await src.end();
+    if (src !== db) await src.end();
     await db.end();
   }
 })();
