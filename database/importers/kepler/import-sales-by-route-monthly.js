@@ -12,6 +12,14 @@
  * GREATEST: nunca baja un mes ya capturado, solo lo sube si la fuente trae más.
  * Historia por ruta se construye HACIA ADELANTE. NO usa mart.ventas (no lleva c63).
  *
+ * `[CANON.5.18]` (2026-11-06) — por default lee `kepler_ods` (kdm1⋈kdm2 dentro de la misma
+ * `sucursal`) en la conexión de prod, en vez de los 9 POS. Comparación en seco del año contra lo
+ * que la tabla tenía: 224 de 248 filas ruta×mes idénticas en unidades, importe y tickets; las 24
+ * distintas son todas de noviembre, con el ODS más alto (la tabla es de la última noche). Ninguna
+ * con la tabla arriba ni de un solo lado. Control (la 01 lee el ODS de la 08): 10 con la tabla
+ * arriba y 17 de un solo lado. El ODS no propaga borrados, así que no pierde lo que el POS purga.
+ * `--source=branch` conserva la lectura de cada POS.
+ *
  *   DST_URL=postgresql://…railway node database/importers/kepler/import-sales-by-route-monthly.js          # dry-run
  *   DST_URL=…                     node database/importers/kepler/import-sales-by-route-monthly.js --apply   # commit
  *   ... [--year 2026]
@@ -30,6 +38,23 @@ const { salesMap, clientConfig } = require('../lib/kepler-branches');
 const BRANCHES = process.env.SALES_BRANCH_MAP ? JSON.parse(process.env.SALES_BRANCH_MAP) : salesMap();
 
 const SALES = `h.c2='U' AND h.c3='D' AND h.c4=10`;
+const SOURCE = (process.argv.find((a) => a.startsWith('--source=')) || '').split('=')[1] || 'ods';
+if (!['ods', 'branch'].includes(SOURCE)) throw new Error(`--source desconocido: ${SOURCE} (ods | branch)`);
+// En el ODS la base de origen es `sucursal`: el renglón se une dentro de la misma base, igual que
+// al leer el POS de esa sucursal ($3 = código de la sucursal).
+const ROUTE_SQL = (src) => `
+  SELECT rtrim(btrim(h.c63),'-') AS route_code,
+         substring(rtrim(btrim(h.c63),'-') from '([0-9]{2})$') AS route_no,
+         date_trunc('month', h.c9)::date AS mes,
+         count(DISTINCT h.c6) AS tickets,
+         sum(d.c9)::numeric  AS units,
+         sum(d.c13)::numeric AS revenue
+    FROM ${src === 'ods' ? 'kepler_ods' : 'md'}.kdm2 d
+    JOIN ${src === 'ods' ? 'kepler_ods' : 'md'}.kdm1 h ON h.c1=d.c1 AND h.c2=d.c2 AND h.c3=d.c3 AND h.c4=d.c4 AND h.c5=d.c5 AND h.c6=d.c6
+         ${src === 'ods' ? 'AND h.sucursal=d.sucursal' : ''}
+   WHERE ${SALES} AND h.c9 >= $1 AND h.c9 < $2 ${src === 'ods' ? 'AND h.sucursal=$3' : ''}
+     AND d.c8 NOT IN ('00001','00002') AND btrim(d.c8) <> '' AND btrim(coalesce(h.c63,'')) <> ''
+   GROUP BY 1, 2, 3`;
 
 (async () => {
   const db = new Client({
@@ -60,22 +85,11 @@ const SALES = `h.c2='U' AND h.c3='D' AND h.c4=10`;
     for (const b of BRANCHES) {
       const wid = whTo.get(b.code);
       if (!wid) { console.log(`  ⚠️  sucursal ${b.code} sin warehouse en destino — skip`); continue; }
-      const src = new Client(clientConfig(b, { connectionTimeoutMillis: 8000, statement_timeout: 120000 }));
+      const src = SOURCE === 'ods' ? db : new Client(clientConfig(b, { connectionTimeoutMillis: 8000, statement_timeout: 120000 }));
       const t0 = Date.now();
       try {
-        await src.connect();
-        const { rows } = await src.query(
-          `SELECT rtrim(btrim(h.c63),'-') AS route_code,
-                  substring(rtrim(btrim(h.c63),'-') from '([0-9]{2})$') AS route_no,
-                  date_trunc('month', h.c9)::date AS mes,
-                  count(DISTINCT h.c6) AS tickets,
-                  sum(d.c9)::numeric  AS units,
-                  sum(d.c13)::numeric AS revenue
-             FROM md.kdm2 d
-             JOIN md.kdm1 h ON h.c1=d.c1 AND h.c2=d.c2 AND h.c3=d.c3 AND h.c4=d.c4 AND h.c5=d.c5 AND h.c6=d.c6
-            WHERE ${SALES} AND h.c9 >= $1 AND h.c9 < $2
-              AND d.c8 NOT IN ('00001','00002') AND btrim(d.c8) <> '' AND btrim(coalesce(h.c63,'')) <> ''
-            GROUP BY 1, 2, 3`, [from, to]);
+        if (src !== db) await src.connect();
+        const { rows } = await src.query(ROUTE_SQL(SOURCE), SOURCE === 'ods' ? [from, to, b.code] : [from, to]);
         for (const r of rows) {
           if (!r.route_code) continue;
           all.push([wid, r.route_code, r.route_no, r.mes, Number(r.units) || 0, Number(r.revenue) || 0, Number(r.tickets) || 0]);
@@ -85,7 +99,7 @@ const SALES = `h.c2='U' AND h.c3='D' AND h.c4=10`;
       } catch (e) {
         console.log(`  ❌ ${b.db} (${b.code}): ${e.message}`);
       } finally {
-        try { await src.end(); } catch { /* noop */ }
+        if (src !== db) { try { await src.end(); } catch { /* noop */ } }
       }
     }
     console.log(`\n  total a upsert: ${all.length} filas`);
