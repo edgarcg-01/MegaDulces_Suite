@@ -107,7 +107,12 @@ async function runCycle(src, db) {
             l.pack_size, l.box_size, l.unit_base, l.content
        FROM catalog.products p
        LEFT JOIN commercial.v_product_label_prices l ON l.product_id=p.id AND l.tenant_id=p.tenant_id
-      WHERE p.tenant_id=$1 AND btrim(coalesce(p.sku,''))<>''`, [M])).rows;
+      WHERE p.tenant_id=$1 AND btrim(coalesce(p.sku,''))<>''
+      -- CANON.5.26 (H9) — 887 SKUs tienen una fila borrada y una viva. Sin orden, el set() de
+      -- abajo se quedaba con la que llegara al último, distinta entre corridas: la misma venta
+      -- quedaba escrita a nombre de los dos ids y se contaba doble. La viva va al final y gana;
+      -- un SKU sólo con borradas sigue yendo a la más reciente (como antes, no se pierde venta).
+      ORDER BY (p.deleted_at IS NULL), p.created_at, p.id`, [M])).rows;
   const skuTo = new Map();
   for (const p of prods) {
     skuTo.set(p.sku, { id: p.id, markup_pct: p.markup_pct, ...buildModel(p) });
