@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, applySmartSearch } from '@megadulces/platform-core';
 import { diaMxDeInstante } from '@megadulces/contracts';
 // `[CGA-A.57]`/`[CGA-A.58]` La forma del boundary de vinculos vive en libs/contracts (ADR-052).
 import type { CaosVinculos, CaosVinculoFila, CaosVinculoAlta, CaosVinculoBaja } from '@megadulces/contracts';
@@ -185,8 +185,9 @@ export class CaosService {
           if (hasta) x = x.where('occurred_at', '<', hasta);
         }
         if (q.buscar) {
-          const b = `%${String(q.buscar).trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
-          x = x.where((w: Knex.QueryBuilder) => w.whereRaw(`ref ILIKE ? ESCAPE '\\'`, [b]).orWhereRaw(`user_external ILIKE ? ESCAPE '\\'`, [b]));
+          // `[BU.2.2]` Motor único: referencia y usuario externo. `fuzzy:false` — son códigos que
+          // se escriben exactos y un «parecido» por trigramas sería ruido.
+          applySmartSearch(x, q.buscar, { columns: ['ref', 'user_external'], fuzzy: false });
         }
         if (q.tipo) x = x.where((b: any) => b.where('type_label', q.tipo).orWhere('type_id', Number(q.tipo) || -999));
         if (q.usuario) x = x.whereILike('user_external', `%${q.usuario}%`);

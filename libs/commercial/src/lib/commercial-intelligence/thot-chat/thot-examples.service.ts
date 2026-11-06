@@ -1,5 +1,5 @@
 import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
-import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, applySmartSearch } from '@megadulces/platform-core';
 import { ThotExample, THOT_SEED_EXAMPLES, rankExamples, formatExamples } from './thot-examples';
 import { ThotExampleVectorService } from './thot-example-vector.service';
 
@@ -183,7 +183,9 @@ export class ThotExamplesService {
       const b = trx('commercial.thot_chat_log').orderBy('created_at', 'desc').limit(limit).select(cols);
       if (hasFb && opts.feedback === 'up') b.where('feedback', 1);
       else if (hasFb && opts.feedback === 'down') b.where('feedback', -1);
-      if (opts.q) b.whereILike('question', `%${opts.q}%`);
+      // `[BU.2.5]` Motor único `applySmartSearch` sobre la pregunta (lenguaje natural): varias
+      // palabras en cualquier orden, con el fuzzy por defecto que tolera tipeos.
+      if (opts.q) applySmartSearch(b, opts.q, { columns: ['question'] });
       const rows = await b;
       return (rows as any[]).map((r) => ({ ...r, feedback: hasFb ? r.feedback : null, promoted: hasProm ? !!r.promoted : false }));
     });

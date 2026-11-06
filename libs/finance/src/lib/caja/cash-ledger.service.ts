@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 import { BadRequestException, HttpException, HttpStatus, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import type { Knex } from 'knex';
 import {
-  TenantKnexService, TenantContextService, evalInput, composeFreshness, cajaNoCapturadaDesdeCaosSql,
+  TenantKnexService, TenantContextService, evalInput, composeFreshness, cajaNoCapturadaDesdeCaosSql, applySmartSearch,
 } from '@megadulces/platform-core';
 import {
   FINANCE_FINDINGS_SINK_PORT, CAJA_VENTANA_DIAS, CAJA_AUTOFILL_FRESCURA_H,
@@ -412,8 +412,8 @@ export class CashLedgerService {
         .select('sucursal', 'cuenta', 'concepto', 'concepto_nombre', 'cuenta_mayor');
       if (q.sucursal) qb = qb.where('sucursal', q.sucursal);
       if (q.search) {
-        const s = `%${q.search.trim()}%`;
-        qb = qb.where((b: any) => b.whereILike('concepto_nombre', s).orWhereILike('cuenta', s).orWhereILike('concepto', s));
+        // `[BU.2.2]` Motor único: nombre de concepto, cuenta y concepto, palabra por palabra.
+        applySmartSearch(qb, q.search, { columns: ['concepto_nombre', 'cuenta', 'concepto'] });
       }
       const rows = await qb.orderBy(['cuenta', 'concepto']).limit(limit);
       return { rows, limit };

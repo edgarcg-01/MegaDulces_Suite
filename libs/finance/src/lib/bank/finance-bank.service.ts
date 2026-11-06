@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException, Logger, Inject, Optional } from '@nestjs/common';
 import * as crypto from 'node:crypto';
 import * as ExcelJS from 'exceljs';
-import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, applySmartSearch } from '@megadulces/platform-core';
 import { FINANCE_FINDINGS_SINK_PORT, FinanceFindingsSinkPort, FinanceFindingInput, FinanceRuleInput } from '@megadulces/contracts';
 import { BancosGateway } from './bancos.gateway';
 import { buildClaimIndex, claimVerdict, type ClaimRow } from './recon-claim-key';
@@ -603,8 +603,8 @@ export class FinanceBankService {
         if (q.uncategorized === 'true') b.whereNull('bm.category_id');
         if (q.recon_status) b.where('bm.recon_status', q.recon_status);
         if (q.search) {
-          const s = `%${q.search.trim()}%`;
-          b.where((w) => w.whereILike('bm.concept', s).orWhereILike('bm.raw_code', s).orWhereILike('bm.sucursal', s));
+          // `[BU.2.2]` Motor único: concepto, código crudo y sucursal, palabra por palabra.
+          applySmartSearch(b, q.search, { columns: ['bm.concept', 'bm.raw_code', 'bm.sucursal'] });
         }
         return b;
       };

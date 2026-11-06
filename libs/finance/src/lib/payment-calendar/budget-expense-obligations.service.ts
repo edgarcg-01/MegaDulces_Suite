@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
-import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, applySmartSearch } from '@megadulces/platform-core';
 import { BUDGET_LEDGER_PORT, type BudgetLedgerPort } from '../budget/budget-ledger.port';
 
 export interface CreateExpenseObligationDto {
@@ -34,7 +34,8 @@ export class BudgetExpenseObligationsService {
       const b = trx('budget.expense_obligations as o').select('o.*',
         trx.raw('(o.original_amount - o.reserved_amount - o.paid_amount) AS available_amount'));
       if (q.status) b.where('o.status', q.status); else b.whereNotIn('o.status', ['cancelled']);
-      if (q.search?.trim()) b.andWhere((w) => w.whereILike('o.beneficiary', `%${q.search!.trim()}%`).orWhereILike('o.concept', `%${q.search!.trim()}%`));
+      // `[BU.2.2]` Motor único: beneficiario, concepto e importe, palabra por palabra.
+      if (q.search?.trim()) applySmartSearch(b, q.search, { columns: ['o.beneficiary', 'o.concept', 'o.original_amount'], numeric: ['o.original_amount'] });
       if (q.dueFrom) b.where('o.original_due_date', '>=', q.dueFrom);
       if (q.dueTo) b.where('o.original_due_date', '<=', q.dueTo);
       return b.orderByRaw('o.original_due_date ASC NULLS LAST');
