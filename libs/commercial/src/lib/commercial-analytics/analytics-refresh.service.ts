@@ -215,6 +215,20 @@ const AJUSTES_REFRESCO: Readonly<Record<string, readonly string[]>> = {
    * detener la cadena horas.
    */
   'analytics.mv_price_waterfall_sku': ['SET LOCAL enable_nestloop = off', "SET LOCAL statement_timeout = '600s'"],
+  /**
+   * `[VEX.6]` La venta diaria de Kepler dejó de refrescarse el 2026-11-05: el REFRESH nocturno quedó
+   * colgado 30 h (el del 6 esperó detrás) y la matvista se quedó en el 3-nov. Tardaba ~85 s hasta el
+   * 4-nov 12:23 UTC; a las 14:38 entró `pq40_caja_peldano_comprado`, que sumó `mv_kepler_bought_rung`
+   * a `v_product_box_factor`. El planificador estima 1 renglón de venta y mete TODO
+   * `v_product_box_factor` en un nested loop: lo recalcula por renglón.
+   *
+   * Medido en prod (sólo lectura, 2026-11-06): la consulta de la matvista no termina en 240 s; con
+   * `enable_nestloop = off` termina en **49 s** (1,116,394 filas). El tope es el mismo freno que el de
+   * arriba: si el plan vuelve a degradarse, el REFRESH se cancela y el latido lo declara, en vez de
+   * colgarse un día con un candado que deja inservibles los índices nuevos (`indcheckxmin`).
+   * `[PQ.61]` la vuelve TABLA por evento; entonces esta entrada deja de aplicarse sola.
+   */
+  'analytics.mv_kepler_sales_daily': ['SET LOCAL enable_nestloop = off', "SET LOCAL statement_timeout = '600s'"],
 };
 
 /**

@@ -90,12 +90,23 @@ describe('[NP.13][NP.14] REFRESH con ajustes propios', () => {
     ]);
   });
 
-  it('[negativa] las demás matvistas se refrescan como siempre: sin transacción ni ajustes', async () => {
+  it('[VEX.6] la venta diaria de Kepler: sin nested loops, con tope de 10 min, en la MISMA transacción', async () => {
     const { k, sentencias } = knexFalso();
     const svc = new AnalyticsRefreshService(k) as unknown as ConRefresco;
     await svc.refrescarMv(k, 'analytics.mv_kepler_sales_daily', 'CONCURRENTLY ');
-    expect(sentencias).toEqual(['REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_kepler_sales_daily']);
-    expect(sentencias.some((s) => /jit|statement_timeout/i.test(s))).toBe(false);
+    expect(sentencias).toEqual([
+      '[trx] SET LOCAL enable_nestloop = off',
+      "[trx] SET LOCAL statement_timeout = '600s'",
+      '[trx] REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_kepler_sales_daily',
+    ]);
+  });
+
+  it('[negativa] las demás matvistas se refrescan como siempre: sin transacción ni ajustes', async () => {
+    const { k, sentencias } = knexFalso();
+    const svc = new AnalyticsRefreshService(k) as unknown as ConRefresco;
+    await svc.refrescarMv(k, 'analytics.mv_wincaja_sales_daily', 'CONCURRENTLY ');
+    expect(sentencias).toEqual(['REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_wincaja_sales_daily']);
+    expect(sentencias.some((s) => /jit|statement_timeout|nestloop/i.test(s))).toBe(false);
   });
 });
 
