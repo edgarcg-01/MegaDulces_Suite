@@ -4591,15 +4591,26 @@ export class CommercialReplenishmentService {
    * apuntar. El `link` que manda el front es un índice dentro de este mismo arreglo, no un id:
    * los ids todavía no existen cuando el navegador arma el pedido.
    */
-  /** `[PQ.17]` Piezas por caja (resolvedor canónico) de los productos que traen fracción, para juzgarlos en piezas. */
-  private async uxcDeProductos(productIds: string[]): Promise<Map<string, number>> {
-    const ids = productIds.filter((x) => UUID_RX.test(x));
+  /**
+   * `[PQ.17]` Piezas por caja de los productos que traen fracción, para juzgarlos en piezas.
+   * `[PQ.87]` Por ALMACÉN (`mv_warehouse_box_factor`), el mismo factor que usó la mesa y que usa el
+   * envío a Kepler; la llave del mapa es `almacén|producto`. Antes era el del producto y podía ser
+   * otro (15151 Lico: 40 contra 1 en la ficha de Kepler).
+   */
+  private async uxcDeProductos(pares: Array<{ warehouse_id: string; product_id: string }>): Promise<Map<string, number>> {
+    const ok = pares.filter((x) => UUID_RX.test(x.product_id) && UUID_RX.test(x.warehouse_id));
     const m = new Map<string, number>();
-    if (!ids.length) return m;
+    if (!ok.length) return m;
     const tenantId = this.tenantCtx.requireTenantId();
-    const filas = await this.tk.run(async (trx) => trx('analytics.v_product_box_factor')
-      .where({ tenant_id: tenantId }).whereIn('product_id', ids).select('product_id', 'box_factor')) as Array<{ product_id: string; box_factor: string | number | null }>;
-    for (const f of filas) m.set(String(f.product_id), Number(f.box_factor) || 0);
+    const filas = await this.tk.run(async (trx) => {
+      const src = (await trx.raw("SELECT to_regclass('analytics.mv_warehouse_box_factor') AS a")).rows?.[0]?.a
+        ? 'analytics.mv_warehouse_box_factor' : 'analytics.v_warehouse_box_factor';
+      return trx(src).where({ tenant_id: tenantId })
+        .whereIn('product_id', [...new Set(ok.map((x) => x.product_id))])
+        .whereIn('warehouse_id', [...new Set(ok.map((x) => x.warehouse_id))])
+        .select('warehouse_id', 'product_id', 'box_factor');
+    }) as Array<{ warehouse_id: string; product_id: string; box_factor: string | number | null }>;
+    for (const f of filas) m.set(`${f.warehouse_id}|${f.product_id}`, Number(f.box_factor) || 0);
     return m;
   }
 
@@ -4617,10 +4628,10 @@ export class CommercialReplenishmentService {
     // rebotar en Kepler por esto. Nunca se redondea: se dice cuáles y se devuelve el lote entero.
     // Una fracción de caja que SÍ es un número entero de piezas pasa: el adaptador la escribe en
     // la unidad base (misma regla que `piezasEnteras`). El factor sale del resolvedor canónico.
-    const conFraccion = entrada.flatMap((r) => (r.lines || []).filter((l) => { const n = Number(l.final_qty); return Number.isFinite(n) && n !== Math.round(n); }).map((l) => String(l.product_id)));
-    const uxcPorProducto = conFraccion.length ? await this.uxcDeProductos([...new Set(conFraccion)]) : new Map<string, number>();
+    const conFraccion = entrada.flatMap((r) => (r.lines || []).filter((l) => { const n = Number(l.final_qty); return Number.isFinite(n) && n !== Math.round(n); }).map((l) => ({ warehouse_id: String(r.warehouse_id), product_id: String(l.product_id) })));
+    const uxcPorProducto = conFraccion.length ? await this.uxcDeProductos(conFraccion) : new Map<string, number>();
     for (let i = 0; i < entrada.length; i++) {
-      const frac = renglonesSinUnidadEntera((entrada[i].lines || []).map((l) => ({ sku: String(l.product_id), final_qty: l.final_qty, piezas_por_caja: uxcPorProducto.get(String(l.product_id)) ?? null })));
+      const frac = renglonesSinUnidadEntera((entrada[i].lines || []).map((l) => ({ sku: String(l.product_id), final_qty: l.final_qty, piezas_por_caja: uxcPorProducto.get(`${entrada[i].warehouse_id}|${l.product_id}`) ?? null })));
       if (frac.length) {
         throw new BadRequestException(`Documento ${i + 1} de ${entrada.length}: ${frac.length} renglón(es) que no son cajas enteras ni piezas enteras (producto ${frac.slice(0, 3).map((f) => f.sku.slice(0, 8)).join(', ')}${frac.length > 3 ? '…' : ''}). Kepler no los acepta así: déjalos en cajas o piezas completas. No se creó ningún documento del lote.`);
       }
@@ -5725,9 +5736,15 @@ export class CommercialReplenishmentService {
       // `[KR.6]` El factor de caja viaja con la línea: es el TESTIGO contra el que el adapter
       // contrasta el `c58` de Kepler antes de convertir. `null` cuando la Suite tampoco sabe —
       // y entonces el adapter rechaza, porque dos ignorancias no hacen una certeza.
+      // `[PQ.87]` El factor es el del ALMACÉN (`mv_warehouse_box_factor`, el mismo que convirtió las
+      // piezas a cajas en la mesa), no el del producto: `v_product_box_factor` daba 40 al 15151 de
+      // Lico, que Kepler compra por paquete, y la OC de Morelia Abastos salió a $0.76 el paquete.
+      const vbfSrc = (await trx.raw("SELECT to_regclass('analytics.mv_warehouse_box_factor') AS a")).rows?.[0]?.a
+        ? 'analytics.mv_warehouse_box_factor' : 'analytics.v_warehouse_box_factor';
       const lineas = (await trx('commercial.purchase_requisition_lines as l')
         .join('catalog.products as p', (j) => j.on('p.tenant_id', 'l.tenant_id').andOn('p.id', 'l.product_id'))
-        .leftJoin('analytics.v_product_box_factor as bf', (j) => j.on('bf.tenant_id', 'l.tenant_id').andOn('bf.product_id', 'l.product_id'))
+        .join('commercial.purchase_requisitions as rq', (j) => j.on('rq.tenant_id', 'l.tenant_id').andOn('rq.id', 'l.requisition_id'))
+        .leftJoin(`${vbfSrc} as bf`, (j) => j.on('bf.tenant_id', 'l.tenant_id').andOn('bf.warehouse_id', 'rq.warehouse_id').andOn('bf.product_id', 'l.product_id'))
         .where({ 'l.tenant_id': tenantId, 'l.requisition_id': id }).andWhere('l.final_qty', '>', 0)
         .select('p.sku', 'p.nombre', 'l.final_qty', 'l.unit_cost', 'l.line_cost', 'bf.box_factor')
         .orderBy('p.sku')) as LineaPushKepler[];

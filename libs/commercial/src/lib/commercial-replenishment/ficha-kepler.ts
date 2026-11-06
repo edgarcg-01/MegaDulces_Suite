@@ -40,6 +40,14 @@ const efectivo = (cap: number | null, costo: number | null, costoBase: number | 
   return null;
 };
 
+/**
+ * `[PQ.87]` Un peldaño que REPITE la base no es una caja: sin rótulo, o con el mismo rótulo que la
+ * base, factor ≤ 1 y costo vacío o igual al de la base (±1 %). Kepler llena así la ficha de los
+ * productos que se compran sueltos (15151 Lico: PAQ / PAQ ×1 $30.45 / PAQ ×1 $30.45).
+ */
+const repiteBase = (u: string | null, u1: string | null, cap: number | null, costo: number | null, c1: number | null): boolean =>
+  u === null || (u === u1 && (cap ?? 0) <= 1 && (!costo || (c1 !== null && c1 > 0 && Math.abs(costo - c1) <= 0.01 * c1)));
+
 /** Unidad base y factor de caja de la ficha. `factor: null` = la ficha no lo dice. */
 export function factorFichaKepler(f: FilaFichaKepler): { unidad_base: string | null; factor: number | null } {
   const u1 = rotulo(f.c11), u2 = rotulo(f.c80), u3 = rotulo(f.c83);
@@ -49,7 +57,11 @@ export function factorFichaKepler(f: FilaFichaKepler): { unidad_base: string | n
   let factor: number | null;
   if (f3 !== null && f3 >= (f2 ?? 0)) factor = f3;
   else if (f2 !== null) factor = f2;
-  else factor = u2 === null && u3 === null ? 1 : null;
+  else if (u2 === null && u3 === null) factor = 1;
+  else if (c1 !== null && c1 > 0
+    && repiteBase(u2, u1, numero(f.c81), numero(f.c78), c1)
+    && repiteBase(u3, u1, numero(f.c84), numero(f.c79), c1)) factor = 1;
+  else factor = null;
   return { unidad_base: u1, factor };
 }
 
