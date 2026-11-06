@@ -185,8 +185,8 @@ export function ligarCfdi(k: LlavesLiga, candidatos: CfdiCandidato[]): Resultado
  * RFC (del papel o de Kepler), nombre parecido, o el total igual al monto de la entrada.
  *
  * Medido en prod el 2026-11-06 (sólo lectura): el OCR devolvió en 22 entradas, de 15 proveedores,
- * el UUID que el prompt del extractor ponía de EJEMPLO, y las 22 quedaron ligadas «exactas» a una
- * factura de otro emisor por $320,584.53. De 240 ligas por UUID, 23 legítimas tienen el RFC mal
+ * el UUID que el prompt del extractor ponía de EJEMPLO, y las 22 quedaron ligadas «exactas» a la
+ * factura de otro emisor. De 240 ligas por UUID, 23 legítimas tienen el RFC mal
  * leído o mal capturado en Kepler pero mismo nombre y mismo total: exigir el RFC solo las rompería.
  */
 export function emisorCoherente(k: LlavesLiga, c: CfdiCandidato, deRfc: (c: CfdiCandidato) => boolean): boolean {
