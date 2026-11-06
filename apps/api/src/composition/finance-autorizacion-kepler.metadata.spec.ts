@@ -22,6 +22,18 @@ describe('[PGP.79] FinanceExpenseProofsModule: el adaptador de autorización en 
     expect(tipos ?? []).toEqual([]);
   });
 
+  it('la lectura para la pantalla: controlador registrado, recibe su servicio por CLASE, y el servicio sus dos de plataforma', () => {
+    const controllers = (Reflect.getMetadata('controllers', FinanceExpenseProofsModule) ?? []) as Clase[];
+    const ctrl = controllers.find((c) => c?.name === 'AutorizacionKeplerController');
+    expect(ctrl, 'falta registrar AutorizacionKeplerController').toBeDefined();
+    expect(por('AutorizacionKeplerLecturaService'), 'falta registrar AutorizacionKeplerLecturaService').toBeDefined();
+    const tc = Reflect.getMetadata('design:paramtypes', ctrl!) as Clase[] | undefined;
+    expect(tc).toEqual([por('AutorizacionKeplerLecturaService')]);
+    const ts = Reflect.getMetadata('design:paramtypes', por('AutorizacionKeplerLecturaService')!) as Clase[] | undefined;
+    expect(ts?.map((t) => t?.name)).toEqual(['TenantKnexService', 'TenantContextService']);
+    expect(Reflect.getMetadata('path', ctrl!)).toBe('finance/expenses/kepler-autorizacion');
+  });
+
   it('el servicio lo recibe por su CLASE, como última dependencia', () => {
     const tipos = Reflect.getMetadata('design:paramtypes', ExpenseProofsService) as Clase[] | undefined;
     expect(Array.isArray(tipos) && tipos.length === 8, `sin design:paramtypes esta prueba no mide nada (${tipos?.length})`).toBe(true);

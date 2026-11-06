@@ -246,3 +246,78 @@ export function documentoKepler(folio: string | null | undefined, estado?: Estad
 export function seDebeAvisar(etapa: EtapaEjercicio, yaAvisado: boolean): boolean {
   return etapa === 'ejercido' && !yaAvisado;
 }
+
+/**
+ * `[PGP.79]` **Para UBICAR la solicitud en Kepler**, en cualquier estado: `XA1501-<folio>` es como
+ * la busca quien abre Kepler. No es `documentoKepler()`: aquél sólo existe cuando la solicitud ya
+ * RESPALDA una autorización (A/F); éste es el nombre del documento, esté como esté.
+ */
+export function solicitudKepler(folio: string | null | undefined): string | null {
+  const f = String(folio ?? '').trim();
+  return f ? `XA1501-${f}` : null;
+}
+
+/** `[PGP.79]` Lo que la Suite hizo en Kepler al firmar el vale (`kdm1.c43 N → A`). */
+export type ResultadoAutorizacionSuite = 'escrito' | 'ya_estaba' | 'no_escrito';
+
+/** `[PGP.79]` La solicitud de Kepler de UN vale, como la lee `/finanzas/aprobacion-gastos`. */
+export interface KeplerDelVale {
+  /** `XA1501-<folio>` para ubicarla; `null` si el vale no trae folio. */
+  solicitud: string | null;
+  /** `c43` hoy, de la vista viva. ⛔ `null` = no está en la vista: NO MEDIDO, no «sin autorizar». */
+  estado: EstadoKepler | null;
+  /** Lo que la Suite intentó al firmar. `null` = no se intentó (firma anterior a PGP.79, o la escritura apagada). */
+  suite: { resultado: ResultadoAutorizacionSuite; at: string | null; nota: string | null; firmo: string | null } | null;
+}
+
+export type TonoKepler = 'ok' | 'warn' | 'bad' | 'neutro';
+
+/**
+ * `[PGP.79]` **Qué dice la pastilla de Kepler en el renglón.** Una sola frase y su tono; el color
+ * nunca va solo (la frase lo dice). Regla única para el renglón y el detalle.
+ *
+ *  · Lo que la Suite NO pudo escribir manda sobre todo: es lo único que alguien tiene que ir a ver.
+ *  · `N` en un vale ya aprobado es aviso: la firma de aquí no llegó a Kepler (firma vieja, o apagado).
+ *  · `C` es rojo: Kepler la canceló, y aprobarla aquí no la autoriza allá.
+ */
+export function lecturaKepler(k: KeplerDelVale | null | undefined, status: StatusVale | string): { texto: string; tono: TonoKepler } {
+  if (!k || !k.solicitud) return { texto: 'Kepler: sin folio', tono: 'warn' };
+  if (k.suite?.resultado === 'no_escrito' && k.estado !== 'A' && k.estado !== 'F') return { texto: 'Kepler: no se pudo autorizar', tono: 'bad' };
+  switch (k.estado) {
+    case 'A': return { texto: k.suite?.resultado === 'escrito' ? 'Kepler: autorizada por la Suite' : 'Kepler: autorizada', tono: 'ok' };
+    case 'F': return { texto: 'Kepler: aplicada', tono: 'ok' };
+    case 'C': return { texto: 'Kepler: cancelada', tono: 'bad' };
+    case 'N': return status === 'recibida'
+      ? { texto: 'Kepler: sin autorizar', tono: 'neutro' }
+      : { texto: 'Kepler: sin autorizar', tono: 'warn' };
+    default: return { texto: 'Kepler: sin medir', tono: 'neutro' };
+  }
+}
+
+/**
+ * `[PGP.79]` **La misma lectura, en una frase para el detalle del vale**: qué pasó y, si hace
+ * falta, qué hacer. `cuando` llega ya formateada (hora de México) por quien la pinta.
+ */
+export function explicacionKepler(k: KeplerDelVale, status: StatusVale | string, cuando: string | null): string {
+  const quien = k.suite?.firmo ? ` · firmó ${k.suite.firmo}` : '';
+  const hora = cuando ? ` el ${cuando}` : '';
+  if (k.suite?.resultado === 'no_escrito' && k.estado !== 'A' && k.estado !== 'F') {
+    return `Al aprobar, la Suite no pudo autorizarla en Kepler${hora}: ${k.suite.nota || 'sin motivo registrado'}. Autorízala en Kepler o avisa a Sistemas con el folio.`;
+  }
+  if (k.suite?.resultado === 'escrito') return `La Suite la autorizó en Kepler al aprobar${hora}${quien}.`;
+  if (k.suite?.resultado === 'ya_estaba') {
+    return `Al aprobar${hora}, Kepler ya la tenía ${k.suite.nota?.endsWith('F') ? 'aplicada' : 'autorizada'}: no hubo nada que escribir.`;
+  }
+  switch (k.estado) {
+    case null: return 'No aparece en la réplica de Kepler: no se puede decir en qué estado está.';
+    case 'C': return status === 'recibida'
+      ? 'Kepler la tiene cancelada: aprobar aquí no la autoriza allá.'
+      : 'Kepler la tiene cancelada.';
+    case 'N': return status === 'recibida'
+      ? 'Al aprobar, la Suite la autoriza en Kepler.'
+      : 'Se aprobó aquí sin que la Suite la autorizara en Kepler (la firma es de antes, o la escritura estaba apagada): allá sigue sin autorizar.';
+    case 'A': return 'Kepler la tiene autorizada.';
+    case 'F': return 'Kepler ya la aplicó: el dinero salió.';
+    default: return '';
+  }
+}

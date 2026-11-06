@@ -26,7 +26,8 @@ const quienDecide = (req?: AuthedRequest) => ({ username: req?.user?.username, f
 /**
  * GX.7 — Solicitud de autorización de gastos (reembolso). Captura + adjuntos
  * (cualquiera con acceso a egresos) y validación/rechazo (gestión de finanzas).
- * No escribe a Kepler.
+ * `[PGP.79]` Lo único que escribe a Kepler es `approve`: autoriza la solicitud (`kdm1.c43 N→A`)
+ * después de guardar la firma, y sólo con `KEPLER_GASTO_AUTORIZACION=encendida`. Lo demás no.
  */
 @ApiTags('finance-expense-proofs')
 @ApiBearerAuth()
