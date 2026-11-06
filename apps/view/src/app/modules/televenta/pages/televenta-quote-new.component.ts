@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, Injector, OnInit, afterNextRender, computed, effect, inject, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, Injector, OnInit, afterNextRender, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterModule } from '@angular/router';
@@ -19,6 +19,7 @@ import { InputGroupAddonModule } from 'primeng/inputgroupaddon';
 import { MessageService } from 'primeng/api';
 import { isoLocalDate } from '../../../shared/util/date-presets.util';
 import { AuthService } from '../../../core/services/auth.service';
+import { atajoDeTecla } from '../quote-atajos';
 import { bloquearRecargaAutomatica } from '../../../core/services/recarga-segura';
 import {
   type BorradorCotizacion,
@@ -638,6 +639,7 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
                     [value]="cantidadArticulo()"
                     (input)="onCantidadTecleada($any($event.target).value)"
                     (keydown.enter)="$event.preventDefault(); agregarABandeja()"
+                    (keydown.escape)="$event.preventDefault(); limpiarArticulo()"
                     (focus)="$any($event.target).select()"
                     [disabled]="guardando()"
                     [attr.aria-label]="'Cantidad en ' + labelUnidadActiva()"
@@ -776,6 +778,13 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
               }
             </div>
           }
+          <!-- [COT.33] La cotización completa sin mouse; los atajos se escriben, no se adivinan. -->
+          <p class="atajos card-body">
+            Teclado: <kbd>/</kbd> buscar artículo · <kbd>↑</kbd><kbd>↓</kbd> y <kbd>Enter</kbd> eligen ·
+            <kbd>Alt</kbd>+<kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> unidad · <kbd>Enter</kbd> agrega · <kbd>Esc</kbd> cambia de artículo ·
+            en los renglones <kbd>↑</kbd><kbd>↓</kbd> cambian de renglón y <kbd>Tab</kbd> llega a quitar ·
+            <kbd>Ctrl</kbd>+<kbd>Enter</kbd> crea la cotización
+          </p>
       </div>
 
       <!-- ── BLOQUE 3: Los renglones, tal cual se verán en la cotización ─────────────────
@@ -995,6 +1004,9 @@ const ORIGENES: Array<{ value: QuoteOrigin; label: string; hint: string }> = [
   `,
   styles: [
     `
+      /* [COT.33] Los atajos, escritos donde se usan (DESIGN §10.7: el atajo que nadie sabe no existe). */
+      .atajos { margin: 0.4rem 0 0; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.7; }
+      .atajos kbd { font-family: var(--font-mono, monospace); font-size: var(--fs-micro); padding: 0 0.3rem; border: 1px solid var(--surface-border); border-radius: 4px; background: var(--surface-ground); color: var(--text-main); }
       /* [COT.32] El aviso de la cotización que se cortó. */
       .borrador-aviso { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2, 0.5rem); margin-bottom: var(--sp-3, 0.75rem); padding: 0.5rem 0.75rem; border: 1px solid var(--surface-border); border-radius: var(--radius-md, 8px); background: var(--surface-card); }
       .borrador-aviso .pi-history { color: var(--action); }
@@ -2088,6 +2100,21 @@ export class TeleventaQuoteNewComponent implements OnInit {
     const r = this.resultadosArticulos();
     if (!r.length) return;
     this.elegirArticulo(r[this.resaltado()] ?? r[0]);
+  }
+
+  /**
+   * [COT.33] Atajos de la pantalla. «/» lleva al buscador (convención de la suite: Calendario de
+   * pagos, Catálogo digital) sólo fuera de un campo, donde «/» es texto. Alt+1/2/3 eligen la unidad
+   * de menor a mayor (por `code`: con Alt la tecla puede llegar como otro carácter). Ctrl+Enter crea.
+   */
+  @HostListener('document:keydown', ['$event'])
+  onTecla(ev: KeyboardEvent): void {
+    const a = atajoDeTecla(ev, { crear: true });
+    if (!a) return;
+    if (a.tipo === 'buscar') { ev.preventDefault(); this.volverAlBuscador(); return; }
+    if (a.tipo === 'crear') { ev.preventDefault(); if (this.puedeCrear() && !this.guardando()) this.crear(); return; }
+    const o = this.articuloElegido() ? this.opcionesUnidadElegido()[a.indice] : undefined;
+    if (o) { ev.preventDefault(); this.setRung(o.rung); }
   }
 
   setRung(r: Rung): void {

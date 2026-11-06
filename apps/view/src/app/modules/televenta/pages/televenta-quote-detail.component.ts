@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, ElementRef, Injector, OnInit, afterNextRender, computed, inject, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, HostListener, Injector, OnInit, afterNextRender, computed, inject, signal, viewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
@@ -10,6 +10,7 @@ import { ProgressSpinnerModule } from 'primeng/progressspinner';
 import { SelectModule } from 'primeng/select';
 import { TextareaModule } from 'primeng/textarea';
 import { ConfirmationService, MessageService } from 'primeng/api';
+import { atajoDeTecla } from '../quote-atajos';
 import { Subject, debounceTime, distinctUntilChanged, switchMap, catchError, of } from 'rxjs';
 import { escalera, factorDe, type Presentacion } from '@megadulces/ui-web';
 import {
@@ -229,7 +230,10 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
                     (ngModelChange)="onTermino($event)"
                     (focus)="onFoco()"
                     (keydown.escape)="catalogoAbierto.set(false)"
-                    placeholder="Escribe código SKU, código de barras o nombre del producto..."
+                    (keydown.arrowdown)="$event.preventDefault(); moverResaltado(1)"
+                    (keydown.arrowup)="$event.preventDefault(); moverResaltado(-1)"
+                    (keydown.enter)="$event.preventDefault(); elegirResaltado()"
+                    placeholder="Escribe código SKU, código de barras o nombre del producto · ↑↓ y Enter eligen"
                     autocorrect="off"
                     spellcheck="false"
                     [disabled]="guardando()"
@@ -242,14 +246,15 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
                 <!-- Desplegable ordenado por orden alfabético del nombre del producto -->
                 @if (catalogoAbierto() && resultados().length > 0) {
                   <ul class="cat-dropdown" role="listbox" aria-label="Productos de la sucursal en orden alfabético">
-                    @for (p of resultados(); track p.sku) {
+                    @for (p of resultados(); track p.sku; let i = $index) {
                       <li>
                         <button
                           type="button"
                           class="cat-row"
                           role="option"
-                          [attr.aria-selected]="elegido()?.sku === p.sku"
-                          [class.cat-row-active]="elegido()?.sku === p.sku"
+                          [attr.aria-selected]="i === resaltado()"
+                          [class.cat-row-active]="i === resaltado()"
+                          (mouseenter)="resaltado.set(i)"
                           (click)="elegir(p)"
                         >
                           <div class="cat-col-nom">
@@ -348,8 +353,21 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
                         <i class="pi pi-minus" aria-hidden="true"></i>
                       </button>
 
-                      <div class="touch-qty-readout" aria-live="polite">
-                        <span class="qty-num">{{ cantidad }}</span>
+                      <div class="touch-qty-readout">
+                        <!-- [COT.33] La cantidad se TECLEA: con sólo −/+ y presets, 37 costaba 8 pulsaciones. -->
+                        <input
+                          #cantidadInput
+                          type="text"
+                          class="qty-num qty-num-input"
+                          [value]="cantidad"
+                          (input)="onCantidadTecleada($any($event.target).value)"
+                          (keydown.enter)="$event.preventDefault(); agregarConEnter()"
+                          (keydown.escape)="$event.preventDefault(); limpiarEleccion()"
+                          (focus)="$any($event.target).select()"
+                          [attr.inputmode]="admiteFraccionElegido() ? 'decimal' : 'numeric'"
+                          [disabled]="guardando()"
+                          [attr.aria-label]="'Cantidad en ' + labelUnidadActiva()"
+                        />
                         <span class="qty-lbl">{{ labelUnidadActiva() }}{{ cantidad > 1 ? (rung() === 'box' ? 's' : (rung() === 'base' && e.sold_by_kg ? '' : 's')) : '' }}</span>
                       </div>
 
@@ -521,6 +539,12 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
                   </div>
                 }
               }
+              <!-- [COT.33] Agregar sin mouse; los atajos se escriben, no se adivinan. -->
+              <p class="atajos">
+                Teclado: <kbd>/</kbd> buscar artículo · <kbd>↑</kbd><kbd>↓</kbd> y <kbd>Enter</kbd> eligen ·
+                <kbd>Alt</kbd>+<kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> unidad · <kbd>Enter</kbd> agrega · <kbd>Esc</kbd> cambia de artículo ·
+                en los renglones <kbd>↑</kbd><kbd>↓</kbd> cambian de renglón y <kbd>Tab</kbd> llega a quitar
+              </p>
             </div>
           </div>
         }
@@ -947,6 +971,12 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
         font-variant-numeric: tabular-nums; line-height: 32px;
       }
       .qty-num { font-size: 1rem; font-weight: 800; color: var(--text-main); }
+      /* [COT.33] La cantidad tecleable conserva el aspecto de la lectura que reemplaza. */
+      .qty-num-input { width: 5rem; text-align: center; font-variant-numeric: tabular-nums; background: transparent; border: 1px solid var(--surface-border); border-radius: 6px; padding: 0.15rem 0.3rem; font-family: inherit; }
+      .qty-num-input:focus-visible { outline: 2px solid var(--action); outline-offset: 1px; }
+      /* [COT.33] Los atajos, escritos donde se usan (DESIGN §10.7). */
+      .atajos { margin: 0.5rem 0 0; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.7; }
+      .atajos kbd { font-family: var(--font-mono, monospace); font-size: var(--fs-micro); padding: 0 0.3rem; border: 1px solid var(--surface-border); border-radius: 4px; background: var(--surface-ground); color: var(--text-main); }
       .qty-lbl { font-size: var(--fs-micro); color: var(--text-muted); text-transform: uppercase; font-weight: 600; }
 
       .touch-presets { display: flex; gap: 0.25rem; flex-wrap: wrap; }
@@ -1137,6 +1167,12 @@ export class TeleventaQuoteDetailComponent implements OnInit {
   readonly elegido = signal<QuoteCatalogRow | null>(null);
   /** El buscador de artículo: al agregar un renglón el cursor vuelve acá para el siguiente. */
   private readonly buscadorArticulo = viewChild<ElementRef<HTMLInputElement>>('buscadorArticulo');
+  /** [COT.33] El campo de cantidad del artículo elegido: recibe el cursor al elegir. */
+  private readonly cantidadInput = viewChild<ElementRef<HTMLInputElement>>('cantidadInput');
+  /** [COT.33] Renglón resaltado de la lista de artículos (↑/↓ + Enter), como en el alta. */
+  readonly resaltado = signal(0);
+  /** [E.20] Fracción sólo si el artículo se pesa y se cotiza en su unidad base. */
+  readonly admiteFraccionElegido = computed(() => !!this.elegido()?.sold_by_kg && this.rung() === 'base');
   /** [E.29] El foco está en el buscador: sólo entonces una respuesta puede abrir la lista. */
   private buscadorEnFoco = false;
 
@@ -1304,6 +1340,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
           return nomA.localeCompare(nomB, 'es', { sensitivity: 'base' });
         });
         this.resultados.set(ordenados);
+        this.resaltado.set(0);
         this.pedirExistenciaBusqueda(this.cot()?.source_branch, ordenados);
         this.buscando.set(false);
         // [E.29] Sólo si la persona sigue en el buscador: una respuesta tardía no la reabre encima.
@@ -1377,6 +1414,46 @@ export class TeleventaQuoteDetailComponent implements OnInit {
     this.elegido.set(p);
     this.catalogoAbierto.set(false);
     this.previa$.next();
+    // [COT.33] Elegido el artículo, el cursor pasa a la cantidad (con el 1 seleccionado).
+    afterNextRender(() => this.cantidadInput()?.nativeElement.focus(), { injector: this.injector });
+  }
+
+  /** [COT.33] ↑/↓ en el buscador mueven el resaltado de la lista sin soltar el teclado. */
+  moverResaltado(delta: number): void {
+    const n = this.resultados().length;
+    if (!n) return;
+    this.catalogoAbierto.set(true);
+    this.resaltado.set((this.resaltado() + delta + n) % n);
+  }
+
+  /** [COT.33] Enter en el buscador elige el resaltado (o el primero). */
+  elegirResaltado(): void {
+    const r = this.resultados();
+    if (r.length) this.elegir(r[this.resaltado()] ?? r[0]);
+  }
+
+  /** [COT.33] La cantidad tecleada, con la misma lectura que el alta (parseCantidad). */
+  onCantidadTecleada(valor: string): void {
+    const q = parseCantidad(valor, this.admiteFraccionElegido());
+    if (q === null) return; // lo tecleado todavía no es una cantidad: se conserva la anterior
+    this.cantidad = q;
+    this.previa$.next();
+  }
+
+  agregarConEnter(): void {
+    if (this.puedeAgregar() && !this.guardando()) this.agregar();
+  }
+
+  /** [COT.33] «/» lleva al buscador (fuera de un campo) y Alt+1/2/3 eligen la unidad. */
+  @HostListener('document:keydown', ['$event'])
+  onTecla(ev: KeyboardEvent): void {
+    if (!this.editable()) return;
+    const a = atajoDeTecla(ev);
+    if (!a) return;
+    if (a.tipo === 'buscar') { ev.preventDefault(); this.volverAlBuscador(); return; }
+    const e = this.elegido();
+    const o = e && a.tipo === 'unidad' ? this.opcionesUnidad(e)[a.indice] : undefined;
+    if (o) { ev.preventDefault(); this.setRung(o.rung); }
   }
 
   limpiarEleccion(): void {
