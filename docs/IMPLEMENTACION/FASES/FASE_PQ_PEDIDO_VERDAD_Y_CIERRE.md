@@ -1801,7 +1801,7 @@ traspasos de existencia fantasma.
 - La fila y las sugerencias dicen «orden NNNN» cuando es otro número.
 - La búsqueda por 4 dígitos encuentra también por el folio de la orden de entrada: «1065» → 03/0001062.
 - Medido: en 3,198 de 3,391 aplicaciones de 90 días el folio de la aplicación no es el de su orden.
-- La búsqueda por la orden va en dos pasos (las llaves en , luego la lista): como  correlacionado llevaba la búsqueda de 0.1 s a 1.5 s; en dos pasos queda en 50–110 ms más la lista igual.
+- La búsqueda por la orden va en dos pasos (las llaves en `kdm1`, luego la lista): como `OR` correlacionado llevaba la búsqueda de 0.1 s a 1.5 s; en dos pasos queda en 50–110 ms más la lista igual.
 - Verificado contra prod en sólo lectura con el servicio real (detalle y llaves) y el fragmento SQL. ⚠️ La lista de punta a punta NO MEDIDA: abre su transacción en escritura (tabla temporal) y el candado de sólo lectura la rechaza. Sin prueba de pantalla y sin validación visual.
 
 **Lo que destapó, y corrige lo dicho el 2026-11-05:** la X-A-40 0001062 (remisión 40-3588) y la 0001063 (40-3587) sí se aplicaron, con las X-A-20 0001059 y 0001060, pero esas aplicaciones están **canceladas**. La mercancía se volvió a capturar bien el mismo día (X-A-40 0001069 y 0001067). En Kepler hay que **cancelar** las órdenes 0001062 y 0001063, no corregir su cantidad: corregirla duplicaría lo que ya entró bien.
