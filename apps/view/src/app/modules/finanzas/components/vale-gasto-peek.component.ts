@@ -1,12 +1,13 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, model, output, signal } from '@angular/core';
 import { branchLabel } from '../../../core/constants/store-branches';
 import { CommonModule } from '@angular/common';
-import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
+import { DomSanitizer } from '@angular/platform-browser';
 import { ButtonModule } from 'primeng/button';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
+import { VisorEvidenciaComponent, type DocEvidencia } from './visor-evidencia.component';
 import { parseLocalDate } from '../../../core/utils/mx-date';
 import {
-  CLASIFICACION_LABEL, type ExpenseClasificacion, type ProofFile, type ValeGasto,
+  CLASIFICACION_LABEL, type DepartamentoDelVale, type ExpenseClasificacion, type ProofFile, type ValeGasto,
 } from '../comprobaciones.service';
 import { aceptaEvidenciaAdicional, detallesParaMostrar, esEvidenciaAdicional } from '@megadulces/contracts';
 
@@ -57,21 +58,7 @@ const ARCHIVO_LABEL: Record<string, string> = {
  * ⚠️ `safeUrl` se sanitiza **una vez**. Hacerlo en el template recrearía el `iframe` en cada
  * ciclo de detección — o sea que el PDF se recargaría solo, sin parar.
  */
-interface DocDelExpediente {
-  role: string;
-  label: string;
-  url: string;
-  isPdf: boolean;
-  /**
-   * `[GX.33]` No es imagen ni PDF: el navegador no lo puede pintar. Se ofrece para
-   * abrirlo, no se intenta mostrar — un `<img>` con un `.docx` adentro da un recuadro
-   * roto, y un recuadro roto se lee como «el archivo no está».
-   */
-  esOtro: boolean;
-  safeUrl: SafeResourceUrl | null;
-  /** `[GX.87]` Sólo en evidencia adicional: por qué se agregó, quién y cuándo. */
-  nota: string | null;
-}
+type DocDelExpediente = DocEvidencia;
 
 /**
  * `[GX.27]` — **El vale de gasto, completo.** Panel lateral compartido.
@@ -94,13 +81,15 @@ interface DocDelExpediente {
 @Component({
   selector: 'app-vale-gasto-peek',
   standalone: true,
-  imports: [CommonModule, ButtonModule, SidePeekComponent],
+  imports: [CommonModule, ButtonModule, SidePeekComponent, VisorEvidenciaComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
   <!-- ── El vale, completo ──────────────────────────────────────────────────── -->
   <!-- 820px: adentro va el comprobante, y un documento financiero no se lee en un
-       overlay apretado (DESIGN.md O.1). -->
-  <app-side-peek [open]="open()" (openChange)="open.set($event)" [width]="820"
+       overlay apretado (DESIGN.md O.1). [GX.99] 1120px: el usuario pidió la evidencia completa
+       abajo «o la pantalla de vista más grande»; más ancho, los datos van en tres columnas y ocupan
+       menos alto. En pantallas chicas el panel no pasa del ancho de la ventana. -->
+  <app-side-peek [open]="open()" (openChange)="open.set($event)" [width]="1120"
                  title="Vale de gasto" [subtitle]="subtituloPeek()">
     @if (vale(); as p) {
       <div class="vp">
@@ -120,7 +109,19 @@ interface DocDelExpediente {
         <dl class="vp-datos">
           <div><dt>Folio</dt><dd class="vp-mono">{{ p.folio_solicitud || 'sin folio' }}</dd></div>
           <div><dt>Sucursal</dt><dd>{{ branchLabel(p.sucursal) || '—' }}</dd></div>
-          <div><dt>Departamento</dt><dd>{{ p.departamento || p.solicitante || 'sin departamento' }}</dd></div>
+          <!-- [GX.98] El departamento de Kepler, con la parte de cada uno si está repartido. El
+               capturado («Sucursal NN») no es un departamento. -->
+          <div><dt>{{ (p.departamentos?.length ?? 0) > 1 ? 'Departamentos' : 'Departamento' }}</dt><dd>
+            @if (p.departamentos === undefined) { {{ p.solicitante || 'sin medir' }} }
+            @else if (p.departamentos === null) { sin leer en Kepler }
+            @else if (!p.departamentos.length) { sin departamento en Kepler }
+            @else if (p.departamentos.length === 1) { {{ nombreDep(p.departamentos[0]) }} }
+            @else {
+              <ul class="vp-deps">
+                @for (x of p.departamentos; track x.clave) { <li>{{ nombreDep(x) }} <span class="vp-mono">{{ money(x.importe) }}</span></li> }
+              </ul>
+            }
+          </dd></div>
           <div><dt>Levantado</dt><dd>{{ diaLocal(p.created_at) | date: 'dd/MM/yy' }}@if (p.created_hora) { {{ p.created_hora }} } · {{ p.created_by || '—' }}</dd></div>
           <!-- Las dos fechas, siempre: el gasto puede ser de otro día que el levantamiento. -->
           <div><dt>Fecha del gasto</dt><dd>{{ p.fecha_gasto ? (diaLocal(p.fecha_gasto) | date: 'dd/MM/yy') : 'no declarada' }}</dd></div>
@@ -191,31 +192,33 @@ interface DocDelExpediente {
             <span>Este vale no trae ningún archivo adjunto.</span>
           </div>
         } @else {
-          @for (d of docs(); track d.url) {
-            <figure class="vp-doc">
-              <figcaption>
-                <span>{{ d.label }}@if (d.nota) { <span class="vp-doc-nota">{{ d.nota }}</span> }</span>
-                <a [href]="d.url" target="_blank" rel="noopener">abrir aparte</a>
-              </figcaption>
-              @if (d.isPdf) {
-                <iframe [src]="d.safeUrl" [title]="d.label" loading="lazy"></iframe>
-              } @else if (d.esOtro) {
-                <!-- [GX.33] Un documento que el navegador no pinta. Se dice qué es y se
-                     ofrece abrirlo, en vez de dejar un recuadro roto. -->
-                <a class="vp-otro" [href]="d.url" target="_blank" rel="noopener">
-                  <i class="pi pi-file" aria-hidden="true"></i>
-                  <span>Este documento no se puede ver acá — ábrelo para revisarlo</span>
-                </a>
-              } @else {
-                <img [src]="d.url" [alt]="d.label" loading="lazy" (error)="fallo(d.url)" />
-              }
-              @if (fallidos().has(d.url)) {
+          <!-- [GX.99] Cada archivo ENTERO y sin scroll (pedido del usuario: «la vista completa pero sin
+               que haga scroll»). Antes iba a lo ancho, uno debajo de otro, y el PDF con su propio
+               scroll. Ahora van lado a lado, cada uno ajustado a su recuadro; tocarlo abre el visor
+               grande para acercar y pasar de uno a otro. -->
+          <div class="vp-minis">
+            @for (d of docs(); track d.url; let i = $index) {
+              <button type="button" class="vp-mini" (click)="verEvidencia(i)" [attr.aria-label]="'Ver ' + d.label + ' en grande'">
+                <span class="vp-mini-img">
+                  @if (d.isPdf) {
+                    <!-- La página entera, ajustada y sin barras. El iframe no recibe el clic: lo recibe el botón. -->
+                    <iframe [src]="d.safeUrlVista" [title]="d.label" tabindex="-1" aria-hidden="true" loading="lazy"></iframe>
+                  }
+                  @else if (d.esOtro || fallidos().has(d.url)) { <i class="pi pi-file" aria-hidden="true"></i> }
+                  @else { <img [src]="d.url" alt="" loading="lazy" (error)="fallo(d.url)" /> }
+                  <span class="vp-mini-ver"><i class="pi pi-window-maximize" aria-hidden="true"></i></span>
+                </span>
+                <span class="vp-mini-t">{{ d.label }}</span>
                 <!-- Que la imagen no cargue NO es que no exista: se dice cuál de las dos. -->
-                <p class="vp-fallo">No se pudo mostrar el archivo. Prueba «abrir aparte».</p>
-              }
-            </figure>
-          }
+                @if (fallidos().has(d.url)) { <span class="vp-fallo">No se pudo mostrar el archivo. Ábrelo en grande o aparte.</span> }
+                @if (d.nota) { <span class="vp-doc-nota">{{ d.nota }}</span> }
+              </button>
+            }
+          </div>
+          <p class="vp-mini-ayuda">Toca un archivo para verlo en grande, acercarlo y pasar al siguiente.</p>
         }
+        <app-visor-evidencia [(open)]="visorAbierto" [(indice)]="visorIndice" [docs]="docs()"
+                             [titulo]="(p.folio_solicitud || 'sin folio') + ' · ' + money(p.importe)" />
 
         <!-- ── La decisión, al pie del documento ───────────────────────────── -->
         <!-- [GX.30] La marca provisional viaja DENTRO del pie pegajoso, con los botones.
@@ -315,7 +318,7 @@ interface DocDelExpediente {
     font-size: var(--fs-h1); font-weight: var(--fw-bold); line-height: 1.1; }
   .vp-prov { font-size: var(--fs-sm); color: var(--fg-2); }
   .vp-con { font-size: var(--fs-sm); color: var(--fg-1); margin: 0; }
-  .vp-datos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-2) var(--sp-4);
+  .vp-datos { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: var(--sp-2) var(--sp-4);
     margin: 0; padding: var(--sp-3); background: var(--layout-bg); border-radius: var(--r-md); }
   .vp-datos dt { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .05em; color: var(--fg-3); }
   .vp-datos dd { margin: 0; font-size: var(--fs-sm); color: var(--fg-1); }
@@ -332,6 +335,27 @@ interface DocDelExpediente {
     color: var(--fg-3); margin: var(--sp-2) 0 0; }
   .vp-sin { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm); color: var(--fg-2);
     padding: var(--sp-4); border: 1px dashed var(--border-color); border-radius: var(--r-md); }
+  /* [GX.99] Las miniaturas de la evidencia. */
+  /* Lado a lado y del alto de una pantalla de panel: todo se ve de un vistazo, sin scroll. */
+  .vp-minis { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: var(--sp-2); }
+  .vp-mini { display: flex; flex-direction: column; gap: 4px; padding: var(--sp-1); text-align: left; cursor: pointer;
+    border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); font: inherit; color: var(--fg-1); }
+  .vp-mini:hover { border-color: var(--action); }
+  .vp-mini:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+  .vp-mini-img { position: relative; height: clamp(10rem, calc(100vh - 39rem), 24rem); display: grid; place-items: center; background: var(--layout-bg);
+    border-radius: var(--r-sm); overflow: hidden; color: var(--fg-3); }
+  /* contain: el archivo ENTERO, sin recortar. */
+  .vp-mini-img img { width: 100%; height: 100%; object-fit: contain; }
+  .vp-mini-img iframe { width: 100%; height: 100%; border: 0; pointer-events: none; background: var(--card-bg); }
+  .vp-mini-ver { position: absolute; top: var(--sp-1); right: var(--sp-1); width: 1.75rem; height: 1.75rem; border-radius: var(--r-sm);
+    display: grid; place-items: center; background: var(--card-bg); color: var(--fg-2); border: 1px solid var(--border-color); }
+  .vp-mini:hover .vp-mini-ver { color: var(--action); border-color: var(--action); }
+  .vp-mini-img .pi { font-size: 1.8rem; }
+  .vp-mini-img em { font-style: normal; font-size: var(--fs-nano); }
+  .vp-mini-t { font-size: var(--fs-xs); }
+  .vp-mini .vp-doc-nota { font-size: var(--fs-nano); line-height: 1.3; }
+  .vp-mini-ayuda { margin: 0; font-size: var(--fs-xs); color: var(--fg-3); }
+  .vp-deps { margin: 0; padding-left: 1rem; }
   .vp-doc { margin: 0; border: 1px solid var(--border-color); border-radius: var(--r-md); overflow: hidden; }
   .vp-doc figcaption { display: flex; align-items: center; justify-content: space-between;
     gap: var(--sp-2); padding: 6px var(--sp-3); background: var(--layout-bg);
@@ -339,7 +363,7 @@ interface DocDelExpediente {
   .vp-doc figcaption a { font-size: var(--fs-xs); }
   .vp-doc img { display: block; width: 100%; height: auto; background: var(--layout-bg); }
   .vp-doc iframe { display: block; width: 100%; height: 62vh; border: 0; background: var(--layout-bg); }
-  .vp-fallo { font-size: var(--fs-xs); color: var(--warn-fg); padding: var(--sp-2) var(--sp-3); margin: 0; }
+  .vp-fallo { font-size: var(--fs-xs); color: var(--warn-soft-fg); padding: var(--sp-1) 0; margin: 0; }
   .vp-otro { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-4);
     font-size: var(--fs-sm); color: var(--fg-2); text-decoration: none; background: var(--layout-bg); }
   .vp-otro:hover { color: var(--action); }
@@ -407,6 +431,9 @@ export class ValeGastoPeekComponent {
       this.vale();
       this.provisional.set(false);
       this.esperado.set('');
+      // `[GX.99]` El visor grande es del vale que se miraba: al cambiar de vale se cierra.
+      this.visorAbierto.set(false);
+      this.visorIndice.set(0);
     }, { allowSignalWrites: true });
   }
 
@@ -432,7 +459,11 @@ export class ValeGastoPeekComponent {
   subtituloPeek(): string {
     const p = this.vale();
     if (!p) return '';
-    return `${p.folio_solicitud || 'sin folio'} · ${p.departamento || p.solicitante || 'sin departamento'}`;
+    // `[GX.98]` El departamento de Kepler (el de más importe). El capturado dice «Sucursal NN».
+    const deps = p.departamentos;
+    const dep = deps?.length ? (deps.length > 1 ? `${this.nombreDep(deps[0])} y ${deps.length - 1} más` : this.nombreDep(deps[0]))
+      : deps === undefined ? (p.solicitante || 'sin departamento') : 'sin departamento en Kepler';
+    return `${p.folio_solicitud || 'sin folio'} · ${dep}`;
   }
 
   readonly docs = computed<DocDelExpediente[]>(() => {
@@ -452,10 +483,19 @@ export class ValeGastoPeekComponent {
         isPdf,
         esOtro,
         safeUrl: isPdf ? this.sanitizer.bypassSecurityTrustResourceUrl(f.url) : null,
+        // `[GX.99]` La vista del panel: la página entera ajustada, sin barras ni panel lateral del lector.
+        safeUrlVista: isPdf ? this.sanitizer.bypassSecurityTrustResourceUrl(`${f.url.split('#')[0]}#view=Fit&toolbar=0&navpanes=0&scrollbar=0`) : null,
         nota: esEvidenciaAdicional(f) ? notaAdicional(f) : null,
       };
     });
   });
+
+  /** `[GX.99]` El visor grande: abierto o no, y en qué archivo. Se cierra solo al cambiar de vale. */
+  readonly visorAbierto = signal(false);
+  readonly visorIndice = signal(0);
+  verEvidencia(i: number): void { this.visorIndice.set(i); this.visorAbierto.set(true); }
+
+  nombreDep(d: DepartamentoDelVale): string { return d.nombre ?? d.clave; }
 
   /** Que el navegador no pueda pintarlo NO es que el archivo no exista: se dice cuál de las dos. */
   fallo(url: string): void {

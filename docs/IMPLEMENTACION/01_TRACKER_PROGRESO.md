@@ -5269,6 +5269,41 @@ prod ANTES del redeploy** (si el código sale primero, `/attach` escribe columna
 falla). · Redeploy api+view. **Sin permisos nuevos → sin re-login.** · Considerar un cron para
 «Volver a comparar» (hoy es manual) con su latido en `CRON_JOBS`.
 
+### 🔨 [GX.91]–[GX.101] · Mis gastos v2, cierre correcto, cola de Kepler, departamento, evidencia en grande — 2026-11-06
+
+Detalle: `docs/MODULOS/finanzas-mis-gastos-v2.md`. Sale de una auditoría en prod (sólo lectura) del 2026-11-05.
+
+- [x] **[GX.91]** 🧪 Un vale vivo por solicitud. `submit()` frena el segundo clic; `create()` toma un candado por
+  (tenant, sucursal, folio) y responde **409** con el vale existente (la regla de `modo()`: cualquier vale no
+  rechazado). Medido en prod: un doble clic creó 2 vales en el mismo segundo. Probado contra la base LOCAL: dos
+  `create()` simultáneos → 1 entra, 1 recibe 409; negativa: sin el candado entran 2.
+- [x] **[GX.92]** 🧪 `cicloCerrado`/`motivoDeCierre` en el contrato: el revisado cierra con su gasto **o** con la
+  solicitud cancelada en Kepler. Medido: 32 revisados con la solicitud cancelada se quedaban «Falta el gasto».
+- [x] **[GX.93]** 🧪 `etapaDeEjercicio`: la cancelación manda sobre «aplicada» (como decía su comentario). 24 vales
+  decían «ejercido» siendo cancelados; la prueba de la cancelada CON gasto no existía (negativa: rojo).
+- [x] **[GX.94]** 🧪 En «Mis gastos» el rechazo se queda hasta que se recaptura o Kepler cancela la solicitud (antes
+  24 h; medido: 19 ocultos, ninguno recapturado). La lista general conserva las 24 h.
+- [x] **[GX.95]** 🧪 Cortes declarados (`cerrados_truncados`, `asignados_truncados`); búsqueda por concepto y sobre
+  lo asignado; asignados sólo desde el arranque de la Suite en su sucursal.
+- [x] **[GX.96]** 🧪 `GET esperan-kepler` (`COMPROBAR`) + pestaña «Esperan a Kepler» en Aprobación: revisados que
+  esperan autorizar/generar el gasto (62 en prod, 13 con más de 30 días) y los hallazgos (canceladas con gasto, 26).
+  ~350 ms en prod. Arranque probado (`finance-esperan-kepler.metadata.spec.ts`).
+- [x] **[GX.97]** 🧪 Rediseño de «Mis gastos»: una lista con filtro por a quién le toca (Te toca · Finanzas · Kepler ·
+  Cerrados), «Capturar gasto», rojo sólo para lo que salió mal. Captura: archivo repetido avisado y «usar el
+  concepto de Kepler» a un clic (no prellenado: [GX.57]).
+- [x] **[GX.98]** 🧪 Aprobación agrupa por el departamento de Kepler (`kdm6.c16` → `kdc3`), no por «Sucursal NN»
+  (lo que dicen los 1,672 vales). Repartido: en cada departamento con su parte, al centavo. En Hoy y Atrasados.
+- [x] **[GX.99]** 🧪 Evidencia completa y sin scroll en el panel (más ancho) + visor grande (`app-visor-evidencia`):
+  flechas, acercar, girar, miniaturas; Esc cierra sólo el visor.
+- [x] **[GX.100]** 🧪 Aprobar/rechazar/actualizar sin regresar al inicio (actualización silenciosa; conserva pestaña,
+  departamento y posición; pestaña y departamento en la URL). Medido en la maqueta: 700 px → 700 px; sin el arreglo
+  (control) 700 → 0.
+- [x] **[GX.101]** 🧪 El buscador de gastos va junto al título de cada pantalla (antes, una barra arriba de las pestañas).
+- [ ] **[GX.91.x]** Declarado: **sin validación en prod** (sí en local con `database/scripts/dev-seed-gx91-mis-gastos.js`
+  y en una maqueta con la pantalla real y datos de demo); sin medir modo claro, Alto Contraste y ancho de teléfono.
+  Sin migraciones ni permisos nuevos → sin re-login. Pendiente del PM: relacionar el usuario de Kepler con el de la
+  Suite (la mayoría de las solicitudes sin vale no le aparecen a nadie) y recordatorios por notificación.
+
 ### 🔨 [GX.88] · atrasados en Aprobación + buscador de gastos arriba de las pestañas — 2026-11-05
 
 - [x] **[GX.88]** 🧪 Hallazgo (30-oct): vales subidos que **no le aparecían a quien aprueba**. Causa medida: dos reglas

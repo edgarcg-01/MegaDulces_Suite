@@ -15,7 +15,7 @@ import { DialogModule } from 'primeng/dialog';
 import { MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/services/auth.service';
 import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { ComprobacionesService, SolicitudSug, ProofFile, ProofFileRole, ExpenseProof,
   ExpenseClasificacion, ProofByFolio, requiereEvidencia, ROLES_COMPROBANTE, ROLES_COTIZACION,
   type ListasParaComprobar } from '../comprobaciones.service';
@@ -49,7 +49,7 @@ interface SelSolicitud {
 @Component({
   selector: 'app-finanzas-capturar-gasto',
   standalone: true,
-  imports: [CommonModule, FormsModule, AutoCompleteModule, TagModule, ButtonModule, InputTextModule, TextareaModule, SelectButtonModule, ToastModule, DialogModule, CapturaEnVivoComponent, AvisoRondaGastosComponent],
+  imports: [CommonModule, FormsModule, AutoCompleteModule, TagModule, ButtonModule, InputTextModule, TextareaModule, SelectButtonModule, ToastModule, DialogModule, CapturaEnVivoComponent, AvisoRondaGastosComponent, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -354,9 +354,23 @@ interface SelSolicitud {
                 <label class="cap-f"><span>Concepto <b class="cap-req">obligatorio</b></span>
                   <textarea pTextarea [ngModel]="comentarios()" (ngModelChange)="comentarios.set($event)"
                             rows="2" class="w-full" placeholder="En una frase: qué se compró o para qué fue el gasto"></textarea></label>
+                <!-- [GX.97] El concepto de Kepler a UN clic, no prellenado: [GX.57] quitó a propósito
+                     que el expediente guardara un concepto que nadie escribió. Copiarlo es una
+                     decisión de la persona, y lo puede corregir antes de mandar. -->
+                @if (gasto()?.concepto && !comentarios().trim()) {
+                  <button type="button" class="cap-usar-concepto" (click)="usarConceptoDeKepler()">
+                    Usar el de Kepler: «{{ gasto()!.concepto }}»
+                  </button>
+                }
               }
 
               @if (formError()) { <div class="cap-err">{{ formError() }}</div> }
+              <!-- [GX.91] El vale ya existía: se lleva a la persona a SU vale, no a capturar otro. -->
+              @if (duplicado()?.mio) {
+                <a class="cap-dup-link" [routerLink]="['/finanzas/mis-gastos']" [queryParams]="{ vale: duplicado()!.vale_id }">
+                  <i class="pi pi-external-link" aria-hidden="true"></i>&nbsp;Abrir mi vale en «Mis gastos»
+                </a>
+              }
               <!--
                 [GX.17] Se retiró la lista de faltantes que iba acá («Cómo se pagó» / «La foto
                 del comprobante»): con los pasos numerados a la vista, repetía lo que la propia
@@ -411,8 +425,19 @@ interface SelSolicitud {
 
             <!-- ── Estados sin acción para el capturista. -->
             @case ('esperando') {
+              <!-- [GX.91] «Ya la capturaste» se leía también cuando el vale era de OTRA persona: este
+                   estado no sabe quién lo capturó. Se dice lo que sí se sabe. -->
               <div class="cap-state"><i class="pi pi-clock" aria-hidden="true"></i>
-                Ya la capturaste. Está <strong>esperando aprobación</strong>. Cuando la aprueben, si lleva evidencia, aquí podrás subirla.</div>
+                Esta solicitud ya tiene un vale y está <strong>esperando aprobación</strong>. Cuando la aprueben, si lleva evidencia, aquí podrás subirla.</div>
+              <!-- [GX.91] Si se llegó aquí por el 409, el aviso del servidor dice de quién es y el enlace lleva al tuyo. -->
+              @if (duplicado()) {
+                <div class="cap-err">{{ formError() }}</div>
+                @if (duplicado()!.mio) {
+                  <a class="cap-dup-link" [routerLink]="['/finanzas/mis-gastos']" [queryParams]="{ vale: duplicado()!.vale_id }">
+                    <i class="pi pi-external-link" aria-hidden="true"></i>&nbsp;Abrir mi vale en «Mis gastos»
+                  </a>
+                }
+              }
             }
             @case ('revision') {
               <div class="cap-state"><i class="pi pi-hourglass" aria-hidden="true"></i>
@@ -708,6 +733,11 @@ interface SelSolicitud {
     .cap-state.ok { color: var(--ok-soft-fg); background: var(--ok-soft-bg); border-color: var(--ok-border); border-style: solid; }
     .cap-state.ok > i { color: var(--ok-fg); }
     .cap-err { font-size: var(--fs-xs); color: var(--bad-fg); }
+    /* [GX.97] Copiar el concepto de Kepler: un enlace discreto, no un botón que compita con «Enviar». */
+    .cap-usar-concepto { align-self: flex-start; border: 0; background: transparent; padding: 0; margin-top: calc(-1 * var(--sp-1));
+      font: inherit; font-size: var(--fs-xs); color: var(--action); cursor: pointer; text-align: left; }
+    .cap-usar-concepto:focus-visible, .cap-dup-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+    .cap-dup-link { align-self: flex-start; font-size: var(--fs-sm); color: var(--action); }
     .cap-send { justify-content: center; }
 
     .cap-mine { margin-top: var(--sp-6); }
@@ -1020,6 +1050,16 @@ export class FinanzasCapturarGastoComponent {
   private uploaded: Record<string, ProofFile> = {};
   readonly saving = signal(false);
   readonly formError = signal('');
+  /**
+   * `[GX.91]` El servidor dijo que la solicitud ya tiene un vale vivo (409). `mio` decide si se
+   * ofrece abrirlo: el de otra persona no se puede abrir desde «Mis gastos».
+   */
+  readonly duplicado = signal<{ vale_id: string; mio: boolean } | null>(null);
+  /**
+   * `[GX.97]` La huella de cada archivo elegido, por rol: nombre + tamaño + fecha de modificación.
+   * Medido en prod el 2026-11-05: el mismo archivo se adjuntó dos veces sin ningún aviso.
+   */
+  private readonly huellas: Record<string, string> = {};
   readonly drag = signal(false);
   /** Drag propio de la zona de la solicitud firmada (para no encender ambas zonas a la vez). */
   readonly dragSol = signal(false);
@@ -1176,7 +1216,7 @@ export class FinanzasCapturarGastoComponent {
     this.gasto.set(null); this.clearPhoto(); this.clearFile('solicitud_kepler'); this.sel = null; this.comentarios.set('');
     this.clasificacion.set(null); this.clasificacionV = null; this.formError.set('');
     this.formaPago.set(null); this.detallesPago.set(['']); this.sellos.set({});
-    this.existing.set(null); this.checking.set(false);
+    this.existing.set(null); this.checking.set(false); this.duplicado.set(null);
   }
 
   onFile(ev: Event, role: string) {
@@ -1193,7 +1233,7 @@ export class FinanzasCapturarGastoComponent {
   dropSol(e: DragEvent) { e.preventDefault(); e.stopPropagation(); this.dragSol.set(false); const f = e.dataTransfer?.files?.[0]; if (f) this.handle(f, 'solicitud_kepler'); }
   /** Quita un archivo elegido por rol. El comprobante además limpia su lectura de visión. */
   clearFile(role: string) {
-    delete this.fileData[role]; delete this.uploaded[role];
+    delete this.fileData[role]; delete this.uploaded[role]; delete this.huellas[role];
     this.names.update((m) => { const n = { ...m }; delete n[role]; return n; });
     // [GX.14] El sello se va con el archivo. Si quedara, la compuerta creería que la
     // foto siguiente también se tomó en vivo aunque haya entrado por otro lado.
@@ -1217,6 +1257,11 @@ export class FinanzasCapturarGastoComponent {
 
   private handle(file: File, role: string) {
     if (file.size > MAX_ARCHIVO_GASTO_BYTES) { this.formError.set(`"${file.name}" supera ${MAX_ARCHIVO_GASTO_MB} MB.`); return; }
+    // `[GX.97]` El mismo archivo en OTRO rol es un error de dedo, no evidencia nueva: se avisa y no se agrega.
+    const huella = huellaDeArchivo(file);
+    const yaEsta = Object.entries(this.huellas).find(([r, h]) => r !== role && h === huella && this.names()[r]);
+    if (yaEsta) { this.formError.set(`Ya agregaste «${file.name}». No hace falta subirlo dos veces.`); return; }
+    this.huellas[role] = huella;
     this.formError.set('');
     const reader = new FileReader();
     reader.onload = () => {
@@ -1236,6 +1281,13 @@ export class FinanzasCapturarGastoComponent {
 
 
   submit() {
+    /**
+     * `[GX.91]` ⛔ **Un envío a la vez.** El botón se apaga con `saving()`, pero el apagado se pinta
+     * en la siguiente detección de cambios: el segundo clic de un doble clic llega ANTES. Medido en
+     * prod el 2026-11-05: dos vales del mismo folio en el mismo segundo. Esta línea lo frena en el
+     * primer clic; el 409 del servidor lo frena aunque esta línea falle.
+     */
+    if (this.saving()) return;
     const g = this.gasto();
     if (!g) { this.formError.set('Elige el gasto.'); return; }
     if (this.modo() === 'evidencia') { this.submitEvidencia(g); return; }
@@ -1335,8 +1387,27 @@ export class FinanzasCapturarGastoComponent {
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       // `[GX.86]` El acuse repite cuándo se revisa (la ronda se calcula AHORA, al mandarlo).
       next: () => { this.saving.set(false); this.toast.add({ severity: 'success', summary: 'Enviada a aprobación', detail: `Solicitud ${g.folio}. ${rondaDeRevision().acuse}` }); this.uploaded = {}; this.reset(); this.loadMine(); },
-      error: (e) => { this.saving.set(false); this.formError.set(e?.error?.message || 'No se pudo enviar.'); },
+      error: (e) => {
+        this.saving.set(false);
+        /**
+         * `[GX.91]` 409 = la solicitud ya tiene un vale vivo. Se dice con las palabras del servidor y
+         * se vuelve a leer el folio: la pantalla pasa sola a «esperando», que es la verdad.
+         */
+        if (e?.status === 409 && e?.error?.vale_id) {
+          this.duplicado.set({ vale_id: String(e.error.vale_id), mio: e.error.mio === true });
+          this.formError.set(e.error.message || 'Esta solicitud ya tiene un vale.');
+          this.checkFolio(g.folio, g.sucursal ?? undefined);
+          return;
+        }
+        this.formError.set(e?.error?.message || 'No se pudo enviar.');
+      },
     });
+  }
+
+  /** `[GX.97]` Copia el concepto de la solicitud de Kepler a la caja. Lo decide la persona. */
+  usarConceptoDeKepler(): void {
+    const c = String(this.gasto()?.concepto ?? '').trim();
+    if (c) this.comentarios.set(c);
   }
 
   private enviarEvidencia(id: string, g: SelSolicitud) {
@@ -1421,4 +1492,9 @@ export class FinanzasCapturarGastoComponent {
   }
 
   moneyFull(v: number | string | null | undefined): string { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+}
+
+/** `[GX.97]` La huella de un archivo: lo que basta para reconocer «el mismo archivo otra vez». */
+export function huellaDeArchivo(f: { name: string; size: number; lastModified?: number }): string {
+  return `${f.name}|${f.size}|${f.lastModified ?? ''}`;
 }

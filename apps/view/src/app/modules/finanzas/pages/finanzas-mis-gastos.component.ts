@@ -4,8 +4,10 @@ import { CommonModule } from '@angular/common';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
+import { TableModule } from 'primeng/table';
+import { TagModule } from 'primeng/tag';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import {
   CLASIFICACION_LABEL, ComprobacionesService,
   type ExpenseClasificacion, type ExpenseProof, type ExpenseProofsReport, type ValeGasto,
@@ -15,24 +17,27 @@ import { REFRESCO_VALES_MS } from '../vales-refresco';
 import { ValeGastoPeekComponent, type AccionVale } from '../components/vale-gasto-peek.component';
 import { EvidenciaAdicionalDialogComponent, type EvidenciaAgregada } from '../components/evidencia-adicional-dialog.component';
 import { BuscadorGastosEstado } from '../components/buscador-gastos.estado';
+import { BuscadorGastosComponent } from '../components/buscador-gastos.component';
+import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 import { parseLocalDate } from '../../../core/utils/mx-date';
 // `[GX.39]` La etapa la decide el SERVIDOR con `etapaDeEjercicio()`; acá sólo se lee el tipo.
-import type { EtapaEjercicio, ValeAsignado } from '@megadulces/contracts';
+import type { EtapaEjercicio, ValeAsignado, TransferenciaGasto } from '@megadulces/contracts';
 import { aceptaEvidenciaAdicional } from '@megadulces/contracts';
-import type { TransferenciaGasto } from '@megadulces/contracts';
 import {
-  DIAS_ATORADO, agruparPorProveedor, cicloCerrado, diasDesde, notaDePago, textoAntiguedad, ubicacionDe,
-  type ColumnaId, type GrupoProveedor, type NotaDePago, type ZonaId,
+  DIAS_ATORADO, diasDesde, notaDePago, situacionDe, textoAntiguedad,
+  type AQuien, type NotaDePago, type Situacion,
 } from '../mis-gastos-columnas';
 
 /**
  * `[GX.46]` `asignado` es una etapa **de esta pantalla**, no del contrato: el contrato decide
- * el ciclo de un expediente NUESTRO, y un vale asignado todavia no lo es.
+ * el ciclo de un expediente NUESTRO, y un vale asignado todavía no lo es.
  */
 type EtapaLista = EtapaEjercicio | 'asignado';
 
-/** Una fila del tablero, venga de Kepler o de un expediente nuestro. */
+/** Una fila de la lista, venga de Kepler o de un expediente nuestro. */
 interface FilaLista {
   key: string;
   folio: string;
@@ -42,262 +47,190 @@ interface FilaLista {
   titulo: string | null;
   detalle: string | null;
   etapa: EtapaLista | null;
-  etapa_label: string;
-  etapa_explicacion: string;
   status: string | null;
   motivo_rechazo: string | null;
   /** `[GX.54]` Aprobado pero debiendo el comprobante (entró con cotización o prefactura). */
-  debeFactura?: boolean;
+  debeFactura: boolean;
   /** `[GX.55]` Si esta fila ofrece el camino para subir un archivo. */
-  puedeSubir?: boolean;
-  /** Sólo los asignados: si Kepler ya genero su gasto. */
-  aplicada: boolean | null;
-  /** `[GX.65.3]` El proveedor por su CLAVE de Kepler, y los gastos XA1001 ligados. */
+  puedeSubir: boolean;
   proveedor_clave: string | null;
-  proveedor_nombre: string | null;
   gasto_folios: string[];
-  /** `[GX.75]` Las transferencias XD2601 de esos gastos. `null` = no se midió. */
-  transferencias: TransferenciaGasto[] | null;
-  /** `[GX.75]` Lo que la tarjeta dice del pago; `null` = nada que decir. */
+  /** `[GX.75]` Lo que la fila dice del pago; `null` = nada que decir. */
   notaPago: NotaDePago | null;
   /** `null` = viene de Kepler y no tiene expediente: no se puede abrir. */
   proof: ExpenseProof | null;
+  /** `[GX.97]` A quién le toca y qué falta. `null` = estado que la regla no conoce. */
+  situacion: Situacion | null;
+  /** Días desde la fecha del gasto; `null` si no se puede leer. Va como campo para poder ordenar. */
+  dias: number | null;
 }
 
-interface Columna {
-  id: ColumnaId;
-  n: number;
-  titulo: string;
-  doc: string;
-  ayuda: string;
-  pendLabel: string;
-  esperaLabel: string;
-  esperaAyuda: string;
-  pendientes: FilaLista[];
-  espera: FilaLista[];
-  grupos: GrupoProveedor<FilaLista>[];
-}
+/** El orden del filtro y su rótulo. Es también el orden en que se elige el filtro inicial. */
+const FILTROS: readonly { value: AQuien; label: string; vacio: string }[] = [
+  { value: 'tu', label: 'Te toca', vacio: 'Nada te toca: no tienes vales por subir ni devueltos.' },
+  { value: 'finanzas', label: 'Esperan a Finanzas', vacio: 'Ningún vale tuyo espera revisión de Finanzas.' },
+  { value: 'kepler', label: 'Esperan a Kepler', vacio: 'Ningún vale revisado espera a Kepler.' },
+  { value: 'cerrado', label: 'Cerrados', vacio: 'Todavía no tienes vales cerrados.' },
+];
 
 /**
  * `[GX.33]` — **Mis gastos.** Lo que YO levanté, en qué quedó cada uno, y su expediente.
  *
- * ## `[GX.65.5]` Tres columnas en vez de cuatro pestañas
- * Rediseño acordado con maqueta y simulación (2026-10-03): **Solicitudes → Pendientes de
- * comprobación → Expedientes**. En cada columna, arriba en ROJO lo que te toca; abajo lo que ya
- * pasó esa etapa, agrupado por la clave de proveedor de Kepler. La regla de qué va en cada
- * columna vive en `mis-gastos-columnas.ts` y se prueba aparte. Un vale vive en UN solo lugar.
+ * ## `[GX.97]` v2: «¿qué me toca?», y lo demás por a quién espera
+ * La auditoría en prod del 2026-11-05 (ver `docs/MODULOS/finanzas-mis-gastos-v2.md`) midió que el
+ * tablero de tres columnas (`[GX.65.5]`) escondía lo atorado: 32 revisados con la solicitud
+ * cancelada nunca cerraban, 62 esperaban a Kepler sin que nadie que pudiera moverlos los viera, y
+ * con 30 vales una columna medía 3,285 px contra 955 y 839. Ahora es UNA lista con un filtro por
+ * **a quién le toca** (con su conteo dentro), y las etapas conservan sus nombres (Solicitud ·
+ * Pendiente de comprobación · Expediente) como etiqueta de la fila.
  *
- * ## ⛔ No filtra del lado del cliente
- * Pide `GET /mine`, que el servidor acota por el token. Si el recorte viviera acá, un error
- * de esta pantalla mostraría el gasto ajeno — y peor, nadie se enteraría.
+ * ## ⛔ No filtra del lado del cliente lo que es de otro
+ * Pide `GET /mine`, que el servidor acota por el token. Si el recorte viviera acá, un error de
+ * esta pantalla mostraría el gasto ajeno — y nadie se enteraría.
  *
- * ## ⚠️ Un rechazo se ve acá, pero no para siempre
- * A las 24 h el servidor deja de devolverlo (`[GX.29]`). Se dice en el vacío, para que nadie
- * crea que se perdió.
- *
- * ## Lo que esta entrega NO trae todavía
- * Los filtros avanzados de la maqueta (accesos rápidos, «Más filtros», periodo de pagados) son
- * `[GX.65.6]`. El selector por niveles de la pirámide es `[GX.65.4b]`.
+ * ## `[GX.94]` Un rechazo se queda hasta que deja de pedir algo
+ * El servidor lo devuelve hasta que se recaptura o Kepler cancela la solicitud (antes: 24 h).
  */
 @Component({
   selector: 'app-finanzas-mis-gastos',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, InputTextModule, ValeGastoPeekComponent, EvidenciaAdicionalDialogComponent, RouterLink],
+  imports: [CommonModule, FormsModule, ButtonModule, InputTextModule, TableModule, TagModule, RouterLink, BuscadorGastosComponent,
+    ValeGastoPeekComponent, EvidenciaAdicionalDialogComponent, LoadStateComponent, FreshnessPillComponent, SegmentedComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in mg">
-      <!-- [GX.88] Mientras hay una búsqueda arriba de las pestañas, la pantalla se esconde entera:
-           los resultados la reemplazan. El visor y el diálogo de abajo NO se esconden: son los
-           que abren el vale elegido en el buscador. -->
-      @if (!buscandoArriba()) {
+      <!-- [GX.101] El buscador va junto al título (pedido del usuario: «a uno más visible»). Mientras hay
+           búsqueda, lo de abajo del encabezado se cambia por los resultados; el encabezado se queda
+           (si no, la caja se iría mientras se escribe). El visor y el diálogo del final NO se
+           esconden: son los que abren el vale elegido. -->
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Mis gastos</h1>
-          <p class="surf-page-sub">Tus vales, desde que los levantas hasta que el expediente queda completo.</p>
+          <p class="surf-page-sub">Tus vales, desde que los levantas hasta que Kepler los cierra.</p>
         </div>
-        <button pButton type="button" class="p-button-text" (click)="cargar()" [loading]="cargando()">
-          <i class="pi pi-refresh" aria-hidden="true"></i>&nbsp;Actualizar
-        </button>
+        <div class="mg-head-acc">
+          <app-buscador-gastos parte="caja" />
+                    <app-freshness-pill measures="fetch" [since]="ultimaCarga()" />
+          <button pButton type="button" class="p-button-text p-button-sm" (click)="cargar()" [loading]="cargando()"
+                  aria-label="Actualizar"><i class="pi pi-refresh" aria-hidden="true"></i></button>
+          <!-- [GX.97] La única acción primaria. Antes «Mis gastos» no tenía entrada a la captura. -->
+          <a pButton class="mg-capturar" routerLink="/finanzas/gastos"><i class="pi pi-plus" aria-hidden="true"></i>&nbsp;Capturar gasto</a>
+        </div>
       </header>
+      @if (buscandoArriba()) {
+        <app-buscador-gastos parte="resultados" />
+      } @else {
 
-      @if (cargando()) { <div class="mg-muted">Cargando…</div> }
-      @else if (error()) { <div class="mg-err">{{ error() }}</div> }
-      @else {
-        <!--
-          Los totales de arriba. «Te tocan» y «Esperan a otro» cuentan TODOS los abiertos (desde
-          GX.65.1 llegan completos, sin el corte del limit). «Validados» sale del SERVIDOR: la
-          lista de cerrados viene recortada y contarla mentiria.
-        -->
-        <div class="mg-kpis">
-          <div class="mg-kpi bad">
-            <span class="mg-kpi-t">Sin completar · te tocan</span>
-            <strong class="mg-kpi-v">{{ teTocan() }}</strong>
-          </div>
-          <div class="mg-kpi">
-            <span class="mg-kpi-t">Esperan a otra persona</span>
-            <strong class="mg-kpi-v">{{ esperanAOtro() }}</strong>
-          </div>
-          <div class="mg-kpi ok">
-            <span class="mg-kpi-t">Expedientes validados</span>
-            <strong class="mg-kpi-v">{{ kpis().validadas }}</strong>
-          </div>
-          <div class="mg-kpi">
-            <span class="mg-kpi-t">En juego (abiertos)</span>
-            <strong class="mg-kpi-v mg-kpi-money">{{ money(enJuego()) }}</strong>
-          </div>
-        </div>
+      @if (refrescoFallo(); as hora) {
+        <!-- [GX.97] Un refresco que falla no pisa la lista buena, pero se DICE: la lista ya no es de ahora. -->
+        <p class="mg-aviso" role="status">No se pudo actualizar a las {{ hora }}. Lo que ves es de la última carga.</p>
+      }
+
+      <app-load-state [loading]="cargando() && !cargadaUnaVez()" [error]="error() || null" [isEmpty]="false"
+                      errorTitle="No se pudieron cargar tus gastos" (retry)="cargar()">
+        <p class="mg-respuesta">
+          @if (teTocan() > 0) {
+            <strong>{{ teTocan() === 1 ? 'Te toca 1 vale.' : 'Te tocan ' + teTocan() + ' vales.' }}</strong>
+          } @else {
+            <strong>Nada te toca.</strong>
+          }
+          @if (sinCerrar() > 0) {
+            <span class="mg-respuesta-sub">{{ money(sinCerrar()) }} de tus gastos siguen sin cerrar.</span>
+          }
+        </p>
 
         <div class="mg-barra">
-          <span class="p-input-icon-left mg-buscar">
-            <i class="pi pi-search" aria-hidden="true"></i>
-            <input pInputText [(ngModel)]="q" (keyup.enter)="cargar()"
-                   placeholder="Folio, proveedor o concepto…" />
-          </span>
-          @if (q) { <button type="button" class="mg-link" (click)="q = ''; cargar()">limpiar</button> }
+          <app-segmented [options]="opciones()" [value]="filtro()" (valueChange)="elegir($event)" ariaLabel="A quién le toca" />
+          <!-- [GX.88] Quien aprueba ya tiene el buscador de arriba: una sola caja por pestaña. -->
+          @if (!hayBuscadorArriba()) {
+            <span class="p-input-icon-left mg-buscar">
+              <i class="pi pi-search" aria-hidden="true"></i>
+              <input pInputText type="search" [ngModel]="q()" (ngModelChange)="escribir($event)" (keydown.enter)="buscarYa()"
+                     aria-label="Buscar en mis gastos" placeholder="Folio, proveedor o concepto…" />
+            </span>
+          }
         </div>
 
-        @if (!unificadas().length) {
+        @if (fueraDeColumnas() > 0) {
+          <!-- Un estado que la regla no conoce se DICE, no se mete callado en una lista. -->
+          <p class="mg-err">{{ fueraDeColumnas() }} vale(s) con un estado que esta pantalla no sabe ubicar. Avisa a Sistemas.</p>
+        }
+
+        @if (!visibles().length) {
           <div class="mg-vacio">
             <i class="pi pi-inbox" aria-hidden="true"></i>
             <div>
-              @if (q) {
-                <strong>Ninguno de tus gastos coincide con «{{ q }}».</strong>
+              @if (q()) {
+                <strong>Ninguno de tus gastos coincide con «{{ q() }}».</strong>
               } @else {
-                <strong>Todavía no levantaste ningún gasto.</strong>
-                <div class="mg-muted">Cuando levantes uno en Kepler a tu nombre, aparece acá con su estado.</div>
+                <strong>{{ textoVacio() }}</strong>
               }
-              <div class="mg-muted">Un gasto que te devolvieron deja de verse a las 24 h: ése se vuelve a capturar.</div>
             </div>
           </div>
         } @else {
-          @if (fueraDeColumnas() > 0) {
-            <!-- Un estado que la regla no conoce se DICE, no se mete callado en una columna. -->
-            <div class="mg-err">{{ fueraDeColumnas() }} vale(s) con un estado que esta pantalla no sabe ubicar. Avisa a Sistemas.</div>
-          }
-
-          <div class="mg-board">
-            @for (col of columnas(); track col.id) {
-              <section class="mg-col" [attr.data-col]="col.id" [attr.aria-label]="col.titulo">
-                <header class="mg-col-h">
-                  <div class="mg-col-t">
-                    <span class="mg-col-n">{{ col.n }}</span>
-                    <h2>{{ col.titulo }}</h2>
-                    <span class="mg-col-doc">{{ col.doc }}</span>
+          <p-table [value]="visibles()" dataKey="key" size="small" class="surf-table surf-table--plain surf-table--sticky mg-tabla">
+            <ng-template #header>
+              <tr>
+                <th>Folio</th>
+                <th pSortableColumn="titulo">Proveedor <p-sorticon field="titulo" /></th>
+                <th class="mg-c-etapa">Etapa</th>
+                <th>{{ filtro() === 'cerrado' ? 'Cómo cerró' : (filtro() === 'tu' ? 'Qué te falta' : 'A qué espera') }}</th>
+                <th class="comm-num mg-c-dias" pSortableColumn="dias">Días <p-sorticon field="dias" /></th>
+                <th class="comm-num" pSortableColumn="importe">Importe <p-sorticon field="importe" /></th>
+                <th><span class="mg-sr">Acción</span></th>
+              </tr>
+            </ng-template>
+            <ng-template #body let-f>
+              <tr>
+                <td>
+                  @if (f.proof) {
+                    <button type="button" class="mg-folio" (click)="abrir(f.proof)" [attr.aria-label]="'Ver el vale ' + f.folio">{{ f.folio || 'sin folio' }}</button>
+                  } @else {
+                    <span class="mg-folio-txt">{{ f.folio || 'sin folio' }}</span>
+                  }
+                  @if (f.sucursal) { <div class="mg-sub">{{ branchLabel(f.sucursal) }}</div> }
+                </td>
+                <td>
+                  <div class="mg-prov">{{ f.titulo || '—' }}</div>
+                  <div class="mg-sub">
+                    @if (f.proveedor_clave) { <span class="mg-clave">{{ f.proveedor_clave }}</span> }
+                    @if (f.detalle) { <span>{{ f.detalle }}</span> }
+                    @if (diaLocal(f.fecha); as d) { <span>{{ d | date: 'dd/MM/yy' }}</span> }
                   </div>
-                  <p>{{ col.ayuda }}</p>
-                </header>
-
-                <div class="mg-zona">
-                  <div class="mg-zona-h" [class.rojo]="col.id !== 'expedientes'">{{ col.pendLabel }} <span class="mg-n">{{ col.pendientes.length }}</span></div>
-                  @for (p of col.pendientes; track p.key) {
-                    <ng-container [ngTemplateOutlet]="tarjeta" [ngTemplateOutletContext]="{ $implicit: p, pendiente: col.id !== 'expedientes' }" />
+                </td>
+                <td class="mg-c-etapa"><p-tag [value]="f.situacion?.etapaNombre ?? '—'" severity="secondary" /></td>
+                <td>
+                  <div [class.mg-mal]="f.situacion?.mal">{{ f.situacion?.texto ?? '—' }}</div>
+                  @if (f.notaPago; as n) { <div class="mg-sub" [class.mg-mal]="n.clase === 'bad'">{{ n.texto }}</div> }
+                  @if (filtro() === 'cerrado' && f.gasto_folios.length) {
+                    <div class="mg-sub mg-clave">{{ foliosGasto(f) }}</div>
                   }
-                  @if (!col.pendientes.length) { <div class="mg-zona-vacia">Nada por aquí.</div> }
-                </div>
-
-                <!-- [GX.77] Expedientes no tiene zona de abajo: lo revisado con gasto ya cerró. -->
-                @if (col.id !== 'expedientes') {
-                <div class="mg-zona">
-                  <div class="mg-zona-h verde">{{ col.esperaLabel }} <span class="mg-n">{{ col.espera.length }}</span></div>
-                  @if (col.esperaAyuda) { <div class="mg-faint mg-zona-ayuda">{{ col.esperaAyuda }}</div> }
-                  @for (g of col.grupos; track g.clave ?? 'sin-clave') {
-                    <details class="mg-grupo" open>
-                      <summary>
-                        @if (g.clave) { <span class="mg-clave">{{ g.clave }}</span> }
-                        <span class="mg-grupo-n">{{ g.etiqueta }}</span>
-                        <span class="mg-n">{{ g.filas.length }}</span>
-                        <span class="mg-grupo-t">{{ money(g.total) }}</span>
-                      </summary>
-                      @for (p of g.filas; track p.key) {
-                        <ng-container [ngTemplateOutlet]="tarjeta" [ngTemplateOutletContext]="{ $implicit: p, pendiente: false }" />
-                      }
-                    </details>
+                </td>
+                <td class="comm-num mg-c-dias" [class.mg-atorado]="atorado(f)">{{ diasTexto(f) }}</td>
+                <td class="comm-num">{{ money(f.importe) }}</td>
+                <td class="mg-acc">
+                  @if (f.puedeSubir) {
+                    <a pButton class="p-button-sm p-button-outlined" [routerLink]="['/finanzas/gastos']"
+                       [queryParams]="{ folio: f.folio, sucursal: f.sucursal }">
+                      <i class="pi pi-camera" aria-hidden="true"></i>&nbsp;{{ f.debeFactura ? 'Subir la factura' : 'Subir evidencia' }}
+                    </a>
+                  } @else if (f.status === 'rechazada') {
+                    <a pButton class="p-button-sm p-button-outlined" [routerLink]="['/finanzas/gastos']"
+                       [queryParams]="{ folio: f.folio, sucursal: f.sucursal }">Capturar de nuevo</a>
                   }
-                  @if (!col.espera.length) { <div class="mg-zona-vacia">Nada por aquí.</div> }
-                </div>
-                }
-              </section>
-            }
-          </div>
-
-          <!--
-            [GX.77] El ciclo cerrado (revisado + gasto aplicado en Kepler) sale del tablero, pero no se
-            pierde: queda aquí, plegado. No se manda al Historial: esa ruta no admite a quien sólo captura.
-          -->
-          @if (cerrados().length) {
-            <details class="mg-cerrados">
-              <summary>
-                Ver {{ cerrados().length === 1 ? 'el vale cerrado' : 'los ' + cerrados().length + ' vales cerrados' }}
-                <span class="mg-faint">· revisados y con el gasto aplicado en Kepler</span>
-              </summary>
-              <div class="mg-cerrados-lista">
-                @for (p of cerrados(); track p.key) {
-                  <ng-container [ngTemplateOutlet]="tarjeta" [ngTemplateOutletContext]="{ $implicit: p, pendiente: false }" />
-                }
-              </div>
-            </details>
-          }
+                </td>
+              </tr>
+            </ng-template>
+          </p-table>
         }
-      }
 
-      <ng-template #tarjeta let-p let-pendiente="pendiente">
-        <article class="mg-item" [class.rojo]="pendiente"
-                 [attr.role]="p.proof ? 'button' : null" [attr.tabindex]="p.proof ? 0 : null"
-                 [attr.aria-label]="p.proof ? ('Ver el vale ' + p.folio) : null"
-                 (click)="p.proof && abrir(p.proof)"
-                 (keydown.enter)="p.proof && abrir(p.proof)"
-                 (keydown.space)="p.proof && abrir(p.proof); p.proof && $event.preventDefault()">
-          <div class="mg-it-head">
-            <span class="mg-folio">{{ p.folio || 'sin folio' }}</span>
-            @if (p.sucursal) { <span class="mg-faint">{{ branchLabel(p.sucursal) }}</span> }
-            @if (pendiente && antiguedad(p); as a) {
-              <span class="mg-faint" [class.mg-atorado]="atorado(p)">{{ a }}</span>
-            }
-            <span class="mg-grow"></span>
-            <span class="mg-imp">{{ money(p.importe) }}</span>
-          </div>
-          <div class="mg-it-con">{{ p.titulo || '—' }}</div>
-          <!-- Los separadores van como borde CSS: un vale sin fecha no arranca con un «·» suelto. -->
-          <div class="mg-it-meta">
-            @if (diaLocal(p.fecha); as d) { <span>{{ d | date: 'dd/MM/yy' }}</span> }
-            @if (p.detalle) { <span>{{ p.detalle }}</span> }
-            @if (p.proveedor_clave) {
-              <span class="mg-clave">{{ p.proveedor_clave }}</span>
-              @if (p.proveedor_nombre) { <span>{{ p.proveedor_nombre }}</span> }
-            }
-          </div>
-          <div class="mg-it-chips">
-            @if (p.etapa === 'asignado') {
-              <span class="mg-chip bad">{{ p.etapa_label }}</span>
-              @if (p.aplicada) { <span class="mg-chip ok">Ya ejercido en Kepler</span> }
-            } @else {
-              <span class="mg-chip" [class.ok]="p.status === 'validada'"
-                    [class.warn]="p.status === 'revision'"
-                    [class.bad]="p.status === 'rechazada' || p.status === 'aprobada'">{{ estado(p.status) }}</span>
-              @if (p.status === 'aprobada') {
-                <span class="mg-chip bad">{{ p.debeFactura ? 'te toca subir la factura del pago' : 'te toca subir la evidencia' }}</span>
-              }
-            }
-            <!-- [GX.65.3] El gasto de Kepler es DATO: se muestra, no mueve el vale de columna. -->
-            @for (g of p.gasto_folios; track g) { <span class="mg-chip">Kepler: XA1001-{{ g }}</span> }
-            <!-- [GX.75] La transferencia que pagó ese gasto. La cancelada se tacha: Kepler la conserva. -->
-            @for (t of p.transferencias ?? []; track t.gasto_folio + '|' + t.folio) {
-              <span class="mg-chip" [class.ok]="!t.cancelada" [class.mg-chip-cancelada]="t.cancelada"
-                    [attr.title]="t.cancelada ? 'Cancelada en Kepler: no cuenta como pagado' : null">Kepler: XD2601-{{ t.folio }}</span>
-            }
-          </div>
-          @if (p.notaPago; as n) { <div class="mg-it-nota" [class.ok]="n.clase === 'ok'" [class.warn]="n.clase === 'warn'" [class.bad]="n.clase === 'bad'">{{ n.texto }}</div> }
-          @if (p.puedeSubir) {
-            <a class="mg-asig-b" [routerLink]="['/finanzas/gastos']"
-               [queryParams]="{ folio: p.folio, sucursal: p.sucursal }" (click)="$event.stopPropagation()">
-              <i class="pi pi-camera" aria-hidden="true"></i>&nbsp;{{ p.etapa === 'asignado' ? 'Subir evidencia' : (p.debeFactura ? 'Subir la factura' : 'Subir evidencia') }}
-            </a>
-          }
-          @if (p.motivo_rechazo) { <div class="mg-it-nota bad">Te lo devolvieron: {{ p.motivo_rechazo }}</div> }
-          @if (p.etapa === 'ejercido') { <div class="mg-it-nota ok">{{ p.etapa_explicacion }}</div> }
-        </article>
-      </ng-template>
-
+        <!-- [GX.95] Los cortes, DECLARADOS. Sin el campo (servidor viejo) no se afirma nada. -->
+        @if (cortes().length) {
+          <ul class="mg-cortes">
+            @for (t of cortes(); track t) { <li>{{ t }}</li> }
+          </ul>
+        }
+      </app-load-state>
       }
 
       <!-- El mismo visor que usan Aprobación y el Historial. Acá no se DECIDE nada: es lo tuyo,
@@ -310,105 +243,41 @@ interface Columna {
     </div>
   `,
   styles: [FINANZAS_SHARED_STYLES, `
-    .mg { display: flex; flex-direction: column; gap: var(--sp-3); }
-    .mg-muted { font-size: var(--fs-sm); color: var(--fg-2); }
-    .mg-faint { font-size: var(--fs-xs); color: var(--fg-3); }
-    .mg-grow { flex-grow: 1; }
-    .mg-err { font-size: var(--fs-sm); color: var(--bad-fg); padding: var(--sp-3);
-      border: 1px solid var(--bad-border); border-radius: var(--r-md); }
-    .mg-link { border: 0; background: transparent; color: var(--action); font: inherit;
-      font-size: var(--fs-xs); cursor: pointer; }
+    :host { display: block; }
+    .mg { display: flex; flex-direction: column; gap: var(--sp-3); container-type: inline-size; }
+    /* En angosto (teléfono, o el panel con el menú abierto) se quita la Etapa: lo que decide es el
+       folio, qué falta, los días (ahí vive la marca de atorado), el importe y la acción. */
+    @container (max-width: 40rem) { .mg-c-etapa { display: none; } .mg-buscar input { width: 100%; } }
+    .mg-head-acc { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+    .mg-aviso { margin: 0; font-size: var(--fs-sm); color: var(--warn-soft-fg); }
+    .mg-err { margin: 0; font-size: var(--fs-sm); color: var(--bad-fg); }
 
-    .mg-kpis { display: flex; gap: var(--sp-3); flex-wrap: wrap; }
-    .mg-kpi { flex: 1 1 10rem; display: flex; flex-direction: column; gap: 2px;
-      background: var(--card-bg); border: 1px solid var(--border-color);
-      border-radius: var(--r-md); padding: var(--sp-3); }
-    .mg-kpi.ok { border-color: var(--ok-fg); }
-    .mg-kpi.bad { border-color: var(--bad-border); }
-    .mg-kpi.bad .mg-kpi-v { color: var(--bad-fg); }
-    .mg-kpi-t { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .05em; color: var(--fg-3); }
-    .mg-kpi-v { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
-      font-size: var(--fs-h1); font-weight: var(--fw-bold); line-height: 1.1; }
-    .mg-kpi-money { font-size: var(--fs-lg); }
+    /* Q.1: la respuesta primero. Primario = cuántos te tocan; secundario = lo que sigue sin cerrar. */
+    .mg-respuesta { margin: 0 0 var(--sp-2); display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-2); }
+    .mg-respuesta strong { font-size: var(--fs-lg); font-weight: var(--fw-bold); color: var(--fg-1); }
+    .mg-respuesta-sub { font-size: var(--fs-sm); color: var(--fg-2); }
 
-    .mg-barra { display: flex; align-items: center; gap: var(--sp-2); }
-    .mg-buscar input { width: 20rem; max-width: 100%; }
+    .mg-barra { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; margin-bottom: var(--sp-2); }
+    .mg-buscar input { width: 18rem; max-width: 100%; }
 
-    .mg-vacio { display: flex; gap: var(--sp-3); align-items: flex-start; padding: var(--sp-5);
-      background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md); }
+    .mg-vacio { display: flex; gap: var(--sp-3); align-items: center; padding: var(--sp-5);
+      border: 1px solid var(--border-color); border-radius: var(--r-md); color: var(--fg-2); }
     .mg-vacio .pi { color: var(--fg-3); font-size: 1.4rem; }
 
-    /* [GX.65.5] Las tres columnas. En pantalla angosta se apilan, en el mismo orden. */
-    .mg-board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-3); align-items: start; }
-    @media (max-width: 68.75rem) { .mg-board { grid-template-columns: 1fr; } }
-    .mg-col { background: var(--surface-ground); border: 1px solid var(--border-color);
-      border-radius: var(--r-md); display: flex; flex-direction: column; min-width: 0; }
-    .mg-col-h { padding: var(--sp-3); background: var(--card-bg); border-bottom: 1px solid var(--border-color);
-      border-radius: var(--r-md) var(--r-md) 0 0; }
-    .mg-col-h p { margin: 4px 0 0; font-size: var(--fs-xs); color: var(--fg-3); }
-    .mg-col-t { display: flex; align-items: center; gap: var(--sp-2); }
-    .mg-col-t h2 { margin: 0; font-size: var(--fs-body); font-weight: var(--fw-bold); }
-    .mg-col-n { width: 1.4rem; height: 1.4rem; border-radius: 50%; display: grid; place-items: center;
-      background: var(--fg-1); color: var(--card-bg); font-size: var(--fs-xs); font-weight: var(--fw-bold); flex: none; }
-    .mg-col-doc { margin-left: auto; font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--fg-3); }
-    .mg-zona { padding: var(--sp-2); display: flex; flex-direction: column; gap: var(--sp-2); }
-    .mg-zona + .mg-zona { border-top: 1px solid var(--border-color); }
-    .mg-zona-h { font-size: var(--fs-micro); font-weight: var(--fw-bold); text-transform: uppercase;
-      letter-spacing: .05em; padding: 0 var(--sp-1); display: flex; align-items: center; gap: var(--sp-1); }
-    .mg-zona-h.rojo { color: var(--bad-fg); }
-    .mg-zona-h.verde { color: var(--ok-fg); }
-    .mg-zona-ayuda { padding: 0 var(--sp-1); }
-    .mg-zona-vacia { font-size: var(--fs-xs); color: var(--fg-3); padding: var(--sp-2); text-align: center; }
-    .mg-n { font-variant-numeric: tabular-nums; border: 1px solid currentColor; border-radius: 999px;
-      padding: 0 6px; font-size: var(--fs-micro); letter-spacing: 0; }
+    /* Terciario: sucursal, clave, fecha. */
+    .mg-sub { font-size: var(--fs-xs); color: var(--fg-3); display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+    .mg-prov { font-size: var(--fs-sm); color: var(--fg-1); }
+    .mg-clave { font-family: var(--font-mono); }
+    .mg-folio, .mg-folio-txt { font-family: var(--font-mono); font-weight: var(--fw-bold); font-size: var(--fs-sm); }
+    .mg-folio { border: 0; background: transparent; padding: 0; color: var(--action); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+    .mg-folio:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+    /* El rojo sólo para lo que salió mal (te lo devolvieron); atorado, en el ámbar que se lee. */
+    .mg-mal { color: var(--bad-fg); }
+    .mg-atorado { color: var(--warn-soft-fg); font-weight: var(--fw-bold); }
+    .mg-acc { white-space: nowrap; text-align: right; }
+    .mg-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
-    .mg-grupo { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-sm); }
-    .mg-grupo > summary { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2);
-      cursor: pointer; font-size: var(--fs-sm); list-style: none; }
-    .mg-grupo > summary::-webkit-details-marker { display: none; }
-    .mg-grupo > summary:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
-    .mg-grupo-n { font-weight: var(--fw-bold); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .mg-grupo-t { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--fs-xs); }
-    .mg-grupo .mg-item { border-width: 0; border-top: 1px solid var(--border-color); border-radius: 0; }
-    .mg-clave { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--fg-3); }
-
-    .mg-item { background: var(--card-bg); border: 1px solid var(--border-color);
-      border-radius: var(--r-sm); padding: var(--sp-3); display: flex; flex-direction: column;
-      gap: 4px; cursor: pointer; }
-    .mg-item.rojo { border-left: 3px solid var(--bad-fg); }
-    .mg-item:hover { border-color: var(--action); }
-    .mg-item:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
-    .mg-it-head { display: flex; align-items: baseline; gap: var(--sp-2); }
-    .mg-folio { font-family: var(--font-mono); font-weight: var(--fw-bold); }
-    .mg-atorado { color: var(--warn-fg); font-weight: var(--fw-bold); }
-    .mg-imp { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: var(--fw-bold); }
-    .mg-it-con { font-size: var(--fs-sm); color: var(--fg-1); }
-    .mg-it-meta { display: flex; flex-wrap: wrap; gap: 6px; font-size: var(--fs-xs); color: var(--fg-3); }
-    .mg-it-meta > span + span::before { content: '·'; margin-right: 6px; }
-    .mg-it-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 2px; }
-    .mg-chip { font-size: var(--fs-nano); border: 1px solid var(--border-color); color: var(--fg-2);
-      border-radius: var(--r-sm); padding: 1px 7px; }
-    .mg-chip.ok { color: var(--ok-fg); border-color: var(--ok-fg); }
-    .mg-chip.warn { color: var(--warn-fg); border-color: var(--warn-border); }
-    .mg-chip.bad { color: var(--bad-fg); border-color: var(--bad-border); }
-    .mg-it-nota { font-size: var(--fs-xs); margin-top: 2px; }
-    .mg-it-nota.bad { color: var(--bad-fg); }
-    .mg-it-nota.ok { color: var(--ok-fg); }
-    .mg-it-nota.warn { color: var(--warn-fg); }
-    .mg-chip.mg-chip-cancelada { color: var(--bad-fg); border-color: var(--bad-border); text-decoration: line-through; }
-    .mg-asig-b { align-self: flex-start; display: inline-flex; align-items: center;
-      border: 1px solid var(--bad-fg); background: var(--bad-fg); color: var(--action-fg, #fff); border-radius: var(--r-sm);
-      padding: 0.3rem 0.7rem; font-size: var(--fs-xs); text-decoration: none; margin-top: var(--sp-1); }
-    .mg-asig-b:hover { filter: brightness(0.92); }
-    .mg-asig-b:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
-
-    /* [GX.77] Los cerrados: fuera del tablero, plegados al pie. Discretos a propósito. */
-    .mg-cerrados { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md); }
-    .mg-cerrados > summary { padding: var(--sp-3); cursor: pointer; font-size: var(--fs-sm); color: var(--fg-2); list-style: none; }
-    .mg-cerrados > summary::-webkit-details-marker { display: none; }
-    .mg-cerrados > summary:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
-    .mg-cerrados[open] > summary { border-bottom: 1px solid var(--border-color); }
-    .mg-cerrados-lista { display: grid; grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); gap: var(--sp-2); padding: var(--sp-2); }
+    .mg-cortes { margin: var(--sp-2) 0 0; padding-left: var(--sp-4); font-size: var(--fs-xs); color: var(--warn-soft-fg); }
   `],
 })
 export class FinanzasMisGastosComponent {
@@ -416,10 +285,16 @@ export class FinanzasMisGastosComponent {
   readonly branchLabel = branchLabel;
   private readonly svc = inject(ComprobacionesService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly route = inject(ActivatedRoute, { optional: true });
 
   readonly filas = signal<ExpenseProof[]>([]);
   readonly cargando = signal(true);
+  readonly cargadaUnaVez = signal(false);
   readonly error = signal('');
+  /** `[GX.97]` Cuándo llegó la lista que se ve (hora del navegador: dice «cargado hace N»). */
+  readonly ultimaCarga = signal<Date | null>(null);
+  /** `[GX.97]` Hora del refresco en segundo plano que falló; `null` = el último salió bien. */
+  readonly refrescoFallo = signal<string | null>(null);
   readonly abierto = signal<ValeGasto | null>(null);
   /** `[GX.87]` El vale al que se le está sumando evidencia (abre el diálogo). */
   readonly paraEvidencia = signal<ValeGasto | null>(null);
@@ -430,117 +305,107 @@ export class FinanzasMisGastosComponent {
    */
   private readonly busqueda = inject(BuscadorGastosEstado, { optional: true });
   readonly buscandoArriba = computed(() => this.busqueda?.buscando() ?? false);
-  q = '';
+  /** `[GX.97]` Si arriba hay buscador, la caja local sobra: una sola caja por pestaña. */
+  readonly hayBuscadorArriba = computed(() => this.busqueda?.puedeBuscar() ?? false);
+  readonly q = signal('');
+  private espera: ReturnType<typeof setTimeout> | null = null;
 
-  /**
-   * ⚠️ Los KPI del estado salen de `kpis` del SERVIDOR, no de contar `filas()`: la lista de
-   * cerrados viene recortada, así que contarla diría «tenés 200» al que tiene 340.
-   */
-  private readonly reporte = signal<{ recibidas: number; validadas: number; rechazadas: number } | null>(null);
-  readonly kpis = computed(() => this.reporte() ?? { recibidas: 0, validadas: 0, rechazadas: 0 });
-
-  /**
-   * `[GX.41]` Los vales que Kepler le asigno. Salen del SERVIDOR ya recortados por su
-   * username — acá no se filtra nada.
-   */
+  /** Los cortes que mandó el servidor (`undefined` = servidor viejo: no se afirma nada). */
+  private readonly reporte = signal<ExpenseProofsReport | null>(null);
   readonly asignados = signal<ValeAsignado[]>([]);
 
+  /** `[GX.97]` El filtro que eligió la persona; `null` = todavía no eligió. */
+  private readonly elegido = signal<AQuien | null>(null);
+
   /**
-   * `[GX.46]` **UNA sola lista** de entrada: el vale que Kepler asigno y el expediente nuestro.
+   * `[GX.46]` **UNA sola lista** de entrada: el vale que Kepler asignó y el expediente nuestro.
    * ⚠️ `proof` en `null` marca al que **no tiene expediente**: no se puede abrir y en su lugar
-   * ofrece el botón para crearlo.
+   * ofrece subir la evidencia.
    */
   readonly unificadas = computed<FilaLista[]>(() => [
-    ...this.asignados().map((v): FilaLista => ({
-      key: `k:${v.sucursal}:${v.folio}`,
-      folio: v.folio, sucursal: v.sucursal, fecha: v.fecha, importe: v.importe,
-      titulo: v.destinatario, detalle: v.concepto,
-      etapa: 'asignado', etapa_label: 'Falta tu evidencia',
-      etapa_explicacion: 'Lo levantaron a tu nombre en Kepler. Falta que le subas la evidencia.',
-      status: null, motivo_rechazo: null, aplicada: v.aplicada, proof: null,
-      debeFactura: false, puedeSubir: true,
-      proveedor_clave: null, proveedor_nombre: null, gasto_folios: [],
-      // Sin expediente nuestro todavía: no hay vale revisado que pagar ni qué decir del pago.
-      transferencias: null, notaPago: null,
-    })),
-    ...this.filas().map((p): FilaLista => ({
-      key: `p:${p.id}`,
-      folio: p.folio_solicitud, sucursal: p.sucursal, fecha: p.fecha_gasto, importe: p.importe,
-      titulo: p.proveedor, detalle: p.clasificacion ? this.tipoGasto(p.clasificacion) : null,
-      debeFactura: p.provisional === true,
-      // `[GX.55]` Aprobado = le falta algo por subir. Es el estado que la captura abre en modo
-      // evidencia; ofrecer el botón en cualquier otro llevaría a una pantalla cerrada.
-      puedeSubir: p.status === 'aprobada',
-      etapa: p.etapa ?? null, etapa_label: p.etapa_label ?? '',
-      etapa_explicacion: p.etapa_explicacion ?? '',
-      status: p.status, motivo_rechazo: p.motivo_rechazo, aplicada: null, proof: p,
-      proveedor_clave: p.proveedor_clave ?? null, proveedor_nombre: p.proveedor_nombre ?? null,
-      gasto_folios: p.gasto_folios ?? [],
-      // `[GX.75]` Ausente (servidor viejo) = no medido: ni «pagado» ni «sin pago».
-      transferencias: p.transferencias ?? null,
-      notaPago: notaDePago(p.transferencias ?? null, p.importe),
-    })),
+    ...this.asignados().map((v): FilaLista => {
+      const base = {
+        key: `k:${v.sucursal}:${v.folio}`, folio: v.folio, sucursal: v.sucursal, fecha: v.fecha, importe: v.importe,
+        titulo: v.destinatario, detalle: v.concepto, etapa: 'asignado' as const, status: null, motivo_rechazo: null,
+        debeFactura: false, puedeSubir: true, proveedor_clave: null, gasto_folios: [] as string[],
+        notaPago: null, proof: null,
+      };
+      return { ...base, situacion: situacionDe(base), dias: diasDesde(v.fecha) };
+    }),
+    ...this.filas().map((p): FilaLista => {
+      const base = {
+        key: `p:${p.id}`, folio: p.folio_solicitud, sucursal: p.sucursal, fecha: p.fecha_gasto, importe: Number(p.importe) || 0,
+        titulo: p.proveedor, detalle: p.clasificacion ? this.tipoGasto(p.clasificacion) : null,
+        etapa: (p.etapa ?? null) as EtapaLista | null, status: p.status, motivo_rechazo: p.motivo_rechazo,
+        debeFactura: p.provisional === true,
+        // `[GX.55]` Aprobado = le falta algo por subir. Es el estado que la captura abre en modo
+        // evidencia; ofrecer el botón en cualquier otro llevaría a una pantalla cerrada.
+        puedeSubir: p.status === 'aprobada',
+        proveedor_clave: p.proveedor_clave ?? null, gasto_folios: p.gasto_folios ?? [],
+        // `[GX.75]` Ausente (servidor viejo) = no medido: ni «pagado» ni «sin pago».
+        notaPago: notaDePago((p.transferencias ?? null) as TransferenciaGasto[] | null, Number(p.importe) || 0),
+        proof: p,
+      };
+      return { ...base, situacion: situacionDe(base), dias: diasDesde(p.fecha_gasto) };
+    }),
   ]);
 
-  /**
-   * `[GX.77]` El ciclo cerrado (revisado + gasto aplicado en Kepler) sale del tablero. NO se
-   * borra: queda al pie, plegado. ⚠️ No se manda al Historial porque esa ruta NO admite a quien
-   * sólo captura (`FINANCE_EXPENSES_CAPTURAR`), y «Mis gastos» sí: se le perdería lo suyo.
-   */
-  readonly cerrados = computed(() => this.unificadas().filter((f) => cicloCerrado(f)));
-  readonly abiertas = computed(() => this.unificadas().filter((f) => !cicloCerrado(f)));
-
-  /** `[GX.65.5]` Las tres columnas, armadas con la regla de `mis-gastos-columnas.ts`. */
-  readonly columnas = computed<Columna[]>(() => {
-    const cajon: Record<ColumnaId, Record<ZonaId, FilaLista[]>> = {
-      solicitudes: { pendiente: [], espera: [] },
-      comprobacion: { pendiente: [], espera: [] },
-      expedientes: { pendiente: [], espera: [] },
-    };
-    for (const f of this.abiertas()) {
-      const u = ubicacionDe(f);
-      if (u) cajon[u.columna][u.zona].push(f);
-    }
-    // Los pendientes, el más viejo primero: lo que más urge arriba.
-    const porAntiguedad = (a: FilaLista, b: FilaLista) => String(a.fecha ?? '').localeCompare(String(b.fecha ?? ''));
-    for (const c of Object.values(cajon)) c.pendiente.sort(porAntiguedad);
-    const armar = (id: ColumnaId, n: number, titulo: string, doc: string, ayuda: string,
-                   pendLabel: string, esperaLabel: string, esperaAyuda: string): Columna => ({
-      id, n, titulo, doc, ayuda, pendLabel, esperaLabel, esperaAyuda,
-      pendientes: cajon[id].pendiente, espera: cajon[id].espera,
-      grupos: agruparPorProveedor(cajon[id].espera),
-    });
-    return [
-      armar('solicitudes', 1, 'Solicitudes', 'XA1501', 'Lo que levantaste en Kepler: le subes la evidencia y la revisan.',
-        'Pendientes', 'Enviadas · esperan «Revisado»', ''),
-      armar('comprobacion', 2, 'Pendientes de comprobación', 'factura', 'Aprobados como prefactura o cotización, o que todavía deben su evidencia.',
-        'Te toca subirla', 'Enviada · en revisión', ''),
-      // ⚠️ En Expedientes la zona NO va en rojo: espera a Kepler, no a ti. `[GX.77]` Sin zona de
-      // abajo: el revisado con gasto aplicado ya cerró y salió del tablero.
-      armar('expedientes', 3, 'Expedientes', 'XA1001', 'Revisados. Se cierran cuando Kepler aplica el gasto.',
-        'Falta el gasto en Kepler', '', ''),
-    ];
+  /** Cuántos hay de cada lado. Un estado desconocido no cae en ninguno (se cuenta aparte). */
+  readonly conteos = computed<Record<AQuien, number>>(() => {
+    const c: Record<AQuien, number> = { tu: 0, finanzas: 0, kepler: 0, cerrado: 0 };
+    for (const f of this.unificadas()) if (f.situacion) c[f.situacion.aQuien]++;
+    return c;
   });
+  readonly fueraDeColumnas = computed(() => this.unificadas().filter((f) => !f.situacion).length);
+  readonly teTocan = computed(() => this.conteos().tu);
 
-  /** Lo que la regla no sabe ubicar: se cuenta para DECIRLO. */
-  readonly fueraDeColumnas = computed(() => this.abiertas().filter((f) => ubicacionDe(f) === null).length);
-
-  /** Lo que te pide algo a ti: los rojos de Solicitudes y de Pendientes de comprobación. */
-  readonly teTocan = computed(() => this.columnas()
-    .filter((c) => c.id !== 'expedientes').reduce((n, c) => n + c.pendientes.length, 0));
-
-  /** Lo que espera a otra persona: revisión, o el pago de Finanzas. */
-  readonly esperanAOtro = computed(() => {
-    const col = (id: ColumnaId) => this.columnas().find((c) => c.id === id);
-    return (col('solicitudes')?.espera.length ?? 0)
-      + (col('comprobacion')?.espera.length ?? 0)
-      + (col('expedientes')?.pendientes.length ?? 0);
-  });
-
-  /** Dinero de lo que todavía no está cerrado de nuestro lado (todo menos lo validado). */
-  readonly enJuego = computed(() => this.abiertas()
-    .filter((f) => { const u = ubicacionDe(f); return !!u && u.columna !== 'expedientes'; })
+  /** Dinero de lo que todavía no cerró: te toca + espera a Finanzas + espera a Kepler. */
+  readonly sinCerrar = computed(() => this.unificadas()
+    .filter((f) => f.situacion && f.situacion.aQuien !== 'cerrado')
     .reduce((s, f) => s + (Number(f.importe) || 0), 0));
+
+  /**
+   * `[GX.97]` El filtro que se ve: el elegido, o el primero con algo (un clic que la persona da
+   * SIEMPRE es un defecto del default — diseno §0b-3).
+   */
+  readonly filtro = computed<AQuien>(() => {
+    const e = this.elegido();
+    if (e) return e;
+    const c = this.conteos();
+    return FILTROS.find((x) => c[x.value] > 0)?.value ?? 'tu';
+  });
+
+  readonly opciones = computed<SegOption[]>(() => {
+    const c = this.conteos();
+    return FILTROS.map((x) => ({ label: x.label, value: x.value, count: c[x.value] }));
+  });
+
+  readonly textoVacio = computed(() => FILTROS.find((x) => x.value === this.filtro())?.vacio ?? '');
+
+  /**
+   * Las filas del filtro. Lo abierto, del más viejo al más nuevo: lo que más urge arriba. Lo
+   * cerrado, al revés: lo último que cerró es lo que se viene a confirmar.
+   */
+  readonly visibles = computed<FilaLista[]>(() => {
+    const f = this.filtro();
+    const filas = this.unificadas().filter((x) => x.situacion?.aQuien === f);
+    const porFecha = (a: FilaLista, b: FilaLista) => String(a.fecha ?? '').localeCompare(String(b.fecha ?? ''));
+    return f === 'cerrado' ? [...filas].sort((a, b) => porFecha(b, a)) : [...filas].sort(porFecha);
+  });
+
+  /** `[GX.95]` Lo que el servidor recortó, dicho en palabras. */
+  readonly cortes = computed<string[]>(() => {
+    const r = this.reporte();
+    if (!r) return [];
+    const t: string[] = [];
+    if (r.abiertos_truncados) t.push('Tienes más vales abiertos de los que caben en la lista. Avisa a Sistemas.');
+    if (r.cerrados_truncados) {
+      const total = r.kpis?.validadas;
+      t.push(`Se muestran tus vales revisados más recientes${total ? ` (hay ${total} en total)` : ''}. Para uno más viejo, búscalo por su folio.`);
+    }
+    if (r.asignados_truncados) t.push('Kepler te asignó más solicitudes de las que caben: se muestran las más nuevas.');
+    return t;
+  });
 
   constructor() {
     this.cargar();
@@ -549,16 +414,32 @@ export class FinanzasMisGastosComponent {
     // `[GX.73]` Se refresca sola mientras la pestaña se ve: el estado del vale cambia afuera de
     // esta pantalla (lo aprueban en la Suite, lo autoriza Kepler) y antes sólo se veía al recargar.
     encuestarVisible(REFRESCO_VALES_MS, () => this.refrescar());
+    this.destroyRef.onDestroy(() => { if (this.espera) clearTimeout(this.espera); });
+  }
+
+  elegir(v: string): void {
+    if (FILTROS.some((x) => x.value === v)) this.elegido.set(v as AQuien);
+  }
+
+  /** `[GX.97]` Busca solo al dejar de escribir; Enter busca ya. */
+  escribir(texto: string): void {
+    this.q.set(texto);
+    if (this.espera) clearTimeout(this.espera);
+    this.espera = setTimeout(() => { this.espera = null; this.cargar(); }, 400);
+  }
+  buscarYa(): void {
+    if (this.espera) { clearTimeout(this.espera); this.espera = null; }
+    this.cargar();
   }
 
   cargar(): void {
     this.cargando.set(true);
     this.error.set('');
-    this.svc.mine(200, this.q || undefined).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => { this.aplicar(r); this.cargando.set(false); },
+    this.svc.mine(200, this.q() || undefined).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.aplicar(r); this.cargando.set(false); this.cargadaUnaVez.set(true); this.abrirDelEnlace(); },
       // Un error NO se pinta como «no levantaste nada»: es otra afirmación, y la equivocada
       // manda a alguien a capturar de nuevo un gasto que ya mandó.
-      error: () => { this.error.set('No se pudieron cargar tus gastos. Vuelve a intentar.'); this.cargando.set(false); },
+      error: () => { this.error.set('Revisa tu conexión y vuelve a intentar.'); this.cargando.set(false); },
     });
   }
 
@@ -567,29 +448,44 @@ export class FinanzasMisGastosComponent {
 
   /**
    * `[GX.73]` **El refresco en segundo plano.** No es `cargar()`: no muestra el aviso de carga
-   * (la lista no parpadea cada minuto) y un fallo NO pisa la lista buena con un error — la que
-   * está en pantalla sigue siendo la última cierta.
+   * y un fallo NO pisa la lista buena con un error — la que está en pantalla sigue siendo la
+   * última cierta. `[GX.97]` Pero el fallo se DICE: la lista ya no es de ahora.
    *
    * ⛔ No corre con un vale abierto: cambiarle la fila debajo a quien la está leyendo la movería
-   * de columna sin aviso. Se pone al día en la vuelta siguiente, ya cerrado.
+   * de lista sin aviso. Se pone al día en la vuelta siguiente, ya cerrado.
    */
   refrescar(): void {
     if (this.abierto() || this.cargando() || this.refrescando) return;
     this.refrescando = true;
-    this.svc.mine(200, this.q || undefined).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.svc.mine(200, this.q() || undefined).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => { this.aplicar(r); this.refrescando = false; },
-      error: () => { this.refrescando = false; },
+      error: () => {
+        this.refrescando = false;
+        this.refrescoFallo.set(new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }));
+      },
     });
   }
 
-  private aplicar(r: ExpenseProofsReport & { asignados?: ValeAsignado[] }): void {
+  private aplicar(r: ExpenseProofsReport): void {
     this.filas.set(r.rows ?? []);
     this.asignados.set(r.asignados ?? []);
-    this.reporte.set({
-      recibidas: r.kpis?.recibidas ?? 0,
-      validadas: r.kpis?.validadas ?? 0,
-      rechazadas: r.kpis?.rechazadas ?? 0,
-    });
+    this.reporte.set(r);
+    this.ultimaCarga.set(new Date());
+    this.refrescoFallo.set(null);
+  }
+
+  /**
+   * `[GX.91]` La captura manda aquí con `?vale=<id>` cuando el folio ya tenía un vale tuyo. Se abre
+   * una vez, y sólo si está en la lista (es tuyo: lo trajo `/mine`).
+   */
+  private enlaceAbierto = false;
+  private abrirDelEnlace(): void {
+    if (this.enlaceAbierto) return;
+    const id = this.route?.snapshot?.queryParamMap?.get('vale');
+    if (!id) return;
+    this.enlaceAbierto = true;
+    const p = this.filas().find((x) => x.id === id);
+    if (p) this.abrir(p);
   }
 
   abrir(p: ExpenseProof): void { this.abierto.set(p as ValeGasto); }
@@ -603,8 +499,7 @@ export class FinanzasMisGastosComponent {
 
   /**
    * `[GX.87]` Lo agregado se ve YA: el servidor devuelve el expediente completo y firmado, y se
-   * pone en el visor y en la fila. Sin esto, reabrir el vale lo mostraría sin lo que acabas de
-   * subir hasta el siguiente refresco.
+   * pone en el visor y en la fila.
    */
   alAgregarEvidencia(e: EvidenciaAgregada): void {
     this.abierto.update((v) => (v && v.id === e.id ? { ...v, files: e.files } : v));
@@ -614,26 +509,20 @@ export class FinanzasMisGastosComponent {
 
   diaLocal(iso: string | null | undefined): Date | null { return parseLocalDate(iso); }
 
-  antiguedad(p: FilaLista): string { return textoAntiguedad(diasDesde(p.fecha)); }
-  atorado(p: FilaLista): boolean { const d = diasDesde(p.fecha); return d !== null && d > DIAS_ATORADO; }
+  /** Lo cerrado no cuenta días (ya no espera nada); lo abierto, sí. */
+  diasTexto(f: FilaLista): string {
+    if (f.situacion?.aQuien === 'cerrado') return '—';
+    return f.dias === null ? '—' : textoAntiguedad(f.dias);
+  }
+  atorado(f: FilaLista): boolean {
+    return f.situacion?.aQuien !== 'cerrado' && f.dias !== null && f.dias > DIAS_ATORADO;
+  }
+
+  /** `[GX.65.3]` El gasto de Kepler, con su tipo de documento (el folio de destino del vale). */
+  foliosGasto(f: FilaLista): string { return f.gasto_folios.map((g) => 'XA1001-' + g).join(' · '); }
 
   money(v: number | null | undefined): string {
     return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2 });
-  }
-
-  /**
-   * Cómo se lee cada estado **desde el lado de quien levantó el gasto**: a quien aprueba
-   * «aprobada» le dice que ya firmó; a quien capturó, que todavía le toca hacer algo.
-   */
-  estado(s: string | null): string {
-    if (!s) return '';
-    return ({
-      recibida: 'Esperando «Revisado»',
-      aprobada: 'Aprobado',
-      revision: 'En revisión',
-      validada: 'Revisado',
-      rechazada: 'Te lo devolvieron',
-    } as Record<string, string>)[s] ?? s;
   }
 
   tipoGasto(c: string): string { return CLASIFICACION_LABEL[c as ExpenseClasificacion] ?? c; }
