@@ -22,7 +22,7 @@ export interface PedidoTlmkEntrada {
   fecha: string;
   /** `terms_discount_pct` congelado de la cotización. */
   pct_cliente: number | null;
-  /** Domicilio de entrega (`delivery_address_key` → `c85`). null = sin dirección de entrega: va `DIR_ENVIO_DOMICILIO`. */
+  /** Domicilio de entrega (`delivery_address_key` → `c115`, «Dirección Envío»). null = el cliente no tiene: `c115` vacío. */
   direccion_envio: string | null;
   /** COT.28: observaciones del pedido → «Comentarios» renglones 2 y 3 (`c25`, `c26`; 60 + 60). */
   observaciones?: string | null;
@@ -39,10 +39,14 @@ export type PedidoTlmkResultado =
 interface DatosCliente { nombre: string; rfc: string; c33: string; c34: string; c35: string; c30: string }
 
 /**
- * `c85` = 0 cuando el cliente no tiene direcciones de entrega (`kdudent`): así lo escribe Kepler
- * (228 de 228 pedidos TELEMARK de ago–nov 2026 de clientes sin dirección). Vacío no lo usa nadie.
+ * `[COT.37]` La «Dirección Envío» de la pantalla del pedido es **`c115`**, no `c85`. Medido el
+ * 2026-11-06 en los pedidos TELEMARK capturados por el personal (todas las sucursales, desde sep):
+ * mientras el pedido no se embarca, `c85` = **0** siempre (398 de 398) y la dirección va en `c115`
+ * (vacía si el cliente no tiene direcciones en `kdudent`: 185 de 185); al embarcar, Kepler iguala
+ * `c85` a `c115` (2,658 de 2,668). La Suite escribía la dirección en `c85` y dejaba `c115` como
+ * venía de la plantilla: el pedido 0003826 surtido mostraba «Dirección Envío» vacía.
  */
-export const DIR_ENVIO_DOMICILIO = '0';
+export const C85_AL_CREAR = '0';
 
 /** El documento: `U-D-40` con origen TELEMARK. Medido en 7,900 pedidos (ERP_KEPLER §3.y.3). */
 const DOC = { genero: 'U', naturaleza: 'D', grupo: '40', origen: 'TELEMARK', estado: 'CREADO' } as const;
@@ -137,8 +141,12 @@ export class KeplerPedidoTlmkSinkAdapter implements OnModuleDestroy {
       const ya = await c.query(
         `SELECT c6, c16::text AS total, (SELECT count(*)::int FROM md.kdm2 l WHERE l.c1 = k.c1 AND l.c2 = k.c2 AND l.c3 = k.c3
                  AND l.c4 = k.c4 AND l.c5 = k.c5 AND l.c6 = k.c6) AS n
-           FROM md.kdm1 k WHERE c1 = $1 AND c2 = 'U' AND c3 = 'D' AND btrim(c4::text) = '40' AND btrim(c24) = $2
+           FROM md.kdm1 k WHERE c1 = $1 AND c2 = 'U' AND c3 = 'D' AND btrim(c4::text) = '40'
+            AND (btrim(c24) = $2 OR btrim(c24) LIKE ($2::text || ' %'))
           ORDER BY c6 LIMIT 1`, [e.sucursal, e.folio_suite]);
+      // [COT.36] «empieza con el folio y un espacio», no sólo igual: el personal le agrega texto en
+      // Kepler («COT-2026-00142    CJA 4, PAQ 6, U1»; 10 de 11 pedidos medidos el 2026-11-06) y la
+      // comparación exacta ya no lo encontraba. El espacio evita que COT-2026-0014 case con 00142.
       if (ya.rowCount) {
         const r = ya.rows[0];
         this.logger.warn(`Cotización ${e.folio_suite} ya estaba en Kepler ${e.sucursal}/${r.c6}: no se escribe otra vez`);
@@ -229,12 +237,13 @@ export class KeplerPedidoTlmkSinkAdapter implements OnModuleDestroy {
             c9 = $6, c18 = $6, c68 = $6, c62 = $7, c69 = $7, c67 = $8,
             c10 = $9, c12 = $10, c11 = $11, c27 = $12, c24 = $13,
             c22 = $14, c32 = $15, c33 = $16, c34 = $17, c35 = $18, c30 = $19,
-            c43 = 'N', c85 = $20`,
+            c43 = 'N', c85 = $20, c115 = $21`,
         [e.sucursal, DOC.genero, DOC.naturaleza, DOC.grupo, tmpl.serie,
           e.fecha, hora, CAPTURISTA_SUITE,
           e.cliente.trim(), e.vendedor.trim(), DOC.estado, DOC.origen, e.folio_suite,
           cli.rfc, cli.nombre, prev.c33, prev.c34, prev.c35, prev.c30,
-          e.direccion_envio ?? DIR_ENVIO_DOMICILIO]);
+          // c115 SIEMPRE se escribe: si no, el pedido hereda la dirección del que se clonó.
+          C85_AL_CREAR, e.direccion_envio?.trim() || '']);
       // Cada importe con su propio parámetro: los tipos de Kepler no son uniformes (KR.16).
       await c.query('UPDATE _h SET c13 = $1, c14 = $2, c15 = $3', [cabecera.c13, cabecera.c14, cabecera.c15]);
       await c.query('UPDATE _h SET c16 = $1, c42 = $2, c19 = $3', [cabecera.c16, cabecera.c16, cabecera.c19]);
