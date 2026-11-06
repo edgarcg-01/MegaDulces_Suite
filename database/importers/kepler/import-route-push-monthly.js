@@ -36,9 +36,19 @@
  *   SRC_URL=…@192.168.0.222:5433/kepler_consolidado (default; en `md` gana DATABASE_URL_KEPLER_CONSOLIDADO)
  *   DST_URL / DATABASE_URL_NEW = destino (prod Railway)
  *
+ * `[CANON.5.16]` (2026-11-06) — por default ya no lee el `mart`: suma `analytics.route_push_lines`,
+ * que es el mismo push a nivel línea y ya vive en prod (lo llena `import-route-push-lines`). El
+ * almacén madre de la ruta sale de `commercial.warehouses` (`RUTA-<NN>` → su `source_warehouse_id`);
+ * si la ruta no tiene almacén propio (las vecinales `1V00N`), del renglón `WIN-<NN>` que ya existe;
+ * si tampoco, `01` como antes. Comparación en seco (2026, sólo lectura): simulado el upsert GREATEST
+ * de la fuente nueva contra la tabla, las 77 filas ruta×mes ya existen y NINGUNA cambiaría. Control
+ * (comparar contra el mes siguiente): 34 cambiarían y 15 serían nuevas.
+ * ⚠️ En los carriles corre ANTES de `import-route-push-lines`, así que suma las líneas de la vuelta
+ * anterior: va una vuelta atrás hasta que se inviertan. `--source=mart` conserva la fuente vieja.
+ *
  *   DST_URL=…railway node database/importers/kepler/import-route-push-monthly.js           # dry-run
  *   DST_URL=…             node database/importers/kepler/import-route-push-monthly.js --apply
- *   ... [--year 2026]
+ *   ... [--year 2026] [--source=mart]
  */
 const { Client } = require('pg');
 
@@ -48,31 +58,53 @@ const DST = process.env.DST_URL || process.env.DATABASE_URL_NEW || (() => { thro
 const APPLY = process.argv.includes('--apply');
 const yi = process.argv.indexOf('--year');
 const YEAR = yi !== -1 ? Number(process.argv[yi + 1]) : new Date().getFullYear();
+const SOURCE = (process.argv.find((a) => a.startsWith('--source=')) || '').split('=')[1] || 'lines';
+if (!['lines', 'mart'].includes(SOURCE)) throw new Error(`--source desconocido: ${SOURCE} (lines | mart)`);
+
+// Ruta × mes desde las líneas del push en prod. wcode: almacén madre de `RUTA-<NN>`; si la ruta no
+// tiene almacén propio, el del renglón WIN-<NN> que ya existe; si tampoco, '01' (como el mart).
+const LINES_SQL = `
+  WITH r AS (
+    SELECT route_no, date_trunc('month', business_date)::date AS month,
+           sum(qty)::numeric AS units, sum(importe)::numeric AS revenue, count(DISTINCT folio)::int AS tickets
+      FROM analytics.route_push_lines
+     WHERE tenant_id = $3 AND business_date >= $1 AND business_date < $2 AND business_date <= CURRENT_DATE
+     GROUP BY 1, 2)
+  SELECT COALESCE(
+           (SELECT f.code FROM commercial.warehouses w JOIN commercial.warehouses f ON f.id = w.source_warehouse_id
+             WHERE w.tenant_id = $3 AND w.code = 'RUTA-' || r.route_no AND w.deleted_at IS NULL LIMIT 1),
+           (SELECT w.code FROM analytics.sales_by_route_monthly s JOIN commercial.warehouses w ON w.id = s.warehouse_id
+             WHERE s.tenant_id = $3 AND s.route_code = 'WIN-' || r.route_no ORDER BY s.month DESC LIMIT 1),
+           '01') AS wcode,
+         r.route_no, r.month, r.units, r.revenue, r.tickets
+    FROM r`;
+// Fuente vieja: mart.ventas (line-level) → ruta × mes. warehouse = prefijo del almacén ('01-003' → '01').
+const MART_SQL = `
+  SELECT COALESCE(NULLIF(split_part(max(almacen), '-', 1), ''), '01') AS wcode,
+         substring(sucursal from 'ruta_(.*)') AS route_no,
+         date_trunc('month', fecha)::date AS month,
+         sum(cantidad)::numeric AS units,
+         sum(importe)::numeric  AS revenue,
+         count(DISTINCT folio)::int AS tickets
+    FROM mart.ventas
+   WHERE sucursal LIKE 'ruta_%' AND fecha >= $1 AND fecha < $2 AND fecha <= CURRENT_DATE
+   GROUP BY sucursal, date_trunc('month', fecha)`;
 
 (async () => {
   const dst = new Client({ connectionString: DST, ssl: /rlwy|railway|proxy/i.test(DST) ? { rejectUnauthorized: false } : false });
   await dst.connect();
-  const src = new Client({ connectionString: SRC, connectionTimeoutMillis: 8000, statement_timeout: 120000 });
+  const src = SOURCE === 'mart' ? new Client({ connectionString: SRC, connectionTimeoutMillis: 8000, statement_timeout: 120000 }) : dst;
   try {
-    console.log(`\n=== VENTA en ruta (PUSH camionetas) → analytics.sales_by_route_monthly (${APPLY ? 'APPLY' : 'DRY-RUN'}, año ${YEAR}) ===\n`);
-    try { await src.connect(); }
-    catch (e) { console.error(`❌ sin conexión al runner consolidado (${e.message}) — abortando`); process.exitCode = 1; return; }
+    console.log(`\n=== VENTA en ruta (PUSH camionetas, ${SOURCE}) → analytics.sales_by_route_monthly (${APPLY ? 'APPLY' : 'DRY-RUN'}, año ${YEAR}) ===\n`);
+    if (src !== dst) {
+      try { await src.connect(); }
+      catch (e) { console.error(`❌ sin conexión al runner consolidado (${e.message}) — abortando`); process.exitCode = 1; return; }
+    }
 
     const from = `${YEAR}-01-01`, to = `${YEAR + 1}-01-01`;
-    // Agrego mart.ventas (line-level) → ruta × mes. warehouse = prefijo del almacén ('01-003' → '01').
-    // route_no = número tras 'ruta_'. tickets = folios distintos.
-    const { rows } = await src.query(
-      `SELECT COALESCE(NULLIF(split_part(max(almacen), '-', 1), ''), '01') AS wcode,
-              substring(sucursal from 'ruta_(.*)') AS route_no,
-              date_trunc('month', fecha)::date AS month,
-              sum(cantidad)::numeric AS units,
-              sum(importe)::numeric  AS revenue,
-              count(DISTINCT folio)::int AS tickets
-         FROM mart.ventas
-        WHERE sucursal LIKE 'ruta_%' AND fecha >= $1 AND fecha < $2 AND fecha <= CURRENT_DATE
-        GROUP BY sucursal, date_trunc('month', fecha)`,
-      [from, to],
-    );
+    const { rows } = SOURCE === 'mart'
+      ? await src.query(MART_SQL, [from, to])
+      : await src.query(LINES_SQL, [from, to, M]);
     if (!rows.length) { console.log('sin ventas de ruta en el runner para el rango — nada que hacer.'); return; }
 
     const routes = new Set(rows.map((r) => r.route_no)).size;
@@ -119,7 +151,7 @@ const YEAR = yi !== -1 ? Number(process.argv[yi + 1]) : new Date().getFullYear()
     console.error('\nERROR (rollback):', e.message);
     process.exitCode = 1;
   } finally {
-    await src.end().catch(() => {});
+    if (src !== dst) await src.end().catch(() => {});
     await dst.end().catch(() => {});
   }
 })();
