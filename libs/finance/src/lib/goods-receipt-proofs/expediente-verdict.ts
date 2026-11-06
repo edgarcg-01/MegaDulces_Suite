@@ -100,6 +100,12 @@ export interface LlavesLiga {
   fechaEntrada: string | null;
   /** CFDI ya confirmado para esta entrada en `fiscal.cfdi_assignments`. Gana sobre todo. */
   asignadoId: string | null;
+  /**
+   * `[RE.58]` Nombre del proveedor en Kepler. Si se pasa, un UUID leído sólo liga cuando el emisor
+   * de ese CFDI es coherente con la entrada (ver `emisorCoherente`). Sin entrada (identificar un
+   * papel suelto) no se pasa y el UUID liga como antes.
+   */
+  nombreKepler?: string | null;
 }
 
 export interface ResultadoLiga {
@@ -128,17 +134,18 @@ export function ligarCfdi(k: LlavesLiga, candidatos: CfdiCandidato[]): Resultado
     if (a) return { cfdi: a, liga: { metodo: 'asignado', exacta: true, candidatos: 1 }, ambiguos: 0 };
   }
 
+  const rfcs = [k.rfcLeido, k.rfcKepler].filter((r) => rfcBienFormado(r)).map((r) => rfcComparable(r));
+  const deRfc = (c: CfdiCandidato) => rfcs.includes(rfcComparable(c.emisor_rfc));
+
   if (k.uuidLeido) {
     const u = k.uuidLeido.toUpperCase();
-    const r = unico(candidatos.filter((c) => c.uuid.toUpperCase() === u), 'uuid', true);
+    const suyo = (c: CfdiCandidato) => k.nombreKepler === undefined || emisorCoherente(k, c, deRfc);
+    const r = unico(candidatos.filter((c) => c.uuid.toUpperCase() === u && suyo(c)), 'uuid', true);
     if (r) return r;
-    const cerca = candidatos.filter((c) => diferenciasUuid(u, c.uuid) <= UUID_MAX_DIFERENCIAS);
+    const cerca = candidatos.filter((c) => diferenciasUuid(u, c.uuid) <= UUID_MAX_DIFERENCIAS && suyo(c));
     const r2 = unico(cerca, 'uuid_corregido', true);
     if (r2) return r2;
   }
-
-  const rfcs = [k.rfcLeido, k.rfcKepler].filter((r) => rfcBienFormado(r)).map((r) => rfcComparable(r));
-  const deRfc = (c: CfdiCandidato) => rfcs.includes(rfcComparable(c.emisor_rfc));
   const folio = folioNumero(k.folioLeido);
   const deFolio = (c: CfdiCandidato) => !!folio && folioNumero(c.folio) === folio;
   const cercaDeEntrada = (c: CfdiCandidato) => {
@@ -171,6 +178,21 @@ export function ligarCfdi(k: LlavesLiga, candidatos: CfdiCandidato[]): Resultado
     if (r) return r;
   }
   return { ...sinLiga, ambiguos };
+}
+
+/**
+ * `[RE.58]` ¿El emisor de un CFDI encontrado por UUID puede ser el proveedor de la entrada? Basta UNA:
+ * RFC (del papel o de Kepler), nombre parecido, o el total igual al monto de la entrada.
+ *
+ * Medido en prod el 2026-11-06 (sólo lectura): el OCR devolvió en 22 entradas, de 15 proveedores,
+ * el UUID que el prompt del extractor ponía de EJEMPLO, y las 22 quedaron ligadas «exactas» a una
+ * factura de otro emisor por $320,584.53. De 240 ligas por UUID, 23 legítimas tienen el RFC mal
+ * leído o mal capturado en Kepler pero mismo nombre y mismo total: exigir el RFC solo las rompería.
+ */
+export function emisorCoherente(k: LlavesLiga, c: CfdiCandidato, deRfc: (c: CfdiCandidato) => boolean): boolean {
+  return deRfc(c)
+    || (parecidoNombre(k.nombreKepler, c.emisor_nombre) ?? 0) >= UMBRAL_NOMBRE
+    || igual(c.total, k.montoEntrada);
 }
 
 /**

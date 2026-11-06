@@ -382,3 +382,35 @@ describe('[RE.50] candidatosPosibles: ligarCfdi da lo mismo con el índice que c
     expect(ligarCfdi(k, solos).cfdi?.id).toBe('z');
   });
 });
+
+/**
+ * `[RE.58]` El OCR copió el UUID de ejemplo del prompt en 22 entradas de 15 proveedores, y las 22 se
+ * ligaron «exactas» a la factura real de otro emisor. Datos SINTÉTICOS con la misma forma.
+ */
+describe('[RE.58] un UUID leído sólo liga a un emisor coherente con la entrada', () => {
+  const ajena = cfdi({ id: 'ajena', emisor_rfc: 'CAN830210LE8', emisor_nombre: 'DULCERA AJENA', total: 320584.53 });
+  const k = (p: Partial<LlavesLiga> = {}): LlavesLiga => ({
+    uuidLeido: UUID, folioLeido: null, rfcLeido: null, totalLeido: null, fechaLeida: null,
+    rfcKepler: 'MME980101AB1', montoEntrada: 276935.19, fechaEntrada: '2026-10-20', asignadoId: null,
+    nombreKepler: 'GOLOSINAS DEL NORTE SA DE CV', ...p,
+  });
+
+  it('CONTROL: sin el nombre de Kepler (papel suelto) el UUID liga como antes', () => {
+    const { nombreKepler: _n, ...sinNombre } = k();
+    expect(ligarCfdi(sinNombre, [ajena]).liga?.metodo).toBe('uuid');
+  });
+  it('emisor ajeno por RFC, nombre y total → no se liga', () => {
+    expect(ligarCfdi(k(), [ajena]).cfdi).toBeNull();
+  });
+  it('tampoco por UUID «corregido» (hasta 3 caracteres)', () => {
+    expect(ligarCfdi(k({ uuidLeido: UUID.slice(0, -1) + (UUID.endsWith('0') ? '1' : '0') }), [ajena]).cfdi).toBeNull();
+  });
+  it('RFC mal leído y mal capturado pero mismo nombre → sí liga (los 23 legítimos de prod)', () => {
+    const buena = cfdi({ id: 'buena', emisor_rfc: 'GOGI610205HI0', emisor_nombre: 'GOLOSINAS DEL NORTE', total: 5237 });
+    expect(ligarCfdi(k({ rfcLeido: 'GOG1610205HIO', rfcKepler: 'GOGI610205H10', montoEntrada: 5236 }), [buena]).cfdi?.id).toBe('buena');
+  });
+  it('nombre distinto pero total igual al de la entrada → sí liga', () => {
+    const buena = cfdi({ id: 'buena', emisor_rfc: 'XAXX010101000', emisor_nombre: 'RAZON SOCIAL NUEVA', total: 276935.19 });
+    expect(ligarCfdi(k(), [buena]).cfdi?.id).toBe('buena');
+  });
+});

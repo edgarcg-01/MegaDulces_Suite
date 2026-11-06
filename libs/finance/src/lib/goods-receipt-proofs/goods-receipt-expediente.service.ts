@@ -350,6 +350,8 @@ export class GoodsReceiptExpedienteService {
         totalLeido: p.lectura?.total ?? null, fechaLeida: p.lectura?.fecha ?? null,
         rfcKepler: p.e.proveedor_rfc ?? null, montoEntrada: Number(p.e.monto), fechaEntrada: p.e.receipt_date,
         asignadoId: asig,
+        // `[RE.58]` Con la entrada a la mano, un UUID leído sólo liga a un emisor coherente con ella.
+        nombreKepler: p.e.proveedor_nombre ?? null,
       };
       const r = ligarCfdi(llaves, candidatosPosibles(llaves, suyos, indice, esSuyo, [...cerca]));
       // Sin CFDI: ¿el proveedor factura en ContPAQi? Si no, su papel se revisa como remisión.
