@@ -13,6 +13,18 @@
  * Universo = SKUs con venta 90d ∪ SKUs con existencia (dic.stock). Join a
  * catálogo por sku; solo actualiza los que matchean (no clobber).
  *
+ * CANON.5.17 (2026-11-06) — la fuente por defecto es `analytics.sales_daily`, no el `mart`:
+ *   · La unidad: el `mart` convertía por la ETIQUETA (`PAQ`×paquete, `CJA`×caja), y Kepler escribe
+ *     `PAQ` también para la pieza. Medido contra el precio de pieza de Kepler (kdii.c90): en 3,640
+ *     de 3,646 SKUs que difieren >3×, el precio implícito de `sales_daily` es el de la pieza y el de
+ *     la rotación vieja daba $0.33–$4 por pieza. `sales_daily` ya viene en el canónico anclado a
+ *     precio (toCanonicalPriced), así que aquí NO se convierte.
+ *   · El `mart` contaba dos veces la venta de las rutas de Padre Hidalgo (base 01 + push).
+ *   · Sin los canales `wincaja_*`, que el `mart` tampoco traía (paridad de universo).
+ *   · El universo «con existencia» sobra: un SKU sin venta sale con tier NULL y 0, que es lo mismo
+ *     que deja el reset.
+ *   `--source=mart` vuelve a la fuente vieja.
+ *
  *   node database/importers/kepler/import-rotation-from-consolidado.js          # dry-run
  *   node database/importers/kepler/import-rotation-from-consolidado.js --apply  # commit
  */
@@ -28,6 +40,7 @@ const DST =
   process.env.DATABASE_URL_NEW ||
   (() => { throw new Error('falta DATABASE_URL_NEW: la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
 const APPLY = process.argv.includes('--apply');
+const SOURCE = (process.argv.find((a) => a.startsWith('--source=')) || '--source=sales_daily').split('=')[1];
 
 function percentile(sorted, p) {
   if (!sorted.length) return 0;
@@ -36,13 +49,13 @@ function percentile(sorted, p) {
 }
 
 (async () => {
-  const src = new Client({ connectionString: SRC });
+  const src = SOURCE === 'mart' ? new Client({ connectionString: SRC }) : null;
   const db = new Client({ connectionString: DST });
-  await src.connect();
+  if (src) await src.connect();
   await db.connect();
 
   try {
-    console.log(`\n=== Feed rotación RED (6 sucursales) → products (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
+    console.log(`\n=== Feed rotación RED → products (fuente ${SOURCE}, ${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
 
     // Catálogo: sku → id + MODELO DE UNIDAD (RS.3). Necesario para convertir cada
     // bucket de `unidad` al canónico del producto antes de rankear rotación.
@@ -57,35 +70,19 @@ function percentile(sorted, p) {
     const modelBySku = new Map();
     for (const p of prods) { skuToId.set(p.sku, p.id); modelBySku.set(p.sku, buildModel(p)); }
 
-    // Venta 30d / 90d por SKU × UNIDAD (toda la red) ∪ universo en existencia.
-    const { rows: raw } = await src.query(
-      `WITH s AS (
-         SELECT sku, upper(btrim(coalesce(unidad,''))) AS unidad,
-                sum(cantidad) FILTER (WHERE fecha >= CURRENT_DATE - 30) AS u30,
-                sum(cantidad) FILTER (WHERE fecha >= CURRENT_DATE - 90) AS u90
-           FROM mart.ventas
-          WHERE fecha >= CURRENT_DATE - 90
-          GROUP BY sku, upper(btrim(coalesce(unidad,'')))
-       ),
-       stocked AS (SELECT DISTINCT sku FROM dic.stock WHERE existencia > 0)
-       SELECT COALESCE(s.sku, st.sku) AS sku, s.unidad,
-              COALESCE(s.u30,0)::numeric AS u30, COALESCE(s.u90,0)::numeric AS u90
-         FROM s FULL OUTER JOIN stocked st ON st.sku = s.sku`,
-    );
-
-    // Convertir cada bucket (sku,unidad) → canónico y sumar por sku. Guardamos kind
-    // para rankear PIEZA vs PESO en escalas separadas (no comparar kg contra piezas).
-    const bySku = new Map(); // sku → { u30, u90, kind }
-    for (const r of raw) {
+    // Venta 30d / 90d por SKU. sales_daily ya está en el canónico del producto (piezas o kg).
+    const vrows = SOURCE === 'mart' ? await fromMart(src, modelBySku) : (await db.query(
+      `SELECT btrim(pr.sku) AS sku, max(d.unit_kind) AS kind,
+              round(coalesce(sum(d.units) FILTER (WHERE d.sale_date >= CURRENT_DATE - 30), 0))::int AS u30,
+              round(coalesce(sum(d.units), 0))::int AS u90
+         FROM analytics.sales_daily d
+         JOIN catalog.products pr ON pr.id = d.product_id
+        WHERE d.tenant_id = $1 AND d.sale_date >= CURRENT_DATE - 90
+          AND d.channel NOT LIKE 'wincaja%' AND btrim(coalesce(pr.sku,'')) <> ''
+        GROUP BY 1`, [M])).rows.map((r) => {
       const m = modelBySku.get(r.sku);
-      const kind = m ? m.kind : 'piece';
-      const c30 = m ? toCanonical(m, r.unidad, Number(r.u30)).qty : Number(r.u30);
-      const c90 = m ? toCanonical(m, r.unidad, Number(r.u90)).qty : Number(r.u90);
-      let a = bySku.get(r.sku);
-      if (!a) { a = { u30: 0, u90: 0, kind }; bySku.set(r.sku, a); }
-      a.u30 += c30 || 0; a.u90 += c90 || 0;
-    }
-    const vrows = Array.from(bySku, ([sku, a]) => ({ sku, u30: Math.round(a.u30), u90: Math.round(a.u90), kind: a.kind }));
+      return { sku: r.sku, u30: r.u30, u90: r.u90, kind: m ? m.kind : (r.kind === 'weight' ? 'weight' : 'piece') };
+    });
 
     // Percentiles SEPARADOS por kind (piezas vs kg no son comparables).
     const sortedBy = (k) => vrows.filter((r) => r.kind === k && r.u90 > 0).map((r) => r.u90).sort((a, b) => a - b);
@@ -153,7 +150,42 @@ function percentile(sorted, p) {
     console.error('\nERROR (rollback):', e.message);
     process.exitCode = 1;
   } finally {
-    await src.end();
+    if (src) await src.end();
     await db.end();
   }
 })();
+
+// Fuente vieja (`--source=mart`): venta por SKU × UNIDAD desde mart.ventas, convertida al canónico
+// por la etiqueta de unidad (ver la cabecera: infla los SKUs que Kepler rotula PAQ siendo pieza).
+async function fromMart(src, modelBySku) {
+    // Venta 30d / 90d por SKU × UNIDAD (toda la red) ∪ universo en existencia.
+    const { rows: raw } = await src.query(
+      `WITH s AS (
+         SELECT sku, upper(btrim(coalesce(unidad,''))) AS unidad,
+                sum(cantidad) FILTER (WHERE fecha >= CURRENT_DATE - 30) AS u30,
+                sum(cantidad) FILTER (WHERE fecha >= CURRENT_DATE - 90) AS u90
+           FROM mart.ventas
+          WHERE fecha >= CURRENT_DATE - 90
+          GROUP BY sku, upper(btrim(coalesce(unidad,'')))
+       ),
+       stocked AS (SELECT DISTINCT sku FROM dic.stock WHERE existencia > 0)
+       SELECT COALESCE(s.sku, st.sku) AS sku, s.unidad,
+              COALESCE(s.u30,0)::numeric AS u30, COALESCE(s.u90,0)::numeric AS u90
+         FROM s FULL OUTER JOIN stocked st ON st.sku = s.sku`,
+    );
+
+    // Convertir cada bucket (sku,unidad) → canónico y sumar por sku. Guardamos kind
+    // para rankear PIEZA vs PESO en escalas separadas (no comparar kg contra piezas).
+    const bySku = new Map(); // sku → { u30, u90, kind }
+    for (const r of raw) {
+      const m = modelBySku.get(r.sku);
+      const kind = m ? m.kind : 'piece';
+      const c30 = m ? toCanonical(m, r.unidad, Number(r.u30)).qty : Number(r.u30);
+      const c90 = m ? toCanonical(m, r.unidad, Number(r.u90)).qty : Number(r.u90);
+      let a = bySku.get(r.sku);
+      if (!a) { a = { u30: 0, u90: 0, kind }; bySku.set(r.sku, a); }
+      a.u30 += c30 || 0; a.u90 += c90 || 0;
+    }
+    const vrows = Array.from(bySku, ([sku, a]) => ({ sku, u30: Math.round(a.u30), u90: Math.round(a.u90), kind: a.kind }));
+    return vrows;
+}
