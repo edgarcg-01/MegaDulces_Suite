@@ -71,7 +71,9 @@ describe('[GX.34] «Mis gastos» no puede devolver los de todos', () => {
    * número grande de arriba se cree.
    */
   it('los contadores pasan por LOS MISMOS filtros que las filas', () => {
-    expect(SERVICIO).toContain("const agg = await filtros(trx('finance.expense_proofs'))");
+    // `[GX.94]` La llamada lleva además la tabla, para que la regla del rechazo califique sus columnas
+    // con el nombre correcto. Lo que se vigila no cambia: los contadores pasan por `filtros`.
+    expect(SERVICIO).toMatch(/const agg = await filtros\(trx\('finance\.expense_proofs'\)(, 'finance\.expense_proofs')?\)/);
     // La forma vieja: agregar sobre la tabla sin un solo filtro.
     expect(SERVICIO).not.toContain("await trx('finance.expense_proofs').groupBy('status')");
   });

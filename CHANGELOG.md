@@ -9,6 +9,15 @@
 ---
 
 ## [Unreleased]
+### Fixed — Gastos: nada atorado sin dueño (GX.91–GX.96, 2026-11-06)
+- Un doble clic en «Enviar a aprobación» ya no crea dos vales.
+- Un vale revisado cuya solicitud Kepler canceló ya no se queda «esperando el gasto» para siempre; los devueltos se quedan a la vista hasta recapturarse.
+- Quien aprueba ve en «Esperan a Kepler» lo revisado que espera autorizarse o aplicarse en Kepler, y las canceladas con gasto para revisar.
+### Changed — Gastos: Mis gastos y Aprobación (GX.97–GX.101)
+- «Mis gastos» es una lista por a quién le toca cada vale, con botón «Capturar gasto».
+- Aprobación agrupa por el departamento real de Kepler (un gasto repartido aparece en cada uno con su parte), muestra la evidencia completa con un visor grande, y ya no regresa al inicio al aprobar o actualizar.
+- El buscador de gastos va junto al título de cada pantalla.
+
 ### Added — Comercial: Alta de clientes desde la constancia del SAT (ALC, 2026-11-04 · en código, sin soltar)
 - Nueva pantalla **Comercial › Alta de clientes**. Se sube la **Constancia de Situación Fiscal** (el PDF del SAT) y la Suite llena RFC, nombre o razón social, régimen fiscal, código postal y domicilio; o se captura a mano, que vale lo mismo: **la constancia no se le puede exigir al cliente** para facturar.
 - Revisa lo que se tecleó antes de guardar: el RFC y la CURP con su **dígito verificador** (hoy, 63 de 801 RFC distintos en Kepler están mal capturados), el código postal contra el catálogo del SAT, que el régimen corresponda a persona física o moral, y si **el RFC ya está en Kepler** (avisa con su clave y sus sucursales, para no dar de alta dos veces).

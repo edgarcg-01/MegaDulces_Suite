@@ -3,7 +3,7 @@ import { LOCALE_ID } from '@angular/core';
 import { registerLocaleData } from '@angular/common';
 import localeEsMx from '@angular/common/locales/es-MX';
 import { provideHttpClient } from '@angular/common/http';
-import { provideRouter } from '@angular/router';
+import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { FinanzasMisGastosComponent } from './finanzas-mis-gastos.component';
 import type { ExpedienteDelDia, ExpenseProofsReport } from '../comprobaciones.service';
@@ -11,12 +11,12 @@ import { BuscadorGastosEstado } from '../components/buscador-gastos.estado';
 import { PermissionsService } from '../../../core/services/permissions.service';
 
 /**
- * `[GX.33]` Candado de **Mis gastos**, la pantalla de quien LEVANTA el gasto.
+ * `[GX.33]` / `[GX.97]` Candado de **Mis gastos**, la pantalla de quien LEVANTA el gasto.
  *
- * Lo que cuida: que no afirme lo que no sabe. Un error de red no puede leerse como «no
- * levantaste nada» (eso manda a alguien a capturar de nuevo un gasto que ya mandó), los
- * contadores no pueden salir de contar la lista (viene acotada por `limit`), y el recorte
- * a lo propio no puede vivir acá.
+ * v2 (2026-11-06): una lista con un filtro por **a quién le toca** — Te toca · Esperan a Finanzas ·
+ * Esperan a Kepler · Cerrados. Lo que cuida: que no afirme lo que no sabe (un error no es «no
+ * levantaste nada», un corte se declara), que lo terminado salga aunque Kepler haya cancelado la
+ * solicitud (`[GX.92]`), y que el recorte a lo propio no viva acá.
  */
 
 const FILA = (over: Partial<ExpenseProofsReport['rows'][number]> = {}) => ({
@@ -29,7 +29,7 @@ const FILA = (over: Partial<ExpenseProofsReport['rows'][number]> = {}) => ({
 
 const REPORTE = (over: Partial<ExpenseProofsReport> = {}): ExpenseProofsReport => ({
   kpis: { total: 3, recibidas: 2, validadas: 1, rechazadas: 0, en_revision: 0 },
-  rows: [FILA(), FILA({ id: 'p2', status: 'validada', folio_solicitud: '0049651' })],
+  rows: [FILA(), FILA({ id: 'p2', status: 'validada', folio_solicitud: '0049651', etapa: 'ejercido', gasto_folios: ['0008879'] })],
   ...over,
 });
 
@@ -37,15 +37,19 @@ describe('FinanzasMisGastosComponent', () => {
   let fix: ComponentFixture<FinanzasMisGastosComponent>;
   let c: FinanzasMisGastosComponent;
   let http: HttpTestingController;
+  let queryVale: string | null = null;
 
   beforeAll(() => registerLocaleData(localeEsMx));
 
   beforeEach(() => {
+    queryVale = null;
     TestBed.configureTestingModule({
       imports: [FinanzasMisGastosComponent],
-      // `[GX.41]` El router va de verdad: el botón «Subir evidencia» es un `routerLink` con
-      // queryParams, y con un doble no se podría comprobar que el folio Y la sucursal viajan.
-      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([]), { provide: LOCALE_ID, useValue: 'es-MX' }, BuscadorGastosEstado],
+      // `[GX.41]` El router va de verdad: los botones son `routerLink` con queryParams, y con un
+      // doble no se podría comprobar que el folio Y la sucursal viajan.
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([]), { provide: LOCALE_ID, useValue: 'es-MX' },
+        BuscadorGastosEstado,
+        { provide: ActivatedRoute, useValue: { snapshot: { get queryParamMap() { return convertToParamMap(queryVale ? { vale: queryVale } : {}); } } } }],
     });
     http = TestBed.inject(HttpTestingController);
   });
@@ -60,400 +64,186 @@ describe('FinanzasMisGastosComponent', () => {
     fix.detectChanges();
     return req;
   };
+  const txt = () => fix.nativeElement.textContent as string;
+  const ver = (filtro: string) => { c.elegir(filtro); fix.detectChanges(); };
 
   /**
    * ⭐ El recorte a lo propio lo hace el SERVIDOR (`/mine`, por token). Si esta pantalla
-   * pidiera la colección y filtrara acá, un error suyo mostraría el gasto ajeno — y nadie
-   * se enteraría, porque se vería igual de bien.
+   * pidiera la colección y filtrara acá, un error suyo mostraría el gasto ajeno.
    */
   it('pide /mine, no la colección', () => {
     const req = montar();
     expect(req.request.method).toBe('GET');
     expect(req.request.url).toContain('/mine');
-    expect(req.request.url).not.toContain('/historial');
   });
 
   it('muestra lo levantado, con su folio y su proveedor', () => {
     montar();
-    const txt = fix.nativeElement.textContent as string;
-    expect(txt).toContain('0049641');
-    expect(txt).toContain('CAPUFE');
-    expect(fix.nativeElement.querySelectorAll('.mg-item').length).toBe(2);
+    expect(txt()).toContain('0049641');
+    expect(txt()).toContain('CAPUFE');
   });
 
-  /**
-   * ⚠️ Los contadores salen de `kpis` del servidor, NO de contar `filas()`: la lista viene
-   * acotada por `limit`, así que contarla le diría «tenés 200» al que tiene 340.
-   */
-  it('los contadores salen del servidor, no de contar la lista', () => {
-    montar(REPORTE({
-      kpis: { total: 340, recibidas: 300, validadas: 38, rechazadas: 2, en_revision: 0 },
-      rows: [FILA()],
-    }));
-    expect(c.kpis()).toEqual({ recibidas: 300, validadas: 38, rechazadas: 2 });
-    expect(fix.nativeElement.querySelectorAll('.mg-item').length).toBe(1);
-  });
-
-  /** Cada estado se nombra desde el lado de quien capturó, no del que firma. */
-  it('«aprobada» le dice al capturista que todavía le toca algo', () => {
-    montar(REPORTE({ rows: [FILA({ status: 'aprobada' })] }));
-    const txt = fix.nativeElement.textContent as string;
-    expect(txt).toContain('Aprobado');
-    expect(txt).toContain('te toca subir la evidencia');
-  });
-
-  /** El motivo va completo: es exactamente lo que hay que corregir para volver a mandarlo. */
-  it('un rechazo muestra su motivo', () => {
-    montar(REPORTE({ rows: [FILA({ status: 'rechazada', motivo_rechazo: 'la foto no se lee' })] }));
-    const txt = fix.nativeElement.textContent as string;
-    expect(txt).toContain('Te lo devolvieron');
-    expect(txt).toContain('la foto no se lee');
-  });
-
-  /**
-   * ⭐ Un error NO se pinta como «no levantaste nada»: es otra afirmación, y la equivocada
-   * manda a alguien a capturar de nuevo un gasto que ya había mandado.
-   */
-  it('un error se dice, no se disfraza de lista vacía', () => {
-    montar(null);
-    expect(c.error()).toContain('No se pudieron cargar');
-    expect(fix.nativeElement.textContent).not.toContain('Todavía no levantaste');
-  });
-
-  /** ⚠️ Un rechazo deja de verse a las 24 h: si no se dice, se lee como que se perdió. */
-  it('el vacío avisa que los rechazos caducan', () => {
-    montar(REPORTE({ kpis: { total: 0, recibidas: 0, validadas: 0, rechazadas: 0, en_revision: 0 }, rows: [] }));
-    expect(fix.nativeElement.textContent).toContain('deja de verse a las 24 h');
-  });
-
-  it('el buscador viaja al servidor', () => {
+  /** ⭐ La única acción primaria: antes «Mis gastos» no tenía entrada a la captura. */
+  it('⭐ ofrece «Capturar gasto», que lleva a la captura', () => {
     montar();
-    c.q = 'CAPUFE';
-    c.cargar();
-    const req = http.expectOne((x) => x.url.includes('/mine') && x.params.get('search') === 'CAPUFE');
-    req.flush(REPORTE());
+    const a = fix.nativeElement.querySelector('a.mg-capturar') as HTMLAnchorElement;
+    expect(a?.textContent).toContain('Capturar gasto');
+    expect(a?.getAttribute('href')).toBe('/finanzas/gastos');
   });
 
-  /**
-   * `[GX.39]` — **«Por ejercer» y «Ejercido»: la etapa que decide Kepler.**
-   *
-   * Pedido del usuario: después de la luz verde, el vale espera a que apliquen el gasto en
-   * Kepler, y cuando eso pasa se le avisa que «se aprobó y se ejerció».
-   *
-   * ⛔ Lo que esta pantalla NO puede hacer es **calcular la etapa**. La decide el servidor con
-   * `etapaDeEjercicio()` del contrato compartido; si acá se dedujera de `status`, habría dos
-   * reglas y un vale diría «por ejercer» del lado del campo y otra cosa del lado de
-   * Aprobación. Por eso las pruebas mandan la etapa YA RESUELTA y verifican que se muestre —
-   * no que se infiera.
-   */
-  /**
-   * `[GX.39/43/46/47]` — **Las pestañas y la lista unificada.**
-   *
-   * Tres cambios encadenados, todos por pedido del usuario:
-   *  · el cuadro naranja de vales asignados se retiró; sus vales **bajaron a la lista**;
-   *  · la `A` de Kepler («Autorización de Sol Gasto») es su propia etapa;
-   *  · las pestañas se agruparon a **cuatro**: Todos / En trámite / Rechazados / Por ejercer.
-   *
-   * ⛔ El recorte a lo propio lo sigue haciendo el SERVIDOR. Esta pantalla no filtra por
-   * persona: si lo hiciera, un error suyo mostraría el vale de otro y se vería igual de bien.
-   */
-  describe('[GX.65.5] las tres columnas', () => {
-    const ASIG = (over: Record<string, unknown> = {}) => ({
-      sucursal: '00', folio: '0009946', fecha: '2026-09-28', importe: 1583.86,
-      solicita: 'DEMO_CAPTURA', destinatario: 'ESTACION DE SERVICIO TAVISA',
-      concepto: 'COMBUSTIBLE', estado: 'N', aplicada: false, vinculado_por: 'solicita',
-      ...over,
-    });
+  /** ⛔ Un error NO es «no levantaste nada»: esa afirmación manda a capturar de nuevo. */
+  it('⛔ un error se dice, no se disfraza de lista vacía', () => {
+    montar(null);
+    expect(c.error()).not.toBe('');
+    expect(txt()).toContain('No se pudieron cargar tus gastos');
+    expect(txt()).not.toContain('Nada te toca');
+  });
 
-    /** Una fila por etapa, para que cada pestaña tenga exactamente lo suyo. */
-    const CON_ETAPAS = (asignados: unknown[] = [ASIG()]) => ({
-      kpis: { total: 5, recibidas: 1, validadas: 3, rechazadas: 1, en_revision: 0 },
-      asignados,
+  describe('[GX.97] el filtro por a quién le toca', () => {
+    const MEZCLA = () => REPORTE({
       rows: [
-        FILA({ id: 'a', status: 'recibida', folio_solicitud: '0001', etapa: 'en_captura', etapa_label: 'En tramite' }),
-        FILA({ id: 'b', status: 'validada', folio_solicitud: '0002', etapa: 'por_ejercer', etapa_label: 'Por autorizar' }),
-        FILA({ id: 'c', status: 'validada', folio_solicitud: '0003', etapa: 'ejercido', etapa_label: 'Ejercido', etapa_explicacion: 'Tu gasto se aprobo y se ejercio: el dinero salio.' }),
-        FILA({ id: 'd', status: 'validada', folio_solicitud: '0004', etapa: 'sin_medir', etapa_label: 'Sin medir', etapa_explicacion: 'Todavia no podemos ver el estado en Kepler.' }),
-        FILA({ id: 'e', status: 'validada', folio_solicitud: '0005', etapa: 'autorizado', etapa_label: 'Autorizado en Kepler' }),
-        FILA({ id: 'f', status: 'rechazada', folio_solicitud: '0006', etapa: 'rechazada', etapa_label: 'Devuelto', motivo_rechazo: 'La foto no se lee.' }),
+        FILA({ id: 'r1', status: 'rechazada', folio_solicitud: '0000001', motivo_rechazo: 'Falta la factura', sucursal: '02' }),
+        FILA({ id: 'a1', status: 'aprobada', folio_solicitud: '0000002', provisional: true }),
+        FILA({ id: 'e1', status: 'recibida', folio_solicitud: '0000003' }),
+        FILA({ id: 'k1', status: 'validada', folio_solicitud: '0000004', etapa: 'autorizado', gasto_folios: [] }),
+        FILA({ id: 'c1', status: 'validada', folio_solicitud: '0000005', etapa: 'cancelado_kepler', gasto_folios: [] }),
+        FILA({ id: 'c2', status: 'validada', folio_solicitud: '0000006', etapa: 'ejercido', gasto_folios: ['0008879'] }),
       ],
-    }) as unknown as ExpenseProofsReport;
-
-    /** Los folios que quedaron dentro de una columna, por id de columna. */
-    const folios = (col: string) => [...fix.nativeElement.querySelectorAll('[data-col="' + col + '"] .mg-folio')]
-      .map((e) => ((e as HTMLElement).textContent || '').trim());
-
-    /** ⭐ `[GX.65.5]` Tres columnas, en el orden del trámite. Se fueron las cuatro pestañas. */
-    it('son tres columnas, en orden, y ya no hay pestañas', () => {
-      montar(CON_ETAPAS());
-      const titulos = [...fix.nativeElement.querySelectorAll('.mg-col h2')].map((e) => (e as HTMLElement).textContent?.trim());
-      expect(titulos).toEqual(['Solicitudes', 'Pendientes de comprobación', 'Expedientes']);
-      expect(fix.nativeElement.querySelectorAll('.mg-etapa').length).toBe(0);
+      asignados: [{ sucursal: '00', folio: '0000007', fecha: '2026-10-01', importe: 100, solicita: 'X', destinatario: 'PROV ASIGNADO', concepto: 'C', estado: 'A', aplicada: false, vinculado_por: 'solicita' }],
     });
 
-    /**
-     * Cada vale en UNA columna: el asignado, el que espera «Revisado» y el devuelto en
-     * Solicitudes; los validados en Expedientes, sin importar qué diga Kepler de ellos.
-     */
-    it('cada vale cae en su columna, y en una sola', () => {
-      montar(CON_ETAPAS());
-      expect(folios('solicitudes').sort()).toEqual(['0001', '0006', '0009946']);
-      expect(folios('comprobacion')).toEqual([]);
-      expect(folios('expedientes').sort()).toEqual(['0002', '0003', '0004', '0005']);
-      expect(fix.nativeElement.querySelectorAll('.mg-item').length).toBe(7);
+    it('cuenta cada lado, y el conteo va DENTRO del filtro', () => {
+      montar(MEZCLA());
+      expect(c.opciones().map((o) => [o.value, o.count])).toEqual([['tu', 3], ['finanzas', 1], ['kepler', 1], ['cerrado', 2]]);
     });
 
-    /** ⭐ Lo que te toca va en rojo: el asignado y el devuelto. El que espera, no. */
-    it('lo que te toca va marcado en rojo; lo que espera, no', () => {
-      montar(CON_ETAPAS());
-      const rojos = [...fix.nativeElement.querySelectorAll('.mg-item.rojo .mg-folio')]
-        .map((e) => ((e as HTMLElement).textContent || '').trim()).sort();
-      expect(rojos).toEqual(['0006', '0009946']);
-      expect(c.teTocan()).toBe(2);
+    it('arranca en lo que te toca, con la respuesta arriba', () => {
+      montar(MEZCLA());
+      expect(c.filtro()).toBe('tu');
+      expect(txt()).toContain('Te tocan 3 vales.');
     });
 
-    /** Camino B: el aprobado que debe su factura va a la columna 2, arriba. */
-    it('el aprobado que debe la factura cae en Pendientes de comprobación', () => {
-      montar({ ...REPORTE(), asignados: [],
-        rows: [FILA({ id: 'z', status: 'aprobada', folio_solicitud: '0097020', provisional: true })],
-      } as unknown as ExpenseProofsReport);
-      expect(folios('comprobacion')).toEqual(['0097020']);
+    it('sin nada que te toque, arranca en el primer lado con algo (no obliga a dar un clic)', () => {
+      montar(REPORTE({ rows: [FILA({ status: 'recibida' })] }));
+      expect(c.filtro()).toBe('finanzas');
+      expect(txt()).toContain('Nada te toca.');
     });
 
-    /**
-     * `[GX.77]` **El ciclo cerrado sale del tablero.** Revisado + gasto aplicado en Kepler = el
-     * trámite terminó. ⛔ No se pierde: queda plegado al pie («Ver…»), porque el Historial no
-     * admite a quien sólo captura.
-     */
-    describe('[GX.77] el ciclo cerrado', () => {
-      const cerrados = () => fix.nativeElement.querySelector('.mg-cerrados') as HTMLElement | null;
-
-      it('⭐ el revisado con gasto aplicado sale de las columnas y queda al pie, plegado', () => {
-        montar({ ...REPORTE(), asignados: [], rows: [
-          FILA({ id: 'c', status: 'validada', folio_solicitud: '0097012', gasto_folios: ['0097093'] }),
-          FILA({ id: 'v', status: 'validada', folio_solicitud: '0097013' }),
-        ] } as unknown as ExpenseProofsReport);
-        expect(folios('expedientes')).toEqual(['0097013']);
-        const pie = cerrados();
-        expect(pie).toBeTruthy();
-        expect(pie?.hasAttribute('open')).toBe(false);
-        expect(pie?.textContent).toContain('Ver el vale cerrado');
-        expect(pie?.textContent).toContain('0097012');
-      });
-
-      it('⛔ con gasto aplicado pero SIN revisar sigue en el tablero', () => {
-        montar({ ...REPORTE(), asignados: [], rows: [
-          FILA({ id: 'a', status: 'aprobada', folio_solicitud: '0097020', gasto_folios: ['0097093'] }),
-        ] } as unknown as ExpenseProofsReport);
-        expect(folios('comprobacion')).toEqual(['0097020']);
-        expect(cerrados()).toBeNull();
-      });
-
-      it('Expedientes ya no tiene zona «Pagados»; su zona no va en rojo (espera a Kepler, no a ti)', () => {
-        montar(CON_ETAPAS());
-        const col = fix.nativeElement.querySelector('[data-col="expedientes"]') as HTMLElement;
-        expect(col.querySelectorAll('.mg-zona').length).toBe(1);
-        expect(col.textContent).not.toContain('Pagados');
-        expect(col.querySelector('.mg-zona-h')?.classList.contains('rojo')).toBe(false);
-        expect(col.textContent).toContain('Falta el gasto en Kepler');
-      });
-
-      it('sin cerrados no aparece el pie', () => {
-        montar(CON_ETAPAS());
-        expect(cerrados()).toBeNull();
-      });
+    it('el devuelto dice su motivo, en rojo, y ofrece capturarlo de nuevo con su folio y sucursal', () => {
+      montar(MEZCLA());
+      expect(txt()).toContain('Te lo devolvieron: Falta la factura. Captúralo de nuevo.');
+      expect(fix.nativeElement.querySelector('.mg-mal')).not.toBeNull();
+      const a = [...fix.nativeElement.querySelectorAll('a')].find((x) => (x as HTMLElement).textContent?.includes('Capturar de nuevo')) as HTMLAnchorElement;
+      expect(a.getAttribute('href')).toContain('folio=0000001');
+      expect(a.getAttribute('href')).toContain('sucursal=02');
     });
 
-    /** `[GX.75]` La transferencia que pagó el gasto, en la tarjeta de quien levantó la solicitud. */
-    describe('[GX.75] la transferencia XD2601', () => {
-      const TR = (o: Record<string, unknown> = {}) => ({
-        gasto_folio: '0097093', folio: '0022709', fecha: '2026-09-23', importe: 387.25, aplicado: 387.25, cancelada: false, ...o,
-      });
-      // Un vale ABIERTO (aprobado, debe su evidencia) con gasto aplicado: ahí sí se ve el pago.
-      const abierto = (transferencias: unknown[]) => ({ ...REPORTE(), asignados: [], rows: [
-        FILA({ id: 'a', status: 'aprobada', folio_solicitud: '0097020', gasto_folios: ['0097093'], transferencias }),
-      ] } as unknown as ExpenseProofsReport);
-
-      it('⭐ la tarjeta muestra su XD2601 y el monto y día del pago', () => {
-        montar(abierto([TR()]));
-        const txt = fix.nativeElement.textContent as string;
-        expect(txt).toContain('Kepler: XD2601-0022709');
-        expect(txt).toContain('Pagado por transferencia: $387.25 el 23/09/2026');
-      });
-
-      it('⛔ un pago parcial se avisa', () => {
-        montar(abierto([TR({ aplicado: 100 })]));
-        expect(fix.nativeElement.textContent).toContain('Pago parcial');
-      });
-
-      it('⛔ la cancelada se tacha, no paga, y se dice', () => {
-        montar(abierto([TR({ cancelada: true })]));
-        const chip = fix.nativeElement.querySelector('.mg-chip-cancelada') as HTMLElement;
-        expect(chip.textContent).toContain('XD2601-0022709');
-        expect(fix.nativeElement.textContent).toContain('La transferencia se canceló en Kepler');
-      });
-
-      it('⛔ un pago de Kepler no saca de su columna a un vale que no está revisado', () => {
-        montar({ ...REPORTE(), asignados: [], rows: [
-          FILA({ id: 'a', status: 'aprobada', folio_solicitud: '0097020', gasto_folios: ['0097093'], transferencias: [TR()] }),
-        ] } as unknown as ExpenseProofsReport);
-        expect(folios('comprobacion')).toEqual(['0097020']);
-        expect(fix.nativeElement.textContent).toContain('Kepler: XD2601-0022709');
-      });
+    it('el aprobado que debe la factura lo dice, y su botón es «Subir la factura»', () => {
+      montar(MEZCLA());
+      expect(txt()).toContain('Te toca subir la factura del pago');
+      expect(txt()).toContain('Subir la factura');
     });
 
-    /** Abajo se agrupa por la CLAVE de proveedor de Kepler (decisión del usuario). */
-    it('lo que espera se agrupa por la clave de proveedor de Kepler', () => {
-      montar({ ...REPORTE(), asignados: [], rows: [
-        FILA({ id: 'r1', status: 'recibida', folio_solicitud: '0101', proveedor_clave: 'GS0044', proveedor_nombre: 'ACEROS' }),
-        FILA({ id: 'r2', status: 'recibida', folio_solicitud: '0102', proveedor_clave: 'GS0044', proveedor_nombre: 'ACEROS' }),
-      ] } as unknown as ExpenseProofsReport);
-      const grupos = fix.nativeElement.querySelectorAll('[data-col="solicitudes"] .mg-grupo');
-      expect(grupos.length).toBe(1);
-      expect((grupos[0] as HTMLElement).textContent).toContain('GS0044');
-      expect((grupos[0] as HTMLElement).querySelectorAll('.mg-item').length).toBe(2);
+    it('[GX.46] el asignado no abre el visor (no tiene expediente); ofrece subir la evidencia', () => {
+      montar(MEZCLA());
+      const folios = [...fix.nativeElement.querySelectorAll('button.mg-folio')].map((b) => (b as HTMLElement).textContent?.trim());
+      expect(folios).not.toContain('0000007');
+      expect(txt()).toContain('0000007');
+      expect(txt()).toContain('Falta que subas la evidencia');
     });
 
-    /**
-     * `[GX.65.3]` El gasto de Kepler se muestra como DATO, sin mover el vale de columna.
-     * `[GX.77]` Con un vale ABIERTO: el revisado con gasto ya cerró y sale del tablero.
-     */
-    it('el XA1001 ligado se muestra como dato', () => {
-      montar({ ...REPORTE(), asignados: [], rows: [
-        FILA({ id: 'v', status: 'revision', folio_solicitud: '0097012', gasto_folios: ['0097093'] }),
-      ] } as unknown as ExpenseProofsReport);
-      expect(fix.nativeElement.textContent).toContain('Kepler: XA1001-0097093');
-      expect(folios('comprobacion')).toEqual(['0097012']);
+    it('lo revisado sin gasto espera a Kepler y dice a qué', () => {
+      montar(MEZCLA());
+      ver('kepler');
+      expect(txt()).toContain('0000004');
+      expect(txt()).toContain('Autorizada: falta generar el gasto en Kepler');
     });
 
-    /** ⭐ El vale de Kepler ya NO vive en un cuadro aparte: es una fila más. */
-    it('[GX.46] el vale asignado se pinta en la lista, sin cuadro propio', () => {
-      montar(CON_ETAPAS());
-      expect(fix.nativeElement.querySelector('.mg-asig')).toBeNull();
-      const txt = fix.nativeElement.textContent as string;
-      expect(txt).toContain('0009946');
-      expect(txt).toContain('ESTACION DE SERVICIO TAVISA');
-      expect(txt).toContain('Falta tu evidencia');
+    /** ⭐ El defecto medido: la solicitud cancelada no cerraba nunca. */
+    it('⭐ lo revisado con la solicitud cancelada en Kepler está en Cerrados, y dice por qué', () => {
+      montar(MEZCLA());
+      ver('cerrado');
+      expect(txt()).toContain('0000005');
+      expect(txt()).toContain('Solicitud cancelada en Kepler');
+      expect(txt()).toContain('0000006');
+      expect(txt()).toContain('XA1001-0008879');
     });
 
-    /**
-     * ⛔ **El asignado no se puede abrir**: no tiene expediente, así que el visor mostraría
-     * una ficha vacía. En su lugar ofrece el camino para crearlo.
-     */
-    it('[GX.46] el asignado no abre el visor; ofrece subir la evidencia', () => {
-      montar(CON_ETAPAS());
-      const a = fix.nativeElement.querySelector('.mg-asig-b') as HTMLAnchorElement;
-      expect(a).toBeTruthy();
-      expect(a.getAttribute('href')).toContain('folio=0009946');
-      // ⛔ Con la sucursal: 373 folios viven en más de una plaza.
-      expect(a.getAttribute('href')).toContain('sucursal=00');
+    it('lo que sigue sin cerrar suma te toca + Finanzas + Kepler, nunca lo cerrado', () => {
+      montar(MEZCLA());
+      // 4 filas abiertas de 387.25 + el asignado de 100
+      expect(c.sinCerrar()).toBeCloseTo(387.25 * 4 + 100, 2);
     });
 
-    /**
-     * `[GX.54/55]` — **El vale aprobado que debe su comprobante también ofrece el camino.**
-     *
-     * ⛔ Reportado en pantalla: el vale decía «Aprobado» con el chip «te toca subir la factura
-     * del pago»… y no había por dónde. El visor decía «este vale ya se resolvió» y la lista no
-     * ofrecía nada. La tarea existía y el camino no.
-     */
-    describe('[GX.54/55] el vale que debe su factura', () => {
-      const DEBE = () => ({
-        ...REPORTE(),
-        asignados: [],
-        rows: [FILA({
-          id: 'z', status: 'aprobada', folio_solicitud: '0097001', sucursal: '00',
-          etapa: 'en_captura', etapa_label: 'En tramite', provisional: true,
-        })],
-      }) as unknown as ExpenseProofsReport;
-
-      it('⭐ ofrece el botón, y dice que es la FACTURA', () => {
-        montar(DEBE());
-        const a = fix.nativeElement.querySelector('.mg-asig-b') as HTMLAnchorElement;
-        expect(a).toBeTruthy();
-        expect(a.textContent).toContain('Subir la factura');
-        expect(a.getAttribute('href')).toContain('folio=0097001');
-        expect(a.getAttribute('href')).toContain('sucursal=00');
-      });
-
-      /**
-       * ⚠️ «Subir la evidencia» a secas se lee como que no se recibió nada — y la persona ya
-       * subió algo. Lo que falta es la factura del pago, y el texto lo dice.
-       */
-      it('el chip nombra la factura, no «la evidencia»', () => {
-        montar(DEBE());
-        const txt = fix.nativeElement.textContent as string;
-        expect(txt).toContain('te toca subir la factura del pago');
-        expect(txt).not.toContain('te toca subir la evidencia');
-      });
-
-      /** Sin la marca, el mismo estado pide «la evidencia»: es el camino de siempre. */
-      it('aprobado SIN deber factura dice «la evidencia»', () => {
-        montar({
-          ...REPORTE(), asignados: [],
-          rows: [FILA({ id: 'z', status: 'aprobada', folio_solicitud: '0002', etapa: 'en_captura', provisional: false })],
-        } as unknown as ExpenseProofsReport);
-        const txt = fix.nativeElement.textContent as string;
-        expect(txt).toContain('te toca subir la evidencia');
-        expect((fix.nativeElement.querySelector('.mg-asig-b') as HTMLElement).textContent).toContain('Subir evidencia');
-      });
-
-      /**
-       * ⛔ **La prueba negativa que sostiene el botón**: en cualquier otro estado NO se ofrece.
-       * La captura sólo abre en modo evidencia sobre `aprobada`; ofrecerlo en un vale ya
-       * cerrado llevaría a una pantalla que no deja hacer nada.
-       */
-      it.each(['recibida', 'validada', 'rechazada', 'revision'])('en «%s» NO se ofrece', (status) => {
-        montar({
-          ...REPORTE(), asignados: [],
-          rows: [FILA({ id: 'z', status, folio_solicitud: '0003', etapa: 'en_captura', provisional: true })],
-        } as unknown as ExpenseProofsReport);
-        expect(fix.nativeElement.querySelector('.mg-asig-b')).toBeNull();
-      });
-    });
-
-    it('el que Kepler ya aplicó viene marcado', () => {
-      montar(CON_ETAPAS([ASIG({ aplicada: true })]));
-      expect(fix.nativeElement.textContent).toContain('Ya ejercido en Kepler');
-    });
-
-    /** ⭐ La frase textual del pedido, y sólo sobre el que se ejerció. */
-    it('al ejercido le dice que el dinero salió; al que espera, no', () => {
-      montar(CON_ETAPAS());
-      const notas = [...fix.nativeElement.querySelectorAll('.mg-it-nota.ok')].map((e) => (e as HTMLElement).textContent || '');
-      expect(notas.length).toBe(1);
-      expect(notas[0]).toContain('ejerci');
-      expect(notas[0]).toContain('dinero');
-    });
-
-    /**
-     * `[GX.65.5]` La columna sale del ESTADO, no de la etapa de Kepler: un servidor que no
-     * manda `etapa` igual ubica cada vale.
-     */
-    it('sin etapa resuelta, cada vale igual cae en su columna', () => {
-      montar(REPORTE());
-      expect(folios('solicitudes')).toEqual(['0049641']);
-      expect(folios('expedientes')).toEqual(['0049651']);
-    });
-
-    /** ⛔ Un estado desconocido se DICE arriba; no se mete callado en una columna. */
     it('⛔ un estado que no sabe ubicar lo avisa', () => {
-      montar({ ...REPORTE(), asignados: [], rows: [FILA({ id: 'x', status: 'inventado' })] } as unknown as ExpenseProofsReport);
-      expect(c.fueraDeColumnas()).toBe(1);
-      expect(fix.nativeElement.textContent).toContain('no sabe ubicar');
-    });
-
-    /** Un servidor viejo no manda `asignados`: no puede romper la pantalla. */
-    it('sin el campo en la respuesta, la pantalla sigue viva', () => {
-      montar(REPORTE());
-      expect(c.asignados()).toEqual([]);
-      expect(fix.nativeElement.querySelectorAll('.mg-item').length).toBe(2);
+      montar(REPORTE({ rows: [FILA({ status: 'raro' })] }));
+      expect(txt()).toContain('con un estado que esta pantalla no sabe ubicar');
     });
   });
 
+  /** `[GX.95]` Un corte se DICE. Sin el campo (servidor viejo) no se afirma nada. */
+  describe('[GX.95] los cortes declarados', () => {
+    it('cerrados recortados: lo dice, con el total del servidor', () => {
+      montar(REPORTE({ cerrados_truncados: true, kpis: { total: 400, recibidas: 0, validadas: 354, rechazadas: 0 } }));
+      expect(txt()).toContain('hay 354 en total');
+    });
+
+    it('asignados recortados: lo dice', () => {
+      montar(REPORTE({ asignados_truncados: true }));
+      expect(txt()).toContain('Kepler te asignó más solicitudes de las que caben');
+    });
+
+    it('sin los campos no se afirma ni que está completa ni que está cortada', () => {
+      montar(REPORTE());
+      expect(c.cortes()).toEqual([]);
+    });
+  });
+
+  describe('[GX.97] la búsqueda', () => {
+    it('quien sólo captura tiene su caja; espera a que deje de escribir', () => {
+      vi.useFakeTimers();
+      try {
+        TestBed.inject(PermissionsService).load({ FINANCE_EXPENSES_CAPTURAR: true }, 'capturista', 'jwt');
+        montar();
+        expect(fix.nativeElement.querySelector('input[type=search]')).not.toBeNull();
+        c.escribir('pape');
+        c.escribir('papeleria');
+        http.expectNone((x) => x.url.includes('/mine'));
+        vi.advanceTimersByTime(450);
+        const req = http.expectOne((x) => x.url.includes('/mine'));
+        expect(req.request.params.get('search')).toBe('papeleria');
+        req.flush(REPORTE());
+      } finally { vi.useRealTimers(); }
+    });
+
+    /** `[GX.88]` Quien aprueba ya tiene el buscador de arriba: una sola caja por pestaña. */
+    /** `[GX.101]` Quien aprueba tiene el buscador de gastos junto al título: UNA caja, no dos. */
+    it('⛔ quien aprueba tiene UNA caja: la del buscador de gastos, junto al título', () => {
+      TestBed.inject(PermissionsService).load({ FINANCE_EXPENSES_COMPROBAR: true }, 'tesoreria', 'jwt');
+      montar();
+      const cajas = fix.nativeElement.querySelectorAll('input[type=search]');
+      expect(cajas.length).toBe(1);
+      expect((cajas[0] as HTMLElement).closest('.surf-page-head app-buscador-gastos')).not.toBeNull();
+    });
+  });
+
+  /** `[GX.91]` La captura manda aquí con ?vale=<id> cuando el folio ya tenía un vale tuyo. */
+  it('[GX.91] con ?vale=<id> abre ese vale (si es tuyo, o sea si vino en la lista)', () => {
+    queryVale = 'p1';
+    montar();
+    expect(c.abierto()?.id).toBe('p1');
+  });
+
+  it('[GX.91] con ?vale de un vale que no es tuyo no abre nada', () => {
+    queryVale = 'ajeno';
+    montar();
+    expect(c.abierto()).toBeNull();
+  });
+
   /**
-   * `[GX.73]` **Se refresca sola.** Reporte: quien sube el vale no veía que se lo aprobaron
-   * hasta recargar. Lo que se cuida: que refresque, que NO parpadee ni pise la lista buena con un
-   * error, que no le cambie la fila a quien la está leyendo, y que no se encimen dos pedidos.
+   * `[GX.73]` **El refresco en segundo plano.** Que refresque, que NO parpadee ni pise la lista
+   * buena con un error, que no le cambie la fila a quien la está leyendo, que no se encimen dos
+   * pedidos — y `[GX.97]` que un fallo se DIGA.
    */
   describe('[GX.73] el refresco en segundo plano', () => {
     beforeEach(() => vi.useFakeTimers());
@@ -465,7 +255,7 @@ describe('FinanzasMisGastosComponent', () => {
       vi.advanceTimersByTime(60_000);
       const req = pedidoMine();
       expect(c.cargando()).toBe(false); // sin aviso de carga: la lista no parpadea
-      req.flush(REPORTE({ rows: [FILA({ status: 'aprobada' }), FILA({ id: 'p2', status: 'validada', folio_solicitud: '0049651' })] }));
+      req.flush(REPORTE({ rows: [FILA({ status: 'aprobada' })] }));
       expect(c.filas()[0].status).toBe('aprobada');
     });
 
@@ -476,12 +266,23 @@ describe('FinanzasMisGastosComponent', () => {
       http.expectNone((x) => x.url.includes('/mine'));
     });
 
-    it('⛔ un refresco que falla NO pisa la lista buena ni muestra error', () => {
+    it('⛔ un refresco que falla NO pisa la lista buena, pero lo DICE', () => {
       montar();
       vi.advanceTimersByTime(60_000);
       pedidoMine().flush('boom', { status: 500, statusText: 'Server Error' });
+      fix.detectChanges();
       expect(c.error()).toBe('');
       expect(c.filas().length).toBe(2);
+      expect(txt()).toContain('No se pudo actualizar a las');
+    });
+
+    it('el siguiente refresco que sale bien quita el aviso', () => {
+      montar();
+      vi.advanceTimersByTime(60_000);
+      pedidoMine().flush('boom', { status: 500, statusText: 'Server Error' });
+      vi.advanceTimersByTime(60_000);
+      pedidoMine().flush(REPORTE());
+      expect(c.refrescoFallo()).toBeNull();
     });
 
     it('⛔ no encima dos refrescos: si el anterior sigue en vuelo, espera', () => {
@@ -502,17 +303,19 @@ describe('FinanzasMisGastosComponent', () => {
     const estado = () => TestBed.inject(BuscadorGastosEstado);
     const conPermiso = () => TestBed.inject(PermissionsService).load({ FINANCE_EXPENSES_COMPROBAR: true }, 'tesoreria', 'jwt');
 
-    it('con una búsqueda activa arriba, la pantalla se esconde — el visor no', () => {
+    /** `[GX.101]` El encabezado (con la caja) se queda; lo de abajo se cambia por los resultados. */
+    it('con una búsqueda activa, la lista se cambia por los resultados — el encabezado y el visor no', () => {
       conPermiso();
       montar();
       estado().busqueda.set('papeleria');
       fix.detectChanges();
       expect(c.buscandoArriba()).toBe(true);
-      expect(fix.nativeElement.querySelector('.surf-page-head')).toBeNull();
+      expect(fix.nativeElement.querySelector('.surf-page-head app-buscador-gastos')).not.toBeNull();
+      expect(fix.nativeElement.querySelector('app-segmented')).toBeNull();
       expect(fix.nativeElement.querySelector('app-vale-gasto-peek')).not.toBeNull();
       estado().limpiar();
       fix.detectChanges();
-      expect(fix.nativeElement.querySelector('.surf-page-head')).not.toBeNull();
+      expect(fix.nativeElement.querySelector('app-segmented')).not.toBeNull();
     });
 
     it('⛔ quien sólo captura no busca: la pantalla nunca se esconde', () => {
@@ -530,6 +333,13 @@ describe('FinanzasMisGastosComponent', () => {
       estado().abrir({ id: 'x1', folio_solicitud: '0010287', status: 'aprobada', files: [] } as unknown as ExpedienteDelDia);
       expect(c.abierto()?.id).toBe('x1');
       expect(c.accionesDelVale()).toEqual(['agregar_evidencia']);
+    });
+
+    it('un rechazado elegido no ofrece sumar evidencia', () => {
+      conPermiso();
+      montar();
+      estado().abrir({ id: 'x2', status: 'rechazada', files: [] } as unknown as ExpedienteDelDia);
+      expect(c.accionesDelVale()).toEqual([]);
     });
   });
 });

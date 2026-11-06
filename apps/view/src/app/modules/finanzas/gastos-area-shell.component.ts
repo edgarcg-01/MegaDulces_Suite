@@ -1,22 +1,12 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
-import { toSignal } from '@angular/core/rxjs-interop';
-import { filter, map } from 'rxjs';
-import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
+import { RouterOutlet } from '@angular/router';
 import { PageTabsComponent } from '../../shared/components/page-tabs/page-tabs.component';
 import { pestanaVisible } from '../../shared/components/page-tabs/pestanas-de-area';
 import { AuthService } from '../../core/services/auth.service';
 import { PermissionsService } from '../../core/services/permissions.service';
 import { Permission } from '../../core/constants/permissions';
 import { GASTOS_TABS } from './gastos-tabs';
-import { BuscadorGastosComponent } from './components/buscador-gastos.component';
 import { BuscadorGastosEstado } from './components/buscador-gastos.estado';
-
-/**
- * `[GX.88]` Las pestañas donde va el buscador de gastos: las cuatro que pidió el usuario
- * (2026-11-05). Comisiones de logística y Hoja de zona viven en este shell pero NO lo llevan
- * (Hoja de zona es de Caja General).
- */
-export const RUTAS_CON_BUSCADOR: readonly string[] = ['/finanzas/aprobacion-gastos', '/finanzas/mis-gastos', '/finanzas/expediente', '/finanzas/gastos-historial'];
 
 /**
  * `[GX.80]` — **Shell del área Gastos.** Pinta la barra de pestañas UNA vez para las cuatro
@@ -27,21 +17,21 @@ export const RUTAS_CON_BUSCADOR: readonly string[] = ['/finanzas/aprobacion-gast
  *
  * Con una sola pestaña visible no hay barra: quien sólo captura ve «Mis gastos» sin nada
  * encima. Un selector de una opción no elige — ocupa lugar y sugiere que hay algo más.
+ *
+ * `[GX.101]` El buscador de gastos ya NO se pinta aquí arriba (pedido del usuario, 2026-11-06: «a
+ * uno más visible»): su caja va junto al título de cada una de las cuatro pantallas y sus
+ * resultados debajo de ese encabezado. El shell sigue dando el ESTADO, para que lo escrito se
+ * conserve al cambiar de pestaña.
  */
 @Component({
   selector: 'app-gastos-area-shell',
   standalone: true,
-  imports: [RouterOutlet, PageTabsComponent, BuscadorGastosComponent],
+  imports: [RouterOutlet, PageTabsComponent],
   // `[GX.88]` El estado del buscador vive AQUÍ: el shell no se destruye al cambiar de pestaña,
   // así que lo escrito y los resultados se conservan. Las pantallas lo inyectan.
   providers: [BuscadorGastosEstado],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <!-- [GX.88] UN buscador para las cuatro pestañas, arriba de ellas. Sólo lo ve quien aprueba
-         (el componente lo decide); en las demás rutas del shell no se pinta. -->
-    @if (conBuscador()) {
-      <div class="gx-area-buscador"><app-buscador-gastos /></div>
-    }
     @if (visibles().length > 1) {
       <div class="gx-area-tabs">
         <app-page-tabs [tabs]="tabs" ariaLabel="Pantallas de gastos" />
@@ -61,11 +51,8 @@ export const RUTAS_CON_BUSCADOR: readonly string[] = ['/finanzas/aprobacion-gast
       .gx-area-tabs {
         padding: var(--sp-3) 1.5rem 0;
       }
-      .gx-area-buscador {
-        padding: var(--sp-3) 1.5rem 0;
-      }
       @media (max-width: 48rem) {
-        .gx-area-tabs, .gx-area-buscador {
+        .gx-area-tabs {
           padding: var(--sp-2) 1rem 0;
         }
       }
@@ -77,14 +64,6 @@ export class GastosAreaShellComponent {
   private readonly perms = inject(PermissionsService);
 
   readonly tabs = [...GASTOS_TABS];
-
-  private readonly router = inject(Router);
-  private readonly url = toSignal(
-    this.router.events.pipe(filter((e) => e instanceof NavigationEnd), map(() => this.router.url)),
-    { initialValue: this.router.url },
-  );
-  /** `[GX.88]` ¿La pestaña activa lleva el buscador? Se compara sin query ni fragmento. */
-  readonly conBuscador = computed(() => RUTAS_CON_BUSCADOR.includes((this.url() ?? '').split(/[?#]/)[0]));
 
   /** Las pestañas que esta persona ve: la MISMA regla que usa `app-page-tabs` para pintarlas. */
   readonly visibles = computed(() => {

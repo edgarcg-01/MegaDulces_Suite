@@ -27,6 +27,9 @@
  */
 
 import { estadoPagoDelVale, resumenTransferencias, type TransferenciaGasto } from '@megadulces/contracts';
+import {
+  ETIQUETA_CIERRE, ETIQUETA_ESPERA_KEPLER, cicloCerrado as cicloCerradoDelContrato, esperaDeKepler, motivoDeCierre,
+} from '@megadulces/contracts';
 
 export type ColumnaId = 'solicitudes' | 'comprobacion' | 'expedientes';
 export type ZonaId = 'pendiente' | 'espera';
@@ -56,12 +59,72 @@ export function ubicacionDe(f: FilaUbicable): Ubicacion | null {
 }
 
 /**
- * `[GX.77]` ¿Terminó el trámite? Revisado por Finanzas **y** con su gasto aplicado en Kepler.
+ * `[GX.77]` ¿Terminó el trámite? Revisado por Finanzas **y** Kepler dijo la última palabra.
  * ⛔ Sólo el `validada`: un aprobado o en revisión con gasto aplicado todavía le debe algo a
  * alguien, y quitarlo del tablero escondería justo lo que falta.
+ *
+ * `[GX.92]` La regla ya no vive acá: es la del contrato, la MISMA que usa la cola de quien aprueba.
+ * Acá pedía el gasto a secas y 32 revisados con la solicitud cancelada no cerraban nunca.
  */
 export function cicloCerrado(f: FilaUbicable): boolean {
-  return f.status === 'validada' && (f.gasto_folios?.length ?? 0) > 0;
+  return cicloCerradoDelContrato(f);
+}
+
+/**
+ * `[GX.97]` **A quién le toca cada vale.** Es el eje de «Mis gastos» v2: la auditoría del
+ * 2026-11-05 mostró que casi todo lo atorado esperaba a alguien que no lo veía.
+ *  · `tu`        — te toca a ti: subir la evidencia o la factura, o recapturar un devuelto.
+ *  · `finanzas`  — espera a quien revisa en la Suite.
+ *  · `kepler`    — revisado; espera a que lo autoricen o generen el gasto en Kepler.
+ *  · `cerrado`   — terminó (gasto aplicado o solicitud cancelada en Kepler).
+ */
+export type AQuien = 'tu' | 'finanzas' | 'kepler' | 'cerrado';
+
+/** El nombre que la gente ya usa para cada etapa (las tres columnas de `[GX.65.5]`). */
+export type EtapaNombre = 'Solicitud' | 'Pendiente de comprobación' | 'Expediente';
+
+export interface Situacion {
+  aQuien: AQuien;
+  etapaNombre: EtapaNombre;
+  /** Qué falta, o a quién espera, en una frase. */
+  texto: string;
+  /** `true` = algo salió mal (te lo devolvieron): el único caso que va en rojo por sí mismo. */
+  mal: boolean;
+}
+
+export interface FilaConSituacion extends FilaUbicable {
+  motivo_rechazo?: string | null;
+  /** `[GX.54]` Aprobado pero debiendo la factura del pago. */
+  debeFactura?: boolean;
+}
+
+/** `null` = un estado que esta regla no conoce: la pantalla lo cuenta y lo dice. */
+export function situacionDe(f: FilaConSituacion): Situacion | null {
+  if (f.etapa === 'asignado') {
+    return { aQuien: 'tu', etapaNombre: 'Solicitud', texto: 'Falta que subas la evidencia', mal: false };
+  }
+  switch (f.status) {
+    case 'rechazada': {
+      const motivo = String(f.motivo_rechazo ?? '').trim();
+      return { aQuien: 'tu', etapaNombre: 'Solicitud', mal: true,
+        texto: motivo ? `Te lo devolvieron: ${motivo}. Captúralo de nuevo.` : 'Te lo devolvieron. Captúralo de nuevo.' };
+    }
+    case 'aprobada':
+      return { aQuien: 'tu', etapaNombre: 'Pendiente de comprobación', mal: false,
+        texto: f.debeFactura ? 'Te toca subir la factura del pago' : 'Te toca subir la evidencia' };
+    case 'recibida':
+      return { aQuien: 'finanzas', etapaNombre: 'Solicitud', texto: 'Espera «Revisado» de Finanzas', mal: false };
+    case 'revision':
+      return { aQuien: 'finanzas', etapaNombre: 'Pendiente de comprobación', texto: 'Finanzas revisa lo que subiste', mal: false };
+    case 'validada': {
+      const cierre = motivoDeCierre(f);
+      if (cierre) return { aQuien: 'cerrado', etapaNombre: 'Expediente', texto: ETIQUETA_CIERRE[cierre], mal: false };
+      const espera = esperaDeKepler(f);
+      return { aQuien: 'kepler', etapaNombre: 'Expediente', mal: false,
+        texto: espera ? ETIQUETA_ESPERA_KEPLER[espera] : 'Espera a Kepler' };
+    }
+    default: return null;
+  }
 }
 
 /**
