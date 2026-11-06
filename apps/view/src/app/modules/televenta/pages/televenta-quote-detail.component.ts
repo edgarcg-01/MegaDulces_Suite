@@ -260,6 +260,8 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
                             <span class="cat-sku">{{ p.sku }}</span>
                             @if (p.barcode) { <span class="cat-bc">EAN: {{ p.barcode }}</span> }
                             <span class="cat-un">{{ p.sold_by_kg ? 'KG' : (p.unit_base || 'PZA') }}</span>
+                            <!-- [COT.29] La existencia desde la búsqueda, en la unidad base de Kepler. -->
+                            <span class="cat-exist" [class.cat-exist-sin]="existenciaDe(p.sku) === 0">{{ textoExistencia(p) }}</span>
                           </div>
                           <div class="cat-col-precio">
                             <span class="cat-precio-val">{{ dinero(p.piece_price) }}</span>
@@ -867,6 +869,8 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
       .cat-sku { font-family: var(--font-mono, monospace); font-weight: 600; }
       .cat-bc { font-variant-numeric: tabular-nums; }
       .cat-un { font-weight: 600; background: var(--surface-ground); padding: 1px 4px; border-radius: 4px; }
+      .cat-exist { font-weight: 600; color: var(--text-main); }
+      .cat-exist-sin { color: var(--bad-fg); }
       .cat-col-precio { text-align: right; flex: 0 0 5.5rem; display: flex; flex-direction: column; }
       .cat-precio-val { font-weight: 700; font-size: var(--fs-body); font-variant-numeric: tabular-nums; }
       .cat-precio-lbl { font-size: 0.65rem; color: var(--text-muted); }
@@ -1090,6 +1094,41 @@ export class TeleventaQuoteDetailComponent implements OnInit {
 
   /** El catálogo de la sucursal, ordenado alfabéticamente por nombre de producto. */
   readonly resultados = signal<QuoteCatalogRow[]>([]);
+
+  // ── [COT.29] La existencia desde que se busca: la MISMA lectura que la tabla de renglones
+  // (GET /stock, unidad base de Kepler), así «hay N» dice lo mismo antes y después de agregar. ──
+  readonly existenciaBusqueda = signal<Map<string, number | null> | null>(null);
+  private existenciaPedida = 0;
+
+  private pedirExistenciaBusqueda(branch: string | null | undefined, rows: QuoteCatalogRow[]): void {
+    const n = ++this.existenciaPedida;
+    this.existenciaBusqueda.set(null);
+    if (!branch || !rows.length) return;
+    this.svc.stock(branch, rows.map((r) => r.sku)).subscribe({
+      next: (s) => {
+        if (n !== this.existenciaPedida) return; // llegó tarde: ya hay otra búsqueda
+        this.existenciaBusqueda.set(new Map(s.items.map((i) => [i.sku, i.base_qty])));
+      },
+      // Sin la lectura no se inventa un cero: la fila dice que no se pudo saber.
+      error: () => { if (n === this.existenciaPedida) this.existenciaBusqueda.set(new Map()); },
+    });
+  }
+
+  /** undefined = todavía no llega · null = Kepler no tiene ese SKU en la sucursal (sin dato, no es cero). */
+  existenciaDe(sku: string): number | null | undefined {
+    const m = this.existenciaBusqueda();
+    if (!m) return undefined;
+    return m.has(sku) ? m.get(sku) ?? null : null;
+  }
+
+  textoExistencia(p: QuoteCatalogRow): string {
+    const q = this.existenciaDe(p.sku);
+    if (q === undefined) return 'existencia…';
+    if (q === null) return 'sin dato de existencia';
+    if (q <= 0) return 'sin existencia';
+    return 'hay ' + q.toLocaleString('es-MX', { maximumFractionDigits: 2 }) + ' ' + (p.sold_by_kg ? 'KG' : (p.unit_base || 'PZA'));
+  }
+
   readonly buscando = signal(false);
   readonly catalogoAbierto = signal(false);
   readonly elegido = signal<QuoteCatalogRow | null>(null);
@@ -1262,6 +1301,7 @@ export class TeleventaQuoteDetailComponent implements OnInit {
           return nomA.localeCompare(nomB, 'es', { sensitivity: 'base' });
         });
         this.resultados.set(ordenados);
+        this.pedirExistenciaBusqueda(this.cot()?.source_branch, ordenados);
         this.buscando.set(false);
         // [E.29] Sólo si la persona sigue en el buscador: una respuesta tardía no la reabre encima.
         this.catalogoAbierto.set(this.buscadorEnFoco);
