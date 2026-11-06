@@ -359,6 +359,19 @@ type FilaComprobanteCruda = {
   [columna: string]: unknown;
 };
 
+/**
+ * `[PQ.81]` **El folio de la ORDEN DE ENTRADA (X-A-40) de la que viene esta entrada.** La lista es de
+ * aplicaciones (X-A-20, «Aplica Orden Entrada») y Kepler numera las dos por separado: medido el
+ * 2026-11-06, en 3,198 de 3,391 aplicaciones de 90 días el folio NO es el de su orden. Edgar buscó
+ * «1062» pensando en la orden de entrada 0001062 (la de 800 paquetes) y la pantalla le dio la
+ * aplicación 0001062, que viene de la orden 0001065: la tomó por corregida. La vista no publica
+ * `ap.c39` (la usa para llegar al vale), así que se lee aquí, por el índice `idx_kdm1_xa_doc`.
+ * Correlacionada con el alias `c` (`analytics.erp_goods_receipts`).
+ */
+const ORDEN_ENTRADA_SQL = `(SELECT NULLIF(btrim(oe.c39), '') FROM kepler_ods.kdm1 oe
+  WHERE oe.sucursal = c.sucursal AND oe.c2 = 'X' AND oe.c3 = 'A' AND btrim(oe.c4::text) = '20'
+    AND btrim(oe.c6) = c.folio AND btrim(oe.c37::text) = '40' LIMIT 1)`;
+
 @Injectable()
 export class GoodsReceiptProofsService {
   private readonly logger = new Logger(GoodsReceiptProofsService.name);
@@ -545,6 +558,22 @@ export class GoodsReceiptProofsService {
   }
 
   /**
+   * `[PQ.81]` Las entradas (aplicación X-A-20) cuya ORDEN DE ENTRADA (X-A-40) termina en estos 4
+   * dígitos, como llaves (sucursal, folio). Va en un paso aparte y no como `OR` dentro de la
+   * consulta: con el `OR` el planificador deja de empujar el filtro adentro de la vista y la
+   * búsqueda pasaba de 0.1 s a 1.5 s (medido en prod el 2026-11-06). Así: 25–80 ms + la lista igual.
+   * El alcance por sucursal lo sigue aplicando la consulta de la lista.
+   */
+  private async entradasPorOrden(trx: Knex.Transaction, suf: string): Promise<[string, string][]> {
+    const { rows } = await trx.raw(`
+      SELECT oe.sucursal, btrim(oe.c6) AS folio FROM kepler_ods.kdm1 oe
+       WHERE oe.c2 = 'X' AND oe.c3 = 'A' AND btrim(oe.c4::text) = '20' AND btrim(oe.c37::text) = '40'
+         AND right(regexp_replace(oe.c39, '\\D', '', 'g'), 4) = ?
+       LIMIT 200`, [suf]);
+    return (rows as { sucursal: string; folio: string }[]).map((r) => [r.sucursal, r.folio]);
+  }
+
+  /**
    * Sucursales que el usuario puede LEER, ya intersectadas con lo que pidió por query param.
    * `null` = sin filtro (alcance `all` y no pidió nada) · `[]` = no ve ninguna (fail-closed).
    *
@@ -651,6 +680,9 @@ export class GoodsReceiptProofsService {
       const conFolioCols = await this.existeCol(trx, 'finance', 'goods_receipt_proofs', 'folio_interno');
       const hayPares = await this.hayPares(trx);
       const hayDesc = await this.hayDescartes(trx);
+      // [PQ.81] las entradas cuya ORDEN DE ENTRADA termina en esos dígitos (ver entradasPorOrden)
+      const terminoFolio = (q.search || '').trim();
+      const porOrden = /^\d{1,4}$/.test(terminoFolio) ? await this.entradasPorOrden(trx, terminoFolio.padStart(4, '0')) : [];
       // RE.20.1 — el lente del dinero. El join de ajustes es caro (agrupa toda la tabla de
       // devoluciones/notas), así que sólo entra cuando alguien lo pide.
       const dinero = q.lente === 'dinero';
@@ -888,12 +920,16 @@ export class GoodsReceiptProofsService {
           // son "el folio de esa orden" para quien pregunta. Paréntesis obligatorios — sin ellos
           // el OR se lleva por delante el resto de los filtros del WHERE.
           const suf = term.padStart(4, '0');
-          b.whereRaw(
-            hayPares
-              ? `(right(regexp_replace(c.folio, '\\D', '', 'g'), 4) = ? OR right(regexp_replace(gem.cedis_folio, '\\D', '', 'g'), 4) = ?)`
-              : `right(regexp_replace(c.folio, '\\D', '', 'g'), 4) = ?`,
-            hayPares ? [suf, suf] : [suf],
-          );
+          // [PQ.81] …o el de su ORDEN DE ENTRADA (X-A-40), que casi nunca es el mismo número
+          b.where((w: Knex.QueryBuilder) => {
+            w.whereRaw(
+              hayPares
+                ? `(right(regexp_replace(c.folio, '\\D', '', 'g'), 4) = ? OR right(regexp_replace(gem.cedis_folio, '\\D', '', 'g'), 4) = ?)`
+                : `right(regexp_replace(c.folio, '\\D', '', 'g'), 4) = ?`,
+              hayPares ? [suf, suf] : [suf],
+            );
+            if (porOrden.length) w.orWhereIn(['c.sucursal', 'c.folio'], porOrden);
+          });
         } else {
           applySmartSearch(b, q.search, {
             // RE.20.1 — `vale_folio` y `concepto` venían del buscador de Compras 360: al
@@ -911,6 +947,7 @@ export class GoodsReceiptProofsService {
         .select(
           'c.sucursal', 'c.folio', 'c.receipt_date', 'c.proveedor_code', 'c.proveedor_nombre',
           'c.proveedor_rfc', 'c.oc_folio', 'c.concepto', 'c.source_branch', trx.raw('c.monto::numeric AS monto'),
+          trx.raw(`${ORDEN_ENTRADA_SQL} AS orden_entrada_folio`), // [PQ.81]
           trx.raw('COALESCE(d.n, 0)::int AS deposits'),
           trx.raw('d.last_id AS deposit_id'),
           trx.raw('d.last_status AS deposit_status'),
@@ -1612,6 +1649,7 @@ export class GoodsReceiptProofsService {
           .where('c.receipt_date', '>=', cfg.reception_start) // no enlazar a histórico previo al arranque
           .select('c.sucursal', 'c.folio', 'c.receipt_date', 'c.proveedor_code', 'c.proveedor_nombre',
             'c.proveedor_rfc', 'c.oc_folio', 'c.concepto', 'c.source_branch', 'c.referencia', trx.raw('c.monto::numeric AS monto'),
+            trx.raw(`${ORDEN_ENTRADA_SQL} AS orden_entrada_folio`), // [PQ.81]
             trx.raw('COALESCE(d.n,0)::int AS deposits'), trx.raw('d.last_id AS deposit_id'),
             trx.raw('d.last_status AS deposit_status'), trx.raw(ORIGEN_SELECT),
             ...(hayPares ? GEMELA_SELECT : GEMELA_NULLS).map((c) => trx.raw(c)));
@@ -1630,12 +1668,17 @@ export class GoodsReceiptProofsService {
         // Prioridad: últimos 4 dígitos del folio (término de 1–4 dígitos = sufijo exacto).
         if (/^\d{1,4}$/.test(search)) {
           const suf = search.padStart(4, '0');
-          b.whereRaw(
-            hayPares
-              ? `(right(regexp_replace(c.folio, '\\D', '', 'g'), 4) = ? OR right(regexp_replace(gem.cedis_folio, '\\D', '', 'g'), 4) = ?)`
-              : `right(regexp_replace(c.folio, '\\D', '', 'g'), 4) = ?`,
-            hayPares ? [suf, suf] : [suf],
-          );
+          // [PQ.81] …o el de su orden de entrada
+          const porOrdenOcr = await this.entradasPorOrden(trx, suf);
+          b.where((w: Knex.QueryBuilder) => {
+            w.whereRaw(
+              hayPares
+                ? `(right(regexp_replace(c.folio, '\\D', '', 'g'), 4) = ? OR right(regexp_replace(gem.cedis_folio, '\\D', '', 'g'), 4) = ?)`
+                : `right(regexp_replace(c.folio, '\\D', '', 'g'), 4) = ?`,
+              hayPares ? [suf, suf] : [suf],
+            );
+            if (porOrdenOcr.length) w.orWhereIn(['c.sucursal', 'c.folio'], porOrdenOcr);
+          });
         } else {
           applySmartSearch(b, search, {
             columns: ['c.proveedor_nombre', 'c.proveedor_code', 'c.proveedor_rfc', 'c.folio', 'c.oc_folio',
@@ -2083,10 +2126,12 @@ export class GoodsReceiptProofsService {
           ? `la orden ${redirigido_de.sucursal}/${redirigido_de.folio} de oficinas es copia de ${sucursal}/${folio}, que no está en tu alcance`
           : `la entrada ${sucursal}/${folio} no está en tu alcance`);
       }
-      const entrada = await trx('analytics.erp_goods_receipts')
-        .where({ tenant_id: tenantId, sucursal, folio })
+      const entrada = await trx('analytics.erp_goods_receipts as c')
+        .where({ 'c.tenant_id': tenantId, 'c.sucursal': sucursal, 'c.folio': folio })
         .first('sucursal', 'folio', 'receipt_date', 'proveedor_code', 'proveedor_nombre', 'proveedor_rfc',
           'oc_folio', 'vale_folio', 'concepto', trx.raw('monto::numeric AS monto'),
+          // [PQ.81] de qué orden de entrada viene y con qué remisión: lo que dice el papel
+          trx.raw(`${ORDEN_ENTRADA_SQL} AS orden_entrada_folio`), 'referencia',
           // `[RE.1]` — el vencimiento va en el expediente: es la mitad de la decisión de pago.
           'fecha_vence', 'condicion_pago',
           trx.raw('dias_credito::int AS dias_credito'),
