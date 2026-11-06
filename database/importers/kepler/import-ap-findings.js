@@ -10,9 +10,16 @@
  *       prov_203     = provisiones a 203 (abonos, nunca descargadas)
  *       anticipo_107 = anticipos a proveedor (cargos a 107, sin aplicar)
  *
+ * `[CANON.5.12]` (2026-11-06) — las pólizas se leen por default de `kepler_ods` (una consulta por
+ * mes para las 9 bases, columna `sucursal` = base de origen). `--source=branch` conserva la
+ * conexión a cada POS. De paso cierra H4: la base de la `03` trae renglones con `c14` de otra
+ * sucursal, y la mayoría también están en su base dueña (se contaban dos veces). Con el ODS se
+ * descarta el renglón ajeno que existe idéntico en la base dueña; el que sólo vive en la ajena se
+ * conserva (un filtro `c14 = propia` lo perdería).
+ *
  *   node database/importers/kepler/import-ap-findings.js            # dry-run (12 meses)
  *   node database/importers/kepler/import-ap-findings.js --apply    # commit
- *   ... --months 12 · EXPENSES_BRANCH_MAP='[...]'                   # overrides
+ *   ... --months 12 · --source=branch · EXPENSES_BRANCH_MAP='[...]' # overrides
  */
 const { Client } = require('pg');
 
@@ -26,6 +33,8 @@ function arg(name, def) {
   return i !== -1 && process.argv[i + 1] && !process.argv[i + 1].startsWith('--') ? process.argv[i + 1] : def;
 }
 const MONTHS = Math.max(1, Math.min(36, Number(arg('months', 12))));
+const SOURCE = (process.argv.find((a) => a.startsWith('--source=')) || '').split('=')[1] || 'ods';
+if (!['ods', 'branch'].includes(SOURCE)) throw new Error(`--source desconocido: ${SOURCE} (ods | branch)`);
 
 // Fuente única del mapa de sucursales (paso 3 normalización almacén). Las 6 (incluye CEDIS).
 const { stockMap } = require('../lib/kepler-branches');
@@ -77,103 +86,143 @@ async function bulkInsert(db, table, cols, rows) {
   }
 }
 
-(async () => {
+const DOC = `(c15||c16||lpad(c17::text,2,'0')||lpad(c18::text,2,'0'))`;
+const COLS = `c14 AS suc, c2::date AS fecha, c3 AS cuenta, c4 AS ca, c5::numeric AS imp,
+              NULLIF(btrim(c6),'') AS benef, ${DOC} AS doc_tipo, c19 AS folio`;
+const WHERE = `COALESCE(c5,0) <> 0 AND (c3='201' OR c3='203' OR c3='107' OR ${DOC}='XD5501')`;
+
+/** Renglones de póliza por base y mes: Map(base → Map(tabla → rows)). Las bases sin conexión (branch)
+ *  o sin un solo renglón en la ventana (ods) quedan fuera de `okCodes`: no se tocan sus filas. */
+async function readRows(db, tables, { dedupH4 = true } = {}) {
+  const byBase = new Map(MAP.map((b) => [b.code, new Map()]));
+  const skipped = [];
+  if (SOURCE === 'ods') {
+    const codes = MAP.map((b) => b.code);
+    for (const t of tables) {
+      if (!(await db.query(`SELECT to_regclass('kepler_ods.${t}') r`)).rows[0].r) continue;
+      // H4: el renglón con c14 de OTRA base se descarta si su base dueña trae el mismo renglón.
+      const rows = (await db.query(
+        `SELECT x.sucursal AS base, ${COLS.replace(/\bc(\d+)\b/g, 'x.c$1')}
+           FROM kepler_ods.${t} x
+          WHERE x.sucursal = ANY($1) AND ${WHERE.replace(/\bc(\d+)\b/g, 'x.c$1')}
+            AND NOT (${dedupH4} AND btrim(coalesce(x.c14,'')) NOT IN ('', x.sucursal) AND EXISTS (
+                  SELECT 1 FROM kepler_ods.${t} o
+                   WHERE o.sucursal = btrim(x.c14) AND o.c2::date = x.c2::date AND o.c3 = x.c3 AND o.c4 = x.c4
+                     AND o.c5 = x.c5 AND o.c19 IS NOT DISTINCT FROM x.c19 AND o.c6 IS NOT DISTINCT FROM x.c6
+                     AND ${DOC.replace(/\bc(\d+)\b/g, 'o.c$1')} IS NOT DISTINCT FROM ${DOC.replace(/\bc(\d+)\b/g, 'x.c$1')}))`,
+        [codes])).rows;
+      for (const r of rows) { const m = byBase.get(r.base); if (!m.has(t)) m.set(t, []); m.get(t).push(r); }
+    }
+    for (const [code, m] of byBase) if (!m.size) { byBase.delete(code); skipped.push({ code, nota: 'sin renglones en el ODS' }); }
+    return { byBase, skipped };
+  }
+  for (const b of MAP) {
+    const src = new Client({ connectionString: b.url });
+    try { await src.connect(); }
+    catch (e) { console.log(`  ⚠ sucursal ${b.code}: sin conexión (${e.message}) — skip`); byBase.delete(b.code); skipped.push({ code: b.code, nota: 'sin conexión' }); continue; }
+    try {
+      for (const t of tables) {
+        if (!(await src.query(`SELECT to_regclass('md.${t}') r`)).rows[0].r) continue;
+        byBase.get(b.code).set(t, (await src.query(`SELECT ${COLS} FROM md.${t} WHERE ${WHERE}`)).rows);
+      }
+    } finally { await src.end(); }
+  }
+  return { byBase, skipped };
+}
+
+/** Lo que el importer escribiría: filas de ap_provider y de expense_findings, y las bases leídas.
+ *  `opts.dedupH4=false` sólo existe para medir el efecto de H4 en la comparación en seco. */
+async function collect(db, tables, opts = {}) {
+  const apRows = [];       // ap_provider
+  const findingRows = [];  // expense_findings
+  const { byBase, skipped } = await readRows(db, tables, opts);
+  const okCodes = [...byBase.keys()];
+  const summary = [...skipped];
+
+  for (const b of MAP) {
+    const porMes = byBase.get(b.code);
+    if (!porMes) continue;
+    // proveedores (201) + provisiones 203 + anticipos 107
+    const prov = new Map();   // norm → {compra,pagos,fact,ultima, names:Map(raw→$)}
+    const getP = (k) => { let p = prov.get(k); if (!p) { p = { compra: 0, pagos: 0, fact: 0, ultima: null, names: new Map() }; prov.set(k, p); } return p; };
+
+    for (const t of tables) {
+      const rows = porMes.get(t);
+      if (!rows) continue;
+
+      const xd = new Map(); // XD5501 folio → {cargos,abonos,iva001,fecha,benef,suc}
+      for (const r of rows) {
+        const suc = r.suc || b.code;
+        // 201 — auxiliar de proveedores
+        if (r.cuenta === '201') {
+          const k = normProv(r.benef);
+          if (k) {
+            const p = getP(k);
+            if (r.ca === 'A' && r.doc_tipo === 'XA2001') {
+              p.compra += Number(r.imp); p.fact++;
+              if (!p.ultima || r.fecha > p.ultima) p.ultima = r.fecha;
+              p.names.set(r.benef, (p.names.get(r.benef) || 0) + Number(r.imp));
+            } else if (r.ca === 'C' && (r.doc_tipo === 'XD2601' || r.doc_tipo === 'XD2501')) {
+              p.pagos += Number(r.imp);
+            }
+          }
+        }
+        // 203 — provisión no descargada (abono)
+        if (r.cuenta === '203' && r.ca === 'A') {
+          findingRows.push(['prov_203', suc, r.fecha, r.doc_tipo, r.folio, r.benef, '203', Number(r.imp), null]);
+        }
+        // 107 — anticipo a proveedor (cargo)
+        if (r.cuenta === '107' && r.ca === 'C') {
+          findingRows.push(['anticipo_107', suc, r.fecha, r.doc_tipo, r.folio, r.benef, '107', Number(r.imp), null]);
+        }
+        // XD5501 — acumula por póliza para detectar descuadre
+        if (r.doc_tipo === 'XD5501') {
+          const fk = `${suc}|${r.folio}`;
+          let g = xd.get(fk);
+          if (!g) { g = { suc, folio: r.folio, cargos: 0, abonos: 0, iva001: 0, fecha: r.fecha, benef: null }; xd.set(fk, g); }
+          if (r.ca === 'C') g.cargos += Number(r.imp); else g.abonos += Number(r.imp);
+          if (r.cuenta && r.cuenta.startsWith('122-001') && r.ca === 'A') g.iva001 += Number(r.imp);
+          if (!g.benef && r.benef) g.benef = r.benef;
+          if (r.fecha && (!g.fecha || r.fecha < g.fecha)) g.fecha = r.fecha;
+        }
+      }
+      // cierra XD5501 del mes: los descuadrados son iva_bug
+      for (const g of xd.values()) {
+        const desc = Math.round((g.cargos - g.abonos) * 100) / 100;
+        if (Math.abs(desc) >= 0.01) {
+          findingRows.push(['iva_bug', g.suc, g.fecha, 'XD5501', g.folio, g.benef, '122-001',
+            Math.round(g.iva001 * 100) / 100, `descuadre ${desc.toFixed(2)}`]);
+        }
+      }
+    }
+
+    // consolida ap_provider de la sucursal
+    for (const [k, p] of prov) {
+      if (p.compra <= 0 && p.pagos <= 0) continue;
+      const saldo = Math.round((p.compra - p.pagos) * 100) / 100;
+      const dpo = p.compra > 0 && saldo > 0 ? Math.round(saldo / (p.compra / 365)) : null;
+      let display = k, best = -1;
+      for (const [raw, amt] of p.names) if (amt > best) { best = amt; display = raw; }
+      apRows.push([b.code, k, display, Math.round(p.compra * 100) / 100, Math.round(p.pagos * 100) / 100,
+        saldo, p.fact, p.ultima, dpo]);
+    }
+    summary.push({ code: b.code, proveedores: prov.size, hallazgos_acum: findingRows.length });
+  }
+  return { apRows, findingRows, okCodes, summary };
+}
+
+async function run() {
   const { tables, from, to } = monthWindow(MONTHS);
   const db = new Client({ connectionString: DST });
   await db.connect();
   try {
-    console.log(`\n=== AP + Hallazgos → analytics (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===`);
+    console.log(`\n=== AP + Hallazgos → analytics (${APPLY ? 'APPLY' : 'DRY-RUN'}) · fuente ${SOURCE} ===`);
     console.log(`Ventana: ${MONTHS} meses (${from} … ${to})\n`);
 
     await db.query('BEGIN');
     await db.query(`SET LOCAL app.tenant_id = '${M}'`);
 
-    const apRows = [];       // ap_provider
-    const findingRows = [];  // expense_findings
-    const okCodes = [];
-    const summary = [];
-
-    for (const b of MAP) {
-      const src = new Client({ connectionString: b.url });
-      try { await src.connect(); }
-      catch (e) { console.log(`  ⚠ sucursal ${b.code}: sin conexión (${e.message}) — skip`); summary.push({ code: b.code, nota: 'sin conexión' }); continue; }
-      okCodes.push(b.code);
-      try {
-        // proveedores (201) + provisiones 203 + anticipos 107
-        const prov = new Map();   // norm → {compra,pagos,fact,ultima, names:Map(raw→$)}
-        const getP = (k) => { let p = prov.get(k); if (!p) { p = { compra: 0, pagos: 0, fact: 0, ultima: null, names: new Map() }; prov.set(k, p); } return p; };
-
-        for (const t of tables) {
-          if (!(await src.query(`SELECT to_regclass('md.${t}') r`)).rows[0].r) continue;
-          const rows = (await src.query(
-            `SELECT c14 AS suc, c2::date AS fecha, c3 AS cuenta, c4 AS ca, c5::numeric AS imp,
-                    NULLIF(btrim(c6),'') AS benef,
-                    (c15||c16||lpad(c17::text,2,'0')||lpad(c18::text,2,'0')) AS doc_tipo, c19 AS folio
-               FROM md.${t}
-              WHERE COALESCE(c5,0) <> 0
-                AND (c3='201' OR c3='203' OR c3='107'
-                     OR (c15||c16||lpad(c17::text,2,'0')||lpad(c18::text,2,'0'))='XD5501')`,
-          )).rows;
-
-          const xd = new Map(); // XD5501 folio → {cargos,abonos,iva001,fecha,benef,suc}
-          for (const r of rows) {
-            const suc = r.suc || b.code;
-            // 201 — auxiliar de proveedores
-            if (r.cuenta === '201') {
-              const k = normProv(r.benef);
-              if (k) {
-                const p = getP(k);
-                if (r.ca === 'A' && r.doc_tipo === 'XA2001') {
-                  p.compra += Number(r.imp); p.fact++;
-                  if (!p.ultima || r.fecha > p.ultima) p.ultima = r.fecha;
-                  p.names.set(r.benef, (p.names.get(r.benef) || 0) + Number(r.imp));
-                } else if (r.ca === 'C' && (r.doc_tipo === 'XD2601' || r.doc_tipo === 'XD2501')) {
-                  p.pagos += Number(r.imp);
-                }
-              }
-            }
-            // 203 — provisión no descargada (abono)
-            if (r.cuenta === '203' && r.ca === 'A') {
-              findingRows.push(['prov_203', suc, r.fecha, r.doc_tipo, r.folio, r.benef, '203', Number(r.imp), null]);
-            }
-            // 107 — anticipo a proveedor (cargo)
-            if (r.cuenta === '107' && r.ca === 'C') {
-              findingRows.push(['anticipo_107', suc, r.fecha, r.doc_tipo, r.folio, r.benef, '107', Number(r.imp), null]);
-            }
-            // XD5501 — acumula por póliza para detectar descuadre
-            if (r.doc_tipo === 'XD5501') {
-              const fk = `${suc}|${r.folio}`;
-              let g = xd.get(fk);
-              if (!g) { g = { suc, folio: r.folio, cargos: 0, abonos: 0, iva001: 0, fecha: r.fecha, benef: null }; xd.set(fk, g); }
-              if (r.ca === 'C') g.cargos += Number(r.imp); else g.abonos += Number(r.imp);
-              if (r.cuenta && r.cuenta.startsWith('122-001') && r.ca === 'A') g.iva001 += Number(r.imp);
-              if (!g.benef && r.benef) g.benef = r.benef;
-              if (r.fecha && (!g.fecha || r.fecha < g.fecha)) g.fecha = r.fecha;
-            }
-          }
-          // cierra XD5501 del mes: los descuadrados son iva_bug
-          for (const g of xd.values()) {
-            const desc = Math.round((g.cargos - g.abonos) * 100) / 100;
-            if (Math.abs(desc) >= 0.01) {
-              findingRows.push(['iva_bug', g.suc, g.fecha, 'XD5501', g.folio, g.benef, '122-001',
-                Math.round(g.iva001 * 100) / 100, `descuadre ${desc.toFixed(2)}`]);
-            }
-          }
-        }
-
-        // consolida ap_provider de la sucursal
-        for (const [k, p] of prov) {
-          if (p.compra <= 0 && p.pagos <= 0) continue;
-          const saldo = Math.round((p.compra - p.pagos) * 100) / 100;
-          const dpo = p.compra > 0 && saldo > 0 ? Math.round(saldo / (p.compra / 365)) : null;
-          let display = k, best = -1;
-          for (const [raw, amt] of p.names) if (amt > best) { best = amt; display = raw; }
-          apRows.push([b.code, k, display, Math.round(p.compra * 100) / 100, Math.round(p.pagos * 100) / 100,
-            saldo, p.fact, p.ultima, dpo]);
-        }
-        summary.push({ code: b.code, proveedores: prov.size, hallazgos_acum: findingRows.length });
-      } finally { await src.end(); }
-    }
+    const { apRows, findingRows, okCodes, summary } = await collect(db, tables);
     console.table(summary);
     console.log(`ap_provider filas: ${apRows.length} · findings filas: ${findingRows.length}`);
 
@@ -235,4 +284,7 @@ async function bulkInsert(db, table, cols, rows) {
     console.error('\nERROR (rollback):', e.message);
     process.exitCode = 1;
   } finally { await db.end(); }
-})();
+}
+
+module.exports = { collect, monthWindow };
+if (require.main === module) run();
