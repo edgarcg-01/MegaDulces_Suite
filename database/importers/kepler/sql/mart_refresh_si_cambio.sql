@@ -47,9 +47,16 @@
 -- `_refresh_one` a la versión sin timeouts.
 --
 -- ── CÓMO SE CORRE (en md) ─────────────────────────────────────────────────────────────────────
---   read -rs KEPLER_RO_PASS        # la de platform_ro en las sucursales; no queda en el historial
---   PGPASSWORD=... psql -h localhost -p 5433 -U postgres -d kepler_consolidado \
---        -v kepler_ro_pass="$KEPLER_RO_PASS" -f mart_refresh_si_cambio.sql
+-- Nadie teclea contraseñas: la de postgres sale del env de los feeds en md y la de platform_ro del
+-- USER MAPPING que ya existe en el consolidado (aplicado así el 2026-11-06):
+--   (
+--     set -a; . ~/secrets/feeds.env; set +a
+--     U=$(echo "$DATABASE_URL_KEPLER_CONSOLIDADO" | sed 's#@pg-ods:5432/#@localhost:5433/#')
+--     P=$(psql "$U" -XAtc "select option_value from pg_user_mapping um join pg_foreign_server s
+--           on s.oid=um.umserver, pg_options_to_table(um.umoptions)
+--           where s.srvname='srv_md00' and option_name='password'")
+--     psql "$U" -X -v kepler_ro_pass="$P" -f mart_refresh_si_cambio.sql
+--   )
 -- Idempotente: se puede correr de nuevo (crea lo que falta y actualiza lo que existe).
 -- Para revertir: psql ... -f refresh_si_cambio.antes.sql (las funciones vuelven a la conexión vieja;
 -- los servidores y mappings nuevos quedan sin uso).
