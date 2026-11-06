@@ -99,6 +99,14 @@ function pickCanonical(arr) {
         for (const col of ['lead_time_days', 'min_order_boxes', 'cadence_days_override', 'colchon_days', 'min_order_amount']) {
           if (g.canonical[col] == null && n[col] != null) patch[col] = n[col];
         }
+        // CANON.5.25 — la procedencia viaja con el valor copiado (manual sigue siendo manual).
+        if (g.canonical.order_params_source !== undefined) {
+          const origen = Object.fromEntries(Object.keys(patch).filter((c) => n.order_params_source?.[c]).map((c) => [c, n.order_params_source[c]]));
+          if (Object.keys(origen).length) {
+            g.canonical.order_params_source = { ...(g.canonical.order_params_source || {}), ...origen };
+            patch.order_params_source = JSON.stringify(g.canonical.order_params_source);
+          }
+        }
         if (Object.keys(patch).length) {
           await trx('catalog.suppliers').where({ id: canonId }).update(patch); params++;
           for (const col of Object.keys(patch)) g.canonical[col] = g.canonical[col] ?? patch[col];
