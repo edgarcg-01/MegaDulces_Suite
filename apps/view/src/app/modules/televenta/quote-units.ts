@@ -142,6 +142,31 @@ function pesoTexto(gramos: number): string {
   return gramos < 1000 ? `${gramos} g` : `${Math.round((gramos / 1000) * 1000) / 1000} kg`;
 }
 
+/**
+ * `[COT.38]` La unidad base para LEER: «500 g» cuando el ERP prueba los gramos (`gramosDeBase`);
+ * si no, la abreviatura de siempre (KG, PAQ, PZA, u.). Antes la pastilla decía «Base 500».
+ */
+export function unidadBaseLegible(e: Pick<QuoteCatalogRow, 'unit_base' | 'sold_by_kg' | 'pack_label' | 'pack_size'>): string {
+  const g = gramosDeBase(e);
+  return g ? pesoTexto(g) : abrevUnidadBase(e.unit_base, e.sold_by_kg);
+}
+
+/** `[COT.38]` La unidad base dentro del desglose «2 × 500 g $70.08»; sin gramos probados, «12 PAQ $41.82». */
+export function unidadBaseDesglose(e: Pick<QuoteCatalogRow, 'unit_base' | 'sold_by_kg' | 'pack_label' | 'pack_size'>): string {
+  return gramosDeBase(e) ? '× ' + unidadBaseLegible(e) : abrevUnidadBase(e.unit_base, e.sold_by_kg);
+}
+
+/**
+ * `[COT.38]` «hay N …» de la existencia (viene en la unidad base de Kepler). Con gramos probados
+ * se dice en kilos —726.8 de 500 g = «hay 363.4 kg»— en vez de «hay 726.8 500».
+ */
+export function textoHay(q: number, e: Pick<QuoteCatalogRow, 'unit_base' | 'sold_by_kg' | 'pack_label' | 'pack_size'>): string {
+  const fmt = (n: number) => n.toLocaleString('es-MX', { maximumFractionDigits: 2 });
+  const g = gramosDeBase(e);
+  if (g) return 'hay ' + fmt((q * g) / 1000) + ' kg';
+  return 'hay ' + fmt(q) + ' ' + (e.sold_by_kg ? 'KG' : (e.unit_base || 'PZA'));
+}
+
 /** Un botón de unidad de venta del artículo. */
 export interface OpcionUnidad {
   rung: Rung;

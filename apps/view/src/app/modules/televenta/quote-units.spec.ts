@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { abrevUnidadBase, desglose, esPaquete, gramosDeBase, nombreUnidadBase, opcionesUnidad, paqueteDeCaja, parseCantidad, vendedorDelCliente, descuentoDerivado, descuentoDelMecanismo, textoDescuento, existenciaEnUnidad, tonoFuentePrecio } from './quote-units';
+import { abrevUnidadBase, desglose, esPaquete, gramosDeBase, unidadBaseLegible, unidadBaseDesglose, textoHay, nombreUnidadBase, opcionesUnidad, paqueteDeCaja, parseCantidad, vendedorDelCliente, descuentoDerivado, descuentoDelMecanismo, textoDescuento, existenciaEnUnidad, tonoFuentePrecio } from './quote-units';
 import { pasosDelPrecio } from './quote-discount-breakdown';
 import { etiquetaDesglose } from './quote-deliverable-export';
 import type { QuoteCatalogRow } from './quotes.service';
@@ -48,6 +48,21 @@ describe('opcionesUnidad — de menor a mayor, sólo las que el ERP declara', ()
     expect(o.map((x) => `${x.rung} ${x.titulo} ${x.tamano}`)).toEqual(['base Medio kilo 1', 'pack Kilo 2', 'box Caja 20']);
     // El KG de 2 de Kepler prueba que «500» son gramos: los botones hablan en peso, no en «u.».
     expect(o.map((x) => x.detalle)).toEqual(['500 g', '1 kg', '10 kg']);
+  });
+
+  it('[COT.38] con gramos probados: «500 g» en la base, la existencia en kilos y el desglose «× 500 g»', () => {
+    const e = fila({ unit_base: '500', pack_size: 2, pack_label: 'KG', box_size: 20, box_label: 'CJA' });
+    expect(unidadBaseLegible(e)).toBe('500 g');
+    expect(textoHay(726.8, e)).toBe('hay 363.4 kg');
+    expect(unidadBaseDesglose(e)).toBe('× 500 g');
+  });
+
+  it('[COT.38] sin gramos probados se queda como siempre (no se inventa el peso)', () => {
+    const e = fila({ unit_base: '500' });
+    expect(unidadBaseLegible(e)).toBe('u.');
+    expect(textoHay(726.8, e)).toBe('hay 726.8 500');
+    expect(textoHay(12, fila({ unit_base: 'PAQ' }))).toBe('hay 12 PAQ');
+    expect(unidadBaseDesglose(fila({ unit_base: 'PAQ' }))).toBe('PAQ');
   });
 
   it('[COT.30] un «500» sin KG que lo pruebe sigue siendo unidad desconocida', () => {
