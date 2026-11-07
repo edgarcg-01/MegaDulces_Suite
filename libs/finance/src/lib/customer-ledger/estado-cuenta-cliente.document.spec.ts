@@ -1,5 +1,4 @@
 import 'reflect-metadata';
-import { describe, expect, it } from 'vitest';
 import { antiguedad, EstadoCuentaClienteDocument, type DetalleEC } from './estado-cuenta-cliente.document';
 import { FinanceCustomerLedgerModule } from './finance-customer-ledger.module';
 import { CustomerLedgerController } from './customer-ledger.controller';
