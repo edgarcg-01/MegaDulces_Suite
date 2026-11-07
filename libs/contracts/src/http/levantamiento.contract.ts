@@ -203,3 +203,63 @@ export interface RevisionDecisionRespuesta {
   id: string;
   status: string;
 }
+
+// ── `[NP.7.L.5]` Catálogo digital › Publicadas (primer corte de Cobertura) ─────────────────────────
+
+/**
+ * La cobertura de UNA sucursal, en vivo (derive-no-copy): el MISMO universo que la pantalla A del
+ * levantamiento (`UNIVERSO_LEVANTAMIENTO_SQL`), así «faltan» da el mismo número en las dos (plan §10b.3).
+ * Medido el 2026-11-04 en Padre Hidalgo (sólo lectura): universo 4,230 · publicadas 7 · 0.888 % de la venta.
+ */
+export interface CoberturaLevantamiento {
+  branch_code: string;
+  branch_name: string | null;
+  /** SKUs del universo (venta 90 d o existencia en la sucursal, sin promociones). */
+  universe: number;
+  /** De ésos, con su unidad principal publicada (`publicada`, `conciliada` o `con_diferencias`). */
+  published: number;
+  /** universe − published: el mismo «faltan» de la pantalla A. */
+  missing: number;
+  /** MÉTRICA L: % de la venta de 90 d (en pesos) de la sucursal que cubren los publicados. null = venta 0 o no medible. */
+  sales_share_pct: number | null;
+  /** Cuándo se calculó (en vivo, al pedirlo). */
+  measured_at: string;
+}
+
+/** Una ficha publicada: lo que se ve en Catálogo digital › Publicadas. Sin costo, precio, margen ni venta por SKU. */
+export interface FichaPublicada {
+  id: string;
+  sku: string;
+  name: string | null;
+  branch_code: string;
+  branch_name: string | null;
+  rung: LevantamientoPeldano | null;
+  unit_label: string | null;
+  unit_factor: number | null;
+  scanned_code: string | null;
+  kepler_codes: string[];
+  captured_by: string | null;
+  captured_at: string;
+  /** Quién la publicó y cuándo (de `sheet.revisiones` / `sheet.publicada`). null en fichas anteriores al registro. */
+  published_by: string | null;
+  published_at: string | null;
+  /** Fotos de la unidad principal, con URL firmada de corta vida (como la bandeja). */
+  photos: RevisionFoto[];
+  /**
+   * La lectura de la IA: `apagada` mientras `NP7_AI_ENABLED` no sea `true` (D6) · `sin_leer` encendida y sin
+   * propuesta vigente · `leida` cuando `ai_raw.propuesta` existe Y es de las fotos actuales (todas las fotos reales
+   * de la unidad principal con lectura `ok`: `fichaLista` del worker; una recapturada con la propuesta de las fotos
+   * viejas es `sin_leer`). La pantalla nunca dibuja una lectura que no hay.
+   * ⚠️ `sin_leer` incluye la ficha con una lectura que NO quedó `ok` (inválida, incompleta, error al preparar): no se
+   * relee sola (deuda (f) del worker) y el rostro de esa foto es NO MEDIDO, nunca «sin rostro». Y `leida` tampoco
+   * dice «sin rostro» de la foto entera: `rostro_visible` se juzga sobre el recorte que viajó (deuda (a), NP.7.F.3).
+   */
+  ai_reading: 'apagada' | 'sin_leer' | 'leida';
+}
+
+export interface FichasPublicadas {
+  coverage: CoberturaLevantamiento;
+  /** Fichas publicadas que cumplen la búsqueda, en TODA la red (no sólo la página). */
+  total: number;
+  rows: FichaPublicada[];
+}

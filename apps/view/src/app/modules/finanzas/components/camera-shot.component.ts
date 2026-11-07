@@ -135,6 +135,14 @@ export class CameraShotComponent {
    * no copia el EXIF (GPS del teléfono). Por defecto no: las pantallas que ya lo usan no cambian.
    */
   readonly recodificarSiempre = input<boolean>(false);
+  /**
+   * `[NP.7.L.8a]` Qué resolución se le pide a la cámara. `estandar` (por defecto, la de los tickets) pide
+   * 1920×1080: las pantallas que ya lo usan no cambian. `maxima` pide la mayor que dé el teléfono, porque
+   * la foto del levantamiento es la que después va a estudio (plan §10b.9). Medido el 2026-11-04: con
+   * `estandar`, las 40 fotos de la primera captura salieron a 1080×1920 aunque `maxLado` era 4096 — la
+   * foto es un cuadro del video, así que el tope lo pone lo que se pide aquí, no `maxLado`.
+   */
+  readonly resolucion = input<'estandar' | 'maxima'>('estandar');
 
   /** data URI de la foto + si salió de la cámara en vivo o del selector. */
   readonly tomada = output<{ dataUri: string; camera: 'live' | 'file' }>();
@@ -163,10 +171,16 @@ export class CameraShotComponent {
     this.abierto.set(true);
     this.arrancando.set(true);
     try {
+      const maxima = this.resolucion() === 'maxima';
+      // 4096×3072 es 4:3, el formato del sensor de casi todos los teléfonos: pedir 16:9 recorta la foto.
+      // Es `ideal`, nunca `min`: un teléfono que no llega abre con lo que tenga, no falla.
       this.stream = await md.getUserMedia({
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+        video: maxima
+          ? { facingMode: { ideal: 'environment' }, width: { ideal: 4096 }, height: { ideal: 3072 } }
+          : { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
         audio: false,
       });
+      if (maxima) await this.subirAlMaximo(this.stream);
       const v = this.video()?.nativeElement;
       if (v) { v.srcObject = this.stream; await v.play().catch(() => undefined); }
       this.arrancando.set(false);
@@ -178,6 +192,25 @@ export class CameraShotComponent {
       this.error.set(negado
         ? 'No nos diste permiso de usar la cámara. Puedes darlo en los ajustes del navegador, o usar el botón de abajo.'
         : 'No se pudo abrir la cámara. Usa el botón de abajo.');
+    }
+  }
+
+  /**
+   * `[NP.7.L.8a]` Si el navegador dice cuál es el máximo de la cámara (`getCapabilities`), se lo pide.
+   * Es una mejora, no un requisito: si no existe o el teléfono lo rechaza, la cámara sigue con lo que
+   * abrió. Nunca debe romper la captura.
+   */
+  private async subirAlMaximo(stream: MediaStream): Promise<void> {
+    const track = stream.getVideoTracks()[0];
+    if (!track || typeof track.getCapabilities !== 'function') return;
+    try {
+      const caps = track.getCapabilities();
+      const w = caps.width?.max;
+      const h = caps.height?.max;
+      if (!w || !h) return;
+      await track.applyConstraints({ width: { ideal: w }, height: { ideal: h } });
+    } catch {
+      // Se queda con la resolución con la que abrió: ya es la mayor que aceptó el `ideal` de arriba.
     }
   }
 

@@ -1,5 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
+> **Índice navegable** — 2215 KB, 13461 líneas, 74 secciones.
 > **Índice navegable** — 2178 KB, 13311 líneas, 75 secciones.
 > **Índice navegable** — 2216 KB, 13463 líneas, 74 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
@@ -155,6 +156,8 @@
 | 13064 | 13116 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
 | 13117 | 13488 | 55 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
 | 13489 | 13519 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 13520 | 13534 | 3 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 13535 | 13547 | 2 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
 | 13520 | 13536 | 4 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
 | 13537 | 13549 | 2 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
 
@@ -13197,7 +13200,7 @@ Plan y decisiones en [`FASE_NP_PRODUCTOS_NUEVOS.md`](FASES/FASE_NP_PRODUCTOS_NUE
 - [x] 🧪 `[NP.4]` `catalog.new_product_reviews` (mig `20261007360100`) — clasificación de Compras, RLS forzado, soft-delete.
 - [x] 🧪 `[NP.5]` Pestaña Productos nuevos + etiqueta "Nuevo · día N" en Productos. Unitarias 12 + 7; suite de Compras 308/308.
 - [ ] ⬜ `[NP.6]` Umbrales/veredicto en `analytics.kpi_thresholds` + hitos 30/60/90 congelados.
-- [ ] 🔨 `[NP.7]` **Catálogo digital: fichas de producto, levantamiento y altas desde fotos** — plan en [`FASE_NP7_ALTA_DESDE_FOTOS.md`](FASES/FASE_NP7_ALTA_DESDE_FOTOS.md). 2026-11-02: primer corte del levantamiento en código local (tabla, escaneo, fotos, pantalla `/levantamiento`); 2026-11-03: bandeja «Por revisar», revisión independiente del PR (25 hallazgos corregidos) y regla 13 medida contra Postgres real local (26/26); **en prod el 2026-11-03** (PR #481 `fb3bcac09`, 3 migraciones aplicadas; 184 personas pueden levantar); la primera captura en prod no subió ninguna foto — 6 defectos corregidos (CSP contra `fetch(data:)`, 500 por `full_name`, rechazo suelto de los 4 lectores de cámara, ficha sin fotos a revisión → el frente ya no se salta y no se publica una ficha sin fotos, sin entrada desde «Mi trabajo», respaldo de cámara arrastrado), ver bitácora del plan; estado por item en el plan (§10b.5, §6). Antes: «Alta solicitada en la app con inversión y meta planeadas (plan contra real)».
+- [ ] 🔨 `[NP.7]` **Catálogo digital: fichas de producto, levantamiento y altas desde fotos** — plan en [`FASE_NP7_ALTA_DESDE_FOTOS.md`](FASES/FASE_NP7_ALTA_DESDE_FOTOS.md). 2026-11-02: primer corte del levantamiento en código local (tabla, escaneo, fotos, pantalla `/levantamiento`); 2026-11-03: bandeja «Por revisar», revisión independiente del PR (25 hallazgos corregidos) y regla 13 medida contra Postgres real local (26/26); **en prod el 2026-11-03** (PR #481 `fb3bcac09`, 3 migraciones aplicadas; 184 personas pueden levantar); la primera captura en prod no subió ninguna foto — 6 defectos corregidos (CSP contra `fetch(data:)`, 500 por `full_name`, rechazo suelto de los 4 lectores de cámara, ficha sin fotos a revisión → el frente ya no se salta y no se publica una ficha sin fotos, sin entrada desde «Mi trabajo», respaldo de cámara arrastrado), ver bitácora del plan; 2026-11-04: primera captura real (8 SKUs, 40 fotos, 7 publicadas); 2026-11-04/06, **en código, IA apagada** (`NP7_AI_ENABLED=false` hasta D6): el **lector de IA** (foto → JSON por cara con evidencia, fusión, auditoría contra el nombre de Kepler —medida contra 4,230 nombres reales—, diccionario derivado, worker con topes y regla de rostros), **«Publicadas»** en Catálogo digital (`GET /catalog/fichas/publicadas`; métrica L medida por primera vez: 0.888 % de la venta de 90 d de Padre Hidalgo), cámara a tamaño real (L.8a), peso y tenant en la llave de cada foto, y la mig `20261104224833` (quita `CATALOGO_LEVANTAR` de `sin_acceso`; la aplica Edgar). 277 pruebas de `product-sheets` en verde; integración contra base real NO MEDIDA en local. Anexo nuevo: [«la ficha como código»](FASES/FASE_NP7_ANEXO_FICHA_COMO_CODIGO_2026-11-05.md) (D26–D34 para Edgar). Estado por item en el plan (§10b.5, §6). Antes: «Alta solicitada en la app con inversión y meta planeadas (plan contra real)».
 - [x] 🧪 `[NP.8]` En vivo: `fn_new_products_movimientos` (venta y entradas de hoy desde el ODS, mismas reglas; corte por `v_branch_erp_cutover`) + índice `ix_kdm1_compra_fecha`. Coincide con `v_sellout_daily` renglón por renglón en días cerrados.
 - [x] 🧪 `[NP.9]` Recomendación de recompra global y por sucursal (`CRITERIO_RECOMPRA`, propuesta a calibrar) + `GET new-products/:id`.
 - [x] 🧪 `[NP.10]` Rediseño: respuesta arriba, filtros por recomendación, venta semanal por fila, panel lateral por sucursal, refresco cada minuto.
