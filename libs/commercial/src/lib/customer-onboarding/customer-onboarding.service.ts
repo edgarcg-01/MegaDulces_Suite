@@ -24,6 +24,7 @@ import {
   CASILLAS_KEPLER,
   type BandejaAlta,
   type CatalogosAlta,
+  type CodigoPostalAlta,
   type CoincidenciaKepler,
   type CrearSolicitudRespuesta,
   type DecidirCreditoBody,
@@ -39,11 +40,12 @@ import {
   type SolicitudAltaBody,
   type SubirConstanciaBody,
   type SubirConstanciaRespuesta,
+  type UbicacionAlta,
 } from '@megadulces/contracts';
 import {
   bloquea, diferenciaDeCredito, estadoInicial, revisarSolicitud, type ContextoRevision, type FichaKeplerLeida,
 } from './alta-clientes.rules';
-import { fichaDesdeConstancia, fichaVacia, recortesDe } from './ficha-kepler';
+import { estadoCorto, fichaDesdeConstancia, fichaVacia, recortesDe } from './ficha-kepler';
 import { NewCustomersKeplerService } from '../new-customers-kepler/new-customers-kepler.service';
 import { codigoKepler, normalizarClave, normalizarNombre, parecido, UMBRAL_PARECIDO } from '../new-customers-kepler/new-customers-kepler.engine';
 
@@ -83,10 +85,24 @@ interface FilaSolicitud {
   constancia_key: string | null; constancia_issued_on: string | Date | null; customer_id: string | null;
   erp_customer_code: string | null; linked_at: Date | null; created_by: string | null; created_by_name: string | null;
   created_at: Date;
+  latitude: string | null; longitude: string | null; location_source: UbicacionAlta['origen'] | null; location_accuracy_m: string | null;
 }
 
 const num = (v: unknown, def = 0): number => { const n = Number(v); return Number.isFinite(n) ? n : def; };
 const txt = (v: unknown): string | null => { const s = String(v ?? '').trim(); return s ? s : null; };
+/**
+ * `[ALC.3.5]` La ubicación que llega de la pantalla: números finitos o nada. El rango y el país los
+ * revisa `revisarSolicitud` (bloquea fuera de rango; avisa fuera de México).
+ */
+const ubicacionDe = (u: unknown): UbicacionAlta | null => {
+  if (!u || typeof u !== 'object') return null;
+  const x = u as Record<string, unknown>;
+  const lat = Number(x['lat']), lng = Number(x['lng']);
+  if (x['lat'] == null || x['lng'] == null || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  const origen = x['origen'] === 'gps' || x['origen'] === 'mapa' ? x['origen'] : 'direccion';
+  const p = Number(x['precision_m']);
+  return { lat, lng, origen, precision_m: origen === 'gps' && Number.isFinite(p) && p >= 0 ? Math.round(p * 10) / 10 : null };
+};
 const isoFecha = (v: string | Date | null): string | null =>
   v == null ? null : v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, 10);
 
@@ -134,6 +150,39 @@ export class CustomerOnboardingService {
         ORDER BY 1`,
     );
     return rows.map((r: RegimenFiscalOpcion) => ({ ...r, persona_fisica: !!r.persona_fisica, persona_moral: !!r.persona_moral }));
+  }
+
+  /**
+   * `[ALC.3.4]` Lo que se sabe de un CP. Medido en prod (2026-11-06): el catálogo del SAT
+   * (`kdfe33satcp` → `kdfe33satedo`) da UN estado por CP (0 ambiguos); y 21,386 de 22,558 fichas de
+   * `kdud` traen CP y renglón 2, en 486 CP distintos. No hay catálogo de colonias ni de municipios
+   * en el ODS: el renglón 2 sale como sugerencia (los más usados en Kepler para ese CP), no se adivina.
+   */
+  async codigoPostal(cpRaw: unknown): Promise<CodigoPostalAlta> {
+    const cp = String(cpRaw ?? '').trim();
+    if (!/^\d{5}$/.test(cp)) throw new BadRequestException('El código postal lleva 5 dígitos.');
+    return this.tk.run(async (trx) => {
+      const { rows: [edo] } = await trx.raw(
+        `/* alc:cp-estado */ SELECT btrim(e.c3) AS estado
+           FROM kepler_ods.kdfe33satcp p
+           JOIN kepler_ods.kdfe33satedo e ON e.sucursal = '00' AND btrim(e.c1) = btrim(p.c2) AND btrim(e.c2) = 'MEX'
+          WHERE p.sucursal = '00' AND btrim(p.c1) = ?
+          LIMIT 1`,
+        [cp],
+      );
+      const { rows } = await trx.raw(
+        `/* alc:cp-dir2 */ SELECT upper(btrim(replace(d.c5, E'\\r', ''))) AS texto, count(*)::int AS fichas
+           FROM kepler_ods.kdud d
+          WHERE btrim(d.c27) = ? AND btrim(coalesce(d.c5, '')) <> ''
+          GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 6`,
+        [cp],
+      );
+      return {
+        codigo_postal: cp,
+        estado: edo?.estado ? estadoCorto(edo.estado) : null,
+        sugerencias_direccion_2: rows.map((r: { texto: string; fichas: number }) => ({ texto: r.texto, fichas: Number(r.fichas) })),
+      };
+    });
   }
 
   async catalogos(branchRaw: unknown, query: Record<string, unknown> = {}): Promise<CatalogosAlta> {
@@ -254,6 +303,7 @@ export class CustomerOnboardingService {
       comentarios: txt(raw.comentarios),
       constancia_key: txt(raw.constancia_key),
       customer_id: txt(raw.customer_id),
+      ubicacion: ubicacionDe(raw.ubicacion),
       confirmar_duplicado: raw.confirmar_duplicado === true,
     };
   }
@@ -367,14 +417,16 @@ export class CustomerOnboardingService {
              (tenant_id, status, origin, branch, person_type, rfc, curp, fiscal_name, capital_regime, trade_name,
               tax_regime, fiscal_zip, kepler_sheet, seller_code, group_code, zone_code, credit_requested, term_days,
               discount_pct, comments, constancia_key, constancia_reading, constancia_issued_on, customer_id,
+              latitude, longitude, location_source, location_accuracy_m,
               created_by, updated_by)
-           VALUES (public.current_tenant_id(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::date, ?, ?, ?)
+           VALUES (public.current_tenant_id(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::date, ?, ?, ?, ?, ?, ?, ?, ?)
            RETURNING id`,
           [
             estadoInicial(b), b.origen, b.branch, b.tipo_persona, b.rfc, b.tipo_persona === 'fisica' ? b.curp : null, b.nombre_fiscal,
             b.regimen_capital, b.nombre_comercial, b.regimen_fiscal, b.codigo_postal_fiscal, JSON.stringify(b.ficha),
             b.vendedor_code, b.grupo_code, b.zona_code, b.credito_solicitado, b.plazo_dias, b.descuento_pct, b.comentarios,
-            b.constancia_key, lectura ? JSON.stringify(lectura) : null, emitida, b.customer_id, me, me,
+            b.constancia_key, lectura ? JSON.stringify(lectura) : null, emitida, b.customer_id,
+            b.ubicacion?.lat ?? null, b.ubicacion?.lng ?? null, b.ubicacion?.origen ?? null, b.ubicacion?.precision_m ?? null, me, me,
           ].map((v) => (v === undefined ? null : v)) as Knex.RawBinding[],
         );
         this.logger.log(`[ALC] solicitud ${rows[0].id} (${b.rfc}, sucursal ${b.branch}) creada por ${me}`);
@@ -487,6 +539,9 @@ export class CustomerOnboardingService {
       } : null,
       constancia_key: f.constancia_key, constancia_emitida_el: isoFecha(f.constancia_issued_on),
       customer_id: f.customer_id, erp_customer_code: f.erp_customer_code,
+      ubicacion: f.latitude != null && f.longitude != null && f.location_source
+        ? { lat: num(f.latitude), lng: num(f.longitude), origen: f.location_source, precision_m: f.location_accuracy_m == null ? null : num(f.location_accuracy_m) }
+        : null,
       ligada_el: f.linked_at ? new Date(f.linked_at).toISOString() : null,
       creada_por: f.created_by, creada_por_nombre: f.created_by_name,
       creada_el: new Date(f.created_at).toISOString(),
@@ -641,9 +696,14 @@ export class CustomerOnboardingService {
               legal_name = left(?, 200),
               regimen_fiscal = ?,
               billing_address = COALESCE(billing_address, '{}'::jsonb) || jsonb_build_object('zip', ?::text, 'source', 'alta-clientes'),
+              -- [ALC.3.5] La ubicación sólo llena un hueco: si el cliente ya tenía punto (p. ej. el V-… del
+              -- vendedor), no se pisa. Las dos coordenadas se deciden con el valor VIEJO de latitude.
+              latitude = CASE WHEN latitude IS NULL AND ?::numeric IS NOT NULL THEN ?::numeric ELSE latitude END,
+              longitude = CASE WHEN latitude IS NULL AND ?::numeric IS NOT NULL THEN ?::numeric ELSE longitude END,
               updated_at = now(), updated_by = ?
         WHERE id = ? AND deleted_at IS NULL`,
-      [GENERICOS.has(s.rfc), s.rfc, s.nombre_fiscal, s.regimen_fiscal, s.codigo_postal_fiscal, me, customerId],
+      [GENERICOS.has(s.rfc), s.rfc, s.nombre_fiscal, s.regimen_fiscal, s.codigo_postal_fiscal,
+        s.ubicacion?.lat ?? null, s.ubicacion?.lat ?? null, s.ubicacion?.lng ?? null, s.ubicacion?.lng ?? null, me, customerId],
     );
   }
 

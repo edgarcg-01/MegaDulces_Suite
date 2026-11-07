@@ -166,9 +166,16 @@ function payload(extra = {}) {
         credito_solicitado: 5000, plazo_dias: 15 });
       moral.ficha = { ...moral.ficha, rfc: 'EKU9003173C9', curp: '', nombre: 'ESCUELA KEMPER URGATE' };
       ok(await status(() => s.crear(moral)) === 409, 'RFC que ya tiene ficha en Kepler, sin confirmar → 409');
-      const b = await s.crear({ ...moral, confirmar_duplicado: true });
+      // [ALC.3.5] Negativa: una coordenada imposible no se guarda (la revisión bloquea → 400).
+      ok(await status(() => s.crear({ ...moral, confirmar_duplicado: true, ubicacion: { lat: 120, lng: -101.19, origen: 'mapa' } })) === 400,
+        'NEGATIVA [ALC.3.5]: latitud 120 → 400, no se guarda');
+      const b = await s.crear({ ...moral, confirmar_duplicado: true, ubicacion: { lat: 19.702701, lng: -101.192398, origen: 'gps', precision_m: 12.4 } });
       creadas.push(b.solicitud.id);
       ok(b.solicitud.estado === 'credito_por_aprobar', 'confirmado y con crédito → crédito por aprobar');
+      ok(b.solicitud.ubicacion && b.solicitud.ubicacion.lat === 19.702701 && b.solicitud.ubicacion.lng === -101.192398
+        && b.solicitud.ubicacion.origen === 'gps' && b.solicitud.ubicacion.precision_m === 12.4,
+        '[ALC.3.5] la ubicación del GPS queda guardada con su precisión', b.solicitud.ubicacion);
+      ok(a.solicitud.ubicacion === null, '[ALC.3.5] sin ubicación se da de alta igual (es opcional)');
       ok(b.revision.duplicados.some((d) => d.clave === 'ALC901' && d.por === 'rfc'), 'la revisión nombra la ficha de Kepler que ya tiene ese RFC');
 
       // 3. Crédito
@@ -195,7 +202,8 @@ function payload(extra = {}) {
       ok(await status(() => s.ligar(b.solicitud.id, { erp_customer_code: 'ALC902' })) === 409, 'ligar con una clave de otro RFC → 409');
       const l = await s.ligar(b.solicitud.id, { erp_customer_code: 'ALC901' });
       ok(l.estado === 'ligada' && l.erp_customer_code === 'ALC901' && !!l.customer_id, 'ligar con la clave buena → ligada, con su ficha de la Suite');
-      const cli = (await trx.raw(`SELECT code, rfc, legal_name, regimen_fiscal, billing_address->>'zip' zip, erp_source_branch FROM commercial.customers WHERE id = ?`, [l.customer_id])).rows[0];
+      const cli = (await trx.raw(`SELECT code, rfc, legal_name, regimen_fiscal, billing_address->>'zip' zip, erp_source_branch, latitude::float8 lat, longitude::float8 lng FROM commercial.customers WHERE id = ?`, [l.customer_id])).rows[0];
+      ok(cli && cli.lat === 19.702701 && cli.lng === -101.192398, '[ALC.3.5] al ligar, la ubicación pasa a la ficha de la Suite', cli);
       ok(cli && cli.code === `K${SUC}-ALC901` && cli.rfc === 'EKU9003173C9' && cli.legal_name === 'ESCUELA KEMPER URGATE' && cli.regimen_fiscal === '601' && cli.zip === '58000',
         'la ficha de la Suite nace K<sucursal>-<clave> con RFC, razón social, régimen y CP fiscal', cli);
       ok(/Kepler tiene límite \$0\.00/.test(l.comentarios || ''), 'la diferencia entre el crédito de Kepler y lo aprobado queda escrita', l.comentarios);

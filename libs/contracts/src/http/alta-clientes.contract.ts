@@ -137,6 +137,31 @@ export interface CatalogosAlta {
   regimenes: RegimenFiscalOpcion[];
 }
 
+/**
+ * `GET /commercial/customer-onboarding/postal-code/:cp` `[ALC.3.4]` — lo que se sabe de un código
+ * postal sin teclearlo: el estado (catálogo del SAT en el ODS, como lo escribe Kepler) y cómo
+ * escriben el renglón 2 (colonia, municipio) las fichas de Kepler con ese CP. No hay catálogo de
+ * colonias en el ODS: son SUGERENCIAS que la persona elige, nunca se llenan solas.
+ */
+export interface CodigoPostalAlta {
+  codigo_postal: string;
+  /** `null` si el CP no está en el catálogo del SAT. */
+  estado: string | null;
+  sugerencias_direccion_2: { texto: string; fichas: number }[];
+}
+
+/**
+ * `[ALC.3.5]` Dónde está el cliente. `direccion` = la buscó el geocodificador con el domicilio;
+ * `mapa` = la persona movió el punto; `gps` = el teléfono, parado en la tienda (trae precisión).
+ */
+export interface UbicacionAlta {
+  lat: number;
+  lng: number;
+  origen: 'direccion' | 'gps' | 'mapa';
+  /** Metros, sólo del GPS. */
+  precision_m?: number | null;
+}
+
 // ── La solicitud de alta ────────────────────────────────────────────────────────────────────
 export type EstadoSolicitudAlta =
   | 'credito_por_aprobar'   // pidió crédito, plazo o descuento: espera a Crédito y Cobranza
@@ -170,6 +195,8 @@ export interface SolicitudAltaBody {
   comentarios?: string | null;
   /** Cliente de la Suite que se completa (p. ej. un `V-…` del vendedor). */
   customer_id?: string | null;
+  /** `[ALC.3.5]` Dónde está el cliente. Opcional. */
+  ubicacion?: UbicacionAlta | null;
   /**
    * El RFC ya tiene ficha en Kepler y aun así se pide otra (p. ej. otra sucursal de entrega).
    * Sin esto, el servidor responde 409 con los duplicados: nunca se duplica sin que alguien lo diga.
@@ -214,6 +241,7 @@ export interface SolicitudAlta {
   constancia_key: string | null;
   constancia_emitida_el: string | null;
   customer_id: string | null;
+  ubicacion: UbicacionAlta | null;
   erp_customer_code: string | null;
   ligada_el: string | null;
   creada_por: string | null;

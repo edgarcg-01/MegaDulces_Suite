@@ -134,6 +134,16 @@ describe('revisarSolicitud', () => {
     expect(campos(solicitud({ credito_solicitado: -1, plazo_dias: 1.5, descuento_pct: 120, ficha: { ...f, email: 'no-es-correo' } })))
       .toEqual(expect.arrayContaining(['credito_solicitado', 'plazo_dias', 'descuento_pct', 'ficha.email']));
   });
+
+  it('[ALC.3.5] la ubicación es opcional; si viene, imposible bloquea y fuera de México avisa', () => {
+    expect(campos(solicitud({ ubicacion: null }))).not.toContain('ubicacion');
+    // La Piedad, del GPS: ni bloquea ni avisa.
+    const ok = solicitud({ ubicacion: { lat: 20.3456, lng: -102.0312, origen: 'gps', precision_m: 8 } });
+    expect([...campos(ok), ...campos(ok, CTX, 'aviso')]).not.toContain('ubicacion');
+    expect(campos(solicitud({ ubicacion: { lat: 120, lng: -102, origen: 'mapa' } }))).toContain('ubicacion');
+    // Madrid: posible, pero no aquí.
+    expect(campos(solicitud({ ubicacion: { lat: 40.4168, lng: -3.7038, origen: 'direccion' } }), CTX, 'aviso')).toContain('ubicacion');
+  });
 });
 
 describe('diferenciaDeCredito — al ligar, lo de Kepler contra lo aprobado', () => {

@@ -12,7 +12,9 @@ import {
   CASILLAS_KEPLER,
   type CasillaKepler,
   type CatalogosAlta,
+  type CodigoPostalAlta,
   type FichaKeplerCliente,
+  type UbicacionAlta,
   type HallazgoAlta,
   type PosibleDuplicado,
   type RevisionAlta,
@@ -24,6 +26,7 @@ import {
 } from '@megadulces/contracts';
 import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
 import { AltaClientesService } from '../alta-clientes.service';
+import { MapComponent } from '../../../shared/components/map/map.component';
 
 type Paso = 'elegir' | 'leyendo' | 'forma';
 
@@ -42,7 +45,10 @@ function formaVacia(branch: string): SolicitudAltaBody {
 }
 
 /** Casillas de la forma de Kepler que se capturan aquí, en SU orden y en dos grupos (Miller: ≤ 6). */
-const DOMICILIO: CasillaKepler[] = ['nombre', 'direccion_1', 'direccion_2', 'estado', 'codigo_postal'];
+/** RFC genérico nacional del SAT («público en general») y el único régimen que admite. */
+const RFC_GENERICO = 'XAXX010101000';
+const REGIMEN_SIN_RFC = '616';
+const DOMICILIO: CasillaKepler[] =['nombre', 'direccion_1', 'direccion_2', 'estado', 'codigo_postal'];
 const CONTACTO: CasillaKepler[] = ['telefono_1', 'telefono_2', 'telefono_3', 'email'];
 
 /**
@@ -56,7 +62,7 @@ const CONTACTO: CasillaKepler[] = ['telefono_1', 'telefono_2', 'telefono_3', 'em
 @Component({
   selector: 'app-alta-cliente-form',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, InputTextModule, InputNumberModule, SelectModule, TextareaModule, TagModule, SegmentedComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, InputTextModule, InputNumberModule, SelectModule, TextareaModule, TagModule, SegmentedComponent, MapComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (paso() === 'elegir') {
@@ -116,16 +122,25 @@ const CONTACTO: CasillaKepler[] = ['telefono_1', 'telefono_2', 'telefono_3', 'em
 
         <fieldset class="af-grupo">
           <legend>Datos fiscales <span class="af-tenue">— lo que lleva la factura</span></legend>
-          <div class="af-fila">
-            <app-segmented [options]="tipos" [value]="f().tipo_persona" (valueChange)="tipo($event)" ariaLabel="Tipo de persona" />
-          </div>
+          @if (!sinRfc()) {
+            <div class="af-fila">
+              <app-segmented [options]="tipos" [value]="f().tipo_persona" (valueChange)="tipo($event)" ariaLabel="Tipo de persona" />
+            </div>
+          }
           <div class="af-rejilla">
-            <label class="af-campo">
-              <span>RFC</span>
-              <input pInputText name="rfc" [ngModel]="f().rfc" (ngModelChange)="setRfc($event)" (blur)="revisar()" maxlength="13"
-                     class="af-mono" [attr.aria-invalid]="!!error('rfc')" required />
-              @if (error('rfc'); as e) { <small class="af-err">{{ e }}</small> }
-            </label>
+            <div class="af-campo">
+              <div class="af-campo-cab">
+                <label for="af-rfc">RFC</label>
+                <app-segmented [options]="modosRfc" [value]="sinRfc() ? 'sin' : 'con'" (valueChange)="modoRfc($event)" ariaLabel="¿El cliente tiene RFC?" />
+              </div>
+              <input pInputText id="af-rfc" name="rfc" [ngModel]="f().rfc" (ngModelChange)="setRfc($event)" (blur)="revisar()" maxlength="13"
+                     class="af-mono" [readonly]="sinRfc()" [attr.aria-invalid]="esBloqueo('rfc')" required />
+              @if (sinRfc()) {
+                <small class="af-tenue">RFC genérico del SAT (público en general): persona física, régimen 616. Se le vende sin factura a su nombre.</small>
+              } @else if (error('rfc'); as e) {
+                <small [class.af-err]="esBloqueo('rfc')" [class.af-aviso]="!esBloqueo('rfc')">{{ e }}</small>
+              }
+            </div>
             @if (f().tipo_persona === 'fisica') {
               <label class="af-campo">
                 <span>CURP <span class="af-tenue">(opcional)</span></span>
@@ -148,7 +163,7 @@ const CONTACTO: CasillaKepler[] = ['telefono_1', 'telefono_2', 'telefono_3', 'em
               <span>Régimen fiscal</span>
               <p-select name="regimen_fiscal" [options]="regimenes()" optionLabel="etiqueta" optionValue="clave" [ngModel]="f().regimen_fiscal"
                         (ngModelChange)="set('regimen_fiscal', $event); revisar()" placeholder="Elige el régimen con el que se le factura"
-                        [filter]="true" filterBy="etiqueta" appendTo="body" ariaLabel="Régimen fiscal" />
+                        [filter]="true" filterBy="etiqueta" appendTo="body" ariaLabel="Régimen fiscal" [disabled]="sinRfc() && f().regimen_fiscal === REGIMEN_SIN_RFC" />
               @if (error('regimen_fiscal'); as e) { <small class="af-err">{{ e }}</small> }
             </label>
             <label class="af-campo">
@@ -167,7 +182,17 @@ const CONTACTO: CasillaKepler[] = ['telefono_1', 'telefono_2', 'telefono_3', 'em
                 <span>{{ rotulo(c) }} <span class="af-cuenta" [class.af-pasa]="largo(c) > limite(c)">{{ largo(c) }}/{{ limite(c) }}</span></span>
                 <input pInputText [name]="'k_' + c" [ngModel]="f().ficha[c]" (ngModelChange)="setFicha(c, $event)" (blur)="revisar()" />
                 @if (error('ficha.' + c); as e) { <small [class.af-err]="esBloqueo('ficha.' + c)" [class.af-aviso]="!esBloqueo('ficha.' + c)">{{ e }}</small> }
+                @if (c === 'estado' && estadoAuto() && f().ficha.estado === estadoAuto()) { <small class="af-tenue">Del catálogo del SAT por el código postal.</small> }
               </label>
+              @if (c === 'direccion_2' && sugerenciasDir2().length) {
+                <div class="af-sugerencias af-ancho" role="group" [attr.aria-label]="'Colonia y municipio como los escribe Kepler para el CP ' + datosCp()!.codigo_postal">
+                  <span class="af-tenue">Así lo escribe Kepler para el CP {{ datosCp()!.codigo_postal }}:</span>
+                  @for (s of sugerenciasDir2(); track s.texto) {
+                    <button pButton type="button" size="small" [outlined]="true" severity="secondary" (click)="usarSugerencia(s.texto)"
+                            [attr.aria-pressed]="f().ficha.direccion_2 === s.texto">{{ s.texto }}</button>
+                  }
+                </div>
+              }
             }
           </div>
           <div class="af-rejilla af-sep">
@@ -179,6 +204,35 @@ const CONTACTO: CasillaKepler[] = ['telefono_1', 'telefono_2', 'telefono_3', 'em
               </label>
             }
           </div>
+        </fieldset>
+
+        <fieldset class="af-grupo">
+          <legend>Ubicación <span class="af-tenue">— opcional: dónde está la tienda, para la ruta y el mapa de clientes</span></legend>
+          <div class="af-geo-acciones">
+            <button pButton type="button" size="small" [outlined]="true" [disabled]="buscandoUbicacion() || !direccionParaBuscar()"
+                    [loading]="buscandoUbicacion() === 'direccion'" (click)="ubicarPorDireccion()">
+              <span class="p-button-icon p-button-icon-left pi pi-map-marker" aria-hidden="true"></span>Ubicar en el mapa
+            </button>
+            @if (hayGps) {
+              <button pButton type="button" size="small" [outlined]="true" [disabled]="!!buscandoUbicacion()"
+                      [loading]="buscandoUbicacion() === 'gps'" (click)="usarMiUbicacion()">
+                <span class="p-button-icon p-button-icon-left pi pi-compass" aria-hidden="true"></span>Usar mi ubicación
+              </button>
+            }
+            @if (f().ubicacion) {
+              <button pButton type="button" size="small" [text]="true" severity="secondary" (click)="quitarUbicacion()">Quitar</button>
+            }
+          </div>
+          @if (avisoUbicacion(); as a) { <small class="af-aviso" role="status">{{ a }}</small> }
+          @if (f().ubicacion; as u) {
+            <p class="af-geo-nota" role="status">
+              {{ u.origen === 'gps' ? 'Del GPS de este dispositivo' + (u.precision_m != null ? ' (±' + u.precision_m + ' m)' : '') : u.origen === 'mapa' ? 'Punto elegido en el mapa' : 'Buscado por la dirección: revisa que caiga en la tienda' }}
+              · <span class="af-mono">{{ u.lat.toFixed(6) }}, {{ u.lng.toFixed(6) }}</span> · un clic en el mapa lo mueve.
+            </p>
+            <app-map [pickable]="true" [pickedPoint]="{ lat: u.lat, lng: u.lng }" (mapClick)="moverPunto($event)"
+                     height="220px" [autoFit]="'off'" [showBasemapToggle]="false" />
+          }
+          @if (error('ubicacion'); as e) { <small [class.af-err]="esBloqueo('ubicacion')" [class.af-aviso]="!esBloqueo('ubicacion')">{{ e }}</small> }
         </fieldset>
 
         <fieldset class="af-grupo">
@@ -273,6 +327,11 @@ const CONTACTO: CasillaKepler[] = ['telefono_1', 'telefono_2', 'telefono_3', 'em
     @media (max-width: 40rem) { .af-ancho { grid-column: auto; } }
     .af-campo { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; font-size: var(--fs-xs); color: var(--fg-2); }
     .af-campo input, .af-campo textarea { width: 100%; }
+    .af-geo-acciones { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
+    .af-geo-nota { margin: 0; font-size: var(--fs-xs); color: var(--fg-2); }
+    .af-sugerencias { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2); font-size: var(--fs-xs); margin-top: calc(-1 * var(--sp-1)); }
+    .af-campo-cab { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); flex-wrap: wrap; }
+    .af-campo input[readonly] { color: var(--fg-2); }
     .af-mono { font-family: var(--font-mono); letter-spacing: 0.02em; }
     .af-tenue { color: var(--fg-3); font-weight: var(--fw-medium); }
     .af-err { color: var(--bad-fg); font-size: var(--fs-xs); }
@@ -305,6 +364,15 @@ export class AltaClienteFormComponent implements OnInit {
   readonly sucursal = output<string>();
 
   readonly tipos: SegOption[] = [{ label: 'Persona física', value: 'fisica' }, { label: 'Persona moral', value: 'moral' }];
+  /**
+   * `[ALC.3.3]` Sin RFC = el genérico del SAT. Es el caso MAYORITARIO: 15,160 de 22,558 fichas de
+   * Kepler (67 %) lo traen (prod, 2026-11-06). El SAT lo valida como persona física y sólo admite
+   * el régimen 616 «Sin obligaciones fiscales»; el código postal sigue siendo captura: no tenemos el
+   * de cada sucursal y no se inventa.
+   */
+  readonly modosRfc: SegOption[] = [{ label: 'Con RFC', value: 'con' }, { label: 'Sin RFC', value: 'sin' }];
+  readonly REGIMEN_SIN_RFC = REGIMEN_SIN_RFC;
+  readonly sinRfc = computed(() => this.f().rfc === RFC_GENERICO);
   readonly domicilio = DOMICILIO;
   readonly contacto = CONTACTO;
 
@@ -317,6 +385,15 @@ export class AltaClienteFormComponent implements OnInit {
   readonly guardando = signal(false);
   readonly errorLectura = signal<string | null>(null);
   readonly confirmarDescarte = signal(false);
+  /**
+   * `[ALC.3.4]` Lo que se sabe del CP: el estado se LLENA (el SAT da uno por CP) mientras la persona no
+   * lo haya cambiado; el renglón 2 (colonia, municipio) sólo se SUGIERE, porque un CP tiene varias
+   * colonias y no hay catálogo de ellas en el ODS.
+   */
+  readonly datosCp = signal<CodigoPostalAlta | null>(null);
+  readonly estadoAuto = signal('');
+  readonly sugerenciasDir2 = computed(() => (this.datosCp()?.sugerencias_direccion_2 ?? []).slice(0, 6));
+  private cpConsultado = '';
   private sucio = false;
 
   readonly sucursales = computed(() => this.catalogos()?.sucursales ?? []);
@@ -335,7 +412,21 @@ export class AltaClienteFormComponent implements OnInit {
   });
   /** Hallazgos sin casilla propia (constancia, Kepler, sucursal): arriba del formulario. */
   readonly avisosGenerales = computed(() =>
-    this.hallazgos().filter((h) => !['rfc', 'curp', 'nombre_fiscal', 'regimen_fiscal', 'codigo_postal_fiscal'].includes(h.campo) && !h.campo.startsWith('ficha.')));
+    this.hallazgos().filter((h) => !['rfc', 'curp', 'nombre_fiscal', 'regimen_fiscal', 'codigo_postal_fiscal', 'ubicacion'].includes(h.campo) && !h.campo.startsWith('ficha.')));
+
+  /**
+   * `[ALC.3.5]` Ubicación, opcional. Dos maneras: buscar el domicilio capturado (el geocodificador de
+   * la Suite, Mapbox: se paga por llamada, por eso es UN clic y no cada tecla) o el GPS del teléfono,
+   * para el vendedor parado en la tienda. Un clic en el mapa corrige el punto.
+   */
+  readonly hayGps = typeof navigator !== 'undefined' && !!navigator.geolocation;
+  readonly buscandoUbicacion = signal<'direccion' | 'gps' | null>(null);
+  readonly avisoUbicacion = signal<string | null>(null);
+  readonly direccionParaBuscar = computed(() => {
+    const k = this.f().ficha;
+    const calle = (k.direccion_1 ?? '').trim();
+    return calle ? [calle, k.direccion_2, k.codigo_postal, k.estado, 'MEXICO'].map((p) => String(p ?? '').trim()).filter(Boolean).join(', ') : '';
+  });
 
   constructor() {
     // Si el diálogo abrió antes de que llegaran los catálogos, la sucursal por defecto se pone al llegar.
@@ -358,7 +449,84 @@ export class AltaClienteFormComponent implements OnInit {
     this.errorLectura.set(null);
     this.confirmarDescarte.set(false);
     this.guardando.set(false);
+    this.datosCp.set(null);
+    this.estadoAuto.set('');
+    this.buscandoUbicacion.set(null);
+    this.avisoUbicacion.set(null);
+    this.cpConsultado = '';
     this.sucio = false;
+  }
+
+  /** El CP del domicilio (o, si falta, el fiscal) completo → estado y sugerencias. Una consulta por CP. */
+  private alCambiarCp(): void {
+    const x = this.f();
+    const cp = [x.ficha.codigo_postal, x.codigo_postal_fiscal].map((v) => String(v ?? '').trim()).find((v) => /^\d{5}$/.test(v)) ?? '';
+    if (!cp || cp === this.cpConsultado) return;
+    this.cpConsultado = cp;
+    this.svc.codigoPostal(cp).subscribe({
+      next: (r) => {
+        if (r.codigo_postal !== this.cpConsultado) return; // llegó tarde: ya cambiaron el CP
+        this.datosCp.set(r);
+        const est = r.estado;
+        if (!est) return;
+        const actual = this.f().ficha.estado ?? '';
+        // Sólo si está vacío o lo puso este mismo llenado: lo que la persona escribió no se pisa.
+        if (!actual.trim() || actual === this.estadoAuto()) {
+          this.f.update((y) => ({ ...y, ficha: { ...y.ficha, estado: est } }));
+          this.estadoAuto.set(est);
+        }
+      },
+      error: () => { this.cpConsultado = ''; /* es ayuda: si falla, se captura a mano */ },
+    });
+  }
+  ubicarPorDireccion(): void {
+    const q = this.direccionParaBuscar();
+    if (!q) return;
+    this.buscandoUbicacion.set('direccion');
+    this.avisoUbicacion.set(null);
+    this.svc.geocode(q).subscribe({
+      next: (r) => {
+        this.buscandoUbicacion.set(null);
+        const g = r?.results?.[0];
+        if (!g) { this.avisoUbicacion.set('No se encontró esa dirección en el mapa: usa tu ubicación o haz clic donde está la tienda.'); return; }
+        this.fijarUbicacion({ lat: g.lat, lng: g.lng, origen: 'direccion', precision_m: null });
+      },
+      error: () => { this.buscandoUbicacion.set(null); this.avisoUbicacion.set('No se pudo buscar la dirección. Intenta otra vez o usa tu ubicación.'); },
+    });
+  }
+  usarMiUbicacion(): void {
+    if (!this.hayGps) return;
+    this.buscandoUbicacion.set('gps');
+    this.avisoUbicacion.set(null);
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        this.buscandoUbicacion.set(null);
+        this.fijarUbicacion({ lat: p.coords.latitude, lng: p.coords.longitude, origen: 'gps', precision_m: Math.round(p.coords.accuracy * 10) / 10 });
+        if (p.coords.accuracy > 100) this.avisoUbicacion.set(`El GPS sólo dio ±${Math.round(p.coords.accuracy)} m: revisa el punto en el mapa.`);
+      },
+      (e) => {
+        this.buscandoUbicacion.set(null);
+        this.avisoUbicacion.set(e.code === 1 ? 'El navegador no dio permiso de ubicación: actívalo o busca por la dirección.' : 'El dispositivo no dio la ubicación. Intenta otra vez o busca por la dirección.');
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+    );
+  }
+  /** Un clic en el mapa: la persona corrige el punto. */
+  moverPunto(p: { lat: number; lng: number }): void {
+    this.fijarUbicacion({ lat: p.lat, lng: p.lng, origen: 'mapa', precision_m: null });
+  }
+  quitarUbicacion(): void {
+    this.sucio = true;
+    this.avisoUbicacion.set(null);
+    this.f.update((x) => ({ ...x, ubicacion: null }));
+  }
+  private fijarUbicacion(u: UbicacionAlta): void {
+    this.sucio = true;
+    const r6 = (n: number) => Math.round(n * 1e6) / 1e6; // la columna guarda 6 decimales (~10 cm)
+    this.f.update((x) => ({ ...x, ubicacion: { ...u, lat: r6(u.lat), lng: r6(u.lng) } }));
+  }
+  usarSugerencia(texto: string): void {
+    this.setFicha('direccion_2', texto.slice(0, this.limite('direccion_2')));
   }
 
   rotulo(c: CasillaKepler): string { return CASILLAS_KEPLER[c].rotulo; }
@@ -381,12 +549,21 @@ export class AltaClienteFormComponent implements OnInit {
   setFicha(c: CasillaKepler, v: string): void {
     this.sucio = true;
     this.f.update((x) => ({ ...x, ficha: { ...x.ficha, [c]: String(v ?? '').toUpperCase() } }));
+    if (c === 'codigo_postal') this.alCambiarCp();
   }
   /** RFC, CURP y CP de la ficha de Kepler siguen a los fiscales: son el mismo dato. */
   setRfc(v: string): void {
     const rfc = String(v ?? '').toUpperCase().replace(/[\s-]/g, '');
     this.sucio = true;
     this.f.update((x) => ({ ...x, rfc, tipo_persona: rfc.length === 12 ? 'moral' : rfc.length === 13 ? 'fisica' : x.tipo_persona, ficha: { ...x.ficha, rfc } }));
+    // Teclear el genérico es lo mismo que elegir «Sin RFC».
+    if (rfc === RFC_GENERICO) this.f.update((x) => this.fijarSinRfc(x));
+  }
+  /** Lo que «Sin RFC» deja fijo además del RFC. */
+  private fijarSinRfc(x: SolicitudAltaBody): SolicitudAltaBody {
+    const hay616 = (this.catalogos()?.regimenes ?? []).some((r) => r.clave === REGIMEN_SIN_RFC && r.persona_fisica);
+    return { ...x, rfc: RFC_GENERICO, tipo_persona: 'fisica', regimen_capital: null, regimen_fiscal: hay616 ? REGIMEN_SIN_RFC : x.regimen_fiscal,
+      ficha: { ...x.ficha, rfc: RFC_GENERICO } };
   }
   setCurp(v: string): void {
     const curp = String(v ?? '').toUpperCase().replace(/\s/g, '');
@@ -403,6 +580,17 @@ export class AltaClienteFormComponent implements OnInit {
     const cp = String(v ?? '').replace(/\D/g, '').slice(0, 5);
     this.sucio = true;
     this.f.update((x) => ({ ...x, codigo_postal_fiscal: cp, ficha: { ...x.ficha, codigo_postal: x.ficha.codigo_postal === x.codigo_postal_fiscal ? cp : x.ficha.codigo_postal } }));
+    this.alCambiarCp();
+  }
+  /** Con RFC ↔ sin RFC: el genérico llena RFC, tipo y régimen; al volver, se vacían para capturarlos. */
+  modoRfc(v: string): void {
+    this.sucio = true;
+    const sin = v === 'sin';
+    if (sin === this.sinRfc()) return;
+    this.f.update((x) => sin
+      ? this.fijarSinRfc(x)
+      : { ...x, rfc: '', regimen_fiscal: x.regimen_fiscal === REGIMEN_SIN_RFC ? '' : x.regimen_fiscal, ficha: { ...x.ficha, rfc: '' } });
+    this.revisar();
   }
   tipo(v: string): void {
     const t: TipoPersona = v === 'moral' ? 'moral' : 'fisica';
@@ -451,6 +639,7 @@ export class AltaClienteFormComponent implements OnInit {
         this.duplicados.set(r.duplicados);
         this.sucio = true;
         this.paso.set('forma');
+        this.alCambiarCp(); // el estado ya viene de la constancia y no se pisa; quedan las sugerencias
       },
       error: (e: HttpErrorResponse) => { this.paso.set('elegir'); this.errorLectura.set(this.mensaje(e, 'No se pudo leer la constancia.')); },
     });
