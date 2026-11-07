@@ -19,6 +19,9 @@ import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { CarteraSegmentsComponent } from '../cartera-segments.component';
+import { mensajeEstadoCuenta } from '../estado-cuenta-mensaje';
+import { abrirPestanaParaPdf, cerrarPestanaDePdf, entregarPdf } from '../../../shared/util/abrir-pdf';
+import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
 
 /**
  * CXC (ADR-048) — Cartera de clientes / Partidas vivas (Cuentas por Cobrar).
@@ -314,11 +317,23 @@ import { CarteraSegmentsComponent } from '../cartera-segments.component';
               </button>
             }
           </div>
-          @if (det.cliente.telefono) {
-            <div class="ct-det-contact">
+          <!-- [CXC.40] El estado de cuenta se ENTREGA: PDF del mismo auxiliar de abajo, y por WhatsApp
+               el mensaje armado + el PDF descargado para adjuntarlo (wa.me no adjunta archivos). -->
+          <div class="ct-det-contact">
+            @if (det.cliente.telefono) {
               <a [href]="'tel:' + det.cliente.telefono" class="ct-contact-btn"><i class="pi pi-phone" aria-hidden="true"></i> {{ det.cliente.telefono }}</a>
-              <a [href]="waLink(det)" target="_blank" rel="noopener" class="ct-contact-btn ct-wa"><i class="pi pi-whatsapp" aria-hidden="true"></i> Recordar por WhatsApp</a>
-            </div>
+            }
+            <button type="button" class="ct-contact-btn" [disabled]="pdfBusy()" (click)="verEstadoCuenta(det)">
+              <i class="pi" [class.pi-file-pdf]="!pdfBusy()" [class.pi-spin]="pdfBusy()" [class.pi-spinner]="pdfBusy()" aria-hidden="true"></i> Estado de cuenta (PDF)
+            </button>
+            @if (det.cliente.telefono) {
+              <a [href]="waLink(det)" target="_blank" rel="noopener" class="ct-contact-btn ct-wa" (click)="descargarParaWhatsApp(det)"
+                 [title]="'Abre el chat con el mensaje listo y descarga el PDF para adjuntarlo'">
+                <i class="pi pi-whatsapp" aria-hidden="true"></i> Enviar por WhatsApp</a>
+            }
+          </div>
+          @if (pdfAviso(); as av) {
+            <p class="ct-pdf-aviso" [class.ct-pdf-err]="av.error" role="status"><i class="pi" [class.pi-info-circle]="!av.error" [class.pi-exclamation-triangle]="av.error" aria-hidden="true"></i> {{ av.texto }}</p>
           }
         </div>
         <table class="ct-det-table">
@@ -583,6 +598,10 @@ import { CarteraSegmentsComponent } from '../cartera-segments.component';
     .ct-contact-btn { display: inline-flex; align-items: center; gap: .35rem; font-size: .82rem; text-decoration: none; padding: .3rem .7rem; border-radius: 6px; border: 1px solid var(--surface-border, #ddd); color: inherit; }
     .ct-contact-btn:hover { background: var(--surface-hover, #faf9f7); }
     .ct-wa { color: #128c7e; border-color: rgba(18,140,126,.3); }
+    button.ct-contact-btn { background: transparent; cursor: pointer; font: inherit; font-size: .82rem; }
+    button.ct-contact-btn:disabled { opacity: .6; cursor: progress; }
+    .ct-pdf-aviso { flex-basis: 100%; margin: .4rem 0 0; font-size: var(--fs-xs, .75rem); color: var(--text-muted); display: flex; gap: .35rem; align-items: center; }
+    .ct-pdf-err { color: var(--bad-fg, var(--text-main)); }
     .ct-360 { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; margin-top: .9rem; padding: .5rem .7rem; border-radius: 6px; background: rgba(107,143,113,.08); font-size: .82rem; }
     .ct-360 > i { color: #6b8f71; }
     .ct-360-ev { color: var(--text-2, #6b6b6b); }
@@ -821,13 +840,47 @@ export class FinanzasCarteraComponent implements OnInit {
     a.click(); URL.revokeObjectURL(url);
   }
 
-  /** Recordatorio de pago prellenado por WhatsApp (el operador lo revisa antes de enviar). */
+  /** Estado de cuenta por WhatsApp, prellenado (el operador lo revisa antes de enviar). */
   waLink(det: CarteraDetalle): string {
     const tel = (det.cliente.telefono || '').replace(/\D/g, '');
     const num = tel.length === 10 ? `52${tel}` : tel;
-    const msg = `Hola ${det.cliente.cliente_nombre}, le recordamos su saldo pendiente con Mega Dulces de ${this.money(det.saldo)}` +
-      (det.vencido > 0 ? ` (${this.money(det.vencido)} vencido)` : '') + '. ¡Gracias!';
-    return `https://wa.me/${num}?text=${encodeURIComponent(msg)}`;
+    return `https://wa.me/${num}?text=${encodeURIComponent(mensajeEstadoCuenta(det))}`;
+  }
+
+  // ── [CXC.40] Estado de cuenta en PDF ─────────────────────────────────────────
+  readonly pdfBusy = signal(false);
+  readonly pdfAviso = signal<{ texto: string; error: boolean } | null>(null);
+
+  /** Abre el PDF en su pestaña. La pestaña se abre YA, dentro del clic, o el navegador la bloquea. */
+  verEstadoCuenta(det: CarteraDetalle): void {
+    this.pedirPdf(det, abrirPestanaParaPdf('Preparando el estado de cuenta…'), null);
+  }
+
+  /**
+   * El enlace de WhatsApp abre el chat (es un `<a>`: el navegador no lo bloquea) y aquí se descarga
+   * el PDF para adjuntarlo. wa.me sólo lleva texto: adjuntar es un paso de la persona, y se le dice.
+   */
+  descargarParaWhatsApp(det: CarteraDetalle): void {
+    this.pedirPdf(det, null, 'Se descargó el estado de cuenta: adjúntalo en el chat de WhatsApp antes de enviar el mensaje.');
+  }
+
+  private pedirPdf(det: CarteraDetalle, win: Window | null, avisoOk: string | null): void {
+    const c = det.cliente;
+    this.pdfBusy.set(true);
+    this.pdfAviso.set(null);
+    this.svc.estadoCuentaPdf(c.sucursal, c.cliente_code).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (b) => {
+        this.pdfBusy.set(false);
+        const donde = entregarPdf(win, b, `estado-de-cuenta-${c.cliente_code}-${det.hoy}`);
+        if (avisoOk) this.pdfAviso.set({ texto: avisoOk, error: false });
+        else if (donde === 'descarga') this.pdfAviso.set({ texto: 'El navegador bloqueó la pestaña: el estado de cuenta se descargó.', error: false });
+      },
+      error: (e) => {
+        this.pdfBusy.set(false);
+        cerrarPestanaDePdf(win);
+        mensajeDeErrorBlob(e).then((m) => this.pdfAviso.set({ texto: `No se pudo generar el estado de cuenta. ${m}`, error: true }));
+      },
+    });
   }
 
   openDetalle(c: CarteraCliente) {
@@ -839,6 +892,7 @@ export class FinanzasCarteraComponent implements OnInit {
     this.detalleOpen.set(false); this.detalle.set(null);
     this.detalleError.set(null); this.detalleLoading.set(false); this.detalleRef.set(null);
     this.verSaldadas.set(false);
+    this.pdfAviso.set(null);
   }
 
   /**
