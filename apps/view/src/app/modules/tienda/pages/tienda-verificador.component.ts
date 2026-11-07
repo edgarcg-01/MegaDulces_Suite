@@ -84,12 +84,16 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
            frescura declarada, ayuda) — funcional, no decoración, así que se queda, sólo con la
            piel nueva. Chica y arriba a la derecha para no competir con el logo/escáner. -->
       <div class="vf-ctrl">
-        @if (datosAl()) {
-          <app-freshness-pill measures="data" [since]="datosAl()" [staleAfterSec]="3600" />
-        } @else {
-          <span class="vf-fresh-nd" title="El backend no reporta el latido del ERP para esta sucursal (analytics.cron_runs, cdc_wal_NN). No se sabe de cuándo es el precio.">
-            <i class="pi pi-question-circle" aria-hidden="true"></i> Frescura del ERP sin medir
-          </span>
+        <!-- La frescura es del OPERADOR: en kiosco (lo que ve la clienta) no se pinta
+             (0Sistemas, 2026-11-07). Fuera de kiosco sigue declarada, medida o «sin medir». -->
+        @if (!kiosco()) {
+          @if (datosAl()) {
+            <app-freshness-pill measures="data" [since]="datosAl()" [staleAfterSec]="3600" />
+          } @else {
+            <span class="vf-fresh-nd" title="El backend no reporta el latido del ERP para esta sucursal (analytics.cron_runs, cdc_wal_NN). No se sabe de cuándo es el precio.">
+              <i class="pi pi-question-circle" aria-hidden="true"></i> Frescura del ERP sin medir
+            </span>
+          }
         }
         @if (!sucursalFija()) {
           <p-select [options]="opcionesSucursal()" optionLabel="label" optionValue="value"
@@ -407,12 +411,13 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
     .vf-banner span { opacity: .85; font-size: var(--fs-xs); }
 
     .vf-logo { position: relative; z-index: 1; display: block; margin: 18px auto 4px;
-      max-height: 96px; max-width: 70vw; object-fit: contain; }
-    .vf-logo-txt { position: relative; z-index: 1; margin: 22px 0 4px; font-size: var(--fs-h1);
+      max-height: 144px; max-width: 70vw; object-fit: contain; }
+    /* Logo 50 % mas grande (0Sistemas, 2026-11-07): 96 -> 144 px, y 64 -> 96 en kiosco. */
+    .vf-logo-txt { position: relative; z-index: 1; margin: 22px 0 4px; font-size: calc(var(--fs-h1) * 1.5);
       font-weight: 800; letter-spacing: 1px; text-align: center; line-height: 1; }
     .vf-logo-txt .vf-m { color: var(--action); } .vf-logo-txt .vf-d { color: var(--text-main); }
     /* En kiosco la altura es del precio: logo mas bajo y menos aire entre captura y resultado. */
-    .vf-page.is-kiosco .vf-logo { max-height: 64px; margin: 8px auto 0; }
+    .vf-page.is-kiosco .vf-logo { max-height: 96px; margin: 8px auto 0; }
     .vf-page.is-kiosco .vf-result { margin-top: 8px; }
     /* Todo lo que mide 100% y lleva borde o relleno: el ancho incluye el marco, o se sale. */
     .vf-card, .vf-mayoreo, .vf-err, .vf-otras, .vf-cuerpo { box-sizing: border-box; }
@@ -596,7 +601,10 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
 
     .vf-foot { position: relative; z-index: 1; align-self: stretch; margin-top: 12px;
       padding-top: 10px; border-top: 1px solid var(--border-color); display: flex;
-      flex-direction: column; gap: 4px; font-size: var(--fs-xs); color: var(--text-muted); }
+      flex-direction: column; gap: 4px; font-size: var(--fs-xs); color: var(--text-muted);
+      /* Pie (productos escaneados + respaldo) al 80 % (0Sistemas, 2026-11-07): baja de peso
+         frente al precio. Sigue siendo legible; no es estado, es contexto del operador. */
+      opacity: .8; }
     .vf-counter b { color: var(--text-main); font-weight: 700; font-family: var(--font-mono);
       font-variant-numeric: tabular-nums; }
     .vf-counter-reset { background: none; border: none; cursor: pointer; opacity: .55;

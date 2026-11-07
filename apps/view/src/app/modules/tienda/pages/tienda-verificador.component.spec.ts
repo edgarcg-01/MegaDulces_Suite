@@ -322,6 +322,20 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
     expect(f2.nativeElement.querySelector('app-freshness-pill')).toBeTruthy();
   });
 
+  // La frescura es del operador: en kiosco (lo que ve la clienta) no se pinta (0Sistemas, 2026-11-07).
+  it('en kiosco no se pinta la frescura (ni la píldora ni el «sin medir»); fuera de kiosco sí', async () => {
+    svc.sucursalesResp = [{ codigo: '03', nombre: '8 ESQUINAS', direccion: '', ciudad: '', almacenes: ['03'], datos_al: new Date().toISOString() }];
+    const f2 = TestBed.createComponent(TiendaVerificadorComponent);
+    f2.detectChanges();
+    expect(f2.nativeElement.querySelector('app-freshness-pill')).toBeTruthy();
+    f2.componentInstance.kiosco.set(true);
+    f2.detectChanges();
+    expect(f2.nativeElement.querySelector('app-freshness-pill')).toBeNull();
+    fix.componentInstance.kiosco.set(true);
+    fix.detectChanges();
+    expect(html()).not.toContain('Frescura del ERP sin medir');
+  });
+
   it('avisa cuando no hay respaldo local: sin red la pantalla no podría contestar', () => {
     expect(html()).toContain('Sin respaldo local');
     svc.snapshot.set({ sucursal: '03', total: 9479, generado: '2026-09-08T12:00:00.000Z', descargadoAl: '2026-09-08T12:05:00.000Z' });
