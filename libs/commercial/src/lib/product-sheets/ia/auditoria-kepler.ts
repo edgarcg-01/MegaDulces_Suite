@@ -236,8 +236,10 @@ function estiloKepler(texto: string): string {
   // La Ñ se CONSERVA: medido el 2026-11-04 en los 4,230 nombres del universo de Padre Hidalgo, 190 la usan
   // («ALTEÑO», «GARAPIÑADO») y sólo 1 la escribe como N. ❌ Antes se volvía N («ALTENO»), y la descripción
   // propuesta habría marcado como diferencia algo que Kepler escribe bien. Los demás acentos sí se quitan.
-  const conEnie = String(texto ?? '').replace(/ñ/g, '\u0001').replace(/Ñ/g, '\u0001');
-  return normalizarBusqueda(conEnie).toUpperCase().replace(/\u0001/g, 'Ñ').replace(/\s+/g, ' ').trim();
+  // La marca es un carácter de uso privado (U+E000): la normalización (NFD + quitar diacríticos) no lo toca y no
+  // es un carácter de control (`no-control-regex`).
+  const conEnie = String(texto ?? '').replace(/[ñÑ]/g, '');
+  return normalizarBusqueda(conEnie).toUpperCase().replace(//g, 'Ñ').replace(/\s+/g, ' ').trim();
 }
 
 function numeroCorto(x: number): string {
