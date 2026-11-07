@@ -964,6 +964,29 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
               </button>
             }
             <span class="pr-bulk-sp"></span>
+            <!-- [PQ.90] ENTREGA Y UNIDAD DEL PEDIDO, UNA VEZ.
+                 Medido en prod (60 d): 82% de los lotes entregan en UN solo punto y 59.1% de los
+                 proveedores siempre en el mismo. Ponerlo producto por producto no decidía nada en
+                 8 de cada 10 casos: era clic. El control por producto sigue ahí para el 18%. -->
+            @if (carrito().entran > 0) {
+              <label class="pr-glob">Entrega
+                <p-select styleClass="pr-dx-sel" [options]="entregaGlobalOpts()" optionLabel="label" optionValue="value"
+                          appendTo="body" [ngModel]="entregaGlobal()" (ngModelChange)="aplicarEntregaGlobal($event)"
+                          placeholder="elegir" ariaLabel="Dónde entrega el proveedor, para todo el pedido"></p-select>
+              </label>
+              <label class="pr-glob">en
+                <p-select styleClass="pr-dx-sel" [options]="unidadGlobalOpts" optionLabel="label" optionValue="value"
+                          appendTo="body" [ngModel]="unidadGlobal()" (ngModelChange)="aplicarUnidadGlobal($event)"
+                          placeholder="elegir" ariaLabel="Unidad en que se captura, para todo el pedido"></p-select>
+              </label>
+              @if (difieren(); as n) {
+                <!-- El color NO es el portador: lo dice con palabra y número, y lleva al producto. -->
+                <button type="button" class="pr-zlink pr-glob-dif" (click)="verPrimerDiferente()"
+                        [title]="n + ' producto(s) tienen una entrega distinta a la del pedido. Clic para ver el primero.'">
+                  {{ n }} con entrega propia
+                </button>
+              }
+            }
             <!-- [RA-PRO.59] En celular, textos cortos: con los largos los tres botones no caben en un renglón. -->
             <!-- [RA-UX.2] Había UN botón «XLSX» y exportaba el SUGERIDO del servidor para todo el filtro,
                  sin las cantidades capturadas — que difieren del sugerido en el 80 % de los renglones
@@ -1967,6 +1990,11 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-dx-u { color: var(--text-faint); font-size: var(--fs-xs); margin-left: .2rem; }
     .pr-dx-pie { flex-wrap: wrap; gap: .4rem .75rem; }
     .pr-dx-ctl { display: inline-flex; align-items: center; gap: .35rem; font-size: var(--fs-sm); color: var(--text-muted); }
+    /* [PQ.90] La entrega y la unidad DEL PEDIDO, en la barra de la requisicion en armado.
+       Mismo peso visual que el control por producto a proposito: no compite con "Generar", que
+       sigue siendo la unica primaria de la pantalla (DESIGN, Von Restorff). */
+    .pr-glob { display: inline-flex; align-items: center; gap: .35rem; font-size: var(--fs-sm); color: var(--text-muted); }
+    .pr-glob-dif { color: var(--warn-soft-fg); }
     :host ::ng-deep .pr-dx-sel { min-width: 9rem; }
     .pr-dx-neg-msg { padding: .75rem; border: 1px dashed var(--border-color); border-radius: var(--r-sm, 8px); color: var(--text-muted); font-size: var(--fs-sm); }
     @container pr-dx (max-width: 62rem) {
@@ -4344,6 +4372,94 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     }
     return v;
   }
+  /**
+   * `[PQ.90]` — **La entrega y la unidad son del PEDIDO, no del renglón.**
+   *
+   * Lo pidió Edgar el 2026-11-07 mirando la pantalla: *«tienen que poner configuración individual
+   * por línea de algo que puede ser configuración global»*. Medido en prod sobre 60 días:
+   *
+   * | puntos de entrega por lote | lotes | % |
+   * |---|---:|---:|
+   * | **1** | 219 | **82.0 %** |
+   * | 2 | 23 | 8.6 % |
+   * | 3 o más | 25 | 9.4 % |
+   *
+   * Y por proveedor: **59.1 % entrega siempre en el mismo lugar**. O sea que elegirlo producto por
+   * producto **no decidía nada en 8 de cada 10 lotes**: era clic.
+   *
+   * ⛔ El control por producto NO se quita — es el 18 % restante, y es la excepción que hace útil
+   * al global. Lo que cambia es cuál es el camino normal.
+   *
+   * ⚠️ `entregaModo` se DERIVA del estado por sucursal: no hay dónde guardar «el modo del pedido».
+   * Por eso esto aplica el modo a lo que está en el carrito y además recuerda lo elegido, para
+   * marcar después qué producto se salió de la norma. No inventa un estado que el modelo no tiene.
+   */
+  readonly entregaGlobal = signal<EntregaModo | null>(null);
+  readonly unidadGlobal = signal<'mayor' | 'menor' | null>(null);
+
+  /**
+   * ⚠️ La unidad global va por PELDAÑO (el más grande / el más chico), no por factor: cada producto
+   * tiene su propia escalera y un factor fijo no significa lo mismo en dos productos. Elegir «12»
+   * globalmente sería inventar una equivalencia que el catálogo no declara (ADR-055).
+   */
+  readonly unidadGlobalOpts = [
+    { label: 'la unidad más grande (caja)', value: 'mayor' as const },
+    { label: 'la más chica (pieza)', value: 'menor' as const },
+  ];
+
+  /** Las opciones que TODOS los productos del carrito pueden cumplir; si una no aplica, no se ofrece. */
+  entregaGlobalOpts(): { label: string; value: EntregaModo }[] {
+    const main = this.mainCedis();
+    const filas = this.carritoRows();
+    const conHub = filas.some((r) => this.branchZones(r).some((z) => !!z.hubCode));
+    const v: { label: string; value: EntregaModo }[] = [{ label: 'directo a cada sucursal', value: 'directo' }];
+    if (conHub) v.push({ label: 'cada zona en su CEDIS', value: 'zona' });
+    if (main) v.push({ label: 'todo en ' + this.sucNom(main.code), value: 'cedis' });
+    return v;
+  }
+
+  /** Los productos que hoy tienen cantidad en el carrito: el universo sobre el que manda el global. */
+  private carritoRows(): WorkbookRow[] {
+    return this.selRows().filter((r) => this.branchBuys(r).some((b) => this.qtyOf(r, b) > 0));
+  }
+
+  aplicarEntregaGlobal(v: EntregaModo): void {
+    this.entregaGlobal.set(v);
+    for (const r of this.carritoRows()) this.setEntregaModo(r, v);
+  }
+
+  aplicarUnidadGlobal(v: 'mayor' | 'menor'): void {
+    this.unidadGlobal.set(v);
+    for (const r of this.carritoRows()) {
+      const esc = this.escMayorAMenor(r);          // ya viene de mayor a menor
+      const u = v === 'mayor' ? esc[0] : esc[esc.length - 1];
+      if (u) this.setUnidadModo(r, u.factor as number);
+    }
+  }
+
+  /**
+   * Cuántos productos del carrito quedaron con una entrega distinta a la del pedido.
+   * ⛔ Devuelve `0` cuando no hay global elegido: sin norma no hay excepción, y dibujar un conteo
+   * ahí afirmaría que alguien se salió de algo que nadie fijó (ADR-056).
+   */
+  difieren(): number {
+    const g = this.entregaGlobal();
+    if (!g) return 0;
+    return this.carritoRows().filter((r) => this.entregaModo(r) !== g).length;
+  }
+
+  /** Lleva al primero que difiere y lo abre: el número denuncia y además resuelve (DESIGN Q.4). */
+  verPrimerDiferente(): void {
+    const g = this.entregaGlobal();
+    if (!g) return;
+    const r = this.carritoRows().find((x) => this.entregaModo(x) !== g);
+    if (!r) return;
+    // ⚠️ `isOpen`/`toggleRow` son los nombres reales de esta pantalla. Los que había inventado
+    // (`expandido`/`toggleFila`) compilaban en la plantilla y fallaban en runtime.
+    if (!this.isOpen(r)) this.toggleRow(r);
+    if (!this.verDetalle(r.product_id)) this.toggleDetalle(r.product_id);
+  }
+
   setUnidadModo(r: WorkbookRow, v: number | 'mixto'): void {
     if (v === 'mixto') { if (!this.verDetalle(r.product_id)) this.toggleDetalle(r.product_id); return; }
     this.buyUnit.update((m) => {
