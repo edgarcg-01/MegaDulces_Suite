@@ -1,5 +1,6 @@
 import {
   CADUCIDAD_UNIDADES, CADUCIDAD_UNIDADES_DEF, esCaducidadUnidad, unidadDesdeKepler, unidadEnTexto,
+  unidadesDesdePresentaciones, unidadesOfrecidas,
 } from './caducidad-unidad.contract';
 
 describe('[P2.9 paso 1] caducidad-unidad: una sola definición de las 7 unidades', () => {
@@ -42,6 +43,64 @@ describe('[P2.9 paso 1] caducidad-unidad: una sola definición de las 7 unidades
     expect(unidadDesdeKepler('', 1)).toBe('pieza');
     expect(unidadDesdeKepler(null, null)).toBeNull();
     expect(unidadDesdeKepler('SER', null)).toBeNull();
+  });
+
+  it('[paso 3] presentaciones → unidades: base 500 con ranura KG da «500 g» y «kg», con la base marcada', () => {
+    const r = unidadesDesdePresentaciones([
+      { unidad: '500', factor: 1, origen: 'base' },
+      { unidad: 'KG', factor: 2, origen: 'ranura' },
+    ]);
+    expect(r.unidades?.map((u) => u.codigo)).toEqual(['kg', 'g500']);
+    expect(r.base).toBe('g500');
+    expect(r.fuera_de_las_7).toEqual([]);
+  });
+
+  it('[paso 3] PAQ + CJA + escalera PZA: tres unidades, en el orden del contrato; la escalera llega SIN factor y queda null', () => {
+    const r = unidadesDesdePresentaciones([
+      { unidad: 'CJA', factor: '12', origen: 'ranura' },
+      { unidad: 'PAQ', factor: null, origen: 'base' },
+      { unidad: 'PZA', factor: null, origen: 'escalera' },
+    ]);
+    expect(r.unidades).toEqual([
+      { codigo: 'pieza', kepler: 'PZA', factor: null, base: false },
+      { codigo: 'paquete', kepler: 'PAQ', factor: 1, base: true },
+      { codigo: 'caja', kepler: 'CJA', factor: 12, base: false },
+    ]);
+  });
+
+  it('[paso 3] el mismo código por dos caminos: gana el que trae factor (ranura CJA 12 sobre escalera CJA sin factor)', () => {
+    const r = unidadesDesdePresentaciones([
+      { unidad: 'CJA', factor: null, origen: 'escalera' },
+      { unidad: 'CJA', factor: 12, origen: 'ranura' },
+    ]);
+    expect(r.unidades).toEqual([{ codigo: 'caja', kepler: 'CJA', factor: 12, base: false }]);
+  });
+
+  it('⛔ NEGATIVA [paso 3] — un rótulo fuera de las 7 NO se traduce por su factor (CUB de 20 no es «caja»)', () => {
+    const r = unidadesDesdePresentaciones([
+      { unidad: 'CUB', factor: 1, origen: 'base' },
+      { unidad: 'SER', factor: 20, origen: 'ranura' },
+    ]);
+    expect(r.unidades).toBeNull();
+    expect(r.base).toBeNull();
+    expect(r.fuera_de_las_7).toEqual(['CUB', 'SER']);
+  });
+
+  it('[paso 3] el selector: producto con 2 unidades ofrece 2; sin lista ofrece las 7; «otra unidad» abre las 7', () => {
+    const prod = { unidades: unidadesDesdePresentaciones([
+      { unidad: 'PAQ', factor: 1, origen: 'base' }, { unidad: 'CJA', factor: 12, origen: 'ranura' },
+    ]).unidades };
+    expect(unidadesOfrecidas(prod, false).map((d) => d.codigo)).toEqual(['paquete', 'caja']);
+    expect(unidadesOfrecidas(null, false)).toHaveLength(7);
+    expect(unidadesOfrecidas({ unidades: null }, false)).toHaveLength(7);
+    expect(unidadesOfrecidas(prod, true)).toHaveLength(7);
+  });
+
+  it('[paso 3] lo que ya está marcado nunca desaparece del selector (renglón viejo en «pieza» de un producto PAQ/CJA)', () => {
+    const prod = { unidades: unidadesDesdePresentaciones([
+      { unidad: 'PAQ', factor: 1, origen: 'base' }, { unidad: 'CJA', factor: 12, origen: 'ranura' },
+    ]).unidades };
+    expect(unidadesOfrecidas(prod, false, ['pieza', null]).map((d) => d.codigo)).toEqual(['pieza', 'paquete', 'caja']);
   });
 
   it('esCaducidadUnidad acepta sólo las 7', () => {

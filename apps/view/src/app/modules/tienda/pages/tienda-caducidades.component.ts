@@ -33,7 +33,8 @@ import { clasificarPlazo, plazoSeverity, plazoIcon, formatCantidad, formatUnidad
 import { parseExpiryShort, formatExpiryEcho, maskExpiryMx, digitsOf } from '../../almacen/shared/expiry-short';
 import { Permission } from '../../../core/constants/permissions';
 import { PermissionsService } from '../../../core/services/permissions.service';
-import { CADUCIDAD_UNIDADES_DEF, type CaducidadUnidad } from '@megadulces/contracts';
+import { CADUCIDAD_UNIDADES_DEF, caducidadUnidadDef, unidadesOfrecidas, type CaducidadUnidad, type CaducidadUnidadesProducto } from '@megadulces/contracts';
+import type { Subscription } from 'rxjs';
 
 type LineUnit = CaducidadUnidad;
 type Condition = 'bueno' | 'regular' | 'malo';
@@ -248,17 +249,28 @@ type Condition = 'bueno' | 'regular' | 'malo';
                   incrementButtonIcon="pi pi-plus" decrementButtonIcon="pi pi-minus"
                   inputStyleClass="cad-qty-in" styleClass="cad-qty-w"
                   [ariaLabel]="'Cantidad'"></p-inputnumber>
-                <div class="cad-units" role="radiogroup" aria-label="Unidad de medida">
-                  @for (u of units; track u.value) {
+                <div class="cad-units" role="radiogroup" aria-label="Unidad de medida" aria-describedby="cad-unidad-help">
+                  @for (u of ofrecidas(); track u.codigo) {
                     <button type="button" class="cad-unit" role="radio"
-                      [attr.aria-checked]="unidad() === u.value" [class.on]="unidad() === u.value"
-                      [title]="u.hint" (click)="elegirUnidad(u.value)">{{ u.label }}</button>
+                      [attr.aria-checked]="unidad() === u.codigo" [class.on]="unidad() === u.codigo"
+                      (click)="elegirUnidad(u.codigo)">{{ u.etiqueta }}</button>
+                  }
+                  @if (filtradas()) {
+                    <button type="button" class="cad-unit cad-unit--otra" (click)="verTodasUnidades.set(true)">
+                      <i class="pi pi-plus" aria-hidden="true"></i> Otra unidad
+                    </button>
                   }
                 </div>
               </div>
-              @if (unidadSugerida()) {
-                <small class="cad-hint"><i class="pi pi-info-circle" aria-hidden="true"></i> {{ unidadSugerida() }}</small>
-              }
+              <!-- [P2.9 paso 3] La pista va a la vista (antes en un title: sólo existía con mouse). -->
+              <small class="cad-hint" id="cad-unidad-help">
+                @if (unidadSugerida()) {
+                  <i class="pi pi-info-circle" aria-hidden="true"></i> {{ unidadSugerida() }}
+                } @else if (pistaUnidad()) {
+                  {{ pistaUnidad() }}
+                }
+                @if (avisoUnidades()) { <span class="cad-hint-aviso">{{ avisoUnidades() }}</span> }
+              </small>
             </div>
           </div>
 
@@ -583,6 +595,9 @@ type Condition = 'bueno' | 'regular' | 'malo';
     }
     .cad-unit:active, .cad-chip:active { transform: scale(.97); }
     .cad-unit.on, .cad-chip.on { border-color: var(--action, currentColor); color: var(--text-main); font-weight: 700; }
+    /* «Otra unidad» es una salida, no una unidad: borde punteado para que no se lea como una más. */
+    .cad-unit--otra { border-style: dashed; color: var(--text-muted); }
+    .cad-hint-aviso { display: block; }
     .cad-chip[data-c='malo'].on { border-color: var(--tone-bad, currentColor); color: var(--tone-bad, inherit); }
     .cad-chip[data-c='regular'].on { border-color: var(--tone-warn, currentColor); color: var(--tone-warn, inherit); }
     .cad-chip[data-c='bueno'].on { border-color: var(--tone-ok, currentColor); color: var(--tone-ok, inherit); }
@@ -741,8 +756,6 @@ type Condition = 'bueno' | 'regular' | 'malo';
   `],
 })
 export class TiendaCaducidadesComponent {
-  /** [P2.9 paso 1] Las 7 unidades salen del contrato (`caducidad-unidad`), no de una lista local. */
-  readonly units: { label: string; value: LineUnit; hint: string }[] = CADUCIDAD_UNIDADES_DEF.map((d) => ({ label: d.etiqueta, value: d.codigo, hint: d.pista }));
 
   readonly conditions: { label: string; value: Condition }[] = [
     { label: 'Bueno', value: 'bueno' },
@@ -800,6 +813,37 @@ export class TiendaCaducidadesComponent {
   readonly unidad = signal<LineUnit | null>(null);
   readonly unidadSugerida = signal('');
   private unidadTocada = false;
+  /** La unidad la puso el código escaneado: la base del producto no la pisa. */
+  private unidadPorCodigo = false;
+
+  /**
+   * `[P2.9 paso 3]` D3 — el selector ofrece sólo las unidades del producto (presentaciones de
+   * Kepler), con la salida «Otra unidad». `null` = todavía no se sabe o Kepler no lo publica → las 7.
+   */
+  readonly unidadesProd = signal<CaducidadUnidadesProducto | null>(null);
+  readonly verTodasUnidades = signal(false);
+  private unidadesSub: Subscription | null = null;
+  readonly ofrecidas = computed(() => {
+    const prod = this.unidadesProd();
+    const todas = this.verTodasUnidades();
+    const actual = this.unidad();
+    return unidadesOfrecidas(prod, todas, [actual]);
+  });
+  readonly filtradas = computed(() => this.ofrecidas().length < CADUCIDAD_UNIDADES_DEF.length);
+  readonly pistaUnidad = computed(() => {
+    const d = caducidadUnidadDef(this.unidad());
+    return d ? `${d.etiqueta}: ${d.pista.toLowerCase()}.` : '';
+  });
+  /** Lo que el selector NO puede decir con botones: de qué plaza salió la lista y qué rótulos quedaron fuera. */
+  readonly avisoUnidades = computed(() => {
+    const u = this.unidadesProd();
+    if (!u) return '';
+    if (u.motivo === 'sin_lectura') return 'No se pudieron leer las unidades del producto: se muestran todas.';
+    const partes: string[] = [];
+    if (u.fuera_de_las_7.length) partes.push(`En Kepler también se maneja en ${u.fuera_de_las_7.join(', ')}, que no está en la lista.`);
+    if (u.unidades && u.otra_plaza && u.plaza) partes.push(`Unidades según la sucursal ${u.plaza}: esta sucursal no las publica.`);
+    return partes.join(' ');
+  });
 
   readonly condicion = signal<Condition | null>(null);
   ubicacion = '';
@@ -917,6 +961,7 @@ export class TiendaCaducidadesComponent {
           if (r.match) {
             this.fijarProducto({ id: r.match.id, nombre: r.match.nombre || r.match.sku || '(sin nombre)', sku: r.match.sku, brand: r.match.brand_name, raw: c });
             if (!this.unidadTocada && r.match.unit_hint) {
+              this.unidadPorCodigo = true;
               this.unidad.set(r.match.unit_hint);
               this.unidadSugerida.set(`Unidad sugerida por el código escaneado (${r.match.scanned_unit || r.match.unit_hint}).`);
             }
@@ -941,9 +986,10 @@ export class TiendaCaducidadesComponent {
 
   elegirBusqueda(p: ProductHit | null): void {
     if (!p) { this.limpiarProducto(); return; }
+    // Elegido por nombre: no hay código que diga la unidad. Antes se asumía «pieza» y eso
+    // dio 14 de los 60 renglones en una unidad que el producto no tiene (paso 0); ahora la
+    // sugiere la unidad BASE del producto en Kepler, cuando llega (`sugerirUnidad`).
     this.fijarProducto({ id: p.id, nombre: p.label, sku: p.sku, brand: p.brand, raw: null });
-    // Elegido por nombre: el catálogo no dice en qué unidad está en el anaquel.
-    if (!this.unidadTocada) { this.unidad.set('pieza'); this.unidadSugerida.set('Sin código escaneado se asume pieza — cámbialo si es caja.'); }
   }
 
   /** El código no existe en el catálogo pero el producto SÍ está en el anaquel. */
@@ -963,9 +1009,56 @@ export class TiendaCaducidadesComponent {
   private fijarProducto(p: { id: string | null; nombre: string; sku: string | null; brand: string | null; raw: string | null }): void {
     this.producto.set(p);
     this.avisoCodigo.set('');
+    // Producto nuevo, sugerencia nueva: la unidad que se tocó para el anterior no manda sobre éste.
+    this.unidadTocada = false;
+    this.unidadPorCodigo = false;
+    this.unidadSugerida.set('');
+    this.cargarUnidades(p.sku, false);
+  }
+
+  /**
+   * `[P2.9 paso 3]` Pide las unidades del producto. `soloFiltro` = acotar el selector sin tocar la
+   * unidad marcada (al corregir un renglón ya guardado). Una respuesta tardía de un producto
+   * anterior se descarta al cancelar la suscripción.
+   */
+  private cargarUnidades(sku: string | null, soloFiltro: boolean): void {
+    this.unidadesSub?.unsubscribe();
+    this.unidadesSub = null;
+    this.unidadesProd.set(null);
+    this.verTodasUnidades.set(false);
+    if (!sku) { if (!soloFiltro) this.sugerirUnidad(null); return; }
+    this.unidadesSub = this.svc.expiryUnidadesProducto(sku, this.warehouseId() || null)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => { this.unidadesProd.set(r); if (!soloFiltro) this.sugerirUnidad(r); },
+        error: () => { if (!soloFiltro) this.sugerirUnidad(null); },
+      });
+  }
+
+  /** La base del producto, salvo que la unidad ya venga del código o de la mano, o ya sea una del producto. */
+  private sugerirUnidad(r: CaducidadUnidadesProducto | null): void {
+    if (this.unidadTocada || this.unidadPorCodigo) return;
+    const actual = this.unidad();
+    if (r?.unidades?.length) {
+      if (actual && r.unidades.some((u) => u.codigo === actual)) return;
+      const base = r.unidades.find((u) => u.base) ?? null;
+      this.unidad.set(base?.codigo ?? null);
+      this.unidadSugerida.set(base
+        ? `Unidad base del producto en Kepler (${base.kepler}) — cámbiala si en el anaquel está en otra.`
+        : 'Elige en qué unidad lo contaste.');
+      return;
+    }
+    // Sin lista no se hereda la unidad del producto ANTERIOR: quedaría marcada sin que nadie la eligiera
+    // (es el mismo «se asume pieza» que el paso 0 midió, con otro disfraz).
+    this.unidad.set(null);
+    this.unidadSugerida.set('Kepler no dice en qué unidad se maneja este producto: elige en cuál lo contaste.');
   }
 
   limpiarProducto(): void {
+    this.unidadesSub?.unsubscribe();
+    this.unidadesProd.set(null);
+    // Sin producto no hay «unidad base» que afirmar.
+    this.unidadSugerida.set('');
     this.producto.set(null);
     this.codigo.set('');
     this.candidatos.set([]);
@@ -1045,6 +1138,8 @@ export class TiendaCaducidadesComponent {
     if (!this.fechaIso()) pend.push('la fecha de caducidad');
     const cant = this.cantidad();
     if (!cant || cant <= 0) pend.push('la cantidad');
+    // [P2.9 paso 3] Sin unidad el renglón no se puede convertir para FEFO (paso 4): se pide.
+    if (!this.unidad()) pend.push('la unidad');
     if (this.puedeElegirSucursal() && !this.warehouseId()) pend.push('la sucursal');
     return pend.join(' · ');
   });
@@ -1106,6 +1201,9 @@ export class TiendaCaducidadesComponent {
    */
   private limpiarFormulario(): void {
     this.editandoId.set(null);
+    this.unidadesSub?.unsubscribe();
+    this.unidadesProd.set(null);
+    this.unidadSugerida.set('');
     this.producto.set(null);
     this.codigo.set('');
     this.candidatos.set([]);
@@ -1139,6 +1237,10 @@ export class TiendaCaducidadesComponent {
     this.fechaRaw.set(iso ? `${iso.slice(8, 10)}${iso.slice(5, 7)}${iso.slice(0, 4)}` : '');
     this.cantidad.set(Number(e.quantity) || 0);
     this.unidad.set((e.unit as LineUnit) || null);
+    // Corregir no re-sugiere: acota el selector y deja la unidad guardada marcada (aunque no sea del producto).
+    this.unidadTocada = true;
+    this.unidadSugerida.set('');
+    this.cargarUnidades(e.sku || null, true);
     this.condicion.set((e.condition as Condition) || null);
     this.ubicacion = e.location || '';
     this.nota = e.observations || '';

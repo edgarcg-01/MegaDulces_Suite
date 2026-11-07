@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Changed — Caducidades: el selector ofrece sólo las unidades del producto (P2.9 paso 3, 2026-11-07)
+- Al elegir un producto, los botones de unidad muestran **sólo las que el producto tiene en Kepler** (base, unidades alternas y escalera de mayoreo, de la sucursal donde se captura), con **«Otra unidad»** para abrir las 7. La unidad sugerida es la **base del producto**, no «pieza».
+- Si Kepler no publica las unidades del producto, se ofrecen las 7 y se dice; ya no queda marcada la unidad del producto anterior. «La unidad» pasa a ser obligatoria para guardar.
+- Fixed: el detalle de la hoja en Almacén mostraba «pz» para paquete, 250 g y 500 g.
+
 ### Added — Pagos: descuento al pagar, factura por factura (PGP.91, 2026-11-06 · en código, sin soltar)
 - En el desglose de un pago, cada factura de proveedor tiene **Descuento**: motivo (Pronto pago, Volumen u Otro) y el % o los pesos; la pantalla saca el **neto que se transfiere** y lo dice: «este pago cubre − descuento = se transfieren».
 - Lo que el pago cubre de la factura (neto + descuento) **ya no se vuelve a ofrecer** —Agregar facturas, Pronto pago, «Qué conviene pagar»— mientras llega la nota de crédito de Kepler.

@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
+import type { CaducidadUnidadesProducto } from '@megadulces/contracts';
 import {
   CommercialExpiryReviewsService,
   CreateReviewDto,
@@ -78,6 +79,14 @@ export class CommercialExpiryReviewsController {
   @ApiOperation({ summary: 'Buscar producto por nombre/SKU para capturar (scopeado a las marcas del promotor)' })
   searchProducts(@Query('q') q?: string, @Query('limit') limit?: string) {
     return this.service.searchProducts(q || '', limit ? Number(limit) : undefined);
+  }
+
+  /** `[P2.9 paso 3]` Las unidades del producto para acotar el selector (D3). Mismo gate que `resolve`. */
+  @Get('products/:sku/unidades')
+  @RequireAnyPermission(Permission.COMMERCIAL_EXPIRY_VER, Permission.COMMERCIAL_EXPIRY_CAPTURAR)
+  @ApiOperation({ summary: 'Unidades en que se puede contar un producto (presentaciones de Kepler traducidas a las 7)' })
+  unidadesProducto(@Param('sku') sku: string, @Query('warehouse_id') warehouseId?: string): Promise<CaducidadUnidadesProducto> {
+    return this.service.unidadesProducto(sku, warehouseId);
   }
 
   // ── captura de tienda: una caducidad a la vez (2026-09-08) ──
