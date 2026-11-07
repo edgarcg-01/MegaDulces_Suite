@@ -143,7 +143,9 @@ export async function generarOcPdf(data: OcDetalle, op: OcPdfOpciones): Promise<
   const tot = totalesOc(sumLineas, o.monto, o.iva, o.ieps, { iva: o.tasas_iva, ieps: o.tasas_ieps });
   autoTable(doc, {
     ...tablaBase, startY: y + 6,
-    head: [['#', 'Código', 'Producto', 'Cantidad', 'Costo', 'Importe']],
+    // [PQ.86] El costo de Kepler es SIN impuestos (los suma el pie: IEPS, IVA, Total). Sin decirlo, el
+    // proveedor leía $983,607 de renglones contra un Total de $1,073,610 (OC 00/0007321, 2026-11-06).
+    head: [['#', 'Código', 'Producto', 'Cantidad', 'Costo sin impuestos', 'Importe sin impuestos']],
     body: filas,
     foot: tot.map((t) => [{ content: t.etiqueta, colSpan: 5 }, money(t.monto)]),
     footStyles: { fillColor: RULE, textColor: INK, fontStyle: 'normal', halign: 'right' },

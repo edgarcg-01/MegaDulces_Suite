@@ -115,13 +115,8 @@ export function avisoDeReposicion(
     <div class="rp">
       <header class="rp-head">
         @if (datos(); as d) {
-          <span class="rp-lead" aria-live="polite" aria-atomic="true">
-            @if (nPorResolver()) {
-              {{ nPorResolver() }} <span class="rp-lead-sub">por resolver</span>
-            } @else {
-              <span class="rp-lead-sub">Nada por resolver</span>
-            }
-          </span>
+          <!-- [LE.6.21] La cuenta la dice la pestaña: aquí sólo se anuncia, no se repite a la vista. -->
+          <span class="sr-only" aria-live="polite" aria-atomic="true">{{ nPendientes() ? nPendientes() + ' por reponer' : 'Nada por reponer' }}</span>
           @if (d.datos_al) {
             <app-freshness-pill measures="data" [since]="d.datos_al" label="Kepler" />
           } @else {
@@ -136,7 +131,7 @@ export function avisoDeReposicion(
         <span class="rp-sp"></span>
         @if (datos()) {
           <app-segmented [options]="opcionesVista()" [value]="vista()" (valueChange)="vista.set($any($event))"
-                         ariaLabel="Qué ver" />
+                         ariaLabel="Reposiciones o historial" />
         }
         <p-button icon="pi pi-refresh" size="small" severity="secondary" [text]="true" [loading]="cargando()"
                   ariaLabel="Volver a leer la reposición" (onClick)="cargar()"></p-button>
@@ -160,19 +155,22 @@ export function avisoDeReposicion(
       <!-- [LE.6.20] Lo que ya se repuso (hoja en papel o depósito) y lo que el banco cubre sin depósito: no se
            reponen aquí, pero se ven con su testigo. «Lo que venga con un depósito es reposición.» -->
       @for (z of repuestoDeZonas(); track z.zona) {
+        @if (vista() === 'historial' ? z.dias.length : (z.sinDeposito.length || !z.cuenta)) {
         <details class="rp-repuesto" data-testid="rp-repuesto">
           <summary>
             <strong>{{ z.nombre }}:</strong>
-            @if (z.dias.length) { {{ z.dias.length }} {{ z.dias.length === 1 ? 'tramo ya repuesto' : 'tramos ya repuestos' }} ({{ money(z.repuesto) }}) }
-            @if (z.dias.length && z.sinDeposito.length) { · }
-            @if (z.sinDeposito.length) { {{ z.nSinDeposito }} {{ z.nSinDeposito === 1 ? 'pago' : 'pagos' }} sin depósito ({{ money(z.sinDepositoTotal) }}) }
+            @if (vista() === 'historial') {
+              {{ z.dias.length }} {{ z.dias.length === 1 ? 'tramo ya repuesto' : 'tramos ya repuestos' }} ({{ money(z.repuesto) }})
+            } @else if (z.sinDeposito.length) {
+              {{ z.nSinDeposito }} {{ z.nSinDeposito === 1 ? 'pago' : 'pagos' }} sin depósito ({{ money(z.sinDepositoTotal) }})
+            }
             @if (z.cuenta) {
               <span class="rp-dim"> · cuenta {{ z.cuenta }} cargada al {{ z.cargadoHasta ? dmy(z.cargadoHasta) : 'sin movimientos' }}</span>
             } @else {
               <span class="rp-warn"> · la cuenta donde se deposita su reposición no está medida: no se sabe qué ya se repuso</span>
             }
           </summary>
-          @if (z.dias.length) {
+          @if (vista() === 'historial') {
             <p-table [value]="z.dias" size="small" class="rp-mini">
               <ng-template #header>
                 <tr><th>Días de pago</th><th class="rp-num-h">Pagos</th><th class="rp-num-h">Total</th><th>Ya se repuso con</th></tr>
@@ -187,8 +185,8 @@ export function avisoDeReposicion(
               </ng-template>
             </p-table>
           }
-          @if (z.sinDeposito.length) {
-            <p class="rp-desglose">Sin depósito que los reponga: no se reponen aquí. Si son gasto normal, se pagan en la cola de Captura.</p>
+          @if (vista() !== 'historial' && z.sinDeposito.length) {
+            <p class="rp-desglose">Sin depósito que los reponga: no se reponen aquí. Si se repusieron en partes, los liga una persona a su retiro; si son gasto normal, se pagan en la cola.</p>
             <p-table [value]="z.sinDeposito" size="small" class="rp-mini" data-testid="rp-sin-deposito">
               <ng-template #header>
                 <tr><th>Día de pago</th><th class="rp-num-h">Pagos</th><th class="rp-num-h">Total</th><th>Por qué</th></tr>
@@ -204,6 +202,7 @@ export function avisoDeReposicion(
             </p-table>
           }
         </details>
+        }
       }
 
       <app-load-state class="dt-scope" [loading]="cargando() && !datos()" [error]="error()" [isEmpty]="!filas().length" [skeletonRows]="3"
@@ -218,8 +217,8 @@ export function avisoDeReposicion(
             <tr>
               <th class="rp-col-tog"><span class="sr-only">Detalle</span></th>
               <th>Sucursal</th>
-              <th class="rp-num-h">Por resolver</th>
-              <th>Qué sigue</th>
+              <th class="rp-num-h">{{ vista() === 'historial' ? 'Total' : 'Por resolver' }}</th>
+              <th>{{ vista() === 'historial' ? 'Con qué se pagó' : 'Qué sigue' }}</th>
             </tr>
           </ng-template>
           <ng-template #body let-f let-expanded="expanded">
@@ -272,7 +271,7 @@ export function avisoDeReposicion(
                 </td>
                 <td class="rp-cifra dt-num" data-label="Por resolver" role="cell">
                   <strong>{{ money(f.h.total) }}</strong>
-                  <small>{{ f.h.estado === 'pagada' ? 'pagada' : 'aprobó ' + (f.h.aprobada_por_nombre ?? 'finanzas') }}</small>
+                  <small>{{ f.h.estado === 'pagada' ? 'pagada ' + (f.h.pago ? dmy(f.h.pago.pagada_at.slice(0, 10)) : '') : 'aprobó ' + (f.h.aprobada_por_nombre ?? 'finanzas') }}</small>
                 </td>
                 <td class="rp-que dt-actions" data-label="Qué sigue" role="cell">
                   @if (f.h.estado === 'aprobada') {
@@ -291,6 +290,9 @@ export function avisoDeReposicion(
                       </div>
                       <small class="fin-dim">{{ textoCuadreHoja(f.h) }}</small>
                     }
+                  } @else if (!(f.h.pago?.sin_capturar ?? 0)) {
+                    <!-- [LE.6.21] Historial: la hoja pagada dice con qué salió y si su depósito ya llegó. -->
+                    <span class="rp-pagado">{{ textoPagoHoja(f.h) }}</span>
                   } @else {
                     @if (puedeGestionar()) {
                       <p-button [label]="'Capturar lo que falta (' + (f.h.pago?.sin_capturar ?? 0) + ')'" icon="pi pi-refresh" size="small"
@@ -304,13 +306,19 @@ export function avisoDeReposicion(
                   <strong>{{ nombre(f.g.sucursal) }}</strong>
                   <small>{{ dmy(f.g.fecha) }} · {{ textoDocs(f.g) }}</small>
                 </td>
-                <td class="rp-cifra dt-num" data-label="Por resolver" role="cell">
-                  <strong>{{ porResolverDe(f.g) > 0 ? money(porResolverDe(f.g)) : '—' }}</strong>
-                  <small>de {{ money(f.g.total) }}</small>
+                <td class="rp-cifra dt-num" [attr.data-label]="f.g.estado === 'explicada' ? 'Total' : 'Por resolver'" role="cell">
+                  @if (f.g.estado === 'explicada') {
+                    <strong>{{ money(f.g.total) }}</strong>
+                  } @else {
+                    <strong>{{ money(porResolverDe(f.g)) }}</strong>
+                    <small>de {{ money(f.g.total) }}</small>
+                  }
                 </td>
-                <td class="rp-que dt-actions" data-label="Qué sigue" role="cell">
+                <td class="rp-que dt-actions" [attr.data-label]="f.g.estado === 'explicada' ? 'Con qué se pagó' : 'Qué sigue'" role="cell">
                   <span class="rp-tags">
-                    <p-tag severity="secondary" [value]="textoEstado(f.g)"></p-tag>
+                    @if (f.g.estado !== 'explicada') {
+                      <p-tag severity="secondary" [value]="textoEstado(f.g)"></p-tag>
+                    }
                     @if (f.g.n_sin_aprobar) {
                       <p-tag severity="danger" [value]="f.g.n_sin_aprobar + ' sin aprobar'"></p-tag>
                     }
@@ -348,7 +356,8 @@ export function avisoDeReposicion(
                       }
                     }
                     @default {
-                      <small class="fin-dim">Nada pendiente.</small>
+                      <!-- [LE.6.21] Lo explicado dice con qué retiro (o del cajón), no «Nada pendiente». -->
+                      <span class="rp-pagado">{{ textoPagoGrupo(f.g) }}</span>
                     }
                   }
                   @if (f.g.n_sin_aprobar) {
@@ -590,6 +599,7 @@ export function avisoDeReposicion(
                 font-size:var(--fs-sm); color:var(--fg-2); }
     .rp-repuesto { margin:0 0 var(--sp-2); font-size:var(--fs-sm); color:var(--fg-2); }
     .rp-repuesto > summary { cursor:pointer; padding:var(--sp-1) 0; }
+    .rp-pagado { font-size:var(--fs-sm); color:var(--fg-2); }
     .rp-repuesto > summary:focus-visible { outline:2px solid var(--focus-ring, var(--action)); outline-offset:2px; }
     .rp-dim { color:var(--text-muted); }
     .rp-num-h { text-align:right; }
@@ -669,7 +679,7 @@ export class CajaReposicionComponent implements OnInit {
    * se pagaron por otro lado. Mezclados con los de un clic, la lista de «pendientes» era casi toda
    * filas sin acción posible. Van aparte: son la señal de descuadre, no trabajo de un clic.
    */
-  readonly vista = signal<'resolver' | 'sin_retiro' | 'explicadas'>('resolver');
+  readonly vista = signal<'reposiciones' | 'historial'>('reposiciones');
   readonly abiertas = signal<Record<string, boolean>>({});
   /** D.7: la fila con el foco de teclado (flechas por `pSelectableRow`; Enter abre su desglose). */
   readonly filaActiva = signal<Fila | null>(null);
@@ -708,22 +718,28 @@ export class CajaReposicionComponent implements OnInit {
   /** `[LE.6.19]` La hoja abierta de cada zona con algo que pagar: se paga aquí, en un acto. */
   readonly abiertasPorPagar = computed(() => (this.hojas()?.abiertas ?? []).filter((a) => a.renglones.length > 0));
   readonly nPorResolver = computed(() => this.accionables().length + this.hojasPorPagar().length + this.abiertasPorPagar().length);
+  /** `[LE.6.21]` Lo de la pestaña «Reposiciones»: lo que se resuelve en la fila y lo que ningún retiro explica. */
+  readonly nPendientes = computed(() => this.nPorResolver() + this.sinRetiro().length);
+  /** `[LE.6.21]` Las hojas de zona ya pagadas y con todo en el libro: van al historial. */
+  readonly hojasPagadas = computed(() => (this.hojas()?.cerradas ?? [])
+    .filter((h) => h.estado === 'pagada' && !(h.pago?.sin_capturar ?? 0)));
 
   readonly filas = computed<Fila[]>(() => {
-    const v = this.vista();
     const deGrupo = (gs: ReposicionGrupo[]): Fila[] => gs.map((g) => ({ tipo: 'grupo' as const, clave: g.clave, g }));
-    if (v === 'sin_retiro') return deGrupo(this.sinRetiro());
-    if (v === 'explicadas') return deGrupo(this.explicadas());
+    const deHoja = (hs: HojaGastos[]): Fila[] => hs.map((h) => ({ tipo: 'hoja' as const, clave: `hoja|${h.id}`, h }));
+    // `[LE.6.21]` PM, 2026-11-06: «solo dos pestañas, una donde se muestran las reposiciones, y otra de historial».
+    if (this.vista() === 'historial') return [...deHoja(this.hojasPagadas()), ...deGrupo(this.explicadas())];
+    // Lo que tiene acción primero; lo que ningún retiro explica, al final (es la señal de descuadre).
     return [
       ...this.abiertasPorPagar().map((a) => ({ tipo: 'abierta' as const, clave: `abierta|${a.zona}`, a })),
-      ...this.hojasPorPagar().map((h) => ({ tipo: 'hoja' as const, clave: `hoja|${h.id}`, h })),
+      ...deHoja(this.hojasPorPagar()),
       ...deGrupo(this.accionables()),
+      ...deGrupo(this.sinRetiro()),
     ];
   });
   readonly opcionesVista = computed<SegOption[]>(() => [
-    { label: 'Por resolver', value: 'resolver', count: this.nPorResolver() },
-    { label: 'Sin retiro', value: 'sin_retiro', count: this.sinRetiro().length },
-    { label: 'Explicadas', value: 'explicadas', count: this.explicadas().length },
+    { label: 'Reposiciones', value: 'reposiciones', count: this.nPendientes() },
+    { label: 'Historial', value: 'historial', count: this.hojasPagadas().length + this.explicadas().length },
   ]);
 
   /**
@@ -792,12 +808,18 @@ export class CajaReposicionComponent implements OnInit {
     const cajon = this.grupos().reduce((a, g) => a + g.cajon, 0);
     const n = this.nPorResolver();
     const m = this.sinRetiro().length;
+    if (this.vista() === 'historial') {
+      const conRetiro = Math.round(this.explicadas().reduce((a, g) => a + g.caos, 0) * 100) / 100;
+      return [
+        { label: 'Con retiro de CAOS', value: conRetiro, format: 'currency2', tone: 'default', sub: 'de lo explicado en estos días' },
+        { label: 'Del cajón', value: cajon, format: 'currency2', tone: 'muted', sub: 'lo que CAOS no dio, en estos días' },
+      ];
+    }
     return [
       { label: 'Por resolver', value: porResolver, format: 'currency2', tone: 'default',
-        sub: `${n} ${n === 1 ? 'renglón' : 'renglones'} en «Por resolver», cada uno con su acción` },
+        sub: `${n} ${n === 1 ? 'renglón' : 'renglones'} con su acción en la fila` },
       { label: 'Sin retiro que lo explique', value: sinRetiro, format: 'currency2', tone: sinRetiro > 0 ? 'bad' : 'ok',
-        sub: `${m} ${m === 1 ? 'sucursal-día' : 'sucursales-día'} en «Sin retiro»: CAOS no dice de dónde salió` },
-      { label: 'Del cajón', value: cajon, format: 'currency2', tone: 'muted', sub: 'lo que CAOS no dio, en estos días' },
+        sub: `${m} ${m === 1 ? 'sucursal-día' : 'sucursales-día'} al final de la lista: CAOS no dice de dónde salió` },
     ];
   });
 
@@ -809,18 +831,38 @@ export class CajaReposicionComponent implements OnInit {
     return `${sinAprobar} ${sinAprobar === 1 ? 'gasto espera' : 'gastos esperan'} firma o se rechazó; ${antes} ${antes === 1 ? 'se pagó' : 'se pagaron'} antes de aprobarse.`;
   });
 
-  readonly textoVacio = computed(() => {
-    const v = this.vista();
-    if (v === 'sin_retiro') return 'Todos los egresos de sucursal tienen su retiro';
-    if (v === 'explicadas') return 'Ninguna sucursal está explicada todavía en estos días';
-    return 'Nada por resolver';
-  });
-  readonly pistaVacio = computed(() => {
-    if (this.vista() !== 'resolver') return 'Cambia de filtro arriba para ver las demás.';
-    const n = this.sinRetiro().length;
-    return n ? `Hay ${n} ${n === 1 ? 'sucursal-día' : 'sucursales-día'} con egresos que ningún retiro explica: filtro «Sin retiro».`
-      : 'Sin documentos de caja de sucursal pendientes en estos días.';
-  });
+  readonly textoVacio = computed(() => (this.vista() === 'historial'
+    ? 'Nada repuesto todavía en estos días' : 'Nada por reponer'));
+  readonly pistaVacio = computed(() => (this.vista() === 'historial'
+    ? 'Lo que se paga en «Reposiciones» aparece aquí con su retiro.'
+    : 'Sin documentos de caja de sucursal pendientes en estos días.'));
+
+  /** `[LE.6.21]` Con qué se pagó lo explicado: los retiros de CAOS de sus documentos, y lo que puso el cajón. */
+  textoPagoGrupo(g: ReposicionGrupo): string {
+    const retiros = new Map<string, { ref: string; monto: number }>();
+    for (const d of g.docs) {
+      for (const v of d.vinculos) {
+        const k = `${v.device}|${v.external_id}`;
+        const x = retiros.get(k) ?? { ref: v.ref ? `«${v.ref}»` : `retiro ${v.external_id}`, monto: 0 };
+        x.monto = Math.round((x.monto + v.monto) * 100) / 100;
+        retiros.set(k, x);
+      }
+    }
+    const partes = [...retiros.values()].map((r) => `${r.ref} · ${money(r.monto)}`);
+    if (g.cajon > 0.005) partes.push(`del cajón · ${money(g.cajon)}`);
+    return partes.length ? partes.join(' + ') : 'Explicada';
+  }
+
+  /** `[LE.6.21]` La hoja pagada: con qué salió y si su depósito ya llegó a la cuenta de la zona. */
+  textoPagoHoja(h: HojaGastos): string {
+    const p = h.pago;
+    if (!p) return 'Pagada';
+    const con = p.retiro ? `«${p.retiro.ref ?? p.retiro.external_id}» del ${dmy(p.retiro.dia)}${p.cajon > 0.005 ? ` + cajón ${money(p.cajon)}` : ''}`
+      : `del cajón · ${money(p.cajon)}`;
+    const dep = p.deposito.estado === 'depositada' ? 'depositada' : p.deposito.estado === 'no_aparece' ? 'el depósito todavía no aparece'
+      : p.deposito.estado === 'ambiguo' ? 'el depósito lo liga una persona' : 'depósito sin medir';
+    return `${con} · ${dep}`;
+  }
 
   /** Las opciones de «¿de dónde sale?»: los retiros con dinero libre y el cajón. */
   readonly opcionesOrigen = computed<OpcionOrigen[]>(() => [

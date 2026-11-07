@@ -26,6 +26,15 @@ import {
 import { RouteCreditComponent } from './comercial-route-credit.component';
 import { EmbarquesSinFacturaComponent } from '../components/embarques-sin-factura.component';
 import { abrirPestanaParaPdf, entregarPdf, cerrarPestanaDePdf } from '../../../shared/util/abrir-pdf';
+import { forkJoin } from 'rxjs';
+
+const MXN = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
+/**
+ * `[AX.20]` Desde dónde se busca la cartera de un cliente: antes de lo que trae la vista (la
+ * factura de telemarketing más vieja en prod es del 2025-11-07, medido 2026-11-06). Es la
+ * forma de decirle «cualquier fecha» a un endpoint que, sin `from`, recorta a 30 días.
+ */
+const CARTERA_DESDE = '2020-01-01';
 
 /**
  * AX.2/AX.3 — Facturación de Telemarketing (el documento que se le entrega al cliente).
@@ -63,7 +72,8 @@ import { abrirPestanaParaPdf, entregarPdf, cerrarPestanaDePdf } from '../../../s
         </p>
       </div>
       <!-- [AX.18] Lo secundario de esta pantalla: un boton que ya dice cuanto falta y abre una
-           ventana encima, sin empujar la tabla de facturas. Sigue la sucursal elegida abajo. -->
+           ventana encima, sin empujar la tabla de facturas. Sigue la sucursal elegida abajo.
+           [AX.19] Va a la derecha del titulo, alineado con el: el componente es UN bloque. -->
       <app-embarques-sin-factura [sucursal]="filtros().sucursal" />
     </div>
 
@@ -100,6 +110,16 @@ import { abrirPestanaParaPdf, entregarPdf, cerrarPestanaDePdf } from '../../../s
              placeholder="Responsable (opcional)" aria-label="Nombre del responsable"
              pTooltip="Se imprime sobre la línea de firma del responsable." />
 
+      <!-- [AX.20] Medido en 397 guias: 89 % son «el cliente y todas sus facturas» -- se palomea
+           una y el resto se trae solo, de cualquier fecha, solo lo que tiene saldo. -->
+      @if (sel().length) {
+        <p-button icon="pi pi-list-check" size="small" [outlined]="true" severity="secondary"
+                  [label]="clientesSel() === 1 ? 'Toda su cartera' : 'Toda la cartera de los ' + clientesSel()"
+                  [disabled]="!!mezcla()" [loading]="busy() === 'cartera'"
+                  [ariaLabel]="'Agregar todas las facturas con saldo de ' + (clientesSel() === 1 ? 'este cliente' : 'estos ' + clientesSel() + ' clientes') + ' con este vendedor, de cualquier fecha'"
+                  pTooltip="Agrega todas las facturas con saldo del cliente con este vendedor, de cualquier fecha"
+                  (onClick)="completarCartera()" />
+      }
       <p-button label="Limpiar" [text]="true" size="small" [disabled]="!sel().length"
                 (onClick)="limpiar()" />
       <p-button icon="pi pi-print" label="Generar e imprimir" size="small"
@@ -747,6 +767,66 @@ export class ComercialDocumentosComponent {
   }
 
   limpiar(): void { this.sel.set([]); }
+
+  /**
+   * `[AX.20]` Completa la guía con la cartera pendiente de los clientes ya palomeados.
+   *
+   * Medido en prod (2026-11-06) sobre los 397 expedientes archivados: la mediana es 1 cliente
+   * por guía, y «esos clientes + todas sus facturas» reproduce idéntica el 89 % (350 de 393).
+   * Lo que la persona decide es el CLIENTE; palomear factura por factura sobra.
+   *
+   * Qué trae: las facturas del cliente CON ESE VENDEDOR (la guía es de un solo vendedor) en
+   * `pendiente` o `parcial` según la cartera de Kepler, **de cualquier fecha** — no la ventana
+   * de la tabla: lo que se debe no depende de qué fechas estaba mirando la pantalla.
+   * Qué no: las pagadas (en el histórico, 37 % de lo palomeado ya estaba pagado ese día) y las
+   * `sin_cartera` (no se sabe si se deben: se dicen en el aviso, no se agregan a ciegas).
+   * Se SUMA a lo palomeado (nunca lo quita) y respeta el tope de 500 por consulta: si un cliente
+   * debe más, el aviso lo dice.
+   */
+  completarCartera(): void {
+    const sel = this.sel();
+    if (!sel.length || this.mezcla()) return;
+    const claves = new Map<string, SalesDocRow>();
+    for (const d of sel) claves.set(`${d.cliente_code}|${d.vendedor_code ?? ''}|${d.sucursal}`, d);
+    const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
+    const consultas = [...claves.values()].map((d) => this.svc.list({
+      cliente_code: d.cliente_code, vendedor_code: d.vendedor_code || undefined,
+      warehouse_codes: d.sucursal, cobro: 'pendiente,parcial,sin_cartera',
+      from: CARTERA_DESDE, to: hoy, page: 1, pageSize: 500,
+    }));
+    this.busy.set('cartera');
+    forkJoin(consultas).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (reps) => {
+        this.busy.set(null);
+        const ya = new Set(this.sel().map((d) => d.folio_digital));
+        const nuevas: SalesDocRow[] = [];
+        let sinCartera = 0, topadas = 0;
+        for (const r of reps) {
+          if (r.kpis.documentos > r.rows.length) topadas++;
+          for (const d of r.rows) {
+            if (d.estatus_cobro === 'sin_cartera') { if (!ya.has(d.folio_digital)) sinCartera++; continue; }
+            if (!ya.has(d.folio_digital)) { nuevas.push(d); ya.add(d.folio_digital); }
+          }
+        }
+        this.sel.update((s) => [...s, ...nuevas]);
+        const saldo = nuevas.reduce((a, d) => a + (Number(d.saldo) || 0), 0);
+        const partes = [nuevas.length
+          ? `Se agregaron ${nuevas.length} factura${nuevas.length === 1 ? '' : 's'} con saldo por ${MXN.format(saldo)}.`
+          : 'No hay más facturas con saldo de este cliente con este vendedor.'];
+        if (sinCartera) partes.push(`${sinCartera} no aparece${sinCartera === 1 ? '' : 'n'} en la cartera: no se sabe si se deben y no se agregaron.`);
+        if (topadas) partes.push('Un cliente tiene más de 500 facturas abiertas: se trajeron las 500 más recientes.');
+        this.toast.add({
+          severity: sinCartera || topadas ? 'warn' : 'success',
+          summary: 'Cartera del cliente', detail: partes.join(' '), life: 7000,
+        });
+      },
+      error: (e) => {
+        this.busy.set(null);
+        this.toast.add({ severity: 'error', summary: 'No se pudo traer la cartera del cliente',
+          detail: e?.error?.message || 'Lo palomeado quedó igual.', life: 6000 });
+      },
+    });
+  }
 
   readonly clientesSel = computed(() => new Set(this.sel().map((d) => d.cliente_code)).size);
   /** Lo que se va a cobrar: el saldo; sin cartera no hay saldo medido y se cobra el total. */

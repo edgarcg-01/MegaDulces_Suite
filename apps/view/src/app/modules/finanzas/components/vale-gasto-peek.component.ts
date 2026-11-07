@@ -9,6 +9,8 @@ import {
   CLASIFICACION_LABEL, type ExpenseClasificacion, type ProofFile, type ValeGasto,
 } from '../comprobaciones.service';
 import { aceptaEvidenciaAdicional, detallesParaMostrar, esEvidenciaAdicional } from '@megadulces/contracts';
+// `[PGP.79]` La misma lectura que el renglón de la bandeja: una regla, no dos.
+import { explicacionKepler, lecturaKepler, type KeplerDelVale } from '@megadulces/contracts';
 
 /** Qué se puede hacer con el vale desde acá. Lo decide la PÁGINA, no este visor. */
 export type AccionVale = 'aprobar' | 'comprobar' | 'rechazar' | 'pedir_reapertura'
@@ -136,6 +138,23 @@ interface DocDelExpediente {
         @if (p.comentarios) { <p class="vp-nota">“{{ p.comentarios }}”</p> }
         @if (p.revision_nota) { <p class="vp-nota warn">{{ p.revision_nota }}</p> }
         @if (p.motivo_rechazo) { <p class="vp-nota bad">Rechazado: {{ p.motivo_rechazo }}</p> }
+
+        <!--
+          [PGP.79] La solicitud en Kepler: como se busca alla, en que estado esta HOY y que hizo
+          la Suite al firmar. Va antes de la constancia: primero si quedo autorizada, despues con que.
+        -->
+        @if (kepler(); as k) {
+          <h3 class="vp-h">Solicitud en Kepler</h3>
+          <div class="vp-kep">
+            <div class="vp-aut-h">
+              <span class="vp-aut-doc vp-mono">{{ k.solicitud || 'sin folio' }}</span>
+              @if (lecturaK(); as l) {
+                <span class="ap-chip" [class.ok]="l.tono === 'ok'" [class.warn]="l.tono === 'warn'" [class.bad]="l.tono === 'bad'">{{ l.texto }}</span>
+              }
+            </div>
+            <p class="vp-kep-t" [class.bad]="lecturaK()?.tono === 'bad'">{{ explicacionK() }}</p>
+          </div>
+        }
 
         <!--
           [GX.48] La CONSTANCIA de autorizacion de Kepler. Va ANTES de la evidencia porque es
@@ -289,6 +308,10 @@ interface DocDelExpediente {
   /* [GX.51] La nota de «queda abierto», donde estaba la fecha limite. */
   .vp-prov-libre { margin: var(--sp-1) 0 0; font-size: var(--fs-xs); color: var(--fg-3);
     display: flex; align-items: center; gap: var(--sp-1); }
+  /* [PGP.79] La solicitud en Kepler: un renglon de identidad y una frase, sin caja (es estado, no documento). */
+  .vp-kep { display: flex; flex-direction: column; gap: var(--sp-1); }
+  .vp-kep-t { margin: 0; font-size: var(--fs-sm); color: var(--fg-2); }
+  .vp-kep-t.bad { color: var(--bad-fg); }
   /* [GX.48] La constancia de autorizacion. Enmarcada: es un documento, no un dato suelto. */
   .vp-aut { border: 1px solid var(--border); border-radius: var(--r-md);
     padding: var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-2); }
@@ -375,6 +398,24 @@ export class ValeGastoPeekComponent {
   readonly acciones = input<readonly AccionVale[]>([]);
   /** La página está resolviendo algo sobre este vale: los botones se bloquean. */
   readonly ocupado = input(false);
+  /**
+   * `[PGP.79]` La solicitud de Kepler del vale y qué hizo la Suite al firmar. `null` = la página no
+   * la pidió (Expediente, Historial) o todavía no llega: la sección no se pinta.
+   */
+  readonly kepler = input<KeplerDelVale | null>(null);
+  readonly lecturaK = computed(() => {
+    const k = this.kepler();
+    return k ? lecturaKepler(k, this.vale()?.status ?? '') : null;
+  });
+  readonly explicacionK = computed(() => {
+    const k = this.kepler();
+    if (!k) return '';
+    const at = k.suite?.at ? new Date(k.suite.at) : null;
+    const cuando = at && !Number.isNaN(at.getTime())
+      ? at.toLocaleString('es-MX', { timeZone: 'America/Mexico_City', day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })
+      : null;
+    return explicacionKepler(k, this.vale()?.status ?? '', cuando);
+  });
 
   /** `[GX.30]` Aprobar viaja con la marca: ver `AprobacionVale`. */
   readonly aprobar = output<AprobacionVale>();

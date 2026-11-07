@@ -7,7 +7,7 @@ import { environment } from '../../../environments/environment';
 import type { FormaPagoId } from '@megadulces/contracts';
 // `[GX.39]` El tipo de la etapa viene del contrato compartido: escribirlo a mano acá es
 // exactamente cómo se desincroniza sin que nadie vea (pasó con `reapertura`, GX.30).
-import type { AutorizacionKepler, EtapaEjercicio, ValeAsignado } from '@megadulces/contracts';
+import type { AutorizacionKepler, EtapaEjercicio, KeplerDelVale, ValeAsignado } from '@megadulces/contracts';
 // [GX.59] El Expediente por persona: la forma la define el contrato, no esta clase.
 import type { FiltroExpediente, RespuestaExpediente, TransferenciaGasto } from '@megadulces/contracts';
 
@@ -427,6 +427,16 @@ export interface ValeGasto {
   autorizacion_kepler?: AutorizacionKepler | null;
 }
 
+/**
+ * `[PGP.79]` Lo que devuelve aprobar. `kepler` sólo viene cuando la Suite intentó autorizar en
+ * Kepler (escritura encendida): sin él, no se intentó — no es «falló».
+ */
+export interface RespuestaAprobacion {
+  id: string;
+  status: string;
+  kepler?: { estado: 'escrito' } | { estado: 'ya_estaba'; kepler: 'A' | 'F' } | { estado: 'no_escrito'; motivo: string };
+}
+
 export interface GastosDelDia {
   fecha: string;
   es_hoy: boolean;
@@ -588,6 +598,15 @@ export class ComprobacionesService {
     return this.http.post<ProofFile>(`${this.base}/upload`, { file_base64, role, live: sello?.live === true, captured_at: sello?.captured_at });
   }
 
+  /**
+   * `[PGP.79]` La solicitud de Kepler de estos vales: su estado hoy y qué hizo la Suite al firmar.
+   * Hasta 200 por llamada (van en la URL); quien llama parte la lista.
+   */
+  keplerDeVales(ids: readonly string[]): Observable<Record<string, KeplerDelVale>> {
+    return this.http.get<Record<string, KeplerDelVale>>(`${environment.apiUrl}/finance/expenses/kepler-autorizacion`,
+      { params: new HttpParams().set('ids', ids.join(',')) });
+  }
+
   /** `[GX.14]` Resumen de lo que pidió este usuario. */
   resumen(periodo: '12m' | 'mes' = '12m'): Observable<ResumenSolicitante> {
     return this.http.get<ResumenSolicitante>(`${this.base}/resumen`, { params: new HttpParams().set('periodo', periodo) });
@@ -619,8 +638,8 @@ export class ComprobacionesService {
   approve(id: string, body?: {
     clasificacion?: string; comprobacion_nota?: string;
     provisional?: boolean; comprobante_esperado_at?: string;
-  }): Observable<{ id: string; status: string }> {
-    return this.http.post<{ id: string; status: string }>(`${this.base}/${id}/approve`, body || {});
+  }): Observable<RespuestaAprobacion> {
+    return this.http.post<RespuestaAprobacion>(`${this.base}/${id}/approve`, body || {});
   }
 
 

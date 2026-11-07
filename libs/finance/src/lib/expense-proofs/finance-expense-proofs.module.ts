@@ -9,6 +9,8 @@ import { ExpenseCaptureLinksController } from './expense-capture-links.controlle
 import { ExpenseCapturePublicController } from './expense-capture-public.controller';
 import { CierreKeplerService } from './cierre-kepler.service';
 import { KeplerAutorizacionGastoAdapter } from './autorizacion-kepler/kepler-autorizacion-gasto.adapter';
+import { AutorizacionKeplerLecturaService } from './autorizacion-kepler/autorizacion-kepler-lectura.service';
+import { AutorizacionKeplerController } from './autorizacion-kepler/autorizacion-kepler.controller';
 
 /**
  * GX.7 — Comprobación de gasto (captura del comprobante fiscal en plataforma,
@@ -25,10 +27,11 @@ import { KeplerAutorizacionGastoAdapter } from './autorizacion-kepler/kepler-aut
       verifyOptions: jwtVerifyOptions,
     }),
   ],
-  controllers: [ExpenseProofsController, ExpenseCaptureLinksController, ExpenseCapturePublicController],
+  // `[PGP.79]` AutorizacionKeplerController: la solicitud de Kepler de los vales que la pantalla ya tiene.
+  controllers: [ExpenseProofsController, ExpenseCaptureLinksController, ExpenseCapturePublicController, AutorizacionKeplerController],
   // `[GX.85]` CierreKeplerService: cierra el vale cuando Kepler lo aplica (F).
   // `[PGP.79]` KeplerAutorizacionGastoAdapter: firmar autoriza la solicitud en Kepler (apagado por default).
-  providers: [ExpenseProofsService, ExpenseProofsGateway, ExpenseCaptureLinksService, CierreKeplerService, KeplerAutorizacionGastoAdapter],
+  providers: [ExpenseProofsService, ExpenseProofsGateway, ExpenseCaptureLinksService, CierreKeplerService, KeplerAutorizacionGastoAdapter, AutorizacionKeplerLecturaService],
   exports: [ExpenseProofsService, ExpenseCaptureLinksService],
 })
 export class FinanceExpenseProofsModule {}

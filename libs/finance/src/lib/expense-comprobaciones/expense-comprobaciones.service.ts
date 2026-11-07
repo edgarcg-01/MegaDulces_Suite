@@ -1,5 +1,5 @@
 import { Injectable, BadRequestException, ForbiddenException, Logger, Optional } from '@nestjs/common';
-import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, LlmExtractorService, KeplerGastosFields, ExpenseReceiptFields, Permission, isPlatformAdminRole } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStorageService, LlmExtractorService, KeplerGastosFields, ExpenseReceiptFields, Permission, isPlatformAdminRole, applySmartSearch } from '@megadulces/platform-core';
 import { ComprobacionGastosGateway } from './comprobacion-gastos.gateway';
 
 /** Datos del usuario del request usados para acotar por departamento (área). */
@@ -265,11 +265,9 @@ export class ExpenseComprobacionesService {
     const lim = Math.min(50, Math.max(1, Number(limit) || 20));
     return this.tk.run(async (trx) => {
       const keys = await this.allowedAreaKeys(trx, user);
-      const s = `%${term}%`;
       const q = trx('analytics.expense_documents as g')
         .where('g.tenant_id', tenantId)
         .where('g.doc_tipo', 'XA1001')
-        .andWhere((w: any) => w.whereILike('g.doc_folio', s).orWhereILike('g.beneficiario', s))
         // Su solicitud (XA1501) para mostrar el importe pedido y verificar el cuadre.
         .leftJoin('analytics.expense_requests as sr', function (this: any) {
           this.on('sr.tenant_id', '=', 'g.tenant_id').andOn('sr.sucursal', '=', 'g.sucursal').andOn('sr.folio', '=', 'g.solicitud_folio');
@@ -279,6 +277,8 @@ export class ExpenseComprobacionesService {
         .select('g.sucursal', 'g.doc_folio AS folio_gasto', 'g.fecha',
           'g.beneficiario AS proveedor', trx.raw('g.importe::numeric AS importe'),
           'g.solicitud_folio', 'g.area', trx.raw('sr.importe::numeric AS solicitud_importe'));
+      // `[BU.2.2]` Motor único: folio, beneficiario e importe del gasto, palabra por palabra.
+      applySmartSearch(q, term, { columns: ['g.doc_folio', 'g.beneficiario', 'g.importe'], numeric: ['g.importe'] });
       this.scopeByArea(q, 'g.area', keys);   // el buscador no expone gastos de otras áreas
       const rows = await q;
       return rows.map((r: any) => ({ ...r, importe: Number(r.importe) || 0, solicitud_importe: r.solicitud_importe == null ? null : Number(r.solicitud_importe) }));
@@ -421,9 +421,8 @@ export class ExpenseComprobacionesService {
       if (q.from) b.where('created_at', '>=', q.from);
       if (q.to) b.where('created_at', '<=', `${q.to} 23:59:59`);
       if (q.search) {
-        const s = `%${q.search.trim()}%`;
-        b.where((w) => w.whereILike('proveedor', s).orWhereILike('folio_gasto', s)
-          .orWhereILike('folio_comprobacion', s).orWhereILike('solicitante', s));
+        // `[BU.2.2]` Motor único: proveedor, folios, solicitante e importe, palabra por palabra.
+        applySmartSearch(b, q.search, { columns: ['proveedor', 'folio_gasto', 'folio_comprobacion', 'solicitante', 'importe'], numeric: ['importe'] });
       }
       const rows = await Promise.all((await b).map(async (r: any) => ({
         ...r, importe: Number(r.importe), monto_ocr: r.monto_ocr == null ? null : Number(r.monto_ocr),
@@ -537,9 +536,8 @@ export class ExpenseComprobacionesService {
       if (q.estado === 'validada') b.whereRaw(`d.last_status = 'validada'`);
       if (q.estado === 'revision') b.whereRaw(`d.last_status = 'revision'`);
       if (q.search) {
-        const s = `%${q.search.trim()}%`;
-        b.where((w: any) => w.whereILike('g.doc_folio', s).orWhereILike('g.beneficiario', s)
-          .orWhereILike('g.solicitud_folio', s).orWhereRaw('g.importe::text ILIKE ?', [s]));
+        // `[BU.2.2]` Motor único: folio del gasto, beneficiario, folio de solicitud e importe.
+        applySmartSearch(b, q.search, { columns: ['g.doc_folio', 'g.beneficiario', 'g.solicitud_folio', 'g.importe'], numeric: ['g.importe'] });
       }
 
       const rows = await Promise.all((await b).map(async (r: any) => ({

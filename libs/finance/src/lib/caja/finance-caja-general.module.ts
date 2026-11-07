@@ -48,7 +48,9 @@ import { CashbookCaosCarril } from '../cashbook/cashbook-caos.carril';
 @Module({
   // CG.23.2 — el tiempo real va en su propio módulo (namespace `/caja` + puente NOTIFY→WS).
   imports: [CajaRealtimeModule],
-  controllers: [CajaGeneralController, CashLedgerController, CajaControlController, CajaArqueoController,
+  // ⛔ `[LE.6.22]` `CajaArqueoController` (`cash-ledger/arqueos-caja`) va ANTES que `CashLedgerController`:
+  // Nest registra en este orden y el `@Get(':id')` del libro se comía `GET arqueos-caja` (500).
+  controllers: [CajaGeneralController, CajaArqueoController, CashLedgerController, CajaControlController,
     CajaFirmaController, CajaFirmaPublicController, CajaCustodiaController, CashbookController, CajaReposicionController,
     HojaGastosController],
   // [CG.25] El vigilante de la fecha adelantada: avisa, y cuando Kepler corrige, sigue. Va acá y

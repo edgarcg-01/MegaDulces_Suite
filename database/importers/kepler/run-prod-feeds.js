@@ -172,7 +172,9 @@ const STEPS = {
   // (eso se queda en 'live' @30min, no cambia por minuto). Lo agenda \Tienda\LiveFastLoop.
   livefast: [
     path.join(K, 'import-sales-fact.js'),    // mart.ventas_enriched → analytics.sales_daily (revenue)
-    path.join(K, 'import-cash-sessions.js'), // cajas ABIERTAS ahora → /tienda/cajas
+    // [VEX.9] RETIRADO 2026-11-06: import-cash-sessions. /tienda/cajas lee la vista
+    // analytics.v_cash_sessions sobre kepler_ods.kdpv_folio_caja (mig 20261106152428), fresca sin
+    // carril. analytics.cash_sessions queda sin lector ni escritor; su borrado espera D2 (anexo CANON).
   ],
   stock:   [
     path.join(K, 'import-branch-stock-live.js'),

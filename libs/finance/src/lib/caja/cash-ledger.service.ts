@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 import { BadRequestException, HttpException, HttpStatus, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import type { Knex } from 'knex';
 import {
-  TenantKnexService, TenantContextService, evalInput, composeFreshness, cajaNoCapturadaDesdeCaosSql,
+  TenantKnexService, TenantContextService, evalInput, composeFreshness, cajaNoCapturadaDesdeCaosSql, applySmartSearch,
 } from '@megadulces/platform-core';
 import {
   FINANCE_FINDINGS_SINK_PORT, CAJA_VENTANA_DIAS, CAJA_AUTOFILL_FRESCURA_H,
@@ -412,8 +412,8 @@ export class CashLedgerService {
         .select('sucursal', 'cuenta', 'concepto', 'concepto_nombre', 'cuenta_mayor');
       if (q.sucursal) qb = qb.where('sucursal', q.sucursal);
       if (q.search) {
-        const s = `%${q.search.trim()}%`;
-        qb = qb.where((b: any) => b.whereILike('concepto_nombre', s).orWhereILike('cuenta', s).orWhereILike('concepto', s));
+        // `[BU.2.2]` Motor único: nombre de concepto, cuenta y concepto, palabra por palabra.
+        applySmartSearch(qb, q.search, { columns: ['concepto_nombre', 'cuenta', 'concepto'] });
       }
       const rows = await qb.orderBy(['cuenta', 'concepto']).limit(limit);
       return { rows, limit };
@@ -1517,6 +1517,79 @@ export class CashLedgerService {
    * (`movimientosPendientes`) y la cobertura de cuentas (`coberturaCuentasKepler`). Vivía dentro de
    * la bandeja; se sacó para que la cobertura no pueda medir otro universo que el que la persona ve.
    */
+  /**
+   * ⭐ `[LE.6.22]` **Lo saldado por Control, cacheado.** El rango es el PASADO del relevo (del 1 del
+   * mes al día antes del primer corte: hoy, 1–11 de octubre) y da siempre lo mismo, pero se
+   * recalculaba en CADA pedido de la cola —el repaso de 20 s de cada pestaña, ~1,100 veces al día—
+   * leyendo Control (~110 ms medidos en prod el 2026-11-06). Diez minutos de vida por si Control
+   * corrige algo de esos días. Lo que no se pudo leer (`ruta_disponible:false`) NO se guarda:
+   * el siguiente pedido lo vuelve a intentar.
+   */
+  private saldadosCache = new Map<string, { al: number; v: { llaves: Set<string>; ruta_disponible: boolean } }>();
+  private static readonly SALDADOS_TTL_MS = 10 * 60_000;
+  private async saldadosPorControlCacheado(trx: Knex.Transaction, tenantId: string, from: string, to: string) {
+    const k = `${tenantId}|${from}|${to}`;
+    const hit = this.saldadosCache.get(k);
+    if (hit && Date.now() - hit.al < CashLedgerService.SALDADOS_TTL_MS) return hit.v;
+    const v = await saldadosPorControl(trx, tenantId, from, to);
+    if (v.ruta_disponible) this.saldadosCache.set(k, { al: Date.now(), v });
+    return v;
+  }
+
+  /**
+   * ⭐⭐ `[LE.6.22]` **¿Cambió la cola? — sin armarla.**
+   *
+   * La pantalla repasa la cola cada 20 s por pestaña (`[CGS.6]`) y cada repaso la armaba ENTERA:
+   * ~8 consultas en fila más el emparejamiento con CAOS en Node, que bloquea el servidor. Medido
+   * en `analytics.ui_usage` (2026-10-23 → 11-06): 15,590 pedidos, 449 min de servidor —casi todo
+   * el módulo— y el promedio subiendo de 0.6 s a 3–5 s.
+   *
+   * La firma resume lo que la bandeja muestra: los pendientes desde `desde` (sin tope de arriba,
+   * así cubre también los mal fechados) con su monto y su captura, más lo que cambia el
+   * emparejamiento (el libro, los ligues y los retiros de CAOS) y el día. ~45 ms en prod.
+   *
+   * ⚠️ Es un SUPERCONJUNTO a propósito: no lleva `tipo`, `doc_tipo` ni `search`, así que un cambio
+   * fuera del filtro también recarga (de más, nunca de menos). Lo que NO cubre —las reglas de
+   * cuenta (`mv_caja_autofill_entidad`) y lo anterior a `desde`— lo trae el repaso completo que
+   * la pantalla sigue haciendo cada 5 min.
+   */
+  async firmaDeLaCola(q: { caja?: string; sucursal?: string; from?: string }): Promise<{ firma: string; datos_al: string | null }> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const { desde, filtrosCon } = await this.universoDeLaCola(trx, tenantId, q);
+      const cola: { n?: unknown; h?: unknown } | undefined = await filtrosCon(trx('finance.v_caja_movimientos_pendientes'), false)
+        .where('fecha_valor', '>=', desde)
+        .first(trx.raw('count(*)::int AS n'),
+          trx.raw(`md5(coalesce(string_agg(origen_ref || ':' || monto || ':' || coalesce(fecha_captura::text, ''), ',' ORDER BY origen_ref), '')) AS h`));
+      const huella = (t: string) => trx(t).where('tenant_id', tenantId)
+        .first(trx.raw(`count(*)::int || '|' || coalesce(max(updated_at)::text, '') || '|' || coalesce(max(created_at)::text, '') AS v`));
+      const partes: unknown[] = [desde, await this.hoyMx(trx), cola?.n, cola?.h, (await huella('finance.cash_ledger'))?.v];
+      if (await this.tablaCaosLinks(trx)) partes.push((await huella('finance.caos_cash_links'))?.v);
+      if (await CajaCustodiaService.hayCustodia(trx)) partes.push((await huella('finance.caos_retiro_custodia'))?.v);
+      const caos: { v?: unknown } | undefined = await trx('analytics.caos_cash_movements').where('tenant_id', tenantId)
+        .first(trx.raw(`coalesce(max(synced_at)::text, '') AS v`));
+      partes.push(caos?.v);
+      return { firma: partes.map((p) => String(p ?? '')).join('#'), datos_al: await this.frescuraCaja(trx) };
+    });
+  }
+
+  /**
+   * `[LE.6.22]` La bandeja con su firma. Si quien pregunta trae la MISMA firma (`si_cambio`), no se
+   * arma nada: `{ sin_cambios: true }` y la edad del dato, que sí avanza. Si cambió —o no la trae—,
+   * la bandeja entera con la firma nueva. La firma se toma ANTES de la lista: si algo entra entre
+   * las dos, el siguiente repaso ve otra firma y recarga (una vuelta de más, nunca una de menos).
+   */
+  async movimientosPendientesSiCambio(
+    q: Parameters<CashLedgerService['movimientosPendientes']>[0], siCambio?: string,
+  ): Promise<
+    | { sin_cambios: true; firma: string; datos_al: string | null }
+    | (Awaited<ReturnType<CashLedgerService['movimientosPendientes']>> & { firma: string })
+  > {
+    const { firma, datos_al } = await this.firmaDeLaCola(q);
+    if (siCambio && siCambio === firma) return { sin_cambios: true as const, firma, datos_al };
+    return { ...(await this.movimientosPendientes(q)), firma };
+  }
+
   private async universoDeLaCola(
     trx: Knex.Transaction, tenantId: string,
     q: { tipo?: string; doc_tipo?: string; caja?: string; sucursal?: string; from?: string },
@@ -1540,7 +1613,7 @@ export class CashLedgerService {
      */
     const inicio = relevo ? inicioDelMes(relevo) : null;
     const controlSaldo = relevo && inicio && inicio < relevo
-      ? await saldadosPorControl(trx, tenantId, inicio, diaAnterior(relevo))
+      ? await this.saldadosPorControlCacheado(trx, tenantId, inicio, diaAnterior(relevo))
       : { llaves: new Set<string>(), ruta_disponible: true };
     const saldados = [...controlSaldo.llaves];
     const desde = q.from || inicio

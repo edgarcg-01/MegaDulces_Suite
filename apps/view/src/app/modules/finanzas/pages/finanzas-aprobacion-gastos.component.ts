@@ -21,6 +21,9 @@ import { REFRESCO_VALES_MS } from '../vales-refresco';
 import { parseLocalDate } from '../../../core/utils/mx-date';
 // `[GX.65.4a]` La MISMA regla que aplica el servidor, desde el contrato: dos copias se separan.
 import { aceptaEvidenciaAdicional, esDuenoDelVale, detallesParaMostrar } from '@megadulces/contracts';
+// `[PGP.79]` Firmar autoriza en Kepler: la solicitud y su estado se leen con la MISMA regla en el renglón y en el detalle.
+import { lecturaKepler, solicitudKepler, type KeplerDelVale, type TonoKepler } from '@megadulces/contracts';
+import { forkJoin } from 'rxjs';
 import { AuthService, type JwtPayload } from '../../../core/services/auth.service';
 
 /**
@@ -299,7 +302,8 @@ const ESTADO_LABEL: Record<string, string> = {
                role="button" tabindex="0" [attr.aria-label]="'Ver el vale ' + p.folio_solicitud"
                (click)="abrir(p)" (keydown.enter)="abrir(p)" (keydown.space)="abrir(p); $event.preventDefault()">
         <div class="ap-it-head">
-          <span class="ap-folio">{{ p.folio_solicitud || 'sin folio' }}</span>
+          <!-- [PGP.79] El folio como lo busca quien abre Kepler: XA1501-<folio>. -->
+          <span class="ap-folio">{{ solicitudKepler(p.folio_solicitud) || 'sin folio' }}</span>
           @if (p.sucursal) { <span class="ap-suc">{{ branchLabel(p.sucursal) }}</span> }
           <!-- [GX.67] El DÍA de captura cuando no es hoy. Sin esto, un vale de
                julio y uno de hace diez minutos se ven igual en la misma lista. -->
@@ -343,6 +347,12 @@ const ESTADO_LABEL: Record<string, string> = {
                 [class.warn]="p.status === 'revision'" [class.bad]="p.status === 'rechazada'">
             {{ estado(p.status) }}
           </span>
+          <!-- [PGP.79] Dónde está la solicitud en Kepler. La frase lo dice; el color sólo acompaña. -->
+          @if (keplerDe(p); as k) {
+            <span class="ap-chip" [class.ok]="k.tono === 'ok'" [class.warn]="k.tono === 'warn'" [class.bad]="k.tono === 'bad'">
+              {{ k.texto }}
+            </span>
+          }
           @if (p.etapa === 'sin_etapa') {
             <!-- Un estado que el servidor no reconoce se DECLARA, no se archiva. -->
             <span class="ap-chip bad" title="El servidor no reconoce este estado">estado desconocido</span>
@@ -385,7 +395,7 @@ const ESTADO_LABEL: Record<string, string> = {
       <!-- El vale completo vive en un componente compartido: el Historial usa el mismo.
            Dos visores serian dos lugares donde arreglar el mismo error. -->
       <app-vale-gasto-peek [open]="peekAbierto()" (openChange)="cerrarSiHaceFalta($event)"
-                           [vale]="abierto()" [acciones]="accionesDelVisor(abierto())"
+                           [vale]="abierto()" [kepler]="keplerDelAbierto()" [acciones]="accionesDelVisor(abierto())"
                            [ocupado]="actuando() !== null"
                            (aprobar)="aprobar($any($event))" (comprobar)="darPorComprobado($any($event))"
                            (rechazar)="rechazar($any($event))"
@@ -551,6 +561,11 @@ export class FinanzasAprobacionGastosComponent {
   readonly abierto = signal<ExpedienteDelDia | null>(null);
   /** `[GX.29]` Lo que ESTA persona tiene que decidir. El servidor sólo manda lo suyo. */
   readonly reaperturas = signal<ReaperturaPendiente[]>([]);
+  /** `[PGP.79]` La solicitud de Kepler de cada vale de la lista, por id. Llega en su propio viaje. */
+  readonly kepler = signal<Record<string, KeplerDelVale>>({});
+  /** `[PGP.79]` La consulta a Kepler falló: se DICE en el renglón, no se calla. */
+  readonly keplerFallo = signal(false);
+  readonly solicitudKepler = solicitudKepler;
   /**
    * El día que acota **lo ya decidido**. Vacío = hoy, y quién es hoy lo decide el SERVIDOR
    * (hora de México).
@@ -616,6 +631,7 @@ export class FinanzasAprobacionGastosComponent {
       .subscribe({
         next: (d) => {
           this.datos.set(d);
+          this.cargarKepler(d);
           // Si el departamento elegido ya no tiene nada (otra persona firmó lo último), se suelta
           // el filtro: con un solo departamento la barra se esconde y no habría cómo quitarlo.
           const g = this.grupo();
@@ -648,7 +664,7 @@ export class FinanzasAprobacionGastosComponent {
     this.svc.delDia(this.fecha() || undefined)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (d) => { this.datos.set(d); this.grupo.set(null); this.cargando.set(false); },
+        next: (d) => { this.datos.set(d); this.grupo.set(null); this.cargando.set(false); this.cargarKepler(d); },
         // Un error NO se pinta como «ese día no se levantó nada»: es otra afirmación, y la
         // equivocada deja dinero esperando sin que nadie lo sepa.
         error: () => { this.error.set('No se pudo cargar el día. Vuelve a intentar.'); this.cargando.set(false); },
@@ -756,7 +772,44 @@ export class FinanzasAprobacionGastosComponent {
   /** Abre el vale. Los archivos ya vienen firmados en la fila — no se vuelve a pedir nada. */
   abrir(p: ExpedienteDelDia): void {
     this.abierto.set(p);
+    // `[PGP.79]` Un vale abierto desde la búsqueda no venía en la lista: se pide el suyo.
+    if (!this.kepler()[p.id]) this.pedirKepler([p.id]);
   }
+
+  /**
+   * `[PGP.79]` **La solicitud de Kepler de los vales de la bandeja y de Atrasados**, en su propio
+   * viaje y en tandas de 150 (van en la URL). ⚠️ Su error no tumba la pantalla —firmar no depende
+   * de esto—, pero tampoco se calla: el renglón dice «no se pudo consultar».
+   */
+  private cargarKepler(d: GastosDelDia): void {
+    this.pedirKepler([...d.filas, ...(d.atrasados ?? [])].map((f) => f.id));
+  }
+
+  private pedirKepler(ids: string[]): void {
+    const unicos = [...new Set(ids.filter(Boolean))];
+    if (!unicos.length) return;
+    const tandas: string[][] = [];
+    for (let i = 0; i < unicos.length; i += 150) tandas.push(unicos.slice(i, i + 150));
+    forkJoin(tandas.map((t) => this.svc.keplerDeVales(t)))
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (rs) => { this.kepler.update((m) => Object.assign({ ...m }, ...rs)); this.keplerFallo.set(false); },
+        error: () => this.keplerFallo.set(true),
+      });
+  }
+
+  /** `[PGP.79]` Lo que dice la pastilla de Kepler del renglón. `null` = todavía no llega. */
+  keplerDe(p: ExpedienteDelDia): { texto: string; tono: TonoKepler } | null {
+    const k = this.kepler()[p.id];
+    if (k) return lecturaKepler(k, p.status);
+    return this.keplerFallo() ? { texto: 'Kepler: no se pudo consultar', tono: 'neutro' } : null;
+  }
+
+  /** `[PGP.79]` La solicitud de Kepler del vale abierto, para el detalle. */
+  readonly keplerDelAbierto = computed<KeplerDelVale | null>(() => {
+    const a = this.abierto();
+    return a ? (this.kepler()[a.id] ?? null) : null;
+  });
 
   /** El `model` del panel avisa cuando se cierra (Escape, backdrop o la X). */
   cerrarSiHaceFalta(v: boolean): void {
@@ -854,13 +907,25 @@ export class FinanzasAprobacionGastosComponent {
       ? { provisional: true, ...(a.comprobante_esperado_at ? { comprobante_esperado_at: a.comprobante_esperado_at } : {}) }
       : undefined;
     this.svc.approve(p.id, body).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => {
+      next: (r) => {
         this.actuando.set(null);
         this.abierto.set(null);
         this.toast.add(a.provisional
           ? { severity: 'warn', summary: 'Aprobado como provisional',
               detail: `Solicitud ${p.folio_solicitud} — queda esperando el comprobante`, life: 6000 }
           : { severity: 'success', summary: 'Aprobado', detail: `Solicitud ${p.folio_solicitud}` });
+        // `[PGP.79]` El vale sale de la bandeja al aprobarlo: lo que pasó en Kepler se dice AQUÍ,
+        // y el «no se pudo» se queda en pantalla hasta que alguien lo cierre.
+        const k = r?.kepler;
+        const doc = solicitudKepler(p.folio_solicitud) ?? 'la solicitud';
+        if (k?.estado === 'escrito') {
+          this.toast.add({ severity: 'success', summary: 'Autorizada en Kepler', detail: `${doc} quedó autorizada.` });
+        } else if (k?.estado === 'ya_estaba') {
+          this.toast.add({ severity: 'info', summary: 'Kepler ya la tenía', detail: `${doc} ya estaba ${k.kepler === 'F' ? 'aplicada' : 'autorizada'}.` });
+        } else if (k?.estado === 'no_escrito') {
+          this.toast.add({ severity: 'error', summary: 'No se autorizó en Kepler', sticky: true,
+            detail: `${doc}: ${k.motivo}. El vale sí quedó aprobado aquí; autorízala en Kepler o avisa a Sistemas.` });
+        }
         this.cargar();
       },
       error: (e) => this.falla('No se pudo aprobar', e),

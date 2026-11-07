@@ -496,3 +496,64 @@ Después, en Kepler: generar la OC desde la requisición. Si ya no se quieren, l
   y 08 no se pudieron medir desde desarrollo (`pg_hba`). `node database/scripts/kepler-push-ops.js revisar` lo dice por servidor.
 - Antes de encenderla en una sucursal: canario de una requisición, ver en Kepler la OC ligada a la
   requisición (`X-A-35` con `c39` = folio de la requisición) y probar la baja de los dos documentos.
+
+## 14. `[COT.37]` Permisos y correcciones en Kepler desde md (2026-11-06)
+
+**Para qué:** dar un permiso nuevo a `kepler_push` en los servidores de Kepler, o corregir un dato de un
+pedido que la Suite ya escribió (por ejemplo la «Dirección Envío», `kdm1.c115`), sin depender de la
+máquina de desarrollo.
+
+### 14.1 Qué se puede desde md, medido
+
+| Desde | Como `kepler_push` (escribir / corregir) | Como `sa` (dar permisos) |
+|---|---|---|
+| md (`192.168.0.222`, el pod `api`) | ✅ en los nueve: es la IP que su `pg_hba` acepta | ❌ en 00, 02, 03, 04, 05, 08: «no hay una línea en pg_hba.conf» |
+| esta PC de desarrollo (`192.168.0.115`) | ❌ (su `pg_hba` es sólo para md) | ✅ en **01, 06 y 07**; ❌ en los otros seis, igual que md |
+
+Ningún servidor acepta conexión cifrada (`--ssl` responde «The server does not support SSL connections»):
+el rechazo de los seis es de `pg_hba`, antes de revisar la contraseña. Para abrirlos, quien administra
+cada servidor agrega `host  md_NN  sa  <IP de md o de la PC>/32  md5` y corre `SELECT pg_reload_conf();`.
+
+⛔ La contraseña de `sa` **no se guarda** en ningún archivo (ni el repo, que es público, ni la carpeta de
+secretos). El script la pide al correrlo, sin mostrarla.
+
+### 14.2 Dar un permiso: `ops/prod/kepler-sql-todos.js`
+
+Corre un archivo de `ops/prod/kepler-grants/` en los servidores, en una transacción por servidor, y lo
+comprueba con la línea `-- verificar:` del archivo (si no da `true`, revierte). Por omisión sólo revisa.
+
+Desde la PC (llega a 01, 06 y 07):
+```bash
+node ops/prod/kepler-sql-todos.js ops/prod/kepler-grants/cot37_kdm1_update_c115.sql --usuario sa            # revisa
+node ops/prod/kepler-sql-todos.js ops/prod/kepler-grants/cot37_kdm1_update_c115.sql --usuario sa --aplicar  # aplica
+```
+
+Desde md, dentro del pod `api` (trae Node y `pg`; sirve cuando el `pg_hba` del servidor acepte a md):
+```bash
+scp -q ops/prod/kepler-sql-todos.js ops/prod/kepler-grants/<archivo>.sql superoot@192.168.0.222:/tmp/
+ssh -t superoot@192.168.0.222 'P=$(kubectl -n prod get pods -o name | grep -m1 "^pod/api-"); N=${P#pod/};
+  kubectl -n prod cp /tmp/kepler-sql-todos.js $N:/tmp/k.js -c api && kubectl -n prod cp /tmp/<archivo>.sql $N:/tmp/g.sql -c api &&
+  kubectl -n prod exec -it $N -c api -- sh -c "NODE_PATH=/app/node_modules node /tmp/k.js /tmp/g.sql --usuario sa"'
+```
+⚠️ Si se le pasa la contraseña por tubería, va un servidor por corrida (`--servidores 02`): el script lee la
+entrada de una sola vez en la primera pregunta. Borrar después `/tmp/k.js` y `/tmp/g.sql` del pod y de md.
+
+**Estado de `cot37_kdm1_update_c115.sql`** (UPDATE sólo de la columna `c115` para `kepler_push`): aplicado y
+comprobado en **01 Padre Hidalgo, 06 Canindo y 07 Morelia Madero**; pendiente en los otros seis hasta abrir su `pg_hba`.
+
+### 14.3 Corregir un pedido ya escrito, desde md
+
+Con `kepler_push` (la URL del propio pod, `KEPLER_PUSH_URL_NN`; nunca se imprime), un script por `node -`
+dentro del pod `api`:
+```bash
+scp -q <script>.js superoot@192.168.0.222:/tmp/x.js
+ssh superoot@192.168.0.222 'P=$(kubectl -n prod get pods -o name | grep -m1 "^pod/api-");
+  kubectl -n prod exec -i "$P" -c api -- sh -c "cd /app && node -" < /tmp/x.js; rm -f /tmp/x.js'
+```
+Reglas del script: `BEGIN`; el `UPDATE` toca **sólo** la columna permitida, sólo si está vacía, sólo el
+pedido de la sucursal + folio + `c24` que empieza con el folio de la Suite; si no casa **exactamente una
+fila**, `ROLLBACK`. Así se puso la «Dirección Envío» del pedido 0001803 de Canindo el 2026-11-06 (el 0003826
+de Padre Hidalgo ya la tenía: alguien la puso con F9 y el script no tocó nada, como debía).
+
+⛔ «Dirección Envío» es **`c115`**, no `c85` (ver `ERP_KEPLER.md` §3.y): Kepler crea el pedido con `c85` = 0 y
+los iguala al embarcar.

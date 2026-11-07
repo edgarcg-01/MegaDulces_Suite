@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Param, Query, Body, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Header, Post, Param, Query, Body, Req, Res, UseGuards } from '@nestjs/common';
+import type { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission, TenantContextService } from '@megadulces/platform-core';
 import { CustomerLedgerService, CarteraQuery } from './customer-ledger.service';
@@ -6,6 +7,7 @@ import { CustomerLedgerService, CarteraQuery } from './customer-ledger.service';
 // un método decorado tiene que entrar así o el compilador lo rechaza (TS1272).
 import type { PorDiaResp } from './customer-ledger.service';
 import { CustomerReceivablesScannerService } from './customer-receivables-scanner.service';
+import { EstadoCuentaClienteDocument } from './estado-cuenta-cliente.document';
 
 interface AuthedRequest { user?: { username?: string } }
 
@@ -22,6 +24,7 @@ export class CustomerLedgerController {
     private readonly svc: CustomerLedgerService,
     private readonly scanner: CustomerReceivablesScannerService,
     private readonly tenantCtx: TenantContextService,
+    private readonly estadoCuenta: EstadoCuentaClienteDocument,
   ) {}
 
   @Post('scan-now')
@@ -144,6 +147,25 @@ export class CustomerLedgerController {
   @ApiOperation({ summary: 'Documentos que tocaron un producto: facturas + notas de crédito/devoluciones.' })
   buscarPorProducto(@Query('q') q?: string, @Query('limit') limit?: string) {
     return this.svc.buscarPorProducto({ texto: q, limit: limit ? Number(limit) : undefined });
+  }
+
+  /**
+   * `[CXC.40]` El estado de cuenta que se le entrega al cliente, en PDF. Mismo permiso y mismo
+   * auxiliar que `GET :sucursal/:cliente` — lo que se ve en el diálogo es lo que se imprime.
+   */
+  @Get(':sucursal/:cliente/estado-de-cuenta.pdf')
+  @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)
+  @Header('Cache-Control', 'no-store')
+  @ApiOperation({ summary: '[CXC.40] Estado de cuenta del cliente en PDF (saldo, antigüedad y facturas abiertas), para entregarle.' })
+  async estadoDeCuentaPdf(
+    @Param('sucursal') sucursal: string,
+    @Param('cliente') cliente: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const { pdf, nombre } = await this.estadoCuenta.render(sucursal, cliente);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${nombre}"`);
+    res.send(pdf);
   }
 
   @Get(':sucursal/:cliente')

@@ -1,5 +1,5 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
-import { TenantKnexService } from '@megadulces/platform-core';
+import { TenantKnexService, applySmartSearch } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
 import { EmbeddingsService } from '@megadulces/platform-core';
 import { RecommendationsService } from '../commercial-recommendations/recommendations.service';
@@ -292,12 +292,9 @@ export class CommercialCatalogSearchService {
       // Escapamos % y _ del input para evitar wildcards del usuario que
       // vuelvan caro el query plan.
       if (input.q && input.q.trim()) {
-        const term = `%${input.q.trim().replace(/[%_\\]/g, '\\$&')}%`;
-        q = q.andWhere((b: any) => {
-          b.whereILike('p.nombre', term)
-            .orWhereILike('b.nombre', term)
-            .orWhereILike('b.display_name', term);
-        });
+        // `[BU.2.3]` Motor único `applySmartSearch`: cada palabra en nombre de producto o marca,
+        // cualquier orden. `fuzzy:false` como el resto del catálogo (el operador escribe exacto).
+        applySmartSearch(q, input.q, { columns: ['p.nombre', 'b.nombre', 'b.display_name'], fuzzy: false });
       }
 
       if (input.brandId) {
@@ -808,9 +805,8 @@ export class CommercialCatalogSearchService {
     query: string,
     limit: number,
   ): Promise<SearchResult[]> {
-    const term = `%${query.replace(/[%_]/g, '\\$&')}%`;
     return this.tk.run(async (trx) => {
-      const rows = await trx('commercial.product_prices as pp')
+      const qb = trx('commercial.product_prices as pp')
         .leftJoin('catalog.products as p', function () {
           this.on('p.id', '=', 'pp.product_id').andOn('p.tenant_id', '=', 'pp.tenant_id');
         })
@@ -819,12 +815,11 @@ export class CommercialCatalogSearchService {
         })
         .where('pp.price_list_id', priceListId)
         .whereNull('pp.deleted_at')
-        .whereNull('p.deleted_at')
-        .andWhere((q: any) => {
-          q.whereILike('p.nombre', term)
-            .orWhereILike('b.nombre', term)
-            .orWhereILike('b.display_name', term);
-        })
+        .whereNull('p.deleted_at');
+      // `[BU.2.3]` Motor único `applySmartSearch` (antes era el fallback LIKE): varias palabras,
+      // nombre de producto o marca, cualquier orden. `fuzzy:false` como el resto del catálogo.
+      applySmartSearch(qb, query, { columns: ['p.nombre', 'b.nombre', 'b.display_name'], fuzzy: false });
+      const rows = await qb
         .orderBy('p.nombre', 'asc')
         .limit(limit)
         .select(

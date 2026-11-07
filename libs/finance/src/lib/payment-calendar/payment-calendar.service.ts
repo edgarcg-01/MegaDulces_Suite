@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { Knex } from 'knex';
-import { TenantKnexService, TenantContextService, ObjectStorageService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, ObjectStorageService, applySmartSearch } from '@megadulces/platform-core';
 import { BUDGET_LEDGER_PORT, type BudgetLedgerPort } from '../budget/budget-ledger.port';
 import { GRUPOS_FINANCIEROS, PREFIJOS_FINANCIEROS } from '../creditor-statements/creditor-statements.engine';
 import { sqlKeplerPayableId } from '@megadulces/contracts/finance/kepler-payable-key';
@@ -896,15 +896,19 @@ export class PaymentCalendarService {
        * un adorno: en 92.6 % de los casos es lo que desempata.
        */
       if (q.search?.trim()) {
-        const s = q.search.trim();
-        // `[PGP.12]` El tipo sale del USO: a `w` se le encadenan `whereILike`/`orWhereILike`,
-        // o sea que es el constructor de consultas de Knex, no un `any`. Mismo patrón que
-        // `commission-padron.service.ts`.
-        base.andWhere((w: Knex.QueryBuilder) => w
-          .whereILike('ob.beneficiary', `%${s}%`)
-          .orWhereILike('ob.concept', `%${s}%`)
-          .orWhereILike('ob.doc_ref', `%${s}%`)
-          .orWhereILike('ob.payee_code', `%${s}%`));
+        // `[BU.2.1]` El mismo motor que ya usan 22 pantallas (`applySmartSearch`): cada palabra
+        // de la búsqueda tiene que aparecer en ALGÚN lado, en cualquier orden, sin acentos, y los
+        // números pegan por dígitos. Así «delicias 396 248» = proveedor **delicias** + folio **396**
+        // + monto **248** en una sola consulta, que el `whereILike('%texto%')` anterior no podía:
+        // buscaba la frase entera y multi-palabra siempre daba vacío.
+        //
+        // El monto va TAMBIÉN en `columns` (no sólo en `numeric`): la vía numérica del motor sólo
+        // se activa cuando TODA la consulta es un número, así que para que «248» pegue dentro de
+        // una búsqueda mixta, los dígitos del importe tienen que estar en el pajar de texto.
+        applySmartSearch(base, q.search, {
+          columns: ['ob.beneficiary', 'ob.concept', 'ob.doc_ref', 'ob.payee_code', 'ob.original_amount'],
+          numeric: ['ob.original_amount', 'ob.available_amount'],
+        });
       }
       if (q.dueFrom) base.where('ob.original_due_date', '>=', q.dueFrom);
       if (q.dueTo) base.where('ob.original_due_date', '<=', q.dueTo);

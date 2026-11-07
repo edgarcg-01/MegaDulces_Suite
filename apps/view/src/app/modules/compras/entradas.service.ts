@@ -472,15 +472,17 @@ export interface ReconciledLine {
   kepler: { linea: string; sku: string | null; nombre: string | null; unidad: string | null; cantidad: number; costo_unitario: number; importe: number } | null;
   resolved_sku: string | null;
   resolved_nombre: string | null;
-  method: 'alias' | 'barcode' | 'descripcion' | 'sin_match';
+  method: 'alias' | 'barcode' | 'descripcion' | 'numeros' | 'sin_match';
   score: number;
   box_factor: number;
   qty_remision_pz: number | null;
   qty_kepler: number | null;
   qty_match: boolean | null;
   price_match: boolean | null;
-  status: 'cuadra' | 'difiere_cantidad' | 'difiere_precio' | 'revisar' | 'sin_match';
+  status: 'cuadra' | 'difiere_cantidad' | 'difiere_precio' | 'revisar' | 'agrupado' | 'sin_match';
   alias_hit: boolean;
+  /** `[RE.56]` Parte de un grupo: varios renglones del proveedor forman UNA línea de Kepler. */
+  grupo?: { linea: string; renglones: number } | null;
 }
 
 export interface ReconcileResult {
@@ -492,7 +494,13 @@ export interface ReconcileResult {
   kepler_orphans: { linea: string; sku: string | null; nombre: string | null; unidad: string | null; cantidad: number; costo_unitario: number; importe: number }[];
   /** `[RE.53]` Si los importes de la remisión traen IVA; se decide por documento, no se supone. */
   base_precio?: 'sin_iva' | 'con_iva' | 'sin_medir';
-  totals: { lineas_remision: number; lineas_kepler: number; cuadran: number; difieren: number; sin_match: number; revisar: number; kepler_orphans: number };
+  totals: { lineas_remision: number; lineas_kepler: number; cuadran: number; difieren: number; sin_match: number; revisar: number; kepler_orphans: number; agrupados?: number };
+  /**
+   * `[RE.55]` De dónde salieron los renglones del proveedor: los conceptos del CFDI ligado, o el OCR
+   * del papel. Un OCR que no pasa las pruebas (dígito verificador, suma contra el total) no se
+   * concilia: `confiable: false` y `motivos` dicen por qué.
+   */
+  lectura?: { fuente: 'cfdi' | 'ocr'; confiable: boolean; motivos: string[]; uuid: string | null; renglones_leidos: number; liga_sugerida?: boolean };
 }
 
 /** RE.pkt.1 — un documento detectado dentro del paquete, con su página y prueba. */

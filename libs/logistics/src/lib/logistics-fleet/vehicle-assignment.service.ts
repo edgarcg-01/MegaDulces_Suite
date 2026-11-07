@@ -4,7 +4,7 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
-import { TenantKnexService } from '@megadulces/platform-core';
+import { TenantKnexService, applySmartSearch } from '@megadulces/platform-core';
 import {
   VEHICLE_ASSIGNMENT_TEMPLATE,
   VEHICLE_ASSIGNMENT_TEMPLATE_VERSION,
@@ -82,8 +82,8 @@ export class VehicleAssignmentService {
   async linkableUsers(search?: string) {
     const q = (search || '').trim();
     if (q.length < 2) return [];
-    return this.tk.run(async (trx) =>
-      trx('identity.users as u')
+    return this.tk.run(async (trx) => {
+      const qb = trx('identity.users as u')
         .whereRaw('u.tenant_id = public.current_tenant_id()')
         .where('u.activo', true)
         .whereNull('u.deleted_at')
@@ -93,11 +93,13 @@ export class VehicleAssignmentService {
             .whereRaw('d.user_id = u.id')
             .whereNull('d.deleted_at');
         })
-        .andWhere((qb: any) => qb.whereILike('u.nombre', `%${q}%`).orWhereILike('u.username', `%${q}%`))
         .select('u.id', 'u.username', 'u.nombre')
         .orderBy('u.nombre')
-        .limit(20),
-    );
+        .limit(20);
+      // [BU.2.2] Motor único `applySmartSearch` sobre nombre y usuario.
+      applySmartSearch(qb, q, { columns: ['u.nombre', 'u.username'] });
+      return qb;
+    });
   }
 
   // ── DERECHO de uso ───────────────────────────────────────────────────────

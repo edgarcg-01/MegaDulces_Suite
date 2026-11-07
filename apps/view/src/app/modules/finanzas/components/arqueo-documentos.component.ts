@@ -43,9 +43,14 @@ const llave = (banco: string | null, numero: string | null): string =>
  * era UN importe tecleado, y Control re-declaró el mismo importe de papeles en 383 arqueos sin que
  * nadie supiera quién debía ni por qué.
  *
- * Lo que había en el último arqueo se marca UNO POR UNO —sigue o salió, y si salió, por qué—; no
- * hay «todos siguen»: un clic por documento es lo mínimo que obliga a mirarlo. Lo nuevo se agrega
- * con lo que lo identifica. El importe del apartado no se teclea: es la suma de lo que está.
+ * Lo que había en el último arqueo se marca UNO POR UNO —sigue o salió, y si salió, por qué—. Lo
+ * nuevo se agrega con lo que lo identifica. El importe del apartado no se teclea: es la suma de lo
+ * que está.
+ *
+ * ⭐ `[LE.6.23]` Con `propuesto`, lo que había llega marcado «Sigue» (PM, 2026-11-06: *«entrega el
+ * valor por default, ya que esos casi no cambian»*); la persona marca «Salió» sólo lo que ya no
+ * está. Antes no había «todos siguen» —un clic por documento obligaba a mirarlo— y el apartado casi
+ * no se usó. `sinCambios` dice si se confirmó tal cual, para que el arqueo lo deje escrito.
  *
  * Sin tocar nada, el apartado queda «no se contó» (`null`): distinto de «no hay» (`[]`).
  */
@@ -67,7 +72,11 @@ const llave = (banco: string | null, numero: string | null): string =>
           </p>
         }
         @if (anteriores().length) {
-          <p class="ad-sub">Había {{ anteriores().length }} en el arqueo anterior: di de cada uno si sigue en la caja.</p>
+          @if (propuesto()) {
+            <p class="ad-sub">Propuesto del arqueo anterior: {{ anteriores().length === 1 ? 'sigue' : 'siguen los ' + anteriores().length }}. Marca «Salió» el que ya no esté.</p>
+          } @else {
+            <p class="ad-sub">Había {{ anteriores().length }} en el arqueo anterior: di de cada uno si sigue en la caja.</p>
+          }
           <ul class="ad-lista">
             @for (d of anteriores(); track d.pieza) {
               <li class="ad-fila">
@@ -150,6 +159,8 @@ export class ArqueoDocumentosComponent {
   readonly apartado = input<ApartadoEnCaja | null>(null);
   /** Por qué no se puede contar ahora (la lectura falló, la base no lo tiene). `null` = se puede. */
   readonly bloqueo = input<string | null>(null);
+  /** `[LE.6.23]` Lo que había llega marcado «Sigue»: se cambia sólo lo que salió. */
+  readonly propuesto = input(false);
 
   protected readonly SIGUE = SIGUE;
   protected readonly CLASES = CLASES;
@@ -160,6 +171,10 @@ export class ArqueoDocumentosComponent {
   readonly marcas = signal<Record<string, Marca>>({});
   readonly nuevos = signal<DocumentoNuevo[]>([]);
   private siguiente = 1;
+  /** `[LE.6.23]` Alguien tocó algo después de la propuesta. */
+  private readonly cambiado = signal(false);
+  /** `[LE.6.23]` Se confirma tal cual se propuso: había algo, todo sigue y no se agregó nada. */
+  readonly sinCambios = computed(() => this.propuesto() && !this.cambiado() && this.anteriores().length > 0);
 
   readonly titulo = computed(() => (this.tipo() === 'cheque' ? 'Cheques' : 'Vales y papeles'));
   readonly anteriores = computed<DocumentoEnCaja[]>(() => this.apartado()?.piezas ?? []);
@@ -185,6 +200,7 @@ export class ArqueoDocumentosComponent {
     const e = estado === 'esta' || estado === 'salio' ? estado : '';
     this.marcas.update((m) => ({ ...m, [pieza]: { ...(m[pieza] ?? SIN_MARCA), estado: e, ...(e === 'esta' ? { salida: null, nota: '' } : {}) } }));
     this.contado.set(true);
+    if (e !== 'esta') this.cambiado.set(true);
   }
 
   ponerSalida(pieza: string, salida: SalidaDocumento | null): void {
@@ -199,6 +215,7 @@ export class ArqueoDocumentosComponent {
     const id = this.siguiente++;
     this.nuevos.update((l) => [...l, { id, clase: null, monto: null, banco: '', numero: '', de_quien: '', concepto: '', fecha: null }]);
     this.contado.set(true);
+    this.cambiado.set(true);
   }
 
   poner<K extends keyof DocumentoNuevo>(id: number, campo: K, valor: DocumentoNuevo[K] | string): void {
@@ -210,9 +227,18 @@ export class ArqueoDocumentosComponent {
   }
 
   reiniciar(): void {
+    this.cambiado.set(false);
+    this.nuevos.set([]);
+    // `[LE.6.23]` Propuesto: lo que había, marcado «Sigue». Sin nada anterior no hay qué proponer y
+    // el apartado queda «no se contó», como siempre (lo de Control sin detalle no se inventa).
+    const ant = this.anteriores();
+    if (this.propuesto() && ant.length) {
+      this.marcas.set(Object.fromEntries(ant.map((d) => [d.pieza, { ...SIN_MARCA, estado: 'esta' as const }])));
+      this.contado.set(true);
+      return;
+    }
     this.contado.set(false);
     this.marcas.set({});
-    this.nuevos.set([]);
   }
 
   private completo(n: DocumentoNuevo): boolean {

@@ -818,6 +818,9 @@ export enum Permission {
   //    vendedores, gerente y Dirección.
   //  · ALTA_CLIENTES_CREDITO — decidir crédito, plazo y descuento (es dinero): Crédito y
   //    Cobranza y, en su ausencia, la Gerencia Administrativa y Financiera y Dirección General.
+  //  · ALTA_CLIENTES_VER `[ALC.0.6]` — sólo consultar la bandeja (no captura, no liga, no
+  //    cancela, no decide crédito): las gestoras de Crédito y Cobranza (Francisco, 2026-11-06).
   COMMERCIAL_ALTA_CLIENTES = 'COMMERCIAL_ALTA_CLIENTES',
   COMMERCIAL_ALTA_CLIENTES_CREDITO = 'COMMERCIAL_ALTA_CLIENTES_CREDITO',
+  COMMERCIAL_ALTA_CLIENTES_VER = 'COMMERCIAL_ALTA_CLIENTES_VER',
 }

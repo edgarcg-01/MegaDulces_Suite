@@ -395,15 +395,24 @@ export class ComercialAltaClientesComponent {
   rotulo(c: CasillaKepler): string { return CASILLAS_KEPLER[c].rotulo; }
   accion(s: SolicitudAlta): string {
     if (s.estado === 'credito_por_aprobar') return this.puedeCredito() ? 'Decidir crédito' : 'Ver';
-    if (s.estado === 'lista_para_kepler') return s.coincidencias_kepler.length ? 'Ligar' : 'Ver ficha';
+    // `[ALC.0.6]` Quien sólo consulta no liga: el botón no le ofrece lo que el servidor le niega.
+    if (s.estado === 'lista_para_kepler') return s.coincidencias_kepler.length && this.puedeCapturar() ? 'Ligar' : 'Ver ficha';
     return 'Ver';
   }
   siguientePaso(s: SolicitudAlta): string {
     switch (s.estado) {
       case 'credito_por_aprobar': return `Pidió ${this.dinero(s.credito_solicitado)} a ${s.plazo_dias} días. Hasta que Crédito y Cobranza decida, no se captura en Kepler.`;
-      case 'lista_para_kepler': return s.coincidencias_kepler.length
-        ? 'Kepler ya tiene una ficha con este RFC: si es la que capturaron, lígala.'
-        : 'Falta capturarla en Kepler: copia la ficha casilla por casilla y escribe aquí la clave que te dé Kepler.';
+      case 'lista_para_kepler':
+        if (!this.puedeCapturar()) {
+          // Que Kepler tenga el RFC no prueba que sea ESTA ficha: la caja pudo guardar «Es otra ficha».
+          return s.coincidencias_kepler.length
+            ? `Kepler ya tiene ${s.coincidencias_kepler.length > 1 ? 'fichas' : 'una ficha'} con este RFC (${s.coincidencias_kepler.map((k) => k.clave).join(', ')}): `
+              + 'quien la dio de alta la liga si es ésa, o captura la nueva en Kepler y liga su clave.'
+            : 'Falta capturarla en Kepler y ligar su clave: lo hace quien da de alta (caja, encargados o vendedores).';
+        }
+        return s.coincidencias_kepler.length
+          ? 'Kepler ya tiene una ficha con este RFC: si es la que capturaron, lígala.'
+          : 'Falta capturarla en Kepler: copia la ficha casilla por casilla y escribe aquí la clave que te dé Kepler.';
       case 'ligada': return `Ligada a la clave ${s.erp_customer_code} de Kepler${s.ligada_el ? ' el ' + this.fechaCorta(s.ligada_el) : ''}.`;
       default: return 'Cancelada: no se dio de alta.';
     }

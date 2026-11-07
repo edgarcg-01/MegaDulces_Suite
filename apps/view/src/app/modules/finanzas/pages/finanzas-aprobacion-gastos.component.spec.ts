@@ -9,6 +9,7 @@ import type { ExpedienteAtrasado, ExpedienteDelDia, GastosDelDia, ResultadoBusqu
 import { AuthService, type JwtPayload } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { BuscadorGastosEstado } from '../components/buscador-gastos.estado';
+import { MessageService } from 'primeng/api';
 
 /**
  * `[GX.20]` Candado de la pantalla de **Aprobación de gastos**.
@@ -126,7 +127,12 @@ describe('FinanzasAprobacionGastosComponent', () => {
     http = TestBed.inject(HttpTestingController);
   });
 
-  afterEach(() => http.verify());
+  // `[PGP.79]` Cada carga del día pide también la solicitud de Kepler de sus vales, en su propio
+  // viaje. Las pruebas que no son de Kepler no la responden: se vacía aquí, antes del verify.
+  afterEach(() => {
+    for (const r of http.match((x) => x.url.includes('/kepler-autorizacion'))) r.flush({});
+    http.verify();
+  });
 
   it('monta y arranca en la bandeja de hoy', () => {
     montar();
@@ -752,6 +758,71 @@ describe('FinanzasAprobacionGastosComponent', () => {
    * `[GX.65.4a]` **Nadie decide sobre su propio vale.** El servidor lo niega; la pantalla no
    * ofrece el botón y dice por qué. Sin la etiqueta, el vale abriría sin botones y parecería roto.
    */
+  describe('[PGP.79] la solicitud en Kepler', () => {
+    const suite = { resultado: 'escrito' as const, at: '2026-11-06T21:00:00Z', nota: null, firmo: 'Ana' };
+
+    it('pide la solicitud de los vales de la bandeja Y de Atrasados, y el renglón la nombra como Kepler', () => {
+      montar();
+      const req = http.expectOne((r) => r.url.includes('/finance/expenses/kepler-autorizacion'));
+      expect(req.request.params.get('ids')!.split(',').sort()).toEqual(['a1', 'a2', 'c1', 'e1', 'r1']);
+      req.flush({
+        a1: { solicitud: 'XA1501-0009678', estado: 'N', suite: null },
+        a2: { solicitud: 'XA1501-0009678', estado: 'C', suite: null },
+      });
+      fix.detectChanges();
+      const txt = fix.nativeElement.textContent as string;
+      expect(txt).toContain('XA1501-0009678');
+      expect(txt).toContain('Kepler: sin autorizar');
+      expect(txt).toContain('Kepler: cancelada');
+    });
+
+    it('⛔ si la consulta a Kepler falla, el renglón lo DICE (no se calla ni se pinta «sin autorizar»)', () => {
+      montar();
+      http.expectOne((r) => r.url.includes('/kepler-autorizacion')).flush('boom', { status: 500, statusText: 'Server Error' });
+      fix.detectChanges();
+      const txt = fix.nativeElement.textContent as string;
+      expect(txt).toContain('Kepler: no se pudo consultar');
+      expect(txt).not.toContain('Kepler: sin autorizar');
+    });
+
+    it('el detalle del vale dice quién y cuándo la autorizó la Suite', () => {
+      montar();
+      http.expectOne((r) => r.url.includes('/kepler-autorizacion'))
+        .flush({ a1: { solicitud: 'XA1501-0009678', estado: 'A', suite } });
+      c.abrir(c.visibles()[0]);
+      fix.detectChanges();
+      expect(c.keplerDelAbierto()?.suite?.resultado).toBe('escrito');
+      const txt = document.body.textContent as string;
+      expect(txt).toContain('Solicitud en Kepler');
+      expect(txt).toContain('Kepler: autorizada por la Suite');
+      expect(txt).toMatch(/La Suite la autorizó en Kepler al aprobar el .* · firmó Ana\./);
+    });
+
+    it('aprobar dice qué pasó en Kepler; el «no se pudo» se queda en pantalla', () => {
+      montar();
+      const toast = fix.debugElement.injector.get(MessageService);
+      const add = vi.spyOn(toast, 'add');
+      c.aprobar({ vale: c.visibles()[0], provisional: false, comprobante_esperado_at: null });
+      http.expectOne((r) => r.url.endsWith('/a1/approve'))
+        .flush({ id: 'a1', status: 'validada', kepler: { estado: 'no_escrito', motivo: 'Kepler (00) no respondió' } });
+      http.expectOne((r) => r.url.includes('/del-dia')).flush(DIA());
+      http.expectOne((r) => r.url.includes('/reaperturas/pendientes')).flush([]);
+      const k = add.mock.calls.map((x) => x[0]).find((m) => m.summary === 'No se autorizó en Kepler');
+      expect(k?.sticky).toBe(true);
+      expect(k?.detail).toContain('XA1501-0009678: Kepler (00) no respondió');
+    });
+
+    it('sin «kepler» en la respuesta (escritura apagada) no se inventa ningún aviso de Kepler', () => {
+      montar();
+      const add = vi.spyOn(fix.debugElement.injector.get(MessageService), 'add');
+      c.aprobar({ vale: c.visibles()[0], provisional: false, comprobante_esperado_at: null });
+      http.expectOne((r) => r.url.endsWith('/a1/approve')).flush({ id: 'a1', status: 'validada' });
+      http.expectOne((r) => r.url.includes('/del-dia')).flush(DIA());
+      http.expectOne((r) => r.url.includes('/reaperturas/pendientes')).flush([]);
+      expect(add.mock.calls.map((x) => x[0].summary)).toEqual(['Aprobado']);
+    });
+  });
+
   describe('[GX.65.4a] el vale propio', () => {
     const comoUsuario = (username: string, full_name?: string) =>
       TestBed.inject(AuthService).user.set({ sub: 'u1', username, full_name, exp: 0, iat: 0 } as JwtPayload & { full_name?: string });

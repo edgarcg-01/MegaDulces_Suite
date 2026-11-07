@@ -363,7 +363,8 @@ type FilaOc = OpenOcRow & { _clase: ClaseOc; _claseLabel: string };
                 <thead><tr>
                   <th scope="col">SKU</th><th scope="col">Producto</th>
                   <th scope="col" class="comm-num">Cant.</th><th scope="col">Unidad</th>
-                  <th scope="col" class="comm-num">Costo</th><th scope="col" class="comm-num">Importe</th>
+                  <!-- [PQ.86] costo e importe de Kepler: SIN impuestos (el total de la orden sí los trae) -->
+                  <th scope="col" class="comm-num">Costo sin imp.</th><th scope="col" class="comm-num">Importe sin imp.</th>
                 </tr></thead>
                 <tbody>
                   @for (l of d.lineas; track l.linea) {

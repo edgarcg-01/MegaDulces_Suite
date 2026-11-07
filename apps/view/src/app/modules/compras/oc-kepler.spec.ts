@@ -109,3 +109,15 @@ describe('[PQ.33] el tratamiento fiscal se DICE, con la tasa de Kepler', () => {
     expect(totalesOc(1000, 1000, 0, 0, { iva: null, ieps: [] }).map((x) => x.etiqueta)).toEqual(['Subtotal', 'Total']);
   });
 });
+
+describe('[PQ.86] el costo de la OC dice que es sin impuestos', () => {
+  it('el PDF para el proveedor y el panel lo rotulan', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const pdf = readFileSync(join(__dirname, 'oc-kepler-pdf.ts'), 'utf8');
+    const panel = readFileSync(join(__dirname, 'pages/compras-oc-abiertas.component.ts'), 'utf8');
+    expect(pdf).toContain("'Costo sin impuestos', 'Importe sin impuestos'");
+    expect(panel).toContain('Costo sin imp.</th>');
+    expect(panel).not.toMatch(/class="comm-num">Costo<\/th>/);
+  });
+});

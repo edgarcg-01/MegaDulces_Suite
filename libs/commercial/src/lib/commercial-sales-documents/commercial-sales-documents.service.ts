@@ -138,6 +138,15 @@ export interface EmbarqueSinFactura {
   situacion: 'sin_factura' | 'facturas_en_cero';
   /** Folios de las facturas en $0 (vacío si nunca se facturó). */
   facturas: string[];
+  /** Estatus del EMBARQUE en Kepler (`kdm1.c11`). Medido 2026-11-06: los 43 dicen EMBARCADO. */
+  estatus_embarque: string | null;
+  /**
+   * `[AX.19]` Cada factura en $0 con su estado en Kepler, por el back-pointer (`doc_origen`) de
+   * `analytics.erp_sales_invoices`. `cancelada` = `kdm1.c43='C'`. Medido 2026-11-06: 35 de 35
+   * canceladas. Una factura que la vista nombra y aquí no aparece queda con `cancelada: null`
+   * (no se sabe), nunca con `false`.
+   */
+  facturas_detalle: { folio: string; fecha: string | null; cancelada: boolean | null }[];
 }
 export interface EmbarquesSinFacturaReport {
   /** Ventana en días: la misma que el detector de Finanzas (365). */
@@ -599,8 +608,20 @@ export class CommercialSalesDocumentsService {
       if (q.warehouse_codes) b.whereIn('b.sucursal', q.warehouse_codes);
       const rows = await b
         .select('b.folio_digital', 'b.sucursal', 'b.folio', trx.raw('b.fecha::text AS fecha'),
-          'b.cliente_code', 'b.cliente_nombre', 'b.total_embarcado', 'b.diagnostico', 'b.facturas')
+          'b.cliente_code', 'b.cliente_nombre', 'b.total_embarcado', 'b.diagnostico', 'b.facturas', 'b.estatus')
         .orderBy([{ column: 'b.fecha', order: 'desc' }, { column: 'b.folio', order: 'desc' }]);
+
+      // `[AX.19]` El estado de las facturas en $0, por LLAVE CONSTANTE (sucursal, doc_origen) —
+      // nunca como JOIN contra la vista (ver `embarqueDe`). Medido: 11 embarques, 35 facturas, 54 ms.
+      const enCero = rows.filter((r) => r.diagnostico === 'facturado_en_cero');
+      const estado = new Map<string, { fecha: string | null; cancelada: boolean }>();
+      if (enCero.length) {
+        const fac = await trx('analytics.erp_sales_invoices as i')
+          .where('i.tenant_id', tenantId)
+          .whereIn(['i.sucursal', 'i.doc_origen'], enCero.map((r) => [r.sucursal, `UD4101-${r.folio}`]))
+          .select('i.sucursal', 'i.doc_origen', 'i.folio', trx.raw('i.fecha::text AS fecha'), 'i.cancelada');
+        for (const f of fac) estado.set(`${f.sucursal}|${f.doc_origen}|${String(f.folio).trim()}`, { fecha: f.fecha, cancelada: f.cancelada });
+      }
 
       const embarques: EmbarqueSinFactura[] = rows.map((r) => ({
         folio_digital: r.folio_digital,
@@ -612,6 +633,13 @@ export class CommercialSalesDocumentsService {
         total_embarcado: String(r.total_embarcado),
         situacion: r.diagnostico === 'facturado_en_cero' ? 'facturas_en_cero' : 'sin_factura',
         facturas: Array.isArray(r.facturas) ? r.facturas.map((f: { folio: string }) => f.folio) : [],
+        estatus_embarque: r.estatus ?? null,
+        facturas_detalle: Array.isArray(r.facturas)
+          ? r.facturas.map((f: { folio: string; fecha?: string }) => {
+              const e = estado.get(`${r.sucursal}|UD4101-${r.folio}|${f.folio}`);
+              return { folio: f.folio, fecha: e?.fecha ?? f.fecha ?? null, cancelada: e ? e.cancelada : null };
+            })
+          : [],
       }));
       // En centavos enteros: sumar `numeric` como float acumula error.
       const centavos = embarques.reduce((s, e) => s + Math.round(Number(e.total_embarcado) * 100), 0);

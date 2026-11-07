@@ -192,6 +192,12 @@ export interface ExpiryLabelFields {
  * Vars necesarias en `.env`:
  *   - ANTHROPIC_API_KEY (required)
  */
+/**
+ * `[RE.58]` UUID que alguna vez fueron EJEMPLO en un prompt de este archivo. El modelo los copia cuando
+ * no lee el del papel (22 entradas, 8-oct a 4-nov-2026), así que leído uno de éstos se descarta.
+ */
+export const UUIDS_DE_EJEMPLO: ReadonlySet<string> = new Set(['F32A11C2-0AE3-4DFF-9993-55E3690649E9']);
+
 @Injectable()
 export class LlmExtractorService implements OnModuleInit {
   private readonly logger = new Logger(LlmExtractorService.name);
@@ -1313,7 +1319,9 @@ export class LlmExtractorService implements OnModuleInit {
                 subtotal: { type: ['number', 'null'], description: 'Subtotal (antes de IVA) en pesos, sin símbolo ni comas. null si no se ve.' },
                 iva: { type: ['number', 'null'], description: 'IVA/impuestos en pesos, sin símbolo ni comas. null si no se ve.' },
                 total: { type: ['number', 'null'], description: 'TOTAL a pagar en pesos (el importe principal del documento), sin símbolo ni comas. null si no se ve.' },
-                uuid: { type: ['string', 'null'], description: 'Folio fiscal (UUID) del timbre de la factura: 36 caracteres con guiones (8-4-4-4-12), ej. "F32A11C2-0AE3-4DFF-9993-55E3690649E9". Copiar EXACTO, carácter por carácter. null si no aparece (las remisiones no lo traen).' },
+                // [RE.58] Sin UUID de ejemplo: el que había aquí lo devolvió el modelo en 22 entradas
+                // que no lo traían, y todas se ligaron a la factura real de otro emisor con ese UUID.
+                uuid: { type: ['string', 'null'], description: 'Folio fiscal (UUID) del timbre de la factura: 36 caracteres hexadecimales con guiones en grupos de 8-4-4-4-12. Copiar EXACTO, carácter por carácter, del papel. null si no aparece o no se lee completo (las remisiones no lo traen). NUNCA inventes ni completes uno.' },
                 sello_recibido: { type: ['boolean', 'null'], description: 'true si en el papel hay un SELLO de recibido de Mega Dulces / De Los Altos (sello de goma o tinta con "RECIBIDO", fecha o sucursal). false si el documento se ve completo y NO tiene sello. null si no se puede saber (hoja recortada o ilegible).' },
                 firma_recibido: { type: ['boolean', 'null'], description: 'true si hay una FIRMA o rúbrica manuscrita de quien recibió la mercancía (normalmente junto al sello o en "recibí"). false si el documento se ve completo y NO tiene firma. null si no se puede saber.' },
                 sello_evidencia: { type: ['string', 'null'], description: 'Lo que se lee en el sello de recibido (fecha, sucursal, leyenda), tal cual, máx ~60 caracteres. null si no hay sello o no se lee.' },
@@ -1442,7 +1450,7 @@ export class LlmExtractorService implements OnModuleInit {
       subtotal: num(inp.subtotal),
       iva: num(inp.iva),
       total: num(inp.total),
-      uuid: uuidLeido && /^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/.test(uuidLeido) ? uuidLeido : null,
+      uuid: uuidLeido && /^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/.test(uuidLeido) && !UUIDS_DE_EJEMPLO.has(uuidLeido) ? uuidLeido : null,
       sello_recibido: bool(inp.sello_recibido),
       firma_recibido: bool(inp.firma_recibido),
       sello_evidencia: str(inp.sello_evidencia)?.slice(0, 60) ?? null,

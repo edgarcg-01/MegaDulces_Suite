@@ -26,12 +26,13 @@ const apartado = (piezas: DocumentoEnCaja[] = [], sin_detalle: ApartadoEnCaja['s
   desde: piezas.length ? { arqueo_id: 'a-1', at: '2026-10-23T18:00:00Z', quien: 'carmen' } : null, piezas, sin_detalle,
 });
 
-function montar(tipo: 'cheque' | 'papel', a: ApartadoEnCaja | null, bloqueo: string | null = null) {
+function montar(tipo: 'cheque' | 'papel', a: ApartadoEnCaja | null, bloqueo: string | null = null, propuesto = false) {
   TestBed.configureTestingModule({ imports: [ArqueoDocumentosComponent], providers: [provideZonelessChangeDetection()] });
   const fx = TestBed.createComponent(ArqueoDocumentosComponent);
   fx.componentRef.setInput('tipo', tipo);
   fx.componentRef.setInput('apartado', a);
   fx.componentRef.setInput('bloqueo', bloqueo);
+  if (propuesto) fx.componentRef.setInput('propuesto', true);
   fx.detectChanges();
   return { fx, cmp: fx.componentInstance, el: fx.nativeElement as HTMLElement };
 }
@@ -152,5 +153,42 @@ describe('desgloseRubro · [CGS.59] el total de cheques y papeles se abre docume
   it('contado y sin documentos lo dice; sin detalle no inventa renglones', () => {
     expect(desgloseRubro({ ...base, piezas: [] }, fmt, cuando).slice(1)).toEqual([{ monto: null, texto: 'no había ninguno' }]);
     expect(desgloseRubro(base, fmt, cuando)).toHaveLength(1);
+  });
+});
+
+/**
+ * ⭐ `[LE.6.23]` PM, 2026-11-06: «entrega el valor por default, ya que esos casi no cambian». Lo que había
+ * llega marcado «Sigue»; se cambia sólo lo que salió, y el arqueo sabe si se confirmó tal cual.
+ */
+describe('ArqueoDocumentosComponent · [LE.6.23] propuesto', () => {
+  const dos = () => apartado([cheque(), cheque({ pieza: 'p-2', numero: '777', monto: 500 })]);
+
+  it('lo que había llega marcado «Sigue»: se puede guardar sin tocar nada, y es «tal cual»', () => {
+    const { cmp, el } = montar('cheque', dos(), null, true);
+    expect(cmp.valor()).toEqual([{ pieza: 'p-1', estado: 'esta' }, { pieza: 'p-2', estado: 'esta' }]);
+    expect(cmp.falta()).toBeNull();
+    expect(cmp.total()).toBe(10621);
+    expect(cmp.sinCambios()).toBe(true);
+    expect(el.textContent).toContain('Propuesto del arqueo anterior: siguen los 2');
+  });
+
+  it('[negativa] marcar «Salió» deja de ser «tal cual» y pide el porqué', () => {
+    const { cmp } = montar('cheque', dos(), null, true);
+    cmp.marcar('p-2', 'salio');
+    expect(cmp.sinCambios()).toBe(false);
+    expect(cmp.falta()).toContain('Di por qué salió');
+    expect(cmp.total()).toBe(10121);
+  });
+
+  it('sin nada anterior no hay qué proponer: queda «no se contó» (lo de Control sin detalle no se inventa)', () => {
+    const { cmp } = montar('papel', apartado([], { origen: 'control', at: '2026-10-28T06:00:00Z', monto: 20782 }), null, true);
+    expect(cmp.valor()).toBeNull();
+    expect(cmp.sinCambios()).toBe(false);
+  });
+
+  it('sin propuesto todo sigue como antes: lo que había hay que marcarlo', () => {
+    const { cmp } = montar('cheque', dos());
+    expect(cmp.valor()).toBeNull();
+    expect(cmp.sinCambios()).toBe(false);
   });
 });

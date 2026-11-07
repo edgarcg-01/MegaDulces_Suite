@@ -22,6 +22,8 @@ import {
 // `[RE.43]` De qué entrada es un papel: el folio del proveedor va contra `referencia`. Puro y medido.
 import { llaveDelFolio, ordenarCandidatas, sqlNucleoReferencia, sqlSufijoReferencia } from './emparejar-papel';
 import { aprendibles, conciliarRenglones, normStr, type RenglonKepler } from './conciliar-renglones';
+// `[RE.55]` De dónde salen los renglones: XML del CFDI, u OCR sólo si su lectura es confiable.
+import { conceptosDelCfdi, lecturaConfiable, type FuenteRenglones } from './fuente-renglones';
 
 /**
  * Fase CC (extensión) — Comprobantes de ORDEN DE ENTRADA. Adjunta la REMISIÓN/
@@ -2452,7 +2454,7 @@ export class GoodsReceiptProofsService {
     const suc = (sucursal || '').trim();
     const fol = (folio || '').trim();
     if (!suc || !fol) throw new BadRequestException('sucursal y folio requeridos');
-    const remLines = Array.isArray(ocrLines) ? ocrLines.filter((l) => l && l.descripcion) : [];
+    const leidas = Array.isArray(ocrLines) ? ocrLines.filter((l) => l && l.descripcion) : [];
 
     return this.tk.run(async (trx) => {
       const entrada = await trx('analytics.erp_goods_receipts')
@@ -2460,6 +2462,11 @@ export class GoodsReceiptProofsService {
         .first('proveedor_rfc', 'proveedor_nombre');
       if (!entrada) throw new BadRequestException(`entrada ${suc}/${fol} no existe en el espejo de Kepler`);
       const rfc = (entrada.proveedor_rfc || '').trim().toUpperCase();
+
+      // `[RE.55]` La fuente de los renglones: los conceptos del CFDI ligado (el mismo que muestra el
+      // expediente) y, sin CFDI, el OCR sólo si su lectura pasa las pruebas de `lecturaConfiable`.
+      const fuente = await this.fuenteRenglones(trx, tenantId, suc, fol, leidas);
+      const remLines = fuente.usar;
 
       // Líneas Kepler de ESTA entrada (candidatos del match).
       const kepRaw = await trx('analytics.erp_goods_receipt_lines')
@@ -2516,6 +2523,8 @@ export class GoodsReceiptProofsService {
         cuadran: results.filter((r) => r.status === 'cuadra').length,
         difieren: results.filter((r) => r.status === 'difiere_cantidad' || r.status === 'difiere_precio').length,
         sin_match: results.filter((r) => r.status === 'sin_match').length,
+        // `[RE.56]` renglones que juntos forman UN renglón de Kepler
+        agrupados: results.filter((r) => r.status === 'agrupado').length,
         revisar: results.filter((r) => r.status === 'revisar').length,
         kepler_orphans: c.kepler_orphans.length,
       };
@@ -2523,8 +2532,49 @@ export class GoodsReceiptProofsService {
       return {
         sucursal: suc, folio: fol, proveedor_rfc: rfc || null, proveedor_nombre: entrada.proveedor_nombre || null,
         lines: results, kepler_orphans: c.kepler_orphans, base_precio: c.base_precio, totals,
+        lectura: fuente.lectura,
       };
     });
+  }
+
+  /**
+   * `[RE.55]` Qué renglones del proveedor se concilian. El CFDI gana si la entrada tiene uno ligado
+   * con XML; si no, el OCR, salvo que su lectura no sea confiable (entonces no se concilia nada y se
+   * dice por qué: pintar «sin match» sobre renglones inventados es afirmar lo que no es).
+   */
+  private async fuenteRenglones(trx: Knex.Transaction, tenantId: string, suc: string, fol: string, leidas: RemisionLine[]) {
+    const x = (await this.expediente.calcularLote(trx, tenantId, [{ sucursal: suc, folio: fol }])).get(`${suc}/${fol}`);
+    if (x?.cfdi) {
+      const row = await trx('fiscal.cfdis').where({ tenant_id: tenantId, id: x.cfdi.id }).first('xml');
+      const conceptos = conceptosDelCfdi(row?.xml);
+      if (conceptos.length) {
+        return {
+          usar: conceptos,
+          // `[RE.59]` Si la liga es sólo SUGERENCIA (nombre + importe, RFC + importe…), la conciliación lo dice:
+          // sirve para confirmarla, no la da por buena.
+          lectura: { fuente: 'cfdi' as FuenteRenglones, confiable: true, motivos: [] as string[], uuid: x.cfdi.uuid, renglones_leidos: conceptos.length, liga_sugerida: !x.liga?.exacta },
+        };
+      }
+    }
+    // Subtotal y total del papel que trae los renglones (el último con renglones, como la pantalla).
+    const proofs = await trx('finance.goods_receipt_proofs').where({ sucursal: suc, folio: fol })
+      .orderBy('created_at', 'desc').select(trx.raw('ocr_raw::text AS ocr_raw'));
+    let doc = { subtotal: null as number | null, total: null as number | null };
+    for (const p of proofs) {
+      try {
+        const raw = JSON.parse(p.ocr_raw || '{}');
+        if (Array.isArray(raw?.lines) && raw.lines.length) {
+          doc = { subtotal: Number(raw.subtotal) || null, total: Number(raw.total) || null };
+          break;
+        }
+      } catch { /* ocr_raw legacy no-JSON */ }
+    }
+    const l = lecturaConfiable(leidas, doc);
+    const sinCfdi = x?.cfdi ? ['el CFDI ligado todavía no tiene su XML'] : [];
+    return {
+      usar: l.confiable ? leidas : [],
+      lectura: { fuente: 'ocr' as FuenteRenglones, confiable: l.confiable, motivos: [...l.motivos, ...sinCfdi], uuid: null as string | null, renglones_leidos: leidas.length, liga_sugerida: false },
+    };
   }
 
   /**
@@ -2597,7 +2647,7 @@ export class GoodsReceiptProofsService {
       if (!p) return 0;
       const raw = typeof p.ocr_raw === 'string' ? JSON.parse(p.ocr_raw || '{}') : (p.ocr_raw || {});
       const lineas: RemisionLine[] = Array.isArray(raw?.lines) ? raw.lines : [];
-      if (!lineas.length) return 0;
+      // `[RE.55]` Sin renglones de OCR igual se concilia: la fuente puede ser el CFDI.
       const r = await this.reconcileLines(p.sucursal, p.folio, lineas);
       const rfc = r.proveedor_rfc;
       const a = aprendibles(r);

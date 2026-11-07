@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { CustomerLedgerService } from './customer-ledger.service';
 import { CustomerLedgerController } from './customer-ledger.controller';
 import { CustomerReceivablesScannerService } from './customer-receivables-scanner.service';
+import { EstadoCuentaClienteDocument } from './estado-cuenta-cliente.document';
 
 /**
  * Fase CXC (ADR-048) — Cartera de clientes / Partidas vivas (CxC). Lee el espejo
@@ -11,7 +12,7 @@ import { CustomerReceivablesScannerService } from './customer-receivables-scanne
  */
 @Module({
   controllers: [CustomerLedgerController],
-  providers: [CustomerLedgerService, CustomerReceivablesScannerService],
+  providers: [CustomerLedgerService, CustomerReceivablesScannerService, EstadoCuentaClienteDocument],
   exports: [CustomerLedgerService, CustomerReceivablesScannerService],
 })
 export class FinanceCustomerLedgerModule {}

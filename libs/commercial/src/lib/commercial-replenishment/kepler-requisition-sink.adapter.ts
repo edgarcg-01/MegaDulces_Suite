@@ -282,8 +282,41 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
           }
         }
       }
+      // ⛔ `[PQ.87]` **La ficha de ESTA sucursal manda sobre la caja de la Suite.** Si Kepler dice
+      // que el producto no tiene caja (unidad única, o peldaños que repiten la base) y la Suite lo
+      // pidió en cajas de N, el costo de Kepler es por unidad y la Suite lo dividiría entre N: la
+      // OC 0000346 de Morelia Abastos (2026-11-06) salió con el paquete de Lico a $0.76 contra
+      // $30.45 (÷40). Se rechaza nombrando los SKU; no se adivina cuál de los dos tiene razón.
+      // Y con caja 1 en los dos lados, el renglón va en la unidad base de la ficha, no en `CJA`
+      // (una unidad que esa ficha no tiene).
+      const sinCajaEnKepler = new Set<string>();
+      if (!esTraspaso) {
+        const fk = await c.query(
+          `SELECT btrim(c1) AS sku, c11, c77, c78, c79, c80, c81, c83, c84 FROM md.kdii WHERE btrim(c1) = ANY($1::text[])`,
+          [e.lineas.map((l) => l.sku)]);
+        const ficha = new Map(fk.rows.map((r) => [String(r.sku), factorFichaKepler(r)]));
+        const choca = e.lineas.filter((l) => ficha.get(l.sku)?.factor === 1 && Number(l.piezas_por_caja) > 1);
+        if (choca.length) {
+          return {
+            estado: 'rechazada',
+            motivo: `En Kepler (sucursal ${e.sucursal}) ${choca.slice(0, 5).map((l) => `${l.sku} se compra por ${ficha.get(l.sku)?.unidad_base ?? 'unidad'}`).join(', ')}${choca.length > 5 ? ` y ${choca.length - 5} más` : ''}, sin caja, y la Suite los pidió en cajas de ${[...new Set(choca.map((l) => l.piezas_por_caja))].join('/')}: el costo saldría dividido. No se escribe; vuelve a capturar esos renglones cuando la mesa los muestre por ${ficha.get(choca[0].sku)?.unidad_base ?? 'unidad'}.`,
+          };
+        }
+        for (const l of e.lineas) {
+          const f = ficha.get(l.sku);
+          if (f?.factor === 1 && Number(l.piezas_por_caja) === 1 && f.unidad_base) {
+            sinCajaEnKepler.add(l.sku);
+            if (!unidadBase.has(l.sku)) unidadBase.set(l.sku, f.unidad_base);
+          }
+        }
+      }
+
       const resueltas = e.lineas.map((l) => {
         const pz = esTraspaso || l.cajas !== Math.round(l.cajas) ? piezasEnterasDe(l) : null;
+        if (pz === null && sinCajaEnKepler.has(l.sku)) {
+          const u = unidadBase.get(l.sku)!;
+          return { sku: l.sku, unidad: u, unidad_caja: u, por_caja: 1, cantidad: l.cajas };
+        }
         return pz === null
           ? { sku: l.sku, unidad: 'CJA', unidad_caja: 'CJA', por_caja: 1, cantidad: l.cajas }
           : { sku: l.sku, unidad: unidadBase.get(l.sku)!, unidad_caja: unidadBase.get(l.sku)!, por_caja: 1, cantidad: pz };
