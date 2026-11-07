@@ -74,7 +74,10 @@ describe('[RA-UX.1b] createRequisitionBatch — frena, confirma y falla abierto'
 
   it('[PQ.17] ⛔ D23: una fracción que NO es piezas enteras se frena al GENERAR con 400, dice cuál y no inserta NADA', async () => {
     const { s, insert, sp } = servicio(repetido);
-    Object.assign(s, { uxcDeProductos: async () => new Map([[U(10), 7]]) });   // 0.3 cj × 7 = 2.1 pz
+    // `[PQ.87]` El factor es por ALMACÉN: la llave del mapa es `almacén|producto`, como la busca
+    // el servicio. Con la llave vieja (sólo producto) el `get` fallaba y la fracción se frenaba
+    // por «sin factor», no por no ser entera: la prueba pasaba sin probar lo que dice.
+    Object.assign(s, { uxcDeProductos: async () => new Map([[`${U(1)}|${U(10)}`, 7]]) });   // 0.3 cj × 7 = 2.1 pz
     const e = await s.createRequisitionBatch({ requisitions: [compra(3), compra(0.3)] as never, allow_duplicate: true }).catch((x) => x);
     expect(e).toBeInstanceOf(BadRequestException);
     expect(String((e as BadRequestException).message)).toContain('Documento 2 de 2');
@@ -85,7 +88,7 @@ describe('[RA-UX.1b] createRequisitionBatch — frena, confirma y falla abierto'
 
   it('[PQ.17] una fracción que SÍ es piezas enteras (0.2 cj × 5 = 1 pz) pasa y se crea', async () => {
     const { s, insert } = servicio(repetido);
-    Object.assign(s, { uxcDeProductos: async () => new Map([[U(10), 5]]) });
+    Object.assign(s, { uxcDeProductos: async () => new Map([[`${U(1)}|${U(10)}`, 5]]) });
     await s.createRequisitionBatch({ requisitions: [compra(0.2)] as never, allow_duplicate: true });
     expect(insert).toHaveBeenCalledTimes(1);
   });
