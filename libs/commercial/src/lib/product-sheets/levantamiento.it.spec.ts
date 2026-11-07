@@ -19,8 +19,9 @@ import { createRequire } from 'node:module';
 import { resolve as resolvePath } from 'node:path';
 import knexFactory, { type Knex } from 'knex';
 import { LevantamientoService, type ArchivoSubido, type Quien } from './levantamiento.service';
+import type { CoberturaLevantamiento } from '@megadulces/contracts';
 import { RevisionService } from './revision.service';
-import { EN_CURSO_SQL } from './levantamiento.sql';
+import { CONTEOS_LEVANTAMIENTO_SQL, EN_CURSO_SQL, NO_FISICO_REGEX } from './levantamiento.sql';
 import { nuevoApartado } from './levantamiento.rules';
 
 const URL = process.env.TP_IT_DB ?? '';
@@ -194,6 +195,13 @@ suite(titulo, () => {
     expect(fila.photos[0]).toMatchObject({ peldano: 'base', captured_by: ANA.userId, saltada_motivo: null, calidad: { nitidez: 812.4, contraste: 61.2 }, ancho: 3024, alto: 4032 });
     expect(new Set(fila.photos.map((p: { sha256: string }) => p.sha256)).size).toBe(5);
     expect(fila.sheet.peldanos.base.apartado).toBeNull();
+    // [NP.7.0.9] El peso se mide en el servidor, sobre lo que de verdad llegó al bucket (sin metadatos),
+    // y la llave lleva el tenant.
+    for (const p of fila.photos as Array<{ storage_key: string; bytes: number }>) {
+      expect(p.storage_key.startsWith(`levantamiento/${M}/`)).toBe(true);
+      expect(p.bytes).toBe(bytes.get(p.storage_key)!.length);
+      expect(p.bytes).toBeGreaterThan(0);
+    }
   });
 
   it('volver a escanear un producto ya levantado → «en revisión», no se duplica', async () => {
@@ -447,5 +455,194 @@ suite(titulo, () => {
     });
     expect(id).toBeNull();
     expect(Number((await trx('catalog.product_sheets').where({ sku: 'NP7IT12' }).count('* as n'))[0].n)).toBe(1);
+  });
+
+  // ── `[NP.7.L.5]` Catálogo digital › Publicadas y la cobertura ────────────────────────────────────────
+  // Corre al final, sobre lo que dejaron las pruebas de arriba: NP7IT1 y NP7IT10 publicadas, NP7IT13 en
+  // revisión, NP7IT14 descartada, NP7IT11 apartada en la sucursal 05.
+  /** En las pruebas de la LISTA la cobertura se fija (lee vistas materializadas); más abajo se ejerce de verdad. */
+  class RevisionPrueba extends RevisionService {
+    protected override async cobertura(_tenant: string, branch: string): Promise<CoberturaLevantamiento> {
+      return { branch_code: branch, branch_name: null, universe: 12, published: 3, missing: 9, sales_share_pct: 1.5, measured_at: '2026-11-04T00:00:00.000Z' };
+    }
+  }
+  const pub = () => new RevisionPrueba(
+    { run: <T>(fn: (t: Knex.Transaction) => Promise<T>) => fn(trx) } as never,
+    { requireTenantId: () => M } as never,
+    { signedUrl: async (k: string) => `https://firmada.invalid/${k}` } as never,
+  );
+  const nuestras = (r: { rows: Array<{ sku: string }> }) => r.rows.map((x) => x.sku).filter((s) => /^NP7IT\d+$/.test(s));
+  const fijarPublicada = (sku: string, at: string) =>
+    trx.raw(`UPDATE catalog.product_sheets SET sheet = jsonb_set(sheet, '{publicada,at}', to_jsonb(?::text))
+              WHERE sku = ? AND origin = 'levantamiento' AND deleted_at IS NULL`, [at, sku]);
+
+  it('⭐ Publicadas: la publicada aparece con sus fotos y quién la publicó; en revisión y descartada NO; de toda la red; lo más reciente primero', async () => {
+    // Fechas fijas: `decidir` estampa la hora real y dos publicaciones del mismo milisegundo empatarían.
+    await fijarPublicada('NP7IT1', '2026-11-02T10:00:00.000Z');
+    await fijarPublicada('NP7IT10', '2026-11-03T10:00:00.000Z');
+    // Una publicada en OTRA sucursal (05), por otra persona de Catálogo.
+    await trx.raw(
+      `UPDATE catalog.product_sheets
+          SET status = 'publicada',
+              sheet = sheet || jsonb_build_object('publicada', jsonb_build_object('by', ?::text, 'at', '2026-11-01T10:00:00.000Z'),
+                                                  'revisiones', jsonb_build_array(jsonb_build_object('decision', 'publicar', 'by_username', 'np7_it_catalogo05')))
+        WHERE sku = 'NP7IT11' AND origin = 'levantamiento' AND deleted_at IS NULL`, [CATALOGO.userId]);
+    // Una publicada ANTES de que existiera el registro (sin `publicada` ni `revisiones`): ordena por updated_at.
+    await trx('kepler_ods.kdii').insert({ sucursal: '01', c1: 'NP7IT15', c2: 'PRODUCTO LEGADO NP7IT15 (IT)', c11: 'PZA', c80: 'PAQ', c83: 'CJA', c7: '9990000000280' });
+    await trx('catalog.product_sheets').insert({
+      tenant_id: M, origin: 'levantamiento', status: 'publicada', sku: 'NP7IT15', branch_code: '01',
+      photos: JSON.stringify([]), sheet: JSON.stringify({ principal: 'base' }), created_by_username: 'np7_it_legado',
+      created_at: '2026-10-01T00:00:00.000Z', updated_at: '2026-10-01T00:00:00.000Z',
+    });
+    // Publicada y luego DESCARTADA (borrado lógico): no se lista.
+    await trx('catalog.product_sheets').where({ sku: 'NP7IT14', origin: 'levantamiento' }).whereNotNull('deleted_at').update({ status: 'publicada' });
+
+    const antes = process.env['NP7_AI_ENABLED'];
+    delete process.env['NP7_AI_ENABLED'];
+    try {
+      const r = await pub().publicadas({ q: '(it)', limit: 100 });
+      expect(nuestras(r)).toEqual(['NP7IT10', 'NP7IT1', 'NP7IT11', 'NP7IT15']);
+      expect(r.total).toBeGreaterThanOrEqual(4);
+      const f = r.rows.find((x) => x.sku === 'NP7IT1')!;
+      expect(f).toMatchObject({
+        branch_code: '01', name: 'TRIDENT XTRA CARE MENTA /12 (IT)', rung: 'base', unit_label: 'PZA', unit_factor: 1,
+        scanned_code: '7622210571403', captured_by: ANA.username,
+        published_by: CATALOGO.username, published_at: '2026-11-02T10:00:00.000Z', ai_reading: 'apagada',
+      });
+      expect(f.photos).toHaveLength(5);
+      expect(f.photos.every((p) => String(p.url).startsWith('https://firmada.invalid/levantamiento/'))).toBe(true);
+      // La de la 05 sale con el nombre de Kepler de SU sucursal y quien la publicó.
+      expect(r.rows.find((x) => x.sku === 'NP7IT11')).toMatchObject({ branch_code: '05', name: 'PRODUCTO NP7IT11 (IT)', published_by: 'np7_it_catalogo05' });
+      // La de antes del registro: sin fecha ni autor inventados.
+      expect(r.rows.find((x) => x.sku === 'NP7IT15')).toMatchObject({ published_by: null, published_at: null, photos: [], captured_by: 'np7_it_legado' });
+      // ⛔ Lista blanca: exactamente las claves del contrato (ni costo, ni precio, ni margen, ni venta por SKU).
+      expect(Object.keys(f).sort()).toEqual([
+        'ai_reading', 'branch_code', 'branch_name', 'captured_at', 'captured_by', 'id', 'kepler_codes', 'name', 'photos',
+        'published_at', 'published_by', 'rung', 'scanned_code', 'sku', 'unit_factor', 'unit_label',
+      ]);
+      expect(r.coverage).toMatchObject({ branch_code: '01', universe: 12, published: 3, missing: 9 });
+    } finally {
+      if (antes === undefined) delete process.env['NP7_AI_ENABLED']; else process.env['NP7_AI_ENABLED'] = antes;
+    }
+  });
+
+  it('Publicadas · q: SKU exacto o nombre sin acentos ni mayúsculas, con los comodines de LIKE escapados; total cuenta lo filtrado, no la página', async () => {
+    const skus = async (q: string) => nuestras(await pub().publicadas({ q, limit: 100 }));
+    expect(await skus('np7it1')).toContain('NP7IT1'); // SKU exacto: su nombre no lo contiene
+    expect(await skus('tríDent')).toEqual(['NP7IT1']); // sin acentos ni mayúsculas, como el buscador
+    expect(await skus('menta')).toEqual(['NP7IT1']); // CONTROL del siguiente
+    expect(await skus('men_a')).toEqual([]); // sin escapar, «_» encontraría «menta»
+    expect(await skus('trident%care')).toEqual([]); // sin escapar, «%» encontraría «trident xtra care»
+    expect(await skus('PRODUCTO NP7IT13')).toEqual([]); // en revisión: no es publicada
+    const p1 = await pub().publicadas({ q: '(it)', limit: 1 });
+    expect(p1.rows).toHaveLength(1);
+    expect(p1.total).toBeGreaterThanOrEqual(4);
+    const p2 = await pub().publicadas({ q: '(it)', limit: 1, offset: 1 });
+    expect(p2.rows[0].id).not.toBe(p1.rows[0].id);
+    const fuera = await pub().publicadas({ q: '(it)', limit: 1, offset: 10_000 });
+    expect(fuera).toMatchObject({ rows: [], total: p1.total });
+  });
+
+  it('Publicadas · prueba negativa: una sucursal que no es de dos dígitos → 400 (no «universo 0»)', async () => {
+    await expect(pub().publicadas({ branch: '1' })).rejects.toMatchObject({ status: 400 });
+    await expect(pub().publicadas({ branch: "01' OR '1'='1" })).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('Publicadas · la lectura de la IA: «leída» sólo con propuesta VIGENTE (todas sus fotos leídas ok), «sin leer» sin ella (con la IA encendida)', async () => {
+    // Las lecturas `ok` de las fotos reales de la unidad principal de NP7IT10, como las deja el worker.
+    const f10 = await trx('catalog.product_sheets').where({ sku: 'NP7IT10', origin: 'levantamiento' }).whereNull('deleted_at')
+      .first('photos', trx.raw(`sheet->>'principal' AS principal`)) as { photos: Array<{ peldano: string | null; storage_key: string | null; sha256: string | null }>; principal: string };
+    const reales = f10.photos.filter((p) => p.peldano === f10.principal && p.storage_key && p.sha256);
+    expect(reales.length).toBeGreaterThan(0); // CONTROL: si no hubiera fotos reales, «sin leer» saldría por otra razón
+    const lecturas = Object.fromEntries(reales.map((p) => [p.sha256, { estado: 'ok', lectura: { version: 'prueba' }, cara: 'frente', peldano: f10.principal }]));
+    await trx('catalog.product_sheets').where({ sku: 'NP7IT10', origin: 'levantamiento' }).whereNull('deleted_at')
+      .update({ ai_raw: JSON.stringify({ propuesta: { nombre: 'propuesta de prueba' }, lecturas }) });
+    // Así deja `ai_raw` el worker con una lectura nueva: `propuesta` en null JSON.
+    await trx('catalog.product_sheets').where({ sku: 'NP7IT1', origin: 'levantamiento' }).whereNull('deleted_at')
+      .update({ ai_raw: JSON.stringify({ propuesta: null, lecturas: {} }) });
+    const antes = process.env['NP7_AI_ENABLED'];
+    process.env['NP7_AI_ENABLED'] = 'true';
+    try {
+      const r = await pub().publicadas({ q: '(it)', limit: 100 });
+      const ia = (sku: string) => r.rows.find((x) => x.sku === sku)?.ai_reading;
+      expect([ia('NP7IT10'), ia('NP7IT1'), ia('NP7IT15')]).toEqual(['leida', 'sin_leer', 'sin_leer']);
+
+      // ⭐ Recapturada: `apartar` cambia `photos` y NO toca `ai_raw`. Una foto nueva sin lectura → la propuesta es de
+      // las fotos viejas: «sin leer», no «leída». En un SAVEPOINT: las pruebas de abajo ven NP7IT10 como estaba.
+      await trx.raw('SAVEPOINT recaptura');
+      try {
+        await trx.raw(
+          `UPDATE catalog.product_sheets
+              SET photos = photos || jsonb_build_array(jsonb_build_object('peldano', ?::text, 'cara', 'frente',
+                             'storage_key', 'levantamiento/np7it/nueva.jpg', 'sha256', 'np7it-sha-foto-nueva'))
+            WHERE sku = 'NP7IT10' AND origin = 'levantamiento' AND deleted_at IS NULL`, [f10.principal]);
+        const r2 = await pub().publicadas({ q: 'NP7IT10', limit: 100 });
+        expect(r2.rows.find((x) => x.sku === 'NP7IT10')?.ai_reading).toBe('sin_leer');
+      } finally {
+        await trx.raw('ROLLBACK TO SAVEPOINT recaptura');
+      }
+    } finally {
+      if (antes === undefined) delete process.env['NP7_AI_ENABLED']; else process.env['NP7_AI_ENABLED'] = antes;
+    }
+    // Apagada manda aunque haya propuesta guardada (D6).
+    expect((await pub().publicadas({ q: 'NP7IT10', limit: 100 })).rows.find((x) => x.sku === 'NP7IT10')?.ai_reading).toBe('apagada');
+  });
+
+  /**
+   * Sustituye una relación de `analytics` (vista materializada, vista o tabla) por una TABLA con las columnas
+   * que lee el universo, para poder sembrarla. Sólo dentro de un SAVEPOINT: el ROLLBACK la devuelve intacta.
+   */
+  const sustituir = async (rel: string, columnas: string) => {
+    const k = (await trx.raw(
+      `SELECT c.relkind::text AS k FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'analytics' AND c.relname = ?`,
+      [rel],
+    )).rows[0]?.k as string | undefined;
+    if (k) await trx.raw(`ALTER ${k === 'm' ? 'MATERIALIZED VIEW' : k === 'v' ? 'VIEW' : 'TABLE'} analytics.${rel} RENAME TO ${rel}_np7it`);
+    await trx.raw(`CREATE TABLE analytics.${rel} (${columnas})`);
+  };
+
+  it('⭐ la cobertura de verdad: universo, publicadas y faltan cuadran; faltan = universo − publicadas = el «faltan» de la pantalla A; el % es en pesos y «en revisión» nunca suma', async () => {
+    await trx.raw('SAVEPOINT np7_cob');
+    try {
+      await trx.raw('CREATE SCHEMA IF NOT EXISTS analytics');
+      await sustituir('mv_kepler_sales_daily', 'tenant_id uuid, warehouse_code text, business_date date, sku text, monto numeric');
+      await sustituir('v_erp_stock_on_hand', 'tenant_id uuid, warehouse_code text, sku text, qty_stock_units numeric');
+      await sustituir('mv_kepler_sold_rung', 'sucursal text, sku text, rung_modal numeric');
+      await trx('kepler_ods.kdii').insert({ sucursal: '01', c1: 'NP7IT16', c2: '1 CHICLE = GRATIS 1 PALETA (IT)', c11: 'PZA', c80: 'PAQ', c83: 'CJA', c7: '9990000000290' });
+      const dia = (atras: number) => trx.raw(`(now() AT TIME ZONE 'America/Mexico_City')::date - ${atras}`);
+      const venta = (sku: string, monto: number, atras = 1, wh = '01') => ({ tenant_id: M, warehouse_code: wh, business_date: dia(atras), sku, monto });
+      await trx('analytics.mv_kepler_sales_daily').insert([
+        venta('NP7IT1', 300), // publicada
+        venta('NP7IT10', 100), // publicada
+        venta('NP7IT2', 600), // pedida otra foto y vuelta a capturar: no publicada
+        venta('NP7IT13', 200), // en revisión: NUNCA suma
+        venta('NP7IT14', 100), // publicada y DESCARTADA: no suma
+        venta('NP7IT16', 999), // promoción: fuera del universo
+        venta('NP7IT6', 500, 120), // fuera de la ventana de 90 d
+        venta('NP7IT11', 700, 1, '05'), // otra sucursal (publicada allá)
+      ]);
+      await trx('analytics.v_erp_stock_on_hand').insert([
+        { tenant_id: M, warehouse_code: '01', sku: 'NP7IT5', qty_stock_units: 4 }, // sólo existencia: entra
+        { tenant_id: M, warehouse_code: '01', sku: 'NP7IT7', qty_stock_units: 0 }, // existencia 0: no entra
+      ]);
+
+      const r = await rev().publicadas({ branch: '01', limit: 1 });
+      // Universo = NP7IT1, NP7IT10, NP7IT2, NP7IT13, NP7IT14 (venta) + NP7IT5 (existencia) = 6; publicadas 2.
+      expect(r.coverage).toMatchObject({ branch_code: '01', universe: 6, published: 2, missing: 4 });
+      expect(r.coverage.missing).toBe(r.coverage.universe - r.coverage.published);
+      // MÉTRICA L en pesos: (300 + 100) / (300 + 100 + 600 + 200 + 100), calculado a mano.
+      expect(r.coverage.sales_share_pct).toBeCloseTo((100 * 400) / 1300, 6);
+      expect(Number.isNaN(Date.parse(r.coverage.measured_at))).toBe(false);
+      // «Faltan» da el mismo número en A y en E: los dos envuelven el mismo universo.
+      const a = (await trx.raw(CONTEOS_LEVANTAMIENTO_SQL, { tenant: M, branch: '01', no_fisico: NO_FISICO_REGEX })).rows[0];
+      expect({ universe: a.universe, missing: a.missing }).toEqual({ universe: r.coverage.universe, missing: r.coverage.missing });
+      // Una sucursal sin venta ni existencia: universo 0 y el % NO MEDIBLE (null), nunca «0 %».
+      expect((await rev().publicadas({ branch: '09', limit: 1 })).coverage).toMatchObject({ universe: 0, published: 0, missing: 0, sales_share_pct: null });
+      // Ningún cubierto que venda: 0 %, no null (el numerador va con coalesce).
+      await trx('analytics.mv_kepler_sales_daily').whereIn('sku', ['NP7IT1', 'NP7IT10']).del();
+      expect((await rev().publicadas({ branch: '01', limit: 1 })).coverage).toMatchObject({ universe: 4, published: 0, sales_share_pct: 0 });
+    } finally {
+      await trx.raw('ROLLBACK TO SAVEPOINT np7_cob');
+    }
   });
 });
