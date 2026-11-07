@@ -33,7 +33,22 @@ export interface AnthropicMessagesParams {
   effort?: string;
   /** tool_choice passthrough (forced tool en single-shot). */
   toolChoice?: any;
+  /**
+   * `[NP.7.L.11d]` Structured outputs: viaja como `output_config.format` (junto a `effort` si viene).
+   * La respuesta llega como JSON en el bloque de texto, validado por la API contra `schema`.
+   * Existe porque los modelos 5.5 rechazan `tool_choice` forzado (400): para obligar un JSON ya no
+   * sirve el truco de «una herramienta forzada». Sin este campo, el body es idéntico al de antes.
+   */
+  outputFormat?: { type: 'json_schema'; schema: Record<string, unknown> };
 }
+
+/**
+ * `[NP.7.L.11d]` Forma del error que lanza `messages()` cuando la respuesta no es 2xx: el MISMO `Error`
+ * con el mismo mensaje de siempre, más `status` y `retryAfterMs`, para que un worker distinga lo que se
+ * reintenta (429/529/5xx) de lo que no (400) y respete la espera que pide la API sin leer el texto.
+ * Es un tipo, no una clase: los ~10 consumidores que sólo leen `message` no cambian.
+ */
+export type ErrorHttpAnthropic = Error & { status: number; retryAfterMs: number | null };
 
 export interface AnthropicCallOptions {
   timeoutMs?: number;
@@ -71,7 +86,11 @@ export class AnthropicService {
       if (system !== undefined) body.system = system;
       if (params.tools) body.tools = params.tools;
       if (params.thinking) body.thinking = params.thinking;
-      if (params.effort) body.output_config = { effort: params.effort };
+      // `output_config` sólo aparece si lleva algo: sin `outputFormat` queda `{ effort }` como antes.
+      const outputConfig: Record<string, unknown> = {};
+      if (params.effort) outputConfig['effort'] = params.effort;
+      if (params.outputFormat) outputConfig['format'] = params.outputFormat;
+      if (Object.keys(outputConfig).length) body.output_config = outputConfig;
       if (params.toolChoice) body.tool_choice = params.toolChoice;
 
       const res = await fetch(ANTHROPIC_ENDPOINT, {
@@ -86,7 +105,10 @@ export class AnthropicService {
       });
       if (!res.ok) {
         const txt = await res.text().catch(() => '');
-        throw new Error(`Anthropic HTTP ${res.status}: ${txt.slice(0, 200)}`);
+        const err = new Error(`Anthropic HTTP ${res.status}: ${txt.slice(0, 200)}`) as ErrorHttpAnthropic;
+        err.status = res.status;
+        err.retryAfterMs = esperaPedida(res.headers.get('retry-after'));
+        throw err;
       }
       return await res.json();
     } finally {
@@ -110,4 +132,13 @@ export class AnthropicService {
     }
     return system;
   }
+}
+
+/**
+ * `retry-after` en segundos → milisegundos. La API de Anthropic lo manda en segundos; cualquier otra
+ * forma (fecha HTTP, texto, negativo) queda `null`: el worker usa su propia espera en vez de adivinar.
+ */
+function esperaPedida(cabecera: string | null): number | null {
+  if (cabecera === null || !/^\s*\d+(\.\d+)?\s*$/.test(cabecera)) return null;
+  return Math.round(Number(cabecera) * 1000);
 }

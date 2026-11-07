@@ -168,6 +168,12 @@ export interface FotoFicha {
   calidad: { nitidez: number; contraste: number; version: string } | null;
   ancho: number | null;
   alto: number | null;
+  /**
+   * `[NP.7.0.9]` Lo que pesa la foto guardada (bytes, medido en el servidor DESPUÉS de quitar los
+   * metadatos), para saber cuánto bucket y cuántos datos móviles cuesta cada ficha. Opcional porque las
+   * fotos anteriores al 2026-11-04 no lo traen: ausente = no medido, nunca cero.
+   */
+  bytes?: number | null;
   por_busqueda: boolean;
 }
 

@@ -90,6 +90,29 @@ SELECT count(*)::int AS universe,
   FROM (${UNIVERSO_LEVANTAMIENTO_SQL}) u`;
 
 /**
+ * `[NP.7.L.5]` La cobertura de UNA sucursal (pestaña E, §10b.3 «Unidades de conteo»), sobre el MISMO
+ * universo que la pantalla A: «faltan» sale de aquí y de `CONTEOS_LEVANTAMIENTO_SQL` con el mismo número
+ * porque los dos envuelven `UNIVERSO_LEVANTAMIENTO_SQL`, no una copia.
+ *
+ * - `published` = SKUs del universo con su unidad principal publicada (`con_ficha`, de cualquier sucursal:
+ *   un SKU cubierto lo está para toda la red, igual que en la pantalla A). «En revisión» nunca suma.
+ * - `sales_share_pct` = MÉTRICA L: venta de 90 d EN PESOS de los cubiertos ÷ la del universo (⛔ no en
+ *   unidades: están infladas ~3.9×). El numerador va con `coalesce(…, 0)`: sin ningún cubierto que venda,
+ *   la cobertura es 0 %, no «no medible»; `null` queda sólo para una sucursal sin venta en la ventana.
+ *
+ * Medido el 2026-11-04 en Padre Hidalgo (sólo lectura): universo 4,230 · publicadas 7 · 0.888 %.
+ * Mismos bindings que el universo: `:tenant`, `:branch`, `:no_fisico`. Se corre con
+ * `SET LOCAL enable_nestloop = off`, como los conteos (el universo tardó 34 s sin eso, medido 2026-11-02).
+ * ⚠️ El tiempo de ESTA consulta en prod: NO MEDIDO (se espera el del universo, ~0.5 s).
+ */
+export const COBERTURA_LEVANTAMIENTO_SQL = `
+SELECT count(*)::int AS universe,
+       count(*) FILTER (WHERE u.con_ficha)::int AS published,
+       count(*) FILTER (WHERE NOT u.con_ficha)::int AS missing,
+       100 * coalesce(sum(u.monto) FILTER (WHERE u.con_ficha), 0) / nullif(sum(u.monto), 0) AS sales_share_pct
+  FROM (${UNIVERSO_LEVANTAMIENTO_SQL}) u`;
+
+/**
  * Sugeridos: lo que hay en el anaquel (existencia > 0), sin ficha y sin captura en curso, los que más
  * venden primero. Desempate hasta el final (nombre, sku): sin él, dos lecturas iguales pueden dar
  * páginas distintas. Bindings extra: `:limit`, `:offset`.
