@@ -1,4 +1,6 @@
-import { SQL_CIERRE_KEPLER, armarCierres, idsParaCierre, type FilaCierreKepler } from './cierre-kepler.sql';
+import { readFileSync, readdirSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { SQL_CIERRE_KEPLER, TIPOS_CANCELADOS_QUE_NO_SALDAN, armarCierres, idsParaCierre, type FilaCierreKepler } from './cierre-kepler.sql';
 
 const fila = (o: Partial<FilaCierreKepler> = {}): FilaCierreKepler => ({
   obligation_id: 'f1', importe: 1000, psuc: '00', p_tipo: 26, p_sub: 1, p_folio: '0017253', aplicado: 1000,
@@ -11,6 +13,21 @@ describe('[PGP.94] la consulta del cierre', () => {
     expect(SQL_CIERRE_KEPLER).toMatch(/NOT EXISTS[\s\S]*kepler_ods\.kdm1[\s\S]*m\.c43 = 'C'/);
     expect(SQL_CIERRE_KEPLER).toMatch(/m\.c10 = x\.c2/);
     expect(SQL_CIERRE_KEPLER).toMatch(/m\.c6 = x\.c6/);
+  });
+  /*
+   * `[PGP.94.1]` La lista de tipos cancelados es la MISMA que usa `v_supplier_payables`. `[PGP.99]`
+   * le sumó 40 y 55 a la vista y este archivo se quedó con 25/26/60: la vista restaba $62,627.51 de
+   * notas canceladas en facturas del Calendario que el cierre seguía contando. Se lee la lista del
+   * `up()` de la migración más nueva que la fija, para que separarlas se vea rojo aquí.
+   */
+  it('[PGP.94.1] descarta los mismos tipos cancelados que la vista (la migración más nueva que los fija)', () => {
+    const dir = resolve(__dirname, '../../../../../database/migrations-newdb');
+    const ultima = readdirSync(dir).filter((f) => /_pgp(67|99)_|nota_cancelada|pago_cancelado/.test(f)).sort().pop()!;
+    const up = readFileSync(resolve(dir, ultima), 'utf8').match(/await knex\.raw\(vista\(`([^`]+)`\)\)/);
+    expect(up, `no encontré la lista de tipos en ${ultima}`).not.toBeNull();
+    const deLaVista = up![1].split(',').map((t) => t.trim().replace(/'/g, '')).sort();
+    expect([...TIPOS_CANCELADOS_QUE_NO_SALDAN].sort()).toEqual(deLaVista);
+    for (const t of TIPOS_CANCELADOS_QUE_NO_SALDAN) expect(SQL_CIERRE_KEPLER).toContain(`'${t}'`);
   });
   it('usa la llave canónica de la factura, no una copia', () => {
     expect(SQL_CIERRE_KEPLER).toContain("md5('kepler_payable|'");
