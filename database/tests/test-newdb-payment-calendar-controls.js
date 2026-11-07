@@ -43,6 +43,9 @@ async function expectViolation(trx, fn) {
     for (const col of ['folio', 'reprogram_reason', 'reprogram_reason_detail', 'supplier_payment_account_id']) {
       ok(await knex.schema.withSchema('finance').hasColumn('payment_allocations', col), `payment_allocations.${col} existe`);
     }
+    // [PGP.90] La referencia fija: en la cuenta y en la solicitud que la propone.
+    ok(await knex.schema.withSchema('commercial').hasColumn('supplier_payment_accounts', 'payment_reference'), 'supplier_payment_accounts.payment_reference existe');
+    ok(await knex.schema.withSchema('commercial').hasColumn('supplier_payment_account_change_requests', 'proposed_payment_reference'), 'change_requests.proposed_payment_reference existe');
 
     // ── 2-5. Flujo completo (rollback al final) ──────────────────────────────
     await knex.transaction(async (trx) => {
@@ -67,12 +70,15 @@ async function expectViolation(trx, fn) {
       const [reqAlta2] = await trx('commercial.supplier_payment_account_change_requests').insert({
         tenant_id: T, supplier_id: supplier.id, account_id: null,
         proposed_bank_name: 'BBVA', proposed_clabe: '012180001234567890', proposed_alias: 'Principal',
+        proposed_payment_reference: '7001234',
         proposed_es_favorita: true, reason: 'Alta inicial (smoke, 2do intento)', requested_by: 'smoke_solicita',
       }).returning('*');
       const [acc1] = await trx('commercial.supplier_payment_accounts').insert({
         tenant_id: T, supplier_id: supplier.id, bank_name: reqAlta2.proposed_bank_name, clabe: reqAlta2.proposed_clabe,
-        alias: reqAlta2.proposed_alias, es_favorita: reqAlta2.proposed_es_favorita, created_by: 'smoke_autoriza',
+        alias: reqAlta2.proposed_alias, payment_reference: reqAlta2.proposed_payment_reference,
+        es_favorita: reqAlta2.proposed_es_favorita, created_by: 'smoke_autoriza',
       }).returning('*');
+      ok(acc1.payment_reference === '7001234', '[PGP.90] aprobar alta: la referencia fija propuesta queda en la cuenta');
       await trx('commercial.supplier_payment_account_change_requests').where({ id: reqAlta2.id })
         .update({ status: 'applied', decided_by: 'smoke_autoriza', decided_at: trx.fn.now() });
       ok(acc1.es_favorita === true, 'aprobar alta: cuenta creada y favorita (única cuenta del proveedor)');

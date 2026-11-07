@@ -23,11 +23,11 @@ import type { CuentaPagoFaltante, CuentasPagoFaltantesResponse, CuentaPagoPropue
 import { PagosTabsComponent } from '../pagos-tabs.component';
 
 interface SupplierOpt { id: string; name: string; code: string }
-interface PaymentAccount { id: string; bank_name: string; account_number: string | null; clabe: string | null; alias: string | null; notes: string | null; attachment_url: string | null; es_favorita: boolean; status: string }
+interface PaymentAccount { id: string; bank_name: string; account_number: string | null; clabe: string | null; alias: string | null; payment_reference: string | null; notes: string | null; attachment_url: string | null; es_favorita: boolean; status: string }
 interface ChangeRequest {
   id: string; supplier_id: string; supplier_name: string; account_id: string | null; deactivate: boolean;
   proposed_bank_name: string | null; proposed_account_number: string | null; proposed_clabe: string | null;
-  proposed_alias: string | null; proposed_es_favorita: boolean; reason: string; status: string;
+  proposed_alias: string | null; proposed_payment_reference: string | null; proposed_es_favorita: boolean; reason: string; status: string;
   requested_by: string; requested_at: string; decided_by: string | null; decision_notes: string | null;
 }
 
@@ -174,7 +174,10 @@ interface ChangeRequest {
             <ng-template #header><tr><th>Banco</th><th>Cuenta</th><th>CLABE</th><th>Alias</th><th>Favorita</th><th>Adjunto</th><th style="width:8rem"><span class="sr-only">Acciones</span></th></tr></ng-template>
             <ng-template #body let-a>
               <tr>
-                <td>{{ a.bank_name }}</td><td class="cta-mono">{{ a.account_number || '—' }}</td><td class="cta-mono">{{ a.clabe || '—' }}</td>
+                <td>{{ a.bank_name }}</td><td class="cta-mono">{{ a.account_number || '—' }}</td>
+                <!-- [PGP.90] La referencia fija va CON la CLABE (es lo que la transferencia lleva junto a ella), y
+                     sólo si existe: la mayoría de los proveedores no la pide, y una columna de guiones no decide nada. -->
+                <td class="cta-mono">{{ a.clabe || '—' }}@if (a.payment_reference) { <span class="cta-ref">Ref <span class="cta-ref-val">{{ a.payment_reference }}</span></span> }</td>
                 <td>{{ a.alias || '—' }}</td><td>@if (a.es_favorita) { <i class="pi pi-star-fill cta-fav"></i> }</td>
                 <td>@if (a.attachment_url) { <span class="pi pi-file cta-att" title="Tiene comprobante adjunto"></span> } @else { <span class="cta-muted">—</span> }</td>
                 <td>
@@ -196,7 +199,9 @@ interface ChangeRequest {
             <tr>
               <td>{{ r.supplier_name }}</td>
               <td><p-tag [value]="tipoLabel(r)" severity="info" styleClass="cta-tag" /></td>
-              <td>{{ r.proposed_bank_name || '—' }} @if (r.proposed_clabe) { <span class="cta-muted"> · {{ r.proposed_clabe }}</span> }</td>
+              <td>{{ r.proposed_bank_name || '—' }} @if (r.proposed_clabe) { <span class="cta-muted"> · {{ r.proposed_clabe }}</span> }
+                <!-- [PGP.90] Quien autoriza ve la referencia que va a quedar fija: se firma junto con la CLABE. -->
+                @if (r.proposed_payment_reference) { <span class="cta-muted"> · Ref {{ r.proposed_payment_reference }}</span> }</td>
               <td class="cta-reason">{{ r.reason }}</td>
               <td class="cta-muted">{{ r.requested_by }}</td>
               <td>
@@ -265,6 +270,11 @@ interface ChangeRequest {
         <input pInputText type="text" [(ngModel)]="form.proposed_account_number" class="cta-full" />
         <label class="cta-lbl">CLABE</label>
         <input pInputText type="text" [(ngModel)]="form.proposed_clabe" class="cta-full" />
+        <!-- [PGP.90] Algunos proveedores exigen la MISMA referencia en cada transferencia; sin ella
+             no identifican el depósito. Va con la cuenta y viaja sola a cada pago que la use. -->
+        <label class="cta-lbl" for="cta-ref">Referencia fija (opcional)</label>
+        <input id="cta-ref" pInputText type="text" [(ngModel)]="form.proposed_payment_reference" placeholder="Convenio o referencia que pide el proveedor" class="cta-full" />
+        <p class="cta-hint">Sólo si es siempre la misma. Si cambia en cada pago (p. ej. el número de factura), déjala vacía.</p>
         <label class="cta-lbl">Alias</label>
         <input pInputText type="text" [(ngModel)]="form.proposed_alias" class="cta-full" />
         <label class="cta-check"><p-checkbox [(ngModel)]="form.proposed_es_favorita" [binary]="true" />Marcar como favorita</label>
@@ -301,6 +311,10 @@ interface ChangeRequest {
     .cta-dlg-p { font-size:.85rem; font-weight:600; margin:0 0 .4rem; }
     .cta-dlg-actions { margin-top:.8rem; }
     .cta-uploaded { font-size:.78rem; color:var(--ok-fg); margin:.2rem 0; }
+    .cta-hint { font-size:var(--fs-xs); color:var(--text-muted); margin:-.2rem 0 .3rem; }
+    /* [PGP.90] Segunda línea de la celda CLABE: el valor intacto, seleccionable para pegarlo en la banca. */
+    .cta-ref { display:block; font-size:var(--fs-xs); color:var(--text-muted); }
+    .cta-ref-val { user-select:all; }
     /* [PGP.1] */
     app-metric-strip { display:block; margin:.2rem 0 .7rem; }
     .cta-lede { font-size:var(--fs-sm); color:var(--text-main); margin:.2rem 0 .5rem; max-width:62ch; }
@@ -534,7 +548,7 @@ export class FinanzasCuentasPagoComponent implements OnInit {
   openChange(a: PaymentAccount): void {
     this.propuestaUsada.set(null);
     this.requestDeactivate = false; this.requestAccountId = a.id;
-    this.form = { proposed_bank_name: a.bank_name, proposed_account_number: a.account_number, proposed_clabe: a.clabe, proposed_alias: a.alias, proposed_es_favorita: a.es_favorita, reason: '' };
+    this.form = { proposed_bank_name: a.bank_name, proposed_account_number: a.account_number, proposed_clabe: a.clabe, proposed_payment_reference: a.payment_reference, proposed_alias: a.alias, proposed_es_favorita: a.es_favorita, reason: '' };
     this.requestSupplier.set(this.selectedSupplier()); this.uploadedUrl.set(null); this.uploadedKind = null;
     this.requestVisible = true;
   }
@@ -568,6 +582,7 @@ export class FinanzasCuentasPagoComponent implements OnInit {
       supplier_id: supplier.id, account_id: this.requestAccountId, deactivate: this.requestDeactivate,
       proposed_bank_name: this.form.proposed_bank_name, proposed_account_number: this.form.proposed_account_number,
       proposed_clabe: this.form.proposed_clabe, proposed_alias: this.form.proposed_alias,
+      proposed_payment_reference: this.form.proposed_payment_reference,
       proposed_es_favorita: !!this.form.proposed_es_favorita, proposed_attachment_url: this.uploadedUrl(),
       proposed_attachment_kind: this.uploadedKind, reason: this.form.reason,
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({

@@ -104,7 +104,7 @@ interface Obligation {
   /** `[PGP.12]` El código del acreedor en Kepler (`CNFR001`, `AE002`). Buscable; no se pinta solo. */
   payee_code?: string | null;
 }
-interface PaymentAccount { id: string; bank_name: string; account_number: string | null; clabe: string | null; alias: string | null; es_favorita: boolean }
+interface PaymentAccount { id: string; bank_name: string; account_number: string | null; clabe: string | null; alias: string | null; payment_reference: string | null; es_favorita: boolean }
 /**
  * `[PGP.46]` Una solicitud de alta de cuenta **esperando aprobación**: lo que alguien capturó al
  * preparar un pago y todavía nadie revisó. ⛔ No es una cuenta del catálogo — el catálogo está
@@ -4027,7 +4027,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     if (this.prepSupplierId) {
       this.http.get<PaymentAccount[]>(`${this.accountsBase}/by-supplier/${this.prepSupplierId}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (rows) => {
-          this.prepAccounts.set(rows.map((r) => ({ id: r.id, label: `${r.bank_name}${r.clabe ? ' · ' + r.clabe : ''}${r.alias ? ' (' + r.alias + ')' : ''}${r.es_favorita ? ' ★' : ''}` })));
+          // [PGP.90] La referencia fija se ve AL ELEGIR la cuenta: quien prepara sabe que va incluida.
+          this.prepAccounts.set(rows.map((r) => ({ id: r.id, label: `${r.bank_name}${r.clabe ? ' · ' + r.clabe : ''}${r.payment_reference ? ' · Ref ' + r.payment_reference : ''}${r.alias ? ' (' + r.alias + ')' : ''}${r.es_favorita ? ' ★' : ''}` })));
           // La favorita se propone sola; el usuario puede cambiarla. [PGP.75] Gana sobre la CLABE del historial.
           const fav = rows.find((r) => r.es_favorita)?.id ?? null;
           if (!this.prepAccountId && fav && (!this.prepDestination || intacto())) { this.prepAccountId = fav; if (intacto()) { this.prepDestination = ''; this.prepDestHistorial = null; } }

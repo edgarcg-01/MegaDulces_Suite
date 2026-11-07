@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Added — Cuentas de pago: la referencia fija que exige el proveedor (PGP.90, 2026-11-06 · en código, sin soltar)
+- En **Finanzas › Cuentas de pago**, la solicitud de cuenta tiene un campo **Referencia fija (opcional)**: el convenio o la referencia que algunos proveedores exigen en cada transferencia para reconocer el depósito.
+- Pasa por la **misma autorización que la CLABE**: quien autoriza la ve en la bandeja («· Ref …») y, aprobada, aparece debajo de la CLABE en la tabla de cuentas (sin columna propia: la mayoría no la pide).
+- Viaja sola al pago: al «Preparar» se ve en la cuenta que se elige, y queda en el destino que imprime la instrucción a Caja General.
+- Un cambio de cuenta que no traiga el campo **conserva** la referencia vigente; dejarla en blanco la quita.
+- ⚠️ Migración `20261106172407` en prod **antes** de soltar.
 ### Fixed — Inventario: la foto diaria toma el CEDIS real y guarda el costo de cada día (EX.H0, 2026-11-06 · en código, sin soltar)
 - La foto de inventario de las 23:50 lee ahora la **misma existencia que la pantalla Existencia**. Hasta hoy leía otra tabla y el **CEDIS salía congelado**: repetía el mismo saldo todos los días (205 productos contra los 304 que tiene).
 - Cada día guarda además **con qué costo se va a valuar**: el **estándar** de Kepler y el **de la última entrada**. Es la base de «Consulta históricos» en Existencia, que reemplazará la hoja de Compras de inventario por sucursal.

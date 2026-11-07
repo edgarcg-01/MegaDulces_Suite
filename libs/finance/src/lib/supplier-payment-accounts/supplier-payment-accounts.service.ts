@@ -28,6 +28,8 @@ export interface SupplierPaymentAccountRow {
   account_number: string | null;
   clabe: string | null;
   alias: string | null;
+  /** `[PGP.90]` La referencia que el proveedor exige en CADA transferencia. `null` = cambia en cada pago o no pide. */
+  payment_reference: string | null;
   notes: string | null;
   attachment_url: string | null;
   attachment_kind: string | null;
@@ -57,6 +59,8 @@ export interface SupplierPaymentAccountRequestRow {
   proposed_bank_name: string | null;
   proposed_clabe: string | null;
   proposed_account_number: string | null;
+  /** `[PGP.90]` La referencia fija que quedará en la cuenta al aprobar: quien autoriza la firma junto con la CLABE. */
+  proposed_payment_reference: string | null;
 }
 
 export interface CreateAccountChangeRequestDto {
@@ -67,6 +71,7 @@ export interface CreateAccountChangeRequestDto {
   proposed_account_number?: string | null;
   proposed_clabe?: string | null;
   proposed_alias?: string | null;
+  proposed_payment_reference?: string | null;
   proposed_attachment_url?: string | null;
   proposed_attachment_kind?: 'pdf' | 'image' | null;
   proposed_es_favorita?: boolean;
@@ -247,9 +252,14 @@ export class SupplierPaymentAccountsService {
     return this.tk.run(async (trx) => {
       const supplier = await trx('catalog.suppliers').where({ tenant_id: tenantId, id: dto.supplier_id }).first();
       if (!supplier) throw new NotFoundException('Proveedor no encontrado');
+      // [PGP.90] La referencia vigente de la cuenta que se cambia: si la solicitud NO trae el campo
+      // (un cliente que no lo conoce), se conserva — aprobarla no debe borrar una referencia que
+      // nadie pidió quitar. Traerlo vacío sí la quita.
+      let referenciaVigente: string | null = null;
       if (dto.account_id) {
         const acc = await trx('commercial.supplier_payment_accounts').where({ tenant_id: tenantId, id: dto.account_id, supplier_id: dto.supplier_id }).first();
         if (!acc) throw new NotFoundException('Cuenta no encontrada para este proveedor');
+        referenciaVigente = acc.payment_reference ?? null;
       } else if (!dto.deactivate && !dto.proposed_bank_name?.trim()) {
         throw new BadRequestException('proposed_bank_name es requerido para dar de alta una cuenta');
       }
@@ -258,6 +268,10 @@ export class SupplierPaymentAccountsService {
         deactivate: !!dto.deactivate,
         proposed_bank_name: dto.proposed_bank_name ?? null, proposed_account_number: dto.proposed_account_number ?? null,
         proposed_clabe: dto.proposed_clabe ?? null, proposed_alias: dto.proposed_alias ?? null,
+        // [PGP.90] Vacía = sin referencia fija: un espacio no es una referencia. Ausente = la vigente.
+        proposed_payment_reference: dto.proposed_payment_reference === undefined
+          ? referenciaVigente
+          : dto.proposed_payment_reference?.trim() || null,
         proposed_attachment_url: dto.proposed_attachment_url ?? null, proposed_attachment_kind: dto.proposed_attachment_kind ?? null,
         proposed_es_favorita: !!dto.proposed_es_favorita, reason: dto.reason.trim(), requested_by: username,
       }).returning('*');
@@ -366,7 +380,8 @@ export class SupplierPaymentAccountsService {
         if (req.proposed_es_favorita) await this.clearFavorita(trx, tenantId, req.supplier_id);
         await trx('commercial.supplier_payment_accounts').where({ tenant_id: tenantId, id: req.account_id }).update({
           bank_name: req.proposed_bank_name, account_number: req.proposed_account_number, clabe: req.proposed_clabe,
-          alias: req.proposed_alias, attachment_url: req.proposed_attachment_url, attachment_kind: req.proposed_attachment_kind,
+          alias: req.proposed_alias, payment_reference: req.proposed_payment_reference,
+          attachment_url: req.proposed_attachment_url, attachment_kind: req.proposed_attachment_kind,
           es_favorita: req.proposed_es_favorita, updated_by: username, updated_at: trx.fn.now(),
         });
       } else {
@@ -374,6 +389,7 @@ export class SupplierPaymentAccountsService {
         await trx('commercial.supplier_payment_accounts').insert({
           tenant_id: tenantId, supplier_id: req.supplier_id, bank_name: req.proposed_bank_name,
           account_number: req.proposed_account_number, clabe: req.proposed_clabe, alias: req.proposed_alias,
+          payment_reference: req.proposed_payment_reference,
           attachment_url: req.proposed_attachment_url, attachment_kind: req.proposed_attachment_kind,
           es_favorita: req.proposed_es_favorita, created_by: username,
         });
