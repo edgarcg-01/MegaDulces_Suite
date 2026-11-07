@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Fixed — Mesa de Servicio: la notificación de Windows también sale con la Suite abierta detrás de otro programa (MS.AVISO.2, 2026-11-07 · en código, sin soltar)
+- Antes sólo salía con la pestaña oculta o la ventana minimizada; con Chrome abierto detrás del correo o del Excel la Suite no la mandaba (por eso en prod «no avisaba»). Ahora sale también cuando la ventana no tiene el foco.
+- Con la Suite al frente sigue saliendo sólo la ventana dentro de la página (no se duplica).
+- Probado en un Chrome real con otro programa encima. Recordatorio: el permiso de notificaciones se da **por sitio**.
+- Sin migraciones ni permisos.
 ### Added — Pagos: descuento al pagar, factura por factura (PGP.91, 2026-11-06 · en código, sin soltar)
 - En el desglose de un pago, cada factura de proveedor tiene **Descuento**: motivo (Pronto pago, Volumen u Otro) y el % o los pesos; la pantalla saca el **neto que se transfiere** y lo dice: «este pago cubre − descuento = se transfieren».
 - Lo que el pago cubre de la factura (neto + descuento) **ya no se vuelve a ofrecer** —Agregar facturas, Pronto pago, «Qué conviene pagar»— mientras llega la nota de crédito de Kepler.
