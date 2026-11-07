@@ -163,6 +163,8 @@ export function planearRevision(
     plan.lines.push({
       key: r.key, product_name: r.product_name, unit: r.unit,
       ordered: r.ordered, picked: r.picked, final, returned, resolution: resolucion(r.ordered, r.picked, final, returned),
+      // [MV.1] El SKU queda en la foto de la revisión (el monitoreo lo muestra; antes no se guardaba).
+      ...(r.sku ? { sku: r.sku } : {}),
     });
     if (Math.abs(final - r.picked) <= EPS) continue;
     plan.cambia = true;

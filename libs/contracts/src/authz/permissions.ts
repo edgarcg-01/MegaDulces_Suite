@@ -500,6 +500,8 @@ export enum Permission {
   COMMERCIAL_VENDOR_SALES_VER = 'COMMERCIAL_VENDOR_SALES_VER', // /comercial/vendor-sales (ventas de vendedor)
   COMMERCIAL_CARTERA_VER = 'COMMERCIAL_CARTERA_VER',
   COMMERCIAL_CARTERA_GESTIONAR = 'COMMERCIAL_CARTERA_GESTIONAR',
+  /** `[MV.1]` Monitoreo vecinal: lo que hace cada vendedor, surtidor y cajera de la preventa. */
+  COMMERCIAL_MONITOREO_VECINAL_VER = 'COMMERCIAL_MONITOREO_VECINAL_VER',
   // `[MCP.3.11]` Cambiar la sucursal de surtido de una ruta (commercial.route_warehouses), SIN el resto
   // de administrar cartera. Es lo que el supervisor de ventas necesita en «Asignar rutas». El servidor
   // sigue recortando por tipo de ruta (el vecinal sólo toca vecinales).

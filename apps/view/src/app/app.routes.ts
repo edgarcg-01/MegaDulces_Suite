@@ -505,6 +505,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_HISTORICAL_VER)]
       },
       {
+        // [MV.3] Monitoreo vecinal: lo que hace cada vendedor, surtidor y cajera de la preventa.
+        path: 'monitoreo-vecinal',
+        loadComponent: () => import('./modules/comercial/pages/comercial-monitoreo-vecinal.component').then(m => m.ComercialMonitoreoVecinalComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_MONITOREO_VECINAL_VER)]
+      },
+      {
         // Cierre de ruta: control de tickets venta/carga/combustible de vendedores.
         path: 'route-tickets',
         loadComponent: () => import('./modules/comercial/pages/comercial-route-tickets.component').then(m => m.ComercialRouteTicketsComponent),

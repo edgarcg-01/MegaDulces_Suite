@@ -122,6 +122,7 @@ export * from './http/warehouse-picking-kepler.contract';
 export * from './http/warehouse-presale.contract';
 export * from './http/presale-picking.contract';
 export * from './http/presale-review.contract';
+export * from './http/vecinal-monitor.contract';
 // [MCP.3.8] Cliente nuevo: alta en la Suite y liga con su clave de Kepler.
 export * from './http/new-customers-kepler.contract';
 // `[ALC]` Alta de clientes: constancia del SAT, ficha de Kepler y solicitud de alta.
