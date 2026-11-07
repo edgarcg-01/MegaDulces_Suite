@@ -1008,7 +1008,13 @@ export class StoreService {
      * `[VEX.9]` Antes `al` era la última corrida de `import-cash-sessions`, que ya no existe.
      */
     const sucs: string[] | null = filtrar ? (warehouses as string[]) : null;
-    const f: any = (await this.knex
+    /**
+     * `[VEX.9]` Las tres columnas de la consulta, nombradas. Con `any`, un typo en un alias
+     * daba `undefined` en silencio: la pantalla diria `unknown` como si el feed estuviera
+     * caido. Opcionales porque si la consulta falla se sigue con `{}`.
+     */
+    type SaludDelFeed = { al?: string | Date | null; ultimo_dia?: string | null; hoy?: string | null };
+    const f: SaludDelFeed = (await this.knex
       .raw(
         `SELECT (SELECT min(x.al) FROM (
                    SELECT btrim(b.sucursal) AS suc, max(b.last_check_at) AS al
@@ -1023,7 +1029,7 @@ export class StoreService {
                 (${todayMX})::text AS hoy`,
         [sucs, sucs, TENANT, sucs, sucs],
       )
-      .then((r: any) => r.rows?.[0])
+      .then((r: { rows?: SaludDelFeed[] }) => r.rows?.[0])
       .catch(() => null)) || {};
     const alMs = f.al ? new Date(f.al).getTime() : null;
     const minutos = alMs != null ? Math.round((NOW - alMs) / 60000) : null;
