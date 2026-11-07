@@ -1,6 +1,7 @@
 <!-- INDICE-AUTO:INICIO -->
 
 > **Índice navegable** — 2215 KB, 13461 líneas, 74 secciones.
+> **Índice navegable** — 2216 KB, 13463 líneas, 74 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -81,6 +82,8 @@
 | 13489 | 13519 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
 | 13520 | 13534 | 3 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
 | 13535 | 13547 | 2 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 13520 | 13536 | 4 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 13537 | 13549 | 2 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -8252,6 +8255,103 @@ explícito y el patrón respeta los `false`; si el bodeguero debe ver el censo, 
 `compras-existencia-critica.component.ts` (+ `compras-que-toca` y `compras-entradas-revision`, 2,342
 más) — PR aparte para no volver ilegible el diff.
 
+#### «Consulta históricos» en Existencia — reemplaza la hoja de Compras (2026-11-06)
+
+> Pedida por Francisco: un botón **«Consulta históricos»** arriba a la derecha de Existencia para ver
+> **cuánto valía el inventario de cada sucursal al cierre de cada día**, con filtro de fechas y de
+> sucursales. Reemplaza la hoja de Google «INVENTARIOS TOTALES SUCURSALES» de Compras (filas =
+> sucursal con su tope, columnas = días, rojo si pasa el tope). **No es fase nueva** (Fase 0 en
+> curso): son items de esta pantalla, en orden de capas C0 → C2 → C3.
+> **Decisiones de Francisco:** D1 se valúa a **costo estándar** · D2 **primero se arregla la foto** ·
+> D3 topes **después** · D4 permiso `EXISTENCIA_VER` (los mismos roles que hoy ven Existencia; no hay
+> permiso nuevo — y no hay una llave de Compras más acotada que sirva: las candidatas tienen casi los
+> mismos roles).
+> **Meta del negocio:** rotar el inventario **13 veces al año** (≈ 28 días de costo de venta) — el
+> tope se puede DERIVAR de la venta en vez de capturarlo (ver EX.H3).
+
+- [ ] **[EX.H0]** 🔨 **La foto diaria lee la MISMA existencia que esta pantalla y guarda el costo del
+  día** (C0). Mig `20261106182425_ex_h0_foto_existencia_desde_ods_y_dos_costos` +
+  `stock-snapshot.service.ts` + `test-newdb-stock-snapshots.js`.
+  - **Por qué:** la foto leía `commercial.stock` (91 %) y no la vista (100 %). En el CEDIS no era
+    ruido: repetía el mismo saldo todos los días (**205 pares; la vista da 304 y +75 % de unidades**),
+    porque la tabla arrastra el residuo de la base de prueba que la vista ya arbitra (`[IC.CEDIS.12]`).
+    MD-32 también salía congelado y no está en la vista (ni en esta pantalla): deja de fotografiarse y
+    queda «no medido» en la cobertura.
+  - **Antes/después medido (2026-11-06, sólo lectura):** en 01–08 las dos fuentes están en la MISMA
+    unidad (razón mediana 1.000, ≥ 99.9 % de pares iguales ±2 %) → la serie de unidades no se rompe.
+    Peldaño del estándar: **22,137 pares casan con el ERP, 179 unidad dudosa (sin valor), 47 sin
+    estándar, 21 sin testigo; ningún costo en 0**. El valor estándar por almacén salió IGUAL por dos
+    caminos independientes (consulta propia vs. el SELECT exacto del servicio). Sin duplicados en
+    las tres fuentes. Lee la fuente UNA vez (~2–3 s) y escribe foto + cobertura en una sola sentencia.
+  - **Lo que agrega:** `erp_unit_cost` (kdik.c16 = costo de la ÚLTIMA ENTRADA, ver EX.H0b) y `standard_unit_cost`
+    (kdii.c77 sin impuesto, en el peldaño que casa con el ERP a < 2×) + `standard_cost_rule` por
+    fila; en la cobertura `stock_source` y los valores **conocidos** con sus faltantes declarados.
+    `reservadas`/`disponibles` pasan a NULL = no medido (la vista no trae apartados).
+  - ⛔ **Hallazgo: `test-newdb-stock-snapshots.js` estaba MUERTO DOS veces** sin que nada lo dijera:
+    desde `[INV-FOTO.1]` construía el servicio sin `tk` (reventaba con `undefined.run`), y en el CI
+    ni llegaba a eso — sin `JWT_SECRET` la carga de `platform-core` fallaba y la suite salía NO MEDIDO
+    (visto en el log de `pruebas-db`). Reescrita: fuentes como tablas temporales (corre el SQL real),
+    sku/costo de catálogo propios, dos almacenes, umbral de 2× fijado por los dos lados, re-corrida
+    que cambia costos, re-toma que deja un par en cero, rama sin migración, y el `knex` del servicio
+    es una conexión APARTE (una sentencia fuera de `tk.run` no ve sus fuentes y la prueba revienta).
+  - **Revisión adversarial (3 lentes + verificador por hallazgo): 8 reales, 3 refutados.** Corregidos:
+    el `JWT_SECRET` de prueba; el fixture que dependía del entorno; los huecos de la prueba; **re-tomar
+    un día no borraba los pares que quedaron en cero** (filas y cobertura se contradecían; preexistente
+    pero EX.H0 empujaba a usarlo) → la sentencia ahora borra lo que ya no tiene saldo, sólo en los
+    almacenes que la fuente trajo (MD-32 conserva su foto); `stock_source` pasa de un UPDATE atado a la
+    hora del DDL a un `DEFAULT 'commercial.stock'` (sólo metadatos); el «sí» del esquema ya no se
+    recuerda (una migración revertida tumbaba la foto hasta reiniciar). Documentado: la fuente es
+    VIVA, `fecha` sólo etiqueta — re-tomar un día viejo guardaría la existencia de hoy.
+  - **Verificado:** el SQL real cargado con ts-node: la rama nueva se ejecutó en sus partes SELECT
+    contra prod; la rama vieja (con el borrado) pasó análisis y plan contra las tablas reales (frena
+    en permisos, como debe); 3 parámetros = 3 valores; la validación de nombres de fuente rechaza una
+    inyección. Simulando el CI (sin `.env`): sin el arreglo la carga revienta por `JWT_SECRET`
+    (negativa vista), con el arreglo llega a la base. Local, la suite se pone **ROJA en las 3
+    comprobaciones de esquema** (prod aún sin la migración). Sin errores de tipo nuevos.
+  - **NO MEDIDO:** la suite completa contra una base que se pueda escribir (Docker local apagado) y
+    el `up()` real de la migración: quedan para `pruebas-db` del CI, que aplica las migraciones sobre
+    una base vacía. Tampoco se pudo «romper el borrado y ver el rojo» localmente.
+  - **Pendiente prod:** ⛔ **aplicar la migración ANTES de soltar** (la foto corre 23:50 y un día que
+    no se toma no se recupera). Si llega el código primero, la foto se toma igual con el esquema viejo
+    y el latido sale en **error** («falta aplicar la migración EX.H0») en vez de verde.
+- [ ] **[EX.H0b]** ⬜ **La pantalla Existencia dice valuar a «costo PROMEDIO del ERP» y valúa al de la
+  ÚLTIMA ENTRADA.** Medido 2026-11-06 con verificación adversarial por dos métodos: `kdik.c16` casa con
+  el costo de la última entrada en ≈99 % del subconjunto que distingue (Yurécuaro, Dámaso, Morelia
+  Abastos, Padre Hidalgo, CEDIS) y con `c8/c5` en 0.0–0.3 %; `c16 = c8/c5` sólo en 64 % de todas las
+  filas (las de una sola entrada). Están mal: el rótulo de `almacen-existencia.component.ts`
+  (`valuacionTexto`), `metodo_valuacion = 'erp_promedio_ponderado_historico'` y el comentario KX de
+  `existencia.service.ts`, el de `20260908190000_v_kepler_unit_cost.js`, VERDAD_ABSOLUTA §3.4/§9.4 y
+  ERP_KEPLER §2.1 (y su mapa de `kdik`: `c6`/`c9` son SALIDAS acumuladas, no existencia/valor). Ya lo
+  decían bien `kepler-costos.contract.ts` y la mig `20261015115146`. El **promedio móvil** con que
+  Kepler costea cada salida es valor/existencia de `kdik`: `(c7+c8−c9)/(c4+c5−c6)` (salidas al
+  promedio en 98–99 %). No cambia ninguna cifra: cambia lo que la pantalla AFIRMA (ley 0).
+- [ ] **[EX.H1]** ⬜ **Endpoint de sólo lectura** `GET /commercial/inventory/stock-snapshot/historico`
+  (`desde`, `hasta`, `almacenes`): por almacén × día el valor estándar conocido, sus faltantes, la
+  fuente y las banderas de cierre; días sin foto declarados. Contrato en `libs/contracts`, `tk.run`,
+  `EXISTENCIA_VER`. Antes de EX.H0 el valor se reconstruye con `product_cost_history` (desde
+  2026-10-17) y se marca como reconstruido.
+  ⭐ **Medido 2026-11-06: la historia ANTES de la foto se puede derivar del kardex** (`kdij`, Σ con
+  signo de `c13`/`c11`, signo en `c30`), sin importer: reproduce `kdik` por SKU en ≥ 99.9 % y la foto
+  de las 23:50 en 97–100 % (89–95 % en Canindo y Morelia Madero). Desde el primer día de cada sucursal
+  en Kepler (8 Esquinas 10-ene … Morelia Abastos 18-sep); excluir SKUs simbólicos 00001/00002/00022 y
+  documentos cancelados (`kdm1.c43 = 'C'`). ⛔ El CEDIS NO (su kardex reproduce `kdik` en 70 %). Antes
+  de eso las tiendas estaban en Wincaja: la hoja de enero salió de ahí, al cierre del día ANTERIOR.
+- [ ] **[EX.H2]** ⬜ **Pantalla «Consulta históricos»** (C3): botón arriba a la derecha de
+  Existencia → ruta propia en Almacén y en Compras. Filtros: rango de fechas + sucursales. Acomodo
+  como la hoja de Compras (sucursal en renglones, días en columnas, total). El CEDIS anterior a EX.H0
+  se marca «foto no confiable». ⛔ **MD-32 se excluye también de las fotos viejas**: es el almacén
+  Wincaja de Morelia Madero antes de su paso a Kepler (07), borrado el 2026-09-11, y su foto repetía el
+  mismo saldo 42 días — sumarlo cuenta Madero dos veces. Nombres de la hoja ≠ Suite: «ZAMORA» = 06
+  Canindo, «DAMASO» = 05 Zamora Centro. Cinco preguntas de `diseno` por escrito antes de la plantilla.
+- [ ] **[EX.H3]** ⬜ (D3, después) **Tope por sucursal y meta de rotación 13.** Primitivos que ya
+  existen: `commercial.warehouses.inventory_max_mxn` (hoy sólo rutas, RD.29: sin historia y el PATCH
+  de almacenes no la acepta), `analytics.kpi_thresholds` (CDRP.2, nace vacío) y **Fase DP**
+  (`platform.business_definitions`: vigencia, autor, motivo, dueño y bandeja — el candidato
+  recomendado para el tope por sucursal y el objetivo de la red). En la hoja los topes suman más que
+  el objetivo de la red: decidir cuál manda (Dirección). Con la meta de 13 rotaciones el tope puede
+  DERIVARSE del costo de venta en vez de capturarse. Escribirlo exige su prueba contra base real
+  (regla 13).
+
 - [x] **[CV.23]** 🔨 **Pivot de alcance: PR #62 recortado a solo el verificador de precios** (2026-09-05)
   — Edgar exigía auth-mt + `commercial.orders` + `kepler_ods` (este último ya resuelto en CV.22).
   Los otros dos tienen huecos reales del lado de la Suite (checkout anónimo sin precedente,
@@ -13524,6 +13624,8 @@ Plan: [FASE_ALC_ALTA_DE_CLIENTES.md](FASES/FASE_ALC_ALTA_DE_CLIENTES.md) · nace
 - [ ] **[ALC.0.3]** ⬜ Decodificar dónde guarda Kepler el régimen y el CP fiscal del receptor (no está en `kdud` ni en `kdfe33*`): contra el XML de un CFDI timbrado.
 - [ ] **[ALC.0.4]** 🧪 `commercial.customer_onboarding_requests` (mig `20261104235236`): RLS FORCE, sin DELETE, un RFC propio con una sola solicitud abierta. `up()` NO ejecutado en local; lo corre el CI. El CI del PR #493 lo cazó: la FK apuntaba a `public.tenants`, que es una VISTA (en prod también) → corregida a `identity.tenants`. Aplicar en prod una por una.
 - [ ] **[ALC.0.5]** 🧪 Llaves `COMMERCIAL_ALTA_CLIENTES` (13 roles con `superadmin`, incluye `facturacion` y `promotor_ruta`) y `COMMERCIAL_ALTA_CLIENTES_CREDITO` (por persona a `perla_garcia`; por rol `finanzas` y `direccion` en su ausencia; `credito_cobranza` no) en la misma migración. Regla 20: verificar en prod al aplicarla.
+- [ ] **[ALC.0.6]** 🧪 Llave `COMMERCIAL_ALTA_CLIENTES_VER` (sólo consulta: bandeja, detalle, constancia y catálogos; no captura, no liga, no cancela, no decide crédito) al rol `credito_cobranza` (mig `20261106181031`). Francisco, 2026-11-06: *«Paulina y Gloria ven solicitudes de alta, también las gerencias de zona y Dirección General»*. Medido en prod: `paula_alanis` y `gloria_vera` no veían el módulo; Gerencia de Zona (`jefe_zona`: 3 personas, rol `superadmin`) y Dirección General (`direccion`: 2) **ya lo veían**, nada que repartir. Prueba `customer-onboarding.controller.spec.ts` (6) recorre los 10 endpoints, con prueba negativa (abrir `link` a `_VER` la pone roja). `up()` NO MEDIDO en el CI: la base desde cero no tiene el rol `credito_cobranza` y el bootstrap la salta (como a las otras migraciones que afirman sobre roles de prod); se verifica con su log al aplicarla. Sólo UPDATE: aplicar en prod ANTES de soltar; luego re-login de las dos.
+- [ ] **[ALC.0.7]** 🧪 `COMMERCIAL_ALTA_CLIENTES_CREDITO` **negada por persona** a `maria_gutierrez` (Jefe de Tesorería) en `identity.user_permissions`, misma mig `20261106181031`. Francisco, 2026-11-06: *«maria de la paz no»*. Le llegaba por su rol secundario `finanzas` (no se le quita: le da el resto de Finanzas); la persona gana sobre el rol (`[ID.21]`). Medido antes: sin fila previa. `up()` NO MEDIDO en el CI. ⚠️ Los `superadmin` siguen pudiendo aprobar (modo god).
 - [ ] **[ALC.1.1]** 🧪 Lector de la constancia en `libs/platform-core/src/lib/sat/` (`pdf-texto` sobre `pdf-lib`, sin dependencia nueva). 12 pruebas sintéticas; las 2 constancias reales leídas completas fuera del repo.
 - [ ] **[ALC.1.2]** 🧪 RFC y CURP con dígito verificador + reglas de la solicitud. Testigo: 736 de 760 RFC bien formados de Kepler cuadran (96.8 %); 63 de 801 RFC distintos de Kepler están mal capturados hoy.
 - [ ] **[ALC.1.3]** 🧪 La constancia → la ficha de Kepler con la convención medida del maestro (`MICHOACAN`, sin «SA de CV», `AV.`).

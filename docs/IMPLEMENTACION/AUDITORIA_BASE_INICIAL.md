@@ -973,6 +973,26 @@ pólizas de la cuenta 515 por documento).
 
 ---
 
+## Addendum — `AUD-DAT.27`: el costo «PROMEDIO del ERP» de Existencia es el de la ÚLTIMA ENTRADA (2026-11-06)
+
+**Estado: ABIERTO — item `[EX.H0b]` en el tracker. No cambia ninguna cifra; cambia lo que la pantalla y la documentación AFIRMAN.** Lo encontró la medición de «Consulta históricos» (`[EX.H0]`), con verificación adversarial por dos métodos.
+
+- **Qué se afirma:** la pantalla Existencia dice valuar a «costo PROMEDIO del ERP» (`valuacionTexto`, `metodo_valuacion = 'erp_promedio_ponderado_historico'`); el comentario KX de `existencia.service.ts`, el de `20260908190000_v_kepler_unit_cost.js`, VERDAD_ABSOLUTA §3.4/§9.4 y ERP_KEPLER §2.1 dicen que `kdik.c16 = c8/c5`, un promedio ponderado.
+- **Qué es:** el costo unitario de la **última entrada** (compra, traspaso o ajuste). En el subconjunto donde las dos hipótesis difieren, `c16` casa con la última entrada en ≈ 99 % (Yurécuaro, Dámaso, Morelia Abastos, Padre Hidalgo, CEDIS) y con `c8/c5` en 0.0–0.3 %; `c16 = c8/c5` sólo en 64 % de todas las filas (las de una sola entrada). `kepler-costos.contract.ts` y la mig `20261015115146` ya lo decían bien.
+- **El promedio de verdad:** el que Kepler usa para costear cada salida es valor/existencia de `kdik`, `(c7+c8−c9)/(c4+c5−c6)` (salidas a ese costo en 98–99 %). Mapa de `kdik` por almacén: `c4`/`c7` iniciales (0 en el 100 %), `c5`/`c8` entradas acumuladas, `c6`/`c9` **salidas** acumuladas — ERP_KEPLER l.110 los da como existencia y valor, y eso también está mal.
+
+---
+
+## Addendum — `AUD-DAT.28`: el importer del kardex guarda el NÚMERO DE RENGLÓN como unidades (2026-11-06)
+
+**Estado: ABIERTO, sin dueño asignado.** Lateral a `[EX.H0]`; no se tocó.
+
+- **Qué pasa:** `database/importers/kepler/import-kardex.js` (líneas 77 y 98) lee `c9::numeric AS unidades`, y `c9` de `kdij` es el número de renglón (ERP_KEPLER §3.x); la cantidad es `c11`.
+- **Lo medido (prod, sólo lectura, Canindo desde 2026-10-01):** `analytics.stock_ledger.unidades = Σc9` en 52 de 52 filas emparejadas, y `= Σc11` sólo en 2 (donde coinciden por casualidad).
+- **No medido:** qué pantallas o cálculos consumen esas unidades. Leen `stock_ledger` `libs/reconciliation` (`movement-reconcile.service.ts`, `reconciliation-query.service.ts`) y la foto de inventario (sólo para su comentario histórico). Además es un importer: lo canónico sería derivarlo del ODS (regla principal).
+
+---
+
 ## Cómo usar este documento
 
 1. Cada finding tiene un código (`1.1`, `2.3`, etc.). Cuando se arregla, agregar fecha en `03_LOG_REVISIONES.md` con referencia al código.

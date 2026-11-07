@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Fixed — Inventario: la foto diaria toma el CEDIS real y guarda el costo de cada día (EX.H0, 2026-11-06 · en código, sin soltar)
+- La foto de inventario de las 23:50 lee ahora la **misma existencia que la pantalla Existencia**. Hasta hoy leía otra tabla y el **CEDIS salía congelado**: repetía el mismo saldo todos los días (205 productos contra los 304 que tiene).
+- Cada día guarda además **con qué costo se va a valuar**: el **estándar** de Kepler y el **de la última entrada**. Es la base de «Consulta históricos» en Existencia, que reemplazará la hoja de Compras de inventario por sucursal.
+- Un producto cuya unidad no se puede confirmar queda **sin valor y contado aparte**, nunca valuado en cero ni con un costo 10 veces equivocado.
+- Re-tomar un día lo **reemplaza completo**: un producto que quedó en cero ya no conserva su saldo viejo.
+- ⚠️ Corrige lo que se afirmaba: el costo del ERP que usa Existencia es el de la **última entrada**, no un promedio (registrado como `AUD-DAT.27`; el rótulo de la pantalla se corrige aparte, `EX.H0b`).
 ### Added — Comercial: Alta de clientes desde la constancia del SAT (ALC, 2026-11-04 · en código, sin soltar)
 - Nueva pantalla **Comercial › Alta de clientes**. Se sube la **Constancia de Situación Fiscal** (el PDF del SAT) y la Suite llena RFC, nombre o razón social, régimen fiscal, código postal y domicilio; o se captura a mano, que vale lo mismo: **la constancia no se le puede exigir al cliente** para facturar.
 - Revisa lo que se tecleó antes de guardar: el RFC y la CURP con su **dígito verificador** (hoy, 63 de 801 RFC distintos en Kepler están mal capturados), el código postal contra el catálogo del SAT, que el régimen corresponda a persona física o moral, y si **el RFC ya está en Kepler** (avisa con su clave y sus sucursales, para no dar de alta dos veces).

@@ -9,9 +9,11 @@ import { StockSnapshotService, SnapshotResult, SnapshotCoverageRow } from './sto
  * El cron de las 23:50 MX es quien la toma todos los días; esto existe para dos cosas
  * concretas, no por simetría:
  *
- *  1. **Re-tomar un día** que salió mal (la escritura es idempotente por la PK, así que
- *     re-correr corrige en vez de duplicar). Sin esto, un día torcido queda torcido para
+ *  1. **Re-tomar un día** que salió mal (re-correr lo REEMPLAZA: UPSERT de lo que tiene
+ *     saldo y borrado de lo que ya no, `[EX.H0]`). Sin esto, un día torcido queda torcido para
  *     siempre — y es el único dato del sistema que no se puede reconstruir después.
+ *     ⚠️ La fuente es VIVA: `fecha` sólo etiqueta. Re-tomar ayer a primera hora repone la foto
+ *     de anoche; re-tomar un día de hace una semana guardaría la existencia de HOY con esa fecha.
  *  2. **Probar el camino real** desde la suite de regresión, en vez de que un test
  *     reimplemente el SQL del servicio y termine comprobándose a sí mismo.
  *
