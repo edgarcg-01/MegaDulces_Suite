@@ -93,6 +93,15 @@ export function revisarSolicitud(b: SolicitudAltaBody, ctx: ContextoRevision): H
     }
   }
 
+  // `[ALC.3.5]` La ubicación es opcional; si viene, tiene que ser un punto posible.
+  const u = b.ubicacion;
+  if (u) {
+    if (!(Math.abs(u.lat) <= 90 && Math.abs(u.lng) <= 180)) bloquea('ubicacion', 'La ubicación no es una coordenada válida.');
+    else if (!(u.lat >= 14 && u.lat <= 33 && u.lng >= -119 && u.lng <= -86)) {
+      aviso('ubicacion', 'La ubicación cae fuera de México: revisa el punto en el mapa.');
+    }
+  }
+
   const credito = Number(b.credito_solicitado ?? 0), plazo = Number(b.plazo_dias ?? 0), desc = Number(b.descuento_pct ?? 0);
   if (!Number.isFinite(credito) || credito < 0) bloquea('credito_solicitado', 'El límite de crédito no puede ser negativo.');
   if (!Number.isInteger(plazo) || plazo < 0) bloquea('plazo_dias', 'El plazo es un número entero de días.');

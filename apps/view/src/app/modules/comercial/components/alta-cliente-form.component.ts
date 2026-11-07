@@ -14,6 +14,7 @@ import {
   type CatalogosAlta,
   type CodigoPostalAlta,
   type FichaKeplerCliente,
+  type UbicacionAlta,
   type HallazgoAlta,
   type PosibleDuplicado,
   type RevisionAlta,
@@ -25,6 +26,7 @@ import {
 } from '@megadulces/contracts';
 import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
 import { AltaClientesService } from '../alta-clientes.service';
+import { MapComponent } from '../../../shared/components/map/map.component';
 
 type Paso = 'elegir' | 'leyendo' | 'forma';
 
@@ -60,7 +62,7 @@ const CONTACTO: CasillaKepler[] = ['telefono_1', 'telefono_2', 'telefono_3', 'em
 @Component({
   selector: 'app-alta-cliente-form',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, InputTextModule, InputNumberModule, SelectModule, TextareaModule, TagModule, SegmentedComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, InputTextModule, InputNumberModule, SelectModule, TextareaModule, TagModule, SegmentedComponent, MapComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (paso() === 'elegir') {
@@ -205,6 +207,35 @@ const CONTACTO: CasillaKepler[] = ['telefono_1', 'telefono_2', 'telefono_3', 'em
         </fieldset>
 
         <fieldset class="af-grupo">
+          <legend>Ubicación <span class="af-tenue">— opcional: dónde está la tienda, para la ruta y el mapa de clientes</span></legend>
+          <div class="af-geo-acciones">
+            <button pButton type="button" size="small" [outlined]="true" [disabled]="buscandoUbicacion() || !direccionParaBuscar()"
+                    [loading]="buscandoUbicacion() === 'direccion'" (click)="ubicarPorDireccion()">
+              <span class="p-button-icon p-button-icon-left pi pi-map-marker" aria-hidden="true"></span>Ubicar en el mapa
+            </button>
+            @if (hayGps) {
+              <button pButton type="button" size="small" [outlined]="true" [disabled]="!!buscandoUbicacion()"
+                      [loading]="buscandoUbicacion() === 'gps'" (click)="usarMiUbicacion()">
+                <span class="p-button-icon p-button-icon-left pi pi-compass" aria-hidden="true"></span>Usar mi ubicación
+              </button>
+            }
+            @if (f().ubicacion) {
+              <button pButton type="button" size="small" [text]="true" severity="secondary" (click)="quitarUbicacion()">Quitar</button>
+            }
+          </div>
+          @if (avisoUbicacion(); as a) { <small class="af-aviso" role="status">{{ a }}</small> }
+          @if (f().ubicacion; as u) {
+            <p class="af-geo-nota" role="status">
+              {{ u.origen === 'gps' ? 'Del GPS de este dispositivo' + (u.precision_m != null ? ' (±' + u.precision_m + ' m)' : '') : u.origen === 'mapa' ? 'Punto elegido en el mapa' : 'Buscado por la dirección: revisa que caiga en la tienda' }}
+              · <span class="af-mono">{{ u.lat.toFixed(6) }}, {{ u.lng.toFixed(6) }}</span> · un clic en el mapa lo mueve.
+            </p>
+            <app-map [pickable]="true" [pickedPoint]="{ lat: u.lat, lng: u.lng }" (mapClick)="moverPunto($event)"
+                     height="220px" [autoFit]="'off'" [showBasemapToggle]="false" />
+          }
+          @if (error('ubicacion'); as e) { <small [class.af-err]="esBloqueo('ubicacion')" [class.af-aviso]="!esBloqueo('ubicacion')">{{ e }}</small> }
+        </fieldset>
+
+        <fieldset class="af-grupo">
           <legend>Sucursal y cartera en Kepler</legend>
           <div class="af-rejilla">
             <label class="af-campo">
@@ -296,6 +327,8 @@ const CONTACTO: CasillaKepler[] = ['telefono_1', 'telefono_2', 'telefono_3', 'em
     @media (max-width: 40rem) { .af-ancho { grid-column: auto; } }
     .af-campo { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; font-size: var(--fs-xs); color: var(--fg-2); }
     .af-campo input, .af-campo textarea { width: 100%; }
+    .af-geo-acciones { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
+    .af-geo-nota { margin: 0; font-size: var(--fs-xs); color: var(--fg-2); }
     .af-sugerencias { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2); font-size: var(--fs-xs); margin-top: calc(-1 * var(--sp-1)); }
     .af-campo-cab { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); flex-wrap: wrap; }
     .af-campo input[readonly] { color: var(--fg-2); }
@@ -379,7 +412,21 @@ export class AltaClienteFormComponent implements OnInit {
   });
   /** Hallazgos sin casilla propia (constancia, Kepler, sucursal): arriba del formulario. */
   readonly avisosGenerales = computed(() =>
-    this.hallazgos().filter((h) => !['rfc', 'curp', 'nombre_fiscal', 'regimen_fiscal', 'codigo_postal_fiscal'].includes(h.campo) && !h.campo.startsWith('ficha.')));
+    this.hallazgos().filter((h) => !['rfc', 'curp', 'nombre_fiscal', 'regimen_fiscal', 'codigo_postal_fiscal', 'ubicacion'].includes(h.campo) && !h.campo.startsWith('ficha.')));
+
+  /**
+   * `[ALC.3.5]` Ubicación, opcional. Dos maneras: buscar el domicilio capturado (el geocodificador de
+   * la Suite, Mapbox: se paga por llamada, por eso es UN clic y no cada tecla) o el GPS del teléfono,
+   * para el vendedor parado en la tienda. Un clic en el mapa corrige el punto.
+   */
+  readonly hayGps = typeof navigator !== 'undefined' && !!navigator.geolocation;
+  readonly buscandoUbicacion = signal<'direccion' | 'gps' | null>(null);
+  readonly avisoUbicacion = signal<string | null>(null);
+  readonly direccionParaBuscar = computed(() => {
+    const k = this.f().ficha;
+    const calle = (k.direccion_1 ?? '').trim();
+    return calle ? [calle, k.direccion_2, k.codigo_postal, k.estado, 'MEXICO'].map((p) => String(p ?? '').trim()).filter(Boolean).join(', ') : '';
+  });
 
   constructor() {
     // Si el diálogo abrió antes de que llegaran los catálogos, la sucursal por defecto se pone al llegar.
@@ -404,6 +451,8 @@ export class AltaClienteFormComponent implements OnInit {
     this.guardando.set(false);
     this.datosCp.set(null);
     this.estadoAuto.set('');
+    this.buscandoUbicacion.set(null);
+    this.avisoUbicacion.set(null);
     this.cpConsultado = '';
     this.sucio = false;
   }
@@ -429,6 +478,52 @@ export class AltaClienteFormComponent implements OnInit {
       },
       error: () => { this.cpConsultado = ''; /* es ayuda: si falla, se captura a mano */ },
     });
+  }
+  ubicarPorDireccion(): void {
+    const q = this.direccionParaBuscar();
+    if (!q) return;
+    this.buscandoUbicacion.set('direccion');
+    this.avisoUbicacion.set(null);
+    this.svc.geocode(q).subscribe({
+      next: (r) => {
+        this.buscandoUbicacion.set(null);
+        const g = r?.results?.[0];
+        if (!g) { this.avisoUbicacion.set('No se encontró esa dirección en el mapa: usa tu ubicación o haz clic donde está la tienda.'); return; }
+        this.fijarUbicacion({ lat: g.lat, lng: g.lng, origen: 'direccion', precision_m: null });
+      },
+      error: () => { this.buscandoUbicacion.set(null); this.avisoUbicacion.set('No se pudo buscar la dirección. Intenta otra vez o usa tu ubicación.'); },
+    });
+  }
+  usarMiUbicacion(): void {
+    if (!this.hayGps) return;
+    this.buscandoUbicacion.set('gps');
+    this.avisoUbicacion.set(null);
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        this.buscandoUbicacion.set(null);
+        this.fijarUbicacion({ lat: p.coords.latitude, lng: p.coords.longitude, origen: 'gps', precision_m: Math.round(p.coords.accuracy * 10) / 10 });
+        if (p.coords.accuracy > 100) this.avisoUbicacion.set(`El GPS sólo dio ±${Math.round(p.coords.accuracy)} m: revisa el punto en el mapa.`);
+      },
+      (e) => {
+        this.buscandoUbicacion.set(null);
+        this.avisoUbicacion.set(e.code === 1 ? 'El navegador no dio permiso de ubicación: actívalo o busca por la dirección.' : 'El dispositivo no dio la ubicación. Intenta otra vez o busca por la dirección.');
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+    );
+  }
+  /** Un clic en el mapa: la persona corrige el punto. */
+  moverPunto(p: { lat: number; lng: number }): void {
+    this.fijarUbicacion({ lat: p.lat, lng: p.lng, origen: 'mapa', precision_m: null });
+  }
+  quitarUbicacion(): void {
+    this.sucio = true;
+    this.avisoUbicacion.set(null);
+    this.f.update((x) => ({ ...x, ubicacion: null }));
+  }
+  private fijarUbicacion(u: UbicacionAlta): void {
+    this.sucio = true;
+    const r6 = (n: number) => Math.round(n * 1e6) / 1e6; // la columna guarda 6 decimales (~10 cm)
+    this.f.update((x) => ({ ...x, ubicacion: { ...u, lat: r6(u.lat), lng: r6(u.lng) } }));
   }
   usarSugerencia(texto: string): void {
     this.setFicha('direccion_2', texto.slice(0, this.limite('direccion_2')));

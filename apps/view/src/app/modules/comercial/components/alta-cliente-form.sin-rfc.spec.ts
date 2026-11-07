@@ -154,3 +154,76 @@ describe('[ALC.3.4] alta de cliente: el código postal llena el estado y sugiere
     expect(cmp.f().ficha.estado).toBe('');
   });
 });
+
+/**
+ * `[ALC.3.5]` Ubicación opcional: buscar el domicilio (geocodificador, se paga por llamada: sólo con
+ * un clic y sólo si hay calle) o el GPS del teléfono; un clic en el mapa la corrige.
+ */
+describe('[ALC.3.5] alta de cliente: la ubicación', () => {
+  let buscadas: string[] = [];
+  let resultados: { lat: number; lng: number; place_name: string; relevance: number }[] = [];
+  async function montarGeo() {
+    buscadas = [];
+    await TestBed.configureTestingModule({
+      imports: [AltaClienteFormComponent],
+      providers: [{
+        provide: AltaClientesService,
+        useValue: {
+          revisar: () => of({ hallazgos: [], duplicados: [] }),
+          codigoPostal: (cp: string) => of({ codigo_postal: cp, estado: 'MICHOACAN', sugerencias_direccion_2: [] }),
+          geocode: (q: string) => { buscadas.push(q); return of({ results: resultados }); },
+        },
+      }],
+    }).compileComponents();
+    const fix = TestBed.createComponent(AltaClienteFormComponent);
+    fix.componentRef.setInput('catalogos', catalogos);
+    fix.detectChanges();
+    fix.componentInstance.aMano();
+    return fix.componentInstance;
+  }
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it('sin calle no se busca (no se gasta una llamada); con calle busca el domicilio entero', async () => {
+    const cmp = await montarGeo();
+    resultados = [{ lat: 20.34561234, lng: -102.03118765, place_name: 'La Piedad', relevance: 0.9 }];
+    expect(cmp.direccionParaBuscar()).toBe('');
+    cmp.ubicarPorDireccion();
+    expect(buscadas).toEqual([]);
+    cmp.setFicha('direccion_1', 'av. hidalgo 120');
+    cmp.setFicha('direccion_2', 'centro, la piedad');
+    cmp.setFicha('codigo_postal', '59300');
+    cmp.ubicarPorDireccion();
+    expect(buscadas).toEqual(['AV. HIDALGO 120, CENTRO, LA PIEDAD, 59300, MICHOACAN, MEXICO']);
+    expect(cmp.f().ubicacion).toEqual({ lat: 20.345612, lng: -102.031188, origen: 'direccion', precision_m: null });
+  });
+
+  it('si el mapa no encuentra la dirección, lo dice y no inventa un punto', async () => {
+    const cmp = await montarGeo();
+    resultados = [];
+    cmp.setFicha('direccion_1', 'CALLE QUE NO EXISTE 1');
+    cmp.ubicarPorDireccion();
+    expect(cmp.f().ubicacion ?? null).toBeNull();
+    expect(cmp.avisoUbicacion()).toMatch(/No se encontró/);
+  });
+
+  it('el GPS guarda su precisión; un clic en el mapa lo corrige; «Quitar» la deja vacía', async () => {
+    const cmp = await montarGeo();
+    const real = Object.getOwnPropertyDescriptor(globalThis.navigator, 'geolocation');
+    Object.defineProperty(globalThis.navigator, 'geolocation', {
+      configurable: true,
+      value: { getCurrentPosition: (ok: (p: unknown) => void) => ok({ coords: { latitude: 19.7027014, longitude: -101.1923981, accuracy: 12.44 } }) },
+    });
+    try {
+      (cmp as unknown as { hayGps: boolean }).hayGps = true;
+      cmp.usarMiUbicacion();
+      expect(cmp.f().ubicacion).toEqual({ lat: 19.702701, lng: -101.192398, origen: 'gps', precision_m: 12.4 });
+      cmp.moverPunto({ lat: 19.7031, lng: -101.1919 });
+      expect(cmp.f().ubicacion).toEqual({ lat: 19.7031, lng: -101.1919, origen: 'mapa', precision_m: null });
+      cmp.quitarUbicacion();
+      expect(cmp.f().ubicacion).toBeNull();
+    } finally {
+      if (real) Object.defineProperty(globalThis.navigator, 'geolocation', real);
+      else delete (globalThis.navigator as unknown as Record<string, unknown>)['geolocation'];
+    }
+  });
+});

@@ -30,6 +30,15 @@ export class AltaClientesService {
     return this.http.get<CodigoPostalAlta>(`${this.base}/postal-code/${encodeURIComponent(cp)}`);
   }
 
+  /**
+   * `[ALC.3.5]` El geocodificador de la Suite (`/reports/geocode`, Mapbox, sesgo a MX). Se paga por
+   * llamada: la pantalla lo llama con un clic, nunca al teclear.
+   */
+  geocode(q: string): Observable<{ results: { lat: number; lng: number; place_name: string; relevance: number }[] }> {
+    return this.http.get<{ results: { lat: number; lng: number; place_name: string; relevance: number }[] }>(
+      `${environment.apiUrl}/reports/geocode`, { params: new HttpParams().set('q', q) });
+  }
+
   /** El PDF en data URI. La API lo lee, lo guarda y devuelve el prellenado; no crea nada. */
   subirConstancia(pdf: string, branch?: string | null): Observable<SubirConstanciaRespuesta> {
     return this.http.post<SubirConstanciaRespuesta>(`${this.base}/constancia`, { pdf, branch: branch ?? null });

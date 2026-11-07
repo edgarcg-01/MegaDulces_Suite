@@ -260,6 +260,11 @@ const ORDEN_KEPLER: CasillaKepler[] = ['nombre', 'direccion_1', 'direccion_2', '
               <dd>@if (s.constancia_key) {
                   <button pButton type="button" size="small" [text]="true" (click)="verConstancia(s)">Ver PDF{{ s.constancia_emitida_el ? ' (emitida ' + fechaCorta(s.constancia_emitida_el) + ')' : '' }}</button>
                 } @else { <span class="ac-tenue">{{ s.origen === 'manual' ? 'Capturada a mano' : 'Leída, sin guardar' }}</span> }</dd>
+              <dt>Ubicación</dt>
+              <dd>@if (s.ubicacion; as u) {
+                  <a [href]="'https://www.google.com/maps?q=' + u.lat + ',' + u.lng" target="_blank" rel="noopener">Abrir en el mapa</a>
+                  <span class="ac-tenue"> · {{ u.origen === 'gps' ? 'GPS' + (u.precision_m != null ? ' ±' + u.precision_m + ' m' : '') : u.origen === 'mapa' ? 'elegida en el mapa' : 'por la dirección' }}</span>
+                } @else { <span class="ac-tenue">Sin ubicación</span> }</dd>
               @if (s.customer_id) { <dt>En la Suite</dt><dd>Con su ficha de cliente: búscala en Comercial › Clientes por su RFC.</dd> }
             </dl>
             @if (s.comentarios) { <p class="ac-comentarios">{{ s.comentarios }}</p> }
