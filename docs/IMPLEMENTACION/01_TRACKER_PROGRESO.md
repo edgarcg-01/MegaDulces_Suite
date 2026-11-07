@@ -8396,6 +8396,29 @@ más) — PR aparte para no volver ilegible el diff.
   el objetivo de la red: decidir cuál manda (Dirección). Con la meta de 13 rotaciones el tope puede
   DERIVARSE del costo de venta en vez de capturarse. Escribirlo exige su prueba contra base real
   (regla 13).
+- [ ] **[EX.H4]** 🧪 **El CEDIS congelado sale del kardex de Kepler** (2026-11-07, pedido de Francisco al
+  ver «no confiable»). Medido: la foto del CEDIS no cambió ni un producto del 24-sep al 6-nov salvo dos
+  refrescos sueltos; el CEDIS pasó de Wincaja a Kepler el 30-sep (`v_branch_erp_cutover`). Desde ahí, la
+  existencia de cada día = `kdil` de hoy (la suma que lee `v_erp_stock_on_hand`) − movimientos de `kdij`
+  posteriores, sin documentos cancelados; entra el producto si se movió entre el corte y ese día;
+  negativos a 0 como la vista. Celda `medido` con `existencia_reconstruida` + motivo; aviso arriba,
+  desglose y ayuda lo dicen. Antes del corte sigue `no_confiable` (Wincaja no casa con la apertura de
+  Kepler: 46 de 93 productos iguales, otra unidad).
+  *Testigos:* identidad `kdil` = Σ `kdij` desde el 22-sep en 1,401/1,429 productos (98 %) · hoy
+  reconstruido 313 productos / 343,130 u contra 312 / 343,122 de la vista · ⭐ el reporte del 15-oct
+  capturado EN VIVO a las 11:41: 241 de 253 productos del CEDIS cuadran (171 al cierre del 14, 8 al del
+  15, 62 entre ambos), 12 no (los de identidad rota), 36 de más en la reconstrucción (entradas con fecha
+  ≤ 15 capturadas después) · valor +1.7 % contra ese reporte · las 360 celdas de sucursal, idénticas a
+  la versión anterior · desglose = celda en 4 días. Spec 42/42 (10 nuevas; `tramoDeFechas` con
+  mutación en rojo), `ngc` 0, `check:pantalla` 10/10. ⚠️ **Sin validación visual** (levantar la API
+  local lo bloquea la regla 3).
+  *Revisión final* (4 revisores + verificación adversarial): el aviso ya no afirma «del X al Y» sobre un
+  día sin foto (el 18-oct sigue «sin foto»: dice cuántos cierres y los huecos) · si el kardex no
+  devuelve nada en todo el lote, el CEDIS queda «sin valor» y se reintenta, no se pinta 0 · CHANGELOG.
+  Descartado con medición: la regla de inclusión es la de `v_erp_stock_on_hand` (si no, la serie se
+  parte al pasar a la foto). Deuda con nombre: el filtro de cancelados de `kdij` vive en la consulta (no
+  hay vista `*_vigente` para `kdij`), y `product-flow.sql.ts` no los excluye.
+  Falta: comparar la foto nueva del 7-nov contra la reconstrucción del mismo día.
 
 - [x] **[CV.23]** 🔨 **Pivot de alcance: PR #62 recortado a solo el verificador de precios** (2026-09-05)
   — Edgar exigía auth-mt + `commercial.orders` + `kepler_ods` (este último ya resuelto en CV.22).
