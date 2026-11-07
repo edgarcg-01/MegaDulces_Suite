@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 2232 KB, 13572 líneas, 75 secciones.
+> **Índice navegable** — 2232 KB, 13573 líneas, 75 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -80,8 +80,8 @@
 | 13171 | 13223 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
 | 13224 | 13595 | 55 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
 | 13596 | 13626 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 13627 | 13646 | 5 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 13647 | 13659 | 2 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 13627 | 13647 | 5 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 13648 | 13660 | 2 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -13642,6 +13642,7 @@ Plan: [FASE_ALC_ALTA_DE_CLIENTES.md](FASES/FASE_ALC_ALTA_DE_CLIENTES.md) · nace
 - [ ] **[ALC.3.3]** 🧪 «Con RFC / Sin RFC» junto al RFC: «Sin RFC» llena el genérico del SAT `XAXX010101000`, persona física y régimen 616. 15,160 de 22,558 fichas de Kepler (67 %) son sin RFC (prod, 2026-11-06). El CP fiscal no se llena (no hay CP por sucursal medido). Spec 5 con prueba negativa. Sin validación visual.
 - [ ] **[ALC.3.4]** 🧪 El CP llena el estado (catálogo del SAT del ODS, 1 estado por CP) y SUGIERE la colonia/municipio como la escriben las fichas de Kepler con ese CP (no hay catálogo de colonias en el ODS: se elige, no se adivina). `GET postal-code/:cp`. Consultas corridas en prod en sólo lectura; spec 4 con prueba negativa. Sin validación visual.
 - [ ] **[ALC.3.5]** 🧪 Ubicación opcional: «Ubicar en el mapa» (domicilio → geocodificador de la Suite, Mapbox, un clic) y «Usar mi ubicación» (GPS del teléfono, con precisión); un clic en el mapa corrige. Mig `20261106232506` (4 columnas nullable + CHECK). Al ligar pasa a `commercial.customers.latitude/longitude` sólo si estaba vacío. Prueba con base real extendida (corre en `pruebas-db`); regla y pantalla con pruebas negativas. Sin validación visual.
+- [ ] **[ALC.3.5.1]** 🧪 Arreglo de #501 (lo cazó `pruebas-db`): el INSERT traía 30 `?` para 29 valores (crear daba 500); la mig `20261106232506` no agregaba `longitude` (`knex.schema` reusado) y su CHECK dejaba entrar latitud sin longitud. `up()` real ×2, `down()` y negativa contra un Postgres desechable. ⛔ No soltar `main` entre #501 y este arreglo.
 - [ ] **[ALC.9]** ⬜ Deuda ADR-056: las 5 regex sueltas de RFC (`commercial-vendor-routes`, `logistics-fleet`, `fiscal/listas`, `hr/talent/registro`, `purchase-book`) pasan a `validarRfc` de `platform-core`.
 
 ## CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05.md)

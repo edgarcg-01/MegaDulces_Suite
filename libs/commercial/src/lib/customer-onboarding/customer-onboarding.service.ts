@@ -419,7 +419,7 @@ export class CustomerOnboardingService {
               discount_pct, comments, constancia_key, constancia_reading, constancia_issued_on, customer_id,
               latitude, longitude, location_source, location_accuracy_m,
               created_by, updated_by)
-           VALUES (public.current_tenant_id(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::date, ?, ?, ?, ?, ?, ?, ?, ?)
+           VALUES (public.current_tenant_id(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::date, ?, ?, ?, ?, ?, ?, ?)
            RETURNING id`,
           [
             estadoInicial(b), b.origen, b.branch, b.tipo_persona, b.rfc, b.tipo_persona === 'fisica' ? b.curp : null, b.nombre_fiscal,
