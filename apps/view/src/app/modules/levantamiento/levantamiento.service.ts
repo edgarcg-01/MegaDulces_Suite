@@ -2,8 +2,8 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { inject, Injectable } from '@angular/core';
 import type { Observable } from 'rxjs';
 import type {
-  LevantamientoBusquedaFila, LevantamientoCalidadFoto, LevantamientoCara, LevantamientoContexto, LevantamientoEscaneoDto, LevantamientoEscaneoRespuesta,
-  LevantamientoFotoRespuesta, LevantamientoMotivoSalto, LevantamientoSugeridosRespuesta,
+  LevantamientoBusquedaFila, LevantamientoCalidadFoto, LevantamientoCara, LevantamientoContexto, LevantamientoDetalleTipo, LevantamientoEscaneoDto,
+  LevantamientoEscaneoRespuesta, LevantamientoFotoCara, LevantamientoFotoRespuesta, LevantamientoMotivoSalto, LevantamientoSugeridosRespuesta,
 } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
 
@@ -45,9 +45,17 @@ export class LevantamientoService {
   }
 
   /** Multipart: el controlador usa `FileInterceptor('file')`. */
-  subirFoto(sheetId: string, face: LevantamientoCara, foto: Blob, calidad: LevantamientoCalidadFoto, ancho: number, alto: number): Observable<LevantamientoFotoRespuesta> {
+  /** Una cara, o un detalle (`detalle_n`) con lo que muestra: el detalle sólo se acepta ya terminada la captura. */
+  subirFoto(
+    sheetId: string, face: LevantamientoFotoCara, foto: Blob, calidad: LevantamientoCalidadFoto, ancho: number, alto: number,
+    detalle?: { tipo: LevantamientoDetalleTipo; nota: string | null },
+  ): Observable<LevantamientoFotoRespuesta> {
     const fd = new FormData();
     fd.append('face', face);
+    if (detalle) {
+      fd.append('detail_kind', detalle.tipo);
+      if (detalle.nota) fd.append('detail_note', detalle.nota);
+    }
     fd.append('sharpness', String(calidad.sharpness));
     fd.append('contrast', String(calidad.contrast));
     fd.append('quality_version', calidad.version);

@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 2232 KB, 13573 líneas, 75 secciones.
+> **Índice navegable** — 2237 KB, 13620 líneas, 75 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -48,40 +48,40 @@
 | 7900 | 7970 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
 | 7971 | 8019 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
 | 8020 | 8052 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
-| 8053 | 8539 | 63 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
-| 8540 | 8671 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
-| 8672 | 8725 | 37 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
-| 8726 | 8765 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
-| 8766 | 8818 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
-| 8819 | 8885 | 20 | Fase WMS-BI — Análisis BI de Almacén |
-| 8886 | 9048 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
-| 9049 | 9332 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
-| 9333 | 9500 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 9501 | 11874 | 183 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 11875 | 11883 | 1 | Fase RR — Ventas por ruta |
-| 11884 | 12179 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 12180 | 12190 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 12191 | 12211 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 12212 | 12222 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 12223 | 12234 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 12235 | 12294 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 12295 | 12722 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 12723 | 12737 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 12738 | 12779 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 12780 | 12930 | 67 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 12931 | 12961 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 12962 | 13009 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
-| 13010 | 13058 | 54 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 13059 | 13067 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
-| 13068 | 13097 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 13104 | 13113 | 1 | 📝 Convenciones |
-| 13114 | 13151 | 14 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 13152 | 13170 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 13171 | 13223 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 13224 | 13595 | 55 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 13596 | 13626 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 13627 | 13647 | 5 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 13648 | 13660 | 2 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 8053 | 8586 | 67 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
+| 8587 | 8718 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
+| 8719 | 8772 | 37 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
+| 8773 | 8812 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
+| 8813 | 8865 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
+| 8866 | 8932 | 20 | Fase WMS-BI — Análisis BI de Almacén |
+| 8933 | 9095 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
+| 9096 | 9379 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
+| 9380 | 9547 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
+| 9548 | 11921 | 183 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 11922 | 11930 | 1 | Fase RR — Ventas por ruta |
+| 11931 | 12226 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 12227 | 12237 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 12238 | 12258 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 12259 | 12269 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 12270 | 12281 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 12282 | 12341 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 12342 | 12769 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 12770 | 12784 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 12785 | 12826 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 12827 | 12977 | 67 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 12978 | 13008 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 13009 | 13056 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
+| 13057 | 13105 | 54 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 13106 | 13114 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
+| 13115 | 13144 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 13151 | 13160 | 1 | 📝 Convenciones |
+| 13161 | 13198 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 13199 | 13217 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 13218 | 13270 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 13271 | 13642 | 55 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 13643 | 13673 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 13674 | 13694 | 5 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 13695 | 13707 | 2 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -13169,7 +13169,7 @@ Plan y decisiones en [`FASE_NP_PRODUCTOS_NUEVOS.md`](FASES/FASE_NP_PRODUCTOS_NUE
 - [x] 🧪 `[NP.4]` `catalog.new_product_reviews` (mig `20261007360100`) — clasificación de Compras, RLS forzado, soft-delete.
 - [x] 🧪 `[NP.5]` Pestaña Productos nuevos + etiqueta "Nuevo · día N" en Productos. Unitarias 12 + 7; suite de Compras 308/308.
 - [ ] ⬜ `[NP.6]` Umbrales/veredicto en `analytics.kpi_thresholds` + hitos 30/60/90 congelados.
-- [ ] 🔨 `[NP.7]` **Catálogo digital: fichas de producto, levantamiento y altas desde fotos** — plan en [`FASE_NP7_ALTA_DESDE_FOTOS.md`](FASES/FASE_NP7_ALTA_DESDE_FOTOS.md). 2026-11-02: primer corte del levantamiento en código local (tabla, escaneo, fotos, pantalla `/levantamiento`); 2026-11-03: bandeja «Por revisar», revisión independiente del PR (25 hallazgos corregidos) y regla 13 medida contra Postgres real local (26/26); **en prod el 2026-11-03** (PR #481 `fb3bcac09`, 3 migraciones aplicadas; 184 personas pueden levantar); la primera captura en prod no subió ninguna foto — 6 defectos corregidos (CSP contra `fetch(data:)`, 500 por `full_name`, rechazo suelto de los 4 lectores de cámara, ficha sin fotos a revisión → el frente ya no se salta y no se publica una ficha sin fotos, sin entrada desde «Mi trabajo», respaldo de cámara arrastrado), ver bitácora del plan; 2026-11-04: primera captura real (8 SKUs, 40 fotos, 7 publicadas); 2026-11-04/06, **en código, IA apagada** (`NP7_AI_ENABLED=false` hasta D6): el **lector de IA** (foto → JSON por cara con evidencia, fusión, auditoría contra el nombre de Kepler —medida contra 4,230 nombres reales—, diccionario derivado, worker con topes y regla de rostros), **«Publicadas»** en Catálogo digital (`GET /catalog/fichas/publicadas`; métrica L medida por primera vez: 0.888 % de la venta de 90 d de Padre Hidalgo), cámara a tamaño real (L.8a), peso y tenant en la llave de cada foto, y la mig `20261104224833` (quita `CATALOGO_LEVANTAR` de `sin_acceso`; la aplica Edgar). 277 pruebas de `product-sheets` en verde; integración contra base real NO MEDIDA en local. Anexo nuevo: [«la ficha como código»](FASES/FASE_NP7_ANEXO_FICHA_COMO_CODIGO_2026-11-05.md) (D26–D34 para Edgar). Estado por item en el plan (§10b.5, §6). Antes: «Alta solicitada en la app con inversión y meta planeadas (plan contra real)».
+- [ ] 🔨 `[NP.7]` **Catálogo digital: fichas de producto, levantamiento y altas desde fotos** — plan en [`FASE_NP7_ALTA_DESDE_FOTOS.md`](FASES/FASE_NP7_ALTA_DESDE_FOTOS.md). 2026-11-02: primer corte del levantamiento en código local (tabla, escaneo, fotos, pantalla `/levantamiento`); 2026-11-03: bandeja «Por revisar», revisión independiente del PR (25 hallazgos corregidos) y regla 13 medida contra Postgres real local (26/26); **en prod el 2026-11-03** (PR #481 `fb3bcac09`, 3 migraciones aplicadas; 184 personas pueden levantar); la primera captura en prod no subió ninguna foto — 6 defectos corregidos (CSP contra `fetch(data:)`, 500 por `full_name`, rechazo suelto de los 4 lectores de cámara, ficha sin fotos a revisión → el frente ya no se salta y no se publica una ficha sin fotos, sin entrada desde «Mi trabajo», respaldo de cámara arrastrado), ver bitácora del plan; 2026-11-04: primera captura real (8 SKUs, 40 fotos, 7 publicadas); 2026-11-04/06, **en código, IA apagada** (`NP7_AI_ENABLED=false` hasta D6): el **lector de IA** (foto → JSON por cara con evidencia, fusión, auditoría contra el nombre de Kepler —medida contra 4,230 nombres reales—, diccionario derivado, worker con topes y regla de rostros), **«Publicadas»** en Catálogo digital (`GET /catalog/fichas/publicadas`; métrica L medida por primera vez: 0.888 % de la venta de 90 d de Padre Hidalgo), cámara a tamaño real (L.8a), peso y tenant en la llave de cada foto, y la mig `20261104224833` (quita `CATALOGO_LEVANTAR` de `sin_acceso`; la aplica Edgar). 277 pruebas de `product-sheets` en verde; integración contra base real NO MEDIDA en local. Anexo nuevo: [«la ficha como código»](FASES/FASE_NP7_ANEXO_FICHA_COMO_CODIGO_2026-11-05.md) (D26–D34 para Edgar). **2026-11-07, primer feedback de quien captura (NP.7.L.18, 🧪 en código):** 3 acercamientos (tabla nutrimental, información, código de barras) que se toman o se saltan, y hasta 3 detalles opcionales con nota desde «Enviado»; 287 pruebas en verde, integración NO MEDIDA en local, sin validación visual. Estado por item en el plan (§10b.5, §6). Antes: «Alta solicitada en la app con inversión y meta planeadas (plan contra real)».
 - [x] 🧪 `[NP.8]` En vivo: `fn_new_products_movimientos` (venta y entradas de hoy desde el ODS, mismas reglas; corte por `v_branch_erp_cutover`) + índice `ix_kdm1_compra_fecha`. Coincide con `v_sellout_daily` renglón por renglón en días cerrados.
 - [x] 🧪 `[NP.9]` Recomendación de recompra global y por sucursal (`CRITERIO_RECOMPRA`, propuesta a calibrar) + `GET new-products/:id`.
 - [x] 🧪 `[NP.10]` Rediseño: respuesta arriba, filtros por recomendación, venta semanal por fila, panel lateral por sucursal, refresco cada minuto.

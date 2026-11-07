@@ -239,4 +239,35 @@ describe('comparación y unidades', () => {
     expect(familiaCara('lateral_2')).toBe('lateral');
     expect(familiaCara('base')).toBe('base'); // no se asume que la base trae el código
   });
+
+  it('familiaCara: los acercamientos (2026-11-07) son la foto hecha para su dato; los detalles, «otra»', () => {
+    expect(familiaCara('codigo_barras')).toBe('codigo');
+    expect(familiaCara('tabla_nutricional')).toBe('tabla_nutricional');
+    expect(familiaCara('informacion')).toBe('informacion');
+    expect(familiaCara('detalle_2')).toBe('otra');
+  });
+
+  it('⭐ con la misma confianza, el acercamiento gana sobre el reverso de lejos (y el reverso sobre un detalle)', () => {
+    const nut = c<NonNullable<CamposLeidos['nutricion']>['valor']>({
+      base: { cantidad: 100, unidad: 'g' }, kcal: 564, proteinas_g: null, grasas_totales_g: null, grasas_saturadas_g: null,
+      grasas_trans_mg: null, carbohidratos_g: null, azucares_g: null, azucares_anadidos_g: null, fibra_g: null, sodio_mg: null,
+    }, 'alta', '564 kcal / 100 g');
+    const ing = c('azúcar, glucosa', 'alta', 'INGREDIENTES: AZÚCAR, GLUCOSA');
+    const fab = c('Dulces S.A. de C.V.', 'alta', 'Hecho por: Dulces S.A. de C.V.');
+    const p = fusionarLecturas([
+      { cara: 'detalle_1', lectura: lectura({ nutricion: nut, fabricante: fab }) },
+      { cara: 'reverso', lectura: lectura({ nutricion: nut, fabricante: fab, ingredientes: ing }) },
+      { cara: 'tabla_nutricional', lectura: lectura({ nutricion: nut }) },
+      { cara: 'informacion', lectura: lectura({ ingredientes: ing, fabricante: fab }) },
+    ]);
+    expect(p.campos.nutricion?.de_cara).toBe('tabla_nutricional');
+    expect(p.campos.fabricante?.de_cara).toBe('informacion');
+    // Control: sin los acercamientos gana el reverso, no el detalle (que llegó primero).
+    const sin = fusionarLecturas([
+      { cara: 'detalle_1', lectura: lectura({ nutricion: nut, fabricante: fab }) },
+      { cara: 'reverso', lectura: lectura({ nutricion: nut, fabricante: fab }) },
+    ]);
+    expect(sin.campos.nutricion?.de_cara).toBe('reverso');
+    expect(sin.campos.fabricante?.de_cara).toBe('reverso');
+  });
 });
