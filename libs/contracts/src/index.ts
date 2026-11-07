@@ -202,6 +202,8 @@ export * from './finance/dueno-del-vale.contract';
 export * from './finance/ver-expediente.contract';
 // [PC.5]/[PC.6] las cuatro coincidencias comprobante↔pago (banco, fecha, monto, proveedor)
 export * from './finance/coincidencia-pago.contract';
+// [PGP.94] El cierre de un pago del Calendario contra lo que Kepler hizo.
+export * from './finance/cierre-kepler.contract';
 // `[GX.79]` el tope de un archivo de evidencia de gasto (20 MB): pantalla, API y proxy.
 export * from './finance/archivo-gasto.contract';
 // `[GX.86]` las rondas de revision de gastos (se informan, no bloquean el alta).

@@ -202,8 +202,50 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
     await trx('finance.payment_allocations').insert({ tenant_id: M, lot_id: lot.id, classification: 'proveedor_mercancia', amount_assigned: 1234.5, created_by: USER });
     const dias = await cal.pendientesAtrasados();
     const d = dias.find((x) => x.date === '2020-01-15');
-    expect(d).toEqual({ date: '2020-01-15', pagos: 1, monto: 1234.5 });
+    // `[PGP.95]` Sin facturas no hay qué medir: sigue contando como pendiente, nunca como pagado.
+    expect(d).toEqual({ date: '2020-01-15', pagos: 1, monto: 1234.5, conciliados: 0, conciliados_monto: 0 });
     expect(dias.some((x) => x.date >= '2030-01-01')).toBe(false);
+  });
+
+  /**
+   * `[PGP.94]`/`[PGP.95]` **El día que ya pasó lee lo que Kepler pagó.** Dos facturas del mismo
+   * acreedor, cada una en su pago: F1 la saldó una transferencia vigente; F2 una transferencia que
+   * Kepler CANCELÓ (`kdm1.c43 = 'C'`), que deja su aplicación en `kdxf` (`[PGP.67]`). F1 sale
+   * «pagado» con su folio y su cuenta, y deja de contar como atrasado; F2 sigue sin pagar.
+   */
+  it('[PGP.94] un pago saldado en Kepler sale pagado con su folio; uno con la transferencia cancelada, no', async () => {
+    const ACR = 'ETPIT-CIERRE';
+    const DIA = '2020-02-10';
+    for (const [folio, monto] of [['ETPIT-F1', 5000], ['ETPIT-F2', 3000]] as const) {
+      await trx('kepler_ods.kdxe').insert({ sucursal: '07', c1: '07', c2: ACR, c3: 'A', c4: 20, c5: 1, c6: folio, c7: '2020-01-20 00:00:00', c10: '2020-02-10 00:00:00', c11: monto });
+    }
+    // Los dos pagos de Kepler, como renglón de cuentas por pagar (fecha y cuenta) y su aplicación.
+    for (const [pago, factura, monto] of [['ETPIT-P1', 'ETPIT-F1', 5000], ['ETPIT-P2', 'ETPIT-F2', 3000]] as const) {
+      await trx('kepler_ods.kdxe').insert({ sucursal: '07', c1: '07', c2: ACR, c3: 'D', c4: 26, c5: 1, c6: pago, c7: `${DIA} 00:00:00`, c11: monto, c22: '2169' });
+      await trx('kepler_ods.kdxf').insert({ sucursal: '07', c1: '07', c2: ACR, c3: `${DIA} 00:00:00`, c4: 26, c5: 1, c6: pago, c7: 20, c8: 1, c9: factura, c10: monto });
+    }
+    await trx('kepler_ods.kdm1').insert({ sucursal: '07', c1: '07', c2: 'X', c3: 'D', c4: 26, c5: 1, c6: 'ETPIT-P2', c9: `${DIA} 00:00:00`, c10: ACR, c16: 3000, c43: 'C' });
+
+    const [lot] = await trx('finance.payment_calendar_lots').insert({ tenant_id: M, lot_date: DIA }).returning('id');
+    const pagos: Record<string, string> = {};
+    for (const [folio, monto] of [['ETPIT-F1', 5000], ['ETPIT-F2', 3000]] as const) {
+      const [a] = await trx('finance.payment_allocations')
+        .insert({ tenant_id: M, lot_id: lot.id, classification: 'proveedor_mercancia', amount_assigned: monto, created_by: USER, created_at: `${DIA} 09:00:00-06` })
+        .returning('id');
+      await trx('finance.payment_allocation_items').insert({ tenant_id: M, allocation_id: a.id, obligation_source: 'kepler_payable', obligation_id: keplerPayableId('07', 20, 1, folio), applied_amount: monto });
+      pagos[folio] = a.id;
+    }
+
+    const dia = await cal.listDayAllocations(DIA);
+    const c1 = dia.find((a) => a.id === pagos['ETPIT-F1'])!.kepler_cierre!;
+    expect(c1.estado).toBe('pagado');
+    expect(c1.desfase_dias).toBe(0);
+    expect(c1.pagos).toEqual([expect.objectContaining({ sucursal: '07', doc_prefix: 'XD2601', folio: 'ETPIT-P1', fecha: DIA, aplicado: 5000, cuenta: '2169' })]);
+    // ⛔ La prueba negativa: la transferencia cancelada no salda F2.
+    expect(dia.find((a) => a.id === pagos['ETPIT-F2'])!.kepler_cierre!.estado).toBe('sin_pagar');
+
+    const atr = (await cal.pendientesAtrasados()).find((x) => x.date === DIA);
+    expect(atr).toEqual({ date: DIA, pagos: 1, monto: 3000, conciliados: 1, conciliados_monto: 5000 });
   });
 
   it('Gonac 01 va en otro pago', async () => {
