@@ -8323,24 +8323,71 @@ más) — PR aparte para no volver ilegible el diff.
   decían bien `kepler-costos.contract.ts` y la mig `20261015115146`. El **promedio móvil** con que
   Kepler costea cada salida es valor/existencia de `kdik`: `(c7+c8−c9)/(c4+c5−c6)` (salidas al
   promedio en 98–99 %). No cambia ninguna cifra: cambia lo que la pantalla AFIRMA (ley 0).
-- [ ] **[EX.H1]** ⬜ **Endpoint de sólo lectura** `GET /commercial/inventory/stock-snapshot/historico`
+- [ ] **[EX.H1]** 🧪 **Endpoint de sólo lectura** `GET /commercial/inventory/stock-snapshot/historico`
   (`desde`, `hasta`, `almacenes`): por almacén × día el valor estándar conocido, sus faltantes, la
-  fuente y las banderas de cierre; días sin foto declarados. Contrato en `libs/contracts`, `tk.run`,
-  `EXISTENCIA_VER`. Antes de EX.H0 el valor se reconstruye con `product_cost_history` (desde
+  fuente y las banderas de cierre; días sin foto declarados. Contrato
+  `libs/contracts/src/http/existencia-historico.contract.ts` (+ spec), servicio y controlador PROPIOS
+  (`existencia-historico.*`: no cambia la firma inyectada de una clase que ya arranca — el #414),
+  `tk.run`, `EXISTENCIA_VER`. Antes de EX.H0 el valor se reconstruye con `product_cost_history` (desde
   2026-10-17) y se marca como reconstruido.
+  - **Lo que declara:** `sin_foto` (con desde cuándo hay foto), `pendiente` (hoy antes de las 23:50),
+    `no_confiable` (CEDIS antes de EX.H0), productos sin valuar y con costo posterior por celda y en el
+    total, si el costo es reconstruido, y si el rango pedido se ajustó (`rango.motivo`). Por defecto
+    termina AYER. Un almacén pedido sin foto en todo el rango sale con sus días `sin_foto`, no desaparece.
+  - **Medido contra prod (servicio REAL vía ts-node, sólo lectura):** reproduce la consulta validada al
+    **$0.00 en 378 almacén×día, con tres planes forzados distintos**; sólo la foto más nueva 2.2 s,
+    rango completo en frío 4.1 s, con memo 0 ms; `design:paramtypes` correctos (servicio y controlador).
+    Spec 26/26, con mutaciones vistas en rojo; `lint:boundary` verde; sin errores de tipo nuevos.
+  - **Revisión adversarial (3 lentes + verificador): 11 reales, 4 refutados, corregidos.** Los dos que
+    importaban: ⛔ **la reconstrucción de la foto más nueva pasaba de 60 s** (las estadísticas de
+    `stock_snapshots.fecha_corte` van ~4 fotos atrás → estimación de 1 fila → nested loop contra la
+    historia del estándar) → `SET LOCAL enable_nestloop = off` sólo para esa sentencia; y ⛔ **el peldaño
+    no desempataba**: 155 sucursal×SKU tienen dos unidades al MISMO costo y el plan elegía una u otra
+    (un día pasado cambiaba hasta 1.85 %) → desempate fijo, también en
+    `C:/DEV/_reportes/consulta_valor_existencia_por_dia.sql`.
+  - ⚠️ **Declarado:** lo reconstruido usa como testigo de unidad el costo del ERP del día en que se
+    consulta; un día anterior a EX.H0 puede moverse un poco con el tiempo (hasta 2.2 % en un almacén×día
+    entre el 4 y el 6 de noviembre). El memo de reconstrucciones dura un día. Lo de EX.H0 en adelante no
+    se mueve (cada foto guarda su costo).
+  - **Pendiente:** su PR sale DESPUÉS de fusionar #498 (no se apila).
   ⭐ **Medido 2026-11-06: la historia ANTES de la foto se puede derivar del kardex** (`kdij`, Σ con
   signo de `c13`/`c11`, signo en `c30`), sin importer: reproduce `kdik` por SKU en ≥ 99.9 % y la foto
   de las 23:50 en 97–100 % (89–95 % en Canindo y Morelia Madero). Desde el primer día de cada sucursal
   en Kepler (8 Esquinas 10-ene … Morelia Abastos 18-sep); excluir SKUs simbólicos 00001/00002/00022 y
   documentos cancelados (`kdm1.c43 = 'C'`). ⛔ El CEDIS NO (su kardex reproduce `kdik` en 70 %). Antes
   de eso las tiendas estaban en Wincaja: la hoja de enero salió de ahí, al cierre del día ANTERIOR.
-- [ ] **[EX.H2]** ⬜ **Pantalla «Consulta históricos»** (C3): botón arriba a la derecha de
-  Existencia → ruta propia en Almacén y en Compras. Filtros: rango de fechas + sucursales. Acomodo
-  como la hoja de Compras (sucursal en renglones, días en columnas, total). El CEDIS anterior a EX.H0
-  se marca «foto no confiable». ⛔ **MD-32 se excluye también de las fotos viejas**: es el almacén
-  Wincaja de Morelia Madero antes de su paso a Kepler (07), borrado el 2026-09-11, y su foto repetía el
-  mismo saldo 42 días — sumarlo cuenta Madero dos veces. Nombres de la hoja ≠ Suite: «ZAMORA» = 06
-  Canindo, «DAMASO» = 05 Zamora Centro. Cinco preguntas de `diseno` por escrito antes de la plantilla.
+- [ ] **[EX.H2]** 🔨 **Pantalla «Consulta históricos»** — `almacen-existencia-historico.component.ts`,
+  rutas `/compras/existencia/historico` y `/almacen/inventory/existencia/historico`
+  (`EXISTENCIA_VER`), botón «Consulta históricos» en el encabezado de Existencia, ayuda
+  `existencia-historico` en el diccionario. **Los doce pasos de `diseno` §0a:**
+  1. *Propósito:* «¿cuánto valía el inventario de cada sucursal al cierre de cada día?» — una pregunta.
+  2. *Quién:* los roles de Existencia (6,855 llamadas en 30 días, 12 roles, medido en `ui_usage`); el
+     público del histórico es Compras (gerente, auxiliar, operaciones) y Dirección.
+  3. *Estado real:* Compras lleva una hoja de Google por semana a mano; la foto existe desde el 24-sep
+     (falta el 18-oct), el CEDIS congelado hasta EX.H0, ~330 productos sin valuar por cierre.
+  4. *Nivel 0:* franja (valor al último cierre, cambio en el rango, cierres con foto, productos sin
+     valuar) → avisos (método, CEDIS, rango ajustado) → tabla como la hoja: sucursal × cierre, total abajo.
+  5. *Qué NO ve:* unidades sumadas, valor con IEPS, costo de última entrada, MD-32, códigos de sucursal.
+  6. *Desglose:* celda → panel lateral con sus productos (`/historico/detalle`, suma = celda); total →
+     dice qué sucursales no sumó; ayuda → definiciones.
+  7. *Accesibilidad:* celdas como botones con etiqueta hablada («Padre Hidalgo, 5 de noviembre: $…»),
+     teclado, buscador sin acentos (`filtrarPorBusqueda`), estados con texto + ícono, nombres (resolvedor
+     común), ancho angosto declarado (`@container`).
+  8. *Ligas:* viene de la foto (AB.0b/EX.H0) y del estándar; va a Existencia (hoy) y a los topes (EX.H3).
+  9. *¿Le toca?:* sí, como subpágina de Existencia, mismo permiso.
+  10. *Maqueta:* la de la propuesta del 2026-11-06, con el acomodo de la hoja (filas = sucursal).
+  11. *Aceptación:* `check:pantalla` 10/10 sin fallas; Existencia sin fallas nuevas; `ngc` 0 errores;
+      carga en frío ≤ 5 s (medido: 4.1 s el rango completo, 2.2 s el último cierre).
+  12. *Lo que no resuelve:* topes (D3), la historia antes del 24-sep (el kardex la puede dar, sin
+      construir), «INV. PROMEDIO» de la hoja (no demostrado), el CEDIS antes de EX.H0.
+  - **Vistas:** Días (7 cierres), Semanas (domingos, 12 semanas), Meses (fin de mes, 399 días) — regla
+    pura `cierresDeVista` en el contrato, con spec. Por defecto termina AYER.
+  - **NO MEDIDO:** validación visual (la API local corre una versión sin estas rutas; falta reiniciarla
+    con el build nuevo y levantar la vista).
+  - ⛔ **MD-32 se excluye también de las fotos viejas** (lo hace el servidor): es el almacén Wincaja de
+    Morelia Madero antes de su paso a Kepler (07), borrado el 2026-09-11, y su foto repetía el mismo
+    saldo 42 días — sumarlo cuenta Madero dos veces. Nombres de la hoja ≠ Suite: «ZAMORA» = 06
+    Canindo, «DAMASO» = 05 Zamora Centro (lo dice la ayuda).
 - [ ] **[EX.H3]** ⬜ (D3, después) **Tope por sucursal y meta de rotación 13.** Primitivos que ya
   existen: `commercial.warehouses.inventory_max_mxn` (hoy sólo rutas, RD.29: sin historia y el PATCH
   de almacenes no la acepta), `analytics.kpi_thresholds` (CDRP.2, nace vacío) y **Fase DP**

@@ -24,6 +24,12 @@
 - Viaja sola al pago: al «Preparar» se ve en la cuenta que se elige, y queda en el destino que imprime la instrucción a Caja General.
 - Un cambio de cuenta que no traiga el campo **conserva** la referencia vigente; dejarla en blanco la quita.
 - ⚠️ Migración `20261106172407` en prod **antes** de soltar.
+### Added — Existencia: «Consulta históricos», el valor del inventario por sucursal al cierre de cada día (EX.H1 + EX.H2, 2026-11-06 · en código, sin soltar)
+- Nuevo botón **«Consulta históricos»** arriba a la derecha de Existencia (en Almacén y en Compras). Reemplaza la hoja de Google de inventario por sucursal de Compras, con el mismo acomodo: sucursales en renglones, cierres en columnas y el total abajo.
+- Se filtra por **rango de fechas** y por **sucursales**, y se ve por **días, semanas o meses** (domingos o fin de mes, para que un año quepa en pocas columnas).
+- Valuado a **costo estándar de Kepler, sin impuesto**. Cada cifra se abre: muestra los productos de esa sucursal ese día, con su existencia, su costo y su valor, y suman lo mismo que la celda.
+- Lo que no se sabe se dice en la celda: **sin foto**, **pendiente** (el cierre de hoy se fotografía a las 23:50), **no confiable** (el CEDIS antes del arreglo de la foto). Los productos sin costo o con unidad dudosa se cuentan aparte y no se suman. El total nombra las sucursales que no sumó.
+- Mismo permiso que Existencia: quien ve el valor de hoy ve su historia.
 ### Fixed — Inventario: la foto diaria toma el CEDIS real y guarda el costo de cada día (EX.H0, 2026-11-06 · en código, sin soltar)
 - La foto de inventario de las 23:50 lee ahora la **misma existencia que la pantalla Existencia**. Hasta hoy leía otra tabla y el **CEDIS salía congelado**: repetía el mismo saldo todos los días (205 productos contra los 304 que tiene).
 - Cada día guarda además **con qué costo se va a valuar**: el **estándar** de Kepler y el **de la última entrada**. Es la base de «Consulta históricos» en Existencia, que reemplazará la hoja de Compras de inventario por sucursal.

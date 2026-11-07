@@ -113,7 +113,9 @@ export const ALMACEN_AREAS: AlmacenArea[] = [
       // EXISTENCIA va primera: el trabajo del almacén empieza en el censo. Y como
       // `almacenNavGroups` aterriza en el PRIMER tab alcanzable, el item "Inventario" del sidebar
       // lleva acá a quien tenga el permiso y degrada solo a "Ajustes de stock" a quien no.
-      { label: 'Existencia', icon: 'pi pi-box', route: '/almacen/inventory/existencia', permission: Permission.EXISTENCIA_VER, exact: true },
+      // [EX.H2] «Consulta históricos» es una subpágina de Existencia: su pestaña sigue marcada ahí.
+      { label: 'Existencia', icon: 'pi pi-box', route: '/almacen/inventory/existencia', permission: Permission.EXISTENCIA_VER, exact: true,
+        alsoActiveOn: ['/almacen/inventory/existencia/historico'] },
       // Se llamaba "Existencias" y NO lo es: lee `commercial.stock`, el libro transaccional
       // (acierta 91% contra el POS, 15,324 unidades de error). Es la consola de AJUSTE y el
       // único lugar con el apartado. El censo físico es el tab de arriba.
