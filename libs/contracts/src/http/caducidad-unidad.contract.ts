@@ -131,7 +131,7 @@ export interface CaducidadUnidadesProducto {
   sku: string;
   /** Plaza de Kepler de la que salió la lista (`01`…). `null` cuando no salió de ninguna. */
   plaza: string | null;
-  /** `true` si no era la plaza del almacén y se tomó la de otra (el almacén no tiene plaza, o ésta no lo publica). */
+  /** `true` si se pidió un almacén con plaza, ésta no publica el SKU y se tomó la de otra. Sin almacén: `false`. */
   otra_plaza: boolean;
   unidades: CaducidadUnidadProducto[] | null;
   base: CaducidadUnidad | null;

@@ -1500,7 +1500,8 @@ export class CommercialExpiryReviewsService {
         if (!rows.length) return vacio('sin_presentaciones');
         const plaza = rows.some((r) => r.sucursal === plazaPedida) ? plazaPedida! : rows.map((r) => r.sucursal).sort()[0];
         const t = unidadesDesdePresentaciones(rows.filter((r) => r.sucursal === plaza));
-        return { sku, plaza, otra_plaza: plaza !== plazaPedida, ...t, motivo: 'ok' };
+        // Sin almacén (aún no se elige sucursal) no hay «otra» plaza: no se pidió ninguna.
+        return { sku, plaza, otra_plaza: plazaPedida != null && plaza !== plazaPedida, ...t, motivo: 'ok' };
       } catch (e) {
         this.logger.warn(`[P2.9 paso 3] unidades de ${sku}: no se pudo leer v_label_presentations (${(e as Error).message})`);
         return vacio('sin_lectura');

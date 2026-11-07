@@ -105,6 +105,11 @@ describe.skipIf(!URL || !ADMIN)('[P2.9 paso 3] unidadesProducto lee las presenta
     expect(r.unidades?.map((u) => u.codigo)).toEqual(['paquete']);
   });
 
+  it('sin almacén (aún no se elige sucursal) no hay «otra plaza»: se toma la primera y otra_plaza es false', async () => {
+    const r = await svc.unidadesProducto(`${M}C`);
+    expect(r).toMatchObject({ plaza: OTRA, otra_plaza: false, base: 'pieza' });
+  });
+
   it('base fuera de las 7 (CUB) → unidades null y el rótulo declarado, no traducido', async () => {
     const r = await svc.unidadesProducto(`${M}D`, wh);
     expect(r).toMatchObject({ unidades: null, base: null, fuera_de_las_7: ['CUB'], motivo: 'ok' });

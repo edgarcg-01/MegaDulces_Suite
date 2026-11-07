@@ -942,7 +942,12 @@ export class TiendaCaducidadesComponent {
       });
   }
 
-  onSucursalChange(): void { this.cargarMias(); }
+  onSucursalChange(): void {
+    this.cargarMias();
+    // [P2.9 paso 3] Las unidades son por plaza: con otra sucursal, otra lista.
+    const sku = this.producto()?.sku;
+    if (sku) this.cargarUnidades(sku, this.editandoId() != null);
+  }
 
   // ── paso 1: producto ──
 
@@ -1035,12 +1040,14 @@ export class TiendaCaducidadesComponent {
       });
   }
 
-  /** La base del producto, salvo que la unidad ya venga del código o de la mano, o ya sea una del producto. */
+  /**
+   * La base del producto, salvo que la unidad ya venga del código o de la mano PARA ESTE producto.
+   * No se conserva la del producto anterior aunque éste también la tenga: sería una unidad marcada
+   * sin que nadie la eligiera (punto 91 de §8.0b).
+   */
   private sugerirUnidad(r: CaducidadUnidadesProducto | null): void {
     if (this.unidadTocada || this.unidadPorCodigo) return;
-    const actual = this.unidad();
     if (r?.unidades?.length) {
-      if (actual && r.unidades.some((u) => u.codigo === actual)) return;
       const base = r.unidades.find((u) => u.base) ?? null;
       this.unidad.set(base?.codigo ?? null);
       this.unidadSugerida.set(base
