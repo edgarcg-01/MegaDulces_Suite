@@ -29,9 +29,9 @@ const alcanza = (llaves: Permission[]) => metodos.filter((m) => entra(m, llaves)
 const LECTURAS = ['catalogs', 'constanciaUrl', 'inbox', 'one'];
 
 describe('[ALC.0.6] alta de clientes: cada endpoint pide su llave', () => {
-  it('el recorrido mide algo: diez endpoints, y ninguno sin llave', () => {
+  it('el recorrido mide algo: once endpoints, y ninguno sin llave', () => {
     expect(metodos.sort()).toEqual(
-      ['cancel', 'catalogs', 'constancia', 'constanciaUrl', 'create', 'credit', 'inbox', 'link', 'one', 'validate'],
+      ['cancel', 'catalogs', 'constancia', 'constanciaUrl', 'create', 'credit', 'inbox', 'link', 'one', 'postalCode', 'validate'],
     );
     for (const m of metodos) {
       expect((todas(m)?.length ?? 0) + (alguna(m)?.length ?? 0), `${m} no declara llave: quedaría abierto a cualquiera con sesión`).toBeGreaterThan(0);
@@ -45,9 +45,9 @@ describe('[ALC.0.6] alta de clientes: cada endpoint pide su llave', () => {
     expect(alcanza([Permission.COMMERCIAL_ALTA_CLIENTES_VER])).toEqual(LECTURAS);
   });
 
-  it('control: capturar (`ALTA_CLIENTES`) abre lecturas, captura, liga y cancela; no decide crédito', () => {
+  it('control: capturar (`ALTA_CLIENTES`) abre lecturas, captura (con el CP), liga y cancela; no decide crédito', () => {
     expect(alcanza([Permission.COMMERCIAL_ALTA_CLIENTES])).toEqual(
-      ['cancel', 'catalogs', 'constancia', 'constanciaUrl', 'create', 'inbox', 'link', 'one', 'validate'],
+      ['cancel', 'catalogs', 'constancia', 'constanciaUrl', 'create', 'inbox', 'link', 'one', 'postalCode', 'validate'],
     );
   });
 

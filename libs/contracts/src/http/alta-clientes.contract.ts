@@ -137,6 +137,19 @@ export interface CatalogosAlta {
   regimenes: RegimenFiscalOpcion[];
 }
 
+/**
+ * `GET /commercial/customer-onboarding/postal-code/:cp` `[ALC.3.4]` — lo que se sabe de un código
+ * postal sin teclearlo: el estado (catálogo del SAT en el ODS, como lo escribe Kepler) y cómo
+ * escriben el renglón 2 (colonia, municipio) las fichas de Kepler con ese CP. No hay catálogo de
+ * colonias en el ODS: son SUGERENCIAS que la persona elige, nunca se llenan solas.
+ */
+export interface CodigoPostalAlta {
+  codigo_postal: string;
+  /** `null` si el CP no está en el catálogo del SAT. */
+  estado: string | null;
+  sugerencias_direccion_2: { texto: string; fichas: number }[];
+}
+
 // ── La solicitud de alta ────────────────────────────────────────────────────────────────────
 export type EstadoSolicitudAlta =
   | 'credito_por_aprobar'   // pidió crédito, plazo o descuento: espera a Crédito y Cobranza

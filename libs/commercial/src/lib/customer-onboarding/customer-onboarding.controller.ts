@@ -12,6 +12,7 @@ import {
 import type {
   BandejaAlta,
   CatalogosAlta,
+  CodigoPostalAlta,
   CrearSolicitudRespuesta,
   DecidirCreditoBody,
   LigarSolicitudBody,
@@ -71,6 +72,13 @@ export class CustomerOnboardingController {
   @ApiOperation({ summary: 'Sucursales de tu alcance y, de la elegida, vendedores, grupos y zonas de Kepler; régimen fiscal del SAT' })
   catalogs(@Query('branch') branch: string, @Query() query: Record<string, unknown>): Promise<CatalogosAlta> {
     return this.service.catalogos(branch, query);
+  }
+
+  @Get('postal-code/:cp')
+  @RequirePermissions(Permission.COMMERCIAL_ALTA_CLIENTES)
+  @ApiOperation({ summary: 'De un código postal: el estado (catálogo del SAT) y cómo escribe Kepler el renglón 2 (sugerencias)' })
+  postalCode(@Param('cp') cp: string): Promise<CodigoPostalAlta> {
+    return this.service.codigoPostal(cp);
   }
 
   @Post('constancia')

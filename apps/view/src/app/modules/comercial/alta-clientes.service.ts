@@ -4,6 +4,7 @@ import { Observable } from 'rxjs';
 import type {
   BandejaAlta,
   CatalogosAlta,
+  CodigoPostalAlta,
   CrearSolicitudRespuesta,
   DecidirCreditoBody,
   EstadoSolicitudAlta,
@@ -22,6 +23,11 @@ export class AltaClientesService {
 
   catalogos(branch?: string | null): Observable<CatalogosAlta> {
     return this.http.get<CatalogosAlta>(`${this.base}/catalogs`, { params: branch ? new HttpParams().set('branch', branch) : undefined });
+  }
+
+  /** `[ALC.3.4]` Estado del CP y cómo escribe Kepler el renglón 2 con ese CP. */
+  codigoPostal(cp: string): Observable<CodigoPostalAlta> {
+    return this.http.get<CodigoPostalAlta>(`${this.base}/postal-code/${encodeURIComponent(cp)}`);
   }
 
   /** El PDF en data URI. La API lo lee, lo guarda y devuelve el prellenado; no crea nada. */

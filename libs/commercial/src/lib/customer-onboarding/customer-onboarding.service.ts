@@ -24,6 +24,7 @@ import {
   CASILLAS_KEPLER,
   type BandejaAlta,
   type CatalogosAlta,
+  type CodigoPostalAlta,
   type CoincidenciaKepler,
   type CrearSolicitudRespuesta,
   type DecidirCreditoBody,
@@ -43,7 +44,7 @@ import {
 import {
   bloquea, diferenciaDeCredito, estadoInicial, revisarSolicitud, type ContextoRevision, type FichaKeplerLeida,
 } from './alta-clientes.rules';
-import { fichaDesdeConstancia, fichaVacia, recortesDe } from './ficha-kepler';
+import { estadoCorto, fichaDesdeConstancia, fichaVacia, recortesDe } from './ficha-kepler';
 import { NewCustomersKeplerService } from '../new-customers-kepler/new-customers-kepler.service';
 import { codigoKepler, normalizarClave, normalizarNombre, parecido, UMBRAL_PARECIDO } from '../new-customers-kepler/new-customers-kepler.engine';
 
@@ -134,6 +135,39 @@ export class CustomerOnboardingService {
         ORDER BY 1`,
     );
     return rows.map((r: RegimenFiscalOpcion) => ({ ...r, persona_fisica: !!r.persona_fisica, persona_moral: !!r.persona_moral }));
+  }
+
+  /**
+   * `[ALC.3.4]` Lo que se sabe de un CP. Medido en prod (2026-11-06): el catálogo del SAT
+   * (`kdfe33satcp` → `kdfe33satedo`) da UN estado por CP (0 ambiguos); y 21,386 de 22,558 fichas de
+   * `kdud` traen CP y renglón 2, en 486 CP distintos. No hay catálogo de colonias ni de municipios
+   * en el ODS: el renglón 2 sale como sugerencia (los más usados en Kepler para ese CP), no se adivina.
+   */
+  async codigoPostal(cpRaw: unknown): Promise<CodigoPostalAlta> {
+    const cp = String(cpRaw ?? '').trim();
+    if (!/^\d{5}$/.test(cp)) throw new BadRequestException('El código postal lleva 5 dígitos.');
+    return this.tk.run(async (trx) => {
+      const { rows: [edo] } = await trx.raw(
+        `/* alc:cp-estado */ SELECT btrim(e.c3) AS estado
+           FROM kepler_ods.kdfe33satcp p
+           JOIN kepler_ods.kdfe33satedo e ON e.sucursal = '00' AND btrim(e.c1) = btrim(p.c2) AND btrim(e.c2) = 'MEX'
+          WHERE p.sucursal = '00' AND btrim(p.c1) = ?
+          LIMIT 1`,
+        [cp],
+      );
+      const { rows } = await trx.raw(
+        `/* alc:cp-dir2 */ SELECT upper(btrim(replace(d.c5, E'\\r', ''))) AS texto, count(*)::int AS fichas
+           FROM kepler_ods.kdud d
+          WHERE btrim(d.c27) = ? AND btrim(coalesce(d.c5, '')) <> ''
+          GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 6`,
+        [cp],
+      );
+      return {
+        codigo_postal: cp,
+        estado: edo?.estado ? estadoCorto(edo.estado) : null,
+        sugerencias_direccion_2: rows.map((r: { texto: string; fichas: number }) => ({ texto: r.texto, fichas: Number(r.fichas) })),
+      };
+    });
   }
 
   async catalogos(branchRaw: unknown, query: Record<string, unknown> = {}): Promise<CatalogosAlta> {
