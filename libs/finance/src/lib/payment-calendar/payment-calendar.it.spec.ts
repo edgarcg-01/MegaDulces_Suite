@@ -18,9 +18,10 @@ import { createRequire } from 'node:module';
 import { resolve as resolvePath } from 'node:path';
 import knexFactory, { type Knex } from 'knex';
 import { PaymentCalendarService, keplerPayableId } from './payment-calendar.service';
-import { ProntoPagoService } from '../pronto-pago/pronto-pago.service';
+import { ProntoPagoService, sqlSinDescuentoVigente } from '../pronto-pago/pronto-pago.service';
 import { PaymentProgramService } from '../payment-program/payment-program.service';
 import { sqlVentanaProntoPago } from '@megadulces/contracts/finance/pronto-pago-ventana';
+import type { PaymentCalendarItemDiscountBody } from '@megadulces/contracts';
 // ⛔ `finance` no puede depender de `commercial` (reglas de módulos): el paso «aceptar la entrega»
 // lo prueba `purchase-deliveries.it.spec.ts` en `libs/commercial`. Aquí las obligaciones nacen del
 // backfill de la mig TP.15, que es el MISMO INSERT que hace `toCalendar()` al aceptar.
@@ -42,6 +43,9 @@ const MIGS = [
   '../../../../../database/migrations-newdb/20261010111352_pronto_pago_ventana_observada.js',
   // `[TP.19.3]` Las columnas que ligan el pago ejecutado con su documento de Kepler (O3).
   '../../../../../database/migrations-newdb/20261016185746_tp19_allocation_liga_pago_kepler.js',
+  // `[PGP.91]` Las columnas del descuento al pagar. El servicio las inserta y las suma SIEMPRE,
+  // así que sin ellas ninguna prueba de este archivo pasa en una base local atrasada.
+  '../../../../../database/migrations-newdb/20261106183612_pgp91_descuento_al_pagar_en_el_calendario.js',
 ];
 
 /** Las migraciones son CommonJS (`exports.up`): según el cargador llegan como `up` o `default.up`. */
@@ -82,6 +86,7 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
     if (!(await trx.raw(`SELECT to_regclass('analytics.v_supplier_payables') AS r`)).rows[0].r) await migUp(MIGS[0], trx);
     // TP.15 se aplica DESPUÉS de sembrar (abajo): su backfill es el que crea las obligaciones.
     await migUp(MIGS[2], trx);   // `[TP.18]` el CHECK del cuarto origen (idempotente)
+    await migUp(MIGS[5], trx);   // `[PGP.91]` las columnas del descuento al pagar (idempotente)
 
     const tk = { run: <T>(fn: (t: Knex.Transaction) => Promise<T>) => fn(trx) };
     const ctx = { requireTenantId: () => M };
@@ -251,6 +256,21 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
     expect(antes).toHaveLength(2);
     await expect(cal.removeItem(a2, antes[0].id, USER)).rejects.toThrow(/autorizado/);
     expect(await trx('finance.payment_allocation_items').where({ allocation_id: a2 })).toHaveLength(2);
+    const a = await trx('finance.payment_allocations').where({ id: a2 }).first();
+    expect(Number(a.amount_assigned)).toBeCloseTo(53940.2, 2);
+  });
+
+  // `[PGP.91]` El mismo candado para el descuento al pagar: fijarlo en un día autorizado bajaría lo
+  // que sale del banco después de que Gerencia lo firmó. TPIT-101 es factura de mercancía con
+  // saldo y 100 de «Volumen» sobre 35,640.20 es un descuento válido: el rechazo sólo puede venir
+  // del día autorizado, no del validador.
+  it('[PGP.91] ⛔ con el día autorizado no se le fija un descuento a una factura (lo firmado no cambia)', async () => {
+    const it101 = await trx('finance.payment_allocation_items').where({ allocation_id: a2, obligation_id: ob['TPIT-101'] }).first();
+    await expect(cal.setItemDiscount(a2, it101.id, { discount_amount: 100, discount_reason: 'volumen' }, USER)).rejects.toThrow(/autorizado/);
+    const despues = await trx('finance.payment_allocation_items').where({ id: it101.id }).first();
+    expect(Number(despues.applied_amount)).toBeCloseTo(35640.2, 2);
+    expect(Number(despues.discount_amount)).toBe(0);
+    expect(despues.discount_reason).toBeNull();
     const a = await trx('finance.payment_allocations').where({ id: a2 }).first();
     expect(Number(a.amount_assigned)).toBeCloseTo(53940.2, 2);
   });
@@ -781,6 +801,381 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
       expect(s.folio).toBe('CTPIT-KSUG1');
     });
 
+  });
+
+  /**
+   * `[PGP.91]` **El descuento que el proveedor da AL PAGAR.**
+   *
+   * Hay proveedores que conceden un 3 % de pronto pago (o uno por volumen) al momento de pagarles,
+   * y Kepler lo formaliza DESPUÉS con una nota de crédito. La invariante que se ejerce acá:
+   * `applied_amount` es el NETO que sale del banco (el total del día y `amount_assigned` lo
+   * suman), y la factura queda CUBIERTA por neto + descuento — así el sobrante descontado no se
+   * vuelve a ofrecer mientras la nota de crédito no llega.
+   *
+   * Proveedor propio (`DTPIT01`, sucursal 08) y días propios: no toca nada de los bloques de arriba.
+   */
+  describe('[PGP.91] descuento al pagar: se paga el neto y la factura queda cubierta', () => {
+    const PROV = 'DTPIT01';
+    const D6 = '2030-03-04';
+    const D7 = '2030-03-05';
+    const D8 = '2030-03-06';
+    const D9 = '2030-03-07';
+    const F1 = 'DTPIT-F1';   // 38,880.00 — el ejemplo de Francisco: 3 % de pronto pago
+    const F2 = 'DTPIT-F2';   // 10,000.00 — control negativo: parcial SIN descuento
+    const F3 = 'DTPIT-F3';   //  5,000.00 — rechazos y descuento por volumen en pesos
+    const kid = (folio: string) => keplerPayableId('08', 20, 1, folio);
+    const derivada = async (folio: string) => {
+      const { rows } = await cal.listObligations({ search: 'DTPIT', onlyAvailable: false });
+      return rows.find((r: { obligation_id: string }) => r.obligation_id === kid(folio)) as
+        { reserved_amount: number; paid_amount: number; available_amount: number } | undefined;
+    };
+    let a6 = '';
+    let obCapturada = '';
+
+    beforeAll(async () => {
+      await trx('kepler_ods.kdxd').insert({ sucursal: '00', c2: PROV, c3: 'DTPIT DESCUENTOS DE PRUEBA', c13: '001' });
+      const [sup] = await trx('catalog.suppliers').insert({ tenant_id: M, code: PROV, name: 'DTPIT DESCUENTOS DE PRUEBA', activo: true }).returning('id');
+      for (const [folio, monto] of [[F1, 38880], [F2, 10000], [F3, 5000]] as [string, number][]) {
+        await trx('kepler_ods.kdxe').insert({ sucursal: '08', c1: '08', c2: PROV, c3: 'A', c4: 20, c5: 1, c6: folio, c7: '2030-03-01 00:00:00', c10: '2030-03-20 00:00:00', c11: monto });
+      }
+      // Una obligación CAPTURADA (con tabla): ahí `recalcObligation` guarda reservado/pagado y el
+      // CHECK reservado + pagado ≤ original de la tabla de origen tiene que seguir cumpliéndose.
+      const [o] = await trx('commercial.supplier_payment_obligations').insert({
+        tenant_id: M, supplier_id: sup.id, invoice_folio: 'DTPIT-CAP1', concept: 'DTPIT-CAP1',
+        original_due_date: '2030-03-20', original_amount: 20000, reserved_amount: 0, paid_amount: 0,
+        status: 'pending', created_by: USER, updated_by: USER, authorized_by: USER,
+      }).returning('id');
+      obCapturada = o.id;
+    }, 60_000);
+
+    it('⭐ 3 % de pronto pago: sale el neto, la factura queda cubierta y NO se vuelve a ofrecer', async () => {
+      const a = await cal.createAllocation({
+        date: D6,
+        items: [{
+          obligation_source: 'kepler_payable', obligation_id: kid(F1),
+          applied_amount: 37713.6, discount_amount: 1166.4, discount_reason: 'pronto_pago', discount_rate: 0.03,
+        }],
+      }, USER);
+      a6 = a.id;
+      // Lo que sale del banco es el neto.
+      expect(Number(a.amount_assigned)).toBeCloseTo(37713.6, 2);
+      // La factura queda cubierta entera: reservado = neto + descuento, disponible 0.
+      const d = await derivada(F1);
+      expect(Number(d!.reserved_amount)).toBeCloseTo(38880, 2);
+      expect(Number(d!.available_amount)).toBeCloseTo(0, 2);
+      // …y por eso la lista de «agregar facturas» ya no la ofrece.
+      const ofrecidas = (await cal.listObligations({ search: 'DTPIT' })).rows as { obligation_id: string }[];
+      expect(ofrecidas.some((r) => r.obligation_id === kid(F1))).toBe(false);
+      // El día cuenta el NETO: el descuento no es dinero que salga.
+      expect((await cal.daySummary(D6)).assigned_amount).toBeCloseTo(37713.6, 2);
+    });
+
+    it('⛔ CONTROL NEGATIVO: sin descuento, un pago parcial SÍ deja sobrante (la prueba ve la diferencia)', async () => {
+      await cal.createAllocation({ date: D8, items: [{ obligation_source: 'kepler_payable', obligation_id: kid(F2), applied_amount: 9000 }] }, USER);
+      const d = await derivada(F2);
+      expect(Number(d!.reserved_amount)).toBeCloseTo(9000, 2);
+      expect(Number(d!.available_amount)).toBeCloseTo(1000, 2);
+      const ofrecidas = (await cal.listObligations({ search: 'DTPIT' })).rows as { obligation_id: string }[];
+      expect(ofrecidas.some((r) => r.obligation_id === kid(F2))).toBe(true);
+    });
+
+    /**
+     * `[PGP.91b]` **El sugerido y Pronto pago dejan de ofrecer la factura que ya lleva su descuento.**
+     * Se ejerce el TEXTO EXACTO de las dos condiciones (la que la migración 20261106183613 mete en
+     * `v_pago_sugerido` y la de `ProntoPagoService`), no una copia. La vista entera no sirve aquí:
+     * su ventana observada nace vacía en esta base y no lista ningún proveedor de prueba.
+     * Control: F2 (parcial SIN descuento) y F3 (sin pago) se quedan; sólo F1 sale.
+     */
+    it('⭐ [PGP.91b] la factura con descuento sale del sugerido y de Pronto pago; las otras se quedan', async () => {
+      const mig = createRequire(__filename)(resolvePath(__dirname,
+        '../../../../../database/migrations-newdb/20261106183613_pgp91b_que_pagar_sin_el_sobrante_del_descuento.js')) as
+        { SQL: { CON_DESCUENTO_VIGENTE: string } };
+      // ⚠️ La condición de la migración NO es una cláusula suelta: se inserta en el ANCLA de la vista
+      // reemplazando su último «)» (`ANCLA.slice(0, -1) + CON_DESCUENTO_VIGENTE`), así que termina con
+      // ese paréntesis de más. Pegada tal cual da «syntax error at or near ")"» (así falló en el CI).
+      const vigente = mig.SQL.CON_DESCUENTO_VIGENTE.trimEnd();
+      expect(vigente.endsWith(')')).toBe(true);
+      const clausula = vigente.slice(0, -1);
+      // SAVEPOINT: un error de SQL aquí no debe envenenar la transacción del resto del archivo.
+      await trx.raw('SAVEPOINT pgp91b_q');
+      try {
+        const folios = async (condicion: string): Promise<string[]> => (await trx.raw(
+          `SELECT btrim(v.folio) AS folio FROM analytics.v_supplier_payables v
+            WHERE btrim(v.proveedor) = ? ${condicion} ORDER BY 1`, [PROV])).rows.map((r: { folio: string }) => r.folio);
+        const todas = await folios('');
+        expect(todas).toEqual([F1, F2, F3]);                        // control: la base ve las tres
+        const sugerido = await folios(clausula);
+        const pronto = await folios(`AND ${sqlSinDescuentoVigente('v')}`);
+        expect(sugerido).toEqual([F2, F3]);
+        // Una sola regla: las dos pantallas excluyen exactamente lo mismo.
+        expect(pronto).toEqual(sugerido);
+        await trx.raw('RELEASE SAVEPOINT pgp91b_q');
+      } catch (e) {
+        await trx.raw('ROLLBACK TO SAVEPOINT pgp91b_q');
+        throw e;
+      }
+    });
+
+    it('⛔ «Otro» sin detalle se rechaza, y no deja nada reservado', async () => {
+      await expect(cal.createAllocation({
+        date: D6,
+        items: [{ obligation_source: 'kepler_payable', obligation_id: kid(F3), applied_amount: 4900, discount_amount: 100, discount_reason: 'otro' }],
+      }, USER)).rejects.toThrow(/Otro/);
+      expect(Number((await derivada(F3))!.available_amount)).toBeCloseTo(5000, 2);
+    });
+
+    it('⛔ una tasa que no cuadra con el descuento se rechaza (el servidor revisa la cuenta)', async () => {
+      // 2 % de 5,000 son 100, no 150.
+      await expect(cal.addItem(a6, {
+        obligation_source: 'kepler_payable', obligation_id: kid(F3),
+        applied_amount: 4850, discount_amount: 150, discount_reason: 'volumen', discount_rate: 0.02,
+      }, USER)).rejects.toThrow(/no cuadra/);
+    });
+
+    it('⛔ el neto cabe pero neto + descuento NO: se mide lo cubierto, no sólo lo que sale', async () => {
+      // 4,900 solos caben en los 5,000; con 200 de descuento la factura quedaría cubierta por 5,100.
+      await expect(cal.addItem(a6, {
+        obligation_source: 'kepler_payable', obligation_id: kid(F3),
+        applied_amount: 4900, discount_amount: 200, discount_reason: 'volumen',
+      }, USER)).rejects.toThrow(/disponible|pendiente/i);
+    });
+
+    it('sumar al pago una factura con descuento en PESOS (sin tasa): el total sigue siendo neto', async () => {
+      await cal.addItem(a6, {
+        obligation_source: 'kepler_payable', obligation_id: kid(F3),
+        applied_amount: 4750, discount_amount: 250, discount_reason: 'volumen',
+      }, USER);
+      const a = await trx('finance.payment_allocations').where({ id: a6 }).first();
+      expect(Number(a.amount_assigned)).toBeCloseTo(42463.6, 2);
+      expect(Number((await derivada(F3))!.available_amount)).toBeCloseTo(0, 2);
+    });
+
+    it('el día publica el descuento por factura y el total por pago', async () => {
+      const day = await cal.listDayAllocations(D6) as unknown as {
+        id: string; amount_assigned: number; discount_total: number;
+        items: { obligation_id: string; applied_amount: number; discount_amount: number; discount_reason: string | null; discount_rate: number | null; discount_note: string | null }[];
+      }[];
+      const p = day.find((x) => x.id === a6)!;
+      expect(p.amount_assigned).toBeCloseTo(42463.6, 2);
+      expect(p.discount_total).toBeCloseTo(1416.4, 2);
+      const i1 = p.items.find((i) => i.obligation_id === kid(F1))!;
+      expect(i1.discount_amount).toBeCloseTo(1166.4, 2);
+      expect(i1.discount_reason).toBe('pronto_pago');
+      expect(i1.discount_rate).toBeCloseTo(0.03, 6);
+      const i3 = p.items.find((i) => i.obligation_id === kid(F3))!;
+      expect(i3.discount_reason).toBe('volumen');
+      expect(i3.discount_rate).toBeNull();
+      expect((await cal.daySummary(D6)).assigned_amount).toBeCloseTo(42463.6, 2);
+    });
+
+    it('⭐ reprogramar copia el descuento: el día nuevo paga el mismo neto y la factura sigue cubierta', async () => {
+      const nuevo = await cal.reprogram(a6, D7, 'presupuesto_recortado', undefined, USER);
+      expect(Number(nuevo.amount_assigned)).toBeCloseTo(42463.6, 2);
+      const items = await trx('finance.payment_allocation_items').where({ allocation_id: nuevo.id });
+      const i1 = items.find((i: { obligation_id: string }) => i.obligation_id === kid(F1));
+      expect(Number(i1.discount_amount)).toBeCloseTo(1166.4, 2);
+      expect(i1.discount_reason).toBe('pronto_pago');
+      expect(Number(i1.discount_rate)).toBeCloseTo(0.03, 6);
+      // Quién lo fijó también viaja: mover de día no es volver a capturar el descuento.
+      expect(i1.discount_by).toBe(USER);
+      // El viejo quedó cancelado y no cuenta; el nuevo sí: la factura sigue sin disponible.
+      expect(Number((await derivada(F1))!.available_amount)).toBeCloseTo(0, 2);
+      expect(Number((await derivada(F3))!.available_amount)).toBeCloseTo(0, 2);
+      expect((await cal.daySummary(D6)).assigned_amount).toBeCloseTo(0, 2);
+    });
+
+    it('⭐ obligación CAPTURADA: ejecutar con descuento la deja «paid» por lo cubierto', async () => {
+      const a = await cal.createAllocation({
+        date: D9,
+        items: [{ obligation_source: 'supplier_payable', obligation_id: obCapturada, applied_amount: 19600, discount_amount: 400, discount_reason: 'volumen' }],
+      }, USER);
+      let o = await trx('commercial.supplier_payment_obligations').where({ id: obCapturada }).first();
+      expect(Number(o.reserved_amount)).toBeCloseTo(20000, 2);
+      expect(o.status).toBe('partial');
+      await trx('budget.daily_capacity').insert({ tenant_id: M, capacity_date: D9, authorized_amount: 100000, created_by: 'tp_it', updated_by: 'tp_it' });
+      await cal.setPriorityRank(a.id, 1, USER);
+      await cal.prepare(a.id, { payment_method: 'transferencia', bank_account_id: originId, destination_account_text: 'BBVA · CLABE 032180000118359719' }, USER);
+      await cal.releaseLot(D9, 'tp_it_gerencia');
+      await cal.execute(a.id, USER);
+      o = await trx('commercial.supplier_payment_obligations').where({ id: obCapturada }).first();
+      // Pagado = 19,600 que salieron + 400 que descontó el proveedor = la factura entera.
+      expect(Number(o.paid_amount)).toBeCloseTo(20000, 2);
+      expect(Number(o.reserved_amount)).toBeCloseTo(0, 2);
+      expect(o.status).toBe('paid');
+    });
+
+    it('⛔ la base también lo impide: un motivo sin descuento viola el CHECK de consistencia', async () => {
+      // El servicio ya lo rechaza; esto prueba que la RESTRICCIÓN existe por si alguien escribe
+      // por otro camino. SAVEPOINT para que el error no envenene la transacción de la prueba.
+      await trx.raw('SAVEPOINT pgp91_ck');
+      await expect(trx('finance.payment_allocation_items').insert({
+        tenant_id: M, allocation_id: a6, obligation_source: 'kepler_payable', obligation_id: kid(F2),
+        applied_amount: 1, discount_amount: 0, discount_reason: 'pronto_pago',
+      })).rejects.toThrow(/ck_pai_discount_consistency/);
+      await trx.raw('ROLLBACK TO SAVEPOINT pgp91_ck');
+    });
+
+    /**
+     * `[PGP.91]` **El descuento se fija SOBRE la factura que ya está en el pago** (`setItemDiscount`,
+     * `POST allocations/:id/items/:itemId/descuento`), con el cuerpo EXACTO que arma el diálogo del
+     * desglose (regla 13). En el rediseño casi toda factura entra COMPLETA —el «+», los grupos, la
+     * propuesta del día—, así que éste es el camino que la pantalla usa de verdad.
+     * La invariante: lo CUBIERTO no se mueve (la factura sigue sin disponible); baja lo que sale del
+     * banco. Factura propia (`DTPIT-F4`) y día propio: se siembra aquí, DESPUÉS del caso
+     * `[PGP.91b]`, que cuenta exactamente las tres facturas de arriba.
+     */
+    describe('[PGP.91] fijar o quitar el descuento de una factura ya puesta (cuerpo de la pantalla)', () => {
+      const F4 = 'DTPIT-F4';   // 20,000.00 — entra COMPLETA, como la manda el «+»
+      const D11 = '2030-03-11';
+      let aF4 = '';
+      let itF4 = '';
+      const renglon = () => trx('finance.payment_allocation_items').where({ id: itF4 }).first();
+
+      beforeAll(async () => {
+        await trx('kepler_ods.kdxe').insert({ sucursal: '08', c1: '08', c2: PROV, c3: 'A', c4: 20, c5: 1, c6: F4, c7: '2030-03-01 00:00:00', c10: '2030-03-20 00:00:00', c11: 20000 });
+      }, 60_000);
+
+      it('⭐ 3 % sobre la factura que entró completa: sale el neto, la factura sigue cubierta y NO se reofrece', async () => {
+        const a = await cal.createAllocation({ date: D11, items: [{ obligation_source: 'kepler_payable', obligation_id: kid(F4), applied_amount: 20000 }] }, USER);
+        aF4 = a.id;
+        const [it0] = await trx('finance.payment_allocation_items').where({ allocation_id: aF4 });
+        itF4 = it0.id;
+        expect(Number(a.amount_assigned)).toBeCloseTo(20000, 2);
+        // El cuerpo tal cual lo arma el diálogo en modo «%»: la tasa viaja; la nota, sólo con «Otro».
+        const body: PaymentCalendarItemDiscountBody = { discount_amount: 600, discount_reason: 'pronto_pago', discount_rate: 0.03, discount_note: null };
+        const r = await cal.setItemDiscount(aF4, itF4, body, USER);
+        expect(r).toEqual({ allocation_id: aF4, item_id: itF4, applied_amount: 19400, discount_amount: 600, amount_assigned: 19400 });
+        const i = await renglon();
+        expect(Number(i.applied_amount)).toBeCloseTo(19400, 2);
+        expect(Number(i.discount_amount)).toBeCloseTo(600, 2);
+        expect(i.discount_reason).toBe('pronto_pago');
+        expect(Number(i.discount_rate)).toBeCloseTo(0.03, 6);
+        expect(i.discount_note).toBeNull();
+        // Quién y cuándo: el descuento cambia dinero y la tabla no tiene `updated_by`.
+        expect(i.discount_by).toBe(USER);
+        expect(i.discount_at).toBeTruthy();
+        // El pago y el día cuentan el NETO.
+        const pago = await trx('finance.payment_allocations').where({ id: aF4 }).first();
+        expect(Number(pago.amount_assigned)).toBeCloseTo(19400, 2);
+        expect(pago.updated_by).toBe(USER);
+        expect((await cal.daySummary(D11)).assigned_amount).toBeCloseTo(19400, 2);
+        // ⭐ Lo cubierto NO se movió: reservado 20,000 y disponible 0. Si la reserva sumara sólo el
+        // neto, aquí quedarían 600 disponibles y la factura volvería a «Agregar facturas».
+        const d = await derivada(F4);
+        expect(Number(d!.reserved_amount)).toBeCloseTo(20000, 2);
+        expect(Number(d!.available_amount)).toBeCloseTo(0, 2);
+        const ofrecidas = (await cal.listObligations({ search: 'DTPIT' })).rows as { obligation_id: string }[];
+        expect(ofrecidas.some((x) => x.obligation_id === kid(F4))).toBe(false);
+      });
+
+      it('⛔ un descuento que no cuadra, uno que es toda la factura o un cuerpo sin descuento se rechazan, y la factura queda igual', async () => {
+        // 2 % de 20,000 son 400, no 150.
+        await expect(cal.setItemDiscount(aF4, itF4, { discount_amount: 150, discount_reason: 'volumen', discount_rate: 0.02, discount_note: null }, USER))
+          .rejects.toThrow(/no cuadra/);
+        // Descontar la factura entera no es un pago: es una nota de crédito.
+        await expect(cal.setItemDiscount(aF4, itF4, { discount_amount: 20000, discount_reason: 'volumen', discount_rate: null, discount_note: null }, USER))
+          .rejects.toThrow(/toda la factura/);
+        // Un cuerpo sin `discount_amount` no se lee como «quitarlo»: quitarlo se pide con 0.
+        await expect(cal.setItemDiscount(aF4, itF4, { discount_amount: undefined, discount_reason: 'volumen' }, USER))
+          .rejects.toThrow(/Falta el descuento/);
+        // Tampoco `null` ni '' (el validador los leería como 0 y lo quitaría en silencio).
+        await expect(cal.setItemDiscount(aF4, itF4, { discount_amount: null, discount_reason: 'volumen' }, USER))
+          .rejects.toThrow(/Falta el descuento/);
+        await expect(cal.setItemDiscount(aF4, itF4, { discount_amount: '  ', discount_reason: 'volumen' }, USER))
+          .rejects.toThrow(/Falta el descuento/);
+        // El descuento que ya tenía sigue entero: un rechazo no lo borra ni lo cambia.
+        const i = await renglon();
+        expect(Number(i.applied_amount)).toBeCloseTo(19400, 2);
+        expect(Number(i.discount_amount)).toBeCloseTo(600, 2);
+        expect(i.discount_reason).toBe('pronto_pago');
+        expect(Number(i.discount_rate)).toBeCloseTo(0.03, 6);
+        const pago = await trx('finance.payment_allocations').where({ id: aF4 }).first();
+        expect(Number(pago.amount_assigned)).toBeCloseTo(19400, 2);
+      });
+
+      it('quitar el descuento (0, el botón «Quitar el descuento»): vuelve a pagarse completa y sigue cubierta', async () => {
+        const quitar: PaymentCalendarItemDiscountBody = { discount_amount: 0 };
+        const r = await cal.setItemDiscount(aF4, itF4, quitar, USER);
+        expect(r).toEqual({ allocation_id: aF4, item_id: itF4, applied_amount: 20000, discount_amount: 0, amount_assigned: 20000 });
+        const i = await renglon();
+        expect(Number(i.applied_amount)).toBeCloseTo(20000, 2);
+        expect(Number(i.discount_amount)).toBe(0);
+        expect(i.discount_reason).toBeNull();
+        expect(i.discount_rate).toBeNull();
+        expect(i.discount_note).toBeNull();
+        // Sin descuento no hay a quién atribuírselo: la auditoría va con el descuento.
+        expect(i.discount_by).toBeNull();
+        expect(i.discount_at).toBeNull();
+        const d = await derivada(F4);
+        expect(Number(d!.reserved_amount)).toBeCloseTo(20000, 2);
+        expect(Number(d!.available_amount)).toBeCloseTo(0, 2);
+        expect((await cal.daySummary(D11)).assigned_amount).toBeCloseTo(20000, 2);
+      });
+    });
+
+    /**
+     * `[PGP.91]` **La nota de crédito del descuento llega a Kepler ANTES que la transferencia.**
+     * Al ejecutar se mide lo CUBIERTO (neto + descuento) contra el pendiente de Kepler, con UNA
+     * excepción: si Kepler ya debe EXACTAMENTE el neto (±1 centavo), la nota del descuento ya se
+     * aplicó y el pago es correcto. #482 no la probaba (un gate sin prueba negativa, regla 12): va
+     * con su control — una nota MAYOR que el descuento deja a Kepler debiendo menos que el neto y
+     * el pago se frena. La nota se siembra en `kdxf` como el abono del candado de Kepler de arriba
+     * (la vista resta todo lo aplicado al documento, sin mirar su tipo).
+     */
+    describe('[PGP.91] la nota de crédito del descuento llega antes que la transferencia', () => {
+      const F5 = 'DTPIT-F5';   // 10,000 = 9,700 + 300 (3 % de pronto pago); en Kepler, una nota de 300
+      const F6 = 'DTPIT-F6';   // 10,000 = el mismo pago — CONTROL: en Kepler, una nota de 500
+      const D10 = '2030-03-08';
+      let aF5 = '';
+      let aF6 = '';
+      const pendienteKepler = async (folio: string): Promise<number | null> => {
+        const r = await trx('analytics.v_supplier_payables').where({ sucursal: '08', proveedor: PROV, folio }).first('pendiente');
+        return r ? Number(r.pendiente) : null;
+      };
+
+      beforeAll(async () => {
+        for (const folio of [F5, F6]) {
+          await trx('kepler_ods.kdxe').insert({ sucursal: '08', c1: '08', c2: PROV, c3: 'A', c4: 20, c5: 1, c6: folio, c7: '2030-03-01 00:00:00', c10: '2030-03-20 00:00:00', c11: 10000 });
+        }
+        const conTresPorCiento = async (folio: string): Promise<string> => (await cal.createAllocation({
+          date: D10,
+          items: [{ obligation_source: 'kepler_payable', obligation_id: kid(folio), applied_amount: 9700, discount_amount: 300, discount_reason: 'pronto_pago', discount_rate: 0.03 }],
+        }, USER)).id;
+        aF5 = await conTresPorCiento(F5);
+        aF6 = await conTresPorCiento(F6);
+        await trx('budget.daily_capacity').insert({ tenant_id: M, capacity_date: D10, authorized_amount: 100000, created_by: 'tp_it', updated_by: 'tp_it' });
+        await cal.setPriorityRank(aF5, 1, USER);
+        await cal.setPriorityRank(aF6, 2, USER);
+        for (const id of [aF5, aF6]) {
+          await cal.prepare(id, { payment_method: 'transferencia', bank_account_id: originId, destination_account_text: 'BBVA · CLABE 032180000118359719' }, USER);
+        }
+        await cal.releaseLot(D10, 'tp_it_gerencia');
+        // Ya autorizado el día y ANTES de transferir, el proveedor emite la nota en Kepler.
+        for (const [folio, monto] of [[F5, 300], [F6, 500]] as [string, number][]) {
+          await trx('kepler_ods.kdxf').insert({ sucursal: '08', c1: '08', c2: PROV, c3: '2030-03-08 00:00:00', c4: 30, c5: 1, c6: `${folio}-NC`, c7: 20, c8: 1, c9: folio, c10: monto });
+        }
+      }, 60_000);
+
+      it('⭐ la nota es justo el descuento: Kepler ya debe sólo el neto y ejecutar PASA', async () => {
+        // Control de la siembra: si la nota no pegara, el pendiente seguiría en 10,000 y el pago
+        // pasaría por la regla general, no por la excepción que aquí se prueba.
+        expect(await pendienteKepler(F5)).toBeCloseTo(9700, 2);
+        const r = await cal.execute(aF5, USER);
+        expect(r.status).toBe('executed');
+        // Lo cubierto pasó a pagado: la factura no se vuelve a ofrecer aunque Kepler siga
+        // mostrando los 9,700 hasta que registre la transferencia.
+        const d = await derivada(F5);
+        expect(Number(d!.paid_amount)).toBeCloseTo(10000, 2);
+        expect(Number(d!.reserved_amount)).toBeCloseTo(0, 2);
+      });
+
+      it('⛔ CONTROL: una nota MAYOR que el descuento deja a Kepler debiendo menos que el neto, y ejecutar se frena', async () => {
+        expect(await pendienteKepler(F6)).toBeCloseTo(9500, 2);
+        await expect(cal.execute(aF6, USER)).rejects.toThrow(/pendiente en Kepler/);
+        const p = await trx('finance.payment_allocations').where({ id: aF6 }).first();
+        expect(p.status).toBe('pending');
+      });
+    });
   });
 
 });

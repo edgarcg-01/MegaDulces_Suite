@@ -3,6 +3,7 @@ import { TenantKnexService, TenantContextService, Permission } from '@megadulces
 import { EntityKind, RefField, RefRelation, RefResult, makeRef, parseRef } from './entity-ref.types';
 import { sqlKeplerPayableId } from '@megadulces/contracts/finance/kepler-payable-key';
 import { sqlVentanaProntoPago, PRONTO_PAGO_MIN_OBS } from '@megadulces/contracts/finance/pronto-pago-ventana';
+import { DISCOUNT_REASON_LABEL, type DiscountReason } from '@megadulces/contracts';
 
 /**
  * Resolvedor universal de referencias — el backend de "todo es clickeable".
@@ -99,6 +100,8 @@ interface FilaObligacionCapturada { id: string; status: string }
 
 interface FilaProgramada {
   applied_amount: Num; status: string; payment_method: string | null; allocation_folio: string | null;
+  /** `[PGP.91]` Descuento que el proveedor dio al pagar; 0 = sin descuento. */
+  discount_amount: Num; discount_reason: string | null; discount_rate: Num;
   kepler_payment_sucursal: string | null; kepler_payment_doc_prefix: string | null;
   kepler_payment_folio: string | null;
   lot_status: string | null; released_by: string | null; lot_date: string | null;
@@ -696,7 +699,8 @@ export class EntityRefService {
     const prog: FilaProgramada[] = await trx('finance.payment_allocation_items as i')
       .join('finance.payment_allocations as a', 'a.id', 'i.allocation_id')
       .leftJoin('finance.payment_calendar_lots as l', 'l.id', 'a.lot_id')
-      .select('i.applied_amount', 'a.status', 'a.payment_method', 'a.folio as allocation_folio',
+      .select('i.applied_amount', 'i.discount_amount', 'i.discount_reason', 'i.discount_rate',
+        'a.status', 'a.payment_method', 'a.folio as allocation_folio',
         'a.kepler_payment_sucursal', 'a.kepler_payment_doc_prefix', 'a.kepler_payment_folio',
         'l.status as lot_status', 'l.released_by',
         trx.raw(`to_char(l.lot_date,'YYYY-MM-DD') AS lot_date`))
@@ -707,11 +711,22 @@ export class EntityRefService {
       draft: 'en borrador', released: 'liberado (autorizado)', closed: 'cerrado',
     };
     for (const g of prog) {
+      // `[PGP.91]` El importe sigue siendo el NETO que sale del banco. Si el proveedor dio un
+      // descuento al pagar, se dice junto: sin eso la ficha mostraría un pago menor que la
+      // factura y parecería parcial, cuando el resto lo cubre la nota de crédito que viene.
+      const desc = n(g.discount_amount);
+      const tasa = g.discount_rate === null || g.discount_rate === undefined ? null : Number(g.discount_rate);
+      const motivo = g.discount_reason && g.discount_reason in DISCOUNT_REASON_LABEL
+        ? DISCOUNT_REASON_LABEL[g.discount_reason as DiscountReason] : (g.discount_reason ?? 'Descuento');
+      const conDescuento = desc > 0
+        ? ` · descuento al pagar ${money(desc)} (${motivo}${tasa && tasa > 0 ? ` ${Number((tasa * 100).toFixed(2))} %` : ''})` +
+          ' — la nota de crédito la emite el proveedor después'
+        : '';
       fields.push({
         label: g.lot_date ? `Programada para ${g.lot_date}` : 'Programada (sin día)',
         value: n(g.applied_amount), kind: 'money',
         source: `${g.status}${g.lot_status ? ' · día ' + (ESTADO_LOTE[g.lot_status] ?? g.lot_status) : ''}` +
-          `${g.released_by ? ' por ' + g.released_by : ''}`,
+          `${g.released_by ? ' por ' + g.released_by : ''}${conDescuento}`,
       });
       if (g.kepler_payment_folio) {
         relations.push({

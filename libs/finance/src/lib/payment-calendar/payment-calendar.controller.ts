@@ -3,12 +3,12 @@ import type { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import {
-  PaymentCalendarService, ObligationSource, CreateAllocationDto, AllocationItemDto,
+  PaymentCalendarService, ObligationSource, CreateAllocationDto, AllocationItemDto, ItemDiscountDto,
   PrepareAllocationDto, CreateAgreementDto, ReprogramReason,
 } from './payment-calendar.service';
 import type { DayOrderRank } from './payment-calendar.service';
 import { PaymentCalendarDocumentService } from './payment-calendar-document.service';
-import type { PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
+import type { PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarItemDiscountResult, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string } }
 
@@ -174,6 +174,18 @@ export class PaymentCalendarController {
   // `[PGP.92]` Quita UNA factura del pago (nunca la última; sólo en un día sin autorizar) y registra quién.
   removeItem(@Param('id') id: string, @Param('itemId') itemId: string, @Req() req: AuthedRequest): Promise<{ ok: boolean }> {
     return this.svc.removeItem(id, itemId, req.user?.username || 'sistema');
+  }
+
+  /**
+   * `[PGP.91]` El descuento al pagar de UNA factura ya puesta en el pago. Mismo permiso que armar el
+   * pago (`GESTIONAR`, ya repartido): el descuento queda a la vista en el PDF que firma Gerencia.
+   * ⛔ `ItemDiscountDto` es interfaz: en `design:paramtypes` emite `Object`, igual que los otros DTO.
+   */
+  @Post('allocations/:id/items/:itemId/descuento')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_GESTIONAR)
+  @ApiOperation({ summary: '[PGP.91] Fija o quita (0) el descuento al pagar de UNA factura del pago: lo cubierto no cambia; baja lo que sale del banco. Sólo en un día sin autorizar.' })
+  setItemDiscount(@Param('id') id: string, @Param('itemId') itemId: string, @Body() body: ItemDiscountDto, @Req() req: AuthedRequest): Promise<PaymentCalendarItemDiscountResult> {
+    return this.svc.setItemDiscount(id, itemId, body, req.user?.username || 'sistema');
   }
 
   @Post('allocations/:id/reprogramar')

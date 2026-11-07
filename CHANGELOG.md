@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Added — Pagos: descuento al pagar, factura por factura (PGP.91, 2026-11-06 · en código, sin soltar)
+- En el desglose de un pago, cada factura de proveedor tiene **Descuento**: motivo (Pronto pago, Volumen u Otro) y el % o los pesos; la pantalla saca el **neto que se transfiere** y lo dice: «este pago cubre − descuento = se transfieren».
+- Lo que el pago cubre de la factura (neto + descuento) **ya no se vuelve a ofrecer** —Agregar facturas, Pronto pago, «Qué conviene pagar»— mientras llega la nota de crédito de Kepler.
+- El % de Pronto pago se **sugiere con lo que el proveedor de hecho nos ha descontado** en los últimos 12 meses, y la pantalla dice que es lo observado, no lo pactado. Avisa que si Kepler ya trae la nota de crédito no se captura (se descontaría dos veces).
+- El PDF del día y el expediente dicen «Factura − descuento» y ya no lo cuentan como pago parcial; la ficha del documento también lo dice.
+- ⚠️ Migraciones `20261106183612` y `20261106183613` en prod, **en ese orden y antes de soltar**.
 ### Added — Pagos: quitar una sola factura de un pago (PGP.92, 2026-11-06 · en código, sin soltar)
 - En el desglose de un pago, cada factura tiene su ✕ (sólo si el pago tiene más de una y el día no está autorizado), con confirmación: dice qué sale, cuánto le queda al pago y que conserva su preparación. Antes había que quitar el pago entero y volver a armarlo.
 - El servidor rechaza quitar facturas de un día ya autorizado (antes sólo lo escondía la pantalla) y registra quién lo hizo.
