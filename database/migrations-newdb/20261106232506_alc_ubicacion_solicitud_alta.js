@@ -25,8 +25,15 @@ const CHECK = 'customer_onboarding_requests_location_chk';
 
 exports.up = async function up(knex) {
   await knex.raw(`SET LOCAL lock_timeout = '5s'`);
-  const s = knex.schema.withSchema('commercial');
-  const falta = async (c) => !(await s.hasColumn(TABLA, c));
+  // ⚠️ Una consulta por columna. Reusar UN `knex.schema.withSchema(...)` para varios `hasColumn`
+  // acumula su secuencia y devolvió una respuesta vieja: en el CI no agregó `longitude` (#501).
+  const falta = async (c) => {
+    const { rows } = await knex.raw(
+      `SELECT 1 FROM information_schema.columns WHERE table_schema = 'commercial' AND table_name = ? AND column_name = ?`,
+      [TABLA, c],
+    );
+    return rows.length === 0;
+  };
   if (await falta('latitude')) await knex.raw(`ALTER TABLE commercial.${TABLA} ADD COLUMN latitude numeric(9,6)`);
   if (await falta('longitude')) await knex.raw(`ALTER TABLE commercial.${TABLA} ADD COLUMN longitude numeric(9,6)`);
   if (await falta('location_source')) await knex.raw(`ALTER TABLE commercial.${TABLA} ADD COLUMN location_source text`);
@@ -36,7 +43,9 @@ exports.up = async function up(knex) {
     await knex.raw(`
       ALTER TABLE commercial.${TABLA} ADD CONSTRAINT ${CHECK} CHECK (
         (latitude IS NULL AND longitude IS NULL AND location_source IS NULL AND location_accuracy_m IS NULL)
-        OR (latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180
+        -- ⚠️ IS NOT NULL explícito: un CHECK que da NULL PASA, y sin esto entraba latitud sin longitud.
+        OR (latitude IS NOT NULL AND longitude IS NOT NULL AND location_source IS NOT NULL
+            AND latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180
             AND location_source IN ('direccion', 'gps', 'mapa')
             AND (location_accuracy_m IS NULL OR location_accuracy_m >= 0))
       )`);
