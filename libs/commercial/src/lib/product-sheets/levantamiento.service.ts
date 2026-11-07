@@ -506,7 +506,9 @@ export class LevantamientoService {
 
     const ficha = await this.tk.run((trx) => this.fichaParaFoto(trx, tenant, sheetId, quien.userId));
     const sha256 = createHash('sha256').update(buffer).digest('hex');
-    const { key } = await this.storage.putBuffer(buffer, 'image/jpeg', `levantamiento/${ficha.branch_code}/${ficha.sku}`, 'foto.jpg');
+    // [NP.7.0.9] El tenant va en la llave: el bucket es de toda la app y sin él dos tenants con la misma
+    // sucursal y clave compartirían carpeta (y una limpieza por prefijo no sabría de quién es cada foto).
+    const { key } = await this.storage.putBuffer(buffer, 'image/jpeg', `levantamiento/${tenant}/${ficha.branch_code}/${ficha.sku}`, 'foto.jpg');
 
     const n = (v: unknown): number | null => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
     const calidad: LevantamientoCalidadFoto | null = n(meta.sharpness) == null || n(meta.contrast) == null
@@ -515,7 +517,7 @@ export class LevantamientoService {
       peldano: ficha.principal, cara, storage_key: key, sha256, captured_by: quien.userId, captured_at: new Date().toISOString(),
       saltada_motivo: null,
       calidad: calidad ? { nitidez: calidad.sharpness, contraste: calidad.contrast, version: calidad.version } : null,
-      ancho: n(meta.width), alto: n(meta.height), por_busqueda: ficha.porBusqueda,
+      ancho: n(meta.width), alto: n(meta.height), bytes: buffer.length, por_busqueda: ficha.porBusqueda,
     };
     let g: { respuesta: LevantamientoFotoRespuesta; reemplazada: string | null };
     try {

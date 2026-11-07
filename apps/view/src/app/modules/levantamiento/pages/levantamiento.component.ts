@@ -248,7 +248,7 @@ const PALABRA: Record<string, string> = { PZA: 'pieza', PAQ: 'paquete', CJA: 'ca
            respaldo sin cámara (permiso negado) se arrastraba a «Enviado» con un «Tomar foto» que ya no tenía qué
            fotografiar, y pegado al borde (prueba visual con la CSP de prod, 2026-11-03). Una sola declaración. -->
       <ng-template #camaraTpl>
-        <app-camera-shot [etiqueta]="nombreCara(caraActual())" [maxLado]="4096" [recodificarSiempre]="true" [indicacion]="indicacion()"
+        <app-camera-shot [etiqueta]="nombreCara(caraActual())" [maxLado]="4096" [resolucion]="'maxima'" [recodificarSiempre]="true" [indicacion]="indicacion()"
           [guia]="nombreCara(caraActual())" (tomada)="alTomar($event.dataUri)" />
       </ng-template>
     </main>
