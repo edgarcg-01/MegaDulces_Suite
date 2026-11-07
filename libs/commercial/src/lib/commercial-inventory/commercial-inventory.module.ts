@@ -28,6 +28,8 @@ import { ExistenciaService } from './existencia.service';
 import { ExistenciaController } from './existencia.controller';
 import { StockSnapshotService } from './stock-snapshot.service';
 import { StockSnapshotController } from './stock-snapshot.controller';
+import { ExistenciaHistoricoService } from './existencia-historico.service';
+import { ExistenciaHistoricoController } from './existencia-historico.controller';
 
 @Module({
   imports: [
@@ -39,8 +41,8 @@ import { StockSnapshotController } from './stock-snapshot.controller';
       verifyOptions: jwtVerifyOptions,
     }),
   ],
-  controllers: [CommercialInventoryController, InventoryCountController, InventoryAbcController, WarehouseAislesController, InventoryTeamController, BinLocationController, InventoryInvestigationController, InventoryMonitoringController, InventoryRiskController, ExistenciaController, StockSnapshotController, InventoryVarianceController],
-  providers: [CommercialInventoryService, InventoryCountService, InventoryAbcService, CycleCountSchedulerService, WarehouseAislesService, InventoryTeamService, InventoryMonitorGateway, BinLocationService, InventoryInvestigationService, InventoryMonitoringService, InventoryRiskService, ExistenciaService, StockSnapshotService, InventoryVarianceService, InventoryCountPlanService],
+  controllers: [CommercialInventoryController, InventoryCountController, InventoryAbcController, WarehouseAislesController, InventoryTeamController, BinLocationController, InventoryInvestigationController, InventoryMonitoringController, InventoryRiskController, ExistenciaController, StockSnapshotController, ExistenciaHistoricoController, InventoryVarianceController],
+  providers: [CommercialInventoryService, InventoryCountService, InventoryAbcService, CycleCountSchedulerService, WarehouseAislesService, InventoryTeamService, InventoryMonitorGateway, BinLocationService, InventoryInvestigationService, InventoryMonitoringService, InventoryRiskService, ExistenciaService, StockSnapshotService, ExistenciaHistoricoService, InventoryVarianceService, InventoryCountPlanService],
   exports: [CommercialInventoryService, InventoryCountService, InventoryAbcService, WarehouseAislesService, BinLocationService, InventoryInvestigationService, InventoryMonitoringService, InventoryRiskService, ExistenciaService, StockSnapshotService, InventoryVarianceService, InventoryCountPlanService],
 })
 export class CommercialInventoryModule {}

@@ -1272,6 +1272,13 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.EXISTENCIA_VER)]
       },
       {
+        // [EX.H2] Consulta históricos: se abre con el botón de Existencia; mismo componente y mismo
+        // permiso en los dos proyectos, igual que Existencia.
+        path: 'existencia/historico',
+        loadComponent: () => import('./modules/almacen/pages/almacen-existencia-historico.component').then(m => m.AlmacenExistenciaHistoricoComponent),
+        canActivate: [permissionGuard(Permission.EXISTENCIA_VER)]
+      },
+      {
         path: 'asistente',
         loadComponent: () => import('./modules/compras/pages/compras-asistente.component').then(m => m.ComprasAsistenteComponent),
         canActivate: [permissionGuard(Permission.COMPRAS_PEDIDO_GESTIONAR)]
@@ -1884,6 +1891,12 @@ export const routes: Routes = [
         // (precedente vivo: Caducidades en /almacen + /tienda).
         path: 'inventory/existencia',
         loadComponent: () => import('./modules/almacen/pages/almacen-existencia.component').then(m => m.AlmacenExistenciaComponent),
+        canActivate: [permissionGuard(Permission.EXISTENCIA_VER)]
+      },
+      {
+        // [EX.H2] Consulta históricos — la misma de /compras/existencia/historico.
+        path: 'inventory/existencia/historico',
+        loadComponent: () => import('./modules/almacen/pages/almacen-existencia-historico.component').then(m => m.AlmacenExistenciaHistoricoComponent),
         canActivate: [permissionGuard(Permission.EXISTENCIA_VER)]
       },
       {

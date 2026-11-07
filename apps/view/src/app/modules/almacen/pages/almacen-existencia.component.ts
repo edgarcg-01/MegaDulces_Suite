@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, injec
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { Subject, catchError, debounceTime, distinctUntilChanged, of } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -48,7 +48,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, PaginatorModule, TagModule,
     InputTextModule, IconFieldModule, InputIconModule, MultiSelectModule, SelectModule, ToggleSwitchModule,
-    MetricStripComponent, FreshnessPillComponent, ContextHelpComponent, SidePeekComponent,
+    MetricStripComponent, FreshnessPillComponent, ContextHelpComponent, SidePeekComponent, RouterLink,
   ],
   template: `
     <section class="ex">
@@ -66,6 +66,11 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           @for (f of freshness(); track f.rama) {
             <app-freshness-pill measures="data" [since]="f.dato_al" [label]="f.label" [staleAfterSec]="staleFor(f)" />
           }
+          <!-- [EX.H2] La historia de este mismo valor, cierre por cierre. Enlace relativo: sirve igual
+               desde Almacén y desde Compras. -->
+          <a class="ex-hist" routerLink="historico">
+            <i class="pi pi-history" aria-hidden="true"></i> Consulta históricos
+          </a>
           <app-context-help topic="existencia" />
         </div>
       </header>
@@ -93,7 +98,8 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
         <!-- KX/KE.2 — CON QUE se valuo. El backend devolvia celdas_sin_costo_erp desde el
              2026-09-08 y esta pantalla no lo mostraba: declararlo en el response no es
              declararlo al usuario. Y el metodo importa tanto como la procedencia — el costo
-             del ERP es un promedio ponderado historico, no el costo de reposicion. -->
+             del ERP (kdik.c16) es el de la ULTIMA ENTRADA, no un promedio: medido el 2026-11-06
+             con dos metodos ([EX.H0b], AUD-DAT.27). -->
         @if (valuacionTexto(t); as txt) {
           <p class="ex-banner">
             <i class="pi pi-dollar" aria-hidden="true"></i>
@@ -367,6 +373,9 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
     .ex-sub { margin: .15rem 0 0; font-size: .78rem; color: var(--text-muted); max-width: 62ch; line-height: 1.45; }
     .ex-note { display: block; color: var(--text-faint); }
     .ex-actions { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+    .ex-hist { display: inline-flex; align-items: center; gap: var(--sp-1); padding: var(--sp-1) var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); text-decoration: none; }
+    .ex-hist:hover { background: var(--overlay-hover); }
+    .ex-hist:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
     .ex-banner {
       display: flex; gap: .5rem; align-items: flex-start; margin: -.25rem 0 0;
@@ -844,9 +853,11 @@ export class AlmacenExistenciaComponent implements OnInit {
    */
   valuacionTexto(t: ExistenciaTotals): string | null {
     if (!t.valor) return null;
-    const base = 'El valor esta a costo PROMEDIO del ERP (lo que se pago en toda la historia de '
-      + 'compras del almacen), no a costo de reposicion: la mediana va ~2% por debajo del ultimo '
-      + 'costo conocido.';
+    // [EX.H0b] Decía «costo PROMEDIO del ERP (toda la historia de compras)». Medido el 2026-11-06 con
+    // dos métodos: kdik.c16 casa con el costo de la ÚLTIMA ENTRADA en ≈99 % y con el promedio en 0–0.3 %.
+    const base = 'El valor está al costo de la ÚLTIMA ENTRADA del ERP en cada almacén (lo que costó la '
+      + 'última mercancía que entró), no al promedio ni al de reposición. Para el valor a costo '
+      + 'estándar, cierre por cierre, está «Consulta históricos».';
     if (!t.celdas_sin_costo_erp) return base;
     return `${base} Y ${t.celdas_sin_costo_erp} celdas se valuaron con el catalogo porque el ERP `
       + 'no dio su costo para ese almacen — Wincaja entero entra aca por ahora.';

@@ -782,6 +782,43 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       },
     ],
   },
+  // [EX.H2] Cada definicion sale de la regla vigente de existencia-historico.contract.ts: lo que la
+  // pantalla no hace, aca tampoco se afirma.
+  'existencia-historico': {
+    title: 'Consulta históricos — guía',
+    intro: 'Cuánto valía el inventario de cada sucursal al cierre de cada día. Sale de la foto que la Suite toma todos los días a las 23:50, y se valúa a costo estándar de Kepler, sin impuesto. Reemplaza la hoja de inventario por sucursal de Compras, con el mismo acomodo: sucursales en renglones, cierres en columnas, total abajo.',
+    groups: [
+      {
+        heading: 'Qué significa cada celda',
+        entries: [
+          { term: 'Una cifra', def: 'El valor de lo que SÍ se pudo valuar en esa sucursal al cierre de ese día. Al tocarla se abren sus productos, con su existencia, su costo estándar y su valor: suman lo mismo que la celda.' },
+          { term: '+N sin valuar', def: 'Productos con existencia que no entran a la suma: no tienen costo estándar, o su unidad no casa con la del ERP en ninguna presentación (pieza, paquete o caja). Se cuentan aparte en vez de sumarlos con un costo equivocado.' },
+          { term: 'sin foto', def: 'Ese día no se tomó la foto de esa sucursal. No es cero: no se sabe.' },
+          { term: 'pendiente', def: 'El cierre de hoy: la foto se toma a las 23:50.' },
+          { term: 'no confiable', def: 'El CEDIS, antes de que la foto leyera la existencia del ERP: repetía el mismo saldo todos los días. Se puede abrir, pero no entra al total.' },
+          { term: 'Total', def: 'Suma sólo las sucursales medidas ese día. Si alguna no entró, el total lo dice y nombra cuáles.' },
+          { term: 'Existencia (en el desglose)', def: 'La cantidad de ese cierre en la unidad del ERP de esa sucursal: pieza, paquete o caja según el producto. El costo estándar va en la MISMA unidad, por eso existencia × costo da el valor.' },
+          { term: 'Ícono de reloj', def: 'El producto se valuó con un estándar posterior a ese día: antes del 17 de octubre de 2026 no hay historia del estándar y se usa el primero conocido.' },
+        ],
+      },
+      {
+        heading: 'El costo',
+        entries: [
+          { term: 'Costo estándar', def: 'El costo de la ficha de Kepler, sin impuesto, en la misma unidad que la existencia de cada sucursal. Es el que fija el precio.' },
+          { term: 'Costo reconstruido', def: 'En los días anteriores a que la foto guardara su propio costo, el valor se arma con la historia del estándar (existe desde el 17 de octubre de 2026; antes se usa el primer estándar conocido). Puede moverse un poco si se vuelve a consultar. Desde que la foto guarda su costo, el valor de un día ya no cambia.' },
+          { term: '¿Por qué no coincide con Existencia?', def: 'Existencia valúa HOY con el costo de la última entrada del ERP; esta consulta valúa cada cierre con el estándar. Son dos costos distintos y los dos son verdaderos.' },
+        ],
+      },
+      {
+        heading: 'Si vienes de la hoja de Compras',
+        entries: [
+          { term: 'Nombres', def: 'Las sucursales llevan su nombre de la Suite: lo que la hoja llama «Zamora» es Canindo, y «Dámaso» es Zamora Centro.' },
+          { term: 'Morelia Madero', def: 'Se cuenta una sola vez: el almacén viejo de Wincaja de Morelia Madero ya no existe y no se suma.' },
+          { term: 'Topes', def: 'Todavía no se muestran: falta decidir dónde se definen y cuál manda cuando los topes por sucursal no suman el objetivo de la red.' },
+        ],
+      },
+    ],
+  },
   // [RA-UX.7] Reescrito el 2026-10-21 tras la auditoria de interaccion de /compras/pedido. La
   // version anterior decia que el transito «se resta del pedido para no pedir de mas» -falso desde
   // el 2026-10-09 (politica 'ignorar'), y es justo lo que hace pedir dos veces- y describia los
