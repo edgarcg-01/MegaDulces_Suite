@@ -210,7 +210,7 @@ export interface PrepareAllocationDto {
   supplier_payment_account_id?: string | null;
 }
 /** `[TP.16]` Renglón de `finance.payment_allocations` — sólo lo que la vista del día y la autorización leen. */
-interface AllocationRowLite {
+export interface AllocationRowLite {
   id: string; bank_account_id: string | null; amount_assigned: number | string; payment_method: string | null;
   [col: string]: unknown;
 }
@@ -1676,7 +1676,7 @@ export class PaymentCalendarService {
   }
 
   // ── Crear un pago (fecha + monto; SIN método/banco — criterio #4) ────────────────────
-  async createAllocation(dto: CreateAllocationDto, username: string) {
+  async createAllocation(dto: CreateAllocationDto, username: string): Promise<AllocationRowLite> {
     this.assertDate(dto.date);
     if (!dto.items?.length) throw new BadRequestException('Se requiere al menos una obligación');
     const tenantId = this.tenantCtx.requireTenantId();
@@ -1734,7 +1734,7 @@ export class PaymentCalendarService {
     });
   }
 
-  async addItem(allocationId: string, item: AllocationItemDto, username: string) {
+  async addItem(allocationId: string, item: AllocationItemDto, username: string): Promise<AllocationRowLite> {
     const tenantId = this.tenantCtx.requireTenantId();
     // `[PGP.91]` Mismo normalizador que `createAllocation`: un solo lugar decide si el descuento vale.
     const norm = normalizarDescuento(item);
