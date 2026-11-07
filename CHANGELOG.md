@@ -9,6 +9,21 @@
 ---
 
 ## [Unreleased]
+### Added — Pagos: descuento al pagar, factura por factura (PGP.91, 2026-11-06 · en código, sin soltar)
+- En el desglose de un pago, cada factura de proveedor tiene **Descuento**: motivo (Pronto pago, Volumen u Otro) y el % o los pesos; la pantalla saca el **neto que se transfiere** y lo dice: «este pago cubre − descuento = se transfieren».
+- Lo que el pago cubre de la factura (neto + descuento) **ya no se vuelve a ofrecer** —Agregar facturas, Pronto pago, «Qué conviene pagar»— mientras llega la nota de crédito de Kepler.
+- El % de Pronto pago se **sugiere con lo que el proveedor de hecho nos ha descontado** en los últimos 12 meses, y la pantalla dice que es lo observado, no lo pactado. Avisa que si Kepler ya trae la nota de crédito no se captura (se descontaría dos veces).
+- El PDF del día y el expediente dicen «Factura − descuento» y ya no lo cuentan como pago parcial; la ficha del documento también lo dice.
+- ⚠️ Migraciones `20261106183612` y `20261106183613` en prod, **en ese orden y antes de soltar**.
+### Added — Pagos: quitar una sola factura de un pago (PGP.92, 2026-11-06 · en código, sin soltar)
+- En el desglose de un pago, cada factura tiene su ✕ (sólo si el pago tiene más de una y el día no está autorizado), con confirmación: dice qué sale, cuánto le queda al pago y que conserva su preparación. Antes había que quitar el pago entero y volver a armarlo.
+- El servidor rechaza quitar facturas de un día ya autorizado (antes sólo lo escondía la pantalla) y registra quién lo hizo.
+### Added — Cuentas de pago: la referencia fija que exige el proveedor (PGP.90, 2026-11-06 · en código, sin soltar)
+- En **Finanzas › Cuentas de pago**, la solicitud de cuenta tiene un campo **Referencia fija (opcional)**: el convenio o la referencia que algunos proveedores exigen en cada transferencia para reconocer el depósito.
+- Pasa por la **misma autorización que la CLABE**: quien autoriza la ve en la bandeja («· Ref …») y, aprobada, aparece debajo de la CLABE en la tabla de cuentas (sin columna propia: la mayoría no la pide).
+- Viaja sola al pago: al «Preparar» se ve en la cuenta que se elige, y queda en el destino que imprime la instrucción a Caja General.
+- Un cambio de cuenta que no traiga el campo **conserva** la referencia vigente; dejarla en blanco la quita.
+- ⚠️ Migración `20261106172407` en prod **antes** de soltar.
 ### Fixed — Inventario: la foto diaria toma el CEDIS real y guarda el costo de cada día (EX.H0, 2026-11-06 · en código, sin soltar)
 - La foto de inventario de las 23:50 lee ahora la **misma existencia que la pantalla Existencia**. Hasta hoy leía otra tabla y el **CEDIS salía congelado**: repetía el mismo saldo todos los días (205 productos contra los 304 que tiene).
 - Cada día guarda además **con qué costo se va a valuar**: el **estándar** de Kepler y el **de la última entrada**. Es la base de «Consulta históricos» en Existencia, que reemplazará la hoja de Compras de inventario por sucursal.

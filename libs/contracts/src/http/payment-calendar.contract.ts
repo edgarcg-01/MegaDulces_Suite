@@ -13,6 +13,33 @@
 export type PaymentObligationSource = 'budget_expense' | 'financial_commitment' | 'supplier_payable' | 'kepler_payable';
 export type PaymentMethod = 'transferencia' | 'cheque' | 'efectivo' | 'cargo_automatico';
 
+/**
+ * `[PGP.91]` **Por qué el proveedor concede un descuento AL PAGAR.** Lista cerrada: la misma que
+ * el CHECK `ck_pai_discount_reason` de `finance.payment_allocation_items`. Kepler lo formaliza
+ * después con una nota de crédito (`X-D-55/56`) o una bonificación (`45`).
+ */
+export type DiscountReason = 'pronto_pago' | 'volumen' | 'otro';
+export const DISCOUNT_REASONS: readonly DiscountReason[] = ['pronto_pago', 'volumen', 'otro'];
+/** `[PGP.91]` El rótulo de cada motivo. Lo comparten la pantalla, el PDF y la ficha: uno solo. */
+export const DISCOUNT_REASON_LABEL: Record<DiscountReason, string> = {
+  pronto_pago: 'Pronto pago', volumen: 'Volumen', otro: 'Otro',
+};
+/** `[PGP.91]` `POST allocations/:id/items/:itemId/descuento` — fija el descuento de una factura ya puesta; 0 lo quita. */
+export interface PaymentCalendarItemDiscountBody {
+  discount_amount: number;
+  discount_reason?: DiscountReason | null;
+  discount_rate?: number | null;
+  discount_note?: string | null;
+}
+/** `[PGP.91]` Lo que devuelve fijar el descuento: el neto nuevo de la factura y el total nuevo del pago. */
+export interface PaymentCalendarItemDiscountResult {
+  allocation_id: string;
+  item_id: string;
+  applied_amount: number;
+  discount_amount: number;
+  amount_assigned: number;
+}
+
 export interface PaymentCalendarDaySummary {
   date: string;
   /** `false` = Presupuestos no fijó capacidad ese día (distinto de capacidad CERO). */
@@ -78,6 +105,18 @@ export interface PaymentCalendarAllocationItem {
   pronto_tasa: number | null;
   pronto_beneficio: number | null;
   pronto_estado: 'capturable' | 'por_vencer' | 'fuera_de_ventana' | 'sin_medir' | null;
+  /**
+   * `[PGP.91]` **El descuento que el proveedor dio AL PAGAR esta factura.**
+   *
+   * ⭐ `applied_amount` es el NETO que sale del banco; lo que la factura queda **cubierta** es
+   * `applied_amount + discount_amount`, y eso es lo que deja de ofrecerse mientras la nota de
+   * crédito de Kepler no llega. `discount_amount = 0` y `discount_reason = null` = sin descuento.
+   * `discount_rate` es la fracción (0.03 = 3 %) sólo si se capturó en %; null si en pesos.
+   */
+  discount_amount: number;
+  discount_reason: DiscountReason | null;
+  discount_rate: number | null;
+  discount_note: string | null;
 }
 
 /**
@@ -177,6 +216,11 @@ export interface PaymentCalendarAllocation {
    */
   pronto_captura: number;
   pronto_deja_pasar: number;
+  /**
+   * `[PGP.91]` Suma de `discount_amount` de sus facturas: lo que el proveedor descontó al pagar.
+   * `amount_assigned` ya es NETO (lo que sale del banco); lo cubierto es la suma de ambos.
+   */
+  discount_total: number;
   items: PaymentCalendarAllocationItem[];
 }
 

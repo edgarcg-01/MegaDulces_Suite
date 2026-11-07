@@ -29,7 +29,7 @@ const control = (det: ExpedienteLinea[]): string =>
 function linea(over: Partial<ExpedienteLinea> = {}): ExpedienteLinea {
   return {
     allocation_id: 'A1', obligation_source: 'kepler_payable', obligation_id: 'O1',
-    se_paga: 1000, sucursal: '00', folio_interno: '0009780', folio_externo: 'FDA 56778',
+    se_paga: 1000, descuento: 0, sucursal: '00', folio_interno: '0009780', folio_externo: 'FDA 56778',
     folio_externo_fuente: 'ocr', orden_compra: '0007005', fecha_recepcion: '2026-09-24',
     fecha: '2026-09-24', fecha_fuente: 'erp', vencimiento: '2026-10-24',
     importe: 1000, pendiente: 1000, importe_cfdi: null,
@@ -288,6 +288,17 @@ describe('[PGP.47] el control del expediente', () => {
     expect(html).toMatch(/menos de lo que se debe<\/td><td class="r"><b>1<\/b>/);
   });
 
+  it('[PGP.91] la factura pagada con su descuento NO es pago parcial: se cuenta aparte', () => {
+    // 38,880 al 3 %: se transfieren 37,713.60 y el proveedor descuenta 1,166.40.
+    const html = control([linea({ se_paga: 37713.6, descuento: 1166.4, pendiente: 38880 })]);
+    expect(html).toMatch(/menos de lo que se debe<\/td><td class="r"><b>0<\/b>/);
+    expect(html).toMatch(/Con descuento al pagar<\/td><td class="r"><b>1<\/b>/);
+    // Control negativo: el MISMO neto sin descuento sí es parcial, y la fila de descuento no aparece.
+    const sin = control([linea({ se_paga: 37713.6, descuento: 0, pendiente: 38880 })]);
+    expect(sin).toMatch(/menos de lo que se debe<\/td><td class="r"><b>1<\/b>/);
+    expect(sin).not.toContain('Con descuento al pagar');
+  });
+
   it('⛔ la alerta de documento saldado NO se imprime cuando no hay ninguno', () => {
     expect(control([linea({ saldada: false })])).not.toContain('ATENCIÓN');
     expect(control([linea({ saldada: true })])).toContain('ATENCIÓN');
@@ -337,5 +348,52 @@ describe('[PGP.68] cómo se paga', () => {
       '|TRANSFERENCIA|Banorte 3041|2 pagos|$350.00|',
       '|FALTA DEFINIR|—|1 pago|$9,000.00|',
     ]);
+  });
+});
+
+/**
+ * `[PGP.91]` **El descuento al pagar, en el papel que se firma.** El importe del pago es el NETO
+ * (lo que sale del banco); sin la línea del descuento, quien autoriza leería un pago parcial.
+ */
+describe('[PGP.91] la línea del descuento en el papel', () => {
+  const lineaDescuento = (a: unknown): string => (svc as unknown as { lineaDescuento: (x: unknown) => string }).lineaDescuento(a);
+  const item = (discount_amount: number) => ({ discount_amount, discount_reason: discount_amount > 0 ? 'pronto_pago' : null, discount_rate: discount_amount > 0 ? 0.03 : null });
+
+  it('un pago de UNA factura dice «Factura», con el total antes del descuento', () => {
+    const html = lineaDescuento({ amount_assigned: 970, discount_total: 30, items: [item(30)] });
+    expect(html).toContain('Factura $1,000.00');
+    expect(html).toContain('descuento $30.00');
+  });
+
+  it('un pago de VARIAS facturas no dice «Factura $total»: dice lo que se cubre', () => {
+    const html = lineaDescuento({ amount_assigned: 1940, discount_total: 30, items: [item(30), item(0)] });
+    expect(html).toContain('Se cubre $1,970.00');
+    expect(html).not.toContain('Factura $');
+  });
+
+  it('sin descuento no dibuja nada (control)', () => {
+    expect(lineaDescuento({ amount_assigned: 1000, discount_total: 0, items: [item(0)] })).toBe('');
+  });
+
+  it('⭐ en el desglose, el «+ desc.» cae SÓLO en la factura que lo lleva (misma llave origen|id), y la tabla no cambia de forma', () => {
+    const html = tabla([pago({
+      amount_assigned: 1970, discount_total: 30,
+      items: [
+        { beneficiary: 'SARAMEL', obligation_source: 'kepler_payable', obligation_id: 'O1', ...item(30) },
+        { beneficiary: 'SARAMEL', obligation_source: 'kepler_payable', obligation_id: 'O2', ...item(0) },
+      ],
+    })], [
+      linea({ obligation_id: 'O1', folio_interno: '0009780', se_paga: 970, descuento: 30 }),
+      linea({ obligation_id: 'O2', folio_interno: '0009781' }),
+    ]);
+    const hijas = html.match(/<tr class="doc-row">[\s\S]*?<\/tr>/g) ?? [];
+    expect(hijas).toHaveLength(2);
+    expect(hijas[0]).toContain('+ desc. $30.00');
+    expect(hijas[1]).not.toContain('desc.');   // control: la otra factura del mismo pago no lo hereda
+    // El total del pago sigue siendo el NETO y sigue cayendo en «Se paga»: la línea va DENTRO de la celda.
+    const cabeza = (/<tr class="pago-row">[\s\S]*?<\/tr>/.exec(html) ?? [''])[0];
+    expect((cabeza.match(/<td[\s>]/g) ?? []).length).toBe(4);
+    expect(cabeza).toContain('<b>$1,970.00</b>');
+    expect(cabeza).toContain('Se cubre $2,000.00');
   });
 });

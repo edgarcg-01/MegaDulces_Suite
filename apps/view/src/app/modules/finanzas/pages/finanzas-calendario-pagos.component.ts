@@ -14,10 +14,11 @@ import { ToastModule } from 'primeng/toast';
 import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import type {
-  PaymentCalendarAllocation, PaymentCalendarDaySummary, PaymentCalendarWeek, PaymentCalendarWeekDay,
+  PaymentCalendarAllocation, PaymentCalendarAllocationItem, PaymentCalendarDaySummary, PaymentCalendarWeek, PaymentCalendarWeekDay,
   PagoSugerido, PagosAtrasadosDia, PayableEvidenceRow, PaymentObligationSource, PaymentOriginAccount,
+  DiscountReason, PaymentCalendarItemDiscountBody, PaymentCalendarItemDiscountResult,
 } from '@megadulces/contracts';
-import { warehouseName } from '@megadulces/contracts';
+import { warehouseName, DISCOUNT_REASONS, DISCOUNT_REASON_LABEL } from '@megadulces/contracts';
 import type { SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 import { environment } from '../../../../environments/environment';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
@@ -27,6 +28,7 @@ import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { agruparObligaciones, allocationKey, fechaCorta, obligationKey, moverEnOrden, sugerirArmado, vencimiento, type ArmadoGrupo, type ObligationGroup } from './calendario-pagos-grupos';
+import { cuenta, cubiertoDe, faltaDescuento, leerPesos, pctDeTasa, round2, type ModoDescuento, type MotivoDescuento } from './calendario-pagos-descuento';
 import { firstValueFrom } from 'rxjs';
 import { PagosTabsComponent } from '../pagos-tabs.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
@@ -46,6 +48,11 @@ interface VerdictAction { kind: VerdictActionKind; label: string; icon: string }
 interface Verdict { tone: 'ok' | 'bad' | 'muted'; say: string; why: string | null; action: VerdictAction | null }
 /** `[PGP.15]` Una etapa del día en la línea de avance: siempre visible, sin clic. */
 interface Etapa { n: number; nombre: string; quien: string | null; dice: string; estado: 'hecho' | 'ahora' | 'pendiente' }
+/**
+ * `[PGP.73]`/`[PGP.91]` El pronto pago que se juega al mover un pago. `monto` incluye lo `capturado`
+ * (que viaja con el pago); lo estimado es `monto − capturado`. Cada parte con su propio cierre.
+ */
+interface ProntoAlMover { monto: number; cierra: string; deja: boolean; capturado: number; cierraEst: string; cierraCap: string }
 /** `[PGP.15]` Lo último que esta persona eligió en «Para los N pagos» (sólo una comodidad por navegador). */
 const PREF_PREPARAR = 'pgp.preparar.ultimo';
 
@@ -104,7 +111,7 @@ interface Obligation {
   /** `[PGP.12]` El código del acreedor en Kepler (`CNFR001`, `AE002`). Buscable; no se pinta solo. */
   payee_code?: string | null;
 }
-interface PaymentAccount { id: string; bank_name: string; account_number: string | null; clabe: string | null; alias: string | null; es_favorita: boolean }
+interface PaymentAccount { id: string; bank_name: string; account_number: string | null; clabe: string | null; alias: string | null; payment_reference: string | null; es_favorita: boolean }
 /**
  * `[PGP.46]` Una solicitud de alta de cuenta **esperando aprobación**: lo que alguien capturó al
  * preparar un pago y todavía nadie revisó. ⛔ No es una cuenta del catálogo — el catálogo está
@@ -792,13 +799,17 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                         @if (a.kepler_saldadas > 0) {
                           <p class="pg-x-d">Al armar el día el ERP debía estas facturas. Hoy ya no: se pagaron por fuera o tienen nota de crédito, y marcarlas como pagadas fallaría.</p>
                         }
+                        @if (numero(a.discount_total) > 0) {
+                          <!-- [PGP.91] Lo que significa el neto: sin esto, una factura «cubierta» con menos dinero se lee como pago parcial. -->
+                          <p class="pg-x-d">Se transfiere el neto. El descuento lo formaliza el proveedor después con una nota de crédito en Kepler; mientras llega, lo que este pago cubre de cada factura con descuento (neto + descuento) queda cubierto y no se vuelve a ofrecer.</p>
+                        }
                         @if (a.notes) { <p class="cal-notes">{{ a.notes }}</p> }
                       </div>
                       <table class="pg-items-t">
                         <caption class="sr-only">Facturas del pago de {{ allocationTitle(a) }}</caption>
                         <!-- [PGP.58] Cada factura se UBICA (folio de Kepler, que abre su ficha, y la referencia
                              del proveedor) y se VE (su archivo, PDF o foto del comprobante) sin salir del pago. -->
-                        <thead><tr><th>Sucursal</th><th>Folio Kepler</th><th>Referencia</th><th>Factura</th><th class="r">Se aplica</th></tr></thead>
+                        <thead><tr><th>Sucursal</th><th>Folio Kepler</th><th>Referencia</th><th>Factura</th><th class="r">Se aplica</th>@if (a.status === 'pending' && !isReleased()) { <th class="pg-it-acc"><span class="sr-only">Acciones</span></th> }</tr></thead>
                         <tbody>
                           @for (it of a.items; track it.id) {
                             <tr>
@@ -832,11 +843,35 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                                   <span class="pg-ev">buscando…</span>
                                 }
                               </td>
-                              <td class="r comm-num">{{ money(it.applied_amount) }}</td>
+                              <td class="r comm-num">{{ money(it.applied_amount) }}
+                                <!-- [PGP.91] Lo que sale es el neto; sólo si hay descuento se dice de cuánto era la factura,
+                                     cuánto se descontó y por qué. Sin columna aparte: «Factura» ya es el archivo (PGP.58). -->
+                                @if (numero(it.discount_amount) > 0) {
+                                  <span class="pg-dsc">de {{ money(cubiertoDe(it)) }} − descuento {{ money(it.discount_amount) }} · {{ motivoDescuento(it.discount_reason, it.discount_rate, it.discount_note) }}</span>
+                                }
+                              </td>
+                              @if (a.status === 'pending' && !isReleased()) {
+                                <td class="pg-it-acc">
+                                  @if (admiteDescuento(a, it)) {
+                                    <button pButton type="button" class="p-button-sm p-button-text p-button-secondary"
+                                            [disabled]="saving() || loadingWeek()"
+                                            [attr.aria-label]="(numero(it.discount_amount) > 0 ? 'Cambiar el descuento al pagar de ' : 'Capturar un descuento al pagar en ') + nombreFactura(it)"
+                                            (click)="abrirDescuento(a, it)">Descuento</button>
+                                  }
+                                  <!-- [PGP.92] Quitar SÓLO esta factura. Con una sola no sale: el servidor no deja vaciar un
+                                       pago, y para quitarlo entero está la ✕ del renglón (PGP.70). -->
+                                  @if (a.items.length > 1) {
+                                    <button pButton type="button" class="p-button-sm p-button-text p-button-secondary pg-x"
+                                            [disabled]="saving() || loadingWeek()"
+                                            [attr.aria-label]="'Quitar sólo ' + nombreFactura(it) + ' del pago de ' + allocationTitle(a)"
+                                            (click)="quitarFacturaObjetivo.set({ a: a, it: it })"><span class="pi pi-times" aria-hidden="true"></span></button>
+                                  }
+                                </td>
+                              }
                             </tr>
                           }
                         </tbody>
-                        <tfoot><tr><td colspan="4">{{ facturas(a.items.length) }}</td><td class="r comm-num">{{ money(a.amount_assigned) }}</td></tr></tfoot>
+                        <tfoot><tr><td colspan="4">{{ facturas(a.items.length) }}@if (numero(a.discount_total) > 0) {<span class="pg-dsc-pie"> · cubren {{ money(numero(a.amount_assigned) + numero(a.discount_total)) }} con {{ money(a.discount_total) }} de descuento</span>}</td><td class="r comm-num">{{ money(a.amount_assigned) }}</td>@if (a.status === 'pending' && !isReleased()) { <td></td> }</tr></tfoot>
                       </table>
                     </td>
                   </tr>
@@ -914,9 +949,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
 
           <p class="pg-cr-decl">
             <i class="pi pi-info-circle" aria-hidden="true"></i>
-            Aplicar un descuento contra una factura se hace <b>en Kepler</b>: la Suite todavía no
-            escribe ese movimiento. Esta pantalla dice <b>qué hay</b> y <b>cuánto</b>, para que no
-            se pague de más. Las cifras son un <b>piso</b>: el casamiento del ERP sobre-cuenta lo
+            Aplicar una nota de crédito o un anticipo <b>que ya existe</b> contra una factura se hace
+            <b>en Kepler</b>: la Suite todavía no escribe ese movimiento. Esta pantalla dice <b>qué
+            hay</b> y <b>cuánto</b>, para que no se pague de más. El descuento que el proveedor
+            concede <b>al pagar</b> se captura en el desglose del pago. Las cifras son un <b>piso</b>: el casamiento del ERP sobre-cuenta lo
             aplicado, así que lo pendiente real puede ser mayor.
           </p>
         </div>
@@ -1073,10 +1109,88 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
         @if (prepared(a)) {
           <p class="cal-dlg-hint cal-habito-nm"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> Se pierde su preparación: {{ comoSale(a).texto }}. Si sólo cambia la fecha, muévelo: conserva método y cuentas.</p>
         }
+        @if (numero(a.discount_total) > 0) {
+          <!-- [PGP.91] El descuento al pagar vive en la factura del pago: quitar el pago lo borra; moverlo, no. -->
+          <p class="cal-dlg-hint cal-habito-nm"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> Se pierde su descuento al pagar (−{{ money(a.discount_total) }}): si lo vuelves a armar hay que capturarlo otra vez. Moverlo a otro día lo conserva.</p>
+        }
         <div class="cal-dlg-actions">
           <button pButton type="button" class="p-button-text p-button-secondary" (click)="quitarObjetivo.set(null)">Cancelar</button>
           <button pButton type="button" class="p-button-outlined p-button-secondary" [disabled]="saving()" (click)="quitarObjetivo.set(null); openReprogram(a)"><span class="pi pi-calendar" aria-hidden="true"></span>&nbsp;Mover a otro día</button>
           <button pButton type="button" class="p-button-danger" [disabled]="saving()" [loading]="saving()" (click)="confirmarQuitar()">Quitar del día</button>
+        </div>
+      }
+    </p-dialog>
+
+    <!-- [PGP.92] Quitar UNA factura del pago. El pago, su orden y su preparación se quedan; la factura
+         regresa a lo que se debe. Se confirma como la ✕ del renglón (PGP.70): las ✕ del desglose quedan
+         cerca una de otra y no hay deshacer. -->
+    <p-dialog [visible]="!!quitarFacturaObjetivo()" (visibleChange)="$event || quitarFacturaObjetivo.set(null)" [modal]="true" header="Quitar una factura del pago" [style]="{ width: '30rem' }">
+      @if (quitarFacturaObjetivo(); as q) {
+        <p class="cal-dlg-p"><strong>{{ nombreFactura(q.it) }}</strong> · {{ branchLabel(q.it.branch_code) }} · <span class="comm-num">{{ money(q.it.applied_amount) }}</span></p>
+        <!-- Una factura que el ERP ya no debe NO regresa a la deuda: la deuda sólo trae lo pendiente. -->
+        <p class="cal-dlg-hint">@if (q.it.kepler_saldada) {<span>El ERP ya no la debe: sale del pago y no regresa a la deuda.</span>} @else {<span>Regresa a lo que se debe.</span>} El pago de {{ allocationTitle(q.a) }} sigue en el día con {{ facturas(q.a.items.length - 1) }} por <b class="comm-num">{{ money(restaDelPago(q.a, q.it)) }}</b>@if (prepared(q.a)) {<span>, y conserva su preparación</span>}.</p>
+        @if (numero(q.it.discount_amount) > 0) {
+          <!-- [PGP.91] Quitar la factura borra su descuento al pagar: volver a agregarla la trae completa. -->
+          <p class="cal-dlg-hint cal-habito-nm"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> Se pierde su descuento al pagar (−{{ money(q.it.discount_amount) }}, {{ motivoDescuento(q.it.discount_reason, q.it.discount_rate, q.it.discount_note) }}): si la vuelves a agregar hay que capturarlo otra vez.</p>
+        }
+        <div class="cal-dlg-actions">
+          <button pButton type="button" class="p-button-text p-button-secondary" (click)="quitarFacturaObjetivo.set(null)">Cancelar</button>
+          <button pButton type="button" class="p-button-danger" [disabled]="saving()" [loading]="saving()" (click)="confirmarQuitarFactura()">Quitar la factura</button>
+        </div>
+      }
+    </p-dialog>
+
+    <!-- [PGP.91] Descuento al pagar de UNA factura del pago. El proveedor lo concede al pagar: se transfiere
+         el NETO, lo que este pago cubre de la factura queda CUBIERTO (neto + descuento; con «Agregar con otro
+         importe» es sólo una parte) y no se vuelve a ofrecer; la nota de crédito
+         la emite el proveedor después en Kepler. Lo cubierto no cambia aquí: baja lo que sale del banco. -->
+    <p-dialog [visible]="!!descObjetivo()" (visibleChange)="$event || cerrarDescuento()" [modal]="true" header="Descuento al pagar" [style]="{ width: '32rem' }">
+      @if (descObjetivo(); as t) {
+        <p class="cal-dlg-p"><strong>{{ nombreFactura(t.it) }}</strong> · {{ branchLabel(t.it.branch_code) }} · {{ allocationTitle(t.a) }}</p>
+        <p class="cal-dlg-hint">Se transfiere el neto y lo que este pago cubre de la factura queda cubierto (neto + descuento): no se vuelve a ofrecer. La nota de crédito del descuento la emite el proveedor después en Kepler. El % va sobre lo que este pago cubre de la factura, con IVA.</p>
+        <!-- R4: los datos no detectan una nota de crédito ya aplicada a ESTE descuento; se dice antes de capturar. -->
+        <p class="cal-dlg-hint cal-habito-nm"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> Si Kepler ya trae la nota de crédito de este descuento, no lo captures aquí: se descontaría dos veces.</p>
+        <label class="cal-dlg-label" for="cal-dsc-mot">Motivo</label>
+        <p-select appendTo="body" inputId="cal-dsc-mot" [options]="descuentoOpts" [ngModel]="descMotivo() === 'ninguno' ? null : descMotivo()" (ngModelChange)="elegirMotivoDescuento($event)"
+                  optionLabel="label" optionValue="value" placeholder="Elige el motivo" [fluid]="true" class="cal-dlg-sel" />
+        @if (descMotivo() === 'pronto_pago') {
+          <!-- [PGP.30] De dónde salió lo precargado: la tasa OBSERVADA, nunca la pactada (D2). -->
+          @if (t.it.pronto_tasa == null) {
+            <p class="cal-dlg-hint cal-habito">Sin descuento medido para esta factura: captura el que te dio.</p>
+          } @else {
+            <p class="cal-dlg-hint cal-habito"><i class="pi pi-history" aria-hidden="true"></i>
+              @if (descSugerida()) {<span>Sugerido: </span>} @else {<span>Lo observado: </span>}<b>{{ pct(t.it.pronto_tasa) }}</b> es lo que este proveedor de hecho nos descontó en los últimos 12 meses (observado, no pactado). Confírmalo con el proveedor.</p>
+            @if (t.it.pronto_estado === 'fuera_de_ventana') {
+              <p class="cal-dlg-hint cal-habito-nm"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> Ya se pasó la ventana observada@if (t.it.pronto_fecha_limite) {<span> (cerraba el {{ shortDate(t.it.pronto_fecha_limite) }})</span>}. No está perdido, pero confirma que todavía lo da.</p>
+            }
+          }
+        }
+        <div class="pg-dsc-campos">
+          <div>
+            <label class="cal-dlg-label" for="cal-dsc-pct">Porcentaje (%)</label>
+            <input id="cal-dsc-pct" pInputText type="text" inputmode="decimal" autocomplete="off" class="cal-dlg-full comm-num"
+                   [ngModel]="descModo() === 'tasa' ? descPct() : (descCuenta().tasa ? (descCuenta().tasa! * 100).toFixed(2) : '')"
+                   (ngModelChange)="descModo.set('tasa'); descPct.set($event); descPesos.set(''); descSugerida.set(false)" />
+          </div>
+          <div>
+            <label class="cal-dlg-label" for="cal-dsc-mxn">o en pesos</label>
+            <input id="cal-dsc-mxn" pInputText type="text" inputmode="decimal" autocomplete="off" class="cal-dlg-full comm-num"
+                   [ngModel]="descModo() === 'pesos' ? descPesos() : (descCuenta().descuento > 0 ? descCuenta().descuento.toFixed(2) : '')"
+                   (ngModelChange)="descModo.set('pesos'); descPesos.set($event); descPct.set(''); descSugerida.set(false)" />
+          </div>
+        </div>
+        @if (descMotivo() === 'otro') {
+          <label class="cal-dlg-label" for="cal-dsc-nota">Detalle (obligatorio con «Otro»)</label>
+          <input id="cal-dsc-nota" pInputText type="text" autocomplete="off" class="cal-dlg-full" [ngModel]="descNota()" (ngModelChange)="descNota.set($event)" />
+        }
+        <p class="pg-dlg-cap" aria-live="polite">Este pago cubre <b class="comm-num">{{ money(descCubierto()) }}</b> − descuento <b class="comm-num">{{ money(descCuenta().descuento) }}</b> = se transfieren <b class="comm-num">{{ money(descCuenta().neto) }}</b>.@if (descFalta(); as f) {<span> {{ f }}</span>}</p>
+        <div class="cal-dlg-actions">
+          <button pButton type="button" class="p-button-text p-button-secondary" (click)="cerrarDescuento()">Cancelar</button>
+          @if (numero(t.it.discount_amount) > 0) {
+            <button pButton type="button" class="p-button-outlined p-button-secondary" [disabled]="saving()" (click)="guardarDescuento(true)"
+                    [attr.aria-label]="'Quitar el descuento al pagar de ' + nombreFactura(t.it)">Quitar el descuento</button>
+          }
+          <button pButton type="button" [disabled]="descMotivo() === 'ninguno' || !!descFalta() || saving()" [loading]="saving()" (click)="guardarDescuento(false)">Guardar</button>
         </div>
       }
     </p-dialog>
@@ -1133,8 +1247,14 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
            La ventana es OBSERVADA, no pactada (contrato PGP.36): por eso «deja pasar», como en la fila. -->
       @if (prontoAlMoverTotal(); as s) {
         <p class="cal-dlg-hint cal-habito-nm"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-          @if (s.deja) { {{ s.n === 1 ? 'Uno deja' : s.n + ' dejan' }} pasar <b class="comm-num">{{ money(s.monto) }}</b> de pronto pago ({{ s.nombres }}): su ventana cierra antes del día al que van. }
-          @else { {{ s.n === 1 ? 'Uno trae' : s.n + ' traen' }} <b class="comm-num">{{ money(s.monto) }}</b> de pronto pago ({{ s.nombres }}), que se deja pasar si salen después de la fecha que dice cada uno. }
+          <!-- [PGP.91] D3: lo CAPTURADO no se deja pasar (viaja con el pago); sólo lo estimado. Se nombran aparte. -->
+          @if (s.deja) {
+            @if (s.estimado > 0) { {{ s.nEst === 1 ? 'Uno deja' : s.nEst + ' dejan' }} pasar <b class="comm-num">{{ money(s.estimado) }}</b> de pronto pago ({{ s.nombresEst }}): su ventana cierra antes del día al que van. }
+            @if (s.capturado > 0) { <b class="comm-num">{{ money(s.capturado) }}</b> de descuento ya capturado viaja con {{ s.nCap === 1 ? 'el pago' : 'sus pagos' }} ({{ s.nombresCap }}): confirma con el proveedor que lo respeta. }
+          } @else {
+            @if (s.estimado > 0) { {{ s.nEst === 1 ? 'Uno trae' : s.nEst + ' traen' }} <b class="comm-num">{{ money(s.estimado) }}</b> de pronto pago ({{ s.nombresEst }}), que se deja pasar si salen después de la fecha que dice cada uno. }
+            @if (s.capturado > 0) { <b class="comm-num">{{ money(s.capturado) }}</b> de descuento ya capturado viaja con {{ s.nCap === 1 ? 'el pago' : 'sus pagos' }} ({{ s.nombresCap }}): si sale después de la fecha que dice, confirma con el proveedor que lo respeta. }
+          }
         </p>
       }
       @if (reprogramDestinos) {
@@ -1519,6 +1639,12 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-items-t td { padding:3px var(--sp-2); border-top:1px solid var(--border-color); }
     .pg-items-t .r { text-align:right; white-space:nowrap; }
     .pg-items-t tfoot td { font-weight:700; color:var(--text-main); }
+    /* [PGP.92] La columna de la X por factura: angosta y al final, donde el renglón del pago tiene la suya. */
+    .pg-items-t .pg-it-acc { width:1%; white-space:nowrap; text-align:right; padding:0 0 0 var(--sp-2); }
+    /* [PGP.91] El descuento al pagar, debajo del neto y un nivel abajo (terciario): sólo existe si lo hay. */
+    .pg-items-t .pg-dsc { display:block; white-space:normal; font-size:var(--fs-xs); font-weight:400; color:var(--text-muted); }
+    .pg-items-t tfoot .pg-dsc-pie { font-weight:400; color:var(--text-muted); }
+    .pg-dsc-campos { display:grid; grid-template-columns:1fr 1fr; gap:0 var(--sp-3); }
     .pg-erp { margin:0; padding:var(--sp-2) var(--sp-3); border-top:1px solid var(--border-color); font-size:var(--fs-sm); color:var(--text-muted); }
     .pg-erp-l { font-weight:600; color:var(--text-main); margin-right:var(--sp-1); }
     .pg-erp b { color:var(--text-main); }
@@ -1700,6 +1826,8 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     }
     @media (pointer: coarse) {
       :host ::ng-deep .pg-ico.p-button { min-height:44px; min-width:44px; }
+      /* [PGP.92] La X por factura también llega a 44 px con el dedo. */
+      :host ::ng-deep .pg-items-t .pg-it-acc .p-button { min-height:44px; min-width:44px; }
       .pg-tg, .pg-icobtn { width:44px; height:44px; }
       .pg-day { padding-top:var(--sp-2); padding-bottom:var(--sp-2); }
     }
@@ -1786,9 +1914,14 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    * día. Sin dato, null — la celda dice «—», no inventa un motivo (ADR-056).
    */
   porQueHoy(a: PaymentCalendarAllocation): { texto: string; fuerte: boolean } | null {
-    if ((a.pronto_captura ?? 0) > 0) {
+    // `[PGP.91]` El pronto pago YA capturado también es razón de pagar hoy: el servidor lo saca de
+    // `pronto_captura` (no se cuenta dos veces), así que sin esta suma el renglón lo callaba.
+    const desc = round2((a.items ?? []).filter((it) => it.discount_reason === 'pronto_pago').reduce((s, it) => s + this.numero(it.discount_amount), 0));
+    const gana = this.numero(a.pronto_captura);
+    if (desc > 0 || gana > 0) {
       const urge = (a.items ?? []).some((it) => it.pronto_estado === 'por_vencer');
-      return { texto: `gana ${this.money(a.pronto_captura)}${urge ? ' · cierra pronto' : ''}`, fuerte: urge };
+      const partes = [desc > 0 ? `descuento ${this.money(desc)}` : '', gana > 0 ? `gana ${this.money(gana)}` : ''].filter(Boolean).join(' · ');
+      return { texto: `${partes}${urge ? ' · cierra pronto' : ''}`, fuerte: urge };
     }
     const dia = this.selectedDate();
     const vence = (a.items ?? []).map((it) => it.vence).filter((v): v is string => !!v).sort()[0];
@@ -2894,9 +3027,14 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    */
   razonDePago(a: PaymentCalendarAllocation): { tono: 'gana' | 'urge' | 'tarde' | 'mudo'; texto: string; detalle: string } | null {
     if (a.pronto_captura > 0) {
-      const urge = (a.items ?? []).some((it) => it.pronto_estado === 'por_vencer');
-      const lim = (a.items ?? []).map((it) => it.pronto_fecha_limite).filter(Boolean).sort()[0];
-      const tasa = (a.items ?? []).map((it) => it.pronto_tasa).find((t) => t != null);
+      // `[PGP.91]` El MISMO universo que el servidor suma en `pronto_captura`: capturable o por vencer y sin
+      // pronto pago ya capturado. Sobre todas las facturas, la fecha, la urgencia y la tasa podían ser de
+      // una ya capturada, que no está en el importe que se publica.
+      const est = (a.items ?? []).filter((it) => it.discount_reason !== 'pronto_pago'
+        && (it.pronto_estado === 'capturable' || it.pronto_estado === 'por_vencer'));
+      const urge = est.some((it) => it.pronto_estado === 'por_vencer');
+      const lim = est.map((it) => it.pronto_fecha_limite).filter(Boolean).sort()[0];
+      const tasa = est.map((it) => it.pronto_tasa).find((t) => t != null);
       return {
         tono: urge ? 'urge' : 'gana',
         texto: `Gana ${this.money(a.pronto_captura)}${tasa ? ' (' + this.pct(tasa) + ')' : ''}${lim ? ' si se paga antes del ' + this.shortDate(lim) : ''}`,
@@ -2910,7 +3048,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
         detalle: 'Se pasó la mediana de lo que históricamente funcionó con este proveedor. NO está perdido: todavía se puede pedir.',
       };
     }
-    const kp = (a.items ?? []).filter((it) => it.pronto_estado != null);
+    // `[PGP.91]` Una factura con descuento ya capturado no es «sin descuento medido»: tiene uno, dicho.
+    const kp = (a.items ?? []).filter((it) => it.pronto_estado != null && !(this.numero(it.discount_amount) > 0));
     if (kp.length && kp.every((it) => it.pronto_estado === 'sin_medir')) {
       return {
         tono: 'mudo',
@@ -2939,6 +3078,155 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   }
   /** `[PGP.70]` El pago que la ✕ de su fila quiere quitar del día; abre su confirmación. */
   readonly quitarObjetivo = signal<PaymentCalendarAllocation | null>(null);
+  /** `[PGP.92]` La factura que su ✕ en el desglose quiere quitar del pago; abre su confirmación. */
+  readonly quitarFacturaObjetivo = signal<{ a: PaymentCalendarAllocation; it: PaymentCalendarAllocationItem } | null>(null);
+
+  /**
+   * `[PGP.92]` Cómo se nombra una factura en un aviso. ⛔ En una saldada `concept` puede venir «—»:
+   * eso no se publica como nombre; se cae a la referencia del proveedor o al importe.
+   */
+  nombreFactura(it: PaymentCalendarAllocationItem): string {
+    const c = (it.concept ?? '').trim();
+    if (c && c !== '—') return c;
+    const ref = (it.doc_ref ?? '').trim();
+    return ref ? `la factura ${ref}` : `la factura de ${this.money(it.applied_amount)}`;
+  }
+
+  /** `[PGP.92]` Lo que le queda al pago sin esa factura. `Number()`: los numeric de Postgres llegan como texto. */
+  restaDelPago(a: PaymentCalendarAllocation, it: PaymentCalendarAllocationItem): number {
+    return Math.round((Number(a.amount_assigned) - Number(it.applied_amount)) * 100) / 100;
+  }
+
+  /**
+   * `[PGP.92]` Ya confirmado. No muta `a.items`: la vista se rehace con `reload()`, y mientras tanto
+   * las ✕ siguen apagadas por `loadingWeek()` (un segundo clic no manda un segundo DELETE).
+   */
+  confirmarQuitarFactura(): void {
+    const q = this.quitarFacturaObjetivo();
+    if (!q || this.saving()) return;
+    const { a, it } = q;
+    this.saving.set(true);
+    this.http.delete(`${this.base}/allocations/${a.id}/items/${it.id}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => {
+        this.saving.set(false); this.quitarFacturaObjetivo.set(null); this.invalidarDeuda(); this.reload();
+        this.toast.add({ severity: 'success', summary: 'Factura quitada',
+          detail: `Se quitó ${this.nombreFactura(it)} (${this.money(it.applied_amount)}) del pago de ${this.allocationTitle(a)}. ${it.kepler_saldada ? 'El ERP ya no la debía: no regresa a la deuda' : 'Regresa a lo que se debe'}; el pago sigue con ${this.facturas(a.items.length - 1)}.` });
+      },
+      error: (e) => {
+        this.saving.set(false);
+        this.toast.add({ severity: 'error', summary: 'No se quitó la factura', detail: `${this.nombreFactura(it)}: ${this.errMsg(e, 'No se pudo quitar.')}`, life: 10000 });
+      },
+    });
+  }
+
+  // ── [PGP.91] Descuento al pagar, factura por factura ──────────────────────
+  /** La cuenta pura, expuesta a la plantilla (lo cubierto = neto + descuento, con `Number()`). */
+  readonly cubiertoDe = cubiertoDe;
+  /**
+   * `[PGP.91]` Sólo factura de mercancía (la que después recibe la nota de crédito) y que el ERP
+   * todavía debe. El servidor exige lo mismo (`assertDescuentoPermitido`); aquí sólo no se ofrece
+   * lo que va a rechazar.
+   */
+  admiteDescuento(a: PaymentCalendarAllocation, it: PaymentCalendarAllocationItem): boolean {
+    return a.classification === 'proveedor_mercancia' && !it.kepler_saldada
+      && (it.obligation_source === 'kepler_payable' || it.obligation_source === 'supplier_payable');
+  }
+  /** `[PGP.91]` El motivo dicho en llano: «Pronto pago 3 %», «Volumen», «Otro · apoyo de aniversario». */
+  motivoDescuento(reason: MotivoDescuento | null | undefined, rate: number | string | null | undefined, note: string | null | undefined): string {
+    if (!reason || reason === 'ninguno') return '';
+    const t = this.numero(rate);
+    return `${DISCOUNT_REASON_LABEL[reason] ?? reason}${t > 0 ? ' ' + this.pct(t) : ''}${reason === 'otro' && note ? ' · ' + note : ''}`;
+  }
+
+  /** `[PGP.91]` La factura cuyo descuento se está capturando; abre el diálogo. Estado en signals (OnPush). */
+  readonly descObjetivo = signal<{ a: PaymentCalendarAllocation; it: PaymentCalendarAllocationItem } | null>(null);
+  readonly descMotivo = signal<MotivoDescuento>('ninguno');
+  readonly descModo = signal<ModoDescuento>('tasa');
+  /**
+   * Lo tecleado, tal cual: el % se lee con `tasaDePct` («3,5» = 3.5 %), los pesos con `leerPesos`
+   * (⛔ no con `numero()`: quitaba las comas y «1166,40» pasaba como $116,640).
+   */
+  readonly descPct = signal('');
+  readonly descPesos = signal('');
+  readonly descNota = signal('');
+  /** El % vino de la tasa OBSERVADA de pronto pago (D2): se dice en el diálogo, no se afirma pactado. */
+  readonly descSugerida = signal(false);
+  /** Sin «Sin descuento»: para quitarlo está su botón; un motivo vacío es el placeholder. */
+  readonly descuentoOpts = DISCOUNT_REASONS.map((k) => ({ label: DISCOUNT_REASON_LABEL[k], value: k }));
+  readonly descCubierto = computed(() => { const t = this.descObjetivo(); return t ? cubiertoDe(t.it) : 0; });
+  /** Los pesos tecleados, entendidos o con el porqué de no entenderlos (ambiguo ≠ ilegible ≠ vacío). */
+  readonly descPesosLeidos = computed(() => leerPesos(this.descPesos()));
+  readonly descCuenta = computed(() => cuenta(this.descCubierto(), this.descModo(), this.descPct(), this.descPesosLeidos().pesos ?? 0));
+  readonly descFalta = computed<string | null>(() => {
+    // Todas las señales se leen siempre (sin cortocircuito), para que el computed no se quede sin dependencias.
+    const motivo = this.descMotivo(), modo = this.descModo(), leidos = this.descPesosLeidos(), c = this.descCuenta(), cub = this.descCubierto(), nota = this.descNota();
+    return faltaDescuento(motivo, c, cub, nota, modo === 'pesos' ? leidos.error : null);
+  });
+
+  /** Abre con lo guardado tal cual: con tasa queda en %, capturado en pesos queda en pesos. */
+  abrirDescuento(a: PaymentCalendarAllocation, it: PaymentCalendarAllocationItem): void {
+    const d = this.numero(it.discount_amount);
+    const pct = pctDeTasa(it.discount_rate);
+    this.descMotivo.set(d > 0 && it.discount_reason ? it.discount_reason : 'ninguno');
+    this.descModo.set(d > 0 && !pct ? 'pesos' : 'tasa');
+    this.descPct.set(d > 0 ? pct : '');
+    this.descPesos.set(d > 0 && !pct ? d.toFixed(2) : '');
+    this.descNota.set(it.discount_note ?? '');
+    this.descSugerida.set(false);
+    this.descObjetivo.set({ a, it });
+  }
+  cerrarDescuento(): void { this.descObjetivo.set(null); }
+  /**
+   * `[PGP.91]` D2: al elegir «Pronto pago» con el campo activo vacío se precarga la tasa OBSERVADA del
+   * proveedor (y se dice que lo es). Si se cambia a otro motivo, la sugerencia se va con él: el % de
+   * pronto pago no es el de un descuento por volumen.
+   */
+  elegirMotivoDescuento(m: DiscountReason | null): void {
+    const motivo: MotivoDescuento = m ?? 'ninguno';
+    const t = this.descObjetivo();
+    if (this.descSugerida() && motivo !== 'pronto_pago') { this.descPct.set(''); this.descSugerida.set(false); }
+    this.descMotivo.set(motivo);
+    // «Vacío» se mide en el campo ACTIVO: el inactivo muestra lo derivado, no lo que guarda su señal.
+    const vacio = this.descModo() === 'tasa' ? !this.descPct().trim() : !this.descPesos().trim();
+    if (motivo === 'pronto_pago' && vacio && t && t.it.pronto_tasa != null && Number(t.it.pronto_tasa) > 0) {
+      this.descModo.set('tasa');
+      this.descPct.set(String(round2(Number(t.it.pronto_tasa) * 100)));
+      this.descSugerida.set(true);
+    }
+  }
+  /** `[PGP.91]` Guarda (o quita, con 0) el descuento de UNA factura. El botón se apaga en el primer clic. */
+  guardarDescuento(quitar: boolean): void {
+    const t = this.descObjetivo();
+    if (!t || this.saving()) return;
+    const motivo = this.descMotivo();
+    const c = this.descCuenta();
+    if (!quitar && (motivo === 'ninguno' || this.descFalta())) return;
+    const { a, it } = t;
+    const body: PaymentCalendarItemDiscountBody = quitar || motivo === 'ninguno'
+      ? { discount_amount: 0 }
+      : {
+          discount_amount: c.descuento, discount_reason: motivo,
+          discount_rate: this.descModo() === 'tasa' ? c.tasa : null,
+          discount_note: motivo === 'otro' ? this.descNota().trim() : null,
+        };
+    this.saving.set(true);
+    this.http.post<PaymentCalendarItemDiscountResult>(`${this.base}/allocations/${a.id}/items/${it.id}/descuento`, body)
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => {
+          this.saving.set(false); this.descObjetivo.set(null); this.invalidarDeuda(); this.reload();
+          this.toast.add(this.numero(r.discount_amount) > 0
+            ? { severity: 'success', summary: 'Descuento guardado',
+                detail: `${this.nombreFactura(it)}: se transfieren ${this.money(r.applied_amount)} (descuento ${this.money(r.discount_amount)}). El pago de ${this.allocationTitle(a)} queda en ${this.money(r.amount_assigned)}.` }
+            : { severity: 'success', summary: 'Descuento quitado',
+                detail: `${this.nombreFactura(it)} vuelve a pagarse sin descuento: ${this.money(r.applied_amount)}. El pago de ${this.allocationTitle(a)} queda en ${this.money(r.amount_assigned)}.` });
+        },
+        error: (e) => {
+          this.saving.set(false);
+          this.toast.add({ severity: 'error', summary: quitar ? 'No se quitó el descuento' : 'No se guardó el descuento',
+            detail: `${this.nombreFactura(it)}: ${this.errMsg(e, 'No se pudo guardar.')}`, life: 10000 });
+        },
+      });
+  }
   reboteVisible = false;
   reboteAllocation: PaymentCalendarAllocation | null = null;
   reboteReason: ReprogramReason | null = null;
@@ -4027,7 +4315,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     if (this.prepSupplierId) {
       this.http.get<PaymentAccount[]>(`${this.accountsBase}/by-supplier/${this.prepSupplierId}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (rows) => {
-          this.prepAccounts.set(rows.map((r) => ({ id: r.id, label: `${r.bank_name}${r.clabe ? ' · ' + r.clabe : ''}${r.alias ? ' (' + r.alias + ')' : ''}${r.es_favorita ? ' ★' : ''}` })));
+          // [PGP.90] La referencia fija se ve AL ELEGIR la cuenta: quien prepara sabe que va incluida.
+          this.prepAccounts.set(rows.map((r) => ({ id: r.id, label: `${r.bank_name}${r.clabe ? ' · ' + r.clabe : ''}${r.payment_reference ? ' · Ref ' + r.payment_reference : ''}${r.alias ? ' (' + r.alias + ')' : ''}${r.es_favorita ? ' ★' : ''}` })));
           // La favorita se propone sola; el usuario puede cambiarla. [PGP.75] Gana sobre la CLABE del historial.
           const fav = rows.find((r) => r.es_favorita)?.id ?? null;
           if (!this.prepAccountId && fav && (!this.prepDestination || intacto())) { this.prepAccountId = fav; if (intacto()) { this.prepDestination = ''; this.prepDestHistorial = null; } }
@@ -4172,32 +4461,61 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    * facturas cuya ventana cierra ANTES de ese día. Sin fecha todavía: lo que está en juego y hasta
    * cuándo. Misma suma que `pronto_captura` del backend (capturable + por_vencer).
    */
-  prontoAlMover(a: PaymentCalendarAllocation): { monto: number; cierra: string; deja: boolean } | null {
+  prontoAlMover(a: PaymentCalendarAllocation): ProntoAlMover | null {
     const fecha = this.fechaDeMover(a) || null;
-    let monto = 0, cierra = '';
+    let monto = 0, cierra = '', capturado = 0, cierraEst = '', cierraCap = '';
     for (const it of a.items ?? []) {
       if (it.pronto_estado !== 'capturable' && it.pronto_estado !== 'por_vencer') continue;
       const lim = (it.pronto_fecha_limite ?? '').slice(0, 10);
-      const b = Number(it.pronto_beneficio || 0);
+      // `[PGP.91]` D3: el descuento CAPTURADO viaja con el pago (el servidor lo copia al mover), así que lo
+      // que está en juego es ése, no el estimado — y se avisa, porque su ventana observada puede cerrarse.
+      const cap = it.discount_reason === 'pronto_pago' ? this.numero(it.discount_amount) : 0;
+      const b = cap > 0 ? cap : Number(it.pronto_beneficio || 0);
       if (!lim || !(b > 0)) continue;
       if (fecha && lim >= fecha) continue; // ese día la ventana sigue abierta
       monto += b;
+      if (cap > 0) { capturado += cap; if (!cierraCap || lim < cierraCap) cierraCap = lim; }
+      else if (!cierraEst || lim < cierraEst) cierraEst = lim;
       if (!cierra || lim < cierra) cierra = lim;
     }
-    return monto > 0.005 ? { monto: Math.round(monto * 100) / 100, cierra, deja: !!fecha } : null;
+    return monto > 0.005
+      ? { monto: Math.round(monto * 100) / 100, cierra, deja: !!fecha, capturado: Math.round(capturado * 100) / 100, cierraEst, cierraCap }
+      : null;
   }
-  textoPronto(p: { monto: number; cierra: string; deja: boolean }): string {
-    return p.deja ? `deja pasar ${this.money(p.monto)} de pronto pago (su ventana cierra el ${this.shortDate(p.cierra)})`
-      : `gana ${this.money(p.monto)} si sale a más tardar el ${this.shortDate(p.cierra)}`;
+  textoPronto(p: ProntoAlMover): string {
+    // `[PGP.91]` Lo capturado no «se deja pasar» ni «se gana»: ya está en el pago y sale con él aunque la
+    // ventana observada cierre. Se dice qué parte es cuál, para no afirmar una pérdida ni una ganancia.
+    const estimado = round2(p.monto - p.capturado);
+    if (!p.deja) {
+      return [
+        estimado > 0 ? `gana ${this.money(estimado)} si sale a más tardar el ${this.shortDate(p.cierraEst)}` : '',
+        p.capturado > 0 ? `su descuento capturado de ${this.money(p.capturado)} viaja con el pago; si sale después del ${this.shortDate(p.cierraCap)}, confirma con el proveedor que lo respeta` : '',
+      ].filter(Boolean).join('; ');
+    }
+    const partes = [
+      estimado > 0 ? `deja pasar ${this.money(estimado)} de pronto pago` : '',
+      p.capturado > 0 ? `su descuento capturado de ${this.money(p.capturado)} viaja con el pago` : '',
+    ].filter(Boolean).join('; ');
+    return `${partes} (su ventana cierra el ${this.shortDate(p.cierra)})${p.capturado > 0 ? ': confirma con el proveedor que lo respeta' : ''}`;
   }
-  prontoAlMoverTotal(): { monto: number; n: number; deja: boolean; nombres: string } | null {
+  /**
+   * `[PGP.91]` D3: lo ESTIMADO (lo que se deja pasar) y lo CAPTURADO (lo que viaja con el pago) van por
+   * separado, cada uno con sus pagos: sumarlos decía «deja pasar» de un descuento que no se pierde.
+   */
+  prontoAlMoverTotal(): { estimado: number; capturado: number; nEst: number; nCap: number; nombresEst: string; nombresCap: string; deja: boolean } | null {
     // Con sus nombres: la lista va del último del orden al primero, y los que traen pronto pago pueden
     // quedar abajo del desplazamiento.
     const con = this.reprogramTodos.flatMap((a) => { const p = this.prontoAlMover(a); return p ? [{ a, p }] : []; });
-    const ps = con.map((x) => x.p);
-    if (!ps.length) return null;
-    const nombres = con.slice(0, 3).map((x) => this.allocationTitle(x.a)).join(', ') + (con.length > 3 ? ` y ${con.length - 3} más` : '');
-    return { monto: Math.round(ps.reduce((s, p) => s + p.monto, 0) * 100) / 100, n: ps.length, deja: ps.every((p) => p.deja), nombres };
+    if (!con.length) return null;
+    const nombres = (xs: typeof con) => xs.slice(0, 3).map((x) => this.allocationTitle(x.a)).join(', ') + (xs.length > 3 ? ` y ${xs.length - 3} más` : '');
+    const est = con.filter((x) => round2(x.p.monto - x.p.capturado) > 0);
+    const cap = con.filter((x) => x.p.capturado > 0);
+    return {
+      estimado: round2(est.reduce((s, x) => s + x.p.monto - x.p.capturado, 0)),
+      capturado: round2(cap.reduce((s, x) => s + x.p.capturado, 0)),
+      nEst: est.length, nCap: cap.length, nombresEst: nombres(est), nombresCap: nombres(cap),
+      deja: con.every((x) => x.p.deja),
+    };
   }
   /** `[PGP.73]` Con una sola fecha para todos: cómo queda ese día contra su tope (lo que no se ve, se dice). */
   destinoTope(): { texto: string; mal: boolean } | null {
