@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import { SQL_CIERRE_KEPLER, armarCierres, idsParaCierre, type FilaCierreKepler } from './cierre-kepler.sql';
 
 const fila = (o: Partial<FilaCierreKepler> = {}): FilaCierreKepler => ({

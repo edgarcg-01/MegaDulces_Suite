@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import {
   cierreCompleto, cierreDelPago, docPrefixKepler, estadoFacturaCierre, textoCierre, textoDesfase, tipoPagoKepler,
   type AplicacionKepler,
