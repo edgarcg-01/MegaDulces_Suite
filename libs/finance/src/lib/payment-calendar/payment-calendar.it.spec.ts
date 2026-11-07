@@ -243,6 +243,18 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
     await expect(cal.createAllocation({ date: D, items: [item('TPIT-601', 1000)] }, USER)).rejects.toThrow(/autorizado/);
   });
 
+  // `[PGP.92]` El candado de quitar UNA factura vive en el servidor, no sólo en la pantalla. `a2` tiene
+  // DOS facturas (TPIT-101 y 102), así que el rechazo sólo puede venir del día autorizado, no de la
+  // guarda «al menos un documento».
+  it('[PGP.92] ⛔ con el día autorizado no se le quita una factura a un pago (lo firmado no cambia)', async () => {
+    const antes = await trx('finance.payment_allocation_items').where({ allocation_id: a2 });
+    expect(antes).toHaveLength(2);
+    await expect(cal.removeItem(a2, antes[0].id, USER)).rejects.toThrow(/autorizado/);
+    expect(await trx('finance.payment_allocation_items').where({ allocation_id: a2 })).toHaveLength(2);
+    const a = await trx('finance.payment_allocations').where({ id: a2 }).first();
+    expect(Number(a.amount_assigned)).toBeCloseTo(53940.2, 2);
+  });
+
   it('ejecutar tras autorizar: lo reservado pasa a pagado', async () => {
     await cal.execute(a1, USER);
     const o = await trx('commercial.supplier_payment_obligations').where({ id: ob['TPIT-801'] }).first();

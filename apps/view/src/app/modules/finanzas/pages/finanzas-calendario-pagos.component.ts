@@ -14,7 +14,7 @@ import { ToastModule } from 'primeng/toast';
 import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import type {
-  PaymentCalendarAllocation, PaymentCalendarDaySummary, PaymentCalendarWeek, PaymentCalendarWeekDay,
+  PaymentCalendarAllocation, PaymentCalendarAllocationItem, PaymentCalendarDaySummary, PaymentCalendarWeek, PaymentCalendarWeekDay,
   PagoSugerido, PagosAtrasadosDia, PayableEvidenceRow, PaymentObligationSource, PaymentOriginAccount,
 } from '@megadulces/contracts';
 import { warehouseName } from '@megadulces/contracts';
@@ -798,7 +798,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                         <caption class="sr-only">Facturas del pago de {{ allocationTitle(a) }}</caption>
                         <!-- [PGP.58] Cada factura se UBICA (folio de Kepler, que abre su ficha, y la referencia
                              del proveedor) y se VE (su archivo, PDF o foto del comprobante) sin salir del pago. -->
-                        <thead><tr><th>Sucursal</th><th>Folio Kepler</th><th>Referencia</th><th>Factura</th><th class="r">Se aplica</th></tr></thead>
+                        <thead><tr><th>Sucursal</th><th>Folio Kepler</th><th>Referencia</th><th>Factura</th><th class="r">Se aplica</th>@if (a.status === 'pending' && !isReleased()) { <th class="pg-it-acc"><span class="sr-only">Acciones</span></th> }</tr></thead>
                         <tbody>
                           @for (it of a.items; track it.id) {
                             <tr>
@@ -833,10 +833,22 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                                 }
                               </td>
                               <td class="r comm-num">{{ money(it.applied_amount) }}</td>
+                              @if (a.status === 'pending' && !isReleased()) {
+                                <td class="pg-it-acc">
+                                  <!-- [PGP.92] Quitar SÓLO esta factura. Con una sola no sale: el servidor no deja vaciar un
+                                       pago, y para quitarlo entero está la ✕ del renglón (PGP.70). -->
+                                  @if (a.items.length > 1) {
+                                    <button pButton type="button" class="p-button-sm p-button-text p-button-secondary pg-x"
+                                            [disabled]="saving() || loadingWeek()"
+                                            [attr.aria-label]="'Quitar sólo ' + nombreFactura(it) + ' del pago de ' + allocationTitle(a)"
+                                            (click)="quitarFacturaObjetivo.set({ a: a, it: it })"><span class="pi pi-times" aria-hidden="true"></span></button>
+                                  }
+                                </td>
+                              }
                             </tr>
                           }
                         </tbody>
-                        <tfoot><tr><td colspan="4">{{ facturas(a.items.length) }}</td><td class="r comm-num">{{ money(a.amount_assigned) }}</td></tr></tfoot>
+                        <tfoot><tr><td colspan="4">{{ facturas(a.items.length) }}</td><td class="r comm-num">{{ money(a.amount_assigned) }}</td>@if (a.status === 'pending' && !isReleased()) { <td></td> }</tr></tfoot>
                       </table>
                     </td>
                   </tr>
@@ -1077,6 +1089,21 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
           <button pButton type="button" class="p-button-text p-button-secondary" (click)="quitarObjetivo.set(null)">Cancelar</button>
           <button pButton type="button" class="p-button-outlined p-button-secondary" [disabled]="saving()" (click)="quitarObjetivo.set(null); openReprogram(a)"><span class="pi pi-calendar" aria-hidden="true"></span>&nbsp;Mover a otro día</button>
           <button pButton type="button" class="p-button-danger" [disabled]="saving()" [loading]="saving()" (click)="confirmarQuitar()">Quitar del día</button>
+        </div>
+      }
+    </p-dialog>
+
+    <!-- [PGP.92] Quitar UNA factura del pago. El pago, su orden y su preparación se quedan; la factura
+         regresa a lo que se debe. Se confirma como la ✕ del renglón (PGP.70): las ✕ del desglose quedan
+         cerca una de otra y no hay deshacer. -->
+    <p-dialog [visible]="!!quitarFacturaObjetivo()" (visibleChange)="$event || quitarFacturaObjetivo.set(null)" [modal]="true" header="Quitar una factura del pago" [style]="{ width: '30rem' }">
+      @if (quitarFacturaObjetivo(); as q) {
+        <p class="cal-dlg-p"><strong>{{ nombreFactura(q.it) }}</strong> · {{ branchLabel(q.it.branch_code) }} · <span class="comm-num">{{ money(q.it.applied_amount) }}</span></p>
+        <!-- Una factura que el ERP ya no debe NO regresa a la deuda: la deuda sólo trae lo pendiente. -->
+        <p class="cal-dlg-hint">@if (q.it.kepler_saldada) {<span>El ERP ya no la debe: sale del pago y no regresa a la deuda.</span>} @else {<span>Regresa a lo que se debe.</span>} El pago de {{ allocationTitle(q.a) }} sigue en el día con {{ facturas(q.a.items.length - 1) }} por <b class="comm-num">{{ money(restaDelPago(q.a, q.it)) }}</b>@if (prepared(q.a)) {<span>, y conserva su preparación</span>}.</p>
+        <div class="cal-dlg-actions">
+          <button pButton type="button" class="p-button-text p-button-secondary" (click)="quitarFacturaObjetivo.set(null)">Cancelar</button>
+          <button pButton type="button" class="p-button-danger" [disabled]="saving()" [loading]="saving()" (click)="confirmarQuitarFactura()">Quitar la factura</button>
         </div>
       }
     </p-dialog>
@@ -1519,6 +1546,8 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-items-t td { padding:3px var(--sp-2); border-top:1px solid var(--border-color); }
     .pg-items-t .r { text-align:right; white-space:nowrap; }
     .pg-items-t tfoot td { font-weight:700; color:var(--text-main); }
+    /* [PGP.92] La columna de la X por factura: angosta y al final, donde el renglón del pago tiene la suya. */
+    .pg-items-t .pg-it-acc { width:1%; white-space:nowrap; text-align:right; padding:0 0 0 var(--sp-2); }
     .pg-erp { margin:0; padding:var(--sp-2) var(--sp-3); border-top:1px solid var(--border-color); font-size:var(--fs-sm); color:var(--text-muted); }
     .pg-erp-l { font-weight:600; color:var(--text-main); margin-right:var(--sp-1); }
     .pg-erp b { color:var(--text-main); }
@@ -1700,6 +1729,8 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     }
     @media (pointer: coarse) {
       :host ::ng-deep .pg-ico.p-button { min-height:44px; min-width:44px; }
+      /* [PGP.92] La X por factura también llega a 44 px con el dedo. */
+      :host ::ng-deep .pg-items-t .pg-it-acc .p-button { min-height:44px; min-width:44px; }
       .pg-tg, .pg-icobtn { width:44px; height:44px; }
       .pg-day { padding-top:var(--sp-2); padding-bottom:var(--sp-2); }
     }
@@ -2939,6 +2970,46 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   }
   /** `[PGP.70]` El pago que la ✕ de su fila quiere quitar del día; abre su confirmación. */
   readonly quitarObjetivo = signal<PaymentCalendarAllocation | null>(null);
+  /** `[PGP.92]` La factura que su ✕ en el desglose quiere quitar del pago; abre su confirmación. */
+  readonly quitarFacturaObjetivo = signal<{ a: PaymentCalendarAllocation; it: PaymentCalendarAllocationItem } | null>(null);
+
+  /**
+   * `[PGP.92]` Cómo se nombra una factura en un aviso. ⛔ En una saldada `concept` puede venir «—»:
+   * eso no se publica como nombre; se cae a la referencia del proveedor o al importe.
+   */
+  nombreFactura(it: PaymentCalendarAllocationItem): string {
+    const c = (it.concept ?? '').trim();
+    if (c && c !== '—') return c;
+    const ref = (it.doc_ref ?? '').trim();
+    return ref ? `la factura ${ref}` : `la factura de ${this.money(it.applied_amount)}`;
+  }
+
+  /** `[PGP.92]` Lo que le queda al pago sin esa factura. `Number()`: los numeric de Postgres llegan como texto. */
+  restaDelPago(a: PaymentCalendarAllocation, it: PaymentCalendarAllocationItem): number {
+    return Math.round((Number(a.amount_assigned) - Number(it.applied_amount)) * 100) / 100;
+  }
+
+  /**
+   * `[PGP.92]` Ya confirmado. No muta `a.items`: la vista se rehace con `reload()`, y mientras tanto
+   * las ✕ siguen apagadas por `loadingWeek()` (un segundo clic no manda un segundo DELETE).
+   */
+  confirmarQuitarFactura(): void {
+    const q = this.quitarFacturaObjetivo();
+    if (!q || this.saving()) return;
+    const { a, it } = q;
+    this.saving.set(true);
+    this.http.delete(`${this.base}/allocations/${a.id}/items/${it.id}`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => {
+        this.saving.set(false); this.quitarFacturaObjetivo.set(null); this.invalidarDeuda(); this.reload();
+        this.toast.add({ severity: 'success', summary: 'Factura quitada',
+          detail: `Se quitó ${this.nombreFactura(it)} (${this.money(it.applied_amount)}) del pago de ${this.allocationTitle(a)}. ${it.kepler_saldada ? 'El ERP ya no la debía: no regresa a la deuda' : 'Regresa a lo que se debe'}; el pago sigue con ${this.facturas(a.items.length - 1)}.` });
+      },
+      error: (e) => {
+        this.saving.set(false);
+        this.toast.add({ severity: 'error', summary: 'No se quitó la factura', detail: `${this.nombreFactura(it)}: ${this.errMsg(e, 'No se pudo quitar.')}`, life: 10000 });
+      },
+    });
+  }
   reboteVisible = false;
   reboteAllocation: PaymentCalendarAllocation | null = null;
   reboteReason: ReprogramReason | null = null;

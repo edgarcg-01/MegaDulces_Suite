@@ -171,8 +171,9 @@ export class PaymentCalendarController {
 
   @Delete('allocations/:id/items/:itemId')
   @RequirePermissions(Permission.FINANCE_PAYMENTS_GESTIONAR)
-  removeItem(@Param('id') id: string, @Param('itemId') itemId: string) {
-    return this.svc.removeItem(id, itemId);
+  // `[PGP.92]` Quita UNA factura del pago (nunca la última; sólo en un día sin autorizar) y registra quién.
+  removeItem(@Param('id') id: string, @Param('itemId') itemId: string, @Req() req: AuthedRequest): Promise<{ ok: boolean }> {
+    return this.svc.removeItem(id, itemId, req.user?.username || 'sistema');
   }
 
   @Post('allocations/:id/reprogramar')

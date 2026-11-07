@@ -1701,18 +1701,25 @@ export class PaymentCalendarService {
     });
   }
 
-  async removeItem(allocationId: string, itemId: string) {
+  async removeItem(allocationId: string, itemId: string, username = 'sistema'): Promise<{ ok: boolean }> {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const item = await trx('finance.payment_allocation_items').where({ tenant_id: tenantId, id: itemId, allocation_id: allocationId }).first();
       if (!item) throw new NotFoundException('Documento no encontrado en este pago');
-      const allocation = await trx('finance.payment_allocations').where({ id: allocationId }).first();
+      const allocation = await trx('finance.payment_allocations').where({ tenant_id: tenantId, id: allocationId }).first();
       if (allocation.status !== 'pending') throw new BadRequestException('Solo se puede modificar un pago pendiente');
+      // `[PGP.92]` Quitar una factura de un día YA AUTORIZADO cambiaría un importe que Gerencia firmó.
+      // `addItem` ya lo impedía (TP.16.4); aquí sólo lo escondía la pantalla, y la pantalla no es un
+      // candado. Va ANTES del conteo para que el rechazo diga la causa verdadera.
+      const lot = await trx('finance.payment_calendar_lots').where({ id: allocation.lot_id }).first();
+      if (lot && LOCKED_LOT_STATUSES.has(lot.status)) throw new BadRequestException('El día ya fue autorizado: no se le pueden quitar facturas a sus pagos (muévelo a otro día).');
       const [{ count }] = await trx('finance.payment_allocation_items').where({ allocation_id: allocationId }).whereNot('id', itemId).count();
       if (Number(count) === 0) throw new BadRequestException('Un pago debe tener al menos un documento — cancela el pago en vez de vaciarlo');
       await trx('finance.payment_allocation_items').where({ id: itemId }).del();
       await this.recalcObligation(trx, item.obligation_source, item.obligation_id);
       await this.recalcAllocationTotal(trx, allocationId);
+      // `[PGP.92]` Quién cambió el pago: quitar una factura cambia su importe.
+      await trx('finance.payment_allocations').where({ id: allocationId }).update({ updated_by: username, updated_at: trx.fn.now() });
       return { ok: true };
     });
   }

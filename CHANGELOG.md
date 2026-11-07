@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Added — Pagos: quitar una sola factura de un pago (PGP.92, 2026-11-06 · en código, sin soltar)
+- En el desglose de un pago, cada factura tiene su ✕ (sólo si el pago tiene más de una y el día no está autorizado), con confirmación: dice qué sale, cuánto le queda al pago y que conserva su preparación. Antes había que quitar el pago entero y volver a armarlo.
+- El servidor rechaza quitar facturas de un día ya autorizado (antes sólo lo escondía la pantalla) y registra quién lo hizo.
 ### Added — Cuentas de pago: la referencia fija que exige el proveedor (PGP.90, 2026-11-06 · en código, sin soltar)
 - En **Finanzas › Cuentas de pago**, la solicitud de cuenta tiene un campo **Referencia fija (opcional)**: el convenio o la referencia que algunos proveedores exigen en cada transferencia para reconocer el depósito.
 - Pasa por la **misma autorización que la CLABE**: quien autoriza la ve en la bandeja («· Ref …») y, aprobada, aparece debajo de la CLABE en la tabla de cuentas (sin columna propia: la mayoría no la pide).
