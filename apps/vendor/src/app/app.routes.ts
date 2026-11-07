@@ -160,6 +160,23 @@ export const appRoutes: Routes = [
           ),
         canActivate: [permissionGuard(Permission.TRADE_ROUTE_PLAN_GESTIONAR)],
       },
+      {
+        // [SUP.2] «Mi equipo»: cómo va la gente del supervisor hoy (lee los mismos endpoints que la web).
+        path: 'supervisor/equipo',
+        loadComponent: () =>
+          import('./modules/vendor/pages/vendor-supervisor-equipo.component').then(
+            (m) => m.VendorSupervisorEquipoComponent,
+          ),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_MONITOREO_VECINAL_VER)],
+      },
+      {
+        path: 'supervisor/equipo/:userId',
+        loadComponent: () =>
+          import('./modules/vendor/pages/vendor-supervisor-vendedor.component').then(
+            (m) => m.VendorSupervisorVendedorComponent,
+          ),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_MONITOREO_VECINAL_VER)],
+      },
     ],
   },
   {

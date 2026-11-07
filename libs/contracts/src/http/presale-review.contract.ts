@@ -114,6 +114,8 @@ export interface PresaleReviewResultLine {
   final: number;
   returned: number;
   resolution: PresaleReviewResolution;
+  /** `[MV.1]` SKU del producto; ausente en revisiones anteriores al monitoreo vecinal. */
+  sku?: string | null;
 }
 
 /** Lo que se guarda en `presale_picks.review`. */
