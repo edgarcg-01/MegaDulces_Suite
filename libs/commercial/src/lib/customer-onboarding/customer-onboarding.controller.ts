@@ -34,8 +34,17 @@ interface UsuarioDeLaPeticion {
  *
  * Dos llaves (decisión de Francisco, 2026-11-04): `COMMERCIAL_ALTA_CLIENTES` captura, ve y liga;
  * `COMMERCIAL_ALTA_CLIENTES_CREDITO` decide crédito, plazo y descuento. Quien sólo decide crédito
- * también ve la bandeja. El alcance por sucursal lo pone `ScopeService` en el servicio.
+ * también ve la bandeja. Una tercera, `COMMERCIAL_ALTA_CLIENTES_VER` `[ALC.0.6]` (Francisco,
+ * 2026-11-06), es sólo consulta: abre las cuatro lecturas (`VER_BANDEJA`) y ninguna escritura —
+ * lo fija `customer-onboarding.controller.spec.ts`. El alcance por sucursal lo pone `ScopeService`
+ * en el servicio.
  */
+const VER_BANDEJA = [
+  Permission.COMMERCIAL_ALTA_CLIENTES,
+  Permission.COMMERCIAL_ALTA_CLIENTES_CREDITO,
+  Permission.COMMERCIAL_ALTA_CLIENTES_VER,
+] as const;
+
 @ApiTags('commercial-customer-onboarding')
 @ApiBearerAuth()
 @UseGuards(RequireAuthGuard, RolesGuard)
@@ -58,7 +67,7 @@ export class CustomerOnboardingController {
   }
 
   @Get('catalogs')
-  @RequireAnyPermission(Permission.COMMERCIAL_ALTA_CLIENTES, Permission.COMMERCIAL_ALTA_CLIENTES_CREDITO)
+  @RequireAnyPermission(...VER_BANDEJA)
   @ApiOperation({ summary: 'Sucursales de tu alcance y, de la elegida, vendedores, grupos y zonas de Kepler; régimen fiscal del SAT' })
   catalogs(@Query('branch') branch: string, @Query() query: Record<string, unknown>): Promise<CatalogosAlta> {
     return this.service.catalogos(branch, query);
@@ -86,21 +95,21 @@ export class CustomerOnboardingController {
   }
 
   @Get()
-  @RequireAnyPermission(Permission.COMMERCIAL_ALTA_CLIENTES, Permission.COMMERCIAL_ALTA_CLIENTES_CREDITO)
+  @RequireAnyPermission(...VER_BANDEJA)
   @ApiOperation({ summary: 'Bandeja de solicitudes de tu alcance, con las fichas de Kepler que ya tienen su RFC' })
   inbox(@Query() query: Record<string, unknown>, @Req() req: { user?: UsuarioDeLaPeticion }): Promise<BandejaAlta> {
     return this.service.bandeja(query, this.actor(req));
   }
 
   @Get(':id')
-  @RequireAnyPermission(Permission.COMMERCIAL_ALTA_CLIENTES, Permission.COMMERCIAL_ALTA_CLIENTES_CREDITO)
+  @RequireAnyPermission(...VER_BANDEJA)
   @ApiOperation({ summary: 'Una solicitud de alta' })
   one(@Param('id') id: string, @Query() query: Record<string, unknown>): Promise<SolicitudAlta> {
     return this.service.una(id, query);
   }
 
   @Get(':id/constancia')
-  @RequireAnyPermission(Permission.COMMERCIAL_ALTA_CLIENTES, Permission.COMMERCIAL_ALTA_CLIENTES_CREDITO)
+  @RequireAnyPermission(...VER_BANDEJA)
   @ApiOperation({ summary: 'Liga temporal (10 min) para ver la constancia guardada' })
   constanciaUrl(@Param('id') id: string, @Query() query: Record<string, unknown>): Promise<{ url: string }> {
     return this.service.urlConstancia(id, query);
