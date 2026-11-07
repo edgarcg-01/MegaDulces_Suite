@@ -610,7 +610,7 @@ const cte = (hist, tr, lead) => `
   -- analytics.v_warehouse_box_factor (mig 20260902220000) — acá sólo SE LEE.
   -- Medido: cambia 388 filas por almacén; saca $866,756 de sobre-pedido y hace visibles $2.68M
   -- de inventario en MD-30/MD-32/00. Las sucursales Kepler no se mueven ni un peso.
-  dbf AS (SELECT product_id, warehouse_id, box_factor
+  dbf AS (SELECT product_id, warehouse_id, box_factor, factor_source
             FROM analytics.v_warehouse_box_factor WHERE tenant_id=$1),
   -- U.2 — el VEREDICTO DEL PELDAÑO, aquí y no en las pantallas. SIN BACKTICKS ACÁ.
   -- analytics.v_unit_rung_audit contrasta el divisor que usamos (display_bf, del CTE de arriba)
@@ -626,6 +626,13 @@ const cte = (hist, tr, lead) => `
              FROM analytics.v_unit_rung_audit
             WHERE tenant_id=$1 AND veredicto IN ('x1_inflada', 'x2_deflactada'))`;
 
+// [PQ.91] bf es el divisor de la DEMANDA (unidades base de Kepler por caja) y display_bf el de la
+// EXISTENCIA. Donde la ficha de Kepler de esa sucursal dice que NO hay caja (kepler_unidad_unica),
+// las dos viven en la misma unidad base y la caja es 1 para ambas. Con bf del producto (el
+// factor_sale de 40 del 15151 Lico) la demanda salía 40 veces más chica que la existencia y la
+// mesa no pedía: medido 2026-11-07, 282 celdas, 117 que deben pedir contra 42.
+const BF_ROW = `(CASE WHEN db.factor_source = 'kepler_unidad_unica' THEN 1 ELSE e.bf END)`;
+
 const PROJECT = `
     SELECT $1::uuid AS tenant_id, b.warehouse_id, b.product_id, e.sku, e.nombre, e.supplier_id, e.category_id,
            w.source_warehouse_id, COALESCE(w.is_hub, false) AS is_hub,
@@ -637,17 +644,18 @@ const PROJECT = `
                 WHEN w.is_hub THEN COALESCE(cd.eff, 0)
                 ELSE COALESCE(d.daily_pieces, 0) END AS eff_daily,
            COALESCE(s.quantity, 0) AS stock_pz,
-           round(COALESCE(t.t, 0)::numeric, 2) AS transit_cajas,   -- ya viene en CAJAS del CTE tr
+           -- ya viene en CAJAS del CTE tr (cajas de e.bf); se pasan a cajas de bf_row
+           round((COALESCE(t.t, 0) * e.bf / ${BF_ROW})::numeric, 2) AS transit_cajas,
            -- RA-PRO.45: lo mismo pero pesado por P(llega|edad). transit_cajas es lo que dicen los
            -- papeles (lo que el comprador ve y puede rastrear folio por folio); ESTA es la que el
            -- motor descuenta de la necesidad.
-           round(COALESCE(t.te, 0)::numeric, 2) AS transit_eff_cajas,
-           e.suf, e.bf,
+           round((COALESCE(t.te, 0) * e.bf / ${BF_ROW})::numeric, 2) AS transit_eff_cajas,
+           e.suf, ${BF_ROW} AS bf,
            -- Unidades nativas de ESTE almacén por caja. Es el divisor con el que la pantalla
            -- muestra existencia/reorden/máximo; el dato base NO se convierte (ver CTE dbf).
            GREATEST(COALESCE(db.box_factor, e.bf, 1), 1) AS display_bf,
            -- RA-PRO.46: se LEE de Kepler; bf sólo si el SKU no tiene escalera (ver econ).
-           COALESCE(e.lad_box_cost, e.real_cost * e.bf) AS caja_cost,
+           COALESCE(e.lad_box_cost, e.real_cost * ${BF_ROW}) AS caja_cost,
            -- Se DECLARA de dónde salió: kepler = lo dijo el ERP; bf = reconstruido (puede mezclar
            -- peldaños y arrastra el rezago del promedio de 90 d).
            CASE WHEN e.lad_box_cost IS NOT NULL THEN 'kepler' ELSE 'bf' END AS cost_source,

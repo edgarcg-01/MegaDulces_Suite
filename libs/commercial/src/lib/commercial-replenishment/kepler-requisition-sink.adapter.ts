@@ -9,7 +9,7 @@ import type {
 import { DOCTIPOS, coordenada } from './kepler-doctipo';
 import { MARCA_SUITE, plantillaDe, servidoresEncendidos, topeDiario, urlDeServidor } from './kepler-servidores';
 import { piezasEnteras } from './fraccion-caja';
-import { factorFichaKepler } from './ficha-kepler';
+import { factorFichaKepler, frenoFichaSinCaja } from './ficha-kepler';
 
 /** `[PQ.17]` Piezas enteras de un renglón con fracción de caja, o `null` (misma regla que la mesa y el lote). */
 const piezasEnterasDe = (l: { sku: string; cajas: number; piezas_por_caja?: number | null }): number | null =>
@@ -282,32 +282,18 @@ export class KeplerRequisitionSinkAdapter implements KeplerRequisitionSinkPort, 
           }
         }
       }
-      // ⛔ `[PQ.87]` **La ficha de ESTA sucursal manda sobre la caja de la Suite.** Si Kepler dice
-      // que el producto no tiene caja (unidad única, o peldaños que repiten la base) y la Suite lo
-      // pidió en cajas de N, el costo de Kepler es por unidad y la Suite lo dividiría entre N: la
-      // OC 0000346 de Morelia Abastos (2026-11-06) salió con el paquete de Lico a $0.76 contra
-      // $30.45 (÷40). Se rechaza nombrando los SKU; no se adivina cuál de los dos tiene razón.
-      // Y con caja 1 en los dos lados, el renglón va en la unidad base de la ficha, no en `CJA`
-      // (una unidad que esa ficha no tiene).
+      // ⛔ `[PQ.87]` La ficha de ESTA sucursal manda sobre la caja de la Suite: ver `frenoFichaSinCaja`.
       const sinCajaEnKepler = new Set<string>();
       if (!esTraspaso) {
         const fk = await c.query(
           `SELECT btrim(c1) AS sku, c11, c77, c78, c79, c80, c81, c83, c84 FROM md.kdii WHERE btrim(c1) = ANY($1::text[])`,
           [e.lineas.map((l) => l.sku)]);
         const ficha = new Map(fk.rows.map((r) => [String(r.sku), factorFichaKepler(r)]));
-        const choca = e.lineas.filter((l) => ficha.get(l.sku)?.factor === 1 && Number(l.piezas_por_caja) > 1);
-        if (choca.length) {
-          return {
-            estado: 'rechazada',
-            motivo: `En Kepler (sucursal ${e.sucursal}) ${choca.slice(0, 5).map((l) => `${l.sku} se compra por ${ficha.get(l.sku)?.unidad_base ?? 'unidad'}`).join(', ')}${choca.length > 5 ? ` y ${choca.length - 5} más` : ''}, sin caja, y la Suite los pidió en cajas de ${[...new Set(choca.map((l) => l.piezas_por_caja))].join('/')}: el costo saldría dividido. No se escribe; vuelve a capturar esos renglones cuando la mesa los muestre por ${ficha.get(choca[0].sku)?.unidad_base ?? 'unidad'}.`,
-          };
-        }
-        for (const l of e.lineas) {
-          const f = ficha.get(l.sku);
-          if (f?.factor === 1 && Number(l.piezas_por_caja) === 1 && f.unidad_base) {
-            sinCajaEnKepler.add(l.sku);
-            if (!unidadBase.has(l.sku)) unidadBase.set(l.sku, f.unidad_base);
-          }
+        const freno = frenoFichaSinCaja(e.lineas, ficha, e.sucursal);
+        if (freno.motivo) return { estado: 'rechazada', motivo: freno.motivo };
+        for (const [sku, u] of freno.sinCaja) {
+          sinCajaEnKepler.add(sku);
+          if (!unidadBase.has(sku)) unidadBase.set(sku, u);
         }
       }
 
