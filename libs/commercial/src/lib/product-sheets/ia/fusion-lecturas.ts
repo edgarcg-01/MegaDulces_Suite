@@ -137,17 +137,23 @@ export function familiaCara(cara: string): string {
   const c = textoComparable(cara);
   if (c === 'reverso' || c === 'posterior') return 'posterior';
   if (c.startsWith('lateral')) return 'lateral';
+  // Los acercamientos de la captura (primer feedback, 2026-11-07): la foto hecha PARA ese dato.
+  if (c === 'codigo_barras' || c === 'codigo') return 'codigo';
+  if (c.startsWith('detalle')) return 'otra';
   return c;
 }
 
 const FRENTE = ['frente'] as const;
-const ATRAS = ['posterior', 'lateral'] as const;
+/** La tabla y la información de cerca se prefieren a la misma etiqueta vista de lejos en el reverso. */
+const NUTRICION = ['tabla_nutricional', 'posterior', 'lateral'] as const;
+const INFORMACION = ['informacion', 'posterior', 'lateral'] as const;
 const CODIGO = ['codigo'] as const;
 
 /**
  * Cara preferida por campo (sólo desempata confianzas iguales). Lo que pide el plan: identidad y
  * contenido → frente; nutrición, ingredientes, alérgenos, fabricante, origen y conservación → reverso y
- * laterales; el código → la cara del código. ⚠️ Agregado aquí (el plan no lo dice): `piezas` y
+ * laterales, y ANTES que ellos su acercamiento (`tabla_nutricional`, `informacion`, 2026-11-07); el código → la
+ * cara del código (`codigo_barras` en la captura). ⚠️ Agregado aquí (el plan no lo dice): `piezas` y
  * `contenido_por_pieza` van con el contenido neto (frente), `empaque` también (es la cara que mejor lo
  * muestra), y los sellos y leyendas de NOM-051 al frente (ahí los exige la norma). En los arreglos el
  * orden sólo decide el orden de la unión.
@@ -156,8 +162,8 @@ export const CARA_PREFERIDA: Record<NombreCampo, readonly string[]> = {
   marca: FRENTE, nombre_comercial: FRENTE, denominacion: FRENTE, variante: FRENTE, edicion: FRENTE,
   contenido_neto: FRENTE, piezas: FRENTE, contenido_por_pieza: FRENTE, empaque: FRENTE,
   sellos_nom051: FRENTE, leyendas_nom051: FRENTE,
-  nutricion: ATRAS, ingredientes: ATRAS, alergenos: ATRAS, puede_contener: ATRAS, alergenos_otros: ATRAS,
-  fabricante: ATRAS, pais_origen: ATRAS, conservacion: ATRAS,
+  nutricion: NUTRICION, ingredientes: INFORMACION, alergenos: INFORMACION, puede_contener: INFORMACION, alergenos_otros: INFORMACION,
+  fabricante: INFORMACION, pais_origen: INFORMACION, conservacion: INFORMACION,
   codigo_barras_visible: CODIGO,
 };
 

@@ -20,7 +20,13 @@ import { DocViewerComponent, type DocViewerFile } from '../../../shared/componen
 import { CATALOGO_TABS } from '../catalogo-tabs';
 import { CatalogoDigitalService } from '../catalogo-digital.service';
 
-const CARA: Record<string, string> = { frente: 'Frente', reverso: 'Reverso', lateral_izq: 'Lado izq.', lateral_der: 'Lado der.', base: 'Base' };
+const CARA: Record<string, string> = {
+  frente: 'Frente', reverso: 'Reverso', lateral_izq: 'Lado izq.', lateral_der: 'Lado der.', base: 'Base',
+  tabla_nutricional: 'Tabla nutrimental', informacion: 'Información', codigo_barras: 'Código de barras',
+};
+/** Qué muestra un detalle (`detalle_n`), como lo eligió quien lo tomó. */
+const DETALLE: Record<string, string> = { caducidad: 'Caducidad o lote', sellos: 'Sellos o advertencias', promocion: 'Promoción impresa', otro: 'Otra cosa' };
+const ACERCAMIENTOS: readonly string[] = ['tabla_nutricional', 'informacion', 'codigo_barras'];
 const PALABRA: Record<string, string> = { PZA: 'pieza', PAQ: 'paquete', CJA: 'caja', BTO: 'bulto', CUB: 'cubeta', KG: 'kilo' };
 const MOTIVOS: RevisionMotivo[] = ['sin_analizar', 'caras_saltadas', 'entro_por_busqueda', 'foto_repetida'];
 
@@ -332,15 +338,15 @@ export function lineaIa(ai: FichaPublicada['ai_reading']): string {
       <div class="cd-fotos">
         @for (p of f.photos; track p.face) {
           @if (p.url) {
-            <button type="button" class="cd-foto" (click)="ampliar(f, p.face)" [attr.aria-label]="'Ampliar ' + caraTexto(p.face)">
-              <img [src]="p.url" [alt]="caraTexto(p.face) + ' de ' + (f.name ?? f.sku)" loading="lazy" />
-              <span>{{ caraTexto(p.face) }}</span>
+            <button type="button" class="cd-foto" (click)="ampliar(f, p.face)" [attr.aria-label]="'Ampliar ' + fotoTexto(p)">
+              <img [src]="p.url" [alt]="fotoTexto(p) + ' de ' + (f.name ?? f.sku)" loading="lazy" />
+              <span>{{ fotoTexto(p) }}</span>
             </button>
           } @else if (p.skipped_reason) {
-            <div class="cd-foto cd-foto-sin"><span>{{ caraTexto(p.face) }}</span><small>Saltada: {{ saltoTexto(p.skipped_reason) }}</small></div>
+            <div class="cd-foto cd-foto-sin"><span>{{ fotoTexto(p) }}</span><small>Saltada: {{ saltoTexto(p.skipped_reason, p.face) }}</small></div>
           } @else {
             <!-- La foto existe pero el servidor no la pudo firmar (p. ej. sin almacenamiento configurado): no es un salto. -->
-            <div class="cd-foto cd-foto-sin"><span>{{ caraTexto(p.face) }}</span><small>Guardada, no se puede mostrar aquí</small></div>
+            <div class="cd-foto cd-foto-sin"><span>{{ fotoTexto(p) }}</span><small>Guardada, no se puede mostrar aquí</small></div>
           }
         }
       </div>
@@ -682,7 +688,7 @@ export class ComprasCatalogoDigitalComponent implements OnInit {
     const conFoto = f.photos.filter((p): p is RevisionFoto & { url: string } => !!p.url);
     this.visor.set({
       titulo: nombre,
-      files: conFoto.map((p) => ({ url: p.url, role: this.caraTexto(p.face), name: this.caraTexto(p.face) + ' de ' + nombre, kind: 'image' })),
+      files: conFoto.map((p) => ({ url: p.url, role: this.fotoTexto(p), name: this.fotoTexto(p) + ' de ' + nombre, kind: 'image' })),
     });
     this.visorIdx.set(Math.max(0, conFoto.findIndex((p) => p.face === cara)));
   }
@@ -758,10 +764,15 @@ export class ComprasCatalogoDigitalComponent implements OnInit {
   protected texto(m: RevisionMotivo): string { return REVISION_MOTIVO_TEXTO[m]; }
   protected sucursal(f: { branch_name: string | null; branch_code: string }): string { return nombreSucursal(f); }
   protected ia(ai: FichaPublicada['ai_reading']): string { return lineaIa(ai); }
-  protected caraTexto(c: string): string { return CARA[c] ?? c; }
+  /** El nombre de la foto: su cara o acercamiento; un detalle, por lo que muestra (con la nota si la hay). */
+  protected fotoTexto(p: Pick<RevisionFoto, 'face' | 'detail'>): string {
+    if (p.detail) return 'Detalle · ' + (p.detail.note || DETALLE[p.detail.kind] || 'otra cosa');
+    return CARA[p.face] ?? p.face;
+  }
   protected motivosTexto(f: RevisionFicha): string { return f.reasons.map((m) => REVISION_MOTIVO_TEXTO[m]).join(' · ') || 'Revisión normal'; }
-  protected saltoTexto(m: string | null): string {
-    return m === 'no_tiene_esa_cara' ? 'no tiene esa cara' : m === 'no_se_puede_girar' ? 'no se puede girar' : 'otro motivo';
+  protected saltoTexto(m: string | null, cara = ''): string {
+    if (m === 'no_tiene_esa_cara') return ACERCAMIENTOS.includes(cara) ? 'no la trae' : 'no tiene esa cara';
+    return m === 'no_se_puede_girar' ? 'no se puede girar' : 'otro motivo';
   }
   protected unidad(label: string | null | undefined, factor: number | null | undefined): string {
     const r = String(label ?? '').trim().toUpperCase();
@@ -776,7 +787,7 @@ export class ComprasCatalogoDigitalComponent implements OnInit {
     const fotos = f.photos.length - saltos;
     const sinMostrar = f.photos.filter((p) => !p.skipped_reason && !p.url).length;
     const partes = [fotos + ' foto' + (fotos === 1 ? '' : 's') + ' de ' + this.unidad(f.unit_label, f.unit_factor)];
-    if (saltos) partes.push(saltos + ' cara' + (saltos === 1 ? '' : 's') + ' saltada' + (saltos === 1 ? '' : 's'));
+    if (saltos) partes.push(saltos + ' saltada' + (saltos === 1 ? '' : 's'));
     if (sinMostrar) partes.push(sinMostrar + ' no se ' + (sinMostrar === 1 ? 'puede' : 'pueden') + ' mostrar aquí');
     if (!f.scanned_code) partes.push('entró por el buscador: revisa que sea el producto');
     else if (f.kepler_codes.length && !f.kepler_codes.includes(f.scanned_code)) partes.push('el código escaneado no está en esta unidad en Kepler');

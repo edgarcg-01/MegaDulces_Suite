@@ -1,8 +1,9 @@
 // Sin `import ... from 'vitest'`: la config usa `globals: true`.
+import { LEVANTAMIENTO_CARAS } from '@megadulces/contracts';
 import type { ResultadoEscaneo } from '../shared/kdii-codigo';
 import {
   apartadoALiberar, apartadoVivo, decidirEscaneo, decidirRevision, estadoTrasFoto, motivosDeRevision, nombreUnidad, nuevoApartado, peldanoPrincipal,
-  caraResuelta, sinFotoReal, type EntradaEscaneo, type FotoFicha,
+  caraResuelta, esDetalle, notaDetalle, ordenDeFoto, porQueNoDetalle, sinFotoReal, type EntradaEscaneo, type FotoFicha,
 } from './levantamiento.rules';
 
 const AHORA = new Date('2026-11-03T16:00:00Z');
@@ -96,26 +97,44 @@ describe('fotos · cuándo queda completa la unidad principal', () => {
     peldano: 'base', cara, storage_key: `k/${cara}.jpg`, sha256: `sha-${cara}`, captured_by: 'ana', captured_at: AHORA.toISOString(),
     saltada_motivo: null, calidad: null, ancho: 1200, alto: 1600, por_busqueda: false, ...p,
   });
-  const cinco = ['frente', 'reverso', 'lateral_izq', 'lateral_der', 'base'].map((c) => foto(c));
+  const todas = [...LEVANTAMIENTO_CARAS].map((c) => foto(c));
 
-  it('5 caras → fotos_tomadas; 4 → sigue en_captura', () => {
-    expect(estadoTrasFoto(cinco, 'base')).toBe('fotos_tomadas');
-    expect(estadoTrasFoto(cinco.slice(0, 4), 'base')).toBe('en_captura');
+  it('las 8 (5 caras + 3 acercamientos) → fotos_tomadas; 7 → sigue en_captura', () => {
+    expect(todas.map((f) => f.cara)).toEqual([
+      'frente', 'reverso', 'lateral_izq', 'lateral_der', 'base', 'tabla_nutricional', 'informacion', 'codigo_barras',
+    ]);
+    expect(estadoTrasFoto(todas, 'base')).toBe('fotos_tomadas');
+    expect(estadoTrasFoto(todas.slice(0, 7), 'base')).toBe('en_captura');
+    // Las 5 caras de antes ya no bastan: faltan los acercamientos (primer feedback de quien captura, 2026-11-07).
+    expect(estadoTrasFoto(todas.slice(0, 5), 'base')).toBe('en_captura');
+  });
+
+  it('un acercamiento que el empaque no trae se salta con motivo y completa igual (manda a revisión)', () => {
+    const sinTabla = todas.map((f) => (f.cara === 'tabla_nutricional' ? foto('tabla_nutricional', { storage_key: null, sha256: null, saltada_motivo: 'no_tiene_esa_cara' }) : f));
+    expect(estadoTrasFoto(sinTabla, 'base')).toBe('fotos_tomadas');
+    expect(motivosDeRevision(sinTabla, 'base')).toEqual(['caras_saltadas']);
+  });
+
+  it('⭐ los detalles NO cuentan para terminar: 7 obligatorias + 3 detalles sigue en_captura', () => {
+    const conDetalles = [...todas.slice(0, 7), foto('detalle_1'), foto('detalle_2'), foto('detalle_3')];
+    expect(estadoTrasFoto(conDetalles, 'base')).toBe('en_captura');
+    // Control: con la octava sí termina, con o sin detalles.
+    expect(estadoTrasFoto([...conDetalles, todas[7]], 'base')).toBe('fotos_tomadas');
   });
 
   it('una cara saltada con motivo cuenta como resuelta, pero manda a revisión', () => {
-    const conSalto = [...cinco.slice(0, 4), foto('base', { storage_key: null, sha256: null, saltada_motivo: 'no_se_puede_girar' })];
+    const conSalto = [...todas.slice(0, 7), foto('codigo_barras', { storage_key: null, sha256: null, saltada_motivo: 'no_se_puede_girar' })];
     expect(estadoTrasFoto(conSalto, 'base')).toBe('fotos_tomadas');
     expect(motivosDeRevision(conSalto, 'base')).toEqual(['caras_saltadas']);
   });
 
   it('⛔ el frente sólo se resuelve con FOTO: un salto del frente (anterior a la regla) no completa la ficha', () => {
-    const frenteSaltado = [foto('frente', { storage_key: null, sha256: null, saltada_motivo: 'no_tiene_esa_cara' }), ...cinco.slice(1)];
+    const frenteSaltado = [foto('frente', { storage_key: null, sha256: null, saltada_motivo: 'no_tiene_esa_cara' }), ...todas.slice(1)];
     expect(caraResuelta(frenteSaltado[0])).toBe(false);
     expect(estadoTrasFoto(frenteSaltado, 'base')).toBe('en_captura');
     // Control: otra cara saltada sí se resuelve, y el frente con foto también.
     expect(caraResuelta(foto('reverso', { storage_key: null, sha256: null, saltada_motivo: 'otro' }))).toBe(true);
-    expect(caraResuelta(cinco[0])).toBe(true);
+    expect(caraResuelta(todas[0])).toBe(true);
   });
 
   it('⭐ las 5 caras saltadas = sin ninguna foto real (la primera captura en prod llegó así a «Por revisar»)', () => {
@@ -128,13 +147,51 @@ describe('fotos · cuándo queda completa la unidad principal', () => {
   });
 
   it('prueba negativa: fotos de OTRO peldaño no completan la principal', () => {
-    expect(estadoTrasFoto(cinco.map((f) => ({ ...f, peldano: 'dos' as const })), 'base')).toBe('en_captura');
+    expect(estadoTrasFoto(todas.map((f) => ({ ...f, peldano: 'dos' as const })), 'base')).toBe('en_captura');
   });
 
   it('foto repetida (mismo sha256) y entrada por búsqueda → motivos de revisión', () => {
-    const rep = [...cinco.slice(0, 4), foto('base', { sha256: 'sha-frente', por_busqueda: true })];
+    const rep = [...todas.slice(0, 7), foto('codigo_barras', { sha256: 'sha-frente', por_busqueda: true })];
     expect(motivosDeRevision(rep, 'base')).toEqual(['entro_por_busqueda', 'foto_repetida']);
-    expect(motivosDeRevision(cinco, 'base')).toEqual([]);
+    expect(motivosDeRevision(todas, 'base')).toEqual([]);
+  });
+});
+
+describe('detalles · hasta 3 fotos libres, después de terminar', () => {
+  const capturo = { by: 'ana', at: AHORA.toISOString() };
+  const en = (min: number) => new Date(AHORA.getTime() + min * 60_000);
+
+  it('esDetalle: sólo detalle_1..3', () => {
+    expect(['detalle_1', 'detalle_2', 'detalle_3'].every(esDetalle)).toBe(true);
+    expect(esDetalle('detalle_4')).toBe(false);
+    expect(esDetalle('frente')).toBe(false);
+    expect(esDetalle('tabla_nutricional')).toBe(false);
+  });
+
+  it('se puede: terminada (en revisión), quien la terminó, dentro de 30 min', () => {
+    for (const s of ['fotos_tomadas', 'analizada', 'por_revisar']) expect(porQueNoDetalle(s, capturo, 'ana', en(29))).toBeNull();
+  });
+
+  it('no se puede: a media captura, ya revisada, otra persona, fuera de la ventana o sin quién terminó', () => {
+    expect(porQueNoDetalle('en_captura', capturo, 'ana', en(1))?.tipo).toBe('conflicto');
+    expect(porQueNoDetalle('publicada', capturo, 'ana', en(1))?.tipo).toBe('conflicto');
+    expect(porQueNoDetalle('recapturar', capturo, 'ana', en(1))?.tipo).toBe('conflicto');
+    expect(porQueNoDetalle('por_revisar', capturo, 'beto', en(1))?.tipo).toBe('prohibido');
+    expect(porQueNoDetalle('por_revisar', capturo, 'ana', en(31))?.tipo).toBe('conflicto');
+    expect(porQueNoDetalle('por_revisar', null, 'ana', en(1))?.tipo).toBe('prohibido');
+    expect(porQueNoDetalle('por_revisar', { by: 'ana', at: null }, 'ana', en(1))?.tipo).toBe('conflicto');
+  });
+
+  it('la nota: recortada a 60, sin saltos de línea, vacía = null', () => {
+    expect(notaDetalle('  hecho en \n Colombia ')).toBe('hecho en Colombia');
+    expect(notaDetalle('x'.repeat(80))).toHaveLength(60);
+    expect(notaDetalle('   ')).toBeNull();
+    expect(notaDetalle(undefined)).toBeNull();
+  });
+
+  it('orden para mostrar: caras, acercamientos, detalles y lo desconocido al final', () => {
+    const orden = ['detalle_2', 'xyz', 'codigo_barras', 'frente', 'detalle_1', 'base'].sort((a, b) => ordenDeFoto(a) - ordenDeFoto(b));
+    expect(orden).toEqual(['frente', 'base', 'codigo_barras', 'detalle_1', 'detalle_2', 'xyz']);
   });
 });
 
