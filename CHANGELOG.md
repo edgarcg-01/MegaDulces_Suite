@@ -30,11 +30,16 @@
 - Viaja sola al pago: al «Preparar» se ve en la cuenta que se elige, y queda en el destino que imprime la instrucción a Caja General.
 - Un cambio de cuenta que no traiga el campo **conserva** la referencia vigente; dejarla en blanco la quita.
 - ⚠️ Migración `20261106172407` en prod **antes** de soltar.
+### Changed — Existencia › Consulta históricos: el CEDIS congelado se reconstruye con el kardex de Kepler (EX.H4, 2026-11-07 · en código, sin soltar)
+- Del **30 de septiembre** (el día que el CEDIS pasó a Kepler) hasta que la foto empezó a leer la existencia del ERP, el CEDIS ya **no sale «no confiable»**: su existencia de cada cierre se calcula con el kardex de Kepler —la de hoy menos lo que se movió después de ese día, sin documentos cancelados— y **entra al total del día**. Por eso el total de esos días sube: antes no sumaba al CEDIS.
+- Del **24 al 29 de septiembre** sigue «no confiable»: el CEDIS operaba en Wincaja y esa existencia no casa con la que se cargó en Kepler. La pantalla lo dice con la fecha.
+- Un aviso arriba de la tabla dice qué cierres se reconstruyeron; la celda y el desglose lo dicen también, y el desglose suma lo mismo que la celda.
+- La cifra reconstruida puede moverse un poco si Kepler registra después un movimiento con fecha atrasada.
 ### Added — Existencia: «Consulta históricos», el valor del inventario por sucursal al cierre de cada día (EX.H1 + EX.H2, 2026-11-06 · en código, sin soltar)
 - Nuevo botón **«Consulta históricos»** arriba a la derecha de Existencia (en Almacén y en Compras). Reemplaza la hoja de Google de inventario por sucursal de Compras, con el mismo acomodo: sucursales en renglones, cierres en columnas y el total abajo.
 - Se filtra por **rango de fechas** y por **sucursales**, y se ve por **días, semanas o meses** (domingos o fin de mes, para que un año quepa en pocas columnas).
 - Valuado a **costo estándar de Kepler, sin impuesto**. Cada cifra se abre: muestra los productos de esa sucursal ese día, con su existencia, su costo y su valor, y suman lo mismo que la celda.
-- Lo que no se sabe se dice en la celda: **sin foto**, **pendiente** (el cierre de hoy se fotografía a las 23:50), **no confiable** (el CEDIS antes del arreglo de la foto). Los productos sin costo o con unidad dudosa se cuentan aparte y no se suman. El total nombra las sucursales que no sumó.
+- Lo que no se sabe se dice en la celda: **sin foto**, **pendiente** (el cierre de hoy se fotografía a las 23:50), **no confiable** (el CEDIS del 24 al 29-sep, cuando operaba en Wincaja; ver EX.H4). Los productos sin costo o con unidad dudosa se cuentan aparte y no se suman. El total nombra las sucursales que no sumó.
 - Mismo permiso que Existencia: quien ve el valor de hoy ve su historia.
 ### Fixed — Inventario: la foto diaria toma el CEDIS real y guarda el costo de cada día (EX.H0, 2026-11-06 · en código, sin soltar)
 - La foto de inventario de las 23:50 lee ahora la **misma existencia que la pantalla Existencia**. Hasta hoy leía otra tabla y el **CEDIS salía congelado**: repetía el mismo saldo todos los días (205 productos contra los 304 que tiene).
