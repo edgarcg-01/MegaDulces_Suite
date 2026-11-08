@@ -66,6 +66,37 @@ export function factorFichaKepler(f: FilaFichaKepler): { unidad_base: string | n
 }
 
 /**
+ * ⛔ `[PQ.87]` **La ficha de la sucursal donde se escribe manda sobre la caja de la Suite** (compra).
+ * Si Kepler dice que el producto no tiene caja (factor 1) y la Suite lo pidió en cajas de N, el
+ * costo de Kepler es por unidad y la Suite lo dividiría entre N: la OC 0000346 de Morelia Abastos
+ * (2026-11-06) salió con el paquete de Lico a $0.76 contra $30.45 (÷40). Se rechaza nombrando los
+ * SKU; no se adivina cuál de los dos tiene razón. Con caja 1 en los dos lados, el renglón va en la
+ * unidad base de la ficha (`sinCaja`: sku → unidad), no en `CJA`, que esa ficha no tiene.
+ * `[PQ.91]` Sin factor de la Suite cuenta como 1, igual que en la mesa (`GREATEST(COALESCE(bf, 1), 1)`).
+ */
+export function frenoFichaSinCaja(
+  lineas: ReadonlyArray<{ sku: string; piezas_por_caja?: number | null }>,
+  ficha: ReadonlyMap<string, { unidad_base: string | null; factor: number | null }>,
+  sucursal: string,
+): { motivo: string | null; sinCaja: Map<string, string> } {
+  const ppc = (l: { piezas_por_caja?: number | null }): number => (Number(l.piezas_por_caja) > 0 ? Number(l.piezas_por_caja) : 1);
+  const choca = lineas.filter((l) => ficha.get(l.sku)?.factor === 1 && ppc(l) > 1);
+  if (choca.length) {
+    const unidad = (sku: string): string => ficha.get(sku)?.unidad_base ?? 'unidad';
+    return {
+      motivo: `En Kepler (sucursal ${sucursal}) ${choca.slice(0, 5).map((l) => `${l.sku} se compra por ${unidad(l.sku)}`).join(', ')}${choca.length > 5 ? ` y ${choca.length - 5} más` : ''}, sin caja, y la Suite los pidió en cajas de ${[...new Set(choca.map(ppc))].join('/')}: el costo saldría dividido. No se escribe; vuelve a capturar esos renglones cuando la mesa los muestre por ${unidad(choca[0].sku)}.`,
+      sinCaja: new Map(),
+    };
+  }
+  const sinCaja = new Map<string, string>();
+  for (const l of lineas) {
+    const f = ficha.get(l.sku);
+    if (f?.factor === 1 && f.unidad_base) sinCaja.set(l.sku, f.unidad_base);
+  }
+  return { motivo: null, sinCaja };
+}
+
+/**
  * `[COT.7]` Cuántas unidades base trae la presentación `rotuloPres` según la ficha: 1 si es la
  * base (`c11`), el factor efectivo de la Unidad Dos (`c80`) o de la Tres (`c83`) si el rótulo es
  * el suyo, y `null` si la ficha no declara esa presentación. Con la misma regla de factor efectivo
