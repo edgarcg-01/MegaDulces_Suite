@@ -1,5 +1,8 @@
 import type { Knex } from 'knex';
-import { CADUCIDAD_UNIDADES, esCaducidadUnidad, unidadDesdeKepler, type CaducidadUnidad } from '@megadulces/contracts';
+import {
+  CADUCIDAD_UNIDADES, esCaducidadUnidad, unidadDesdeKepler, unidadesDesdePresentaciones,
+  type CaducidadUnidad, type CaducidadUnidadesProducto,
+} from '@megadulces/contracts';
 import {
   Injectable,
   BadRequestException,
@@ -1454,6 +1457,55 @@ export class CommercialExpiryReviewsService {
         .orderBy('p.nombre', 'asc')
         .limit(Math.min(50, Math.max(1, Number(limit) || 12)));
       return { data };
+    });
+  }
+
+  /**
+   * `[P2.9 paso 3]` En qué unidades se puede contar ESTE producto (D3: el selector se filtra).
+   *
+   * Sale de `analytics.v_label_presentations` (base + ranuras + escalera de Kepler), la misma
+   * lista que imprime la etiqueta: no se vuelve a leer `kdii` a mano. Va en su propio endpoint
+   * y NO dentro de `resolveCode`: la vista tarda ~250 ms por SKU (medido 2026-11-07) y el
+   * escaneo dispara solo (#472) — el producto se fija al instante y el selector se acota después.
+   *
+   * Plaza = el `code` del almacén (las hojas sólo se levantan en almacenes de 2 dígitos). Si esa
+   * plaza no publica el SKU, se toma la primera que sí y se dice (`otra_plaza`). Si ninguna, o la
+   * lectura falla, `unidades: null` con su `motivo`: la pantalla ofrece las 7, nunca cero.
+   */
+  async unidadesProducto(rawSku: string, warehouseId?: string): Promise<CaducidadUnidadesProducto> {
+    const sku = String(rawSku || '').trim();
+    if (!/^[A-Za-z0-9._-]{1,32}$/.test(sku)) throw new BadRequestException('sku inválido');
+    if (warehouseId && !UUID_REGEX.test(warehouseId)) throw new BadRequestException('warehouse_id inválido');
+
+    return this.tk.run(async (trx) => {
+      const w = warehouseId ? await trx('commercial.warehouses').where({ id: warehouseId }).first('code') : null;
+      const plazaPedida = /^[0-9]{2}$/.test(String(w?.code ?? '')) ? String(w!.code) : null;
+      const vacio = (motivo: CaducidadUnidadesProducto['motivo']): CaducidadUnidadesProducto =>
+        ({ sku, plaza: null, otra_plaza: false, unidades: null, base: null, fuera_de_las_7: [], motivo });
+      try {
+        // SAVEPOINT: si la vista no existe o tarda, la captura sigue con las 7.
+        const rows = await trx.transaction(async (sp) => {
+          await sp.raw(`SET LOCAL statement_timeout = '5s'`);
+          const r = await sp.raw(
+            `SELECT sucursal, unidad, factor, origen
+               FROM analytics.v_label_presentations
+              WHERE sku = ? ${plazaPedida ? 'AND sucursal = ?' : ''}`,
+            plazaPedida ? [sku, plazaPedida] : [sku],
+          );
+          if (r.rows?.length || !plazaPedida) return r.rows ?? [];
+          return (await sp.raw(
+            `SELECT sucursal, unidad, factor, origen FROM analytics.v_label_presentations WHERE sku = ?`, [sku],
+          )).rows ?? [];
+        }) as Array<{ sucursal: string; unidad: string | null; factor: string | number | null; origen: string }>;
+        if (!rows.length) return vacio('sin_presentaciones');
+        const plaza = rows.some((r) => r.sucursal === plazaPedida) ? plazaPedida! : rows.map((r) => r.sucursal).sort()[0];
+        const t = unidadesDesdePresentaciones(rows.filter((r) => r.sucursal === plaza));
+        // Sin almacén (aún no se elige sucursal) no hay «otra» plaza: no se pidió ninguna.
+        return { sku, plaza, otra_plaza: plazaPedida != null && plaza !== plazaPedida, ...t, motivo: 'ok' };
+      } catch (e) {
+        this.logger.warn(`[P2.9 paso 3] unidades de ${sku}: no se pudo leer v_label_presentations (${(e as Error).message})`);
+        return vacio('sin_lectura');
+      }
     });
   }
 

@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Changed — Caducidades: el selector ofrece sólo las unidades del producto (P2.9 paso 3, 2026-11-07)
+- Al elegir un producto, los botones de unidad muestran **sólo las que el producto tiene en Kepler** (base, unidades alternas y escalera de mayoreo, de la sucursal donde se captura), con **«Otra unidad»** para abrir las 7. La unidad sugerida es la **base del producto**, no «pieza».
+- Si Kepler no publica las unidades del producto, se ofrecen las 7 y se dice; ya no queda marcada la unidad del producto anterior. «La unidad» pasa a ser obligatoria para guardar.
+- Fixed: el detalle de la hoja en Almacén mostraba «pz» para paquete, 250 g y 500 g.
+
 ### Changed — Verificador de precios: el mostrador (VAC.U16, 2026-11-07 · en código, sin soltar)
 - Logo 50 % más grande; el pie (productos escaneados y respaldo) al 80 % de opacidad.
 - En **modo kiosco** (lo que ve la clienta) ya no se pinta la frescura del ERP; fuera de kiosco el operador la sigue viendo, medida o «sin medir».

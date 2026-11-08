@@ -18,7 +18,8 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { ProductSearchComponent, ProductHit } from '../components/product-search.component';
 import { ProductScanFieldComponent } from '../components/product-scan-field.component';
 import { estadoFefo, formatCantidad, EstadoFefo } from '../expiry-plazo';
-import { CADUCIDAD_UNIDADES_DEF, caducidadUnidadDef, type CaducidadUnidad } from '@megadulces/contracts';
+import { CADUCIDAD_UNIDADES_DEF, caducidadUnidadDef, unidadEnTexto, unidadesOfrecidas, type CaducidadUnidad, type CaducidadUnidadesProducto } from '@megadulces/contracts';
+import type { Subscription } from 'rxjs';
 
 type Condition = 'bueno' | 'regular' | 'malo';
 type LineUnit = CaducidadUnidad;
@@ -126,9 +127,14 @@ const PLAZO_INTERMEDIO_DIAS = 90;
                   <p-inputnumber [(ngModel)]="qty" [min]="0" [showButtons]="true" buttonLayout="horizontal" styleClass="erd-full"
                     incrementButtonIcon="pi pi-plus" decrementButtonIcon="pi pi-minus"></p-inputnumber>
                   <div class="erd-units" role="radiogroup" aria-label="Unidad de medida">
-                    @for (u of units; track u.value) {
-                      <button type="button" class="erd-unit" role="radio" [attr.aria-checked]="unit() === u.value"
-                        [class.on]="unit() === u.value" (click)="pickUnit(u.value)" [title]="u.hint">{{ u.label }}</button>
+                    @for (u of ofrecidas(); track u.codigo) {
+                      <button type="button" class="erd-unit" role="radio" [attr.aria-checked]="unit() === u.codigo"
+                        [class.on]="unit() === u.codigo" (click)="pickUnit(u.codigo)">{{ u.etiqueta }}</button>
+                    }
+                    @if (filtradas()) {
+                      <button type="button" class="erd-unit erd-unit--otra" (click)="verTodasUnidades.set(true)">
+                        <i class="pi pi-plus" aria-hidden="true"></i> Otra unidad
+                      </button>
                     }
                   </div>
                 </div>
@@ -225,7 +231,7 @@ const PLAZO_INTERMEDIO_DIAS = 90;
               <div class="erd-line-main">
                 <div class="erd-line-name">{{ l.product_name || l.product_name_raw || l.product_code_raw || 'Producto' }}</div>
                 <div class="erd-line-meta">
-                  <span class="erd-qty">{{ l.quantity | number }} {{ unitLabel(l.unit) }}</span>
+                  <span class="erd-qty">{{ l.quantity | number }} {{ unitLabel(l.quantity, l.unit) }}</span>
                   @if (l.expiry_date) {
                     <span class="erd-exp">Vence {{ fmtDate(l.expiry_date) }}</span>
                     <p-tag [value]="dayLabel(l.expiry_date)" [severity]="daySeverity(l.expiry_date)"></p-tag>
@@ -342,6 +348,8 @@ const PLAZO_INTERMEDIO_DIAS = 90;
       padding: .4rem .6rem; font-size: .78rem; font-weight: 600; cursor: pointer; color: var(--text-muted); }
     .erd-unit:last-child { border-right: 0; }
     .erd-unit.on { background: var(--overlay-selected, rgba(0,0,0,.06)); color: var(--text-main); }
+    /* «Otra unidad» es una salida, no una unidad más. */
+    .erd-unit--otra { color: var(--text-muted); font-style: italic; }
     .erd-unit:focus-visible { outline: 2px solid var(--action, #c2410c); outline-offset: -2px; }
     /* Plazo — el veredicto que da el sistema desde la fecha */
     .erd-plazo { display: flex; align-items: center; gap: .4rem; margin-top: .35rem; font-size: .78rem; }
@@ -392,7 +400,20 @@ const PLAZO_INTERMEDIO_DIAS = 90;
 })
 export class ComercialExpiryReviewDetailComponent {
   /** [P2.9 paso 1] Las 7 unidades salen del contrato (`caducidad-unidad`), no de una lista local. */
-  readonly units: { label: string; value: LineUnit; hint: string }[] = CADUCIDAD_UNIDADES_DEF.map((d) => ({ label: d.etiqueta, value: d.codigo, hint: d.pista }));
+  /**
+   * `[P2.9 paso 3]` D3 — sólo las unidades del producto (presentaciones de Kepler) más la marcada,
+   * con la salida «Otra unidad». `null` = no se sabe → las 7.
+   */
+  readonly unidadesProd = signal<CaducidadUnidadesProducto | null>(null);
+  readonly verTodasUnidades = signal(false);
+  private unidadesSub: Subscription | null = null;
+  readonly ofrecidas = computed(() => {
+    const prod = this.unidadesProd();
+    const todas = this.verTodasUnidades();
+    const actual = this.unit();
+    return unidadesOfrecidas(prod, todas, [actual]);
+  });
+  readonly filtradas = computed(() => this.ofrecidas().length < CADUCIDAD_UNIDADES_DEF.length);
 
   readonly conditions: { label: string; value: Condition }[] = [
     { label: 'Bueno', value: 'bueno' },
@@ -512,7 +533,23 @@ export class ComercialExpiryReviewDetailComponent {
     this.scanHit.set(null);
     this.scanCandidates.set([]);
     this.scanMiss.set(null);
+    this.cargarUnidades(p?.sku || null);
     this.suggestUnit();
+  }
+
+  /**
+   * `[P2.9 paso 3]` Las unidades del producto en la plaza de esta hoja. Al llegar, se vuelve a
+   * sugerir (la base del producto le gana a la heurística «caja/pieza», no al código ni a la mano).
+   */
+  private cargarUnidades(sku: string | null): void {
+    this.unidadesSub?.unsubscribe();
+    this.unidadesSub = null;
+    this.unidadesProd.set(null);
+    this.verTodasUnidades.set(false);
+    if (!sku) return;
+    this.unidadesSub = this.svc.expiryUnidadesProducto(sku, this.review()?.warehouse_id || null)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (r) => { this.unidadesProd.set(r); this.suggestUnit(); }, error: () => undefined });
   }
 
   /** El código de anaquel manda sobre la sugerencia: al teclearlo se re-evalúa. */
@@ -520,7 +557,7 @@ export class ComercialExpiryReviewDetailComponent {
     this.codeRaw.set(v);
     // Editar el código invalida el match anterior: lo que se ve tiene que ser
     // lo que está en el campo, no el producto de hace dos disparos.
-    if (this.scanHit()) { this.scanHit.set(null); this.productId.set(null); this.nameRaw.set(''); this.unitFromScan = null; }
+    if (this.scanHit()) { this.scanHit.set(null); this.productId.set(null); this.nameRaw.set(''); this.unitFromScan = null; this.cargarUnidades(null); }
     this.scanCandidates.set([]);
     this.scanMiss.set(null);
     this.suggestUnit();
@@ -603,6 +640,7 @@ export class ComercialExpiryReviewDetailComponent {
     // etiqueta se escaneó, y con multi-barcode el de caja y el de pieza difieren.
     this.unitFromScan = h.unit_hint;
     this.scanMiss.set(null);
+    this.cargarUnidades(h.sku);
     this.suggestUnit();
     this.refocusTick.update((n) => n + 1);
   }
@@ -688,6 +726,7 @@ export class ComercialExpiryReviewDetailComponent {
     this.observations = ''; this.action = ''; this.pendingPhoto.set(null);
     this.photoFailed.set(false); this.previewBroken.set(false);
     this.unitTouched = false; this.unit.set('caja');
+    this.cargarUnidades(null);
   }
 
   removeLine(l: ExpiryReviewLine) {
@@ -765,14 +804,12 @@ export class ComercialExpiryReviewDetailComponent {
 
   // ── Unidad de medida ──────────────────────────────────────────────────────
 
-  unitLabel(u: string | null | undefined): string {
-    switch (u) {
-      case 'caja': return 'cajas';
-      case 'bulto': return 'bultos';
-      case 'kg': return 'kg';
-      case 'pieza': return 'pz';
-      default: return 'pz'; // renglones anteriores a la columna
-    }
+  /**
+   * `[P2.9 paso 3]` El plural sale del contrato. La lista a mano que había aquí sólo conocía 4
+   * unidades: desde el paso 2 (en prod el 2026-11-04) un renglón en «paquete» se leía «3 pz».
+   */
+  unitLabel(q: number | string | null | undefined, u: string | null | undefined): string {
+    return unidadEnTexto(q, u);
   }
 
   /**
@@ -786,6 +823,9 @@ export class ComercialExpiryReviewDetailComponent {
     //    Manda sobre todo lo demás porque no es una corazonada: es el dato del
     //    catálogo sobre esa etiqueta en particular.
     if (this.unitFromScan) { this.unit.set(this.unitFromScan); return; }
+    // 1b) [P2.9 paso 3] La unidad BASE del producto en Kepler: es un dato, no una corazonada.
+    const base = this.unidadesProd()?.unidades?.find((u) => u.base);
+    if (base) { this.unit.set(base.codigo); return; }
     // 2) Heurística histórica, ahora solo para códigos que el catálogo no conoce.
     const code = (this.codeRaw() || '').trim();
     if (code && /^\d+$/.test(code)) this.unit.set('caja');
@@ -798,6 +838,8 @@ export class ComercialExpiryReviewDetailComponent {
       const x = h?.factor && h.factor > 1 ? ` de ${h.factor} pz` : '';
       return `Se escaneó el código de ${this.unitFromScan}${x}: se asume ${this.unitFromScan}.`;
     }
+    const base = this.unidadesProd()?.unidades?.find((u) => u.base);
+    if (base) return `Unidad base del producto en Kepler (${base.kepler}). Cámbiala si en el anaquel está en otra.`;
     const code = (this.codeRaw() || '').trim();
     if (code && /^\d+$/.test(code)) return 'Código de anaquel numérico: se asume caja. Cámbialo si llegó suelto.';
     if (this.productId()) return 'Producto elegido del buscador: se asume pieza.';

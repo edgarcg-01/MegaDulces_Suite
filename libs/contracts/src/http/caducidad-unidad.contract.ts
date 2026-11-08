@@ -102,3 +102,88 @@ export function unidadDesdeKepler(unidad: string | null | undefined, factor: num
   if (factor === 1) return 'pieza';
   return null;
 }
+
+// ───── [P2.9 paso 3] las unidades de UN producto (D3: el selector se filtra) ─────
+
+/** Una unidad en que se puede contar ESTE producto, con su factor contra la base de Kepler. */
+export interface CaducidadUnidadProducto {
+  codigo: CaducidadUnidad;
+  /** Rótulo del ERP del que salió: `PAQ`, `CJA`, `500`… */
+  kepler: string;
+  /**
+   * Cuántas unidades base entran en ésta (la base vale 1). Es lo que usará FEFO (paso 4).
+   * `null` = el ERP no lo dice: medido el 2026-11-07, **toda** presentación que sale sólo de la
+   * escalera (`kdpv_prod_util`) llega sin factor (1,226 en la plaza 01). No se rellena con 1.
+   */
+  factor: number | null;
+  /** Es la unidad base del producto (`kdii.c11`). */
+  base: boolean;
+}
+
+/**
+ * `GET /commercial/expiry-reviews/products/:sku/unidades`. Las presentaciones del producto
+ * (`analytics.v_label_presentations`: base + ranuras + escalera) traducidas a las 7.
+ *
+ * `unidades: null` NO es «el producto no tiene unidades»: es que **no se supo** (Kepler no publica
+ * presentaciones para ese SKU, o la lectura falló) y la pantalla ofrece las 7. `motivo` dice cuál.
+ */
+export interface CaducidadUnidadesProducto {
+  sku: string;
+  /** Plaza de Kepler de la que salió la lista (`01`…). `null` cuando no salió de ninguna. */
+  plaza: string | null;
+  /** `true` si se pidió un almacén con plaza, ésta no publica el SKU y se tomó la de otra. Sin almacén: `false`. */
+  otra_plaza: boolean;
+  unidades: CaducidadUnidadProducto[] | null;
+  base: CaducidadUnidad | null;
+  /** Rótulos del producto que NO son de las 7 (`CUB`, `SER`, `400`…): se dicen, no se esconden. */
+  fuera_de_las_7: string[];
+  motivo: 'ok' | 'sin_presentaciones' | 'sin_lectura';
+}
+
+/**
+ * Presentaciones del ERP → las unidades de la hoja. Una por código (si dos rótulos caen en la misma,
+ * gana la que trae factor y, entre ésas, la menor), en el orden del contrato. Un rótulo que no es de las 7 va a
+ * `fuera_de_las_7`: **no se traduce por su factor** (un `CUB` de 20 no es una «caja»).
+ */
+export function unidadesDesdePresentaciones(
+  ps: ReadonlyArray<{ unidad: string | null; factor: number | string | null; origen: string }>,
+): Pick<CaducidadUnidadesProducto, 'unidades' | 'base' | 'fuera_de_las_7'> {
+  const porCodigo = new Map<CaducidadUnidad, CaducidadUnidadProducto>();
+  const fuera = new Set<string>();
+  for (const p of ps) {
+    const rotulo = String(p.unidad ?? '').trim().toUpperCase();
+    if (!rotulo) continue;
+    const codigo = unidadDesdeKepler(rotulo, null);
+    if (!codigo) { fuera.add(rotulo); continue; }
+    const base = p.origen === 'base';
+    const f = p.factor == null || p.factor === '' ? NaN : Number(p.factor);
+    const factor = base ? 1 : Number.isFinite(f) && f > 0 ? f : null;
+    const previa = porCodigo.get(codigo);
+    const gana = !previa || (factor != null && (previa.factor == null || factor < previa.factor));
+    if (gana) porCodigo.set(codigo, { codigo, kepler: rotulo, factor, base: base || !!previa?.base });
+    else if (base) previa.base = true;
+  }
+  const unidades = CADUCIDAD_UNIDADES.map((c) => porCodigo.get(c)).filter((u): u is CaducidadUnidadProducto => !!u);
+  return {
+    unidades: unidades.length ? unidades : null,
+    base: unidades.find((u) => u.base)?.codigo ?? null,
+    fuera_de_las_7: Array.from(fuera).sort(),
+  };
+}
+
+/**
+ * Qué botones ofrece el selector. Sin lista del producto (no se supo) → las 7. Con lista → sólo las
+ * del producto, más las que ya están en juego (`extra`: la que sugirió el código escaneado, la del
+ * renglón que se edita) para que nunca desaparezca lo marcado. `verTodas` es la salida «otra unidad»:
+ * el catálogo se equivoca, y un filtro que oculta la unidad correcta bloquea la captura.
+ */
+export function unidadesOfrecidas(
+  producto: Pick<CaducidadUnidadesProducto, 'unidades'> | null,
+  verTodas: boolean,
+  extra: ReadonlyArray<string | null | undefined> = [],
+): readonly CaducidadUnidadDef[] {
+  if (verTodas || !producto?.unidades?.length) return CADUCIDAD_UNIDADES_DEF;
+  const si = new Set<string>(producto.unidades.map((u) => u.codigo));
+  for (const e of extra) if (e) si.add(e);
+  return CADUCIDAD_UNIDADES_DEF.filter((d) => si.has(d.codigo));
+}
