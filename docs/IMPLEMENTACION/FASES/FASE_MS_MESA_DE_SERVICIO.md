@@ -497,6 +497,7 @@ Entra una solicitud a una cola → quien la atiende ve una **ventana emergente**
 - **Sin migraciones ni permisos.**
 - **Probado en navegador** contra la API local (2026-10-28): media, urgente, clic al detalle y «Mi trabajo». **No cubre:** pestaña cerrada (service worker + VAPID); el aviso de Windows con la pestaña oculta no se pudo ver en el navegador de prueba.
 - **Windows, medido el 2026-11-04:** con la pestaña oculta (simulada: Playwright nunca reporta `hidden`) sale «Nueva solicitud» y se vio en el equipo real. **Hueco encontrado:** con la Suite abierta **detrás de otro programa** no sale (`hidden: false`, `hasFocus: false`) — es por qué en prod «no avisaba». Arreglo pendiente: `[MS.AVISO.2]`.
+- **`[MS.AVISO.2]` (2026-11-07, 🧪):** la de Windows sale si `document.hidden || !document.hasFocus()`. Probado en un Chrome real con otro programa encima: salió «Nueva solicitud» en Windows. El permiso es por sitio (el de prod no vale para `localhost`).
 
 ## Observaciones de diseño UI — revisión del plan (2026-10-26)
 

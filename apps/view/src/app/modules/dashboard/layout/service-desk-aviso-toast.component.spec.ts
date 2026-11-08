@@ -39,8 +39,11 @@ describe('ServiceDeskAvisoToastComponent', () => {
     fix.detectChanges();
   }
   const oculta = (v: boolean): void => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => v }); };
+  // jsdom no garantiza el foco: cada prueba declara el suyo (por defecto, la ventana al frente y con foco).
+  const enfocada = (v: boolean): void => { vi.spyOn(document, 'hasFocus').mockReturnValue(v); };
 
-  afterEach(() => { oculta(false); TestBed.resetTestingModule(); });
+  beforeEach(() => enfocada(true));
+  afterEach(() => { oculta(false); vi.restoreAllMocks(); TestBed.resetTestingModule(); });
 
   it('⭐ una solicitud nueva abre la ventana con su ruta al detalle', async () => {
     await montar();
@@ -77,6 +80,25 @@ describe('ServiceDeskAvisoToastComponent', () => {
     alert$.next(alerta('nueva_solicitud'));
     expect(mostrar).toHaveBeenCalledTimes(1);
     expect(add).toHaveBeenCalledTimes(2);
+  });
+  it('⭐ [MS.AVISO.2] ventana VISIBLE pero SIN FOCO (Chrome detrás de otro programa) → sale el aviso del sistema', async () => {
+    // El caso medido el 2026-11-04 en prod: hidden=false, hasFocus=false, y la notificación de Windows nunca salía.
+    await montar();
+    oculta(false);
+    enfocada(false);
+    alert$.next(alerta('nueva_solicitud'));
+    expect(add).toHaveBeenCalledTimes(1);
+    expect(mostrar).toHaveBeenCalledTimes(1);
+    expect(mostrar.mock.calls[0][0]).toBe('Nueva solicitud');
+  });
+  it('NEGATIVA [MS.AVISO.2]: ventana visible y CON foco → sólo la ventana de la página, nada de Windows', async () => {
+    await montar();
+    oculta(false);
+    enfocada(true);
+    alert$.next(alerta('nueva_solicitud'));
+    alert$.next(alerta('nuevo_prioritario', 'critical'));
+    expect(add).toHaveBeenCalledTimes(2);
+    expect(mostrar).not.toHaveBeenCalled();
   });
   it('abrir() cierra la ventana y navega al detalle', async () => {
     await montar();
