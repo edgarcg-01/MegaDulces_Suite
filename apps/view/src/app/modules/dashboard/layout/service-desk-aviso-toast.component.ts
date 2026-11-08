@@ -9,6 +9,16 @@ import { irConservandoPanel } from '../../../core/panel/ir-conservando-panel';
 import { avisoAnunciable } from '../../servicio/aviso-solicitud';
 
 /**
+ * `[MS.AVISO.2]` ¿Alguien está mirando la página? No, si la pestaña está oculta (minimizada, otra pestaña al frente) **o** si la
+ * ventana no tiene el foco (Chrome abierto detrás del correo o del Excel). Medido el 2026-11-04: con sólo `hidden`, ese segundo
+ * caso —el de una oficina— daba `hidden: false` y la notificación de Windows nunca salía.
+ */
+function sinMirar(): boolean {
+  if (typeof document === 'undefined') return false;
+  return document.hidden || !document.hasFocus();
+}
+
+/**
  * `[MS.AVISO]` Ventana emergente cuando entra una solicitud nueva a la Mesa de Servicio, en cualquier pantalla de la Suite
  * mientras la sesión esté abierta.
  *
@@ -17,7 +27,7 @@ import { avisoAnunciable } from '../../servicio/aviso-solicitud';
  * `AlertsSocketService`). Sólo escucha el PUSH: lo que ya estaba en la bandeja al abrir la sesión no se anuncia —eso lo cuenta la
  * campana—, y sólo le llega a quien el servidor eligió (quien atiende la cola de esa solicitud).
  *
- * Si la pestaña no se está viendo, además sale el aviso del sistema operativo (cuando la persona dio permiso). Si no hay permiso,
+ * Si nadie está mirando la página (`sinMirar`), además sale el aviso del sistema operativo (cuando la persona dio permiso). Si no hay permiso,
  * la ventana queda esperando en la página: no se finge nada.
  *
  * Posición arriba a la derecha: abajo a la derecha ya la ocupa el toast de salud de la base y se taparían.
@@ -76,8 +86,8 @@ export class ServiceDeskAvisoToastComponent implements OnInit, OnDestroy {
         sticky: aviso.urgente,
         life: 20000,
       });
-      // Pestaña oculta: la ventana de la página no la va a ver nadie. El aviso del sistema sí.
-      if (typeof document !== 'undefined' && document.hidden) {
+      // Nadie está mirando la página: la ventana de la página no la va a ver nadie. El aviso del sistema sí.
+      if (sinMirar()) {
         this.escritorio.mostrar(aviso.title, aviso.message, () => this.abrir(aviso.route), 'sd-aviso');
       }
     });
