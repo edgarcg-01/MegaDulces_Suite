@@ -33,19 +33,28 @@ import {
   type HallazgoAlta,
   type LigarSolicitudBody,
   type OpcionCatalogo,
+  type PlanAltaKepler,
   type PosibleDuplicado,
   type RegimenFiscalOpcion,
+  type ResultadoServidorAlta,
   type RevisionAlta,
+  type ServidorEscrituraKepler,
   type SolicitudAlta,
   type SolicitudAltaBody,
   type SubirConstanciaBody,
   type SubirConstanciaRespuesta,
   type UbicacionAlta,
+  type UsoCfdiOpcion,
 } from '@megadulces/contracts';
 import {
-  bloquea, diferenciaDeCredito, estadoInicial, revisarSolicitud, type ContextoRevision, type FichaKeplerLeida,
+  bloquea, diferenciaDeCredito, estadoInicial, pideCredito, revisarSolicitud, type ContextoRevision, type FichaKeplerLeida,
 } from './alta-clientes.rules';
 import { estadoCorto, fichaDesdeConstancia, fichaVacia, recortesDe } from './ficha-kepler';
+import {
+  PISO_DE_SUCURSAL, ZONA_DE_SUCURSAL, armarClienteKepler, columnasDelPlan, formaPagoPorDefecto, planConClave,
+  siguienteClave, telefonoKepler, textoKepler, usoCfdiPorDefecto, type ArmadoClienteKepler,
+} from './kepler-cliente.armador';
+import { KeplerClienteSinkAdapter } from './kepler-cliente-sink.adapter';
 import { NewCustomersKeplerService } from '../new-customers-kepler/new-customers-kepler.service';
 import { codigoKepler, normalizarClave, normalizarNombre, parecido, UMBRAL_PARECIDO } from '../new-customers-kepler/new-customers-kepler.engine';
 
@@ -54,10 +63,12 @@ import { codigoKepler, normalizarClave, normalizarNombre, parecido, UMBRAL_PAREC
  *
  * Plan: [`FASE_ALC_ALTA_DE_CLIENTES.md`](../../../../../docs/IMPLEMENTACION/FASES/FASE_ALC_ALTA_DE_CLIENTES.md).
  *
- * ── Qué NO hace ─────────────────────────────────────────────────────────────────────────────
- * ⛔ No escribe en Kepler (D1-a): la ficha se captura allá —la forma la arma esta pantalla en su
- * mismo orden— y la Suite la LIGA cuando la clave aparece en el ODS. La escritura de `kdud` es de
- * Edgar (D1-b). ⛔ No copia el maestro: lo lee de `kepler_ods.kdud` en cada consulta.
+ * ── Kepler ──────────────────────────────────────────────────────────────────────────────────
+ * D1-a: la ficha se captura allá —la forma la arma esta pantalla en su mismo orden— y la Suite la
+ * LIGA cuando la clave aparece en el ODS. D1-b `[ALC.2.8]`: `escribirEnKepler` la escribe en las 10
+ * bases con `KeplerClienteSinkAdapter`, APAGADO por default (interruptor `cliente`, conexiones,
+ * GRANT y la llave `COMMERCIAL_ALTA_CLIENTES_KEPLER`). ⛔ No copia el maestro: lo lee de
+ * `kepler_ods.kdud` en cada consulta.
  *
  * ── El alcance ──────────────────────────────────────────────────────────────────────────────
  * Sucursal por `ScopeService` (área `comercial`): la caja ve y da de alta en las suyas; quien
@@ -86,7 +97,13 @@ interface FilaSolicitud {
   erp_customer_code: string | null; linked_at: Date | null; created_by: string | null; created_by_name: string | null;
   created_at: Date;
   latitude: string | null; longitude: string | null; location_source: UbicacionAlta['origen'] | null; location_accuracy_m: string | null;
+  uso_cfdi: string | null; payment_form: string | null;
+  kepler_code: string | null; kepler_write_started_at: Date | null; kepler_write_by_name: string | null;
+  kepler_written_at: Date | null; kepler_write_result: { intentada_el?: string; servidores?: ResultadoServidorAlta[] } | null;
 }
+
+/** `[ALC.2.8]` Un intento de escritura que lleva más que esto «en curso» se da por caído (el adaptador tarda segundos). */
+const INTENTO_VIGENTE_MIN = 5;
 
 const num = (v: unknown, def = 0): number => { const n = Number(v); return Number.isFinite(n) ? n : def; };
 const txt = (v: unknown): string | null => { const s = String(v ?? '').trim(); return s ? s : null; };
@@ -106,7 +123,7 @@ const ubicacionDe = (u: unknown): UbicacionAlta | null => {
 const isoFecha = (v: string | Date | null): string | null =>
   v == null ? null : v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, 10);
 
-export interface ActorAlta { userId: string | null; roleName: string | null; puedeCredito: boolean }
+export interface ActorAlta { userId: string | null; roleName: string | null; puedeCredito: boolean; puedeKepler?: boolean }
 
 @Injectable()
 export class CustomerOnboardingService {
@@ -118,6 +135,7 @@ export class CustomerOnboardingService {
     private readonly scope: ScopeService,
     private readonly storage: ObjectStorageService,
     private readonly nuevos: NewCustomersKeplerService,
+    private readonly kepler: KeplerClienteSinkAdapter,
   ) {}
 
   // ───────────────────────────── alcance ─────────────────────────────
@@ -152,6 +170,46 @@ export class CustomerOnboardingService {
     return rows.map((r: RegimenFiscalOpcion) => ({ ...r, persona_fisica: !!r.persona_fisica, persona_moral: !!r.persona_moral }));
   }
 
+  /** `[ALC.3.6]` Uso de CFDI (`c_UsoCFDI` que trae Kepler), vigente, con los regímenes que lo admiten (`c7`). */
+  private async usosCfdi(trx: Knex | Knex.Transaction): Promise<UsoCfdiOpcion[]> {
+    const { rows } = await trx.raw(
+      `/* alc:usos-cfdi */
+       SELECT btrim(u.c1) AS clave, btrim(u.c2) AS descripcion, coalesce(u.c7, '') AS regimenes
+         FROM kepler_ods.kdfe33satuso u
+        WHERE u.sucursal = '00' AND btrim(coalesce(u.c1, '')) <> ''
+          AND (u.c6 IS NULL OR u.c6 < '1900-01-01' OR u.c6 > now())
+        ORDER BY 1`,
+    );
+    return rows.map((r: { clave: string; descripcion: string; regimenes: string }) => ({
+      clave: r.clave, descripcion: r.descripcion,
+      regimenes: r.regimenes.split(',').map((x) => x.trim()).filter(Boolean),
+    }));
+  }
+
+  /** `[ALC.3.6]` Forma de pago (`c_FormaPago` que trae Kepler). */
+  private async formasPago(trx: Knex | Knex.Transaction): Promise<OpcionCatalogo[]> {
+    const { rows } = await trx.raw(
+      `/* alc:formas-pago */ SELECT btrim(c1) AS clave, btrim(c2) AS nombre FROM kepler_ods.kdfe33satfopg
+        WHERE sucursal = '00' AND btrim(coalesce(c1, '')) <> '' ORDER BY 1`,
+    );
+    return rows.map((r: OpcionCatalogo) => ({ clave: String(r.clave), nombre: String(r.nombre) }));
+  }
+
+  /** El estado del SAT de un CP, como lo escribe Kepler; `null` si no está en el catálogo. */
+  private async estadoDelCp(trx: Knex | Knex.Transaction, cpRaw: unknown): Promise<string | null> {
+    const cp = String(cpRaw ?? '').trim();
+    if (!/^\d{5}$/.test(cp)) return null;
+    const { rows: [edo] } = await trx.raw(
+      `/* alc:cp-estado */ SELECT btrim(e.c3) AS estado
+         FROM kepler_ods.kdfe33satcp p
+         JOIN kepler_ods.kdfe33satedo e ON e.sucursal = '00' AND btrim(e.c1) = btrim(p.c2) AND btrim(e.c2) = 'MEX'
+        WHERE p.sucursal = '00' AND btrim(p.c1) = ?
+        LIMIT 1`,
+      [cp],
+    );
+    return edo?.estado ? estadoCorto(edo.estado) : null;
+  }
+
   /**
    * `[ALC.3.4]` Lo que se sabe de un CP. Medido en prod (2026-11-06): el catálogo del SAT
    * (`kdfe33satcp` → `kdfe33satedo`) da UN estado por CP (0 ambiguos); y 21,386 de 22,558 fichas de
@@ -162,14 +220,7 @@ export class CustomerOnboardingService {
     const cp = String(cpRaw ?? '').trim();
     if (!/^\d{5}$/.test(cp)) throw new BadRequestException('El código postal lleva 5 dígitos.');
     return this.tk.run(async (trx) => {
-      const { rows: [edo] } = await trx.raw(
-        `/* alc:cp-estado */ SELECT btrim(e.c3) AS estado
-           FROM kepler_ods.kdfe33satcp p
-           JOIN kepler_ods.kdfe33satedo e ON e.sucursal = '00' AND btrim(e.c1) = btrim(p.c2) AND btrim(e.c2) = 'MEX'
-          WHERE p.sucursal = '00' AND btrim(p.c1) = ?
-          LIMIT 1`,
-        [cp],
-      );
+      const estado = await this.estadoDelCp(trx, cp);
       const { rows } = await trx.raw(
         `/* alc:cp-dir2 */ SELECT upper(btrim(replace(d.c5, E'\\r', ''))) AS texto, count(*)::int AS fichas
            FROM kepler_ods.kdud d
@@ -179,7 +230,7 @@ export class CustomerOnboardingService {
       );
       return {
         codigo_postal: cp,
-        estado: edo?.estado ? estadoCorto(edo.estado) : null,
+        estado,
         sugerencias_direccion_2: rows.map((r: { texto: string; fichas: number }) => ({ texto: r.texto, fichas: Number(r.fichas) })),
       };
     });
@@ -212,8 +263,33 @@ export class CustomerOnboardingService {
         grupos: await opciones(`/* alc:grupos */ SELECT btrim(c1) AS clave, btrim(c2) AS nombre FROM kepler_ods.kduj WHERE sucursal = ? AND btrim(coalesce(c1,'')) <> '' ORDER BY 2`),
         zonas: await opciones(`/* alc:zonas */ SELECT btrim(c1) AS clave, btrim(c2) AS nombre FROM kepler_ods.kduk WHERE sucursal = ? AND btrim(coalesce(c1,'')) <> '' ORDER BY 2`),
         regimenes: await this.regimenes(trx),
+        usos_cfdi: await this.usosCfdi(trx),
+        formas_pago: await this.formasPago(trx),
+        sugeridos: await this.sugeridos(trx, branch),
       };
     });
+  }
+
+  /**
+   * `[ALC.3.6]` Lo que la sucursal ya dice de la cartera: su zona y su grupo de piso (constantes
+   * medidas en `kduj`/`kduv`), y por grupo el vendedor que más usan sus fichas en Kepler.
+   */
+  private async sugeridos(trx: Knex | Knex.Transaction, branch: string): Promise<CatalogosAlta['sugeridos']> {
+    const vendedor_por_grupo: Record<string, string> = {};
+    if (/^\d{2}$/.test(branch)) {
+      const { rows } = await trx.raw(
+        `/* alc:vendedor-por-grupo */
+         SELECT DISTINCT ON (grupo) grupo, vendedor
+           FROM (SELECT btrim(c13) AS grupo, btrim(c12) AS vendedor, count(*) AS n
+                   FROM kepler_ods.kdud
+                  WHERE sucursal = ? AND btrim(coalesce(c13, '')) <> '' AND btrim(coalesce(c12, '')) <> ''
+                  GROUP BY 1, 2) x
+          ORDER BY grupo, n DESC, vendedor`,
+        [branch],
+      );
+      for (const r of rows as Array<{ grupo: string; vendedor: string }>) vendedor_por_grupo[r.grupo] = r.vendedor;
+    }
+    return { zona: ZONA_DE_SUCURSAL[branch] ?? null, grupo_piso: PISO_DE_SUCURSAL[branch] ?? null, vendedor_por_grupo };
   }
 
   // ───────────────────────────── duplicados y contexto ─────────────────────────────
@@ -274,29 +350,62 @@ export class CustomerOnboardingService {
       vendedor_existe: await existe(`/* alc:v */ SELECT 1 FROM kepler_ods.kduv WHERE sucursal = ? AND btrim(c2) = ? LIMIT 1`, b.vendedor_code),
       grupo_existe: await existe(`/* alc:g */ SELECT 1 FROM kepler_ods.kduj WHERE sucursal = ? AND btrim(c1) = ? LIMIT 1`, b.grupo_code),
       zona_existe: await existe(`/* alc:z */ SELECT 1 FROM kepler_ods.kduk WHERE sucursal = ? AND btrim(c1) = ? LIMIT 1`, b.zona_code),
+      usos: await this.usosCfdi(trx),
+      formas_pago: (await this.formasPago(trx)).map((f) => f.clave),
     };
   }
 
-  /** Lo que llega del navegador, a la forma que revisan las reglas (mayúsculas, sin espacios de sobra). */
+  /**
+   * `[ALC.3.6]` El estado de la ficha sale del CP (catálogo del SAT), no de lo tecleado: en Kepler
+   * Michoacán está escrito de 11 maneras (MICHOCAN, MCIHOACAN, MICHOACÁN…, medido). Si la persona
+   * escribió otra cosa se corrige y se dice; si el CP no está en el catálogo, se respeta lo escrito.
+   */
+  private async conEstadoDelCp(trx: Knex | Knex.Transaction, b: SolicitudAltaBody): Promise<{ b: SolicitudAltaBody; hallazgo: HallazgoAlta | null }> {
+    const cp = b.ficha.codigo_postal || b.codigo_postal_fiscal;
+    const estado = await this.estadoDelCp(trx, cp);
+    if (!estado || b.ficha.estado === estado) return { b, hallazgo: null };
+    const hallazgo: HallazgoAlta = {
+      campo: 'ficha.estado', gravedad: 'aviso',
+      mensaje: b.ficha.estado
+        ? `El CP ${cp} es de ${estado} (catálogo del SAT): se guarda ése y no «${b.ficha.estado}».`
+        : `El estado se llenó con el del CP ${cp}: ${estado}.`,
+    };
+    return { b: { ...b, ficha: { ...b.ficha, estado } }, hallazgo };
+  }
+
+  /**
+   * Lo que llega del navegador, a la forma que revisan las reglas. `[ALC.3.6]` La ficha queda como
+   * la escribe Kepler (`textoKepler`: mayúsculas, sin acentos salvo la Ñ, sin comillas ni
+   * caracteres de control; teléfonos sólo con dígitos), y el uso de CFDI y la forma de pago que no
+   * se eligieron toman los de costumbre (medidos en `kdfedir`).
+   */
   private normalizar(raw: SolicitudAltaBody): SolicitudAltaBody {
     if (!raw || typeof raw !== 'object') throw new BadRequestException('Falta la solicitud.');
     const ficha = { ...fichaVacia() };
     for (const k of Object.keys(CASILLAS_KEPLER) as Array<keyof FichaKeplerCliente>) {
-      const v = String(raw.ficha?.[k] ?? '').replace(/\s+/g, ' ').trim();
-      ficha[k] = k === 'email' ? v.toLowerCase() : v.toUpperCase();
+      const v = String(raw.ficha?.[k] ?? '');
+      ficha[k] = k === 'email' ? v.trim().toLowerCase()
+        : k.startsWith('telefono') ? telefonoKepler(v)
+          : k === 'codigo_postal' ? v.replace(/\D/g, '')
+            : k === 'rfc' || k === 'curp' ? normalizarClaveFiscal(v)
+              : textoKepler(v);
     }
+    const rfc = normalizarClaveFiscal(raw.rfc);
+    const regimen_fiscal = String(raw.regimen_fiscal ?? '').trim();
     return {
       ...raw,
       branch: String(raw.branch ?? '').trim(),
       origen: raw.origen === 'constancia' ? 'constancia' : 'manual',
       tipo_persona: raw.tipo_persona === 'moral' ? 'moral' : 'fisica',
-      rfc: normalizarClaveFiscal(raw.rfc),
+      rfc,
       curp: normalizarClaveFiscal(raw.curp) || null,
       nombre_fiscal: String(raw.nombre_fiscal ?? '').replace(/\s+/g, ' ').trim().toUpperCase(),
       regimen_capital: txt(raw.regimen_capital)?.toUpperCase() ?? null,
       nombre_comercial: txt(raw.nombre_comercial)?.toUpperCase() ?? null,
-      regimen_fiscal: String(raw.regimen_fiscal ?? '').trim(),
+      regimen_fiscal,
       codigo_postal_fiscal: String(raw.codigo_postal_fiscal ?? '').trim(),
+      uso_cfdi: txt(raw.uso_cfdi)?.toUpperCase() ?? usoCfdiPorDefecto(rfc, regimen_fiscal),
+      forma_pago: txt(raw.forma_pago) ?? formaPagoPorDefecto(pideCredito(raw)),
       ficha: { ...ficha, rfc: ficha.rfc || normalizarClaveFiscal(raw.rfc) },
       vendedor_code: txt(raw.vendedor_code), grupo_code: txt(raw.grupo_code), zona_code: txt(raw.zona_code),
       credito_solicitado: num(raw.credito_solicitado), plazo_dias: num(raw.plazo_dias), descuento_pct: num(raw.descuento_pct),
@@ -359,21 +468,25 @@ export class CustomerOnboardingService {
   // ───────────────────────────── 2. revisar y crear ─────────────────────────────
 
   async revisar(raw: SolicitudAltaBody, query: Record<string, unknown> = {}): Promise<RevisionAlta> {
-    const b = this.normalizar(raw);
-    if (b.branch) await this.exigirSucursal(b.branch, query);
-    return this.tk.run(async (trx) => ({
-      hallazgos: revisarSolicitud(b, await this.contexto(trx, b)),
-      duplicados: await this.duplicados(trx, b.rfc, b.nombre_fiscal, b.branch),
-      recortes: recortesDe(b.ficha),
-    }));
+    const b0 = this.normalizar(raw);
+    if (b0.branch) await this.exigirSucursal(b0.branch, query);
+    return this.tk.run(async (trx) => {
+      const { b, hallazgo } = await this.conEstadoDelCp(trx, b0);
+      return {
+        hallazgos: [...(hallazgo ? [hallazgo] : []), ...revisarSolicitud(b, await this.contexto(trx, b))],
+        duplicados: await this.duplicados(trx, b.rfc, b.nombre_fiscal, b.branch),
+        recortes: recortesDe(b.ficha),
+      };
+    });
   }
 
   async crear(raw: SolicitudAltaBody, query: Record<string, unknown> = {}): Promise<CrearSolicitudRespuesta> {
     const me = this.tenantCtx.get()?.userId;
     if (!me) throw new UnauthorizedException('Sin usuario en la sesión: una solicitud de alta la firma alguien.');
-    const b = this.normalizar(raw);
-    await this.exigirSucursal(b.branch, query);
-    if (b.customer_id && !UUID_RE.test(b.customer_id)) throw new BadRequestException('customer_id inválido.');
+    const b0 = this.normalizar(raw);
+    await this.exigirSucursal(b0.branch, query);
+    if (b0.customer_id && !UUID_RE.test(b0.customer_id)) throw new BadRequestException('customer_id inválido.');
+    let b = b0;
     if (b.constancia_key && !b.constancia_key.startsWith(`${CARPETA}/`)) throw new BadRequestException('La constancia no es de este módulo.');
 
     // La lectura que se guarda es la del PDF guardado, no la que mandó el navegador.
@@ -390,7 +503,9 @@ export class CustomerOnboardingService {
     }
 
     return this.tk.run(async (trx) => {
-      const hallazgos = revisarSolicitud(b, await this.contexto(trx, b));
+      const est = await this.conEstadoDelCp(trx, b);
+      b = est.b;
+      const hallazgos = [...(est.hallazgo ? [est.hallazgo] : []), ...revisarSolicitud(b, await this.contexto(trx, b))];
       const duplicados = await this.duplicados(trx, b.rfc, b.nombre_fiscal, b.branch);
       const revision: RevisionAlta = { hallazgos, duplicados, recortes: recortesDe(b.ficha) };
       if (bloquea(hallazgos)) {
@@ -411,23 +526,27 @@ export class CustomerOnboardingService {
         if (!rows.length) throw new BadRequestException('El cliente de la Suite no existe o ya está ligado a Kepler.');
       }
       try {
+        // Columna, valor y tipo en UNA lista: las marcas y los valores salen de ella y no pueden
+        // descuadrarse (`[ALC.3.5.1]`: un INSERT con 30 `?` para 29 valores llegó a prod).
+        const columnas: Array<[string, unknown, string?]> = [
+          ['status', estadoInicial(b)], ['origin', b.origen], ['branch', b.branch], ['person_type', b.tipo_persona],
+          ['rfc', b.rfc], ['curp', b.tipo_persona === 'fisica' ? b.curp : null], ['fiscal_name', b.nombre_fiscal],
+          ['capital_regime', b.regimen_capital], ['trade_name', b.nombre_comercial], ['tax_regime', b.regimen_fiscal],
+          ['fiscal_zip', b.codigo_postal_fiscal], ['uso_cfdi', b.uso_cfdi], ['payment_form', b.forma_pago],
+          ['kepler_sheet', JSON.stringify(b.ficha), 'jsonb'], ['seller_code', b.vendedor_code], ['group_code', b.grupo_code],
+          ['zone_code', b.zona_code], ['credit_requested', b.credito_solicitado], ['term_days', b.plazo_dias],
+          ['discount_pct', b.descuento_pct], ['comments', b.comentarios], ['constancia_key', b.constancia_key],
+          ['constancia_reading', lectura ? JSON.stringify(lectura) : null, 'jsonb'], ['constancia_issued_on', emitida, 'date'],
+          ['customer_id', b.customer_id], ['latitude', b.ubicacion?.lat], ['longitude', b.ubicacion?.lng],
+          ['location_source', b.ubicacion?.origen], ['location_accuracy_m', b.ubicacion?.precision_m],
+          ['created_by', me], ['updated_by', me],
+        ];
         const { rows } = await trx.raw(
           `/* alc:crear */
-           INSERT INTO commercial.customer_onboarding_requests
-             (tenant_id, status, origin, branch, person_type, rfc, curp, fiscal_name, capital_regime, trade_name,
-              tax_regime, fiscal_zip, kepler_sheet, seller_code, group_code, zone_code, credit_requested, term_days,
-              discount_pct, comments, constancia_key, constancia_reading, constancia_issued_on, customer_id,
-              latitude, longitude, location_source, location_accuracy_m,
-              created_by, updated_by)
-           VALUES (public.current_tenant_id(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::date, ?, ?, ?, ?, ?, ?, ?)
+           INSERT INTO commercial.customer_onboarding_requests (tenant_id, ${columnas.map(([c]) => c).join(', ')})
+           VALUES (public.current_tenant_id(), ${columnas.map(([, , t]) => (t ? `?::${t}` : '?')).join(', ')})
            RETURNING id`,
-          [
-            estadoInicial(b), b.origen, b.branch, b.tipo_persona, b.rfc, b.tipo_persona === 'fisica' ? b.curp : null, b.nombre_fiscal,
-            b.regimen_capital, b.nombre_comercial, b.regimen_fiscal, b.codigo_postal_fiscal, JSON.stringify(b.ficha),
-            b.vendedor_code, b.grupo_code, b.zona_code, b.credito_solicitado, b.plazo_dias, b.descuento_pct, b.comentarios,
-            b.constancia_key, lectura ? JSON.stringify(lectura) : null, emitida, b.customer_id,
-            b.ubicacion?.lat ?? null, b.ubicacion?.lng ?? null, b.ubicacion?.origen ?? null, b.ubicacion?.precision_m ?? null, me, me,
-          ].map((v) => (v === undefined ? null : v)) as Knex.RawBinding[],
+          columnas.map(([, v]) => (v === undefined ? null : v)) as Knex.RawBinding[],
         );
         this.logger.log(`[ALC] solicitud ${rows[0].id} (${b.rfc}, sucursal ${b.branch}) creada por ${me}`);
         return { solicitud: await this.leerUna(trx, rows[0].id), revision };
@@ -510,10 +629,11 @@ export class CustomerOnboardingService {
 
   private selectSolicitud(): string {
     return `/* alc:solicitud */
-      SELECT r.*, uc.nombre AS created_by_name, ud.nombre AS credit_decided_by_name
+      SELECT r.*, uc.nombre AS created_by_name, ud.nombre AS credit_decided_by_name, uk.nombre AS kepler_write_by_name
         FROM commercial.customer_onboarding_requests r
         LEFT JOIN public.users uc ON uc.id = r.created_by
-        LEFT JOIN public.users ud ON ud.id = r.credit_decided_by`;
+        LEFT JOIN public.users ud ON ud.id = r.credit_decided_by
+        LEFT JOIN public.users uk ON uk.id = r.kepler_write_by`;
   }
 
   private async leerUna(trx: Knex.Transaction, id: string, bloquear = false): Promise<SolicitudAlta> {
@@ -528,7 +648,9 @@ export class CustomerOnboardingService {
       folio: `ALC-${String(f.folio_num).padStart(5, '0')}`,
       estado: f.status, origen: f.origin, branch: f.branch, tipo_persona: f.person_type,
       rfc: f.rfc, curp: f.curp, nombre_fiscal: f.fiscal_name, regimen_capital: f.capital_regime, nombre_comercial: f.trade_name,
-      regimen_fiscal: f.tax_regime, codigo_postal_fiscal: f.fiscal_zip, ficha: { ...fichaVacia(), ...(f.kepler_sheet ?? {}) },
+      regimen_fiscal: f.tax_regime, codigo_postal_fiscal: f.fiscal_zip,
+      uso_cfdi: f.uso_cfdi ?? null, forma_pago: f.payment_form ?? null,
+      ficha: { ...fichaVacia(), ...(f.kepler_sheet ?? {}) },
       vendedor_code: f.seller_code, grupo_code: f.group_code, zona_code: f.zone_code,
       credito_solicitado: num(f.credit_requested), plazo_dias: num(f.term_days), descuento_pct: num(f.discount_pct),
       comentarios: f.comments,
@@ -547,6 +669,15 @@ export class CustomerOnboardingService {
       creada_el: new Date(f.created_at).toISOString(),
       coincidencias_kepler: [],
       credito_decidido_por_quien_la_creo: !!f.credit_decided_by && f.credit_decided_by === f.created_by,
+      kepler: f.kepler_code
+        ? {
+          clave: f.kepler_code,
+          escrita_el: f.kepler_written_at ? new Date(f.kepler_written_at).toISOString() : null,
+          intentada_el: f.kepler_write_result?.intentada_el ?? null,
+          intentada_por_nombre: f.kepler_write_by_name ?? null,
+          servidores: f.kepler_write_result?.servidores ?? [],
+        }
+        : null,
     };
   }
 
@@ -606,12 +737,16 @@ export class CustomerOnboardingService {
     const me = this.tenantCtx.get()?.userId;
     if (!me) throw new UnauthorizedException('Sin usuario en la sesión: ligar lo firma alguien.');
     if (!UUID_RE.test(id)) throw new BadRequestException('id inválido');
-    const clave = normalizarClave(body?.erp_customer_code);
-    if (!clave) throw new BadRequestException('Escribe la clave que le dio Kepler.');
 
     // El cliente `V-` del vendedor se liga con la regla de MCP.3.8 (misma fila, datos de Kepler).
     const previa = await this.una(id, query);
     if (previa.estado !== 'lista_para_kepler') throw new ConflictException(`La solicitud ${previa.folio} no está lista para ligar (está «${previa.estado}»).`);
+    // `[ALC.2.8]` Si la Suite ya la escribió en Kepler, la clave es ésa (no se teclea).
+    const clave = normalizarClave(body?.erp_customer_code) || (previa.kepler?.escrita_el ? previa.kepler.clave : '');
+    if (!clave) throw new BadRequestException('Escribe la clave que le dio Kepler.');
+    if (previa.kepler?.escrita_el && clave !== previa.kepler.clave) {
+      throw new ConflictException(`La Suite ya la dio de alta en Kepler con la clave ${previa.kepler.clave}: se liga con ésa.`);
+    }
 
     // Tres casos, decididos con lo que hay en Kepler y en la Suite (sin escribir nada todavía):
     //  A. la clave ya tiene ficha en la Suite (ancla de VK.4) → se completa lo fiscal de ésa;
@@ -707,6 +842,201 @@ export class CustomerOnboardingService {
     );
   }
 
+  // ───────────────────────────── 5b. escribir en Kepler (D1-b) ─────────────────────────────
+
+  /** La solicitud en el idioma de Kepler, con los catálogos del SAT y el estado del CP leídos del ODS. */
+  private async armarParaKepler(trx: Knex | Knex.Transaction, s: SolicitudAlta): Promise<ArmadoClienteKepler> {
+    return armarClienteKepler({
+      solicitud: s,
+      estadoDelCp: await this.estadoDelCp(trx, s.ficha.codigo_postal || s.codigo_postal_fiscal),
+      usos: await this.usosCfdi(trx),
+      formasPago: (await this.formasPago(trx)).map((f) => f.clave),
+    });
+  }
+
+  /** Claves ya reservadas por OTRAS solicitudes: dos altas simultáneas no se llevan la misma. */
+  private async clavesReservadas(trx: Knex | Knex.Transaction, exceptoId: string): Promise<string[]> {
+    const { rows } = await trx.raw(
+      `/* alc:claves-reservadas */ SELECT kepler_code FROM commercial.customer_onboarding_requests
+        WHERE kepler_code IS NOT NULL AND deleted_at IS NULL AND id <> ?`,
+      [exceptoId],
+    );
+    return rows.map((r: { kepler_code: string }) => r.kepler_code);
+  }
+
+  /** El renglón (sucursal, `cliente`) del interruptor. Sin tabla o sin renglón = APAGADA (falla cerrada). */
+  private async interruptorCliente(trx: Knex | Knex.Transaction, branch: string): Promise<{ encendida: boolean; tope_dia: number | null }> {
+    const { rows: [t] } = await trx.raw(`SELECT to_regclass('commercial.kepler_push_switch') IS NOT NULL AS hay`);
+    if (!t?.hay) return { encendida: false, tope_dia: 1 };
+    const { rows: [r] } = await trx.raw(
+      `/* alc:interruptor */ SELECT encendida, tope_dia FROM commercial.kepler_push_switch
+        WHERE tenant_id = public.current_tenant_id() AND sucursal = ? AND tipo = 'cliente'`,
+      [branch],
+    );
+    return r ? { encendida: r.encendida === true, tope_dia: r.tope_dia == null ? null : Number(r.tope_dia) } : { encendida: false, tope_dia: 1 };
+  }
+
+  /** Por qué NO se puede pulsar «Dar de alta en Kepler»; `null` = se puede. En el orden en que la persona lo resuelve. */
+  private async bloqueoDeEscritura(
+    trx: Knex | Knex.Transaction, s: SolicitudAlta, hallazgos: HallazgoAlta[], servidores: ServidorEscrituraKepler[], actor: ActorAlta,
+  ): Promise<string | null> {
+    if (s.estado !== 'lista_para_kepler') return `La solicitud está «${s.estado.replace(/_/g, ' ')}»: sólo una lista para Kepler se escribe.`;
+    if (s.kepler?.escrita_el) return `Ya está en las 10 bases de Kepler con la clave ${s.kepler.clave}: falta ligarla.`;
+    if (!actor.puedeKepler) return 'Escribir en Kepler pide la llave «Dar de alta clientes en Kepler».';
+    if (bloquea(hallazgos)) return 'La ficha tiene datos que Kepler no recibiría así: corrígelos (abajo) antes de escribir.';
+    const sw = await this.interruptorCliente(trx, s.branch);
+    if (!sw.encendida) return `La escritura directa está apagada para la sucursal ${s.branch}. Mientras, se captura en Kepler con estas casillas y se liga.`;
+    const apagados = servidores.filter((x) => !x.configurado).map((x) => x.servidor);
+    if (apagados.length) return `Faltan las conexiones a Kepler de: ${apagados.join(', ')}. Sin las 10 no se escribe en ninguna.`;
+    if (sw.tope_dia != null) {
+      const { rows: [hoy] } = await trx.raw(
+        `/* alc:tope */ SELECT count(*)::int AS n FROM commercial.customer_onboarding_requests
+          WHERE branch = ? AND id <> ? AND kepler_code IS NOT NULL AND deleted_at IS NULL
+            AND coalesce(kepler_written_at, (kepler_write_result->>'intentada_el')::timestamptz)
+                >= (date_trunc('day', now() AT TIME ZONE 'America/Mexico_City') AT TIME ZONE 'America/Mexico_City')`,
+        [s.branch, s.id],
+      );
+      if (hoy.n >= sw.tope_dia) return `Hoy ya se escribieron ${hoy.n} alta(s) desde la sucursal ${s.branch}; el tope del interruptor es ${sw.tope_dia} por día.`;
+    }
+    return null;
+  }
+
+  /**
+   * `[ALC.2.8]` `GET :id/kepler` — lo que se escribiría, la clave que seguiría y por qué no se puede
+   * escribir todavía. No escribe nada. Con la escritura apagada es la guía exacta para capturarla a
+   * mano en Kepler (la misma clave, las mismas casillas).
+   */
+  async planKepler(id: string, actor: ActorAlta, query: Record<string, unknown> = {}): Promise<PlanAltaKepler> {
+    if (!UUID_RE.test(id)) throw new BadRequestException('id inválido');
+    const s = await this.una(id, query);
+    return this.tk.run(async (trx) => {
+      const armado = await this.armarParaKepler(trx, s);
+      const hallazgos = [...armado.hallazgos];
+      let clave_propuesta: string | null = s.kepler?.clave ?? null;
+      if (!clave_propuesta && armado.serie) {
+        const { rows } = await trx.raw(
+          `/* alc:serie-ods */ SELECT DISTINCT btrim(c2) AS c2 FROM kepler_ods.kdud WHERE upper(btrim(c2)) ~ ?`,
+          [armado.serie.cuenta],
+        );
+        const r = siguienteClave(armado.serie, [...rows.map((x: { c2: string }) => x.c2), ...(await this.clavesReservadas(trx, s.id))]);
+        if (r.ok) clave_propuesta = r.clave;
+        else hallazgos.push({ campo: 'clave', gravedad: 'bloquea', mensaje: r.motivo });
+      }
+      const columnas = columnasDelPlan(planConClave(armado.plan, clave_propuesta ?? ''));
+      const servidores = this.kepler.servidores();
+      const { rows: sync } = await trx.raw(`/* alc:frescura */ SELECT last_push_at FROM kepler_ods._sync_status WHERE table_name = 'kdud'`);
+      return {
+        clave_propuesta,
+        serie: armado.serie ? { tipo: armado.serie.tipo, zona: armado.serie.zona, patron: armado.serie.patron } : null,
+        clave_reservada: s.kepler?.clave ?? null,
+        kdud: columnas.kdud,
+        kdfedir: columnas.kdfedir,
+        hallazgos,
+        servidores,
+        bloqueo_escritura: await this.bloqueoDeEscritura(trx, s, hallazgos, servidores, actor),
+        puede_escribir: actor.puedeKepler === true,
+        kepler_as_of: sync[0]?.last_push_at ? new Date(sync[0].last_push_at).toISOString() : null,
+      };
+    });
+  }
+
+  /** Suelta la marca de «escribiendo» sin tocar nada más (el intento no llegó a Kepler). */
+  private async soltarIntento(id: string): Promise<void> {
+    await this.tk.run((trx) => trx.raw(
+      `/* alc:soltar */ UPDATE commercial.customer_onboarding_requests SET kepler_write_started_at = NULL WHERE id = ?`, [id]));
+  }
+
+  /**
+   * `[ALC.2.8]` `POST :id/kepler` — da de alta al cliente en las 10 bases de Kepler. Cinco pasos,
+   * para que ningún tropiezo deje una clave escrita en Kepler que la Suite no conozca:
+   *  1. se marca «escribiendo» (un doble clic o dos personas no escriben dos veces) y se revisa todo;
+   *  2. la clave se calcula contra las 10 bases vivas (no escribe);
+   *  3. la clave queda RESERVADA en la Suite (índice único) antes de tocar Kepler;
+   *  4. se escribe, servidor por servidor (el concentrador primero);
+   *  5. se guarda el resultado de cada base. Si alguna falló, el reintento usa la MISMA clave.
+   */
+  async escribirEnKepler(id: string, actor: ActorAlta, query: Record<string, unknown> = {}): Promise<SolicitudAlta> {
+    const me = actor.userId;
+    if (!me) throw new UnauthorizedException('Sin usuario en la sesión: el alta en Kepler la firma alguien.');
+    if (!actor.puedeKepler) throw new ForbiddenException('Escribir en Kepler pide la llave «Dar de alta clientes en Kepler».');
+    if (!UUID_RE.test(id)) throw new BadRequestException('id inválido');
+    await this.una(id, query);
+
+    // 1 · marcar y revisar
+    const prep = await this.tk.run(async (trx) => {
+      const s = await this.leerUna(trx, id, true);
+      const { rows: [m] } = await trx.raw(
+        `SELECT kepler_write_started_at > now() - make_interval(mins => ?) AS en_curso FROM commercial.customer_onboarding_requests WHERE id = ?`,
+        [INTENTO_VIGENTE_MIN, id],
+      );
+      if (m?.en_curso) throw new ConflictException('Alguien la está escribiendo en Kepler en este momento: espera un minuto y recarga.');
+      const armado = await this.armarParaKepler(trx, s);
+      const bloqueo = await this.bloqueoDeEscritura(trx, s, armado.hallazgos, this.kepler.servidores(), actor);
+      if (bloqueo) throw new ConflictException({ message: bloqueo, hallazgos: armado.hallazgos });
+      if (!armado.serie) throw new ConflictException('Sin zona de clientes no hay serie de clave.');
+      const reservadas = await this.clavesReservadas(trx, id);
+      await trx.raw(
+        `/* alc:escribiendo */ UPDATE commercial.customer_onboarding_requests
+            SET kepler_write_started_at = now(), kepler_write_by = ?, updated_at = now(), updated_by = ? WHERE id = ?`,
+        [me, me, id],
+      );
+      return { s, armado, serie: armado.serie, reservadas };
+    });
+
+    // 2 · la clave, contra las 10 bases vivas
+    const clave = await this.kepler.reservarClave(prep.serie, prep.reservadas, prep.s.kepler?.clave ?? null)
+      .catch((e: Error) => ({ ok: false as const, motivo: e.message }));
+    if (!clave.ok) {
+      await this.soltarIntento(id);
+      throw new ConflictException(clave.motivo);
+    }
+
+    // 3 · reservada en la Suite ANTES de escribir
+    try {
+      await this.tk.run((trx) => trx.raw(
+        `/* alc:reservar */ UPDATE commercial.customer_onboarding_requests SET kepler_code = ? WHERE id = ? AND (kepler_code IS NULL OR kepler_code = ?)`,
+        [clave.clave, id, clave.clave]));
+    } catch (e) {
+      await this.soltarIntento(id);
+      if ((e as { code?: string })?.code === '23505') throw new ConflictException(`Otra solicitud acaba de reservar la clave ${clave.clave}: vuelve a intentar.`);
+      throw e;
+    }
+
+    // 4 · escribir
+    let entrega: Awaited<ReturnType<KeplerClienteSinkAdapter['entregar']>>;
+    try {
+      entrega = await this.kepler.entregar(planConClave(prep.armado.plan, clave.clave), prep.s.folio);
+    } catch (e) {
+      await this.soltarIntento(id);
+      throw e;
+    }
+
+    // 5 · el resultado de cada base
+    const todas = entrega.servidores.every((x) => x.estado !== 'rechazada');
+    const solicitud = await this.tk.run(async (trx) => {
+      await trx.raw(
+        `/* alc:resultado-kepler */
+         UPDATE commercial.customer_onboarding_requests
+            SET kepler_write_started_at = NULL,
+                kepler_write_result = ?::jsonb,
+                kepler_written_at = CASE WHEN ? THEN now() ELSE kepler_written_at END,
+                kepler_code = CASE WHEN ? THEN NULL ELSE kepler_code END,
+                updated_at = now(), updated_by = ?
+          WHERE id = ?`,
+        [JSON.stringify({ intentada_el: new Date().toISOString(), servidores: entrega.servidores }), todas, entrega.claveAjena, me, id],
+      );
+      const escritas = entrega.servidores.filter((x) => x.estado !== 'rechazada').length;
+      this.logger.log(`[ALC] ${prep.s.folio} → Kepler ${clave.clave}: ${escritas}/${entrega.servidores.length} bases, por ${me}`);
+      return this.leerUna(trx, id);
+    });
+    // La clave resultó de otro cliente en el concentrador y no se escribió nada: la reserva ya se
+    // soltó (arriba); se dice, y el siguiente intento calcula otra.
+    if (entrega.claveAjena) {
+      throw new ConflictException(`${entrega.servidores[0]?.motivo ?? `La clave ${clave.clave} ya existe en Kepler.`} Vuelve a intentar: se tomará la siguiente.`);
+    }
+    return solicitud;
+  }
+
   // ───────────────────────────── 6. cancelar ─────────────────────────────
 
   async cancelar(id: string, motivoRaw: unknown, query: Record<string, unknown> = {}): Promise<SolicitudAlta> {
@@ -719,6 +1049,11 @@ export class CustomerOnboardingService {
       const s = await this.leerUna(trx, id, true);
       await this.exigirSucursal(s.branch, query);
       if (s.estado === 'ligada' || s.estado === 'cancelada') throw new ConflictException(`La solicitud ${s.folio} ya está «${s.estado}».`);
+      // `[ALC.2.8]` Lo que ya está en Kepler no se cancela desde aquí: quedaría un cliente huérfano allá.
+      const enKepler = s.kepler?.servidores.filter((x) => x.estado !== 'rechazada').map((x) => x.servidor) ?? [];
+      if (enKepler.length) {
+        throw new ConflictException(`La clave ${s.kepler?.clave} ya está en Kepler (${enKepler.join(', ')}): lígala; si no debía darse de alta, se da de baja en Kepler.`);
+      }
       await trx.raw(
         `/* alc:cancelar */ UPDATE commercial.customer_onboarding_requests
             SET status = 'cancelada', comments = concat_ws(E'\\n', comments, ?::text), updated_at = now(), updated_by = ? WHERE id = ?`,

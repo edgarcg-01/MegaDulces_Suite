@@ -24,6 +24,9 @@ ESTADO:    🧪 C0–C3 en código y probados en local el 2026-11-04 — empezad
 > ⛔ **Lo que falta para ✅** (§11): la migración aplicada en prod, la prueba con base real corriendo
 > en `pruebas-db` (aquí no hay base de pruebas: Docker apagado y `assert-safe-target` impide prod),
 > ALC.0.3 (dónde guarda Kepler el régimen del receptor) y la revisión de diseño independiente.
+>
+> **2026-11-07:** ALC.0.3 quedó resuelto (`kdfedir`, §4.1). La escritura directa en Kepler (D1-b)
+> está **construida y apagada**; encenderla es configuración de Edgar, en el orden de §13.
 
 Medido con `pg-prod` en sólo lectura (`system_identifier` 7688376744939610156, usuario `francisco`,
 `transaction_read_only = on`) sobre `kepler_ods.kdud`, `kdm1`, `kdfe33*` y `commercial.customers`,
@@ -105,10 +108,64 @@ Del diccionario de formas ([`KEPLER_DICCIONARIO_FORMAS.json`](../KEPLER_DICCIONA
 
 | # | Lo que se suponía | Lo que midió prod |
 |---|---|---|
-| 1 | «Cada sucursal tiene su catálogo de clientes» | 79 % de las claves está en las 9; la forma es la del **concentrador** («capturados desde la nube»). Cómo se propaga una ficha nueva del concentrador a las sucursales: **NO MEDIDO** |
+| 1 | «Cada sucursal tiene su catálogo de clientes» | 79 % de las claves está en las 9; la forma es la del **concentrador** («capturados desde la nube»). ✅ **Medido el 2026-11-07 (§4.1):** la base NO replica; la librería del cliente `pv_sc_lib` repite cada escritura del concentrador en las 9 sucursales |
 | 2 | «Las altas por mes se cuentan en Kepler» | `kdud` **no tiene fecha de alta** (`c1`, `c20`–`c23` vacías en las 22,423 filas). El proxy «primer documento en `kdm1`» se contamina con el arranque del ODS por sucursal (07 desde 2026-09-07, 08 desde 2026-09-18, 04 desde 2026-02-18): **NO MEDIDO** |
 | 3 | «`kdfe33cedirfis` es la dirección fiscal del cliente» | Tiene **2–3 filas por sucursal**: es la del emisor, no la del receptor |
-| 4 | «El régimen del cliente está en el maestro» | Las 31 columnas de `kdud` están decodificadas y ninguna es régimen ni uso de CFDI. Dónde lo guarda Kepler para timbrar: **NO MEDIDO** (ALC.0.3) |
+| 4 | «El régimen del cliente está en el maestro» | Las 31 columnas de `kdud` están decodificadas y ninguna es régimen ni uso de CFDI. ✅ **Medido el 2026-11-07 (§4.1, cierra ALC.0.3):** vive en `kdfedir` (`c1=3`): `c18` régimen, `c16` uso de CFDI, `c14` forma de pago, `c13` CP fiscal, `c19` nombre fiscal |
+
+### 4.1 Lo que escribe un alta en Kepler (medido el 2026-11-07, sólo lectura)
+
+Testigo: Francisco dio de alta un cliente en Kepler desde el concentrador con una factura vieja que
+mandó el cliente, y se leyó en el ODS qué quedó escrito (los datos del cliente **no** van al repo:
+es público). Clave **21054**.
+
+| Tabla | Qué quedó | Dónde |
+|---|---|---|
+| `kdud` (30 columnas) | la ficha: `c2` clave · `c3` nombre · `c4`/`c5` dirección (renglón 2 = colonia + municipio) · `c6` estado · `c10` RFC · `c12` vendedor · `c13` grupo · `c14` zona · `c15` límite `0.00` · `c16` plazo `0` · `c27` CP · `c28`/`c29` `0.0000`; el resto vacío | **idéntica en las 9 bases** (00…08) |
+| `kdfedir` (`c1=3`, `c2`=clave, `c3='1'`) | `c18` régimen · `c16` uso de CFDI · `c14` forma de pago (la bitácora `kdlogmov` registra las tres, con su número de columna, desde la pantalla `FE33Dir.kpl`); `c13` y `c19` vacíos | **sólo en la 08** |
+
+**Cómo se propaga** (código de `md_cat_cli.kpl`, leído del recurso compartido de Kepler): cada casilla
+que se guarda escribe una línea en `kdlogmov`, escribe en la base del servidor y, **si el servidor es
+el concentrador** (`pv_suc_ip.c6 = 'SC'`), llama a `pv_sc_lib`, que repite la escritura en las
+sucursales. La base no replica nada. `FE33Dir` no tiene ese paso: de 2,041 clientes con `kdfedir`,
+1,157 lo tienen en **una** sola base y 259 en las nueve. El concentrador es un **décimo servidor**
+que no está en el ODS (`pv_suc_ip` lo lista sin dirección).
+
+**Consecuencia para la escritura directa (D1-b):** escribir en una base **no** propaga. La Suite
+escribe en las **10** (concentrador primero, luego 00…08); si no escribiera en el concentrador, la
+siguiente alta hecha ahí podría tomar la misma clave.
+
+**`kdfedir`, medido en las 5,622 filas de clientes:**
+- forma de pago: con crédito (claves `C…`), `99` en 689 de 769; de contado, `01` en 1,788 de 2,297;
+- uso de CFDI: régimen 616 → `S01` en 3,542 de 3,567;
+- `c13` (CP fiscal): igual al `kdud.c27` en 886, distinto en 116, vacío en 2,444;
+- `c19` (nombre fiscal): igual al `kdud.c3` en 233, distinto en 51, vacío en 3,191.
+
+Kepler sólo llena `c13` y `c19` cuando difieren de la ficha; el armador hace lo mismo.
+
+**La clave** (Francisco, 2026-11-07, contrastada con las 2,468 fichas de la base 00):
+
+| Serie | Qué es | Medido |
+|---|---|---|
+| `1xxxx` · `2xxxx` · `3xxxx` | contado de La Piedad · Morelia · Zamora | de las `2xxxx`, 1,008 de 1,027 tienen zona `20000` |
+| `CR1###` · `CR2###` · `CR3###` | **crédito**, por zona: `CR1001` = crédito, La Piedad, consecutivo 001 (Francisco, 2026-11-08). Es la forma que da el módulo | 10 hoy (`CR1021`…`CR1066`, `CR2017`, `CR3093`, `CR3105`); ninguna aparece creada en la bitácora |
+| `C1xxx` · `C2xxx` · `C3xxx` | crédito, forma vieja que sigue en uso | 120 · 120 · 111 (`C1120` se dio de alta el 2026-11-07). ⚠️ **9 de las 10 `CR` son el mismo cliente que la `C` de su número** (`CR1026` y `C1026`, mismo nombre): no son un consecutivo aparte (D8) |
+| `O` + letra | otros ingresos no comerciales | 16 (`OC001`, `OD001`…) — **no** se dan de alta aquí |
+| `TI…` | traspasos internos | 8 — **no** se dan de alta aquí |
+
+Las zonas de clientes son `10000`, `20000` y `30000` en `kduk` (`01`, `02` y `03` son otras). El
+grupo de «venta de piso» de cada sucursal y su vendedor de piso salen de `kduj`/`kduv` (p. ej.
+`2VP01` Morelia Abastos → vendedor `20002` en 168 de 178 fichas).
+
+**Por qué asistir tanto** (Francisco: *«ahora no permitimos que todos los usuarios den de alta
+clientes… tenían bastantes errores ortográficos»*). Medido en las 2,468 fichas de la base 00:
+- Michoacán está escrito de **11 maneras** (`MICHOACÁN` 361, `MICHOCAN` 12, `MICHOACAN\r` 9, `MORELIA` 8, `MCIHOACAN` 5…);
+- 54 RFC mal formados (4 son `XAX010101000`) y 30 RFC repetidos entre claves;
+- 118 fichas sin CP, y 150 cuyo estado no es el de su CP;
+- 42 con un carácter de control pegado y 1 con apóstrofo (rompe los comandos de la propia forma).
+
+**El armador reproduce la fila real:** con los mismos datos que se le dieron a Kepler, da 30 de 30
+columnas iguales en `kdud` y 19 de 19 en `kdfedir`. La comparación se corrió fuera del repo.
 
 ---
 
@@ -144,8 +201,11 @@ Del diccionario de formas ([`KEPLER_DICCIONARIO_FORMAS.json`](../KEPLER_DICCIONA
 
 | # | Decisión | Opciones | Recomendación · ✅ firma |
 |---|---|---|---|
-| **D1** | ¿Quién escribe la ficha en Kepler? | **a)** la Suite arma la ficha en el orden de la forma y la persona la captura en Kepler con un «copiar» por casilla; la Suite **encuentra sola** la clave nueva en el ODS (mismo RFC o nombre) y la liga · **b)** la Suite escribe `kdud` en Kepler, detrás de `kepler_push_switch` tipo `cliente`, canario 1/día | **a) primero, b) después.** (a) no pide firma de escritura y ya quita la doble captura de datos fiscales. (b) es el **tercer documento** que la Suite escribiría en Kepler (ADR-092 firmó uno; COT.7 pidió su firma aparte), y antes hay que medir cómo propaga el concentrador (§4.1): escribir en una sucursal puede no llegar a las otras 8, o pisar una clave local (el aviso de la propia forma). ✅ **Francisco, 2026-11-04: D1-a ahora; D1-b lo hace Edgar** |
-| **D2** | ¿Quién asigna la clave? | Kepler (con D1-a) · la Suite, siguiente libre revisando las 9 · la Suite, en un rango reservado | Con D1-a, **Kepler** (✅ sale de D1). Con D1-b, **rango reservado**: es lo que la forma recomienda («una nomenclatura particular para los clientes capturados desde la nube») y evita chocar con las 379 claves locales — lo decide Edgar con D1-b |
+| **D1** | ¿Quién escribe la ficha en Kepler? | **a)** la Suite arma la ficha en el orden de la forma y la persona la captura en Kepler con un «copiar» por casilla; la Suite **encuentra sola** la clave nueva en el ODS (mismo RFC o nombre) y la liga · **b)** la Suite escribe `kdud` en Kepler, detrás de `kepler_push_switch` tipo `cliente`, canario 1/día | **a) primero, b) después.** (a) no pide firma de escritura y ya quita la doble captura de datos fiscales. (b) es el **tercer documento** que la Suite escribiría en Kepler (ADR-092 firmó uno; COT.7 pidió su firma aparte), y antes hay que medir cómo propaga el concentrador (§4.1): escribir en una sucursal puede no llegar a las otras 8, o pisar una clave local (el aviso de la propia forma). ✅ **Francisco, 2026-11-04: D1-a ahora; D1-b lo hace Edgar** · ✅ **Francisco, 2026-11-07:** *«preparamos todo para que nuestra escritura directa a cada una de las bases de Kepler llegue bien y Edgar sólo tenga que hacer la configuración final»* → D1-b construida y **apagada** (`[ALC.2.7]`/`[ALC.2.8]`); a Edgar le queda §13 |
+| **D2** | ¿Quién asigna la clave? | Kepler (con D1-a) · la Suite, siguiente libre revisando las 9 · la Suite, en un rango reservado | Con D1-a, **Kepler** (✅ sale de D1). ✅ **Francisco, 2026-11-07, con D1-b:** el consecutivo de la serie de la zona (§4.1: `1xxxx`/`2xxxx`/`3xxxx` contado; crédito `CR1###`/`CR2###`/`CR3###`, Francisco 2026-11-08). La Suite toma el siguiente contando en las **10 bases vivas** —también las claves locales— más las que ya reservó, lo **reserva** antes de escribir (índice único) y escribe el concentrador primero; un choque con un alta simultánea en Kepler lo rebota la llave primaria y se reintenta con la siguiente |
+| **D6** | ¿`kdfedir` se escribe sólo donde se da el alta, como hace Kepler, o en las 10? | Una base · las 10 | **Las 10** (decisión de Claude, 2026-11-07): Kepler la deja donde se abrió `FE33Dir` (1,157 clientes la tienen en una sola base), y una sucursal sin ella factura sin régimen ni uso de CFDI. Escribirla en todas no cambia lo que Kepler ya hace en esa base. Si Edgar prefiere copiar a Kepler, es una línea en el adaptador |
+| **D7** | ¿Quién pulsa «Dar de alta en Kepler»? | Quien captura · Crédito y Cobranza · otra área | **Crédito y Cobranza** (rol `credito_cobranza`) + `superadmin`, en la llave nueva `COMMERCIAL_ALTA_CLIENTES_KEPLER`: Francisco, 2026-11-07: *«ahora no permitimos que todos los usuarios den de alta clientes»*. Capturar la solicitud sigue abierto a los 12 roles de D3. ⚠️ **A quién va es propuesta de Claude: falta que Francisco lo confirme** |
+| **D8** | La clave de crédito | `C1xxx` · `CR1###` | ✅ **Francisco, 2026-11-08:** *«CR1001: CR = crédito, 1 = zona La Piedad, (123) el consecutivo del cliente con crédito»*. ⚠️ Medido después: 9 de las 10 `CR` que ya existen son el mismo cliente que la `C` de su número, y la forma `C` sigue en uso (`C1120`, 2026-11-07). Para que un número nuevo no repita el de otro cliente de crédito, **el consecutivo cuenta las dos formas** (decisión de Claude): hoy la siguiente sería `CR1121`, `CR2121` y `CR3112` (medido en el ODS); contando sólo las `CR` sería `CR1067`, número que ya es de `C1067`. Si Francisco quiere el consecutivo sólo de las `CR`, es una línea (`cuenta` en `serieDe`) |
 | **D3** | ¿Quién da de alta y quién aprueba el crédito? | Alta: caja / encargado de sucursal · vendedor · telemarketing · crédito y cobranza. Crédito, plazo, descuento y comisión: ¿quién firma? | ✅ **Francisco, 2026-11-04:** da de alta *«cajero, encargado, auxiliar, vendedor (todos), gerente, dirección»*; aprueba **Crédito y Cobranza** y, en su ausencia, la **Gerencia Administrativa y Financiera** y **Dirección General**. En roles de prod (medido): alta → `cajero`, `encargado_tienda`, `encargado_bodega`, `auxiliar_tienda`, `vendedor_ruta`, `vendedor_telemarketing`, `telemarketing`, `supervisor_ventas`, `promotor_ruta` y `facturacion` (✅ Francisco, segunda respuesta), `gerente_compras`, `direccion`. ✅ Segunda respuesta: *«la persona que autoriza es Perla de Crédito y Cobranza, Paulina es gestora»* → crédito **por persona** a `perla_garcia` (su rol `finanzas_operativo` lo comparten 8) y, en su ausencia, roles `finanzas` (puesto `jefe_finanzas`) y `direccion`. El rol `credito_cobranza` (Paula Alanis y Gloria Vera) **no** autoriza. ⚠️ Inferido: «Paulina» = Paula Lissett Alanis (no hay ninguna Paulina en Crédito y Cobranza). Fuera: `auxiliar_compras` (5), `piso_tienda` (7) |
 | **D3b** | ¿Quién **ve** la bandeja sin capturar ni aprobar? | Darles la llave de captura · una llave nueva de sólo consulta | ✅ **Francisco, 2026-11-06:** *«Paulina y Gloria ven solicitudes de alta, también las gerencias de zona y Dirección General»*. Se construyó la de **sólo consulta** (`COMMERCIAL_ALTA_CLIENTES_VER`, `[ALC.0.6]`): «ven» no es «capturan, ligan y cancelan». Va al rol `credito_cobranza` (3 personas, medido: Paula Alanis, Gloria Vera y, como rol secundario, Jesús Carrillo, que ya veía por `finanzas`/`direccion`). Gerencia de Zona (puesto `jefe_zona`: 3 personas, todas `superadmin`; su rol por defecto `supervisor_ventas` también tiene la de captura) y Dirección General (`direccion`: 2) **ya la veían**: nada que repartir. ✅ **Francisco, misma fecha: *«maria de la paz no»*** — `maria_gutierrez` (Jefe de Tesorería) aprobaba crédito sin que nadie la nombrara, por su rol secundario `finanzas`: se le **niega por persona** (`[ALC.0.7]`). ⚠️ Los `superadmin` (Sistemas, los 3 gerentes de zona y Viviana Flores) también pueden aprobar: el modo god entra a todo y una negación por persona no lo detiene |
 | **D4** | ¿Se valida contra el SAT en línea? | No (formato, dígito verificador, catálogos del ODS) · servicio del PAC · página del QR (`idCIF`) | **No en esta fase.** Lo fuera de línea atrapa los errores de captura; lo en línea es un servicio externo (ADR-040: integrar) que se decide aparte |
@@ -163,7 +223,7 @@ construir con cualquier respuesta.
 | 1 | **C0.3** — dónde guarda Kepler régimen y CP fiscal del receptor | Sin eso, «lista para Kepler» miente: la ficha quedaría sin el dato que el CFDI 4.0 exige |
 | 2 | **C1** — lector de la CSF + validaciones + armado de la ficha | No depende de D1–D5; es lo que quita los errores de tecleo |
 | 3 | **C2/C3 con D1-a** — solicitud, aprobación, bandeja, liga automática | Reusa la bandeja de MCP.3.8 (ADR-056: no otra bandeja) |
-| 4 | **D1-b** — escribir `kdud` en Kepler | Sólo con firma y con la propagación del concentrador medida |
+| 4 | **D1-b** — escribir `kdud` en Kepler | Sólo con firma y con la propagación del concentrador medida — ✅ medida (§4.1) y construida apagada el 2026-11-07; falta §13 |
 
 ⚠️ **Cómo se hizo de verdad (2026-11-04):** 2 y 3 se construyeron **antes** que 1, a pedido de
 Francisco. Mientras ALC.0.3 no se cierre, la Suite guarda el régimen y el CP fiscal en su propia ficha
@@ -183,11 +243,14 @@ fricción quita en caja.
 |---|---|---|---|
 | ALC.0.1 | Duplicados y liga leídos **directo de `kepler_ods.kdud`** (RFC `c10`, nombre `c3`, crédito `c15`/`c16`/`c17`). Cambió: **no** se toca `analytics.v_customer_master` (la usan otras pantallas; `vk_cartera_datos_kepler` ya hizo lo mismo) | 🧪 | Prueba con base real (fichas ficticias en la transacción) |
 | ALC.0.2 | Catálogos del SAT leídos del ODS, sin copia: régimen `kdfe33satrf` (19 claves en prod; `c3` = física, `c4` = moral, `c6` = fin de vigencia), CP `kdfe33satcp` (95,748). `app_runtime` los lee (medido) | 🧪 | La CSF de prueba de persona física da 612 y 605; la de moral, 601 |
-| ALC.0.3 | **Decodificar dónde guarda Kepler el régimen y el CP fiscal del receptor** | ⬜ | El XML de un CFDI timbrado por Kepler a un cliente con RFC real (`RegimenFiscalReceptor`, `DomicilioFiscalReceptor`) contra la columna candidata. Si la tabla no se replica al ODS, se declara |
+| ALC.0.3 | **Decodificar dónde guarda Kepler el régimen y el CP fiscal del receptor** | 🧪 | Cerrado por `[ALC.0.8]`: `kdfedir`. ⚠️ El contraste contra el XML de un CFDI timbrado **no se hizo**: el testigo es la bitácora de Kepler (`kdlogmov` nombra las columnas 18, 16 y 14 de `KDFEDIR` al capturar 612, G01 y 28) |
 | ALC.0.4 | `commercial.customer_onboarding_requests` (mig `20261104235236`): dato propio con `tenant_id`, auditoría, RLS `FORCE`, sin `DELETE` para `app_runtime`, `CHECK` de estados y montos, **un RFC propio con una sola solicitud abierta** (índice parcial). La ficha de la Suite sigue en `commercial.customers`: al ligar se llenan `rfc`, `legal_name`, `regimen_fiscal`, `billing_address.zip` (columnas que ya existían; **ningún `NOT NULL` nuevo**) | 🧪 | `up()` **NO EJECUTADO** aquí (sin base de pruebas): lo corre el CI al levantar la base (`dev-bootstrap-empty-db.js`) y la prueba de base real. ⚠️ Antes de prod, aplicarla una por una |
 | ALC.0.5 | Las dos llaves repartidas en la misma migración (D3): `COMMERCIAL_ALTA_CLIENTES` a 10 roles y `COMMERCIAL_ALTA_CLIENTES_CREDITO` a 3 (+ `superadmin`). Falla si ninguna queda repartida (regla 20) | 🧪 | Se verifica en prod al aplicarla: el log dice qué roles quedaron en `true` |
 | ALC.0.6 | Llave de **sólo consulta** `COMMERCIAL_ALTA_CLIENTES_VER` (D3b) al rol `credito_cobranza` (mig `20261106181031`, sólo `UPDATE`): abre bandeja, detalle, PDF de la constancia y catálogos; ninguna escritura. La pantalla no le ofrece «Ligar» ni le pide ligar | 🧪 | `customer-onboarding.controller.spec.ts` recorre los 10 endpoints con la regla de `RolesGuard`; prueba negativa: abrir `link` a `_VER` la pone roja. En prod: el log de la migración nombra a quién llegó; luego re-login |
 | ALC.0.7 | `COMMERCIAL_ALTA_CLIENTES_CREDITO` **negada por persona** a `maria_gutierrez` en `identity.user_permissions` (misma mig `20261106181031`): le llegaba por su rol secundario `finanzas`, que no se le quita porque le da el resto de Finanzas. La persona gana sobre el rol en los dos sentidos (`[ID.21]`) | 🧪 | Medido antes: sin fila previa para esa llave. `up()` NO MEDIDO en el CI (la base desde cero no tiene a la persona). En prod: el log dice `NEGADA a maria_gutierrez`; después, ella ya no ve el módulo |
+| ALC.0.8 | **Lo fiscal del receptor vive en `kdfedir`** (`c1=3`, `c2`=clave, `c3='1'`): `c18` régimen, `c16` uso de CFDI, `c14` forma de pago, `c13` CP fiscal, `c19` nombre fiscal (§4.1). Cierra ALC.0.3. Catálogos del SAT en el ODS: `kdfe33satuso` (`c7` = regímenes que admiten cada uso) y `kdfe33satfopg`; `app_runtime` los lee (medido) | 🧪 | Testigo: la bitácora `kdlogmov` del alta 21054 nombra las tres columnas con los valores capturados. NO MEDIDO contra el XML de un CFDI timbrado |
+| ALC.0.9 | **Cómo se propaga un alta**: la librería del cliente `pv_sc_lib` repite en las 9 sucursales lo que se guarda en el concentrador; la base no replica, y `kdfedir` no se propaga (§4.1) | 🧪 | El código de `md_cat_cli.kpl` y la fila 21054: `kdud` idéntica en 9 bases, `kdfedir` sólo en la 08. ⚠️ `pv_sc_lib.kpl` no estaba en el recurso compartido: se leyó quién la llama, no su código |
+| ALC.0.10 | **La nomenclatura de claves** (Francisco, 2026-11-07 y 11-08): contado `1xxxx`/`2xxxx`/`3xxxx` y crédito `CR1###`/`CR2###`/`CR3###` por zona, con un consecutivo que también cuenta las `C1xxx` viejas (D8); `O…` y `TI…` no son altas de este módulo (§4.1) | 🧪 | Contrastada con las fichas de Kepler. Siguiente de crédito hoy: `CR1121`, `CR2121`, `CR3112` (ODS, 9 sucursales). Negativa: contando sólo las `CR` sale `CR1067`, número de otro cliente → 2 rojas |
 
 ### C1 · Dominio
 | # | Item | Estado | Prueba que lo ejerce |
@@ -197,6 +260,7 @@ fricción quita en caja.
 | ALC.1.3 | `ficha-kepler.ts`: la constancia → la forma de Kepler con la convención **medida** del maestro (estado corto `MICHOACAN`, razón social sin régimen de capital, `AV.`, `INT 6`). Lo que no cabe se reporta, no se corta | 🧪 | La constancia de prueba da exactamente la ficha de la captura de pantalla (`AV. FRANCISCO I MADERO PONIENTE 3600` · `VICENTE GUERRERO MORELIA` · `MICHOACAN`). ⚠️ La captura real dice `AV` sin punto: la convención mayoritaria del maestro es `AV.` (45 contra 9) |
 | ALC.1.4 | Duplicados: RFC propio en cualquiera de las 9 → la clave y sus sucursales; RFC genérico → nombre parecido con el motor de MCP.3.8 | 🧪 | Prueba con base real |
 | ALC.1.5 | `diferenciaDeCredito`: al ligar, si Kepler tiene otro límite, plazo o descuento que lo aprobado, queda escrito en la solicitud (Kepler manda; la Suite no lo corrige) | 🧪 | 3 pruebas |
+| ALC.1.6 | `kepler-cliente.armador.ts` (puro): la solicitud → la fila de `kdud` (30 columnas) y la de `kdfedir` (19), o por qué no. Serie y siguiente clave por zona y crédito (no se desborda a otra zona); texto como lo escribe Kepler (mayúsculas, sin acentos salvo la Ñ, sin comillas ni control, teléfono sólo dígitos); estado del CP del SAT; grupo de otra zona **bloquea**, vendedor de otra zona avisa; lo que no cabe **bloquea** (no se corta); uso de CFDI compatible con el régimen; forma y uso de costumbre | 🧪 | 16 pruebas. **Testigo:** con los datos que se le dieron a Kepler reproduce la fila real 21054, **30/30 en `kdud` y 19/19 en `kdfedir`** (corrido fuera del repo). Negativa: la regla de grupo y zona rota → rojo verificado |
 
 ### C2 · API (`/commercial/customer-onboarding`)
 | # | Item | Estado | ¿Escribe? | Prueba contra base real |
@@ -207,7 +271,8 @@ fricción quita en caja.
 | ALC.2.4 | `POST :id/credit` (sólo con la llave de crédito, motivo obligatorio; queda quién, con qué rol y cuándo) | 🧪 | sí | ídem |
 | ALC.2.5 | `POST :id/link`: la clave debe existir en Kepler (su sucursal) y traer el **mismo RFC**; tres casos — ya hay ficha en la Suite (ancla de VK.4) · completa un `V-` (la liga es la de MCP.3.8, reusada) · ficha nueva `K<sucursal>-<clave>`. La bandeja muestra la ficha de Kepler con el mismo RFC para ligar en un clic, **sin ligar sola** (un GET no escribe) | 🧪 | sí | ídem; ⚠️ el caso `V-` NO se ejerce en la prueba |
 | ALC.2.6 | `POST :id/cancel` con motivo | 🧪 | sí | ídem |
-| ALC.2.7 | *(D1-b, de Edgar)* Escribir `kdud` en Kepler, clonando una ficha plantilla como hace KR con `kdm1` | ⬜ | **en Kepler** | ⛔ ensayo en una sucursal, visto en la pantalla de Kepler, como KR.1 |
+| ALC.2.7 | *(D1-b)* `KeplerClienteSinkAdapter`: `kdud` + `kdfedir` + un renglón `ALTA` en `kdlogmov` (usuario `SUITE`, con el folio) en las **10 bases**, el concentrador primero, cada una en su transacción. Sin plantilla: las columnas van todas explícitas. Idempotente: misma clave y mismo RFC = `ya_estaba`; otro cliente = `rechazada` sin tocar; un rechazo del concentrador detiene el resto. Conexión del concentrador: `KEPLER_PUSH_URL_SC` en `platform-core` (sin comodín) | 🧪 | **en Kepler** | 5 pruebas de «apagado por default» (sin las 10 conexiones no se conecta a ninguna; la de oficinas no sirve de comodín). ⛔ **El ensayo contra las 10 bases (ROLLBACK) NO SE CORRIÓ**: desde esta PC no hay acceso a Kepler; lo corre Edgar desde `md` (§13) |
+| ALC.2.8 | `GET :id/kepler` (lo que se escribiría y por qué no, para cualquiera que vea la bandeja; sin escribir) y `POST :id/kepler` (llave nueva `COMMERCIAL_ALTA_CLIENTES_KEPLER`): marca «escribiendo» → clave contra las 10 bases vivas → **reserva** en la Suite (índice único) → escribe → resultado de cada base. Un reintento usa la misma clave; lo escrito no se cancela; ligar toma la clave sin teclearla. Mig `20261107181223`: 7 columnas **nullable**, CHECK «escrita ⇒ con clave», índice único de la clave, interruptor `cliente` **apagado** en las 9 sucursales (tope 1/día) y la llave a `credito_cobranza` | 🧪 | sí | `test-newdb-alc-alta-clientes.js` **55 ✓ / 0 ✗** contra una base armada como la del CI (`dev-bootstrap-empty-db.js` en un Postgres desechable, 2026-11-07), con un doble de Kepler. Negativas: sin la llave 403; apagado 409 sin consultar Kepler; dos solicitudes con la misma clave 409; escribir dos veces 409. Sin el paso de reservar, 4 rojas (mutación verificada). Migración: `up()` real ×2, `down()`, CHECK, índice y regla 20, **16 ✓** |
 
 ### C3 · UI (`/comercial/alta-clientes`, menú «Venta y clientes»)
 | # | Item | Estado | `check:pantalla` antes → después |
@@ -217,6 +282,8 @@ fricción quita en caja.
 | ALC.3.3 | **«Con RFC / Sin RFC»** junto al RFC (Francisco, 2026-11-06: *«para automatizar el avance»*). «Sin RFC» llena el genérico del SAT `XAXX010101000` (también en la ficha), fija persona física y el régimen **616** «Sin obligaciones fiscales» (el único que el SAT admite con ese RFC; sólo si está en el catálogo). Teclear el genérico a mano equivale a elegirlo. El CP fiscal **no** se llena: no tenemos el de cada sucursal (medido: `commercial.warehouses` sin dirección fiscal). Medido: **15,160 de 22,558 fichas de Kepler (67 %) son sin RFC**, el caso mayoritario. Cinco preguntas: (1) ve primero si tiene RFC; (2) en «Sin RFC» deja de ver tipo de persona y régimen, que ya están dados; (3) un clic junto al campo; (4) es el mismo dato que Kepler ya usa; (5) sí, es la captura del alta | 🧪 | `alta-cliente-form.sin-rfc.spec.ts` (5), con prueba negativa (sin fijar el 616, 2 rojas). Sin validación visual |
 | ALC.3.4 | **El CP llena el estado y sugiere la colonia** (Francisco: *«para llenar menos a mano»*). `GET postal-code/:cp` (llave de captura): el estado sale del catálogo del SAT del ODS (`kdfe33satcp` → `kdfe33satedo`, **1 estado por CP, 0 ambiguos** medido) escrito como Kepler (`MICHOACAN`); el renglón 2 (colonia, municipio) sale como **sugerencia** de cómo lo escriben las fichas de `kdud` con ese CP (21,386 fichas, 486 CP; para 59300, «CENTRO, LA PIEDAD» 510 veces). ⛔ No hay catálogo de colonias ni municipios en el ODS: la colonia **se elige, no se adivina**, y no se agrega un importer. El estado no pisa lo que la persona escribió | 🧪 | Las dos consultas corridas en prod (sólo lectura): 59300 y 58000 → `Michoacán`, 00000 → nulo; `app_runtime` lee las 3 tablas. Spec (4) con prueba negativa (pisar el estado escrito, 1 roja). Sin validación visual |
 | ALC.3.5 | **Ubicación del cliente, opcional** (Francisco: *«podemos agregar la info de geolocalización»*, y *«sí, hazlo»* a los dos botones). «Ubicar en el mapa» busca el domicilio capturado con el geocodificador que ya usa Reparto (`/reports/geocode`, Mapbox: **se paga por llamada**, por eso es un clic y sólo si hay calle); «Usar mi ubicación» toma el GPS del teléfono, con su precisión, para el vendedor parado en la tienda. Un clic en el mapa corrige el punto. Mig `20261106232506`: 4 columnas **nullable** en la solicitud + CHECK (las dos coordenadas juntas, rango, origen). Al ligar, el punto pasa a `commercial.customers.latitude/longitude` **sólo si estaba vacío** (628 de 1,903 clientes lo tienen hoy). Kepler no lo recibe (D1-a). Opcional por decisión de Claude: sin señal o sin dirección encontrable, el alta no se traba | 🧪 | Prueba con base real extendida: guarda el punto del GPS con su precisión, sin ubicación se da de alta igual, latitud 120 → 400 (negativa) y al ligar pasa a la ficha (corre en `pruebas-db`; aquí NO MEDIDO). Regla: imposible bloquea, fuera de México avisa (negativa: sin el bloqueo, 1 roja). Pantalla: 3 pruebas (sin calle no se gasta una llamada; no encontrada no inventa punto; GPS → mapa → quitar). Sin validación visual |
+| ALC.3.6 | **El módulo asiste** (Francisco, 2026-11-07: *«que este módulo asista demasiado al usuario»*): la sucursal pone la zona, su grupo de piso y el vendedor de ese grupo; grupos y vendedores se filtran por la zona; sólo zonas de clientes; uso de CFDI (sólo los que el SAT admite con el régimen) y forma de pago con el de costumbre; al guardar, la ficha queda como la escribe Kepler y el **estado sale del CP** («Michocan» → `MICHOACAN`, y se dice) | 🧪 | `alta-cliente-form.cartera.spec.ts` (6; negativa: sin el filtro de zona, 2 rojas) + 2 de reglas (uso/forma del catálogo; negativa G01 con 616) + la prueba con base real. Sin validación visual |
+| ALC.3.7 | **«En Kepler»** en el detalle de una solicitud lista: la clave que le tocará (grande), «Dar de alta en Kepler» con confirmación, o por qué todavía no se puede en una línea; el resultado de cada una de las 10 bases con su motivo; las casillas de `kdud` y de «Dirección fiscal» con su rótulo y «copiar» (la guía exacta mientras la escritura está apagada); escrita, se liga sin teclear la clave | 🧪 | `check:pantalla` 0 fallas; `ngc` sin errores de tipo en las plantillas. **Sin validación visual** |
 
 Las cinco preguntas de `diseno` §0b se contestaron antes de la plantilla y viven en el encabezado de
 `comercial-alta-clientes.component.ts`. ⚠️ **Sin validación visual**: la pantalla no se ha visto en un
@@ -230,10 +297,12 @@ deuda antes de soltar.
 | Bloqueo | Dueño | Causa | Qué lo destraba |
 |---|---|---|---|
 | Se construyó por encima del cupo | Edgar | 7 fases 🔨 contra un tope de 4; Fase 0 en curso. Francisco pidió construirla ya | Que el PM la ratifique en el tablero (y diga cuál pasa a ⏸️) |
-| D1-b (escribir `kdud`) y D2 con D1-b | Edgar | Tercer documento que la Suite escribiría en Kepler | Su firma, con la propagación del concentrador medida |
+| Encender D1-b | Edgar | Construida y apagada; falta la configuración que no es de código (conexiones, `GRANT`, ensayo) | §13, en su orden |
+| Conexión al concentrador | Edgar | El concentrador no está en el ODS y `pv_suc_ip` no publica su dirección: no sabemos dónde está su Postgres | `KEPLER_PUSH_URL_SC` en el secreto `kepler-push` |
+| D7 (quién pulsa) | Francisco | Personas | §7 |
 | D4 (SAT en línea) y plazo de resguardo de D5 | Edgar (D4) · Dirección (D5) | Servicio externo · dato personal | §7 |
-| Régimen del receptor en Kepler sin ubicar | quien tome ALC.0.3 | No está en `kdud` ni en las tablas `kdfe33*` del ODS | ALC.0.3 contra un CFDI timbrado |
-| Propagación del concentrador sin medir | Edgar (con D1-b) | La forma escribe «en la nube»; no sabemos cómo baja a las sucursales | Medir antes de cualquier escritura |
+| ~~Régimen del receptor en Kepler sin ubicar~~ | — | ✅ Está en `kdfedir` (§4.1, `[ALC.0.8]`) | — |
+| ~~Propagación del concentrador sin medir~~ | — | ✅ Medida: `pv_sc_lib`, del lado del cliente (§4.1, `[ALC.0.9]`) | — |
 | ~~Constancia de persona moral para pruebas~~ | — | ✅ Francisco la dio el 2026-11-04; se usó para armar la sintética y no se versiona | — |
 
 ---
@@ -263,3 +332,34 @@ deuda antes de soltar.
 | 2026-11-06 | Francisco pide llenar menos a mano: «Sin RFC» llena el genérico del SAT (`[ALC.3.3]`) y el CP llena el estado y sugiere la colonia (`[ALC.3.4]`). Medido antes: 67 % de las fichas de Kepler son sin RFC; el ODS da el estado por CP pero NO trae colonias ni municipios. Geolocalización: hay geocodificador (Mapbox, `/reports/geocode`) y `commercial.customers` tiene `latitude`/`longitude`; falta decidir cómo se captura | Francisco + Claude |
 | 2026-11-06 | Francisco: *«sí, hazlo»* → `[ALC.3.5]` ubicación opcional con dos botones (domicilio en el mapa · GPS del teléfono). Edgar trajo `main` a la rama de #501 (`c3d70a6b5`); ALC.3.5 va encima, en el mismo PR | Francisco + Claude |
 | 2026-11-07 | #501 fusionado con dos defectos míos que cazó `pruebas-db` (informativa, no bloquea): el INSERT de la solicitud traía **30 `?` para 29 valores** (crear daba 500) y la migración `20261106232506` **no agregaba `longitude`** (reusaba un `knex.schema` para varios `hasColumn`). Al probar el arreglo con un Postgres desechable apareció un tercero: el CHECK dejaba entrar latitud sin longitud (un CHECK que da NULL pasa). Arreglado en `[ALC.3.5.1]`, con el `up()` real corrido dos veces, el `down()` y la versión vieja fallando. Prod no se tocó: seguía en `b852ba8ba` | Francisco + Claude |
+| 2026-11-07 | En prod (`aee639d73`, con #503 y sus 2 migraciones). Francisco da de alta un cliente en Kepler desde el concentrador y pide revisar qué cambió para diseñar la escritura directa, con la nomenclatura de claves y *«que este módulo asista demasiado al usuario»*. Medido (§4.1): la ficha llegó a las 9 bases y lo fiscal sólo a una; la propagación es del cliente de Kepler (`pv_sc_lib`), no de la base; lo fiscal del receptor vive en `kdfedir` (cierra ALC.0.3). Construido apagado: armador (reproduce la fila real 30/30 y 19/19), adaptador a las 10 bases, plan y escritura en la API, asistencia en la captura y el panel «En Kepler». Al armar la base como el CI apareció que la regla 20 hacía que el arranque **saltara** la migración (columnas incluidas): ahora se exige sólo si el rol existe | Francisco + Claude |
+| 2026-11-08 | Francisco: *«CR1001: CR = crédito, 1 = zona La Piedad, (123) el consecutivo del cliente con crédito»*. La serie de crédito pasa a `CR` + zona + 3. Medido antes de cambiarla: 9 de las 10 `CR` que ya existen son el mismo cliente que la `C` de su número, y la forma `C` sigue en uso; el consecutivo cuenta las dos (D8): la siguiente sería `CR1121`, no `CR1067` (que ya es `C1067`) | Francisco + Claude |
+
+---
+
+## 13. Para encender D1-b (Edgar)
+
+Todo lo que es código está hecho y **apagado**. Lo que falta no es código, y va en este orden:
+
+1. **Aplicar la migración** `20261107181223_alc_escritura_directa_kepler.js` antes de soltar
+   (`sh ops/prod/aplicar-migracion.sh …`): agrega columnas que el servicio ya usa. El log dice cuántos
+   renglones `cliente` quedaron (deben ser 9, ninguno encendido) y a qué rol llegó la llave. Quien la
+   recibe vuelve a entrar.
+2. **La conexión al concentrador**: `KEPLER_PUSH_URL_SC` en el secreto `kepler-push`. Las de las
+   sucursales (`KEPLER_PUSH_URL_00`…`_08`) deberían existir ya: la compra está encendida en las
+   nueve (medido en `kepler_push_switch`; el secreto no se leyó). Sin las 10, la escritura no se
+   intenta en ninguna.
+3. **Los permisos en las 10 bases de Kepler** para el usuario de esas conexiones:
+   `SELECT, INSERT` en `md.kdud` y `md.kdfedir`, e `INSERT` en `md.kdlogmov`.
+4. **El ensayo** desde `md` (escribe y hace ROLLBACK: no deja nada):
+   `KEPLER_ENSAYO=1 npx vitest run --config vitest.config.ts src/lib/customer-onboarding/kepler-cliente-sink.ensayo.spec.ts`
+   en `libs/commercial`. Verde = las 10 contestaron, la clave siguiente salió y las tres tablas
+   aceptaron la fila con sus tipos de verdad.
+5. **Encender una sola sucursal** como canario: el renglón (`<sucursal>`, `cliente`) de
+   `commercial.kepler_push_switch` en `encendida = true`, con su tope de 1 por día. La primera alta
+   real se revisa en la pantalla de Kepler (ficha y «Dirección fiscal») en dos sucursales distintas
+   y en el concentrador.
+6. Después, quitar el tope o encender las demás.
+
+⚠️ Lo que el código decidió y Edgar puede cambiar: `kdfedir` se escribe en las 10 bases (D6); la
+bitácora de Kepler recibe un renglón `ALTA` con el usuario `SUITE` y el folio `ALC-…` por base.

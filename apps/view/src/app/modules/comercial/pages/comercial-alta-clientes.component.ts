@@ -18,6 +18,7 @@ import {
   type CasillaKepler,
   type CatalogosAlta,
   type EstadoSolicitudAlta,
+  type PlanAltaKepler,
   type SolicitudAlta,
 } from '@megadulces/contracts';
 import { coincideBusqueda } from '@megadulces/ui-web';
@@ -61,6 +62,16 @@ const ORDEN_KEPLER: CasillaKepler[] = ['nombre', 'direccion_1', 'direccion_2', '
  *
  * Jerarquía: primario = lo pendiente y la acción; secundario = la bandeja; terciario = folio,
  * quién la capturó y cuándo.
+ *
+ * `[ALC.3.7]` «En Kepler» (D1-b), las cinco preguntas otra vez:
+ *  1. En una solicitud lista: la clave que Kepler le dará, grande, y «Dar de alta en Kepler» (o
+ *     por qué todavía no se puede, en una línea). Después, las casillas tal cual se escribirán.
+ *  2. No se ven las columnas de Kepler siempre vacías ni sus números (`c13`…): el rótulo de pantalla.
+ *  3. Escribir pide una confirmación (escribe en 10 bases del ERP); cada casilla se copia con un
+ *     clic para quien la captura a mano mientras la escritura está apagada.
+ *  4. Ligada a Kepler: el resultado de cada una de las 10 bases, con su motivo si falló; escrita,
+ *     se liga con su clave sin teclearla.
+ *  5. Es el paso final de la misma alta: aquí, no en otra pantalla. Sólo con la llave.
  */
 @Component({
   selector: 'app-comercial-alta-clientes',
@@ -80,7 +91,7 @@ const ORDEN_KEPLER: CasillaKepler[] = ['nombre', 'direccion_1', 'direccion_2', '
         <div class="surf-page-head-text">
           <h1>Alta de clientes</h1>
           <p class="surf-page-sub">
-            Desde su constancia del SAT o a mano. Se captura en Kepler con la ficha de aquí y se liga con la clave que Kepler le dé.
+            Desde su constancia del SAT o a mano. Se da de alta en Kepler desde aquí (o se captura allá con esta ficha) y se liga con su clave.
           </p>
         </div>
         <div class="ac-acciones">
@@ -139,7 +150,8 @@ const ORDEN_KEPLER: CasillaKepler[] = ['nombre', 'direccion_1', 'direccion_2', '
               <td>{{ s.branch | sucursal }}</td>
               <td>
                 <p-tag [value]="etiqueta(s.estado)" [severity]="severidad(s.estado)" />
-                @if (s.coincidencias_kepler.length) { <span class="ac-hint">ya está en Kepler: {{ s.coincidencias_kepler[0].clave }}</span> }
+                @if (s.kepler; as k) { <span class="ac-hint">Kepler {{ k.clave }}: {{ k.escrita_el ? 'dada de alta, falta ligar' : 'incompleta, reintentar' }}</span> }
+                @else if (s.coincidencias_kepler.length) { <span class="ac-hint">ya está en Kepler: {{ s.coincidencias_kepler[0].clave }}</span> }
                 @if (s.estado === 'ligada') { <span class="ac-hint ac-mono">{{ s.erp_customer_code }}</span> }
               </td>
               <td class="comm-num">
@@ -208,9 +220,95 @@ const ORDEN_KEPLER: CasillaKepler[] = ['nombre', 'direccion_1', 'direccion_2', '
             </p>
           }
 
-          @if (s.estado === 'lista_para_kepler' && puedeCapturar()) {
+          @if (s.estado === 'lista_para_kepler') {
             <div class="ac-bloque">
-              <h3>Ligar con Kepler</h3>
+              <h3>En Kepler</h3>
+              @if (planRes.isLoading() && !plan()) { <p class="ac-tenue" role="status">Armando la ficha de Kepler…</p> }
+              @if (errorPlan(); as e) { <p class="ac-nota" role="alert">{{ e }}</p> }
+              @if (s.kepler?.escrita_el) {
+                <div class="ac-coincide">
+                  <span>Dada de alta en las 10 bases con la clave <strong class="ac-mono">{{ s.kepler!.clave }}</strong>{{ s.kepler!.intentada_por_nombre ? ' por ' + s.kepler!.intentada_por_nombre : '' }}. Se liga cuando llegue al maestro de la Suite.</span>
+                  @if (puedeCapturar()) { <button pButton type="button" size="small" [disabled]="ocupado()" (click)="ligar(s, s.kepler!.clave)">Ligar con {{ s.kepler!.clave }}</button> }
+                </div>
+              } @else if (plan(); as p) {
+                <p class="ac-clave">
+                  <span class="ac-clave-num ac-mono">{{ p.clave_propuesta || '—' }}</span>
+                  <span class="ac-tenue">{{ p.clave_reservada ? 'Reservada para esta alta' : 'La clave que sigue' }}{{ p.serie ? ' · serie ' + p.serie.patron + (p.serie.tipo === 'credito' ? ', crédito' : ', contado') : '' }}{{ p.clave_reservada ? '' : '. Al escribir se vuelve a contar en las 10 bases.' }}</span>
+                </p>
+                @if (p.bloqueo_escritura) { <p class="ac-nota">{{ p.bloqueo_escritura }}</p> }
+                @if (p.puede_escribir && !p.bloqueo_escritura) {
+                  @if (confirmarKepler()) {
+                    <div class="ac-botones ac-confirmar" role="group" aria-label="Confirmar el alta en Kepler">
+                      <span>¿Dar de alta la clave <strong class="ac-mono">{{ p.clave_propuesta }}</strong> en las 9 sucursales y el concentrador?</span>
+                      <button pButton type="button" severity="secondary" [text]="true" [disabled]="ocupado()" (click)="confirmarKepler.set(false)">No</button>
+                      <button pButton type="button" [disabled]="ocupado()" [loading]="ocupado()" (click)="escribirKepler(s)">Sí, dar de alta</button>
+                    </div>
+                  } @else {
+                    <div class="ac-botones">
+                      <button pButton type="button" [disabled]="ocupado()" (click)="confirmarKepler.set(true)">
+                        <span class="p-button-icon p-button-icon-left pi pi-database" aria-hidden="true"></span>{{ s.kepler ? 'Reintentar en Kepler' : 'Dar de alta en Kepler' }}
+                      </button>
+                    </div>
+                  }
+                }
+              }
+              @if (s.kepler; as k) {
+                @if (k.servidores.length) {
+                  <ul class="ac-servidores" aria-label="Resultado en cada base de Kepler">
+                    @for (r of k.servidores; track r.servidor) {
+                      <li [class.ac-srv-mal]="r.estado === 'rechazada'" [attr.title]="r.motivo">
+                        <i class="pi" [class.pi-check]="r.estado !== 'rechazada'" [class.pi-times]="r.estado === 'rechazada'" aria-hidden="true"></i>
+                        {{ r.servidor === 'SC' ? 'Concentrador' : (r.servidor | sucursal) }}<span class="ac-oculto">: {{ r.estado === 'rechazada' ? 'falló' : 'quedó' }}</span>
+                      </li>
+                    }
+                  </ul>
+                  @for (r of fallidas(k.servidores); track r.servidor) {
+                    <p class="ac-nota ac-mal">{{ r.servidor === 'SC' ? 'Concentrador' : (r.servidor | sucursal) }}: {{ r.motivo }}</p>
+                  }
+                }
+              }
+              @if (plan(); as p) {
+                @if (p.hallazgos.length) {
+                  <ul class="ac-hallazgos">
+                    @for (h of p.hallazgos; track h.campo + h.mensaje) { <li [class.ac-mal]="h.gravedad === 'bloquea'">{{ h.mensaje }}</li> }
+                  </ul>
+                }
+                <table class="ac-ficha" aria-label="Ficha del cliente en Kepler">
+                  <tbody>
+                    @for (c of p.kdud; track c.columna) {
+                      <tr>
+                        <th scope="row">{{ c.rotulo }}</th>
+                        <td class="ac-mono">{{ c.valor || '—' }}</td>
+                        <td>@if (c.valor) {
+                          <button pButton type="button" size="small" [text]="true" severity="secondary" (click)="copiar(c.valor, c.rotulo)" [attr.aria-label]="'Copiar ' + c.rotulo">
+                            <span class="p-button-icon pi pi-copy" aria-hidden="true"></span></button>
+                        }</td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+                <h4 class="ac-sub">Para facturar <span class="ac-tenue">— pantalla «Dirección fiscal» de Kepler; vacío = el de la ficha</span></h4>
+                <table class="ac-ficha" aria-label="Datos para facturar en Kepler">
+                  <tbody>
+                    @for (c of p.kdfedir; track c.columna) {
+                      <tr>
+                        <th scope="row">{{ c.rotulo }}</th>
+                        <td class="ac-mono">{{ c.valor || '—' }}</td>
+                        <td>@if (c.valor) {
+                          <button pButton type="button" size="small" [text]="true" severity="secondary" (click)="copiar(c.valor, c.rotulo)" [attr.aria-label]="'Copiar ' + c.rotulo">
+                            <span class="p-button-icon pi pi-copy" aria-hidden="true"></span></button>
+                        }</td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              }
+            </div>
+          }
+
+          @if (s.estado === 'lista_para_kepler' && puedeCapturar() && !s.kepler?.escrita_el) {
+            <div class="ac-bloque">
+              <h3>Ligar con Kepler <span class="ac-tenue">— si la capturaron allá a mano</span></h3>
               @for (k of s.coincidencias_kepler; track k.clave) {
                 <div class="ac-coincide">
                   <span>Kepler ya tiene <strong class="ac-mono">{{ k.clave }}</strong> · {{ k.nombre }} con este RFC.</span>
@@ -225,6 +323,7 @@ const ORDEN_KEPLER: CasillaKepler[] = ['nombre', 'direccion_1', 'direccion_2', '
             </div>
           }
 
+          @if (s.estado !== 'lista_para_kepler') {
           <div class="ac-bloque">
             <h3>Ficha para Kepler <span class="ac-tenue">— en el orden de la forma</span></h3>
             <table class="ac-ficha">
@@ -248,6 +347,7 @@ const ORDEN_KEPLER: CasillaKepler[] = ['nombre', 'direccion_1', 'direccion_2', '
               </tbody>
             </table>
           </div>
+          }
 
           <div class="ac-bloque">
             <h3>Datos fiscales</h3>
@@ -319,6 +419,14 @@ const ORDEN_KEPLER: CasillaKepler[] = ['nombre', 'direccion_1', 'direccion_2', '
     .ac-dl dt { color: var(--fg-2); }
     .ac-dl dd { margin: 0; color: var(--fg-1); }
     .ac-comentarios { white-space: pre-line; margin: 0; font-size: var(--fs-sm); color: var(--fg-2); }
+    .ac-clave { display: flex; flex-direction: column; gap: var(--sp-1); margin: 0; }
+    .ac-clave-num { font-size: var(--fs-h2); font-weight: var(--fw-bold); color: var(--fg-1); font-variant-numeric: tabular-nums; }
+    .ac-confirmar { align-items: center; font-size: var(--fs-sm); color: var(--fg-1); }
+    .ac-servidores { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3); margin: 0; padding: 0; list-style: none; font-size: var(--fs-xs); color: var(--ok-fg); }
+    .ac-servidores li { display: inline-flex; gap: var(--sp-1); align-items: center; }
+    .ac-srv-mal, .ac-mal { color: var(--bad-fg); }
+    .ac-hallazgos { margin: 0; padding-left: var(--sp-4); font-size: var(--fs-sm); color: var(--warn-soft-fg); }
+    .ac-sub { margin: var(--sp-2) 0 0; font-size: var(--fs-xs); font-weight: var(--fw-bold); color: var(--fg-1); }
     .ac-peligro { margin-top: var(--sp-4); padding-top: var(--sp-3); border-top: 1px solid var(--border-color); }
     .ac-peligro h3 { color: var(--bad-fg); }
     @media (pointer: coarse) { .ac-det button, .ac-acciones button { min-height: 44px; } }
@@ -352,6 +460,24 @@ export class ComercialAltaClientesComponent {
   readonly motivoCancelar = signal('');
   readonly ocupado = signal(false);
   credito = { limite: 0, plazo: 0, descuento: 0, motivo: '' };
+
+  /**
+   * `[ALC.3.7]` El plan de Kepler de la solicitud abierta (sólo «lista para Kepler»). Se recarga solo
+   * cuando la solicitud cambia (p. ej. al volver de escribir: `hecho()` pone la nueva).
+   */
+  readonly planRes = rxResource({
+    params: () => {
+      const s = this.abierta();
+      return s && s.estado === 'lista_para_kepler' ? { id: s.id, s } : undefined;
+    },
+    stream: ({ params }) => this.svc.planKepler(params.id),
+  });
+  readonly plan = computed<PlanAltaKepler | null>(() => (this.abierta()?.estado === 'lista_para_kepler' ? this.planRes.value() ?? null : null));
+  readonly errorPlan = computed(() => {
+    const e = this.planRes.error() as HttpErrorResponse | undefined;
+    return e ? (typeof e.error?.message === 'string' ? e.error.message : 'No se pudo armar la ficha de Kepler.') : null;
+  });
+  readonly confirmarKepler = signal(false);
 
   constructor() {
     // Al abrir una solicitud, la decisión de crédito arranca con lo que se pidió.
@@ -401,13 +527,21 @@ export class ComercialAltaClientesComponent {
   accion(s: SolicitudAlta): string {
     if (s.estado === 'credito_por_aprobar') return this.puedeCredito() ? 'Decidir crédito' : 'Ver';
     // `[ALC.0.6]` Quien sólo consulta no liga: el botón no le ofrece lo que el servidor le niega.
-    if (s.estado === 'lista_para_kepler') return s.coincidencias_kepler.length && this.puedeCapturar() ? 'Ligar' : 'Ver ficha';
+    if (s.estado === 'lista_para_kepler') {
+      if (s.kepler?.escrita_el && this.puedeCapturar()) return 'Ligar';
+      return s.coincidencias_kepler.length && this.puedeCapturar() ? 'Ligar' : 'Ver ficha';
+    }
     return 'Ver';
   }
   siguientePaso(s: SolicitudAlta): string {
     switch (s.estado) {
       case 'credito_por_aprobar': return `Pidió ${this.dinero(s.credito_solicitado)} a ${s.plazo_dias} días. Hasta que Crédito y Cobranza decida, no se captura en Kepler.`;
       case 'lista_para_kepler':
+        if (s.kepler?.escrita_el) return `Ya está en Kepler con la clave ${s.kepler.clave}: falta ligarla.`;
+        if (s.kepler) {
+          const ok = s.kepler.servidores.filter((x) => x.estado !== 'rechazada').length;
+          return `El alta en Kepler quedó en ${ok} de ${s.kepler.servidores.length} bases: reintenta, se usa la misma clave ${s.kepler.clave}.`;
+        }
         if (!this.puedeCapturar()) {
           // Que Kepler tenga el RFC no prueba que sea ESTA ficha: la caja pudo guardar «Es otra ficha».
           return s.coincidencias_kepler.length
@@ -417,7 +551,7 @@ export class ComercialAltaClientesComponent {
         }
         return s.coincidencias_kepler.length
           ? 'Kepler ya tiene una ficha con este RFC: si es la que capturaron, lígala.'
-          : 'Falta capturarla en Kepler: copia la ficha casilla por casilla y escribe aquí la clave que te dé Kepler.';
+          : 'Falta darla de alta en Kepler: con el botón de abajo, o copiando las casillas allá y ligando la clave que te dé.';
       case 'ligada': return `Ligada a la clave ${s.erp_customer_code} de Kepler${s.ligada_el ? ' el ' + this.fechaCorta(s.ligada_el) : ''}.`;
       default: return 'Cancelada: no se dio de alta.';
     }
@@ -464,7 +598,36 @@ export class ComercialAltaClientesComponent {
   abrir(s: SolicitudAlta): void {
     this.clave.set('');
     this.motivoCancelar.set('');
+    this.confirmarKepler.set(false);
     this.abierta.set(s);
+  }
+
+  fallidas(servidores: NonNullable<SolicitudAlta['kepler']>['servidores']) {
+    return servidores.filter((x) => x.estado === 'rechazada');
+  }
+
+  /** `[ALC.2.8]` Escribe el alta en las 10 bases de Kepler (ya confirmado en pantalla). */
+  escribirKepler(s: SolicitudAlta): void {
+    if (this.ocupado()) return;
+    this.ocupado.set(true); // idempotencia visual: síncrono, antes de esperar al servidor
+    this.svc.escribirEnKepler(s.id).subscribe({
+      next: (r) => {
+        this.confirmarKepler.set(false);
+        const k = r.kepler;
+        if (k?.escrita_el) { this.hecho(r, `Dada de alta en Kepler con la clave ${k.clave}`); return; }
+        this.ocupado.set(false);
+        const ok = k ? k.servidores.filter((x) => x.estado !== 'rechazada').length : 0;
+        this.toast.add({ severity: 'warn', summary: `Kepler: quedó en ${ok} de ${k?.servidores.length ?? 10} bases`, detail: 'Reintenta: se usa la misma clave y sólo se completa lo que faltó.', life: 8000 });
+        this.abierta.set(r);
+        this.bandejaRes.reload();
+      },
+      error: (e: HttpErrorResponse) => {
+        this.ocupado.set(false);
+        this.confirmarKepler.set(false);
+        this.error(e, 'No se dio de alta en Kepler.');
+        this.planRes.reload();
+      },
+    });
   }
 
   async copiar(valor: string, rotulo: string): Promise<void> {

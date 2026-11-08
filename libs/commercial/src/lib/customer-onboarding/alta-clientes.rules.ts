@@ -5,6 +5,7 @@ import {
   type RegimenFiscalOpcion,
   type SolicitudAlta,
   type SolicitudAltaBody,
+  type UsoCfdiOpcion,
 } from '@megadulces/contracts';
 import { rfcYCurpCoinciden, validarCurp, validarRfc } from '@megadulces/platform-core';
 import { recortesDe } from './ficha-kepler';
@@ -23,6 +24,9 @@ export interface ContextoRevision {
   vendedor_existe: boolean | null;
   grupo_existe: boolean | null;
   zona_existe: boolean | null;
+  /** `[ALC.3.6]` Catálogos del SAT de `kdfedir` (sin ellos no se revisan: se declara). */
+  usos?: UsoCfdiOpcion[] | null;
+  formas_pago?: string[] | null;
 }
 
 const REGIMEN_CAPITAL_AL_FINAL = /\b(S\.?\s?A\.?(\s?P\.?\s?I\.?)?\s?(DE\s)?C\.?\s?V\.?|S\.?\s?DE\s?R\.?\s?L\.?(\s?DE\s?C\.?\s?V\.?)?|S\.?\s?C\.?|A\.?\s?C\.?|S\.?\s?A\.?)\s*$/i;
@@ -72,6 +76,20 @@ export function revisarSolicitud(b: SolicitudAltaBody, ctx: ContextoRevision): H
   else if (!reg) bloquea('regimen_fiscal', `El régimen «${b.regimen_fiscal}» no está en el catálogo del SAT.`);
   else if (b.tipo_persona === 'fisica' ? !reg.persona_fisica : !reg.persona_moral) {
     bloquea('regimen_fiscal', `El régimen ${reg.clave} (${reg.descripcion}) no es para persona ${b.tipo_persona}.`);
+  }
+
+  // `[ALC.3.6]` Lo que Kepler guarda en `kdfedir` para timbrar: tiene que ser del catálogo del SAT.
+  const uso = String(b.uso_cfdi ?? '').trim().toUpperCase();
+  if (uso && ctx.usos?.length) {
+    const u = ctx.usos.find((x) => x.clave === uso);
+    if (!u) bloquea('uso_cfdi', `El uso de CFDI «${uso}» no está en el catálogo del SAT.`);
+    else if (reg && u.regimenes.length && !u.regimenes.includes(reg.clave)) {
+      bloquea('uso_cfdi', `El SAT no admite el uso ${uso} (${u.descripcion}) con el régimen ${reg.clave}.`);
+    }
+  }
+  const forma = String(b.forma_pago ?? '').trim();
+  if (forma && ctx.formas_pago?.length && !ctx.formas_pago.includes(forma)) {
+    bloquea('forma_pago', `La forma de pago «${forma}» no está en el catálogo del SAT.`);
   }
 
   const cp = String(b.codigo_postal_fiscal ?? '').trim();

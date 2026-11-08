@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Added — Alta de clientes: la escritura directa en Kepler, lista y apagada (ALC.2.7–ALC.3.7, 2026-11-07 · en código, sin soltar)
+- La solicitud lista muestra **«En Kepler»**: la clave que le tocará (la que sigue en la serie de su zona: `2xxxx` contado de Morelia, `CR2###` crédito…), las casillas tal como se escribirán y por qué todavía no se puede escribir. Mientras la escritura esté apagada, es la guía exacta para capturarla a mano.
+- Con la escritura encendida, **«Dar de alta en Kepler»** (con confirmación y sólo con la llave nueva) escribe la ficha y los datos para facturar en las **9 sucursales y el concentrador**, y dice cómo quedó cada base. Un reintento usa la misma clave; lo ya escrito se liga sin teclear la clave.
+- La captura **asiste**: la sucursal pone zona, grupo de piso y su vendedor; grupos y vendedores se filtran por la zona; uso de CFDI y forma de pago llegan con el de costumbre; el estado sale del CP («Michocan» → `MICHOACAN`) y la ficha queda como la escribe Kepler (sin acentos, sin comillas, teléfono sólo dígitos).
+- ⚠️ Migración `20261107181223` en prod **antes** de soltar. Encender la escritura es configuración de Edgar (plan ALC §13): conexión al concentrador, permisos en las 10 bases, ensayo y el interruptor `cliente`.
 ### Changed — Caducidades: el selector ofrece sólo las unidades del producto (P2.9 paso 3, 2026-11-07)
 - Al elegir un producto, los botones de unidad muestran **sólo las que el producto tiene en Kepler** (base, unidades alternas y escalera de mayoreo, de la sucursal donde se captura), con **«Otra unidad»** para abrir las 7. La unidad sugerida es la **base del producto**, no «pieza».
 - Si Kepler no publica las unidades del producto, se ofrecen las 7 y se dice; ya no queda marcada la unidad del producto anterior. «La unidad» pasa a ser obligatoria para guardar.

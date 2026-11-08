@@ -144,6 +144,29 @@ describe('revisarSolicitud', () => {
     // Madrid: posible, pero no aquí.
     expect(campos(solicitud({ ubicacion: { lat: 40.4168, lng: -3.7038, origen: 'direccion' } }), CTX, 'aviso')).toContain('ubicacion');
   });
+
+  it('[ALC.3.6] uso de CFDI y forma de pago: del catálogo del SAT y el uso compatible con el régimen', () => {
+    const conCat: ContextoRevision = {
+      ...CTX,
+      usos: [
+        { clave: 'G01', descripcion: 'Adquisición de mercancías.', regimenes: ['601', '612', '626'] },
+        { clave: 'S01', descripcion: 'Sin efectos fiscales.', regimenes: ['601', '612', '616', '626'] },
+      ],
+      formas_pago: ['01', '99'],
+    };
+    expect(campos(solicitud({ uso_cfdi: 'G01', forma_pago: '01' }), conCat)).toEqual([]);
+    expect(campos(solicitud({ uso_cfdi: 'P01' }), conCat)).toEqual(['uso_cfdi']);
+    expect(campos(solicitud({ uso_cfdi: 'G01', regimen_fiscal: '626' }), conCat)).toEqual([]);
+    expect(campos(solicitud({ forma_pago: '07' }), conCat)).toEqual(['forma_pago']);
+    // Sin catálogos (no se pudieron leer) no se inventa un bloqueo.
+    expect(campos(solicitud({ uso_cfdi: 'P01', forma_pago: '07' }))).toEqual([]);
+  });
+
+  it('[ALC.3.6] NEGATIVA: el SAT no admite G01 con el 616 (sin obligaciones)', () => {
+    const conCat: ContextoRevision = { ...CTX, regimenes: [...REGIMENES, { clave: '616', descripcion: 'Sin obligaciones fiscales', persona_fisica: true, persona_moral: false }],
+      usos: [{ clave: 'G01', descripcion: 'Adquisición de mercancías.', regimenes: ['601', '612', '626'] }], formas_pago: ['01'] };
+    expect(campos(solicitud({ regimen_fiscal: '616', uso_cfdi: 'G01' }), conCat)).toEqual(['uso_cfdi']);
+  });
 });
 
 describe('diferenciaDeCredito — al ligar, lo de Kepler contra lo aprobado', () => {
