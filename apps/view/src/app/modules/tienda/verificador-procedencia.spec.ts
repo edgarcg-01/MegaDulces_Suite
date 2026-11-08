@@ -137,7 +137,13 @@ describe('verificador · de qué plaza salió el precio', () => {
 describe('verificador · el precio grande sigue al barcode escaneado', () => {
   it('busca en el slot de la tercera unidad, que faltaba', () => {
     const fn = /async getPrecio\([\s\S]*?\n  \}/.exec(SVC)![0];
-    expect(fn).toMatch(/TRIM\(c85::text\) = \$1/);
+    // `[VAC.P1]` Las 7 columnas van en UN arreglo con `@>` (lo sirve el índice GIN), no en 7 `OR`.
+    // Lo que esta prueba cuida es que `c85` —y ninguna otra— se caiga de la búsqueda.
+    const arreglo = /ARRAY\[([^\]]*)\]\s*@>\s*ARRAY\[\$1::text\]/.exec(fn);
+    expect(arreglo).not.toBeNull();
+    for (const col of ['c1', 'c7', 'c82', 'c93', 'c95', 'c96', 'c85']) {
+      expect(arreglo![1]).toMatch(new RegExp(`btrim\\(${col}::text\\)`));
+    }
   });
 
   it('resuelve la unidad con el mapeo slot→unidad del decode verificado', () => {

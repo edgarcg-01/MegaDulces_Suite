@@ -1,6 +1,7 @@
 <!-- INDICE-AUTO:INICIO -->
 
 > **Índice navegable** — 2237 KB, 13621 líneas, 75 secciones.
+> **Índice navegable** — 2237 KB, 13623 líneas, 75 secciones.
 > **Índice navegable** — 2237 KB, 13620 líneas, 75 secciones.
 > **Índice navegable** — 2240 KB, 13647 líneas, 75 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
@@ -86,6 +87,78 @@
 | 13696 | 13708 | 2 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
 | 96 | 191 | 206 | 📊 Estado global de fases |
 | 192 | 218 | 1 | 🚦 Estado por item (granular) |
+| 219 | 3405 | 455 | 🎯 EN PROGRESO |
+| 3422 | 3459 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
+| 3460 | 3493 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
+| 3494 | 3578 | 6 | GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código) |
+| 3579 | 3682 | 6 | GX.15 — El expediente del gasto: los cuatro eslabones juntos, y su PDF 🧪 2026-09-24 (en código) |
+| 3683 | 3749 | 4 | GX.16 — Áreas de gasto: el motor propone, la persona confirma 🧪 2026-09-24 (en código) |
+| 3750 | 3853 | 7 | IG — Ingresos contables: el otro lado del libro 🧪 2026-09-25 (en código) |
+| 3854 | 3937 | 6 | GX.19 — Egresos: el número no cambia, ahora dice con qué se calculó 🧪 2026-09-25 (en código) |
+| 3938 | 4107 | 13 | GX.20 — Aprobación de gastos: el día, en tres pestañas 🧪 2026-09-25 (en código) |
+| 4108 | 4170 | 4 | GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código) |
+| 4171 | 4243 | 5 | GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código) |
+| 4244 | 4295 | 3 | GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código) |
+| 4296 | 5112 | 113 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
+| 5113 | 5126 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
+| 5127 | 5151 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
+| 5152 | 5174 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
+| 5175 | 5213 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
+| 5214 | 5938 | 65 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
+| 5939 | 6123 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
+| 6124 | 6166 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
+| 6167 | 6244 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
+| 6245 | 6338 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
+| 6339 | 6474 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
+| 6475 | 6491 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
+| 6492 | 6543 | 94 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
+| 6544 | 6611 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
+| 6612 | 6864 | 20 | Fase CH — Checadores / Control de asistencia |
+| 6865 | 6930 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
+| 6931 | 6958 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
+| 6959 | 7125 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
+| 7126 | 7485 | 123 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
+| 7486 | 7548 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
+| 7549 | 7678 | 44 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
+| 7679 | 7741 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
+| 7742 | 7902 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
+| 7903 | 7973 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
+| 7974 | 8022 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
+| 8023 | 8055 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
+| 8056 | 8589 | 67 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
+| 8590 | 8721 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
+| 8722 | 8775 | 37 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
+| 8776 | 8815 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
+| 8816 | 8868 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
+| 8869 | 8935 | 20 | Fase WMS-BI — Análisis BI de Almacén |
+| 8936 | 9098 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
+| 9099 | 9382 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
+| 9383 | 9550 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
+| 9551 | 11924 | 183 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 11925 | 11933 | 1 | Fase RR — Ventas por ruta |
+| 11934 | 12229 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 12230 | 12240 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 12241 | 12261 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 12262 | 12272 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 12273 | 12284 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 12285 | 12344 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 12345 | 12772 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 12773 | 12787 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 12788 | 12829 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 12830 | 12980 | 67 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 12981 | 13011 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 13012 | 13059 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
+| 13060 | 13108 | 54 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 13109 | 13117 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
+| 13118 | 13147 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 13154 | 13163 | 1 | 📝 Convenciones |
+| 13164 | 13201 | 14 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 13202 | 13220 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 13221 | 13273 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 13274 | 13645 | 55 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 13646 | 13676 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 13677 | 13697 | 5 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 13698 | 13710 | 2 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
 | 219 | 3402 | 454 | 🎯 EN PROGRESO |
 | 3419 | 3456 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
 | 3457 | 3490 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
@@ -144,6 +217,7 @@
 | 12342 | 12769 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
 | 12770 | 12784 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
 | 12785 | 12826 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 12827 | 12977 | 68 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
 | 12827 | 12977 | 67 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
 | 12978 | 13008 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
 | 13009 | 13056 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
@@ -514,6 +588,9 @@ Y se actualiza el símbolo al avanzar:
 - [ ] **[VAC.D1–D6]** ⏸️ Leer de `analytics.v_label_prices`, códigos como vista, override manual, frescura por sucursal, snapshot y reapuntar el candado de paridad `[CV.26]` — **todo necesita lectura de prod** (hoy sin acceso). Decisiones **D2, D3, D5** sin firmar.
 - [x] **[VAC.PROTOCOLO]** 🧪 Las observaciones de la auditoría de diseño del PM y las lecciones del ciclo entran al protocolo previo al PR: `ONBOARDING.md` §8.0b puntos **18–25** y punto **(15)** de `CLAUDE.md`; y, tras el incidente de arranque, **30 y 31** (`GOTCHAS.md` §84).
 - [x] **[VAC.FIX]** 🚀 `e5fa64ec8` (Edgar, 2026-10-15): alias de sólo tipo en el parámetro decorado de `kp.controller.ts` + prueba sobre `design:paramtypes`. **Verificado el 2026-10-16:** `/api/health` de prod `200`, commit `11d37aa77` (incluye el arreglo). La duración de la caída **no se midió**.
+- [x] **[VAC.U16]** 🧪 2026-11-07 (0Sistemas): logo 50 % más grande (96 → 144 px; kiosco 64 → 96), pie (productos escaneados y respaldo) al 80 % de opacidad, y la frescura **no se pinta en kiosco** (la ve el operador, no la clienta; se eligió sobre quitarla siempre para no romper la regla 11 ni sellar deuda `§9`). 47 pruebas del componente en verde (1 nueva). Validación visual **NO MEDIDA**.
+- [x] **[VAC.P1]** 🧪 2026-11-07 El escaneo deja de barrer `kdii`: la búsqueda en 7 columnas pasa de 7 `OR` a un arreglo con `@>` + migración `20261107115424_kdii_indice_codigos_verificador` (GIN + `lpad`, `CONCURRENTLY`). Medido en prod (sólo lectura): 62–66 ms de Seq Scan sobre 86,132 filas por escaneo; mismas filas en 428 códigos / 3,815 filas (0 diferencias, negativa en rojo); plan con índice <1 ms (local). ⛔ Falta aplicar la migración en prod y re-medir.
+- [x] **[VAC.PROTOCOLO.2]** 🧪 2026-11-07 Observaciones del PM del ciclo al protocolo previo al PR: `ONBOARDING.md` §8.0b puntos **82–85**.
 - [ ] **[VAC.ATERRIZAJE]** ⚠️ Para marcar ✅ (DoD de `METODO_DE_TRABAJO` §5): validación visual en el monitor real + H1 con Precios/Comercial; el resto (L2/L4/L5/L8, U1–U3, U14, D1–D6) en ⏸️ con nombre. Estado punto por punto en `FASE_VAC` §12.
 - [ ] ⚠️ **Falta la validación visual en el monitor real de mostrador** (lector, cámara, pantalla completa y datos reales): todo lo visual se vio en renders estáticos, no en la app.
 
@@ -13116,7 +13193,7 @@ semántico que la paleta ya tiene (`--bad-fg`). Más `--surface-section` (1 uso)
 - [x] **[MS.7.1]+[MS.7.6]** 🧪 2026-10-06 **Acceso por cola: la clave `SERVICIO_*` deja de abrir todas las colas** (primer paso de la Mesa multi-área, [`FASE_MS7`](docs/IMPLEMENTACION/FASES/FASE_MS7_MANTENIMIENTO.md) §9). Antes `puedeVer = esAgente || solicitante`: quien atendía veía los tickets de TODA la empresa. Ahora el poder efectivo es **clave ∩ pertenencia a la cola del ticket**. **MS.7.1:** `servicedesk.queue_members` (coordinador | técnico) + `queues.default_assignee_id` + `queues.priority_model`, con backfill de quien hoy atiende TI (migración `20261006130000`, reversible). **MS.7.6:** `domain/queue-access.ts` (puro, `accesoATicket` ya con el hueco `completo|basico|ninguno` de RH) acota ficha, bandeja, tablero, reporte, tomar/asignar/notas/tiempo/prioridad, avisos y ruteo; API de miembros (sólo la coordinación de esa cola; la cola nunca se queda sin coordinación; no se quita a quien tiene tickets abiertos). E2E 438/0, `service-desk` 179, view 132; **mutaciones atrapadas** (6 unitarias + 28 de HTTP). ⛔ **Orden de despliegue:** migración ANTES del deploy (con la tabla vacía nadie ve nada); después dar `SERVICIO_ATENDER` ya no basta, hay que agregar a la persona a una cola. **Declarado:** sin pantalla de miembros (MS.7.17), `me-work`/`me-tasks` sin acotar (MS.7.18, **antes de sembrar Mantenimiento**), configuración global sin acotar.
 - [ ] **[MS.7]** 📋 2026-10-06 **La Mesa de Servicio multi-área, empezando por Mantenimiento** (pedido de Sistemas: todos los departamentos con un responsable por área). Llegaron `CLAUDE.md` + `PLAN_MANTENIMIENTO.md`; se contrastaron con el código y se adecuaron en [`FASE_MS7_MANTENIMIENTO`](docs/IMPLEMENTACION/FASES/FASE_MS7_MANTENIMIENTO.md). **Lo medido:** el modelo multi-cola **ya existe** (`queues`, `categories`, `queue_id`, editor de colas), pero ⛔ **el acceso por cola NO** (`puedeVer = esAgente || solicitante`, claves `SERVICIO_*` globales) — es el cambio más delicado y va primero (MS.7.6): sin él, sembrar Mantenimiento mete sus tickets en la bandeja de TI. También faltan SLA por cola, prioridad por modelo, campos extra, `is_test`, zonas, ruteo por ubicación y transferir entre colas; los estados y el folio están en CHECK y no se configuran por cola (decisiones **M2/M3**: folio único `SRV` y motivo de pausa). Acceso = **dato** (`queue_members`), no una clave por área: sin permisos nuevos, sin re-login. 19 sprints (BD → lógica → siembra → visual); Fases 2 y 3 del plan (activos/QR, preventivos, padre-hijo) quedan como fases propias tras 30 d de SLA medido. **Decisiones de Sistemas (2026-10-06):** folio único `SRV`, sin estado Diagnóstico, «Urgente» no se renombra, SLA en horario hábil, visión de Dirección como está hoy, responsable de Mantenimiento = **Ubaldo Barajas Valencia** (sin proveedores externos), `SMTP_*`/`S3_*` como están (foto opcional). **Pendiente:** confirmar su alta/permisos en prod, las dos lecturas de los plazos del SLA con Frank y quienes atenderán cada sitio. Sin código.
 - [x] **[MS.AVISO]** ✅ 2026-10-29 (en prod: fusionado en `d166afcce`, #469; `/api/health` sirve `76843521e`, que lo contiene. Probado 🧪 el 2026-10-28) **Mesa de Servicio: aviso en pantalla cuando entra una solicitud nueva.** Medido en prod (solo lectura, 2026-10-28): 76 solicitudes en 30 días, **40 alta/urgente avisaban** (463 avisos a los 14 miembros de TI) y **36 media/baja no avisaban a nadie**; además el aviso sólo hacía pulsar la campana (sin ventana, y la campana lee por poll de 60 s). **Qué cambia:** evento nuevo `nueva_solicitud` (`libs/service-desk`: `notice.ts` + `requests.service.ts`, mismos destinatarios que `nuevo_prioritario`: miembros activos de la cola, menos quien la reportó y el asignado) y, en el front, `app-service-desk-aviso-toast` (montado en la raíz de la app, así sale también en «Mi trabajo», que no usa el layout) escucha el push `/alerts` y abre una ventana arriba a la derecha con clic al detalle; con la pestaña oculta y permiso dado sale además la notificación de Windows (`DesktopNoticeService`; el botón para dar el permiso está al pie de la campana). **Sin migraciones ni permisos.** 19 pruebas nuevas (1 de `notice`, 6 de `avisoAnunciable`, 7 del toast —una con el `MessageService` real que pinta el botón—, 5 del aviso del sistema) y 8 mutaciones atrapadas; 3 aserciones nuevas en `http-service-desk-test.js` **sin correr** (suite HTTP: no corre en CI, deuda VP.5). **Probado en navegador contra la API local** (2026-10-28, dos sesiones: un agente de TI y otro usuario): media → «Nueva solicitud» en gris neutro; urgente → rojo y fijo; clic → detalle en la bandeja; también desde «Mi trabajo». El reparto en `notification_log` llegó a los 3 miembros de la cola y nada a quien la levantó. La prueba encontró dos defectos, ya corregidos: no salía en «Mi trabajo» y el aviso normal salía en el azul del `info` de Aura (ahora `secondary`). ~~⚠️ **No medido:** el aviso de Windows con la pestaña oculta (el navegador de prueba no muestra notificaciones del sistema).~~ **Medido el 2026-11-04** (API y base local; un técnico de TI y otro usuario): con la pestaña oculta sale «Nueva solicitud» en Windows y **0Sistemas la vio en su equipo**; ⚠️ el «oculta» fue **simulado** (`document.hidden` forzado: Playwright reporta la página visible aun minimizada). Encontró el caso que en prod «no avisaba»: **con Chrome abierto detrás de otro programa** (`hidden: false`, `hasFocus: false`) la Suite **no** manda la de Windows → `[MS.AVISO.2]`. ([`FASE_MS_MESA_DE_SERVICIO`](docs/IMPLEMENTACION/FASES/FASE_MS_MESA_DE_SERVICIO.md))
-- [ ] ⬜ **[MS.AVISO.2]** **La notificación de Windows también cuando la Suite está abierta pero detrás de otro programa.** Medido en local el 2026-11-04 (3 escenarios, SRV-2026-04650…04655, ya borradas): al frente → sólo la ventana en página (correcto); **detrás de otra ventana** (`document.hidden: false`, `document.hasFocus(): false`) → **ninguna** de Windows; pestaña oculta (simulada) → «Nueva solicitud» en Windows, confirmada a ojo por 0Sistemas. En prod el permiso estaba dado (Windows y sitio) y los avisos sí se repartían (`notification_log`, solo lectura, 2026-11-03: 4 a un miembro de TI). **Qué cambia:** `service-desk-aviso-toast.component.ts` muestra la de Windows si `document.hidden || !document.hasFocus()`, con su prueba (y la negativa: con foco no sale). **Criterio:** probado en un Chrome real detrás de otro programa (Playwright fuerza el foco y la visibilidad: no sirve de testigo). Va en el siguiente PR de Mesa de Servicio (0Sistemas, 2026-11-04).
+- [x] 🧪 **[MS.AVISO.2]** 2026-11-07 (en PR, sin soltar) **La notificación de Windows también cuando la Suite está abierta pero detrás de otro programa.** Medido en local el 2026-11-04 (3 escenarios, SRV-2026-04650…04655, ya borradas): al frente → sólo la ventana en página (correcto); **detrás de otra ventana** (`document.hidden: false`, `document.hasFocus(): false`) → **ninguna** de Windows; pestaña oculta (simulada) → «Nueva solicitud» en Windows, confirmada a ojo por 0Sistemas. En prod el permiso estaba dado (Windows y sitio) y los avisos sí se repartían (`notification_log`, solo lectura, 2026-11-03: 4 a un miembro de TI). **Qué cambia:** `service-desk-aviso-toast.component.ts` muestra la de Windows si `document.hidden || !document.hasFocus()`, con su prueba (y la negativa: con foco no sale). **Criterio:** probado en un Chrome real detrás de otro programa (Playwright fuerza el foco y la visibilidad: no sirve de testigo). Va en el siguiente PR de Mesa de Servicio (0Sistemas, 2026-11-04). **Hecho y probado el 2026-11-07:** `sinMirar()` = `document.hidden || !document.hasFocus()`; spec 9/9 con 2 pruebas nuevas (sin foco → sale; con foco → no sale) y 2 mutaciones atrapadas (sólo `hidden` → 1 rojo; siempre `true` → 2 rojos). **Criterio cumplido en el Chrome real de 0Sistemas** (API y base local): con el Bloc de notas encima de Chrome, SRV-2026-04659 (12:33) sacó «Nueva solicitud» en Windows, *Google Chrome · localhost:4200* (captura de 0Sistemas); con Chrome al frente, SRV-2026-04657 sólo la ventana en página. Trampa de la prueba: el permiso es **por sitio** —el de `megadulcessuite.com` no vale para `localhost:4200`—, y un primer intento sin ese permiso no midió nada (SRV-04658). Datos de prueba borrados. **Sin migraciones ni permisos.** Visto de paso (fuera de este item): el ícono de ticket de la campana sale en azul.
 - [x] **[MS.ADJ]** ✅ 2026-10-27 (en prod: #450, `f4a553b6e`; migración aplicada en prod el 2026-10-27; 8 adjuntos subidos y 0 enlaces de Google al 2026-10-29. Probado 🧪 el 2026-10-22) **Adjuntos de la Mesa de Servicio: arrastrar archivos del escritorio y enlaces de Google** ([`FASE_MS_ADJUNTOS`](docs/IMPLEMENTACION/FASES/FASE_MS_ADJUNTOS.md)). Sólo imágenes y PDF (D1); lo demás se comparte por enlace de Google (D8: sin Workspace, el enlace queda restringido por ahora). **Migración `20261022135014_servicedesk_request_links`** (aditiva, RLS forzado, `SELECT, INSERT`; va ANTES del código; **aplicada en prod el 2026-10-27** (antes, sólo en la base local)). Servidor: nombre y extensión del adjunto por el tipo detectado (`foto.exe` con bytes de PNG se guarda `foto.png`; fuera `U+202E` y extensiones peligrosas), tope de 22 MB por envío medido antes de decodificar, `links` en crear, responder y detalle con la misma visibilidad que los adjuntos. Pantalla: directiva `appArchivoDrop` con guardián del documento y pieza `app-sd-adjuntos` en el alta y el hilo, chips de enlaces en el detalle. Medido en local: lib `service-desk` 315 pruebas · front `servicio` 307 · E2E HTTP bloque 5-bis **13 de 13** (suite 809 ✅ · 1 ❌ PRV.2 en cola confidencial, sin relación con adjuntos y **no verificado contra una base previa**); validación visual de 0Sistemas. **NO MEDIDO:** la mutación de la extensión peligrosa (el auto mode bloqueó la edición) y la migración contra prod. **Cambia el contrato** (`SdRequestDetail.links` obligatorio) y el comportamiento (tope de 22 MB; extensión por tipo). **Deuda con nombre:** ADJ.1.4 (la pantalla repite tipos y topes en `adjuntos.ts`: que el catálogo entregue la política), ADJ.0.2 (medir rechazos en el cliente), D7 (Ctrl+V). Rama `feat/ms-adjuntos-arrastrar-enlaces`; protocolo previo al PR: puntos 70–75.
 - [x] **[MS.DICTADO.1]** 🧪 2026-10-16 **Revisión de pendientes del dictado y de PRV.2** (ver 03_LOG_REVISIONES 2026-10-16). El tope de 20/min de `/service-desk/transcribe` **no limitaba nada** (`@Throttle({ default`: los tiers se llaman `short/medium/long`); corregido a `long` + candado `dictado-throttle.spec.ts` mutado. #406 estaba 97 commits atrás y en conflicto con `main`: fusionado, y mis puntos del protocolo renumerados a **26 y 27**. **Declarado sin verificar:** migraciones de MSH.1/PRV.2 en prod, `GROQ_API_KEY` en prod, micrófono real, y que `create()` de PRV.2 nunca se ejerció contra base (regla 13): es condición para abrir RH.
 - [ ] ⬜ **[THR.1]** Cuatro `@Throttle({ default: … })` en `commercial-analytics.controller.ts` (líneas 929, 1444, 1457, 1468) **no limitan nada**; generalizar el candado a todo el repo (`check:throttle-names`: nombres usados ⊆ tiers de `app.module.ts`). Cambia el comportamiento de esos endpoints (hoy sin tope): decide Edgar. Ver GOTCHAS §88.
