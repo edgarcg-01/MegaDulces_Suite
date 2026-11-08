@@ -2193,8 +2193,12 @@ export class CommercialReplenishmentService {
              AND product_id IN (SELECT pr.id FROM catalog.products pr WHERE ${where})
              ${agotados ? 'AND false' /* el filtro deja sólo los de fuera: no se paga el plan entero */ : ''}
           UNION ALL
-          SELECT CAST(:t AS uuid), wz.warehouse_id, fz.product_id, fz.suf, fz.bf,
-                 GREATEST(COALESCE(db.box_factor, fz.bf), 1), COALESCE(fz.box_cost, fz.cwt * fz.bf),
+          -- \`[PQ.91]\` Donde la ficha de Kepler dice que no hay caja, la caja es 1 también para la
+          -- demanda, igual que el plan (import-replenishment-plan, CTE dbf).
+          SELECT CAST(:t AS uuid), wz.warehouse_id, fz.product_id, fz.suf,
+                 CASE WHEN db.factor_source = 'kepler_unidad_unica' THEN 1 ELSE fz.bf END,
+                 GREATEST(COALESCE(db.box_factor, fz.bf), 1),
+                 COALESCE(fz.box_cost, fz.cwt * CASE WHEN db.factor_source = 'kepler_unidad_unica' THEN 1 ELSE fz.bf END),
                  0, 0, 0, 0, 0, NULL, NULL, NULL, NULL, NULL, true
             FROM fz
            CROSS JOIN (SELECT warehouse_id FROM analytics.replenishment_plan WHERE tenant_id = :t
@@ -4628,10 +4632,13 @@ export class CommercialReplenishmentService {
     // rebotar en Kepler por esto. Nunca se redondea: se dice cuáles y se devuelve el lote entero.
     // Una fracción de caja que SÍ es un número entero de piezas pasa: el adaptador la escribe en
     // la unidad base (misma regla que `piezasEnteras`). El factor sale del resolvedor canónico.
-    const conFraccion = entrada.flatMap((r) => (r.lines || []).filter((l) => { const n = Number(l.final_qty); return Number.isFinite(n) && n !== Math.round(n); }).map((l) => ({ warehouse_id: String(r.warehouse_id), product_id: String(l.product_id) })));
+    // `[PQ.91]` El almacén del RENGLÓN: en la compra consolidada, la sucursal destino cuyas cajas se capturaron.
+    const almDe = (r: CreateRequisitionDto, l: { destination_warehouse_id?: string | null }): string =>
+      (l.destination_warehouse_id && UUID_RX.test(l.destination_warehouse_id) ? l.destination_warehouse_id : String(r.warehouse_id));
+    const conFraccion = entrada.flatMap((r) => (r.lines || []).filter((l) => { const n = Number(l.final_qty); return Number.isFinite(n) && n !== Math.round(n); }).map((l) => ({ warehouse_id: almDe(r, l), product_id: String(l.product_id) })));
     const uxcPorProducto = conFraccion.length ? await this.uxcDeProductos(conFraccion) : new Map<string, number>();
     for (let i = 0; i < entrada.length; i++) {
-      const frac = renglonesSinUnidadEntera((entrada[i].lines || []).map((l) => ({ sku: String(l.product_id), final_qty: l.final_qty, piezas_por_caja: uxcPorProducto.get(`${entrada[i].warehouse_id}|${l.product_id}`) ?? null })));
+      const frac = renglonesSinUnidadEntera((entrada[i].lines || []).map((l) => ({ sku: String(l.product_id), final_qty: l.final_qty, piezas_por_caja: uxcPorProducto.get(`${almDe(entrada[i], l)}|${l.product_id}`) ?? null })));
       if (frac.length) {
         throw new BadRequestException(`Documento ${i + 1} de ${entrada.length}: ${frac.length} renglón(es) que no son cajas enteras ni piezas enteras (producto ${frac.slice(0, 3).map((f) => f.sku.slice(0, 8)).join(', ')}${frac.length > 3 ? '…' : ''}). Kepler no los acepta así: déjalos en cajas o piezas completas. No se creó ningún documento del lote.`);
       }
@@ -5741,10 +5748,13 @@ export class CommercialReplenishmentService {
       // Lico, que Kepler compra por paquete, y la OC de Morelia Abastos salió a $0.76 el paquete.
       const vbfSrc = (await trx.raw("SELECT to_regclass('analytics.mv_warehouse_box_factor') AS a")).rows?.[0]?.a
         ? 'analytics.mv_warehouse_box_factor' : 'analytics.v_warehouse_box_factor';
+      // `[PQ.91]` En la compra consolidada el renglón se capturó en cajas de SU sucursal
+      // (`destination_warehouse_id`), no en las del CEDIS del encabezado.
+      const almRenglon = (await this.destinoColLista(trx)) ? trx.raw('COALESCE(l.destination_warehouse_id, rq.warehouse_id)') : trx.raw('rq.warehouse_id');
       const lineas = (await trx('commercial.purchase_requisition_lines as l')
         .join('catalog.products as p', (j) => j.on('p.tenant_id', 'l.tenant_id').andOn('p.id', 'l.product_id'))
         .join('commercial.purchase_requisitions as rq', (j) => j.on('rq.tenant_id', 'l.tenant_id').andOn('rq.id', 'l.requisition_id'))
-        .leftJoin(`${vbfSrc} as bf`, (j) => j.on('bf.tenant_id', 'l.tenant_id').andOn('bf.warehouse_id', 'rq.warehouse_id').andOn('bf.product_id', 'l.product_id'))
+        .leftJoin(`${vbfSrc} as bf`, (j) => j.on('bf.tenant_id', 'l.tenant_id').andOn('bf.warehouse_id', almRenglon).andOn('bf.product_id', 'l.product_id'))
         .where({ 'l.tenant_id': tenantId, 'l.requisition_id': id }).andWhere('l.final_qty', '>', 0)
         .select('p.sku', 'p.nombre', 'l.final_qty', 'l.unit_cost', 'l.line_cost', 'bf.box_factor')
         .orderBy('p.sku')) as LineaPushKepler[];
