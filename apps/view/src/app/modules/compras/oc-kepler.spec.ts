@@ -117,7 +117,7 @@ describe('[PQ.86] el costo de la OC dice que es sin impuestos', () => {
     const pdf = readFileSync(join(__dirname, 'oc-kepler-pdf.ts'), 'utf8');
     const panel = readFileSync(join(__dirname, 'pages/compras-oc-abiertas.component.ts'), 'utf8');
     expect(pdf).toContain("'Costo sin impuestos', 'Importe sin impuestos'");
-    expect(panel).toContain('Costo sin imp.</th>');
-    expect(panel).not.toMatch(/class="comm-num">Costo<\/th>/);
+    expect(panel).toContain('class="comm-num">Costo sin imp.</th><th scope="col" class="comm-num">Importe sin imp.</th>');
+    expect(panel).not.toMatch(/class="comm-num">(Costo|Importe)<\/th>/);
   });
 });
