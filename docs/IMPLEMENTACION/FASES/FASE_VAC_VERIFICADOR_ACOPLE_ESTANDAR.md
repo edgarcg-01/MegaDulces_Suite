@@ -327,3 +327,26 @@ equivalencia · terciario = franja de sucursal, frescura, respaldo y nota de IVA
 **Lo que esta revisión no cubre:** contraste y tamaño reales en el monitor de mostrador (nivel A); la
 cámara compartida (U2) y la descomposición del componente (U1), que no cambian lo que la pantalla
 afirma; y las decisiones de CV.24 que siguen vivas, en la sección de la Fase CV.
+
+---
+
+## 13. Ajustes del 2026-11-07 (0Sistemas)
+
+**Visual (`1a0e41ccc`, local):** logo 50 % más grande (96 → 144 px; kiosco 64 → 96) · pie (productos
+escaneados y respaldo) al 80 % de opacidad · la frescura **no se pinta en kiosco** (lo que ve la
+clienta); fuera de kiosco sigue declarada. Se eligió «sólo en kiosco» sobre quitarla siempre para no
+romper la regla 11 ni sellar deuda nueva de `§9`. Validación visual: **NO MEDIDA**.
+
+**`[VAC.P1]` Escaneo más rápido.** Medido en prod (sólo lectura): un escaneo por
+`megadulcessuite.com` tarda ~280 ms; ~200 son red/túnel (fuera del código) y **~63 ms la consulta**,
+que barría las 86,132 filas de `kdii` (7 `OR` sobre columnas con `TRIM`, ningún índice aplicable).
+La consulta pasa a un arreglo con `@>` y la migración `20261107115424_kdii_indice_codigos_verificador`
+crea dos índices (`GIN` sobre las 7 columnas + `lpad` de la clave corta), `CONCURRENTLY`.
+- Mismas filas: 428 códigos, 3,815 filas, 0 diferencias contra la WHERE vieja; la prueba negativa
+  (quitar `c85`) sí difiere.
+- Plan con los índices (base local): <1 ms con EAN y con clave corta.
+- ⛔ **Pendiente:** aplicar la migración en prod (una por una, fuera de horario) y re-medir el
+  `EXPLAIN` y el tiempo de `/api/kp/precio` después. Sin el índice el código nuevo funciona igual
+  de rápido que el viejo (mismo barrido), no peor.
+
+**Protocolo:** las observaciones del PM de este ciclo entraron a `ONBOARDING.md` §8.0b, puntos 82–85.

@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Changed — Verificador de precios: el mostrador (VAC.U16, 2026-11-07 · en código, sin soltar)
+- Logo 50 % más grande; el pie (productos escaneados y respaldo) al 80 % de opacidad.
+- En **modo kiosco** (lo que ve la clienta) ya no se pinta la frescura del ERP; fuera de kiosco el operador la sigue viendo, medida o «sin medir».
+### Changed — Verificador de precios: el escaneo ya no recorre todo el catálogo (VAC.P1, 2026-11-07 · en código, sin soltar)
+- La búsqueda del código en sus 7 columnas usa un índice: la consulta pasa de 62–66 ms (todo `kdii`, 86,132 filas) a <1 ms medido en plan. Mismo resultado: 428 códigos comparados, 0 diferencias.
+- ⚠️ Migración `20261107115424_kdii_indice_codigos_verificador` en prod **antes de soltar**, fuera de horario. Sin ella el código funciona igual que hoy (no más lento).
 ### Fixed — Mesa de Servicio: la notificación de Windows también sale con la Suite abierta detrás de otro programa (MS.AVISO.2, 2026-11-07 · en código, sin soltar)
 - Antes sólo salía con la pestaña oculta o la ventana minimizada; con Chrome abierto detrás del correo o del Excel la Suite no la mandaba (por eso en prod «no avisaba»). Ahora sale también cuando la ventana no tiene el foco.
 - Con la Suite al frente sigue saliendo sólo la ventana dentro de la página (no se duplica).
