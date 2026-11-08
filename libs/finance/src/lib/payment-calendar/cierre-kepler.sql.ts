@@ -9,13 +9,22 @@
  *
  * ⛔ **Misma cuenta que `analytics.v_supplier_payables`**, columna por columna: aplicaciones por
  * `(sucursal, tipo, subtipo, btrim(folio))` de la factura, y fuera las de un pago CANCELADO con el
- * cruce de `[PGP.67]` (`kdm1.c43 = 'C'`, tipos 25/26/60, con el proveedor y el folio sin `btrim`
- * porque el folio colisiona). Si se separan, el renglón diría «el ERP ya no la debe» y el cierre
- * «sin pagar». Medido el 2026-11-06: 707 de 11,955 aplicaciones de `kdxf` desde septiembre son de
- * documentos cancelados.
+ * cruce de `[PGP.67]` (`kdm1.c43 = 'C'`, con el proveedor y el folio sin `btrim` porque el folio
+ * colisiona). Si se separan, el renglón diría «el ERP ya no la debe» y el cierre «sin pagar».
+ * Medido el 2026-11-06: 707 de 11,955 aplicaciones de `kdxf` desde septiembre son de documentos
+ * cancelados.
+ *
+ * ⛔ `[PGP.94.1]` **La lista de tipos cancelados es la de la vista, y cambia con ella.** `[PGP.99]`
+ * (2026-11-07, Edgar) le sumó notas de crédito (55) y devoluciones (40) a los pagos 25/26/60, y este
+ * archivo se quedó con la lista vieja: 6 aplicaciones canceladas ($62,627.51) en facturas del
+ * Calendario la vista las restaba y el cierre las contaba. Si la vista vuelve a cambiar su lista
+ * (`database/migrations-newdb/*_supplier_payables*`, `*_pgp67_*`, `*_pgp99_*`), cambia aquí también.
  */
 import { sqlKeplerPayableId } from '@megadulces/contracts/finance/kepler-payable-key';
 import { cierreDelPago, type AplicacionKepler, type CierreKeplerPago, type FacturaParaCierre } from '@megadulces/contracts';
+
+/** Los tipos `X-D` cuyo documento CANCELADO no salda la factura: los mismos que `v_supplier_payables` (`[PGP.99]`). */
+export const TIPOS_CANCELADOS_QUE_NO_SALDAN = ['25', '26', '40', '55', '60'] as const;
 
 /** Parámetros: `[ids de factura (uuid[]), tenant_id]`. */
 export const SQL_CIERRE_KEPLER = `WITH fac AS (
@@ -44,7 +53,7 @@ SELECT fac.obligation_id::text AS obligation_id, fac.importe::float8 AS importe,
    AND x.c7 = fac.doc_tipo AND x.c8 = fac.doc_sub AND btrim(x.c9) = fac.folio
    AND NOT EXISTS (
          SELECT 1 FROM kepler_ods.kdm1 m
-          WHERE m.c3 = 'D' AND m.c4 IN ('25', '26', '60') AND m.c43 = 'C' AND btrim(m.c1) = m.sucursal
+          WHERE m.c3 = 'D' AND m.c4 IN (${TIPOS_CANCELADOS_QUE_NO_SALDAN.map((t) => `'${t}'`).join(', ')}) AND m.c43 = 'C' AND btrim(m.c1) = m.sucursal
             AND m.sucursal = x.sucursal AND m.c1 = x.c1 AND m.c10 = x.c2
             AND m.c4 = x.c4 AND m.c5 = x.c5 AND m.c6 = x.c6)
   LEFT JOIN kepler_ods.kdxe p
