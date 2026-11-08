@@ -10,6 +10,7 @@ import {
   rangoHistorico,
   sumarDias,
   totalDelDia,
+  tramoDeFechas,
 } from './existencia-historico.contract';
 
 const celda = (
@@ -25,6 +26,7 @@ const celda = (
   productos_con_existencia: valor == null ? null : 1,
   productos_sin_valuar: 0,
   costo_reconstruido: false,
+  existencia_reconstruida: false,
   productos_costo_posterior: 0,
   ...extra,
 });
@@ -78,6 +80,25 @@ describe('[EX.H1] diasDelRango', () => {
   });
   it('sumarDias cruza año', () => {
     expect(sumarDias('2026-12-31', 1)).toBe('2027-01-01');
+  });
+});
+
+describe('[EX.H4] tramoDeFechas — el aviso no abarca días que no se reconstruyeron', () => {
+  it('tramo continuo: sin huecos, aunque lleguen desordenadas', () => {
+    expect(tramoDeFechas(['2026-10-17', '2026-10-15', '2026-10-16'])).toEqual(
+      { primera: '2026-10-15', ultima: '2026-10-17', cierres: 3, huecos: 0 });
+  });
+  it('el 18-oct sin foto en medio cuenta como hueco (negativa: «del 15 al 21» sería falso)', () => {
+    expect(tramoDeFechas(['2026-10-15', '2026-10-16', '2026-10-17', '2026-10-19', '2026-10-20', '2026-10-21'])).toEqual(
+      { primera: '2026-10-15', ultima: '2026-10-21', cierres: 6, huecos: 1 });
+  });
+  it('cruza mes y no cuenta dos veces una fecha repetida', () => {
+    expect(tramoDeFechas(['2026-09-30', '2026-10-02', '2026-10-02'])).toEqual(
+      { primera: '2026-09-30', ultima: '2026-10-02', cierres: 2, huecos: 1 });
+  });
+  it('vacío → null; una sola fecha → un cierre sin huecos', () => {
+    expect(tramoDeFechas([])).toBeNull();
+    expect(tramoDeFechas(['2026-10-01'])).toEqual({ primera: '2026-10-01', ultima: '2026-10-01', cierres: 1, huecos: 0 });
   });
 });
 
@@ -149,10 +170,42 @@ describe('[EX.H1] estadoCelda', () => {
   });
   it('el CEDIS con la fuente nueva sí es medido', () => {
     expect(estadoCelda({ ...base, cubierto: true, fecha: '2026-11-08', warehouse_code: '00', stock_source: 'analytics.v_erp_stock_on_hand' }))
-      .toEqual({ estado: 'medido', motivo: null });
+      .toEqual({ estado: 'medido', motivo: null, existencia_reconstruida: false });
   });
   it('una sucursal con la fuente vieja es medido (en 01–08 las dos fuentes coinciden)', () => {
     expect(estadoCelda({ ...base, cubierto: true, fecha: '2026-11-01', stock_source: 'commercial.stock' }).estado).toBe('medido');
+  });
+});
+
+describe('[EX.H4] estadoCelda — el CEDIS desde su corte a Kepler sale del kardex', () => {
+  const cedis = { ...base, cubierto: true, warehouse_code: '00', stock_source: 'commercial.stock', kardex_desde: '2026-09-30' };
+  it('el día del corte y después: medido, con la existencia reconstruida y el motivo que lo dice', () => {
+    for (const fecha of ['2026-09-30', '2026-10-15', '2026-11-05']) {
+      const r = estadoCelda({ ...cedis, fecha });
+      expect(r).toMatchObject({ estado: 'medido', existencia_reconstruida: true });
+      expect(r.motivo).toMatch(/kardex/);
+    }
+  });
+  it('NEGATIVA: el día ANTERIOR al corte sigue no confiable, y dice hasta cuándo operaba en Wincaja', () => {
+    const r = estadoCelda({ ...cedis, fecha: '2026-09-29' });
+    expect(r).toMatchObject({ estado: 'no_confiable', existencia_reconstruida: false });
+    expect(r.motivo).toMatch(/2026-09-29/);
+    expect(r.motivo).toMatch(/Wincaja/);
+  });
+  it('NEGATIVA: sin corte conocido (o con una fecha mal formada) no se reconstruye nada', () => {
+    expect(estadoCelda({ ...cedis, fecha: '2026-10-15', kardex_desde: null }).estado).toBe('no_confiable');
+    expect(estadoCelda({ ...cedis, fecha: '2026-10-15', kardex_desde: '30/09/2026' }).estado).toBe('no_confiable');
+  });
+  it('NEGATIVA: una sucursal NO toma el camino del kardex aunque el corte venga', () => {
+    expect(estadoCelda({ ...cedis, warehouse_code: '01', fecha: '2026-10-15' }))
+      .toEqual({ estado: 'medido', motivo: null, existencia_reconstruida: false });
+  });
+  it('NEGATIVA: el CEDIS con la foto nueva no se reconstruye (la foto ya es buena)', () => {
+    expect(estadoCelda({ ...cedis, fecha: '2026-11-07', stock_source: 'analytics.v_erp_stock_on_hand' }))
+      .toEqual({ estado: 'medido', motivo: null, existencia_reconstruida: false });
+  });
+  it('NEGATIVA: el kardex no convierte un día SIN foto en medido', () => {
+    expect(estadoCelda({ ...cedis, cubierto: false, fecha: '2026-10-18' }).estado).toBe('sin_foto');
   });
 });
 

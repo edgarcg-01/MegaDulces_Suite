@@ -21,6 +21,7 @@ import {
   HistoricoVista,
   cierresDeVista,
   sumarDias,
+  tramoDeFechas,
   warehouseName,
 } from '@megadulces/contracts';
 import { filtrarPorBusqueda } from '@megadulces/ui-web';
@@ -152,10 +153,16 @@ function sinFoto(c: HistoricoCelda): boolean {
                 <i class="pi pi-dollar" aria-hidden="true"></i>
                 <span>{{ textoMetodo() }}</span>
               </p>
+              @if (textoCedisKardex(); as t) {
+                <p class="hx-aviso">
+                  <i class="pi pi-history" aria-hidden="true"></i>
+                  <span>{{ t }}</span>
+                </p>
+              }
               @if (hayNoConfiable()) {
                 <p class="hx-aviso">
                   <i class="pi pi-ban" aria-hidden="true"></i>
-                  <span>CEDIS: antes de que la foto leyera la existencia del ERP repetía un saldo congelado. Esos días se marcan «no confiable» y no entran al total.</span>
+                  <span>{{ textoNoConfiable() }}</span>
                 </p>
               }
               @if (d.rango.ajustado && d.rango.motivo) {
@@ -264,6 +271,7 @@ function sinFoto(c: HistoricoCelda): boolean {
               }
               <span>{{ numero(det.productos.length) }} productos con existencia</span>
               @if (det.productos_sin_valuar) { <span>· {{ det.productos_sin_valuar }} sin valuar (no suman)</span> }
+              @if (det.existencia_reconstruida) { <span>· existencia reconstruida con el kardex de Kepler</span> }
               @if (det.costo_reconstruido) { <span>· costo reconstruido con la historia del estándar</span> }
             </p>
             <div class="hx-det-filtros">
@@ -478,6 +486,35 @@ export class AlmacenExistenciaHistoricoComponent implements OnInit {
 
   readonly hayNoConfiable = computed(() =>
     this.columnas().some((c) => c.celdas.some((x) => x.estado === 'no_confiable')));
+
+  /** `[EX.H4]` Por qué el CEDIS no suma en esos días, con la fecha de su corte a Kepler si se conoce. */
+  readonly textoNoConfiable = computed(() => {
+    const desde = this.datos()?.metodo.cedis_kardex_desde;
+    return desde
+      ? `CEDIS: hasta el ${this.fechaLarga(sumarDias(desde, -1))} operaba en Wincaja y la foto repetía un saldo congelado; `
+        + 'la existencia de Wincaja no casa con la de Kepler, así que esos días se marcan «no confiable» y no entran al total.'
+      : 'CEDIS: antes de que la foto leyera la existencia del ERP repetía un saldo congelado. Esos días se marcan «no confiable» y no entran al total.';
+  });
+
+  /** `[EX.H4]` Si alguna celda visible del CEDIS salió del kardex, se dice de qué días y cómo. */
+  readonly textoCedisKardex = computed<string | null>(() => {
+    const fechas = this.columnas()
+      .filter((c) => c.celdas.some((x) => x.existencia_reconstruida))
+      .map((c) => c.fecha)
+      .sort();
+    // Un día del tramo sin foto (p. ej. el 18-oct) no se reconstruyó: el aviso no lo puede abarcar.
+    const t = tramoDeFechas(fechas);
+    if (!t) return null;
+    const { primera, ultima, cierres, huecos } = t;
+    const tramo = cierres === 1
+      ? `el ${this.fechaLarga(primera)}`
+      : huecos > 0
+        ? `en ${cierres} cierres entre el ${this.fechaLarga(primera)} y el ${this.fechaLarga(ultima)}`
+        : `del ${this.fechaLarga(primera)} al ${this.fechaLarga(ultima)}`;
+    const resto = huecos > 0 ? ` ${huecos === 1 ? 'El día' : `Los ${huecos} días`} sin foto de ese tramo ${huecos === 1 ? 'sigue' : 'siguen'} «sin foto».` : '';
+    return `CEDIS: ${tramo} su foto repetía un saldo congelado; la existencia se reconstruyó con el kardex de Kepler `
+      + `(la de hoy menos los movimientos posteriores a cada día).${resto}`;
+  });
 
   readonly textoMetodo = computed(() => {
     const d = this.datos();
@@ -765,6 +802,7 @@ export class AlmacenExistenciaHistoricoComponent implements OnInit {
     const valor = c.valor_estandar !== null ? this.dinero(c.valor_estandar) : 'sin valor';
     const n = c.productos_sin_valuar ?? 0;
     const sv = n ? `, ${n} producto${n === 1 ? '' : 's'} sin valuar` : '';
-    return `${nombre}, ${this.fechaLarga(fecha)}: ${valor}${sv}. Abrir el desglose.`;
+    const kx = c.existencia_reconstruida ? ', existencia reconstruida con el kardex de Kepler' : '';
+    return `${nombre}, ${this.fechaLarga(fecha)}: ${valor}${sv}${kx}. Abrir el desglose.`;
   }
 }
