@@ -3,15 +3,16 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import type { Knex } from 'knex';
 import type {
   LevantamientoCalidadFoto, LevantamientoCara, LevantamientoContexto, LevantamientoEscaneoDto, LevantamientoEscaneoRespuesta,
-  LevantamientoBusquedaFila, LevantamientoFotoRespuesta, LevantamientoMotivoSalto, LevantamientoPeldano, LevantamientoSaltoDto, LevantamientoSugeridosRespuesta,
+  LevantamientoBusquedaFila, LevantamientoDetalle, LevantamientoDetalleTipo, LevantamientoFotoCara, LevantamientoFotoRespuesta, LevantamientoMotivoSalto,
+  LevantamientoPeldano, LevantamientoSaltoDto, LevantamientoSugeridosRespuesta,
 } from '@megadulces/contracts';
-import { LEVANTAMIENTO_CARA_OBLIGATORIA, LEVANTAMIENTO_CARAS, LEVANTAMIENTO_MOTIVOS_SALTO } from '@megadulces/contracts';
+import { LEVANTAMIENTO_CARA_OBLIGATORIA, LEVANTAMIENTO_CARAS, LEVANTAMIENTO_DETALLE_TIPOS, LEVANTAMIENTO_MOTIVOS_SALTO } from '@megadulces/contracts';
 import { detectarTipo, ObjectStorageService, quitarMetadatosJpeg, ScopeService, TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import { resolverEscaneo, type KdiiFila, type ResultadoEscaneo } from '../shared/kdii-codigo';
 import { kdiiPorCodigo, kdiiPorSku } from '../shared/kdii-lectura';
 import {
   apartadoVivo, carasRequeridas, decidirEscaneo, ESTADOS_CON_FICHA, ESTADOS_EN_REVISION, estadoTrasFoto, nombreUnidad,
-  caraResuelta, nuevoApartado, peldanoPrincipal, type AccionEscaneo, type Apartado, type ApartadoDelUsuario, type FotoFicha,
+  caraResuelta, esDetalle, notaDetalle, nuevoApartado, peldanoPrincipal, porQueNoDetalle, type AccionEscaneo, type Apartado, type ApartadoDelUsuario, type FotoFicha,
 } from './levantamiento.rules';
 import { CONTEOS_LEVANTAMIENTO_SQL, NO_FISICO_REGEX, SUGERIDOS_LEVANTAMIENTO_SQL } from './levantamiento.sql';
 import { consultaBuscadorCatalogo, ORDEN_BUSCADOR_CATALOGO } from '../shared/catalogo-buscador';
@@ -369,11 +370,16 @@ export class LevantamientoService {
    * pantalla vuelve a pedir esa foto.
    */
   private carasDe(fotos: FotoFicha[], principal: LevantamientoPeldano): { faces_done: LevantamientoCara[]; faces_skipped: LevantamientoCara[] } {
-    const del = fotos.filter((f) => f.peldano === principal && caraResuelta(f));
+    // Los detalles van aparte (`detallesDe`): contados aquí, «hechas» pasaba del total de caras.
+    const del = fotos.filter((f) => f.peldano === principal && !esDetalle(f.cara) && caraResuelta(f));
     return {
       faces_done: [...new Set(del.map((f) => f.cara as LevantamientoCara))],
       faces_skipped: [...new Set(del.filter((f) => !f.storage_key).map((f) => f.cara as LevantamientoCara))],
     };
+  }
+
+  private detallesDe(fotos: FotoFicha[], principal: LevantamientoPeldano): LevantamientoDetalle[] {
+    return [...new Set(fotos.filter((f) => f.peldano === principal && esDetalle(f.cara) && !!f.storage_key).map((f) => f.cara as LevantamientoDetalle))];
   }
 
   private etiqueta(f: KdiiFila, p: LevantamientoPeldano): { label: string | null; factor: number | null } {
@@ -494,8 +500,10 @@ export class LevantamientoService {
    */
   async foto(quien: Quien, sheetId: string, archivo: ArchivoSubido | undefined, meta: {
     face?: string; sharpness?: string | number; contrast?: string | number; quality_version?: string; width?: string | number; height?: string | number;
+    detail_kind?: string; detail_note?: string;
   }): Promise<LevantamientoFotoRespuesta> {
-    const cara = this.caraValida(meta.face);
+    const cara = this.caraValida(meta.face, true);
+    const detalle = esDetalle(cara) ? this.detalleValido(meta.detail_kind, meta.detail_note) : null;
     if (!archivo?.buffer?.length) throw new BadRequestException('Falta la foto.');
     if (archivo.size > MAX_FOTO_BYTES) throw new BadRequestException('La foto pesa más de 15 MB.');
     if (detectarTipo(new Uint8Array(archivo.buffer)) !== 'image/jpeg') throw new BadRequestException('El archivo no es una foto JPEG.');
@@ -504,7 +512,7 @@ export class LevantamientoService {
     const buffer = Buffer.from(limpia);
     const tenant = this.tenant();
 
-    const ficha = await this.tk.run((trx) => this.fichaParaFoto(trx, tenant, sheetId, quien.userId));
+    const ficha = await this.tk.run((trx) => (detalle ? this.fichaParaDetalle(trx, tenant, sheetId, quien.userId) : this.fichaParaFoto(trx, tenant, sheetId, quien.userId)));
     const sha256 = createHash('sha256').update(buffer).digest('hex');
     // [NP.7.0.9] El tenant va en la llave: el bucket es de toda la app y sin él dos tenants con la misma
     // sucursal y clave compartirían carpeta (y una limpieza por prefijo no sabría de quién es cada foto).
@@ -518,10 +526,11 @@ export class LevantamientoService {
       saltada_motivo: null,
       calidad: calidad ? { nitidez: calidad.sharpness, contraste: calidad.contrast, version: calidad.version } : null,
       ancho: n(meta.width), alto: n(meta.height), bytes: buffer.length, por_busqueda: ficha.porBusqueda,
+      ...(detalle ? { detalle } : {}),
     };
     let g: { respuesta: LevantamientoFotoRespuesta; reemplazada: string | null };
     try {
-      g = await this.tk.run((trx) => this.guardarCara(trx, tenant, sheetId, quien, foto));
+      g = await this.tk.run((trx) => (detalle ? this.guardarDetalle(trx, tenant, sheetId, quien, foto) : this.guardarCara(trx, tenant, sheetId, quien, foto)));
     } catch (e) {
       await this.borrar(key);
       throw e;
@@ -531,7 +540,7 @@ export class LevantamientoService {
   }
 
   async saltar(quien: Quien, sheetId: string, dto: LevantamientoSaltoDto): Promise<LevantamientoFotoRespuesta> {
-    const cara = this.caraValida(dto?.face);
+    const cara = this.caraValida(dto?.face, false);
     if (cara === LEVANTAMIENTO_CARA_OBLIGATORIA) throw new BadRequestException(FRENTE_OBLIGATORIO);
     const motivo = String(dto?.reason ?? '') as LevantamientoMotivoSalto;
     if (!(LEVANTAMIENTO_MOTIVOS_SALTO as readonly string[]).includes(motivo)) throw new BadRequestException('Elige por qué no se puede tomar esa cara.');
@@ -552,10 +561,69 @@ export class LevantamientoService {
     await this.storage.remove(key).catch((err: unknown) => this.logger.warn(`[NP.7] no se pudo borrar la foto huérfana ${key}: ${String(err)}`));
   }
 
-  private caraValida(face: unknown): LevantamientoCara {
-    const c = String(face ?? '') as LevantamientoCara;
+  /** Una cara de la lista o —sólo al subir, nunca al saltar— un detalle: un detalle es opcional, no se salta. */
+  private caraValida(face: unknown, conDetalles: true): LevantamientoFotoCara;
+  private caraValida(face: unknown, conDetalles: false): LevantamientoCara;
+  private caraValida(face: unknown, conDetalles: boolean): LevantamientoFotoCara {
+    const c = String(face ?? '');
+    if (esDetalle(c)) {
+      if (!conDetalles) throw new BadRequestException('Un detalle no se salta: si no hace falta, no lo agregues.');
+      return c;
+    }
     if (!(LEVANTAMIENTO_CARAS as readonly string[]).includes(c)) throw new BadRequestException('Cara de foto inválida.');
-    return c;
+    return c as LevantamientoCara;
+  }
+
+  private detalleValido(tipo: unknown, nota: unknown): { tipo: LevantamientoDetalleTipo; nota: string | null } {
+    const t = String(tipo ?? '') as LevantamientoDetalleTipo;
+    if (!(LEVANTAMIENTO_DETALLE_TIPOS as readonly string[]).includes(t)) throw new BadRequestException('Elige qué muestra el detalle.');
+    return { tipo: t, nota: notaDetalle(nota) };
+  }
+
+  /** Un detalle no lleva apartado (se soltó al terminar): manda `porQueNoDetalle`. */
+  private async fichaParaDetalle(trx: Knex.Transaction, tenant: string, sheetId: string, userId: string): Promise<{
+    branch_code: string; sku: string; principal: LevantamientoPeldano; porBusqueda: boolean;
+  }> {
+    const f = (await trx('catalog.product_sheets').where({ id: sheetId, tenant_id: tenant, origin: 'levantamiento' }).whereNull('deleted_at')
+      .first('id', 'status', 'sku', 'branch_code', 'sheet')) as Pick<FichaFila, 'id' | 'status' | 'sku' | 'branch_code' | 'sheet'> | undefined;
+    if (!f) throw new NotFoundException('No encontramos esa captura.');
+    this.revisarDetalle(f, userId);
+    const principal = (f.sheet?.['principal'] as LevantamientoPeldano | undefined) ?? null;
+    if (!principal) throw new ConflictException('La captura no tiene unidad principal.');
+    const peldano = ((f.sheet?.['peldanos'] ?? {}) as Record<string, { por_busqueda?: boolean }>)[principal] ?? {};
+    return { branch_code: String(f.branch_code), sku: String(f.sku), principal, porBusqueda: !!peldano.por_busqueda };
+  }
+
+  private revisarDetalle(f: Pick<FichaFila, 'status' | 'sheet'>, userId: string): void {
+    const no = porQueNoDetalle(f.status, f.sheet?.['capturo'] as { by?: string; at?: string } | undefined, userId, new Date());
+    if (no) throw no.tipo === 'prohibido' ? new ForbiddenException(no.mensaje) : new ConflictException(no.mensaje);
+  }
+
+  /**
+   * Agrega (o reemplaza, si se repitió) un detalle SIN tocar el estado: la ficha ya espera revisión y un detalle
+   * ni la completa ni la reabre. Se revisa otra vez con la fila bloqueada: Catálogo pudo decidir mientras subía.
+   */
+  private async guardarDetalle(trx: Knex.Transaction, tenant: string, sheetId: string, quien: Quien, foto: FotoFicha): Promise<{
+    respuesta: LevantamientoFotoRespuesta; reemplazada: string | null;
+  }> {
+    const f = (await trx('catalog.product_sheets').where({ id: sheetId, tenant_id: tenant }).whereNull('deleted_at').forUpdate()
+      .first('status', 'photos', 'sheet')) as Pick<FichaFila, 'status' | 'photos' | 'sheet'> | undefined;
+    if (!f) throw new NotFoundException('No encontramos esa captura.');
+    this.revisarDetalle(f, quien.userId);
+    const principal = foto.peldano!;
+    const anterior = (f.photos ?? []).find((x) => x.peldano === principal && x.cara === foto.cara) ?? null;
+    const fotos = [...(f.photos ?? []).filter((x) => x !== anterior), foto];
+    await trx.raw(
+      `UPDATE catalog.product_sheets SET photos = ?::jsonb, updated_at = now(), updated_by = ?, updated_by_username = ? WHERE id = ? AND tenant_id = ?`,
+      [JSON.stringify(fotos), quien.userId, quien.username, sheetId, tenant],
+    );
+    return {
+      respuesta: {
+        sheet_id: sheetId, face: foto.cara as LevantamientoFotoCara, status: f.status, ...this.carasDe(fotos, principal),
+        details_done: this.detallesDe(fotos, principal), complete: true,
+      },
+      reemplazada: anterior?.storage_key && anterior.storage_key !== foto.storage_key ? anterior.storage_key : null,
+    };
   }
 
   /**
@@ -614,7 +682,10 @@ export class LevantamientoService {
         quien.userId, quien.username, sheetId, tenant],
     );
     return {
-      respuesta: { sheet_id: sheetId, face: foto.cara as LevantamientoCara, status: estado, ...this.carasDe(fotos, principal), complete: completa },
+      respuesta: {
+        sheet_id: sheetId, face: foto.cara as LevantamientoCara, status: estado, ...this.carasDe(fotos, principal),
+        details_done: this.detallesDe(fotos, principal), complete: completa,
+      },
       reemplazada: anterior?.storage_key && anterior.storage_key !== foto.storage_key ? anterior.storage_key : null,
     };
   }

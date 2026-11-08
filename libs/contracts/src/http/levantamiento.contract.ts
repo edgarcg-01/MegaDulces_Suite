@@ -9,9 +9,35 @@
 
 export type LevantamientoPeldano = 'base' | 'dos' | 'tres';
 
-/** Las 5 caras de la unidad principal (§10b.7 punto 2). */
-export const LEVANTAMIENTO_CARAS = ['frente', 'reverso', 'lateral_izq', 'lateral_der', 'base'] as const;
+/**
+ * Lo que se pide de la unidad principal, en orden: las 5 caras (§10b.7 punto 2) y 3 ACERCAMIENTOS (tabla
+ * nutrimental, información y código de barras). Los acercamientos son el primer feedback de quien captura
+ * (2026-11-07): en la foto del reverso entera la tabla y los ingredientes no se alcanzan a leer. Todas se
+ * toman o se saltan con motivo; sólo el frente es obligatorio.
+ */
+export const LEVANTAMIENTO_CARAS = [
+  'frente', 'reverso', 'lateral_izq', 'lateral_der', 'base', 'tabla_nutricional', 'informacion', 'codigo_barras',
+] as const;
 export type LevantamientoCara = (typeof LEVANTAMIENTO_CARAS)[number];
+
+/** Los acercamientos: no son caras del empaque sino una parte de él (su salto se pregunta distinto). */
+export const LEVANTAMIENTO_ACERCAMIENTOS: readonly LevantamientoCara[] = ['tabla_nutricional', 'informacion', 'codigo_barras'];
+
+/**
+ * «Más detalles»: hasta 3 fotos LIBRES y opcionales (caducidad, sellos, una promoción impresa). No cuentan para
+ * terminar la captura: se agregan desde «Enviado», sólo quien la terminó y dentro de `LEVANTAMIENTO_DETALLE_MINUTOS`.
+ */
+export const LEVANTAMIENTO_DETALLES = ['detalle_1', 'detalle_2', 'detalle_3'] as const;
+export type LevantamientoDetalle = (typeof LEVANTAMIENTO_DETALLES)[number];
+/** Cualquier foto de la ficha: una cara (o acercamiento) o un detalle. */
+export type LevantamientoFotoCara = LevantamientoCara | LevantamientoDetalle;
+
+/** Qué muestra el detalle: se elige con un toque (sin teclear en el camino normal); `otro` admite una nota. */
+export const LEVANTAMIENTO_DETALLE_TIPOS = ['caducidad', 'sellos', 'promocion', 'otro'] as const;
+export type LevantamientoDetalleTipo = (typeof LEVANTAMIENTO_DETALLE_TIPOS)[number];
+export const LEVANTAMIENTO_DETALLE_NOTA_MAX = 60;
+/** Ventana para agregar detalles después de terminar (la misma que dura un apartado). */
+export const LEVANTAMIENTO_DETALLE_MINUTOS = 30;
 
 /**
  * La cara que NO se salta: es la foto principal del catálogo y todo producto la tiene. Como es la primera,
@@ -117,11 +143,13 @@ export interface LevantamientoCalidadFoto {
 
 export interface LevantamientoFotoRespuesta {
   sheet_id: string;
-  face: LevantamientoCara;
+  face: LevantamientoFotoCara;
   /** Estado de la ficha tras esta foto. */
   status: string;
   faces_done: LevantamientoCara[];
   faces_skipped: LevantamientoCara[];
+  /** Los detalles que ya tiene la ficha (no cuentan para terminar). */
+  details_done: LevantamientoDetalle[];
   complete: boolean;
 }
 
@@ -147,7 +175,7 @@ export type RevisionMotivo = 'sin_analizar' | 'caras_saltadas' | 'entro_por_busq
 
 export const REVISION_MOTIVO_TEXTO: Record<RevisionMotivo, string> = {
   sin_analizar: 'Sin lectura de la IA',
-  caras_saltadas: 'Caras saltadas',
+  caras_saltadas: 'Fotos saltadas', // desde L.18 también los acercamientos se saltan: no todas son caras
   entro_por_busqueda: 'Entró por búsqueda',
   foto_repetida: 'Foto repetida',
 };
@@ -158,6 +186,8 @@ export interface RevisionFoto {
   url: string | null;
   skipped_reason: string | null;
   sharpness: number | null;
+  /** Sólo en un detalle (`detalle_n`): qué dice quien lo tomó que muestra. */
+  detail?: { kind: LevantamientoDetalleTipo; note: string | null } | null;
 }
 
 export interface RevisionFicha {
