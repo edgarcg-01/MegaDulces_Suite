@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import type { Knex } from 'knex';
 import type {
   CoberturaLevantamiento, FichaPublicada, FichasPublicadas, LevantamientoPeldano, RevisionBandeja, RevisionDecisionDto,
-  RevisionDecisionRespuesta, RevisionFicha, RevisionMotivo,
+  RevisionDecisionRespuesta, RevisionFicha, RevisionMotivo, LevantamientoDetalleTipo,
 } from '@megadulces/contracts';
 import { ObjectStorageService, TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import { kdiiPorSku } from '../shared/kdii-lectura';
@@ -10,7 +10,7 @@ import type { KdiiFila, Peldano } from '../shared/kdii-codigo';
 import { leerConfigLector } from './ia/lector.config';
 import type { LecturaGuardada } from './ia/lectura-foto.contract';
 import { fichaLista } from './ia/lector-worker.service';
-import { decidirRevision, ESTADOS_CON_FICHA, ESTADOS_EN_REVISION, motivosDeRevision, sinFotoReal, type FotoFicha } from './levantamiento.rules';
+import { decidirRevision, ESTADOS_CON_FICHA, ESTADOS_EN_REVISION, motivosDeRevision, ordenDeFoto, sinFotoReal, type FotoFicha } from './levantamiento.rules';
 import { COBERTURA_LEVANTAMIENTO_SQL, NO_FISICO_REGEX } from './levantamiento.sql';
 import type { Quien } from './levantamiento.service';
 
@@ -154,7 +154,8 @@ export async function armarFichaComun(
   const etiqueta = !k || !p ? { label: null, factor: null, codes: [] as Array<string | null> } : p === 'base'
     ? { label: k.u1, factor: 1, codes: k.base }
     : p === 'dos' ? { label: k.u2, factor: k.f2, codes: k.dos } : { label: k.u3, factor: k.f3, codes: k.tres };
-  const fotos = (x.photos ?? []).filter((ph) => ph.peldano === p);
+  // En el orden en que se piden (caras, acercamientos, detalles), no en el que se subieron: repetir una cara la mandaba al final.
+  const fotos = (x.photos ?? []).filter((ph) => ph.peldano === p).sort((a, b) => ordenDeFoto(a.cara) - ordenDeFoto(b.cara));
   return {
     id: x.id, sku: x.sku, name: k?.nombre ?? null,
     branch_code: x.branch_code, branch_name: sucursales.get(x.branch_code) ?? null,
@@ -167,6 +168,7 @@ export async function armarFichaComun(
       url: ph.storage_key ? await firmar(ph.storage_key) : null,
       skipped_reason: ph.saltada_motivo ?? null,
       sharpness: ph.calidad?.nitidez ?? null,
+      detail: ph.detalle ? { kind: ph.detalle.tipo as LevantamientoDetalleTipo, note: ph.detalle.nota ?? null } : null,
     }))),
   };
 }

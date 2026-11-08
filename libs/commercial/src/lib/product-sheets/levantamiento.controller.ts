@@ -73,11 +73,13 @@ export class LevantamientoController {
   @SkipTenantTx()
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_FOTO_BYTES, files: 1 } }))
   @ApiConsumes('multipart/form-data')
-  @ApiOperation({ summary: 'NP.7: sube UNA cara (file + face) con su medición de calidad hecha en el teléfono' })
+  @ApiOperation({ summary: 'NP.7: sube UNA cara o un detalle (file + face; el detalle con detail_kind/detail_note) con su medición de calidad hecha en el teléfono' })
   foto(
     @Param('id', ParseUUIDPipe) id: string,
     @UploadedFile() file: ArchivoSubido | undefined,
-    @Body() body: { face?: string; sharpness?: string; contrast?: string; quality_version?: string; width?: string; height?: string },
+    @Body() body: {
+      face?: string; sharpness?: string; contrast?: string; quality_version?: string; width?: string; height?: string; detail_kind?: string; detail_note?: string;
+    },
     @Req() req: Sesion,
   ): Promise<LevantamientoFotoRespuesta> {
     return this.service.foto(quien(req), id, file, body ?? {});

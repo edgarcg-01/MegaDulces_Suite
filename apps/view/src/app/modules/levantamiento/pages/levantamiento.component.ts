@@ -3,9 +3,10 @@ import { DecimalPipe, NgTemplateOutlet } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import type {
-  LevantamientoBusquedaFila, LevantamientoCara, LevantamientoContexto, LevantamientoEscaneoDto, LevantamientoEscaneoRespuesta, LevantamientoMotivoSalto, LevantamientoSugerido,
+  LevantamientoBusquedaFila, LevantamientoCara, LevantamientoContexto, LevantamientoDetalle, LevantamientoDetalleTipo, LevantamientoEscaneoDto,
+  LevantamientoEscaneoRespuesta, LevantamientoMotivoSalto, LevantamientoSugerido,
 } from '@megadulces/contracts';
-import { LEVANTAMIENTO_CARA_OBLIGATORIA } from '@megadulces/contracts';
+import { LEVANTAMIENTO_ACERCAMIENTOS, LEVANTAMIENTO_CARA_OBLIGATORIA, LEVANTAMIENTO_DETALLE_NOTA_MAX, LEVANTAMIENTO_DETALLES } from '@megadulces/contracts';
 import { CALIDAD_VERSION, dimensionesDeMedicion, juzgarFoto, medirFoto } from '@megadulces/ui-web';
 import { base64ToBlob } from '../../../core/http/visit-form-data';
 import { AuthService } from '../../../core/services/auth.service';
@@ -16,7 +17,7 @@ import { ProductScanFieldComponent } from '../../comercial/components/product-sc
 import { CameraShotComponent } from '../../finanzas/components/camera-shot.component';
 import { LevantamientoService } from '../levantamiento.service';
 
-type Paso = 'sucursal' | 'inicio' | 'buscar' | 'confirmar' | 'captura' | 'repetir' | 'salir' | 'listo';
+type Paso = 'sucursal' | 'inicio' | 'buscar' | 'confirmar' | 'captura' | 'repetir' | 'salir' | 'listo' | 'detalle';
 
 interface Pendiente {
   face: LevantamientoCara;
@@ -31,13 +32,30 @@ const CARA: Record<LevantamientoCara, { nombre: string; indicacion: string }> = 
   reverso: { nombre: 'Reverso', indicacion: 'Gira el producto: la cara de atrás.' },
   lateral_izq: { nombre: 'Lado izq.', indicacion: 'El lado izquierdo del producto.' },
   lateral_der: { nombre: 'Lado der.', indicacion: 'El lado derecho del producto.' },
-  base: { nombre: 'Base', indicacion: 'La cara de abajo (casi siempre trae el código).' },
+  base: { nombre: 'Base', indicacion: 'La cara de abajo del producto.' },
+  // Acercamientos (primer feedback de quien captura, 2026-11-07): en el reverso entero no se alcanzan a leer.
+  tabla_nutricional: { nombre: 'Tabla nutr.', indicacion: 'Acércate a la tabla nutrimental: que se lean los números.' },
+  informacion: { nombre: 'Información', indicacion: 'Acércate a los ingredientes, alérgenos y datos del fabricante.' },
+  codigo_barras: { nombre: 'Código', indicacion: 'Acércate al código de barras: que se lean las barras y los números.' },
 };
 
 const MOTIVOS: Array<{ id: LevantamientoMotivoSalto; texto: string }> = [
   { id: 'no_tiene_esa_cara', texto: 'No tiene esa cara' },
   { id: 'no_se_puede_girar', texto: 'No se puede girar' },
   { id: 'otro', texto: 'Otro motivo' },
+];
+
+/** Un acercamiento no es una cara que se gire: o el empaque no lo trae, o hay otro motivo. */
+const MOTIVOS_ACERCAMIENTO: Array<{ id: LevantamientoMotivoSalto; texto: string }> = [
+  { id: 'no_tiene_esa_cara', texto: 'No la trae' },
+  { id: 'otro', texto: 'Otro motivo' },
+];
+
+const TIPOS_DETALLE: Array<{ id: LevantamientoDetalleTipo; texto: string }> = [
+  { id: 'caducidad', texto: 'Caducidad o lote' },
+  { id: 'sellos', texto: 'Sellos o advertencias' },
+  { id: 'promocion', texto: 'Promoción impresa' },
+  { id: 'otro', texto: 'Otra cosa' },
 ];
 
 /** Comodidad por teléfono: la sucursal que eligió quien no tiene una en su perfil. Si falla, se vuelve a preguntar. */
@@ -181,12 +199,12 @@ const PALABRA: Record<string, string> = { PZA: 'pieza', PAQ: 'paquete', CJA: 'ca
             <button type="button" class="lv-btn lv-pri lv-lg" [disabled]="ocupado()" (click)="camara()?.abrir()"><i class="pi pi-camera" aria-hidden="true"></i> Tomar foto</button>
             @if (eligiendoMotivo()) {
               <div class="lv-motivos" role="group" aria-labelledby="lv-motivo-q">
-                <p id="lv-motivo-q" class="lv-q0">¿Por qué no se puede tomar esta cara ({{ nombreCara(caraActual()) }})?</p>
-                @for (m of motivos; track m.id) { <button type="button" class="lv-btn" [disabled]="ocupado()" (click)="saltar(m.id)">{{ m.texto }}</button> }
+                <p id="lv-motivo-q" class="lv-q0">¿Por qué no se puede tomar esta foto ({{ nombreCara(caraActual()) }})?</p>
+                @for (m of motivosActuales(); track m.id) { <button type="button" class="lv-btn" [disabled]="ocupado()" (click)="saltar(m.id)">{{ m.texto }}</button> }
                 <button type="button" class="lv-link lv-full" (click)="eligiendoMotivo.set(false)">Mejor sí la tomo</button>
               </div>
             } @else if (caraActual() !== caraObligatoria) {
-              <button type="button" class="lv-link lv-full" [disabled]="ocupado()" (click)="eligiendoMotivo.set(true)">Saltar esta cara</button>
+              <button type="button" class="lv-link lv-full" [disabled]="ocupado()" (click)="eligiendoMotivo.set(true)">{{ saltarTexto() }}</button>
             } @else {
               <p class="lv-ter lv-center">El frente siempre se fotografía: es la foto principal del catálogo.</p>
             }
@@ -204,7 +222,7 @@ const PALABRA: Record<string, string> = { PZA: 'pieza', PAQ: 'paquete', CJA: 'ca
             <!-- Una cara lisa (sin texto ni dibujo) puede no pasar nunca la medición: siempre hay salida. El frente no
                  se salta (toda ficha trae al menos una foto real): su salida es «Salir sin terminar». -->
             @if (caraActual() !== caraObligatoria) {
-              <button type="button" class="lv-link lv-full" (click)="saltarDesdeRepetir()">Saltar esta cara</button>
+              <button type="button" class="lv-link lv-full" (click)="saltarDesdeRepetir()">{{ saltarTexto() }}</button>
             }
             <button type="button" class="lv-link lv-full" (click)="paso.set('salir')">Salir sin terminar</button>
             <ng-container [ngTemplateOutlet]="camaraTpl" />
@@ -222,12 +240,45 @@ const PALABRA: Record<string, string> = { PZA: 'pieza', PAQ: 'paquete', CJA: 'ca
           </footer>
         }
 
+        @case ('detalle') {
+          <header class="lv-head"><div class="lv-bar"><button type="button" class="lv-back" [disabled]="ocupado()" (click)="cancelarDetalle()" aria-label="Regresar"><i class="pi pi-chevron-left"></i></button>
+            <span class="lv-t lv-grow">{{ escaneo()?.name }}</span><span class="lv-sec">Detalle {{ detalles().length + 1 }} de {{ maxDetalles }}</span></div></header>
+          <section class="lv-body">
+            <p id="lv-det-q" class="lv-q0">¿Qué vas a fotografiar?</p>
+            <div class="lv-motivos" role="group" aria-labelledby="lv-det-q">
+              @for (t of tiposDetalle; track t.id) {
+                <button type="button" class="lv-btn" [class.lv-sel]="detalleTipo() === t.id" [attr.aria-pressed]="detalleTipo() === t.id"
+                  [disabled]="ocupado()" (click)="detalleTipo.set(t.id)">{{ t.texto }}</button>
+              }
+            </div>
+            @if (detalleTipo() === 'otro') {
+              <label class="lv-search"><input type="text" [value]="detalleNota()" (input)="detalleNota.set($any($event.target).value)" [attr.maxlength]="notaMax"
+                placeholder="¿Qué es? (opcional)" aria-label="Qué muestra el detalle (opcional)" autocomplete="off" enterkeyhint="done" /></label>
+            }
+            @if (aviso()) { <p class="lv-aviso" role="status">{{ aviso() }}</p> }
+          </section>
+          <footer class="lv-foot">
+            <button type="button" class="lv-btn lv-pri lv-lg" [disabled]="ocupado() || !detalleTipo()" (click)="camara()?.abrir()"><i class="pi pi-camera" aria-hidden="true"></i> Tomar foto</button>
+            <button type="button" class="lv-link lv-full" [disabled]="ocupado()" (click)="cancelarDetalle()">Mejor no</button>
+            <ng-container [ngTemplateOutlet]="camaraTpl" />
+          </footer>
+        }
+
         @case ('listo') {
           <section class="lv-body lv-center">
             @if (fallidas().length === 0) {
               <i class="pi pi-check-circle lv-ok" aria-hidden="true"></i>
               <p class="lv-t">{{ escaneo()?.name }}</p>
               <p class="lv-sec">{{ resumenEnviado() }}</p>
+              @if (aviso()) { <p class="lv-aviso" role="status">{{ aviso() }}</p> }
+              <!-- «Más detalles»: opcionales y DESPUÉS de terminar (el producto ya está en revisión; no lo frenan). -->
+              @if (puedeDetalle()) {
+                <div class="lv-det">
+                  <p class="lv-ter">¿Viste algo más que valga la pena? Caducidad, sellos, una promoción impresa.</p>
+                  <button type="button" class="lv-btn" [disabled]="ocupado()" (click)="abrirDetalle()">
+                    <i class="pi pi-plus" aria-hidden="true"></i> Agregar detalle ({{ detalles().length }} de {{ maxDetalles }})</button>
+                </div>
+              }
             } @else {
               <i class="pi pi-exclamation-triangle lv-bad-ico" aria-hidden="true"></i>
               <p class="lv-t">Subieron {{ subidas() }} de {{ caras().length }}</p>
@@ -248,8 +299,8 @@ const PALABRA: Record<string, string> = { PZA: 'pieza', PAQ: 'paquete', CJA: 'ca
            respaldo sin cámara (permiso negado) se arrastraba a «Enviado» con un «Tomar foto» que ya no tenía qué
            fotografiar, y pegado al borde (prueba visual con la CSP de prod, 2026-11-03). Una sola declaración. -->
       <ng-template #camaraTpl>
-        <app-camera-shot [etiqueta]="nombreCara(caraActual())" [maxLado]="4096" [resolucion]="'maxima'" [recodificarSiempre]="true" [indicacion]="indicacion()"
-          [guia]="nombreCara(caraActual())" (tomada)="alTomar($event.dataUri)" />
+        <app-camera-shot [etiqueta]="etiquetaCamara()" [maxLado]="4096" [resolucion]="'maxima'" [recodificarSiempre]="true" [indicacion]="indicacionCamara()"
+          [guia]="etiquetaCamara()" (tomada)="alTomar($event.dataUri)" />
       </ng-template>
     </main>
   `,
@@ -290,9 +341,9 @@ const PALABRA: Record<string, string> = { PZA: 'pieza', PAQ: 'paquete', CJA: 'ca
     .lv-name { margin: 0; font-size: var(--fs-lg); font-weight: 700; }
     .lv-q { margin: var(--sp-3) 0 0; font-weight: 700; }
     .lv-push { margin-top: auto; }
-    .lv-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--sp-1); }
+    .lv-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--sp-1); }
     .lv-steps li { display: flex; flex-direction: column; align-items: center; gap: var(--sp-1); font-size: var(--fs-nano); color: var(--fg-3); text-align: center; }
-    .lv-step-ico { display: grid; place-items: center; width: 100%; aspect-ratio: 1; border: 1px dashed var(--border-color); border-radius: var(--r-sm); }
+    .lv-step-ico { display: grid; place-items: center; width: 100%; aspect-ratio: 2 / 1; border: 1px dashed var(--border-color); border-radius: var(--r-sm); }
     .lv-steps li.hecha .lv-step-ico { border-style: solid; color: var(--ok-fg); }
     .lv-steps li.actual { color: var(--fg-1); font-weight: 700; }
     .lv-steps li.actual .lv-step-ico { border: 2px solid var(--fg-1); }
@@ -302,6 +353,8 @@ const PALABRA: Record<string, string> = { PZA: 'pieza', PAQ: 'paquete', CJA: 'ca
       color: var(--fg-3); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; font-size: var(--fs-sm); }
     .lv-q0 { margin: 0 0 var(--sp-1); font-weight: 700; }
     .lv-motivos { display: grid; gap: var(--sp-1); }
+    .lv-sel { border: 2px solid var(--fg-1); font-weight: 700; }
+    .lv-det { display: grid; gap: var(--sp-2); width: 100%; margin-top: var(--sp-3); }
     .lv-mal { margin: 0; font-weight: 600; display: flex; gap: var(--sp-2); }
     .lv-mal .pi { color: var(--bad-fg); }
     .lv-center { align-items: center; justify-content: center; text-align: center; }
@@ -316,7 +369,9 @@ export class LevantamientoComponent implements OnInit {
   /** El lector de códigos: el botón grande «Escanear código» abre su cámara. */
   protected readonly lector = viewChild(ProductScanFieldComponent);
 
-  protected readonly motivos = MOTIVOS;
+  protected readonly tiposDetalle = TIPOS_DETALLE;
+  protected readonly maxDetalles = LEVANTAMIENTO_DETALLES.length;
+  protected readonly notaMax = LEVANTAMIENTO_DETALLE_NOTA_MAX;
   /** El frente no se salta (el servidor responde 400): la pantalla ni lo ofrece. */
   protected readonly caraObligatoria = LEVANTAMIENTO_CARA_OBLIGATORIA;
   protected readonly paso = signal<Paso>('inicio');
@@ -359,14 +414,35 @@ export class LevantamientoComponent implements OnInit {
   });
   protected readonly caraActual = computed<LevantamientoCara>(() => this.caras()[this.indice()] ?? 'frente');
   protected readonly indicacion = computed(() => CARA[this.caraActual()]?.indicacion ?? '');
+  private readonly esAcercamiento = computed(() => LEVANTAMIENTO_ACERCAMIENTOS.includes(this.caraActual()));
+  protected readonly motivosActuales = computed(() => (this.esAcercamiento() ? MOTIVOS_ACERCAMIENTO : MOTIVOS));
+  protected readonly saltarTexto = computed(() => (this.esAcercamiento() ? 'No la trae: saltar' : 'Saltar esta cara'));
+
+  /** Detalles ya subidos de esta ficha (los dice el servidor) y el que se está armando. */
+  protected readonly detalles = signal<LevantamientoDetalle[]>([]);
+  protected readonly detalleTipo = signal<LevantamientoDetalleTipo | null>(null);
+  protected readonly detalleNota = signal('');
+  /** El servidor dijo que ya no (403/409: pasó la ventana, Catálogo ya revisó…): no se vuelve a ofrecer. */
+  private readonly detallesCerrados = signal(false);
+  private readonly siguienteDetalle = computed<LevantamientoDetalle | null>(
+    () => LEVANTAMIENTO_DETALLES.find((d) => !this.detalles().includes(d)) ?? null,
+  );
+  protected readonly puedeDetalle = computed(() => !!this.escaneo()?.sheet_id && !this.fallidas().length && !this.detallesCerrados() && !!this.siguienteDetalle());
+  protected readonly etiquetaCamara = computed(() => {
+    if (this.paso() !== 'detalle') return this.nombreCara(this.caraActual());
+    return 'Detalle · ' + (TIPOS_DETALLE.find((t) => t.id === this.detalleTipo())?.texto ?? '');
+  });
+  protected readonly indicacionCamara = computed(() => (this.paso() === 'detalle' ? 'Acércate a lo que quieres mostrar: que se lea.' : this.indicacion()));
   /** Las que fallaron se marcan como hechas para avanzar a la siguiente cara; no cuentan como subidas. */
   protected readonly subidas = computed(() => this.hechas().size - this.fallidas().length - this.saltadas().size);
   /** «Enviado · 5 fotos», o «Enviado · 4 fotos · 1 cara saltada»: nunca se cuenta un salto como foto. */
   protected readonly resumenEnviado = computed(() => {
     const fotos = this.subidas();
     const saltos = this.saltadas().size;
-    const t = 'Enviado · ' + fotos + (fotos === 1 ? ' foto' : ' fotos');
-    return saltos ? t + ' · ' + saltos + (saltos === 1 ? ' cara saltada' : ' caras saltadas') : t;
+    const det = this.detalles().length;
+    let t = 'Enviado · ' + fotos + (fotos === 1 ? ' foto' : ' fotos');
+    if (saltos) t += ' · ' + saltos + (saltos === 1 ? ' saltada' : ' saltadas');
+    return det ? t + ' · ' + det + (det === 1 ? ' detalle' : ' detalles') : t;
   });
   protected readonly faltanTexto = computed(() => this.fallidas().map((f) => this.nombreCara(f.face)).join(', '));
 
@@ -496,6 +572,8 @@ export class LevantamientoComponent implements OnInit {
         this.fallidas.set([]);
         // Las saltadas las dice el servidor: al retomar, un salto de la vez anterior no se cuenta como foto.
         this.saltadas.set(new Set(r.faces_skipped));
+        this.detalles.set([]);
+        this.detallesCerrados.set(false);
         this.paso.set('confirmar');
       } else {
         this.aviso.set(r.message);
@@ -533,6 +611,7 @@ export class LevantamientoComponent implements OnInit {
 
   /** Mide la foto en el teléfono; si sale borrosa u opaca, se repite antes de subir. */
   async alTomar(dataUri: string): Promise<void> {
+    if (this.paso() === 'detalle') return this.tomarDetalle(dataUri);
     const face = this.caraActual();
     const r = this.escaneo();
     if (!r?.sheet_id) return;
@@ -567,7 +646,12 @@ export class LevantamientoComponent implements OnInit {
     this.saltadas.set(new Set(res.faces_skipped));
     // Con una cara fallida en memoria el servidor dice complete=false aunque ya no quede nada por tomar:
     // sin esto la pantalla se quedaba en la captura, sin el botón Reintentar.
-    if (res.complete || this.hechas().size >= this.caras().length) this.paso.set('listo');
+    if (res.complete || this.hechas().size >= this.caras().length) {
+      // «Enviado» pinta el aviso (para los detalles): uno viejo de una subida o un salto que ya se resolvieron
+      // no puede quedarse junto al éxito. Con fotos fallidas el aviso sigue valiendo y se conserva.
+      if (this.fallidas().length === 0) this.aviso.set(null);
+      this.paso.set('listo');
+    }
   }
 
   /**
@@ -626,10 +710,59 @@ export class LevantamientoComponent implements OnInit {
     this.eligiendoMotivo.set(false);
     try {
       const res = await firstValueFrom(this.api.saltar(r.sheet_id, this.caraActual(), motivo));
+      this.aviso.set(null); // el «Sin conexión» de un intento anterior ya no aplica
       this.resueltas(res);
     } catch (e) {
       if (this.sinRemedio(e)) return;
       this.aviso.set(this.mensajeDe(e, 'No se pudo guardar. Intenta de nuevo.'));
+    } finally {
+      this.ocupado.set(false);
+    }
+  }
+
+  protected abrirDetalle(): void {
+    if (!this.puedeDetalle()) return;
+    this.aviso.set(null);
+    this.detalleTipo.set(null);
+    this.detalleNota.set('');
+    this.paso.set('detalle');
+  }
+
+  protected cancelarDetalle(): void {
+    this.aviso.set(null);
+    this.paso.set('listo');
+  }
+
+  /**
+   * Un detalle: misma medición que una cara (borrosa → se repite aquí mismo, sin pantalla «repetir»). Si la red
+   * falla, la persona se queda en este paso y la vuelve a tomar; si el servidor dice que ya no (pasó la ventana,
+   * Catálogo ya revisó), se avisa en «Enviado» y no se vuelve a ofrecer.
+   */
+  private async tomarDetalle(dataUri: string): Promise<void> {
+    const r = this.escaneo();
+    const face = this.siguienteDetalle();
+    const tipo = this.detalleTipo();
+    if (!r?.sheet_id || !face || !tipo || this.ocupado()) return;
+    this.ocupado.set(true);
+    try {
+      const { blob, ancho, alto, medicion } = await this.medir(dataUri);
+      const veredicto = juzgarFoto(medicion);
+      if (!veredicto.ok) { this.aviso.set(veredicto.mensaje); return; }
+      const nota = tipo === 'otro' ? this.detalleNota().trim() || null : null;
+      const res = await firstValueFrom(this.api.subirFoto(r.sheet_id, face, blob,
+        { sharpness: medicion.nitidez, contrast: medicion.contraste, version: CALIDAD_VERSION }, ancho, alto, { tipo, nota }));
+      if (this.escaneo()?.sheet_id !== r.sheet_id) return;
+      this.detalles.set(res.details_done);
+      this.aviso.set('Detalle agregado.');
+      this.paso.set('listo');
+    } catch (e) {
+      if (e instanceof HttpErrorResponse && (e.status === 403 || e.status === 409)) {
+        this.detallesCerrados.set(true);
+        this.aviso.set(this.mensajeDe(e, 'Ya no se le pueden agregar detalles a este producto.'));
+        this.paso.set('listo');
+        return;
+      }
+      this.aviso.set(e instanceof HttpErrorResponse ? this.mensajeDe(e, 'No se pudo subir el detalle. Tómalo otra vez.') : 'No se pudo leer esa foto. Tómala otra vez con la cámara.');
     } finally {
       this.ocupado.set(false);
     }
@@ -654,6 +787,10 @@ export class LevantamientoComponent implements OnInit {
 
   private volverAlInicio(aviso: string | null): void {
     this.saltadas.set(new Set());
+    this.detalles.set([]);
+    this.detalleTipo.set(null);
+    this.detalleNota.set('');
+    this.detallesCerrados.set(false);
     this.escaneo.set(null);
     this.caras.set([]);
     this.hechas.set(new Set());
