@@ -133,7 +133,9 @@ suite('carga única contra la base: el reloj desconocido cede ante un reloj real
       await knex.destroy();
     }
     expect(r['otroCluster']).toMatch(/^DESTINO EQUIVOCADO/);
-    expect(r['faltan']).toMatch(/faltan migraciones en prod.*20261007100000_hr_relojes_y_checadas.*20261008094813_hr_ordenes_quien/);
+    // Las que el DELETE de arriba quita (`20261007%hr_%`): desde el renombre del 8-oct la `…094813_hr_ordenes_quien` ya
+    // no cae en ese patrón, y esta línea la seguía esperando (rojo sólo con base: en el CI corre NO MEDIDO).
+    expect(r['faltan']).toMatch(/faltan migraciones en prod.*20261007100000_hr_relojes_y_checadas.*20261007304401_hr_incidencias_y_cierres/);
     expect(r['completo']).toBe('pasó');
   }, 60000);
 });

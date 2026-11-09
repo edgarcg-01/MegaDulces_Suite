@@ -427,6 +427,34 @@ async function cargarMegaTalento(trx, mt, { tenantId = TENANT_MD, log = null, re
      WHERE EXISTS (SELECT 1 FROM hr.attendance_incidents i WHERE i.id = x.incident_id)`);
   anotar('attendance_incident_log', bitacora.length, nBit, bitacora.length - nBit ? { de_incidencia_no_cargada: bitacora.length - nBit } : {});
 
+  // ── [RH.1.10] Ajustes al banco de horas extra (saldo inicial, correcciones) ─────────────
+  // Hasta el 9-nov la carga no los traía y el runbook pedía «confirmar que sigue en 0»: un ajuste capturado en Mega
+  // Talento antes del corte se perdía en silencio. Ahora viajan, uno por uno (el CHECK que no se cumpla —motivo de
+  // menos de 5 letras, anulación sin motivo— queda contado, no se pierde callado). Si la tabla no existe en alguno de
+  // los dos lados, se declara en el cuadre.
+  const hayAjustesMt = (await q(`SELECT to_regclass('public.horas_extra_ajustes') IS NOT NULL AS hay`))[0]?.hay;
+  const hayAjustesSuite = await trx.schema.withSchema('hr').hasTable('overtime_adjustments');
+  if (hayAjustesMt && hayAjustesSuite) {
+    const ajustes = await q(`SELECT *, to_char(fecha, 'YYYY-MM-DD') AS fecha_t FROM horas_extra_ajustes`);
+    const descAj = {};
+    let nAj = 0;
+    for (const a of ajustes) {
+      const malo = await conSavepoint(trx, () => trx('hr.overtime_adjustments').insert({
+        id: a.id, tenant_id: tenantId, site_code: limpio(a.sucursal_id), person_code: limpio(a.empleado_codigo),
+        minutes: a.minutos, effective_date: a.fecha_t, reason: a.motivo, created_by_name: a.creado_por, created_at: a.creado_en,
+        voided_by_name: a.anulado_por, voided_at: a.anulado_en, void_reason: a.motivo_anulacion,
+      }).onConflict('id').ignore());
+      if (malo) descAj[malo] = (descAj[malo] || 0) + 1; else nAj++;
+    }
+    anotar('overtime_adjustments', ajustes.length, nAj, descAj);
+  } else {
+    // NO MEDIDO, no cero: se dice cuál de los dos lados no tiene la tabla.
+    const motivo = hayAjustesMt ? 'falta hr.overtime_adjustments (mig 20261012122707)' : 'Mega Talento no tiene horas_extra_ajustes';
+    anotar('overtime_adjustments', 0, 0);
+    cuadre.overtime_adjustments.noMedido = motivo;
+    if (avisar) avisar(`  ⚠️ overtime_adjustments: NO MEDIDO — ${motivo}`);
+  }
+
   // ── Cierres, revisiones y alertas ──────────────────────────────────────────────────────
   const cierres = await q(`SELECT *, to_char(desde, 'YYYY-MM-DD') AS desde_t, to_char(hasta, 'YYYY-MM-DD') AS hasta_t FROM asistencia_cierres`);
   const descCi = {};

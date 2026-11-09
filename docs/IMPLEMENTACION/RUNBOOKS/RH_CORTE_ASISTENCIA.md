@@ -20,8 +20,8 @@
   aparece pendiente, se aplica con el mismo comando del §2.2.
 - **Personas nuevas después del corte:** las liga RH en `/rh/relojes` (PR #418, `[RH.1.12]`, ya mergeado).
 - **Antes de cortar, revisar (auditoría del 16-oct):**
-  - `horas_extra_ajustes` de Mega Talento: la carga **no** la trae. Hoy tiene 0 filas; si RH captura un ajuste antes del
-    corte, se pierde. Confirmar que sigue en 0.
+  - ~~`horas_extra_ajustes` de Mega Talento: la carga **no** la trae.~~ Desde el 9-nov **sí la trae** (con su cuadre; si
+    falta la tabla en algún lado, lo dice como NO MEDIDO).
   - **BOT-RH lee `checadas` y escribe `horarios_confirmados` en la base de Mega Talento.** Después del corte calcularía con
     datos viejos y sus horarios no llegarían a la Suite. Decidir antes: apagar esas funciones del bot o apuntarlas a la
     Suite.
@@ -40,6 +40,24 @@
   Sin el acceso, Edgar corre los pasos de `md` y David los del lector y la revisión.
 
 ---
+
+## 0.1 Dónde estamos (medido en prod, sólo lectura, 2026-11-09)
+
+| Qué | Estado |
+|---|---|
+| Migraciones de RH en prod | **16 aplicadas** (base CH, cadena de asistencia, personas, horas extra, fichas, reclutamiento y bot). Falta **`20261109110836_hr_person_schedules_varios_horarios`** (`[RH.6.3]`) |
+| Datos en `hr.*` | **vacío**: 0 fichas por plaza, 0 enrolamientos. **El corte no ha ocurrido** |
+| Rol `recursos_humanos` | **0 personas**: nadie de RH abre `/rh/*` todavía (§2.5) |
+| Lógica de asistencia | Mega Talento cambió después del port (`8dd5521`, `8396d3c`, `331dccf`); portado el 9-nov en `[RH.6]` (🧪). **La paridad de 0 diferencias del 12-oct ya NO aplica: hay que re-correrla** (§2.6) antes de cortar |
+
+**Lo que falta para cortar, en orden** (los pasos de abajo, sin cambios salvo lo marcado):
+
+1. Merge del commit de `[RH.6]` y aplicar `20261109110836` (§2.2). ⚠️ Esa API escribe `shifts`: **la migración va antes
+   del despliegue**, no después.
+2. Re-correr la paridad con datos reales (`paridad-mega-talento.db.spec.ts`, local, sólo lectura contra Mega Talento) y
+   anotar el resultado en el tracker. Necesita `MT_DATABASE_URL` en la máquina de trabajo.
+3. Pre-vuelo (§2.3) → personas (§2.5) → ensayo (§2.6) → día del corte (§3).
+4. Decidir lo de BOT-RH (§0.0) y ocupar el rol `recursos_humanos`.
 
 ## 0. Las reglas que no se negocian
 
@@ -131,6 +149,7 @@ kubectl exec -n prod $API -c api -- sh -c \
    20261008094812_hr_agente_corridas.js
    20261008094813_hr_ordenes_quien.js
    20261008094815_hr_reparto_asistencia.js  ← reparte las claves de RH (ver §2.5)
+   20261109110836_hr_person_schedules_varios_horarios.js  ← [RH.6.3]; la ÚNICA pendiente al 9-nov (las demás ya están)
    ```
 
    Para cada una (camino vigente, cabecera de `apply-one-migration-prod.js`):
@@ -246,6 +265,29 @@ Listo en ~45 s · Ensayo: no quedó nada escrito.
 
 Si aparece `ya_en_un_reloj_del_sitio` con un número grande, el destino ya traía esas checadas (ver §2.1, «datos
 previos»): la carga no las duplica, pero hay que saber de dónde vinieron.
+
+Desde el 9-nov el cuadre trae además `person_schedules … sinVariosHorarios` (debe ser 0: si no, falta `20261109110836`)
+y `overtime_adjustments: N de N` (los ajustes de horas extra de Mega Talento).
+
+### 2.6b Re-correr la paridad (obligatorio después de `[RH.6]`, máquina de trabajo, sólo lectura)
+
+La de 0 diferencias es del 12-oct; Mega Talento cambió después (`8dd5521`, `8396d3c`). Semanas que ya ejercen lo nuevo
+(varios horarios desde el 15-oct): jue 15-oct → mié 4-nov. Base local de pruebas (`postgres_platform`, con
+`20261109110836` aplicada; todo corre en una transacción que se deshace) y Mega Talento en sólo lectura:
+
+```sh
+# 1) el código de Mega Talento sobre su base (clon de IngeDavid2209/mega-talento-90 @ main)
+cd <clon-mega-talento>/api && npm ci
+DATABASE_URL="$MT_URL?options=-c%20default_transaction_read_only%3Don" MT_API_DIR="$PWD" \
+  npx tsx <suite>/database/scripts/rh/mt-exportar-asistencia.ts \
+  --rangos=2026-10-15:2026-10-21,2026-10-22:2026-10-28,2026-10-29:2026-11-04 --salida=/tmp/mt-asistencia.json
+# 2) la Suite con la misma foto; ⛔ --no-file-parallelism: los .db.spec chocan si corren a la vez sobre la misma base
+cd <suite> && HR_DB_TEST_URL=postgres://…/postgres_platform MT_DATABASE_URL="$MT_URL" \
+  MT_PARIDAD_JSON=/tmp/mt-asistencia.json PARIDAD_REPORTE=/tmp/paridad.json \
+  npx vitest run --root libs/hr --no-file-parallelism paridad
+```
+
+**Se corta sólo con 0 diferencias** (o cada una explicada y anotada en `[RH.6]`).
 
 ### 2.7 El lector de relojes en `md` (`[RH.1.3]`) — opcional para el corte, recomendado
 
