@@ -5,7 +5,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { registerLocaleData } from '@angular/common';
 import localeEsMx from '@angular/common/locales/es-MX';
 import { FinanzasAprobacionGastosComponent } from './finanzas-aprobacion-gastos.component';
-import type { ExpedienteAtrasado, ExpedienteDelDia, GastosDelDia, ResultadoBusquedaGastos } from '../comprobaciones.service';
+import type { ExpedienteAtrasado, ExpedienteDelDia, GastosDelDia, RespuestaEsperanKepler, ResultadoBusquedaGastos, ValeEsperaKepler } from '../comprobaciones.service';
 import { AuthService, type JwtPayload } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { BuscadorGastosEstado } from '../components/buscador-gastos.estado';
@@ -127,9 +127,12 @@ describe('FinanzasAprobacionGastosComponent', () => {
     http = TestBed.inject(HttpTestingController);
   });
 
+  // `[GX.96]` La cola de Kepler se pide al cargar, en su propio viaje. Las pruebas que no la miran
+  // la contestan vacía aquí; las que sí, la contestan ellas (y aquí ya no queda nada pendiente).
   // `[PGP.79]` Cada carga del día pide también la solicitud de Kepler de sus vales, en su propio
   // viaje. Las pruebas que no son de Kepler no la responden: se vacía aquí, antes del verify.
   afterEach(() => {
+    http.match((r) => r.url.includes('/esperan-kepler')).forEach((r) => { if (!r.cancelled) r.flush({ vales: [], truncado: false, medido: true }); });
     for (const r of http.match((x) => x.url.includes('/kepler-autorizacion'))) r.flush({});
     http.verify();
   });
@@ -141,7 +144,7 @@ describe('FinanzasAprobacionGastosComponent', () => {
     const tabs = [...fix.nativeElement.querySelectorAll('.ap-tab-t')].map((e: Element) => e.textContent?.trim());
     // `[GX.60]` Lo aprobado y lo rechazado DESAPARECEN de esta pantalla (se mudaron al
     // Expediente). `[GX.88]` Se suma «Atrasados»: lo de días anteriores que sigue abierto.
-    expect(tabs).toEqual(['Bandeja de hoy', 'Atrasados']);
+    expect(tabs).toEqual(['Bandeja de hoy', 'Atrasados', 'Esperan a Kepler']);
   });
 
   describe('[GX.88] las dos pestañas: hoy y atrasados', () => {
@@ -939,14 +942,23 @@ describe('FinanzasAprobacionGastosComponent', () => {
     const estado = () => TestBed.inject(BuscadorGastosEstado);
     const conPermiso = () => TestBed.inject(PermissionsService).load({ FINANCE_EXPENSES_COMPROBAR: true }, 'tesoreria', 'jwt');
 
-    it('con una búsqueda activa arriba, la pantalla se esconde entera — el visor no', () => {
+    /** `[GX.101]` La caja va junto al título: el encabezado SE QUEDA al buscar (si no, la caja se iría). */
+    it('la caja del buscador va en el encabezado, junto al título', () => {
+      conPermiso();
+      montar();
+      expect(fix.nativeElement.querySelector('.surf-page-head app-buscador-gastos input[type=search]')).not.toBeNull();
+    });
+
+    it('con una búsqueda activa, lo de abajo del encabezado se cambia por los resultados — el visor no', () => {
       conPermiso();
       montar();
       estado().busqueda.set('papeleria');
       fix.detectChanges();
       expect(c.buscandoArriba()).toBe(true);
       expect(fix.nativeElement.querySelector('.ap-tabs')).toBeNull();
-      expect(fix.nativeElement.querySelector('.surf-page-head')).toBeNull();
+      expect(fix.nativeElement.querySelector('.surf-page-head app-buscador-gastos')).not.toBeNull();
+      // Los resultados: la otra pieza del buscador, debajo del encabezado.
+      expect(fix.nativeElement.querySelector('app-buscador-gastos:not(.es-caja)')).not.toBeNull();
       expect(fix.nativeElement.querySelector('app-vale-gasto-peek')).not.toBeNull();
       estado().limpiar();
       fix.detectChanges();
@@ -973,6 +985,233 @@ describe('FinanzasAprobacionGastosComponent', () => {
       http.expectOne((r) => r.url.includes('/reaperturas/pendientes')).flush([]);
       http.expectOne((r) => r.url.includes('/finance/expenses/proofs/buscar')).flush(
         { q: 'papeleria', vales: [], vales_truncado: false, sin_vale: [], sin_vale_truncado: false, solicitudes_desde: null });
+    });
+  });
+
+  /**
+   * `[GX.96]` **Esperan a Kepler.** Lo revisado que no cierra ya no depende de quien lo capturó:
+   * espera a que lo autoricen o generen su gasto en Kepler. Medido en prod el 2026-11-05: 62 así,
+   * 13 con más de 30 días, y sólo los veía quien capturó. Más los hallazgos: canceladas con gasto.
+   */
+  describe('[GX.96] la pestaña Esperan a Kepler', () => {
+    const K = (over: Partial<ValeEsperaKepler> = {}): ValeEsperaKepler => ({
+      id: 'k1', folio_solicitud: '0000501', sucursal: '00', proveedor: 'PROVEEDOR DEMO', importe: 1000,
+      created_by: 'demo.capturista', validated_by: 'DEMO APROBADOR', revisado_at: '2026-10-01T10:00:00.000Z',
+      dias: 36, espera: 'falta_generar_gasto', hallazgo: false, kepler_estado: 'A', ...over,
+    });
+    const RESP = (over: Partial<RespuestaEsperanKepler> = {}): RespuestaEsperanKepler => ({
+      vales: [K(), K({ id: 'k2', folio_solicitud: '0000502', espera: 'falta_autorizar', dias: 3, kepler_estado: 'N' }),
+        K({ id: 'h1', folio_solicitud: '0000503', espera: null, hallazgo: true, kepler_estado: 'C' })],
+      truncado: false, medido: true, ...over,
+    });
+    const colaKepler = () => http.expectOne((r) => r.url.includes('/finance/expenses/proofs/esperan-kepler'));
+    const txt = () => fix.nativeElement.textContent as string;
+
+    it('se pide al cargar y su conteo sale en la pestaña, sin entrar', () => {
+      montar();
+      colaKepler().flush(RESP());
+      expect(c.tabs.map((t) => t.id)).toContain('kepler');
+      expect(c.conteo('kepler')).toEqual({ n: 3, monto: 3000 });
+    });
+
+    it('lo raro primero: los hallazgos, con su pregunta; después lo que espera, con a qué', () => {
+      montar();
+      colaKepler().flush(RESP());
+      c.verPestana('kepler');
+      fix.detectChanges();
+      const t = txt();
+      expect(t).toContain('Canceladas en Kepler después de generar su gasto');
+      expect(t).toContain('¿salió dinero?');
+      expect(t).toContain('Autorizada: falta generar el gasto en Kepler');
+      expect(t).toContain('Falta que la autoricen en Kepler');
+      expect(t.indexOf('0000503')).toBeLessThan(t.indexOf('0000501'));
+    });
+
+    it('lo que lleva más de 30 días se marca atorado', () => {
+      montar();
+      colaKepler().flush(RESP());
+      c.verPestana('kepler');
+      fix.detectChanges();
+      expect(fix.nativeElement.querySelectorAll('.ap-kep-dias.atorado').length).toBe(2); // 36 días: k1 y el hallazgo
+    });
+
+    /** ⛔ No se pudo leer ≠ «nada espera»: el contador no dice 0 y la pestaña lo dice. */
+    it('⛔ si la cola falla, la pestaña dice «sin medir» y no afirma que no hay nada', () => {
+      montar();
+      colaKepler().flush('boom', { status: 500, statusText: 'Server Error' });
+      c.verPestana('kepler');
+      fix.detectChanges();
+      expect(c.keplerMedido()).toBe(false);
+      expect(txt()).toContain('no se puede saber qué espera');
+      expect(txt()).not.toContain('Ningún vale revisado espera a Kepler');
+    });
+
+    it('⛔ sin vistas de Kepler en el servidor (medido: false) tampoco afirma vacío', () => {
+      montar();
+      colaKepler().flush(RESP({ vales: [], medido: false }));
+      c.verPestana('kepler');
+      fix.detectChanges();
+      expect(txt()).toContain('no se puede saber qué espera');
+    });
+
+    it('vacía y medida, lo dice con todas las letras', () => {
+      montar();
+      colaKepler().flush(RESP({ vales: [] }));
+      c.verPestana('kepler');
+      fix.detectChanges();
+      expect(txt()).toContain('Ningún vale revisado espera a Kepler.');
+    });
+
+    it('una lista cortada lo declara', () => {
+      montar();
+      colaKepler().flush(RESP({ truncado: true }));
+      c.verPestana('kepler');
+      fix.detectChanges();
+      expect(txt()).toContain('hay más');
+    });
+
+    /** El folio busca el vale en el buscador de arriba: un solo visor, con lo que esta pantalla ofrece. */
+    it('«Ver» busca el folio arriba', () => {
+      TestBed.inject(PermissionsService).load({ FINANCE_EXPENSES_COMPROBAR: true }, 'tesoreria', 'jwt');
+      montar();
+      colaKepler().flush(RESP());
+      c.verEnBuscador('0000501');
+      http.expectOne((r) => r.url.includes('/finance/expenses/proofs/buscar')).flush(
+        { q: '0000501', vales: [], vales_truncado: false, sin_vale: [], sin_vale_truncado: false, solicitudes_desde: null });
+      expect(TestBed.inject(BuscadorGastosEstado).busqueda()).toBe('0000501');
+    });
+  });
+
+  /**
+   * `[GX.98]` La barra «Por departamento» con el departamento de Kepler, en Hoy y en Atrasados. Un
+   * vale repartido entra en cada departamento con su parte («$750 de $1,250»).
+   */
+  describe('[GX.98] por departamento de Kepler', () => {
+    const G = (clave: string, etiqueta: string, ids: string[], monto: number) => ({ clave, etiqueta, origen: 'kepler' as const, n: ids.length, monto, ids });
+    const deps = (...xs: [string, string, number][]) => xs.map(([clave, nombre, importe]) => ({ clave, nombre, importe }));
+
+    it('el renglón dice el departamento de Kepler, no «Sucursal NN»', () => {
+      montar(DIA({ filas: [F({ id: 'a1', departamento: 'Sucursal 00', departamentos: deps(['A', 'MORELIA ABASTOS', 150]) })] }));
+      expect(c.departamentosTexto(c.visibles()[0])).toBe('MORELIA ABASTOS');
+    });
+
+    it('repartido: el principal y «y N más»; la lista completa con sus partes', () => {
+      const p = F({ departamentos: deps(['A', 'MORELIA', 750], ['B', 'CANINDO', 500]) });
+      montar();
+      expect(c.departamentosTexto(p)).toBe('MORELIA y 1 más');
+      expect(c.departamentosTitulo(p)).toContain('CANINDO: $500.00');
+    });
+
+    it('⛔ sin departamento y sin leer se dicen distinto; un servidor viejo no inventa', () => {
+      montar();
+      expect(c.departamentosTexto(F({ departamentos: [] }))).toBe('sin departamento en Kepler');
+      expect(c.departamentosTexto(F({ departamentos: null }))).toBe('departamento sin leer en Kepler');
+      expect(c.departamentosTexto(F({ departamentos: undefined, solicitante: 'LOGISTICA' }))).toBe('LOGISTICA');
+    });
+
+    it('⭐ con un departamento elegido, el repartido muestra SU parte', () => {
+      const repartido = F({ id: 'a1', importe: 1250, departamentos: deps(['A', 'MORELIA', 750], ['B', 'CANINDO', 500]) });
+      montar(DIA({ filas: [repartido], entrada: { total: 1, monto_total: 1250, por_fecha: [],
+        por_departamento: [G('dep:A', 'MORELIA', ['a1'], 750), G('dep:B', 'CANINDO', ['a1'], 500)] } }));
+      c.grupo.set('dep:B');
+      expect(c.parteEnGrupo(repartido)).toBe(500);
+      c.grupo.set(null);
+      expect(c.parteEnGrupo(repartido)).toBeNull();
+    });
+
+    it('un vale de un solo departamento no dice «de»: su parte es todo', () => {
+      const uno = F({ id: 'a1', importe: 150, departamentos: deps(['A', 'MORELIA', 150]) });
+      montar();
+      c.grupo.set('dep:A');
+      expect(c.parteEnGrupo(uno)).toBeNull();
+    });
+
+    it('Atrasados tiene su propia barra, y elegir un grupo filtra sus vales', () => {
+      montar(DIA({
+        atrasados: [A({ id: 'x1' }), A({ id: 'x2' })], atrasados_total: { n: 2, monto: 600 },
+        atrasados_por_departamento: [G('dep:A', 'MORELIA', ['x1'], 300), G('dep:B', 'CANINDO', ['x2'], 300)],
+      }));
+      c.verPestana('atrasados');
+      expect(c.gruposVisibles().map((g) => g.etiqueta)).toEqual(['MORELIA', 'CANINDO']);
+      expect(c.totalSinGrupo()).toBe(2);
+      c.grupo.set('dep:B');
+      expect(c.visibles().map((v) => v.id)).toEqual(['x2']);
+    });
+
+    it('cambiar de pestaña suelta el grupo (no arrastra un filtro que no se ve)', () => {
+      montar();
+      c.grupo.set('dep:A');
+      c.verPestana('atrasados');
+      expect(c.grupo()).toBeNull();
+    });
+
+    it('un servidor viejo sin grupos de atrasados: no hay barra (no se inventan)', () => {
+      montar(DIA({ atrasados: [A({ id: 'x1' })], atrasados_total: { n: 1, monto: 300 } }));
+      c.verPestana('atrasados');
+      expect(c.gruposVisibles()).toEqual([]);
+    });
+  });
+
+  /**
+   * `[GX.100]` **Decidir o actualizar no regresa al inicio.** Reportado por el usuario (2026-11-06):
+   * después de aprobar o al tocar «Actualizar», la lista se cambiaba por «Cargando…», la vista saltaba
+   * arriba y se perdía el departamento elegido.
+   */
+  describe('[GX.100] sin regresar al inicio', () => {
+    const G = (clave: string, ids: string[]) => ({ clave, etiqueta: clave, origen: 'kepler' as const, n: ids.length, monto: 100, ids });
+    const conGrupos = () => DIA({ entrada: { total: 2, monto_total: 150, por_fecha: [], por_departamento: [G('dep:A', ['a1']), G('dep:B', ['a2'])] } });
+
+    it('⭐ después de aprobar, la lista NO se quita mientras llega la nueva', () => {
+      montar(conGrupos());
+      c.aprobar({ vale: c.visibles()[0], provisional: false, comprobante_esperado_at: null });
+      http.expectOne((r) => r.url.endsWith('/a1/approve')).flush({ ok: true });
+      expect(c.cargando()).toBe(false);
+      expect(c.actualizando()).toBe(true);
+      fix.detectChanges();
+      expect(fix.nativeElement.textContent).not.toContain('Cargando…');
+      expect(fix.nativeElement.querySelector('.ap-lista')).not.toBeNull();
+      http.expectOne((r) => r.url.includes('/del-dia')).flush(conGrupos());
+      http.expectOne((r) => r.url.includes('/reaperturas/pendientes')).flush([]);
+      expect(c.actualizando()).toBe(false);
+    });
+
+    it('⭐ el departamento elegido se conserva al actualizar', () => {
+      montar(conGrupos());
+      c.grupo.set('dep:B');
+      c.cargar(true);
+      http.expectOne((r) => r.url.includes('/del-dia')).flush(conGrupos());
+      http.expectOne((r) => r.url.includes('/reaperturas/pendientes')).flush([]);
+      expect(c.grupo()).toBe('dep:B');
+    });
+
+    it('si el departamento elegido ya no tiene nada, se suelta (si no, no habría cómo quitarlo)', () => {
+      montar(conGrupos());
+      c.grupo.set('dep:B');
+      c.cargar(true);
+      http.expectOne((r) => r.url.includes('/del-dia')).flush(DIA({ entrada: { total: 1, monto_total: 100, por_fecha: [], por_departamento: [G('dep:A', ['a1'])] } }));
+      http.expectOne((r) => r.url.includes('/reaperturas/pendientes')).flush([]);
+      expect(c.grupo()).toBeNull();
+    });
+
+    /** ⛔ Una actualización que falla no borra la lista buena: se avisa y se queda lo de antes. */
+    it('⛔ si la actualización silenciosa falla, la lista se queda y no aparece un error de pantalla', () => {
+      montar();
+      const antes = c.datos();
+      c.cargar(true);
+      http.expectOne((r) => r.url.includes('/del-dia')).flush('boom', { status: 500, statusText: 'Server Error' });
+      http.expectOne((r) => r.url.includes('/reaperturas/pendientes')).flush([]);
+      expect(c.datos()).toBe(antes);
+      expect(c.error()).toBe('');
+      expect(c.actualizando()).toBe(false);
+    });
+
+    it('la primera carga sí avisa «Cargando…» (no hay nada que conservar)', () => {
+      fix = TestBed.createComponent(FinanzasAprobacionGastosComponent);
+      c = fix.componentInstance;
+      fix.detectChanges();
+      expect(c.cargando()).toBe(true);
+      http.expectOne((r) => r.url.includes('/del-dia')).flush(DIA());
+      http.expectOne((r) => r.url.includes('/reaperturas/pendientes')).flush([]);
     });
   });
 });

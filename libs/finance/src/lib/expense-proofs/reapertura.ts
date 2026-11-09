@@ -128,3 +128,38 @@ export function siguemVisible(status: string | null | undefined, validatedAt: st
 /** El `WHERE` que esconde los rechazos viejos. Uno solo, para que las pantallas no se separen. */
 export const SQL_OCULTA_RECHAZOS_VIEJOS =
   `(status <> 'rechazada' OR validated_at IS NULL OR validated_at > now() - interval '${HORAS_VISIBLE_TRAS_RECHAZO} hours')`;
+
+/** Las tablas desde las que `list()` puede preguntar. Nada que venga de afuera llega al SQL. */
+export type TablaDeVales = 'finance.v_expense_proofs' | 'finance.expense_proofs';
+
+/**
+ * `[GX.94]` **En «Mis gastos» un rechazo se queda hasta que deja de pedir algo.**
+ *
+ * Decisión del usuario (2026-11-06): el vale devuelto sigue en «Te toca», con su motivo, hasta
+ * que pasa una de dos cosas — y ninguna es el reloj:
+ *  · **se recapturó**: hay otro vale del mismo folio y sucursal que NO está rechazado;
+ *  · **Kepler canceló la solicitud** (`c43 = 'C'`): ya no hay nada que comprobar.
+ *
+ * Medido en prod el 2026-11-05 con la regla de 24 h: **19 rechazos ocultos y ninguno
+ * recapturado**. La regla vieja escondía justo el trabajo pendiente.
+ *
+ * La cancelación se lee de `kepler_ods.kdm1` con el MISMO filtro de `analytics.expense_requests`
+ * (solicitud = `X A 15 1`, `c1 = sucursal`): la vista arrastra un LATERAL de acreedores por fila
+ * que esta pregunta no necesita.
+ *
+ * ⚠️ Sigue siendo ocultar, no borrar: la fila queda.
+ */
+export function sqlRechazoSigueVisible(tabla: TablaDeVales): string {
+  return `(${tabla}.status <> 'rechazada' OR (
+    NOT EXISTS (SELECT 1 FROM finance.expense_proofs otro
+                 WHERE otro.tenant_id = ${tabla}.tenant_id
+                   AND otro.sucursal IS NOT DISTINCT FROM ${tabla}.sucursal
+                   AND otro.folio_solicitud = ${tabla}.folio_solicitud
+                   AND otro.status <> 'rechazada')
+    AND NOT EXISTS (SELECT 1 FROM kepler_ods.kdm1 sol
+                     WHERE sol.sucursal = ${tabla}.sucursal
+                       AND sol.c2 = 'X' AND sol.c3 = 'A' AND btrim(sol.c4::text) = '15' AND btrim(sol.c5::text) = '1'
+                       AND btrim(sol.c1) = sol.sucursal
+                       AND btrim(sol.c6) = ${tabla}.folio_solicitud
+                       AND btrim(coalesce(sol.c43, '')) = 'C')))`;
+}

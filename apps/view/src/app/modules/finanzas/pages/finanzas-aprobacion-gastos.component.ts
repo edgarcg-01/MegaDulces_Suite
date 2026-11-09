@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, signal } from '@angular/core';
+import { ActivatedRoute, Router } from '@angular/router';
 import { branchLabel } from '../../../core/constants/store-branches';
 import { CommonModule } from '@angular/common';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -10,17 +11,18 @@ import { MessageService } from 'primeng/api';
 import {
   CLASIFICACION_LABEL, ComprobacionesService,
   type ExpenseClasificacion, type ExpedienteAtrasado, type ExpedienteDelDia, type GastosDelDia,
-  type ReaperturaPendiente,
+  type ReaperturaPendiente, type RespuestaEsperanKepler, type ValeEsperaKepler, type GrupoAprobacion,
 } from '../comprobaciones.service';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 import { ValeGastoPeekComponent, type AccionVale, type AprobacionVale } from '../components/vale-gasto-peek.component';
 import { EvidenciaAdicionalDialogComponent, type EvidenciaAgregada } from '../components/evidencia-adicional-dialog.component';
 import { BuscadorGastosEstado } from '../components/buscador-gastos.estado';
+import { BuscadorGastosComponent } from '../components/buscador-gastos.component';
 import { encuestarVisible } from '../../../core/utils/poll-visible';
 import { REFRESCO_VALES_MS } from '../vales-refresco';
 import { parseLocalDate } from '../../../core/utils/mx-date';
 // `[GX.65.4a]` La MISMA regla que aplica el servidor, desde el contrato: dos copias se separan.
-import { aceptaEvidenciaAdicional, esDuenoDelVale, detallesParaMostrar } from '@megadulces/contracts';
+import { aceptaEvidenciaAdicional, esDuenoDelVale, detallesParaMostrar, ETIQUETA_ESPERA_KEPLER, type EsperaKepler } from '@megadulces/contracts';
 // `[PGP.79]` Firmar autoriza en Kepler: la solicitud y su estado se leen con la MISMA regla en el renglón y en el detalle.
 import { lecturaKepler, solicitudKepler, type KeplerDelVale, type TonoKepler } from '@megadulces/contracts';
 import { forkJoin } from 'rxjs';
@@ -30,7 +32,7 @@ import { AuthService, type JwtPayload } from '../../../core/services/auth.servic
  * `[GX.88]` Las pestañas de ESTA pantalla. La bandeja es lo de hoy; «Atrasados», lo de otro día
  * que sigue abierto. (`PestanaGasto` del servicio sigue siendo la partición del servidor.)
  */
-export type PestanaAprobacion = 'entrada' | 'atrasados';
+export type PestanaAprobacion = 'entrada' | 'atrasados' | 'kepler';
 
 const FORMA_PAGO_LABEL: Record<string, string> = {
   efectivo: 'Efectivo', tarjeta: 'Tarjeta', transferencia: 'Transferencia',
@@ -117,16 +119,16 @@ const ESTADO_LABEL: Record<string, string> = {
 @Component({
   selector: 'app-finanzas-aprobacion-gastos',
   standalone: true,
-  imports: [CommonModule, ButtonModule, TagModule, InputTextModule, ToastModule, ValeGastoPeekComponent, EvidenciaAdicionalDialogComponent],
+  imports: [CommonModule, ButtonModule, TagModule, InputTextModule, ToastModule, ValeGastoPeekComponent, EvidenciaAdicionalDialogComponent, BuscadorGastosComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in ap">
       <p-toast />
-      <!-- [GX.88] Mientras hay una búsqueda arriba de las pestañas, la pantalla se esconde entera:
-           los resultados la reemplazan. El visor y el diálogo de abajo NO se esconden: son los
-           que abren el vale elegido en el buscador. -->
-      @if (!buscandoArriba()) {
+      <!-- [GX.101] El buscador va junto al título (pedido del usuario: «a uno más visible»). Mientras hay
+           búsqueda, lo de abajo del encabezado se cambia por los resultados; el encabezado se queda
+           (si no, la caja se iría mientras se escribe). El visor y el diálogo del final NO se
+           esconden: son los que abren el vale elegido. -->
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Aprobación de gastos</h1>
@@ -140,10 +142,15 @@ const ESTADO_LABEL: Record<string, string> = {
             anteriores que sigue abierto está en <strong class="ap-dia-txt">Atrasados</strong>.
           </p>
         </div>
-        <button pButton type="button" class="p-button-text" (click)="cargar()" [loading]="cargando()">
+        <app-buscador-gastos parte="caja" />
+                <!-- [GX.100] Actualizar NO quita la lista: la pone al día en su lugar (antes regresaba al inicio). -->
+        <button pButton type="button" class="p-button-text" (click)="cargar(true)" [loading]="cargando() || actualizando()">
           <i class="pi pi-refresh" aria-hidden="true"></i>&nbsp;Actualizar
         </button>
       </header>
+      @if (buscandoArriba()) {
+        <app-buscador-gastos parte="resultados" />
+      } @else {
 
       @if (cargando()) { <div class="ap-muted">Cargando…</div> }
       @else if (error()) { <div class="ap-err">{{ error() }}</div> }
@@ -197,7 +204,10 @@ const ESTADO_LABEL: Record<string, string> = {
             <button type="button" role="radio" class="ap-tab" [class.on]="pestana() === t.id"
                     [attr.aria-checked]="pestana() === t.id" (click)="verPestana(t.id)">
               <span class="ap-tab-t">{{ t.label }}</span>
-              @if (t.id === 'atrasados' && !atrasadosMedidos()) {
+              @if (t.id === 'kepler' && !keplerMedido()) {
+                <span class="ap-tab-n">—</span>
+                <span class="ap-tab-m">{{ keplerError() || esperanKepler() ? 'sin medir' : 'cargando' }}</span>
+              } @else if (t.id === 'atrasados' && !atrasadosMedidos()) {
                 <!-- [GX.88] No se midió ≠ cero: sin datos del servidor, el contador no dice 0. -->
                 <span class="ap-tab-n" title="El servidor no mandó los atrasados">—</span>
                 <span class="ap-tab-m">sin medir</span>
@@ -246,7 +256,49 @@ const ESTADO_LABEL: Record<string, string> = {
         <!-- [GX.67] El vacío se mide con la BANDEJA, no con «total» — que incluye lo
              ya decidido del día y haría decir «no hay nada» con la lista llena, o al revés:
              «hay gastos» sobre una bandeja vacía. -->
-        @if (!conteo(pestana()).n && !(pestana() === 'atrasados' && !atrasadosMedidos())) {
+        <!-- [GX.96] La cola de Kepler: lo raro primero (hallazgos), después lo que más lleva esperando. -->
+        @if (pestana() === 'kepler') {
+          @if (!keplerMedido()) {
+            @if (keplerError() || esperanKepler()) {
+              <div class="ap-aviso warn">
+                <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                <span>No se pudo leer el estado de Kepler, así que <strong>no se puede saber qué espera</strong>. Vuelve a actualizar.</span>
+              </div>
+            } @else {
+              <div class="ap-muted">Cargando lo que espera a Kepler…</div>
+            }
+          } @else {
+            @if (keplerHallazgos().length) {
+              <h2 class="ap-kep-h">Canceladas en Kepler después de generar su gasto</h2>
+              <div class="ap-aviso warn">
+                <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                <span>El vale ya cerró, pero <strong>alguien tiene que confirmar si salió dinero</strong>.</span>
+              </div>
+              <div class="ap-kep-lista">
+                @for (v of keplerHallazgos(); track v.id) { <ng-container *ngTemplateOutlet="filaKepler; context: { $implicit: v }" /> }
+              </div>
+            }
+            <h2 class="ap-kep-h">Revisados que esperan a Kepler</h2>
+            @if (keplerEsperando().length) {
+              <div class="ap-aviso">
+                <i class="pi pi-clock" aria-hidden="true"></i>
+                <span>Ya los revisaron aquí; falta que los <strong>autoricen o generen su gasto en Kepler</strong>.
+                  Del que más lleva esperando al más nuevo. Quien los capturó no puede moverlos.</span>
+              </div>
+              <div class="ap-kep-lista">
+                @for (v of keplerEsperando(); track v.id) { <ng-container *ngTemplateOutlet="filaKepler; context: { $implicit: v }" /> }
+              </div>
+            } @else {
+              <div class="ap-muted">{{ vacioDe('kepler') }}</div>
+            }
+            @if (esperanKepler()?.truncado) {
+              <div class="ap-aviso warn">
+                <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                <span>La lista llegó al tope: <strong>hay más</strong> de los que se muestran.</span>
+              </div>
+            }
+          }
+        } @else if (!conteo(pestana()).n && !(pestana() === 'atrasados' && !atrasadosMedidos())) {
           <div class="ap-vacio">
             <i class="pi pi-check-circle" aria-hidden="true"></i>
             @if (pestana() === 'atrasados') {
@@ -263,20 +315,22 @@ const ESTADO_LABEL: Record<string, string> = {
         } @else {
           <div class="ap-cols">
             <!-- El rail de departamentos sólo aplica a lo que se firma: quien autoriza no
-                 revisa renglones sueltos, revisa «lo de Logística». -->
-            @if (pestana() === 'entrada' && d.entrada.por_departamento.length > 1) {
+                 revisa renglones sueltos, revisa «lo de Logística». [GX.98] El departamento es el
+                 de Kepler (el capturado decía «Sucursal NN»), y va también en Atrasados. Un vale
+                 repartido entra en cada uno de sus departamentos con su parte. -->
+            @if (gruposVisibles().length > 1) {
               <aside class="ap-grupos">
                 <div class="ap-grupos-t">Por departamento</div>
                 <button type="button" class="ap-grupo" [class.on]="!grupo()" (click)="grupo.set(null)">
                   <span class="ap-g-t">Todos</span>
-                  <span class="ap-g-n">{{ d.entrada.total }}</span>
+                  <span class="ap-g-n">{{ totalSinGrupo() }}</span>
                 </button>
-                @for (g of d.entrada.por_departamento; track g.clave) {
+                @for (g of gruposVisibles(); track g.clave) {
                   <button type="button" class="ap-grupo" [class.on]="grupo() === g.clave" (click)="grupo.set(g.clave)">
                     <span class="ap-g-t">
                       {{ g.etiqueta }}
                       @if (g.origen === 'solicitud') { <em class="ap-org" title="La etiqueta sale del área de la solicitud de Kepler, no de lo capturado">área</em> }
-                      @if (g.origen === 'sin_clasificar') { <em class="ap-org warn">sin clasificar</em> }
+                      @if (g.origen === 'sin_clasificar' && g.clave !== 'sin-departamento') { <em class="ap-org warn">sin clasificar</em> }
                     </span>
                     <span class="ap-g-m">{{ money(g.monto) }}</span>
                     <span class="ap-g-n">{{ g.n }}</span>
@@ -294,6 +348,26 @@ const ESTADO_LABEL: Record<string, string> = {
           </div>
         }
       }
+
+      <!-- [GX.96] El renglón de la cola de Kepler. El folio busca el vale arriba (un solo visor). -->
+      <ng-template #filaKepler let-v>
+        <div class="ap-kep">
+          @if (busqueda) {
+            <button type="button" class="ap-kep-folio" (click)="verEnBuscador(v.folio_solicitud)"
+                    [attr.aria-label]="'Ver el vale ' + v.folio_solicitud">{{ v.folio_solicitud || 'sin folio' }}</button>
+          } @else {
+            <span class="ap-kep-folio-txt">{{ v.folio_solicitud || 'sin folio' }}</span>
+          }
+          <span class="ap-suc">{{ v.sucursal ? branchLabel(v.sucursal) : '' }}</span>
+          <span class="ap-kep-prov">{{ v.proveedor || '—' }}</span>
+          <span class="ap-kep-dias" [class.atorado]="(v.dias ?? 0) > 30">{{ diasTexto(v.dias) }}</span>
+          <span class="ap-imp">{{ money(v.importe) }}</span>
+          <div class="ap-kep-que" [class.hallazgo]="v.hallazgo">
+            {{ v.hallazgo ? 'Se canceló en Kepler con su gasto ya generado: ¿salió dinero?' : esperaTexto(v.espera) }}
+            · capturó {{ v.created_by || '—' }} · revisó {{ v.validated_by || '—' }}
+          </div>
+        </div>
+      </ng-template>
 
       <!-- [GX.88] UN renglón para las tres listas (bandeja, Atrasados y búsqueda): tres copias
            del mismo vale se separan a la primera corrección. -->
@@ -314,7 +388,12 @@ const ESTADO_LABEL: Record<string, string> = {
           }
           <span class="ap-hora">{{ p.created_hora }}</span>
           <span class="ap-grow"></span>
-          <span class="ap-imp">{{ money(p.importe) }}</span>
+          <!-- [GX.98] Con un departamento elegido, el vale repartido dice SU parte y de cuánto. -->
+          @if (parteEnGrupo(p); as parte) {
+            <span class="ap-imp">{{ money(parte) }} <span class="ap-imp-de">de {{ money(p.importe) }}</span></span>
+          } @else {
+            <span class="ap-imp">{{ money(p.importe) }}</span>
+          }
         </div>
 
         <!-- [GX.88] El atrasado dice cuánto lleva, qué le falta y DE QUIÉN depende: un atrasado
@@ -332,7 +411,8 @@ const ESTADO_LABEL: Record<string, string> = {
         <div class="ap-it-con">{{ p.concepto || p.proveedor || '—' }}</div>
 
         <div class="ap-it-meta">
-          <span>{{ p.departamento || p.solicitante || 'sin departamento' }}</span>
+          <!-- [GX.98] El departamento de Kepler. «p.departamento» decía «Sucursal NN» en todos. -->
+          <span [attr.title]="departamentosTitulo(p)">{{ departamentosTexto(p) }}</span>
           <span>·</span>
           <span>levantado por {{ p.created_by || '—' }}</span>
           @if (p.fecha_gasto && p.fecha_gasto !== p.created_at) {
@@ -436,7 +516,23 @@ const ESTADO_LABEL: Record<string, string> = {
     .ap-aviso { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm);
       color: var(--fg-2); background: var(--card-bg); border: 1px solid var(--border-color);
       border-radius: var(--r-md); padding: var(--sp-2) var(--sp-3); }
-    .ap-aviso.warn { color: var(--warn-fg); border-color: var(--warn-border); }
+    .ap-aviso.warn { color: var(--warn-soft-fg); border-color: var(--warn-border); }
+    .ap-imp-de { font-size: var(--fs-xs); font-weight: var(--fw-normal, 400); color: var(--fg-3); }
+    /* [GX.96] La cola de Kepler: un renglón por vale, el folio busca el vale arriba. */
+    .ap-kep-lista { display: flex; flex-direction: column; gap: var(--sp-1); }
+    .ap-kep { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto; align-items: baseline;
+      gap: var(--sp-1) var(--sp-3); padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border-color);
+      border-radius: var(--r-sm); background: var(--card-bg); }
+    .ap-kep-folio { border: 0; background: transparent; padding: 0; font-family: var(--font-mono); font-weight: var(--fw-bold);
+      color: var(--action); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+    .ap-kep-folio:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+    .ap-kep-folio-txt { font-family: var(--font-mono); font-weight: var(--fw-bold); }
+    .ap-kep-prov { font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ap-kep-dias { font-size: var(--fs-xs); color: var(--fg-3); font-variant-numeric: tabular-nums; }
+    .ap-kep-dias.atorado { color: var(--warn-soft-fg); font-weight: var(--fw-bold); }
+    .ap-kep-que { grid-column: 1 / -1; font-size: var(--fs-xs); color: var(--fg-2); }
+    .ap-kep-que.hallazgo { color: var(--bad-fg); font-weight: var(--fw-bold); }
+    .ap-kep-h { margin: var(--sp-3) 0 var(--sp-1); font-size: var(--fs-sm); font-weight: var(--fw-bold); }
 
     /* [GX.29] Lo que te piden reabrir. Borde de aviso: es dinero ya firmado que
        alguien quiere volver a tocar, no un renglón más de la lista. */
@@ -480,7 +576,9 @@ const ESTADO_LABEL: Record<string, string> = {
       font-size: var(--fs-sm); color: var(--fg-1); cursor: pointer; text-align: left; }
     .ap-grupo:hover { background: var(--hover-bg); }
     .ap-grupo.on { background: rgba(var(--ink-rgb), .06); box-shadow: inset 2px 0 0 var(--action); }
-    .ap-g-t { flex-grow: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* [GX.98] El nombre del departamento se lee entero (pasa a otra línea): cortado con «…» escondía
+       justo el dato que se pidió ver («LOGISTICA GE…», «Sin departament…»). */
+    .ap-g-t { flex-grow: 1; min-width: 0; overflow-wrap: anywhere; line-height: 1.25; }
     .ap-g-m { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--fg-3); font-variant-numeric: tabular-nums; }
     .ap-g-n { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--fg-2);
       background: var(--layout-bg); border-radius: var(--r-sm); padding: 0 6px; }
@@ -556,6 +654,14 @@ export class FinanzasAprobacionGastosComponent {
   readonly error = signal('');
   readonly pestana = signal<PestanaAprobacion>('entrada');
   readonly grupo = signal<string | null>(null);
+  /** `[GX.100]` Una actualización silenciosa en vuelo (la lista sigue a la vista). */
+  readonly actualizando = signal(false);
+  /**
+   * `[GX.100]` La pestaña y el departamento viven también en la URL (`?pestana=&depto=`): al
+   * recargar con F5 se vuelve al mismo lugar. Opcionales: fuera del router (una prueba) no hacen nada.
+   */
+  private readonly router = inject(Router, { optional: true });
+  private readonly ruta = inject(ActivatedRoute, { optional: true });
   readonly actuando = signal<string | null>(null);
   /** El vale que se está mirando. `null` = el panel está cerrado. */
   readonly abierto = signal<ExpedienteDelDia | null>(null);
@@ -566,6 +672,16 @@ export class FinanzasAprobacionGastosComponent {
   /** `[PGP.79]` La consulta a Kepler falló: se DICE en el renglón, no se calla. */
   readonly keplerFallo = signal(false);
   readonly solicitudKepler = solicitudKepler;
+  /**
+   * `[GX.96]` Los revisados que esperan a Kepler, y los hallazgos. `null` = todavía no llega;
+   * `keplerError` = no se pudo leer (no es «nada espera»).
+   */
+  readonly esperanKepler = signal<RespuestaEsperanKepler | null>(null);
+  readonly keplerError = signal(false);
+  readonly keplerHallazgos = computed<ValeEsperaKepler[]>(() => (this.esperanKepler()?.vales ?? []).filter((v) => v.hallazgo));
+  readonly keplerEsperando = computed<ValeEsperaKepler[]>(() => (this.esperanKepler()?.vales ?? []).filter((v) => !v.hallazgo));
+  /** Se midió: hay respuesta y el servidor pudo leer Kepler. */
+  readonly keplerMedido = computed(() => !this.keplerError() && this.esperanKepler()?.medido === true);
   /**
    * El día que acota **lo ya decidido**. Vacío = hoy, y quién es hoy lo decide el SERVIDOR
    * (hora de México).
@@ -600,12 +716,16 @@ export class FinanzasAprobacionGastosComponent {
   readonly tabs: { id: PestanaAprobacion; label: string }[] = [
     { id: 'entrada', label: 'Bandeja de hoy' },
     { id: 'atrasados', label: 'Atrasados' },
+    // `[GX.96]` Lo revisado que espera a Kepler: antes sólo lo veía quien capturó, que no puede moverlo.
+    { id: 'kepler', label: 'Esperan a Kepler' },
   ];
 
   constructor() {
     // `[GX.88]` El vale elegido en el buscador de arriba se abre AQUÍ, con lo que esta pantalla ofrece.
     this.busqueda?.aperturas$.pipe(takeUntilDestroyed()).subscribe((v) => this.abrir(v));
+    this.leerDeLaUrl();
     this.cargar();
+    effect(() => this.escribirEnLaUrl(this.pestana(), this.grupo()));
     // `[GX.73]` Se refresca sola mientras la pestaña se ve: los vales nuevos llegan sin recargar.
     encuestarVisible(REFRESCO_VALES_MS, () => this.refrescar());
   }
@@ -635,7 +755,7 @@ export class FinanzasAprobacionGastosComponent {
           // Si el departamento elegido ya no tiene nada (otra persona firmó lo último), se suelta
           // el filtro: con un solo departamento la barra se esconde y no habría cómo quitarlo.
           const g = this.grupo();
-          if (g && !d.entrada?.por_departamento?.some((x) => x.clave === g)) this.grupo.set(null);
+          if (g && !this.gruposVisibles().some((x) => x.clave === g)) this.grupo.set(null);
           this.refrescando = false;
         },
         error: () => { this.refrescando = false; },
@@ -658,16 +778,41 @@ export class FinanzasAprobacionGastosComponent {
    */
   readonly hoy = computed(() => this.datos()?.hoy ?? '');
 
-  cargar(): void {
-    this.cargando.set(true);
+  /**
+   * Trae el día. `[GX.100]` `silencioso`: con datos ya en pantalla, NO los quita mientras llegan los
+   * nuevos — antes la lista se cambiaba por «Cargando…» y al volver la vista saltaba al inicio y se
+   * perdía el departamento elegido (reportado por el usuario, 2026-11-06). Se usa al actualizar y
+   * después de decidir sobre un vale. Sólo la primera carga muestra «Cargando…».
+   */
+  cargar(silencioso = false): void {
+    const enSilencio = silencioso && this.datos() !== null;
+    if (enSilencio) this.actualizando.set(true); else this.cargando.set(true);
     this.error.set('');
     this.svc.delDia(this.fecha() || undefined)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (d) => { this.datos.set(d); this.grupo.set(null); this.cargando.set(false); this.cargarKepler(d); },
+        next: (d) => {
+          this.datos.set(d);
+          // El departamento elegido se CONSERVA mientras exista (otra persona pudo firmar lo último).
+          const g = this.grupo();
+          if (g && !this.gruposVisibles().some((x) => x.clave === g)) this.grupo.set(null);
+          this.cargando.set(false);
+          this.actualizando.set(false);
+          // `[PGP.79]` La solicitud de Kepler de cada vale, en su propio viaje.
+          this.cargarKepler(d);
+        },
         // Un error NO se pinta como «ese día no se levantó nada»: es otra afirmación, y la
-        // equivocada deja dinero esperando sin que nadie lo sepa.
-        error: () => { this.error.set('No se pudo cargar el día. Vuelve a intentar.'); this.cargando.set(false); },
+        // equivocada deja dinero esperando sin que nadie lo sepa. `[GX.100]` En silencio, la lista que
+        // está en pantalla se queda (es la última cierta) y se dice que no se pudo actualizar.
+        error: () => {
+          this.cargando.set(false);
+          this.actualizando.set(false);
+          if (enSilencio) {
+            this.toast.add({ severity: 'warn', summary: 'No se pudo actualizar', detail: 'Lo que ves es de la carga anterior. Vuelve a intentar.' });
+          } else {
+            this.error.set('No se pudo cargar el día. Vuelve a intentar.');
+          }
+        },
       });
 
     // `[GX.29]` Las reaperturas van en su propio viaje: son de cualquier fecha, mientras
@@ -681,16 +826,89 @@ export class FinanzasAprobacionGastosComponent {
         next: (rs) => this.reaperturas.set(rs ?? []),
         error: () => this.reaperturas.set([]),
       });
+    // `[GX.96]` La cola de Kepler va en su propio viaje y su error no tumba la pantalla: se DICE
+    // en su pestaña. Sólo al cargar (no en el refresco de cada minuto): es la consulta más cara.
+    this.keplerError.set(false);
+    this.svc.esperanKepler()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => this.esperanKepler.set(r),
+        error: () => { this.esperanKepler.set(null); this.keplerError.set(true); },
+      });
     // `[GX.88]` Si hay una búsqueda abierta, también se pone al día: después de firmar un vale
     // desde la búsqueda, su renglón tiene que decir el estado nuevo, no el de hace un momento.
     this.busqueda?.rebuscar();
   }
 
+  /** `[GX.100]` La pestaña y el departamento de la URL. Lo que no se reconoce se ignora. */
+  private leerDeLaUrl(): void {
+    const q = this.ruta?.snapshot?.queryParamMap;
+    if (!q) return;
+    const p = q.get('pestana');
+    if (p === 'atrasados' || p === 'kepler') this.pestana.set(p);
+    const g = q.get('depto');
+    if (g) this.grupo.set(g);
+  }
+
+  /** Reemplaza (no apila) la entrada del historial: «atrás» sigue llevando a la pantalla anterior. */
+  private escribirEnLaUrl(p: PestanaAprobacion, g: string | null): void {
+    if (!this.router || !this.ruta) return;
+    const q = this.ruta.snapshot.queryParamMap;
+    const pUrl = p === 'entrada' ? null : p;
+    if ((q.get('pestana') ?? null) === pUrl && (q.get('depto') ?? null) === g) return;
+    void this.router.navigate([], { relativeTo: this.ruta, queryParams: { pestana: pUrl, depto: g }, queryParamsHandling: 'merge', replaceUrl: true });
+  }
+
   verPestana(p: PestanaAprobacion): void {
     this.pestana.set(p);
-    // El filtro por departamento es de la bandeja de entrada: arrastrarlo a otra dejaría la
-    // lista recortada sin que se vea por qué.
-    if (p !== 'entrada') this.grupo.set(null);
+    // El filtro por departamento es de cada lista: arrastrarlo a otra pestaña dejaría la lista
+    // recortada sin que se vea por qué.
+    this.grupo.set(null);
+  }
+
+  /**
+   * `[GX.98]` Los grupos por departamento de la pestaña que se ve. Hoy: los de la bandeja; Atrasados:
+   * los suyos. Un servidor viejo sin los de atrasados no muestra barra (no se inventan grupos).
+   */
+  readonly gruposVisibles = computed<GrupoAprobacion[]>(() => {
+    const d = this.datos();
+    if (!d) return [];
+    const p = this.pestana();
+    if (p === 'entrada') return d.entrada?.por_departamento ?? [];
+    if (p === 'atrasados') return d.atrasados_por_departamento ?? [];
+    return [];
+  });
+
+  /** «Todos» cuenta vales, no la suma de los grupos: un vale repartido está en varios. */
+  readonly totalSinGrupo = computed(() => {
+    const d = this.datos();
+    if (!d) return 0;
+    return this.pestana() === 'atrasados' ? (d.atrasados?.length ?? 0) : d.entrada.total;
+  });
+
+  /** `[GX.98]` La parte del vale en el departamento elegido, sólo si es menos que el vale entero. */
+  parteEnGrupo(p: ExpedienteDelDia): number | null {
+    const g = this.grupo();
+    if (!g?.startsWith('dep:')) return null;
+    const d = p.departamentos?.find((x) => `dep:${x.clave}` === g);
+    return d && Math.round(d.importe * 100) < Math.round(p.importe * 100) ? d.importe : null;
+  }
+
+  /** `[GX.98]` El departamento en el renglón: el de más importe y «y N más» si está repartido. */
+  departamentosTexto(p: ExpedienteDelDia): string {
+    const ds = p.departamentos;
+    if (ds === undefined) return p.solicitante || 'departamento sin medir';
+    if (ds === null) return 'departamento sin leer en Kepler';
+    if (!ds.length) return 'sin departamento en Kepler';
+    const primero = ds[0].nombre ?? ds[0].clave;
+    return ds.length === 1 ? primero : `${primero} y ${ds.length - 1} más`;
+  }
+
+  /** La lista completa del vale repartido, con la parte de cada uno. */
+  departamentosTitulo(p: ExpedienteDelDia): string | null {
+    const ds = p.departamentos;
+    if (!ds || ds.length < 2) return null;
+    return ds.map((x) => `${x.nombre ?? x.clave}: ${this.money(x.importe)}`).join(' · ');
   }
 
   /**
@@ -704,13 +922,14 @@ export class FinanzasAprobacionGastosComponent {
     if (!d) return [];
     const p = this.pestana();
     // `[GX.88]` Los atrasados vienen ya ordenados del servidor (del más viejo al más nuevo).
-    if (p === 'atrasados') return d.atrasados ?? [];
     // ⛔ `sin_etapa` entra por la bandeja de entrada: sin esto, un estado que el servidor no
     // reconoce no saldría en NINGUNA pestaña. Ver `visibleEn()` en `etapas-del-dia.ts`.
-    const filas = d.filas.filter((f) => f.etapa === 'entrada' || f.etapa === 'sin_etapa');
+    const filas: ExpedienteDelDia[] = p === 'atrasados'
+      ? (d.atrasados ?? [])
+      : d.filas.filter((f) => f.etapa === 'entrada' || f.etapa === 'sin_etapa');
     const g = this.grupo();
     if (!g) return filas;
-    const sel = d.entrada.por_departamento.find((x) => x.clave === g);
+    const sel = this.gruposVisibles().find((x) => x.clave === g);
     if (!sel) return filas;
     const ids = new Set(sel.ids);
     return filas.filter((f) => ids.has(f.id));
@@ -727,12 +946,30 @@ export class FinanzasAprobacionGastosComponent {
     // `[GX.88]` El total REAL de atrasados, no sólo los que llegaron: si la lista se cortó, el
     // contador no puede decir menos de lo que hay.
     if (p === 'atrasados') return d.atrasados_total ?? { n: 0, monto: 0 };
+    if (p === 'kepler') {
+      const vs = this.esperanKepler()?.vales ?? [];
+      return { n: vs.length, monto: Math.round(vs.reduce((a, v) => a + (Number(v.importe) || 0), 0) * 100) / 100 };
+    }
     const e = d.etapas.entrada ?? { n: 0, monto: 0 };
     const raro = d.etapas.sin_etapa ?? { n: 0, monto: 0 };
     return { n: e.n + raro.n, monto: Math.round((e.monto + raro.monto) * 100) / 100 };
   }
 
+  /** `[GX.96]` Lo que espera cada vale revisado, con las palabras del contrato. */
+  esperaTexto(e: EsperaKepler | null): string { return e ? ETIQUETA_ESPERA_KEPLER[e] : ''; }
+
+  /**
+   * `[GX.96]` «Ver» en la cola busca el folio en el buscador de arriba (`[GX.88]`), que abre el vale
+   * aquí con lo que esta pantalla ofrece. La cola no trae el vale completo: así no hay dos visores.
+   */
+  verEnBuscador(folio: string | null): void {
+    if (!folio || !this.busqueda) return;
+    this.busqueda.escribir(folio);
+    this.busqueda.buscarYa();
+  }
+
   vacioDe(p: PestanaAprobacion): string {
+    if (p === 'kepler') return 'Ningún vale revisado espera a Kepler.';
     if (p === 'atrasados') {
       // Sin datos del servidor no se afirma que no haya: se dice que no se midió.
       return this.atrasadosMedidos() ? 'No se quedó nada atrasado.' : 'No se puede saber: el servidor no mandó los atrasados.';
@@ -760,7 +997,7 @@ export class FinanzasAprobacionGastosComponent {
    * estado). Esta pantalla sólo esconde lo suyo mientras hay búsqueda y abre el vale elegido.
    * `optional`: fuera del shell (una prueba, otra ruta) no hay buscador y nada cambia.
    */
-  private readonly busqueda = inject(BuscadorGastosEstado, { optional: true });
+  protected readonly busqueda = inject(BuscadorGastosEstado, { optional: true });
   readonly buscandoArriba = computed(() => this.busqueda?.buscando() ?? false);
 
   /** `[GX.27]` El helper COMPARTIDO del repo (`core/utils/mx-date`). Yo habia escrito uno
@@ -926,7 +1163,8 @@ export class FinanzasAprobacionGastosComponent {
           this.toast.add({ severity: 'error', summary: 'No se autorizó en Kepler', sticky: true,
             detail: `${doc}: ${k.motivo}. El vale sí quedó aprobado aquí; autorízala en Kepler o avisa a Sistemas.` });
         }
-        this.cargar();
+        // `[GX.100]` Silenciosa: la lista no se vacía ni regresa al inicio.
+        this.cargar(true);
       },
       error: (e) => this.falla('No se pudo aprobar', e),
     });
@@ -949,7 +1187,7 @@ export class FinanzasAprobacionGastosComponent {
           this.toast.add({ severity: aprueba ? 'success' : 'info',
             summary: aprueba ? 'Reabierto' : 'No se reabrió',
             detail: aprueba ? `${r.folio_solicitud} vuelve a la bandeja: hay que autorizarlo de nuevo` : `${r.folio_solicitud}` });
-          this.cargar();
+          this.cargar(true);
         },
         error: (e) => this.falla('No se pudo decidir', e),
       });
@@ -966,7 +1204,7 @@ export class FinanzasAprobacionGastosComponent {
         this.actuando.set(null);
         this.abierto.set(null);
         this.toast.add({ severity: 'success', summary: 'Comprobado', detail: `Solicitud ${p.folio_solicitud}` });
-        this.cargar();
+        this.cargar(true);
       },
       error: (e) => this.falla('No se pudo cerrar', e),
     });
@@ -985,7 +1223,7 @@ export class FinanzasAprobacionGastosComponent {
         this.actuando.set(null);
         this.abierto.set(null);
         this.toast.add({ severity: 'info', summary: 'Rechazado', detail: `Solicitud ${p.folio_solicitud}` });
-        this.cargar();
+        this.cargar(true);
       },
       error: (e) => this.falla('No se pudo rechazar', e),
     });

@@ -1,5 +1,5 @@
 import {
-  HORAS_VISIBLE_TRAS_RECHAZO, puedeAutorizarReapertura, puedePedirReapertura, siguemVisible,
+  HORAS_VISIBLE_TRAS_RECHAZO, puedeAutorizarReapertura, puedePedirReapertura, siguemVisible, sqlRechazoSigueVisible,
   type ValeParaReabrir,
 } from './reapertura';
 
@@ -112,5 +112,39 @@ describe('[GX.29] el rechazo se oculta a las 24 h', () => {
 
   it('la ventana es de 24 horas', () => {
     expect(HORAS_VISIBLE_TRAS_RECHAZO).toBe(24);
+  });
+});
+
+/**
+ * `[GX.94]` En «Mis gastos» el rechazo se queda hasta que se RECAPTURA o Kepler CANCELA la
+ * solicitud (decisión del usuario, 2026-11-06). El comportamiento contra datos se probó en la base
+ * local con `dev-seed-gx91-mis-gastos.js`; acá, lo que una reescritura rompería.
+ */
+describe('[GX.94] el rechazo en «Mis gastos» se queda hasta que deja de pedir algo', () => {
+  const sql = sqlRechazoSigueVisible('finance.v_expense_proofs');
+
+  it('no depende del reloj', () => {
+    expect(sql).not.toMatch(/interval|now\(\)/);
+  });
+
+  it('se va si hay OTRO vale vivo del mismo folio y sucursal', () => {
+    expect(sql).toContain('otro.folio_solicitud = finance.v_expense_proofs.folio_solicitud');
+    expect(sql).toContain('otro.sucursal IS NOT DISTINCT FROM finance.v_expense_proofs.sucursal');
+    expect(sql).toContain("otro.status <> 'rechazada'");
+  });
+
+  it("se va si Kepler canceló la solicitud (c43 = 'C'), con el filtro de la vista de solicitudes", () => {
+    expect(sql).toContain("btrim(coalesce(sol.c43, '')) = 'C'");
+    expect(sql).toContain("btrim(sol.c4::text) = '15'");
+    expect(sql).toContain('btrim(sol.c6) = finance.v_expense_proofs.folio_solicitud');
+  });
+
+  it('las columnas de afuera van calificadas con la tabla que se le pasa (la vista o la tabla)', () => {
+    expect(sqlRechazoSigueVisible('finance.expense_proofs')).toContain('finance.expense_proofs.status');
+    expect(sqlRechazoSigueVisible('finance.expense_proofs')).not.toContain('v_expense_proofs');
+  });
+
+  it('lo que no es rechazo pasa siempre', () => {
+    expect(sql.startsWith("(finance.v_expense_proofs.status <> 'rechazada' OR")).toBe(true);
   });
 });

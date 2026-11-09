@@ -5,7 +5,7 @@ import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission, isPla
 import type {
   ReaperturaDecidida, ReaperturaPendiente, SolicitudReaperturaCreada,
 } from '@megadulces/contracts';
-import { ExpenseProofsService, CreateExpenseProofDto, ListExpenseProofsQuery, type RespuestaPorAprobar, type RespuestaDelDia, type ProofFile, type ResultadoBusquedaGastos } from './expense-proofs.service';
+import { ExpenseProofsService, CreateExpenseProofDto, ListExpenseProofsQuery, type RespuestaPorAprobar, type RespuestaDelDia, type ProofFile, type ResultadoBusquedaGastos, type RespuestaEsperanKepler } from './expense-proofs.service';
 // `[GX.49]` La forma de la solicitud que devuelve el lookup exacto.
 import type { SolicitudKepler } from './expense-proofs.service';
 // `[GX.41]` El vale que Kepler asigna por la caja «Solicita»: la forma vive en el contrato.
@@ -109,13 +109,13 @@ export class ExpenseProofsController {
   @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR, Permission.FINANCE_EXPENSES_HISTORIAL_TODOS)
   @ApiOperation({ summary: 'Lo que capturó ESTE usuario. Ruta propia: abrir la bandeja completa a quien sólo captura le daría los comprobantes de toda la empresa.' })
   async mine(@Query('limit') limit?: string, @Query('search') search?: string, @Query('dia') dia?: string, @Req() req?: AuthedRequest):
-    Promise<Awaited<ReturnType<ExpenseProofsService['list']>> & { asignados: ValeAsignado[] }> {
+    Promise<Awaited<ReturnType<ExpenseProofsService['list']>> & { asignados: ValeAsignado[]; asignados_truncados: boolean }> {
     const actor = req?.user?.full_name || req?.user?.username || '';
     // Sin actor NO se cae a sin-filtro: eso devolveria la bandeja completa de la
     // empresa a quien solo captura. Se devuelve vacio.
     // `[GX.39]` `etapas_de_la_pagina` vacio, no con ceros por etapa: cero vales no es
     // «cero por ejercer», es que no hay nada que contar.
-    if (!actor) return { kpis: { total: 0, recibidas: 0, validadas: 0, rechazadas: 0, en_revision: 0 }, etapas_de_la_pagina: {}, abiertos_truncados: false, rows: [], asignados: [] };
+    if (!actor) return { kpis: { total: 0, recibidas: 0, validadas: 0, rechazadas: 0, en_revision: 0 }, etapas_de_la_pagina: {}, abiertos_truncados: false, cerrados_truncados: false, rows: [], asignados: [], asignados_truncados: false };
     // [GX.25] `search` para que el historial propio tambien se pueda buscar. NO hay filtro
     // de fecha a proposito: el historial es de TODAS las fechas (pedido del usuario), a
     // diferencia del buscador de folios, que solo muestra las solicitudes de hoy.
@@ -127,9 +127,10 @@ export class ExpenseProofsController {
      */
     const [propio, asignados] = await Promise.all([
       this.svc.list({ mine: actor, search, dia, limit: limit ? Number(limit) : undefined }),
-      this.svc.valesAsignados(req?.user?.username),
+      // `[GX.95]` La búsqueda también filtra lo asignado, y el corte del tope viaja declarado.
+      this.svc.valesAsignados(req?.user?.username, 50, search),
     ]);
-    return { ...propio, asignados };
+    return { ...propio, asignados: asignados.vales, asignados_truncados: asignados.truncado };
   }
 
   @Get('resumen')
@@ -158,6 +159,13 @@ export class ExpenseProofsController {
   @ApiOperation({ summary: '[GX.88] Busca en todos los vales (folio, proveedor, quién lo levantó, quién lo cerró, quién lo pidió en Kepler) y en las solicitudes de Kepler sin vale desde que se usa la Suite. Sólo quien aprueba.' })
   buscar(@Query('q') q?: string, @Query('limit') limit?: string): Promise<ResultadoBusquedaGastos> {
     return this.svc.buscarGastos(q ?? '', limit ? Number(limit) : undefined);
+  }
+
+  @Get('esperan-kepler')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
+  @ApiOperation({ summary: '[GX.96] Los vales revisados que esperan a Kepler (autorizar la solicitud o generar el gasto), con los días de espera, y los hallazgos: solicitudes canceladas después de generar su gasto. Sólo quien aprueba.' })
+  esperanKepler(@Query('limit') limit?: string): Promise<RespuestaEsperanKepler> {
+    return this.svc.esperanKepler(limit ? Number(limit) : undefined);
   }
 
   @Get('del-dia')
