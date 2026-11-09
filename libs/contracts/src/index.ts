@@ -74,6 +74,8 @@ export * from './http/supplier-credits.contract';
 export * from './http/purchase-delivery.contract';
 // [TP.16] Calendario de Pagos: semana completa, «Ordenar y pagar» y cuentas de origen.
 export * from './http/payment-calendar.contract';
+// [PGP.97] la guía «pagado en el banco, falta en Kepler».
+export * from './http/fuera-de-programa.contract';
 // [OR.4] Trabajo: el vocabulario común de una tarea asignada. El reparto se construyó CUATRO veces
 // (recon_tasks, supervisor_tasks, inventory_count_assignments, daily_assignments) y ninguna subió a
 // libs/. Esto NO crea una quinta tabla: declara el mapeo de las cuatro a un solo vocabulario, y
@@ -204,6 +206,8 @@ export * from './finance/ver-expediente.contract';
 export * from './finance/coincidencia-pago.contract';
 // [PGP.94] El cierre de un pago del Calendario contra lo que Kepler hizo.
 export * from './finance/cierre-kepler.contract';
+// [PGP.97] Lo que salió del banco a un proveedor, contra Kepler y contra el programa de pagos.
+export * from './finance/salida-proveedor.contract';
 // `[GX.79]` el tope de un archivo de evidencia de gasto (20 MB): pantalla, API y proxy.
 export * from './finance/archivo-gasto.contract';
 // `[GX.86]` las rondas de revision de gastos (se informan, no bloquean el alta).

@@ -15,6 +15,12 @@
 - El pedido sugerido sigue sin proponer lo que no hay, también sin conexión, y dice qué dejó fuera.
 - ⚠️ Migración `20261107175004_dn6_order_stock_notices` en prod **antes de soltar**, fuera de horario; el servidor antes que la app. Sin permisos nuevos.
 
+### Added — Pagos › Salidas del banco: lo que salió a proveedores, contra Kepler y el programa (PGP.97, 2026-11-08 · en código, sin soltar)
+- Pestaña nueva en «Pagos»: cada transferencia a proveedor del workbook de bancos, con su pago en Kepler (o «Falta», a más de 7 días) y si pasó por el Calendario. Propone a quién se le pagó y qué facturas salda, con su nivel de evidencia.
+- La meta «100 % por el programa», por dinero, desde Kepler: banco y caja por separado.
+- Sólo lectura: sin tablas nuevas ni migración. Lo que no se pudo medir (días sin estado de cuenta, cuentas sin cargar) se dice.
+### Fixed — Bancos: un workbook sin año en el nombre ya no cae en el periodo equivocado (PGP.97.1, 2026-11-08 · en código, sin soltar)
+- «11 NOVIEMBRE.xlsx» se iba al periodo seleccionado y la siguiente subida lo borraba. Ahora el mes del nombre manda; el año es el actual (o el anterior si ese mes todavía no llega).
 ### Changed — Caducidades: el selector ofrece sólo las unidades del producto (P2.9 paso 3, 2026-11-07)
 - Al elegir un producto, los botones de unidad muestran **sólo las que el producto tiene en Kepler** (base, unidades alternas y escalera de mayoreo, de la sucursal donde se captura), con **«Otra unidad»** para abrir las 7. La unidad sugerida es la **base del producto**, no «pieza».
 - Si Kepler no publica las unidades del producto, se ofrecen las 7 y se dice; ya no queda marcada la unidad del producto anterior. «La unidad» pasa a ser obligatoria para guardar.
