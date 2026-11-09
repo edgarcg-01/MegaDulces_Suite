@@ -5,7 +5,7 @@ import type {
   HrAccionIncidencia, HrAjusteHorasExtraBody, HrAjusteHorasExtraDto, HrAsistenciaResponse, HrBancoHorasExtraDto, HrCapturaIncidenciaBody, HrCierreDto, HrEstadoDia, HrEstadoIncidencia, HrSinIdentificarDto,
   HrHorarioPersonaBody, HrIncidenciaDto, HrLotePendienteDto, HrOrdenesResponse, HrPasoIncidenciaDto, HrPersonaDirectorioDto, HrRelojBody,
   HrRelojDto, HrRelojEstadoDto, HrSemaforoReloj, HrSiteDto, HrTipoIncidenciaDto,
-  HrAltaPersonaBody, HrLigarBody, HrLigarResultadoDto, HrPersonaBuscadaDto, HrSinPersonaResponse,
+  HrAltaPersonaBody, HrFichaPlazaBody, HrFichaPlazaDto, HrLigarBody, HrLigarResultadoDto, HrPersonaBuscadaDto, HrSinPersonaResponse,
 } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
 
@@ -147,6 +147,11 @@ export class RhService {
 
   altaDesdeReloj(enrollmentId: string, b: HrAltaPersonaBody): Observable<HrLigarResultadoDto> {
     return this.http.post<HrLigarResultadoDto>(`${this.base}/enrollments/${encodeURIComponent(enrollmentId)}/register`, b);
+  }
+
+  /** `[RH.7.1]` Corregir la ficha de una persona en una plaza (sección, promotora y, sin acceso, nombre). */
+  editarFicha(b: HrFichaPlazaBody): Observable<HrFichaPlazaDto> {
+    return this.http.put<HrFichaPlazaDto>(`${this.base}/enrollments/site-profile`, b);
   }
 
   /** Sólo manda los parámetros con valor. */

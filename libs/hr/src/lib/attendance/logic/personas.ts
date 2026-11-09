@@ -131,6 +131,33 @@ export function validarAlta(b: { nombre?: unknown; seccion?: unknown }): { nombr
   return { nombre, seccion };
 }
 
+/**
+ * `[RH.7.1]` Lo que RH corrige de la ficha de una persona en una plaza: nombre, sección, promotora. Lo que no viene no
+ * cambia; lo que viene se valida con las MISMAS reglas del alta (sin sección o sin nombre completo no entra al cierre).
+ */
+export function validarFicha(b: { nombre?: unknown; seccion?: unknown; promotora?: unknown }):
+  { nombre?: string; seccion?: string; promotora?: boolean } | { error: string } {
+  const out: { nombre?: string; seccion?: string; promotora?: boolean } = {};
+  if (b?.nombre !== undefined) {
+    const nombre = String(b.nombre ?? '').replace(/\s+/g, ' ').trim();
+    if (palabras(normalizarNombre(nombre)) < 2) return { error: 'Escribe el nombre completo (nombre y apellido).' };
+    if (nombre.length > 120) return { error: 'El nombre es demasiado largo.' };
+    out.nombre = nombre;
+  }
+  if (b?.seccion !== undefined) {
+    const seccion = seccionDe(b.seccion);
+    if (!seccion) return { error: 'Elige la sección del reporte de RH (sin ella no puede entrar al cierre semanal).' };
+    if (seccion.length > 80) return { error: 'La sección es demasiado larga.' };
+    out.seccion = seccion;
+  }
+  if (b?.promotora !== undefined) {
+    if (typeof b.promotora !== 'boolean') return { error: 'Promotora es sí o no.' };
+    out.promotora = b.promotora;
+  }
+  if (!Object.keys(out).length) return { error: 'No hay nada que cambiar.' };
+  return out;
+}
+
 /** `[RH.1.12]` Username de una persona dada de alta desde la bandeja: plaza + código, con prefijo propio. */
 export function usernameAlta(sitio: string, codigo: string): string {
   const limpio = (s: string) => String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');

@@ -144,6 +144,36 @@ suite('[RH.1.12] ligar códigos de reloj a personas, contra la base', () => {
         // ── De punta a punta: el padrón de asistencia ya la conoce, con su sección ────────────────────────────
         const p = await reader.padron(trx, SITIO);
         r['padron'] = [p.fichas.get('9')?.nombre, p.fichas.get('9')?.departamento, p.fichas.get('9')?.activo, p.fichas.get('7')?.userId === ANA];
+
+        // ── [RH.7.1] La ficha en la plaza: sección, promotora y (sin acceso) nombre ───────────────────────────
+        // Ana (código 7) se ligó sin ficha: no tiene sección → el cierre la contaría «sin departamento».
+        r['fichaSinNada'] = await fallo(() => svc.editarFicha({ site_code: SITIO, person_code: '7' }));
+        r['fichaSeccionVacia'] = await fallo(() => svc.editarFicha({ site_code: SITIO, person_code: '7', seccion: '  ' }));
+        r['fichaNoExiste'] = await fallo(() => svc.editarFicha({ site_code: SITIO, person_code: '404', seccion: 'Cajas' }));
+        const f1 = await svc.editarFicha({ site_code: SITIO, person_code: '7', seccion: ' almacén  general ', promotora: true });
+        r['f1'] = [f1.seccion, f1.promotora, f1.nombre];
+        r['f1Fila'] = await trx('hr.person_site_profiles').where({ tenant_id: TENANT, site_code: SITIO, person_code: '7' })
+          .first('report_section', 'is_promoter', 'is_active', 'source', 'updated_by');
+        // Sólo la promotora: la sección se queda como estaba.
+        await svc.editarFicha({ site_code: SITIO, person_code: '7', promotora: false });
+        r['f2'] = (await trx('hr.person_site_profiles').where({ tenant_id: TENANT, site_code: SITIO, person_code: '7' }).first('report_section', 'is_promoter'));
+        // Nombre: Ana es `sin_acceso` → se corrige. Una cuenta CON acceso → no (la administra Sistemas).
+        await svc.editarFicha({ site_code: SITIO, person_code: '7', nombre: '  Ana   López Ruiz Corregida ' });
+        r['nombreAna'] = (await trx('identity.users').where({ id: ANA }).first('nombre')).nombre;
+        r['nombreCorto'] = await fallo(() => svc.editarFicha({ site_code: SITIO, person_code: '7', nombre: 'Ana' }));
+        await trx('identity.users').where({ id: ANA }).update({ role_name: 'superadmin' });
+        r['nombreConAcceso'] = await fallo(() => svc.editarFicha({ site_code: SITIO, person_code: '7', nombre: 'Otro Nombre Distinto' }));
+        r['nombreIntacto'] = (await trx('identity.users').where({ id: ANA }).first('nombre')).nombre;
+        await trx('identity.users').where({ id: ANA }).update({ role_name: 'sin_acceso' });
+        // Mismo `created_at` dentro de la transacción: se busca el asiento por su contenido, no por su orden.
+        const ev = await trx('identity.user_events').where({ user_id: ANA, event: 'ficha_plaza_editada' }).select('detalle', 'actor_user_id');
+        const det = (x: { detalle: unknown }) => (typeof x.detalle === 'string' ? JSON.parse(x.detalle) : x.detalle) as Record<string, Record<string, unknown>>;
+        r['evFicha'] = [ev.length, ev.some((x) => det(x)['antes']?.['seccion'] === null && det(x)['despues']?.['seccion'] === 'ALMACÉN GENERAL'),
+          ev.every((x) => x.actor_user_id === ACTOR)];
+        r['actor'] = ACTOR;
+        // De punta a punta: el padrón de asistencia ya la agrupa en su sección corregida.
+        const p2 = await reader.padron(trx, SITIO);
+        r['padron2'] = [p2.fichas.get('7')?.nombre, p2.fichas.get('7')?.departamento];
         throw ROLLBACK;
       }));
     } catch (e) {
@@ -178,5 +208,18 @@ suite('[RH.1.12] ligar códigos de reloj a personas, contra la base', () => {
     expect(r['altaRepetida']).toBe('ConflictException');
     expect(r['personaInexistente']).toBe('BadRequestException');
     expect(r['padron']).toEqual(['Carla Prueba Vega', 'CAJAS PISO', true, true]);
+    // [RH.7.1]
+    expect(r['fichaSinNada']).toBe('BadRequestException');
+    expect(r['fichaSeccionVacia']).toBe('BadRequestException');
+    expect(r['fichaNoExiste']).toBe('NotFoundException');
+    expect(r['f1']).toEqual(['ALMACÉN GENERAL', true, 'Ana López Ruiz Prueba']);
+    expect(r['f1Fila']).toEqual({ report_section: 'ALMACÉN GENERAL', is_promoter: true, is_active: true, source: 'suite', updated_by: r['actor'] });
+    expect(r['f2']).toEqual({ report_section: 'ALMACÉN GENERAL', is_promoter: false });
+    expect(r['nombreAna']).toBe('Ana López Ruiz Corregida');
+    expect(r['nombreCorto']).toBe('BadRequestException');
+    expect(r['nombreConAcceso']).toBe('ConflictException');
+    expect(r['nombreIntacto']).toBe('Ana López Ruiz Corregida');
+    expect(r['evFicha']).toEqual([3, true, true]);
+    expect(r['padron2']).toEqual(['Ana López Ruiz Corregida', 'ALMACÉN GENERAL']);
   }, 120_000);
 });

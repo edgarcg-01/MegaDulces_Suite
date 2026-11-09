@@ -1,8 +1,8 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Permission, RequireAnyPermission, RequirePermissions, RolesGuard } from '@megadulces/platform-core';
 import type {
-  HrAltaPersonaBody, HrDesligarBody, HrLigarBody, HrLigarResultadoDto, HrPersonaBuscadaDto, HrSinPersonaResponse,
+  HrAltaPersonaBody, HrDesligarBody, HrFichaPlazaBody, HrFichaPlazaDto, HrLigarBody, HrLigarResultadoDto, HrPersonaBuscadaDto, HrSinPersonaResponse,
 } from '@megadulces/contracts';
 import { HrAttendanceEnrollmentsService } from './attendance-enrollments.service';
 
@@ -44,6 +44,13 @@ export class HrAttendanceEnrollmentsController {
   @ApiOperation({ summary: 'RH — desligar el código de su persona (con motivo).' })
   desligar(@Param('id') id: string, @Body() b: HrDesligarBody): Promise<{ enrolamientos: number }> {
     return this.enrollments.desligar(id, b?.motivo);
+  }
+
+  @Put('site-profile')
+  @RequirePermissions(Permission.HR_DEVICES_GESTIONAR)
+  @ApiOperation({ summary: 'RH — corregir la ficha de una persona en una plaza: sección del reporte, promotora y (sin acceso) nombre.' })
+  editarFicha(@Body() b: HrFichaPlazaBody): Promise<HrFichaPlazaDto> {
+    return this.enrollments.editarFicha(b);
   }
 
   @Post(':id/register')

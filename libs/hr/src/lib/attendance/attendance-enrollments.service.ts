@@ -2,10 +2,11 @@ import { BadRequestException, ConflictException, Injectable, Logger, NotFoundExc
 import type { Knex } from 'knex';
 import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import type {
-  HrAltaPersonaBody, HrLigarBody, HrLigarResultadoDto, HrPersonaBuscadaDto, HrSinPersonaDto, HrSinPersonaResponse,
+  HrAltaPersonaBody, HrFichaPlazaBody, HrFichaPlazaDto, HrLigarBody, HrLigarResultadoDto, HrPersonaBuscadaDto, HrSinPersonaDto,
+  HrSinPersonaResponse,
 } from '@megadulces/contracts';
 import { esRelojDesconocido } from './logic/relojes';
-import { candidatosPara, normalizarNombre, usernameAlta, validarAlta, type CuentaPersona } from './logic/personas';
+import { candidatosPara, normalizarNombre, usernameAlta, validarAlta, validarFicha, type CuentaPersona } from './logic/personas';
 
 /**
  * Fase RH · `[RH.1.12]` — LIGAR un código de reloj a su persona, desde la Suite.
@@ -233,6 +234,71 @@ export class HrAttendanceEnrollmentsService {
     });
   }
 
+  /**
+   * `[RH.7.1]` Corrige la ficha de una persona EN UNA PLAZA: sección del reporte, promotora y —sólo si no tiene acceso a
+   * la Suite— su nombre completo. Sin esto, después del corte, quien entró sin sección frena el cierre de cada semana
+   * (`[RH.1.6b]`) y RH sólo podría forzarlo con motivo. Cada cambio deja su «antes y después» en `identity.user_events`.
+   *
+   * El nombre de una cuenta CON acceso no se toca aquí: es una cuenta de la Suite y la administra Sistemas en
+   * `/admin/personas`. Lo que RH da de alta (y lo que trajo la carga) tiene el rol `sin_acceso`.
+   */
+  async editarFicha(b: HrFichaPlazaBody): Promise<HrFichaPlazaDto> {
+    const site = String(b?.site_code ?? '').trim();
+    const codigo = String(b?.person_code ?? '').trim();
+    if (!site || !codigo) throw new BadRequestException('Faltan la plaza y el código.');
+    const v = validarFicha(b ?? {});
+    if ('error' in v) throw new BadRequestException(v.error);
+    return this.run(async (trx, tenant) => {
+      // La persona ligada a ese código en la plaza (bloqueada: dos de RH a la vez no se pisan).
+      // Sin DISTINCT: Postgres no lo deja junto con FOR UPDATE. El mismo dueño sale una vez por reloj; se junta aquí.
+      const filasDueno: Array<{ id: string; nombre: string | null; role_name: string }> = (await trx.raw(`
+        SELECT u.id, u.nombre, u.role_name
+          FROM hr.device_enrollments x
+          JOIN hr.attendance_devices d ON d.tenant_id = x.tenant_id AND d.id = x.device_id
+          JOIN identity.users u ON u.tenant_id = x.tenant_id AND u.id = x.user_id
+         WHERE x.tenant_id = ? AND d.site_code = ? AND COALESCE(x.person_code, x.device_user_id) = ? AND x.user_id IS NOT NULL
+           FOR UPDATE OF u`, [tenant, site, codigo])).rows;
+      const duenos = [...new Map(filasDueno.map((f) => [f.id, f])).values()];
+      if (duenos.length > 1) {
+        throw new ConflictException(`El código ${codigo} de esta plaza está ligado a ${duenos.length} personas: desliga al que no es en Relojes antes de editar.`);
+      }
+      const dueno = duenos[0] ?? null;
+      const antes = await trx('hr.person_site_profiles').where({ tenant_id: tenant, site_code: site, person_code: codigo })
+        .forUpdate().first('report_section', 'is_promoter', 'is_active');
+      if (!antes && !dueno) throw new NotFoundException('Ese código no tiene ficha ni persona en esta plaza.');
+      if (v.nombre !== undefined) {
+        if (!dueno) throw new ConflictException('Ese código no está ligado a nadie: ligalo o dalo de alta en Relojes, y ahí va su nombre.');
+        if (dueno.role_name !== ROL_SIN_ACCESO) {
+          throw new ConflictException(`${dueno.nombre ?? 'Esta persona'} tiene acceso a la Suite: su nombre lo corrige Sistemas en Administración › Personas.`);
+        }
+      }
+      const q = this.quien();
+      const ficha = {
+        report_section: v.seccion ?? antes?.report_section ?? null,
+        is_promoter: v.promotora ?? antes?.is_promoter ?? false,
+      };
+      await trx('hr.person_site_profiles').insert({
+        tenant_id: tenant, site_code: site, person_code: codigo, ...ficha, is_active: antes?.is_active ?? true,
+        source: 'suite', updated_by: q.id,
+      }).onConflict(['tenant_id', 'site_code', 'person_code'])
+        .merge({ ...ficha, updated_by: q.id, updated_at: trx.fn.now() });
+      if (v.nombre !== undefined && dueno && v.nombre !== dueno.nombre) {
+        await trx('identity.users').where({ tenant_id: tenant, id: dueno.id }).update({ nombre: v.nombre, updated_at: trx.fn.now() });
+      }
+      if (dueno) {
+        await this.asentar(trx, tenant, dueno.id, 'ficha_plaza_editada', {
+          site_code: site, codigo,
+          antes: { nombre: dueno.nombre, seccion: antes?.report_section ?? null, promotora: antes?.is_promoter ?? false },
+          despues: { nombre: v.nombre ?? dueno.nombre, seccion: ficha.report_section, promotora: ficha.is_promoter },
+        });
+      }
+      return {
+        site_code: site, person_code: codigo, seccion: ficha.report_section, promotora: ficha.is_promoter,
+        nombre: v.nombre ?? dueno?.nombre ?? null,
+      };
+    });
+  }
+
   async alta(id: string, b: HrAltaPersonaBody): Promise<HrLigarResultadoDto> {
     const v = validarAlta(b ?? {});
     if ('error' in v) throw new BadRequestException(v.error);
@@ -258,7 +324,9 @@ export class HrAttendanceEnrollmentsService {
       const userId = String(u.id ?? u);
       await trx('hr.person_site_profiles').insert({
         tenant_id: tenant, site_code: e.site_code, person_code: e.codigo, report_section: v.seccion,
-        is_promoter: b.promotora === true, is_active: true, updated_by: q.id,
+        // `source` 'suite': sin él la columna toma su valor por omisión, 'mega_talento', y una ficha hecha aquí diría que
+        // vino de la carga (`[RH.7.1]`). En el choque no se toca: la de la carga sigue diciendo de dónde vino.
+        is_promoter: b.promotora === true, is_active: true, source: 'suite', updated_by: q.id,
       }).onConflict(['tenant_id', 'site_code', 'person_code']).merge(['report_section', 'is_promoter', 'is_active', 'updated_by', 'updated_at']);
       const n = await this.aplicarLiga(trx, tenant, e, userId, [], 'dado de alta por RH desde el reloj');
       await this.asentar(trx, tenant, userId, 'alta_desde_reloj', { site_code: e.site_code, codigo: e.codigo, seccion: v.seccion, promotora: b.promotora === true, enrolamientos: n });

@@ -50,6 +50,7 @@ describe('[RH.1.7c] RhAsistenciaComponent — Checadas', () => {
       asistencia: vi.fn((q: { site_code: string }) => of(o.porSitio?.[q.site_code] ?? datos)),
       asignarHorario: vi.fn(() => of({ ok: true, guardados: 1 })),
       quitarHorario: vi.fn(() => of({ ok: true, quitados: 1 })),
+      editarFicha: vi.fn(() => of({ site_code: 'PH', person_code: '104', seccion: 'ALMACEN', promotora: false, nombre: null })),
       estadoRelojes: vi.fn(() => (relojes === 'error' ? throwError(() => new Error('403')) : of(relojes))),
       bancoHorasExtra: vi.fn(() => of({ personas: [] })),
       incidencias: vi.fn(() => of([{ id: 'a' }, { id: 'b' }])),
@@ -217,6 +218,28 @@ describe('[RH.1.7c] RhAsistenciaComponent — Checadas', () => {
     expect(c.form()?.turnos.length).toBe(4);
     c.quitarTurno(0);
     expect(c.form()?.turnos.length).toBe(3);
+  });
+
+  it('[RH.7.1] la ficha en la plaza: manda SÓLO lo que cambió; sin cambios no llama; sin la clave no hay «Editar»', async () => {
+    await render({ claves: [Permission.HR_ATTENDANCE_VER, Permission.HR_DEVICES_GESTIONAR] });
+    const c = fix.componentInstance;
+    const p = c.todas()[0];
+    c.abrir(p);
+    c.abrirFicha(p);
+    expect(c.fichaForm()).toMatchObject({ codigo: '104', nombre: 'Prueba Uno Ejemplo', seccion: 'SISTEMAS', promotora: false });
+    c.guardarFicha(p);
+    expect(api['editarFicha']).not.toHaveBeenCalled();
+    const f = c.fichaForm();
+    if (!f) throw new Error('sin formulario');
+    f.seccion = 'almacen';
+    c.guardarFicha(p);
+    expect(api['editarFicha']).toHaveBeenLastCalledWith({ site_code: 'PH', person_code: '104', seccion: 'almacen' });
+    expect(c.fichaForm()).toBeNull();
+  });
+
+  it('[RH.7.1] ⛔ sin HR_DEVICES_GESTIONAR no se ofrece editar la ficha', async () => {
+    await render({ claves: [Permission.HR_ATTENDANCE_VER, Permission.HR_ATTENDANCE_GESTIONAR] });
+    expect(fix.componentInstance.puedeEditarFicha()).toBe(false);
   });
 
   it('[RH.6.4] el reporte trae HE usó y HE saldo; sin saldo leído dice «—», no un cero', async () => {

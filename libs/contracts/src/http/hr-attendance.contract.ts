@@ -588,6 +588,27 @@ export interface HrAltaPersonaBody {
   promotora?: boolean;
 }
 
+/**
+ * `[RH.7.1]` `PUT /hr/attendance/enrollments/site-profile` — corregir la ficha de una persona EN UNA PLAZA: su sección del
+ * reporte de RH, si es promotora y (sólo si no tiene acceso a la Suite) su nombre completo. Lo que no viene, no cambia.
+ */
+export interface HrFichaPlazaBody {
+  site_code: string;
+  person_code: string;
+  nombre?: string;
+  seccion?: string;
+  promotora?: boolean;
+}
+
+export interface HrFichaPlazaDto {
+  site_code: string;
+  person_code: string;
+  seccion: string | null;
+  promotora: boolean;
+  /** El nombre de la persona ligada (null si el código no tiene persona). */
+  nombre: string | null;
+}
+
 export interface HrLigarResultadoDto {
   user_id: string;
   nombre: string;

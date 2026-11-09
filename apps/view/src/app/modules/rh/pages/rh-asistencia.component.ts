@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
+import { SelectModule } from 'primeng/select';
 import { Popover, PopoverModule } from 'primeng/popover';
 import { filtrarPorBusqueda } from '@megadulces/ui-web';
 import type { HrPersonaAsistencia } from '@megadulces/contracts';
@@ -18,7 +19,7 @@ import { RhAsistenciaEstado } from '../rh-asistencia.estado';
 import { RhService, fechaCorta, rhError, sumarDias } from '../rh.service';
 import {
   type Irregularidad, columnasDelRango, cuentaIrregular, departamentoDe, diaLargo, difHorario, etiquetaParcial, firmaHoras,
-  hora12, horarioDe, horasTexto, irregularidadesDe, porDepartamento,
+  hora12, horarioDe, horasTexto, irregularidadesDe, porDepartamento, SIN_DEPARTAMENTO,
 } from '../reporte-formato';
 import { type ContextoExport, exportarExcel, exportarPdfPersona, exportarPdfPlaza } from '../rh-exportar';
 
@@ -26,6 +27,8 @@ interface TurnoForm { entrada: string; salida: string; comida: number; }
 /** `[RH.6.3]` Hasta 4 horarios (mañana, tarde…): cada día se mide contra el más cercano a su entrada. El sábado es uno. */
 interface FormHorario { turnos: TurnoForm[]; sabado: boolean; sabadoEntrada: string; sabadoSalida: string; }
 const MAX_HORARIOS = 4;
+/** `[RH.7.1]` La ficha de la persona en la plaza, mientras RH la edita. */
+interface FormFicha { codigo: string; nombre: string; seccion: string; promotora: boolean; }
 
 /**
  * Fase RH · `[RH.1.7c]` — Checadas (`/rh/asistencia`): el reporte semanal «calcado» de Mega Talento. Una fila por
@@ -37,7 +40,7 @@ const MAX_HORARIOS = 4;
   selector: 'app-rh-asistencia',
   standalone: true,
   imports: [
-    NgTemplateOutlet, FormsModule, ButtonModule, InputTextModule, PopoverModule, LoadStateComponent, SidePeekComponent,
+    NgTemplateOutlet, FormsModule, ButtonModule, InputTextModule, SelectModule, PopoverModule, LoadStateComponent, SidePeekComponent,
     RhMarcoComponent, RhReporteSemanalComponent, RhPersonaDiasComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -159,6 +162,34 @@ const MAX_HORARIOS = 4;
             @if (form() && destino()?.codigo === p.codigo) {
               <ng-container *ngTemplateOutlet="formHorario; context: { $implicit: p }" />
             }
+
+            <!-- [RH.7.1] Su ficha en esta plaza: lo que agrupa el reporte y lo que exige el cierre semanal. -->
+            @if (p.registrado) {
+              <div class="ra-tira">
+                <p>En esta plaza: sección <b [class.ra-falta]="depto(p) === sinDepartamento">{{ depto(p) === sinDepartamento ? 'sin sección' : depto(p) }}</b>
+                  {{ est.soloPromotoras() ? '· promotora' : '· personal de planta' }}.
+                  @if (depto(p) === sinDepartamento) { Sin sección no entra al cierre semanal. }</p>
+                @if (puedeEditarFicha()) { <p-button label="Editar" severity="secondary" [outlined]="true" size="small" (onClick)="abrirFicha(p)" /> }
+              </div>
+              @if (fichaForm(); as ff) {
+                @if (ff.codigo === p.codigo) {
+                  <form class="ra-form" (ngSubmit)="guardarFicha(p)" aria-label="Editar la ficha en esta plaza">
+                    <label>Nombre completo <input pInputText name="fnom" [(ngModel)]="ff.nombre" required /></label>
+                    <label>Sección del reporte
+                      <p-select [options]="seccionesConocidas()" [editable]="true" name="fsec" [(ngModel)]="ff.seccion" appendTo="body"
+                                placeholder="Elige o escribe" ariaLabel="Sección del reporte de RH" />
+                    </label>
+                    <label class="ra-check"><input type="checkbox" name="fpro" [(ngModel)]="ff.promotora" /> Es promotora de marca</label>
+                    <p class="ra-form-nota">El nombre sólo se corrige aquí si la persona no tiene acceso a la Suite; si lo tiene, lo corrige
+                      Sistemas en Administración › Personas.</p>
+                    <div class="ra-form-btns">
+                      <p-button type="submit" label="Guardar" [loading]="guardando()" />
+                      <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="fichaForm.set(null)" />
+                    </div>
+                  </form>
+                }
+              }
+            }
             @if (aviso(); as a) { <p class="ra-banner" [class.bad]="a.mal" role="status">{{ a.texto }}</p> }
 
             <app-rh-persona-dias [persona]="p" [columnas]="columnas()" [hoy]="est.hoy()" [mideRetardo]="mide()" />
@@ -269,6 +300,7 @@ const MAX_HORARIOS = 4;
     .ra-tira { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-md); background: var(--surface-2);
       font-size: var(--fs-sm); color: var(--text-main); }
     .ra-tira p { margin: 0; flex: 1 1 28ch; }
+    .ra-falta { color: var(--bad-fg); }
     .ra-acciones { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
     .ra-form { display: flex; flex-wrap: wrap; gap: var(--sp-3); align-items: flex-end; padding: var(--sp-3); margin: 0 var(--sp-3) var(--sp-2); border: 1px solid var(--border-color);
       border-radius: var(--r-md); background: var(--surface-2); }
@@ -313,6 +345,13 @@ export class RhAsistenciaComponent {
   readonly aviso = signal<{ texto: string; mal: boolean } | null>(null);
 
   readonly puedeGestionar = computed(() => this.perms.has(Permission.HR_ATTENDANCE_GESTIONAR));
+  /** `[RH.7.1]` La misma clave que da de alta y liga personas (`HR_DEVICES_GESTIONAR`, ya repartida a RH). */
+  readonly puedeEditarFicha = computed(() => this.perms.has(Permission.HR_DEVICES_GESTIONAR));
+  readonly sinDepartamento = SIN_DEPARTAMENTO;
+  readonly fichaForm = signal<FormFicha | null>(null);
+  /** Las secciones que ya existen en la plaza: se elige una antes que escribir otra variante de la misma. */
+  readonly seccionesConocidas = computed(() =>
+    [...new Set(this.todas().map((x) => departamentoDe(x)).filter((d) => d !== SIN_DEPARTAMENTO))].sort((a, b) => a.localeCompare(b, 'es')));
   readonly puedeCapturar = computed(() => this.perms.has(Permission.HR_INCIDENTS_CAPTURAR));
   readonly mide = computed(() => this.est.datos()?.mideRetardo ?? true);
 
@@ -394,8 +433,8 @@ export class RhAsistenciaComponent {
     return p.semanas.reduce((t, s) => t + s.dias.filter((d) => d.estado === 'falta' && d.fecha < hoy).length, 0);
   }
 
-  abrir(p: HrPersonaAsistencia): void { this.sel.set(p); this.form.set(null); this.aviso.set(null); }
-  cerrar(): void { this.sel.set(null); this.form.set(null); this.aviso.set(null); }
+  abrir(p: HrPersonaAsistencia): void { this.sel.set(p); this.form.set(null); this.fichaForm.set(null); this.aviso.set(null); }
+  cerrar(): void { this.sel.set(null); this.form.set(null); this.fichaForm.set(null); this.aviso.set(null); }
   cambioFicha(abierta: boolean): void { if (!abierta) this.cerrar(); }
   soloEsta(p: HrPersonaAsistencia): void { this.cerrar(); this.est.unica.set(p.codigo); }
 
@@ -456,6 +495,44 @@ export class RhAsistenciaComponent {
         this.est.asegurar(true);
       },
       error: (e) => { this.guardando.set(false); this.aviso.set({ texto: rhError(e, 'No se pudo guardar el horario.'), mal: true }); },
+    });
+  }
+
+  abrirFicha(p: HrPersonaAsistencia): void {
+    this.aviso.set(null);
+    this.form.set(null);
+    const d = departamentoDe(p);
+    this.fichaForm.set({
+      codigo: p.codigo, nombre: p.nombreCompleto || p.nombre, seccion: d === SIN_DEPARTAMENTO ? '' : d,
+      promotora: this.est.soloPromotoras(),
+    });
+  }
+
+  /** Manda sólo lo que cambió: el servidor no toca lo que no viene (y el nombre de una cuenta con acceso, nunca). */
+  guardarFicha(p: HrPersonaAsistencia): void {
+    const f = this.fichaForm();
+    const site = this.est.sitio();
+    if (!f || !site) return;
+    const antes = departamentoDe(p);
+    const cambios: { nombre?: string; seccion?: string; promotora?: boolean } = {};
+    if (f.nombre.trim() !== (p.nombreCompleto || p.nombre)) cambios.nombre = f.nombre;
+    if (f.seccion.trim().toUpperCase() !== (antes === SIN_DEPARTAMENTO ? '' : antes)) cambios.seccion = f.seccion;
+    if (f.promotora !== this.est.soloPromotoras()) cambios.promotora = f.promotora;
+    if (!Object.keys(cambios).length) { this.aviso.set({ texto: 'No cambiaste nada.', mal: false }); return; }
+    this.guardando.set(true);
+    this.api.editarFicha({ site_code: site, person_code: p.codigo, ...cambios }).subscribe({
+      next: () => {
+        this.guardando.set(false);
+        this.fichaForm.set(null);
+        this.aviso.set({
+          texto: cambios.promotora !== undefined
+            ? `Guardado. Ahora sale en ${cambios.promotora ? 'Promotoras' : 'Planta'}: cambia el filtro de arriba para verla.`
+            : 'Guardado. El reporte ya la agrupa así.',
+          mal: false,
+        });
+        this.est.asegurar(true);
+      },
+      error: (e) => { this.guardando.set(false); this.aviso.set({ texto: rhError(e, 'No se pudo guardar la ficha.'), mal: true }); },
     });
   }
 
