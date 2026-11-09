@@ -651,6 +651,13 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 
+## 2026-11-09 — `[CGA-A.72]` Ligar: el depósito ya capturado dice qué cobro es
+
+- **Qué se hizo.** Desde la ficha de un pendiente marcado «ya en el libro», un botón liga la captura existente con el documento de Kepler: escribe la llave y la cola deja de ofrecerlo. El servidor vuelve a decidir si coinciden; la pantalla sólo manda qué documento.
+- **Medido contra prod sin escribir** (transacción de sólo lectura): el par real pasa todas las revisiones; otra ruta con el mismo importe, otro depósito, una captura de Kepler y una llave mal formada se rechazan.
+- **Lección.** **`git commit-tree` no corre los hooks**: el commit parcial con índice temporal se salta el escaneo de secretos, y hay que correr `gitleaks` a mano sobre esos commits. Y **una transacción READ ONLY mide un endpoint que escribe sin escribir**, siempre que el candado de fila (`FOR UPDATE`) se apague sólo en el guion de medición.
+- **NO MEDIDO**: la prueba contra base real corre en el CI (aquí el `.env` apunta a prod); sin validación visual; arranque de la API. Sin empujar.
+
 ## 2026-11-09 — `[CGA-A.71]` La cola de Captura: 21 de 88 «pendientes» ya estaban en el libro
 
 - **Qué se hizo.** La cola ofrecía como pendientes cobros de camioneta que ya habían entrado al libro como depósitos de CAOS capturados sin declarar su documento, o con la llave de otro. Ahora cada uno se marca con la captura que ya lo trae, la ficha avisa y quedan fuera del lote y del «siguiente».

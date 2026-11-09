@@ -10226,6 +10226,17 @@ TP.6-TP.8+TP.10".
 >     «rd28 1/10» (errata de día) y la ruta vecinal de Morelia (capturada 5 días después). **Hallazgos sin tocar:**
 >     Kepler trae el cobro folio 6 del 8-oct ($16,482.23) en las camionetas 502 y 504; 40 pendientes de antes del
 >     12-oct ($657k: 21 de rutas de Canindo) no casan con Control. Sin empujar.
+> - [x] **[CGA-A.72]** 🧪 2026-11-09 · **«Ligar» en la ficha de la cola: el depósito de CAOS ya capturado declara el documento
+>   de Kepler que es.** `POST /finance/cash-ledger/:id/ligar-documento { origen_ref }` escribe `declared_doc_ref` y la
+>   cola, la campana y «Mi trabajo» dejan de ofrecerlo. La pantalla manda sólo la llave; el servidor relee el pendiente
+>   y el libro y decide con el mismo motor de `[CGA-A.71]` (sólo depósito por ruta o por importe, y sólo esa captura).
+>   No cambia importe, día, cuenta ni estado; funciona en corte firmado; queda en la bitácora. Medido contra prod en
+>   transacción READ ONLY: el par real `CI-2026-00011` ↔ ruta 21 llega al UPDATE; cuatro pares equivocados se
+>   rechazan (409/400). Commit `c61469816`.
+>   - ⚠️ **NO MEDIDO / pendiente:** la prueba contra base real (`test-newdb-caja-ligar-documento`, servicio real como
+>     `app_runtime`, en corte cerrado, con su control del candado) corre en `pruebas-db` del CI y **aquí no se corrió**;
+>     sin validación visual; arranque de la API no verificado. `otra_llave` / `otra_camioneta` no se ligan desde aquí.
+>     **De fondo, sin hacer:** que capturar desde CAOS obligue a declarar el documento. Sin empujar.
 > - **[CGA-A.57]** ⬜ **Ligar el historial con propuestas + confirmación** (decisión de Edgar). Octubre
 >   en adelante contra los gastos del libro; mayo–sep ($16.5 M, 326 retiros) contra los egresos de
 >   Kepler (cuenta `0011`), porque el libro empieza el 25-sep. Nada se liga solo (1 de cada 3 parejas
