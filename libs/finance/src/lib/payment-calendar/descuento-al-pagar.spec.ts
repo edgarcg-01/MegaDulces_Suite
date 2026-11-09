@@ -1,4 +1,4 @@
-import { assertDescuentoPermitido, descuentoSobreCubierto, normalizarDescuento, rotuloDescuento, round2 } from './descuento-al-pagar';
+import { assertDescuentoPermitido, descuentoSobreCubierto, descuentosSobreCubierto, lineasDeDescuento, normalizarDescuento, rotuloDescuento, rotuloDescuentos, round2 } from './descuento-al-pagar';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { sqlKeplerPayableId } from '@megadulces/contracts/finance/kepler-payable-key';
@@ -162,5 +162,63 @@ describe('[PGP.91] descuentoSobreCubierto — el descuento se fija sobre la fact
 
   it('⛔ sin importe cubierto no hay a qué descontarle', () => {
     expect(() => descuentoSobreCubierto(0, { discount_amount: 10, discount_reason: 'volumen' })).toThrow(/cubierto/);
+  });
+});
+
+describe('[PGP.101] varios descuentos sobre la misma factura', () => {
+  it('suma los renglones, ordena el mayor primero y deja el neto', () => {
+    const n = descuentosSobreCubierto(10000, [
+      { discount_amount: 200, discount_reason: 'volumen', discount_rate: 0.02 },
+      { discount_amount: 300, discount_reason: 'pronto_pago', discount_rate: 0.03 },
+    ]);
+    expect(n).toMatchObject({ applied_amount: 9500, discount_amount: 500, covered: 10000, discount_reason: 'pronto_pago', discount_rate: null, discount_note: null });
+    expect(n.lines.map((l) => l.reason)).toEqual(['pronto_pago', 'volumen']);
+  });
+  it('con un renglón conserva la tasa y la nota en las columnas de siempre', () => {
+    const n = descuentosSobreCubierto(1000, [{ discount_amount: 30, discount_reason: 'pronto_pago', discount_rate: 0.03 }]);
+    expect(n).toMatchObject({ discount_rate: 0.03, applied_amount: 970 });
+  });
+  it('[] quita el descuento', () => {
+    expect(descuentosSobreCubierto(1000, [])).toMatchObject({ applied_amount: 1000, discount_amount: 0, discount_reason: null, lines: [] });
+  });
+  it('cada % va sobre lo cubierto: uno en cascada que no cuadra se rechaza', () => {
+    // 2 % sobre lo ya descontado (9,700) son 194, no 200: se captura en pesos, no con tasa.
+    expect(() => descuentosSobreCubierto(10000, [
+      { discount_amount: 300, discount_reason: 'pronto_pago', discount_rate: 0.03 },
+      { discount_amount: 194, discount_reason: 'volumen', discount_rate: 0.02 },
+    ])).toThrow(/no cuadra/);
+  });
+  it('la suma no puede ser toda la factura', () => {
+    expect(() => descuentosSobreCubierto(1000, [
+      { discount_amount: 600, discount_reason: 'volumen' }, { discount_amount: 400, discount_reason: 'pronto_pago' },
+    ])).toThrow(/toda la factura/);
+  });
+  it('un renglón en cero, sin motivo o «Otro» sin detalle se rechaza', () => {
+    expect(() => descuentosSobreCubierto(1000, [{ discount_amount: 0, discount_reason: 'volumen' }])).toThrow(/cero/);
+    expect(() => descuentosSobreCubierto(1000, [{ discount_amount: 10 }])).toThrow(/motivo/);
+    expect(() => descuentosSobreCubierto(1000, [{ discount_amount: 10, discount_reason: 'otro' }])).toThrow(/Otro/);
+  });
+  it('no es una lista o son demasiados: se dice', () => {
+    expect(() => descuentosSobreCubierto(1000, { discount_amount: 10 })).toThrow(/lista/);
+    expect(() => descuentosSobreCubierto(1000, Array.from({ length: 6 }, () => ({ discount_amount: 1, discount_reason: 'volumen' })))).toThrow(/máximo/);
+  });
+});
+
+describe('[PGP.101] lectura de los renglones', () => {
+  it('un descuento de antes (sin discount_lines) se lee como un renglón', () => {
+    expect(lineasDeDescuento({ discount_lines: null, discount_amount: '30.00', discount_reason: 'pronto_pago', discount_rate: '0.030000', discount_note: null }))
+      .toEqual([{ reason: 'pronto_pago', amount: 30, rate: 0.03, note: null }]);
+  });
+  it('sin descuento no hay renglones', () => {
+    expect(lineasDeDescuento({ discount_lines: null, discount_amount: '0', discount_reason: null })).toEqual([]);
+  });
+  it('lee la columna jsonb (objeto o texto)', () => {
+    const l = [{ reason: 'volumen', amount: 20, rate: null, note: null }];
+    expect(lineasDeDescuento({ discount_lines: l, discount_amount: 20, discount_reason: 'volumen' })).toEqual(l);
+    expect(lineasDeDescuento({ discount_lines: JSON.stringify(l), discount_amount: 20, discount_reason: 'volumen' })).toEqual(l);
+  });
+  it('el rótulo junta todos', () => {
+    expect(rotuloDescuentos([{ reason: 'pronto_pago', amount: 30, rate: 0.03, note: null }, { reason: 'volumen', amount: 20, rate: null, note: null }]))
+      .toBe('Pronto pago 3 % + Volumen');
   });
 });

@@ -1,6 +1,6 @@
 import {
-  cierreCompleto, cierreDelPago, docPrefixKepler, estadoFacturaCierre, textoCierre, textoDesfase, tipoPagoKepler,
-  type AplicacionKepler,
+  cierreCompleto, cierreDelPago, docPrefixKepler, estadoFacturaCierre, faltaParaCerrar, textoCierre, textoDesfase, tipoPagoKepler,
+  type AplicacionKepler, type FacturaParaCierre,
 } from './cierre-kepler.contract';
 
 const app = (o: Partial<AplicacionKepler> = {}): AplicacionKepler => ({
@@ -122,5 +122,37 @@ describe('[PGP.94] desfase', () => {
     expect(textoDesfase(0)).toBe('el mismo día');
     expect(textoDesfase(2)).toBe('2 días después');
     expect(textoDesfase(-1)).toBe('1 día antes');
+  });
+});
+
+describe('[PGP.100] qué le falta a un pago para cerrarse', () => {
+  const cierre = (facturas: FacturaParaCierre[]) => cierreDelPago({ lotDate: '2026-11-03', programadoDesde: '2026-11-01', facturas });
+  it('Kepler no registra nada: falta aplicarlo en Kepler', () => {
+    const f = faltaParaCerrar(cierre([{ pendiente: 1000, aplicaciones: [] }]))!;
+    expect(f).toMatchObject({ kepler: true, comprobante: 0, texto: 'Falta aplicar el pago en Kepler' });
+  });
+  it('pagado en Kepler desde Matriz sin PDF: falta el comprobante', () => {
+    const f = faltaParaCerrar(cierre([{ pendiente: 0, aplicaciones: [app()] }]))!;
+    expect(f).toMatchObject({ kepler: false, comprobante: 1, texto: 'Falta el comprobante' });
+  });
+  it('pagado con PDF: cerrado (null)', () => {
+    expect(faltaParaCerrar(cierre([{ pendiente: 0, aplicaciones: [app({ comprobante_id: 'x' })] }]))).toBeNull();
+  });
+  it('pago de sucursal sin PDF no es «falta comprobante»: hoy no se puede subir', () => {
+    expect(faltaParaCerrar(cierre([{ pendiente: 0, aplicaciones: [app({ sucursal: '07' })] }]))).toBeNull();
+  });
+  it('saldada con nota de crédito no pide comprobante', () => {
+    expect(faltaParaCerrar(cierre([{ pendiente: 0, aplicaciones: [app({ doc_tipo: 55 })] }]))).toBeNull();
+  });
+  it('en parte y sin PDF: dice las dos cosas', () => {
+    const f = faltaParaCerrar(cierre([
+      { pendiente: 0, aplicaciones: [app()] },
+      { pendiente: 500, aplicaciones: [] },
+    ]))!;
+    expect(f.texto).toBe('Falta aplicar en Kepler el resto y el comprobante');
+  });
+  it('sin medir se declara, no se dibuja como cerrado (ADR-056)', () => {
+    expect(faltaParaCerrar(null)!.sin_medir).toBe(true);
+    expect(faltaParaCerrar(cierre([{ pendiente: null, aplicaciones: [] }]))!.sin_medir).toBe(true);
   });
 });

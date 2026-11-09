@@ -102,6 +102,8 @@ interface FilaProgramada {
   applied_amount: Num; status: string; payment_method: string | null; allocation_folio: string | null;
   /** `[PGP.91]` Descuento que el proveedor dio al pagar; 0 = sin descuento. */
   discount_amount: Num; discount_reason: string | null; discount_rate: Num;
+  /** `[PGP.101]` Los renglones cuando hay varios descuentos (jsonb); null = uno, el de las columnas. */
+  discount_lines: unknown;
   kepler_payment_sucursal: string | null; kepler_payment_doc_prefix: string | null;
   kepler_payment_folio: string | null;
   lot_status: string | null; released_by: string | null; lot_date: string | null;
@@ -699,7 +701,7 @@ export class EntityRefService {
     const prog: FilaProgramada[] = await trx('finance.payment_allocation_items as i')
       .join('finance.payment_allocations as a', 'a.id', 'i.allocation_id')
       .leftJoin('finance.payment_calendar_lots as l', 'l.id', 'a.lot_id')
-      .select('i.applied_amount', 'i.discount_amount', 'i.discount_reason', 'i.discount_rate',
+      .select('i.applied_amount', 'i.discount_amount', 'i.discount_reason', 'i.discount_rate', 'i.discount_lines',
         'a.status', 'a.payment_method', 'a.folio as allocation_folio',
         'a.kepler_payment_sucursal', 'a.kepler_payment_doc_prefix', 'a.kepler_payment_folio',
         'l.status as lot_status', 'l.released_by',
@@ -718,8 +720,14 @@ export class EntityRefService {
       const tasa = g.discount_rate === null || g.discount_rate === undefined ? null : Number(g.discount_rate);
       const motivo = g.discount_reason && g.discount_reason in DISCOUNT_REASON_LABEL
         ? DISCOUNT_REASON_LABEL[g.discount_reason as DiscountReason] : (g.discount_reason ?? 'Descuento');
+      // `[PGP.101]` Con varios descuentos se nombran todos («Pronto pago 3 % + Volumen»); el agregado sólo dice el mayor.
+      const pctTxt = (r: unknown) => (r !== null && r !== undefined && Number(r) > 0 ? ` ${Number((Number(r) * 100).toFixed(2))} %` : '');
+      const renglones = Array.isArray(g.discount_lines) ? g.discount_lines as { reason: string; rate: number | null }[] : [];
+      const detalle = renglones.length > 1
+        ? renglones.map((l) => `${DISCOUNT_REASON_LABEL[l.reason as DiscountReason] ?? l.reason}${pctTxt(l.rate)}`).join(' + ')
+        : `${motivo}${tasa && tasa > 0 ? pctTxt(tasa) : ''}`;
       const conDescuento = desc > 0
-        ? ` · descuento al pagar ${money(desc)} (${motivo}${tasa && tasa > 0 ? ` ${Number((tasa * 100).toFixed(2))} %` : ''})` +
+        ? ` · descuento al pagar ${money(desc)} (${detalle})` +
           ' — la nota de crédito la emite el proveedor después'
         : '';
       fields.push({

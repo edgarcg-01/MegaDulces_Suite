@@ -9,7 +9,7 @@ import { clabeValida } from '@megadulces/contracts/finance/clabe';
 import { destinosSugeridos, type FilaComprobanteClabe } from './destino-sugerido';
 import { SupplierPaymentAccountsService } from '../supplier-payment-accounts/supplier-payment-accounts.service';
 import type { DiscountReason, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarItemDiscountResult, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
-import { assertDescuentoPermitido, descuentoSobreCubierto, normalizarDescuento, round2 } from './descuento-al-pagar';
+import { assertDescuentoPermitido, descuentoSobreCubierto, descuentosSobreCubierto, lineasDeDescuento, normalizarDescuento, round2, type DescuentosNormalizados } from './descuento-al-pagar';
 import { cierreCompleto, type CierreKeplerPago } from '@megadulces/contracts';
 import { SQL_CIERRE_KEPLER, armarCierres, idsParaCierre, type FilaCierreKepler, type ItemParaCierre, type PagoParaCierre } from './cierre-kepler.sql';
 import { leerGuiaFueraDePrograma, ventanaFueraDePrograma } from './fuera-de-programa.sql';
@@ -205,7 +205,7 @@ export interface AllocationItemDto {
  * `descuentoSobreCubierto()`, no el tipo. ⛔ Es INTERFAZ, no clase: en un `@Body()` emite
  * `Object` en `design:paramtypes`, igual que los otros DTO de este controlador (el caso #414).
  */
-export interface ItemDiscountDto { discount_amount: unknown; discount_reason?: unknown; discount_rate?: unknown; discount_note?: unknown }
+export interface ItemDiscountDto { discount_amount?: unknown; discount_reason?: unknown; discount_rate?: unknown; discount_note?: unknown; discounts?: unknown }
 export interface CreateAllocationDto { date: string; items: AllocationItemDto[]; priority_rank?: number | null; notes?: string | null }
 export interface PrepareAllocationDto {
   payment_method: 'transferencia' | 'cheque' | 'efectivo' | 'cargo_automatico';
@@ -1292,6 +1292,8 @@ export class PaymentCalendarService {
           discount_reason: (it.discount_reason ?? null) as DiscountReason | null,
           discount_rate: it.discount_rate === null || it.discount_rate === undefined ? null : Number(it.discount_rate),
           discount_note: (it.discount_note ?? null) as string | null,
+          // `[PGP.101]` Los renglones del descuento; uno capturado antes de PGP.101 llega como UN renglón.
+          discount_lines: lineasDeDescuento(it),
         }));
         // `[PGP.35]` El agregado por pago: cuántas de sus facturas quedaron saldadas en el ERP y
         // por cuánto. La pantalla lo necesita para no sumar como deuda viva lo que ya no se debe.
@@ -1302,7 +1304,8 @@ export class PaymentCalendarService {
         // históricamente funcionó y todavía se puede intentar. Por eso «deja pasar», no «pierde».
         // `[PGP.91]` La factura que YA lleva su pronto pago capturado no se estima otra vez: decía
         // «Gana $X» (o «Deja pasar $X») encima de «Descuento al pagar −$X» — el mismo dinero dos veces.
-        const estimable = its.filter((it) => it.discount_reason !== 'pronto_pago');
+        // `[PGP.101]` Con varios descuentos, el pronto pago puede no ser el mayor: se busca en sus renglones.
+        const estimable = its.filter((it) => !it.discount_lines.some((l) => l.reason === 'pronto_pago'));
         const captura = estimable.reduce((s, it) => s + (
           (it.pronto_estado === 'capturable' || it.pronto_estado === 'por_vencer') ? Number(it.pronto_beneficio || 0) : 0), 0);
         const dejaPasar = estimable.reduce((s, it) => s + (
@@ -1891,8 +1894,10 @@ export class PaymentCalendarService {
     // ⛔ Sin `discount_amount` no se adivina: para el validador «vacío» es 0, y un cuerpo perdido
     // QUITARÍA el descuento en silencio. Quitarlo se pide explícito, con 0 (el contrato lo exige).
     // `null` y '' cuentan como ausentes: el validador también los leería como 0.
+    // `[PGP.101]` Con `discounts` llega la lista completa (`[]` lo quita, explícito); sin ella, el cuerpo de un solo descuento.
+    const varios = body?.discounts !== undefined && body?.discounts !== null;
     const monto = body?.discount_amount;
-    if (monto === undefined || monto === null || (typeof monto === 'string' && monto.trim() === '')) {
+    if (!varios && (monto === undefined || monto === null || (typeof monto === 'string' && monto.trim() === ''))) {
       throw new BadRequestException('Falta el descuento (discount_amount): manda 0 para quitarlo.');
     }
     return this.tk.run(async (trx) => {
@@ -1906,12 +1911,20 @@ export class PaymentCalendarService {
       const item = await trx('finance.payment_allocation_items').where({ tenant_id: tenantId, id: itemId, allocation_id: allocationId }).forUpdate().first();
       if (!item) throw new NotFoundException('Documento no encontrado en este pago');
       // `numeric` llega como texto del driver: se convierte ANTES de sumar.
-      const norm = descuentoSobreCubierto(Number(item.applied_amount) + Number(item.discount_amount ?? 0), body);
+      const cubierto = Number(item.applied_amount) + Number(item.discount_amount ?? 0);
+      const norm: DescuentosNormalizados = varios
+        ? descuentosSobreCubierto(cubierto, body.discounts)
+        : (() => {
+            const n = descuentoSobreCubierto(cubierto, body);
+            return { ...n, lines: n.discount_amount > 0 ? [{ reason: n.discount_reason!, amount: n.discount_amount, rate: n.discount_rate, note: n.discount_note }] : [] };
+          })();
       assertDescuentoPermitido(item.obligation_source, allocation.classification, norm.discount_amount);
       const con = norm.discount_amount > 0;
       await trx('finance.payment_allocation_items').where({ id: itemId }).update({
         applied_amount: norm.applied_amount, discount_amount: norm.discount_amount, discount_reason: norm.discount_reason,
         discount_rate: norm.discount_rate, discount_note: norm.discount_note,
+        // ⛔ JSON.stringify: knex manda un arreglo JS como arreglo de Postgres, no como jsonb.
+        discount_lines: con ? JSON.stringify(norm.lines) : null,
         discount_by: con ? username : null, discount_at: con ? trx.fn.now() : null,
       });
       // Lo cubierto es igual y el disponible no se mueve; se llama por la invariante (un solo
@@ -1970,6 +1983,8 @@ export class PaymentCalendarService {
           discount_amount: it.discount_amount ?? 0, discount_reason: it.discount_reason ?? null,
           discount_rate: it.discount_rate ?? null, discount_note: it.discount_note ?? null,
           discount_by: it.discount_by ?? null, discount_at: it.discount_at ?? null,
+          // `[PGP.101]` Los renglones viajan también (el driver los devuelve parseados: se vuelven a serializar).
+          discount_lines: it.discount_lines ? JSON.stringify(it.discount_lines) : null,
         });
         await this.recalcObligation(trx, it.obligation_source, it.obligation_id);
       }

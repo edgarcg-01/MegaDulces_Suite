@@ -25,12 +25,29 @@ export const DISCOUNT_REASONS: readonly DiscountReason[] = ['pronto_pago', 'volu
 export const DISCOUNT_REASON_LABEL: Record<DiscountReason, string> = {
   pronto_pago: 'Pronto pago', volumen: 'Volumen', otro: 'Otro',
 };
-/** `[PGP.91]` `POST allocations/:id/items/:itemId/descuento` — fija el descuento de una factura ya puesta; 0 lo quita. */
+/**
+ * `[PGP.101]` **Un renglón del descuento al pagar.** Una factura puede llevar VARIOS (pronto pago 3 % +
+ * volumen 2 %; pedido de Edgar, 2026-11-09). Cada % va sobre lo que el pago cubre de la factura, con
+ * IVA; un descuento en cascada (2 % sobre lo ya descontado) se captura en pesos.
+ */
+export interface PaymentCalendarDiscountLine {
+  reason: DiscountReason;
+  amount: number;
+  /** Fracción (0.03 = 3 %) sólo si se capturó en %; null si en pesos. */
+  rate: number | null;
+  note: string | null;
+}
+/**
+ * `[PGP.91]` `POST allocations/:id/items/:itemId/descuento` — fija el descuento de una factura ya puesta; 0 lo quita.
+ * `[PGP.101]` Con `discounts` se mandan TODOS los renglones (reemplazan a los que había; `[]` lo quita) y
+ * los cuatro campos sueltos se ignoran. Sin `discounts`, los campos sueltos son un renglón (el cuerpo de antes).
+ */
 export interface PaymentCalendarItemDiscountBody {
-  discount_amount: number;
+  discount_amount?: number;
   discount_reason?: DiscountReason | null;
   discount_rate?: number | null;
   discount_note?: string | null;
+  discounts?: { discount_amount: number; discount_reason: DiscountReason; discount_rate?: number | null; discount_note?: string | null }[];
 }
 /** `[PGP.91]` Lo que devuelve fijar el descuento: el neto nuevo de la factura y el total nuevo del pago. */
 export interface PaymentCalendarItemDiscountResult {
@@ -115,9 +132,15 @@ export interface PaymentCalendarAllocationItem {
    * `discount_rate` es la fracción (0.03 = 3 %) sólo si se capturó en %; null si en pesos.
    */
   discount_amount: number;
+  /** `[PGP.101]` Con varios renglones, el motivo del MAYOR; la tasa y la nota sólo con uno (el detalle está en `discount_lines`). */
   discount_reason: DiscountReason | null;
   discount_rate: number | null;
   discount_note: string | null;
+  /**
+   * `[PGP.101]` Los renglones del descuento, el mayor primero; suman `discount_amount`. `[]` = sin
+   * descuento. Un descuento capturado antes de que hubiera varios llega como UN renglón (lo arma el servidor).
+   */
+  discount_lines: PaymentCalendarDiscountLine[];
 }
 
 /**

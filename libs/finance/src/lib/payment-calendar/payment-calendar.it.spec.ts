@@ -46,6 +46,8 @@ const MIGS = [
   // `[PGP.91]` Las columnas del descuento al pagar. El servicio las inserta y las suma SIEMPRE,
   // así que sin ellas ninguna prueba de este archivo pasa en una base local atrasada.
   '../../../../../database/migrations-newdb/20261106183612_pgp91_descuento_al_pagar_en_el_calendario.js',
+  // `[PGP.101]` La columna de los renglones del descuento (varios por factura).
+  '../../../../../database/migrations-newdb/20261109163309_pgp101_varios_descuentos_por_factura.js',
 ];
 
 /** Las migraciones son CommonJS (`exports.up`): según el cargador llegan como `up` o `default.up`. */
@@ -87,6 +89,7 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
     // TP.15 se aplica DESPUÉS de sembrar (abajo): su backfill es el que crea las obligaciones.
     await migUp(MIGS[2], trx);   // `[TP.18]` el CHECK del cuarto origen (idempotente)
     await migUp(MIGS[5], trx);   // `[PGP.91]` las columnas del descuento al pagar (idempotente)
+    await migUp(MIGS[6], trx);   // `[PGP.101]` los renglones del descuento (idempotente)
 
     const tk = { run: <T>(fn: (t: Knex.Transaction) => Promise<T>) => fn(trx) };
     const ctx = { requireTenantId: () => M };
@@ -1224,6 +1227,42 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
         expect(Number(d!.reserved_amount)).toBeCloseTo(20000, 2);
         expect(Number(d!.available_amount)).toBeCloseTo(0, 2);
         expect((await cal.daySummary(D11)).assigned_amount).toBeCloseTo(20000, 2);
+      });
+
+      // `[PGP.101]` Varios descuentos: el cuerpo EXACTO del diálogo con dos renglones (regla 13).
+      it('⭐ [PGP.101] pronto pago 3 % + volumen 2 %: sale el neto, se guardan los dos y el día los lee', async () => {
+        const body: PaymentCalendarItemDiscountBody = { discounts: [
+          { discount_amount: 400, discount_reason: 'volumen', discount_rate: 0.02, discount_note: null },
+          { discount_amount: 600, discount_reason: 'pronto_pago', discount_rate: 0.03, discount_note: null },
+        ] };
+        const r = await cal.setItemDiscount(aF4, itF4, body, USER);
+        expect(r).toEqual({ allocation_id: aF4, item_id: itF4, applied_amount: 19000, discount_amount: 1000, amount_assigned: 19000 });
+        const i = await renglon();
+        expect(Number(i.discount_amount)).toBeCloseTo(1000, 2);
+        // El agregado: motivo del mayor; con dos renglones no se dice UNA tasa.
+        expect(i.discount_reason).toBe('pronto_pago');
+        expect(i.discount_rate).toBeNull();
+        expect(i.discount_lines).toEqual([
+          { reason: 'pronto_pago', amount: 600, rate: 0.03, note: null },
+          { reason: 'volumen', amount: 400, rate: 0.02, note: null },
+        ]);
+        const d = await derivada(F4);
+        expect(Number(d!.available_amount)).toBeCloseTo(0, 2);
+        const dia = await cal.listDayAllocations(D11);
+        const it = dia.find((x) => x.id === aF4)!.items[0];
+        expect(it.discount_lines.map((l) => l.reason)).toEqual(['pronto_pago', 'volumen']);
+      });
+
+      it('[PGP.101] ⛔ dos renglones que juntos son la factura se rechazan; [] los quita', async () => {
+        await expect(cal.setItemDiscount(aF4, itF4, { discounts: [
+          { discount_amount: 15000, discount_reason: 'volumen' }, { discount_amount: 5000, discount_reason: 'otro', discount_note: 'x' },
+        ] }, USER)).rejects.toThrow(/toda la factura/);
+        expect(Number((await renglon()).discount_amount)).toBeCloseTo(1000, 2);
+        const r = await cal.setItemDiscount(aF4, itF4, { discounts: [] }, USER);
+        expect(r.applied_amount).toBeCloseTo(20000, 2);
+        const i = await renglon();
+        expect(i.discount_lines).toBeNull();
+        expect(i.discount_reason).toBeNull();
       });
     });
 

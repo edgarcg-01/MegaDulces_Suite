@@ -16,10 +16,10 @@ import { MessageService } from 'primeng/api';
 import type {
   PaymentCalendarAllocation, PaymentCalendarAllocationItem, PaymentCalendarDaySummary, PaymentCalendarWeek, PaymentCalendarWeekDay,
   PagoSugerido, PagosAtrasadosDia, PayableEvidenceRow, PaymentObligationSource, PaymentOriginAccount,
-  DiscountReason, PaymentCalendarItemDiscountBody, PaymentCalendarItemDiscountResult,
+  DiscountReason, PaymentCalendarDiscountLine, PaymentCalendarItemDiscountBody, PaymentCalendarItemDiscountResult,
 } from '@megadulces/contracts';
 import { warehouseName, DISCOUNT_REASONS, DISCOUNT_REASON_LABEL } from '@megadulces/contracts';
-import { cierreCompleto, esPagoConDinero, nombreTipoPagoKepler, textoCierre, type CierreKeplerPago, type PagoKeplerDelCierre } from '@megadulces/contracts';
+import { cierreCompleto, faltaParaCerrar, nombreTipoPagoKepler, sinComprobantePorque, textoCierre, type CierreKeplerPago, type PagoKeplerDelCierre } from '@megadulces/contracts';
 import { PagosComprobantesService } from '../pagos-comprobantes.service';
 import type { SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 import { environment } from '../../../../environments/environment';
@@ -30,7 +30,7 @@ import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { agruparObligaciones, allocationKey, fechaCorta, obligationKey, moverEnOrden, sugerirArmado, vencimiento, type ArmadoGrupo, type ObligationGroup } from './calendario-pagos-grupos';
-import { cuenta, cubiertoDe, faltaDescuento, leerPesos, pctDeTasa, round2, type ModoDescuento, type MotivoDescuento } from './calendario-pagos-descuento';
+import { cuenta, cubiertoDe, faltaDescuento, faltaLista, leerPesos, lineasDe, pctDeTasa, prontoCapturado, round2, type ModoDescuento, type MotivoDescuento } from './calendario-pagos-descuento';
 import { firstValueFrom } from 'rxjs';
 import { PagosTabsComponent } from '../pagos-tabs.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
@@ -760,6 +760,8 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                             <button type="button" class="pg-saldada-btn" (click)="abrirComprobante(p)"
                                     [attr.aria-label]="'Ver el comprobante PDF del pago ' + p.doc_prefix + '-' + p.folio + ' de ' + allocationTitle(a)"><i class="pi pi-file-pdf" aria-hidden="true"></i> PDF</button>
                           }
+                          <!-- [PGP.100] Lo que le falta para cerrarse, con su nombre: no es lo mismo que falte el PDF que el pago en Kepler. -->
+                          @if (faltaCierre(a); as fc) { @if (!fc.sin_medir) { <span class="pg-falta"><i class="pi pi-exclamation-circle" aria-hidden="true"></i>{{ fc.texto }}</span> } }
                         </span>
                       } @else if (a.kepler_saldadas > 0) {
                         <!-- [PGP.35][PGP.48] Lo que el ERP ya no debe, dicho corto; el porqué está en el desglose. -->
@@ -891,7 +893,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                                 <!-- [PGP.91] Lo que sale es el neto; sólo si hay descuento se dice de cuánto era la factura,
                                      cuánto se descontó y por qué. Sin columna aparte: «Factura» ya es el archivo (PGP.58). -->
                                 @if (numero(it.discount_amount) > 0) {
-                                  <span class="pg-dsc">de {{ money(cubiertoDe(it)) }} − descuento {{ money(it.discount_amount) }} · {{ motivoDescuento(it.discount_reason, it.discount_rate, it.discount_note) }}</span>
+                                  <span class="pg-dsc">de {{ money(cubiertoDe(it)) }} − descuento {{ money(it.discount_amount) }} · {{ motivosDe(it) }}</span>
                                 }
                               </td>
                               @if (a.status === 'pending' && !isReleased()) {
@@ -1175,7 +1177,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
         <p class="cal-dlg-hint">@if (q.it.kepler_saldada) {<span>El ERP ya no la debe: sale del pago y no regresa a la deuda.</span>} @else {<span>Regresa a lo que se debe.</span>} El pago de {{ allocationTitle(q.a) }} sigue en el día con {{ facturas(q.a.items.length - 1) }} por <b class="comm-num">{{ money(restaDelPago(q.a, q.it)) }}</b>@if (prepared(q.a)) {<span>, y conserva su preparación</span>}.</p>
         @if (numero(q.it.discount_amount) > 0) {
           <!-- [PGP.91] Quitar la factura borra su descuento al pagar: volver a agregarla la trae completa. -->
-          <p class="cal-dlg-hint cal-habito-nm"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> Se pierde su descuento al pagar (−{{ money(q.it.discount_amount) }}, {{ motivoDescuento(q.it.discount_reason, q.it.discount_rate, q.it.discount_note) }}): si la vuelves a agregar hay que capturarlo otra vez.</p>
+          <p class="cal-dlg-hint cal-habito-nm"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> Se pierde su descuento al pagar (−{{ money(q.it.discount_amount) }}, {{ motivosDe(q.it) }}): si la vuelves a agregar hay que capturarlo otra vez.</p>
         }
         <div class="cal-dlg-actions">
           <button pButton type="button" class="p-button-text p-button-secondary" (click)="quitarFacturaObjetivo.set(null)">Cancelar</button>
@@ -1194,7 +1196,22 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
         <p class="cal-dlg-hint">Se transfiere el neto y lo que este pago cubre de la factura queda cubierto (neto + descuento): no se vuelve a ofrecer. La nota de crédito del descuento la emite el proveedor después en Kepler. El % va sobre lo que este pago cubre de la factura, con IVA.</p>
         <!-- R4: los datos no detectan una nota de crédito ya aplicada a ESTE descuento; se dice antes de capturar. -->
         <p class="cal-dlg-hint cal-habito-nm"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> Si Kepler ya trae la nota de crédito de este descuento, no lo captures aquí: se descontaría dos veces.</p>
-        <label class="cal-dlg-label" for="cal-dsc-mot">Motivo</label>
+        <!-- [PGP.101] Varios descuentos (pronto pago + volumen): los ya agregados, cada uno con su importe y su ✕;
+             abajo se captura el siguiente. Cada % va sobre lo cubierto; uno en cascada se captura en pesos. -->
+        @if (descLineas().length) {
+          <ul class="pg-dsc-l" aria-label="Descuentos agregados">
+            @for (l of descLineas(); track $index) {
+              <li>
+                <span>{{ motivoDescuento(l.reason, l.rate, l.note) }}</span>
+                <span class="comm-num">−{{ money(l.amount) }}</span>
+                <button pButton type="button" class="p-button-sm p-button-text p-button-secondary pg-x" [disabled]="saving()"
+                        [attr.aria-label]="'Quitar el descuento ' + motivoDescuento(l.reason, l.rate, l.note)" (click)="quitarRenglonDescuento($index)"><span class="pi pi-times" aria-hidden="true"></span></button>
+              </li>
+            }
+          </ul>
+          <p class="cal-dlg-hint">Cada % va sobre lo que este pago cubre de la factura. Si el proveedor aplica uno sobre lo ya descontado (en cascada), captúralo en pesos.</p>
+        }
+        <label class="cal-dlg-label" for="cal-dsc-mot">{{ descLineas().length ? 'Otro descuento (opcional)' : 'Motivo' }}</label>
         <p-select appendTo="body" inputId="cal-dsc-mot" [options]="descuentoOpts" [ngModel]="descMotivo() === 'ninguno' ? null : descMotivo()" (ngModelChange)="elegirMotivoDescuento($event)"
                   optionLabel="label" optionValue="value" placeholder="Elige el motivo" [fluid]="true" class="cal-dlg-sel" />
         @if (descMotivo() === 'pronto_pago') {
@@ -1227,14 +1244,17 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
           <label class="cal-dlg-label" for="cal-dsc-nota">Detalle (obligatorio con «Otro»)</label>
           <input id="cal-dsc-nota" pInputText type="text" autocomplete="off" class="cal-dlg-full" [ngModel]="descNota()" (ngModelChange)="descNota.set($event)" />
         }
-        <p class="pg-dlg-cap" aria-live="polite">Este pago cubre <b class="comm-num">{{ money(descCubierto()) }}</b> − descuento <b class="comm-num">{{ money(descCuenta().descuento) }}</b> = se transfieren <b class="comm-num">{{ money(descCuenta().neto) }}</b>.@if (descFalta(); as f) {<span> {{ f }}</span>}</p>
+        <p class="pg-dlg-cap" aria-live="polite">Este pago cubre <b class="comm-num">{{ money(descCubierto()) }}</b> − {{ descLineas().length || descEditorVacio() ? 'descuentos' : 'descuento' }} <b class="comm-num">{{ money(descTotal()) }}</b> = se transfieren <b class="comm-num">{{ money(descCubierto() - descTotal()) }}</b>.@if (descFaltaGuardar(); as f) {<span> {{ f }}</span>}</p>
+        <!-- [PGP.101] Agregar el siguiente: el que se está capturando pasa a la lista y el editor queda libre. -->
+        <button pButton type="button" class="p-button-sm p-button-text p-button-secondary pg-dsc-mas" [disabled]="descEditorVacio() || !!descFaltaGuardar() || descLineas().length >= 4 || saving()"
+                (click)="agregarOtroDescuento()"><span class="pi pi-plus" aria-hidden="true"></span>&nbsp;Agregar otro descuento</button>
         <div class="cal-dlg-actions">
           <button pButton type="button" class="p-button-text p-button-secondary" (click)="cerrarDescuento()">Cancelar</button>
           @if (numero(t.it.discount_amount) > 0) {
             <button pButton type="button" class="p-button-outlined p-button-secondary" [disabled]="saving()" (click)="guardarDescuento(true)"
-                    [attr.aria-label]="'Quitar el descuento al pagar de ' + nombreFactura(t.it)">Quitar el descuento</button>
+                    [attr.aria-label]="'Quitar todos los descuentos al pagar de ' + nombreFactura(t.it)">{{ lineasDe(t.it).length > 1 ? 'Quitar los descuentos' : 'Quitar el descuento' }}</button>
           }
-          <button pButton type="button" [disabled]="descMotivo() === 'ninguno' || !!descFalta() || saving()" [loading]="saving()" (click)="guardarDescuento(false)">Guardar</button>
+          <button pButton type="button" [disabled]="!!descFaltaGuardar() || saving()" [loading]="saving()" (click)="guardarDescuento(false)">Guardar</button>
         </div>
       }
     </p-dialog>
@@ -1687,6 +1707,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-items-t .pg-it-acc { width:1%; white-space:nowrap; text-align:right; padding:0 0 0 var(--sp-2); }
     /* [PGP.91] El descuento al pagar, debajo del neto y un nivel abajo (terciario): sólo existe si lo hay. */
     .pg-items-t .pg-dsc { display:block; white-space:normal; font-size:var(--fs-xs); font-weight:400; color:var(--text-muted); }
+    /* [PGP.101] Los descuentos ya agregados en el diálogo: motivo, importe y su ✕, en un renglón cada uno. */
+    .pg-dsc-l { list-style:none; margin:var(--sp-2) 0; padding:0; display:flex; flex-direction:column; gap:var(--sp-1); }
+    .pg-dsc-l li { display:grid; grid-template-columns:1fr auto auto; align-items:center; gap:var(--sp-2); font-size:var(--fs-sm); }
+    .pg-dsc-mas { margin-top:var(--sp-1); }
     .pg-items-t tfoot .pg-dsc-pie { font-weight:400; color:var(--text-muted); }
     .pg-dsc-campos { display:grid; grid-template-columns:1fr 1fr; gap:0 var(--sp-3); }
     .pg-erp { margin:0; padding:var(--sp-2) var(--sp-3); border-top:1px solid var(--border-color); font-size:var(--fs-sm); color:var(--text-muted); }
@@ -1749,6 +1773,8 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-cierre { display:flex; align-items:center; gap:var(--sp-1); flex-wrap:wrap; font-size:var(--fs-xs); color:var(--text-main); font-weight:600; }
     .pg-cierre > .pi { color:var(--ok-fg); }
     .pg-cierre-d { font-weight:400; color:var(--text-muted); }
+    /* [PGP.100] Lo que falta para cerrar: ámbar con su palabra (el color acompaña, no porta). */
+    .pg-falta { display:inline-flex; align-items:center; gap:var(--sp-1); color:var(--warn-soft-fg); background:var(--warn-soft-bg); border-radius:var(--r-pill); padding:0 var(--sp-2); font-weight:600; }
     .pg-sec-cierre { display:inline-flex; align-items:center; gap:var(--sp-1); margin-left:var(--sp-2); font-size:var(--fs-xs); font-weight:600; color:var(--text-muted); }
     .pg-sec-cierre > .pi { color:var(--ok-fg); }
     .pg-cierre-x { display:flex; flex-direction:column; gap:var(--sp-1); }
@@ -1969,7 +1995,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   porQueHoy(a: PaymentCalendarAllocation): { texto: string; fuerte: boolean } | null {
     // `[PGP.91]` El pronto pago YA capturado también es razón de pagar hoy: el servidor lo saca de
     // `pronto_captura` (no se cuenta dos veces), así que sin esta suma el renglón lo callaba.
-    const desc = round2((a.items ?? []).filter((it) => it.discount_reason === 'pronto_pago').reduce((s, it) => s + this.numero(it.discount_amount), 0));
+    // `[PGP.101]` Con varios descuentos, sólo el renglón de pronto pago (el de volumen no es razón de pagar hoy).
+    const desc = round2((a.items ?? []).reduce((s, it) => s + prontoCapturado(it), 0));
     const gana = this.numero(a.pronto_captura);
     if (desc > 0 || gana > 0) {
       const urge = (a.items ?? []).some((it) => it.pronto_estado === 'por_vencer');
@@ -3060,11 +3087,12 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    * comprobante de transferencia entró el 5-oct, y los pagos de sucursal no están en el espejo de
    * pagos (`analytics.erp_supplier_payments` sólo lee oficinas), así que no se les puede subir uno.
    */
-  sinPdfPorque(p: PagoKeplerDelCierre): string | null {
-    if (!esPagoConDinero(p.tipo)) return null; // una nota de crédito no tiene comprobante bancario
-    if (p.sucursal !== '00') return 'pago de sucursal: todavía no se le puede subir comprobante';
-    return 'sin comprobante subido';
-  }
+  sinPdfPorque(p: PagoKeplerDelCierre): string | null { return sinComprobantePorque(p); }
+  /**
+   * `[PGP.100]` Qué le falta al pago para cerrarse —aplicarlo en Kepler o subir su comprobante—, dicho
+   * por separado (Edgar, 2026-11-09). Null = cerrado. La regla vive en el contrato (`faltaParaCerrar`).
+   */
+  faltaCierre(a: PaymentCalendarAllocation) { return faltaParaCerrar(a.kepler_cierre); }
   private readonly comprobantes = inject(PagosComprobantesService);
   /** Abre el PDF del comprobante con la URL firmada que da el detalle del pago (mismo permiso que esta pantalla). */
   abrirComprobante(p: PagoKeplerDelCierre): void {
@@ -3154,7 +3182,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       // `[PGP.91]` El MISMO universo que el servidor suma en `pronto_captura`: capturable o por vencer y sin
       // pronto pago ya capturado. Sobre todas las facturas, la fecha, la urgencia y la tasa podían ser de
       // una ya capturada, que no está en el importe que se publica.
-      const est = (a.items ?? []).filter((it) => it.discount_reason !== 'pronto_pago'
+      const est = (a.items ?? []).filter((it) => !(prontoCapturado(it) > 0)
         && (it.pronto_estado === 'capturable' || it.pronto_estado === 'por_vencer'));
       const urge = est.some((it) => it.pronto_estado === 'por_vencer');
       const lim = est.map((it) => it.pronto_fecha_limite).filter(Boolean).sort()[0];
@@ -3262,6 +3290,12 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     return `${DISCOUNT_REASON_LABEL[reason] ?? reason}${t > 0 ? ' ' + this.pct(t) : ''}${reason === 'otro' && note ? ' · ' + note : ''}`;
   }
 
+  /** `[PGP.101]` Todos los descuentos de una factura, dichos en llano: «Pronto pago 3 % + Volumen 2 %». */
+  motivosDe(it: PaymentCalendarAllocationItem): string {
+    return lineasDe(it).map((l) => this.motivoDescuento(l.reason, l.rate, l.note)).join(' + ');
+  }
+  readonly lineasDe = lineasDe;
+
   /** `[PGP.91]` La factura cuyo descuento se está capturando; abre el diálogo. Estado en signals (OnPush). */
   readonly descObjetivo = signal<{ a: PaymentCalendarAllocation; it: PaymentCalendarAllocationItem } | null>(null);
   readonly descMotivo = signal<MotivoDescuento>('ninguno');
@@ -3286,16 +3320,54 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     const motivo = this.descMotivo(), modo = this.descModo(), leidos = this.descPesosLeidos(), c = this.descCuenta(), cub = this.descCubierto(), nota = this.descNota();
     return faltaDescuento(motivo, c, cub, nota, modo === 'pesos' ? leidos.error : null);
   });
+  /** `[PGP.101]` Los descuentos ya agregados en el diálogo (el que se teclea todavía no está aquí). */
+  readonly descLineas = signal<PaymentCalendarDiscountLine[]>([]);
+  /** El editor no tiene nada: ni motivo ni importe. Con renglones agregados, guardar sólo ésos es válido. */
+  readonly descEditorVacio = computed(() => {
+    const motivo = this.descMotivo(), c = this.descCuenta();
+    return motivo === 'ninguno' && !(c.descuento > 0);
+  });
+  /** Lo que suman los descuentos: los agregados + el que se teclea (si ya es válido). */
+  readonly descTotal = computed(() => {
+    const ya = this.descLineas().reduce((s, l) => s + Number(l.amount || 0), 0), f = this.descFalta(), c = this.descCuenta();
+    return round2(ya + (f ? 0 : c.descuento));
+  });
+  /** `[PGP.101]` Por qué no se puede guardar la LISTA completa; la misma regla que el servidor. */
+  readonly descFaltaGuardar = computed<string | null>(() => {
+    const ya = this.descLineas(), vacio = this.descEditorVacio(), f = this.descFalta(), c = this.descCuenta(), cub = this.descCubierto();
+    if (vacio) return ya.length ? faltaLista(ya, null, cub) : 'Elige el motivo y captura el % o los pesos.';
+    return f ?? faltaLista(ya, c.descuento, cub);
+  });
+  /** El renglón que está en el editor, listo para mandarse. */
+  private renglonEnCaptura(): PaymentCalendarDiscountLine | null {
+    const motivo = this.descMotivo(), c = this.descCuenta();
+    if (motivo === 'ninguno' || this.descFalta()) return null;
+    return { reason: motivo, amount: c.descuento, rate: this.descModo() === 'tasa' ? c.tasa : null, note: motivo === 'otro' ? this.descNota().trim() : null };
+  }
+  private limpiarEditorDescuento(): void {
+    this.descMotivo.set('ninguno'); this.descModo.set('tasa'); this.descPct.set(''); this.descPesos.set(''); this.descNota.set(''); this.descSugerida.set(false);
+  }
+  /** `[PGP.101]` «Agregar otro descuento»: el del editor pasa a la lista y el editor queda libre para el siguiente. */
+  agregarOtroDescuento(): void {
+    const r = this.renglonEnCaptura();
+    if (!r || this.descFaltaGuardar()) return;
+    this.descLineas.update((ls) => [...ls, r]);
+    this.limpiarEditorDescuento();
+  }
+  quitarRenglonDescuento(i: number): void { this.descLineas.update((ls) => ls.filter((_, k) => k !== i)); }
 
   /** Abre con lo guardado tal cual: con tasa queda en %, capturado en pesos queda en pesos. */
   abrirDescuento(a: PaymentCalendarAllocation, it: PaymentCalendarAllocationItem): void {
-    const d = this.numero(it.discount_amount);
-    const pct = pctDeTasa(it.discount_rate);
-    this.descMotivo.set(d > 0 && it.discount_reason ? it.discount_reason : 'ninguno');
-    this.descModo.set(d > 0 && !pct ? 'pesos' : 'tasa');
-    this.descPct.set(d > 0 ? pct : '');
-    this.descPesos.set(d > 0 && !pct ? d.toFixed(2) : '');
-    this.descNota.set(it.discount_note ?? '');
+    // `[PGP.101]` Con UN descuento, se abre en el editor como siempre; con varios, van a la lista y el editor queda libre.
+    const ls = lineasDe(it);
+    const uno = ls.length === 1 ? ls[0] : null;
+    const pct = uno ? pctDeTasa(uno.rate) : '';
+    this.descLineas.set(ls.length > 1 ? [...ls] : []);
+    this.descMotivo.set(uno ? uno.reason : 'ninguno');
+    this.descModo.set(uno && !pct ? 'pesos' : 'tasa');
+    this.descPct.set(uno ? pct : '');
+    this.descPesos.set(uno && !pct ? Number(uno.amount).toFixed(2) : '');
+    this.descNota.set(uno?.note ?? '');
     this.descSugerida.set(false);
     this.descObjetivo.set({ a, it });
   }
@@ -3322,17 +3394,14 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   guardarDescuento(quitar: boolean): void {
     const t = this.descObjetivo();
     if (!t || this.saving()) return;
-    const motivo = this.descMotivo();
-    const c = this.descCuenta();
-    if (!quitar && (motivo === 'ninguno' || this.descFalta())) return;
+    if (!quitar && this.descFaltaGuardar()) return;
     const { a, it } = t;
-    const body: PaymentCalendarItemDiscountBody = quitar || motivo === 'ninguno'
-      ? { discount_amount: 0 }
-      : {
-          discount_amount: c.descuento, discount_reason: motivo,
-          discount_rate: this.descModo() === 'tasa' ? c.tasa : null,
-          discount_note: motivo === 'otro' ? this.descNota().trim() : null,
-        };
+    // `[PGP.101]` Se manda la lista COMPLETA (reemplaza la guardada): los agregados + el del editor si trae algo.
+    const enCaptura = this.descEditorVacio() ? null : this.renglonEnCaptura();
+    const lista = quitar ? [] : [...this.descLineas(), ...(enCaptura ? [enCaptura] : [])];
+    const body: PaymentCalendarItemDiscountBody = {
+      discounts: lista.map((l) => ({ discount_amount: l.amount, discount_reason: l.reason, discount_rate: l.rate, discount_note: l.note })),
+    };
     this.saving.set(true);
     this.http.post<PaymentCalendarItemDiscountResult>(`${this.base}/allocations/${a.id}/items/${it.id}/descuento`, body)
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -3680,7 +3749,12 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    */
   estadoTexto(a: PaymentCalendarAllocation): string {
     if (a.status === 'failed') return `Rebotó: ${a.failure_reason || 'sin motivo registrado'}`;
-    if (a.status === 'executed') return 'Marcado pagado';
+    // `[PGP.100]` Marcado en la Suite no es cerrado: se dice qué falta (Kepler o comprobante), o «sin medir».
+    if (a.status === 'executed') {
+      const fc = this.faltaCierre(a);
+      if (!fc) return 'Pagado y cerrado';
+      return fc.sin_medir ? 'Marcado pagado · sin medir en Kepler' : `Marcado pagado · ${fc.texto.charAt(0).toLowerCase()}${fc.texto.slice(1)}`;
+    }
     if (a.status === 'cancelled') return 'Cancelado';
     const falta = this.comoSale(a).falta;
     // `[PGP.75]` Con el método en su historial, lo que falta es aplicarlo (y elegir de qué cuenta sale el día).
@@ -3690,7 +3764,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   }
   estadoIcono(a: PaymentCalendarAllocation): string {
     if (a.status === 'failed') return 'pi-times-circle';
-    if (a.status === 'executed') return 'pi-check-circle';
+    if (a.status === 'executed') return this.faltaCierre(a) ? 'pi-exclamation-circle' : 'pi-check-circle';
     if (a.status === 'cancelled') return 'pi-ban';
     if (this.comoSale(a).falta) return 'pi-exclamation-circle';
     return this.isReleased() ? 'pi-clock' : 'pi-check';
@@ -4594,7 +4668,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       const lim = (it.pronto_fecha_limite ?? '').slice(0, 10);
       // `[PGP.91]` D3: el descuento CAPTURADO viaja con el pago (el servidor lo copia al mover), así que lo
       // que está en juego es ése, no el estimado — y se avisa, porque su ventana observada puede cerrarse.
-      const cap = it.discount_reason === 'pronto_pago' ? this.numero(it.discount_amount) : 0;
+      const cap = prontoCapturado(it);
       const b = cap > 0 ? cap : Number(it.pronto_beneficio || 0);
       if (!lim || !(b > 0)) continue;
       if (fecha && lim >= fecha) continue; // ese día la ventana sigue abierta

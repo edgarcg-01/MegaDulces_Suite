@@ -241,3 +241,42 @@ export function textoCierre(c: CierreKeplerPago): string {
     default: return 'Sin medir: no viene de Kepler';
   }
 }
+
+/**
+ * `[PGP.100]` **Por qué un documento de pago de Kepler no tiene su PDF.** Null si no le toca uno
+ * (una nota de crédito no tiene comprobante bancario). Un pago de sucursal no está en el espejo de
+ * comprobantes: no se le puede subir, y eso NO es «falta comprobante».
+ */
+export function sinComprobantePorque(p: Pick<PagoKeplerDelCierre, 'tipo' | 'sucursal' | 'comprobante_id'>): string | null {
+  if (p.comprobante_id || !esPagoConDinero(p.tipo)) return null;
+  if (p.sucursal !== '00') return 'pago de sucursal: todavía no se le puede subir comprobante';
+  return 'sin comprobante subido';
+}
+
+/**
+ * `[PGP.100]` **Qué le falta a un pago para quedar cerrado**, dicho por separado (pedido de Edgar,
+ * 2026-11-09: «especificar si falta comprobante o si falta aplicar en Kepler»):
+ * - `kepler`: Kepler no registra el pago, o lo registra en parte (falta capturar/aplicar el X-D).
+ * - `comprobante`: Kepler lo pagó con dinero desde Matriz y ese documento no tiene su PDF subido.
+ * - `sin_medir`: ninguna factura viene de Kepler: no se puede afirmar ni lo uno ni lo otro (ADR-056).
+ * Null = cerrado: Kepler lo saldó y cada pago con dinero que se puede comprobar tiene su PDF.
+ * ⚠️ Un pago de sucursal sin PDF no cuenta como «falta comprobante»: hoy no se le puede subir.
+ */
+export interface FaltaParaCerrar {
+  kepler: boolean;
+  comprobante: number;
+  sin_medir: boolean;
+  texto: string;
+}
+export function faltaParaCerrar(c: CierreKeplerPago | null | undefined): FaltaParaCerrar | null {
+  if (!c || c.estado === 'sin_medir') {
+    return { kepler: false, comprobante: 0, sin_medir: true, texto: 'Sin medir: no viene de Kepler' };
+  }
+  const kepler = c.estado === 'sin_pagar' || c.estado === 'en_parte';
+  const comprobante = c.pagos.filter((p) => sinComprobantePorque(p) === 'sin comprobante subido').length;
+  if (!kepler && !comprobante) return null;
+  const partes: string[] = [];
+  if (kepler) partes.push(c.estado === 'sin_pagar' ? 'aplicar el pago en Kepler' : 'aplicar en Kepler el resto');
+  if (comprobante) partes.push(comprobante === 1 ? 'el comprobante' : `${comprobante} comprobantes`);
+  return { kepler, comprobante, sin_medir: false, texto: `Falta ${partes.join(' y ')}` };
+}

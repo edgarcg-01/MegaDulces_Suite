@@ -891,6 +891,7 @@ Se copian a `01_TRACKER_PROGRESO.md` **el día que la fase pase a 🔨**, no ant
 | 2026-11-07 | **`[PGP.99]` Una nota de crédito CANCELADA en Kepler escondía la deuda — 🧪 migración en código, sin empujar, SIN aplicar.** Reportado: la orden de entrada de Hershey `XA2001-0000684` (sucursal 01) no aparecía para capturarla en el Calendario. Kepler la debe ($64,672.73 en `kdxe.c20`). La nota `X-D-55 0000130` se canceló y se recapturó como `0000131`; Kepler no borra la aplicación cancelada de `kdxf`, la vista sumaba las dos, el pendiente salía negativo y se filtraba. `[PGP.67]` sólo restaba pagos cancelados (`25/26/60`); ahora también notas (`55`) y devoluciones (`40`). Medido en prod (sólo lectura): reaparecen **23 documentos** (13 de un mismo acreedor por una sola nota cancelada); los 23 casan al centavo con el saldo que Kepler guarda. Vista 349–412 → 370–417 ms. El SQL del `up` y del `down` se ejerció contra prod en transacción READ ONLY: el `down` reproduce la vista actual fila por fila. Mig `20261107113116_pgp99_nota_cancelada_no_salda_la_deuda`. |
 | 2026-11-07 | **`[PGP.94.1]` El cierre descarta los mismos documentos cancelados que la vista — 🧪 en código, sin migración.** `[PGP.99]` le sumó a `v_supplier_payables` las notas de crédito (55) y devoluciones (40) canceladas, y `cierre-kepler.sql.ts` (`[PGP.94]`) se quedó con la lista vieja de `[PGP.67]` (25/26/60): en las facturas del Calendario había 6 aplicaciones canceladas ($62,627.51) que la vista restaba y el cierre contaba. Ahora la lista es una constante (`TIPOS_CANCELADOS_QUE_NO_SALDAN` = 25, 26, 40, 55, 60) y una prueba la amarra al `up()` de la migración más nueva que fija la de la vista: si se separan, rojo. **Medido en prod (sólo lectura), 307 facturas del Calendario:** cierre y vista NO coinciden en **0** con la lista nueva y en **1** con la vieja (control). Prueba del ancla contra la migración de `origin/main`: lista nueva verde, lista vieja roja. **NO MEDIDO**: la pantalla viva. | Claude |
 | 2026-11-08 | **`[PGP.97]` «Salidas del banco»: lo que salió del banco a proveedores, contra Kepler y contra el programa — 🧪 en código, sin migración, sin validación visual. Y `[PGP.97.1]`: el periodo del workbook ya no se pierde por un nombre sin año.** Pedido de Francisco (2026-11-07): *«utiliza el workbook de bancos para identificar lo que se pagó fuera de programa y está pendiente de elaborar el pago en Kepler, para que sirva de guía al área de pagos a proveedor; la meta es que el 100 % pase por el programa»*. Pestaña nueva en «Pagos» (`/finanzas/salidas-banco`, permiso `FINANCE_PAYMENTS_VER`, ya repartido), `GET /finance/payment-calendar/fuera-de-programa`, regla pura en `libs/contracts/src/finance/salida-proveedor.contract.ts`, lectura en `fuera-de-programa.sql.ts` — **cero tablas, cero importers**: el workbook (`bank_movements`), la vista de tesorería de la conciliación (`kepler_bank_movements`), `kdxf`, el Calendario y la deuda viva. **Medido (prod, sólo lectura, con placebo):** la salida a proveedor se reconoce por la columna M del libro (98.0 % de precisión, 97.6 % de cobertura); el par salida↔pago de Kepler (misma cuenta, ±$1, ±5 días) casa 239 de 244 en octubre y **0 de 244** con las fechas corridas −35/−60/+35; una transferencia que Kepler capturó en varios documentos (uno por sucursal, o transferencia + anticipo) se parea junta: 3 en septiembre, 0 en el placebo. **Cifras de hoy:** octubre, banco: 4 salidas sin pago en Kepler a más de 7 días (una de ellas con partida viva del mismo acreedor e importe: es lo que O3 va a escribir), 1 capturada con otro importe, 225 pagadas fuera del programa. La meta, por dinero y desde Kepler: **8.9 %** en octubre, 33.1 % en la vida del Calendario, **98.1 %** del 1 al 7-nov por banco; **Caja General 0 %** en todas las ventanas. ⛔ **Noviembre no está en el workbook**: el 5-nov se subió «11 NOVIEMBRE.xlsx» (896 movimientos), cayó al periodo de octubre porque el nombre no traía año y la siguiente subida de octubre lo barrió — `[PGP.97.1]` deriva el periodo del mes aunque falte el año; Tesorería tiene que volver a subir noviembre. **Revisión adversarial** (5 dimensiones, cada hallazgo con un escéptico): 21 confirmados y corregidos antes del PR — entre ellos, que una partida cancelada DESPUÉS de pagar (la limpieza de lo saldado) se leía como «se quitó del programa» (la meta del 1–7 nov pasaba de 98.1 % a 94.7 %), que un día sin movimientos en el banco se declaraba «captura doble», y que el veredicto decía «todo tiene su pago» con renglones en espera. **Pruebas:** 47 unitarias con 13 mutantes en rojo; integración contra Postgres real (local, en transacción revertida: verde; el pago cancelado no cuenta como pagado); `check:pantalla` 10 de 10. **NO MEDIDO:** la pantalla viva; el arranque de Nest (no se tocó ningún constructor ni firma inyectada: el método va en `PaymentCalendarService`). **Deuda con nombre:** dos copias de las palabras vacías del comparador de nombres (`finance-bank.service.ts` y el contrato); `removeItem` borra el renglón y una factura quitada de un pago no deja rastro; el Calendario no abre un día desde la URL. | Claude |
+| 2026-11-09 | **`[PGP.100]` Qué le falta a un pago para cerrarse, dicho por separado, y `[PGP.101]` varios descuentos al pagar sobre la misma factura — 🔨 en código, sin empujar, sin validación visual; `[PGP.101]` lleva migración.** Pedidos de Edgar (2026-11-09): *«que se pueda agregar más de un descuento»* y *«especificar si falta comprobante o si falta aplicar en Kepler»*. **`[PGP.100]`** regla pura `faltaParaCerrar` en `cierre-kepler.contract.ts`: `kepler` (Kepler no registra el pago o lo registra en parte), `comprobante` (pagado con dinero desde Matriz y sin PDF subido), `sin_medir` (no viene de Kepler: se declara). ⚠️ Un pago de sucursal sin PDF NO cuenta como «falta comprobante»: hoy no se le puede subir (`sinComprobantePorque`, la misma regla que ya decía el desglose, ahora en un solo lugar). En pantalla: el renglón pagado en Kepler dice «Falta el comprobante» / «Falta aplicar en Kepler el resto y el comprobante»; el marcado pagado deja de decir sólo «Marcado pagado». **`[PGP.101]`** columna `discount_lines jsonb` en `finance.payment_allocation_items` (migración `20261109163309_pgp101_varios_descuentos_por_factura.js`, aditiva, NULLABLE, ⛔ va en prod ANTES del código). Las columnas de `[PGP.91]` quedan como AGREGADO (suma, motivo del mayor, tasa y nota sólo con uno): lo cubierto, el neto, el tope del día y el cruce con Kepler no cambian. `POST …/descuento` acepta `discounts: [...]` (la lista completa; `[]` lo quita) y sigue aceptando el cuerpo de un descuento. Cada % va sobre lo cubierto; uno en cascada se captura en pesos (decisión de diseño, revisable). Máximo 5 por factura. El PDF del día, la ficha de la factura y «pronto pago capturado» leen los renglones. **Verificación:** 7 pruebas de contrato + 11 del validador del servidor + 3 de la pantalla (con casos negativos: suma = factura, tasa que no cuadra, «Otro» sin detalle, renglón en cero); `check:pantalla` 0 nuevas y tipa; `check:templates` verde; `tsc` de `finance`/`commercial` sin errores nuevos en lo tocado. **NO MEDIDO:** los 2 casos de integración nuevos (`payment-calendar.it.spec.ts`, cuerpo exacto del diálogo con dos renglones, y quitar con `[]`) corren sólo con `TP_IT_DB` local o en el CI; la pantalla viva. | Claude |
 
 ---
 
@@ -1239,3 +1240,71 @@ ganar renglones, no medido).
 **Lo que ya funciona y no se toca:** el veredicto nombra el renglón que falta y su importe; la cola
 dice «libre del tope» en todos los días; un día sin tope dice «sin tope fijado», no $0; el lote
 cuadra con la cola ($2.86M = $2,863,347.69) y la semana cuadra con los días ($10.84M).
+
+---
+
+## Anticipos a proveedor — análisis (2026-11-09, ⬜ sin código)
+
+> Pedido de Edgar (2026-11-09): *«un apartado para anticipos de proveedor»* y *«analiza cómo vamos a
+> agregar anticipos a proveedor»*. Medido en prod, sólo lectura (`system_identifier` verificado).
+> Nada de esto escribe en Kepler.
+
+**Cómo vive hoy.** El anticipo es el documento `X-D-60` de `kepler_ods.kdxe` (`c4 = 60`; `c20` = el
+remanente sin aplicar que guarda Kepler). Se aplica a la factura en `kdxf` (`c4/c5/c6` = el anticipo,
+`c7/c8/c9` = la factura, `c3` = fecha de la aplicación). Se crea a mano en Kepler; casi todo sale de
+Matriz, y una parte importante, de la cuenta de Caja General.
+
+| Qué (prod, 2026-11-09) | Cifra |
+|---|---|
+| Anticipos, últimos 12 meses | 203 documentos, ~$15.5 M, 81 acreedores |
+| **Sin aplicar hoy** | **60 documentos, ~$7.0 M, 42 acreedores** |
+| … con deuda viva del mismo acreedor (se puede netear hoy) | 31 acreedores, ~$4.2 M |
+| … sin deuda viva (no hay contra qué aplicar) | 11 acreedores, ~$2.8 M |
+| … con más de 90 días | ~$5.0 M |
+| Del anticipo a su aplicación | mediana 3 días, p90 16 días |
+
+⭐ El saldo es publicable tal cual: `analytics.v_supplier_credits.a_favor` coincide con `kdxe.c20` en
+los 60, sin una diferencia. ⚠️ No todo `X-D-60` es anticipo: en 1 de cada 3 aplicaciones la factura
+es ANTERIOR al documento (pagos capturados como anticipo), los `TC*` son tarjeta y los `G*` son gasto.
+Dos documentos (~$3.5 M, la mitad del saldo) huelen a saldo inicial y se revisan antes de publicar.
+
+**Qué ya existe (ADR-056: no se inventa otro primitivo).** La vista `analytics.v_supplier_credits`
+(ya publica la clase «Anticipo a proveedor»), los endpoints `creditos-a-favor` y `creditos/:acreedor`,
+el aviso «trae $X a favor sin aplicar» del Calendario, la ventanilla de Caja General que ya paga
+`X-D-60` con firma de Tesorería, y el estado `sin_factura` de `salida-proveedor.contract.ts`, que ya
+declara «hoy el Calendario no programa anticipos».
+
+**(A) El apartado — sin vista nueva.** El mismo endpoint de créditos filtrado a anticipo, por
+acreedor: saldo, antigüedad (0–30 · 31–90 · +90), folio, cuenta de salida y referencia, y sus
+facturas abiertas (contra qué se aplica). Dos grupos: «aplicable hoy» y «sin contra qué» (pedir la
+factura o el reembolso). ⚠️ El cruce con `v_supplier_payables` midió 520–553 ms: se pide diferido,
+como los créditos.
+
+**(B) Programar un anticipo nuevo.**
+1. La solicitud nace de la orden de compra, en `commercial.supplier_payment_obligations` con una
+   columna `nature` (`factura` | `anticipo`) — sin tabla nueva. Regla 14: recorrer todos los caminos
+   que insertan ahí (`supplier_id` es NOT NULL).
+2. Entra al Calendario como cualquier obligación y sale por el carril de siempre (transferencia o
+   ventanilla, firma de Tesorería).
+3. Se liga con el `X-D-60` cuando se capture en Kepler: mismo acreedor, ±$1, ±5 días (la regla de
+   pareo de `[PGP.97]`); llave `(sucursal, tipo, folio, cuenta)`.
+4. Se cierra cuando `kdxf` lo aplica a la factura.
+5. **No pagar dos veces:** al programar una factura de un acreedor con anticipo sin aplicar, se
+   precarga como descuento (un renglón más de `[PGP.101]`, motivo nuevo «anticipo»); y el cierre
+   tiene que decir «saldada con anticipo», no «pagada», o el mismo dinero cuenta dos veces.
+
+**Decisiones de Edgar (con la recomendación):**
+
+| # | Pregunta | Recomendación |
+|---|---|---|
+| D1 | ¿Quién pide y quién autoriza un anticipo? | Pide Compras, siempre atado a una OC; autoriza quien autoriza el día; firma Tesorería |
+| D2 | ¿Qué acreedores? | Sólo mercancía (`C*`); fuera tarjeta (`TC*`) y gasto (`G*`) |
+| D3 | Factura de un acreedor con anticipo sin aplicar | Descontarlo solo, modificable con firma (no sólo avisar) |
+| D4 | Anticipo con más de 90 días sin aplicar | Alerta a Compras y CxP para exigir factura o reembolso |
+| D5 | ¿Quién lo aplica en Kepler mientras la escritura siga apagada? | CxP; la Suite sólo verifica en `kdxf` |
+| D6 | ¿Tope del anticipo? | Como % de la OC |
+| D7 | Los dos documentos grandes que parecen saldo inicial | Revisarlos con Contabilidad antes de publicar el apartado |
+
+**NO MEDIDO:** cuántos anticipos se pueden ligar a una OC (en Kepler la referencia es texto libre);
+cuántos de los 42 acreedores existen en `catalog.suppliers`; si lo que salió de Caja General fue
+efectivo.

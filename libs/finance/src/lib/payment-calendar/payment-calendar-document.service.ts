@@ -2,7 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import * as puppeteer from 'puppeteer';
 import { warehouseName } from '@megadulces/contracts';
 import { PaymentCalendarService, type ExpedienteLinea } from './payment-calendar.service';
-import { rotuloDescuento } from './descuento-al-pagar';
+import { lineasDeDescuento, rotuloDescuentos } from './descuento-al-pagar';
 
 const CLASSIFICATION_LABEL: Record<string, string> = {
   compromiso_financiero: 'Compromiso financiero', gasto: 'Gasto', proveedor_mercancia: 'Proveedor de mercancía',
@@ -101,6 +101,8 @@ type ItemConDescuento = {
   discount_amount?: number | string | null;
   discount_reason?: string | null;
   discount_rate?: number | string | null;
+  /** `[PGP.101]` Los renglones (varios descuentos); sin ellos, uno con las columnas de siempre. */
+  discount_lines?: unknown;
 };
 
 /** `[PGP.91]` Lo único que la línea del descuento lee de un pago y de sus facturas. */
@@ -227,7 +229,7 @@ export class PaymentCalendarDocumentService {
     if (!(desc > 0)) return '';
     const rotulos = [...new Set((a.items || [])
       .filter((i) => Number(i.discount_amount || 0) > 0)
-      .map((i) => rotuloDescuento(i.discount_reason, i.discount_rate)))];
+      .map((i) => rotuloDescuentos(lineasDeDescuento(i))))];
     // Un pago de varias facturas no es «Factura $total»: lo que suma es lo que se cubre de todas.
     const rotulo = (a.items || []).length > 1 ? 'Se cubre' : 'Factura';
     return `<div class="desc">${rotulo} ${money(Number(a.amount_assigned) + desc)} − descuento ${money(desc)}`
@@ -313,7 +315,7 @@ export class PaymentCalendarDocumentService {
         const descLinea = (l: ExpedienteLinea): string => {
           const it = descDe.get(`${l.obligation_source}|${l.obligation_id}`);
           if (!it) return '';
-          return `<div class="desc">+ desc. ${money(it.discount_amount)}<br/>${esc(rotuloDescuento(it.discount_reason, it.discount_rate))}</div>`;
+          return `<div class="desc">+ desc. ${money(it.discount_amount)}<br/>${esc(rotuloDescuentos(lineasDeDescuento(it)))}</div>`;
         };
         const hijas = lineas.length
           ? lineas.map((l) => `<tr class="doc-row">
