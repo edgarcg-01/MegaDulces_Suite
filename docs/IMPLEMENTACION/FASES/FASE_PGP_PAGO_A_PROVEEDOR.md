@@ -1308,3 +1308,49 @@ como los créditos.
 **NO MEDIDO:** cuántos anticipos se pueden ligar a una OC (en Kepler la referencia es texto libre);
 cuántos de los 42 acreedores existen en `catalog.suppliers`; si lo que salió de Caja General fue
 efectivo.
+
+---
+
+## El flujo nuevo: pagar → validar contra el banco → escribir en Kepler (Edgar, 2026-11-09)
+
+> *«Agregamos los pagos y la forma de pago, después se paga, se jalan los estados de cuenta o
+> movimientos y se valida que se haya pagado (más su comprobante), y con eso insertamos el pago en
+> Kepler automáticamente, ya validado.»* — Edgar, 2026-11-09.
+
+**El cambio de fondo:** «Pagado» deja de ser un clic. Hoy «Pagado» lo marca una persona sin prueba
+(y con el mismo permiso que prepara). En el flujo nuevo lo pone la **evidencia**: el movimiento del
+estado de cuenta + el comprobante. Y sólo lo validado se escribe en Kepler.
+
+```
+Armar el día → Preparar (forma de pago) → Dirección autoriza → se paga en el banco / ventanilla
+   → VALIDAR: movimiento del banco + comprobante (efectivo: salida de ventanilla)
+   → ENSAYO: la Suite muestra el X-D-26 exacto; una persona lo aprueba
+   → ESCRIBIR el X-D-26 en Kepler (automático después del ensayo)
+```
+
+**Decisiones de Edgar (2026-11-09):**
+
+| # | Decisión |
+|---|---|
+| F1 | **La autorización de Dirección se queda**, antes de pagar |
+| F2 | **Validar exige banco Y comprobante**: el movimiento (misma cuenta, ±$1, ±5 días — la regla medida de `[PGP.97]`) y el comprobante con la CLABE destino del pago |
+| F3 | **Kepler: ensayo y luego automático** — las primeras 2 semanas cada X-D-26 se muestra y una persona lo aprueba; validado contra lo que Tesorería capturaba a mano, pasa a automático |
+| F4 | **Efectivo de Caja General se valida con la ventanilla** (su salida con folio y firma de Tesorería), no con el estado de cuenta |
+
+**Estado medido hoy (prod, sólo lectura):** los movimientos del banco llegan **hasta hoy** (noviembre
+se volvió a subir el 2026-11-09; 17 movimientos con fecha imposible, posterior a hoy). Comprobantes
+de pago a proveedor: **16 en 30 días** — con F2, Tesorería tiene que subir el comprobante de CADA
+pago o nada se valida. Es el cuello del flujo nuevo, y se dice primero.
+
+**Items (C0 → C3, un escalón a la vez):**
+
+| Item | Capa | Qué | Estado |
+|---|---|---|---|
+| `[PGP.102]` | C0 | Medir el par **pago de la Suite ↔ movimiento del banco** (cuenta de origen del pago ↔ cuenta del estado de cuenta, ±$1, ±5 días) con control placebo, sobre los pagos que Kepler ya saldó; y el par pago ↔ comprobante (importe + CLABE) y pago en efectivo ↔ salida de ventanilla | ⬜ |
+| `[PGP.103]` | C1 | Regla pura `validacionDelPago`: `sin_movimiento · falta_comprobante · comprobante_sin_movimiento · discrepa · validado` (efectivo: `sin_salida_ventanilla · validado`). Lo no medible se declara | ⬜ |
+| `[PGP.104]` | C2+C3 | El día trae la validación por pago; el botón «Pagado» se retira: el estado sale de la evidencia. Lo que falta se dice con su nombre (sigue la línea de `[PGP.100]`) | ⬜ |
+| `[PGP.105]` | C2+C3 | **Ensayo**: por cada pago validado y que Kepler no tenga ya, el X-D-26 exacto que se escribiría (armador `[PGP.71]`), con «Aprobar» | ⬜ |
+| `[PGP.106]` | C2 | **Escribir**: reclamar el pago de forma atómica (`kepler_payment_folio`) antes de escribir, revisar que Kepler no lo tenga ya capturado a mano, escribir las **8 tablas** (falta `kdm5` y la póliza `kdc2AAMM` en el armador) | ⚠️ espera el GRANT de quien administra Kepler (INSERT `kdxe`/`kdxf`, UPDATE `kdxe.c20`, …) y la lista completa de tablas (`ops/prod/ensayo-pago-kepler/foto-contadores.js`) |
+
+⛔ Escribir en Kepler no se deshace: `[PGP.106]` no se enciende sin el ensayo de `[PGP.105]` en verde
+durante 2 semanas contra lo que Tesorería capturó a mano.
