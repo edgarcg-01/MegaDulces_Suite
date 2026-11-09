@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Changed — App del vendedor: lo que el cliente pide se captura aunque no haya, y el servidor lo registra para Compras (DN.6–DN.8, DN.11a · ADR-115, 2026-11-08 · en código, sin soltar)
+- El vendedor agrega un producto aunque esté en existencia 0: entra sin aviso emergente y la fila sigue en rojo («Puede estar agotado en LPA · PH tiene 14»). Antes la app lo bloqueaba en el teléfono y lo que el cliente pidió no quedaba en ningún lado.
+- Al agendar, el servidor registra cada renglón de la preventa de la app —también lo que llega por la sincronización sin conexión— con su existencia en la sucursal de surtido (`commercial.order_stock_notices`). Nunca hace fallar el agendado; un barrido cada 5 min declara «sin dato» lo que no se pudo leer.
+- El pedido sugerido sigue sin proponer lo que no hay, también sin conexión, y dice qué dejó fuera.
+- ⚠️ Migración `20261107175004_dn6_order_stock_notices` en prod **antes de soltar**, fuera de horario; el servidor antes que la app. Sin permisos nuevos.
+
 ### Added — Pagos › Salidas del banco: lo que salió a proveedores, contra Kepler y el programa (PGP.97, 2026-11-08 · en código, sin soltar)
 - Pestaña nueva en «Pagos»: cada transferencia a proveedor del workbook de bancos, con su pago en Kepler (o «Falta», a más de 7 días) y si pasó por el Calendario. Propone a quién se le pagó y qué facturas salda, con su nivel de evidencia.
 - La meta «100 % por el programa», por dinero, desde Kepler: banco y caja por separado.

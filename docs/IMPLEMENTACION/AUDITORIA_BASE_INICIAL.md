@@ -993,6 +993,27 @@ pólizas de la cuenta 515 por documento).
 
 ---
 
+## Addendum — `AUD-DAT.29`: prod tiene `catalog.products.articulo` y ninguna migración la crea (2026-11-08)
+
+**Estado: ABIERTO, sin dueño asignado.** Lateral a `[DN.8]`; la prueba lo rodea, no lo arregla.
+
+- **Qué pasa:** el resolvedor de existencia y la tarificación del legado (`stock-state.ts`, `skusDeKepler`; `[MCP.3.16]`, `[VEX.3]`) leen `catalog.products.articulo` para el gemelo del legado. Prod la tiene (`varchar(20)`, nula; llegó con la importación de Railway, `database/scripts/local-import-from-railway.sql`), pero ninguna migración de `migrations-newdb` la crea, y `dev-bootstrap-empty-db.js` moldea desde la foto de prod las TABLAS que faltan, no las columnas.
+- **Lo medido (2026-11-08):** en prod (`system_identifier` 7688376744939610156, sólo lectura) la columna existe y 4,580 de 14,944 productos la llenan. En el job `pruebas-db` del CI sobre `main` 3a6988e11, `test-newdb-existencia-vendedor.js` aborta en su siembra («column "articulo" of relation "products" does not exist»: 0 ✓ · 1 ✗); en el PR #518 la suite nueva de DN se cortaba en su sección [3] por la misma columna.
+- **Rodeo (PR #518):** `database/tests/_lib/columnas-de-prod.js` la agrega DENTRO de la transacción de la prueba, con el tipo de la foto de prod, y lo declara en la salida. **No es el arreglo.**
+- **Arreglo de fondo, sin hacer:** una migración que la cree con `hasColumn` (en prod no hace nada) para que toda base nueva —la del CI y las de desarrollo— tenga la forma de prod. **No medido:** si otras columnas de prod están en la misma situación (comparar la foto de prod contra una base recién armada lo diría).
+
+---
+
+## Addendum — `AUD-DAT.30`: la prueba de controles del Calendario de Pagos choca con su semilla según la fecha UTC del runner (2026-11-08)
+
+**Estado: ABIERTO, sin dueño asignado.** Ajeno a DN; lo encontró el CI del PR #518.
+
+- **Qué pasa:** `database/seeds-newdb/08_mega_dulces_payment_calendar_demo.js` crea lotes de pago en días relativos a HOY (sin proveedores activos: hoy −9, −5, −1, +3, +10, +22 y +35) y `test-newdb-payment-calendar-controls.js` inserta lotes en fechas FIJAS (2026-12-01, -02, -03 y -05), con llave única (tenant, fecha). El job `pruebas-db` no fija `TZ`: «hoy» es la fecha UTC del runner.
+- **Lo medido:** el 2026-11-09 UTC, hoy + 22 = 2026-12-01 y la suite falla con `duplicate key … payment_calendar_lots_tenant_id_lot_date_key` — en las corridas del PR #518 y en `main` 3a6988e11 relanzado ese día (control). El 2026-11-08 UTC, la misma `main` pasó 31 ✓. Vuelve a pasar el día que ninguna fecha fija cae en hoy + un desplazamiento de la semilla.
+- **Arreglo, sin hacer:** que la prueba no dependa de fechas libres (borrar antes de insertar, como `test-newdb-pgp76-orden-del-dia.js`, o fechas que la semilla no alcanza), o que la semilla no use fechas que las pruebas fijan.
+
+---
+
 ## Cómo usar este documento
 
 1. Cada finding tiene un código (`1.1`, `2.3`, etc.). Cuando se arregla, agregar fecha en `03_LOG_REVISIONES.md` con referencia al código.

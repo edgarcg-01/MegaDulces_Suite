@@ -5,7 +5,30 @@ unidad (pieza, paquete, caja) y agenda el pedido. Las entradas más nuevas van a
 
 ---
 
+## Lo que el cliente pide se captura aunque no haya; el servidor lo registra para Compras (DN.7, DN.8, DN.11a — en código el 2026-11-07, sin desplegar)
+
+- **Problema:** el bloqueo de MCP.3.16 frenaba el producto agotado EN EL TELÉFONO, sin llamar al servidor: lo que el
+  cliente pidió no quedaba en ningún lado. Medido (misma base): antes del bloqueo entraba sin existencia el 14.2 % de
+  los renglones de preventa (31 de 218); con el bloqueo, el 0.23 % (2 de 857). Compras perdió la señal.
+- **Solución (ADR-115):** el «+» agrega siempre, sin aviso emergente; la fila conserva su estado (rojo «Sin
+  existencias», gris «no se maneja»). Elegir en la tira una sucursal en 0 también se deja, y la fila lo dice como
+  opción («En PH puede no haber: puedes surtir de otra sucursal»). El pedido **sugerido** sigue sin proponer lo que no
+  hay, también sin conexión con la lectura guardada de menos de 6 h, y dice qué dejó fuera (lo predijo el
+  sistema, no lo pidió el cliente). Con una lectura más vieja no se afirma nada: entra, y si al agendar
+  resulta agotado se registra (declarado: el registro no sabe que vino del sugerido).
+- **Cómo:** el servidor ya no responde 409: `addLine`/`updateLine` guardan el renglón y devuelven `stock_state` y
+  `stock_review`. Al agendar, `place()` registra cada renglón en `commercial.order_stock_notices` con su existencia
+  (`agotado` / `no_se_maneja` = demanda negada). La app manda `client_build` para medir por versión.
+- **Por qué:** el «agotado» de Kepler no es testigo fiable (29.4 % de los saldos ≤ 0 son negativos) y el vendedor no
+  debe sustituir por intuición: captura lo que el cliente pide y el sistema le corrige la plana al agendar (la hoja
+  con sustitutos es el frente 2 del anexo A de la fase DN).
+
+---
+
 ## La existencia dice la verdad y no deja agregar lo que no hay (MCP.3.16, 2026-10-27)
+
+> ⚠️ **El bloqueo de esta entrada se quita con ADR-115 (en código el 2026-11-07, sin desplegar; entrada de arriba).**
+> Los cuatro estados se quedan.
 
 - **Problema:** a 40–64 % del catálogo no se le veía existencia (productos que la sucursal nunca ha manejado), CAN y
   MM decían «Sin existencias» de lo que no manejan, y 573 productos estaban duplicados (el viejo sin existencia).
