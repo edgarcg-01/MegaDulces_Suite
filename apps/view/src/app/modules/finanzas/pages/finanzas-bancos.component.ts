@@ -30,6 +30,7 @@ import { BancosConcentradoComponent } from './bancos/bancos-concentrado.componen
 import { BancosConciliacionComponent } from './bancos/bancos-conciliacion.component';
 import { BancosCuentasComponent } from './bancos/bancos-cuentas.component';
 import { BancosEstadoBancoComponent } from './bancos/bancos-estado-banco.component';
+import { BancosDescargasAvisoComponent } from '../components/bancos-descargas-aviso.component';
 import { BancosCierreComponent } from './bancos/bancos-cierre.component';
 import { BancosMovimientosComponent } from './bancos/bancos-movimientos.component';
 import { BancosAdminComponent } from './bancos/bancos-admin.component';
@@ -49,7 +50,7 @@ import { BANCOS_CONCILIACION_TABS } from '../bancos-conciliacion-tabs';
 @Component({
   selector: 'app-finanzas-bancos',
   standalone: true,
-  imports: [DatePipe, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, CheckboxModule, InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, MetricStripComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent, BancosConcentradoComponent, BancosConciliacionComponent, BancosCuentasComponent, BancosEstadoBancoComponent, BancosCierreComponent, BancosMovimientosComponent, BancosAdminComponent, BancosContpaqiComponent, BancosThreeWayComponent, BancosCapturasComponent, PageTabsComponent],
+  imports: [DatePipe, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, CheckboxModule, InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, MetricStripComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent, BancosConcentradoComponent, BancosConciliacionComponent, BancosCuentasComponent, BancosEstadoBancoComponent, BancosDescargasAvisoComponent, BancosCierreComponent, BancosMovimientosComponent, BancosAdminComponent, BancosContpaqiComponent, BancosThreeWayComponent, BancosCapturasComponent, PageTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -128,6 +129,8 @@ import { BANCOS_CONCILIACION_TABS } from '../bancos-conciliacion-tabs';
         @if (diagError()) {
           <app-load-state [error]="diagError()" (retry)="setPeriod(period())"></app-load-state>
         } @else {
+          <!-- [CB.59] Lo primero del cierre: si falta la descarga del banco de alguna cuenta. -->
+          <bancos-descargas-aviso (irA)="goView('estados')" />
           <bancos-cierre [diagnostico]="diagnostico()" [concentrado]="concentrado()" [balances]="balances()"
             [period]="period()" (itemAction)="itemAction($event)" />
         }
@@ -194,9 +197,12 @@ import { BANCOS_CONCILIACION_TABS } from '../bancos-conciliacion-tabs';
       }
 
       <!-- ── CUENTAS: cuadre de saldos por cuenta (clic → sus movimientos) ── -->
-      @if (view() === 'cuentas') {
-        <!-- [CB.59] La descarga del banco, arriba: es la que reemplaza al libro. -->
+      <!-- ── ESTADOS DE CUENTA: la descarga del banco, la que reemplaza al libro (CB.59) ── -->
+      @if (view() === 'estados') {
         <bancos-estado-banco />
+      }
+
+      @if (view() === 'cuentas') {
         <bancos-cuentas [balances]="balances()" [statements]="statements()" [diagnostico]="diagnostico()"
           [period]="period()" (openAccount)="verCuentaMovs($event)" />
       }

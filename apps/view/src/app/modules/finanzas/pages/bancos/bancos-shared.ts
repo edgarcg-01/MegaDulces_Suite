@@ -5,7 +5,7 @@
  * funciones puras, así cada hijo importa lo que necesita sin acoplarse al shell.
  */
 
-export type BankView = 'cierre' | 'movimientos' | 'concentrado' | 'conciliacion' | 'contpaqi' | 'cuadre' | 'cuentas' | 'capturas' | 'admin';
+export type BankView = 'cierre' | 'estados' | 'movimientos' | 'concentrado' | 'conciliacion' | 'contpaqi' | 'cuadre' | 'cuentas' | 'capturas' | 'admin';
 export type BankAdminTab = 'catalogo' | 'cuentas';
 
 export const MONTHS_ES: Record<string, string> = {
@@ -54,6 +54,8 @@ export function periodoDelArchivo(nombre: string, seleccionado: string | null | 
 // → Factoraje (nicho) → Capturas (entrada). Cierre = home (default del shell).
 export const WORK_VIEWS: { key: BankView; label: string; icon: string }[] = [
   { key: 'cierre', label: 'Cierre', icon: 'pi pi-flag' },
+  // [CB.59] La entrada de todo lo demás: la descarga del banco (Edgar, 2026-11-09: vista propia en Bancos).
+  { key: 'estados', label: 'Estados de cuenta', icon: 'pi pi-file-import' },
   { key: 'cuadre', label: 'Cuadre', icon: 'pi pi-check-square' },
   { key: 'conciliacion', label: 'Conciliación', icon: 'pi pi-sync' },
   { key: 'movimientos', label: 'Movimientos', icon: 'pi pi-list' },
