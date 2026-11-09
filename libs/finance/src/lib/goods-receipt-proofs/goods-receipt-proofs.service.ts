@@ -2527,11 +2527,13 @@ export class GoodsReceiptProofsService {
         agrupados: results.filter((r) => r.status === 'agrupado').length,
         revisar: results.filter((r) => r.status === 'revisar').length,
         kepler_orphans: c.kepler_orphans.length,
+        // `[RE.60]` leído como renglón, sin cantidad ni importe: no se concilia y se declara
+        no_producto: c.no_producto.length,
       };
 
       return {
         sucursal: suc, folio: fol, proveedor_rfc: rfc || null, proveedor_nombre: entrada.proveedor_nombre || null,
-        lines: results, kepler_orphans: c.kepler_orphans, base_precio: c.base_precio, totals,
+        lines: results, kepler_orphans: c.kepler_orphans, base_precio: c.base_precio, no_producto: c.no_producto, totals,
         lectura: fuente.lectura,
       };
     });

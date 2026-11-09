@@ -954,16 +954,13 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
           <!-- Las tres cifras comparables, juntas y alineadas a la misma columna.
                Vivían en tres bloques distintos del diálogo, que es exactamente lo que
                impedía compararlas de un vistazo. -->
+          <!-- [RE.60] Dos cifras, no tres: la suma de los renglones explica cómo se compone la de
+               Kepler; como tercera columna competía con las dos que se comparan. -->
           <dl class="cb-tri">
             <div class="cb-tri-c">
               <dt>Kepler</dt>
               <dd>{{ money(q.kepler) }}</dd>
-              <p>total registrado, con IVA</p>
-            </div>
-            <div class="cb-tri-c">
-              <dt>Σ renglones</dt>
-              <dd>{{ money(q.lineas) }}</dd>
-              <p>{{ q.lineasMeta }}</p>
+              <p>{{ money(q.lineas) }} en {{ q.lineasMeta }}</p>
             </div>
             <div class="cb-tri-c" [class.is-off]="q.tone === 'bad'" [class.is-desmentido]="q.ocrDesmentido">
               <dt>Documento (OCR)</dt>
@@ -973,31 +970,26 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
           </dl>
         }
 
-        <div class="cb-cobro">
-          <div><span class="cb-lbl">Entrada</span>
-            <button type="button" class="cb-reflink strong" (click)="inspect.set(refEnt(d.entrada.sucursal, d.entrada.folio))"
-                    title="Ficha completa: renglones, ajustes, pagos candidatos y copia CEDIS">{{ d.entrada.sucursal | sucursal }} · <span class="mono">{{ d.entrada.folio }}</span></button></div>
-          <div><span class="cb-lbl">Proveedor</span>
-            @if (d.entrada.proveedor_code) {
-              <button type="button" class="cb-reflink strong" (click)="inspect.set(refProv(d.entrada.proveedor_code))"
-                      title="Ficha del proveedor: compras, ajustes, pagos y listas del SAT">{{ d.entrada.proveedor_nombre || d.entrada.proveedor_code }}</button>
-            } @else { <strong>{{ d.entrada.proveedor_nombre || '—' }}</strong> }
-            <div class="cb-sub">{{ d.entrada.proveedor_rfc }}</div></div>
-          <div><span class="cb-lbl">Fecha</span><strong>{{ d.entrada.receipt_date | date:'dd/MM/yy' }}</strong></div>
-          <div><span class="cb-lbl">OC / Vale</span><strong class="mono">
-            @if (d.entrada.oc_folio) {
+        <!-- [RE.60] Una línea, no un bloque de cuatro rótulos: sucursal, folio y proveedor ya los dice el
+             encabezado del panel. Quedan las ligas a sus fichas. -->
+        <p class="cb-ficha">
+          <span>{{ d.entrada.receipt_date | date:'dd/MM/yy' }}</span>
+          <span>OC @if (d.entrada.oc_folio) {
               <button type="button" class="cb-reflink mono" (click)="inspect.set(refOc(d.entrada.sucursal, d.entrada.oc_folio))"
                       title="Abrir la orden de compra: lo pedido, sus vales y qué tanto se surtió">{{ d.entrada.oc_folio }}</button>
-            } @else { — }
-            /
-            @if (d.entrada.vale_folio) {
+            } @else { — }</span>
+          <span>Vale @if (d.entrada.vale_folio) {
               <button type="button" class="cb-reflink mono" (click)="inspect.set(refVale(d.entrada.sucursal, d.entrada.vale_folio))"
                       title="Abrir el vale de entrada y su orden de compra">{{ d.entrada.vale_folio }}</button>
-            } @else { — }
-          </strong></div>
-          <!-- [RE.52] Sin «Total Kepler»: ya está en las tres cifras de arriba (salía tres veces, en
-               naranja de acción la última). -->
-        </div>
+            } @else { — }</span>
+          <button type="button" class="cb-reflink" (click)="inspect.set(refEnt(d.entrada.sucursal, d.entrada.folio))"
+                  title="Ficha completa: renglones, ajustes, pagos candidatos y copia CEDIS">Ficha de la entrada</button>
+          @if (d.entrada.proveedor_code) {
+            <button type="button" class="cb-reflink" (click)="inspect.set(refProv(d.entrada.proveedor_code))"
+                    title="Ficha del proveedor: compras, ajustes, pagos y listas del SAT">Ficha del proveedor</button>
+          }
+          @if (d.entrada.proveedor_rfc) { <span class="mono">{{ d.entrada.proveedor_rfc }}</span> }
+        </p>
         @if (d.redirigido_de) {
           <div class="cb-twin"><i class="pi pi-directions" aria-hidden="true"></i>
             <span>Buscaste <strong>{{ d.redirigido_de.sucursal | sucursal }} · <span class="mono">{{ d.redirigido_de.folio }}</span></strong>,
@@ -1025,51 +1017,11 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
         <!-- [RE.35] El expediente de la factura: el CFDI de ContPAQi ligado a esta entrada. Su
              conclusión ya subió al veredicto de arriba; aquí queda la evidencia, con lo que coincide
              plegado. El papel identifica, el CFDI informa. -->
-        <app-compras-entrada-expediente class="cb-expediente" [sucursal]="d.entrada.sucursal" [folio]="d.entrada.folio" (cargado)="expedientePanel.set($event)" />
 
         <!-- [RE.52] Sin scroll propio: un scroll dentro del scroll del panel escondía renglones sin
              avisar. El panel es el único que se desplaza. -->
         <!-- [RE.52] class, no styleClass: p-table de PrimeNG 22 no tiene esa entrada y la ignoraba
              en silencio (ni .cb-table ni el alineado a la derecha de los números se aplicaban). -->
-        <p-table [value]="d.lineas" class="cb-table" size="small"
-                 [paginator]="d.lineas.length > 200" [rows]="200">
-          <ng-template #header>
-            <tr>
-              <th style="width:2.2rem">#</th>
-              <th style="width:4.5rem">SKU</th>
-              <th>Producto</th>
-              <th class="ta-r" style="width:4rem">Cant.</th>
-              <th style="width:3rem">U</th>
-              <th class="ta-r" style="width:5.5rem">Costo u.</th>
-              <th class="ta-r" style="width:6.5rem">Importe</th>
-            </tr>
-          </ng-template>
-          <ng-template #body let-l>
-            <tr>
-              <td class="muted">
-                <button type="button" class="cb-reflink" (click)="inspect.set(refLin(d.entrada.sucursal, d.entrada.folio, l.linea))"
-                        [attr.aria-label]="'Abrir el renglón ' + l.linea">{{ l.linea }}</button>
-              </td>
-              <td class="mono">
-                @if (l.sku) {
-                  <button type="button" class="cb-reflink mono" (click)="inspect.set(refSku(l.sku))"
-                          [attr.aria-label]="'Abrir el producto ' + l.sku">{{ l.sku }}</button>
-                } @else { <span class="muted">—</span> }
-              </td>
-              <td>{{ l.nombre || '—' }}</td>
-              <td class="ta-r">{{ l.cantidad | number:'1.0-2' }}</td>
-              <td class="muted">{{ l.unidad || '' }}</td>
-              <td class="ta-r">{{ money(l.costo_unitario) }}</td>
-              <td class="ta-r strong">{{ money(l.importe) }}</td>
-            </tr>
-          </ng-template>
-          <ng-template #emptymessage><tr><td colspan="7" class="cb-empty">Sin líneas de detalle para esta entrada.</td></tr></ng-template>
-        </p-table>
-        <!-- Los totales ya se leyeron arriba, en el bloque de tres cifras. Repetirlos acá
-             obligaba a comparar de memoria entre dos puntos de la misma pantalla. -->
-        <div class="cb-detail-total">
-          <span class="muted">{{ plural(d.lineas.length, 'renglón', 'renglones') }} · Σ {{ money(lineasTotal(d.lineas)) }}</span>
-        </div>
 
         <!-- RE.11 — Conciliación por línea: remisión del proveedor ↔ líneas Kepler ↔ SKU resuelto. -->
         @if (reconLoading()) {
@@ -1077,12 +1029,13 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
         } @else if (recon(); as r) {
           <div class="cb-recon">
             <div class="cb-recon-head">
-              <h4>Conciliación por línea <span class="muted">· {{ r.lectura?.fuente === 'cfdi' ? 'factura (CFDI)' : 'remisión' }} vs Kepler</span></h4>
+              <h4>Productos <span class="muted">· {{ r.lectura?.fuente === 'cfdi' ? 'factura (CFDI)' : 'remisión' }} vs Kepler</span></h4>
               @if (r.lectura?.confiable !== false) {
               <div class="cb-recon-kpis">
-                <span class="cb-rk ok">{{ r.totals.cuadran }} cuadran</span>
-                <span class="cb-rk warn">{{ r.totals.difieren }} difieren</span>
-                <span class="cb-rk bad">{{ r.totals.sin_match }} sin match</span>
+                <!-- [RE.60] Sólo lo que no es cero: «0 difieren» no dice nada que la tabla no diga. -->
+                @if (r.totals.cuadran) { <span class="cb-rk ok">{{ r.totals.cuadran }} cuadran</span> }
+                @if (r.totals.difieren) { <span class="cb-rk warn">{{ r.totals.difieren }} difieren</span> }
+                @if (r.totals.sin_match) { <span class="cb-rk bad">{{ r.totals.sin_match }} sin match</span> }
                 @if (r.totals.revisar) { <span class="cb-rk sec">{{ r.totals.revisar }} revisar</span> }
                 @if (r.totals.agrupados) { <span class="cb-rk sec">{{ r.totals.agrupados }} agrupados en Kepler</span> }
                 @if (r.totals.kepler_orphans) { <span class="cb-rk sec">{{ r.totals.kepler_orphans }} solo en Kepler</span> }
@@ -1109,12 +1062,14 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
               </div>
             } @else {
             <!-- [RE.53] Contra qué se comparó el precio: la base de IVA se decide por documento. -->
-            @if (r.base_precio === 'con_iva') {
-              <p class="cb-recon-base">Los importes de esta remisión traen IVA: se comparan contra Kepler quitándoles el 16 %.</p>
-            } @else if (r.base_precio === 'sin_medir') {
-              <p class="cb-recon-base">No se pudo saber si los importes traen IVA: ningún renglón cuadró en cantidad para medirlo.</p>
-            }
-            <p class="cb-recon-base">Lo que cuadra en cantidad e importe se aprende solo al dar la factura por buena.</p>
+            <!-- [RE.60] Una sola línea de contexto (eran tres párrafos). Lo que se leyó y no es producto
+                 —una nota a mano, la plaza— no se concilia, pero se dice cuál fue. -->
+            <p class="cb-recon-base">
+              @if (r.base_precio === 'con_iva') { Importes con IVA: se comparan quitándoles el 16 %. }
+              @else if (r.base_precio === 'sin_medir') { No se pudo medir si los importes traen IVA. }
+              @if (r.no_producto?.length) { No se concilia lo leído sin cantidad ni importe: @for (n of r.no_producto; track $index) {«{{ n.descripcion }}»{{ $last ? '.' : ', ' }}} }
+              Lo que cuadra se aprende al darla por buena.
+            </p>
             <!-- [RE.52] Cuatro columnas en vez de siete: el PAR (lo que dice la remisión → el producto
                  de Kepler con el que se emparejó) en una celda, para que un cruce se lea de un vistazo
                  (en 03/0001088, «RED COLA 24/400 → RED COLA 600 ML»). En 696px las siete columnas
@@ -1178,7 +1133,59 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
           </div>
         }
 
+        <!-- [RE.60] Los renglones de Kepler: si la conciliación ya muestra los productos (cada renglón del
+             proveedor → su renglón de Kepler), quedan a un clic con su suma; si no, son la tabla. -->
+        @if (reconMuestraProductos() && !verLineasKepler()) {
+          <button type="button" class="cb-toggle" (click)="verLineasKepler.set(true)" [attr.aria-expanded]="false">
+            <i class="pi pi-chevron-right" aria-hidden="true"></i>
+            Ver {{ d.lineas.length === 1 ? 'el renglón' : 'los ' + d.lineas.length + ' renglones' }} de Kepler · Σ {{ money(lineasTotal(d.lineas)) }}
+          </button>
+        } @else {
+        <p-table [value]="d.lineas" class="cb-table" size="small"
+                 [paginator]="d.lineas.length > 200" [rows]="200">
+          <ng-template #header>
+            <tr>
+              <th style="width:2.2rem">#</th>
+              <th style="width:4.5rem">SKU</th>
+              <th>Producto</th>
+              <th class="ta-r" style="width:4rem">Cant.</th>
+              <th style="width:3rem">U</th>
+              <th class="ta-r" style="width:5.5rem">Costo u.</th>
+              <th class="ta-r" style="width:6.5rem">Importe</th>
+            </tr>
+          </ng-template>
+          <ng-template #body let-l>
+            <tr>
+              <td class="muted">
+                <button type="button" class="cb-reflink" (click)="inspect.set(refLin(d.entrada.sucursal, d.entrada.folio, l.linea))"
+                        [attr.aria-label]="'Abrir el renglón ' + l.linea">{{ l.linea }}</button>
+              </td>
+              <td class="mono">
+                @if (l.sku) {
+                  <button type="button" class="cb-reflink mono" (click)="inspect.set(refSku(l.sku))"
+                          [attr.aria-label]="'Abrir el producto ' + l.sku">{{ l.sku }}</button>
+                } @else { <span class="muted">—</span> }
+              </td>
+              <td>{{ l.nombre || '—' }}</td>
+              <td class="ta-r">{{ l.cantidad | number:'1.0-2' }}</td>
+              <td class="muted">{{ l.unidad || '' }}</td>
+              <td class="ta-r">{{ money(l.costo_unitario) }}</td>
+              <td class="ta-r strong">{{ money(l.importe) }}</td>
+            </tr>
+          </ng-template>
+          <ng-template #emptymessage><tr><td colspan="7" class="cb-empty">Sin líneas de detalle para esta entrada.</td></tr></ng-template>
+        </p-table>
+        <!-- Los totales ya se leyeron arriba, en las dos cifras. Repetirlos acá
+             obligaba a comparar de memoria entre dos puntos de la misma pantalla. -->
+        <div class="cb-detail-total">
+          <span class="muted">{{ plural(d.lineas.length, 'renglón', 'renglones') }} · Σ {{ money(lineasTotal(d.lineas)) }}</span>
+        </div>
+        }
+
+        <app-compras-entrada-expediente class="cb-expediente" [sucursal]="d.entrada.sucursal" [folio]="d.entrada.folio" (cargado)="expedientePanel.set($event)" />
+
         <!-- RE.2 — ajustes que EXPLICAN el descuadre (devoluciones / notas de crédito / descuentos del proveedor) -->
+        @if (explains().length || cuadre(d).tone !== 'ok') {
         <div class="cb-explains">
           <div class="cb-explains-head">
             <!-- [RE.52] La pregunta sólo cuando no cuadra: sobre una factura que cuadra afirmaba un descuadre. -->
@@ -1209,19 +1216,18 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
           }
         </div>
 
+        }
+
         <div class="cb-view-attachments">
           <div class="cb-view-att-head">Remisión / factura adjunta</div>
           @if (!d.deposits.length) { <p class="muted cb-view-none">Aún sin remisión adjunta.</p> }
           @for (dep of d.deposits; track dep.id) {
             <div class="cb-view-dep">
+              <!-- [RE.60] El cuadre (Cuadra / No cuadra / su tipo) ya es el veredicto de arriba y «Recibido» es el
+                   estado de toda la bandeja: aquí sólo lo que no se dice en otro lado. -->
               <div class="cb-view-head">
-                <p-tag [value]="depLabel(dep.status)" [severity]="depSev(dep.status)" />
-                @if (dep.monto_match === true) { <p-tag value="Cuadra" severity="success" /> }
-                @else if (dep.monto_match === false) { <p-tag value="No cuadra" severity="danger" /> }
-                @if (dep.discrepancy_kind && dep.discrepancy_kind !== 'cuadra') {
-                  <p-tag [value]="discLabel(dep.discrepancy_kind) + (dep.discrepancy_amount ? ' · ' + money(dep.discrepancy_amount) : '')" [severity]="discSev(dep.discrepancy_kind)" />
-                }
-                <span class="cb-view-meta">{{ dep.created_by || '—' }} · {{ dep.created_at | date:'dd/MM/yy HH:mm' }}</span>
+                @if (dep.status !== 'recibido') { <p-tag [value]="depLabel(dep.status)" [severity]="depSev(dep.status)" /> }
+                <span class="cb-view-meta">Subida por {{ dep.created_by || '—' }} · {{ dep.created_at | date:'dd/MM/yy HH:mm' }}</span>
               </div>
               <!-- [RE.42.1] El posible duplicado que NO frenó la subida: quien subió lo vio y envió
                    igual; decidir si es la misma factura le toca a quien valida, aquí. -->
@@ -1234,6 +1240,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                     · {{ a.mensaje }}</span>
                 </p>
               }
+              @if (hojas().length > 1) {
               <div class="cb-view-files">
                 @for (f of dep.files; track f.url) {
                   <button type="button" class="cb-view-filebtn" [class.on]="hojaIdx() === indiceHoja(f)"
@@ -1244,18 +1251,15 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                 }
                 @if (!dep.files.length) { <span class="muted">Sin archivo.</span> }
               </div>
-              <div class="cb-view-ocr">
-                <span><em>Folio</em> {{ dep.ocr_folio || '—' }}</span>
-                <span><em>Fecha</em> {{ fechaOcr(dep.ocr_fecha) }}</span>
-                <span><em>Proveedor</em> {{ dep.ocr_proveedor || '—' }}</span>
-                <span><em>Total</em> {{ dep.ocr_monto != null ? money(dep.ocr_monto) : '—' }}</span>
-                <!-- [RE.52] Lo que lee el OCR no es dato: un subtotal que no se acerca al total leído se
-                     marca como lectura dudosa (03/0001088: subtotal $1,530.22 sobre un total de $19,646). -->
-                @if (dep.ocr_subtotal != null) {
-                  <span><em>Subtotal</em> {{ money(dep.ocr_subtotal) }}@if (ocrSubtotalDudoso(dep)) {<span class="muted"> · lectura dudosa: no se acerca al total</span>}</span>
+              }
+              <!-- [RE.60] El total leído ya está en «Documento (OCR)»; el subtotal sólo si dice otra cosa. -->
+              <p class="cb-view-ocr"><em>Leído del papel:</em>
+                folio {{ dep.ocr_folio || '—' }} · fecha {{ fechaOcr(dep.ocr_fecha) }} · proveedor «{{ dep.ocr_proveedor || '—' }}»
+                @if (dep.ocr_subtotal != null && dep.ocr_subtotal !== dep.ocr_monto) {
+                  · subtotal {{ money(dep.ocr_subtotal) }}@if (ocrSubtotalDudoso(dep)) {<span class="muted"> (lectura dudosa: no se acerca al total)</span>}
                 }
-                @if (dep.ocr_iva != null) { <span><em>IVA</em> {{ money(dep.ocr_iva) }}</span> }
-              </div>
+                @if (dep.ocr_iva != null) { · IVA {{ money(dep.ocr_iva) }} }
+              </p>
               @if (dep.status === 'rechazado' && dep.motivo_rechazo) { <div class="cb-err">Rechazado: {{ dep.motivo_rechazo }}</div> }
               @if (dep.comentarios) { <div class="cb-view-coment">{{ dep.comentarios }}</div> }
             </div>
@@ -1459,6 +1463,11 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
     .cb-folint[data-ok="false"] { color: var(--warn-fg); }
     .cb-empty { text-align: center; color: var(--text-muted); padding: 2rem; }
     .cb-form { display: flex; flex-direction: column; gap: .85rem; padding: .25rem 0; }
+    /* [RE.60] La ficha de la entrada en una línea. */
+    .cb-ficha { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-1) var(--sp-3); margin: var(--sp-2) 0 0; font-size: var(--fs-sm); color: var(--text-muted); }
+    .cb-toggle { display: inline-flex; align-items: center; gap: var(--sp-1); margin-top: var(--sp-2); padding: var(--sp-1) 0; border: 0; background: none; color: var(--text-muted); font-size: var(--fs-sm); cursor: pointer; }
+    .cb-toggle:hover { color: var(--text-main); }
+    .cb-toggle:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
     .cb-cobro { display: flex; gap: 1.2rem; flex-wrap: wrap; align-items: flex-end; padding: .7rem .9rem; background: var(--surface-2); border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); }
     .cb-cobro > div { display: flex; flex-direction: column; gap: .15rem; }
     .cb-lbl { font-size: var(--fs-micro, .72rem); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
@@ -1600,7 +1609,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
     .cb-periodo { display: flex; gap: var(--sp-1); align-items: center; flex-wrap: wrap; }
     /* [RE.35] El expediente de la factura, entre el cuadre y los datos de la entrada. */
     .cb-expediente { display: block; margin-top: var(--sp-3); }
-    .cb-tri { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; margin: .6rem 0 0;
+    .cb-tri { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; margin: .6rem 0 0;
       border: 1px solid var(--border-color); border-radius: var(--r-md); overflow: hidden; }
     /* Separacion por hairline, sin caja por cifra: mismo criterio que MetricStrip. */
     .cb-tri-c + .cb-tri-c { border-left: 1px solid var(--border-color); }
@@ -1782,7 +1791,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
     .cb-view-filebtn { display: inline-flex; align-items: center; gap: .4rem; padding: .55rem .9rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); color: var(--action); background: var(--card-bg); font-size: .85rem; cursor: pointer; transition: border-color .15s, color .15s; }
     .cb-view-filebtn:hover { border-color: var(--action); }
     .cb-filebtn-name { color: var(--text-muted); font-size: .78rem; }
-    .cb-view-ocr { display: flex; flex-wrap: wrap; gap: .3rem 1.1rem; font-size: .78rem; color: var(--text-main); }
+    .cb-view-ocr { margin: 0; font-size: var(--fs-xs); color: var(--text-main); }
     .cb-view-ocr em { font-style: normal; color: var(--text-muted); margin-right: .3rem; }
     .cb-view-coment { font-size: .8rem; color: var(--text-muted); font-style: italic; }
     /* RE.8/RE.17.5 — el expediente en dos paneles: contenido/OCR (izq) + documento (der).
@@ -3199,6 +3208,7 @@ export class ComprasEntradasComponent {
     this.detailTarget.set(c);
     this.detailData.set(null);
     this.recon.set(null);
+    this.verLineasKepler.set(false);
     this.hojaIdx.set(0);
     this.detailLoading.set(true);
     this.showDetail.set(true);
@@ -3289,6 +3299,14 @@ export class ComprasEntradasComponent {
   }
   /** `[RE.35.6]` El expediente que cargó el panel lateral (lo emite `app-compras-entrada-expediente`). */
   readonly expedientePanel = signal<ReceiptExpediente | null>(null);
+  /** `[RE.60]` Los renglones de Kepler, plegados cuando la conciliación ya muestra los productos. */
+  readonly verLineasKepler = signal(false);
+  /** `[RE.60]` La conciliación muestra los productos (o está por hacerlo): la tabla de Kepler se pliega. */
+  readonly reconMuestraProductos = computed(() => {
+    if (this.reconLoading()) return true;
+    const r = this.recon();
+    return !!r && r.lectura?.confiable !== false && r.lines.length > 0;
+  });
 
   /**
    * `[RE.52]` La conclusión ÚNICA del panel: el cuadre del dinero (`cuadre`) más lo que el
@@ -3302,7 +3320,8 @@ export class ComprasEntradasComponent {
     const motivos = mismo && x.cubo === 'revisar' ? x.motivos : [];
     if (!motivos.length) return { tone: q.tone, icon: q.icon, titulo: q.titulo, lectura: q.lectura, motivos };
     return q.tone === 'ok'
-      ? { tone: 'warn' as const, icon: 'pi-exclamation-triangle', titulo: 'Revisar antes de darla por buena', lectura: `${q.titulo}. ${q.lectura}`, motivos }
+      // [RE.60] Sólo el titular del cuadre: las dos cifras están justo debajo (se leían dos veces).
+      ? { tone: 'warn' as const, icon: 'pi-exclamation-triangle', titulo: 'Revisar antes de darla por buena', lectura: `${q.titulo}.`, motivos }
       : { tone: q.tone, icon: q.icon, titulo: q.titulo, lectura: q.lectura, motivos };
   }
 
@@ -3350,8 +3369,6 @@ export class ComprasEntradasComponent {
   // `gemela` (RE.14) no es un descuadre con el proveedor: la factura cuadra con la captura de
   // oficinas y la diferencia es contra la de la sucursal. Etiquetarla como "Descuadre" mandaría
   // a reclamarle a quien no se equivocó.
-  discLabel(k: string): string { return ({ iva: 'Diferencia = IVA', typo: 'Posible error de captura', otro: 'Descuadre', cuadra: 'Cuadra', gemela: 'Cuadra con oficinas' } as Record<string, string>)[k] || k; }
-  discSev(k: string): 'success' | 'warn' | 'danger' | 'secondary' { return ({ cuadra: 'success', iva: 'secondary', typo: 'danger', otro: 'warn', gemela: 'secondary' } as Record<string, 'success' | 'warn' | 'danger' | 'secondary'>)[k] || 'secondary'; }
   /**
    * `[RE.25]` — El cuadre del DOCUMENTO, que es un eje distinto del estado del trámite:
    * `Validado` dice que alguien decidió, `Cuadra` dice que los números concuerdan. Una entrada
