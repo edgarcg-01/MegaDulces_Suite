@@ -113,7 +113,7 @@ Al encender, en el mismo cambio: `ENABLE_HR_ATTENDANCE_AGENT=true` + filas `hr_a
 | [RH.1.9] (opcional) | Modo push ADMS para PH y Morelia Abastos | — |
 | [RH.2.1]–[RH.2.4] | Reclutamiento: `talent.*`, API, pantallas, portal público `/empleo/*` con token firmado | 27-oct → 21-nov (se construye sin cortar; puede arrancar antes si RH.1 se adelanta) |
 | [RH.3.1]–[RH.3.4] | Bot en `libs/whatsapp`: ruteo por número, conversación, solicitud, CV, dictamen; se retira Firestore y el panel del bot | → 28-nov |
-| [RH.3.5] **Corte** | Reclutamiento + bot juntos: carga única de candidatos, mensajes y documentos (al bucket privado); el webhook de Meta apunta a la Suite | **5-dic** |
+| [RH.3.5] **Corte** | Reclutamiento + bot juntos: carga única de candidatos, mensajes y documentos (al bucket privado); el webhook de Meta apunta a la Suite. **9-nov: la carga de candidatos, vacantes, etapas y eventos ya existe** (`[RH.2.5]`, `carga-reclutamiento-mega-talento.js`); faltan mensajes (220,897), conversaciones a medias y mover los archivos | **5-dic** |
 | [RH.4.1]–[RH.4.3] | Apagar API, front y bot en Railway; quitar el servicio de Windows; rotar la contraseña de la base compartida y dar un rol propio a cada sistema que queda; cerrar `[CH.0.7]`–`[CH.0.10]` y `[ID.16]` | **18-dic** |
 | RH.5 | Nómina, sobres y entrega sin papel | después del apagado |
 
