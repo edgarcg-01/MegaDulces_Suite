@@ -1,6 +1,6 @@
 import type { TransferenciaGasto } from '@megadulces/contracts';
 import {
-  DIAS_ATORADO, agruparPorProveedor, cicloCerrado, diasDesde, notaDePago, textoAntiguedad, ubicacionDe,
+  DIAS_ATORADO, agruparPorProveedor, cicloCerrado, diasDesde, notaDePago, situacionDe, textoAntiguedad, ubicacionDe,
 } from './mis-gastos-columnas';
 
 /**
@@ -142,5 +142,67 @@ describe('[GX.65.5] agruparPorProveedor', () => {
 
   it('lista vacía, grupos vacíos', () => {
     expect(agruparPorProveedor([])).toEqual([]);
+  });
+});
+
+/**
+ * `[GX.92]` El cierre por cancelación. Medido en prod el 2026-11-05: 32 revisados con la
+ * solicitud cancelada en Kepler se quedaban para siempre en «Falta el gasto en Kepler».
+ */
+describe('[GX.92] cicloCerrado: la solicitud cancelada también cierra', () => {
+  it('⭐ revisado con la solicitud cancelada, sin gasto: cerrado', () => {
+    expect(cicloCerrado({ status: 'validada', etapa: 'cancelado_kepler', gasto_folios: [] })).toBe(true);
+  });
+
+  it('⛔ cancelada pero SIN revisar: no cierra (nuestro trámite sigue abierto)', () => {
+    expect(cicloCerrado({ status: 'aprobada', etapa: 'cancelado_kepler', gasto_folios: [] })).toBe(false);
+  });
+});
+
+/**
+ * `[GX.97]` A quién le toca cada vale: el eje de «Mis gastos» v2.
+ */
+describe('[GX.97] situacionDe', () => {
+  it('lo que te toca: el asignado sin evidencia, el devuelto y el aprobado que debe algo', () => {
+    expect(situacionDe({ etapa: 'asignado', status: null })?.aQuien).toBe('tu');
+    expect(situacionDe({ status: 'rechazada', motivo_rechazo: 'Falta la factura' })).toEqual({
+      aQuien: 'tu', etapaNombre: 'Solicitud', mal: true, texto: 'Te lo devolvieron: Falta la factura. Captúralo de nuevo.',
+    });
+    expect(situacionDe({ status: 'aprobada', debeFactura: true })?.texto).toBe('Te toca subir la factura del pago');
+    expect(situacionDe({ status: 'aprobada' })?.texto).toBe('Te toca subir la evidencia');
+  });
+
+  it('un devuelto sin motivo no deja un hueco en la frase', () => {
+    expect(situacionDe({ status: 'rechazada', motivo_rechazo: '  ' })?.texto).toBe('Te lo devolvieron. Captúralo de nuevo.');
+  });
+
+  it('lo que espera a Finanzas', () => {
+    expect(situacionDe({ status: 'recibida' })?.aQuien).toBe('finanzas');
+    expect(situacionDe({ status: 'revision' })?.aQuien).toBe('finanzas');
+  });
+
+  it('lo revisado que espera a Kepler dice A QUÉ espera', () => {
+    expect(situacionDe({ status: 'validada', etapa: 'autorizado', gasto_folios: [] })).toEqual({
+      aQuien: 'kepler', etapaNombre: 'Expediente', mal: false, texto: 'Autorizada: falta generar el gasto en Kepler',
+    });
+    expect(situacionDe({ status: 'validada', etapa: 'por_ejercer', gasto_folios: [] })?.texto).toBe('Falta que la autoricen en Kepler');
+  });
+
+  it('lo cerrado dice cómo cerró', () => {
+    expect(situacionDe({ status: 'validada', etapa: 'ejercido', gasto_folios: ['1'] })?.texto).toBe('Gasto aplicado en Kepler');
+    expect(situacionDe({ status: 'validada', etapa: 'cancelado_kepler', gasto_folios: [] })).toEqual({
+      aQuien: 'cerrado', etapaNombre: 'Expediente', mal: false, texto: 'Solicitud cancelada en Kepler',
+    });
+  });
+
+  it('las etapas conservan los nombres que la gente ya usa', () => {
+    expect(situacionDe({ status: 'recibida' })?.etapaNombre).toBe('Solicitud');
+    expect(situacionDe({ status: 'aprobada' })?.etapaNombre).toBe('Pendiente de comprobación');
+    expect(situacionDe({ status: 'validada', gasto_folios: [] })?.etapaNombre).toBe('Expediente');
+  });
+
+  it('⛔ un estado que no conoce devuelve null (la pantalla lo dice)', () => {
+    expect(situacionDe({ status: 'raro' })).toBeNull();
+    expect(situacionDe({})).toBeNull();
   });
 });

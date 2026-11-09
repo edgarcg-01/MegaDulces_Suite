@@ -501,4 +501,65 @@ describe('ValeGastoPeekComponent', () => {
       expect(botonAgregar()!.disabled).toBe(true);
     });
   });
+
+  /**
+   * `[GX.99]` La evidencia se ve ENTERA en el panel, sin scroll, y tocarla abre el visor grande
+   * (pedido del usuario, 2026-11-06).
+   */
+  describe('[GX.99] la evidencia en el panel', () => {
+    it('cada archivo es un botón que abre el visor grande en ESE archivo', () => {
+      montar(V({ files: [
+        { role: 'comprobante_1', url: 'https://ejemplo/1.jpg', kind: 'image' },
+        { role: 'cotizacion', url: 'https://ejemplo/2.pdf', kind: 'pdf' },
+      ] } as Partial<ValeGasto>));
+      const botones = fix.nativeElement.querySelectorAll('button.vp-mini') as NodeListOf<HTMLButtonElement>;
+      expect(botones.length).toBe(2);
+      botones[1].click();
+      fix.detectChanges();
+      expect(c.visorAbierto()).toBe(true);
+      expect(c.visorIndice()).toBe(1);
+    });
+
+    it('el PDF se muestra con su página entera, sin barras (y sólo se sanitiza una vez)', () => {
+      montar(V({ files: [{ role: 'cotizacion', url: 'https://ejemplo/f.pdf?firma=1', kind: 'pdf' }] } as Partial<ValeGasto>));
+      const d = c.docs()[0];
+      expect(String((d.safeUrlVista as { changingThisBreaksApplicationSecurity?: string })?.changingThisBreaksApplicationSecurity))
+        .toBe('https://ejemplo/f.pdf?firma=1#view=Fit&toolbar=0&navpanes=0&scrollbar=0');
+      expect(c.docs()[0]).toBe(d);
+    });
+
+    it('al cambiar de vale, el visor grande se cierra (era del vale anterior)', () => {
+      montar();
+      c.verEvidencia(0);
+      fix.componentRef.setInput('vale', V({ id: 'otro' }));
+      fix.detectChanges();
+      expect(c.visorAbierto()).toBe(false);
+    });
+  });
+
+  /** `[GX.98]` El departamento es el de Kepler; el capturado decía «Sucursal NN» en todos los vales. */
+  describe('[GX.98] el departamento del vale', () => {
+    const texto = () => fix.nativeElement.textContent as string;
+    it('uno solo: su nombre', () => {
+      montar(V({ departamento: 'Sucursal 00', departamentos: [{ clave: 'A', nombre: 'MORELIA ABASTOS', importe: 1234.5 }] }));
+      expect(texto()).toContain('MORELIA ABASTOS');
+      expect(texto()).not.toContain('Sucursal 00');
+    });
+
+    it('repartido: cada uno con su parte', () => {
+      montar(V({ departamentos: [{ clave: 'A', nombre: 'MORELIA ABASTOS', importe: 750 }, { clave: 'B', nombre: 'CANINDO', importe: 484.5 }] }));
+      expect(texto()).toContain('Departamentos');
+      expect(texto()).toContain('CANINDO');
+      expect(texto()).toContain('$484.50');
+      expect(c.subtituloPeek()).toContain('MORELIA ABASTOS y 1 más');
+    });
+
+    it('⛔ sin departamento en Kepler y sin leer se dicen distinto', () => {
+      montar(V({ departamentos: [] }));
+      expect(texto()).toContain('sin departamento en Kepler');
+      fix.componentRef.setInput('vale', V({ departamentos: null }));
+      fix.detectChanges();
+      expect(texto()).toContain('sin leer en Kepler');
+    });
+  });
 });

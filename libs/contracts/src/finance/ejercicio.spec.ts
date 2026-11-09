@@ -1,6 +1,7 @@
 import {
   ETAPAS_VISIBLES, ETIQUETA_ETAPA, EXPLICACION_ETAPA,
   NO_CONSTA_EN_KEPLER, constanciaDeAutorizacion, documentoKepler, etapaDeEjercicio, seDebeAvisar, type EstadoEjercicio, type EtapaEjercicio,
+  ETIQUETA_CIERRE, ETIQUETA_ESPERA_KEPLER, cicloCerrado, esHallazgoCanceladaConGasto, esperaDeKepler, motivoDeCierre,
 } from './ejercicio.contract';
 
 /**
@@ -73,6 +74,14 @@ describe('[GX.39] la etapa de ejercicio', () => {
   /** Medido: 113 solicitudes canceladas TIENEN gasto. Manda la cancelacion. */
   it('cancelada en Kepler manda sobre el puente', () => {
     expect(etapaDeEjercicio({ status: 'validada', kepler_aplicada: false, kepler_estado: 'C' })).toBe('cancelado_kepler');
+  });
+
+  /**
+   * `[GX.93]` ⛔ El caso que el parrafo describe y que nadie probaba: cancelada **con** gasto
+   * generado. Salia «ejercido» porque `aplicada` se preguntaba primero (24 vales en prod).
+   */
+  it('cancelada CON gasto generado sigue siendo cancelada, no ejercida', () => {
+    expect(etapaDeEjercicio({ status: 'validada', kepler_aplicada: true, kepler_estado: 'C' })).toBe('cancelado_kepler');
   });
 
   describe('nuestro tramite abierto no es asunto de Kepler', () => {
@@ -237,5 +246,57 @@ describe('[GX.48] la constancia de autorizacion de Kepler', () => {
     expect(c?.area_autoriza).toBeNull();
     expect(c?.fecha_documento).toBeNull();
     expect(c?.monto).toBe(0);
+  });
+});
+
+/**
+ * `[GX.92]` / `[GX.96]` **¿Cerró el ciclo? y si no, ¿a qué espera?** UNA regla para «Mis gastos» y la cola
+ * de quien aprueba. Medido en prod el 2026-11-05: 32 revisados con la solicitud cancelada se quedaban
+ * para siempre en «Falta el gasto en Kepler».
+ */
+describe('[GX.92] el ciclo de un vale revisado', () => {
+  it('revisado con su gasto aplicado: cerrado', () => {
+    expect(motivoDeCierre({ status: 'validada', etapa: 'ejercido', gasto_folios: ['0000123'] })).toBe('gasto_aplicado');
+  });
+
+  /** ⭐ El defecto: esto antes NO cerraba. */
+  it('⭐ revisado con la solicitud cancelada en Kepler: cerrado, aunque no haya gasto', () => {
+    expect(motivoDeCierre({ status: 'validada', etapa: 'cancelado_kepler', gasto_folios: [] })).toBe('cancelada_en_kepler');
+    expect(cicloCerrado({ status: 'validada', etapa: 'cancelado_kepler', gasto_folios: [] })).toBe(true);
+  });
+
+  /** ⛔ Sólo el revisado: un aprobado con gasto todavía le debe algo a alguien (`[GX.77]`). */
+  it('⛔ un vale que no está revisado nunca cierra, tenga lo que tenga', () => {
+    for (const status of ['recibida', 'aprobada', 'revision', 'rechazada']) {
+      expect(cicloCerrado({ status, etapa: 'cancelado_kepler', gasto_folios: ['1'] })).toBe(false);
+    }
+  });
+
+  it('revisado sin gasto y sin cancelar: abierto, y dice a qué espera', () => {
+    expect(cicloCerrado({ status: 'validada', etapa: 'autorizado', gasto_folios: [] })).toBe(false);
+    expect(esperaDeKepler({ status: 'validada', etapa: 'autorizado', gasto_folios: [] })).toBe('falta_generar_gasto');
+    expect(esperaDeKepler({ status: 'validada', etapa: 'por_ejercer', gasto_folios: [] })).toBe('falta_autorizar');
+    expect(esperaDeKepler({ status: 'validada', etapa: 'ejercido', gasto_folios: [] })).toBe('aplicada_sin_ligar');
+    expect(esperaDeKepler({ status: 'validada', etapa: 'sin_medir', gasto_folios: null })).toBe('sin_medir');
+  });
+
+  it('lo cerrado, y lo que no está revisado, no espera a Kepler', () => {
+    expect(esperaDeKepler({ status: 'validada', etapa: 'cancelado_kepler', gasto_folios: [] })).toBeNull();
+    expect(esperaDeKepler({ status: 'validada', etapa: 'autorizado', gasto_folios: ['9'] })).toBeNull();
+    expect(esperaDeKepler({ status: 'recibida', etapa: 'en_captura', gasto_folios: [] })).toBeNull();
+  });
+
+  it('cada motivo tiene su texto', () => {
+    expect(Object.keys(ETIQUETA_CIERRE).sort()).toEqual(['cancelada_en_kepler', 'gasto_aplicado']);
+    expect(Object.keys(ETIQUETA_ESPERA_KEPLER).sort()).toEqual(['aplicada_sin_ligar', 'falta_autorizar', 'falta_generar_gasto', 'sin_medir']);
+  });
+
+  /** `[GX.96]` El hallazgo: cancelada DESPUÉS de generar su gasto. Sólo ése. */
+  it('hallazgo: cancelada con gasto sí; cancelada sin gasto o viva con gasto, no', () => {
+    expect(esHallazgoCanceladaConGasto('C', true)).toBe(true);
+    expect(esHallazgoCanceladaConGasto(' C ', true)).toBe(true);
+    expect(esHallazgoCanceladaConGasto('C', false)).toBe(false);
+    expect(esHallazgoCanceladaConGasto('A', true)).toBe(false);
+    expect(esHallazgoCanceladaConGasto(null, null)).toBe(false);
   });
 });

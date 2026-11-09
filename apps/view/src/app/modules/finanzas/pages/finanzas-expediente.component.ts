@@ -19,6 +19,7 @@ import { ComprobacionesService, type ExpedienteDelDia } from '../comprobaciones.
 import { ValeGastoPeekComponent, type AccionVale } from '../components/vale-gasto-peek.component';
 import { EvidenciaAdicionalDialogComponent, type EvidenciaAgregada } from '../components/evidencia-adicional-dialog.component';
 import { BuscadorGastosEstado } from '../components/buscador-gastos.estado';
+import { BuscadorGastosComponent } from '../components/buscador-gastos.component';
 import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
 import { encuestarVisible } from '../../../core/utils/poll-visible';
 import { REFRESCO_VALES_MS } from '../vales-refresco';
@@ -58,22 +59,26 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 @Component({
   selector: 'app-finanzas-expediente',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, ToastModule, InputTextModule, SelectModule,
+  imports: [CommonModule, FormsModule, RouterLink, ToastModule, InputTextModule, SelectModule, BuscadorGastosComponent,
     ValeGastoPeekComponent, EvidenciaAdicionalDialogComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in exp">
-      <!-- [GX.88] Mientras hay una búsqueda arriba de las pestañas, la pantalla se esconde entera:
-           los resultados la reemplazan. El visor y el diálogo de abajo NO se esconden: son los
-           que abren el vale elegido en el buscador. -->
-      @if (!buscandoArriba()) {
+      <!-- [GX.101] El buscador va junto al título (pedido del usuario: «a uno más visible»). Mientras hay
+           búsqueda, lo de abajo del encabezado se cambia por los resultados; el encabezado se queda
+           (si no, la caja se iría mientras se escribe). El visor y el diálogo del final NO se
+           esconden: son los que abren el vale elegido. -->
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Expediente</h1>
           <p>El trámite de gasto de cada persona, y qué le falta para cerrar.</p>
         </div>
+        <app-buscador-gastos parte="caja" />
       </header>
+      @if (buscandoArriba()) {
+        <app-buscador-gastos parte="resultados" />
+      } @else {
 
       <!--
         [GX.72] Filtros. Viven FUERA del bloque de carga a proposito: si se escondieran mientras

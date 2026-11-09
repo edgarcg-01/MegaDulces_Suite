@@ -9,6 +9,15 @@
 ---
 
 ## [Unreleased]
+### Fixed — Gastos: nada atorado sin dueño (GX.91–GX.96, 2026-11-06)
+- Un doble clic en «Enviar a aprobación» ya no crea dos vales.
+- Un vale revisado cuya solicitud Kepler canceló ya no se queda «esperando el gasto» para siempre; los devueltos se quedan a la vista hasta recapturarse.
+- Quien aprueba ve en «Esperan a Kepler» lo revisado que espera autorizarse o aplicarse en Kepler, y las canceladas con gasto para revisar.
+### Changed — Gastos: Mis gastos y Aprobación (GX.97–GX.101)
+- «Mis gastos» es una lista por a quién le toca cada vale, con botón «Capturar gasto».
+- Aprobación agrupa por el departamento real de Kepler (un gasto repartido aparece en cada uno con su parte), muestra la evidencia completa con un visor grande, y ya no regresa al inicio al aprobar o actualizar.
+- El buscador de gastos va junto al título de cada pantalla.
+
 ### Added — Alta de clientes: la escritura directa en Kepler, lista y apagada (ALC.2.7–ALC.3.7, 2026-11-07 · en código, sin soltar)
 - La solicitud lista muestra **«En Kepler»**: la clave que le tocará (la que sigue en la serie de su zona: `2xxxx` contado de Morelia, `CR2###` crédito…), las casillas tal como se escribirán y por qué todavía no se puede escribir. Mientras la escritura esté apagada, es la guía exacta para capturarla a mano.
 - Con la escritura encendida, **«Dar de alta en Kepler»** (con confirmación y sólo con la llave nueva) escribe la ficha y los datos para facturar en las **9 sucursales y el concentrador**, y dice cómo quedó cada base. Un reintento usa la misma clave; lo ya escrito se liga sin teclear la clave.

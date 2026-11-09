@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { ActivatedRoute, provideRouter } from '@angular/router';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { FinanzasCapturarGastoComponent } from './finanzas-capturar-gasto.component';
+import { FinanzasCapturarGastoComponent, huellaDeArchivo } from './finanzas-capturar-gasto.component';
 
 /**
  * [GX.17] **El botón tiene que decir por qué está apagado.**
@@ -686,5 +686,111 @@ describe('[GX.79] FinanzasCapturarGastoComponent · tope de 20 MB', () => {
     comp.onFile(eventoCon(21, 'escaneo.pdf'), 'comprobante_1');
     expect(comp.formError()).toBe('"escaneo.pdf" supera 20 MB.');
     expect(comp.names()['comprobante_1']).toBeUndefined();
+  });
+});
+
+/**
+ * `[GX.91]` / `[GX.97]` **Lo que la captura ya no deja duplicar.** Medido en prod el 2026-11-05: un
+ * doble clic en «Enviar a aprobación» creó dos vales del mismo folio en el mismo segundo, y el
+ * mismo archivo se adjuntó dos veces sin aviso.
+ */
+describe('[GX.91] FinanzasCapturarGastoComponent · nada se manda dos veces', () => {
+  let comp: FinanzasCapturarGastoComponent;
+  let http: HttpTestingController;
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [FinanzasCapturarGastoComponent],
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
+    }).compileComponents();
+    comp = TestBed.createComponent(FinanzasCapturarGastoComponent).componentInstance;
+    http = TestBed.inject(HttpTestingController);
+  });
+
+  /** Todo listo para mandar, con el archivo ya subido (así el POST sale directo). */
+  const listo = () => {
+    comp.gasto.set({ folio: '0010748', importe: 800, sucursal: '00', concepto: 'VIATICOS' } as never);
+    comp.clasificacion.set('no_comprobable');
+    comp.formaPago.set('efectivo');
+    comp.comentarios.set('Viáticos de la ruta');
+    comp.names.set({ comprobante_1: 'vale.jpg' });
+    (comp as unknown as { uploaded: Record<string, unknown> }).uploaded = {
+      comprobante_1: { url: 'https://x/vale.jpg', role: 'comprobante_1' },
+    };
+  };
+
+  /** ⭐ El segundo clic de un doble clic llega antes de que el botón se apague. */
+  it('⭐ un doble clic manda UN vale', () => {
+    listo();
+    comp.submit();
+    comp.submit();
+    const posts = http.match((r) => r.method === 'POST' && r.url.endsWith('/expenses/proofs'));
+    expect(posts.length).toBe(1);
+    posts[0].flush({ id: 'p1', folio_solicitud: '0010748', status: 'recibida' });
+    http.match(() => true).forEach((r) => r.flush({ rows: [] }));
+  });
+
+  /** Prueba negativa: sin el freno, el detector sí ve los dos envíos. */
+  it('(control) sin el freno salen dos', () => {
+    listo();
+    comp.submit();
+    comp.saving.set(false); // lo que hacía el segundo clic: llegaba con el botón todavía «vivo»
+    comp.submit();
+    expect(http.match((r) => r.method === 'POST' && r.url.endsWith('/expenses/proofs')).length).toBe(2);
+  });
+
+  /** El 409 del servidor: se dice con sus palabras y se lleva a la persona a su vale. */
+  it('⭐ si el folio ya tiene un vale tuyo, lo dice y ofrece abrirlo', () => {
+    const fix = TestBed.createComponent(FinanzasCapturarGastoComponent);
+    const c = fix.componentInstance;
+    comp = c;
+    listo();
+    c.submit();
+    http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/expenses/proofs')).flush(
+      { message: 'Ya mandaste un vale de la solicitud 0010748 (esperando «Revisado»).', vale_id: 'v-9', status: 'recibida', mio: true },
+      { status: 409, statusText: 'Conflict' });
+    expect(c.formError()).toContain('Ya mandaste un vale de la solicitud 0010748');
+    expect(c.duplicado()).toEqual({ vale_id: 'v-9', mio: true });
+    // Vuelve a leer el folio: la pantalla pasa sola a «esperando».
+    http.expectOne((r) => r.url.includes('/proof-by-folio')).flush({ id: 'v-9', status: 'recibida' });
+    fix.detectChanges();
+    const a = fix.nativeElement.querySelector('a.cap-dup-link') as HTMLAnchorElement | null;
+    expect(a?.getAttribute('href')).toContain('/finanzas/mis-gastos?vale=v-9');
+  });
+
+  it('si el vale es de otra persona, no ofrece abrirlo', () => {
+    listo();
+    comp.submit();
+    http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/expenses/proofs')).flush(
+      { message: 'La solicitud 0010748 ya tiene un vale (revisado) que capturó otra persona.', vale_id: 'v-1', status: 'validada', mio: false },
+      { status: 409, statusText: 'Conflict' });
+    http.expectOne((r) => r.url.includes('/proof-by-folio')).flush({ id: 'v-1', status: 'validada' });
+    expect(comp.duplicado()?.mio).toBe(false);
+    expect(comp.formError()).toContain('capturó otra persona');
+  });
+
+  /** `[GX.97]` El mismo archivo en otro rol es un error de dedo: se avisa y no se agrega. */
+  it('⭐ el mismo archivo dos veces se avisa y no se agrega', () => {
+    const f = new File(['abc'], 'vale.pdf', { type: 'application/pdf', lastModified: 1700000000000 });
+    const priv = comp as unknown as { handle: (f: File, r: string) => void; huellas: Record<string, string> };
+    priv.huellas['comprobante_1'] = huellaDeArchivo(f);
+    comp.names.set({ comprobante_1: 'vale.pdf' });
+    priv.handle(f, 'comprobante_2');
+    expect(comp.formError()).toContain('Ya agregaste «vale.pdf»');
+    expect(comp.names()['comprobante_2']).toBeUndefined();
+  });
+
+  it('otro archivo con el mismo nombre (otro tamaño) sí se acepta', () => {
+    const a = new File(['abc'], 'vale.pdf', { lastModified: 1 });
+    const b = new File(['abcdef'], 'vale.pdf', { lastModified: 1 });
+    expect(huellaDeArchivo(a)).not.toBe(huellaDeArchivo(b));
+  });
+
+  /** `[GX.97]` A un clic, nunca prellenado (`[GX.57]`): la persona decide. */
+  it('«usar el de Kepler» copia el concepto de la solicitud a la caja', () => {
+    comp.gasto.set({ folio: '1', concepto: '  VIATICOS RUTA 5  ' } as never);
+    expect(comp.comentarios()).toBe('');
+    comp.usarConceptoDeKepler();
+    expect(comp.comentarios()).toBe('VIATICOS RUTA 5');
   });
 });

@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, input } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { InputTextModule } from 'primeng/inputtext';
 import { branchLabel } from '../../../core/constants/store-branches';
@@ -48,14 +48,16 @@ const ESTADO_KEPLER_LABEL: Record<string, string> = {
   standalone: true,
   imports: [CommonModule, InputTextModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { '[class.es-caja]': "parte() === 'caja'" },
   template: `
     @if (puedeBuscar()) {
+      @if (parte() !== 'resultados') {
       <div class="bg-caja" role="search">
         <i class="pi pi-search" aria-hidden="true"></i>
         <input pInputText type="search" class="bg-in" [value]="busqueda()"
                (input)="escribir($any($event.target).value)" (keydown.enter)="buscarYa()"
                (keydown.escape)="limpiar()"
-               placeholder="Buscar en todos los gastos: folio, proveedor, quién lo levantó, quién lo aprobó, quién lo pidió…"
+               [placeholder]="parte() === 'caja' ? 'Buscar gastos: folio, proveedor, persona…' : 'Buscar en todos los gastos: folio, proveedor, quién lo levantó, quién lo aprobó, quién lo pidió…'"
                aria-label="Buscar en todos los gastos" />
         @if (busqueda()) {
           <button type="button" class="bg-x" (click)="limpiar()" aria-label="Limpiar la búsqueda">
@@ -63,8 +65,9 @@ const ESTADO_KEPLER_LABEL: Record<string, string> = {
           </button>
         }
       </div>
+      }
 
-      @if (buscando()) {
+      @if (parte() !== 'caja' && buscando()) {
         @if (corta()) {
           <div class="bg-muted">Escribe al menos {{ minimo }} letras, o el folio.</div>
         } @else if (cargando() && !resultado()) {
@@ -139,6 +142,8 @@ const ESTADO_KEPLER_LABEL: Record<string, string> = {
   `,
   styles: [`
     :host { display: block; }
+    /* [GX.101] En el encabezado de la pantalla, junto al título: crece hasta un ancho cómodo. */
+    :host(.es-caja) { flex: 1 1 18rem; max-width: 30rem; margin-left: auto; }
     .bg-caja { position: relative; display: flex; align-items: center; }
     .bg-caja > .pi-search { position: absolute; left: var(--sp-3); color: var(--fg-3); pointer-events: none; }
     .bg-in { width: 100%; padding-left: calc(var(--sp-3) * 2 + 1rem); padding-right: 2.5rem; font-size: var(--fs-sm); }
@@ -146,6 +151,8 @@ const ESTADO_KEPLER_LABEL: Record<string, string> = {
       min-width: var(--tap-min, 2rem); min-height: var(--tap-min, 2rem); border: 0; background: none;
       color: var(--fg-3); cursor: pointer; border-radius: var(--r-sm); }
     .bg-x:hover { color: var(--fg-1); }
+    /* [GX.101] La tachita propia ya borra; la del navegador (type=search) era una segunda igual al lado. */
+    .bg-in::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; display: none; }
     .bg-x:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .bg-muted { font-size: var(--fs-sm); color: var(--fg-2); padding: var(--sp-3); }
     .bg-faint { font-size: var(--fs-xs); color: var(--fg-3); margin: 0; }
@@ -181,6 +188,12 @@ const ESTADO_KEPLER_LABEL: Record<string, string> = {
 export class BuscadorGastosComponent {
   /** El estado vive en el shell de Gastos: por eso lo escrito sobrevive al cambiar de pestaña. */
   private readonly e = inject(BuscadorGastosEstado);
+  /**
+   * `[GX.101]` Qué pieza pinta: la caja (va junto al título de cada pantalla), los resultados (van
+   * debajo del encabezado y reemplazan a la pantalla) o las dos juntas. Las dos piezas leen el MISMO
+   * estado: lo escrito en la caja es lo que buscan los resultados.
+   */
+  readonly parte = input<'todo' | 'caja' | 'resultados'>('todo');
 
   readonly branchLabel = branchLabel;
   readonly minimo = MINIMO_BUSQUEDA_GASTOS;

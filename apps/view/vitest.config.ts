@@ -49,6 +49,16 @@ export default defineConfig({
     // Sigue siendo un tope util: una prueba que de verdad se cuelgue muere a los 20 s.
     testTimeout: 20_000,
     hookTimeout: 20_000,
+    // `[NX.12]` El hilo se recicla ANTES de que el heap lo mate. `@analogjs/vite-plugin-angular`
+    // impone `pool: 'vmThreads'`, y ahí Vitest reusa el mismo hilo archivo tras archivo hasta que
+    // su memoria pasa de `RAM / hilos` (16 GB / 3 ≈ 5.3 GB en el CI). El heap de un hilo se corta
+    // antes, en ~4 GB: el hilo moría a mitad de la suite y Vitest tiraba todo con "Worker exited
+    // unexpectedly", sin ninguna prueba en rojo.
+    //
+    // MEDIDO el 2026-11-09: el crash salió en 20 de las 24 corridas recientes del CI, y en 2 de 2
+    // locales con la suite completa y 3 hilos. Con este tope: sin crash y 345 s (sin tope, 359 s).
+    // Con `pool: 'forks'` tampoco se cae, pero tarda 542 s.
+    vmMemoryLimit: '1536MB',
     coverage: {
       provider: 'v8',
       reportsDirectory: '../../coverage/apps/view',

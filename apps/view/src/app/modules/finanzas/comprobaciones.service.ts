@@ -169,6 +169,44 @@ export interface ExpenseProofsReport {
    */
   asignados?: ValeAsignado[];
   rows: ExpenseProof[];
+  /**
+   * `[GX.95]` Los cortes, DECLARADOS. Ausente (servidor viejo) = no medido: la pantalla no puede
+   * afirmar que la lista está completa ni que está cortada.
+   *  · `abiertos_truncados`: se alcanzó el tope de abiertos (`[GX.65]`).
+   *  · `cerrados_truncados`: los cerrados se recortan en `limit`; hubo más.
+   *  · `asignados_truncados`: Kepler le asignó más de los que caben.
+   */
+  abiertos_truncados?: boolean;
+  cerrados_truncados?: boolean;
+  asignados_truncados?: boolean;
+}
+
+/** `[GX.96]` A qué espera un vale revisado que no cierra (la regla vive en el contrato). */
+export type EsperaKeplerVale = 'falta_autorizar' | 'falta_generar_gasto' | 'aplicada_sin_ligar' | 'sin_medir';
+
+/** `[GX.96]` Un vale revisado que espera a Kepler, o un hallazgo, para quien aprueba. */
+export interface ValeEsperaKepler {
+  id: string;
+  folio_solicitud: string | null;
+  sucursal: string | null;
+  proveedor: string | null;
+  importe: number;
+  created_by: string | null;
+  validated_by: string | null;
+  revisado_at: string | null;
+  /** `null` = la fecha no se pudo leer (no es «hoy»). */
+  dias: number | null;
+  espera: EsperaKeplerVale | null;
+  /** Cancelada en Kepler DESPUÉS de generar su gasto: confirmar si salió dinero. */
+  hallazgo: boolean;
+  kepler_estado: string | null;
+}
+
+export interface RespuestaEsperanKepler {
+  vales: ValeEsperaKepler[];
+  truncado: boolean;
+  /** `false` = sin vistas de Kepler: no se sabe a qué espera nada (no es «nada espera»). */
+  medido: boolean;
 }
 
 
@@ -298,7 +336,7 @@ export interface GrupoAprobacion {
   clave: string;
   etiqueta: string;
   /** Solo en los grupos por departamento: de donde salio la etiqueta. */
-  origen?: 'capturado' | 'solicitud' | 'sin_clasificar';
+  origen?: 'capturado' | 'solicitud' | 'sin_clasificar' | 'kepler';
   n: number;
   monto: number;
   ids: string[];
@@ -335,6 +373,18 @@ export interface ExpedienteDelDia {
   files: ProofFile[];
   /** `[GX.88]` Se aprobó debiendo el comprobante (prefactura o cotización). */
   provisional?: boolean;
+  /**
+   * `[GX.98]` Los departamentos de Kepler de la solicitud, con la parte del importe de cada uno (suman
+   * el importe). `[]` = Kepler no le tiene; `null` = no se pudo leer; ausente = servidor viejo.
+   */
+  departamentos?: DepartamentoDelVale[] | null;
+}
+
+/** `[GX.98]` Un departamento de Kepler del vale y la parte del importe que le toca. */
+export interface DepartamentoDelVale {
+  clave: string;
+  nombre: string | null;
+  importe: number;
 }
 
 /** `[GX.88]` Qué le falta a un vale atrasado y a quién le toca moverlo. Lo decide el SERVIDOR. */
@@ -425,6 +475,11 @@ export interface ValeGasto {
    * «este endpoint no la trae», que no es lo mismo que `null` = «el vale no está autorizado».
    */
   autorizacion_kepler?: AutorizacionKepler | null;
+  /**
+   * `[GX.98]` Los departamentos de Kepler con su parte. Sólo los manda la bandeja de Aprobación
+   * (y el buscador); ausente = este endpoint no los trae (no «sin departamento»).
+   */
+  departamentos?: DepartamentoDelVale[] | null;
 }
 
 /**
@@ -461,6 +516,8 @@ export interface GastosDelDia {
   atrasados_total: { n: number; monto: number };
   /** La lista de atrasados tocó el tope: hay más. */
   atrasados_truncada: boolean;
+  /** `[GX.98]` Los atrasados que llegaron, por su departamento de Kepler. Ausente = servidor viejo. */
+  atrasados_por_departamento?: GrupoAprobacion[];
 }
 
 /**
@@ -534,6 +591,11 @@ export class ComprobacionesService {
    */
   buscarGastos(q: string): Observable<ResultadoBusquedaGastos> {
     return this.http.get<ResultadoBusquedaGastos>(`${this.base}/buscar`, { params: new HttpParams().set('q', q) });
+  }
+
+  /** `[GX.96]` Lo revisado que espera a Kepler, y los hallazgos. Sólo quien aprueba. */
+  esperanKepler(): Observable<RespuestaEsperanKepler> {
+    return this.http.get<RespuestaEsperanKepler>(`${this.base}/esperan-kepler`);
   }
 
   delDia(fecha?: string, limit = 500): Observable<GastosDelDia> {

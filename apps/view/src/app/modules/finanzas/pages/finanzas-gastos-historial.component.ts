@@ -19,6 +19,7 @@ import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { ValeGastoPeekComponent, type AccionVale } from '../components/vale-gasto-peek.component';
 import { BuscadorGastosEstado } from '../components/buscador-gastos.estado';
+import { BuscadorGastosComponent } from '../components/buscador-gastos.component';
 import { EvidenciaAdicionalDialogComponent, type EvidenciaAgregada } from '../components/evidencia-adicional-dialog.component';
 import { DIAS_SEMANA, mesDe, semanasDelMes, sumarMeses, type CeldaCalendario } from '../calendario-mes.util';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
@@ -84,21 +85,25 @@ function opcionesDeFaceta(
 @Component({
   selector: 'app-finanzas-gastos-historial',
   standalone: true,
-  imports: [CommonModule, FormsModule, SelectModule, ToastModule, ValeGastoPeekComponent, EvidenciaAdicionalDialogComponent],
+  imports: [CommonModule, FormsModule, SelectModule, ToastModule, ValeGastoPeekComponent, EvidenciaAdicionalDialogComponent, BuscadorGastosComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in hist">
-      <!-- [GX.88] Mientras hay una búsqueda arriba de las pestañas, la pantalla se esconde entera:
-           los resultados la reemplazan. El visor y el diálogo de abajo NO se esconden: son los
-           que abren el vale elegido en el buscador. -->
-      @if (!buscandoArriba()) {
+      <!-- [GX.101] El buscador va junto al título (pedido del usuario: «a uno más visible»). Mientras hay
+           búsqueda, lo de abajo del encabezado se cambia por los resultados; el encabezado se queda
+           (si no, la caja se iría mientras se escribe). El visor y el diálogo del final NO se
+           esconden: son los que abren el vale elegido. -->
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Historial de levantamientos</h1>
           <p class="surf-page-sub">Cada día, cuántos gastos se levantaron y cuánto sumaron. Abre un día para ver sus vales.</p>
         </div>
+        <app-buscador-gastos parte="caja" />
       </header>
+      @if (buscandoArriba()) {
+        <app-buscador-gastos parte="resultados" />
+      } @else {
 
       <div class="hist-barra">
         @if (puedeVerTodos()) {
