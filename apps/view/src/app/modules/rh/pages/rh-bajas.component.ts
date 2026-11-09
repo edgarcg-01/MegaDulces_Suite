@@ -46,7 +46,7 @@ import { fechaHoraMx } from '../reclutamiento-formato';
 
       <app-load-state [loading]="loading() && !lista()" [error]="error()" (retry)="cargar()">
         <app-metric-strip [items]="resumen()" density="compact" ariaLabel="Bajas de la plaza" />
-        <section class="rb-card" aria-label="Bajas de la plaza">
+        <section class="rb-card dt-scope" aria-label="Bajas de la plaza">
           <p class="rb-nota">Quien está aquí <b>no cuenta en el reporte de esta plaza</b>: no le salen faltas. La baja se da desde su ficha en
             Checadas, con motivo. Quien sigue checando después de su baja aparece primero: o la baja fue un error, o alguien usa su código.</p>
           @if (aviso(); as a) { <p class="rb-aviso" [class.bad]="a.mal" role="status">{{ a.texto }}</p> }

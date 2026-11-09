@@ -54,7 +54,7 @@ const CLASES: Record<HrClaseCruce, { label: string; severity: 'danger' | 'warn' 
 
       <app-load-state [loading]="loading() && !datos()" [error]="error()" (retry)="cargar()">
         <app-metric-strip [items]="resumen()" density="compact" ariaLabel="Cruces de la semana" />
-        <section class="rc-card" aria-label="Cruces de plaza">
+        <section class="rc-card dt-scope" aria-label="Cruces de plaza">
           <p class="rc-nota">Quién checó en el reloj de <b>otra plaza</b> el mismo día. Se busca entre las personas dadas de alta en dos sedes o más
             (los tres relojes de Oficinas son una sola sede).</p>
           @if (nRutas()) {
