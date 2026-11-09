@@ -651,6 +651,13 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 
+## 2026-11-09 — `[CGA-A.71]` La cola de Captura: 21 de 88 «pendientes» ya estaban en el libro
+
+- **Qué se hizo.** La cola ofrecía como pendientes cobros de camioneta que ya habían entrado al libro como depósitos de CAOS capturados sin declarar su documento, o con la llave de otro. Ahora cada uno se marca con la captura que ya lo trae, la ficha avisa y quedan fuera del lote y del «siguiente».
+- **Medido contra prod (sólo lectura, el servicio real empaquetado).** Marca 19 de los 82 del día; con el importe corrido y con la ruta vecina, ninguno. La lectura nueva tarda 7 ms.
+- **Lección.** **Lo que una persona escribe a mano también es identidad**: «rd21 10/10» en la glosa de un depósito dice ruta y día, y casa con certeza; el mismo importe sin esa glosa sólo es «por confirmar». Y una regla que dejaría pasar una contradicción escrita («rd21 11/10») no se relaja para atrapar una errata.
+- **NO MEDIDO**: la pantalla en un navegador (**sin validación visual**); el arranque de la API. Sin empujar.
+
 ## 2026-11-07 — `[DN.6–DN.8, DN.11a]` En código, sin desplegar: el vendedor captura lo que no hay y el servidor lo registra para Compras
 
 - **Qué se revisó.** El frente 1 del [anexo A de la fase DN](FASES/FASE_DN_ANEXO_AVISO_AL_AGENDAR.md),

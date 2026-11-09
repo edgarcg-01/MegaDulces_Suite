@@ -10214,6 +10214,18 @@ TP.6-TP.8+TP.10".
 >     $60–140 de los días 20–22 de Abastos) y «GNF MA» del 21-oct ($124,093.50). **Hallazgo de datos, sin tocar:** el
 >     retiro de CAOS «gnf morelia» del 23-oct ($163,080) tiene ligado un pago de caja chica de $400 del 29-oct
 >     (`CG-2026-00571`), casi seguro por error. Sin empujar.
+> - [x] **[CGA-A.71]** 🧪 2026-11-09 · **La cola de Captura marca lo que ya entró al libro por otro camino.** Edgar: la
+>   cola mostraba 88 pendientes. Medido: 21 ya estaban en el libro (19 depósitos de CAOS capturados sin declarar el
+>   documento —«rd21 10/10» es el U-A-5 0000008 de la ruta 21— y 2 con otra llave); confirmarlos metía el dinero dos
+>   veces. Ahora cada fila dice «Ya en el libro: CI-…», la ficha avisa al abrirla, y no entran a «Marcar las N», a
+>   marcar de a una ni al «siguiente». Certeza alta sólo con ruta y día escritos; lo demás, «por confirmar».
+>   Medido en prod con el servicio real: 19 de los 82 del día; placebos 0; la lectura nueva 7 ms. Commit `bd54d8f77`.
+>   - ⚠️ **NO MEDIDO / pendiente:** sin validación visual; el arranque de la API. **Falta LIGAR** (escribir el
+>     documento en la captura existente): endpoint que escribe, exige prueba contra base real. **De fondo:** que
+>     capturar desde CAOS obligue a declarar el documento (el límite abierto de `[CG.85]`). Fuera a propósito:
+>     «rd28 1/10» (errata de día) y la ruta vecinal de Morelia (capturada 5 días después). **Hallazgos sin tocar:**
+>     Kepler trae el cobro folio 6 del 8-oct ($16,482.23) en las camionetas 502 y 504; 40 pendientes de antes del
+>     12-oct ($657k: 21 de rutas de Canindo) no casan con Control. Sin empujar.
 > - **[CGA-A.57]** ⬜ **Ligar el historial con propuestas + confirmación** (decisión de Edgar). Octubre
 >   en adelante contra los gastos del libro; mayo–sep ($16.5 M, 326 retiros) contra los egresos de
 >   Kepler (cuenta `0011`), porque el libro empieza el 25-sep. Nada se liga solo (1 de cada 3 parejas
