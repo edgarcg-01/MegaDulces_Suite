@@ -222,12 +222,22 @@ function pedidos(Orders, trx, userId, rol, quotes = { ladders: async () => new M
       const [cli] = await trx('commercial.customers').insert({
         tenant_id: T, code: 'ZZ-MCP316-CLI', name: 'Cliente prueba MCP.3.16', active: true, default_price_list_id: lista.id,
       }).returning('id');
-      const vend = pedidos(M.Orders, trx, user.id, 'vendedor_ruta');
+      // `[DN.8]` La clave se SIEMBRA en roles de prueba (se revierten con la transacción) en vez de
+      // depender de que la base traiga `vendedor_ruta` con ella: la del CI no la trae y por eso [4]–[6]
+      // nunca se habían medido allí. Nada del servicio depende del NOMBRE del rol, sólo de la clave.
+      const ROL_V = 'zz_mcp316_vendedor';
+      const ROL_SIN = 'zz_mcp316_sin_clave';
+      await trx('identity.role_permissions').insert([
+        { tenant_id: T, role_name: ROL_V, permissions: JSON.stringify({ VENDOR_APP_ACCESS: true }) },
+        { tenant_id: T, role_name: ROL_SIN, permissions: JSON.stringify({}) },
+      ]);
+      const vend = pedidos(M.Orders, trx, user.id, ROL_V);
       const tieneClave = (await trx.raw(
-        `SELECT 1 FROM identity.role_permissions WHERE role_name = 'vendedor_ruta' AND deleted_at IS NULL AND (permissions ->> 'VENDOR_APP_ACCESS') = 'true'`,
+        `SELECT 1 FROM identity.role_permissions WHERE role_name = ? AND deleted_at IS NULL AND (permissions ->> 'VENDOR_APP_ACCESS') = 'true'`,
+        [ROL_V],
       )).rows.length > 0;
       if (!tieneClave) {
-        noMedido('en la base local el rol vendedor_ruta no tiene VENDOR_APP_ACCESS: la revisión no se puede ejercer');
+        noMedido('no quedó sembrado el rol de prueba con VENDOR_APP_ACCESS: la revisión no se puede ejercer');
       } else {
         const o = await vend.createDraft({ customer_id: cli.id, warehouse_id: Z1, requested_delivery_date: '2030-01-02' });
         const e1 = await falla(() => vend.addLine(o.id, { product_id: CERO, quantity: 2 }));
@@ -259,7 +269,7 @@ function pedidos(Orders, trx, userId, rol, quotes = { ladders: async () => new M
         const l4 = await vend.addLine(o1b.id, { product_id: NADIE, quantity: 1, source_warehouse_id: Z3 });
         ok(l4 && l4.stock_state === 'sin_dato' && /Sin dato/.test(l4.stock_review.message || ''),
           `NEGATIVA: de Z3 (lectura vieja) es sin_dato, nunca «con existencia» ni «agotado» («${l4 && l4.stock_review && l4.stock_review.message}»)`);
-        const tele = pedidos(M.Orders, trx, user.id, 'telemarketing');
+        const tele = pedidos(M.Orders, trx, user.id, ROL_SIN);
         const o5 = await tele.createDraft({ customer_id: cli.id, warehouse_id: Z1, requested_delivery_date: '2030-01-06' });
         const l5 = await tele.addLine(o5.id, { product_id: CERO, quantity: 1 });
         ok(l5 && l5.stock_state === null && l5.stock_review === null, 'NEGATIVA: un rol sin VENDOR_APP_ACCESS no se revisa (stock_state null)');
@@ -302,7 +312,7 @@ function pedidos(Orders, trx, userId, rol, quotes = { ladders: async () => new M
           ladders: async (_t, branch, skus) => { pedidosSku.push(...(skus || [])); return new Map((skus || []).filter((s) => s === 'ZZ316D').map((s) => [s, { rungs: {} }])); },
           priceLine: async (_t, a) => (a.sku === 'ZZ316D' ? { line_total: 23.2, unit_price: 20, tax_rate: 0.16 } : { line_total: null, unit_price: null }),
         };
-        const vendMotor = pedidos(M.Orders, trx, user.id, 'vendedor_ruta', motorGemelo);
+        const vendMotor = pedidos(M.Orders, trx, user.id, ROL_V, motorGemelo);
         const o3 = await vendMotor.createDraft({ customer_id: cli.id, warehouse_id: Z1, requested_delivery_date: '2030-01-04' });
         const l8 = await vendMotor.addLine(o3.id, { product_id: LEGADO, quantity: 1 });
         const g8 = await trx('commercial.order_lines').where({ id: l8.id }).first('product_id', 'unit_price', 'line_total');
