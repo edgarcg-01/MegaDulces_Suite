@@ -42,6 +42,8 @@
       "@megadulces/contracts/http/suite-usage": ["../../libs/contracts/src/http/suite-usage.contract.ts"],
       "@megadulces/contracts/http/alta-persona": ["../../libs/contracts/src/http/alta-persona.contract.ts"],
       "@megadulces/contracts/http/arqueo-cajas": ["../../libs/contracts/src/http/arqueo-cajas.contract.ts"],
+      // [PGP.104] El texto de la validación banco + comprobante de un pago (Pagos).
+      "@megadulces/contracts/finance/validacion-pago": ["../../libs/contracts/src/finance/validacion-pago.contract.ts"],
       "@shared-models": ["../../libs/shared-models/src/index.ts"],
       "@megadulces/shared-scoring": ["../../libs/shared-scoring/index.ts"],
       "@megadulces/ui-web": ["../../libs/ui-web/src/index.ts"],

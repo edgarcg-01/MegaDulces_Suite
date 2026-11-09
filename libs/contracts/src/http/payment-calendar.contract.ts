@@ -5,6 +5,7 @@
  * nombre en contratos, más la semana completa y las cuentas de ORIGEN (`finance.bank_accounts`).
  */
 import type { CierreKeplerPago } from '../finance/cierre-kepler.contract';
+import type { ValidacionPago } from '../finance/validacion-pago.contract';
 
 /**
  * `[TP.18]` `kepler_payable` es la deuda viva de Kepler que NO pasó por Entregas de Compras
@@ -258,6 +259,11 @@ export interface PaymentCalendarAllocation {
    * no se guarda. `null` sólo si el servidor no lo calculó (respuesta vieja): NO MEDIDO.
    */
   kepler_cierre: CierreKeplerPago | null;
+  /**
+   * `[PGP.104]` Lo que prueba que se pagó (F2, Edgar 2026-11-09): la salida del estado de cuenta + su
+   * comprobante (`validarPagos`, `[PGP.103]`). Null en un día por venir (no se ha pagado) o si la API es anterior.
+   */
+  validacion?: ValidacionPago | null;
   items: PaymentCalendarAllocationItem[];
 }
 

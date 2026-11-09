@@ -13,7 +13,7 @@ MÉTRICA:  pagos del mes ejecutados por la plataforma y ligados a su documento d
 CAPA TOPE: C3
 ÁREA:      Finanzas
 DUEÑO:     <por asignar — ver §6>
-ESTADO:    ⬜ (no abre hasta que haya cupo — ver §6)
+ESTADO:    ✅ medido 2026-11-09: pago↔banco misma cuenta ±ESTADO:     ±5 días 65/87, placebo 0; comprobante↔banco por la cuenta de origen del OCR 87/90, placebo 0; sólo 7 % de los pagos traen cuenta de origen; el catálogo de CLABE de proveedores está vacío; la ventanilla sólo deja rastro después de Kepler (no abre hasta que haya cupo — ver §6)
 ```
 
 ---
@@ -639,10 +639,10 @@ por mes) y `kdc126`.
 
 | # | Item | Estado | Prueba que lo ejerce |
 |---|---|---|---|
-| PGP.1.1 | Tope de firma por monto y a quién le toca cada pago | ⬜ | Casos en los dos lados del tope, y exactamente en el tope |
+| PGP.1.1 | Tope de firma por monto y a quién le toca cada pago | 🧪 `validacion-pago.contract.ts`, 15 pruebas (mutante del uno a uno: rojo) | Casos en los dos lados del tope, y exactamente en el tope |
 | PGP.1.2 | Armador del documento `X-D-26`: clonar plantilla, pisar campos de negocio, derivar folio `MAX+1` | 🧪 `[PGP.71]` | Contra la plantilla real, sin escribir |
 | PGP.1.3 | Repartidor de aplicaciones `kdxf`: un pago que cubre N facturas | 🧪 `[PGP.71]` | El caso de 8 aplicaciones, y el de 1 |
-| PGP.1.4 | Conciliador: lo escrito por la plataforma contra lo que el ODS devuelve | ⬜ | Un pago escrito y releído |
+| PGP.1.4 | Conciliador: lo escrito por la plataforma contra lo que el ODS devuelve | 🔨 `validacion-pago.sql.ts` + `validacion` en el día; «Pagado» sólo con banco y comprobante en pantalla; el candado de Kepler (`motivosParaNoEscribir`) lo exige. NO MEDIDO: el caso de integración (CI / `TP_IT_DB`) y la pantalla viva. Deuda: el servidor todavía no lo exige en `execute` | Un pago escrito y releído |
 
 ### C2 · API
 

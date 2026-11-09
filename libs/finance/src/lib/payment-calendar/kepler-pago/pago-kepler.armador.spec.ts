@@ -96,13 +96,19 @@ describe('[PGP.71] ivaProporcional', () => {
 describe('[PGP.71] E3.3 motivosParaNoEscribir', () => {
   const pago = (o: Partial<PagoSuite> = {}): PagoSuite => ({
     status: 'executed', payment_method: 'transferencia', origen_kind: 'bank', kepler_payment_folio: null,
-    lot_status: 'released', items: [{ obligation_source: 'kepler_payable', branch_code: '00' }], ...o,
+    lot_status: 'released', items: [{ obligation_source: 'kepler_payable', branch_code: '00' }], validacion_estado: 'validado', ...o,
   });
   it('autorizado, pagado, por transferencia y sin ligar: se puede', () => {
     expect(motivosParaNoEscribir(pago())).toEqual([]);
   });
   it('⛔ un pago sin marcar pagado NO se escribe', () => {
     expect(motivosParaNoEscribir(pago({ status: 'pending' }))).toContain('El pago no está marcado como pagado');
+  });
+  // `[PGP.104]` F2: marcado pagado no basta; lo prueban el banco Y el comprobante.
+  it('⛔ [PGP.104] sin validar con banco y comprobante NO se escribe, aunque esté marcado pagado', () => {
+    for (const e of ['falta_comprobante', 'esperando_banco', 'discrepa', 'sin_cuenta', null]) {
+      expect(motivosParaNoEscribir(pago({ validacion_estado: e }))).toContain('El pago no está validado con el estado de cuenta y su comprobante');
+    }
   });
   it('⛔ un día sin autorizar NO se escribe', () => {
     expect(motivosParaNoEscribir(pago({ lot_status: 'in_prep' }))).toContain('El día no está autorizado');

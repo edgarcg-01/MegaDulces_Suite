@@ -20,6 +20,7 @@ import knexFactory, { type Knex } from 'knex';
 import { PaymentCalendarService, keplerPayableId } from './payment-calendar.service';
 import { ProntoPagoService, sqlSinDescuentoVigente } from '../pronto-pago/pronto-pago.service';
 import { PaymentProgramService } from '../payment-program/payment-program.service';
+import { leerValidacionDelDia } from './validacion-pago.sql';
 import { sqlVentanaProntoPago } from '@megadulces/contracts/finance/pronto-pago-ventana';
 import type { PaymentCalendarItemDiscountBody } from '@megadulces/contracts';
 // ⛔ `finance` no puede depender de `commercial` (reglas de módulos): el paso «aceptar la entrega»
@@ -321,6 +322,51 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
     expect(g.kepler_sin_salida.map((p) => p.folio)).toEqual(['ETP97-P6']);
     expect(g.metrica.banco).toMatchObject({ pagos: 3, pagos_en_programa: 1, monto: 9234, monto_en_programa: 5000 });
     expect(g.cuentas.find((c) => c.account_label === LBL)).toMatchObject({ hasta: '2020-03-15' });
+  });
+
+  /**
+   * `[PGP.104]` **La validación banco + comprobante con el SQL real** (`leerValidacionDelDia`): las
+   * consultas de `[PGP.97]` sobre `bank_movements`, los comprobantes de `supplier_payment_proofs` (la
+   * cuenta de origen del OCR resuelta por sus últimos dígitos) y los pagos vecinos para el uno a uno.
+   * Cuenta `9104`, mayo de 2019 (lejos de cualquier dato).
+   */
+  it('[PGP.104] validado, falta comprobante, sin movimiento, sin cuenta y discrepa (uno a uno con un vecino)', async () => {
+    const [acc] = await trx('finance.bank_accounts').insert({ tenant_id: M, bank: 'PGQ', account_label: '9104', alias: 'PGQ 9104', kind: 'bank', active: true }).returning('id');
+    const [st] = await trx('finance.bank_statements').insert({ tenant_id: M, bank_account_id: acc.id, period: '2019-05' }).returning('id');
+    const salida = (id: string, fecha: string, importe: number) => trx('finance.bank_movements').insert({
+      tenant_id: M, statement_id: st.id, bank_account_id: acc.id, movement_date: fecha, raw_type: 'C', raw_code: '510',
+      concept: 'PGQ 104', amount_out: importe, amount_in: 0, client_uuid: `pgp104-it-${id}`,
+    }).returning('id').then((r) => r[0].id as string);
+    const m1 = await salida('M1', '2019-05-10', 5000.4);
+    const m2 = await salida('M2', '2019-05-11', 3000);
+    await salida('M4', '2019-05-11', 2500);
+    await salida('TARDE', '2019-05-20', 1);   // el estado de cuenta ya cubre toda la ventana
+    const [comp] = await trx('finance.supplier_payment_proofs').insert({
+      tenant_id: M, sucursal: '00', folio: 'PGQ104', ocr_monto: 5000.4, ocr_fecha: '2019-05-10', ocr_cuenta_origen: '012180001234569104',
+    }).returning('id');
+    const lote = async (dia: string) => (await trx('finance.payment_calendar_lots').insert({ tenant_id: M, lot_date: dia }).returning('id'))[0].id as string;
+    const l10 = await lote('2019-05-10');
+    const l12 = await lote('2019-05-12');
+    const pago = async (lot: string, monto: number, cuenta: string | null) => (await trx('finance.payment_allocations').insert({
+      tenant_id: M, lot_id: lot, classification: 'proveedor_mercancia', amount_assigned: monto, bank_account_id: cuenta,
+      payment_method: 'transferencia', created_by: USER,
+    }).returning('id'))[0].id as string;
+    const A1 = await pago(l10, 5000, acc.id);
+    const A2 = await pago(l10, 3000, acc.id);
+    const A3 = await pago(l10, 7000, null);
+    const A4 = await pago(l10, 2500, acc.id);
+    await pago(l12, 2500, acc.id);           // el vecino que reclama la MISMA salida de 2,500
+    const A6 = await pago(l10, 3333, acc.id);
+
+    const v = await leerValidacionDelDia(trx, M, '2019-05-10', '2026-11-09');
+    expect(v.get(A1)).toMatchObject({ estado: 'validado', movimiento_id: m1, comprobante_id: comp.id });
+    expect(v.get(A2)).toMatchObject({ estado: 'falta_comprobante', movimiento_id: m2, comprobante_id: null });
+    expect(v.get(A3)!.estado).toBe('sin_cuenta');
+    // ⛔ Sin los vecinos, A4 se validaría con la salida que también es del pago del día 12.
+    expect(v.get(A4)!.estado).toBe('discrepa');
+    expect(v.get(A6)!.estado).toBe('sin_movimiento');
+    // Un día por venir no se valida (no se ha pagado).
+    expect((await leerValidacionDelDia(trx, M, '2019-05-10', '2019-05-09')).size).toBe(0);
   });
 
   it('Gonac 01 va en otro pago', async () => {

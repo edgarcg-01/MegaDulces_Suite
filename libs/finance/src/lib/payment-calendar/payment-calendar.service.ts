@@ -9,6 +9,7 @@ import { clabeValida } from '@megadulces/contracts/finance/clabe';
 import { destinosSugeridos, type FilaComprobanteClabe } from './destino-sugerido';
 import { SupplierPaymentAccountsService } from '../supplier-payment-accounts/supplier-payment-accounts.service';
 import type { DiscountReason, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarItemDiscountResult, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
+import { leerValidacionDelDia } from './validacion-pago.sql';
 import { assertDescuentoPermitido, descuentoSobreCubierto, descuentosSobreCubierto, lineasDeDescuento, normalizarDescuento, round2, type DescuentosNormalizados } from './descuento-al-pagar';
 import { cierreCompleto, type CierreKeplerPago } from '@megadulces/contracts';
 import { SQL_CIERRE_KEPLER, armarCierres, idsParaCierre, type FilaCierreKepler, type ItemParaCierre, type PagoParaCierre } from './cierre-kepler.sql';
@@ -1283,6 +1284,9 @@ export class PaymentCalendarService {
         allocations.map((a: AllocationRowLite) => ({ id: a.id, lotDate: date, alta: toMxDateKey(a['created_at'] as Date | string | null) || date })),
         items as { allocation_id: string; obligation_source: string; obligation_id: string }[],
       );
+      // `[PGP.104]` Lo que prueba que se pagó: la salida del estado de cuenta + su comprobante (F2).
+      // Sólo en un día que ya llegó; uno por venir no se ha pagado.
+      const validaciones = await leerValidacionDelDia(trx, tenantId, date, todayMx());
       return allocations.map((a: AllocationRowLite) => {
         // `[PGP.91]` `numeric` llega como texto del driver: el descuento sale como número, y la
         // tasa como número o null (null = se capturó en pesos, no hay tasa que decir).
@@ -1321,6 +1325,7 @@ export class PaymentCalendarService {
           // `[PGP.91]` Lo que el proveedor descontó al pagar. `amount_assigned` sigue siendo el neto.
           discount_total: round2(its.reduce((s, it) => s + it.discount_amount, 0)),
           kepler_cierre: cierres.get(a.id) ?? null,
+          validacion: validaciones.get(a.id) ?? null,
           items: its,
         };
       });

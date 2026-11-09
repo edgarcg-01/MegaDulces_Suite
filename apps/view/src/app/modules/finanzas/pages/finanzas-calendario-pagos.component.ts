@@ -19,6 +19,7 @@ import type {
   DiscountReason, PaymentCalendarDiscountLine, PaymentCalendarItemDiscountBody, PaymentCalendarItemDiscountResult,
 } from '@megadulces/contracts';
 import { warehouseName, DISCOUNT_REASONS, DISCOUNT_REASON_LABEL } from '@megadulces/contracts';
+import { textoValidacion, validadoParaKepler } from '@megadulces/contracts/finance/validacion-pago';
 import { cierreCompleto, faltaParaCerrar, nombreTipoPagoKepler, sinComprobantePorque, textoCierre, type CierreKeplerPago, type PagoKeplerDelCierre } from '@megadulces/contracts';
 import { PagosComprobantesService } from '../pagos-comprobantes.service';
 import type { SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
@@ -610,8 +611,8 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                 @if (day.lot_folio) {
                   <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" [loading]="printing()" (click)="printEjecucion()"><span class="pi pi-print" aria-hidden="true"></span>&nbsp;Instrucción de ejecución</button>
                 }
-                @if (isReleased() && porPagar().length > 1 && verdict().action?.kind !== 'pagar') {
-                  <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [disabled]="saving()" (click)="abrirPagar(null)"><span class="pi pi-check" aria-hidden="true"></span>&nbsp;Marcar los {{ porPagar().length }} pagados</button>
+                @if (isReleased() && porMarcar().length > 1 && verdict().action?.kind !== 'pagar') {
+                  <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [disabled]="saving()" (click)="abrirPagar(null)"><span class="pi pi-check" aria-hidden="true"></span>&nbsp;Marcar los {{ porMarcar().length }} pagados</button>
                 }
               </span>
               <!-- [PGP.72] Comprobantes de pago, sin ir a «Pagos a proveedor» (Edgar, 2026-11-04: «sólo replicar ese
@@ -784,6 +785,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                           <span class="pg-st" [class.is-bad]="a.status === 'failed'" [class.is-todo]="a.status === 'pending' && !!cs.falta">
                             <i class="pi" [ngClass]="estadoIcono(a)" aria-hidden="true"></i>{{ estadoTexto(a) }}
                           </span>
+                          <!-- [PGP.104] Lo que prueba que se pagó (F2): la salida del estado de cuenta + su comprobante. El porqué va en el desglose. -->
+                          @if (a.validacion; as v) { @if (isReleased() || a.status === 'executed') {
+                            <span class="pg-val" [class.is-ok]="v.estado === 'validado'"><i class="pi" [class.pi-check-circle]="v.estado === 'validado'" [class.pi-exclamation-circle]="v.estado !== 'validado'" aria-hidden="true"></i>{{ textoValidacion(v.estado) }}</span>
+                          } }
                         </span>
                       }
                     </td>
@@ -800,7 +805,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                         <button pButton type="button" class="p-button-sm p-button-text p-button-secondary pg-x" [disabled]="saving()" [attr.aria-label]="'Quitar del día a ' + allocationTitle(a)" (click)="quitarObjetivo.set(a)"><span class="pi pi-times" aria-hidden="true"></span></button>
                       } @else if (a.status === 'pending') {
                         <!-- [PGP.70] Abre el MISMO diálogo que el lote, con este pago solo: marcar no se deshace aquí. -->
-                        <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [disabled]="!prepared(a) || saving()" (click)="abrirPagar(a)" [attr.aria-label]="'Marcar pagado el pago de ' + allocationTitle(a)">Pagado</button>
+                        <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [disabled]="!prepared(a) || !validadoParaKepler(a.validacion) || saving()" (click)="abrirPagar(a)" [attr.aria-label]="'Marcar pagado el pago de ' + allocationTitle(a) + (validadoParaKepler(a.validacion) ? '' : ': falta validarlo con el banco y su comprobante')">Pagado</button>
                         <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" [attr.aria-label]="'El pago de ' + allocationTitle(a) + ' rebotó'" (click)="openRebote(a)">Rebotó…</button>
                       } @else if (a.status === 'failed') {
                         <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [attr.aria-label]="'Mover a otro día el pago de ' + allocationTitle(a)" (click)="openReprogram(a)"><span class="pi pi-calendar" aria-hidden="true"></span>&nbsp;Mover</button>
@@ -849,6 +854,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                           <!-- [PGP.91] Lo que significa el neto: sin esto, una factura «cubierta» con menos dinero se lee como pago parcial. -->
                           <p class="pg-x-d">Se transfiere el neto. El descuento lo formaliza el proveedor después con una nota de crédito en Kepler; mientras llega, lo que este pago cubre de cada factura con descuento (neto + descuento) queda cubierto y no se vuelve a ofrecer.</p>
                         }
+                        @if (a.validacion; as v) { @if (v.motivo && (isReleased() || a.status === 'executed')) {
+                          <!-- [PGP.104] Por qué todavía no se puede dar por pagado, en palabras. La CLABE destino no se compara: el catálogo de cuentas de proveedor está vacío. -->
+                          <p class="pg-x-d">{{ v.motivo }} La CLABE destino no se compara todavía.</p>
+                        } }
                         @if (a.notes) { <p class="cal-notes">{{ a.notes }}</p> }
                       </div>
                       <table class="pg-items-t">
@@ -1774,6 +1783,9 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-cierre > .pi { color:var(--ok-fg); }
     .pg-cierre-d { font-weight:400; color:var(--text-muted); }
     /* [PGP.100] Lo que falta para cerrar: ámbar con su palabra (el color acompaña, no porta). */
+    /* [PGP.104] La validación banco + comprobante: ámbar mientras falte algo, verde al validarse; siempre con su palabra. */
+    .pg-val { display:inline-flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-xs); font-weight:600; color:var(--warn-soft-fg); }
+    .pg-val.is-ok { color:var(--ok-fg); }
     .pg-falta { display:inline-flex; align-items:center; gap:var(--sp-1); color:var(--warn-soft-fg); background:var(--warn-soft-bg); border-radius:var(--r-pill); padding:0 var(--sp-2); font-weight:600; }
     .pg-sec-cierre { display:inline-flex; align-items:center; gap:var(--sp-1); margin-left:var(--sp-2); font-size:var(--fs-xs); font-weight:600; color:var(--text-muted); }
     .pg-sec-cierre > .pi { color:var(--ok-fg); }
@@ -2697,10 +2709,12 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       }
       const pend = this.pendingCount();
       if (pend > 0) {
-        const listos = this.porPagar().length;
+        // `[PGP.104]` Sólo se marca lo que prueban el estado de cuenta y su comprobante (F2).
+        const listos = this.porMarcar().length;
+        const esperan = this.porPagar().length - listos;
         return { tone: 'ok',
           say: `Autorizado: ${this.pagos(pend)} por pagar, ${this.money(this.porPagarTotal())}.`,
-          why: `${this.ejecutoresDelDia() ?? 'Quien dispersa'} ejecuta con la instrucción impresa, que dice pago por pago a quién le toca. Cuando el banco confirme, márcalos pagados de una vez; si uno rebota, márcalo en su fila.`,
+          why: `${this.ejecutoresDelDia() ?? 'Quien dispersa'} ejecuta con la instrucción impresa, que dice pago por pago a quién le toca. «Pagado» se habilita cuando el estado de cuenta muestra la salida y está su comprobante${esperan > 0 ? ` (${esperan === 1 ? 'a 1 todavía le falta' : `a ${esperan} todavía les falta`}: el porqué está en su desglose)` : ''}; si uno rebota, márcalo en su fila.`,
           action: listos ? { kind: 'pagar', label: listos === 1 ? 'Marcar pagado' : `Marcar los ${listos} pagados`, icon: 'pi-check' } : null };
       }
       return { tone: 'ok', say: 'Todos los pagos se marcaron: falta cerrar el día.',
@@ -3221,7 +3235,11 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    * deshace — mientras el lote pedía confirmación para el mismo acto.
    */
   readonly pagarSolo = signal<PaymentCalendarAllocation | null>(null);
-  readonly pagarLista = computed(() => { const a = this.pagarSolo(); return a ? [a] : this.porPagar(); });
+  /** `[PGP.104]` Lo que se puede marcar pagado: preparado Y validado con banco y comprobante (F2). */
+  readonly porMarcar = computed(() => this.porPagar().filter((a) => validadoParaKepler(a.validacion)));
+  readonly validadoParaKepler = validadoParaKepler;
+  readonly textoValidacion = textoValidacion;
+  readonly pagarLista = computed(() => { const a = this.pagarSolo(); return a ? [a] : this.porMarcar(); });
   readonly pagarListaTotal = computed(() => this.pagarLista().reduce((s, a) => s + Number(a.amount_assigned || 0), 0));
   readonly pagarListaSaldadas = computed(() => this.pagarLista().filter((a) => (a.kepler_saldadas ?? 0) > 0).length);
   abrirPagar(a: PaymentCalendarAllocation | null): void {
