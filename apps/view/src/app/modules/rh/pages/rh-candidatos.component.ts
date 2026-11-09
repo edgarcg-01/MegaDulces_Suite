@@ -5,7 +5,9 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { Subject, debounceTime } from 'rxjs';
 import { InputTextModule } from 'primeng/inputtext';
 import { ButtonModule } from 'primeng/button';
-import type { HrCandidatoFichaDto, HrCandidatoFilaDto, HrCasilleroDto, HrTalentApartado, HrTalentEtapa } from '@megadulces/contracts';
+import {
+  HR_TALENT_SIN_CIUDAD, type HrCandidatoFichaDto, type HrCandidatoFilaDto, type HrCasilleroDto, type HrTalentApartado, type HrTalentEtapa,
+} from '@megadulces/contracts';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
@@ -48,6 +50,12 @@ const POR_PAGINA = 100;
           <input pInputText type="search" placeholder="Nombre, puesto o teléfono" autocomplete="off" aria-label="Buscar candidato"
                  [ngModel]="busqueda()" (ngModelChange)="buscar($event)" />
         </div>
+        <!-- [RH.8.1] Llegó desde una celda del Resumen: la ciudad se ve y se quita. -->
+        @if (ciudad(); as c) {
+          <span class="rc-ciudad">Ciudad: <b>{{ nombreCiudad(c) }}</b>
+            <button type="button" (click)="setCiudad(null)" [attr.aria-label]="'Quitar el filtro de ciudad ' + nombreCiudad(c)"><i class="pi pi-times" aria-hidden="true"></i></button>
+          </span>
+        }
       </section>
 
       @if (apartado() !== 'papelera' && apartado() !== 'spam') {
@@ -116,6 +124,10 @@ const POR_PAGINA = 100;
     .rc-seg button[aria-pressed='true'] { background: var(--surface-selected-bg); color: var(--text-main); font-weight: 600; }
     .rc-seg button:focus-visible, .rc-etapas button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
     .rc-buscar { position: relative; flex: 0 1 22rem; }
+    .rc-ciudad { display: inline-flex; align-items: center; gap: var(--sp-1); padding: 2px var(--sp-1) 2px var(--sp-2); border-radius: var(--r-pill);
+      background: var(--info-soft-bg); color: var(--info-soft-fg); font-size: var(--fs-sm); }
+    .rc-ciudad button { border: 0; background: none; color: inherit; cursor: pointer; padding: 2px; border-radius: var(--r-sm); }
+    .rc-ciudad button:focus-visible { outline: 2px solid var(--focus-ring); }
     .rc-buscar i { position: absolute; left: var(--sp-2); top: 50%; transform: translateY(-50%); color: var(--text-muted); }
     .rc-buscar input { width: 100%; padding-left: calc(var(--sp-2) * 3.5); }
     .rc-etapas { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
@@ -157,6 +169,8 @@ export class RhCandidatosComponent implements OnInit {
 
   readonly apartado = signal<HrTalentApartado>('postulados');
   readonly etapa = signal<HrTalentEtapa | null>(null);
+  /** `[RH.8.1]` Ciudad del catálogo (o `sin_ciudad`), cuando se llega desde una celda del Resumen. */
+  readonly ciudad = signal<string | null>(null);
   readonly busqueda = signal('');
   readonly filas = signal<HrCandidatoFilaDto[]>([]);
   readonly total = signal(0);
@@ -188,6 +202,7 @@ export class RhCandidatosComponent implements OnInit {
     const et = q.get('stage');
     if (ETAPAS.some((e) => e.id === et)) this.etapa.set(et as HrTalentEtapa);
     this.busqueda.set(q.get('q') ?? '');
+    this.ciudad.set(q.get('city') || null);
     this.busqueda$.pipe(debounceTime(300), takeUntilDestroyed(this.destroyRef)).subscribe(() => { this.syncUrl(); this.cargar(); });
     this.api.casilleros().subscribe({ next: (c) => this.casilleros.set(c), error: () => this.casilleros.set([]) });
     this.cargar();
@@ -216,6 +231,14 @@ export class RhCandidatosComponent implements OnInit {
     this.cargar();
   }
 
+  setCiudad(c: string | null): void {
+    this.ciudad.set(c);
+    this.syncUrl();
+    this.cargar();
+  }
+
+  nombreCiudad(c: string): string { return c === HR_TALENT_SIN_CIUDAD ? 'sin ciudad reconocida' : c; }
+
   buscar(t: string): void {
     this.busqueda.set(t);
     this.busqueda$.next(t);
@@ -225,7 +248,7 @@ export class RhCandidatosComponent implements OnInit {
     this.loading.set(true);
     this.error.set(null);
     this.api.candidatos({
-      view: this.apartado(), stage: this.etapa(), q: this.busqueda().trim() || undefined, limit: POR_PAGINA, offset: masDe,
+      view: this.apartado(), stage: this.etapa(), city: this.ciudad(), q: this.busqueda().trim() || undefined, limit: POR_PAGINA, offset: masDe,
     }).subscribe({
       next: (r) => {
         this.filas.set(masDe ? [...this.filas(), ...r.filas] : r.filas);
@@ -278,7 +301,7 @@ export class RhCandidatosComponent implements OnInit {
     void this.router.navigate([], {
       relativeTo: this.route, replaceUrl: true,
       queryParams: {
-        view: this.apartado() === 'postulados' ? null : this.apartado(), stage: this.etapa(),
+        view: this.apartado() === 'postulados' ? null : this.apartado(), stage: this.etapa(), city: this.ciudad(),
         q: this.busqueda().trim() || null, id,
       },
     });

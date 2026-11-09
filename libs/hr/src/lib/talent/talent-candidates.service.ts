@@ -4,7 +4,10 @@ import { ObjectStorageService, TenantContextService, TenantKnexService, sanitiza
 import type {
   HrCandidatoEdicion, HrCandidatoEventoDto, HrCandidatoEventoNuevo, HrCandidatoFichaDto, HrCandidatoFilaDto,
   HrCandidatosListaDto, HrCasilleroDto, HrDocumentoDto, HrDocumentoNuevo, HrDuplicadoGrupoDto, HrFusionResultadoDto, HrReingresoAlertaDto, HrTiempoPorEtapaDto,
+  HrResumenReclutamientoDto,
 } from '@megadulces/contracts';
+import { HR_TALENT_SIN_CIUDAD } from '@megadulces/contracts';
+import { ciudadDe, resumenReclutamiento, type FilaResumen } from './logic/resumen';
 import {
   ETAPA_INICIAL, SQL_ES_POSTULACION, esApartado, esEtapaDestino, etapaDe, fusion, motivoValido, tieneCv,
   type Apartado,
@@ -140,7 +143,26 @@ export class HrTalentCandidatesService {
 
   // ── Lectura ──────────────────────────────────────────────────────────────────────────────
 
-  async listar(f: { view?: string; stage?: string; branch?: string; q?: string; limit?: number; offset?: number }): Promise<HrCandidatosListaDto> {
+  /** `[RH.8.1]` El Resumen: en proceso (sin spam ni papelera) por ciudad y por etapa, y quién va fuera de su meta. */
+  async resumen(): Promise<HrResumenReclutamientoDto> {
+    return this.run(async (trx) => {
+      const q = trx(`${T} as c`);
+      whereApartado(q, 'en_proceso');
+      const filas = await q.select('c.city_branch', 'c.stage', trx.raw('coalesce(c.last_activity_at, c.created_at) AS desde')) as FilaResumen[];
+      return resumenReclutamiento(filas);
+    });
+  }
+
+  /**
+   * `[RH.8.1]` Los textos de ciudad que caen en `ciudad` según la regla del bot (texto libre: se agrupa en la app, no
+   * en SQL, para que haya UNA sola regla). Son pocos (~300 distintos): se leen enteros.
+   */
+  private async textosDeCiudad(trx: Knex.Transaction, ciudad: string): Promise<string[]> {
+    const todos = (await trx(T).distinct('city_branch').whereNotNull('city_branch')) as Array<{ city_branch: string }>;
+    return todos.map((r) => r.city_branch).filter((t) => t.trim() && ciudadDe(t) === ciudad);
+  }
+
+  async listar(f: { view?: string; stage?: string; branch?: string; city?: string; q?: string; limit?: number; offset?: number }): Promise<HrCandidatosListaDto> {
     const vista = f.view == null || f.view === '' ? 'postulados' : f.view;
     if (!esApartado(vista)) throw new BadRequestException('view: postulados, en_proceso, spam, no_recontratables o papelera.');
     const ap: Apartado = vista;
@@ -149,10 +171,19 @@ export class HrTalentCandidatesService {
     const offset = Math.max(Number(f.offset) || 0, 0);
 
     return this.run(async (trx) => {
+      const ciudad = f.city ? String(f.city) : null;
+      const textos = ciudad ? await this.textosDeCiudad(trx, ciudad) : [];
       const base = () => {
         const q = trx(`${T} as c`);
         whereApartado(q, ap);
         if (f.branch) q.where('c.city_branch', f.branch);
+        // `[RH.8.1]` Por ciudad del catálogo (o «sin ciudad»: vacía o no reconocida), con la regla del bot.
+        if (ciudad) {
+          q.where((w) => {
+            if (textos.length) w.whereIn('c.city_branch', textos); else w.whereRaw('false');
+            if (ciudad === HR_TALENT_SIN_CIUDAD) w.orWhereNull('c.city_branch').orWhereRaw(`btrim(c.city_branch) = ''`);
+          });
+        }
         // [BU.2.2] Motor único `applySmartSearch`: nombre + puesto de interés por texto, y el
         // teléfono por dígitos (vía numérica cuando la consulta es un número).
         if (f.q && f.q.trim()) {

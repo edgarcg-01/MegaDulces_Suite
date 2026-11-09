@@ -125,3 +125,48 @@ describe('[RH.2.3] Revisiones', () => {
     expect(texto(f)).toContain('351 000 0000');
   });
 });
+
+describe('[RH.8.1] Resumen y la ciudad en Candidatos', () => {
+  afterEach(() => TestBed.resetTestingModule());
+  const vacio = { filtro_inicial: 0, entrevista_rh: 0, aptitudes: 0, psicometria: 0, contratado: 0, rechazado: 0 };
+  const resumen = {
+    total: 5,
+    ciudades: [
+      { ciudad: 'Morelia', total: 3, por_etapa: { ...vacio, filtro_inicial: 2, aptitudes: 1 } },
+      { ciudad: 'sin_ciudad', total: 2, por_etapa: { ...vacio, filtro_inicial: 2 } },
+    ],
+    etapas: [
+      { etapa: 'filtro_inicial', total: 4, rezago: 1, fuera_de_meta: 2 }, { etapa: 'entrevista_rh', total: 0, rezago: 0, fuera_de_meta: 0 },
+      { etapa: 'aptitudes', total: 1, rezago: 0, fuera_de_meta: 0 }, { etapa: 'psicometria', total: 0, rezago: 0, fuera_de_meta: 0 },
+      { etapa: 'contratado', total: 0, rezago: 0, fuera_de_meta: null }, { etapa: 'rechazado', total: 0, rezago: 0, fuera_de_meta: null },
+    ],
+    sin_ciudad: { vacia: 1, no_reconocida: 1 },
+    rezago_dias: 30,
+  };
+
+  it('⭐ el Resumen abre con quién va fuera de meta; cada número lleva a Candidatos con etapa y ciudad', async () => {
+    const { RhReclutamientoResumenComponent } = await import('./rh-reclutamiento-resumen.component');
+    const f = await montar(RhReclutamientoResumenComponent, api({ resumen: vi.fn(() => of(resumen)) }), [Permission.HR_RECRUITMENT_VER]);
+    const c = f.componentInstance as InstanceType<typeof RhReclutamientoResumenComponent>;
+    expect(c.metas().map((m) => [m.label, m.value])).toEqual([
+      ['Filtro: fuera de meta', 2], ['Conductual: fuera de meta', 0], ['Aptitudes: fuera de meta', 0], ['Psicométricas: fuera de meta', 0],
+      ['Sin movimiento hace más de 30 días', 1],
+    ]);
+    const liga = (f.nativeElement as HTMLElement).querySelector('a[aria-label^="1 en Aptitudes"]') as HTMLAnchorElement | null;
+    expect(liga?.getAttribute('href')).toContain('/rh/reclutamiento?view=en_proceso&stage=aptitudes&city=Morelia');
+    expect(texto(f)).toContain('Sin ciudad reconocida');
+    expect(texto(f)).toContain('no la escribieron');
+  });
+
+  it('Candidatos pide la ciudad, la muestra y se puede quitar', async () => {
+    const svc = api();
+    const f = await montar(RhCandidatosComponent, svc, [Permission.HR_RECRUITMENT_VER]);
+    const c = f.componentInstance;
+    c.setCiudad('sin_ciudad');
+    f.detectChanges();
+    expect(svc['candidatos']).toHaveBeenLastCalledWith(expect.objectContaining({ city: 'sin_ciudad' }));
+    expect(texto(f)).toContain('sin ciudad reconocida');
+    c.setCiudad(null);
+    expect(svc['candidatos']).toHaveBeenLastCalledWith(expect.objectContaining({ city: null }));
+  });
+});

@@ -1070,6 +1070,12 @@ export const routes: Routes = [
         canActivate: [anyPermissionGuard(Permission.HR_RECRUITMENT_VER, Permission.HR_RECRUITMENT_GESTIONAR)],
         loadComponent: () => import('./modules/rh/pages/rh-candidatos.component').then(m => m.RhCandidatosComponent),
       },
+      // `[RH.8.1]` Resumen del reclutamiento: lee lo mismo que la lista (`GET /hr/talent/summary`, VER o GESTIONAR).
+      {
+        path: 'reclutamiento/resumen',
+        canActivate: [anyPermissionGuard(Permission.HR_RECRUITMENT_VER, Permission.HR_RECRUITMENT_GESTIONAR)],
+        loadComponent: () => import('./modules/rh/pages/rh-reclutamiento-resumen.component').then(m => m.RhReclutamientoResumenComponent),
+      },
       {
         path: 'reclutamiento/vacantes',
         canActivate: [anyPermissionGuard(Permission.HR_RECRUITMENT_VER, Permission.HR_RECRUITMENT_GESTIONAR)],

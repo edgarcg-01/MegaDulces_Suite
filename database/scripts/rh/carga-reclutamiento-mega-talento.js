@@ -148,6 +148,23 @@ async function cargarReclutamiento(trx, mt, { tenantId = TENANT_MD, log = null }
   }));
   anotar('candidate_events', eventos.length, e.n, e.desc, e.ya);
 
+  // ── La última actividad, como la lleva la Suite ────────────────────────────────────────────────────────────────
+  // En la Suite, mover de etapa y registrar un evento ACTUALIZAN `last_activity_at` (`talent-etapa.db.ts`, eventos).
+  // Mega Talento no: la dejaba vacía en 2,690 de 2,843 (medido el 9-nov), aunque la bitácora tiene 1,784 cambios y 247
+  // eventos. Sin esto, la marca de «atrasado» y el Resumen medían desde el ALTA y todo salía atrasado. Se deriva de los
+  // hechos que ya se cargaron (el último de: alta, actividad, cambio de etapa, evento); nada se inventa.
+  const ids = candidatos.map((k) => k.id);
+  const derivada = ids.length ? (await trx.raw(`
+    WITH ult AS (
+      SELECT c.id, GREATEST(c.created_at, c.last_activity_at,
+               (SELECT max(t.changed_at) FROM talent.candidate_stage_transitions t WHERE t.tenant_id = c.tenant_id AND t.candidate_id = c.id),
+               (SELECT max(v.occurred_at) FROM talent.candidate_events v WHERE v.tenant_id = c.tenant_id AND v.candidate_id = c.id)) AS ultima
+        FROM talent.candidates c WHERE c.id = ANY(?::uuid[]))
+    UPDATE talent.candidates c SET last_activity_at = ult.ultima
+      FROM ult WHERE c.id = ult.id AND c.last_activity_at IS DISTINCT FROM ult.ultima`, [ids])).rowCount : 0;
+  cuadre.candidates.ultima_actividad_derivada = derivada;
+  if (avisar) avisar(`  candidates: última actividad tomada de la bitácora en ${derivada} (alta, cambio de etapa o evento)`);
+
   // ── Lo que NO se carga aquí: se declara con su tamaño, nunca como cero ─────────────────────────────────────────
   const tamano = async (tabla) => { try { return Number((await q(`SELECT count(*) AS n FROM ${tabla}`))[0].n); } catch { return null; } };
   cuadre.no_cargado = {

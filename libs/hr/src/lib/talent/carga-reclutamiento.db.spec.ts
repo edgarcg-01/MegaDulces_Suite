@@ -30,7 +30,8 @@ suite('[RH.2.5] carga única del reclutamiento, contra la base', () => {
     const tablas: Record<string, unknown[]> = {
       puestos: [{ id: VAC, nombre: 'Cajera', sucursal_ids: ['sucursal-ph'], sucursales: 'Padre Hidalgo', activo: true, orden: 2, extra: {}, creado_en: ahora }],
       candidatos: [
-        { ...base, id: ANA, telefono: '5214431112233', nombre_completo: 'Ana Prueba Uno', portal_status: 'aptitudes', estado: 'completado', semaforo: 'verde', fuente: 'Feria de empleo' },
+        { ...base, id: ANA, telefono: '5214431112233', nombre_completo: 'Ana Prueba Uno', portal_status: 'aptitudes', estado: 'completado', semaforo: 'verde', fuente: 'Feria de empleo',
+          creado_en: new Date('2026-10-01T12:00:00Z'), ultima_actividad: null },
         { ...base, id: BETO, telefono: '4431112233', nombre_completo: 'Beto Prueba Dos', portal_status: null, estado: 'esperando_rfc', semaforo: 'amarillo',
           spam: true, spam_motivo: 'número de prueba', spam_por: 'rh@x', spam_en: ahora },
         { ...base, id: CARO, telefono: '4439998877', nombre_completo: 'Caro Prueba Tres', portal_status: 'entrevista_rh', estado: 'pendiente_aprobacion', semaforo: 'rojo',
@@ -69,6 +70,9 @@ suite('[RH.2.5] carga única del reclutamiento, contra la base', () => {
         r['caro'] = [c.no_rehire, !!c.deleted_at, c.deletion_reason];
         r['mismoTel'] = c1.candidates.mismo_telefono_que_otro >= 2;   // Ana y Beto: 52 1 443… y 443… son el mismo número
         r['vacante'] = await trx('talent.job_postings').where({ id: VAC }).first('name', 'branch_codes', 'sort_order');
+        // La última actividad de Ana sale de su bitácora (cambio de etapa y evento del 1-nov), no queda vacía.
+        r['ultimaAna'] = new Date((await trx('talent.candidates').where({ id: ANA }).first('last_activity_at')).last_activity_at).toISOString();
+        r['derivadas'] = c1.candidates.ultima_actividad_derivada >= 1;
         // Idempotente: la segunda vez todo «ya estaba».
         const c2 = await cargarReclutamiento(trx, mt, { tenantId: TENANT });
         r['segunda'] = [c2.candidates.cargadas, c2.candidates.ya_estaban, c2.candidate_events.cargadas, c2.candidate_events.ya_estaban];
@@ -87,5 +91,7 @@ suite('[RH.2.5] carga única del reclutamiento, contra la base', () => {
     expect(r['mismoTel']).toBe(true);
     expect(r['vacante']).toEqual({ name: 'Cajera', branch_codes: ['sucursal-ph'], sort_order: 2 });
     expect(r['segunda']).toEqual([0, 3, 0, 1]);
+    expect(r['ultimaAna']).toBe('2026-11-01T12:00:00.000Z');
+    expect(r['derivadas']).toBe(true);
   }, 60_000);
 });
