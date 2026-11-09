@@ -78,6 +78,19 @@ export interface Conciliacion {
   lines: ReconciledLine[];
   kepler_orphans: RenglonKepler[];
   base_precio: BasePrecio;
+  /**
+   * `[RE.60]` Lo que se leyó como renglón y no trae ni cantidad ni importe: una nota a mano, el
+   * sello, la plaza («Abastos LP» en 06/0001220). Conciliarlo pintaba un «sin match» sobre algo que
+   * no es producto. No se tira en silencio: se devuelve para que la pantalla lo diga.
+   */
+  no_producto: RemisionLine[];
+}
+
+/** `[RE.60]` Sin cantidad (o cantidad 0) y sin importe: no es un renglón de producto. */
+export function esRenglonDeProducto(r: RemisionLine): boolean {
+  const q = Number(r.cantidad);
+  const conCantidad = r.cantidad != null && Number.isFinite(q) && q !== 0;
+  return conCantidad || importeRemision(r) != null;
 }
 
 /** Normaliza texto para comparar: minúsculas, sin acentos, puntuación → espacio. */
@@ -171,7 +184,9 @@ interface Par { i: number; j: number; sim: number; metodo: ReconciledLine['metho
  * resultado (los empates se rompen por orden de remisión y luego de Kepler).
  */
 export function conciliarRenglones(e: EntradaConciliar): Conciliacion {
-  const rem = e.remision.filter((l) => l && l.descripcion);
+  const leidos = e.remision.filter((l) => l && l.descripcion);
+  const rem = leidos.filter(esRenglonDeProducto);
+  const noProducto = leidos.filter((l) => !esRenglonDeProducto(l));
   const kep = e.kepler;
   const kepTokens = kep.map((k) => tokenize(k.nombre || ''));
   const bfDe = (sku: string | null, alias?: AliasAprendido | null) =>
@@ -300,7 +315,7 @@ export function conciliarRenglones(e: EntradaConciliar): Conciliacion {
   });
 
   const agrupados = new Set([...grupos.values()].map((g) => g.j));
-  return { lines, kepler_orphans: kep.filter((_, j) => !kepUsado.has(j) && !agrupados.has(j)), base_precio: base };
+  return { lines, kepler_orphans: kep.filter((_, j) => !kepUsado.has(j) && !agrupados.has(j)), base_precio: base, no_producto: noProducto };
 }
 
 /** `[RE.56]` Cuántos renglones sueltos se prueban como máximo, y de qué tamaño puede ser un grupo. */

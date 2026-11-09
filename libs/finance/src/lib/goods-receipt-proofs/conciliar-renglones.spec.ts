@@ -175,3 +175,29 @@ describe('[RE.56] N:1, faltas de ortografía y pares por números', () => {
     expect(aprendibles(conc(remFr)).some((a) => a.sku === '07615')).toBe(false);
   });
 });
+
+describe('[RE.60] lo que no es producto no se concilia, pero se dice', () => {
+  // El caso: una remisión a mano con UN producto y la plaza escrita abajo («Abastos LP»). El OCR la
+  // leyó como renglón con cantidad 0 y sin importe, y la pantalla pintaba «1 sin match».
+  const k1 = [kep('1', 'P1', 'PINATA PERSONAJE MEDIANO', 10, 827.6)];
+  const notaAMano: RemisionLine = { descripcion: 'Abastes Lp', cantidad: 0, unidad: null, importe: null, precio_unitario: null, sku_proveedor: null, codigo_barras: null };
+
+  it('la nota sin cantidad ni importe sale de la conciliación y queda en no_producto', () => {
+    const c = conciliarRenglones(entrada([rem('Pinata Med', 10, 960, 'PZA'), notaAMano], { kepler: k1, boxFactor: new Map() }));
+    expect(c.lines.map((l) => l.status)).toEqual(['cuadra']);
+    expect(c.no_producto.map((l) => l.descripcion)).toEqual(['Abastes Lp']);
+  });
+
+  it('NEGATIVA: un renglón con importe y sin cantidad legible SÍ se concilia (puede ser producto)', () => {
+    const sinCantidad: RemisionLine = { ...notaAMano, descripcion: 'Pinata Grande', importe: 500 };
+    const c = conciliarRenglones(entrada([rem('Pinata Med', 10, 960, 'PZA'), sinCantidad], { kepler: k1, boxFactor: new Map() }));
+    expect(c.lines).toHaveLength(2);
+    expect(c.no_producto).toHaveLength(0);
+  });
+
+  it('NEGATIVA: un renglón con cantidad y sin importe SÍ se concilia', () => {
+    const c = conciliarRenglones(entrada([rem('Pinata Med', 10, null, 'PZA')], { kepler: k1, boxFactor: new Map() }));
+    expect(c.lines).toHaveLength(1);
+    expect(c.no_producto).toHaveLength(0);
+  });
+});

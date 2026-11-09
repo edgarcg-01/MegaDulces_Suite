@@ -59,7 +59,7 @@ const LIGA: Record<string, string> = {
           @if (x.liga) { · CFDI encontrado {{ ligaTexto(x.liga) }}. }
           @if (x.cubo === 'auto' && !x.motivos.length) { Regla {{ x.regla }} · tolerancia menor a {{ (x.tolerancia.pct * 100).toFixed(2) }}% y a {{ money(x.tolerancia.abs) }}. }
         </p>
-        @if (x.via === 'remision' && x.doc_tipo === 'factura') {
+        @if (x.via === 'remision' && x.doc_tipo === 'factura' && !avisoRemision()) {
           <p class="ex-ver-s">Se revisó como remisión: el proveedor no tiene CFDI en ContPAQi.</p>
         }
         @if (x.nota_credito; as n) {
@@ -88,7 +88,7 @@ const LIGA: Record<string, string> = {
 
         <button type="button" class="ex-toggle" [attr.aria-expanded]="verTodo()" (click)="verTodo.set(!verTodo())">
           <i class="pi" [ngClass]="verTodo() ? 'pi-chevron-down' : 'pi-chevron-right'" aria-hidden="true"></i>
-          {{ verTodo() ? 'Ocultar' : 'Ver' }} los {{ cuenta().coinciden }} que coinciden@if (x.cfdi) { y los importes del CFDI}
+          {{ verTodo() ? 'Ocultar' : 'Ver' }} los {{ cuenta().total }} datos@if (x.cfdi) { y los importes del CFDI}
         </button>
 
         @if (verTodo()) {
@@ -197,8 +197,18 @@ export class ComprasEntradaExpedienteComponent {
   readonly loading = signal(false);
   readonly error = signal(false);
   readonly cubo = computed(() => CUBO[this.data()?.cubo ?? 'revisar']);
-  /** `[RE.52]` Lo que NO coincide (falla, aviso, sin medir): siempre a la vista. */
-  readonly pendientes = computed(() => (this.data()?.checks ?? []).filter((c) => c.estado !== 'ok' && c.estado !== 'no_aplica'));
+  /**
+   * `[RE.52]` Lo que NO coincide (falla, aviso, sin medir): siempre a la vista. `[RE.60]` Menos lo que
+   * ya es un motivo del veredicto del panel (cubo «revisar»): el sello y la firma se leían dos veces,
+   * una arriba y otra aquí. Siguen en «Ver todos».
+   */
+  readonly pendientes = computed(() => {
+    const x = this.data();
+    const enVeredicto = new Set(x?.cubo === 'revisar' ? x.motivos : []);
+    return (x?.checks ?? []).filter((c) => c.estado !== 'ok' && c.estado !== 'no_aplica' && !(c.nota && enVeredicto.has(c.nota)));
+  });
+  /** `[RE.60]` El aviso de la vía remisión ya lo dice su renglón: la frase de arriba sobra. */
+  readonly avisoRemision = computed(() => this.pendientes().some((c) => c.clave === 'I1_liga'));
   readonly cuenta = computed(() => {
     const cs = (this.data()?.checks ?? []).filter((c) => c.estado !== 'no_aplica');
     return { total: cs.length, coinciden: cs.filter((c) => c.estado === 'ok').length };

@@ -494,7 +494,9 @@ export interface ReconcileResult {
   kepler_orphans: { linea: string; sku: string | null; nombre: string | null; unidad: string | null; cantidad: number; costo_unitario: number; importe: number }[];
   /** `[RE.53]` Si los importes de la remisión traen IVA; se decide por documento, no se supone. */
   base_precio?: 'sin_iva' | 'con_iva' | 'sin_medir';
-  totals: { lineas_remision: number; lineas_kepler: number; cuadran: number; difieren: number; sin_match: number; revisar: number; kepler_orphans: number; agrupados?: number };
+  /** `[RE.60]` Lo leído como renglón sin cantidad ni importe (una nota a mano, la plaza): no se concilia. */
+  no_producto?: ReconciledLine['remision'][];
+  totals: { lineas_remision: number; lineas_kepler: number; cuadran: number; difieren: number; sin_match: number; revisar: number; kepler_orphans: number; agrupados?: number; no_producto?: number };
   /**
    * `[RE.55]` De dónde salieron los renglones del proveedor: los conceptos del CFDI ligado, o el OCR
    * del papel. Un OCR que no pasa las pruebas (dígito verificador, suma contra el total) no se
