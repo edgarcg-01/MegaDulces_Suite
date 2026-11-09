@@ -156,7 +156,7 @@ export interface Veredicto { tono: 'ok' | 'warn' | 'bad' | 'muted'; icono: strin
                 <td class="comm-num mono">{{ num(f.opening_balance) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                 <td class="comm-num mono eb-strong">{{ num(f.closing_balance) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                 <td><p-tag [value]="como(f.account_check).corto" [severity]="como(f.account_check).sev" /></td>
-                <td><span class="mono">{{ f.created_at | date:'dd/MM HH:mm' }}</span> <span class="muted">{{ f.created_by || '' }}</span></td>
+                <td><span class="mono">{{ f.created_at | date:'dd/MM HH:mm' }}</span>@if (f.created_by) {<span class="muted"> · {{ f.created_by }}</span>}</td>
               </tr>
             </ng-template>
           </p-table>
