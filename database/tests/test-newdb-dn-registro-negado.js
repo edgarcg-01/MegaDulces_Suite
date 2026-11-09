@@ -40,6 +40,7 @@ const Module = require('module');
 require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env'), quiet: true });
 require('./_lib/assert-safe-target').assertSafeTarget('test-newdb-dn-registro-negado', { url: process.env.DATABASE_URL_NEW });
 const { noMedido, correr } = require('./_lib/no-medido');
+const { asegurarColumnasDeProd } = require('./_lib/columnas-de-prod');
 const knex = require('knex')(require('../knexfile-newdb.js').development);
 const mig = require('../migrations-newdb/20261107175004_dn6_order_stock_notices.js');
 
@@ -163,6 +164,17 @@ correr(async () => {
         noMedido('la conexión es de sólo lectura: no se puede sembrar ni escribir');
       }
       await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [T]);
+      // Prod tiene `catalog.products.articulo` (llegó con la importación de Railway) y el resolvedor de
+      // existencia la lee; la base del CI, armada desde migraciones, no. Se agrega DENTRO de esta
+      // transacción con el tipo de la foto de prod, y se declara (`_lib/columnas-de-prod.js`).
+      try {
+        for (const c of await asegurarColumnasDeProd(trx, [['catalog', 'products', 'articulo']])) {
+          console.log(`  ⚠️ la base no traía ${c.split(' ')[0]} (prod sí): agregada dentro de la transacción como ${c.split(' ').slice(1).join(' ')}`);
+        }
+      } catch (e) {
+        if (e.code === '42501') noMedido(`no se pudo agregar catalog.products.articulo: ${e.message.split('\n')[0]}`);
+        throw e;
+      }
       const faltan = (await trx.raw(
         `SELECT x FROM unnest(ARRAY['analytics.v_erp_stock_on_hand','analytics.ods_branch_checks','kepler_ods.kdil',
                                      'identity.role_permissions','commercial.orders']) x

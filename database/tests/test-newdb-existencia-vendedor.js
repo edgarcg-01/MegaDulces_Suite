@@ -30,6 +30,7 @@ const path = require('path');
 const fs = require('fs');
 const Module = require('module');
 const knex = require('knex')(require('../knexfile-newdb.js').development);
+const { asegurarColumnasDeProd } = require('./_lib/columnas-de-prod');
 const T = '00000000-0000-0000-0000-00000000d01c';
 const RAIZ = path.resolve(__dirname, '..', '..');
 
@@ -106,6 +107,13 @@ function pedidos(Orders, trx, userId, rol, quotes = { ladders: async () => new M
   try {
     await knex.transaction(async (trx) => {
       await trx.raw(`SET LOCAL app.tenant_id = '${T}'`);
+      // `[DN.8]` Prod tiene `catalog.products.articulo` (llegó con la importación de Railway; ninguna
+      // migración la crea) y la siembra y el resolvedor la usan: sin esto, en la base del CI esta suite
+      // abortaba en la siembra y nunca medía nada. Se agrega DENTRO de esta transacción con el tipo de
+      // la foto de prod, y se declara (`_lib/columnas-de-prod.js`).
+      for (const c of await asegurarColumnasDeProd(trx, [['catalog', 'products', 'articulo']])) {
+        console.log(`  ⚠️ la base no traía ${c.split(' ')[0]} (prod sí): agregada dentro de la transacción como ${c.split(' ').slice(1).join(' ')}`);
+      }
       const faltan = (await trx.raw(
         `SELECT x FROM unnest(ARRAY['analytics.v_erp_stock_on_hand','analytics.ods_branch_checks','kepler_ods.kdil']) x
           WHERE to_regclass(x) IS NULL`,
