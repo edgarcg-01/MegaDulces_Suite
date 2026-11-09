@@ -19,7 +19,7 @@ import { EvidenciaAdicionalDialogComponent, type EvidenciaAgregada } from '../co
 import { BuscadorGastosEstado } from '../components/buscador-gastos.estado';
 import { BuscadorGastosComponent } from '../components/buscador-gastos.component';
 import { encuestarVisible } from '../../../core/utils/poll-visible';
-import { REFRESCO_VALES_MS } from '../vales-refresco';
+import { REFIRMAR_MS, REFRESCO_VALES_MS } from '../vales-refresco';
 import { parseLocalDate } from '../../../core/utils/mx-date';
 // `[GX.65.4a]` La MISMA regla que aplica el servidor, desde el contrato: dos copias se separan.
 import { aceptaEvidenciaAdicional, esDuenoDelVale, detallesParaMostrar, ETIQUETA_ESPERA_KEPLER, type EsperaKepler } from '@megadulces/contracts';
@@ -744,13 +744,16 @@ export class FinanzasAprobacionGastosComponent {
    * firmando podría quitarle el vale de la lista a mitad de la lectura.
    */
   refrescar(): void {
-    if (this.abierto() || this.actuando() || this.cargando() || this.refrescando) return;
+    // Con un vale abierto la lista no se toca, pero sus archivos sí se vuelven a firmar si ya caducan.
+    if (this.abierto()) { this.refirmarSiCaduca(); return; }
+    if (this.actuando() || this.cargando() || this.refrescando) return;
     this.refrescando = true;
     this.svc.delDia(this.fecha() || undefined)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (d) => {
           this.datos.set(d);
+          this.datosAt = Date.now();
           this.cargarKepler(d);
           // Si el departamento elegido ya no tiene nada (otra persona firmó lo último), se suelta
           // el filtro: con un solo departamento la barra se esconde y no habría cómo quitarlo.
@@ -793,6 +796,7 @@ export class FinanzasAprobacionGastosComponent {
       .subscribe({
         next: (d) => {
           this.datos.set(d);
+          this.datosAt = Date.now();
           // El departamento elegido se CONSERVA mientras exista (otra persona pudo firmar lo último).
           const g = this.grupo();
           if (g && !this.gruposVisibles().some((x) => x.clave === g)) this.grupo.set(null);
@@ -1006,11 +1010,38 @@ export class FinanzasAprobacionGastosComponent {
 
   readonly peekAbierto = computed(() => this.abierto() !== null);
 
-  /** Abre el vale. Los archivos ya vienen firmados en la fila — no se vuelve a pedir nada. */
+  /** Cuándo llegó la lista (`datos`): sus archivos se firmaron en ese viaje. */
+  private datosAt = 0;
+  /** Cuándo se firmaron los archivos del vale abierto. `0` = no se sabe (vino del buscador). */
+  private firmadoAt = 0;
+
+  /**
+   * Abre el vale. Los archivos vienen firmados en la fila, pero la firma dura 30 min
+   * (`signFiles(…, 1800)`): un PDF con la firma vencida no avisa nada, el recuadro queda gris.
+   * Si la fila ya tiene sus años (o vino del buscador), se piden firmados de nuevo.
+   */
   abrir(p: ExpedienteDelDia): void {
     this.abierto.set(p);
+    const d = this.datos();
+    const deLaLista = !!d && [...d.filas, ...(d.atrasados ?? [])].includes(p);
+    this.firmadoAt = deLaLista ? this.datosAt : 0;
+    this.refirmarSiCaduca();
     // `[PGP.79]` Un vale abierto desde la búsqueda no venía en la lista: se pide el suyo.
     if (!this.kepler()[p.id]) this.pedirKepler([p.id]);
+  }
+
+  /**
+   * Vuelve a firmar los archivos del vale abierto si su firma tiene más de `REFIRMAR_MS` (vence a
+   * los 30 min). `GET /:id` los devuelve re-firmados. Corre al abrir y en cada refresco de la página.
+   */
+  private refirmarSiCaduca(): void {
+    const v = this.abierto();
+    if (!v || Date.now() - this.firmadoAt < REFIRMAR_MS) return;
+    this.firmadoAt = Date.now(); // el siguiente refresco no se encima con éste
+    this.svc.detail(v.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (det) => this.abierto.update((a) => (a && a.id === v.id && det.files ? { ...a, files: det.files } : a)),
+      error: () => { this.firmadoAt = 0; },
+    });
   }
 
   /**
@@ -1088,6 +1119,7 @@ export class FinanzasAprobacionGastosComponent {
   /** `[GX.87]` Lo agregado se ve ya, en el visor y en la bandeja: viene firmado del servidor. */
   alAgregarEvidencia(e: EvidenciaAgregada): void {
     this.abierto.update((v) => (v && v.id === e.id ? { ...v, files: e.files } : v));
+    this.firmadoAt = Date.now(); // `evidencia-adicional` devuelve los archivos recién firmados
     const conArchivos = <T extends ExpedienteDelDia>(f: T): T => (f.id === e.id ? { ...f, files: e.files } : f);
     this.datos.update((d) => (d ? { ...d, filas: d.filas.map(conArchivos), atrasados: (d.atrasados ?? []).map(conArchivos) } : d));
     // `[GX.88]` Y en los resultados de la búsqueda, si el vale se abrió desde ahí.

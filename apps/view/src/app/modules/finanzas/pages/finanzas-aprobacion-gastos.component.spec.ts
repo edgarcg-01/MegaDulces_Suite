@@ -95,6 +95,13 @@ const DIA = (over: Partial<GastosDelDia> = {}): GastosDelDia => ({
   ...over,
 });
 
+/** `GET /finance/expenses/proofs/:id` — el detalle del vale, con sus archivos re-firmados. */
+const RUTAS_NO_DETALLE = new Set(['del-dia', 'esperan-kepler', 'kepler-autorizacion', 'pendientes', 'buscar']);
+const esDetalle = (r: { method: string; url: string }): boolean => {
+  const m = /\/finance\/expenses\/proofs\/([^/?]+)$/.exec(r.url);
+  return r.method === 'GET' && !!m && !RUTAS_NO_DETALLE.has(m[1]);
+};
+
 describe('FinanzasAprobacionGastosComponent', () => {
   let fix: ComponentFixture<FinanzasAprobacionGastosComponent>;
   let c: FinanzasAprobacionGastosComponent;
@@ -134,6 +141,8 @@ describe('FinanzasAprobacionGastosComponent', () => {
   afterEach(() => {
     http.match((r) => r.url.includes('/esperan-kepler')).forEach((r) => { if (!r.cancelled) r.flush({ vales: [], truncado: false, medido: true }); });
     for (const r of http.match((x) => x.url.includes('/kepler-autorizacion'))) r.flush({});
+    // Abrir un vale que no vino en la lista (o de hace rato) vuelve a pedir sus archivos firmados.
+    for (const r of http.match(esDetalle)) if (!r.cancelled) r.flush({});
     http.verify();
   });
 
@@ -915,6 +924,42 @@ describe('FinanzasAprobacionGastosComponent', () => {
       c.abrir(F({ id: 'a1', status: 'recibida' }));
       vi.advanceTimersByTime(60_000);
       http.expectNone((r) => r.url.includes('/del-dia'));
+    });
+
+    it('⭐ un vale recién llegado en la lista se abre sin volver a pedir sus archivos', () => {
+      montar();
+      c.abrir(c.datos()!.filas[0]);
+      http.expectNone(esDetalle);
+    });
+
+    it('⭐ un vale que NO vino en la lista (buscador) pide sus archivos firmados de nuevo', () => {
+      montar();
+      c.abrir(F({ id: 'b9', files: [{ role: 'cotizacion', url: 'https://ejemplo/viejo.pdf', kind: 'pdf' }] }));
+      http.expectOne((r) => esDetalle(r) && r.url.endsWith('/b9'))
+        .flush({ id: 'b9', files: [{ role: 'cotizacion', url: 'https://ejemplo/nuevo.pdf', kind: 'pdf' }] });
+      expect(c.abierto()?.files[0].url).toBe('https://ejemplo/nuevo.pdf');
+    });
+
+    it('⭐ con el vale abierto 20 min, el refresco le vuelve a firmar los archivos (la firma dura 30)', () => {
+      montar();
+      c.abrir(c.datos()!.filas[0]);
+      vi.advanceTimersByTime(19 * 60_000);
+      http.expectNone(esDetalle);
+      vi.advanceTimersByTime(60_000);
+      http.expectOne((r) => esDetalle(r) && r.url.endsWith('/a1'))
+        .flush({ id: 'a1', files: [{ role: 'comprobante_1', url: 'https://ejemplo/x2.jpg', kind: 'image' }] });
+      expect(c.abierto()?.files[0].url).toBe('https://ejemplo/x2.jpg');
+      http.expectNone((r) => r.url.includes('/del-dia')); // la lista sigue sin tocarse
+    });
+
+    it('si la respuesta llega cuando ya se abrió OTRO vale, no le pisa los archivos', () => {
+      montar();
+      c.abrir(F({ id: 'b9' }));
+      const req = http.expectOne((r) => esDetalle(r) && r.url.endsWith('/b9'));
+      c.abrir(c.datos()!.filas[1]);
+      req.flush({ id: 'b9', files: [{ role: 'cotizacion', url: 'https://ejemplo/ajeno.pdf', kind: 'pdf' }] });
+      expect(c.abierto()?.id).toBe('a2');
+      expect(c.abierto()?.files[0].url).toBe('https://ejemplo/x.jpg');
     });
 
     it('⛔ con una firma en vuelo NO refresca', () => {
