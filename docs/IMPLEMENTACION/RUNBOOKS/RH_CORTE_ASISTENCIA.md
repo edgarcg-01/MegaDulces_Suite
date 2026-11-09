@@ -317,7 +317,7 @@ Antes del corte (David, en `md`):
 | 4 | David | **El lector → Suite.** Una de dos (ver §2.7):<br>**B (recomendada, lector en `md`):** (a) detener el servicio «Mega Talento Agente de Checadas» en `LapSistemasA` y dejarlo **deshabilitado** (no desinstalado: es la reversa); (b) copiar `cola.db`, `cola.db-wal` y `cola.db-shm` de `api\agente\` de la laptop a `md:/home/superoot/rh-relojes/datos/` — **con el servicio ya detenido** — para que el pod arranque con la marca de agua de cada reloj y lo pendiente, en vez de releer años de log; (c) commit que cambia `migracion: preparado-externo` → `migrado` en `29-hr-relojes.deployment.yaml` y desplegar.<br>**A (la elegida, lector en la laptop; guion `corte-lector.js` en la carpeta `corte-lector` de David):** (a) `probar`: la Suite responde 200 y trae los 12 relojes del padrón con `modo: agente` (si no, NO se corta); (b) `a-suite`: respalda `config.json.antes-corte` y cambia sólo la dirección (mismo token); (c) detener el servicio y `reenviar <hora de inicio de la carga del paso 2 − 1 h>` para cerrar el hueco entre la carga y el cambio; (d) arrancar el servicio | **B:** `kubectl -n ingesta logs deploy/hr-relojes` muestra «Relojes a cargo: …» y lotes aceptados, sin 401; el servicio de la laptop sigue detenido. **A:** su log muestra el respaldo inicial y respuestas 200, sin 401 |
 | 5 | Edgar | **La ingesta late** | Salud BD: `hr_attendance_ingest` con latido reciente. `/rh/relojes`: los relojes «Al día» en ~10 min |
 | 6 | David | **Mega Talento dejó de recibir** | En su base, `max(recibido_en)` de `checadas` se queda quieto |
-| 7 | Edgar | **Encender el agente de alertas**: respaldo de `prod-env`; `ENABLE_HR_ATTENDANCE_AGENT=true` (mismo `patch` que §2.4); `kubectl -n prod rollout restart deploy/worker`. Mergear y soltar el PR de `CRON_JOBS` (§3.1) | En ≤30 min, `hr_attendance_agent` late en Salud BD |
+| 7 | Edgar | **Encender el agente de alertas**: respaldo de `prod-env`; `ENABLE_HR_ATTENDANCE_AGENT=true` (mismo `patch` que §2.4); `kubectl -n prod rollout restart deploy/worker`. (Las filas de `CRON_JOBS` ya están en `main`, §3.1: no hay PR que mergear) | En ≤30 min, `hr_attendance_agent` late en Salud BD |
 | 8 | RH | Abre `/rh/asistencia` de dos sitios y compara la semana anterior contra Mega Talento | Mismos retardos, faltas y horas |
 | 9 | David | Mega Talento: asistencia **de sólo lectura** (se avisa a quien captura incidencias: desde ahora, en la Suite) | — |
 
@@ -330,10 +330,12 @@ respaldos de los 12 relojes **se escalonan a lo largo de la primera hora** (`bac
 llega al momento. Ni lo que la carga
 dejó en el «reloj desconocido» ni lo que ya estaba entra dos veces (`[RH.1.8]`, puente con el histórico).
 
-### 3.1 Las filas de `CRON_JOBS` (PR preparado de antemano, se mergea en el paso 7)
+### 3.1 Las filas de `CRON_JOBS` — ✅ ya están en `main` (commit `9bb1bcc38`, `[RH.1.8]`)
 
-En `apps/api/src/modules/db-health/db-health.service.ts`, dentro de `CRON_JOBS`. Sin ellas los dos latidos salen
-`unknown` («no está en CRON_JOBS: no se puede juzgar»):
+> **Corregido el 2026-11-09.** Este paso pedía un PR para el día del corte; las filas entraron antes, a propósito: un job
+> declarado que nunca reportó sale **`warn`** («DECLARADO Y NUNCA REPORTÓ»), no rojo (`[DBH.5]`), y dejarlas fuera era
+> silencio. Hasta el corte, Salud BD muestra esas dos llaves en `warn`: es lo esperado. En el corte deben pasar a verde
+> (pasos 5 y 7). Lo de abajo queda como referencia de lo que ya está en `db-health.service.ts`:
 
 ```ts
 // [RH.1.8] Relojes: la ingesta late con cada lote y con cada latido del agente (minutos, aunque nadie cheque).
@@ -343,7 +345,8 @@ En `apps/api/src/modules/db-health/db-health.service.ts`, dentro de `CRON_JOBS`.
 { key: 'hr_attendance_agent', label: 'Asistencia: agente de alertas', cadence: 'cada 30 min', warnH: 1.5, critH: 3, maxRunH: 0.5 },
 ```
 
-No se agregan antes: dos filas de jobs que todavía no corren pondrían el tablero en rojo una semana.
+~~No se agregan antes: dos filas de jobs que todavía no corren pondrían el tablero en rojo una semana.~~ Medido el
+23-oct: salen en `warn`, no en rojo.
 
 ---
 
