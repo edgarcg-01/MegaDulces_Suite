@@ -10,6 +10,7 @@ import {
 } from '../portal/portal.service';
 import { AuthService } from '../../core/services/auth.service';
 import { OfflineDatabaseService } from '../../core/services/offline-database.service';
+import { VENDOR_CLIENT_BUILD } from '../../core/client-build';
 import { type OrigenCatalogo, sirveCopia } from './catalogo-al-abrir';
 
 /** `[VTK.11]` El catálogo con el que se abre un cliente, y de dónde salió. */
@@ -588,12 +589,15 @@ export class VendorService {
    * Tomar pedido en campo (preventa): draft → confirmed en 1 request atómico e
    * idempotente. Reemplaza el encadenado updateDraftHeader→confirm→approve, que
    * podía quedar a medias y dejar el reintento atascado en "solo desde draft".
+   *
+   * `[DN.8]` Siempre lleva `client_build`: el servidor la guarda en lo que registra para Compras y
+   * así la medición separa esta versión de la PWA vieja (que bloqueaba en el teléfono).
    */
   placeOrder(
     orderId: string,
     dto: { requested_delivery_date?: string; notes?: string; delivery_type?: 'route' | 'long_trip' } = {},
   ): Observable<PlacedOrder> {
-    return this.http.post<PlacedOrder>(`${this.base}/orders/${orderId}/place`, dto);
+    return this.http.post<PlacedOrder>(`${this.base}/orders/${orderId}/place`, { ...dto, client_build: VENDOR_CLIENT_BUILD });
   }
 
   /**

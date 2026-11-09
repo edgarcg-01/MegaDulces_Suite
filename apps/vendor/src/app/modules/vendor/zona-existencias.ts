@@ -1,4 +1,4 @@
-import { estadoDeExistencia, mensajeSinExistencia, type StockState, type VendorZoneStockResponse } from '@megadulces/contracts';
+import { estadoDeExistencia, type StockState, type VendorZoneStockResponse } from '@megadulces/contracts';
 
 /**
  * `[MCP.3.12]` La tira chica de existencias de la zona en cada producto de la toma de pedido.
@@ -139,7 +139,8 @@ export interface AlternativaZona {
 
 /**
  * `[MCP.3.16]` Otras sucursales de la zona que SÍ tienen el producto (al día y con existencia > 0),
- * mayor primero, máximo 3 — el mismo orden y tope que las `alternatives` del 409 del servidor.
+ * mayor primero, máximo 3 — el mismo orden y tope que las `alternatives` de la revisión del servidor
+ * (`LineStockReview`, `[DN.7]`; hasta ADR-115 eran las del 409).
  */
 export function alternativasEnZona(
   zona: VendorZoneStockResponse | null,
@@ -181,16 +182,6 @@ export function rotuloBase(n: number, unidadBase: string): string {
   if (!u || u.toUpperCase() === 'PZA') return `${num} ${n === 1 ? 'pza' : 'pzas'}`;
   return `${num} ${u}`;
 }
-
-/**
- * `[MCP.3.16]` El texto del bloqueo al agregar. Es la MISMA función que usa el servidor para el 409
- * (`mensajeSinExistencia` de `@megadulces/contracts`): antes había dos y no coincidían.
- *  · con alternativas: «No se puede agregar: no hay existencias en PH · LPA tiene 14 CJA»;
- *  · si la zona entera se midió al día y nadie tiene: «No se puede agregar un producto que no hay en tu zona»;
- *  · si no se puede afirmar lo de la zona (no se leyó, o alguna sucursal está vieja), sólo lo que sí
- *    se sabe — y qué sucursales quedaron sin dato. Nunca se afirma «nadie tiene» sin haberlo medido.
- */
-export const mensajeBloqueo = mensajeSinExistencia;
 
 /** Para el lector de pantalla: «Existencias en tu zona, en CJA: LPA (tu sucursal) 0, PH 14, …». */
 export function ariaZona(chips: readonly ChipZona[], unidad: string): string {

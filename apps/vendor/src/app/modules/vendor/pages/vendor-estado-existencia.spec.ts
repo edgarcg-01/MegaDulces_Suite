@@ -1,11 +1,15 @@
-// `[MCP.3.16]` Tomar pedido: el ESTADO de la existencia de cada producto y el bloqueo al agregar.
+// `[MCP.3.16]` + `[DN.11a]` Tomar pedido: el ESTADO de la existencia de cada producto, y la captura
+// libre de ADR-115.
 //
 // Regla de David con su PM (2026-10-27), por producto y por sucursal:
 //   · con registro y cantidad > 0  → «Existencias: N CJA» (o «5 pzas» si no completa una caja);
-//   · con registro y <= 0          → ROJO «Sin existencias» — bloquea agregar;
-//   · sin registro (al día)        → GRIS «Sin existencias en LPA», al final del catálogo — bloquea;
-//   · lectura vieja o fallida      → GRIS «Sin dato de existencia» — NO bloquea.
-// Al bloquear, se dice quién de la zona sí tiene, o que nadie de la zona tiene.
+//   · con registro y <= 0          → ROJO «Sin existencias»;
+//   · sin registro (al día)        → GRIS «Sin existencias en LPA», al final del catálogo;
+//   · lectura vieja o fallida      → GRIS «Sin dato de existencia».
+// Hasta el 2026-11-07 el rojo y el gris BLOQUEABAN agregar y lo que el cliente pidió se perdía sin
+// rastro. Desde ADR-115 (anexo A de la fase DN) se agrega SIEMPRE, sin aviso emergente: la fila conserva
+// su estado y el servidor registra lo que no hay para Compras al agendar. El pedido SUGERIDO sigue sin
+// proponer lo que no hay (lo predijo el sistema, no lo pidió el cliente: DA4).
 //
 // Monta la pantalla real con un doble de VendorService (patrón de vendor-zona-existencias.spec.ts)
 // y mira lo que se PINTA y lo que se llama al servidor. Cada regla lleva su prueba negativa.
@@ -15,7 +19,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { MessageService } from 'primeng/api';
 import { Observable, of, throwError } from 'rxjs';
-import { bloqueaAgregar, type StockState, type VendorZoneStockResponse } from '@megadulces/contracts';
+import { sinExistenciaAfirmada, type StockState, type VendorZoneStockResponse } from '@megadulces/contracts';
 import { VendorService } from '../vendor.service';
 import { ConnectivityService } from '../../../core/services/connectivity.service';
 import { OfflineOrderService } from '../../../core/services/offline-order.service';
@@ -27,7 +31,6 @@ import {
   cantidadEnUnidad,
   chipsDeZona,
   estadoEnZona,
-  mensajeBloqueo,
   nadieEnZona,
 } from '../zona-existencias';
 
@@ -177,7 +180,7 @@ describe('Tomar pedido · estado de la existencia [MCP.3.16]', () => {
     expect(stk('Mazapan')!.classList).toContain('bad');
   });
 
-  it('⛔ una copia guardada con la lectura de hace 7 h se lee «sin dato» y no bloquea; de hace 1 h, sí', () => {
+  it('⛔ una copia guardada con la lectura de hace 7 h se lee «sin dato»; de hace 1 h, «Sin existencias» (y las dos se agregan)', () => {
     const viejo = montar({ prices: [prod('p1', 'Pulparindo 20 pz', 'agotado', 0, HACE_7H)] });
     expect(viejo.texto(viejo.stk('Pulparindo'))).toBe('Sin dato de existencia');
     viejo.cmp.incProduct(viejo.p('p1'));
@@ -185,8 +188,10 @@ describe('Tomar pedido · estado de la existencia [MCP.3.16]', () => {
     TestBed.resetTestingModule();
     const reciente = montar({ prices: [prod('p1', 'Pulparindo 20 pz', 'agotado', 0, HACE_1H)] });
     expect(reciente.texto(reciente.stk('Pulparindo'))).toBe('Sin existencias');
+    expect(reciente.cmp.sinExistenciaEn(reciente.p('p1'), null)).toBe(true);
     reciente.cmp.incProduct(reciente.p('p1'));
-    expect(reciente.n('addLine')).toBe(0);
+    // [DN.11a] ADR-115: el agotado también se agrega (hasta el 2026-11-07, aquí no llamaba al servidor).
+    expect(reciente.n('addLine')).toBe(1);
   });
 
   it('⭐ orden: lo que la sucursal no maneja va al final sin mover el orden por venta del resto', () => {
@@ -304,46 +309,42 @@ describe('Tomar pedido · la tira de la zona con frescura [MCP.3.16]', () => {
   });
 });
 
-describe('Tomar pedido · bloqueo al agregar [MCP.3.16]', () => {
+describe('Tomar pedido · captura libre [DN.11a] (ADR-115: ya no bloquea)', () => {
   afterEach(() => TestBed.resetTestingModule());
 
-  it('⭐ agotado en la mía y otra de la zona tiene: no llama al servidor, no cambia la cantidad, y dice quién tiene', () => {
-    const { cmp, pintar, fila, texto, p, n, toastDe } = montar();
+  it('⭐ agotado en la mía: SE AGREGA sin aviso emergente, y la fila sigue en rojo', () => {
+    const { cmp, pintar, fila, stk, texto, p, n, resumenes } = montar();
     cmp.incProduct(p('p1'));
     pintar();
-    expect(n('ensureDraftForCustomer')).toBe(0);
-    expect(n('addLine')).toBe(0);
-    expect(cmp.cartQty('p1')).toBe(0);
-    const msg = 'No se puede agregar: no hay existencias en LPA · PH tiene 280 pzas · 8ES tiene 120 pzas';
-    expect(texto(fila('Pulparindo')!.querySelector('.row-err'))).toBe(msg);
-    expect(toastDe('No se puede agregar').map((t) => t.detail)).toEqual([msg]);
+    expect(n('ensureDraftForCustomer')).toBe(1);
+    expect(n('addLine')).toBe(1);
+    // Ni «No se puede agregar» ni «Pocas existencias hoy · Hoy hay 0»: un aviso emergente con cada
+    // agotado empuja a sustituir durante la captura, que es lo que ADR-115 quitó.
+    expect(resumenes()).toEqual([]);
+    expect(fila('Pulparindo')!.querySelector('.row-err')).toBeNull();
+    expect(texto(stk('Pulparindo'))).toBe('Sin existencias');
+    expect(stk('Pulparindo')!.classList).toContain('bad');
   });
 
-  it('las alternativas se dicen en la unidad que se pide', () => {
-    const { cmp, pintar, fila, texto, p } = montar();
-    cmp.setUnit(p('p1'), 'CJA');
-    cmp.incProduct(p('p1'));
-    pintar();
-    expect(texto(fila('Pulparindo')!.querySelector('.row-err'))).toBe('No se puede agregar: no hay existencias en LPA · PH tiene 14 CJA · 8ES tiene 6 CJA');
-  });
-
-  it('⭐ no se maneja y nadie de la zona tiene: «No se puede agregar un producto que no hay en tu zona»', () => {
-    const { cmp, pintar, fila, texto, p, n } = montar();
+  it('⭐ no se maneja y nadie de la zona tiene: se agrega igual y la fila sigue gris', () => {
+    const { cmp, pintar, fila, stk, p, n, resumenes } = montar();
     cmp.incProduct(p('p2'));
     pintar();
-    expect(n('addLine')).toBe(0);
-    expect(texto(fila('Mazapan')!.querySelector('.row-err'))).toBe('No se puede agregar un producto que no hay en tu zona');
+    expect(n('addLine')).toBe(1);
+    expect(resumenes()).toEqual([]);
+    expect(fila('Mazapan')!.querySelector('.row-err')).toBeNull();
+    expect(stk('Mazapan')!.classList).toContain('nd');
   });
 
-  it('⛔ negativa: si la zona no se pudo leer, no se afirma «nadie en tu zona»', () => {
-    const { cmp, pintar, fila, texto, p, n } = montar({ zona: () => throwError(() => ({ status: 500 })) });
+  it('⛔ si la zona no se pudo leer, se agrega igual y no se afirma nada de la zona', () => {
+    const { cmp, pintar, fila, p, n } = montar({ zona: () => throwError(() => ({ status: 500 })) });
     cmp.incProduct(p('p2'));
     pintar();
-    expect(n('addLine')).toBe(0);
-    expect(texto(fila('Mazapan')!.querySelector('.row-err'))).toBe('No se puede agregar: no hay existencias en La Piedad Abastos');
+    expect(n('addLine')).toBe(1);
+    expect(fila('Mazapan')!.querySelector('.row-err')).toBeNull();
   });
 
-  it('⛔ negativa: con existencia SÍ se agrega (y la cantidad mayor a lo que hay no bloquea)', () => {
+  it('⛔ control del aviso: con existencia y pidiendo más de lo que hay, «Pocas existencias» SÍ sale', () => {
     const { cmp, p, n, toastDe } = montar();
     cmp.setQtyTyped(p('p3'), 80);
     expect(n('addLine')).toBe(1);
@@ -351,51 +352,57 @@ describe('Tomar pedido · bloqueo al agregar [MCP.3.16]', () => {
     expect(toastDe('Pocas existencias hoy').map((t) => t.detail)).toEqual(['Hoy hay 50. Es preventa: se surte al repartir.']);
   });
 
-  it('⭐ sin dato NO bloquea', () => {
+  it('⭐ sin dato se agrega (como siempre)', () => {
     const { cmp, p, n, toastDe } = montar();
     cmp.incProduct(p('p4'));
     expect(n('addLine')).toBe(1);
     expect(toastDe('No se puede agregar')).toHaveLength(0);
   });
 
-  it('⭐ escribir la cantidad desde 0 también se bloquea, y la casilla vuelve a vacío', () => {
+  it('⭐ escribir la cantidad desde 0 en un agotado SE AGREGA y la casilla conserva el número', () => {
     const { cmp, p, n } = montar();
     const input = document.createElement('input');
     input.value = '3';
     cmp.setQtyTyped(p('p1'), '3', input);
-    expect(n('addLine')).toBe(0);
-    expect(input.value).toBe('');
-    expect(cmp.cartQty('p1')).toBe(0);
+    expect(n('addLine')).toBe(1);
+    expect(input.value).toBe('3');
   });
 
-  it('⭐ elegir en la tira una sucursal que sí tiene destraba el «+» (se surte de allá)', () => {
+  it('elegir en la tira una sucursal que sí tiene: el renglón se surte de allá', () => {
     const { cmp, pintar, fila, texto, p, llamadas } = montar();
-    cmp.incProduct(p('p1'));
-    pintar();
     const ochoEs = Array.from(fila('Pulparindo')!.querySelectorAll('button.zs-c')).find((b) => b.textContent?.startsWith('8ES')) as HTMLButtonElement;
     ochoEs.click();
     pintar();
-    // El error del intento anterior se limpia al elegir una sucursal válida.
-    expect(fila('Pulparindo')!.querySelector('.row-err')).toBeNull();
     cmp.incProduct(p('p1'));
     expect(llamadas['addLine']).toHaveLength(1);
     expect(llamadas['addLine'][0][4]).toBe('w3');
+    pintar();
     expect(texto(fila('Pulparindo')!.querySelector('button.zs-c.on'))).toContain('8ES');
   });
 
-  it('⛔ elegir una sucursal sin existencias no se deja (sin renglón: no queda elegida; con renglón: no se mueve)', () => {
-    const { cmp, pintar, fila, texto, p, n } = montar();
-    const yu = () => Array.from(fila('Pulparindo')!.querySelectorAll('button.zs-c')).find((b) => b.textContent?.startsWith('YU')) as HTMLButtonElement;
-    yu().click();
+  it('⭐ elegir en la tira una sucursal en 0 SÍ se deja y `avisoOrigen` lo dice en la fila (no emergente)', () => {
+    const { cmp, pintar, fila, texto, p, llamadas, resumenes } = montar();
+    const chip = (s: string) => Array.from(fila('Gomitas')!.querySelectorAll('button.zs-c')).find((b) => b.textContent?.startsWith(s)) as HTMLButtonElement;
+    chip('PH').click();
     pintar();
-    expect(yu().getAttribute('aria-checked')).toBe('false');
-    expect(texto(fila('Pulparindo')!.querySelector('.row-err'))).toBe('No se puede agregar: no hay existencias en YU · PH tiene 280 pzas · 8ES tiene 120 pzas');
-    // Con renglón (surtido de PH), moverlo a YU tampoco llega al servidor.
+    expect(chip('PH').getAttribute('aria-checked')).toBe('true');
+    cmp.incProduct(p('p4'));
+    pintar();
+    expect(llamadas['addLine']).toHaveLength(1);
+    expect(llamadas['addLine'][0][4]).toBe('w1');
+    expect(texto(fila('Gomitas')!.querySelector('.zs-warn'))).toBe('En PH puede no haber: puedes surtir de otra sucursal');
+    expect(fila('Gomitas')!.querySelector('.zs-warn')!.getAttribute('role')).toBe('status');
+    expect(resumenes()).toEqual([]);
+  });
+
+  it('⭐ con renglón, moverlo a una sucursal sin existencias SÍ llega al servidor (antes no se movía)', () => {
+    const { cmp, pintar, fila, n } = montar();
+    const yu = () => Array.from(fila('Pulparindo')!.querySelectorAll('button.zs-c')).find((b) => b.textContent?.startsWith('YU')) as HTMLButtonElement;
     cmp.cartOrderId.set('o1');
     cmp.cartLines.set([{ id: 'l1', order_id: 'o1', product_id: 'p1', line_number: 1, quantity: 20, unit_price: 2.5, tax_rate: 0, discount_percent: 0, line_subtotal: 50, line_tax: 0, line_total: 50, source_warehouse_id: 'w1' }]);
     pintar();
     yu().click();
-    expect(n('updateLine')).toBe(0);
+    expect(n('updateLine')).toBe(1);
   });
 
   it('⭐ «Pocas existencias» se compara contra la sucursal de surtido elegida, no contra la propia', () => {
@@ -417,35 +424,29 @@ describe('Tomar pedido · bloqueo al agregar [MCP.3.16]', () => {
     expect(toastDe('Pocas existencias hoy')).toHaveLength(0);
   });
 
-  it('⭐ el 409 SIN_EXISTENCIA con alternativas se dice en la unidad que se pide (el servidor manda unidad base)', () => {
-    // El servidor sólo sabe la unidad base: «PH tiene 280», sin rótulo. La tira dice cajas.
-    const delServidor = 'No se puede agregar: no hay existencias en LPA · PH tiene 280';
-    const bloqueo409 = () => throwError(() => ({
-      status: 409,
-      error: { code: 'SIN_EXISTENCIA', message: delServidor, product_id: 'p3', product_name: 'Kinder Delice', warehouse_id: 'w2', warehouse_short: 'LPA', state: 'agotado', alternatives: [{ warehouse_id: 'w1', short: 'PH', qty: 280 }] },
-    }));
-    const { cmp, pintar, fila, texto, p, toastDe } = montar({ extra: { addLine: bloqueo409 } });
-    cmp.incProduct(p('p3'));
+  it('⛔ un servidor VIEJO que todavía responde 409 SIN_EXISTENCIA cae al camino genérico (por eso DN.7 sale primero)', () => {
+    const msg = 'No se puede agregar: no hay existencias en LPA · PH tiene 280';
+    const { cmp, pintar, fila, texto, p, toastDe } = montar({
+      extra: {
+        addLine: () => throwError(() => ({
+          status: 409,
+          error: { code: 'SIN_EXISTENCIA', message: msg, product_id: 'p1', product_name: 'Pulparindo 20 pz', warehouse_id: 'w2', warehouse_short: 'LPA', state: 'agotado', alternatives: [{ warehouse_id: 'w1', short: 'PH', qty: 280 }] },
+        })),
+      },
+    });
+    cmp.incProduct(p('p1'));
     pintar();
-    const enPiezas = 'No se puede agregar: no hay existencias en LPA · PH tiene 280 pzas';
-    expect(texto(fila('Kinder')!.querySelector('.row-err'))).toBe(enPiezas);
-    expect(toastDe('No se puede agregar').map((t) => t.detail)).toEqual([enPiezas]);
-    expect(cmp.cartQty('p3')).toBe(0);
-    TestBed.resetTestingModule();
-    // En cajas de 20: 14 CJA, la misma cifra que la tira.
-    const cajas = montar({ extra: { addLine: bloqueo409 } });
-    cajas.cmp.setUnit(cajas.p('p3'), 'CJA');
-    cajas.cmp.incProduct(cajas.p('p3'));
-    cajas.pintar();
-    expect(cajas.texto(cajas.fila('Kinder')!.querySelector('.row-err'))).toBe('No se puede agregar: no hay existencias en LPA · PH tiene 14 CJA');
+    expect(texto(fila('Pulparindo')!.querySelector('.row-err'))).toBe(`No se agregó: ${msg}`);
+    expect(toastDe('No se agregó el producto')).toHaveLength(1);
+    expect(cmp.cartQty('p1')).toBe(0);
   });
 
-  it('⭐ el pedido sugerido deja fuera lo que no se puede agregar, el chip cuenta sólo lo que se carga, y dice qué faltó', () => {
+  it('⭐ el pedido sugerido deja fuera lo que no hay (DA4), el chip cuenta sólo lo que se carga, y dice qué faltó', () => {
     const frecuentes = [
       { product_id: 'p1', order_count: 3, avg_qty: 2 }, // agotado en LPA → fuera
       { product_id: 'p3', order_count: 3, avg_qty: 4 }, // con existencia → entra
       { product_id: 'p2', order_count: 2, avg_qty: 1 }, // no se maneja → fuera
-      { product_id: 'p4', order_count: 2, avg_qty: 1 }, // sin dato → entra (no bloquea)
+      { product_id: 'p4', order_count: 2, avg_qty: 1 }, // sin dato → entra (no se afirma que no haya)
     ];
     const { cmp, llamadas, toastDe } = montar({
       extra: {
@@ -455,7 +456,7 @@ describe('Tomar pedido · bloqueo al agregar [MCP.3.16]', () => {
     });
     expect(cmp.predictedLines().map((l) => l.product_id)).toEqual(['p3', 'p4']);
     cmp.usePrefill();
-    // Lo que viaja al servidor es sólo lo que se puede agregar.
+    // Lo que viaja al servidor es sólo lo que hay (o de lo que no se sabe).
     expect((llamadas['replaceLines'][0][1] as Array<{ product_id: string }>).map((l) => l.product_id)).toEqual(['p3', 'p4']);
     const aviso = toastDe('No se cargaron 3 del sugerido');
     expect(aviso).toHaveLength(1);
@@ -472,21 +473,6 @@ describe('Tomar pedido · bloqueo al agregar [MCP.3.16]', () => {
     expect(resumenes().filter((s) => s.startsWith('No se cargaron'))).toEqual([]);
   });
 
-  it('⛔ el 409 SIN alternativas se muestra con el texto del servidor tal cual (él sabe si midió la zona)', () => {
-    const msg = 'No se puede agregar: no hay existencias en LPA · sin dato de 8ES';
-    const { cmp, pintar, fila, texto, p } = montar({
-      extra: {
-        addLine: () => throwError(() => ({
-          status: 409,
-          error: { code: 'SIN_EXISTENCIA', message: msg, product_id: 'p3', product_name: 'Kinder Delice', warehouse_id: 'w2', warehouse_short: 'LPA', state: 'agotado', alternatives: [] },
-        })),
-      },
-    });
-    cmp.incProduct(p('p3'));
-    pintar();
-    expect(texto(fila('Kinder')!.querySelector('.row-err'))).toBe(msg);
-  });
-
   it('⛔ negativa: un 409 que NO es de existencias sigue el camino de siempre («No se agregó: …»)', () => {
     const { cmp, pintar, fila, texto, p, toastDe } = montar({
       extra: { addLine: () => throwError(() => ({ status: 409, error: { message: 'El pedido ya no es borrador' } })) },
@@ -496,7 +482,6 @@ describe('Tomar pedido · bloqueo al agregar [MCP.3.16]', () => {
     expect(texto(fila('Kinder')!.querySelector('.row-err'))).toBe('No se agregó: El pedido ya no es borrador');
     expect(toastDe('No se puede agregar')).toHaveLength(0);
   });
-
   it('⛔ sin conexión NO se bloquea (no se sabe de cuándo es el dato) y el aviso lo dice', async () => {
     const lineas: unknown[] = [];
     const ctx = { customer: { id: 'c1', name: 'Abarrotes Lupita', code: 'CLI-1' }, prices: [pulparindo, kinder], warehouseId: 'w2', frequent: [] };
@@ -533,12 +518,77 @@ describe('Tomar pedido · bloqueo al agregar [MCP.3.16]', () => {
     const cmp = fixture.componentInstance;
     const el = fixture.nativeElement as HTMLElement;
     expect(cmp.offlineMode()).toBe(true);
-    expect(el.querySelector('.offline-banner')?.textContent).toContain('Sin señal no se revisa si hay existencias');
+    // [DN.11a] Dice lo que de verdad hace: usa la última lectura guardada y, vieja, la da por «sin dato».
+    expect(el.querySelector('.offline-banner')?.textContent).toContain('La existencia es la de la última lectura guardada');
+    expect(el.querySelector('.offline-banner')?.textContent).not.toContain('no se revisa');
     cmp.incProduct(cmp.prices().find((x) => x.product_id === 'p1')!);
     await drenar();
     expect(lineas).toEqual([{ product_id: 'p1', quantity: 1 }]);
     fixture.detectChanges();
     expect(el.querySelector('.row-err')).toBeNull();
+  });
+
+  /** La pantalla sin conexión con un contexto guardado (catálogo y habituales del cliente). */
+  async function montarSinConexion(prices: PriceRow[], frequent: unknown[]) {
+    const ctx = { customer: { id: 'c1', name: 'Abarrotes Lupita', code: 'CLI-1' }, prices, warehouseId: 'w2', frequent };
+    const draft = { id: 'd1', lines: [] as Array<{ product_id: string; quantity: number }> };
+    const guardadas: Array<{ product_id: string; quantity: number }> = [];
+    const toast = { add: vi.fn() };
+    TestBed.configureTestingModule({
+      imports: [VendorTakeOrderComponent],
+      providers: [
+        provideRouter([]),
+        { provide: MessageService, useValue: toast },
+        { provide: VendorService, useValue: {} },
+        { provide: ConnectivityService, useValue: { isOnline: () => false } },
+        {
+          provide: OfflineOrderService,
+          useValue: {
+            getContext: () => Promise.resolve(ctx),
+            ensureDraft: () => Promise.resolve(draft),
+            getById: () => Promise.resolve(draft),
+            buildLine: (pr: PriceRow, q: number) => ({ product_id: pr.product_id, quantity: q }),
+            setLines: (_id: string, ls: Array<{ product_id: string; quantity: number }>) => { guardadas.push(...ls); return Promise.resolve(); },
+            toOrderLines: () => [],
+          },
+        },
+        { provide: HapticService, useValue: { selection: () => void 0, notification: () => void 0 } },
+        { provide: ActivatedRoute, useValue: { snapshot: { paramMap: convertToParamMap({ id: 'c1' }), queryParamMap: convertToParamMap({}) } } },
+      ],
+    });
+    const fixture = TestBed.createComponent(VendorTakeOrderComponent);
+    const drenar = async () => { for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0)); };
+    fixture.detectChanges();
+    await drenar();
+    fixture.detectChanges();
+    const avisos = (summary: string) => toast.add.mock.calls.map((c) => c[0] as { summary: string; detail: string }).filter((t) => t.summary === summary);
+    return { cmp: fixture.componentInstance, guardadas, avisos, drenar };
+  }
+
+  it('⭐ sin conexión el sugerido TAMBIÉN deja fuera lo agotado con la copia reciente, y dice qué faltó (DA4: si no, el servidor lo registraría como negado)', async () => {
+    const habituales = [
+      { product_id: 'p1', order_count: 3, avg_qty: 2 }, // agotado, leído ahora → fuera
+      { product_id: 'p3', order_count: 3, avg_qty: 4 }, // con existencia → entra
+    ];
+    const { cmp, guardadas, avisos, drenar } = await montarSinConexion([pulparindo, kinder], habituales);
+    expect(cmp.offlineMode()).toBe(true);
+    expect(cmp.predictedLines().map((l) => l.product_id)).toEqual(['p3']);
+    cmp.usePrefill();
+    await drenar();
+    expect(guardadas.map((l) => l.product_id)).toEqual(['p3']);
+    // Igual que en línea: el chip anunció lo que se carga y lo que quedó fuera se dice.
+    // Sin conexión no hay zona ni fuentes cargadas: la sucursal se dice «tu sucursal» (el respaldo de siempre).
+    expect(avisos('No se cargaron 1 del sugerido').map((t) => t.detail)).toEqual(['Sin existencias en tu sucursal: Pulparindo 20 pz']);
+  });
+
+  it('⛔ negativa: sin conexión, con la copia de hace 7 h no se afirma nada: el sugerido no lo deja fuera ni avisa', async () => {
+    const habituales = [{ product_id: 'p1', order_count: 3, avg_qty: 2 }, { product_id: 'p3', order_count: 3, avg_qty: 4 }];
+    const { cmp, guardadas, avisos, drenar } = await montarSinConexion([prod('p1', 'Pulparindo 20 pz', 'agotado', 0, HACE_7H), kinder], habituales);
+    expect(cmp.predictedLines().map((l) => l.product_id)).toEqual(['p1', 'p3']);
+    cmp.usePrefill();
+    await drenar();
+    expect(guardadas.map((l) => l.product_id)).toEqual(['p1', 'p3']);
+    expect(avisos('No se cargaron 1 del sugerido')).toHaveLength(0);
   });
 });
 
@@ -549,19 +599,20 @@ describe('zona-existencias · reglas puras [MCP.3.16]', () => {
     expect(estadoEnZona(ZONA, 'w4', 'p1')).toBe('no_se_maneja');
     expect(estadoEnZona(ZONA, 'w1', 'nadie')).toBe('agotado');
     expect(estadoEnZona(ZONA_PH_VIEJA, 'w1', 'p1')).toBe('sin_dato');
-    expect(bloqueaAgregar(estadoEnZona(ZONA_PH_VIEJA, 'w1', 'p1'))).toBe(false);
+    expect(sinExistenciaAfirmada(estadoEnZona(ZONA_PH_VIEJA, 'w1', 'p1'))).toBe(false);
+    expect(sinExistenciaAfirmada(estadoEnZona(ZONA, 'w2', 'p1'))).toBe(true);
   });
 
-  it('⛔ sin zona, sin medir, servidor viejo o sucursal ajena: null (no bloquea)', () => {
+  it('⛔ sin zona, sin medir, servidor viejo o sucursal ajena: null (no se afirma nada)', () => {
     expect(estadoEnZona(null, 'w1', 'p1')).toBeNull();
     expect(estadoEnZona({ ...ZONA, unmeasured_reason: 'sin zona' }, 'w1', 'p1')).toBeNull();
     const vieja = { ...ZONA, warehouses: ZONA.warehouses.map(({ stale: _s, ...x }) => x) } as unknown as VendorZoneStockResponse;
     expect(estadoEnZona(vieja, 'w2', 'p1')).toBeNull();
     expect(estadoEnZona(ZONA, 'otra', 'p1')).toBeNull();
-    expect(bloqueaAgregar(null)).toBe(false);
+    expect(sinExistenciaAfirmada(null)).toBe(false);
   });
 
-  it('alternativas: al día y con existencia, mayor primero, máximo 3, sin la bloqueada', () => {
+  it('alternativas: al día y con existencia, mayor primero, máximo 3, sin la de surtido', () => {
     expect(alternativasEnZona(ZONA, 'p1', 'w2').map((a) => `${a.short} ${a.base}`)).toEqual(['PH 280', '8ES 120']);
     expect(alternativasEnZona(ZONA_PH_VIEJA, 'p1', 'w2').map((a) => a.short)).toEqual(['8ES']);
     const muchas = { ...ZONA, warehouses: [...ZONA.warehouses, w('w5', '05', 'ZAM', 'Zamora', false)], stock: { p1: [0, 5, 9, 7, 3] } };
@@ -577,17 +628,11 @@ describe('zona-existencias · reglas puras [MCP.3.16]', () => {
     expect(c.map((x) => x.cero)).toEqual([true, false, false, true]);
   });
 
-  it('textos: cantidad en la unidad pedida y los tres mensajes de bloqueo', () => {
+  it('textos: cantidad en la unidad pedida (el texto de «puede estar agotado» se prueba en contracts)', () => {
     expect(cantidadEnUnidad(280, 20, 'CJA', 'PZA')).toBe('14 CJA');
     expect(cantidadEnUnidad(5, 20, 'CJA', 'PZA')).toBe('5 pzas');
     expect(cantidadEnUnidad(1, 1, 'PZA', 'PZA')).toBe('1 pza');
     expect(cantidadEnUnidad(2.5, 1, 'KG', 'KG')).toBe('2.5 KG');
-    expect(mensajeBloqueo({ surtido: 'PH', alternativas: [{ short: 'LPA', texto: '14' }], zonaCompleta: true, sinDato: [] }))
-      .toBe('No se puede agregar: no hay existencias en PH · LPA tiene 14');
-    expect(mensajeBloqueo({ surtido: 'PH', alternativas: [], zonaCompleta: true, sinDato: [] }))
-      .toBe('No se puede agregar un producto que no hay en tu zona');
-    expect(mensajeBloqueo({ surtido: 'PH', alternativas: [], zonaCompleta: false, sinDato: ['YU'] }))
-      .toBe('No se puede agregar: no hay existencias en PH · sin dato de YU');
   });
 });
 
@@ -642,10 +687,13 @@ describe('Tomar pedido · promociones de la sucursal [MCP.11]', () => {
     expect(texto(stk('Kinder'))).toBe('Existencias: 50 pzas');
   });
 
-  it('⭐ se pueden agregar aunque su existencia sea 0; un producto agotado sigue bloqueado', () => {
-    const { cmp, p } = montar({ prices: [promo('pr1', '2 WAFER = GRATIS 1 MAS'), pulparindo] });
-    expect(cmp.bloqueoDe(p('pr1'), null)).toBeNull();
-    expect(cmp.bloqueoDe(p('p1'), null)).not.toBeNull();
+  it('⭐ una promoción no se lee como «no hay» (su existencia es 0 por construcción); un agotado sí, y los dos se agregan', () => {
+    const { cmp, p, n } = montar({ prices: [promo('pr1', '2 WAFER = GRATIS 1 MAS'), pulparindo] });
+    expect(cmp.sinExistenciaEn(p('pr1'), null)).toBe(false);
+    expect(cmp.sinExistenciaEn(p('p1'), null)).toBe(true);
+    cmp.incProduct(p('pr1'));
+    cmp.incProduct(p('p1'));
+    expect(n('addLine')).toBe(2);
   });
 
   it('no se repiten en el catálogo y se ven 5 de entrada, con «Ver las N promociones»', () => {

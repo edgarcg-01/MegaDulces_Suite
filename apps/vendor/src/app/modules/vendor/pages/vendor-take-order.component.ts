@@ -27,24 +27,20 @@ import { VendorService, VendorCustomer, VendorOrder, FrequentProduct, type Catal
 import { type OrigenCatalogo, edadCatalogo, hayQueRefrescar } from '../catalogo-al-abrir';
 import {
   ODS_HOT_TOLERANCIA_H,
-  bloqueaAgregar,
-  type StockBlockError,
+  sinExistenciaAfirmada,
   type StockState,
   type VendorZoneStockResponse,
 } from '@megadulces/contracts';
 import {
   type ChipZona,
-  alternativasEnZona,
   baseEnZona,
   cantidadEnUnidad,
   chipsDeZona,
   edadZona,
   estadoEnZona,
-  mensajeBloqueo,
   nadieEnZona,
   rotuloBase,
   sucursalesSinDato,
-  zonaConFrescura,
 } from '../zona-existencias';
 import { dictar, mencionaSabores, puedeDictar, unirDictado } from '../dictado';
 import { PriceRow, OrderLine } from '../../portal/portal.service';
@@ -143,7 +139,7 @@ const foldText = (s: string | null | undefined): string =>
             <i class="pi pi-cloud-upload"></i>
             <div class="ob-body">
               <b>Sin conexión</b>
-              <span>El pedido se guarda y se envía solo al recuperar señal. El total puede ajustarse con promos al sincronizar. Sin señal no se revisa si hay existencias: no se sabe de cuándo es el dato.</span>
+              <span>El pedido se guarda y se envía solo al recuperar señal. El total puede ajustarse con promos al sincronizar. La existencia es la de la última lectura guardada; si tiene más de 6 h se muestra «Sin dato de existencia».</span>
             </div>
           </div>
         }
@@ -238,7 +234,7 @@ const foldText = (s: string | null | undefined): string =>
           <!-- Avisos de la fuente de existencia (el selector vive en la tira de arriba, [VTK.6]) -->
           @if (stockSources().sucursal && !offlineMode()) {
             @if (stockSources().sucursal?.assigned === false) {
-              <p class="ss-warn"><i class="pi pi-info-circle"></i> No tienes sucursal de surtido asignada — se muestra el almacén general. Pedile a tu supervisor que te asigne tu ruta.</p>
+              <p class="ss-warn"><i class="pi pi-info-circle"></i> No tienes sucursal de surtido asignada — se muestra el almacén general. Pídele a tu supervisor que te asigne tu ruta.</p>
             }
             <!-- Mirar la camioneta es consulta, no surtido: el pedido es preventa y se
                  reparte desde la sucursal. Si no se dice, el vendedor cree que está
@@ -1209,10 +1205,11 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     return this.offlineMode() ? null : chipsDeZona(this.zona(), p.product_id, this.unitFactor(p));
   }
 
-  // ── [MCP.3.16] Estado de existencia por sucursal y bloqueo al agregar ──────────────────────
-  // Regla de David con su PM (2026-10-27): no se agrega un producto de una sucursal que lo tiene
-  // agotado o no lo maneja; se dice por qué y, si otra sucursal de la zona lo tiene, cuál. El
-  // servidor hace la misma revisión (409 SIN_EXISTENCIA): esto evita el viaje y la cantidad que salta.
+  // ── [MCP.3.16] Estado de existencia por sucursal ───────────────────────────────────────────
+  // Cada producto dice su estado en la sucursal de surtido (agotado / no se maneja / sin dato). Hasta
+  // el 2026-11-07 además se BLOQUEABA agregar lo agotado (regla de David con su PM, 2026-10-27); desde
+  // ADR-115 (anexo A de la fase DN) se agrega siempre: el vendedor captura lo que el cliente pide y el
+  // servidor registra lo que no hay para Compras al agendar (`[DN.8]`).
 
   /** `[MCP.3.16]` La zona se midió al día y ninguna sucursal tiene este producto. */
   nadieZona(p: PriceRow): boolean {
@@ -1256,65 +1253,27 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * `[MCP.3.16]` Si el producto NO se puede agregar surtiéndolo de `origen`, el porqué (lo que lee el
-   * vendedor); `null` = se puede. Bloquean `agotado` y `no_se_maneja`; `sin_dato` y una cantidad
-   * mayor a lo que hay, no. Sin conexión no se bloquea: no se sabe de cuándo es la existencia.
+   * `[DN.11a]` ¿La lectura al día AFIRMA que no hay en la sucursal de la que se surtiría (`origen`
+   * null = la propia)? `agotado` o `no_se_maneja`; `sin_dato` y pedir más de lo que hay, no.
+   *
+   * ⚠️ Ya NO bloquea agregar (ADR-115, anexo A de la fase DN): hasta el 2026-11-07 esto era
+   * `bloqueoDe` y frenaba el renglón en el teléfono, sin dejar rastro de lo que el cliente pidió
+   * (medido: los renglones que entraban sin existencia cayeron de 14.2 % a 0.23 %). Ahora el vendedor
+   * captura lo que el cliente pide, la fila sigue pintada con su estado y el servidor lo registra para
+   * Compras al agendar. Lo usan sólo el pedido SUGERIDO —lo predijo el sistema, no lo pidió el
+   * cliente: no propone lo que no hay (DA4)— y el aviso de «Pocas existencias», que se calla con un
+   * agotado.
+   *
+   * Sin conexión TAMBIÉN cuenta, con la copia guardada: `estadoPropio` ya la baja a «sin dato» pasadas
+   * `ODS_HOT_TOLERANCIA_H` horas, así que con un dato viejo no se afirma nada. Antes aquí había un corte
+   * por `offlineMode` (tenía sentido cuando esto bloqueaba); con ADR-115 dejaba que el sugerido cargara
+   * sin conexión lo agotado, y al sincronizar el servidor lo registraba como demanda negada que el
+   * cliente nunca pidió (lo encontró la revisión adversarial del 2026-11-07).
    */
-  bloqueoDe(p: PriceRow, origen: string | null): string | null {
-    if (this.offlineMode()) return null;
-    // [MCP.11] Las promociones se agregan siempre: su existencia es 0 por construcción (el servidor
-    // tampoco las bloquea). Así llegan al surtidor (da el regalo) y a la caja (la cobra).
-    if (p.is_promo) return null;
-    if (!bloqueaAgregar(this.estadoSurtido(p, origen))) return null;
-    const z = this.zonaFallo() ? null : this.zona();
-    const bloqueada = origen ?? this.sucursalMia()?.id ?? null;
-    const surtido = origen ? (z?.warehouses.find((w) => w.id === origen)?.short ?? 'esa sucursal') : this.cortoMio();
-    const f = this.unitFactor(p);
-    const u = this.selectedUnit(p)?.unit ?? '';
-    const ub = this.baseUnitLabel(p);
-    const sinDato = sucursalesSinDato(z);
-    // «Nadie en tu zona» sólo si se midió TODA la zona al día y la sucursal bloqueada es de ella.
-    const zonaCompleta =
-      !!z && !z.unmeasured_reason && zonaConFrescura(z) && !sinDato.length && z.warehouses.some((w) => w.id === bloqueada);
-    return mensajeBloqueo({
-      surtido,
-      alternativas: alternativasEnZona(z, p.product_id, bloqueada).map((a) => ({ short: a.short, texto: cantidadEnUnidad(a.base, f, u, ub) })),
-      zonaCompleta,
-      sinDato,
-    });
-  }
-
-  /** `[MCP.3.16]` El bloqueo queda pegado a la fila (el toast se va solo) y sale en el toast del shell. */
-  private avisarBloqueo(p: PriceRow, mensaje: string): void {
-    this.rowError.update((m) => ({ ...m, [p.product_id]: mensaje }));
-    this.haptic.notification('error');
-    this.toast.add({ severity: 'warn', summary: 'No se puede agregar', detail: mensaje, life: 6000 });
-  }
-
-  /** `[MCP.3.16]` El 409 del servidor con `code: 'SIN_EXISTENCIA'`; cualquier otro error, `null`. */
-  private bloqueoDelServidor(err: unknown): StockBlockError | null {
-    const b = (err as { error?: Partial<StockBlockError> } | null)?.error;
-    return b && b.code === 'SIN_EXISTENCIA' && typeof b.message === 'string' && b.message.trim() ? (b as StockBlockError) : null;
-  }
-
-  /**
-   * `[MCP.3.16]` El texto del 409. El servidor sólo sabe la unidad BASE y escribe «8ES tiene 1,328»
-   * sin rótulo, mientras la tira dice «8ES 55» en cajas: con alternativas, el texto se vuelve a armar
-   * con la MISMA función (`mensajeBloqueo`) en la unidad que se pide. Sin alternativas no hay
-   * cantidades y se muestra el del servidor tal cual (él sabe si midió la zona entera).
-   */
-  private textoDelBloqueo(p: PriceRow, b: StockBlockError): string {
-    const alts = Array.isArray(b.alternatives) ? b.alternatives.filter((a) => Number.isFinite(Number(a?.qty))) : [];
-    if (!alts.length) return b.message;
-    const f = this.unitFactor(p);
-    const u = this.selectedUnit(p)?.unit ?? '';
-    const ub = this.baseUnitLabel(p);
-    return mensajeBloqueo({
-      surtido: b.warehouse_short || 'esa sucursal',
-      alternativas: alts.map((a) => ({ short: a.short, texto: cantidadEnUnidad(Number(a.qty), f, u, ub) })),
-      zonaCompleta: false,
-      sinDato: [],
-    });
+  sinExistenciaEn(p: PriceRow, origen: string | null): boolean {
+    // [MCP.11] Una promoción tiene existencia 0 por construcción: no es «no hay».
+    if (p.is_promo) return false;
+    return sinExistenciaAfirmada(this.estadoSurtido(p, origen));
   }
 
   private quitarErrorDeFila(productId: string): void {
@@ -1351,7 +1310,11 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     const cant = c.qty == null ? 'sin dato' : c.texto === '<1' ? `menos de 1${u ? ' ' + u : ''}` : c.qty + (u ? ' ' + u : '');
     return `${c.name}${c.mine ? ' (tu sucursal)' : ''}: ${cant}`;
   }
-  /** Si lo que se pide pasa de lo que hay en la sucursal elegida, se dice en la fila (no bloquea: es preventa). */
+  /**
+   * Si lo que se pide pasa de lo que hay en la sucursal elegida, se dice en la fila (no bloquea: es
+   * preventa). `[DN.11a]` Con ADR-115 la sugerencia es una opción, no una orden: el renglón se queda
+   * como está si el vendedor no toca otra sucursal (y lo que no haya se registra para Compras).
+   */
   avisoOrigen(p: PriceRow): string | null {
     const zs = this.zonaDe(p);
     // [MCP.3.16] Se compara en unidad base: «menos de una caja» con piezas no es «no hay».
@@ -1359,9 +1322,9 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     if (!zs || !(q > 0)) return null;
     const c = zs.find((x) => this.origenEs(p, x));
     if (!c || c.base == null || q <= c.base) return null;
-    if (c.base <= 0) return `En ${c.short} no hay: elige otra sucursal`;
-    if (c.texto === '<1') return `En ${c.short} sólo hay ${rotuloBase(c.base, this.baseUnitLabel(p))}: elige otra sucursal`;
-    return `En ${c.short} sólo hay ${c.qty}: elige otra o pide ${c.qty}`;
+    if (c.base <= 0) return `En ${c.short} puede no haber: puedes surtir de otra sucursal`;
+    if (c.texto === '<1') return `En ${c.short} sólo hay ${rotuloBase(c.base, this.baseUnitLabel(p))}: puedes surtir de otra sucursal`;
+    return `En ${c.short} sólo hay ${c.qty}: puedes surtir de otra o pedir ${c.qty}`;
   }
 
   /**
@@ -1374,13 +1337,8 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     const linea = this.lineaDe(p.product_id);
     if (linea && (linea.source_warehouse_id ?? null) === origen) return;
     if (!linea && (this.origenElegido().get(p.product_id) ?? null) === origen) return;
-    // [MCP.3.16] De una sucursal que lo tiene agotado o no lo maneja no se surte: ni se elige ni se
-    // mueve el renglón allá. Se dice por qué y la tira sigue disponible para tocar otra.
-    const bloqueo = this.bloqueoDe(p, origen);
-    if (bloqueo) {
-      this.avisarBloqueo(p, bloqueo);
-      return;
-    }
+    // [DN.11a] Una sucursal en 0 también se puede elegir (ADR-115): el chip ya muestra su existencia
+    // y `avisoOrigen` lo dice en la fila. Hasta el 2026-11-07 aquí se bloqueaba.
     if (!linea) {
       this.origenElegido.update((m) => new Map(m).set(p.product_id, origen));
       this.quitarErrorDeFila(p.product_id);
@@ -1405,12 +1363,6 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
         },
         error: (err) => {
           this.cambiandoOrigen.set(null);
-          // [MCP.3.16] Si el servidor lo bloqueó por existencias, su texto es el que se muestra.
-          const b = this.bloqueoDelServidor(err);
-          if (b) {
-            this.avisarBloqueo(p, this.textoDelBloqueo(p, b));
-            return;
-          }
           this.haptic.notification('error');
           this.toast.add({ severity: 'error', summary: 'No se cambió la sucursal', detail: this.motivoDeError(err), life: 5000 });
         },
@@ -1589,41 +1541,41 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
 
   /**
    * `[MCP.3.16]` La predicción y lo que se dejó fuera por existencias. Un producto que la sucursal del
-   * pedido tiene agotado o no maneja NO entra al sugerido (es «agregar», y la regla lo bloquea): así
-   * el chip «Sugerido (N)» anuncia lo que de verdad se carga, y `bloqueados` permite decir por qué
-   * faltan. El lote del servidor (`replaceLines`) no bloquea —es también el de la sincronización
-   * offline—, así que este filtro es el que cumple la regla en el sugerido.
+   * pedido tiene agotado o no maneja NO entra al sugerido: lo predijo el sistema, no lo pidió el
+   * cliente, y registrarlo ensuciaría la demanda negada que lee Compras (`[DN.11a]`, DA4 del anexo A;
+   * lo que el vendedor agrega a mano sí entra aunque no haya). Así el chip «Sugerido (N)» anuncia lo
+   * que de verdad se carga, y `sinExistencia` permite decir por qué faltan.
    */
   private readonly prediccion = computed(() => {
     const byId = this.byIdMap();
     const freq = this.frequent();
     const out: { product_id: string; quantity: number }[] = [];
-    const bloqueados: PriceRow[] = [];
-    if (!freq.length) return { lineas: out, bloqueados };
+    const sinExistencia: PriceRow[] = [];
+    if (!freq.length) return { lineas: out, sinExistencia };
     const maxOC = freq.reduce((m, f) => Math.max(m, Number(f.order_count) || 0), 0);
     const threshold = maxOC >= 2 ? 2 : 1;
     for (const f of freq) {
       if ((Number(f.order_count) || 0) < threshold) continue;
       const p = byId.get(f.product_id);
       if (!p || p.price == null || Number(p.price) <= 0) continue;
-      if (this.bloqueoDe(p, null)) {
-        bloqueados.push(p);
+      if (this.sinExistenciaEn(p, null)) {
+        sinExistencia.push(p);
         continue;
       }
       const qty = Math.max(Math.floor(Number(f.avg_qty) || 1), p.min_qty || 1);
       out.push({ product_id: f.product_id, quantity: qty });
     }
-    return { lineas: out.slice(0, 30), bloqueados };
+    return { lineas: out.slice(0, 30), sinExistencia };
   });
 
   /** `[MCP.3.16]` Avisa qué no entró del sugerido: por existencias (filtro de arriba) o porque el servidor lo omitió. */
-  private avisarSugeridoIncompleto(bloqueados: readonly PriceRow[], omitidos: ReadonlyArray<{ product_id: string; reason: string }>): void {
-    const n = bloqueados.length + omitidos.length;
+  private avisarSugeridoIncompleto(sinExistencia: readonly PriceRow[], omitidos: ReadonlyArray<{ product_id: string; reason: string }>): void {
+    const n = sinExistencia.length + omitidos.length;
     if (!n) return;
     const partes: string[] = [];
-    if (bloqueados.length) {
-      const nombres = bloqueados.slice(0, 3).map((p) => p.product_name).join(', ');
-      partes.push(`Sin existencias en ${this.cortoMio()}: ${nombres}${bloqueados.length > 3 ? ` y ${bloqueados.length - 3} más` : ''}`);
+    if (sinExistencia.length) {
+      const nombres = sinExistencia.slice(0, 3).map((p) => p.product_name).join(', ');
+      partes.push(`Sin existencias en ${this.cortoMio()}: ${nombres}${sinExistencia.length > 3 ? ` y ${sinExistencia.length - 3} más` : ''}`);
     }
     if (omitidos.length) {
       const byId = this.byIdMap();
@@ -2105,33 +2057,30 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     const cur = this.cartQty(p.product_id);
     if (cur > 0) this.bumpQty(p.product_id, base); // existe → ajustar (0 = quitar en flush)
     else if (base > 0) {
-      // [MCP.3.16] Bloqueado: el número tecleado no se queda en la casilla (la cantidad sigue en 0).
+      // Sin cliente o sin sucursal no se crea: el número tecleado no se queda en la casilla.
       if (!this.createLine(p, base) && input) input.value = '';
     }
   }
 
   /**
    * Crea la línea (asegurando draft) con la cantidad dada, en rejilla y sobre el mínimo.
-   * `[MCP.3.16]` Devuelve `false` si NO la intentó (bloqueada por existencias o sin datos para crearla).
+   * Devuelve `false` si NO la intentó (sin cliente, sin sucursal o sin cantidad). `[DN.11a]` Un
+   * producto sin existencia SÍ se agrega (ADR-115): la fila conserva su estado y el servidor lo
+   * registra para Compras al agendar. Hasta el 2026-11-07 aquí se bloqueaba.
    */
   private createLine(p: PriceRow, qty: number): boolean {
     const c = this.customer();
     if (!c || !this.orderWarehouseId()) return false;
     const q = ajustarARejilla(qty, this.unitFactor(p), p.min_qty || 1);
     if (q <= 0) return false;
-    // [MCP.3.16] Antes de tocar el servidor: si la sucursal de surtido lo tiene agotado o no lo
-    // maneja, no se agrega, no se cambia la cantidad y se dice por qué (y quién de la zona tiene).
     const origenSurtido = this.origenDe(p);
-    const bloqueo = this.bloqueoDe(p, origenSurtido);
-    if (bloqueo) {
-      this.avisarBloqueo(p, bloqueo);
-      return false;
-    }
     // El aviso solo vale contra el almacén que va a surtir. [MCP.3.16] Si el renglón se surte de otra
     // sucursal de la zona, se compara contra la de ESA sucursal; con la vista en camioneta,
     // `stock_available` es del camión y no sirve para la propia. Con «sin dato» no se avisa nada.
-    const hay = this.existenciaDeSurtido(p, origenSurtido);
-    if (hay != null && q > hay.qty) {
+    // [DN.11a] Y con un agotado (o en 0) tampoco: «Hoy hay 0» sería un aviso emergente con cada
+    // agotado, que empuja a sustituir durante la captura; el estado ya se ve en la fila.
+    const hay = this.sinExistenciaEn(p, origenSurtido) ? null : this.existenciaDeSurtido(p, origenSurtido);
+    if (hay != null && hay.qty > 0 && q > hay.qty) {
       this.toast.add({ severity: 'warn', summary: 'Pocas existencias hoy', detail: `Hoy hay ${hay.qty}${hay.en ? ' en ' + hay.en : ''}. Es preventa: se surte al repartir.`, life: 4000 });
     }
     if (this.offlineMode()) {
@@ -2183,12 +2132,6 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
           this.adding.update((m) => ({ ...m, [p.product_id]: false }));
           // Se deshace lo optimista: el renglón no existe.
           this.pendingQty.update((m) => { const n = new Map(m); n.delete(p.product_id); return n; });
-          // [MCP.3.16] El servidor lo bloqueó por existencias (409 SIN_EXISTENCIA): su texto, en la unidad que se pide.
-          const b = this.bloqueoDelServidor(err);
-          if (b) {
-            this.avisarBloqueo(p, this.textoDelBloqueo(p, b));
-            return;
-          }
           this.haptic.notification('error');
           const motivo = this.motivoDeError(err);
           // [MCP.3.5] Además del toast (que se va solo), el motivo queda pegado a la fila.
@@ -2305,9 +2248,7 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
       }),
       catchError((err: unknown) => {
         this.sentQty.update((m) => soltarSiEs(m, null));
-        // [MCP.3.16] Un bloqueo por existencias del servidor trae su propio texto completo.
-        const b = this.bloqueoDelServidor(err);
-        this.rowError.update((m) => ({ ...m, [productId]: b ? b.message : `No se cambió la cantidad: ${this.motivoDeError(err)}` }));
+        this.rowError.update((m) => ({ ...m, [productId]: `No se cambió la cantidad: ${this.motivoDeError(err)}` }));
         this.haptic.notification('error');
         return of({ ok: false, err });
       }),
@@ -2455,6 +2396,9 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
       const orderId = this.cartOrderId();
       if (!orderId) return;
       this.prefilling.set(true);
+      // [DN.11a] Sin conexión el sugerido también deja fuera lo que la copia reciente da por agotado: se
+      // dice igual que en línea (el chip anunció N y el pedido no puede traer menos en silencio).
+      const sinExistencia = this.prediccion().sinExistencia;
       const byId = this.byIdMap();
       const offlineLines = lines
         .map((l) => { const p = byId.get(l.product_id); return p ? this.offlineApi.buildLine(p, l.quantity) : null; })
@@ -2466,12 +2410,13 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
           if (draft) this.cartLines.set(this.offlineApi.toOrderLines(draft));
           this.prefilling.set(false);
           this.prefilled.set(true);
+          this.avisarSugeridoIncompleto(sinExistencia, []);
         })
         .catch(() => this.prefilling.set(false));
       return;
     }
     this.prefilling.set(true);
-    const bloqueados = this.prediccion().bloqueados;
+    const sinExistencia = this.prediccion().sinExistencia;
     this.api
       .ensureDraftForCustomer(c.id, this.orderWarehouseId(), 'route')
       .pipe(
@@ -2483,7 +2428,7 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
           this.prefilling.set(false);
           this.prefilled.set(true);
           // [MCP.3.16] Lo que no entró se dice: el chip anunció N y el pedido no puede traer menos en silencio.
-          this.avisarSugeridoIncompleto(bloqueados, Array.isArray(r?.skipped) ? r.skipped : []);
+          this.avisarSugeridoIncompleto(sinExistencia, Array.isArray(r?.skipped) ? r.skipped : []);
           this.reloadCart();
         },
         error: () => {
