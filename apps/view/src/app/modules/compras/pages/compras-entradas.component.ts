@@ -3216,6 +3216,8 @@ export class ComprasEntradasComponent {
     this.svc.detail(c.sucursal, c.folio).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (d) => {
+          // [RE.61] Con «Siguiente» la respuesta de la entrada anterior puede llegar tarde: no pisa a la abierta.
+          if (this.detailTarget() !== c) return;
           this.detailData.set(d);
           this.detailLoading.set(false);
           // La 1ª hoja se muestra sola: el trabajo es comparar, no hacer clics.
@@ -3225,7 +3227,7 @@ export class ComprasEntradasComponent {
           const withLines = (d.deposits || []).find((dep) => (dep.ocr_lines || []).length > 0);
           this.runReconcile(withLines?.ocr_lines || []);
         },
-        error: () => { this.detailLoading.set(false); this.showDetail.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo cargar el detalle' }); },
+        error: () => { if (this.detailTarget() !== c) return; this.detailLoading.set(false); this.showDetail.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo cargar el detalle' }); },
       });
   }
 
@@ -3237,8 +3239,8 @@ export class ComprasEntradasComponent {
     this.svc.reconcile(c.sucursal, c.folio, lines).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         // Sin CFDI y sin renglones leídos no hay nada que conciliar: la sección no se dibuja.
-        next: (r) => { this.recon.set(r.lectura?.fuente === 'ocr' && !r.lectura.renglones_leidos ? null : r); this.reconLoading.set(false); },
-        error: () => { this.reconLoading.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo conciliar por línea' }); },
+        next: (r) => { if (this.detailTarget() !== c) return; this.recon.set(r.lectura?.fuente === 'ocr' && !r.lectura.renglones_leidos ? null : r); this.reconLoading.set(false); },
+        error: () => { if (this.detailTarget() !== c) return; this.reconLoading.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo conciliar por línea' }); },
       });
   }
 
@@ -3265,8 +3267,8 @@ export class ComprasEntradasComponent {
     this.compras.adjustmentsForEntrada({ proveedor_code: c.proveedor_code, entrada_folio: c.folio, date: c.receipt_date, window_days: 15 })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (r) => { this.explains.set(r.rows || []); this.explainsTotal.set(r.total_monto || 0); this.explainsLoading.set(false); },
-        error: () => { this.explainsLoading.set(false); },
+        next: (r) => { if (this.detailTarget() !== c) return; this.explains.set(r.rows || []); this.explainsTotal.set(r.total_monto || 0); this.explainsLoading.set(false); },
+        error: () => { if (this.detailTarget() !== c) return; this.explainsLoading.set(false); },
       });
   }
   adjDoctypeLabel(dt: string): string { return dt === 'XD40' ? 'Devolución' : 'Nota de crédito'; }
