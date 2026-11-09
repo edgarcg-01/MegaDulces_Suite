@@ -1,4 +1,4 @@
-import { bloqueaAgregar, estadoDeExistencia, mensajeSinExistencia, ODS_HOT_TOLERANCIA_H, type StockState } from './stock-state.contract';
+import { estadoDeExistencia, mensajeExistencia, ODS_HOT_TOLERANCIA_H, sinExistenciaAfirmada, type StockState } from './stock-state.contract';
 
 /**
  * `[MCP.3.16]` La regla del estado de existencia. Cada estado lleva su prueba negativa: el caso
@@ -37,34 +37,51 @@ describe('[MCP.3.16] estadoDeExistencia', () => {
   });
 });
 
-describe('[MCP.3.16] bloqueaAgregar', () => {
-  it('bloquean agotado y no_se_maneja', () => {
-    expect(bloqueaAgregar('agotado')).toBe(true);
-    expect(bloqueaAgregar('no_se_maneja')).toBe(true);
+describe('[DN.7] sinExistenciaAfirmada (ya no bloquea: ADR-115)', () => {
+  it('la lectura afirma que no hay: agotado y no_se_maneja', () => {
+    expect(sinExistenciaAfirmada('agotado')).toBe(true);
+    expect(sinExistenciaAfirmada('no_se_maneja')).toBe(true);
   });
 
-  it('NO bloquean sin_dato, con_existencia ni la ausencia de estado', () => {
+  it('negativa: sin_dato, con_existencia y la ausencia de estado NO afirman nada', () => {
     const libres: Array<StockState | null | undefined> = ['sin_dato', 'con_existencia', null, undefined];
-    for (const s of libres) expect(bloqueaAgregar(s)).toBe(false);
+    for (const s of libres) expect(sinExistenciaAfirmada(s)).toBe(false);
   });
 });
 
-describe('[MCP.3.16] mensajeSinExistencia (el mismo texto en servidor y pantalla)', () => {
-  it('con alternativas: dónde no hay y quién sí tiene', () => {
-    expect(mensajeSinExistencia({ surtido: 'PH', alternativas: [{ short: 'LPA', texto: '14' }, { short: '8ES', texto: '3' }], zonaCompleta: false, sinDato: ['YU'] }))
-      .toBe('No se puede agregar: no hay existencias en PH · LPA tiene 14 · 8ES tiene 3');
+describe('[DN.7] mensajeExistencia (el mismo texto en servidor y pantalla)', () => {
+  it('con alternativas: dónde puede no haber y quién sí tiene', () => {
+    expect(mensajeExistencia({ state: 'agotado', surtido: 'PH', alternativas: [{ short: 'LPA', texto: '14' }, { short: '8ES', texto: '3' }], zonaCompleta: false, sinDato: ['YU'] }))
+      .toBe('Puede estar agotado en PH · LPA tiene 14 · 8ES tiene 3');
   });
 
-  it('«no hay en tu zona» SÓLO con la zona entera medida', () => {
-    expect(mensajeSinExistencia({ surtido: 'PH', alternativas: [], zonaCompleta: true, sinDato: [] }))
-      .toBe('No se puede agregar un producto que no hay en tu zona');
+  it('⭐ ADR-115: nunca dice «No se puede agregar» (el renglón SÍ se guarda)', () => {
+    const casos = [
+      mensajeExistencia({ state: 'agotado', surtido: 'PH', alternativas: [], zonaCompleta: true, sinDato: [] }),
+      mensajeExistencia({ state: 'no_se_maneja', surtido: 'PH', alternativas: [{ short: 'LPA', texto: '2' }], zonaCompleta: false, sinDato: [] }),
+      mensajeExistencia({ state: 'agotado', surtido: 'PH', alternativas: [], zonaCompleta: false, sinDato: ['YU'] }),
+    ];
+    for (const m of casos) expect(m).not.toMatch(/no se puede/i);
+  });
+
+  it('«tampoco hay en tu zona» SÓLO con la zona entera medida', () => {
+    expect(mensajeExistencia({ state: 'agotado', surtido: 'PH', alternativas: [], zonaCompleta: true, sinDato: [] }))
+      .toBe('Puede estar agotado en PH · tampoco hay en tu zona');
     // Negativa: con una sucursal sin dato no se afirma que nadie tiene; se nombra la que falta.
-    const m = mensajeSinExistencia({ surtido: 'PH', alternativas: [], zonaCompleta: false, sinDato: ['YU', 'LPA'] });
-    expect(m).toBe('No se puede agregar: no hay existencias en PH · sin dato de YU, LPA');
+    const m = mensajeExistencia({ state: 'agotado', surtido: 'PH', alternativas: [], zonaCompleta: false, sinDato: ['YU', 'LPA'] });
+    expect(m).toBe('Puede estar agotado en PH · sin dato de YU, LPA');
     expect(m).not.toContain('tu zona');
     // Negativa: sin zona resuelta (y sin sucursales sin dato) sólo lo que se sabe.
-    expect(mensajeSinExistencia({ surtido: 'PH', alternativas: [], zonaCompleta: false, sinDato: [] }))
-      .toBe('No se puede agregar: no hay existencias en PH');
+    expect(mensajeExistencia({ state: 'agotado', surtido: 'PH', alternativas: [], zonaCompleta: false, sinDato: [] }))
+      .toBe('Puede estar agotado en PH');
+  });
+
+  it('no_se_maneja se dice distinto de agotado (DA3: para Compras son decisiones distintas)', () => {
+    expect(mensajeExistencia({ state: 'no_se_maneja', surtido: 'PH', alternativas: [{ short: 'LPA', texto: '14' }], zonaCompleta: false, sinDato: [] }))
+      .toBe('PH no lo maneja · LPA tiene 14');
+    // Negativa: el mismo caso en agotado no dice «no lo maneja».
+    expect(mensajeExistencia({ state: 'agotado', surtido: 'PH', alternativas: [{ short: 'LPA', texto: '14' }], zonaCompleta: false, sinDato: [] }))
+      .not.toContain('no lo maneja');
   });
 });
 

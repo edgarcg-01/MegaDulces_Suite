@@ -1,6 +1,7 @@
 <!-- INDICE-AUTO:INICIO -->
 
 > **Índice navegable** — 2245 KB, 13658 líneas, 75 secciones.
+> **Índice navegable** — 2252 KB, 13673 líneas, 76 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -82,6 +83,82 @@
 | 13674 | 13704 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
 | 13705 | 13732 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
 | 13733 | 13745 | 2 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 89 | 96 | 15 | Tracker de Progreso |
+| 97 | 193 | 207 | 📊 Estado global de fases |
+| 194 | 220 | 1 | 🚦 Estado por item (granular) |
+| 221 | 3407 | 455 | 🎯 EN PROGRESO |
+| 3424 | 3461 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
+| 3462 | 3495 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
+| 3496 | 3580 | 6 | GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código) |
+| 3581 | 3684 | 6 | GX.15 — El expediente del gasto: los cuatro eslabones juntos, y su PDF 🧪 2026-09-24 (en código) |
+| 3685 | 3751 | 4 | GX.16 — Áreas de gasto: el motor propone, la persona confirma 🧪 2026-09-24 (en código) |
+| 3752 | 3855 | 7 | IG — Ingresos contables: el otro lado del libro 🧪 2026-09-25 (en código) |
+| 3856 | 3939 | 6 | GX.19 — Egresos: el número no cambia, ahora dice con qué se calculó 🧪 2026-09-25 (en código) |
+| 3940 | 4109 | 13 | GX.20 — Aprobación de gastos: el día, en tres pestañas 🧪 2026-09-25 (en código) |
+| 4110 | 4172 | 4 | GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código) |
+| 4173 | 4245 | 5 | GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código) |
+| 4246 | 4297 | 3 | GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código) |
+| 4298 | 5118 | 115 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
+| 5119 | 5132 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
+| 5133 | 5157 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
+| 5158 | 5180 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
+| 5181 | 5219 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
+| 5220 | 5944 | 65 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
+| 5945 | 6129 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
+| 6130 | 6172 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
+| 6173 | 6250 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
+| 6251 | 6344 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
+| 6345 | 6480 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
+| 6481 | 6497 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
+| 6498 | 6549 | 94 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
+| 6550 | 6617 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
+| 6618 | 6870 | 20 | Fase CH — Checadores / Control de asistencia |
+| 6871 | 6936 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
+| 6937 | 6964 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
+| 6965 | 7131 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
+| 7132 | 7491 | 123 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
+| 7492 | 7554 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
+| 7555 | 7684 | 44 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
+| 7685 | 7747 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
+| 7748 | 7908 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
+| 7909 | 7979 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
+| 7980 | 8028 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
+| 8029 | 8061 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
+| 8062 | 8618 | 69 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
+| 8619 | 8750 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
+| 8751 | 8804 | 37 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
+| 8805 | 8844 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
+| 8845 | 8897 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
+| 8898 | 8964 | 20 | Fase WMS-BI — Análisis BI de Almacén |
+| 8965 | 9127 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
+| 9128 | 9411 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
+| 9412 | 9579 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
+| 9580 | 11953 | 183 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 11954 | 11962 | 1 | Fase RR — Ventas por ruta |
+| 11963 | 12258 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 12259 | 12269 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 12270 | 12290 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 12291 | 12301 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 12302 | 12313 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 12314 | 12373 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 12374 | 12801 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 12802 | 12816 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 12817 | 12858 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 12859 | 13009 | 68 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 13010 | 13040 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 13041 | 13088 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
+| 13089 | 13137 | 54 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 13138 | 13146 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
+| 13147 | 13176 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 13183 | 13192 | 1 | 📝 Convenciones |
+| 13193 | 13230 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 13231 | 13249 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 13250 | 13302 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 13303 | 13674 | 55 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 13675 | 13705 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 13706 | 13727 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
+| 13728 | 13748 | 5 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 13749 | 13761 | 2 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -13702,6 +13779,28 @@ entregada» el cuadre nunca tiene qué buscar. Firmas pendientes **D1–D5** (§
 `ModulosListados` son mecánica interna). El valor está en las olas 1 y 6 — y **ninguna vale lo que
 cerrar el puente**, que está a un clic de probarse.
 
+## Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10)
+
+Plan: [FASE_DN_DEMANDA_NEGADA.md](FASES/FASE_DN_DEMANDA_NEGADA.md) · Anexo A: [FASE_DN_ANEXO_AVISO_AL_AGENDAR.md](FASES/FASE_DN_ANEXO_AVISO_AL_AGENDAR.md) · ADR-115 aceptado el 2026-11-07 (el «ADR-091» que citaba el plan es otro). Se separó de GP para no desviarla. 🔨 **frente 1 del anexo (DN.6–DN.8 + DN.11a): aprobado por Edgar el 2026-11-07 por encima del cupo** (lo comunicó Francisco); **en PR [#518](https://github.com/edgarcg-01/MegaDulces_Suite/pull/518) desde el 2026-11-08, probado contra Postgres real**; el resto sigue ⬜. Montos: tarjeta DN del Tablero PM (el repo es público).
+
+- [ ] **[DN.0]** ⬜ Arbitrar que kdm2.c51 es la cantidad pedida ORIGINAL (contra wave_order_lines cuando haya volumen).
+- [ ] **[DN.1]** ⬜ Vista analytics.v_denied_demand_kepler + pantalla en Compras por producto y canal (telemarketing, traspasos, ruta). Medido 2026-10-10: 778 renglones negados en 60 d, hoy invisibles (monto en la tarjeta).
+- [ ] **[DN.2]** ⬜ Motivo del surtidor y renglones borrados desde la Suite (sin doble conteo).
+- [ ] **[DN.3]** ⬜ **Compras ve lo negado de la preventa de la app: lo pedido, lo ofrecido y lo que llegó** — 2026-11-07 (redefinido, anexo A; antes «PD- contra surtido»). Une la tabla de DN.6 (sólo pedidos agendados) + lo que faltó al surtir + lo que completó la caja, una etapa por renglón y sin doble conteo con DN.1 (en la 05 la preventa también entra como U-D-40); declara su cobertura (≈ 8 % de los documentos del canal vecinal). Criterios de los cinco caminos en el anexo §8.
+- [ ] **[DN.4]** ⬜ Piso de venta con cantidad en la lista de faltantes (decisión D1).
+- [ ] **[DN.5]** ⬜ La demanda negada alimenta el sugerido de compra (decisión D2).
+- [ ] **[DN.6]** 🧪 **Un renglón pedido sin existencia queda registrado aunque nadie lo decida** — 2026-11-07. C0, frente 1: tabla propia `commercial.order_stock_notices` (copia del original en base y presentación, estado, candidatos mostrados con rango, decisión; tenant_id + audit + RLS). Llave sobre filas vigentes: **pedido** (en el que queda el renglón después de separar) + producto + sucursal de surtido efectiva; `root_order_id` es dato para agrupar y se conserva al reagendar (la llave por raíz contaba doble al reabrir una parte). Reagendar reemplaza (`superseded_at`) la vigente de la misma llave y la de un renglón que cambió de sucursal, e inserta otra: nunca dos vigentes; un renglón quitado conserva su fila. HOY (consulta del apéndice del anexo, misma base): antes del bloqueo entraba sin existencia el 14.2 % de los renglones (31 de 218), con el bloqueo el 0.23 % (2 de 857); lo bloqueado NO DEJA RASTRO. **En código (2026-11-07):** migración `20261107175004_dn6_order_stock_notices.js` (RLS forzado, sin DELETE con REVOKE explícito, compuertas de RLS y privilegios, `down()` que se niega con filas); **probada contra Postgres real (2026-11-08, job `pruebas-db` del PR #518): `test-newdb-dn-registro-negado.js` 55 ✓ · 0 ✗ · 0 no medido** — CHECKs, la llave por pedido con el par que la distingue de la vieja por raíz, RLS con `app_runtime` (otro tenant ve 0; INSERT ajeno y DELETE → 42501) y `up()` idempotente. Las filas `con_existencia` se guardan: son el denominador por versión de la app.
+- [ ] **[DN.7]** 🧪 **El servidor ya no rechaza agregar por existencia: guarda el renglón y devuelve su estado** — 2026-11-07. C1, frente 1: quita el 409 SIN_EXISTENCIA de addLine/updateLine; se invierten las pruebas del bloqueo, cada una con su negativa. Sale ANTES que la app del vendedor (PWA en caché). Toca `[MCP.3.16]` de David (ADR-107 → ADR-115). **En código (2026-11-07):** `revisionDeRenglones` + `stock_state`/`stock_review` en la respuesta (`LineStockReview` en contracts); `commercial-orders.stock-review.spec.ts` en verde y la negativa rota a propósito (el `throw` de vuelta → 9 en rojo). **Contra Postgres real (2026-11-08, PR #518):** `test-newdb-existencia-vendedor.js` 40 ✓ · 0 ✗ —la primera vez que llega a medir en el CI (abortaba en su siembra: AUD-DAT.29)— con su §[4] invertido en un rol de prueba con la clave (`addLine`/`updateLine` guardan y responden el estado, la alternativa de la zona y `sin_dato`; un rol sin la clave no se revisa), y [5] de la suite DN (el renglón agotado de otra sucursal se guarda).
+- [ ] **[DN.8]** 🧪 **Al agendar, el servidor registra todo renglón sin existencia que nadie decidió** — 2026-11-07. C1, frente 1: sólo preventa de la app (incluida la sincronización sin conexión; entrega a domicilio fuera). Marca durable en un SAVEPOINT dentro de place, existencia completada después del commit, barrido que pasa a `sin_dato` lo pendiente; nunca hace fallar el agendado. Prueba negativa: apagar el registro pone la prueba en rojo. La PWA vieja no llega al servidor: se mide por versión de la app. **En código (2026-11-07):** `order-stock-notices.ts` + `OrderStockNoticesCronService` (cada 5 min, sólo worker, latido `dn_registro_barrido` en `CRON_JOBS`); la app y Thot mandan `client_build`. Llave vigente por **pedido** + producto + sucursal (no por raíz: la revisión adversarial la encontró contando doble al reabrir una parte); la raíz se conserva como dato. Unitarias en verde (`registro-negado.spec.ts`, `order-stock-notices.spec.ts`) y negativa verificada (registro apagado → 5 en rojo); la consulta de renglones corrió en prod en sólo lectura. **Contra Postgres real (2026-11-08, PR #518): [3]–[9] de `test-newdb-dn-registro-negado.js` en verde** — el payload de la sincronización, la presentación, el grupo y la parte reabierta sin doble conteo, reagendar en sus tres casos, `sin_dato` por lectura vieja, las exclusiones y la durabilidad (paso 2 caído → lo declara el barrido; paso 1 caído → el pedido se agenda igual). El API y el worker arrancan con el cron nuevo (`boot-api.yml` sobre la rama, con su negativa).
+- [ ] **[DN.9]** ⬜ **Un solo motor de sustitutos para el surtidor y el vendedor** — 2026-11-07. C1, ADR-056: `libs/commercial/src/lib/product-substitutes/`; el surtidor delega sin cambiar su salida; para el vendedor, por parámetro, existencia y precio en la sucursal de surtido del renglón y existencia de una ventana ordenada (hoy 2.6–2.7 s con un renglón).
+- [ ] **[DN.10]** ⬜ **El vendedor pide la revisión de su pedido y deja su decisión por renglón** — 2026-11-07. C2: POST stock-review + PATCH decisión (dejar, condicional, cambiar ya, otra sucursal, quitar) en una sola transacción; VENDOR_APP_ACCESS y COMMERCIAL_ORDERS_CREAR y dueño del pedido (ya repartidas); prueba contra base real con el payload de la pantalla.
+- [ ] **[DN.10b]** ⬜ **El surtidor aplica el sustituto que el cliente aceptó** — 2026-11-07. C2: cierre del surtido de preventa con COMMERCIAL_PICKING_GESTIONAR; X presente → se surte X; X falta → se aplica Y y queda fila context='surtidor'; Y no aplicable → no tumba el cierre. Prueba contra base real.
+- [ ] **[DN.11a]** 🧪 **La app del vendedor deja de bloquear: el producto se agrega y conserva su estado** — 2026-11-07. C3, frente 1: se quitan las compuertas de createLine y elegirOrigen y la lectura del 409; el sugerido sigue excluyendo agotados; sin hoja (lo registra DN.8). Depende de DN.7 en prod. **Probado (2026-11-07):** `vendor-estado-existencia.spec.ts` 45/45 y la app completa 25 suites / 210 ✓ (re-medido 2026-11-08); negativas rotas a propósito: la compuerta de vuelta → 8 en rojo, el corte sin conexión → 1, el aviso del sugerido sin conexión → 1. `check:pantalla` no recorre `apps/vendor`: NO MEDIDO por esa compuerta, y sin validación visual. Las cinco preguntas de `diseno` §0b, en el anexo.
+- [ ] **[DN.11]** ⬜ **Al agendar, el vendedor ve una sola hoja con lo que puede estar agotado y qué ofrecer** — 2026-11-07. C3, frente 2: «Dejarlo» marcado, sustituto condicional, otra sucursal, agotado y no se maneja separados; límite de 2.5 s y si falla se agenda y se declara; sin conexión no hay hoja. Antes: auditoria-diseno §9 y skill `diseno`; check:pantalla antes y después.
+- [ ] **[DN.12]** ⬜ **Lo que el cliente ya compra sube en la lista de sustitutos** — 2026-11-07. Días con compra en 180 d de v_kepler_sales_lines; 177 de 189 clientes de preventa con clave de Kepler, 168 con compras en 90 d. Se detalla cuando el frente 2 tenga árbitro.
+- [ ] **[DN.13]** ⬜ **La calidad del motor se mide antes de presumirla** — 2026-11-07. Evaluación fuera de línea (acierto en los primeros 3) + embeddings v2 de pg-rag (falta acceso de sólo lectura: Edgar). El motor del surtidor existe desde el 06-nov: 0 usos en 42 surtidos cerrados (de 1 a 3 renglones de oportunidad); su calidad no está medida.
+- [ ] **[DN.14]** ⬜ **Modelo entrenado con las decisiones — sólo cuando haya con qué** — 2026-11-07. Arranca cuando haya decisiones etiquetadas suficientes y supere a las reglas en DN.13.
+- [ ] **[DN.15]** ⬜ **El surtidor ve el sustituto que el cliente ya aceptó y lo aplica con un toque** — 2026-11-07. C3 en la pantalla de MCP.13, precargado y editable. Depende de DN.10b.
 ## Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04)
 
 Plan: [FASE_ALC_ALTA_DE_CLIENTES.md](FASES/FASE_ALC_ALTA_DE_CLIENTES.md) · nace de `[MCP]` D7. Empezada por Francisco por encima del cupo de 4: falta que el PM la ratifique. D1-a (la Suite NO escribe en Kepler; `kdud` lo hará Edgar), D3 (quién da de alta y quién aprueba crédito) firmadas por Francisco.

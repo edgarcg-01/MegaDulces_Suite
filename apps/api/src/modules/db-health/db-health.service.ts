@@ -1165,6 +1165,11 @@ export const CRON_JOBS: CronCfg[] = [
   // criterio que los demas jobs diarios. `maxRunH: 1` porque la corrida medida es de
   // segundos sobre ~58k pares; una hora ya es un cuelgue.
   { key: 'stock_snapshot',      label: 'Foto diaria de inventario',         cadence: 'diario 23:50 MX', warnH: 26, critH: 50, maxRunH: 1 },
+  // `[DN.8]` El barrido del registro de lo negado al agendar (`OrderStockNoticesCronService`, cada
+  // 5 min, sólo en el worker). Declara `sin_dato` las marcas que el paso 2 no completó; si encuentra
+  // alguna, su latido sale en `error` (el paso 2 está fallando). Umbral: warn al perder ~12 corridas
+  // (1 h), crítico a las 6 h: sin el barrido, una marca `pendiente` se quedaría así para siempre.
+  { key: 'dn_registro_barrido', label: 'Registro de lo negado al agendar (barrido)', cadence: 'cada 5 min', warnH: 1, critH: 6, maxRunH: 1 },
   // `[CDRP.4]` Corre 08:30 MX. Umbral calcado del hermano `stock_snapshot`: 26 h tolera que un
   // dia se corra un rato, 50 h avisa que se perdio una foto. ⛔ Registrarlo es OBLIGATORIO y no
   // cosmetico: sin entrada aca el sensor cae en `cfg ? classify : 'ok'` — verde incondicional.

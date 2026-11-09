@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { CommercialOrdersService } from './commercial-orders.service';
 import { OrderStockService } from './order-stock.service';
 import { InvoiceRetryCronService } from './invoice-retry-cron.service';
+// [DN.8] El barrido que declara `sin_dato` lo que el registro de lo negado no completó al agendar.
+import { OrderStockNoticesCronService } from './order-stock-notices-cron.service';
 import { CommercialOrdersController } from './commercial-orders.controller';
 import { CommercialPricingModule } from '../commercial-pricing/commercial-pricing.module';
 import { CommercialInventoryModule } from '../commercial-inventory/commercial-inventory.module';
@@ -13,7 +15,7 @@ import { CommercialQuotesModule } from '../commercial-quotes/commercial-quotes.m
 @Module({
   imports: [CommercialPricingModule, CommercialInventoryModule, CommercialAlertsModule, CommercialPushModule, CommercialQuotesModule],
   controllers: [CommercialOrdersController],
-  providers: [CommercialOrdersService, OrderStockService, InvoiceRetryCronService],
+  providers: [CommercialOrdersService, OrderStockService, InvoiceRetryCronService, OrderStockNoticesCronService],
   exports: [CommercialOrdersService],
 })
 export class CommercialOrdersModule {}

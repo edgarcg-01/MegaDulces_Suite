@@ -2,17 +2,18 @@ import type { Knex } from 'knex';
 import {
   esNombreDePromocion,
   estadoDeExistencia,
-  mensajeSinExistencia,
+  mensajeExistencia,
   ODS_HOT_TOLERANCIA_H,
-  type StockBlockError,
+  type LineStockReview,
   type StockState,
 } from '@megadulces/contracts';
 
 /**
- * `[MCP.3.16]` EL resolvedor del estado de existencia por (sucursal, producto). Lo usan los TRES
- * caminos que necesitan la regla —el catálogo del vendedor, la tira de la zona y el bloqueo al
- * agregar un renglón— para que no haya tres versiones de lo mismo (ADR-056 regla 16: un primitivo,
- * no tres caminos). La regla pura vive en `@megadulces/contracts` (`estadoDeExistencia`).
+ * `[MCP.3.16]` EL resolvedor del estado de existencia por (sucursal, producto). Lo usan los caminos
+ * que necesitan la regla —el catálogo del vendedor, la tira de la zona, la revisión al agregar un
+ * renglón (`[DN.7]`) y el registro de lo negado al agendar (`[DN.8]`)— para que no haya varias
+ * versiones de lo mismo (ADR-056 regla 16: un primitivo, no N caminos). La regla pura vive en
+ * `@megadulces/contracts` (`estadoDeExistencia`).
  *
  * ── LA FUENTE ───────────────────────────────────────────────────────────────────────────────────
  * `analytics.v_erp_stock_on_hand`, la canónica de ADR-055 (vista sobre `kepler_ods.kdil`).
@@ -257,34 +258,40 @@ export async function estadoDeProductos(
   return { lecturas, estado };
 }
 
-// ─────────── el bloqueo al agregar ───────────
+// ─────────── la revisión al agregar ───────────
 
-/** Un renglón que se quiere agregar: el producto y la sucursal de la que se va a surtir. */
+/** Un renglón que se agrega: el producto, la sucursal de la que se va a surtir y su cantidad en BASE. */
 export interface DestinoRenglon {
   product_id: string;
   warehouse_id: string;
+  /** Cantidad del renglón en unidad BASE (para `insuficiente`); sin ella, `insuficiente` = false. */
+  quantity?: number;
 }
 
-/** Llave de `bloqueosAlAgregar`. */
+/** Llave de `revisionDeRenglones`. */
 export const llaveDestino = (d: DestinoRenglon): string => `${d.product_id}|${d.warehouse_id}`;
 
 const cantidadLegible = (q: number): string => q.toLocaleString('es-MX', { maximumFractionDigits: 2 });
 
 /**
- * `[MCP.3.16]` Qué renglones NO se pueden agregar y por qué. Bloquea sólo si la sucursal de surtido
- * está en `agotado` o `no_se_maneja` (lectura al día); `sin_dato` NO bloquea, y pedir más de lo que
- * hay (con existencia > 0) tampoco. Las alternativas son las OTRAS sucursales centrales activas de
- * la zona de la sucursal del pedido (`purchase_zone`, la misma regla que `origenDelRenglon`) con
- * existencia > 0, mayor primero, máximo 3.
+ * `[DN.7]` (ADR-115) El estado de la existencia de cada renglón en su sucursal de surtido. **No
+ * bloquea**: hasta ADR-115 esto era `bloqueosAlAgregar` y su resultado se lanzaba como 409; ahora el
+ * renglón se guarda siempre y esto viaja en la respuesta. Devuelve TODOS los estados, `sin_dato` y
+ * `con_existencia` incluidos (con `insuficiente` cuando hay menos de lo pedido).
  *
- * Devuelve llave (`llaveDestino`) → el cuerpo del 409. Sólo lectura.
+ * Las alternativas (sólo si no hay) son las OTRAS sucursales centrales activas de la zona de la
+ * sucursal del pedido (`purchase_zone`, la misma regla que `origenDelRenglon`) con existencia > 0,
+ * mayor primero, máximo 3.
+ *
+ * Una promoción (`= GRATIS`) no se revisa: su existencia es 0 por construcción (`[MCP.11]`), y no
+ * sale en el mapa. Devuelve llave (`llaveDestino`) → la revisión. Sólo lectura.
  */
-export async function bloqueosAlAgregar(
+export async function revisionDeRenglones(
   trx: Db,
   orderWarehouseId: string,
   destinos: readonly DestinoRenglon[],
-): Promise<Map<string, StockBlockError>> {
-  const out = new Map<string, StockBlockError>();
+): Promise<Map<string, LineStockReview>> {
+  const out = new Map<string, LineStockReview>();
   if (!destinos.length) return out;
   type Wh = { id: string; code: string | null; short_label: string | null; name: string; purchase_zone: string | null };
   const destinoIds = [...new Set(destinos.map((d) => d.warehouse_id))];
@@ -303,7 +310,7 @@ export async function bloqueosAlAgregar(
   const corto = (w: Wh | undefined) => (w?.short_label || '').trim() || w?.name || '';
 
   const productIds = [...new Set(destinos.map((d) => d.product_id))];
-  const { estado } = await estadoDeProductos(trx, [...sucursales.values()].map((w) => ({ id: w.id, code: w.code })), productIds);
+  const { estado, lecturas } = await estadoDeProductos(trx, [...sucursales.values()].map((w) => ({ id: w.id, code: w.code })), productIds);
   const nombres = new Map(
     ((await trx('catalog.products').whereIn('id', productIds).select('id', 'nombre')) as Array<{ id: string; nombre: string | null }>)
       .map((p) => [p.id, (p.nombre || '').trim()]),
@@ -311,11 +318,33 @@ export async function bloqueosAlAgregar(
 
   for (const d of destinos) {
     // [MCP.11] Una promoción es un PRODUCTO de Kepler que no es mercancía («= GRATIS», $0.01): su
-    // existencia es 0 por construcción. No se bloquea — el vendedor la agrega para que el surtidor dé el
+    // existencia es 0 por construcción. No se revisa — el vendedor la agrega para que el surtidor dé el
     // regalo y la caja la cobre (decisión de David, 2026-11-03).
     if (esNombreDePromocion(nombres.get(d.product_id))) continue;
     const e = estado(d.warehouse_id, d.product_id);
-    if (e.state !== 'agotado' && e.state !== 'no_se_maneja') continue;
+    const short = corto(sucursales.get(d.warehouse_id));
+    const productName = nombres.get(d.product_id) || 'este producto';
+    const lectura = lecturas.get(d.warehouse_id);
+    const pedida = Number(d.quantity);
+    const base = {
+      state: e.state, qty: e.qty, product_id: d.product_id, product_name: productName,
+      warehouse_id: d.warehouse_id, warehouse_short: short, checked_at: e.checked_at,
+    };
+    if (e.state === 'con_existencia') {
+      out.set(llaveDestino(d), {
+        ...base, alternatives: [], message: null,
+        insuficiente: Number.isFinite(pedida) && pedida > 0 && e.qty !== null && e.qty < pedida,
+      });
+      continue;
+    }
+    if (e.state === 'sin_dato') {
+      // ADR-056: lo que no se midió se dice, nunca se pinta como «hay» ni como «no hay».
+      out.set(llaveDestino(d), {
+        ...base, alternatives: [], insuficiente: false,
+        message: `Sin dato de existencia en ${short}${lectura?.motivo ? ` (${lectura.motivo})` : ''}`,
+      });
+      continue;
+    }
     const alternatives = deZona
       .filter((w) => w.id !== d.warehouse_id)
       .map((w) => ({ w, x: estado(w.id, d.product_id) }))
@@ -323,28 +352,23 @@ export async function bloqueosAlAgregar(
       .sort((a, b) => (b.x.qty ?? 0) - (a.x.qty ?? 0))
       .slice(0, 3)
       .map(({ w, x }) => ({ warehouse_id: w.id, short: corto(w), qty: x.qty as number }));
-    const short = corto(sucursales.get(d.warehouse_id));
-    const productName = nombres.get(d.product_id) || 'este producto';
-    // [MCP.3.16] «No hay en tu zona» sólo si se MIDIÓ la zona entera: la zona se resolvió, la
-    // sucursal bloqueada es de ella y ninguna otra quedó `sin_dato` (lectura vieja o caída). Sin eso
+    // [MCP.3.16] «Tampoco hay en tu zona» sólo si se MIDIÓ la zona entera: la zona se resolvió, la
+    // sucursal de surtido es de ella y ninguna otra quedó `sin_dato` (lectura vieja o caída). Sin eso
     // se dice sólo lo que se sabe y qué sucursales faltaron (ADR-056), igual que la pantalla.
     const otrasZona = deZona.filter((w) => w.id !== d.warehouse_id);
     const sinDato = otrasZona.filter((w) => estado(w.id, d.product_id).state === 'sin_dato').map(corto);
     const zonaCompleta = deZona.some((w) => w.id === d.warehouse_id) && !sinDato.length;
     out.set(llaveDestino(d), {
-      code: 'SIN_EXISTENCIA',
-      message: mensajeSinExistencia({
+      ...base,
+      insuficiente: false,
+      alternatives,
+      message: mensajeExistencia({
+        state: e.state,
         surtido: short,
         alternativas: alternatives.map((a) => ({ short: a.short, texto: cantidadLegible(a.qty) })),
         zonaCompleta,
         sinDato,
       }),
-      product_id: d.product_id,
-      product_name: productName,
-      warehouse_id: d.warehouse_id,
-      warehouse_short: short,
-      state: e.state,
-      alternatives,
     });
   }
   return out;
