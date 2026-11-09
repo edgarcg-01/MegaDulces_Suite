@@ -92,14 +92,19 @@ export function etapaDeEjercicio(e: EstadoEjercicio): EtapaEjercicio {
   const medido = e.kepler_aplicada === true || e.kepler_aplicada === false;
   if (!medido && !e.kepler_estado) return 'sin_medir';
 
-  if (e.kepler_aplicada === true) return 'ejercido';
   /**
    * ⚠️ Cancelada MANDA sobre el puente. Medido: **113 solicitudes canceladas tienen gasto**.
    * Son dos hechos ciertos a la vez (se genero el gasto, despues se cancelo el documento) y
    * el que importa para quien espera es el ultimo: no hay nada que perseguir. El detalle
    * muestra los dos, para que nadie tenga que adivinar cual leyo la pantalla.
+   *
+   * `[GX.93]` ⛔ Esta linea iba DESPUES de `kepler_aplicada === true`, asi que la cancelada con
+   * gasto salia «ejercido» — lo contrario de lo que dice el parrafo de arriba. Medido en prod el
+   * 2026-11-05: **24 vales revisados** decian «ejercido» con nota verde y a la vez seguian en
+   * «Falta el gasto en Kepler». Ninguna prueba cubria la cancelada CON gasto.
    */
   if (e.kepler_estado === 'C') return 'cancelado_kepler';
+  if (e.kepler_aplicada === true) return 'ejercido';
   if (e.kepler_estado === 'F') return 'ejercido'; // el testigo que acierta 7,949 de 7,949
   /**
    * `[GX.43]` **La `A` es su propia etapa, no un «por ejercer» más.** Antes `N` y `A` caían
@@ -245,6 +250,81 @@ export function documentoKepler(folio: string | null | undefined, estado?: Estad
 /** Un gasto ejercido es el unico que cierra la historia: ahi se avisa, y una sola vez. */
 export function seDebeAvisar(etapa: EtapaEjercicio, yaAvisado: boolean): boolean {
   return etapa === 'ejercido' && !yaAvisado;
+}
+
+/**
+ * `[GX.92]` **¿El ciclo de un vale ya terminó?** — UNA regla, para «Mis gastos» y para la cola de
+ * quien aprueba.
+ *
+ * Termina cuando está **revisado** (`validada`) y además Kepler dijo la última palabra:
+ *  · **aplicó su gasto** `XA1001` (la regla de `[GX.77]`), o
+ *  · **canceló la solicitud** (`cancelado_kepler`): ya no va a haber gasto que esperar.
+ *
+ * ⛔ El defecto que corrige, medido en prod el 2026-11-05: la regla vivía SÓLO en la pantalla y
+ * pedía el gasto a secas, así que **32 vales revisados con la solicitud cancelada** se quedaban
+ * para siempre en «Falta el gasto en Kepler» — esperando algo que no iba a llegar. Y 24 de ellos
+ * decían además «ejercido» (ver el orden corregido en `etapaDeEjercicio`).
+ */
+export interface ValeParaCierre {
+  status?: string | null;
+  etapa?: EtapaEjercicio | string | null;
+  gasto_folios?: readonly string[] | null;
+}
+
+/** Por qué cerró: lo que la pantalla dice al pie del vale cerrado. */
+export type MotivoDeCierre = 'gasto_aplicado' | 'cancelada_en_kepler';
+
+export function motivoDeCierre(v: ValeParaCierre): MotivoDeCierre | null {
+  if (v.status !== 'validada') return null;
+  if ((v.gasto_folios?.length ?? 0) > 0) return 'gasto_aplicado';
+  if (v.etapa === 'cancelado_kepler') return 'cancelada_en_kepler';
+  return null;
+}
+
+export function cicloCerrado(v: ValeParaCierre): boolean {
+  return motivoDeCierre(v) !== null;
+}
+
+export const ETIQUETA_CIERRE: Record<MotivoDeCierre, string> = {
+  gasto_aplicado: 'Gasto aplicado en Kepler',
+  cancelada_en_kepler: 'Solicitud cancelada en Kepler',
+};
+
+/**
+ * `[GX.96]` **A qué espera un vale revisado que todavía no cierra.** Todo lo que queda es de
+ * Kepler — o sea de quien opera Kepler, no de quien capturó, que no puede hacer nada.
+ *
+ * Medido en prod el 2026-11-05: 38 autorizados sin gasto y 24 sin autorizar; 13 con más de 30
+ * días, y sólo los veía quien los capturó.
+ */
+export type EsperaKepler = 'falta_autorizar' | 'falta_generar_gasto' | 'aplicada_sin_ligar' | 'sin_medir';
+
+export function esperaDeKepler(v: ValeParaCierre): EsperaKepler | null {
+  if (v.status !== 'validada' || cicloCerrado(v)) return null;
+  switch (v.etapa) {
+    case 'autorizado': return 'falta_generar_gasto';
+    case 'por_ejercer': return 'falta_autorizar';
+    // Kepler dice que hay gasto (o que el dinero salió) y no encontramos el `XA1001` ligado.
+    case 'ejercido': return 'aplicada_sin_ligar';
+    default: return 'sin_medir';
+  }
+}
+
+export const ETIQUETA_ESPERA_KEPLER: Record<EsperaKepler, string> = {
+  falta_autorizar: 'Falta que la autoricen en Kepler',
+  falta_generar_gasto: 'Autorizada: falta generar el gasto en Kepler',
+  aplicada_sin_ligar: 'Kepler dice aplicada, pero el gasto no aparece',
+  sin_medir: 'No se pudo leer su estado en Kepler',
+};
+
+/**
+ * `[GX.96]` **El hallazgo**: la solicitud se canceló en Kepler DESPUÉS de generar su gasto.
+ * Decisión del usuario (2026-11-06): el vale se cierra igual, pero quien aprueba lo revisa —
+ * alguien tiene que confirmar si salió dinero. Es el mismo criterio de `[GX.85]` con el rechazo
+ * que Kepler pagó: lo raro se mira, no se tapa solo. Medido: 24 casos el 2026-11-05.
+ */
+export function esHallazgoCanceladaConGasto(kepler_estado: string | null | undefined, kepler_aplicada: boolean | null | undefined): boolean {
+  return String(kepler_estado ?? '').trim() === 'C' && kepler_aplicada === true;
 }
 
 /**

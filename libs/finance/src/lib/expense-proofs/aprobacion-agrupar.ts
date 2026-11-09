@@ -39,7 +39,7 @@ export interface ExpedientePendiente {
   evidencia_en_vivo: boolean;
 }
 
-export type OrigenDepartamento = 'capturado' | 'solicitud' | 'sin_clasificar';
+export type OrigenDepartamento = 'capturado' | 'solicitud' | 'sin_clasificar' | 'kepler';
 
 export interface GrupoAprobacion {
   clave: string;
