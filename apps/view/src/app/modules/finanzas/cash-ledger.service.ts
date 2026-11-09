@@ -3,7 +3,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { uuidV4 } from '../../core/utils/uuid';
-import type { JornadasPendientes, CorteCajaDto, CandadoCajaDto, PosicionCajaDto, ArqueoCajaDto, ArqueoGuardadoDto, DocumentosEnCajaDto, NuevoArqueoCajaInput, CaosRetirosLibres, CaosRetiroDelLote } from '@megadulces/contracts';
+import type { JornadasPendientes, CorteCajaDto, CandadoCajaDto, PosicionCajaDto, ArqueoCajaDto, ArqueoGuardadoDto, DocumentosEnCajaDto, NuevoArqueoCajaInput, CaosRetirosLibres, CaosRetiroDelLote, YaEnLibro } from '@megadulces/contracts';
 // `[CGA-A.61]` La reposición por sucursal: el contrato lo comparten el endpoint y la pantalla.
 import type { ReposicionSucursales } from '@megadulces/contracts';
 import type {
@@ -765,6 +765,11 @@ export interface MovimientoPendiente {
     type_label: string; denominaciones: Array<{ denominacion: number; piezas: number }>;
     confianza: 'alta' | 'media' | 'baja'; motivos: string[];
   } | null;
+  /**
+   * `[CGA-A.71]` La captura del libro que YA trae este documento por otro camino (un depósito de CAOS
+   * sin documento declarado, otra llave). `null`/ausente = no se encontró. No se confirma en lote.
+   */
+  ya_en_libro?: YaEnLibro | null;
   motivo?: 'sin_mapa' | 'sin_confirmar' | 'sin_cuenta' | 'sin_monto' | 'sin_regla' | 'elegir_concepto'
     // El documento viene fechado DESPUÉS de hoy: no se confirma en lote, se captura a mano
     // corrigiendo la fecha. Medido: 8 documentos del ERP, y uno ya entró al libro como diciembre.
@@ -827,6 +832,8 @@ export interface ColaSinCambios {
 }
 
 export interface PendientesResponse {
+  /** `[CGA-A.71]` Cuántas de las devueltas ya están en el libro por otro camino. Opcional: una API anterior no lo manda. */
+  ya_en_libro?: number;
   /** `[LE.6.22]` La firma de esta cola: el repaso la devuelve en `si_cambio`. Opcional: una API anterior no la manda. */
   firma?: string;
   /** Desde qué fecha se está mirando. `ventana_dias` null = el filtro lo puso la persona. */

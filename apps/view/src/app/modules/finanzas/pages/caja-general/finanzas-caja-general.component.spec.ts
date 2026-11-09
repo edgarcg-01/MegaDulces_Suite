@@ -1456,6 +1456,37 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(fx.nativeElement.textContent).toContain('Quitar la marca');
   });
 
+  /**
+   * `[CGA-A.71]` El pendiente que ya entró al libro por otro camino (real: la ruta 21 del 10-oct ya es
+   * CI-2026-00011, el depósito de CAOS «rd21 10/10» capturado sin documento). Se ve, no entra al lote
+   * ni al «siguiente», y la ficha avisa al abrirlo.
+   *
+   * ⚠️ PRUEBA NEGATIVA (corrida el 2026-11-09): con `delLote` devolviendo sólo `confirmable` se pone
+   * roja ésta (el lote se lo llevaba y «Marcar las 2» prometía uno de más).
+   */
+  it('⭐ [CGA-A.71] lo que ya está en el libro se marca, no entra al lote ni al «siguiente», y la ficha avisa', async () => {
+    const YA = { ...FILA_B, ya_en_libro: { como: 'deposito_ruta' as const, certeza: 'alta' as const, folio: 'CI-2026-00011',
+      fecha: '2026-10-13', monto: 3747.66, glosa: 'CAOS Deposito #1580 · rd21 10/10' } };
+    const fx = montar({ movimientosPendientes: vi.fn(() => of({ ...CON_DOS, rows: [FILA_A, YA] })) });
+    await Promise.resolve();
+    fx.detectChanges();
+    const t = () => fx.nativeElement.textContent as string;
+    expect(t()).toContain('Ya en el libro: CI-2026-00011');
+    expect(t()).toContain('1 ya está en el libro por otro camino');
+    expect(t()).toContain('Marcar las 1');
+    comp.marcarTodas(true);
+    expect(comp.marcadas()).toEqual([FILA_A.origen_ref]);
+    comp.marcar(YA.origen_ref, true);
+    expect(comp.marcadas()).toEqual([FILA_A.origen_ref]);
+    expect(comp.delLote(YA)).toBe(false);
+    expect(comp.textoYaEnLibro(YA.ya_en_libro)).toBe('es el depósito de la bóveda «rd21 10/10», que declara esta ruta y este día');
+    // Abrirlo a mano sigue pudiéndose, y la ficha lo dice antes de contar.
+    comp.abrirDeLaCola(YA);
+    fx.detectChanges();
+    expect(t()).toContain('Ya está en el libro como CI-2026-00011');
+    expect(t()).toContain('No lo captures otra vez');
+  });
+
   it('[negativa] el lote manda SÓLO la referencia: ningún importe propio viaja al libro', () => {
     montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
     const libre = comp.pendientes().find((p) => p.confirmable);

@@ -19,7 +19,7 @@ import { AutoCompleteModule, AutoCompleteCompleteEvent, AutoCompleteSelectEvent 
 import { MessageModule } from 'primeng/message';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
-import { textoFalloFirma, type ContextoFirma } from '@megadulces/contracts';
+import { textoFalloFirma, type ContextoFirma, type YaEnLibro } from '@megadulces/contracts';
 import {
   revisarMorrallaCorte, MORRALLA_CORTE_TOPE,
   type DocumentosEnCajaDto, type ArqueoCajaDto, type ArqueoGuardadoDto, type NuevoArqueoCajaInput,
@@ -978,6 +978,11 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .cg-caos-go { color:var(--action); font-size:var(--fs-micro); white-space:nowrap; }
     .cg-caos-attach { color:var(--text-muted); font-size:var(--fs-micro); }
     .cg-caos-attach.cg-caos-alta { color:var(--action); }
+    /* [CGA-A.71] Texto de aviso: --warn-soft-fg (7:1); --warn-fg como texto da 2.15:1. */
+    .cg-ya-libro { color:var(--warn-soft-fg); font-size:var(--fs-xs); font-weight:600; }
+    .cg-ya-libro-aviso { display:flex; gap:var(--sp-2); align-items:flex-start; margin:var(--sp-2) 0 0; padding:var(--sp-2) var(--sp-3);
+                         border:1px solid var(--border-color); border-radius:var(--r-md, 8px); background:var(--surface-2);
+                         color:var(--warn-soft-fg); font-size:var(--fs-sm); }
     /* ⛔ [CG.70] Aca vivian ".cg-cajero" (recuadro punteado) y ".cg-cajero-head": el SEGUNDO panel
        del cajero, el que repetia el rotulo. Se fueron con el; el que queda es el neutro de abajo.
        Se borran y no se dejan huerfanas a proposito: una regla sin dueño es la que despues alguien
@@ -2584,6 +2589,14 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
               </div>
 
               <h3 class="cg-ficha-nombre">{{ f().beneficiario || cobroElegido()?.entidad_code || 'Movimiento sin contraparte' }}</h3>
+              <!-- [CGA-A.71] Ya entró al libro por otro camino: capturarlo otra vez metería el dinero dos veces. -->
+              @if (cobroElegido()?.ya_en_libro; as yl) {
+                <p class="cg-ya-libro-aviso" role="alert">
+                  <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                  <span><strong>Ya está en el libro como {{ yl.folio }}</strong> ({{ dmy(yl.fecha) }}, {{ money(yl.monto) }}):
+                    {{ textoYaEnLibro(yl) }}. No lo captures otra vez: hay que ligarlo a esa captura.</span>
+                </p>
+              }
 
               <!-- El numero grande de ESTA mitad. El del arqueo es el OTRO lado de la misma
                    pregunta y vive en el apartado 2: nunca se ven los dos como titulo de lo mismo. -->
@@ -2949,6 +2962,10 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                —la AT compara el contenido—, así que una recarga que no cambió la cuenta es muda.
                Y atomic porque "18" suelto, sin "de 19", no es un dato. -->
           <span class="cg-lead" aria-live="polite" aria-atomic="true">{{ confirmables() }} <span class="cg-lead-sub">de {{ pendientes().length }} se confirman de un clic</span></span>
+          <!-- [CGA-A.71] Los que ya entraron al libro por otro camino: no se capturan, se ligan. -->
+          @if (yaEnLibro(); as n) {
+            <span class="cg-ya-libro">{{ n }} {{ n === 1 ? 'ya está' : 'ya están' }} en el libro por otro camino: no se capturan</span>
+          }
           <span class="fin-dim">{{ textoAlcance() }}</span>
           <!-- §9 + inventario: la frescura es un COMPONENTE, no una frase. measures="data" es
                honesto: datos_al lo manda el servidor, no es el reloj del navegador. -->
@@ -3006,7 +3023,8 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                retirarse la columna entera, una casilla suelta en un th sin casillas debajo no
                significa nada: la accion se muda a la barra, al lado de la accion que habilita, y
                DICE CUANTAS son -- que es el dato que la casilla nunca pudo dar. -->
-          @if (confirmables(); as n) {
+          <!-- [CGA-A.71] Cuenta lo que de verdad marca: sin los que ya están en el libro. -->
+          @if (enLote(); as n) {
             @if (n > 0) {
               <p-button [label]="todasMarcadas() ? 'Quitar la marca' : 'Marcar las ' + n"
                         [icon]="todasMarcadas() ? 'pi pi-times' : 'pi pi-check-square'"
@@ -3265,6 +3283,10 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                            que la señal no se pierde; el ámbar vuelve a significar algo porque
                            queda sólo donde hay que actuar (el contador agrupado). -->
                       <p-tag [value]="motivoCorto(p.motivo)" severity="secondary" class="cg-motivo-tag"></p-tag>
+                    }
+                    <!-- [CGA-A.71] Se marca, no se esconde: un duplicado se ve y se corrige. -->
+                    @if (p.ya_en_libro; as yl) {
+                      <small class="cg-ya-libro d-block">Ya en el libro: {{ yl.folio }}@if (yl.certeza !== 'alta') { · por confirmar } · ligar, no capturar</small>
                     }
                     @if (p.caos_match; as cm) {
                       <small class="cg-caos-attach d-block" [class.cg-caos-alta]="cm.confianza === 'alta'">
@@ -5037,7 +5059,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
 
   marcadas = computed(() => [...this.seleccion()]);
   todasMarcadas = computed(() => {
-    const posibles = this.pendientes().filter((p) => p.confirmable);
+    const posibles = this.pendientes().filter((p) => this.delLote(p));
     return posibles.length > 0 && posibles.every((p) => this.seleccion().has(p.origen_ref));
   });
 
@@ -5139,8 +5161,31 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    */
   private avanzarAlSiguiente(): void {
     if (this.capturaAbierta()) return;
-    const siguiente = this.pendientes().find((p) => p.confirmable);
+    const siguiente = this.pendientes().find((p) => this.delLote(p));
     if (siguiente) this.capturarDesde(siguiente);
+  }
+
+  /**
+   * `[CGA-A.71]` Lo que entra al lote y al «siguiente»: confirmable Y que no esté ya en el libro por
+   * otro camino. Abrirlo a mano sigue pudiéndose (la ficha avisa); lo que no se hace es meterlo solo.
+   */
+  delLote(p: MovimientoPendiente): boolean {
+    return !!p.confirmable && !p.ya_en_libro;
+  }
+
+  /** `[CGA-A.71]` Cuántas de las que se ven ya están en el libro (las devueltas, como `confirmables`). */
+  readonly yaEnLibro = computed(() => this.pendientes().filter((p) => !!p.ya_en_libro).length);
+  /** `[CGA-A.71]` Cuántas marca «Marcar las N»: el botón no puede prometer más de las que marca. */
+  readonly enLote = computed(() => this.pendientes().filter((p) => this.delLote(p)).length);
+
+  textoYaEnLibro(yl: YaEnLibro): string {
+    const glosa = (yl.glosa ?? '').replace(/^CAOS Deposito #\d+\s*[·-]\s*/i, '').trim();
+    switch (yl.como) {
+      case 'deposito_ruta': return `es el depósito de la bóveda «${glosa}», que declara esta ruta y este día`;
+      case 'deposito_importe': return `un depósito de la bóveda «${glosa}» por el mismo importe, sin ruta escrita (por confirmar)`;
+      case 'otra_llave': return 'se capturó con otro folio de la misma camioneta, el mismo día y por el mismo importe (por confirmar)';
+      case 'otra_camioneta': return 'se capturó con la llave de otra camioneta: Kepler trae el mismo cobro en las dos (por confirmar)';
+    }
   }
 
   /**
@@ -8479,7 +8524,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * no se puede confirmar, así que tampoco se marca. Fail-closed.
    */
   marcar(ref: string, on: boolean): void {
-    if (on && !this.pendientes().some((p) => p.origen_ref === ref && p.confirmable)) return;
+    if (on && !this.pendientes().some((p) => p.origen_ref === ref && this.delLote(p))) return;
     const s = new Set(this.seleccion());
     if (on) s.add(ref); else s.delete(ref);
     this.seleccion.set(s);
@@ -8489,7 +8534,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   /** Marca sólo las CONFIRMABLES: ofrecer marcar una trabada es prometer algo que va a fallar. */
   marcarTodas(on: boolean): void {
     this.seleccion.set(on
-      ? new Set(this.pendientes().filter((p) => p.confirmable).map((p) => p.origen_ref))
+      ? new Set(this.pendientes().filter((p) => this.delLote(p)).map((p) => p.origen_ref))
       : new Set());
     this.persistir();
   }

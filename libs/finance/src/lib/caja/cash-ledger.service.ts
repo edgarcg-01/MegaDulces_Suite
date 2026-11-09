@@ -53,6 +53,7 @@ import { hayDocumentosDeMovimiento, piezasEnCaja } from './caja-arqueo-documento
 import { conciliacion } from './caja-conciliacion.engine';
 import { requisitosDeHoja, textoPagoDeHoja, verificarPagoDeHoja } from './hoja-gastos.gate';
 import { relacionExiste } from './caja-db.util';
+import { yaEnElLibro, DIAS_OTRA_CAMIONETA, type CapturaDelLibro } from './caja-ya-en-libro.engine';
 import {
   rankearCaos, ymd, type GastoCtx as CaosGastoCtx, type CaosCandidato as CaosCand, type PatronAprendido,
 } from './caja-caos-match.engine';
@@ -1930,6 +1931,9 @@ export class CashLedgerService {
       // CS.3.13 — a cada cobro le marcamos si su cliente es de CRÉDITO (para auto-rellenar «venta a
       // crédito» en la captura, siempre editable). La condición sale de `analytics.v_cliente_credito`.
       const conCredito = await this.marcarClientesCredito(trx, conCaos);
+      // `[CGA-A.71]` A cada pendiente, la captura del libro que YA lo trae por otro camino (un depósito de
+      // CAOS sin documento declarado, otra llave). Se marca, no se esconde: confirmarlo lo metería dos veces.
+      const conLibro = await this.marcarYaEnLibro(trx, tenantId, conCredito);
       // CG — el BUSCADOR suma los documentos POR PAGAR que caen FUERA del efectivo inferido: gastos
       // (XA1001) y órdenes de entrada (XA2001). Sólo con término de búsqueda (red para lo fuera del
       // modelo); nunca en la lista por default, que es la cola de trabajo del efectivo.
@@ -1937,7 +1941,9 @@ export class CashLedgerService {
         ? await this.buscarPagables(trx, tenantId, String(q.search), Math.min(limit, 100))
         : [];
       return {
-        rows: conCredito, pagables, limit, has_more: rows.length === limit,
+        rows: conLibro, pagables, limit, has_more: rows.length === limit,
+        // `[CGA-A.71]` Cuántas de las DEVUELTAS ya están en el libro por otro camino (mismo alcance que `confirmables`).
+        ya_en_libro: conLibro.filter((r: any) => r.ya_en_libro).length,
         // ⭐ CG.22.3 — DE CUÁNDO es este dato. La lista sale de `analytics.mv_caja_movimientos`,
         // materializado por costo (415 ms → 0.4 ms, medido). Un matview que dejó de refrescarse
         // no da error: sirve la foto vieja, y una bandeja de caja congelada se lee como "no hay
@@ -2428,6 +2434,29 @@ export class CashLedgerService {
       }
       return { ...r, caos_match: null };
     });
+  }
+
+  /**
+   * `[CGA-A.71]` Le pega a cada pendiente la captura del libro que ya lo trae (`yaEnElLibro`). Lee sólo
+   * ingresos vivos que pueden explicar a otro documento: depósitos de CAOS sin documento declarado y
+   * cobros con su llave, del día del pendiente más viejo a una semana después del más nuevo.
+   */
+  private async marcarYaEnLibro(trx: any, tenantId: string, rows: any[]): Promise<any[]> {
+    const fechas = rows.filter((r) => r.tipo === 'ingreso').map((r) => ymd(r.fecha_valor)).filter((d): d is string => !!d).sort();
+    if (!fechas.length) return rows.map((r) => ({ ...r, ya_en_libro: null }));
+    const hasta = new Date(Date.parse(`${fechas[fechas.length - 1]}T00:00:00Z`) + DIAS_OTRA_CAMIONETA * 86400000).toISOString().slice(0, 10);
+    const libro: CapturaDelLibro[] = (await trx('finance.cash_ledger')
+      .where('tenant_id', tenantId).whereNull('deleted_at').whereNot('estado', 'cancelado').where('tipo', 'ingreso')
+      .whereBetween('fecha', [fechas[0], hasta])
+      .where((b: Knex.QueryBuilder) => b.where((x: Knex.QueryBuilder) => x.where('origen_tipo', 'caos').whereNull('declared_doc_ref'))
+        .orWhere((x: Knex.QueryBuilder) => x.where('origen_tipo', 'cobro').whereNotNull('origen_ref')))
+      .select('folio', 'fecha', 'monto', 'tipo', 'origen_tipo', 'origen_ref', 'declared_doc_ref', 'glosa'))
+      .map((l: any) => ({ ...l, fecha: ymd(l.fecha) ?? '', monto: Number(l.monto) }));
+    const m = yaEnElLibro(rows.map((r) => ({
+      origen_ref: String(r.origen_ref), sucursal: String(r.sucursal), doc_tipo: String(r.doc_tipo), folio: String(r.folio),
+      fecha: ymd(r.fecha_valor) ?? '', monto: Number(r.monto), tipo: String(r.tipo), ruta: r.ruta ?? null,
+    })), libro);
+    return rows.map((r) => ({ ...r, ya_en_libro: m.get(String(r.origen_ref)) ?? null }));
   }
 
   /**
