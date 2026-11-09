@@ -5,6 +5,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
+import { MenuModule } from 'primeng/menu';
 import { TableModule } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
 import { SelectModule } from 'primeng/select';
@@ -13,17 +14,17 @@ import { InputNumberModule } from 'primeng/inputnumber';
 import { InputTextModule } from 'primeng/inputtext';
 import { IconFieldModule } from 'primeng/iconfield';
 import { InputIconModule } from 'primeng/inputicon';
-import { MessageService } from 'primeng/api';
+import { MenuItem, MessageService } from 'primeng/api';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
-import { BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado, Reconciliation, MatchResult, Differences, Balances, Diagnostico, KeplerAccount, ContpaqiCompare, ContpaqiBankAccount, FactorajeCompare, ThreeWay, SheetSyncConfig, ImportResult, SyncFindingsResult, SheetSyncRunResult } from '../bank.service';
+import { ArchivosDelBanco, BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado, Reconciliation, MatchResult, Differences, Balances, Diagnostico, KeplerAccount, ContpaqiCompare, ContpaqiBankAccount, FactorajeCompare, ThreeWay, SheetSyncConfig, ImportResult, SyncFindingsResult, SheetSyncRunResult } from '../bank.service';
 import { BancosSocketService, BancosEvent, FinanceJobEvent, JobAccepted } from '../bancos-socket.service';
 import { FinanceJobsClient } from '../finance-jobs.client';
 import { AuthService } from '../../../core/services/auth.service';
 import {
-  BankView as View, WORK_VIEWS, periodoDelArchivo,
+  BankView as View, WORK_VIEWS, VIEW_GRUPOS, numeroDePestana, type NumeroDePestana, periodoDelArchivo,
   GROUP_LABELS, GROUP_ORDER,
 } from './bancos/bancos-shared';
 import { BancosConcentradoComponent } from './bancos/bancos-concentrado.component';
@@ -50,7 +51,7 @@ import { BANCOS_CONCILIACION_TABS } from '../bancos-conciliacion-tabs';
 @Component({
   selector: 'app-finanzas-bancos',
   standalone: true,
-  imports: [DatePipe, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, CheckboxModule, InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, MetricStripComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent, BancosConcentradoComponent, BancosConciliacionComponent, BancosCuentasComponent, BancosEstadoBancoComponent, BancosDescargasAvisoComponent, BancosCierreComponent, BancosMovimientosComponent, BancosAdminComponent, BancosContpaqiComponent, BancosThreeWayComponent, BancosCapturasComponent, PageTabsComponent],
+  imports: [DatePipe, FormsModule, ButtonModule, MenuModule, TableModule, ToastModule, SelectModule, CheckboxModule, InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, MetricStripComponent, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent, BancosConcentradoComponent, BancosConciliacionComponent, BancosCuentasComponent, BancosEstadoBancoComponent, BancosDescargasAvisoComponent, BancosCierreComponent, BancosMovimientosComponent, BancosAdminComponent, BancosContpaqiComponent, BancosThreeWayComponent, BancosCapturasComponent, PageTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -60,7 +61,7 @@ import { BANCOS_CONCILIACION_TABS } from '../bancos-conciliacion-tabs';
       <header class="surf-page-head fb-head">
         <div class="surf-page-head-text">
           <div class="fb-title-row"><h1>Bancos</h1><app-context-help topic="bancos" /></div>
-          <p class="surf-page-sub">Conciliación bancaria: estados de cuenta clasificados contra el catálogo alineado a Kepler. Reemplaza el Excel manual.</p>
+          <p class="surf-page-sub">Conciliación bancaria: el estado de cuenta, clasificado y contra Kepler.</p>
         </div>
         <div class="fb-head-actions">
           <label class="fb-period">
@@ -68,55 +69,43 @@ import { BANCOS_CONCILIACION_TABS } from '../bancos-conciliacion-tabs';
             <p-select [options]="periods()" [ngModel]="period()" (ngModelChange)="setPeriod($event)"
                       appendTo="body" styleClass="fb-sel sel-liquid" [style]="{ minWidth: '8rem' }" ariaLabel="Periodo"></p-select>
           </label>
-          <input #fileInput type="file" accept=".xlsx" hidden (change)="onFile($event)">
-          <button pButton type="button" class="p-button-sm p-button-text" [loading]="syncingSheet()" (click)="runSheetSync()" title="Baja el workbook maestro del Google Sheet (export público) y lo procesa"><span class="p-button-icon p-button-icon-left pi pi-cloud-download" aria-hidden="true"></span><span class="p-button-label">Sincronizar del Sheet</span></button>
-          <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="uploading()" (click)="fileInput.click()" title="El libro CUENTAS que Tesorería llena a mano (Excel). La descarga del banco se sube en Cuentas."><span class="p-button-icon p-button-icon-left pi pi-upload" aria-hidden="true"></span><span class="p-button-label">Subir libro CUENTAS</span></button>
+          <app-freshness-pill measures="data" [since]="lastImported()" label="libro importado" />
+          @if (wsConnected()) { <span class="fb-live" title="Actualización en vivo activa: el tablero se refresca solo"><i class="pi pi-circle-fill" aria-hidden="true"></i> En vivo</span> }
         </div>
       </header>
+      <!-- Fuera de las vistas: el Cierre también lo abre («cuenta sin cargar»). -->
+      <input #fileInput type="file" accept=".xlsx" hidden (change)="onFile($event)">
 
       <app-page-tabs [tabs]="apartadoTabs" />
 
-      <!-- Barra de estado del cierre (answer-first: dónde va el periodo de un vistazo) -->
-      <div class="fb-status" aria-label="Estado del cierre">
-        <button type="button" class="fb-status-chip" (click)="view.set('cuentas')"
-                aria-label="Ir a Cuentas: ver el cuadre de saldos de cada cuenta" title="Ir a Cuentas — cuadre de saldos">
-          <i class="pi pi-inbox"></i> Importado <b class="mono">{{ importStatus().loaded }}/{{ importStatus().total }}</b> cuentas</button>
-        <!-- Sin dato el chip también avisa: "no medido" no es "todo bien" (ADR-056). -->
-        <button type="button" class="fb-status-chip" [class.warn]="classifiedPct() == null || classifiedPct()! < 100"
-                (click)="fGroup.set(''); fUncat.set(true); view.set('movimientos'); reloadMovements()"
-                aria-label="Ir a Movimientos filtrado a los que faltan clasificar" title="Ir a Movimientos — sólo los que faltan clasificar">
-          <i class="pi pi-tags"></i> Clasificado <b class="mono">{{ classifiedPct() == null ? '—' : classifiedPct() + '%' }}</b></button>
-        <button type="button" class="fb-status-chip" [class.warn]="reconStale() || (reconciledPct() != null && reconciledPct()! < 80)"
-                (click)="view.set('conciliacion')"
-                [attr.aria-label]="reconStale() ? 'Ir a Conciliación: el estado de cuenta se re-importó después de la última conciliación' : 'Ir a Conciliación contra Kepler'"
-                [title]="reconStale() ? 'El estado de cuenta se re-importó después de la última conciliación (' + (diagnostico()?.recon_estado?.last_match_at | date:'dd/MM HH:mm') + '): los movimientos nuevos están sin conciliar. Corre «Conciliar» de nuevo.' : 'Ir a Conciliación — contra Kepler'">
-          <i class="pi pi-sync"></i> Conciliado <b class="mono">{{ reconciledPct() == null ? 'sin correr' : reconciledPct() + '%' }}</b>
-          @if (reconStale()) { <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> <span class="fb-chip-note">desactualizado</span> }</button>
-        @if (sheetCfg(); as sc) {
-          <span class="fb-status-chip" [class.warn]="!!sc.last_error"
-                [title]="sc.last_error || 'Sync del workbook maestro (Google Sheet)'">
-            <i class="pi pi-cloud"></i> Sheet <b class="mono">{{ sc.active ? 'auto' : 'manual' }}</b>
-            @if (sc.last_synced_at) { · <span class="mono">{{ sc.last_synced_at | date:'dd/MM HH:mm' }}</span> }
-          </span>
-        }
-        <app-freshness-pill measures="data" [since]="lastImported()" label="importado" />
-        @if (wsConnected()) {
-          <span class="fb-status-chip fb-live" title="Actualización en vivo activa — el tablero se refresca solo">
-            <i class="pi pi-circle-fill" aria-hidden="true"></i> En vivo
-          </span>
-        }
-      </div>
-
-      <div class="fb-viewseg" role="radiogroup">
-        @for (v of WORK_VIEWS; track v.key) {
-          <button role="radio" [attr.aria-checked]="view()===v.key" [class.active]="view()===v.key" (click)="goView(v.key)">
-            <i [class]="v.icon"></i> {{ v.label }}
-            @if (v.key === 'cierre' && diagnostico() && !diagnostico()!.cuadra) { <span class="fb-seg-count">{{ diagnostico()!.items.length }}</span> }
-          </button>
+      <!-- [CB.59] Una barra por proceso: cada vista lleva su número; lo ocasional, en «Más». -->
+      <nav class="fb-viewseg fb-nav" role="radiogroup" aria-label="Vistas de Bancos">
+        @for (g of VIEW_GRUPOS; track g.key) {
+          @if (g.key === 'mas') {
+            <span class="fb-nav-sep" aria-hidden="true"></span>
+            <button type="button" class="fb-nav-mas" [class.active]="vistaEnMas()" aria-haspopup="menu"
+                    [attr.aria-label]="'Más vistas' + (vistaEnMas() ? ': ' + etiquetaVista() : '')" (click)="menuMas.toggle($event)">
+              @if (vistaEnMas()) { <i [class]="iconoVista()" aria-hidden="true"></i> {{ etiquetaVista() }} } @else { Más }
+              <i class="pi pi-chevron-down fb-nav-chev" aria-hidden="true"></i></button>
+          } @else {
+            @if (g.label) { <span class="fb-nav-sep" aria-hidden="true"></span><span class="fb-nav-grupo" aria-hidden="true">{{ g.label }}</span> }
+            @for (v of vistasDe(g.key); track v.key) {
+              <button role="radio" [attr.aria-checked]="view()===v.key" [class.active]="view()===v.key" (click)="goView(v.key)"
+                      [attr.aria-label]="v.label + (cuentaDe(v.key)?.aria ? ': ' + cuentaDe(v.key)!.aria : '')">
+                <i [class]="v.icon" aria-hidden="true"></i> {{ v.label }}
+                @if (v.key === 'cierre') {
+                  @if (diagnostico() && !diagnostico()!.cuadra) { <span class="fb-seg-count">{{ diagnostico()!.items.length }}</span> }
+                } @else if (cuentaDe(v.key); as c) {
+                  <span class="fb-nav-n" [class.fb-nav-n--aviso]="c.aviso">{{ c.texto }}</span>
+                }
+              </button>
+            }
+          }
         }
         <button role="radio" class="fb-seg-config" [attr.aria-checked]="view()==='admin'" [class.active]="view()==='admin'"
-                (click)="openAdmin()" aria-label="Configuración" title="Configuración: reglas, categorías y cuentas"><i class="pi pi-cog"></i></button>
-      </div>
+                (click)="openAdmin()" aria-label="Configuración: reglas, categorías y cuentas" title="Configuración: reglas, categorías y cuentas"><i class="pi pi-cog" aria-hidden="true"></i></button>
+      </nav>
+      <p-menu #menuMas [model]="menuMasItems()" [popup]="true" appendTo="body" />
 
       @if (loading()) {
         <div class="fb-skeleton" aria-busy="true">
@@ -130,7 +119,7 @@ import { BANCOS_CONCILIACION_TABS } from '../bancos-conciliacion-tabs';
           <app-load-state [error]="diagError()" (retry)="setPeriod(period())"></app-load-state>
         } @else {
           <!-- [CB.59] Lo primero del cierre: si falta la descarga del banco de alguna cuenta. -->
-          <bancos-descargas-aviso (irA)="goView('estados')" />
+          <bancos-descargas-aviso [cuentas]="descargas()?.cuentas ?? null" [error]="descargasError()" (irA)="goView('estados')" />
           <bancos-cierre [diagnostico]="diagnostico()" [concentrado]="concentrado()" [balances]="balances()"
             [period]="period()" (itemAction)="itemAction($event)" />
         }
@@ -199,7 +188,20 @@ import { BANCOS_CONCILIACION_TABS } from '../bancos-conciliacion-tabs';
       <!-- ── CUENTAS: cuadre de saldos por cuenta (clic → sus movimientos) ── -->
       <!-- ── ESTADOS DE CUENTA: la descarga del banco, la que reemplaza al libro (CB.59) ── -->
       @if (view() === 'estados') {
-        <bancos-estado-banco />
+        <bancos-estado-banco (guardado)="cargarDescargas()" />
+        <!-- El libro sigue entrando mientras dure el paralelo (D2, CB.60): sus dos entradas viven aquí. -->
+        <section class="card-premium card-flat fb-libro" aria-labelledby="fb-libro-t">
+          <div class="fb-libro-txt">
+            <h3 id="fb-libro-t" class="fb-card-title fb-libro-t">El libro CUENTAS</h3>
+            <p class="muted">Se sigue subiendo mientras se compara contra la descarga del banco, cuenta por cuenta.
+              @if (sheetCfg(); as sc) { Sheet {{ sc.active ? 'automático' : 'manual' }}@if (sc.last_synced_at) { , sincronizado el {{ sc.last_synced_at | date:'dd/MM HH:mm' }} }.
+                @if (sc.last_error) { <span class="fb-libro-err">Último error: {{ sc.last_error }}</span> } }</p>
+          </div>
+          <div class="fb-libro-acc">
+            <button pButton type="button" class="p-button-sm p-button-text" [loading]="syncingSheet()" (click)="runSheetSync()"><span class="p-button-icon p-button-icon-left pi pi-cloud-download" aria-hidden="true"></span><span class="p-button-label">Sincronizar del Sheet</span></button>
+            <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="uploading()" (click)="fileInput.click()"><span class="p-button-icon p-button-icon-left pi pi-upload" aria-hidden="true"></span><span class="p-button-label">Subir libro CUENTAS</span></button>
+          </div>
+        </section>
       }
 
       @if (view() === 'cuentas') {
@@ -227,25 +229,21 @@ import { BANCOS_CONCILIACION_TABS } from '../bancos-conciliacion-tabs';
 
     .fb-title-row { display: inline-flex; align-items: center; gap: var(--sp-1); }
 
-    .fb-status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); margin: var(--sp-2) 0 0; }
-    .fb-status-chip { display: inline-flex; align-items: center; gap: var(--sp-1); font: inherit; font-size: var(--fs-xs);
-      color: var(--text-muted); background: none; border: 1px solid transparent; border-radius: var(--r-pill);
-      padding: 2px var(--sp-2); cursor: pointer; transition: background-color 120ms ease, border-color 120ms ease; }
-    .fb-status-chip:hover { background: var(--hover-bg); border-color: var(--border-color); }
-    /* Afordancia de navegación: sólo los chips que SON botón muestran la flecha.
-       No son nav redundante del segmentado — saltan con el filtro ya puesto (DESIGN §Q.4). */
-    button.fb-status-chip::after { content: '→'; opacity: 0; margin-left: 2px; transition: opacity var(--dur-short) var(--ease-standard); }
-    button.fb-status-chip:hover::after, button.fb-status-chip:focus-visible::after { opacity: .55; }
-    .fb-status-chip:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
-    .fb-status-chip i { font-size: .8rem; color: var(--text-faint); }
-    .fb-status-chip b { color: var(--text-main); font-weight: 600; }
-    .fb-status-chip.warn { color: var(--warn-fg); }
-    .fb-status-chip.warn i, .fb-status-chip.warn b { color: var(--warn-fg); }
-    /* CB.46 — la salvedad va junto al número, no en un tooltip: un % viejo leído como actual
-       es peor que no tenerlo. */
-    .fb-chip-note { font-size: var(--fs-2xs, .68rem); text-transform: uppercase; letter-spacing: .04em; opacity: .85; }
-    .fb-live { color: var(--ok-fg); border-color: color-mix(in srgb, var(--ok-fg) 30%, transparent); }
+    /* [CB.59] Una barra por proceso. Los rótulos de grupo son micro y atenuados: ordenan sin competir. */
+    .fb-nav { align-items: center; }
+    .fb-nav-sep { flex: none; width: 1px; align-self: stretch; margin: var(--sp-1) var(--sp-1); background: var(--border-color); }
+    .fb-nav-grupo { flex: none; font-size: var(--fs-micro); font-weight: var(--fw-medium, 500); text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); padding: 0 var(--sp-1); white-space: nowrap; }
+    .fb-nav-n { font-size: var(--fs-xs); font-variant-numeric: tabular-nums; color: var(--text-muted); font-weight: 500; }
+    .fb-nav-n--aviso { color: var(--warn-soft-fg); }
+    .fb-nav-chev { font-size: .7rem; }
+    .fb-live { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-xs); color: var(--text-muted); }
     .fb-live i { color: var(--ok-fg); font-size: .5rem; animation: fb-live-pulse 2s ease-in-out infinite; }
+    .fb-libro { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; padding: var(--sp-3); margin-top: var(--sp-3); }
+    .fb-libro-t { margin: 0 0 var(--sp-1); }
+    .fb-libro-txt { flex: 1 1 24rem; min-width: 0; }
+    .fb-libro-txt p { margin: 0; font-size: var(--fs-xs); }
+    .fb-libro-err { color: var(--bad-fg); }
+    .fb-libro-acc { display: flex; gap: var(--sp-2); flex: none; }
     @media (prefers-reduced-motion: reduce) { .fb-live i { animation: none; } }
     @keyframes fb-live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 
@@ -280,6 +278,33 @@ export class FinanzasBancosComponent implements OnInit {
 
   readonly GROUP_ORDER = GROUP_ORDER;
   readonly WORK_VIEWS = WORK_VIEWS;
+  readonly VIEW_GRUPOS = VIEW_GRUPOS;
+  vistasDe(g: string) { return WORK_VIEWS.filter((v) => v.grupo === g); }
+  readonly vistaEnMas = computed(() => WORK_VIEWS.some((v) => v.grupo === 'mas' && v.key === this.view()));
+  readonly etiquetaVista = computed(() => WORK_VIEWS.find((v) => v.key === this.view())?.label ?? '');
+  readonly iconoVista = computed(() => WORK_VIEWS.find((v) => v.key === this.view())?.icon ?? '');
+  readonly menuMasItems = computed<MenuItem[]>(() => WORK_VIEWS.filter((v) => v.grupo === 'mas')
+    .map((v) => ({ label: v.label, icon: v.icon, command: () => this.goView(v.key) })));
+
+  /** [CB.59] La descarga del banco por cuenta: la leen la pestaña «Estados de cuenta» y el aviso del Cierre. */
+  readonly descargas = signal<ArchivosDelBanco | null>(null);
+  readonly descargasError = signal(false);
+  cargarDescargas(): void {
+    this.api.archivosDelBanco().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (d) => { this.descargas.set(d); this.descargasError.set(false); },
+      error: () => this.descargasError.set(true),
+    });
+  }
+  /**
+   * El número de cada pestaña: lo que pide trabajo en esa vista. Sustituye a la franja de
+   * indicadores (Importado / Clasificado / Conciliado): el número vive donde se resuelve.
+   */
+  cuentaDe(v: View): NumeroDePestana | null {
+    return numeroDePestana(v, {
+      descargas: this.descargas()?.cuentas ?? null, sinClasificar: this.diagnostico()?.sin_clasificar_n,
+      descuadradas: this.balances()?.cuentas_descuadradas, conciliadoPct: this.reconciledPct(), conciliacionVieja: this.reconStale(),
+    });
+  }
 
   @ViewChild('fileInput') fileInput?: ElementRef<HTMLInputElement>;
 
@@ -469,6 +494,7 @@ export class FinanzasBancosComponent implements OnInit {
     // WS realtime `/bancos`: refresca solo cuando el feed importa, el cron sincroniza
     // el Sheet, se corre la conciliación o entra/valida un comprobante (otro operador).
     this.sock.connect();
+    this.cargarDescargas();
     this.sock.change$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((ev) => this.onRemoteChange(ev));
     this.sock.job$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((ev) => this.onJob(ev));
     this.destroyRef.onDestroy(() => this.sock.disconnect());

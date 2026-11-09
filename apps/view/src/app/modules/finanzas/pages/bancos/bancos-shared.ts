@@ -52,18 +52,61 @@ export function periodoDelArchivo(nombre: string, seleccionado: string | null | 
 // Cierre (¿cuadra?) → Cuadre (¿coinciden las fuentes?) → Conciliación (¿casó cada
 // movimiento?) → Movimientos (detalle) → Concentrado (composición) → Cuentas (catálogo)
 // → Factoraje (nicho) → Capturas (entrada). Cierre = home (default del shell).
-export const WORK_VIEWS: { key: BankView; label: string; icon: string }[] = [
-  { key: 'cierre', label: 'Cierre', icon: 'pi pi-flag' },
-  // [CB.59] La entrada de todo lo demás: la descarga del banco (Edgar, 2026-11-09: vista propia en Bancos).
-  { key: 'estados', label: 'Estados de cuenta', icon: 'pi pi-file-import' },
-  { key: 'cuadre', label: 'Cuadre', icon: 'pi pi-check-square' },
-  { key: 'conciliacion', label: 'Conciliación', icon: 'pi pi-sync' },
-  { key: 'movimientos', label: 'Movimientos', icon: 'pi pi-list' },
-  { key: 'concentrado', label: 'Concentrado', icon: 'pi pi-table' },
-  { key: 'cuentas', label: 'Cuentas', icon: 'pi pi-wallet' },
-  { key: 'contpaqi', label: 'Factoraje', icon: 'pi pi-credit-card' },
-  { key: 'capturas', label: 'Capturas WhatsApp', icon: 'pi pi-whatsapp' },
+/**
+ * [CB.59] Las vistas, agrupadas por el paso del proceso (Edgar, 2026-11-09: «una barra por proceso»).
+ * El orden es el del trabajo: lo que falta → lo que entra → lo que se revisa → contra Kepler. Lo de
+ * consulta ocasional va en «Más» (medido 30 días: Factoraje 2 consultas, Capturas WhatsApp 3).
+ */
+export type BankViewGrupo = 'cierre' | 'entra' | 'revisa' | 'kepler' | 'mas';
+export const VIEW_GRUPOS: { key: BankViewGrupo; label: string }[] = [
+  { key: 'cierre', label: '' },
+  { key: 'entra', label: 'Entra' },
+  { key: 'revisa', label: 'Revisa' },
+  { key: 'kepler', label: 'Contra Kepler' },
+  { key: 'mas', label: '' },
 ];
+export const WORK_VIEWS: { key: BankView; label: string; icon: string; grupo: BankViewGrupo }[] = [
+  { key: 'cierre', label: 'Cierre', icon: 'pi pi-flag', grupo: 'cierre' },
+  { key: 'estados', label: 'Estados de cuenta', icon: 'pi pi-file-import', grupo: 'entra' },
+  { key: 'movimientos', label: 'Movimientos', icon: 'pi pi-list', grupo: 'revisa' },
+  { key: 'cuentas', label: 'Cuentas', icon: 'pi pi-wallet', grupo: 'revisa' },
+  { key: 'conciliacion', label: 'Conciliación', icon: 'pi pi-sync', grupo: 'kepler' },
+  { key: 'cuadre', label: 'Cuadre 3 vías', icon: 'pi pi-check-square', grupo: 'kepler' },
+  { key: 'concentrado', label: 'Concentrado', icon: 'pi pi-table', grupo: 'mas' },
+  { key: 'contpaqi', label: 'Factoraje', icon: 'pi pi-credit-card', grupo: 'mas' },
+  { key: 'capturas', label: 'Capturas WhatsApp', icon: 'pi pi-whatsapp', grupo: 'mas' },
+];
+
+/** El número que lleva cada pestaña: lo que pide trabajo en esa vista (sustituye a la franja de indicadores). */
+export interface NumeroDePestana { texto: string; aria: string; aviso: boolean }
+export interface DatosDePestanas {
+  descargas: readonly { hasta: string | null; con_lector: boolean }[] | null;
+  sinClasificar?: number | null;
+  descuadradas?: number | null;
+  conciliadoPct: number | null;
+  conciliacionVieja: boolean;
+}
+export function numeroDePestana(v: BankView, d: DatosDePestanas): NumeroDePestana | null {
+  switch (v) {
+    case 'estados': {
+      const c = (d.descargas ?? []).filter((x) => x.con_lector);
+      if (!c.length) return null;
+      const con = c.filter((x) => x.hasta).length;
+      return { texto: `${con}/${c.length}`, aria: `${con} de ${c.length} cuentas con su descarga`, aviso: con < c.length };
+    }
+    case 'movimientos':
+      return d.sinClasificar ? { texto: d.sinClasificar.toLocaleString('es-MX'), aria: `${d.sinClasificar} sin clasificar`, aviso: true } : null;
+    case 'cuentas':
+      return d.descuadradas ? { texto: String(d.descuadradas), aria: `${d.descuadradas} sin cuadrar`, aviso: true } : null;
+    case 'conciliacion': {
+      const p = d.conciliadoPct;
+      if (d.conciliacionVieja) return { texto: `${p ?? '—'}% · desactualizado`, aria: 'se volvió a importar el libro después de la última conciliación: córrela de nuevo', aviso: true };
+      return p == null ? { texto: 'sin correr', aria: 'la conciliación no se ha corrido en este periodo', aviso: true }
+        : { texto: `${p}%`, aria: `${p}% conciliado por monto`, aviso: p < 80 };
+    }
+    default: return null;
+  }
+}
 
 /** Etiquetas + orden de los grupos del tablero CONCENTRADO. */
 export const GROUP_LABELS: Record<string, string> = {

@@ -1,7 +1,6 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, output, signal } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
 import { ButtonModule } from 'primeng/button';
-import { ArchivosDelBanco, BankService } from '../bank.service';
+import { ArchivosDelBanco } from '../bank.service';
 
 type CuentaDelBanco = ArchivosDelBanco['cuentas'][number];
 
@@ -21,6 +20,7 @@ export function cuentasAtrasadas(cuentas: readonly CuentaDelBanco[], ayer: strin
  * `[CB.59]` El aviso de arriba del Cierre: si alguna cuenta no tiene la descarga del banco hasta ayer,
  * es lo primero que se ve, con el camino a «Estados de cuenta». Con todo al día no ocupa lugar.
  * Lo que no se pudo leer se dice; no se calla como si todo estuviera al día (ADR-056).
+ * Los datos los lee la pantalla de Bancos una vez (también dan el número de la pestaña).
  */
 @Component({
   selector: 'bancos-descargas-aviso',
@@ -51,29 +51,21 @@ export function cuentasAtrasadas(cuentas: readonly CuentaDelBanco[], ayer: strin
     @media (max-width: 40rem) { .da { flex-wrap: wrap; } }
   `],
 })
-export class BancosDescargasAvisoComponent implements OnInit {
-  private readonly api = inject(BankService);
-  private readonly destroyRef = inject(DestroyRef);
-
+export class BancosDescargasAvisoComponent {
   readonly irA = output<void>();
-  readonly cuentas = signal<CuentaDelBanco[]>([]);
-  readonly error = signal(false);
+  /** null = todavía no llega. */
+  readonly cuentas = input<CuentaDelBanco[] | null>(null);
+  readonly error = input(false);
   /** La fecha de hoy en México; se inyecta en las pruebas. */
   readonly hoy = signal(new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()));
 
   readonly ayer = computed(() => diaAnterior(this.hoy()));
   readonly ayerCorto = computed(() => { const [, m, d] = this.ayer().split('-'); return `${d}/${m}`; });
-  readonly atrasadas = computed(() => cuentasAtrasadas(this.cuentas(), this.ayer()));
-  readonly conLector = computed(() => this.cuentas().filter((c) => c.con_lector).length);
+  readonly atrasadas = computed(() => cuentasAtrasadas(this.cuentas() ?? [], this.ayer()));
+  readonly conLector = computed(() => (this.cuentas() ?? []).filter((c) => c.con_lector).length);
   readonly nombres = computed(() => {
     const a = this.atrasadas().map((c) => c.alias);
     return a.length > 4 ? `${a.slice(0, 4).join(', ')} y ${a.length - 4} más` : a.join(', ');
   });
 
-  ngOnInit(): void {
-    this.api.archivosDelBanco().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (d) => this.cuentas.set(d?.cuentas ?? []),
-      error: () => this.error.set(true),
-    });
-  }
 }

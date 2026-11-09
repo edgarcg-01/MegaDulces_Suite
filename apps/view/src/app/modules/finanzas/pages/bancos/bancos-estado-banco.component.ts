@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, HostListener, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, HostListener, OnInit, computed, inject, output, signal } from '@angular/core';
 import { CurrencyPipe, DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -212,6 +212,9 @@ export class BancosEstadoBancoComponent implements OnInit {
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
 
+  /** Se guardó al menos un archivo: la pantalla refresca el número de la pestaña y el aviso del Cierre. */
+  readonly guardado = output<void>();
+
   readonly puedeSubir = computed(() => this.auth.user()?.permissions?.[Permission.FINANCE_BANK_GESTIONAR] === true);
 
   readonly datos = signal<ArchivosDelBanco | null>(null);
@@ -388,7 +391,7 @@ export class BancosEstadoBancoComponent implements OnInit {
       severity: fallaron ? 'warn' : 'success', summary: 'Estados de cuenta', life: 5000,
       detail: fallaron ? `${ok} guardado(s) · ${fallaron} sin guardar: siguen en la lista con su motivo.` : `${ok} guardado(s).`,
     });
-    if (ok) this.cargar();
+    if (ok) { this.cargar(); this.guardado.emit(); }
   }
 
   opciones(r: RevisionEstadoBanco) {
