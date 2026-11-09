@@ -6,8 +6,9 @@ import { calcularAsistencia, desdeVentanaHorario, type AsistenciaPersonas } from
 import { diasEntre, hoyMexico, masDias, RE_FECHA } from './logic/fechas';
 import { bancoHorasExtra, errorDeAjuste, HORAS_EXTRA_DESDE, type AjusteLeido } from './logic/banco-horas-extra';
 import { inicioSemana } from './logic/horario-deducido';
+import { crucesEntrePlazas } from './logic/cruces';
 import type {
-  HrAjusteHorasExtraBody, HrAjusteHorasExtraDto, HrBancoHorasExtraDto, HrPersonaDirectorioDto, HrSiteDto,
+  HrAjusteHorasExtraBody, HrAjusteHorasExtraDto, HrBancoHorasExtraDto, HrCrucesDto, HrPersonaDirectorioDto, HrSiteDto,
 } from '@megadulces/contracts';
 
 /**
@@ -42,6 +43,25 @@ export class HrAttendanceReportService {
     return this.tk.run(this.tenantCtx.requireTenantId(), async (trx) => {
       if (!(await reader.sitioExiste(trx, site))) throw new NotFoundException(`No existe el sitio de checado "${site}".`);
       return this.calcular(trx, site, desde, hasta, !!p.only_promoters);
+    });
+  }
+
+  /**
+   * `[RH.7.4]` Cruces de plaza: la misma persona checando en dos sedes el mismo día. Mira TODAS las plazas a la vez: el
+   * cruce sólo existe comparando una contra otra. Regla en `logic/cruces.ts` (copia de Mega Talento).
+   */
+  async cruces(p: { date_from?: string; date_to?: string }): Promise<HrCrucesDto> {
+    const desde = String(p.date_from || '');
+    const hasta = String(p.date_to || '');
+    if (!RE_FECHA.test(desde) || !RE_FECHA.test(hasta)) throw new BadRequestException('Faltan date_from y date_to (yyyy-MM-dd).');
+    if (hasta < desde) throw new BadRequestException('date_to no puede ser anterior a date_from.');
+    if (diasEntre(desde, hasta) > TOPE_DIAS_REPORTE) {
+      throw new BadRequestException(`El rango es de más de ${TOPE_DIAS_REPORTE} días: pídelo por partes.`);
+    }
+    return this.tk.run(this.tenantCtx.requireTenantId(), async (trx) => {
+      const personas = await reader.personasMultisitio(trx);
+      const filas = await reader.estanciasDelRango(trx, personas.map((x) => x.user_id), desde, hasta);
+      return crucesEntrePlazas(desde, hasta, personas, filas);
     });
   }
 

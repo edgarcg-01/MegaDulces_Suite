@@ -440,6 +440,58 @@ export interface HrSinIdentificarDto {
   sinDepartamento: boolean;
 }
 
+// ── `[RH.7.4]` Cruces de plaza: la misma persona checando en dos sedes el mismo día ─────────────
+
+/**
+ * Cómo se lee un día con estancias en dos sedes (Mega Talento `cruces-plazas.ts`):
+ * `traslape` = dos jornadas que se pisan (nadie está en dos plazas a la vez) · `marca_ajena` = una marca suelta en la
+ * plaza ajena a media jornada propia · `jornada_partida` = cubrió dos tiendas, su día quedó cortado · `sueltas` = dos
+ * presencias sin relación · `ruta_promotora` = la ruta de una promotora (normal).
+ */
+export type HrClaseCruce = 'traslape' | 'marca_ajena' | 'jornada_partida' | 'sueltas' | 'ruta_promotora';
+
+export interface HrEstanciaCruce {
+  site_code: string;
+  codigo: string;
+  /** 'HH:mm' */
+  primera: string;
+  ultima: string;
+  marcas: number;
+}
+
+export interface HrDiaCruce {
+  fecha: string;
+  estancias: HrEstanciaCruce[];
+  clase: HrClaseCruce;
+  /** Minutos entre el fin de una estancia y el inicio de la siguiente. Negativo = se enciman. */
+  huecoMin: number | null;
+}
+
+export interface HrPersonaCruce {
+  user_id: string;
+  nombre: string;
+  esPromotora: boolean;
+  /** Dónde está enrolada (plaza + su código en cada una). */
+  altas: Array<{ site_code: string; codigo: string }>;
+  /** Su clase más grave en el periodo: es lo que ordena la lista. */
+  clase: HrClaseCruce;
+  dias: HrDiaCruce[];
+  diasCruzados: number;
+  traslapes: number;
+  marcasAjenas: number;
+  ultimoDia: string;
+}
+
+/** `GET /hr/attendance/crossings?date_from&date_to` — todas las plazas a la vez (el cruce sólo existe entre plazas). */
+export interface HrCrucesDto {
+  desde: string;
+  hasta: string;
+  /** Personas enroladas en dos sedes o más (con o sin cruce de marcas en el periodo). */
+  enDosSedes: number;
+  personas: HrPersonaCruce[];
+  resumen: { personas: number; dias: number; traslapes: number; marcasAjenas: number; jornadasPartidas: number; rutas: number };
+}
+
 // ── Relojes ─────────────────────────────────────────────────────────────────────────────
 
 export type HrSemaforoReloj = 'ok' | 'atrasado' | 'mudo' | 'pendiente';

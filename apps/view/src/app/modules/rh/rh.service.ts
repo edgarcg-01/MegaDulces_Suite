@@ -5,7 +5,7 @@ import type {
   HrAccionIncidencia, HrAjusteHorasExtraBody, HrAjusteHorasExtraDto, HrAsistenciaResponse, HrBancoHorasExtraDto, HrCapturaIncidenciaBody, HrCierreDto, HrEstadoDia, HrEstadoIncidencia, HrSinIdentificarDto,
   HrHorarioPersonaBody, HrIncidenciaDto, HrLotePendienteDto, HrOrdenesResponse, HrPasoIncidenciaDto, HrPersonaDirectorioDto, HrRelojBody,
   HrRelojDto, HrRelojEstadoDto, HrSemaforoReloj, HrSiteDto, HrTipoIncidenciaDto,
-  HrAltaPersonaBody, HrBajaPlazaBody, HrBajaPlazaDto, HrFichaPlazaBody, HrFichaPlazaDto, HrLigarBody, HrLigarResultadoDto, HrPersonaBuscadaDto, HrSinPersonaResponse,
+  HrAltaPersonaBody, HrBajaPlazaBody, HrBajaPlazaDto, HrCrucesDto, HrFichaPlazaBody, HrFichaPlazaDto, HrLigarBody, HrLigarResultadoDto, HrPersonaBuscadaDto, HrSinPersonaResponse,
 } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
 
@@ -152,6 +152,11 @@ export class RhService {
   /** `[RH.7.1]` Corregir la ficha de una persona en una plaza (sección, promotora y, sin acceso, nombre). */
   editarFicha(b: HrFichaPlazaBody): Observable<HrFichaPlazaDto> {
     return this.http.put<HrFichaPlazaDto>(`${this.base}/enrollments/site-profile`, b);
+  }
+
+  /** `[RH.7.4]` Cruces de plaza del periodo (todas las plazas a la vez). */
+  cruces(date_from: string, date_to: string): Observable<HrCrucesDto> {
+    return this.http.get<HrCrucesDto>(`${this.base}/crossings`, { params: this.params({ date_from, date_to }) });
   }
 
   /** `[RH.7.2]` La papelera de la plaza: quién está de baja y si sigue checando. */

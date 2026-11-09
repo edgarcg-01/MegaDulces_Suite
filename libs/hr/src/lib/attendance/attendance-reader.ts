@@ -7,6 +7,7 @@ import type { ChecadaDetector, HorarioSitio, PersonaDetector } from './logic/det
 import { ESTADOS_VIGENTES, type EstadoIncidencia } from './logic/incidencias';
 import { esPromotora } from './logic/tipos';
 import type { FilaChecoEnSemana } from './logic/sin-identificar';
+import type { FilaEstancia, PersonaMultisitio } from './logic/cruces';
 
 /**
  * Fase RH · `[RH.1.5]` — lo que la lógica de asistencia lee de la base. Una sola puerta para el
@@ -284,6 +285,59 @@ const FILTRO_RANGO = `
   AND punched_local >= ?::date AND punched_local < (?::date + 1)
   AND punched_local >= '${DATO_VALIDO_DESDE}'::date`;
 const bindRango = (siteCode: string, desde: string, hasta: string): string[] => [siteCode, desde, hasta, desde, hasta];
+
+/**
+ * `[RH.7.4]` Las personas enroladas en MÁS DE UN sitio, con sus altas (plaza + código) y si en alguna ficha es
+ * promotora. Las de una sola plaza no pueden cruzar: ni se leen sus checadas.
+ */
+export async function personasMultisitio(trx: Knex.Transaction): Promise<PersonaMultisitio[]> {
+  const { rows } = await trx.raw<{ rows: Array<{ user_id: string; site_code: string; codigo: string; nombre: string | null; promotora: boolean }> }>(`
+    WITH enr AS (
+      SELECT DISTINCT e.user_id, d.site_code, COALESCE(e.person_code, e.device_user_id) AS codigo
+        FROM hr.device_enrollments e
+        JOIN hr.attendance_devices d ON d.tenant_id = e.tenant_id AND d.id = e.device_id
+       WHERE e.user_id IS NOT NULL AND e.match_status <> 'ignorado' AND d.site_code IS NOT NULL
+    ), multi AS (SELECT user_id FROM enr GROUP BY user_id HAVING count(DISTINCT site_code) > 1)
+    SELECT enr.user_id, enr.site_code, enr.codigo, u.nombre, COALESCE(psp.is_promoter, false) AS promotora
+      FROM enr
+      JOIN multi USING (user_id)
+      JOIN identity.users u ON u.id = enr.user_id
+      LEFT JOIN hr.person_site_profiles psp ON psp.site_code = enr.site_code AND psp.person_code = enr.codigo`);
+  const porPersona = new Map<string, PersonaMultisitio>();
+  for (const r of rows) {
+    const p = porPersona.get(r.user_id) ?? { user_id: r.user_id, nombre: r.nombre || '(sin nombre)', esPromotora: false, altas: [] };
+    p.altas.push({ site_code: r.site_code, codigo: r.codigo });
+    p.esPromotora = p.esPromotora || r.promotora === true;
+    porPersona.set(r.user_id, p);
+  }
+  return [...porPersona.values()];
+}
+
+/**
+ * `[RH.7.4]` Una estancia por persona, plaza, código y día del rango: primera y última marca, y cuántas.
+ *
+ * Arranca de los ENROLAMIENTOS de esas personas, no de `hr.v_site_punches`: así lee por la llave primaria de
+ * `attendance_logs` (dispositivo, código, instante) sólo sus checadas. Por la vista recorría todas las del rango —con
+ * datos reales de Mega Talento: 1 semana 403 ms, 3 semanas 1.1 s, 3 meses 5.2 s—. Mismas reglas que la vista: sin
+ * códigos `ignorado`, el día es el de la hora LOCAL.
+ */
+export async function estanciasDelRango(trx: Knex.Transaction, userIds: string[], desde: string, hasta: string): Promise<FilaEstancia[]> {
+  if (!userIds.length) return [];
+  const { rows } = await trx.raw<{ rows: FilaEstancia[] }>(`
+    SELECT e.user_id, d.site_code, COALESCE(e.person_code, e.device_user_id) AS codigo,
+           to_char(l.punched_local, 'YYYY-MM-DD') AS fecha,
+           to_char(min(l.punched_local), 'HH24:MI:SS') AS primera, to_char(max(l.punched_local), 'HH24:MI:SS') AS ultima,
+           count(*)::int AS marcas
+      FROM hr.device_enrollments e
+      JOIN hr.attendance_devices d ON d.tenant_id = e.tenant_id AND d.id = e.device_id
+      JOIN hr.attendance_logs l ON l.tenant_id = e.tenant_id AND l.device_id = e.device_id AND l.device_user_id = e.device_user_id
+     WHERE e.user_id = ANY(?::uuid[]) AND e.match_status <> 'ignorado' AND d.site_code IS NOT NULL
+       AND l.punched_at >= (?::date - 1)::timestamptz AND l.punched_at < (?::date + 2)::timestamptz
+       AND l.punched_local >= ?::date AND l.punched_local < (?::date + 1)
+       AND l.punched_local >= '${DATO_VALIDO_DESDE}'::date
+     GROUP BY 1, 2, 3, 4`, [userIds, desde, hasta, desde, hasta]);
+  return rows;
+}
 
 /** Un renglón por persona-día con todas sus horas (la pantalla de asistencia). */
 export async function diasPorPersona(trx: Knex.Transaction, siteCode: string, desde: string, hasta: string): Promise<FilaDia[]> {

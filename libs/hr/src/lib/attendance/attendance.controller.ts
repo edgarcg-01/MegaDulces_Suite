@@ -11,7 +11,7 @@ import { HrAttendanceClosuresService } from './attendance-closures.service';
 import { HrAttendanceSchedulesService, type HorarioPersonaDto, type HorarioSitioDto } from './attendance-schedules.service';
 import type { CapturaIncidencia } from './logic/incidencias';
 import type {
-  HrAjusteHorasExtraBody, HrAjusteHorasExtraDto, HrBancoHorasExtraDto, HrCierreDto, HrPersonaDirectorioDto,
+  HrAjusteHorasExtraBody, HrAjusteHorasExtraDto, HrBancoHorasExtraDto, HrCierreDto, HrCrucesDto, HrPersonaDirectorioDto,
 } from '@megadulces/contracts';
 import { RE_FECHA } from './logic/fechas';
 
@@ -87,6 +87,13 @@ export class HrAttendanceController {
   @ApiOperation({ summary: 'RH — asistencia por persona de un sitio (horario deducido, bolsa semanal, faltas, horas).' })
   asistencia(@Query() q: { site_code?: string; date_from?: string; date_to?: string; only_promoters?: string }) {
     return this.report.asistencia({ ...q, only_promoters: q.only_promoters === '1' || q.only_promoters === 'true' });
+  }
+
+  @Get('crossings')
+  @RequireAnyPermission(...VER_ASISTENCIA)
+  @ApiOperation({ summary: 'RH — cruces de plaza: la misma persona checando en dos sedes el mismo día, clasificados.' })
+  cruces(@Query() q: { date_from?: string; date_to?: string }): Promise<HrCrucesDto> {
+    return this.report.cruces(q);
   }
 
   @Get('people')
