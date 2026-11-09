@@ -174,6 +174,31 @@ suite('[RH.1.12] ligar códigos de reloj a personas, contra la base', () => {
         // De punta a punta: el padrón de asistencia ya la agrupa en su sección corregida.
         const p2 = await reader.padron(trx, SITIO);
         r['padron2'] = [p2.fichas.get('7')?.nombre, p2.fichas.get('7')?.departamento];
+
+        // ── [RH.7.2] Baja en la plaza → papelera → reactivar ──────────────────────────────────────────────────
+        r['bajaSinMotivo'] = await fallo(() => svc.darDeBaja({ site_code: SITIO, person_code: '7', motivo: 'ya' }));
+        r['bajaSinPersona'] = await fallo(() => svc.darDeBaja({ site_code: SITIO, person_code: '1', motivo: 'no es nadie' }));
+        await svc.darDeBaja({ site_code: SITIO, person_code: '7', motivo: '  renunció el viernes ' });
+        r['bajaDoble'] = await fallo(() => svc.darDeBaja({ site_code: SITIO, person_code: '7', motivo: 'otra vez' }));
+        r['padronBaja'] = (await reader.padron(trx, SITIO)).fichas.get('7')?.activo;
+        // Sigue checando después de la baja: se ve en la papelera.
+        const despues = new Date(Date.now() + 60_000);
+        await trx('hr.attendance_logs').insert({ tenant_id: TENANT, device_id: B, device_user_id: '7', punched_at: despues, punched_local: despues });
+        // Una que llegó de baja en la carga de Mega Talento (sin asiento de la Suite).
+        await enr(A, '12', 'BETO VIEJO', { user_id: BETO, match_status: 'confirmado' });
+        await trx('hr.person_site_profiles').insert({ tenant_id: TENANT, site_code: SITIO, person_code: '12', report_section: 'CAJAS', is_active: false, source: 'mega_talento' });
+        const pap = await svc.bajas(SITIO);
+        const b7 = pap.find((x) => x.person_code === '7');
+        const b12 = pap.find((x) => x.person_code === '12');
+        r['papelera'] = [pap.length, b7?.motivo, b7?.origen, b7?.user_id === ANA, b7?.checadas_desde_baja, !!b7?.desde, b7?.por];
+        r['papeleraMt'] = [b12?.origen, b12?.motivo, b12?.nombre, b12?.seccion];
+        r['papeleraOtraPlaza'] = (await svc.bajas('no-existe')).length;
+        // Reactivar: vuelve al padrón; reactivar lo que no está de baja → 409.
+        await svc.reactivar({ site_code: SITIO, person_code: '7' });
+        r['padronReactivada'] = (await reader.padron(trx, SITIO)).fichas.get('7')?.activo;
+        r['reactivarDoble'] = await fallo(() => svc.reactivar({ site_code: SITIO, person_code: '7' }));
+        r['evBaja'] = Number((await trx('identity.user_events').where({ user_id: ANA, event: 'baja_en_plaza' }).count('* as n'))[0]['n']);
+        r['evReact'] = Number((await trx('identity.user_events').where({ user_id: ANA, event: 'reactivado_en_plaza' }).count('* as n'))[0]['n']);
         throw ROLLBACK;
       }));
     } catch (e) {
@@ -221,5 +246,16 @@ suite('[RH.1.12] ligar códigos de reloj a personas, contra la base', () => {
     expect(r['nombreIntacto']).toBe('Ana López Ruiz Corregida');
     expect(r['evFicha']).toEqual([3, true, true]);
     expect(r['padron2']).toEqual(['Ana López Ruiz Corregida', 'ALMACÉN GENERAL']);
+    // [RH.7.2]
+    expect(r['bajaSinMotivo']).toBe('BadRequestException');
+    expect(r['bajaSinPersona']).toBe('ConflictException');
+    expect(r['bajaDoble']).toBe('ConflictException');
+    expect(r['padronBaja']).toBe(false);
+    expect(r['papelera']).toEqual([2, 'renunció el viernes', 'suite', true, 1, true, 'rh.prueba']);
+    expect(r['papeleraMt']).toEqual(['mega_talento', null, 'Beto Gómez Paz Prueba', 'CAJAS']);
+    expect(r['papeleraOtraPlaza']).toBe(0);
+    expect(r['padronReactivada']).toBe(true);
+    expect(r['reactivarDoble']).toBe('ConflictException');
+    expect([r['evBaja'], r['evReact']]).toEqual([1, 1]);
   }, 120_000);
 });

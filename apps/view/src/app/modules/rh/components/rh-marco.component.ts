@@ -202,6 +202,8 @@ export class RhMarcoComponent implements OnInit {
       anyOf: [Permission.HR_ATTENDANCE_VER, Permission.HR_INCIDENTS_CAPTURAR, Permission.HR_INCIDENTS_CALIFICAR, Permission.HR_INCIDENTS_AUDITAR, Permission.HR_PERIOD_CLOSE],
     },
     { label: 'Relojes', route: '/rh/relojes', anyOf: [Permission.HR_ATTENDANCE_VER, Permission.HR_DEVICES_GESTIONAR] },
+    // `[RH.7.2]` La papelera de empleados de Mega Talento, por plaza.
+    { label: 'Bajas', route: '/rh/asistencia/bajas', anyOf: [Permission.HR_ATTENDANCE_VER, Permission.HR_DEVICES_GESTIONAR] },
   ]);
 
   /** Los departamentos de lo que se ve, con cuántas personas trae cada uno. */

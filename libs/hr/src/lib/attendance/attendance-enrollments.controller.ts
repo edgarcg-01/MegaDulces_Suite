@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Post, Put, Query, UseGuards } from '@nest
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Permission, RequireAnyPermission, RequirePermissions, RolesGuard } from '@megadulces/platform-core';
 import type {
-  HrAltaPersonaBody, HrDesligarBody, HrFichaPlazaBody, HrFichaPlazaDto, HrLigarBody, HrLigarResultadoDto, HrPersonaBuscadaDto, HrSinPersonaResponse,
+  HrAltaPersonaBody, HrBajaPlazaBody, HrBajaPlazaDto, HrDesligarBody, HrFichaPlazaBody, HrFichaPlazaDto, HrLigarBody, HrLigarResultadoDto, HrPersonaBuscadaDto, HrSinPersonaResponse,
 } from '@megadulces/contracts';
 import { HrAttendanceEnrollmentsService } from './attendance-enrollments.service';
 
@@ -44,6 +44,27 @@ export class HrAttendanceEnrollmentsController {
   @ApiOperation({ summary: 'RH — desligar el código de su persona (con motivo).' })
   desligar(@Param('id') id: string, @Body() b: HrDesligarBody): Promise<{ enrolamientos: number }> {
     return this.enrollments.desligar(id, b?.motivo);
+  }
+
+  @Get('site-profiles/inactive')
+  @RequireAnyPermission(Permission.HR_ATTENDANCE_VER, Permission.HR_DEVICES_GESTIONAR)
+  @ApiOperation({ summary: 'RH — la papelera de una plaza: quién está de baja, desde cuándo, por qué y si sigue checando.' })
+  bajas(@Query('site_code') site?: string): Promise<HrBajaPlazaDto[]> {
+    return this.enrollments.bajas(String(site ?? ''));
+  }
+
+  @Post('site-profile/deactivate')
+  @RequirePermissions(Permission.HR_DEVICES_GESTIONAR)
+  @ApiOperation({ summary: 'RH — dar de baja a una persona EN UNA PLAZA (con motivo): deja de contar en su reporte.' })
+  darDeBaja(@Body() b: HrBajaPlazaBody): Promise<{ ok: true }> {
+    return this.enrollments.darDeBaja(b);
+  }
+
+  @Post('site-profile/reactivate')
+  @RequirePermissions(Permission.HR_DEVICES_GESTIONAR)
+  @ApiOperation({ summary: 'RH — reactivar a una persona en la plaza (sale de la papelera y vuelve al reporte).' })
+  reactivar(@Body() b: HrBajaPlazaBody): Promise<{ ok: true }> {
+    return this.enrollments.reactivar(b);
   }
 
   @Put('site-profile')

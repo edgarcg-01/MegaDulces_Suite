@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, Injectable, Logger, NotFoundExc
 import type { Knex } from 'knex';
 import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import type {
-  HrAltaPersonaBody, HrFichaPlazaBody, HrFichaPlazaDto, HrLigarBody, HrLigarResultadoDto, HrPersonaBuscadaDto, HrSinPersonaDto,
+  HrAltaPersonaBody, HrBajaPlazaBody, HrBajaPlazaDto, HrFichaPlazaBody, HrFichaPlazaDto, HrLigarBody, HrLigarResultadoDto, HrPersonaBuscadaDto, HrSinPersonaDto,
   HrSinPersonaResponse,
 } from '@megadulces/contracts';
 import { esRelojDesconocido } from './logic/relojes';
@@ -235,6 +235,126 @@ export class HrAttendanceEnrollmentsService {
   }
 
   /**
+   * La persona ligada a ese código en la plaza, bloqueada (dos de RH a la vez no se pisan); null si no hay. Sin DISTINCT:
+   * Postgres no lo deja junto con FOR UPDATE; el mismo dueño sale una vez por reloj y se junta aquí.
+   */
+  private async duenoDe(trx: Knex.Transaction, tenant: string, site: string, codigo: string): Promise<{ id: string; nombre: string | null; role_name: string } | null> {
+    const filas: Array<{ id: string; nombre: string | null; role_name: string }> = (await trx.raw(`
+      SELECT u.id, u.nombre, u.role_name
+        FROM hr.device_enrollments x
+        JOIN hr.attendance_devices d ON d.tenant_id = x.tenant_id AND d.id = x.device_id
+        JOIN identity.users u ON u.tenant_id = x.tenant_id AND u.id = x.user_id
+       WHERE x.tenant_id = ? AND d.site_code = ? AND COALESCE(x.person_code, x.device_user_id) = ? AND x.user_id IS NOT NULL
+         FOR UPDATE OF u`, [tenant, site, codigo])).rows;
+    const duenos = [...new Map(filas.map((f) => [f.id, f])).values()];
+    if (duenos.length > 1) {
+      throw new ConflictException(`El código ${codigo} de esta plaza está ligado a ${duenos.length} personas: desliga al que no es en Relojes antes de seguir.`);
+    }
+    return duenos[0] ?? null;
+  }
+
+  /** `[RH.7.2]` La papelera de una plaza: quién está de baja, desde cuándo, por qué, y si sigue checando. */
+  async bajas(siteCode: string): Promise<HrBajaPlazaDto[]> {
+    const site = String(siteCode ?? '').trim();
+    if (!site) throw new BadRequestException('Falta la plaza.');
+    return this.run(async (trx, tenant) => {
+      const filas: Array<Record<string, unknown>> = (await trx.raw(`
+        SELECT p.person_code, p.report_section, p.is_promoter, p.source, p.updated_at,
+               own.user_id, u.nombre, ev.created_at AS ev_at, ev.detalle->>'motivo' AS motivo, ev.actor_username,
+               lg.ultima, COALESCE(lg.desde_baja, 0) AS desde_baja
+          FROM hr.person_site_profiles p
+          LEFT JOIN LATERAL (
+            SELECT x.user_id FROM hr.device_enrollments x
+              JOIN hr.attendance_devices d ON d.tenant_id = x.tenant_id AND d.id = x.device_id
+             WHERE x.tenant_id = p.tenant_id AND d.site_code = p.site_code
+               AND COALESCE(x.person_code, x.device_user_id) = p.person_code AND x.user_id IS NOT NULL
+             LIMIT 1) own ON true
+          LEFT JOIN identity.users u ON u.tenant_id = p.tenant_id AND u.id = own.user_id
+          LEFT JOIN LATERAL (
+            SELECT e.created_at, e.detalle, e.actor_username FROM identity.user_events e
+             WHERE e.tenant_id = p.tenant_id AND e.user_id = own.user_id AND e.event = 'baja_en_plaza'
+               AND e.detalle->>'site_code' = p.site_code AND e.detalle->>'codigo' = p.person_code
+             ORDER BY e.created_at DESC LIMIT 1) ev ON true
+          -- Sólo los últimos 30 días (como «Por identificar» de Mega Talento): lo que importa es si SIGUE checando.
+          LEFT JOIN LATERAL (
+            SELECT max(l.punched_at) AS ultima,
+                   count(*) FILTER (WHERE l.punched_at > COALESCE(ev.created_at, p.updated_at))::int AS desde_baja
+              FROM hr.device_enrollments x
+              JOIN hr.attendance_devices d ON d.tenant_id = x.tenant_id AND d.id = x.device_id
+              JOIN hr.attendance_logs l ON l.tenant_id = x.tenant_id AND l.device_id = x.device_id AND l.device_user_id = x.device_user_id
+             WHERE x.tenant_id = p.tenant_id AND d.site_code = p.site_code
+               AND COALESCE(x.person_code, x.device_user_id) = p.person_code
+               AND l.punched_at >= now() - interval '30 days') lg ON true
+         WHERE p.tenant_id = ? AND p.site_code = ? AND NOT p.is_active
+         ORDER BY COALESCE(ev.created_at, p.updated_at) DESC
+         LIMIT 500`, [tenant, site])).rows;
+      const iso = (v: unknown): string | null => (v ? new Date(v as string).toISOString() : null);
+      return filas.map((f) => {
+        const conAsiento = !!f['ev_at'];
+        return {
+          person_code: String(f['person_code']),
+          user_id: (f['user_id'] as string | null) ?? null,
+          nombre: (f['nombre'] as string | null) ?? null,
+          seccion: (f['report_section'] as string | null) ?? null,
+          promotora: f['is_promoter'] === true,
+          desde: iso(conAsiento ? f['ev_at'] : f['updated_at']),
+          motivo: (f['motivo'] as string | null) ?? null,
+          por: (f['actor_username'] as string | null) ?? null,
+          origen: conAsiento || f['source'] !== 'mega_talento' ? 'suite' as const : 'mega_talento' as const,
+          ultima_checada: iso(f['ultima']),
+          checadas_desde_baja: Number(f['desde_baja'] ?? 0),
+        };
+      });
+    });
+  }
+
+  /**
+   * `[RH.7.2]` Baja EN UNA PLAZA (no de la persona: quien rota sigue activo en las otras). Deja de contar en el reporte
+   * de esa plaza —sin faltas de quien ya se fue— y pasa a su papelera, de donde se reactiva. Exige motivo, y sólo para
+   * un código ligado a una persona (lo que no es nadie se ignora en Relojes). No borra la huella del reloj físico.
+   */
+  async darDeBaja(b: HrBajaPlazaBody): Promise<{ ok: true }> {
+    const { site, codigo } = this.plazaYCodigo(b);
+    const motivo = String(b?.motivo ?? '').replace(/\s+/g, ' ').trim();
+    if (motivo.length < 5) throw new BadRequestException('Escribe por qué se da de baja (al menos 5 letras).');
+    return this.run(async (trx, tenant) => {
+      const dueno = await this.duenoDe(trx, tenant, site, codigo);
+      if (!dueno) throw new ConflictException('Ese código no está ligado a nadie: en Relojes se liga o se ignora.');
+      const antes = await trx('hr.person_site_profiles').where({ tenant_id: tenant, site_code: site, person_code: codigo }).forUpdate().first('is_active');
+      if (antes && antes.is_active === false) throw new ConflictException('Ya está de baja en esta plaza.');
+      const q = this.quien();
+      await trx('hr.person_site_profiles').insert({
+        tenant_id: tenant, site_code: site, person_code: codigo, is_active: false, source: 'suite', updated_by: q.id,
+      }).onConflict(['tenant_id', 'site_code', 'person_code']).merge({ is_active: false, updated_by: q.id, updated_at: trx.fn.now() });
+      await this.asentar(trx, tenant, dueno.id, 'baja_en_plaza', { site_code: site, codigo, motivo: motivo.slice(0, 300) });
+      return { ok: true as const };
+    });
+  }
+
+  /** `[RH.7.2]` La regresa al reporte de la plaza. */
+  async reactivar(b: HrBajaPlazaBody): Promise<{ ok: true }> {
+    const { site, codigo } = this.plazaYCodigo(b);
+    const motivo = String(b?.motivo ?? '').replace(/\s+/g, ' ').trim();
+    return this.run(async (trx, tenant) => {
+      const antes = await trx('hr.person_site_profiles').where({ tenant_id: tenant, site_code: site, person_code: codigo }).forUpdate().first('is_active');
+      if (!antes || antes.is_active !== false) throw new ConflictException('No está de baja en esta plaza.');
+      const dueno = await this.duenoDe(trx, tenant, site, codigo);
+      const q = this.quien();
+      await trx('hr.person_site_profiles').where({ tenant_id: tenant, site_code: site, person_code: codigo })
+        .update({ is_active: true, updated_by: q.id, updated_at: trx.fn.now() });
+      if (dueno) await this.asentar(trx, tenant, dueno.id, 'reactivado_en_plaza', { site_code: site, codigo, ...(motivo ? { motivo: motivo.slice(0, 300) } : {}) });
+      return { ok: true as const };
+    });
+  }
+
+  private plazaYCodigo(b: { site_code?: unknown; person_code?: unknown }): { site: string; codigo: string } {
+    const site = String(b?.site_code ?? '').trim();
+    const codigo = String(b?.person_code ?? '').trim();
+    if (!site || !codigo) throw new BadRequestException('Faltan la plaza y el código.');
+    return { site, codigo };
+  }
+
+  /**
    * `[RH.7.1]` Corrige la ficha de una persona EN UNA PLAZA: sección del reporte, promotora y —sólo si no tiene acceso a
    * la Suite— su nombre completo. Sin esto, después del corte, quien entró sin sección frena el cierre de cada semana
    * (`[RH.1.6b]`) y RH sólo podría forzarlo con motivo. Cada cambio deja su «antes y después» en `identity.user_events`.
@@ -249,20 +369,7 @@ export class HrAttendanceEnrollmentsService {
     const v = validarFicha(b ?? {});
     if ('error' in v) throw new BadRequestException(v.error);
     return this.run(async (trx, tenant) => {
-      // La persona ligada a ese código en la plaza (bloqueada: dos de RH a la vez no se pisan).
-      // Sin DISTINCT: Postgres no lo deja junto con FOR UPDATE. El mismo dueño sale una vez por reloj; se junta aquí.
-      const filasDueno: Array<{ id: string; nombre: string | null; role_name: string }> = (await trx.raw(`
-        SELECT u.id, u.nombre, u.role_name
-          FROM hr.device_enrollments x
-          JOIN hr.attendance_devices d ON d.tenant_id = x.tenant_id AND d.id = x.device_id
-          JOIN identity.users u ON u.tenant_id = x.tenant_id AND u.id = x.user_id
-         WHERE x.tenant_id = ? AND d.site_code = ? AND COALESCE(x.person_code, x.device_user_id) = ? AND x.user_id IS NOT NULL
-           FOR UPDATE OF u`, [tenant, site, codigo])).rows;
-      const duenos = [...new Map(filasDueno.map((f) => [f.id, f])).values()];
-      if (duenos.length > 1) {
-        throw new ConflictException(`El código ${codigo} de esta plaza está ligado a ${duenos.length} personas: desliga al que no es en Relojes antes de editar.`);
-      }
-      const dueno = duenos[0] ?? null;
+      const dueno = await this.duenoDe(trx, tenant, site, codigo);
       const antes = await trx('hr.person_site_profiles').where({ tenant_id: tenant, site_code: site, person_code: codigo })
         .forUpdate().first('report_section', 'is_promoter', 'is_active');
       if (!antes && !dueno) throw new NotFoundException('Ese código no tiene ficha ni persona en esta plaza.');

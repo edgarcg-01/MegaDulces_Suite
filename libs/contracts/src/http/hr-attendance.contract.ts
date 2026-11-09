@@ -609,6 +609,31 @@ export interface HrFichaPlazaDto {
   nombre: string | null;
 }
 
+/** `[RH.7.2]` Dar de baja o reactivar a una persona EN UNA PLAZA (la baja exige motivo). */
+export interface HrBajaPlazaBody {
+  site_code: string;
+  person_code: string;
+  motivo?: string;
+}
+
+/** `[RH.7.2]` `GET /hr/attendance/enrollments/site-profiles/inactive` — la papelera de una plaza. */
+export interface HrBajaPlazaDto {
+  person_code: string;
+  user_id: string | null;
+  nombre: string | null;
+  seccion: string | null;
+  promotora: boolean;
+  /** Cuándo se dio de baja: el asiento de la Suite, o la última edición de la ficha si vino así de Mega Talento. */
+  desde: string | null;
+  motivo: string | null;
+  por: string | null;
+  /** 'suite' = la dio alguien aquí (con su asiento); 'mega_talento' = llegó de baja en la carga. */
+  origen: 'suite' | 'mega_talento';
+  ultima_checada: string | null;
+  /** Checadas en esta plaza DESPUÉS de la baja: si es > 0, sigue checando (¿la baja fue un error?). */
+  checadas_desde_baja: number;
+}
+
 export interface HrLigarResultadoDto {
   user_id: string;
   nombre: string;

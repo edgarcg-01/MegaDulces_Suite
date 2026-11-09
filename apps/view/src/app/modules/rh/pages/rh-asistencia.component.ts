@@ -171,6 +171,25 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
                   @if (depto(p) === sinDepartamento) { Sin sección no entra al cierre semanal. }</p>
                 @if (puedeEditarFicha()) { <p-button label="Editar" severity="secondary" [outlined]="true" size="small" (onClick)="abrirFicha(p)" /> }
               </div>
+              <!-- [RH.7.2] Baja en ESTA plaza, separada de lo diario y con motivo (Von Restorff): se deshace en Bajas. -->
+              @if (puedeEditarFicha()) {
+                @if (bajaDe() === p.codigo) {
+                  <form class="ra-form ra-baja" (ngSubmit)="darDeBaja(p)" aria-label="Dar de baja en esta plaza">
+                    <label class="ra-ancho">Por qué se da de baja en esta plaza
+                      <input pInputText name="bmot" [ngModel]="motivoBaja()" (ngModelChange)="motivoBaja.set($event)" required /></label>
+                    <p class="ra-form-nota">Deja de contar en el reporte de esta plaza (sin faltas). Sigue activa en las otras plazas donde checa.
+                      Se reactiva desde la pestaña Bajas.</p>
+                    <div class="ra-form-btns">
+                      <p-button type="submit" label="Dar de baja" severity="danger" [disabled]="motivoBaja().trim().length < 5" [loading]="guardando()" />
+                      <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="bajaDe.set(null)" />
+                    </div>
+                  </form>
+                } @else {
+                  <div class="ra-baja-lnk">
+                    <p-button label="Dar de baja en esta plaza" icon="pi pi-user-minus" [text]="true" severity="danger" size="small" (onClick)="abrirBaja(p)" />
+                  </div>
+                }
+              }
               @if (fichaForm(); as ff) {
                 @if (ff.codigo === p.codigo) {
                   <form class="ra-form" (ngSubmit)="guardarFicha(p)" aria-label="Editar la ficha en esta plaza">
@@ -301,6 +320,9 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
       font-size: var(--fs-sm); color: var(--text-main); }
     .ra-tira p { margin: 0; flex: 1 1 28ch; }
     .ra-falta { color: var(--bad-fg); }
+    .ra-baja-lnk { display: flex; justify-content: flex-end; }
+    .ra-baja { border-color: var(--bad-border); }
+    .ra-ancho { flex: 1 1 100%; }
     .ra-acciones { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
     .ra-form { display: flex; flex-wrap: wrap; gap: var(--sp-3); align-items: flex-end; padding: var(--sp-3); margin: 0 var(--sp-3) var(--sp-2); border: 1px solid var(--border-color);
       border-radius: var(--r-md); background: var(--surface-2); }
@@ -349,6 +371,9 @@ export class RhAsistenciaComponent {
   readonly puedeEditarFicha = computed(() => this.perms.has(Permission.HR_DEVICES_GESTIONAR));
   readonly sinDepartamento = SIN_DEPARTAMENTO;
   readonly fichaForm = signal<FormFicha | null>(null);
+  /** `[RH.7.2]` A quién se le está dando de baja (su código) y el motivo que se escribe. */
+  readonly bajaDe = signal<string | null>(null);
+  readonly motivoBaja = signal('');
   /** Las secciones que ya existen en la plaza: se elige una antes que escribir otra variante de la misma. */
   readonly seccionesConocidas = computed(() =>
     [...new Set(this.todas().map((x) => departamentoDe(x)).filter((d) => d !== SIN_DEPARTAMENTO))].sort((a, b) => a.localeCompare(b, 'es')));
@@ -433,8 +458,8 @@ export class RhAsistenciaComponent {
     return p.semanas.reduce((t, s) => t + s.dias.filter((d) => d.estado === 'falta' && d.fecha < hoy).length, 0);
   }
 
-  abrir(p: HrPersonaAsistencia): void { this.sel.set(p); this.form.set(null); this.fichaForm.set(null); this.aviso.set(null); }
-  cerrar(): void { this.sel.set(null); this.form.set(null); this.fichaForm.set(null); this.aviso.set(null); }
+  abrir(p: HrPersonaAsistencia): void { this.sel.set(p); this.form.set(null); this.fichaForm.set(null); this.bajaDe.set(null); this.aviso.set(null); }
+  cerrar(): void { this.sel.set(null); this.form.set(null); this.fichaForm.set(null); this.bajaDe.set(null); this.aviso.set(null); }
   cambioFicha(abierta: boolean): void { if (!abierta) this.cerrar(); }
   soloEsta(p: HrPersonaAsistencia): void { this.cerrar(); this.est.unica.set(p.codigo); }
 
@@ -533,6 +558,32 @@ export class RhAsistenciaComponent {
         this.est.asegurar(true);
       },
       error: (e) => { this.guardando.set(false); this.aviso.set({ texto: rhError(e, 'No se pudo guardar la ficha.'), mal: true }); },
+    });
+  }
+
+  abrirBaja(p: HrPersonaAsistencia): void {
+    this.aviso.set(null);
+    this.fichaForm.set(null);
+    this.form.set(null);
+    this.motivoBaja.set('');
+    this.bajaDe.set(p.codigo);
+  }
+
+  /** `[RH.7.2]` Baja en la plaza: sale del reporte y de la ficha (se cierra), y queda en la pestaña Bajas. */
+  darDeBaja(p: HrPersonaAsistencia): void {
+    const site = this.est.sitio();
+    const motivo = this.motivoBaja().trim();
+    if (!site || motivo.length < 5 || this.guardando()) return;
+    this.guardando.set(true);
+    this.api.darDeBaja({ site_code: site, person_code: p.codigo, motivo }).subscribe({
+      next: () => {
+        this.guardando.set(false);
+        this.bajaDe.set(null);
+        this.cerrar();
+        this.aviso.set({ texto: `${p.nombreCompleto || p.nombre} quedó de baja en esta plaza. Se reactiva desde la pestaña Bajas.`, mal: false });
+        this.est.asegurar(true);
+      },
+      error: (e) => { this.guardando.set(false); this.aviso.set({ texto: rhError(e, 'No se pudo dar de baja.'), mal: true }); },
     });
   }
 

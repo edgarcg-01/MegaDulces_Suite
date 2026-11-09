@@ -51,6 +51,7 @@ describe('[RH.1.7c] RhAsistenciaComponent — Checadas', () => {
       asignarHorario: vi.fn(() => of({ ok: true, guardados: 1 })),
       quitarHorario: vi.fn(() => of({ ok: true, quitados: 1 })),
       editarFicha: vi.fn(() => of({ site_code: 'PH', person_code: '104', seccion: 'ALMACEN', promotora: false, nombre: null })),
+      darDeBaja: vi.fn(() => of({ ok: true })),
       estadoRelojes: vi.fn(() => (relojes === 'error' ? throwError(() => new Error('403')) : of(relojes))),
       bancoHorasExtra: vi.fn(() => of({ personas: [] })),
       incidencias: vi.fn(() => of([{ id: 'a' }, { id: 'b' }])),
@@ -235,6 +236,22 @@ describe('[RH.1.7c] RhAsistenciaComponent — Checadas', () => {
     c.guardarFicha(p);
     expect(api['editarFicha']).toHaveBeenLastCalledWith({ site_code: 'PH', person_code: '104', seccion: 'almacen' });
     expect(c.fichaForm()).toBeNull();
+  });
+
+  it('[RH.7.2] dar de baja pide motivo de 5 letras, manda plaza y código, y cierra la ficha', async () => {
+    await render({ claves: [Permission.HR_ATTENDANCE_VER, Permission.HR_DEVICES_GESTIONAR] });
+    const c = fix.componentInstance;
+    const p = c.todas()[0];
+    c.abrir(p);
+    c.abrirBaja(p);
+    c.motivoBaja.set('ya');
+    c.darDeBaja(p);
+    expect(api['darDeBaja']).not.toHaveBeenCalled();
+    c.motivoBaja.set('renunció el viernes');
+    c.darDeBaja(p);
+    expect(api['darDeBaja']).toHaveBeenCalledWith({ site_code: 'PH', person_code: '104', motivo: 'renunció el viernes' });
+    expect(c.sel()).toBeNull();
+    expect(c.aviso()?.texto).toContain('pestaña Bajas');
   });
 
   it('[RH.7.1] ⛔ sin HR_DEVICES_GESTIONAR no se ofrece editar la ficha', async () => {

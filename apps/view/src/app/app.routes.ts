@@ -1040,6 +1040,13 @@ export const routes: Routes = [
         canActivate: [anyPermissionGuard(Permission.HR_ATTENDANCE_VER, Permission.HR_ATTENDANCE_GESTIONAR, Permission.HR_INCIDENTS_CAPTURAR, Permission.HR_INCIDENTS_CALIFICAR)],
         loadComponent: () => import('./modules/rh/pages/rh-horas-extra.component').then(m => m.RhHorasExtraComponent),
       },
+      // `[RH.7.2]` La papelera de empleados de Mega Talento, por plaza: lee quien ve la asistencia o liga personas
+      // (el mismo `anyOf` que `GET /hr/attendance/enrollments/site-profiles/inactive`).
+      {
+        path: 'asistencia/bajas',
+        canActivate: [anyPermissionGuard(Permission.HR_ATTENDANCE_VER, Permission.HR_DEVICES_GESTIONAR)],
+        loadComponent: () => import('./modules/rh/pages/rh-bajas.component').then(m => m.RhBajasComponent),
+      },
       {
         path: 'incidencias',
         canActivate: [anyPermissionGuard(Permission.HR_ATTENDANCE_VER, Permission.HR_INCIDENTS_CAPTURAR, Permission.HR_INCIDENTS_CALIFICAR, Permission.HR_INCIDENTS_AUDITAR, Permission.HR_PERIOD_CLOSE)],

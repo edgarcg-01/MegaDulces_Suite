@@ -5,7 +5,7 @@ import type {
   HrAccionIncidencia, HrAjusteHorasExtraBody, HrAjusteHorasExtraDto, HrAsistenciaResponse, HrBancoHorasExtraDto, HrCapturaIncidenciaBody, HrCierreDto, HrEstadoDia, HrEstadoIncidencia, HrSinIdentificarDto,
   HrHorarioPersonaBody, HrIncidenciaDto, HrLotePendienteDto, HrOrdenesResponse, HrPasoIncidenciaDto, HrPersonaDirectorioDto, HrRelojBody,
   HrRelojDto, HrRelojEstadoDto, HrSemaforoReloj, HrSiteDto, HrTipoIncidenciaDto,
-  HrAltaPersonaBody, HrFichaPlazaBody, HrFichaPlazaDto, HrLigarBody, HrLigarResultadoDto, HrPersonaBuscadaDto, HrSinPersonaResponse,
+  HrAltaPersonaBody, HrBajaPlazaBody, HrBajaPlazaDto, HrFichaPlazaBody, HrFichaPlazaDto, HrLigarBody, HrLigarResultadoDto, HrPersonaBuscadaDto, HrSinPersonaResponse,
 } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
 
@@ -152,6 +152,19 @@ export class RhService {
   /** `[RH.7.1]` Corregir la ficha de una persona en una plaza (sección, promotora y, sin acceso, nombre). */
   editarFicha(b: HrFichaPlazaBody): Observable<HrFichaPlazaDto> {
     return this.http.put<HrFichaPlazaDto>(`${this.base}/enrollments/site-profile`, b);
+  }
+
+  /** `[RH.7.2]` La papelera de la plaza: quién está de baja y si sigue checando. */
+  bajas(site_code: string): Observable<HrBajaPlazaDto[]> {
+    return this.http.get<HrBajaPlazaDto[]>(`${this.base}/enrollments/site-profiles/inactive`, { params: this.params({ site_code }) });
+  }
+
+  darDeBaja(b: HrBajaPlazaBody): Observable<{ ok: true }> {
+    return this.http.post<{ ok: true }>(`${this.base}/enrollments/site-profile/deactivate`, b);
+  }
+
+  reactivar(b: HrBajaPlazaBody): Observable<{ ok: true }> {
+    return this.http.post<{ ok: true }>(`${this.base}/enrollments/site-profile/reactivate`, b);
   }
 
   /** Sólo manda los parámetros con valor. */
