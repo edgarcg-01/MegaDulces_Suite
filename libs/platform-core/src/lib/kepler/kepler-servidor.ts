@@ -55,6 +55,19 @@ export function urlDeServidor(sucursal: string, env: Env): Resolucion<string> {
   return { ok: false, motivo: `La escritura a Kepler de la sucursal ${s} está apagada (falta KEPLER_PUSH_URL_${s})` };
 }
 
+/**
+ * `[ALC.2.7]` El **concentrador** de Kepler (`pv_suc_ip.c6 = 'SC'`, «Sistema Concentrador»): un
+ * décimo servidor que NO está en el ODS y desde el que se dan de alta los catálogos. La forma de
+ * clientes, guardada ahí, repite cada escritura en las 9 sucursales con la librería del cliente
+ * `pv_sc_lib` (medido en `md_cat_cli.kpl`, 2026-11-07): la base no replica nada.
+ *
+ * Conexión: `KEPLER_PUSH_URL_SC`. ⛔ Sin comodín: no se toma la de oficinas (`00`) en su lugar.
+ */
+export function urlDelConcentrador(env: Env): Resolucion<string> {
+  const u = valorDeEnv(env, 'KEPLER_PUSH_URL_SC');
+  return u ? { ok: true, valor: u } : { ok: false, motivo: 'La escritura al concentrador de Kepler está apagada (falta KEPLER_PUSH_URL_SC)' };
+}
+
 /** Todas las sucursales con conexión configurada, en orden. */
 export function servidoresEncendidos(env: Env): ConexionKepler[] {
   const out: ConexionKepler[] = [];

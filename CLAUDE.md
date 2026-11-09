@@ -180,6 +180,7 @@
 | **DP** | Definiciones de negocio: la regla que falta se PREGUNTA en el sistema (dueño, tipo, vigencia) y contestarla es configurarla; primer consumidor, las 17 preguntas de Comisiones RD. 7ª en curso, abierta por el PM el 2026-11-03 por encima del cupo de 4 | 🔨 |
 | **TOR** | Torres de control: Sistemas (servidores y carriles de Kepler) y Desarrollo (nuestra infraestructura); reemplaza `/admin/db-health`. 8ª en curso, abierta por el PM el 2026-11-04 por encima del cupo de 4 | 🔨 |
 | **ALC** | Alta de clientes desde la constancia del SAT (o a mano) → crédito con firma → liga con la clave de Kepler; la Suite NO escribe `kdud` (D1-b, de Edgar). 9ª en curso, **empezada por Francisco el 2026-11-04 por encima del cupo: falta que el PM la ratifique** | 🧪 |
+| **DN** | Demanda negada para Compras: lo que el cliente pide y no hay. Frente 1 del [anexo A](docs/IMPLEMENTACION/FASES/FASE_DN_ANEXO_AVISO_AL_AGENDAR.md): el vendedor captura sin bloqueo y el servidor registra lo agotado al agendar (ADR-115). 10ª en curso, **aprobada por Edgar el 2026-11-07 por encima del cupo** (lo comunicó Francisco) | 🔨 |
 
 ---
 

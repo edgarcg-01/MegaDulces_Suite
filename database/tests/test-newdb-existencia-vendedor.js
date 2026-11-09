@@ -1,6 +1,6 @@
 /**
- * MCP.3.16 — Existencia en la toma de pedido del vendedor: estado por sucursal, gemelo del legado,
- * frescura del carril y BLOQUEO al agregar.
+ * MCP.3.16 + DN.7 — Existencia en la toma de pedido del vendedor: estado por sucursal, gemelo del
+ * legado, frescura del carril y la REVISIÓN al agregar (hasta ADR-115, 2026-11-07, era un bloqueo).
  *
  * Regla 13 (CLAUDE.md): un endpoint que ESCRIBE no está probado hasta que una prueba lo ejerció
  * contra una base REAL. Aquí se cargan por ts-node los módulos REALES del repo —el resolvedor
@@ -14,10 +14,12 @@
  *   3. El catálogo con `stock_state=1`: estado por renglón y los «no se maneja» AL FINAL. Se cruzan
  *      DOS implementaciones: el predicado SQL del orden contra la regla de `estadoDeExistencia`.
  *      Sin `stock_state`, el renglón no trae estado (como antes).
- *   4. addLine del vendedor: agotado → 409 con alternativas; nadie al día lo tiene pero una sucursal
- *      está vieja → 409 que NO dice «no hay en tu zona» y nombra la que falta; con existencia pasa;
- *      `sin_dato` (sucursal vieja) NO bloquea; un rol sin VENDOR_APP_ACCESS no se bloquea; el legado
- *      se guarda con SU id (la existencia es la del gemelo).
+ *   4. `[DN.7]` addLine del vendedor YA NO da 409 (ADR-115): el agotado se GUARDA y la respuesta trae
+ *      `stock_state` y `stock_review` con las alternativas de la zona; nadie al día lo tiene pero una
+ *      sucursal está vieja → el texto NO dice «tu zona» y nombra la que falta; con existencia pasa y
+ *      dice si alcanza; `sin_dato` (sucursal vieja) se dice `sin_dato`; un rol sin VENDOR_APP_ACCESS no
+ *      se revisa; el legado se guarda con SU id (la existencia es la del gemelo); cambiar el renglón a
+ *      una sucursal en 0 (updateLine) se hace y lo dice.
  *   5. replaceLines (lote de la sincronización offline) NO bloquea: el agotado se guarda.
  *
  * Sólo se sustituye la infraestructura ajena (motor de precios, alertas, push, stock transaccional).
@@ -28,6 +30,7 @@ const path = require('path');
 const fs = require('fs');
 const Module = require('module');
 const knex = require('knex')(require('../knexfile-newdb.js').development);
+const { asegurarColumnasDeProd } = require('./_lib/columnas-de-prod');
 const T = '00000000-0000-0000-0000-00000000d01c';
 const RAIZ = path.resolve(__dirname, '..', '..');
 
@@ -104,6 +107,13 @@ function pedidos(Orders, trx, userId, rol, quotes = { ladders: async () => new M
   try {
     await knex.transaction(async (trx) => {
       await trx.raw(`SET LOCAL app.tenant_id = '${T}'`);
+      // `[DN.8]` Prod tiene `catalog.products.articulo` (llegó con la importación de Railway; ninguna
+      // migración la crea) y la siembra y el resolvedor la usan: sin esto, en la base del CI esta suite
+      // abortaba en la siembra y nunca medía nada. Se agrega DENTRO de esta transacción con el tipo de
+      // la foto de prod, y se declara (`_lib/columnas-de-prod.js`).
+      for (const c of await asegurarColumnasDeProd(trx, [['catalog', 'products', 'articulo']])) {
+        console.log(`  ⚠️ la base no traía ${c.split(' ')[0]} (prod sí): agregada dentro de la transacción como ${c.split(' ').slice(1).join(' ')}`);
+      }
       const faltan = (await trx.raw(
         `SELECT x FROM unnest(ARRAY['analytics.v_erp_stock_on_hand','analytics.ods_branch_checks','kepler_ods.kdil']) x
           WHERE to_regclass(x) IS NULL`,
@@ -208,50 +218,84 @@ function pedidos(Orders, trx, userId, rol, quotes = { ladders: async () => new M
         ok(sinEstado.data.length === 5 && !('stock_state' in s0), 'NEGATIVA: sin stock_state el renglón no trae estado (como antes)');
       }
 
-      console.log('\n[4] El bloqueo en addLine del vendedor');
+      console.log('\n[4] [DN.7] La revisión en addLine del vendedor (ADR-115: ya no bloquea)');
       const [cli] = await trx('commercial.customers').insert({
         tenant_id: T, code: 'ZZ-MCP316-CLI', name: 'Cliente prueba MCP.3.16', active: true, default_price_list_id: lista.id,
       }).returning('id');
-      const vend = pedidos(M.Orders, trx, user.id, 'vendedor_ruta');
+      // `[DN.8]` La clave se SIEMBRA en roles de prueba (se revierten con la transacción) en vez de
+      // depender de que la base traiga `vendedor_ruta` con ella: la del CI no la trae y por eso [4]–[6]
+      // nunca se habían medido allí. Nada del servicio depende del NOMBRE del rol, sólo de la clave.
+      const ROL_V = 'zz_mcp316_vendedor';
+      const ROL_SIN = 'zz_mcp316_sin_clave';
+      await trx('identity.role_permissions').insert([
+        { tenant_id: T, role_name: ROL_V, permissions: JSON.stringify({ VENDOR_APP_ACCESS: true }) },
+        { tenant_id: T, role_name: ROL_SIN, permissions: JSON.stringify({}) },
+      ]);
+      const vend = pedidos(M.Orders, trx, user.id, ROL_V);
       const tieneClave = (await trx.raw(
-        `SELECT 1 FROM identity.role_permissions WHERE role_name = 'vendedor_ruta' AND deleted_at IS NULL AND (permissions ->> 'VENDOR_APP_ACCESS') = 'true'`,
+        `SELECT 1 FROM identity.role_permissions WHERE role_name = ? AND deleted_at IS NULL AND (permissions ->> 'VENDOR_APP_ACCESS') = 'true'`,
+        [ROL_V],
       )).rows.length > 0;
       if (!tieneClave) {
-        noMedido('en la base local el rol vendedor_ruta no tiene VENDOR_APP_ACCESS: el bloqueo no se puede ejercer');
+        noMedido('no quedó sembrado el rol de prueba con VENDOR_APP_ACCESS: la revisión no se puede ejercer');
       } else {
         const o = await vend.createDraft({ customer_id: cli.id, warehouse_id: Z1, requested_delivery_date: '2030-01-02' });
         const e1 = await falla(() => vend.addLine(o.id, { product_id: CERO, quantity: 2 }));
-        const b1 = e1 && e1.getResponse ? e1.getResponse() : null;
-        ok(e1 && e1.getStatus && e1.getStatus() === 409, `agotado en Z1 → 409 (vino ${e1 ? (e1.getStatus ? e1.getStatus() : e1.message) : 'sin error'})`);
-        ok(b1 && b1.code === 'SIN_EXISTENCIA' && b1.state === 'agotado' && b1.warehouse_short === 'Z1'
-          && b1.alternatives.length === 1 && b1.alternatives[0].short === 'Z2' && b1.alternatives[0].qty === 7,
-          `con la alternativa de la zona: «${b1 && b1.message}»`);
-        ok(b1 && b1.message === 'No se puede agregar: no hay existencias en Z1 · Z2 tiene 7' && b1.product_name === 'ZZ316 CERO',
-          `el mensaje exacto (el de la pantalla) y el NOMBRE en product_name («${b1 && b1.message}»)`);
-        const e2 = await falla(() => vend.addLine(o.id, { product_id: NADIE, quantity: 1 }));
-        const b2 = e2 && e2.getResponse ? e2.getResponse() : null;
-        // [MCP.3.16] ADR-056: Z3 tiene la lectura vieja, así que NO se puede afirmar «no hay en tu zona».
-        ok(b2 && b2.state === 'no_se_maneja' && b2.alternatives.length === 0
-          && b2.message === 'No se puede agregar: no hay existencias en Z1 · sin dato de Z3',
+        ok(e1 === null, `⭐ agotado en Z1 → se GUARDA, ya no hay 409 (${e1 ? (e1.getStatus ? e1.getStatus() : e1.message) : 'pasó'})`);
+        const r1 = await trx('commercial.order_lines').where({ order_id: o.id, product_id: CERO }).first('id', 'quantity');
+        ok(r1 && Number(r1.quantity) === 2, 'el renglón del agotado quedó en el pedido con su cantidad');
+        const l1 = await vend.addLine(o.id, { product_id: NADIE, quantity: 1, source_warehouse_id: Z2 });
+        const b1 = l1 && l1.stock_review;
+        ok(l1 && l1.stock_state === 'no_se_maneja' && b1 && b1.warehouse_short === 'Z2' && b1.product_name === 'ZZ316 NADIE',
+          `la respuesta trae el estado y el NOMBRE del producto (${l1 && l1.stock_state})`);
+        const o1b = await vend.createDraft({ customer_id: cli.id, warehouse_id: Z1, requested_delivery_date: '2030-01-05' });
+        const l1b = await vend.addLine(o1b.id, { product_id: CERO, quantity: 2 });
+        const r1b = l1b && l1b.stock_review;
+        ok(l1b && l1b.stock_state === 'agotado' && r1b && r1b.warehouse_short === 'Z1'
+          && r1b.alternatives.length === 1 && r1b.alternatives[0].short === 'Z2' && r1b.alternatives[0].qty === 7,
+          `agotado con la alternativa de la zona en la respuesta: «${r1b && r1b.message}»`);
+        ok(r1b && r1b.message === 'Puede estar agotado en Z1 · Z2 tiene 7' && !/no se puede/i.test(r1b.message),
+          `el mensaje exacto ya no dice «No se puede agregar» («${r1b && r1b.message}»)`);
+        const l2 = await vend.addLine(o1b.id, { product_id: NADIE, quantity: 1 });
+        const b2 = l2 && l2.stock_review;
+        // [MCP.3.16] ADR-056: Z3 tiene la lectura vieja, así que NO se puede afirmar «tampoco hay en tu zona».
+        ok(l2 && l2.stock_state === 'no_se_maneja' && b2 && b2.alternatives.length === 0
+          && b2.message === 'Z1 no lo maneja · sin dato de Z3',
           `nadie al día lo tiene, pero Z3 no se midió → «${b2 && b2.message}»`);
-        ok(b2 && !/tu zona/.test(b2.message), 'NEGATIVA: con una sucursal sin dato no se dice «no hay en tu zona»');
-        const l3 = await vend.addLine(o.id, { product_id: HAY, quantity: 50 });
-        ok(l3 && l3.product_id === HAY, 'NEGATIVA: con existencia (14) se agrega aunque pida 50');
-        const e4 = await falla(() => vend.addLine(o.id, { product_id: NADIE, quantity: 1, source_warehouse_id: Z3 }));
-        ok(e4 === null, `NEGATIVA: de Z3 (lectura vieja → sin_dato) NO se bloquea (${e4 ? e4.message : 'pasó'})`);
-        const tele = pedidos(M.Orders, trx, user.id, 'telemarketing');
-        const e5 = await falla(() => tele.addLine(o.id, { product_id: CERO, quantity: 1 }));
-        ok(e5 === null, `NEGATIVA: un rol sin VENDOR_APP_ACCESS no se bloquea (${e5 ? e5.message : 'pasó'})`);
+        ok(b2 && !/tu zona/.test(b2.message), 'NEGATIVA: con una sucursal sin dato no se dice «tu zona»');
+        const l3 = await vend.addLine(o1b.id, { product_id: HAY, quantity: 50 });
+        ok(l3 && l3.product_id === HAY && l3.stock_state === 'con_existencia' && l3.stock_review.insuficiente === true,
+          'con existencia (14) se agrega aunque pida 50, y dice que no alcanza (insuficiente)');
+        const l4 = await vend.addLine(o1b.id, { product_id: NADIE, quantity: 1, source_warehouse_id: Z3 });
+        ok(l4 && l4.stock_state === 'sin_dato' && /Sin dato/.test(l4.stock_review.message || ''),
+          `NEGATIVA: de Z3 (lectura vieja) es sin_dato, nunca «con existencia» ni «agotado» («${l4 && l4.stock_review && l4.stock_review.message}»)`);
+        const tele = pedidos(M.Orders, trx, user.id, ROL_SIN);
+        const o5 = await tele.createDraft({ customer_id: cli.id, warehouse_id: Z1, requested_delivery_date: '2030-01-06' });
+        const l5 = await tele.addLine(o5.id, { product_id: CERO, quantity: 1 });
+        ok(l5 && l5.stock_state === null && l5.stock_review === null, 'NEGATIVA: un rol sin VENDOR_APP_ACCESS no se revisa (stock_state null)');
         // [MCP.3.16] El legado se guarda con SU id (la pantalla casa la fila por él); su existencia
-        // sale del gemelo (9 en Z1), así que pasa.
-        const l6 = await vend.addLine(o.id, { product_id: LEGADO, quantity: 1 });
-        ok(l6 && l6.product_id === LEGADO, `el LEGADO se guarda con su propio id, no el del gemelo (vino ${l6 && l6.product_id})`);
-        // [MCP.11] La promoción no es mercancía: el vendedor la agrega aunque Z1 «no la maneje».
-        const e7 = await falla(() => vend.addLine(o.id, { product_id: PROMO, quantity: 1 }));
-        ok(e7 === null, `[MCP.11] una promoción («= GRATIS») se agrega aunque no haya existencia (${e7 ? e7.message : 'pasó'})`);
-        const guardados = await trx('commercial.order_lines').where({ order_id: o.id }).pluck('product_id');
-        ok(guardados.filter((p) => p === CERO).length === 1,
-          'el agotado sólo entró por el rol sin la clave, nunca por el vendedor');
+        // sale del gemelo (9 en Z1).
+        const l6 = await vend.addLine(o1b.id, { product_id: LEGADO, quantity: 1 });
+        ok(l6 && l6.product_id === LEGADO && l6.stock_state === 'con_existencia',
+          `el LEGADO se guarda con su propio id y la existencia de su gemelo (vino ${l6 && l6.product_id}, ${l6 && l6.stock_state})`);
+        // [MCP.11] La promoción no es mercancía: se agrega y no se revisa.
+        const l7 = await vend.addLine(o1b.id, { product_id: PROMO, quantity: 1 });
+        ok(l7 && l7.product_id === PROMO && l7.stock_state === null, '[MCP.11] una promoción («= GRATIS») se agrega y no se revisa');
+        // [DN.7] updateLine: mover el renglón a una sucursal en 0 se HACE y lo dice (antes: 409).
+        const oz = await vend.createDraft({ customer_id: cli.id, warehouse_id: Z2, requested_delivery_date: '2030-01-07' });
+        const lz = await vend.addLine(oz.id, { product_id: CERO, quantity: 2 });
+        ok(lz && lz.stock_state === 'con_existencia', `control: CERO en Z2 (7) tiene existencia (${lz && lz.stock_state})`);
+        const ez = await falla(() => vend.updateLine(oz.id, lz.id, { quantity: 2, source_warehouse_id: Z1 }));
+        const gz = await trx('commercial.order_lines').where({ id: lz.id }).first('source_warehouse_id');
+        ok(ez === null && gz && gz.source_warehouse_id === Z1,
+          `⭐ mover el renglón a Z1 (en 0) se HACE, ya no hay 409 (${ez ? (ez.getStatus ? ez.getStatus() : ez.message) : 'pasó'})`);
+        const uz = await vend.updateLine(oz.id, lz.id, { quantity: 3 });
+        ok(uz && uz.stock_state === null, 'ajustar la cantidad de un renglón que ya tenía algo no se revisa (stock_state null)');
+        const ozb = await vend.createDraft({ customer_id: cli.id, warehouse_id: Z2, requested_delivery_date: '2030-01-08' });
+        const lzb = await vend.addLine(ozb.id, { product_id: CERO, quantity: 1 });
+        const uzb = await vend.updateLine(ozb.id, lzb.id, { quantity: 1, source_warehouse_id: Z1 });
+        ok(uzb && uzb.stock_state === 'agotado' && uzb.stock_review && uzb.stock_review.warehouse_short === 'Z1',
+          `y la respuesta del cambio de sucursal dice «agotado» en Z1 (${uzb && uzb.stock_state})`);
 
         console.log('\n[5] replaceLines (lote de la sincronización offline) NO bloquea');
         const o2 = await vend.createDraft({ customer_id: cli.id, warehouse_id: Z1, requested_delivery_date: '2030-01-03' });
@@ -268,7 +312,7 @@ function pedidos(Orders, trx, userId, rol, quotes = { ladders: async () => new M
           ladders: async (_t, branch, skus) => { pedidosSku.push(...(skus || [])); return new Map((skus || []).filter((s) => s === 'ZZ316D').map((s) => [s, { rungs: {} }])); },
           priceLine: async (_t, a) => (a.sku === 'ZZ316D' ? { line_total: 23.2, unit_price: 20, tax_rate: 0.16 } : { line_total: null, unit_price: null }),
         };
-        const vendMotor = pedidos(M.Orders, trx, user.id, 'vendedor_ruta', motorGemelo);
+        const vendMotor = pedidos(M.Orders, trx, user.id, ROL_V, motorGemelo);
         const o3 = await vendMotor.createDraft({ customer_id: cli.id, warehouse_id: Z1, requested_delivery_date: '2030-01-04' });
         const l8 = await vendMotor.addLine(o3.id, { product_id: LEGADO, quantity: 1 });
         const g8 = await trx('commercial.order_lines').where({ id: l8.id }).first('product_id', 'unit_price', 'line_total');

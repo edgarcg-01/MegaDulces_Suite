@@ -3,7 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 // [VP.2.1] La forma de la procedencia la define el contrato, no cada consumidor.
-import type { Freshness, ExpenseFamilia, DefinicionVista, CaducidadUnidad } from '@megadulces/contracts';
+import type { Freshness, ExpenseFamilia, DefinicionVista, CaducidadUnidad, CaducidadUnidadesProducto } from '@megadulces/contracts';
 import type { PeriodCoverageWire, PeriodComparativoWire } from '@megadulces/contracts';
 import type { ViajesTlmkResponse } from '@megadulces/contracts';
 import type { IncomeGroupBy as IncomeGroupByT, IncomeReport as IncomeReportT, IncomeTree as IncomeTreeT, IncomeTreeChildren as IncomeTreeChildrenT, IncomeDocumento as IncomeDocumentoT, IncomeSources as IncomeSourcesT, IncomeRecon as IncomeReconT, IncomeReconDetalle as IncomeReconDetalleT, IncomeGrain as IncomeGrainT } from '@megadulces/contracts';
@@ -1370,6 +1370,13 @@ export class ComercialService {
   /** Una hoja por folio (`CAD-03-2026-00001`) o por id de renglón. */
   getExpiryHoja(folioOrId: string) {
     return this.http.get<ExpiryHoja>(`${this.expiryBase}/hoja/${encodeURIComponent(folioOrId)}`);
+  }
+
+  /** `[P2.9 paso 3]` En qué unidades se cuenta el producto (acota el selector). `unidades: null` = no se supo → las 7. */
+  expiryUnidadesProducto(sku: string, warehouseId?: string | null) {
+    let params = new HttpParams();
+    if (warehouseId) params = params.set('warehouse_id', warehouseId);
+    return this.http.get<CaducidadUnidadesProducto>(`${this.expiryBase}/products/${encodeURIComponent(sku)}/unidades`, { params });
   }
 
   searchExpiryProducts(q: string, limit = 12) {

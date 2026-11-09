@@ -176,11 +176,24 @@ describe('[NP.7.L.5] publicadas · lógica pura', () => {
         rung: 'base', unit_label: 'PZA', unit_factor: 1, scanned_code: '7622210571403', kepler_codes: ['7622210571403'],
         captured_by: 'ana', captured_at: '2026-11-04T09:00:00.000Z',
         photos: [
-          { face: 'frente', url: 'https://firmada.invalid/levantamiento/t/frente.jpg', skipped_reason: null, sharpness: 800 },
-          { face: 'reverso', url: null, skipped_reason: 'otro', sharpness: 800 },
+          { face: 'frente', url: 'https://firmada.invalid/levantamiento/t/frente.jpg', skipped_reason: null, sharpness: 800, detail: null },
+          { face: 'reverso', url: null, skipped_reason: 'otro', sharpness: 800, detail: null },
         ],
       });
       expect(firmadas).toEqual(['levantamiento/t/frente.jpg']);
+    });
+
+    it('acercamientos y detalles (2026-11-07): en el orden en que se piden y el detalle con lo que muestra', async () => {
+      const [frente] = FILA.photos;
+      const fila = { ...FILA, photos: [
+        { ...frente, cara: 'detalle_1', storage_key: 'levantamiento/t/d1.jpg', detalle: { tipo: 'otro', nota: 'hecho en Colombia' } },
+        { ...frente, cara: 'codigo_barras', storage_key: 'levantamiento/t/cb.jpg' },
+        { ...frente, cara: 'tabla_nutricional', storage_key: 'levantamiento/t/tn.jpg' },
+        frente,
+      ] };
+      const r = await armarFichaComun(fila, new Map([['01|63004', KDII]]), new Map(), firmar);
+      expect(r.photos.map((p) => p.face)).toEqual(['frente', 'tabla_nutricional', 'codigo_barras', 'detalle_1']);
+      expect(r.photos.map((p) => p.detail)).toEqual([null, null, null, { kind: 'otro', note: 'hecho en Colombia' }]);
     });
 
     it('la unidad principal «dos» toma rótulo, factor y códigos del paquete', async () => {

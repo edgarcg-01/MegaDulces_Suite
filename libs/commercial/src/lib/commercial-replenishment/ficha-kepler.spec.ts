@@ -1,4 +1,4 @@
-import { factorFichaKepler } from './ficha-kepler';
+import { factorFichaKepler, frenoFichaSinCaja } from './ficha-kepler';
 
 /**
  * `[PQ.19]` D24 — el factor de la ficha, con la misma regla que `analytics.v_kepler_unit_ladder`.
@@ -32,5 +32,33 @@ describe('[PQ.19] factorFichaKepler', () => {
   });
   it('NEGATIVA: sin unidad base → unidad_base null', () => {
     expect(factorFichaKepler({ c11: '  ' }).unidad_base).toBeNull();
+  });
+});
+
+describe('[PQ.87][PQ.91] frenoFichaSinCaja', () => {
+  const ficha = new Map([
+    ['15151', { unidad_base: 'PAQ', factor: 1 }],
+    ['32008', { unidad_base: 'PZA', factor: 14 }],
+    ['99999', { unidad_base: 'PZA', factor: null }],
+  ]);
+  it('ficha sin caja y la Suite en cajas de 40 → rechaza nombrando SKU, unidad y caja', () => {
+    const r = frenoFichaSinCaja([{ sku: '15151', piezas_por_caja: 40 }, { sku: '32008', piezas_por_caja: 14 }], ficha, '08');
+    expect(r.motivo).toContain('15151 se compra por PAQ');
+    expect(r.motivo).toContain('cajas de 40');
+    expect(r.motivo).toContain('sucursal 08');
+  });
+  it('caja 1 en los dos lados → va en la unidad base de la ficha; la caja de 14 no se toca', () => {
+    const r = frenoFichaSinCaja([{ sku: '15151', piezas_por_caja: 1 }, { sku: '32008', piezas_por_caja: 14 }], ficha, '08');
+    expect(r.motivo).toBeNull();
+    expect([...r.sinCaja]).toEqual([['15151', 'PAQ']]);
+  });
+  it('[PQ.91] sin factor de la Suite cuenta como 1 (antes salía en CJA, que la ficha no tiene)', () => {
+    const r = frenoFichaSinCaja([{ sku: '15151', piezas_por_caja: null }, { sku: '15151b' }], ficha, '08');
+    expect(r.motivo).toBeNull();
+    expect(r.sinCaja.get('15151')).toBe('PAQ');
+  });
+  it('NEGATIVA: ficha que no dice su factor no frena ni cambia la unidad', () => {
+    const r = frenoFichaSinCaja([{ sku: '99999', piezas_por_caja: 12 }], ficha, '08');
+    expect(r).toEqual({ motivo: null, sinCaja: new Map() });
   });
 });

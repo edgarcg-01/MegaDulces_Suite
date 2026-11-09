@@ -93,6 +93,14 @@ describe('[RA-UX.1b] createRequisitionBatch — frena, confirma y falla abierto'
     expect(insert).toHaveBeenCalledTimes(1);
   });
 
+  it('[PQ.91] en la compra consolidada el factor es el de la sucursal DESTINO del renglón, no el del CEDIS del encabezado', async () => {
+    const { s, insert } = servicio(repetido);
+    // CEDIS (U(1)) con caja de 7: 0.2 × 7 = 1.4 pz se frenaría. La sucursal U(2) tiene caja de 5: 1 pz entera.
+    Object.assign(s, { uxcDeProductos: async () => new Map([[`${U(1)}|${U(10)}`, 7], [`${U(2)}|${U(10)}`, 5]]) });
+    await s.createRequisitionBatch({ requisitions: [compra(0.2, { destination_warehouse_id: U(2) })] as never, allow_duplicate: true });
+    expect(insert).toHaveBeenCalledTimes(1);
+  });
+
   it('[PQ.17] NEGATIVA: sin factor conocido, la fracción se frena (sólo valen cajas enteras)', async () => {
     const { s, insert } = servicio(repetido);
     Object.assign(s, { uxcDeProductos: async () => new Map() });

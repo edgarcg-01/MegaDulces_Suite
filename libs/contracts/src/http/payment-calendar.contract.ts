@@ -4,6 +4,7 @@
  * Forma de lo que ya devolvían `days/:date/summary` y `days/:date/allocations` (TP.1), ahora con
  * nombre en contratos, más la semana completa y las cuentas de ORIGEN (`finance.bank_accounts`).
  */
+import type { CierreKeplerPago } from '../finance/cierre-kepler.contract';
 
 /**
  * `[TP.18]` `kepler_payable` es la deuda viva de Kepler que NO pasó por Entregas de Compras
@@ -169,8 +170,15 @@ export interface PagoSugerido {
  */
 export interface PagosAtrasadosDia {
   date: string;
+  /**
+   * `[PGP.95]` Los pendientes que Kepler **todavía no** salda: éstos sí están atrasados. Antes
+   * contaba todos los pendientes, y 30 de 71 ($6.05 M, medido 2026-11-06) ya estaban pagados.
+   */
   pagos: number;
   monto: number;
+  /** `[PGP.95]` Los pendientes que Kepler ya saldó por completo: no faltan, se dicen aparte. */
+  conciliados: number;
+  conciliados_monto: number;
 }
 
 export interface PaymentCalendarAllocation {
@@ -221,6 +229,12 @@ export interface PaymentCalendarAllocation {
    * `amount_assigned` ya es NETO (lo que sale del banco); lo cubierto es la suma de ambos.
    */
   discount_total: number;
+  /**
+   * `[PGP.94]` **Lo que Kepler hizo con este pago**: si sus facturas quedaron saldadas, con qué
+   * documento (folio, fecha, cuenta) y su comprobante PDF. Lo deriva el servidor al leer el día;
+   * no se guarda. `null` sólo si el servidor no lo calculó (respuesta vieja): NO MEDIDO.
+   */
+  kepler_cierre: CierreKeplerPago | null;
   items: PaymentCalendarAllocationItem[];
 }
 

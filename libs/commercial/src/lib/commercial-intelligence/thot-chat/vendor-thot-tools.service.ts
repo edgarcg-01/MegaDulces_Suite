@@ -337,7 +337,9 @@ export class VendorThotToolsService implements ThotToolProvider {
     const orderId = await this.draftId(customerId);
     if (!orderId) return { error: 'No hay borrador para confirmar.' };
     try {
-      await this.orders.place(orderId); // draft → confirmed (idempotente, toma de pedido de campo)
+      // draft → confirmed (idempotente, toma de pedido de campo). [DN.8] Con su propia marca de versión:
+      // si el borrador ya traía fecha (un pedido reabierto), el registro de lo negado lo separa de la PWA.
+      await this.orders.place(orderId, { client_build: 'vendor-thot' });
       const cart = await this.cartSummary(orderId);
       return { ok: true, confirmed: true, folio: cart.folio, total: cart.total, status: cart.status };
     } catch (e: any) { return { error: e?.message || 'no se pudo confirmar el pedido' }; }

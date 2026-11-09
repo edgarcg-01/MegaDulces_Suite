@@ -20,8 +20,9 @@ import { OrderStockService } from './order-stock.service';
 import { QuotePricingService, rungDeRotulo, type Ladder, type Rung } from '../commercial-quotes/quote-pricing.service';
 import type { Knex } from 'knex';
 import { SURTIDO_DE_RUTA } from '../presale-picking/presale-route.engine';
-import { bloqueosAlAgregar, llaveDestino, skusDeKepler } from '../commercial-inventory/stock-state';
-import type { PresalePickRestore, StockBlockError } from '@megadulces/contracts';
+import { revisionDeRenglones, llaveDestino, skusDeKepler, type DestinoRenglon } from '../commercial-inventory/stock-state';
+import { completarRegistro, marcaDeVersion, marcarAlAgendar } from './order-stock-notices';
+import type { LineStockReview, PresalePickRestore, StockState } from '@megadulces/contracts';
 import { INVOICE_ISSUER_PORT, InvoiceIssuerPort, IssueInvoiceInput, IssueInvoiceResult } from '@megadulces/contracts';
 
 // ─────────── tipos ───────────
@@ -69,6 +70,13 @@ export interface UpdateOrderDraftDto {
   notes?: string;
   delivery_type?: DeliveryType;
   requested_delivery_date?: string | null;
+  /**
+   * `[DN.8]` Sólo en `place`: la versión de la app que agenda (p. ej. `vendor@2026-11-07.dn11a`). Se
+   * guarda en lo registrado para Compras (`order_stock_notices.client_build`) para medir por versión:
+   * la PWA vieja todavía bloquea en el teléfono y no la manda. Saneada (`marcaDeVersion`); no cambia
+   * nada del pedido.
+   */
+  client_build?: string;
 }
 
 export interface AddLineDto {
@@ -379,8 +387,10 @@ export class CommercialOrdersService {
   }
 
   /**
-   * `[MCP.3.16]` ¿El que está armando el pedido es el VENDEDOR en su app? Sólo a él se le bloquea
-   * agregar un producto que su sucursal no tiene (la regla de David con su PM, 2026-10-27).
+   * `[MCP.3.16]` ¿El que está armando el pedido es el VENDEDOR en su app? Sólo a él se le revisa la
+   * existencia al agregar (`[DN.7]`) y sólo sus pedidos de preventa se registran al agendar
+   * (`[DN.8]`). Hasta ADR-115 (2026-11-07) esta misma señal BLOQUEABA el renglón (la regla de David
+   * con su PM, 2026-10-27); ahora el renglón se guarda siempre.
    *
    * La señal es la CLAVE `VENDOR_APP_ACCESS` en el rol del usuario (`identity.role_permissions`):
    * es la misma que abre la app del vendedor (catálogo, tira de la zona, cartera) y en prod la
@@ -391,7 +401,7 @@ export class CommercialOrdersService {
    *
    * Quedan fuera a propósito: `customer_b2b` (aunque un día le dieran la clave) y los admins de
    * plataforma, que pasan todos los permisos por rol (god-mode) y no por esta clave: un superadmin
-   * en el escritorio no es un vendedor en campo. Lectura en SAVEPOINT: si falla, NO se bloquea.
+   * en el escritorio no es un vendedor en campo. Lectura en SAVEPOINT: si falla, se responde `false`.
    */
   private async esTomaDelVendedor(trx: Knex.Transaction): Promise<boolean> {
     const rol = this.tenantCtx.get()?.roleName;
@@ -408,14 +418,42 @@ export class CommercialOrdersService {
         return (rows as unknown[]).length > 0;
       });
     } catch (e) {
-      this.logger.warn(`[MCP.3.16] no se pudo leer el rol ${rol}; no se bloquea por existencia: ${(e as Error).message}`);
+      this.logger.warn(`[MCP.3.16] no se pudo leer el rol ${rol}; no se revisa ni se registra existencia: ${(e as Error).message}`);
       return false;
     }
   }
 
-  /** `[MCP.3.16]` El 409 del bloqueo: el cuerpo es exactamente `StockBlockError`. */
-  private sinExistencia(b: StockBlockError): ConflictException {
-    return new ConflictException(b);
+  /**
+   * `[DN.7]` (ADR-115) La revisión de existencia de UN renglón que el vendedor agrega. **Ya no
+   * bloquea**: antes su resultado se lanzaba como 409 `SIN_EXISTENCIA` y el renglón no se guardaba
+   * (ni quedaba rastro de lo que el cliente pidió); ahora el renglón se guarda y esto viaja en la
+   * respuesta. En SAVEPOINT: si la lectura falla, el renglón se guarda igual y la revisión dice
+   * `sin_dato`, nunca «con existencia» (ADR-056). `null` = no se revisa (una promoción).
+   */
+  private async revisarRenglon(
+    trx: Knex.Transaction,
+    orderWarehouseId: string,
+    destino: DestinoRenglon,
+  ): Promise<LineStockReview | null> {
+    try {
+      return await trx.transaction(async (sp) =>
+        (await revisionDeRenglones(sp, orderWarehouseId, [destino])).get(llaveDestino(destino)) ?? null);
+    } catch (e) {
+      this.logger.warn(`[DN.7] no se pudo revisar la existencia de ${destino.product_id}: ${(e as Error).message}`);
+      return {
+        state: 'sin_dato', qty: null, insuficiente: false, product_id: destino.product_id, product_name: '',
+        warehouse_id: destino.warehouse_id, warehouse_short: '', checked_at: null, alternatives: [],
+        message: 'No se pudo revisar la existencia.',
+      };
+    }
+  }
+
+  /** `[DN.7]` Lo que viaja con el renglón guardado: su estado de existencia (o `null` si no se revisó). */
+  private conRevision<T extends object>(fila: T, revision: LineStockReview | null): T & {
+    stock_state: StockState | null;
+    stock_review: LineStockReview | null;
+  } {
+    return { ...fila, stock_state: revision?.state ?? null, stock_review: revision };
   }
 
   /**
@@ -760,9 +798,10 @@ export class CommercialOrdersService {
       const order = await this.requireDraft(trx, orderId);
       await this.enforceOrderOwnership(trx, order);
 
-      // [MCP.3.16] ¿Lo agrega el vendedor desde su app? Sólo a él se le bloquea por existencia (abajo).
+      // [DN.7] ¿Lo agrega el vendedor desde su app? Sólo a él se le revisa la existencia (abajo): ya no
+      // se le bloquea (ADR-115), el estado viaja en la respuesta.
       // Un duplicado legado se guarda con SU product_id, no con el de su gemelo: la regla 3 pide usar
-      // la EXISTENCIA del gemelo (eso lo hace `bloqueosAlAgregar` vía `gemelosDe`), no cambiar el
+      // la EXISTENCIA del gemelo (eso lo hace `revisionDeRenglones` vía `gemelosDe`), no cambiar el
       // producto. Cambiarlo rompía la pantalla: la fila del legado nunca encontraba su renglón,
       // volvía a 0 y cada «+» sumaba en silencio al renglón del gemelo.
       const esVendedor = await this.esTomaDelVendedor(trx);
@@ -826,16 +865,8 @@ export class CommercialOrdersService {
           })
           .returning('*');
         await this.recalcOrderTotals(trx, orderId);
-        return merged;
-      }
-
-      // [MCP.3.16] Renglón NUEVO desde la app del vendedor: si su sucursal de surtido está agotada
-      // o no lo maneja (lectura al día), no se agrega y se dice por qué. `sin_dato` no bloquea.
-      // Sumar a un renglón que ya existe (arriba) no es «agregar» y no se frena.
-      if (esVendedor) {
-        const destino = { product_id: dto.product_id, warehouse_id: whPrecio };
-        const bloqueo = (await bloqueosAlAgregar(trx, order.warehouse_id, [destino])).get(llaveDestino(destino));
-        if (bloqueo) throw this.sinExistencia(bloqueo);
+        // Sumar a un renglón que ya existe no es «agregar»: no se revisa (como antes no se frenaba).
+        return this.conRevision(merged, null);
       }
 
       const discount = dto.discount_percent ?? 0;
@@ -900,7 +931,13 @@ export class CommercialOrdersService {
         .returning('*');
 
       await this.recalcOrderTotals(trx, orderId);
-      return line;
+      // [DN.7] Renglón NUEVO desde la app del vendedor: se GUARDA aunque su sucursal de surtido esté
+      // agotada o no lo maneje (hasta ADR-115 era un 409 y lo que el cliente pidió se perdía sin
+      // rastro). Su estado viaja en la respuesta; el registro para Compras lo hace `place()` (DN.8).
+      const revision = esVendedor
+        ? await this.revisarRenglon(trx, order.warehouse_id, { product_id: dto.product_id, warehouse_id: whPrecio, quantity: qtyBase })
+        : null;
+      return this.conRevision(line, revision);
     });
   }
 
@@ -950,12 +987,11 @@ export class CommercialOrdersService {
       const order = await this.requireDraft(trx, orderId);
       await this.enforceOrderOwnership(trx, order);
 
-      // [MCP.3.16] El lote NO bloquea por existencia, a propósito. Es el camino de la sincronización
+      // [MCP.3.16] El lote NO revisa existencia, a propósito. Es el camino de la sincronización
       // offline (createDraft → PUT lines → place), que no lee `skipped` y coloca el pedido enseguida:
       // omitir aquí un renglón lo hacía desaparecer de un pedido ya cerrado sin que el vendedor ni el
-      // cliente se enteraran (y sin conexión la app tampoco bloquea: no sabe de cuándo es la
-      // existencia). El bloqueo vive donde se le puede decir al vendedor por qué: addLine y
-      // updateLine (409). El pedido sugerido lo filtra la pantalla antes de mandarlo.
+      // cliente se enteraran. [DN.8] Lo que llegue sin existencia lo registra `place()` al agendar,
+      // igual que en línea (ADR-115: ya nada bloquea). El pedido sugerido lo filtra la pantalla.
       await trx('commercial.order_lines').where({ order_id: orderId }).del();
 
       const skipped: { product_id: string; reason: string }[] = [];
@@ -1181,14 +1217,11 @@ export class CommercialOrdersService {
       if (discount < 0 || discount > 1)
         throw new BadRequestException('discount_percent en [0..1]');
 
-      // [MCP.3.16] Desde la app del vendedor, cambiar la sucursal de surtido (o subir un renglón
-      // que estaba en 0) es AGREGAR en esa sucursal: si está agotada o no lo maneja, no se hace.
-      // Ajustar la cantidad de un renglón que ya tenía algo no se frena.
-      if ((cambioOrigen || (prevQty <= 0 && quantity > 0)) && (await this.esTomaDelVendedor(trx))) {
-        const destino = { product_id: line.product_id as string, warehouse_id: whPrecio as string };
-        const bloqueo = (await bloqueosAlAgregar(trx, order.warehouse_id, [destino])).get(llaveDestino(destino));
-        if (bloqueo) throw this.sinExistencia(bloqueo);
-      }
+      // [DN.7] Desde la app del vendedor, cambiar la sucursal de surtido (o subir un renglón que estaba
+      // en 0) es AGREGAR en esa sucursal: se revisa su existencia y el estado viaja en la respuesta.
+      // Hasta ADR-115 esto era un 409 y el cambio no se hacía. Ajustar la cantidad de un renglón que
+      // ya tenía algo no se revisa (tampoco se frenaba).
+      const revisar = (cambioOrigen || (prevQty <= 0 && quantity > 0)) && (await this.esTomaDelVendedor(trx));
 
       // En pending_approval el vendedor solo puede RECORTAR la cantidad: nunca
       // entregar más de lo que el cliente pidió. La cantidad pedida queda
@@ -1252,7 +1285,12 @@ export class CommercialOrdersService {
         .returning('*');
 
       await this.recalcOrderTotals(trx, orderId);
-      return updated;
+      const revision = revisar
+        ? await this.revisarRenglon(trx, order.warehouse_id, {
+            product_id: line.product_id as string, warehouse_id: whPrecio as string, quantity,
+          })
+        : null;
+      return this.conRevision(updated, revision);
     });
   }
 
@@ -1700,7 +1738,12 @@ export class CommercialOrdersService {
     if (!UUID_REGEX.test(orderId))
       throw new BadRequestException('orderId inválido');
 
-    return this.tk.run(async (trx) => {
+    // [DN.8] El paso 2 del registro corre después del commit, en otra transacción: se lleva el tenant
+    // explícito (no depende del contexto de la petición, que ya habrá respondido).
+    const tenantId = this.tenantCtx.requireTenantId();
+    // (`as`: se asigna dentro del callback y TS no sigue esa asignación; sin esto lo estrecha a `null`.)
+    let registro = null as { root: string | null; marcadas: number } | null;
+    const tomado = await this.tk.run(async (trx) => {
       // FOR UPDATE (Fix #4): bloqueo del pedido → evita doble reserva de stock si
       // el device reintenta place (o el vendedor da doble-tap) de forma solapada.
       const order = await trx('commercial.orders').where({ id: orderId }).forUpdate().first();
@@ -1737,6 +1780,10 @@ export class CommercialOrdersService {
         }
       }
 
+      // [DN.8] La raíz del grupo ANTES de separar: a una parte reabierta `separarPorSucursal` le cambia
+      // `group_id`, y lo registrado para Compras tiene que seguir contando en el grupo original.
+      const raizAntes: string = order.group_id ?? order.id;
+
       // [MCP.3.13] Pedido agrupado: los renglones que se surten en OTRA sucursal de la zona se
       // mueven a su parte (otro pedido de esa sucursal, mismo grupo) y cada parte se toma igual que
       // el principal. Sólo en borrador; en el mismo lock: un reintento ya ve el pedido confirmado.
@@ -1746,8 +1793,60 @@ export class CommercialOrdersService {
       for (const parte of partes) {
         await this.tomarEnCampo(trx, parte, userId, { avisarCliente: false, partes: 0 });
       }
+      // [DN.8] Paso 1 del registro para Compras: la marca de cada renglón, en esta misma transacción.
+      registro = await this.marcarParaCompras(trx, order, [order.id, ...partes.map((p) => p.id)], userId, dto.client_build, raizAntes);
       return partes.length ? { ...updated, group_parts: partes.length + 1 } : updated;
     });
+    // [DN.8] Paso 2, ya con el pedido confirmado y el candado suelto.
+    if (registro?.root && registro.marcadas > 0) this.completarRegistroDespues(tenantId, registro.root);
+    return tomado;
+  }
+
+  /**
+   * `[DN.8]` (ADR-115) Paso 1 del registro de lo que el cliente pidió y puede no haber: una marca
+   * `pendiente` por renglón del grupo (principal y partes), dentro de la transacción de `place()`.
+   *
+   * Sólo la preventa por ruta de la app del vendedor (`esTomaDelVendedor`, con fecha de entrega y
+   * `delivery_type = 'route'`), en línea o sincronizada sin conexión (el mismo `place`). La entrega a
+   * domicilio, el portal, la televenta y el asistente quedan fuera (anexo A §6).
+   *
+   * ⛔ Nunca hace fallar el agendado: va en SAVEPOINT y su error sólo se registra en el log. Un pedido
+   * sin marcas es un hueco que la métrica declara (por versión de la app), no un pedido perdido.
+   */
+  private async marcarParaCompras(
+    trx: Knex.Transaction,
+    order: PedidoFila,
+    orderIds: string[],
+    userId: string | null,
+    clientBuild: unknown,
+    raizRespaldo: string,
+  ): Promise<{ root: string | null; marcadas: number } | null> {
+    if (!order.requested_delivery_date || order.delivery_type !== 'route') return null;
+    if (!(await this.esTomaDelVendedor(trx))) return null;
+    try {
+      return await trx.transaction((sp) =>
+        marcarAlAgendar(sp, orderIds, { userId, clientBuild: marcaDeVersion(clientBuild), raizRespaldo }));
+    } catch (e) {
+      this.logger.error(`[DN.8] no se registró lo agendado en ${order.code} para Compras: ${(e as Error).message}`);
+      return null;
+    }
+  }
+
+  /**
+   * `[DN.8]` Paso 2, sin esperar: completa la existencia de las marcas del grupo en otra transacción.
+   * Si falla o el proceso muere, las marcas siguen `pendiente` y el barrido las declara `sin_dato`.
+   */
+  private completarRegistroDespues(tenantId: string, rootOrderId: string): void {
+    // `Promise.resolve().then(…)`: ni un error síncrono de `tk.run` puede salir de aquí hacia `place()`.
+    void Promise.resolve()
+      .then(() => this.tk.run(tenantId, (trx) => completarRegistro(trx, rootOrderId)))
+      .then((r) => {
+        if (r.negadas || r.sinDato) {
+          this.logger.log(`[DN.8] raíz ${rootOrderId}: ${r.negadas} sin existencia y ${r.sinDato} sin dato de ${r.completadas} renglones`);
+        }
+      })
+      .catch((e: unknown) =>
+        this.logger.warn(`[DN.8] no se completó el registro de la raíz ${rootOrderId}; el barrido lo declarará sin_dato: ${(e as Error)?.message}`));
   }
 
   /**

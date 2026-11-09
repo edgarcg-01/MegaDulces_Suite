@@ -14,6 +14,34 @@ export const MONTHS_ES: Record<string, string> = {
 };
 
 /**
+ * `[PGP.97.1]` **El periodo de un workbook, por el nombre de su archivo.**
+ *
+ * ⛔ El caso que lo trajo (medido en prod el 2026-11-07): el 5-nov se subió «11 NOVIEMBRE.xlsx»
+ * —896 movimientos del 1 al 5-nov—. La regla vieja exigía mes **y** año («NOVIEMBRE 2026»); sin
+ * año caía al periodo SELECCIONADO en pantalla, que era octubre, y la siguiente subida de octubre
+ * barrió esos movimientos por «ya no venir en el archivo». Noviembre quedó en cero y la guía de
+ * Salidas del banco, ciega.
+ *
+ * Ahora: con mes y año, ese periodo. Con mes sin año, el año es el de HOY, salvo que ese mes
+ * todavía no llegue (un «DICIEMBRE» subido en enero es del año pasado). Sin mes en el nombre, el
+ * periodo seleccionado, como antes. `null` = no se pudo decidir.
+ */
+export function periodoDelArchivo(nombre: string, seleccionado: string | null | undefined, hoy: Date = new Date()): string | null {
+  const t = nombre.toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const meses = Object.keys(MONTHS_ES).join('|');
+  // El año es 20xx: un «OCTUBRE_1463.xlsx» trae la CUENTA, no el año (lo encontró la revisión).
+  const conAnio = t.match(new RegExp(`(${meses})[\\s_.-]*(20\\d{2})(?!\\d)`));
+  if (conAnio) return `${conAnio[2]}-${MONTHS_ES[conAnio[1]]}`;
+  const soloMes = t.match(new RegExp(`(?:^|[^A-Z])(${meses})(?![A-Z])`));
+  if (soloMes) {
+    const mes = Number(MONTHS_ES[soloMes[1]]);
+    const anio = mes > hoy.getMonth() + 1 ? hoy.getFullYear() - 1 : hoy.getFullYear();
+    return `${anio}-${MONTHS_ES[soloMes[1]]}`;
+  }
+  return seleccionado || null;
+}
+
+/**
  * Vistas de trabajo del segmento (Cierre = home). Admin vive aparte en el engrane.
  * Consolidación 2026-08-13: la comparación de fuentes vive SOLO en `cuadre` (3-4 vías +
  * drill a movimiento). `comparador` (Excel↔Kepler) fue ELIMINADO (cubierto por el drill

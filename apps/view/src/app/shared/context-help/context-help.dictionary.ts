@@ -795,7 +795,8 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
           { term: '+N sin valuar', def: 'Productos con existencia que no entran a la suma: no tienen costo estándar, o su unidad no casa con la del ERP en ninguna presentación (pieza, paquete o caja). Se cuentan aparte en vez de sumarlos con un costo equivocado.' },
           { term: 'sin foto', def: 'Ese día no se tomó la foto de esa sucursal. No es cero: no se sabe.' },
           { term: 'pendiente', def: 'El cierre de hoy: la foto se toma a las 23:50.' },
-          { term: 'no confiable', def: 'El CEDIS, antes de que la foto leyera la existencia del ERP: repetía el mismo saldo todos los días. Se puede abrir, pero no entra al total.' },
+          { term: 'no confiable', def: 'El CEDIS antes de su paso a Kepler (30 de septiembre de 2026): operaba en Wincaja y la foto repetía el mismo saldo todos los días. La existencia de Wincaja no casa con la de Kepler (otra unidad, otros productos), así que no se reconstruye. Se puede abrir, pero no entra al total.' },
+          { term: 'CEDIS reconstruido', def: 'Del 30 de septiembre de 2026 hasta que la foto empezó a leer la existencia del ERP, la foto del CEDIS también estaba congelada. Los días de ese tramo que sí tienen foto, su existencia se reconstruye con el kardex de Kepler: la existencia de hoy menos lo que se movió después de ese día. Sí entra al total; el aviso de arriba y el desglose lo dicen.' },
           { term: 'Total', def: 'Suma sólo las sucursales medidas ese día. Si alguna no entró, el total lo dice y nombra cuáles.' },
           { term: 'Existencia (en el desglose)', def: 'La cantidad de ese cierre en la unidad del ERP de esa sucursal: pieza, paquete o caja según el producto. El costo estándar va en la MISMA unidad, por eso existencia × costo da el valor.' },
           { term: 'Ícono de reloj', def: 'El producto se valuó con un estándar posterior a ese día: antes del 17 de octubre de 2026 no hay historia del estándar y se usa el primero conocido.' },
@@ -2782,6 +2783,44 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
   // `[PGP.7]` La pantalla absorbió a Pronto pago y quedó como el único lugar donde se hace un
   // pago. Sin esta entrada, lo absorbido llega sin explicación: el chip del descuento vivía con
   // su definición metida en un `title`, que sólo existe para quien tiene mouse (regla P).
+  // `[PGP.97]` Salidas del banco: la guía de quien elabora el pago en Kepler. Palabra llana.
+  'salidas-del-banco': {
+    title: 'Salidas del banco — lo que salió, contra Kepler y contra el programa',
+    intro:
+      'Cada transferencia o cheque que Tesorería marcó en el workbook de bancos como pago a proveedor se busca en Kepler y en el Calendario de pagos. Nada de esto se escribe: la pantalla sólo lee el banco, Kepler y el Calendario.',
+    groups: [
+      {
+        heading: 'Contra Kepler',
+        entries: [
+          { term: 'En Kepler', def: 'Kepler tiene un pago (transferencia, cheque o anticipo) en la misma cuenta, por el mismo importe (±$1) y a 5 días o menos. Medido en octubre de 2026: así se encuentran 239 de 244 salidas, casi todas el mismo día; con las fechas corridas un mes no se encuentra ninguna.' },
+          { term: 'En espera', def: 'Todavía no está en Kepler, pero salió hace 7 días o menos. Kepler suele capturar un pago 2 días después (9 de cada 10, en 6 días); antes de 7 días no es un faltante.' },
+          { term: 'Falta', def: 'Salió del banco hace más de 7 días y Kepler no tiene su pago. Hay que elaborarlo en Kepler: la deuda sigue viva allá y el proveedor aparece como no pagado.' },
+          { term: 'Varios documentos', def: 'A veces Kepler captura UNA transferencia como un documento por sucursal, o como transferencia más anticipo. Si juntos suman lo que salió del banco, la salida está en Kepler: se listan todos.' },
+          { term: 'Por corregir', def: 'Kepler sí tiene el pago, pero con otra cuenta de tesorería o con un importe poco distinto; o Kepler tiene un pago y el banco —cargado ese día y 3 días después— no muestra la salida (captura doble, envío devuelto). No se captura otra vez: se corrige.' },
+        ],
+      },
+      {
+        heading: 'A quién se le pagó (cuando Kepler todavía no lo dice)',
+        entries: [
+          { term: 'Evidencia fuerte', def: 'El concepto del banco apunta a un solo acreedor (porque ese mismo concepto ya le pagó antes, o porque se parece a su nombre) y sus facturas vivas suman el importe. En octubre acertó en todos los casos.' },
+          { term: 'Evidencia débil', def: 'Una sola señal: el nombre o el importe de una factura. Acierta 8 de cada 10: revísala antes de capturar.' },
+          { term: 'Facturas que salda', def: 'Facturas vivas en Kepler del acreedor propuesto que, solas o juntas (hasta 4), suman el importe al centavo.' },
+        ],
+      },
+      {
+        heading: 'Contra el programa',
+        entries: [
+          { term: 'Pasó por el programa', def: 'Alguna factura que el pago saldó estaba en el Calendario para ese día (3 días antes o después) y se programó antes de pagarla.' },
+          { term: 'Fuera del programa', def: 'Se pagó sin estar programada: nunca estuvo, estaba para otro día, se quitó del día y se pagó igual, o se programó después de pagar. La meta es que el 100 % pase por el programa.' },
+          { term: 'Anticipo', def: 'Un pago que no salda ninguna factura. Hoy el Calendario no programa anticipos, así que siempre quedan fuera.' },
+        ],
+      },
+    ],
+    resolve: [
+      { heading: 'Si dice «Falta»', kind: 'fix', steps: ['Ubica la transferencia en la banca en línea por la fecha, la cuenta y el importe.', 'Confirma el acreedor y las facturas propuestas. Si el renglón avisa que Kepler ya tiene un pago de ese acreedor ese día que no cuadra, revísalo antes: puede ser el mismo pago capturado distinto.', 'Elabora el pago en Kepler con esa cuenta de tesorería, ese importe y la fecha valor de la salida del banco (no la de hoy). Cuando Kepler ya lo tiene, el renglón sale de «Sin pago en Kepler»; si se pagó sin programarlo, pasa a «Pagado fuera del programa».'] },
+      { heading: 'Si no hay renglones', kind: 'info', steps: ['Mira hasta qué día están cargados los bancos (arriba). Un día sin estado de cuenta no es un día sin pendientes.'] },
+    ],
+  },
   'calendario-de-pagos': {
     title: 'Calendario de pagos — todo el pago, en un solo lugar',
     intro:

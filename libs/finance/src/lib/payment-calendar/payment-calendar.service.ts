@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { Knex } from 'knex';
-import { TenantKnexService, TenantContextService, ObjectStorageService, applySmartSearch } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, ObjectStorageService, applySmartSearch, toMxDateKey, todayMx } from '@megadulces/platform-core';
 import { BUDGET_LEDGER_PORT, type BudgetLedgerPort } from '../budget/budget-ledger.port';
 import { GRUPOS_FINANCIEROS, PREFIJOS_FINANCIEROS } from '../creditor-statements/creditor-statements.engine';
 import { sqlKeplerPayableId } from '@megadulces/contracts/finance/kepler-payable-key';
@@ -10,6 +10,10 @@ import { destinosSugeridos, type FilaComprobanteClabe } from './destino-sugerido
 import { SupplierPaymentAccountsService } from '../supplier-payment-accounts/supplier-payment-accounts.service';
 import type { DiscountReason, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarItemDiscountResult, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 import { assertDescuentoPermitido, descuentoSobreCubierto, normalizarDescuento, round2 } from './descuento-al-pagar';
+import { cierreCompleto, type CierreKeplerPago } from '@megadulces/contracts';
+import { SQL_CIERRE_KEPLER, armarCierres, idsParaCierre, type FilaCierreKepler, type ItemParaCierre, type PagoParaCierre } from './cierre-kepler.sql';
+import { leerGuiaFueraDePrograma, ventanaFueraDePrograma } from './fuera-de-programa.sql';
+import type { GuiaFueraDePrograma } from '@megadulces/contracts';
 
 export type ObligationSource = 'budget_expense' | 'financial_commitment' | 'supplier_payable' | 'kepler_payable';
 
@@ -1272,6 +1276,13 @@ export class PaymentCalendarService {
           originKind.set(r.id, r.kind || 'bank');
         }
       }
+      // `[PGP.94]` Lo que Kepler hizo con cada pago: folio, fecha, cuenta y comprobante. Una consulta
+      // por día, sea cual sea su número de pagos.
+      const cierres = await this.cierresKepler(
+        trx,
+        allocations.map((a: AllocationRowLite) => ({ id: a.id, lotDate: date, alta: toMxDateKey(a['created_at'] as Date | string | null) || date })),
+        items as { allocation_id: string; obligation_source: string; obligation_id: string }[],
+      );
       return allocations.map((a: AllocationRowLite) => {
         // `[PGP.91]` `numeric` llega como texto del driver: el descuento sale como número, y la
         // tasa como número o null (null = se capturó en pesos, no hay tasa que decir).
@@ -1306,6 +1317,7 @@ export class PaymentCalendarService {
           pronto_deja_pasar: Math.round(dejaPasar * 100) / 100,
           // `[PGP.91]` Lo que el proveedor descontó al pagar. `amount_assigned` sigue siendo el neto.
           discount_total: round2(its.reduce((s, it) => s + it.discount_amount, 0)),
+          kepler_cierre: cierres.get(a.id) ?? null,
           items: its,
         };
       });
@@ -1588,17 +1600,80 @@ export class PaymentCalendarService {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const { rows } = await trx.raw(
-        `SELECT l.lot_date::text AS date, count(*)::int AS pagos, sum(a.amount_assigned)::float8 AS monto
+        `SELECT a.id, l.lot_date::text AS date, a.amount_assigned::float8 AS monto,
+                to_char(a.created_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS alta
            FROM finance.payment_allocations a
            JOIN finance.payment_calendar_lots l ON l.id = a.lot_id
           WHERE a.tenant_id = ? AND a.status = 'pending'
             AND l.lot_date < (now() AT TIME ZONE 'America/Mexico_City')::date
-          GROUP BY l.lot_date
           ORDER BY l.lot_date`,
         [tenantId],
       );
-      return rows as PagosAtrasadosDia[];
+      const pend = rows as { id: string; date: string; monto: number; alta: string }[];
+      if (!pend.length) return [];
+      /*
+       * `[PGP.95]` **Un pago que Kepler ya saldó no está atrasado.** Medido el 2026-11-06: de los 71
+       * pagos pendientes en días pasados, 30 ($6.05 M) ya estaban pagados en Kepler y el aviso los
+       * contaba como «siguen en días que ya pasaron». Ahora `pagos`/`monto` son sólo los que de
+       * verdad faltan; los saldados se dicen aparte (`conciliados`), no desaparecen.
+       */
+      const items = await trx('finance.payment_allocation_items').whereIn('allocation_id', pend.map((p) => p.id))
+        .select('allocation_id', 'obligation_source', 'obligation_id');
+      const cierres = await this.cierresKepler(trx, pend.map((p) => ({ id: p.id, lotDate: p.date, alta: p.alta })), items);
+      const porDia = new Map<string, PagosAtrasadosDia>();
+      for (const p of pend) {
+        const d = porDia.get(p.date) ?? { date: p.date, pagos: 0, monto: 0, conciliados: 0, conciliados_monto: 0 };
+        if (cierreCompleto(cierres.get(p.id))) { d.conciliados += 1; d.conciliados_monto = round2(d.conciliados_monto + Number(p.monto)); }
+        else { d.pagos += 1; d.monto = round2(d.monto + Number(p.monto)); }
+        porDia.set(p.date, d);
+      }
+      return [...porDia.values()];
     });
+  }
+
+  /**
+   * `[PGP.97]` **Lo que salió del banco a un proveedor, contra Kepler y contra el programa.** La
+   * guía del área de pagos: qué transferencias del workbook todavía no tienen su pago en Kepler, y
+   * cuáles salieron sin pasar por el Calendario. Sólo lectura, sin tablas nuevas: la lectura vive
+   * en `fuera-de-programa.sql.ts` y la regla en `salida-proveedor.contract.ts`.
+   *
+   * ⛔ Va en este servicio y no en uno propio a propósito: no toca ningún constructor ni firma
+   * inyectada (el arranque de #414 se cayó por una) — usa `tk` y `tenantCtx`, que ya están.
+   */
+  async fueraDePrograma(desde?: string, hasta?: string): Promise<GuiaFueraDePrograma> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const hoy = todayMx();
+    const v = ventanaFueraDePrograma(desde, hasta, hoy);
+    if ('error' in v) throw new BadRequestException(v.error);
+    return this.tk.run((trx) => leerGuiaFueraDePrograma(trx, tenantId, v.desde, v.hasta, hoy));
+  }
+
+  /**
+   * `[PGP.94]` **El cierre de cada pago contra lo que Kepler hizo de verdad** — sin importer: lee
+   * `kepler_ods` en el momento (regla 1). Por factura del pago: lo que todavía se debe, y los
+   * documentos de Kepler que la tocaron (`kdxf`, abono → cargo), con su fecha, su cuenta de
+   * tesorería y el comprobante PDF subido para ese pago. La regla que lo convierte en estado vive
+   * en `cierre-kepler.contract.ts`.
+   *
+   * ⛔ **Misma cuenta que `analytics.v_supplier_payables`**, columna por columna: aplicaciones por
+   * `(sucursal, tipo, subtipo, btrim(folio))` de la factura, y fuera las de un pago CANCELADO con
+   * el cruce de `[PGP.67]` (`kdm1.c43 = 'C'`, con el proveedor y el folio sin `btrim`, porque el
+   * folio colisiona). Si se separan, el renglón diría «el ERP ya no la debe» y el cierre «sin pagar».
+   * Medido el 2026-11-06: 707 de 11,955 aplicaciones de `kdxf` desde septiembre son de cancelados.
+   *
+   * Sólo las facturas `kepler_payable` se miden; las demás quedan `sin_medir` (ADR-056).
+   */
+  private async cierresKepler(
+    trx: Knex.Transaction,
+    pagos: PagoParaCierre[],
+    items: ItemParaCierre[],
+  ): Promise<Map<string, CierreKeplerPago>> {
+    if (!pagos.length) return new Map();
+    const ids = idsParaCierre(items);
+    const filas = ids.length
+      ? ((await trx.raw(SQL_CIERRE_KEPLER, [ids, this.tenantCtx.requireTenantId()])).rows as FilaCierreKepler[])
+      : [];
+    return armarCierres(pagos, items, filas);
   }
 
   async originAccounts(): Promise<PaymentOriginAccount[]> {

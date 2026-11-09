@@ -498,17 +498,19 @@ export class KpService {
       // INTERNO corto tecleado sin ceros a la izquierda (ej. "123") contra `c1` almacenado
       // como "00123" — nunca debe activarse para un barcode (8-13 dígitos), así que se
       // condiciona a que el código escaneado mida 5 caracteres o menos.
+      //
+      // `[VAC.P1]` Las 7 columnas van como UN arreglo con `@>` y no como 7 `OR`: así las sirve el
+      // índice GIN `ix_kdii_codigos_verificador`, y la clave corta el `ix_kdii_clave_lpad5`
+      // (mig 20261107115424). Con los `OR` cada escaneo barría las 86,132 filas de `kdii`
+      // (62–66 ms medidos en prod el 2026-11-07); con el índice, <1 ms. Mismas filas: 428 códigos
+      // comparados contra la WHERE vieja, 0 diferencias. ⛔ Las expresiones son las del índice
+      // al carácter: si cambian acá, cambian en la migración, o vuelve el barrido en silencio.
       const rows = await this.query<any>(`
         SELECT ${KpService.COLS_PRECIO}, TRIM(sucursal::text) AS sucursal
         FROM kepler_ods.kdii
-        WHERE TRIM(c1::text) = $1
-           OR (length($1) <= 5 AND LPAD(TRIM(c1::text), 5, '0') = LPAD($1, 5, '0'))
-           OR TRIM(c7::text)  = $1
-           OR TRIM(c82::text) = $1
-           OR TRIM(c93::text) = $1
-           OR TRIM(c95::text) = $1
-           OR TRIM(c96::text) = $1
-           OR TRIM(c85::text) = $1
+        WHERE ARRAY[btrim(c1::text), btrim(c7::text), btrim(c82::text), btrim(c93::text),
+                    btrim(c95::text), btrim(c96::text), btrim(c85::text)] @> ARRAY[$1::text]
+           OR (length($1) <= 5 AND LPAD(btrim(c1::text), 5, '0') = LPAD($1, 5, '0'))
         ORDER BY (TRIM(sucursal::text) = '00'), TRIM(sucursal::text), c1
       `, [code]);
 

@@ -8,6 +8,7 @@ import { buildVisitFormData } from '../http/visit-form-data';
 import { todayMx } from '../utils/mx-date';
 import { haversineMeters } from '../utils/geo';
 import { environment } from '../../../environments/environment';
+import { VENDOR_CLIENT_BUILD } from '../client-build';
 
 // UUID v4 lax (acepta cualquier hex; el FK del backend valida estructura real).
 const UUID_REGEX =
@@ -1196,6 +1197,8 @@ export class OfflineSyncService {
           this.http
             .post<any>(`${this.apiUrl}/commercial/orders/${serverOrderId}/place`, {
               requested_delivery_date: p.requestedDeliveryDate || undefined,
+              // [DN.8] La versión que agenda: lo sincronizado también se mide por versión.
+              client_build: VENDOR_CLIENT_BUILD,
             })
             .pipe(timeout(this.VISIT_POST_TIMEOUT_MS)),
         );

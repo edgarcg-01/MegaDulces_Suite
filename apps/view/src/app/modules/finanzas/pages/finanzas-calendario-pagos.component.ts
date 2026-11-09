@@ -19,6 +19,8 @@ import type {
   DiscountReason, PaymentCalendarItemDiscountBody, PaymentCalendarItemDiscountResult,
 } from '@megadulces/contracts';
 import { warehouseName, DISCOUNT_REASONS, DISCOUNT_REASON_LABEL } from '@megadulces/contracts';
+import { cierreCompleto, esPagoConDinero, nombreTipoPagoKepler, textoCierre, type CierreKeplerPago, type PagoKeplerDelCierre } from '@megadulces/contracts';
+import { PagosComprobantesService } from '../pagos-comprobantes.service';
 import type { SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 import { environment } from '../../../../environments/environment';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
@@ -584,6 +586,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                 @if (saldadasDelDia().length && !day.summary.exceeded) {
                   <span class="pg-sec-saldada"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span class="comm-num">{{ money(saldadasDelDiaTotal()) }}</span> ya no se deben</span>
                 }
+                <!-- [PGP.96] Lo que Kepler ya pagó de este día: no es un aviso, es el cierre. -->
+                @if (conciliadosDelDia().length) {
+                  <span class="pg-sec-cierre"><i class="pi pi-check-circle" aria-hidden="true"></i>{{ pagos(conciliadosDelDia().length) }} por <span class="comm-num">{{ money(conciliadosTotal()) }}</span> pagados en Kepler</span>
+                }
               </h3>
               @if (pagosPrimero()) { <span class="pg-sec-tope"><ng-container *ngTemplateOutlet="topeYPaso; context: { $implicit: day }" /></span> }
               <span class="pg-sec-acts">
@@ -741,7 +747,21 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                       @if (porQueHoy(a); as q) { <span [class.pg-why-f]="q.fuerte">{{ q.texto }}</span> } @else { <span class="pg-why-n">—</span> }
                     </td>
                     <td class="pg-c-how" data-l="Cómo sale">
-                      @if (a.kepler_saldadas > 0) {
+                      @if (pagadoEnKepler(a); as c) {
+                        <!-- [PGP.96] Kepler ya lo pagó: se dice con qué documento, y su PDF a un clic. Antes decía
+                             «Ya no se debe: quítalo del día», que en un día pasado era la instrucción equivocada. -->
+                        <span class="pg-cierre">
+                          <i class="pi pi-check-circle" aria-hidden="true"></i>
+                          <span>{{ textoCierre(c) }}</span>
+                          @if (c.pagos[0]; as p) {
+                            <span class="pg-cierre-d">· {{ nombreTipo(p.tipo) }} <span class="comm-num">{{ p.doc_prefix }}-{{ p.folio }}</span>@if (p.cuenta_nombre || p.cuenta) { · {{ p.cuenta_nombre || p.cuenta }} }@if (c.pagos.length > 1) { · y {{ c.pagos.length - 1 }} más }</span>
+                          }
+                          @if (pdfDelCierre(c); as p) {
+                            <button type="button" class="pg-saldada-btn" (click)="abrirComprobante(p)"
+                                    [attr.aria-label]="'Ver el comprobante PDF del pago ' + p.doc_prefix + '-' + p.folio + ' de ' + allocationTitle(a)"><i class="pi pi-file-pdf" aria-hidden="true"></i> PDF</button>
+                          }
+                        </span>
+                      } @else if (a.kepler_saldadas > 0) {
                         <!-- [PGP.35][PGP.48] Lo que el ERP ya no debe, dicho corto; el porqué está en el desglose. -->
                         <span class="pg-saldada">
                           <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
@@ -766,7 +786,9 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                       }
                     </td>
                     <td class="pg-c-act">
-                      @if (a.status === 'pending' && !isReleased()) {
+                      <!-- [PGP.96] Lo que Kepler ya pagó no se mueve ni se quita: ya está hecho. -->
+                      @if (pagadoEnKepler(a)) {
+                      } @else if (a.status === 'pending' && !isReleased()) {
                         @if (diaPasado()) {
                           <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [disabled]="saving()" [attr.aria-label]="'Mover a otro día el pago de ' + allocationTitle(a)" (click)="openReprogram(a)"><span class="pi pi-calendar" aria-hidden="true"></span>&nbsp;Mover</button>
                         } @else if (!noSePuedePagar(a)) {
@@ -796,7 +818,29 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                             <span class="pg-x-d">{{ r.detalle }}</span>
                           </p>
                         }
-                        @if (a.kepler_saldadas > 0) {
+                        @if (a.kepler_cierre?.pagos?.length) {
+                          <!-- [PGP.96] Qué hizo Kepler con este pago, documento por documento (kdxf: el pago aplicado a la factura). -->
+                          <div class="pg-cierre-x">
+                            <p class="pg-x-d">{{ textoCierre(a.kepler_cierre!) }}. Lo registró Kepler; la Suite no lo marcó, lo lee.</p>
+                            <ul class="pg-cierre-l" [attr.aria-label]="'Documentos de Kepler del pago de ' + allocationTitle(a)">
+                              @for (p of a.kepler_cierre!.pagos; track p.sucursal + p.doc_prefix + p.folio) {
+                                <li>
+                                  <span>{{ nombreTipo(p.tipo) }} <span class="comm-num">{{ p.doc_prefix }}-{{ p.folio }}</span></span>
+                                  <span>{{ branchLabel(p.sucursal) }}</span>
+                                  <span class="comm-num">{{ p.fecha ? shortDate(p.fecha) : 'sin fecha' }}</span>
+                                  <span>{{ p.cuenta_nombre || p.cuenta || 'sin cuenta' }}</span>
+                                  <span class="comm-num">{{ money(p.aplicado) }}</span>
+                                  @if (p.comprobante_id) {
+                                    <button type="button" class="pg-saldada-btn" (click)="abrirComprobante(p)"
+                                            [attr.aria-label]="'Ver el comprobante PDF del pago ' + p.doc_prefix + '-' + p.folio"><i class="pi pi-file-pdf" aria-hidden="true"></i> PDF</button>
+                                  } @else if (sinPdfPorque(p); as porque) {
+                                    <span class="pg-x-d">{{ porque }}</span>
+                                  }
+                                </li>
+                              }
+                            </ul>
+                          </div>
+                        } @else if (a.kepler_saldadas > 0) {
                           <p class="pg-x-d">Al armar el día el ERP debía estas facturas. Hoy ya no: se pagaron por fuera o tienen nota de crédito, y marcarlas como pagadas fallaría.</p>
                         }
                         @if (numero(a.discount_total) > 0) {
@@ -1701,6 +1745,15 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-saldada-btn:hover:not(:disabled) { background:var(--overlay-hover); }
     .pg-saldada-btn:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
     .pg-saldada-btn:disabled { opacity:.5; cursor:default; }
+    /* [PGP.96] El cierre que leyo de Kepler: hecho, no trabajo. Icono + texto; el color acompaña. */
+    .pg-cierre { display:flex; align-items:center; gap:var(--sp-1); flex-wrap:wrap; font-size:var(--fs-xs); color:var(--text-main); font-weight:600; }
+    .pg-cierre > .pi { color:var(--ok-fg); }
+    .pg-cierre-d { font-weight:400; color:var(--text-muted); }
+    .pg-sec-cierre { display:inline-flex; align-items:center; gap:var(--sp-1); margin-left:var(--sp-2); font-size:var(--fs-xs); font-weight:600; color:var(--text-muted); }
+    .pg-sec-cierre > .pi { color:var(--ok-fg); }
+    .pg-cierre-x { display:flex; flex-direction:column; gap:var(--sp-1); }
+    .pg-cierre-l { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:var(--sp-1); }
+    .pg-cierre-l li { display:flex; flex-wrap:wrap; align-items:baseline; gap:var(--sp-1) var(--sp-3); font-size:var(--fs-xs); }
     .pg-it-sald { color:var(--bad-fg); font-weight:600; }
     /* [PGP.48] Pagos que se quedaron en dias ya pasados: esta mal, por eso rojo (y con su icono y su palabra). */
     .pg-atr { display:inline-flex; align-items:center; gap:var(--sp-1); border:0; background:transparent; cursor:pointer; font:inherit;
@@ -2578,11 +2631,25 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
      * uno aparta el saldo de sus facturas, que por eso no salían en la lista ni en la propuesta.
      */
     if (!this.isReleased() && this.diaPasado() && this.pendingCount() > 0) {
-      const pend = this.allocations().filter((a) => a.status === 'pending');
+      /*
+       * `[PGP.96]` **Lo que Kepler ya pagó no «no se pagó».** Medido el 2026-11-06: el 3-nov decía
+       * «sus 17 pagos no se pagaron ($4,442,169.62)» y Kepler tenía pagados 30 de los 71 pendientes
+       * de días pasados. Ahora el veredicto cuenta sólo lo que falta y dice aparte lo que se pagó.
+       */
+      const pend = this.pendientesSinPagar();
+      const conc = this.conciliadosDelDia();
+      const totalConc = this.conciliadosTotal();
+      if (!pend.length) {
+        return { tone: 'ok',
+          say: `Este día ya pasó y Kepler registra ${conc.length === 1 ? 'su pago' : `sus ${conc.length} pagos`} (${this.money(totalConc)}).`,
+          why: 'En «Cómo sale» de cada pago está el documento de Kepler que lo saldó: folio, día y cuenta. No hay nada que mover.',
+          action: null };
+      }
       const total = pend.reduce((t, a) => t + Number(a.amount_assigned || 0), 0);
+      const yaPagados = conc.length ? `${conc.length === 1 ? 'Otro ya lo pagó' : `Otros ${conc.length} ya los pagó`} Kepler (${this.money(totalConc)}). ` : '';
       return { tone: 'bad',
-        say: `Este día ya pasó y ${pend.length === 1 ? 'su pago no se pagó' : `sus ${pend.length} pagos no se pagaron`} (${this.money(total)}).`,
-        why: 'Mientras sigan aquí apartan el saldo de sus facturas: no salen en «Agregar facturas» ni en la propuesta. Muévelos a otro día, o quita con la X los que ya no van.',
+        say: `Este día ya pasó y ${pend.length === 1 ? (conc.length ? 'un pago no se pagó' : 'su pago no se pagó') : `${conc.length ? '' : 'sus '}${pend.length} pagos no se pagaron`} (${this.money(total)}).`,
+        why: `${yaPagados}Mientras sigan aquí apartan el saldo de sus facturas: no salen en «Agregar facturas» ni en la propuesta. Muévelos a otro día, o quita con la X los que ya no van.`,
         action: { kind: 'mover', label: pend.length === 1 ? 'Moverlo a otro día' : `Mover los ${pend.length} a otro día`, icon: 'pi-calendar' } };
     }
 
@@ -2921,7 +2988,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   });
   private loadAtrasados(): void {
     this.http.get<PagosAtrasadosDia[]>(`${this.base}/pendientes-atrasados`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (rows) => { this.atrasados.set(rows ?? []); this.atrasadosError.set(false); },
+      // `[PGP.95]` Un día cuyos pendientes ya pagó Kepler no está atrasado: el aviso cuenta sólo lo que falta.
+      next: (rows) => { this.atrasados.set((rows ?? []).filter((d) => Number(d.pagos) > 0)); this.atrasadosError.set(false); },
       error: () => { this.atrasados.set([]); this.atrasadosError.set(true); },
     });
   }
@@ -2955,8 +3023,64 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    * ⛔ El total NO se recorta por cuenta propia: cambiar una cifra publicada sin que nadie lo pida
    * es peor que declararla. Se publica al lado, y quien decide saca el renglón si corresponde.
    */
-  readonly saldadasDelDia = computed(() =>
-    this.allocations().filter((a) => a.status === 'pending' && (a.kepler_saldadas ?? 0) > 0));
+  readonly saldadasDelDia = computed(() => {
+    // `[PGP.96]` Lo que Kepler ya pagó en un día que corrió no es «hay que sacarlo»: es el cierre.
+    const pasado = this.diaPasado();
+    return this.allocations().filter((a) => a.status === 'pending' && (a.kepler_saldadas ?? 0) > 0
+      && !(pasado && cierreCompleto(a.kepler_cierre)));
+  });
+
+  /**
+   * `[PGP.96]` **Los pagos pendientes que Kepler ya saldó por completo**, en un día que ya pasó.
+   * Están pagados aunque nadie los marcó en la Suite: el dinero salió por Kepler y el banco. Medido
+   * el 2026-11-06: ningún día del Calendario se había marcado pagado; de 71 pendientes en días
+   * pasados, 30 ($6.05 M) ya los había pagado Kepler. Sólo en días pasados: en uno por venir, lo que
+   * Kepler ya pagó sigue siendo «quítalo del día» (ocupa el tope de un día que todavía se arma).
+   */
+  readonly conciliadosDelDia = computed(() => {
+    const pasado = this.diaPasado();
+    return pasado ? this.allocations().filter((a) => a.status === 'pending' && cierreCompleto(a.kepler_cierre)) : [];
+  });
+  readonly conciliadosTotal = computed(() => this.conciliadosDelDia().reduce((s, a) => s + Number(a.amount_assigned || 0), 0));
+  /** `[PGP.96]` Los pendientes que de verdad faltan: lo que un día pasado tiene que mover. */
+  readonly pendientesSinPagar = computed(() => {
+    const ya = new Set(this.conciliadosDelDia().map((a) => a.id));
+    return this.allocations().filter((a) => a.status === 'pending' && !ya.has(a.id));
+  });
+  /** `[PGP.96]` El cierre de Kepler del pago, si Kepler ya lo saldó en un día pasado; null si no. */
+  pagadoEnKepler(a: PaymentCalendarAllocation): CierreKeplerPago | null {
+    return this.conciliadosDelDia().some((x) => x.id === a.id) ? a.kepler_cierre : null;
+  }
+  readonly textoCierre = textoCierre;
+  nombreTipo(t: PagoKeplerDelCierre['tipo']): string { return nombreTipoPagoKepler(t); }
+  /** El documento con PDF que se abre desde el renglón: el primero con comprobante. */
+  pdfDelCierre(c: CierreKeplerPago): PagoKeplerDelCierre | null { return c.pagos.find((p) => !!p.comprobante_id) ?? null; }
+  /**
+   * `[PGP.96]` Por qué un documento no trae PDF, dicho (ADR-056). Medido el 2026-11-06: el último
+   * comprobante de transferencia entró el 5-oct, y los pagos de sucursal no están en el espejo de
+   * pagos (`analytics.erp_supplier_payments` sólo lee oficinas), así que no se les puede subir uno.
+   */
+  sinPdfPorque(p: PagoKeplerDelCierre): string | null {
+    if (!esPagoConDinero(p.tipo)) return null; // una nota de crédito no tiene comprobante bancario
+    if (p.sucursal !== '00') return 'pago de sucursal: todavía no se le puede subir comprobante';
+    return 'sin comprobante subido';
+  }
+  private readonly comprobantes = inject(PagosComprobantesService);
+  /** Abre el PDF del comprobante con la URL firmada que da el detalle del pago (mismo permiso que esta pantalla). */
+  abrirComprobante(p: PagoKeplerDelCierre): void {
+    firstValueFrom(this.comprobantes.detail(p.sucursal, p.folio, p.doc_prefix)).then((d) => {
+      const dep = d.deposits.find((x) => x.id === p.comprobante_id) ?? d.deposits[0];
+      // ⛔ [PGP.59] Sólo una URL http(s): una llave del bucket abre «Cannot GET …».
+      const abribles = (dep?.files ?? []).filter((f) => /^https?:\/\//i.test(f?.url ?? ''));
+      const f = abribles.find((x) => x.role === 'comprobante') ?? abribles[0];
+      if (f) window.open(f.url, '_blank', 'noopener');
+      else if ((dep?.files ?? []).length) this.toast.add({ severity: 'error', summary: 'No se pudo preparar el comprobante', detail: 'Está guardado, pero el servidor no pudo generar su enlace de lectura. Avisa a Sistemas.', life: 10000 });
+      else this.toast.add({ severity: 'warn', summary: 'Sin archivo', detail: 'El comprobante existe pero no trae un archivo que pueda abrir.' });
+    }).catch((e) => this.toast.add({
+      severity: 'error', summary: 'No pude abrir el comprobante',
+      detail: e?.error?.message || 'El enlace se firma al momento y expira en 10 minutos. Intenta de nuevo.', life: 10000,
+    }));
+  }
   /*
    * ⛔ `[PGP.51]` Sumaba `amount_assigned` —el pago COMPLETO— de todo pago con AL MENOS una factura
    * saldada: un pago de 4 facturas con 1 saldada contaba las 4. El rótulo dice «de los cuales $X el
@@ -4436,7 +4560,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   }
   /** `[PGP.48]` Los pendientes de un día que ya pasó, juntos: un diálogo, no uno por pago. */
   openMoverTodos(): void {
-    this.abrirMover(this.allocations().filter((a) => a.status === 'pending'));
+    // `[PGP.96]` Sólo lo que falta: mover un pago que Kepler ya pagó lo volvería a programar.
+    this.abrirMover(this.pendientesSinPagar());
   }
   private abrirMover(pagos: PaymentCalendarAllocation[], opts: { destinos?: ReadonlyMap<string, string>; motivo?: ReprogramReason } = {}): void {
     if (!pagos.length) return;

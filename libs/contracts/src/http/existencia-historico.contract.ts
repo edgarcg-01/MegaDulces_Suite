@@ -13,8 +13,11 @@
  *
  * Lo que se DECLARA y nunca se dibuja como cero (ADR-056):
  *  · un día sin foto de un almacén → `sin_foto`; el de hoy, antes de las 23:50 → `pendiente`;
- *  · el CEDIS antes de EX.H0 → `no_confiable`: la foto leía `commercial.stock` y repetía el mismo
- *    saldo todos los días (205 pares contra los 304 reales, medido 2026-11-06);
+ *  · el CEDIS antes de EX.H0: la foto leía `commercial.stock` y repetía el mismo saldo todos los días
+ *    (205 pares contra los 304 reales, medido 2026-11-06). `[EX.H4]` Desde que el CEDIS opera en
+ *    Kepler (corte del 2026-09-30) su existencia de cada día se RECONSTRUYE con el kardex
+ *    (`existencia_reconstruida = true`); antes operaba en Wincaja, cuya existencia no casa con la de
+ *    Kepler (unidad y productos distintos), y esos días siguen `no_confiable`;
  *  · los productos sin estándar o con unidad dudosa no se suman: se cuentan en `productos_sin_valuar`,
  *    por celda y en el total;
  *  · el total del día suma SÓLO celdas `medido` y dice qué almacenes quedaron fuera;
@@ -38,7 +41,10 @@ export type HistoricoCeldaEstado = 'medido' | 'sin_foto' | 'pendiente' | 'no_con
 export interface HistoricoCelda {
   warehouse_code: string;
   estado: HistoricoCeldaEstado;
-  /** Por qué no es `medido`, en palabras para la pantalla. `null` si es `medido`. */
+  /**
+   * Por qué no es `medido`, en palabras para la pantalla. Si es `medido`, `null` — salvo cuando la
+   * existencia no salió de la foto (`existencia_reconstruida`): entonces dice de dónde salió.
+   */
   motivo: string | null;
   /** Pesos SIN impuesto: suma de lo que SÍ se pudo valuar. `null` = sin foto (no medido, no cero). */
   valor_estandar: number | null;
@@ -48,6 +54,12 @@ export interface HistoricoCelda {
   productos_sin_valuar: number | null;
   /** `true` = día anterior a EX.H0: el estándar se reconstruyó con su historia. */
   costo_reconstruido: boolean;
+  /**
+   * `[EX.H4]` `true` = la EXISTENCIA no es la de la foto: se reconstruyó con el kardex de Kepler (hoy la
+   * existencia del ERP menos los movimientos posteriores a ese día). Sólo el CEDIS, en los días en que
+   * su foto estaba congelada y ya operaba en Kepler.
+   */
+  existencia_reconstruida: boolean;
   /**
    * Productos valuados con un estándar POSTERIOR al día (antes del 2026-10-17 no hay historia y se
    * usa el primero conocido). 0 cuando no aplica; `null` sin foto.
@@ -108,6 +120,11 @@ export interface ExistenciaHistorico {
     historia_estandar_desde: string | null;
     /** El primer día con foto. Antes de esa fecha no hay nada que mostrar. */
     foto_desde: string | null;
+    /**
+     * `[EX.H4]` Desde qué día la existencia congelada del CEDIS se reconstruye con el kardex de Kepler
+     * (su corte de Wincaja a Kepler). Antes, `no_confiable`. `null` = el CEDIS no opera en Kepler.
+     */
+    cedis_kardex_desde: string | null;
   };
   /** La última foto tomada y su latido, para la frescura de la pantalla. */
   ultima_foto: {
@@ -151,6 +168,8 @@ export interface ExistenciaHistoricoDetalle {
   estado: HistoricoCeldaEstado;
   motivo: string | null;
   costo_reconstruido: boolean;
+  /** `[EX.H4]` La existencia salió del kardex de Kepler, no de la foto (ver `HistoricoCelda`). */
+  existencia_reconstruida: boolean;
   /** Todos los productos con existencia ese día, del mayor valor al menor; los que no suman, al final. */
   productos: HistoricoDetalleProducto[];
   /** Lo que suman los productos: debe coincidir con la celda de la tabla. */
@@ -279,11 +298,27 @@ export function diasDelRango(desde: string, hasta: string): string[] {
 }
 
 /**
+ * Pura. `[EX.H4]` El tramo que abarca un conjunto de fechas (`AAAA-MM-DD`, en cualquier orden):
+ * primera, última, cuántos cierres trae y cuántos días del tramo NO están (huecos). Sirve para que
+ * un aviso no afirme «del X al Y» sobre días que no le corresponden (p. ej. un día sin foto).
+ */
+export function tramoDeFechas(fechas: string[]): { primera: string; ultima: string; cierres: number; huecos: number } | null {
+  const unicas = [...new Set(fechas)].sort();
+  if (!unicas.length) return null;
+  const primera = unicas[0];
+  const ultima = unicas[unicas.length - 1];
+  return { primera, ultima, cierres: unicas.length, huecos: diasDelRango(primera, ultima).length - unicas.length };
+}
+
+/**
  * Pura. El estado de un almacén en un día:
  *  · sin cobertura y el día es hoy (o después) → `pendiente`: la foto se toma a las 23:50;
  *  · sin cobertura antes del primer día con foto → `sin_foto`, diciendo desde cuándo hay;
  *  · sin cobertura → `sin_foto` (ese día no se fotografió ese almacén);
- *  · CEDIS con la fuente vieja → `no_confiable` (la foto repetía un saldo congelado);
+ *  · CEDIS con la fuente vieja (la foto repetía un saldo congelado):
+ *      - desde `kardex_desde` (ya opera en Kepler) → `medido`, con la existencia del kardex
+ *        (`existencia_reconstruida`) y el motivo que lo dice;
+ *      - antes, o sin `kardex_desde` → `no_confiable`;
  *  · si no → `medido`.
  */
 export function estadoCelda(i: {
@@ -293,21 +328,35 @@ export function estadoCelda(i: {
   fecha: string;
   hoy: string;
   foto_desde: string | null;
-}): { estado: HistoricoCeldaEstado; motivo: string | null } {
+  /** `[EX.H4]` El corte del CEDIS a Kepler: desde ahí su existencia sale del kardex. */
+  kardex_desde?: string | null;
+}): { estado: HistoricoCeldaEstado; motivo: string | null; existencia_reconstruida: boolean } {
+  const no = false;
   if (!i.cubierto) {
-    if (i.fecha >= i.hoy) return { estado: 'pendiente', motivo: 'La foto de este día se toma a las 23:50.' };
+    if (i.fecha >= i.hoy) return { estado: 'pendiente', motivo: 'La foto de este día se toma a las 23:50.', existencia_reconstruida: no };
     if (i.foto_desde && i.fecha < i.foto_desde) {
-      return { estado: 'sin_foto', motivo: `La foto diaria empezó el ${i.foto_desde}; antes no hay foto.` };
+      return { estado: 'sin_foto', motivo: `La foto diaria empezó el ${i.foto_desde}; antes no hay foto.`, existencia_reconstruida: no };
     }
-    return { estado: 'sin_foto', motivo: 'Ese día no se tomó la foto de este almacén.' };
+    return { estado: 'sin_foto', motivo: 'Ese día no se tomó la foto de este almacén.', existencia_reconstruida: no };
   }
   if (i.warehouse_code === HISTORICO_CEDIS && (i.stock_source ?? HISTORICO_FUENTE_VIEJA) === HISTORICO_FUENTE_VIEJA) {
+    const desde = i.kardex_desde && FECHA_RX.test(i.kardex_desde) ? i.kardex_desde : null;
+    if (desde && i.fecha >= desde) {
+      return {
+        estado: 'medido',
+        motivo: 'La foto de ese día repetía un saldo congelado: la existencia se reconstruyó con el kardex de Kepler (la de hoy menos los movimientos posteriores a ese día).',
+        existencia_reconstruida: true,
+      };
+    }
     return {
       estado: 'no_confiable',
-      motivo: 'Antes de que la foto leyera la existencia del ERP, la del CEDIS repetía un saldo congelado: no es su existencia de ese día.',
+      motivo: desde
+        ? `Hasta el ${sumarDias(desde, -1)} el CEDIS operaba en Wincaja y la foto repetía un saldo congelado; la existencia de Wincaja no casa con la de Kepler (unidad y productos distintos), así que esos días no se reconstruyen.`
+        : 'Antes de que la foto leyera la existencia del ERP, la del CEDIS repetía un saldo congelado: no es su existencia de ese día.',
+      existencia_reconstruida: no,
     };
   }
-  return { estado: 'medido', motivo: null };
+  return { estado: 'medido', motivo: null, existencia_reconstruida: no };
 }
 
 /**

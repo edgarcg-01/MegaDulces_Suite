@@ -26,12 +26,12 @@ function entra(m: Metodo, llaves: Permission[]): boolean {
 }
 const alcanza = (llaves: Permission[]) => metodos.filter((m) => entra(m, llaves)).sort();
 
-const LECTURAS = ['catalogs', 'constanciaUrl', 'inbox', 'one'];
+const LECTURAS = ['catalogs', 'constanciaUrl', 'inbox', 'one', 'planKepler'];
 
 describe('[ALC.0.6] alta de clientes: cada endpoint pide su llave', () => {
-  it('el recorrido mide algo: once endpoints, y ninguno sin llave', () => {
+  it('el recorrido mide algo: trece endpoints, y ninguno sin llave', () => {
     expect(metodos.sort()).toEqual(
-      ['cancel', 'catalogs', 'constancia', 'constanciaUrl', 'create', 'credit', 'inbox', 'link', 'one', 'postalCode', 'validate'],
+      ['cancel', 'catalogs', 'constancia', 'constanciaUrl', 'create', 'credit', 'inbox', 'link', 'one', 'planKepler', 'postalCode', 'validate', 'writeKepler'],
     );
     for (const m of metodos) {
       expect((todas(m)?.length ?? 0) + (alguna(m)?.length ?? 0), `${m} no declara llave: quedaría abierto a cualquiera con sesión`).toBeGreaterThan(0);
@@ -41,21 +41,29 @@ describe('[ALC.0.6] alta de clientes: cada endpoint pide su llave', () => {
     expect(Reflect.getMetadata(ANY_PERMISSIONS_KEY, CustomerOnboardingController)).toBeUndefined();
   });
 
-  it('sólo consultar (`_VER`) abre las cuatro lecturas y ninguna escritura', () => {
+  it('sólo consultar (`_VER`) abre las cinco lecturas (con el plan de Kepler) y ninguna escritura', () => {
     expect(alcanza([Permission.COMMERCIAL_ALTA_CLIENTES_VER])).toEqual(LECTURAS);
   });
 
   it('control: capturar (`ALTA_CLIENTES`) abre lecturas, captura (con el CP), liga y cancela; no decide crédito', () => {
     expect(alcanza([Permission.COMMERCIAL_ALTA_CLIENTES])).toEqual(
-      ['cancel', 'catalogs', 'constancia', 'constanciaUrl', 'create', 'inbox', 'link', 'one', 'postalCode', 'validate'],
+      ['cancel', 'catalogs', 'constancia', 'constanciaUrl', 'create', 'inbox', 'link', 'one', 'planKepler', 'postalCode', 'validate'],
     );
+  });
+
+  it('[ALC.2.8] escribir en Kepler pide SU llave: ni capturar, ni crédito, ni consultar la abren', () => {
+    for (const llave of [Permission.COMMERCIAL_ALTA_CLIENTES, Permission.COMMERCIAL_ALTA_CLIENTES_CREDITO, Permission.COMMERCIAL_ALTA_CLIENTES_VER]) {
+      expect(alcanza([llave])).not.toContain('writeKepler');
+    }
+    expect(alcanza([Permission.COMMERCIAL_ALTA_CLIENTES_KEPLER])).toEqual(['writeKepler']);
+    expect(alcanza([Permission.COMMERCIAL_ALTA_CLIENTES_VER, Permission.COMMERCIAL_ALTA_CLIENTES_KEPLER])).toEqual([...LECTURAS, 'writeKepler'].sort());
   });
 
   it('control: decidir crédito (`_CREDITO`) abre lecturas y el crédito; no captura ni liga', () => {
     expect(alcanza([Permission.COMMERCIAL_ALTA_CLIENTES_CREDITO])).toEqual([...LECTURAS, 'credit'].sort());
   });
 
-  it('sin ninguna de las tres no se entra a nada', () => {
+  it('sin ninguna de las cuatro no se entra a nada', () => {
     expect(alcanza([Permission.COMMERCIAL_CUSTOMERS_VER])).toEqual([]);
   });
 
@@ -67,6 +75,6 @@ describe('[ALC.0.6] alta de clientes: cada endpoint pide su llave', () => {
       service: { bandeja: async (_q: unknown, a: unknown) => { actor = a; return null; } },
     });
     await ctl.inbox({}, { user: { permissions: { [Permission.COMMERCIAL_ALTA_CLIENTES_VER]: true }, roles_frescos: ['credito_cobranza'] } });
-    expect(actor).toMatchObject({ userId: 'u1', puedeCredito: false });
+    expect(actor).toMatchObject({ userId: 'u1', puedeCredito: false, puedeKepler: false });
   });
 });

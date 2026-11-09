@@ -9,6 +9,39 @@
 ---
 
 ## [Unreleased]
+### Added — Alta de clientes: la escritura directa en Kepler, lista y apagada (ALC.2.7–ALC.3.7, 2026-11-07 · en código, sin soltar)
+- La solicitud lista muestra **«En Kepler»**: la clave que le tocará (la que sigue en la serie de su zona: `2xxxx` contado de Morelia, `CR2###` crédito…), las casillas tal como se escribirán y por qué todavía no se puede escribir. Mientras la escritura esté apagada, es la guía exacta para capturarla a mano.
+- Con la escritura encendida, **«Dar de alta en Kepler»** (con confirmación y sólo con la llave nueva) escribe la ficha y los datos para facturar en las **9 sucursales y el concentrador**, y dice cómo quedó cada base. Un reintento usa la misma clave; lo ya escrito se liga sin teclear la clave.
+- La captura **asiste**: la sucursal pone zona, grupo de piso y su vendedor; grupos y vendedores se filtran por la zona; uso de CFDI y forma de pago llegan con el de costumbre; el estado sale del CP («Michocan» → `MICHOACAN`) y la ficha queda como la escribe Kepler (sin acentos, sin comillas, teléfono sólo dígitos).
+- ⚠️ Migración `20261107181223` en prod **antes** de soltar. Encender la escritura es configuración de Edgar (plan ALC §13): conexión al concentrador, permisos en las 10 bases, ensayo y el interruptor `cliente`.
+### Changed — App del vendedor: lo que el cliente pide se captura aunque no haya, y el servidor lo registra para Compras (DN.6–DN.8, DN.11a · ADR-115, 2026-11-08 · en código, sin soltar)
+- El vendedor agrega un producto aunque esté en existencia 0: entra sin aviso emergente y la fila sigue en rojo («Puede estar agotado en LPA · PH tiene 14»). Antes la app lo bloqueaba en el teléfono y lo que el cliente pidió no quedaba en ningún lado.
+- Al agendar, el servidor registra cada renglón de la preventa de la app —también lo que llega por la sincronización sin conexión— con su existencia en la sucursal de surtido (`commercial.order_stock_notices`). Nunca hace fallar el agendado; un barrido cada 5 min declara «sin dato» lo que no se pudo leer.
+- El pedido sugerido sigue sin proponer lo que no hay, también sin conexión, y dice qué dejó fuera.
+- ⚠️ Migración `20261107175004_dn6_order_stock_notices` en prod **antes de soltar**, fuera de horario; el servidor antes que la app. Sin permisos nuevos.
+
+### Added — Pagos › Salidas del banco: lo que salió a proveedores, contra Kepler y el programa (PGP.97, 2026-11-08 · en código, sin soltar)
+- Pestaña nueva en «Pagos»: cada transferencia a proveedor del workbook de bancos, con su pago en Kepler (o «Falta», a más de 7 días) y si pasó por el Calendario. Propone a quién se le pagó y qué facturas salda, con su nivel de evidencia.
+- La meta «100 % por el programa», por dinero, desde Kepler: banco y caja por separado.
+- Sólo lectura: sin tablas nuevas ni migración. Lo que no se pudo medir (días sin estado de cuenta, cuentas sin cargar) se dice.
+### Fixed — Bancos: un workbook sin año en el nombre ya no cae en el periodo equivocado (PGP.97.1, 2026-11-08 · en código, sin soltar)
+- «11 NOVIEMBRE.xlsx» se iba al periodo seleccionado y la siguiente subida lo borraba. Ahora el mes del nombre manda; el año es el actual (o el anterior si ese mes todavía no llega).
+### Changed — Caducidades: el selector ofrece sólo las unidades del producto (P2.9 paso 3, 2026-11-07)
+- Al elegir un producto, los botones de unidad muestran **sólo las que el producto tiene en Kepler** (base, unidades alternas y escalera de mayoreo, de la sucursal donde se captura), con **«Otra unidad»** para abrir las 7. La unidad sugerida es la **base del producto**, no «pieza».
+- Si Kepler no publica las unidades del producto, se ofrecen las 7 y se dice; ya no queda marcada la unidad del producto anterior. «La unidad» pasa a ser obligatoria para guardar.
+- Fixed: el detalle de la hoja en Almacén mostraba «pz» para paquete, 250 g y 500 g.
+
+### Changed — Verificador de precios: el mostrador (VAC.U16, 2026-11-07 · en código, sin soltar)
+- Logo 50 % más grande; el pie (productos escaneados y respaldo) al 80 % de opacidad.
+- En **modo kiosco** (lo que ve la clienta) ya no se pinta la frescura del ERP; fuera de kiosco el operador la sigue viendo, medida o «sin medir».
+### Changed — Verificador de precios: el escaneo ya no recorre todo el catálogo (VAC.P1, 2026-11-07 · en código, sin soltar)
+- La búsqueda del código en sus 7 columnas usa un índice: la consulta pasa de 62–66 ms (todo `kdii`, 86,132 filas) a <1 ms medido en plan. Mismo resultado: 428 códigos comparados, 0 diferencias.
+- ⚠️ Migración `20261107115424_kdii_indice_codigos_verificador` en prod **antes de soltar**, fuera de horario. Sin ella el código funciona igual que hoy (no más lento).
+### Fixed — Mesa de Servicio: la notificación de Windows también sale con la Suite abierta detrás de otro programa (MS.AVISO.2, 2026-11-07 · en código, sin soltar)
+- Antes sólo salía con la pestaña oculta o la ventana minimizada; con Chrome abierto detrás del correo o del Excel la Suite no la mandaba (por eso en prod «no avisaba»). Ahora sale también cuando la ventana no tiene el foco.
+- Con la Suite al frente sigue saliendo sólo la ventana dentro de la página (no se duplica).
+- Probado en un Chrome real con otro programa encima. Recordatorio: el permiso de notificaciones se da **por sitio**.
+- Sin migraciones ni permisos.
 ### Added — Pagos: descuento al pagar, factura por factura (PGP.91, 2026-11-06 · en código, sin soltar)
 - En el desglose de un pago, cada factura de proveedor tiene **Descuento**: motivo (Pronto pago, Volumen u Otro) y el % o los pesos; la pantalla saca el **neto que se transfiere** y lo dice: «este pago cubre − descuento = se transfieren».
 - Lo que el pago cubre de la factura (neto + descuento) **ya no se vuelve a ofrecer** —Agregar facturas, Pronto pago, «Qué conviene pagar»— mientras llega la nota de crédito de Kepler.
@@ -24,11 +57,16 @@
 - Viaja sola al pago: al «Preparar» se ve en la cuenta que se elige, y queda en el destino que imprime la instrucción a Caja General.
 - Un cambio de cuenta que no traiga el campo **conserva** la referencia vigente; dejarla en blanco la quita.
 - ⚠️ Migración `20261106172407` en prod **antes** de soltar.
+### Changed — Existencia › Consulta históricos: el CEDIS congelado se reconstruye con el kardex de Kepler (EX.H4, 2026-11-07 · en código, sin soltar)
+- Del **30 de septiembre** (el día que el CEDIS pasó a Kepler) hasta que la foto empezó a leer la existencia del ERP, el CEDIS ya **no sale «no confiable»**: su existencia de cada cierre se calcula con el kardex de Kepler —la de hoy menos lo que se movió después de ese día, sin documentos cancelados— y **entra al total del día**. Por eso el total de esos días sube: antes no sumaba al CEDIS.
+- Del **24 al 29 de septiembre** sigue «no confiable»: el CEDIS operaba en Wincaja y esa existencia no casa con la que se cargó en Kepler. La pantalla lo dice con la fecha.
+- Un aviso arriba de la tabla dice qué cierres se reconstruyeron; la celda y el desglose lo dicen también, y el desglose suma lo mismo que la celda.
+- La cifra reconstruida puede moverse un poco si Kepler registra después un movimiento con fecha atrasada.
 ### Added — Existencia: «Consulta históricos», el valor del inventario por sucursal al cierre de cada día (EX.H1 + EX.H2, 2026-11-06 · en código, sin soltar)
 - Nuevo botón **«Consulta históricos»** arriba a la derecha de Existencia (en Almacén y en Compras). Reemplaza la hoja de Google de inventario por sucursal de Compras, con el mismo acomodo: sucursales en renglones, cierres en columnas y el total abajo.
 - Se filtra por **rango de fechas** y por **sucursales**, y se ve por **días, semanas o meses** (domingos o fin de mes, para que un año quepa en pocas columnas).
 - Valuado a **costo estándar de Kepler, sin impuesto**. Cada cifra se abre: muestra los productos de esa sucursal ese día, con su existencia, su costo y su valor, y suman lo mismo que la celda.
-- Lo que no se sabe se dice en la celda: **sin foto**, **pendiente** (el cierre de hoy se fotografía a las 23:50), **no confiable** (el CEDIS antes del arreglo de la foto). Los productos sin costo o con unidad dudosa se cuentan aparte y no se suman. El total nombra las sucursales que no sumó.
+- Lo que no se sabe se dice en la celda: **sin foto**, **pendiente** (el cierre de hoy se fotografía a las 23:50), **no confiable** (el CEDIS del 24 al 29-sep, cuando operaba en Wincaja; ver EX.H4). Los productos sin costo o con unidad dudosa se cuentan aparte y no se suman. El total nombra las sucursales que no sumó.
 - Mismo permiso que Existencia: quien ve el valor de hoy ve su historia.
 ### Fixed — Inventario: la foto diaria toma el CEDIS real y guarda el costo de cada día (EX.H0, 2026-11-06 · en código, sin soltar)
 - La foto de inventario de las 23:50 lee ahora la **misma existencia que la pantalla Existencia**. Hasta hoy leía otra tabla y el **CEDIS salía congelado**: repetía el mismo saldo todos los días (205 productos contra los 304 que tiene).

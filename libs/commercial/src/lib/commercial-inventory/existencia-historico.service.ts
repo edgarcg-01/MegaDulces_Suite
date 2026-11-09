@@ -11,6 +11,8 @@ import {
   HistoricoCelda,
   HistoricoDetalleProducto,
   HistoricoDia,
+  HISTORICO_CEDIS,
+  HISTORICO_FUENTE_VIEJA,
   rangoHistorico,
   totalDelDia,
 } from '@megadulces/contracts';
@@ -45,6 +47,29 @@ interface FilaReconstruida {
   costo_posterior: number;
 }
 
+/**
+ * `[EX.H4]` El CEDIS en los días en que su foto estaba congelada y ya operaba en Kepler: esas
+ * cantidades salen del kardex, no de la foto.
+ */
+interface KardexCedis {
+  warehouse_id: string;
+  /** La sucursal de Kepler del CEDIS (`kepler_code`). */
+  sucursal: string;
+  /** Su corte de Wincaja a Kepler: el kardex que importa empieza ahí. */
+  desde: string;
+  /** Los días a reconstruir. */
+  fechas: string[];
+}
+
+/** El CEDIS y su corte a Kepler, si opera en Kepler. */
+interface CedisKepler {
+  warehouse_id: string;
+  sucursal: string;
+  desde: string;
+}
+
+const SUCURSAL_RX = /^\d{2}$/;
+
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const FECHA_RX = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -64,6 +89,18 @@ const FECHA_RX = /^\d{4}-\d{2}-\d{2}$/;
  *    estándar conocido (`productos_costo_posterior` lo cuenta). ⚠️ El testigo de unidad es el costo
  *    del ERP de HOY: un día reconstruido puede moverse un poco con el tiempo (hasta 2.2 % en un
  *    almacén×día entre el 4 y el 6 de noviembre). Por eso el memo de reconstrucciones dura UN día.
+ *
+ * ── `[EX.H4]` El CEDIS congelado: la existencia sale del kardex ──────────────────────
+ *  Antes de EX.H0 la foto del CEDIS repetía un saldo congelado (no cambió ni un producto del 24-sep al
+ *  6-nov salvo dos refrescos sueltos). Desde su corte a Kepler (`analytics.v_branch_erp_cutover`,
+ *  2026-09-30) la cantidad de cada día se RECONSTRUYE: existencia de HOY en `kdil` (la misma suma que
+ *  lee `v_erp_stock_on_hand`) menos los movimientos de `kdij` posteriores a ese día, sin documentos
+ *  cancelados (`kdm1.c43 = 'C'`). Entra el producto si se movió entre el corte y ese día (lo que la
+ *  vista habría incluido) y los negativos se recortan a 0 (como la vista). Medido el 2026-11-07:
+ *  `kdil` = Σ `kdij` desde el 22-sep sin cancelados en 1,401 de 1,429 productos (98 %); la
+ *  reconstrucción de hoy da 313 productos / 343,130 unidades contra 312 / 343,122 de la vista.
+ *  Antes del corte el CEDIS operaba en Wincaja y su existencia no casa con la apertura de Kepler (46 de
+ *  93 productos iguales, unidades distintas): esos días siguen `no_confiable`.
  *
  * ── ⛔ Literales y sin nested loop, en la reconstrucción ──────────────────────────────
  *  1. Con el tenant y las fechas como parámetros (un CTE de parámetros cruzado con el predicado de
@@ -153,6 +190,7 @@ export class ExistenciaHistoricoService {
         [tenantId, tenantId, tenantId, tenantId, tenantId, tenantId],
       )).rows[0] ?? {};
       const fotoDesde: string | null = meta.foto_desde ?? null;
+      const cedis = await this.leerCedisKepler(trx, tenantId);
 
       // Las columnas NO dependen de la cobertura del rango: un almacén que no tuvo foto en todo el
       // rango tiene que salir con sus días «sin foto» y dejar el total incompleto, no desaparecer.
@@ -191,27 +229,29 @@ export class ExistenciaHistoricoService {
       // Lo que hay que reconstruir: cobertura sin el estándar guardado (días anteriores a EX.H0).
       const faltan = cobertura.filter((c) => c.standard_value_known == null && c.pares > 0
         && !this.reconstruidos.has(this.claveReconstruida(tenantId, c)));
-      if (faltan.length) await this.reconstruir(trx, tenantId, faltan);
+      if (faltan.length) await this.reconstruir(trx, tenantId, faltan, cedis);
 
       const dias: HistoricoDia[] = diasDelRango(desde, hasta).map((fecha) => {
         const deDia = porDia.get(fecha);
         const celdas: HistoricoCelda[] = almacenes.map((a) => {
           const c = deDia?.get(idPorCodigo.get(a.code)!);
-          const { estado, motivo } = estadoCelda({
+          const { estado, motivo, existencia_reconstruida } = estadoCelda({
             cubierto: !!c, warehouse_code: a.code, stock_source: c?.stock_source ?? null,
-            fecha, hoy, foto_desde: fotoDesde,
+            fecha, hoy, foto_desde: fotoDesde, kardex_desde: cedis?.desde ?? null,
           });
           if (!c) {
             return {
               warehouse_code: a.code, estado, motivo, valor_estandar: null, productos_con_existencia: null,
-              productos_sin_valuar: null, costo_reconstruido: false, productos_costo_posterior: null,
+              productos_sin_valuar: null, costo_reconstruido: false, existencia_reconstruida, productos_costo_posterior: null,
             };
           }
           // Un almacén fotografiado con todo en cero vale 0 de verdad (medido), no «sin dato».
-          if (c.pares === 0) {
+          // (No aplica al CEDIS reconstruido: su foto congelada no dice nada de ese día.)
+          if (c.pares === 0 && !existencia_reconstruida) {
             return {
               warehouse_code: a.code, estado, motivo, valor_estandar: 0, productos_con_existencia: 0,
-              productos_sin_valuar: 0, costo_reconstruido: c.standard_value_known == null, productos_costo_posterior: 0,
+              productos_sin_valuar: 0, costo_reconstruido: c.standard_value_known == null,
+              existencia_reconstruida, productos_costo_posterior: 0,
             };
           }
           if (c.standard_value_known != null) {
@@ -221,6 +261,7 @@ export class ExistenciaHistoricoService {
               productos_con_existencia: c.pares,
               productos_sin_valuar: Number(c.standard_missing_pairs ?? 0) + Number(c.standard_doubtful_pairs ?? 0),
               costo_reconstruido: false,
+              existencia_reconstruida,
               productos_costo_posterior: 0,
             };
           }
@@ -229,9 +270,11 @@ export class ExistenciaHistoricoService {
             warehouse_code: a.code, estado, motivo,
             // Sin reconstrucción posible (no debería pasar): se declara sin valor, nunca 0.
             valor_estandar: r?.valor ?? null,
-            productos_con_existencia: c.pares,
+            // Del kardex: los productos que la reconstrucción encontró con existencia, no los de la foto.
+            productos_con_existencia: existencia_reconstruida ? (r ? r.productos : null) : c.pares,
             productos_sin_valuar: r ? r.sin_valuar : null,
             costo_reconstruido: true,
+            existencia_reconstruida,
             productos_costo_posterior: r ? r.costo_posterior : null,
           };
         });
@@ -253,6 +296,7 @@ export class ExistenciaHistoricoService {
           costo: 'estandar_kepler_sin_impuesto',
           historia_estandar_desde: meta.historia ?? null,
           foto_desde: fotoDesde,
+          cedis_kardex_desde: cedis?.desde ?? null,
         },
         ultima_foto: {
           fecha: meta.ultima ?? null,
@@ -268,6 +312,38 @@ export class ExistenciaHistoricoService {
   /** La huella de la foto entra en la clave: un día re-tomado no sirve su valor viejo. */
   private claveReconstruida(tenantId: string, c: FilaCobertura): string {
     return `${tenantId}|${c.fecha}|${c.warehouse_id}|${c.pares}|${c.unidades_total ?? ''}`;
+  }
+
+  /**
+   * `[EX.H4]` El CEDIS y su corte de Wincaja a Kepler, si ya opera en Kepler (`kepler_code` puesto y
+   * corte registrado). `null` = no hay kardex en el que apoyarse: sus días congelados siguen
+   * `no_confiable`.
+   */
+  private async leerCedisKepler(trx: Knex.Transaction, tenantId: string): Promise<CedisKepler | null> {
+    const { rows } = await trx.raw(
+      `SELECT w.id AS warehouse_id, w.kepler_code AS sucursal, min(c.cutover_date)::date::text AS desde
+         FROM commercial.warehouses w
+         JOIN analytics.v_branch_erp_cutover c ON c.tenant_id = w.tenant_id AND c.kepler_code = w.kepler_code
+        WHERE w.tenant_id = ? AND w.code = ? AND w.deleted_at IS NULL AND w.kepler_code IS NOT NULL
+        GROUP BY w.id, w.kepler_code`,
+      [tenantId, HISTORICO_CEDIS],
+    );
+    const r = rows[0];
+    if (!r?.desde || !FECHA_RX.test(r.desde) || !SUCURSAL_RX.test(String(r.sucursal)) || !UUID_RX.test(r.warehouse_id)) {
+      return null;
+    }
+    return { warehouse_id: r.warehouse_id, sucursal: String(r.sucursal), desde: r.desde };
+  }
+
+  /** `[EX.H4]` Los días de `faltan` cuya existencia del CEDIS sale del kardex. */
+  private kardexDe(faltan: FilaCobertura[], cedis: CedisKepler | null): KardexCedis | null {
+    if (!cedis) return null;
+    const fechas = faltan
+      .filter((f) => f.warehouse_id === cedis.warehouse_id
+        && (f.stock_source ?? HISTORICO_FUENTE_VIEJA) === HISTORICO_FUENTE_VIEJA
+        && f.fecha >= cedis.desde)
+      .map((f) => f.fecha);
+    return fechas.length ? { ...cedis, fechas: [...new Set(fechas)].sort() } : null;
   }
 
   /**
@@ -326,12 +402,13 @@ export class ExistenciaHistoricoService {
         `SELECT min(fecha_corte)::text AS f FROM analytics.stock_snapshot_coverage WHERE tenant_id = ?`, [tenantId],
       )).rows[0]?.f ?? null;
       const [c] = await this.leerCobertura(trx, tenantId, fecha, fecha, [alm.id]);
-      const { estado, motivo } = estadoCelda({
+      const cedis = await this.leerCedisKepler(trx, tenantId);
+      const { estado, motivo, existencia_reconstruida } = estadoCelda({
         cubierto: !!c, warehouse_code: alm.code, stock_source: c?.stock_source ?? null,
-        fecha, hoy, foto_desde: fotoDesde,
+        fecha, hoy, foto_desde: fotoDesde, kardex_desde: cedis?.desde ?? null,
       });
       const base = {
-        fecha, almacen: { code: alm.code, name: alm.name, label: alm.label }, estado, motivo,
+        fecha, almacen: { code: alm.code, name: alm.name, label: alm.label }, estado, motivo, existencia_reconstruida,
       };
       if (!c) {
         return { ...base, costo_reconstruido: false, productos: [], valor_estandar: null, productos_sin_valuar: 0 };
@@ -355,7 +432,9 @@ export class ExistenciaHistoricoService {
           [tenantId, fecha, alm.id],
         )).rows;
       } else {
-        const sql = this.sqlValuada(tenantId, fecha, fecha, [alm.id]);
+        // El mismo camino que la tabla: si la celda sale del kardex, el desglose también.
+        const kardex = existencia_reconstruida ? this.kardexDe([c], cedis) : null;
+        const sql = this.sqlValuada(tenantId, fecha, fecha, [alm.id], kardex);
         await trx.raw('SET LOCAL enable_nestloop = off');
         crudos = (await trx.raw(`${sql}
           SELECT v.product_id, v.sku, v.nombre, v.unidades::text AS unidades, v.unidad,
@@ -399,13 +478,16 @@ export class ExistenciaHistoricoService {
    * El estándar vigente cada día, para los días anteriores a EX.H0. Es la consulta validada del
    * 2026-11-04, por almacén × día. ⛔ Con literales y sin nested loop (ver el encabezado de la clase).
    */
-  private async reconstruir(trx: Knex.Transaction, tenantId: string, faltan: FilaCobertura[]): Promise<void> {
+  private async reconstruir(
+    trx: Knex.Transaction, tenantId: string, faltan: FilaCobertura[], cedis: CedisKepler | null,
+  ): Promise<void> {
     const fechas = faltan.map((f) => f.fecha).sort();
     const ids = [...new Set(faltan.map((f) => f.warehouse_id))];
     const d0 = fechas[0];
     const d1 = fechas[fechas.length - 1];
     const t0 = Date.now();
-    const sql = this.sqlValuada(tenantId, d0, d1, ids);
+    const kardex = this.kardexDe(faltan, cedis);
+    const sql = this.sqlValuada(tenantId, d0, d1, ids, kardex);
     await trx.raw('SET LOCAL enable_nestloop = off');
     const { rows } = await trx.raw(`${sql}
       SELECT fecha_corte::text AS fecha, warehouse_id,
@@ -427,7 +509,25 @@ export class ExistenciaHistoricoService {
         costo_posterior: Number(r.costo_posterior),
       });
     }
-    this.logger.log(`historico: ${faltan.length} almacén×día reconstruidos (${d0}…${d1}) en ${Date.now() - t0} ms`);
+    // Un día del kardex sin ningún producto con existencia no trae renglón: vale 0 (medido), no «sin valor».
+    // Pero sólo si el kardex devolvió algo en este lote: si ningún día del CEDIS trajo renglón, lo más
+    // probable es que la lectura falló (kdil vacío), no que el CEDIS se vació — se deja «sin valor» y
+    // se reintenta en la siguiente consulta (ADR-056: lo no medido no se dibuja como cero).
+    const kardexRespondio = !!kardex && rows.some((r: { warehouse_id: string }) => r.warehouse_id === kardex.warehouse_id);
+    if (kardex && !kardexRespondio) {
+      this.logger.warn(`historico: el kardex del CEDIS no devolvió ningún renglón para ${kardex.fechas.length} días; quedan sin valor`);
+    }
+    if (kardex && kardexRespondio) {
+      for (const f of faltan) {
+        if (f.warehouse_id !== kardex.warehouse_id || !kardex.fechas.includes(f.fecha)) continue;
+        const clave = this.claveReconstruida(tenantId, f);
+        if (!this.reconstruidos.has(clave)) {
+          this.reconstruidos.set(clave, { valor: 0, productos: 0, sin_valuar: 0, costo_posterior: 0 });
+        }
+      }
+    }
+    this.logger.log(`historico: ${faltan.length} almacén×día reconstruidos (${d0}…${d1}`
+      + `${kardex ? `; CEDIS del kardex: ${kardex.fechas.length} días` : ''}) en ${Date.now() - t0} ms`);
   }
 
   /**
@@ -436,14 +536,58 @@ export class ExistenciaHistoricoService {
    * reconstrucción, para que la suma del desglose no pueda diferir de la celda.
    * ⛔ Literales validados contra su forma antes de tocar el SQL (ver el encabezado de la clase).
    */
-  private sqlValuada(tenantId: string, d0: string, d1: string, ids: string[]): string {
+  private sqlValuada(tenantId: string, d0: string, d1: string, ids: string[], kardex: KardexCedis | null = null): string {
     if (!UUID_RX.test(tenantId) || !FECHA_RX.test(d0) || !FECHA_RX.test(d1) || !ids.length || !ids.every((i) => UUID_RX.test(i))) {
       throw new Error('historico: tenant, fecha o almacén con forma inválida');
     }
+    if (kardex && (!UUID_RX.test(kardex.warehouse_id) || !SUCURSAL_RX.test(kardex.sucursal) || !FECHA_RX.test(kardex.desde)
+      || !kardex.fechas.length || !kardex.fechas.every((f) => FECHA_RX.test(f)))) {
+      throw new Error('historico: kardex del CEDIS con forma inválida');
+    }
     const T = `'${tenantId}'`;
     const lista = ids.map((i) => `'${i}'`).join(',');
+    const K = kardex ? `'${kardex.sucursal}'` : '';
+    const diasK = kardex ? kardex.fechas.map((f) => `DATE '${f}'`).join(',') : '';
+    // `[EX.H4]` La existencia del CEDIS en sus días congelados, del kardex (ver el encabezado de la clase):
+    // la de HOY en kdil menos lo que se movió DESPUÉS de cada día, sin documentos cancelados.
+    const ctesKardex = kardex ? `
+      kx_mov AS (
+        SELECT btrim(j.c3) AS sku, j.c10::date AS f,
+               sum(CASE j.c30 WHEN 'E' THEN j.c11 WHEN 'S' THEN -j.c11 ELSE 0 END) AS q
+          FROM kepler_ods.kdij j
+          LEFT JOIN kepler_ods.kdm1 m
+                 ON m.sucursal = j.sucursal AND m.c1 = j.c1 AND m.c2 = j.c4 AND m.c3 = j.c5
+                AND btrim(m.c4::text) = btrim(j.c6::text) AND btrim(m.c5::text) = btrim(j.c7::text) AND m.c6 = j.c8
+         WHERE j.sucursal = ${K} AND j.c1 = ${K} AND j.c2 = 1
+           AND j.c10 >= DATE '${kardex.desde}'
+           AND btrim(coalesce(m.c43::text, '')) <> 'C'
+         GROUP BY 1, 2
+      ),
+      kx_hoy AS (
+        SELECT btrim(k.c3) AS sku, sum(k.c4 + k.c8 - k.c9) AS q
+          FROM kepler_ods.kdil k
+         WHERE k.sucursal = ${K} AND k.c1 = ${K} AND btrim(k.c3) <> ALL (ARRAY['00001', '00002', '00022'])
+         GROUP BY 1
+      ),
+      kx_prim AS (SELECT sku, min(f) AS p FROM kx_mov GROUP BY 1),
+      kx_dias AS (SELECT unnest(ARRAY[${diasK}]::date[]) AS d),
+      kx_despues AS (
+        SELECT d.d, m.sku, sum(m.q) AS q FROM kx_dias d JOIN kx_mov m ON m.f > d.d GROUP BY 1, 2
+      ),
+      kardex AS (
+        SELECT d.d AS fecha_corte, w.id AS warehouse_id, pr.id AS product_id, w.kepler_code AS sucursal,
+               pr.sku, pr.nombre, round((h.q - COALESCE(x.q, 0))::numeric, 4) AS unidades
+          FROM kx_dias d
+          JOIN kx_prim p ON p.p <= d.d
+          JOIN kx_hoy h  ON h.sku = p.sku
+          LEFT JOIN kx_despues x ON x.d = d.d AND x.sku = h.sku
+          JOIN commercial.warehouses w ON w.tenant_id = ${T} AND w.id = '${kardex.warehouse_id}'
+          JOIN catalog.products pr     ON pr.tenant_id = w.tenant_id AND pr.sku = h.sku AND pr.deleted_at IS NULL
+         WHERE round((h.q - COALESCE(x.q, 0))::numeric, 4) > 0
+      ),` : '';
     return `
-      WITH foto AS (
+      WITH ${ctesKardex}
+      foto AS (
         SELECT s.fecha_corte, s.warehouse_id, s.product_id, w.kepler_code AS sucursal, pr.sku, pr.nombre, s.unidades
           FROM analytics.stock_snapshots s
           JOIN commercial.warehouses w ON w.tenant_id = s.tenant_id AND w.id = s.warehouse_id
@@ -451,6 +595,9 @@ export class ExistenciaHistoricoService {
          WHERE s.tenant_id = ${T}
            AND s.fecha_corte BETWEEN DATE '${d0}' AND DATE '${d1}'
            AND s.warehouse_id IN (${lista})
+           ${kardex ? `AND NOT (s.warehouse_id = '${kardex.warehouse_id}' AND s.fecha_corte IN (${diasK}))` : ''}
+        ${kardex ? `UNION ALL
+        SELECT fecha_corte, warehouse_id, product_id, sucursal, sku, nombre, unidades FROM kardex` : ''}
       ),
       -- Testigo de la unidad: el costo del ERP por sucursal × SKU, en la unidad de la existencia.
       testigo AS (

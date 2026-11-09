@@ -3,7 +3,10 @@
  * servicio lee y escribe, aquí se decide. Plan: `docs/IMPLEMENTACION/FASES/FASE_NP7_ALTA_DESDE_FOTOS.md`
  * (§7.1 modelo, §10b.3 flujo, §10b.7 unidades).
  */
-import { LEVANTAMIENTO_CARA_OBLIGATORIA } from '@megadulces/contracts';
+import {
+  LEVANTAMIENTO_CARA_OBLIGATORIA, LEVANTAMIENTO_CARAS, LEVANTAMIENTO_DETALLE_MINUTOS, LEVANTAMIENTO_DETALLE_NOTA_MAX, LEVANTAMIENTO_DETALLES,
+  type LevantamientoDetalle,
+} from '@megadulces/contracts';
 import type { KdiiFila, Peldano, ResultadoEscaneo } from '../shared/kdii-codigo';
 
 // ── Estados (el CHECK de la migración usa estas mismas listas) ─────────────────────────────────
@@ -47,12 +50,50 @@ export function peldanoPrincipal(f: Pick<KdiiFila, 'f2' | 'f3'>, rungModal: numb
 
 // ── Caras por peldaño (§10b.7 punto 2) ─────────────────────────────────────────────────────────
 
-export const CARAS_PRINCIPAL = ['frente', 'reverso', 'lateral_izq', 'lateral_der', 'base'] as const;
+/** Una sola lista (la del contrato): las 5 caras y los 3 acercamientos, en el orden en que se piden. */
+export const CARAS_PRINCIPAL = LEVANTAMIENTO_CARAS;
 export type Cara = (typeof CARAS_PRINCIPAL)[number];
 
 /** En el piloto sólo se levanta la unidad principal (D23: la caja exterior queda fuera). */
 export function carasRequeridas(): readonly Cara[] {
   return CARAS_PRINCIPAL;
+}
+
+/** ¿Es un detalle libre (`detalle_n`)? No cuenta para terminar ni se salta. */
+export function esDetalle(cara: string): cara is LevantamientoDetalle {
+  return (LEVANTAMIENTO_DETALLES as readonly string[]).includes(cara);
+}
+
+/**
+ * ¿Se le puede agregar un detalle a esta ficha? Sólo ya terminada y antes de que Catálogo la revise, sólo
+ * quien la terminó (`sheet.capturo`) y sólo dentro de la ventana: el detalle es «algo más que vi al tomar
+ * las fotos», no una recaptura. Devuelve null si se puede, o por qué no (texto para la persona).
+ */
+export function porQueNoDetalle(
+  status: string, capturo: { by?: string | null; at?: string | null } | null | undefined, userId: string, ahora: Date,
+): { tipo: 'conflicto' | 'prohibido'; mensaje: string } | null {
+  if (status === 'en_captura') return { tipo: 'conflicto', mensaje: 'Termina primero las fotos del producto; los detalles van al final.' };
+  if (!ESTADOS_EN_REVISION.includes(status)) return { tipo: 'conflicto', mensaje: 'Catálogo ya revisó este producto: ya no se le agregan detalles.' };
+  if (!capturo?.by || capturo.by !== userId) return { tipo: 'prohibido', mensaje: 'Sólo quien terminó las fotos le agrega detalles.' };
+  const desde = capturo.at ? new Date(capturo.at).getTime() : NaN;
+  if (!Number.isFinite(desde) || ahora.getTime() - desde > LEVANTAMIENTO_DETALLE_MINUTOS * 60_000) {
+    return { tipo: 'conflicto', mensaje: `Pasaron más de ${LEVANTAMIENTO_DETALLE_MINUTOS} minutos desde que terminaste: los detalles se agregan al terminar.` };
+  }
+  return null;
+}
+
+/** Posición de una foto para mostrarla: las caras y acercamientos en su orden, después los detalles, y lo desconocido al final. */
+export function ordenDeFoto(cara: string): number {
+  const i = (CARAS_PRINCIPAL as readonly string[]).indexOf(cara);
+  if (i >= 0) return i;
+  const d = (LEVANTAMIENTO_DETALLES as readonly string[]).indexOf(cara);
+  return d >= 0 ? CARAS_PRINCIPAL.length + d : CARAS_PRINCIPAL.length + LEVANTAMIENTO_DETALLES.length;
+}
+
+/** La nota de un detalle: recortada, sin saltos de línea y con tope; vacía = null. */
+export function notaDetalle(v: unknown): string | null {
+  const t = String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, LEVANTAMIENTO_DETALLE_NOTA_MAX);
+  return t || null;
 }
 
 export const MOTIVOS_SALTO = ['no_tiene_esa_cara', 'no_se_puede_girar', 'otro'] as const;
@@ -175,6 +216,8 @@ export interface FotoFicha {
    */
   bytes?: number | null;
   por_busqueda: boolean;
+  /** Sólo en un detalle (`detalle_n`): qué muestra, según quien lo tomó. Ausente en las caras. */
+  detalle?: { tipo: string; nota: string | null } | null;
 }
 
 /**
