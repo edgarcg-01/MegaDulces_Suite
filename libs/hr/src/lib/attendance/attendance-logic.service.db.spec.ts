@@ -23,6 +23,7 @@ const migs = [
   '20261008094812_hr_agente_corridas',
   '20261008094813_hr_ordenes_quien',
   '20261012151620_hr_secciones_por_ficha',
+  '20261109110836_hr_person_schedules_varios_horarios',
 ].map((n) => require(path.resolve(__dirname, '../../../../../database/migrations-newdb', `${n}.js`)));
 
 const suite = URL && !/prod|railway|\.222:5434/i.test(URL) ? describe : describe.skip;
@@ -123,6 +124,23 @@ suite('lógica de asistencia contra la base', () => {
         r['juanAsignado'] = (await report.asistencia(sem)).personas.find((p) => p.codigo === '17')?.horarioAsignado?.entrada;
         r['horarioMalo'] = await fallo(() => schedules.asignar({ site_code: site, person_codes: ['17'], starts_at: '18:00', ends_at: '09:00', lunch_minutes: 60 }));
 
+        // `[RH.6.3]` Varios horarios, con un código que no checa (no mueve nada de lo de abajo). Mega Talento admite 4: el
+        // ensayo de la carga con datos reales dejó fuera a 17 personas mientras el CHECK de la base topaba en 3.
+        const t = (starts_at: string, ends_at: string) => ({ starts_at, ends_at, lunch_minutes: 60 });
+        const { confirmados } = await import('./attendance-reader');
+        await schedules.asignar({ site_code: site, person_codes: ['18'], starts_at: '08:00', ends_at: '17:00', lunch_minutes: 60, shifts: [t('08:00', '17:00'), t('13:00', '21:00')] });
+        const dos = (await confirmados(trx, site)).asignados.get('18');
+        r['dosHorarios'] = [dos?.horarios.map((h) => `${h.entrada}-${h.salida}`), dos?.entrada, dos?.salida];
+        await schedules.asignar({ site_code: site, person_codes: ['18'], starts_at: '06:00', ends_at: '14:00', lunch_minutes: 60,
+          shifts: [t('06:00', '14:00'), t('08:00', '17:00'), t('10:00', '19:00'), t('13:00', '21:00')] });
+        r['cuatroHorarios'] = (await confirmados(trx, site)).asignados.get('18')?.horarios.length;
+        r['cincoHorarios'] = await fallo(() => schedules.asignar({ site_code: site, person_codes: ['18'], starts_at: '06:00', ends_at: '14:00', lunch_minutes: 60,
+          shifts: [t('06:00', '14:00'), t('08:00', '17:00'), t('10:00', '19:00'), t('12:00', '20:00'), t('13:00', '21:00')] }));
+        // Volver a uno solo deja `shifts` en NULL (manda lo de las columnas, como siempre).
+        await schedules.asignar({ site_code: site, person_codes: ['18'], starts_at: '08:00', ends_at: '17:00', lunch_minutes: 60 });
+        r['unoOtraVez'] = [(await trx('hr.person_schedules').where({ site_code: site, person_code: '18' }).first('shifts'))?.shifts ?? null,
+          (await confirmados(trx, site)).asignados.get('18')?.horarios.length];
+
         // ── Agente de alertas ───────────────────────────────────────────────────────────────
         const an1 = await agent.analizar({ siteCode: site, desde: '2026-09-10', hasta: '2026-09-16' });
         const claves = (await alerts.listar({ site_code: site }) as Array<{ person_code: string; work_date: string; rule: string }>)
@@ -218,6 +236,10 @@ suite('lógica de asistencia contra la base', () => {
     expect(r['promotoraEnSuVista']).toEqual(['16']);
     expect(r['juanAsignado']).toBe('09:30');
     expect(r['horarioMalo']).toBe('400');
+    expect(r['dosHorarios']).toEqual([['08:00-17:00', '13:00-21:00'], '08:00', '17:00']);
+    expect(r['cuatroHorarios']).toBe(4);
+    expect(r['cincoHorarios']).toBe('400');
+    expect(r['unoOtraVez']).toEqual([null, 1]);
 
     // Sin horarios de sitio no hay retardo ni falta que el detector pueda medir (Mega Talento igual):
     // quedan la doble lectura y la entrada sin salida del jueves 10 de Juan.

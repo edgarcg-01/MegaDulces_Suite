@@ -50,6 +50,21 @@
 | Rol `recursos_humanos` | **0 personas**: nadie de RH abre `/rh/*` todavía (§2.5) |
 | Lógica de asistencia | Mega Talento cambió después del port (`8dd5521`, `8396d3c`, `331dccf`); portado el 9-nov en `[RH.6]` (🧪). **La paridad de 0 diferencias del 12-oct ya NO aplica: hay que re-correrla** (§2.6) antes de cortar |
 
+**Ensayo con datos reales de Mega Talento (2026-11-09, sólo lectura; destino la base local; todo deshecho):**
+
+| Carga | Cuadre |
+|---|---|
+| Checadas (`carga-unica`) | 237,227 de 237,230 (fuera: 3 con fecha basura) · 1,613 enrolamientos · 310 incidencias (23 «Descanso») · 12,076 alertas · 0 ajustes de horas extra · 35 s |
+| Horarios por persona | **163 de 163** — la 1ª corrida dejó FUERA 17: personas con 4 horarios contra un CHECK que topaba en 3. Corregido en `20261109110836` (tope 4) |
+| Personas (`carga-personas --con-cargas`) | 1,086 fichas → 1,064 personas (18 rotan entre plazas) · 0 por decidir · 1,060 de 1,067 enrolamientos activos ligados |
+
+⚠️ **El primer cierre semanal se va a frenar:** 175 fichas activas no tienen sección en Mega Talento y **47 checaron en los
+últimos 14 días** (14 en La Piedad Abastos). Con `[RH.1.6b]` el cierre las exige; RH las corrige con «Editar» en la ficha de
+la persona (`[RH.7.1]`) o cierra con motivo. Dato de contexto: Mega Talento tiene **0 cierres** registrados.
+
+⚠️ La paridad (§2.6b) sigue **NO MEDIDA**: su paso 1 corre el código de Mega Talento (`npm ci` en su repo) y desde la
+máquina de trabajo quedó bloqueado por permisos. Lo corre quien tenga el repo de Mega Talento instalado (David).
+
 **Lo que falta para cortar, en orden** (los pasos de abajo, sin cambios salvo lo marcado):
 
 1. Merge del commit de `[RH.6]` y aplicar `20261109110836` (§2.2). ⚠️ Esa API escribe `shifts`: **la migración va antes
