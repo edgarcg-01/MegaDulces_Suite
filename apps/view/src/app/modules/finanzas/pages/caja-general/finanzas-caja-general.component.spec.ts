@@ -1456,6 +1456,68 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(fx.nativeElement.textContent).toContain('Quitar la marca');
   });
 
+  /**
+   * `[CGA-A.71]` El pendiente que ya entró al libro por otro camino (real: la ruta 21 del 10-oct ya es
+   * CI-2026-00011, el depósito de CAOS «rd21 10/10» capturado sin documento). Se ve, no entra al lote
+   * ni al «siguiente», y la ficha avisa al abrirlo.
+   *
+   * ⚠️ PRUEBA NEGATIVA (corrida el 2026-11-09): con `delLote` devolviendo sólo `confirmable` se pone
+   * roja ésta (el lote se lo llevaba y «Marcar las 2» prometía uno de más).
+   */
+  it('⭐ [CGA-A.71] lo que ya está en el libro se marca, no entra al lote ni al «siguiente», y la ficha avisa', async () => {
+    const YA = { ...FILA_B, ya_en_libro: { como: 'deposito_ruta' as const, certeza: 'alta' as const, folio: 'CI-2026-00011',
+      fecha: '2026-10-13', monto: 3747.66, glosa: 'CAOS Deposito #1580 · rd21 10/10' } };
+    const fx = montar({ movimientosPendientes: vi.fn(() => of({ ...CON_DOS, rows: [FILA_A, YA] })) });
+    await Promise.resolve();
+    fx.detectChanges();
+    const t = () => fx.nativeElement.textContent as string;
+    expect(t()).toContain('Ya en el libro: CI-2026-00011');
+    expect(t()).toContain('1 ya está en el libro por otro camino');
+    expect(t()).toContain('Marcar las 1');
+    comp.marcarTodas(true);
+    expect(comp.marcadas()).toEqual([FILA_A.origen_ref]);
+    comp.marcar(YA.origen_ref, true);
+    expect(comp.marcadas()).toEqual([FILA_A.origen_ref]);
+    expect(comp.delLote(YA)).toBe(false);
+    expect(comp.textoYaEnLibro(YA.ya_en_libro)).toBe('es el depósito de la bóveda «rd21 10/10», que declara esta ruta y este día');
+    // Abrirlo a mano sigue pudiéndose, y la ficha lo dice antes de contar.
+    comp.abrirDeLaCola(YA);
+    fx.detectChanges();
+    expect(t()).toContain('Ya está en el libro como CI-2026-00011');
+    expect(t()).toContain('No lo captures otra vez');
+  });
+
+  /**
+   * `[CGA-A.72]` Ligar desde la ficha: manda SÓLO la llave del documento a la captura que ya lo trae,
+   * cierra la ficha y vuelve a leer la cola. Lo que casa por otra llave no se liga desde aquí.
+   *
+   * ⚠️ PRUEBA NEGATIVA (corrida el 2026-11-09): con `ligable` devolviendo `true` siempre se pone roja
+   * ésta (ofrecía ligar una captura de Kepler con otra llave).
+   */
+  it('⭐ [CGA-A.72] «Ligar» manda sólo la llave a esa captura, sale de la ficha y relee la cola; la otra llave no se liga', async () => {
+    const YL = { como: 'deposito_ruta' as const, certeza: 'alta' as const, id: 'cl-11', folio: 'CI-2026-00011',
+      fecha: '2026-10-13', monto: 3747.66, glosa: 'CAOS Deposito #1580 · rd21 10/10' };
+    const YA = { ...FILA_B, ya_en_libro: YL };
+    const ligar = vi.fn(() => of({ folio: 'CI-2026-00011', declared_doc_ref: YA.origen_ref, ya_estaba: false, como: 'deposito_ruta', certeza: 'alta' }));
+    const pend = vi.fn(() => of({ ...CON_DOS, rows: [FILA_A, YA] }));
+    const fx = montar({ movimientosPendientes: pend, ligarDocumento: ligar });
+    await Promise.resolve();
+    fx.detectChanges();
+    comp.abrirDeLaCola(YA);
+    fx.detectChanges();
+    const boton = [...fx.nativeElement.querySelectorAll('button')].find((b: HTMLButtonElement) => b.textContent?.includes('Sí, es CI-2026-00011: ligar')) as HTMLButtonElement;
+    expect(boton, 'la ficha ofrece ligar').toBeTruthy();
+    const antes = pend.mock.calls.length;
+    boton.click();
+    expect(ligar).toHaveBeenCalledWith('cl-11', YA.origen_ref);
+    expect(comp.capturaAbierta()).toBe(false);
+    expect(pend.mock.calls.length).toBeGreaterThan(antes);
+    // La otra llave (cambiaría la llave de un cobro): se dice, no se ofrece.
+    expect(comp.ligable({ ...YL, como: 'otra_llave' })).toBe(false);
+    expect(comp.ligable({ ...YL, como: 'otra_camioneta' })).toBe(false);
+    expect(comp.ligable({ ...YL, id: null })).toBe(false);
+  });
+
   it('[negativa] el lote manda SÓLO la referencia: ningún importe propio viaja al libro', () => {
     montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
     const libre = comp.pendientes().find((p) => p.confirmable);
@@ -5882,6 +5944,87 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       expect(hist).toContain('Hoja en papel: Control A23649 «GNF MORELIA» del 15/10');
       expect(hist).toContain('depósito del 22/10 por $92,606.73');
       expect(hist).not.toContain('sin depósito');
+    });
+
+    // ⭐ `[LE.6.24]` PM, 2026-11-09: «en la hoja de reposición falta mostrar el folio del depósito y que sí
+    // cuadre con lo que se le va a reponer». HG-1 real: $83,981.89 ↔ U-A-5 0000303 de Abastos por $83,982.
+    const PAGO = (deposito: NonNullable<HojaGastos['pago']>['deposito']): NonNullable<HojaGastos['pago']> => ({
+      medio: 'cajon', retiro: null, cajon: 83981.89, pagada_por_nombre: 'carmen', pagada_at: '2026-10-30T20:00:00Z', sin_capturar: 0, deposito });
+    const enHistorial = (h: HojaGastos) => {
+      const fx = montar({ hojasDeGastos: vi.fn(() => of(HOJAS({ cerradas: [h] }))) });
+      fx.detectChanges();
+      reposicion(fx).vista.set('historial');
+      reposicion(fx).alternar('hoja|h3');
+      fx.detectChanges();
+      return fx;
+    };
+
+    it('[LE.6.24] la hoja pagada dice el FOLIO del depósito y que cuadra con lo que se repone', () => {
+      const fx = enHistorial(HOJA({ estado: 'pagada', pago: PAGO({ estado: 'depositada', diferencia: 0.11, nota: null,
+        depositos: [{ id: '08|U-A-5|0000303|1604', dia: '2026-10-30', importe: 83982, folio: '0000303', sucursal: '08', banco: '1604' }] }) }));
+      expect(ventana(fx).querySelector('.rp-pagado')?.textContent).toContain('depósito U-A-5 0000303 de');
+      const cuadre = ventana(fx).querySelector('[data-testid="rp-hoja-deposito"]')?.textContent?.replace(/\s+/g, ' ') ?? '';
+      expect(cuadre).toContain('Se repone $83,981.89');
+      expect(cuadre).toContain('U-A-5 0000303');
+      expect(cuadre).toContain('30/10');
+      expect(cuadre).toContain('cuenta 1604');
+      expect(cuadre).toContain('$83,982.00 · cuadra');
+      expect(cuadre).toContain('+$0.11 de redondeo');
+    });
+
+    it('[LE.6.24] NEGATIVA: sin depósito que cuadre no se afirma ninguno, y se dice por qué', () => {
+      const fx = enHistorial(HOJA({ estado: 'pagada', pago: PAGO({ estado: 'no_aparece', depositos: null, diferencia: null,
+        nota: 'No hay un U-A-5 a la clave 1604 por el total (±$0.50) del 2026-11-05 a siete días; Kepler trae hasta el 2026-11-09.' }) }));
+      const cuadre = ventana(fx).querySelector('[data-testid="rp-hoja-deposito"]')?.textContent?.replace(/\s+/g, ' ') ?? '';
+      expect(cuadre).toContain('sin depósito que cuadre');
+      expect(cuadre).toContain('Kepler trae hasta el 2026-11-09');
+      expect(cuadre).not.toContain('· cuadra');
+      expect(ventana(fx).querySelector('.rp-pagado')?.textContent).toContain('el depósito todavía no aparece');
+    });
+
+    // ⭐ `[LE.6.25]` PM, 2026-11-09: «identificar qué se repone a la sucursal y qué se le carga, pero lo pagó
+    // oficinas». Los pagos reales del 29/10: oficinas pagó compras de Abastos y Canindo con su caja.
+    const CARGO = (folio: string, centro: string, sucursal: string | null, importe: number) => ({
+      origen_ref: `00|X-D-26|${folio}|0011`, folio, fecha_valor: '2026-10-29', beneficiario: 'PROVEEDOR DE PRUEBA', importe,
+      centro, centro_nombre: centro === 'C-010' ? 'COMPRA PROVEEDOR MORELIA ABAST' : null, sucursal, referencia: 'COMPRA 6267' });
+
+    it('[LE.6.25] lo que pagó oficinas a cuenta de una sucursal se ve APARTE: se le carga, no se le repone', () => {
+      const cargos = [CARGO('0023691', 'C-010', '08', 117905.32), CARGO('0023690', 'C-020', '06', 46203.01)];
+      const fx = montar({ reposicion: vi.fn(() => of({ ...REPOSICION, cargado_por_oficinas: cargos })), hojasDeGastos: vi.fn(() => of(HOJAS({ cerradas: [] }))) });
+      fx.detectChanges();
+      const bloque = ventana(fx).querySelector('[data-testid="rp-oficinas"]');
+      expect(bloque, 'no se ve lo cargado por oficinas').not.toBeNull();
+      const txt = bloque!.textContent!.replace(/\s+/g, ' ');
+      expect(txt).toContain('Pagado por oficinas a cuenta de una sucursal: 2 pagos ($164,108.33)');
+      expect(txt).toContain('no se repone: se le carga a la sucursal');
+      expect(txt).toContain('Morelia Abastos');
+      expect(txt).toContain('C-010 · COMPRA PROVEEDOR MORELIA ABAST');
+      expect(txt).toContain('X-D-26 0023691');
+      expect(txt).toContain('$117,905.32');
+      // No es trabajo de la reposición: no suma «por resolver».
+      expect((fx.nativeElement.querySelector('.cg-bar .cg-repo-btn') as HTMLElement | null)?.textContent ?? '').not.toContain('por resolver');
+    });
+
+    it('[LE.6.25] NEGATIVA: un centro que el mapa no conoce no se adivina', () => {
+      const fx = montar({ reposicion: vi.fn(() => of({ ...REPOSICION, cargado_por_oficinas: [CARGO('0023999', 'C-099', null, 500)] })),
+        hojasDeGastos: vi.fn(() => of(HOJAS({ cerradas: [] }))) });
+      fx.detectChanges();
+      expect(ventana(fx).querySelector('[data-testid="rp-oficinas"]')?.textContent).toContain('sin sucursal');
+    });
+
+    it('[LE.6.25] NEGATIVA: una API que no manda los cargos no muestra bloque ni afirma «nada»', () => {
+      const fx = montar({ reposicion: vi.fn(() => of(REPOSICION)), hojasDeGastos: vi.fn(() => of(HOJAS({ cerradas: [] }))) });
+      fx.detectChanges();
+      expect(ventana(fx).querySelector('[data-testid="rp-oficinas"]')).toBeNull();
+      expect(ventana(fx).querySelector('[data-testid="rp-oficinas-cero"]')).toBeNull();
+    });
+
+    it('[LE.6.25] semana sin cargos de oficinas: lo dice en vez de callarlo', () => {
+      const fx = montar({ reposicion: vi.fn(() => of({ ...REPOSICION, cargado_por_oficinas: [] })),
+        hojasDeGastos: vi.fn(() => of(HOJAS({ cerradas: [] }))) });
+      fx.detectChanges();
+      expect(ventana(fx).querySelector('[data-testid="rp-oficinas"]')).toBeNull();
+      expect(ventana(fx).querySelector('[data-testid="rp-oficinas-cero"]')?.textContent).toContain('no pagó nada a cuenta de una sucursal');
     });
 
     it('[LE.6.20] una zona sin cuenta medida y con algo por reponer lo dice: no se sabe qué ya se repuso', () => {

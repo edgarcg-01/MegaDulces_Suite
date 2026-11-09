@@ -6,6 +6,7 @@ import { CashLedgerService, type CreateMovementInput, type EntidadDeclarada, typ
 import { CajaAutofillService, type AutofillInput } from './caja-autofill.service';
 import { CashCutService, type AbrirCorteInput, type CerrarCorteInput } from './cash-cut.service';
 import type { PorReclasificar } from './cash-cut.service';
+import type { LigarDocumentoInput, LigarDocumentoResultado } from '@megadulces/contracts';
 import type { CandadoCaja } from './caja-candado.query';
 import { CajaFechaFuturaScannerService } from './caja-fecha-futura-scanner.service';
 import { CajaAutollenadoService, type CorridaAutollenado, type EstadoAutollenado } from './caja-autollenado.service';
@@ -624,6 +625,17 @@ export class CashLedgerController {
   @ApiOperation({ summary: 'CG.128 — Corrige la cuenta de un movimiento a la que dice la poliza de Kepler, guardando el ANTES. Exige motivo (>=12). Lo que ya entro a un corte NO se toca.' })
   reclasificar(@Param('id') id: string, @Body() body: { motivo: string }, @Req() req: AuthedRequest): Promise<Record<string, unknown>> {
     return this.cortes.reclasificar(id, body?.motivo, this.user(req));
+  }
+
+  /**
+   * ⭐ `[CGA-A.72]` **Liga un depósito de CAOS ya capturado con el documento de Kepler que es.** La
+   * pantalla manda sólo el documento; si coincide lo decide el servidor con el motor que lo marcó.
+   */
+  @Post(':id/ligar-documento')
+  @RequirePermissions(Permission.FINANCE_CAJA_GESTIONAR)
+  @ApiOperation({ summary: '[CGA-A.72] Escribe en un depósito de CAOS capturado (sin documento) el documento de Kepler que ya trae, para que la cola no lo ofrezca otra vez. No cambia importe, día, cuenta ni estado.' })
+  ligarDocumento(@Param('id') id: string, @Body() body: LigarDocumentoInput, @Req() req: AuthedRequest): Promise<LigarDocumentoResultado> {
+    return this.svc.ligarDocumento(id, body?.origen_ref, this.user(req));
   }
 
   @Get(':id')

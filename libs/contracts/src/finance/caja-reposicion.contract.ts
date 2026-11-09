@@ -169,10 +169,45 @@ export interface ReposicionGrupo {
   por_hoja: boolean;
 }
 
+/**
+ * ⭐ `[LE.6.25]` El centro de costo «COMPRA PROVEEDOR …» del catálogo de CEDIS (`kdxv` de la `00`) → la
+ * sucursal a la que se carga. Es la ÚNICA marca de Kepler que dice que oficinas pagó algo a cuenta de una
+ * sucursal (medido el 2026-11-09: los gastos de oficinas sólo traen categoría —gastos generales, nómina—,
+ * nunca sucursal). ⛔ El catálogo es por sucursal y los códigos chocan entre sucursales: este mapa vale
+ * SÓLO para documentos de la `00`. `C-001` («COMPRA PROVEEDOR CEDIS») es la propia `00`: no es «a cuenta
+ * de otra». Un `C-` que no esté aquí sale con su nombre de Kepler y sin sucursal, nunca adivinada.
+ */
+export const SUCURSAL_DE_CENTRO_COMPRA_OFICINAS: Readonly<Record<string, string>> = Object.freeze({
+  'C-002': '01', 'C-003': '03', 'C-004': '02', 'C-005': '04',
+  'C-010': '08', 'C-011': '07', 'C-020': '06', 'C-021': '05',
+});
+
+/** `[LE.6.25]` Un pago de oficinas (caja 0011 de la `00`) cargado a una sucursal: no se le repone a nadie. */
+export interface CargoDeOficinas {
+  /** `00|X-D-26|folio|0011`: la misma llave que la cola de Captura. */
+  origen_ref: string;
+  folio: string;
+  fecha_valor: string;
+  beneficiario: string | null;
+  importe: number;
+  /** El centro de costo de Kepler (`C-010`) y su nombre en el catálogo de la `00`. */
+  centro: string;
+  centro_nombre: string | null;
+  /** La sucursal a la que se carga; `null` = un `C-` que el mapa no conoce (se ve con su nombre de Kepler). */
+  sucursal: string | null;
+  referencia: string | null;
+}
+
 export interface ReposicionSucursales {
   desde: string;
   hasta: string;
   grupos: ReposicionGrupo[];
+  /**
+   * `[LE.6.25]` Lo que oficinas pagó en efectivo a cuenta de una sucursal en la ventana: NO es reposición
+   * (no se le deposita a nadie) y se ve aparte. Sólo compras: los gastos de oficinas no dicen sucursal.
+   * Opcional: una API anterior no lo manda.
+   */
+  cargado_por_oficinas?: CargoDeOficinas[];
   /** Los retiros con dinero libre que el motor consideró. */
   retiros: ReposicionRetiro[];
   /** Edad del dato de Kepler (latido del carril que escribe `kdm1`) y de CAOS. `null` = sin medir. */

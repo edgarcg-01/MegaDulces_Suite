@@ -417,3 +417,32 @@ describe('[CGA-A.65] lo que espera su hoja de zona no se repone por sucursal: se
     expect(armarReposicion({ ...sem, docs: [ABASTOS], egresos: [], vinculos: [], retiros: [] }).grupos).toHaveLength(1);
   });
 });
+
+describe('[LE.6.26] Canindo del 3/11: la hoja HG-5 pagada con retiro + cajón ya no deja «por resolver»', () => {
+  // HG-5 (prod, sólo lectura): 14 renglones, $32,073.25; retiro 1847 «gnf canindo» $32,000 + cajón $73.25.
+  // El pago ligó el retiro en orden de folio y al último renglón le quedaron $73.25 sin ligar.
+  const b = { desde: '2026-11-03', hasta: '2026-11-09' };
+  const docs = [doc('06', '0000399', '2026-11-03', 25), doc('06', '0000400', '2026-11-03', 17760, 'PROVEEDOR')];
+  const egresos = [
+    egreso('l657', 'CG-2026-00657', ref('06', '0000399'), 25, '2026-11-03', 'caos'),
+    egreso('l658', 'CG-2026-00658', ref('06', '0000400'), 17760, '2026-11-03', 'caos'),
+  ];
+  const vinculos = [vinculo('k657', 'l657', 1847, 25, 'gnf canindo'), vinculo('k658', 'l658', 1847, 17686.75, 'gnf canindo')];
+  const hoja = (cajon: number) => [{ folio: 'HG-5', cajon, refs: [ref('06', '0000399'), ref('06', '0000400')] }];
+  const grupo = (hojasPagadas?: Array<{ folio: string; cajon: number; refs: string[] }>) =>
+    armarReposicion({ ...b, docs, egresos, vinculos, retiros: [], hojasPagadas }).grupos.find((x) => x.clave === '2026-11-03|06');
+
+  it('lo que la hoja declaró del cajón explica el resto: el grupo queda explicado', () => {
+    const g = grupo(hoja(73.25));
+    expect(g).toMatchObject({ estado: 'explicada', sin_vincular: 0, n_sin_vincular: 0, cajon: 73.25 });
+    expect(g?.docs.find((d) => d.folio === '0000400')).toMatchObject({ estado: 'caos', falta: 0 });
+  });
+
+  it('NEGATIVA: sin la hoja, los $73.25 siguen sin vincular', () => {
+    expect(grupo()).toMatchObject({ estado: 'sin_vincular', sin_vincular: 73.25, n_sin_vincular: 1 });
+  });
+
+  it('NEGATIVA: la hoja no explica más de lo que declaró del cajón', () => {
+    expect(grupo(hoja(50))).toMatchObject({ estado: 'sin_vincular', sin_vincular: 73.25 });
+  });
+});
