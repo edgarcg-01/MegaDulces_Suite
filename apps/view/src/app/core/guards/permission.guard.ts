@@ -316,6 +316,8 @@ export const LOGISTICA_LANDING: LandingCandidate[] = withTreeCandidates('logisti
   // `[SN.4]` Faltaban: un rol con sólo Guías o sólo Gasto de flota rebotaba en el índice.
   { perm: Permission.LOGISTICS_GUIDES_VER, url: '/logistica/guides' },
   { perm: Permission.LOGISTICS_ROUTE_EXPENSES_VER, url: '/logistica/gasto-ruta' },
+  // [EMB.56] El chofer sólo tiene la guía de reparto: sin esto rebotaría al índice.
+  { perm: Permission.LOGISTICS_GUIA_REPARTO_VER, url: '/logistica/guia-reparto' },
 ]);
 
 /** Landing de `/logistica`. */

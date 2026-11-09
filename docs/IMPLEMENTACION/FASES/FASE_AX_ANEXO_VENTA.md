@@ -188,6 +188,12 @@ Disparador (usuarios, vía Francisco): *"donde está el renglón COMPRADO POR CA
 
 Candado: 7 pruebas nuevas en `anexo-venta.spec.ts` (vitest **28/28**). Prueba negativa hecha: devolver el `floor` a la base y quitar la acumulación de la suma ponen **4 pruebas en rojo** cada una. Sin migraciones, sin permisos, sin cambios de API → **sin re-login**. Falta: validación visual sobre una factura real impresa.
 
+### AX.21 — La guía de reparto: se mudó a Logística (2026-11-09)
+
+Se planteó aquí porque Facturación TM ya liga factura ↔ embarque (`[AX.17]`), pero la guía es la
+hoja de ruta del chofer y el chofer trabaja al 100 % con Logística (PM, 2026-11-09). Vive en
+`[EMB.56]`, [`FASE_EMB_PAGO_POR_VIAJE.md`](FASE_EMB_PAGO_POR_VIAJE.md) §8.
+
 ### Diferidos
 - ⬜ **AX.5** Agente de impresión por WebSocket (`/print`, room por sucursal) para sucursal desatendida. Hoy **no existe** ESC/POS ni agente local en el repo; el navegador cubre oficina.
 - ⬜ **AX.6** IA: búsqueda en lenguaje natural → **filtros estructurados** (el LLM nunca calcula importes, ADR-016); aviso de riesgo por motor determinista; OCR del pagaré firmado (`extractDepositSlip` ya recibe PDF nativo).

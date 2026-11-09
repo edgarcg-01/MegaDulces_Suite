@@ -284,6 +284,9 @@ export enum Permission {
   // Módulo: Logística — Embarques (state machine)
   LOGISTICS_SHIPMENTS_VER = 'LOGISTICS_SHIPMENTS_VER',
   LOGISTICS_SHIPMENTS_GESTIONAR = 'LOGISTICS_SHIPMENTS_GESTIONAR',
+  // [EMB.56] La guía de reparto: la hoja de ruta del chofer, sin dinero (el chofer no cobra).
+  // Es la ÚNICA clave del rol `chofer`; los roles que ya ven embarques la reciben también.
+  LOGISTICS_GUIA_REPARTO_VER = 'LOGISTICS_GUIA_REPARTO_VER',
 
   // Módulo: Logística — Guías + destinatarios
   LOGISTICS_GUIDES_VER = 'LOGISTICS_GUIDES_VER',

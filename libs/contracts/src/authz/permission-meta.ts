@@ -136,6 +136,7 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.LOGISTICS_FLEET_GESTIONAR]: { label: 'Gestionar Flotilla', description: 'Alta y edición de unidades y personal de logística.', category: 'Logística' },
   [Permission.LOGISTICS_SHIPMENTS_VER]: { label: 'Ver Embarques', description: 'Consultar embarques y su estado.', category: 'Logística' },
   [Permission.LOGISTICS_SHIPMENTS_GESTIONAR]: { label: 'Gestionar Embarques', description: 'Crear y avanzar embarques en su máquina de estados.', category: 'Logística' },
+  [Permission.LOGISTICS_GUIA_REPARTO_VER]: { label: 'Ver e imprimir la guía de reparto', description: 'La hoja de ruta del chofer: los viajes del día de su sucursal y, por parada, domicilio de entrega, bultos y folios de pedido, embarque y factura. Sin importes.', category: 'Logística' },
   [Permission.LOGISTICS_GUIDES_VER]: { label: 'Ver Guías', description: 'Consultar guías de entrega y destinatarios.', category: 'Logística' },
   [Permission.LOGISTICS_GUIDES_GESTIONAR]: { label: 'Gestionar Guías', description: 'Crear y editar guías y sus destinatarios.', category: 'Logística' },
   [Permission.LOGISTICS_EXPENSES_VER]: { label: 'Ver Costos', description: 'Consultar costos y gastos del viaje.', category: 'Logística' },

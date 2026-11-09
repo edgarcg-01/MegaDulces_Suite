@@ -1,6 +1,12 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { TenantKnexService } from '@megadulces/platform-core';
-import type { NuevoEmbarqueHoja, NuevoEmbarqueParada } from '@megadulces/contracts';
+import type { Knex } from 'knex';
+import type {
+  GuiaRepartoBusqueda, GuiaRepartoFiltro, GuiaRepartoHoja, GuiaRepartoQuien, GuiaRepartoViaje, GuiaRepartoViajes,
+  NuevoEmbarqueHoja, NuevoEmbarqueParada,
+} from '@megadulces/contracts';
+import { normalizarNumeroDeGuia } from '@megadulces/contracts';
+import { armarParadas, asignacionDelChofer, docOrigen, esViajeDelChofer, llaveEmbarque, type EmbarqueDeGuia, type FacturasPorEmbarque } from './guia-reparto.logic';
 import {
   comisionSugerida,
   EntradaCatalogo,
@@ -114,6 +120,7 @@ interface CargaParadaRow {
   domicilio_supuesto: boolean | null;
   domicilio_calle: string | null;
   domicilio_ciudad: string | null;
+  domicilio_telefono: string | null;
   ruta_clave: string | null;
   ruta_nombre: string | null;
   orden_visita: number | string | null;
@@ -348,19 +355,7 @@ export class ErpShipmentsService {
           'transporte_metodo', 'chofer_code', 'chofer_clave_kepler', 'chofer_nombre', 'chofer_metodo',
           'chofer_asignado_a_la_unidad', 'vehicle_id', 'vehicle_plate');
 
-      const { rows: extras } = await trx.raw<{ rows: CargaParadaRow[] }>(
-        `SELECT s.serie, s.folio, s.domicilio, s.domicilio_supuesto, s.domicilio_calle,
-                s.domicilio_ciudad, s.domicilio_telefono, s.ruta_clave, s.ruta_nombre,
-                s.orden_visita, s.ruta_metodo, s.facturacion, s.facturado,
-                s.hora_captura, s.usuario_captura, s.nota_almacen,
-                l.renglones, l.cajas, l.sueltos, l.kg, l.renglones_kg, l.renglones_sin_empaque
-           FROM analytics.erp_shipment_stops s
-           LEFT JOIN LATERAL (
-             SELECT * FROM analytics.erp_shipment_stop_load x
-              WHERE x.sucursal = s.sucursal AND x.serie = s.serie AND x.folio = s.folio
-           ) l ON true
-          WHERE s.sucursal = ? AND s.guia_embarque = ?`, [sucursal, guia]);
-      const extraDe = new Map<string, CargaParadaRow>(extras.map((e) => [`${e.serie}|${e.folio}`, e]));
+      const extraDe = await this.cargaDeParadas(trx, sucursal, guia);
 
       const catalogos: Array<{ rol: string; codigo: string; nombre: string | null }> =
         await trx('analytics.v_kepler_responsables').where({ sucursal }).select('rol', 'codigo', 'nombre');
@@ -420,16 +415,7 @@ export class ErpShipmentsService {
       const choferClave = primero('chofer_clave_kepler');
       const vehicleId = trip.vehicle_id ?? null;
 
-      // El nombre de la sucursal sale del catálogo de Kepler (`pv_suc_ip`: 06 → «Sucursal Canindo»).
-      // ⚠️ Se pregunta antes si la tabla existe: una consulta que falla dentro de la transacción
-      // la aborta entera, y el nombre no vale tumbar la hoja.
-      const { rows: [hayPv] } = await trx.raw<{ rows: Array<{ ok: boolean }> }>(
-        `SELECT to_regclass('kepler_ods.pv_suc_ip') IS NOT NULL AS ok`);
-      const sucNombre: string | null = hayPv?.ok
-        ? await trx.raw<{ rows: Array<{ nombre: string | null }> }>(
-          `SELECT btrim(c2) AS nombre FROM kepler_ods.pv_suc_ip WHERE btrim(c1) = ? LIMIT 1`, [sucursal])
-          .then((r) => r.rows?.[0]?.nombre ?? null)
-        : null;
+      const sucNombre = await this.nombreSucursal(trx, sucursal);
 
       // ⚠️ En SECUENCIA, no con Promise.all: dentro de una transacción todas van por el MISMO
       // cliente de pg, y mandarle consultas simultáneas está deprecado (pg@9 lo quita). Medido:
@@ -514,6 +500,315 @@ export class ErpShipmentsService {
           peso: 'No existe en Kepler (sin peso por producto). Sólo se conocen los kilos de renglones vendidos por kilo.',
           valor: 'Entrega a cliente = precio de venta con impuestos; traspaso = costo. No se suman.',
           entrega: 'Kepler no registra la llegada; la confirma el chofer en la Suite.',
+        },
+      };
+    });
+  }
+
+  /**
+   * EMB.12 — ruta, domicilio de entrega, orden de visita y carga de cada parada de la guía, con
+   * llave `serie|folio`. La comparten «Nuevo embarque» y la guía de reparto (`[EMB.56]`).
+   *
+   * ⭐ DOS consultas por llave constante, no un LATERAL (`[EMB.56]`, medido 2026-11-09 en prod
+   * sobre la guía 01-G0000969): con el LATERAL la carga costaba **1,880–2,283 ms** porque el
+   * agregado de `erp_shipment_stop_load` no recibía el filtro; pidiéndola con sucursal + serie +
+   * folios constantes usa `ix_kdm2_venta_doc` y cuesta **6–13 ms**. Las paradas solas, 16 ms.
+   */
+  private async cargaDeParadas(trx: Knex.Transaction, sucursal: string, guia: string): Promise<Map<string, CargaParadaRow>> {
+    const paradas: CargaParadaRow[] = await trx('analytics.erp_shipment_stops')
+      .where({ sucursal, guia_embarque: guia })
+      .select('serie', 'folio', 'domicilio', 'domicilio_supuesto', 'domicilio_calle', 'domicilio_ciudad',
+        'domicilio_telefono', 'ruta_clave', 'ruta_nombre', 'orden_visita', 'ruta_metodo', 'facturacion',
+        'facturado', 'hora_captura', 'usuario_captura', 'nota_almacen');
+    const porSerie = new Map<number, string[]>();
+    for (const p of paradas) {
+      const s = Number(p.serie);
+      if (!porSerie.has(s)) porSerie.set(s, []);
+      porSerie.get(s)!.push(p.folio);
+    }
+    const carga = new Map<string, Partial<CargaParadaRow>>();
+    // En SECUENCIA (mismo cliente de pg dentro de la transacción); a lo más dos: serie 1 y 2.
+    for (const [serie, folios] of porSerie) {
+      const rows = await trx('analytics.erp_shipment_stop_load')
+        .where({ sucursal, serie }).whereIn('folio', folios)
+        .select('serie', 'folio', 'renglones', 'cajas', 'sueltos', 'kg', 'renglones_kg', 'renglones_sin_empaque');
+      for (const l of rows) carga.set(`${l.serie}|${l.folio}`, l);
+    }
+    // Sin renglones, la carga queda en null (no en cero): igual que el LEFT JOIN de antes.
+    return new Map<string, CargaParadaRow>(paradas.map((p) => {
+      const l = carga.get(`${p.serie}|${p.folio}`);
+      return [`${p.serie}|${p.folio}`, {
+        ...p,
+        renglones: l?.renglones ?? null,
+        cajas: l?.cajas ?? null,
+        sueltos: l?.sueltos ?? null,
+        kg: l?.kg ?? null,
+        renglones_sin_empaque: l?.renglones_sin_empaque ?? null,
+      }];
+    }));
+  }
+
+  /**
+   * El nombre de la sucursal sale del catálogo de Kepler (`pv_suc_ip`: 06 → «Sucursal Canindo»).
+   * ⚠️ Se pregunta antes si la tabla existe: una consulta que falla dentro de la transacción la
+   * aborta entera, y el nombre no vale tumbar la hoja.
+   */
+  private async nombreSucursal(trx: Knex.Transaction, sucursal: string): Promise<string | null> {
+    const { rows: [hayPv] } = await trx.raw(`SELECT to_regclass('kepler_ods.pv_suc_ip') IS NOT NULL AS ok`);
+    if (!hayPv?.ok) return null;
+    const r = await trx.raw(`SELECT btrim(c2) AS nombre FROM kepler_ods.pv_suc_ip WHERE btrim(c1) = ? LIMIT 1`, [sucursal]);
+    return r.rows?.[0]?.nombre ?? null;
+  }
+
+  /**
+   * `[EMB.56]` Los viajes de un día, para que el chofer escoja el suyo. Sólo lo justo para
+   * reconocerlo (unidad, placas, paradas, a dónde va): ningún importe. `sucursales` null = todas
+   * (alcance `all`); `[]` = ninguna.
+   *
+   * ⭐ Sale de las PARADAS del día, no de `erp_shipment_trips`: esa vista agrega todas las guías
+   * antes de filtrar por fecha y costaba **4,117–4,787 ms**; las cabeceras y las paradas filtradas
+   * por sucursal + fecha cuestan **13–61 ms** (medido 2026-11-09, sucursal 01, 23-jul-2026).
+   * ⚠️ Diferencia declarada: una guía con embarques de dos días aparece en los dos (la vista la
+   * fecha en el primero). Es el día que el chofer busca.
+   */
+  async viajesGuiaReparto(fecha: string, sucursales: string[] | null, quien: GuiaRepartoQuien): Promise<GuiaRepartoViajes> {
+    return { fecha, ...(await this.viajesDonde({ fecha }, sucursales, quien)) };
+  }
+
+  /**
+   * `[EMB.56]` Una guía por su NÚMERO, para reimprimirla sin navegar el calendario (medido con
+   * Playwright: llegar al 23-jul desde noviembre costaba 6 clics). El número es por sucursal —la
+   * `0000969` existe en Padre Hidalgo (23-jul) y en CEDIS (24-ago)—, así que puede devolver varios
+   * viajes y la pantalla los muestra para escoger; nunca imprime uno a ciegas. Mismo alcance y mismo
+   * filtro por chofer que la lista del día. Medido: 47–113 ms en todas las sucursales.
+   */
+  async buscarGuiaReparto(texto: string, sucursales: string[] | null, quien: GuiaRepartoQuien): Promise<GuiaRepartoBusqueda> {
+    const guia = normalizarNumeroDeGuia(texto);
+    if (!guia) return { guia: null, rows: [], filtro: { por_chofer: !quien.todos, chofer_nombre: null, motivo: null } };
+    return { guia, ...(await this.viajesDonde({ guia }, sucursales, quien)) };
+  }
+
+  /**
+   * Los viajes de un día o de un número de guía, con el filtro por chofer. Una sola implementación
+   * para las dos entradas: lo que cambia es de dónde salen los embarques, no cómo se arma la fila.
+   */
+  private async viajesDonde(
+    donde: { fecha: string } | { guia: string },
+    sucursales: string[] | null,
+    quien: GuiaRepartoQuien,
+  ): Promise<{ rows: GuiaRepartoViaje[]; filtro: GuiaRepartoFiltro }> {
+    const todos: GuiaRepartoFiltro = { por_chofer: false, chofer_nombre: null, motivo: null };
+    if (sucursales && !sucursales.length) {
+      return { rows: [], filtro: quien.todos ? todos : { ...todos, por_chofer: true } };
+    }
+    const llave = 'fecha' in donde ? { fecha: donde.fecha } : { guia_embarque: donde.guia };
+    return this.tk.run(M, async (trx) => {
+      // [EMB.56] Cada chofer, sólo sus viajes. Sin ficha o sin clave de Kepler no se adivina: se dice.
+      const ficha = quien.todos ? null : await this.fichaDeChofer(trx, quien.user_id);
+      const filtro: GuiaRepartoFiltro = quien.todos ? todos : {
+        por_chofer: true,
+        chofer_nombre: ficha?.full_name ?? null,
+        motivo: !ficha ? 'sin_ficha_de_chofer' : !ficha.kepler_code?.trim() ? 'sin_clave_kepler' : null,
+      };
+      if (filtro.motivo) return { rows: [], filtro };
+
+      const cab = trx('analytics.erp_shipment_headers').where({ tenant_id: M, ...llave }).whereNotNull('guia_embarque');
+      if (sucursales) cab.whereIn('sucursal', sucursales);
+      let docs: Array<{
+        sucursal: string; guia_embarque: string; fecha: Date | string | null; transporte_descripcion: string | null;
+        transporte_placas: string | null; chofer_clave_kepler: string | null; transporte_clave_kepler: string | null;
+      }> = await cab.select('sucursal', 'guia_embarque', 'fecha', 'transporte_descripcion', 'transporte_placas',
+        'chofer_clave_kepler', 'transporte_clave_kepler');
+
+      const asignado = new Map<string, 'embarque' | 'unidad'>();
+      if (filtro.por_chofer && ficha?.kepler_code) {
+        const choferDe = await this.choferesDeUnidades(trx, docs);
+        const porGuia = new Map<string, typeof docs>();
+        for (const d of docs) {
+          const k = `${d.sucursal}|${d.guia_embarque}`;
+          if (!porGuia.has(k)) porGuia.set(k, []);
+          porGuia.get(k)!.push(d);
+        }
+        for (const [k, ds] of porGuia) {
+          const por = asignacionDelChofer(ds, choferDe.get(ds[0].sucursal) ?? new Map(), ficha.kepler_code);
+          if (por) asignado.set(k, por);
+        }
+        docs = docs.filter((d) => asignado.has(`${d.sucursal}|${d.guia_embarque}`));
+        if (!docs.length) return { rows: [], filtro };
+      }
+
+      const par = trx('analytics.erp_shipment_stops').where(llave).whereNotNull('guia_embarque');
+      if (sucursales) par.whereIn('sucursal', sucursales);
+      const paradas: Array<{ sucursal: string; guia_embarque: string; cliente_code: string | null; domicilio: string | null; donde: string | null }> = await par
+        .select('sucursal', 'guia_embarque', 'cliente_code', 'domicilio',
+          trx.raw('coalesce(domicilio_ciudad, destino_ciudad, destino_nombre, cliente_code) AS donde'));
+
+      const viajes = new Map<string, GuiaRepartoViajes['rows'][number]>();
+      for (const d of docs) {
+        const k = `${d.sucursal}|${d.guia_embarque}`;
+        const v = viajes.get(k) ?? {
+          sucursal: d.sucursal,
+          guia: d.guia_embarque,
+          guia_digital: `${d.sucursal}-G${d.guia_embarque}`, // misma forma que erp_shipment_trips
+          fecha: fechaISO(d.fecha),
+          paradas: 0,
+          unidad_descripcion: null,
+          unidad_placas: null,
+          destinos_texto: null,
+          asignado_por: asignado.get(k) ?? null,
+        };
+        v.unidad_descripcion ??= d.transporte_descripcion;
+        v.unidad_placas ??= d.transporte_placas;
+        viajes.set(k, v);
+      }
+      // Una PARADA es un cliente en un domicilio de entrega, igual que en la hoja impresa: contar
+      // embarques decía «12 paradas» para la guía 0000969, que en la hoja tiene 9.
+      const donde = new Map<string, Set<string>>();
+      const puntos = new Map<string, Set<string>>();
+      for (const p of paradas) {
+        const k = `${p.sucursal}|${p.guia_embarque}`;
+        if (!donde.has(k)) { donde.set(k, new Set()); puntos.set(k, new Set()); }
+        if (p.donde) donde.get(k)!.add(p.donde);
+        puntos.get(k)!.add(`${p.cliente_code ?? ''}|${p.domicilio ?? '1'}`);
+      }
+      const rows = [...viajes.entries()]
+        .map(([k, v]) => ({ ...v, paradas: puntos.get(k)?.size ?? 0, destinos_texto: [...(donde.get(k) ?? [])].join(' · ') || null }))
+        .sort((a, b) => a.sucursal.localeCompare(b.sucursal) || b.guia.localeCompare(a.guia));
+      return { rows, filtro };
+    });
+  }
+
+  /** `[EMB.56]` La ficha del padrón de choferes ligada al usuario (`logistics.drivers.user_id`). */
+  private async fichaDeChofer(trx: Knex.Transaction, userId: string | null): Promise<{ full_name: string | null; kepler_code: string | null } | null> {
+    if (!userId) return null;
+    return (await trx('logistics.drivers').where({ user_id: userId }).whereNull('deleted_at')
+      .orderBy('active', 'desc').first('full_name', 'kepler_code')) ?? null;
+  }
+
+  /**
+   * `[EMB.56]` El chofer asignado a cada unidad en el catálogo de Kepler (`kdm_transporte.c4`), por
+   * sucursal: sucursal → (unidad → clave del chofer). Es lo que Kepler precarga en el embarque.
+   */
+  private async choferesDeUnidades(trx: Knex.Transaction, docs: Array<{ sucursal: string; transporte_clave_kepler: string | null }>): Promise<Map<string, Map<string, string>>> {
+    const pares = [...new Set(docs.filter((d) => d.transporte_clave_kepler).map((d) => `${d.sucursal}|${d.transporte_clave_kepler!.trim()}`))]
+      .map((k) => k.split('|') as [string, string]);
+    const out = new Map<string, Map<string, string>>();
+    if (!pares.length) return out;
+    const { rows } = await trx.raw(
+      `SELECT btrim(sucursal) AS sucursal, btrim(c1) AS unidad, NULLIF(btrim(c4::text), '') AS chofer
+         FROM kepler_ods.kdm_transporte
+        WHERE (btrim(sucursal), btrim(c1)) IN (${pares.map(() => '(?, ?)').join(', ')})`,
+      pares.flat());
+    for (const r of rows as Array<{ sucursal: string; unidad: string; chofer: string | null }>) {
+      if (!r.chofer) continue;
+      if (!out.has(r.sucursal)) out.set(r.sucursal, new Map());
+      out.get(r.sucursal)!.set(r.unidad, r.chofer);
+    }
+    return out;
+  }
+
+  /**
+   * `[EMB.56]` La guía de reparto de UN viaje: la hoja de ruta del chofer, sin importes.
+   *
+   * Cuatro consultas por llave constante (sucursal + guía): el viaje, las cabeceras (folios de
+   * embarque y pedido, cliente, chofer), las paradas con domicilio, orden y carga, y las facturas
+   * vigentes por el back-pointer de la factura (`doc_origen`, la liga de `[AX.17]`: 5,927 de 5,929
+   * a exactamente un embarque). Medido sobre la guía `0000969`: paradas 35 ms, facturas 62 ms.
+   */
+  async guiaReparto(sucursal: string, guia: string, quien: GuiaRepartoQuien): Promise<GuiaRepartoHoja> {
+    return this.tk.run(M, async (trx) => {
+      const noExiste = () => new NotFoundException(`Kepler no tiene el viaje ${sucursal}-G${guia}`);
+      const trip: ViajeRow | undefined = await trx('analytics.erp_shipment_trips')
+        .where({ tenant_id: M, sucursal, guia_embarque: guia }).first();
+      if (!trip) throw noExiste();
+
+      const headers: Array<Pick<CabeceraParadaRow, 'serie' | 'folio' | 'folio_digital' | 'cliente_code'
+        | 'destino_nombre' | 'pedido_folio_digital' | 'chofer_nombre' | 'chofer_clave_kepler' | 'transporte_clave_kepler' | 'transporte_code'>> =
+        await trx('analytics.erp_shipment_headers')
+          .where({ tenant_id: M, sucursal, guia_embarque: guia })
+          .select('serie', 'folio', 'folio_digital', 'cliente_code', 'destino_nombre', 'pedido_folio_digital',
+            'chofer_nombre', 'chofer_clave_kepler', 'transporte_clave_kepler', 'transporte_code');
+
+      // [EMB.56] Un chofer sólo abre SU viaje; el ajeno responde igual que si no existiera.
+      if (!quien.todos) {
+        const ficha = await this.fichaDeChofer(trx, quien.user_id);
+        const clave = ficha?.kepler_code?.trim();
+        const choferDe = clave ? await this.choferesDeUnidades(trx, headers.map((h) => ({ sucursal, transporte_clave_kepler: h.transporte_clave_kepler }))) : null;
+        if (!clave || !esViajeDelChofer(headers, choferDe?.get(sucursal) ?? new Map(), clave)) throw noExiste();
+      }
+      const carga = await this.cargaDeParadas(trx, sucursal, guia);
+
+      // Facturas: sólo los embarques a cliente (serie 1) se facturan. Canceladas fuera.
+      const aCliente = headers.filter((h) => Number(h.serie) === 1);
+      const facturas: FacturasPorEmbarque = new Map();
+      if (aCliente.length) {
+        const fs: Array<{ doc_origen: string; folio: string; folio_digital: string }> =
+          await trx('analytics.erp_sales_invoices as i')
+            .where('i.tenant_id', M)
+            .whereIn(['i.sucursal', 'i.doc_origen'], aCliente.map((h) => [sucursal, docOrigen(1, h.folio)]))
+            .whereRaw('i.cancelada IS NOT TRUE')
+            .select('i.doc_origen', 'i.folio', 'i.folio_digital')
+            .orderBy('i.folio');
+        const porOrigen = new Map(aCliente.map((h) => [docOrigen(1, h.folio), llaveEmbarque(1, h.folio)]));
+        for (const f of fs) {
+          const k = porOrigen.get(f.doc_origen);
+          if (!k) continue;
+          if (!facturas.has(k)) facturas.set(k, []);
+          facturas.get(k)!.push({ folio: String(f.folio).trim(), folio_digital: f.folio_digital });
+        }
+      }
+
+      const embarques: EmbarqueDeGuia[] = headers.map((h) => {
+        const e = carga.get(`${h.serie}|${h.folio}`);
+        return {
+          serie: Number(h.serie),
+          folio: h.folio,
+          folio_digital: h.folio_digital,
+          pedido_folio_digital: h.pedido_folio_digital,
+          cliente_code: h.cliente_code,
+          cliente_nombre: h.destino_nombre,
+          domicilio: e?.domicilio ?? null,
+          domicilio_supuesto: e?.domicilio_supuesto ?? null,
+          domicilio_calle: e?.domicilio_calle ?? null,
+          domicilio_ciudad: e?.domicilio_ciudad ?? null,
+          domicilio_telefono: e?.domicilio_telefono ?? null,
+          ruta_nombre: e?.ruta_nombre ?? null,
+          orden_visita: numONull(e?.orden_visita),
+          ruta_metodo: e?.ruta_metodo ?? null,
+          facturacion: e?.facturacion ?? null,
+          nota_almacen: e?.nota_almacen ?? null,
+          cajas: numONull(e?.cajas),
+          kg: numONull(e?.kg),
+        };
+      });
+      const { paradas, resumen } = armarParadas(embarques, facturas);
+      const primero = (k: 'chofer_nombre' | 'transporte_clave_kepler' | 'transporte_code') =>
+        headers.map((h) => h[k]).find((v) => v != null) ?? null;
+
+      return {
+        viaje: {
+          sucursal,
+          sucursal_nombre: await this.nombreSucursal(trx, sucursal),
+          guia,
+          guia_digital: trip.guia_digital,
+          fecha: fechaISO(trip.fecha),
+        },
+        unidad: {
+          kepler_code: primero('transporte_clave_kepler') ?? primero('transporte_code'),
+          descripcion: trip.transporte_descripcion,
+          placas: trip.transporte_placas,
+        },
+        chofer_kepler: primero('chofer_nombre'),
+        paradas,
+        resumen,
+        procedencia: {
+          fuente: 'kepler_ods en vivo: kdm1/kdm2 U-D-41 + kdudent + kdm_rutas2 + facturas U-D-8 (erp_sales_invoices)',
+          orden: 'kdm_rutas2.c4 por cliente + domicilio de entrega: el mismo número que imprime Kepler. Sin orden en Kepler = al final.',
+          domicilio: 'kdudent por el domicilio de entrega del embarque (c85). No es el domicilio fiscal (kdm1.c33/c34).',
+          factura: 'La factura U-D-8 cuyo back-pointer (doc_origen) es el embarque, sin canceladas. Sólo la entrega a cliente se factura.',
+          cajas: 'De los renglones: kdm2.c54 en unidad CJA/BTO (coincide con la nota «CJ n» en el 77 %, EMB.12).',
+          paquetes: 'Según la nota de almacén («PQ n»): las cajas de paquetería las arma y cuenta el checador; no se pueden calcular (FASE_GP §2.5). Hasta [GP.4b], la nota es la única fuente.',
+          importes: 'No viajan: el chofer no cobra; cobra el vendedor con su Guía de Cobranza.',
         },
       };
     });
