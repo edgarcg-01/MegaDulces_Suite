@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Added — Alta de clientes: la escritura directa en Kepler, lista y apagada (ALC.2.7–ALC.3.7, 2026-11-07 · en código, sin soltar)
+- La solicitud lista muestra **«En Kepler»**: la clave que le tocará (la que sigue en la serie de su zona: `2xxxx` contado de Morelia, `CR2###` crédito…), las casillas tal como se escribirán y por qué todavía no se puede escribir. Mientras la escritura esté apagada, es la guía exacta para capturarla a mano.
+- Con la escritura encendida, **«Dar de alta en Kepler»** (con confirmación y sólo con la llave nueva) escribe la ficha y los datos para facturar en las **9 sucursales y el concentrador**, y dice cómo quedó cada base. Un reintento usa la misma clave; lo ya escrito se liga sin teclear la clave.
+- La captura **asiste**: la sucursal pone zona, grupo de piso y su vendedor; grupos y vendedores se filtran por la zona; uso de CFDI y forma de pago llegan con el de costumbre; el estado sale del CP («Michocan» → `MICHOACAN`) y la ficha queda como la escribe Kepler (sin acentos, sin comillas, teléfono sólo dígitos).
+- ⚠️ Migración `20261107181223` en prod **antes** de soltar. Encender la escritura es configuración de Edgar (plan ALC §13): conexión al concentrador, permisos en las 10 bases, ensayo y el interruptor `cliente`.
 ### Changed — App del vendedor: lo que el cliente pide se captura aunque no haya, y el servidor lo registra para Compras (DN.6–DN.8, DN.11a · ADR-115, 2026-11-08 · en código, sin soltar)
 - El vendedor agrega un producto aunque esté en existencia 0: entra sin aviso emergente y la fila sigue en rojo («Puede estar agotado en LPA · PH tiene 14»). Antes la app lo bloqueaba en el teléfono y lo que el cliente pidió no quedaba en ningún lado.
 - Al agendar, el servidor registra cada renglón de la preventa de la app —también lo que llega por la sincronización sin conexión— con su existencia en la sucursal de surtido (`commercial.order_stock_notices`). Nunca hace fallar el agendado; un barrido cada 5 min declara «sin dato» lo que no se pudo leer.

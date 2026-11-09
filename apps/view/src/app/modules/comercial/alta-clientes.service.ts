@@ -8,6 +8,7 @@ import type {
   CrearSolicitudRespuesta,
   DecidirCreditoBody,
   EstadoSolicitudAlta,
+  PlanAltaKepler,
   RevisionAlta,
   SolicitudAlta,
   SolicitudAltaBody,
@@ -64,6 +65,17 @@ export class AltaClientesService {
     return this.http.post<SolicitudAlta>(`${this.base}/${id}/credit`, body);
   }
 
+  /** `[ALC.2.8]` Lo que se escribiría en Kepler y por qué no se puede todavía. No escribe. */
+  planKepler(id: string): Observable<PlanAltaKepler> {
+    return this.http.get<PlanAltaKepler>(`${this.base}/${id}/kepler`);
+  }
+
+  /** `[ALC.2.8]` Da de alta al cliente en las 10 bases de Kepler (sólo con la escritura encendida y la llave). */
+  escribirEnKepler(id: string): Observable<SolicitudAlta> {
+    return this.http.post<SolicitudAlta>(`${this.base}/${id}/kepler`, {});
+  }
+
+  /** Con `clave` vacía, la API usa la que la Suite escribió en Kepler (`[ALC.2.8]`). */
   ligar(id: string, clave: string): Observable<SolicitudAlta> {
     return this.http.post<SolicitudAlta>(`${this.base}/${id}/link`, { erp_customer_code: clave });
   }

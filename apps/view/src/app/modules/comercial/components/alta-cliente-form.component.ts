@@ -172,6 +172,20 @@ const CONTACTO: CasillaKepler[] = ['telefono_1', 'telefono_2', 'telefono_3', 'em
               @if (error('codigo_postal_fiscal'); as e) { <small [class.af-err]="esBloqueo('codigo_postal_fiscal')" [class.af-aviso]="!esBloqueo('codigo_postal_fiscal')">{{ e }}</small> }
             </label>
           </div>
+          <div class="af-rejilla af-sep" role="group" aria-label="Cómo se le factura">
+            <label class="af-campo af-ancho">
+              <span>Uso de CFDI @if (!f().uso_cfdi) { <span class="af-tenue">— el de costumbre</span> }</span>
+              <p-select name="uso_cfdi" [options]="usosCfdi()" optionLabel="etiqueta" optionValue="clave" [ngModel]="usoEfectivo()"
+                        (ngModelChange)="set('uso_cfdi', $event); revisar()" [filter]="true" filterBy="etiqueta" appendTo="body" ariaLabel="Uso de CFDI" />
+              @if (error('uso_cfdi'); as e) { <small [class.af-err]="esBloqueo('uso_cfdi')" [class.af-aviso]="!esBloqueo('uso_cfdi')">{{ e }}</small> }
+            </label>
+            <label class="af-campo">
+              <span>Forma de pago @if (!f().forma_pago) { <span class="af-tenue">— la de costumbre</span> }</span>
+              <p-select name="forma_pago" [options]="formasPago()" optionLabel="etiqueta" optionValue="clave" [ngModel]="formaEfectiva()"
+                        (ngModelChange)="set('forma_pago', $event); revisar()" appendTo="body" ariaLabel="Forma de pago" />
+              @if (error('forma_pago'); as e) { <small [class.af-err]="esBloqueo('forma_pago')" [class.af-aviso]="!esBloqueo('forma_pago')">{{ e }}</small> }
+            </label>
+          </div>
         </fieldset>
 
         <fieldset class="af-grupo">
@@ -236,7 +250,7 @@ const CONTACTO: CasillaKepler[] = ['telefono_1', 'telefono_2', 'telefono_3', 'em
         </fieldset>
 
         <fieldset class="af-grupo">
-          <legend>Sucursal y cartera en Kepler</legend>
+          <legend>Sucursal y cartera en Kepler <span class="af-tenue">— la zona da la clave: 1xxxx La Piedad, 2xxxx Morelia, 3xxxx Zamora</span></legend>
           <div class="af-rejilla">
             <label class="af-campo">
               <span>Sucursal</span>
@@ -244,19 +258,23 @@ const CONTACTO: CasillaKepler[] = ['telefono_1', 'telefono_2', 'telefono_3', 'em
                         (ngModelChange)="cambiarSucursal($event)" appendTo="body" ariaLabel="Sucursal donde se da de alta" />
             </label>
             <label class="af-campo">
-              <span>Vendedor</span>
-              <p-select name="vendedor" [options]="catalogos()?.vendedores ?? []" optionLabel="nombre" optionValue="clave" [ngModel]="f().vendedor_code"
-                        (ngModelChange)="set('vendedor_code', $event)" [filter]="true" [showClear]="true" appendTo="body" placeholder="Se elige en Kepler" ariaLabel="Vendedor" />
+              <span>Zona</span>
+              <p-select name="zona" [options]="zonas()" optionLabel="nombre" optionValue="clave" [ngModel]="f().zona_code"
+                        (ngModelChange)="cambiarZona($event)" [showClear]="true" appendTo="body" placeholder="Elige la zona" ariaLabel="Zona" />
+              @if (f().zona_code && f().zona_code === catalogos()?.sugeridos?.zona) { <small class="af-tenue">La de esta sucursal.</small> }
             </label>
             <label class="af-campo">
               <span>Grupo</span>
-              <p-select name="grupo" [options]="catalogos()?.grupos ?? []" optionLabel="nombre" optionValue="clave" [ngModel]="f().grupo_code"
-                        (ngModelChange)="set('grupo_code', $event)" [filter]="true" [showClear]="true" appendTo="body" placeholder="Se elige en Kepler" ariaLabel="Grupo" />
+              <p-select name="grupo" [options]="grupos()" optionLabel="nombre" optionValue="clave" [ngModel]="f().grupo_code"
+                        (ngModelChange)="cambiarGrupo($event)" [filter]="true" [showClear]="true" appendTo="body" placeholder="Venta de piso, vecinal, telemarketing…" ariaLabel="Grupo" />
+              @if (f().grupo_code && f().grupo_code === catalogos()?.sugeridos?.grupo_piso) { <small class="af-tenue">Venta de piso de esta sucursal.</small> }
+              @if (error('grupo_code'); as e) { <small [class.af-err]="esBloqueo('grupo_code')" [class.af-aviso]="!esBloqueo('grupo_code')">{{ e }}</small> }
             </label>
             <label class="af-campo">
-              <span>Zona</span>
-              <p-select name="zona" [options]="catalogos()?.zonas ?? []" optionLabel="nombre" optionValue="clave" [ngModel]="f().zona_code"
-                        (ngModelChange)="set('zona_code', $event)" [filter]="true" [showClear]="true" appendTo="body" placeholder="Se elige en Kepler" ariaLabel="Zona" />
+              <span>Vendedor</span>
+              <p-select name="vendedor" [options]="vendedores()" optionLabel="nombre" optionValue="clave" [ngModel]="f().vendedor_code"
+                        (ngModelChange)="set('vendedor_code', $event)" [filter]="true" [showClear]="true" appendTo="body" placeholder="Elige el vendedor" ariaLabel="Vendedor" />
+              @if (f().vendedor_code && f().vendedor_code === vendedorSugerido()) { <small class="af-tenue">El que llevan las fichas de ese grupo en Kepler.</small> }
             </label>
           </div>
         </fieldset>
@@ -282,8 +300,8 @@ const CONTACTO: CasillaKepler[] = ['telefono_1', 'telefono_2', 'telefono_3', 'em
             </label>
           </div>
           <p class="af-destino">
-            @if (pideCredito()) { <i class="pi pi-hourglass" aria-hidden="true"></i> Al guardar va a <strong>Crédito y Cobranza</strong>; mientras, no se captura en Kepler. }
-            @else { <i class="pi pi-check" aria-hidden="true"></i> De contado: al guardar queda <strong>lista para capturar en Kepler</strong>. }
+            @if (pideCredito()) { <i class="pi pi-hourglass" aria-hidden="true"></i> Al guardar va a <strong>Crédito y Cobranza</strong>; mientras, no se da de alta en Kepler. Si lo aprueban, su clave es de crédito (CR + zona + consecutivo, como CR1001). }
+            @else { <i class="pi pi-check" aria-hidden="true"></i> De contado: al guardar queda <strong>lista para darse de alta en Kepler</strong>. }
           </p>
         </fieldset>
 
@@ -412,7 +430,49 @@ export class AltaClienteFormComponent implements OnInit {
   });
   /** Hallazgos sin casilla propia (constancia, Kepler, sucursal): arriba del formulario. */
   readonly avisosGenerales = computed(() =>
-    this.hallazgos().filter((h) => !['rfc', 'curp', 'nombre_fiscal', 'regimen_fiscal', 'codigo_postal_fiscal', 'ubicacion'].includes(h.campo) && !h.campo.startsWith('ficha.')));
+    this.hallazgos().filter((h) => !['rfc', 'curp', 'nombre_fiscal', 'regimen_fiscal', 'codigo_postal_fiscal', 'ubicacion', 'uso_cfdi', 'forma_pago', 'grupo_code'].includes(h.campo) && !h.campo.startsWith('ficha.')));
+
+  /**
+   * `[ALC.3.6]` Lo que Kepler guarda para timbrar (`kdfedir`). Sin elegir, se muestra el de costumbre
+   * medido en Kepler —sin RFC o régimen 616: S01; con RFC: G01; forma 01 de contado y 99 con
+   * crédito— y es el mismo que pone el servidor. Sólo se ofrecen los usos que el SAT admite con el régimen.
+   */
+  readonly usosCfdi = computed(() => {
+    const reg = this.f().regimen_fiscal;
+    return (this.catalogos()?.usos_cfdi ?? [])
+      .filter((u) => !reg || !u.regimenes.length || u.regimenes.includes(reg))
+      .map((u) => ({ clave: u.clave, etiqueta: `${u.clave} · ${u.descripcion}` }));
+  });
+  readonly formasPago = computed(() => (this.catalogos()?.formas_pago ?? []).map((x) => ({ clave: x.clave, etiqueta: `${x.clave} · ${x.nombre}` })));
+  readonly usoEfectivo = computed(() => {
+    const x = this.f();
+    return x.uso_cfdi || (this.sinRfc() || x.regimen_fiscal === REGIMEN_SIN_RFC ? 'S01' : 'G01');
+  });
+  readonly formaEfectiva = computed(() => this.f().forma_pago || (this.pideCredito() ? '99' : '01'));
+
+  /**
+   * `[ALC.3.6]` La cartera llega puesta por la sucursal (zona, su grupo de piso y el vendedor que más
+   * usan las fichas de ese grupo) y se filtra por la zona: en Kepler, los grupos y los vendedores de
+   * Morelia empiezan con 2. Si un catálogo no trae nada de la zona, se muestra entero (no se esconde).
+   */
+  private readonly digitoZona = computed(() => /^([123])0000$/.exec(this.f().zona_code ?? '')?.[1] ?? null);
+  private deZona(lista: { clave: string; nombre: string }[]): { clave: string; nombre: string }[] {
+    const d = this.digitoZona();
+    const x = d ? lista.filter((o) => o.clave.startsWith(d)) : lista;
+    return x.length ? x : lista;
+  }
+  readonly zonas = computed(() => {
+    const todas = this.catalogos()?.zonas ?? [];
+    const clientes = todas.filter((z) => /^[123]0000$/.test(z.clave));
+    return clientes.length ? clientes : todas;
+  });
+  readonly grupos = computed(() => this.deZona(this.catalogos()?.grupos ?? []));
+  readonly vendedores = computed(() => this.deZona(this.catalogos()?.vendedores ?? []));
+  readonly vendedorSugerido = computed(() => {
+    const g = this.f().grupo_code;
+    return g ? this.catalogos()?.sugeridos?.vendedor_por_grupo?.[g] ?? null : null;
+  });
+  private readonly branchActual = computed(() => this.f().branch);
 
   /**
    * `[ALC.3.5]` Ubicación, opcional. Dos maneras: buscar el domicilio capturado (el geocodificador de
@@ -433,6 +493,51 @@ export class AltaClienteFormComponent implements OnInit {
     effect(() => {
       const b = this.branchInicial();
       if (b && !untracked(this.f).branch) this.f.update((x) => ({ ...x, branch: b }));
+    });
+    // `[ALC.3.6]` Al llegar los catálogos de la sucursal, la cartera se llena con lo sugerido (sólo lo vacío).
+    effect(() => {
+      void this.catalogos();
+      void this.branchActual();
+      untracked(() => this.aplicarSugeridos());
+    });
+  }
+
+  /** Zona, grupo de piso y su vendedor, de la sucursal: sólo llena lo vacío y sólo con códigos que existen. */
+  private aplicarSugeridos(): void {
+    const cat = this.catalogos();
+    const sg = cat?.sugeridos;
+    if (!cat || !sg || cat.branch !== this.f().branch) return;
+    const existe = (lista: { clave: string }[], v: string | null | undefined): v is string => !!v && lista.some((o) => o.clave === v);
+    this.f.update((x) => {
+      const zona = x.zona_code ?? (existe(cat.zonas, sg.zona) ? sg.zona : null);
+      const d = /^([123])0000$/.exec(zona ?? '')?.[1];
+      const grupo = x.grupo_code ?? (existe(cat.grupos, sg.grupo_piso) && (!d || sg.grupo_piso.startsWith(d)) ? sg.grupo_piso : null);
+      const sugerido = grupo ? sg.vendedor_por_grupo[grupo] : null;
+      const vendedor = x.vendedor_code ?? (existe(cat.vendedores, sugerido) ? sugerido : null);
+      return zona === x.zona_code && grupo === x.grupo_code && vendedor === x.vendedor_code ? x : { ...x, zona_code: zona, grupo_code: grupo, vendedor_code: vendedor };
+    });
+  }
+
+  /** Otra zona: lo que no es de ella se suelta y se vuelve a sugerir. */
+  cambiarZona(zona: string | null): void {
+    this.sucio = true;
+    const d = /^([123])0000$/.exec(zona ?? '')?.[1];
+    this.f.update((x) => ({
+      ...x, zona_code: zona,
+      grupo_code: d && x.grupo_code && !x.grupo_code.startsWith(d) ? null : x.grupo_code,
+      vendedor_code: d && x.vendedor_code && !x.vendedor_code.startsWith(d) ? null : x.vendedor_code,
+    }));
+    this.aplicarSugeridos();
+  }
+
+  /** Otro grupo: si el vendedor era el sugerido del grupo anterior (o no había), se sugiere el del nuevo. */
+  cambiarGrupo(grupo: string | null): void {
+    this.sucio = true;
+    const antes = this.vendedorSugerido();
+    this.f.update((x) => {
+      const nuevo = grupo ? this.catalogos()?.sugeridos?.vendedor_por_grupo?.[grupo] ?? null : null;
+      const seguir = !x.vendedor_code || x.vendedor_code === antes;
+      return { ...x, grupo_code: grupo, vendedor_code: seguir && nuevo ? nuevo : x.vendedor_code };
     });
   }
 
@@ -455,6 +560,7 @@ export class AltaClienteFormComponent implements OnInit {
     this.avisoUbicacion.set(null);
     this.cpConsultado = '';
     this.sucio = false;
+    this.aplicarSugeridos();
   }
 
   /** El CP del domicilio (o, si falta, el fiscal) completo → estado y sugerencias. Una consulta por CP. */

@@ -16,6 +16,7 @@ import type {
   CrearSolicitudRespuesta,
   DecidirCreditoBody,
   LigarSolicitudBody,
+  PlanAltaKepler,
   RevisionAlta,
   SolicitudAlta,
   SolicitudAltaBody,
@@ -38,7 +39,8 @@ interface UsuarioDeLaPeticion {
  * también ve la bandeja. Una tercera, `COMMERCIAL_ALTA_CLIENTES_VER` `[ALC.0.6]` (Francisco,
  * 2026-11-06), es sólo consulta: abre las cuatro lecturas (`VER_BANDEJA`) y ninguna escritura —
  * lo fija `customer-onboarding.controller.spec.ts`. El alcance por sucursal lo pone `ScopeService`
- * en el servicio.
+ * en el servicio. Una cuarta, `COMMERCIAL_ALTA_CLIENTES_KEPLER` `[ALC.2.8]` (Francisco, 2026-11-07:
+ * «ahora no permitimos que todos los usuarios den de alta clientes»), es la ÚNICA que escribe en Kepler.
  */
 const VER_BANDEJA = [
   Permission.COMMERCIAL_ALTA_CLIENTES,
@@ -64,6 +66,7 @@ export class CustomerOnboardingController {
       userId: ctx?.userId ?? null,
       roleName: ctx?.roleName ?? u?.role_name ?? null,
       puedeCredito: esAdmin || u?.permissions?.[Permission.COMMERCIAL_ALTA_CLIENTES_CREDITO] === true,
+      puedeKepler: esAdmin || u?.permissions?.[Permission.COMMERCIAL_ALTA_CLIENTES_KEPLER] === true,
     };
   }
 
@@ -133,6 +136,20 @@ export class CustomerOnboardingController {
     @Req() req: { user?: UsuarioDeLaPeticion },
   ): Promise<SolicitudAlta> {
     return this.service.decidirCredito(id, body, this.actor(req), query);
+  }
+
+  @Get(':id/kepler')
+  @RequireAnyPermission(...VER_BANDEJA)
+  @ApiOperation({ summary: 'Lo que se escribiría en Kepler (kdud + kdfedir), la clave que seguiría y por qué no se puede escribir todavía. No escribe.' })
+  planKepler(@Param('id') id: string, @Query() query: Record<string, unknown>, @Req() req: { user?: UsuarioDeLaPeticion }): Promise<PlanAltaKepler> {
+    return this.service.planKepler(id, this.actor(req), query);
+  }
+
+  @Post(':id/kepler')
+  @RequirePermissions(Permission.COMMERCIAL_ALTA_CLIENTES_KEPLER)
+  @ApiOperation({ summary: 'Da de alta al cliente en Kepler: kdud + kdfedir en las 9 sucursales y el concentrador (apagado por default)' })
+  writeKepler(@Param('id') id: string, @Query() query: Record<string, unknown>, @Req() req: { user?: UsuarioDeLaPeticion }): Promise<SolicitudAlta> {
+    return this.service.escribirEnKepler(id, this.actor(req), query);
   }
 
   @Post(':id/link')

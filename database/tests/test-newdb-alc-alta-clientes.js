@@ -17,6 +17,11 @@
  *      diferencia de crédito entre Kepler y lo aprobado.
  *   6. Cancelar con motivo; cancelar otra vez → 409.
  *   7. ⛔ Prueba NEGATIVA de la regla: un RFC con un carácter cambiado NO se guarda (400).
+ *   8. `[ALC.2.8]` Escribir en Kepler (D1-b), con un DOBLE de Kepler (en el CI no hay ERP) y todo lo
+ *      de la Suite real: sin la llave → 403; interruptor apagado → 409 sin consultar Kepler; un
+ *      intento parcial reserva la clave; otra solicitud no se lleva la misma (índice único); una
+ *      clave ajena suelta la reserva; el reintento usa la MISMA clave; escrita no se repite ni se
+ *      cancela; el tope diario; ligar sin teclear la clave. Y `[ALC.3.6]`: estado del CP, uso y forma.
  *
  * Datos ficticios o públicos (RFC de prueba del SAT, CURP de ejemplo de RENAPO). Si la base no trae
  * las tablas del ODS que usa el alta (el CI no las tiene: las crea la ingesta), se crean mínimas
@@ -69,7 +74,12 @@ const ODS = {
   kduk: 'sucursal text NOT NULL, c1 text, c2 text',
   kdfe33satrf: 'sucursal text NOT NULL, c1 text, c2 text, c3 text, c4 text, c5 timestamp, c6 timestamp',
   kdfe33satcp: 'sucursal text NOT NULL, c1 text, c2 text, c3 text, c4 text',
+  // [ALC.3.6] Lo que Kepler guarda en kdfedir: estado del CP, uso de CFDI y forma de pago.
+  kdfe33satedo: 'sucursal text NOT NULL, c1 text, c2 text, c3 text',
+  kdfe33satuso: 'sucursal text NOT NULL, c1 text, c2 text, c3 text, c4 text, c5 timestamp, c6 timestamp, c7 text',
+  kdfe33satfopg: 'sucursal text NOT NULL, c1 text, c2 text',
 };
+const SERVIDORES = ['SC', '00', '01', '02', '03', '04', '05', '06', '07', '08'];
 
 /** La forma del body que manda la pantalla (lo que arma la ficha desde la constancia). */
 function payload(extra = {}) {
@@ -113,6 +123,18 @@ function payload(extra = {}) {
       await sembrar('kdfe33satrf', ['sucursal', 'c1', 'c2', 'c3', 'c4'], ['00', '612', 'Personas Físicas con Actividades Empresariales y Profesionales', 'Sí', 'No'], { sql: `sucursal='00' AND c1='612'`, args: [] });
       await sembrar('kdfe33satrf', ['sucursal', 'c1', 'c2', 'c3', 'c4'], ['00', '601', 'General de Ley Personas Morales', 'No', 'Sí'], { sql: `sucursal='00' AND c1='601'`, args: [] });
       await sembrar('kdfe33satcp', ['sucursal', 'c1', 'c2'], ['00', '58000', 'MIC'], { sql: `sucursal='00' AND c1='58000'`, args: [] });
+      await sembrar('kdfe33satrf', ['sucursal', 'c1', 'c2', 'c3', 'c4'], ['00', '616', 'Sin obligaciones fiscales', 'Sí', 'No'], { sql: `sucursal='00' AND c1='616'`, args: [] });
+      await sembrar('kdfe33satedo', ['sucursal', 'c1', 'c2', 'c3'], ['00', 'MIC', 'MEX', 'Michoacán'], { sql: `sucursal='00' AND c1='MIC' AND c2='MEX'`, args: [] });
+      await sembrar('kdfe33satuso', ['sucursal', 'c1', 'c2', 'c7'], ['00', 'G01', 'Adquisición de mercancías.', '601, 603, 606, 612, 620, 621, 622, 623, 624, 625,626'], { sql: `sucursal='00' AND c1='G01'`, args: [] });
+      await sembrar('kdfe33satuso', ['sucursal', 'c1', 'c2', 'c7'], ['00', 'S01', 'Sin efectos fiscales.', '601, 603, 605, 606, 608, 610, 611, 612, 614, 616, 620, 621, 622, 623, 624, 607, 615, 625, 626'], { sql: `sucursal='00' AND c1='S01'`, args: [] });
+      await sembrar('kdfe33satfopg', ['sucursal', 'c1', 'c2'], ['00', '01', 'Efectivo'], { sql: `sucursal='00' AND c1='01'`, args: [] });
+      await sembrar('kdfe33satfopg', ['sucursal', 'c1', 'c2'], ['00', '99', 'Por definir'], { sql: `sucursal='00' AND c1='99'`, args: [] });
+      // [ALC.2.8] La cartera de verdad de Morelia (zona 20000, piso de Morelia Abastos, su vendedor de piso).
+      await sembrar('kduv', ['sucursal', 'c2', 'c3'], [SUC, '20002', 'SUC MORELIA ABASTOS PISO'], { sql: 'sucursal=? AND c2=?', args: [SUC, '20002'] });
+      await sembrar('kduj', ['sucursal', 'c1', 'c2'], [SUC, '2VP01', 'VENTA DE PISO MORELIA ABASTOS'], { sql: 'sucursal=? AND c1=?', args: [SUC, '2VP01'] });
+      await sembrar('kduk', ['sucursal', 'c1', 'c2'], [SUC, '20000', 'CLIENTES ZONA MORELIA'], { sql: 'sucursal=? AND c1=?', args: [SUC, '20000'] });
+      await trx.raw(`DELETE FROM kepler_ods.kdud WHERE c2 IN ('29990','29991','29992')`);
+      await trx.raw(`INSERT INTO kepler_ods.kdud (sucursal, c2, c3, c10, c12, c13, c15, c16, c17) VALUES (?, '29990', 'ULTIMA DE LA SERIE', 'XAXX010101000', '20002', '2VP01', 0, 0, '')`, [SUC]);
       await sembrar('kduv', ['sucursal', 'c2', 'c3'], [SUC, 'ZV1', 'VENDEDOR DE PRUEBA ALC'], { sql: 'sucursal=? AND c2=?', args: [SUC, 'ZV1'] });
       await sembrar('kduj', ['sucursal', 'c1', 'c2'], [SUC, 'ZG1', 'GRUPO DE PRUEBA ALC'], { sql: 'sucursal=? AND c1=?', args: [SUC, 'ZG1'] });
       await sembrar('kduk', ['sucursal', 'c1', 'c2'], [SUC, 'ZZ1', 'ZONA DE PRUEBA ALC'], { sql: 'sucursal=? AND c1=?', args: [SUC, 'ZZ1'] });
@@ -128,6 +150,19 @@ function payload(extra = {}) {
       const fijarTenant = (t) => trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [t]);
       await fijarTenant(T);
       let puedeCredito = false;
+      let puedeKepler = false;
+      // [ALC.2.8] Kepler no existe en el CI: el adaptador es un doble que dice qué le pidieron. Lo que
+      // SÍ es real es todo lo de la Suite: marca, reserva con índice único, resultado, tope, ligar.
+      const dobleKepler = {
+        reservas: [], planes: [], entrega: null, reserva: null,
+        servidores: () => SERVIDORES.map((servidor) => ({ servidor, configurado: true, motivo: null })),
+        reservarClave: async (serie, reservadas, reservada) => {
+          dobleKepler.reservas.push({ serie, reservadas, reservada });
+          return dobleKepler.reserva ?? { ok: true, clave: reservada || '29991' };
+        },
+        entregar: async (plan) => { dobleKepler.planes.push(plan); return dobleKepler.entrega(plan); },
+      };
+      const todasEscritas = (estado = 'escrita') => () => ({ servidores: SERVIDORES.map((servidor) => ({ servidor, estado, motivo: null })), claveAjena: false });
       const s = Object.create(Servicio.prototype);
       Object.assign(s, {
         logger: { log: nada, warn: nada, error: nada, debug: nada },
@@ -135,6 +170,7 @@ function payload(extra = {}) {
         scope: { readParam: async () => null, warehouseIds: async () => null },
         storage: { isConfigured: () => false },
         nuevos: { link: async () => { throw new Error('el caso V- no se ejerce aquí'); } },
+        kepler: dobleKepler,
         // Cada llamada en su SAVEPOINT: un error de la base no aborta la transacción de la prueba.
         tk: { run: async (fn) => {
           await trx.raw('SAVEPOINT sp_alc');
@@ -142,7 +178,7 @@ function payload(extra = {}) {
           catch (e) { await trx.raw('ROLLBACK TO SAVEPOINT sp_alc'); throw e; }
         } },
       });
-      const actor = () => ({ userId: ME, roleName: 'credito_cobranza', puedeCredito });
+      const actor = () => ({ userId: ME, roleName: 'credito_cobranza', puedeCredito, puedeKepler });
 
       // 0. Catálogos
       const cat = await s.catalogos(SUC);
@@ -155,6 +191,7 @@ function payload(extra = {}) {
       creadas.push(a.solicitud.id);
       ok(a.solicitud.estado === 'lista_para_kepler' && /^ALC-\d{5,}$/.test(a.solicitud.folio), `crear de contado → lista para Kepler (${a.solicitud.folio})`);
       ok(a.solicitud.ficha.direccion_1 === 'AV. PRUEBA ALC 1' && a.solicitud.regimen_fiscal === '612', 'la ficha y lo fiscal quedan como se capturaron');
+      ok(a.solicitud.uso_cfdi === 'G01' && a.solicitud.forma_pago === '01', '[ALC.3.6] sin elegirlos, uso G01 y forma 01 (los de costumbre de contado con RFC)', [a.solicitud.uso_cfdi, a.solicitud.forma_pago]);
       ok(await status(() => s.crear(payload())) === 409, 'el mismo RFC con una solicitud abierta → 409');
 
       // 7. Prueba NEGATIVA: un carácter cambiado no se guarda
@@ -214,6 +251,89 @@ function payload(extra = {}) {
       const x = await s.cancelar(a.solicitud.id, 'el cliente ya no quiso factura');
       ok(x.estado === 'cancelada', 'cancelar con motivo → cancelada');
       ok(await status(() => s.cancelar(a.solicitud.id, 'otra vez más')) === 409, 'cancelar dos veces → 409');
+
+      // 8. [ALC.2.8] Escribir en Kepler (D1-b). Sin RFC, de contado, en Morelia, con el estado mal escrito.
+      const sinRfc = payload({
+        rfc: 'XAXX010101000', curp: null, nombre_fiscal: 'CLIENTE DE PRUEBA KEPLER', regimen_fiscal: '616',
+        vendedor_code: '20002', grupo_code: '2VP01', zona_code: '20000',
+      });
+      sinRfc.ficha = { ...sinRfc.ficha, rfc: 'XAXX010101000', curp: '', nombre: 'Cliente de Prueba Kepler', estado: 'Michocan', telefono_1: '(443) 555-0101' };
+      const k = await s.crear(sinRfc);
+      creadas.push(k.solicitud.id);
+      ok(k.solicitud.ficha.estado === 'MICHOACAN' && k.revision.hallazgos.some((h) => h.campo === 'ficha.estado'),
+        '[ALC.3.6] el estado sale del CP: «Michocan» se guarda MICHOACAN y se dice', [k.solicitud.ficha.estado]);
+      ok(k.solicitud.ficha.nombre === 'CLIENTE DE PRUEBA KEPLER' && k.solicitud.ficha.telefono_1 === '4435550101',
+        '[ALC.3.6] la ficha queda como la escribe Kepler (mayúsculas; teléfono sólo dígitos)', k.solicitud.ficha);
+      ok(k.solicitud.uso_cfdi === 'S01' && k.solicitud.forma_pago === '01', '[ALC.3.6] sin RFC → uso S01');
+
+      const p0 = await s.planKepler(k.solicitud.id, actor());
+      ok(p0.clave_propuesta === '29991' && p0.serie?.patron === '2####', 'plan: la clave que sigue en la serie de Morelia de contado (29990 → 29991)', [p0.clave_propuesta, p0.serie]);
+      ok(p0.kdud.find((c) => c.columna === 'c6')?.valor === 'MICHOACAN' && p0.kdfedir.find((c) => c.columna === 'c16')?.valor === 'S01',
+        'plan: las casillas de kdud y kdfedir con su valor', p0.kdud);
+      ok(/llave/.test(p0.bloqueo_escritura || '') && p0.puede_escribir === false, 'plan: sin la llave, se dice por qué no se puede escribir', p0.bloqueo_escritura);
+      ok(await status(() => s.escribirEnKepler(k.solicitud.id, actor())) === 403, 'NEGATIVA: escribir sin la llave → 403');
+      puedeKepler = true;
+      // El interruptor (sembrado APAGADO por la migración): apagado → no se escribe y Kepler ni se toca.
+      await trx.raw(`INSERT INTO commercial.kepler_push_switch (tenant_id, sucursal, tipo, encendida, tope_dia) VALUES (?, ?, 'cliente', false, 1)
+                     ON CONFLICT (tenant_id, sucursal, tipo) DO UPDATE SET encendida = false, tope_dia = 1`, [T, SUC]);
+      const p1 = await s.planKepler(k.solicitud.id, actor());
+      ok(/apagada/.test(p1.bloqueo_escritura || ''), 'plan: con el interruptor apagado se dice', p1.bloqueo_escritura);
+      ok(await status(() => s.escribirEnKepler(k.solicitud.id, actor())) === 409 && dobleKepler.reservas.length === 0,
+        'NEGATIVA: interruptor apagado → 409 y Kepler NO se consultó');
+      await trx.raw(`UPDATE commercial.kepler_push_switch SET encendida = true, tope_dia = 1 WHERE sucursal = ? AND tipo = 'cliente'`, [SUC]);
+
+      // Un intento parcial: la 08 rechaza. La clave queda reservada y la solicitud sigue lista.
+      dobleKepler.entrega = (plan) => ({ servidores: SERVIDORES.map((servidor) => ({ servidor, estado: servidor === '08' ? 'rechazada' : 'escrita', motivo: servidor === '08' ? 'sin red' : null })), claveAjena: false });
+      const w1 = await s.escribirEnKepler(k.solicitud.id, actor());
+      const plan1 = dobleKepler.planes[0];
+      ok(plan1 && plan1.clave === '29991' && plan1.kdud.c2 === '29991' && plan1.kdfedir.c2 === '29991' && plan1.kdud.c13 === '2VP01',
+        'escribir: el adaptador recibe la fila con su clave en kdud.c2 y kdfedir.c2', plan1 && plan1.kdud);
+      ok(w1.kepler?.clave === '29991' && w1.kepler.escrita_el === null && w1.kepler.servidores.length === 10 && w1.estado === 'lista_para_kepler',
+        'parcial: la clave queda reservada, sin «escrita» y con el resultado de las 10 bases', w1.kepler);
+      const marca = (await trx.raw(`SELECT kepler_write_started_at, kepler_write_by FROM commercial.customer_onboarding_requests WHERE id = ?`, [k.solicitud.id])).rows[0];
+      ok(marca.kepler_write_started_at === null && marca.kepler_write_by === ME, 'la marca de «escribiendo» se suelta al terminar y queda quién lo intentó', marca);
+
+      // Otra solicitud no puede llevarse la misma clave (índice único), aunque el adaptador se la dé.
+      const otra = payload({ rfc: 'XEXX010101000', curp: null, nombre_fiscal: 'OTRO SIN RFC EXTRANJERO', regimen_fiscal: '616',
+        vendedor_code: '20002', grupo_code: '2VP01', zona_code: '20000' });
+      otra.ficha = { ...otra.ficha, rfc: 'XEXX010101000', curp: '', nombre: 'OTRO SIN RFC EXTRANJERO' };
+      const o = await s.crear(otra);
+      creadas.push(o.solicitud.id);
+      await trx.raw(`UPDATE commercial.kepler_push_switch SET tope_dia = NULL WHERE sucursal = ? AND tipo = 'cliente'`, [SUC]);
+      ok(dobleKepler.reservas.length === 1 && dobleKepler.reservas[0].reservadas.length === 0, 'la primera reserva no traía claves ajenas');
+      dobleKepler.reserva = { ok: true, clave: '29991' };
+      ok(await status(() => s.escribirEnKepler(o.solicitud.id, actor())) === 409, 'NEGATIVA: dos solicitudes no reservan la misma clave (índice único) → 409');
+      ok(dobleKepler.reservas[1].reservadas.includes('29991'), 'la segunda reserva ya veía la clave de la primera como ocupada', dobleKepler.reservas[1]);
+      dobleKepler.reserva = null;
+
+      // El concentrador dice que la clave es de otro cliente: no se escribió nada → se suelta la reserva.
+      dobleKepler.reserva = { ok: true, clave: '29992' };
+      dobleKepler.entrega = () => ({ servidores: SERVIDORES.map((servidor) => ({ servidor, estado: 'rechazada', motivo: 'La clave 29992 ya es de otro cliente.' })), claveAjena: true });
+      ok(await status(() => s.escribirEnKepler(o.solicitud.id, actor())) === 409, 'clave ajena en el concentrador → 409');
+      const ajenaK = (await trx.raw(`SELECT kepler_code FROM commercial.customer_onboarding_requests WHERE id = ?`, [o.solicitud.id])).rows[0];
+      ok(ajenaK.kepler_code === null, 'y la reserva se suelta para que el siguiente intento tome otra', ajenaK);
+      dobleKepler.reserva = null;
+
+      // Reintento de la primera: MISMA clave, y ahora las 10.
+      dobleKepler.entrega = todasEscritas('ya_estaba');
+      const w2 = await s.escribirEnKepler(k.solicitud.id, actor());
+      ok(dobleKepler.reservas.at(-1).reservada === '29991', 'reintento: el adaptador recibe la clave ya reservada (no inventa otra)', dobleKepler.reservas.at(-1));
+      ok(!!w2.kepler?.escrita_el && w2.kepler.clave === '29991', 'reintento completo → escrita en las 10 bases', w2.kepler);
+      ok(/Ya está en las 10 bases/.test((await s.planKepler(k.solicitud.id, actor())).bloqueo_escritura || ''), 'escrita: el plan ya no ofrece escribirla otra vez');
+      ok(await status(() => s.escribirEnKepler(k.solicitud.id, actor())) === 409, 'NEGATIVA: escribirla dos veces → 409');
+      ok(await status(() => s.cancelar(k.solicitud.id, 'ya no la quiero')) === 409, 'NEGATIVA: lo que ya está en Kepler no se cancela desde la Suite');
+
+      // El tope del interruptor: 1 por día y ya hubo una desde esta sucursal.
+      await trx.raw(`UPDATE commercial.kepler_push_switch SET tope_dia = 1 WHERE sucursal = ? AND tipo = 'cliente'`, [SUC]);
+      ok(/tope/.test((await s.planKepler(o.solicitud.id, actor())).bloqueo_escritura || ''), 'tope de 1 por día: la segunda del día no se escribe');
+
+      // Ligar sin teclear: la clave es la que escribió la Suite (cuando llega al ODS).
+      // (la ingesta la trae al ODS: se siembra como el dueño, porque app_runtime sólo LEE kepler_ods)
+      await trx.raw('RESET ROLE');
+      await trx.raw(`INSERT INTO kepler_ods.kdud (sucursal, c2, c3, c10, c15, c16, c17) VALUES (?, '29991', 'CLIENTE DE PRUEBA KEPLER', 'XAXX010101000', 0, 0, '')`, [SUC]);
+      await trx.raw('SET LOCAL ROLE app_runtime');
+      const lk = await s.ligar(k.solicitud.id, {});
+      ok(lk.estado === 'ligada' && lk.erp_customer_code === '29991', 'ligar sin escribir la clave: toma la que la Suite escribió', [lk.estado, lk.erp_customer_code]);
 
       throw Object.assign(new Error('rollback'), { esRollback: true });
     }).catch((e) => { if (!e.esRollback) throw e; });

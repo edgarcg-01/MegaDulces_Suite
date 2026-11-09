@@ -4,9 +4,11 @@
 //
 // ⛔ La constancia NO se exige para facturar (CFF 83 fr. IX, 2026): sólo prellena. Todo lo que trae
 // se puede capturar a mano y vale lo mismo (`origen: 'manual'`).
-// ⛔ La Suite NO escribe la ficha en Kepler (D1-a, firmado por Francisco el 2026-11-04: la escritura
-// es de Edgar). La arma en el orden de la forma `md_cat_cli_sc.kpl` para copiarla casilla por casilla
-// y la liga sola cuando la clave aparece en el ODS.
+// D1-a (Francisco, 2026-11-04): la Suite arma la ficha en el orden de la forma `md_cat_cli_sc.kpl`
+// para copiarla casilla por casilla y la liga cuando la clave aparece en el ODS.
+// D1-b `[ALC.2.8]` (Francisco, 2026-11-07: «preparamos todo para que la escritura directa llegue bien
+// y Edgar sólo haga la configuración final»): la Suite escribe `kdud` + `kdfedir` en las 10 bases,
+// APAGADA por default detrás de cuatro candados (ver `kepler-cliente-sink.adapter.ts`).
 
 export type TipoPersona = 'fisica' | 'moral';
 
@@ -127,6 +129,25 @@ export interface RegimenFiscalOpcion {
   persona_moral: boolean;
 }
 
+/** `[ALC.3.6]` Uso de CFDI (`kdfe33satuso`): `regimenes` = con qué regímenes del receptor lo admite el SAT (`c7`). */
+export interface UsoCfdiOpcion {
+  clave: string;
+  descripcion: string;
+  regimenes: string[];
+}
+
+/**
+ * `[ALC.3.6]` Lo que la sucursal ya dice de la cartera, para no teclearlo (medido en `kdud`, 2026-11-07):
+ * la zona de la sucursal, su grupo de «venta de piso» y, por grupo, el vendedor que más usan sus
+ * fichas (p. ej. el piso de Morelia Abastos lleva el mismo vendedor en 168 de 178 fichas).
+ * `null` = la sucursal no implica nada (CEDIS atiende las tres zonas): se elige.
+ */
+export interface SugeridosCartera {
+  zona: string | null;
+  grupo_piso: string | null;
+  vendedor_por_grupo: Record<string, string>;
+}
+
 /** `GET /commercial/customer-onboarding/catalogs?branch=` */
 export interface CatalogosAlta {
   branch: string;
@@ -135,6 +156,10 @@ export interface CatalogosAlta {
   grupos: OpcionCatalogo[];
   zonas: OpcionCatalogo[];
   regimenes: RegimenFiscalOpcion[];
+  /** `[ALC.3.6]` Catálogos del SAT que Kepler guarda por cliente en `kdfedir` (ALC.0.8). */
+  usos_cfdi: UsoCfdiOpcion[];
+  formas_pago: OpcionCatalogo[];
+  sugeridos: SugeridosCartera;
 }
 
 /**
@@ -185,6 +210,10 @@ export interface SolicitudAltaBody {
   nombre_comercial?: string | null;
   regimen_fiscal: string;
   codigo_postal_fiscal: string;
+  /** `[ALC.3.6]` Uso de CFDI (`kdfedir.c16`). Vacío → el servidor pone el de costumbre (S01 sin RFC, G01 con RFC). */
+  uso_cfdi?: string | null;
+  /** `[ALC.3.6]` Forma de pago (`kdfedir.c14`). Vacío → 01 de contado, 99 con crédito (lo medido). */
+  forma_pago?: string | null;
   ficha: FichaKeplerCliente;
   vendedor_code?: string | null;
   grupo_code?: string | null;
@@ -229,6 +258,9 @@ export interface SolicitudAlta {
   nombre_comercial: string | null;
   regimen_fiscal: string;
   codigo_postal_fiscal: string;
+  /** `null` en solicitudes anteriores a `[ALC.3.6]`. */
+  uso_cfdi: string | null;
+  forma_pago: string | null;
   ficha: FichaKeplerCliente;
   vendedor_code: string | null;
   grupo_code: string | null;
@@ -254,6 +286,71 @@ export interface SolicitudAlta {
   coincidencias_kepler: CoincidenciaKepler[];
   /** `true` si quien la creó tiene la llave de crédito y la decisión fue suya (se dice en pantalla). */
   credito_decidido_por_quien_la_creo: boolean;
+  /** `[ALC.2.8]` La escritura directa en Kepler (D1-b): `null` si nunca se intentó. */
+  kepler: EscrituraKeplerSolicitud | null;
+}
+
+// ── `[ALC.1.6]`/`[ALC.2.8]` La escritura directa en Kepler (D1-b) ────────────────────────────
+//
+// Medido el 2026-11-07 con la clave 21054 (dada de alta en Kepler desde el concentrador):
+// la ficha `kdud` llegó IDÉNTICA a las 9 bases (00…08) y los datos fiscales `kdfedir` sólo a la 08.
+// La forma `md_cat_cli.kpl` no replica en la base: si el servidor es el concentrador (`pv_suc_ip.c6
+// = 'SC'`) la librería del cliente `pv_sc_lib` repite cada escritura en las sucursales. Escribir
+// directo en una base NO propaga: la Suite escribe en las 10 (concentrador + 9).
+
+/** Una casilla de Kepler en el plan: la columna, su rótulo de pantalla y el valor que se escribe. */
+export interface ColumnaPlanKepler {
+  columna: string;
+  rotulo: string;
+  valor: string;
+}
+
+/** Un servidor de Kepler para la escritura: ¿tiene conexión configurada? (sin conectarse). */
+export interface ServidorEscrituraKepler {
+  /** `SC` = concentrador; `00`…`08` = sucursales. */
+  servidor: string;
+  configurado: boolean;
+  motivo: string | null;
+}
+
+/** `GET /commercial/customer-onboarding/:id/kepler` — lo que se escribiría, sin escribir nada. */
+export interface PlanAltaKepler {
+  /** La clave que seguiría hoy según el ODS; al escribir se vuelve a calcular contra las 10 bases vivas. */
+  clave_propuesta: string | null;
+  /**
+   * `contado` = `1xxxx`/`2xxxx`/`3xxxx` · `credito` = `CR1###`/`CR2###`/`CR3###` (Francisco, 2026-11-08:
+   * «CR1001: crédito, zona La Piedad, consecutivo»); su consecutivo también cuenta las `C1xxx` viejas.
+   */
+  serie: { tipo: 'contado' | 'credito'; zona: string; patron: string } | null;
+  /** Ya reservada por un intento anterior (se reusa: el reintento no inventa otra clave). */
+  clave_reservada: string | null;
+  kdud: ColumnaPlanKepler[];
+  kdfedir: ColumnaPlanKepler[];
+  hallazgos: HallazgoAlta[];
+  servidores: ServidorEscrituraKepler[];
+  /** `null` = se puede pulsar; si no, por qué no (interruptor apagado, servidores sin configurar, tope del día…). */
+  bloqueo_escritura: string | null;
+  /** ¿Quien consulta tiene la llave `COMMERCIAL_ALTA_CLIENTES_KEPLER`? */
+  puede_escribir: boolean;
+  /** Última escritura del maestro de clientes en el ODS: de qué tan fresca es la clave propuesta. */
+  kepler_as_of: string | null;
+}
+
+export type EstadoServidorAlta = 'escrita' | 'ya_estaba' | 'rechazada';
+
+export interface ResultadoServidorAlta {
+  servidor: string;
+  estado: EstadoServidorAlta;
+  motivo: string | null;
+}
+
+export interface EscrituraKeplerSolicitud {
+  clave: string;
+  /** Cuando las 10 bases quedaron con la ficha; `null` si alguna falló (se reintenta con la MISMA clave). */
+  escrita_el: string | null;
+  intentada_el: string | null;
+  intentada_por_nombre: string | null;
+  servidores: ResultadoServidorAlta[];
 }
 
 /** `POST /commercial/customer-onboarding/constancia` — el PDF, en data URI. */

@@ -156,7 +156,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'customers', label: 'Clientes', route: '/comercial/customers', view: [Permission.COMMERCIAL_CUSTOMERS_VER], manage: [Permission.COMMERCIAL_CUSTOMERS_GESTIONAR] },
           // `[ALC]` Módulo propio: la caja y los vendedores dan de alta sin ver la cartera; el
           // crédito, aparte, porque es dinero y lo decide otro puesto. `_VER` `[ALC.0.6]`: sólo consulta.
-          { id: 'alta-clientes', label: 'Alta de clientes', route: '/comercial/alta-clientes', view: [Permission.COMMERCIAL_ALTA_CLIENTES_VER, Permission.COMMERCIAL_ALTA_CLIENTES], manage: [Permission.COMMERCIAL_ALTA_CLIENTES_CREDITO] },
+          { id: 'alta-clientes', label: 'Alta de clientes', route: '/comercial/alta-clientes', view: [Permission.COMMERCIAL_ALTA_CLIENTES_VER, Permission.COMMERCIAL_ALTA_CLIENTES], manage: [Permission.COMMERCIAL_ALTA_CLIENTES_CREDITO, Permission.COMMERCIAL_ALTA_CLIENTES_KEPLER] },
           { id: 'cartera', label: 'Cartera / asignación', route: '/comercial/cartera', view: [Permission.COMMERCIAL_CARTERA_VER], manage: [Permission.COMMERCIAL_CARTERA_GESTIONAR] },
           { id: 'monitoreo-vecinal', label: 'Monitoreo vecinal', route: '/comercial/monitoreo-vecinal', view: [Permission.COMMERCIAL_MONITOREO_VECINAL_VER], manage: [] },
           // `[MCP.3.11]` Módulo propio a propósito: dentro de «Cartera» el G daría las dos llaves juntas.
