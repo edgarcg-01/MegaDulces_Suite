@@ -1715,10 +1715,17 @@ export class FinanceBankService {
       // hecho que «sí se escribe». **No se escribe**: medido, 0 de 20,926 filas la tienen. La
       // llave larga era un no-op. Acá se empieza a escribir (ver `emit`), así que la llave se
       // va poniendo exacta sola a medida que cada periodo se re-concilia.
+      // [CB.60] ⛔ Un movimiento BORRADO no aparta nada. Al borrar un renglón su pareo se queda en
+      // `bank_recon_matches` (la re-conciliación sólo limpia los movimientos vivos del periodo), y
+      // sin este filtro seguía bloqueando su documento de Kepler para siempre. Medido el 2026-11-09:
+      // 1,029 pareos de movimientos borrados ($25M), casi todos del «11 NOVIEMBRE.xlsx» subido como
+      // octubre y borrado el 5-nov; corriendo el motor sobre la descarga del banco de noviembre, los
+      // pareos exactos pasan de 78 a 135 ($284K → $2.34M) y el control con importes movidos casa 0
+      // exactos. Sobre el libro real de ago-oct, +3/+2/+3 pareos y ninguno perdido.
       const claimedRows = await trx('finance.bank_recon_matches as m')
         .join('finance.bank_movements as bm', 'bm.id', 'm.bank_movement_id')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
-        .where('m.tenant_id', tenantId).andWhereNot('st.period', period)
+        .where('m.tenant_id', tenantId).andWhereNot('st.period', period).whereNull('bm.deleted_at')
         .distinct('m.kepler_sucursal as suc', 'm.kepler_doc_tipo as dt', 'm.kepler_doc_folio as folio',
           'm.kepler_cuenta as cuenta');
       // Llave exacta (sucursal conocida) y llave parcial (filas históricas sin sucursal). La
