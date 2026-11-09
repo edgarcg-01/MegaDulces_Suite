@@ -647,6 +647,13 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_PAYMENTS_VER)]
       },
       {
+        // `[PGP.97]` Salidas del banco: lo que salió a proveedores contra Kepler y el programa. Sólo
+        // lectura; mismo permiso que el Calendario (ya repartido a quien ve Pagos).
+        path: 'salidas-banco',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-salidas-banco.component').then(m => m.FinanzasSalidasBancoComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_PAYMENTS_VER)]
+      },
+      {
         // `[PGP.20]` TP.7 — las cuentas bancarias del proveedor. Vino de /compras/cuentas-pago el
         // 2026-10-27: es el paso SIGUIENTE del Calendario (sin cuenta no se prepara la
         // transferencia), y quien prepara es Tesoreria. Conserva su permiso de Compras para que

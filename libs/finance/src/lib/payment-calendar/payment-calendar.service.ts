@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { Knex } from 'knex';
-import { TenantKnexService, TenantContextService, ObjectStorageService, applySmartSearch, toMxDateKey } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, ObjectStorageService, applySmartSearch, toMxDateKey, todayMx } from '@megadulces/platform-core';
 import { BUDGET_LEDGER_PORT, type BudgetLedgerPort } from '../budget/budget-ledger.port';
 import { GRUPOS_FINANCIEROS, PREFIJOS_FINANCIEROS } from '../creditor-statements/creditor-statements.engine';
 import { sqlKeplerPayableId } from '@megadulces/contracts/finance/kepler-payable-key';
@@ -12,6 +12,8 @@ import type { DiscountReason, PagosAtrasadosDia, PayableEvidenceFile, PayableEvi
 import { assertDescuentoPermitido, descuentoSobreCubierto, normalizarDescuento, round2 } from './descuento-al-pagar';
 import { cierreCompleto, type CierreKeplerPago } from '@megadulces/contracts';
 import { SQL_CIERRE_KEPLER, armarCierres, idsParaCierre, type FilaCierreKepler, type ItemParaCierre, type PagoParaCierre } from './cierre-kepler.sql';
+import { leerGuiaFueraDePrograma, ventanaFueraDePrograma } from './fuera-de-programa.sql';
+import type { GuiaFueraDePrograma } from '@megadulces/contracts';
 
 export type ObligationSource = 'budget_expense' | 'financial_commitment' | 'supplier_payable' | 'kepler_payable';
 
@@ -1627,6 +1629,23 @@ export class PaymentCalendarService {
       }
       return [...porDia.values()];
     });
+  }
+
+  /**
+   * `[PGP.97]` **Lo que salió del banco a un proveedor, contra Kepler y contra el programa.** La
+   * guía del área de pagos: qué transferencias del workbook todavía no tienen su pago en Kepler, y
+   * cuáles salieron sin pasar por el Calendario. Sólo lectura, sin tablas nuevas: la lectura vive
+   * en `fuera-de-programa.sql.ts` y la regla en `salida-proveedor.contract.ts`.
+   *
+   * ⛔ Va en este servicio y no en uno propio a propósito: no toca ningún constructor ni firma
+   * inyectada (el arranque de #414 se cayó por una) — usa `tk` y `tenantCtx`, que ya están.
+   */
+  async fueraDePrograma(desde?: string, hasta?: string): Promise<GuiaFueraDePrograma> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const hoy = todayMx();
+    const v = ventanaFueraDePrograma(desde, hasta, hoy);
+    if ('error' in v) throw new BadRequestException(v.error);
+    return this.tk.run((trx) => leerGuiaFueraDePrograma(trx, tenantId, v.desde, v.hasta, hoy));
   }
 
   /**

@@ -104,6 +104,9 @@ describe('[GX.18] las puertas del gasto en el nav', () => {
       // Calendario —sin la cuenta del proveedor no se prepara la transferencia— y quien prepara
       // es Tesorería, no Compras. Entra por el orden del trabajo, no por categoría.
       '/finanzas/cuentas-pago',
+      // `[PGP.97]` (2026-11-07) lo que SALIÓ del banco contra Kepler y el programa: el paso que
+      // cierra el pago (salió del banco y quedó asentado). Va antes del expediente.
+      '/finanzas/salidas-banco',
       '/finanzas/pagos-comprobantes',
     ] as const;
 
@@ -165,6 +168,7 @@ describe('[GX.18] las puertas del gasto en el nav', () => {
       const ARCHIVOS: Record<string, string> = {
         '/finanzas/calendario-pagos': 'finanzas-calendario-pagos.component.ts',
         '/finanzas/cuentas-pago': 'finanzas-cuentas-pago.component.ts',
+        '/finanzas/salidas-banco': 'finanzas-salidas-banco.component.ts',
         '/finanzas/pagos-comprobantes': 'finanzas-pagos-comprobantes.component.ts',
       };
       for (const ruta of DE_PAGOS) {

@@ -248,6 +248,78 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
     expect(atr).toEqual({ date: DIA, pagos: 1, monto: 3000, conciliados: 1, conciliados_monto: 5000 });
   });
 
+  /**
+   * `[PGP.97]` **Salidas del banco contra Kepler y el programa**, con el SQL real sobre el esquema
+   * real: el workbook (`finance.bank_movements`), la vista de tesorería de Kepler (que se llena por
+   * el trigger de `kdm1`), `kdxf`, el Calendario y la deuda viva. Cuenta de prueba `T97`, acreedor
+   * de compra `CPGQ97`, marzo de 2020 (lejos de cualquier dato).
+   *
+   * - S1 sale y Kepler la tiene (P1, saldó F1, F1 programada ese día) → en programa y en Kepler;
+   * - S2 sale y Kepler la tiene (P2, saldó F2, nunca programada) → fuera del programa;
+   * - S3 sale y Kepler NO la tiene; su concepto nombra al acreedor y F3 vale justo eso → falta, «fuerte»;
+   * - S5 sale y el único pago parecido está CANCELADO (`c43 = 'C'`) → falta (prueba negativa);
+   * - G1 es un gasto (columna M = 'G'): no entra a la guía;
+   * - P6 está en Kepler y el banco no muestra su salida → «en Kepler sin salida».
+   */
+  it('[PGP.97] cada salida del banco queda en su cuadrante, y lo cancelado no cuenta como pagado', async () => {
+    // ⛔ Sin «TPIT» en ninguna clave ni nombre: el bloque [TP.18] busca obligaciones con ese texto y
+    // espera exactamente las suyas (la primera versión de este caso le metió una factura viva más).
+    const ACR = 'CPGQ97';
+    const LBL = 'T97';
+    await trx('kepler_ods.kdb1').insert({ sucursal: '00', c1: LBL, c2: 'BANCO PGQ 97', c3: 'CHEQUES', c5: '102-0097' });
+    await trx('kepler_ods.kdxd').insert({ sucursal: '00', c2: ACR, c3: 'DULCES ZAPOTLANEJO PGQ SA DE CV', c13: 'C' });
+    const [acc] = await trx('finance.bank_accounts').insert({ tenant_id: M, bank: 'PGQ', account_label: LBL, alias: 'PGQ 97', kind: 'bank', active: true }).returning('id');
+    const [st] = await trx('finance.bank_statements').insert({ tenant_id: M, bank_account_id: acc.id, period: '2020-03' }).returning('id');
+    const salida = (id: string, fecha: string, importe: number, concepto: string, rt = 'C') => trx('finance.bank_movements').insert({
+      tenant_id: M, statement_id: st.id, bank_account_id: acc.id, movement_date: fecha, raw_type: rt, raw_code: rt === 'C' ? '510' : '102',
+      concept: concepto, amount_out: importe, amount_in: 0, client_uuid: `pgp97-it-${id}`,
+    }).returning('id').then((r) => r[0].id as string);
+    const ids: Record<string, string> = {
+      S1: await salida('S1', '2020-03-10', 5000.21, 'Dulces Zapotlanejo Pgq'),
+      S2: await salida('S2', '2020-03-12', 3000, 'Dulces Zapotlanejo Pgq'),
+      S3: await salida('S3', '2020-03-15', 7777.77, 'Dulces Zapotlanejo Pgq'),
+      S5: await salida('S5', '2020-03-13', 4444, 'Dulces Zapotlanejo Pgq'),
+      G1: await salida('G1', '2020-03-14', 999, 'Luz de la oficina', 'G'),
+    };
+    // Facturas (kdxe 'A') y pagos de Kepler: el encabezado kdm1 (con la cuenta c45) genera la pierna de tesorería.
+    for (const [f, monto] of [['ETP97-F1', 5000], ['ETP97-F2', 3000], ['ETP97-F3', 7777.77]] as const) {
+      await trx('kepler_ods.kdxe').insert({ sucursal: '07', c1: '07', c2: ACR, c3: 'A', c4: 20, c5: 1, c6: f, c7: '2020-03-01 00:00:00', c10: '2020-03-20 00:00:00', c11: monto });
+    }
+    const pago = (folio: string, fecha: string, importe: number, cancelado = false) => trx('kepler_ods.kdm1').insert({
+      sucursal: '07', c1: '07', c2: 'X', c3: 'D', c4: 26, c5: 1, c6: folio, c9: `${fecha} 00:00:00`, c68: `${fecha} 00:00:00`,
+      c10: ACR, c16: importe, c45: LBL, ...(cancelado ? { c43: 'C' } : {}),
+    });
+    await pago('ETP97-P1', '2020-03-10', 5000);
+    await pago('ETP97-P2', '2020-03-12', 3000);
+    await pago('ETP97-P5', '2020-03-13', 4444, true);
+    // El 12 (no el 11): el 11 la cuenta no tiene movimientos y un pago de ese día NO se declara «sin salida».
+    await pago('ETP97-P6', '2020-03-12', 1234);
+    for (const [p, f, monto, dia] of [['ETP97-P1', 'ETP97-F1', 5000, '2020-03-10'], ['ETP97-P2', 'ETP97-F2', 3000, '2020-03-12']] as const) {
+      await trx('kepler_ods.kdxf').insert({ sucursal: '07', c1: '07', c2: ACR, c3: `${dia} 00:00:00`, c4: 26, c5: 1, c6: p, c7: 20, c8: 1, c9: f, c10: monto });
+    }
+    const piernas = await trx('analytics.bank_movement_legs').where({ doc_tipo: 'X-D-26' }).whereIn('folio', ['ETP97-P1', 'ETP97-P2', 'ETP97-P5', 'ETP97-P6']).pluck('folio');
+    expect([...piernas].sort(), 'el trigger de kdm1 debe dejar las piernas (y NO la del pago cancelado)').toEqual(['ETP97-P1', 'ETP97-P2', 'ETP97-P6']);
+
+    const [lot] = await trx('finance.payment_calendar_lots').insert({ tenant_id: M, lot_date: '2020-03-10' }).returning('id');
+    const [a1] = await trx('finance.payment_allocations')
+      .insert({ tenant_id: M, lot_id: lot.id, classification: 'proveedor_mercancia', amount_assigned: 5000, created_by: USER, created_at: '2020-03-09 10:00:00-06' }).returning('id');
+    await trx('finance.payment_allocation_items').insert({ tenant_id: M, allocation_id: a1.id, obligation_source: 'kepler_payable', obligation_id: keplerPayableId('07', 20, 1, 'ETP97-F1'), applied_amount: 5000 });
+
+    const g = await cal.fueraDePrograma('2020-03-01', '2020-03-31');
+    const fila = (k: string) => g.filas.find((f) => f.salida.id === ids[k]);
+    expect(fila('S1')).toMatchObject({ estado_kepler: 'registrado', cuadrante: 'en_programa_en_kepler', documentos: [{ folio: 'ETP97-P1' }], dif_importe: -0.21 });
+    expect(fila('S1')!.programa).toMatchObject({ estado: 'en_programa', partida_id: a1.id });
+    expect(fila('S2')).toMatchObject({ estado_kepler: 'registrado', cuadrante: 'fuera_en_kepler', programa: { estado: 'no_programada' } });
+    expect(fila('S3')).toMatchObject({ estado_kepler: 'falta', cuadrante: 'fuera_falta', documentos: [], sugerido: { acreedor: ACR, nivel: 'fuerte' } });
+    expect(fila('S3')!.sugerido!.facturas.map((f) => f.folio)).toEqual(['ETP97-F3']);
+    // ⛔ La prueba negativa: el pago CANCELADO no cuenta como pagado.
+    expect(fila('S5')).toMatchObject({ estado_kepler: 'falta', documentos: [] });
+    expect(fila('G1')).toBeUndefined();
+    expect(g.kepler_sin_salida.map((p) => p.folio)).toEqual(['ETP97-P6']);
+    expect(g.metrica.banco).toMatchObject({ pagos: 3, pagos_en_programa: 1, monto: 9234, monto_en_programa: 5000 });
+    expect(g.cuentas.find((c) => c.account_label === LBL)).toMatchObject({ hasta: '2020-03-15' });
+  });
+
   it('Gonac 01 va en otro pago', async () => {
     const a = await cal.createAllocation({ date: D, items: [item('TPIT-101', 35640.2), item('TPIT-102', 18300)] }, USER);
     a2 = a.id;

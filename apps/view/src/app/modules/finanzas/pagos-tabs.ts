@@ -73,6 +73,16 @@ export const PAGOS_TABS: readonly PageTab[] = [
     permission: Permission.COMPRAS_OBLIGACIONES_VER,
   },
   {
+    // `[PGP.97]` — Lo que SALIÓ del banco, contra Kepler y contra el programa (2026-11-07). Entra
+    // por ser el paso que cierra el ciclo —pagar es que salga del banco Y quede asentado en
+    // Kepler—, no por tema: es la guía de quien elabora el pago en Kepler, y donde O3 lo va a
+    // escribir solo. Va antes del expediente porque comprobar viene después de asentar.
+    label: 'Salidas del banco',
+    route: '/finanzas/salidas-banco',
+    icon: 'pi pi-building-columns',
+    permission: Permission.FINANCE_PAYMENTS_VER,
+  },
+  {
     // Fase CC (ext.) — el expediente de evidencia de lo que ya salió. NO se absorbe: es la otra
     // mitad del ciclo (comprobar), y su fusión con el libro sigue bloqueada por falta de llave
     // (el libro no guarda el folio del pago de Kepler — `FASE_TP` §23).

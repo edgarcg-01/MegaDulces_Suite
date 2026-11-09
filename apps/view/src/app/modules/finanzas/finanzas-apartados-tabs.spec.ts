@@ -64,9 +64,12 @@ describe('[NAV.7] apartados del sidebar de Finanzas', () => {
     // `[PGP.20]` (2026-10-27) sumó «Cuentas de pago», que llegó de Compras. Entra porque es un
     // PASO del ciclo —sin la cuenta del proveedor no se prepara la transferencia—, no por tema.
     // Lo que `[PGP.7]` prohíbe sigue prohibido, y es lo que de verdad vigila esta prueba.
+    // `[PGP.97]` (2026-11-07) sumó «Salidas del banco»: el paso que cierra el pago (salió del banco
+    // y quedó asentado en Kepler). Es del ciclo, no de la deuda: la guarda de abajo sigue igual.
     expect(PAGOS_TABS.map((t) => t.route)).toEqual([
       '/finanzas/calendario-pagos',
       '/finanzas/cuentas-pago',
+      '/finanzas/salidas-banco',
       '/finanzas/pagos-comprobantes',
     ]);
     // ⛔ La guarda que no se puede aflojar: ninguna pantalla de DEUDA entra a esta barra.
