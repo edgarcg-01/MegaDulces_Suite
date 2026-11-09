@@ -1,4 +1,5 @@
 import type { Knex } from 'knex';
+import type { HrTurnoAsignado } from '@megadulces/contracts';
 import { configEfectiva } from './logic/config-reglas';
 import type { ReglaConfig } from './logic/tipos';
 import type { FichaPadron, FilaDia, HorarioAsignado, IncidenciaVigente } from './logic/asistencia-persona';
@@ -218,6 +219,22 @@ export async function horariosDelSitio(trx: Knex.Transaction, siteCode: string):
 }
 
 /**
+ * `[RH.6.3]` Los horarios guardados en `shifts`, si son válidos y coinciden con sus entradas
+ * (`shift_starts`). Copia de `horariosDeFila` de Mega Talento 8396d3c. Si no cuadran, null: manda
+ * lo de las columnas, como si fuera uno solo.
+ */
+export function horariosDeFila(shifts: unknown, turnos: string[]): HrTurnoAsignado[] | null {
+  const lista = Array.isArray(shifts) ? (shifts as Array<Record<string, unknown> | null>) : null;
+  if (!lista || lista.length < 2 || lista.length !== turnos.length) return null;
+  const out: HrTurnoAsignado[] = [];
+  for (const h of lista) {
+    if (!h || typeof h['entrada'] !== 'string' || typeof h['salida'] !== 'string') return null;
+    out.push({ entrada: h['entrada'], salida: h['salida'], comidaMin: Number(h['comidaMin']) || 0 });
+  }
+  return out;
+}
+
+/**
  * Los horarios que RH confirmó por persona. Con UNA entrada y salida es un horario COMPLETO
  * (asignado desde el portal): contra él se miden retardo, faltas, salida antes y comida. Sin
  * salida es una confirmación de entrada (la del bot), y con 2–3 entradas es un rotativo.
@@ -228,10 +245,10 @@ export async function confirmados(trx: Knex.Transaction, siteCode: string): Prom
 }> {
   const rows: Array<{
     person_code: string; turnos: string[] | null; salida: string | null; lunch_minutes: number | null;
-    works_saturday: boolean; sab_ent: string | null; sab_sal: string | null;
+    works_saturday: boolean; sab_ent: string | null; sab_sal: string | null; shifts: unknown;
     confirmed_by_name: string | null; updated_at: string | null;
   }> = await trx('hr.person_schedules').where({ site_code: siteCode }).select(
-    'person_code', 'lunch_minutes', 'works_saturday', 'confirmed_by_name',
+    'person_code', 'lunch_minutes', 'works_saturday', 'confirmed_by_name', 'shifts',
     trx.raw(`ARRAY(SELECT to_char(t, 'HH24:MI') FROM unnest(shift_starts) t ORDER BY t) AS turnos`),
     trx.raw(`to_char(ends_at, 'HH24:MI') AS salida`),
     trx.raw(`to_char(saturday_starts_at, 'HH24:MI') AS sab_ent`),
@@ -244,9 +261,12 @@ export async function confirmados(trx: Knex.Transaction, siteCode: string): Prom
     const t = (r.turnos || []).filter(Boolean);
     if (!t.length) continue;
     turnos.set(r.person_code, t);
-    if (r.salida && t.length === 1) {
+    // `[RH.6.3]` Con varios horarios (`shifts`), cada uno completo; con uno, el de las columnas.
+    const varios = r.salida ? horariosDeFila(r.shifts, t) : null;
+    if (r.salida && (t.length === 1 || varios)) {
+      const primero = varios ? varios[0] : { entrada: t[0], salida: r.salida, comidaMin: Number(r.lunch_minutes) || 0 };
       asignados.set(r.person_code, {
-        entrada: t[0], salida: r.salida, comidaMin: Number(r.lunch_minutes) || 0,
+        ...primero, horarios: varios || [primero],
         sabado: !!r.works_saturday, sabadoEntrada: r.sab_ent, sabadoSalida: r.sab_sal,
         asignadoPor: r.confirmed_by_name, actualizadoEn: r.updated_at,
       });

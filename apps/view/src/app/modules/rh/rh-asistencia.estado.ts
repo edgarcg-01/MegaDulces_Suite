@@ -2,7 +2,9 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import type { HrAsistenciaResponse, HrCierreDto, HrPersonaDirectorioDto, HrRelojEstadoDto, HrSiteDto } from '@megadulces/contracts';
 import { PermissionsService } from '../../core/services/permissions.service';
 import { Permission } from '../../core/constants/permissions';
-import { RhService, etiquetaSemana, fechaCorta, hoyEnMexico, juevesDeLaSemana, rhError, sumarDias } from './rh.service';
+import {
+  RhService, SEMANAS_POR_ANIO, etiquetaSemana, fechaCorta, hoyEnMexico, juevesDeLaSemana, rhError, semanaFiscal, sumarDias,
+} from './rh.service';
 import { faltasDelPeriodo, rebasados } from './reporte-formato';
 
 export type AtajoPeriodo = 'hoy' | 'esta' | 'pasada';
@@ -45,6 +47,11 @@ export class RhAsistenciaEstado {
   readonly pendientes = signal<number | null>(null);
   /** Semanas cerradas que toca el periodo; null = no se pudo leer. */
   readonly cierres = signal<HrCierreDto[] | null>(null);
+  /**
+   * `[RH.6.4]` Saldo del banco de horas extra de cada quien al último día del periodo (el mismo número de la pestaña
+   * Horas extra). null = no se pudo leer: la columna dice «—», nunca un cero.
+   */
+  readonly saldosHE = signal<Map<string, number> | null>(null);
   readonly directorio = signal<HrPersonaDirectorioDto[] | null>(null);
   readonly directorioError = signal(false);
 
@@ -63,6 +70,18 @@ export class RhAsistenciaEstado {
     if (this.jueves() === this.juevesActual()) return 'esta';
     if (this.jueves() === sumarDias(this.juevesActual(), -7)) return 'pasada';
     return null;
+  });
+  /** `[RH.6.4]` La semana fiscal del periodo en pantalla («Semana 47»). */
+  readonly semanaFiscal = computed(() => semanaFiscal(this.modoHoy() ? this.hoy() : this.jueves()));
+  /** `[RH.6.4]` Las últimas 52 semanas de nómina para elegir una sin dar 30 clics de flecha (Mega Talento 8dd5521). */
+  readonly semanasElegibles = computed(() => {
+    const actual = this.juevesActual();
+    const anioHoy = semanaFiscal(actual).anio;
+    return Array.from({ length: SEMANAS_POR_ANIO }, (_, k) => {
+      const j = sumarDias(actual, -7 * k);
+      const sf = semanaFiscal(j);
+      return { value: j, label: `Semana ${sf.numero}${sf.anio !== anioHoy ? ' de ' + sf.anio : ''} · ${etiquetaSemana(j)}${k === 0 ? ' (actual)' : ''}` };
+    });
   });
   readonly etiquetaPeriodo = computed(() => (this.modoHoy() ? `hoy, ${fechaCorta(this.hoy())}` : etiquetaSemana(this.jueves())));
   readonly nombreSitio = computed(() => this.sitios().find((s) => s.code === this.sitio())?.name ?? this.sitio() ?? '');
@@ -116,6 +135,11 @@ export class RhAsistenciaEstado {
       error: () => this.relojesMedidos.set(false),
     });
     this.leerIncidencias(site, desde, mi);
+    this.saldosHE.set(null);
+    this.api.bancoHorasExtra(site, undefined, hasta).subscribe({
+      next: (b) => { if (mi === this.seq) this.saldosHE.set(new Map(b.personas.map((p) => [p.codigo, p.saldoMin]))); },
+      error: () => { if (mi === this.seq) this.saldosHE.set(null); },
+    });
     this.api.asistencia({ site_code: site, date_from: desde, date_to: hasta, only_promoters: this.soloPromotoras() }).subscribe({
       next: (d) => { if (mi !== this.seq) return; this.datos.set(d); this.loading.set(false); },
       error: (e) => {

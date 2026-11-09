@@ -36,6 +36,8 @@ export interface CeldaReporte {
   /** `[RH.1.10]` Horas extra GANADAS ese día (bloques de 30 min) y a qué hora debía salir. */
   extraMin: number;
   salidaEsperada: string | null;
+  /** `[RH.6.4]` Horas extra USADAS ese día («Uso de horas extra»): se suman a sus horas y se restan de su saldo. */
+  usadasMin: number;
 }
 
 export interface ColumnaDia { fecha: string; dow: string; dia: number; hoy: boolean; }
@@ -74,7 +76,7 @@ export function tramosDe(comida: string | null | undefined): string[] {
 
 const VACIA: Omit<CeldaReporte, 'tipo' | 'jornada' | 'titulo'> = {
   tramos: [], desMin: null, comMin: null, desExcedido: false, comExcedida: false, tarde: false, salioAntes: false, inc: '',
-  extraMin: 0, salidaEsperada: null,
+  extraMin: 0, salidaEsperada: null, usadasMin: 0,
 };
 
 /** Cómo se dice UN día de una persona en el reporte. */
@@ -92,8 +94,14 @@ export function celdaDe(p: HrPersonaAsistencia, dias: Map<string, HrDiaAsistenci
     return { ...VACIA, tipo: 'vacio', jornada: '', titulo: fecha > o.hoy ? '' : 'Sin checadas que medir ese día' };
   }
   if (d.estado === 'descanso') {
+    // `[RH.6.2]` Un día de descanso NO es de vacaciones (ni de otra incidencia que justifica): si unas vacaciones
+    // cruzan su domingo, ese domingo es su descanso (Mega Talento 8dd5521). Quedan el descanso capturado y lo que no
+    // justifica (FI, AMO…).
+    const { deDescanso, otras } = incidenciasEnDescanso(incs);
+    const codigos = [...(deDescanso ? ['DESC.'] : []), ...otras.map((i) => i.codigo)].join('·');
+    const titulo = [...(deDescanso ? ['Descanso'] : []), ...otras.map((i) => i.etiqueta + (i.nota ? ` — ${i.nota}` : ''))].join(' · ');
     // El descanso que se tomó en un día que trabaja se dice como tal: un guion se leería como su descanso de siempre.
-    if (inc) return { ...VACIA, tipo: 'inc', jornada: inc, inc, titulo: incTitulo };
+    if (codigos) return { ...VACIA, tipo: deDescanso && !otras.length ? 'descanso' : 'inc', jornada: codigos, inc: codigos, titulo };
     return d.descansoPorAusencia
       ? { ...VACIA, tipo: 'desc_aus', jornada: 'DESC.', titulo: 'No checó en un día que normalmente trabaja; se tomó como su descanso de la semana.' }
       : { ...VACIA, tipo: 'descanso', jornada: '—', titulo: 'Su día de descanso' };
@@ -101,7 +109,7 @@ export function celdaDe(p: HrPersonaAsistencia, dias: Map<string, HrDiaAsistenci
   if (d.estado === 'justificado') {
     // En el papel, el día justificado se marca: en blanco no se distingue de un día sin dato, y en rojo sería una
     // falta que RH ya perdonó.
-    return { ...VACIA, tipo: inc ? 'inc' : 'just', jornada: inc || 'JUST.', inc, titulo: incTitulo || d.justificacion || 'Justificado' };
+    return { ...VACIA, tipo: inc ? 'inc' : 'just', jornada: inc || 'JUST.', inc, titulo: incTitulo || d.justificacion || 'Justificado', usadasMin: d.horasExtraUsadasMin || 0 };
   }
   if (d.estado === 'falta') {
     if (esHoy) return { ...VACIA, tipo: 'sin_checar_hoy', jornada: '·', titulo: 'Todavía no checa hoy. El día no ha terminado: no es falta.' };
@@ -129,7 +137,7 @@ export function celdaDe(p: HrPersonaAsistencia, dias: Map<string, HrDiaAsistenci
   return {
     tipo: 'dia', jornada: `${entrada} - ${d.salida || '0'}`, tramos: tramosDe(d.comida),
     desMin: d.desayunoMin ?? null, comMin: d.comidaMin ?? null, desExcedido, comExcedida, tarde, salioAntes, inc,
-    titulo: avisos.join(' · '), extraMin, salidaEsperada: d.salidaEsperada ?? null,
+    titulo: avisos.join(' · '), extraMin, salidaEsperada: d.salidaEsperada ?? null, usadasMin: d.horasExtraUsadasMin || 0,
   };
 }
 
@@ -157,6 +165,13 @@ export function horasTexto(min: number | null | undefined): string {
   return `${h}h ${String(m).padStart(2, '0')}m`;
 }
 
+/** `[RH.6.4]` Saldo de horas extra: «−3h 00m», «2h 30m», «0»; sin saldo calculado, ''. */
+export function saldoHorasTexto(min: number | null | undefined): string {
+  if (min == null) return '';
+  if (min === 0) return '0';
+  return (min < 0 ? '−' : '') + horasTexto(Math.abs(min));
+}
+
 /** Diferencia contra el horario: «+1h 10m», «−0h 40m», «0h 00m»; sin horario asignado, ''. */
 export function firmaHoras(min: number | null | undefined): string {
   if (min == null) return '';
@@ -180,7 +195,9 @@ export function hora12(h: string | null | undefined): string {
 /** «8:00–17:00 · sáb 9:00–14:00». */
 export function horarioAsignadoCorto(h: HrHorarioAsignado): string {
   const sab = h.sabado ? (h.sabadoEntrada && h.sabadoSalida ? ` · sáb ${h.sabadoEntrada}–${h.sabadoSalida}` : ' · sáb') : '';
-  return `${h.entrada}–${h.salida}${sab}`;
+  // `[RH.6.3]` Con varios horarios, todos: «8:00–17:00 / 13:00–21:00».
+  const turnos = h.horarios?.length ? h.horarios : [h];
+  return `${turnos.map((t) => `${t.entrada}–${t.salida}`).join(' / ')}${sab}`;
 }
 
 /** La columna Horario: el asignado por RH, o lo que sale de sus checadas. */
@@ -199,6 +216,17 @@ export interface Irregularidad { fecha: string; nivel: NivelIrregularidad; tipo:
 
 /** Incidencias que NO justifican el día: con ellas el día sigue siendo irregular. */
 const NO_JUSTIFICAN = new Set(['falta_injustificada', 'amonestacion', 'horario_distinto']);
+
+/**
+ * `[RH.6.2]` Lo que se dice de un día de DESCANSO: si RH capturó el descanso (o el cambio), y las incidencias que no
+ * justifican (FI, AMO…). Las que justifican (vacaciones, permisos) no se dicen: ese día descansaba de todos modos.
+ */
+export function incidenciasEnDescanso<T extends { tipo: string }>(incs: T[]): { deDescanso: boolean; otras: T[] } {
+  return {
+    deDescanso: incs.some((i) => i.tipo === 'descanso' || i.tipo === 'cambio_descanso'),
+    otras: incs.filter((i) => NO_JUSTIFICAN.has(i.tipo)),
+  };
+}
 
 /**
  * Las irregularidades de una persona, día por día (`irregularidadesDe` de Mega Talento). La fila va en rojo con una

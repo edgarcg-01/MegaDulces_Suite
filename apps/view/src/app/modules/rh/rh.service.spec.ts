@@ -4,7 +4,7 @@ import { TestBed } from '@angular/core/testing';
 import { HR_ESTADOS_DIA, HR_ESTADOS_INCIDENCIA } from '@megadulces/contracts';
 import {
   BANDERA_LABEL, ESTADO_DIA_LABEL, ESTADO_INCIDENCIA_LABEL, RhService, SEMAFORO_LABEL, etiquetaSemana, fechaCorta,
-  haceCuanto, hoyEnMexico, juevesDeLaSemana, minutosTexto, rhError, sumarDias,
+  haceCuanto, hoyEnMexico, juevesDeLaSemana, minutosTexto, rhError, semanaFiscal, sumarDias,
 } from './rh.service';
 
 /**
@@ -115,5 +115,17 @@ describe('[RH.1.7] RhService — lo que se pide', () => {
     api.paso('i-1', 'calificar').subscribe();
     const r = http.expectOne('/api/hr/attendance/incidents/i-1/calificar');
     expect(r.request.body).toEqual({ reason: '' });
+  });
+});
+
+describe('[RH.6.4] semana fiscal de nómina (regla de RH, 29/09/2026)', () => {
+  it('la del jueves 24 de septiembre de 2026 es la 41, cualquier día de esa semana', () => {
+    expect(semanaFiscal('2026-09-24')).toEqual({ numero: 41, anio: 2026 });
+    expect(semanaFiscal('2026-09-30')).toEqual({ numero: 41, anio: 2026 });
+  });
+  it('el año trae 52: la del 10 de diciembre es la 52 y la del 17 abre el ciclo 2027', () => {
+    expect(semanaFiscal('2026-12-10')).toEqual({ numero: 52, anio: 2026 });
+    expect(semanaFiscal('2026-12-17')).toEqual({ numero: 1, anio: 2027 });
+    expect(semanaFiscal('2025-12-18')).toEqual({ numero: 1, anio: 2026 });
   });
 });

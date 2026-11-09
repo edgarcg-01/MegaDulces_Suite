@@ -5,6 +5,7 @@ import {
 } from '../compras/compras-pdf-comun';
 import {
   type ColumnaDia, type GrupoDepartamento, celdaDe, departamentoDe, diasPorFecha, difHorario, firmaHoras, horarioDe, horasTexto, pausasDelDia,
+  saldoHorasTexto,
 } from './reporte-formato';
 
 /**
@@ -26,6 +27,8 @@ export interface ContextoExport {
   columnas: ColumnaDia[];
   hoy: string;
   mideRetardo: boolean;
+  /** `[RH.6.4]` Saldo de horas extra por código al fin del periodo; null = no se pudo leer (sale «-», no un cero). */
+  saldos?: Map<string, number> | null;
 }
 
 /** Texto apto para las fuentes estándar del PDF. */
@@ -46,8 +49,12 @@ export interface FilaExport {
  */
 export function filasExportacion(grupos: GrupoDepartamento[], todas: HrPersonaAsistencia[], c: ContextoExport, conSubtotales: boolean): { encabezado: string[]; filas: FilaExport[] } {
   const hayAsig = todas.some((p) => !!p.horarioAsignado);
-  const encabezado = ['Clv', 'Nombre', 'Horario', ...c.columnas.map((x) => `${x.dow} ${x.dia}`), 'Horas', 'H. extra', c.mideRetardo ? 'Min. retardo' : 'Retardo', ...(hayAsig ? ['vs. horario'] : [])];
+  const encabezado = ['Clv', 'Nombre', 'Horario', ...c.columnas.map((x) => `${x.dow} ${x.dia}`), 'Horas', 'HE ganó', 'HE usó', 'HE saldo', c.mideRetardo ? 'Min. retardo' : 'Retardo', ...(hayAsig ? ['vs. horario'] : [])];
   const o = { hoy: c.hoy, mideRetardo: c.mideRetardo };
+  // `[RH.6.4]` Ganadas, usadas y saldo, como en pantalla (Mega Talento 8dd5521). Sin saldo leído, «-»: nunca un cero.
+  const saldo = (ps: HrPersonaAsistencia[]): string => (c.saldos
+    ? saldoHorasTexto(ps.reduce((t, p) => t + (c.saldos?.get(p.codigo) ?? 0), 0)) : '-');
+  const saldoDe = (p: HrPersonaAsistencia): string => (c.saldos ? saldoHorasTexto(c.saldos.get(p.codigo)) : '-');
   const filas: FilaExport[] = [];
   for (const g of grupos) {
     filas.push({ tipo: 'depto', titulo: `${g.departamento} (${g.personas.length === g.total ? g.total : `${g.personas.length} de ${g.total}`})`, celdas: [] });
@@ -57,12 +64,14 @@ export function filasExportacion(grupos: GrupoDepartamento[], todas: HrPersonaAs
         const x = celdaDe(p, dias, col.fecha, o);
         const pz = [x.desMin !== null ? `D ${x.desMin}` : '', x.comMin !== null ? `C ${x.comMin}` : ''].filter(Boolean).join(' ');
         // `[RH.1.10]` Las horas extra del día, como en pantalla (Mega Talento 1a28f6e).
-        return [x.jornada, x.tramos.join(' '), pz, x.extraMin ? `+${horasTexto(x.extraMin)} extra` : ''].filter(Boolean).join('\n');
+        return [x.jornada, x.tramos.join(' '), pz, x.extraMin ? `+${horasTexto(x.extraMin)} extra` : '',
+          x.usadasMin ? `-${horasTexto(x.usadasMin)} usadas` : ''].filter(Boolean).join('\n');
       });
       filas.push({
         tipo: 'persona',
         celdas: [p.codigo, p.nombreCompleto || p.nombre, horarioDe(p).texto, ...dia, horasTexto(p.minutosTrabajados),
           p.horasExtraGanadasMin ? horasTexto(p.horasExtraGanadasMin) : '',
+          p.horasExtraUsadasMin ? horasTexto(p.horasExtraUsadasMin) : '', saldoDe(p),
           c.mideRetardo ? String(p.atrasoBrutoMin || '') : '-', ...(hayAsig ? [firmaHoras(difHorario(p))] : [])],
       });
     }
@@ -72,7 +81,9 @@ export function filasExportacion(grupos: GrupoDepartamento[], todas: HrPersonaAs
       const min = completo.reduce((t, p) => t + p.minutosTrabajados, 0);
       const ret = completo.reduce((t, p) => t + p.atrasoBrutoMin, 0);
       const extra = completo.reduce((t, p) => t + (p.horasExtraGanadasMin || 0), 0);
-      filas.push({ tipo: 'subtotal', celdas: ['', '', '', ...c.columnas.map(() => ''), horasTexto(min), extra ? horasTexto(extra) : '', c.mideRetardo ? String(ret) : '', ...(hayAsig ? [''] : [])] });
+      const usadas = completo.reduce((t, p) => t + (p.horasExtraUsadasMin || 0), 0);
+      filas.push({ tipo: 'subtotal', celdas: ['', '', '', ...c.columnas.map(() => ''), horasTexto(min), extra ? horasTexto(extra) : '',
+        usadas ? horasTexto(usadas) : '', saldo(completo), c.mideRetardo ? String(ret) : '', ...(hayAsig ? [''] : [])] });
     }
   }
   return { encabezado, filas };
@@ -132,11 +143,17 @@ export async function exportarPdfPersona(p: HrPersonaAsistencia, c: ContextoExpo
   doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(...INK);
   doc.text(latin1(nombre), M, y + 4);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...MUTED);
-  const h = p.horarioAsignado
-    ? `Horario asignado por RH: ${p.horarioAsignado.entrada} a ${p.horarioAsignado.salida}, comida ${p.horarioAsignado.comidaMin} min${p.horarioAsignado.sabado ? ', trabaja el sábado' : ''}.`
+  const a = p.horarioAsignado;
+  // `[RH.6.3]` Con varios horarios, todos: cada día se midió contra el que trabajó.
+  const h = a
+    ? `${a.horarios.length > 1 ? `Horarios asignados por RH (cada día contra el que trabajó): ` : 'Horario asignado por RH: '}${
+      a.horarios.map((x) => `${x.entrada} a ${x.salida}, comida ${x.comidaMin} min`).join(' / ')}${a.sabado ? ', trabaja el sábado' : ''}.`
     : `No tiene horario asignado: se mide contra el que sale de sus checadas (${horarioDe(p).texto}).`;
   doc.text(latin1(h), M, y + 18);
-  y += 30;
+  // `[RH.6.4]` El saldo de horas extra al fin del periodo, el mismo de la pestaña Horas extra.
+  const saldo = c.saldos ? c.saldos.get(p.codigo) : undefined;
+  if (saldo !== undefined) doc.text(latin1(`Saldo de horas extra al fin del periodo: ${saldoHorasTexto(saldo)}.`), M, y + 30);
+  y += saldo !== undefined ? 42 : 30;
 
   const dias = diasPorFecha(p);
   const o = { hoy: c.hoy, mideRetardo: c.mideRetardo };
@@ -145,7 +162,7 @@ export async function exportarPdfPersona(p: HrPersonaAsistencia, c: ContextoExpo
     const d = dias.get(col.fecha);
     const x = celdaDe(p, dias, col.fecha, o);
     const dia = `${col.dow} ${col.dia}`;
-    if (x.tipo !== 'dia' || !d) return [dia, { content: latin1(x.titulo || x.jornada), colSpan: conVs ? 8 : 7, styles: { textColor: MUTED } }];
+    if (x.tipo !== 'dia' || !d) return [dia, { content: latin1(x.titulo || x.jornada), colSpan: conVs ? 9 : 8, styles: { textColor: MUTED } }];
     const pz = pausasDelDia(d);
     return [
       dia,
@@ -153,16 +170,18 @@ export async function exportarPdfPersona(p: HrPersonaAsistencia, c: ContextoExpo
       pz.desayuno ? `${pz.desayuno} (${d.desayunoMin} min)` : '-',
       pz.comida ? `${pz.comida}${d.comidaMin != null ? ` (${d.comidaMin} min)` : ''}` : '-',
       `${d.salida ?? ''}${(d.salidaAntesMin || 0) > 0 ? ` (-${d.salidaAntesMin})` : ''}`,
-      horasTexto(d.netasMin), d.extraMin ? horasTexto(d.extraMin) : '', c.mideRetardo ? String(d.atrasoMin || '') : '-',
+      horasTexto(d.netasMin), d.extraMin ? horasTexto(d.extraMin) : '', d.horasExtraUsadasMin ? horasTexto(d.horasExtraUsadasMin) : '',
+      c.mideRetardo ? String(d.atrasoMin || '') : '-',
       ...(conVs ? [d.netasMin != null && d.esperadoMin != null ? firmaHoras(d.netasMin - d.esperadoMin) : ''] : []),
     ].map((v) => (typeof v === 'string' ? latin1(v) : v));
   });
   autoTable(doc, {
     startY: y,
     margin: { left: M, right: M },
-    head: [['Día', 'Entrada', 'Desayuno', 'Comida', 'Salida', 'Horas', 'H. extra', c.mideRetardo ? 'Min. retardo' : 'Retardo', ...(conVs ? ['vs. horario'] : [])]],
+    head: [['Día', 'Entrada', 'Desayuno', 'Comida', 'Salida', 'Horas', latin1('HE ganó'), latin1('HE usó'), c.mideRetardo ? 'Min. retardo' : 'Retardo', ...(conVs ? ['vs. horario'] : [])]],
     body,
-    foot: [['Total', '', '', '', '', horasTexto(p.minutosTrabajados), p.horasExtraGanadasMin ? horasTexto(p.horasExtraGanadasMin) : '', c.mideRetardo ? String(p.atrasoBrutoMin) : '-', ...(conVs ? [latin1(firmaHoras(difHorario(p)))] : [])]],
+    foot: [['Total', '', '', '', '', horasTexto(p.minutosTrabajados), p.horasExtraGanadasMin ? horasTexto(p.horasExtraGanadasMin) : '',
+      p.horasExtraUsadasMin ? horasTexto(p.horasExtraUsadasMin) : '', c.mideRetardo ? String(p.atrasoBrutoMin) : '-', ...(conVs ? [latin1(firmaHoras(difHorario(p)))] : [])]],
     styles: { font: 'helvetica', fontSize: 8, cellPadding: 3, textColor: INK, lineColor: RULE, lineWidth: 0.4 },
     headStyles: { fillColor: HEAD, textColor: [255, 255, 255], fontStyle: 'bold' },
     footStyles: { fillColor: ZEBRA, textColor: INK, fontStyle: 'bold' },

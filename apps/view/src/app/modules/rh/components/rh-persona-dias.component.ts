@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import type { HrDiaAsistencia, HrPersonaAsistencia } from '@megadulces/contracts';
 import { ESTADO_DIA_LABEL } from '../rh.service';
-import { type ColumnaDia, diasPorFecha, difHorario, firmaHoras, horasTexto, pausasDelDia } from '../reporte-formato';
+import { type ColumnaDia, diasPorFecha, difHorario, firmaHoras, horasTexto, incidenciasEnDescanso, pausasDelDia } from '../reporte-formato';
 
 /**
  * Fase RH · `[RH.1.7c]` — una persona, un día por renglón (la vista «Una persona» de Mega Talento): Entrada,
@@ -39,7 +39,9 @@ interface RenglonDia {
             <tr [class.apagado]="!r.medido && r.tono === 'mute'">
               <td class="m dt-id" role="cell" data-label="Día">{{ r.col.dow }} {{ r.col.dia }}</td>
               @if (r.medido && r.d; as d) {
-                <td class="m" role="cell" data-label="Entrada">{{ d.entrada }}@if (mideRetardo() && d.atrasoMin > 0) { <span class="tag bad">+{{ d.atrasoMin }} min</span> }</td>
+                <td class="m" role="cell" data-label="Entrada">{{ d.entrada }}@if (mideRetardo() && d.atrasoMin > 0) { <span class="tag bad">+{{ d.atrasoMin }} min</span> }
+                  @if (d.turno) { <span class="d" [title]="'Tiene varios horarios: este día se midió contra el de las ' + d.turno">turno {{ d.turno }}</span> }
+                  @if (d.horasExtraUsadasMin) { <span class="tag info">−{{ horas(d.horasExtraUsadasMin) }} de horas extra usadas</span> }</td>
                 <td class="m" role="cell" data-label="Desayuno">@if (r.desayuno) { {{ r.desayuno }} <span class="d">{{ d.desayunoMin }} min</span> }
                   @else { <span class="d">—</span> }@if ((d.desayunoExcesoMin || 0) > 0) { <span class="tag warn">+{{ d.desayunoExcesoMin }} min</span> }</td>
                 <td class="m" role="cell" data-label="Comida">@if (r.comida) { {{ r.comida }} @if (d.comidaMin !== null && d.comidaMin !== undefined) { <span class="d">{{ d.comidaMin }} min</span> } }
@@ -81,6 +83,7 @@ interface RenglonDia {
     .tag { display: inline-block; font: 700 var(--fs-micro)/1 var(--font-mono); padding: 2px 5px; border-radius: var(--r-sm); margin-left: 4px; }
     .tag.bad { background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
     .tag.warn { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
+    .tag.info { background: var(--info-soft-bg); color: var(--info-soft-fg); }
     .pill { display: inline-block; padding: 1px var(--sp-2); border-radius: var(--r-pill); font-size: var(--fs-xs); background: var(--surface-2); color: var(--text-muted); }
     .pill[data-t='bad'] { background: var(--bad-soft-bg); color: var(--bad-soft-fg); font-weight: 600; }
     .pill[data-t='warn'] { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
@@ -114,7 +117,13 @@ export class RhPersonaDiasComponent {
       switch (d.estado) {
         case 'falta': return { ...base, etiqueta: inc ? `Falta · ${inc}` : 'Falta', tono: 'bad' } as RenglonDia;
         case 'marca_faltante': return { ...base, etiqueta: `Una sola checada (${d.hora || d.entrada || '?'}): no se sabe si fue entrada o salida`, tono: 'bad' } as RenglonDia;
-        case 'descanso': return { ...base, etiqueta: inc || (d.descansoPorAusencia ? 'Descanso (no vino en un día que trabaja)' : 'Descanso'), tono: inc ? 'info' : 'mute' } as RenglonDia;
+        case 'descanso': {
+          // `[RH.6.2]` Unas vacaciones que cruzan su descanso no lo vuelven vacaciones: se dice el descanso capturado
+          // y lo que no justifica (como en el reporte).
+          const { deDescanso, otras } = incidenciasEnDescanso(incs);
+          const txt = [...(deDescanso ? ['Descanso (lo capturó RH)'] : []), ...otras.map((i) => `${i.codigo} · ${i.etiqueta}`)].join(', ');
+          return { ...base, etiqueta: txt || (d.descansoPorAusencia ? 'Descanso (no vino en un día que trabaja)' : 'Descanso'), tono: otras.length ? 'info' : 'mute' } as RenglonDia;
+        }
         case 'justificado': return { ...base, etiqueta: inc || d.justificacion || ESTADO_DIA_LABEL.justificado, tono: 'info' } as RenglonDia;
         default: {
           const pz = pausasDelDia(d);

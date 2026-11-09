@@ -21,6 +21,7 @@ describe('[RH.1.7c] RhAsistenciaEstado', () => {
       sitios: vi.fn(() => of(SITIOS)),
       asistencia: vi.fn(() => of(asistencia([persona()]))),
       estadoRelojes: vi.fn(() => of([])),
+      bancoHorasExtra: vi.fn(() => of({ personas: [] })),
       incidencias: vi.fn(() => of([{ id: '1' }, { id: '2' }])),
       estadoCierre: vi.fn(() => of([])),
       directorio: vi.fn(() => of([])),

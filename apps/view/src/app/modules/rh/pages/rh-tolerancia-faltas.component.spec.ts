@@ -24,6 +24,7 @@ describe('[RH.1.7c] Tolerancia y Faltas', () => {
   async function render<T>(comp: new (...a: never[]) => T, datos: HrAsistenciaResponse, ...claves: string[]): Promise<ComponentFixture<T>> {
     api = {
       sitios: vi.fn(() => of(SITIOS)), asistencia: vi.fn(() => of(datos)), estadoRelojes: vi.fn(() => of([])),
+      bancoHorasExtra: vi.fn(() => of({ personas: [] })),
       incidencias: vi.fn(() => of([])), estadoCierre: vi.fn(() => of([])), directorio: vi.fn(() => of([])),
     };
     await TestBed.configureTestingModule({

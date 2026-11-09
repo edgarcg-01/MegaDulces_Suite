@@ -17,12 +17,12 @@ describe('[RH.1.7c] filasExportacion', () => {
 
   it('un renglón de departamento, uno por persona y el subtotal del departamento COMPLETO', () => {
     const { encabezado, filas } = filasExportacion(porDepartamento([a, b], [a]), [a, b], ctx, true);
-    expect(encabezado).toEqual(['Clv', 'Nombre', 'Horario', 'Lun 5', 'Mar 6', 'Horas', 'H. extra', 'Min. retardo']);
+    expect(encabezado).toEqual(['Clv', 'Nombre', 'Horario', 'Lun 5', 'Mar 6', 'Horas', 'HE ganó', 'HE usó', 'HE saldo', 'Min. retardo']);
     expect(filas.map((f) => f.tipo)).toEqual(['depto', 'persona', 'subtotal']);
     expect(filas[0].titulo).toBe('SISTEMAS (1 de 2)');
     expect(filas[1].celdas.slice(0, 4)).toEqual(['1', 'Alfa', 'Deducido · 8:00 am', '07:56 - 17:04\n14:01–15:00\nC 59']);
     // 600 + 300 minutos: Beta no se ve, pero el subtotal es del departamento entero.
-    expect(filas[2].celdas.slice(-3)).toEqual(['15h 00m', '', '10']);
+    expect(filas[2].celdas.slice(-5)).toEqual(['15h 00m', '', '', '-', '10']);
   });
 
   it('[RH.1.10] las horas extra salen en el día, en la persona y en el subtotal', () => {
@@ -33,7 +33,19 @@ describe('[RH.1.7c] filasExportacion', () => {
     const { filas } = filasExportacion(porDepartamento([c], [c]), [c], ctx, true);
     expect(filas[1].celdas[3]).toBe('08:00 - 18:45\n+0h 30m extra');
     expect(filas[1].celdas[6]).toBe('0h 30m');
-    expect(filas[2].celdas.slice(-3)).toEqual(['10h 00m', '0h 30m', '0']);
+    expect(filas[2].celdas.slice(-5)).toEqual(['10h 00m', '0h 30m', '', '-', '0']);
+  });
+
+  it('[RH.6.4] usadas en el día y en la persona; saldo por persona y del departamento completo', () => {
+    const u = persona({
+      codigo: '4', nombreCompleto: 'Delta', departamento: 'Sistemas · s', minutosTrabajados: 600, horasExtraUsadasMin: 120,
+      semanas: [{ ...persona().semanas[0], dias: [dia({ fecha: '2026-10-05', entrada: '08:00', salida: '16:00', comida: null, horasExtraUsadasMin: 120 })] }],
+    });
+    const v = persona({ codigo: '5', nombreCompleto: 'Épsilon', departamento: 'Sistemas · s', minutosTrabajados: 0, semanas: [] });
+    const { filas } = filasExportacion(porDepartamento([u, v], [u]), [u, v], { ...ctx, saldos: new Map([['4', -60], ['5', 150]]) }, true);
+    expect(filas[1].celdas[3]).toBe('08:00 - 16:00\n-2h 00m usadas');
+    expect(filas[1].celdas.slice(6, 9)).toEqual(['', '2h 00m', '−1h 00m']);
+    expect(filas[2].celdas[8]).toBe('1h 30m');
   });
 
   it('⛔ con búsqueda puesta no hay subtotales', () => {

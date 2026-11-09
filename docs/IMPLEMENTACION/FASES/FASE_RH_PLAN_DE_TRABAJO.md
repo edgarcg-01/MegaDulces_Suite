@@ -185,6 +185,28 @@ existente» puede variar un poco. El informe con nombres (las listas para RH) qu
 | `64ae212` | 08-oct | Nadie a prenómina sin identificar · alta con el siguiente número libre | ✅ [RH.1.6b] el cierre (12-oct) · ⬜ el alta (va con la pantalla de personas) |
 | `ee4ff38` | 08-oct | Banco de horas extra, desayuno/comida distintos, cambio de día de descanso, día con incidencia se mide sin checadas | ✅ [RH.1.10] (12-oct) |
 | `1a28f6e` | 12-oct | Horas extra en la tabla semanal, PDF y Excel | ✅ [RH.1.10] (12-oct) |
+| `8dd5521` | 13-oct | Semana fiscal elegible, incidencia Descanso, vacaciones respetan el descanso, HE usadas y saldo en tabla/PDF/Excel | 🧪 [RH.6.2] [RH.6.4] (09-nov) |
+| `8396d3c` | 15-oct | Varios horarios por persona; la checada sin pareja ya no inventa comidas de horas | 🧪 [RH.6.1] [RH.6.3] (09-nov) |
+| `31bc956` | 19-oct | Salud del bot con la bandeja de atorados | ⬜ [RH.12] |
+| `331dccf` | 22-oct | Amonestación en todas las listas de incidencias | ✅ [RH.6.5] (ya lo hacía la Suite) |
+
+## 6b. Inventario completo contra Mega Talento (2026-11-09)
+
+El repo de Mega Talento (`IngeDavid2209/mega-talento-90`) se hizo público y se comparó pantalla por pantalla
+contra `/rh/*`. **Ya portado:** checadas y reporte semanal, tolerancia, faltas, horas extra, incidencias y cierre,
+relojes, candidatos (incl. no recontratables, spam, papelera), vacantes, revisiones (duplicados y reingresos),
+`/empleo`, evaluaciones por liga y el bot. **Falta**, en este orden (lo que mueve prenómina primero):
+
+| Bloque | Items | Pantallas de Mega Talento |
+|---|---|---|
+| Asistencia posterior al port | [RH.6] 🧪 | ver §6 |
+| Personal | [RH.7] ⬜ | empleados (alta/baja), papelera de empleados, promotoras, cruces de plaza, ubicación de mi equipo, agente de horarios |
+| Reclutamiento — tableros | [RH.8] ⬜ | dashboard/etapa, concentrado, kpi, novedades, destacados, en riesgo, contactados, historial, status-proceso |
+| Reclutamiento — evaluación | [RH.9] ⬜ | guía y resultados de evaluación, análisis del bot, cv-armados |
+| Retención | [RH.10] ⬜ | permanencia, encuestas de onboarding |
+| Requisiciones | [RH.11] ⬜ | requisiciones, `/pedir-personal` (re-medir uso: el 6-oct tenían 0 filas) |
+| Bot | [RH.12] ⬜ | salud del bot |
+| No se porta | — | usuarios y login (los reemplaza la identidad de la Suite) |
 
 Para revisarlo: `git log --since=<último port> -- api/src/agente-horarios api/src/cierres.ts api/src/checador.ts api/src/incidencias.ts`
 en el repo de Mega Talento.

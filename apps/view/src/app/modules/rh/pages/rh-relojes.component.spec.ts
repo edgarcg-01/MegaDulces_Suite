@@ -38,6 +38,7 @@ describe('[RH.1.7] RhRelojesComponent', () => {
     api = {
       sitios: vi.fn(() => of(SITIOS)),
       estadoRelojes: vi.fn(() => of(o.estado)),
+      bancoHorasExtra: vi.fn(() => of({ personas: [] })),
       relojes: vi.fn(() => of([RELOJ])),
       lotesPendientes: vi.fn(() => of(o.lotes ?? [])),
       guardarReloj: vi.fn(() => of(RELOJ)),

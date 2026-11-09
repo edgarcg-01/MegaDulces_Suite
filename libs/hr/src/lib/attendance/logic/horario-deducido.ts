@@ -223,6 +223,47 @@ export function colapsarDuplicadas(minutos: number[], duplicadaMin = DUPLICADA_M
 }
 
 /**
+ * `[RH.6.1]` CUÁL MARCA DE EN MEDIO SE QUEDA SIN PAREJA — copia de `marcaSinPareja` de Mega Talento
+ * 8396d3c (15/10/2026).
+ *
+ * Las marcas de en medio se emparejan salida→regreso. Con un número impar una se queda sola, y antes
+ * era siempre la ÚLTIMA. Eso falla cuando la que no se leyó es una de las primeras: 10:28 (regreso
+ * del desayuno, sin su salida), 14:33 y 15:02 (comida) emparejaba 10:28→14:33, una «comida» de
+ * 4 h 05 min, y la comida real quedaba suelta.
+ *
+ * Ahora se deja sola la que hace que las pausas emparejadas sumen MENOS: un descanso real dura
+ * minutos, no horas. En empate, la última, como antes. Pero antes se evitan los pares de menos de
+ * `PAUSA_MIN_CREIBLE` (checar dos veces el regreso: 14:05, 14:56, 15:02 dejaría suelta la comida de
+ * 51 min). La usan `detalleDia` y `reglaDesayunoExcedido`: si cada una emparejara a su manera,
+ * dirían cosas distintas del mismo día.
+ *
+ * Recibe los minutos YA ordenados; devuelve el índice de la marca sin pareja, o null si son pares.
+ * Sólo puede quedar sola una de índice par: las de antes y las de después se siguen emparejando.
+ */
+export const PAUSA_MIN_CREIBLE = 10;
+
+export function marcaSinPareja(medio: number[]): number | null {
+  if (medio.length % 2 === 0) return null;
+  let mejor = medio.length - 1;
+  let menosCortas = Infinity;
+  let menosFuera = Infinity;
+  for (let k = medio.length - 1; k >= 0; k -= 2) {
+    const resto = medio.filter((_, i) => i !== k);
+    let fuera = 0;
+    let cortas = 0;
+    for (let i = 0; i + 1 < resto.length; i += 2) {
+      const pausa = resto[i + 1] - resto[i];
+      fuera += pausa;
+      if (pausa < PAUSA_MIN_CREIBLE) cortas++;
+    }
+    if (cortas < menosCortas || (cortas === menosCortas && fuera < menosFuera)) {
+      menosCortas = cortas; menosFuera = fuera; mejor = k;
+    }
+  }
+  return mejor;
+}
+
+/**
  * Clasifica un día por sus marcas. Aquí se decide qué es dato utilizable.
  *
  *   0 marcas -> 'sin_marca'      (posible falta; lo resuelve quien conoce el turno)

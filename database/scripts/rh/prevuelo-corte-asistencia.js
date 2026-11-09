@@ -62,6 +62,8 @@ const CADENA = [
   '20261012122707_hr_horas_extra_ajustes.js',
   // [RH.1.4b] la ficha por plaza (sección del reporte de RH, casilla de promotora, activa en esa plaza).
   '20261012151620_hr_secciones_por_ficha.js',
+  // [RH.6.3] varios horarios por persona: el lector selecciona `shifts`; sin la columna, la asistencia da 500.
+  '20261109110836_hr_person_schedules_varios_horarios.js',
 ];
 /** La migración del reparto: de ella depende el chequeo de «claves en true» (ya no es la última de la cadena). */
 const MIG_REPARTO = '20261008094815_hr_reparto_asistencia.js';

@@ -51,6 +51,7 @@ describe('[RH.1.7c] RhAsistenciaComponent — Checadas', () => {
       asignarHorario: vi.fn(() => of({ ok: true, guardados: 1 })),
       quitarHorario: vi.fn(() => of({ ok: true, quitados: 1 })),
       estadoRelojes: vi.fn(() => (relojes === 'error' ? throwError(() => new Error('403')) : of(relojes))),
+      bancoHorasExtra: vi.fn(() => of({ personas: [] })),
       incidencias: vi.fn(() => of([{ id: 'a' }, { id: 'b' }])),
       estadoCierre: vi.fn(() => of(cierres)),
       directorio: vi.fn(() => of(o.directorio ?? [])),
@@ -185,7 +186,7 @@ describe('[RH.1.7c] RhAsistenciaComponent — Checadas', () => {
     await render({ claves: [Permission.HR_ATTENDANCE_VER, Permission.HR_ATTENDANCE_GESTIONAR] });
     const c = fix.componentInstance;
     c.abrirHorario(c.todas()[0]);
-    c.form.set({ entrada: '09:00', salida: '18:30', comida: 45, sabado: false, sabadoEntrada: '09:00', sabadoSalida: '14:00' });
+    c.form.set({ turnos: [{ entrada: '09:00', salida: '18:30', comida: 45 }], sabado: false, sabadoEntrada: '09:00', sabadoSalida: '14:00' });
     c.guardarHorario();
     expect(api['asignarHorario']).toHaveBeenLastCalledWith({
       site_code: 'PH', person_codes: ['104'], starts_at: '09:00', ends_at: '18:30', lunch_minutes: 45,
@@ -195,6 +196,33 @@ describe('[RH.1.7c] RhAsistenciaComponent — Checadas', () => {
     c.abrirHorario(null);
     c.guardarHorario();
     expect(api['asignarHorario']).toHaveBeenLastCalledWith(expect.objectContaining({ person_codes: ['104', '118'] }));
+  });
+
+  it('[RH.6.3] con dos horarios manda la lista; el primero va también suelto, y no pasa de 4', async () => {
+    await render({ claves: [Permission.HR_ATTENDANCE_VER, Permission.HR_ATTENDANCE_GESTIONAR] });
+    const c = fix.componentInstance;
+    c.abrirHorario(c.todas()[0]);
+    c.form.set({ turnos: [{ entrada: '08:00', salida: '17:00', comida: 60 }], sabado: false, sabadoEntrada: '', sabadoSalida: '' });
+    c.agregarTurno();
+    const f = c.form();
+    if (!f) throw new Error('sin formulario');
+    f.turnos[1].entrada = '13:00'; f.turnos[1].salida = '21:00';
+    c.guardarHorario();
+    expect(api['asignarHorario']).toHaveBeenLastCalledWith(expect.objectContaining({
+      starts_at: '08:00', ends_at: '17:00', lunch_minutes: 60,
+      shifts: [{ starts_at: '08:00', ends_at: '17:00', lunch_minutes: 60 }, { starts_at: '13:00', ends_at: '21:00', lunch_minutes: 60 }],
+    }));
+    c.abrirHorario(c.todas()[0]);
+    for (let i = 0; i < 6; i++) c.agregarTurno();
+    expect(c.form()?.turnos.length).toBe(4);
+    c.quitarTurno(0);
+    expect(c.form()?.turnos.length).toBe(3);
+  });
+
+  it('[RH.6.4] el reporte trae HE usó y HE saldo; sin saldo leído dice «—», no un cero', async () => {
+    await render({ claves: [Permission.HR_ATTENDANCE_VER] });
+    const ths = [...el().querySelectorAll('app-rh-reporte-semanal th')].map((t) => t.textContent?.trim());
+    expect(ths).toEqual(expect.arrayContaining(['HE ganó', 'HE usó', 'HE saldo']));
   });
 
   it('semana pasada sin cerrar: el aviso dice qué falta para cerrarla', async () => {

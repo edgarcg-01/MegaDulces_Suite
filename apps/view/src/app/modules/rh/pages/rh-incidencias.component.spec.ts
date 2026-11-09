@@ -43,6 +43,7 @@ describe('[RH.1.7] RhIncidenciasComponent', () => {
       // `[RH.1.7c]` Lo que pide el marco de las pestañas (los contadores y la franja).
       asistencia: vi.fn(() => of(asistencia([]))),
       estadoRelojes: vi.fn(() => of([])),
+      bancoHorasExtra: vi.fn(() => of({ personas: [] })),
       estadoCierre: vi.fn(() => of([])),
       directorio: vi.fn(() => of([])),
     };

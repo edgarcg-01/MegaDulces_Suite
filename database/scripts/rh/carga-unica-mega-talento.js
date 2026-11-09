@@ -352,8 +352,11 @@ async function cargarMegaTalento(trx, mt, { tenantId = TENANT_MD, log = null, re
   const conTurnoDeSitio = await q(`SELECT sucursal_id, btrim(codigo_checador) AS codigo, horario_id FROM empleados WHERE horario_id IS NOT NULL`);
   let nPs = 0;
   const descPs = {};
+  const conShifts = await trx.schema.withSchema('hr').hasColumn('person_schedules', 'shifts');
+  let nSinShifts = 0;
   for (const c of confirmados) {
     const turnos = (Array.isArray(c.turnos) ? c.turnos : String(c.turnos || '').split(',')).map(limpio).filter(Boolean);
+    const varios = Array.isArray(c.horarios) && c.horarios.length > 1;
     const sab = !!c.sabado;
     const turnoSitio = conTurnoDeSitio.find((e) => e.sucursal_id === c.sucursal_id && e.codigo === limpio(c.empleado_codigo));
     const malo = await conSavepoint(trx, () => trx('hr.person_schedules').insert({
@@ -362,8 +365,12 @@ async function cargarMegaTalento(trx, mt, { tenantId = TENANT_MD, log = null, re
       ends_at: c.salida || null, lunch_minutes: c.comida_min ?? null, works_saturday: sab,
       saturday_starts_at: sab ? c.sabado_entrada || null : null, saturday_ends_at: sab ? c.sabado_salida || null : null,
       note: c.nota, confirmed_by_name: c.confirmado_por, created_at: c.creado_en, updated_at: c.actualizado_en || c.creado_en,
+      // [RH.6.3] varios horarios (Mega Talento 8396d3c): sólo cuando son 2+; con uno queda NULL, como allá.
+      ...(varios && conShifts ? { shifts: JSON.stringify(c.horarios) } : {}),
     }).onConflict(['tenant_id', 'site_code', 'person_code']).ignore());
     if (malo) descPs[malo] = (descPs[malo] || 0) + 1; else nPs++;
+    // Sin la columna se carga el primer horario y se DECLARA en el cuadre: nunca en silencio.
+    if (!malo && varios && !conShifts) nSinShifts++;
   }
   for (const e of conTurnoDeSitio) {
     if (confirmados.some((c) => c.sucursal_id === e.sucursal_id && limpio(c.empleado_codigo) === e.codigo)) continue;
@@ -374,6 +381,10 @@ async function cargarMegaTalento(trx, mt, { tenantId = TENANT_MD, log = null, re
     nPs++;
   }
   anotar('person_schedules', confirmados.length + conTurnoDeSitio.length, nPs, descPs);
+  if (nSinShifts) {
+    cuadre.person_schedules.sinVariosHorarios = nSinShifts;
+    if (avisar) avisar(`  ⚠️ person_schedules: ${nSinShifts} con varios horarios cargados SÓLO con el primero (falta la migración 20261109110836)`);
+  }
 
   const config = await q(`SELECT sucursal_id, config FROM asistencia_config`);
   for (const c of config) {

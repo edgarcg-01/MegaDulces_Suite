@@ -130,3 +130,10 @@ describe('configuración: código → global → política del sitio → fila de
     expect(fusionar(CONFIG_DEFAULT, 'no es objeto')).toBe(CONFIG_DEFAULT);
   });
 });
+
+describe('[RH.6.1] la alerta de desayuno salta la misma marca sin pareja que la pantalla (MT 8396d3c)', () => {
+  it('una salida suelta a las 09:00 no se empareja con la del desayuno: el desayuno es 10:00–10:50 (exceso 20, no 30)', () => {
+    const r = analizarDia(entrada({ checadas: marcas('2026-07-07', '08:00', '09:00', '10:00', '10:50', '15:00', '15:30', '18:00') }));
+    expect(r.find((x) => x.regla === 'desayuno_excedido')?.evidencia['excesoMin']).toBe(20);
+  });
+});

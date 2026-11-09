@@ -77,8 +77,8 @@ export class RhService {
   }
 
   /** `[RH.1.10]` El banco de horas extra de la plaza (o de una persona), hasta `date_to` (hoy si no viene). */
-  bancoHorasExtra(site_code: string, person_code?: string): Observable<HrBancoHorasExtraDto> {
-    return this.http.get<HrBancoHorasExtraDto>(`${this.base}/overtime`, { params: this.params({ site_code, person_code }) });
+  bancoHorasExtra(site_code: string, person_code?: string, date_to?: string): Observable<HrBancoHorasExtraDto> {
+    return this.http.get<HrBancoHorasExtraDto>(`${this.base}/overtime`, { params: this.params({ site_code, person_code, date_to }) });
   }
 
   crearAjusteHorasExtra(b: HrAjusteHorasExtraBody): Observable<HrAjusteHorasExtraDto> {
@@ -206,6 +206,22 @@ export function fechaCorta(fecha: string): string {
 /** «jue 1 oct – mié 7 oct». */
 export function etiquetaSemana(jueves: string): string {
   return `${fechaCorta(jueves)} – ${fechaCorta(sumarDias(jueves, 6))}`;
+}
+
+/**
+ * `[RH.6.4]` La SEMANA FISCAL de nómina (Mega Talento `semana-fiscal.ts`, regla confirmada por RH el 29/09/2026):
+ * jueves a miércoles, el año trae SIEMPRE 52 semanas, y la del jueves 24 de septiembre de 2026 es la 41. Ninguna
+ * regla de calendario da eso: es el calendario propio de nómina, anclado en la semana 1 del ciclo 2026 (jueves
+ * 18-dic-2025). Si RH mueve el inicio de un ciclo, basta con cambiar el ancla.
+ */
+const ANCLA_SEMANA_1 = '2025-12-18';
+const ANIO_DEL_ANCLA = 2026;
+export const SEMANAS_POR_ANIO = 52;
+
+export function semanaFiscal(fecha: string): { numero: number; anio: number } {
+  const semanas = Math.round((Date.parse(`${juevesDeLaSemana(fecha)}T12:00:00Z`) - Date.parse(`${ANCLA_SEMANA_1}T12:00:00Z`)) / (7 * 86400000));
+  const ciclo = Math.floor(semanas / SEMANAS_POR_ANIO);
+  return { numero: semanas - ciclo * SEMANAS_POR_ANIO + 1, anio: ANIO_DEL_ANCLA + ciclo };
 }
 
 /** Minutos → «1 h 05 min» / «25 min» / «—». */

@@ -60,7 +60,14 @@ const VER_ASISTENCIA = [Permission.HR_ATTENDANCE_VER, Permission.HR_ATTENDANCE_G
           </div>
           <div class="mc-semana" role="group" aria-label="Semana de nómina">
             <p-button icon="pi pi-chevron-left" [text]="true" severity="secondary" ariaLabel="Semana anterior" (onClick)="est.moverSemana(-7)" />
-            <span class="mono">{{ est.etiquetaPeriodo() }}@if (est.atajo() === 'esta') { <em>actual</em> }</span>
+            @if (est.modoHoy()) {
+              <span class="mono">{{ est.etiquetaPeriodo() }}</span>
+            } @else {
+              <!-- [RH.6.4] Elegir la semana de nómina por su número fiscal (Mega Talento 8dd5521): las últimas 52. -->
+              <p-select [options]="est.semanasElegibles()" optionLabel="label" optionValue="value" [ngModel]="est.jueves()"
+                        (ngModelChange)="est.irASemana($event)" [placeholder]="'Semana ' + est.semanaFiscal().numero + ' · ' + est.etiquetaPeriodo()"
+                        appendTo="body" ariaLabel="Semana de nómina a revisar" styleClass="mc-sem-sel" />
+            }
             <p-button icon="pi pi-chevron-right" [text]="true" severity="secondary" ariaLabel="Semana siguiente"
                       [disabled]="est.esSemanaActual() && !est.modoHoy()" (onClick)="est.moverSemana(7)" />
           </div>
@@ -139,8 +146,7 @@ const VER_ASISTENCIA = [Permission.HR_ATTENDANCE_VER, Permission.HR_ATTENDANCE_G
     .mc-seg button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
     .mc-semana { display: inline-flex; align-items: center; gap: var(--sp-1); border: 1px solid var(--border-color); border-radius: var(--r-md); padding: 0 var(--sp-1); background: var(--card-bg); }
     .mc-semana span { font-size: var(--fs-sm); color: var(--text-main); min-width: 11rem; text-align: center; }
-    .mc-semana em { font-style: normal; font-size: var(--fs-micro); font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--ok-soft-fg);
-      background: var(--ok-soft-bg); border-radius: var(--r-sm); padding: 1px 5px; margin-left: var(--sp-1); }
+    :host ::ng-deep .p-select.mc-sem-sel { border: 0; background: transparent; box-shadow: none; min-width: 17rem; font-variant-numeric: tabular-nums; }
     .mc-buscar { position: relative; flex: 1 1 240px; max-width: 360px; margin-left: auto; }
     .mc-buscar i { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-faint); font-size: var(--fs-xs); }
     .mc-buscar input { width: 100%; padding-left: 30px; }

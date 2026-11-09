@@ -65,6 +65,16 @@ describe('[RH.1.7c] celdaDe — un día en el papel', () => {
     expect(celdaDe(d3.p, d3.m, '2026-10-05', o).jornada).toBe('JUST.');
   });
 
+  it('[RH.6.2] vacaciones que cruzan su descanso: ese día dice DESC., no VAC; lo que no justifica sí se ve', () => {
+    const vac = { id: 'v', tipo: 'vacaciones', codigo: 'VAC', etiqueta: 'Vacaciones', nota: '' };
+    const v1 = una(dia({ fecha: '2026-10-04', estado: 'descanso', incidencias: [vac] }));
+    expect(celdaDe(v1.p, v1.m, '2026-10-04', o).jornada).toBe('—');
+    const v2 = una(dia({ fecha: '2026-10-04', estado: 'descanso', incidencias: [vac, { id: 'd', tipo: 'descanso', codigo: 'DSC', etiqueta: 'Descanso', nota: '' }] }));
+    expect(celdaDe(v2.p, v2.m, '2026-10-04', o)).toMatchObject({ tipo: 'descanso', jornada: 'DESC.' });
+    const v3 = una(dia({ fecha: '2026-10-04', estado: 'descanso', incidencias: [vac, { id: 'a', tipo: 'amonestacion', codigo: 'AMO', etiqueta: 'Amonestación', nota: '' }] }));
+    expect(celdaDe(v3.p, v3.m, '2026-10-04', o)).toMatchObject({ tipo: 'inc', jornada: 'AMO' });
+  });
+
   it('vacaciones de la semana entera: el código sale aunque no haya días que pintar', () => {
     const p = persona({ semanas: [], incidencias: [{ id: 'v', tipo: 'vacaciones', codigo: 'VAC', etiqueta: 'Vacaciones', nota: '', desde: '2026-10-05', hasta: '2026-10-06' }] });
     expect(celdaDe(p, diasPorFecha(p), '2026-10-05', o)).toMatchObject({ tipo: 'inc', jornada: 'VAC' });
@@ -93,7 +103,7 @@ describe('[RH.1.7c] pausas, horas y horario', () => {
   });
 
   it('la columna Horario: asignado, rotativo o deducido', () => {
-    expect(horarioDe(persona({ horarioAsignado: { entrada: '08:00', salida: '17:00', comidaMin: 60, sabado: false, sabadoEntrada: null, sabadoSalida: null, asignadoPor: null, actualizadoEn: null } })))
+    expect(horarioDe(persona({ horarioAsignado: { entrada: '08:00', salida: '17:00', comidaMin: 60, horarios: [{ entrada: '08:00', salida: '17:00', comidaMin: 60 }], sabado: false, sabadoEntrada: null, sabadoSalida: null, asignadoPor: null, actualizadoEn: null } })))
       .toEqual({ texto: '08:00–17:00', asignado: true });
     expect(horarioDe(persona({ turnos: ['09:00', '13:00'] })).texto).toBe('Rota · 09:00 / 13:00');
     expect(horarioDe(persona({ horario: '08:30', turnos: ['08:30'] })).texto).toBe('Deducido · 8:30 am');
