@@ -133,9 +133,12 @@ describe('[CB.58] el estado de cuenta de la banca está registrado en el módulo
   });
 
   it('PRUEBA NEGATIVA: un módulo sin el servicio no lo tiene al alcance', () => {
-    @Reflect.metadata('providers', [])
-    @Reflect.metadata('imports', [])
+    // Mismo motivo que la prueba negativa de arriba: un decorador DENTRO del spec no se transforma
+    // y Node rechaza el archivo ENTERO al cargarlo («SyntaxError: Invalid or unexpected token»),
+    // con lo que este candado de arranque deja de medir sin ponerse rojo por lo que vigila.
     class SinServicio {}
+    Reflect.defineMetadata('providers', [], SinServicio);
+    Reflect.defineMetadata('imports', [], SinServicio);
     expect(alcanceDe(SinServicio).has(EstadoDeCuentaService)).toBe(false);
   });
 });
