@@ -62,15 +62,17 @@
 últimos 14 días** (14 en La Piedad Abastos). Con `[RH.1.6b]` el cierre las exige; RH las corrige con «Editar» en la ficha de
 la persona (`[RH.7.1]`) o cierra con motivo. Dato de contexto: Mega Talento tiene **0 cierres** registrados.
 
-⚠️ La paridad (§2.6b) sigue **NO MEDIDA**: su paso 1 corre el código de Mega Talento (`npm ci` en su repo) y desde la
-máquina de trabajo quedó bloqueado por permisos. Lo corre quien tenga el repo de Mega Talento instalado (David).
+✅ **Paridad re-medida el 2026-11-09** (§2.6b; Mega Talento @ `331dccf`, foto de las 13:23 MX, semanas 15-oct → 4-nov):
+**72 cálculos, 1,536 personas, 5,841 días → 0 diferencias**, nadie de más ni de menos; alertas 3,258 iguales. Control
+negativo: sin la medición contra varios horarios (`[RH.6.3]`), **621 diferencias en 38 personas** (retardo, horas extra):
+el instrumento sí ve lo nuevo. Antes de cortar se repite con la foto del día (la lógica de Mega Talento puede seguir
+cambiando: §6 del plan de trabajo).
 
 **Lo que falta para cortar, en orden** (los pasos de abajo, sin cambios salvo lo marcado):
 
 1. Merge del commit de `[RH.6]` y aplicar `20261109110836` (§2.2). ⚠️ Esa API escribe `shifts`: **la migración va antes
    del despliegue**, no después.
-2. Re-correr la paridad con datos reales (`paridad-mega-talento.db.spec.ts`, local, sólo lectura contra Mega Talento) y
-   anotar el resultado en el tracker. Necesita `MT_DATABASE_URL` en la máquina de trabajo.
+2. ~~Re-correr la paridad con datos reales~~ ✅ 9-nov: 0 diferencias (arriba). Repetirla con la foto del día del corte.
 3. Pre-vuelo (§2.3) → personas (§2.5) → ensayo (§2.6) → día del corte (§3).
 4. Decidir lo de BOT-RH (§0.0) y ocupar el rol `recursos_humanos`.
 
