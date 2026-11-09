@@ -21,9 +21,18 @@
  *    Suite lo exige: va como `manual`, lo que ya había decidido la migración `20261012172246` para lo de Mega Talento.
  *  · Un renglón que no cumple una regla de la base (una etapa huérfana, p. ej.) queda FUERA y contado: nunca en silencio.
  *
+ * ── `--con-bot` ([RH.3.5], el corte del bot: se corre cuando el número de WhatsApp pasa a la Suite) ─────────────────
+ *  · `mensajes` (220,897 el 9-nov) → `whatsapp.messages`, flujo `recruitment`, mismo id, sin hilo (los hilos son de
+ *    comercio). Las imágenes y documentos viajan como la URL de Mega Talento en `payload.media_url`.
+ *  · Una conversación por teléfono → `talent.bot_conversations`, para que quien quedó a medias SIGA donde se quedó y
+ *    no empiece de cero: el estado se traduce al de la Suite (mismo nombre, o el campo traducido en `esperando_<campo>`;
+ *    un paso que la Suite no tiene va al siguiente dato que le falte), el registro terminado queda `postulada` con su
+ *    candidato, y lo que llegó por la web (`portal`) no tiene conversación. Si la Suite ya le habló a ese teléfono,
+ *    manda la de la Suite.
+ *  · ⚠️ La solicitud a medias viaja TAL CUAL, con sus respuestas sensibles (salud, embarazo, deudas, familiares…) que
+ *    Mega Talento pedía SIN el consentimiento que la Suite exige: decisión de Edgar del 2026-11-09 («traerlas tal cual»).
+ *
  * ── Lo que NO trae (y se declara en el cuadre) ──────────────────────────────────────────────────────────────────────
- *  · Los mensajes del bot (`mensajes`: 220,897 el 9-nov) y las conversaciones a medias: van con el corte del bot
- *    (`[RH.3.5]`).
  *  · Los ARCHIVOS del expediente (CV, INE…): se cargan las URLs como están; mover los archivos al bucket es aparte.
  *  · Las requisiciones (`requisiciones`): la Suite todavía no tiene dónde (`[RH.11]`).
  *
@@ -37,6 +46,13 @@ const { TENANT_MD } = carga;
 const MIGRACIONES_TALENT = [
   '20261012155411_talent_reclutamiento_datos',
   '20261012172246_talent_fusion_y_motivo_papelera',
+];
+/** Las que pide además `--con-bot` (mensajes por flujo y conversaciones con solicitud y documentos). */
+const MIGRACIONES_BOT = [
+  '20261013144148_whatsapp_flujo_por_numero',
+  '20261013150116_talent_bot_conversaciones',
+  '20261014083512_talent_bot_solicitud',
+  '20261014141356_talent_bot_documentos',
 ];
 /**
  * `deletion_reason` es un CÓDIGO (`manual` · `cierre_seguimiento` · `fusionado`). Mega Talento no distinguía, y la
@@ -61,11 +77,152 @@ async function conSavepoint(trx, fn) {
   }
 }
 
+// ── [RH.3.5] El bot ──────────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Los pasos del registro del bot de la Suite, EN ORDEN. COPIA de `PASOS` en `libs/hr/.../bot/registro.ts` (este guion
+ * corre en el pod sin `libs/`): `carga-reclutamiento.db.spec` exige que coincidan.
+ */
+const PASOS_BOT = ['position_interest', 'full_name', 'email', 'city_branch', 'commute_time', 'availability',
+  'previous_employer', 'desired_salary', 'rfc', 'nss', 'relative_in_company', 'rehire_note'];
+/** El campo de Mega Talento (en `esperando_<campo>`) → el de la Suite. */
+const CAMPO_MT = {
+  puesto_interes: 'position_interest', nombre_completo: 'full_name', correo: 'email', ciudad_sucursal: 'city_branch',
+  tiempo_traslado: 'commute_time', disponibilidad: 'availability', empresa_anterior: 'previous_employer',
+  salario_deseado: 'desired_salary', rfc: 'rfc', nss: 'nss', familiar_en_empresa: 'relative_in_company', reingreso: 'rehire_note',
+};
+/** Los estados que se llaman igual en los dos bots. */
+const MISMO_ESTADO = new Set(['confirmando', 'orientando_puesto', 'esperando_cv', 'armando_solicitud', 'solicitud_pausada',
+  'revisando_cv', 'corrigiendo_solicitud']);
+/** Registro terminado en Mega Talento: la conversación queda `postulada` (con su candidato, que ya se cargó). */
+const TERMINADO = new Set(['pendiente_aprobacion', 'completado', 'aprobado', 'dictaminando']);
+
+/**
+ * El estado de la Suite para un estado de Mega Talento. `como` dice cómo se decidió (para el cuadre). `null` = no hay
+ * conversación que cargar (`portal`: llegó por la web).
+ */
+function estadoBot(estadoMt, datos) {
+  const e = limpio(estadoMt);
+  if (e === 'portal' || !e) return null;
+  if (TERMINADO.has(e)) return { state: 'postulada', como: 'terminado' };
+  if (e === 'nuevo') return { state: 'nuevo', como: 'igual' };
+  if (e === 'invitado') return { state: 'nuevo', como: 'invitado' };   // RH lo invitó y no ha contestado
+  if (MISMO_ESTADO.has(e)) return { state: e, como: 'igual' };
+  const m = /^(esperando|editando)_(.+)$/.exec(e);
+  const campo = m ? CAMPO_MT[m[2]] : null;
+  if (m && campo) return { state: `${m[1]}_${campo}`, como: 'traducido' };
+  // Un paso que la Suite no tiene (p. ej. `esperando_midot`): el siguiente dato que le falte, o el resumen.
+  const falta = PASOS_BOT.find((p) => !limpio(datos[p]));
+  return { state: falta ? `esperando_${falta}` : 'confirmando', como: 'siguiente_faltante' };
+}
+
+/** La clave del teléfono: los últimos 10 dígitos (la misma regla que `phone_key` en la base). */
+const clave = (t) => String(t || '').replace(/\D/g, '').slice(-10);
+
+/**
+ * Los mensajes de Mega Talento → `whatsapp.messages` (flujo reclutamiento, sin hilo de comercio), por páginas. Un renglón
+ * que la base no acepta (sin teléfono, dirección desconocida) queda FUERA y contado; no se le inventa nada. Devuelve
+ * también el último mensaje ENTRANTE por teléfono: es la ventana de 24 h de WhatsApp de cada conversación.
+ */
+async function cargarMensajes(trx, mt, tenantId, pagina = 5000) {
+  const origen = Number((await mt.query('SELECT count(*) AS n FROM mensajes')).rows[0].n);
+  const descartes = {};
+  const fuera = (motivo) => { descartes[motivo] = (descartes[motivo] || 0) + 1; };
+  const ultimoEntrante = new Map();
+  let cargadas = 0, ya = 0, ultimo = null;
+  const insertar = (datos) => trx.raw(`
+    INSERT INTO whatsapp.messages (id, tenant_id, thread_id, direction, type, body, payload, created_at, flow, phone)
+    SELECT x.id, ?::uuid, NULL, x.direction, x.type, x.body, x.payload, x.created_at, 'recruitment', x.phone
+      FROM jsonb_to_recordset(?::jsonb) AS x(id uuid, direction text, type text, body text, payload jsonb, created_at timestamptz, phone text)
+    ON CONFLICT (id) DO NOTHING`, [tenantId, JSON.stringify(datos)]);
+  for (;;) {
+    const filas = (await mt.query(
+      `SELECT id, telefono, direccion, tipo, texto, media_url, creado_en FROM mensajes
+        ${ultimo ? 'WHERE id > $1' : ''} ORDER BY id LIMIT ${Number(pagina)}`, ultimo ? [ultimo] : [])).rows;
+    if (!filas.length) break;
+    ultimo = filas[filas.length - 1].id;
+    const datos = [];
+    for (const m of filas) {
+      const tel = limpio(m.telefono);
+      if (m.direccion !== 'in' && m.direccion !== 'out') { fuera('direccion_desconocida'); continue; }
+      if (!tel || tel.length > 20) { fuera('sin_telefono'); continue; }
+      if (!m.creado_en) { fuera('sin_fecha'); continue; }
+      datos.push({
+        id: m.id, direction: m.direccion, type: limpio(m.tipo) || 'text', body: m.texto,
+        payload: m.media_url ? { media_url: m.media_url, origen: 'mega_talento' } : null, created_at: m.creado_en, phone: tel,
+      });
+      if (m.direccion === 'in') {
+        const k = clave(tel), f = new Date(m.creado_en);
+        if (!ultimoEntrante.has(k) || f > ultimoEntrante.get(k)) ultimoEntrante.set(k, f);
+      }
+    }
+    // La página entra de un golpe; si la base rechaza algo, se repite renglón por renglón para dejar fuera SÓLO ése.
+    const malo = datos.length ? await conSavepoint(trx, async () => { const r = await insertar(datos); cargadas += r.rowCount || 0; ya += datos.length - (r.rowCount || 0); }) : null;
+    if (malo) {
+      for (const d of datos) {
+        let n = 0;
+        const m = await conSavepoint(trx, async () => { n = (await insertar([d])).rowCount || 0; });
+        if (m) fuera(m); else if (n) cargadas++; else ya++;
+      }
+    }
+  }
+  return { origen, cargadas, ya_estaban: ya, descartes, ultimo_entrante: ultimoEntrante };
+}
+
+/**
+ * Una conversación por teléfono (la del candidato MÁS RECIENTE con ese número), para que quien quedó a medias en Mega
+ * Talento siga donde se quedó. Spam y papelera no: si vuelven a escribir, empiezan de cero con las reglas de la Suite.
+ * La solicitud a medias (`portal_data.solicitud`) viaja como `application`, tal cual (decisión del 9-nov: lo sensible
+ * de Mega Talento se trae como está, aunque allá no se pedía el consentimiento que la Suite exige).
+ */
+async function cargarConversaciones(trx, candidatos, tenantId, ultimoEntrante) {
+  const porTelefono = new Map();
+  for (const k of candidatos) {
+    if (k.deleted_at || k.spam || clave(k.telefono).length !== 10) continue;
+    const prev = porTelefono.get(clave(k.telefono));
+    if (!prev || new Date(k.creado_en) > new Date(prev.creado_en)) porTelefono.set(clave(k.telefono), k);
+  }
+  const como = {};
+  const descartes = {};
+  let cargadas = 0, ya = 0, origen = 0;
+  for (const k of porTelefono.values()) {
+    const datos = Object.fromEntries(PASOS_BOT.map((p) => [p, null]));
+    Object.assign(datos, {
+      position_interest: k.puesto_interes, full_name: k.nombre_completo, email: k.correo, city_branch: k.ciudad_sucursal,
+      commute_time: k.tiempo_traslado, availability: k.disponibilidad, previous_employer: k.empresa_anterior,
+      desired_salary: k.salario_deseado, rfc: k.rfc, nss: k.nss, relative_in_company: k.familiar_en_empresa, rehire_note: k.reingreso,
+    });
+    const e = estadoBot(k.estado, datos);
+    if (!e) continue;
+    origen++;
+    const data = Object.fromEntries(Object.entries(datos).filter(([, v]) => limpio(v)));
+    const sol = k.portal_data && typeof k.portal_data === 'object' ? k.portal_data.solicitud : null;
+    const application = sol && typeof sol === 'object'
+      ? { respuestas: sol.respuestas && typeof sol.respuestas === 'object' ? sol.respuestas : {}, iniciada_en: sol.iniciadaEn ?? null }
+      : null;
+    const postulada = e.state === 'postulada';
+    let entro = false;
+    const malo = await conSavepoint(trx, async () => { entro = (await trx('talent.bot_conversations').insert({
+      tenant_id: tenantId, phone: k.telefono, state: e.state, data: JSON.stringify(data),
+      application: application ? JSON.stringify(application) : null, candidate_id: k.id,
+      outcome: postulada ? 'postulada' : null, created_at: k.creado_en, updated_at: k.ultima_actividad || k.creado_en,
+      last_inbound_at: ultimoEntrante?.get(clave(k.telefono)) ?? null,
+    }).onConflict(['tenant_id', 'phone_key']).ignore().returning('id')).length > 0; });
+    if (malo) { descartes[malo] = (descartes[malo] || 0) + 1; continue; }
+    // Ya había conversación con ese teléfono (la Suite ya le habló): manda la de la Suite, que es más nueva.
+    if (!entro) { ya++; continue; }
+    cargadas++;
+    como[e.como] = (como[e.como] || 0) + 1;
+  }
+  return { origen, cargadas, ya_estaban: ya, como, descartes };
+}
+
 /**
  * Carga lo de Mega Talento dentro de `trx` (que ya trae `app.tenant_id`). Devuelve el cuadre: por tabla, cuánto había,
- * cuánto entró y lo que no entró con su motivo; más lo que se declara NO cargado.
+ * cuánto entró y lo que no entró con su motivo; más lo que se declara NO cargado. Con `conBot`, también los mensajes
+ * y las conversaciones del bot (`[RH.3.5]`).
  */
-async function cargarReclutamiento(trx, mt, { tenantId = TENANT_MD, log = null } = {}) {
+async function cargarReclutamiento(trx, mt, { tenantId = TENANT_MD, log = null, conBot = false, paginaMensajes = 5000 } = {}) {
   if (!RE_UUID.test(tenantId)) throw new Error(`tenant inválido: ${tenantId}`);
   const avisar = typeof log === 'function' ? log : null;
   const q = async (sql) => (await mt.query(sql)).rows;
@@ -165,12 +322,21 @@ async function cargarReclutamiento(trx, mt, { tenantId = TENANT_MD, log = null }
   cuadre.candidates.ultima_actividad_derivada = derivada;
   if (avisar) avisar(`  candidates: última actividad tomada de la bitácora en ${derivada} (alta, cambio de etapa o evento)`);
 
+  // ── [RH.3.5] Los mensajes del bot → el libro único de WhatsApp ───────────────────────────────────────────────
+  if (conBot) {
+    cuadre.messages = await cargarMensajes(trx, mt, tenantId, paginaMensajes);
+    if (avisar) avisar(`  messages: ${cuadre.messages.cargadas} de ${cuadre.messages.origen}${cuadre.messages.ya_estaban ? ` · ya estaban ${cuadre.messages.ya_estaban}` : ''}`);
+    cuadre.bot_conversations = await cargarConversaciones(trx, candidatos, tenantId, cuadre.messages.ultimo_entrante);
+    delete cuadre.messages.ultimo_entrante;
+    if (avisar) avisar(`  bot_conversations: ${cuadre.bot_conversations.cargadas} de ${cuadre.bot_conversations.origen} · ${JSON.stringify(cuadre.bot_conversations.como)}${Object.keys(cuadre.bot_conversations.descartes).length ? ` · fuera: ${JSON.stringify(cuadre.bot_conversations.descartes)}` : ''}`);
+  }
+
   // ── Lo que NO se carga aquí: se declara con su tamaño, nunca como cero ─────────────────────────────────────────
   const tamano = async (tabla) => { try { return Number((await q(`SELECT count(*) AS n FROM ${tabla}`))[0].n); } catch { return null; } };
   cuadre.no_cargado = {
-    mensajes_del_bot: { filas: await tamano('mensajes'), por: 'van con el corte del bot ([RH.3.5])' },
+    ...(conBot ? {} : { mensajes_del_bot: { filas: await tamano('mensajes'), por: 'se cargan con --con-bot (el corte de reclutamiento y bot)' } }),
     requisiciones: { filas: await tamano('requisiciones'), por: 'la Suite todavía no tiene dónde ([RH.11])' },
-    archivos_del_expediente: { filas: null, por: 'se cargan las URLs; mover los archivos al bucket es aparte' },
+    archivos_del_expediente: { filas: null, por: 'se cargan las URLs (de CV y de los adjuntos del chat); mover los archivos al bucket es aparte' },
   };
   if (avisar) for (const [k, x] of Object.entries(cuadre.no_cargado)) avisar(`  ⚠️ NO cargado: ${k} (${x.filas ?? 'sin medir'}) — ${x.por}`);
   return cuadre;
@@ -179,6 +345,7 @@ async function cargarReclutamiento(trx, mt, { tenantId = TENANT_MD, log = null }
 async function main() {
   const aplicar = process.argv.includes('--aplicar');
   const destinoProd = process.argv.includes('--destino-prod');
+  const conBot = process.argv.includes('--con-bot');
   try { require('dotenv').config({ path: process.env.DOTENV_PATH || path.resolve(__dirname, '../../../.env') }); } catch { /* sin dotenv */ }
   let url;
   if (destinoProd) {
@@ -192,7 +359,7 @@ async function main() {
   try {
     if (destinoProd) await carga.verificarDestinoProd(knex);
     const aplicadas = new Set((await knex.raw('SELECT name FROM public.knex_migrations')).rows.map((r) => r.name.replace(/\.js$/, '')));
-    const faltan = MIGRACIONES_TALENT.filter((m) => !aplicadas.has(m));
+    const faltan = [...MIGRACIONES_TALENT, ...(conBot ? MIGRACIONES_BOT : [])].filter((m) => !aplicadas.has(m));
     if (faltan.length) throw new Error(`faltan migraciones (se aplican antes, una por una): ${faltan.join(', ')}`);
   } catch (e) { await knex.destroy(); throw e; }
   const mt = await carga.conectarMegaTalento(process.env.MT_DATABASE_URL);
@@ -201,8 +368,8 @@ async function main() {
   try {
     await knex.transaction(async (trx) => {
       await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [TENANT_MD]);
-      console.log(`Carga del reclutamiento de Mega Talento → ${destinoProd ? 'PROD · ' : ''}${aplicar ? 'SE APLICA' : 'ENSAYO (se deshace al final)'}`);
-      const cuadre = await cargarReclutamiento(trx, mt, { log: console.log });
+      console.log(`Carga del reclutamiento de Mega Talento${conBot ? ' y del bot' : ''} → ${destinoProd ? 'PROD · ' : ''}${aplicar ? 'SE APLICA' : 'ENSAYO (se deshace al final)'}`);
+      const cuadre = await cargarReclutamiento(trx, mt, { log: console.log, conBot });
       const fuera = Object.values(cuadre).reduce((s, x) => s + Object.values(x.descartes || {}).reduce((a, b) => a + b, 0), 0);
       console.log(`\nListo en ${Math.round((Date.now() - t0) / 1000)} s · ${fuera} fila(s) fuera, todas con motivo arriba.`);
       if (!aplicar) throw DESHACER;
@@ -220,4 +387,4 @@ if (require.main === module) {
   main().catch((e) => { console.error('ERROR:', e.message); process.exit(1); });
 }
 
-module.exports = { cargarReclutamiento, MIGRACIONES_TALENT, MOTIVO_PAPELERA_MT };
+module.exports = { cargarReclutamiento, estadoBot, CAMPO_MT, MIGRACIONES_TALENT, MIGRACIONES_BOT, MOTIVO_PAPELERA_MT, PASOS_BOT };
