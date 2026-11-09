@@ -151,9 +151,9 @@ canónica y el resolvedor único se quedan.
   **Hecho (2026-11-07):** migración `20261107175004_dn6_order_stock_notices.js` (generada; RLS habilitado
   y forzado; GRANT sin DELETE más `REVOKE DELETE, TRUNCATE`, porque el privilegio por omisión de
   `commercial` da arwd; compuertas que leen RLS y privilegios y abortan; `down()` se niega con filas).
-  Prueba contra base real escrita y registrada: `database/tests/test-newdb-dn-registro-negado.js`
-  (CHECKs 23514, llave vigente 23505, RLS con `app_runtime`). ⚠️ **Contra base: NO MEDIDA en local**
-  (no hay Postgres local encendido); la corre el job `pruebas-db` del CI, que es informativo.
+  Prueba contra base real: `database/tests/test-newdb-dn-registro-negado.js` (CHECKs 23514, llave
+  vigente 23505, RLS con `app_runtime`). **Probada contra Postgres real el 2026-11-08** (job
+  `pruebas-db` del PR #518): 55 ✓ · 0 ✗ · 0 no medido.
   **Cambio contra el plan:** las filas `con_existencia` **se guardan** (no se borran): son el
   denominador de la métrica por versión de la app. «0 filas» se lee «0 filas de demanda negada».
   Tabla propia `commercial.order_stock_notices` (dato capturado en la Suite: legítima; **no** es copia
@@ -203,7 +203,8 @@ canónica y el resolvedor único se quedan.
   «No se puede agregar» sería falso. **Pruebas:** `commercial-orders.stock-review.spec.ts` (antes
   `…stock-block.spec.ts`, 21 casos); negativa rota a propósito: con el `throw` de vuelta, 9 en rojo.
   `stock-state.spec.ts` de contracts **sí cambió** (el texto y `sinExistenciaAfirmada`), contra lo que
-  decía el criterio. §[4] de `test-newdb-existencia-vendedor.js` invertido: escrito, NO MEDIDO en local.
+  decía el criterio. §[4] de `test-newdb-existencia-vendedor.js` invertido; **probado contra Postgres
+  real el 2026-11-08** (PR #518): la suite, 40 ✓ · 0 ✗.
   Quitar el 409 `SIN_EXISTENCIA` de `addLine` y de `updateLine` (`commercial-orders.service.ts`); el
   estado viaja en la respuesta. `bloqueosAlAgregar` se generaliza a una revisión que devuelve **todos**
   los estados (incluidos `sin_dato` e «insuficiente»), sobre el mismo `estadoDeProductos`. Las
@@ -230,8 +231,9 @@ canónica y el resolvedor único se quedan.
   el 2 tumban el agendado) y `order-stock-notices.spec.ts` (10: la llave por pedido, la presentación y
   la consulta del barrido); negativas rotas a propósito: registro apagado → 5 en rojo; sin la
   exclusión de admins → 3. El SQL de la consulta de renglones corrió en prod en sólo lectura
-  (124 renglones de 20 pedidos). ⚠️ **Contra base real: escrita** (`test-newdb-dn-registro-negado.js`),
-  **NO MEDIDA en local**. Latencia del paso 2 en prod: NO MEDIDA (va fuera de la respuesta).
+  (124 renglones de 20 pedidos). **Contra Postgres real (2026-11-08, PR #518): [3]–[9] de
+  `test-newdb-dn-registro-negado.js` en verde.** Latencia del paso 2 en prod: NO MEDIDA (va fuera de
+  la respuesta).
   **Filtro:** pedidos de la app del vendedor (`esTomaDelVendedor`) de preventa (`requested_delivery_date`,
   `delivery_type='route'`), incluida la sincronización sin conexión. La entrega a domicilio queda
   fuera; el asistente, declarado aparte.
@@ -467,6 +469,13 @@ canónica y el resolvedor único se quedan.
   baja a 🔨: cambia lo que escriben dos endpoints y eso no ha corrido contra base (regla 13). (5) Una
   fila DECIDIDA en el borrador (frente 2) ya no se duplica cuando el renglón pasa a una parte. Quedó
   declarado: R10 (el sugerido con «sin dato» que resulta agotado).
+- **2026-11-08** — **PR #518, contra Postgres real en el CI.** `test-newdb-dn-registro-negado.js`
+  55 ✓ · 0 ✗ · 0 no medido y `test-newdb-existencia-vendedor.js` 40 ✓ · 0 ✗, las dos por primera
+  vez. Ambas abortaban: la base del CI se arma desde migraciones y no trae `catalog.products.articulo`,
+  que prod sí tiene y el resolvedor lee (AUD-DAT.29); `database/tests/_lib/columnas-de-prod.js` la
+  agrega dentro de la transacción con el tipo de la foto de prod, y la de existencia siembra su propio
+  rol con la clave. El API y el worker arrancan con el cron nuevo (`boot-api.yml` sobre la rama, con
+  su negativa). DN.6, DN.7 y DN.8 pasan a 🧪.
 
 ## Apéndice — Consultas del HOY
 

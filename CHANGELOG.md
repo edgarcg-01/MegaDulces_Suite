@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Changed — App del vendedor: lo que el cliente pide se captura aunque no haya, y el servidor lo registra para Compras (DN.6–DN.8, DN.11a · ADR-115, 2026-11-08 · en código, sin soltar)
+- El vendedor agrega un producto aunque esté en existencia 0: entra sin aviso emergente y la fila sigue en rojo («Puede estar agotado en LPA · PH tiene 14»). Antes la app lo bloqueaba en el teléfono y lo que el cliente pidió no quedaba en ningún lado.
+- Al agendar, el servidor registra cada renglón de la preventa de la app —también lo que llega por la sincronización sin conexión— con su existencia en la sucursal de surtido (`commercial.order_stock_notices`). Nunca hace fallar el agendado; un barrido cada 5 min declara «sin dato» lo que no se pudo leer.
+- El pedido sugerido sigue sin proponer lo que no hay, también sin conexión, y dice qué dejó fuera.
+- ⚠️ Migración `20261107175004_dn6_order_stock_notices` en prod **antes de soltar**, fuera de horario; el servidor antes que la app. Sin permisos nuevos.
+
 ### Changed — Caducidades: el selector ofrece sólo las unidades del producto (P2.9 paso 3, 2026-11-07)
 - Al elegir un producto, los botones de unidad muestran **sólo las que el producto tiene en Kepler** (base, unidades alternas y escalera de mayoreo, de la sucursal donde se captura), con **«Otra unidad»** para abrir las 7. La unidad sugerida es la **base del producto**, no «pieza».
 - Si Kepler no publica las unidades del producto, se ofrecen las 7 y se dice; ya no queda marcada la unidad del producto anterior. «La unidad» pasa a ser obligatoria para guardar.
