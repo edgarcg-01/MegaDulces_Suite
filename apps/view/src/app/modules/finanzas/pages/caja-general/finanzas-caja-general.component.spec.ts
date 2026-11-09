@@ -1487,6 +1487,37 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(t()).toContain('No lo captures otra vez');
   });
 
+  /**
+   * `[CGA-A.72]` Ligar desde la ficha: manda SÓLO la llave del documento a la captura que ya lo trae,
+   * cierra la ficha y vuelve a leer la cola. Lo que casa por otra llave no se liga desde aquí.
+   *
+   * ⚠️ PRUEBA NEGATIVA (corrida el 2026-11-09): con `ligable` devolviendo `true` siempre se pone roja
+   * ésta (ofrecía ligar una captura de Kepler con otra llave).
+   */
+  it('⭐ [CGA-A.72] «Ligar» manda sólo la llave a esa captura, sale de la ficha y relee la cola; la otra llave no se liga', async () => {
+    const YL = { como: 'deposito_ruta' as const, certeza: 'alta' as const, id: 'cl-11', folio: 'CI-2026-00011',
+      fecha: '2026-10-13', monto: 3747.66, glosa: 'CAOS Deposito #1580 · rd21 10/10' };
+    const YA = { ...FILA_B, ya_en_libro: YL };
+    const ligar = vi.fn(() => of({ folio: 'CI-2026-00011', declared_doc_ref: YA.origen_ref, ya_estaba: false, como: 'deposito_ruta', certeza: 'alta' }));
+    const pend = vi.fn(() => of({ ...CON_DOS, rows: [FILA_A, YA] }));
+    const fx = montar({ movimientosPendientes: pend, ligarDocumento: ligar });
+    await Promise.resolve();
+    fx.detectChanges();
+    comp.abrirDeLaCola(YA);
+    fx.detectChanges();
+    const boton = [...fx.nativeElement.querySelectorAll('button')].find((b: HTMLButtonElement) => b.textContent?.includes('Sí, es CI-2026-00011: ligar')) as HTMLButtonElement;
+    expect(boton, 'la ficha ofrece ligar').toBeTruthy();
+    const antes = pend.mock.calls.length;
+    boton.click();
+    expect(ligar).toHaveBeenCalledWith('cl-11', YA.origen_ref);
+    expect(comp.capturaAbierta()).toBe(false);
+    expect(pend.mock.calls.length).toBeGreaterThan(antes);
+    // La otra llave (cambiaría la llave de un cobro): se dice, no se ofrece.
+    expect(comp.ligable({ ...YL, como: 'otra_llave' })).toBe(false);
+    expect(comp.ligable({ ...YL, como: 'otra_camioneta' })).toBe(false);
+    expect(comp.ligable({ ...YL, id: null })).toBe(false);
+  });
+
   it('[negativa] el lote manda SÓLO la referencia: ningún importe propio viaja al libro', () => {
     montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
     const libre = comp.pendientes().find((p) => p.confirmable);

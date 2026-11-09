@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { BadRequestException, HttpException, HttpStatus, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, ConflictException, HttpException, HttpStatus, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import type { Knex } from 'knex';
 import {
   TenantKnexService, TenantContextService, evalInput, composeFreshness, cajaNoCapturadaDesdeCaosSql, applySmartSearch,
@@ -53,7 +53,8 @@ import { hayDocumentosDeMovimiento, piezasEnCaja } from './caja-arqueo-documento
 import { conciliacion } from './caja-conciliacion.engine';
 import { requisitosDeHoja, textoPagoDeHoja, verificarPagoDeHoja } from './hoja-gastos.gate';
 import { relacionExiste } from './caja-db.util';
-import { yaEnElLibro, DIAS_OTRA_CAMIONETA, type CapturaDelLibro } from './caja-ya-en-libro.engine';
+import { yaEnElLibro, DIAS_OTRA_CAMIONETA, type CapturaDelLibro, type PendienteParaLibro } from './caja-ya-en-libro.engine';
+import type { LigarDocumentoResultado } from '@megadulces/contracts';
 import {
   rankearCaos, ymd, type GastoCtx as CaosGastoCtx, type CaosCandidato as CaosCand, type PatronAprendido,
 } from './caja-caos-match.engine';
@@ -355,6 +356,14 @@ export interface CoberturaCuentasKepler {
   }>;
   datos_al: string | null;
   medido_ms: number;
+}
+
+/** `[CGA-A.71]` Un renglón de la cola, como lo lee `yaEnElLibro`. */
+function paraYaEnLibro(r: any): PendienteParaLibro {
+  return {
+    origen_ref: String(r.origen_ref), sucursal: String(r.sucursal), doc_tipo: String(r.doc_tipo), folio: String(r.folio),
+    fecha: ymd(r.fecha_valor) ?? '', monto: Number(r.monto), tipo: String(r.tipo), ruta: r.ruta ?? null,
+  };
 }
 
 export interface EntidadDeclarada {
@@ -2442,21 +2451,78 @@ export class CashLedgerService {
    * cobros con su llave, del día del pendiente más viejo a una semana después del más nuevo.
    */
   private async marcarYaEnLibro(trx: any, tenantId: string, rows: any[]): Promise<any[]> {
+    const m = yaEnElLibro(rows.map(paraYaEnLibro), await this.capturasQueExplican(trx, tenantId, rows));
+    return rows.map((r) => ({ ...r, ya_en_libro: m.get(String(r.origen_ref)) ?? null }));
+  }
+
+  /** `[CGA-A.71]` Las capturas vivas que pueden explicar a otro documento, en la ventana de esos pendientes. */
+  private async capturasQueExplican(trx: any, tenantId: string, rows: any[]): Promise<CapturaDelLibro[]> {
     const fechas = rows.filter((r) => r.tipo === 'ingreso').map((r) => ymd(r.fecha_valor)).filter((d): d is string => !!d).sort();
-    if (!fechas.length) return rows.map((r) => ({ ...r, ya_en_libro: null }));
+    if (!fechas.length) return [];
     const hasta = new Date(Date.parse(`${fechas[fechas.length - 1]}T00:00:00Z`) + DIAS_OTRA_CAMIONETA * 86400000).toISOString().slice(0, 10);
-    const libro: CapturaDelLibro[] = (await trx('finance.cash_ledger')
+    return (await trx('finance.cash_ledger')
       .where('tenant_id', tenantId).whereNull('deleted_at').whereNot('estado', 'cancelado').where('tipo', 'ingreso')
       .whereBetween('fecha', [fechas[0], hasta])
       .where((b: Knex.QueryBuilder) => b.where((x: Knex.QueryBuilder) => x.where('origen_tipo', 'caos').whereNull('declared_doc_ref'))
         .orWhere((x: Knex.QueryBuilder) => x.where('origen_tipo', 'cobro').whereNotNull('origen_ref')))
-      .select('folio', 'fecha', 'monto', 'tipo', 'origen_tipo', 'origen_ref', 'declared_doc_ref', 'glosa'))
+      .select('id', 'folio', 'fecha', 'monto', 'tipo', 'origen_tipo', 'origen_ref', 'declared_doc_ref', 'glosa'))
       .map((l: any) => ({ ...l, fecha: ymd(l.fecha) ?? '', monto: Number(l.monto) }));
-    const m = yaEnElLibro(rows.map((r) => ({
-      origen_ref: String(r.origen_ref), sucursal: String(r.sucursal), doc_tipo: String(r.doc_tipo), folio: String(r.folio),
-      fecha: ymd(r.fecha_valor) ?? '', monto: Number(r.monto), tipo: String(r.tipo), ruta: r.ruta ?? null,
-    })), libro);
-    return rows.map((r) => ({ ...r, ya_en_libro: m.get(String(r.origen_ref)) ?? null }));
+  }
+
+  /**
+   * ⭐ `[CGA-A.72]` **Ligar: el depósito de CAOS ya capturado DECLARA el documento de Kepler que es.**
+   *
+   * Edgar, 2026-11-09 (tras `[CGA-A.71]`): «sigue con ligar». La cola marcaba 19 cobros que ya estaban
+   * en el libro como depósitos sin documento; confirmarlos los metía dos veces. Ligar escribe la llave
+   * en `declared_doc_ref` de ESA captura, y la cola, la campana y «Mi trabajo» lo descuentan solos
+   * (`cajaNoCapturadaDesdeCaosSql`, la misma regla de las tres).
+   *
+   * ⛔ La pantalla manda QUÉ documento; si se liga lo vuelve a decidir el servidor con el MISMO motor
+   * que lo marcó (`yaEnElLibro`), sobre el pendiente vivo y el libro de esta transacción. Así no se
+   * puede ligar cualquier captura a cualquier documento con un clic.
+   *
+   * Lo que NO hace: no cambia importe, día, cuenta ni estado (el corte firmado lo permite: el
+   * documento «es vínculo o evidencia y puede llegar tarde», `cash_ledger_congelado`); no liga las
+   * capturas de Kepler con otra llave (`otra_llave` / `otra_camioneta`): ahí cambiaría la llave de un
+   * cobro y eso es otra decisión. Queda en la bitácora de `finance.cash_ledger` con quién lo hizo.
+   */
+  async ligarDocumento(id: string, origenRef: string, user: { id?: string; username?: string }): Promise<LigarDocumentoResultado> {
+    if (!user?.id) throw new BadRequestException('Falta quién liga.');
+    const ref = String(origenRef ?? '').trim();
+    if (!/^[\w-]+\|[\w-]+\|\d+\|\d+$/.test(ref)) {
+      throw new BadRequestException('El documento de Kepler va como sucursal|tipo|folio|caja (p. ej. 01-001|U-A-5|0000008|0011).');
+    }
+    const tenantId = this.tenantCtx.requireTenantId();
+    try {
+      const r = await this.tk.run(async (trx) => {
+        const m = await trx('finance.cash_ledger').where({ tenant_id: tenantId, id }).forUpdate().first();
+        if (!m) throw new NotFoundException('Movimiento no encontrado.');
+        if (m.deleted_at || m.estado === 'cancelado') throw new BadRequestException('Ese movimiento está cancelado: no se liga.');
+        if (m.tipo !== 'ingreso' || m.origen_tipo !== 'caos') {
+          throw new BadRequestException('Sólo un depósito de CAOS capturado se liga así: una captura de Kepler ya trae su documento.');
+        }
+        if (m.declared_doc_ref) {
+          if (m.declared_doc_ref === ref) return { folio: m.folio, declared_doc_ref: ref, ya_estaba: true };
+          throw new ConflictException(`${m.folio} ya declara otro documento (${m.declared_doc_ref}): no se cambia desde aquí.`);
+        }
+        const p = await trx('finance.v_caja_movimientos_pendientes').where({ tenant_id: tenantId, origen_ref: ref })
+          .first('origen_ref', 'sucursal', 'doc_tipo', 'folio', 'fecha_valor', 'monto', 'tipo', 'ruta');
+        if (!p) throw new ConflictException('Ese documento ya no está pendiente en Kepler: vuelve a cargar la cola.');
+        const libro = await this.capturasQueExplican(trx, tenantId, [p]);
+        const yl = yaEnElLibro([paraYaEnLibro(p)], libro).get(ref);
+        if (!yl || yl.folio !== m.folio || (yl.como !== 'deposito_ruta' && yl.como !== 'deposito_importe')) {
+          throw new ConflictException(`${m.folio} no es ese documento: no coinciden la ruta, el día o el importe. No se liga.`);
+        }
+        await trx('finance.cash_ledger').where({ tenant_id: tenantId, id })
+          .update({ declared_doc_ref: ref, updated_by: user.id, updated_at: trx.fn.now() });
+        return { folio: m.folio, declared_doc_ref: ref, ya_estaba: false, como: yl.como, certeza: yl.certeza };
+      });
+      if (!r.ya_estaba) this.avisarLibro(tenantId);
+      return r;
+    } catch (e) {
+      if (e instanceof HttpException) throw e;
+      return traducirErrorDeCaja(e);
+    }
   }
 
   /**

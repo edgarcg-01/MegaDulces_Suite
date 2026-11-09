@@ -57,10 +57,27 @@ export type ComoYaEnLibro = 'deposito_ruta' | 'deposito_importe' | 'otra_llave' 
 export interface YaEnLibro {
   como: ComoYaEnLibro;
   certeza: 'alta' | 'por_confirmar';
+  /** `finance.cash_ledger.id` de esa captura: con él se liga (`[CGA-A.72]`). */
+  id: string | null;
   /** El movimiento del libro que ya lo trae. */
   folio: string;
   fecha: string;
   monto: number;
   /** La glosa de esa captura: lo que la persona escribió (p. ej. «CAOS Deposito #1580 · rd21 10/10»). */
   glosa: string | null;
+}
+
+/** `[CGA-A.72]` Ligar un depósito de CAOS ya capturado con el documento de Kepler que es. */
+export interface LigarDocumentoInput {
+  /** La llave del documento de Kepler, como la trae la cola (`01-001|U-A-5|0000008|0011`). */
+  origen_ref: string;
+}
+
+export interface LigarDocumentoResultado {
+  folio: string;
+  declared_doc_ref: string;
+  /** `true` = ya estaba ligado a ese mismo documento: no se escribió nada. */
+  ya_estaba: boolean;
+  como?: ComoYaEnLibro;
+  certeza?: YaEnLibro['certeza'];
 }

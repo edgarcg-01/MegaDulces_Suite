@@ -32,6 +32,8 @@ export interface PendienteParaLibro {
 }
 
 export interface CapturaDelLibro {
+  /** `finance.cash_ledger.id`: con él se liga (`[CGA-A.72]`). */
+  id?: string | null;
   folio: string;
   /** Día del libro (YYYY-MM-DD). */
   fecha: string;
@@ -100,7 +102,7 @@ export function yaEnElLibro(pendientes: readonly PendienteParaLibro[], libro: re
     usadas.add(l.folio);
     out.set(p.origen_ref, {
       como, certeza: como === 'deposito_ruta' ? 'alta' : 'por_confirmar',
-      folio: l.folio, fecha: l.fecha, monto: l.monto, glosa: l.glosa,
+      id: l.id ?? null, folio: l.folio, fecha: l.fecha, monto: l.monto, glosa: l.glosa,
     });
   };
 

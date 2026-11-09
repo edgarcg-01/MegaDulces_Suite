@@ -3,7 +3,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { uuidV4 } from '../../core/utils/uuid';
-import type { JornadasPendientes, CorteCajaDto, CandadoCajaDto, PosicionCajaDto, ArqueoCajaDto, ArqueoGuardadoDto, DocumentosEnCajaDto, NuevoArqueoCajaInput, CaosRetirosLibres, CaosRetiroDelLote, YaEnLibro } from '@megadulces/contracts';
+import type { JornadasPendientes, CorteCajaDto, CandadoCajaDto, PosicionCajaDto, ArqueoCajaDto, ArqueoGuardadoDto, DocumentosEnCajaDto, NuevoArqueoCajaInput, CaosRetirosLibres, CaosRetiroDelLote, YaEnLibro, LigarDocumentoInput, LigarDocumentoResultado } from '@megadulces/contracts';
 // `[CGA-A.61]` La reposición por sucursal: el contrato lo comparten el endpoint y la pantalla.
 import type { ReposicionSucursales } from '@megadulces/contracts';
 import type {
@@ -615,6 +615,12 @@ export class CashLedgerService {
 
   cancelar(id: string, motivo: string): Observable<MovimientoCaja> {
     return this.http.post<MovimientoCaja>(`${this.base}/${id}/cancelar`, { motivo });
+  }
+
+  /** `[CGA-A.72]` Liga un depósito de CAOS ya capturado (`id`) con el documento de Kepler que es. Sólo viaja la llave. */
+  ligarDocumento(id: string, origen_ref: string): Observable<LigarDocumentoResultado> {
+    const body: LigarDocumentoInput = { origen_ref };
+    return this.http.post<LigarDocumentoResultado>(`${this.base}/${encodeURIComponent(id)}/ligar-documento`, body);
   }
 }
 

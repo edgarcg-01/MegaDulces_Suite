@@ -983,6 +983,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .cg-ya-libro-aviso { display:flex; gap:var(--sp-2); align-items:flex-start; margin:var(--sp-2) 0 0; padding:var(--sp-2) var(--sp-3);
                          border:1px solid var(--border-color); border-radius:var(--r-md, 8px); background:var(--surface-2);
                          color:var(--warn-soft-fg); font-size:var(--fs-sm); }
+    .cg-ya-libro-acc { display:flex; align-items:center; flex-wrap:wrap; gap:var(--sp-2); margin-top:var(--sp-2); }
     /* ⛔ [CG.70] Aca vivian ".cg-cajero" (recuadro punteado) y ".cg-cajero-head": el SEGUNDO panel
        del cajero, el que repetia el rotulo. Se fueron con el; el que queda es el neutro de abajo.
        Se borran y no se dejan huerfanas a proposito: una regla sin dueño es la que despues alguien
@@ -2596,6 +2597,17 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                   <span><strong>Ya está en el libro como {{ yl.folio }}</strong> ({{ dmy(yl.fecha) }}, {{ money(yl.monto) }}):
                     {{ textoYaEnLibro(yl) }}. No lo captures otra vez: hay que ligarlo a esa captura.</span>
                 </p>
+                <!-- [CGA-A.72] Ligar: la captura declara este documento y la cola deja de ofrecerlo. Lo vuelve a decidir el servidor. -->
+                @if (ligable(yl)) {
+                  <div class="cg-ya-libro-acc">
+                    <p-button [label]="'Sí, es ' + yl.folio + ': ligar'" icon="pi pi-link" size="small"
+                              [loading]="ligando()" [disabled]="ligando()"
+                              (onClick)="ligar(cobroElegido()!)"></p-button>
+                    <small class="fin-dim">No cambia el importe ni el corte: sólo dice qué documento es.</small>
+                  </div>
+                } @else {
+                  <small class="fin-dim d-block">Éste no se liga desde aquí: lo revisa tesorería (cambiaría la llave de un cobro).</small>
+                }
               }
 
               <!-- El numero grande de ESTA mitad. El del arqueo es el OTRO lado de la misma
@@ -5177,6 +5189,32 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   readonly yaEnLibro = computed(() => this.pendientes().filter((p) => !!p.ya_en_libro).length);
   /** `[CGA-A.71]` Cuántas marca «Marcar las N»: el botón no puede prometer más de las que marca. */
   readonly enLote = computed(() => this.pendientes().filter((p) => this.delLote(p)).length);
+
+  /** `[CGA-A.72]` Sólo un depósito de CAOS sin documento se liga desde aquí; la otra llave la revisa tesorería. */
+  ligable(yl: YaEnLibro): boolean {
+    return !!yl.id && (yl.como === 'deposito_ruta' || yl.como === 'deposito_importe');
+  }
+
+  readonly ligando = signal(false);
+
+  /** `[CGA-A.72]` Liga y sale de la ficha: el documento deja de estar en la cola. Manda SÓLO la llave. */
+  ligar(p: MovimientoPendiente): void {
+    const yl = p?.ya_en_libro;
+    if (!yl?.id || !this.ligable(yl) || this.ligando()) return;
+    this.ligando.set(true);
+    this.svc.ligarDocumento(yl.id, p.origen_ref).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.ligando.set(false);
+        this.capturaAbierta.set(false);
+        this.avisarOk(r.ya_estaba ? `${r.folio} ya estaba ligado` : `${r.folio} ligado`, `Es ${p.doc_tipo} ${p.folio}: ya no se ofrece para capturar.`);
+        this.cargarPendientes();
+      },
+      error: (e) => {
+        this.ligando.set(false);
+        this.avisarError(e, 'No se ligó');
+      },
+    });
+  }
 
   textoYaEnLibro(yl: YaEnLibro): string {
     const glosa = (yl.glosa ?? '').replace(/^CAOS Deposito #\d+\s*[·-]\s*/i, '').trim();
