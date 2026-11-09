@@ -23,7 +23,7 @@ import { BancosSocketService, BancosEvent, FinanceJobEvent, JobAccepted } from '
 import { FinanceJobsClient } from '../finance-jobs.client';
 import { AuthService } from '../../../core/services/auth.service';
 import {
-  BankView as View, MONTHS_ES, WORK_VIEWS,
+  BankView as View, WORK_VIEWS, periodoDelArchivo,
   GROUP_LABELS, GROUP_ORDER,
 } from './bancos/bancos-shared';
 import { BancosConcentradoComponent } from './bancos/bancos-concentrado.component';
@@ -732,9 +732,9 @@ export class FinanzasBancosComponent implements OnInit {
     const input = ev.target as HTMLInputElement;
     const file = input.files?.[0];
     if (!file) return;
-    const upper = file.name.toUpperCase();
-    const m = upper.match(/(ENERO|FEBRERO|MARZO|ABRIL|MAYO|JUNIO|JULIO|AGOSTO|SEPTIEMBRE|OCTUBRE|NOVIEMBRE|DICIEMBRE)\s+(\d{4})/);
-    const period = m ? `${m[2]}-${MONTHS_ES[m[1]]}` : this.period();
+    // `[PGP.97.1]` Un nombre con el mes y sin el año («11 NOVIEMBRE.xlsx») ya no cae al periodo
+    // seleccionado: ése fue el que borró noviembre el 5-nov (ver `periodoDelArchivo`).
+    const period = periodoDelArchivo(file.name, this.period());
     if (!period) { this.fail('No pude derivar el periodo del nombre; selecciona un periodo primero.'); input.value = ''; return; }
 
     this.uploading.set(true);
@@ -745,7 +745,7 @@ export class FinanzasBancosComponent implements OnInit {
         next: (job) => {
           input.value = '';
           this.track(job);
-          this.toast.add({ severity: 'info', summary: 'Importando…', detail: `${file.name} — te aviso al terminar.`, life: 3000 });
+          this.toast.add({ severity: 'info', summary: 'Importando…', detail: `${file.name} va al periodo ${period}. Te aviso al terminar.`, life: 3000 });
         },
         error: () => { this.uploading.set(false); input.value = ''; this.fail('No se pudo importar el Excel.'); },
       });

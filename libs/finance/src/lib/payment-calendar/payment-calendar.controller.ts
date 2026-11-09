@@ -8,7 +8,7 @@ import {
 } from './payment-calendar.service';
 import type { DayOrderRank } from './payment-calendar.service';
 import { PaymentCalendarDocumentService } from './payment-calendar-document.service';
-import type { PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarItemDiscountResult, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
+import type { GuiaFueraDePrograma, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarItemDiscountResult, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string } }
 
@@ -219,6 +219,18 @@ export class PaymentCalendarController {
   @ApiOperation({ summary: 'Días ya pasados que todavía tienen pagos pendientes: fecha, cuántos y por cuánto.' })
   pendientesAtrasados(): Promise<PagosAtrasadosDia[]> {
     return this.svc.pendientesAtrasados();
+  }
+
+  /**
+   * `[PGP.97]` **Pagado en el banco, falta en Kepler** — y qué salió sin pasar por el programa.
+   * Sólo lectura: lee el workbook de bancos, Kepler y el Calendario; no escribe en ninguno.
+   * Mismo permiso que ver el Calendario (repartido en prod a quien ya ve Pagos).
+   */
+  @Get('fuera-de-programa')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: 'Salidas del banco a proveedores contra Kepler y el programa: qué falta capturar en Kepler y qué se pagó fuera del programa.' })
+  fueraDePrograma(@Query('date_from') desde?: string, @Query('date_to') hasta?: string): Promise<GuiaFueraDePrograma> {
+    return this.svc.fueraDePrograma(desde, hasta);
   }
 
   /** `[PGP.76]` El orden completo de los pendientes del día, en una sola escritura (arrastrar o teclado). */
