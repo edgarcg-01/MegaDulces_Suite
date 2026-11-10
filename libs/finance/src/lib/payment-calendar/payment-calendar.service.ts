@@ -2280,7 +2280,7 @@ export class PaymentCalendarService {
    * salen el `X-D-26` de Kepler y la póliza de ContPAQi. El efectivo se valida a mano por ahora (la
    * ventanilla sólo deja rastro después de Kepler, `[PGP.102]`). `hoy` sólo lo fijan las pruebas.
    */
-  async execute(allocationId: string, username: string, hoy: string = todayMx()) {
+  async execute(allocationId: string, username: string, hoy: string = todayMx()): Promise<AllocationRowLite> {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const allocation = await trx('finance.payment_allocations').where({ tenant_id: tenantId, id: allocationId }).first();
