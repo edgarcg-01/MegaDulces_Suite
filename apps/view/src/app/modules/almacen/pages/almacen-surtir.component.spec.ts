@@ -13,7 +13,7 @@ import { ClientesNuevosService } from '../clientes-nuevos.service';
 
 /** [MCP.3.1] Un pedido de Sucursal (app de vendor) en la lista del surtidor. */
 const PV = (p: Partial<PresalePickInboxRow> = {}): PresalePickInboxRow => ({
-  order_id: 'o-rosy', code: 'PD-2026-00082', customer_name: 'ABARROTES ROSY', seller_name: 'Paulina Placencia',
+  order_id: 'o-rosy', code: 'PD-2026-00082', customer_name: 'ABARROTES ROSY', seller_name: 'Vendedora Prueba',
   warehouse_id: 'w-ph', warehouse_name: 'Padre Hidalgo', requested_delivery_date: '2026-10-19',
   bucket: 'hoy', days_late: 0, arrived_at: '2026-10-19T19:12:00.000Z', lines: 2, total: 475.44,
   state: 'nuevo', started: null, finished: null, unseen: true, ...p,
@@ -292,7 +292,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     expect(texto()).toContain('ABARROTES ROSY');
     expect(texto()).toContain('VERO VASCO');
     expect(texto()).toContain('Atrasado 2 días');
-    expect(texto()).toContain('Paulina Placencia');
+    expect(texto()).toContain('Vendedora Prueba');
     expect(texto()).not.toContain('ESCUELA AMARILLA'); // es de mañana
   });
 
@@ -851,16 +851,16 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
 
   it('[MCP.3.6] con una ruta lista, va arriba y los de abajo se rotulan «Pedidos sueltos»', async () => {
     pv.routes = vi.fn(() => of({ today: '2026-10-19', scope: 'propios', data: [{
-      route_day_id: 'rd-1', kind: 'ruta', seller_name: 'Paulina Placencia', work_date: '2026-10-19', state: 'lista',
+      route_day_id: 'rd-1', kind: 'ruta', seller_name: 'Vendedora Prueba', work_date: '2026-10-19', state: 'lista',
       started_at: '2026-10-19T14:00:00.000Z', finished_at: '2026-10-19T20:10:00.000Z', orders: 4, products: 18,
       pick_started: null, pick_finished: null,
     }] }));
     await montar();
     clic('Sucursal');
     const t = texto();
-    expect(t).toContain('Ruta de Paulina Placencia');
+    expect(t).toContain('Ruta de Vendedora Prueba');
     expect(t).toContain('Pedidos sueltos');
-    expect(t.indexOf('Ruta de Paulina Placencia')).toBeLessThan(t.indexOf('ABARROTES ROSY'));
+    expect(t.indexOf('Ruta de Vendedora Prueba')).toBeLessThan(t.indexOf('ABARROTES ROSY'));
   });
 
   it('[MCP.3.6] sin rutas hoy no se pinta nada de rutas (ni «Pedidos sueltos»)', async () => {

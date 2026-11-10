@@ -87,6 +87,68 @@ export interface PresaleReviewLine {
   stock: PresaleReviewStock | null;
   /** `[MCP.13]` El surtidor puso este producto EN LUGAR de otro que no hubo: el nombre del original. */
   substitutes_for?: string | null;
+  /**
+   * `[MCP.10.3]` Los códigos de barras con que se puede escanear, de la ficha de Kepler de la sucursal
+   * (`kepler_ods.kdii`). Ausente = no se pudieron leer (se DECLARA: la caja toca en la lista); `[]` = el
+   * producto no tiene código en esa sucursal.
+   */
+  codes?: PresaleReviewCode[];
+}
+
+/** `[MCP.10.3]` Un código del producto y cuántas piezas base trae lo escaneado (`null` = Kepler no tiene ese factor capturado). */
+export interface PresaleReviewCode {
+  code: string;
+  factor: number | null;
+}
+
+/** `[MCP.10.3]` Cómo coincidió lo buscado, de la más segura a la menos: código exacto, SKU, código sin ceros a la izquierda, nombre. */
+export type PresaleReviewMatch = 'codigo' | 'sku' | 'codigo_sin_ceros' | 'nombre';
+
+/** `[MCP.10.3]` Un producto de un pedido por revisar que coincide con lo buscado. */
+export interface PresaleReviewSearchHit {
+  order_id: string;
+  code: string;
+  customer_name: string | null;
+  seller_name: string | null;
+  product_name: string;
+  sku: string | null;
+  match: PresaleReviewMatch;
+}
+
+/** `GET warehouse/presale-review/search?q=` — ¿en qué pedido por revisar está este producto? */
+export interface PresaleReviewSearchResponse {
+  q: string;
+  data: PresaleReviewSearchHit[];
+  /** Hay más de lo que se devuelve (coincidencias o pedidos por revisar fuera del tope): se DECLARA. */
+  truncated: boolean;
+}
+
+/** Rango de cada forma de coincidir: cuando varias aplican, sólo cuenta la más segura. */
+export const RANGO_COINCIDENCIA: Readonly<Record<PresaleReviewMatch, number>> = { codigo: 3, sku: 2, codigo_sin_ceros: 1, nombre: 0 };
+
+const codigoLimpio = (s: string | null | undefined): string => String(s ?? '').trim().toUpperCase();
+const sinCeros = (s: string): string => s.replace(/^0+(?=.)/, '');
+
+/**
+ * `[MCP.10.3]` ¿Lo buscado es un código o el SKU de este producto? La comparten la pantalla de Revisión y
+ * la búsqueda en los otros pedidos, para que «coincide» signifique lo mismo en los dos lados.
+ *
+ * El código EXACTO manda: en Kepler `006001` (pieza) y `06001` (paquete) son distintos. Sin ceros a la
+ * izquierda sólo vale si no hubo exacto y entonces NO dice qué unidad es (`factor: null`): señala el
+ * producto, nunca confirma solo. El SKU tampoco dice unidad.
+ */
+export function coincidenciaDeCodigo(
+  q: string, codes: readonly PresaleReviewCode[], sku: string | null | undefined,
+): { match: Exclude<PresaleReviewMatch, 'nombre'>; factor: number | null } | null {
+  const c = codigoLimpio(q);
+  if (!c) return null;
+  const exacto = codes.find((x) => codigoLimpio(x.code) === c);
+  if (exacto) return { match: 'codigo', factor: exacto.factor };
+  if (sku && codigoLimpio(sku) === c) return { match: 'sku', factor: null };
+  const c0 = sinCeros(c);
+  if (codes.some((x) => sinCeros(codigoLimpio(x.code)) === c0)) return { match: 'codigo_sin_ceros', factor: null };
+  if (sku && sinCeros(codigoLimpio(sku)) === c0) return { match: 'sku', factor: null };
+  return null;
 }
 
 export interface PresaleReviewDetail {

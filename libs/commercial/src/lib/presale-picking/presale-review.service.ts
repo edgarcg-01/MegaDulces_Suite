@@ -10,12 +10,14 @@ import type {
   PresaleReviewInboxRow,
   PresaleReviewLine,
   PresaleReviewResult,
+  PresaleReviewSearchResponse,
 } from '@megadulces/contracts';
 import { relojMx } from '../warehouse-orders/warehouse-orders.engine';
 import { CommercialOrdersService } from '../commercial-orders/commercial-orders.service';
 import { estadoDeProductos, type EstadoEnSucursal } from '../commercial-inventory/stock-state';
 import { PresalePickingService } from './presale-picking.service';
-import { RevisionInvalida, armarRenglonesRevision, planearRevision, type RenglonVivo } from './presale-review.engine';
+import { RevisionInvalida, armarRenglonesRevision, buscarEnRenglones, codigosDeFicha, planearRevision, type RenglonVivo } from './presale-review.engine';
+import { kdiiPorSku } from '../shared/kdii-lectura';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /**
@@ -24,6 +26,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * lo dice (`pending` sale de un conteo aparte y `truncated`), nunca lo esconde.
  */
 const TOPE = 300;
+/** `[MCP.10.3]` Coincidencias que devuelve la búsqueda en los otros pedidos; si hay más, se declara. */
+const TOPE_BUSQUEDA = 20;
 /** Lo revisado sigue en la bandeja un día, para que la cajera vea lo que ya hizo. */
 const DIAS_REVISADOS = 1;
 const RUTA = 'warehouse/presale-review';
@@ -82,20 +86,87 @@ export class PresaleReviewService {
               .filter((p) => !!p.sku).map((p) => [p.id, String(p.sku)])
           : [],
       );
+      const skuDeRenglon = (r: (typeof renglones)[number]): string | null => r.sku ?? (r.product_id ? skuDe.get(r.product_id) ?? null : null);
+      // [MCP.10.3] Los códigos de Kepler de la sucursal, para escanear. Ayuda, no requisito: si no se leen,
+      // `codes` va ausente y la pantalla lo DECLARA (se toca en la lista). En un savepoint: una lectura que
+      // falla no puede abortar la transacción de la que cuelga el resto del detalle.
+      let codigos: Map<string, PresaleReviewLine['codes']> | null = null;
+      const sucursal = String(fila['warehouse_code'] ?? '').trim();
+      const skus = [...new Set(renglones.map(skuDeRenglon).filter((s): s is string => !!s))];
+      if (sucursal && skus.length) {
+        try {
+          const fichas = await trx.transaction((sp) => kdiiPorSku(sp, sucursal, skus));
+          codigos = new Map(fichas.map((f) => [f.sku, codigosDeFicha(f)]));
+        } catch (e) {
+          this.logger.warn(`[MCP.10.3] no se pudieron leer los códigos de Kepler de ${fila['code']}: ${(e as Error).message}`);
+        }
+      }
       const lines: PresaleReviewLine[] = renglones.map((r) => {
         let stock: PresaleReviewLine['stock'] = null;
         if (estado && r.product_id) {
           const e = estado(String(fila['warehouse_id']), r.product_id);
           stock = { state: e.state, qty: e.qty == null ? null : Math.floor((e.qty + 1e-9) / (r.factor || 1)), checked_at: e.checked_at };
         }
+        const sku = skuDeRenglon(r);
         return {
           key: r.key, product_id: r.product_id, product_name: r.product_name,
-          sku: r.sku ?? (r.product_id ? skuDe.get(r.product_id) ?? null : null), unit: r.unit, factor: r.factor,
+          sku, unit: r.unit, factor: r.factor,
           ordered: r.ordered, picked: r.picked, restorable: r.restorable, stock,
           ...(r.substitutes_for ? { substitutes_for: r.substitutes_for } : {}),
+          ...(codigos ? { codes: sku ? codigos.get(sku) ?? [] : [] } : {}),
         };
       });
       return { order: this.aRenglon(fila), lines };
+    });
+  }
+
+  /**
+   * `[MCP.10.3]` ¿En qué pedido por revisar de mi sucursal está este producto? Por código de Kepler, SKU
+   * o nombre. Para cuando la caja tiene en la mano algo que no es del pedido abierto (dos rutas o dos
+   * pedidos en el mismo carrito). Los renglones que el surtido borró no se buscan (ya no están en el pedido).
+   */
+  async search(query: Record<string, unknown> = {}): Promise<PresaleReviewSearchResponse> {
+    const q = String(query['q'] ?? '').trim().slice(0, 80);
+    if (!q) return { q, data: [], truncated: false };
+    const almacenes = await this.scope.warehouseIds(query, RUTA);
+    if (almacenes !== null && almacenes.length === 0) return { q, data: [], truncated: false };
+    return this.tk.run(async (trx) => {
+      const pedidos = (await this.leer(trx, { almacenes })).filter((f) => !f['reviewed_at']);
+      if (!pedidos.length) return { q, data: [], truncated: false };
+      const porId = new Map(pedidos.map((f) => [String(f['id']), f]));
+      const filas = (await trx('commercial.order_lines as l')
+        .leftJoin('catalog.products as p', 'p.id', 'l.product_id')
+        .whereIn('l.order_id', [...porId.keys()])
+        .select('l.order_id', 'p.nombre as product_name', 'p.sku')) as Array<{ order_id: string; product_name: string | null; sku: string | null }>;
+      const sucDe = (orderId: string): string => String(porId.get(orderId)?.['warehouse_code'] ?? '').trim();
+      // Los códigos de Kepler de cada sucursal, en un savepoint: si fallan, se busca igual por SKU y nombre.
+      const skusPorSuc = new Map<string, Set<string>>();
+      for (const l of filas) {
+        const suc = sucDe(l.order_id);
+        if (suc && l.sku) skusPorSuc.set(suc, (skusPorSuc.get(suc) ?? new Set<string>()).add(l.sku));
+      }
+      const codigos = new Map<string, ReturnType<typeof codigosDeFicha>>();
+      for (const [suc, skus] of skusPorSuc) {
+        try {
+          const fichas = await trx.transaction((sp) => kdiiPorSku(sp, suc, [...skus]));
+          for (const f of fichas) codigos.set(`${suc}|${f.sku}`, codigosDeFicha(f));
+        } catch (e) {
+          this.logger.warn(`[MCP.10.3] búsqueda sin códigos de Kepler de la sucursal ${suc}: ${(e as Error).message}`);
+        }
+      }
+      const hallados = buscarEnRenglones(q, filas.map((l) => ({
+        order_id: l.order_id, product_name: l.product_name ?? 'Producto', sku: l.sku,
+        codes: l.sku ? codigos.get(`${sucDe(l.order_id)}|${l.sku}`) ?? [] : [],
+      })));
+      const pendientes = await this.contarPendientes(trx, almacenes);
+      const data = hallados.slice(0, TOPE_BUSQUEDA).map(({ r, match }) => {
+        const f = porId.get(r.order_id) as Record<string, unknown>;
+        return {
+          order_id: r.order_id, code: String(f['code']), customer_name: (f['customer_name'] as string) ?? null,
+          seller_name: (f['seller_name'] as string) ?? null, product_name: r.product_name, sku: r.sku, match,
+        };
+      });
+      return { q, data, truncated: hallados.length > TOPE_BUSQUEDA || pendientes > pedidos.length };
     });
   }
 

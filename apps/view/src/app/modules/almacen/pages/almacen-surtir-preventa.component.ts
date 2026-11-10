@@ -20,6 +20,7 @@ import type {
   PresaleSubstituteUnit,
 } from '@megadulces/contracts';
 import { PresalePickingService } from '../presale-picking.service';
+import { agruparPorVendedor } from '../pedidos-por-vendedor';
 import { AlertsSocketService } from '../../dashboard/command-center/alerts-socket.service';
 import { encuestarVisible } from '../../../core/utils/poll-visible';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
@@ -104,8 +105,12 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
         <app-load-state [loading]="cargando() && !bandeja()" [error]="error()" [isEmpty]="!!bandeja() && !visibles().length"
                         emptyIcon="pi-check-circle" [emptyTitle]="vacioTitulo()" [emptyHint]="vacioPista()"
                         (retry)="cargar()">
+          <!-- [MCP.14] Separados por vendedor y, dentro, en orden de folio (como los capturó). -->
           <div class="sp-lista">
-            @for (p of visibles(); track p.order_id) {
+            @for (g of grupos(); track g.vendedor) {
+              <h2 class="sp-grupo"><i class="pi pi-user" aria-hidden="true"></i> {{ g.vendedor }}
+                <span class="sp-grupo-n">· {{ g.pedidos.length === 1 ? '1 pedido' : g.pedidos.length + ' pedidos' }}</span></h2>
+            @for (p of g.pedidos; track p.order_id) {
               <button type="button" class="sp-card" [class.sp-card-nuevo]="p.state === 'nuevo' && p.unseen" (click)="abrir(p.order_id)">
                 <span class="sp-card-r1">
                   <strong class="sp-cliente">{{ p.customer_name || p.code }}</strong>
@@ -123,7 +128,6 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
                   @if (pestana() === 'proximos') { <span>entrega {{ fechaCorta(p.requested_delivery_date) }}</span> }
                 </span>
                 <span class="sp-card-r2">
-                  <span>{{ p.seller_name || 'Sin vendedor' }}</span>
                   <span>{{ p.lines === 1 ? '1 producto' : p.lines + ' productos' }}</span>
                   <span class="sp-num">{{ dinero(p.total) }}</span>
                 </span>
@@ -134,6 +138,7 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
                   </span>
                 }
               </button>
+            }
             }
           </div>
         </app-load-state>
@@ -313,6 +318,10 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
     .sp-banda-bad { color: var(--bad-fg); }
     .sp-banda-warn { color: var(--warn-fg); }
     .sp-lista { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-3); }
+    /* [MCP.14] El vendedor encabeza su grupo de pedidos. */
+    .sp-grupo { display: flex; align-items: center; gap: var(--sp-2); margin: var(--sp-3) 0 0; font-size: var(--fs-body); font-weight: 800; color: var(--text-main); }
+    .sp-grupo:first-child { margin-top: 0; }
+    .sp-grupo-n { font-weight: 500; color: var(--text-muted); }
     .sp-card { display: flex; flex-direction: column; gap: var(--sp-1); width: 100%; text-align: left; cursor: pointer;
       padding: var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-lg); background: var(--card-bg); color: var(--text-main); }
     .sp-card:hover { background: var(--surface-hover); }
@@ -431,6 +440,8 @@ export class AlmacenSurtirPreventaComponent implements OnInit {
     const p = this.pestana();
     return (this.bandeja()?.data ?? []).filter((r) => r.bucket === p);
   });
+  /** `[MCP.14]` Los de la pestaña, por vendedor (el que llegó primero arriba) y en orden de folio. */
+  readonly grupos = computed(() => agruparPorVendedor(this.visibles(), (r) => r.arrived_at));
   readonly sucursales = computed(() => {
     const n = [...new Set((this.bandeja()?.data ?? []).map((r) => r.warehouse_name).filter(Boolean))];
     return n.length ? n.join(' · ') : 'Tu sucursal';
