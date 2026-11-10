@@ -29,6 +29,8 @@ export interface DocumentoAPagar {
  * El vale de `/finanzas/aprobacion-gastos` que la cajera elige al pagar (D18). Ampara el pago sólo
  * si guarda QUIÉN lo aprobó (`aprobado_at`): medido 2026-11-02, de 1,374 vales `validada` desde el
  * 1-oct sólo 148 la guardan, y el cierre de Kepler valida vales que nadie firmó (`[GX.85]`).
+ * `[LE.6.28]` El SQL que llena `aprobadoAt` (`FIRMA_DE_PERSONA`) toma, cuando falta `aprobado_at`, la
+ * validación de una PERSONA (lo de antes del 28/10); la del cierre de Kepler sigue sin firma.
  */
 export interface ValeElegido {
   folio: string;
