@@ -115,3 +115,72 @@ export function filtrarPorBusqueda<T>(
     return !!pajar && tokens.every((t) => pajar.includes(t));
   });
 }
+
+/** Un tramo de texto. `m`: es parte de lo que se buscó, y se pinta resaltado. */
+export interface TramoResaltado {
+  t: string;
+  m: boolean;
+}
+
+/** Un token más corto que esto no se resalta: una sola letra marcaría media pantalla. */
+const MINIMO_RESALTE = 2;
+
+/** Una marca diacrítica suelta. Sin la bandera `g`: `.test()` con `g` arrastra `lastIndex` entre llamadas. */
+const ES_DIACRITICO = new RegExp('[\\u0300-\\u036f]');
+
+/**
+ * `[GX.103]` **Dónde coincide lo que se buscó.** Parte el texto en tramos y marca los que son
+ * iguales a algún token de la consulta, con la MISMA normalización que la búsqueda (sin acentos,
+ * sin mayúsculas). Sirve para ver por qué salió un renglón: el «15» dentro de «0009915», o
+ * «médico» en «SERVICIO MÉDICO».
+ *
+ * Se marca sobre el texto ORIGINAL, no sobre su versión normalizada: se ve «MÉDICO», con su
+ * acento, aunque se haya buscado «medico».
+ *
+ * Lo que NO marca, a propósito:
+ *  · lo que el servidor encontró por PARECIDO (trigramas: `erejon` encuentra `herrejon`): ahí no
+ *    hay un tramo igual que señalar, y es mejor no marcar nada que marcar algo inventado;
+ *  · los tokens de una sola letra o cifra.
+ *
+ * @returns los tramos en orden; juntos dan el texto original. Texto vacío ⇒ `[]`.
+ */
+export function resaltarCoincidencias(
+  texto: string | number | null | undefined,
+  consulta: string | null | undefined,
+): TramoResaltado[] {
+  const original = texto === null || texto === undefined ? '' : String(texto);
+  if (!original) return [];
+  const tokens = [...new Set(tokensDeBusqueda(consulta))].filter((t) => t.length >= MINIMO_RESALTE);
+  if (!tokens.length) return [{ t: original, m: false }];
+
+  // El texto normalizado letra por letra, recordando de qué posición del original salió cada una.
+  let norm = '';
+  const origen: number[] = [];
+  for (let i = 0; i < original.length; i++) {
+    const n = original[i].normalize('NFD').replace(DIACRITICOS, '').toLowerCase();
+    for (let k = 0; k < n.length; k++) {
+      norm += n[k];
+      origen.push(i);
+    }
+  }
+
+  const marca = new Array<boolean>(original.length).fill(false);
+  for (const t of tokens) {
+    for (let p = norm.indexOf(t); p >= 0; p = norm.indexOf(t, p + 1)) {
+      let fin = origen[p + t.length - 1];
+      // Un acento escrito aparte («E» + «´») va con su letra: si no, quedaría suelto en el tramo de al lado.
+      while (fin + 1 < original.length && ES_DIACRITICO.test(original[fin + 1])) fin++;
+      for (let j = origen[p]; j <= fin; j++) marca[j] = true;
+    }
+  }
+
+  const tramos: TramoResaltado[] = [];
+  let desde = 0;
+  for (let i = 1; i <= original.length; i++) {
+    if (i === original.length || marca[i] !== marca[desde]) {
+      tramos.push({ t: original.slice(desde, i), m: marca[desde] });
+      desde = i;
+    }
+  }
+  return tramos;
+}

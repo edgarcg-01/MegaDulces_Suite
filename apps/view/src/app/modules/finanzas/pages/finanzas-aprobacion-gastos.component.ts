@@ -2,8 +2,10 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, injec
 import { ActivatedRoute, Router } from '@angular/router';
 import { branchLabel } from '../../../core/constants/store-branches';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ButtonModule } from 'primeng/button';
+import { SelectModule } from 'primeng/select';
 import { TagModule } from 'primeng/tag';
 import { InputTextModule } from 'primeng/inputtext';
 import { ToastModule } from 'primeng/toast';
@@ -119,7 +121,7 @@ const ESTADO_LABEL: Record<string, string> = {
 @Component({
   selector: 'app-finanzas-aprobacion-gastos',
   standalone: true,
-  imports: [CommonModule, ButtonModule, TagModule, InputTextModule, ToastModule, ValeGastoPeekComponent, EvidenciaAdicionalDialogComponent, BuscadorGastosComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, TagModule, InputTextModule, ToastModule, ValeGastoPeekComponent, EvidenciaAdicionalDialogComponent, BuscadorGastosComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -132,15 +134,8 @@ const ESTADO_LABEL: Record<string, string> = {
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Aprobación de gastos</h1>
-          <!-- [GX.67] El subtítulo dice el ALCANCE, no una fecha: la bandeja ya no es
-               de un día. Decir «del viernes 3» sobre una lista que trae julio sería la
-               misma mentira al revés. -->
-          <!-- [GX.88] Dos alcances, dichos: la bandeja es HOY; lo de antes que sigue abierto
-               vive en «Atrasados», del más viejo al más nuevo. -->
-          <p class="surf-page-sub">
-            En la bandeja, lo que se levantó <strong class="ap-dia-txt">hoy</strong>. Lo de días
-            anteriores que sigue abierto está en <strong class="ap-dia-txt">Atrasados</strong>.
-          </p>
+          <!-- [GX.105] Sin subtítulo (pedido del usuario, 2026-11-09): decía «en la bandeja, lo de hoy;
+               lo de antes, en Atrasados», que es lo que ya dicen los nombres de las listas. -->
         </div>
         <app-buscador-gastos parte="caja" />
                 <!-- [GX.100] Actualizar NO quita la lista: la pone al día en su lugar (antes regresaba al inicio). -->
@@ -199,25 +194,37 @@ const ESTADO_LABEL: Record<string, string> = {
         }
 
         <!-- [GX.60] UNA pestana: lo decidido se va al Expediente, no a la de al lado. -->
-        <div class="ap-tabs" role="tablist">
-          @for (t of tabs; track t.id) {
-            <button type="button" role="radio" class="ap-tab" [class.on]="pestana() === t.id"
-                    [attr.aria-checked]="pestana() === t.id" (click)="verPestana(t.id)">
-              <span class="ap-tab-t">{{ t.label }}</span>
-              @if (t.id === 'kepler' && !keplerMedido()) {
-                <span class="ap-tab-n">—</span>
-                <span class="ap-tab-m">{{ keplerError() || esperanKepler() ? 'sin medir' : 'cargando' }}</span>
-              } @else if (t.id === 'atrasados' && !atrasadosMedidos()) {
-                <!-- [GX.88] No se midió ≠ cero: sin datos del servidor, el contador no dice 0. -->
-                <span class="ap-tab-n" title="El servidor no mandó los atrasados">—</span>
-                <span class="ap-tab-m">sin medir</span>
-              } @else {
-                <span class="ap-tab-n">{{ conteo(t.id).n }}</span>
-                <span class="ap-tab-m">{{ money(conteo(t.id).monto) }}</span>
-              }
-            </button>
-          }
+        <!-- [GX.105] Las tres listas en una lista desplegable (pedido del usuario, 2026-11-09). Cerrada
+             dice cuál se ve, con su número y su monto; abierta, las tres. Al entrar es siempre la
+             bandeja de hoy. -->
+        <div class="ap-listas">
+          <p-select class="ap-cual" [options]="tabs" optionValue="id" optionLabel="label"
+                    [ngModel]="pestana()" (ngModelChange)="verPestana($event)"
+                    appendTo="body" ariaLabel="Qué lista ver">
+            <ng-template #selectedItem let-t>@if (t) {<ng-container *ngTemplateOutlet="opcionLista; context: { $implicit: t }" />}</ng-template>
+            <ng-template #item let-t><ng-container *ngTemplateOutlet="opcionLista; context: { $implicit: t }" /></ng-template>
+          </p-select>
         </div>
+        <!-- [GX.105] Una lista como se ve cerrada y abierta: nombre, número y monto. -->
+        <ng-template #opcionLista let-t>
+          <span class="ap-op">
+            <span class="ap-op-t">{{ t.label }}</span>
+            @if (t.id === 'kepler' && !keplerMedido()) {
+              <span class="ap-op-n vacio">—</span>
+              <span class="ap-op-m">{{ keplerError() || esperanKepler() ? 'sin medir' : 'cargando' }}</span>
+            } @else if (t.id === 'atrasados' && !atrasadosMedidos()) {
+              <!-- [GX.88] No se midió ≠ cero: sin datos del servidor, el contador no dice 0. -->
+              <span class="ap-op-n vacio">—</span>
+              <span class="ap-op-m">sin medir</span>
+            } @else if (conteo(t.id).n) {
+              <span class="ap-op-n">{{ conteo(t.id).n }}</span>
+              <span class="ap-op-m">{{ money(conteo(t.id).monto) }}</span>
+            } @else {
+              <!-- En cero no se escribe «$0.00»: no dice nada que el 0 no diga. -->
+              <span class="ap-op-n vacio">0</span>
+            }
+          </span>
+        </ng-template>
 
         <!-- [GX.88] Qué es esta lista, dicho: del más viejo al más nuevo, y de quién depende. -->
         <!-- [GX.88] ⛔ Si el servidor no mandó los atrasados (una API sin actualizar), se DICE: pintar
@@ -232,7 +239,10 @@ const ESTADO_LABEL: Record<string, string> = {
         @if (pestana() === 'atrasados' && conteo('atrasados').n) {
           <div class="ap-aviso">
             <i class="pi pi-clock" aria-hidden="true"></i>
-            <span>Vales de días anteriores que siguen abiertos, <strong>del más viejo al más nuevo</strong>.
+            <!-- [GX.109] También lo de hoy que ya se aprobó y espera algo más: no espera firma, así que
+                 no va en la bandeja, y antes no salía en ningún lado hasta mañana. -->
+            <span>Vales que siguen abiertos, <strong>del más viejo al más nuevo</strong>: los de días anteriores
+              y los de hoy que ya se aprobaron.
               Cada uno dice qué le falta y si te toca a ti o a quien lo levantó.</span>
           </div>
         }
@@ -307,8 +317,14 @@ const ESTADO_LABEL: Record<string, string> = {
               </div>
             } @else {
               <div><strong>Hoy no hay nada esperando tu firma.</strong>
-                <div class="ap-muted">En cuanto alguien levante un gasto, aparece acá.
-                  @if (conteo('atrasados').n) { Lo de días anteriores está en Atrasados. }</div>
+                <div class="ap-muted">En cuanto alguien levante un gasto, aparece acá.</div>
+                <!-- [GX.105] En la lista desplegable cerrada sólo se ve la bandeja: los atrasados se
+                     ofrecen aquí, con su número y su monto, o quedarían escondidos detrás de un 0. -->
+                @if (atrasadosMedidos() && conteo('atrasados').n) {
+                  <button pButton type="button" class="p-button-outlined p-button-sm ap-ver-atr" (click)="verPestana('atrasados')">
+                    {{ conteo('atrasados').n === 1 ? 'Ver el atrasado' : 'Ver los ' + conteo('atrasados').n + ' atrasados' }} · {{ money(conteo('atrasados').monto) }}
+                  </button>
+                }
               </div>
             }
           </div>
@@ -545,24 +561,21 @@ const ESTADO_LABEL: Record<string, string> = {
     .ap-reap-head { display: flex; align-items: baseline; gap: var(--sp-2); }
     .ap-reap-act { display: flex; justify-content: flex-end; gap: var(--sp-2); }
 
-    /* Sin capitalizar: el dia va EN MEDIO de la frase («Los levantamientos del viernes 25
-       de septiembre»). Ponerle mayuscula ahi es tan incorrecto como el «De Septiembre» que
-       daba "capitalize" a secas cuando esto era el titulo de una barra. */
-    .ap-dia-txt { font-weight: var(--fw-bold); }
-
     /* ── Pestañas ───────────────────────────────────────────────────────────── */
-    .ap-tabs { display: flex; gap: 2px; background: var(--card-bg); border: 1px solid var(--border-color);
-      border-radius: var(--r-md); padding: var(--sp-2); }
-    .ap-tab { flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
-      border: 0; border-radius: var(--r-sm); background: transparent; padding: 6px var(--sp-3);
-      font: inherit; color: var(--fg-2); cursor: pointer; text-align: left; }
-    .ap-tab:hover { background: var(--hover-bg); }
-    .ap-tab.on { background: rgba(var(--ink-rgb), .06); box-shadow: inset 2px 0 0 var(--action); color: var(--fg-1); }
-    .ap-tab-t { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .05em; color: var(--fg-3); }
-    .ap-tab.on .ap-tab-t { color: var(--fg-2); }
-    .ap-tab-n { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
-      font-size: var(--fs-h2); font-weight: var(--fw-bold); line-height: 1.1; }
-    .ap-tab-m { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--fg-3); }
+    /* [GX.105] Las tres listas en una lista desplegable (pedido del usuario, 2026-11-09). Antes eran
+       tres tarjetas a todo lo ancho: la elegida con fondo gris (se leía apagada) y los números de las
+       otras atenuados. Cerrada dice la lista que se ve con su número y su monto; abierta, las tres. */
+    /* ⛔ NO «ap-lista»: ese nombre ya es la lista de vales (display:flex en columna, min-width:0), y
+       como se declara más abajo le ganaba a esta regla. Visto en la pantalla viva el 2026-11-09: la
+       caja se iba a todo lo ancho, la etiqueta se encogía a «A…» y la flecha caía a otra línea. */
+    .ap-cual { min-width: 20rem; max-width: 100%; }
+    .ap-op { display: flex; align-items: baseline; gap: var(--sp-2); width: 100%; }
+    .ap-op-t { flex: 1; min-width: 0; }
+    /* El número toma el color de la opción: en la elegida no se mezclan tres colores. */
+    .ap-op-n { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: var(--fw-bold); color: inherit; }
+    .ap-op-n.vacio { color: var(--fg-3); font-weight: var(--fw-medium); }
+    .ap-op-m { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--fs-xs); color: var(--fg-3); }
+    .ap-ver-atr { margin-top: var(--sp-2); }
 
     /* ── Lista ──────────────────────────────────────────────────────────────── */
     .ap-cols { display: flex; gap: var(--sp-3); align-items: flex-start; }
@@ -636,8 +649,6 @@ const ESTADO_LABEL: Record<string, string> = {
     @media (max-width: 60rem) {
       .ap-cols { flex-direction: column; }
       .ap-grupos { width: 100%; position: static; }
-      .ap-tabs { flex-direction: column; }
-      .ap-tab { flex-direction: row; align-items: baseline; gap: var(--sp-2); }
     }
   `],
 })

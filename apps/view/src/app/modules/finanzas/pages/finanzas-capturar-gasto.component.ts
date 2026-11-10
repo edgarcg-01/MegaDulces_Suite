@@ -91,7 +91,7 @@ interface SelSolicitud {
           <label class="cap-f"><span>1 · Folio de la solicitud (Kepler)</span>
             <p-autocomplete [(ngModel)]="sel" [suggestions]="sug()" (completeMethod)="buscar($event)"
               (onSelect)="pick($event)" optionLabel="label" [forceSelection]="false" [showClear]="true"
-              placeholder="Últimos 4 dígitos, ej. 8489" appendTo="body"
+              placeholder="Número del folio sin los ceros, ej. 10570" appendTo="body"
               inputStyleClass="w-full" panelStyleClass="cap-ac-panel"
               [emptyMessage]="vacioMsg()">
               <!--
@@ -118,7 +118,10 @@ interface SelSolicitud {
                 </div>
               </ng-template>
             </p-autocomplete>
-            <em class="cap-hint">Con los últimos dígitos basta: el 23 encuentra el folio 0000023. También puedes buscar por beneficiario.</em>
+            <!-- [GX.110] Decía «Últimos 4 dígitos, ej. 8489»: con folios de 5 cifras, «0570» es el número 570 y no
+                 encuentra el 0010570 (salvo el mismo día y con áreas), y la pantalla contestaba «no existe». Lo que
+                 de verdad funciona es el número sin los ceros de adelante. -->
+            <em class="cap-hint">Escribe el número sin los ceros de adelante: el 23 encuentra el 0000023 y el 10570 el 0010570. También puedes buscar por beneficiario.</em>
           </label>
         } @else {
           <div class="cap-gasto">
@@ -1154,6 +1157,10 @@ export class FinanzasCapturarGastoComponent {
   vacioMsg(): string {
     const q = this.ultimo();
     if (!q) return 'Escribe el folio de la solicitud.';
+    // [GX.110] «0570» (los últimos dígitos de 0010570) se lee como el número 570: decirlo, en vez de «no existe».
+    if (/^0\d+$/.test(q) && q.length < 7) {
+      return `«${q}» se lee como el folio ${Number(q)}. Escribe el número completo sin los ceros de adelante (ej. 10570, no 0570).`;
+    }
     if (/^[0-9]+$/.test(q)) return `No hay ninguna solicitud con folio ${q}. Revisa el número — el folio del gasto y el de la solicitud NO son el mismo.`;
     return 'Sin coincidencias. Si buscas por nombre y no sale nada, puede que no tengas áreas de gasto asignadas: busca por folio exacto.';
   }
