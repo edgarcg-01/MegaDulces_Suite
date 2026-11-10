@@ -8,7 +8,7 @@ import {
 } from './payment-calendar.service';
 import type { AllocationRowLite, DayOrderRank } from './payment-calendar.service';
 import { PaymentCalendarDocumentService } from './payment-calendar-document.service';
-import type { GuiaFueraDePrograma, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarBandeja, PaymentCalendarEnsayoKepler, PaymentCalendarItemDiscountResult, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
+import type { CorteSueltaRow, GuiaFueraDePrograma, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarBandeja, PaymentCalendarEnsayoKepler, PaymentCalendarItemDiscountResult, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string } }
 
@@ -36,6 +36,17 @@ export class PaymentCalendarController {
   @ApiOperation({ summary: 'Notas de crédito, devoluciones, bonificaciones y anticipos que todavía NO se aplicaron contra ninguna factura, agrupados por acreedor. Medido el 2026-10-26: $8,264,176 en 201 documentos, de los cuales $4,484,249 son de 54 acreedores a los que además les debemos (eso es lo neteable). ⚠️ Es un PISO: kdxf sobre-cuenta lo aplicado por replicación de sucursal.' })
   listUnappliedCredits(): Promise<SupplierUnappliedCreditRow[]> {
     return this.svc.listUnappliedCredits();
+  }
+
+  /**
+   * `[PGP.113]` Las facturas de sucursal anteriores al corte que se SUELTAN del candado de `[PGP.13]`.
+   * Va aparte de `obligations` por la misma razón que el crédito a favor: cuesta 435-534 ms sola.
+   */
+  @Get('corte-sueltas')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: 'Facturas de sucursal que vencen antes del corte del 1-oct-2026 y que Oficinas NUNCA registró: sin cargo ni pago/anticipo del mismo acreedor por el mismo importe (±$1) en la 00, y sin nada aplicado. Ésas se pueden programar; las demás siguen «por confirmar» (pueden estar pagadas desde Oficinas). Medido el 2026-11-10: 67 de 205 facturas, $1,148,347.09.' })
+  listCorteSueltas(): Promise<CorteSueltaRow[]> {
+    return this.svc.listCorteSueltas();
   }
 
   /**
