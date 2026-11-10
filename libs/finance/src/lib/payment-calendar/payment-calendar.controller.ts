@@ -6,7 +6,7 @@ import {
   PaymentCalendarService, ObligationSource, CreateAllocationDto, AllocationItemDto, ItemDiscountDto,
   PrepareAllocationDto, CreateAgreementDto, ReprogramReason,
 } from './payment-calendar.service';
-import type { DayOrderRank } from './payment-calendar.service';
+import type { AllocationRowLite, DayOrderRank } from './payment-calendar.service';
 import { PaymentCalendarDocumentService } from './payment-calendar-document.service';
 import type { GuiaFueraDePrograma, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarBandeja, PaymentCalendarEnsayoKepler, PaymentCalendarItemDiscountResult, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 
@@ -334,14 +334,14 @@ export class PaymentCalendarController {
   @Post('allocations/:id/autorizar')
   @RequirePermissions(Permission.FINANCE_PAYMENT_CALENDAR_AUTORIZAR)
   @ApiOperation({ summary: 'PGP.113 — autoriza UN pago (preparado, dentro del tope de su día). Ya no hace falta autorizar el día completo.' })
-  authorize(@Param('id') id: string, @Req() req: AuthedRequest) {
+  authorize(@Param('id') id: string, @Req() req: AuthedRequest): Promise<AllocationRowLite> {
     return this.svc.authorize(id, req.user?.username || 'sistema');
   }
 
   @Post('allocations/:id/quitar-autorizacion')
   @RequirePermissions(Permission.FINANCE_PAYMENT_CALENDAR_AUTORIZAR)
   @ApiOperation({ summary: 'PGP.113 — le quita la autorización a un pago todavía no pagado (para cambiarlo o detenerlo). Queda en sus notas.' })
-  unauthorize(@Param('id') id: string, @Body() body: { reason?: string }, @Req() req: AuthedRequest) {
+  unauthorize(@Param('id') id: string, @Body() body: { reason?: string }, @Req() req: AuthedRequest): Promise<AllocationRowLite> {
     return this.svc.unauthorize(id, body?.reason, req.user?.username || 'sistema');
   }
 
