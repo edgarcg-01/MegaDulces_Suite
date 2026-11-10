@@ -1,5 +1,5 @@
 import {
-  armarPagoKepler, escrituraDePagoEncendida, ivaProporcional, motivosParaNoEscribir,
+  armarPagoKepler, armarPagosKepler, conceptoDeFactura, escrituraDePagoEncendida, ivaProporcional, motivosParaNoEscribir,
   type FacturaAPagar, type PagoKeplerEntrada, type PagoSuite,
 } from './pago-kepler.armador';
 
@@ -134,5 +134,40 @@ describe('[PGP.71] E3.5 el interruptor', () => {
   });
   it('encendido sólo con la palabra exacta', () => {
     expect(escrituraDePagoEncendida({ KEPLER_PAGO_ESCRITURA: 'encendida' })).toBe(true);
+  });
+});
+
+describe('[PGP.111] P7 y P8: un X-D-26 por concepto, y el gasto con 007', () => {
+  it('⭐ P7: facturas de dos sucursales salen como DOS X-D-26, cada uno con el importe de las suyas', () => {
+    const r = armarPagosKepler(entrada({ importe: 2320, facturas: [factura(), factura({ folio: '2', concepto: 'C-010' })] }));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.planes.map((p) => [p.concepto, p.importe, p.facturas.length])).toEqual([['C-001', 1160, 1], ['C-010', 1160, 1]]);
+    expect(r.planes[1].plan.kdm1['c12']).toBe('C-010');
+    expect(r.planes[1].plan.kdm1['c48']).toBe('MORELIA ABASTOS');
+    expect(r.planes.every((p) => p.plan.kdm1['c11'] === entrada().referencia)).toBe(true);
+  });
+  it('con un solo concepto es exactamente armarPagoKepler', () => {
+    const r = armarPagosKepler(entrada());
+    const uno = armarPagoKepler(entrada());
+    expect(r.ok && uno.ok && r.planes.length === 1 && JSON.stringify(r.planes[0].plan) === JSON.stringify(uno.plan)).toBe(true);
+  });
+  it('⛔ si una parte no se puede armar, no se arma ninguna (no se escribe medio pago)', () => {
+    const r = armarPagosKepler(entrada({ importe: 2320, facturas: [factura(), factura({ folio: '2', concepto: 'C-010', saldo: 100 })] }));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.motivos.join(' ')).toMatch(/C-010: La factura 20-1-2 debe 100.00/);
+  });
+  it('⛔ el importe del pago tiene que ser la suma de lo aplicado, también partido', () => {
+    expect(armarPagosKepler(entrada({ importe: 2000, facturas: [factura(), factura({ folio: '2', concepto: 'C-010' })] })).ok).toBe(false);
+  });
+  it('⭐ P8: la factura de gasto (10-1) sin concepto se paga con 007; una de compra sin concepto se sigue rechazando', () => {
+    expect(conceptoDeFactura({ tipo: 10, concepto: '' })).toBe('007');
+    expect(conceptoDeFactura({ tipo: 10, concepto: ' C-002 ' })).toBe('C-002');
+    expect(conceptoDeFactura({ tipo: 20, concepto: '' })).toBe('');
+    const r = armarPagoKepler(entrada({ facturas: [factura({ tipo: 10, concepto: '' })] }));
+    expect(r.ok && r.plan.kdm1['c12']).toBe('007');
+    const sin = armarPagoKepler(entrada({ facturas: [factura({ concepto: '' })] }));
+    expect(sin.ok).toBe(false);
+    if (!sin.ok) expect(sin.motivos.join(' ')).toMatch(/no trae concepto/);
   });
 });

@@ -492,7 +492,13 @@ export interface PaymentCalendarEnsayoKepler {
   motivos: string[];
   /** El servidor de Kepler donde se escribiría (la sucursal de las facturas, `00`…`08`). */
   servidor: string | null;
-  documento: null | {
+  /** `[PGP.111]` Avisos que NO detienen (p. ej. el concepto 007 de un gasto, pendiente de Contabilidad). */
+  avisos: string[];
+  /**
+   * `[PGP.111]` P7: uno o varios `X-D-26` —uno por concepto (sucursal)— para la MISMA transferencia. Vacío si no se
+   * pudo armar (ver `motivos`).
+   */
+  documentos: {
     fecha: string;
     acreedor: string;
     acreedor_nombre: string;
@@ -506,7 +512,7 @@ export interface PaymentCalendarEnsayoKepler {
     iva: number;
     ieps: number;
     aplicaciones: { factura: string; aplicado: number; saldo_antes: number; saldo_despues: number }[];
-  };
+  }[];
   /** El `X-D-26` que Tesorería capturó a mano para este pago, si ya existe, y si coincide. */
   captura: null | { folio: string; coincide: boolean; diferencias: string[] };
   /** Lo que el adaptador todavía NO escribe (se declara: el ensayo no lo cubre). */

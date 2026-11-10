@@ -1567,3 +1567,19 @@ CONTPAQI_SQL_PASSWORD=… node /app/database/importers/contpaqi/replicate-contpa
 Dice cuántos documentos recopiaría desde el 2026-10-28 (la marca de la réplica menos 2 días). Con eso bien: el mismo
 comando con `--apply` (fuera de horario la primera vez: ~10 días de documentos), y después descomentar su línea del
 cron con su umbral en `CRON_JOBS`.
+
+### ✅ P3, P6, P7 y P8 decididas (Edgar, 2026-11-10: «hagamos lo que recomiendas, menos la D15»)
+
+| # | Decisión | En código |
+|---|---|---|
+| P6 | **El concepto del `X-D-26` lo decide la factura** (`kdxe.c18`: carga la compra a la sucursal que la recibió) | `conceptoDeFactura` — era la regla del armador; ahora es decisión |
+| P7 | **Un pago con facturas de varias sucursales sale como un `X-D-26` por concepto**, para la misma transferencia | `armarPagosKepler` 🧪: cada documento con el importe de sus facturas y la misma referencia; si una parte no se arma, no se arma ninguna (mutante: rojo). ⚠️ El adaptador (`[PGP.106]`) todavía escribe UN documento: escribir varios es parte de encenderlo |
+| P8 | **Factura de gasto (`10-1`) sin concepto → `007` «Gastos generales»**, como lo hace Tesorería (40 de 43) | `CONCEPTO_GASTOS_GENERALES` 🧪; el ensayo lo AVISA («pendiente de que Contabilidad lo confirme») sin detener |
+| P3 | **La cuenta contable de cada proveedor de gasto la define la contadora, en el sistema** | El lugar ya existe: Contabilidad › Puente ContPAQi (firma de reglas `[CP.8.51]` y cuentas de proveedor por alias). ⬜ `[PGP.111b]`: la firma hoy es por CATEGORÍA del movimiento bancario, no por proveedor de gasto (0 de 51 renglones de gasto del Calendario con cuenta): falta la firma por proveedor en esa misma pantalla, y que el Calendario diga «falta la cuenta contable» con la liga ahí |
+
+**El ensayo después de P7/P8** (código real, prod, sólo lectura, 2026-11-10; 51 pagos que Tesorería capturó a mano):
+no se pudieron armar **10** (antes 15); 18 difieren sólo en la cuenta (el pago no traía cuenta de origen); varias
+diferencias ahora se leen como lo que son: «Tesorería capturó el X-D-26 … con concepto C-001 que la Suite no
+escribiría» — con P6/P7, ahí la Suite sigue la regla y la captura manual se desvía. **Criterio del «verde» de F3,
+ajustado:** coinciden en todo lo MECÁNICO (acreedor, importe, IVA/IEPS, lo aplicado por factura); las diferencias que
+explican P6/P7 o la falta de cuenta de origen se cuentan aparte. p50 281 ms.

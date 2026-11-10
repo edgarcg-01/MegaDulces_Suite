@@ -872,14 +872,17 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                               <i class="pi" [class.pi-check-circle]="en.estado === 'listo'" [class.pi-exclamation-circle]="en.estado !== 'listo'" aria-hidden="true"></i>
                               @if (en.estado === 'listo') { Se escribiría así en Kepler ({{ branchLabel(en.servidor) }}) } @else { No se escribiría todavía en Kepler }
                             </p>
-                            @if (en.documento; as d) {
+                            <!-- [PGP.111] P7: con facturas de varias sucursales, un X-D-26 por concepto para la misma transferencia. -->
+                            @if (en.documentos.length > 1) { <p class="pg-x-d">La transferencia se captura como {{ en.documentos.length }} X-D-26, uno por sucursal (concepto).</p> }
+                            @for (d of en.documentos; track d.concepto) {
                               <p class="pg-x-d">X-D-26 a {{ d.acreedor_nombre }} ({{ d.acreedor }}) · <span class="comm-num">{{ money(d.importe) }}</span> · sale por {{ d.cuenta_nombre || d.cuenta_tesoreria }} · concepto {{ d.concepto }} · IVA <span class="comm-num">{{ money(d.iva) }}</span> · fecha {{ d.fecha }}</p>
-                              <ul class="pg-ens-l" [attr.aria-label]="'Facturas que salda el X-D-26 de ' + allocationTitle(a)">
+                              <ul class="pg-ens-l" [attr.aria-label]="'Facturas que salda el X-D-26 ' + d.concepto + ' de ' + allocationTitle(a)">
                                 @for (x of d.aplicaciones; track x.factura) {
                                   <li><span class="comm-num">{{ x.factura }}</span> recibe <span class="comm-num">{{ money(x.aplicado) }}</span> · saldo en Kepler <span class="comm-num">{{ money(x.saldo_antes) }} → {{ money(x.saldo_despues) }}</span></li>
                                 }
                               </ul>
                             }
+                            @for (av of en.avisos; track av) { <p class="pg-x-d pg-ens-err"><i class="pi pi-info-circle" aria-hidden="true"></i> {{ av }}</p> }
                             @if (en.captura; as c) {
                               <p class="pg-ens-c" [class.is-ok]="c.coincide">@if (c.coincide) {Coincide con lo que Tesorería capturó a mano (X-D-26 {{ c.folio }}).} @else {Difiere de lo que Tesorería capturó a mano (X-D-26 {{ c.folio }}): {{ c.diferencias.join(' · ') }}.}</p>
                             }

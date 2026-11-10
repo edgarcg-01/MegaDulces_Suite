@@ -1,7 +1,7 @@
 import type { Knex } from 'knex';
 import type { PaymentCalendarEnsayoKepler } from '@megadulces/contracts';
 import { sqlKeplerPayableId } from '@megadulces/contracts/finance/kepler-payable-key';
-import { armarPagoKepler, motivosParaNoEscribir, type FacturaAPagar, type ProveedorKepler } from './pago-kepler.armador';
+import { armarPagosKepler, conceptoDeFactura, CONCEPTO_GASTOS_GENERALES, motivosParaNoEscribir, type FacturaAPagar, type PlanPorConcepto, type ProveedorKepler } from './pago-kepler.armador';
 import { compararConCaptura, NO_CUBIERTO_POR_EL_ENSAYO, type CapturaKepler } from './ensayo-pago-kepler';
 import { SQL_CIERRE_KEPLER, armarCierres, type FilaCierreKepler } from '../cierre-kepler.sql';
 import { leerValidacionDelDia } from '../validacion-pago.sql';
@@ -38,6 +38,31 @@ SELECT k.oid::text AS oid, k.sucursal, btrim(k.c1) AS almacen, k.acreedor, k.doc
    AND btrim(m.c4::text) = btrim(k.doc_tipo::text) AND btrim(m.c5::text) = btrim(k.doc_sub::text) AND btrim(m.c6) = k.folio
  WHERE k.oid = ANY(?::uuid[])`;
 
+/**
+ * `[PGP.111]` P7: lo que la Suite escribiría (uno o varios X-D-26, uno por concepto) contra lo que Tesorería capturó
+ * (uno o varios). Con uno y uno se comparan directo (así se ve la diferencia de concepto); con más, se parean por
+ * concepto y lo que sobra de un lado se dice.
+ */
+function compararPlanesConCapturas(planes: PlanPorConcepto[], capturas: CapturaKepler[], sinCuenta: boolean) {
+  const dif: string[] = [];
+  if (sinCuenta) dif.push(`Cuenta de tesorería: la Suite no la sabe (el pago no trae cuenta de origen), Tesorería ${capturas[0].cuenta}`);
+  if (planes.length === 1 && capturas.length === 1) {
+    dif.push(...compararConCaptura(planes[0].plan, capturas[0]).diferencias);
+  } else {
+    const libres = [...capturas];
+    for (const p of planes) {
+      const i = libres.findIndex((c) => c.concepto === p.concepto);
+      if (i < 0) { dif.push(`La Suite escribiría un X-D-26 con concepto ${p.concepto} (${p.importe.toFixed(2)}) que Tesorería no capturó así`); continue; }
+      const [c] = libres.splice(i, 1);
+      dif.push(...compararConCaptura(p.plan, c).diferencias.map((d) => `${p.concepto}: ${d}`));
+    }
+    for (const c of libres) dif.push(`Tesorería capturó el X-D-26 ${c.folio} con concepto ${c.concepto || '(vacío)'} que la Suite no escribiría`);
+  }
+  // La cuenta que falta ya se dijo una vez: la que el comparador agrega por documento sale sobrando.
+  const limpias = sinCuenta ? dif.filter((d, k) => k === 0 || !/Cuenta de tesorería/.test(d)) : dif;
+  return { folio: capturas.map((c) => c.folio).join(', '), coincide: limpias.length === 0, diferencias: limpias };
+}
+
 export async function leerEnsayoPagoKepler(trx: Knex | Knex.Transaction, tenantId: string, allocationId: string, hoy: string): Promise<PaymentCalendarEnsayoKepler | null> {
   const a = (await trx.raw(`
     SELECT a.id::text AS id, a.status, a.payment_method, a.bank_account_id::text AS bank_account_id, a.kepler_payment_folio,
@@ -63,7 +88,7 @@ export async function leerEnsayoPagoKepler(trx: Knex | Knex.Transaction, tenantI
     { obligation_source: string; obligation_id: string; aplicado: number; oid: string | null }[];
 
   const vacio = (motivos: string[]): PaymentCalendarEnsayoKepler => ({
-    allocation_id: allocationId, estado: 'bloqueado', motivos, servidor: null, documento: null, captura: null, no_cubierto: [...NO_CUBIERTO_POR_EL_ENSAYO],
+    allocation_id: allocationId, estado: 'bloqueado', motivos, servidor: null, avisos: [], documentos: [], captura: null, no_cubierto: [...NO_CUBIERTO_POR_EL_ENSAYO],
   });
   const oids = items.map((i) => i.oid).filter((x): x is string => !!x);
   if (oids.length !== items.length || !items.length) {
@@ -85,9 +110,9 @@ export async function leerEnsayoPagoKepler(trx: Knex | Knex.Transaction, tenantI
   const filas = (await trx.raw(SQL_CIERRE_KEPLER, [items.filter((i) => i.obligation_source === 'kepler_payable').map((i) => i.obligation_id), tenantId])).rows as FilaCierreKepler[];
   const cierre = armarCierres([{ id: allocationId, lotDate: a.dia, alta: a.alta ?? a.dia }],
     items.map((i) => ({ allocation_id: allocationId, obligation_source: i.obligation_source, obligation_id: i.obligation_id })), filas).get(allocationId);
-  const xd = cierre?.pagos.find((p) => p.tipo === 'transferencia' && p.sucursal === servidor) ?? null;
-  let captura: CapturaKepler | null = null;
-  if (xd) {
+  // `[PGP.111]` P7: Tesorería puede haber capturado UNA transferencia como varios X-D-26 (uno por concepto): se leen todos.
+  const capturas: CapturaKepler[] = [];
+  for (const xd of cierre?.pagos.filter((p) => p.tipo === 'transferencia' && p.sucursal === servidor) ?? []) {
     const h = (await trx.raw(`
       SELECT btrim(c10) AS acreedor, c16::float8 AS importe, btrim(coalesce(c45, '')) AS cuenta, btrim(coalesce(c12, '')) AS concepto,
              coalesce(c81::numeric, 0)::float8 AS iva, coalesce(c84::numeric, 0)::float8 AS ieps
@@ -99,7 +124,7 @@ export async function leerEnsayoPagoKepler(trx: Knex | Knex.Transaction, tenantI
         FROM kepler_ods.kdxf
        WHERE sucursal = ? AND btrim(c1) = ? AND btrim(c4::text) = '26' AND btrim(c5::text) = '1' AND btrim(c6) = ?
        GROUP BY 1`, [servidor, servidor, xd.folio])).rows as { factura: string; aplicado: number }[];
-    if (h) captura = { folio: xd.folio, ...h, aplicaciones: Object.fromEntries(ap.map((x) => [x.factura, Number(x.aplicado)])) };
+    if (h) capturas.push({ folio: xd.folio, ...h, aplicaciones: Object.fromEntries(ap.map((x) => [x.factura, Number(x.aplicado)])) });
   }
 
   // ── El acreedor: catálogo del servidor + datos fiscales de su último pago (como el adaptador).
@@ -123,7 +148,7 @@ export async function leerEnsayoPagoKepler(trx: Knex | Knex.Transaction, tenantI
              OR (? = 'BBAJIO' AND regexp_replace(upper(c2),'[^A-Z]','','g') = 'BAJIO'))`,
     [servidor, digitos, digitos, banco, banco, banco])).rows as { code: string; nombre: string }[];
 
-  const aplicadoReal = (f: { tipo: number; subtipo: number; folio: string }) => captura?.aplicaciones[`${f.tipo}-${f.subtipo}-${f.folio}`] ?? 0;
+  const aplicadoReal = (f: { tipo: number; subtipo: number; folio: string }) => capturas.reduce((s, c) => s + (c.aplicaciones[`${f.tipo}-${f.subtipo}-${f.folio}`] ?? 0), 0);
   const facturas: FacturaAPagar[] = items.map((i) => {
     const k = docDe.get(i.oid as string)!;
     // Con la captura de Tesorería, el saldo de antes de ese pago; si no, el de hoy.
@@ -141,34 +166,37 @@ export async function leerEnsayoPagoKepler(trx: Knex | Knex.Transaction, tenantI
     lot_status: a.lot_status, validacion_estado: validacion?.estado ?? null,
     items: items.map(() => ({ obligation_source: 'kepler_payable', branch_code: servidor, kepler_saldada: false })),
   }));
-  if (captura) motivos.push(`Tesorería ya lo capturó en Kepler (X-D-26 ${captura.folio}): escribirlo otra vez lo duplicaría`);
+  if (capturas.length) motivos.push(`Tesorería ya lo capturó en Kepler (X-D-26 ${capturas.map((c) => c.folio).join(', ')}): escribirlo otra vez lo duplicaría`);
 
   // Sin cuenta propia, en modo comparación se arma con la de Tesorería para poder comparar lo demás;
   // que la Suite no la sabía queda como diferencia (no se esconde).
   const cuentaSuite = cuentas.length === 1 ? cuentas[0].code : '';
-  const armado = armarPagoKepler({
+  const armado = armarPagosKepler({
     sucursal: servidor, fecha: a.paid_bank_date ?? a.dia, hora: '00:00', referencia: String(a.referencia), importe: Number(a.importe),
-    cuentaTesoreria: cuentaSuite || captura?.cuenta || '', destino: a.destination_account_text ?? null, proveedor, facturas,
+    cuentaTesoreria: cuentaSuite || capturas[0]?.cuenta || '', destino: a.destination_account_text ?? null, proveedor, facturas,
   });
   if (!armado.ok) motivos.push(...armado.motivos.filter((m) => !motivos.includes(m)));
-
-  const plan = armado.ok ? armado.plan : null;
+  const planes = armado.ok ? armado.planes : [];
+  // `[PGP.111]` P8 pendiente de Contabilidad: se avisa sin detener (no es un motivo).
+  const avisos = facturas.some((f) => !(f.concepto ?? '').trim() && conceptoDeFactura(f) === CONCEPTO_GASTOS_GENERALES)
+    ? [`Factura de gasto sin concepto: se paga con ${CONCEPTO_GASTOS_GENERALES} «Gastos generales», como lo hace Tesorería (pendiente de que Contabilidad lo confirme)`]
+    : [];
+  const facturaDe = new Map(facturas.map((f) => [`${f.tipo}-${f.subtipo}-${f.folio}`, f]));
   return {
     allocation_id: allocationId,
     estado: motivos.length ? 'bloqueado' : 'listo',
     motivos,
     servidor,
-    documento: plan ? {
+    avisos,
+    documentos: planes.map(({ plan, facturas: ids }) => ({
       fecha: String(plan.kdm1['c9']), acreedor: proveedor.codigo, acreedor_nombre: proveedor.nombre, rfc: proveedor.rfc,
       importe: Number(plan.kdm1['c16']), cuenta_tesoreria: String(plan.kdm1['c45']), cuenta_nombre: cuentas.length === 1 ? cuentas[0].nombre : null,
       concepto: String(plan.kdm1['c12']), referencia: String(plan.kdm1['c11']), iva: Number(plan.kdm1['c81']), ieps: Number(plan.kdm1['c84']),
-      aplicaciones: facturas.map((f) => ({ factura: `${f.tipo}-${f.subtipo}-${f.folio}`, aplicado: r2(f.aplicado), saldo_antes: r2(f.saldo), saldo_despues: r2(f.saldo - f.aplicado) })),
-    } : null,
-    captura: plan && captura ? (() => {
-      const c = compararConCaptura(plan, captura);
-      const dif = cuentaSuite ? c.diferencias : [`Cuenta de tesorería: la Suite no la sabe (el pago no trae cuenta de origen), Tesorería ${captura.cuenta}`, ...c.diferencias];
-      return { folio: captura.folio, coincide: dif.length === 0, diferencias: dif };
-    })() : (captura ? { folio: captura.folio, coincide: false, diferencias: ['La Suite no pudo armar el documento: ver los motivos'] } : null),
+      aplicaciones: ids.map((id) => { const f = facturaDe.get(id)!; return { factura: id, aplicado: r2(f.aplicado), saldo_antes: r2(f.saldo), saldo_despues: r2(f.saldo - f.aplicado) }; }),
+    })),
+    captura: capturas.length
+      ? (planes.length ? compararPlanesConCapturas(planes, capturas, !cuentaSuite) : { folio: capturas.map((c) => c.folio).join(', '), coincide: false, diferencias: ['La Suite no pudo armar el documento: ver los motivos'] })
+      : null,
     no_cubierto: [...NO_CUBIERTO_POR_EL_ENSAYO],
   };
 }
