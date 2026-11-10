@@ -43,6 +43,20 @@ import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tab
 import { BANCOS_CONCILIACION_TABS } from '../bancos-conciliacion-tabs';
 
 /**
+ * `[CB.60]` Una hoja del libro con formato de banco cuyo nombre no es el de ninguna cuenta NO entra
+ * (el servidor la marca «cuenta no registrada — omitido»): se dice con su nombre, no se calla. Así se
+ * perdió «BB 366» (la cuenta es BB 3660) de septiembre a noviembre de 2026 sin que nadie lo viera.
+ */
+export function avisoHojasSinCuenta(res: Pick<ImportResult, 'accounts'>): { summary: string; detail: string } | null {
+  const hojas = (res.accounts ?? []).filter((a) => /cuenta no registrada/i.test(a.note ?? '')).map((a) => `«${a.sheet}»`);
+  if (!hojas.length) return null;
+  return {
+    summary: hojas.length === 1 ? '1 hoja del libro no entró' : `${hojas.length} hojas del libro no entraron`,
+    detail: `${hojas.join(', ')}: su nombre no es el de ninguna cuenta. Renombra la hoja como se llama la cuenta en Bancos › Cuentas (p. ej. «BB 3660») y vuelve a subir el libro.`,
+  };
+}
+
+/**
  * CB.3 — Conciliación bancaria (ADR-033). Reemplaza el workbook Excel: tablero
  * CONCENTRADO (pivote cuenta × grupo), grid de movimientos con reclasificación
  * inline, y lista de cuentas. Surface Operations (denso, quiet-luxury, dark-first).
@@ -558,6 +572,8 @@ export class FinanzasBancosComponent implements OnInit {
     if (ev.name === 'bank-import') {
       const res = ev.result as ImportResult;
       this.toast.add({ severity: 'success', summary: `Importado ${res.period}`, detail: `${res.total} movimientos · ${res.sin_clasificar} sin clasificar`, life: 4000 });
+      const aviso = avisoHojasSinCuenta(res);
+      if (aviso) this.toast.add({ severity: 'warn', sticky: true, ...aviso });
       if (!this.periods().includes(res.period)) this.periods.update((ps) => [res.period, ...ps].sort().reverse());
       this.setPeriod(res.period);
       return;
