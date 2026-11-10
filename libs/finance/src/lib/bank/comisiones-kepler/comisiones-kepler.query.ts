@@ -26,6 +26,8 @@ export type EstadoDia = 'lista' | 'ya_en_kepler' | 'parcial' | 'rechazada';
 export interface CargoPropuesta {
   id: string;
   cuenta: string;
+  /** El texto ORIGINAL del renglón en la descarga del banco (el libro lo reescribe; éste no). */
+  concepto: string;
   fecha: string;
   importe: number;
   tipo: 'comision' | 'iva';
@@ -40,6 +42,8 @@ export interface DiaPropuesta {
   sucursal: string;
   dia_venta: string;
   acreedor: string;
+  /** El banco de la cuenta de sus cargos, por nombre (`finance.bank_accounts.bank`), no el código del acreedor. */
+  banco: string;
   estado: EstadoDia;
   motivos: string[];
   total: number;
@@ -50,7 +54,7 @@ export interface DiaPropuesta {
 }
 
 export interface BloquePorRevisar {
-  deposito: { id: string; cuenta: string; fecha: string; importe: number };
+  deposito: { id: string; cuenta: string; banco: string; fecha: string; importe: number };
   cargos: CargoPropuesta[];
   motivo: string;
   /**
@@ -69,6 +73,8 @@ export interface PropuestaComisiones {
   motivo: string | null;
   desde: string;
   hasta: string;
+  /** La edad del dato: hasta qué día trae la descarga y cuándo se subió el último archivo. */
+  descarga: { hasta: string | null; subida_en: string | null };
   dias: DiaPropuesta[];
   por_revisar: BloquePorRevisar[];
   huerfanos: CargoPropuesta[];
@@ -160,21 +166,26 @@ async function plantillas(db: Db, pares: { sucursal: string; acreedor: string }[
  * compararlos con lo que capturó. El servicio no lo usa.
  */
 export async function leerPropuesta(db: Db, tenantId: string, desde: string, hasta: string, opciones: { armarTodo?: boolean } = {}): Promise<PropuestaComisiones> {
-  const vacia = (medido: boolean, motivo: string | null): PropuestaComisiones => ({
-    medido, motivo, desde, hasta, dias: [], por_revisar: [], huerfanos: [], resumen: { cargos: 0, listos: 0, ya_en_kepler: 0, gasto_capturado_sin_pago: 0, esperando_sucursal: 0, por_revisar: 0, monto_listo: 0 },
+  const vacia = (medido: boolean, motivo: string | null, descarga: PropuestaComisiones['descarga'] = { hasta: null, subida_en: null }): PropuestaComisiones => ({
+    medido, motivo, desde, hasta, descarga, dias: [], por_revisar: [], huerfanos: [], resumen: { cargos: 0, listos: 0, ya_en_kepler: 0, gasto_capturado_sin_pago: 0, esperando_sucursal: 0, por_revisar: 0, monto_listo: 0 },
   });
   const ods = (await db.raw(`SELECT to_regclass('kepler_ods.kdm1') AS kdm1, to_regclass('kepler_ods.kdm6') AS kdm6, to_regclass('analytics.kepler_bank_movements') AS kbm`)).rows[0];
   if (!ods?.kdm1 || !ods?.kdm6 || !ods?.kbm) return vacia(false, 'Sin el ODS de Kepler en esta base: no se puede saber qué está capturado.');
 
-  const lineas: RenglonDescarga[] = (await db.raw(`
-    SELECT l.id::text AS id, ba.account_label AS cuenta, to_char(l.movement_date, 'YYYY-MM-DD') AS fecha, l.seq,
+  const filas: (RenglonDescarga & { banco: string })[] = (await db.raw(`
+    SELECT l.id::text AS id, ba.account_label AS cuenta, ba.bank AS banco, to_char(l.movement_date, 'YYYY-MM-DD') AS fecha, l.seq,
            l.concept AS concepto, l.amount_in::float AS entra, l.amount_out::float AS sale
       FROM finance.bank_statement_lines l JOIN finance.bank_accounts ba ON ba.id = l.bank_account_id
      WHERE l.tenant_id = ? AND l.movement_date BETWEEN ?::date AND ?::date AND ba.account_label IS NOT NULL`, [tenantId, desde, hasta])).rows
-    .map((r: RenglonDescarga) => ({ ...r, seq: Number(r.seq), entra: Number(r.entra), sale: Number(r.sale) }));
+    .map((r: RenglonDescarga & { banco: string }) => ({ ...r, seq: Number(r.seq), entra: Number(r.entra), sale: Number(r.sale) }));
+  const lineas: RenglonDescarga[] = filas;
+  const bancoDe = new Map(filas.map((r) => [r.cuenta, t(r.banco) || r.cuenta]));
+  const conceptoDe = new Map(filas.map((r) => [r.id, t(r.concepto)]));
+  const subida = (await db.raw(`SELECT to_char(max(created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS en FROM finance.bank_statement_files WHERE tenant_id = ?`, [tenantId])).rows[0]?.en ?? null;
+  const descarga = { hasta: filas.length ? filas.map((r) => r.fecha).sort().at(-1)! : null, subida_en: subida };
   const { bloques, huerfanos } = bloquesDeTarjeta(lineas);
   const todos: CargoTarjeta[] = [...bloques.flatMap((b) => b.cargos), ...huerfanos];
-  if (!todos.length) return vacia(true, null);
+  if (!todos.length) return vacia(true, null, descarga);
 
   const cuentas = [...new Set(todos.map((c) => c.cuenta))];
   const fechas = todos.map((c) => c.fecha).sort();
@@ -231,7 +242,7 @@ export async function leerPropuesta(db: Db, tenantId: string, desde: string, has
     .map((c) => ({ id: c.id, importe: c.importe, sucursal: g.sucursal, diaVenta: g.diaVenta }))), renglones);
 
   const vista = (c: CargoTarjeta): CargoPropuesta => ({
-    id: c.id, cuenta: c.cuenta, fecha: c.fecha, importe: c.importe, tipo: c.tipo,
+    id: c.id, cuenta: c.cuenta, concepto: conceptoDe.get(c.id) ?? '', fecha: c.fecha, importe: c.importe, tipo: c.tipo,
     kepler_pago: enKepler.get(c.id)?.folio ?? null, kepler_sucursal: enKepler.get(c.id)?.sucursal ?? null, kepler_gasto: enGasto.get(c.id)?.folio ?? null,
   });
 
@@ -240,7 +251,7 @@ export async function leerPropuesta(db: Db, tenantId: string, desde: string, has
     const cargos = g.cargos.map(vista);
     const capturados = cargos.filter((c) => c.kepler_pago).length;
     const suma = (tipo?: 'iva') => cargos.filter((c) => !tipo || c.tipo === tipo).reduce((s, c) => s + cent(c.importe), 0) / 100;
-    const base: Omit<DiaPropuesta, 'estado' | 'motivos' | 'plan'> = { sucursal: g.sucursal, dia_venta: g.diaVenta, acreedor: g.acreedor, total: suma(), iva: suma('iva'), cargos };
+    const base: Omit<DiaPropuesta, 'estado' | 'motivos' | 'plan'> = { sucursal: g.sucursal, dia_venta: g.diaVenta, acreedor: g.acreedor, banco: bancoDe.get(g.cargos[0]?.cuenta ?? '') ?? g.acreedor, total: suma(), iva: suma('iva'), cargos };
     const p = pl.get(`${g.sucursal}|${g.acreedor}`);
     const paraMedir = (): PlanComisionesKepler | null => {
       if (!opciones.armarTodo || !p) return null;
@@ -258,7 +269,7 @@ export async function leerPropuesta(db: Db, tenantId: string, desde: string, has
     const cargos = bloque.cargos.map(vista);
     const espera = motivo === MOTIVO_SIN_DEPOSITO && antiguedad(bloque.deposito.fecha) <= DIAS_DE_ESPERA && !cargos.some((c) => c.kepler_pago);
     return {
-      deposito: { id: bloque.deposito.id, cuenta: bloque.deposito.cuenta, fecha: bloque.deposito.fecha, importe: bloque.deposito.importe },
+      deposito: { id: bloque.deposito.id, cuenta: bloque.deposito.cuenta, banco: bancoDe.get(bloque.deposito.cuenta) ?? bloque.deposito.cuenta, fecha: bloque.deposito.fecha, importe: bloque.deposito.importe },
       cargos, espera,
       motivo: espera ? 'la sucursal aún no captura este depósito en Kepler (suele tardar de 0 a 5 días)'
         : motivo === MOTIVO_SIN_DEPOSITO ? `${motivo} después de ${Math.round(antiguedad(bloque.deposito.fecha))} días` : motivo,
@@ -272,7 +283,7 @@ export async function leerPropuesta(db: Db, tenantId: string, desde: string, has
   const nGastoSinPago = dias.filter((d) => d.cargos.some((c) => c.kepler_gasto)).reduce((s, d) => s + d.cargos.filter((c) => !c.kepler_pago).length, 0);
   const nEspera = por_revisar.filter((b) => b.espera).reduce((s, b) => s + b.cargos.length, 0);
   return {
-    medido: true, motivo: null, desde, hasta, dias, por_revisar, huerfanos: huerfanos.map(vista),
+    medido: true, motivo: null, desde, hasta, descarga, dias, por_revisar, huerfanos: huerfanos.map(vista),
     resumen: {
       cargos: todos.length, listos: nListos, ya_en_kepler: nKepler, gasto_capturado_sin_pago: nGastoSinPago, esperando_sucursal: nEspera,
       por_revisar: todos.length - nListos - nKepler - nGastoSinPago - nEspera,

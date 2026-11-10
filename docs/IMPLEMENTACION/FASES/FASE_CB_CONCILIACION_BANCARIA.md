@@ -532,6 +532,34 @@ manos va cuenta por cuenta, empezando por BBVA 4885 · D4 va como item de CB (y 
   teclea una persona). **Con seguro:** su primera sentencia aborta hasta que la foto cierre la lista de tablas; las
   catorce tablas que nombra existen en el ODS.
 
+### 9.4 La interfaz: Bancos › Contra Kepler › **Comisiones** (CB.62.5, sólo lee) — firmada por Edgar el 2026-11-10
+
+Los doce pasos de la skill `diseno` (§0a), en corto:
+
+| # | Paso | Decisión |
+|---|---|---|
+| 1 | Propósito | Generar en Kepler las comisiones del banco que nadie ha capturado. **La frase:** ¿qué comisiones del banco faltan en Kepler? |
+| 2 | Quién entra | Finanzas (sube las descargas: 19 subidas en 2 días, `ui_usage`; hoy captura estos gastos a mano). Ver: `FINANCE_BANK_VER`, como todo Bancos. Generar: permiso propio, a decidir (no cuelga de «ver») |
+| 3 | El estado real | 544 cargos en 14 días: 8 listos, 143 con su pago, 115 en días a medias de Finanzas, 260 esperando a la sucursal, 18 por revisar. **El cuello es la captura del depósito en la sucursal** |
+| 4 | Nivel 0 | La respuesta (`$ listos · N cargos`) y UN botón, «Generar en Kepler», apagado y diciendo por qué en pantalla |
+| 5 | Qué no ve | Lo completo en Kepler (sólo su conteo), las pólizas y el IVA proporcional (al abrir un día), los códigos (`GB004`, `07`: se nombran) |
+| 6 | Desglose | Cada cifra de la franja abre su sección; cada día abre su detalle al lado (cargos con el texto del banco, folios de Finanzas, lo que se escribiría y la póliza). Todo sale de `GET comisiones-kepler` |
+| 7 | Accesibilidad | Filas con teclado (Enter), secciones con `aria-expanded`, sucursal por nombre, lo más reciente primero, el motivo escrito en la fila |
+| 8 | Ligas | Viene de la descarga (Estados de cuenta) y del depósito `U-A-5` de la sucursal; va a Kepler (folios), a la póliza de ContPAQi (CP.8.91) y al Cuadre 3 vías |
+| 9 | ¿Le toca? | Vista propia en «Contra Kepler»: Estados de cuenta contesta otra pregunta («¿entró la descarga?») |
+| 10 | Maqueta | La del chat del 2026-11-10, construida igual |
+| 11 | Aceptación | `check:pantalla`: cumple las 10 reglas; cada sección cuenta lo mismo que el resumen de la API (prueba + medido en prod: 8/115/260/18 = resumen) |
+| 12 | Lo que NO resuelve | La escritura (CB.62.3–4) · la sucursal de lo que espera (sin depósito no hay sucursal: aprenderla por terminal, C1) · fechas «BAUCHER 06/11» sin año · el permiso de generar |
+
+**Construida (2026-11-10):** `bancos-comisiones.component.ts` + `bancos-comisiones.ts` (puro: secciones, orden, cifras) +
+la pestaña en `bancos-shared.ts` (número informativo, no aviso: no pide una acción imposible) + la entrada
+`bancos_comisiones` del diccionario de ayuda. La API ganó el banco por nombre, el texto original de cada cargo y la
+edad de la descarga. Pruebas: 8 de la vista (mutante «contar también lo pagado»: 3 rojas) + 5 de la barra.
+`check:pantalla -- finanzas`: 74 pantallas, ninguna falla nueva; `bancos-comisiones` cumple las 10 reglas.
+⚠️ **Sin validación visual**: no se levanta la app en local (regla 3); se ve en prod después de desplegar. La
+respuesta pesa ~191 KB sin comprimir (cada cargo con su texto) y se pide al abrir Bancos para el número de la
+pestaña.
+
 ### 9.3 Lo que falta
 
 | # | Capa | Qué | Criterio |
@@ -540,7 +568,7 @@ manos va cuenta por cuenta, empezando por BBVA 4885 · D4 va como item de CB (y 
 | CB.62.2 | C1 | ✅ **Firmado por Edgar (2026-11-10): cada pago es idéntico al cargo del banco, al centavo.** No se imita el ajuste de Finanzas (IVA del gasto = 16 % de la base y un pago un centavo distinto). El armador ya lo hace así | — |
 | CB.62.3 | C2 | Cerrar la lista de tablas del **alta** con una captura real: póliza, `kdxe` y `kdxf` ya están medidos (§9.2); faltan los acumulados (`kdxg`, `kdc126`, `kdcn26`) y lo que el ODS no replica. **Acordado con Edgar (2026-11-10).** Herramienta lista: `ops/prod/ensayo-pago-kepler/foto-contadores.js` (genérica). Protocolo: (1) elegir un día que Finanzas aún no toque (la propuesta lo dice: estado `lista`) en una sucursal y una hora tranquila (las fotos cuentan TODO lo que escribe esa base); (2) foto; (3) Finanzas captura la solicitud, el gasto y sus pagos de ese día, nada más; (4) foto; (5) comparar y cruzar con los documentos nuevos de `kdm1` del lapso. Luego quitar el seguro de `cb62_comisiones_terminal.sql` y ajustar sus líneas | La lista de tablas cerrada con una captura real |
 | CB.62.4 | C2 | Escritor apagado (interruptor como PGP), `GRANT` en **01–08** (archivo listo, con seguro), ensayo desde `md`, y los **tres candados** de `candadosDelDia` (pago, renglón de gasto, el día) | Ensayo verde en una sucursal; prueba negativa de cada candado |
-| CB.62.5 | C3 | En Estados de cuenta: «N comisiones listas → Generar en Kepler», con lo «por revisar» y su porqué | `diseno` + `check:pantalla` |
+| CB.62.5 | C3 | 🧪 **Construida de sólo lectura (2026-11-10, §9.4):** vista «Comisiones» en Contra Kepler, con el botón apagado. Falta: la línea «esta descarga trae N comisiones → Comisiones» en Estados de cuenta, encender el botón cuando exista CB.62.4, y verla en prod | `diseno` + `check:pantalla` ✅; validación visual en prod |
 | CB.62.6 | — | Póliza de ContPAQi: ya existe (`[CP.8.91]`, banco × mes); falta la firma de contabilidad de `comision_bancaria` → 5200650000 | Firma de contabilidad |
 
 Fuera de alcance por ahora: las cuotas fijas sin depósito (renta de terminal, cuota de afiliación de Santander y
