@@ -38,6 +38,8 @@ Edgar autorizó hacerlo en horario hábil: la carga duró 35 s y Mega Talento mo
 | 14:50 | `aplicar` (segunda pasada) | +3 candidatos · +4 cambios de etapa · +444 mensajes · +3 conversaciones |
 | 14:5x | cuadre contra Mega Talento (sólo lectura) | lo que avanzó allá en el hueco y la carga no actualiza: 3 candidatos y 2 conversaciones, **corregidos**. Queda 1 diferencia aceptada: `esperando_midot` no existe en la Suite, que lo deja `postulada` |
 | 15:0x | `archivos` (segunda pasada) | 4 archivos más |
+| 15:30 | **primer mensaje real** a la Suite | de 15:30 a 16:19: 131 mensajes de 7 candidatos, 130 respuestas, **todas con su id de Meta** |
+| 16:17 | `credenciales` con el token propio | usuario de sistema nuevo de `mega-dulces-rh`, nunca vence; los dos pods lo usan (misma huella). El de `bot-rh` ya se puede revocar |
 
 ⚠️ Un tropiezo, declarado: la corrección de las 2 conversaciones filtró por los 4 últimos dígitos del teléfono y tocó
 2 filas más con la misma terminación. Les escribió los mismos valores que ya tenían (el cuadre posterior da 0
@@ -254,8 +256,8 @@ se quedan con su liga). Esta cifra **no está medida** con las 440 nuevas: la me
 | Qué | Quién | Cuándo |
 |---|---|---|
 | Railway en sólo lectura | David | 2 semanas, luego se apaga |
-| ⛔ **Crear el token de `suite-reclutamiento` (§2.1) y reemplazar el puente:** pegarlo en `~/secrets/wa-rh.token` y correr `credenciales` | quien tenga Meta | **ya**: el token de `bot-rh` quedó expuesto el 10-nov y no se puede revocar mientras la Suite lo use |
-| Revocar el token de `bot-rh`, revisar el usuario `Employee` | David | en cuanto la Suite use el suyo |
+| ✅ Token propio de la Suite en lugar del puente (16:17) | Edgar | hecho. ⚠️ Trae más permisos de los dos de WhatsApp y pasó por un chat: regenerarlo con sólo `whatsapp_business_messaging` y `whatsapp_business_management`, pegarlo con `nano` y correr `credenciales` |
+| ⛔ Revocar el token de `bot-rh` (expuesto el 10-nov), revisar el usuario `Employee` | Edgar / David | **ya**: la Suite ya no lo usa. Si hiciera falta la vuelta atrás, el bot de Railway necesitaría otro token |
 | Rotar las llaves de Mega Talento expuestas el 10-nov (Anthropic, Groq, `JWT_SECRET`, la contraseña de la base…) y la llave de asistencia de prod (`HR_INGEST_KEY` = el `INGESTA_TOKEN` de Mega Talento, junto con los lectores de relojes) | Edgar / David | hoy |
 | Rotar la contraseña de la base de Mega Talento | David | al apagar Railway (`[RH.4]`) |
 | El …2222: si es prueba, se marca como spam en la Suite (se cargó igual) | RH / Edgar | cuando se confirme |
