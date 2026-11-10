@@ -7,6 +7,16 @@
 > ⛔ Este documento es público (el repo lo es): **ningún secreto se escribe aquí**, ni en un chat ni en un correo. Las
 > llaves van de Meta a un archivo `600` en `md` y de ahí al secreto de prod.
 
+> ⭐ **Atajo:** [`ops/prod/rh-corte-reclutamiento.sh`](../../../ops/prod/rh-corte-reclutamiento.sh) hace cada paso de
+> este runbook con un subcomando (`numero`, `credenciales`, `ensayo`, `aplicar`, `archivos`, `verificar`), copia los
+> scripts al mismo pod en que los corre y guarda la salida en `~/` de `md`. Este documento dice el porqué y la reversa.
+>
+> **Revisado en prod el 10-nov (sólo lectura):** `app_runtime` tiene `INSERT` en `talent.candidates`,
+> `job_postings`, `candidate_stage_transitions`, `candidate_events`, `bot_conversations` y `whatsapp.messages`, y
+> `UPDATE` donde la carga de archivos actualiza (`candidates`, `messages`). El RLS de todas es
+> `tenant_id = current_tenant_id()`, que lee el mismo `app.tenant_id` que fija la carga. La fila del número sólo
+> la puede escribir `postgres`.
+
 Todo dato termina en la base de prod que ya existe (`md` / `pg-prod`, base `railway`): en `talent.*` y en
 `whatsapp.messages`. No se copia la base de Mega Talento ni se crea otra.
 
@@ -20,7 +30,7 @@ Todo dato termina en la base de prod que ya existe (`md` / `pg-prod`, base `rail
 | API desplegada | `6a236ebf0` (de hoy) | ya trae el módulo de RH y el bot de reclutamiento |
 | Migraciones del corte | las 7 aplicadas (`20261012155411` … `20261014141356`, `20261109110836`) | no hay que aplicar nada |
 | Mensajes de reclutamiento en prod | 0 | la carga empieza de cero |
-| `whatsapp.phone_number_tenant_map` | sólo el número de prueba de Ventas (`1256572530868591`, `commerce`) | **falta el número de RH** (§2.3) |
+| `whatsapp.phone_number_tenant_map` | sólo el número de prueba de Ventas (`1256572530868591`, `commerce`) | ✅ **§2.3 hecho el 10-nov** (`numero`): `1202633676268668 · recruitment` |
 | WhatsApp de Ventas en prod | 41 mensajes en total, el último del **27-jul**, 0 en 30 días | nadie lo usa: sus variables pueden pasar a RH (§1) |
 | `GET /api/webhooks/whatsapp` con token falso | **403** | el webhook está montado y el proveedor es Meta (el simulador habría aceptado) |
 
