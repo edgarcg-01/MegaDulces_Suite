@@ -1,7 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 2320 KB, 13951 líneas, 76 secciones.
-> **Índice navegable** — 2323 KB, 13951 líneas, 76 secciones.
+> **Índice navegable** — 2322 KB, 13951 líneas, 76 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -12,7 +11,6 @@
 | 97 | 193 | 207 | 📊 Estado global de fases |
 | 194 | 220 | 1 | 🚦 Estado por item (granular) |
 | 221 | 3597 | 493 | 🎯 EN PROGRESO |
-| 221 | 3597 | 494 | 🎯 EN PROGRESO |
 | 3614 | 3651 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
 | 3652 | 3685 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
 | 3686 | 3770 | 6 | GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código) |

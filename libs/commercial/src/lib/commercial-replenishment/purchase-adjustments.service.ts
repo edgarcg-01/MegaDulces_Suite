@@ -77,7 +77,7 @@ async function notasDeProveedor(trx: Knex.Transaction, desde: string | null | un
   let fecha = '';
   if (desde) { fecha += ' AND n.fecha >= ?::date'; binds.push(desde); }
   if (hasta) { fecha += ' AND n.fecha <= ?::date'; binds.push(hasta); }
-  const res: any = await trx.raw(
+  const res = await trx.raw<{ rows: NotaProveedorFila[] }>(
     `SELECT n.proveedor_code,
             COALESCE(sum(n.total) FILTER (WHERE n.grupo = 'comercial'), 0)::numeric AS desc_nota,
             count(*) FILTER (WHERE n.grupo = 'comercial')::int AS n_nota,
@@ -88,8 +88,14 @@ async function notasDeProveedor(trx: Knex.Transaction, desde: string | null | un
       GROUP BY n.proveedor_code`,
     binds,
   );
-  return (res.rows || res) as Array<{ proveedor_code: string | null; desc_nota: string; n_nota: number; nota_sin_clasificar: string; n_sin_clasificar: number }>;
+  return res.rows;
 }
+
+/** Una fila de `notasDeProveedor` tal como llega del driver (los `numeric` vienen como texto). */
+interface NotaProveedorFila { proveedor_code: string | null; desc_nota: string; n_nota: number; nota_sin_clasificar: string; n_sin_clasificar: number }
+
+/** `[RE.67]` Compras por proveedor (sin la copia del CEDIS), tal como llegan del driver. */
+interface CompraProveedorFila { proveedor_code: string | null; nombre: string | null; compras: string }
 
 @Injectable()
 export class PurchaseAdjustmentsService {
@@ -1200,7 +1206,7 @@ export class PurchaseAdjustmentsService {
       // resta) y compras SIN la copia del CEDIS de una entrada de sucursal: contada dos veces inflaba las
       // compras $11.2 M desde agosto (281 copias) y bajaba el % de descuento.
       const nota = await notasDeProveedor(trx, q.date_from, q.date_to);
-      const comp: any[] = await trx('analytics.erp_goods_receipts').where('tenant_id', tenantId).whereNull('dup_of_folio').modify(byDate('receipt_date'))
+      const comp: CompraProveedorFila[] = await trx('analytics.erp_goods_receipts').where('tenant_id', tenantId).whereNull('dup_of_folio').modify(byDate('receipt_date'))
         .groupBy('proveedor_code').select('proveedor_code', trx.raw('max(proveedor_nombre) AS nombre'), trx.raw('COALESCE(sum(monto),0)::numeric AS compras'));
 
       const map = new Map<string, any>();
@@ -1211,7 +1217,7 @@ export class PurchaseAdjustmentsService {
         if (!e.proveedor_nombre && nombre) e.proveedor_nombre = nombre;
         return e;
       };
-      for (const r of comp) { const e = get(r.proveedor_code, r.nombre); e.compras = Number(r.compras) || 0; }
+      for (const r of comp) { const e = get(r.proveedor_code, r.nombre ?? undefined); e.compras = Number(r.compras) || 0; }
       for (const r of pay) { const e = get(r.proveedor_code, r.nombre); e.desc_pago = Number(r.desc_pago) || 0; }
       for (const r of nota) { const e = get(r.proveedor_code); e.desc_nota = Number(r.desc_nota) || 0; e.nota_sin_clasificar = Number(r.nota_sin_clasificar) || 0; }
 
