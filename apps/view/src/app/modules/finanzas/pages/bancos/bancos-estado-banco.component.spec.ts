@@ -4,7 +4,7 @@ import { provideZonelessChangeDetection, signal } from '@angular/core';
 import { of, throwError } from 'rxjs';
 import { MessageService } from 'primeng/api';
 import { BancosEstadoBancoComponent } from './bancos-estado-banco.component';
-import { ArchivoEstadoBanco, ArchivosDelBanco, BankService, RevisionEstadoBanco } from '../../bank.service';
+import { ArchivoEstadoBanco, ArchivosDelBanco, BankService, ContraElLibro, CuentaContraElLibro, RevisionEstadoBanco } from '../../bank.service';
 import { AuthService } from '../../../../core/services/auth.service';
 import { Permission } from '../../../../core/constants/permissions';
 
@@ -35,7 +35,17 @@ function revision(p: Partial<RevisionEstadoBanco>): RevisionEstadoBanco {
 }
 const LISTO = (alias = 'BB 1111', id = 'a') => revision({ cuenta: { id, alias }, como_se_fijo: 'saldo_continuo', motivos_bloqueo: [], puede_confirmar: true });
 
+const resumenC = (p: Partial<CuentaContraElLibro['resumen']>) => ({ cuadra: 0, difiere: 0, sin_libro: 0, abierto: 1, solo_banco: 0, solo_libro: 0, monto_solo_banco: 0, monto_solo_libro: 0, ...p });
+const CONTRA: ContraElLibro = { desde: '2026-09-25', cuentas: [
+  { id: 'a', alias: 'BB 1111', desde: '2026-11-01', hasta: '2026-11-03', dias: [], resumen: resumenC({ cuadra: 2 }) },
+  { id: 'c', alias: 'BBVA 3333', desde: '2026-11-01', hasta: '2026-11-03', resumen: resumenC({ cuadra: 1, difiere: 1, solo_banco: 1 }), dias: [
+    { fecha: '2026-11-02', veredicto: 'difiere', movimientos_banco: 3, renglones_libro: 2, pareados: 2, fecha_distinta: 0, cierre_banco: 100, cierre_libro: 103.51,
+      solo_banco: [{ id: 'x', fecha: '2026-11-02', lado: 'sale', importe: 3.51, concepto: 'COMISION' }], solo_libro: [] }] },
+  { id: 'd', alias: 'BTE 4444', desde: '2026-11-03', hasta: '2026-11-03', dias: [], resumen: resumenC({}) },
+] };
+
 function montar(opts: {
+  contra?: ContraElLibro | Error;
   datos?: ArchivosDelBanco;
   revisar?: (nombre: string, id?: string | null) => RevisionEstadoBanco;
   confirmar?: (nombre: string) => unknown;
@@ -44,6 +54,7 @@ function montar(opts: {
   const guardados: unknown[][] = [];
   const api = {
     archivosDelBanco: () => of(opts.datos ?? DATOS),
+    contraElLibro: () => (opts.contra instanceof Error ? throwError(() => opts.contra) : of(opts.contra ?? { desde: '2026-09-25', cuentas: [] })),
     revisarEstadoBanco: (_b: string, n: string, id?: string | null) => { llamadas.push([n, id]); return of(opts.revisar!(n, id)); },
     confirmarEstadoBanco: (...args: unknown[]) => {
       guardados.push(args);
@@ -136,5 +147,28 @@ describe('BancosEstadoBancoComponent', () => {
     await soltar('x.xlsx');
     expect(cmp.veredicto(cmp.lote()[0]).texto).toContain('Ya se subió');
     expect(cmp.listos().length).toBe(0);
+  });
+
+  it('[CB.60] contra el libro: lo que difiere va primero, dice cuántas cuentas cuadran y nombra lo que sobra', () => {
+    const { cmp, fx, el } = montar({ contra: CONTRA });
+    expect(cmp.cuentasContra().map((c) => c.alias)).toEqual(['BBVA 3333', 'BB 1111', 'BTE 4444']);
+    expect(cmp.estadoContra(cmp.cuentasContra()[0]).texto).toBe('difiere en 1 día');
+    expect(cmp.estadoContra(cmp.cuentasContra()[2]).texto).toBe('sin días cerrados todavía');
+    const item = cmp.resumen().find((m) => m.label === 'Cuadran con el libro');
+    expect(item?.value).toBe('1 de 2'); // BTE 4444 no tiene días cerrados: no cuenta ni a favor ni en contra
+    expect(item?.sub).toContain('BBVA 3333');
+    const boton = el.querySelector('button[aria-label="Ver los días de BBVA 3333"]') as HTMLButtonElement | null;
+    expect(boton).not.toBeNull();
+    boton!.click();
+    fx.detectChanges();
+    expect(el.textContent).toContain('Sólo en el banco: sale');
+  });
+
+  it('[negativa] si la comparación no se pudo leer, se dice y no aparece ningún «cuadran»', () => {
+    const { cmp, el } = montar({ contra: Object.assign(new Error('500'), { status: 500 }) });
+    expect(cmp.cuentasContra()).toEqual([]);
+    expect(cmp.resumen().some((m) => m.label === 'Cuadran con el libro')).toBe(false);
+    expect(cmp.contraError()).toBeTruthy();
+    expect(el.textContent).not.toContain('Contra el libro');
   });
 });
