@@ -17,6 +17,7 @@ import {
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { RenameUserDto } from './dto/rename-user.dto';
 import { RequireAuthGuard } from '@megadulces/platform-core';
 import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions } from '@megadulces/platform-core';
@@ -29,7 +30,7 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
-import type { MeZonaPeriodo } from '@megadulces/contracts';
+import type { MeZonaPeriodo, RenombreDeUsuario } from '@megadulces/contracts';
 
 /**
  * Lo que este controller usa de `req.user`.
@@ -515,6 +516,28 @@ export class UsersController {
       { sub: user.sub, username: user.username },
       body?.motivo ?? null,
     );
+  }
+
+  /**
+   * `[AU.34]` — Cambia el username, sólo si nada lo usa como llave (ver `username-history.ts`).
+   * Cierra las sesiones de la cuenta y queda en la bitácora con el antes, el después y el motivo.
+   *
+   * Permiso: `USUARIOS_PASSWORDS`, el mismo de cerrar sesiones y resetear contraseña, por la
+   * misma razón que `revoke-sessions`: cambia con qué entra otra persona, y esa llave ya vive en
+   * los roles que corresponden — no hay un permiso nuevo que repartir.
+   */
+  @Post(':id/rename')
+  @RequirePermissions(Permission.USUARIOS_PASSWORDS)
+  @ApiOperation({
+    summary:
+      'Cambia el username si no aparece como llave en ninguna tabla; cierra sus sesiones y queda en identity.user_events.',
+  })
+  rename(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: RenameUserDto,
+    @ReqUser() user: AuthUser,
+  ): Promise<RenombreDeUsuario> {
+    return this.usersService.rename(id, body.username, body.motivo, { sub: user.sub, username: user.username });
   }
 
   /** `[ID.9]` — Bitácora del usuario: quién le cambió qué y cuándo. */
