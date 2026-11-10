@@ -66,15 +66,22 @@ case "${1:-}" in
     echo "respaldo: ~/secrets/prod-env.respaldo-$SELLO.yaml (la reversa)"
     largo=$(kubectl -n prod get secret prod-env -o jsonpath='{.data.WHATSAPP_VERIFY_TOKEN}' | base64 -d | wc -c)
     [ "$largo" -gt 0 ] || echo "⚠️  WHATSAPP_VERIFY_TOKEN está vacío: sin él Meta no verifica el webhook (agregarlo antes de §3.4)"
+    # `[RH.3.5c]` ya está desplegado: la app de RH entra con SUS variables y las de Ventas no se tocan. Si el código del
+    # pod no las conoce, cargarlas no serviría de nada: no sigo.
+    for p in $(kubectl get pods -n prod -l app=api -o jsonpath='{.items[*].metadata.name}'); do
+      kubectl exec -n prod "$p" -c api -- grep -q WHATSAPP_RECRUITMENT_APP_SECRET /app/dist/apps/api/main.js \
+        || { echo "⛔ el pod $p no trae [RH.3.5c] (WHATSAPP_RECRUITMENT_*): desplegar primero"; exit 1; }
+    done
     kubectl -n prod patch secret prod-env --type merge -p "{\"stringData\":{\
-\"WHATSAPP_APP_SECRET\":\"$(tr -d '\n' < ~/secrets/wa-rh.secret)\",\
-\"WHATSAPP_ACCESS_TOKEN\":\"$(tr -d '\n' < ~/secrets/wa-rh.token)\"}}" > /dev/null
+\"WHATSAPP_RECRUITMENT_APP_SECRET\":\"$(tr -d '\n' < ~/secrets/wa-rh.secret)\",\
+\"WHATSAPP_RECRUITMENT_ACCESS_TOKEN\":\"$(tr -d '\n' < ~/secrets/wa-rh.token)\",\
+\"WHATSAPP_RECRUITMENT_PHONE_NUMBER_ID\":\"$NUMERO_RH\"}}" > /dev/null
     kubectl -n prod rollout restart deploy/api && kubectl -n prod rollout status deploy/api
     pod=$(api)
     echo "— la clave (debe decir mega-dulces-rh):"
-    kubectl exec -n prod "$pod" -c api -- node -e "fetch('https://graph.facebook.com/v21.0/$APP_RH?fields=name&access_token=$APP_RH%7C'+process.env.WHATSAPP_APP_SECRET).then(r=>r.text()).then(console.log)"
+    kubectl exec -n prod "$pod" -c api -- node -e "fetch('https://graph.facebook.com/v21.0/$APP_RH?fields=name&access_token=$APP_RH%7C'+process.env.WHATSAPP_RECRUITMENT_APP_SECRET).then(r=>r.text()).then(console.log)"
     echo "— el token (debe decir el +52 1 352 123 1708):"
-    kubectl exec -n prod "$pod" -c api -- node -e "fetch('https://graph.facebook.com/v21.0/$NUMERO_RH?fields=display_phone_number,verified_name',{headers:{Authorization:'Bearer '+process.env.WHATSAPP_ACCESS_TOKEN}}).then(r=>r.text()).then(console.log)"
+    kubectl exec -n prod "$pod" -c api -- node -e "fetch('https://graph.facebook.com/v21.0/$NUMERO_RH?fields=display_phone_number,verified_name',{headers:{Authorization:'Bearer '+process.env.WHATSAPP_RECRUITMENT_ACCESS_TOKEN}}).then(r=>r.text()).then(console.log)"
     ;;
 
   ensayo)  carga | tee ~/rh-reclutamiento-ensayo-$SELLO.txt ;;
