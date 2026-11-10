@@ -1,4 +1,4 @@
-import { AJUSTES_KEPLER_POR_ENTRADA_SQL, AJUSTES_KEPLER_SQL, OPERATIVAS_CATS, categoriaAjusteSql, grupoAjusteSql } from './ajustes-kepler';
+import { AJUSTES_KEPLER_POR_ENTRADA_SQL, AJUSTES_KEPLER_SQL, NOTAS_KEPLER_DOC_SQL, OPERATIVAS_CATS, categoriaAjusteSql, grupoAjusteSql } from './ajustes-kepler';
 import { COMERCIAL_CATS } from './receipt-match';
 
 /**
@@ -39,5 +39,22 @@ describe('[RE.66] el traslado al CEDIS no es rebaja', () => {
   it('las notas de la copia del CEDIS se atribuyen a la entrada original de sucursal', () => {
     expect(AJUSTES_KEPLER_SQL).toMatch(/COALESCE\(c\.dup_of_sucursal, cls\.sucursal\) AS sucursal/);
     expect(AJUSTES_KEPLER_SQL).toMatch(/LEFT JOIN copia c ON cls\.sucursal = '00' AND c\.cedis_folio = cls\.folio/);
+  });
+});
+
+describe('[RE.67] NOTAS_KEPLER_DOC_SQL: una fila por nota, para Costo por proveedor', () => {
+  it('no trae «?»: comercial le agrega parámetros de fecha por trx.raw y un «?» interno los correría', () => {
+    expect(sinSignoDeInterrogacion(NOTAS_KEPLER_DOC_SQL)).toBe(true);
+  });
+  it('el traslado sale del mismo primitivo que la columna Ajuste (no de un segundo criterio)', () => {
+    expect(NOTAS_KEPLER_DOC_SQL).toContain(AJUSTES_KEPLER_SQL);
+    expect(NOTAS_KEPLER_DOC_SQL).toContain(`WHERE grupo = 'traslado'`);
+    expect(NOTAS_KEPLER_DOC_SQL).toContain(`m.c43 IS DISTINCT FROM 'C'`);
+  });
+  it('NEGATIVA: una nota sin motivo NO es comercial — el importer la inventaba como «descuento_comercial»', () => {
+    // grupoAjusteSql: categoría nula de una 55 cae al ELSE, que es sin_clasificar, nunca comercial.
+    const g = grupoAjusteSql('c.tipo', 'c.categoria');
+    expect(g).toMatch(/ELSE 'sin_clasificar'/);
+    expect(g).not.toMatch(/IS NULL THEN 'comercial'/);
   });
 });

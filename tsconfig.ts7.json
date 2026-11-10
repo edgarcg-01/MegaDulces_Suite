@@ -49,6 +49,7 @@
       // `ts7-paths` lo marcó. Sin esto `tsgo` no resuelve el import y sale TS2307 "Cannot find
       // module", que se lee como un error del código y no lo es.
       "@megadulces/contracts/finance/kepler-payable-key": ["./libs/contracts/src/finance/kepler-payable-key.contract.ts"],
+      "@megadulces/contracts/finance/ajustes-kepler": ["./libs/contracts/src/finance/ajustes-kepler.contract.ts"],
       "@megadulces/contracts/finance/pronto-pago-ventana": ["./libs/contracts/src/finance/pronto-pago-ventana.contract.ts"],
       "@megadulces/contracts/finance/clabe": ["./libs/contracts/src/finance/clabe.contract.ts"],
       "@megadulces/contracts/finance/validacion-pago": ["./libs/contracts/src/finance/validacion-pago.contract.ts"],
