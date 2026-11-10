@@ -78,6 +78,14 @@ describe('[CB.60] compararContraElLibro', () => {
     });
   });
 
+  it('un renglón del banco en $0.00 (comisión exenta de BanBajío) no se compara ni rompe el cierre; se declara', () => {
+    const banco = [...BANCO.slice(0, 2), r('2026-10-01', 0, 0, 1300, 'Comisión por Transferencia - Envío'), BANCO[4]];
+    const libro = [r('2026-10-01', 500, 0, 1500), r('2026-10-01', 0, 200, 1300), r('2026-10-03', 100, 0, 1400)];
+    const c = compararContraElLibro(banco, libro);
+    expect(c.dias[0]).toMatchObject({ veredicto: 'cuadra', solo_banco: [] });
+    expect(c.renglones_en_cero).toBe(1);
+  });
+
   describe('cierre que no se puede afirmar (el banco asienta fuera de orden)', () => {
     // Un cargo fechado el 02 cuyo saldo viene ANTES que el resto del día: dos «finales» en la cadena.
     const banco = [
@@ -100,6 +108,27 @@ describe('[CB.60] compararContraElLibro', () => {
     it('con cierre afirmable se sigue juzgando por el cierre', () => {
       const libro = [r('2026-10-01', 500, 0, 1500), r('2026-10-01', 0, 200, 1300)];
       expect(compararContraElLibro(BANCO, libro).dias[0]).toMatchObject({ veredicto: 'cuadra', cuadre_por: 'cierre' });
+    });
+  });
+
+  describe('[CB.61] sucursal sin el libro', () => {
+    // Cuatro días de la misma terminal: el 01 y el 02 enseñan (se cree a partir de 2 vistas), el 03 y el 04 se deducen.
+    const venta = (fecha: string, saldo: number) => ({ ...r(fecha, 100, 0, saldo, 'VENTAS DEBITO/100000001 TERMINALES PUNTO DE VENTA') });
+    const conS = (x: RenglonComparable, sucursal: string | null) => ({ ...x, sucursal });
+
+    it('deduce con lo aprendido de días ANTERIORES y lo compara con la S del libro', () => {
+      const banco = [venta('2026-10-01', 1100), venta('2026-10-02', 1200), venta('2026-10-03', 1300), venta('2026-10-04', 1400)];
+      const libro = [conS(venta('2026-10-01', 1100), '40'), conS(venta('2026-10-02', 1200), '40'), conS(venta('2026-10-03', 1300), '40'), conS(venta('2026-10-04', 1400), '42')];
+      const s = compararContraElLibro(banco, libro).sucursales;
+      // 01 y 02: aún no hay 2 vistas → sin señal · 03: coincide · 04: la terminal dice 40 y el libro 42 → distinta
+      expect(s).toMatchObject({ con_sucursal_libro: 4, deducidas: 2, coinciden: 1, sin_senal: 2 });
+      expect(s.distintas).toEqual([expect.objectContaining({ fecha: '2026-10-04', banco: '40', por: 'terminal', libro: '42' })]);
+    });
+
+    it('[negativa] no aprende del mismo día: un día solo nunca se confirma a sí mismo', () => {
+      const banco = [venta('2026-10-01', 1100), venta('2026-10-01', 1200)];
+      const libro = [conS(venta('2026-10-01', 1100), '40'), conS(venta('2026-10-01', 1200), '40')];
+      expect(compararContraElLibro(banco, libro).sucursales).toMatchObject({ con_sucursal_libro: 2, deducidas: 0, sin_senal: 2 });
     });
   });
 

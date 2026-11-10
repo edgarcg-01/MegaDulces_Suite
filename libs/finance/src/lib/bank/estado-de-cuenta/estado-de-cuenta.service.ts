@@ -321,7 +321,7 @@ export class EstadoDeCuentaService {
     return this.tk.run(async (trx) => {
       const banco = await trx('finance.bank_statement_lines')
         .where('movement_date', '>=', desde)
-        .select('id', 'bank_account_id', trx.raw("to_char(movement_date, 'YYYY-MM-DD') as fecha"), 'amount_in', 'amount_out', 'running_balance', 'concept as concepto');
+        .select('id', 'bank_account_id', trx.raw("to_char(movement_date, 'YYYY-MM-DD') as fecha"), 'amount_in', 'amount_out', 'running_balance', 'concept as concepto', 'reference as referencia');
       const ids = Array.from(new Set(banco.map((b: { bank_account_id: string }) => b.bank_account_id)));
       if (!ids.length) return { desde, cuentas: [] };
       // [CB.61] Cada renglón del libro trae su categoría y el documento de Kepler con que casó (el de
@@ -343,7 +343,7 @@ export class EstadoDeCuentaService {
         .whereIn('bm.bank_account_id', ids).whereNull('bm.deleted_at')
         .andWhere('bm.movement_date', '>=', trx.raw("?::date - 3", [desde]))
         .select('bm.id', 'bm.bank_account_id', trx.raw("to_char(bm.movement_date, 'YYYY-MM-DD') as fecha"), 'bm.amount_in', 'bm.amount_out',
-          'bm.running_balance', 'bm.concept as concepto', 'mc.code as categoria', 'k.doc_tipo', 'k.entidad');
+          'bm.running_balance', 'bm.concept as concepto', 'mc.code as categoria', 'k.doc_tipo', 'k.entidad', 'bm.sucursal');
       const reglas = compileRules(await trx('finance.bank_classify_rules').where({ active: true })
         .select('priority', 'match_type', 'match_code', 'match_concept', 'category_code'));
       const reglaDelLibro = (concepto: string) => classifyWith(reglas, '', '', concepto);
