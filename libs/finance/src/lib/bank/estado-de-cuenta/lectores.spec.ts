@@ -208,6 +208,15 @@ describe('[CB.57] lo que no es estado de cuenta', () => {
     expect(describirArchivo(Buffer.from(''))).toBe('está vacío');
   });
 
+  it('[negativa] la consulta de BanBajío en .txt NO se lee (duplicaría con el .xlsx) y el mensaje dice qué bajar', async () => {
+    // Forma de la muestra real del 2026-11-10; nombre, número e importes inventados.
+    const txt = Buffer.from(['PERSONA DE PRUEBA,11112222,Conecta BanBajio,01,10-Nov-2026,09:36:48,Mes Actual,TODOS,01-Nov-2026 al 30-Nov-2026,,1,3175.35,0.00',
+      '#,Fecha Movimiento,Hora,Recibo,Descripción,Cargos,Abonos,Saldo',
+      '1,10-Nov-2026,08:26:54,100,Compra - Disposicion por POS por (3175.35) mxn en GASOLINERA | Recibo # 100,3175.35,,1000.00'].join('\r\n'), 'utf8');
+    expect(await leerEstadoDeCuenta(txt)).toBeNull();
+    expect(describirArchivo(txt)).toBe('es la consulta de BanBajío en .txt: bájala en Excel (.xlsx), que es la que se lee');
+  });
+
   it('el libro «CUENTAS» (xlsx sin la hoja de BanBajío) se reporta, no se lee como banco', async () => {
     const wb = new ExcelJS.Workbook();
     wb.addWorksheet('BTE 7744').getRow(1).values = [null, 'FECHA', 'M', 'S', 'C', 'PROVEEDOR', 'RETIRO', 'DEPOSITO', 'SALDO'];

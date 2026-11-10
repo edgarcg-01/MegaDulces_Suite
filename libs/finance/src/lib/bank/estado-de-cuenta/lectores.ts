@@ -125,6 +125,10 @@ export function describirArchivo(buf: Buffer): string {
   if (buf.length >= 4 && buf.subarray(0, 4).toString('latin1') === '%PDF') return 'es un PDF';
   if (buf.length >= 2 && buf[0] === 0x50 && buf[1] === 0x4b) return 'es un Excel (.xlsx) sin la hoja de movimientos de BanBajío';
   const primera = (lineas(aTexto(buf)).find((l) => l.trim() !== '') ?? '').replace(/[^\x20-\x7EÀ-ÿ]/g, ' ').trim();
+  // La misma consulta de BanBajío bajada en .txt NO se lee a propósito (2026-11-10): escribe los
+  // importes del concepto sin comas de miles («(3175.35)» contra «(3,175.35)» del .xlsx), así que
+  // subir los dos formatos metería dos veces cada movimiento de $1,000 o más (119 de 185 en la muestra).
+  if (primera.toUpperCase().includes(',CONECTA BANBAJIO,')) return 'es la consulta de BanBajío en .txt: bájala en Excel (.xlsx), que es la que se lee';
   return primera ? `empieza con «${primera.slice(0, 70)}»` : 'está vacío';
 }
 
