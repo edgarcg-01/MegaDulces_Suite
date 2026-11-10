@@ -99,7 +99,9 @@ case "${1:-}" in
       SELECT 'candidatos' que, count(*) FROM talent.candidates
       UNION ALL SELECT 'conversaciones del bot', count(*) FROM talent.bot_conversations
       UNION ALL SELECT 'mensajes de reclutamiento', count(*) FROM whatsapp.messages WHERE flow = 'recruitment'
-      UNION ALL SELECT 'mensajes de hoy (Suite)', count(*) FROM whatsapp.messages WHERE flow = 'recruitment' AND created_at::date = current_date AND payload->>'origen' IS DISTINCT FROM 'mega_talento'
+      -- los cargados de Mega Talento no traen phone_number_id; los que recibe o manda la Suite, sí
+      UNION ALL SELECT 'mensajes que recibió la Suite', count(*) FROM whatsapp.messages WHERE flow = 'recruitment' AND direction = 'in' AND phone_number_id IS NOT NULL
+      UNION ALL SELECT 'respuestas que mandó la Suite', count(*) FROM whatsapp.messages WHERE flow = 'recruitment' AND direction = 'out' AND phone_number_id IS NOT NULL
       UNION ALL SELECT 'mensajes con archivo en el bucket', count(*) FROM whatsapp.messages WHERE flow = 'recruitment' AND payload ? 'storage_key';"
     ;;
 

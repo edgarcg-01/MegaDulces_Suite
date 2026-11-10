@@ -22,6 +22,32 @@ Todo dato termina en la base de prod que ya existe (`md` / `pg-prod`, base `rail
 
 ---
 
+## ✅ Bitácora del corte — 10-nov-2026 (lo corrió Claude con la autorización de Edgar)
+
+Edgar autorizó hacerlo en horario hábil: la carga duró 35 s y Mega Talento movía de 2 a 5 teléfonos por hora.
+
+| Hora | Paso | Resultado |
+|---|---|---|
+| 10:0x | `numero` (Edgar) | `1202633676268668 · recruitment` |
+| 11:44 | `ensayo` | 40 s, deshecho: los números de abajo, 0 mensajes rechazados |
+| 11:54 | `aplicar` | 2,883 candidatos · 26 vacantes · 1,788 cambios de etapa (1 huérfano fuera) · 256 eventos · 221,517 mensajes · 2,719 conversaciones |
+| 11:55 | `archivos` | 1,216 s: 6,215 de 6,248 al bucket (1.6 GB) · 33 caídas (404), se quedan con su liga · 6,383 documentos del expediente con llave en 1,976 candidatos · 4,979 mensajes con archivo |
+| 14:47 | `credenciales` | Meta contestó `mega-dulces-rh` y el +52 1 352 123 1708. **Token PUENTE:** el de `bot-rh` (§4) |
+| 14:48 | firma contra el webhook público | real → aceptada · falsa → «Firma de webhook inválida» · sin firma → «ausente» (el 200 es siempre; el veredicto está en el log) |
+| 14:49:28 | **webhook a la Suite** (Graph API, `POST /{app}/subscriptions`) | lo de antes quedó en `~/rh-webhook-antes-*.json` en `md` |
+| 14:50 | `aplicar` (segunda pasada) | +3 candidatos · +4 cambios de etapa · +444 mensajes · +3 conversaciones |
+| 14:5x | cuadre contra Mega Talento (sólo lectura) | lo que avanzó allá en el hueco y la carga no actualiza: 3 candidatos y 2 conversaciones, **corregidos**. Queda 1 diferencia aceptada: `esperando_midot` no existe en la Suite, que lo deja `postulada` |
+| 15:0x | `archivos` (segunda pasada) | 4 archivos más |
+
+⚠️ Un tropiezo, declarado: la corrección de las 2 conversaciones filtró por los 4 últimos dígitos del teléfono y tocó
+2 filas más con la misma terminación. Les escribió los mismos valores que ya tenían (el cuadre posterior da 0
+diferencias); sólo cambió su `updated_at`.
+
+**Vuelta atrás del webhook:** `POST /1325462126340938/subscriptions` con el `callback_url` de
+`~/rh-webhook-antes-*.json` y el token de verificación **del bot** (está en las variables del bot en Railway).
+
+---
+
 ## 0. Dónde estamos (medido en prod, sólo lectura, 10-nov 09:00)
 
 | Qué | Medido | Qué significa |
@@ -228,7 +254,9 @@ se quedan con su liga). Esta cifra **no está medida** con las 440 nuevas: la me
 | Qué | Quién | Cuándo |
 |---|---|---|
 | Railway en sólo lectura | David | 2 semanas, luego se apaga |
-| Revocar el token de `bot-rh`, revisar el usuario `Employee` | David | al apagar Railway |
+| ⛔ **Crear el token de `suite-reclutamiento` (§2.1) y reemplazar el puente:** pegarlo en `~/secrets/wa-rh.token` y correr `credenciales` | quien tenga Meta | **ya**: el token de `bot-rh` quedó expuesto el 10-nov y no se puede revocar mientras la Suite lo use |
+| Revocar el token de `bot-rh`, revisar el usuario `Employee` | David | en cuanto la Suite use el suyo |
+| Rotar las llaves de Mega Talento expuestas el 10-nov (Anthropic, Groq, `JWT_SECRET`, la contraseña de la base…) y la llave de asistencia de prod (`HR_INGEST_KEY` = el `INGESTA_TOKEN` de Mega Talento, junto con los lectores de relojes) | Edgar / David | hoy |
 | Rotar la contraseña de la base de Mega Talento | David | al apagar Railway (`[RH.4]`) |
 | El …2222: si es prueba, se marca como spam en la Suite (se cargó igual) | RH / Edgar | cuando se confirme |
 | Desplegar `[RH.3.5c]` y separar las variables de RH de las de Ventas | Edgar | antes de que Ventas vuelva a usar WhatsApp |
