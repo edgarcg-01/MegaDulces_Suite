@@ -9,7 +9,7 @@
 ---
 
 ## [Unreleased]
-### Fixed — Costo por proveedor: el descuento por nota de crédito sale de Kepler y la compra de sucursal se cuenta una vez (RE.67 · 2026-11-10 · en código, sin soltar)
+### Fixed — Costo por proveedor: el descuento por nota de crédito sale de Kepler y la compra de sucursal se cuenta una vez (RE.67 · 2026-11-10 · en prod)
 - El porcentaje de descuento de cada proveedor estaba mal: contaba sólo las notas del CEDIS y sumaba dos veces las compras de sucursal que el CEDIS vuelve a capturar. Desde agosto, la tasa general pasa de 3.6 % a 4.2 %; Dulces Las Delicias, de 2.2 % a 6.6 %.
 - Una nota de crédito sin motivo ya no se da por descuento (antes se suponía: 300 notas, $4.0 M en el año). Se muestra debajo del descuento de su proveedor como «sin clasificar» y no se resta del costo.
 - Lo mismo en Descuentos › Reconciliación, para que las dos pantallas digan lo mismo del mismo proveedor.
