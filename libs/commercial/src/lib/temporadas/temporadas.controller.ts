@@ -4,7 +4,7 @@ import type {
   CandidatosTemporada, ConfirmarFechasTemporadaDto, ConfirmarFechasTemporadaRespuesta, DecisionesTemporadaDto,
   DecisionesTemporadaRespuesta, TemporadasVista,
 } from '@megadulces/contracts';
-import { Permission, RequirePermissions } from '@megadulces/platform-core';
+import { Permission, RequireAnyPermission, RequirePermissions } from '@megadulces/platform-core';
 import { TemporadasService } from './temporadas.service';
 
 interface Sesion {
@@ -13,8 +13,10 @@ interface Sesion {
 
 /**
  * `[PQ.94]` Compras › Temporadas. Plan `FASE_PQ_PEDIDO_VERDAD_Y_CIERRE.md` §19.8–§19.11.
- * Leer con `COMPRAS_TEMPORADAS_VER`; confirmar fechas y decidir productos con `COMPRAS_TEMPORADAS_GESTIONAR`
- * (D35: Compras, Mercadotecnia y Dirección). Es la ÚNICA puerta que escribe la temporada de un producto.
+ * Leer con `COMPRAS_TEMPORADAS_VER` o `_GESTIONAR` (quien decide también lee: la ruta de la pantalla acepta
+ * las dos, `landing-guards.spec` NO REBOTE); confirmar fechas y decidir productos sólo con
+ * `COMPRAS_TEMPORADAS_GESTIONAR` (D35: Compras, Mercadotecnia y Dirección). Es la ÚNICA puerta que escribe la
+ * temporada de un producto.
  */
 @ApiTags('compras-temporadas')
 @Controller('compras/temporadas')
@@ -22,14 +24,14 @@ export class TemporadasController {
   constructor(private readonly service: TemporadasService) {}
 
   @Get()
-  @RequirePermissions(Permission.COMPRAS_TEMPORADAS_VER)
+  @RequireAnyPermission(Permission.COMPRAS_TEMPORADAS_VER, Permission.COMPRAS_TEMPORADAS_GESTIONAR)
   @ApiOperation({ summary: 'PQ.94: calendario de temporadas (fechas por año, propuesta o confirmada, y cuántos productos lleva cada una)' })
   temporadas(): Promise<TemporadasVista> {
     return this.service.temporadas();
   }
 
   @Get('fechas/:id/candidatos')
-  @RequirePermissions(Permission.COMPRAS_TEMPORADAS_VER)
+  @RequireAnyPermission(Permission.COMPRAS_TEMPORADAS_VER, Permission.COMPRAS_TEMPORADAS_GESTIONAR)
   @ApiOperation({ summary: 'PQ.94: productos que la venta propone para una temporada-año, con la decisión vigente de cada uno' })
   candidatos(@Param('id', ParseUUIDPipe) id: string): Promise<CandidatosTemporada> {
     return this.service.candidatos(id);

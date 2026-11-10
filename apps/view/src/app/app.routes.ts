@@ -1283,8 +1283,10 @@ export const routes: Routes = [
         // `[PQ.94]` Temporadas: el calendario de temporadas (ventana de venta del mayorista) y los
         // productos que la venta propone para cada una; las areas confirman o descartan (D35).
         path: 'temporadas',
+        // anyPermissionGuard: el árbol de accesos abre esta ruta con VER o con GESTIONAR, y
+        // `landing-guards.spec` (NO REBOTE) exige que la ruta acepte las dos claves.
         loadComponent: () => import('./modules/compras/pages/compras-temporadas.component').then(m => m.ComprasTemporadasComponent),
-        canActivate: [permissionGuard(Permission.COMPRAS_TEMPORADAS_VER)]
+        canActivate: [anyPermissionGuard(Permission.COMPRAS_TEMPORADAS_VER, Permission.COMPRAS_TEMPORADAS_GESTIONAR)]
       },
       { path: 'que-toca', redirectTo: 'pedido', pathMatch: 'full' },
       { path: 'pedido-real', redirectTo: 'pedido', pathMatch: 'full' },        // fusionada en Pedido
