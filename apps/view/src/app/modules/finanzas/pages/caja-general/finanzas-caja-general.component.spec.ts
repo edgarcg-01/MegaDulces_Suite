@@ -5380,6 +5380,24 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       expect(svc['cerrarCorte']).toHaveBeenCalledTimes(1);
     });
 
+    // `[LE.6.27]` PM, 2026-11-09: el arqueo de dólares y cheques se ve «a la hora de hacer su cierre de jornada».
+    it('[LE.6.27] el apartado de dólares y cheques se ve desde que se abre el cierre, y se guarda ya sellado', () => {
+      const q = (sel: string) => document.querySelector(sel) ?? fx.nativeElement.querySelector(sel);
+      const fx = montar({ saldo: vi.fn(() => of(abierto(null))), contarCorte: contar(), cerrarCorte: cerrado(),
+        arqueosCaja: vi.fn(() => of({ rows: [CON_USD], limit: 30, fuente: 'prueba' })) });
+      comp.abrirCierre();
+      fx.detectChanges();
+      expect(comp.rejaEditable()).toBe(true);
+      expect(q('[data-testid="cg-no-efectivo"]')).not.toBeNull();
+      expect(q('#cg-ne-usd')).not.toBeNull();
+      expect(q('[data-testid="cg-no-efectivo-espera"]')?.textContent).toContain('Se guarda al cerrar el corte');
+      comp.setPiezasCorte(den('500'), 3);
+      comp.sellarConteo();
+      fx.detectChanges();
+      expect(q('[data-testid="cg-no-efectivo-espera"]')).toBeNull();
+      expect(q('[data-testid="cg-no-efectivo"]')?.textContent).toContain('Guardar cheques, papeles y dólares');
+    });
+
     it('⛔ si la relectura del saldo falla después de sellar, el corte del diálogo se puede cerrar igual', () => {
       let falla = false;
       const saldo = vi.fn(() => (falla ? throwError(() => ({ status: 500, error: {} })) : of(abierto(null))));
@@ -5944,6 +5962,108 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       expect(hist).toContain('Hoja en papel: Control A23649 «GNF MORELIA» del 15/10');
       expect(hist).toContain('depósito del 22/10 por $92,606.73');
       expect(hist).not.toContain('sin depósito');
+    });
+
+    // ⭐ `[LE.6.24]` PM, 2026-11-09: «en la hoja de reposición falta mostrar el folio del depósito y que sí
+    // cuadre con lo que se le va a reponer». HG-1 real: $83,981.89 ↔ U-A-5 0000303 de Abastos por $83,982.
+    const PAGO = (deposito: NonNullable<HojaGastos['pago']>['deposito']): NonNullable<HojaGastos['pago']> => ({
+      medio: 'cajon', retiro: null, cajon: 83981.89, pagada_por_nombre: 'carmen', pagada_at: '2026-10-30T20:00:00Z', sin_capturar: 0, deposito });
+    const enHistorial = (h: HojaGastos) => {
+      const fx = montar({ hojasDeGastos: vi.fn(() => of(HOJAS({ cerradas: [h] }))) });
+      fx.detectChanges();
+      reposicion(fx).vista.set('historial');
+      reposicion(fx).alternar('hoja|h3');
+      fx.detectChanges();
+      return fx;
+    };
+
+    it('[LE.6.24] la hoja pagada dice el FOLIO del depósito y que cuadra con lo que se repone', () => {
+      const fx = enHistorial(HOJA({ estado: 'pagada', pago: PAGO({ estado: 'depositada', diferencia: 0.11, nota: null,
+        depositos: [{ id: '08|U-A-5|0000303|1604', dia: '2026-10-30', importe: 83982, folio: '0000303', sucursal: '08', banco: '1604' }] }) }));
+      expect(ventana(fx).querySelector('.rp-pagado')?.textContent).toContain('depósito U-A-5 0000303 de');
+      const cuadre = ventana(fx).querySelector('[data-testid="rp-hoja-deposito"]')?.textContent?.replace(/\s+/g, ' ') ?? '';
+      expect(cuadre).toContain('Se repone $83,981.89');
+      expect(cuadre).toContain('U-A-5 0000303');
+      expect(cuadre).toContain('30/10');
+      expect(cuadre).toContain('cuenta 1604');
+      expect(cuadre).toContain('$83,982.00 · cuadra');
+      expect(cuadre).toContain('+$0.11 de redondeo');
+    });
+
+    // ⭐ `[LE.6.27]` PM, 2026-11-09: el folio del depósito se ve en Reposiciones «para validar que hubo un
+    // depósito y que no se regresa dinero que nunca salió». Sin depósito, la hoja pagada NO es historial.
+    it('[LE.6.24][LE.6.27] NEGATIVA: sin depósito que cuadre no se afirma ninguno, y la hoja se queda en Reposiciones', () => {
+      const SIN = HOJA({ estado: 'pagada', pago: PAGO({ estado: 'no_aparece', depositos: null, diferencia: null,
+        nota: 'No hay un U-A-5 a la clave 1604 por el total (±$0.50) del 2026-11-05 a siete días; Kepler trae hasta el 2026-11-09.' }) });
+      const fx = enHistorial(SIN);
+      expect(ventana(fx).querySelector('.rp-pagado'), 'sin depósito no es historial').toBeNull();
+      reposicion(fx).vista.set('reposiciones');
+      fx.detectChanges();
+      const falta = ventana(fx).querySelector('[data-testid="rp-falta-deposito"]')?.textContent?.replace(/\s+/g, ' ') ?? '';
+      expect(falta).toContain('Falta el depósito');
+      expect(falta).toContain('Kepler trae hasta el 2026-11-09');
+      const cuadre = ventana(fx).querySelector('[data-testid="rp-hoja-deposito"]')?.textContent?.replace(/\s+/g, ' ') ?? '';
+      expect(cuadre).toContain('sin depósito que cuadre');
+      expect(cuadre).not.toContain('· cuadra');
+      const pagadoSinDep = reposicion(fx).kpis().find((k) => k.label === 'Pagado sin depósito');
+      expect(pagadoSinDep?.value).toBe(83981.89);
+      expect(reposicion(fx).opcionesVista()[1].count).toBe(0);
+    });
+
+    it('[LE.6.27] con su depósito, la hoja pagada sí pasa al historial y no cuenta como pagada sin depósito', () => {
+      const fx = enHistorial(HOJA({ estado: 'pagada', pago: PAGO({ estado: 'depositada', diferencia: 0.11, nota: null,
+        depositos: [{ id: '08|U-A-5|0000303|1604', dia: '2026-10-30', importe: 83982, folio: '0000303', sucursal: '08', banco: '1604' }] }) }));
+      expect(ventana(fx).querySelector('.rp-pagado')).not.toBeNull();
+      expect(ventana(fx).querySelector('[data-testid="rp-falta-deposito"]')).toBeNull();
+      reposicion(fx).vista.set('reposiciones');
+      fx.detectChanges();
+      expect(ventana(fx).querySelector('[data-testid="rp-falta-deposito"]')).toBeNull();
+      expect(reposicion(fx).kpis().find((k) => k.label === 'Pagado sin depósito')?.value).toBe(0);
+    });
+
+    // ⭐ `[LE.6.25]` PM, 2026-11-09: «identificar qué se repone a la sucursal y qué se le carga, pero lo pagó
+    // oficinas». Los pagos reales del 29/10: oficinas pagó compras de Abastos y Canindo con su caja.
+    const CARGO = (folio: string, centro: string, sucursal: string | null, importe: number) => ({
+      origen_ref: `00|X-D-26|${folio}|0011`, folio, fecha_valor: '2026-10-29', beneficiario: 'PROVEEDOR DE PRUEBA', importe,
+      centro, centro_nombre: centro === 'C-010' ? 'COMPRA PROVEEDOR MORELIA ABAST' : null, sucursal, referencia: 'COMPRA 6267' });
+
+    it('[LE.6.25] lo que pagó oficinas a cuenta de una sucursal se ve APARTE: se le carga, no se le repone', () => {
+      const cargos = [CARGO('0023691', 'C-010', '08', 117905.32), CARGO('0023690', 'C-020', '06', 46203.01)];
+      const fx = montar({ reposicion: vi.fn(() => of({ ...REPOSICION, cargado_por_oficinas: cargos })), hojasDeGastos: vi.fn(() => of(HOJAS({ cerradas: [] }))) });
+      fx.detectChanges();
+      const bloque = ventana(fx).querySelector('[data-testid="rp-oficinas"]');
+      expect(bloque, 'no se ve lo cargado por oficinas').not.toBeNull();
+      const txt = bloque!.textContent!.replace(/\s+/g, ' ');
+      expect(txt).toContain('Pagado por oficinas a cuenta de una sucursal: 2 pagos ($164,108.33)');
+      expect(txt).toContain('no se repone: se le carga a la sucursal');
+      expect(txt).toContain('Morelia Abastos');
+      expect(txt).toContain('C-010 · COMPRA PROVEEDOR MORELIA ABAST');
+      expect(txt).toContain('X-D-26 0023691');
+      expect(txt).toContain('$117,905.32');
+      // No es trabajo de la reposición: no suma «por resolver».
+      expect((fx.nativeElement.querySelector('.cg-bar .cg-repo-btn') as HTMLElement | null)?.textContent ?? '').not.toContain('por resolver');
+    });
+
+    it('[LE.6.25] NEGATIVA: un centro que el mapa no conoce no se adivina', () => {
+      const fx = montar({ reposicion: vi.fn(() => of({ ...REPOSICION, cargado_por_oficinas: [CARGO('0023999', 'C-099', null, 500)] })),
+        hojasDeGastos: vi.fn(() => of(HOJAS({ cerradas: [] }))) });
+      fx.detectChanges();
+      expect(ventana(fx).querySelector('[data-testid="rp-oficinas"]')?.textContent).toContain('sin sucursal');
+    });
+
+    it('[LE.6.25] NEGATIVA: una API que no manda los cargos no muestra bloque ni afirma «nada»', () => {
+      const fx = montar({ reposicion: vi.fn(() => of(REPOSICION)), hojasDeGastos: vi.fn(() => of(HOJAS({ cerradas: [] }))) });
+      fx.detectChanges();
+      expect(ventana(fx).querySelector('[data-testid="rp-oficinas"]')).toBeNull();
+      expect(ventana(fx).querySelector('[data-testid="rp-oficinas-cero"]')).toBeNull();
+    });
+
+    it('[LE.6.25] semana sin cargos de oficinas: lo dice en vez de callarlo', () => {
+      const fx = montar({ reposicion: vi.fn(() => of({ ...REPOSICION, cargado_por_oficinas: [] })),
+        hojasDeGastos: vi.fn(() => of(HOJAS({ cerradas: [] }))) });
+      fx.detectChanges();
+      expect(ventana(fx).querySelector('[data-testid="rp-oficinas"]')).toBeNull();
+      expect(ventana(fx).querySelector('[data-testid="rp-oficinas-cero"]')?.textContent).toContain('no pagó nada a cuenta de una sucursal');
     });
 
     it('[LE.6.20] una zona sin cuenta medida y con algo por reponer lo dice: no se sabe qué ya se repuso', () => {

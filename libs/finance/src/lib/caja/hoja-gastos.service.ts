@@ -5,15 +5,15 @@ import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import {
   DIAS_RETIRO_HOJA, ZONAS_HOJA_GASTOS, diaMxDeInstante, folioHoja, revisarConteoCajon,
-  type CerrarHojaInput, type ClaveZonaHoja, type HojaAbierta, type HojaGastos, type HojasDeGastos, type MedioPagoHoja,
+  type CerrarHojaInput, type HojaAbierta, type HojaGastos, type HojasDeGastos, type MedioPagoHoja,
   type MotivoHojaInput, type PagarHojaAbiertaInput, type PagarHojaInput, type PagoDeHojaGastos, type PagoHojaResultado, type RegistrarConteoHojaInput,
   type RenglonHoja, type RetiroControlHoja,
   type ZonaHojaGastos,
 } from '@megadulces/contracts';
 import { consultasHoja } from './hoja-gastos.query';
 import {
-  armarHojaAbierta, cuadreDelRetiro, depositoDeHoja, hojaAbiertaAutorizada, instruccionDePago, loYaRepuesto, pagadoEnControl, retirosQueCuadran,
-  type BancoDeZona, type DepositoBancoHoja, type PagoDeZona, type RetiroCaosConLigas, type RetiroLibreHoja,
+  armarHojaAbierta, cuadreDelRetiro, depositoKeplerDeHoja, hojaAbiertaAutorizada, instruccionDePago, loYaRepuesto, pagadoEnControl, retirosQueCuadran,
+  type BancoDeZona, type DepositoBancoHoja, type DepositoKeplerHoja, type PagoDeZona, type RetiroCaosConLigas, type RetiroLibreHoja,
 } from './hoja-gastos.engine';
 import { hojasInstaladas } from './hoja-gastos.gate';
 import { redondea2, tomaDelRetiro } from './caja-lote.engine';
@@ -644,9 +644,38 @@ export class HojaGastosService {
   }
 
   /**
+   * ⭐ `[LE.6.24]` Los depósitos de reposición tal como los captura cada sucursal en SU Kepler: los `U-A-5`
+   * a la clave de banco de su zona desde `desde` − 3 días. Trae el FOLIO, cubre Canindo (su cuenta no está
+   * en el catálogo de bancos) y va al día de Kepler, no al del último estado de cuenta cargado (el 30/10 al
+   * medirlo, el 9/11). Y hasta qué día trae Kepler cada sucursal: sin eso, «no aparece» no distingue «no se
+   * depositó» de «todavía no llega». Protegido: la prueba lo sustituye con filas (la base de prueba no
+   * tiene el ODS).
+   */
+  protected async depositosKepler(trx: Knex.Transaction, tenantId: string, desde: string)
+    : Promise<{ depositos: DepositoKeplerHoja[]; keplerAl: Map<string, string> }> {
+    const medidas = ZONAS_HOJA_GASTOS.filter((z) => z.banco_kepler_deposito);
+    const sucs = [...new Set(medidas.flatMap((z) => z.sucursales))];
+    const bancos = [...new Set(medidas.map((z) => z.banco_kepler_deposito as string))];
+    if (!sucs.length) return { depositos: [], keplerAl: new Map() };
+    const legs = () => trx('analytics.bank_movement_legs').where('tenant_id', tenantId).whereIn('sucursal', sucs)
+      .where('fecha_valor', '>=', trx.raw(`(?::date - 3)`, [desde]));
+    const depositos = (await legs().where('doc_tipo', 'U-A-5').where('signo', '>', 0).where('es_traspaso', false)
+      .whereIn('clave_banco', bancos)
+      .orderBy([{ column: 'fecha_valor', order: 'asc' }, { column: 'sucursal', order: 'asc' }, { column: 'folio', order: 'asc' }])
+      .select('sucursal', 'folio', 'clave_banco', 'importe', trx.raw(`to_char(fecha_valor, 'YYYY-MM-DD') AS dia`)))
+      .map((d): DepositoKeplerHoja => ({ id: `${d.sucursal}|U-A-5|${d.folio}|${d.clave_banco}`, dia: d.dia,
+        importe: redondea2(Number(d.importe)), sucursal: String(d.sucursal), folio: String(d.folio), banco: String(d.clave_banco) }));
+    const keplerAl = new Map<string, string>((await legs().groupBy('sucursal')
+      .select('sucursal', trx.raw(`to_char(max(fecha_captura), 'YYYY-MM-DD') AS al`)))
+      .filter((r) => r.al).map((r) => [String(r.sucursal), String(r.al)]));
+    return { depositos, keplerAl };
+  }
+
+  /**
    * El pago de cada hoja pagada: con qué salió, lo que falta por entrar al libro y si el depósito
-   * por su total ya llegó a la cuenta de reposición de su zona (una o dos partes, del día del pago a
-   * siete días). Las hojas se recorren de la más vieja a la más nueva y un depósito sólo explica a una.
+   * por su total ya llegó (`[LE.6.24]`: el `U-A-5` de Kepler a la clave de reposición de su zona, UNO
+   * solo, del día del retiro a siete días, con su folio y su diferencia). Las hojas se recorren de la más
+   * vieja a la más nueva y un depósito sólo explica a una.
    */
   private async pagos(trx: Knex.Transaction, tenantId: string, pagadas: Array<Record<string, unknown>>): Promise<Map<string, PagoDeHojaGastos>> {
     const out = new Map<string, PagoDeHojaGastos>();
@@ -666,22 +695,8 @@ export class HojaGastosService {
       .groupBy('x.sheet_id').select('x.sheet_id', trx.raw('count(*)::int AS n'));
     const faltanDe = new Map(faltan.map((f) => [String(f.sheet_id), Number(f.n)]));
 
-    const desde = pagadas.map((h) => diaMxDeInstante(h['pagada_at']) as string).sort()[0];
-    const cuentas = new Map<ClaveZonaHoja, string[]>();
-    for (const z of ZONAS_HOJA_GASTOS) {
-      if (!z.cuenta_deposito) continue;
-      const cs = (await trx('finance.bank_accounts').where('tenant_id', tenantId)
-        .whereRaw('upper(btrim(bank)) = ?', [z.cuenta_deposito.banco.toUpperCase()])
-        .where('account_label', z.cuenta_deposito.terminacion).select('id')).map((r) => String(r.id));
-      cuentas.set(z.clave, cs);
-    }
-    const todas = [...new Set([...cuentas.values()].flat())];
-    const depositos: Array<DepositoBancoHoja & { cuenta: string }> = todas.length
-      ? (await trx('finance.bank_movements').where('tenant_id', tenantId).whereNull('deleted_at').where('amount_in', '>', 0)
-        .whereIn('bank_account_id', todas).where('movement_date', '>=', trx.raw(`(?::date - 3)`, [desde]))
-        .select(trx.raw('id::text AS id'), trx.raw(`to_char(movement_date, 'YYYY-MM-DD') AS dia`), 'amount_in', trx.raw('bank_account_id::text AS cuenta')))
-        .map((d) => ({ id: d.id, dia: d.dia, importe: redondea2(Number(d.amount_in)), cuenta: d.cuenta }))
-      : [];
+    const { depositos, keplerAl } = await this.depositosKepler(trx, tenantId,
+      pagadas.map((h) => diaMxDeInstante(h['pagada_at']) as string).sort()[0]);
     const usados = new Set<string>();
 
     for (const h of [...pagadas].sort((a, b) => Number(a['numero']) - Number(b['numero']))) {
@@ -691,20 +706,26 @@ export class HojaGastosService {
         total: redondea2(Number(r.total)), dia: diaMxDeInstante(r.occurred_at) as string } : null;
       // El depósito se busca desde el día del retiro (o del pago con el cajón).
       const ancla = retiro?.dia ?? (diaMxDeInstante(h['pagada_at']) as string);
-      const deLaCuenta = new Set(cuentas.get(zona.clave) ?? []);
       let deposito: PagoDeHojaGastos['deposito'];
-      if (!zona.cuenta_deposito || !deLaCuenta.size) {
-        deposito = { estado: 'sin_medir', depositos: null,
-          nota: zona.cuenta_deposito ? 'La cuenta de reposición de la zona no está en el catálogo de bancos.' : 'La cuenta donde se deposita la reposición de esta zona no está medida.' };
+      const banco = zona.banco_kepler_deposito;
+      if (!banco) {
+        deposito = { estado: 'sin_medir', depositos: null, diferencia: null,
+          nota: 'La clave de banco donde se deposita la reposición de esta zona no está medida.' };
       } else {
-        const libres = depositos.filter((d) => deLaCuenta.has(d.cuenta) && !usados.has(d.id));
-        const dep = depositoDeHoja(Number(h['total']), ancla, libres);
-        if (dep.estado === 'encontrado') dep.ids.forEach((i) => usados.add(i));
-        deposito = dep.estado === 'encontrado'
-          ? { estado: 'depositada', depositos: libres.filter((d) => dep.ids.includes(d.id)).map(({ id, dia, importe }) => ({ id, dia, importe })), nota: null }
-          : dep.estado === 'ambiguo'
-            ? { estado: 'ambiguo', depositos: null, nota: `Hay ${dep.opciones} formas de llegar al total con los depósitos de esos días: lo liga una persona.` }
-            : { estado: 'no_aparece', depositos: null, nota: 'El depósito todavía no aparece en el estado de cuenta.' };
+        const libres = depositos.filter((d) => zona.sucursales.includes(d.sucursal) && d.banco === banco && !usados.has(d.id));
+        const dep = depositoKeplerDeHoja(Number(h['total']), ancla, libres);
+        if (dep.estado === 'encontrado') {
+          usados.add(dep.deposito.id);
+          const { id, dia, importe, folio, sucursal, banco: b } = dep.deposito;
+          deposito = { estado: 'depositada', depositos: [{ id, dia, importe, folio, sucursal, banco: b }], diferencia: dep.diferencia, nota: null };
+        } else if (dep.estado === 'ambiguo') {
+          deposito = { estado: 'ambiguo', depositos: null, diferencia: null,
+            nota: `Hay ${dep.opciones} depósitos U-A-5 por ese total en esos días: lo liga una persona.` };
+        } else {
+          const al = zona.sucursales.map((s) => keplerAl.get(s)).filter((x): x is string => !!x).sort()[0] ?? null;
+          deposito = { estado: 'no_aparece', depositos: null, diferencia: null,
+            nota: `No hay un U-A-5 a la clave ${banco} por el total (±$0.50) del ${ancla} a siete días${al ? `; Kepler trae hasta el ${al}` : ''}.` };
+        }
       }
       out.set(String(h['id']), {
         medio: h['medio'] as MedioPagoHoja, retiro, cajon: redondea2(Number(h['cajon'])),

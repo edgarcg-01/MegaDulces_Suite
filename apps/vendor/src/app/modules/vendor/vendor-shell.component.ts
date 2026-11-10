@@ -16,6 +16,10 @@ import { PushService } from '../../core/services/push.service';
 import { OfflineOrderService } from '../../core/services/offline-order.service';
 import { OfflineSyncService } from '../../core/services/offline-sync.service';
 import { PresaleStatusService } from './presale-status.service';
+import { VendorService } from './vendor.service';
+import { ChecadorPreciosService } from './checador-precios.service';
+import { sucursalDelChecador } from './checador-precios';
+import { VendorChecadorPreciosComponent } from './pages/vendor-checador-precios.component';
 
 interface DiagProbe {
   build: { commit: string; ts: string };
@@ -38,7 +42,7 @@ interface DiagProbe {
 @Component({
   selector: 'app-vendor-shell',
   standalone: true,
-  imports: [CommonModule, RouterModule, RouterOutlet, ButtonModule, ToastModule],
+  imports: [CommonModule, RouterModule, RouterOutlet, ButtonModule, ToastModule, VendorChecadorPreciosComponent],
   providers: [MessageService],
   template: `
     <div class="vendor-shell">
@@ -48,10 +52,15 @@ interface DiagProbe {
           <i class="pi pi-briefcase"></i>
           <span>Vendedor</span>
         </div>
+        <!-- [VTK.17] El checador de precios VIVE en el encabezado, en todas las pantallas, como el buscador del
+             arqueo (David, 2026-11-09: «lo quiero siempre al alcance, sin importar en qué ventana esté»).
+             Se escribe o se escanea aquí mismo y el precio baja bajo el encabezado, sin salir de lo que se
+             hace. Antes: una pastilla arriba («escondido») y luego un panel desde la barra («otra ventana»). -->
+        <app-vendor-checador-precios class="hdr-precios" [compacto]="true" />
         <div class="vendor-user">
           <a
             pButton
-           
+
             severity="secondary"
             size="small"
             text
@@ -195,7 +204,7 @@ interface DiagProbe {
           </a>
         }
       </nav>
-    
+
       <!-- Overlay de diagnóstico PWA (Ajustes → Diagnóstico PWA): la verdad del device -->
       @if (diagOpen()) {
         <div class="diag-overlay" (click)="closeDiag()">
@@ -275,8 +284,16 @@ interface DiagProbe {
         border-bottom: 1px solid var(--border-color);
         position: sticky;
         top: 0;
-        z-index: 10;
+        /* [VTK.17] 45 y no 10: lo que el checador abre (su ventana y la cámara) vive dentro del encabezado y
+           tiene que quedar por encima de la barra de abajo (10) y de las barras de acción de las pantallas
+           (40). Los paneles modales de las pantallas (50+) lo siguen tapando. */
+        z-index: 45;
+        gap: var(--sp-2);
       }
+      /* [VTK.17] La caja de precios toma el espacio que queda entre la marca y los iconos. */
+      .hdr-precios { flex: 1 1 auto; min-width: 0; max-width: 32rem; }
+      /* En el celular la marca queda sólo con su icono: el espacio es para la caja de precios. */
+      @media (max-width: 40rem) { .vendor-brand span { display: none; } }
       .vendor-brand {
         display: flex;
         align-items: center;
@@ -450,6 +467,8 @@ export class VendorShellComponent {
   private readonly sync = inject(OfflineSyncService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly presaleStatus = inject(PresaleStatusService);
+  private readonly vendorApi = inject(VendorService);
+  private readonly checador = inject(ChecadorPreciosService);
 
   private static readonly BG_ONBOARD_KEY = 'vendorBgGeoOnboarded';
 
@@ -482,6 +501,25 @@ export class VendorShellComponent {
     if (Capacitor.isNativePlatform() && !this.bgOnboarded()) {
       setTimeout(() => { this.bgHelpOpen.set(true); this.markBgOnboarded(); }, 1200);
     }
+    // [VTK.17] La copia de precios del checador se guarda CON señal, para que sirva SIN ella: si sólo
+    // se bajara al abrir el checador, el vendedor que lo abre por primera vez en una tienda sin señal
+    // no tendría nada. Una vez al día por teléfono (~500 KB comprimida, medido el 2026-11-09), y sólo
+    // si falta o no es de hoy. Espera unos segundos para no competir con la carga de la ruta.
+    if (typeof navigator === 'undefined' || navigator.onLine) {
+      const t = setTimeout(() => this.precalentarCopiaDePrecios(), 8000);
+      this.destroyRef.onDestroy(() => clearTimeout(t));
+    }
+  }
+
+  /** [VTK.17] Deja lista la copia de precios de la sucursal de surtido. Si falla, el checador lo dice. */
+  private precalentarCopiaDePrecios(): void {
+    this.vendorApi.myStockSources().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (f) => {
+        const s = sucursalDelChecador(f?.sucursal ?? null);
+        if (s.ok) void this.checador.asegurarCopia(s.codigo).catch(() => void 0);
+      },
+      error: () => void 0,
+    });
   }
 
   /** Refresca el contador de pedidos offline sin sincronizar (badge "Mi día") + muertos. */

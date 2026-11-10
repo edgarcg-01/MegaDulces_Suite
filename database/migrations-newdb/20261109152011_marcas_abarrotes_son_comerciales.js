@@ -79,12 +79,19 @@ exports.up = async function up(knex) {
     .select('nombre', 'is_commercial');
   console.log('  antes:', antes.map((b) => `${b.nombre}=${b.is_commercial}`).join(' · ') || '(ninguna)');
 
-  // Idempotente: si ya están en true, no toca nada.
+  /**
+   * Idempotente: si ya están en true, no toca nada.
+   *
+   * ⛔ **`updated_by` NO se escribe, y no es un olvido.** Es `uuid` (apunta a un usuario), no
+   * texto: el primer intento puso ahí la etiqueta `migracion [CAT.ABA.1]` y prod lo rechazó con
+   * `invalid input syntax for type uuid`. Una migración no tiene usuario, así que la huella de
+   * quién lo cambió vive en el ledger (`knex_migrations`) y en este archivo, no en la fila.
+   */
   const tocadas = await knex('brands')
     .whereIn('nombre', SON_COMERCIALES)
     .whereNull('deleted_at')
     .where('is_commercial', false)
-    .update({ is_commercial: true, updated_at: knex.fn.now(), updated_by: 'migracion [CAT.ABA.1]' });
+    .update({ is_commercial: true, updated_at: knex.fn.now() });
   console.log(`  ✓ ${tocadas} marca(s) pasaron a comercial`);
 
   /**

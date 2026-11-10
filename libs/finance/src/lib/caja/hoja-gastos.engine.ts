@@ -357,6 +357,39 @@ export function depositoDeHoja(total: number, desde: string, depositos: readonly
   return { estado: 'encontrado', ids: o.map((d) => d.id), suma: redondea2(o.reduce((a, d) => a + d.importe, 0)) };
 }
 
+/** `[LE.6.24]` Un depósito tal como lo captura la sucursal en Kepler: un `U-A-5` a una clave de banco. */
+export interface DepositoKeplerHoja extends DepositoBancoHoja {
+  sucursal: string;
+  folio: string;
+  banco: string;
+}
+
+export type DepositoKeplerDeHoja =
+  | { estado: 'encontrado'; deposito: DepositoKeplerHoja; diferencia: number }
+  | { estado: 'ambiguo'; opciones: number }
+  | { estado: 'no_encontrado' };
+
+/**
+ * ⭐ `[LE.6.24]` El depósito de una hoja pagada, con su FOLIO de Kepler (PM, 2026-11-09: *«falta mostrar
+ * el folio del depósito y que sí cuadre con lo que se le va a reponer»*): UN `U-A-5` de la sucursal a la
+ * clave de reposición de su zona, del día `desde` a siete días después, por el total ± $0.50.
+ *
+ * ⛔ Uno solo, sin pares. Medido el 2026-11-09 sobre las 12 hojas pagadas: uno solo encuentra 4 (HG-1,
+ * HG-2, HG-5, HG-7) y el control (total corrido, 108 pruebas) ninguno; con pares, HG-1 queda ambigua
+ * (la sucursal deposita su venta en la misma clave, decenas de `U-A-5` por día). Con ±$20 el control
+ * encuentra 3: la diferencia que se publica es la de un depósito que YA cuadró, nunca un «casi».
+ */
+export function depositoKeplerDeHoja(total: number, desde: string, depositos: readonly DepositoKeplerHoja[]): DepositoKeplerDeHoja {
+  const t = redondea2(total);
+  const c = depositos.filter((d) => {
+    const x = diasEntre(desde, d.dia);
+    return x >= 0 && x <= DIAS_DEPOSITO_HOJA && Math.abs(redondea2(d.importe) - t) <= TOLERANCIA_DEPOSITO_HOJA + 0.000001;
+  });
+  if (!c.length) return { estado: 'no_encontrado' };
+  if (c.length > 1) return { estado: 'ambiguo', opciones: c.length };
+  return { estado: 'encontrado', deposito: c[0], diferencia: redondea2(c[0].importe - t) };
+}
+
 /** `[LE.6.20]` La cuenta de la zona tal como la lee el servicio: sus depósitos y hasta qué día está cargada. */
 export interface BancoDeZona {
   cuenta: string;

@@ -192,6 +192,13 @@ export interface EntradaReposicion {
    * solo retiro; aquí sólo se cuenta en `universo.en_hoja`. Lo ya pagado se queda: es su historia.
    */
   apartarHojas?: boolean;
+  /**
+   * `[LE.6.26]` Las hojas PAGADAS que tocan estos documentos: la hoja declaró qué parte salió del cajón
+   * (`total − retiro`), y el pago la dejó sin ligar al retiro. Hasta ese tope, lo que le falta a un
+   * renglón de la hoja está explicado (cajón), no «sin vincular». Medido: HG-5 de Canindo, 3/11,
+   * retiro de $32,000 + $73.25 del cajón, salía como $73.25 «por resolver».
+   */
+  hojasPagadas?: ReadonlyArray<{ folio: string; cajon: number; refs: readonly string[] }>;
 }
 
 const dia10 = (v: string | null | undefined): string | null => (v ? String(v).slice(0, 10) : null);
@@ -280,6 +287,12 @@ export function armarReposicion(e: EntradaReposicion): Omit<ReposicionSucursales
   for (const g of e.egresos) if (!egresoPorRef.has(g.origen_ref)) egresoPorRef.set(g.origen_ref, g);
   const vinculosPorEgreso = new Map<string, VinculoLibro[]>();
   for (const v of e.vinculos) vinculosPorEgreso.set(v.cash_ledger_id, [...(vinculosPorEgreso.get(v.cash_ledger_id) ?? []), v]);
+  // `[LE.6.26]` Lo que cada hoja pagada declaró del cajón y todavía no se ha usado para explicar un renglón.
+  const hojaDeRef = new Map<string, { cajon: number }>();
+  for (const h of e.hojasPagadas ?? []) {
+    const saldo = { cajon: redondea2(h.cajon) };
+    for (const r of h.refs) hojaDeRef.set(r, saldo);
+  }
 
   const aDoc = (k: DocKepler | null, g: EgresoLibro | null): DocInterno | null => {
     const ref = k?.origen_ref ?? g?.origen_ref ?? '';
@@ -294,10 +307,14 @@ export function armarReposicion(e: EntradaReposicion): Omit<ReposicionSucursales
     }));
     const enlazado = redondea2(vinculos.reduce((a, v) => a + v.monto, 0));
     const delCajon = g?.origen_efectivo === 'cajon';
-    const falta = g && !delCajon ? redondea2(Math.max(0, monto - enlazado)) : 0;
+    let falta = g && !delCajon ? redondea2(Math.max(0, monto - enlazado)) : 0;
+    const hoja = g && falta > 0 ? hojaDeRef.get(ref) : undefined;
+    const cubreHoja = !!hoja && falta <= hoja.cajon + 0.005;
+    if (hoja && cubreHoja) { hoja.cajon = redondea2(hoja.cajon - falta); falta = 0; }
     let estado: EstadoDocReposicion;
     if (!g) estado = 'por_capturar';
     else if (delCajon) estado = 'cajon';
+    else if (cubreHoja) estado = enlazado > 0 ? 'caos' : 'cajon';
     else if (pagableConBilletesCaos(falta) > 0) estado = 'sin_vincular';
     else estado = enlazado > 0 ? 'caos' : 'cajon';
     return {

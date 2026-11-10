@@ -4,8 +4,8 @@ import { diaMxDeInstante, type ReposicionSucursales } from '@megadulces/contract
 import { armarReposicion } from './caja-reposicion.engine';
 import { CajaCustodiaService } from './caja-custodia.service';
 import {
-  consultasReposicion, consultasAprobacion, entradaDeCrudos, aprobacionesDeCrudos, sumarDias,
-  type DocCrudo, type EgresoCrudo, type RetiroCrudo, type VinculoCrudo,
+  consultasReposicion, consultasAprobacion, entradaDeCrudos, aprobacionesDeCrudos, cargosDeCrudos, hojasPagadasDeCrudos, sumarDias,
+  type CargoCrudo, type HojaPagadaCruda, type DocCrudo, type EgresoCrudo, type RetiroCrudo, type VinculoCrudo,
   type PagoHoraCrudo, type SolicitudCruda, type ValeCrudo,
 } from './caja-reposicion.query';
 import { CashLedgerService } from './cash-ledger.service';
@@ -45,6 +45,9 @@ export class CajaReposicionService {
       const egresos = (await consultasReposicion.egresos(trx, tenantId, desde, hasta, refs)) as EgresoCrudo[];
       const ids = egresos.map((g) => g.id);
       const vinculos = ids.length ? (await consultasReposicion.vinculos(trx, tenantId, ids)) as VinculoCrudo[] : [];
+      // `[LE.6.26]` Lo que la hoja pagada declaró del cajón explica lo que el retiro no cubrió.
+      const hojasPagadas = refs.length && await trx.schema.withSchema('finance').hasTable('expense_sheets')
+        ? hojasPagadasDeCrudos(await consultasReposicion.hojasPagadas(trx, tenantId, refs) as HojaPagadaCruda[]) : [];
       const retiros = (await consultasReposicion.retiros(trx, tenantId, desde, hasta,
         await CajaCustodiaService.hayCustodia(trx))) as RetiroCrudo[];
 
@@ -61,7 +64,9 @@ export class CajaReposicionService {
 
       return {
         // [CGA-A.65] Lo que espera su hoja de zona se repone con ella: aquí sólo se cuenta.
-        ...armarReposicion({ ...entradaDeCrudos(desde, hasta, docs, egresos, vinculos, retiros), aprobaciones, apartarHojas: true }),
+        ...armarReposicion({ ...entradaDeCrudos(desde, hasta, docs, egresos, vinculos, retiros), aprobaciones, apartarHojas: true, hojasPagadas }),
+        // `[LE.6.25]` Lo que pagó oficinas a cuenta de una sucursal: no se repone, se ve aparte.
+        cargado_por_oficinas: cargosDeCrudos(await consultasReposicion.cargoOficinas(trx, tenantId, desde, hasta) as CargoCrudo[]),
         datos_al: await this.ledger.frescuraCaja(trx),
         caos_al: await this.ledger.frescuraCaos(trx, tenantId),
       };

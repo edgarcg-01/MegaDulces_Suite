@@ -6,6 +6,7 @@ import {
   Input,
   OnChanges,
   Output,
+  SimpleChanges,
   computed,
   inject,
   signal,
@@ -35,7 +36,8 @@ import {
   SESSION_PRESETS,
   generateDevicePassword,
 } from '../../dashboard/admin-users/device-session';
-import { AdminService, EventoDePersona, OpcionCatalogo, RutaCatalogo } from '../admin.service';
+import { AdminService, EventoDePersona, OpcionCatalogo, RenombreDeUsuario, RutaCatalogo, UsoDelUsuario } from '../admin.service';
+import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 // `[ZN.6]` La regla de qué zonas se pueden ofrecer vive aparte para poder probarla sin TestBed.
@@ -53,6 +55,16 @@ import { opcionesDeZona, zonaGuardadaQueNoEsZona } from './zona-opciones';
  */
 
 type Pestana = 'persona' | 'acceso' | 'datos' | 'responde' | 'historia';
+
+/**
+ * `[AU.34]` ¿Es la misma persona con OTRO usuario y nada más distinto? Es lo que manda la página
+ * después de renombrar. La misma persona recargada (mismo usuario) o con otro dato cambiado NO
+ * cuenta: ésas reinician la ficha como siempre.
+ */
+export function soloCambioElUsuario(antes: PersonaFila | null | undefined, ahora: PersonaFila | null | undefined): boolean {
+  if (!antes?.id || antes.id !== ahora?.id || antes.username === ahora.username) return false;
+  return JSON.stringify({ ...antes, username: null }) === JSON.stringify({ ...ahora, username: null });
+}
 
 @Component({
   selector: 'app-persona-detalle',
@@ -85,8 +97,93 @@ type Pestana = 'persona' | 'acceso' | 'datos' | 'responde' | 'historia';
           <input pInputText id="pd-user" [ngModel]="fUsername()" (ngModelChange)="fUsername.set($event)"
                  [disabled]="!puedeEscribir || !!persona"
                  placeholder="nombre_apellido" class="mono" />
+          <!-- [AU.34] Cambiar el usuario es una ACCION sobre la cuenta (como cerrar sesiones), no un
+               campo del formulario: se confirma aparte, revisa en el servidor que nada lo use como
+               llave y cierra sus sesiones. Por eso el campo sigue de solo lectura. -->
           @if (persona) {
-            <p class="pd-hint">El usuario no se renombra: lo referencian la bitácora y las sesiones abiertas.</p>
+            @if (!renombrando()) {
+              <div class="pd-sesiones">
+                <p class="pd-hint">
+                  Es con lo que entra y, en algunas pantallas, con lo que se le busca.
+                  @if (esMiCuenta(persona)) {
+                    Tu propio usuario lo cambia otra persona.
+                  } @else if (!puedeCerrarSesiones()) {
+                    Lo cambia quien puede resetear contraseñas.
+                  }
+                </p>
+                @if (puedeCerrarSesiones() && !esMiCuenta(persona)) {
+                  <button pButton type="button" class="p-button-sm p-button-text" (click)="abrirRenombre()">
+                    <span class="pi pi-pencil" aria-hidden="true"></span>
+                    <span class="p-button-label">Cambiar usuario</span>
+                  </button>
+                }
+              </div>
+            } @else {
+              <div class="pd-renombre" role="group" aria-labelledby="pd-ren-tit">
+                <p id="pd-ren-tit" class="pd-hint">
+                  <strong>Cambiar usuario</strong> · hoy entra como <span class="mono">{{ persona.username }}</span>
+                </p>
+                <label class="pd-lbl" for="pd-ren-user">Usuario nuevo</label>
+                <input pInputText id="pd-ren-user" class="mono" autocomplete="off" placeholder="nombre_apellido"
+                       [ngModel]="fNuevoUsuario()" (ngModelChange)="fNuevoUsuario.set($event)"
+                       (keydown.enter)="renombrar()" (keydown.escape)="cerrarRenombre($event)" />
+                <label class="pd-lbl" for="pd-ren-motivo">Motivo</label>
+                <input pInputText id="pd-ren-motivo" maxlength="300" autocomplete="off"
+                       placeholder="Por ejemplo: se dio de alta con un error de dedo"
+                       [ngModel]="fMotivoRenombre()" (ngModelChange)="fMotivoRenombre.set($event)"
+                       (keydown.enter)="renombrar()" (keydown.escape)="cerrarRenombre($event)" />
+                <p class="pd-hint pd-hint-warn">
+                  <span class="pi pi-exclamation-triangle" aria-hidden="true"></span>
+                  <span>
+                    Se cierran sus sesiones y entra con el usuario nuevo y <strong>la misma contraseña</strong>.
+                    Solo se permite si el usuario no se usa como llave en otra parte (cajas de Kepler,
+                    vales, entregas de compras).
+                  </span>
+                </p>
+                @if (renombreRechazo(); as r) {
+                  <div class="pd-hint pd-hint-warn" role="alert">
+                    <span class="pi pi-ban" aria-hidden="true"></span>
+                    <span>
+                      No se cambió.
+                      @if (r.encontrados.length) {
+                        @if (r.nuevo) {
+                          <span class="mono">{{ fNuevoUsuario().trim().toLowerCase() }}</span> ya se usa como llave de otra persona:
+                        } @else {
+                          <span class="mono">{{ persona.username }}</span> se usa como llave:
+                        }
+                        <ul class="pd-ren-lista">
+                          @for (b of r.encontrados; track b.clave) { <li>{{ b.etiqueta }}</li> }
+                        </ul>
+                      }
+                      @if (r.sinRevisar.length) {
+                        No se pudo revisar si:
+                        <ul class="pd-ren-lista">
+                          @for (b of r.sinRevisar; track b.clave) { <li>{{ b.etiqueta }}</li> }
+                        </ul>
+                      }
+                      {{ r.nuevo
+                         ? 'Esta cuenta heredaría lo de otra persona: elige otro nombre o pídeselo a Sistemas.'
+                         : 'Esas pantallas lo buscan por su usuario y lo perderían. Pídeselo a Sistemas.' }}
+                    </span>
+                  </div>
+                } @else if (errorRenombre()) {
+                  <p class="pd-hint pd-hint-warn" role="alert">
+                    <span class="pi pi-ban" aria-hidden="true"></span><span>{{ errorRenombre() }}</span>
+                  </p>
+                } @else if (faltaParaRenombrar(); as falta) {
+                  <p class="pd-hint">{{ falta }}</p>
+                }
+                <div class="pd-ren-acciones">
+                  <button pButton type="button" class="p-button-sm p-button-text" (click)="cerrarRenombre()">
+                    <span class="p-button-label">Cancelar</span>
+                  </button>
+                  <button pButton type="button" class="p-button-sm p-button-outlined"
+                          [disabled]="enviandoRenombre() || !!faltaParaRenombrar()" (click)="renombrar()">
+                    <span class="p-button-label">{{ enviandoRenombre() ? 'Cambiando…' : 'Cambiar usuario' }}</span>
+                  </button>
+                </div>
+              </div>
+            }
           }
 
           <label class="pd-lbl" [class.pd-lbl-req]="!persona" for="pd-pass">
@@ -520,6 +617,9 @@ type Pestana = 'persona' | 'acceso' | 'datos' | 'responde' | 'historia';
                 @for (e of eventos(); track e.id) {
                   <li>
                     <span class="comm-code">{{ e.event }}</span>
+                    @if (e.event === 'username_renombrado' && e.detalle) {
+                      <span class="pd-sub mono">{{ e.detalle['antes'] }} → {{ e.detalle['despues'] }}</span>
+                    }
                     <span class="pd-sub">{{ e.created_at | date: 'dd/MM/yy HH:mm' }}</span>
                     @if (e.actor_username) { <span class="pd-sub">· {{ e.actor_username }}</span> }
                   </li>
@@ -565,6 +665,38 @@ export class PersonaDetalleComponent implements OnChanges {
   /** Se guardó algo de adentro (acceso, alcance): avisa y el cajón SIGUE abierto. */
   @Output() aviso = new EventEmitter<string>();
   @Output() cancelado = new EventEmitter<void>();
+  /**
+   * `[AU.34]` Se cambió el usuario: la lista y el encabezado del cajón muestran el nuevo y la
+   * ficha SIGUE abierta, con lo que se hubiera editado sin guardar (ver `ngOnChanges`).
+   */
+  @Output() renombrado = new EventEmitter<RenombreDeUsuario>();
+
+  /** `[AU.34]` Cambiar el usuario. Ver `renombrar()`. */
+  private auth = inject(AuthService);
+  readonly renombrando = signal(false);
+  readonly fNuevoUsuario = signal('');
+  readonly fMotivoRenombre = signal('');
+  readonly enviandoRenombre = signal(false);
+  readonly errorRenombre = signal<string | null>(null);
+  /**
+   * El rechazo del servidor, con DÓNDE aparece el usuario y lo que no se pudo revisar (NO MEDIDO se
+   * dice, no se esconde). `nuevo` = el problema es el nombre nuevo (ya es llave de otra persona).
+   */
+  readonly renombreRechazo = signal<{ nuevo: boolean; encontrados: UsoDelUsuario[]; sinRevisar: UsoDelUsuario[] } | null>(null);
+  /**
+   * Las mismas reglas que `RenameUserDto` en el servidor, para que el botón no ofrezca lo que
+   * el servidor va a rechazar. Se normaliza ANTES de validar (minúsculas, sin espacios en los
+   * bordes), igual que hace el servidor al guardar.
+   */
+  readonly faltaParaRenombrar = computed<string | null>(() => {
+    const nuevo = this.fNuevoUsuario().trim().toLowerCase();
+    const motivo = this.fMotivoRenombre().trim();
+    if (!nuevo) return 'Escribe el usuario nuevo.';
+    if (!/^[a-z0-9._-]{3,64}$/.test(nuevo)) return 'El usuario lleva de 3 a 64 letras, números, «.», «_» o «-», sin espacios.';
+    if (nuevo === (this.persona?.username ?? '').toLowerCase()) return 'Es el mismo usuario.';
+    if (motivo.length < 5) return 'Escribe el motivo (queda en la bitácora de la cuenta).';
+    return null;
+  });
 
   readonly pestana = signal<Pestana>('persona');
   readonly propuesta = signal<PropuestaDePuesto | null>(null);
@@ -837,7 +969,16 @@ export class PersonaDetalleComponent implements OnChanges {
    */
   readonly puedeGuardar = computed(() => this.faltaParaGuardar() === null);
 
-  ngOnChanges(): void {
+  ngOnChanges(cambios?: SimpleChanges): void {
+    // `[AU.34]` La MISMA persona que vuelve SÓLO con otro usuario (la lista la actualiza tras
+    // renombrar) no reinicia la ficha: borraría lo que se haya editado sin guardar. Cualquier otra
+    // diferencia —o la misma persona recargada— reinicia como siempre.
+    const c = cambios?.['persona'];
+    if (c && !c.firstChange && soloCambioElUsuario(c.previousValue, c.currentValue)) {
+      this.fUsername.set(this.persona?.username ?? '');
+      return;
+    }
+    this.renombrando.set(false);
     this.pestana.set('persona');
     this.errorGuardado.set(null);
     this.ajustar.set(false);
@@ -1094,6 +1235,72 @@ export class PersonaDetalleComponent implements OnChanges {
           });
       },
     });
+  }
+
+  /** `[AU.34]` Nadie se cambia su propio usuario: el servidor lo rechaza y la pantalla no lo ofrece. */
+  esMiCuenta(p: PersonaFila): boolean {
+    return !!p && p.id === this.auth.user()?.sub;
+  }
+
+  abrirRenombre(): void {
+    this.fNuevoUsuario.set(this.persona?.username ?? '');
+    this.fMotivoRenombre.set('');
+    this.errorRenombre.set(null);
+    this.renombreRechazo.set(null);
+    this.renombrando.set(true);
+  }
+
+  /**
+   * Esc cierra SÓLO este bloque. Sin `stopPropagation` el Esc sube al `document` y el side-peek
+   * (que escucha `document:keydown.escape`) cierra la ficha entera, con lo editado sin guardar.
+   */
+  cerrarRenombre(ev?: Event): void {
+    ev?.stopPropagation();
+    if (this.enviandoRenombre()) return;
+    this.renombrando.set(false);
+  }
+
+  /**
+   * `[AU.34]` Cambia el usuario. El servidor decide si se puede (nada lo usa como llave) y,
+   * si no, devuelve DÓNDE aparece: eso es lo que se muestra, porque es lo que hace falta
+   * para decidir. El botón se apaga en el primer clic, antes de la respuesta.
+   */
+  renombrar(): void {
+    const persona = this.persona;
+    if (!persona || this.enviandoRenombre() || this.faltaParaRenombrar()) return;
+    this.enviandoRenombre.set(true);
+    this.errorRenombre.set(null);
+    this.renombreRechazo.set(null);
+    this.api
+      .renombrarPersona(persona.id, this.fNuevoUsuario().trim().toLowerCase(), this.fMotivoRenombre().trim())
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => {
+          this.enviandoRenombre.set(false);
+          this.renombrando.set(false);
+          this.fUsername.set(r.username);
+          this.aviso.emit(`Ahora entra como ${r.username}. Se cerraron sus sesiones; su contraseña no cambió.`);
+          this.renombrado.emit(r);
+          this.api
+            .eventosDe(persona.id)
+            .pipe(takeUntilDestroyed(this.destroyRef))
+            .subscribe({ next: (e) => this.eventos.set(e), error: () => void 0 });
+        },
+        error: (e) => {
+          this.enviandoRenombre.set(false);
+          const cuerpo = (e as {
+            error?: { code?: string; encontrados?: UsoDelUsuario[]; sin_revisar?: UsoDelUsuario[] };
+          })?.error;
+          const encontrados = cuerpo?.encontrados ?? [];
+          const sinRevisar = cuerpo?.sin_revisar ?? [];
+          if ((cuerpo?.code === 'usuario_con_historia' || cuerpo?.code === 'usuario_nuevo_ocupado') && (encontrados.length || sinRevisar.length)) {
+            this.renombreRechazo.set({ nuevo: cuerpo.code === 'usuario_nuevo_ocupado', encontrados, sinRevisar });
+          } else {
+            // Incluye `renombre_revertido`: su mensaje explica que se deshizo y que sus sesiones sí se cerraron.
+            this.errorRenombre.set(this.mensajeDe(e));
+          }
+        },
+      });
   }
 
   agregarResponsabilidad(): void {

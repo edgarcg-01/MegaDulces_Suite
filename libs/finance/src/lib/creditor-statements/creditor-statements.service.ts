@@ -4,8 +4,8 @@ import type {
   AcreedorEstadoCuentaResponse, AcreedorFicha, AcreedorResumen, AcreedorTipo, AcreedorTipoTotal, AcreedoresResponse,
 } from '@megadulces/contracts';
 import {
-  CORTE_CONCENTRADOR, TOLERANCIA, armarEstado, clasificarAcreedor, nombreGrupo, r2, totalesEstado,
-  type AplicacionCruda, type DocCrudo,
+  CORTE_CONCENTRADOR, TOLERANCIA, adjuntarProgramado, armarEstado, calendarioDe, clasificarAcreedor, nombreGrupo, r2,
+  totalesEstado, type AplicacionCruda, type DocCrudo, type ProgramadoCrudo,
 } from './creditor-statements.engine';
 
 /**
@@ -132,7 +132,51 @@ SELECT btrim(c3) AS nombre, nullif(btrim(c10), '') AS rfc, nullif(btrim(c7), '')
  ORDER BY (sucursal <> '00'), sucursal
  LIMIT 1`;
 
-const TIPOS: AcreedorTipo[] = ['mercancia', 'servicios', 'financiero', 'sin_clasificar', 'interno'];
+/**
+ * `[ECA.8]` **Los pagos del Calendario que tienen a cada factura del acreedor.**
+ *
+ * Dos orígenes, la misma clave natural de Kepler:
+ *  · `kepler_payable` — la deuda derivada; su id es `md5('kepler_payable|suc|tipo|sub|folio')`, la
+ *    llave de `sqlKeplerPayableId` (`folio` sin espacios: la vista lo publica así, 0 de 3,187 con espacio).
+ *  · `supplier_payable` — la capturada por Entregas; casa por sus columnas `kepler_*`.
+ * Medido 2026-11-09: 323/323 y 12/12 de los items pendientes casan con `kdxe`; 7–22 ms por acreedor.
+ *
+ * ⛔ No vuelve a leer `kdxe`: recibe las claves de los documentos que `SQL_DOCS` ya trajo (una sola
+ * definición de la deuda, `[RA.CAP]`). Así además sólo busca lo que la pantalla va a mostrar.
+ */
+const SQL_PROGRAMADO = `
+WITH d AS (
+  SELECT k.sucursal, k.tipo_doc, k.sub, k.folio,
+         md5('kepler_payable|' || k.sucursal || '|' || k.tipo_doc || '|' || k.sub || '|' || k.folio)::uuid AS oid
+    FROM jsonb_to_recordset(?::jsonb) AS k(sucursal text, tipo_doc text, sub text, folio text)
+),
+it AS (
+  SELECT d.sucursal, d.tipo_doc, d.sub, d.folio, i.allocation_id, (i.applied_amount + i.discount_amount) AS cubierto
+    FROM d
+    JOIN finance.payment_allocation_items i ON i.obligation_source = 'kepler_payable' AND i.obligation_id = d.oid
+  UNION ALL
+  SELECT d.sucursal, d.tipo_doc, d.sub, d.folio, i.allocation_id, (i.applied_amount + i.discount_amount)
+    FROM d
+    JOIN commercial.supplier_payment_obligations o
+      ON o.kepler_sucursal = d.sucursal AND o.kepler_doc_tipo::text = d.tipo_doc::text
+     AND o.kepler_doc_sub::text = d.sub::text AND btrim(o.kepler_folio) = d.folio
+    JOIN finance.payment_allocation_items i ON i.obligation_source = 'supplier_payable' AND i.obligation_id = o.id
+)
+SELECT it.sucursal, it.tipo_doc, it.sub, it.folio, it.allocation_id::text AS allocation_id,
+       to_char(l.lot_date, 'YYYY-MM-DD') AS fecha, a.status AS estado, it.cubierto,
+       (SELECT count(*) FROM finance.payment_allocation_items x WHERE x.allocation_id = a.id) AS facturas_en_pago,
+       a.amount_assigned AS total_pago, a.created_by AS creado_por,
+       to_char(a.executed_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS pagado_el,
+       a.payment_method AS metodo,
+       nullif(coalesce(nullif(btrim(b.alias), ''), concat_ws(' ', b.bank, b.account_label)), '') AS banco,
+       a.reference_text AS referencia, a.kepler_payment_folio AS kepler_folio
+  FROM it
+  JOIN finance.payment_allocations a ON a.id = it.allocation_id
+  JOIN finance.payment_calendar_lots l ON l.id = a.lot_id
+  LEFT JOIN finance.bank_accounts b ON b.id = a.bank_account_id
+ WHERE a.status IN ('pending', 'executed')`;
+
+const TIPOS: AcreedorTipo[] =['mercancia', 'servicios', 'financiero', 'sin_clasificar', 'interno'];
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 /** Claves de Kepler: letras, números, punto y guion (`CM009`, `B.B.FAC`, `TC1852`). */
 const CODIGO = /^[A-Za-z0-9.-]{1,20}$/;
@@ -260,6 +304,22 @@ export class CreditorStatementsService {
       solo ? d.estado !== 'pagado' && d.estado !== 'cancelado' : enPeriodo(d.fecha));
     const pagos = armado.pagos_sin_aplicar.filter((p) => solo || enPeriodo(p.fecha));
 
+    // `[ECA.8]` Va en su propia transacción: si el Calendario no se puede leer, el estado de cuenta
+    // sale igual y lo DECLARA (`medido: false`), en vez de pintar «nada programado» (ADR-056).
+    let calendario = { medido: false, programado: 0, documentos: 0, sin_programar: 0 };
+    try {
+      const filas = documentos.length
+        // Un solo parámetro JSON: knex expande un arreglo en `trx.raw` a una lista y rompería el SQL.
+        ? await this.tk.run(async (trx) => (await trx.raw(SQL_PROGRAMADO, [JSON.stringify(documentos.map((d) => ({
+          sucursal: d.sucursal, tipo_doc: String(d.tipo_doc), sub: String(d.sub), folio: d.folio,
+        })))])).rows as ProgramadoCrudo[])
+        : [];
+      adjuntarProgramado(documentos, filas, hoy);
+      calendario = calendarioDe(documentos);
+    } catch (e) {
+      this.logger.warn(`estadoCuenta ${codigo}: no se pudo leer el Calendario (${(e as Error).message})`);
+    }
+
     const acreedor: AcreedorFicha = {
       codigo,
       nombre: ficha?.nombre || codigo,
@@ -281,6 +341,7 @@ export class CreditorStatementsService {
       documentos,
       pagos_sin_aplicar: pagos,
       totales: totalesEstado(documentos, pagos),
+      calendario,
       al: hoy,
     };
   }

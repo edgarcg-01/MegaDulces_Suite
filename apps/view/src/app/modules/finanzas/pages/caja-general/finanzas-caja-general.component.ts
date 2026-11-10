@@ -4335,10 +4335,12 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
         }
         <!-- [LE.2.12] Lo que no es efectivo: cheques, papeles y dólares, como los contaba Control en cada
              arqueo. No mueven el esperado del corte (es efectivo): se declaran aparte, contra lo que
-             había, y quedan como arqueo de la caja ligado a este corte. Va DESPUÉS de sellar para no
-             tocar el conteo ciego. -->
-        @if (!rejaEditable() && revelacion()) {
-          <section class="cg-ne" aria-labelledby="cg-ne-tit">
+             había, y quedan como arqueo de la caja ligado a este corte.
+             [LE.6.27] Se ve desde que se abre el cierre (PM, 2026-11-09: «a la hora de hacer su cierre de
+             jornada»): no muestra el esperado del efectivo, así que no toca el conteo ciego. Se GUARDA ya
+             sellado el efectivo, porque el arqueo lleva las piezas selladas. -->
+        @if (corteEnCierre()) {
+          <section class="cg-ne" aria-labelledby="cg-ne-tit" data-testid="cg-no-efectivo">
             <p class="cg-cap" id="cg-ne-tit">Lo que no es efectivo: cheques, papeles y dólares</p>
             @if (neDeclarado(); as g) {
               <p class="fin-hint-ok">Declarado en este corte: cheques {{ g.cheques === null ? 'sin contar' : money(g.cheques) }} ·
@@ -4372,8 +4374,12 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
               </fieldset>
               @if (neFalta(); as falta) { <small class="fin-hint-warn d-block" role="status">{{ falta }}</small> }
               @if (neError(); as e) { <small class="fin-hint-warn d-block" role="alert">{{ e }}</small> }
-              <p-button label="Guardar cheques, papeles y dólares" icon="pi pi-lock" size="small" severity="secondary"
-                        [loading]="neGuardando()" [disabled]="neGuardando() || !!neFalta()" (onClick)="guardarNoEfectivo()"></p-button>
+              @if (desgloseSellado()) {
+                <p-button label="Guardar cheques, papeles y dólares" icon="pi pi-lock" size="small" severity="secondary"
+                          [loading]="neGuardando()" [disabled]="neGuardando() || !!neFalta()" (onClick)="guardarNoEfectivo()"></p-button>
+              } @else {
+                <small class="fin-dim d-block" data-testid="cg-no-efectivo-espera">Se guarda al cerrar el corte, ya sellado el efectivo.</small>
+              }
             }
           </section>
           <!-- Lo que Control traía sin detalle: qué era, peso por peso. -->

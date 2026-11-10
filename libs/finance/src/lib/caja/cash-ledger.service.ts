@@ -358,11 +358,14 @@ export interface CoberturaCuentasKepler {
   medido_ms: number;
 }
 
+type FilaCola = Record<string, unknown>;
+type YaEnLibroDelMotor = NonNullable<ReturnType<ReturnType<typeof yaEnElLibro>['get']>>;
+
 /** `[CGA-A.71]` Un renglón de la cola, como lo lee `yaEnElLibro`. */
-function paraYaEnLibro(r: any): PendienteParaLibro {
+function paraYaEnLibro(r: FilaCola): PendienteParaLibro {
   return {
     origen_ref: String(r.origen_ref), sucursal: String(r.sucursal), doc_tipo: String(r.doc_tipo), folio: String(r.folio),
-    fecha: ymd(r.fecha_valor) ?? '', monto: Number(r.monto), tipo: String(r.tipo), ruta: r.ruta ?? null,
+    fecha: ymd(r.fecha_valor) ?? '', monto: Number(r.monto), tipo: String(r.tipo), ruta: r.ruta == null ? null : String(r.ruta),
   };
 }
 
@@ -1952,7 +1955,7 @@ export class CashLedgerService {
       return {
         rows: conLibro, pagables, limit, has_more: rows.length === limit,
         // `[CGA-A.71]` Cuántas de las DEVUELTAS ya están en el libro por otro camino (mismo alcance que `confirmables`).
-        ya_en_libro: conLibro.filter((r: any) => r.ya_en_libro).length,
+        ya_en_libro: conLibro.filter((r) => r.ya_en_libro).length,
         // ⭐ CG.22.3 — DE CUÁNDO es este dato. La lista sale de `analytics.mv_caja_movimientos`,
         // materializado por costo (415 ms → 0.4 ms, medido). Un matview que dejó de refrescarse
         // no da error: sirve la foto vieja, y una bandeja de caja congelada se lee como "no hay
@@ -2450,13 +2453,13 @@ export class CashLedgerService {
    * ingresos vivos que pueden explicar a otro documento: depósitos de CAOS sin documento declarado y
    * cobros con su llave, del día del pendiente más viejo a una semana después del más nuevo.
    */
-  private async marcarYaEnLibro(trx: any, tenantId: string, rows: any[]): Promise<any[]> {
+  private async marcarYaEnLibro<T extends FilaCola>(trx: Knex.Transaction, tenantId: string, rows: T[]): Promise<Array<T & { ya_en_libro: YaEnLibroDelMotor | null }>> {
     const m = yaEnElLibro(rows.map(paraYaEnLibro), await this.capturasQueExplican(trx, tenantId, rows));
     return rows.map((r) => ({ ...r, ya_en_libro: m.get(String(r.origen_ref)) ?? null }));
   }
 
   /** `[CGA-A.71]` Las capturas vivas que pueden explicar a otro documento, en la ventana de esos pendientes. */
-  private async capturasQueExplican(trx: any, tenantId: string, rows: any[]): Promise<CapturaDelLibro[]> {
+  private async capturasQueExplican(trx: Knex.Transaction, tenantId: string, rows: FilaCola[]): Promise<CapturaDelLibro[]> {
     const fechas = rows.filter((r) => r.tipo === 'ingreso').map((r) => ymd(r.fecha_valor)).filter((d): d is string => !!d).sort();
     if (!fechas.length) return [];
     const hasta = new Date(Date.parse(`${fechas[fechas.length - 1]}T00:00:00Z`) + DIAS_OTRA_CAMIONETA * 86400000).toISOString().slice(0, 10);
@@ -2466,7 +2469,7 @@ export class CashLedgerService {
       .where((b: Knex.QueryBuilder) => b.where((x: Knex.QueryBuilder) => x.where('origen_tipo', 'caos').whereNull('declared_doc_ref'))
         .orWhere((x: Knex.QueryBuilder) => x.where('origen_tipo', 'cobro').whereNotNull('origen_ref')))
       .select('id', 'folio', 'fecha', 'monto', 'tipo', 'origen_tipo', 'origen_ref', 'declared_doc_ref', 'glosa'))
-      .map((l: any) => ({ ...l, fecha: ymd(l.fecha) ?? '', monto: Number(l.monto) }));
+      .map((l: CapturaDelLibro) => ({ ...l, fecha: ymd(l.fecha) ?? '', monto: Number(l.monto) }));
   }
 
   /**
