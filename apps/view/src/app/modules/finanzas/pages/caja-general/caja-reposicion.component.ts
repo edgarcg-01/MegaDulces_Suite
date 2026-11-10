@@ -291,8 +291,15 @@ export function avisoDeReposicion(
                       <small class="fin-dim">{{ textoCuadreHoja(f.h) }}</small>
                     }
                   } @else if (!(f.h.pago?.sin_capturar ?? 0)) {
-                    <!-- [LE.6.21] Historial: la hoja pagada dice con qué salió y si su depósito ya llegó. -->
-                    <span class="rp-pagado">{{ textoPagoHoja(f.h) }}</span>
+                    <!-- [LE.6.27] Sin su depósito, la reposición no está validada: se dice primero, con lo que se buscó. -->
+                    @if (!depositoValidado(f.h)) {
+                      <span data-testid="rp-falta-deposito"><strong>Falta el depósito:</strong>
+                        {{ f.h.pago?.deposito?.nota ?? 'no se pudo leer si llegó.' }}</span>
+                      <small class="fin-dim d-block">Pagada {{ textoPagoHoja(f.h) }}. Pasa al historial cuando aparezca su U-A-5 en Kepler.</small>
+                    } @else {
+                      <!-- [LE.6.21] Historial: la hoja pagada dice con qué salió y si su depósito ya llegó. -->
+                      <span class="rp-pagado">{{ textoPagoHoja(f.h) }}</span>
+                    }
                   } @else {
                     @if (puedeGestionar()) {
                       <p-button [label]="'Capturar lo que falta (' + (f.h.pago?.sin_capturar ?? 0) + ')'" icon="pi pi-refresh" size="small"
@@ -773,10 +780,19 @@ export class CajaReposicionComponent implements OnInit {
   readonly abiertasPorPagar = computed(() => (this.hojas()?.abiertas ?? []).filter((a) => a.renglones.length > 0));
   readonly nPorResolver = computed(() => this.accionables().length + this.hojasPorPagar().length + this.abiertasPorPagar().length);
   /** `[LE.6.21]` Lo de la pestaña «Reposiciones»: lo que se resuelve en la fila y lo que ningún retiro explica. */
-  readonly nPendientes = computed(() => this.nPorResolver() + this.sinRetiro().length);
-  /** `[LE.6.21]` Las hojas de zona ya pagadas y con todo en el libro: van al historial. */
+  readonly nPendientes = computed(() => this.nPorResolver() + this.sinRetiro().length + this.hojasSinDeposito().length);
+  /**
+   * ⭐ `[LE.6.27]` PM, 2026-11-09: el folio del depósito se ve en Reposiciones «para validar que hubo un
+   * depósito y que no se regresa dinero que nunca salió». Una hoja pagada sin su `U-A-5` en Kepler (o con
+   * el depósito sin medir o ambiguo) NO está validada: se queda aquí hasta que aparezca. Medido en prod el
+   * 9/11: 4 de 13 hojas pagadas tienen su depósito.
+   */
+  depositoValidado(h: HojaGastos): boolean { return h.pago?.deposito?.estado === 'depositada'; }
+  readonly hojasSinDeposito = computed(() => (this.hojas()?.cerradas ?? [])
+    .filter((h) => h.estado === 'pagada' && !(h.pago?.sin_capturar ?? 0) && !this.depositoValidado(h)));
+  /** `[LE.6.21]` Las hojas de zona ya pagadas, con todo en el libro y (`[LE.6.27]`) su depósito: van al historial. */
   readonly hojasPagadas = computed(() => (this.hojas()?.cerradas ?? [])
-    .filter((h) => h.estado === 'pagada' && !(h.pago?.sin_capturar ?? 0)));
+    .filter((h) => h.estado === 'pagada' && !(h.pago?.sin_capturar ?? 0) && this.depositoValidado(h)));
 
   readonly filas = computed<Fila[]>(() => {
     const deGrupo = (gs: ReposicionGrupo[]): Fila[] => gs.map((g) => ({ tipo: 'grupo' as const, clave: g.clave, g }));
@@ -787,6 +803,7 @@ export class CajaReposicionComponent implements OnInit {
     return [
       ...this.abiertasPorPagar().map((a) => ({ tipo: 'abierta' as const, clave: `abierta|${a.zona}`, a })),
       ...deHoja(this.hojasPorPagar()),
+      ...deHoja(this.hojasSinDeposito()),
       ...deGrupo(this.accionables()),
       ...deGrupo(this.sinRetiro()),
     ];
@@ -862,6 +879,8 @@ export class CajaReposicionComponent implements OnInit {
     const cajon = this.grupos().reduce((a, g) => a + g.cajon, 0);
     const n = this.nPorResolver();
     const m = this.sinRetiro().length;
+    const sinDep = Math.round(this.hojasSinDeposito().reduce((a, h) => a + h.total, 0) * 100) / 100;
+    const k = this.hojasSinDeposito().length;
     if (this.vista() === 'historial') {
       const conRetiro = Math.round(this.explicadas().reduce((a, g) => a + g.caos, 0) * 100) / 100;
       return [
@@ -874,6 +893,9 @@ export class CajaReposicionComponent implements OnInit {
         sub: `${n} ${n === 1 ? 'renglón' : 'renglones'} con su acción en la fila` },
       { label: 'Sin retiro que lo explique', value: sinRetiro, format: 'currency2', tone: sinRetiro > 0 ? 'bad' : 'ok',
         sub: `${m} ${m === 1 ? 'sucursal-día' : 'sucursales-día'} al final de la lista: CAOS no dice de dónde salió` },
+      // `[LE.6.27]` Lo pagado que todavía no prueba con un depósito que el dinero salió.
+      { label: 'Pagado sin depósito', value: sinDep, format: 'currency2', tone: sinDep > 0 ? 'warn' : 'ok',
+        sub: `${k} ${k === 1 ? 'hoja pagada' : 'hojas pagadas'} sin su U-A-5 en Kepler` },
     ];
   });
 

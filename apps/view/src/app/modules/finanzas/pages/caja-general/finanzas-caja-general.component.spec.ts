@@ -5380,6 +5380,24 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       expect(svc['cerrarCorte']).toHaveBeenCalledTimes(1);
     });
 
+    // `[LE.6.27]` PM, 2026-11-09: el arqueo de dólares y cheques se ve «a la hora de hacer su cierre de jornada».
+    it('[LE.6.27] el apartado de dólares y cheques se ve desde que se abre el cierre, y se guarda ya sellado', () => {
+      const q = (sel: string) => document.querySelector(sel) ?? fx.nativeElement.querySelector(sel);
+      const fx = montar({ saldo: vi.fn(() => of(abierto(null))), contarCorte: contar(), cerrarCorte: cerrado(),
+        arqueosCaja: vi.fn(() => of({ rows: [CON_USD], limit: 30, fuente: 'prueba' })) });
+      comp.abrirCierre();
+      fx.detectChanges();
+      expect(comp.rejaEditable()).toBe(true);
+      expect(q('[data-testid="cg-no-efectivo"]')).not.toBeNull();
+      expect(q('#cg-ne-usd')).not.toBeNull();
+      expect(q('[data-testid="cg-no-efectivo-espera"]')?.textContent).toContain('Se guarda al cerrar el corte');
+      comp.setPiezasCorte(den('500'), 3);
+      comp.sellarConteo();
+      fx.detectChanges();
+      expect(q('[data-testid="cg-no-efectivo-espera"]')).toBeNull();
+      expect(q('[data-testid="cg-no-efectivo"]')?.textContent).toContain('Guardar cheques, papeles y dólares');
+    });
+
     it('⛔ si la relectura del saldo falla después de sellar, el corte del diálogo se puede cerrar igual', () => {
       let falla = false;
       const saldo = vi.fn(() => (falla ? throwError(() => ({ status: 500, error: {} })) : of(abierto(null))));
@@ -5972,14 +5990,35 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       expect(cuadre).toContain('+$0.11 de redondeo');
     });
 
-    it('[LE.6.24] NEGATIVA: sin depósito que cuadre no se afirma ninguno, y se dice por qué', () => {
-      const fx = enHistorial(HOJA({ estado: 'pagada', pago: PAGO({ estado: 'no_aparece', depositos: null, diferencia: null,
-        nota: 'No hay un U-A-5 a la clave 1604 por el total (±$0.50) del 2026-11-05 a siete días; Kepler trae hasta el 2026-11-09.' }) }));
+    // ⭐ `[LE.6.27]` PM, 2026-11-09: el folio del depósito se ve en Reposiciones «para validar que hubo un
+    // depósito y que no se regresa dinero que nunca salió». Sin depósito, la hoja pagada NO es historial.
+    it('[LE.6.24][LE.6.27] NEGATIVA: sin depósito que cuadre no se afirma ninguno, y la hoja se queda en Reposiciones', () => {
+      const SIN = HOJA({ estado: 'pagada', pago: PAGO({ estado: 'no_aparece', depositos: null, diferencia: null,
+        nota: 'No hay un U-A-5 a la clave 1604 por el total (±$0.50) del 2026-11-05 a siete días; Kepler trae hasta el 2026-11-09.' }) });
+      const fx = enHistorial(SIN);
+      expect(ventana(fx).querySelector('.rp-pagado'), 'sin depósito no es historial').toBeNull();
+      reposicion(fx).vista.set('reposiciones');
+      fx.detectChanges();
+      const falta = ventana(fx).querySelector('[data-testid="rp-falta-deposito"]')?.textContent?.replace(/\s+/g, ' ') ?? '';
+      expect(falta).toContain('Falta el depósito');
+      expect(falta).toContain('Kepler trae hasta el 2026-11-09');
       const cuadre = ventana(fx).querySelector('[data-testid="rp-hoja-deposito"]')?.textContent?.replace(/\s+/g, ' ') ?? '';
       expect(cuadre).toContain('sin depósito que cuadre');
-      expect(cuadre).toContain('Kepler trae hasta el 2026-11-09');
       expect(cuadre).not.toContain('· cuadra');
-      expect(ventana(fx).querySelector('.rp-pagado')?.textContent).toContain('el depósito todavía no aparece');
+      const pagadoSinDep = reposicion(fx).kpis().find((k) => k.label === 'Pagado sin depósito');
+      expect(pagadoSinDep?.value).toBe(83981.89);
+      expect(reposicion(fx).opcionesVista()[1].count).toBe(0);
+    });
+
+    it('[LE.6.27] con su depósito, la hoja pagada sí pasa al historial y no cuenta como pagada sin depósito', () => {
+      const fx = enHistorial(HOJA({ estado: 'pagada', pago: PAGO({ estado: 'depositada', diferencia: 0.11, nota: null,
+        depositos: [{ id: '08|U-A-5|0000303|1604', dia: '2026-10-30', importe: 83982, folio: '0000303', sucursal: '08', banco: '1604' }] }) }));
+      expect(ventana(fx).querySelector('.rp-pagado')).not.toBeNull();
+      expect(ventana(fx).querySelector('[data-testid="rp-falta-deposito"]')).toBeNull();
+      reposicion(fx).vista.set('reposiciones');
+      fx.detectChanges();
+      expect(ventana(fx).querySelector('[data-testid="rp-falta-deposito"]')).toBeNull();
+      expect(reposicion(fx).kpis().find((k) => k.label === 'Pagado sin depósito')?.value).toBe(0);
     });
 
     // ⭐ `[LE.6.25]` PM, 2026-11-09: «identificar qué se repone a la sucursal y qué se le carga, pero lo pagó
