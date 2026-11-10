@@ -23,8 +23,9 @@ import { ivaProporcional } from '../../payment-calendar/kepler-pago/pago-kepler.
  * ⛔ Fuera de este armador (se declaran, no se adivinan):
  *  - las cuotas fijas sin depósito (renta de terminal, cuota de afiliación de Santander): otra forma de gasto;
  *  - el cargo cuya terminal no tiene depósito abierto en la descarga: queda «huérfano», por revisar;
- *  - las tablas que Kepler escribe además (`kdxe`, `kdxf`, `kdxg`, la póliza `kdc2AAMM`, `kdc126`, `kdcn26`):
- *    se miden con una captura real antes de C2.
+ *  - los ACUMULADOS que Kepler mueve además (`kdxg` del acreedor, `kdc126` por cuenta, `kdcn26` por centro de
+ *    costo) y los números de folio y de póliza: los resuelve C2, y la lista se cierra con una captura real
+ *    (foto de contadores antes y después). La póliza, `kdxe` y `kdxf` sí están aquí, medidos en el ODS.
  */
 
 /** Quién capturó (`kdm1.c67`): la Suite, como en el pago a proveedor. */
@@ -33,6 +34,8 @@ export const CAPTURISTA_SUITE = 'SUITE';
 export const CUENTA_COMISION = '611-003';
 export const TEXTO_COMISION = 'COMISIONES BANCARIAS POR VENTA';
 export const CONCEPTO_GASTO_COMISION = '199';
+/** El IVA del gasto en la póliza (272 de 272 gastos de octubre). */
+export const CUENTA_IVA_ACREDITABLE = '122-001';
 
 export type TipoCargo = 'comision' | 'iva';
 
@@ -185,6 +188,11 @@ export interface PlantillaComisiones {
   sucursalTexto: string;
   /** Para el texto de la cabecera (`c24`). */
   sucursalNombre: string;
+  /**
+   * El abono del acreedor en la póliza del gasto, como lo trae su último gasto: `201` en las sucursales de TPV;
+   * CEDIS asienta sus cuotas de banco a `203` (acreedores diversos) y `702-002`, fuera de este armador.
+   */
+  cuentaAcreedor: string;
 }
 
 export interface GrupoComisiones {
@@ -200,13 +208,26 @@ export interface GrupoComisiones {
 
 type Valor = string | number;
 
+/**
+ * Una póliza `kdc2AAMM`: tipo (`c8`), fecha (`c2`) y renglones. El número (`c1`, `MAX+1` por mes y tipo), la
+ * sucursal (`c14`) y el documento (`c15`–`c19`) los pone C2 al escribir. Medido en octubre: los 1,408 pagos
+ * traen UNA póliza `E` de dos renglones (cargo 201, abono 102, su fecha y su referencia en `c7`); 272 de 273
+ * gastos traen UNA póliza `D` con su fecha y referencia, el IVA en 122-001 (272 de 272) y un 611-003 por renglón.
+ * La solicitud no hace póliza.
+ */
+export interface PolizaKepler { tipo: 'D' | 'E'; fecha: string; renglones: Record<string, Valor>[] }
+
 export interface PlanComisionesKepler {
   /** La solicitud `X-A-15`: cabecera y renglones (`c6` folio lo pone C2, `MAX+1`). */
   solicitud: { kdm1: Record<string, Valor>; kdm6: Record<string, Valor>[] };
   /** El gasto `X-A-10`: igual a la solicitud y apuntándola (`c39` = folio de la solicitud, lo pone C2). */
-  gasto: { kdm1: Record<string, Valor>; kdm6: Record<string, Valor>[] };
-  /** Un `X-D-26` por cargo del banco, aplicado al gasto. */
-  pagos: { cargo: string; kdm1: Record<string, Valor> }[];
+  gasto: { kdm1: Record<string, Valor>; kdm6: Record<string, Valor>[]; kdxe: Record<string, Valor>; poliza: PolizaKepler };
+  /**
+   * Un `X-D-26` por cargo del banco, aplicado al gasto (`kdxf`: C2 pone `c6`, el folio del pago, y `c9`, el del
+   * gasto). Como todos se escriben con el gasto, su saldo (`kdxe.c20`) queda en 0: el de los 7 gastos idénticos
+   * de la sombra lo está.
+   */
+  pagos: { cargo: string; kdm1: Record<string, Valor>; kdxe: Record<string, Valor>; kdxf: Record<string, Valor>; poliza: PolizaKepler }[];
   total: number;
   iva: number;
 }
@@ -229,6 +250,7 @@ export function armarComisionesKepler(g: GrupoComisiones, p: PlantillaComisiones
   for (const k of ['proyecto', 'departamento', 'conceptoPago'] as const) {
     if (!String(p[k] ?? '').trim()) motivos.push(`La plantilla no trae ${k}: no se copia de otra sucursal`);
   }
+  if (!['201', '203'].includes(String(p.cuentaAcreedor ?? '').trim())) motivos.push(`La cuenta del acreedor «${p.cuentaAcreedor || '(vacía)'}» no es 201 ni 203`);
   const comisiones = g.cargos.filter((c) => c.tipo === 'comision');
   if (!comisiones.length) motivos.push('El día no tiene comisiones: un IVA solo no hace gasto');
   for (const c of g.cargos) {
@@ -253,23 +275,46 @@ export function armarComisionesKepler(g: GrupoComisiones, p: PlantillaComisiones
     c7: i + 1, c8: CUENTA_COMISION, c9: TEXTO_COMISION, c10: 'C', c11: cent(c.importe) / 100,
     c12: CONCEPTO_GASTO_COMISION, c13: p.proyecto, c16: p.departamento,
   }));
+  // La póliza repite el importe en `c5` y en `c9` (este con 4 decimales en Kepler).
+  const asiento = (c3: string, c4: 'C' | 'A', importe: number, c6: string, c7: string, extra: Record<string, Valor> = {}): Record<string, Valor> =>
+    ({ c3, c4, c5: importe, c9: importe, c6, c7, ...extra });
+  const polizaGasto: PolizaKepler = {
+    tipo: 'D', fecha: g.diaVenta,
+    renglones: [
+      asiento(p.cuentaAcreedor.trim(), 'A', total, p.nombre, p.referenciaGasto),
+      ...(iva > 0 ? [asiento(CUENTA_IVA_ACREDITABLE, 'C', ivaTotal, p.nombre, p.referenciaGasto)] : []),
+      ...renglones.map((r) => asiento(CUENTA_COMISION, 'C', Number(r.c11), TEXTO_COMISION, p.referenciaGasto, { c13: p.departamento, c20: CONCEPTO_GASTO_COMISION, c21: p.proyecto })),
+    ].map((r, i) => ({ c10: i + 1, ...r })),
+  };
   const pagos = g.cargos.map((c) => {
     const importe = cent(c.importe) / 100;
+    const ref = c.tipo === 'iva' ? 'IVA' : 'COMISIONES';
     const { c81, c82 } = ivaProporcional([{ aplicado: importe, iva: ivaTotal, ieps: 0, total }]);
     return {
       cargo: c.id,
       kdm1: {
-        c9: c.fecha, c7: 'PESOS', c10: p.acreedor, c11: c.tipo === 'iva' ? 'IVA' : 'COMISIONES', c12: p.conceptoPago,
+        c9: c.fecha, c7: 'PESOS', c10: p.acreedor, c11: ref, c12: p.conceptoPago,
         c16: importe, c42: importe, c43: 'N', c31: 'Tra', c45: c.cuenta, c48: p.sucursalTexto,
         c32: p.nombre, c33: p.domicilio[0], c34: p.domicilio[1], c35: p.domicilio[2], c67: CAPTURISTA_SUITE, c81, c82,
       } as Record<string, Valor>,
+      kdxe: { c2: p.acreedor, c3: 'D', c4: 26, c5: 1, c7: c.fecha, c8: 'PESOS', c11: importe, c16: ref, c17: importe, c18: p.conceptoPago, c20: 0, c22: c.cuenta, c28: 'X', c29: 'C' } as Record<string, Valor>,
+      kdxf: { c1: g.sucursal, c2: p.acreedor, c3: c.fecha, c4: 26, c5: 1, c7: 10, c8: 1, c10: importe, c11: importe } as Record<string, Valor>,
+      poliza: {
+        tipo: 'E' as const, fecha: c.fecha,
+        renglones: [asiento('201', 'C', importe, p.nombre, ref), asiento('102', 'A', importe, p.nombre, ref)].map((r, i) => ({ c10: i + 1, ...r })),
+      },
     };
   });
   return {
     ok: true,
     plan: {
       solicitud: { kdm1: { ...cabecera, c31: 'Sol', c43: 'F' }, kdm6: renglones },
-      gasto: { kdm1: { ...cabecera, c31: 'Gas', c36: 'A', c37: 15, c38: 1, c42: total, c43: 'N', c90: '01' }, kdm6: renglones.map((r) => ({ ...r })) },
+      gasto: {
+        kdm1: { ...cabecera, c31: 'Gas', c36: 'A', c37: 15, c38: 1, c42: total, c43: 'N', c90: '01' },
+        kdm6: renglones.map((r) => ({ ...r })),
+        kdxe: { c2: p.acreedor, c3: 'A', c4: 10, c5: 1, c7: g.diaVenta, c8: 'PESOS', c10: g.diaVenta, c11: total, c13: ivaTotal, c16: p.referenciaGasto, c17: total, c20: 0, c28: 'X', c29: 'A' },
+        poliza: polizaGasto,
+      },
       pagos,
       total,
       iva: ivaTotal,

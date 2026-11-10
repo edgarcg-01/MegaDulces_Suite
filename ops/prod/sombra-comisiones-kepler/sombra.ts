@@ -22,6 +22,14 @@ import {
 } from '../../../libs/finance/src/lib/bank/comisiones-kepler/comisiones-kepler.armador';
 
 const iso = (d: unknown): string => (d instanceof Date ? d.toISOString().slice(0, 10) : String(d).slice(0, 10));
+/** La póliza vive en una tabla por mes: `kdc2AAMM`. El nombre sale de una fecha validada, no de texto libre. */
+const tablaPoliza = (d: string): string => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) throw new Error(`fecha inválida para la póliza: ${d}`);
+  return `kepler_ods.kdc2${d.slice(2, 4)}${d.slice(5, 7)}`;
+};
+/** Los renglones de una póliza como multiconjunto «cuenta|C/A|centavos», para comparar dos implementaciones. */
+const huella = (rs: { c3: unknown; c4: unknown; c5: unknown }[]): string =>
+  rs.map((r) => `${String(r.c3).trim()}|${String(r.c4).trim()}|${Math.round(Number(r.c5) * 100)}`).sort().join(' ');
 const menosUno = (d: string): string => new Date(Date.parse(`${d}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
 
 async function main(): Promise<void> {
@@ -74,14 +82,17 @@ async function main(): Promise<void> {
   for (const g of grupos) {
     const k = `${g.sucursal}|${g.acreedor}`;
     if (plantillas.has(k)) continue;
-    const [gas] = await q(`SELECT m.c11, m.c30, d.c13, d.c16 FROM kepler_ods.kdm1 m JOIN kepler_ods.kdm6 d ON d.sucursal=m.sucursal AND d.c2=m.c2 AND d.c3=m.c3 AND d.c4=m.c4 AND d.c5=m.c5 AND d.c6=m.c6
+    const [gas] = await q(`SELECT m.c6, m.c9, m.c11, m.c30, d.c13, d.c16 FROM kepler_ods.kdm1 m JOIN kepler_ods.kdm6 d ON d.sucursal=m.sucursal AND d.c2=m.c2 AND d.c3=m.c3 AND d.c4=m.c4 AND d.c5=m.c5 AND d.c6=m.c6
       WHERE m.sucursal=$1 AND m.c2='X' AND m.c3='A' AND m.c4=10 AND m.c43<>'C' AND btrim(m.c10)=$2 AND btrim(d.c8)='611-003' ORDER BY m.c9 DESC, m.c6 DESC LIMIT 1`, [g.sucursal, g.acreedor]);
     const [pag] = await q(`SELECT c12, c32, c33, c34, c35, c48 FROM kepler_ods.kdm1 WHERE sucursal=$1 AND c2='X' AND c3='D' AND c4=26 AND c43<>'C' AND btrim(c10)=$2 ORDER BY c9 DESC, c6 DESC LIMIT 1`, [g.sucursal, g.acreedor]);
     if (!gas || !pag) continue;
     const t = (v: unknown) => String(v ?? '').trim();
+    // El abono del acreedor, de la póliza de ese mismo gasto (201 en las sucursales de TPV).
+    const [abono] = await q(`SELECT btrim(c3) c3 FROM ${tablaPoliza(iso(gas.c9))} WHERE sucursal=$1 AND btrim(c15)='X' AND btrim(c16)='A' AND c17=10 AND btrim(c19)=$2 AND btrim(c4)='A' LIMIT 1`, [g.sucursal, t(gas.c6)]);
     plantillas.set(k, {
       acreedor: g.acreedor, nombre: t(pag.c32), domicilio: [t(pag.c33), t(pag.c34), t(pag.c35)], referenciaGasto: t(gas.c11), areaGasto: t(gas.c30),
       proyecto: t(gas.c13), departamento: t(gas.c16), conceptoPago: t(pag.c12), sucursalTexto: t(pag.c48), sucursalNombre: t(pag.c48),
+      cuentaAcreedor: t(abono?.c3),
     });
   }
 
@@ -127,6 +138,7 @@ async function main(): Promise<void> {
   let armados = 0, identicos = 0; const rechazos: Record<string, number> = {}; const difieren: string[] = [];
   const clase: Record<string, number> = {};
   const contar = (k: string) => { clase[k] = (clase[k] ?? 0) + 1; };
+  let polizasGasto = 0, saldoCero = 0, pagosComparados = 0, polizasPago = 0;
   for (const g of grupos) {
     const p = plantillas.get(`${g.sucursal}|${g.acreedor}`);
     if (!p) { rechazos['sin plantilla'] = (rechazos['sin plantilla'] ?? 0) + 1; continue; }
@@ -144,6 +156,21 @@ async function main(): Promise<void> {
     else if (ok) contar('idéntico al gasto de Finanzas');
     else if (v && iso(v.dia_gasto) === g.diaVenta && v.sucursal === g.sucursal && ajenos === 0 && dc !== null && Math.abs(dc) <= g.cargos.length) contar('mismo gasto, difiere en centavos (Finanzas ajustó un pago)');
     else contar('Finanzas agrupó distinto o un cargo falta de un lado');
+    if (ok) {
+      // Dos implementaciones de la misma póliza: la que armaría la Suite contra la que generó Kepler, renglón
+      // por renglón (cuenta, cargo/abono, centavos); lo mismo para cada pago; y el saldo del gasto en kdxe.
+      const kpol = await q(`SELECT c3, c4, c5 FROM ${tablaPoliza(g.diaVenta)} WHERE sucursal=$1 AND btrim(c15)='X' AND btrim(c16)='A' AND c17=10 AND btrim(c19)=$2`, [g.sucursal, String(v.gasto).trim()]);
+      if (huella(kpol) === huella(r.plan.gasto.poliza.renglones as any)) polizasGasto++;
+      else difieren.push(`póliza del gasto ${g.sucursal} ${v.gasto}: Suite [${huella(r.plan.gasto.poliza.renglones as any)}] · Kepler [${huella(kpol)}]`);
+      const [sx] = await q(`SELECT c20::float c20 FROM kepler_ods.kdxe WHERE sucursal=$1 AND btrim(c2)=$2 AND c3='A' AND c4=10 AND btrim(c6)=$3`, [g.sucursal, g.acreedor, String(v.gasto).trim()]);
+      if (sx && Math.abs(Number(sx.c20)) < 0.005) saldoCero++;
+      for (const pg of r.plan.pagos) {
+        const vk = verdad.get(pg.cargo);
+        const kp2 = await q(`SELECT c3, c4, c5 FROM ${tablaPoliza(pg.poliza.fecha)} WHERE sucursal=$1 AND btrim(c15)='X' AND btrim(c16)='D' AND c17=26 AND btrim(c19)=$2`, [g.sucursal, String(vk.pago).trim()]);
+        pagosComparados++;
+        if (huella(kp2) === huella(pg.poliza.renglones as any)) polizasPago++;
+      }
+    }
     if (ok) identicos++;
     else difieren.push(`${g.sucursal} ${g.acreedor} venta ${g.diaVenta}: Suite $${r.plan.total.toFixed(2)} en ${g.cargos.length} cargos · Kepler ${[...gastosK].join('/')} ${v ? `$${Number(v.total_gasto).toFixed(2)} del ${iso(v.dia_gasto)}` : ''}`);
   }
@@ -154,7 +181,8 @@ async function main(): Promise<void> {
       no_vistos: noVistos.slice(0, 20).map((k) => `${k.cta} ${iso(k.fecha)} $${k.importe}`) },
     dia_de_venta: { bloques: bloques.filter((b) => b.cargos.length).length, sin_resolver: sinResolver.length, motivos: motivosDonde },
     contra_Finanzas_por_cargo: { cargos_con_su_pago_en_Kepler: conVerdad, la_suite_les_asigno_dia: asignados, misma_sucursal: mismaSuc, mismo_dia_de_venta: mismoDia, linea_base_dia_menos_uno: baseDia },
-    gastos: { grupos: grupos.length, armados, identicos_a_un_gasto_de_Finanzas: identicos, por_clase: clase, rechazos, difieren: difieren.slice(0, 20) },
+    gastos: { grupos: grupos.length, armados, identicos_a_un_gasto_de_Finanzas: identicos, por_clase: clase,
+      de_los_identicos: { poliza_del_gasto_igual_a_Kepler: polizasGasto, saldo_kdxe_en_cero: saldoCero, pagos: pagosComparados, poliza_del_pago_igual_a_Kepler: polizasPago }, rechazos, difieren: difieren.slice(0, 20) },
   };
   console.log(JSON.stringify(out, null, 2));
   if (process.env['SOMBRA_DETALLE']) {

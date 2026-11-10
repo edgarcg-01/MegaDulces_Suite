@@ -21,7 +21,7 @@ const grupo = (o: Partial<GrupoComisiones> = {}): GrupoComisiones => ({ sucursal
 const plantilla = (o: Partial<PlantillaComisiones> = {}): PlantillaComisiones => ({
   acreedor: 'GB004', nombre: 'BBVA MEXICO SA', domicilio: ['PASEO DE LA REFORMA 510', 'COL JUAREZ ALCANDIA CUAHUTEMOC', 'CIUDAD DE MEXICO MEXICO'],
   referenciaGasto: 'M.M.', areaGasto: 'FINANZAS', proyecto: '9-04-26-10', departamento: '1-02-32-00', conceptoPago: '012',
-  sucursalTexto: 'MADERO', sucursalNombre: 'MORELIA MADERO', ...o,
+  sucursalTexto: 'MADERO', sucursalNombre: 'MORELIA MADERO', cuentaAcreedor: '201', ...o,
 });
 
 describe('[CB.62] armarComisionesKepler — lo que Finanzas captura a mano', () => {
@@ -43,6 +43,38 @@ describe('[CB.62] armarComisionesKepler — lo que Finanzas captura a mano', () 
     expect(r.plan.pagos[0].kdm1).toMatchObject({ c9: '2026-10-02', c11: 'COMISIONES', c12: '012', c16: 22.13, c42: 22.13, c45: '4176', c31: 'Tra', c43: 'N', c81: 3.05, c82: 3.0522059682, c48: 'MADERO' });
     expect(r.plan.pagos[1].kdm1).toMatchObject({ c11: 'IVA', c16: 3.54, c81: 0.49, c82: 0.4882426176 });
     expect(r.plan.pagos.reduce((s, p) => s + Math.round(Number(p.kdm1.c16) * 100), 0)).toBe(77109);
+  });
+
+  it('Madero: la póliza D del gasto (1275), la E de cada pago (207, 208), su CxP y su aplicación, como en kdc22610/kdxe/kdxf', () => {
+    const r = armarComisionesKepler(grupo(), plantilla());
+    if (!r.ok) throw new Error(r.motivos.join('; '));
+    const pol = r.plan.gasto.poliza;
+    expect(pol.tipo).toBe('D');
+    expect(pol.fecha).toBe('2026-10-01');
+    expect(pol.renglones.map((x) => [x.c10, x.c3, x.c4, x.c5])).toEqual([
+      [1, '201', 'A', 771.09], [2, '122-001', 'C', 106.35], [3, '611-003', 'C', 22.13], [4, '611-003', 'C', 40.9], [5, '611-003', 'C', 63.03], [6, '611-003', 'C', 538.68],
+    ]);
+    expect(pol.renglones[0]).toMatchObject({ c6: 'BBVA MEXICO SA', c7: 'M.M.', c9: 771.09 });
+    expect(pol.renglones[2]).toMatchObject({ c6: 'COMISIONES BANCARIAS POR VENTA', c7: 'M.M.', c13: '1-02-32-00', c20: '199', c21: '9-04-26-10' });
+    expect(r.plan.gasto.kdxe).toEqual({ c2: 'GB004', c3: 'A', c4: 10, c5: 1, c7: '2026-10-01', c8: 'PESOS', c10: '2026-10-01', c11: 771.09, c13: 106.35, c16: 'M.M.', c17: 771.09, c20: 0, c28: 'X', c29: 'A' });
+    const [com, iva] = r.plan.pagos;
+    expect(com.poliza).toEqual({ tipo: 'E', fecha: '2026-10-02', renglones: [
+      { c10: 1, c3: '201', c4: 'C', c5: 22.13, c9: 22.13, c6: 'BBVA MEXICO SA', c7: 'COMISIONES' },
+      { c10: 2, c3: '102', c4: 'A', c5: 22.13, c9: 22.13, c6: 'BBVA MEXICO SA', c7: 'COMISIONES' },
+    ] });
+    expect(iva.poliza.renglones[0]).toMatchObject({ c7: 'IVA', c5: 3.54 });
+    expect(iva.kdxe).toEqual({ c2: 'GB004', c3: 'D', c4: 26, c5: 1, c7: '2026-10-02', c8: 'PESOS', c11: 3.54, c16: 'IVA', c17: 3.54, c18: '012', c20: 0, c22: '4176', c28: 'X', c29: 'C' });
+    expect(com.kdxf).toEqual({ c1: '07', c2: 'GB004', c3: '2026-10-02', c4: 26, c5: 1, c7: 10, c8: 1, c10: 22.13, c11: 22.13 });
+    // Cuadra: cargos = abonos en cada póliza.
+    for (const p of [pol, ...r.plan.pagos.map((x) => x.poliza)]) {
+      const s = (ca: string) => p.renglones.filter((x) => x.c4 === ca).reduce((t, x) => t + Math.round(Number(x.c5) * 100), 0);
+      expect(s('C')).toBe(s('A'));
+    }
+  });
+
+  it('⛔ la cuenta del acreedor sólo es 201 o 203 (una plantilla con 511 no se copia)', () => {
+    expect(armarComisionesKepler(grupo(), plantilla({ cuentaAcreedor: '511' })).ok).toBe(false);
+    expect(armarComisionesKepler(grupo(), plantilla({ cuentaAcreedor: '' })).ok).toBe(false);
   });
 
   it('⛔ falta un IVA (el banco lo mandó en otra descarga): no se arma un gasto que no cuadra al 16 %', () => {

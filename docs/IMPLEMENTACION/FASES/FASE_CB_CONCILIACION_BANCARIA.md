@@ -453,6 +453,19 @@ manos va cuenta por cuenta, empezando por BBVA 4885 · D4 va como item de CB (y 
     `U-A-5` la sucursal aún no captura (quedan «por revisar», no se adivinan).
   - El texto del `U-A-5` también trae dedazos: «VENTAS 3/11/2026» en un depósito del mismo 3-nov. Se endureció:
     el día de venta debe ser **anterior** al del banco (1 a 7 días); si no, por revisar.
+- **C1 — póliza, CxP y aplicación (2026-11-10)**, medidas en el ODS y agregadas al armador:
+  - pago `X-D-26`: **1,408 de 1,408** traen UNA póliza `E` de dos renglones (cargo 201 / abono 102 por el importe,
+    su fecha, su referencia en `c7`); `kdxe` `c3='D'` con la cuenta en `c22`; `kdxf` contra el gasto.
+  - gasto `X-A-10`: **272 de 273** traen UNA póliza `D` con su fecha y referencia; IVA a 122-001 en 272 de 272; abono
+    del acreedor por el total y un 611-003 por renglón (con departamento `c13`, concepto `c20`, proyecto `c21`).
+    Las excepciones: CEDIS asienta sus cuotas a 203 y 702-002 (fuera de alcance; la cuenta del acreedor sale de
+    la plantilla, sólo 201 o 203), 5 gastos de la `03` con un renglón de fletes 514-001 metido, y renglones de la
+    `04` que el ODS no trae. La solicitud no hace póliza.
+  - **Dos implementaciones de la misma póliza:** en los 7 gastos idénticos de la sombra, la póliza que arma la
+    Suite es **igual renglón por renglón** (cuenta, cargo/abono, centavos) a la que generó Kepler (**7 de 7**), las
+    de sus pagos también (**44 de 44**) y el saldo del gasto en `kdxe.c20` es 0 (**7 de 7**). Control: con el abono
+    del pago a 103 y el IVA a 122-002, la sombra cae a **0 de 7** y **0 de 44**.
+  - 18 pruebas.
 
 ### 9.3 Lo que falta
 
@@ -460,7 +473,7 @@ manos va cuenta por cuenta, empezando por BBVA 4885 · D4 va como item de CB (y 
 |---|---|---|---|
 | CB.62.1 | C0 | Sombra con un **mes completo**: subir la descarga de **octubre** de BBVA 4885 y Banorte 7744 (hoy sólo hay 4 días) | Día de venta y sucursal ≥ 95 % de lo asignado; cada diferencia, explicada |
 | CB.62.2 | C1 | Decidir el centavo: la Suite escribe cada pago igual al banco (recomendado) o imita el ajuste de Finanzas | Firma de Edgar/Tesorería |
-| CB.62.3 | C2 | Ingeniería inversa del **alta** del gasto y la solicitud (foto de contadores antes/después de una captura real: `kdm1`, `kdm6`, `kdxe`, `kdxg`, póliza `kdc2AAMM`, `kdc126`, `kdcn26`…). El pago ya está medido (PGP) | La lista de tablas cerrada con una captura real |
+| CB.62.3 | C2 | Cerrar la lista de tablas del **alta** con una captura real: póliza, `kdxe` y `kdxf` ya están medidos (§9.2); faltan los acumulados (`kdxg`, `kdc126`, `kdcn26`) y lo que el ODS no replica. Herramienta lista: `ops/prod/ensayo-pago-kepler/foto-contadores.js` (genérica): foto → Finanzas captura UNA solicitud + gasto + sus pagos de comisiones en una sucursal → foto → comparar. Requiere ssh a `md` autorizado por Edgar y la captura coordinada con Finanzas | La lista de tablas cerrada con una captura real |
 | CB.62.4 | C2 | Escritor apagado (interruptor como PGP), `GRANT` en las **9** bases, ensayo desde `md`, candado contra duplicados: un cargo con su `X-D-26` ya en Kepler no se escribe | Ensayo verde en una sucursal; prueba negativa del candado |
 | CB.62.5 | C3 | En Estados de cuenta: «N comisiones listas → Generar en Kepler», con lo «por revisar» y su porqué | `diseno` + `check:pantalla` |
 | CB.62.6 | — | Póliza de ContPAQi: ya existe (`[CP.8.91]`, banco × mes); falta la firma de contabilidad de `comision_bancaria` → 5200650000 | Firma de contabilidad |
