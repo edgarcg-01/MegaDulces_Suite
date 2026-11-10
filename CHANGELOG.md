@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Internal — Calendario de compras: lo que Kepler propone de cada proveedor (PQ.3.1, 2026-11-10 · en código, sin soltar)
+- Vista nueva `commercial.v_purchase_calendar_proposal`: por proveedor, cada cuánto se le pide (ciclo propuesto, con 4 o más pedidos en el año), su último pedido por sucursal y la próxima fecha. Sale de las órdenes de compra de Kepler: no se captura nada y no cambia ninguna cantidad sugerida.
+- Primer paso para sustituir la hoja «2026» con la que Compras sigue a sus proveedores ([anexo C del plan PQ](docs/IMPLEMENTACION/FASES/FASE_PQ_ANEXO_CALENDARIO_COMPRAS.md)); la pantalla llega en PQ.3.5.
+- ⚠️ Migración `20261110015037` en prod antes de soltar. Sólo crea la vista; ningún código la lee todavía.
+
 ### Added — Deuda con proveedores: cada factura dice en qué pago del Calendario está (ECA.8, 2026-11-10 · en código, sin soltar)
 - Debajo de cada factura del estado de cuenta, si está en un pago del Calendario: **«Programada para el viernes 13/11»** con el enlace **«Ver el 13/11 →»**, que abre el Calendario en ese día. Antes, una factura ya programada desaparecía de la lista para agregar y nadie sabía dónde estaba.
 - Si el pago quedó en un día que ya pasó sin pagarse, sale en rojo: «Se programó para el 04/11 y no se pagó: muévelo». Si se programó sólo una parte, dice cuánto queda. Si ya se pagó por transferencia, dice el día, el banco y la referencia, y que Kepler todavía no la aplica.
