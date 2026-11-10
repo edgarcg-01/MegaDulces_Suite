@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Fixed — Pagos: las facturas «por confirmar» que Oficinas nunca registró ya se pueden programar (PGP.113 · 2026-11-10 · en código, sin soltar)
+- Las facturas de sucursal que vencían antes del 1-oct estaban bloqueadas todas, sin forma de destrabarlas. Ahora se sueltan las que Oficinas nunca registró: sin copia, sin pago por el mismo importe y sin nada aplicado. Hoy son **67 de 205 ($1.15 M)**.
+- La factura soltada aparece en la lista con su botón para agregarla y dice por qué se pudo. Las demás siguen «por confirmar» porque pueden estar pagadas desde Oficinas.
+- La propuesta automática del día no las incluye: se agregan a mano.
 ### Fixed — Costo por proveedor: el descuento por nota de crédito sale de Kepler y la compra de sucursal se cuenta una vez (RE.67 · 2026-11-10 · en código, sin soltar)
 - El porcentaje de descuento de cada proveedor estaba mal: contaba sólo las notas del CEDIS y sumaba dos veces las compras de sucursal que el CEDIS vuelve a capturar. Desde agosto, la tasa general pasa de 3.6 % a 4.2 %; Dulces Las Delicias, de 2.2 % a 6.6 %.
 - Una nota de crédito sin motivo ya no se da por descuento (antes se suponía: 300 notas, $4.0 M en el año). Se muestra debajo del descuento de su proveedor como «sin clasificar» y no se resta del costo.

@@ -21,7 +21,8 @@ import { assertDescuentoPermitido, descuentoSobreCubierto, descuentosSobreCubier
 import { cierreCompleto, type CierreKeplerPago } from '@megadulces/contracts';
 import { SQL_CIERRE_KEPLER, armarCierres, idsParaCierre, type FilaCierreKepler, type ItemParaCierre, type PagoParaCierre } from './cierre-kepler.sql';
 import { leerGuiaFueraDePrograma, ventanaFueraDePrograma } from './fuera-de-programa.sql';
-import type { GuiaFueraDePrograma } from '@megadulces/contracts';
+import type { CorteSueltaRow, GuiaFueraDePrograma } from '@megadulces/contracts';
+import { leerCorteSueltas } from './corte-suelta.sql';
 
 export type ObligationSource = 'budget_expense' | 'financial_commitment' | 'supplier_payable' | 'kepler_payable';
 
@@ -598,6 +599,16 @@ export class PaymentCalendarService {
       );
       return rows;
     });
+  }
+
+  /**
+   * `[PGP.113]` Las facturas «por confirmar» (`[PGP.13]`) que Oficinas NUNCA registró: sin copia, sin
+   * pago y sin nada aplicado. La pantalla las deja programar a mano. Regla en
+   * `libs/contracts/src/finance/corte-suelta.contract.ts`; medido 2026-11-10: 67 de 205, 435-534 ms.
+   */
+  async listCorteSueltas(): Promise<CorteSueltaRow[]> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run((trx) => leerCorteSueltas(trx, tenantId));
   }
 
   /**

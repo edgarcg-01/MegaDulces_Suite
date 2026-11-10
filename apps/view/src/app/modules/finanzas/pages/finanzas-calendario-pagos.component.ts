@@ -25,6 +25,7 @@ import { textoPolizaEgreso } from '@megadulces/contracts/finance/momento-poliza'
 import { cierreCompleto, faltaParaCerrar, nombreTipoPagoKepler, sinComprobantePorque, textoCierre, type CierreKeplerPago, type PagoKeplerDelCierre } from '@megadulces/contracts';
 import { PagosComprobantesService } from '../pagos-comprobantes.service';
 import type { SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
+import { anteriorAlCorte, bloqueadaPorCorte, type CorteSueltaRow } from '@megadulces/contracts';
 import { environment } from '../../../../environments/environment';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
@@ -517,8 +518,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                                 }
                               }
                             </span>
-                            @if (f.pronto || f.credito || f.adelanto) {
+                            @if (f.pronto || f.credito || f.adelanto || f.suelta) {
                               <span class="pg-sub pg-sub-2">
+                                <!-- [PGP.113] Por qué se puede programar aunque sea de antes del corte. -->
+                                @if (f.suelta; as s) { <span class="pg-pronto-no"><i class="pi pi-lock-open" aria-hidden="true"></i>{{ s }}</span> }
                                 @if (f.pronto; as p) { <span class="cal-pp" [class.cal-pp-urge]="p.urge"><i class="pi" [class.pi-bolt]="p.urge" [class.pi-tag]="!p.urge" aria-hidden="true"></i>{{ p.texto }}</span> }
                                 <!-- [PGP.14][PGP.17] El crédito a favor que nadie aplicó: abre su desglose. -->
                                 @if (f.credito; as c) {
@@ -551,7 +554,15 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                     <button type="button" class="pg-rev-h" [attr.aria-expanded]="verRevision()" (click)="verRevision.set(!verRevision())">
                       <span class="pi pi-lock" aria-hidden="true"></span>
                       <span class="pg-rev-t"><b>{{ facturas(obligacionesEnRevision().length) }} por confirmar · <span class="comm-num">{{ money(revisionTotal()) }}</span>@if (obligationsTruncated()) { <span class="pg-rev-u"> · entre las {{ obligations().length | number }} listadas</span> }</b>
-                        <span>De sucursal, antes del 1-oct: pueden estar pagadas desde Oficinas; se revisan con Finanzas.</span></span>
+                        <!-- [PGP.113] El motivo depende de si ya se midió cuáles nunca registró Oficinas; si no se pudo, se dice y todas quedan bloqueadas. -->
+                        <span>
+                          @if (corteSueltasError()) { De sucursal, antes del 1-oct: pueden estar pagadas desde Oficinas. No se pudo revisar cuáles nunca registró Oficinas, así que todas siguen bloqueadas. }
+                          @else if (corteSueltas() === null) { De sucursal, antes del 1-oct: pueden estar pagadas desde Oficinas. Revisando cuáles nunca registró… }
+                          @else {
+                            De sucursal, antes del 1-oct: Oficinas tiene una copia o un pago por el mismo importe, o ya llevan algo aplicado. Se revisan con Finanzas.
+                            @if (obligacionesSueltas()) { Ya se pueden programar {{ facturas(obligacionesSueltas()) }} de antes del corte que Oficinas nunca registró. }
+                          }
+                        </span></span>
                       <span class="pi pg-chev" [class.pi-angle-down]="verRevision()" [class.pi-angle-right]="!verRevision()" aria-hidden="true"></span>
                     </button>
                     @if (verRevision()) {
@@ -2369,10 +2380,22 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    * ⚠️ El criterio sale de `anterior_al_corte`, que la vista ya calcula; acá se deriva del origen
    * y de la sucursal porque la lista no trae esa columna todavía. **Declarado**: es una
    * aproximación por fecha, no la columna del ERP — ver el aviso del cajón.
+   *
+   * `[PGP.113]` El candado era SÓLO de fecha y no tenía salida. Ahora se sueltan las que Oficinas
+   * NUNCA registró (sin copia, sin pago, sin nada aplicado): las mide el backend y llegan en
+   * `corteSueltas`. Mientras no llegan, o si fallan, **todas siguen bloqueadas** (falla cerrado).
    */
-  private readonly CORTE = '2026-10-01';
-  readonly obligacionesEnRevision = computed(() => this.obligations().filter((o) => this.enRevision(o)));
-  readonly obligacionesProgramables = computed(() => this.obligations().filter((o) => !this.enRevision(o)));
+  readonly corteSueltas = signal<ReadonlySet<string> | null>(null);
+  readonly corteSueltasError = signal(false);
+  /** Las de antes del corte que ya se pueden programar, para decirlo junto a las que siguen bloqueadas. */
+  // [PGP.113] La señal se lee ARRIBA, siempre: leída sólo dentro del `filter`, con la lista vacía el
+  // computed quedaría sin depender de ella y no se recalcularía al llegar las sueltas.
+  readonly obligacionesSueltas = computed(() => {
+    const s = this.corteSueltas();
+    return this.obligations().filter((o) => anteriorAlCorte(o) && !bloqueadaPorCorte(o, s)).length;
+  });
+  readonly obligacionesEnRevision = computed(() => { const s = this.corteSueltas(); return this.obligations().filter((o) => bloqueadaPorCorte(o, s)); });
+  readonly obligacionesProgramables = computed(() => { const s = this.corteSueltas(); return this.obligations().filter((o) => !bloqueadaPorCorte(o, s)); });
   /**
    * `[PGP.15]` **Cada renglón del cajón, con sus textos ya calculados.** El cajón tiene ~1,000
    * renglones y antes cada uno formateaba fecha, importe, sucursal y dos `aria-label` en CADA
@@ -2397,6 +2420,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
         adelanto: this.adelantoDe(o),
         // [PGP.48] Sólo los documentos con ficha (`oblig:`) tienen factura que buscar.
         buscaEvidencia: (o.entity_ref ?? '').trim().startsWith('oblig:'),
+        // [PGP.113] Si llegó hasta acá siendo de antes del corte, es porque se soltó: se dice por qué.
+        suelta: anteriorAlCorte(o) ? 'antes del corte, pero Oficinas nunca la registró ni hay pago que la cubra' : null,
         sucursal: this.branchLabel(o.branch_code),
         vence: this.venceTxt(o),
         importe: this.money(o.available_amount),
@@ -2435,13 +2460,6 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       void this.cargarEvidencias();
     });
   });
-  private enRevision(o: Obligation): boolean {
-    if (o.obligation_source !== 'kepler_payable') return false;
-    const suc = (o.branch_code ?? '').trim();
-    if (!suc || suc === '00') return false; // Oficinas no tiene el problema: es desde donde se pagó
-    const f = (o.original_due_date ?? '').slice(0, 10);
-    return !!f && f < this.CORTE;
-  }
 
   /**
    * `[PGP.14]` **El crédito a favor que nadie aplicó, en el renglón donde se decide pagar.**
@@ -2663,6 +2681,21 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       // ⛔ Error ≠ vacío: «no se pudo leer» no se puede pintar como «no tiene descuentos».
       error: (e) => { this.creditoError.set(e?.error?.message || 'No se pudo leer el desglose.'); this.creditoCargando.set(false); },
     });
+  }
+
+  /**
+   * `[PGP.113]` Las llaves de las facturas de antes del corte que se pueden programar. ⛔ Si falla,
+   * queda `null` y TODAS siguen bloqueadas (falla cerrado): soltar de más paga dos veces.
+   */
+  private loadCorteSueltas(): void {
+    this.http.get<CorteSueltaRow[]>(`${this.base}/corte-sueltas`)
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (rows) => {
+          this.corteSueltas.set(new Set((rows ?? []).map((r) => r.entity_ref)));
+          this.corteSueltasError.set(false);
+        },
+        error: () => { this.corteSueltas.set(null); this.corteSueltasError.set(true); },
+      });
   }
 
   /** `[PGP.48]` Un mapa vacío por falla no es un mapa vacío por dato: se dice junto al buscador. */
@@ -3551,6 +3584,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     this.reload();
     // [PGP.14] El credito a favor sin aplicar: se pide UNA vez y se guarda por acreedor.
     this.loadCreditos();
+    // [PGP.113] Las de antes del corte que Oficinas nunca registró: se piden UNA vez.
+    this.loadCorteSueltas();
     // [PGP.30] El habito de pago de cada acreedor. Sin toast y sin bloquear: si no llega, el
     // diálogo pide todo a mano como hasta ahora — pero lo DICE, no lo calla.
     this.http.get<SupplierPaymentHabit[]>(`${this.base}/payment-habits`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -4145,7 +4180,9 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
           ? `Ojo: se propuso sobre ${page.rows.length.toLocaleString('es-MX')} de ${page.total.toLocaleString('es-MX')} facturas.` : null);
       }
       if (this.selectedDate() !== fecha) return; // se cambió de día mientras se leía
-      const programables = this.deudaCompleta.filter((o) => !this.enRevision(o));
+      // [PGP.113] ⛔ La propuesta sigue SIN las de antes del corte, aunque se hayan soltado: ésas se
+      // agregan a mano, una por una, viendo su renglón. Soltarlas no es pedir que se paguen solas.
+      const programables = this.deudaCompleta.filter((o) => !anteriorAlCorte(o));
       /**
        * `[PGP.42]` Sin tope no se puede decir qué CABE, así que no se dibuja un «cabe» que
        * nadie midió (ADR-056). Se propone igual —que es lo que faltaba— y se declara.
