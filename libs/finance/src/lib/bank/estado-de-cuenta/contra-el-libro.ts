@@ -1,4 +1,5 @@
 import { cierreDelDia } from './saldo-del-libro';
+import { MapaDeSucursal, type LlaveDeSucursal } from './sucursal';
 
 /**
  * `[CB.60]` La descarga del banco contra el libro «CUENTAS», cuenta por cuenta y día por día.
@@ -35,6 +36,24 @@ export interface RenglonComparable {
   categoria?: string | null;
   doc_tipo?: string | null;
   entidad?: string | null;
+  /** `[CB.61]` Banco: la referencia del renglón. Libro: su S (unidad de negocio). */
+  referencia?: string | null;
+  sucursal?: string | null;
+}
+
+/** `[CB.61]` Un movimiento pareado cuya sucursal deducida sin el libro no es la S del libro. */
+export interface SucursalDistinta {
+  fecha: string; lado: 'entra' | 'sale'; importe: number; concepto: string | null;
+  banco: string; por: LlaveDeSucursal; libro: string;
+}
+
+/**
+ * `[CB.61]` La sucursal sin el libro contra la S del libro. Se deduce de lo aprendido en días ANTERIORES de
+ * la misma cuenta (ver `sucursal.ts`). `sin_senal`: el libro tiene S y ninguna llave pura la da.
+ */
+export interface SucursalesContraElLibro {
+  con_sucursal_libro: number; deducidas: number; coinciden: number; sin_senal: number;
+  distintas: SucursalDistinta[];
 }
 
 /**
@@ -86,6 +105,9 @@ export interface CuentaContraElLibro {
   dias: DiaContraElLibro[];
   resumen: { cuadra: number; difiere: number; sin_libro: number; abierto: number; solo_banco: number; solo_libro: number; monto_solo_banco: number; monto_solo_libro: number };
   categorias: CategoriasContraElLibro;
+  sucursales: SucursalesContraElLibro;
+  /** Renglones del banco en $0.00 que no se comparan (BanBajío lista la comisión exenta de cada SPEI). */
+  renglones_en_cero: number;
 }
 
 const VENTANA_DIAS = 3;
@@ -111,7 +133,12 @@ const suelto = (r: RenglonComparable): SueltoDelDia => ({
  * Compara UNA cuenta. `libro` puede traer días fuera del rango del banco (la ventana de ±3 los
  * necesita); sólo se juzgan los días en que hay banco.
  */
-export function compararContraElLibro(banco: readonly RenglonComparable[], libro: readonly RenglonComparable[], clasificar?: ClasificarSinLibro): CuentaContraElLibro {
+export function compararContraElLibro(bancoTodo: readonly RenglonComparable[], libroTodo: readonly RenglonComparable[], clasificar?: ClasificarSinLibro): CuentaContraElLibro {
+  // Un renglón en $0.00 no mueve dinero: no se busca en el libro ni entra a la cadena de saldos (repite el
+  // saldo y deja el cierre del día sin afirmar). Se declara cuántos hubo (BB 4166, 2026-11-10: 6).
+  const enCero = (r: RenglonComparable) => centavos(r.amount_in) === 0 && centavos(r.amount_out) === 0;
+  const banco = bancoTodo.filter((r) => !enCero(r));
+  const libro = libroTodo.filter((r) => !enCero(r));
   const diasBanco = Array.from(new Set(banco.map((b) => b.fecha))).sort();
   const ultimoDia = diasBanco[diasBanco.length - 1] ?? null;
   const pareado = new Set<string>(); // ids de los dos lados ya usados
@@ -198,5 +225,26 @@ export function compararContraElLibro(banco: readonly RenglonComparable[], libro
     const s = suelto(b);
     categorias.distintas.push({ fecha: s.fecha, lado: s.lado, importe: s.importe, concepto: s.concepto, banco: cb ?? 'sin_clasificar', por: sombra.por, libro: cl });
   }
-  return { desde: diasBanco[0] ?? null, hasta: ultimoDia, dias, resumen, categorias };
+  // [CB.61] Sucursal: cada día se deduce con lo aprendido de los días ANTERIORES y después se aprende el día.
+  const sucursales: SucursalesContraElLibro = { con_sucursal_libro: 0, deducidas: 0, coinciden: 0, sin_senal: 0, distintas: [] };
+  const mapa = new MapaDeSucursal();
+  const sLibro = (l: RenglonComparable) => String(l.sucursal ?? '').trim() || null;
+  const paraSucursal = (b: RenglonComparable, l: RenglonComparable) =>
+    ({ amount_in: b.amount_in, concepto: b.concepto, referencia: b.referencia });
+  for (const fecha of diasBanco) {
+    const pares = banco.filter((b) => b.fecha === fecha && parDe.has(b.id)).map((b) => [b, parDe.get(b.id)!] as const);
+    for (const [b, l] of pares) {
+      const s = sLibro(l);
+      if (!s) continue;
+      sucursales.con_sucursal_libro++;
+      const d = mapa.deducir(paraSucursal(b, l));
+      if (!d) { sucursales.sin_senal++; continue; }
+      sucursales.deducidas++;
+      if (d.sucursal === s) { sucursales.coinciden++; continue; }
+      const x = suelto(b);
+      sucursales.distintas.push({ fecha: x.fecha, lado: x.lado, importe: x.importe, concepto: x.concepto, banco: d.sucursal, por: d.por, libro: s });
+    }
+    for (const [b, l] of pares) { const s = sLibro(l); if (s) mapa.aprender(paraSucursal(b, l), s); }
+  }
+  return { desde: diasBanco[0] ?? null, hasta: ultimoDia, dias, resumen, categorias, sucursales, renglones_en_cero: bancoTodo.length - banco.length };
 }
