@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Fixed — Revisión de facturas: Ajuste y Neto ya cuentan las notas de crédito (RE.64 · 2026-11-10 · en código, sin soltar)
+- La columna **Ajuste** salía vacía en todas las compras: leía una copia que nunca ligaba las notas de crédito a su compra. Ahora sale de lo que Kepler aplicó a cada orden de entrada: desde agosto, **$14.4 M en 870 compras**, y el **Neto** baja de $184.3 M a $169.8 M.
+- El detalle de cada ajuste dice cuánto es negociado (descuento, pronto pago, apoyo), cuánto operativo (faltante, mal estado, devolución) y cuánto **sin clasificar** (la nota de Kepler no dice el motivo).
+- Los filtros «Entrega incompleta» y «Ajuste comercial» empiezan a encontrar compras (38 y 195).
+- La bajada ya no dice que «Costo por proveedor» es la misma cifra: allá se suman todas las notas del proveedor.
+
 ### Added — Revisión de facturas: la nota de crédito dice si está en el CFDI, en Kepler, en los dos o en ninguno (RE.63 · 2026-11-10 · en código, sin soltar)
 - En el expediente de cada compra, un bloque nuevo dice dónde está la rebaja: la nota que Kepler aplicó a la entrada, la que el proveedor timbró (CFDI) para su factura, las dos o ninguna, con sus folios y montos.
 - Y la consecuencia en lo que se paga: si lo que Kepler pagará cuadra con lo que el proveedor factura neto, o cuánto difiere y qué hacer (pedirle el CFDI al proveedor, o aplicar la nota en Kepler). Cuando Kepler ya capturó la entrada con el descuento, avisa que aplicar la nota la descontaría dos veces.

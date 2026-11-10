@@ -22,7 +22,7 @@
  * (`55`) sin motivo que la clasifique queda **sin clasificar** (el importer la contaba como operativa, y
  * eso disparaba «Entrega incompleta» por un descuento sin motivo escrito).
  *
- * ⛔ Sin `?` en los textos: `trx.raw` toma cada `?` por parámetro y CAMBIA el regex sin dar error (medido:
+ * ⛔ Sin `?` en los textos (GOTCHAS §71): `trx.raw` toma cada `?` por parámetro y CAMBIA el regex sin dar error (medido:
  * con `DIF\.?` y `\s?` el clasificador difería del importer en 107 documentos). Los opcionales van como `{0,1}`;
  * lo vigila `ajustes-kepler.spec.ts`. `kepler_ods.*` no tiene tenant ni RLS.
  */
