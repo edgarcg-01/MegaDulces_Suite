@@ -12,6 +12,7 @@ import type { DiscountReason, PagosAtrasadosDia, PayableEvidenceFile, PayableEvi
 import { leerValidacionDelDia } from './validacion-pago.sql';
 import { leerCfdiDeFacturas } from './cfdi-factura.sql';
 import { leerRepsDeFacturas } from './rep-de-factura.sql';
+import { leerCuentasGasto } from './cuenta-gasto.sql';
 import { polizaEgresoDelPago } from '@megadulces/contracts/finance/momento-poliza';
 import { leerEnsayoPagoKepler } from './kepler-pago/ensayo-ods.sql';
 import type { PaymentCalendarEnsayoKepler } from '@megadulces/contracts';
@@ -1311,6 +1312,22 @@ export class PaymentCalendarService {
         .filter((c) => c?.estado === 'unico' && c.metodo === 'PPD' && c.cfdi)
         .map((c) => c!.cfdi!.uuid);
       const repsDia = pagados.size ? await leerRepsDeFacturas(trx, uuidsPpd) : { reps: [], sincronizado_hasta: null };
+      // `[PGP.111b]` La cuenta de gasto (52) de cada pago de GASTO: la que Contabilidad ya usó con ese RFC (P3).
+      const rfcDePago = new Map<string, string | null>();
+      for (const a of allocations as { id: string; classification: string }[]) {
+        if (a.classification !== 'gasto' || !conCfdi) continue;
+        const rfc = (items as { id: string; allocation_id: string }[]).filter((it) => it.allocation_id === a.id)
+          .map((it) => cfdis.get(String(it.id))?.rfc).find((r) => !!r) ?? null;
+        rfcDePago.set(a.id, rfc);
+      }
+      const cuentasGasto = rfcDePago.size
+        ? await leerCuentasGasto(trx, tenantId, [...rfcDePago.values()].filter((r): r is string => !!r))
+        : new Map();
+      const cuentaGastoDe = (id: string) => {
+        if (!rfcDePago.has(id)) return null;
+        const rfc = rfcDePago.get(id);
+        return rfc ? cuentasGasto.get(rfc) ?? null : { estado: 'sin_rfc' as const, cuenta: null, nombre: null, veces: 0, total: 0, rfc: null };
+      };
       return allocations.map((a: AllocationRowLite) => {
         // `[PGP.91]` `numeric` llega como texto del driver: el descuento sale como número, y la
         // tasa como número o null (null = se capturó en pesos, no hay tasa que decir).
@@ -1351,6 +1368,7 @@ export class PaymentCalendarService {
           discount_total: round2(its.reduce((s, it) => s + it.discount_amount, 0)),
           kepler_cierre: cierres.get(a.id) ?? null,
           validacion: validaciones.get(a.id) ?? null,
+          cuenta_gasto: cuentaGastoDe(a.id),
           poliza: a.status === 'executed' ? (() => {
             const pd = (a as { paid_bank_date?: Date | string | null }).paid_bank_date;
             const fecha = pd ? (pd instanceof Date ? pd.toISOString().slice(0, 10) : String(pd).slice(0, 10)) : date;
@@ -1359,7 +1377,7 @@ export class PaymentCalendarService {
                 item_id: String(it.id), cfdi_uuid: it.cfdi?.estado === 'unico' ? it.cfdi.cfdi?.uuid ?? null : null,
                 metodo: it.cfdi?.estado === 'unico' ? it.cfdi.metodo : null, aplicado: Number(it.applied_amount),
               })),
-              repsDia.reps, fecha, repsDia.sincronizado_hasta !== null && repsDia.sincronizado_hasta >= fecha);
+              repsDia.reps, fecha, repsDia.sincronizado_hasta !== null && repsDia.sincronizado_hasta >= fecha, cuentaGastoDe(a.id));
           })() : null,
           items: its,
         };

@@ -21,7 +21,7 @@
  */
 import type { Knex } from 'knex';
 import type { EntradaPagoProveedor, FacturaPagada, NotaAplicada } from './pago-proveedor';
-import type { EntradaGasto } from './gasto-con-factura';
+import { cuentaGastoMasUsada, type EntradaGasto } from './gasto-con-factura';
 import { construirPadron, resolverRfcAcreedor, rfcPorTexto, type PadronEmisores } from './rfc-acreedor';
 
 const TOL = 1;
@@ -309,10 +309,7 @@ export class FuentePagoProveedor {
    * (`gasto-por-rfc-contpaqi.js`): acierta 93.0 % (1,328/1,428), placebo 9.0 %. Sin historia → null (se confirma).
    */
   private cuentaGastoDe(rfc: string, fecha: string): string | null {
-    const h = (this.usoGasto.get(rfc) ?? []).filter((x) => x.f < fecha);
-    if (!h.length) return null;
-    const c = new Map<string, number>(); for (const x of h) c.set(x.cuenta, (c.get(x.cuenta) ?? 0) + 1);
-    return [...c.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0][0];
+    return cuentaGastoMasUsada(this.usoGasto.get(rfc) ?? [], fecha)?.cuenta ?? null;
   }
 
   /**

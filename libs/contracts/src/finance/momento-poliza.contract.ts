@@ -42,7 +42,21 @@ export interface RepDeFactura {
 }
 
 export type EstadoFacturaPoliza = 'pue' | 'con_rep' | 'espera_rep' | 'sin_cfdi' | 'sin_metodo' | 'no_medido';
-export type EstadoPolizaEgreso = 'lista' | 'espera_rep' | 'sin_cfdi' | 'sin_metodo' | 'no_medido';
+export type EstadoPolizaEgreso = 'lista' | 'espera_rep' | 'sin_cfdi' | 'sin_metodo' | 'sin_cuenta_gasto' | 'no_medido';
+
+/**
+ * `[PGP.111b]` La cuenta de gasto (52) de un pago de GASTO: la que Contabilidad usó más con ese RFC
+ * (`cuentaGastoMasUsada`, `[CP.8.87]`: 93 %, placebo 9 %). Sin historia no se adivina: la define Contabilidad.
+ */
+export interface CuentaGastoDelPago {
+  estado: 'derivada' | 'sin_rfc' | 'sin_historia';
+  cuenta: string | null;
+  nombre: string | null;
+  /** Cuántas veces la usó Contabilidad con este RFC, de cuántas pólizas de gasto suyas. */
+  veces: number;
+  total: number;
+  rfc: string | null;
+}
 
 export interface PolizaEgresoDelPago {
   estado: EstadoPolizaEgreso;
@@ -57,7 +71,9 @@ function dias(a: string, b: string): number {
  * El estado de la póliza de egreso de UN pago ya «Pagado». `fechaPago` es la de la salida del banco
  * (o el día programado si no hay evidencia guardada). Pura.
  */
-export function polizaEgresoDelPago(facturas: readonly FacturaParaPoliza[], reps: readonly RepDeFactura[], fechaPago: string, repsMedidos: boolean): PolizaEgresoDelPago {
+export function polizaEgresoDelPago(facturas: readonly FacturaParaPoliza[], reps: readonly RepDeFactura[], fechaPago: string, repsMedidos: boolean,
+  /** `[PGP.111b]` Sólo en pagos de GASTO: sin su cuenta 52 la póliza no se puede generar. */
+  cuentaGasto?: CuentaGastoDelPago | null): PolizaEgresoDelPago {
   const out = facturas.map((f) => {
     if (!f.cfdi_uuid) return { item_id: f.item_id, estado: 'sin_cfdi' as const, rep_uuid: null };
     if (!f.metodo) return { item_id: f.item_id, estado: 'sin_metodo' as const, rep_uuid: null };
@@ -74,6 +90,7 @@ export function polizaEgresoDelPago(facturas: readonly FacturaParaPoliza[], reps
   const estado: EstadoPolizaEgreso = !out.length ? 'sin_cfdi'
     : hay('sin_cfdi') ? 'sin_cfdi'
       : hay('sin_metodo') ? 'sin_metodo'
+        : cuentaGasto && cuentaGasto.estado !== 'derivada' ? 'sin_cuenta_gasto'
         : hay('no_medido') ? 'no_medido'
           : hay('espera_rep') ? 'espera_rep'
             : 'lista';
@@ -85,6 +102,7 @@ const TEXTO: Record<EstadoPolizaEgreso, string> = {
   espera_rep: 'Póliza en espera del REP del proveedor',
   sin_cfdi: 'Póliza sin generar: falta ligar el CFDI de una factura',
   sin_metodo: 'Póliza sin generar: el CFDI no dice si es PUE o PPD',
+  sin_cuenta_gasto: 'Póliza sin generar: falta la cuenta de gasto del proveedor (la define Contabilidad)',
   no_medido: 'Póliza sin medir: no se pudo revisar si llegó el REP',
 };
 export function textoPolizaEgreso(e: EstadoPolizaEgreso): string { return TEXTO[e]; }

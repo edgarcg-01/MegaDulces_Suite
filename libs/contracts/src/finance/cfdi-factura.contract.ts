@@ -54,6 +54,8 @@ export type EstadoCfdiFactura = 'unico' | 'varios' | 'ninguno' | 'sin_rfc' | 'si
 
 export interface CfdiDeLaFactura {
   estado: EstadoCfdiFactura;
+  /** `[PGP.111b]` El RFC del acreedor (del documento de Kepler), aunque el CFDI no se haya ligado; null si no se sabe. */
+  rfc?: string | null;
   /** El CFDI ligado; sólo con `unico`. */
   cfdi: CfdiRecibido | null;
   /** Cuántos candidatos hubo (para decirlo: «3 CFDI posibles»). */
@@ -95,14 +97,15 @@ export function cfdisDeFacturas(facturas: readonly FacturaParaCfdi[], cfdis: rea
   }
   for (const f of facturas) {
     const c = cand.get(f.item_id) ?? [];
-    if (f.importe === null || !f.fecha) { out.set(f.item_id, { estado: 'sin_documento', cfdi: null, candidatos: 0, metodo: null }); continue; }
-    if (!f.rfc) { out.set(f.item_id, { estado: 'sin_rfc', cfdi: null, candidatos: 0, metodo: null }); continue; }
-    if (!c.length) { out.set(f.item_id, { estado: 'ninguno', cfdi: null, candidatos: 0, metodo: null }); continue; }
+    const rfc = f.rfc ? f.rfc.trim().toUpperCase() : null;
+    if (f.importe === null || !f.fecha) { out.set(f.item_id, { estado: 'sin_documento', cfdi: null, candidatos: 0, metodo: null, rfc }); continue; }
+    if (!f.rfc) { out.set(f.item_id, { estado: 'sin_rfc', cfdi: null, candidatos: 0, metodo: null, rfc }); continue; }
+    if (!c.length) { out.set(f.item_id, { estado: 'ninguno', cfdi: null, candidatos: 0, metodo: null, rfc }); continue; }
     if (c.length > 1 || (unicos.get(c[0].uuid) ?? []).length > 1) {
-      out.set(f.item_id, { estado: 'varios', cfdi: null, candidatos: Math.max(c.length, 2), metodo: null });
+      out.set(f.item_id, { estado: 'varios', cfdi: null, candidatos: Math.max(c.length, 2), metodo: null, rfc });
       continue;
     }
-    out.set(f.item_id, { estado: 'unico', cfdi: c[0], candidatos: 1, metodo: metodoDe(c[0].metodo_pago) });
+    out.set(f.item_id, { estado: 'unico', cfdi: c[0], candidatos: 1, metodo: metodoDe(c[0].metodo_pago), rfc });
   }
   return out;
 }

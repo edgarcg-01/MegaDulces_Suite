@@ -7,7 +7,7 @@
 import type { CierreKeplerPago } from '../finance/cierre-kepler.contract';
 import type { ValidacionPago } from '../finance/validacion-pago.contract';
 import type { CfdiDeLaFactura } from '../finance/cfdi-factura.contract';
-import type { PolizaEgresoDelPago } from '../finance/momento-poliza.contract';
+import type { CuentaGastoDelPago, PolizaEgresoDelPago } from '../finance/momento-poliza.contract';
 
 /**
  * `[TP.18]` `kepler_payable` es la deuda viva de Kepler que NO pasó por Entregas de Compras
@@ -279,6 +279,8 @@ export interface PaymentCalendarAllocation {
   paid_validated_at?: string | null;
   /** `[PGP.109]` La póliza de egreso de un pago ya «Pagado»: PUE al pagar, PPD cuando llega el REP. Null si no está pagado. */
   poliza?: PolizaEgresoDelPago | null;
+  /** `[PGP.111b]` Sólo pagos de GASTO: la cuenta 52 que Contabilidad ya usó con ese proveedor, o por qué no hay. */
+  cuenta_gasto?: CuentaGastoDelPago | null;
   items: PaymentCalendarAllocationItem[];
 }
 

@@ -1583,3 +1583,24 @@ diferencias ahora se leen como lo que son: «Tesorería capturó el X-D-26 … c
 escribiría» — con P6/P7, ahí la Suite sigue la regla y la captura manual se desvía. **Criterio del «verde» de F3,
 ajustado:** coinciden en todo lo MECÁNICO (acreedor, importe, IVA/IEPS, lo aplicado por factura); las diferencias que
 explican P6/P7 o la falta de cuenta de origen se cuentan aparte. p50 281 ms.
+
+### `[PGP.111b]` P3: la cuenta de gasto ya la definió Contabilidad — se reusa (🧪 2026-11-10)
+
+El «0 de 51 gastos con cuenta» de la medición anterior venía de las reglas POR CATEGORÍA (`contpaqi.account_rules`),
+que no aplican a un gasto pagado por proveedor. Para ésos la regla ya existía en el puente de ContPAQi (`[CP.8.87]`):
+**la cuenta 52 que la contadora usó MÁS con ese RFC** (93 %, placebo 9 %). Se sacó a una función pura,
+`cuentaGastoMasUsada` (`libs/finance/src/lib/contpaqi/gasto-con-factura.ts`), que ahora usan las dos: la póliza
+(`FuentePagoProveedor`, 199 pruebas del puente siguen verdes) y el Calendario (`cuenta-gasto.sql.ts`). Una regla, dos
+lectores (ADR-056).
+
+**Medido con el código real (prod, sólo lectura):** de 21 RFC de gasto del Calendario (60 días), **19 con cuenta
+derivada** y 2 sin historia; la réplica (`v_contpaqi_cfdi_poliza`) da **la misma cuenta en los 18** RFC que tienen las
+dos fuentes. 268–398 ms para 21 RFC (sólo se lee en días autorizados o que ya llegaron, y sólo pagos de gasto).
+
+En pantalla, en el desglose del pago de gasto: «Cuenta de gasto: 5200590000 LUZ Y FUERZA — la que Contabilidad usó
+64 de 127 veces con este proveedor; no siempre la carga igual: confírmala» (con la mitad o menos se pide confirmar);
+sin historia: «Falta la cuenta de gasto… La define Contabilidad». Sin cuenta, la póliza dice `sin_cuenta_gasto`.
+
+⬜ Lo que falta de P3: dónde la FIRMA Contabilidad cuando no hay historia (o cuando la más usada no es segura, como
+CFE con 64 de 127). El Puente ContPAQi firma por categoría, no por proveedor: no se pone una liga ahí hasta que permita
+firmar por proveedor (un enlace afirma que el destino lo permite).

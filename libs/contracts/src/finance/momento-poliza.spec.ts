@@ -38,3 +38,17 @@ describe('[PGP.109] cuándo se genera la póliza de egreso (Contabilidad, 2026-1
     expect(textoPolizaEgreso('espera_rep')).toBe('Póliza en espera del REP del proveedor');
   });
 });
+
+describe('[PGP.111b] el pago de gasto necesita su cuenta 52', () => {
+  const cg = (estado: 'derivada' | 'sin_rfc' | 'sin_historia') => ({ estado, cuenta: estado === 'derivada' ? '5201000000' : null, nombre: null, veces: 3, total: 3, rfc: 'X' });
+  it('⭐ con la cuenta derivada, la regla PUE/PPD manda igual', () => {
+    expect(polizaEgresoDelPago([fac({ metodo: 'PUE' })], [], DIA, true, cg('derivada')).estado).toBe('lista');
+  });
+  it('⛔ sin cuenta de gasto no se genera, aunque sea PUE', () => {
+    expect(polizaEgresoDelPago([fac({ metodo: 'PUE' })], [], DIA, true, cg('sin_historia')).estado).toBe('sin_cuenta_gasto');
+    expect(polizaEgresoDelPago([fac({ metodo: 'PUE' })], [], DIA, true, cg('sin_rfc')).estado).toBe('sin_cuenta_gasto');
+  });
+  it('un pago que no es de gasto no pregunta por la cuenta', () => {
+    expect(polizaEgresoDelPago([fac({ metodo: 'PUE' })], [], DIA, true, null).estado).toBe('lista');
+  });
+});
