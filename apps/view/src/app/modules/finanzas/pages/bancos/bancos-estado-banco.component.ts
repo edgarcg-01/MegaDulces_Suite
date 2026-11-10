@@ -19,7 +19,7 @@ import { ArchivosDelBanco, BankService, ComoSeFijoLaCuenta, ContraElLibro, Cuent
 import { BANCOS_STYLES } from './bancos.styles';
 
 const BANCO: Readonly<Record<RevisionEstadoBanco['banco'], string>> = {
-  santander: 'Santander', banorte: 'Banorte', bbva: 'BBVA', banbajio: 'BanBajío',
+  santander: 'Santander', banorte: 'Banorte', bbva: 'BBVA', banbajio: 'BanBajío', banamex: 'Banamex',
 };
 const COMO: Readonly<Record<ComoSeFijoLaCuenta, { corto: string; largo: string; sev: 'success' | 'warn' }>> = {
   en_archivo: { corto: 'en el archivo', largo: 'el número de cuenta viene en el archivo', sev: 'success' },
@@ -42,7 +42,7 @@ export interface ArchivoEnLote {
 export interface Veredicto { tono: 'ok' | 'warn' | 'bad' | 'muted'; icono: string; texto: string; listo: boolean }
 
 /**
- * `[CB.59]` La descarga del banco (Santander, Banorte, BBVA, BanBajío) se suelta aquí, una o varias a
+ * `[CB.59]` La descarga del banco (Santander, Banorte, BBVA, BanBajío, Banamex) se suelta aquí, una o varias a
  * la vez: el sistema detecta el banco y la cuenta de cada una, dice si entra completa, y guarda las
  * que están listas. Reemplaza que Tesorería copie los movimientos a mano al libro «CUENTAS».
  *
@@ -85,7 +85,7 @@ export interface Veredicto { tono: 'ok' | 'warn' | 'bad' | 'muted'; icono: strin
         @if (puedeSubir()) {
           <div class="eb-soltar" [class.encima]="encima()">
             <i class="pi pi-cloud-upload" aria-hidden="true"></i>
-            <span>Arrastra aquí una o varias descargas: Santander y Banorte (CSV), BBVA (.exp), BanBajío (Excel)</span>
+            <span>Arrastra aquí una o varias descargas: Santander, Banorte y Banamex (CSV), BBVA (.exp), BanBajío (Excel)</span>
             <input #elegir type="file" multiple accept=".csv,.exp,.txt,.xlsx" hidden (change)="alElegir($event)">
             <button pButton type="button" class="p-button-sm p-button-text eb-elegir" (click)="elegir.click()">
               <span class="p-button-label">Elegir archivos</span></button>
@@ -274,7 +274,7 @@ export class BancosEstadoBancoComponent implements OnInit {
 
   readonly datos = signal<ArchivosDelBanco | null>(null);
   readonly archivos = computed(() => this.datos()?.archivos ?? []);
-  /** Cuentas activas cuyo banco no tiene lector (hoy Banamex): no cuentan como «faltan». */
+  /** Cuentas activas cuyo banco no tiene lector: no cuentan como «faltan». */
   readonly sinLector = computed(() => (this.datos()?.cuentas ?? []).filter((c) => !c.con_lector).map((c) => c.alias));
   readonly cargando = signal(true);
   readonly error = signal<string | null>(null);

@@ -23,6 +23,31 @@ export interface RenglonComparable {
   amount_out: number | string;
   running_balance: number | string | null;
   concepto?: string | null;
+  /** `[CB.61]` Sólo del libro: la categoría que tiene hoy y el documento de Kepler con que casó. */
+  categoria?: string | null;
+  doc_tipo?: string | null;
+  entidad?: string | null;
+}
+
+/**
+ * `[CB.61]` Clasifica el renglón del banco sin M/C. Recibe su par del libro sólo para tomar el documento
+ * de Kepler con que casó ese mismo movimiento (mientras la descarga no pase por el motor), nunca su categoría.
+ */
+export type ClasificarSinLibro = (banco: RenglonComparable, par: RenglonComparable) => { categoria: string; por: string | null };
+
+/** `[CB.61]` Un movimiento pareado cuya categoría sin el libro no es la del libro. */
+export interface CategoriaDistinta {
+  fecha: string; lado: 'entra' | 'sale'; importe: number; concepto: string | null;
+  banco: string; por: string | null; libro: string;
+}
+
+/**
+ * `[CB.61]` La categoría sin el libro contra la del libro, en cada movimiento pareado.
+ * `sin_categoria`: el libro la tiene y la sombra no. `libro_sin_categoria`: al revés.
+ */
+export interface CategoriasContraElLibro {
+  pareados: number; coinciden: number; difieren: number; sin_categoria: number; libro_sin_categoria: number;
+  distintas: CategoriaDistinta[];
 }
 
 export type VeredictoDelDia = 'cuadra' | 'difiere' | 'sin_libro' | 'abierto';
@@ -48,6 +73,7 @@ export interface CuentaContraElLibro {
   hasta: string | null;
   dias: DiaContraElLibro[];
   resumen: { cuadra: number; difiere: number; sin_libro: number; abierto: number; solo_banco: number; solo_libro: number; monto_solo_banco: number; monto_solo_libro: number };
+  categorias: CategoriasContraElLibro;
 }
 
 const VENTANA_DIAS = 3;
@@ -64,10 +90,11 @@ const suelto = (r: RenglonComparable): SueltoDelDia => ({
  * Compara UNA cuenta. `libro` puede traer días fuera del rango del banco (la ventana de ±3 los
  * necesita); sólo se juzgan los días en que hay banco.
  */
-export function compararContraElLibro(banco: readonly RenglonComparable[], libro: readonly RenglonComparable[]): CuentaContraElLibro {
+export function compararContraElLibro(banco: readonly RenglonComparable[], libro: readonly RenglonComparable[], clasificar?: ClasificarSinLibro): CuentaContraElLibro {
   const diasBanco = Array.from(new Set(banco.map((b) => b.fecha))).sort();
   const ultimoDia = diasBanco[diasBanco.length - 1] ?? null;
   const pareado = new Set<string>(); // ids de los dos lados ya usados
+  const parDe = new Map<string, RenglonComparable>(); // id del banco → su renglón del libro
   const fechaDistinta = new Map<string, number>(); // día del banco → pares con otro día
 
   // Pase 1: mismo día, mismo lado, mismo importe.
@@ -78,7 +105,7 @@ export function compararContraElLibro(banco: readonly RenglonComparable[], libro
   }
   for (const b of banco) {
     const l = (libroPorDiaLlave.get(`${b.fecha}|${llave(b)}`) || []).find((x) => !pareado.has(x.id));
-    if (l) { pareado.add(b.id); pareado.add(l.id); }
+    if (l) { pareado.add(b.id); pareado.add(l.id); parDe.set(b.id, l); }
   }
   // Pase 2: lo que sobró, contra el libro de ±3 días (el más cercano).
   const libroPorLlave = new Map<string, RenglonComparable[]>();
@@ -92,7 +119,7 @@ export function compararContraElLibro(banco: readonly RenglonComparable[], libro
       if (d <= VENTANA_DIAS && (!mejor || d < diasEntre(b.fecha, mejor.fecha))) mejor = l;
     }
     if (mejor) {
-      pareado.add(b.id); pareado.add(mejor.id);
+      pareado.add(b.id); pareado.add(mejor.id); parDe.set(b.id, mejor);
       fechaDistinta.set(b.fecha, (fechaDistinta.get(b.fecha) ?? 0) + 1);
     }
   }
@@ -123,5 +150,21 @@ export function compararContraElLibro(banco: readonly RenglonComparable[], libro
   });
   resumen.monto_solo_banco = Math.round(resumen.monto_solo_banco * 100) / 100;
   resumen.monto_solo_libro = Math.round(resumen.monto_solo_libro * 100) / 100;
-  return { desde: diasBanco[0] ?? null, hasta: ultimoDia, dias, resumen };
+
+  // [CB.61] Categoría: todo par cuenta, también el del día abierto (lo incompleto ahí es el saldo, no el par).
+  const categorias: CategoriasContraElLibro = { pareados: 0, coinciden: 0, difieren: 0, sin_categoria: 0, libro_sin_categoria: 0, distintas: [] };
+  const conCat = (c: string | null | undefined) => (c && c !== 'sin_clasificar' ? c : null);
+  for (const b of banco) {
+    const l = parDe.get(b.id);
+    if (!l || !clasificar) continue;
+    categorias.pareados++;
+    const sombra = clasificar(b, l);
+    const cb = conCat(sombra.categoria), cl = conCat(l.categoria);
+    if (cb === cl) { categorias.coinciden++; continue; }
+    if (!cl) { categorias.libro_sin_categoria++; continue; }
+    if (!cb) categorias.sin_categoria++; else categorias.difieren++;
+    const s = suelto(b);
+    categorias.distintas.push({ fecha: s.fecha, lado: s.lado, importe: s.importe, concepto: s.concepto, banco: cb ?? 'sin_clasificar', por: sombra.por, libro: cl });
+  }
+  return { desde: diasBanco[0] ?? null, hasta: ultimoDia, dias, resumen, categorias };
 }
