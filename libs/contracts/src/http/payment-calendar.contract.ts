@@ -281,7 +281,30 @@ export interface PaymentCalendarAllocation {
   poliza?: PolizaEgresoDelPago | null;
   /** `[PGP.111b]` Sólo pagos de GASTO: la cuenta 52 que Contabilidad ya usó con ese proveedor, o por qué no hay. */
   cuenta_gasto?: CuentaGastoDelPago | null;
+  /**
+   * `[PGP.113]` **Se autoriza el PAGO, no el día** (Edgar, 2026-11-10: «haremos una a una»). Quién y
+   * cuándo; null = sin autorizar. `autorizado` también es true si su día se autorizó completo con la
+   * regla vieja. Ausente = API anterior a PGP.113 (NO MEDIDO, no «sin autorizar»).
+   */
+  authorized_by?: string | null;
+  authorized_at?: string | null;
+  autorizado?: boolean;
+  /** `[PGP.113]` El día en que se programó (AAAA-MM-DD): la bandeja junta pagos de varios días. */
+  lot_date?: string;
+  /** Quién armó el pago (para que quien autoriza vea si es otra persona). */
+  created_by?: string | null;
   items: PaymentCalendarAllocationItem[];
+}
+
+/**
+ * `[PGP.113]` **La bandeja**: cada pago en su etapa, de todos los días — pendientes y rebotados de
+ * cualquier día (los de días pasados son el atraso) y pagados desde `pagados_desde`. Los renglones
+ * son los MISMOS que los del día.
+ */
+export interface PaymentCalendarBandeja {
+  pagos: PaymentCalendarAllocation[];
+  pagados_desde: string;
+  generado: string;
 }
 
 /**
