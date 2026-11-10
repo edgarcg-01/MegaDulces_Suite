@@ -117,6 +117,8 @@
     "check:templates-types:self": "node scripts/check-template-types.js --self-test",
     "docs:indices": "node scripts/docs-indices.js",
     "check:docs-indices": "node scripts/docs-indices.js --check",
+    "check:suite-publica": "node scripts/check-suite-publica.js",
+    "check:suite-publica:self": "node scripts/check-suite-publica.js --self-test",
     "audit:memoria": "node scripts/audit-memoria.js",
     "check:cifra": "node scripts/check-cifra-recorrible.js",
     "check:cifra:self": "node scripts/check-cifra-recorrible.js --self-test"
