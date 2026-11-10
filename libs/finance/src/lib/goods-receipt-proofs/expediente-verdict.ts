@@ -24,6 +24,9 @@
  *   · Con todo eso, 99.3% de las facturas ligadas pasan los checks fiscales.
  *   · Tolerancia del cuadre (decisión de Francisco): < 0.25% Y < $200.
  *   · OC obligatoria SIN excepción (decisión de Francisco): no es omisión tolerable.
+ *   · `[RE.62]` La nota de crédito se liga por `CfdiRelacionados` (la llave del SAT), no por importe:
+ *     el 98% de las notas de 2026 la traen. Medido 2026-11-10 en la bandeja: de 42 «nota ya
+ *     aplicada» por importe, 36 usaban la nota de OTRA factura y 23 de 25 «pasa sola» pasaban así.
  * ─────────────────────────────────────────────────────────────────────────────────────────
  */
 import type {
@@ -32,7 +35,7 @@ import type {
 import { folioNumero, parecidoNombre, rfcBienFormado, rfcComparable, UMBRAL_NOMBRE } from './receipt-match';
 
 /** La regla y su versión: sello de cada veredicto (ADR-085). Cambiar un umbral = subir la versión. */
-export const REGLA_EXPEDIENTE = 'R-v2';
+export const REGLA_EXPEDIENTE = 'R-v3';
 /** Cuadre: la diferencia tiene que ser MENOR a las dos (decisión de Francisco, 2026-10-06). */
 export const TOLERANCIA_PCT = 0.0025;
 export const TOLERANCIA_ABS = 200;
@@ -48,7 +51,10 @@ export const MIN_REGIMEN_HISTORIA = 0.1;
 export const MIN_METODO_HABITUAL = 0.9;
 /** Parecido de nombre para decir "este proveedor sí factura en ContPAQi" (más estricto que el del cuadre). */
 export const UMBRAL_NOMBRE_CONTPAQI = 0.6;
-/** Una nota de crédito explica una factura mayor si llega en esta ventana alrededor de la factura (días). */
+/**
+ * Ventana de la nota SUGERIDA por importe alrededor de la factura (días). `[RE.62]` Sólo para notas cuyo
+ * CFDI no relaciona ninguna factura; las relacionadas no necesitan ventana: la llave las liga.
+ */
 export const NC_DIAS_ANTES = 5;
 export const NC_DIAS_DESPUES = 90;
 
@@ -302,8 +308,34 @@ export function proveedorEnContpaqi(
 export interface NotaCredito { uuid: string; total: number; fecha: string | null }
 
 /**
+ * `[RE.62]` Una nota de crédito vigente cuyo CFDI relaciona ESTA factura en `CfdiRelacionados`
+ * (TipoRelacion 01 nota de crédito, 03 devolución). `facturas` = cuántas facturas relaciona: con más de
+ * una, el CFDI no reparte el monto y la nota no se puede atribuir a una sola.
+ */
+export interface NotaRelacionada extends NotaCredito { facturas: number }
+
+/** `[RE.62]` Las notas que tocaron el cuadre de la entrada. */
+export interface NotasDelCuadre {
+  /** Relacionan sólo esta factura: se descuentan. */
+  exclusivas: NotaRelacionada[];
+  /** Relacionan esta y otras facturas: se dicen, no se descuentan. */
+  compartidas: NotaRelacionada[];
+  /** Sin relación en su CFDI, casa por importe: se sugiere, NUNCA hace pasar. */
+  sugerida: NotaCredito | null;
+  /** Lo que queda por cobrarle al proveedor tras las exclusivas; null si no se puede afirmar. */
+  porCobrar: number | null;
+}
+
+export const SIN_NOTAS: NotasDelCuadre = { exclusivas: [], compartidas: [], sugerida: null, porCobrar: null };
+
+/**
  * `[RE.35.2]` Si la factura vino MAYOR que la entrada, ¿una nota de crédito del mismo emisor explica la
  * diferencia? Se queda sólo con la que hace cuadrar (factura − nota contra la entrada) y sólo si es UNA.
+ *
+ * ⛔ `[RE.62]` Es una coincidencia de IMPORTE: sólo SUGIERE. Se le pasan únicamente las notas cuyo CFDI no
+ * relaciona ninguna factura (las demás ya dicen de quién son), y su resultado nunca hace pasar el cuadre.
+ * Con proveedores que emiten una nota por factura de tamaño parecido, $200 de tolerancia casaban la nota
+ * de otra factura en 36 de 42 casos (2026-11-10).
  */
 export function notaQueExplica(diferencia: number | null, monto: number, fechaFactura: string | null, notas: NotaCredito[]): NotaCredito | null {
   if (diferencia == null || diferencia <= 0 || cuadra(diferencia, monto)) return null;
@@ -312,6 +344,61 @@ export function notaQueExplica(diferencia: number | null, monto: number, fechaFa
     return (d == null || (d >= -NC_DIAS_ANTES && d <= NC_DIAS_DESPUES)) && cuadra(diferencia - n.total, monto);
   });
   return sirven.length === 1 ? sirven[0] : null;
+}
+
+/** `[RE.62]` Tipos de relación que explican una diferencia contra lo recibido: 01 nota de crédito, 03 devolución. */
+const TIPOS_RELACION_NOTA = new Set(['01', '03']);
+
+/**
+ * `[RE.62]` Las facturas (UUID en mayúsculas) que relaciona el trozo `CfdiRelacionados` del XML de una nota,
+ * sólo en bloques TipoRelacion 01 o 03: el 04 relaciona la nota que sustituye y el 07 aplica un anticipo,
+ * ninguno es una factura que la nota rebaje. Se parte por `CfdiRelacionados`: cada trozo que empieza con su
+ * `TipoRelacion` lleva adentro los `CfdiRelacionado UUID` de ese bloque.
+ *
+ * Se parsea aquí y no en SQL por costo (medido 2026-11-10, 705 notas): el regex por fila en la base subía
+ * la consulta de ~260 a ~450 ms; trayendo sólo el trozo, ~320 ms, con resultado idéntico en 26,806 notas.
+ */
+export function relacionadosDeXml(trozo: string | null | undefined): string[] {
+  if (!trozo) return [];
+  const out = new Set<string>();
+  for (const seg of trozo.split('CfdiRelacionados')) {
+    const tipo = /^[^>]*TipoRelacion="([0-9]{2})"/.exec(seg)?.[1];
+    if (!tipo || !TIPOS_RELACION_NOTA.has(tipo)) continue;
+    for (const m of seg.matchAll(/CfdiRelacionado\s[^>]*UUID="([0-9A-Fa-f-]{36})"/g)) out.add(m[1].toUpperCase());
+  }
+  return [...out];
+}
+
+/** `[RE.62]` El trozo relaciona algo, de cualquier tipo: si sí, la nota no puede ser la «sugerida» por importe. */
+export function traeRelacion(trozo: string | null | undefined): boolean {
+  return !!trozo && /CfdiRelacionado\s/.test(trozo);
+}
+
+/** `[RE.62]` Una nota de crédito como sale de `fiscal.cfdis`, con lo que relaciona su XML. */
+export interface NotaConRelacion extends NotaCredito {
+  emisor_rfc: string;
+  /** Facturas que relaciona como TipoRelacion 01/03 (UUID). */
+  relacionados: string[];
+  /** Relaciona algo, de cualquier tipo. */
+  trae_relacion: boolean;
+}
+
+/**
+ * `[RE.62]` Qué notas tocan el cuadre de UNA factura mayor que su entrada: las que su CFDI relaciona con
+ * esta factura (la llave) y, sólo si no hay ninguna, la sugerida por importe entre las del mismo emisor
+ * que no relacionan nada. Una nota que relaciona OTRA factura no entra nunca, por más que su importe case:
+ * así, que llegue una nota nueva de tamaño parecido no voltea el veredicto de esta.
+ */
+export function notasParaFactura(
+  factura: { uuid: string; emisor_rfc: string; fecha: string | null }, diferencia: number, monto: number, notas: NotaConRelacion[],
+): { relacionadas: NotaRelacionada[]; sugerida: NotaCredito | null } {
+  const u = factura.uuid.toUpperCase();
+  const relacionadas = notas.filter((n) => n.relacionados.some((r) => r.toUpperCase() === u))
+    .map((n) => ({ uuid: n.uuid, total: n.total, fecha: n.fecha, facturas: n.relacionados.length }));
+  if (relacionadas.length) return { relacionadas, sugerida: null };
+  const rfc = factura.emisor_rfc.toUpperCase();
+  const sueltas = notas.filter((n) => !n.trae_relacion && n.emisor_rfc.toUpperCase() === rfc);
+  return { relacionadas, sugerida: notaQueExplica(diferencia, monto, factura.fecha, sueltas) };
 }
 
 // ═══════════════════════════════════════ 2. El veredicto ═══════════════════════════════════════
@@ -353,8 +440,10 @@ export interface EntradaVeredicto {
   fechaDocumento: string | null;
   historial: HistorialEmisor | null;
   ctx: ContextoFiscal;
-  /** `[RE.35.2]` Nota de crédito que explica una factura mayor (ya elegida por `notaQueExplica`). */
-  notaCredito?: NotaCredito | null;
+  /** `[RE.62]` Notas de crédito vigentes cuyo CFDI relaciona ESTA factura (la llave: `CfdiRelacionados`). */
+  notasRelacionadas?: NotaRelacionada[];
+  /** `[RE.62]` Nota sin relación en su CFDI que casaría por importe (`notaQueExplica`): sólo se sugiere. */
+  notaSugerida?: NotaCredito | null;
   /** `[RE.35.2]` El proveedor tiene CFDI en ContPAQi (si no, su papel se revisa como remisión). */
   proveedorEnContpaqi?: boolean;
   /**
@@ -376,7 +465,13 @@ export interface Veredicto {
   diferencia: number | null;
   /** Con qué reglas se evaluó: la de factura (CFDI) o la de remisión (cuadre, OC y fecha). */
   via: 'factura' | 'remision';
+  /**
+   * La nota (o notas, sumadas; UUIDs unidos con « + ») que hizo cuadrar la factura. `[RE.62]` Sólo puede
+   * venir de notas cuyo CFDI relaciona esta factura y sólo a ella.
+   */
   notaCredito: NotaCredito | null;
+  /** `[RE.62]` Todas las notas que tocaron el cuadre, aunque no lo hayan hecho pasar. */
+  notas: NotasDelCuadre;
 }
 
 const total = (r: Record<string, number>) => Object.values(r).reduce((s, n) => s + n, 0);
@@ -399,10 +494,10 @@ export function veredictoExpediente(v: EntradaVeredicto): Veredicto {
 
   // ── Fuera de alcance: el proveedor somos nosotros (traspaso). No genera factura de compra.
   if (v.entrada.interno) {
-    return { cubo: 'fuera_de_alcance', motivos: ['El proveedor es la propia empresa: no lleva factura de compra.'], checks, diferencia: null, via: 'factura', notaCredito: null };
+    return { cubo: 'fuera_de_alcance', motivos: ['El proveedor es la propia empresa: no lleva factura de compra.'], checks, diferencia: null, via: 'factura', notaCredito: null, notas: SIN_NOTAS };
   }
   if (v.docTipo === 'ninguno') {
-    return { cubo: 'sin_documento', motivos: ['Todavía no se sube la factura o remisión.'], checks, diferencia: null, via: 'factura', notaCredito: null };
+    return { cubo: 'sin_documento', motivos: ['Todavía no se sube la factura o remisión.'], checks, diferencia: null, via: 'factura', notaCredito: null, notas: SIN_NOTAS };
   }
 
   // ── La vía. Una factura sin CFDI cuyo proveedor NO factura en ContPAQi se revisa como remisión
@@ -416,9 +511,26 @@ export function veredictoExpediente(v: EntradaVeredicto): Veredicto {
   // ── Contra la entrada (Kepler): aplica a factura y a remisión.
   const totalDoc = via === 'factura' ? (v.cfdi?.total ?? null) : v.totalLeido;
   const diferencia = totalDoc == null ? null : Math.round((totalDoc - v.entrada.monto) * 100) / 100;
-  // La nota de crédito sólo vale en la vía de factura (es un CFDI) y sólo si hace cuadrar.
-  const nota = via === 'factura' && v.notaCredito && diferencia != null && diferencia > 0
-    && !cuadra(diferencia, v.entrada.monto) && cuadra(diferencia - v.notaCredito.total, v.entrada.monto) ? v.notaCredito : null;
+  // `[RE.62]` La nota de crédito sólo vale en la vía de factura (es un CFDI), sólo si su CFDI relaciona
+  // ESTA factura y a ninguna otra, y sólo si hace cuadrar. Las que relacionan varias facturas se dicen
+  // (el CFDI no reparte su monto); la que casa por importe sin relación se sugiere. Ninguna de esas dos
+  // puede hacer pasar el cuadre: eso es lo que hacía «pasar sola» a una factura con la nota de otra.
+  const mayor = via === 'factura' && diferencia != null && diferencia > 0 && !cuadra(diferencia, v.entrada.monto);
+  const relacionadas = mayor ? (v.notasRelacionadas ?? []) : [];
+  const exclusivas = relacionadas.filter((n) => n.facturas <= 1);
+  const compartidas = relacionadas.filter((n) => n.facturas > 1);
+  const sugerida = mayor && !relacionadas.length ? (v.notaSugerida ?? null) : null;
+  const sumaExcl = Math.round(exclusivas.reduce((s, n) => s + n.total, 0) * 100) / 100;
+  const resto = mayor ? Math.round(((diferencia as number) - sumaExcl) * 100) / 100 : null;
+  const nota: NotaCredito | null = mayor && exclusivas.length && cuadra(resto as number, v.entrada.monto)
+    ? { uuid: exclusivas.map((n) => n.uuid).join(' + '), total: sumaExcl,
+        fecha: exclusivas.map((n) => n.fecha).filter((f): f is string => !!f).sort().pop() ?? null }
+    : null;
+  // Se afirma «cobrar nota de crédito» sólo si lo que queda es a favor del proveedor y nada que esté a la
+  // vista (una nota compartida o una sugerida) podría ser la que lo cubre.
+  const porCobrar = mayor && !nota && !compartidas.length && !sugerida && (resto as number) > 0 && !cuadra(resto as number, v.entrada.monto)
+    ? resto : null;
+  const notas: NotasDelCuadre = { exclusivas, compartidas, sugerida, porCobrar };
   if (diferencia == null) {
     // Sin CFDI en la vía de factura, el motivo lo da I1 (no se repite acá).
     add({ clave: 'E1_cuadre', grupo: 'entrada', etiqueta: 'Total contra la entrada', valor: fmt(v.entrada.monto),
@@ -426,17 +538,27 @@ export function veredictoExpediente(v: EntradaVeredicto): Veredicto {
       nota: via === 'factura' ? null : 'No se leyó el total del papel.' });
   } else if (nota) {
     add({ clave: 'E1_cuadre', grupo: 'entrada', etiqueta: 'Total contra la entrada',
-      valor: `${fmt(totalDoc as number)} − nota ${fmt(nota.total)} contra ${fmt(v.entrada.monto)}`,
+      valor: `${fmt(totalDoc as number)} − ${exclusivas.length === 1 ? 'nota' : `${exclusivas.length} notas`} ${fmt(nota.total)} contra ${fmt(v.entrada.monto)}`,
       esperado: `diferencia menor a ${(TOLERANCIA_PCT * 100).toFixed(2)}% y a ${fmt(TOLERANCIA_ABS)}`,
       estado: 'ok', bloquea: true,
-      nota: `Cuadra descontando la nota de crédito ${nota.uuid} por ${fmt(nota.total)}.` });
+      nota: `Cuadra descontando ${exclusivas.length === 1 ? 'la nota de crédito' : 'las notas de crédito'} ${nota.uuid} por ${fmt(nota.total)}: su CFDI relaciona esta factura.` });
   } else {
     const ok = cuadra(diferencia, v.entrada.monto);
+    const partes = ok ? [] : [`La ${via === 'factura' ? 'factura' : 'remisión'} viene ${fmt(Math.abs(diferencia))} ${diferencia > 0 ? 'mayor' : 'menor'} (${(Math.abs(diferencia) / Math.max(1, Math.abs(v.entrada.monto)) * 100).toFixed(2)}%).`];
+    if (exclusivas.length && resto != null) {
+      partes.push(`Con ${exclusivas.length === 1 ? `su nota de crédito ${exclusivas[0].uuid}` : `sus ${exclusivas.length} notas de crédito`} (${fmt(sumaExcl)}) queda ${fmt(Math.abs(resto))} ${resto > 0 ? 'mayor' : 'menor'} que la entrada.`);
+    }
+    for (const n of compartidas) {
+      partes.push(`La nota de crédito ${n.uuid} por ${fmt(n.total)} relaciona ${n.facturas} facturas y su CFDI no dice cuánto le toca a ésta.`);
+    }
+    if (sugerida) {
+      partes.push(`Posible nota de crédito ${sugerida.uuid} por ${fmt(sugerida.total)}: casa por importe, pero su CFDI no relaciona ninguna factura. Confírmala.`);
+    }
     add({ clave: 'E1_cuadre', grupo: 'entrada', etiqueta: 'Total contra la entrada',
       valor: `${fmt(totalDoc as number)} contra ${fmt(v.entrada.monto)}`,
       esperado: `diferencia menor a ${(TOLERANCIA_PCT * 100).toFixed(2)}% y a ${fmt(TOLERANCIA_ABS)}`,
       estado: ok ? 'ok' : 'falla', bloquea: true,
-      nota: ok ? null : `La ${via === 'factura' ? 'factura' : 'remisión'} viene ${fmt(Math.abs(diferencia))} ${diferencia > 0 ? 'mayor' : 'menor'} (${(Math.abs(diferencia) / Math.max(1, Math.abs(v.entrada.monto)) * 100).toFixed(2)}%).` });
+      nota: ok ? null : partes.join(' ') });
   }
   add({ clave: 'E2_oc', grupo: 'entrada', etiqueta: 'Orden de compra', valor: v.entrada.oc_folio,
     esperado: 'obligatoria', estado: v.entrada.oc_folio ? 'ok' : 'falla', bloquea: true,
@@ -469,7 +591,7 @@ export function veredictoExpediente(v: EntradaVeredicto): Veredicto {
           : enEspera ? 'ContPAQi sincroniza una vez al día: se vuelve a buscar mañana.'
           : 'No se encontró su CFDI en ContPAQi.' });
       const cubo: ExpedienteCubo = enEspera ? 'sin_cfdi_aun' : 'revisar';
-      return { cubo, motivos: motivosDe(checks), checks, diferencia, via, notaCredito: null };
+      return { cubo, motivos: motivosDe(checks), checks, diferencia, via, notaCredito: null, notas };
     }
     const c = v.cfdi;
     add({ clave: 'I1_liga', grupo: 'identificacion', etiqueta: 'CFDI de la factura', valor: c.uuid,
@@ -546,7 +668,7 @@ export function veredictoExpediente(v: EntradaVeredicto): Veredicto {
       nota: c.ieps_por_cuota ? 'IEPS por cuota: avisar a contabilidad, se acredita (no va al costo).' : null });
   }
 
-  return { cubo: motivosDe(checks).length ? 'revisar' : 'auto', motivos: motivosDe(checks), checks, diferencia, via, notaCredito: nota };
+  return { cubo: motivosDe(checks).length ? 'revisar' : 'auto', motivos: motivosDe(checks), checks, diferencia, via, notaCredito: nota, notas };
 }
 
 /** Los motivos de revisión: las notas de lo que bloquea y no está en `ok`. */
@@ -570,13 +692,15 @@ function motivosDe(checks: ExpedienteCheck[]): string[] {
  */
 export type Hallazgo = 'cobrar_nc' | 'mal_emitida' | 'incompleta' | 'sin_oc' | 'nc_aplicada' | 'comercial';
 
-export function hallazgosDe(v: Pick<Veredicto, 'cubo' | 'checks' | 'diferencia' | 'via' | 'notaCredito'>, ajustes: { operativo: number; comercial: number }): Hallazgo[] {
+export function hallazgosDe(v: Pick<Veredicto, 'cubo' | 'checks' | 'diferencia' | 'via' | 'notaCredito' | 'notas'>, ajustes: { operativo: number; comercial: number }): Hallazgo[] {
   if (v.cubo === 'fuera_de_alcance' || v.cubo === 'sin_documento') return [];
   const falla = (clave: string) => v.checks.some((c) => c.clave === clave && c.estado === 'falla');
   const out: Hallazgo[] = [];
   if (v.checks.some((c) => c.grupo === 'fiscal' && c.bloquea && c.estado === 'falla')) out.push('mal_emitida');
   if (ajustes.operativo !== 0) out.push('incompleta');
-  else if (v.via === 'factura' && falla('E1_cuadre') && (v.diferencia ?? 0) > 0 && !v.notaCredito) out.push('cobrar_nc');
+  // `[RE.62]` Se cobra lo que queda DESPUÉS de las notas que relacionan esta factura, y sólo si el motor
+  // lo pudo afirmar (`porCobrar`): con una nota compartida o sugerida a la vista, queda en revisar.
+  else if (v.via === 'factura' && falla('E1_cuadre') && (v.notas?.porCobrar ?? 0) > 0) out.push('cobrar_nc');
   if (falla('E2_oc')) out.push('sin_oc');
   if (v.notaCredito) out.push('nc_aplicada');
   if (ajustes.comercial !== 0) out.push('comercial');

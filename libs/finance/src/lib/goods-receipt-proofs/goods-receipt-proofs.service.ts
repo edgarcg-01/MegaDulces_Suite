@@ -2964,6 +2964,9 @@ export class GoodsReceiptProofsService {
           // más angosta: que Kepler ligue un ajuste a esta entrada y su magnitud sea el hueco.
           let ajuste: Awaited<ReturnType<typeof this.ajusteLigadoQueExplica>> = null;
           let cfdiAuto: string | null = null;
+          // `[RE.62]` Si cuadró descontando una nota de crédito, el historial la nombra: sin el UUID de la
+          // nota, una aprobación con factura mayor que la entrada no se puede defender después.
+          let notaAuto: { uuid: string; total: number } | null = null;
           if (prev.monto_match !== true) {
             // `[RE.35.6]` Primero el expediente: si pasa solo, el CFDI manda sobre el OCR. Sólo si ESTE
             // papel es el único vigente de la entrada: el expediente se arma con el papel más reciente, y
@@ -2972,7 +2975,10 @@ export class GoodsReceiptProofsService {
               .where({ sucursal: prev.sucursal, folio: prev.folio }).whereNot('status', 'rechazado').count<{ n: string }[]>('* as n');
             const exp = Number(vigentes[0]?.n ?? 0) !== 1 ? undefined : (await this.expediente.calcularLote(trx, tenantId, [{ sucursal: prev.sucursal, folio: prev.folio }]))
               .get(`${prev.sucursal}/${prev.folio}`);
-            if (exp?.veredicto.cubo === 'auto' && exp.cfdi) cfdiAuto = exp.cfdi.uuid;
+            if (exp?.veredicto.cubo === 'auto' && exp.cfdi) {
+              cfdiAuto = exp.cfdi.uuid;
+              notaAuto = exp.veredicto.notaCredito ?? null;
+            }
           }
           if (prev.monto_match !== true && !cfdiAuto) {
             const cfgB = await this.settings(trx);
@@ -3000,7 +3006,7 @@ export class GoodsReceiptProofsService {
             proof_id: id, sucursal: prev.sucursal, folio: prev.folio,
             status_from: prev.status, status_to: 'validado', actor,
             motivo: cfdiAuto
-              ? `aprobación en lote — cuadra con su CFDI de ContPAQi ${cfdiAuto} (expediente ${REGLA_EXPEDIENTE}; el OCR no manda)`
+              ? `aprobación en lote — cuadra con su CFDI de ContPAQi ${cfdiAuto}${notaAuto ? ` descontando la nota de crédito ${notaAuto.uuid} por $${notaAuto.total.toFixed(2)}` : ''} (expediente ${REGLA_EXPEDIENTE}; el OCR no manda)`
               : ajuste
               ? `aprobación en lote — cuadra con ajuste ${ajuste.doctype} ${ajuste.folio} de $${ajuste.monto.toFixed(2)}${ajuste.categoria ? ` (${ajuste.categoria})` : ''}`
               : 'aprobación en lote (cuadra al peso)',

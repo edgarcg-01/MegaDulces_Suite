@@ -7,8 +7,9 @@ import type {
   IdentificarLectura, ReceiptExpediente,
 } from '@megadulces/contracts';
 import {
-  CfdiCandidato, HistorialEmisor, NotaCredito, REGLA_EXPEDIENTE, TOLERANCIA_ABS, TOLERANCIA_PCT, Veredicto,
-  cuadra, extraerUuid, hallazgosDe, ligarCfdi, notaQueExplica, promoverRfcImporte, proveedorEnContpaqi, veredictoExpediente,
+  CfdiCandidato, HistorialEmisor, NotaConRelacion, NotaCredito, NotaRelacionada, REGLA_EXPEDIENTE, TOLERANCIA_ABS, TOLERANCIA_PCT, Veredicto,
+  cuadra, extraerUuid, hallazgosDe, ligarCfdi, notasParaFactura, promoverRfcImporte, proveedorEnContpaqi, veredictoExpediente,
+  relacionadosDeXml, traeRelacion,
   indexarCandidatos, candidatosPosibles,
   UMBRAL_NOMBRE_CONTPAQI,
 } from './expediente-verdict';
@@ -34,9 +35,22 @@ interface TrasladoCfdi { impuesto?: string | number; importe?: number | string; 
 interface ImpuestosCfdi { iva_trasladado?: number | string | null; ieps_trasladado?: number | string | null; traslados?: TrasladoCfdi[] }
 interface HistorialFila { id: string; emisor_rfc: string; fecha: string; emisor_regimen: string | null; metodo_pago: string | null; emisor_nombre: string | null }
 interface ListaSatFila { rfc: string; lista: string | number; situacion: string | null }
-interface NotaFila extends NotaCredito { emisor_rfc: string }
+/** `[RE.62]` La nota con lo que relaciona su XML (`NOTAS_TROZO_RELACIONES_SQL` + `relacionadosDeXml`). */
+type NotaFila = NotaConRelacion;
 interface AjusteFila { sucursal: string; entrada_folio: string; operativo: number; comercial: number }
 interface GemelaFila { proveedor_code: string; monto: number; receipt_date: string }
+
+/**
+ * `[RE.62]` Sólo el trozo `CfdiRelacionados` del XML de una nota (alias `n` de `fiscal.cfdis`): desde su
+ * primera aparición hasta `<cfdi:Emisor`, que en el esquema del CFDI va justo después (si no aparece, 20,000
+ * caracteres). Sin regex en la base, a propósito: lo parsea `relacionadosDeXml`. Sin `?` (knex los toma por
+ * parámetros). Verificado contra prod en sólo lectura (RE.62 en el tracker): mismo resultado que parsear
+ * el XML completo en las 26,806 notas recibidas.
+ */
+export const NOTAS_TROZO_RELACIONES_SQL = `CASE WHEN strpos(n.xml, 'CfdiRelacionados') = 0 THEN NULL
+  ELSE substring(n.xml from strpos(n.xml, 'CfdiRelacionados')
+    for CASE WHEN strpos(n.xml, '<cfdi:Emisor') > strpos(n.xml, 'CfdiRelacionados')
+             THEN strpos(n.xml, '<cfdi:Emisor') - strpos(n.xml, 'CfdiRelacionados') ELSE 20000 END) END AS relaciones_xml`;
 
 /** Ventana de búsqueda de CFDI alrededor de la fecha de la entrada (días). */
 const VENTANA_BUSQUEDA = 60;
@@ -391,12 +405,19 @@ export class GoodsReceiptExpedienteService {
       const lo = fechasCfdi[0], hi = fechasCfdi[fechasCfdi.length - 1];
       const mayores = ligadas.filter((p) => { const c = ligas.get(p.k)!.cfdi!; const d = c.total - Number(p.e.monto); return d > 0 && !cuadra(d, Number(p.e.monto)); });
       if (mayores.length) {
-        notas = (await trx('fiscal.cfdis')
-          .where({ tenant_id: tenantId, rol: 'recibidas', tipo_comprobante: 'E' })
-          .whereIn('emisor_rfc', [...new Set(mayores.map((p) => ligas.get(p.k)!.cfdi!.emisor_rfc.toUpperCase()))])
-          .whereRaw('fecha >= ?::date AND fecha < ?::date', [sumarDias(lo, -5), sumarDias(hi, 91)])
-          .select('uuid', 'emisor_rfc', trx.raw('total::float8 AS total'), trx.raw(`to_char(fecha, 'YYYY-MM-DD') AS fecha`)))
-          .map((n: NotaFila) => ({ ...n, total: Number(n.total) }));
+        // `[RE.62]` La llave nota → factura es `CfdiRelacionados` del XML (98% de las notas de 2026): la base
+        // trae sólo ese trozo y `relacionadosDeXml` se queda con los bloques 01/03. Sin ventana superior: la
+        // relación liga aunque la nota llegue tarde. Las canceladas no cuentan.
+        const filas: { uuid: string; emisor_rfc: string; total: number | string; fecha: string | null; relaciones_xml: string | null }[] =
+          await trx('fiscal.cfdis as n')
+            .where({ 'n.tenant_id': tenantId, 'n.rol': 'recibidas', 'n.tipo_comprobante': 'E' })
+            .whereIn('n.emisor_rfc', [...new Set(mayores.map((p) => ligas.get(p.k)!.cfdi!.emisor_rfc.toUpperCase()))])
+            .whereRaw('n.fecha >= ?::date', [sumarDias(lo, -5)])
+            .whereRaw(`COALESCE(n.estatus_sat, '') NOT ILIKE 'cancel%'`)
+            .select('n.uuid', 'n.emisor_rfc', trx.raw('n.total::float8 AS total'), trx.raw(`to_char(n.fecha, 'YYYY-MM-DD') AS fecha`),
+              trx.raw(NOTAS_TROZO_RELACIONES_SQL));
+        notas = filas.map((n) => ({ uuid: n.uuid, emisor_rfc: n.emisor_rfc, total: Number(n.total), fecha: n.fecha,
+          relacionados: relacionadosDeXml(n.relaciones_xml), trae_relacion: traeRelacion(n.relaciones_xml) }));
       }
       // ⚠️ ~190 ms por emisor en la consulta suelta: el índice por RFC lo retiró 20260928210000.
       historia = await trx('fiscal.cfdis')
@@ -425,13 +446,16 @@ export class GoodsReceiptExpedienteService {
     for (const p of preps) {
       const l = ligas.get(p.k);
       const cfdi = l?.cfdi ?? null;
-      let notaCredito: NotaCredito | null = null;
+      let notasRelacionadas: NotaRelacionada[] = [];
+      let notaSugerida: NotaCredito | null = null;
       let historial: HistorialEmisor | null = null;
       if (cfdi) {
         const dif = cfdi.total - Number(p.e.monto);
         if (dif > 0 && !cuadra(dif, Number(p.e.monto))) {
-          notaCredito = notaQueExplica(dif, Number(p.e.monto), cfdi.fecha,
-            notas.filter((n) => n.emisor_rfc.toUpperCase() === cfdi.emisor_rfc.toUpperCase()));
+          // `[RE.62]` La llave primero (las notas cuyo CFDI relaciona ESTA factura); el importe sólo sugiere.
+          const sel = notasParaFactura(cfdi, dif, Number(p.e.monto), notas);
+          notasRelacionadas = sel.relacionadas;
+          notaSugerida = sel.sugerida;
         }
         historial = { regimenes: {}, metodos: {}, nombres: {} };
         for (const h of historia) {
@@ -457,7 +481,8 @@ export class GoodsReceiptExpedienteService {
           receptorRfc, receptorRegimen: emisora?.regimen_fiscal ?? null,
           listasSat: cfdi ? listas.filter((x) => x.rfc === cfdi.emisor_rfc.toUpperCase()).map((x) => ({ lista: String(x.lista), situacion: x.situacion ?? null })) : [],
         },
-        notaCredito,
+        notasRelacionadas,
+        notaSugerida,
         proveedorEnContpaqi: l?.enContpaqi,
         sello: p.lectura?.sello ?? null, firma: p.lectura?.firma ?? null, selloEvidencia: p.lectura?.sello_evidencia ?? null,
         hoy,

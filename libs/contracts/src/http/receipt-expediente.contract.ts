@@ -155,7 +155,11 @@ export interface ReceiptExpediente {
   via: 'factura' | 'remision';
   /** `[RE.35.5]` Qué hacer y con quién (mismo cálculo que la fila del listado). */
   hallazgos: ExpedienteHallazgo[];
-  /** `[RE.35.2]` La nota de crédito del mismo emisor que explica una factura mayor que la entrada. */
+  /**
+   * `[RE.35.2]` La nota de crédito que hizo cuadrar una factura mayor que la entrada. `[RE.62]` Sólo una
+   * nota cuyo CFDI relaciona ESTA factura (y a ninguna otra); si fueron varias, `total` es la suma y
+   * `uuid` las une con « + ». Una nota que sólo casa por importe NO llega aquí: va como motivo de E1.
+   */
   nota_credito: { uuid: string; total: number; fecha: string | null } | null;
   /** La regla y la versión que dieron el veredicto (sello de ADR-085). */
   regla: string;
