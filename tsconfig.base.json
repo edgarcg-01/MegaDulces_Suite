@@ -60,6 +60,8 @@
       "@megadulces/contracts/finance/validacion-pago": ["libs/contracts/src/finance/validacion-pago.contract.ts"],
       // [PGP.108] La factura del pago con su CFDI (PUE/PPD): la leen la API y la pantalla de Pagos.
       "@megadulces/contracts/finance/cfdi-factura": ["libs/contracts/src/finance/cfdi-factura.contract.ts"],
+      // [PGP.109] Cuándo se genera la póliza de egreso (PUE al pagar, PPD con el REP).
+      "@megadulces/contracts/finance/momento-poliza": ["libs/contracts/src/finance/momento-poliza.contract.ts"],
       "@megadulces/finance": ["libs/finance/src/index.ts"],
       "@megadulces/fiscal": ["libs/fiscal/src/index.ts"],
       "@megadulces/logistics": ["libs/logistics/src/index.ts"],

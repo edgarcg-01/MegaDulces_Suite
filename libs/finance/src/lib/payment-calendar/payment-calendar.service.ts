@@ -11,6 +11,8 @@ import { SupplierPaymentAccountsService } from '../supplier-payment-accounts/sup
 import type { DiscountReason, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarItemDiscountResult, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 import { leerValidacionDelDia } from './validacion-pago.sql';
 import { leerCfdiDeFacturas } from './cfdi-factura.sql';
+import { leerRepsDeFacturas } from './rep-de-factura.sql';
+import { polizaEgresoDelPago } from '@megadulces/contracts/finance/momento-poliza';
 import { leerEnsayoPagoKepler } from './kepler-pago/ensayo-ods.sql';
 import type { PaymentCalendarEnsayoKepler } from '@megadulces/contracts';
 import type { ValidacionPago } from '@megadulces/contracts/finance/validacion-pago';
@@ -1300,6 +1302,15 @@ export class PaymentCalendarService {
           (items as { id: string; obligation_source: string }[])
             .filter((it) => it.obligation_source === 'kepler_payable' || it.obligation_source === 'supplier_payable').map((it) => it.id))
         : new Map();
+      // `[PGP.109]` La póliza de egreso de lo ya «Pagado»: PUE al pagar; PPD cuando llega el REP
+      // (Contabilidad, 2026-11-10). Sólo se leen los REP de las facturas PPD ligadas de esos pagos.
+      const pagados = new Set((allocations as { id: string; status: string }[]).filter((a) => a.status === 'executed').map((a) => a.id));
+      const uuidsPpd = (items as { id: string; allocation_id: string }[])
+        .filter((it) => pagados.has(it.allocation_id))
+        .map((it) => cfdis.get(String(it.id)))
+        .filter((c) => c?.estado === 'unico' && c.metodo === 'PPD' && c.cfdi)
+        .map((c) => c!.cfdi!.uuid);
+      const repsDia = pagados.size ? await leerRepsDeFacturas(trx, uuidsPpd) : { reps: [], sincronizado_hasta: null };
       return allocations.map((a: AllocationRowLite) => {
         // `[PGP.91]` `numeric` llega como texto del driver: el descuento sale como número, y la
         // tasa como número o null (null = se capturó en pesos, no hay tasa que decir).
@@ -1340,6 +1351,16 @@ export class PaymentCalendarService {
           discount_total: round2(its.reduce((s, it) => s + it.discount_amount, 0)),
           kepler_cierre: cierres.get(a.id) ?? null,
           validacion: validaciones.get(a.id) ?? null,
+          poliza: a.status === 'executed' ? (() => {
+            const pd = (a as { paid_bank_date?: Date | string | null }).paid_bank_date;
+            const fecha = pd ? (pd instanceof Date ? pd.toISOString().slice(0, 10) : String(pd).slice(0, 10)) : date;
+            return polizaEgresoDelPago(
+              its.map((it) => ({
+                item_id: String(it.id), cfdi_uuid: it.cfdi?.estado === 'unico' ? it.cfdi.cfdi?.uuid ?? null : null,
+                metodo: it.cfdi?.estado === 'unico' ? it.cfdi.metodo : null, aplicado: Number(it.applied_amount),
+              })),
+              repsDia.reps, fecha, repsDia.sincronizado_hasta !== null && repsDia.sincronizado_hasta >= fecha);
+          })() : null,
           items: its,
         };
       });

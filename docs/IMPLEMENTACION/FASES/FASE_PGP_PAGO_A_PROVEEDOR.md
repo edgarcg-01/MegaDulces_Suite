@@ -1525,3 +1525,21 @@ pago y cancelación (`canceldate`, sin interpretar su texto). Índice nuevo por 
 **Ejercida en prod (sólo lectura):** 154,874 filas = 154,874 ligas (ningún cruce multiplica); de 1,343 facturas PPD
 recibidas de agosto–septiembre, **799 tienen su REP vigente** en la réplica. ⛔ La réplica está detenida desde el
 30-oct: lo posterior no aparece hasta revivir el carril (D15 + extender el replicador).
+
+### ✅ P1 decidida (Contabilidad, vía Edgar, 2026-11-10): **PUE al pagar, PPD cuando llega el REP**
+
+> *«Cuando es por PPD, hasta que se genera el REP; si es PUE se genera al pagar.»*
+
+La póliza de egreso de una factura **PUE** se genera en cuanto el pago queda «Pagado» (validado con banco y
+comprobante). La de una factura **PPD** espera el REP del proveedor y se genera con él asociado. Reemplaza la
+recomendación anterior de P1 (IVA proporcional al pagar).
+
+`[PGP.109]` 🧪 en código: regla pura `polizaEgresoDelPago` (`libs/contracts/src/finance/momento-poliza.contract.ts`):
+por factura `pue` · `con_rep` (REP vigente de esa factura que pagó lo aplicado ±$1, ±10 días de la salida del banco)
+· `espera_rep` · `sin_cfdi` · `sin_metodo` · `no_medido`; el pago queda `lista`, `espera_rep` o el bloqueo que
+mande. La lectura (`rep-de-factura.sql.ts`) usa `analytics.v_rep_de_factura`; ⛔ si la réplica no llega al día del
+pago (hoy: detenida desde el 30-oct), un PPD sin REP es **«sin medir»**, nunca «espera REP» afirmado. En pantalla,
+junto a la validación de cada pago marcado «Pagado». 8 pruebas (mutante «sin filtrar los REP cancelados»: rojo).
+
+⛔ **La consecuencia que manda el orden:** por dinero, el 91 % es PPD. Sin el carril de REP vivo (D15 + extender el
+replicador, `[PGP.110]`), esas pólizas no se pueden generar. Es lo primero que destraba el cierre contable.

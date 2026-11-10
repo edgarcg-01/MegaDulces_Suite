@@ -21,6 +21,7 @@ import type {
 import { warehouseName, DISCOUNT_REASONS, DISCOUNT_REASON_LABEL } from '@megadulces/contracts';
 import { textoValidacion, validadoParaKepler } from '@megadulces/contracts/finance/validacion-pago';
 import { textoCfdi, textoMetodo } from '@megadulces/contracts/finance/cfdi-factura';
+import { textoPolizaEgreso } from '@megadulces/contracts/finance/momento-poliza';
 import { cierreCompleto, faltaParaCerrar, nombreTipoPagoKepler, sinComprobantePorque, textoCierre, type CierreKeplerPago, type PagoKeplerDelCierre } from '@megadulces/contracts';
 import { PagosComprobantesService } from '../pagos-comprobantes.service';
 import type { SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
@@ -790,6 +791,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                           @if (a.validacion; as v) { @if (isReleased() || a.status === 'executed') {
                             <span class="pg-val" [class.is-ok]="v.estado === 'validado'"><i class="pi" [class.pi-check-circle]="v.estado === 'validado'" [class.pi-exclamation-circle]="v.estado !== 'validado'" aria-hidden="true"></i>{{ textoValidacion(v.estado) }}</span>
                           } }
+                          <!-- [PGP.109] La póliza de egreso de lo ya pagado: PUE al pagar, PPD cuando llega el REP (Contabilidad). -->
+                          @if (a.poliza; as po) {
+                            <span class="pg-val" [class.is-ok]="po.estado === 'lista'"><i class="pi" [class.pi-file-check]="po.estado === 'lista'" [class.pi-hourglass]="po.estado !== 'lista'" aria-hidden="true"></i>{{ textoPolizaEgreso(po.estado) }}</span>
+                          }
                         </span>
                       }
                     </td>
@@ -3302,6 +3307,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       });
   }
   readonly textoMetodo = textoMetodo;
+  readonly textoPolizaEgreso = textoPolizaEgreso;
   readonly pagarLista = computed(() => { const a = this.pagarSolo(); return a ? [a] : this.porMarcar(); });
   readonly pagarListaTotal = computed(() => this.pagarLista().reduce((s, a) => s + Number(a.amount_assigned || 0), 0));
   readonly pagarListaSaldadas = computed(() => this.pagarLista().filter((a) => (a.kepler_saldadas ?? 0) > 0).length);
