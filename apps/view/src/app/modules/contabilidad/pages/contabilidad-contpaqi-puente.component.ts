@@ -17,7 +17,7 @@ import {
   ContpaqiPuenteService, LoteRow, LotesResp, CuadreResp,
   PendienteProveedor, PendientesResp, ReglaVista, PagoPorConfirmar, CfdiPropuesto, MovimientosResp,
   FiltroMovimientos, MovimientoBanco, CategoriaEgreso, VistaPreviaBeneficiario,
-  DictamenResp, PolizaDictaminada, Hallazgo, Veredicto, SeguimientoCuadre, SeguimientoPoliza,
+  DictamenResp, PolizaDictaminada, Hallazgo, Veredicto, SeguimientoCuadre, SeguimientoPoliza, CuentaGastoProveedor,
 } from '../contpaqi-puente.service';
 
 /**
@@ -213,6 +213,70 @@ import {
                         }
                       </ul>
                     </details>
+                  }
+                }
+                <!-- [PGP.111c] Y la cuenta de cada PROVEEDOR de gasto (por RFC). Casi siempre se toma sola de la que ella ya
+                     usó con ese proveedor (93 %); aquí sólo se firma la que no: sin historia, o una que cargó a cuentas distintas.
+                     Lo que firma le gana a lo derivado en la póliza y en el Calendario de Pagos. La pista no se preselecciona. -->
+                <h3 class="cpp-h3-gasto">Y la de cada proveedor de gasto</h3>
+                <p class="cpp-sub">La cuenta se toma sola de la que ya usaste con ese proveedor en tus pólizas. Aquí sólo firmas la que no se puede tomar: un proveedor sin historia, o uno que cargaste a cuentas distintas. Vienen de los gastos del Calendario de Pagos (90 días).</p>
+                @if (gastosProvError(); as e) {
+                  <div class="cpp-aviso mal" role="alert">No se pudieron leer los proveedores de gasto: {{ e }}</div>
+                } @else if (gastosProv() === null) {
+                  <app-load-state [loading]="true" [skeletonRows]="3" />
+                } @else {
+                  <p class="cpp-sub"><strong>{{ gastosPorFirmar() }}</strong> {{ gastosPorFirmar() === 1 ? 'necesita' : 'necesitan' }} tu firma &middot; {{ (gastosProv() ?? []).length - gastosPorFirmar() }} ya {{ (gastosProv() ?? []).length - gastosPorFirmar() === 1 ? 'tiene' : 'tienen' }} cuenta</p>
+                  <div class="card-premium card-flat cpp-tablewrap">
+                    <p-table [value]="gastosVisibles()" size="small" class="surf-table" [rowHover]="true" dataKey="rfc">
+                      <ng-template #header>
+                        <tr><th>Proveedor</th><th class="ta-r">En el Calendario</th><th>Cuenta de gasto</th></tr>
+                      </ng-template>
+                      <ng-template #body let-g>
+                        <tr>
+                          <td><span class="cpp-bank">{{ g.proveedor || 'Sin nombre en Kepler' }}</span> <span class="mono muted">{{ g.rfc }}</span></td>
+                          <td class="ta-r mono" [class.muted]="!g.importe_calendario">{{ g.importe_calendario | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                          <td class="cpp-cta">
+                            @if (g.cuenta.estado === 'firmada') {
+                              <div class="cpp-firma">
+                                <span><span class="mono">{{ g.cuenta.cuenta }}</span> {{ g.cuenta.nombre }}
+                                  <span class="cpp-sub">firmada por {{ g.cuenta.firmada_por }}</span></span>
+                                @if (puedeGestionar()) {
+                                  <button type="button" class="cpp-btn-bad cpp-lejos" [disabled]="firmandoGasto() === g.rfc"
+                                          (click)="quitarGasto(g)" [attr.aria-label]="'Quitar la firma de la cuenta de gasto de ' + (g.proveedor || g.rfc)">{{ firmandoGasto() === g.rfc ? 'Quitando…' : 'Quitar firma' }}</button>
+                                }
+                              </div>
+                            } @else if (!g.necesita_firma) {
+                              <span><span class="mono">{{ g.cuenta.cuenta }}</span> {{ g.cuenta.nombre }}
+                                <span class="cpp-sub">la que usaste {{ g.cuenta.veces }} de {{ g.cuenta.total }} veces</span></span>
+                            } @else if (puedeGestionar()) {
+                              <div class="cpp-firma">
+                                <p-select [options]="cuentas()" [ngModel]="cuentaGastoElegida()[g.rfc] ?? null"
+                                          (ngModelChange)="elegirCuentaGasto(g.rfc, $event)"
+                                          optionLabel="etiqueta" optionValue="codigo" [filter]="true" filterBy="etiqueta"
+                                          placeholder="Elige la cuenta" appendTo="body" [showClear]="true"
+                                          class="cpp-sel-cta" [ariaLabel]="'Cuenta de gasto de ' + (g.proveedor || g.rfc)"></p-select>
+                                <button type="button" class="cpp-btn-ok" [disabled]="!cuentaGastoElegida()[g.rfc] || firmandoGasto() === g.rfc"
+                                        (click)="firmarGasto(g)">{{ firmandoGasto() === g.rfc ? 'Firmando…' : 'Firmar' }}</button>
+                              </div>
+                              <span class="cpp-sub">@if (g.cuenta.estado === 'derivada') {Pista: {{ g.cuenta.cuenta }} {{ g.cuenta.nombre }}, la que usaste {{ g.cuenta.veces }} de {{ g.cuenta.total }} veces: no es segura} @else if (g.cuenta.estado === 'sin_rfc') {no se sabe su RFC} @else {nunca has registrado una póliza de este proveedor}</span>
+                            } @else {
+                              <span class="muted">sin firmar</span>
+                            }
+                          </td>
+                        </tr>
+                      </ng-template>
+                      <ng-template #emptymessage>
+                        <tr><td colspan="3" class="cpp-empty">Ning&uacute;n proveedor de gasto espera firma.</td></tr>
+                      </ng-template>
+                    </p-table>
+                  </div>
+                  @if ((gastosProv() ?? []).length > gastosPorFirmar()) {
+                    <button type="button" class="cpp-link mt" (click)="todosLosGastos.set(!todosLosGastos())">
+                      {{ todosLosGastos() ? 'Ver sólo los que necesitan firma' : 'Ver también ' + ((gastosProv() ?? []).length - gastosPorFirmar()) + ' que ya tienen cuenta' }}
+                    </button>
+                  }
+                  @if (avisoGasto(); as a) {
+                    <div class="cpp-aviso" [class.mal]="a.mal" role="status">{{ a.texto }}</div>
                   }
                 }
               }
@@ -742,6 +806,8 @@ import {
     .cpp-eyebrow { font-size: var(--fs-micro); letter-spacing: .09em; text-transform: uppercase; color: var(--c-text-3); }
     .cpp-eyebrow.mt { margin-top: 1.1rem; }
     .cpp-tablewrap { overflow: hidden; }
+    /* [PGP.111c] El segundo bloque del paso: separado del de reglas por espacio, no por otra caja. */
+    .cpp-h3-gasto { margin-top: var(--sp-6); }
     .cpp-bank { font-weight: 500; display: block; }
     .cpp-sub { display: block; font-size: var(--fs-xs); color: var(--c-text-3); }
 
@@ -1329,6 +1395,7 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
       next: (r) => this.reglas.set(r.reglas),
       error: (e) => { this.reglas.set(null); this.reglasError.set(e?.error?.message ?? 'error de red'); },
     });
+    this.cargarGastosProv();
     if (!this.cuentas().length && this.puedeGestionar()) {
       this.api.cuentasGasto().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (c) => this.cuentas.set(c.cuentas.map((x) => ({ codigo: x.codigo, etiqueta: `${x.codigo} ${x.nombre}` }))),
@@ -1490,6 +1557,58 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
       const n = { ...m };
       if (cuenta) n[categoria] = cuenta; else delete n[categoria];
       return n;
+    });
+  }
+
+  // ── [PGP.111c] La cuenta de gasto de cada proveedor ─────────────────────────────────────────────────
+  readonly gastosProv = signal<CuentaGastoProveedor[] | null>(null);
+  readonly gastosProvError = signal<string | null>(null);
+  readonly todosLosGastos = signal(false);
+  readonly cuentaGastoElegida = signal<Record<string, string>>({});
+  readonly firmandoGasto = signal<string | null>(null);
+  readonly avisoGasto = signal<{ texto: string; mal: boolean } | null>(null);
+  readonly gastosPorFirmar = computed(() => (this.gastosProv() ?? []).filter((g) => g.necesita_firma).length);
+  /** Lo que necesita firma primero (el servidor ya lo ordena así); lo que ya tiene cuenta, a un clic. */
+  readonly gastosVisibles = computed(() => {
+    const todos = this.gastosProv() ?? [], ver = this.todosLosGastos();
+    return ver ? todos : todos.filter((g) => g.necesita_firma);
+  });
+  private cargarGastosProv(): void {
+    this.gastosProvError.set(null);
+    this.api.cuentasGastoProveedor().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => this.gastosProv.set(r.filas),
+      error: (e) => { this.gastosProv.set(null); this.gastosProvError.set(e?.error?.message ?? 'error de red'); },
+    });
+  }
+  elegirCuentaGasto(rfc: string, cuenta: string | null): void {
+    this.cuentaGastoElegida.update((m) => { const n = { ...m }; if (cuenta) n[rfc] = cuenta; else delete n[rfc]; return n; });
+  }
+  firmarGasto(g: CuentaGastoProveedor): void {
+    const cuenta = this.cuentaGastoElegida()[g.rfc];
+    if (!cuenta || this.firmandoGasto()) return;
+    this.firmandoGasto.set(g.rfc);
+    this.avisoGasto.set(null);
+    this.api.firmarCuentaGastoProveedor(g.rfc, cuenta).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (v) => {
+        this.firmandoGasto.set(null);
+        this.elegirCuentaGasto(g.rfc, null);
+        this.avisoGasto.set({ texto: `${g.proveedor || g.rfc} quedó firmado a ${v.cuenta.cuenta} ${v.cuenta.nombre ?? ''}. Sus pagos de gasto ya usan esa cuenta en la póliza y en el Calendario.`, mal: false });
+        this.cargarGastosProv();
+      },
+      error: (e) => { this.firmandoGasto.set(null); this.avisoGasto.set({ texto: e?.error?.message ?? 'No se pudo firmar', mal: true }); },
+    });
+  }
+  quitarGasto(g: CuentaGastoProveedor): void {
+    if (this.firmandoGasto()) return;
+    this.firmandoGasto.set(g.rfc);
+    this.avisoGasto.set(null);
+    this.api.quitarCuentaGastoProveedor(g.rfc).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (v) => {
+        this.firmandoGasto.set(null);
+        this.avisoGasto.set({ texto: `${g.proveedor || g.rfc} quedó sin firma: ${v.cuenta.estado === 'derivada' ? `vuelve a usarse ${v.cuenta.cuenta}, la que más usaste` : 'falta su cuenta de gasto'}.`, mal: false });
+        this.cargarGastosProv();
+      },
+      error: (e) => { this.firmandoGasto.set(null); this.avisoGasto.set({ texto: e?.error?.message ?? 'No se pudo quitar la firma', mal: true }); },
     });
   }
 

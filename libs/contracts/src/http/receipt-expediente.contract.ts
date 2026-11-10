@@ -17,9 +17,48 @@ export type ExpedienteCubo = 'auto' | 'revisar' | 'sin_cfdi_aun' | 'sin_document
 /**
  * `[RE.35.5]` Qué hacer y con quién: cobrar nota de crédito · factura mal emitida (refacturar) ·
  * entrega incompleta (devolución en Kepler) · sin orden de compra · nota de crédito ya aplicada ·
- * ajuste comercial (sólo informa).
+ * ajuste comercial (sólo informa). `[RE.63]` nota en CFDI que Kepler no aplicó (aplicarla en Kepler) ·
+ * nota en Kepler sin CFDI del proveedor (pedírsela). Informativos: no cambian el cubo.
  */
-export type ExpedienteHallazgo = 'cobrar_nc' | 'mal_emitida' | 'incompleta' | 'sin_oc' | 'nc_aplicada' | 'comercial';
+export type ExpedienteHallazgo = 'cobrar_nc' | 'mal_emitida' | 'incompleta' | 'sin_oc' | 'nc_aplicada' | 'comercial'
+  | 'nc_solo_cfdi' | 'nc_solo_kepler';
+
+/** `[RE.63]` Todos los hallazgos, en el orden en que se ofrecen (lista blanca del filtro y conteos en cero). */
+export const EXPEDIENTE_HALLAZGOS: readonly ExpedienteHallazgo[] = [
+  'cobrar_nc', 'mal_emitida', 'incompleta', 'sin_oc', 'nc_aplicada', 'comercial', 'nc_solo_cfdi', 'nc_solo_kepler',
+];
+
+/**
+ * `[RE.63]` Dónde está la rebaja de la entrada: en Kepler (X-D-55/40 aplicadas a la orden de entrada), en el
+ * CFDI (notas que relacionan su factura), en los dos o en ninguno. Se compara POR ENTRADA: Kepler y el
+ * proveedor no registran la misma nota (Kepler captura el descuento pactado; el proveedor timbra otro monto).
+ * `cfdi_no_medido` = Kepler aplicó notas y la entrada no tiene factura CFDI ligada: el lado del SAT no se sabe.
+ */
+export type ExpedienteLadoNotas = 'ambas' | 'solo_cfdi' | 'solo_kepler' | 'ninguna' | 'cfdi_no_medido';
+
+export interface ExpedienteNotasLados {
+  estado: ExpedienteLadoNotas;
+  /** `tipo` 55 = nota de crédito · 40 = devolución de compra. `aplicado` = lo aplicado a ESTA entrada. */
+  kepler: { tipo: '55' | '40'; folio: string; aplicado: number; fecha: string | null; motivo: string | null }[];
+  /** Notas cuyo CFDI relaciona la factura; `facturas` = cuántas relaciona. `null` sin factura ligada. */
+  cfdi: { uuid: string; total: number; fecha: string | null; facturas: number }[] | null;
+  kepler_total: number;
+  cfdi_total: number | null;
+  /** CFDI − Kepler, sólo con notas en los dos lados. */
+  diferencia: number | null;
+  /** Alguna nota CFDI relaciona también otras facturas: la diferencia no es atribuible al peso. */
+  compartida: boolean;
+  /**
+   * La consecuencia: lo que Kepler pagará (entrada − sus notas) contra lo que el proveedor factura neto
+   * (factura − sus notas). Una nota de un solo lado no siempre cambia lo que se paga (Kepler pudo capturar
+   * la entrada ya con el descuento). `null` sin factura ligada o con nota compartida.
+   */
+  neto_kepler: number;
+  neto_cfdi: number | null;
+  /** neto_cfdi − neto_kepler: > 0, el proveedor factura neto más de lo que Kepler pagará; < 0, al revés. */
+  dif_neta: number | null;
+  netos_cuadran: boolean | null;
+}
 
 /** `[RE.35.5]` El veredicto compacto de una fila del listado. */
 export interface ExpedienteResumenFila {
@@ -155,8 +194,14 @@ export interface ReceiptExpediente {
   via: 'factura' | 'remision';
   /** `[RE.35.5]` Qué hacer y con quién (mismo cálculo que la fila del listado). */
   hallazgos: ExpedienteHallazgo[];
-  /** `[RE.35.2]` La nota de crédito del mismo emisor que explica una factura mayor que la entrada. */
+  /**
+   * `[RE.35.2]` La nota de crédito que hizo cuadrar una factura mayor que la entrada. `[RE.62]` Sólo una
+   * nota cuyo CFDI relaciona ESTA factura (y a ninguna otra); si fueron varias, `total` es la suma y
+   * `uuid` las une con « + ». Una nota que sólo casa por importe NO llega aquí: va como motivo de E1.
+   */
   nota_credito: { uuid: string; total: number; fecha: string | null } | null;
+  /** `[RE.63]` Dónde está la rebaja: Kepler, CFDI, los dos o ninguno (opcional: respuestas anteriores no lo traen). */
+  notas_lados?: ExpedienteNotasLados;
   /** La regla y la versión que dieron el veredicto (sello de ADR-085). */
   regla: string;
   /** Tolerancia aplicada al cuadre. */

@@ -20,6 +20,7 @@ import knexFactory, { type Knex } from 'knex';
 import { PaymentCalendarService, keplerPayableId } from './payment-calendar.service';
 import { ProntoPagoService, sqlSinDescuentoVigente } from '../pronto-pago/pronto-pago.service';
 import { PaymentProgramService } from '../payment-program/payment-program.service';
+import { leerValidacionDelDia } from './validacion-pago.sql';
 import { sqlVentanaProntoPago } from '@megadulces/contracts/finance/pronto-pago-ventana';
 import type { PaymentCalendarItemDiscountBody } from '@megadulces/contracts';
 // ⛔ `finance` no puede depender de `commercial` (reglas de módulos): el paso «aceptar la entrega»
@@ -32,6 +33,8 @@ const M = '00000000-0000-0000-0000-00000000d01c';
 const USER = 'tp_it_tesoreria';
 const D = '2030-01-15';      // día de pago de la prueba (lejos de cualquier dato local)
 const D2 = '2030-01-16';
+// `[PGP.107]` «Hoy» para marcar Pagado: los días de la prueba son de 2030 y un día que no ha llegado no se valida.
+const HOY = '2031-01-01';
 const MIGS = [
   '../../../../../database/migrations-newdb/20261008174741_analytics_v_supplier_payables.js',
   '../../../../../database/migrations-newdb/20261016002604_tp15_obligacion_desde_entrega_aceptada.js',
@@ -46,6 +49,12 @@ const MIGS = [
   // `[PGP.91]` Las columnas del descuento al pagar. El servicio las inserta y las suma SIEMPRE,
   // así que sin ellas ninguna prueba de este archivo pasa en una base local atrasada.
   '../../../../../database/migrations-newdb/20261106183612_pgp91_descuento_al_pagar_en_el_calendario.js',
+  // `[PGP.101]` La columna de los renglones del descuento (varios por factura).
+  '../../../../../database/migrations-newdb/20261109163309_pgp101_varios_descuentos_por_factura.js',
+  // `[PGP.107]` La evidencia que probó el pago (la escribe `execute()`).
+  '../../../../../database/migrations-newdb/20261110080925_pgp107_evidencia_del_pago.js',
+  // `[PGP.113]` Quién autorizó cada pago (se autoriza el pago, no el día).
+  '../../../../../database/migrations-newdb/20261110141406_pgp113_autorizacion_por_pago.js',
 ];
 
 /** Las migraciones son CommonJS (`exports.up`): según el cargador llegan como `up` o `default.up`. */
@@ -72,6 +81,25 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
     const r = await trx('commercial.supplier_payment_obligations').where({ id: ob[folio] }).first();
     return Number(r.original_amount) - Number(r.reserved_amount) - Number(r.paid_amount);
   };
+  /**
+   * `[PGP.107]` La prueba de que un pago salió (F2): su salida en el estado de cuenta de su cuenta de
+   * origen, ese día y por su importe, y su comprobante con esa cuenta de origen. Sin esto, marcar
+   * Pagado se rechaza. La cuenta de prueba es «9999»: el OCR del comprobante termina en esos dígitos.
+   */
+  const evidencia = async (allocId: string) => {
+    const r = (await trx.raw(`SELECT a.amount_assigned::float8 AS monto, to_char(l.lot_date, 'YYYY-MM-DD') AS dia, a.bank_account_id::text AS cuenta
+        FROM finance.payment_allocations a JOIN finance.payment_calendar_lots l ON l.id = a.lot_id WHERE a.id = ?`, [allocId])).rows[0];
+    const periodo = r.dia.slice(0, 7);
+    const st = (await trx('finance.bank_statements').where({ tenant_id: M, bank_account_id: r.cuenta, period: periodo }).first())
+      ?? (await trx('finance.bank_statements').insert({ tenant_id: M, bank_account_id: r.cuenta, period: periodo }).returning('*'))[0];
+    await trx('finance.bank_movements').insert({
+      tenant_id: M, statement_id: st.id, bank_account_id: r.cuenta, movement_date: r.dia, raw_type: 'C', raw_code: '510',
+      concept: 'PGP107 IT', amount_out: r.monto, amount_in: 0, client_uuid: `pgp107-it-${allocId}`,
+    });
+    await trx('finance.supplier_payment_proofs').insert({
+      tenant_id: M, sucursal: '00', folio: `P107-${allocId.slice(0, 8)}`, ocr_monto: r.monto, ocr_fecha: r.dia, ocr_cuenta_origen: '012180001234569999',
+    });
+  };
 
   beforeAll(async () => {
     knex = knexFactory({ client: 'pg', connection: URL, pool: { min: 1, max: 1 } });
@@ -87,6 +115,9 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
     // TP.15 se aplica DESPUÉS de sembrar (abajo): su backfill es el que crea las obligaciones.
     await migUp(MIGS[2], trx);   // `[TP.18]` el CHECK del cuarto origen (idempotente)
     await migUp(MIGS[5], trx);   // `[PGP.91]` las columnas del descuento al pagar (idempotente)
+    await migUp(MIGS[6], trx);   // `[PGP.101]` los renglones del descuento (idempotente)
+    await migUp(MIGS[7], trx);   // `[PGP.107]` la evidencia del pago (idempotente)
+    await migUp(MIGS[8], trx);   // `[PGP.113]` la autorización por pago (idempotente)
 
     const tk = { run: <T>(fn: (t: Knex.Transaction) => Promise<T>) => fn(trx) };
     const ctx = { requireTenantId: () => M };
@@ -320,6 +351,51 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
     expect(g.cuentas.find((c) => c.account_label === LBL)).toMatchObject({ hasta: '2020-03-15' });
   });
 
+  /**
+   * `[PGP.104]` **La validación banco + comprobante con el SQL real** (`leerValidacionDelDia`): las
+   * consultas de `[PGP.97]` sobre `bank_movements`, los comprobantes de `supplier_payment_proofs` (la
+   * cuenta de origen del OCR resuelta por sus últimos dígitos) y los pagos vecinos para el uno a uno.
+   * Cuenta `9104`, mayo de 2019 (lejos de cualquier dato).
+   */
+  it('[PGP.104] validado, falta comprobante, sin movimiento, sin cuenta y discrepa (uno a uno con un vecino)', async () => {
+    const [acc] = await trx('finance.bank_accounts').insert({ tenant_id: M, bank: 'PGQ', account_label: '9104', alias: 'PGQ 9104', kind: 'bank', active: true }).returning('id');
+    const [st] = await trx('finance.bank_statements').insert({ tenant_id: M, bank_account_id: acc.id, period: '2019-05' }).returning('id');
+    const salida = (id: string, fecha: string, importe: number) => trx('finance.bank_movements').insert({
+      tenant_id: M, statement_id: st.id, bank_account_id: acc.id, movement_date: fecha, raw_type: 'C', raw_code: '510',
+      concept: 'PGQ 104', amount_out: importe, amount_in: 0, client_uuid: `pgp104-it-${id}`,
+    }).returning('id').then((r) => r[0].id as string);
+    const m1 = await salida('M1', '2019-05-10', 5000.4);
+    const m2 = await salida('M2', '2019-05-11', 3000);
+    await salida('M4', '2019-05-11', 2500);
+    await salida('TARDE', '2019-05-20', 1);   // el estado de cuenta ya cubre toda la ventana
+    const [comp] = await trx('finance.supplier_payment_proofs').insert({
+      tenant_id: M, sucursal: '00', folio: 'PGQ104', ocr_monto: 5000.4, ocr_fecha: '2019-05-10', ocr_cuenta_origen: '012180001234569104',
+    }).returning('id');
+    const lote = async (dia: string) => (await trx('finance.payment_calendar_lots').insert({ tenant_id: M, lot_date: dia }).returning('id'))[0].id as string;
+    const l10 = await lote('2019-05-10');
+    const l12 = await lote('2019-05-12');
+    const pago = async (lot: string, monto: number, cuenta: string | null) => (await trx('finance.payment_allocations').insert({
+      tenant_id: M, lot_id: lot, classification: 'proveedor_mercancia', amount_assigned: monto, bank_account_id: cuenta,
+      payment_method: 'transferencia', created_by: USER,
+    }).returning('id'))[0].id as string;
+    const A1 = await pago(l10, 5000, acc.id);
+    const A2 = await pago(l10, 3000, acc.id);
+    const A3 = await pago(l10, 7000, null);
+    const A4 = await pago(l10, 2500, acc.id);
+    await pago(l12, 2500, acc.id);           // el vecino que reclama la MISMA salida de 2,500
+    const A6 = await pago(l10, 3333, acc.id);
+
+    const v = await leerValidacionDelDia(trx, M, '2019-05-10', '2026-11-09');
+    expect(v.get(A1)).toMatchObject({ estado: 'validado', movimiento_id: m1, comprobante_id: comp.id });
+    expect(v.get(A2)).toMatchObject({ estado: 'falta_comprobante', movimiento_id: m2, comprobante_id: null });
+    expect(v.get(A3)!.estado).toBe('sin_cuenta');
+    // ⛔ Sin los vecinos, A4 se validaría con la salida que también es del pago del día 12.
+    expect(v.get(A4)!.estado).toBe('discrepa');
+    expect(v.get(A6)!.estado).toBe('sin_movimiento');
+    // Un día por venir no se valida (no se ha pagado).
+    expect((await leerValidacionDelDia(trx, M, '2019-05-10', '2019-05-09')).size).toBe(0);
+  });
+
   it('Gonac 01 va en otro pago', async () => {
     const a = await cal.createAllocation({ date: D, items: [item('TPIT-101', 35640.2), item('TPIT-102', 18300)] }, USER);
     a2 = a.id;
@@ -390,7 +466,16 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
   });
 
   it('ejecutar tras autorizar: lo reservado pasa a pagado', async () => {
-    await cal.execute(a1, USER);
+    // ⛔ `[PGP.107]` Sin la salida del banco y su comprobante, Pagado se rechaza (F2).
+    await expect(cal.execute(a1, USER, HOY)).rejects.toThrow(/prueba de que salió/);
+    expect((await trx('finance.payment_allocations').where({ id: a1 }).first()).status).toBe('pending');
+    await evidencia(a1);
+    const pagado = await cal.execute(a1, USER, HOY);
+    // La evidencia queda en el pago: de ahí salen Kepler y ContPAQi.
+    expect(pagado.paid_bank_movement_id).toBeTruthy();
+    expect(pagado.paid_proof_id).toBeTruthy();
+    expect(Number(pagado.paid_bank_amount)).toBeCloseTo(Number(pagado.amount_assigned), 2);
+    expect(pagado.paid_validated_at).toBeTruthy();
     const o = await trx('commercial.supplier_payment_obligations').where({ id: ob['TPIT-801'] }).first();
     expect(o.status).toBe('paid');
     expect(Number(o.paid_amount)).toBeCloseTo(16040.74, 2);
@@ -548,7 +633,8 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
       await cal.prepare(a3, { payment_method: 'transferencia', bank_account_id: originId, destination_account_text: 'BBVA · CLABE 032180000118359719' }, USER);
       const lot = await cal.releaseLot(D3, 'tp_it_gerencia');
       expect(lot.status).toBe('released');
-      await cal.execute(a3, USER);
+      await evidencia(a3);
+      await cal.execute(a3, USER, HOY);
       // Lo reservado pasó a pagado, y se lee al vuelo: la factura derivada queda sin disponible.
       const d = await derivada();
       expect(Number(d!.paid_amount)).toBeCloseTo(9500, 2);
@@ -877,7 +963,8 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
     });
 
     it('⭐ ejecutado, propone el documento por monto, día y proveedor', async () => {
-      await cal.execute(a5, USER);
+      await evidencia(a5);
+      await cal.execute(a5, USER, HOY);
       // El documento del ERP, capturado un día DESPUÉS de que salió el dinero (por eso ±3 días).
       await trx('kepler_ods.kdm1').insert({
         sucursal: '00', c1: '00', c2: 'X', c3: 'D', c4: 26, c5: 1, c6: 'CTPIT-KSUG1',
@@ -1110,7 +1197,8 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
       await cal.setPriorityRank(a.id, 1, USER);
       await cal.prepare(a.id, { payment_method: 'transferencia', bank_account_id: originId, destination_account_text: 'BBVA · CLABE 032180000118359719' }, USER);
       await cal.releaseLot(D9, 'tp_it_gerencia');
-      await cal.execute(a.id, USER);
+      await evidencia(a.id);
+      await cal.execute(a.id, USER, HOY);
       o = await trx('commercial.supplier_payment_obligations').where({ id: obCapturada }).first();
       // Pagado = 19,600 que salieron + 400 que descontó el proveedor = la factura entera.
       expect(Number(o.paid_amount)).toBeCloseTo(20000, 2);
@@ -1225,6 +1313,42 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
         expect(Number(d!.available_amount)).toBeCloseTo(0, 2);
         expect((await cal.daySummary(D11)).assigned_amount).toBeCloseTo(20000, 2);
       });
+
+      // `[PGP.101]` Varios descuentos: el cuerpo EXACTO del diálogo con dos renglones (regla 13).
+      it('⭐ [PGP.101] pronto pago 3 % + volumen 2 %: sale el neto, se guardan los dos y el día los lee', async () => {
+        const body: PaymentCalendarItemDiscountBody = { discounts: [
+          { discount_amount: 400, discount_reason: 'volumen', discount_rate: 0.02, discount_note: null },
+          { discount_amount: 600, discount_reason: 'pronto_pago', discount_rate: 0.03, discount_note: null },
+        ] };
+        const r = await cal.setItemDiscount(aF4, itF4, body, USER);
+        expect(r).toEqual({ allocation_id: aF4, item_id: itF4, applied_amount: 19000, discount_amount: 1000, amount_assigned: 19000 });
+        const i = await renglon();
+        expect(Number(i.discount_amount)).toBeCloseTo(1000, 2);
+        // El agregado: motivo del mayor; con dos renglones no se dice UNA tasa.
+        expect(i.discount_reason).toBe('pronto_pago');
+        expect(i.discount_rate).toBeNull();
+        expect(i.discount_lines).toEqual([
+          { reason: 'pronto_pago', amount: 600, rate: 0.03, note: null },
+          { reason: 'volumen', amount: 400, rate: 0.02, note: null },
+        ]);
+        const d = await derivada(F4);
+        expect(Number(d!.available_amount)).toBeCloseTo(0, 2);
+        const dia = await cal.listDayAllocations(D11);
+        const it = dia.find((x) => x.id === aF4)!.items[0];
+        expect(it.discount_lines.map((l) => l.reason)).toEqual(['pronto_pago', 'volumen']);
+      });
+
+      it('[PGP.101] ⛔ dos renglones que juntos son la factura se rechazan; [] los quita', async () => {
+        await expect(cal.setItemDiscount(aF4, itF4, { discounts: [
+          { discount_amount: 15000, discount_reason: 'volumen' }, { discount_amount: 5000, discount_reason: 'otro', discount_note: 'x' },
+        ] }, USER)).rejects.toThrow(/toda la factura/);
+        expect(Number((await renglon()).discount_amount)).toBeCloseTo(1000, 2);
+        const r = await cal.setItemDiscount(aF4, itF4, { discounts: [] }, USER);
+        expect(r.applied_amount).toBeCloseTo(20000, 2);
+        const i = await renglon();
+        expect(i.discount_lines).toBeNull();
+        expect(i.discount_reason).toBeNull();
+      });
     });
 
     /**
@@ -1260,8 +1384,11 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
         await trx('budget.daily_capacity').insert({ tenant_id: M, capacity_date: D10, authorized_amount: 100000, created_by: 'tp_it', updated_by: 'tp_it' });
         await cal.setPriorityRank(aF5, 1, USER);
         await cal.setPriorityRank(aF6, 2, USER);
-        for (const id of [aF5, aF6]) {
-          await cal.prepare(id, { payment_method: 'transferencia', bank_account_id: originId, destination_account_text: 'BBVA · CLABE 032180000118359719' }, USER);
+        // `[PGP.107]` aF6 sale de OTRA cuenta: dos pagos idénticos (mismo día, importe y cuenta) no se
+        // validan solos (uno a uno), y este caso mide el saldo de Kepler, no el banco.
+        const [otra] = await trx('finance.bank_accounts').insert({ tenant_id: M, bank: 'BBVA', account_label: '8888', alias: 'BBVA 8888 (prueba)', kind: 'bank', active: true }).returning('id');
+        for (const [id, cuenta] of [[aF5, originId], [aF6, otra.id]] as [string, string][]) {
+          await cal.prepare(id, { payment_method: 'transferencia', bank_account_id: cuenta, destination_account_text: 'BBVA · CLABE 032180000118359719' }, USER);
         }
         await cal.releaseLot(D10, 'tp_it_gerencia');
         // Ya autorizado el día y ANTES de transferir, el proveedor emite la nota en Kepler.
@@ -1274,7 +1401,8 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
         // Control de la siembra: si la nota no pegara, el pendiente seguiría en 10,000 y el pago
         // pasaría por la regla general, no por la excepción que aquí se prueba.
         expect(await pendienteKepler(F5)).toBeCloseTo(9700, 2);
-        const r = await cal.execute(aF5, USER);
+        await evidencia(aF5);
+        const r = await cal.execute(aF5, USER, HOY);
         expect(r.status).toBe('executed');
         // Lo cubierto pasó a pagado: la factura no se vuelve a ofrecer aunque Kepler siga
         // mostrando los 9,700 hasta que registre la transferencia.
@@ -1289,6 +1417,128 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
         const p = await trx('finance.payment_allocations').where({ id: aF6 }).first();
         expect(p.status).toBe('pending');
       });
+    });
+  });
+
+  /**
+   * `[PGP.113]` **Se autoriza el PAGO, no el día** (Edgar, 2026-11-10: «haremos una a una»). Lo que se
+   * ejerce aquí es lo que la regla vieja impedía —autorizar un pago mientras otro del MISMO día sigue
+   * sin preparar— y lo que la nueva tiene que cuidar sola: el tope del día pago por pago, el pago
+   * autorizado congelado, y que marcar pagado exija el pago autorizado.
+   */
+  describe('[PGP.113] se autoriza el pago, no el día', () => {
+    const PROV = 'ATPIT01';
+    const DIA = '2030-04-08';        // tope de 30,000
+    const SIN_TOPE = '2030-04-09';   // Presupuestos no fijó tope
+    const kid = (folio: string) => keplerPayableId('08', 20, 1, folio);
+    const kp = (folio: string, monto: number) => ({ obligation_source: 'kepler_payable' as const, obligation_id: kid(folio), applied_amount: monto });
+    const transferencia = { payment_method: 'transferencia' as const, destination_account_text: 'BBVA · CLABE 032180000118359719' };
+    const DIR = 'tp_it_direccion';
+    let p1 = '', p2 = '', p3 = '', p4 = '';
+
+    beforeAll(async () => {
+      await trx('kepler_ods.kdxd').insert({ sucursal: '00', c2: PROV, c3: 'ATPIT AUTORIZA DE PRUEBA', c13: '001' });
+      await trx('catalog.suppliers').insert({ tenant_id: M, code: PROV, name: 'ATPIT AUTORIZA DE PRUEBA', activo: true });
+      for (const [folio, monto] of [['ATPIT-1A', 6000], ['ATPIT-1B', 4000], ['ATPIT-2', 8000], ['ATPIT-3', 25000], ['ATPIT-4', 5000], ['ATPIT-5', 3000], ['ATPIT-6', 2000]] as [string, number][]) {
+        await trx('kepler_ods.kdxe').insert({ sucursal: '08', c1: '08', c2: PROV, c3: 'A', c4: 20, c5: 1, c6: folio, c7: '2030-04-01 00:00:00', c10: '2030-04-08 00:00:00', c11: monto });
+      }
+      await trx('budget.daily_capacity').insert({ tenant_id: M, capacity_date: DIA, authorized_amount: 30000, created_by: 'tp_it', updated_by: 'tp_it' });
+      p1 = (await cal.createAllocation({ date: DIA, items: [kp('ATPIT-1A', 6000), kp('ATPIT-1B', 4000)] }, USER)).id;
+      p2 = (await cal.createAllocation({ date: DIA, items: [kp('ATPIT-2', 8000)] }, USER)).id;
+      p3 = (await cal.createAllocation({ date: DIA, items: [kp('ATPIT-3', 25000)] }, USER)).id;
+      p4 = (await cal.createAllocation({ date: SIN_TOPE, items: [kp('ATPIT-4', 5000)] }, USER)).id;
+    }, 60_000);
+
+    it('⛔ sin preparar no se autoriza', async () => {
+      await expect(cal.authorize(p1, DIR)).rejects.toThrow(/prepararlo/);
+    });
+
+    it('⭐ autoriza UN pago aunque los otros del mismo día sigan sin preparar (el día completo no se podía)', async () => {
+      await cal.prepare(p1, { ...transferencia, bank_account_id: originId }, USER);
+      // Control: con la regla vieja el día NO se autoriza — p2 y p3 no tienen orden ni preparación.
+      await expect(cal.releaseLot(DIA, DIR)).rejects.toThrow(/sin orden|sin preparar/);
+      const r = await cal.authorize(p1, DIR);
+      expect(r.authorized_by).toBe(DIR);
+      expect(r.authorized_at).toBeTruthy();
+      expect(r.folio).toBe('300408-01-01');
+      const otros = await trx('finance.payment_allocations').whereIn('id', [p2, p3]).select('authorized_at');
+      expect(otros.every((o: { authorized_at: unknown }) => o.authorized_at === null)).toBe(true);
+      // El día no se toca: sigue en armado y admite pagos.
+      expect((await trx('finance.payment_calendar_lots').where({ tenant_id: M, lot_date: DIA }).first()).status).toBe('draft');
+      await expect(cal.authorize(p1, DIR)).rejects.toThrow(/ya lo autorizó/);
+    });
+
+    it('⛔ el tope del día se cuida pago por pago: 10,000 + 25,000 no caben en 30,000; 10,000 + 8,000 sí', async () => {
+      for (const p of [p2, p3]) await cal.prepare(p, { ...transferencia, bank_account_id: originId }, USER);
+      await expect(cal.authorize(p3, DIR)).rejects.toThrow(/No cabe en el tope/);
+      expect((await trx('finance.payment_allocations').where({ id: p3 }).first()).authorized_at).toBeNull();
+      const r = await cal.authorize(p2, DIR);
+      expect(r.folio).toBe('300408-01-02');
+    });
+
+    it('⛔ sin tope de Presupuestos el pago no se autoriza', async () => {
+      await cal.prepare(p4, { payment_method: 'cheque', bank_account_id: originId }, USER);
+      await expect(cal.authorize(p4, DIR)).rejects.toThrow(/no tiene tope/);
+    });
+
+    it('⛔ un pago autorizado queda congelado: no se prepara, no se le suman ni quitan facturas, no se le fija descuento', async () => {
+      await expect(cal.prepare(p1, { payment_method: 'cheque', bank_account_id: originId }, USER)).rejects.toThrow(/autorizó/);
+      const its = await trx('finance.payment_allocation_items').where({ allocation_id: p1 });
+      expect(its).toHaveLength(2);
+      await expect(cal.removeItem(p1, its[0].id, USER)).rejects.toThrow(/autorizó/);
+      await expect(cal.setItemDiscount(p1, its[0].id, { discount_amount: 100, discount_reason: 'volumen' }, USER)).rejects.toThrow(/autorizó/);
+      await expect(cal.addItem(p1, kp('ATPIT-5', 3000), USER)).rejects.toThrow(/autorizó/);
+      expect(await trx('finance.payment_allocation_items').where({ allocation_id: p1 })).toHaveLength(2);
+      const a = await trx('finance.payment_allocations').where({ id: p1 }).first();
+      expect(a.payment_method).toBe('transferencia');
+      expect(Number(a.amount_assigned)).toBeCloseTo(10000, 2);
+    });
+
+    it('quitarle la autorización lo descongela, queda en sus notas, y se vuelve a autorizar con su mismo folio', async () => {
+      const q = await cal.unauthorize(p1, 'falta una factura', DIR);
+      expect(q.authorized_at).toBeNull();
+      expect(q.notes).toMatch(/autorización quitada por tp_it_direccion: falta una factura/);
+      await cal.addItem(p1, kp('ATPIT-5', 3000), USER);
+      const r = await cal.authorize(p1, DIR);
+      expect(Number(r.amount_assigned)).toBeCloseTo(13000, 2);
+      expect(r.folio).toBe('300408-01-01');
+      await expect(cal.unauthorize(p3, undefined, DIR)).rejects.toThrow(/no está autorizado/);
+    });
+
+    it('⛔ marcar pagado exige el PAGO autorizado; el autorizado pasa con su evidencia', async () => {
+      await expect(cal.execute(p3, USER, HOY)).rejects.toThrow(/no está autorizado/);
+      await evidencia(p1);
+      const r = await cal.execute(p1, USER, HOY);
+      expect(r.status).toBe('executed');
+      await expect(cal.unauthorize(p1, undefined, DIR)).rejects.toThrow(/pendiente/);
+    });
+
+    it('⛔ autorizar se niega si Kepler ya no debe la factura', async () => {
+      const p5 = (await cal.createAllocation({ date: DIA, items: [kp('ATPIT-6', 2000)] }, USER)).id;
+      await cal.prepare(p5, { ...transferencia, bank_account_id: originId }, USER);
+      // Tesorería la pagó por fuera: en Kepler, un abono por toda la factura.
+      await trx('kepler_ods.kdxf').insert({ sucursal: '08', c1: '08', c2: PROV, c3: '2030-04-07 00:00:00', c4: 30, c5: 1, c6: 'ATPIT-ABONO6', c7: 20, c8: 1, c9: 'ATPIT-6', c10: 2000 });
+      await expect(cal.authorize(p5, DIR)).rejects.toThrow(/Kepler ya no tiene saldo|pendiente en Kepler/);
+      expect((await trx('finance.payment_allocations').where({ id: p5 }).first()).authorized_at).toBeNull();
+    });
+
+    it('reprogramar un pago autorizado: el nuevo nace SIN autorizar (cambió su día y su tope)', async () => {
+      const nuevo = await cal.reprogram(p2, '2030-04-10', 'otro', 'prueba PGP.113', USER);
+      expect(nuevo.authorized_at ?? null).toBeNull();
+      expect((await trx('finance.payment_allocations').where({ id: p2 }).first()).status).toBe('cancelled');
+    });
+
+    it('la bandeja trae cada pago con su día y si está autorizado; lo cancelado no', async () => {
+      const b = await cal.bandeja(30);
+      const de = (id: string) => (b.pagos as { id: string; lot_date: string; autorizado: boolean; status: string; items: unknown[] }[]).find((p) => p.id === id);
+      expect(de(p1)).toMatchObject({ lot_date: DIA, autorizado: true, status: 'executed' });
+      expect(de(p3)).toMatchObject({ lot_date: DIA, autorizado: false, status: 'pending' });
+      expect(de(p4)).toMatchObject({ lot_date: SIN_TOPE, autorizado: false });
+      expect(de(p2)).toBeUndefined();
+      expect(de(p3)!.items).toHaveLength(1);
+      // El día dice lo mismo que la bandeja (una regla, dos vistas).
+      const dia = await cal.listDayAllocations(DIA);
+      expect(dia.find((p) => p.id === p1)).toMatchObject({ autorizado: true, lot_date: DIA });
     });
   });
 

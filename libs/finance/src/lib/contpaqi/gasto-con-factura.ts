@@ -61,6 +61,21 @@ export function esGastoPorProveedor(r: { tipo_regla?: string | null; cuenta_pref
   return !!r && r.tipo_regla === 'por_proveedor' && String(r.cuenta_prefijo ?? '').startsWith(PREFIJO_GASTO_POR_PROVEEDOR);
 }
 
+/**
+ * `[CP.8.87]` **La cuenta de gasto de un proveedor: la que la contadora usó MÁS con ese RFC antes de la fecha.**
+ * Medido (`gasto-por-rfc-contpaqi.js`): acierta 93.0 % (1,328/1,428), placebo 9.0 %. Empate: la de código menor.
+ * Sin historia → null: no se adivina (la define Contabilidad). La usan la póliza (`FuentePagoProveedor`) y el
+ * Calendario de Pagos (`[PGP.111b]`): UNA regla, dos lectores.
+ */
+export function cuentaGastoMasUsada(historia: readonly { cuenta: string; f: string }[], antesDe?: string): { cuenta: string; veces: number; total: number } | null {
+  const h = antesDe ? historia.filter((x) => x.f < antesDe) : [...historia];
+  if (!h.length) return null;
+  const c = new Map<string, number>();
+  for (const x of h) c.set(x.cuenta, (c.get(x.cuenta) ?? 0) + 1);
+  const [cuenta, veces] = [...c.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0];
+  return { cuenta, veces, total: h.length };
+}
+
 export function armarGastoConFactura(e: EntradaGasto): AsientoGasto {
   if (!/^52\d{8}$/.test(String(e.cuenta_gasto ?? ''))) {
     throw new AsientoRechazado('cuenta_no_es_gasto', `«${e.cuenta_gasto}» no es una cuenta de gasto (52, 10 dígitos): no se arma.`);

@@ -2,11 +2,13 @@ import { Injectable } from '@nestjs/common';
 import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, ObjectStorageService, applySmartSearch, KEPLER_BRANCH_NAMES, ScopeService } from '@megadulces/platform-core';
 import { composeFreshness, evalInput } from '../shared/freshness';
+import { AJUSTES_KEPLER_POR_ENTRADA_SQL, NOTAS_KEPLER_DOC_SQL } from '@megadulces/contracts/finance/ajustes-kepler';
 
 /**
  * Fase RE.10 — Ajustes de compra (X-D-40 "Devolución compra" + X-D-55 "Nota crédito").
  *
- * Lee `analytics.erp_purchase_adjustments` (espejo Kepler, poblado por
+ * `[RE.68]` Lee `analytics.v_purchase_adjustments` (vista del ODS, todas las sucursales; antes la tabla
+ * `analytics.erp_purchase_adjustments` del importer, poblada por
  * `import-purchase-adjustments.js`). Hace VISIBLE lo que el Excel no veía:
  *   - descuentos de proveedor (pronto pago / comercial / apoyo de marca) ≈ $8.2M/2026
  *   - facturas DUPLICADAS revertidas por NC (error de captura, NO descuento) $6.7M
@@ -60,7 +62,41 @@ const grupoOf = (cat: string | null): string => (cat ? (GRUPO[cat] || 'sin_clasi
 /** Ver `PROOF_ORDER` en `goods-receipt-proofs.service.ts`: mismo orden, mismo motivo. */
 const PROOF_ORDER = `created_at DESC, (status = 'recibido') DESC, id DESC`;
 
-const COMERCIAL_CATS = ['descuento_comercial', 'pronto_pago', 'apoyo_marca'];
+/**
+ * `[RE.67]` Las notas de crédito del proveedor, por proveedor y por fecha de la nota, desde el ODS (todas las
+ * sucursales). Lo leen «Costo por proveedor» y la reconciliación de canales: si cada una sumara por su lado,
+ * el mismo proveedor tendría dos descuentos distintos.
+ *
+ * Antes salía de `analytics.erp_purchase_adjustments` (importer, sólo CEDIS), que además INVENTABA la
+ * categoría: 300 notas X-D-55 sin motivo quedaban como «descuento comercial» (`categoria_source =
+ * 'doctype_default'`, $4.0 M en el historial). Aquí una nota sin motivo que la clasifique es `sin_clasificar`
+ * (la misma regla de Revisión de facturas, `[RE.64]`): no se cuenta como descuento y se DECLARA aparte. Los
+ * traslados al CEDIS (el «blanqueo» de una entrada de sucursal, `[RE.66]`) no son descuento ni se declaran.
+ */
+async function notasDeProveedor(trx: Knex.Transaction, desde: string | null | undefined, hasta: string | null | undefined) {
+  const binds: string[] = [];
+  let fecha = '';
+  if (desde) { fecha += ' AND n.fecha >= ?::date'; binds.push(desde); }
+  if (hasta) { fecha += ' AND n.fecha <= ?::date'; binds.push(hasta); }
+  const res = await trx.raw<{ rows: NotaProveedorFila[] }>(
+    `SELECT n.proveedor_code,
+            COALESCE(sum(n.total) FILTER (WHERE n.grupo = 'comercial'), 0)::numeric AS desc_nota,
+            count(*) FILTER (WHERE n.grupo = 'comercial')::int AS n_nota,
+            COALESCE(sum(n.total) FILTER (WHERE n.grupo = 'sin_clasificar'), 0)::numeric AS nota_sin_clasificar,
+            count(*) FILTER (WHERE n.grupo = 'sin_clasificar')::int AS n_sin_clasificar
+       FROM (${NOTAS_KEPLER_DOC_SQL}) n
+      WHERE n.grupo IN ('comercial', 'sin_clasificar')${fecha}
+      GROUP BY n.proveedor_code`,
+    binds,
+  );
+  return res.rows;
+}
+
+/** Una fila de `notasDeProveedor` tal como llega del driver (los `numeric` vienen como texto). */
+interface NotaProveedorFila { proveedor_code: string | null; desc_nota: string; n_nota: number; nota_sin_clasificar: string; n_sin_clasificar: number }
+
+/** `[RE.67]` Compras por proveedor (sin la copia del CEDIS), tal como llegan del driver. */
+interface CompraProveedorFila { proveedor_code: string | null; nombre: string | null; compras: string }
 
 @Injectable()
 export class PurchaseAdjustmentsService {
@@ -96,7 +132,10 @@ export class PurchaseAdjustmentsService {
 
   /** Base con filtros comunes (tenant_id explícito + doctype/categoría/fecha/search). */
   private base(trx: any, tenantId: string, q: AdjustmentsQuery) {
-    let b = trx('analytics.erp_purchase_adjustments').where('tenant_id', tenantId);
+    // [RE.68] La vista del ODS (todas las sucursales, sin canceladas). El traslado al CEDIS —el «blanqueo» de
+    // una entrada de sucursal cuyo pago fue por la copia— no es un ajuste de compra: no se lista ni se suma.
+    // Tampoco las notas a otra sucursal o al CEDIS (`proveedor_interno`): son traspasos, no ajustes de un proveedor.
+    let b = trx('analytics.v_purchase_adjustments').where('tenant_id', tenantId).whereNot('grupo', 'traslado').where('proveedor_interno', false);
     if (q.doctype) b = b.where('doctype', q.doctype);
     if (q.categoria) b = b.where('categoria', q.categoria);
     if (q.date_from) b = b.where('adjustment_date', '>=', q.date_from);
@@ -215,7 +254,7 @@ export class PurchaseAdjustmentsService {
     const delta = p.delta != null && Number.isFinite(Number(p.delta)) ? Math.abs(Number(p.delta)) : null;
     const tol = Math.max(0.01, Number(p.tolerancia) || 1);
     return this.tk.run(async (trx) => {
-      let b = trx('analytics.erp_purchase_adjustments').where('tenant_id', tenantId);
+      let b = trx('analytics.v_purchase_adjustments').where('tenant_id', tenantId).whereNot('grupo', 'traslado');
       b = b.andWhere((w: any) => {
         if (p.entrada_folio) w.orWhere('entrada_folio', p.entrada_folio);
         if (p.proveedor_code && p.date) {
@@ -309,7 +348,7 @@ export class PurchaseAdjustmentsService {
       // La vista es una dependencia nueva; si el entorno no replica Kepler no existe. Se degrada
       // en vez de tirar un 500 en la pantalla que ya funcionaba sin esto.
       const hayVista = (await trx.raw(`SELECT to_regclass('analytics.erp_purchase_adjustment_lines') AS t`)).rows[0]?.t;
-      const cab = await trx('analytics.erp_purchase_adjustments')
+      const cab = await trx('analytics.v_purchase_adjustments')
         .where({ tenant_id: tenantId, sucursal, folio, ...(doctype ? { doctype } : {}) })
         .first('doctype', 'motivo', 'categoria', trx.raw('monto::numeric AS monto'));
       if (!hayVista) {
@@ -364,8 +403,9 @@ export class PurchaseAdjustmentsService {
   /**
    * RE.10 — Reconciliación de los DOS canales de descuento de proveedor:
    *   (a) capturado AL PAGAR   → `erp_supplier_payments.descuento` (kdm1.c84, pronto pago)
-   *   (b) vía NOTA DE CRÉDITO  → `erp_purchase_adjustments` X-D-55 comercial (c24)
-   * Por proveedor: cuánto por canal, total, % vs compras (`erp_goods_receipts`) y el
+   *   (b) vía NOTA DE CRÉDITO  → X-D-55 comercial del ODS (`notasDeProveedor`, `[RE.67]`; la sin clasificar
+   *       se declara en `total_nota_sin_clasificar`, no se suma)
+   * Por proveedor: cuánto por canal, total, % vs compras (`erp_goods_receipts` sin la copia del CEDIS) y el
    * CANAL (pago / nota / ambos). "ambos" = el proveedor usa las dos vías → posible
    * solapamiento del mismo descuento en el análisis (HITL: el humano revisa). Todo
    * `analytics.*` (sin RLS) → filtro `tenant_id` explícito. Aggregados por proveedor
@@ -385,39 +425,39 @@ export class PurchaseAdjustmentsService {
           trx.raw('COALESCE(sum(descuento),0)::numeric AS desc_pago'),
           trx.raw('count(*) FILTER (WHERE descuento > 0)::int AS n_desc'));
 
-      const nota: any[] = await trx('analytics.erp_purchase_adjustments')
-        .where('tenant_id', tenantId)
-        .whereIn('categoria', ['pronto_pago', 'descuento_comercial', 'apoyo_marca'])
-        .modify(dateMod('adjustment_date'))
-        .groupBy('proveedor_code')
-        .select('proveedor_code',
-          trx.raw('max(proveedor_nombre) AS nombre'),
-          trx.raw('COALESCE(sum(monto),0)::numeric AS desc_nota'),
-          trx.raw('count(*)::int AS n_nota'));
+      // [RE.67] Notas del ODS (todas las sucursales, sin categoría inventada) y compras sin la copia del CEDIS.
+      const nota = await notasDeProveedor(trx, df, dt);
 
       const comp: any[] = await trx('analytics.erp_goods_receipts')
-        .where('tenant_id', tenantId).modify(dateMod('receipt_date'))
+        .where('tenant_id', tenantId).whereNull('dup_of_folio').modify(dateMod('receipt_date'))
         .groupBy('proveedor_code')
-        .select('proveedor_code', trx.raw('COALESCE(sum(monto),0)::numeric AS compras'));
+        .select('proveedor_code', trx.raw('max(proveedor_nombre) AS nombre'), trx.raw('COALESCE(sum(monto),0)::numeric AS compras'));
 
       const map = new Map<string, any>();
       const get = (code: string | null, nombre?: string) => {
         const k = code || '(sin código)';
         let e = map.get(k);
-        if (!e) { e = { proveedor_code: code, proveedor_nombre: nombre || null, desc_pago: 0, desc_nota: 0, compras: 0, n_pagos_desc: 0, n_notas: 0 }; map.set(k, e); }
+        if (!e) { e = { proveedor_code: code, proveedor_nombre: nombre || null, desc_pago: 0, desc_nota: 0, nota_sin_clasificar: 0, compras: 0, n_pagos_desc: 0, n_notas: 0, n_sin_clasificar: 0 }; map.set(k, e); }
         if (!e.proveedor_nombre && nombre) e.proveedor_nombre = nombre;
         return e;
       };
       for (const r of pay) { const e = get(r.proveedor_code, r.nombre); e.desc_pago = Number(r.desc_pago) || 0; e.n_pagos_desc = Number(r.n_desc) || 0; }
-      for (const r of nota) { const e = get(r.proveedor_code, r.nombre); e.desc_nota = Number(r.desc_nota) || 0; e.n_notas = Number(r.n_nota) || 0; }
-      for (const r of comp) { const e = get(r.proveedor_code); e.compras = Number(r.compras) || 0; }
+      for (const r of nota) {
+        const e = get(r.proveedor_code);
+        e.desc_nota = Number(r.desc_nota) || 0; e.n_notas = Number(r.n_nota) || 0;
+        e.nota_sin_clasificar = Number(r.nota_sin_clasificar) || 0; e.n_sin_clasificar = Number(r.n_sin_clasificar) || 0;
+      }
+      for (const r of comp) { const e = get(r.proveedor_code, r.nombre); e.compras = Number(r.compras) || 0; }
 
       // Array.from (NO spread [...]): webpack downlevela [...map.values()] → [iterator] en el bundle del API. Ver feedback_webpack_set_spread_downlevel.
-      let rows = Array.from(map.values()).filter((e) => e.desc_pago > 0 || e.desc_nota > 0);
+      let todos = Array.from(map.values());
       if (q.search && q.search.trim()) {
         const s = q.search.trim().toLowerCase();
-        rows = rows.filter((e) => (e.proveedor_nombre || '').toLowerCase().includes(s) || (e.proveedor_code || '').toLowerCase().includes(s));
+        todos = todos.filter((e) => (e.proveedor_nombre || '').toLowerCase().includes(s) || (e.proveedor_code || '').toLowerCase().includes(s));
       }
+      // Lo sin clasificar se declara sobre TODOS los proveedores del filtro, también los que no tienen descuento.
+      const notaSinClasificar = todos.reduce((s, e) => s + e.nota_sin_clasificar, 0);
+      const rows = todos.filter((e) => e.desc_pago > 0 || e.desc_nota > 0);
       for (const e of rows) {
         e.total_desc = e.desc_pago + e.desc_nota;
         e.pct_vs_compras = e.compras > 0 ? e.total_desc / e.compras : null;
@@ -430,6 +470,7 @@ export class PurchaseAdjustmentsService {
         summary: {
           total_desc_pago: sum('desc_pago'),
           total_desc_nota: sum('desc_nota'),
+          total_nota_sin_clasificar: notaSinClasificar,
           total_desc: sum('total_desc'),
           suppliers: rows.length,
           suppliers_ambos: rows.filter((r) => r.canal === 'ambos').length,
@@ -515,12 +556,11 @@ export class PurchaseAdjustmentsService {
     // comercial, pronto pago, apoyo de marca) y el resto sí es algo que salió mal (faltante,
     // mal estado, no solicitado, factura duplicada…). Se parte acá para que la pantalla pueda
     // dejar de pintar de rojo un apoyo de marca.
-    const adj = trx('analytics.erp_purchase_adjustments')
-      .select('sucursal', 'entrada_folio').sum({ ajuste: 'monto' }).count({ n_ajuste: '*' })
-      .select(trx.raw(`COALESCE(sum(monto) FILTER (WHERE categoria = ANY(?)), 0) AS ajuste_comercial`, [COMERCIAL_CATS]))
-      .select(trx.raw(`COALESCE(sum(monto) FILTER (WHERE categoria IS NULL OR NOT (categoria = ANY(?))), 0) AS ajuste_operativo`, [COMERCIAL_CATS]))
-      .where('tenant_id', tenantId).whereNotNull('entrada_folio')
-      .groupBy('sucursal', 'entrada_folio').as('a');
+    // [RE.68] El ajuste por entrada es el MISMO primitivo que Revisión de facturas (`kdxf` + `c39`, la copia del
+    // CEDIS atribuida a su entrada original, sin traslado). Antes agrupaba la tabla del importer por
+    // `entrada_folio`, que en las notas de crédito venía vacío. `ajuste_operativo` ya no incluye lo sin
+    // clasificar (va en `ajuste_sin_clasificar`): una nota sin motivo no es «algo que salió mal».
+    const adj = trx.raw(`(${AJUSTES_KEPLER_POR_ENTRADA_SQL}) AS a`);
     // RE.9 — estado del comprobante adjunto por entrada (finance.goods_receipt_proofs; RLS
     // satisfecho por tk.run). Agregado por (sucursal, folio). El cuadre sale del MISMO
     // depósito que el estado (el último): con `bool_or` la fila podía decir "Rechazado" y
@@ -927,10 +967,14 @@ export class PurchaseAdjustmentsService {
       //    lo adeudado. La sucursal va en la llave por lo mismo que en Compras 360: el folio de
       //    Kepler se repite entre sucursales (1,106 casos), y aunque acá ya se filtra por
       //    proveedor, un proveedor que surte a dos sucursales podía cruzar ajustes entre ellas.
-      const adjRows: any[] = await trx('analytics.erp_purchase_adjustments')
-        .where('tenant_id', tenantId).where('proveedor_code', code)
-        .whereNotNull('entrada_folio').whereRaw("entrada_folio <> ''")
-        .groupBy('sucursal', 'entrada_folio').select('sucursal', 'entrada_folio').sum({ m: 'monto' });
+      //    [RE.68] Del primitivo de Revisión de facturas (kdxf + c39, sin traslado), restringido a las entradas
+      //    de este proveedor: antes salía del importer, que sólo ligaba por `c39` (vacío en las notas de crédito).
+      const adjRes = await trx.raw(
+        `SELECT a.sucursal, a.entrada_folio, a.ajuste AS m FROM (${AJUSTES_KEPLER_POR_ENTRADA_SQL}) a
+           JOIN analytics.erp_goods_receipts g ON g.tenant_id = ? AND g.sucursal = a.sucursal AND g.folio = a.entrada_folio AND g.proveedor_code = ?`,
+        [tenantId, code],
+      );
+      const adjRows: { sucursal: string; entrada_folio: string; m: string }[] = adjRes.rows;
       const adjByFolio = new Map<string, number>();
       for (const a of adjRows) adjByFolio.set(`${a.sucursal}|${a.entrada_folio}`, Number(a.m) || 0);
 
@@ -1165,23 +1209,24 @@ export class PurchaseAdjustmentsService {
     return this.tk.run(async (trx) => {
       const pay: any[] = await trx('analytics.erp_supplier_payments').where('tenant_id', tenantId).modify(byDate('pago_date'))
         .groupBy('proveedor_code').select('proveedor_code', trx.raw('max(proveedor_nombre) AS nombre'), trx.raw('COALESCE(sum(descuento),0)::numeric AS desc_pago'));
-      const nota: any[] = await trx('analytics.erp_purchase_adjustments').where('tenant_id', tenantId)
-        .whereIn('categoria', ['pronto_pago', 'descuento_comercial', 'apoyo_marca']).modify(byDate('adjustment_date'))
-        .groupBy('proveedor_code').select('proveedor_code', trx.raw('max(proveedor_nombre) AS nombre'), trx.raw('COALESCE(sum(monto),0)::numeric AS desc_nota'));
-      const comp: any[] = await trx('analytics.erp_goods_receipts').where('tenant_id', tenantId).modify(byDate('receipt_date'))
+      // [RE.67] Notas del ODS por fecha de la nota (todas las sucursales; la sin clasificar se declara, no se
+      // resta) y compras SIN la copia del CEDIS de una entrada de sucursal: contada dos veces inflaba las
+      // compras $11.2 M desde agosto (281 copias) y bajaba el % de descuento.
+      const nota = await notasDeProveedor(trx, q.date_from, q.date_to);
+      const comp: CompraProveedorFila[] = await trx('analytics.erp_goods_receipts').where('tenant_id', tenantId).whereNull('dup_of_folio').modify(byDate('receipt_date'))
         .groupBy('proveedor_code').select('proveedor_code', trx.raw('max(proveedor_nombre) AS nombre'), trx.raw('COALESCE(sum(monto),0)::numeric AS compras'));
 
       const map = new Map<string, any>();
       const get = (code: string | null, nombre?: string) => {
         const k = code || '(sin código)';
         let e = map.get(k);
-        if (!e) { e = { proveedor_code: code, proveedor_nombre: nombre || null, compras: 0, desc_pago: 0, desc_nota: 0 }; map.set(k, e); }
+        if (!e) { e = { proveedor_code: code, proveedor_nombre: nombre || null, compras: 0, desc_pago: 0, desc_nota: 0, nota_sin_clasificar: 0 }; map.set(k, e); }
         if (!e.proveedor_nombre && nombre) e.proveedor_nombre = nombre;
         return e;
       };
-      for (const r of comp) { const e = get(r.proveedor_code, r.nombre); e.compras = Number(r.compras) || 0; }
+      for (const r of comp) { const e = get(r.proveedor_code, r.nombre ?? undefined); e.compras = Number(r.compras) || 0; }
       for (const r of pay) { const e = get(r.proveedor_code, r.nombre); e.desc_pago = Number(r.desc_pago) || 0; }
-      for (const r of nota) { const e = get(r.proveedor_code, r.nombre); e.desc_nota = Number(r.desc_nota) || 0; }
+      for (const r of nota) { const e = get(r.proveedor_code); e.desc_nota = Number(r.desc_nota) || 0; e.nota_sin_clasificar = Number(r.nota_sin_clasificar) || 0; }
 
       // Array.from (NO spread): webpack rompe [...map.values()] en el bundle del API → suppliers:0. Ver feedback_webpack_set_spread_downlevel.
       let rows = Array.from(map.values()).filter((e) => e.compras > 0 && e.compras >= minCompras);
@@ -1198,8 +1243,9 @@ export class PurchaseAdjustmentsService {
       if (q.only_anomalo) rows = rows.filter((e) => e.anomalo); // filtro "solo anómalos" tras calcular rate
       rows.sort((a, b) => b.compras - a.compras);
       const compras = rows.reduce((s, r) => s + r.compras, 0), descuento = rows.reduce((s, r) => s + r.descuento, 0);
+      const notaSinClasificar = rows.reduce((s, r) => s + r.nota_sin_clasificar, 0);
       return {
-        summary: { compras, descuento, costo_neto: compras - descuento, rate: compras > 0 ? descuento / compras : 0, suppliers: rows.length },
+        summary: { compras, descuento, costo_neto: compras - descuento, rate: compras > 0 ? descuento / compras : 0, suppliers: rows.length, nota_sin_clasificar: notaSinClasificar },
         rows: rows.slice(0, 200),
       };
     });

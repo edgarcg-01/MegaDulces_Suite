@@ -1,4 +1,4 @@
-import { cuenta, cubiertoDe, faltaDescuento, leerPesos, pctDeTasa, pesosDeTexto, round2, tasaDePct } from './calendario-pagos-descuento';
+import { cuenta, cubiertoDe, faltaDescuento, faltaLista, leerPesos, lineasDe, pctDeTasa, pesosDeTexto, prontoCapturado, round2, tasaDePct } from './calendario-pagos-descuento';
 
 /**
  * `[PGP.91]` La cuenta del descuento al pagar que ve la persona ANTES de guardar. Las cifras de
@@ -139,5 +139,27 @@ describe('[PGP.91] pesosDeTexto: los pesos tecleados, sin adivinar', () => {
   });
   it('el % sigue aceptando «3,5» como 3.5 (en un % no hay miles)', () => {
     expect(tasaDePct('3,5')).toBe(0.035);
+  });
+});
+
+describe('[PGP.101] varios descuentos por factura', () => {
+  it('lineasDe: usa discount_lines; sin ellas arma uno con las columnas de siempre', () => {
+    const l = [{ reason: 'volumen' as const, amount: 20, rate: null, note: null }];
+    expect(lineasDe({ discount_lines: l, discount_amount: 20, discount_reason: 'volumen' })).toBe(l);
+    expect(lineasDe({ discount_amount: '30.00', discount_reason: 'pronto_pago', discount_rate: '0.03' }))
+      .toEqual([{ reason: 'pronto_pago', amount: 30, rate: 0.03, note: null }]);
+    expect(lineasDe({ discount_amount: 0, discount_reason: null })).toEqual([]);
+  });
+  it('prontoCapturado: sólo el renglón de pronto pago', () => {
+    expect(prontoCapturado({ discount_lines: [
+      { reason: 'pronto_pago', amount: 300, rate: 0.03, note: null }, { reason: 'volumen', amount: 200, rate: 0.02, note: null },
+    ] })).toBe(300);
+    expect(prontoCapturado({ discount_lines: [{ reason: 'volumen', amount: 200, rate: null, note: null }] })).toBe(0);
+  });
+  it('faltaLista: la suma no puede ser toda la factura y hay tope de renglones', () => {
+    const ya = [{ reason: 'volumen' as const, amount: 600, rate: null, note: null }];
+    expect(faltaLista(ya, 300, 1000)).toBeNull();
+    expect(faltaLista(ya, 400, 1000)).toMatch(/menores/);
+    expect(faltaLista(Array(5).fill(ya[0]).map((x) => ({ ...x, amount: 1 })), 1, 1000)).toMatch(/máximo/);
   });
 });

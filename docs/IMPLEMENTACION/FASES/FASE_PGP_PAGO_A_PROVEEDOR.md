@@ -13,7 +13,7 @@ MÉTRICA:  pagos del mes ejecutados por la plataforma y ligados a su documento d
 CAPA TOPE: C3
 ÁREA:      Finanzas
 DUEÑO:     <por asignar — ver §6>
-ESTADO:    ⬜ (no abre hasta que haya cupo — ver §6)
+ESTADO:    ✅ medido 2026-11-09: pago↔banco misma cuenta ±ESTADO:     ±5 días 65/87, placebo 0; comprobante↔banco por la cuenta de origen del OCR 87/90, placebo 0; sólo 7 % de los pagos traen cuenta de origen; el catálogo de CLABE de proveedores está vacío; la ventanilla sólo deja rastro después de Kepler (no abre hasta que haya cupo — ver §6)
 ```
 
 ---
@@ -639,10 +639,10 @@ por mes) y `kdc126`.
 
 | # | Item | Estado | Prueba que lo ejerce |
 |---|---|---|---|
-| PGP.1.1 | Tope de firma por monto y a quién le toca cada pago | ⬜ | Casos en los dos lados del tope, y exactamente en el tope |
+| PGP.1.1 | Tope de firma por monto y a quién le toca cada pago | 🧪 `validacion-pago.contract.ts`, 15 pruebas (mutante del uno a uno: rojo) | Casos en los dos lados del tope, y exactamente en el tope |
 | PGP.1.2 | Armador del documento `X-D-26`: clonar plantilla, pisar campos de negocio, derivar folio `MAX+1` | 🧪 `[PGP.71]` | Contra la plantilla real, sin escribir |
 | PGP.1.3 | Repartidor de aplicaciones `kdxf`: un pago que cubre N facturas | 🧪 `[PGP.71]` | El caso de 8 aplicaciones, y el de 1 |
-| PGP.1.4 | Conciliador: lo escrito por la plataforma contra lo que el ODS devuelve | ⬜ | Un pago escrito y releído |
+| PGP.1.4 | Conciliador: lo escrito por la plataforma contra lo que el ODS devuelve | 🔨 `validacion-pago.sql.ts` + `validacion` en el día; «Pagado» sólo con banco y comprobante en pantalla; el candado de Kepler (`motivosParaNoEscribir`) lo exige. NO MEDIDO: el caso de integración (CI / `TP_IT_DB`) y la pantalla viva. Deuda: el servidor todavía no lo exige en `execute` | Un pago escrito y releído |
 
 ### C2 · API
 
@@ -650,8 +650,8 @@ por mes) y `kdc126`.
 |---|---|---|---|---|
 | PGP.1 | `GET /commercial/supplier-payment-accounts/faltantes` + la lista en `/compras/cuentas-pago` | 🧪 **2026-10-22** | no | Guión de sólo lectura contra prod (ver abajo) |
 | PGP.3 | Las dos bandejas de pagos en «Mi trabajo» + la responsabilidad `finanzas.pagos` | 🧪 **2026-10-22** | sí (la migración) | `verify-pgp3-bandejas-pagos.js`, 4 controles. ⚠️ **La migración NO está aplicada en prod**: `sh ops/prod/aplicar-migracion.sh 20261022150827_pagos_responsabilidad.js`, y exige el commit empujado |
-| PGP.2.2 | Sembrar `supplier_payment_accounts` desde el circuito de solicitud | ⬜ | sí | ⛔ obligatoria, con el payload de la pantalla |
-| PGP.2.3 | `POST /finance/payment-calendar/allocations/:id/kepler/escribir` — escribe el `X-D-26` | ⬜ | **sí, al ERP** | ⛔ obligatoria + deshacer el documento, como hizo KR |
+| PGP.2.2 | Sembrar `supplier_payment_accounts` desde el circuito de solicitud | 🧪 en código (e1dee0f5c): `execute()` exige la validación (efectivo a mano) y guarda salida, comprobante, fecha, importe y hora; migración `20261110080925` (5 columnas NULLABLE, sin FK) va ANTES del código. NO MEDIDO: la integración corre en el CI | sí | ⛔ obligatoria, con el payload de la pantalla |
+| PGP.2.3 | `POST /finance/payment-calendar/allocations/:id/kepler/escribir` — escribe el `X-D-26` | 🧪 en código (246156863): `cfdisDeFacturas` + lectura en 4 pasos, sólo en días autorizados o que ya llegaron. Con el código real en prod: 225 únicos (216 PPD, 9 PUE), 33 varios, 60 sin CFDI, 15 sin RFC. Índice `20261110082041` (CONCURRENTLY, fuera de horario). NO MEDIDO: el tiempo con el índice; `v_supplier_rfc` sigue en ~280 ms | **sí, al ERP** | ⛔ obligatoria + deshacer el documento, como hizo KR |
 | PGP.2.4 | Compuerta: no se escribe a Kepler un pago que no esté `executed` y autorizado | ⬜ | no | ⛔ rota a propósito una vez |
 
 ⛔ **Los tres endpoints que escriben van contra base real antes de cerrar.** La regla nació de
@@ -891,6 +891,7 @@ Se copian a `01_TRACKER_PROGRESO.md` **el día que la fase pase a 🔨**, no ant
 | 2026-11-07 | **`[PGP.99]` Una nota de crédito CANCELADA en Kepler escondía la deuda — 🧪 migración en código, sin empujar, SIN aplicar.** Reportado: la orden de entrada de Hershey `XA2001-0000684` (sucursal 01) no aparecía para capturarla en el Calendario. Kepler la debe ($64,672.73 en `kdxe.c20`). La nota `X-D-55 0000130` se canceló y se recapturó como `0000131`; Kepler no borra la aplicación cancelada de `kdxf`, la vista sumaba las dos, el pendiente salía negativo y se filtraba. `[PGP.67]` sólo restaba pagos cancelados (`25/26/60`); ahora también notas (`55`) y devoluciones (`40`). Medido en prod (sólo lectura): reaparecen **23 documentos** (13 de un mismo acreedor por una sola nota cancelada); los 23 casan al centavo con el saldo que Kepler guarda. Vista 349–412 → 370–417 ms. El SQL del `up` y del `down` se ejerció contra prod en transacción READ ONLY: el `down` reproduce la vista actual fila por fila. Mig `20261107113116_pgp99_nota_cancelada_no_salda_la_deuda`. |
 | 2026-11-07 | **`[PGP.94.1]` El cierre descarta los mismos documentos cancelados que la vista — 🧪 en código, sin migración.** `[PGP.99]` le sumó a `v_supplier_payables` las notas de crédito (55) y devoluciones (40) canceladas, y `cierre-kepler.sql.ts` (`[PGP.94]`) se quedó con la lista vieja de `[PGP.67]` (25/26/60): en las facturas del Calendario había 6 aplicaciones canceladas ($62,627.51) que la vista restaba y el cierre contaba. Ahora la lista es una constante (`TIPOS_CANCELADOS_QUE_NO_SALDAN` = 25, 26, 40, 55, 60) y una prueba la amarra al `up()` de la migración más nueva que fija la de la vista: si se separan, rojo. **Medido en prod (sólo lectura), 307 facturas del Calendario:** cierre y vista NO coinciden en **0** con la lista nueva y en **1** con la vieja (control). Prueba del ancla contra la migración de `origin/main`: lista nueva verde, lista vieja roja. **NO MEDIDO**: la pantalla viva. | Claude |
 | 2026-11-08 | **`[PGP.97]` «Salidas del banco»: lo que salió del banco a proveedores, contra Kepler y contra el programa — 🧪 en código, sin migración, sin validación visual. Y `[PGP.97.1]`: el periodo del workbook ya no se pierde por un nombre sin año.** Pedido de Francisco (2026-11-07): *«utiliza el workbook de bancos para identificar lo que se pagó fuera de programa y está pendiente de elaborar el pago en Kepler, para que sirva de guía al área de pagos a proveedor; la meta es que el 100 % pase por el programa»*. Pestaña nueva en «Pagos» (`/finanzas/salidas-banco`, permiso `FINANCE_PAYMENTS_VER`, ya repartido), `GET /finance/payment-calendar/fuera-de-programa`, regla pura en `libs/contracts/src/finance/salida-proveedor.contract.ts`, lectura en `fuera-de-programa.sql.ts` — **cero tablas, cero importers**: el workbook (`bank_movements`), la vista de tesorería de la conciliación (`kepler_bank_movements`), `kdxf`, el Calendario y la deuda viva. **Medido (prod, sólo lectura, con placebo):** la salida a proveedor se reconoce por la columna M del libro (98.0 % de precisión, 97.6 % de cobertura); el par salida↔pago de Kepler (misma cuenta, ±$1, ±5 días) casa 239 de 244 en octubre y **0 de 244** con las fechas corridas −35/−60/+35; una transferencia que Kepler capturó en varios documentos (uno por sucursal, o transferencia + anticipo) se parea junta: 3 en septiembre, 0 en el placebo. **Cifras de hoy:** octubre, banco: 4 salidas sin pago en Kepler a más de 7 días (una de ellas con partida viva del mismo acreedor e importe: es lo que O3 va a escribir), 1 capturada con otro importe, 225 pagadas fuera del programa. La meta, por dinero y desde Kepler: **8.9 %** en octubre, 33.1 % en la vida del Calendario, **98.1 %** del 1 al 7-nov por banco; **Caja General 0 %** en todas las ventanas. ⛔ **Noviembre no está en el workbook**: el 5-nov se subió «11 NOVIEMBRE.xlsx» (896 movimientos), cayó al periodo de octubre porque el nombre no traía año y la siguiente subida de octubre lo barrió — `[PGP.97.1]` deriva el periodo del mes aunque falte el año; Tesorería tiene que volver a subir noviembre. **Revisión adversarial** (5 dimensiones, cada hallazgo con un escéptico): 21 confirmados y corregidos antes del PR — entre ellos, que una partida cancelada DESPUÉS de pagar (la limpieza de lo saldado) se leía como «se quitó del programa» (la meta del 1–7 nov pasaba de 98.1 % a 94.7 %), que un día sin movimientos en el banco se declaraba «captura doble», y que el veredicto decía «todo tiene su pago» con renglones en espera. **Pruebas:** 47 unitarias con 13 mutantes en rojo; integración contra Postgres real (local, en transacción revertida: verde; el pago cancelado no cuenta como pagado); `check:pantalla` 10 de 10. **NO MEDIDO:** la pantalla viva; el arranque de Nest (no se tocó ningún constructor ni firma inyectada: el método va en `PaymentCalendarService`). **Deuda con nombre:** dos copias de las palabras vacías del comparador de nombres (`finance-bank.service.ts` y el contrato); `removeItem` borra el renglón y una factura quitada de un pago no deja rastro; el Calendario no abre un día desde la URL. | Claude |
+| 2026-11-09 | **`[PGP.100]` Qué le falta a un pago para cerrarse, dicho por separado, y `[PGP.101]` varios descuentos al pagar sobre la misma factura — 🔨 en código, sin empujar, sin validación visual; `[PGP.101]` lleva migración.** Pedidos de Edgar (2026-11-09): *«que se pueda agregar más de un descuento»* y *«especificar si falta comprobante o si falta aplicar en Kepler»*. **`[PGP.100]`** regla pura `faltaParaCerrar` en `cierre-kepler.contract.ts`: `kepler` (Kepler no registra el pago o lo registra en parte), `comprobante` (pagado con dinero desde Matriz y sin PDF subido), `sin_medir` (no viene de Kepler: se declara). ⚠️ Un pago de sucursal sin PDF NO cuenta como «falta comprobante»: hoy no se le puede subir (`sinComprobantePorque`, la misma regla que ya decía el desglose, ahora en un solo lugar). En pantalla: el renglón pagado en Kepler dice «Falta el comprobante» / «Falta aplicar en Kepler el resto y el comprobante»; el marcado pagado deja de decir sólo «Marcado pagado». **`[PGP.101]`** columna `discount_lines jsonb` en `finance.payment_allocation_items` (migración `20261109163309_pgp101_varios_descuentos_por_factura.js`, aditiva, NULLABLE, ⛔ va en prod ANTES del código). Las columnas de `[PGP.91]` quedan como AGREGADO (suma, motivo del mayor, tasa y nota sólo con uno): lo cubierto, el neto, el tope del día y el cruce con Kepler no cambian. `POST …/descuento` acepta `discounts: [...]` (la lista completa; `[]` lo quita) y sigue aceptando el cuerpo de un descuento. Cada % va sobre lo cubierto; uno en cascada se captura en pesos (decisión de diseño, revisable). Máximo 5 por factura. El PDF del día, la ficha de la factura y «pronto pago capturado» leen los renglones. **Verificación:** 7 pruebas de contrato + 11 del validador del servidor + 3 de la pantalla (con casos negativos: suma = factura, tasa que no cuadra, «Otro» sin detalle, renglón en cero); `check:pantalla` 0 nuevas y tipa; `check:templates` verde; `tsc` de `finance`/`commercial` sin errores nuevos en lo tocado. **NO MEDIDO:** los 2 casos de integración nuevos (`payment-calendar.it.spec.ts`, cuerpo exacto del diálogo con dos renglones, y quitar con `[]`) corren sólo con `TP_IT_DB` local o en el CI; la pantalla viva. | Claude |
 
 ---
 
@@ -1239,3 +1240,523 @@ ganar renglones, no medido).
 **Lo que ya funciona y no se toca:** el veredicto nombra el renglón que falta y su importe; la cola
 dice «libre del tope» en todos los días; un día sin tope dice «sin tope fijado», no $0; el lote
 cuadra con la cola ($2.86M = $2,863,347.69) y la semana cuadra con los días ($10.84M).
+
+---
+
+## Anticipos a proveedor — análisis (2026-11-09, ⬜ sin código)
+
+> Pedido de Edgar (2026-11-09): *«un apartado para anticipos de proveedor»* y *«analiza cómo vamos a
+> agregar anticipos a proveedor»*. Medido en prod, sólo lectura (`system_identifier` verificado).
+> Nada de esto escribe en Kepler.
+
+**Cómo vive hoy.** El anticipo es el documento `X-D-60` de `kepler_ods.kdxe` (`c4 = 60`; `c20` = el
+remanente sin aplicar que guarda Kepler). Se aplica a la factura en `kdxf` (`c4/c5/c6` = el anticipo,
+`c7/c8/c9` = la factura, `c3` = fecha de la aplicación). Se crea a mano en Kepler; casi todo sale de
+Matriz, y una parte importante, de la cuenta de Caja General.
+
+| Qué (prod, 2026-11-09) | Cifra |
+|---|---|
+| Anticipos, últimos 12 meses | 203 documentos, ~$15.5 M, 81 acreedores |
+| **Sin aplicar hoy** | **60 documentos, ~$7.0 M, 42 acreedores** |
+| … con deuda viva del mismo acreedor (se puede netear hoy) | 31 acreedores, ~$4.2 M |
+| … sin deuda viva (no hay contra qué aplicar) | 11 acreedores, ~$2.8 M |
+| … con más de 90 días | ~$5.0 M |
+| Del anticipo a su aplicación | mediana 3 días, p90 16 días |
+
+⭐ El saldo es publicable tal cual: `analytics.v_supplier_credits.a_favor` coincide con `kdxe.c20` en
+los 60, sin una diferencia. ⚠️ No todo `X-D-60` es anticipo: en 1 de cada 3 aplicaciones la factura
+es ANTERIOR al documento (pagos capturados como anticipo), los `TC*` son tarjeta y los `G*` son gasto.
+Dos documentos (~$3.5 M, la mitad del saldo) huelen a saldo inicial y se revisan antes de publicar.
+
+**Qué ya existe (ADR-056: no se inventa otro primitivo).** La vista `analytics.v_supplier_credits`
+(ya publica la clase «Anticipo a proveedor»), los endpoints `creditos-a-favor` y `creditos/:acreedor`,
+el aviso «trae $X a favor sin aplicar» del Calendario, la ventanilla de Caja General que ya paga
+`X-D-60` con firma de Tesorería, y el estado `sin_factura` de `salida-proveedor.contract.ts`, que ya
+declara «hoy el Calendario no programa anticipos».
+
+**(A) El apartado — sin vista nueva.** El mismo endpoint de créditos filtrado a anticipo, por
+acreedor: saldo, antigüedad (0–30 · 31–90 · +90), folio, cuenta de salida y referencia, y sus
+facturas abiertas (contra qué se aplica). Dos grupos: «aplicable hoy» y «sin contra qué» (pedir la
+factura o el reembolso). ⚠️ El cruce con `v_supplier_payables` midió 520–553 ms: se pide diferido,
+como los créditos.
+
+**(B) Programar un anticipo nuevo.**
+1. La solicitud nace de la orden de compra, en `commercial.supplier_payment_obligations` con una
+   columna `nature` (`factura` | `anticipo`) — sin tabla nueva. Regla 14: recorrer todos los caminos
+   que insertan ahí (`supplier_id` es NOT NULL).
+2. Entra al Calendario como cualquier obligación y sale por el carril de siempre (transferencia o
+   ventanilla, firma de Tesorería).
+3. Se liga con el `X-D-60` cuando se capture en Kepler: mismo acreedor, ±$1, ±5 días (la regla de
+   pareo de `[PGP.97]`); llave `(sucursal, tipo, folio, cuenta)`.
+4. Se cierra cuando `kdxf` lo aplica a la factura.
+5. **No pagar dos veces:** al programar una factura de un acreedor con anticipo sin aplicar, se
+   precarga como descuento (un renglón más de `[PGP.101]`, motivo nuevo «anticipo»); y el cierre
+   tiene que decir «saldada con anticipo», no «pagada», o el mismo dinero cuenta dos veces.
+
+**Decisiones de Edgar (con la recomendación):**
+
+| # | Pregunta | Recomendación |
+|---|---|---|
+| D1 | ¿Quién pide y quién autoriza un anticipo? | Pide Compras, siempre atado a una OC; autoriza quien autoriza el día; firma Tesorería |
+| D2 | ¿Qué acreedores? | Sólo mercancía (`C*`); fuera tarjeta (`TC*`) y gasto (`G*`) |
+| D3 | Factura de un acreedor con anticipo sin aplicar | Descontarlo solo, modificable con firma (no sólo avisar) |
+| D4 | Anticipo con más de 90 días sin aplicar | Alerta a Compras y CxP para exigir factura o reembolso |
+| D5 | ¿Quién lo aplica en Kepler mientras la escritura siga apagada? | CxP; la Suite sólo verifica en `kdxf` |
+| D6 | ¿Tope del anticipo? | Como % de la OC |
+| D7 | Los dos documentos grandes que parecen saldo inicial | Revisarlos con Contabilidad antes de publicar el apartado |
+
+**NO MEDIDO:** cuántos anticipos se pueden ligar a una OC (en Kepler la referencia es texto libre);
+cuántos de los 42 acreedores existen en `catalog.suppliers`; si lo que salió de Caja General fue
+efectivo.
+
+---
+
+## El flujo nuevo: pagar → validar contra el banco → escribir en Kepler (Edgar, 2026-11-09)
+
+> *«Agregamos los pagos y la forma de pago, después se paga, se jalan los estados de cuenta o
+> movimientos y se valida que se haya pagado (más su comprobante), y con eso insertamos el pago en
+> Kepler automáticamente, ya validado.»* — Edgar, 2026-11-09.
+
+**El cambio de fondo:** «Pagado» deja de ser un clic. Hoy «Pagado» lo marca una persona sin prueba
+(y con el mismo permiso que prepara). En el flujo nuevo lo pone la **evidencia**: el movimiento del
+estado de cuenta + el comprobante. Y sólo lo validado se escribe en Kepler.
+
+```
+Armar el día → Preparar (forma de pago) → Dirección autoriza → se paga en el banco / ventanilla
+   → VALIDAR: movimiento del banco + comprobante (efectivo: salida de ventanilla)
+   → ENSAYO: la Suite muestra el X-D-26 exacto; una persona lo aprueba
+   → ESCRIBIR el X-D-26 en Kepler (automático después del ensayo)
+```
+
+**Decisiones de Edgar (2026-11-09):**
+
+| # | Decisión |
+|---|---|
+| F1 | **La autorización de Dirección se queda**, antes de pagar |
+| F2 | **Validar exige banco Y comprobante**: el movimiento (misma cuenta, ±$1, ±5 días — la regla medida de `[PGP.97]`) y el comprobante con la CLABE destino del pago |
+| F3 | **Kepler: ensayo y luego automático** — las primeras 2 semanas cada X-D-26 se muestra y una persona lo aprueba; validado contra lo que Tesorería capturaba a mano, pasa a automático |
+| F4 | **Efectivo de Caja General se valida con la ventanilla** (su salida con folio y firma de Tesorería), no con el estado de cuenta |
+
+**Estado medido hoy (prod, sólo lectura):** los movimientos del banco llegan **hasta hoy** (noviembre
+se volvió a subir el 2026-11-09; 17 movimientos con fecha imposible, posterior a hoy). Comprobantes
+de pago a proveedor: **16 en 30 días** — con F2, Tesorería tiene que subir el comprobante de CADA
+pago o nada se valida. Es el cuello del flujo nuevo, y se dice primero.
+
+**Items (C0 → C3, un escalón a la vez):**
+
+| Item | Capa | Qué | Estado |
+|---|---|---|---|
+| `[PGP.102]` | C0 | Medir el par **pago de la Suite ↔ movimiento del banco** (cuenta de origen del pago ↔ cuenta del estado de cuenta, ±$1, ±5 días) con control placebo, sobre los pagos que Kepler ya saldó; y el par pago ↔ comprobante (importe + CLABE) y pago en efectivo ↔ salida de ventanilla | ⬜ |
+| `[PGP.103]` | C1 | Regla pura `validacionDelPago`: `sin_movimiento · falta_comprobante · comprobante_sin_movimiento · discrepa · validado` (efectivo: `sin_salida_ventanilla · validado`). Lo no medible se declara | ⬜ |
+| `[PGP.104]` | C2+C3 | El día trae la validación por pago; el botón «Pagado» se retira: el estado sale de la evidencia. Lo que falta se dice con su nombre (sigue la línea de `[PGP.100]`) | ⬜ |
+| `[PGP.105]` | C2+C3 | **Ensayo**: por cada pago validado y que Kepler no tenga ya, el X-D-26 exacto que se escribiría (armador `[PGP.71]`), con «Aprobar» | 🧪 en código: `GET allocations/:id/ensayo-kepler` + «Ver cómo quedaría en Kepler» en el desglose. Línea base abajo: 0 de 51 coinciden |
+| `[PGP.106]` | C2 | **Escribir**: reclamar el pago de forma atómica (`kepler_payment_folio`) antes de escribir, revisar que Kepler no lo tenga ya capturado a mano, escribir las **8 tablas** (falta `kdm5` y la póliza `kdc2AAMM` en el armador) | ⚠️ espera el GRANT de quien administra Kepler (INSERT `kdxe`/`kdxf`, UPDATE `kdxe.c20`, …) y la lista completa de tablas (`ops/prod/ensayo-pago-kepler/foto-contadores.js`) |
+
+⛔ Escribir en Kepler no se deshace: `[PGP.106]` no se enciende sin el ensayo de `[PGP.105]` en verde
+durante 2 semanas contra lo que Tesorería capturó a mano.
+
+---
+
+## El cierre contable del pago: escribirlo en Kepler y armar la póliza de egreso de ContPAQi (2026-11-09)
+
+> *«Documenta esto, y que podamos generar la póliza de egreso automáticamente identificando PPD o
+> PUE, además empatando con la factura del gasto, para que se escriba el gasto en Kepler y la póliza
+> de ContPAQi.»* — Edgar, 2026-11-09.
+
+**El flujo completo, de punta a punta.** Lo de arriba de la línea ya existe; lo de abajo es lo que
+este apartado diseña:
+
+```
+Armar el día → forma de pago → Dirección autoriza → se paga en el banco
+  → VALIDAR: salida del estado de cuenta + comprobante          [PGP.103/104] 🔨 en código
+  → «Pagado» (sólo si validó)                                   [PGP.104]
+─────────────────────────────────────────────────────────────────────────────────────────────
+  → guardar QUÉ salida y QUÉ comprobante lo probaron            [PGP.107]
+  → cada factura del pago ↔ su CFDI (PUE o PPD)                 [PGP.108]
+  → KEPLER: el X-D-26 + su póliza interna (kdc2AAMM)            [PGP.105/106]
+  → CONTPAQI: la póliza de egreso, en el TXT del día            [PGP.109/112] (ADR-040: la importa una persona)
+  → PPD: cuando llega el REP del proveedor, se asocia           [PGP.110]
+```
+
+### Lo que ya quedó hecho hoy
+
+- **Los permisos de Kepler para escribir el pago** (`ops/prod/kepler-grants/pgp106_pago_proveedor.sql`):
+  aplicados y comprobados en **CEDIS** el 2026-11-09, desde `md` como `postgres` (runbook
+  `KEPLER_PUSH_DESPLIEGUE.md` §14.2). `kepler_push` ya puede insertar en `kdm1 kdm5 kdxe kdxf` y en la
+  póliza del mes (`kdc22611`, `kdc22612`), actualizar `kdxg`, `kdc126` y sólo `kdxe.c20`; no puede borrar
+  nada. ⚠️ Volver a correrlo cuando exista la tabla de enero (`kdc22701`).
+- **La validación banco + comprobante** (`[PGP.103]`/`[PGP.104]`): «Pagado» sólo con la salida del banco
+  y su comprobante; el candado de Kepler (`motivosParaNoEscribir`) la exige.
+
+### Lo que ya existe y se reutiliza (ADR-056: no se inventa otro primitivo)
+
+| Pieza | Dónde | Qué hace |
+|---|---|---|
+| Asiento del pago a proveedor | `libs/finance/src/lib/contpaqi/pago-proveedor.ts` (`armarPagoProveedorCompleto`) | 2120+sufijo / banco, traspaso de IVA 1470040000 → 1060000000 e IEPS 1470110000 → 1470100000, notas de crédito, redondeo < $1. Puro; reproduce 1,051 de 1,142 pólizas reales (su propia prueba) |
+| Asiento de gasto con factura | `contpaqi/gasto-con-factura.ts` | gasto 52xx + IVA del CFDI + banco. ⚠️ rechaza facturas con retención |
+| El archivo de ContPAQi | `purchase-book/poliza-txt.ts` + `txt-sink.adapter.ts` | TXT con renglones `P`/`M`/`AD` (el `AD` lleva el UUID). Devuelve `entregada`, nunca `aplicada` (ADR-040) |
+| Pareo pago ↔ facturas ↔ CFDI | `contpaqi/pago-proveedor.fuente.ts` | parte del banco, encuentra el X-D de Kepler y sigue `kdxf` hasta el CFDI. ⛔ necesita que el X-D ya exista en Kepler |
+| Confirmación manual de facturas | `contpaqi.pago_confirmaciones` | lo ambiguo lo decide una persona |
+| PUE/PPD con REP | DIOT y conciliación (`ppd_sin_rep`) | ya distinguen PPD sin REP |
+| El pago en Kepler | `payment-calendar/kepler-pago/` | arma el X-D-26; escribe 4 de las 8 escrituras; apagado y sin conectar |
+
+### Lo medido (prod, sólo lectura, 2026-11-09)
+
+| Qué | Cifra | Qué significa |
+|---|---|---|
+| CFDI recibidos con `metodo_pago` | **100 %** (~1,200 facturas al mes, al día) | PUE/PPD se sabe siempre |
+| PUE vs PPD | por número 44 % / 56 %; **por dinero 9 % / 91 %** | casi todo el dinero es PPD: el REP manda |
+| Factura del Calendario ↔ CFDI único, por el documento de Kepler (`kdxe` + RFC + total ±$1 + fecha ±45 días) | **67.5 % de los renglones, 70 % del dinero**; control negativo (importe corrido) 0.3 % | se puede ligar sola; el resto lo decide una persona (32 con varios candidatos, 58 sin CFDI, 17 sin RFC) |
+| … por el camino que usa hoy la pantalla (`v_payable_evidence`) | 13 % | ese camino pierde justo las ya pagadas |
+| De las ligadas, PPD | 96 % | |
+| PPD con al menos un REP (ene–ago) | 89 % de las facturas, 92 % del dinero | el proveedor sí lo emite… |
+| Días del pago al REP | mediana 3.5, p80 13, **p90 24** | …pero **después** de pagar: al pagar, el REP todavía no existe |
+| Espejo de REP (`contpaqi_ods.add_pagos`) | **detenido desde el 30-oct**; fue una carga inicial, no un carril vivo | sin carril vivo no hay REP que asociar |
+| Lo que hace hoy la contadora | 66 % de sus pólizas de egreso llevan la factura; **40 % el REP asociado** | la póliza se arma al pagar y el REP se asocia después |
+| Cuenta contable del proveedor de mercancía | 256 de 257 | alcanza |
+| Cuenta contable de los gastos | **0 de 51** (`contpaqi.account_rules` sin `cuenta_gasto`) | no se puede armar un gasto sin que alguien la defina |
+| Cuenta contable de los bancos | 18 de 20 | casi |
+| Pólizas exportadas a ContPAQi | **0** (`contpaqi.poliza_exports`) | el puente nunca ha entregado un archivo real |
+| Pagos del Calendario marcados pagados | **0** (36 días en borrador) | el evento «pagado» todavía no existe |
+
+⚠️ `finance.gl_supplier_accounts` (929 cuentas de proveedor) viene de un Excel (`libro_compras_xlsx`):
+revisarla contra la regla 1 antes de usarla; `contpaqi.supplier_accounts` confirmadas son 421.
+
+### La regla PUE / PPD (lo que decide el asiento)
+
+| Factura | En el pago | Después |
+|---|---|---|
+| **PUE** | asiento completo: proveedor (2120) / banco, y el IVA pasa de *por acreditar* a *acreditable* por lo pagado; el renglón `AD` lleva el UUID de la factura | nada |
+| **PPD** | el MISMO asiento, con el IVA **proporcional a lo que se pagó** (la parcialidad: 105 renglones del Calendario pagan menos que el documento); la póliza queda **«espera REP»** | cuando el REP del proveedor aparece (`add_pagos_doc_rel`: su `IdDocumento` = UUID de la factura), se asocia a la póliza (`AD` del REP). Si a los ~30 días no llega, se avisa a Cuentas por Pagar para pedirlo: sin REP el IVA no es acreditable |
+
+Hoy el traspaso de IVA lo decide otra regla (la provisión: $20 mil / mes anterior), no `metodo_pago`.
+Que el método decida es el cambio de `[PGP.109]`, y **la regla contable la confirma la contadora (P1)**.
+
+### Items
+
+| Item | Capa | Qué | Estado |
+|---|---|---|---|
+| `[PGP.107]` | C0 | **El evento «pagado» con su evidencia**: al marcar Pagado (ya validado) se guardan en el pago la salida del banco y el comprobante que lo probaron (columnas nuevas en `finance.payment_allocations`, nullables; regla 14: recorrer todos los caminos que la tocan). Sin esto ni Kepler ni ContPAQi saben fecha, cuenta e importe reales | ⬜ |
+| `[PGP.108]` | C0+C1 | **Cada factura del pago ↔ su CFDI**, por el documento de Kepler (RFC + total ±$1 + fecha ±45 días): 70 % del dinero único, control 0.3 %. Varios candidatos o ninguno → una persona elige (`contpaqi.pago_confirmaciones`). Con `metodo_pago`, `forma_pago`, IVA/IEPS y retenciones del CFDI | ⬜ |
+| `[PGP.109]` | C1 | **La regla PUE/PPD en el asiento**, sobre `armarPagoProveedorCompleto` (no un armador nuevo): PUE completo; PPD proporcional a la parcialidad + estado «espera REP». Pruebas con pólizas reales de la contadora como testigo | ⬜ espera P1 |
+| `[PGP.110]` | C0 | **Carril vivo de REP**: `contpaqi_ods.add_pagos` / `add_pagos_doc_rel` detenido desde el 30-oct. Sin él, ningún PPD se completa. Y la asociación del REP a la póliza ya emitida | ⚠️ investigado 2026-11-10 (ver «El carril de REP» abajo): espera la D15 de Edgar, extender el replicador y una corrida en `feeds-cron` de md |
+| `[PGP.111]` | C1 | **Gastos**: la cuenta contable de cada proveedor de gasto (hoy 0 de 51) se PREGUNTA en el sistema como parámetro (dueño: la contadora), y las retenciones (honorarios, arrendamiento) que hoy se rechazan | ⬜ espera P3 |
+| `[PGP.112]` | C2+C3 | **Al quedar «Pagado»**: la póliza entra al TXT del día (`txt-sink`, ADR-040: la importa una persona y la Suite lee el cuadre de vuelta de `gl_polizas`); en pantalla, el pago dice «póliza armada · espera REP · entregada» | ⬜ |
+| `[PGP.106]` | C2 | **Kepler**: el X-D-26 con sus 8 escrituras — incluida la **póliza interna de Kepler** (`kdc2AAMM`) y los acumulados contables (`kdxg`, `kdc126`). Permisos ✅ en CEDIS; faltan en el adaptador `kdm5`, `kdxg`, `kdc2AAMM`, `kdc126` | ⚠️ falta la foto de una captura real de Tesorería (`foto-contadores.js`) |
+
+### Decisiones (de Edgar y de la contadora)
+
+| # | Pregunta | Recomendación |
+|---|---|---|
+| P1 | En PPD, ¿el IVA pasa a acreditable **al pagar** (y el REP se asocia después) o **hasta que llega el REP**? | Al pagar, proporcional a lo pagado, con el REP asociado después: es lo que hoy hace la contadora (40 % de sus pólizas ya llevan el REP asociado) y el REP llega en p90 24 días |
+| P2 | ¿Cada cuánto se entrega el TXT a ContPAQi? | Uno por día, con los pagos que quedaron «Pagado»; lo importa la contadora (ADR-040: la Suite nunca escribe directo en ContPAQi) |
+| P3 | ¿Quién define la cuenta contable de cada proveedor de gasto? | La contadora, contestándola en el sistema (una pregunta por proveedor, como parámetro); mientras no esté, el gasto no se arma y se dice por qué |
+| P4 | El mismo pago queda en DOS contabilidades: la póliza interna de Kepler (`kdc2AAMM`, la escribe la Suite con el X-D-26) y la de ContPAQi (el TXT). ¿Las dos? | Sí: Kepler necesita la suya para cuadrar su balanza; ContPAQi es el sistema de registro contable (ADR-040). Se comparan por UUID e importe |
+| P5 | ¿Se pregunta al proveedor de Kepler por su motor de documentos (`kdmx_26` / `k_docXml`)? | Sí, antes de escribir la póliza de Kepler a mano: si existe, Kepler arma su propia contabilidad y la Suite no la reproduce |
+
+⛔ **Orden:** `[PGP.107]` y `[PGP.108]` primero (sin ellos no hay qué contabilizar); `[PGP.110]` en
+paralelo (es infraestructura); `[PGP.109]`/`[PGP.111]` cuando la contadora conteste P1 y P3;
+`[PGP.112]` y `[PGP.106]` al final. Nada se enciende sin su ensayo.
+
+### `[PGP.105]` El ensayo, medido con el código real (prod, sólo lectura, 2026-11-10)
+
+120 pagos del Calendario de los últimos 25 días; **51 ya los capturó Tesorería a mano** en Kepler (el
+cierre los encuentra por `kdxf`). Contra esos 51, lo que la Suite habría escrito:
+
+| Resultado | Pagos | Qué significa |
+|---|---:|---|
+| No se pudo armar | 15 | facturas sin concepto (`kdxe.c18` vacío), conceptos distintos en un pago, o acreedor que no es de compra (`G…`) |
+| Armado, **difiere SÓLO en la cuenta de tesorería** | 18 | el pago no traía cuenta de origen: con la cuenta preparada, coincidirían |
+| Armado, difiere en el **concepto** | 13 | ⚠️ la regla «concepto = el de la factura» no es la que usa Tesorería en 13 de 36: hay que decodificarla antes de escribir |
+| Difiere en importe, IVA/IEPS o en una factura | ~10 | casos a revisar uno por uno |
+| **Coincide en todo** | **0** | el ensayo NO está en verde |
+
+Tiempo: p50 319 ms, máximo 537 ms (se pide a demanda, un pago a la vez). **Lo que decide encender
+`[PGP.106]`:** (1) que Tesorería prepare la cuenta de origen (sin ella, 109 de 120 no se pueden armar);
+(2) decodificar el concepto (`c12`) que captura Tesorería; (3) dos semanas con «coincide» en todo.
+
+### `[PGP.110]` El carril de REP (investigado 2026-11-10, sólo lectura)
+
+- `contpaqi_ods` **no es una réplica lógica**: lo llena `database/importers/contpaqi/replicate-contpaqi.js` (excepción
+  autorizada, ADR-111), que **corrió UNA vez a mano** el 2026-10-30 en el pod `feeds-cron` de md. Su sincronía
+  sigue comentada en `ops/vl/crontab.feeds` esperando la **D15** (la contraseña del SQL Server de ContPAQi en
+  `/secrets/feeds.env`, regla 7).
+- ⛔ **Encender la D15 no basta:** `add_pagos` (102,581 filas) y `add_pagos_doc_rel` (151,920) no tienen llave entera y
+  pasan de 100 mil filas, así que el sincronizador las deja «sin carril». Hay que extender el replicador (CP.9.6,
+  previsto en ADR-111) para recopiar por la marca de tiempo del ADD las filas de los documentos que cambiaron.
+- La otra fuente (descarga masiva del SAT) también está parada desde el 27-oct.
+- Facturas PPD recibidas con su REP en la réplica: septiembre 275 de 574 · octubre 71 de 686 · noviembre 0 de 165.
+- **El camino sin copiar (regla 1):** una vista sobre `contpaqi_ods` (`add_comprobante` tipo P + `add_pagos` +
+  `add_pagos_doc_rel`, cuyo `iddocumento` es el UUID de la factura), con `fiscal.cfdi_payment_links` como segundo
+  testigo. Agregar el tipo P al importer de CFDI no sirve: sólo lee la cabecera, no qué facturas paga.
+- **Quién:** la D15 la decide Edgar; ponerse al día (`replicate-contpaqi.js --apply --solo=add --tabla=Pagos`, luego
+  `Pagos_Doc_Rel`, `Comprobante`, `Documento`) se corre en `feeds-cron` de md **fuera de horario** (borra e inserta
+  sin transacción; `Comprobante` tiene 629 mil filas).
+
+### El concepto del `X-D-26` (`kdm1.c12`): qué pone Tesorería (prod, sólo lectura, 2026-11-10)
+
+El ensayo `[PGP.105]` difería en el concepto en 13 de 36 pagos. Medido sobre **1,389 `X-D-26` a proveedores de
+compra (`C…`) de CEDIS en 120 días**, contra el concepto de la factura que saldan (`kdxe.c18`, catálogo `kdxv`:
+`C-001` = «COMPRA PROVEEDOR CEDIS», `C-002` = Padre Hidalgo, … `007` = «GASTOS GENERALES»):
+
+| Facturas del pago | Lo que pone Tesorería | Coincide con «el concepto de la factura» |
+|---|---|---|
+| De compra (`20-1`), un solo concepto | ese concepto | **1,152 de 1,288 (89 %)**; con un solo concepto en el pago, 93 % |
+| De gasto (`10-1`) | `007` GASTOS GENERALES | 40 de 43 (la factura no trae concepto) |
+| De compra con conceptos de varias sucursales | `C-001` en 61 de 95 (64 %); el de mayor monto, 45 de 95 | hoy el armador los rechaza |
+| «El mismo concepto que el pago anterior al acreedor» | — | 58 %: no es la regla |
+
+**Lo que sigue:** la regla del armador (el concepto de la factura) es la de Tesorería en el 89–93 %; el resto
+son capturas que cargan la compra a otra sucursal (16 veces `C-001` donde la factura dice `C-002`) o gastos
+pagados a acreedores `C…` (`007`). Para el pago con varios conceptos, Kepler ya admite **una transferencia
+como varios `X-D-26`, uno por sucursal** (medido en `[PGP.97]`): la Suite debe partirlo así, no forzar `C-001`.
+
+| # | Decisión | Recomendación |
+|---|---|---|
+| P6 | El concepto del pago: ¿manda la factura o lo que Tesorería elige? | Manda la factura (carga la compra a la sucursal que la recibió); las diferencias de Tesorería se ven en el ensayo |
+| P7 | Pago con facturas de varias sucursales | Un `X-D-26` por concepto (sucursal), como Kepler ya lo hace a veces; no `C-001` para todo |
+| P8 | Facturas de gasto (`10-1`) de acreedores `C…` | Concepto `007` (40 de 43); fuera del alcance de D2 hasta que Contabilidad lo confirme |
+
+### `[PGP.110]` La vista de REP (`analytics.v_rep_de_factura`, migración `20261110092158`)
+
+Una fila por (REP × factura pagada), derivada de `contpaqi_ods` (`add_pagos_doc_rel` + `add_pagos` + `add_comprobante`
++ `add_documento`): UUID de la factura y del REP, parcialidad, saldo anterior, pagado, saldo insoluto, fecha del
+pago y cancelación (`canceldate`, sin interpretar su texto). Índice nuevo por `upper(iddocumento)`.
+**Ejercida en prod (sólo lectura):** 154,874 filas = 154,874 ligas (ningún cruce multiplica); de 1,343 facturas PPD
+recibidas de agosto–septiembre, **799 tienen su REP vigente** en la réplica. ⛔ La réplica está detenida desde el
+30-oct: lo posterior no aparece hasta revivir el carril (D15 + extender el replicador).
+
+### ✅ P1 decidida (Contabilidad, vía Edgar, 2026-11-10): **PUE al pagar, PPD cuando llega el REP**
+
+> *«Cuando es por PPD, hasta que se genera el REP; si es PUE se genera al pagar.»*
+
+La póliza de egreso de una factura **PUE** se genera en cuanto el pago queda «Pagado» (validado con banco y
+comprobante). La de una factura **PPD** espera el REP del proveedor y se genera con él asociado. Reemplaza la
+recomendación anterior de P1 (IVA proporcional al pagar).
+
+`[PGP.109]` 🧪 en código: regla pura `polizaEgresoDelPago` (`libs/contracts/src/finance/momento-poliza.contract.ts`):
+por factura `pue` · `con_rep` (REP vigente de esa factura que pagó lo aplicado ±$1, ±10 días de la salida del banco)
+· `espera_rep` · `sin_cfdi` · `sin_metodo` · `no_medido`; el pago queda `lista`, `espera_rep` o el bloqueo que
+mande. La lectura (`rep-de-factura.sql.ts`) usa `analytics.v_rep_de_factura`; ⛔ si la réplica no llega al día del
+pago (hoy: detenida desde el 30-oct), un PPD sin REP es **«sin medir»**, nunca «espera REP» afirmado. En pantalla,
+junto a la validación de cada pago marcado «Pagado». 8 pruebas (mutante «sin filtrar los REP cancelados»: rojo).
+
+⛔ **La consecuencia que manda el orden:** por dinero, el 91 % es PPD. Sin el carril de REP vivo (D15 + extender el
+replicador, `[PGP.110]`), esas pólizas no se pueden generar. Es lo primero que destraba el cierre contable.
+
+### `[PGP.110]` El replicador sigue la marca del ADD (CP.9.6 de ADR-111) — 🔨 en código, NO ejercido
+
+`database/importers/contpaqi/replicate-contpaqi.js --add-por-marca`: por cada repositorio del ADD toma la última marca
+que tiene la réplica (`add_documento.timestamp`) menos `--margen-dias` (2), le pregunta al origen qué documentos tienen
+`Documento.Timestamp` ≥ esa marca (~250 al día en el principal) y, por lotes de 500 documentos y en UNA transacción
+cada uno, borra y vuelve a copiar **todas** sus filas en las tablas que cuelgan de `GuidDocument` (comprobante,
+conceptos, impuestos, CFDI relacionados, `Pagos`, `Pagos_Doc_Rel`, `TotalPagos`…; fuera las bitácoras `MigradorLog`,
+`TimbreTemp`, `MetadataDuplicados`). Cuadre al final: documentos con esa marca en el origen = en la réplica, o lo dice.
+Latido opcional (`--latido=contpaqi_replica_add_marca`). Su línea del cron está **comentada** junto a las de la
+réplica (`ops/vl/crontab.feeds`), esperando la D15.
+
+⚠️ Declarado: un documento BORRADO del ADD sigue en la réplica, y un cambio que no mueve `Documento.Timestamp` no se ve.
+⚠️ Es un sondeo cada 15 min, no un evento: SQL Server de ContPAQi no avisa; mismo patrón que la réplica aprobada en ADR-111.
+
+**NO MEDIDO:** no corrió nunca (falta la contraseña, D15). Primera corrida, en el pod `feeds-cron` de md, **en seco**:
+
+```
+CONTPAQI_SQL_PASSWORD=… node /app/database/importers/contpaqi/replicate-contpaqi.js --add-por-marca
+```
+
+Dice cuántos documentos recopiaría desde el 2026-10-28 (la marca de la réplica menos 2 días). Con eso bien: el mismo
+comando con `--apply` (fuera de horario la primera vez: ~10 días de documentos), y después descomentar su línea del
+cron con su umbral en `CRON_JOBS`.
+
+### ✅ P3, P6, P7 y P8 decididas (Edgar, 2026-11-10: «hagamos lo que recomiendas, menos la D15»)
+
+| # | Decisión | En código |
+|---|---|---|
+| P6 | **El concepto del `X-D-26` lo decide la factura** (`kdxe.c18`: carga la compra a la sucursal que la recibió) | `conceptoDeFactura` — era la regla del armador; ahora es decisión |
+| P7 | **Un pago con facturas de varias sucursales sale como un `X-D-26` por concepto**, para la misma transferencia | `armarPagosKepler` 🧪: cada documento con el importe de sus facturas y la misma referencia; si una parte no se arma, no se arma ninguna (mutante: rojo). ⚠️ El adaptador (`[PGP.106]`) todavía escribe UN documento: escribir varios es parte de encenderlo |
+| P8 | **Factura de gasto (`10-1`) sin concepto → `007` «Gastos generales»**, como lo hace Tesorería (40 de 43) | `CONCEPTO_GASTOS_GENERALES` 🧪; el ensayo lo AVISA («pendiente de que Contabilidad lo confirme») sin detener |
+| P3 | **La cuenta contable de cada proveedor de gasto la define la contadora, en el sistema** | El lugar ya existe: Contabilidad › Puente ContPAQi (firma de reglas `[CP.8.51]` y cuentas de proveedor por alias). ⬜ `[PGP.111b]`: la firma hoy es por CATEGORÍA del movimiento bancario, no por proveedor de gasto (0 de 51 renglones de gasto del Calendario con cuenta): falta la firma por proveedor en esa misma pantalla, y que el Calendario diga «falta la cuenta contable» con la liga ahí |
+
+**El ensayo después de P7/P8** (código real, prod, sólo lectura, 2026-11-10; 51 pagos que Tesorería capturó a mano):
+no se pudieron armar **10** (antes 15); 18 difieren sólo en la cuenta (el pago no traía cuenta de origen); varias
+diferencias ahora se leen como lo que son: «Tesorería capturó el X-D-26 … con concepto C-001 que la Suite no
+escribiría» — con P6/P7, ahí la Suite sigue la regla y la captura manual se desvía. **Criterio del «verde» de F3,
+ajustado:** coinciden en todo lo MECÁNICO (acreedor, importe, IVA/IEPS, lo aplicado por factura); las diferencias que
+explican P6/P7 o la falta de cuenta de origen se cuentan aparte. p50 281 ms.
+
+### `[PGP.111b]` P3: la cuenta de gasto ya la definió Contabilidad — se reusa (🧪 2026-11-10)
+
+El «0 de 51 gastos con cuenta» de la medición anterior venía de las reglas POR CATEGORÍA (`contpaqi.account_rules`),
+que no aplican a un gasto pagado por proveedor. Para ésos la regla ya existía en el puente de ContPAQi (`[CP.8.87]`):
+**la cuenta 52 que la contadora usó MÁS con ese RFC** (93 %, placebo 9 %). Se sacó a una función pura,
+`cuentaGastoMasUsada` (`libs/finance/src/lib/contpaqi/gasto-con-factura.ts`), que ahora usan las dos: la póliza
+(`FuentePagoProveedor`, 199 pruebas del puente siguen verdes) y el Calendario (`cuenta-gasto.sql.ts`). Una regla, dos
+lectores (ADR-056).
+
+**Medido con el código real (prod, sólo lectura):** de 21 RFC de gasto del Calendario (60 días), **19 con cuenta
+derivada** y 2 sin historia; la réplica (`v_contpaqi_cfdi_poliza`) da **la misma cuenta en los 18** RFC que tienen las
+dos fuentes. 268–398 ms para 21 RFC (sólo se lee en días autorizados o que ya llegaron, y sólo pagos de gasto).
+
+En pantalla, en el desglose del pago de gasto: «Cuenta de gasto: 5200590000 LUZ Y FUERZA — la que Contabilidad usó
+64 de 127 veces con este proveedor; no siempre la carga igual: confírmala» (con la mitad o menos se pide confirmar);
+sin historia: «Falta la cuenta de gasto… La define Contabilidad». Sin cuenta, la póliza dice `sin_cuenta_gasto`.
+
+⬜ Lo que falta de P3: dónde la FIRMA Contabilidad cuando no hay historia (o cuando la más usada no es segura, como
+CFE con 64 de 127). El Puente ContPAQi firma por categoría, no por proveedor: no se pone una liga ahí hasta que permita
+firmar por proveedor (un enlace afirma que el destino lo permite).
+
+### `[PGP.111c]` Contabilidad firma la cuenta de gasto por proveedor, en el Puente ContPAQi (🧪 2026-11-10)
+
+Cierra P3. **Dónde:** Contabilidad › Puente ContPAQi, paso «Reglas de cuenta», bloque «Y la de cada proveedor de
+gasto» (el mismo lugar donde ya firma la cuenta por categoría; mismo permiso `FISCAL_CONTPAQI_BRIDGE_GESTIONAR`, mismo
+catálogo de cuentas 52, la pista sin preselección como `[CP.8.51]`). Lista los proveedores de gasto del Calendario
+(90 días): primero los que **necesitan** firma (sin historia, o una cuenta que usó la mitad de las veces o menos),
+por dinero; los que ya tienen cuenta, a un clic.
+
+- Tabla nueva `contpaqi.supplier_expense_accounts` (migración `20261110102907`): una firma activa por RFC, cuenta 52
+  de 10 dígitos (CHECK), autor obligatorio, RLS forzada + `tenant_id` + auditoría; re-firmar desactiva la anterior.
+  ⛔ Va en prod ANTES del código (los lectores la buscan; si no existe, siguen con lo derivado y no truenan).
+- **La firma le gana a la derivada en los DOS lectores:** la póliza de gasto (`FuentePagoProveedor.cuentaGastoDe`) y el
+  Calendario (`leerCuentasGasto` → estado `firmada`, «firmada por …»).
+- Endpoints: `GET finance/contpaqi/cuentas-gasto-proveedor` (`_VER`), `POST …/:rfc/firma` y `POST …/:rfc/quitar`
+  (`_GESTIONAR`, con autor; rechazo con su motivo → 409).
+
+**Medido con el código real (prod, sólo lectura):** 21 proveedores de gasto, **2 necesitan firma** (sin historia);
+19 ya tienen cuenta derivada. La lista en UNA consulta tardaba **13 s**; en pasos, con las MISMAS consultas del CFDI
+del Calendario (`SQL_DOCUMENTOS_KEPLER`, `SQL_RFC_DE_ACREEDORES`), **~550 ms** — se pide aparte y no frena el paso;
+sigue arriba de 500 ms: declarado.
+
+**Pruebas:** `cuenta-gasto-proveedor.it.spec.ts` contra Postgres real en transacción revertida (job de integración del
+CI): rechazos (banco, baja, inexistente, RFC inválido, sin autor), firmar → `firmada`, re-firmar → una activa y el
+historial, quitar → «sin historia» y quitar dos veces se rechaza. NO MEDIDO: el RLS en esa prueba (corre como
+superusuario; la migración lo verifica al aplicarse) y el arranque de Nest (rutas nuevas, sin cambio de constructor:
+lo prueba `boot-api`). La suite no va a `run-all-tests.js` porque ese archivo trae cambios de otra sesión en el índice.
+
+### `[PGP.113]`–`[PGP.114]` Rediseño: cada pago avanza solo (Edgar, 2026-11-10)
+
+Pedido: *«haremos una a una, así que necesito se rediseñe el módulo»*. Confirmado con Edgar entre tres lecturas
+(cada pago avanza solo · cada factura es un pago · las dos): **cada pago se prepara, se autoriza, se paga, se valida y
+va a Kepler por su cuenta; el día queda sólo como fecha y tope.**
+
+#### El análisis antes de la interfaz (los 12 pasos de `diseno` §0a)
+
+1. **Propósito.** Que cada pago salga autorizado, por la cuenta correcta, con su prueba, y quede registrado en
+   Kepler. La frase: **«¿qué pagos esperan algo de mí?»**
+2. **Quién entra.** Dirección arma y autoriza; Tesorería prepara y paga; Tesorería/Contabilidad registran en Kepler.
+   Uso de 14 días (`analytics.ui_usage`): `obligations` 2,309 · `weeks` 1,107 · reordenar 269 **(61 con error, 23 %)** ·
+   preparar 20 · autorizar el día **0** · marcar pagado **0**.
+3. **El estado real** (prod, sólo lectura, código real del cierre de Kepler):
+
+   | De los 173 pagos vivos ($38.7 M) | Pagos | Monto |
+   |---|---:|---:|
+   | Kepler ya los pagó (Tesorería los capturó a mano) y en la Suite siguen «pendientes» | 56 | $9.8 M |
+   | Kepler los pagó en parte | 17 | $7.0 M |
+   | esperan su forma de pago (50 de días que ya pasaron) | 97 | $21.4 M |
+   | preparados, esperan autorización | 3 | $0.5 M |
+
+   37 días armados, **los 37 en borrador: ningún día se autorizó nunca**. ⭐ El cuello: un día sólo se autorizaba
+   con TODOS sus pagos preparados y ordenados; un pago sin preparar frenaba a los demás, y ordenar fallaba 1 de 4.
+4. **Qué ve, en qué orden (nivel 0).** La tira de etapas con su cuenta (Por preparar · Por autorizar · Por pagar ·
+   Por registrar en Kepler · Pagados; Rebotaron sólo si hay), abierta en la que tiene trabajo (quien autoriza abre en
+   «Por autorizar»); una frase con lo que pasa en esa etapa; la tabla de esa etapa con pagos de **todos los días**,
+   un renglón por pago con **su UNA acción** (Preparar · Autorizar · Pagado · Mover).
+5. **Qué no ve.** El avance del día en 5 pasos (era del día, no del pago) · «Autorizar el día» · el orden por
+   arrastre (sólo servía para liberar el día; 23 % de error) · «Cerrar el día». La semana, el tope, la propuesta,
+   el pronto pago y agregar facturas siguen, en la vista «Por día» (es donde se ARMA).
+6. **Mapa de desglose.**
+
+   | Cifra / pieza | Se abre en | Qué contiene | Fuente |
+   |---|---|---|---|
+   | cuenta de una etapa | la tabla de esa etapa | sus pagos, de todos los días | `GET bandeja` (nuevo) |
+   | «N de días que ya pasaron» | la misma tabla, ordenada por día | cada pago con «hace N días» y «Mover» | `bandeja` |
+   | un pago | su desglose en la fila (el mismo de hoy) | por qué hoy, Kepler, banco, CFDI, póliza, cuenta de gasto, ensayo, facturas | `bandeja` = `armarFilas` |
+   | una factura | su archivo · su ficha | PDF/foto · documento de Kepler | `evidencia` · `entity-inspector` |
+   | el día de un pago | la vista «Por día» en ese día | su tope, sus otros pagos, agregar | `weeks/:date` |
+
+7. **Accesibilidad.** Pagos por nombre de proveedor y sucursal; buscar por proveedor, folio, referencia o importe
+   (`filtrarPorBusqueda`, sin acentos y en cualquier orden); cada etapa con palabra, no con color; teclado completo.
+8. **Ligas.** Presupuestos (el tope se cuida al autorizar), banco + comprobante (la validación habilita «Pagado»),
+   Kepler (el cierre por `kdxf`), ContPAQi (la póliza). Ninguna liga nueva rota.
+9. **¿Le toca a esta pantalla?** Sí, el ciclo entero del pago. El tope lo fija Presupuestos; el catálogo de cuentas
+   y la firma de la cuenta de gasto viven en sus pantallas.
+10. **Maqueta.**
+
+    ```
+    Pagos                                        [Por etapa | Por día]      [Buscar  /]
+    Por preparar 97 · Por autorizar 3 · Por pagar 0 · Por registrar en Kepler 0 · Pagados 56
+    ──────────────────────────────────────────────────────────────────────────────────────
+    97 pagos esperan su forma de pago ($21.4 M). 50 son de días que ya pasaron: muévelos.
+    Los 47 sin preparar: Método [historial ▾]  Sale de [BBVA 6721 ▾]  [Aplicar a los 47]
+    ›  Día              A quién                 Importe    Por qué        Cómo sale        [acción]
+    ›  lu 19 oct ·22d   Proveedor A · Morelia   $412,300   vencida…       falta método     [Mover]
+    ›  lu 16 nov        Proveedor B · CEDIS     $155,000   gana $3,100    falta destino    [Preparar]
+    ```
+11. **Criterios de aceptación.** Ningún pago frena a otro (se autoriza uno con otros del día sin preparar: probado en
+    `payment-calendar.it.spec.ts`) · autorizar = 2 clics (Autorizar → confirmar) · la etapa «Por preparar» no cuenta lo
+    que Kepler ya pagó · la bandeja < 500 ms (**hoy ~0.9–1.0 s: NO cumple**, ver abajo).
+12. **Lo que la interfaz NO resuelve.**
+    - **56 pagos que Kepler ya pagó siguen «pendientes» en la Suite**: marcarlos pagados falla porque Kepler ya no
+      debe la factura. La bandeja los pone en «Pagados» (con «lo registró Kepler; la Suite no lo marcó»), pero siguen
+      apartando el saldo de sus facturas. Falta cerrarlos desde la Suite (`[PGP.115]`).
+    - **Quien autoriza puede ser quien armó**: la Suite no lo impide (igual que con el día). Decisión de Edgar.
+    - **La bandeja tarda ~0.9–1.0 s** (medido con el código real): 430 ms son de `analytics.v_supplier_payables`, que
+      agrega todo antes de filtrar (filtrar por llave natural no baja nada: medido) y que hoy ya paga cada día de la
+      semana. Optimizarla cambia de dónde salen las etiquetas: va aparte, con su comparación antes/después (regla 15).
+    - La escritura del `X-D-26` en Kepler sigue apagada (`[PGP.106]`).
+
+#### `[PGP.113]` Se autoriza el PAGO, no el día (C1+C2, 🧪 2026-11-10, commit `e25940c47`)
+
+- Migración `20261110141406`: `authorized_by` / `authorized_at` en `finance.payment_allocations` (nullables).
+  ⛔ Va en prod ANTES del código.
+- `POST allocations/:id/autorizar` (`FINANCE_PAYMENT_CALENDAR_AUTORIZAR`): preparado, su día con tope y que **quepa**
+  (lo autorizado + pagado del día + éste ≤ tope; el lote se bloquea `FOR UPDATE` para que dos autorizaciones a la vez
+  no quepan las dos), Kepler todavía debe sus facturas. Folio `AAMMDD-01-NN`. Ya **no** exige orden.
+- `POST allocations/:id/quitar-autorizacion`: mientras no esté pagado; queda en sus notas quién y por qué.
+- Un pago autorizado queda **congelado** (preparar, sumar/quitar facturas y descuento se rechazan).
+- Marcar pagado exige el **pago** autorizado (o su día autorizado completo, regla vieja). Reprogramar: el pago nuevo
+  nace sin autorizar (cambió su día y su tope).
+- `GET bandeja`: pendientes y rebotados de cualquier día + pagados de 30 días; los MISMOS renglones que el día
+  (`armarFilas` salió de `listDayAllocations`). Medido en prod: 173 pagos; el día 16-nov da los mismos renglones por
+  las dos vías.
+- Pruebas: 10 casos nuevos en `payment-calendar.it.spec.ts` (job de integración del CI). NO MEDIDO local: no hay base
+  local en esta máquina.
+
+#### `[PGP.114]` La pantalla por etapa (C3, 🧪 2026-11-10, sin validación visual)
+
+- **Entra por la etapa**, no por el día: `Por etapa | Por día` arriba; la tira de etapas con su cuenta (sin bandeja no
+  dibuja cero); una frase por etapa (qué pasa y qué se hace); la tabla de esa etapa con pagos de todos los días, el
+  día de cada pago en la primera columna (abre ese día) y «hace N días» si ya pasó. Abre en la etapa con trabajo; quien
+  autoriza, en «Por autorizar». `/` busca dentro de la etapa (`filtrarPorBusqueda`). La vista y la etapa viajan en la
+  URL (`?vista=dia`, `?etapa=autorizar`); `?fecha=` (desde Deuda con proveedores) abre «Por día».
+- **La regla de etapa** vive en `calendario-pagos-etapa.ts` con su prueba (8 casos; mutante que quita «Kepler ya lo
+  pagó» → rojo, verificado). Pendiente cuyo día ya llegó y Kepler lo saldó → «Pagados», no «Por preparar»; en un día
+  por venir sigue siendo «quítalo del día» (`[PGP.96]`).
+- **Una tabla, dos vistas**: `allocations()` es lo que se ve (la etapa o el día). El desglose, los diálogos, «Aplicar a
+  los N» (ahora sin los de días pasados ni los autorizados) y «Marcar los N pagados» son los mismos.
+- **Autorizar** = botón en su fila (sólo con `FINANCE_PAYMENT_CALENDAR_AUTORIZAR`) → confirmación con a quién, cuánto,
+  cómo sale, su día y quién lo armó → `POST …/autorizar`. El desglose de un autorizado dice quién y cuándo, y ofrece
+  «Quitar la autorización» (con motivo opcional, a sus notas).
+- **Se quitó**: «Paso N de 5» del día (ahora «3 por preparar · 1 por autorizar»), «Autorizar el día», «Se autoriza el
+  día completo», el orden por arrastre. El veredicto del día, con todo preparado, lleva a «Por autorizar».
+- La ayuda (`calendario-de-pagos`) explica los pasos por pago; su prueba fija los nombres nuevos.
+
+**Verificado:** `check:pantalla` (tipa, 0 fallas nuevas) · `check:templates` · tokens · estilos · movimiento · teclado ·
+búsqueda · emojis · PrimeNG · reactividad · 1,433 pruebas de Finanzas (vista) + 21 de la ayuda. **NO MEDIDO:** la
+pantalla viva (sin sesión; la bandeja necesita el backend de `[PGP.113]` desplegado) y su INP; la bandeja tarda
+~0.9–1.0 s en prod (arriba de 500 ms, declarado).
+
+**Orden de despliegue:** migración `20261110141406` → código (backend y pantalla juntos: la pantalla pide `GET bandeja`;
+con la API vieja la bandeja da error y lo dice, y «Por día» sigue funcionando).
+
+**Siguiente (no hecho):** `[PGP.115]` cerrar desde la Suite los 56 pagos que Kepler ya pagó (hoy marcarlos falla
+porque Kepler ya no debe la factura) · optimizar `v_supplier_payables` para la bandeja y el día (regla 15, aparte).
+
+**Visto en la pantalla viva (2026-11-10, Playwright sobre `localhost:4200`, datos de prod, sin escribir nada):** 119 por
+preparar · 11 por autorizar · 56 pagados. Cinco defectos que sólo se vieron ahí, corregidos en `[PGP.114]`:
+- la fecha («vie 13 de nov») se encimaba con el proveedor → «vie 13 nov» y columna de 6.5rem;
+- «11 pagos · $2.3 M» salía TRES veces (tira, frase y encabezado) → el encabezado queda sólo para lector de pantalla;
+- «Autorizar · Cambiar · quitar» se cortaba a la derecha (en las dos vistas) → la columna se ensancha cuando hay algo que autorizar;
+- «El historial trae el método de **72 de 61** … los otros **-11**»: contaba sugerencias de pagos de días pasados → cuenta sólo los que se aplican;
+- los primeros 58 renglones de «Por preparar» eran de días pasados, con un «Mover» cada uno → «Mover los 58 de días pasados» en la frase (el mismo diálogo de «Por día»).
+Además, «Preparado · por autorizar» ya no se repite dentro de «Por autorizar», y «Folio» no ocupa ancho mientras ningún pago lo tenga.
+⚠️ La vista se hizo con un backend LOCAL conectado a prod (lo levantaron fuera de esta sesión): regla 3. Registra el uso de pantalla en prod.

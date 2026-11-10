@@ -1,7 +1,7 @@
-import { Injectable, Inject, Logger } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
+import { Injectable, Inject, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_NEW_DB, TenantContextService } from '@megadulces/platform-core';
+import { KNEX_NEW_DB, PgListenService, TenantContextService } from '@megadulces/platform-core';
+import { CANAL_FUENTE_KEPLER, MiradaAlAviso, esperaAvisoMs, firmaEntradas } from './entradas-por-aviso';
 
 export interface PairResult {
   tenant_id: string;
@@ -25,7 +25,12 @@ const MEGA = '00000000-0000-0000-0000-00000000d01c';
  * Cada recepción se captura dos veces: en el Kepler de la sucursal y en el de oficinas
  * (servidor 9.95, sucursal `'00'`). Hasta acá el apareo era un CLI que alguien tenía que
  * acordarse de correr, y eso no es un proceso: **cada recepción nueva nacía contada dos veces**
- * y se quedaba así hasta la próxima corrida a mano. Con esto se aparea sola cada 5 minutos.
+ * y se quedaba así hasta la próxima corrida a mano. Con esto se aparea sola.
+ *
+ * `[RE.69]` **Al llegar el dato, no por reloj** (antes, `@Cron` cada 5 minutos): escucha `caja_fuente` y
+ * aparea cuando cambian las entradas de Kepler (`entradas-por-aviso.ts`). Escucha SÓLO el worker
+ * (`WORKER=true`): el apareo escribe, y el mismo binario corre en los pods de `api`, donde el watcher ya
+ * aparea antes de anunciar. Mira una vez al arrancar para recoger lo que pasó mientras estuvo abajo.
  *
  * La cascada de reglas NO vive acá: vive en `analytics.fn_pair_goods_receipts` (migración
  * `20260827170000`). Son tres consumidores del mismo apareo —este cron, el CLI de backfill y el
@@ -41,8 +46,10 @@ const MEGA = '00000000-0000-0000-0000-00000000d01c';
  * es explícito, igual que `GoodsReceiptsWatcherService`. Killable con `DISABLE_RECEIPT_TWINS=true`.
  */
 @Injectable()
-export class GoodsReceiptTwinsService {
+export class GoodsReceiptTwinsService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(GoodsReceiptTwinsService.name);
+  private mirada: MiradaAlAviso | null = null;
+  private dejarDeEscuchar: (() => void) | null = null;
   /**
    * Corrida en vuelo. El que llega tarde **espera** en vez de saltarse el turno: si el watcher
    * mira `running` y se va, anuncia órdenes nuevas antes de que el apareo termine — que es
@@ -51,8 +58,8 @@ export class GoodsReceiptTwinsService {
   private inFlight: Promise<PairResult[]> | null = null;
   private lastOkAt = 0;
 
-  /** Días hacia atrás que barre el cron. Configurable porque oficinas a veces captura tarde. */
-  private get ventanaDias(): number {
+  /** Días hacia atrás que barre cada corrida. Configurable porque oficinas a veces captura tarde. */
+  get ventanaDias(): number {
     const v = Number(process.env.RECEIPT_TWIN_WINDOW_DAYS);
     return Number.isFinite(v) && v > 0 ? Math.min(400, v) : 45;
   }
@@ -60,24 +67,55 @@ export class GoodsReceiptTwinsService {
   constructor(
     @Inject(KNEX_NEW_DB) private readonly knex: Knex,
     private readonly tenantCtx: TenantContextService,
+    private readonly listen: PgListenService,
   ) {}
 
   /**
-   * Segundo 30 y no 0: el watcher corre en el segundo 0 del mismo minuto y ya dispara el apareo
-   * antes de anunciar. Este tick es el respaldo (si el watcher está apagado) y con la ventana de
-   * frescura de 90 s no repite el trabajo que el watcher acaba de hacer.
+   * `[RE.69]` Se engancha al aviso de Kepler. Sólo en el worker; en los pods de `api` lo dice y no escucha.
+   * Killable con `DISABLE_RECEIPT_TWINS=true`. No tumba el arranque si no puede escuchar: lo dice, y el
+   * latido se queda viejo, que es como `db-health` se entera.
    */
-  @Cron('30 */5 * * * *')
-  async scan(): Promise<void> {
-    if (process.env.DISABLE_RECEIPT_TWINS === 'true') return;
-    await this.ensureFresh();
+  onModuleInit(): void {
+    if (process.env.DISABLE_RECEIPT_TWINS === 'true') { this.logger.log('apareo por aviso APAGADO (DISABLE_RECEIPT_TWINS)'); return; }
+    if (process.env.WORKER !== 'true') { this.logger.log(`no escucho ${CANAL_FUENTE_KEPLER}: este proceso no es el worker (WORKER distinto de true)`); return; }
+    this.mirada = new MiradaAlAviso(
+      esperaAvisoMs(),
+      () => firmaEntradas(this.knex, this.ventanaDias),
+      async (cambio) => { if (cambio) await this.aparearPorAviso(); else await this.latirSinCambio(); },
+      (e) => this.logger.error(`apareo por aviso falló: ${(e as Error)?.message}`),
+    );
+    try {
+      this.dejarDeEscuchar = this.listen.escuchar(CANAL_FUENTE_KEPLER, () => this.mirada?.avisar());
+      this.logger.log(`escuchando ${CANAL_FUENTE_KEPLER} (sin reloj): aparea cuando cambian las entradas de Kepler`);
+    } catch (e: unknown) {
+      this.logger.error(`no se pudo escuchar ${CANAL_FUENTE_KEPLER}: ${(e as Error)?.message} — el apareo NO va a correr solo`);
+    }
+    // Lo que pasó mientras el proceso estuvo abajo: NOTIFY no se persiste.
+    this.mirada.avisar();
+  }
+
+  onModuleDestroy(): void {
+    this.dejarDeEscuchar?.();
+    this.dejarDeEscuchar = null;
+    this.mirada?.detener();
+  }
+
+  /**
+   * `[RE.69]` Aparea YA, sin la ventana de 90 s de `ensureFresh`: si la firma de las entradas cambió, saltarse
+   * el turno por haber corrido hace poco perdería el cambio (la firma ya quedaría guardada). Sí espera a una
+   * corrida en vuelo, para no correr dos a la vez en el mismo proceso.
+   */
+  async aparearPorAviso(): Promise<void> {
+    if (this.inFlight) await this.inFlight.catch(() => undefined);
+    this.inFlight = this.correr('aviso').finally(() => { this.inFlight = null; });
+    await this.inFlight;
   }
 
   /**
    * Para el watcher: **aparear ANTES de anunciar órdenes nuevas.** Sin este orden, la copia de
    * oficinas que acaba de llegar se anuncia por WS como orden nueva y aparece en la worklist
    * pidiendo evidencia de algo que la sucursal ya cubrió. No-op si ya corrió hace menos de 90 s,
-   * así que no duplica el trabajo del cron.
+   * así que no duplica el trabajo de otra corrida.
    */
   async ensureFresh(origen = 'watcher'): Promise<void> {
     if (this.inFlight) { await this.inFlight; return; }
@@ -177,7 +215,7 @@ export class GoodsReceiptTwinsService {
         .insert({
           tenant_id: MEGA,
           job_key: 'twins_pairing',
-          label: 'Apareo de recepciones gemelas (cron API)',
+          label: 'Apareo de recepciones gemelas (por aviso)',
           last_start: this.knex.fn.now(),
           last_finish: this.knex.fn.now(),
           status: fallos.length ? 'error' : 'ok',
@@ -189,11 +227,29 @@ export class GoodsReceiptTwinsService {
             ? null
             : `${out.length} tenant(s) · ${nuevas} par(es) nuevo(s) · ${propuestas} por dictaminar · ${obsoletas} obsoleta(s)`,
           error: fallos.length ? fallos.join(' | ').slice(0, 500) : null,
-          host: 'api',
+          host: 'worker',
           updated_at: this.knex.fn.now(),
         })
         .onConflict(['tenant_id', 'job_key'])
         .merge(['label', 'last_start', 'last_finish', 'status', 'rows_affected', 'duration_ms', 'note', 'error', 'host', 'updated_at']);
     } catch { /* el latido nunca rompe al que late (mismo criterio que cron-heartbeat.js) */ }
+  }
+
+  /**
+   * `[RE.69]` La mirada encontró las entradas igual: no hay nada que aparear, y también es una entrega (cero
+   * pares nuevos, ADR-053). Late para que `db-health` distinga «vivo y sin cambios» de «muerto»: sin esto, una
+   * noche sin compras se vería igual que un oyente caído.
+   */
+  private async latirSinCambio(): Promise<void> {
+    try {
+      await this.knex('analytics.cron_runs')
+        .insert({
+          tenant_id: MEGA, job_key: 'twins_pairing', label: 'Apareo de recepciones gemelas (por aviso)',
+          last_start: this.knex.fn.now(), last_finish: this.knex.fn.now(), status: 'ok', rows_affected: 0, duration_ms: 0,
+          note: 'las entradas de Kepler no cambiaron: nada que aparear', error: null, host: 'worker', updated_at: this.knex.fn.now(),
+        })
+        .onConflict(['tenant_id', 'job_key'])
+        .merge(['label', 'last_start', 'last_finish', 'status', 'rows_affected', 'duration_ms', 'note', 'error', 'host', 'updated_at']);
+    } catch { /* el latido nunca rompe al que late */ }
   }
 }

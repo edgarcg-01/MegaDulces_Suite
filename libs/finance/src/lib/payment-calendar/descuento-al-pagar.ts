@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { DISCOUNT_REASONS, DISCOUNT_REASON_LABEL, type DiscountReason } from '@megadulces/contracts';
+import { DISCOUNT_REASONS, DISCOUNT_REASON_LABEL, type DiscountReason, type PaymentCalendarDiscountLine } from '@megadulces/contracts';
 
 /**
  * `[PGP.91]` **El descuento que el proveedor da AL PAGAR, normalizado y verificado.**
@@ -159,4 +159,81 @@ export function descuentoSobreCubierto(cubierto: number, body: Omit<DescuentoEnt
   const n = normalizarDescuento({ ...body, applied_amount: Number.isFinite(d) && d > 0 ? round2(c - round2(d)) : c });
   if (Math.abs(n.covered - c) > 0.005) throw new BadRequestException('El descuento cambió lo cubierto de la factura: no se guarda.');
   return n;
+}
+
+/** `[PGP.101]` Los renglones del descuento tal como se guardan y se leen. */
+export type LineaDescuento = PaymentCalendarDiscountLine;
+
+/** `[PGP.101]` El resultado de fijar VARIOS descuentos: las columnas de siempre (agregadas) + los renglones. */
+export interface DescuentosNormalizados extends DescuentoNormalizado {
+  /** El mayor primero. `[]` = sin descuento. */
+  lines: LineaDescuento[];
+}
+
+/** Máximo de renglones por factura: más que esto es una captura equivocada, no un trato con el proveedor. */
+export const MAX_RENGLONES_DESCUENTO = 5;
+
+/**
+ * `[PGP.101]` **Fijar VARIOS descuentos sobre una factura ya puesta** (pronto pago 3 % + volumen 2 %).
+ * Cada renglón se valida con la MISMA regla que el descuento único (`normalizarDescuento`): motivo,
+ * detalle si es «Otro», y si trae tasa, que cuadre con lo cubierto ±1 centavo. Cada % va sobre lo
+ * cubierto de la factura; el que es en cascada se captura en pesos. La suma no puede ser toda la factura.
+ *
+ * Las columnas de siempre quedan como AGREGADO —`discount_amount` es la suma, así que lo cubierto, el
+ * neto, el tope del día y el cruce con Kepler no cambian—: motivo del renglón mayor, y tasa y nota sólo
+ * si hay uno (con varios, decir una sola tasa mentiría). `[]` quita el descuento. Pura.
+ */
+export function descuentosSobreCubierto(cubierto: number, renglones: unknown): DescuentosNormalizados {
+  const c = round2(Number(cubierto));
+  if (!(c > 0)) throw new BadRequestException('La factura no tiene importe cubierto: no hay a qué descontarle.');
+  if (!Array.isArray(renglones)) throw new BadRequestException('Los descuentos llegan como una lista (discounts).');
+  if (renglones.length > MAX_RENGLONES_DESCUENTO) throw new BadRequestException(`Son ${renglones.length} descuentos para una factura: el máximo es ${MAX_RENGLONES_DESCUENTO}.`);
+  const lines: LineaDescuento[] = renglones.map((r, i) => {
+    const x = (r ?? {}) as Record<string, unknown>;
+    const d = vacio(x['discount_amount']) ? 0 : Number(x['discount_amount']);
+    if (Number.isFinite(d) && d === 0) throw new BadRequestException(`El descuento ${i + 1} es cero: quítalo o captura cuánto es.`);
+    // Cada renglón se revisa solo, como si fuera el único: si la suma no cabe se dice abajo.
+    const n = normalizarDescuento({ ...x, applied_amount: Number.isFinite(d) && d > 0 && d < c ? round2(c - round2(d)) : c });
+    if (!(n.discount_amount < c)) throw new BadRequestException('El descuento no puede ser toda la factura: entonces no hay pago que programar.');
+    return { reason: n.discount_reason as DiscountReason, amount: n.discount_amount, rate: n.discount_rate, note: n.discount_note };
+  });
+  const total = round2(lines.reduce((s, l) => s + l.amount, 0));
+  if (total >= c - 0.005) throw new BadRequestException(`Los descuentos suman $${total.toFixed(2)} y el pago cubre $${c.toFixed(2)}: no puede ser toda la factura.`);
+  lines.sort((a, b) => b.amount - a.amount);
+  const uno = lines.length === 1 ? lines[0] : null;
+  return {
+    applied_amount: round2(c - total), discount_amount: total, covered: c,
+    discount_reason: lines[0]?.reason ?? null, discount_rate: uno?.rate ?? null, discount_note: uno?.note ?? null,
+    lines,
+  };
+}
+
+/**
+ * `[PGP.101]` Los renglones de una factura como se leen de la base: la columna `discount_lines`, o —si
+ * el descuento se capturó antes de que hubiera varios— UN renglón armado con las columnas de siempre.
+ * Así nadie lee dos formatos.
+ */
+export function lineasDeDescuento(it: {
+  discount_lines?: unknown; discount_amount?: unknown; discount_reason?: unknown; discount_rate?: unknown; discount_note?: unknown;
+}): LineaDescuento[] {
+  const raw = typeof it.discount_lines === 'string' ? JSON.parse(it.discount_lines) : it.discount_lines;
+  if (Array.isArray(raw) && raw.length) {
+    return raw.map((l: Record<string, unknown>) => ({
+      reason: l['reason'] as DiscountReason, amount: Number(l['amount']),
+      rate: l['rate'] === null || l['rate'] === undefined ? null : Number(l['rate']),
+      note: (l['note'] ?? null) as string | null,
+    }));
+  }
+  const monto = Number(it.discount_amount ?? 0);
+  if (!(monto > 0) || !it.discount_reason) return [];
+  return [{
+    reason: it.discount_reason as DiscountReason, amount: monto,
+    rate: it.discount_rate === null || it.discount_rate === undefined || it.discount_rate === '' ? null : Number(it.discount_rate),
+    note: (it.discount_note ?? null) as string | null,
+  }];
+}
+
+/** `[PGP.101]` El rótulo de TODOS los descuentos de una factura: `Pronto pago 3 % + Volumen`. Lo usan el PDF y la ficha. */
+export function rotuloDescuentos(lines: LineaDescuento[]): string {
+  return lines.map((l) => rotuloDescuento(l.reason, l.rate)).join(' + ');
 }

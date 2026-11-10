@@ -9,11 +9,12 @@ import { LlmExtractorService, OcrReadingsService, RemisionFields, RemisionLine }
 import { GoodsReceiptExpedienteService, enPares } from './goods-receipt-expediente.service';
 import { REGLA_EXPEDIENTE } from './expediente-verdict';
 import { fechaDeCalendario } from './fecha-de-calendario';
-import type { ExpedienteConteos, ExpedienteResumenFila } from '@megadulces/contracts';
+import type { ExpedienteConteos, ExpedienteHallazgo, ExpedienteResumenFila } from '@megadulces/contracts';
 import {
   parecidoNombre, rfcComparable, rfcBienFormado, evaluarPaquete, evaluarFolioInterno,
-  HOJAS_INTERNAS, CUADRE_SQL, CUADRE_MOTIVO_SQL, COMERCIAL_CATS,
+  HOJAS_INTERNAS, CUADRE_SQL, CUADRE_MOTIVO_SQL,
 } from './receipt-match';
+import { AJUSTES_KEPLER_POR_ENTRADA_SQL } from './ajustes-kepler';
 // `[RE.42]` Si un papel ya se subió: emisor + folio, nunca el folio solo. Puro y medido.
 import {
   folioNucleo, masGrave, mensajeDuplicado, papelesDeFila, veredictoDuplicado, SQL_CANDIDATOS_DUPLICADO,
@@ -251,7 +252,7 @@ export interface ListReceiptsQuery {
   /** `[RE.35.5]` La Bandeja: el veredicto del expediente (sólo las que tienen documento). */
   bandeja?: 'auto' | 'revisar' | 'sin_cfdi_aun';
   /** `[RE.35.5]` El Hallazgo: qué hacer y con quién. */
-  hallazgo?: 'cobrar_nc' | 'mal_emitida' | 'incompleta' | 'sin_oc' | 'nc_aplicada' | 'comercial';
+  hallazgo?: ExpedienteHallazgo;
   /**
    * `[RE.51]` De qué entradas se calcula el expediente. `todo` (default) = todo el universo, con los
    * conteos de la Bandeja · `pagina` = sólo los renglones de la página, y `expediente` (los conteos)
@@ -755,12 +756,23 @@ export class GoodsReceiptProofsService {
        * pelado una devolución de la 00 se le pegaba a las entradas 02 y 03 del mismo folio,
        * atribuyéndole el ajuste a OTRO proveedor. Verificado 2026-08-25 (folio `0000505`).
        */
-      const adj = trx('analytics.erp_purchase_adjustments')
-        .select('sucursal', 'entrada_folio').sum({ ajuste: 'monto' }).count({ n_ajuste: '*' })
-        .select(trx.raw(`COALESCE(sum(monto) FILTER (WHERE categoria = ANY(?)), 0) AS ajuste_comercial`, [COMERCIAL_CATS]))
-        .select(trx.raw(`COALESCE(sum(monto) FILTER (WHERE categoria IS NULL OR NOT (categoria = ANY(?))), 0) AS ajuste_operativo`, [COMERCIAL_CATS]))
-        .where('tenant_id', tenantId).whereNotNull('entrada_folio')
-        .groupBy('sucursal', 'entrada_folio').as('a');
+      //
+      // `[RE.64]` La fuente es `AJUSTES_KEPLER_SQL` (lo que `kdxf` aplicó a la entrada + lo que nombra su entrada
+      // en c39, sin canceladas) y NO `analytics.erp_purchase_adjustments`: ése ligaba por c39, vacío en el 100 %
+      // de las X-D-55, y la columna salía «—» en 3,449 compras. Es el MISMO primitivo que lee el expediente:
+      // la columna y el panel no pueden contar distinto. La llave sigue siendo (sucursal, folio).
+      //
+      // ⭐ Como el universo (RE.49): la consulta entra a `base()`, que corre hasta tres veces por petición
+      // (filas, total, totales de dinero), y cada una cuesta ~90 ms (medido 2026-11-10: la consulta de totales
+      // pasó de 417–437 a 509–532 ms con el subquery directo). Se agrega UNA vez a una temporal de la
+      // transacción con `ANALYZE`; en sólo lectura (cuentas de desarrollo, RE.50) se queda el subquery.
+      let adj = trx.raw(`(${AJUSTES_KEPLER_POR_ENTRADA_SQL}) AS a`);
+      if (dinero && !soloLectura) {
+        const tAdj = `tmp_adj_${process.pid}_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+        await trx.raw(`CREATE TEMP TABLE ?? ON COMMIT DROP AS ${AJUSTES_KEPLER_POR_ENTRADA_SQL}`, [tAdj]);
+        await trx.raw('ANALYZE ??', [tAdj]);
+        adj = trx.raw('?? AS a', [tAdj]);
+      }
       // TODOS los `array_agg` de este subquery comparten EL MISMO orden (`PROOF_ORDER`): si
       // cada campo se ordenara por su cuenta, la fila podía decir "Rechazado" y traer el
       // `monto_match` de otro depósito. Y el desempate no es cosmético — ver `PROOF_ORDER`.
@@ -2912,9 +2924,13 @@ export class GoodsReceiptProofsService {
   ): Promise<{ doctype: string; folio: string; monto: number; categoria: string | null; adjustment_date: string } | null> {
     const delta = Math.abs(Number(p.delta) || 0);
     if (!delta) return null;
-    if (!(await this.existeTabla(trx, 'analytics', 'erp_purchase_adjustments'))) return null;
-    const r = await trx('analytics.erp_purchase_adjustments')
-      .where({ tenant_id: this.tenantCtx.requireTenantId(), sucursal: p.sucursal, entrada_folio: p.folio })
+    // [RE.68] La vista del ODS en vez del importer. La liga sigue siendo la ESCRITA en el documento (`c39`,
+    // `entrada_c39`), no la derivada de `kdxf`: una compuerta que aprueba sin revisión no se amplía por cambiar
+    // de fuente (D2 de RE.65). Cambia lo que ya no debía contar: canceladas y el traslado al CEDIS.
+    if (!(await this.existeTabla(trx, 'analytics', 'v_purchase_adjustments'))) return null;
+    const r = await trx('analytics.v_purchase_adjustments')
+      .where({ tenant_id: this.tenantCtx.requireTenantId(), sucursal: p.sucursal, entrada_c39: p.folio })
+      .whereNot('grupo', 'traslado')
       // Magnitud, no signo: la dirección contable no es estable (el ajuste va del 0% al 100% de
       // la entrada, y algunos son la recepción entera revertida). Ver §4.ter del plan RE.20.
       .whereRaw('ABS(ABS(monto::numeric) - ?) <= ?', [delta, Math.max(0.01, p.tolerancia)])
@@ -2964,6 +2980,9 @@ export class GoodsReceiptProofsService {
           // más angosta: que Kepler ligue un ajuste a esta entrada y su magnitud sea el hueco.
           let ajuste: Awaited<ReturnType<typeof this.ajusteLigadoQueExplica>> = null;
           let cfdiAuto: string | null = null;
+          // `[RE.62]` Si cuadró descontando una nota de crédito, el historial la nombra: sin el UUID de la
+          // nota, una aprobación con factura mayor que la entrada no se puede defender después.
+          let notaAuto: { uuid: string; total: number } | null = null;
           if (prev.monto_match !== true) {
             // `[RE.35.6]` Primero el expediente: si pasa solo, el CFDI manda sobre el OCR. Sólo si ESTE
             // papel es el único vigente de la entrada: el expediente se arma con el papel más reciente, y
@@ -2972,7 +2991,10 @@ export class GoodsReceiptProofsService {
               .where({ sucursal: prev.sucursal, folio: prev.folio }).whereNot('status', 'rechazado').count<{ n: string }[]>('* as n');
             const exp = Number(vigentes[0]?.n ?? 0) !== 1 ? undefined : (await this.expediente.calcularLote(trx, tenantId, [{ sucursal: prev.sucursal, folio: prev.folio }]))
               .get(`${prev.sucursal}/${prev.folio}`);
-            if (exp?.veredicto.cubo === 'auto' && exp.cfdi) cfdiAuto = exp.cfdi.uuid;
+            if (exp?.veredicto.cubo === 'auto' && exp.cfdi) {
+              cfdiAuto = exp.cfdi.uuid;
+              notaAuto = exp.veredicto.notaCredito ?? null;
+            }
           }
           if (prev.monto_match !== true && !cfdiAuto) {
             const cfgB = await this.settings(trx);
@@ -3000,7 +3022,7 @@ export class GoodsReceiptProofsService {
             proof_id: id, sucursal: prev.sucursal, folio: prev.folio,
             status_from: prev.status, status_to: 'validado', actor,
             motivo: cfdiAuto
-              ? `aprobación en lote — cuadra con su CFDI de ContPAQi ${cfdiAuto} (expediente ${REGLA_EXPEDIENTE}; el OCR no manda)`
+              ? `aprobación en lote — cuadra con su CFDI de ContPAQi ${cfdiAuto}${notaAuto ? ` descontando la nota de crédito ${notaAuto.uuid} por $${notaAuto.total.toFixed(2)}` : ''} (expediente ${REGLA_EXPEDIENTE}; el OCR no manda)`
               : ajuste
               ? `aprobación en lote — cuadra con ajuste ${ajuste.doctype} ${ajuste.folio} de $${ajuste.monto.toFixed(2)}${ajuste.categoria ? ` (${ajuste.categoria})` : ''}`
               : 'aprobación en lote (cuadra al peso)',

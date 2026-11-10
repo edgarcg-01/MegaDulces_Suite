@@ -43,9 +43,10 @@ const near = (a, b, tol = 1) => Math.abs(Number(a) - Number(b)) <= tol;
          FROM analytics.erp_supplier_payments WHERE tenant_id=$1 GROUP BY proveedor_code`, [TENANT])).rows;
     const nota = (await c.query(
       `SELECT proveedor_code, max(proveedor_nombre) nombre, COALESCE(sum(monto),0)::numeric desc_nota, count(*)::int n_nota
-         FROM analytics.erp_purchase_adjustments WHERE tenant_id=$1 AND categoria = ANY($2) GROUP BY proveedor_code`, [TENANT, NOTA_CATS])).rows;
+         FROM analytics.v_purchase_adjustments WHERE tenant_id=$1 AND categoria = ANY($2) AND grupo <> 'traslado' GROUP BY proveedor_code`, [TENANT, NOTA_CATS])).rows;
+    // [RE.67/68] Como el service: notas de la vista (sin traslado) y compras sin la copia del CEDIS.
     const comp = (await c.query(
-      `SELECT proveedor_code, COALESCE(sum(monto),0)::numeric compras FROM analytics.erp_goods_receipts WHERE tenant_id=$1 GROUP BY proveedor_code`, [TENANT])).rows;
+      `SELECT proveedor_code, COALESCE(sum(monto),0)::numeric compras FROM analytics.erp_goods_receipts WHERE tenant_id=$1 AND dup_of_folio IS NULL GROUP BY proveedor_code`, [TENANT])).rows;
 
     const map = new Map();
     const get = (code, nombre) => { const k = code || '(sin código)'; let e = map.get(k); if (!e) { e = { proveedor_code: code, proveedor_nombre: nombre || null, desc_pago: 0, desc_nota: 0, compras: 0 }; map.set(k, e); } if (!e.proveedor_nombre && nombre) e.proveedor_nombre = nombre; return e; };
@@ -68,7 +69,7 @@ const near = (a, b, tol = 1) => Math.abs(Number(a) - Number(b)) <= tol;
 
     // total_desc_nota == Σ notas comerciales
     const nc = (await c.query(
-      `SELECT COALESCE(sum(monto),0)::numeric s FROM analytics.erp_purchase_adjustments WHERE tenant_id=$1 AND categoria = ANY($2)`, [TENANT, NOTA_CATS])).rows[0].s;
+      `SELECT COALESCE(sum(monto),0)::numeric s FROM analytics.v_purchase_adjustments WHERE tenant_id=$1 AND categoria = ANY($2) AND grupo <> 'traslado'`, [TENANT, NOTA_CATS])).rows[0].s;
     ok(near(totNota, nc), `total canal NOTA (${money(totNota)}) == Σ X-D-55 comercial (${money(nc)})`);
 
     // clasificación de canal coherente en una muestra

@@ -144,7 +144,8 @@ export interface WhatsAppPort {
    * CBW.0 — descarga el binario de un adjunto por su `media_id` (Meta: 2 pasos,
    * `GET /{media_id}` → url temporal → GET del binario con el token). Devuelve el
    * buffer + su mime; `null` si no hay credenciales o el media no existe/expiró.
-   * En el simulador, resuelve el media inyectado en el mensaje de prueba.
+   * En el simulador, resuelve el media inyectado en el mensaje de prueba. `[RH.3.5]` `opts.from` = el número que lo
+   * recibió: si vive en otra app de Meta, el binario se baja con el token de esa app.
    */
-  downloadMedia(mediaId: string): Promise<{ buffer: Buffer; mime: string } | null>;
+  downloadMedia(mediaId: string, opts?: SendOptions): Promise<{ buffer: Buffer; mime: string } | null>;
 }

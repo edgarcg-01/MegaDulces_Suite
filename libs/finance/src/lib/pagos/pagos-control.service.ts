@@ -57,7 +57,8 @@ export class PagosControlService {
       const [pago] = await trx('analytics.erp_supplier_payments').where('tenant_id', tenantId)
         .modify((b: any) => { if (q.date_from) b.where('pago_date', '>=', q.date_from); if (q.date_to) b.where('pago_date', '<=', q.date_to); })
         .sum({ s: 'descuento' });
-      const [nota] = await trx('analytics.erp_purchase_adjustments').where('tenant_id', tenantId).whereIn('categoria', COMERCIAL_CATS)
+      // [RE.68] Vista del ODS (todas las sucursales, sin canceladas); el traslado al CEDIS no es descuento.
+      const [nota] = await trx('analytics.v_purchase_adjustments').where('tenant_id', tenantId).whereIn('categoria', COMERCIAL_CATS).whereNot('grupo', 'traslado')
         .modify((b: any) => { if (q.date_from) b.where('adjustment_date', '>=', q.date_from); if (q.date_to) b.where('adjustment_date', '<=', q.date_to); })
         .sum({ s: 'monto' });
       const descPago = Number(pago?.s) || 0;

@@ -8,6 +8,8 @@ import { CajaRealtimeModule } from '../caja/caja-realtime.module';
 import { BankReconPorAvisoService } from './bank-recon-aviso.service';
 import { EstadoDeCuentaService } from './estado-de-cuenta/estado-de-cuenta.service';
 import { EstadoDeCuentaController } from './estado-de-cuenta/estado-de-cuenta.controller';
+import { ComisionesKeplerService } from './comisiones-kepler/comisiones-kepler.service';
+import { ComisionesKeplerController } from './comisiones-kepler/comisiones-kepler.controller';
 
 /**
  * CB.2 — Conciliación bancaria (ADR-033). Tablero de bancos sobre `finance.bank_*`:
@@ -27,6 +29,9 @@ import { EstadoDeCuentaController } from './estado-de-cuenta/estado-de-cuenta.co
  * (revisar → confirmar) a `finance.bank_statement_files/lines`. Sólo pide los dos globales de
  * platform-core (`TenantKnexService`, `TenantContextService`).
  *
+ * CB.62 — ComisionesKeplerService/Controller: la propuesta de las comisiones de la terminal que irían a
+ * Kepler (sólo lectura). Mismos dos globales.
+ *
  * ⛔ **`CajaRealtimeModule` se importa por `PgListenService`, y NO se provee acá.** No es global:
  * lo exporta ese módulo a propósito —*«para que el autollenado se cuelgue del MISMO canal con la
  * MISMA conexión»* (`[CG.197]`)—. Declararlo en los `providers` de este módulo compila igual y
@@ -36,8 +41,8 @@ import { EstadoDeCuentaController } from './estado-de-cuenta/estado-de-cuenta.co
  */
 @Module({
   imports: [BancosRealtimeModule, FinanceJobsModule, CajaRealtimeModule],
-  controllers: [FinanceBankController, EstadoDeCuentaController],
-  providers: [FinanceBankService, SheetSyncService, BankReconPorAvisoService, EstadoDeCuentaService],
+  controllers: [FinanceBankController, EstadoDeCuentaController, ComisionesKeplerController],
+  providers: [FinanceBankService, SheetSyncService, BankReconPorAvisoService, EstadoDeCuentaService, ComisionesKeplerService],
   exports: [FinanceBankService],
 })
 export class FinanceBankModule {}

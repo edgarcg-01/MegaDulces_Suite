@@ -35,6 +35,8 @@ export class RhReclutamientoMarcoComponent {
   readonly subtitulo = input('Quién se postuló, en qué etapa va y qué le falta. Nada se borra: lo que sale va a la papelera y se puede restaurar.');
 
   readonly tabs: PageTab[] = [
+    // `[RH.8.1]` Lo primero que se mira: cuántos en cada etapa, de qué ciudad, y quién va fuera de meta.
+    { label: 'Resumen', route: '/rh/reclutamiento/resumen', anyOf: VER },
     { label: 'Candidatos', route: '/rh/reclutamiento', anyOf: VER },
     { label: 'Vacantes', route: '/rh/reclutamiento/vacantes', anyOf: VER },
     { label: 'Revisiones', route: '/rh/reclutamiento/revisiones', anyOf: VER },

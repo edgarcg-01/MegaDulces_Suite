@@ -67,6 +67,16 @@ interface FilaRegla {
 }
 
 /** `[CP.8.53]` Una regla como la ve el contador: qué es, cuánto pesa este mes, y su evidencia. */
+/** `[PGP.111c]` Un proveedor de gasto con su cuenta: firmada, derivada o «falta», y si necesita la firma de Contabilidad. */
+export interface CuentaGastoProveedor {
+  rfc: string;
+  proveedor: string | null;
+  /** Lo que el Calendario de Pagos le aplica (90 días): para ordenar por dinero. */
+  importe_calendario: number;
+  cuenta: CuentaGastoDelPago;
+  necesita_firma: boolean;
+}
+
 export interface ReglaVista {
   categoria_code: string;
   tipo_regla: string;
@@ -98,6 +108,9 @@ import { tokenDe } from './token';
 import { coincide, palabrasDeBusqueda } from './busqueda';
 import { armarPagoProveedorCompleto, esPagoDeTarjeta } from './pago-proveedor';
 import { armarGastoConFactura, esGastoPorProveedor, PREFIJO_GASTO_POR_PROVEEDOR } from './gasto-con-factura';
+import { leerCuentasGasto } from '../payment-calendar/cuenta-gasto.sql';
+import { SQL_DOCUMENTOS_KEPLER, SQL_RFC_DE_ACREEDORES } from '../payment-calendar/cfdi-factura.sql';
+import type { CuentaGastoDelPago } from '@megadulces/contracts/finance/momento-poliza';
 import { cotejar, type PolizaReal, type ResultadoCotejo } from './cotejo';
 import { dictaminarArchivo, resumenDictamen, type Dictamen } from './dictamen';
 import { armarTraspasosDelMes, TOLERANCIA_DIAS_ESTADO, type CuentaTraspaso, type PiernaTraspaso } from './traspasos';
@@ -825,6 +838,99 @@ export class ContpaqiArmadoService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** `[CP.8.53]` Las cuentas que una regla por categoría puede llevar: gasto `52*`, afectables, vivas. */
+  /**
+   * `[PGP.111c]` — **Las cuentas de gasto por proveedor (RFC): la que se deriva, la firmada, y cuáles necesitan firma.**
+   * Universo: los proveedores de gasto del Calendario de Pagos (pagos vigentes de 90 días) más los ya firmados. Necesita
+   * firma lo que no se deriva bien: sin historia, o una cuenta que la contadora usó la mitad de las veces o menos (CFE:
+   * 64 de 127). Lo que necesita firma va primero; luego por dinero en el Calendario.
+   */
+  async cuentasGastoPorProveedor(): Promise<CuentaGastoProveedor[]> {
+    return this.conTenant(async () => {
+      // ⚠️ En UNA consulta (md5 sobre todo kdxe + la vista de RFC sin filtrar) tardaba 13 s en prod (2026-11-10). En
+      // pasos, con las MISMAS consultas que el CFDI del Calendario (`[PGP.108]`): los renglones, su documento de Kepler
+      // por llave, y el RFC sólo de esos acreedores.
+      const renglones = (await this.db.raw(`
+        SELECT i.obligation_id::text AS oid, i.applied_amount::float8 AS importe
+          FROM finance.payment_allocation_items i
+          JOIN finance.payment_allocations a ON a.id = i.allocation_id
+          JOIN finance.payment_calendar_lots l ON l.id = a.lot_id
+         WHERE a.tenant_id = ? AND a.status <> 'cancelled' AND a.classification = 'gasto' AND l.lot_date >= current_date - 90
+           AND i.obligation_source = 'kepler_payable'`, [MEGA])).rows as { oid: string; importe: number }[];
+      const oids = [...new Set(renglones.map((r) => r.oid))];
+      const docs = oids.length ? (await this.db.raw(SQL_DOCUMENTOS_KEPLER, [oids])).rows as { oid: string; sucursal: string; acreedor: string }[] : [];
+      const acreedores = [...new Set(docs.map((d) => d.acreedor))];
+      const rfcsKepler = acreedores.length
+        ? (await this.db.raw(SQL_RFC_DE_ACREEDORES, [acreedores])).rows as { sucursal: string; proveedor_code: string; proveedor_nombre: string | null; rfc: string | null }[]
+        : [];
+      const rfcDe = new Map(rfcsKepler.map((r) => [`${r.sucursal}|${r.proveedor_code}`, r]));
+      const docDe = new Map(docs.map((d) => [d.oid, d]));
+      const porRfc = new Map<string, { rfc: string; proveedor: string | null; importe: number }>();
+      for (const r of renglones) {
+        const d = docDe.get(r.oid);
+        const k = d ? rfcDe.get(`${d.sucursal}|${d.acreedor}`) : undefined;
+        if (!k?.rfc) continue;
+        const rfc = k.rfc.trim().toUpperCase();
+        const prev = porRfc.get(rfc);
+        porRfc.set(rfc, { rfc, proveedor: prev?.proveedor ?? k.proveedor_nombre ?? null, importe: (prev?.importe ?? 0) + Number(r.importe) });
+      }
+      const filas = [...porRfc.values()];
+      // Sin la tabla (antes de su migración) no hay firmas: la lista se arma igual, con lo derivado.
+      const hayFirmas = Boolean((await this.db.raw("SELECT to_regclass('contpaqi.supplier_expense_accounts') IS NOT NULL AS ok")).rows[0]?.ok);
+      const firmados = hayFirmas
+        ? (await this.db('contpaqi.supplier_expense_accounts').where({ tenant_id: MEGA, active: true }).select('rfc')) as { rfc: string }[]
+        : [];
+      const rfcs = [...new Set([...filas.map((f) => f.rfc.trim().toUpperCase()), ...firmados.map((f) => f.rfc)])];
+      const cuentas = await leerCuentasGasto(this.db, MEGA, rfcs);
+      const deFila = new Map(filas.map((f) => [f.rfc.trim().toUpperCase(), f]));
+      return rfcs.map((rfc) => {
+        const cuenta = cuentas.get(rfc)!;
+        const necesita = cuenta.estado === 'sin_historia' || (cuenta.estado === 'derivada' && cuenta.veces * 2 <= cuenta.total);
+        return { rfc, proveedor: deFila.get(rfc)?.proveedor ?? null, importe_calendario: Math.round((deFila.get(rfc)?.importe ?? 0) * 100) / 100, cuenta, necesita_firma: necesita };
+      }).sort((a, b) => Number(b.necesita_firma) - Number(a.necesita_firma) || b.importe_calendario - a.importe_calendario || a.rfc.localeCompare(b.rfc));
+    });
+  }
+
+  /**
+   * `[PGP.111c]` — **Contabilidad firma la cuenta de gasto de un proveedor.** Le gana a la derivada en la póliza y en el
+   * Calendario. Re-firmar desactiva la anterior (queda el historial). ⛔ Valida contra el catálogo de ContPAQi: gasto 52,
+   * afectable y viva — una cuenta con forma válida que no existe se importaría como basura.
+   */
+  async firmarCuentaGastoProveedor(rfcCrudo: string, cuenta: string, por: string, nota?: string | null): Promise<CuentaGastoProveedor> {
+    const rfc = String(rfcCrudo ?? '').trim().toUpperCase();
+    if (!/^[A-Z&Ñ]{3,4}[0-9]{6}[A-Z0-9]{3}$/.test(rfc)) throw new FirmaRechazada(`«${rfcCrudo}» no es un RFC válido.`);
+    if (!por) throw new FirmaRechazada('una firma sin autor no es una afirmación');
+    const codigo = String(cuenta ?? '').trim();
+    return this.conTenant(async () => {
+      const cat = /^52\d{8}$/.test(codigo)
+        ? await this.db('analytics.contpaqi_accounts').where({ codigo }).where('afectable', 1)
+          .where((q) => q.whereNull('es_baja').orWhere('es_baja', false)).first('codigo', 'nombre') as { codigo: string; nombre: string } | undefined
+        : undefined;
+      if (!cat) throw new FirmaRechazada(`«${codigo}» no es una cuenta de gasto (52) afectable y vigente del catálogo de ContPAQi.`);
+      await this.db('contpaqi.supplier_expense_accounts').where({ tenant_id: MEGA, rfc, active: true })
+        .update({ active: false, updated_at: this.db.fn.now(), updated_by: por });
+      await this.db('contpaqi.supplier_expense_accounts').insert({
+        tenant_id: MEGA, rfc, cuenta: cat.codigo, cuenta_nombre: cat.nombre, firmada_por: por, nota: nota ?? null, created_by: por, updated_by: por,
+      });
+      this.log.log(`cuenta de gasto firmada: ${rfc} → ${cat.codigo} (${por})`);
+      const c = (await leerCuentasGasto(this.db, MEGA, [rfc])).get(rfc)!;
+      return { rfc, proveedor: null, importe_calendario: 0, cuenta: c, necesita_firma: false };
+    });
+  }
+
+  /** `[PGP.111c]` Quita la firma: vuelve a mandar la derivada (o «falta»). Queda el registro desactivado, con quién la quitó. */
+  async quitarFirmaCuentaGasto(rfcCrudo: string, por: string): Promise<CuentaGastoProveedor> {
+    const rfc = String(rfcCrudo ?? '').trim().toUpperCase();
+    if (!por) throw new FirmaRechazada('quitar una firma también tiene autor');
+    return this.conTenant(async () => {
+      const n = await this.db('contpaqi.supplier_expense_accounts').where({ tenant_id: MEGA, rfc, active: true })
+        .update({ active: false, updated_at: this.db.fn.now(), updated_by: por });
+      if (!n) throw new FirmaRechazada(`${rfc} no tiene una cuenta de gasto firmada.`);
+      this.log.log(`cuenta de gasto des-firmada: ${rfc} (${por})`);
+      const c = (await leerCuentasGasto(this.db, MEGA, [rfc])).get(rfc)!;
+      return { rfc, proveedor: null, importe_calendario: 0, cuenta: c, necesita_firma: c.estado === 'sin_historia' || (c.estado === 'derivada' && c.veces * 2 <= c.total) };
+    });
+  }
+
   async cuentasGasto(): Promise<{ codigo: string; nombre: string }[]> {
     return this.conTenant(async () => this.db('analytics.contpaqi_accounts')
       .where('codigo', 'like', `${PREFIJO_GASTO}%`)

@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpResponse } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
+import type { CuentaGastoDelPago } from '@megadulces/contracts/finance/momento-poliza';
 
 /**
  * `[CP.8.33]` — Cliente de **la bandeja del puente** (`/contabilidad/contpaqi-puente`).
@@ -69,6 +70,17 @@ export class ContpaqiPuenteService {
   }
 
   /** Las cuentas de gasto `52*` afectables que puede llevar una regla por categoría. */
+  /** `[PGP.111c]` Los proveedores de gasto con su cuenta 52 (firmada, derivada o falta) y si necesitan firma. */
+  cuentasGastoProveedor(): Observable<{ filas: CuentaGastoProveedor[] }> {
+    return this.http.get<{ filas: CuentaGastoProveedor[] }>(`${this.base}/cuentas-gasto-proveedor`);
+  }
+  firmarCuentaGastoProveedor(rfc: string, cuenta: string): Observable<CuentaGastoProveedor> {
+    return this.http.post<CuentaGastoProveedor>(`${this.base}/cuentas-gasto-proveedor/${encodeURIComponent(rfc)}/firma`, { cuenta });
+  }
+  quitarCuentaGastoProveedor(rfc: string): Observable<CuentaGastoProveedor> {
+    return this.http.post<CuentaGastoProveedor>(`${this.base}/cuentas-gasto-proveedor/${encodeURIComponent(rfc)}/quitar`, {});
+  }
+
   cuentasGasto(): Observable<{ cuentas: CuentaGasto[] }> {
     return this.http.get<{ cuentas: CuentaGasto[] }>(`${this.base}/cuentas-gasto`);
   }
@@ -394,4 +406,14 @@ export interface PendientesResp {
   mes: string;
   total_importe: number;
   filas: PendienteProveedor[];
+}
+
+/** `[PGP.111c]` Un proveedor de gasto con su cuenta 52 (espejo de `CuentaGastoProveedor` del servicio del puente). */
+export interface CuentaGastoProveedor {
+  rfc: string;
+  proveedor: string | null;
+  /** Lo que el Calendario de Pagos le aplica (90 días). */
+  importe_calendario: number;
+  cuenta: CuentaGastoDelPago;
+  necesita_firma: boolean;
 }

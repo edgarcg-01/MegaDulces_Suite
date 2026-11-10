@@ -58,6 +58,10 @@ import { DataScopeService } from '../../../core/services/data-scope.service';
 import { TableDensityComponent } from '../../../shared/components/table-density/table-density.component';
 import { TableDensityService } from '../../../shared/components/table-density/table-density.service';
 
+/** [RE.35.5] Los hallazgos que calcula el expediente (filtro con conteo). [RE.63] + dónde está la rebaja. */
+const HALLAZGOS_EXP = ['cobrar_nc', 'mal_emitida', 'nc_aplicada', 'nc_solo_cfdi', 'nc_solo_kepler'] as const;
+type HallazgoExp = (typeof HALLAZGOS_EXP)[number];
+
 /** Una foto en el set de evidencia de la recepción (lo normal son 3–4). */
 interface AttachFile {
   id: number; name: string; dataUri: string; kind: 'image' | 'pdf'; role: string;
@@ -112,11 +116,12 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                RE.20.1 — la bajada cambia con el lente porque la pregunta cambia. -->
           <p class="surf-page-sub">
             @if (dinero()) {
-              Una fila por compra: lo que facturó el proveedor, los ajustes ligados que lo
-              bajaron (devoluciones y notas de crédito) y el <strong>neto que realmente
-              pagamos</strong>
+              Una fila por compra: lo que facturó el proveedor, las notas de crédito y devoluciones
+              que Kepler le aplicó y el <strong>neto que realmente pagamos</strong>
               @if (report()) { , <strong>{{ ventanaTexto() }}</strong> }.
-              La misma cifra agregada por proveedor está en
+              <!-- [RE.64] Decía «la misma cifra agregada por proveedor»: no lo es (allá se suman todas las
+                   notas del proveedor, aquí sólo las que Kepler aplicó a cada compra). -->
+              Los descuentos de cada proveedor, sumados, están en
               <a routerLink="/compras/costo-neto">Costo por proveedor</a>.
             } @else {
               Las órdenes de entrada de la red
@@ -1593,6 +1598,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
     .cb-hal[data-h="cobrar_nc"], .cb-hal[data-h="mal_emitida"] { color: var(--bad-fg); }
     .cb-hal[data-h="sin_oc"], .cb-hal[data-h="incompleta"] { color: var(--warn-fg); }
     .cb-hal[data-h="nc_aplicada"] { color: var(--ok-fg); }
+    .cb-hal[data-h="nc_solo_cfdi"], .cb-hal[data-h="nc_solo_kepler"] { color: var(--warn-fg); }
     /* [RE.35.4] Buscar + Subir factura = una zona para soltar; el botón, al doble. */
     .cb-dropzone { position: relative; border: 2px dashed transparent; border-radius: var(--r-md); padding: 2px; margin: -4px; }
     .cb-dropzone.drag { border-color: var(--action); background: var(--warn-soft-bg); }
@@ -1961,11 +1967,15 @@ export class ComprasEntradasComponent {
   /** Qué compone el ajuste de esta fila, para el tooltip: el total solo no dice si preocupa. */
   ajusteTip(c: EntradaRow): string {
     const op = Number(c.ajuste_operativo || 0), com = Number(c.ajuste_comercial || 0);
+    // [RE.64] Lo que no es ni uno ni otro se DERIVA (total − los dos): una nota de Kepler sin motivo que la
+    // clasifique. Se dice, para que la suma de las partes sea el total que se ve en la celda.
+    const sinClas = Number(c.ajuste || 0) - op - com;
     const partes: string[] = [];
     if (com) partes.push(`${money(com)} negociado (descuento · pronto pago · apoyo)`);
-    if (op) partes.push(`${money(op)} operativo (faltante · mal estado · no solicitado)`);
+    if (op) partes.push(`${money(op)} operativo (faltante · mal estado · no solicitado · devolución)`);
+    if (Math.abs(sinClas) > 0.005) partes.push(`${money(sinClas)} sin clasificar (la nota de Kepler no dice el motivo)`);
     const n = Number(c.n_ajuste || 0);
-    return `${n} ${n === 1 ? 'ajuste ligado' : 'ajustes ligados'}${partes.length ? ' — ' + partes.join(' · ') : ''}`;
+    return `${n} ${n === 1 ? 'nota o devolución aplicada en Kepler' : 'notas o devoluciones aplicadas en Kepler'}${partes.length ? ' — ' + partes.join(' · ') : ''}`;
   }
 
   // RE.20.3 — "Descartadas" al final y separada: no es una etapa del proceso, es la salida.
@@ -2553,14 +2563,18 @@ export class ComprasEntradasComponent {
   // ── [RE.35.4] Hallazgo: qué hacer y con quién. Absorbe los filtros de Ajuste y de OC. ──
   // "Cobrar nota de crédito" y "Factura mal emitida" llegan con el veredicto en la lista.
   /** [RE.35.5] Hallazgos que calcula el expediente (con su conteo en la bandeja). */
-  readonly hallazgoVer = signal<'' | 'cobrar_nc' | 'mal_emitida' | 'nc_aplicada'>('');
+  readonly hallazgoVer = signal<'' | HallazgoExp>('');
   readonly hallazgoOptsExp = computed(() => {
     const n = this.conteosBandeja()?.por_hallazgo;
-    const c = (k: 'cobrar_nc' | 'mal_emitida' | 'nc_aplicada') => (n ? ` · ${n[k]}` : this.conteosCargando() ? ' · …' : '');
+    // `[RE.63]` Un conteo que el servidor no trae (respuesta anterior) no se dibuja como cero.
+    const c = (k: HallazgoExp) => (n && n[k] != null ? ` · ${n[k]}` : this.conteosCargando() ? ' · …' : '');
     return [
       { label: 'Cobrar nota de crédito' + c('cobrar_nc'), value: 'cobrar_nc' },
       { label: 'Factura mal emitida (refacturar)' + c('mal_emitida'), value: 'mal_emitida' },
       { label: 'Nota de crédito ya aplicada' + c('nc_aplicada'), value: 'nc_aplicada' },
+      // `[RE.63]` Dónde está la rebaja: la nota de un solo lado (el panel dice si cambia lo que se paga).
+      { label: 'Nota sólo en el CFDI (Kepler no la aplicó)' + c('nc_solo_cfdi'), value: 'nc_solo_cfdi' },
+      { label: 'Nota sólo en Kepler (falta su CFDI)' + c('nc_solo_kepler'), value: 'nc_solo_kepler' },
     ];
   });
   readonly hallazgoOptsTodas = computed(() => [this.hallazgoOpts[0], ...this.hallazgoOptsExp(), ...this.hallazgoOpts.slice(1)]);
@@ -2575,7 +2589,7 @@ export class ComprasEntradasComponent {
   readonly hallazgoSel = computed(() => this.hallazgoVer() || (this.ocSel() === 'sin' ? 'sin_oc' : (this.ajusteSel() || '')));
   setHallazgo(v: string | null): void {
     this.hallazgoVer.set('');
-    if (v === 'cobrar_nc' || v === 'mal_emitida' || v === 'nc_aplicada') { this.ajusteSel.set(''); this.ocSel.set(''); this.hallazgoVer.set(v); }
+    if (v && (HALLAZGOS_EXP as readonly string[]).includes(v)) { this.ajusteSel.set(''); this.ocSel.set(''); this.hallazgoVer.set(v as HallazgoExp); }
     else if (v === 'sin_oc') { this.ajusteSel.set(''); this.ocSel.set('sin'); }
     else { this.ocSel.set(''); this.ajusteSel.set((v || '') as '' | 'con' | 'sin' | 'operativo' | 'comercial'); }
     this.page.set(1); this.load();
@@ -2617,7 +2631,8 @@ export class ComprasEntradasComponent {
     return ({ auto: 'Pasa sola', revisar: 'Revisar', sin_cfdi_aun: 'Sin CFDI aún', sin_documento: 'Sin papel', fuera_de_alcance: 'Fuera de alcance' } as Record<string, string>)[c] ?? c;
   }
   hallazgoTexto(h: string): string {
-    return ({ cobrar_nc: 'Cobrar NC', mal_emitida: 'Mal emitida', incompleta: 'Incompleta', sin_oc: 'Sin OC', nc_aplicada: 'NC aplicada', comercial: 'Comercial' } as Record<string, string>)[h] ?? h;
+    return ({ cobrar_nc: 'Cobrar NC', mal_emitida: 'Mal emitida', incompleta: 'Incompleta', sin_oc: 'Sin OC', nc_aplicada: 'NC aplicada', comercial: 'Comercial',
+      nc_solo_cfdi: 'NC sólo en CFDI', nc_solo_kepler: 'NC sólo en Kepler' } as Record<string, string>)[h] ?? h;
   }
 
   // ── [RE.35.4] Soltar la factura en la barra: abre la carga ya con el archivo como FACTURA ──

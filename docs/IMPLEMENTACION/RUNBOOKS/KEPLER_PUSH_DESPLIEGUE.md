@@ -541,6 +541,8 @@ entrada de una sola vez en la primera pregunta. Borrar después `/tmp/k.js` y `/
 **Estado de `cot37_kdm1_update_c115.sql`** (UPDATE sólo de la columna `c115` para `kepler_push`): aplicado y
 comprobado en **01 Padre Hidalgo, 06 Canindo y 07 Morelia Madero**; pendiente en los otros seis hasta abrir su `pg_hba`.
 
+**Estado de `pgp106_pago_proveedor.sql`** (las 8 escrituras del pago a proveedor `X-D-26`, `[PGP.106]`): ✅ **aplicado y comprobado en 00 CEDIS el 2026-11-09**, desde md como `postgres` (`psql` en md con la URL por stdin, en una transacción con la línea `-- verificar:`; `sa` NO entra ni desde la PC ni desde md). Después: `kepler_push` inserta en `kdm1 kdm5 kdxe kdxf kdc22611 kdc22612`, actualiza `kdxg kdc126` y SÓLO la columna `kdxe.c20`, lee `kdxd kdmm kdxv kdb1`; **no puede borrar en ninguna tabla**. ⚠️ La póliza es una tabla por mes: volver a correrlo cuando exista `kdc22701` (enero). ⚠️ El `pg_hba` de 00 sigue aceptando a `postgres` desde md (la línea «temporal» del 2026-10-28 no se cerró). Dar el permiso no enciende nada: `KEPLER_PAGO_ESCRITURA` apagada; el adaptador aún no escribe `kdm5`, `kdxg`, `kdc2AAMM` ni `kdc126`.
+
 ### 14.3 Corregir un pedido ya escrito, desde md
 
 Con `kepler_push` (la URL del propio pod, `KEPLER_PUSH_URL_NN`; nunca se imprime), un script por `node -`

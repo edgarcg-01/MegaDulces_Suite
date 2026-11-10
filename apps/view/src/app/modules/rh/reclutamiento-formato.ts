@@ -4,7 +4,7 @@
  * Los nombres de las etapas son los que RH ya usa en Mega Talento (`proceso.model.ts`): cambiarlos obligaría a
  * reaprender una pantalla que ya conocen.
  */
-import type { HrTalentApartado, HrTalentEtapa } from '@megadulces/contracts';
+import { HR_TALENT_META_HORAS, type HrTalentApartado, type HrTalentEtapa } from '@megadulces/contracts';
 
 export interface EtapaVista {
   id: HrTalentEtapa;
@@ -15,13 +15,14 @@ export interface EtapaVista {
 }
 
 /** Las 4 etapas del proceso, en orden, más los dos desenlaces. */
+// La meta de cada etapa viene del contrato (`HR_TALENT_META_HORAS`, `[RH.8.1]`): la misma que usa el Resumen del servidor.
 export const ETAPAS: readonly EtapaVista[] = [
-  { id: 'filtro_inicial', label: 'Filtro Inicial', corto: 'Filtro', slaHoras: 24 },
-  { id: 'entrevista_rh', label: 'Entrevista Orientación Conductual', corto: 'Conductual', slaHoras: 48 },
-  { id: 'aptitudes', label: 'Aptitudes y Entrevista Técnica', corto: 'Aptitudes', slaHoras: 48 },
-  { id: 'psicometria', label: 'Psicométricas', corto: 'Psicométricas', slaHoras: 72 },
-  { id: 'contratado', label: 'Contratados', corto: 'Contratados', slaHoras: null },
-  { id: 'rechazado', label: 'Rechazados', corto: 'Rechazados', slaHoras: null },
+  { id: 'filtro_inicial', label: 'Filtro Inicial', corto: 'Filtro', slaHoras: HR_TALENT_META_HORAS.filtro_inicial },
+  { id: 'entrevista_rh', label: 'Entrevista Orientación Conductual', corto: 'Conductual', slaHoras: HR_TALENT_META_HORAS.entrevista_rh },
+  { id: 'aptitudes', label: 'Aptitudes y Entrevista Técnica', corto: 'Aptitudes', slaHoras: HR_TALENT_META_HORAS.aptitudes },
+  { id: 'psicometria', label: 'Psicométricas', corto: 'Psicométricas', slaHoras: HR_TALENT_META_HORAS.psicometria },
+  { id: 'contratado', label: 'Contratados', corto: 'Contratados', slaHoras: HR_TALENT_META_HORAS.contratado },
+  { id: 'rechazado', label: 'Rechazados', corto: 'Rechazados', slaHoras: HR_TALENT_META_HORAS.rechazado },
 ];
 
 export const ETAPAS_DEL_FLUJO = ETAPAS.slice(0, 4);

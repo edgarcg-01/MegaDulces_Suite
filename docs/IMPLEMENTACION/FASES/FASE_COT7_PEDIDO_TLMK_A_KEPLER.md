@@ -328,6 +328,19 @@ ensayo en 00, 02–05, 07, 08 · pedidos con regalos (rechazados a propósito).
 
 ## Bitácora
 
+- **2026-11-10** — 🧪 **[COT.40] El cliente que nunca ha comprado en la sucursal ya se puede mandar a Kepler** (commit
+  local, sin empujar). Una cotización de Padre Hidalgo rebotó con «falta GRANT SELECT ON md.kdud»: su cliente no tenía un
+  solo documento de venta ahí y el adaptador, sin precedente, leía el catálogo vivo de Kepler, que el usuario de escritura
+  no tiene otorgado en 01 ni 06. No es un caso raro: el padrón de Padre Hidalgo tiene 2,484 claves y sólo 422 tienen un
+  documento de venta ahí. Ahora la Suite lee la ficha de su réplica (`kepler_ods.kdud` de la sucursal) y el adaptador la usa
+  si no hay precedente; el catálogo vivo queda como último recurso (el cliente dado de alta hace minutos). De paso, la
+  ficha del catálogo escribe el estado **con** su código postal en `c35` (`kdud.c6` + `kdud.c27`, «ESTADO 37490»): la lectura
+  vieja lo dejaba fuera. Medido contra los TELEMARK de 30 días (1,463): nombre, domicilio y estado+CP casan con el
+  catálogo al 100 % en 05 y 06; en 01 y 08 lo que no casa son direcciones tecleadas en el pedido (cliente ONLINE) o
+  espacios. Pruebas: 2 nuevas, con prueba negativa (quitar la ficha del envío → rojo); 159/159 del módulo; `tsc` sin
+  errores en los archivos tocados. **NO MEDIDO:** el primer pedido real de un cliente sin precedente; el vendedor sin
+  precedente sigue leyendo `md.kduv` vivo (no ha fallado: los vendedores ya tienen pedidos).
+
 - **2026-11-06** — 🚀 **COT.26–COT.36: lo que pidió el primer día de uso real.**
   - **COT.26:** dirección de entrega elegible en el alta y el detalle. Con varias no se acepta sin elegir. Sin direcciones va «Dir. envío» 0, como Kepler (228 de 228 pedidos TELEMARK de clientes sin dirección).
   - **COT.27:** los regalos de promoción a $0.01 se cotizan.

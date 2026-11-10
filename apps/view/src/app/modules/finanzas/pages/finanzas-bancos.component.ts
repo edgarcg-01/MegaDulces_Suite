@@ -18,7 +18,7 @@ import { MenuItem, MessageService } from 'primeng/api';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
-import { ArchivosDelBanco, BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado, Reconciliation, MatchResult, Differences, Balances, Diagnostico, KeplerAccount, ContpaqiCompare, ContpaqiBankAccount, FactorajeCompare, ThreeWay, SheetSyncConfig, ImportResult, SyncFindingsResult, SheetSyncRunResult } from '../bank.service';
+import { ArchivosDelBanco, BankService, BankAccount, MovementCategory, BankStatement, BankMovement, Concentrado, Reconciliation, MatchResult, Differences, Balances, Diagnostico, KeplerAccount, ContpaqiCompare, ContpaqiBankAccount, FactorajeCompare, ThreeWay, SheetSyncConfig, ImportResult, SyncFindingsResult, SheetSyncRunResult, PropuestaComisiones } from '../bank.service';
 import { BancosSocketService, BancosEvent, FinanceJobEvent, JobAccepted } from '../bancos-socket.service';
 import { FinanceJobsClient } from '../finance-jobs.client';
 import { AuthService } from '../../../core/services/auth.service';
@@ -37,10 +37,25 @@ import { BancosAdminComponent } from './bancos/bancos-admin.component';
 import { BancosContpaqiComponent } from './bancos/bancos-contpaqi.component';
 import { BancosThreeWayComponent } from './bancos/bancos-three-way.component';
 import { BancosCapturasComponent } from './bancos/bancos-capturas.component';
+import { BancosComisionesComponent } from './bancos/bancos-comisiones.component';
 import { BANCOS_STYLES } from './bancos/bancos.styles';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { BANCOS_CONCILIACION_TABS } from '../bancos-conciliacion-tabs';
+
+/**
+ * `[CB.60]` Una hoja del libro con formato de banco cuyo nombre no es el de ninguna cuenta NO entra
+ * (el servidor la marca «cuenta no registrada — omitido»): se dice con su nombre, no se calla. Así se
+ * perdió «BB 366» (la cuenta es BB 3660) de septiembre a noviembre de 2026 sin que nadie lo viera.
+ */
+export function avisoHojasSinCuenta(res: Pick<ImportResult, 'accounts'>): { summary: string; detail: string } | null {
+  const hojas = (res.accounts ?? []).filter((a) => /cuenta no registrada/i.test(a.note ?? '')).map((a) => `«${a.sheet}»`);
+  if (!hojas.length) return null;
+  return {
+    summary: hojas.length === 1 ? '1 hoja del libro no entró' : `${hojas.length} hojas del libro no entraron`,
+    detail: `${hojas.join(', ')}: su nombre no es el de ninguna cuenta. Renombra la hoja como se llama la cuenta en Bancos › Cuentas (p. ej. «BB 3660») y vuelve a subir el libro.`,
+  };
+}
 
 /**
  * CB.3 — Conciliación bancaria (ADR-033). Reemplaza el workbook Excel: tablero
@@ -50,7 +65,7 @@ import { BANCOS_CONCILIACION_TABS } from '../bancos-conciliacion-tabs';
 @Component({
   selector: 'app-finanzas-bancos',
   standalone: true,
-  imports: [DatePipe, FormsModule, ButtonModule, MenuModule, TableModule, ToastModule, SelectModule, CheckboxModule, InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent, BancosConcentradoComponent, BancosConciliacionComponent, BancosCuentasComponent, BancosEstadoBancoComponent, BancosDescargasAvisoComponent, BancosCierreComponent, BancosMovimientosComponent, BancosAdminComponent, BancosContpaqiComponent, BancosThreeWayComponent, BancosCapturasComponent, PageTabsComponent],
+  imports: [DatePipe, FormsModule, ButtonModule, MenuModule, TableModule, ToastModule, SelectModule, CheckboxModule, InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent, BancosConcentradoComponent, BancosConciliacionComponent, BancosCuentasComponent, BancosEstadoBancoComponent, BancosDescargasAvisoComponent, BancosCierreComponent, BancosMovimientosComponent, BancosAdminComponent, BancosContpaqiComponent, BancosThreeWayComponent, BancosCapturasComponent, BancosComisionesComponent, PageTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -179,6 +194,11 @@ import { BANCOS_CONCILIACION_TABS } from '../bancos-conciliacion-tabs';
         }
       }
 
+      <!-- ── COMISIONES: las comisiones de la terminal que faltan en Kepler (CB.62, sólo lee) ── -->
+      @if (view() === 'comisiones') {
+        <bancos-comisiones [data]="comisiones()" [loading]="comLoading()" [error]="comError()" (reintentar)="cargarComisiones()" />
+      }
+
       <!-- ── CAPTURAS WHATSAPP: bandeja de depósitos recibidos por WhatsApp (CBW.4) ── -->
       @if (view() === 'capturas') {
         <bancos-capturas />
@@ -187,7 +207,7 @@ import { BANCOS_CONCILIACION_TABS } from '../bancos-conciliacion-tabs';
       <!-- ── CUENTAS: cuadre de saldos por cuenta (clic → sus movimientos) ── -->
       <!-- ── ESTADOS DE CUENTA: la descarga del banco, la que reemplaza al libro (CB.59) ── -->
       @if (view() === 'estados') {
-        <bancos-estado-banco (guardado)="cargarDescargas()" />
+        <bancos-estado-banco (guardado)="cargarDescargas(); cargarComisiones()" />
         <!-- El libro sigue entrando mientras dure el paralelo (D2, CB.60): sus dos entradas viven aquí. -->
         <section class="card-premium card-flat fb-libro" aria-labelledby="fb-libro-t">
           <div class="fb-libro-txt">
@@ -295,13 +315,30 @@ export class FinanzasBancosComponent implements OnInit {
     });
   }
   /**
+   * [CB.62] Las comisiones de la terminal que faltan en Kepler. Se cargan al abrir Bancos (la pestaña lleva su
+   * número) y otra vez al subir una descarga; no dependen del periodo (son los últimos 14 días de la descarga).
+   */
+  readonly comisiones = signal<PropuestaComisiones | null>(null);
+  readonly comLoading = signal(false);
+  readonly comError = signal<string | null>(null);
+  cargarComisiones(): void {
+    this.comLoading.set(true);
+    this.comError.set(null);
+    this.api.comisionesKepler().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (c) => { this.comisiones.set(c); this.comLoading.set(false); },
+      error: () => { this.comError.set('No se pudieron leer las comisiones de la descarga del banco.'); this.comLoading.set(false); },
+    });
+  }
+  /**
    * El número de cada pestaña: lo que pide trabajo en esa vista. Sustituye a la franja de
    * indicadores (Importado / Clasificado / Conciliado): el número vive donde se resuelve.
    */
   cuentaDe(v: View): NumeroDePestana | null {
+    const com = this.comisiones();
     return numeroDePestana(v, {
       descargas: this.descargas()?.cuentas ?? null, sinClasificar: this.diagnostico()?.sin_clasificar_n,
       descuadradas: this.balances()?.cuentas_descuadradas, conciliadoPct: this.reconciledPct(), conciliacionVieja: this.reconStale(),
+      comisionesListas: com?.medido ? com.resumen.listos : null,
     });
   }
 
@@ -494,6 +531,7 @@ export class FinanzasBancosComponent implements OnInit {
     // el Sheet, se corre la conciliación o entra/valida un comprobante (otro operador).
     this.sock.connect();
     this.cargarDescargas();
+    this.cargarComisiones();
     this.sock.change$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((ev) => this.onRemoteChange(ev));
     this.sock.job$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((ev) => this.onJob(ev));
     this.destroyRef.onDestroy(() => this.sock.disconnect());
@@ -558,6 +596,8 @@ export class FinanzasBancosComponent implements OnInit {
     if (ev.name === 'bank-import') {
       const res = ev.result as ImportResult;
       this.toast.add({ severity: 'success', summary: `Importado ${res.period}`, detail: `${res.total} movimientos · ${res.sin_clasificar} sin clasificar`, life: 4000 });
+      const aviso = avisoHojasSinCuenta(res);
+      if (aviso) this.toast.add({ severity: 'warn', sticky: true, ...aviso });
       if (!this.periods().includes(res.period)) this.periods.update((ps) => [res.period, ...ps].sort().reverse());
       this.setPeriod(res.period);
       return;

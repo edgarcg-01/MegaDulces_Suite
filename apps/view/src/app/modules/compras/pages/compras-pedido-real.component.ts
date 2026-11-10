@@ -3922,7 +3922,9 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     for (const u of this.urows()) {
       if (u.type !== 'comprar' || !u.buy) continue;
       const src = u.unit_source;
-      if (!src || src === 'catalog') continue;
+      // `[PQ.105]` 'kepler' = la caja la dice la ficha de Kepler de esa sucursal: el ajuste manual no
+      // la mueve, así que ofrecer el diálogo afirmaría algo que el motor ya no hace.
+      if (!src || src === 'catalog' || src === 'kepler') continue;
       if (!m.has(u.product_id)) m.set(u.product_id, u.buy);
     }
     return m;

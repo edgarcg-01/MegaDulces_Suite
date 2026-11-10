@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Permission, RequireAnyPermission, RequirePermissions, RolesGuard } from '@megadulces/platform-core';
 import type {
   HrCandidatoEdicion, HrCandidatoEventoDto, HrCasilleroDto, HrDocumentoNuevo, HrLigaCreadaDto, HrCandidatoEventoNuevo, HrCandidatoFichaDto, HrCandidatosListaDto,
+  HrResumenReclutamientoDto,
   HrDuplicadoGrupoDto, HrFusionResultadoDto, HrReingresoAlertaDto, HrTiempoPorEtapaDto, HrVacanteDto, HrVacanteEdicion,
   HrPedirDocumentos, HrPedirDocumentosResultadoDto,
 } from '@megadulces/contracts';
@@ -41,8 +42,15 @@ export class HrTalentController {
   @Get('candidates')
   @RequireAnyPermission(...VER)
   @ApiOperation({ summary: 'RH — candidatos de un apartado (postulados, en_proceso, spam, no_recontratables, papelera).' })
-  listar(@Query() q: { view?: string; stage?: string; branch?: string; q?: string; limit?: string; offset?: string }): Promise<HrCandidatosListaDto> {
+  listar(@Query() q: { view?: string; stage?: string; branch?: string; city?: string; q?: string; limit?: string; offset?: string }): Promise<HrCandidatosListaDto> {
     return this.candidates.listar({ ...q, limit: Number(q.limit) || undefined, offset: Number(q.offset) || undefined });
+  }
+
+  @Get('summary')
+  @RequireAnyPermission(...VER)
+  @ApiOperation({ summary: 'RH — Resumen: en proceso por ciudad y etapa, y quién va fuera de la meta de su etapa.' })
+  resumen(): Promise<HrResumenReclutamientoDto> {
+    return this.candidates.resumen();
   }
 
   @Get('candidates/duplicates')

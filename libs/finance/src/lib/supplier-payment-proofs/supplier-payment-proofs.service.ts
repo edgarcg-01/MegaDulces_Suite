@@ -901,7 +901,7 @@ export class SupplierPaymentProofsService {
   /**
    * Descuentos y apoyos del proveedor que explican por qué el banco pagó ≠ factura:
    * notas de crédito (X-D-55) y devoluciones de compra (X-D-40) de Kepler
-   * (`analytics.erp_purchase_adjustments`, RE.10). Liga por `proveedor_code` (fallback
+   * (`analytics.v_purchase_adjustments`, RE.68; antes el importer). Liga por `proveedor_code` (fallback
    * nombre) en una ventana alrededor de la fecha del pago; marca `factura_match` cuando
    * la factura de la nota coincide con algún folio del concepto del pago. NO es cuadre al
    * peso — es el contexto que /compras/descuentos ya contabiliza. Read-only.
@@ -915,8 +915,8 @@ export class SupplierPaymentProofsService {
     const tokens = String(pago.concepto || '').match(/\d{2,}/g) || [];
     const WINDOW = 60; // días alrededor del pago (la nota puede emitirse antes o después)
     const iso = (d: Date) => d.toISOString().slice(0, 10);
-    const q = trx('analytics.erp_purchase_adjustments')
-      .where('tenant_id', tenantId)
+    const q = trx('analytics.v_purchase_adjustments')
+      .where('tenant_id', tenantId).whereNot('grupo', 'traslado')
       .select('doctype', 'adjustment_date', 'factura_ref', 'motivo', 'categoria',
         trx.raw('monto::numeric AS monto'))
       .orderBy('adjustment_date', 'desc')

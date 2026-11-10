@@ -29,6 +29,7 @@ import { VENTANA_YA_PEDIDO_DIAS } from './ya-pedido-sucursal';
 import { cerrarTraspasosNoEjecutados } from './traspaso-no-ejecutado';
 import { limpiarComprasSinDocumento } from './compra-sin-documento';
 import { bajoReorden, cumplimientoSoloCompra, frenadoPorReorden, segunReorden } from './faltante';
+import { FICHA_KEPLER_SQL } from './ficha-kepler';
 import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt } from '../shared/freshness';
 
 /**
@@ -2193,12 +2194,13 @@ export class CommercialReplenishmentService {
              AND product_id IN (SELECT pr.id FROM catalog.products pr WHERE ${where})
              ${agotados ? 'AND false' /* el filtro deja sólo los de fuera: no se paga el plan entero */ : ''}
           UNION ALL
-          -- \`[PQ.91]\` Donde la ficha de Kepler dice que no hay caja, la caja es 1 también para la
-          -- demanda, igual que el plan (import-replenishment-plan, CTE dbf).
+          -- \`[PQ.91]\`/\`[PQ.105]\` Donde la sucursal tiene ficha de Kepler y la demanda va en su
+          -- unidad base, la caja de la demanda es la de la ficha, igual que el plan
+          -- (import-replenishment-plan, FICHA_KEPLER). El override manual sólo queda donde no hay ficha.
           SELECT CAST(:t AS uuid), wz.warehouse_id, fz.product_id, fz.suf,
-                 CASE WHEN db.factor_source = 'kepler_unidad_unica' THEN 1 ELSE fz.bf END,
+                 CASE WHEN ${FICHA_KEPLER_SQL} THEN GREATEST(db.box_factor, 1) ELSE fz.bf END,
                  GREATEST(COALESCE(db.box_factor, fz.bf), 1),
-                 COALESCE(fz.box_cost, fz.cwt * CASE WHEN db.factor_source = 'kepler_unidad_unica' THEN 1 ELSE fz.bf END),
+                 COALESCE(fz.box_cost, fz.cwt * CASE WHEN ${FICHA_KEPLER_SQL} THEN GREATEST(db.box_factor, 1) ELSE fz.bf END),
                  0, 0, 0, 0, 0, NULL, NULL, NULL, NULL, NULL, true
             FROM fz
            CROSS JOIN (SELECT warehouse_id FROM analytics.replenishment_plan WHERE tenant_id = :t

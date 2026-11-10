@@ -22,8 +22,6 @@ import { DISCOUNT_REASON_LABEL, type DiscountReason } from '@megadulces/contract
  * que no mostrarlo, y se deja constancia en `notes`.
  */
 
-/** Categorías de ajuste que son beneficio negociado, no un problema (mismo criterio que Compras 360). */
-const COMERCIAL_CATS = ['descuento_comercial', 'pronto_pago', 'apoyo_marca'];
 
 /** Permisos que habilitan cada tipo — basta con UNO (any-of). */
 const KIND_PERMS: Record<EntityKind, string[]> = {
@@ -62,6 +60,16 @@ const REL_LIMIT = 20;
  * por eso todo importe pasa por `n()` antes de publicarse.
  */
 type Num = number | string | null;
+
+/** [RE.68] Una fila de `analytics.v_purchase_adjustments` tal como la leen las fichas (los numeric llegan como texto). */
+interface FilaAjusteVista {
+  doctype: string; sucursal: string; folio: string; monto: Num; motivo: string | null; categoria: string | null;
+  grupo: string | null; adjustment_date: string | null; proveedor_code: string | null; proveedor_nombre: string | null;
+  proveedor_rfc: string | null; factura_ref: string | null; entrada_folio: string | null; iva: Num;
+  categoria_source: string | null; source_branch: string | null;
+}
+/** [RE.68] Totales de ajustes (conteo y montos) de la vista. */
+interface TotalesAjusteVista { n: Num; total: Num; comercial?: Num; operativo?: Num; sin_clasificar?: Num }
 
 /**
  * El constructor de consultas que recibe cada resolvedor. ⚠️ Es `any` HEREDADO: los otros ocho
@@ -102,6 +110,8 @@ interface FilaProgramada {
   applied_amount: Num; status: string; payment_method: string | null; allocation_folio: string | null;
   /** `[PGP.91]` Descuento que el proveedor dio al pagar; 0 = sin descuento. */
   discount_amount: Num; discount_reason: string | null; discount_rate: Num;
+  /** `[PGP.101]` Los renglones cuando hay varios descuentos (jsonb); null = uno, el de las columnas. */
+  discount_lines: unknown;
   kepler_payment_sucursal: string | null; kepler_payment_doc_prefix: string | null;
   kepler_payment_folio: string | null;
   lot_status: string | null; released_by: string | null; lot_date: string | null;
@@ -266,13 +276,15 @@ export class EntityRefService {
     }
 
     // Ajustes: primero los ligados por folio exacto; si no hay, la ventana heurística.
-    const exactos: any[] = await trx('analytics.erp_purchase_adjustments')
-      .select('doctype', 'sucursal', 'folio', 'monto', 'motivo', 'categoria',
+    // [RE.68] La vista liga la entrada también por `kdxf` (no sólo `c39`): el folio de entrada se repite entre
+    // sucursales, así que la liga va por (sucursal, folio) — antes iba por folio solo y no había con qué chocar.
+    const exactos: FilaAjusteVista[] = await trx('analytics.v_purchase_adjustments')
+      .select('doctype', 'sucursal', 'folio', 'monto', 'motivo', 'categoria', 'grupo',
         trx.raw(`to_char(adjustment_date,'YYYY-MM-DD') AS adjustment_date`))
-      .where({ tenant_id: tenantId, entrada_folio: folio }).orderBy('adjustment_date', 'desc').limit(REL_LIMIT);
+      .where({ tenant_id: tenantId, sucursal, entrada_folio: folio }).orderBy('adjustment_date', 'desc').limit(REL_LIMIT);
     for (const a of exactos) {
       relations.push({ ref: makeRef('adj', a.doctype, a.sucursal, a.folio), group: 'Ajustes ligados',
-        label: a.categoria || a.motivo || a.doctype, sub: `${a.doctype} · ${a.adjustment_date ?? ''}`.trim(),
+        label: a.categoria || (a.grupo === 'traslado' ? 'traslado al CEDIS' : null) || a.motivo || a.doctype, sub: `${a.doctype} · ${a.adjustment_date ?? ''}`.trim(),
         amount: n(a.monto), date: a.adjustment_date });
     }
     // Solo lo LIGADO por folio. Antes, cuando no había ninguno, se listaban hasta 20 ajustes
@@ -281,8 +293,8 @@ export class EntityRefService {
     // activo la lista se llenaba de notas que no tienen nada que ver con este documento, y el
     // lector no tiene cómo saber cuál sí. Se cuenta y se dice dónde mirarlo, sin listarlo.
     if (!exactos.length && e.proveedor_code && e.receipt_date) {
-      const [cerca]: any[] = await trx('analytics.erp_purchase_adjustments')
-        .where({ tenant_id: tenantId, proveedor_code: e.proveedor_code })
+      const [cerca]: TotalesAjusteVista[] = await trx('analytics.v_purchase_adjustments')
+        .where({ tenant_id: tenantId, proveedor_code: e.proveedor_code }).whereNot('grupo', 'traslado')
         .whereRaw(`adjustment_date BETWEEN ?::date - INTERVAL '15 days' AND ?::date + INTERVAL '15 days'`, [e.receipt_date, e.receipt_date])
         .select(trx.raw('count(*)::int AS n'), trx.raw('COALESCE(sum(monto),0)::numeric AS total'));
       if (n(cerca?.n)) {
@@ -381,16 +393,24 @@ export class EntityRefService {
     };
   }
 
-  // -- Ajuste (analytics.erp_purchase_adjustments) ---------------------------
+  // -- Ajuste (analytics.v_purchase_adjustments) ---------------------------
   private async ajuste(trx: any, tenantId: string, doctype: string, sucursal: string, folio: string): Promise<RefResult> {
-    const [a]: any[] = await trx('analytics.erp_purchase_adjustments')
+    const [a]: FilaAjusteVista[] = await trx('analytics.v_purchase_adjustments')
       .select('doctype', 'sucursal', 'folio', 'proveedor_code', 'proveedor_nombre', 'proveedor_rfc',
-        'factura_ref', 'entrada_folio', 'monto', 'iva', 'motivo', 'categoria', 'categoria_source', 'source_branch',
+        'factura_ref', 'entrada_folio', 'monto', 'iva', 'motivo', 'categoria', 'categoria_source', 'source_branch', 'grupo',
         trx.raw(`to_char(adjustment_date,'YYYY-MM-DD') AS adjustment_date`))
       .where({ tenant_id: tenantId, doctype, sucursal, folio }).limit(1);
     if (!a) throw new NotFoundException(`No existe el ajuste ${doctype} ${sucursal}/${folio}.`);
 
-    const esComercial = COMERCIAL_CATS.includes(String(a.categoria || ''));
+    // [RE.68] La etiqueta sale del grupo de la vista. Antes, todo lo que no era comercial se pintaba «Operativo:
+    // algo salió mal», también una nota sin motivo o el traslado del pago al CEDIS.
+    const GRUPO_BADGE: Record<string, { text: string; tone: 'ok' | 'warn' | 'muted'; title: string }> = {
+      comercial: { text: 'Comercial', tone: 'ok', title: 'Beneficio negociado (descuento, pronto pago, apoyo de marca)' },
+      operativo: { text: 'Operativo', tone: 'warn', title: 'Algo salió mal (faltante, mal estado, devolución…)' },
+      sin_clasificar: { text: 'Sin clasificar', tone: 'muted', title: 'El motivo de la nota no dice qué es' },
+      traslado: { text: 'Traslado al CEDIS', tone: 'muted', title: 'No es rebaja: el pago de esa compra se hizo por la copia del CEDIS' },
+    };
+    const badgeGrupo = GRUPO_BADGE[String(a.grupo)] ?? GRUPO_BADGE['sin_clasificar'];
     const relations: RefRelation[] = [];
     const notes: string[] = [];
 
@@ -401,7 +421,7 @@ export class EntityRefService {
     if (a.entrada_folio) {
       const [e]: any[] = await trx('analytics.erp_goods_receipts')
         .select('sucursal', 'folio', 'doc_prefix', 'monto', trx.raw(`to_char(receipt_date,'YYYY-MM-DD') AS receipt_date`))
-        .where({ tenant_id: tenantId, folio: a.entrada_folio }).limit(1);
+        .where({ tenant_id: tenantId, sucursal: a.sucursal, folio: a.entrada_folio }).limit(1);
       if (e) {
         relations.push({ ref: makeRef('ent', e.sucursal, e.doc_prefix, e.folio), group: 'Entrada ligada',
           label: `Entrada ${e.folio}`, sub: `${e.sucursal} · ${e.receipt_date ?? ''}`.trim(), amount: n(e.monto) });
@@ -418,11 +438,10 @@ export class EntityRefService {
       subtitle: `${a.sucursal} · ${a.proveedor_nombre || a.proveedor_code || ''}`,
       badges: [
         { text: doctype, tone: 'muted' },
-        { text: esComercial ? 'Comercial' : 'Operativo', tone: esComercial ? 'ok' : 'warn',
-          title: esComercial ? 'Beneficio negociado (descuento, pronto pago, apoyo de marca)' : 'Algo salió mal (faltante, mal estado, factura duplicada…)' },
+        { text: badgeGrupo.text, tone: badgeGrupo.tone, title: badgeGrupo.title },
       ],
       fields: [
-        { label: 'Fecha', value: a.adjustment_date, kind: 'date', source: 'erp_purchase_adjustments.adjustment_date' },
+        { label: 'Fecha', value: a.adjustment_date, kind: 'date', source: 'kdm1.c9' },
         { label: 'Tipo', value: doctype === 'XD55' ? 'X-D-55 Nota de crédito' : 'X-D-40 Devolución de compra', kind: 'mono' },
         { label: 'Motivo', value: a.motivo, source: 'kdm1.c24' },
         { label: 'Categoría', value: a.categoria, source: `clasificación ${a.categoria_source ?? 'n/d'}` },
@@ -699,7 +718,7 @@ export class EntityRefService {
     const prog: FilaProgramada[] = await trx('finance.payment_allocation_items as i')
       .join('finance.payment_allocations as a', 'a.id', 'i.allocation_id')
       .leftJoin('finance.payment_calendar_lots as l', 'l.id', 'a.lot_id')
-      .select('i.applied_amount', 'i.discount_amount', 'i.discount_reason', 'i.discount_rate',
+      .select('i.applied_amount', 'i.discount_amount', 'i.discount_reason', 'i.discount_rate', 'i.discount_lines',
         'a.status', 'a.payment_method', 'a.folio as allocation_folio',
         'a.kepler_payment_sucursal', 'a.kepler_payment_doc_prefix', 'a.kepler_payment_folio',
         'l.status as lot_status', 'l.released_by',
@@ -718,8 +737,14 @@ export class EntityRefService {
       const tasa = g.discount_rate === null || g.discount_rate === undefined ? null : Number(g.discount_rate);
       const motivo = g.discount_reason && g.discount_reason in DISCOUNT_REASON_LABEL
         ? DISCOUNT_REASON_LABEL[g.discount_reason as DiscountReason] : (g.discount_reason ?? 'Descuento');
+      // `[PGP.101]` Con varios descuentos se nombran todos («Pronto pago 3 % + Volumen»); el agregado sólo dice el mayor.
+      const pctTxt = (r: unknown) => (r !== null && r !== undefined && Number(r) > 0 ? ` ${Number((Number(r) * 100).toFixed(2))} %` : '');
+      const renglones = Array.isArray(g.discount_lines) ? g.discount_lines as { reason: string; rate: number | null }[] : [];
+      const detalle = renglones.length > 1
+        ? renglones.map((l) => `${DISCOUNT_REASON_LABEL[l.reason as DiscountReason] ?? l.reason}${pctTxt(l.rate)}`).join(' + ')
+        : `${motivo}${tasa && tasa > 0 ? pctTxt(tasa) : ''}`;
       const conDescuento = desc > 0
-        ? ` · descuento al pagar ${money(desc)} (${motivo}${tasa && tasa > 0 ? ` ${Number((tasa * 100).toFixed(2))} %` : ''})` +
+        ? ` · descuento al pagar ${money(desc)} (${detalle})` +
           ' — la nota de crédito la emite el proveedor después'
         : '';
       fields.push({
@@ -788,11 +813,14 @@ export class EntityRefService {
         trx.raw(`to_char(min(receipt_date),'YYYY-MM-DD') AS primera`),
         trx.raw(`to_char(max(receipt_date),'YYYY-MM-DD') AS ultima`))
       .where({ tenant_id: tenantId, proveedor_code: code }).whereRaw('dup_of_folio IS NULL');
-    const [aj]: any[] = await trx('analytics.erp_purchase_adjustments')
+    const [aj]: TotalesAjusteVista[] = await trx('analytics.v_purchase_adjustments')
       .select(trx.raw(`count(*)::int AS n`), trx.raw(`COALESCE(sum(monto),0)::numeric AS total`),
-        trx.raw(`COALESCE(sum(monto) FILTER (WHERE categoria = ANY(?)),0)::numeric AS comercial`, [COMERCIAL_CATS]),
-        trx.raw(`COALESCE(sum(monto) FILTER (WHERE categoria IS NULL OR NOT (categoria = ANY(?))),0)::numeric AS operativo`, [COMERCIAL_CATS]))
-      .where({ tenant_id: tenantId, proveedor_code: code });
+        // [RE.68] Por el grupo de la vista: lo sin clasificar ya no se cuenta como «operativo», y el traslado al
+        // CEDIS (el pago que se fue por la copia) no es un ajuste: no suma.
+        trx.raw(`COALESCE(sum(monto) FILTER (WHERE grupo = 'comercial'),0)::numeric AS comercial`),
+        trx.raw(`COALESCE(sum(monto) FILTER (WHERE grupo = 'operativo'),0)::numeric AS operativo`),
+        trx.raw(`COALESCE(sum(monto) FILTER (WHERE grupo = 'sin_clasificar'),0)::numeric AS sin_clasificar`))
+      .where({ tenant_id: tenantId, proveedor_code: code }).whereNot('grupo', 'traslado');
     const [pg]: any[] = await trx('analytics.erp_supplier_payments')
       .select(trx.raw(`count(*)::int AS n`), trx.raw(`COALESCE(sum(monto),0)::numeric AS total`),
         trx.raw(`COALESCE(sum(descuento),0)::numeric AS descuento`))
@@ -834,6 +862,7 @@ export class EntityRefService {
       { label: 'Ajustes (total)', value: n(aj?.total), kind: 'money', source: `${n(aj?.n)} documentos X-D-40/55` },
       { label: 'Ajuste comercial', value: n(aj?.comercial), kind: 'money' },
       { label: 'Ajuste operativo', value: n(aj?.operativo), kind: 'money' },
+      { label: 'Ajuste sin clasificar', value: n(aj?.sin_clasificar), kind: 'money', source: 'el motivo de la nota no dice qué es' },
       { label: 'Pagado', value: n(pg?.total), kind: 'money', source: `${n(pg?.n)} pagos X-D-26/25/60` },
       { label: 'Descuento por pronto pago', value: n(pg?.descuento), kind: 'money', source: 'Σ kdmm.c84' },
     ];
@@ -857,12 +886,12 @@ export class EntityRefService {
       relations.push({ ref: makeRef('ent', e.sucursal, e.doc_prefix, e.folio), group: 'Últimas recepciones',
         label: `Entrada ${e.folio}`, sub: `${e.sucursal} · ${e.receipt_date ?? ''}`.trim(), amount: n(e.monto), date: e.receipt_date });
     }
-    const ajs: any[] = await trx('analytics.erp_purchase_adjustments')
-      .select('doctype', 'sucursal', 'folio', 'monto', 'motivo', 'categoria', trx.raw(`to_char(adjustment_date,'YYYY-MM-DD') AS adjustment_date`))
+    const ajs: FilaAjusteVista[] = await trx('analytics.v_purchase_adjustments')
+      .select('doctype', 'sucursal', 'folio', 'monto', 'motivo', 'categoria', 'grupo', trx.raw(`to_char(adjustment_date,'YYYY-MM-DD') AS adjustment_date`))
       .where({ tenant_id: tenantId, proveedor_code: code }).orderBy('adjustment_date', 'desc').limit(REL_LIMIT);
     for (const a of ajs) {
       relations.push({ ref: makeRef('adj', a.doctype, a.sucursal, a.folio), group: 'Ajustes',
-        label: a.categoria || a.motivo || a.doctype, sub: `${a.doctype} · ${a.adjustment_date ?? ''}`.trim(),
+        label: a.categoria || (a.grupo === 'traslado' ? 'traslado al CEDIS' : null) || a.motivo || a.doctype, sub: `${a.doctype} · ${a.adjustment_date ?? ''}`.trim(),
         amount: n(a.monto), date: a.adjustment_date });
     }
     const pays: any[] = await trx('analytics.erp_supplier_payments')

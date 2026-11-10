@@ -13,6 +13,32 @@ export type HrTalentTipoEvento = 'contacto' | 'entrevista' | 'contratacion' | 'n
 export type HrTalentCanal = 'llamada' | 'whatsapp' | 'presencial' | 'bot' | 'portal';
 export type HrTalentMotivoPapelera = 'manual' | 'cierre_seguimiento' | 'fusionado';
 
+/**
+ * `[RH.8.1]` Horas que RH se dio como META para responder en cada etapa (el SLA de Mega Talento). Una sola fuente: la
+ * usan la marca de «atrasado» de la lista y el Resumen. Los desenlaces no tienen meta.
+ */
+export const HR_TALENT_META_HORAS: Readonly<Record<HrTalentEtapa, number | null>> = {
+  filtro_inicial: 24, entrevista_rh: 48, aptitudes: 48, psicometria: 72, contratado: null, rechazado: null,
+};
+
+/** `[RH.8.1]` La ciudad para filtrar: una del catálogo del bot, o `sin_ciudad` (vacía, o no se reconoce). */
+export const HR_TALENT_SIN_CIUDAD = 'sin_ciudad';
+
+/** `[RH.8.1]` `GET /hr/talent/summary` — en proceso (sin spam ni papelera), por ciudad y por etapa. */
+export interface HrResumenReclutamientoDto {
+  total: number;
+  /** Las ciudades del catálogo, más `sin_ciudad` al final. */
+  ciudades: Array<{ ciudad: string; total: number; por_etapa: Record<HrTalentEtapa, number> }>;
+  /**
+   * Por etapa: cuántos hay; `rezago` = sin movimiento hace más de `rezago_dias` (casos que nadie cerró, no atraso);
+   * `fuera_de_meta` = de los que SÍ se mueven, cuántos llevan más que la meta de su etapa (null: la etapa no tiene meta).
+   */
+  etapas: Array<{ etapa: HrTalentEtapa; total: number; rezago: number; fuera_de_meta: number | null }>;
+  rezago_dias: number;
+  /** Por qué no se reconoce la ciudad de quienes caen en `sin_ciudad` (se dice, no se esconde). */
+  sin_ciudad: { vacia: number; no_reconocida: number };
+}
+
 /** Un renglón de la lista. */
 export interface HrCandidatoFilaDto {
   id: string;

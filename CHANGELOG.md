@@ -9,6 +9,46 @@
 ---
 
 ## [Unreleased]
+### Changed — Notas de crédito de proveedor: salen de Kepler para todas las sucursales, sin el importer (RE.68 · 2026-11-10 · en código, sin soltar)
+- Descuentos, Negociación de pedido, Rentabilidad, Promo sell-out, control de pagos, comprobantes de pago y la ficha de cada documento leen las notas de crédito y devoluciones directo de Kepler, de todas las sucursales. Antes sólo veían las del CEDIS, contaban las canceladas y daban por descuento las notas sin motivo.
+- Las notas entre sucursales (traspasos) ya no aparecen como ajustes de un proveedor en Descuentos ni en Rentabilidad.
+- La ficha de una entrada muestra sus notas ligadas (antes casi nunca): 394 entradas desde agosto.
+
+### Internal — El apareo de recepciones duplicadas corre cuando llega una entrada, no cada 5 minutos (RE.69 · 2026-11-10 · en código, sin soltar)
+- Se retiran dos relojes de 5 minutos y el barrido diario de las 04:30.
+### Fixed — Costo por proveedor: el descuento por nota de crédito sale de Kepler y la compra de sucursal se cuenta una vez (RE.67 · 2026-11-10 · en prod)
+### Fixed — Costo por proveedor: el descuento por nota de crédito sale de Kepler y la compra de sucursal se cuenta una vez (RE.67 · 2026-11-10 · en código, sin soltar)
+- El porcentaje de descuento de cada proveedor estaba mal: contaba sólo las notas del CEDIS y sumaba dos veces las compras de sucursal que el CEDIS vuelve a capturar. Desde agosto, la tasa general pasa de 3.6 % a 4.2 %; Dulces Las Delicias, de 2.2 % a 6.6 %.
+- Una nota de crédito sin motivo ya no se da por descuento (antes se suponía: 300 notas, $4.0 M en el año). Se muestra debajo del descuento de su proveedor como «sin clasificar» y no se resta del costo.
+- Lo mismo en Descuentos › Reconciliación, para que las dos pantallas digan lo mismo del mismo proveedor.
+### Fixed — Revisión de facturas: el Neto ya no resta el «blanqueo» de las compras que se pagan en el CEDIS (RE.66 · 2026-11-10 · en prod)
+- La columna **Neto** decía $0 en 451 compras de sucursal que sí se pagan, porque Kepler «blanquea» su cuenta cuando el pago va por el CEDIS. Ese movimiento ya no cuenta como rebaja: el Neto sube **$9.4 M** desde agosto y quedan 168 compras en $0.
+- Las notas que Kepler aplicó a la copia del CEDIS ahora aparecen en la compra de sucursal que se ve en la lista.
+- «Nota sólo en Kepler» baja de 151 a 119: 32 eran blanqueos, no notas que haya que pedirle al proveedor.
+
+### Changed — Revisión de facturas: el cuadre mira las notas de los dos lados (RE.65 · 2026-11-10 · en prod)
+- Una factura ya **no pasa sola** si, con las notas, Kepler pagaría más de lo que el proveedor factura neto (12 compras desde agosto, una de $89.8 mil).
+- Y **pasa sola** cuando los netos coinciden aunque la factura y la entrada no (mercancía sin cargo, faltante devuelto: 5 compras).
+- Cuando Kepler descontó y el proveedor no ha timbrado su nota, la factura sigue pasando: la nota la pide Compras con el filtro «Nota sólo en Kepler».
+
+### Fixed — Revisión de facturas: Ajuste y Neto ya cuentan las notas de crédito (RE.64 · 2026-11-10 · en prod)
+- La columna **Ajuste** salía vacía en todas las compras: leía una copia que nunca ligaba las notas de crédito a su compra. Ahora sale de lo que Kepler aplicó a cada orden de entrada: desde agosto, **$14.4 M en 870 compras**, y el **Neto** baja de $184.3 M a $169.8 M.
+- El detalle de cada ajuste dice cuánto es negociado (descuento, pronto pago, apoyo), cuánto operativo (faltante, mal estado, devolución) y cuánto **sin clasificar** (la nota de Kepler no dice el motivo).
+- Los filtros «Entrega incompleta» y «Ajuste comercial» empiezan a encontrar compras (38 y 195).
+- La bajada ya no dice que «Costo por proveedor» es la misma cifra: allá se suman todas las notas del proveedor.
+
+### Added — Revisión de facturas: la nota de crédito dice si está en el CFDI, en Kepler, en los dos o en ninguno (RE.63 · 2026-11-10 · en prod)
+- En el expediente de cada compra, un bloque nuevo dice dónde está la rebaja: la nota que Kepler aplicó a la entrada, la que el proveedor timbró (CFDI) para su factura, las dos o ninguna, con sus folios y montos.
+- Y la consecuencia en lo que se paga: si lo que Kepler pagará cuadra con lo que el proveedor factura neto, o cuánto difiere y qué hacer (pedirle el CFDI al proveedor, o aplicar la nota en Kepler). Cuando Kepler ya capturó la entrada con el descuento, avisa que aplicar la nota la descontaría dos veces.
+- Dos filtros nuevos en Hallazgo: «Nota sólo en el CFDI (Kepler no la aplicó)» y «Nota sólo en Kepler (falta su CFDI)», con su conteo. Sin factura ligada no se afirma nada del lado del SAT.
+- Informativo: no cambia qué facturas pasan solas. Sin migraciones.
+
+### Fixed — Revisión de facturas: la nota de crédito se aplica por su relación en el CFDI, no por importe (RE.62 · 2026-11-10 · en prod)
+- Una factura mayor que la entrada sólo «cuadra con nota de crédito» si la nota, en su propio CFDI, **relaciona esa factura**. Antes bastaba con que una nota del mismo proveedor tuviera el monto parecido: de 42 marcadas «nota ya aplicada», 36 usaban la nota de otra factura y 23 «pasaban solas» así.
+- Una nota que relaciona varias facturas se muestra pero no se descuenta (el CFDI no dice cuánto le toca a cada una). La que sólo coincide por importe aparece como «posible nota, confírmala» y **nunca deja pasar sola** una factura.
+- «Cobrar nota de crédito» ahora cuenta lo que falta **después** de las notas propias de la factura. La aprobación en lote anota qué nota usó.
+- Regla del expediente **R-v3** (ADR-085). Sin cambios de pantalla ni migraciones.
+
 ### Added — Compras › Temporadas: el calendario de temporadas y los productos de cada una (PQ.94, PQ.99 · 2026-11-10 · en código, sin soltar)
 - Nueva pantalla **Compras › Temporadas** (entre Alertas de abasto y Pedido): qué temporada está en venta y cuál sigue, con su **ventana de venta del mayorista** (va adelantada a la fecha del consumidor: Día de Muertos se vende del 1-sep al 2-nov, Navidad desde el 20-oct).
 - Por temporada y año, los productos que **propone la venta real** (Wincaja + Kepler); Compras, Mercadotecnia y Dirección los **confirman o descartan** por lote (si vuelven cada año y si son compra única o se reponen hasta el corte). Descartar pide motivo; un lote con errores dice cuáles no entraron y por qué.

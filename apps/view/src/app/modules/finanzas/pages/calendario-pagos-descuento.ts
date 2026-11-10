@@ -1,4 +1,4 @@
-import type { DiscountReason } from '@megadulces/contracts';
+import type { DiscountReason, PaymentCalendarDiscountLine } from '@megadulces/contracts';
 
 /**
  * `[PGP.91]` **La cuenta del descuento al pagar**, fuera del componente para probarla sin TestBed.
@@ -112,5 +112,40 @@ export function faltaDescuento(motivo: MotivoDescuento, c: CuentaDescuento, cubi
   }
   if (motivo === 'ninguno') return 'Elige el motivo del descuento.';
   if (motivo === 'otro' && !(nota ?? '').trim()) return 'Falta el detalle: di qué descuento es.';
+  return null;
+}
+
+/**
+ * `[PGP.101]` Los renglones del descuento de una factura. El servidor ya los manda en `discount_lines`
+ * (uno capturado antes llega como un renglón); si no vinieran —una API anterior en pleno despliegue—
+ * se arma UNO con las columnas de siempre, para no dibujar «sin descuento» donde sí hay.
+ */
+export function lineasDe(it: {
+  discount_lines?: PaymentCalendarDiscountLine[] | null; discount_amount?: number | string | null;
+  discount_reason?: DiscountReason | null; discount_rate?: number | string | null; discount_note?: string | null;
+}): PaymentCalendarDiscountLine[] {
+  if (it.discount_lines?.length) return it.discount_lines;
+  const d = Number(it.discount_amount || 0);
+  if (!(d > 0) || !it.discount_reason) return [];
+  const r = Number(it.discount_rate);
+  return [{ reason: it.discount_reason, amount: d, rate: it.discount_rate != null && r > 0 ? r : null, note: it.discount_note ?? null }];
+}
+
+/** `[PGP.101]` Lo capturado como pronto pago en una factura (con varios descuentos, sólo ese renglón). */
+export function prontoCapturado(it: Parameters<typeof lineasDe>[0]): number {
+  return round2(lineasDe(it).filter((l) => l.reason === 'pronto_pago').reduce((s, l) => s + Number(l.amount || 0), 0));
+}
+
+/**
+ * `[PGP.101]` Por qué no se puede guardar la lista completa (null = se puede). `ya` son los renglones
+ * ya agregados; `enCaptura`, el que se está tecleando (null si el editor está vacío). Misma regla que
+ * el servidor (`descuentosSobreCubierto`): la suma no puede ser toda la factura, máximo 5 renglones.
+ */
+export const MAX_RENGLONES = 5;
+export function faltaLista(ya: PaymentCalendarDiscountLine[], enCaptura: number | null, cubierto: number): string | null {
+  const n = ya.length + (enCaptura !== null ? 1 : 0);
+  if (n > MAX_RENGLONES) return `Son ${n} descuentos: el máximo es ${MAX_RENGLONES}.`;
+  const total = round2(ya.reduce((s, l) => s + Number(l.amount || 0), 0) + (enCaptura ?? 0));
+  if (total >= round2(cubierto) - 0.005) return 'Los descuentos juntos tienen que ser menores que lo que este pago cubre de la factura.';
   return null;
 }

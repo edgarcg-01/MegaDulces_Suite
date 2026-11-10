@@ -41,6 +41,13 @@ const gate = async (trx, sucursal, folio, delta) => {
 };
 
 (async () => {
+  // [RE.68] NO MEDIDO a propósito. El gate (`ajusteLigadoQueExplica`) ya no lee la tabla del importer: lee la vista
+  // `analytics.v_purchase_adjustments` (liga escrita `entrada_c39`, sin traslado), que no se puede sembrar con INSERT.
+  // Sembrar `kepler_ods.kdm1` exige correr esto contra una base con el ODS, y no se corre contra prod desde la laptop.
+  // Deuda con nombre: reescribir sembrando kdm1 en el job de Postgres del CI. Mientras, la réplica de abajo NO describe
+  // al service y se salta: un verde aquí afirmaría algo que ya no es.
+  console.log('  ⚠️  NO MEDIDO — RE.68: el gate lee la vista del ODS; esta réplica sembraba la tabla del importer (retirado). SKIP');
+  if (!process.env.FORZAR_REPLICA_VIEJA) { await knex.destroy(); process.exit(2); }
   try {
     const e = (await knex.raw(
       `SELECT sucursal, folio, proveedor_code FROM analytics.erp_goods_receipts

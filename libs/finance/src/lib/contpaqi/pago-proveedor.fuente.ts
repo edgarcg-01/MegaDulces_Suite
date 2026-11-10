@@ -21,7 +21,7 @@
  */
 import type { Knex } from 'knex';
 import type { EntradaPagoProveedor, FacturaPagada, NotaAplicada } from './pago-proveedor';
-import type { EntradaGasto } from './gasto-con-factura';
+import { cuentaGastoMasUsada, type EntradaGasto } from './gasto-con-factura';
 import { construirPadron, resolverRfcAcreedor, rfcPorTexto, type PadronEmisores } from './rfc-acreedor';
 
 const TOL = 1;
@@ -109,6 +109,8 @@ export class FuentePagoProveedor {
     private readonly notasHist: Map<string, { mes: string; dev: boolean }[]> = new Map(),
     /** `[CP.8.87]` RFC → cuentas de GASTO (52) con que la contadora asentó sus facturas, por fecha. */
     private readonly usoGasto: Map<string, { f: string; cuenta: string }[]> = new Map(),
+    /** `[PGP.111c]` RFC → la cuenta de gasto que FIRMÓ Contabilidad (`contpaqi.supplier_expense_accounts`): le gana a la derivada. */
+    private readonly firmasGasto: Map<string, string> = new Map(),
   ) {}
 
   /**
@@ -277,7 +279,13 @@ export class FuentePagoProveedor {
     const docs = new Map(docsRows.map((d) => [`${d.acr}|${d.t}|${d.s}|${d.folio}`, d]));
     const cfdiPorRfc = new Map<string, Cfdi[]>(); for (const x of cfdis) meter(cfdiPorRfc, `${x.rfc}|${x.tc}`, x);
     const prov = new Map(provRows.map((x) => [`${x.cuenta}|${x.imp.toFixed(2)}`, x.f]));
-    return new FuentePagoProveedor(etiquetas, pagos, padron, mapa, rfcDe, aplicaciones, notasDe, docs, cfdiPorRfc, prov, usoRfc, pagadaAntes, notasHist, usoGasto);
+    // `[PGP.111c]` Lo que Contabilidad firmó por RFC. Sin la tabla (antes de su migración) no hay firmas: se deriva todo.
+    const hayFirmas = Boolean((await db.raw(`SELECT to_regclass('contpaqi.supplier_expense_accounts') IS NOT NULL AS ok`)).rows[0]?.ok);
+    const firmasGasto = hayFirmas && listaRfc.length
+      ? new Map(((await db('contpaqi.supplier_expense_accounts').where({ tenant_id: MEGA, active: true }).whereIn('rfc', listaRfc)
+        .select('rfc', 'cuenta')) as { rfc: string; cuenta: string }[]).map((r) => [r.rfc, r.cuenta]))
+      : new Map<string, string>();
+    return new FuentePagoProveedor(etiquetas, pagos, padron, mapa, rfcDe, aplicaciones, notasDe, docs, cfdiPorRfc, prov, usoRfc, pagadaAntes, notasHist, usoGasto, firmasGasto);
   }
 
   /** L1: los pagos de Kepler que pueden ser este movimiento. Uno = proveedor identificado. */
@@ -309,10 +317,7 @@ export class FuentePagoProveedor {
    * (`gasto-por-rfc-contpaqi.js`): acierta 93.0 % (1,328/1,428), placebo 9.0 %. Sin historia → null (se confirma).
    */
   private cuentaGastoDe(rfc: string, fecha: string): string | null {
-    const h = (this.usoGasto.get(rfc) ?? []).filter((x) => x.f < fecha);
-    if (!h.length) return null;
-    const c = new Map<string, number>(); for (const x of h) c.set(x.cuenta, (c.get(x.cuenta) ?? 0) + 1);
-    return [...c.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0][0];
+    return this.firmasGasto.get(rfc) ?? cuentaGastoMasUsada(this.usoGasto.get(rfc) ?? [], fecha)?.cuenta ?? null;
   }
 
   /**

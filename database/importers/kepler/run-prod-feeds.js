@@ -204,7 +204,10 @@ const STEPS = {
     // Correr los importers pegaría contra la vista → error. Los .js quedan como fallback histórico.
     path.join(K, 'import-pos-ticket-sales.js'),    // venta de tickets → analytics.pos_ticket_sales
     path.join(K, 'import-kardex.js'),              // movimientos de inventario → analytics.stock_ledger
-    path.join(K, 'import-purchase-adjustments.js'), // ajustes de compra → analytics.erp_purchase_adjustments
+    // RETIRADO 2026-11-10 [RE.68]: import-purchase-adjustments.js → los ajustes de compra salen de la VISTA
+    // analytics.v_purchase_adjustments (mig 20261110160453), derive-no-copy sobre kepler_ods.kdm1 de TODAS las
+    // sucursales. El importer copiaba sólo el CEDIS, contaba canceladas e inventaba categoría. Su tabla queda
+    // congelada (nadie la lee). Edgar: «retiremos el importer y el cron. todo del ods».
     // RETIRADO 2026-09-03: import-kepler-bank-movements.js → analytics.kepler_bank_movements ahora es
     // VISTA derive-no-copy sobre kepler_ods.kdm1⋈kdb1 (mig 20260903120000). Cero importer, siempre fresca.
     // CG.16 — Control de CAJA GENERAL (.mdb/Doctos): los GASTOS se capturan/suben al .mdb (no

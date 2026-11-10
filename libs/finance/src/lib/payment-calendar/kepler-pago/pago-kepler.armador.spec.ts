@@ -1,5 +1,5 @@
 import {
-  armarPagoKepler, escrituraDePagoEncendida, ivaProporcional, motivosParaNoEscribir,
+  armarPagoKepler, armarPagosKepler, conceptoDeFactura, escrituraDePagoEncendida, ivaProporcional, motivosParaNoEscribir,
   type FacturaAPagar, type PagoKeplerEntrada, type PagoSuite,
 } from './pago-kepler.armador';
 
@@ -96,13 +96,19 @@ describe('[PGP.71] ivaProporcional', () => {
 describe('[PGP.71] E3.3 motivosParaNoEscribir', () => {
   const pago = (o: Partial<PagoSuite> = {}): PagoSuite => ({
     status: 'executed', payment_method: 'transferencia', origen_kind: 'bank', kepler_payment_folio: null,
-    lot_status: 'released', items: [{ obligation_source: 'kepler_payable', branch_code: '00' }], ...o,
+    lot_status: 'released', items: [{ obligation_source: 'kepler_payable', branch_code: '00' }], validacion_estado: 'validado', ...o,
   });
   it('autorizado, pagado, por transferencia y sin ligar: se puede', () => {
     expect(motivosParaNoEscribir(pago())).toEqual([]);
   });
   it('⛔ un pago sin marcar pagado NO se escribe', () => {
     expect(motivosParaNoEscribir(pago({ status: 'pending' }))).toContain('El pago no está marcado como pagado');
+  });
+  // `[PGP.104]` F2: marcado pagado no basta; lo prueban el banco Y el comprobante.
+  it('⛔ [PGP.104] sin validar con banco y comprobante NO se escribe, aunque esté marcado pagado', () => {
+    for (const e of ['falta_comprobante', 'esperando_banco', 'discrepa', 'sin_cuenta', null]) {
+      expect(motivosParaNoEscribir(pago({ validacion_estado: e }))).toContain('El pago no está validado con el estado de cuenta y su comprobante');
+    }
   });
   it('⛔ un día sin autorizar NO se escribe', () => {
     expect(motivosParaNoEscribir(pago({ lot_status: 'in_prep' }))).toContain('El día no está autorizado');
@@ -128,5 +134,40 @@ describe('[PGP.71] E3.5 el interruptor', () => {
   });
   it('encendido sólo con la palabra exacta', () => {
     expect(escrituraDePagoEncendida({ KEPLER_PAGO_ESCRITURA: 'encendida' })).toBe(true);
+  });
+});
+
+describe('[PGP.111] P7 y P8: un X-D-26 por concepto, y el gasto con 007', () => {
+  it('⭐ P7: facturas de dos sucursales salen como DOS X-D-26, cada uno con el importe de las suyas', () => {
+    const r = armarPagosKepler(entrada({ importe: 2320, facturas: [factura(), factura({ folio: '2', concepto: 'C-010' })] }));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.planes.map((p) => [p.concepto, p.importe, p.facturas.length])).toEqual([['C-001', 1160, 1], ['C-010', 1160, 1]]);
+    expect(r.planes[1].plan.kdm1['c12']).toBe('C-010');
+    expect(r.planes[1].plan.kdm1['c48']).toBe('MORELIA ABASTOS');
+    expect(r.planes.every((p) => p.plan.kdm1['c11'] === entrada().referencia)).toBe(true);
+  });
+  it('con un solo concepto es exactamente armarPagoKepler', () => {
+    const r = armarPagosKepler(entrada());
+    const uno = armarPagoKepler(entrada());
+    expect(r.ok && uno.ok && r.planes.length === 1 && JSON.stringify(r.planes[0].plan) === JSON.stringify(uno.plan)).toBe(true);
+  });
+  it('⛔ si una parte no se puede armar, no se arma ninguna (no se escribe medio pago)', () => {
+    const r = armarPagosKepler(entrada({ importe: 2320, facturas: [factura(), factura({ folio: '2', concepto: 'C-010', saldo: 100 })] }));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.motivos.join(' ')).toMatch(/C-010: La factura 20-1-2 debe 100.00/);
+  });
+  it('⛔ el importe del pago tiene que ser la suma de lo aplicado, también partido', () => {
+    expect(armarPagosKepler(entrada({ importe: 2000, facturas: [factura(), factura({ folio: '2', concepto: 'C-010' })] })).ok).toBe(false);
+  });
+  it('⭐ P8: la factura de gasto (10-1) sin concepto se paga con 007; una de compra sin concepto se sigue rechazando', () => {
+    expect(conceptoDeFactura({ tipo: 10, concepto: '' })).toBe('007');
+    expect(conceptoDeFactura({ tipo: 10, concepto: ' C-002 ' })).toBe('C-002');
+    expect(conceptoDeFactura({ tipo: 20, concepto: '' })).toBe('');
+    const r = armarPagoKepler(entrada({ facturas: [factura({ tipo: 10, concepto: '' })] }));
+    expect(r.ok && r.plan.kdm1['c12']).toBe('007');
+    const sin = armarPagoKepler(entrada({ facturas: [factura({ concepto: '' })] }));
+    expect(sin.ok).toBe(false);
+    if (!sin.ok) expect(sin.motivos.join(' ')).toMatch(/no trae concepto/);
   });
 });

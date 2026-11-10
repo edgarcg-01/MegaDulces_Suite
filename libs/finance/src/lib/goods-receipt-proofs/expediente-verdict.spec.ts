@@ -1,5 +1,5 @@
 import {
-  CfdiCandidato, EntradaVeredicto, LlavesLiga, cuadra, diferenciasUuid, extraerUuid, hallazgosDe, ligarCfdi, notaQueExplica,
+  CfdiCandidato, EntradaVeredicto, LlavesLiga, cuadra, diferenciasUuid, extraerUuid, hallazgosDe, ligarCfdi, notaQueExplica, notasParaFactura, relacionadosDeXml, traeRelacion, notasLados,
   promoverRfcImporte, proveedorEnContpaqi, veredictoExpediente, indexarCandidatos, candidatosPosibles,
 } from './expediente-verdict';
 
@@ -266,11 +266,11 @@ describe('[RE.35.2] liga RFC + importe, nota de crédito y vía remisión', () =
     expect(notaQueExplica(-738.26, 135772.88, '2026-09-25', [{ uuid: 'NC', total: 738.26, fecha: '2026-09-30' }])).toBeNull();
   });
 
-  it('con la nota de crédito, la factura mayor pasa sola y la nota queda dicha', () => {
-    const nota = { uuid: 'NC-1', total: 279.15, fecha: '2026-09-25' };
-    const v = veredictoExpediente(base({ cfdi: cfdi({ total: 48210.5 + 279.15 }), notaCredito: nota }));
+  it('con la nota de crédito que relaciona la factura, la factura mayor pasa sola y la nota queda dicha', () => {
+    const nota = { uuid: 'NC-1', total: 279.15, fecha: '2026-09-25', facturas: 1 };
+    const v = veredictoExpediente(base({ cfdi: cfdi({ total: 48210.5 + 279.15 }), notasRelacionadas: [nota] }));
     expect(v.cubo).toBe('auto');
-    expect(v.notaCredito).toBe(nota);
+    expect(v.notaCredito).toEqual({ uuid: 'NC-1', total: 279.15, fecha: '2026-09-25' });
     expect(check(v, 'E1_cuadre')?.nota).toMatch(/NC-1/);
   });
 
@@ -322,7 +322,7 @@ describe('[RE.35.5] hallazgo', () => {
     expect(hallazgosDe(v, { operativo: 0, comercial: 120 })).toEqual(['mal_emitida', 'sin_oc', 'comercial']);
   });
   it('nota de crédito ya aplicada se dice', () => {
-    const v = veredictoExpediente(base({ cfdi: cfdi({ total: 48210.5 + 279.15 }), notaCredito: { uuid: 'NC', total: 279.15, fecha: '2026-09-25' } }));
+    const v = veredictoExpediente(base({ cfdi: cfdi({ total: 48210.5 + 279.15 }), notasRelacionadas: [{ uuid: 'NC', total: 279.15, fecha: '2026-09-25', facturas: 1 }] }));
     expect(hallazgosDe(v, sinAj)).toEqual(['nc_aplicada']);
   });
   it('sin documento no tiene hallazgo', () => {
@@ -438,5 +438,239 @@ describe('[RE.59] llave débil nombre + importe', () => {
   it('NEGATIVA: sin nombre de Kepler (papel suelto) la llave no existe', () => {
     const { nombreKepler: _n, ...sinNombre } = k();
     expect(ligarCfdi(sinNombre, [suya]).cfdi).toBeNull();
+  });
+});
+
+describe('[RE.62] la nota de crédito se liga por CfdiRelacionados, no por importe', () => {
+  // Montos sintéticos (el repo es público). Entrada 48,210.50; la factura viene 4,000 mayor (8.3%).
+  const FACT = 48210.5 + 4000;
+  const sinAj = { operativo: 0, comercial: 0 };
+  const rel = (uuid: string, total: number, facturas = 1) => ({ uuid, total, fecha: '2026-10-01', facturas });
+  const nota = (uuid: string, total: number, relacionados: string[], trae_relacion = relacionados.length > 0) =>
+    ({ uuid, total, fecha: '2026-10-01', emisor_rfc: 'ACO101112411', relacionados, trae_relacion });
+
+  it('NEGATIVA (el freno): una nota que sólo casa por importe NUNCA hace pasar sola la factura', () => {
+    const v = veredictoExpediente(base({ cfdi: cfdi({ total: FACT }), notaSugerida: { uuid: 'NC-IMPORTE', total: 4000, fecha: '2026-10-01' } }));
+    expect(check(v, 'E1_cuadre')?.estado).toBe('falla');
+    expect(v.cubo).toBe('revisar');
+    expect(v.notaCredito).toBeNull();
+    expect(check(v, 'E1_cuadre')?.nota).toMatch(/Posible nota de crédito NC-IMPORTE.*no relaciona ninguna factura/);
+    expect(hallazgosDe(v, sinAj)).toEqual([]);
+  });
+
+  it('dos notas que relacionan SÓLO esta factura se suman y la hacen pasar', () => {
+    const v = veredictoExpediente(base({ cfdi: cfdi({ total: FACT }), notasRelacionadas: [rel('NC-A', 2500), rel('NC-B', 1500)] }));
+    expect(v.cubo).toBe('auto');
+    expect(v.notaCredito).toEqual({ uuid: 'NC-A + NC-B', total: 4000, fecha: '2026-10-01' });
+    expect(check(v, 'E1_cuadre')?.valor).toMatch(/2 notas/);
+    expect(hallazgosDe(v, sinAj)).toEqual(['nc_aplicada']);
+  });
+
+  it('NEGATIVA: una nota que relaciona varias facturas no se descuenta, aunque su monto sea la diferencia exacta', () => {
+    const v = veredictoExpediente(base({ cfdi: cfdi({ total: FACT }), notasRelacionadas: [rel('NC-COMP', 4000, 3)] }));
+    expect(check(v, 'E1_cuadre')?.estado).toBe('falla');
+    expect(v.notaCredito).toBeNull();
+    expect(check(v, 'E1_cuadre')?.nota).toMatch(/NC-COMP .*relaciona 3 facturas/);
+    // Con una compartida a la vista no se afirma el cobro.
+    expect(hallazgosDe(v, sinAj)).toEqual([]);
+    expect(v.notas.porCobrar).toBeNull();
+  });
+
+  it('su nota trae MÁS descuento que la diferencia: no cuadra, se dice cuánto queda y no es cobro', () => {
+    const v = veredictoExpediente(base({ cfdi: cfdi({ total: FACT }), notasRelacionadas: [rel('NC-GRANDE', 5000)] }));
+    expect(check(v, 'E1_cuadre')?.estado).toBe('falla');
+    expect(check(v, 'E1_cuadre')?.nota).toMatch(/Con su nota de crédito NC-GRANDE \(\$5,000\.00\) queda \$1,000\.00 menor/);
+    expect(hallazgosDe(v, sinAj)).toEqual([]);
+  });
+
+  it('su nota trae MENOS que la diferencia: se cobra sólo lo que falta', () => {
+    const v = veredictoExpediente(base({ cfdi: cfdi({ total: FACT }), notasRelacionadas: [rel('NC-CHICA', 1000)] }));
+    expect(v.notas.porCobrar).toBe(3000);
+    expect(hallazgosDe(v, sinAj)).toEqual(['cobrar_nc']);
+  });
+
+  it('sin ninguna nota: se cobra la diferencia completa (como antes)', () => {
+    const v = veredictoExpediente(base({ cfdi: cfdi({ total: FACT }) }));
+    expect(v.notas.porCobrar).toBe(4000);
+    expect(hallazgosDe(v, sinAj)).toEqual(['cobrar_nc']);
+  });
+
+  it('con relacionadas, la sugerida por importe se ignora', () => {
+    const v = veredictoExpediente(base({ cfdi: cfdi({ total: FACT }), notasRelacionadas: [rel('NC-REL', 4000)],
+      notaSugerida: { uuid: 'NC-IMPORTE', total: 4000, fecha: '2026-10-01' } }));
+    expect(v.notaCredito?.uuid).toBe('NC-REL');
+    expect(v.notas.sugerida).toBeNull();
+  });
+
+  it('una factura que ya cuadra no toca notas; la vía remisión tampoco', () => {
+    expect(veredictoExpediente(base({ notasRelacionadas: [rel('NC', 100)] })).notas.exclusivas).toEqual([]);
+    const r = veredictoExpediente(base({ cfdi: null, fechaDocumento: '2026-09-01', proveedorEnContpaqi: false, totalLeido: FACT,
+      notasRelacionadas: [rel('NC', 4000)] }));
+    expect(r.via).toBe('remision');
+    expect(r.notaCredito).toBeNull();
+  });
+
+  describe('notasParaFactura', () => {
+    const f = { uuid: UUID.toLowerCase(), emisor_rfc: 'aco101112411', fecha: '2026-09-21' };
+    it('liga por la relación del XML, sin importar mayúsculas ni el importe', () => {
+      const s = notasParaFactura(f, 4000, 48210.5, [nota('NC-1', 3100, [UUID]), nota('NC-2', 900, [UUID, 'OTRA'])]);
+      expect(s.relacionadas).toEqual([
+        { uuid: 'NC-1', total: 3100, fecha: '2026-10-01', facturas: 1 },
+        { uuid: 'NC-2', total: 900, fecha: '2026-10-01', facturas: 2 },
+      ]);
+      expect(s.sugerida).toBeNull();
+    });
+    it('NEGATIVA (el caso de prod): la nota de OTRA factura con el importe exacto no entra ni como sugerencia', () => {
+      const s = notasParaFactura(f, 4000, 48210.5, [nota('NC-DE-OTRA', 4000, ['OTRA-FACTURA'])]);
+      expect(s.relacionadas).toEqual([]);
+      expect(s.sugerida).toBeNull();
+    });
+    it('NEGATIVA (la inestabilidad de prod): llega una nota nueva parecida de otra factura y el veredicto no cambia', () => {
+      const antes = notasParaFactura(f, 4000, 48210.5, [nota('NC-SUELTA', 4000, [])]);
+      const despues = notasParaFactura(f, 4000, 48210.5, [nota('NC-SUELTA', 4000, []), nota('NC-NUEVA', 3990, ['OTRA'])]);
+      expect(antes.sugerida?.uuid).toBe('NC-SUELTA');
+      expect(despues.sugerida?.uuid).toBe('NC-SUELTA');
+    });
+    it('sin relación en el XML: la de importe se sugiere, y sólo si es del mismo emisor', () => {
+      expect(notasParaFactura(f, 4000, 48210.5, [nota('NC-SUELTA', 4000, [])]).sugerida?.uuid).toBe('NC-SUELTA');
+      expect(notasParaFactura(f, 4000, 48210.5, [{ ...nota('NC-AJENA', 4000, []), emisor_rfc: 'BIM011108DJ5' }]).sugerida).toBeNull();
+    });
+    it('una nota que relaciona algo de otro tipo (anticipo) no se sugiere', () => {
+      expect(notasParaFactura(f, 4000, 48210.5, [nota('NC-07', 4000, [], true)]).sugerida).toBeNull();
+    });
+  });
+});
+
+describe('[RE.62] relacionadosDeXml: el trozo CfdiRelacionados del XML de la nota', () => {
+  // XML sintético con la forma del CFDI 4.0 (el trozo arranca en la primera «CfdiRelacionados»).
+  const bloque = (tipo: string, ...uuids: string[]) =>
+    `CfdiRelacionados TipoRelacion="${tipo}">${uuids.map((u) => `<cfdi:CfdiRelacionado UUID="${u}"/>`).join('')}</cfdi:`;
+  const A = 'AAAAAAAA-0000-4000-8000-000000000001', B = 'BBBBBBBB-0000-4000-8000-000000000002', C = 'cccccccc-0000-4000-8000-000000000003';
+  it('un bloque 01 con dos facturas', () => {
+    expect(relacionadosDeXml(bloque('01', A, B))).toEqual([A, B]);
+  });
+  it('el 03 (devolución) también cuenta y el UUID sale en mayúsculas', () => {
+    expect(relacionadosDeXml(bloque('03', C))).toEqual([C.toUpperCase()]);
+  });
+  it('NEGATIVA: 04 (sustitución) y 07 (anticipo) no son facturas que la nota rebaje', () => {
+    expect(relacionadosDeXml(bloque('04', A))).toEqual([]);
+    expect(relacionadosDeXml(bloque('07', A))).toEqual([]);
+  });
+  it('varios bloques: se queda con los 01/03 aunque el primero sea otro tipo (el caso 01 + 04 de prod)', () => {
+    expect(relacionadosDeXml(bloque('04', A) + '><cfdi:' + bloque('01', B))).toEqual([B]);
+    expect(relacionadosDeXml(bloque('01', A) + '><cfdi:' + bloque('01', B) + '><cfdi:' + bloque('01', A))).toEqual([A, B]);
+  });
+  it('sin trozo no relaciona nada; traeRelacion distingue «nada» de «otro tipo»', () => {
+    expect(relacionadosDeXml(null)).toEqual([]);
+    expect(traeRelacion(null)).toBe(false);
+    expect(traeRelacion(bloque('07', A))).toBe(true);
+  });
+});
+
+describe('[RE.63] notasLados: la rebaja está en Kepler, en el CFDI, en los dos o en ninguno', () => {
+  const sinAj = { operativo: 0, comercial: 0 };
+  const k = (folio: string, aplicado: number) => ({ tipo: '55' as const, folio, aplicado, fecha: '2026-10-01', motivo: null });
+  const c = (uuid: string, total: number, facturas = 1) => ({ uuid, total, fecha: '2026-10-02', facturas });
+  const v = () => veredictoExpediente(base());
+  it('las dos: se dicen los dos totales y la diferencia CFDI − Kepler', () => {
+    const l = notasLados([k('0000101', 900), k('0000102', 100)], [c('NC-1', 1170)]);
+    expect(l.estado).toBe('ambas');
+    expect(l.keplerTotal).toBe(1000);
+    expect(l.cfdiTotal).toBe(1170);
+    expect(l.diferencia).toBe(170);
+    expect(hallazgosDe(v(), sinAj, l)).toEqual([]);
+  });
+  it('sólo CFDI: el proveedor la timbró y Kepler no la aplicó → aplicarla en Kepler', () => {
+    const l = notasLados([], [c('NC-1', 500)]);
+    expect(l.estado).toBe('solo_cfdi');
+    expect(l.diferencia).toBeNull();
+    expect(hallazgosDe(v(), sinAj, l)).toEqual(['nc_solo_cfdi']);
+  });
+  it('sólo Kepler: Kepler ya descontó y no hay CFDI de la nota → pedírsela al proveedor', () => {
+    const l = notasLados([k('0000101', 900)], []);
+    expect(l.estado).toBe('solo_kepler');
+    expect(hallazgosDe(v(), sinAj, l)).toEqual(['nc_solo_kepler']);
+  });
+  it('NEGATIVA: sin factura ligada el lado del SAT NO se mide — no es «sólo Kepler»', () => {
+    const l = notasLados([k('0000101', 900)], null);
+    expect(l.estado).toBe('cfdi_no_medido');
+    expect(l.cfdiTotal).toBeNull();
+    expect(hallazgosDe(v(), sinAj, l)).toEqual([]);
+  });
+  it('ninguna (con o sin factura ligada) no da hallazgo', () => {
+    expect(notasLados([], []).estado).toBe('ninguna');
+    expect(notasLados([], null).estado).toBe('ninguna');
+    expect(hallazgosDe(v(), sinAj, notasLados([], []))).toEqual([]);
+  });
+  it('una nota CFDI compartida con otras facturas se marca: su diferencia no es atribuible al peso', () => {
+    expect(notasLados([k('0000101', 900)], [c('NC-COMP', 3000, 4)]).compartida).toBe(true);
+    expect(notasLados([k('0000101', 900)], [c('NC-1', 900)]).compartida).toBe(false);
+  });
+  it('NEGATIVA: el lado de las notas NO cambia el cubo ni los demás hallazgos', () => {
+    const vv = veredictoExpediente(base({ cfdi: cfdi({ total: 48210.5 + 500 }) }));
+    expect(vv.cubo).toBe('revisar');
+    expect(hallazgosDe(vv, sinAj, notasLados([], [c('NC-1', 300)]))).toEqual(['cobrar_nc', 'nc_solo_cfdi']);
+    expect(veredictoExpediente(base()).cubo).toBe('auto');
+  });
+});
+
+describe('[RE.63] los netos: ¿la nota de un solo lado cambia lo que se paga?', () => {
+  const k = (aplicado: number) => ({ tipo: '55' as const, folio: '0000101', aplicado, fecha: null, motivo: null });
+  const c = (total: number, facturas = 1) => ({ uuid: 'NC-1', total, fecha: null, facturas });
+  it('sólo CFDI con la entrada capturada YA con el descuento: los netos cuadran (aplicarla en Kepler la duplicaría)', () => {
+    // Patrón medido en prod: factura 100,000 − nota 5,000 = entrada 95,000 (montos sintéticos).
+    const l = notasLados([], [c(5000)], { factura: 100000, entrada: 95000 });
+    expect(l.estado).toBe('solo_cfdi');
+    expect(l.netosCuadran).toBe(true);
+    expect(l.difNeta).toBe(0);
+  });
+  it('sólo CFDI con la entrada completa: Kepler pagaría la nota de más (dif neta negativa)', () => {
+    const l = notasLados([], [c(5000)], { factura: 100000, entrada: 100000 });
+    expect(l.netosCuadran).toBe(false);
+    expect(l.difNeta).toBe(-5000);
+  });
+  it('sólo Kepler con la factura completa: el proveedor factura neto más de lo que Kepler pagará', () => {
+    const l = notasLados([k(9000)], [], { factura: 100000, entrada: 100000 });
+    expect(l.estado).toBe('solo_kepler');
+    expect(l.netoKepler).toBe(91000);
+    expect(l.difNeta).toBe(9000);
+    expect(l.netosCuadran).toBe(false);
+  });
+  it('NEGATIVA: con nota compartida o sin factura ligada el neto del CFDI no se afirma', () => {
+    expect(notasLados([], [c(5000, 3)], { factura: 100000, entrada: 95000 }).netosCuadran).toBeNull();
+    expect(notasLados([k(9000)], null, { factura: null, entrada: 100000 }).netosCuadran).toBeNull();
+  });
+});
+
+describe('[RE.65] R-v4: el cuadre mira las notas de los dos lados, en netos (asimétrico)', () => {
+  // Entrada de base: 48,210.50. Montos sintéticos.
+  const k = (aplicado: number) => ({ tipo: '55' as const, folio: '0000101', aplicado, fecha: null, motivo: null });
+  const c = (total: number, facturas = 1) => ({ uuid: 'NC-1', total, fecha: '2026-10-01', facturas });
+  it('bruto cuadra, pero con la nota del CFDI Kepler pagaría MÁS: no pasa sola', () => {
+    const v = veredictoExpediente(base({ notasRelacionadas: [c(4000)] }));
+    expect(check(v, 'E1_cuadre')?.estado).toBe('falla');
+    expect(check(v, 'E1_cuadre')?.nota).toMatch(/Kepler pagaría \$4,000\.00 más/);
+    expect(v.cubo).toBe('revisar');
+  });
+  it('bruto no cuadra (la factura ya venía neta) y los netos sí: pasa sola', () => {
+    const v = veredictoExpediente(base({ cfdi: cfdi({ total: 48210.5 - 4000 }), notasKepler: [k(4000)] }));
+    expect(check(v, 'E1_cuadre')?.estado).toBe('ok');
+    expect(check(v, 'E1_cuadre')?.valor).toMatch(/\(netos\)/);
+    expect(v.cubo).toBe('auto');
+  });
+  it('NEGATIVA: Kepler pagaría MENOS (descontó y el proveedor no timbró su nota): no cambia, pasa sola', () => {
+    const v = veredictoExpediente(base({ notasKepler: [k(4000)] }));
+    expect(check(v, 'E1_cuadre')?.estado).toBe('ok');
+    expect(v.cubo).toBe('auto');
+  });
+  it('NEGATIVA: con una nota compartida el neto no se afirma y el cuadre bruto manda', () => {
+    const v = veredictoExpediente(base({ notasRelacionadas: [c(4000, 3)] }));
+    expect(check(v, 'E1_cuadre')?.estado).toBe('ok');
+    expect(v.cubo).toBe('auto');
+  });
+  it('NEGATIVA: la vía remisión no mira notas', () => {
+    const v = veredictoExpediente(base({ cfdi: null, fechaDocumento: '2026-09-01', proveedorEnContpaqi: false, totalLeido: 48210.5, notasKepler: [k(4000)] }));
+    expect(v.via).toBe('remision');
+    expect(v.cubo).toBe('auto');
   });
 });

@@ -394,7 +394,7 @@ export class WhatsAppIngestService implements OnModuleInit {
       tenantId, phone: p.phone, phoneNumberId: r.phone_number_id, waMessageId: p.wa_message_id, type: r.type, text: p.text,
       profileName: r.profile_name,
       media: media ? { id: media.id, mimeType: media.mime_type, filename: media.filename } : null,
-      descargar: media ? () => this.port.downloadMedia(media.id) : null,
+      descargar: media ? () => this.port.downloadMedia(media.id, { from: r.phone_number_id }) : null,
     });
     for (const reply of replies) {
       const base = { to: p.phone, thread_id: null, from: r.phone_number_id, flow: 'recruitment' as const };

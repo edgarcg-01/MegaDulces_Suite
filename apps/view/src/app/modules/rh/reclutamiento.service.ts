@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import type {
-  HrCandidatoEdicion, HrCandidatoEventoDto, HrCandidatoEventoNuevo, HrCandidatoFichaDto, HrCandidatosListaDto,
+  HrCandidatoEdicion, HrCandidatoEventoDto, HrCandidatoEventoNuevo, HrCandidatoFichaDto, HrCandidatosListaDto, HrResumenReclutamientoDto,
   HrCasilleroDto, HrDocumentoNuevo, HrDuplicadoGrupoDto, HrPedirDocumentosResultadoDto, HrLigaCreadaDto, HrFusionResultadoDto, HrReingresoAlertaDto, HrTalentApartado,
   HrTalentEtapa, HrTiempoPorEtapaDto, HrVacanteDto, HrVacanteEdicion,
 } from '@megadulces/contracts';
@@ -17,10 +17,15 @@ export class ReclutamientoService {
   private readonly http = inject(HttpClient);
   private readonly base = `${environment.apiUrl}/hr/talent`;
 
-  candidatos(q: { view?: HrTalentApartado; stage?: HrTalentEtapa | null; branch?: string | null; q?: string; limit?: number; offset?: number }): Observable<HrCandidatosListaDto> {
+  candidatos(q: { view?: HrTalentApartado; stage?: HrTalentEtapa | null; branch?: string | null; city?: string | null; q?: string; limit?: number; offset?: number }): Observable<HrCandidatosListaDto> {
     let p = new HttpParams();
     for (const [k, v] of Object.entries(q)) if (v !== undefined && v !== null && v !== '') p = p.set(k, String(v));
     return this.http.get<HrCandidatosListaDto>(`${this.base}/candidates`, { params: p });
+  }
+
+  /** `[RH.8.1]` El Resumen: en proceso por ciudad y etapa, y quién va fuera de su meta. */
+  resumen(): Observable<HrResumenReclutamientoDto> {
+    return this.http.get<HrResumenReclutamientoDto>(`${this.base}/summary`);
   }
 
   ficha(id: string): Observable<HrCandidatoFichaDto> {

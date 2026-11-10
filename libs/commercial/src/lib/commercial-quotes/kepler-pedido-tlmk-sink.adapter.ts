@@ -26,6 +26,12 @@ export interface PedidoTlmkEntrada {
   direccion_envio: string | null;
   /** COT.28: observaciones del pedido → «Comentarios» renglones 2 y 3 (`c25`, `c26`; 60 + 60). */
   observaciones?: string | null;
+  /**
+   * `[COT.40]` La ficha del cliente leída por la Suite de `kepler_ods.kdud` (la réplica del catálogo
+   * de esta sucursal). Se usa sólo si el cliente no tiene un documento previo aquí; null = no está en
+   * la réplica y se intenta el catálogo vivo.
+   */
+  cliente_catalogo?: DatosCliente | null;
   renglones: RenglonCotizacion[];
   /** Tope diario del interruptor (`kepler_push_switch.tope_dia`); null = sin tope. */
   tope_dia: number | null;
@@ -36,7 +42,23 @@ export type PedidoTlmkResultado =
   | { estado: 'rechazado'; motivo: string; motivos?: string[] };
 
 /** Lo que el pedido copia del cliente: nombre, RFC, domicilio (`c33`–`c35`) y condición de pago (`c30`). */
-interface DatosCliente { nombre: string; rfc: string; c33: string; c34: string; c35: string; c30: string }
+export interface DatosCliente { nombre: string; rfc: string; c33: string; c34: string; c35: string; c30: string }
+
+/**
+ * `[COT.40]` Una fila de `kdud` (la viva o su réplica `kepler_ods.kdud`) → lo que el pedido copia.
+ * El pedido guarda el estado CON el código postal: `c35` = `kdud.c6` + `kdud.c27` («GUANAJUATO
+ * 37490»). Medido el 2026-11-10 contra los TELEMARK de 30 días: nombre, domicilio y estado+CP casan
+ * con el catálogo en 05 y 06 al 100 %; en 01 y 08 lo que no casa es una dirección tecleada en el
+ * pedido (cliente ONLINE) o espacios. La condición de pago (`c30`) no está en el catálogo: vacía,
+ * como en 1,276 de 1,463 pedidos medidos.
+ */
+export function fichaDeCatalogo(r: Record<string, unknown>): DatosCliente {
+  const t = (v: unknown) => String(v ?? '').trim();
+  return {
+    nombre: t(r['c3']), rfc: t(r['c10']), c33: t(r['c4']), c34: t(r['c5']),
+    c35: [t(r['c6']), t(r['c27'])].filter(Boolean).join(' '), c30: '',
+  };
+}
 
 /**
  * `[COT.37]` La «Dirección Envío» de la pantalla del pedido es **`c115`**, no `c85`. Medido el
@@ -157,9 +179,11 @@ export class KeplerPedidoTlmkSinkAdapter implements OnModuleDestroy {
       // Un código válido en la Suite y desconocido para el ERP no falla al escribir: produce un
       // pedido que apunta a nadie. Primero el PRECEDENTE: lo que Kepler mismo le escribió a ese
       // cliente en su último documento de venta aquí (nombre, RFC, domicilio, condición de pago;
-      // medido: c32 = kdud.c3 y c22 = kdud.c10 en 748/749). Sólo sin precedente se lee el catálogo
-      // (`kdud`), que el usuario de escritura puede no tener otorgado (ensayo 2026-11-03: 01 y 06
-      // responden «permiso denegado a la tabla kdud»).
+      // medido: c32 = kdud.c3 y c22 = kdud.c10 en 748/749). Sin precedente, la ficha del catálogo
+      // que la Suite leyó de su réplica (`kepler_ods.kdud`, COT.40); sólo si tampoco está ahí se lee
+      // el catálogo vivo (`md.kdud`), que el usuario de escritura no tiene otorgado en 01 ni 06
+      // (ensayo 2026-11-03; el 2026-11-10 eso frenó a un cliente que nunca había comprado en Padre
+      // Hidalgo, cuyo padrón tiene 2,484 claves y sólo 422 claves con un documento de venta ahí).
       const cliente = e.cliente.trim();
       const vendedor = e.vendedor.trim();
       let cli = (await c.query(
@@ -169,13 +193,13 @@ export class KeplerPedidoTlmkSinkAdapter implements OnModuleDestroy {
           WHERE c1 = $1 AND c2 = 'U' AND c3 = 'D' AND btrim(c4::text) IN ('40', '8', '5', '12') AND btrim(c10) = $2
             AND btrim(coalesce(c32,'')) <> ''
           ORDER BY (btrim(c27) = 'TELEMARK') DESC, c9 DESC, c6 DESC LIMIT 1`, [e.sucursal, cliente])).rows[0] as DatosCliente | undefined;
+      if (!cli && e.cliente_catalogo?.nombre) cli = e.cliente_catalogo;
       if (!cli) {
         const cat = await this.leerCatalogo(c,
-          `SELECT btrim(c3) AS nombre, coalesce(c10,'') AS rfc, coalesce(c4,'') AS c33, coalesce(c5,'') AS c34,
-                  coalesce(c6,'') AS c35, '' AS c30 FROM md.kdud WHERE btrim(c2) = $1 LIMIT 1`, [cliente], 'kdud');
+          `SELECT c3, c10, c4, c5, c6, c27 FROM md.kdud WHERE btrim(c2) = $1 LIMIT 1`, [cliente], 'kdud');
         if (typeof cat === 'string') return { estado: 'rechazado', motivo: cat };
-        cli = cat[0] as unknown as DatosCliente | undefined;
-        if (!cli) return { estado: 'rechazado', motivo: `Kepler (sucursal ${e.sucursal}) no tiene al cliente ${cliente} en su catálogo (kdud)` };
+        if (!cat.length) return { estado: 'rechazado', motivo: `Kepler (sucursal ${e.sucursal}) no tiene al cliente ${cliente} en su catálogo (kdud)` };
+        cli = fichaDeCatalogo(cat[0]);
       }
       const vendConocido = await c.query(
         `SELECT 1 FROM md.kdm1 WHERE c1 = $1 AND c2 = 'U' AND c3 = 'D' AND btrim(c4::text) IN ('40', '8') AND btrim(c12) = $2 LIMIT 1`,

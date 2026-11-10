@@ -123,6 +123,18 @@ export interface PlanPagoKepler {
 
 export type ResultadoArmado = { ok: true; plan: PlanPagoKepler } | { ok: false; motivos: string[] };
 
+/**
+ * `[PGP.111]` P8 (Edgar, 2026-11-10): la factura de GASTO (`10-1`) de un acreedor de compra no trae concepto, y Tesorería
+ * le pone `007` «GASTOS GENERALES» (40 de 43 pagos en 120 días, medido 2026-11-10). ⚠️ Pendiente de que Contabilidad
+ * lo confirme: el ensayo lo avisa.
+ */
+export const CONCEPTO_GASTOS_GENERALES = '007';
+/** El concepto (`c12`) con el que se paga UNA factura: el suyo (`kdxe.c18`, P6: manda la factura); sin él, si es de gasto, `007` (P8). */
+export function conceptoDeFactura(f: Pick<FacturaAPagar, 'concepto' | 'tipo'>): string {
+  const c = (f.concepto ?? '').trim();
+  return c || (Number(f.tipo) === 10 ? CONCEPTO_GASTOS_GENERALES : '');
+}
+
 const r2 = (v: number): number => Math.round(v * 100) / 100;
 const CENTAVO = 0.005;
 
@@ -165,7 +177,7 @@ export function armarPagoKepler(e: PagoKeplerEntrada): ResultadoArmado {
   const suma = e.facturas.reduce((s, f) => s + f.aplicado, 0);
   if (Math.abs(suma - e.importe) > CENTAVO) motivos.push(`El importe del pago (${e.importe.toFixed(2)}) no es la suma de lo aplicado (${suma.toFixed(2)})`);
 
-  const conceptos = [...new Set(e.facturas.map((f) => (f.concepto ?? '').trim()))];
+  const conceptos = [...new Set(e.facturas.map(conceptoDeFactura))];
   if (conceptos.length > 1) motivos.push(`Las facturas traen conceptos distintos (${conceptos.join(', ')}) y Kepler pide uno por pago: pártelo en un pago por concepto`);
   const concepto = conceptos[0] ?? '';
   if (conceptos.length === 1 && !concepto) motivos.push('La factura no trae concepto (kdxe.c18): Kepler no sabría a qué sucursal cargar la compra');
@@ -203,6 +215,44 @@ export function armarPagoKepler(e: PagoKeplerEntrada): ResultadoArmado {
   };
 }
 
+/** Un `X-D-26` de un pago partido por concepto. */
+export interface PlanPorConcepto { concepto: string; importe: number; facturas: string[]; plan: PlanPagoKepler }
+export type ResultadoArmadoVarios = { ok: true; planes: PlanPorConcepto[] } | { ok: false; motivos: string[] };
+
+/**
+ * `[PGP.111]` P7 (Edgar, 2026-11-10): **un pago con facturas de varias sucursales sale como un `X-D-26` por concepto.**
+ * Kepler pide un concepto por documento y ya admite UNA transferencia capturada como varios documentos (medido en
+ * `[PGP.97]`: el banco se parea con «varios documentos» del mismo acreedor y cuenta, ±1 día). Antes se rechazaba
+ * («pártelo»), y Tesorería, a mano, ponía `C-001` en 61 de 95 (cargaba a CEDIS compras de otras sucursales).
+ * Cada documento lleva el importe de SUS facturas y la misma referencia; con un solo concepto es exactamente
+ * `armarPagoKepler`. Un motivo de cualquiera de las partes detiene todas: no se escribe medio pago.
+ */
+export function armarPagosKepler(e: PagoKeplerEntrada): ResultadoArmadoVarios {
+  const grupos = new Map<string, FacturaAPagar[]>();
+  for (const f of e.facturas) {
+    const c = conceptoDeFactura(f);
+    grupos.set(c, [...(grupos.get(c) ?? []), f]);
+  }
+  if (grupos.size <= 1) {
+    const r = armarPagoKepler(e);
+    if (!r.ok) return r;
+    return { ok: true, planes: [{ concepto: String(r.plan.kdm1['c12']), importe: r2(e.importe), facturas: e.facturas.map((f) => `${f.tipo}-${f.subtipo}-${f.folio}`), plan: r.plan }] };
+  }
+  const suma = e.facturas.reduce((s, f) => s + f.aplicado, 0);
+  if (Math.abs(suma - e.importe) > CENTAVO) {
+    return { ok: false, motivos: [`El importe del pago (${e.importe.toFixed(2)}) no es la suma de lo aplicado (${suma.toFixed(2)})`] };
+  }
+  const planes: PlanPorConcepto[] = [];
+  const motivos: string[] = [];
+  for (const [concepto, facturas] of [...grupos].sort(([a], [b]) => a.localeCompare(b))) {
+    const importe = r2(facturas.reduce((s, f) => s + f.aplicado, 0));
+    const r = armarPagoKepler({ ...e, importe, facturas });
+    if (!r.ok) { motivos.push(...r.motivos.map((m) => `${concepto || '(sin concepto)'}: ${m}`)); continue; }
+    planes.push({ concepto, importe, facturas: facturas.map((f) => `${f.tipo}-${f.subtipo}-${f.folio}`), plan: r.plan });
+  }
+  return motivos.length ? { ok: false, motivos } : { ok: true, planes };
+}
+
 /** Lo que la Suite sabe del pago, para decidir si se puede escribir en Kepler (E3.3). */
 export interface PagoSuite {
   status: string;
@@ -213,6 +263,11 @@ export interface PagoSuite {
   kepler_payment_folio: string | null;
   lot_status: string;
   items: { obligation_source: string; branch_code: string | null; kepler_saldada?: boolean | null }[];
+  /**
+   * `[PGP.104]` El estado de `validarPagos` (`[PGP.103]`): F2 de Edgar (2026-11-09) — a Kepler sólo va
+   * lo que prueban el estado de cuenta Y el comprobante. Null = no se validó.
+   */
+  validacion_estado: string | null;
 }
 
 const LOTES_FIRMADOS = new Set(['released', 'executing', 'closed']);
@@ -226,6 +281,7 @@ export function motivosParaNoEscribir(p: PagoSuite): string[] {
   const m: string[] = [];
   if (!LOTES_FIRMADOS.has(p.lot_status)) m.push('El día no está autorizado');
   if (p.status !== 'executed') m.push('El pago no está marcado como pagado');
+  if (p.validacion_estado !== 'validado') m.push('El pago no está validado con el estado de cuenta y su comprobante');
   if (p.payment_method !== 'transferencia') m.push('Por ahora sólo se escriben transferencias (D1)');
   if (p.origen_kind !== 'bank') m.push('La cuenta de origen no es una cuenta bancaria');
   if (p.kepler_payment_folio) m.push(`Ya está ligado al pago ${p.kepler_payment_folio} de Kepler: escribirlo otra vez lo duplicaría`);

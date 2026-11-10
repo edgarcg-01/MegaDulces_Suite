@@ -133,10 +133,15 @@ const REGLAS_SOBRE_LO_QUE_LEE = ['20261026110741_cga_a55_billetes_por_enlace_de_
  * depósito de su reposición en el banco al contestar. Llegan vacías desde el snapshot (basta su forma),
  * con SELECT para `app_runtime`, como en prod.
  */
-const SOLO_LEE_EL_SERVICIO = ['finance.bank_accounts', 'finance.bank_movements'];
+const SOLO_LEE_EL_SERVICIO = ['finance.bank_accounts', 'finance.bank_movements',
+  // `[LE.6.28]` Los vales de Aprobación de gastos: `SQL_VALE` decide con ellos si un pago está firmado, y
+  // su prueba lo corre TAL CUAL (siembra vales dentro de una transacción que se deshace).
+  'finance.expense_proofs'];
 const MAX_REMEDIOS = 200;
 /** Los GRANT de prod a `app_runtime` sobre tablas que llegan vacías del snapshot y una prueba escribe. */
 const GRANTS_DE_PROD = {
+  // `[LE.6.28]` La prueba de la firma del vale siembra vales como `app_runtime` (y los deshace).
+  'finance.expense_proofs': 'SELECT, INSERT',
   'identity.role_permissions': 'SELECT, INSERT, UPDATE, DELETE',
   'identity.user_permissions': 'SELECT, INSERT, UPDATE, DELETE',
   'identity.user_roles': 'SELECT, INSERT, UPDATE, DELETE',
@@ -151,6 +156,8 @@ const GRANTS_DE_PROD = {
  */
 const COLUMNAS_POSTERIORES_AL_SNAPSHOT = {
   'identity.users': [['position_code', 'varchar(50)'], ['kind', `varchar(20) NOT NULL DEFAULT 'interno'`]],
+  // `[LE.6.28]` La hora de la firma (`[CGA-A.62]`, 28/10), medida en prod el 2026-11-10.
+  'finance.expense_proofs': [['aprobado_at', 'timestamptz']],
 };
 
 /**
@@ -436,6 +443,12 @@ async function main() {
       await knex.raw(`GRANT SELECT ON ${t} TO app_runtime`);
       moldes.push(t);
       await anotar('tabla_vacia', t, 'desde el snapshot de prod; la lee el servicio (sin migración que la pida)');
+      // `[LE.6.28]` Lo que prod agregó después del snapshot, igual que en los moldes que pide una migración.
+      for (const [col, tipo] of COLUMNAS_POSTERIORES_AL_SNAPSHOT[t] || []) {
+        if (cols.some((c) => c.columna === col)) continue;   // el snapshot ya la trae: manda el snapshot
+        await knex.raw(`ALTER TABLE ${t} ADD COLUMN ${col} ${tipo}`);
+        await anotar('columna_posterior_al_snapshot', `${t}.${col}`, `${tipo} (medido en prod)`);
+      }
     }
     if (moldes.length) console.log(`   tablas ajenas vacías desde el snapshot (${moldes.length}): ${moldes.join(', ')}`);
     // `[LE.4.8]` Una tabla del snapshot nace sin GRANT. Las que una prueba escribe COMO `app_runtime`

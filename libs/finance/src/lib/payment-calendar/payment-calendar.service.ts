@@ -9,7 +9,15 @@ import { clabeValida } from '@megadulces/contracts/finance/clabe';
 import { destinosSugeridos, type FilaComprobanteClabe } from './destino-sugerido';
 import { SupplierPaymentAccountsService } from '../supplier-payment-accounts/supplier-payment-accounts.service';
 import type { DiscountReason, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarItemDiscountResult, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
-import { assertDescuentoPermitido, descuentoSobreCubierto, normalizarDescuento, round2 } from './descuento-al-pagar';
+import { leerValidacionDelDia } from './validacion-pago.sql';
+import { leerCfdiDeFacturas } from './cfdi-factura.sql';
+import { leerRepsDeFacturas } from './rep-de-factura.sql';
+import { leerCuentasGasto } from './cuenta-gasto.sql';
+import { polizaEgresoDelPago } from '@megadulces/contracts/finance/momento-poliza';
+import { leerEnsayoPagoKepler } from './kepler-pago/ensayo-ods.sql';
+import type { PaymentCalendarEnsayoKepler } from '@megadulces/contracts';
+import type { ValidacionPago } from '@megadulces/contracts/finance/validacion-pago';
+import { assertDescuentoPermitido, descuentoSobreCubierto, descuentosSobreCubierto, lineasDeDescuento, normalizarDescuento, round2, type DescuentosNormalizados } from './descuento-al-pagar';
 import { cierreCompleto, type CierreKeplerPago } from '@megadulces/contracts';
 import { SQL_CIERRE_KEPLER, armarCierres, idsParaCierre, type FilaCierreKepler, type ItemParaCierre, type PagoParaCierre } from './cierre-kepler.sql';
 import { leerGuiaFueraDePrograma, ventanaFueraDePrograma } from './fuera-de-programa.sql';
@@ -205,7 +213,7 @@ export interface AllocationItemDto {
  * `descuentoSobreCubierto()`, no el tipo. ⛔ Es INTERFAZ, no clase: en un `@Body()` emite
  * `Object` en `design:paramtypes`, igual que los otros DTO de este controlador (el caso #414).
  */
-export interface ItemDiscountDto { discount_amount: unknown; discount_reason?: unknown; discount_rate?: unknown; discount_note?: unknown }
+export interface ItemDiscountDto { discount_amount?: unknown; discount_reason?: unknown; discount_rate?: unknown; discount_note?: unknown; discounts?: unknown }
 export interface CreateAllocationDto { date: string; items: AllocationItemDto[]; priority_rank?: number | null; notes?: string | null }
 export interface PrepareAllocationDto {
   payment_method: 'transferencia' | 'cheque' | 'efectivo' | 'cargo_automatico';
@@ -218,6 +226,14 @@ export interface AllocationRowLite {
   id: string; bank_account_id: string | null; amount_assigned: number | string; payment_method: string | null;
   [col: string]: unknown;
 }
+/**
+ * `[PGP.113]` Un pago con su día: el día (`lot_date`, AAAA-MM-DD) y el estado del día (`lot_status`). La
+ * bandeja junta pagos de varios días, y un día autorizado completo (regla vieja) autoriza a sus pagos.
+ */
+type FilaDePago = AllocationRowLite & {
+  lot_date: string; lot_status: string | null; status: string; classification: string;
+  authorized_at?: Date | string | null; created_at?: Date | string | null;
+};
 /** `[TP.15]` Lo que el candado de saldo lee de una obligación a proveedor (columnas de la mig 20261016002604). */
 /** `[PGP.76]` El turno que quedó a cada pago del día después de reordenarlo. */
 export interface DayOrderRank { id: string; priority_rank: number }
@@ -234,6 +250,19 @@ export const REPROGRAM_REASONS: ReprogramReason[] = ['cuenta_erronea', 'falla_si
 // Reprogramar/fallar/ejecutar una allocation EXISTENTE sigue permitido (son hechos de ejecución,
 // no de autorización) — lo que se bloquea es agregar pagos NUEVOS al lote ya autorizado.
 const LOCKED_LOT_STATUSES = new Set(['released', 'executing', 'closed']);
+
+/**
+ * `[PGP.113]` **Un pago AUTORIZADO queda congelado.** Cambiar su forma de pago, sus facturas o su
+ * descuento cambiaría lo que Dirección firmó. Se le quita la autorización, se cambia y se vuelve a
+ * autorizar. (El candado del DÍA autorizado, `LOCKED_LOT_STATUSES`, sigue para los días que se
+ * autorizaron completos con la regla vieja.)
+ */
+function assertSinAutorizar(a: { authorized_at?: unknown; authorized_by?: string | null }): void {
+  if (a.authorized_at) {
+    throw new BadRequestException(`Este pago ya lo autorizó ${a.authorized_by ?? 'Dirección'}: quítale la autorización para cambiarlo y que lo vuelvan a autorizar.`);
+  }
+}
+const PESOS_MX = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 2 });
 
 /** `[PGP.36]` La fila que devuelve la consulta de etiquetas del origen derivado, con su ventana. */
 interface VentanaRow {
@@ -1098,6 +1127,57 @@ export class PaymentCalendarService {
       const allocations = await trx('finance.payment_allocations').where({ lot_id: lot.id }).whereNot('status', 'cancelled')
         .orderByRaw('priority_rank ASC NULLS LAST').orderBy('created_at', 'asc');
       if (!allocations.length) return [];
+      // `[PGP.113]` El día es un caso de la bandeja: los mismos renglones, con su día y el estado de su día.
+      const delDia: FilaDePago[] = (allocations as FilaDePago[]).map((a) => ({ ...a, lot_date: date, lot_status: (lot.status ?? null) as string | null }));
+      // `[PGP.108]` El CFDI cuesta ~330 ms: sólo en un día que ya llegó o autorizado completo, y
+      // `[PGP.113]` en un pago autorizado o pagado (los que van a tener póliza).
+      const diaConCfdi = date <= todayMx() || LOCKED_LOT_STATUSES.has(lot.status);
+      return this.armarFilas(trx, tenantId, delDia, {
+        conCfdi: (a) => diaConCfdi || !!a.authorized_at || a.status === 'executed',
+        validarDias: [date],
+      });
+    });
+  }
+
+  /**
+   * `[PGP.113]` **La bandeja: cada pago en su etapa, de todos los días.** El pago avanza solo
+   * (Edgar, 2026-11-10), así que la pantalla ya no entra por el día: entra por lo que le falta a
+   * cada pago. Trae los pendientes y rebotados de cualquier día (los de días pasados son el atraso,
+   * y es lo primero que hay que ver) y los pagados de los últimos `diasPagados` días (lo que falta
+   * registrar en Kepler y lo recién terminado).
+   *
+   * Los renglones son los MISMOS que los del día (`armarFilas`): una regla, dos vistas. Para no
+   * pagar el CFDI de 170 pagos, sólo se lee en los autorizados y pagados (los que van a tener
+   * póliza); la validación contra el banco, sólo en los días que tienen un pago autorizado o pagado.
+   */
+  async bandeja(diasPagados = 30): Promise<{ pagos: unknown[]; pagados_desde: string; generado: string }> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const hoy = todayMx();
+    const desde = toMxDateKey(new Date(Date.parse(`${hoy}T12:00:00Z`) - Math.max(1, Math.min(120, diasPagados)) * 86_400_000)) || hoy;
+    return this.tk.run(async (trx) => {
+      const filas = (await trx.raw(
+        `SELECT a.*, to_char(l.lot_date, 'YYYY-MM-DD') AS lot_date, l.status AS lot_status
+           FROM finance.payment_allocations a
+           JOIN finance.payment_calendar_lots l ON l.id = a.lot_id
+          WHERE a.tenant_id = ? AND (a.status IN ('pending', 'failed') OR (a.status = 'executed' AND l.lot_date >= ?::date))
+          ORDER BY l.lot_date ASC, a.priority_rank ASC NULLS LAST, a.created_at ASC`, [tenantId, desde])).rows as FilaDePago[];
+      const pagos = filas.length ? await this.armarFilas(trx, tenantId, filas, {
+        conCfdi: (a) => !!a.authorized_at || a.status === 'executed' || LOCKED_LOT_STATUSES.has(a.lot_status ?? ''),
+        validarDias: filas.filter((a) => a.status === 'executed' || !!a.authorized_at || LOCKED_LOT_STATUSES.has(a.lot_status ?? '')).map((a) => a.lot_date),
+      }) : [];
+      return { pagos, pagados_desde: desde, generado: new Date().toISOString() };
+    });
+  }
+
+  /**
+   * Los renglones de pagos con todo lo que la pantalla dice de cada uno: a quién (etiquetas de sus
+   * facturas), cómo sale, qué hizo Kepler, la prueba del banco, el CFDI, la póliza y la cuenta de gasto.
+   * `[PGP.113]` Salió de `listDayAllocations` para servir también a la bandeja de varios días.
+   */
+  private async armarFilas(trx: Knex.Transaction, tenantId: string, allocations: FilaDePago[], opts: {
+    conCfdi: (a: FilaDePago) => boolean; validarDias: string[];
+  }) {
+    {
       const items = await trx('finance.payment_allocation_items').whereIn('allocation_id', allocations.map((a: any) => a.id));
       const bySource: Record<string, string[]> = {};
       for (const it of items as any[]) (bySource[it.obligation_source] ??= []).push(it.obligation_id);
@@ -1280,10 +1360,49 @@ export class PaymentCalendarService {
       // por día, sea cual sea su número de pagos.
       const cierres = await this.cierresKepler(
         trx,
-        allocations.map((a: AllocationRowLite) => ({ id: a.id, lotDate: date, alta: toMxDateKey(a['created_at'] as Date | string | null) || date })),
+        allocations.map((a) => ({ id: a.id, lotDate: a.lot_date, alta: toMxDateKey(a['created_at'] as Date | string | null) || a.lot_date })),
         items as { allocation_id: string; obligation_source: string; obligation_id: string }[],
       );
-      return allocations.map((a: AllocationRowLite) => {
+      // `[PGP.104]` Lo que prueba que se pagó: la salida del estado de cuenta + su comprobante (F2).
+      // Sólo en un día que ya llegó; uno por venir no se ha pagado. `[PGP.113]` Uno por cada día pedido.
+      const validaciones = new Map<string, ValidacionPago>();
+      for (const d of [...new Set(opts.validarDias)]) {
+        for (const [k, v] of await leerValidacionDelDia(trx, tenantId, d, todayMx())) validaciones.set(k, v);
+      }
+      // `[PGP.108]` El CFDI de cada factura y si es PUE o PPD: decide la póliza de egreso de ContPAQi.
+      // Sólo en un día autorizado o que ya llegó (los que van a tener póliza): cuesta ~330 ms y un día
+      // en planeación no lo necesita.
+      // `[PGP.113]` Por pago: quien llama dice cuáles (el día, todos si ya llegó; la bandeja, los autorizados y pagados).
+      const conCfdi = new Set(allocations.filter((a) => opts.conCfdi(a)).map((a) => a.id));
+      const facturasConCfdi = (items as { id: string; allocation_id: string; obligation_source: string }[])
+        .filter((it) => conCfdi.has(it.allocation_id) && (it.obligation_source === 'kepler_payable' || it.obligation_source === 'supplier_payable')).map((it) => it.id);
+      const cfdis = facturasConCfdi.length ? await leerCfdiDeFacturas(trx, tenantId, facturasConCfdi) : new Map();
+      // `[PGP.109]` La póliza de egreso de lo ya «Pagado»: PUE al pagar; PPD cuando llega el REP
+      // (Contabilidad, 2026-11-10). Sólo se leen los REP de las facturas PPD ligadas de esos pagos.
+      const pagados = new Set((allocations as { id: string; status: string }[]).filter((a) => a.status === 'executed').map((a) => a.id));
+      const uuidsPpd = (items as { id: string; allocation_id: string }[])
+        .filter((it) => pagados.has(it.allocation_id))
+        .map((it) => cfdis.get(String(it.id)))
+        .filter((c) => c?.estado === 'unico' && c.metodo === 'PPD' && c.cfdi)
+        .map((c) => c!.cfdi!.uuid);
+      const repsDia = pagados.size ? await leerRepsDeFacturas(trx, uuidsPpd) : { reps: [], sincronizado_hasta: null };
+      // `[PGP.111b]` La cuenta de gasto (52) de cada pago de GASTO: la que Contabilidad ya usó con ese RFC (P3).
+      const rfcDePago = new Map<string, string | null>();
+      for (const a of allocations as { id: string; classification: string }[]) {
+        if (a.classification !== 'gasto' || !conCfdi.has(a.id)) continue;
+        const rfc = (items as { id: string; allocation_id: string }[]).filter((it) => it.allocation_id === a.id)
+          .map((it) => cfdis.get(String(it.id))?.rfc).find((r) => !!r) ?? null;
+        rfcDePago.set(a.id, rfc);
+      }
+      const cuentasGasto = rfcDePago.size
+        ? await leerCuentasGasto(trx, tenantId, [...rfcDePago.values()].filter((r): r is string => !!r))
+        : new Map();
+      const cuentaGastoDe = (id: string) => {
+        if (!rfcDePago.has(id)) return null;
+        const rfc = rfcDePago.get(id);
+        return rfc ? cuentasGasto.get(rfc) ?? null : { estado: 'sin_rfc' as const, cuenta: null, nombre: null, veces: 0, total: 0, rfc: null };
+      };
+      return allocations.map((a) => {
         // `[PGP.91]` `numeric` llega como texto del driver: el descuento sale como número, y la
         // tasa como número o null (null = se capturó en pesos, no hay tasa que decir).
         const its = (itemsByAllocation.get(a.id) ?? []).map((it) => ({
@@ -1292,6 +1411,9 @@ export class PaymentCalendarService {
           discount_reason: (it.discount_reason ?? null) as DiscountReason | null,
           discount_rate: it.discount_rate === null || it.discount_rate === undefined ? null : Number(it.discount_rate),
           discount_note: (it.discount_note ?? null) as string | null,
+          // `[PGP.101]` Los renglones del descuento; uno capturado antes de PGP.101 llega como UN renglón.
+          discount_lines: lineasDeDescuento(it),
+          cfdi: cfdis.get(String(it.id)) ?? null,
         }));
         // `[PGP.35]` El agregado por pago: cuántas de sus facturas quedaron saldadas en el ERP y
         // por cuánto. La pantalla lo necesita para no sumar como deuda viva lo que ya no se debe.
@@ -1302,7 +1424,8 @@ export class PaymentCalendarService {
         // históricamente funcionó y todavía se puede intentar. Por eso «deja pasar», no «pierde».
         // `[PGP.91]` La factura que YA lleva su pronto pago capturado no se estima otra vez: decía
         // «Gana $X» (o «Deja pasar $X») encima de «Descuento al pagar −$X» — el mismo dinero dos veces.
-        const estimable = its.filter((it) => it.discount_reason !== 'pronto_pago');
+        // `[PGP.101]` Con varios descuentos, el pronto pago puede no ser el mayor: se busca en sus renglones.
+        const estimable = its.filter((it) => !it.discount_lines.some((l) => l.reason === 'pronto_pago'));
         const captura = estimable.reduce((s, it) => s + (
           (it.pronto_estado === 'capturable' || it.pronto_estado === 'por_vencer') ? Number(it.pronto_beneficio || 0) : 0), 0);
         const dejaPasar = estimable.reduce((s, it) => s + (
@@ -1318,10 +1441,24 @@ export class PaymentCalendarService {
           // `[PGP.91]` Lo que el proveedor descontó al pagar. `amount_assigned` sigue siendo el neto.
           discount_total: round2(its.reduce((s, it) => s + it.discount_amount, 0)),
           kepler_cierre: cierres.get(a.id) ?? null,
+          // `[PGP.113]` Autorizado por sí mismo, o porque su día se autorizó completo (regla vieja).
+          autorizado: !!a.authorized_at || LOCKED_LOT_STATUSES.has(a.lot_status ?? ''),
+          validacion: validaciones.get(a.id) ?? null,
+          cuenta_gasto: cuentaGastoDe(a.id),
+          poliza: a.status === 'executed' ? (() => {
+            const pd = (a as { paid_bank_date?: Date | string | null }).paid_bank_date;
+            const fecha = pd ? (pd instanceof Date ? pd.toISOString().slice(0, 10) : String(pd).slice(0, 10)) : a.lot_date;
+            return polizaEgresoDelPago(
+              its.map((it) => ({
+                item_id: String(it.id), cfdi_uuid: it.cfdi?.estado === 'unico' ? it.cfdi.cfdi?.uuid ?? null : null,
+                metodo: it.cfdi?.estado === 'unico' ? it.cfdi.metodo : null, aplicado: Number(it.applied_amount),
+              })),
+              repsDia.reps, fecha, repsDia.sincronizado_hasta !== null && repsDia.sincronizado_hasta >= fecha, cuentaGastoDe(a.id));
+          })() : null,
           items: its,
         };
       });
-    });
+    }
   }
 
   /**
@@ -1501,7 +1638,7 @@ export class PaymentCalendarService {
     const out: PaymentCalendarWeek['days'] = [];
     for (const d of days) {
       const summary = await this.daySummary(d);
-      const allocations = (await this.listDayAllocations(d)) as PaymentCalendarAllocation[];
+      const allocations = (await this.listDayAllocations(d)) as unknown as PaymentCalendarAllocation[];
       const lot = await this.getLot(d);
       out.push({ date: d, summary, allocations, lot_folio: (lot?.folio as string | undefined) ?? null });
     }
@@ -1817,6 +1954,7 @@ export class PaymentCalendarService {
       const allocation = await trx('finance.payment_allocations').where({ tenant_id: tenantId, id: allocationId }).first();
       if (!allocation) throw new NotFoundException('Pago no encontrado');
       if (allocation.status !== 'pending') throw new BadRequestException('Solo se puede modificar un pago pendiente');
+      assertSinAutorizar(allocation);
       // `[TP.16.4]` Sumar facturas a un pago de un día ya AUTORIZADO cambiaría lo que Gerencia firmó.
       // `createAllocation` ya lo impedía para pagos nuevos; aquí faltaba.
       const itemLot = await trx('finance.payment_calendar_lots').where({ id: allocation.lot_id }).first();
@@ -1862,6 +2000,7 @@ export class PaymentCalendarService {
       if (!item) throw new NotFoundException('Documento no encontrado en este pago');
       const allocation = await trx('finance.payment_allocations').where({ tenant_id: tenantId, id: allocationId }).first();
       if (allocation.status !== 'pending') throw new BadRequestException('Solo se puede modificar un pago pendiente');
+      assertSinAutorizar(allocation);
       // `[PGP.92]` Quitar una factura de un día YA AUTORIZADO cambiaría un importe que Gerencia firmó.
       // `addItem` ya lo impedía (TP.16.4); aquí sólo lo escondía la pantalla, y la pantalla no es un
       // candado. Va ANTES del conteo para que el rechazo diga la causa verdadera.
@@ -1891,14 +2030,17 @@ export class PaymentCalendarService {
     // ⛔ Sin `discount_amount` no se adivina: para el validador «vacío» es 0, y un cuerpo perdido
     // QUITARÍA el descuento en silencio. Quitarlo se pide explícito, con 0 (el contrato lo exige).
     // `null` y '' cuentan como ausentes: el validador también los leería como 0.
+    // `[PGP.101]` Con `discounts` llega la lista completa (`[]` lo quita, explícito); sin ella, el cuerpo de un solo descuento.
+    const varios = body?.discounts !== undefined && body?.discounts !== null;
     const monto = body?.discount_amount;
-    if (monto === undefined || monto === null || (typeof monto === 'string' && monto.trim() === '')) {
+    if (!varios && (monto === undefined || monto === null || (typeof monto === 'string' && monto.trim() === ''))) {
       throw new BadRequestException('Falta el descuento (discount_amount): manda 0 para quitarlo.');
     }
     return this.tk.run(async (trx) => {
       const allocation = await trx('finance.payment_allocations').where({ tenant_id: tenantId, id: allocationId }).forUpdate().first();
       if (!allocation) throw new NotFoundException('Pago no encontrado');
       if (allocation.status !== 'pending') throw new BadRequestException('Solo se puede modificar un pago pendiente');
+      assertSinAutorizar(allocation);
       const lot = await trx('finance.payment_calendar_lots').where({ id: allocation.lot_id }).first();
       if (lot && LOCKED_LOT_STATUSES.has(lot.status)) throw new BadRequestException('El día ya fue autorizado: no se le puede cambiar el descuento a sus pagos (muévelo a otro día).');
       // ⛔ `forUpdate` también en la factura: si otra sesión la quita al mismo tiempo, esta lectura
@@ -1906,12 +2048,20 @@ export class PaymentCalendarService {
       const item = await trx('finance.payment_allocation_items').where({ tenant_id: tenantId, id: itemId, allocation_id: allocationId }).forUpdate().first();
       if (!item) throw new NotFoundException('Documento no encontrado en este pago');
       // `numeric` llega como texto del driver: se convierte ANTES de sumar.
-      const norm = descuentoSobreCubierto(Number(item.applied_amount) + Number(item.discount_amount ?? 0), body);
+      const cubierto = Number(item.applied_amount) + Number(item.discount_amount ?? 0);
+      const norm: DescuentosNormalizados = varios
+        ? descuentosSobreCubierto(cubierto, body.discounts)
+        : (() => {
+            const n = descuentoSobreCubierto(cubierto, body);
+            return { ...n, lines: n.discount_amount > 0 ? [{ reason: n.discount_reason!, amount: n.discount_amount, rate: n.discount_rate, note: n.discount_note }] : [] };
+          })();
       assertDescuentoPermitido(item.obligation_source, allocation.classification, norm.discount_amount);
       const con = norm.discount_amount > 0;
       await trx('finance.payment_allocation_items').where({ id: itemId }).update({
         applied_amount: norm.applied_amount, discount_amount: norm.discount_amount, discount_reason: norm.discount_reason,
         discount_rate: norm.discount_rate, discount_note: norm.discount_note,
+        // ⛔ JSON.stringify: knex manda un arreglo JS como arreglo de Postgres, no como jsonb.
+        discount_lines: con ? JSON.stringify(norm.lines) : null,
         discount_by: con ? username : null, discount_at: con ? trx.fn.now() : null,
       });
       // Lo cubierto es igual y el disponible no se mueve; se llama por la invariante (un solo
@@ -1970,6 +2120,8 @@ export class PaymentCalendarService {
           discount_amount: it.discount_amount ?? 0, discount_reason: it.discount_reason ?? null,
           discount_rate: it.discount_rate ?? null, discount_note: it.discount_note ?? null,
           discount_by: it.discount_by ?? null, discount_at: it.discount_at ?? null,
+          // `[PGP.101]` Los renglones viajan también (el driver los devuelve parseados: se vuelven a serializar).
+          discount_lines: it.discount_lines ? JSON.stringify(it.discount_lines) : null,
         });
         await this.recalcObligation(trx, it.obligation_source, it.obligation_id);
       }
@@ -1990,6 +2142,7 @@ export class PaymentCalendarService {
       const allocation = await trx('finance.payment_allocations').where({ tenant_id: tenantId, id: allocationId }).first();
       if (!allocation) throw new NotFoundException('Pago no encontrado');
       if (allocation.status !== 'pending') throw new BadRequestException('Solo se prepara un pago pendiente');
+      assertSinAutorizar(allocation);
 
       // `[TP.16]` La cuenta DESTINO sólo existe para transferencia / cargo automático. En efectivo o
       // cheque se descarta: si no, la favorita del proveedor (o un texto de una preparación anterior)
@@ -2206,7 +2359,26 @@ export class PaymentCalendarService {
     });
   }
 
-  async execute(allocationId: string, username: string) {
+  /**
+   * `[PGP.105]` El ensayo del pago en Kepler: lo que se escribiría y, si Tesorería ya lo capturó, la
+   * comparación. Sólo lectura (la réplica `kepler_ods`, nunca el Kepler vivo).
+   */
+  async ensayoKepler(allocationId: string): Promise<PaymentCalendarEnsayoKepler> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const r = await leerEnsayoPagoKepler(trx, tenantId, allocationId, todayMx());
+      if (!r) throw new NotFoundException('Pago no encontrado');
+      return r;
+    });
+  }
+
+  /**
+   * Marca el pago como pagado. `[PGP.107]` (F2, Edgar 2026-11-09): sólo si lo prueban la salida del
+   * estado de cuenta y su comprobante (`validarPagos`), y guarda esa evidencia en el pago — de ahí
+   * salen el `X-D-26` de Kepler y la póliza de ContPAQi. El efectivo se valida a mano por ahora (la
+   * ventanilla sólo deja rastro después de Kepler, `[PGP.102]`). `hoy` sólo lo fijan las pruebas.
+   */
+  async execute(allocationId: string, username: string, hoy: string = todayMx()): Promise<AllocationRowLite> {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const allocation = await trx('finance.payment_allocations').where({ tenant_id: tenantId, id: allocationId }).first();
@@ -2217,30 +2389,31 @@ export class PaymentCalendarService {
       if (!allocation.payment_method) throw new BadRequestException('Falta preparar el método de pago antes de ejecutar: quien dispersa necesita saber con qué se paga.');
       // `[TP.16]` Dos firmas: Caja General dispersa lo que Gerencia/Dirección AUTORIZÓ. Sin esto, un
       // pago se podía marcar pagado sin que nadie hubiera autorizado el día.
+      // `[PGP.113]` Se autoriza el PAGO, no el día. Un día autorizado completo con la regla vieja
+      // (`releaseLot`) sigue valiendo para sus pagos.
       const execLot = await trx('finance.payment_calendar_lots').where({ id: allocation.lot_id }).first();
-      if (!execLot || !LOCKED_LOT_STATUSES.has(execLot.status)) {
-        throw new BadRequestException('El día todavía no está autorizado: Gerencia o Dirección debe autorizarlo antes de marcar pagos como ejecutados.');
+      if (!allocation.authorized_at && (!execLot || !LOCKED_LOT_STATUSES.has(execLot.status))) {
+        throw new BadRequestException('Este pago todavía no está autorizado: Dirección lo autoriza antes de marcarlo pagado.');
       }
       // `[TP.15]` Entre asignar y ejecutar pueden pasar días: si Kepler ya no debe la factura, no se paga.
-      for (const it of (await trx('finance.payment_allocation_items').where({ allocation_id: allocationId })) as AllocationItemRow[]) {
-        // `[TP.18]` Vale para los dos orígenes de factura. ⛔ Para el DERIVADO, además, que la
-        // vista ya no traiga el documento significa que Kepler no lo debe: se trata igual que
-        // saldo cero — no se ejecuta un pago contra una factura que el ERP ya no reconoce.
-        if (it.obligation_source !== 'supplier_payable' && it.obligation_source !== 'kepler_payable') continue;
-        const row = await this.loadObligationRow(trx, tenantId, it.obligation_source, it.obligation_id);
-        // `[PGP.91]` Al EJECUTAR se mide lo CUBIERTO (neto + descuento), con UNA excepción: si la
-        // nota de crédito del descuento llegó a Kepler antes que la transferencia, el pendiente ya
-        // ES el neto (±1 centavo) y el pago es correcto. Medir sólo el neto dejaba pasar de más:
-        // con otra nota ajena aplicada, el neto cabía y al llegar la del descuento quedaba sobrepagado.
-        const discount = Number(it.discount_amount ?? 0);
-        if (row) await this.assertKeplerBalance(trx, it.obligation_source, row, Number(it.applied_amount) + discount, 0,
-          discount > 0 ? Number(it.applied_amount) : undefined);
-        else if (it.obligation_source === 'kepler_payable') {
-          throw new BadRequestException('Kepler ya no tiene saldo pendiente de esta factura (¿se pagó por fuera o tiene nota de crédito?). No se programa ni se ejecuta.');
-        }
+      await this.assertFacturasVigentes(trx, tenantId, allocationId);
+      // `[PGP.107]` La evidencia: va DESPUÉS del saldo de Kepler (un pago que Kepler ya no debe se
+      // rechaza por eso, no por falta de banco).
+      const { rows: [{ dia }] } = await trx.raw(`SELECT to_char(lot_date, 'YYYY-MM-DD') AS dia FROM finance.payment_calendar_lots WHERE id = ?`, [allocation.lot_id]);
+      const v: ValidacionPago | undefined = (await leerValidacionDelDia(trx, tenantId, dia, hoy)).get(allocationId);
+      if (!v || (v.estado !== 'validado' && v.estado !== 'efectivo_no_medido')) {
+        throw new BadRequestException(`No se puede marcar pagado sin la prueba de que salió: ${v?.motivo ?? 'el día del pago todavía no llega.'}`);
+      }
+      let evidencia: Record<string, unknown> = {};
+      if (v.estado === 'validado') {
+        const mov = await trx('finance.bank_movements').where({ id: v.movimiento_id }).first('movement_date', 'amount_out');
+        evidencia = {
+          paid_bank_movement_id: v.movimiento_id, paid_proof_id: v.comprobante_id,
+          paid_bank_date: mov?.movement_date ?? null, paid_bank_amount: mov?.amount_out ?? null, paid_validated_at: trx.fn.now(),
+        };
       }
       const [updated] = await trx('finance.payment_allocations').where({ id: allocationId })
-        .update({ status: 'executed', executed_at: trx.fn.now(), updated_by: username, updated_at: trx.fn.now() }).returning('*');
+        .update({ status: 'executed', executed_at: trx.fn.now(), updated_by: username, updated_at: trx.fn.now(), ...evidencia }).returning('*');
       const items = await trx('finance.payment_allocation_items').where({ allocation_id: allocationId });
       // `[NX.11]` 2026-09-21 — nota para quien siga acá: era `items as any[]` y
       // `scripts/lint-boundary-gate.js` lo rechaza en líneas nuevas (ADR-052). Se nombran sólo los
@@ -2267,6 +2440,106 @@ export class PaymentCalendarService {
           }
         }
       }
+      return updated;
+    });
+  }
+
+  /**
+   * `[TP.15]` Kepler todavía debe cada factura del pago (se mide al autorizar y al marcar pagado).
+   * `[PGP.113]` Era un ciclo dentro de `execute()`; salió aquí para que autorizar diga lo mismo ANTES
+   * de que Dirección firme algo que el ERP ya no debe.
+   */
+  private async assertFacturasVigentes(trx: Knex.Transaction, tenantId: string, allocationId: string): Promise<void> {
+    for (const it of (await trx('finance.payment_allocation_items').where({ allocation_id: allocationId })) as AllocationItemRow[]) {
+      // `[TP.18]` Vale para los dos orígenes de factura. ⛔ Para el DERIVADO, además, que la
+      // vista ya no traiga el documento significa que Kepler no lo debe: se trata igual que
+      // saldo cero — no se ejecuta un pago contra una factura que el ERP ya no reconoce.
+      if (it.obligation_source !== 'supplier_payable' && it.obligation_source !== 'kepler_payable') continue;
+      const row = await this.loadObligationRow(trx, tenantId, it.obligation_source, it.obligation_id);
+      // `[PGP.91]` Al EJECUTAR se mide lo CUBIERTO (neto + descuento), con UNA excepción: si la
+      // nota de crédito del descuento llegó a Kepler antes que la transferencia, el pendiente ya
+      // ES el neto (±1 centavo) y el pago es correcto. Medir sólo el neto dejaba pasar de más:
+      // con otra nota ajena aplicada, el neto cabía y al llegar la del descuento quedaba sobrepagado.
+      const discount = Number(it.discount_amount ?? 0);
+      if (row) await this.assertKeplerBalance(trx, it.obligation_source, row, Number(it.applied_amount) + discount, 0,
+        discount > 0 ? Number(it.applied_amount) : undefined);
+      else if (it.obligation_source === 'kepler_payable') {
+        throw new BadRequestException('Kepler ya no tiene saldo pendiente de esta factura (¿se pagó por fuera o tiene nota de crédito?). No se programa ni se ejecuta.');
+      }
+    }
+  }
+
+  /**
+   * `[PGP.113]` **Se autoriza el PAGO, no el día** (Edgar, 2026-11-10: «haremos una a una»).
+   *
+   * Hasta hoy Dirección firmaba el DÍA (`releaseLot`) y sólo con TODOS sus pagos preparados y
+   * ordenados: un pago sin preparar frenaba a los demás. Medido en prod el 2026-11-10: 37 días
+   * armados, los 37 en borrador; **ningún día se autorizó nunca**.
+   *
+   * Lo que se exige, pago por pago:
+   *  · pendiente, preparado (`isPrepared`: método, origen y destino) y sin autorizar;
+   *  · su día tiene tope de Presupuestos, y **cabe**: lo ya autorizado o pagado ese día + éste ≤ tope.
+   *    El tope se cuida al autorizar porque es cuando el dinero queda comprometido; el lote del día
+   *    se bloquea (`FOR UPDATE`) para que dos autorizaciones al mismo tiempo no quepan las dos;
+   *  · Kepler todavía debe sus facturas (el mismo candado que al marcar pagado).
+   * Le pone su folio (`AAMMDD-01-NN`, el del día con su número) si no tiene: es el que imprime la
+   * instrucción de pago. ⛔ No se exige ORDEN: el orden del día sólo servía para liberar el día.
+   *
+   * NO MEDIDO / NO IMPUESTO: que quien autoriza no sea quien armó (igual que con el día; se dice en
+   * pantalla, no se bloquea). Es decisión de Edgar.
+   */
+  async authorize(allocationId: string, username: string): Promise<AllocationRowLite> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const allocation = await trx('finance.payment_allocations').where({ tenant_id: tenantId, id: allocationId }).forUpdate().first();
+      if (!allocation) throw new NotFoundException('Pago no encontrado');
+      if (allocation.status !== 'pending') throw new BadRequestException('Solo se autoriza un pago pendiente');
+      if (allocation.authorized_at) throw new BadRequestException(`Este pago ya lo autorizó ${allocation.authorized_by ?? 'Dirección'}.`);
+      if (!isPrepared(allocation)) throw new BadRequestException('Falta prepararlo (método, cuenta de origen y destino) antes de autorizarlo.');
+      const { rows: [lot] } = await trx.raw(
+        `SELECT id, status, folio, to_char(lot_date, 'YYYY-MM-DD') AS dia FROM finance.payment_calendar_lots WHERE id = ? FOR UPDATE`, [allocation.lot_id]);
+      if (!lot) throw new NotFoundException('El día del pago no existe');
+      if (LOCKED_LOT_STATUSES.has(lot.status)) throw new BadRequestException('El día de este pago ya se autorizó completo.');
+      const capacity = await trx('budget.daily_capacity').where({ tenant_id: tenantId, capacity_date: lot.dia }).first();
+      if (!capacity) throw new BadRequestException(`El ${lot.dia} no tiene tope de Presupuestos: no se puede autorizar (pide el tope o mueve el pago a un día que lo tenga).`);
+      const { rows: [{ comprometido }] } = await trx.raw(
+        `SELECT coalesce(sum(amount_assigned), 0)::float8 AS comprometido FROM finance.payment_allocations
+          WHERE lot_id = ? AND id <> ? AND (status = 'executed' OR (status = 'pending' AND authorized_at IS NOT NULL))`, [lot.id, allocationId]);
+      const tope = Number(capacity.authorized_amount);
+      const monto = Number(allocation.amount_assigned);
+      if (Number(comprometido) + monto > tope + 0.005) {
+        throw new BadRequestException(`No cabe en el tope del ${lot.dia}: ya hay ${PESOS_MX.format(Number(comprometido))} autorizados o pagados de ${PESOS_MX.format(tope)} y este pago es de ${PESOS_MX.format(monto)} (faltan ${PESOS_MX.format(Number(comprometido) + monto - tope)}).`);
+      }
+      await this.assertFacturasVigentes(trx, tenantId, allocationId);
+      let folio: string | null = allocation.folio ?? null;
+      if (!folio) {
+        const prefijo = lot.folio || `${lot.dia.replace(/-/g, '').slice(2)}-01`;
+        const usados = (await trx('finance.payment_allocations').where({ lot_id: lot.id }).whereNotNull('folio').select('folio')) as { folio: string }[];
+        const max = usados.map((u) => Number(u.folio.split('-').pop())).filter((n) => Number.isFinite(n)).reduce((m, n) => Math.max(m, n), 0);
+        folio = `${prefijo}-${String(max + 1).padStart(2, '0')}`;
+      }
+      const [updated] = await trx('finance.payment_allocations').where({ id: allocationId })
+        .update({ authorized_by: username, authorized_at: trx.fn.now(), folio, updated_by: username, updated_at: trx.fn.now() }).returning('*');
+      return updated;
+    });
+  }
+
+  /**
+   * `[PGP.113]` Quitarle la autorización a un pago que todavía no se marca pagado (para cambiarlo, o
+   * porque no debía salir). Queda en las notas quién y por qué. Conserva su folio.
+   */
+  async unauthorize(allocationId: string, reason: string | undefined, username: string): Promise<AllocationRowLite> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const allocation = await trx('finance.payment_allocations').where({ tenant_id: tenantId, id: allocationId }).forUpdate().first();
+      if (!allocation) throw new NotFoundException('Pago no encontrado');
+      if (allocation.status !== 'pending') throw new BadRequestException('Solo se le quita la autorización a un pago pendiente (uno pagado ya salió).');
+      if (!allocation.authorized_at) throw new BadRequestException('Este pago no está autorizado.');
+      const nota = `[autorización quitada por ${username}${reason?.trim() ? `: ${reason.trim()}` : ''}; la había dado ${allocation.authorized_by ?? '—'}]`;
+      const [updated] = await trx('finance.payment_allocations').where({ id: allocationId }).update({
+        authorized_by: null, authorized_at: null, notes: `${allocation.notes ?? ''}\n${nota}`.trim(),
+        updated_by: username, updated_at: trx.fn.now(),
+      }).returning('*');
       return updated;
     });
   }

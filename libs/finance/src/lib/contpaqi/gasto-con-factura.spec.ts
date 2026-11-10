@@ -1,5 +1,5 @@
 import { asientoCuadra, AsientoRechazado } from './poliza-egreso';
-import { armarGastoConFactura, type EntradaGasto, type FacturaGasto } from './gasto-con-factura';
+import { armarGastoConFactura, cuentaGastoMasUsada, type EntradaGasto, type FacturaGasto } from './gasto-con-factura';
 
 /**
  * `[CP.8.87]` Candado del asiento de gasto con factura. El caso base es la póliza real que trajo el PM: Egreso 373 del
@@ -56,5 +56,22 @@ describe('[CP.8.87] gasto con factura', () => {
 
   it('⛔ sin facturas no se arma', () => {
     expect(() => armarGastoConFactura({ ...MANTENIMIENTO, facturas: [] })).toThrow(/qué facturas/);
+  });
+});
+
+describe('[CP.8.87] cuentaGastoMasUsada: la regla única de la póliza y del Calendario ([PGP.111b])', () => {
+  const h = [{ cuenta: '5200590000', f: '2026-01' }, { cuenta: '5200590000', f: '2026-03' }, { cuenta: '5200600000', f: '2026-02' }];
+  it('la más usada, con cuántas veces de cuántas', () => {
+    expect(cuentaGastoMasUsada(h)).toEqual({ cuenta: '5200590000', veces: 2, total: 3 });
+  });
+  it('sólo lo anterior a la fecha', () => {
+    expect(cuentaGastoMasUsada(h, '2026-02-15')).toEqual({ cuenta: '5200590000', veces: 1, total: 2 });
+  });
+  it('empate: la de código menor (determinista)', () => {
+    expect(cuentaGastoMasUsada([{ cuenta: '5202', f: '1' }, { cuenta: '5201', f: '2' }])?.cuenta).toBe('5201');
+  });
+  it('⛔ sin historia no se adivina', () => {
+    expect(cuentaGastoMasUsada([])).toBeNull();
+    expect(cuentaGastoMasUsada(h, '2025-12')).toBeNull();
   });
 });

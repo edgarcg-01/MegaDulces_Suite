@@ -47,6 +47,15 @@ describe('[CB.57] Santander (CSV con apóstrofos, trae la cuenta)', () => {
     expect(r?.control?.eslabones_rotos).toEqual([3]);
   });
 
+  it('una coma dentro de un texto que conserva su ancho fijo se devuelve a su columna (STDR 2169, 10-nov)', async () => {
+    const S2c = santanderRenglon({ hora: '09:15', desc: 'ABONO TRANSFERENCIA SPEI', signo: '+', imp: '1250.50', saldo: '10750.50', ref: '000111222',
+      ctaOrd: '012345678901234567', nomOrd: 'CLIENTE,DE PRUEBA SA DE CV', rfcOrd: 'XAXX010101000', rastreo: 'PRUEBA0000000001' });
+    const r = await leerEstadoDeCuenta(santander([S1, S2c, S3]));
+    expect(r?.no_leidos).toEqual([]);
+    expect(r?.movimientos[1]).toMatchObject({ abono_centavos: 125050, saldo_centavos: 1075050, contraparte_nombre: 'CLIENTE,DE PRUEBA SA DE CV', clave_rastreo: 'PRUEBA0000000001' });
+    expect(r?.control?.cuadra).toBe(true);
+  });
+
   it('NEGATIVA: una coma dentro del texto corre las columnas → se REPORTA, no se tira ni se adivina', async () => {
     const corrido = S2.replace('ABONO TRANSFERENCIA SPEI', 'ABONO, TRANSFERENCIA SPEI');
     const r = await leerEstadoDeCuenta(santander([S1, corrido, S3]));
@@ -206,6 +215,23 @@ describe('[CB.57] lo que no es estado de cuenta', () => {
     expect(describirArchivo(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1]))).toMatch(/Excel viejo \(\.xls\)/);
     expect(describirArchivo(Buffer.from('%PDF-1.7', 'latin1'))).toBe('es un PDF');
     expect(describirArchivo(Buffer.from(''))).toBe('está vacío');
+  });
+
+  it('[negativa] la consulta de BanBajío en .txt NO se lee (duplicaría con el .xlsx) y el mensaje dice qué bajar', async () => {
+    // Forma de la muestra real del 2026-11-10; nombre, número e importes inventados.
+    const txt = Buffer.from(['PERSONA DE PRUEBA,11112222,Conecta BanBajio,01,10-Nov-2026,09:36:48,Mes Actual,TODOS,01-Nov-2026 al 30-Nov-2026,,1,3175.35,0.00',
+      '#,Fecha Movimiento,Hora,Recibo,Descripción,Cargos,Abonos,Saldo',
+      '1,10-Nov-2026,08:26:54,100,Compra - Disposicion por POS por (3175.35) mxn en GASOLINERA | Recibo # 100,3175.35,,1000.00'].join('\r\n'), 'utf8');
+    expect(await leerEstadoDeCuenta(txt)).toBeNull();
+    expect(describirArchivo(txt)).toBe('es la consulta de BanBajío en .txt: bájala en Excel (.xlsx), que es la que se lee');
+  });
+
+  it('[negativa] Banamex en .txt (MDAD: sin descripción ni saldo) NO se lee y el mensaje dice bajar el CSV', async () => {
+    const mdad = Buffer.from(['0002/MDAD', '', "type='';type=new Array();type['A']='Abono';type['C']='Cargo';", 'EOC',
+      '10/11/2026|8:18|1|PERSONA|01|PERSONA|01/11/26|7000|1234567|PERSONA|+|1,000.00|+|1,100.00|0|1|0.00|100.00|Pesos',
+      '1|09/11/26|A|11|00|7003|||100.00|00000001'].join('\r\n'), 'ascii');
+    expect(await leerEstadoDeCuenta(mdad)).toBeNull();
+    expect(describirArchivo(mdad)).toMatch(/^es la consulta de Banamex en \.txt/);
   });
 
   it('el libro «CUENTAS» (xlsx sin la hoja de BanBajío) se reporta, no se lee como banco', async () => {

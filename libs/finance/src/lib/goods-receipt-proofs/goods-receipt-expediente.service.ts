@@ -6,13 +6,16 @@ import type {
   ExpedienteLectura, ExpedienteLiga, ExpedienteResumenFila, IdentificacionCandidata, IdentificacionEntrada,
   IdentificarLectura, ReceiptExpediente,
 } from '@megadulces/contracts';
+import { EXPEDIENTE_HALLAZGOS } from '@megadulces/contracts';
 import {
-  CfdiCandidato, HistorialEmisor, NotaCredito, REGLA_EXPEDIENTE, TOLERANCIA_ABS, TOLERANCIA_PCT, Veredicto,
-  cuadra, extraerUuid, hallazgosDe, ligarCfdi, notaQueExplica, promoverRfcImporte, proveedorEnContpaqi, veredictoExpediente,
+  CfdiCandidato, HistorialEmisor, NotaConRelacion, NotaCredito, NotaRelacionada, REGLA_EXPEDIENTE, TOLERANCIA_ABS, TOLERANCIA_PCT, Veredicto,
+  cuadra, extraerUuid, hallazgosDe, ligarCfdi, notasParaFactura, promoverRfcImporte, proveedorEnContpaqi, veredictoExpediente,
+  relacionadosDeXml, traeRelacion, notasLados, type NotaKepler, type NotasLados,
   indexarCandidatos, candidatosPosibles,
   UMBRAL_NOMBRE_CONTPAQI,
 } from './expediente-verdict';
-import { COMERCIAL_CATS, parecidoNombre, rfcBienFormado, rfcComparable } from './receipt-match';
+import { parecidoNombre, rfcBienFormado, rfcComparable } from './receipt-match';
+import { AJUSTES_KEPLER_SQL, type AjusteKeplerFila } from './ajustes-kepler';
 import { EntradaParaIdentificar, clasificarIdentificacion } from './identificar-entrada';
 // `[RE.43.1]` El mismo criterio que `matchByOcr`: el folio del proveedor va contra `referencia`.
 import { folioNucleo } from './documento-duplicado';
@@ -34,9 +37,21 @@ interface TrasladoCfdi { impuesto?: string | number; importe?: number | string; 
 interface ImpuestosCfdi { iva_trasladado?: number | string | null; ieps_trasladado?: number | string | null; traslados?: TrasladoCfdi[] }
 interface HistorialFila { id: string; emisor_rfc: string; fecha: string; emisor_regimen: string | null; metodo_pago: string | null; emisor_nombre: string | null }
 interface ListaSatFila { rfc: string; lista: string | number; situacion: string | null }
-interface NotaFila extends NotaCredito { emisor_rfc: string }
-interface AjusteFila { sucursal: string; entrada_folio: string; operativo: number; comercial: number }
+/** `[RE.62]` La nota con lo que relaciona su XML (`NOTAS_TROZO_RELACIONES_SQL` + `relacionadosDeXml`). */
+type NotaFila = NotaConRelacion;
 interface GemelaFila { proveedor_code: string; monto: number; receipt_date: string }
+
+/**
+ * `[RE.62]` Sólo el trozo `CfdiRelacionados` del XML de una nota (alias `n` de `fiscal.cfdis`): desde su
+ * primera aparición hasta `<cfdi:Emisor`, que en el esquema del CFDI va justo después (si no aparece, 20,000
+ * caracteres). Sin regex en la base, a propósito: lo parsea `relacionadosDeXml`. Sin `?` (knex los toma por
+ * parámetros). Verificado contra prod en sólo lectura (RE.62 en el tracker): mismo resultado que parsear
+ * el XML completo en las 26,806 notas recibidas.
+ */
+export const NOTAS_TROZO_RELACIONES_SQL = `CASE WHEN strpos(n.xml, 'CfdiRelacionados') = 0 THEN NULL
+  ELSE substring(n.xml from strpos(n.xml, 'CfdiRelacionados')
+    for CASE WHEN strpos(n.xml, '<cfdi:Emisor') > strpos(n.xml, 'CfdiRelacionados')
+             THEN strpos(n.xml, '<cfdi:Emisor') - strpos(n.xml, 'CfdiRelacionados') ELSE 20000 END) END AS relaciones_xml`;
 
 /** Ventana de búsqueda de CFDI alrededor de la fecha de la entrada (días). */
 const VENTANA_BUSQUEDA = 60;
@@ -61,6 +76,8 @@ export interface ExpedienteCalculado {
   cfdi: CfdiCandidato | null;
   liga: ExpedienteLiga | null;
   veredicto: Veredicto;
+  /** `[RE.63]` Dónde está la rebaja: Kepler, CFDI, los dos o ninguno. */
+  lados: NotasLados;
   hallazgos: ExpedienteHallazgo[];
 }
 
@@ -154,6 +171,12 @@ export class GoodsReceiptExpedienteService {
         via: x.veredicto.via,
         hallazgos: x.hallazgos,
         nota_credito: x.veredicto.notaCredito,
+        notas_lados: {
+          estado: x.lados.estado, kepler: x.lados.kepler, cfdi: x.lados.cfdi,
+          kepler_total: x.lados.keplerTotal, cfdi_total: x.lados.cfdiTotal,
+          diferencia: x.lados.diferencia, compartida: x.lados.compartida,
+          neto_kepler: x.lados.netoKepler, neto_cfdi: x.lados.netoCfdi, dif_neta: x.lados.difNeta, netos_cuadran: x.lados.netosCuadran,
+        },
         regla: REGLA_EXPEDIENTE,
         tolerancia: { pct: TOLERANCIA_PCT, abs: TOLERANCIA_ABS },
       };
@@ -177,7 +200,7 @@ export class GoodsReceiptExpedienteService {
     const lote = await this.calcularLote(trx, tenantId, keys, fuente);
     const filas = new Map<string, ExpedienteResumenFila>();
     const porCubo: Record<ExpedienteCubo, number> = { auto: 0, revisar: 0, sin_cfdi_aun: 0, sin_documento: 0, fuera_de_alcance: 0 };
-    const porHallazgo: Record<ExpedienteHallazgo, number> = { cobrar_nc: 0, mal_emitida: 0, incompleta: 0, sin_oc: 0, nc_aplicada: 0, comercial: 0 };
+    const porHallazgo = Object.fromEntries(EXPEDIENTE_HALLAZGOS.map((h) => [h, 0])) as Record<ExpedienteHallazgo, number>;
     for (const [k, x] of lote) {
       filas.set(k, { cubo: x.veredicto.cubo, hallazgos: x.hallazgos, motivo: x.veredicto.motivos[0] ?? null });
       porCubo[x.veredicto.cubo]++;
@@ -389,15 +412,21 @@ export class GoodsReceiptExpedienteService {
     let notas: NotaFila[] = [], historia: HistorialFila[] = [], listas: ListaSatFila[] = [];
     if (emisores.length && fechasCfdi.length) {
       const lo = fechasCfdi[0], hi = fechasCfdi[fechasCfdi.length - 1];
-      const mayores = ligadas.filter((p) => { const c = ligas.get(p.k)!.cfdi!; const d = c.total - Number(p.e.monto); return d > 0 && !cuadra(d, Number(p.e.monto)); });
-      if (mayores.length) {
-        notas = (await trx('fiscal.cfdis')
-          .where({ tenant_id: tenantId, rol: 'recibidas', tipo_comprobante: 'E' })
-          .whereIn('emisor_rfc', [...new Set(mayores.map((p) => ligas.get(p.k)!.cfdi!.emisor_rfc.toUpperCase()))])
-          .whereRaw('fecha >= ?::date AND fecha < ?::date', [sumarDias(lo, -5), sumarDias(hi, 91)])
-          .select('uuid', 'emisor_rfc', trx.raw('total::float8 AS total'), trx.raw(`to_char(fecha, 'YYYY-MM-DD') AS fecha`)))
-          .map((n: NotaFila) => ({ ...n, total: Number(n.total) }));
-      }
+      // `[RE.62]` La llave nota → factura es `CfdiRelacionados` del XML (98% de las notas de 2026): la base
+      // trae sólo ese trozo y `relacionadosDeXml` se queda con los bloques 01/03. Sin ventana superior: la
+      // relación liga aunque la nota llegue tarde. Las canceladas no cuentan.
+      // `[RE.63]` Para TODAS las facturas ligadas, no sólo las mayores: «¿la nota está en el CFDI y no en
+      // Kepler?» se pregunta también de la factura que cuadra.
+      const filas: { uuid: string; emisor_rfc: string; total: number | string; fecha: string | null; relaciones_xml: string | null }[] =
+        await trx('fiscal.cfdis as n')
+          .where({ 'n.tenant_id': tenantId, 'n.rol': 'recibidas', 'n.tipo_comprobante': 'E' })
+          .whereIn('n.emisor_rfc', emisores)
+          .whereRaw('n.fecha >= ?::date', [sumarDias(lo, -5)])
+          .whereRaw(`COALESCE(n.estatus_sat, '') NOT ILIKE 'cancel%'`)
+          .select('n.uuid', 'n.emisor_rfc', trx.raw('n.total::float8 AS total'), trx.raw(`to_char(n.fecha, 'YYYY-MM-DD') AS fecha`),
+            trx.raw(NOTAS_TROZO_RELACIONES_SQL));
+      notas = filas.map((n) => ({ uuid: n.uuid, emisor_rfc: n.emisor_rfc, total: Number(n.total), fecha: n.fecha,
+        relacionados: relacionadosDeXml(n.relaciones_xml), trae_relacion: traeRelacion(n.relaciones_xml) }));
       // ⚠️ ~190 ms por emisor en la consulta suelta: el índice por RFC lo retiró 20260928210000.
       historia = await trx('fiscal.cfdis')
         .where({ tenant_id: tenantId, rol: 'recibidas', tipo_comprobante: 'I', receptor_uso_cfdi: 'G01' })
@@ -409,30 +438,50 @@ export class GoodsReceiptExpedienteService {
       }
     }
 
-    // 10. Ajustes de Kepler ligados a cada entrada (devolución = operativo; descuento/apoyo = comercial)
+    // 10. `[RE.64]` Las notas y devoluciones que KEPLER aplicó a cada entrada (`AJUSTES_KEPLER_SQL`: kdxf 55/40 →
+    //     A·20 + las que nombran su entrada en c39, sin canceladas). Un solo primitivo para el hallazgo
+    //     (operativo = entrega incompleta · comercial = descuento/apoyo), para el lado Kepler de RE.63 y para la
+    //     columna Ajuste/Neto de la lista: si leyeran fuentes distintas, el panel y la columna contarían distinto.
+    //     (Antes: `analytics.erp_purchase_adjustments`, ligado por c39, vacío en el 100 % de las X-D-55.)
+    const enLote = new Set(preps.map((p) => p.k));
     const ajustes = new Map<string, { operativo: number; comercial: number }>();
-    if (await this.existeTabla(trx, 'analytics', 'erp_purchase_adjustments')) {
-      const rows: AjusteFila[] = await enPares(trx('analytics.erp_purchase_adjustments')
-        .where({ tenant_id: tenantId }), 'sucursal', 'entrada_folio', pares)
-        .groupBy('sucursal', 'entrada_folio')
-        .select('sucursal', 'entrada_folio',
-          trx.raw(`COALESCE(sum(monto) FILTER (WHERE categoria IS NULL OR NOT (categoria = ANY(?))), 0)::float8 AS operativo`, [COMERCIAL_CATS]),
-          trx.raw(`COALESCE(sum(monto) FILTER (WHERE categoria = ANY(?)), 0)::float8 AS comercial`, [COMERCIAL_CATS]));
-      for (const r of rows) ajustes.set(llave(r.sucursal, r.entrada_folio), { operativo: Number(r.operativo), comercial: Number(r.comercial) });
+    const notasKepler = new Map<string, NotaKepler[]>();
+    const filasKepler = (await trx.raw(AJUSTES_KEPLER_SQL)).rows as AjusteKeplerFila[];
+    for (const r of filasKepler) {
+      const k = llave(r.sucursal, r.folio);
+      // `[RE.66]` El traslado del pago al CEDIS (blanqueo de la entrada de sucursal) no es rebaja: ni lado Kepler
+      // ni hallazgo. Las notas de la copia del CEDIS ya llegan con la llave de la entrada original.
+      if (!enLote.has(k) || r.grupo === 'traslado') continue;
+      const aplicado = Number(r.aplicado);
+      (notasKepler.get(k) ?? notasKepler.set(k, []).get(k)!)
+        .push({ tipo: r.tipo, folio: r.nc_folio, aplicado, fecha: r.fecha, motivo: r.motivo });
+      const a = ajustes.get(k) ?? ajustes.set(k, { operativo: 0, comercial: 0 }).get(k)!;
+      if (r.grupo === 'operativo') a.operativo += aplicado;
+      else if (r.grupo === 'comercial') a.comercial += aplicado;
+    }
+    const notasPorFactura = new Map<string, NotaRelacionada[]>();
+    for (const n of notas) {
+      for (const u of n.relacionados) {
+        (notasPorFactura.get(u) ?? notasPorFactura.set(u, []).get(u)!)
+          .push({ uuid: n.uuid, total: n.total, fecha: n.fecha, facturas: n.relacionados.length });
+      }
     }
 
     // 11. El veredicto de cada entrada (motor puro)
     for (const p of preps) {
       const l = ligas.get(p.k);
       const cfdi = l?.cfdi ?? null;
-      let notaCredito: NotaCredito | null = null;
+      let notasRelacionadas: NotaRelacionada[] = [];
+      let notaSugerida: NotaCredito | null = null;
       let historial: HistorialEmisor | null = null;
       if (cfdi) {
         const dif = cfdi.total - Number(p.e.monto);
-        if (dif > 0 && !cuadra(dif, Number(p.e.monto))) {
-          notaCredito = notaQueExplica(dif, Number(p.e.monto), cfdi.fecha,
-            notas.filter((n) => n.emisor_rfc.toUpperCase() === cfdi.emisor_rfc.toUpperCase()));
-        }
+        // `[RE.62]` La llave primero (las notas cuyo CFDI relaciona ESTA factura); el importe sólo sugiere (y sólo
+        // con factura mayor: `notaQueExplica` no sugiere nada con diferencia ≤ 0). `[RE.65]` Para TODA factura
+        // ligada, no sólo la mayor: el cuadre en netos (R-v4) también mira la factura que cuadra en bruto.
+        const sel = notasParaFactura(cfdi, dif, Number(p.e.monto), notas);
+        notasRelacionadas = sel.relacionadas;
+        notaSugerida = dif > 0 && !cuadra(dif, Number(p.e.monto)) ? sel.sugerida : null;
         historial = { regimenes: {}, metodos: {}, nombres: {} };
         for (const h of historia) {
           if (h.emisor_rfc.toUpperCase() !== cfdi.emisor_rfc.toUpperCase() || h.id === cfdi.id) continue;
@@ -457,14 +506,19 @@ export class GoodsReceiptExpedienteService {
           receptorRfc, receptorRegimen: emisora?.regimen_fiscal ?? null,
           listasSat: cfdi ? listas.filter((x) => x.rfc === cfdi.emisor_rfc.toUpperCase()).map((x) => ({ lista: String(x.lista), situacion: x.situacion ?? null })) : [],
         },
-        notaCredito,
+        notasRelacionadas,
+        notaSugerida,
+        notasKepler: notasKepler.get(p.k) ?? [],
         proveedorEnContpaqi: l?.enContpaqi,
         sello: p.lectura?.sello ?? null, firma: p.lectura?.firma ?? null, selloEvidencia: p.lectura?.sello_evidencia ?? null,
         hoy,
       });
+      // `[RE.63]` Sin factura CFDI ligada el lado del SAT no se mide (`null`), no es «sin notas».
+      const lados = notasLados(notasKepler.get(p.k) ?? [], cfdi ? (notasPorFactura.get(cfdi.uuid.toUpperCase()) ?? []) : null,
+        { factura: cfdi?.total ?? null, entrada: Number(p.e.monto) });
       out.set(p.k, {
-        entrada: p.e, docTipo: p.docTipo, lectura: p.lectura, cfdi, liga: l?.liga ?? null, veredicto: v,
-        hallazgos: hallazgosDe(v, ajustes.get(p.k) ?? { operativo: 0, comercial: 0 }),
+        entrada: p.e, docTipo: p.docTipo, lectura: p.lectura, cfdi, liga: l?.liga ?? null, veredicto: v, lados,
+        hallazgos: hallazgosDe(v, ajustes.get(p.k) ?? { operativo: 0, comercial: 0 }, lados),
       });
     }
     return out;

@@ -1254,14 +1254,10 @@ export const CRON_JOBS: CronCfg[] = [
   // ⚠️ `maxRunH: 1` con holgura medida: el `CREATE TEMP TABLE stg_rplan` cuesta ~174 s por corrida.
   { key: 'fact_replenishment_plan_stock',   label: 'Fact del pedido (replenishment_plan, stock)',   cadence: 'cada 15 min',   warnH: 1.5, critH: 4,  maxRunH: 1 },
   { key: 'fact_replenishment_plan_nightly', label: 'Fact del pedido (replenishment_plan, nightly)', cadence: 'diario 03:00 MX', warnH: 26,  critH: 50, maxRunH: 2 },
-  // [DB-MEM.2] Pasó de "cada minuto" a diario 04:30 — y con él, su umbral. NO es un feed: es el
-  // BARRIDO HISTÓRICO (`detect-goods-receipt-duplicates.js`, ventana `--from=2026-01-01`), que
-  // costaba el 42.8% del tiempo de ejecución de la base para procesar 1-54 recepciones por DÍA.
-  // Lo incremental lo hace `twins_pairing` (cada 5 min), que es quien debe vigilarse de cerca.
-  // ⚠️ Si este umbral se hubiera quedado en 0.5/2 h, el tablero lo marcaría CRÍTICO todos los
-  // días a las 06:30 — una alarma permanente por el comportamiento correcto, que es justo lo que
-  // enseña a ignorar el tablero.
-  { key: 'feed_receipts',       label: 'Barrido histórico de recepciones (XA2001)', cadence: 'diario 04:30 MX', warnH: 26, critH: 50, maxRunH: 2 },
+  // [RE.69] `feed_receipts` (el barrido histórico diario de las 04:30, `detect-goods-receipt-duplicates.js`)
+  // se RETIRÓ el 2026-11-10 («ningún cron», Edgar): el apareo corre al llegar el dato (`twins_pairing`, por
+  // aviso) y, desde el corte del 1-oct, casi no nacen copias. Un carril retirado se saca de esta lista (ver
+  // la nota de `CronCfg`): su llave cae sola en `unknown`. El CLI queda para correrlo a mano si hace falta.
   { key: 'feed_intraday',       label: 'Feed intraday (transaccionales)',   cadence: 'cada 1 h',     warnH: 3,   critH: 8, maxRunH: 2 },
   { key: 'feed_nightly',        label: 'Feed nightly (batch nocturno)',     cadence: 'diario 03:00', warnH: 30,  critH: 50, maxRunH: 4 },
   // [NORM.2] Este carril EXISTÍA COMO SCRIPT Y NO ESTABA AGENDADO EN NINGÚN LADO. Llena
@@ -1513,7 +1509,10 @@ export const CRON_JOBS: CronCfg[] = [
   // la base. Sin este latido no se podía bajar la cadencia del CLI sin arriesgar dinero contado dos
   // veces, porque nadie podía comprobar que el incremental estuviera vivo. Umbral de job de alta
   // frecuencia, mismo criterio que `kepler_stock`.
-  { key: 'twins_pairing',                     label: 'Apareo de recepciones gemelas (cron API)', cadence: 'cada 5 min', warnH: 3, critH: 12 },
+  // [RE.69] Ya no es reloj: late en cada mirada al aviso `caja_fuente` (cualquier documento de Kepler; haya o
+  // no entradas nuevas, para distinguir «vivo y sin cambios» de «muerto»). Kepler se mueve todos los días,
+  // fines de semana incluidos (ventas); de noche puede callar ~9 h. Umbral: warn 14 h, crítico 26 h.
+  { key: 'twins_pairing',                     label: 'Apareo de recepciones gemelas (por aviso)', cadence: 'al cambiar Kepler (aviso caja_fuente)', warnH: 14, critH: 26 },
   // [CP.8.10] El cuadre del puente a ContPAQi (`ContpaqiCuadreService`, cada 10 min). Se registra
   // acá porque sin umbral el sensor cae en `cfg ? classify : 'ok'` y da **verde incondicional** —
   // lo midió la Fase VP sobre 3 matvistas del sell-out. Y porque este job es justamente el que

@@ -27,6 +27,12 @@ import {
  *   WHATSAPP_APP_SECRET        secreto de la app (validación de firma)
  *   WHATSAPP_GRAPH_VERSION     opcional, default v21.0
  *
+ * `[RH.3.5]` El número de RH vive en OTRA app de Meta (`mega-dulces-rh`), con su propia clave y su propio usuario de
+ * sistema. Las tres son opcionales; sin ellas todo se comporta como antes:
+ *   WHATSAPP_RECRUITMENT_APP_SECRET       segunda clave aceptada al validar la firma
+ *   WHATSAPP_RECRUITMENT_PHONE_NUMBER_ID  el número de RH
+ *   WHATSAPP_RECRUITMENT_ACCESS_TOKEN     token con el que sale (y se baja la media de) ese número
+ *
  * Degrada con gracia si faltan credenciales: loguea y los envíos son no-op (no
  * tira el boot). El motor sigue funcionando; solo no sale nada a Meta.
  */
@@ -38,16 +44,28 @@ export class MetaCloudWhatsAppAdapter implements WhatsAppPort {
   private readonly phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID || '';
   private readonly accessToken = process.env.WHATSAPP_ACCESS_TOKEN || '';
   private readonly verifyToken = process.env.WHATSAPP_VERIFY_TOKEN || '';
-  private readonly appSecret = process.env.WHATSAPP_APP_SECRET || '';
+  private readonly appSecrets = [process.env.WHATSAPP_APP_SECRET, process.env.WHATSAPP_RECRUITMENT_APP_SECRET]
+    .filter((s): s is string => !!s);
+  private readonly recruitmentPhoneNumberId = process.env.WHATSAPP_RECRUITMENT_PHONE_NUMBER_ID || '';
+  private readonly recruitmentAccessToken = process.env.WHATSAPP_RECRUITMENT_ACCESS_TOKEN || '';
   private readonly graphVersion = process.env.WHATSAPP_GRAPH_VERSION || 'v21.0';
   private readonly timeoutMs = 15_000;
 
   /**
-   * `[RH.3.1]` URL de envío desde un número. Sin `from`, el configurado. Todos los números de la misma cuenta de negocio
-   * comparten el token (`WHATSAPP_ACCESS_TOKEN`); un número de otra cuenta necesitaría su propio token (no aplica hoy).
+   * `[RH.3.1]` URL de envío desde un número. Sin `from`, el configurado.
    */
   private urlDesde(from?: string | null): string {
     return `https://graph.facebook.com/${this.graphVersion}/${from || this.phoneNumberId}/messages`;
+  }
+
+  /**
+   * `[RH.3.5]` El token con el que se habla DESDE un número: el de RH si es el número de RH y hay token propio; si no,
+   * el general (los números de la misma cuenta de negocio lo comparten).
+   */
+  private tokenDe(from?: string | null): string {
+    return from && from === this.recruitmentPhoneNumberId && this.recruitmentAccessToken
+      ? this.recruitmentAccessToken
+      : this.accessToken;
   }
 
   /**
@@ -64,7 +82,7 @@ export class MetaCloudWhatsAppAdapter implements WhatsAppPort {
   }
 
   private ready(from?: string | null): boolean {
-    if (!(from || this.phoneNumberId) || !this.accessToken) {
+    if (!(from || this.phoneNumberId) || !this.tokenDe(from)) {
       this.logger.warn('WHATSAPP_PHONE_NUMBER_ID / WHATSAPP_ACCESS_TOKEN ausentes — envío no-op.');
       return false;
     }
@@ -75,7 +93,7 @@ export class MetaCloudWhatsAppAdapter implements WhatsAppPort {
     if (!this.ready(from)) return { message_id: null };
     try {
       const res = await axios.post(this.urlDesde(from), payload, {
-        headers: { Authorization: `Bearer ${this.accessToken}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${this.tokenDe(from)}`, 'Content-Type': 'application/json' },
         timeout: this.timeoutMs,
       });
       const id = res.data?.messages?.[0]?.id ?? null;
@@ -132,7 +150,7 @@ export class MetaCloudWhatsAppAdapter implements WhatsAppPort {
     let mediaId: string;
     try {
       const subida = await axios.post(`https://graph.facebook.com/${this.graphVersion}/${opts?.from || this.phoneNumberId}/media`, form, {
-        headers: { Authorization: `Bearer ${this.accessToken}` },
+        headers: { Authorization: `Bearer ${this.tokenDe(opts?.from)}` },
         timeout: this.timeoutMs,
       });
       mediaId = String(subida.data?.id ?? '');
@@ -195,9 +213,12 @@ export class MetaCloudWhatsAppAdapter implements WhatsAppPort {
     return null;
   }
 
-  /** Valida la firma HMAC sha256 del body crudo contra el app secret. */
+  /**
+   * Valida la firma HMAC sha256 del body crudo contra la clave de la app. `[RH.3.5]` Basta que cuadre con UNA de las
+   * configuradas: cada app de Meta firma con la suya, y el número de RH vive en otra app.
+   */
   private verifySignature(signature: string | undefined, rawBody: Buffer | string | undefined): void {
-    if (!this.appSecret) {
+    if (!this.appSecrets.length) {
       // `[AUTHZ-HARD.0]` El webhook es @Public(): sin secreto no hay forma de saber que el POST
       // viene de Meta. Antes se dejaba pasar SIN validar → cualquiera inyectaba mensajes que
       // disparan el motor conversacional (creación de pedidos). Ahora falla CERRADO en prod;
@@ -209,13 +230,12 @@ export class MetaCloudWhatsAppAdapter implements WhatsAppPort {
       return;
     }
     if (!signature || rawBody == null) throw new BadRequestException('Firma de webhook ausente');
-    const expected =
-      'sha256=' + createHmac('sha256', this.appSecret).update(rawBody).digest('hex');
     const a = Buffer.from(signature);
-    const b = Buffer.from(expected);
-    if (a.length !== b.length || !timingSafeEqual(a, b)) {
-      throw new BadRequestException('Firma de webhook inválida');
-    }
+    const cuadra = this.appSecrets.some((secret) => {
+      const b = Buffer.from('sha256=' + createHmac('sha256', secret).update(rawBody).digest('hex'));
+      return a.length === b.length && timingSafeEqual(a, b);
+    });
+    if (!cuadra) throw new BadRequestException('Firma de webhook inválida');
   }
 
   parseInbound(body: unknown, signature?: string, rawBody?: Buffer | string): InboundMessage[] {
@@ -310,14 +330,15 @@ export class MetaCloudWhatsAppAdapter implements WhatsAppPort {
    * (también con Bearer) → binario. Devuelve buffer + mime, o `null` si faltan
    * credenciales o Meta responde error (no re-lanza: el flujo degrada a "ilegible").
    */
-  async downloadMedia(mediaId: string): Promise<{ buffer: Buffer; mime: string } | null> {
-    if (!this.accessToken || !mediaId) {
+  async downloadMedia(mediaId: string, opts?: SendOptions): Promise<{ buffer: Buffer; mime: string } | null> {
+    const token = this.tokenDe(opts?.from);
+    if (!token || !mediaId) {
       this.logger.warn('downloadMedia: sin WHATSAPP_ACCESS_TOKEN o media_id — no-op.');
       return null;
     }
     try {
       const meta = await axios.get(`https://graph.facebook.com/${this.graphVersion}/${mediaId}`, {
-        headers: { Authorization: `Bearer ${this.accessToken}` },
+        headers: { Authorization: `Bearer ${token}` },
         timeout: this.timeoutMs,
       });
       const url = meta.data?.url as string | undefined;
@@ -327,7 +348,7 @@ export class MetaCloudWhatsAppAdapter implements WhatsAppPort {
         return null;
       }
       const bin = await axios.get(url, {
-        headers: { Authorization: `Bearer ${this.accessToken}` },
+        headers: { Authorization: `Bearer ${token}` },
         responseType: 'arraybuffer',
         timeout: this.timeoutMs,
       });

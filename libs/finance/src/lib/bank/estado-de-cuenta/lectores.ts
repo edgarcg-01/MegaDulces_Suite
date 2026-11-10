@@ -125,6 +125,13 @@ export function describirArchivo(buf: Buffer): string {
   if (buf.length >= 4 && buf.subarray(0, 4).toString('latin1') === '%PDF') return 'es un PDF';
   if (buf.length >= 2 && buf[0] === 0x50 && buf[1] === 0x4b) return 'es un Excel (.xlsx) sin la hoja de movimientos de BanBajío';
   const primera = (lineas(aTexto(buf)).find((l) => l.trim() !== '') ?? '').replace(/[^\x20-\x7EÀ-ÿ]/g, ' ').trim();
+  // La misma consulta de BanBajío bajada en .txt NO se lee a propósito (2026-11-10): escribe los
+  // importes del concepto sin comas de miles («(3175.35)» contra «(3,175.35)» del .xlsx), así que
+  // subir los dos formatos metería dos veces cada movimiento de $1,000 o más (119 de 185 en la muestra).
+  if (primera.toUpperCase().includes(',CONECTA BANBAJIO,')) return 'es la consulta de BanBajío en .txt: bájala en Excel (.xlsx), que es la que se lee';
+  // Banamex en .txt con «|» (MDAD): los mismos movimientos SIN descripción ni saldo por renglón; no se
+  // puede clasificar ni atestiguar, y su llave nunca coincidiría con la del CSV (entraría todo doble).
+  if (/^\d{4}\/MDAD\b/i.test(primera)) return 'es la consulta de Banamex en .txt (sin descripción ni saldo): bájala en CSV, que es la que se lee';
   return primera ? `empieza con «${primera.slice(0, 70)}»` : 'está vacío';
 }
 
@@ -156,6 +163,29 @@ export function detectarBanco(buf: Buffer): Banco | null {
   return null;
 }
 
+/**
+ * Santander no pone comillas: una coma dentro de un texto parte su columna en dos. Pero rellena cada
+ * columna de texto a ANCHO FIJO (medido en la muestra real: Concepto 90, nombres 40, rastreo 30…; sólo
+ * Importe y Saldo varían). Se vuelven a juntar los pedazos hasta que miden exactamente el ancho que esa
+ * columna tiene en los renglones sanos del mismo archivo. Si no cuadra exacto, `null`: el renglón se
+ * reporta, no se adivina. (2026-11-10, STDR 2169: «0,000,000.00» en la referencia de dos domiciliaciones
+ * y «LUIS FRANCISCO,L…» en un nombre ordenante.)
+ */
+function reacomodarPorAncho(pedazos: string[], ancho: (number | null)[]): string[] | null {
+  const out: string[] = [];
+  let p = 0;
+  for (const w of ancho) {
+    if (p >= pedazos.length) return null;
+    let s = pedazos[p++];
+    if (w !== null) {
+      while (s.length < w && p < pedazos.length) s += ',' + pedazos[p++];
+      if (s.length !== w) return null;
+    }
+    out.push(s);
+  }
+  return p === pedazos.length ? out : null;
+}
+
 function leerSantander(buf: Buffer): Omit<EstadoDeCuentaLeido, 'control'> {
   const L = lineas(aTexto(buf));
   const enc = L[0].split(',').map((h) => limpio(h).toUpperCase());
@@ -170,11 +200,19 @@ function leerSantander(buf: Buffer): Omit<EstadoDeCuentaLeido, 'control'> {
   const movimientos: MovimientoBanco[] = [];
   const no_leidos: RenglonNoLeido[] = [];
   let cuenta: string | null = null;
+  // Ancho de cada columna en los renglones sanos; `null` si varía (Importe, Saldo) o no hay sanos.
+  const sanas = L.slice(1).filter((t) => t.trim() !== '').map((t) => t.split(',')).filter((v) => v.length === enc.length);
+  const ancho = enc.map((_, j) => {
+    const w = new Set(sanas.map((v) => v[j].length));
+    return w.size === 1 ? [...w][0] : null;
+  });
   for (let i = 1; i < L.length; i++) {
     const texto = L[i];
     if (texto.trim() === '') continue;
-    const v = texto.split(',');
-    // Sin comillas: una coma dentro de un texto corre todas las columnas. Se reporta, no se adivina.
+    let v = texto.split(',');
+    // Sin comillas: una coma dentro de un texto corre todas las columnas. Se reacomoda por ancho
+    // (arriba); si el ancho no lo explica exacto, se reporta, no se adivina.
+    if (v.length > enc.length) v = reacomodarPorAncho(v, ancho) ?? v;
     if (v.length !== enc.length) { no_leidos.push({ linea: i + 1, motivo: `trae ${v.length} columnas y el encabezado ${enc.length}`, texto }); continue; }
     const f = limpio(v[c.fecha]);
     const imp = aCentavos(v[c.importe]);
