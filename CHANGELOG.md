@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Fixed — Revisión de facturas: la nota de crédito se aplica por su relación en el CFDI, no por importe (RE.62 · 2026-11-10 · en código, sin soltar)
+- Una factura mayor que la entrada sólo «cuadra con nota de crédito» si la nota, en su propio CFDI, **relaciona esa factura**. Antes bastaba con que una nota del mismo proveedor tuviera el monto parecido: de 42 marcadas «nota ya aplicada», 36 usaban la nota de otra factura y 23 «pasaban solas» así.
+- Una nota que relaciona varias facturas se muestra pero no se descuenta (el CFDI no dice cuánto le toca a cada una). La que sólo coincide por importe aparece como «posible nota, confírmala» y **nunca deja pasar sola** una factura.
+- «Cobrar nota de crédito» ahora cuenta lo que falta **después** de las notas propias de la factura. La aprobación en lote anota qué nota usó.
+- Regla del expediente **R-v3** (ADR-085). Sin cambios de pantalla ni migraciones.
+
 ### Added — Compras › Temporadas: el calendario de temporadas y los productos de cada una (PQ.94, PQ.99 · 2026-11-10 · en código, sin soltar)
 - Nueva pantalla **Compras › Temporadas** (entre Alertas de abasto y Pedido): qué temporada está en venta y cuál sigue, con su **ventana de venta del mayorista** (va adelantada a la fecha del consumidor: Día de Muertos se vende del 1-sep al 2-nov, Navidad desde el 20-oct).
 - Por temporada y año, los productos que **propone la venta real** (Wincaja + Kepler); Compras, Mercadotecnia y Dirección los **confirman o descartan** por lote (si vuelven cada año y si son compra única o se reponen hasta el corte). Descartar pide motivo; un lote con errores dice cuáles no entraron y por qué.
