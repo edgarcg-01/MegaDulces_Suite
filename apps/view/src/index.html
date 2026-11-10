@@ -4,6 +4,52 @@
   <meta charset="utf-8">
   <title>Mega Dulces</title>
   <base href="/">
+  <!-- `[RES.6]` RESCATE DE UN ARCHIVO QUE NO LLEGA (distinto de `[RES.5]`, al final del body).
+
+       ⭐ Por qué existe, medido el 2026-11-10: en Yurécuaro la suite abría en blanco. `main-*.js`
+          daba **404** en esa máquina y **200** desde otros tres caminos de red, con Chrome 157 al
+          día. La MISMA dirección con un parámetro pegado atrás SÍ cargaba. Esa es la firma de una
+          respuesta «no existe» guardada en el borde de la CDN durante la ventana en que el
+          despliegue todavía no publicó el archivo nuevo: queda servida por días.
+
+       ⛔ Por qué `[RES.5]` no alcanza: limpia el estado LOCAL y recarga. Acá lo roto está río
+          arriba, así que la recarga vuelve a pedir la MISMA dirección envenenada y falla igual — y
+          como `[RES.5]` se marca «ya intenté», se rinde y deja la pantalla en blanco para siempre.
+
+       ⭐ Qué hace: oye los fallos de carga de `<script>` y vuelve a pedir ESE archivo con un
+          parámetro único. Un parámetro distinto es otra entrada en la caché del borde, así que la
+          petición llega al servidor de verdad (medido el 2026-11-10: `cf-cache-status: MISS` → 200,
+          683,476 bytes, contra el 404 de la dirección pelada).
+
+       ⛔ Lo que NO hace, a propósito:
+          · No reintenta un archivo más de UNA vez. Si el reintento también falla, el problema no
+            era la caché y hay que verlo: insistir sería un parpadeo infinito que esconde la causa.
+          · No toca nada del usuario — ni sesión, ni caches, ni almacenamiento. Eso es `[RES.5]`.
+          · NO arregla la causa. El borde se vuelve a envenenar en cada despliegue mientras el
+            despliegue no purgue al terminar. Esto es la red, no el piso.
+
+       ⚠️ Va INLINE y en `<head>`, antes de cualquier `<script src>`: el oyente tiene que estar
+          puesto ANTES de que empiece a cargar lo que puede fallar. -->
+  <script>
+  (function () {
+    var PARAM = 'rescate_asset';
+    var intentados = {};
+    window.addEventListener('error', function (ev) {
+      var el = ev && ev.target;
+      if (!el || el.tagName !== 'SCRIPT' || !el.src) return;
+      var src = el.src;
+      if (src.indexOf(PARAM + '=') !== -1) return;
+      if (intentados[src]) return;
+      intentados[src] = true;
+      var s = document.createElement('script');
+      s.src = src + (src.indexOf('?') === -1 ? '?' : '&') + PARAM + '=' + Date.now();
+      if (el.type) s.type = el.type;
+      if (el.crossOrigin) s.crossOrigin = el.crossOrigin;
+      document.head.appendChild(s);
+    }, true);
+  })();
+  </script>
+
   <!-- App-like: bloqueamos el pinch/double-tap zoom del usuario. El zoom mueve el
        viewport visual y desalinea los elementos position:fixed (FAB, bottom-nav,
        hero, header sticky). maximum-scale=1 + user-scalable=no lo fija a 1x como una
