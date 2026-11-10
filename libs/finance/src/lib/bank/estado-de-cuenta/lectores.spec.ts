@@ -47,6 +47,15 @@ describe('[CB.57] Santander (CSV con apóstrofos, trae la cuenta)', () => {
     expect(r?.control?.eslabones_rotos).toEqual([3]);
   });
 
+  it('una coma dentro de un texto que conserva su ancho fijo se devuelve a su columna (STDR 2169, 10-nov)', async () => {
+    const S2c = santanderRenglon({ hora: '09:15', desc: 'ABONO TRANSFERENCIA SPEI', signo: '+', imp: '1250.50', saldo: '10750.50', ref: '000111222',
+      ctaOrd: '012345678901234567', nomOrd: 'CLIENTE,DE PRUEBA SA DE CV', rfcOrd: 'XAXX010101000', rastreo: 'PRUEBA0000000001' });
+    const r = await leerEstadoDeCuenta(santander([S1, S2c, S3]));
+    expect(r?.no_leidos).toEqual([]);
+    expect(r?.movimientos[1]).toMatchObject({ abono_centavos: 125050, saldo_centavos: 1075050, contraparte_nombre: 'CLIENTE,DE PRUEBA SA DE CV', clave_rastreo: 'PRUEBA0000000001' });
+    expect(r?.control?.cuadra).toBe(true);
+  });
+
   it('NEGATIVA: una coma dentro del texto corre las columnas → se REPORTA, no se tira ni se adivina', async () => {
     const corrido = S2.replace('ABONO TRANSFERENCIA SPEI', 'ABONO, TRANSFERENCIA SPEI');
     const r = await leerEstadoDeCuenta(santander([S1, corrido, S3]));
