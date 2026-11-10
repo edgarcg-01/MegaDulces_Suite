@@ -217,6 +217,14 @@ describe('[CB.57] lo que no es estado de cuenta', () => {
     expect(describirArchivo(txt)).toBe('es la consulta de BanBajío en .txt: bájala en Excel (.xlsx), que es la que se lee');
   });
 
+  it('[negativa] Banamex en .txt (MDAD: sin descripción ni saldo) NO se lee y el mensaje dice bajar el CSV', async () => {
+    const mdad = Buffer.from(['0002/MDAD', '', "type='';type=new Array();type['A']='Abono';type['C']='Cargo';", 'EOC',
+      '10/11/2026|8:18|1|PERSONA|01|PERSONA|01/11/26|7000|1234567|PERSONA|+|1,000.00|+|1,100.00|0|1|0.00|100.00|Pesos',
+      '1|09/11/26|A|11|00|7003|||100.00|00000001'].join('\r\n'), 'ascii');
+    expect(await leerEstadoDeCuenta(mdad)).toBeNull();
+    expect(describirArchivo(mdad)).toMatch(/^es la consulta de Banamex en \.txt/);
+  });
+
   it('el libro «CUENTAS» (xlsx sin la hoja de BanBajío) se reporta, no se lee como banco', async () => {
     const wb = new ExcelJS.Workbook();
     wb.addWorksheet('BTE 7744').getRow(1).values = [null, 'FECHA', 'M', 'S', 'C', 'PROVEEDOR', 'RETIRO', 'DEPOSITO', 'SALDO'];

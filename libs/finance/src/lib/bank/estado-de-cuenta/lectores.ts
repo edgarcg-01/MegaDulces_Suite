@@ -129,6 +129,9 @@ export function describirArchivo(buf: Buffer): string {
   // importes del concepto sin comas de miles («(3175.35)» contra «(3,175.35)» del .xlsx), así que
   // subir los dos formatos metería dos veces cada movimiento de $1,000 o más (119 de 185 en la muestra).
   if (primera.toUpperCase().includes(',CONECTA BANBAJIO,')) return 'es la consulta de BanBajío en .txt: bájala en Excel (.xlsx), que es la que se lee';
+  // Banamex en .txt con «|» (MDAD): los mismos movimientos SIN descripción ni saldo por renglón; no se
+  // puede clasificar ni atestiguar, y su llave nunca coincidiría con la del CSV (entraría todo doble).
+  if (/^\d{4}\/MDAD\b/i.test(primera)) return 'es la consulta de Banamex en .txt (sin descripción ni saldo): bájala en CSV, que es la que se lee';
   return primera ? `empieza con «${primera.slice(0, 70)}»` : 'está vacío';
 }
 
