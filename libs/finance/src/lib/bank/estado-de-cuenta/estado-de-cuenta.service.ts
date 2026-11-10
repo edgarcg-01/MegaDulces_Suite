@@ -4,6 +4,7 @@ import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, todayMx } from '@megadulces/platform-core';
 import { leerEstadoDeCuenta, type Banco, type EstadoDeCuentaLeido, type MovimientoBanco } from './lectores';
 import { cierreDelDia, type RenglonDelLibro } from './saldo-del-libro';
+import { compararContraElLibro, type CuentaContraElLibro, type RenglonComparable } from './contra-el-libro';
 
 /**
  * `[CB.58]` Subir el estado de cuenta descargado de la banca, en dos pasos: REVISAR (no escribe)
@@ -301,6 +302,37 @@ export class EstadoDeCuentaService {
         archivos, total: Number(n), tope,
         cuentas: cuentas.map((c: { id: string; bank: string; alias: string; hasta: string | null; archivos: number; sin_testigo: number }) =>
           ({ ...c, con_lector: conLector.includes(c.bank) })),
+      };
+    });
+  }
+
+  /**
+   * `[CB.60]` Cada cuenta con descarga, contra el libro, día por día (ver `contra-el-libro.ts`). Sólo lee.
+   * La ventana va por la fecha del movimiento (últimos `dias`); el libro se lee 3 días más atrás
+   * porque el pareo con fecha distinta lo necesita.
+   */
+  async contraElLibro(dias = 45, hoy = todayMx()): Promise<{ desde: string; cuentas: (CuentaContraElLibro & { id: string; alias: string })[] }> {
+    this.tenantCtx.requireTenantId();
+    const ventana = Math.min(Math.max(1, Math.trunc(dias) || 45), 120);
+    const d = new Date(`${hoy}T00:00:00Z`); d.setUTCDate(d.getUTCDate() - ventana);
+    const desde = d.toISOString().slice(0, 10);
+    return this.tk.run(async (trx) => {
+      const banco = await trx('finance.bank_statement_lines')
+        .where('movement_date', '>=', desde)
+        .select('id', 'bank_account_id', trx.raw("to_char(movement_date, 'YYYY-MM-DD') as fecha"), 'amount_in', 'amount_out', 'running_balance', 'concept as concepto');
+      const ids = Array.from(new Set(banco.map((b: { bank_account_id: string }) => b.bank_account_id)));
+      if (!ids.length) return { desde, cuentas: [] };
+      const libro = await trx('finance.bank_movements')
+        .whereIn('bank_account_id', ids).whereNull('deleted_at')
+        .andWhere('movement_date', '>=', trx.raw("?::date - 3", [desde]))
+        .select('id', 'bank_account_id', trx.raw("to_char(movement_date, 'YYYY-MM-DD') as fecha"), 'amount_in', 'amount_out', 'running_balance', 'concept as concepto');
+      const alias = new Map<string, string>((await trx('finance.bank_accounts').whereIn('id', ids)
+        .select('id', trx.raw('coalesce(alias, account_label) as alias'))).map((a: { id: string; alias: string }) => [a.id, a.alias]));
+      const de = (rows: (RenglonComparable & { bank_account_id: string })[], id: string) => rows.filter((r) => r.bank_account_id === id);
+      return {
+        desde,
+        cuentas: ids.map((id) => ({ id, alias: alias.get(id) ?? id, ...compararContraElLibro(de(banco, id), de(libro, id)) }))
+          .sort((a, b) => a.alias.localeCompare(b.alias)),
       };
     });
   }
