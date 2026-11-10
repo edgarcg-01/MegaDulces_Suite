@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 393 KB, 5806 líneas, 40 secciones.
+> **Índice navegable** — 394 KB, 5806 líneas, 40 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/VERDAD_ABSOLUTA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
