@@ -3,7 +3,7 @@ import { TenantKnexService, TenantContextService, todayMx } from '@megadulces/pl
 
 import { CommercialQuotesService, condicionesDelCliente } from './commercial-quotes.service';
 import { QuotePricingService } from './quote-pricing.service';
-import { KeplerPedidoTlmkSinkAdapter, type PedidoTlmkResultado } from './kepler-pedido-tlmk-sink.adapter';
+import { KeplerPedidoTlmkSinkAdapter, fichaDeCatalogo, type PedidoTlmkResultado } from './kepler-pedido-tlmk-sink.adapter';
 import type { QuienCotiza } from './quote-scope';
 import { LARGO_OBSERVACIONES, normalizarObservaciones, type RenglonCotizacion } from './kepler-pedido-tlmk';
 
@@ -189,10 +189,17 @@ export class QuoteKeplerService {
     const pct = cab.terms_discount_pct === null ? null : Number(cab.terms_discount_pct);
     let res: PedidoTlmkResultado;
     try {
+      // COT.40: la ficha del cliente, de la réplica del catálogo de esta sucursal. El adaptador la usa
+      // sólo si el cliente nunca ha comprado aquí; así no depende de un permiso de lectura en Kepler.
+      const ficha = { s: cab.source_branch, c: cab.erp_customer_code.trim() };
+      const fichaOds = (await this.tk.run((k) => k.raw(
+        `SELECT c3, c10, c4, c5, c6, c27 FROM kepler_ods.kdud WHERE sucursal = :s AND btrim(c2) = :c LIMIT 1`,
+        ficha))).rows[0] as Record<string, unknown> | undefined;
       res = await this.sink.entregar({
         cotizacion_id: cab.id, folio_suite: cab.code, sucursal: cab.source_branch,
         cliente: cab.erp_customer_code, vendedor: cab.salesperson_code,
         fecha: todayMx(), pct_cliente: pct, direccion_envio: direccion, observaciones: cab.order_notes ?? null,
+        cliente_catalogo: fichaOds ? fichaDeCatalogo(fichaOds) : null,
         renglones, tope_dia: sw.tope_dia,
       });
     } catch (err) {

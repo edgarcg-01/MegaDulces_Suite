@@ -22,6 +22,8 @@ interface Escenario {
   direcciones?: Array<{ key: string }>;
   /** Filas de `v_erp_wholesale_customers` (COT.34: cambiar de cliente). */
   padron?: Array<Record<string, unknown>>;
+  /** Fila de `kepler_ods.kdud` (COT.40: la ficha del cliente sin precedente). */
+  ficha?: Record<string, unknown>;
 }
 
 function armar(e: Escenario = {}) {
@@ -46,6 +48,7 @@ function armar(e: Escenario = {}) {
         if (s.includes('FROM commercial.quotes q')) return { rows: [cab] };
         if (s.includes('FROM commercial.quote_lines')) return { rows: lineas };
         if (s.includes('FROM kepler_ods.kdudent')) return { rows: e.direcciones ?? [] };
+        if (s.includes('FROM kepler_ods.kdud WHERE')) return { rows: e.ficha ? [e.ficha] : [] };
         if (s.includes('SET kepler_sending_at = now()')) return { rows: e.reclamo === false ? [] : [{ id: ID }] };
         return { rows: [] };
       },
@@ -76,6 +79,25 @@ describe('[COT.7.4] QuoteKeplerService.enviar — el camino feliz', () => {
     expect(arg).toMatchObject({ folio_suite: 'COT-2026-00200', sucursal: '01', cliente: 'C1088', vendedor: '00002', pct_cliente: 2, tope_dia: 1 });
     expect(arg.renglones).toEqual([{ sku: '29014', cantidad: 5, presentacion: 'CJA', factor: 8, precio: 718.4, lista: 731.34, importe: 3592 }]);
     expect(escribioAceptada(sql)).toBe(true);
+  });
+
+  it('COT.40: manda la ficha del cliente de la réplica del catálogo, con el CP junto al estado', async () => {
+    const { svc, sink, sql, binds } = armar({ ficha: {
+      c3: 'CLIENTE DE PRUEBA ', c10: 'XAXX010101000', c4: 'CALLE 1 #2', c5: 'COL CENTRO, CIUDAD', c6: 'ESTADO', c27: '00000',
+    } });
+    await svc.enviar(ID, {});
+    expect(sink.entregar.mock.calls[0][0].cliente_catalogo).toEqual({
+      nombre: 'CLIENTE DE PRUEBA', rfc: 'XAXX010101000', c33: 'CALLE 1 #2', c34: 'COL CENTRO, CIUDAD', c35: 'ESTADO 00000', c30: '',
+    });
+    // La de la sucursal de la cotización, no la de cualquiera (kdud está copiado en las 9).
+    const i = sql.findIndex((s) => s.includes('FROM kepler_ods.kdud WHERE sucursal = :s'));
+    expect(binds[i]).toEqual({ s: '01', c: 'C1088' });
+  });
+
+  it('COT.40: sin la ficha en la réplica manda null (el adaptador intenta el catálogo vivo)', async () => {
+    const { svc, sink } = armar();
+    await svc.enviar(ID, {});
+    expect(sink.entregar.mock.calls[0][0].cliente_catalogo).toBeNull();
   });
 
   it('idempotente: con folio guardado devuelve ése y NO llama al ERP', async () => {
