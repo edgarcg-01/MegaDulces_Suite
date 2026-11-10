@@ -1632,3 +1632,132 @@ CI): rechazos (banco, baja, inexistente, RFC inválido, sin autor), firmar → `
 historial, quitar → «sin historia» y quitar dos veces se rechaza. NO MEDIDO: el RLS en esa prueba (corre como
 superusuario; la migración lo verifica al aplicarse) y el arranque de Nest (rutas nuevas, sin cambio de constructor:
 lo prueba `boot-api`). La suite no va a `run-all-tests.js` porque ese archivo trae cambios de otra sesión en el índice.
+
+### `[PGP.113]`–`[PGP.114]` Rediseño: cada pago avanza solo (Edgar, 2026-11-10)
+
+Pedido: *«haremos una a una, así que necesito se rediseñe el módulo»*. Confirmado con Edgar entre tres lecturas
+(cada pago avanza solo · cada factura es un pago · las dos): **cada pago se prepara, se autoriza, se paga, se valida y
+va a Kepler por su cuenta; el día queda sólo como fecha y tope.**
+
+#### El análisis antes de la interfaz (los 12 pasos de `diseno` §0a)
+
+1. **Propósito.** Que cada pago salga autorizado, por la cuenta correcta, con su prueba, y quede registrado en
+   Kepler. La frase: **«¿qué pagos esperan algo de mí?»**
+2. **Quién entra.** Dirección arma y autoriza; Tesorería prepara y paga; Tesorería/Contabilidad registran en Kepler.
+   Uso de 14 días (`analytics.ui_usage`): `obligations` 2,309 · `weeks` 1,107 · reordenar 269 **(61 con error, 23 %)** ·
+   preparar 20 · autorizar el día **0** · marcar pagado **0**.
+3. **El estado real** (prod, sólo lectura, código real del cierre de Kepler):
+
+   | De los 173 pagos vivos ($38.7 M) | Pagos | Monto |
+   |---|---:|---:|
+   | Kepler ya los pagó (Tesorería los capturó a mano) y en la Suite siguen «pendientes» | 56 | $9.8 M |
+   | Kepler los pagó en parte | 17 | $7.0 M |
+   | esperan su forma de pago (50 de días que ya pasaron) | 97 | $21.4 M |
+   | preparados, esperan autorización | 3 | $0.5 M |
+
+   37 días armados, **los 37 en borrador: ningún día se autorizó nunca**. ⭐ El cuello: un día sólo se autorizaba
+   con TODOS sus pagos preparados y ordenados; un pago sin preparar frenaba a los demás, y ordenar fallaba 1 de 4.
+4. **Qué ve, en qué orden (nivel 0).** La tira de etapas con su cuenta (Por preparar · Por autorizar · Por pagar ·
+   Por registrar en Kepler · Pagados; Rebotaron sólo si hay), abierta en la que tiene trabajo (quien autoriza abre en
+   «Por autorizar»); una frase con lo que pasa en esa etapa; la tabla de esa etapa con pagos de **todos los días**,
+   un renglón por pago con **su UNA acción** (Preparar · Autorizar · Pagado · Mover).
+5. **Qué no ve.** El avance del día en 5 pasos (era del día, no del pago) · «Autorizar el día» · el orden por
+   arrastre (sólo servía para liberar el día; 23 % de error) · «Cerrar el día». La semana, el tope, la propuesta,
+   el pronto pago y agregar facturas siguen, en la vista «Por día» (es donde se ARMA).
+6. **Mapa de desglose.**
+
+   | Cifra / pieza | Se abre en | Qué contiene | Fuente |
+   |---|---|---|---|
+   | cuenta de una etapa | la tabla de esa etapa | sus pagos, de todos los días | `GET bandeja` (nuevo) |
+   | «N de días que ya pasaron» | la misma tabla, ordenada por día | cada pago con «hace N días» y «Mover» | `bandeja` |
+   | un pago | su desglose en la fila (el mismo de hoy) | por qué hoy, Kepler, banco, CFDI, póliza, cuenta de gasto, ensayo, facturas | `bandeja` = `armarFilas` |
+   | una factura | su archivo · su ficha | PDF/foto · documento de Kepler | `evidencia` · `entity-inspector` |
+   | el día de un pago | la vista «Por día» en ese día | su tope, sus otros pagos, agregar | `weeks/:date` |
+
+7. **Accesibilidad.** Pagos por nombre de proveedor y sucursal; buscar por proveedor, folio, referencia o importe
+   (`filtrarPorBusqueda`, sin acentos y en cualquier orden); cada etapa con palabra, no con color; teclado completo.
+8. **Ligas.** Presupuestos (el tope se cuida al autorizar), banco + comprobante (la validación habilita «Pagado»),
+   Kepler (el cierre por `kdxf`), ContPAQi (la póliza). Ninguna liga nueva rota.
+9. **¿Le toca a esta pantalla?** Sí, el ciclo entero del pago. El tope lo fija Presupuestos; el catálogo de cuentas
+   y la firma de la cuenta de gasto viven en sus pantallas.
+10. **Maqueta.**
+
+    ```
+    Pagos                                        [Por etapa | Por día]      [Buscar  /]
+    Por preparar 97 · Por autorizar 3 · Por pagar 0 · Por registrar en Kepler 0 · Pagados 56
+    ──────────────────────────────────────────────────────────────────────────────────────
+    97 pagos esperan su forma de pago ($21.4 M). 50 son de días que ya pasaron: muévelos.
+    Los 47 sin preparar: Método [historial ▾]  Sale de [BBVA 6721 ▾]  [Aplicar a los 47]
+    ›  Día              A quién                 Importe    Por qué        Cómo sale        [acción]
+    ›  lu 19 oct ·22d   Proveedor A · Morelia   $412,300   vencida…       falta método     [Mover]
+    ›  lu 16 nov        Proveedor B · CEDIS     $155,000   gana $3,100    falta destino    [Preparar]
+    ```
+11. **Criterios de aceptación.** Ningún pago frena a otro (se autoriza uno con otros del día sin preparar: probado en
+    `payment-calendar.it.spec.ts`) · autorizar = 2 clics (Autorizar → confirmar) · la etapa «Por preparar» no cuenta lo
+    que Kepler ya pagó · la bandeja < 500 ms (**hoy ~0.9–1.0 s: NO cumple**, ver abajo).
+12. **Lo que la interfaz NO resuelve.**
+    - **56 pagos que Kepler ya pagó siguen «pendientes» en la Suite**: marcarlos pagados falla porque Kepler ya no
+      debe la factura. La bandeja los pone en «Pagados» (con «lo registró Kepler; la Suite no lo marcó»), pero siguen
+      apartando el saldo de sus facturas. Falta cerrarlos desde la Suite (`[PGP.115]`).
+    - **Quien autoriza puede ser quien armó**: la Suite no lo impide (igual que con el día). Decisión de Edgar.
+    - **La bandeja tarda ~0.9–1.0 s** (medido con el código real): 430 ms son de `analytics.v_supplier_payables`, que
+      agrega todo antes de filtrar (filtrar por llave natural no baja nada: medido) y que hoy ya paga cada día de la
+      semana. Optimizarla cambia de dónde salen las etiquetas: va aparte, con su comparación antes/después (regla 15).
+    - La escritura del `X-D-26` en Kepler sigue apagada (`[PGP.106]`).
+
+#### `[PGP.113]` Se autoriza el PAGO, no el día (C1+C2, 🧪 2026-11-10, commit `e25940c47`)
+
+- Migración `20261110141406`: `authorized_by` / `authorized_at` en `finance.payment_allocations` (nullables).
+  ⛔ Va en prod ANTES del código.
+- `POST allocations/:id/autorizar` (`FINANCE_PAYMENT_CALENDAR_AUTORIZAR`): preparado, su día con tope y que **quepa**
+  (lo autorizado + pagado del día + éste ≤ tope; el lote se bloquea `FOR UPDATE` para que dos autorizaciones a la vez
+  no quepan las dos), Kepler todavía debe sus facturas. Folio `AAMMDD-01-NN`. Ya **no** exige orden.
+- `POST allocations/:id/quitar-autorizacion`: mientras no esté pagado; queda en sus notas quién y por qué.
+- Un pago autorizado queda **congelado** (preparar, sumar/quitar facturas y descuento se rechazan).
+- Marcar pagado exige el **pago** autorizado (o su día autorizado completo, regla vieja). Reprogramar: el pago nuevo
+  nace sin autorizar (cambió su día y su tope).
+- `GET bandeja`: pendientes y rebotados de cualquier día + pagados de 30 días; los MISMOS renglones que el día
+  (`armarFilas` salió de `listDayAllocations`). Medido en prod: 173 pagos; el día 16-nov da los mismos renglones por
+  las dos vías.
+- Pruebas: 10 casos nuevos en `payment-calendar.it.spec.ts` (job de integración del CI). NO MEDIDO local: no hay base
+  local en esta máquina.
+
+#### `[PGP.114]` La pantalla por etapa (C3, 🧪 2026-11-10, sin validación visual)
+
+- **Entra por la etapa**, no por el día: `Por etapa | Por día` arriba; la tira de etapas con su cuenta (sin bandeja no
+  dibuja cero); una frase por etapa (qué pasa y qué se hace); la tabla de esa etapa con pagos de todos los días, el
+  día de cada pago en la primera columna (abre ese día) y «hace N días» si ya pasó. Abre en la etapa con trabajo; quien
+  autoriza, en «Por autorizar». `/` busca dentro de la etapa (`filtrarPorBusqueda`). La vista y la etapa viajan en la
+  URL (`?vista=dia`, `?etapa=autorizar`); `?fecha=` (desde Deuda con proveedores) abre «Por día».
+- **La regla de etapa** vive en `calendario-pagos-etapa.ts` con su prueba (8 casos; mutante que quita «Kepler ya lo
+  pagó» → rojo, verificado). Pendiente cuyo día ya llegó y Kepler lo saldó → «Pagados», no «Por preparar»; en un día
+  por venir sigue siendo «quítalo del día» (`[PGP.96]`).
+- **Una tabla, dos vistas**: `allocations()` es lo que se ve (la etapa o el día). El desglose, los diálogos, «Aplicar a
+  los N» (ahora sin los de días pasados ni los autorizados) y «Marcar los N pagados» son los mismos.
+- **Autorizar** = botón en su fila (sólo con `FINANCE_PAYMENT_CALENDAR_AUTORIZAR`) → confirmación con a quién, cuánto,
+  cómo sale, su día y quién lo armó → `POST …/autorizar`. El desglose de un autorizado dice quién y cuándo, y ofrece
+  «Quitar la autorización» (con motivo opcional, a sus notas).
+- **Se quitó**: «Paso N de 5» del día (ahora «3 por preparar · 1 por autorizar»), «Autorizar el día», «Se autoriza el
+  día completo», el orden por arrastre. El veredicto del día, con todo preparado, lleva a «Por autorizar».
+- La ayuda (`calendario-de-pagos`) explica los pasos por pago; su prueba fija los nombres nuevos.
+
+**Verificado:** `check:pantalla` (tipa, 0 fallas nuevas) · `check:templates` · tokens · estilos · movimiento · teclado ·
+búsqueda · emojis · PrimeNG · reactividad · 1,433 pruebas de Finanzas (vista) + 21 de la ayuda. **NO MEDIDO:** la
+pantalla viva (sin sesión; la bandeja necesita el backend de `[PGP.113]` desplegado) y su INP; la bandeja tarda
+~0.9–1.0 s en prod (arriba de 500 ms, declarado).
+
+**Orden de despliegue:** migración `20261110141406` → código (backend y pantalla juntos: la pantalla pide `GET bandeja`;
+con la API vieja la bandeja da error y lo dice, y «Por día» sigue funcionando).
+
+**Siguiente (no hecho):** `[PGP.115]` cerrar desde la Suite los 56 pagos que Kepler ya pagó (hoy marcarlos falla
+porque Kepler ya no debe la factura) · optimizar `v_supplier_payables` para la bandeja y el día (regla 15, aparte).
+
+**Visto en la pantalla viva (2026-11-10, Playwright sobre `localhost:4200`, datos de prod, sin escribir nada):** 119 por
+preparar · 11 por autorizar · 56 pagados. Cinco defectos que sólo se vieron ahí, corregidos en `[PGP.114]`:
+- la fecha («vie 13 de nov») se encimaba con el proveedor → «vie 13 nov» y columna de 6.5rem;
+- «11 pagos · $2.3 M» salía TRES veces (tira, frase y encabezado) → el encabezado queda sólo para lector de pantalla;
+- «Autorizar · Cambiar · quitar» se cortaba a la derecha (en las dos vistas) → la columna se ensancha cuando hay algo que autorizar;
+- «El historial trae el método de **72 de 61** … los otros **-11**»: contaba sugerencias de pagos de días pasados → cuenta sólo los que se aplican;
+- los primeros 58 renglones de «Por preparar» eran de días pasados, con un «Mover» cada uno → «Mover los 58 de días pasados» en la frase (el mismo diálogo de «Por día»).
+Además, «Preparado · por autorizar» ya no se repite dentro de «Por autorizar», y «Folio» no ocupa ancho mientras ningún pago lo tenga.
+⚠️ La vista se hizo con un backend LOCAL conectado a prod (lo levantaron fuera de esta sesión): regla 3. Registra el uso de pantalla en prod.

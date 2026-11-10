@@ -13,6 +13,14 @@
 - Las facturas de sucursal que vencían antes del 1-oct estaban bloqueadas todas, sin forma de destrabarlas. Ahora se sueltan las que Oficinas nunca registró: sin copia, sin pago por el mismo importe y sin nada aplicado. Hoy son **67 de 205 ($1.15 M)**.
 - La factura soltada aparece en la lista con su botón para agregarla y dice por qué se pudo. Las demás siguen «por confirmar» porque pueden estar pagadas desde Oficinas.
 - La propuesta automática del día no las incluye: se agregan a mano.
+### Changed — Notas de crédito de proveedor: salen de Kepler para todas las sucursales, sin el importer (RE.68 · 2026-11-10 · en código, sin soltar)
+- Descuentos, Negociación de pedido, Rentabilidad, Promo sell-out, control de pagos, comprobantes de pago y la ficha de cada documento leen las notas de crédito y devoluciones directo de Kepler, de todas las sucursales. Antes sólo veían las del CEDIS, contaban las canceladas y daban por descuento las notas sin motivo.
+- Las notas entre sucursales (traspasos) ya no aparecen como ajustes de un proveedor en Descuentos ni en Rentabilidad.
+- La ficha de una entrada muestra sus notas ligadas (antes casi nunca): 394 entradas desde agosto.
+
+### Internal — El apareo de recepciones duplicadas corre cuando llega una entrada, no cada 5 minutos (RE.69 · 2026-11-10 · en código, sin soltar)
+- Se retiran dos relojes de 5 minutos y el barrido diario de las 04:30.
+### Fixed — Costo por proveedor: el descuento por nota de crédito sale de Kepler y la compra de sucursal se cuenta una vez (RE.67 · 2026-11-10 · en prod)
 ### Fixed — Costo por proveedor: el descuento por nota de crédito sale de Kepler y la compra de sucursal se cuenta una vez (RE.67 · 2026-11-10 · en código, sin soltar)
 - El porcentaje de descuento de cada proveedor estaba mal: contaba sólo las notas del CEDIS y sumaba dos veces las compras de sucursal que el CEDIS vuelve a capturar. Desde agosto, la tasa general pasa de 3.6 % a 4.2 %; Dulces Las Delicias, de 2.2 % a 6.6 %.
 - Una nota de crédito sin motivo ya no se da por descuento (antes se suponía: 300 notas, $4.0 M en el año). Se muestra debajo del descuento de su proveedor como «sin clasificar» y no se resta del costo.

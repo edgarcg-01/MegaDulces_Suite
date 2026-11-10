@@ -69,7 +69,14 @@ export type OrigenVinculo = 'solicita';
 export interface ValeAsignado {
   sucursal: string;
   folio: string;
+  /** La fecha del DOCUMENTO (`c9`): la que se tecleó en Kepler. Se muestra; no decide nada. */
   fecha: string | null;
+  /**
+   * `[GX.108]` El día en que se CAPTURÓ en Kepler (`c68`). Una solicitud capturada hoy con la fecha
+   * de una póliza vieja se mandó hoy: con esto se ordena y se cuentan sus días. Opcional: un
+   * servidor viejo no la manda, y entonces se usa `fecha`.
+   */
+  capturado?: string | null;
   importe: number;
   /** La caja «Solicita» tal como vino, **sin normalizar**: es lo que la persona tiene que ver. */
   solicita: string | null;

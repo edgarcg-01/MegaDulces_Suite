@@ -1,3 +1,6 @@
+// [GX.109] Sólo el TIPO del constructor de consultas (filtroAtrasados): se borra al compilar.
+import type { Knex } from 'knex';
+
 /**
  * `[GX.20]` — **Las tres bandejas del día.** Función pura.
  *
@@ -177,6 +180,37 @@ export function hoyMx(ahora: Date = new Date()): string {
  * misma red que `sin_etapa`.
  */
 export const ESTADOS_CERRADOS: readonly string[] = Object.freeze(['validada', 'rechazada']);
+
+/**
+ * `[GX.109]` Los estados **abiertos que no esperan firma**: ya se aprobaron y esperan algo más
+ * (la evidencia, la revisión). La Bandeja de hoy sólo muestra lo que espera firma, así que uno de
+ * éstos levantado HOY no salía en ninguna pestaña hasta el día siguiente (visto el 2026-11-10).
+ * Por eso van a Atrasados desde el mismo día.
+ *
+ * ⚠️ Se DERIVA (decididos menos cerrados), no se escribe a mano: hoy da `aprobada` y `revision`.
+ */
+export const ESTADOS_ABIERTOS_SIN_FIRMA: readonly string[] = Object.freeze(
+  ESTADOS_DECIDIDOS.filter((e) => !ESTADOS_CERRADOS.includes(e)),
+);
+
+/**
+ * `[GX.88]`/`[GX.109]` **El WHERE de Atrasados**, uno solo para la lista y para su total (si se
+ * escribieran dos, el conteo dejaría de cuadrar con la lista sin que nada lo dijera): abiertos de
+ * OTRO día, más los de hoy que ya se aprobaron y esperan algo más.
+ *
+ * ⛔ El O va DENTRO de su grupo: suelto, `… AND fecha … OR status IN (…)` se saltaría el filtro de
+ * tenant y el de cerrados. Lo prueba `atrasados-de-hoy.spec.ts` compilando el SQL.
+ */
+export function filtroAtrasados(
+  qb: Knex.QueryBuilder,
+  desde: Knex.Raw | string,
+  hasta: Knex.Raw | string,
+): Knex.QueryBuilder {
+  return qb
+    .whereNotIn('status', [...ESTADOS_CERRADOS])
+    .where((w) => w.where('created_at', '<', desde).orWhere('created_at', '>=', hasta)
+      .orWhereIn('status', [...ESTADOS_ABIERTOS_SIN_FIRMA]));
+}
 
 /** `[GX.88]` Lo que hace falta saber de un vale atrasado para decir qué le falta. */
 export interface ValeAtrasado {

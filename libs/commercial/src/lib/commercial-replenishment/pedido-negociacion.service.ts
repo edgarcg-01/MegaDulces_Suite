@@ -190,9 +190,11 @@ export class PedidoNegociacionService {
                         max(pago_date) FILTER (WHERE descuento = 0)::text AS ult_sin
                    FROM analytics.erp_supplier_payments
                   WHERE tenant_id = ? AND proveedor_code = ? AND pago_date >= current_date - 365`, [tenantId, p.sup_code]);
-      const nota = await trx.raw(`SELECT COALESCE(sum(monto), 0)::numeric AS desc_nota FROM analytics.erp_purchase_adjustments
+      // [RE.68] Las notas comerciales de la vista del ODS (todas las sucursales, sin canceladas): la misma
+      // regla que «Costo por proveedor» (RE.67). Una nota sin motivo no se da por descuento.
+      const nota = await trx.raw(`SELECT COALESCE(sum(monto), 0)::numeric AS desc_nota FROM analytics.v_purchase_adjustments
                   WHERE tenant_id = ? AND proveedor_code = ? AND adjustment_date >= current_date - 365
-                    AND categoria IN ('pronto_pago', 'descuento_comercial', 'apoyo_marca')`, [tenantId, p.sup_code]);
+                    AND grupo = 'comercial'`, [tenantId, p.sup_code]);
       const pol = await trx.raw(`SELECT expected_discount_rate::numeric AS tasa, source FROM commercial.supplier_discount_policy
                   WHERE tenant_id = ? AND proveedor_code = ? AND active AND expected_discount_rate > 0 LIMIT 1`, [tenantId, p.sup_code]);
       const recl = await trx.raw(`SELECT count(*) FILTER (WHERE supplier_id = ?)::int AS del_proveedor, count(*)::int AS en_la_base

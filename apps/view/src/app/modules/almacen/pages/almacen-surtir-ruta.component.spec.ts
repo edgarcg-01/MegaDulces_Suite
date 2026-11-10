@@ -8,7 +8,7 @@ import { AuthService } from '../../../core/services/auth.service';
 import { PREF_RUTA_BOLSAS, PREF_RUTA_RECOLECTA, acotarCantidad, cuerpoTerminar } from '../surtir-ruta/ruta-surtido.util';
 
 const RUTA = (p: Partial<RouteBatchRow> = {}): RouteBatchRow => ({
-  route_day_id: 'rd-1', kind: 'ruta', seller_name: 'Paulina Placencia', work_date: '2026-10-21', state: 'surtiendo',
+  route_day_id: 'rd-1', kind: 'ruta', seller_name: 'Vendedora Prueba', work_date: '2026-10-21', state: 'surtiendo',
   started_at: '2026-10-21T14:00:00.000Z', finished_at: '2026-10-21T20:10:00.000Z', orders: 2, products: 3,
   pick_started: { user_id: 'yo', name: 'Ángel Cisneros', at: '2026-10-21T20:15:00.000Z' }, pick_finished: null, ...p,
 });
@@ -101,7 +101,7 @@ describe('AlmacenSurtirRutaComponent · recolectar y repartir una ruta (MCP.3.6)
   it('abre en Recolectar: encabezado, avance 0/3, agrupado por marca en el orden en que llega', async () => {
     await montar();
     expect(c.fase()).toBe('recolectar');
-    expect(texto()).toContain('Recolectar · Ruta de Paulina Placencia');
+    expect(texto()).toContain('Recolectar · Ruta de Vendedora Prueba');
     expect(texto()).toContain('0/3');
     expect(Array.from(el().querySelectorAll('.rr-marca')).map((n) => n.textContent?.trim())).toEqual(['DE LA ROSA', 'CANELS']);
   });
@@ -282,7 +282,7 @@ describe('AlmacenSurtirRutaComponent · recolectar y repartir una ruta (MCP.3.6)
   it('Repartir: encabezado, avance de bolsas y una bolsa por cliente con su folio', async () => {
     await aRepartir();
     expect(c.fase()).toBe('repartir');
-    expect(texto()).toContain('Repartir · Ruta de Paulina Placencia');
+    expect(texto()).toContain('Repartir · Ruta de Vendedora Prueba');
     expect(texto()).toContain('0/2');
     expect(texto()).toContain('Pedido 1 · ABARROTES ROSY');
     expect(texto()).toContain('PD-2026-00082');
@@ -296,7 +296,7 @@ describe('AlmacenSurtirRutaComponent · recolectar y repartir una ruta (MCP.3.6)
     const mazapan = lineas.find((l) => l.textContent?.includes('MAZAPAN'))!;
     const pulpa = lineas.find((l) => l.textContent?.includes('PULPARINDO'))!;
     expect(mazapan.classList).toContain('rr-bl-falta');
-    expect(mazapan.textContent!.replace(/\s+/g, ' ')).toContain('Pidió 2 CJA; no alcanzó. Paulina Placencia ya tiene el aviso.');
+    expect(mazapan.textContent!.replace(/\s+/g, ' ')).toContain('Pidió 2 CJA; no alcanzó. Vendedora Prueba ya tiene el aviso.');
     expect(pulpa.classList).not.toContain('rr-bl-falta');
     expect(pulpa.textContent).not.toContain('no alcanzó');
   });
@@ -317,7 +317,7 @@ describe('AlmacenSurtirRutaComponent · recolectar y repartir una ruta (MCP.3.6)
   it('una bolsa sin mercancía se dice como tal y no cuenta como bolsa por armar', async () => {
     await aRepartir();
     const esc = el().querySelector('[data-pedido="o-esc"]')!;
-    expect(esc.textContent!.replace(/\s+/g, ' ')).toContain('No hubo nada de este pedido: avísale a Paulina Placencia para cancelarlo.');
+    expect(esc.textContent!.replace(/\s+/g, ' ')).toContain('No hubo nada de este pedido: avísale a Vendedora Prueba para cancelarlo.');
     expect(esc.querySelector('button')).toBeNull();
     expect(texto()).toContain('2 pedidos por armar');
   });

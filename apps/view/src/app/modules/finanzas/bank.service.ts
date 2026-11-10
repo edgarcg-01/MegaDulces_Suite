@@ -412,6 +412,36 @@ export interface CuentaContraElLibro {
 }
 export interface ContraElLibro { desde: string; cuentas: CuentaContraElLibro[] }
 
+/**
+ * [CB.62] Las comisiones de la terminal que irían a Kepler (`GET comisiones-kepler`, sólo lee). Espejo de
+ * `PropuestaComisiones` en `libs/finance/.../comisiones-kepler.query.ts`: si cambia allá, cambia aquí.
+ */
+export type EstadoDiaComision = 'lista' | 'ya_en_kepler' | 'parcial' | 'rechazada';
+export interface CargoComision {
+  id: string; cuenta: string; concepto: string; fecha: string; importe: number; tipo: 'comision' | 'iva';
+  kepler_pago: string | null; kepler_sucursal: string | null; kepler_gasto: string | null;
+}
+/** Lo que se escribiría en Kepler: sólo lo que la pantalla muestra del plan (renglones del gasto y pólizas). */
+export interface PlanComision {
+  total: number; iva: number;
+  gasto: { kdm6: { c7: number; c11: number }[]; poliza: { tipo: string; fecha: string; renglones: { c3: string; c4: 'C' | 'A'; c5: number }[] } };
+  pagos: { cargo: string; poliza: { fecha: string } }[];
+}
+export interface DiaComision {
+  sucursal: string; dia_venta: string; acreedor: string; banco: string; estado: EstadoDiaComision; motivos: string[];
+  total: number; iva: number; cargos: CargoComision[]; plan: PlanComision | null;
+}
+export interface BloqueComisionPorRevisar {
+  deposito: { id: string; cuenta: string; banco: string; fecha: string; importe: number };
+  cargos: CargoComision[]; motivo: string; espera: boolean;
+}
+export interface PropuestaComisiones {
+  medido: boolean; motivo: string | null; desde: string; hasta: string;
+  descarga: { hasta: string | null; subida_en: string | null };
+  dias: DiaComision[]; por_revisar: BloqueComisionPorRevisar[]; huerfanos: CargoComision[];
+  resumen: { cargos: number; listos: number; ya_en_kepler: number; gasto_capturado_sin_pago: number; esperando_sucursal: number; por_revisar: number; monto_listo: number };
+}
+
 @Injectable({ providedIn: 'root' })
 export class BankService {
   private readonly http = inject(HttpClient);
@@ -493,6 +523,11 @@ export class BankService {
    */
   importWorkbook(fileBase64: string, period: string, sourceFile: string): Observable<JobAccepted> {
     return this.http.post<JobAccepted>(`${this.base}/import`, { file_base64: fileBase64, period, source_file: sourceFile });
+  }
+
+  /** [CB.62] Las comisiones de la terminal que irían a Kepler, de los últimos `dias` de la descarga. Sólo lee. */
+  comisionesKepler(dias?: number): Observable<PropuestaComisiones> {
+    return this.http.get<PropuestaComisiones>(`${this.base}/comisiones-kepler${dias ? `?dias=${dias}` : ''}`);
   }
 
   // ── CB.58/CB.59 La descarga del banco ──

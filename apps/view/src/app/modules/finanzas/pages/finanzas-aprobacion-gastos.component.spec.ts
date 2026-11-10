@@ -10,6 +10,7 @@ import { AuthService, type JwtPayload } from '../../../core/services/auth.servic
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { BuscadorGastosEstado } from '../components/buscador-gastos.estado';
 import { MessageService } from 'primeng/api';
+import { ActivatedRoute, convertToParamMap } from '@angular/router';
 
 /**
  * `[GX.20]` Candado de la pantalla de **Aprobación de gastos**.
@@ -150,7 +151,8 @@ describe('FinanzasAprobacionGastosComponent', () => {
     montar();
     expect(c.pestana()).toBe('entrada');
     expect(fix.nativeElement.textContent).toContain('Aprobación de gastos');
-    const tabs = [...fix.nativeElement.querySelectorAll('.ap-tab-t')].map((e: Element) => e.textContent?.trim());
+    // `[GX.105]` Las listas viven en una lista desplegable: sus opciones son `tabs`.
+    const tabs = c.tabs.map((t) => t.label);
     // `[GX.60]` Lo aprobado y lo rechazado DESAPARECEN de esta pantalla (se mudaron al
     // Expediente). `[GX.88]` Se suma «Atrasados»: lo de días anteriores que sigue abierto.
     expect(tabs).toEqual(['Bandeja de hoy', 'Atrasados', 'Esperan a Kepler']);
@@ -365,11 +367,12 @@ describe('FinanzasAprobacionGastosComponent', () => {
       expect(c.hoy()).toBe('2026-01-02');
     });
 
-    it('el subtítulo declara los dos alcances: hoy en la bandeja, lo anterior en Atrasados', () => {
+    it('[GX.105] sin subtítulo: los dos alcances los dicen los nombres de las listas', () => {
       montar(CON_VIEJOS());
-      const sub = fix.nativeElement.querySelector('.surf-page-sub')?.textContent as string;
-      expect(sub).toContain('hoy');
-      expect(sub).toContain('Atrasados');
+      expect(fix.nativeElement.querySelector('.surf-page-sub')).toBeNull();
+      const nombres = c.tabs.map((t) => t.label);
+      expect(nombres).toContain('Bandeja de hoy');
+      expect(nombres).toContain('Atrasados');
     });
 
     it('sin atrasados, la pestaña lo dice con todas las letras', () => {
@@ -385,12 +388,15 @@ describe('FinanzasAprobacionGastosComponent', () => {
      * responder y «los clics no funcionaban». Lo mismo pasaría en prod si la view sale antes que la
      * API. La pantalla no truena, y tampoco dice «no hay»: dice que no se midió.
      */
-    it('⛔ con una API vieja (sin atrasados) no truena: los declara sin medir, nunca 0', () => {
+    it('⛔ con una API vieja (sin atrasados) no truena: los declara sin medir, nunca 0', async () => {
       const vieja = DIA() as unknown as Record<string, unknown>;
       delete vieja['atrasados']; delete vieja['atrasados_total']; delete vieja['atrasados_truncada'];
       montar(vieja as unknown as GastosDelDia);
       expect(c.atrasadosMedidos()).toBe(false);
       c.verPestana('atrasados');
+      fix.detectChanges();
+      // `[GX.105]` La lista desplegable dice «sin medir»; su ngModel escribe en el ciclo siguiente.
+      await fix.whenStable();
       fix.detectChanges();
       const txt = fix.nativeElement.textContent as string;
       expect(txt).toContain('no se puede saber si hay');
@@ -419,7 +425,8 @@ describe('FinanzasAprobacionGastosComponent', () => {
       }));
       const txt = fix.nativeElement.textContent as string;
       expect(txt).toContain('Hoy no hay nada esperando tu firma');
-      expect(txt).toContain('Lo de días anteriores está en Atrasados');
+      // `[GX.105]` Lo dice con un botón que lleva allá, con el número y el monto.
+      expect(fix.nativeElement.querySelector('.ap-vacio .ap-ver-atr')?.textContent).toContain('Ver el atrasado · $300.00');
     });
 
     /**
@@ -478,7 +485,7 @@ describe('FinanzasAprobacionGastosComponent', () => {
       }));
       const txt = fix.nativeElement.textContent as string;
       expect(txt).toContain('Hoy no hay nada esperando tu firma');
-      // El subtítulo siempre nombra Atrasados; lo que no puede hacer es el recuadro de vacío.
+      // Sin atrasados, el recuadro de vacío no manda a buscarlos allá.
       expect(fix.nativeElement.querySelector('.ap-vacio')?.textContent).not.toContain('está en Atrasados');
     });
 
@@ -655,12 +662,15 @@ describe('FinanzasAprobacionGastosComponent', () => {
      * ⚠️ Que falle la consulta de reaperturas NO puede impedir firmar los gastos de hoy:
      * son dos preguntas distintas y una no depende de la otra.
      */
-    it('si las reaperturas fallan, el día se sigue viendo', () => {
+    it('si las reaperturas fallan, el día se sigue viendo', async () => {
       fix = TestBed.createComponent(FinanzasAprobacionGastosComponent);
       c = fix.componentInstance;
       http.expectOne((r) => r.url.includes('/del-dia')).flush(DIA());
       http.expectOne((r) => r.url.includes('/reaperturas/pendientes'))
         .flush('boom', { status: 500, statusText: 'Server Error' });
+      fix.detectChanges();
+      // `[GX.105]` El nombre de la lista lo pinta la lista desplegable, un ciclo después (ngModel).
+      await fix.whenStable();
       fix.detectChanges();
       expect(c.error()).toBe('');
       expect(c.reaperturas()).toEqual([]);
@@ -1000,14 +1010,14 @@ describe('FinanzasAprobacionGastosComponent', () => {
       estado().busqueda.set('papeleria');
       fix.detectChanges();
       expect(c.buscandoArriba()).toBe(true);
-      expect(fix.nativeElement.querySelector('.ap-tabs')).toBeNull();
+      expect(fix.nativeElement.querySelector('.ap-listas')).toBeNull();
       expect(fix.nativeElement.querySelector('.surf-page-head app-buscador-gastos')).not.toBeNull();
       // Los resultados: la otra pieza del buscador, debajo del encabezado.
       expect(fix.nativeElement.querySelector('app-buscador-gastos:not(.es-caja)')).not.toBeNull();
       expect(fix.nativeElement.querySelector('app-vale-gasto-peek')).not.toBeNull();
       estado().limpiar();
       fix.detectChanges();
-      expect(fix.nativeElement.querySelector('.ap-tabs')).not.toBeNull();
+      expect(fix.nativeElement.querySelector('.ap-listas')).not.toBeNull();
     });
 
     /** ⭐ En Aprobación el vale elegido se DECIDE: se abre con las acciones de su estado. */
@@ -1259,4 +1269,109 @@ describe('FinanzasAprobacionGastosComponent', () => {
       http.expectOne((r) => r.url.includes('/reaperturas/pendientes')).flush([]);
     });
   });
+
+  /**
+   * `[GX.105]` **Las tres listas en una lista desplegable** (pedido del usuario, 2026-11-09). Al
+   * entrar es SIEMPRE la bandeja de hoy; si está vacía y hay atrasados, el aviso ofrece ir a ellos:
+   * con la lista cerrada sólo se ve la bandeja, y los atrasados quedarían escondidos detrás de un 0.
+   */
+  describe('[GX.105] la lista desplegable y la bandeja de hoy primero', () => {
+    const HOY_VACIO = (over: Partial<GastosDelDia> = {}) => DIA({
+      total: 0, monto_total: 0, filas: [],
+      etapas: { entrada: { n: 0, monto: 0 }, aprobados: { n: 0, monto: 0 }, rechazados: { n: 0, monto: 0 }, sin_etapa: { n: 0, monto: 0 } },
+      entrada: { total: 0, monto_total: 0, por_fecha: [], por_departamento: [] },
+      atrasados: [A({ id: 'x1' }), A({ id: 'x2' })], atrasados_total: { n: 121, monto: 750284.07 },
+      ...over,
+    });
+    /** Sin la lista de atrasados (un servidor viejo o una respuesta a medias): no se midieron. */
+    const SIN_LISTA_DE_ATRASADOS = () => {
+      const d = HOY_VACIO() as unknown as Record<string, unknown>;
+      delete d['atrasados'];
+      return d as unknown as GastosDelDia;
+    };
+    /** La lista desplegable cerrada: dice la lista que se ve, con su número y su monto. */
+    const cerrada = () => fix.nativeElement.querySelector('.ap-listas p-select') as HTMLElement;
+    const elegir = async (p: 'entrada' | 'atrasados' | 'kepler') => {
+      c.verPestana(p);
+      fix.detectChanges();
+      await fix.whenStable(); // ngModel escribe el valor en el ciclo siguiente
+      fix.detectChanges();
+    };
+
+    it('⛔ al entrar es siempre la bandeja de hoy, aunque esté vacía y haya atrasados', () => {
+      montar(HOY_VACIO());
+      expect(c.pestana()).toBe('entrada');
+    });
+
+    it('la bandeja vacía ofrece ir a los atrasados, con su número y su monto', () => {
+      montar(HOY_VACIO());
+      const boton = fix.nativeElement.querySelector('.ap-vacio .ap-ver-atr') as HTMLButtonElement;
+      expect(boton.textContent).toContain('Ver los 121 atrasados · $750,284.07');
+      boton.click();
+      expect(c.pestana()).toBe('atrasados');
+    });
+
+    it('⛔ sin atrasados no hay botón: no se manda a buscar lo que no hay', () => {
+      montar(HOY_VACIO({ atrasados: [], atrasados_total: { n: 0, monto: 0 } }));
+      expect(fix.nativeElement.querySelector('.ap-ver-atr')).toBeNull();
+    });
+
+    it('⛔ con los atrasados sin medir tampoco: no se sabe si hay algo allá', () => {
+      montar(SIN_LISTA_DE_ATRASADOS());
+      expect(fix.nativeElement.querySelector('.ap-ver-atr')).toBeNull();
+    });
+
+    it('la pestaña que viene en la URL se respeta', () => {
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        imports: [FinanzasAprobacionGastosComponent],
+        providers: [provideHttpClient(), provideHttpClientTesting(), { provide: LOCALE_ID, useValue: 'es-MX' }, BuscadorGastosEstado,
+          { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap({ pestana: 'kepler' }) } } }],
+      });
+      http = TestBed.inject(HttpTestingController);
+      montar(HOY_VACIO());
+      expect(c.pestana()).toBe('kepler');
+    });
+
+    it('es UNA lista desplegable con nombre; ya no hay pestañas sin panel', () => {
+      montar();
+      expect(fix.nativeElement.querySelectorAll('.ap-listas p-select').length).toBe(1);
+      expect(fix.nativeElement.querySelector('[aria-label="Qué lista ver"]')).not.toBeNull();
+      expect(fix.nativeElement.querySelector('[role="tablist"]')).toBeNull();
+    });
+
+    /**
+     * ⛔ Visto en la pantalla viva (2026-11-09): la lista desplegable llevaba la clase «ap-lista», que
+     * es la de la lista de vales (flex en columna, min-width 0). Se iba a todo lo ancho, la etiqueta se
+     * encogía a «A…» y la flecha caía a otra línea. Una prueba no mide pixeles, pero sí el choque.
+     */
+    it('⛔ la lista desplegable no comparte clase con la lista de vales', () => {
+      montar();
+      const select = fix.nativeElement.querySelector('.ap-listas p-select') as HTMLElement;
+      expect(select.classList).not.toContain('ap-lista');
+      expect([...fix.nativeElement.querySelectorAll('.ap-lista')].every((e: Element) => e.tagName === 'SECTION')).toBe(true);
+    });
+
+    it('cerrada dice la lista que se ve: en cero sin «$0.00»; con algo, el número y el monto', async () => {
+      montar(HOY_VACIO());
+      await elegir('entrada');
+      expect(cerrada().querySelector('.ap-op-t')?.textContent?.trim()).toBe('Bandeja de hoy');
+      expect(cerrada().querySelector('.ap-op-n')?.textContent?.trim()).toBe('0');
+      expect(cerrada().querySelector('.ap-op-n')?.classList).toContain('vacio');
+      expect(cerrada().querySelector('.ap-op-m')).toBeNull();
+      expect(cerrada().textContent).not.toContain('$0.00');
+      await elegir('atrasados');
+      expect(cerrada().querySelector('.ap-op-t')?.textContent?.trim()).toBe('Atrasados');
+      expect(cerrada().querySelector('.ap-op-n')?.textContent?.trim()).toBe('121');
+      expect(cerrada().querySelector('.ap-op-m')?.textContent).toContain('750,284.07');
+    });
+
+    it('⛔ atrasados sin medir: la lista dice «— sin medir», nunca 0', async () => {
+      montar(SIN_LISTA_DE_ATRASADOS());
+      await elegir('atrasados');
+      expect(cerrada().querySelector('.ap-op-n')?.textContent?.trim()).toBe('—');
+      expect(cerrada().textContent).toContain('sin medir');
+    });
+  });
 });
+

@@ -3,6 +3,8 @@ import { CommonModule } from '@angular/common';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import type { PresaleSellerOrder, PresaleSellerStatusResponse } from '@megadulces/contracts';
 import { PresaleStatusService } from '../presale-status.service';
+import { VendorService } from '../vendor.service';
+import { articulosDelPedido, enOrdenDeCaptura, filtrarPedidos, type Articulo, type FiltroMisPedidos, type LineaDelPedido } from '../articulos-pedido';
 
 /** Cada cuánto se vuelve a pedir mientras la pantalla se está viendo. */
 const REFRESCO_MS = 30_000;
@@ -52,8 +54,17 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
           <p>Todavía no tienes pedidos de preventa abiertos.</p>
         </div>
       } @else {
+        <!-- [MCP.15] En el orden en que se capturaron (folio), con un filtro rápido de lo surtido. -->
+        <div class="mp-filtro" role="group" aria-label="Qué pedidos ver">
+          @for (f of filtros(); track f.valor) {
+            <button type="button" class="mp-f" [class.on]="filtro() === f.valor" [attr.aria-pressed]="filtro() === f.valor" (click)="filtro.set(f.valor)">{{ f.texto }}</button>
+          }
+        </div>
+        @if (!visibles().length) {
+          <p class="mp-nota">{{ filtro() === 'surtidos' ? 'Todavía no te surten ninguno.' : 'No tienes pedidos por surtir.' }}</p>
+        }
         <ul class="mp-lista">
-          @for (p of pedidos(); track p.order_id) {
+          @for (p of visibles(); track p.order_id) {
             <li class="mp-card" [class.mp-card-nuevo]="p.report_unseen">
               <button type="button" class="mp-card-h" (click)="alternar(p.order_id)" [attr.aria-expanded]="abierto() === p.order_id">
                 <span class="mp-r1">
@@ -77,6 +88,28 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
                     </li>
                   }
                 </ol>
+                <!-- [MCP.15] Todos los artículos: lo que pidió y lo que le surtieron (antes sólo se veía lo que cambió). -->
+                <div class="mp-art">
+                  <b>Lo que pediste y lo que surtieron</b>
+                  @if (articulos(p); as arts) {
+                    <table class="mp-art-t">
+                      <thead><tr><th scope="col">Producto</th><th scope="col" class="num">Pediste</th><th scope="col" class="num">Surtieron</th></tr></thead>
+                      <tbody>
+                        @for (a of arts; track a.clave) {
+                          <tr [class.mp-art-cambio]="a.cambio">
+                            <td>{{ a.producto }}@if (a.enLugarDe) {<span class="mp-art-n"> · en lugar de {{ a.enLugarDe }}</span>}@if (a.quedo !== null) {<span class="mp-art-n"> · la caja dejó {{ a.quedo }}</span>}</td>
+                            <td class="num">{{ a.pidio === null ? '—' : a.pidio + ' ' + a.unidad }}</td>
+                            <td class="num">{{ a.surtio === null ? 'pendiente' : a.surtio + ' ' + a.unidad }}</td>
+                          </tr>
+                        }
+                      </tbody>
+                    </table>
+                  } @else if (lineasDe()[p.order_id] === 'error') {
+                    <span class="mp-nota">No se pudieron cargar los artículos. <button type="button" class="mp-art-re" (click)="cargarLineas(p.order_id)">Reintentar</button></span>
+                  } @else {
+                    <span class="mp-nota">Cargando artículos…</span>
+                  }
+                </div>
                 @if (p.review && (cambios(p).length || sustituciones(p).length)) {
                   <!-- [MCP.10.1] La caja revisó el pedido: se cuenta cómo QUEDÓ, no sólo lo que pasó al surtir. -->
                   <div class="mp-rep">
@@ -140,6 +173,20 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
     .mp-vacio { text-align: center; color: var(--text-muted); padding: var(--sp-8) var(--sp-4); }
     .mp-vacio i { font-size: var(--fs-display); color: var(--text-faint); }
     .mp-lista { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+    /* [MCP.15] Filtro rápido y la tabla de lo pedido contra lo surtido. */
+    .mp-filtro { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-bottom: var(--sp-3); }
+    .mp-f { min-height: var(--tap-min); padding: 0 var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-pill);
+      background: var(--card-bg); color: var(--text-main); font-family: inherit; font-size: var(--fs-sm); font-weight: 600; cursor: pointer; }
+    .mp-f.on { border-color: var(--action); color: var(--brand-700); }
+    .mp-f:focus-visible, .mp-art-re:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+    .mp-art { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-3); font-size: var(--fs-sm); }
+    .mp-art-t { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+    .mp-art-t th { text-align: left; font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted); padding: var(--sp-1) var(--sp-1); border-bottom: 1px solid var(--border-color); }
+    .mp-art-t td { padding: var(--sp-1) var(--sp-1); border-bottom: 1px solid var(--border-color); vertical-align: top; color: var(--text-main); }
+    .mp-art-t .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .mp-art-cambio td { color: var(--warn-fg); font-weight: 600; }
+    .mp-art-n { font-weight: 400; color: var(--text-muted); }
+    .mp-art-re { border: 0; background: none; color: var(--brand-700); font-family: inherit; font-size: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; }
     .mp-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-lg); overflow: hidden; }
     .mp-card-nuevo { border-left: 4px solid var(--warn-fg); }
     .mp-card-h { display: flex; flex-direction: column; gap: var(--sp-1); width: 100%; text-align: left; padding: var(--sp-3);
@@ -153,6 +200,7 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
     .chip.ok { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
     .chip.info { background: var(--info-soft-bg); color: var(--info-soft-fg); }
     .chip.warn { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
+    .chip.bad { background: var(--bad-soft-bg); color: var(--bad-fg); }
     .mp-tl { list-style: none; margin: 0; padding: 0 var(--sp-3) var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-3); }
     .mp-st { display: grid; grid-template-columns: 1.5rem 1fr; gap: var(--sp-2); align-items: start; font-size: var(--fs-body); }
     .mp-dot { width: 1.5rem; height: 1.5rem; border-radius: 50%; border: 2px solid var(--border-color); display: grid; place-items: center;
@@ -181,6 +229,21 @@ export class VendorMisPedidosComponent implements OnInit {
   readonly cargadoEn = signal<string | null>(null);
   readonly abierto = signal<string | null>(null);
   readonly pedidos = computed<PresaleSellerOrder[]>(() => this.datos()?.data ?? []);
+  /** `[MCP.15]` Qué pedidos ver; por omisión todos. */
+  readonly filtro = signal<FiltroMisPedidos>('todos');
+  /** `[MCP.15]` Todos en el orden en que se capturaron (día de entrega y folio), filtrados. */
+  readonly visibles = computed<PresaleSellerOrder[]>(() => filtrarPedidos(enOrdenDeCaptura(this.pedidos()), this.filtro()));
+  readonly filtros = computed<Array<{ valor: FiltroMisPedidos; texto: string }>>(() => {
+    const ps = this.pedidos();
+    return [
+      { valor: 'todos', texto: `Todos · ${ps.length}` },
+      { valor: 'por_surtir', texto: `Por surtir · ${filtrarPedidos(ps, 'por_surtir').length}` },
+      { valor: 'surtidos', texto: `Surtidos · ${filtrarPedidos(ps, 'surtidos').length}` },
+    ];
+  });
+  /** `[MCP.15]` Las líneas de cada pedido abierto (se piden al abrirlo; la revisión ya las trae). */
+  readonly lineasDe = signal<Record<string, LineaDelPedido[] | 'cargando' | 'error'>>({});
+  private readonly vendor = inject(VendorService);
 
   ngOnInit(): void {
     this.cargar();
@@ -211,7 +274,30 @@ export class VendorMisPedidosComponent implements OnInit {
     });
   }
 
-  alternar(id: string): void { this.abierto.set(this.abierto() === id ? null : id); }
+  alternar(id: string): void {
+    const abre = this.abierto() !== id;
+    this.abierto.set(abre ? id : null);
+    if (!abre) return;
+    // [MCP.15] La revisión en caja ya trae todos los renglones; si no, se piden las líneas del pedido.
+    const p = this.pedidos().find((x) => x.order_id === id);
+    const yaEstan = this.lineasDe()[id];
+    if (p && !p.review?.lines?.length && (!yaEstan || yaEstan === 'error')) this.cargarLineas(id);
+  }
+
+  /** `[MCP.15]` Las líneas vivas del pedido (para «lo que pediste y lo que surtieron»). */
+  cargarLineas(id: string): void {
+    this.lineasDe.update((m) => ({ ...m, [id]: 'cargando' }));
+    this.vendor.orderById(id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (o) => this.lineasDe.update((m) => ({ ...m, [id]: ((o?.lines ?? []) as LineaDelPedido[]) })),
+      error: () => this.lineasDe.update((m) => ({ ...m, [id]: 'error' })),
+    });
+  }
+
+  /** `[MCP.15]` `null` mientras no hay de dónde sacarlos (cargando o falló): la pantalla lo dice. */
+  articulos(p: PresaleSellerOrder): Articulo[] | null {
+    const l = this.lineasDe()[p.order_id];
+    return articulosDelPedido(p, Array.isArray(l) ? l : null);
+  }
 
   estado(p: PresaleSellerOrder): { texto: string; clase: string } {
     if (p.delivered_at) return { texto: 'Entregado', clase: 'ok' };

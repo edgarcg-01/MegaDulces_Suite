@@ -342,4 +342,82 @@ describe('FinanzasMisGastosComponent', () => {
       expect(c.accionesDelVale()).toEqual([]);
     });
   });
+
+  /**
+   * `[GX.106]` **La fecha en que se mandó, en vez de los días** (pedido del usuario, 2026-11-09: «lo de
+   * días cámbialo por la fecha en que se mandó»). Los días quedan sólo para lo atorado, en palabras.
+   */
+  describe('[GX.106] la fecha en que se mandó', () => {
+    const ASIGNADO = { sucursal: '00', folio: '0000007', fecha: '2026-10-01', importe: 100, solicita: 'X', destinatario: 'PROV ASIGNADO', concepto: 'C', estado: 'A', aplicada: false, vinculado_por: 'solicita' as const };
+    const encabezados = () => [...fix.nativeElement.querySelectorAll('th')].map((t) => (t as HTMLElement).textContent?.trim());
+    const fila = (folio: string) => [...fix.nativeElement.querySelectorAll('tbody tr')]
+      .find((tr) => (tr as HTMLElement).textContent?.includes(folio)) as HTMLElement;
+    const envio = (folio: string) => fila(folio).querySelector('.mg-c-env') as HTMLElement;
+    const fecha = (folio: string) => envio(folio).querySelector('.mg-fecha')?.textContent?.trim();
+
+    it('la columna dice «Se mandó» con la fecha; ya no hay «Días»', () => {
+      montar(REPORTE({ rows: [FILA({ status: 'recibida', created_at: '2026-09-25T15:00:00.000Z' })] }));
+      expect(encabezados()).toContain('Se mandó');
+      expect(encabezados()).not.toContain('Días');
+      expect(fecha('0049641')).toBe('25/09/26');
+    });
+
+    it('⛔ lo mandado en la noche es de ese día, no del siguiente (la marca llega en UTC)', () => {
+      // 2026-10-02 03:30 UTC = 2026-10-01 21:30 en México.
+      montar(REPORTE({ rows: [FILA({ status: 'recibida', created_at: '2026-10-02T03:30:00.000Z' })] }));
+      expect(fecha('0049641')).toBe('01/10/26');
+    });
+
+    it('la fecha del gasto va rotulada; la solicitud de Kepler sin vale no la repite', () => {
+      montar(REPORTE({
+        rows: [FILA({ status: 'aprobada', fecha_gasto: '2026-09-20', created_at: '2026-09-25T15:00:00.000Z' })],
+        asignados: [ASIGNADO],
+      }));
+      expect(fila('0049641').textContent).toContain('gastado el 20/09/26');
+      expect(fecha('0049641')).toBe('25/09/26');
+      expect(fecha('0000007')).toBe('01/10/26');
+      expect(fila('0000007').textContent).not.toContain('gastado el');
+    });
+
+    it('[GX.108] la solicitud de Kepler capturada hoy con fecha vieja: «Se mandó» es la captura, y el documento sólo se muestra', () => {
+      const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Mexico_City' });
+      montar(REPORTE({ rows: [], asignados: [{ ...ASIGNADO, fecha: '2026-01-15', capturado: hoy }] }));
+      const [a, m, d] = hoy.split('-');
+      expect(fecha('0000007')).toBe(`${d}/${m}/${a.slice(2)}`);
+      // ⛔ No «hace 300 días»: se mandó hoy.
+      expect(envio('0000007').querySelector('.mg-atorado')).toBeNull();
+      expect(fila('0000007').textContent).toContain('documento del 15/01/26');
+    });
+
+    it('[GX.108] sin fecha de captura (servidor viejo) se usa la del documento, y no se repite', () => {
+      montar(REPORTE({ rows: [], asignados: [{ ...ASIGNADO, capturado: null }] }));
+      expect(fecha('0000007')).toBe('01/10/26');
+      expect(fila('0000007').textContent).not.toContain('documento del');
+    });
+
+    it('lo abierto de más de un mes dice cuántos días lleva, en palabras; lo reciente, no', () => {
+      montar(REPORTE({ rows: [
+        FILA({ id: 'v', status: 'recibida', folio_solicitud: '0000111', created_at: '2026-01-05T15:00:00.000Z' }),
+        FILA({ id: 'n', status: 'recibida', folio_solicitud: '0000222', created_at: new Date().toISOString() }),
+      ] }));
+      expect(envio('0000111').querySelector('.mg-atorado')?.textContent).toMatch(/hace \d+ días/);
+      expect(envio('0000222').querySelector('.mg-atorado')).toBeNull();
+    });
+
+    it('⛔ lo cerrado no está atorado aunque sea viejo', () => {
+      montar(REPORTE({ rows: [FILA({ id: 'c', status: 'validada', folio_solicitud: '0000333', etapa: 'ejercido', gasto_folios: ['0008879'], created_at: '2026-01-05T15:00:00.000Z' })] }));
+      ver('cerrado');
+      expect(fecha('0000333')).toBe('05/01/26');
+      expect(envio('0000333').querySelector('.mg-atorado')).toBeNull();
+    });
+
+    it('lo abierto va del que se mandó primero al último: por la fecha que se ve', () => {
+      montar(REPORTE({ rows: [
+        // El gasto de «a» es más viejo, pero «b» se mandó antes: manda la fecha en que se mandó.
+        FILA({ id: 'a', status: 'recibida', folio_solicitud: '0000444', fecha_gasto: '2026-09-01', created_at: '2026-10-05T15:00:00.000Z' }),
+        FILA({ id: 'b', status: 'recibida', folio_solicitud: '0000555', fecha_gasto: '2026-09-20', created_at: '2026-09-21T15:00:00.000Z' }),
+      ] }));
+      expect(c.visibles().map((f) => f.folio)).toEqual(['0000555', '0000444']);
+    });
+  });
 });

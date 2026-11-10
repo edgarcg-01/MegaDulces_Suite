@@ -23,7 +23,7 @@ import { TenantKnexService, ScopeService } from '@megadulces/platform-core';
  *
  *  3. **Una fuente vacía no es un cero.** La conciliación contra las notas de crédito del ERP
  *     declara `fuente_vacia` cuando el espejo no tiene filas, en vez de reportar $0 acreditado.
- *     Medido 2026-09-28: `analytics.erp_purchase_adjustments` tiene **0 filas** en la base local
+ *     Medido 2026-09-28: `analytics.erp_purchase_adjustments` (el importer, hoy reemplazado por la vista `v_purchase_adjustments`, `[RE.68]`) tenía **0 filas** en la base local
  *     (su importer nunca corrió acá), así que ese camino está **construido pero NO medido**.
  *
  * ── Alcance de datos ────────────────────────────────────────────────────────────────────────
@@ -316,7 +316,7 @@ export class PromoSelloutService {
   /**
    * ⭐ Lo negociado contra lo que el proveedor **de verdad acreditó**.
    *
-   * La fuente es `analytics.erp_purchase_adjustments`, el espejo de los ajustes de compra de
+   * La fuente es `analytics.v_purchase_adjustments`, el espejo de los ajustes de compra de
    * Kepler (`X-D-40` devolución y `X-D-55` nota de crédito — 1,154 documentos y $20.3M en 2026,
    * con el motivo clasificado en `categoria`). Es el único lugar donde el dinero del acuerdo
    * aparece como un hecho y no como una promesa.
@@ -351,14 +351,14 @@ export class PromoSelloutService {
       };
 
       // 1) ¿La fuente existe y tiene algo? Una fuente vacía NO es un cero acreditado.
-      const espejo = await trx.raw(`SELECT to_regclass('analytics.erp_purchase_adjustments') AS t`);
+      const espejo = await trx.raw(`SELECT to_regclass('analytics.v_purchase_adjustments') AS t`);
       if (!espejo.rows[0]?.t) {
         salida.estado = 'fuente_vacia';
-        salida.nota = 'El espejo analytics.erp_purchase_adjustments no existe en esta base.';
+        salida.nota = 'El espejo analytics.v_purchase_adjustments no existe en esta base.';
         return salida;
       }
       const { rows: hay } = await trx.raw(
-        `SELECT count(*)::int AS n FROM analytics.erp_purchase_adjustments
+        `SELECT count(*)::int AS n FROM analytics.v_purchase_adjustments
           WHERE tenant_id = public.current_tenant_id()`,
       );
       if (int(hay[0]?.n) === 0) {
@@ -394,8 +394,9 @@ export class PromoSelloutService {
 
       const { rows } = await trx.raw(
         `SELECT count(*)::int AS n, sum(a.monto) AS monto
-           FROM analytics.erp_purchase_adjustments a
+           FROM analytics.v_purchase_adjustments a
           WHERE a.tenant_id = public.current_tenant_id()
+            AND a.grupo <> 'traslado'
             AND ${where}
             AND a.adjustment_date >= ?::date
             AND a.adjustment_date <= COALESCE(?::date, CURRENT_DATE)`,

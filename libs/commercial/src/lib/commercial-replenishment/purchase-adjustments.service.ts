@@ -2,12 +2,13 @@ import { Injectable } from '@nestjs/common';
 import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, ObjectStorageService, applySmartSearch, KEPLER_BRANCH_NAMES, ScopeService } from '@megadulces/platform-core';
 import { composeFreshness, evalInput } from '../shared/freshness';
-import { COMERCIAL_CATS, NOTAS_KEPLER_DOC_SQL } from '@megadulces/contracts/finance/ajustes-kepler';
+import { AJUSTES_KEPLER_POR_ENTRADA_SQL, NOTAS_KEPLER_DOC_SQL } from '@megadulces/contracts/finance/ajustes-kepler';
 
 /**
  * Fase RE.10 — Ajustes de compra (X-D-40 "Devolución compra" + X-D-55 "Nota crédito").
  *
- * Lee `analytics.erp_purchase_adjustments` (espejo Kepler, poblado por
+ * `[RE.68]` Lee `analytics.v_purchase_adjustments` (vista del ODS, todas las sucursales; antes la tabla
+ * `analytics.erp_purchase_adjustments` del importer, poblada por
  * `import-purchase-adjustments.js`). Hace VISIBLE lo que el Excel no veía:
  *   - descuentos de proveedor (pronto pago / comercial / apoyo de marca) ≈ $8.2M/2026
  *   - facturas DUPLICADAS revertidas por NC (error de captura, NO descuento) $6.7M
@@ -131,7 +132,10 @@ export class PurchaseAdjustmentsService {
 
   /** Base con filtros comunes (tenant_id explícito + doctype/categoría/fecha/search). */
   private base(trx: any, tenantId: string, q: AdjustmentsQuery) {
-    let b = trx('analytics.erp_purchase_adjustments').where('tenant_id', tenantId);
+    // [RE.68] La vista del ODS (todas las sucursales, sin canceladas). El traslado al CEDIS —el «blanqueo» de
+    // una entrada de sucursal cuyo pago fue por la copia— no es un ajuste de compra: no se lista ni se suma.
+    // Tampoco las notas a otra sucursal o al CEDIS (`proveedor_interno`): son traspasos, no ajustes de un proveedor.
+    let b = trx('analytics.v_purchase_adjustments').where('tenant_id', tenantId).whereNot('grupo', 'traslado').where('proveedor_interno', false);
     if (q.doctype) b = b.where('doctype', q.doctype);
     if (q.categoria) b = b.where('categoria', q.categoria);
     if (q.date_from) b = b.where('adjustment_date', '>=', q.date_from);
@@ -250,7 +254,7 @@ export class PurchaseAdjustmentsService {
     const delta = p.delta != null && Number.isFinite(Number(p.delta)) ? Math.abs(Number(p.delta)) : null;
     const tol = Math.max(0.01, Number(p.tolerancia) || 1);
     return this.tk.run(async (trx) => {
-      let b = trx('analytics.erp_purchase_adjustments').where('tenant_id', tenantId);
+      let b = trx('analytics.v_purchase_adjustments').where('tenant_id', tenantId).whereNot('grupo', 'traslado');
       b = b.andWhere((w: any) => {
         if (p.entrada_folio) w.orWhere('entrada_folio', p.entrada_folio);
         if (p.proveedor_code && p.date) {
@@ -344,7 +348,7 @@ export class PurchaseAdjustmentsService {
       // La vista es una dependencia nueva; si el entorno no replica Kepler no existe. Se degrada
       // en vez de tirar un 500 en la pantalla que ya funcionaba sin esto.
       const hayVista = (await trx.raw(`SELECT to_regclass('analytics.erp_purchase_adjustment_lines') AS t`)).rows[0]?.t;
-      const cab = await trx('analytics.erp_purchase_adjustments')
+      const cab = await trx('analytics.v_purchase_adjustments')
         .where({ tenant_id: tenantId, sucursal, folio, ...(doctype ? { doctype } : {}) })
         .first('doctype', 'motivo', 'categoria', trx.raw('monto::numeric AS monto'));
       if (!hayVista) {
@@ -552,12 +556,11 @@ export class PurchaseAdjustmentsService {
     // comercial, pronto pago, apoyo de marca) y el resto sí es algo que salió mal (faltante,
     // mal estado, no solicitado, factura duplicada…). Se parte acá para que la pantalla pueda
     // dejar de pintar de rojo un apoyo de marca.
-    const adj = trx('analytics.erp_purchase_adjustments')
-      .select('sucursal', 'entrada_folio').sum({ ajuste: 'monto' }).count({ n_ajuste: '*' })
-      .select(trx.raw(`COALESCE(sum(monto) FILTER (WHERE categoria = ANY(?)), 0) AS ajuste_comercial`, [COMERCIAL_CATS]))
-      .select(trx.raw(`COALESCE(sum(monto) FILTER (WHERE categoria IS NULL OR NOT (categoria = ANY(?))), 0) AS ajuste_operativo`, [COMERCIAL_CATS]))
-      .where('tenant_id', tenantId).whereNotNull('entrada_folio')
-      .groupBy('sucursal', 'entrada_folio').as('a');
+    // [RE.68] El ajuste por entrada es el MISMO primitivo que Revisión de facturas (`kdxf` + `c39`, la copia del
+    // CEDIS atribuida a su entrada original, sin traslado). Antes agrupaba la tabla del importer por
+    // `entrada_folio`, que en las notas de crédito venía vacío. `ajuste_operativo` ya no incluye lo sin
+    // clasificar (va en `ajuste_sin_clasificar`): una nota sin motivo no es «algo que salió mal».
+    const adj = trx.raw(`(${AJUSTES_KEPLER_POR_ENTRADA_SQL}) AS a`);
     // RE.9 — estado del comprobante adjunto por entrada (finance.goods_receipt_proofs; RLS
     // satisfecho por tk.run). Agregado por (sucursal, folio). El cuadre sale del MISMO
     // depósito que el estado (el último): con `bool_or` la fila podía decir "Rechazado" y
@@ -964,10 +967,14 @@ export class PurchaseAdjustmentsService {
       //    lo adeudado. La sucursal va en la llave por lo mismo que en Compras 360: el folio de
       //    Kepler se repite entre sucursales (1,106 casos), y aunque acá ya se filtra por
       //    proveedor, un proveedor que surte a dos sucursales podía cruzar ajustes entre ellas.
-      const adjRows: any[] = await trx('analytics.erp_purchase_adjustments')
-        .where('tenant_id', tenantId).where('proveedor_code', code)
-        .whereNotNull('entrada_folio').whereRaw("entrada_folio <> ''")
-        .groupBy('sucursal', 'entrada_folio').select('sucursal', 'entrada_folio').sum({ m: 'monto' });
+      //    [RE.68] Del primitivo de Revisión de facturas (kdxf + c39, sin traslado), restringido a las entradas
+      //    de este proveedor: antes salía del importer, que sólo ligaba por `c39` (vacío en las notas de crédito).
+      const adjRes = await trx.raw(
+        `SELECT a.sucursal, a.entrada_folio, a.ajuste AS m FROM (${AJUSTES_KEPLER_POR_ENTRADA_SQL}) a
+           JOIN analytics.erp_goods_receipts g ON g.tenant_id = ? AND g.sucursal = a.sucursal AND g.folio = a.entrada_folio AND g.proveedor_code = ?`,
+        [tenantId, code],
+      );
+      const adjRows: { sucursal: string; entrada_folio: string; m: string }[] = adjRes.rows;
       const adjByFolio = new Map<string, number>();
       for (const a of adjRows) adjByFolio.set(`${a.sucursal}|${a.entrada_folio}`, Number(a.m) || 0);
 

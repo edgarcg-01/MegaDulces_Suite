@@ -22,6 +22,34 @@ Todo dato termina en la base de prod que ya existe (`md` / `pg-prod`, base `rail
 
 ---
 
+## ✅ Bitácora del corte — 10-nov-2026 (lo corrió Claude con la autorización de Edgar)
+
+Edgar autorizó hacerlo en horario hábil: la carga duró 35 s y Mega Talento movía de 2 a 5 teléfonos por hora.
+
+| Hora | Paso | Resultado |
+|---|---|---|
+| 10:0x | `numero` (Edgar) | `1202633676268668 · recruitment` |
+| 11:44 | `ensayo` | 40 s, deshecho: los números de abajo, 0 mensajes rechazados |
+| 11:54 | `aplicar` | 2,883 candidatos · 26 vacantes · 1,788 cambios de etapa (1 huérfano fuera) · 256 eventos · 221,517 mensajes · 2,719 conversaciones |
+| 11:55 | `archivos` | 1,216 s: 6,215 de 6,248 al bucket (1.6 GB) · 33 caídas (404), se quedan con su liga · 6,383 documentos del expediente con llave en 1,976 candidatos · 4,979 mensajes con archivo |
+| 14:47 | `credenciales` | Meta contestó `mega-dulces-rh` y el +52 1 352 123 1708. **Token PUENTE:** el de `bot-rh` (§4) |
+| 14:48 | firma contra el webhook público | real → aceptada · falsa → «Firma de webhook inválida» · sin firma → «ausente» (el 200 es siempre; el veredicto está en el log) |
+| 14:49:28 | **webhook a la Suite** (Graph API, `POST /{app}/subscriptions`) | lo de antes quedó en `~/rh-webhook-antes-*.json` en `md` |
+| 14:50 | `aplicar` (segunda pasada) | +3 candidatos · +4 cambios de etapa · +444 mensajes · +3 conversaciones |
+| 14:5x | cuadre contra Mega Talento (sólo lectura) | lo que avanzó allá en el hueco y la carga no actualiza: 3 candidatos y 2 conversaciones, **corregidos**. Queda 1 diferencia aceptada: `esperando_midot` no existe en la Suite, que lo deja `postulada` |
+| 15:0x | `archivos` (segunda pasada) | 4 archivos más |
+| 15:30 | **primer mensaje real** a la Suite | de 15:30 a 16:19: 131 mensajes de 7 candidatos, 130 respuestas, **todas con su id de Meta** |
+| 16:17 | `credenciales` con el token propio | usuario de sistema nuevo de `mega-dulces-rh`, nunca vence; los dos pods lo usan (misma huella). El de `bot-rh` ya se puede revocar |
+
+⚠️ Un tropiezo, declarado: la corrección de las 2 conversaciones filtró por los 4 últimos dígitos del teléfono y tocó
+2 filas más con la misma terminación. Les escribió los mismos valores que ya tenían (el cuadre posterior da 0
+diferencias); sólo cambió su `updated_at`.
+
+**Vuelta atrás del webhook:** `POST /1325462126340938/subscriptions` con el `callback_url` de
+`~/rh-webhook-antes-*.json` y el token de verificación **del bot** (está en las variables del bot en Railway).
+
+---
+
 ## 0. Dónde estamos (medido en prod, sólo lectura, 10-nov 09:00)
 
 | Qué | Medido | Qué significa |
@@ -34,30 +62,29 @@ Todo dato termina en la base de prod que ya existe (`md` / `pg-prod`, base `rail
 | WhatsApp de Ventas en prod | 41 mensajes en total, el último del **27-jul**, 0 en 30 días | nadie lo usa: sus variables pueden pasar a RH (§1) |
 | `GET /api/webhooks/whatsapp` con token falso | **403** | el webhook está montado y el proveedor es Meta (el simulador habría aceptado) |
 
-**No viajan en la imagen de hoy** (están en commits locales sin empujar): los dos scripts de la carga y el cambio que
-deja convivir dos apps de Meta (`147d09c0b`, `[RH.3.5c]`). Los scripts se copian al pod (§3.1), como en el corte de
-asistencia. El cambio de las dos apps **no hace falta hoy**: ver §1.
+**Actualizado 10-nov ~10:30:** prod pasó a `e76083060`, que **ya trae** `[RH.3.5c]` (dos apps de Meta) y los scripts
+de la carga; los dos pods lo tienen (`WHATSAPP_RECRUITMENT_APP_SECRET` está en `/app/dist/apps/api/main.js`). Llegó en
+el empuje de otra sesión desde el `main` compartido. El script igual copia sus versiones al pod antes de correr.
 
 ---
 
-## 1. La decisión que permite hacerlo hoy sin desplegar
+## 1. Las variables de la app de RH
 
-El número de RH vive en la app de Meta **mega-dulces-rh**, distinta de la de Ventas. La imagen de hoy valida la firma
-con **una sola** clave (`WHATSAPP_APP_SECRET`) y habla con **un solo** token (`WHATSAPP_ACCESS_TOKEN`).
+El número de RH vive en la app de Meta **mega-dulces-rh**, distinta de la de Ventas. Con `[RH.3.5c]` desplegado, la
+Suite acepta la firma de cualquiera de las dos apps y habla desde el número de RH con su propio token. **Las de Ventas
+no se tocan.**
 
-Como el WhatsApp de Ventas no se usa desde julio, **esas dos variables pasan a ser las de RH**:
-
-| Variable de `prod-env` | Hoy | Después del corte |
+| Variable de `prod-env` | Medido el 10-nov | Después de `credenciales` |
 |---|---|---|
-| `WHATSAPP_APP_SECRET` | clave de la app de Ventas (o vacía) | **clave de la app mega-dulces-rh** |
-| `WHATSAPP_ACCESS_TOKEN` | token de Ventas (o vacío) | **token de `suite-reclutamiento`** |
-| `WHATSAPP_VERIFY_TOKEN` | — | **debe existir** (si está vacío, Meta no puede verificar el webhook) |
-| `WHATSAPP_PHONE_NUMBER_ID` | número de prueba de Ventas | no se toca (las respuestas de RH salen del número que recibió) |
+| `WHATSAPP_RECRUITMENT_APP_SECRET` | — | clave de la app mega-dulces-rh |
+| `WHATSAPP_RECRUITMENT_ACCESS_TOKEN` | — | token de `suite-reclutamiento` |
+| `WHATSAPP_RECRUITMENT_PHONE_NUMBER_ID` | — | `1202633676268668` |
+| `WHATSAPP_VERIFY_TOKEN` | presente (18 caracteres) | igual: es el que David pone en Meta |
+| `WHATSAPP_APP_SECRET` (Ventas) | **vacío** | igual |
+| `WHATSAPP_ACCESS_TOKEN` (Ventas) | presente | igual |
 
-**Lo que se pierde:** el número de prueba de Ventas deja de recibir y contestar. Cuando Ventas vuelva a usar WhatsApp,
-se despliega `[RH.3.5c]` y las de RH se mueven a `WHATSAPP_RECRUITMENT_APP_SECRET`,
-`WHATSAPP_RECRUITMENT_ACCESS_TOKEN` y `WHATSAPP_RECRUITMENT_PHONE_NUMBER_ID=1202633676268668`; las de Ventas vuelven a su
-lugar.
+⚠️ Con `WHATSAPP_APP_SECRET` vacío y `NODE_ENV=production`, **hoy la Suite rechaza todo** lo que le manda Meta. Basta
+con cargar la de RH para que acepte lo de RH: por eso `credenciales` va **antes** de mover el webhook.
 
 ---
 
@@ -97,8 +124,9 @@ for f in ~/secrets/wa-rh.secret ~/secrets/wa-rh.token; do printf '%s' "$(cat $f)
 kubectl -n prod get secret prod-env -o jsonpath='{.data.WHATSAPP_VERIFY_TOKEN}' | base64 -d | wc -c
 
 kubectl -n prod patch secret prod-env --type merge -p "{\"stringData\":{\
-\"WHATSAPP_APP_SECRET\":\"$(tr -d '\n' < ~/secrets/wa-rh.secret)\",\
-\"WHATSAPP_ACCESS_TOKEN\":\"$(tr -d '\n' < ~/secrets/wa-rh.token)\"}}"
+\"WHATSAPP_RECRUITMENT_APP_SECRET\":\"$(tr -d '\n' < ~/secrets/wa-rh.secret)\",\
+\"WHATSAPP_RECRUITMENT_ACCESS_TOKEN\":\"$(tr -d '\n' < ~/secrets/wa-rh.token)\",\
+\"WHATSAPP_RECRUITMENT_PHONE_NUMBER_ID\":\"1202633676268668\"}}"
 kubectl -n prod rollout restart deploy/api && kubectl -n prod rollout status deploy/api
 ```
 
@@ -110,9 +138,9 @@ David **por privado**: es el que David pone en Meta en §3.4.
 ```sh
 API=$(kubectl get pods -n prod -l app=api -o jsonpath='{.items[0].metadata.name}')
 # la clave: Meta debe contestar {"name":"mega-dulces-rh",...}
-kubectl exec -n prod $API -c api -- node -e "fetch('https://graph.facebook.com/v21.0/1325462126340938?fields=name&access_token=1325462126340938%7C'+process.env.WHATSAPP_APP_SECRET).then(r=>r.text()).then(console.log)"
+kubectl exec -n prod $API -c api -- node -e "fetch('https://graph.facebook.com/v21.0/1325462126340938?fields=name&access_token=1325462126340938%7C'+process.env.WHATSAPP_RECRUITMENT_APP_SECRET).then(r=>r.text()).then(console.log)"
 # el token: Meta debe contestar el +52 1 352 123 1708
-kubectl exec -n prod $API -c api -- node -e "fetch('https://graph.facebook.com/v21.0/1202633676268668?fields=display_phone_number,verified_name',{headers:{Authorization:'Bearer '+process.env.WHATSAPP_ACCESS_TOKEN}}).then(r=>r.text()).then(console.log)"
+kubectl exec -n prod $API -c api -- node -e "fetch('https://graph.facebook.com/v21.0/1202633676268668?fields=display_phone_number,verified_name',{headers:{Authorization:'Bearer '+process.env.WHATSAPP_RECRUITMENT_ACCESS_TOKEN}}).then(r=>r.text()).then(console.log)"
 ```
 
 ### 2.3 Edgar: el número de RH a su flujo
@@ -166,6 +194,11 @@ kubectl exec -n prod $API -c api -- sh -c \
 **Esperado** (ensayo contra la base local, 9-nov; en prod sólo crecen un poco):
 mensajes ~220,9xx de ~220,9xx · conversaciones ~2,7xx (≈1,580 `postulada`, el resto a medias) · **0 rechazados** ·
 ~1 min · «no quedó nada escrito».
+
+✅ **Corrido en prod el 10-nov ~10:30** (`ensayo`, 40 s, se deshizo): vacantes 26/26 · candidatos 2,883/2,883 (121
+comparten teléfono: RH los revisa en duplicados) · cambios de etapa 1,788/1,789 (1 fuera: apunta a un candidato que
+no existe) · eventos 256/256 · **mensajes 221,517/221,517, 0 rechazados** · conversaciones 2,719 (1,583 terminadas,
+853 traducidas, 238 igual, 41 invitado, 4 al siguiente dato). Requisiciones (5) no se cargan: `[RH.11]`.
 
 **Se detiene aquí si:** sale `permission denied` (el usuario del pod no puede escribir en `talent.*`), o los rechazados
 no son 0, o los números se alejan mucho de lo esperado. En ese caso se manda la salida completa a revisar, sin
@@ -223,7 +256,9 @@ se quedan con su liga). Esta cifra **no está medida** con las 440 nuevas: la me
 | Qué | Quién | Cuándo |
 |---|---|---|
 | Railway en sólo lectura | David | 2 semanas, luego se apaga |
-| Revocar el token de `bot-rh`, revisar el usuario `Employee` | David | al apagar Railway |
+| ✅ Token propio de la Suite en lugar del puente (16:17) | Edgar | hecho. ⚠️ Trae más permisos de los dos de WhatsApp y pasó por un chat: regenerarlo con sólo `whatsapp_business_messaging` y `whatsapp_business_management`, pegarlo con `nano` y correr `credenciales` |
+| ⛔ Revocar el token de `bot-rh` (expuesto el 10-nov), revisar el usuario `Employee` | Edgar / David | **ya**: la Suite ya no lo usa. Si hiciera falta la vuelta atrás, el bot de Railway necesitaría otro token |
+| Rotar las llaves de Mega Talento expuestas el 10-nov (Anthropic, Groq, `JWT_SECRET`, la contraseña de la base…) y la llave de asistencia de prod (`HR_INGEST_KEY` = el `INGESTA_TOKEN` de Mega Talento, junto con los lectores de relojes) | Edgar / David | hoy |
 | Rotar la contraseña de la base de Mega Talento | David | al apagar Railway (`[RH.4]`) |
 | El …2222: si es prueba, se marca como spam en la Suite (se cargó igual) | RH / Edgar | cuando se confirme |
 | Desplegar `[RH.3.5c]` y separar las variables de RH de las de Ventas | Edgar | antes de que Ventas vuelva a usar WhatsApp |
