@@ -1492,3 +1492,36 @@ Tiempo: p50 319 ms, máximo 537 ms (se pide a demanda, un pago a la vez). **Lo q
 - **Quién:** la D15 la decide Edgar; ponerse al día (`replicate-contpaqi.js --apply --solo=add --tabla=Pagos`, luego
   `Pagos_Doc_Rel`, `Comprobante`, `Documento`) se corre en `feeds-cron` de md **fuera de horario** (borra e inserta
   sin transacción; `Comprobante` tiene 629 mil filas).
+
+### El concepto del `X-D-26` (`kdm1.c12`): qué pone Tesorería (prod, sólo lectura, 2026-11-10)
+
+El ensayo `[PGP.105]` difería en el concepto en 13 de 36 pagos. Medido sobre **1,389 `X-D-26` a proveedores de
+compra (`C…`) de CEDIS en 120 días**, contra el concepto de la factura que saldan (`kdxe.c18`, catálogo `kdxv`:
+`C-001` = «COMPRA PROVEEDOR CEDIS», `C-002` = Padre Hidalgo, … `007` = «GASTOS GENERALES»):
+
+| Facturas del pago | Lo que pone Tesorería | Coincide con «el concepto de la factura» |
+|---|---|---|
+| De compra (`20-1`), un solo concepto | ese concepto | **1,152 de 1,288 (89 %)**; con un solo concepto en el pago, 93 % |
+| De gasto (`10-1`) | `007` GASTOS GENERALES | 40 de 43 (la factura no trae concepto) |
+| De compra con conceptos de varias sucursales | `C-001` en 61 de 95 (64 %); el de mayor monto, 45 de 95 | hoy el armador los rechaza |
+| «El mismo concepto que el pago anterior al acreedor» | — | 58 %: no es la regla |
+
+**Lo que sigue:** la regla del armador (el concepto de la factura) es la de Tesorería en el 89–93 %; el resto
+son capturas que cargan la compra a otra sucursal (16 veces `C-001` donde la factura dice `C-002`) o gastos
+pagados a acreedores `C…` (`007`). Para el pago con varios conceptos, Kepler ya admite **una transferencia
+como varios `X-D-26`, uno por sucursal** (medido en `[PGP.97]`): la Suite debe partirlo así, no forzar `C-001`.
+
+| # | Decisión | Recomendación |
+|---|---|---|
+| P6 | El concepto del pago: ¿manda la factura o lo que Tesorería elige? | Manda la factura (carga la compra a la sucursal que la recibió); las diferencias de Tesorería se ven en el ensayo |
+| P7 | Pago con facturas de varias sucursales | Un `X-D-26` por concepto (sucursal), como Kepler ya lo hace a veces; no `C-001` para todo |
+| P8 | Facturas de gasto (`10-1`) de acreedores `C…` | Concepto `007` (40 de 43); fuera del alcance de D2 hasta que Contabilidad lo confirme |
+
+### `[PGP.110]` La vista de REP (`analytics.v_rep_de_factura`, migración `20261110092158`)
+
+Una fila por (REP × factura pagada), derivada de `contpaqi_ods` (`add_pagos_doc_rel` + `add_pagos` + `add_comprobante`
++ `add_documento`): UUID de la factura y del REP, parcialidad, saldo anterior, pagado, saldo insoluto, fecha del
+pago y cancelación (`canceldate`, sin interpretar su texto). Índice nuevo por `upper(iddocumento)`.
+**Ejercida en prod (sólo lectura):** 154,874 filas = 154,874 ligas (ningún cruce multiplica); de 1,343 facturas PPD
+recibidas de agosto–septiembre, **799 tienen su REP vigente** en la réplica. ⛔ La réplica está detenida desde el
+30-oct: lo posterior no aparece hasta revivir el carril (D15 + extender el replicador).
