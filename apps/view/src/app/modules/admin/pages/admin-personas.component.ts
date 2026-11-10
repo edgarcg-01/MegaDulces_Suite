@@ -29,7 +29,7 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
-import { AdminService, OpcionCatalogo } from '../admin.service';
+import { AdminService, OpcionCatalogo, RenombreDeUsuario } from '../admin.service';
 import { PersonaDetalleComponent } from '../components/persona-detalle.component';
 
 /**
@@ -198,6 +198,7 @@ import { PersonaDetalleComponent } from '../components/persona-detalle.component
         @if (peek()) {
           <app-persona-detalle [persona]="sel()" [puedeEscribir]="puedeEscribir()"
                                (guardado)="onGuardado($event)" (aviso)="onAviso($event)"
+                               (renombrado)="onRenombrado($event)"
                                (cancelado)="cerrarFicha(false)">
           </app-persona-detalle>
         }
@@ -463,5 +464,14 @@ export class AdminPersonasComponent implements OnInit {
   /** Acceso y alcance se guardan sin salir de la ficha: cerrarla sería perder el hilo. */
   onAviso(msg: string): void {
     this.toast.add({ severity: 'success', summary: 'Guardado', detail: msg, life: 3500 });
+  }
+
+  /**
+   * `[AU.34]` El usuario cambió: el encabezado del cajón y la fila dicen el nuevo SIN cerrar la
+   * ficha (la ficha reconoce que es la misma persona y no reinicia lo editado).
+   */
+  onRenombrado(r: RenombreDeUsuario): void {
+    this.sel.update((s) => (s && s.id === r.user_id ? { ...s, username: r.username } : s));
+    this.filas.update((fs) => fs.map((f) => (f.id === r.user_id ? { ...f, username: r.username } : f)));
   }
 }

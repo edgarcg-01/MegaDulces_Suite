@@ -482,6 +482,24 @@ describe('Tomar pedido · captura libre [DN.11a] (ADR-115: ya no bloquea)', () =
     expect(texto(fila('Kinder')!.querySelector('.row-err'))).toBe('No se agregó: El pedido ya no es borrador');
     expect(toastDe('No se puede agregar')).toHaveLength(0);
   });
+  it('[VTK.16] sin señal (el 504 sin cuerpo del service worker) dice «Sin señal», no «el servidor no lo aceptó… avisa a oficina»', () => {
+    const { cmp, pintar, fila, texto, p } = montar({
+      extra: { addLine: () => throwError(() => ({ status: 504, error: '' })) },
+    });
+    cmp.incProduct(p('p3'));
+    pintar();
+    const motivo = texto(fila('Kinder')!.querySelector('.row-err'));
+    expect(motivo).toBe('No se agregó: Sin señal: no se guardó. Inténtalo cuando vuelva la señal.');
+    expect(motivo).not.toContain('oficina');
+  });
+  it('⛔ [VTK.16] negativa: un 500 sin mensaje del servidor sigue siendo «el servidor no lo aceptó»', () => {
+    const { cmp, pintar, fila, texto, p } = montar({
+      extra: { addLine: () => throwError(() => ({ status: 500, error: {} })) },
+    });
+    cmp.incProduct(p('p3'));
+    pintar();
+    expect(texto(fila('Kinder')!.querySelector('.row-err'))).toBe('No se agregó: El servidor no lo aceptó. Intenta de nuevo o avisa a oficina.');
+  });
   it('⛔ sin conexión NO se bloquea (no se sabe de cuándo es el dato) y el aviso lo dice', async () => {
     const lineas: unknown[] = [];
     const ctx = { customer: { id: 'c1', name: 'Abarrotes Lupita', code: 'CLI-1' }, prices: [pulparindo, kinder], warehouseId: 'w2', frequent: [] };

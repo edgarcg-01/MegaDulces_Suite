@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, OnInit, ViewChild, inject, signal, computed, effect, untracked } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
-import { Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { ButtonModule } from 'primeng/button';
@@ -2108,6 +2108,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    * proveedor», y se abre ya filtrada (`?estado=con_diferencias`) — no se repite aquí.
    */
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   verComprobantesConDiferencias(): void { void this.router.navigate(['/finanzas/pagos-comprobantes'], { queryParams: { estado: 'con_diferencias' } }); }
 
   /** Abre el panel de agregar y lleva el foco al buscador (botón o tecla /). */
@@ -3368,6 +3369,14 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       this.altoObs?.disconnect();
     });
     this.recuperarPreparacion();
+    // `[ECA.8]` Se llega con `?fecha=AAAA-MM-DD` desde Deuda con proveedores («Ver el 13/11»): el
+    // Calendario abre en ese día. Una fecha mal formada o imposible se ignora y abre en hoy.
+    const fecha = this.route.snapshot.queryParamMap.get('fecha') ?? '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(fecha) && !Number.isNaN(new Date(`${fecha}T12:00:00`).getTime())
+        && new Date(`${fecha}T12:00:00`).toISOString().slice(0, 10) === fecha) {
+      this.selectedDate.set(fecha);
+      this.targetDate = fecha;
+    }
     this.reload();
     // [PGP.14] El credito a favor sin aplicar: se pide UNA vez y se guarda por acreedor.
     this.loadCreditos();

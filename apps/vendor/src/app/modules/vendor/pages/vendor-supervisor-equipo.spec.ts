@@ -80,7 +80,8 @@ describe('VendorSupervisorEquipoComponent · Mi equipo (SUP.2)', () => {
     const t = texto(el);
     expect(t).toContain('Vendedor Faltas');
     expect(plano(el)).toContain('CobradoenKeplersinmedir');
-    expect(t).toContain('Sin conexión con el servidor.');
+    // [VTK.16] Sin señal se dice como tal, no como error del servidor.
+    expect(t).toContain('Sin señal: revisa tu conexión y vuelve a intentar.');
     expect(t).not.toContain('$0');
   });
 

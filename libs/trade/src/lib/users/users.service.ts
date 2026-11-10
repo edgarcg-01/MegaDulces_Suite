@@ -10,11 +10,12 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { Knex } from 'knex';
-import { adaptadorDe, businessMinutesBetween, ORDEN_VEREDICTO, veredictoDe, type MeCiclo, type MeContext, type MePendiente, type MeTarea, type MeWork, type MeWorkZona, type MeZonaPeriodo } from '@megadulces/contracts';
+import { adaptadorDe, businessMinutesBetween, ORDEN_VEREDICTO, veredictoDe, type MeCiclo, type MeContext, type MePendiente, type MeTarea, type MeWork, type MeWorkZona, type MeZonaPeriodo, type RenombreDeUsuario } from '@megadulces/contracts';
 import { BANDEJAS, TOPE_DESGLOSE, puedeVerBandeja, type MedirCtx } from './me-work';
 import { medirZona } from './me-zona';
 import { FUENTES_VISIBLES, puedeAbrirTarea } from './me-tasks';
 import { CICLOS, puedeVerCiclo } from './me-cycles';
+import { buscarHistoriaDeUsuario, type HistoriaDeUsuario } from './username-history';
 import { KNEX_CONNECTION } from '@megadulces/platform-core';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -1266,6 +1267,22 @@ export class UsersService {
 
     const isSelf = id === requester.sub;
 
+    // `[AU.34]` El username ya NO se cambia por aquí. Esta rama lo renombraba sin revisar si
+    // algo lo usa como llave, sin dejarlo en la bitácora y sin cerrar las sesiones que lo llevan
+    // en el token — mientras la pantalla decía «el usuario no se renombra». Ahora sólo acepta
+    // el mismo nombre (un cliente que manda el formulario entero) y lo demás va a `rename()`.
+    // Va PRIMERO, antes del bcrypt y de las consultas de abajo: un request que se va a rechazar
+    // no paga por ellas (la misma regla que `[AU.28]` aplica a la contraseña).
+    if (username) {
+      const actual = await this.knex('users').where({ id, tenant_id: this.tenantId }).first('username');
+      if (actual && this.normalizeUsername(username) !== actual.username) {
+        throw new BadRequestException(
+          'El usuario se cambia con «Cambiar usuario» (POST /users/:id/rename): revisa que nada lo use, ' +
+            'cierra sus sesiones y lo deja en la bitácora.',
+        );
+      }
+    }
+
     // Anti-self-elevation / self-lockout: nadie puede cambiarse su propio
     // rol ni desactivarse a sí mismo. Estos cambios solo proceden vía un
     // tercero con permisos suficientes.
@@ -1397,21 +1414,6 @@ export class UsersService {
         const esDispositivo = fila?.kind === 'dispositivo' || ttlResultante != null;
         updateData['must_change_password'] = !esDispositivo;
       }
-    }
-
-    if (username) {
-      const normalized = this.normalizeUsername(username);
-      const conflict = await this.knex('users')
-        .where({ username: normalized, tenant_id: this.tenantId })
-        .andWhereNot({ id })
-        .select('id')
-        .first();
-      if (conflict) {
-        throw new ConflictException(
-          `El nombre de usuario "${normalized}" ya está en uso.`,
-        );
-      }
-      updateData['username'] = normalized;
     }
 
     // `undefined` = ninguno de los tres nombres vino → no se toca la columna.
@@ -3668,6 +3670,173 @@ export class UsersService {
       // confirmar que hizo algo.
       last_login_at: user.last_login_at ?? null,
     };
+  }
+
+  /**
+   * `[AU.34]` Cambiar el username de una cuenta — sólo si nada lo usa como llave.
+   *
+   * El username no es sólo con qué se entra: varias tablas lo guardan en texto y lo buscan
+   * después, y en dos es el código de la persona en Kepler (ver `username-history.ts`).
+   * Renombrar una cuenta que aparece ahí no falla, deja de encontrar lo suyo en silencio —
+   * y en vales, comprobantes y presupuestos le permitiría aprobar lo propio. Por eso:
+   *
+   *   · Se revisa el catálogo con el nombre VIEJO (que nada lo use) y con el NUEVO (que no sea
+   *     llave de otra persona) y, si aparece en algo o algo no se pudo revisar, se rechaza con
+   *     la lista. NO MEDIDO no es «limpio».
+   *   · Cierra sus sesiones: el token lleva el username adentro y seguiría firmando con el
+   *     viejo hasta que expire (días, en una cuenta de dispositivo). Se corta dentro y otra vez
+   *     después del commit, y se repite la revisión: si en el intermedio apareció algo con el
+   *     nombre viejo, el cambio se deshace.
+   *   · Queda en la bitácora con el antes, el después y el motivo — y si el evento no se puede
+   *     escribir, no se renombra.
+   *   · Nadie se renombra a sí mismo: es la misma regla que el rol y la baja.
+   *
+   * La contraseña no cambia. Lo que sólo guarda historia (`*_by_username`) conserva el
+   * nombre viejo, que era su nombre cuando lo hizo.
+   */
+  async rename(id: string, nuevo: string, motivo: string, requester: RequesterContext): Promise<RenombreDeUsuario> {
+    if (requester.sub === id) {
+      throw new ForbiddenException('No puedes cambiar tu propio usuario: pídeselo a otra persona con permiso.');
+    }
+    const username = this.normalizeUsername(nuevo);
+    const nota = (motivo ?? '').trim();
+    if (nota.length < 5) {
+      throw new BadRequestException('Escribe el motivo del cambio (al menos 5 letras): queda en la bitácora.');
+    }
+
+    let antes = '';
+    try {
+      await this.knex.transaction(async (trx) => {
+        // FOR UPDATE: dos renombres a la vez de la MISMA cuenta se forman; el segundo lee el nombre
+        // que dejó el primero (y revisa la historia de ése), no el que había antes de los dos.
+        const user = await trx('identity.users')
+          .where({ id, tenant_id: this.tenantId })
+          .whereNull('deleted_at')
+          .forUpdate()
+          .first('id', 'username', 'kind');
+        if (!user) throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
+        antes = user.username;
+        if (username === user.username) throw new BadRequestException(`La cuenta ya se llama "${username}".`);
+
+        const conflicto = await trx('identity.users')
+          .where({ username, tenant_id: this.tenantId })
+          .andWhereNot({ id })
+          .first('id');
+        if (conflicto) throw new ConflictException(`El nombre de usuario "${username}" ya está en uso.`);
+
+        // El nombre NUEVO tampoco puede ser llave de alguien más: renombrar a un código de cajero o a
+        // un «Solicita» ajeno le heredaría a esta cuenta los cortes y los vales de otra persona.
+        const ajena = await buscarHistoriaDeUsuario(trx, this.tenantId, username);
+        this.rechazarSiHay(ajena, 'usuario_nuevo_ocupado', `"${username}" ya se usa como llave en otra parte`);
+
+        const historia = await buscarHistoriaDeUsuario(trx, this.tenantId, user.username);
+        this.rechazarSiHay(historia, 'usuario_con_historia', `No se puede cambiar "${user.username}"`);
+
+        // `clock_timestamp()`, no `now()`: `now()` es la hora en que EMPEZÓ la transacción, antes de
+        // las revisiones, y un token emitido mientras corrían quedaría vivo con el nombre viejo.
+        await trx('identity.users')
+          .where({ id, tenant_id: this.tenantId })
+          .update({
+            username,
+            sessions_revoked_at: trx.raw('clock_timestamp()'),
+            updated_at: trx.fn.now(),
+            updated_by: requester.sub,
+          });
+
+        // Directo y no por `recordEvent`: aquél se traga el error, y dentro de esta transacción un
+        // INSERT fallido la deja abortada — el COMMIT se volvería ROLLBACK en silencio y la respuesta
+        // diría «renombrado» sin que nada cambiara.
+        await trx('identity.user_events').insert({
+          tenant_id: this.tenantId,
+          user_id: id,
+          event: 'username_renombrado',
+          detalle: JSON.stringify({ antes: user.username, despues: username, motivo: nota, kind: user.kind ?? null, sesiones_cerradas: true }),
+          actor_user_id: requester.sub ?? null,
+          actor_username: requester.username ?? null,
+        });
+      });
+    } catch (e: unknown) {
+      const pg = e as { code?: string; message?: string };
+      if (pg?.code === '23505') throw new ConflictException(`El nombre de usuario "${username}" ya está en uso.`);
+      // Sólo «la columna no existe» (42703): knex mete el SQL en el mensaje de CUALQUIER error del
+      // UPDATE, y un regex sobre el texto disfrazaba de «falta la migración» un error que era otro.
+      if (pg?.code === '42703' && /sessions_revoked_at/i.test(String(pg?.message ?? ''))) {
+        throw new BadRequestException(
+          'Falta aplicar la migración [ID.38] (identity.users.sessions_revoked_at) en este ambiente: ' +
+            'sin ella el cambio no podría cerrar las sesiones con el nombre viejo, así que no se hace.',
+        );
+      }
+      throw e;
+    }
+
+    // Ya confirmado, nadie puede ENTRAR con el nombre viejo. Se corta otra vez para matar también lo
+    // que se haya emitido entre el UPDATE y el COMMIT (con la fila sin confirmar, el login aún leía
+    // el nombre viejo).
+    const [corte] = await this.knex('identity.users')
+      .where({ id, tenant_id: this.tenantId })
+      .update({ sessions_revoked_at: this.knex.raw('clock_timestamp()') })
+      .returning(['sessions_revoked_at']);
+    this.permsCache?.invalidateUser?.(id, this.tenantId);
+
+    // La revisión de adentro es una foto (READ COMMITTED): lo que la cuenta haya confirmado mientras
+    // corría con su sesión todavía viva no lo vio. Con las sesiones ya cortadas, esta segunda es la
+    // definitiva; si aparece algo con el nombre viejo, el cambio se deshace en vez de dejarlo huérfano.
+    const despues = await buscarHistoriaDeUsuario(this.knex, this.tenantId, antes);
+    if (despues.encontrados.length) {
+      await this.knex.transaction(async (trx) => {
+        await trx('identity.users')
+          .where({ id, tenant_id: this.tenantId, username })
+          .update({ username: antes, updated_at: trx.fn.now(), updated_by: requester.sub });
+        await trx('identity.user_events').insert({
+          tenant_id: this.tenantId,
+          user_id: id,
+          event: 'username_renombre_revertido',
+          detalle: JSON.stringify({ antes: username, despues: antes, motivo: 'aparecieron registros con el nombre anterior durante el cambio', encontrados: despues.encontrados }),
+          actor_user_id: requester.sub ?? null,
+          actor_username: requester.username ?? null,
+        });
+      });
+      this.permsCache?.invalidateUser?.(id, this.tenantId);
+      this.logger.warn(`[AU.34] renombre de "${antes}" a "${username}" DESHECHO: aparecieron registros con el nombre viejo`);
+      throw new ConflictException({
+        code: 'renombre_revertido',
+        message:
+          `Mientras se cambiaba, "${antes}" registró: ${despues.encontrados.map((h) => h.etiqueta).join('; ')}. ` +
+          'Se dejó como estaba (sus sesiones sí se cerraron: entra de nuevo con el mismo usuario). Pídeselo a Sistemas.',
+        encontrados: despues.encontrados,
+        sin_revisar: [],
+      });
+    }
+    if (despues.sinRevisar.length) {
+      this.logger.warn(`[AU.34] tras renombrar "${antes}" no se pudo repetir la revisión: ${despues.sinRevisar.map((h) => `${h.clave} (${h.motivo})`).join('; ')}`);
+    }
+
+    this.logger.warn(`[AU.34] "${antes}" ahora es "${username}" (por "${requester.username ?? requester.sub}") — ${nota}`);
+    return { user_id: id, username_anterior: antes, username, sessions_revoked_at: corte?.sessions_revoked_at ?? null };
+  }
+
+  /**
+   * `[AU.34]` Rechaza el renombre si el catálogo encontró algo o no pudo revisarlo. Al navegador
+   * va sólo QUÉ y DÓNDE (clave y etiqueta); el error de la base, que trae el SQL, se queda en el log.
+   */
+  private rechazarSiHay(h: HistoriaDeUsuario, code: string, sujeto: string): void {
+    if (!h.encontrados.length && !h.sinRevisar.length) return;
+    if (h.sinRevisar.length) {
+      this.logger.warn(`[AU.34] ${sujeto}: no se pudo revisar ${h.sinRevisar.map((s) => `${s.clave} (${s.motivo})`).join('; ')}`);
+    }
+    const partes: string[] = [];
+    if (h.encontrados.length) partes.push(h.encontrados.map((x) => x.etiqueta).join('; '));
+    if (h.sinRevisar.length) partes.push(`no se pudo revisar si ${h.sinRevisar.map((x) => x.etiqueta).join('; ')}`);
+    throw new ConflictException({
+      code,
+      message:
+        `${sujeto}: ${partes.join('; y ')}. ` +
+        (code === 'usuario_nuevo_ocupado'
+          ? 'Esta cuenta heredaría lo de otra persona. Elige otro nombre o pídeselo a Sistemas.'
+          : 'Esas pantallas lo buscan por su usuario y lo perderían. Pídeselo a Sistemas.'),
+      encontrados: h.encontrados.map(({ clave, etiqueta }) => ({ clave, etiqueta })),
+      sin_revisar: h.sinRevisar.map(({ clave, etiqueta }) => ({ clave, etiqueta })),
+    });
   }
 
   /** Bitácora del usuario, para el panel de detalle. */

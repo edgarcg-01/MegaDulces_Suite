@@ -13,6 +13,9 @@ import * as ExcelJS from 'exceljs';
  *              más viejo. No trae la cuenta.
  *   BanBajío   `.xlsx` con 9 filas de encabezado y TOTALES DECLARADOS (n, cargos, abonos), del
  *              más nuevo al más viejo. Trae el número de cliente, no la cuenta.
+ *   Banamex    CSV Latin-1 (muestra del 2026-11-10) con un resumen arriba: la cuenta, saldo inicial
+ *              y final, y cuántos depósitos y retiros por cuánto. Del más nuevo al más viejo, y el
+ *              SALDO SÓLO EN UN RENGLÓN POR DÍA (el cierre del día); «-» en la columna vacía.
  *
  * El control de que no falta nada es el SALDO del propio banco: saldo anterior + abono − cargo =
  * saldo del renglón. El orden no es fijo entre bancos, así que se prueban los dos y se queda el
@@ -22,7 +25,7 @@ import * as ExcelJS from 'exceljs';
  * Importes en CENTAVOS enteros: sumar flotantes de pesos rompe el cuadre al centavo.
  */
 
-export type Banco = 'santander' | 'banorte' | 'bbva' | 'banbajio';
+export type Banco = 'santander' | 'banorte' | 'bbva' | 'banbajio' | 'banamex';
 
 export interface MovimientoBanco {
   /** Renglón del archivo (1 = primera línea), para poder señalarlo en pantalla. */
@@ -78,6 +81,11 @@ export interface EstadoDeCuentaLeido {
   cliente: string | null;
   movimientos: MovimientoBanco[];
   no_leidos: RenglonNoLeido[];
+  /**
+   * Renglones que el banco imprime y NO son movimientos (Banamex desglosa el efectivo de un abono
+   * en un renglón de $0.00 con la misma autorización). Se declaran; los totales del banco no los cuentan.
+   */
+  informativos?: RenglonNoLeido[];
   control: ControlDeSaldo | null;
   declarado: TotalesDeclarados | null;
 }
@@ -93,7 +101,7 @@ export function aCentavos(v: unknown): number | null {
   if (typeof v === 'number') return Number.isFinite(v) ? Math.round(v * 100) : null;
   const t = String(v).replace(/[$,'"\s]/g, '');
   if (t === '') return 0;
-  if (!/^-?\d+(\.\d+)?$/.test(t)) return null;
+  if (!/^[-+]?\d+(\.\d+)?$/.test(t)) return null; // Banamex: «$ +445,755.39»
   return Math.round(Number(t) * 100);
 }
 
@@ -104,7 +112,20 @@ const oNulo = (s: string) => (s === '' ? null : s);
 /** UTF-8 si se decodifica limpio; si no, Latin-1 (Banorte y BBVA vienen en Latin-1). */
 function aTexto(buf: Buffer): string {
   const utf8 = buf.toString('utf8');
-  return utf8.includes('�') ? buf.toString('latin1') : utf8;
+  // Un CSV guardado desde Excel arranca con BOM: sin quitarlo, «Cuenta,Fecha…» no empieza con «CUENTA».
+  return (utf8.includes('�') ? buf.toString('latin1') : utf8).replace(/^﻿/, '');
+}
+
+/**
+ * Para el mensaje de «formato no reconocido»: qué ES el archivo, en palabras, para que quien lo subió
+ * (y quien tenga que escribir el lector) sepa cuál es sin pedirlo por otro lado.
+ */
+export function describirArchivo(buf: Buffer): string {
+  if (buf.length >= 4 && buf[0] === 0xd0 && buf[1] === 0xcf && buf[2] === 0x11 && buf[3] === 0xe0) return 'es un Excel viejo (.xls)';
+  if (buf.length >= 4 && buf.subarray(0, 4).toString('latin1') === '%PDF') return 'es un PDF';
+  if (buf.length >= 2 && buf[0] === 0x50 && buf[1] === 0x4b) return 'es un Excel (.xlsx) sin la hoja de movimientos de BanBajío';
+  const primera = (lineas(aTexto(buf)).find((l) => l.trim() !== '') ?? '').replace(/[^\x20-\x7EÀ-ÿ]/g, ' ').trim();
+  return primera ? `empieza con «${primera.slice(0, 70)}»` : 'está vacío';
 }
 
 const lineas = (texto: string) => texto.split(/\r\n|\r|\n/);
@@ -131,6 +152,7 @@ export function detectarBanco(buf: Buffer): Banco | null {
   if (u.startsWith('CUENTA,FECHA,HORA') && u.includes('CLAVE DE RASTREO')) return 'santander';
   if (u.includes('"MOVIMIENTO"') && u.includes('"RETIROS"') && u.includes('"SALDOS"')) return 'banorte';
   if (u.includes('\t') && u.includes('CONCEPTO / REFERENCIA') && u.includes('SALDO')) return 'bbva';
+  if (u.startsWith('MOVIMIENTO DE CUENTA') && aTexto(buf).toUpperCase().includes('DETALLE DE MOVIMIENTOS')) return 'banamex';
   return null;
 }
 
@@ -316,6 +338,88 @@ async function leerBanBajio(buf: Buffer): Promise<Omit<EstadoDeCuentaLeido, 'con
   return { banco: 'banbajio', cuenta: null, cliente, movimientos, no_leidos, declarado };
 }
 
+/**
+ * Banamex. El banco sólo atestigua el saldo al CIERRE de cada día (un renglón por día) y el saldo
+ * inicial y final del resumen. El saldo de los demás renglones se calcula desde el saldo inicial,
+ * en el orden del archivo invertido (del más viejo al más nuevo, igual que los días); ⚠️ el orden
+ * DENTRO de un día es supuesto, sólo el cierre es del banco. Si el cálculo no llega al cierre que
+ * imprime el banco, ese renglón lleva el saldo IMPRESO: la cadena se rompe ahí y `controlarSaldo` lo
+ * marca (nunca se ajusta el cálculo para que cuadre).
+ */
+function leerBanamex(buf: Buffer): Omit<EstadoDeCuentaLeido, 'control'> {
+  const L = lineas(aTexto(buf));
+  const no_leidos: RenglonNoLeido[] = [];
+  const informativos: RenglonNoLeido[] = [];
+  const declarado: TotalesDeclarados = { movimientos: null, cargos_centavos: null, abonos_centavos: null, coinciden: null };
+  let cuenta: string | null = null;
+  let inicial: number | null = null;
+  let final: number | null = null;
+  let lineaResumen = 0;
+  let hRow = -1;
+  for (let i = 0; i < L.length; i++) {
+    const v = partirCsv(L[i]).map(limpio);
+    const u = v.map((x) => x.toUpperCase());
+    if (u[0] === 'FECHA' && u.length >= 5) { hRow = i; break; }
+    if (u[0] === 'CUENTA') cuenta = oNulo(v[1].replace(/\D/g, ''));
+    if (u[0] === 'SALDO INICIAL') { inicial = aCentavos(v[1]); final = aCentavos(v[4]); lineaResumen = i + 1; }
+    const n = u[0].match(/^(DEP[OÓ]SITOS|RETIROS) \((\d+)\)$/);
+    if (n) {
+      declarado.movimientos = (declarado.movimientos ?? 0) + Number(n[2]);
+      if (n[1] === 'RETIROS') declarado.cargos_centavos = aCentavos(v[1]); else declarado.abonos_centavos = aCentavos(v[1]);
+    }
+  }
+  const vacio = { banco: 'banamex' as const, cuenta, cliente: null, movimientos: [] as MovimientoBanco[], no_leidos, informativos, declarado };
+  if (hRow < 0 || inicial === null) {
+    no_leidos.push({ linea: 0, motivo: 'no se encontró el resumen (saldo inicial) o el encabezado «Fecha»', texto: L.slice(0, 3).join(' ') });
+    return vacio;
+  }
+  const importe = (s: string) => (s === '-' ? 0 : aCentavos(s));
+  type Renglon = MovimientoBanco & { cierre: number | null };
+  const delArchivo: Renglon[] = [];
+  for (let i = hRow + 1; i < L.length; i++) {
+    const texto = L[i];
+    if (texto.trim() === '') continue;
+    const v = partirCsv(texto).map(limpio);
+    const m = (v[0] ?? '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    const abono = importe(v[2] ?? '');
+    const cargo = importe(v[3] ?? '');
+    const cierre = (v[4] ?? '') === '' ? null : aCentavos(v[4]);
+    if (v.length < 5 || !m || abono === null || cargo === null || (v[4] !== '' && cierre === null)) {
+      no_leidos.push({ linea: i + 1, motivo: 'fecha, importe o saldo ilegible', texto }); continue;
+    }
+    if (abono === 0 && cargo === 0) { informativos.push({ linea: i + 1, motivo: 'renglón de $0.00: desglose de otro movimiento', texto }); continue; }
+    const concepto = v[1];
+    const pesca = (re: RegExp) => oNulo((concepto.match(re)?.[1] ?? '').trim());
+    delArchivo.push({
+      linea: i + 1, fecha: `${m[3]}-${m[2]}-${m[1]}`, hora: null, concepto,
+      cargo_centavos: cargo, abono_centavos: abono, saldo_centavos: 0, cierre,
+      referencia: pesca(/Autorizaci\S*n:\s*(\d+)/i), clave_rastreo: null, contraparte_cuenta: null, contraparte_rfc: null,
+      contraparte_nombre: null, texto_original: texto,
+    });
+  }
+  // Del más viejo al más nuevo: el saldo corre desde el inicial; al cerrar cada día se compara con el impreso.
+  const cronologico = [...delArchivo].reverse();
+  let saldo = inicial;
+  cronologico.forEach((r, k) => {
+    saldo += r.abono_centavos - r.cargo_centavos;
+    const ultimoDelDia = k === cronologico.length - 1 || cronologico[k + 1].fecha !== r.fecha;
+    const impreso = ultimoDelDia ? cronologico.filter((x) => x.fecha === r.fecha).find((x) => x.cierre !== null)?.cierre ?? null : null;
+    if (impreso !== null && impreso !== saldo) saldo = impreso; // la cadena se rompe aquí, a la vista
+    r.saldo_centavos = saldo;
+  });
+  // El primer renglón no tiene anterior con quien romper la cadena: el saldo inicial del resumen se
+  // compara aparte con el que deja el primer cierre impreso.
+  const primero = cronologico[0];
+  if (primero && primero.saldo_centavos - primero.abono_centavos + primero.cargo_centavos !== inicial) {
+    no_leidos.push({ linea: lineaResumen, motivo: 'el saldo inicial del resumen no lleva al cierre que imprime el banco', texto: L[lineaResumen - 1] ?? '' });
+  }
+  if (final !== null && cronologico.length && saldo !== final) {
+    no_leidos.push({ linea: lineaResumen, motivo: 'el saldo final del resumen no es el del último movimiento', texto: L[lineaResumen - 1] ?? '' });
+  }
+  const movimientos = delArchivo.map(({ cierre: _c, ...mov }) => mov);
+  return { ...vacio, movimientos };
+}
+
 /** Líneas cuyo saldo no encadena con el renglón anterior, en el orden dado. */
 function eslabonesRotos(m: MovimientoBanco[]): number[] {
   const rotos: number[] = [];
@@ -362,7 +466,8 @@ export async function leerEstadoDeCuenta(buf: Buffer): Promise<EstadoDeCuentaLei
   const leido = banco === 'santander' ? leerSantander(buf)
     : banco === 'banorte' ? leerBanorte(buf)
       : banco === 'bbva' ? leerBbva(buf)
-        : await leerBanBajio(buf);
+        : banco === 'banamex' ? leerBanamex(buf)
+          : await leerBanBajio(buf);
   const { movimientos, control } = controlarSaldo(leido.movimientos);
   const declarado = leido.declarado;
   if (declarado && control && (declarado.movimientos !== null || declarado.cargos_centavos !== null || declarado.abonos_centavos !== null)) {
