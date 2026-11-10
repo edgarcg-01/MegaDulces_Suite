@@ -15,6 +15,7 @@ import type {
   PresaleStage,
 } from '@megadulces/contracts';
 import { PresaleLoadService } from './presale-load.service';
+import { esSinSenal } from '../../core/http/sin-senal';
 import { avisoGrupo, companeros, esDeGrupo, juntarGrupos, recoleccion } from './presale-grupos.util';
 
 const ETAPA: Partial<Record<PresaleStage, string>> = {
@@ -431,7 +432,8 @@ export class PresaleLoadComponent implements OnInit {
       next: (d) => this.aplicar(d),
       error: (e: HttpErrorResponse) => {
         this.loading.set(false);
-        this.err.set(e?.status === 0 ? 'Sin conexión: revisa tu señal y actualiza.' : e?.status === 403 ? 'Tu usuario no tiene permiso para llevar pedidos.' : 'No se pudieron cargar los pedidos. Actualiza en un momento.');
+        // [VTK.16] Sin señal también es el 504 sin cuerpo del service worker (en el navegador).
+        this.err.set(esSinSenal(e) ? 'Sin conexión: revisa tu señal y actualiza.' : e?.status === 403 ? 'Tu usuario no tiene permiso para llevar pedidos.' : 'No se pudieron cargar los pedidos. Actualiza en un momento.');
       },
     });
   }

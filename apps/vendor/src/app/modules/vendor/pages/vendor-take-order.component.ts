@@ -4,6 +4,7 @@ import {
   DestroyRef,
   ElementRef,
   HostListener,
+  Injector,
   OnDestroy,
   OnInit,
   computed,
@@ -46,6 +47,9 @@ import { dictar, mencionaSabores, puedeDictar, unirDictado } from '../dictado';
 import { PriceRow, OrderLine } from '../../portal/portal.service';
 import { HapticService } from '../../../core/services/haptic.service';
 import { ConnectivityService } from '../../../core/services/connectivity.service';
+import { esSinSenal, TEXTO_SIN_SENAL } from '../../../core/http/sin-senal';
+import { LectorCodigoComponent } from '../components/lector-codigo.component';
+import { ChecadorPreciosService } from '../checador-precios.service';
 import { OfflineOrderService } from '../../../core/services/offline-order.service';
 import { fechaEntregaPorOmision, todayIso } from '../../../core/date/biz-days';
 import {
@@ -93,6 +97,7 @@ const foldText = (s: string | null | undefined): string =>
     SkeletonModule,
     InputTextModule,
     ConfirmDialogModule,
+    LectorCodigoComponent,
   ],
   // [MCP.3.5] SIN MessageService propio: esta pantalla no tiene <p-toast>, así que una
   // instancia local se tragaba TODOS sus avisos (el error de agregar incluido) y el vendedor
@@ -227,10 +232,16 @@ const foldText = (s: string | null | undefined): string =>
         <div class="search sticky">
           <i class="pi pi-search"></i>
           <input pInputText type="search" placeholder="Buscar producto o código"
-            [ngModel]="searchTerm()" (ngModelChange)="searchTerm.set($event)"
+            [ngModel]="searchTerm()" (ngModelChange)="alBuscar($event)"
             inputmode="search" enterkeyhint="search"
             autocapitalize="none" autocorrect="off" spellcheck="false" />
+          <!-- [VTK.18] Leer el código de barras con la cámara: lo leído busca ese producto. -->
+          <app-lector-codigo etiqueta="Buscar leyendo el código de barras con la cámara"
+            (leido)="alEscanear($event)" (sinCamara)="avisoEscaneo.set({ texto: $event, warn: true })" />
           </div>
+          @if (avisoEscaneo(); as ae) {
+            <p class="cat-age" [class.warn]="ae.warn" role="status"><i class="pi pi-camera" aria-hidden="true"></i> {{ ae.texto }}</p>
+          }
           <!-- Avisos de la fuente de existencia (el selector vive en la tira de arriba, [VTK.6]) -->
           @if (stockSources().sucursal && !offlineMode()) {
             @if (stockSources().sucursal?.assigned === false) {
@@ -1178,6 +1189,55 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   private cartReadSeq = 0;
   /** Signal (no campo plano): un `computed` que lo lea reacciona al tipear. */
   readonly searchTerm = signal('');
+  /** `[VTK.18]` Qué pasó con el último código leído con la cámara (o por qué no abrió). */
+  readonly avisoEscaneo = signal<{ texto: string; warn: boolean } | null>(null);
+  /**
+   * `[VTK.18]` El servicio del checador se pide al LEER un código, no al abrir la pantalla: la cámara es
+   * la excepción en Tomar pedido y la pantalla no tiene por qué cargar con él (ni sus pruebas con HTTP).
+   */
+  private readonly injector = inject(Injector);
+  /** `[VTK.18]` Cada lectura tiene su número: una resolución lenta no pisa una búsqueda posterior. */
+  private escaneoSeq = 0;
+
+  /** Teclear en el buscador: el aviso de la última lectura ya no aplica. */
+  alBuscar(v: string): void {
+    this.escaneoSeq++;
+    this.searchTerm.set(v);
+    if (this.avisoEscaneo()) this.avisoEscaneo.set(null);
+  }
+
+  /**
+   * `[VTK.18]` La cámara leyó un código. El catálogo del pedido se busca por nombre y SKU (la clave de
+   * Kepler), NO por código de barras, así que primero se traduce el código a su clave — con la copia
+   * de precios del teléfono si la hay (sin señal también), si no en línea — y se busca esa clave.
+   * Si no se puede traducir, se busca el código tal cual y se DICE; no se inventa un producto.
+   */
+  async alEscanear(codigo: string): Promise<void> {
+    const seq = ++this.escaneoSeq;
+    this.searchTerm.set(codigo);
+    this.avisoEscaneo.set({ texto: `Leíste ${codigo}. Buscando el producto…`, warn: false });
+    const suc = this.stockSources().sucursal;
+    const sucursal = suc?.code && /^[0-9]{2}$/.test(suc.code) ? suc.code : null;
+    const r = await this.injector.get(ChecadorPreciosService).claveDeCodigo(codigo, sucursal)
+      .catch(() => ({ estado: 'no_se_pudo' as const }));
+    if (seq !== this.escaneoSeq) return;
+    if (r.estado !== 'hallado') {
+      this.avisoEscaneo.set({
+        texto: r.estado === 'no_esta'
+          ? `El código ${codigo} no está en el catálogo de Kepler: se busca tal cual.`
+          : `No se pudo confirmar de qué producto es ${codigo} (${this.conn.isOnline() ? 'el servidor no contestó' : 'sin señal'} y no está en la copia de precios del teléfono): se busca tal cual.`,
+        warn: true,
+      });
+      return;
+    }
+    this.searchTerm.set(r.clave);
+    this.avisoEscaneo.set({
+      texto: r.ambiguo
+        ? `El código ${codigo} está en más de un producto; se busca la clave ${r.clave} (${r.nombre}). Confirma que sea el que tienes en la mano.`
+        : `Leíste ${codigo}: ${r.nombre} (clave ${r.clave}).`,
+      warn: r.ambiguo,
+    });
+  }
 
   /**
    * Cantidad objetivo optimista por producto, pendiente de PATCH (debounced). La
@@ -2168,6 +2228,9 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
    * sin cuerpo, una caída de red— se dice en palabras, nunca "[object Object]" ni vacío.
    */
   private motivoDeError(err: unknown): string {
+    // [VTK.16] Primero: ¿llegó al servidor? En el navegador, sin señal el service worker contesta 504
+    // sin cuerpo, y eso se decía «el servidor no lo aceptó… avisa a oficina».
+    if (esSinSenal(err)) return TEXTO_SIN_SENAL;
     const e = err as { error?: { message?: unknown }; status?: number } | null;
     const m = e?.error?.message;
     if (typeof m === 'string' && m.trim()) return m.trim();
@@ -2175,7 +2238,6 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
       const partes = m.filter((x): x is string => typeof x === 'string' && !!x.trim());
       if (partes.length) return partes.join('. ');
     }
-    if (e?.status === 0) return 'Sin conexión con el servidor. Intenta de nuevo.';
     return 'El servidor no lo aceptó. Intenta de nuevo o avisa a oficina.';
   }
 

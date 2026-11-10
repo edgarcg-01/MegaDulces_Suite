@@ -112,7 +112,8 @@ describe('Tomar pedido · avisos que sí llegan [MCP.3.5]', () => {
     const p = cmp.prices().find((x) => x.product_id === 'a')!;
     cmp.incProduct(p);
     fixture.detectChanges();
-    expect(fila(el, 'Kinder')?.querySelector('.row-err')?.textContent).toContain('Sin conexión');
+    // [VTK.16] Sin señal se dice como tal (antes «Sin conexión con el servidor»).
+    expect(fila(el, 'Kinder')?.querySelector('.row-err')?.textContent).toContain('Sin señal: no se guardó');
     falla = false;
     cmp.incProduct(p);
     fixture.detectChanges();
