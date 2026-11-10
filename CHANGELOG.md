@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Internal — Calendario de compras: lo que Kepler propone de cada proveedor (PQ.3.1, 2026-11-10 · en código, sin soltar)
+- Vista nueva `commercial.v_purchase_calendar_proposal`: por proveedor, cada cuánto se le pide (ciclo propuesto, con 4 o más pedidos en el año), su último pedido por sucursal y la próxima fecha. Sale de las órdenes de compra de Kepler: no se captura nada y no cambia ninguna cantidad sugerida.
+- Primer paso para sustituir la hoja «2026» con la que Compras sigue a sus proveedores ([anexo C del plan PQ](docs/IMPLEMENTACION/FASES/FASE_PQ_ANEXO_CALENDARIO_COMPRAS.md)); la pantalla llega en PQ.3.5.
+- ⚠️ Migración `20261110015037` en prod antes de soltar. Sólo crea la vista; ningún código la lee todavía.
+
 ### Fixed — Gastos: nada atorado sin dueño (GX.91–GX.96, 2026-11-06)
 - Un doble clic en «Enviar a aprobación» ya no crea dos vales.
 - Un vale revisado cuya solicitud Kepler canceló ya no se queda «esperando el gasto» para siempre; los devueltos se quedan a la vista hasta recapturarse.
