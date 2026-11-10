@@ -480,8 +480,16 @@ manos va cuenta por cuenta, empezando por BBVA 4885 · D4 va como item de CB (y 
   **Arranque:** `design:paramtypes` verificado transpilando sólo esos archivos (`ts.transpileModule` con
   `emitDecoratorMetadata`): el servicio inyecta `TenantKnexService`/`TenantContextService` y el controlador el
   servicio, igual que `EstadoDeCuentaService` (control, ya en prod); con `import type` (la forma de #414) la misma
-  verificación da `Object, Object`. El arranque completo (`boot-api.yml`, manual en GitHub) corre sobre un commit
-  empujado: **NO MEDIDO** hasta empujar.
+  verificación da `Object, Object`. ✅ **Arranque medido en prod (2026-11-10):** la propuesta (`e75baea48`) llegó a
+  prod en `e76083060` (con el push de otra sesión); la API arrancó con ella y `GET /api/finance/bank/comisiones-kepler`
+  sin sesión responde **401** (la ruta existe y pide permiso) contra **404** de una ruta inventada (control).
+  (Corrige la línea anterior de este doc, que lo daba por NO MEDIDO.)
+- **Entrega (2026-11-10, Edgar: «te autorizo»):** `21c48a8b6` (la revisión por bloque y la espera) empujado SOLO,
+  armado fuera del árbol sobre `origin/main` para no arrastrar commits locales de otras sesiones; pre-push 26
+  compuertas sin rojo en sus 4 archivos; CI: «Build & typecheck», «Typecheck (affected)» y «Test (affected)» en
+  verde y **sellado** (`ci-green` = `21c48a8b6`). «Lint & test» rojo por `check-caja-sin-control` sobre dos archivos
+  de Caja (`caja-cuadre-huecos.query.ts`, `hoja-gastos.service.ts`) — **el mismo rojo ya estaba en `0236304ec`**
+  (LE.6.29), ajeno a CB.62. **No soltado:** `prod-release` lo mueve una persona.
 - **Con la semana completa (2026-11-10, Tesorería subió 15 cuentas del 1 al 10-nov, ~1,500 renglones):**
   - **IVA por bloque, no por día.** En 272 bloques: 272 traen una comisión y su IVA; BBVA cobra el IVA al 16 % exacto
     en 260 de 261 (uno a +1 ¢) y **Banorte se desvía hasta ±4 ¢** (calcula sobre otra base). La regla del día (1 ¢
