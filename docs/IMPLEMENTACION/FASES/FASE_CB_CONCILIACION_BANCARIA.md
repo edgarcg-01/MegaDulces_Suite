@@ -405,6 +405,71 @@ hoy el libro se **sube a mano** como `.xlsx`.
 
 ---
 
+## 9. `[CB.62]` 🔨 Las comisiones de la terminal: de la descarga del banco a Kepler y a la póliza (2026-11-10)
+
+**Pedido de Edgar (2026-11-09):** «eliminemos reprocesos: hoy las comisiones se escriben a mano en el libro y en
+Kepler; al subir la descarga en Estados de cuenta, que se identifiquen solas, se genere el movimiento en Kepler y
+la póliza de gasto». **Firmado (2026-11-10):** D1 replicar la forma que Finanzas captura hoy · D3 el cambio de
+manos va cuenta por cuenta, empezando por BBVA 4885 · D4 va como item de CB (y PGP para el escritor), no fase nueva.
+
+### 9.1 Lo que Finanzas captura hoy, medido (`kepler_ods`, octubre, sólo lectura)
+
+| Documento | Grano | Qué lleva |
+|---|---|---|
+| Solicitud `X-A-15` (`c43='F'`) y gasto `X-A-10` (`c43='N'`, `c37/c38/c39` → la solicitud) | sucursal × banco × **día de venta** | `kdm6`: un renglón por COMISIÓN (`611-003`, «COMISIONES BANCARIAS POR VENTA», concepto `199`, proyecto `c13`, departamento de la sucursal `c16`); el IVA de todas en `c14`; `c16` total |
+| Pago `X-D-26` | **uno por cargo del banco** (la comisión y su IVA, aparte) | `c9` fecha del cargo, `c45` la cuenta, `c11` «COMISIONES»/«IVA», `c81/c82` IVA proporcional (la regla de `ivaProporcional` de PGP), aplicado al gasto por `kdxf` |
+
+- ~2,000 documentos al mes (273 gastos, 282 solicitudes, 1,408 pagos), por ~$150 mil. Capturados hasta **tres
+  semanas** después (el gasto del 1-oct de Madero, el 22-oct).
+- Los pagos son copia del banco: **1,357 de 1,408** casan con un cargo (misma cuenta, importe exacto, ±3 días);
+  placebo contra otra cuenta del mismo banco: **40**.
+- 273 gastos: 257 con una sola fecha de cargo, 265 pagados al centavo por sus pagos.
+- ⭐ **El gasto va por día de VENTA, no de cargo**: los cargos del lunes se reparten en los gastos de viernes,
+  sábado y domingo (las 9 sucursales, todos los lunes de octubre). El banco no dice el día. Lo dice el depósito
+  del bloque (depósito → su comisión → su IVA, renglones seguidos en la descarga), que la sucursal captura en
+  Kepler como `U-A-5` con el texto «VTA DEL 02-11-26». La sucursal sale del mismo `U-A-5`.
+- El libro no sirve para esto: reescribe el concepto («COMISION», «IVA») y no guarda el orden del banco. La
+  descarga trae la terminal en el texto (BBVA `/175096809`, Banorte `08991964C`).
+
+### 9.2 Hecho (C0 + C1, 2026-11-10)
+
+- **C1 — armador puro** [`comisiones-kepler.armador.ts`](../../../libs/finance/src/lib/bank/comisiones-kepler/comisiones-kepler.armador.ts):
+  reconoce comisión/IVA/depósito de tarjeta (BBVA y Banorte), parte la descarga en bloques, lee el día de venta del
+  texto del `U-A-5`, agrupa por sucursal × banco × día de venta y arma solicitud + gasto + un pago por cargo con
+  los campos medidos, o dice por qué no (fail-closed: IVA que no es el 16 % de las comisiones, un IVA solo,
+  plantilla de otro banco o sin departamento, cargo anterior al día de venta). **16 pruebas**, control con el caso
+  real de Madero (gasto `0000063`: $771.09, IVA $106.35, `c82` 3.0522059682) y el lunes 3-nov de BBVA 4885;
+  **dos mutantes muertos** (quitar el control del 16 % y dejar que un bloque reciba dos comisiones).
+- **C0 — la sombra** [`ops/prod/sombra-comisiones-kepler/sombra.ts`](../../../ops/prod/sombra-comisiones-kepler/sombra.ts):
+  corre el armador real sobre las 230 líneas de descarga en prod (31-oct al 3-nov) y compara cargo por cargo con
+  lo que Finanzas capturó. Resultado:
+  - detección: 128 cargos en bloque, 0 huérfanos; de los 97 pagos de Finanzas de esos días el detector no vio 5:
+    3 son cuotas fijas (Santander 1604, BanBajío 4166: fuera de alcance) y 2 son centavos ajustados por Finanzas;
+  - **sucursal: 77 de 77** cargos que la Suite asignó; **día de venta: 71 de 77** (línea base «día del cargo − 1»:
+    27 de 92);
+  - gastos: 7 idénticos, 1–2 difieren en un centavo (Finanzas calcula el IVA como 16 % de la base y ajusta un pago:
+    $55.29 contra $55.30 del banco), 6 que Finanzas **aún no captura**, y el resto explicado: un fin de semana que
+    Finanzas juntó en un gasto del viernes, un depósito con «29-10» que Finanzas puso en el 30, y bloques cuyo
+    `U-A-5` la sucursal aún no captura (quedan «por revisar», no se adivinan).
+  - El texto del `U-A-5` también trae dedazos: «VENTAS 3/11/2026» en un depósito del mismo 3-nov. Se endureció:
+    el día de venta debe ser **anterior** al del banco (1 a 7 días); si no, por revisar.
+
+### 9.3 Lo que falta
+
+| # | Capa | Qué | Criterio |
+|---|---|---|---|
+| CB.62.1 | C0 | Sombra con un **mes completo**: subir la descarga de **octubre** de BBVA 4885 y Banorte 7744 (hoy sólo hay 4 días) | Día de venta y sucursal ≥ 95 % de lo asignado; cada diferencia, explicada |
+| CB.62.2 | C1 | Decidir el centavo: la Suite escribe cada pago igual al banco (recomendado) o imita el ajuste de Finanzas | Firma de Edgar/Tesorería |
+| CB.62.3 | C2 | Ingeniería inversa del **alta** del gasto y la solicitud (foto de contadores antes/después de una captura real: `kdm1`, `kdm6`, `kdxe`, `kdxg`, póliza `kdc2AAMM`, `kdc126`, `kdcn26`…). El pago ya está medido (PGP) | La lista de tablas cerrada con una captura real |
+| CB.62.4 | C2 | Escritor apagado (interruptor como PGP), `GRANT` en las **9** bases, ensayo desde `md`, candado contra duplicados: un cargo con su `X-D-26` ya en Kepler no se escribe | Ensayo verde en una sucursal; prueba negativa del candado |
+| CB.62.5 | C3 | En Estados de cuenta: «N comisiones listas → Generar en Kepler», con lo «por revisar» y su porqué | `diseno` + `check:pantalla` |
+| CB.62.6 | — | Póliza de ContPAQi: ya existe (`[CP.8.91]`, banco × mes); falta la firma de contabilidad de `comision_bancaria` → 5200650000 | Firma de contabilidad |
+
+Fuera de alcance por ahora: las cuotas fijas sin depósito (renta de terminal, cuota de afiliación de Santander y
+BanBajío): otra forma de gasto, a medir aparte.
+
+---
+
 ## Observaciones de diseño UI — revisión del plan (2026-10-26)
 
 > **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que
