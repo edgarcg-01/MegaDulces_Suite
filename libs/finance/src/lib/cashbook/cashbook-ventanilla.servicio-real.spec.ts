@@ -6,7 +6,7 @@ import type { PagoEnVentanilla, ZonaHojaGastos } from '@megadulces/contracts';
 import type { DepositoBancoHoja, PagoDeZona } from '../caja/hoja-gastos.engine';
 import { CashbookService } from './cashbook.service';
 import {
-  CashbookVentanillaService, type FilaDocumento, type FilaDocumentoLote, type FilaRespaldoCompra, type FilaRespaldoGasto, type FilaVale,
+  CashbookVentanillaService, SQL_VALE, type FilaDocumento, type FilaDocumentoLote, type FilaRespaldoCompra, type FilaRespaldoGasto, type FilaVale,
 } from './cashbook-ventanilla.service';
 import type { FilaCobroRuta, FilaCobroSucursal } from './cobro-en-ventanilla';
 import { esSinRegla, movimientoCaos } from './reglas';
@@ -755,5 +755,41 @@ describe.skipIf(!URL)('[LE.4.10] la Ventanilla contra Postgres', () => {
     expect(cierre.excedente).toBeTruthy();
     const h = (await libro.hallazgos()).find((x) => x['id'] === cierre.excedente) as { detail: { regla: string; tope_minor: string }; owner_user: string } | undefined;
     expect(h).toMatchObject({ detail: { regla: 'tope_del_cajon', tope_minor: '1000' }, owner_user: CAJERA.id });
+  });
+});
+
+/**
+ * ⭐ `[LE.6.28]` `SQL_VALE` TAL CUAL contra Postgres (el resto de este archivo lo sustituye con filas). PM,
+ * 2026-11-10: *«un pago sale no aprobado y ya lo está»* — el vale 0000091 de Morelia Centro lo validó una
+ * persona el 26/10, cuando todavía no se guardaba `aprobado_at`. La validación de una persona cuenta como
+ * firma; la del cierre de Kepler, no. Todo dentro de una transacción que se deshace.
+ */
+describe.skipIf(!URL)('[LE.6.28] la firma del vale, con el SQL real', () => {
+  let knex: Knex;
+  beforeAll(() => { knex = knexFactory({ client: 'pg', connection: URL as string, pool: { min: 0, max: 2 } }); });
+  afterAll(async () => { await knex?.destroy(); });
+
+  it('validado por una persona sin aprobado_at → firmado a su hora; por Kepler o sin validar → sin firma', async () => {
+    const vistos: Record<string, string | null> = {};
+    const trx = await knex.transaction();
+    try {
+      await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [T]);
+      const vale = async (clave: string, campos: Record<string, unknown>) => {
+        const id = randomUUID();
+        await trx('finance.expense_proofs').insert({ id, tenant_id: T, solicitante: 'prueba', proveedor: 'SERVICIOS DE PRUEBA',
+          sucursal: '07', folio_solicitud: clave, importe: 627.79, ...campos });
+        vistos[clave] = ((await trx.raw(SQL_VALE, [T, id])).rows[0] as FilaVale).aprobado_at;
+      };
+      await vale('persona', { status: 'validada', validated_by: 'finanzas_prueba', validated_at: '2026-10-26T11:54:25-06:00' });
+      await vale('kepler', { status: 'validada', validated_by: 'Kepler: autorizado y aplicado (el dinero salió)', validated_at: '2026-11-09T10:00:00-06:00' });
+      await vale('firmado', { status: 'validada', validated_by: 'finanzas_prueba', validated_at: '2026-11-09T12:00:00-06:00', aprobado_at: '2026-11-09T11:00:00-06:00' });
+      await vale('recibida', { status: 'recibida' });
+    } finally {
+      await trx.rollback();
+    }
+    expect(vistos['persona'] && new Date(vistos['persona']).toISOString()).toBe('2026-10-26T17:54:25.000Z');
+    expect(vistos['kepler']).toBeNull();
+    expect(vistos['firmado'] && new Date(vistos['firmado']).toISOString()).toBe('2026-11-09T17:00:00.000Z');
+    expect(vistos['recibida']).toBeNull();
   });
 });

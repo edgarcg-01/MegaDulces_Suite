@@ -86,10 +86,19 @@ export const SQL_DOCUMENTO = `
     FROM analytics.bank_movement_legs
    WHERE tenant_id = ? AND sucursal = ? AND doc_tipo = ? AND folio = ? AND clave_banco = ?
      AND signo < 0 AND es_traspaso = false`;
+/**
+ * ⭐ `[LE.6.28]` Cuándo lo firmó una PERSONA, a más tardar. `aprobado_at` se guarda desde el 28/10
+ * (`[CGA-A.62]`); antes, la validación de una persona en Aprobación de gastos ERA la firma, y su hora es la
+ * cota (la misma regla que `juzgarVale`, `pago-aprobado.engine.ts`). El cierre de Kepler («Kepler: …») no
+ * es una firma (`[GX.85]`): ése sigue sin aprobar. PM, 2026-11-10: *«un pago sale no aprobado y ya lo
+ * está»* — Servicios La Quemada, Morelia Centro X-D-26 0000432, vale 0000091 validado el 26/10.
+ */
+const FIRMA_DE_PERSONA = (p: string) => `coalesce(${p}.aprobado_at, CASE WHEN ${p}.status IN ('validada', 'aprobada')
+           AND nullif(btrim(${p}.validated_by), '') IS NOT NULL AND ${p}.validated_by !~* '^kepler' THEN ${p}.validated_at END)`;
 export const SQL_VALE = `
   SELECT id, coalesce(nullif(btrim(folio_solicitud), ''), left(id::text, 8)) AS folio, status, importe::text AS importe,
-         aprobado_at::text AS aprobado_at
-    FROM finance.expense_proofs WHERE tenant_id = ? AND id = ?`;
+         ${FIRMA_DE_PERSONA('v')}::text AS aprobado_at
+    FROM finance.expense_proofs v WHERE tenant_id = ? AND id = ?`;
 
 /**
  * `[LE.2.13]` Lo que el X-D-26 paga según Kepler, POR LOTE de pares (sucursal, folio): la cola pide
@@ -120,10 +129,10 @@ export const SQL_RESPALDO_GASTO = `
                           AND nullif(btrim(ed.solicitud_folio), '') IS NOT NULL
                         LIMIT 1) d ON true
     LEFT JOIN LATERAL (SELECT p.id, coalesce(nullif(btrim(p.folio_solicitud), ''), left(p.id::text, 8)) AS folio, p.status,
-                              p.importe, p.aprobado_at
+                              p.importe, ${FIRMA_DE_PERSONA('p')} AS aprobado_at
                          FROM finance.expense_proofs p
                         WHERE p.tenant_id = ? AND p.sucursal = g.sucursal AND btrim(p.folio_solicitud) = d.sol
-                        ORDER BY (p.aprobado_at IS NOT NULL) DESC, (p.status = 'rechazada'), p.created_at DESC
+                        ORDER BY (${FIRMA_DE_PERSONA('p')} IS NOT NULL) DESC, (p.status = 'rechazada'), p.created_at DESC
                         LIMIT 1) ep ON true
    ORDER BY g.sucursal, g.folio, g.gasto`;
 export const SQL_RESPALDO_COMPRA = `
