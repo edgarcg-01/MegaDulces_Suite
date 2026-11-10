@@ -390,6 +390,27 @@ export function depositoKeplerDeHoja(total: number, desde: string, depositos: re
   return { estado: 'encontrado', deposito: c[0], diferencia: redondea2(c[0].importe - t) };
 }
 
+const dmyCorto = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
+
+/**
+ * ⭐ `[LE.6.29]` Por qué una hoja pagada no trae su depósito, en palabras (PM, 2026-11-10, HG-15 de Morelia:
+ * *«aquí debo ver el folio del depósito»*). Antes decía «Kepler trae hasta el 10/11» con la fecha del último
+ * documento de CUALQUIER tipo, y Morelia Abastos no había capturado un solo `U-A-5` desde el 6/11: el
+ * depósito no podía estar y el texto daba a entender que sí. Ahora cuenta el último DEPÓSITO capturado por
+ * cada sucursal de la zona, con su nombre, y si ninguna capturó desde el día del pago lo dice así.
+ */
+export function notaSinDeposito(
+  banco: string, desde: string, sucursales: readonly string[], ultimoDeposito: ReadonlyMap<string, string>,
+  nombre: (sucursal: string) => string,
+): string {
+  const ultimos = sucursales.map((s) => ({ s, al: ultimoDeposito.get(s) ?? null }));
+  const lista = ultimos.map((u) => `${nombre(u.s)}, ${u.al ? `el ${dmyCorto(u.al)}` : 'ninguno en estos días'}`).join('; ');
+  if (ultimos.every((u) => !u.al || u.al < desde)) {
+    return `El depósito todavía no puede estar: desde el ${dmyCorto(desde)} ninguna sucursal de la zona ha capturado depósitos (U-A-5) en Kepler. Último capturado: ${lista}.`;
+  }
+  return `No hay un U-A-5 a la clave ${banco} por el total (±$0.50) del ${dmyCorto(desde)} a siete días. Último depósito capturado en Kepler: ${lista}.`;
+}
+
 /** `[LE.6.20]` La cuenta de la zona tal como la lee el servicio: sus depósitos y hasta qué día está cargada. */
 export interface BancoDeZona {
   cuenta: string;

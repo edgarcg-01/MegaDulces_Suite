@@ -8,11 +8,11 @@ import {
   type CerrarHojaInput, type HojaAbierta, type HojaGastos, type HojasDeGastos, type MedioPagoHoja,
   type MotivoHojaInput, type PagarHojaAbiertaInput, type PagarHojaInput, type PagoDeHojaGastos, type PagoHojaResultado, type RegistrarConteoHojaInput,
   type RenglonHoja, type RetiroControlHoja,
-  type ZonaHojaGastos,
+  type ZonaHojaGastos, warehouseName,
 } from '@megadulces/contracts';
 import { consultasHoja } from './hoja-gastos.query';
 import {
-  armarHojaAbierta, cuadreDelRetiro, depositoKeplerDeHoja, hojaAbiertaAutorizada, instruccionDePago, loYaRepuesto, pagadoEnControl, retirosQueCuadran,
+  armarHojaAbierta, cuadreDelRetiro, depositoKeplerDeHoja, hojaAbiertaAutorizada, instruccionDePago, loYaRepuesto, notaSinDeposito, pagadoEnControl, retirosQueCuadran,
   type BancoDeZona, type DepositoBancoHoja, type DepositoKeplerHoja, type PagoDeZona, type RetiroCaosConLigas, type RetiroLibreHoja,
 } from './hoja-gastos.engine';
 import { hojasInstaladas } from './hoja-gastos.gate';
@@ -665,7 +665,9 @@ export class HojaGastosService {
       .select('sucursal', 'folio', 'clave_banco', 'importe', trx.raw(`to_char(fecha_valor, 'YYYY-MM-DD') AS dia`)))
       .map((d): DepositoKeplerHoja => ({ id: `${d.sucursal}|U-A-5|${d.folio}|${d.clave_banco}`, dia: d.dia,
         importe: redondea2(Number(d.importe)), sucursal: String(d.sucursal), folio: String(d.folio), banco: String(d.clave_banco) }));
-    const keplerAl = new Map<string, string>((await legs().groupBy('sucursal')
+    // `[LE.6.29]` El último DEPÓSITO capturado (cualquier clave): el último documento de cualquier tipo decía
+    // «Kepler trae hasta el 10/11» cuando Morelia Abastos no capturaba un `U-A-5` desde el 6/11.
+    const keplerAl = new Map<string, string>((await legs().where('doc_tipo', 'U-A-5').where('signo', '>', 0).groupBy('sucursal')
       .select('sucursal', trx.raw(`to_char(max(fecha_captura), 'YYYY-MM-DD') AS al`)))
       .filter((r) => r.al).map((r) => [String(r.sucursal), String(r.al)]));
     return { depositos, keplerAl };
@@ -722,9 +724,9 @@ export class HojaGastosService {
           deposito = { estado: 'ambiguo', depositos: null, diferencia: null,
             nota: `Hay ${dep.opciones} depósitos U-A-5 por ese total en esos días: lo liga una persona.` };
         } else {
-          const al = zona.sucursales.map((s) => keplerAl.get(s)).filter((x): x is string => !!x).sort()[0] ?? null;
+          // `[LE.6.29]` Hasta cuándo trae Kepler los DEPÓSITOS de cada sucursal, por nombre: no el último documento.
           deposito = { estado: 'no_aparece', depositos: null, diferencia: null,
-            nota: `No hay un U-A-5 a la clave ${banco} por el total (±$0.50) del ${ancla} a siete días${al ? `; Kepler trae hasta el ${al}` : ''}.` };
+            nota: notaSinDeposito(banco, ancla, zona.sucursales, keplerAl, warehouseName) };
         }
       }
       out.set(String(h['id']), {
