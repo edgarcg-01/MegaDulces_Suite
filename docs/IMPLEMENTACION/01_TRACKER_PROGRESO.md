@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 2311 KB, 13944 líneas, 76 secciones.
+> **Índice navegable** — 2314 KB, 13947 líneas, 76 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -40,49 +40,49 @@
 | 7109 | 7174 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
 | 7175 | 7202 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
 | 7203 | 7369 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
-| 7370 | 7732 | 130 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
-| 7733 | 7795 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
-| 7796 | 7925 | 44 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
-| 7926 | 7988 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
-| 7989 | 8149 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
-| 8150 | 8220 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
-| 8221 | 8269 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
-| 8270 | 8302 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
-| 8303 | 8859 | 69 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
-| 8860 | 8991 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
-| 8992 | 9045 | 37 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
-| 9046 | 9085 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
-| 9086 | 9138 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
-| 9139 | 9205 | 20 | Fase WMS-BI — Análisis BI de Almacén |
-| 9206 | 9368 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
-| 9369 | 9652 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
-| 9653 | 9820 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
-| 9821 | 12217 | 186 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
-| 12218 | 12226 | 1 | Fase RR — Ventas por ruta |
-| 12227 | 12522 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
-| 12523 | 12533 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
-| 12534 | 12554 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
-| 12555 | 12565 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
-| 12566 | 12577 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
-| 12578 | 12637 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
-| 12638 | 13065 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
-| 13066 | 13080 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
-| 13081 | 13122 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
-| 13123 | 13273 | 68 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
-| 13274 | 13304 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
-| 13305 | 13352 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
-| 13353 | 13401 | 54 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
-| 13402 | 13410 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
-| 13411 | 13440 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
-| 13447 | 13456 | 1 | 📝 Convenciones |
-| 13457 | 13494 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
-| 13495 | 13513 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
-| 13514 | 13566 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
-| 13567 | 13938 | 55 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
-| 13939 | 13969 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
-| 13970 | 13991 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
-| 13992 | 14019 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
-| 14020 | 14032 | 2 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
+| 7370 | 7735 | 133 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
+| 7736 | 7798 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
+| 7799 | 7928 | 44 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
+| 7929 | 7991 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
+| 7992 | 8152 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
+| 8153 | 8223 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
+| 8224 | 8272 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
+| 8273 | 8305 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
+| 8306 | 8862 | 69 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
+| 8863 | 8994 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
+| 8995 | 9048 | 37 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
+| 9049 | 9088 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
+| 9089 | 9141 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
+| 9142 | 9208 | 20 | Fase WMS-BI — Análisis BI de Almacén |
+| 9209 | 9371 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
+| 9372 | 9655 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
+| 9656 | 9823 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
+| 9824 | 12220 | 186 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 12221 | 12229 | 1 | Fase RR — Ventas por ruta |
+| 12230 | 12525 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 12526 | 12536 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 12537 | 12557 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 12558 | 12568 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 12569 | 12580 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 12581 | 12640 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 12641 | 13068 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 13069 | 13083 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 13084 | 13125 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 13126 | 13276 | 68 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 13277 | 13307 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 13308 | 13355 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
+| 13356 | 13404 | 54 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 13405 | 13413 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
+| 13414 | 13443 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 13450 | 13459 | 1 | 📝 Convenciones |
+| 13460 | 13497 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 13498 | 13516 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 13517 | 13569 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 13570 | 13941 | 55 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 13942 | 13972 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 13973 | 13994 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
+| 13995 | 14022 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 14023 | 14035 | 2 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -7577,6 +7577,9 @@ RE.13/RE.16 partieron el proceso por **trabajo** y eso quedó bien; faltó cerra
 - [x] **[RE.62]** ✅ 🐛 **La nota de crédito se liga por `CfdiRelacionados`, no por importe** (2026-11-10, `3f120e5ca`) (Regla **R-v3**, evolución de ADR-085). Visto en `/compras/revision-facturas?bandeja=todas`: la nota se elegía por importe (mismo emisor, −5/+90 días, que hiciera cuadrar ±$200/0.25 % y fuera única). 📏 **Medido en prod** (API de la pantalla + `fiscal.cfdis.xml`, sólo lectura): de **42** «nota de crédito ya aplicada», **36** usaban la nota de OTRA factura; de **25** «pasa sola», **23** pasaban así; una misma nota explicaba hasta 4 entradas; 11 notas nuevas de un proveedor voltearon veredictos en minutos (una entrada perdió su nota correcta). El 98 % de las notas de 2026 trae la relación en el XML. **Arreglo:** se descuentan sólo las notas vigentes que relacionan esta factura y a ninguna otra (TipoRelacion 01/03; 04 y 07 no); la que relaciona varias facturas se dice y no se descuenta; la de importe sólo se sugiere entre notas sin relación y **nunca hace pasar**; «cobrar NC» sólo por lo que queda tras las propias y si nada a la vista lo cubre; el historial del lote nombra la nota. 📏 **Antes/después con la función real sobre las 42:** pasa sola **25 → 1** (la única con su nota) · nota aplicada 42 → 5 · cobrar NC 8 (sin nota propia) · 29 a revisar con el motivo escrito (su nota no cuadra al peso: 16 · nota compartida: 13). La base trae sólo el trozo `CfdiRelacionados` y `relacionadosDeXml` lo parsea: idéntico a parsear el XML completo en las 26,806 notas recibidas; consulta 227 → 328 ms en el peor caso (80 emisores, misma corrida; el regex en la base daba ~450). 🧪 Spec 68 → 86; 3 mutaciones (freno, nota ajena, tipo 04) → rojo; `typecheck:fast` verde; `libs/finance` verde salvo `caja-reposicion.cargos.spec.ts`, ajena (merge en curso de otra sesión). ⚠️ **NO MEDIDO:** `validateBulk` (escribe) no se ejerció contra base real — sólo cambió el texto del historial; **sin validación visual** (sin cambios de frontend: el motivo sale en el check E1 que ya pinta el panel); arranque de la API no verificado (no se tocaron decoradores ni inyección). Sin empujar. Pendiente aparte: Ajuste/Neto de la misma pantalla no incluyen notas (las X-D-55 de Kepler no ligan entrada: 0 de 1,492 en 2026). **En prod 2026-11-10** (`/api/health` = `5dcea73ee`).
 - [x] **[RE.63]** ✅ **La nota de crédito dice si está en el CFDI, en Kepler, en los dos o en ninguno — y si cambia lo que se paga** (2026-11-10, `11dc9226f`; pedido del PM tras RE.62). 📏 **C0, medido en prod** (sólo lectura): Kepler y el proveedor **no registran la misma nota** (Kepler captura su descuento pactado, p. ej. «se hace el 9 %»; el proveedor timbra otro monto, ~11.7 %; `c11` es el folio de la factura, no el de la nota) → emparejarlas una a una por importe repetiría RE.62. Se compara **por entrada**, con llave estructural en los dos lados: Kepler = X-D-55/40 vigentes que `kdxf` aplicó a la orden de entrada A·20 (sin canceladas `c43='C'`, mismo cruce que `v_supplier_payables`); SAT = notas cuyo `CfdiRelacionados` relaciona la factura ligada. Desde el 1-ago (3,452 entradas, 980 con factura ligada): **sólo Kepler 147** (en 141 la factura viene completa: el proveedor no ha timbrado la nota; 51 con más de 45 días) · **sólo CFDI 50** (en 19 Kepler pagaría de más; en 4 la entrada ya trae el descuento) · **ambas 193** (mismo monto en 66, placebo 0 de 178) · **529 sin factura ligada** (lado CFDI no medido, no se afirma «sólo Kepler»). La consecuencia va en **netos** (entrada − notas Kepler contra factura − notas CFDI): una nota de un solo lado no siempre cambia lo que se paga. **C1–C3:** `notasLados` en `expediente-verdict.ts`, campo `notas_lados` del expediente, hallazgos filtrables «Nota sólo en el CFDI» / «Nota sólo en Kepler» y un bloque en el panel (estado · consecuencia · folios). **Informativo:** el cubo y los hallazgos viejos no cambian (0 de 3,452). 📏 Lote completo 5.5–6.0 → 5.6–6.1 s; dos implementaciones cruzadas dan las mismas cifras por clase. 🧪 Spec del motor 86 → 97, texto del panel +7, 2 mutaciones en rojo, `typecheck:fast` verde, `check:pantalla` idéntico a la línea base. ⚠️ **NO MEDIDO:** **sin validación visual** (el panel no se vio en un navegador); arranque de la API no verificado (en el controller sólo cambió la lista blanca del filtro). ⚖️ **D pendiente (Edgar/Francisco):** ¿el cuadre debe comparar **netos** (descontar también las notas de Kepler)? Hoy compara la factura (− sus notas CFDI) contra la entrada bruta. Sin empujar. Pendiente aparte: Ajuste/Neto de la misma pantalla puede salir de este mismo `kdxf` en vez del importer (`c39` vacío). **En prod 2026-11-10** (`/api/health` = `5dcea73ee`).
 - [x] **[RE.64]** ✅ 🐛 **Ajuste y Neto de `/compras/revision-facturas` salen de lo que Kepler aplicó a cada entrada (`kdxf`), no del importer** (2026-11-10, `3d41bc523`). La columna leía `analytics.erp_purchase_adjustments`, ligado por `kdm1.c39`, vacío en el 100 % de las X-D-55: el pie decía Ajuste «—» en todas las compras y la bajada afirmaba «devoluciones y notas de crédito» y «la misma cifra que Costo por proveedor» (falso: allá se suman todas las notas del proveedor). **Un solo primitivo** del ODS, `ajustes-kepler.ts`: `kdxf` 55/40 → A·20 + las que nombran su entrada en `c39`, sin canceladas; lo leen la columna, su total y su filtro, los hallazgos «Entrega incompleta» / «Ajuste comercial» y el lado Kepler de RE.63 (panel y columna coinciden en 3,452 de 3,452). El grupo sale del motivo con el clasificador del importer traducido a SQL (2,373 de 2,373 iguales; una nota sin motivo queda «sin clasificar», ya no «operativa»). 📏 **Antes/después** (desde el 1-ago, 3,457 compras): Ajuste **$0 → $14.44 M** en 870 compras · Neto $184.27 M → $169.83 M · incompleta 0 → 38 · comercial 0 → 195 · cubo sin cambios. Consulta de totales +86 ms por ejecución (mediana alternada); se agrega una vez por petición a una temporal (como RE.49). 🐛 Encontrado al medir: el regex traía `?` y `trx.raw` los tomaba por parámetro (GOTCHAS §71, ya documentado) → difería del importer en 107 documentos; corregido con `{0,1}` y una prueba que falla si vuelve un `?`. 🧪 `ajustes-kepler.spec.ts` (3, con negativa), `libs/finance` 2,621 verdes, `typecheck:fast` verde, `check:pantalla` idéntico a la línea base. ⚠️ **NO MEDIDO:** la ruta con temporal (mi rol es de sólo lectura y no crea temporales; en prod la usa `app_runtime`); **sin validación visual**; las 45 devoluciones desde agosto sin aplicación ni `c39` no se atribuyen a una compra. **Deuda con nombre:** la aprobación en lote (`ajusteLigadoQueExplica`) sigue en el importer a propósito (cambiarla abre una compuerta de dinero: decisión aparte), igual que Rentabilidad, Promo sell-out, Costo por proveedor, entity-ref y control de pagos. Sin empujar. **En prod 2026-11-10** (`/api/health` = `5dcea73ee`).
+- [ ] **[RE.65]** 🧪 **El cuadre mira las notas de los dos lados, en netos — regla R-v4, asimétrica** (2026-11-10, `1cf0d1d12`; decisión D1, Edgar). Netos con `notasLados` (el primitivo del panel): entrada − notas Kepler contra factura − notas CFDI. 📏 Netos parejos detendrían 108 facturas (88 donde Kepler paga MENOS porque el proveedor no ha timbrado su nota: la factura está bien y el CFDI lo pide Compras, D4). La regla adoptada: **no pasa sola si Kepler pagaría MÁS** que el neto del proveedor (dinero que se perdería) y **pasa si los netos cuadran** aunque el bruto no; Kepler pagando menos no cambia. Medido con el servicio real (3,464 entradas): 17 cambios de cubo y ninguno más — 12 pasa sola → revisar (una de $89,810.52) y 5 revisar → pasa sola (mercancía sin cargo, faltante devuelto: netos al centavo). 🧪 Spec 97 → 102, 2 mutaciones en rojo. Sin empujar.
+- [ ] **[RE.66]** 🧪 🐛 **El blanqueo de la entrada de sucursal (traslado del pago al CEDIS) no es rebaja** (2026-11-10, `7f1655674`). Encontrado al medir D3: RE.64 (ya en prod) sumaba al Ajuste las X-D-55 con que Kepler blanquea la entrada de sucursal cuando la compra se pagaba por la copia del CEDIS (antes del corte del 1-oct) → la columna Neto decía **$0 «que realmente pagamos» en 451 compras** y el total quedaba **$9.4 M abajo**. Ahora: nota de sucursal que cubre ≥ 95 % de su entrada (`kdxe`) y tiene copia en `erp_goods_receipt_dedup` (o dice «blanqueo») = `traslado`, no suma; las notas de la copia del CEDIS se atribuyen a la entrada original. 📏 Ajuste $14.46 M → $5.06 M · Neto $170.76 M → $180.16 M · neto en $0: 451 → 168 · 298 traslados ($9.48 M) · «sólo Kepler» 151 → 119 (32 eran blanqueos: se habría pedido un CFDI que no existe) · 9 cambios de cubo, todos netos al centavo o sobrepago real · panel y columna 0 diferencias. ⚠️ **NO MEDIDO:** las 168 compras que siguen con neto $0 (notas por el total sin copia ni «blanqueo»: devoluciones totales o gemelas sin marcar). Sin empujar. **Decisiones D2–D4 (2026-11-10):** **D2** la aprobación en lote NO cambia de fuente — 2 llamadas en 30 días (superadmin) y R-v4 ya cubre su caso por el carril del expediente; cambiar la fuente de una compuerta que aprueba sin revisión es riesgo sin valor. **D3** → RE.67; los otros 4 consumidores del importer (Rentabilidad: MR ⚠️; Promo sell-out: G ⏸️; control de pagos: PGP, de otra sesión; ficha de ajuste en entity-ref: búsqueda de documento) quedan como deuda con nombre, sin cupo (5 🔨 contra 4). **D4** lista para Compras: 119 compras, 39 proveedores, $1.05 M en notas de Kepler sin CFDI (19 con más de 45 días).
+- [ ] **[RE.67]** ⬜ **«Costo por proveedor» publica un descuento por nota falso** (registrado 2026-11-10; clase 2, dinero Alto × esfuerzo S–M → prioridad 1). `landedCost` suma las notas comerciales del importer, que sólo trae el CEDIS (`c16`), contra compras de todas las sucursales: $1.95 M contra $2.90 M que Kepler aplicó (`kdxf`; las sucursales aportan $1.48 M). Ej.: Dulces Las Delicias 0.8 % contra 8.5 % real. 📏 C0 hecho: `kdm1.c16` = suma de sus aplicaciones en `kdxf` en 1,353 de 1,358 notas del CEDIS y en el 100 % de las sucursales (la sospecha de que en sucursal «no significa lo mismo» queda refutada). Falta: decidir la fecha (de la nota o de la entrada) y si cuentan las notas aplicadas a documentos que no son entradas (A·10).
 - [ ] **[RE.35–RE.41]** 🔨 **El expediente de la factura: lo que cuadra pasa solo, y lo que se queda enseña** (2026-10-06, ADR-085 propuesto) — Francisco: el auxiliar de entradas valida en `/compras/costo-por-compra` y de ahí entrega a Finanzas; por factura revisa RFC/nombre/régimen del emisor, RFC receptor, uso CFDI, forma y método de pago, y en remisión sólo cuadre + OC + fecha.
   - 📏 **Medido en prod (sólo lectura):** los 7 datos fiscales salen de `fiscal.cfdis` (no del OCR); esperados `LOGL851014AQ5` · `612` · `G01` · PPD↔`99` · régimen y método = los habituales del emisor. Checks fiscales: **99.3%** pasan solos. ⛔ La condición de pago de Kepler no sirve de esperado (120 de 138 «contado» llegaron PPD) y Kepler no guarda el UUID; su RFC falta en 43% y está mal en ~17%.
   - **Regla v1 (decisiones de Francisco):** cuadre **< 0.25% y < $200**; **OC obligatoria sin excepción** (traza de quién capturó). Cobertura: **56.1%** de las entradas con factura pasan solas (68.7% de las emparejadas); caen 270 por cuadre, 195 sin OC, 335 por factura que cubre varias entradas. Las NC explican sólo 53 de 327 diferencias; quedan +$419k / −$266k de diferencias de precio reales. Sin OC: 437, y el usuario `USR-A` captura 221 (~$10M). Meta de arranque **60–70%** con el UUID del documento.

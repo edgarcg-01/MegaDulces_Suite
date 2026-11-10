@@ -9,6 +9,16 @@
 ---
 
 ## [Unreleased]
+### Fixed — Revisión de facturas: el Neto ya no resta el «blanqueo» de las compras que se pagan en el CEDIS (RE.66 · 2026-11-10 · en código, sin soltar)
+- La columna **Neto** decía $0 en 451 compras de sucursal que sí se pagan, porque Kepler «blanquea» su cuenta cuando el pago va por el CEDIS. Ese movimiento ya no cuenta como rebaja: el Neto sube **$9.4 M** desde agosto y quedan 168 compras en $0.
+- Las notas que Kepler aplicó a la copia del CEDIS ahora aparecen en la compra de sucursal que se ve en la lista.
+- «Nota sólo en Kepler» baja de 151 a 119: 32 eran blanqueos, no notas que haya que pedirle al proveedor.
+
+### Changed — Revisión de facturas: el cuadre mira las notas de los dos lados (RE.65 · 2026-11-10 · en código, sin soltar)
+- Una factura ya **no pasa sola** si, con las notas, Kepler pagaría más de lo que el proveedor factura neto (12 compras desde agosto, una de $89.8 mil).
+- Y **pasa sola** cuando los netos coinciden aunque la factura y la entrada no (mercancía sin cargo, faltante devuelto: 5 compras).
+- Cuando Kepler descontó y el proveedor no ha timbrado su nota, la factura sigue pasando: la nota la pide Compras con el filtro «Nota sólo en Kepler».
+
 ### Fixed — Revisión de facturas: Ajuste y Neto ya cuentan las notas de crédito (RE.64 · 2026-11-10 · en código, sin soltar)
 - La columna **Ajuste** salía vacía en todas las compras: leía una copia que nunca ligaba las notas de crédito a su compra. Ahora sale de lo que Kepler aplicó a cada orden de entrada: desde agosto, **$14.4 M en 870 compras**, y el **Neto** baja de $184.3 M a $169.8 M.
 - El detalle de cada ajuste dice cuánto es negociado (descuento, pronto pago, apoyo), cuánto operativo (faltante, mal estado, devolución) y cuánto **sin clasificar** (la nota de Kepler no dice el motivo).
