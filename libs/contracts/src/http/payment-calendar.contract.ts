@@ -6,6 +6,7 @@
  */
 import type { CierreKeplerPago } from '../finance/cierre-kepler.contract';
 import type { ValidacionPago } from '../finance/validacion-pago.contract';
+import type { CfdiDeLaFactura } from '../finance/cfdi-factura.contract';
 
 /**
  * `[TP.18]` `kepler_payable` es la deuda viva de Kepler que NO pasó por Entregas de Compras
@@ -142,6 +143,11 @@ export interface PaymentCalendarAllocationItem {
    * descuento. Un descuento capturado antes de que hubiera varios llega como UN renglón (lo arma el servidor).
    */
   discount_lines: PaymentCalendarDiscountLine[];
+  /**
+   * `[PGP.108]` La factura con su CFDI (documento de Kepler + RFC + total ±$1 + fecha ±45 días) y si es
+   * PUE o PPD: decide la póliza de egreso. Null en gastos y compromisos (no tienen documento de Kepler).
+   */
+  cfdi?: CfdiDeLaFactura | null;
 }
 
 /**

@@ -20,6 +20,7 @@ import type {
 } from '@megadulces/contracts';
 import { warehouseName, DISCOUNT_REASONS, DISCOUNT_REASON_LABEL } from '@megadulces/contracts';
 import { textoValidacion, validadoParaKepler } from '@megadulces/contracts/finance/validacion-pago';
+import { textoCfdi, textoMetodo } from '@megadulces/contracts/finance/cfdi-factura';
 import { cierreCompleto, faltaParaCerrar, nombreTipoPagoKepler, sinComprobantePorque, textoCierre, type CierreKeplerPago, type PagoKeplerDelCierre } from '@megadulces/contracts';
 import { PagosComprobantesService } from '../pagos-comprobantes.service';
 import type { SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
@@ -896,6 +897,10 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                                   <span class="pg-ev pg-ev-no"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>no se pudo buscar</span>
                                 } @else {
                                   <span class="pg-ev">buscando…</span>
+                                }
+                                <!-- [PGP.108] Su CFDI y si es PUE o PPD: decide la póliza de egreso (PPD espera el REP del proveedor). -->
+                                @if (it.cfdi; as cf) {
+                                  <span class="pg-cfdi" [class.is-no]="cf.estado !== 'unico'">@if (cf.estado === 'unico') {@if (cf.metodo; as m) {{{ textoMetodo(m) }}} @else {CFDI ligado, sin método de pago}} @else {{{ textoCfdi(cf.estado) }}}</span>
                                 }
                               </td>
                               <td class="r comm-num">{{ money(it.applied_amount) }}
@@ -1786,6 +1791,9 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     /* [PGP.104] La validación banco + comprobante: ámbar mientras falte algo, verde al validarse; siempre con su palabra. */
     .pg-val { display:inline-flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-xs); font-weight:600; color:var(--warn-soft-fg); }
     .pg-val.is-ok { color:var(--ok-fg); }
+    /* [PGP.108] El CFDI de la factura, debajo de su archivo: terciario; lo que no se ligó, en ámbar con su palabra. */
+    .pg-cfdi { display:block; font-size:var(--fs-xs); color:var(--text-muted); }
+    .pg-cfdi.is-no { color:var(--warn-soft-fg); }
     .pg-falta { display:inline-flex; align-items:center; gap:var(--sp-1); color:var(--warn-soft-fg); background:var(--warn-soft-bg); border-radius:var(--r-pill); padding:0 var(--sp-2); font-weight:600; }
     .pg-sec-cierre { display:inline-flex; align-items:center; gap:var(--sp-1); margin-left:var(--sp-2); font-size:var(--fs-xs); font-weight:600; color:var(--text-muted); }
     .pg-sec-cierre > .pi { color:var(--ok-fg); }
@@ -3242,6 +3250,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     return validadoParaKepler(a.validacion) || a.validacion?.estado === 'efectivo_no_medido';
   }
   readonly textoValidacion = textoValidacion;
+  readonly textoCfdi = textoCfdi;
+  readonly textoMetodo = textoMetodo;
   readonly pagarLista = computed(() => { const a = this.pagarSolo(); return a ? [a] : this.porMarcar(); });
   readonly pagarListaTotal = computed(() => this.pagarLista().reduce((s, a) => s + Number(a.amount_assigned || 0), 0));
   readonly pagarListaSaldadas = computed(() => this.pagarLista().filter((a) => (a.kepler_saldadas ?? 0) > 0).length);

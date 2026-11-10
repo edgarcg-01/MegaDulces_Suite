@@ -10,6 +10,7 @@ import { destinosSugeridos, type FilaComprobanteClabe } from './destino-sugerido
 import { SupplierPaymentAccountsService } from '../supplier-payment-accounts/supplier-payment-accounts.service';
 import type { DiscountReason, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarItemDiscountResult, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 import { leerValidacionDelDia } from './validacion-pago.sql';
+import { leerCfdiDeFacturas } from './cfdi-factura.sql';
 import type { ValidacionPago } from '@megadulces/contracts/finance/validacion-pago';
 import { assertDescuentoPermitido, descuentoSobreCubierto, descuentosSobreCubierto, lineasDeDescuento, normalizarDescuento, round2, type DescuentosNormalizados } from './descuento-al-pagar';
 import { cierreCompleto, type CierreKeplerPago } from '@megadulces/contracts';
@@ -1288,6 +1289,15 @@ export class PaymentCalendarService {
       // `[PGP.104]` Lo que prueba que se pagó: la salida del estado de cuenta + su comprobante (F2).
       // Sólo en un día que ya llegó; uno por venir no se ha pagado.
       const validaciones = await leerValidacionDelDia(trx, tenantId, date, todayMx());
+      // `[PGP.108]` El CFDI de cada factura y si es PUE o PPD: decide la póliza de egreso de ContPAQi.
+      // Sólo en un día autorizado o que ya llegó (los que van a tener póliza): cuesta ~330 ms y un día
+      // en planeación no lo necesita.
+      const conCfdi = date <= todayMx() || (!!lot && LOCKED_LOT_STATUSES.has(lot.status));
+      const cfdis = conCfdi
+        ? await leerCfdiDeFacturas(trx, tenantId,
+          (items as { id: string; obligation_source: string }[])
+            .filter((it) => it.obligation_source === 'kepler_payable' || it.obligation_source === 'supplier_payable').map((it) => it.id))
+        : new Map();
       return allocations.map((a: AllocationRowLite) => {
         // `[PGP.91]` `numeric` llega como texto del driver: el descuento sale como número, y la
         // tasa como número o null (null = se capturó en pesos, no hay tasa que decir).
@@ -1299,6 +1309,7 @@ export class PaymentCalendarService {
           discount_note: (it.discount_note ?? null) as string | null,
           // `[PGP.101]` Los renglones del descuento; uno capturado antes de PGP.101 llega como UN renglón.
           discount_lines: lineasDeDescuento(it),
+          cfdi: cfdis.get(String(it.id)) ?? null,
         }));
         // `[PGP.35]` El agregado por pago: cuántas de sus facturas quedaron saldadas en el ERP y
         // por cuánto. La pantalla lo necesita para no sumar como deuda viva lo que ya no se debe.
