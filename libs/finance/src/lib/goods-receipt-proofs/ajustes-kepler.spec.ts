@@ -25,3 +25,19 @@ describe('[RE.64] ajustes-kepler: los textos que pasan por trx.raw', () => {
     expect(AJUSTES_KEPLER_SQL).toContain(`'c39'::text AS liga`);
   });
 });
+
+describe('[RE.66] el traslado al CEDIS no es rebaja', () => {
+  it('la nota que cubre la entrada y tiene copia en el CEDIS (o dice blanqueo) es «traslado» y no suma al ajuste', () => {
+    expect(AJUSTES_KEPLER_SQL).toContain(`'traslado'`);
+    expect(AJUSTES_KEPLER_SQL).toContain('analytics.erp_goods_receipt_dedup');
+    expect(AJUSTES_KEPLER_SQL).toMatch(/upper\(coalesce\(cat\.motivo, ''\)\) ~ 'BLANQ'/);
+    expect(AJUSTES_KEPLER_POR_ENTRADA_SQL).toContain(`WHERE n.grupo <> 'traslado'`);
+  });
+  it('NEGATIVA: una nota del CEDIS (00) nunca es traslado — ahí se paga', () => {
+    expect(AJUSTES_KEPLER_SQL).toContain(`cat.sucursal <> '00'`);
+  });
+  it('las notas de la copia del CEDIS se atribuyen a la entrada original de sucursal', () => {
+    expect(AJUSTES_KEPLER_SQL).toMatch(/COALESCE\(c\.dup_of_sucursal, cls\.sucursal\) AS sucursal/);
+    expect(AJUSTES_KEPLER_SQL).toMatch(/LEFT JOIN copia c ON cls\.sucursal = '00' AND c\.cedis_folio = cls\.folio/);
+  });
+});

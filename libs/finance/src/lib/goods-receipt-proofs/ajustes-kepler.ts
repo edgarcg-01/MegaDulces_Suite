@@ -60,9 +60,24 @@ export const grupoAjusteSql = (tipo: string, cat: string): string => `CASE
   WHEN ${cat} IN (${lista(OPERATIVAS_CATS)}) OR ${tipo} = '40' THEN 'operativo'
   ELSE 'sin_clasificar' END`;
 
+/** `[RE.66]` Una nota que cubre al menos esta fracción de su entrada se lee como traslado del pago (si además…). */
+export const COBERTURA_TRASLADO = 0.95;
+
 /**
  * Una fila por (sucursal, entrada, nota): lo que esa nota rebajó de esa entrada. `liga` = `kdxf` (aplicación
  * estructural) o `c39` (el documento nombra la entrada y no tiene aplicación).
+ *
+ * `[RE.66]` Dos correcciones, medidas en prod el 2026-11-10:
+ *  · **Traslado al CEDIS** (`grupo = 'traslado'`): hasta el corte del 1-oct el CEDIS concentraba las compras; la
+ *    entrada de sucursal se «blanqueaba» con una X-D-55 por su total y el pago iba por la COPIA del CEDIS. Esa
+ *    nota no es rebaja: mueve el pago. Se reconoce estructuralmente — una nota de sucursal que cubre ≥ 95 % de su
+ *    entrada (`kdxe`, el documento que rebaja) y la entrada tiene copia en `analytics.erp_goods_receipt_dedup`
+ *    (la misma liga con la que la lista excluye las copias) o su motivo dice «blanqueo». Medido: 726 notas de
+ *    jun–ago ($26.2 M), 19 desde septiembre (el corte). Sin esto la columna Neto decía $0 «que realmente pagamos»
+ *    en 298 compras desde agosto que sí se pagan (en el CEDIS): $9.4 M de menos en el total.
+ *  · **Notas de la copia del CEDIS**: las que Kepler aplicó a la copia (00) se atribuyen a la entrada original
+ *    de sucursal, que es la fila que muestra la lista (la copia se excluye): ahí se aplicaban los descuentos
+ *    reales de las compras concentradas. `sucursal_kepler` / `folio_kepler` dicen dónde estaba aplicada.
  */
 export const AJUSTES_KEPLER_SQL = `
   WITH doc AS MATERIALIZED (
@@ -70,6 +85,13 @@ export const AJUSTES_KEPLER_SQL = `
            NULLIF(btrim(m.c39), '') AS c39, to_char(m.c9::date, 'YYYY-MM-DD') AS fecha, NULLIF(btrim(m.c24), '') AS motivo
       FROM kepler_ods.kdm1 m
      WHERE m.c2 = 'X' AND m.c3 = 'D' AND m.c4 IN ('55', '40') AND btrim(m.c1) = m.sucursal AND m.c43 IS DISTINCT FROM 'C'
+  ), copia AS MATERIALIZED (
+    SELECT DISTINCT cedis_folio, dup_of_sucursal, dup_of_folio FROM analytics.erp_goods_receipt_dedup
+     WHERE tenant_id = '00000000-0000-0000-0000-00000000d01c' AND status IN ('auto', 'confirmado')
+  ), ent AS MATERIALIZED (
+    SELECT k.sucursal, btrim(k.c6) AS folio, max(k.c11)::numeric AS importe FROM kepler_ods.kdxe k
+     WHERE btrim(k.c1) = k.sucursal AND k.c3 = 'A' AND k.c4 = '20'
+     GROUP BY 1, 2
   ), apl AS MATERIALIZED (
     SELECT d.sucursal, btrim(x.c9) AS folio, d.tipo, d.nc_folio, sum(x.c10)::numeric AS aplicado, d.fecha, d.motivo, 'kdxf'::text AS liga
       FROM doc d
@@ -87,10 +109,24 @@ export const AJUSTES_KEPLER_SQL = `
     SELECT * FROM apl UNION ALL SELECT * FROM ref
   ), cat AS (
     SELECT u.*, ${categoriaAjusteSql('u.motivo')} AS categoria FROM u
+  ), cls AS (
+    SELECT cat.*,
+           CASE WHEN cat.sucursal <> '00' AND e.importe > 0 AND cat.aplicado >= ${COBERTURA_TRASLADO} * e.importe
+                 AND (upper(coalesce(cat.motivo, '')) ~ 'BLANQ'
+                      OR EXISTS (SELECT 1 FROM copia c WHERE c.dup_of_sucursal = cat.sucursal AND c.dup_of_folio = cat.folio))
+                THEN 'traslado'
+                ELSE ${grupoAjusteSql('cat.tipo', 'cat.categoria')} END AS grupo
+      FROM cat LEFT JOIN ent e ON e.sucursal = cat.sucursal AND e.folio = cat.folio
   )
-  SELECT cat.*, ${grupoAjusteSql('cat.tipo', 'cat.categoria')} AS grupo FROM cat`;
+  SELECT COALESCE(c.dup_of_sucursal, cls.sucursal) AS sucursal, COALESCE(c.dup_of_folio, cls.folio) AS folio,
+         cls.sucursal AS sucursal_kepler, cls.folio AS folio_kepler,
+         cls.tipo, cls.nc_folio, cls.aplicado, cls.fecha, cls.motivo, cls.liga, cls.categoria, cls.grupo
+    FROM cls LEFT JOIN copia c ON cls.sucursal = '00' AND c.cedis_folio = cls.folio`;
 
-/** Por entrada: lo que se le rebajó, cuántas notas, y por grupo. Columnas con los nombres que lee la lista. */
+/**
+ * Por entrada: lo que se le rebajó, cuántas notas, y por grupo. Columnas con los nombres que lee la lista.
+ * `[RE.66]` El traslado al CEDIS NO es rebaja: no entra a ningún total.
+ */
 export const AJUSTES_KEPLER_POR_ENTRADA_SQL = `
   SELECT n.sucursal, n.folio AS entrada_folio,
          COALESCE(sum(n.aplicado), 0)::numeric AS ajuste,
@@ -99,11 +135,12 @@ export const AJUSTES_KEPLER_POR_ENTRADA_SQL = `
          COALESCE(sum(n.aplicado) FILTER (WHERE n.grupo = 'operativo'), 0)::numeric AS ajuste_operativo,
          COALESCE(sum(n.aplicado) FILTER (WHERE n.grupo = 'sin_clasificar'), 0)::numeric AS ajuste_sin_clasificar
     FROM (${AJUSTES_KEPLER_SQL}) n
+   WHERE n.grupo <> 'traslado'
    GROUP BY n.sucursal, n.folio`;
 
 /** Una fila de `AJUSTES_KEPLER_SQL` tal como llega del driver. */
 export interface AjusteKeplerFila {
-  sucursal: string; folio: string; tipo: '55' | '40'; nc_folio: string; aplicado: number | string;
-  fecha: string | null; motivo: string | null; liga: 'kdxf' | 'c39'; categoria: string | null;
-  grupo: 'comercial' | 'operativo' | 'sin_clasificar';
+  sucursal: string; folio: string; sucursal_kepler: string; folio_kepler: string; tipo: '55' | '40'; nc_folio: string;
+  aplicado: number | string; fecha: string | null; motivo: string | null; liga: 'kdxf' | 'c39'; categoria: string | null;
+  grupo: 'comercial' | 'operativo' | 'sin_clasificar' | 'traslado';
 }

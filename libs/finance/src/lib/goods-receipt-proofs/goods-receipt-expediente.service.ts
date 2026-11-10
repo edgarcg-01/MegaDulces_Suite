@@ -449,7 +449,9 @@ export class GoodsReceiptExpedienteService {
     const filasKepler = (await trx.raw(AJUSTES_KEPLER_SQL)).rows as AjusteKeplerFila[];
     for (const r of filasKepler) {
       const k = llave(r.sucursal, r.folio);
-      if (!enLote.has(k)) continue;
+      // `[RE.66]` El traslado del pago al CEDIS (blanqueo de la entrada de sucursal) no es rebaja: ni lado Kepler
+      // ni hallazgo. Las notas de la copia del CEDIS ya llegan con la llave de la entrada original.
+      if (!enLote.has(k) || r.grupo === 'traslado') continue;
       const aplicado = Number(r.aplicado);
       (notasKepler.get(k) ?? notasKepler.set(k, []).get(k)!)
         .push({ tipo: r.tipo, folio: r.nc_folio, aplicado, fecha: r.fecha, motivo: r.motivo });
