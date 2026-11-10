@@ -6,9 +6,9 @@ import {
   PaymentCalendarService, ObligationSource, CreateAllocationDto, AllocationItemDto, ItemDiscountDto,
   PrepareAllocationDto, CreateAgreementDto, ReprogramReason,
 } from './payment-calendar.service';
-import type { DayOrderRank } from './payment-calendar.service';
+import type { AllocationRowLite, DayOrderRank } from './payment-calendar.service';
 import { PaymentCalendarDocumentService } from './payment-calendar-document.service';
-import type { GuiaFueraDePrograma, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarEnsayoKepler, PaymentCalendarItemDiscountResult, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
+import type { GuiaFueraDePrograma, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarBandeja, PaymentCalendarEnsayoKepler, PaymentCalendarItemDiscountResult, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string } }
 
@@ -134,6 +134,18 @@ export class PaymentCalendarController {
   @ApiOperation({ summary: '[PGP.30] Con qué se le suele pagar a cada acreedor, para precargar método y cuenta. Propone, no decide.' })
   paymentHabits(): Promise<SupplierPaymentHabit[]> {
     return this.svc.paymentHabits();
+  }
+
+  /**
+   * `[PGP.113]` La bandeja: cada pago en su etapa, de todos los días — pendientes y rebotados de
+   * cualquier día y pagados de los últimos `pagados_dias` (30 por omisión, máx. 120).
+   */
+  @Get('bandeja')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: 'PGP.113 — los pagos de todos los días por etapa: pendientes, rebotados y pagados recientes.' })
+  bandeja(@Query('pagados_dias') dias?: string): Promise<PaymentCalendarBandeja> {
+    const n = Number(dias);
+    return this.svc.bandeja(Number.isFinite(n) && n > 0 ? n : 30) as Promise<PaymentCalendarBandeja>;
   }
 
   @Get('days/:date/summary')
@@ -312,6 +324,25 @@ export class PaymentCalendarController {
   @RequirePermissions(Permission.FINANCE_PAYMENTS_GESTIONAR)
   cancelAllocation(@Param('id') id: string, @Body() body: { reason?: string }, @Req() req: AuthedRequest) {
     return this.svc.cancelAllocation(id, body?.reason, req.user?.username || 'sistema');
+  }
+
+  /**
+   * `[PGP.113]` Se autoriza el PAGO, no el día (Edgar, 2026-11-10: «haremos una a una»). Mismo permiso
+   * restringido que autorizaba el día. Exige el pago preparado, que quepa en el tope de su día y que
+   * Kepler todavía deba sus facturas.
+   */
+  @Post('allocations/:id/autorizar')
+  @RequirePermissions(Permission.FINANCE_PAYMENT_CALENDAR_AUTORIZAR)
+  @ApiOperation({ summary: 'PGP.113 — autoriza UN pago (preparado, dentro del tope de su día). Ya no hace falta autorizar el día completo.' })
+  authorize(@Param('id') id: string, @Req() req: AuthedRequest): Promise<AllocationRowLite> {
+    return this.svc.authorize(id, req.user?.username || 'sistema');
+  }
+
+  @Post('allocations/:id/quitar-autorizacion')
+  @RequirePermissions(Permission.FINANCE_PAYMENT_CALENDAR_AUTORIZAR)
+  @ApiOperation({ summary: 'PGP.113 — le quita la autorización a un pago todavía no pagado (para cambiarlo o detenerlo). Queda en sus notas.' })
+  unauthorize(@Param('id') id: string, @Body() body: { reason?: string }, @Req() req: AuthedRequest): Promise<AllocationRowLite> {
+    return this.svc.unauthorize(id, body?.reason, req.user?.username || 'sistema');
   }
 
   @Post('days/:date/liberar')

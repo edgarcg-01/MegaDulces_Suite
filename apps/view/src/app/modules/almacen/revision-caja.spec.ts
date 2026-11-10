@@ -1,6 +1,8 @@
 import type { PresaleReviewLine } from '@megadulces/contracts';
 import {
+  alEscanear,
   aplicar,
+  filtraLaLista,
   cantidadTexto,
   cuerpoDeCierre,
   deshacer,
@@ -48,10 +50,111 @@ describe('el producto que se está revisando', () => {
     expect(p.hist).toHaveLength(2);
   });
 
+  it('[MCP.10.2] el producto que la cajera toca pasa a revisarse, aunque no sea el siguiente', () => {
+    const p = progresoInicial(LINEAS);
+    // Lo blando va arriba en el carrito: sale primero el tercero del pedido.
+    expect(renglonActual(LINEAS, p, 'c')?.key).toBe('c');
+    // Al resolverlo, vuelve al primero pendiente.
+    const p2 = aplicar(p, LINEAS[2], { tipo: 'bien' });
+    expect(renglonActual(LINEAS, p2, 'c')?.key).toBe('a');
+    expect(resueltos(LINEAS, p2)).toBe(1);
+  });
+
+  it('[MCP.10.2] se puede tocar el faltante que se dejó esperando al surtidor', () => {
+    const p = aplicar(progresoInicial(LINEAS), LINEAS[1], { tipo: 'despues' });
+    expect(renglonActual(LINEAS, p)?.key).toBe('a');
+    expect(renglonActual(LINEAS, p, 'b')?.key).toBe('b');
+  });
+
+  it('[MCP.10.2] NEGATIVO: tocar uno ya resuelto o una clave que no existe no cambia nada', () => {
+    const p = aplicar(progresoInicial(LINEAS), LINEAS[0], { tipo: 'bien' });
+    expect(renglonActual(LINEAS, p, 'a')?.key).toBe('b');
+    expect(renglonActual(LINEAS, p, 'no-existe')?.key).toBe('b');
+  });
+
   it('cuando todo está resuelto no hay producto actual', () => {
     let p = progresoInicial(LINEAS);
     for (const l of LINEAS) p = aplicar(p, l, { tipo: l.picked < l.ordered ? 'completar' : 'bien' });
     expect(renglonActual(LINEAS, p)).toBeNull();
+  });
+});
+
+describe('[MCP.10.3] escanear lo que se tiene en la mano', () => {
+  // Paleta: 1 paquete (factor 20) · Mazapán: 3 paquetes, faltó 1 · Chicle: 1 caja (factor 400) · Salsa: sin código.
+  const LS = [
+    L('pal', 1, 1, { codes: [{ code: '7501001', factor: 1 }, { code: '07501001', factor: 20 }] }),
+    L('maz', 3, 2, { codes: [{ code: '7502002', factor: 20 }] }),
+    L('chi', 1, 1, { factor: 400, unit: 'CJA', codes: [{ code: '7503003', factor: 1 }, { code: 'C7503', factor: 400 }] }),
+    L('sal', 1, 1, { codes: [] }),
+  ];
+  const p0 = progresoInicial(LS);
+
+  it('un renglón de UNA unidad escaneado en esa unidad queda «bien» sin tocar nada', () => {
+    const { escaneo, progreso } = alEscanear(LS, p0, ' 07501001 ');
+    expect(escaneo.tipo).toBe('confirmado');
+    expect(progreso.marcas['pal'].estado).toBe('bien');
+    expect(progreso.hist).toHaveLength(1); // «Anterior» lo puede deshacer
+  });
+
+  it('NEGATIVO: la PIEZA de un pedido de «1 caja» sólo la señala, no da la caja por buena', () => {
+    const { escaneo, progreso } = alEscanear(LS, p0, '7503003');
+    expect(escaneo.tipo).toBe('elegido');
+    expect(progreso).toBe(p0);
+    expect(alEscanear(LS, p0, 'c7503').escaneo.tipo).toBe('confirmado'); // la etiqueta de la caja sí
+  });
+
+  it('NEGATIVO: sin quitar ceros: 7501001 (pieza) no confirma el paquete 07501001', () => {
+    const { escaneo } = alEscanear(LS, p0, '7501001');
+    expect(escaneo.tipo).toBe('elegido');
+  });
+
+  it('varias unidades o un faltante: lo señala para revisarlo en grande', () => {
+    const r = alEscanear(LS, p0, '7502002');
+    expect(r.escaneo).toMatchObject({ tipo: 'elegido', line: { key: 'maz' } });
+    expect(r.progreso.marcas['maz'].estado).toBe('falta');
+  });
+
+  it('lo ya revisado lo dice; lo que no es del pedido también, y avisa si hay pendientes sin código', () => {
+    const { progreso } = alEscanear(LS, p0, '07501001');
+    expect(alEscanear(LS, progreso, '07501001').escaneo.tipo).toBe('ya_revisado');
+    expect(alEscanear(LS, p0, '999999').escaneo).toEqual({ tipo: 'no_es' });
+    expect(alEscanear(LS, p0, '   ').escaneo.tipo).toBe('vacio');
+  });
+
+  it('por SKU, por código sin ceros o por nombre lo señala, pero NUNCA lo confirma solo (no dicen la unidad)', () => {
+    const conSku = LS.map((l) => (l.key === 'pal' ? { ...l, sku: '44340' } : l));
+    const porSku = alEscanear(conSku, progresoInicial(conSku), '44340');
+    expect(porSku.escaneo).toMatchObject({ tipo: 'elegido', match: 'sku', line: { key: 'pal' } });
+    expect(resueltos(conSku, porSku.progreso)).toBe(0);
+    expect(alEscanear(LS, p0, '7502002').escaneo).toMatchObject({ tipo: 'elegido', match: 'codigo' });
+    expect(alEscanear(LS, p0, '07502002').escaneo).toMatchObject({ tipo: 'elegido', match: 'codigo_sin_ceros', line: { key: 'maz' } });
+    // NEGATIVO: la etiqueta de la caja con ceros de más la encuentra, pero aunque el pedido sea «1 caja» no la confirma.
+    const sinCeros = alEscanear(LS, p0, '00C7503');
+    expect(sinCeros.escaneo).toMatchObject({ tipo: 'elegido', match: 'codigo_sin_ceros', line: { key: 'chi' } });
+    expect(resueltos(LS, sinCeros.progreso)).toBe(0);
+    const porNombre = alEscanear(LS, p0, 'producto  SAL');
+    expect(porNombre.escaneo).toMatchObject({ tipo: 'elegido', match: 'nombre', line: { key: 'sal' } });
+    expect(resueltos(LS, porNombre.progreso)).toBe(0);
+  });
+
+  it('por nombre con varias coincidencias no adivina; lo ya revisado por nombre lo dice', () => {
+    expect(alEscanear(LS, p0, 'producto').escaneo).toMatchObject({ tipo: 'varios', match: 'nombre' });
+    const { progreso } = alEscanear(LS, p0, '07501001');
+    expect(alEscanear(LS, progreso, 'producto pal').escaneo.tipo).toBe('ya_revisado');
+  });
+
+  it('lo que se va escribiendo filtra la lista, salvo la ráfaga larga de dígitos del lector', () => {
+    expect(filtraLaLista('tambo')).toBe(true);
+    expect(filtraLaLista('44340')).toBe(true);
+    expect(filtraLaLista('7501000044340')).toBe(false);
+    expect(filtraLaLista('  ')).toBe(false);
+  });
+
+  it('NEGATIVO: si dos pendientes comparten el código no adivina', () => {
+    const dos = [L('x', 1, 1, { codes: [{ code: '111', factor: 20 }] }), L('y', 1, 1, { codes: [{ code: '111', factor: 20 }] })];
+    const r = alEscanear(dos, progresoInicial(dos), '111');
+    expect(r.escaneo.tipo).toBe('varios');
+    expect(resueltos(dos, r.progreso)).toBe(0);
   });
 });
 

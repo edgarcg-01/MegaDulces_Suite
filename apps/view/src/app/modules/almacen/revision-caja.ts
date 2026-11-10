@@ -5,7 +5,9 @@
  * Pensado para cajeras mayores (David, 2026-10-29): UN producto a la vez, resaltado; lo normal es un
  * solo toque («Está bien»); los demás botones son para cuando algo no cuadra.
  */
-import type { PresaleReviewFinishRequest, PresaleReviewLine } from '@megadulces/contracts';
+import type { PresaleReviewFinishRequest, PresaleReviewLine, PresaleReviewMatch } from '@megadulces/contracts';
+import { RANGO_COINCIDENCIA, coincidenciaDeCodigo } from '@megadulces/contracts';
+import { coincideBusqueda } from '@megadulces/ui-web';
 
 /**
  * Estado de un renglón en la pantalla.
@@ -46,13 +48,82 @@ export function progresoInicial(lines: PresaleReviewLine[]): ProgresoPedido {
   return { marcas, hist: [] };
 }
 
-/** El renglón que se está revisando: el primero sin resolver que no se dejó para después. `null` = todos listos. */
-export function renglonActual(lines: PresaleReviewLine[], p: ProgresoPedido): PresaleReviewLine | null {
+/**
+ * El renglón que se está revisando. `null` = todos listos.
+ *
+ * `[MCP.10.2]` Si la cajera TOCÓ un producto de la lista (`elegido`) y sigue sin resolver, es ése: el
+ * surtidor acomoda el carrito por cómo es el producto (lo blando arriba, lo duro abajo), no en el
+ * orden del pedido, y ella revisa lo que saca. Si no tocó nada, o lo que tocó ya se resolvió, el
+ * primero sin resolver que no se dejó para después, como siempre.
+ */
+export function renglonActual(lines: PresaleReviewLine[], p: ProgresoPedido, elegido: string | null = null): PresaleReviewLine | null {
   const pendientes = lines.filter((l) => !resuelto(p.marcas[l.key]));
-  return pendientes.find((l) => !p.marcas[l.key]?.despues) ?? pendientes[0] ?? null;
+  const tocado = elegido === null ? undefined : pendientes.find((l) => l.key === elegido);
+  return tocado ?? pendientes.find((l) => !p.marcas[l.key]?.despues) ?? pendientes[0] ?? null;
 }
 
 export const resueltos = (lines: PresaleReviewLine[], p: ProgresoPedido): number => lines.filter((l) => resuelto(p.marcas[l.key])).length;
+
+/**
+ * `[MCP.10.3]` Lo que pasó con lo que se escaneó o escribió.
+ *  · `confirmado` — código EXACTO de un renglón de UNA unidad, en esa misma unidad: ya quedó «bien».
+ *  · `elegido` — es de este pedido pero hay que mirarlo: varias unidades, otra unidad, un faltante, o se
+ *    encontró por SKU, por código sin ceros o por nombre (ninguno de ésos dice la unidad: nunca confirman solos).
+ *  · `ya_revisado` · `varios` (más de un pendiente coincide: no se adivina) · `no_es` (no es de este pedido:
+ *    la pantalla lo busca en los otros pedidos por revisar).
+ */
+export type Escaneo =
+  | { tipo: 'vacio' }
+  | { tipo: 'confirmado'; line: PresaleReviewLine }
+  | { tipo: 'elegido'; line: PresaleReviewLine; match: PresaleReviewMatch }
+  | { tipo: 'ya_revisado'; line: PresaleReviewLine }
+  | { tipo: 'varios'; lines: PresaleReviewLine[]; match: PresaleReviewMatch }
+  | { tipo: 'no_es' };
+
+/**
+ * `[MCP.10.3]` Lo escaneado o escrito contra los renglones del pedido. Primero por código o SKU con la
+ * regla compartida con el servidor (`coincidenciaDeCodigo`: el código exacto manda, luego el SKU, luego el
+ * código sin ceros a la izquierda) y, si nada coincide, por nombre con el buscador compartido de la suite
+ * (cada palabra, sin acentos). Sólo cuenta la forma más segura que haya coincidido. Confirma solo
+ * únicamente con código EXACTO, renglón de 1 y la misma unidad: la pieza de un pedido de «1 caja» la señala.
+ */
+export function alEscanear(lines: PresaleReviewLine[], p: ProgresoPedido, texto: string): { escaneo: Escaneo; progreso: ProgresoPedido } {
+  const q = String(texto ?? '').trim();
+  if (!q) return { escaneo: { tipo: 'vacio' }, progreso: p };
+  type Hallado = { l: PresaleReviewLine; match: PresaleReviewMatch; factor: number | null };
+  const porCodigo: Hallado[] = [];
+  for (const l of lines) {
+    const c = coincidenciaDeCodigo(q, l.codes ?? [], l.sku ?? null);
+    if (c) porCodigo.push({ l, match: c.match, factor: c.factor });
+  }
+  let hallados: Hallado[];
+  if (porCodigo.length) {
+    const mejor = Math.max(...porCodigo.map((h) => RANGO_COINCIDENCIA[h.match]));
+    hallados = porCodigo.filter((h) => RANGO_COINCIDENCIA[h.match] === mejor);
+  } else {
+    hallados = lines.filter((l) => coincideBusqueda(q, l.product_name, l.sku)).map((l) => ({ l, match: 'nombre' as const, factor: null }));
+  }
+  if (!hallados.length) return { escaneo: { tipo: 'no_es' }, progreso: p };
+  const pendientes = hallados.filter((x) => !resuelto(p.marcas[x.l.key]));
+  if (!pendientes.length) return { escaneo: { tipo: 'ya_revisado', line: hallados[0].l }, progreso: p };
+  if (pendientes.length > 1) return { escaneo: { tipo: 'varios', lines: pendientes.map((x) => x.l), match: pendientes[0].match }, progreso: p };
+  const { l, match, factor } = pendientes[0];
+  const estado = p.marcas[l.key]?.estado ?? 'por_revisar';
+  const mismaUnidad = factor !== null && Math.abs(factor - l.factor) < 1e-9;
+  if (match === 'codigo' && estado === 'por_revisar' && l.ordered === 1 && mismaUnidad && l.restorable) {
+    return { escaneo: { tipo: 'confirmado', line: l }, progreso: aplicar(p, l, { tipo: 'bien' }) };
+  }
+  return { escaneo: { tipo: 'elegido', line: l, match }, progreso: p };
+}
+
+/**
+ * `[MCP.10.3]` ¿Lo que se va escribiendo filtra la lista? Sí, salvo una ráfaga de dígitos larga: eso es el
+ * lector a media lectura (un código de barras), y filtrar por él vaciaría la lista un instante en cada escaneo.
+ */
+export function filtraLaLista(texto: string): boolean {
+  const t = String(texto ?? '').trim();
+  return !!t && !/^\d{8,}$/.test(t);
+}
 
 /** Lo que hace cada botón sobre UN renglón. Devuelve un progreso nuevo (no muta). */
 export type Accion =

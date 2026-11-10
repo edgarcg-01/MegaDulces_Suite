@@ -2,6 +2,8 @@ import type { PresalePickReport, PresalePickRestore } from '@megadulces/contract
 import {
   RevisionInvalida,
   armarRenglonesRevision,
+  buscarEnRenglones,
+  codigosDeFicha,
   planearRevision,
   resolucion,
   type RenglonVivo,
@@ -142,5 +144,43 @@ describe('resolucion', () => {
     expect(resolucion(3, 2, 3, 0)).toBe('completo');
     expect(resolucion(3, 2, 2, 0)).toBe('no_hubo');
     expect(resolucion(3, 3, 3, 1)).toBe('devuelto');
+  });
+});
+
+describe('[MCP.10.3] los códigos para escanear, de la ficha de Kepler', () => {
+  const ficha = {
+    sku: '06001', nombre: 'MAZAPAN', u1: 'PZA', u2: 'PAQ', f2: 20, u3: 'CJA', f3: 400,
+    base: ['006001', ' 7501000110 ', null], dos: ['06001', null, null], tres: ['17501000110'],
+  };
+
+  it('cada código con las piezas que trae: pieza 1, paquete 20, caja 400 y la etiqueta C+clave', () => {
+    expect(codigosDeFicha(ficha)).toEqual([
+      { code: '006001', factor: 1 }, { code: '7501000110', factor: 1 },
+      { code: '06001', factor: 20 }, { code: '17501000110', factor: 400 }, { code: 'C06001', factor: 400 },
+    ]);
+  });
+
+  it('NEGATIVO: sin quitar ceros (006001 de la pieza no es 06001 del paquete) y el factor sin capturar es null, no 1', () => {
+    const sinFactor = codigosDeFicha({ ...ficha, f2: 0, f3: null });
+    expect(sinFactor.find((c) => c.code === '06001')?.factor).toBeNull();
+    expect(sinFactor.find((c) => c.code === 'C06001')?.factor).toBeNull();
+    expect(sinFactor.find((c) => c.code === '006001')?.factor).toBe(1);
+  });
+
+  it('[MCP.10.3] buscar: sólo cuenta la forma más segura (un código exacto deja fuera los parecidos por nombre)', () => {
+    const R = [
+      { order_id: 'o1', product_name: 'MAZAPAN GIGANTE', sku: '06001', codes: codigosDeFicha(ficha) },
+      { order_id: 'o2', product_name: 'MAZAPAN 06001 MINI', sku: '99999', codes: [] },
+    ];
+    expect(buscarEnRenglones('06001', R).map((h) => [h.r.order_id, h.match])).toEqual([['o1', 'codigo']]);
+    expect(buscarEnRenglones('mazapán', R).map((h) => h.r.order_id)).toEqual(['o1', 'o2']);
+    expect(buscarEnRenglones('mazapan mini', R).map((h) => h.r.order_id)).toEqual(['o2']);
+    expect(buscarEnRenglones('  ', R)).toEqual([]);
+    expect(buscarEnRenglones('chicle', R)).toEqual([]);
+  });
+
+  it('un código repetido en dos peldaños se queda con el más chico (como el checado)', () => {
+    const repetido = codigosDeFicha({ ...ficha, dos: ['006001', null, null] });
+    expect(repetido.filter((c) => c.code === '006001')).toEqual([{ code: '006001', factor: 1 }]);
   });
 });

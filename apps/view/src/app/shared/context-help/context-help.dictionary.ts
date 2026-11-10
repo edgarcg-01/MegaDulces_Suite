@@ -1567,6 +1567,24 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
     ],
   },
 
+  // [CB.62] Bancos › Contra Kepler › Comisiones.
+  bancos_comisiones: {
+    title: 'Comisiones del banco que faltan en Kepler',
+    intro: 'Por cada venta con tarjeta, el banco cobra una comisión y su IVA. Hoy Finanzas los captura a mano en Kepler: una solicitud y un gasto por sucursal, banco y día de venta, y un pago por cada cargo del banco. Esta vista los saca de la descarga del banco y dice cuáles faltan. Todavía no escribe en Kepler.',
+    groups: [
+      {
+        heading: 'Cómo leerla',
+        entries: [
+          { term: 'Día de venta', def: 'El día en que se vendió, no el día en que el banco cobró. El banco no lo dice: lo dice el depósito de esa venta, que la sucursal captura en Kepler («VTA DEL 02-11-26»). Por eso los cargos de un lunes se reparten en viernes, sábado y domingo.' },
+          { term: 'Listos', def: 'Días que Finanzas no ha tocado en Kepler y que la Suite puede armar completos: solicitud, gasto, un pago por cargo (igual al banco, al centavo) y su póliza.' },
+          { term: 'Finanzas los dejó a medias', def: 'Finanzas ya capturó la solicitud o el gasto de ese día, pero no todos sus pagos. La Suite no escribe encima: se terminan en Kepler.' },
+          { term: 'Esperando a la sucursal', def: 'La sucursal todavía no captura en Kepler el depósito de esa venta, y sin él no se sabe de qué sucursal ni de qué día es. Suele tardar de 0 a 5 días; pasados 10, pasa a revisión.' },
+          { term: 'Por revisar', def: 'Algo no cuadra y la Suite no adivina: el depósito dice un día imposible, Finanzas tiene un gasto de ese día con otros importes, o el IVA no es el 16 % de su comisión. Cada renglón dice por qué.' },
+        ],
+      },
+    ],
+  },
+
   bancos_saldo_no_cuadra: {
     title: 'El saldo de una cuenta no cierra',
     intro: 'Saldo inicial + depósitos − retiros debería dar el saldo final del estado de cuenta. Si no da, falta capturar un movimiento o un saldo/monto está mal tecleado.',
@@ -2824,15 +2842,16 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
   'calendario-de-pagos': {
     title: 'Calendario de pagos — todo el pago, en un solo lugar',
     intro:
-      'Acá se arma el día de pago, se prepara cada transferencia, se autoriza el lote y se liga con el documento del ERP. Desde octubre de 2026 también muestra qué factura está por perder su descuento por pronto pago, que antes era una pantalla aparte: el dato es el mismo y la decisión es la misma, así que se toma sin cambiar de lugar.',
+      'Acá se arma el día de pago y cada pago avanza solo: se prepara, se autoriza, se paga y se liga con el documento del ERP. Al entrar ves los pagos por ETAPA (de todos los días); «Por día» es donde se arma, con la semana y el tope. Desde octubre de 2026 también muestra qué factura está por perder su descuento por pronto pago, que antes era una pantalla aparte: el dato es el mismo y la decisión es la misma, así que se toma sin cambiar de lugar.',
     groups: [
       {
-        heading: 'Los pasos, y de quién es cada uno',
+        heading: 'Los pasos de cada pago, y de quién es cada uno',
         entries: [
+          { term: 'Por etapa · Por día', def: 'Por etapa: los pagos de todos los días según lo que les falta (por preparar, por autorizar, por pagar, por registrar en Kepler, pagados). Por día: la semana con su tope, para armar. Es la misma tabla y el mismo desglose; cambia sólo qué pagos se ven.' },
           { term: '1 · Armar el día', def: 'Elegís qué facturas se pagan y a qué día. Una factura puede venir de cuatro lugares: la deuda viva del ERP, una obligación de compra, un gasto autorizado por Presupuestos o un compromiso financiero. Un pago es UNA transferencia a UNA cuenta, así que no se pueden juntar facturas de beneficiarios distintos.' },
-          { term: '2 · Preparar', def: 'Le pones el método, la cuenta de donde sale el dinero y la cuenta a donde llega. Es de Tesorería. Mientras un solo pago del día quede sin preparar, el día entero NO se puede autorizar.' },
-          { term: '3 · Autorizar el día', def: 'Lo hace quien tiene el permiso de autorizar, que no es quien preparó: esa separación es el control. Al autorizar, el día recibe su folio y Caja General ya puede dispersar.' },
-          { term: '4 · Ejecutar y ligar', def: 'Caja General paga y marca el pago como ejecutado. Después se liga con su documento del ERP, que es lo que permite volver a cruzarlo contra la contabilidad. Va aparte porque el dinero sale antes de que el ERP capture el documento.' },
+          { term: '2 · Preparar', def: 'Le pones el método, la cuenta de donde sale el dinero y la cuenta a donde llega. Es de Tesorería. Cada pago se prepara solo: uno sin preparar ya no frena a los demás.' },
+          { term: '3 · Autorizar el pago', def: 'Cada pago se autoriza solo (desde noviembre de 2026; antes se autorizaba el día completo). Lo hace quien tiene el permiso de autorizar, y tiene que caber en el tope de su día. Autorizado, ya no cambia: para corregirlo se le quita la autorización y se vuelve a autorizar.' },
+          { term: '4 · Pagar y ligar', def: '«Pagado» se habilita cuando el estado de cuenta muestra la salida y está su comprobante. Después se liga con su documento del ERP (X-D-26). Si Tesorería ya lo capturó en Kepler, el pago aparece en «Pagados» aunque nadie lo haya marcado en la Suite.' },
         ],
       },
       {
@@ -2843,7 +2862,7 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
           { term: 'Tope del día', def: 'Lo máximo que puede salir ese día. Lo fija Presupuestos a partir del ingreso esperado. ⚠️ Antes esta pantalla lo llamaba «presupuesto» y Presupuestos lo llama «capacidad»: es el MISMO valor con tres nombres, y por eso acá se dice «tope» en todos lados. Un día sin tope fijado no es un día con tope cero: se puede armar, pero no se puede autorizar.' },
           { term: 'Libre del tope', def: 'El tope menos lo ya comprometido. Es la cifra que la cola de días muestra a la derecha de cada día, SIEMPRE — antes mostraba lo comprometido cuando el día tenía pagos y lo libre cuando no, así que el día con más espacio se leía como el más apretado.' },
           { term: 'Por confirmar antes de programar', def: 'Facturas de sucursal anteriores al corte del 1 de octubre de 2026. Varias se pagaron desde Oficinas sin que la sucursal las aplicara, así que programarlas puede pagarlas dos veces. Se ven, no se agregan, hasta que Finanzas las revise. ⚠️ El grupo se arma por FECHA, no con una marca del ERP: es una aproximación conservadora, no un dictamen.' },
-          { term: 'Quién autoriza (y qué falta)', def: 'Hoy se autoriza EL DÍA COMPLETO, y lo hace quien tiene el permiso de autorizar — nunca quien preparó. ⚠️ La decisión D2 —una firma por pago según su monto, hasta $100,000 Tesorería y arriba Dirección— está firmada pero NO está construida: mientras tanto, un pago chico y uno grande los autoriza la misma persona en el mismo clic.' },
+          { term: 'Quién autoriza (y qué falta)', def: 'Se autoriza PAGO POR PAGO, y lo hace quien tiene el permiso de autorizar. ⚠️ Debe ser alguien distinto de quien lo armó o preparó, y la Suite todavía NO lo impide: la confirmación dice quién lo armó. ⚠️ La decisión D2 —firma según el monto, hasta $100,000 Tesorería y arriba Dirección— está firmada pero NO está construida.' },
           { term: 'Kepler (X-D-26)', def: 'El pago se sigue capturando A MANO en el ERP. La escritura automática está apagada. Si la pantalla no lo dijera, quien captura dejaría de hacerlo creyendo que la Suite lo escribe.' },
           { term: 'Trae $X a favor sin aplicar', def: 'Ese acreedor tiene notas de crédito, devoluciones, bonificaciones o anticipos que Kepler todavía NO neteó contra ninguna factura. ⛔ No bloquea el pago —netear es una decisión de Finanzas con el proveedor, no una regla automática—, pero pagar la factura completa deja ese dinero ahí. Medido el 2026-10-26: $8,264,176 sin aplicar en 201 documentos, de los cuales $4,484,249 son de 54 acreedores a los que además les debemos. Varios quedarían en CERO: un proveedor debe $149,640 y trae $2,000,820 a favor. ⚠️ Es un PISO, no un dictamen: el casamiento del ERP sobre-cuenta lo aplicado, así que lo pendiente real puede ser mayor.' },
           { term: 'Qué SÍ se aplica solo', def: 'Las notas de crédito: 1,801 documentos por $110.6M, prácticamente todas neteadas por Kepler. Ese proceso funciona y la deuda que ves ya nace con el descuento hecho. Lo que se queda sin aplicar son los ANTICIPOS (58% aplicado) y las DEVOLUCIONES (40%): 6 de cada 10 devoluciones nunca se netearon contra una factura.' },

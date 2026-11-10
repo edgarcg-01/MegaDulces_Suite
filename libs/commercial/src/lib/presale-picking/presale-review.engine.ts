@@ -14,11 +14,15 @@ import type {
   PresalePickReport,
   PresalePickReportLine,
   PresalePickRestore,
+  PresaleReviewCode,
   PresaleReviewLine,
   PresaleReviewResolution,
   PresaleReviewResultLine,
 } from '@megadulces/contracts';
+import { RANGO_COINCIDENCIA, coincidenciaDeCodigo, type PresaleReviewMatch } from '@megadulces/contracts';
 import { cantidadMostrada } from './presale-picking.engine';
+import type { KdiiFila } from '../shared/kdii-codigo';
+import { normalizarBusqueda, palabrasDeBusqueda } from '../commercial-products/catalogo-busqueda';
 
 const EPS = 1e-9;
 const PESABLE = /^(KG|GR|LT|LTS|L|ML)$/i;
@@ -178,4 +182,58 @@ export function planearRevision(
   }
   if (!queda) throw new RevisionInvalida('El pedido quedaría vacío. Avísale a la vendedora para cancelarlo en lugar de cobrarlo.');
   return plan;
+}
+
+/**
+ * `[MCP.10.3]` Los códigos con que la caja puede escanear un producto, de su ficha de Kepler en la
+ * sucursal, cada uno con las piezas base que trae (Base = 1, Dos = `c81`, Tres = `c84`, y la etiqueta
+ * `C`+clave de la caja). Mismo orden y mismas casillas que el checado (`unidadDelCodigo`): si un código
+ * aparece en dos peldaños gana el más chico. Factor sin capturar (0 o vacío) = `null`: el escaneo
+ * señala el producto pero no confirma nada solo. Sólo coincidencia exacta (`006001` ≠ `06001`).
+ */
+export function codigosDeFicha(f: KdiiFila): PresaleReviewCode[] {
+  const out = new Map<string, number | null>();
+  const pon = (xs: Array<string | null>, factor: number | null): void => {
+    for (const x of xs) {
+      const c = String(x ?? '').trim().toUpperCase();
+      if (c && !out.has(c)) out.set(c, factor);
+    }
+  };
+  const f2 = Number(f.f2) > 0 ? Number(f.f2) : null;
+  const f3 = Number(f.f3) > 0 ? Number(f.f3) : null;
+  pon(f.base, 1);
+  pon(f.dos, f2);
+  pon(f.tres, f3);
+  pon([`C${String(f.sku).trim()}`], f3);
+  return [...out].map(([code, factor]) => ({ code, factor }));
+}
+
+/** `[MCP.10.3]` Un renglón de un pedido por revisar, como lo ve la búsqueda en los otros pedidos. */
+export interface RenglonBuscable {
+  order_id: string;
+  product_name: string;
+  sku: string | null;
+  codes: PresaleReviewCode[];
+}
+
+/**
+ * `[MCP.10.3]` ¿Qué renglones coinciden con lo buscado? Por código o SKU con la MISMA regla que la pantalla
+ * (`coincidenciaDeCodigo`, de contracts) y, si no, por nombre: cada palabra, sin acentos, igual que el
+ * buscador del catálogo. Sólo se devuelve la forma más segura que haya coincidido: si alguien escaneó un
+ * código exacto, los parecidos por nombre son ruido.
+ */
+export function buscarEnRenglones(q: string, renglones: RenglonBuscable[]): Array<{ r: RenglonBuscable; match: PresaleReviewMatch }> {
+  const texto = String(q ?? '').trim();
+  if (!texto) return [];
+  const palabras = palabrasDeBusqueda(texto);
+  const hallados: Array<{ r: RenglonBuscable; match: PresaleReviewMatch }> = [];
+  for (const r of renglones) {
+    const c = coincidenciaDeCodigo(texto, r.codes, r.sku);
+    if (c) { hallados.push({ r, match: c.match }); continue; }
+    const pajar = normalizarBusqueda(`${r.product_name} ${r.sku ?? ''}`);
+    if (palabras.length && palabras.every((p) => pajar.includes(p))) hallados.push({ r, match: 'nombre' });
+  }
+  if (!hallados.length) return [];
+  const mejor = Math.max(...hallados.map((h) => RANGO_COINCIDENCIA[h.match]));
+  return hallados.filter((h) => RANGO_COINCIDENCIA[h.match] === mejor);
 }

@@ -73,8 +73,8 @@ describe('[PGP.7] el about del Calendario de pagos', () => {
   it.each([
     '1 · Armar el día',
     '2 · Preparar',
-    '3 · Autorizar el día',
-    '4 · Ejecutar y ligar',
+    '3 · Autorizar el pago',  // [PGP.113] se autoriza el pago, no el día
+    '4 · Pagar y ligar',
   ])('explica el paso "%s" del circuito', (termino) => {
     expect(entradas().map((e) => e.term)).toContain(termino);
   });

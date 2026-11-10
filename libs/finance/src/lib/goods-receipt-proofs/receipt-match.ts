@@ -35,9 +35,9 @@
 /**
  * Categorías de ajuste de compra (X-D-55) que son beneficio NEGOCIADO, no algo que salió mal. Una sola
  * fuente para el listado de entradas y el expediente (`[RE.35.5]`): si cada uno tuviera su lista, la
- * fila y el filtro dirían cosas distintas.
+ * fila y el filtro dirían cosas distintas. `[RE.67]` La lista vive en contracts (la lee también comercial).
  */
-export const COMERCIAL_CATS = ['descuento_comercial', 'pronto_pago', 'apoyo_marca'];
+export { COMERCIAL_CATS } from '@megadulces/contracts/finance/ajustes-kepler';
 
 /** Un importe iguala a otro por debajo de esto. Se sobreescribe con `receipt_settings`. */
 export const TOLERANCIA_DEFAULT = 1;

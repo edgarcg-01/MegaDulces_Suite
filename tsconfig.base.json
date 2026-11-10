@@ -54,6 +54,7 @@
       // [TP.20.5] Las dos reglas de pagos que cruzan dominio. Por SUBRUTA y no por el barrel:
       // `kepler-payable-key` importa `node:crypto`, y el barrel raiz lo cargan las 3 apps Angular.
       "@megadulces/contracts/finance/kepler-payable-key": ["libs/contracts/src/finance/kepler-payable-key.contract.ts"],
+      "@megadulces/contracts/finance/ajustes-kepler": ["libs/contracts/src/finance/ajustes-kepler.contract.ts"],
       "@megadulces/contracts/finance/pronto-pago-ventana": ["libs/contracts/src/finance/pronto-pago-ventana.contract.ts"],
       "@megadulces/contracts/finance/clabe": ["libs/contracts/src/finance/clabe.contract.ts"],
       // [PGP.103] La validación banco + comprobante del pago: la leen la API y la pantalla de Pagos.

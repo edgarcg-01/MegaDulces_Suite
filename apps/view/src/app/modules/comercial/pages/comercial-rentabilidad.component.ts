@@ -192,7 +192,7 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
           @if (o.levers_source_empty) {
             <p class="rp-blind">
               <i class="pi pi-ban" aria-hidden="true"></i>
-              <b>No hay ni un ajuste de compra cargado</b> (<code>erp_purchase_adjustments</code> está vacía).
+              <b>No hay ni un ajuste de compra cargado</b> (<code>v_purchase_adjustments</code> está vacía).
               Las palancas de proveedor de abajo no valen cero: no se están midiendo.
               Falta correr el feed de descuentos.
             </p>
@@ -617,7 +617,7 @@ const WINDOWS: { key: MarginWindow; label: string }[] = [
               <p class="rp-lv-warn">
                 <i class="pi pi-ban" aria-hidden="true"></i>
                 <b>No hay ajustes de compra cargados</b> para ningún proveedor
-                (<code>erp_purchase_adjustments</code> vacía). Las palancas de arriba
+                (<code>v_purchase_adjustments</code> vacía). Las palancas de arriba
                 no son cero: no se están midiendo.
               </p>
             }

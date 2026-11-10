@@ -6,6 +6,7 @@ import type {
   PresaleReviewFinishRequest,
   PresaleReviewFinishResponse,
   PresaleReviewInboxResponse,
+  PresaleReviewSearchResponse,
 } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
 
@@ -21,6 +22,11 @@ export class PresaleReviewService {
 
   detail(orderId: string): Observable<PresaleReviewDetail> {
     return this.http.get<PresaleReviewDetail>(`${this.base}/${orderId}`);
+  }
+
+  /** `[MCP.10.3]` ¿En qué pedido por revisar de mi sucursal está este producto? Código, SKU o nombre. */
+  search(q: string): Observable<PresaleReviewSearchResponse> {
+    return this.http.get<PresaleReviewSearchResponse>(`${this.base}/search`, { params: { q } });
   }
 
   finish(orderId: string, body: PresaleReviewFinishRequest): Observable<PresaleReviewFinishResponse> {
