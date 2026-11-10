@@ -84,3 +84,29 @@ export {
  */
 export { medirFoto, juzgarFoto, dimensionesDeMedicion, CALIDAD_VERSION, LADO_MEDICION, UMBRAL_NITIDEZ, UMBRAL_CONTRASTE } from './foto/calidad-foto';
 export type { MedicionFoto, VeredictoFoto } from './foto/calidad-foto';
+
+/**
+ * `[VTK.17]` Leer un código de barras con la cámara: la lógica de zxing (que se carga al tocar el
+ * botón) y los dos apagados que vivían en `apps/view`. La cáscara (botón + capa con el video) se
+ * repite por app porque ninguna librería hospeda componentes: deuda declarada en el tracker.
+ */
+export {
+  detenerLector, controlesSiSigueAbierta, camaraDisponible, motivoSinCamara, abrirLectorCodigos,
+  RESTRICCIONES_CAMARA, TEXTO_SIN_ACCESO_A_CAMARA,
+} from './camara/lector-codigos';
+export type { ModulosZxing } from './camara/lector-codigos';
+
+/**
+ * `[VTK.17]` (ex `[MOS.1]`) Buscar en el respaldo de precios de Kepler y contar sus presentaciones.
+ * Se movió desde `apps/view/.../tienda/mostrador-catalogo.ts` para que el verificador de la tienda y
+ * el checador del vendedor usen LA MISMA regla. `Presentacion` sale como `PresentacionMostrador`
+ * porque el nombre ya lo usa `order/qty-units` (otra cosa: la escalera de captura).
+ */
+export {
+  presentacionesDe, unidadesDelRespaldo, unidadDelCodigo, escalonesDe, tramoNormal,
+  aBuscable, buscarEnCatalogo, productosPorCodigo, singularDe, pluralDe, nombreDe, ETIQUETA_CAMPO,
+} from './precios/catalogo-mostrador';
+export type {
+  RenglonRespaldo, TramoMayoreo, UnidadConFactor, Escalon, CampoCoincidencia, Buscable, Coincidencia,
+  Presentacion as PresentacionMostrador,
+} from './precios/catalogo-mostrador';

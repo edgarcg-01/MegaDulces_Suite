@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { RouterLink } from '@angular/router';
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
@@ -11,7 +12,7 @@ import { DatePickerModule } from 'primeng/datepicker';
 import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { TagModule } from 'primeng/tag';
 import type {
-  AcreedorDocEstado, AcreedorEstadoCuentaResponse, AcreedorResumen, AcreedorTipo, AcreedorTipoTotal, AcreedoresResponse,
+  AcreedorDocEstado, AcreedorDocumento, AcreedorEstadoCuentaResponse, AcreedorResumen, AcreedorTipo, AcreedorTipoTotal, AcreedoresResponse,
 } from '@megadulces/contracts';
 import { filtrarPorBusqueda } from '@megadulces/ui-web';
 import { environment } from '../../../../environments/environment';
@@ -54,7 +55,7 @@ const iso = (d: Date): string => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${
   selector: 'app-finanzas-estado-cuenta-acreedores',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, InputTextModule, DatePickerModule, ToggleSwitchModule, TagModule, MetricStripComponent, SucursalPipe, PageTabsComponent],
+  imports: [CommonModule, RouterLink, FormsModule, ButtonModule, TableModule, InputTextModule, DatePickerModule, ToggleSwitchModule, TagModule, MetricStripComponent, SucursalPipe, PageTabsComponent],
   template: `
     <div class="surf-page in">
       <header class="surf-page-head">
@@ -143,6 +144,14 @@ const iso = (d: Date): string => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${
                   <div><span>Vencido</span><b class="num" [class.ec-bad]="e.totales.vencido > 0.005">{{ money(e.totales.vencido) }}</b></div>
                   <div><span>Pagos sin aplicar</span><b class="num">{{ money(e.totales.pagos_sin_aplicar) }}</b></div>
                   <div><span>Saldo</span><b class="num">{{ money(e.totales.saldo) }}</b></div>
+                  <!-- [ECA.8] Lo que el Calendario ya aparta de este acreedor, y lo que falta programar. -->
+                  <!-- Un API anterior a ECA.8 no manda «calendario»: se DECLARA no leído, no se rompe la tabla. -->
+                  @if (e.calendario?.medido) {
+                    <div class="ec-tot-cal"><span>En el Calendario</span><b class="num">{{ money(e.calendario.programado) }}</b>
+                      <small>{{ e.calendario.documentos }} {{ e.calendario.documentos === 1 ? 'factura' : 'facturas' }} · sin programar <span class="num">{{ money(e.calendario.sin_programar) }}</span></small></div>
+                  } @else {
+                    <div class="ec-tot-cal"><span>En el Calendario</span><b class="ec-bad">No se pudo leer</b><small>No se sabe qué está programado: no se dibuja como «nada».</small></div>
+                  }
                 </div>
 
                 <div class="ec-scroll">
@@ -177,6 +186,39 @@ const iso = (d: Date): string => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${
                               }
                             </td>
                           </tr>
+                        }
+                        <!-- [ECA.8] En qué pago del Calendario está: programada, en un día que ya pasó, o ya cubierta. -->
+                        @for (p of doc.programado ?? []; track $index) {
+                          <tr class="ec-prog-row"><td colspan="9">
+                            <div class="ec-prog" [class.is-late]="p.dia_pasado" [class.is-paid]="p.estado === 'ejecutado'">
+                              <i class="pi" [class.pi-calendar]="p.estado === 'pendiente' && !p.dia_pasado" [class.pi-exclamation-triangle]="p.dia_pasado" [class.pi-check]="p.estado === 'ejecutado'" aria-hidden="true"></i>
+                              <span class="ec-prog-txt">
+                                @if (p.estado === 'ejecutado') {
+                                  <b>Cubierta el {{ diaLargo(p.pagado_el || p.fecha) }}{{ p.metodo ? ' por ' + p.metodo : '' }}</b> · <span class="num">{{ money(p.cubierto) }}</span>@if (p.banco) { · desde {{ p.banco }} }@if (p.referencia) { · ref. <span class="ec-mono">{{ p.referencia }}</span> }
+                                  @if (p.aplicado_en_kepler) {
+                                    <span class="ec-prog-sub">· Kepler ya la aplicó (pago <span class="ec-mono">{{ p.kepler_folio }}</span>).</span>
+                                  } @else {
+                                    <span class="ec-prog-sub">· Kepler aún no la aplica: no la vuelvas a programar.</span>
+                                  }
+                                } @else if (p.dia_pasado) {
+                                  <!-- Revisión independiente: un pendiente en un día pasado sólo prueba que nadie lo marcó pagado, no que no salió del banco. -->
+                                  <b>Se programó para el {{ diaLargo(p.fecha) }} y no se marcó como pagado.</b> El pago sigue apartando <span class="num">{{ money(p.cubierto) }}</span>: si ya salió del banco, márcalo pagado; si no, muévelo a otro día.
+                                } @else {
+                                  Programada en el Calendario para el <b>{{ diaLargo(p.fecha) }}</b> · <span class="num">{{ money(p.cubierto) }}</span>
+                                  @if (p.facturas_en_pago > 1) { · en un pago de {{ p.facturas_en_pago }} facturas por <span class="num">{{ money(p.total_pago) }}</span> }
+                                  @if (p.creado_por) { <span class="ec-prog-sub">· la agregó {{ p.creado_por }}</span> }
+                                }
+                                @if ($last && sinProgramar(doc) > 0.005) {
+                                  <span class="ec-prog-sub">· quedan <b class="num">{{ money(sinProgramar(doc)) }}</b> sin programar</span>
+                                }
+                                @if (doc.cancelado) {
+                                  <b class="ec-bad"> · La factura está cancelada en Kepler: revisa este pago.</b>
+                                }
+                              </span>
+                              <a class="ec-prog-go" routerLink="/finanzas/calendario-pagos" [queryParams]="{ fecha: p.fecha }"
+                                 [attr.aria-label]="'Abrir el Calendario en el ' + diaLargo(p.fecha) + ', folio ' + doc.folio">{{ p.dia_pasado ? 'Ir al ' + dm(p.fecha) : 'Ver el ' + dm(p.fecha) }} <i class="pi pi-arrow-right" aria-hidden="true"></i></a>
+                            </div>
+                          </td></tr>
                         }
                         <tr class="ec-saldo-row"><td colspan="8" class="ta-r">Saldo documento</td><td class="ta-r num" [class.ec-bad]="doc.saldo > 0.005 && doc.vencido">{{ money(doc.saldo) }}</td></tr>
                       </tbody>
@@ -242,10 +284,28 @@ const iso = (d: Date): string => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${
     .ec-filters { display:flex; flex-wrap:wrap; gap:.8rem; align-items:flex-end; padding:.6rem .85rem; }
     .ec-field { display:flex; flex-direction:column; gap:.25rem; }
     .ec-field label { font-size:var(--fs-micro); letter-spacing:.06em; text-transform:uppercase; color:var(--text-muted); }
-    .ec-tots { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:.5rem; padding:0 .85rem .6rem; }
+    .ec-tots { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)) minmax(0,1.4fr); gap:.5rem; padding:0 .85rem .6rem; }
     .ec-tots div { display:flex; flex-direction:column; gap:.1rem; font-size:var(--fs-xs); color:var(--text-muted); }
     .ec-tots b { font-size:var(--fs-sm); color:var(--text-main); }
-    @media (max-width:40rem) { .ec-tots { grid-template-columns:repeat(2, minmax(0,1fr)); } }
+    .ec-tots .ec-tot-cal { border-left:2px solid var(--action); padding-left:.6rem; }
+    .ec-tots .ec-tot-cal > span { color:var(--text-main); font-weight:600; }
+    .ec-tots small { font-size:var(--fs-micro); }
+    @media (max-width:40rem) { .ec-tots { grid-template-columns:repeat(2, minmax(0,1fr)); } .ec-tots .ec-tot-cal { grid-column:1 / -1; } }
+    /* [ECA.8] La franja del Calendario debajo de la factura: naranja programada, roja si el día pasó, verde si ya se cubrió. */
+    .ec-prog-row td { padding:.15rem .5rem .3rem; }
+    .ec-prog { display:flex; flex-wrap:wrap; align-items:center; gap:.25rem .6rem; margin-left:1.4rem; padding:.4rem .6rem; border:1px solid var(--action-ring); border-radius:var(--r-sm); background:color-mix(in srgb, var(--action) 7%, transparent); color:var(--text-main); font-size:var(--fs-sm); }
+    .ec-prog > .pi { color:var(--action); }
+    .ec-prog.is-late { border-color:var(--bad-border); background:var(--bad-soft-bg); }
+    .ec-prog.is-late > .pi, .ec-prog.is-late b { color:var(--bad-fg); }
+    .ec-prog.is-paid { border-color:var(--ok-border); background:var(--ok-soft-bg); }
+    .ec-prog.is-paid > .pi, .ec-prog.is-paid > .ec-prog-txt > b { color:var(--ok-fg); }
+    .ec-prog-txt { flex:1 1 20rem; min-width:0; }
+    .ec-prog-sub { color:var(--text-muted); }
+    .ec-prog-go { display:inline-flex; align-items:center; gap:.3rem; margin-left:auto; padding:.2rem .4rem; border-radius:var(--r-sm); color:var(--action); font-weight:600; text-decoration:none; white-space:nowrap; }
+    .ec-prog.is-late .ec-prog-go { color:var(--bad-fg); }
+    .ec-prog.is-paid .ec-prog-go { color:var(--ok-fg); }
+    .ec-prog-go:hover { background:var(--overlay-hover); }
+    .ec-prog-go:focus-visible { outline:2px solid var(--focus-ring); outline-offset:1px; }
     .ec-scroll { overflow:auto; max-height:62vh; border-top:1px solid var(--border-color); }
     .ec-st { width:100%; border-collapse:collapse; font-size:var(--fs-sm); }
     .ec-st thead th { position:sticky; top:0; background:var(--card-bg); font-size:var(--fs-micro); letter-spacing:.06em; text-transform:uppercase; color:var(--text-muted); font-weight:600; text-align:left; padding:.4rem .5rem; border-bottom:1px solid var(--border-color); white-space:nowrap; }
@@ -393,6 +453,23 @@ export class FinanzasEstadoCuentaAcreedoresComponent implements OnInit {
           this.detErr.set('No se pudo cargar el estado de cuenta.');
         },
       });
+  }
+
+  /** `[ECA.8]` «viernes 13/11»: el día de la semana evita confundir el 13/11 con otro mes al leer rápido. */
+  diaLargo(f: string): string {
+    const d = new Date(`${f}T12:00:00`);
+    return Number.isNaN(d.getTime()) ? f : `${d.toLocaleDateString('es-MX', { weekday: 'long' })} ${this.dm(f)}`;
+  }
+  /** `[ECA.8]` «13/11». */
+  dm(f: string): string { return `${f.slice(8, 10)}/${f.slice(5, 7)}`; }
+  /**
+   * `[ECA.8]` Lo que ningún pago cubre todavía de esta factura. Lo ejecutado que Kepler ya aplicó no se
+   * resta: ya está dentro del saldo (mismo criterio que `calendarioDe` en el backend).
+   */
+  sinProgramar(doc: AcreedorDocumento): number {
+    if (doc.cancelado) return 0;
+    const cubierto = (doc.programado ?? []).filter((p) => !p.aplicado_en_kepler).reduce((t, p) => t + p.cubierto, 0);
+    return Math.max(doc.saldo - cubierto, 0);
   }
 
   estadoLabel(e: AcreedorDocEstado): string { return ESTADO[e].label; }

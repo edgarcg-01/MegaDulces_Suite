@@ -1,11 +1,16 @@
-import { describe, expect, it } from 'vitest';
-import type { MayoreoTier, VerificadorSnapshotItem } from '@megadulces/contracts';
 import {
-  aBuscable, buscarEnCatalogo, escalonesDe, presentacionesDe, tramoNormal, type UnidadConFactor,
-} from './mostrador-catalogo';
+  aBuscable, buscarEnCatalogo, escalonesDe, presentacionesDe, productosPorCodigo, tramoNormal,
+  unidadDelCodigo, unidadesDelRespaldo,
+  type RenglonRespaldo, type TramoMayoreo, type UnidadConFactor,
+} from './catalogo-mostrador';
 
 /**
  * `[MOS.1]` — El buscador del mostrador: qué encuentra, cómo cuenta la caja y cómo dice el mayoreo.
+ *
+ * ⭐ `[VTK.17]` Este spec vivía en `apps/view/src/app/modules/tienda/mostrador-catalogo.spec.ts` y se
+ * movió CON el código a `ui-web`: las dos apps (verificador de la tienda y checador del vendedor)
+ * buscan con esta misma regla. Los casos de `[MOS.1]` y `[ETQ-PROMO.2]` van intactos; los de abajo
+ * del todo son los nuevos del checador.
  *
  * Los negativos pesan tanto como los positivos: una caja que «siempre» se convierte a paquetes se
  * ve bien con el producto de ejemplo y miente con el que no divide exacto.
@@ -13,9 +18,8 @@ import {
 
 const u = (x: string, precio: number, factor = 1): UnidadConFactor => ({ u: x, precio_con_iva: precio, factor });
 
-const tier = (o: Partial<MayoreoTier>): MayoreoTier => ({
-  etiqueta: 'paquete', desde: 3, palabra: 'paquetes', precio_con_iva: 120, ahorro_por_unidad: 6,
-  ahorro_en_el_minimo: 18, descuento_pct: 4.8, realza: true, aplica_a: 'paquete', unidad_monto: 'por paquete',
+const tier = (o: Partial<TramoMayoreo>): TramoMayoreo => ({
+  desde: 3, precio_con_iva: 120, descuento_pct: 4.8, aplica_a: 'paquete',
   ...o,
 });
 
@@ -61,7 +65,7 @@ describe('escalonesDe — el mayoreo en la presentación en que Kepler lo captur
   });
 
   it('un escalón de la base se dice por pieza', () => {
-    const [e] = escalonesDe(uni, [tier({ aplica_a: 'base', etiqueta: 'pieza', palabra: 'piezas', desde: 10, precio_con_iva: 4.5 })]);
+    const [e] = escalonesDe(uni, [tier({ aplica_a: 'base', desde: 10, precio_con_iva: 4.5 })]);
     expect(e).toMatchObject({ u: 'PZA', precio: 4.5, precioNormal: 4.8, etiqueta: 'c/pieza' });
   });
 
@@ -72,19 +76,19 @@ describe('escalonesDe — el mayoreo en la presentación en que Kepler lo captur
   });
 
   it('a granel se dice por kilo', () => {
-    const [e] = escalonesDe([u('KG', 98)], [tier({ aplica_a: 'base', palabra: 'kg', desde: 5, precio_con_iva: 92 })]);
+    const [e] = escalonesDe([u('KG', 98)], [tier({ aplica_a: 'base', desde: 5, precio_con_iva: 92 })]);
     expect(e.etiqueta).toBe('c/kg');
     expect(tramoNormal(e)).toBe('1 a 4 kg');
   });
 
   it('con mínimo de 2, el tramo normal es "1 pieza"', () => {
-    const [e] = escalonesDe([u('PZA', 10)], [tier({ aplica_a: 'base', palabra: 'piezas', desde: 2, precio_con_iva: 9 })]);
+    const [e] = escalonesDe([u('PZA', 10)], [tier({ aplica_a: 'base', desde: 2, precio_con_iva: 9 })]);
     expect(tramoNormal(e)).toBe('1 pieza');
   });
 });
 
 describe('buscarEnCatalogo — nombre, proveedor, SKU o código de barras', () => {
-  const item = (c: string, n: string, b: string[], pv?: number): VerificadorSnapshotItem => ({ c, n, b, u: [{ u: 'PZA', p: 1, s: 1, f: 1 }], ...(pv !== undefined ? { pv } : {}) });
+  const item = (c: string, n: string, b: string[], pv?: number): RenglonRespaldo => ({ c, n, b, u: [{ u: 'PZA', p: 1, s: 1, f: 1 }], ...(pv !== undefined ? { pv } : {}) });
   const PROV = ['DULCES DE LA ROSA', 'RICOLINO'];
   const cat = [
     item('70001', 'PAL CHIQUI HUESO C/CHILE ALVHER /40', ['7501234500012']),
@@ -163,5 +167,58 @@ describe('buscarEnCatalogo — nombre, proveedor, SKU o código de barras', () =
     it('⛔ [negativa] un producto real nunca se marca como promoción', () => {
       expect(buscarEnCatalogo(base, 'galleta').every((r) => r.esPromocion === false)).toBe(true);
     });
+  });
+});
+
+describe('[VTK.17] lo que el checador del vendedor agrega: leer UN código, saber su presentación', () => {
+  // Forma real del respaldo de prod (medida el 2026-11-09, sucursal 02): las casillas traen EAN y claves
+  // internas mezcladas, y `bu` dice de qué presentación es cada una.
+  const ticTac: RenglonRespaldo = {
+    c: '00052', n: 'TIC TAC CANELA /12',
+    b: ['CB1100052', '840004096513', '000052', 'CB3200052', 'C00052'],
+    bu: ['PZA', 'PAQ', 'PZA', null, 'CJA'],
+    u: [{ u: 'PZA', p: 8.78, s: 8.13, f: 1 }, { u: 'PAQ', p: 93.48, s: 86.56, f: 12 }, { u: 'CJA', p: 1057.11, s: 978.81, f: 144 }],
+  };
+  const otro: RenglonRespaldo = { c: '33259', n: 'PRODUCTO PRUEBA', b: ['7503008008816'], u: [{ u: 'PZA', p: 20 }] };
+  const gemelo: RenglonRespaldo = { c: '33252', n: 'PRODUCTO GEMELO', b: ['7503008008816'], u: [{ u: 'PZA', p: 15 }] };
+  const cat = [ticTac, otro, gemelo].map((x) => aBuscable(x, []));
+
+  it('unidadesDelRespaldo: precio con IVA y factor; sin factor (respaldo viejo) queda en 1', () => {
+    expect(unidadesDelRespaldo(ticTac)).toEqual([u('PZA', 8.78), u('PAQ', 93.48, 12), u('CJA', 1057.11, 144)]);
+    expect(unidadesDelRespaldo(otro)).toEqual([u('PZA', 20)]);
+    expect(unidadesDelRespaldo({})).toEqual([]);
+  });
+
+  it('⭐ la caja de 144 piezas en paquetes de 12 se dice «12 paquetes»', () => {
+    const p = presentacionesDe(unidadesDelRespaldo(ticTac));
+    expect(p[2].trae).toEqual({ n: 12, u: 'PAQ', palabra: 'paquetes' });
+  });
+
+  it('unidadDelCodigo: el EAN del paquete es del paquete; la clave sola no dice su unidad', () => {
+    expect(unidadDelCodigo(ticTac, '840004096513')).toBe('PAQ');
+    expect(unidadDelCodigo(ticTac, 'C00052')).toBe('CJA');
+    expect(unidadDelCodigo(ticTac, '00052')).toBeNull();
+  });
+
+  it('⛔ [negativa] un código sin unidad (null) o con una unidad sin precio no afirma nada', () => {
+    expect(unidadDelCodigo(ticTac, 'CB3200052')).toBeNull();
+    expect(unidadDelCodigo({ b: ['X1'], bu: ['CJA'], u: [{ u: 'PZA', p: 1 }] }, 'X1')).toBeNull();
+    expect(unidadDelCodigo(ticTac, '')).toBeNull();
+  });
+
+  it('productosPorCodigo: por EAN, por clave con y sin ceros', () => {
+    expect(productosPorCodigo(cat, '840004096513').map((b) => b.codigo)).toEqual(['00052']);
+    expect(productosPorCodigo(cat, '52').map((b) => b.codigo)).toEqual(['00052']);
+    expect(productosPorCodigo(cat, '00052').map((b) => b.codigo)).toEqual(['00052']);
+  });
+
+  it('⭐ [TDA.9] un código en dos productos devuelve LOS DOS (quien llama lo declara ambiguo)', () => {
+    expect(productosPorCodigo(cat, '7503008008816').map((b) => b.codigo)).toEqual(['33259', '33252']);
+  });
+
+  it('⛔ [negativa] un pedazo de código NO es una lectura: no devuelve parecidos', () => {
+    expect(productosPorCodigo(cat, '84000409')).toEqual([]);
+    expect(productosPorCodigo(cat, '99999')).toEqual([]);
+    expect(productosPorCodigo(cat, '  ')).toEqual([]);
   });
 });

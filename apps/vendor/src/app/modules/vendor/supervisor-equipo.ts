@@ -7,6 +7,7 @@
  *  · `vecinal-monitor/vendors` (`[MV.2]`): lo levantado en la app, lo cobrado en Kepler y la meta.
  * Si la segunda no se pudo leer, el dinero se DECLARA sin dato; no se pinta como cero.
  */
+import { esSinSenal } from '../../core/http/sin-senal';
 import type {
   VecinalVendorRow,
   VecinalVendorsResponse,
@@ -135,8 +136,9 @@ export function fechaCorta(fecha: string): string {
 /** El mensaje del servidor si lo hay; si no, el genérico. Un 403 se dice como falta de permiso. */
 export function motivoDeError(e: unknown, generico: string): string {
   const x = e as { status?: number; error?: { message?: string | string[] } } | null;
+  // [VTK.16] Sin señal no es un error del servidor (en el navegador llega como 504 sin cuerpo).
+  if (esSinSenal(e)) return 'Sin señal: revisa tu conexión y vuelve a intentar.';
   if (x?.status === 403) return 'Tu usuario no tiene permiso para ver esto.';
-  if (x?.status === 0) return 'Sin conexión con el servidor.';
   const m = x?.error?.message;
   return (Array.isArray(m) ? m.join(' ') : m) || generico;
 }
