@@ -19,6 +19,19 @@
 3. «dime cuáles son esos 54 imports» → contados uno por uno eran **51** (la cifra de 54 era una
    estimación y estaba mal).
 4. «arma la clasificación como plan» y «limpiemos todo el mierdero entonces».
+5. **2026-11-10, Edgar (PM): «necesito que eliminemos todo lo que no sale del ODS y es parte de
+   Kepler»** — reabre este anexo como excepción al cupo firmada por el PM. Llegó desde dos casos de
+   PQ: la caja de 15 sacada del NOMBRE del 99064 (`[PQ.105]`) y el proveedor «INHABILITADO» del
+   10211, que la Suite copiaba de noche (`[PQ.107]`, vista `analytics.v_product_supplier`). Con él
+   entra una clase que el inventario del 11-05 no contaba como importer: **lo que la Suite decide
+   SOBRE un dato de Kepler** (override de unidad, fusión de proveedores, `factor_sale`/etiquetera
+   en `v_product_box_factor`). Regla acordada (D1 de PQ.107): si Kepler está mal, **se corrige en
+   Kepler**; la Suite lo muestra y lo señala, no lo arregla por su cuenta.
+   ⚠️ «Eliminar» NO es borrar a ciegas: lo que NO es de Kepler se queda (1,006 productos de Wincaja,
+   1,144 altas manuales sin SKU, el push de camionetas que no está en el ODS) y el árbitro
+   independiente (`import-sales-by-channel`) se queda por diseño. Y el SUF del granel no se quita
+   hasta que la demanda se lea de Kepler en su unidad base: quitarlo antes infla 20× la COBERTURA
+   57009 (medido, `[PQ.105]`).
 
 **El universo no es el trabajo.** De los 51, **24 se quedan como tabla con razón** (son cálculos,
 documentos propios o catálogo con RLS), y 3 se retiraron hoy. **El trabajo de la regla 1 son 24**:
