@@ -474,12 +474,12 @@ export class GoodsReceiptExpedienteService {
       let historial: HistorialEmisor | null = null;
       if (cfdi) {
         const dif = cfdi.total - Number(p.e.monto);
-        if (dif > 0 && !cuadra(dif, Number(p.e.monto))) {
-          // `[RE.62]` La llave primero (las notas cuyo CFDI relaciona ESTA factura); el importe sólo sugiere.
-          const sel = notasParaFactura(cfdi, dif, Number(p.e.monto), notas);
-          notasRelacionadas = sel.relacionadas;
-          notaSugerida = sel.sugerida;
-        }
+        // `[RE.62]` La llave primero (las notas cuyo CFDI relaciona ESTA factura); el importe sólo sugiere (y sólo
+        // con factura mayor: `notaQueExplica` no sugiere nada con diferencia ≤ 0). `[RE.65]` Para TODA factura
+        // ligada, no sólo la mayor: el cuadre en netos (R-v4) también mira la factura que cuadra en bruto.
+        const sel = notasParaFactura(cfdi, dif, Number(p.e.monto), notas);
+        notasRelacionadas = sel.relacionadas;
+        notaSugerida = dif > 0 && !cuadra(dif, Number(p.e.monto)) ? sel.sugerida : null;
         historial = { regimenes: {}, metodos: {}, nombres: {} };
         for (const h of historia) {
           if (h.emisor_rfc.toUpperCase() !== cfdi.emisor_rfc.toUpperCase() || h.id === cfdi.id) continue;
@@ -506,6 +506,7 @@ export class GoodsReceiptExpedienteService {
         },
         notasRelacionadas,
         notaSugerida,
+        notasKepler: notasKepler.get(p.k) ?? [],
         proveedorEnContpaqi: l?.enContpaqi,
         sello: p.lectura?.sello ?? null, firma: p.lectura?.firma ?? null, selloEvidencia: p.lectura?.sello_evidencia ?? null,
         hoy,
