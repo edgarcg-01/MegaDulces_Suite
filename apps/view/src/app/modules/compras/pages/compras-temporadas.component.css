@@ -1,0 +1,80 @@
+/* `[PQ.94]` Compras › Temporadas — superficie Operations. Cero hex crudo: sólo tokens. */
+:host { display: block; }
+
+.tp-page { display: flex; flex-direction: column; gap: var(--sp-4); min-height: 0; container-type: inline-size; }
+.tp-head-acc { display: flex; align-items: center; gap: var(--sp-2); }
+
+.tp-volver {
+  display: inline-flex; align-items: center; gap: var(--sp-1); padding: 0; margin-bottom: var(--sp-1);
+  border: 0; background: none; color: var(--fg-2); font-size: var(--fs-sm); cursor: pointer;
+}
+.tp-volver:hover { color: var(--fg-1); }
+.tp-volver:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+/* Jerarquía (§Q.5): primario = la respuesta y el nombre de cada fila; secundario = cifras; terciario = notas. */
+.tp-respuesta { margin: 0; font-size: var(--fs-lg); font-weight: var(--fw-medium); color: var(--fg-1); max-width: 80ch; }
+.tp-nota { margin: 0; font-size: var(--fs-xs); color: var(--fg-2); max-width: 90ch; }
+/* Advertencia de LECTURA (no un error): texto neutro, secundario, con una marca ámbar al borde que no
+   depende sólo del color (forced-colors conserva el borde). */
+.tp-advertencia {
+  margin: 0; padding: var(--sp-1) 0 var(--sp-1) var(--sp-3); max-width: 90ch;
+  border-left: 3px solid var(--warn-border); font-size: var(--fs-sm); color: var(--fg-1);
+}
+
+.tp-table th {
+  font-size: var(--fs-micro); font-weight: var(--fw-medium);
+  text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-2);
+}
+.tp-table td { font-size: var(--fs-sm); vertical-align: top; }
+.tp-pri { display: block; font-weight: var(--fw-medium); color: var(--fg-1); }
+.tp-sub { display: block; font-size: var(--fs-xs); color: var(--fg-2); }
+.tp-falta { color: var(--fg-2); font-style: italic; }
+.tp-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.tp-chk { width: 2.75rem; }
+
+.tp-acc { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+
+/* Barra de la lista: buscar a la izquierda, acciones por lote a la derecha; descartar apartado (Von Restorff). */
+.tp-barra { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); }
+.tp-buscar { min-width: 16rem; flex: 1 1 16rem; max-width: 28rem; }
+.tp-sel { font-size: var(--fs-sm); color: var(--fg-2); }
+.tp-esp { flex: 1 1 auto; }
+.tp-btn-bad { color: var(--bad-soft-fg); }
+.tp-btn-bad-solid { background: var(--bad-soft-bg); border-color: var(--bad-border); color: var(--bad-soft-fg); }
+
+.tp-aviso {
+  margin: 0 0 var(--sp-2); padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border-color);
+  border-radius: var(--r-md); font-size: var(--fs-sm); color: var(--fg-1);
+}
+.tp-error {
+  display: block; margin-top: var(--sp-1); padding: var(--sp-1) var(--sp-2);
+  border: 1px solid var(--bad-border); border-radius: var(--r-md);
+  background: var(--bad-soft-bg); color: var(--bad-soft-fg); font-size: var(--fs-xs);
+}
+.tp-error-fuera { margin: 0; font-size: var(--fs-sm); max-width: 90ch; }
+/* La fila que no se guardó se distingue con borde, no sólo con color (forced-colors). */
+.tp-fallo td:first-child { box-shadow: inset 3px 0 0 var(--bad-border); }
+
+.tp-fuera { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-4); }
+.tp-fuera h2 {
+  margin: 0; font-size: var(--fs-micro); font-weight: var(--fw-medium);
+  text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-2);
+}
+
+/* ── Diálogos ─────────────────────────────────────────────────────────────── */
+.tp-form { display: flex; flex-direction: column; gap: var(--sp-2); font-size: var(--fs-sm); }
+.tp-form p { margin: 0; }
+.tp-label { font-size: var(--fs-xs); color: var(--fg-2); margin-top: var(--sp-1); }
+.tp-fechas { display: grid; grid-template-columns: max-content 1fr; align-items: center; gap: var(--sp-2) var(--sp-3); }
+.tp-fechas .tp-label { margin-top: 0; }
+
+/* Angosto: la tabla se apila (dt-stack) y el formulario de fechas a una columna. */
+@container (max-width: 40rem) {
+  .tp-fechas { grid-template-columns: 1fr; }
+  .tp-buscar { max-width: none; }
+}
+
+/* Táctil: objetivos de 44 px (Fitts gana a la densidad cuando el puntero es el dedo). */
+@media (pointer: coarse) {
+  .tp-volver, .tp-acc button, .tp-barra button { min-height: 44px; }
+}

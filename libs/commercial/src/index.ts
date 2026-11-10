@@ -38,6 +38,8 @@ export * from './lib/commercial-rider-liquidation/commercial-rider-liquidation.m
 export * from './lib/commercial-picking/commercial-picking.module';
 // [NP.7] Catálogo digital: levantamiento de fichas de producto desde el celular.
 export * from './lib/product-sheets/product-sheets.module';
+// [PQ.94] Compras › Temporadas: calendario de temporadas y productos de cada una.
+export * from './lib/temporadas/temporadas.module';
 export * from './lib/commercial-picking/picking.service';
 export * from './lib/warehouse-orders/warehouse-orders.module';
 export * from './lib/warehouse-locations/warehouse-locations.module';

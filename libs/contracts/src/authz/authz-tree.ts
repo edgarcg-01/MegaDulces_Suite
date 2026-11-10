@@ -357,6 +357,8 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // ⚠️ La otra mitad del permiso compartido — ver el comentario largo en el módulo
           // 'existencia' del proyecto Almacén. Mismo componente, mismos números, un solo permiso.
           { id: 'compras-existencia', label: 'Existencia', route: '/compras/existencia', view: [Permission.EXISTENCIA_VER], manage: [Permission.EXISTENCIA_GESTIONAR] },
+          // `[PQ.94]` Temporadas: se mira antes de pedir (como Existencia). Una sola puerta de escritura de la temporada.
+          { id: 'compras-temporadas', label: 'Temporadas', route: '/compras/temporadas', view: [Permission.COMPRAS_TEMPORADAS_VER], manage: [Permission.COMPRAS_TEMPORADAS_GESTIONAR] },
           { id: 'compras-pedido', label: 'Pedido', route: '/compras/pedido', view: [Permission.COMPRAS_PEDIDO_VER], manage: [Permission.COMPRAS_PEDIDO_GESTIONAR] },
           { id: 'compras-red', label: 'Red de abasto', route: '/compras/red', view: [Permission.COMPRAS_RED_VER], manage: [Permission.COMPRAS_RED_GESTIONAR] },
           { id: 'compras-requisiciones', label: 'Requisiciones', route: '/compras/requisiciones', view: [Permission.COMPRAS_REQUISICIONES_VER], manage: [Permission.COMPRAS_REQUISICIONES_GESTIONAR, Permission.COMPRAS_REQUISICIONES_AUTORIZAR] },
