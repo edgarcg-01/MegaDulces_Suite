@@ -37,7 +37,7 @@ const DETALLE = (): PresaleReviewDetail => ({
 
 describe('AlmacenRevisionPreventaComponent · revisión en caja (MCP.10)', () => {
   let fix: ComponentFixture<AlmacenRevisionPreventaComponent>;
-  let api: Record<'inbox' | 'detail' | 'finish', ReturnType<typeof vi.fn>>;
+  let api: Record<'inbox' | 'detail' | 'finish' | 'search', ReturnType<typeof vi.fn>>;
 
   const el = (): HTMLElement => fix.nativeElement as HTMLElement;
   const texto = (): string => el().textContent?.replace(/\s+/g, ' ') ?? '';
@@ -56,6 +56,7 @@ describe('AlmacenRevisionPreventaComponent · revisión en caja (MCP.10)', () =>
       inbox: vi.fn(() => of(BANDEJA())),
       detail: vi.fn(() => of(detalle())),
       finish: vi.fn(() => of({ order_id: 'o-carm', review: { lines: [], total_before: 380, total_after: 420 } })),
+      search: vi.fn((q: string) => of({ q, data: [], truncated: false })),
     };
     await TestBed.configureTestingModule({
       imports: [AlmacenRevisionPreventaComponent],
@@ -83,6 +84,23 @@ describe('AlmacenRevisionPreventaComponent · revisión en caja (MCP.10)', () =>
     expect(texto()).toContain('Faltó algo');
     expect(texto()).toContain('Revisados');
     expect(texto()).toContain('TIENDA YA REVISADA');
+  });
+
+  it('[MCP.14] los pedidos a revisar van separados por vendedor y, dentro, en orden de folio', async () => {
+    await montar();
+    fix.componentInstance.bandeja.set({
+      ...BANDEJA(),
+      data: [
+        fila({ order_id: 'b2', code: 'PD-2026-00399', customer_name: 'TIENDA B2', seller_name: 'Vendedor B', finished: { user_id: 's1', name: 'Surtidor', at: '2026-10-29T17:00:00.000Z' } }),
+        fila({ order_id: 'a1', code: 'PD-2026-00376', customer_name: 'TIENDA A1', seller_name: 'Vendedor A', finished: { user_id: 's1', name: 'Surtidor', at: '2026-10-29T15:00:00.000Z' } }),
+        fila({ order_id: 'b1', code: 'PD-2026-00377', customer_name: 'TIENDA B1', seller_name: 'Vendedor B', finished: { user_id: 's1', name: 'Surtidor', at: '2026-10-29T16:00:00.000Z' } }),
+      ],
+    });
+    fix.detectChanges();
+    const grupos = Array.from(el().querySelectorAll('.rv-grupo')).map((h) => (h.textContent ?? '').replace(/\s+/g, ' ').trim());
+    expect(grupos).toEqual(['Vendedor A · 1 pedido', 'Vendedor B · 2 pedidos']);
+    const orden = Array.from(el().querySelectorAll('.rv-card .rv-cliente')).map((c) => c.textContent?.trim());
+    expect(orden).toEqual(['TIENDA A1', 'TIENDA B1', 'TIENDA B2']);
   });
 
   it('lo que no se revisó no desaparece: dice desde cuándo, y lo de hoy no lleva atraso', async () => {
@@ -166,6 +184,128 @@ describe('AlmacenRevisionPreventaComponent · revisión en caja (MCP.10)', () =>
     clic('Anterior');
     expect(texto()).toContain('Producto 1 de 3');
     expect(texto()).toContain('Deben ser 1 caja');
+  });
+
+  it('[MCP.10.2] se revisa el producto que se tiene en la mano, no sólo el que sigue', async () => {
+    await montar();
+    await abrir();
+    const enGrande = (): string => (el().querySelector('.rv-actual')?.textContent ?? '').replace(/\s+/g, ' ');
+    expect(enGrande()).toContain('PALETA PAYASO GRANDE');
+    expect(texto()).toContain('Por revisar · 2');
+    expect(texto()).toContain('o tócalo aquí');
+    // El mazapán viene arriba en el carrito: la cajera lo toca aunque sea el 2º del pedido.
+    clic('MAZAPAN GIGANTE 50 G');
+    expect(enGrande()).toContain('MAZAPAN GIGANTE 50 G');
+    expect(enGrande()).toContain('faltan 1 paquete');
+    clic('Ya se completó');
+    // Resuelto lo tocado, vuelve al primero pendiente.
+    expect(enGrande()).toContain('PALETA PAYASO GRANDE');
+    expect(texto()).toContain('Producto 2 de 3');
+    // «Anterior» regresa a ESE producto, no al primero de la lista.
+    clic('Anterior');
+    expect(enGrande()).toContain('MAZAPAN GIGANTE 50 G');
+    clic('Ya se completó');
+    clic('Está bien');
+    // NEGATIVO: lo ya revisado no se puede tocar (se corrige con «Anterior»).
+    expect(boton('PALETA PAYASO GRANDE')).toBeUndefined();
+    expect(boton('MAZAPAN GIGANTE 50 G')).toBeUndefined();
+    expect(enGrande()).toContain('SALSA MAGA');
+    // Con uno solo pendiente ya no hay nada más que tocar: el aviso se va; lo revisado queda aparte.
+    expect(texto()).not.toContain('Por revisar ·');
+    expect(texto()).toContain('Ya revisados · 2');
+    // Sin códigos de Kepler se DECLARA: se revisa tocando.
+    expect(texto()).toContain('No se pudieron leer los códigos de Kepler');
+    expect(el().querySelector('#rv-scan-in')).not.toBeNull(); // se sigue buscando por SKU o nombre
+  });
+
+  it('[MCP.10.3] la nota del vendedor ya no se pinta en la revisión (decisión de David, 2026-11-09)', async () => {
+    await montar(() => ({ ...DETALLE(), order: fila({ instructions: 'Dejar en la bodega de atrás' }) }));
+    await abrir();
+    expect(texto()).toContain('PALETA PAYASO GRANDE');
+    expect(texto()).not.toContain('Dejar en la bodega de atrás');
+  });
+
+  it('[MCP.10.3] sin límites: por SKU, por nombre (filtra la lista y lo dice) y lo de otro pedido lo encuentra y lo abre', async () => {
+    await montar();
+    api.search.mockImplementation((q: string) => of({ q, truncated: false, data: [
+      { order_id: 'o-lupi', code: 'PD-2026-00140', customer_name: 'MISCELANEA LUPITA', seller_name: 'Vendedor PH', product_name: 'CHICLE MOTITA', sku: '55555', match: 'nombre' },
+    ] }));
+    await abrir();
+    const campo = el().querySelector('#rv-scan-in') as HTMLInputElement;
+    const escribir = (t: string): void => { campo.value = t; campo.dispatchEvent(new Event('input')); fix.detectChanges(); };
+    const enter = (): void => { campo.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })); fix.detectChanges(); };
+    const enGrande = (): string => (el().querySelector('.rv-actual')?.textContent ?? '').replace(/\s+/g, ' ');
+
+    // El SKU que se ve en pantalla lo señala (sin confirmarlo: el SKU no dice la unidad).
+    escribir('44340'); enter();
+    expect(texto()).toContain('PALETA PAYASO GRANDE: revísalo aquí abajo');
+    expect(texto()).toContain('Producto 1 de 3');
+
+    // Parte del nombre filtra «Por revisar» mientras se escribe, y lo DICE («1 de 2»).
+    escribir('maga');
+    expect(texto()).toContain('Por revisar · 1 de 2');
+    expect(texto()).toContain('Coinciden con «maga»');
+    expect(boton('MAZAPAN GIGANTE 50 G')).toBeUndefined();
+    clic('Ver todos');
+    expect(texto()).toContain('Por revisar · 2');
+    expect(boton('MAZAPAN GIGANTE 50 G')).toBeDefined();
+    escribir('maga'); enter();
+    expect(enGrande()).toContain('SALSA MAGA');
+
+    // Lo que no es de este pedido se busca en los otros por revisar y se puede abrir desde ahí.
+    escribir('chicle'); enter();
+    expect(api.search).toHaveBeenCalledWith('chicle');
+    expect(texto()).toContain('«chicle» no es de este pedido');
+    (el().querySelector('.rv-hit') as HTMLButtonElement).click();
+    await fix.whenStable();
+    fix.detectChanges();
+    expect(api.detail).toHaveBeenLastCalledWith('o-lupi');
+  });
+
+  it('[MCP.10.3] con lector: lo de 1 unidad queda bien al escanear, lo demás se señala y lo ajeno se avisa', async () => {
+    await montar(() => {
+      const d = DETALLE();
+      d.lines[0].codes = [{ code: '7501000044340', factor: 1 }, { code: 'C44340', factor: 24 }];
+      d.lines[1].codes = [{ code: '7502000000050', factor: 20 }];
+      d.lines[2].codes = [];
+      return d;
+    });
+    await abrir();
+    const campo = el().querySelector('#rv-scan-in') as HTMLInputElement;
+    expect(campo).not.toBeNull();
+    const escanear = (codigo: string): void => {
+      campo.value = codigo;
+      campo.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+      fix.detectChanges();
+    };
+    const enGrande = (): string => (el().querySelector('.rv-actual')?.textContent ?? '').replace(/\s+/g, ' ');
+    expect(texto()).toContain('Escanéalo o escríbelo arriba');
+
+    // NEGATIVO: la PIEZA de la paleta (pedido de 1 caja de 24) sólo la señala, no la da por buena.
+    escanear('7501000044340');
+    expect(texto()).toContain('PALETA PAYASO GRANDE: revísalo aquí abajo');
+    expect(texto()).toContain('Producto 1 de 3');
+    expect(campo.value).toBe('');
+
+    // La etiqueta de la CAJA sí: 1 de 1, queda bien sin tocar nada.
+    escanear('C44340');
+    expect(texto()).toContain('PALETA PAYASO GRANDE · bien');
+    expect(texto()).toContain('Producto 2 de 3');
+    expect(texto()).toContain('Ya revisados · 1');
+
+    escanear('C44340');
+    expect(texto()).toContain('ya lo revisaste');
+
+    // Lo que no es del pedido se avisa, y como la salsa no tiene código, dice que puede ser ésa.
+    escanear('999');
+    expect(api.search).toHaveBeenCalledWith('999');
+    expect(texto()).toContain('«999» no está en este pedido ni en los otros por revisar');
+    expect(texto()).toContain('Producto 2 de 3');
+
+    // El mazapán (3 paquetes, faltó 1) se señala para resolver el faltante en grande.
+    escanear('7502000000050');
+    expect(enGrande()).toContain('MAZAPAN GIGANTE 50 G');
+    expect(enGrande()).toContain('faltan 1 paquete');
   });
 
   it('se puede cambiar a otro pedido por revisar', async () => {

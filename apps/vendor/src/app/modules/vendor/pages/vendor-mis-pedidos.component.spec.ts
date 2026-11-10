@@ -3,6 +3,7 @@ import { of, throwError } from 'rxjs';
 import type { PresaleSellerOrder, PresaleSellerStatusResponse } from '@megadulces/contracts';
 import { VendorMisPedidosComponent } from './vendor-mis-pedidos.component';
 import { PresaleStatusService } from '../presale-status.service';
+import { VendorService } from '../vendor.service';
 
 /**
  * `[MCP.8]` «Mis pedidos» de la vendedora, montada de verdad con el servidor simulado. Lo que
@@ -31,6 +32,12 @@ describe('VendorMisPedidosComponent · el avance de la vendedora (MCP.8)', () =>
   let api: { status: ReturnType<typeof vi.fn>; markSeen: ReturnType<typeof vi.fn>; unseen: ReturnType<typeof vi.fn> };
   const texto = (): string => (fix.nativeElement as HTMLElement).textContent?.replace(/\s+/g, ' ') ?? '';
 
+  // [MCP.15] Las líneas vivas del pedido (para «lo que pediste y lo que surtieron»).
+  const vendor = { orderById: vi.fn(() => of({ id: 'o-rosy', lines: [
+    { id: 'l1', product_name: 'PALETA PRUEBA', quantity: 48, qty_unit: 'CJA', qty_factor: 24 },
+    { id: 'l2', product_name: 'FLAN VAINILLA', quantity: 168, qty_unit: 'PAQ', qty_factor: 12 },
+  ] })) };
+
   async function montar(resp: PresaleSellerStatusResponse | Error): Promise<void> {
     api = {
       status: vi.fn(() => (resp instanceof Error ? throwError(() => ({ error: { message: resp.message } })) : of(resp))),
@@ -39,7 +46,7 @@ describe('VendorMisPedidosComponent · el avance de la vendedora (MCP.8)', () =>
     };
     await TestBed.configureTestingModule({
       imports: [VendorMisPedidosComponent],
-      providers: [{ provide: PresaleStatusService, useValue: api }],
+      providers: [{ provide: PresaleStatusService, useValue: api }, { provide: VendorService, useValue: vendor }],
     }).compileComponents();
     fix = TestBed.createComponent(VendorMisPedidosComponent);
     fix.detectChanges();
@@ -169,6 +176,51 @@ describe('VendorMisPedidosComponent · el avance de la vendedora (MCP.8)', () =>
     fix.detectChanges();
     expect(texto()).toContain('Se ajustó a lo que hubo');
     expect(texto()).toContain('Esperando a que la caja lo revise');
+  });
+
+  describe('[MCP.15] en orden de captura y con lo que pidió contra lo que surtieron', () => {
+    it('la lista va por folio y se filtra por surtir / surtidos', async () => {
+      await montar({ today: '2026-10-14', unseen_reports: 0, data: [
+        pedido({ order_id: 'b', code: 'PD-2026-00080', customer_name: 'TIENDA B' }),
+        { ...SURTIDO_CON_FALTANTES, report_unseen: false },
+        pedido({ order_id: 'c', code: 'PD-2026-00075', customer_name: 'TIENDA C' }),
+      ] });
+      const el = fix.nativeElement as HTMLElement;
+      const orden = () => Array.from(el.querySelectorAll('.mp-card strong')).map((s) => s.textContent?.trim());
+      expect(orden()).toEqual(['ABARROTES ROSY', 'TIENDA C', 'TIENDA B']);
+      expect(texto()).toContain('Todos · 3');
+      expect(texto()).toContain('Por surtir · 2');
+      expect(texto()).toContain('Surtidos · 1');
+      (Array.from(el.querySelectorAll('.mp-f')).find((b) => b.textContent?.includes('Surtidos')) as HTMLButtonElement).click();
+      fix.detectChanges();
+      expect(orden()).toEqual(['ABARROTES ROSY']);
+    });
+
+    it('al abrir un pedido surtido: todos los artículos, lo que llegó completo y lo que no', async () => {
+      await montar({ today: '2026-10-14', unseen_reports: 0, data: [{ ...SURTIDO_CON_FALTANTES, report_unseen: false }] });
+      const el = fix.nativeElement as HTMLElement;
+      (el.querySelector('.mp-card-h') as HTMLButtonElement).click();
+      fix.detectChanges();
+      expect(vendor.orderById).toHaveBeenCalledWith('o-rosy');
+      const filas = Array.from(el.querySelectorAll('.mp-art-t tbody tr'))
+        .map((r) => Array.from(r.querySelectorAll('td')).map((td) => (td.textContent ?? '').replace(/\s+/g, ' ').trim()).join(' | '));
+      expect(filas).toEqual([
+        'PALETA PRUEBA | 2 CJA | 2 CJA',
+        'FLAN VAINILLA | 20 PAQ | 14 PAQ',
+        'SALSA MAGA 1 1/2 | 1 CJA | 0 CJA',
+      ]);
+      expect(el.querySelectorAll('.mp-art-cambio')).toHaveLength(2);
+    });
+
+    it('⛔ [negativa] si las líneas no se pudieron leer, lo dice y deja reintentar (no pinta una tabla vacía)', async () => {
+      vendor.orderById.mockReturnValueOnce(throwError(() => ({ status: 0 })));
+      await montar({ today: '2026-10-14', unseen_reports: 0, data: [{ ...SURTIDO_CON_FALTANTES, report_unseen: false }] });
+      const el = fix.nativeElement as HTMLElement;
+      (el.querySelector('.mp-card-h') as HTMLButtonElement).click();
+      fix.detectChanges();
+      expect(texto()).toContain('No se pudieron cargar los artículos');
+      expect(el.querySelector('.mp-art-t')).toBeNull();
+    });
   });
 
   it('separa el error del vacío', async () => {

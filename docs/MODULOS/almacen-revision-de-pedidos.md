@@ -5,6 +5,71 @@ La pantalla donde la cajera revisa cada pedido de preventa que terminó el surti
 
 ---
 
+## Los pedidos a revisar, separados por vendedor y en orden de folio (MCP.14, 2026-11-10)
+
+- **Problema:** «separar los pedidos a revisar por vendedor» (solicitud de rutas vecinales, 2026-11-09). La lista era
+  una sola, por la hora en que el surtidor terminó, con todos los vendedores mezclados.
+- **Solución:** cada vendedor encabeza su grupo y dentro van por folio; arriba el vendedor cuyo pedido terminó primero
+  el surtidor. La misma regla que Surtir (`almacen/pedidos-por-vendedor.ts`).
+- **Por qué:** la cajera revisa y cobra por vendedor; tenerlos juntos y en el orden en que se capturaron evita buscarlos.
+
+---
+
+## Revisar escaneando, y tocando cuando no hay lector (MCP.10.3, 2026-11-09)
+
+- **Problema:** con la lista para tocar (MCP.10.2) la cajera dejó de escarbar en el carrito, pero no ganó tiempo:
+  la búsqueda se mudó del mostrador a la pantalla. En una simulación de un pedido de 30 productos, buscar (en el
+  mostrador o en la lista) cuesta unas 217 miradas; sólo escanear la quita. En prod, de 963 productos que el
+  surtidor dio por completos la caja cambió 3: lo valioso de la revisión está en los faltantes, no en tocar
+  «Está bien» 30 veces.
+- **Solución:** arriba del producto en grande hay un campo «Escanea el producto». La cajera escanea lo que tiene en la
+  mano: si el pedido trae 1 y escaneó esa misma unidad, queda «bien» solo; si trae varias, es otra unidad o faltó,
+  lo pone en grande para revisarlo; si ya estaba revisado, si el código es de dos productos del pedido o si no es del
+  pedido, lo dice junto al campo. Si el campo pierde el foco se pone ámbar: «El lector no está listo: toca aquí».
+  **Sin lector** (o con un producto sin código) se toca en la lista, que ahora pone «Por revisar» arriba y «Ya
+  revisados» aparte.
+- **Cómo:** el detalle trae los códigos de cada producto de la ficha de Kepler de la sucursal (`kepler_ods.kdii`, con
+  el mismo lector del checado de almacén) y cuántas piezas trae cada código (pieza, paquete, caja). La pantalla
+  compara el código exacto (sin quitar ceros). Si los códigos no se pudieron leer, se dice y se revisa tocando.
+  Sin migración.
+- **Por qué:** escanear quita la búsqueda (simulación: 30 productos ≈ 1 min contra 3.3 de antes) y además comprueba
+  que el producto está ahí; escanear la pieza de un pedido de «1 caja» no la da por buena. Medido en prod: 99.3 %
+  de los productos revisados tienen código de su unidad en Kepler.
+- **El buscador no tiene límites:** el mismo campo acepta el código de barras, el SKU (el que se ve en pantalla), el
+  código con ceros de más o de menos y parte del nombre. Lo que se escribe filtra «Por revisar» y lo dice («1 de 9»,
+  con «Ver todos»). Sólo el código exacto de un producto de 1 unidad lo da por bueno solo; lo demás lo señala para
+  revisarlo. Si no es de este pedido, lo busca en los otros pedidos por revisar de la sucursal y deja abrirlo con el
+  producto ya señalado.
+- **Se quitó la nota del vendedor** del pedido (el recuadro azul, p. ej. «Dejar en la bodega de atrás»), decisión de
+  David: a quien revisa no le dice qué revisar. ⚠️ Era el único lugar del flujo vecinal donde se veía (36 de 265
+  pedidos la traen); el dato sigue guardado en el pedido.
+- **Pendiente:** probarlo con el lector de la caja (no hay escaneos reales registrados todavía en la Suite) y decidir si
+  la nota del vendedor se muestra en la guía del repartidor.
+
+---
+
+## Se revisa el producto que se tiene en la mano (MCP.10.2, 2026-11-09)
+
+- **Problema:** la pantalla señalaba un producto a la vez en el orden en que el vendedor capturó el pedido, y los
+  demás de la lista no se podían tocar. Pero el surtidor acomoda el carrito por cómo es el producto: lo blando (un
+  bombón) arriba y lo duro o lo que aguanta peso abajo. La cajera sacaba el de arriba y la pantalla le pedía el de
+  abajo: tenía que escarbar o acordarse. En 30 días se revisaron 252 pedidos; la mitad trae 3 productos o menos, pero
+  19 trajeron 10 o más (el más grande, 41).
+- **Solución:** lo que falta revisar en la lista es un botón. La cajera toca el producto que tiene en la mano y ése
+  pasa a revisarse, en grande, como siempre. Al resolverlo (o dejarlo esperando al surtidor) la pantalla vuelve al
+  primero pendiente. «← Anterior» regresa a ese mismo producto. Lo ya revisado no se toca: se corrige con «Anterior».
+  Sobre la lista dice «¿Tienes otro producto en la mano? Tócalo en la lista.» mientras quede más de uno.
+- **Cómo:** sólo en la pantalla. `renglonActual` recibe el producto tocado; el componente lo guarda en `elegido` y lo
+  suelta al resolverlo. Después de tocar, la vista y el foco van al producto en grande (en un pedido largo queda arriba,
+  fuera de la vista). Sin cambios en el servidor ni migración.
+- **Por qué:** ordenar la pantalla como el carrito no es posible sin adivinar: el catálogo no dice qué es frágil
+  (departamento y línea vacíos en los 1,000 renglones revisados) y cada surtidor acomoda a su manera. Dejar que la
+  cajera escoja hace que el orden deje de importar, y conserva «un producto a la vez y en grande».
+- **Siguiente paso posible:** escanear el producto en lugar de buscarlo en la lista (994 de 1,000 renglones tienen
+  código de barras; se reusaría el lector del checado de almacén). Depende de que haya lector donde se revisa.
+
+---
+
 ## Lo que cambia la caja lo ven todos (MCP.10.1, 2026-11-03)
 
 - **Problema:** en PD-2026-00203 (PH) el surtidor sacó 1 de 2 salsas y la caja completó la otra. El pedido quedó
