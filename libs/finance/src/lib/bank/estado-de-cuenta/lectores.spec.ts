@@ -143,6 +143,54 @@ describe('[CB.57] BanBajío (.xlsx con encabezado y totales declarados)', () => 
   });
 });
 
+describe('[CB.57] Banamex (CSV Latin-1 con resumen; saldo sólo al cierre del día)', () => {
+  // Forma de la muestra real del 2026-11-10; cuenta, nombres, autorizaciones e importes inventados.
+  const mov = (fecha: string, desc: string, dep: string, ret: string, saldo = ' ') => `"${fecha}","${desc}","${dep}","${ret}","${saldo}"`;
+  const banamex = (o: { inicial?: string; final?: string; quitar?: number; cierre05?: string } = {}) => {
+    const renglones = [
+      mov('05/11/2026', 'Pago Interbancario Sucursal: 519 Referencia Numérica: 1 Referencia Alfanumérica: S1 Autorización: 00000004', '-', '5,000.00'),
+      mov('05/11/2026', 'Abono por cobranza Sucursal: 426 Referencia Numérica:  Referencia Alfanumérica: C1 Autorización: 00000003', '600.00', '-'),
+      mov('05/11/2026', 'DEP EN EFECTIVO Sucursal: 426 Referencia Numérica:  Referencia Alfanumérica: 600.00 Autorización: 00000003', '0.00', '-'),
+      mov('05/11/2026', 'Abono Interbancario Sucursal: 859 Referencia Numérica: 2 Referencia Alfanumérica: CLIENTE Autorización: 00000002', '400.00', '-', o.cierre05 ?? '6,150.00'),
+      mov('04/11/2026', 'Abono Interbancario Sucursal: 519 Referencia Numérica: 3 Referencia Alfanumérica: CLIENTE Autorización: 00000001', '150.00', '-', '10,150.00'),
+    ].filter((_, i) => i !== o.quitar);
+    const texto = ['Movimiento de cuenta Cheques', '', 'Resumen de cuenta', 'Sucursal,7000,,Nombre,"PERSONA,DE PRUEBA"', 'Cuenta,1234567,,Moneda,MXN', '',
+      'Resumen del 04/11/2026 al 05/11/2026', `Saldo inicial,"$ +${o.inicial ?? '10,000.00'}",,Saldo final,"$ +${o.final ?? '6,150.00'}"`,
+      'Depósitos (3),"$ 1,150.00"', 'Retiros (1),"$ 5,000.00"', '', 'Detalle de Movimientos - Depósitos y Retiros',
+      'Fecha,Descripción,Depósitos,Retiros,Saldo', ...renglones].join('\r\n');
+    return Buffer.from(texto, 'latin1');
+  };
+
+  it('lee la cuenta del resumen, ignora (y declara) el renglón de $0.00, ordena y cuadra contra el resumen', async () => {
+    const r = await leerEstadoDeCuenta(banamex());
+    expect(r?.banco).toBe('banamex');
+    expect(r?.cuenta).toBe('1234567');
+    expect(r?.no_leidos).toEqual([]);
+    expect(r?.informativos).toHaveLength(1);
+    expect(r?.movimientos.map((m) => m.saldo_centavos)).toEqual([1015000, 1055000, 1115000, 615000]);
+    expect(r?.movimientos[3]).toMatchObject({ fecha: '2026-11-05', cargo_centavos: 500000, referencia: '00000004' });
+    expect(r?.control).toMatchObject({ orden_original: 'nuevo_a_viejo', saldo_inicial_centavos: 1000000, saldo_final_centavos: 615000, cuadra: true });
+    expect(r?.declarado).toMatchObject({ movimientos: 4, abonos_centavos: 115000, cargos_centavos: 500000, coinciden: true });
+  });
+
+  it('NEGATIVA: falta un movimiento → el cierre impreso del día no se alcanza, la cadena se rompe y NO cuadra', async () => {
+    const r = await leerEstadoDeCuenta(banamex({ quitar: 1 }));
+    expect(r?.control?.cuadra).toBe(false);
+    expect(r?.control?.eslabones_rotos.length).toBeGreaterThan(0);
+    expect(r?.declarado?.coinciden).toBe(false);
+  });
+
+  it('NEGATIVA: un saldo inicial que no es el del banco no llega al cierre impreso y se reporta', async () => {
+    const r = await leerEstadoDeCuenta(banamex({ inicial: '10,001.00' }));
+    expect(r?.no_leidos.map((x) => x.motivo)).toEqual([expect.stringMatching(/saldo inicial del resumen/)]);
+  });
+
+  it('NEGATIVA: el saldo final del resumen distinto al del último movimiento se reporta', async () => {
+    const r = await leerEstadoDeCuenta(banamex({ final: '6,151.00' }));
+    expect(r?.no_leidos.map((x) => x.motivo)).toEqual([expect.stringMatching(/saldo final del resumen/)]);
+  });
+});
+
 describe('[CB.57] lo que no es estado de cuenta', () => {
   it('un formato desconocido devuelve null, no un estado de cuenta vacío', async () => {
     expect(await leerEstadoDeCuenta(Buffer.from('FECHA;IMPORTE\n01/11/2026;100', 'utf8'))).toBeNull();

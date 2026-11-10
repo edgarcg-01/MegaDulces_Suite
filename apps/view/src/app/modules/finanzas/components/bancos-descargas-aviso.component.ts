@@ -11,7 +11,7 @@ export function diaAnterior(hoy: string): string {
   return f.toISOString().slice(0, 10);
 }
 
-/** Cuentas con lector cuya descarga no llega a `ayer` (o que nunca se ha subido). Banamex no entra: no se puede subir. */
+/** Cuentas con lector cuya descarga no llega a `ayer` (o que nunca se ha subido). Una cuenta sin lector no entra: no se puede subir. */
 export function cuentasAtrasadas(cuentas: readonly CuentaDelBanco[], ayer: string): CuentaDelBanco[] {
   return cuentas.filter((c) => c.con_lector && (!c.hasta || c.hasta < ayer));
 }

@@ -214,6 +214,25 @@ export interface PersonaFila {
 }
 
 /**
+ * `[AU.34]` Lo que devuelve `POST /users/:id/rename` cuando el cambio pasa. Si algo usa el
+ * usuario como llave, el endpoint responde 409 con `{ code: 'usuario_con_historia', encontrados,
+ * sin_revisar }` y no esto.
+ */
+export interface RenombreDeUsuario {
+  user_id: string;
+  username_anterior: string;
+  username: string;
+  /** El corte de sesión que se escribió: todo token anterior deja de valer. */
+  sessions_revoked_at: string | null;
+}
+
+/** `[AU.34]` Un lugar donde el usuario aparece como llave (o que no se pudo revisar). */
+export interface UsoDelUsuario {
+  clave: string;
+  etiqueta: string;
+}
+
+/**
  * Los cuatro estados de una cuenta (`[ID.8]`). `activo` es el booleano deprecado
  * que no distingue una baja temporal de una definitiva.
  */

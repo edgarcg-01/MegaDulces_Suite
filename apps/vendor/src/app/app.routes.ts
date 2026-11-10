@@ -98,6 +98,17 @@ export const appRoutes: Routes = [
           ),
       },
       {
+        // [VTK.17] Checador de precios: el precio de Kepler de la sucursal del vendedor (el mismo del
+        // verificador de la tienda), por nombre, clave o código, con cámara y copia para usar sin señal.
+        // Sin guarda propia a propósito: los endpoints son públicos (@Public) y la llave es la de la
+        // app (VENDOR_APP_ACCESS, que ya exige el shell).
+        path: 'precios',
+        loadComponent: () =>
+          import('./modules/vendor/pages/vendor-checador-precios.component').then(
+            (m) => m.VendorChecadorPreciosComponent,
+          ),
+      },
+      {
         path: 'notifications',
         loadComponent: () =>
           import('./modules/vendor/pages/vendor-notifications.component').then(
