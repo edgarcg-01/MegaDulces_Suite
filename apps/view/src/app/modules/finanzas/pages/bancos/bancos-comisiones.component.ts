@@ -44,7 +44,7 @@ import { BANCOS_STYLES } from './bancos.styles';
               <p class="cm-primary"><span class="mono">{{ d.resumen.monto_listo | currency:'MXN':'symbol-narrow':'1.2-2' }}</span> listos para Kepler
                 <span class="cm-sub">· {{ d.resumen.listos }} {{ d.resumen.listos === 1 ? 'cargo' : 'cargos' }}</span></p>
               <p class="cm-secondary muted">de {{ d.resumen.cargos }} cargos de comisión e IVA en la descarga del {{ dm(d.desde) }} al {{ dm(d.hasta) }}
-                · descarga hasta el {{ dm(d.descarga.hasta) }} <app-freshness-pill [since]="d.descarga.subida_en" label="subida" [staleAfterSec]="86400" /></p>
+                · descarga hasta el {{ dm(d.descarga.hasta) }} <app-freshness-pill measures="data" [since]="d.descarga.subida_en" label="subida" [staleAfterSec]="86400" /></p>
             </div>
             <div class="cm-act">
               <button pButton type="button" class="p-button-sm" [disabled]="true" aria-describedby="cm-apagado">

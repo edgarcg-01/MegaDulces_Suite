@@ -556,6 +556,10 @@ la pestaña en `bancos-shared.ts` (número informativo, no aviso: no pide una ac
 `bancos_comisiones` del diccionario de ayuda. La API ganó el banco por nombre, el texto original de cada cargo y la
 edad de la descarga. Pruebas: 8 de la vista (mutante «contar también lo pagado»: 3 rojas) + 5 de la barra.
 `check:pantalla -- finanzas`: 74 pantallas, ninguna falla nueva; `bancos-comisiones` cumple las 10 reglas.
+⚠️ **Ese «tipa (0 errores)» de `check:pantalla` NO revisa entradas obligatorias**: la primera versión pasaba sin
+`measures` en `app-freshness-pill` (obligatoria desde VP.0.2) y la compilación de Edgar dio `NG8008`. La que sí lo
+ve es `check:templates-types` (`ngc` con `strictTemplates`, ~55 s): verde con `measures="data"` (la hora de subida
+viene del servidor y describe el dato) y **roja con el mismo `NG8008`** al quitarlo (prueba negativa, 2026-11-10).
 ⚠️ **Sin validación visual**: no se levanta la app en local (regla 3); se ve en prod después de desplegar. La
 respuesta pesa ~191 KB sin comprimir (cada cargo con su texto) y se pide al abrir Bancos para el número de la
 pestaña.
