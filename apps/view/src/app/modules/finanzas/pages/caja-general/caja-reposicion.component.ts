@@ -291,8 +291,15 @@ export function avisoDeReposicion(
                       <small class="fin-dim">{{ textoCuadreHoja(f.h) }}</small>
                     }
                   } @else if (!(f.h.pago?.sin_capturar ?? 0)) {
-                    <!-- [LE.6.21] Historial: la hoja pagada dice con qué salió y si su depósito ya llegó. -->
-                    <span class="rp-pagado">{{ textoPagoHoja(f.h) }}</span>
+                    <!-- [LE.6.27] Sin su depósito, la reposición no está validada: se dice primero, con lo que se buscó. -->
+                    @if (!depositoValidado(f.h)) {
+                      <span data-testid="rp-falta-deposito"><strong>Falta el depósito:</strong>
+                        {{ f.h.pago?.deposito?.nota ?? 'no se pudo leer si llegó.' }}</span>
+                      <small class="fin-dim d-block">Pagada {{ textoPagoHoja(f.h) }}. Pasa al historial cuando aparezca su U-A-5 en Kepler.</small>
+                    } @else {
+                      <!-- [LE.6.21] Historial: la hoja pagada dice con qué salió y si su depósito ya llegó. -->
+                      <span class="rp-pagado">{{ textoPagoHoja(f.h) }}</span>
+                    }
                   } @else {
                     @if (puedeGestionar()) {
                       <p-button [label]="'Capturar lo que falta (' + (f.h.pago?.sin_capturar ?? 0) + ')'" icon="pi pi-refresh" size="small"
@@ -419,6 +426,23 @@ export function avisoDeReposicion(
                     Cerró {{ f.h.cerrada_por_nombre ?? 'sin nombre' }} · aprobó {{ f.h.aprobada_por_nombre ?? 'sin nombre' }} ·
                     al pagarla, sus {{ f.h.renglones.length }} pagos quedan ligados a un solo retiro y se deposita el total en la cuenta de la zona.
                   </p>
+                  @if (f.h.pago; as p) {
+                    <!-- [LE.6.24] Lo que se repone contra el depósito que lo repuso: su folio de Kepler y si cuadra. -->
+                    <p class="rp-desglose" data-testid="rp-hoja-deposito">
+                      Se repone <span class="rp-mono">{{ money(f.h.total) }}</span> ·
+                      @if (p.deposito.depositos?.[0]; as d) {
+                        @if (d.folio) {
+                          depósito <span class="rp-mono">U-A-5 {{ d.folio }}</span> de {{ nombre(d.sucursal ?? '') }}, {{ dmy(d.dia) }}, a la cuenta {{ d.banco }}:
+                        } @else {
+                          depósito del {{ dmy(d.dia) }}:
+                        }
+                        <span class="rp-mono">{{ money(d.importe) }}</span> · <strong>cuadra</strong>
+                        @if (p.deposito.diferencia) { <span class="fin-dim">({{ diferenciaTexto(p.deposito.diferencia) }} de redondeo)</span> }
+                      } @else {
+                        <strong>sin depósito que cuadre</strong> — {{ p.deposito.nota ?? 'el depósito todavía no aparece.' }}
+                      }
+                    </p>
+                  }
                   <p-table [value]="f.h.renglones" size="small" class="rp-mini">
                     <ng-template #header>
                       <tr><th>Sucursal</th><th>Día de pago</th><th>Documento de Kepler</th><th>Beneficiario</th><th class="rp-num-h">Importe</th></tr>
@@ -516,6 +540,36 @@ export function avisoDeReposicion(
         </p-table>
       </app-load-state>
 
+      <!-- [LE.6.25] Lo que oficinas pagó a cuenta de una sucursal: se le CARGA, no se le repone. Va aparte
+           para que nadie lo busque en la reposición ni lo confunda con ella. -->
+      @if (cargosOficinas().length) {
+        <details class="rp-repuesto" data-testid="rp-oficinas">
+          <summary>
+            <strong>Pagado por oficinas a cuenta de una sucursal:</strong>
+            {{ cargosOficinas().length }} {{ cargosOficinas().length === 1 ? 'pago' : 'pagos' }} ({{ money(totalCargosOficinas()) }})
+            <span class="rp-dim"> · no se repone: se le carga a la sucursal</span>
+          </summary>
+          <p class="rp-desglose">Salieron de la caja de oficinas con el centro de costo «Compra proveedor» de la sucursal en Kepler. Los gastos de oficinas no dicen sucursal: no están aquí.</p>
+          <p-table [value]="cargosOficinas()" size="small" class="rp-mini">
+            <ng-template #header>
+              <tr><th>Se carga a</th><th>Día</th><th>Documento de Kepler</th><th>Beneficiario</th><th class="rp-num-h">Importe</th></tr>
+            </ng-template>
+            <ng-template #body let-c>
+              <tr>
+                <td data-label="Se carga a" role="cell">
+                  {{ c.sucursal ? nombre(c.sucursal) : 'sin sucursal' }}
+                  <small class="rp-dim d-block">{{ c.centro }}{{ c.centro_nombre ? ' · ' + c.centro_nombre : '' }}</small>
+                </td>
+                <td class="rp-mono" data-label="Día" role="cell">{{ dmy(c.fecha_valor) }}</td>
+                <td class="rp-mono dt-id" data-label="Documento de Kepler" role="cell">X-D-26 {{ c.folio }}@if (c.referencia) { <small class="rp-dim d-block">{{ c.referencia }}</small> }</td>
+                <td data-label="Beneficiario" role="cell">{{ c.beneficiario ?? '—' }}</td>
+                <td class="rp-num dt-num" data-label="Importe" role="cell">{{ money(c.importe) }}</td>
+              </tr>
+            </ng-template>
+          </p-table>
+        </details>
+      }
+
       @if (datos(); as d) {
         <p class="rp-universo fin-dim">
           @for (z of d.universo.en_hoja ?? []; track z.zona) {
@@ -529,6 +583,10 @@ export function avisoDeReposicion(
           }
           {{ textoAprobacion() }}
           Oficinas no se repone: Caja General paga directo lo suyo.
+          <!-- [LE.6.25] Sin cargos se DICE (el bloque no aparece); una API vieja no manda el campo y se calla. -->
+          @if (d.cargado_por_oficinas?.length === 0) {
+            <span data-testid="rp-oficinas-cero">En estos días oficinas no pagó nada a cuenta de una sucursal.</span>
+          }
         </p>
       }
     </div>
@@ -664,6 +722,9 @@ export class CajaReposicionComponent implements OnInit {
   readonly textoZona = 'Se repone por hoja de zona: Abastos y Madero con un solo retiro. El motor no propone uno por sucursal; elige el de su hoja.';
 
   readonly datos = signal<ReposicionSucursales | null>(null);
+  /** `[LE.6.25]` Lo pagado por oficinas a cuenta de una sucursal en la ventana (una API anterior no lo manda). */
+  readonly cargosOficinas = computed(() => this.datos()?.cargado_por_oficinas ?? []);
+  readonly totalCargosOficinas = computed(() => Math.round(this.cargosOficinas().reduce((a, c) => a + c.importe, 0) * 100) / 100);
   readonly cargando = signal(false);
   readonly error = signal<string | null>(null);
   /** `[CGA-A.65]` Las hojas de zona. `null` + `hojasNoLeidas` = no se pudo leer: se dice, no se pinta vacío. */
@@ -719,10 +780,19 @@ export class CajaReposicionComponent implements OnInit {
   readonly abiertasPorPagar = computed(() => (this.hojas()?.abiertas ?? []).filter((a) => a.renglones.length > 0));
   readonly nPorResolver = computed(() => this.accionables().length + this.hojasPorPagar().length + this.abiertasPorPagar().length);
   /** `[LE.6.21]` Lo de la pestaña «Reposiciones»: lo que se resuelve en la fila y lo que ningún retiro explica. */
-  readonly nPendientes = computed(() => this.nPorResolver() + this.sinRetiro().length);
-  /** `[LE.6.21]` Las hojas de zona ya pagadas y con todo en el libro: van al historial. */
+  readonly nPendientes = computed(() => this.nPorResolver() + this.sinRetiro().length + this.hojasSinDeposito().length);
+  /**
+   * ⭐ `[LE.6.27]` PM, 2026-11-09: el folio del depósito se ve en Reposiciones «para validar que hubo un
+   * depósito y que no se regresa dinero que nunca salió». Una hoja pagada sin su `U-A-5` en Kepler (o con
+   * el depósito sin medir o ambiguo) NO está validada: se queda aquí hasta que aparezca. Medido en prod el
+   * 9/11: 4 de 13 hojas pagadas tienen su depósito.
+   */
+  depositoValidado(h: HojaGastos): boolean { return h.pago?.deposito?.estado === 'depositada'; }
+  readonly hojasSinDeposito = computed(() => (this.hojas()?.cerradas ?? [])
+    .filter((h) => h.estado === 'pagada' && !(h.pago?.sin_capturar ?? 0) && !this.depositoValidado(h)));
+  /** `[LE.6.21]` Las hojas de zona ya pagadas, con todo en el libro y (`[LE.6.27]`) su depósito: van al historial. */
   readonly hojasPagadas = computed(() => (this.hojas()?.cerradas ?? [])
-    .filter((h) => h.estado === 'pagada' && !(h.pago?.sin_capturar ?? 0)));
+    .filter((h) => h.estado === 'pagada' && !(h.pago?.sin_capturar ?? 0) && this.depositoValidado(h)));
 
   readonly filas = computed<Fila[]>(() => {
     const deGrupo = (gs: ReposicionGrupo[]): Fila[] => gs.map((g) => ({ tipo: 'grupo' as const, clave: g.clave, g }));
@@ -733,6 +803,7 @@ export class CajaReposicionComponent implements OnInit {
     return [
       ...this.abiertasPorPagar().map((a) => ({ tipo: 'abierta' as const, clave: `abierta|${a.zona}`, a })),
       ...deHoja(this.hojasPorPagar()),
+      ...deHoja(this.hojasSinDeposito()),
       ...deGrupo(this.accionables()),
       ...deGrupo(this.sinRetiro()),
     ];
@@ -808,6 +879,8 @@ export class CajaReposicionComponent implements OnInit {
     const cajon = this.grupos().reduce((a, g) => a + g.cajon, 0);
     const n = this.nPorResolver();
     const m = this.sinRetiro().length;
+    const sinDep = Math.round(this.hojasSinDeposito().reduce((a, h) => a + h.total, 0) * 100) / 100;
+    const k = this.hojasSinDeposito().length;
     if (this.vista() === 'historial') {
       const conRetiro = Math.round(this.explicadas().reduce((a, g) => a + g.caos, 0) * 100) / 100;
       return [
@@ -820,6 +893,9 @@ export class CajaReposicionComponent implements OnInit {
         sub: `${n} ${n === 1 ? 'renglón' : 'renglones'} con su acción en la fila` },
       { label: 'Sin retiro que lo explique', value: sinRetiro, format: 'currency2', tone: sinRetiro > 0 ? 'bad' : 'ok',
         sub: `${m} ${m === 1 ? 'sucursal-día' : 'sucursales-día'} al final de la lista: CAOS no dice de dónde salió` },
+      // `[LE.6.27]` Lo pagado que todavía no prueba con un depósito que el dinero salió.
+      { label: 'Pagado sin depósito', value: sinDep, format: 'currency2', tone: sinDep > 0 ? 'warn' : 'ok',
+        sub: `${k} ${k === 1 ? 'hoja pagada' : 'hojas pagadas'} sin su U-A-5 en Kepler` },
     ];
   });
 
@@ -859,9 +935,18 @@ export class CajaReposicionComponent implements OnInit {
     if (!p) return 'Pagada';
     const con = p.retiro ? `«${p.retiro.ref ?? p.retiro.external_id}» del ${dmy(p.retiro.dia)}${p.cajon > 0.005 ? ` + cajón ${money(p.cajon)}` : ''}`
       : `del cajón · ${money(p.cajon)}`;
-    const dep = p.deposito.estado === 'depositada' ? 'depositada' : p.deposito.estado === 'no_aparece' ? 'el depósito todavía no aparece'
-      : p.deposito.estado === 'ambiguo' ? 'el depósito lo liga una persona' : 'depósito sin medir';
+    // `[LE.6.24]` El depósito por su folio de Kepler: así se encuentra en la sucursal y en el banco.
+    const d = p.deposito.depositos?.[0];
+    const dep = p.deposito.estado === 'depositada'
+      ? (d?.folio ? `depósito U-A-5 ${d.folio} de ${this.nombre(d.sucursal ?? '')} · cuadra` : 'depositada')
+      : p.deposito.estado === 'no_aparece' ? 'el depósito todavía no aparece'
+        : p.deposito.estado === 'ambiguo' ? 'el depósito lo liga una persona' : 'depósito sin medir';
     return `${con} · ${dep}`;
+  }
+
+  /** `[LE.6.24]` La diferencia del depósito con la hoja, con su signo: «+$0.11», «−$0.23». */
+  diferenciaTexto(n: number): string {
+    return `${n > 0 ? '+' : '−'}${money(Math.abs(n))}`;
   }
 
   /** Las opciones de «¿de dónde sale?»: los retiros con dinero libre y el cajón. */

@@ -1056,6 +1056,15 @@ el cuadre con Kepler (GP.6).
 
 ---
 
+## 10. La guía de reparto NO es de GP (2026-11-09)
+
+La guía de reparto que imprime Kepler (pedido · embarque · factura por parada) es la hoja de ruta del
+chofer y va en Logística: `[EMB.56]` en [`FASE_EMB_PAGO_POR_VIAJE.md`](FASE_EMB_PAGO_POR_VIAJE.md) §8. GP
+aporta los bultos y la ubicación de espera (`[GP.4b]`) y el escaneo al cargar (`[GP.5]`); la guía los
+lee de aquí cuando existan.
+
+---
+
 ## Observaciones de diseño UI — revisión del plan (2026-10-26)
 
 > **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que

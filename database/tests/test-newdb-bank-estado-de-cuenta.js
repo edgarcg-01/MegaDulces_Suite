@@ -119,6 +119,9 @@ async function limpiar(admin) {
   if (!ids.length) return;
   await admin('finance.bank_statement_lines').whereIn('bank_account_id', ids).del();
   await admin('finance.bank_statement_files').whereIn('bank_account_id', ids).del();
+  // El libro de [10] y [11]: sin esto, borrar la cuenta choca con su FK (y el `catch` lo callaba).
+  await admin('finance.bank_movements').whereIn('bank_account_id', ids).del();
+  await admin('finance.bank_statements').whereIn('bank_account_id', ids).del();
   await admin('finance.bank_accounts').whereIn('id', ids).del();
 }
 
@@ -230,6 +233,41 @@ async function completo(urlAdmin, urlRuntime) {
     check(cC?.coincide === true && cC.saldo_conocido === 200, `la cuenta C coincide por el cierre reconstruido ($${cC?.saldo_conocido})`);
     const rC2 = await svc.revisar({ file_base64: BBVA_1, bank_account_id: BBVA_C });
     check(rC2.como_se_fijo === 'saldo_continuo', `elegida, queda atestiguada por saldo (${rC2.como_se_fijo})`);
+
+    console.log('\n[11] CB.60 — la descarga contra el libro, día por día');
+    // STDR: el libro del 02-nov copia los dos renglones del banco (en otro orden). El 03-nov es el
+    // último día de la descarga: queda «abierto», no se juzga.
+    const catId = async (code) => (await admin('finance.movement_categories').where({ tenant_id: MEGA, code }).first('id'))?.id ?? null;
+    const libroDe = async (cuentaId, filas) => {
+      const [st] = await admin('finance.bank_statements').insert({ tenant_id: MEGA, bank_account_id: cuentaId, period: '2026-11' }).returning('id');
+      for (const [i, o, s, cat] of filas) {
+        await admin('finance.bank_movements').insert({ tenant_id: MEGA, statement_id: st.id ?? st, bank_account_id: cuentaId, movement_date: '2026-11-02',
+          concept: 'PRUEBA LIBRO', amount_in: i, amount_out: o, running_balance: s, client_uuid: `prueba-cb60-${cuentaId}-${s}`,
+          category_id: cat ? await catId(cat) : null });
+      }
+    };
+    // [CB.61] El libro dice «nómina» para el abono SPEI (falso a propósito) y «comisión bancaria» para la comisión.
+    await libroDe(STDR, [[1250.50, 0, 10750.50, 'nomina'], [0, 500, 9500, 'comision_bancaria']]);
+    // BBVA A: le entra la segunda descarga (el 02-nov deja de ser el último día) y el libro del 02-nov
+    // NO tiene la comisión de $100.00.
+    await svc.confirmar({ file_base64: BBVA_2, bank_account_id: BBVA_A }, 'prueba');
+    await libroDe(BBVA_A, [[1000, 0, 1200]]);
+    const cl = await svc.contraElLibro(30, '2026-11-09');
+    const de = (id) => cl.cuentas.find((c) => c.id === id);
+    const veredictos = (id) => (de(id)?.dias || []).map((d) => `${d.fecha.slice(8)}:${d.veredicto}`).join(' ');
+    check(veredictos(STDR) === '02:cuadra 03:abierto', `STDR: el día copiado cuadra y el último queda abierto (${veredictos(STDR)})`);
+    const bA = de(BBVA_A)?.dias.find((d) => d.fecha === '2026-11-02');
+    check(bA?.veredicto === 'difiere' && bA.solo_banco.length === 1 && bA.solo_banco[0].importe === 100 && bA.solo_banco[0].lado === 'sale',
+      `⛔ BBVA A: al libro le falta la comisión → difiere y la nombra (${bA?.veredicto}, ${JSON.stringify(bA?.solo_banco.map((x) => x.importe))})`);
+    check(!cl.cuentas.some((c) => c.id === BBVA_B), 'una cuenta sin descarga no se juzga');
+
+    console.log('\n[12] CB.61 — la categoría sin el libro, contra la del libro');
+    const kS = de(STDR)?.categorias;
+    check(kS?.pareados === 2 && kS.coinciden === 1 && kS.difieren === 1,
+      `STDR: la comisión coincide por el texto del banco y el abono no (${JSON.stringify(kS && { p: kS.pareados, c: kS.coinciden, d: kS.difieren })})`);
+    const dS = kS?.distintas?.[0];
+    check(dS?.importe === 1250.5 && dS.banco === 'cobranza' && dS.por === 'deposito' && dS.libro === 'nomina',
+      `⛔ el abono SPEI: la sombra dice cobranza (por ser depósito) y nombra que el libro dice nómina (${JSON.stringify(dS)})`);
   } finally {
     await limpiar(admin).catch(() => {});
     await admin.destroy();

@@ -5,8 +5,8 @@
  */
 import { ZONAS_HOJA_GASTOS } from '@megadulces/contracts';
 import {
-  armarHojaAbierta, cuadreDelRetiro, hojaAbiertaAutorizada, depositoDeHoja, instruccionDePago, loYaRepuesto, motivoFueraDeHoja, pagadoEnControl, requisitoDeHoja, retirosQueCuadran,
-  type BancoDeZona, type DepositoBancoHoja, type JuicioDePagoHoja, type PagoDeZona, type RetiroCaosConLigas, type RetiroLibreHoja,
+  armarHojaAbierta, cuadreDelRetiro, hojaAbiertaAutorizada, depositoDeHoja, depositoKeplerDeHoja, instruccionDePago, loYaRepuesto, motivoFueraDeHoja, pagadoEnControl, requisitoDeHoja, retirosQueCuadran,
+  type BancoDeZona, type DepositoBancoHoja, type DepositoKeplerHoja, type JuicioDePagoHoja, type PagoDeZona, type RetiroCaosConLigas, type RetiroLibreHoja,
 } from './hoja-gastos.engine';
 
 const MORELIA = ZONAS_HOJA_GASTOS.find((z) => z.clave === 'morelia')!;
@@ -286,6 +286,42 @@ describe('[CGA-A.65] al pagar: el depósito, en una o dos partes, del día del r
   it('en seis partes (la hoja del 14/10) no se reconoce sola: la liga una persona', () => {
     const seis = [55910.55, 46759.48, 33530, 31758, 1594, 144].map((v, i) => d(`s${i}`, '2026-10-15', v));
     expect(depositoDeHoja(169696.03, '2026-10-15', seis)).toEqual({ estado: 'no_encontrado' });
+  });
+});
+
+describe('[LE.6.24] el depósito con su folio de Kepler: UN U-A-5 a la clave de la zona, ± $0.50', () => {
+  // Los `U-A-5` reales de Morelia Abastos del 30/10 (prod, 2026-11-09): el de HG-1 entre la venta del día.
+  const u = (folio: string, dia: string, importe: number, sucursal = '08'): DepositoKeplerHoja =>
+    ({ id: `${sucursal}|U-A-5|${folio}|1604`, dia, importe, sucursal, folio, banco: '1604' });
+  const kepler = [u('0000303', '2026-10-30', 83982), u('0000353', '2026-10-30', 101560), u('0000288', '2026-10-29', 197680)];
+
+  it('HG-1 ($83,981.89, pagada el 30/10) → U-A-5 0000303 por $83,982, diferencia +$0.11', () => {
+    expect(depositoKeplerDeHoja(83981.89, '2026-10-30', kepler))
+      .toEqual({ estado: 'encontrado', deposito: kepler[0], diferencia: 0.11 });
+  });
+
+  it('CONTROL: el mismo total corrido no encuentra ninguno', () => {
+    for (const delta of [137, -251, 512, -1033]) {
+      expect(depositoKeplerDeHoja(83981.89 + delta, '2026-10-30', kepler)).toEqual({ estado: 'no_encontrado' });
+    }
+  });
+
+  it('NEGATIVA: un «casi» no cuadra — $0.51 de diferencia ya no es el depósito', () => {
+    expect(depositoKeplerDeHoja(83981.49, '2026-10-30', kepler)).toEqual({ estado: 'no_encontrado' });
+  });
+
+  it('NEGATIVA: un depósito anterior al pago o a más de 7 días no es de esta hoja', () => {
+    expect(depositoKeplerDeHoja(83981.89, '2026-10-31', kepler)).toEqual({ estado: 'no_encontrado' });
+    expect(depositoKeplerDeHoja(83981.89, '2026-10-22', kepler)).toEqual({ estado: 'no_encontrado' });
+  });
+
+  it('NEGATIVA: sin pares — dos depósitos que suman el total no son el depósito', () => {
+    expect(depositoKeplerDeHoja(101560 + 83982, '2026-10-30', kepler)).toEqual({ estado: 'no_encontrado' });
+  });
+
+  it('NEGATIVA: dos U-A-5 por el mismo total NO se elige ninguno', () => {
+    expect(depositoKeplerDeHoja(83981.89, '2026-10-30', [...kepler, u('0000310', '2026-10-31', 83982)]))
+      .toEqual({ estado: 'ambiguo', opciones: 2 });
   });
 });
 

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ErpShipmentsService } from './erp-shipments.service';
 import { GuideCostService } from './guide-cost.service';
 import { ErpShipmentsController } from './erp-shipments.controller';
+import { GuiaRepartoController } from './guia-reparto.controller';
 
 /**
  * EMB — Embarques reales del ERP Kepler (sólo lectura sobre las vistas analytics.erp_shipment_*).
@@ -10,7 +11,7 @@ import { ErpShipmentsController } from './erp-shipments.controller';
  * ERP ya decidió. Mezclarlos haría que un GET de lectura arrastre toda la maquinaria de escritura.
  */
 @Module({
-  controllers: [ErpShipmentsController],
+  controllers: [ErpShipmentsController, GuiaRepartoController],
   providers: [ErpShipmentsService, GuideCostService],
   exports: [ErpShipmentsService, GuideCostService],
 })

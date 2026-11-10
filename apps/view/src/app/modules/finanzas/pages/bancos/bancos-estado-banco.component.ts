@@ -15,11 +15,11 @@ import { MetricStripComponent, MetricStripItem } from '../../../../shared/compon
 import { FreshnessPillComponent } from '../../../../shared/components/freshness-pill/freshness-pill.component';
 import { AuthService } from '../../../../core/services/auth.service';
 import { Permission } from '../../../../core/constants/permissions';
-import { ArchivosDelBanco, BankService, ComoSeFijoLaCuenta, RevisionEstadoBanco } from '../../bank.service';
+import { ArchivosDelBanco, BankService, ComoSeFijoLaCuenta, ContraElLibro, CuentaContraElLibro, DiaContraElLibro, RevisionEstadoBanco, VeredictoDelDia } from '../../bank.service';
 import { BANCOS_STYLES } from './bancos.styles';
 
 const BANCO: Readonly<Record<RevisionEstadoBanco['banco'], string>> = {
-  santander: 'Santander', banorte: 'Banorte', bbva: 'BBVA', banbajio: 'BanBajío',
+  santander: 'Santander', banorte: 'Banorte', bbva: 'BBVA', banbajio: 'BanBajío', banamex: 'Banamex',
 };
 const COMO: Readonly<Record<ComoSeFijoLaCuenta, { corto: string; largo: string; sev: 'success' | 'warn' }>> = {
   en_archivo: { corto: 'en el archivo', largo: 'el número de cuenta viene en el archivo', sev: 'success' },
@@ -42,7 +42,7 @@ export interface ArchivoEnLote {
 export interface Veredicto { tono: 'ok' | 'warn' | 'bad' | 'muted'; icono: string; texto: string; listo: boolean }
 
 /**
- * `[CB.59]` La descarga del banco (Santander, Banorte, BBVA, BanBajío) se suelta aquí, una o varias a
+ * `[CB.59]` La descarga del banco (Santander, Banorte, BBVA, BanBajío, Banamex) se suelta aquí, una o varias a
  * la vez: el sistema detecta el banco y la cuenta de cada una, dice si entra completa, y guarda las
  * que están listas. Reemplaza que Tesorería copie los movimientos a mano al libro «CUENTAS».
  *
@@ -73,7 +73,7 @@ export interface Veredicto { tono: 'ok' | 'warn' | 'bad' | 'muted'; icono: strin
         <h3 id="eb-titulo" class="fb-card-title eb-title">Estados de cuenta del banco</h3>
         <app-freshness-pill measures="data" [since]="ultimaSubida()" label="última subida" [staleAfterSec]="129600" />
       </div>
-      <p class="eb-sub">La descarga de la banca en línea, tal cual. No depende del periodo elegido arriba y todavía no alimenta Movimientos ni la conciliación.
+      <p class="eb-sub">La descarga de la banca en línea, tal cual. No depende del periodo elegido arriba y todavía no alimenta Movimientos ni la conciliación: se compara contra el libro día por día.
         @if (sinLector().length) { {{ sinLector().join(', ') }} no se puede subir aún: no hay lector de su banco. }</p>
 
       <app-load-state [loading]="cargando()" [error]="error()" [skeletonRows]="2" (retry)="cargar()">
@@ -85,7 +85,7 @@ export interface Veredicto { tono: 'ok' | 'warn' | 'bad' | 'muted'; icono: strin
         @if (puedeSubir()) {
           <div class="eb-soltar" [class.encima]="encima()">
             <i class="pi pi-cloud-upload" aria-hidden="true"></i>
-            <span>Arrastra aquí una o varias descargas: Santander y Banorte (CSV), BBVA (.exp), BanBajío (Excel)</span>
+            <span>Arrastra aquí una o varias descargas: Santander, Banorte y Banamex (CSV), BBVA (.exp), BanBajío (Excel)</span>
             <input #elegir type="file" multiple accept=".csv,.exp,.txt,.xlsx" hidden (change)="alElegir($event)">
             <button pButton type="button" class="p-button-sm p-button-text eb-elegir" (click)="elegir.click()">
               <span class="p-button-label">Elegir archivos</span></button>
@@ -139,7 +139,57 @@ export interface Veredicto { tono: 'ok' | 'warn' | 'bad' | 'muted'; icono: strin
           </div>
         }
 
+        <!-- [CB.60] La compuerta de D2: por cuenta, si la descarga dice lo mismo que el libro. Primero lo que difiere. -->
+        @if (cuentasContra().length) {
+          <h4 class="eb-sec">Contra el libro <span class="muted">· desde el {{ contra()?.desde | date:'dd/MM/yy' }}</span></h4>
+          <p-table [value]="cuentasContra()" dataKey="id" size="small" class="surf-table surf-table--plain">
+            <ng-template #header>
+              <tr>
+                <th class="eb-tog"><span class="sr-only">Ver los días</span></th><th>Cuenta</th><th>Contra el libro</th>
+                <th class="comm-num">Días que cuadran</th><th class="comm-num">Difieren</th><th class="comm-num">Sin libro</th><th>Abierto</th>
+              </tr>
+            </ng-template>
+            <ng-template #body let-c let-expanded="expanded">
+              <tr>
+                <td class="eb-tog"><p-button type="button" [pRowToggler]="c" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"
+                          styleClass="p-button-text p-button-sm" [ariaLabel]="'Ver los días de ' + c.alias" /></td>
+                <td class="eb-strong">{{ c.alias }}</td>
+                <td><span [class]="'eb-v eb-v--' + estadoContra(c).tono"><i [class]="'pi ' + estadoContra(c).icono" aria-hidden="true"></i> {{ estadoContra(c).texto }}</span></td>
+                <td class="comm-num mono">{{ c.resumen.cuadra }}</td>
+                <td class="comm-num mono">{{ c.resumen.difiere }}</td>
+                <td class="comm-num mono">{{ c.resumen.sin_libro }}</td>
+                <td class="mono">{{ c.hasta | date:'dd/MM' }}</td>
+              </tr>
+            </ng-template>
+            <ng-template #expandedrow let-c>
+              <tr><td colspan="7">
+                <ul class="eb-dias" [attr.aria-label]="'Días de ' + c.alias + ' contra el libro'">
+                  @for (d of c.dias; track d.fecha) {
+                    <li>
+                      <span class="mono eb-strong">{{ d.fecha | date:'dd/MM' }}</span>
+                      <span [class]="'eb-v eb-v--' + diaTono(d.veredicto)">{{ diaTexto(d) }}</span>
+                      <span class="muted">banco {{ d.movimientos_banco }} · libro {{ d.renglones_libro }}@if (d.fecha_distinta) { · {{ d.fecha_distinta }} con otra fecha en el libro }@if (d.veredicto === 'difiere' && d.cierre_banco !== d.cierre_libro) { · cierra en {{ num(d.cierre_banco) | currency:'MXN':'symbol-narrow':'1.2-2' }} el banco y en {{ num(d.cierre_libro) | currency:'MXN':'symbol-narrow':'1.2-2' }} el libro }</span>
+                      @if (d.veredicto === 'difiere') {
+                        @for (x of d.solo_banco; track x.id) {
+                          <div class="eb-suelto">Sólo en el banco: {{ x.lado }} <span class="mono">{{ x.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</span> <span class="muted">{{ x.concepto }}</span></div>
+                        }
+                        @for (x of d.solo_libro; track x.id) {
+                          <div class="eb-suelto">Sólo en el libro: {{ x.lado }} <span class="mono">{{ x.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</span> <span class="muted">{{ x.concepto }}</span></div>
+                        }
+                      }
+                    </li>
+                  }
+                </ul>
+              </td></tr>
+            </ng-template>
+          </p-table>
+          <p class="eb-leyenda"><b>cuadra</b>: cada movimiento del banco tiene su renglón en el libro (mismo lado e importe) y el día cierra con el mismo saldo ·
+            <b>abierto</b>: el último día de la descarga puede haberse bajado a medias, no se juzga. Así se decide cuándo una cuenta deja el libro.</p>
+        }
+        @if (contraError(); as ce) { <p class="eb-leyenda eb-v--bad">{{ ce }}</p> }
+
         @if (archivos().length) {
+          <h4 class="eb-sec">Archivos subidos</h4>
           <p-table [value]="archivos()" dataKey="id" size="small" class="surf-table surf-table--plain surf-table--sticky" [scrollable]="true" scrollHeight="40vh">
             <ng-template #header>
               <tr>
@@ -156,7 +206,7 @@ export interface Veredicto { tono: 'ok' | 'warn' | 'bad' | 'muted'; icono: strin
                 <td class="comm-num mono">{{ num(f.opening_balance) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                 <td class="comm-num mono eb-strong">{{ num(f.closing_balance) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                 <td><p-tag [value]="como(f.account_check).corto" [severity]="como(f.account_check).sev" /></td>
-                <td><span class="mono">{{ f.created_at | date:'dd/MM HH:mm' }}</span> <span class="muted">{{ f.created_by || '' }}</span></td>
+                <td><span class="mono">{{ f.created_at | date:'dd/MM HH:mm' }}</span>@if (f.created_by) {<span class="muted"> · {{ f.created_by }}</span>}</td>
               </tr>
             </ng-template>
           </p-table>
@@ -200,6 +250,11 @@ export interface Veredicto { tono: 'ok' | 'warn' | 'bad' | 'muted'; icono: strin
     .eb-v--muted { color: var(--text-muted); font-weight: 400; }
     .eb-acepto { display: flex; align-items: center; gap: var(--sp-2); margin-top: var(--sp-1); font-size: var(--fs-xs); color: var(--text-main); cursor: pointer; }
     .eb-leyenda { margin: 0; padding: var(--sp-2) var(--sp-3) 0; font-size: var(--fs-xs); color: var(--text-muted); }
+    .eb-sec { margin: var(--sp-3) 0 var(--sp-1); padding: 0 var(--sp-3); font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); }
+    .eb-tog { width: 2.5rem; }
+    .eb-dias { list-style: none; margin: 0; padding: var(--sp-1) 0; display: grid; gap: var(--sp-2); font-size: var(--fs-sm); }
+    .eb-dias > li { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-1) var(--sp-3); }
+    .eb-suelto { flex-basis: 100%; padding-left: var(--sp-5); font-size: var(--fs-xs); color: var(--text-main); }
 
     @media (max-width: 40rem) {
       .eb-soltar { flex-wrap: wrap; }
@@ -219,10 +274,16 @@ export class BancosEstadoBancoComponent implements OnInit {
 
   readonly datos = signal<ArchivosDelBanco | null>(null);
   readonly archivos = computed(() => this.datos()?.archivos ?? []);
-  /** Cuentas activas cuyo banco no tiene lector (hoy Banamex): no cuentan como «faltan». */
+  /** Cuentas activas cuyo banco no tiene lector: no cuentan como «faltan». */
   readonly sinLector = computed(() => (this.datos()?.cuentas ?? []).filter((c) => !c.con_lector).map((c) => c.alias));
   readonly cargando = signal(true);
   readonly error = signal<string | null>(null);
+
+  /** [CB.60] Cada cuenta con descarga contra el libro. Lo que difiere va primero. */
+  readonly contra = signal<ContraElLibro | null>(null);
+  readonly contraError = signal<string | null>(null);
+  readonly cuentasContra = computed(() => [...(this.contra()?.cuentas ?? [])]
+    .sort((a, b) => b.resumen.difiere - a.resumen.difiere || a.alias.localeCompare(b.alias)));
 
   readonly lote = signal<ArchivoEnLote[]>([]);
   readonly encima = signal(false);
@@ -248,6 +309,7 @@ export class BancosEstadoBancoComponent implements OnInit {
     return [
       conDescarga,
       { label: 'La más atrasada llega al', value: this.fecha(atrasada.hasta!), format: 'text', sub: atrasada.alias },
+      ...this.itemContra(),
       { label: 'Sin testigo', value: sinTestigo, format: 'number', tone: sinTestigo ? 'warn' : 'muted', sub: 'archivos guardados sin poder comprobar la cuenta' },
     ];
   });
@@ -273,6 +335,43 @@ export class BancosEstadoBancoComponent implements OnInit {
       next: (d) => { this.datos.set(d); this.cargando.set(false); },
       error: (e: HttpErrorResponse) => { this.error.set(this.mensaje(e, 'No se pudo leer la lista de estados de cuenta subidos.')); this.cargando.set(false); },
     });
+    this.contraError.set(null);
+    this.api.contraElLibro().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (c) => this.contra.set(c),
+      // Si la comparación no se pudo leer se DICE; no se pinta como «cuadra» ni como cero.
+      error: (e: HttpErrorResponse) => { this.contra.set(null); this.contraError.set(this.mensaje(e, 'No se pudo comparar la descarga contra el libro.')); },
+    });
+  }
+
+  /** El renglón del resumen: cuántas cuentas cuadran con el libro y cuáles difieren. Sin comparación, no se afirma nada. */
+  private itemContra(): MetricStripItem[] {
+    const cuentas = this.contra()?.cuentas ?? [];
+    const juzgadas = cuentas.filter((c) => c.resumen.cuadra + c.resumen.difiere > 0);
+    if (!juzgadas.length) return [];
+    const difieren = juzgadas.filter((c) => c.resumen.difiere).map((c) => c.alias);
+    return [{ label: 'Cuadran con el libro', value: `${juzgadas.length - difieren.length} de ${juzgadas.length}`, format: 'text', tone: difieren.length ? 'bad' : 'ok',
+      sub: difieren.length ? `difieren ${difieren.join(', ')}` : 'cuentas con días cerrados para comparar' }];
+  }
+
+  estadoContra(c: CuentaContraElLibro): { tono: Veredicto['tono']; icono: string; texto: string } {
+    const r = c.resumen;
+    if (r.difiere) return { tono: 'bad', icono: 'pi-times-circle', texto: r.difiere === 1 ? 'difiere en 1 día' : `difiere en ${r.difiere} días` };
+    if (r.cuadra) return { tono: 'ok', icono: 'pi-check-circle', texto: r.cuadra === 1 ? 'cuadra 1 día' : `cuadra ${r.cuadra} días` };
+    if (r.sin_libro) return { tono: 'muted', icono: 'pi-minus-circle', texto: 'el libro no llega a esos días' };
+    return { tono: 'muted', icono: 'pi-minus-circle', texto: 'sin días cerrados todavía' };
+  }
+
+  diaTono(v: VeredictoDelDia): Veredicto['tono'] {
+    return v === 'cuadra' ? 'ok' : v === 'difiere' ? 'bad' : 'muted';
+  }
+
+  diaTexto(d: DiaContraElLibro): string {
+    switch (d.veredicto) {
+      case 'cuadra': return 'cuadra';
+      case 'difiere': return `difiere: ${d.solo_banco.length} sólo en el banco, ${d.solo_libro.length} sólo en el libro`;
+      case 'sin_libro': return 'el libro no tiene ese día';
+      default: return `abierto (no se juzga)${d.solo_banco.length ? ` · ${d.solo_banco.length} del banco aún sin renglón en el libro` : ''}`;
+    }
   }
 
   /** El veredicto de una fila: lo que la persona tiene que saber o hacer, y si está lista para guardar. */

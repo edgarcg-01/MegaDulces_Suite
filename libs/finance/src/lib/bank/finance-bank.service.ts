@@ -5,6 +5,7 @@ import { TenantKnexService, TenantContextService, applySmartSearch } from '@mega
 import { FINANCE_FINDINGS_SINK_PORT, FinanceFindingsSinkPort, FinanceFindingInput, FinanceRuleInput } from '@megadulces/contracts';
 import { BancosGateway } from './bancos.gateway';
 import { buildClaimIndex, claimVerdict, type ClaimRow } from './recon-claim-key';
+import { compileRules, classifyWith, normKey } from './classify-rules';
 
 /**
  * CB.2 — Conciliación bancaria (ADR-033). Servicio de lectura + reclasificación
@@ -17,7 +18,6 @@ import { buildClaimIndex, claimVerdict, type ClaimRow } from './recon-claim-key'
  */
 
 const n = (v: any) => Number(v) || 0;
-const normKey = (s: unknown) => String(s ?? '').replace(/\s+/g, ' ').trim().toUpperCase();
 
 /**
  * [CP.8.89] Qué parte del DINERO del banco de un periodo ya tiene su póliza en ContPAQi. Empareja
@@ -133,39 +133,8 @@ function excelDate(v: any): string | null {
   return yr >= 2000 && yr <= 2100 ? iso : null;
 }
 
-/**
- * CB.6 — Motor de clasificación desde DB (finance.bank_classify_rules).
- * Reglas ordenadas por priority; una aplica si TODOS sus matchers no-nulos
- * (regex sobre M/C/concepto) hacen match. La primera que aplica gana.
- * Reemplaza la función classify() hardcodeada (ahora las reglas viven en DB,
- * editables desde la vista Admin). Patrones inválidos se ignoran (best-effort).
- */
-export interface ClassifyRuleRow {
-  priority: number; match_type: string | null; match_code: string | null;
-  match_concept: string | null; category_code: string;
-}
-export interface CompiledRule { reType: RegExp | null; reCode: RegExp | null; reConcept: RegExp | null; category: string; }
-
-export function compileRules(rules: ClassifyRuleRow[]): CompiledRule[] {
-  const safe = (p: string | null): RegExp | null => {
-    if (!p) return null;
-    try { return new RegExp(p, 'i'); } catch { return null; }
-  };
-  return [...rules]
-    .sort((a, b) => a.priority - b.priority)
-    .map((r) => ({ reType: safe(r.match_type), reCode: safe(r.match_code), reConcept: safe(r.match_concept), category: r.category_code }));
-}
-
-export function classifyWith(compiled: CompiledRule[], M: unknown, C: unknown, concept: unknown): string {
-  const m = normKey(M), c = normKey(C), t = normKey(concept);
-  for (const r of compiled) {
-    if (r.reType && !r.reType.test(m)) continue;
-    if (r.reCode && !r.reCode.test(c)) continue;
-    if (r.reConcept && !r.reConcept.test(t)) continue;
-    return r.category;
-  }
-  return 'sin_clasificar';
-}
+// CB.6 — el motor de clasificación por reglas vive en ./classify-rules (CB.61 lo separó).
+export { compileRules, classifyWith, type ClassifyRuleRow, type CompiledRule } from './classify-rules';
 
 export interface ListMovementsQuery {
   period?: string;
@@ -1715,10 +1684,17 @@ export class FinanceBankService {
       // hecho que «sí se escribe». **No se escribe**: medido, 0 de 20,926 filas la tienen. La
       // llave larga era un no-op. Acá se empieza a escribir (ver `emit`), así que la llave se
       // va poniendo exacta sola a medida que cada periodo se re-concilia.
+      // [CB.60] ⛔ Un movimiento BORRADO no aparta nada. Al borrar un renglón su pareo se queda en
+      // `bank_recon_matches` (la re-conciliación sólo limpia los movimientos vivos del periodo), y
+      // sin este filtro seguía bloqueando su documento de Kepler para siempre. Medido el 2026-11-09:
+      // 1,029 pareos de movimientos borrados ($25M), casi todos del «11 NOVIEMBRE.xlsx» subido como
+      // octubre y borrado el 5-nov; corriendo el motor sobre la descarga del banco de noviembre, los
+      // pareos exactos pasan de 78 a 135 ($284K → $2.34M) y el control con importes movidos casa 0
+      // exactos. Sobre el libro real de ago-oct, +3/+2/+3 pareos y ninguno perdido.
       const claimedRows = await trx('finance.bank_recon_matches as m')
         .join('finance.bank_movements as bm', 'bm.id', 'm.bank_movement_id')
         .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
-        .where('m.tenant_id', tenantId).andWhereNot('st.period', period)
+        .where('m.tenant_id', tenantId).andWhereNot('st.period', period).whereNull('bm.deleted_at')
         .distinct('m.kepler_sucursal as suc', 'm.kepler_doc_tipo as dt', 'm.kepler_doc_folio as folio',
           'm.kepler_cuenta as cuenta');
       // Llave exacta (sucursal conocida) y llave parcial (filas históricas sin sucursal). La

@@ -4,7 +4,7 @@ import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { environment } from '../../../environments/environment';
 import type {
-  KeplerTripList, NuevoEmbarqueHoja, TomaKeplerBody, TomaKeplerResultado, NuevaGuiaBody, RevisionGps, CompletarGuiaBody, GuiaCompletada,
+  KeplerTripList, NuevoEmbarqueHoja, GuiaRepartoBusqueda, GuiaRepartoHoja, GuiaRepartoViajes, TomaKeplerBody, TomaKeplerResultado, NuevaGuiaBody, RevisionGps, CompletarGuiaBody, GuiaCompletada,
   CierreDeEmbarque, CerrarParadaBody, ParadaCierre, AltaRapidaBody, AltaRapidaResultado,
   ReporteDePagos, DesgloseDeOperacion,
   ResumenCostoUnidad, DetalleUnidadCosto, LineaGastoFlota, PeriodoCosto, AsignacionGasto, CambiosFicha, FichaUnidad,
@@ -1062,6 +1062,18 @@ export class LogisticaService {
   getNuevoEmbarque(sucursal: string, guia: string) {
     return this.http.get<NuevoEmbarqueHoja>(
       `${this.base}/erp-shipments/trips/${encodeURIComponent(sucursal)}/${encodeURIComponent(guia)}/nuevo-embarque`);
+  }
+  /** `[EMB.56]` Los viajes del día (de la sucursal de quien entra), para imprimir la guía de reparto. */
+  getGuiaRepartoViajes(fecha: string) {
+    return this.http.get<GuiaRepartoViajes>(`${this.base}/guia-reparto/viajes`, { params: new HttpParams().set('fecha', fecha) });
+  }
+  /** `[EMB.56]` Una guía por su número (para reimprimirla). Puede dar varios viajes: el número es por sucursal. */
+  buscarGuiaReparto(guia: string) {
+    return this.http.get<GuiaRepartoBusqueda>(`${this.base}/guia-reparto/buscar`, { params: new HttpParams().set('guia', guia) });
+  }
+  /** `[EMB.56]` La guía de reparto de un viaje: paradas en orden, domicilio, bultos y folios. Sin importes. */
+  getGuiaReparto(sucursal: string, guia: string) {
+    return this.http.get<GuiaRepartoHoja>(`${this.base}/guia-reparto/${encodeURIComponent(sucursal)}/${encodeURIComponent(guia)}`);
   }
   /** Crea el embarque con la llave de la guía + la guía de entrega + un destinatario por parada. */
   createShipmentFromKepler(sucursal: string, guia: string, body: TomaKeplerBody) {

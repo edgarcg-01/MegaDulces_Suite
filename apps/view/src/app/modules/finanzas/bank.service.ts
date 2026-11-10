@@ -370,7 +370,7 @@ export interface SheetSyncRunResult {
 /** [CB.58] La descarga de la banca: revisar (no escribe) → confirmar. Espejo de `estado-de-cuenta.service.ts`. */
 export type ComoSeFijoLaCuenta = 'en_archivo' | 'saldo_continuo' | 'sin_testigo';
 export interface RevisionEstadoBanco {
-  banco: 'santander' | 'banorte' | 'bbva' | 'banbajio';
+  banco: 'santander' | 'banorte' | 'bbva' | 'banbajio' | 'banamex';
   archivo: string | null; cuenta_en_archivo: string | null; cliente_en_archivo: string | null;
   cuenta: { id: string; alias: string } | null; como_se_fijo: ComoSeFijoLaCuenta | null;
   candidatas: { id: string; alias: string; saldo_conocido: number | null; coincide: boolean }[];
@@ -394,6 +394,19 @@ export interface ArchivosDelBanco {
   archivos: ArchivoEstadoBanco[]; total: number; tope: number;
   cuentas: { id: string; bank: string; alias: string; hasta: string | null; archivos: number; sin_testigo: number; con_lector: boolean }[];
 }
+
+/** [CB.60] La descarga del banco contra el libro, por cuenta y día (`GET statement-files/contra-libro`). */
+export type VeredictoDelDia = 'cuadra' | 'difiere' | 'sin_libro' | 'abierto';
+export interface SueltoDelDia { id: string; fecha: string; lado: 'entra' | 'sale'; importe: number; concepto: string | null }
+export interface DiaContraElLibro {
+  fecha: string; veredicto: VeredictoDelDia; movimientos_banco: number; renglones_libro: number; pareados: number; fecha_distinta: number;
+  cierre_banco: number | null; cierre_libro: number | null; solo_banco: SueltoDelDia[]; solo_libro: SueltoDelDia[];
+}
+export interface CuentaContraElLibro {
+  id: string; alias: string; desde: string | null; hasta: string | null; dias: DiaContraElLibro[];
+  resumen: { cuadra: number; difiere: number; sin_libro: number; abierto: number; solo_banco: number; solo_libro: number; monto_solo_banco: number; monto_solo_libro: number };
+}
+export interface ContraElLibro { desde: string; cuentas: CuentaContraElLibro[] }
 
 @Injectable({ providedIn: 'root' })
 export class BankService {
@@ -481,6 +494,9 @@ export class BankService {
   // ── CB.58/CB.59 La descarga del banco ──
   archivosDelBanco(): Observable<ArchivosDelBanco> {
     return this.http.get<ArchivosDelBanco>(`${this.base}/statement-files`);
+  }
+  contraElLibro(): Observable<ContraElLibro> {
+    return this.http.get<ContraElLibro>(`${this.base}/statement-files/contra-libro`);
   }
   revisarEstadoBanco(fileBase64: string, fileName: string, bankAccountId?: string | null): Observable<RevisionEstadoBanco> {
     return this.http.post<RevisionEstadoBanco>(`${this.base}/statement-files/preview`, { file_base64: fileBase64, file_name: fileName, bank_account_id: bankAccountId || undefined });

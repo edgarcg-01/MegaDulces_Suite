@@ -1,0 +1,82 @@
+import type { Translation } from 'primeng/api';
+
+/**
+ * `[EMB.56]` Los textos de PrimeNG en español, para TODA la app (se cargan en `providePrimeNG`).
+ *
+ * Hasta el 2026-11-09 la app no traía traducción y PrimeNG pintaba sus textos en inglés: el
+ * calendario decía «November 2026» (medido con Playwright en `/logistica/guia-reparto`), y lo mismo
+ * cualquier `p-datepicker`, los filtros de tabla y los mensajes de lista vacía.
+ *
+ * ⛔ Sólo TEXTOS. Ni `dateFormat` ni `firstDayOfWeek`: cambiarlos aquí cambiaría cómo se escribe y
+ * cómo se acomoda la fecha en todos los calendarios que ya existen, y cada pantalla que lo necesite
+ * lo declara en su `p-datepicker`.
+ */
+export const PRIMENG_ES: Translation = {
+  dayNames: ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'],
+  dayNamesShort: ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'],
+  dayNamesMin: ['D', 'L', 'M', 'X', 'J', 'V', 'S'],
+  monthNames: ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'],
+  monthNamesShort: ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'],
+  today: 'Hoy',
+  clear: 'Limpiar',
+  weekHeader: 'Sem',
+  chooseYear: 'Escoger año',
+  chooseMonth: 'Escoger mes',
+  chooseDate: 'Escoger fecha',
+  prevDecade: 'Década anterior',
+  nextDecade: 'Década siguiente',
+  prevYear: 'Año anterior',
+  nextYear: 'Año siguiente',
+  prevMonth: 'Mes anterior',
+  nextMonth: 'Mes siguiente',
+  prevHour: 'Hora anterior',
+  nextHour: 'Hora siguiente',
+  prevMinute: 'Minuto anterior',
+  nextMinute: 'Minuto siguiente',
+  prevSecond: 'Segundo anterior',
+  nextSecond: 'Segundo siguiente',
+  am: 'a. m.',
+  pm: 'p. m.',
+  startsWith: 'Empieza con',
+  contains: 'Contiene',
+  notContains: 'No contiene',
+  endsWith: 'Termina con',
+  equals: 'Igual a',
+  notEquals: 'Distinto de',
+  noFilter: 'Sin filtro',
+  lt: 'Menor que',
+  lte: 'Menor o igual que',
+  gt: 'Mayor que',
+  gte: 'Mayor o igual que',
+  is: 'Es',
+  isNot: 'No es',
+  before: 'Antes de',
+  after: 'Después de',
+  dateIs: 'La fecha es',
+  dateIsNot: 'La fecha no es',
+  dateBefore: 'Antes del',
+  dateAfter: 'Después del',
+  apply: 'Aplicar',
+  matchAll: 'Cumple todas',
+  matchAny: 'Cumple alguna',
+  addRule: 'Agregar regla',
+  removeRule: 'Quitar regla',
+  accept: 'Sí',
+  reject: 'No',
+  choose: 'Escoger',
+  upload: 'Subir',
+  cancel: 'Cancelar',
+  pending: 'Pendiente',
+  emptyMessage: 'Sin opciones',
+  emptyFilterMessage: 'Nada coincide con la búsqueda',
+  emptySearchMessage: 'Nada coincide con la búsqueda',
+  emptySelectionMessage: 'Nada seleccionado',
+  searchMessage: '{0} resultados',
+  selectionMessage: '{0} seleccionados',
+  fileChosenMessage: '{0} archivos',
+  noFileChosenMessage: 'Ningún archivo',
+  passwordPrompt: 'Escribe una contraseña',
+  weak: 'Débil',
+  medium: 'Media',
+  strong: 'Fuerte',
+};

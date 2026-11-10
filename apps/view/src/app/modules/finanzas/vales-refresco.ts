@@ -19,3 +19,10 @@
  * pestaña visible y se pone al día al volver (`encuestarVisible`).
  */
 export const REFRESCO_VALES_MS = 60_000;
+
+/**
+ * **A qué edad se vuelven a firmar los archivos de un vale abierto.** El servidor los firma por
+ * 30 min (`signFiles(…, 1800)`); un PDF con la firma vencida no da error al navegador, el
+ * recuadro queda gris. 20 min deja margen para el refresco de 60 s y para el reloj del equipo.
+ */
+export const REFIRMAR_MS = 20 * 60_000;

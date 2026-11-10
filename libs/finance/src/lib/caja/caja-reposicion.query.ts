@@ -1,4 +1,5 @@
 import type { Knex } from 'knex';
+import { SUCURSAL_CAJA_GENERAL, SUCURSAL_DE_CENTRO_COMPRA_OFICINAS, type CargoDeOficinas } from '@megadulces/contracts';
 import {
   DIAS_INSTANCIA_REPOSICION, SUCURSALES_SIN_REPOSICION,
   type DocKepler, type EgresoLibro, type RetiroLibre, type VinculoLibro,
@@ -74,6 +75,14 @@ export const consultasReposicion = {
         k.raw(`to_char(cl.fecha, 'YYYY-MM-DD') AS fecha`));
   },
 
+  /** `[LE.6.26]` Los renglones vigentes de las hojas PAGADAS, con lo que cada hoja declaró del cajón. */
+  hojasPagadas(k: Knex, tenantId: string, refs: string[]): Knex.QueryBuilder {
+    return k('finance.expense_sheet_lines as l')
+      .join('finance.expense_sheets as s', function hoja() { this.on('s.id', 'l.sheet_id').andOn('s.tenant_id', 'l.tenant_id'); })
+      .where('l.tenant_id', tenantId).where('l.vigente', true).where('s.estado', 'pagada').whereIn('l.origen_ref', refs)
+      .select('s.folio', 's.cajon', 'l.origen_ref');
+  },
+
   vinculos(k: Knex, tenantId: string, ids: string[]): Knex.QueryBuilder {
     return k('finance.caos_cash_links as kl')
       .leftJoin('analytics.caos_cash_movements as m', function enlace() {
@@ -83,6 +92,34 @@ export const consultasReposicion = {
       .orderBy([{ column: 'kl.created_at', order: 'asc' }])
       .select('kl.id as link_id', 'kl.cash_ledger_id', 'kl.caos_device as device', 'kl.caos_external_id as external_id',
         'm.ref', 'kl.monto_enlazado as monto');
+  },
+
+  /**
+   * ⭐ `[LE.6.25]` Lo que oficinas pagó en efectivo (la `0011` de la `00`) con un centro «COMPRA PROVEEDOR
+   * …» de otra sucursal: se carga a ella y NO se le repone. El centro es `kdm1.c12` del documento y su
+   * nombre, el del catálogo `kdxv` de la `00` (los códigos chocan entre sucursales). `C-001` es CEDIS
+   * misma: fuera.
+   */
+  cargoOficinas(k: Knex, tenantId: string, desde: string, hasta: string): Knex.QueryBuilder {
+    return k('analytics.bank_movement_legs as l')
+      .join('kepler_ods.kdm1 as d', function llave() {
+        this.on('d.sucursal', 'l.src_sucursal').andOn('d.c1', 'l.src_c1').andOn('d.c2', 'l.src_c2')
+          .andOn('d.c3', 'l.src_c3').andOn('d.c4', 'l.src_c4').andOn('d.c5', 'l.src_c5').andOn('d.c6', 'l.src_c6');
+      })
+      .leftJoin('kepler_ods.kdxv as x', function centro() {
+        this.on('x.sucursal', 'l.src_sucursal').andOn(k.raw('btrim(x.c2::text) = btrim(d.c12::text)'));
+      })
+      .where('l.tenant_id', tenantId).where('l.clave_banco', '0011').where('l.sucursal', SUCURSAL_CAJA_GENERAL)
+      .where('l.doc_tipo', 'X-D-26').whereBetween('l.fecha_valor', [desde, hasta])
+      .where('l.signo', '<', 0).where('l.es_traspaso', false).where('l.importe', '>', 0)
+      .whereRaw(`btrim(d.c12::text) ~ '^C-' AND btrim(d.c12::text) <> 'C-001'`)
+      .orderBy([{ column: 'l.fecha_valor', order: 'desc' }, { column: 'l.folio', order: 'desc' }])
+      .select('l.folio', 'l.beneficiario', k.raw('l.importe AS importe'),
+        k.raw(`to_char(l.fecha_valor, 'YYYY-MM-DD') AS fecha_valor`),
+        k.raw(`btrim(d.c12::text) AS centro`),
+        k.raw(`nullif(btrim(x.c3::text), '') AS centro_nombre`),
+        k.raw(`nullif(btrim(d.c11::text), '') AS referencia`),
+        k.raw(`l.sucursal || '|' || l.doc_tipo || '|' || l.folio || '|' || l.clave_banco AS origen_ref`));
   },
 
   /** Retiros con dinero libre cerca de la ventana: el motor sólo usa los que están a ≤ N días. */
@@ -185,7 +222,26 @@ export function aprobacionesDeCrudos(docs: DocCrudo[], horas: PagoHoraCrudo[], s
   );
 }
 
+export type CargoCrudo = Omit<CargoDeOficinas, 'importe' | 'sucursal'> & { importe: string | number };
+
+/** `[LE.6.25]` Lo cargado por oficinas, con la sucursal de su centro (o `null` si el mapa no lo conoce). */
+export function cargosDeCrudos(filas: CargoCrudo[]): CargoDeOficinas[] {
+  return filas.map((f) => ({ ...f, importe: Number(f.importe), sucursal: SUCURSAL_DE_CENTRO_COMPRA_OFICINAS[f.centro] ?? null }));
+}
+
 /** Lo crudo de la base, ya convertido, para el motor. */
+export type HojaPagadaCruda = { folio: string; cajon: string | number | null; origen_ref: string };
+/** `[LE.6.26]` Una entrada por hoja, con sus renglones. */
+export function hojasPagadasDeCrudos(filas: HojaPagadaCruda[]): Array<{ folio: string; cajon: number; refs: string[] }> {
+  const m = new Map<string, { folio: string; cajon: number; refs: string[] }>();
+  for (const f of filas) {
+    const h = m.get(f.folio) ?? { folio: f.folio, cajon: Number(f.cajon) || 0, refs: [] };
+    h.refs.push(f.origen_ref);
+    m.set(f.folio, h);
+  }
+  return [...m.values()];
+}
+
 export function entradaDeCrudos(desde: string, hasta: string, docs: DocCrudo[], egresos: EgresoCrudo[], vinculos: VinculoCrudo[], retiros: RetiroCrudo[]) {
   return {
     desde, hasta,

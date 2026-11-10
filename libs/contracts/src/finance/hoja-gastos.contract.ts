@@ -45,6 +45,13 @@ export interface ZonaHojaGastos {
    * el depósito no se reconoce solo y se dice.
    */
   cuenta_deposito: { banco: string; terminacion: string } | null;
+  /**
+   * `[LE.6.24]` La clave de banco (`kdm1` de Kepler, la del `U-A-5`) donde la sucursal captura el depósito
+   * de la reposición: de ahí sale el FOLIO del depósito de cada hoja pagada. Medido el 2026-11-09 sobre
+   * las 12 hojas pagadas: un solo `U-A-5` a esta clave, ±$0.50, encuentra 4 y el control (total corrido
+   * de −$1,033 a +$911, 108 pruebas) no encuentra ninguno. `undefined`/`null` = no medida: se dice.
+   */
+  banco_kepler_deposito?: string | null;
 }
 
 export const ZONAS_HOJA_GASTOS: readonly ZonaHojaGastos[] = Object.freeze([
@@ -53,10 +60,12 @@ export const ZONAS_HOJA_GASTOS: readonly ZonaHojaGastos[] = Object.freeze([
   // el 12/10, el primer día que Caja General capturó Morelia: todo ya está en el libro, así que
   // registrarlas sólo LIGA y no captura nada en el corte de hoy. Lo anterior no entró nunca al libro.
   { clave: 'morelia', nombre: 'Zona Morelia', sucursales: ['08', '07'], desde: '2026-10-12',
-    cuenta_deposito: { banco: 'SANTANDER', terminacion: '1604' } },
+    cuenta_deposito: { banco: 'SANTANDER', terminacion: '1604' }, banco_kepler_deposito: '1604' },
   // Edgar, 2026-10-29: Canindo con los mismos parámetros. Su «Gastos generales» sólo trae gastos, y
-  // la cuenta de su reposición no está medida.
-  { clave: 'canindo', nombre: 'Zona Canindo', sucursales: ['06'], desde: '2026-10-29', cuenta_deposito: null },
+  // la cuenta de su reposición no está en el catálogo de bancos. `[LE.6.24]` En Kepler sí: HG-2, HG-5 y
+  // HG-7 se depositaron con un `U-A-5` a la clave 5854 (medido 2026-11-09).
+  { clave: 'canindo', nombre: 'Zona Canindo', sucursales: ['06'], desde: '2026-10-29', cuenta_deposito: null,
+    banco_kepler_deposito: '5854' },
 ]);
 
 export function zonaDeSucursal(sucursal: string): ZonaHojaGastos | null {
@@ -296,8 +305,13 @@ export interface PagoDeHojaGastos {
   sin_capturar: number;
   deposito: {
     estado: EstadoDepositoHoja;
-    /** Los depósitos que suman el total (una o dos partes), o `null`. */
-    depositos: Array<{ id: string; dia: string; importe: number }> | null;
+    /**
+     * Los depósitos que suman el total, o `null`. `[LE.6.24]` Con el folio del `U-A-5` de Kepler, la
+     * sucursal que lo capturó y su clave de banco (una API anterior no los manda).
+     */
+    depositos: Array<{ id: string; dia: string; importe: number; folio?: string; sucursal?: string; banco?: string }> | null;
+    /** `[LE.6.24]` Depósito − total de la hoja (redondeo a monedas, ±$0.50). `null` si no hay depósito. */
+    diferencia?: number | null;
     /** Por qué no hay depósito todavía, en llano, cuando no lo hay. */
     nota: string | null;
   };

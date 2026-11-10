@@ -27,6 +27,13 @@ export class EstadoDeCuentaController {
     return this.svc.archivos(limit ? Number(limit) : undefined);
   }
 
+  @Get('contra-libro')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: '[CB.60] Cada cuenta con descarga contra el libro CUENTAS, día por día: cuadra, difiere (con lo que sobra de cada lado), sin libro o abierto. Sólo lee.' })
+  contraLibro(@Query('dias') dias?: string): ReturnType<Svc['contraElLibro']> {
+    return this.svc.contraElLibro(dias ? Number(dias) : undefined);
+  }
+
   @Post('preview')
   @RequirePermissions(Permission.FINANCE_BANK_GESTIONAR)
   @ApiOperation({ summary: 'Lee el archivo (base64) y dice qué entraría: banco, cuenta y cómo se fijó, cuadre de saldo, nuevos vs ya cargados y motivos de bloqueo. No escribe.' })
