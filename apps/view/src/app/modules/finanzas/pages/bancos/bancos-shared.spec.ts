@@ -8,7 +8,7 @@ describe('[CB.59] barra de Bancos por proceso', () => {
   it('cada vista vive en un grupo que existe, en el orden del trabajo', () => {
     const grupos = VIEW_GRUPOS.map((g) => g.key);
     expect(WORK_VIEWS.every((v) => grupos.includes(v.grupo))).toBe(true);
-    expect(WORK_VIEWS.map((v) => v.key)).toEqual(['cierre', 'estados', 'movimientos', 'cuentas', 'conciliacion', 'cuadre', 'concentrado', 'contpaqi', 'capturas']);
+    expect(WORK_VIEWS.map((v) => v.key)).toEqual(['cierre', 'estados', 'movimientos', 'cuentas', 'conciliacion', 'cuadre', 'comisiones', 'concentrado', 'contpaqi', 'capturas']);
     expect(WORK_VIEWS.filter((v) => v.grupo === 'mas').map((v) => v.label)).toEqual(['Concentrado', 'Factoraje', 'Capturas WhatsApp']);
   });
 
@@ -28,5 +28,12 @@ describe('[CB.59] barra de Bancos por proceso', () => {
     expect(numeroDePestana('conciliacion', { ...BASE, conciliadoPct: 81, conciliacionVieja: true })?.texto).toBe('81% · desactualizado');
     expect(numeroDePestana('conciliacion', { ...BASE, conciliadoPct: null })?.texto).toBe('sin correr');
     expect(numeroDePestana('conciliacion', { ...BASE, conciliadoPct: 81 })).toEqual({ texto: '81%', aria: '81% conciliado por monto', aviso: false });
+  });
+
+  it('[CB.62] Comisiones: los cargos listos, informativo; sin propuesta o sin listos, sin número', () => {
+    expect(WORK_VIEWS.find((v) => v.key === 'comisiones')?.grupo).toBe('kepler');
+    expect(numeroDePestana('comisiones', { ...BASE, comisionesListas: 8 })).toEqual({ texto: '8', aria: '8 cargos de comisión listos para Kepler', aviso: false });
+    expect(numeroDePestana('comisiones', { ...BASE, comisionesListas: 0 })).toBeNull();
+    expect(numeroDePestana('comisiones', { ...BASE, comisionesListas: null })).toBeNull();
   });
 });

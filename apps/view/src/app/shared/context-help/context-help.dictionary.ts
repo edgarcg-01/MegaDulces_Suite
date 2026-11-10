@@ -1567,6 +1567,24 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
     ],
   },
 
+  // [CB.62] Bancos › Contra Kepler › Comisiones.
+  bancos_comisiones: {
+    title: 'Comisiones del banco que faltan en Kepler',
+    intro: 'Por cada venta con tarjeta, el banco cobra una comisión y su IVA. Hoy Finanzas los captura a mano en Kepler: una solicitud y un gasto por sucursal, banco y día de venta, y un pago por cada cargo del banco. Esta vista los saca de la descarga del banco y dice cuáles faltan. Todavía no escribe en Kepler.',
+    groups: [
+      {
+        heading: 'Cómo leerla',
+        entries: [
+          { term: 'Día de venta', def: 'El día en que se vendió, no el día en que el banco cobró. El banco no lo dice: lo dice el depósito de esa venta, que la sucursal captura en Kepler («VTA DEL 02-11-26»). Por eso los cargos de un lunes se reparten en viernes, sábado y domingo.' },
+          { term: 'Listos', def: 'Días que Finanzas no ha tocado en Kepler y que la Suite puede armar completos: solicitud, gasto, un pago por cargo (igual al banco, al centavo) y su póliza.' },
+          { term: 'Finanzas los dejó a medias', def: 'Finanzas ya capturó la solicitud o el gasto de ese día, pero no todos sus pagos. La Suite no escribe encima: se terminan en Kepler.' },
+          { term: 'Esperando a la sucursal', def: 'La sucursal todavía no captura en Kepler el depósito de esa venta, y sin él no se sabe de qué sucursal ni de qué día es. Suele tardar de 0 a 5 días; pasados 10, pasa a revisión.' },
+          { term: 'Por revisar', def: 'Algo no cuadra y la Suite no adivina: el depósito dice un día imposible, Finanzas tiene un gasto de ese día con otros importes, o el IVA no es el 16 % de su comisión. Cada renglón dice por qué.' },
+        ],
+      },
+    ],
+  },
+
   bancos_saldo_no_cuadra: {
     title: 'El saldo de una cuenta no cierra',
     intro: 'Saldo inicial + depósitos − retiros debería dar el saldo final del estado de cuenta. Si no da, falta capturar un movimiento o un saldo/monto está mal tecleado.',

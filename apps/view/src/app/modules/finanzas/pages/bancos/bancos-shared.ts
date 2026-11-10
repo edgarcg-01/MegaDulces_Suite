@@ -5,7 +5,7 @@
  * funciones puras, así cada hijo importa lo que necesita sin acoplarse al shell.
  */
 
-export type BankView = 'cierre' | 'estados' | 'movimientos' | 'concentrado' | 'conciliacion' | 'contpaqi' | 'cuadre' | 'cuentas' | 'capturas' | 'admin';
+export type BankView = 'cierre' | 'estados' | 'movimientos' | 'concentrado' | 'conciliacion' | 'contpaqi' | 'cuadre' | 'comisiones' | 'cuentas' | 'capturas' | 'admin';
 export type BankAdminTab = 'catalogo' | 'cuentas';
 
 export const MONTHS_ES: Record<string, string> = {
@@ -72,6 +72,8 @@ export const WORK_VIEWS: { key: BankView; label: string; icon: string; grupo: Ba
   { key: 'cuentas', label: 'Cuentas', icon: 'pi pi-wallet', grupo: 'revisa' },
   { key: 'conciliacion', label: 'Conciliación', icon: 'pi pi-sync', grupo: 'kepler' },
   { key: 'cuadre', label: 'Cuadre 3 vías', icon: 'pi pi-check-square', grupo: 'kepler' },
+  // [CB.62] Las comisiones de la terminal que faltan en Kepler (la descarga del banco → solicitud, gasto y pagos).
+  { key: 'comisiones', label: 'Comisiones', icon: 'pi pi-percentage', grupo: 'kepler' },
   { key: 'concentrado', label: 'Concentrado', icon: 'pi pi-table', grupo: 'mas' },
   { key: 'contpaqi', label: 'Factoraje', icon: 'pi pi-credit-card', grupo: 'mas' },
   { key: 'capturas', label: 'Capturas WhatsApp', icon: 'pi pi-whatsapp', grupo: 'mas' },
@@ -85,6 +87,8 @@ export interface DatosDePestanas {
   descuadradas?: number | null;
   conciliadoPct: number | null;
   conciliacionVieja: boolean;
+  /** [CB.62] Cargos de comisión listos para Kepler; `null` = la propuesta no se cargó o no se pudo medir. */
+  comisionesListas?: number | null;
 }
 export function numeroDePestana(v: BankView, d: DatosDePestanas): NumeroDePestana | null {
   switch (v) {
@@ -103,6 +107,11 @@ export function numeroDePestana(v: BankView, d: DatosDePestanas): NumeroDePestan
       if (d.conciliacionVieja) return { texto: `${p ?? '—'}% · desactualizado`, aria: 'se volvió a importar el libro después de la última conciliación: córrela de nuevo', aviso: true };
       return p == null ? { texto: 'sin correr', aria: 'la conciliación no se ha corrido en este periodo', aviso: true }
         : { texto: `${p}%`, aria: `${p}% conciliado por monto`, aviso: p < 80 };
+    }
+    case 'comisiones': {
+      // Informativo, no aviso: mientras la escritura en Kepler no exista, la pestaña no pide una acción imposible.
+      const n = d.comisionesListas;
+      return n ? { texto: String(n), aria: `${n} cargos de comisión listos para Kepler`, aviso: false } : null;
     }
     default: return null;
   }
