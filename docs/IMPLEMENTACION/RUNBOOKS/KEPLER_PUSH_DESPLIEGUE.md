@@ -541,6 +541,8 @@ entrada de una sola vez en la primera pregunta. Borrar después `/tmp/k.js` y `/
 **Estado de `cot37_kdm1_update_c115.sql`** (UPDATE sólo de la columna `c115` para `kepler_push`): aplicado y
 comprobado en **01 Padre Hidalgo, 06 Canindo y 07 Morelia Madero**; pendiente en los otros seis hasta abrir su `pg_hba`.
 
+**Estado de `pgp106_pago_proveedor.sql`** (las 8 escrituras del pago a proveedor `X-D-26`, `[PGP.106]`): **sin aplicar**. Intentado el 2026-11-09 en **00 CEDIS** (de donde salen los pagos): el `pg_hba` de `192.168.9.95` rechaza a `sa` desde la PC (`.115`, sin cifrar; el servidor no acepta SSL) **y desde md** (`.222`). Sólo deja entrar a `kepler_push` desde md. Para aplicarlo, quien administra ese servidor lo corre ahí mismo con `psql` como `sa` (el archivo trae su comprobación), o abre una línea `host md_00 sa 192.168.0.222/32 scram-sha-256` para correrlo desde md y la cierra después. Dar el permiso no enciende nada (`KEPLER_PAGO_ESCRITURA` apagada; el adaptador aún no escribe `kdm5`, `kdxg`, `kdc2AAMM` ni `kdc126`).
+
 ### 14.3 Corregir un pedido ya escrito, desde md
 
 Con `kepler_push` (la URL del propio pod, `KEPLER_PUSH_URL_NN`; nunca se imprime), un script por `node -`
