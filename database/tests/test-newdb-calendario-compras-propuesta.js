@@ -15,7 +15,8 @@
  *   B · PRUEBA NEGATIVA — ocho mutantes del SQL real; cada uno TIENE que poner rojo al bloque A. Si un
  *       mutante pasa, el bloque A es decorativo. No se cubre: «hoy» en UTC en vez de la hora de México
  *       (sólo se distingue de 18:00 a 24:00; DECLARADO, no probado).
- *   C · REAL — sólo si existe `analytics.erp_purchase_orders` (prod, SÓLO LECTURA): invariantes sobre
+ *   C · REAL — sólo si `analytics.erp_purchase_orders` existe Y tiene OC en la ventana (prod, SÓLO
+ *       LECTURA; la base del CI la tiene vacía → NO MEDIDO, no rojo): invariantes sobre
  *       todos los proveedores, < 500 ms, un CRUCE contra otra implementación (la regla recalculada en JS
  *       desde las OC crudas) y `supplier_record` contra `catalog.suppliers` leído aparte, con su mutante.
  *       Si la vista ya está aplicada, paridad vista = cuerpo.
@@ -209,8 +210,16 @@ function reglaJs(dias) {
   // ── C · real (sólo lectura) ────────────────────────────────────────────────────────────────
   const fuente = (await db.query(`SELECT to_regclass('analytics.erp_purchase_orders') AS t,
                                          to_regclass('commercial.v_purchase_calendar_proposal') AS v`)).rows[0];
+  // La base del CI SÍ tiene la vista fuente (y aplica la migración), pero vacía: sin OC no hay con
+  // qué comparar, y eso es NO MEDIDO, no rojo (medido en el CI del PR #522, 2026-11-10).
+  const ocsEnVentana = fuente.t ? (await db.query(`
+    SELECT count(*)::int AS n FROM analytics.erp_purchase_orders
+     WHERE tenant_id = $1 AND doc_date > ${HOY} - ${VENTANA_DIAS} AND doc_date <= ${HOY}`, [MEGA])).rows[0].n : 0;
   if (!fuente.t) {
     console.log('\n  ⓘ C · NO MEDIDO — esta base no tiene analytics.erp_purchase_orders (sin réplica de Kepler).');
+  } else if (ocsEnVentana === 0) {
+    console.log(`\n  ⓘ C · NO MEDIDO — analytics.erp_purchase_orders existe pero no tiene OC en los últimos ${VENTANA_DIAS} días`
+      + ` (base sin datos del ERP)${fuente.v ? '; la vista sí está aplicada' : ''}: no hay con qué comparar.`);
   } else {
     const t0 = Date.now();
     const reales = await correr(db, cuerpo('analytics.erp_purchase_orders'));
