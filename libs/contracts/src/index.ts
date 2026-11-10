@@ -96,6 +96,8 @@ export * from './http/anden-menu.contract';
 export * from './http/warehouse-order.contract';
 // `[NP.7]` Levantamiento del Catálogo digital (celular): lista blanca, sin costo ni precio.
 export * from './http/levantamiento.contract';
+// `[PQ.94]` Compras › Temporadas: calendario, candidatos que propone la venta y decisiones de las áreas.
+export * from './http/temporadas.contract';
 // [GX.9] Egresos: etiqueta/serie por familia contable (150 activo · 511 compras · 6xx gastos · 702-764 financieros e impuestos).
 // Dato chico (4 entradas): no pega al bundle inicial.
 export * from './http/expense-family.contract';

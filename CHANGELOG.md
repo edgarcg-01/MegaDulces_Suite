@@ -9,6 +9,13 @@
 ---
 
 ## [Unreleased]
+### Added — Compras › Temporadas: el calendario de temporadas y los productos de cada una (PQ.94, PQ.99 · 2026-11-10 · en código, sin soltar)
+- Nueva pantalla **Compras › Temporadas** (entre Alertas de abasto y Pedido): qué temporada está en venta y cuál sigue, con su **ventana de venta del mayorista** (va adelantada a la fecha del consumidor: Día de Muertos se vende del 1-sep al 2-nov, Navidad desde el 20-oct).
+- Por temporada y año, los productos que **propone la venta real** (Wincaja + Kepler); Compras, Mercadotecnia y Dirección los **confirman o descartan** por lote (si vuelven cada año y si son compra única o se reponen hasta el corte). Descartar pide motivo; un lote con errores dice cuáles no entraron y por qué.
+- Las fechas de cada temporada llegan **propuestas** (lista del Plan Anual de Mercadotecnia 2026, ventanas medidas en 2025–2026) y se **confirman** en la pantalla. Lo propuesto no frena nada; lo confirmado todavía no cambia el sugerido de Pedido (eso es PQ.45).
+- Permisos nuevos `COMPRAS_TEMPORADAS_VER` y `COMPRAS_TEMPORADAS_GESTIONAR`, repartidos a Compras, Mercadotecnia y Dirección. Hay que **volver a entrar** para verlos.
+- ⚠️ Dos migraciones en prod **antes de soltar**, en este orden y fuera de horario: `20261110010537_pq94_temporadas_calendario_y_productos` y `20261110015552_pq94_temporadas_permisos`.
+
 ### Fixed — Gastos: nada atorado sin dueño (GX.91–GX.96, 2026-11-06)
 - Un doble clic en «Enviar a aprobación» ya no crea dos vales.
 - Un vale revisado cuya solicitud Kepler canceló ya no se queda «esperando el gasto» para siempre; los devueltos se quedan a la vista hasta recapturarse.

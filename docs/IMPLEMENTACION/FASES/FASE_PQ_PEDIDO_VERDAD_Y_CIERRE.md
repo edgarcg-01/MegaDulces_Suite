@@ -1979,10 +1979,608 @@ de hoy de esos 65 productos se cuenta distinto que su historia hasta que se cier
 
 ---
 
+## 19. Freno de demanda con etiqueta de temporada — historia y medición de Muertos/Halloween (2026-11-09)
+
+Francisco: *«hagamos la historia del freno de demanda para que Compras esté enterado de dónde aplica
+la regla; analicemos los productos de Día de Muertos y Halloween, que están frescos, y cómo lo
+informamos; el freno puede tener la etiqueta de qué temporalidad está teniendo»*.
+
+**Evidencia:** nivel B (prod en sólo lectura como `francisco`, `system_identifier
+7688376744939610156`; plan del motor calculado el 9-nov 21:50; venta hasta el 9-nov). Nivel A no.
+Consultas fuera del repo: `C:\DEV\_tmp\temporada\` (`cls.sql`, `s9.sql`–`s11.sql`).
+
+### 19.1 Qué frena hoy y qué no
+
+| Freno | Dónde | Qué hace | ¿Lo ve el comprador? |
+|---|---|---|---|
+| **Fin de pico** (AB.17) | `fpico` en el motor común | Tras un pico real (más de 2× lo normal) que ya pasó, pide con la venta normal. **Exige venta regular** (6 de 8 semanas) y existencia 6 de 7 días | **No** (PQ.UI.10, AB.UI.7) |
+| **Factor de temporada** | `seasonCte` | Índice mensual de un año; piso 0.5; los meses en cero no cuentan (§15.1) | No |
+| Fin de temporada (D27, D30) | — | **No existe**: PQ.45 ⬜, espera la vista de D17 | — |
+
+### 19.2 Muertos/Halloween, medido a una semana del cierre
+
+**Universo (cota, no regla):** productos con 60 % o más de su venta de 2026 entre el 1-sep y el
+2-nov y $5 mil o más en esa ventana, más los que tienen nombre de la temporada (calavera, calaca,
+Halloween, catrín, bruja, calabaza, muerte, fantasma, vampiro, tumba, Boo…). **277 productos.**
+Se comparó el ritmo diario del 3 al 8 de noviembre contra el del 20-oct al 2-nov:
+
+| Clase | Productos |
+|---|---:|
+| Siguen vendiendo (piñata, lanzamientos, venta que sigue) | 154 |
+| Navidad por nombre (empieza) | 15 |
+| **Cayeron** (ritmo después del 2-nov < 25 % del de antes) | 108 |
+
+De los 108, 87 vendieron en alguna sucursal en esas dos semanas. Se separaron con la foto de
+existencia (`stock_snapshots`, noches del 2 al 7-nov), por el peso de la venta de cada sucursal:
+
+| Grupo | Productos | Confirmada en 2025* | Venta 20-oct–2-nov | Venta 3–8 nov | Existencia a costo | El motor aún pide (pares · cajas · costo) |
+|---|---:|---:|---:|---:|---:|---|
+| **A** · nombre de Muertos/Halloween, con mercancía | 13 | 9 | $77 mil | $1 mil | $47 mil | 27 · 58 · ~$26 mil |
+| **A'** · nombre de Muertos/Halloween, **agotado** donde más vendía | 26 | 18 | $199 mil | $1 mil | $41 mil | 87 · 497 · ~$139 mil |
+| **B** · sin nombre, cayó **con** mercancía | 30 | 4 | $473 mil | $32 mil | $953 mil† | 44 · 330 · ~$151 mil |
+| **C** · sin nombre, cayó **sin** mercancía | 18 | 1 | $256 mil | $11 mil | $59 mil | 39 · 532 · ~$197 mil |
+
+«Con mercancía»: las sucursales con 70 % o más de la venta de esas dos semanas tuvieron existencia
+5 de las 6 noches. Si no, cuenta como agotado.
+
+\* El año pasado vendió del 15-oct al 2-nov y en noviembre cayó a menos de una cuarta parte del ritmo.
+Las demás no tienen historia de 2025 en el ODS (§15.1 #4).
+† Incluye ~$319 mil de `97392 CHOC BON-BON GRANEL` en el CEDIS 00 (998 cajas): **unidad SIN
+VERIFICAR**, no se cita como existencia parada hasta arbitrarla.
+
+**«El motor aún pide»** es el pedido **crudo a 21 días** con la fórmula de la pantalla
+(`demanda × factor × 21 ÷ caja − existencia − tránsito`), **antes** de la regla del reorden (D33):
+es una cota superior, no lo que sale en Pedido. Las cifras están en pesos a costo y a nivel de par.
+
+**Lo que dice:**
+
+1. **Los 39 productos con nombre de Muertos/Halloween siguen pidiéndose: 114 pares, ~555 cajas,
+   ~$165 mil a costo. El freno de fin de pico frena 0.** No es un defecto de AB.17: por diseño excluye
+   lo que no se vende parejo.
+2. **El patrón de venta solo no basta.** «Cayó después del 2-nov» junta tres cosas distintas:
+   la temporada que terminó, la promoción o el pico que pasó (B) y **el agotado** (C). Ejemplo de C:
+   `95775 PELAFRUT MANGO` vendía todo el año ($520 mil de enero a agosto) y cayó por falta de
+   mercancía. Frenarlo pediría menos justo cuando falta (lo mismo que AB.17 ya evita).
+3. **En temporada, agotarse al cierre es lo que se busca, no venta negada.** 26 de los 39 se
+   agotaron donde más vendían, y en 18 de ellos el año pasado también se desplomó en noviembre (en el
+   grupo C, sólo 1 de 18). Para AB.17 «sin mercancía» quiere decir «no frenes»; para un producto de
+   temporada que ya cerró quiere decir «salió bien, no lo repongas». **Lo que distingue un caso del
+   otro es saber en qué temporada está el producto**, y eso lo dice un calendario, no la venta.
+
+### 19.3 La historia
+
+> **Como** comprador (Compras en `/compras/pedido`, la sucursal en `/almacen/autoabasto`),
+> **quiero** ver en cada renglón qué freno de demanda le aplicó el sistema y de qué temporada viene,
+> **para** saber por qué el sugerido bajó (o por qué no bajó) y decidir sin adivinar.
+
+**Las etiquetas** (una por renglón, la que manda; en llano y con su evidencia):
+
+| Etiqueta | Cuándo | Qué hace con el sugerido | Evidencia que se muestra |
+|---|---|---|---|
+| **Fin de temporada · Día de Muertos** | la temporada del calendario terminó y el producto pertenece a ella | sugiere 0, se puede pedir a mano (D27, D30) | «Vendió 25 cajas del 20-oct al 2-nov; desde el 3-nov, 0.1 al día. Noviembre 2025: 0» o «sin año anterior» |
+| **Temporada en curso · Navidad** | estamos dentro de la ventana | no frena; avisa | «Lo vendido sube desde el …» |
+| **Fin de pico** | AB.17 (ya existe) | pide con la venta normal | «La semana pasada vendió menos del 40 % de su semana más alta» |
+| **Venta única** | PQ.47 / D31 | saca esa venta del promedio | «Incluye una venta única a <cliente> el 16-oct» |
+| **Agotado N días** | PQ.42 / PQ.45 | **sube**: demanda sobre días con existencia | «Pedido sobre 18 días con existencia de 29» |
+
+**Criterios de aceptación** (verificables):
+
+1. La misma etiqueta y el mismo número en Pedido y en la mesa de Autoabasto (motor común).
+2. Un renglón sin freno no lleva etiqueta: la etiqueta no decora.
+3. La cantidad sigue editable (D27). Al subirla sobre un freno, el motivo es obligatorio y se
+   registra contra la etiqueta, para medir cuándo el comprador corrige al sistema.
+4. Un filtro «Con freno» con el conteo por etiqueta: **dónde aplica la regla**, en una vista.
+5. Lo que no se puede afirmar se declara: «Temporada sin confirmar (sin año anterior)».
+6. **Controles:** `39025 PAL CALAVERITAS` → «Fin de temporada · Día de Muertos»;
+   `95775 PELAFRUT MANGO` → **sin** fin de temporada (agotado); `17050 ALTOS NAVIDEÑA` → «Temporada en
+   curso · Navidad»; el bombón 70012 de AB.17 → «Fin de pico».
+
+### 19.4 Cómo se construye (en orden, sin abrir fase)
+
+| Item | Capa | Qué | Depende de |
+|---|---|---|---|
+| **PQ.93** | C0 | Esta medición y el informe a Compras (§19.5) | — |
+| **PQ.94** | C0 → C1 | **Calendario de temporadas** como definición de negocio (fase DP: se pregunta y contestarla es configurarla; dueño: Compras): nombre, ventana, si la fecha es móvil. **Vista `derive-no-copy`** producto × almacén → temporada, estado (en curso · terminó · fuera), evidencia 2025. El patrón de venta **propone** candidatos; Compras confirma | D35 |
+| **PQ.95** | C3 | La etiqueta en las dos pantallas y el filtro «Con freno». Absorbe PQ.UI.10, AB.UI.7 y la parte visible de PQ.46. Puede salir **antes** de PQ.45 como aviso (fin de pico ya tiene su `season_src`) | PQ.94 |
+| PQ.45 | C1 | La etiqueta «Fin de temporada» **frena** (sugiere 0) en la vista de demanda de D17 | PQ.94 · D17 |
+
+⛔ Nada de esto va a `import-replenishment-plan.js` (regla 1, D17).
+
+### 19.5 Cómo se le informa hoy a Compras (antes del código)
+
+La lista de los 87 productos, con su grupo, la venta antes y después del 2-nov, la del año pasado,
+la existencia y lo que el motor pide por sucursal, está en
+`C:\DEV\_reportes\temporada-muertos-halloween-2026-11-09.csv` (**fuera del repo: el repo es
+público**). Se le entrega a Compras con tres instrucciones:
+
+- **A y A' (39):** no reponer. Lo que sobró (A, $47 mil) va a Sobrante.
+- **B (30):** revisar uno por uno: ¿era promoción o pico? Bon-Bon 97392: verificar la unidad del
+  CEDIS antes de decidir.
+- **C (18):** **no** es fin de temporada: se agotó. Reponer si sigue en catálogo.
+
+### 19.6 Decisión nueva
+
+| # | Decisión | Opciones | Recomendación |
+|---|---|---|---|
+| D35 | ¿Quién dice que un producto es de temporada? | (a) un calendario con dueño + el patrón de venta propone y los dueños confirman · (b) sólo el patrón de venta · (c) sólo el nombre | ✅ **Contestada por Francisco el 2026-11-10: (a), y los dueños son Compras, Mercadotecnia, Dirección Comercial y Dirección General.** (b) frena los agotados (grupo C, $197 mil) y (c) es un filtro de control: deja fuera productos sin la palabra (`12517 PAL PARCA`, `03010 PAL ATAUD`). Falta que el PM la ratifique |
+
+### 19.7 La regla de negocio: compra única y remate (Francisco, 2026-11-10)
+
+*«Es compra única, es un remate.»* Cambia lo que hace el freno:
+
+| | Antes (D27, D30) | Con la regla |
+|---|---|---|
+| Durante la temporada | el motor repone como cualquier producto | **no repone**: el producto de temporada se compra **una vez**, como decisión de Compras, no por sugerido. Etiqueta: **«Compra única · Día de Muertos»** |
+| Al terminar | sugiere 0, se puede pedir a mano | sugiere 0 **y lo que queda pasa a remate**. Etiqueta: **«Remate · Día de Muertos»** |
+| Lo que sobra | Sobrante (§15.3 #5) | **Remate**: lista por sucursal para Mercadotecnia y Dirección Comercial, no traspaso |
+
+⚠️ **Supuesto por confirmar:** que «compra única» quiere decir **ninguna reposición dentro de la
+temporada** (ni siquiera si se agota el 25-oct). Si se permite una reposición, el motor sólo la
+sugiere hasta una fecha de corte que fija el calendario.
+
+**Remate de Muertos/Halloween, medido el 2026-11-10** (existencia del plan a costo): **43 productos,
+~254 cajas, ~$102 mil** (39 por nombre, ~$88 mil, más 4 confirmados por 2025, ~$14 mil). Por
+sucursal: Canindo $37 mil · Padre Hidalgo $28 mil · Morelia Abastos $10 mil · La Piedad Abastos
+$9 mil · Zamora Centro $7 mil · 8 Esquinas $5 mil · Morelia Madero $3 mil · Yurécuaro $2 mil.
+⛔ **Se sacó `20000 CANELS EL PIÑATERO`** ($131 mil): también cayó en noviembre de 2025, pero es
+de posadas, no de Muertos. Es justo el caso por el que el patrón propone y los dueños confirman.
+Lista: `C:\DEV\_reportes\remate-muertos-halloween-2026-11-10.csv` (fuera del repo).
+
+**PQ.94** agrega al calendario la fecha de compra y la de remate; **PQ.95** usa las etiquetas
+«Compra única» y «Remate»; y hay que sumar una vista de remate por sucursal (**PQ.96**, C1→C3).
+
+### 19.8 El módulo: Compras › Temporadas (propuesta, 2026-11-10)
+
+Francisco: *«hay productos que son de temporada y se resurten con cadencia anual; ¿cómo propones el
+módulo de consulta y en qué parte de la Suite viviría? El informe ejecutivo, que lo genere asistido
+con IA; y un informe preliminar para prevenir stock estancado o remate forzado por término de
+temporada.»* Maqueta (fuera del repo): `C:\DEV\_reportes\maqueta-temporadas.html`.
+
+**Dos atributos por producto, no uno** (corrige el supuesto de §19.7):
+
+| Atributo | Valores | Qué cambia |
+|---|---|---|
+| **Recurrencia** | anual (vuelve cada año) · sólo este año | la anual se planea con lo que se vendió el año anterior y **lo que sobró** |
+| **Reposición dentro de la temporada** | compra única · se puede reponer hasta una fecha de corte | si se puede reponer, el motor sugiere hasta esa fecha y después sugiere 0 |
+
+**Los doce pasos (skill `diseno` §0a), en una línea cada uno:**
+
+1. **Propósito:** ¿qué producto de temporada va a terminar con sobrante, y qué hago antes de que pase?
+2. **Quién entra:** Compras opera (confirma el calendario, planea la compra); Mercadotecnia, Dirección
+   Comercial y Dirección General leen y reciben el informe. Uso medido: **NO MEDIDO** (`pm/uso.js`
+   no autentica en esta máquina).
+3. **El estado real:** Muertos cerró con ~$102 mil para remate (§19.7). En Navidad, el preliminar del
+   10-nov da **18 productos con historia de 2025 y ~$1.25 M a costo de sobrante esperado** (Piñata pack
+   Tinajita, Colación Dulandy, Galletas animalitos). **Instrumento sin validar**: curva de 2025 por la
+   venta de 2026 hasta hoy, con 2025 en 5 sucursales (corregido por §19.9; aquí decía 3). ⛔ **§19.9 lo
+   tumbó**: no le gana al control ingenuo; no se cita.
+4. **Nivel 0:** la temporada en curso, los días que faltan y cuánto puede sobrar, en una frase.
+5. **No ve:** las temporadas lejanas (quedan en Calendario); los productos sin riesgo (a un clic, con
+   su conteo).
+6. **Desglose:** sobrante esperado → producto → sucursal (side-peek, con la curva de 2025 contra 2026)
+   → Existencia y Pedido con el filtro puesto.
+7. **Accesibilidad:** por nombre de producto y de sucursal (nunca por código); orden por sobrante
+   esperado; buscable.
+8. **Ligas:** Pedido y la mesa de Autoabasto muestran la etiqueta (PQ.95); el remate va a la lista
+   por sucursal (PQ.96); el traspaso sugerido a la mesa de Autoabasto.
+9. **¿Le toca?** Consulta y decisión, sí. El precio del remate lo pone Mercadotecnia en su proceso:
+   la pantalla lo pide, no lo captura.
+10. **Maqueta:** el archivo de arriba. Cuatro vistas: **Calendario · En curso · Cierre y remate ·
+    Informes**.
+11. **Criterios:** los de §19.3 más los del informe (abajo).
+12. **Lo que la interfaz no resuelve:** la historia de 2025 en 6 de 9 sucursales (C0); quién confirma
+    el calendario (D35, falta ratificar); el proveedor de IA (ADR-007 sigue abierto; la Suite ya usa
+    Claude en NP.7, apagado por D6).
+
+**Dónde vive:** grupo **Compra** del menú de Compras, renglón **Temporadas**, entre Alertas de abasto
+y Pedido (se mira antes de pedir, como Existencia). Permiso nuevo `COMPRAS_TEMPORADAS_VER` (lectura,
+repartido también a Mercadotecnia y Dirección) y `COMPRAS_TEMPORADAS_GESTIONAR` (confirmar el
+calendario y los productos). Regla 20: no está entregado hasta que el permiso esté repartido.
+
+**Los dos informes:**
+
+| | Preliminar | De cierre |
+|---|---|---|
+| Cuándo | 3 semanas y 1 semana antes del fin de cada temporada | el día siguiente al cierre |
+| Qué contesta | qué puede sobrar y qué hacer ya: no reponer, mover a otra sucursal, adelantar la promoción | qué quedó para remate, dónde, y cómo cerró contra el año anterior |
+| Para | Compras, Mercadotecnia, Dirección Comercial y General | los mismos |
+
+**Asistido con IA, con el contrato §X de `DESIGN.md`:** el motor (SQL) calcula todas las cifras; la
+IA sólo **redacta** alrededor de ellas. Cada cifra del texto es un dato del sistema, se ve marcada y
+se verifica contra la tabla antes de enviar (si el texto trae un número que no está en la tabla, no
+se envía). El informe dice «Redactado con IA a partir de las cifras del sistema», se puede editar y
+lo envía una persona. Sin proveedor de IA encendido, sale la versión con plantilla.
+
+**La etiqueta se carga en el Catálogo (Francisco, 2026-11-10).** *«En el catálogo ampliado o digital,
+¿podemos manejar la etiqueta de temporada, para cargarla a cada producto?»* Sí, con un matiz medido:
+el Catálogo digital (`catalog.product_sheets`) tiene hoy **12 fichas (7 publicadas) y 0 con `ampliado`**,
+contra 43 productos sólo en el remate de Muertos. Si la temporada viviera dentro de la ficha, casi
+ningún producto de temporada la tendría. Por eso:
+
+- **Dónde se guarda:** una tabla propia de la Suite, producto × temporada (temporada, recurrencia,
+  reposición, fecha de corte, quién confirmó y cuándo), con `tenant_id` y auditoría. Es dato propio
+  (regla 1 lo permite), no copia de Kepler. Va con el calendario de PQ.94.
+- ~~Dónde se carga y se ve (dos puertas, un dato)~~ — **corregido el mismo día, abajo: una sola puerta
+  de escritura.**
+- ⛔ No en `catalog.products`: es la copia del catálogo que D17 deja fuera del motor y que discrepa del
+  ERP (`UNIDADES_DE_MEDIDA.md`).
+- ✅ **D36, contestada por Francisco el 2026-11-10:** *«en el catálogo de la Suite y no en la copia del
+  catálogo de Kepler»*. La temporada es un dato propio de la Suite, en su tabla, ligado al producto por
+  su clave; nunca una columna en la copia de Kepler.
+
+**Arquitectura: ¿lista desde Temporadas o etiqueta en el catálogo? (revisado 2026-11-10, a pedido de
+Francisco)** — las dos son la misma tabla vista desde dos lados; lo que se decide es **dónde se escribe**.
+
+| | Etiqueta en el producto (columna) | **Lista por temporada (tabla producto × temporada)** ✅ |
+|---|---|---|
+| Lo que puede guardar | una temporada por producto, sin fechas ni reglas propias | varias temporadas por producto (piñata: posadas y Día del Niño; chocolate: San Valentín y Madres), cada una con su recurrencia, reposición y fecha de corte, y quién la confirmó |
+| Cómo se trabaja | producto por producto: hay que saber cuáles abrir | por temporada y por lote: el sistema propone 50–150 candidatos y se confirman juntos antes de la fecha de compra |
+| Evidencia de adopción | la captura producto por producto del Catálogo digital lleva **12 fichas** (NP.7) | — |
+| Lectura (medido 2026-11-10) | igual: unión por producto | plan de 43,445 renglones en ~19 ms; unirle 600 productos de temporada, **+~18 ms** (`EXPLAIN ANALYZE`, sólo lectura). Muy por debajo de los 500 ms |
+
+**Decisión técnica (ADR al construir):**
+1. **Datos:** en el esquema `catalog` de la Suite (D36), tres tablas pequeñas con `tenant_id` y
+   auditoría: `catalog.seasons` (nombre, fecha fija o móvil) · `catalog.season_dates` (temporada × año:
+   venta, compra, corte, remate) · `catalog.season_products` (temporada × producto: recurrencia,
+   reposición, fecha de corte propia si difiere, confirmado por y cuándo; único por temporada y producto,
+   índices por las dos llaves).
+2. **Una sola puerta de escritura: Temporadas.** Un endpoint con su validación y su permiso
+   (`COMPRAS_TEMPORADAS_GESTIONAR`). Dos formularios que escriben lo mismo son dos caminos que se
+   desincronizan (el caso de `POST /cortes/:id/contar`, CLAUDE.md regla 13). El catálogo **muestra** la
+   etiqueta y su botón «Agregar a una temporada» abre el mismo flujo; no tiene formulario propio.
+3. **Una vista derivada** `v_product_season_status` (producto → temporada vigente y estado hoy: antes de
+   compra · en venta · pasado el corte · en remate), fresca sin mantenimiento. La leen el motor (PQ.45),
+   Pedido, la mesa de Autoabasto, el Catálogo y el portal. Nadie copia el dato.
+4. **La etiqueta viaja en la misma respuesta** de Pedido y del catálogo, calculada en SQL. ⛔ Nunca una
+   llamada por producto desde la pantalla (N+1).
+
+**Prueba visual de la maqueta (2026-11-10, nivel A sobre la maqueta, no sobre la Suite)** — Chromium
+a 1366×768 y 390×844, claro, oscuro y `forced-colors`; capturas en `C:\DEV\_tmp\temporada\ux\`.
+Son criterios de aceptación de PQ.99, ids `PQ.UI.T1–T8`:
+
+| # | Sev | Lo que vería el usuario (medido) | Criterio |
+|---|---|---|---|
+| T1 | 🔴 | La respuesta de arriba publica «~$1.25 M» como cifra firme, sin el error medido (§19.9: a 3 semanas el error por producto es del orden del monto). El informe dice «con el ritmo actual» y el método era la curva de 2025; «las 7 cifras coinciden con la tabla» y esa tabla no se ve | el preliminar publica **rango y error medido** («entre $X y $Y; a 3 semanas el error es ±N %»); el informe nombra el método real; la tabla contra la que se verifica se abre desde el aviso |
+| T2 | 🔴 | «Qué hacer», la acción, sale **cortada** en escritorio (tabla de 847 px en 761) y en celular quedan fuera sobrante y acción; la página se desborda 8 px a lo ancho | la acción cabe sin desplazar a 1366 px; en celular la fila se apila (producto · sobrante · acción); 0 px de desborde |
+| T3 | 🟠 | La franja mezcla universos: «$4.14 M existencia» y «$6.11 M venta proyectada» son 84 productos y «18 con sobrante» es otro corte: se lee como contradicción. El detalle mezcla costo y precio en la misma lista | cada cifra dice su universo; costo y precio no comparten lista |
+| T4 | 🟠 | El proceso no termina: Calendario pide «confirmar productos» (52 de Navidad, cuya compra era el 1-oct) y no hay control para confirmar; Cierre dice «cada sucursal abre su lista» y tiene 0 controles; «—» no distingue cero de «sin dato» | botón «Confirmar productos» por temporada, con fecha límite = fecha de compra; la fila de sucursal se abre; «sin confirmar» en palabras |
+| T5 | 🟠 | Marco contra trabajo: la primera fila de trabajo está en y = 523 de 768 (68 % de la primera pantalla es aviso, encabezado, respuesta y franja). «18 productos» se repite 3 veces y «$1.25 M» 2 | la franja se funde con la respuesta; la primera fila arriba de 400 px |
+| T6 | 🟠 | El color de acción cumple 4 papeles (cifras de la respuesta, pestaña activa, etiqueta «Compra única», botón principal); la letra mono se usa también en palabras («preliminar de Navidad») | acción sólo en botón principal y selección; cifras en el color del texto; mono sólo en números |
+| T7 | 🟠 | Etiquetas en acción sobre su fondo suave: **4.42:1** (< 4.5) a 10–11.5 px. Pestañas de 32 px (< 44 en táctil). Con `forced-colors` la fila elegida pierde el resaltado: no se sabe qué producto está en el detalle | ≥ 4.5:1 (controles 21.00 y 4.48 en el script); 44 px en `pointer: coarse`; selección con borde, no sólo fondo |
+| T8 | 🟡 | El calendario va de enero a diciembre: Muertos (en remate) queda al final y lo próximo no va primero | orden: en curso → próxima → en remate → el resto |
+
+Pasa: respuesta primero en las 4 vistas; sucursales por nombre; oscuro sin fallas de contraste (todas ≥ 4.56:1);
+la IA se ve como IA y se edita antes de enviar; los estados llevan palabra, no sólo color. **NO MEDIDO:**
+recorrido completo con teclado, lector de pantalla, zoom al 200 %, rendimiento, y listas con volumen real
+(la maqueta tiene 8 renglones).
+
+**Items:** PQ.97 (preliminar, C0 → C1: el instrumento con su backtest) · PQ.98 (informes asistidos
+con IA, C2 → C3) · PQ.99 (la pantalla Temporadas, C3). Orden: PQ.94 → PQ.97 → PQ.96 → PQ.99 → PQ.98.
+
+**Lo que esto no es:** grano de par en pesos a costo y pedido crudo de 21 días; la temporada 2025 se
+mide sólo donde el ODS tiene ese año; el grupo B mezcla promociones y lanzamientos sin separar.
+
+### 19.9 PQ.97 — backtest del preliminar (2026-11-10)
+
+**Pregunta:** ¿el preliminar de §19.8 (curva del año anterior escalada por cómo va este año; si no hay
+año anterior, ritmo de 2 semanas) acierta quién termina la temporada con sobrante, y le gana a no
+tener método? **Evidencia nivel B** (prod en sólo lectura como `francisco`, `system_identifier`
+`7688376744939610156`; capa C0). Scripts fuera del repo: `C:\DEV\_tmp\temporada\pq97\bt.js`
+(`node bt.js muertos 2026-10-12 --csv`); listas con nombres y montos por producto en
+`C:\DEV\_reportes\pq97-backtest-*.csv` (el repo es público).
+
+**Cómo se midió**
+
+- **Se corrió como si fuera el 12-oct (3 semanas antes del 2-nov) y el 26-oct (1 semana), sólo
+  con datos hasta esa fecha**: venta en `analytics.sales_daily`, existencia de esa noche en
+  `analytics.stock_snapshots`. **Árbitro:** la existencia real en la foto del 3-nov. «Quedó con
+  sobrante» = $2,000 o más a costo; «en riesgo» = la regla del preliminar (existencia > 1.2 × venta
+  proyectada y > $2,000), **sin tránsito** (no hay histórico del tránsito al corte: NO MEDIDO).
+- **Grano: producto × sucursal, 8 sucursales (Padre Hidalgo a Morelia Abastos), sumado a red.**
+  ⛔ **CEDIS excluido:** su foto antes del 7-nov está incompleta (235 productos con $4.0 M aparecen
+  recién el 7-nov; antes había ~200 filas contra ~3,000 por sucursal). `MD-32` (foto congelada,
+  2,823 filas siempre) excluido.
+- **Unidad y costo, declarados:** todo en **unidades × costo por pieza del plan**
+  (`caja_cost ÷ display_bf`), misma base para venta y existencia. **Control** `39025 PAL
+  CALAVERITAS` en Padre Hidalgo: plan 14 pz = foto 14 unidades; costo 46.86 (plan, sin IVA) contra
+  50.61 (`stock_snapshots.valor`, con IVA) y 51.74 (`sales_daily.cost`): tres bases distintas, se
+  eligió la del plan porque es la que usa el motor. `44227` en CEDIS: 7,000 = 7,000. **`97392
+  CHOC BON-BON GRANEL` excluido** (unidad sin verificar: la foto lo valúa a $338.75 la unidad en
+  CEDIS y a $31.97 en sucursales). 228 productos sin costo en el plan quedaron fuera.
+- **Universo U0 = el del preliminar:** 60 % o más de la venta de 2025 entre el 1-sep y el 2-nov y
+  $5 mil o más, **o** nombre de Muertos/Halloween con venta en 2026. **141 productos; 46 quedaron
+  con sobrante ($290 mil en las 8 sucursales).**
+- **Controles:** (i) **trivial**: «en riesgo = tiene existencia > $2 mil; sobrante = la existencia
+  de hoy»; (ii) **ingenuo** (obligatorio): existencia − ritmo de 2 semanas × días que faltan.
+  ⚠️ El ingenuo **es** el método de respaldo del preliminar: la prueba real es la curva contra él.
+
+**Resultados — Muertos/Halloween 2026, universo U0** (sobrante real al cierre: $290 mil)
+
+| Corte | Método | En riesgo | Aciertos | Precisión | Recall | Sobrante predicho | Error medio (MAE) | Venta proyectada vs real |
+|---|---|---:|---:|---:|---:|---:|---:|---|
+| 12-oct (21 d) | trivial «tiene existencia» | 64 | 41 | 64 % | 89 % | $540 mil | $327 mil | — |
+| 12-oct | **ingenuo** (ritmo 2 sem) | 49 | 35 | 71 % | 76 % | $315 mil | $217 mil | $433 mil vs **$487 mil** (MAE $333 mil) |
+| 12-oct | **preliminar** (curva 2025 × razón 2026/2025) | 41 | 30 | 73 % | **65 %** | $279 mil | $250 mil | **$1.07 M** vs $487 mil (MAE **$1.0 M**) |
+| 12-oct | curva 2025 por sucursal | 41 | 29 | 71 % | 63 % | $292 mil | $250 mil | $982 mil (MAE $908 mil) |
+| 12-oct | **curva agregada 2025 × ritmo 2 sem** | 53 | 38 | 72 % | **83 %** | $351 mil | $223 mil | $354 mil (MAE $326 mil) |
+| 26-oct (7 d) | trivial | 58 | 45 | 78 % | 98 % | $395 mil | $145 mil | — |
+| 26-oct | **ingenuo** | 47 | 41 | 87 % | 89 % | $271 mil | $101 mil | $181 mil vs **$137 mil** (MAE $103 mil) |
+| 26-oct | **preliminar** | 46 | 40 | 87 % | 87 % | $284 mil | $123 mil | **$362 mil** vs $137 mil (MAE $329 mil) |
+| 26-oct | curva agregada × ritmo | 47 | 41 | 87 % | 89 % | $274 mil | $100 mil | $173 mil (MAE $98 mil) |
+
+Sólo en los 117 productos **con historia 2025** (donde la curva aplica), a 21 días: ingenuo recall
+76 % · MAE $122 mil; preliminar recall 62 % · MAE $154 mil; venta proyectada $936 mil contra $336
+mil reales.
+
+**Por qué la curva falla:** la forma cambió. En 2025 lo vendido del 13-oct al 2-nov fue **0.42×** lo
+de 1-sep–12-oct; en 2026 fue **0.74×**. La razón 2026/2025 por producto (tope 3) amplifica el
+ruido: proyecta **2.2× la venta real** a 21 días y 2.6× a 7. Es el mismo resultado de PQ.41 (§17.6):
+copiar el año pasado a nivel producto es peor. **Lo que ningún método ve:** la reposición después
+del corte. A 21 días, de los $335 mil que quedaron, **$246 mil entraron después del 12-oct**
+(compras y traspasos del CEDIS a sucursal); a 7 días, $34 mil. Por eso a 1 semana todo acierta
+(87–89 %) y a 3 semanas nada pasa de ~75 %.
+
+**El universo (medido el 12-oct; verdad ex-post: «cayó» = ritmo del 3 al 8-nov < 25 % del de las
+2 semanas previas)**
+
+| Criterio | Productos | Con venta al cierre | Cayeron | No cayeron (falsos) | Existencia de los falsos |
+|---|---:|---:|---:|---:|---:|
+| **U0** el del preliminar | 141 | 93 | 59 | 34 | $143 mil |
+| U1 concentración 2026 al corte (≥ 60 % y $5 mil) | 140 | 131 | 48 | **83** | **$2.73 M** |
+| U1 ∨ nombre | 162 | 150 | 62 | 88 | $2.75 M |
+| **U4 = U0 ∧ (nombre ∨ desplome en nov-2025)** | 94 | 70 | **53** | **17** | $84 mil |
+| sólo nombre (control) | 58 | 49 | 43 | 6 | $25 mil |
+
+- **La concentración de venta de este año sola NO sirve:** sus 83 falsos son botas navideñas
+  (`28116`, `62137`, `70107`, `70108`), `44227 GALL ANIMALITOS` ($158 mil) y `14027 FLOPS`: dice
+  «es de temporada», no **de cuál**. Eso lo dice el calendario (D35).
+- **U4 saca la mitad de los falsos (34 → 17) y conserva 53 de los 59 verdaderos.** El «desplome en
+  nov-2025» (vendió $5 mil o más en la ventana y el mes siguiente cayó a menos del 25 % del ritmo) es
+  verificable sólo con datos del corte. Con U4 el ingenuo da precisión 68 % · recall 74 % a 21 días
+  y 83 % · 88 % a 7.
+- **El nombre como control:** 6 con nombre no cayeron: `33241` y `18094` (semilla de **calabaza**,
+  de todo el año), `32109 PAL MALVABISCO DIA DE MUERTOS` (siguió al 117 %), `97536` y `97057` (zombie,
+  26–32 %: al borde), `03007 GLOBO LA CATRINA`. Y 17 sin nombre sí cayeron (`12517 PAL PARCA` tipo):
+  el patrón propone, los dueños confirman.
+
+**Navidad 2025 (cortes 3-dic y 17-dic, fin 24-dic) — sólo la venta: el sobrante es NO MEDIDO**
+(`stock_snapshots` arranca el 24-sep-2026) **y la curva del año anterior es NO MEDIDA** (no hay
+2024). 2025 existe en **5 sucursales** (Padre Hidalgo, La Piedad Abastos, Canindo, Morelia Madero,
+Morelia Abastos) y las rutas; no en 8 Esquinas, Yurécuaro ni Zamora Centro. Universo = nombre
+navideño (79 y 88 productos).
+
+| Corte | Método | Venta proyectada | Venta real | MAE |
+|---|---|---:|---:|---:|
+| 3-dic (21 d) | ingenuo (ritmo 2 sem) | $1.55 M | **$1.83 M** (−15 %) | $1.21 M |
+| 3-dic | ritmo 4 sem | $1.12 M | $1.83 M | $1.14 M |
+| 17-dic (7 d) | ingenuo | $577 mil | **$755 mil** (−24 %) | $513 mil |
+
+**La dirección del error depende de la temporada:** Muertos **desacelera** hacia el cierre (lo
+vendido en los últimos 21 días fue 1.23× las 2 semanas previas; lineal sería 1.5; a 7 días 0.48
+contra 0.5) y Navidad **acelera** (1.78 contra 1.5; 0.65 contra 0.5): el ingenuo sobra en Muertos y
+se queda corto en Navidad. El **factor agregado de la temporada anterior** (venta que faltaba ÷
+venta de las 2 semanas previas, sumado sobre los productos de temporada con historia) corrige justo
+eso sin pedirle a cada producto su propia curva.
+
+**Veredicto**
+
+1. **El preliminar tal cual NO le gana al ingenuo:** igual o peor en quién queda con sobrante
+   (recall 65 % contra 76 % a 3 semanas; empate a 1) y **3× peor en la venta que falta** ($1.0 M de
+   error contra $333 mil). ⛔ La cifra de §19.8 (18 productos, ~$1.25 M) **no se cita**.
+2. **El ingenuo sí aporta** sobre «tiene existencia»: MAE −34 % a 21 días y −30 % a 7; precisión
+   71 % → 87 % y recall 76 % → 89 % de 3 a 1 semana.
+3. **Método recomendado:** `sobrante = existencia + tránsito − ritmo de 2 semanas × días que faltan ×
+   factor agregado de la temporada anterior`; sin temporada anterior, ingenuo a secas y declarado.
+   Empata o mejora al ingenuo (recall 83 % contra 76 % a 21 días; MAE $100 mil contra $101 mil a 7) y
+   corrige el sesgo de dirección. **Universo U4** (criterio actual ∧ nombre o desplome del año
+   anterior) como **propuesta** que los dueños confirman (D35), nunca como regla.
+4. **Error que hay que mostrar:** a 3 semanas, de cada 10 marcados ~7 quedan con sobrante y se ve ~3
+   de cada 4; **la cifra por producto tiene un error del orden del monto** (MAE $217 mil sobre $290 mil
+   reales); el total agregado sí queda cerca ($315 mil predicho contra $290 mil). A 1 semana el
+   error por producto baja a ~35 %. El preliminar sirve para **la lista de quién** y para **frenar la
+   reposición** (lo que entra después del corte es la mitad del sobrante), no para la cifra fina.
+5. **Lectura de hoy con el método recomendado, Navidad 2026 (NO validada; se da con su error):**
+   universo original sin `97392`: 201 productos; curva (el preliminar) 52 en riesgo · $2.13 M;
+   ingenuo 69 · $3.15 M. Con **U4** (141 productos): curva 40 · $1.57 M; ingenuo 57 · $2.44 M; **curva
+   agregada 47 · $1.42 M** (factor 2025 = 5.86 contra 3.2 lineal: la Navidad vende en diciembre).
+   Salen con U4, para que Compras confirme: `21013 COLACION DULANDY` ($312 mil hoy; en ene-2026 siguió
+   al 35 % del ritmo), `27028`/`27029 CIMARRON BOLI ICEE`, `62051 WAFER TINAJITA`, `94156`/`94157
+   CHAROLAS LEVI`, `54009 PAQUETE PIÑATERO AURUS` (posadas; cayó al 32 %, el umbral de 25 % lo deja fuera).
+
+**NO MEDIDO:** el CEDIS (foto incompleta antes del 7-nov); el tránsito al corte (sin histórico); el
+sobrante de Navidad 2025 (sin foto) y su curva (sin 2024); las 3 sucursales sin 2025; los 228
+productos sin costo en el plan; `97392`; el costo se tomó del plan de hoy (constante); nivel A (ningún
+comprador confirmó la lista); la verdad «cayó» mezcla fin de temporada con agotado (grupo C de §19.2).
+
+### 19.10 PQ.94 C0 — el calendario y los productos de cada temporada, en código (2026-11-10)
+
+Migración `20261110010537_pq94_temporadas_calendario_y_productos` (⛔ **sin aplicar en prod**: la
+aplica Edgar, una por una y fuera de horario). Tres tablas en `catalog` (D36) y dos vistas que derivan:
+
+| Pieza | Qué es |
+|---|---|
+| `catalog.seasons` · `catalog.season_dates` · `catalog.season_products` | temporada · temporada × año (venta, compra, corte, remate; `propuesta`/`confirmada` con quién y cuándo) · temporada × producto por **clave de Kepler** (decisión, recurrencia, reposición, motivo si se descarta). RLS forzada, auditoría, sin DELETE para la app |
+| `catalog.v_season_candidates` | lo que la venta **propone** por temporada-año |
+| `catalog.v_product_season_status` | dónde está **hoy** cada producto **confirmado**: `por_iniciar` · `en_venta` · `pasado_el_corte` · `en_remate`, y si se puede reponer |
+
+**La fuente de venta se corrigió al medir (regla 10).** El prototipo leía `analytics.sales_daily`;
+VERDAD_ABSOLUTA lo registra como **doble linaje** (importer, lo retira la fase SD). La venta del ODS de
+Kepler (`mv_kepler_sales_daily`) tiene **2025 en una sola sucursal**: no ve la temporada pasada. La vista
+lee **`analytics.mv_sellout_monthly`, el sell-out canónico** (Wincaja ∪ Kepler, 2025 completo, 16–21
+almacenes por mes; control oct-2025: $54.26 M contra $55.05 M de `sales_daily`). Grano mensual: alcanza
+para **proponer**; decide la gente.
+
+**Medido en prod (sólo lectura), con el texto de la vista:** Día de Muertos 2025 → **65 candidatos en
+689 ms**. Salen los esperados (22008 PAL CALAVERAS MEXICANAS, 12517 PAL PARCA, calaveras de azúcar
+Evany, 96902 CHAROLA TUMBA) y también falsos (Ferrero Navidad, Trident, un renglón «Actividades de
+ventas y promoción»): por eso son candidatos. ⚠️ **689 ms > 500 ms**: la API (C2) guarda el resultado por
+temporada-año, porque una temporada pasada no cambia. ⛔ Una segunda materialización de la venta no
+(regla 2).
+
+**La siembra es propuesta (ADR-056):** ~~8 temporadas con las ventanas de la maqueta~~ — **corregida el
+mismo día por §19.11**: las 7 temporadas del Plan Anual de Mercadotecnia 2026 y 14 temporada-año con la
+ventana de venta **del mayorista**, `status = 'propuesta'`, **sin fecha de compra ni de corte** (nadie
+las definió). La vista de estado sólo lee lo **confirmado**: lo propuesto no frena ni etiqueta nada.
+
+**Pruebas:** `database/tests/test-newdb-pq94-temporadas.js` **45/45** (era 37/37 antes de §19.11) contra Postgres 18 local
+(transacción revertida). Cubre cada CHECK con su código exacto, la unicidad, la llave compuesta contra
+otro tenant, el estado de hoy (pasado el corte y compra única no se reponen; por iniciar «hasta el
+corte» sí), que lo propuesto, lo descartado y el «sólo un año» de otro año **no aparecen**, que el plan
+de candidatos filtra la temporada-año antes de agregar la venta, la RLS con `app_runtime` en tablas y
+vistas, DELETE 42501, y que `down()` se niega con decisiones. **Pruebas negativas:** sin el filtro
+«confirmada», rojo justo en ADR-056 (la fecha propuesta publicaba «en venta, se repone»); sin el motivo
+al descartar, rojo. Ciclo real `up → down → up` en limpio: crea, quita y vuelve a crear las 5 piezas.
+`check:migrations` y `check:mig-colisiones` (contra el ledger de prod) en verde.
+**NO MEDIDO:** el resultado de candidatos en la base local (`mv_sellout_monthly` sin poblar ahí; medido
+en prod con el prototipo).
+
+**Sigue (C2):** el endpoint que escribe —una sola puerta— y la pregunta en DP (`config_ref` a
+Temporadas, con dueño y fecha límite = fecha de compra), con su prueba contra base real y el payload de
+la pantalla (regla 13).
+
+### 19.11 La base de partida: propuesta de temporadas × productos desde la historia (2026-11-10)
+
+Francisco: *«leer el histórico para construir nuestra base; a futuro sólo Kepler (cuando toda la
+operación esté ahí); hoy, Wincaja del año pasado más el avance de Kepler conforme se migraron las
+sucursales, para no partir de estimados sin fundamento»*. Y entregó el **Plan Anual de Mercadotecnia
+2026 de Mega Dulces** (Dirección General, 15-ene-2026, dirigido a Distribuidora De la Rosa).
+
+**La fuente ya hace lo que pide.** El sell-out canónico (`v_sellout_daily` / `mv_sellout_monthly`) une
+Wincaja hasta el cambio de cada sucursal y Kepler desde entonces (`v_branch_erp_cutover`: La Piedad
+oct-2025; Padre Hidalgo jun-2026; Canindo ago-2026; las dos de Morelia y el CEDIS sep-2026; 8 Esquinas,
+Yurécuaro y Zamora nacieron en Kepler). Conforme Wincaja se apague, el módulo queda en Kepler sin
+cambiar nada. Peso de Kepler en la venta de cada temporada: 2025 entre 0 y 5 %; primer semestre de 2026
+~15–18 %; Patrias 2026 65 %; Muertos 2026 91 %. Historia útil: **2025 y 2026** (lo anterior son
+renglones sueltos): Navidad tiene **un solo año**.
+
+**La lista de temporadas sale del plan anual, no de la maqueta.** «Eventos de temporalidad»: San
+Valentín, Día del Niño, Día de las Madres y del Padre, Fiestas Patrias, Día de Muertos, Navidad. Reyes
+(la Cabalgata) y la Candelaria son eventos: **la Candelaria es la cola de Navidad** («última venta de
+temporada navideña, levantamientos»; la oferta TOP de la Bota Mediana De la Rosa del plan dice
+«vigencia al 2 de febrero»). Tianguis de Semana Santa (temporada de calor), Regreso a Clases y el
+Aniversario (5–23 oct, 3 % general, encima del pico de Muertos) son eventos comerciales, no temporadas
+de compra única.
+
+**⭐ La temporada del mayorista va adelantada a la del consumidor** (curva semanal de los productos con
+nombre de cada temporada, 2025 y 2026; las dos dibujan lo mismo):
+
+| Temporada | Ventana de venta medida | Señal |
+|---|---|---|
+| San Valentín | 5-ene → 14-feb | ~3× lo normal desde la primera semana de enero |
+| Fiestas Patrias | 15-ago → 16-sep | ~1.5×, débil |
+| Día de Muertos | 1-sep → 2-nov | de 3 % de su nivel a >$100 mil/semana desde fin de sep; la semana del 3-nov cae a 3 % |
+| Navidad y posadas | 20-oct → 24-dic (remate y levantamientos hasta el 2-feb) | fuerte del 24-nov al 21-dic; las piñatas pegan en diciembre |
+| Niño, Madres, Padre | estimadas (~4 semanas antes) | la curva por nombre no se ve (estuchería, chocolate): NO MEDIDO |
+| Reyes | — | **sin señal de producto** (no se vende rosca) |
+
+Con la ventana del consumidor (10-oct a 2-nov), `22008 PAL CALAVERAS MEXICANAS` tenía 31 % de su año en
+la temporada y no se detectaba. **Control de que la ventana es la correcta — la repetición entre
+años** (de lo detectado en 2025 que siguió vendiendo en la ventana de 2026, cuánto se vuelve a detectar):
+Muertos **1 de 16 → 26 de 58 (45 %)**; San Valentín **2 de 8 → 17 de 36 (47 %)**; Niño, Padre y Patrias
+**0 %** (señal débil: lo que sale son sobre todo productos que sólo aparecen en 2026). De los 29 de
+Muertos 2025 que «no volvieron», 21 sí vendieron en 2026 fuera de temporada (el sobrante del año
+anterior, sin recompra) y 8 no vendieron: las claves son las mismas, no es un cambio de clave
+Wincaja → Kepler.
+
+**El entregable:** `C:\DEV\_reportes\propuesta-temporadas-productos-2026-11-10.csv` (fuera del repo):
+**495 propuestas**, grano diario, con confianza **alta** (se detectó los dos años: 17 San Valentín, 26
+Muertos), **media** (un año, con nombre o desplome; toda Navidad, por tener un solo año) o **baja**
+(primera venta poco antes de la temporada: puede ser lanzamiento); recurrencia sugerida; venta, % de su
+año y desplome en 2025 y 2026; % de la venta en Kepler; primera venta; existencia de hoy. Cobertura por
+temporada-año en `propuesta-temporadas-cobertura-2026-11-10.csv`. Hallazgo: `44227 GALL ANIMALITOS 5KG`
+vendió **95 % de su año** en la ventana de Navidad 2025: es producto de aguinaldo, no «de todo el año».
+
+**Lo que cambió en PQ.94 por esto:** siembra con la lista del plan anual y las ventanas del mayorista;
+la vista de candidatos usa la regla de **la mitad del mes** (`fn_season_window_months`), que contra el
+análisis diario recupera **93 %** (Muertos 2025), **94 %** (San Valentín 2026) y **75 %** (Navidad 2025:
+la preventa de fin de octubre no llena medio mes) en ~0.9 s. El diario (~12 s por temporada-año) queda
+como referencia del análisis, no de la pantalla.
+
+**NO MEDIDO / no se afirma:** las «exactitudes» de 80 % y 99 % son expectativas, no mediciones; lo
+medido es la repetición (45–47 % en las temporadas fuertes) y la recuperación mensual contra diaria.
+Reposición (compra única o hasta el corte): no se deriva de la venta, la confirman las áreas.
+
+### 19.12 PQ.94 C2 — la API de Temporadas y sus permisos (2026-11-10)
+
+**Endpoints** (`libs/commercial/src/lib/temporadas/`, contrato `libs/contracts/src/http/temporadas.contract.ts`):
+
+| Método | Ruta | Permiso | Qué hace |
+|---|---|---|---|
+| GET | `compras/temporadas` | `COMPRAS_TEMPORADAS_VER` | calendario: temporadas, fechas por año (propuesta o confirmada, quién y cuándo), momento de hoy, productos confirmados/descartados; orden en venta → por iniciar → terminadas (T8) |
+| GET | `compras/temporadas/fechas/:id/candidatos` | `COMPRAS_TEMPORADAS_VER` | lo que propone la venta para una temporada-año, con la decisión vigente; lo decidido fuera de la propuesta, aparte |
+| POST | `compras/temporadas/:id/decisiones` | `COMPRAS_TEMPORADAS_GESTIONAR` | confirmar o descartar por lote; respuesta **parcial** (guardadas + fallidas con motivo) |
+| POST | `compras/temporadas/fechas/:id/confirmar` | `COMPRAS_TEMPORADAS_GESTIONAR` | confirmar (y ajustar) las fechas de una temporada-año |
+
+- **Una sola puerta de escritura**: estos dos POST son los únicos que escriben la temporada.
+- **El SQL vive en `temporadas.repo.ts`** (funciones que reciben la transacción): la prueba contra base real
+  ejerce el mismo código que la API, no una copia.
+- **Caché sólo de lo caro** (~0.9 s por temporada-año): 6 h si la ventana y su mes siguiente cerraron, 10 min
+  si no. Las decisiones se leen frescas en cada consulta; confirmar fechas borra lo guardado de esa temporada-año.
+- **La misma regla en la pantalla y en la API**: `validarDecisionTemporada` y `validarFechasTemporada` del
+  contrato replican los CHECK de las tablas, con el motivo en llano.
+- **Una clave manual tiene que existir en el catálogo**; la prueba negativa lo mostró: sin esa verificación,
+  una clave inexistente se habría guardado.
+
+**Permisos** (migración `20261110015552_pq94_temporadas_permisos`, regla 20; sin aplicar en prod, va
+**después** de la de las tablas): VER a `compras`, `gerente_compras`, `auxiliar_compras`,
+`compras_operaciones`, `marketing`, `jefe_marketing`, `direccion`; GESTIONAR a `compras`, `gerente_compras`,
+`marketing`, `jefe_marketing`, `direccion`. ⚠️ Dirección Comercial no tiene rol propio (MATRIZ_ACCESOS: «sin
+definir»); queda en `direccion`. superadmin pasa por el modo dios del guard. Sólo agrega donde la clave falta;
+control: un `false` puesto a mano no se pisa; `down` quita sólo lo que puso.
+
+**Pruebas:**
+- `database/tests/test-newdb-pq94-temporadas-api.js` **26/26** contra Postgres 18 local, como `app_runtime`
+  con el tenant puesto (RLS y GRANT reales) y el payload de la pantalla. **Pruebas negativas:** sin la
+  validación previa y sin verificar la clave en el catálogo, rojo.
+- `temporadas.spec.ts` (vitest) **7/7**: momento, orden del calendario, vigencia de la caché, las dos validaciones.
+- `typecheck:fast`: mis archivos sin errores, con control (un error metido a propósito en el servicio
+  apareció). ⚠️ Queda 1 error **ajeno** en `apps/api/src/instrument.ts:38` (no tocado; también rompe
+  `nx build api` local) → para este cambio, NO MEDIDO por esa compuerta.
+- `lint:boundary` verde. `design:paramtypes` del servicio y del controlador presentes en el bundle, con la
+  misma forma que el control `RevisionService`. **Arranque de la API: no verificado** (lo levanta Francisco).
+- **NO MEDIDO:** `calcularCandidatos` contra venta poblada (en local `mv_sellout_monthly` está vacía; su SQL
+  se midió en prod con el prototipo, §19.11).
+
+### 19.13 Revisión independiente antes del PR (2026-11-10)
+
+Un revisor que no escribió el código recorrió el diff completo. **Nada de severidad alta** (sin fuga entre
+tenants, inyección ni mensajes de Postgres expuestos). Lo confirmado se corrigió antes de enviar:
+
+| # | Hallazgo | Arreglo | Prueba negativa |
+|---|---|---|---|
+| 1 | La caché de candidatos vive por proceso y **prod corre 2 réplicas**: corregir fechas en una dejaba la otra sirviendo la ventana vieja hasta 6 h | la cabecera se lee fresca y la **llave lleva las fechas** de la ventana (`llaveCandidatos`) | sin fechas en la llave → rojo (vitest) |
+| 2 | Lo confirmado «sólo 2025» se pintaba «Confirmado» en 2026 (el estado de hoy no lo publica) | `decisionAplica`: sólo cuenta en su año; descartar y «anual» valen todos | «toda decisión aplica» → rojo (2 checks) |
+| 3 | El «% de su año» de las temporadas de 2025 sale inflado (no hay 2024): San Valentín 2025 propone **274** contra **65** en 2026 | la vista expone `base_months` (12 preguntas por índice; con un conteo por producto la consulta subía de ~1 s a 2–3 s) y la pantalla lo declara | — (dato expuesto, medido en prod: 2025 → 4–10 meses, 2026 → 12) |
+| 4 | Fechas confirmadas sin forma de corregirse; la API no ataba la venta al año | la venta tiene que **empezar en el año** de la temporada-año; la pantalla ofrece «Corregir fechas» | venta de otro año → 400 |
+| 6–11 | cifras en cero mientras carga; decisiones manuales escondidas sin candidatos; guardar sin calendario cargado; un texto de permiso que afirmaba lo que todavía no pasa; `2026-02-30` daba 500; errores en inglés | pantalla y contrato (ver PR) | 30-feb → 400 |
+| 12 | `toISOString()` sobre un `date` daba el día anterior en zonas UTC+ | las fechas salen de SQL como texto (`to_char`) | — |
+| 13 | una clave repetida en el lote | no se guarda en ninguna de sus apariciones | repetida → ninguna entra |
+| 15 | `en_remate` desde el cierre aunque el remate empiece después (Navidad: 25 contra 26-dic) | entre cierre y remate: `pasado_el_corte` | sin la fecha de remate → rojo |
+| 17 | montos de venta mensual en el comentario de la migración (repo público) | quitados | — |
+| duda | la función marcada IMMUTABLE usa `date_trunc` (depende de la zona) | STABLE | — |
+
+**Deuda con nombre y fecha (hallazgo 5): crear el año siguiente.** Ni la API ni la pantalla insertan en
+`season_dates`; la siembra trae 2025 y 2026. ⛔ **Antes del 1-dic-2026**: San Valentín 2027 se vende desde el 5-ene
+y se compra en diciembre. Propuesta: una acción «Proponer {año+1}» que copie las fechas del año anterior (fecha fija:
++1 año; móvil: +364 días, que conserva el día de la semana) como propuesta.
+
+**Declarado, no corregido:** `origin` y `evidence` los afirma el cliente (se guardan como su declaración, no se
+cotejan); la vista de candidatos depende de `analytics.mv_sellout_monthly` (una reconstrucción con `DROP … CASCADE`
+la borraría y la API daría 500: quien reconstruya esa cadena tiene que recrearla).
+
+**Tiempo de candidatos, re-medido en prod con la base de meses:** ~0.4–1.6 s por temporada-año (2026 trae más
+renglones por mes que 2025). Más de 500 ms: queda en caché.
+
+---
+
 ## 10. Bitácora
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-10 | **§19.11 base de partida**: propuesta de temporadas × productos desde la historia (Wincaja + Kepler, sell-out canónico diario): 495 propuestas en CSV fuera del repo. La lista de temporadas sale del Plan Anual de Mercadotecnia 2026; la ventana es la del MAYORISTA (Muertos 1-sep → 2-nov), y con ella la repetición 2025→2026 sube de 1/16 a 26/58. PQ.94 corregida: siembra, regla de la mitad del mes, 45/45 | sesión Claude + Francisco |
+| 2026-11-10 | **PQ.94 🧪 C0** (§19.10): migración de Temporadas (3 tablas en `catalog`, 2 vistas) sin aplicar en prod; la venta sale del sell-out canónico `mv_sellout_monthly` (no de `sales_daily`, importer); 37/37 contra Postgres real con dos pruebas negativas. Lista de Navidad «no reponer» para Compras: 47 productos, 4 con ~$197 mil en tránsito (fuera del repo). D36: la temporada en el catálogo de la Suite; una sola puerta de escritura | sesión Claude + Francisco |
+| 2026-11-10 | **D35 contestada por Francisco** (dueños: Compras, Mercadotecnia, Dirección Comercial y General; falta que el PM la ratifique) y regla **«compra única, lo que sobra es remate»** (§19.7). Remate de Muertos/Halloween: 43 productos, ~$102 mil a costo; Canels Piñatero se sacó a mano (es de posadas). PQ.96 ⬜ | sesión Claude + Francisco |
+| 2026-11-09 | **§19, PQ.93 ✅ C0:** historia del freno de demanda con etiqueta de temporada. Muertos/Halloween a una semana del cierre: los 39 productos con nombre de la temporada siguen pidiéndose (114 pares, ~$165 mil a costo, pedido crudo) y fin de pico frena 0; el patrón de venta solo confunde temporada, pico y agotado. PQ.94–PQ.95 ⬜; D35 sin firmar. Lista para Compras fuera del repo | sesión Claude + Francisco |
 | 2026-11-07 | **PQ.91 🧪** (§17.20): la prueba final de PQ.87 en prod encontró la demanda todavía en cajas de 40 donde Kepler dice que no hay caja; el plan usa la caja del almacén ahí (282 celdas), la compra consolidada lee el factor del renglón y el adaptador trata «sin factor» como 1. Queda `[PQ.92]` (guardar la caja del renglón) | Claude |
 | 2026-11-06 | **PQ.87 🧪** (§17.20): la caja de los productos que Kepler compra sueltos (ficha con peldaños que repiten la base) pasa a 1; el envío a Kepler y la validación del lote usan el factor del almacén, el mismo de la mesa; el adaptador frena si la ficha dice sin caja y la Suite trae caja | Claude |
 | 2026-11-06 | **PQ.83 🧪 · PQ.84 🧪** (§17.20): el freno de duplicados ya no llama «hecha fuera de la Suite» a lo que mandó la Suite (RQ-2026-02269 contra su propia RQ-2026-02055); OC abiertas con buscador por folio, requisición y proveedor, y filtro de origen | Claude |

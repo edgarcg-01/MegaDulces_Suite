@@ -959,6 +959,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // `[NAV.6]` Hallazgos + Faltantes de piso: las dos señales de demanda que se miran ANTES de
         // pedir (ver `alertas-abasto-tabs.ts`).
         { label: ALERTAS_ABASTO_LABEL, icon: 'pi pi-flag', route: '/compras/hallazgos', tabs: ALERTAS_ABASTO_TABS },
+        // `[PQ.94]` Temporadas: qué productos son de temporada y su ventana de venta. Va antes de Pedido,
+        // como Existencia: se mira para decidir qué pedir (y qué ya no reponer).
+        { label: 'Temporadas',       icon: 'pi pi-calendar',  route: '/compras/temporadas', permission: Permission.COMPRAS_TEMPORADAS_VER },
         { label: 'Pedido',           icon: 'pi pi-cart-plus', route: '/compras/pedido',    permission: Permission.COMPRAS_PEDIDO_VER },
         // `[NAV.4.1]`/`[NAV.6]` El paso siguiente del pedido, pegado a él: Requisiciones → Órdenes de
         // compra → Abiertas en Kepler, en el orden en que avanza el documento. Pedido + Requisiciones

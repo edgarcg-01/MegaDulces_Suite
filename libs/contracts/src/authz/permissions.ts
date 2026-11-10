@@ -698,6 +698,11 @@ export enum Permission {
   // `[NP.7.L.15]` Catálogo digital — REVISAR lo levantado: publicar, pedir otra foto o descartar. Clave PROPIA:
   // no se reusa `CATALOGO_GESTIONAR` (abre /dashboard/admin/catalogs) ni se hereda de `CATALOGO_LEVANTAR`.
   CATALOGO_FICHAS_REVISAR = 'CATALOGO_FICHAS_REVISAR',
+  // `[PQ.94]` Compras › Temporadas: VER el calendario de temporadas y los productos que propone la venta;
+  // GESTIONAR = confirmar las fechas y confirmar o descartar productos (D35: Compras, Mercadotecnia y Dirección).
+  // Claves PROPIAS: la temporada frena el sugerido de Pedido, y quien la decide no es sólo quien pide.
+  COMPRAS_TEMPORADAS_VER = 'COMPRAS_TEMPORADAS_VER',
+  COMPRAS_TEMPORADAS_GESTIONAR = 'COMPRAS_TEMPORADAS_GESTIONAR',
   // Descuentos y apoyos (ajustes X-D-40/55) + facturas duplicadas.
   COMPRAS_DESCUENTOS_VER = 'COMPRAS_DESCUENTOS_VER',
   COMPRAS_DESCUENTOS_GESTIONAR = 'COMPRAS_DESCUENTOS_GESTIONAR',
