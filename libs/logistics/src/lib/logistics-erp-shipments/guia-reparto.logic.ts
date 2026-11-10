@@ -44,6 +44,22 @@ export const llaveEmbarque = (serie: number, folio: string) => `${serie}|${folio
 export const docOrigen = (serie: number, folio: string) => `UD41${String(serie).padStart(2, '0')}-${folio}`;
 
 /**
+ * `[EMB.56]` La carga de una camioneta de Ruta Directa NO es un viaje de reparto (PM, 2026-11-09).
+ *
+ * Kepler la registra como un embarque `U-D-41` serie 2 cuyo cliente es la ruta misma: código
+ * `RUTA 21`, `RD021` o `RD 501`, destino `R.D. 21 …` o `RUTA DIRECTA 21`. La camioneta vende a bordo:
+ * no hay paradas que repartir. Medido en prod (2026-11-09, un año): las dos marcas coinciden en
+ * 1,064 de 1,064 embarques, todos serie 2, desde el 27-jun; son ~1 de cada 4 guías (Padre Hidalgo y
+ * Canindo). Las dos expresiones se usan igual en SQL (`~*`) y aquí.
+ */
+export const RD_CLIENTE = '^(RUTA|RD)\\s*0*[0-9]+$';
+export const RD_DESTINO = '^(R\\.\\s?D\\.|RUTA DIRECTA)';
+export function esCargaDeRutaDirecta(e: { cliente_code: string | null; destino_nombre: string | null }): boolean {
+  return new RegExp(RD_CLIENTE, 'i').test((e.cliente_code ?? '').trim())
+    || new RegExp(RD_DESTINO, 'i').test((e.destino_nombre ?? '').trim());
+}
+
+/**
  * `[EMB.56]` ¿Es este viaje del chofer? Cada chofer ve SÓLO sus viajes (PM, 2026-11-09).
  *
  * Un embarque es suyo si Kepler trae su clave en el embarque (`c84`, ya resuelta contra el catálogo:

@@ -73,7 +73,7 @@ export function vacioDeBusqueda(b: GuiaRepartoBusqueda): { titulo: string; pista
     titulo: `No encontramos la guía ${b.guia ? Number(b.guia) : ''}`,
     pista: b.filtro.por_chofer
       ? 'Sólo ves tus guías. Si es tuya, pídele a almacén que te capture como chofer en su salida por embarque.'
-      : 'Revisa el número. Sólo se buscan las guías de tus sucursales.',
+      : 'Revisa el número. Sólo se buscan las guías de tus sucursales, y la carga de una camioneta de Ruta Directa no lleva guía de reparto.',
   };
 }
 

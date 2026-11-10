@@ -6,7 +6,7 @@ import type {
   NuevoEmbarqueHoja, NuevoEmbarqueParada,
 } from '@megadulces/contracts';
 import { normalizarNumeroDeGuia } from '@megadulces/contracts';
-import { armarParadas, asignacionDelChofer, docOrigen, esViajeDelChofer, llaveEmbarque, type EmbarqueDeGuia, type FacturasPorEmbarque } from './guia-reparto.logic';
+import { armarParadas, asignacionDelChofer, docOrigen, esCargaDeRutaDirecta, esViajeDelChofer, llaveEmbarque, RD_CLIENTE, RD_DESTINO, type EmbarqueDeGuia, type FacturasPorEmbarque } from './guia-reparto.logic';
 import {
   comisionSugerida,
   EntradaCatalogo,
@@ -37,6 +37,14 @@ import {
  */
 
 const M = process.env.MEGADULCES_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
+
+/**
+ * `[EMB.56]` Fuera las cargas de las camionetas de Ruta Directa: no son viajes de reparto
+ * (`esCargaDeRutaDirecta`). ⚠️ `coalesce`: con un cliente o destino NULL el `NOT (...)` daría NULL
+ * y el WHERE tiraría el embarque.
+ */
+const sinRutaDirecta = (q: Knex.QueryBuilder) => q.whereRaw(
+  `NOT (coalesce(btrim(cliente_code), '') ~* ? OR coalesce(btrim(destino_nombre), '') ~* ?)`, [RD_CLIENTE, RD_DESTINO]);
 
 export interface TripRow {
   sucursal: string;
@@ -614,6 +622,7 @@ export class ErpShipmentsService {
 
       const cab = trx('analytics.erp_shipment_headers').where({ tenant_id: M, ...llave }).whereNotNull('guia_embarque');
       if (sucursales) cab.whereIn('sucursal', sucursales);
+      sinRutaDirecta(cab);
       let docs: Array<{
         sucursal: string; guia_embarque: string; fecha: Date | string | null; transporte_descripcion: string | null;
         transporte_placas: string | null; chofer_clave_kepler: string | null; transporte_clave_kepler: string | null;
@@ -639,6 +648,7 @@ export class ErpShipmentsService {
 
       const par = trx('analytics.erp_shipment_stops').where(llave).whereNotNull('guia_embarque');
       if (sucursales) par.whereIn('sucursal', sucursales);
+      sinRutaDirecta(par);
       const paradas: Array<{ sucursal: string; guia_embarque: string; cliente_code: string | null; domicilio: string | null; donde: string | null }> = await par
         .select('sucursal', 'guia_embarque', 'cliente_code', 'domicilio',
           trx.raw('coalesce(domicilio_ciudad, destino_ciudad, destino_nombre, cliente_code) AS donde'));
@@ -722,12 +732,17 @@ export class ErpShipmentsService {
         .where({ tenant_id: M, sucursal, guia_embarque: guia }).first();
       if (!trip) throw noExiste();
 
-      const headers: Array<Pick<CabeceraParadaRow, 'serie' | 'folio' | 'folio_digital' | 'cliente_code'
+      const cabeceras: Array<Pick<CabeceraParadaRow, 'serie' | 'folio' | 'folio_digital' | 'cliente_code'
         | 'destino_nombre' | 'pedido_folio_digital' | 'chofer_nombre' | 'chofer_clave_kepler' | 'transporte_clave_kepler' | 'transporte_code'>> =
         await trx('analytics.erp_shipment_headers')
           .where({ tenant_id: M, sucursal, guia_embarque: guia })
           .select('serie', 'folio', 'folio_digital', 'cliente_code', 'destino_nombre', 'pedido_folio_digital',
             'chofer_nombre', 'chofer_clave_kepler', 'transporte_clave_kepler', 'transporte_code');
+      // La carga de una camioneta de Ruta Directa no tiene guía de reparto: se dice, no se imprime vacía.
+      const headers = cabeceras.filter((h) => !esCargaDeRutaDirecta(h));
+      if (quien.todos && cabeceras.length && !headers.length) {
+        throw new NotFoundException(`La guía ${sucursal}-G${guia} es la carga de una camioneta de Ruta Directa: no lleva guía de reparto`);
+      }
 
       // [EMB.56] Un chofer sólo abre SU viaje; el ajeno responde igual que si no existiera.
       if (!quien.todos) {

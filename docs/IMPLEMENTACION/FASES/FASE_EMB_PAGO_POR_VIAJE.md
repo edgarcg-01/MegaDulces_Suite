@@ -404,6 +404,29 @@ de ellos sólo para llegar a la fecha en el calendario, que además salía en in
   de la semana cambian.
 - Pruebas: 83/83 `logistics-erp-shipments`, 26/26 pantalla y PDF; compuertas y `ngc` en verde.
 
+#### Fuera la carga de Ruta Directa (PM, 2026-11-09)
+
+La camioneta de RD vende a bordo, pero Kepler registra su carga como un embarque `U-D-41` **serie 2
+a nombre de la ruta**: el cliente es `RUTA 21`, `RD021` o `RD 501` y el destino, `R.D. 21 …` o
+`RUTA DIRECTA 21`. Esas guías salían en la lista como viajes de reparto. Medido en prod, en sólo lectura:
+
+| Medición | Resultado |
+|---|---|
+| Guías con embarque en 60 días | 1,806 en las 9 sucursales |
+| De ellas, carga de RD | **552** (Padre Hidalgo 308, Canindo 236); ninguna mezclada con clientes |
+| Las dos marcas (código y destino), en un año | coinciden en 1,064 de 1,064 embarques, todos serie 2, desde el 27-jun |
+| El SQL tal cual lo manda Knex (con parámetros) | saca 544 embarques, **todos serie 2**, 0 de telemarketing; la 0000969 queda |
+| Lista del día con el filtro | 82 ms |
+
+Regla `esCargaDeRutaDirecta` (lógica pura, con su prueba negativa) y `sinRutaDirecta` en la lista y la
+búsqueda (`coalesce`: un NULL no tira el embarque). La hoja de una guía de RD contesta «es la carga de
+una camioneta de Ruta Directa: no lleva guía de reparto», y al chofer el mismo «no existe» de siempre.
+⚠️ Una primera medición dio 10 embarques de más: el script perdió el escape del punto (`R.s?D.`
+atrapa «RODRIGUEZ»). Quedó como caso de prueba, y el mutante sin escape pone la prueba en rojo.
+Permisos: ningún rol de RD recibe la clave (la migración sólo la da a quien ya ve embarques:
+coordinador de embarques, dirección, finanzas, repartidor, superadmin). **No ejercido por la API**:
+se midió el SQL, no el endpoint.
+
 ⚠️ **Diferencia declarada de la lista:** una guía con embarques de dos días aparece en los dos
 (`erp_shipment_trips` la fecha en el primero). Es el día que el chofer busca.
 

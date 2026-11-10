@@ -1,5 +1,5 @@
 import { instruccionDeLaNota, normalizarNumeroDeGuia, paquetesDeLaNota } from '@megadulces/contracts';
-import { armarParadas, asignacionDelChofer, docOrigen, esViajeDelChofer, estadoFactura, llaveEmbarque, type EmbarqueDeGuia, type FacturasPorEmbarque } from './guia-reparto.logic';
+import { armarParadas, asignacionDelChofer, docOrigen, esCargaDeRutaDirecta, esViajeDelChofer, estadoFactura, llaveEmbarque, type EmbarqueDeGuia, type FacturasPorEmbarque } from './guia-reparto.logic';
 
 /**
  * `[EMB.56]` La guía de reparto. El caso es la guía Kepler `0000969` (Padre Hidalgo, 23-jul-2026),
@@ -190,5 +190,28 @@ describe('[EMB.56] llaves', () => {
     expect(instruccionDeLaNota(null)).toBeNull();
     expect(instruccionDeLaNota('ZINAPARO | PQ 1 UB 6')).toBe('ZINAPARO');
     expect(instruccionDeLaNota('LAS BLS DE AGUINALDO SON 6 | CJ 10 PQ 8 UB 2')).toBe('LAS BLS DE AGUINALDO SON 6');
+  });
+});
+
+describe('[EMB.56] la carga de una camioneta de Ruta Directa no es un viaje de reparto', () => {
+  const e = (cliente_code: string | null, destino_nombre: string | null) => esCargaDeRutaDirecta({ cliente_code, destino_nombre });
+
+  it('las tres formas del código y las dos del destino que trae Kepler', () => {
+    expect(e('RUTA 21', 'R.D. 21 PH')).toBe(true);
+    expect(e('RD021', 'RUTA DIRECTA 21')).toBe(true);
+    expect(e('RD 501', 'R.D. 501 CAN')).toBe(true);
+    expect(e(null, 'R.D. 27 PH')).toBe(true); // basta una marca
+    expect(e('RUTA 28', null)).toBe(true);
+  });
+
+  it('⛔ no se lleva un traspaso, un cliente, la ruta vecinal ni un NULL', () => {
+    expect(e('TI001', 'TRASPASO A SUCURSAL PADRE HIDALGO')).toBe(false);
+    expect(e('C1087', 'TIENDA DE LA ESQUINA')).toBe(false);
+    expect(e('1V001', 'RUTA VECINAL PH 01')).toBe(false);
+    expect(e('RDZ01', 'RDZ ABARROTES')).toBe(false);
+    expect(e(null, null)).toBe(false);
+    // El punto va escapado: sin él, «R.D.» atrapa cualquier R?D? (medido: 10 embarques de más en 60 días).
+    expect(e('C2001', 'RODRIGUEZ ABARROTES')).toBe(false);
+    expect(e('C2002', 'RADIO MERCADO')).toBe(false);
   });
 });
