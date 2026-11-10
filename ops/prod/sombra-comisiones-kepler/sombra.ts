@@ -53,10 +53,10 @@ async function main(): Promise<void> {
      WHERE doc_tipo='U-A-5' AND signo > 0 AND account_label = ANY($1) AND fecha_valor BETWEEN $2::date - 3 AND $3::date + 3`,
     [cuentas, dias[0], dias[dias.length - 1]]);
   const motivosDonde: Record<string, number> = {};
-  const donde = (b: BloqueTarjeta) => {
+  const donde = (b: BloqueTarjeta): { sucursal: string; diaVenta: string; acreedor: string } | { motivo: string } => {
     const m = ua5.filter((u) => u.account_label === b.deposito.cuenta && Math.abs(u.importe - b.deposito.importe) < 0.005
       && Math.abs(Date.parse(iso(u.fecha_valor)) - Date.parse(b.deposito.fecha)) <= 3 * 86_400_000);
-    const r = m.length === 0 ? { motivo: 'el depósito no está en Kepler (U-A-5)' }
+    const r: { sucursal: string; diaVenta: string; acreedor: string } | { motivo: string } = m.length === 0 ? { motivo: 'el depósito no está en Kepler (U-A-5)' }
       : new Set(m.map((u) => `${u.sucursal}|${u.concepto}`)).size > 1 ? { motivo: 'dos U-A-5 con el mismo importe' }
         : !acreedorDe.get(b.deposito.cuenta) ? { motivo: 'la cuenta no tiene acreedor GB en Kepler' }
           : (() => {
