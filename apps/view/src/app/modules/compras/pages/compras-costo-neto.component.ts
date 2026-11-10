@@ -96,7 +96,11 @@ import { COSTOS_COMPRA_TABS } from '../costos-compra-tabs';
                 (keydown.space)="$event.preventDefault(); drillToDescuentos(r)">
               <td class="cn-prov" [title]="r.proveedor_nombre"><a class="surf-cell-link" [routerLink]="multitarea.enlaceDetalle(['/compras/descuentos'])" [target]="multitarea.target()" [queryParams]="{ q: r.proveedor_nombre || r.proveedor_code || '' }" (click)="$event.stopPropagation()">{{ r.proveedor_nombre || r.proveedor_code || '—' }}</a> <span class="cn-drillhint" aria-hidden="true">→ descuentos</span></td>
               <td class="ta-r cn-num">{{ money(r.compras) }}</td>
-              <td class="ta-r cn-num" [class.cn-pos]="r.descuento > 0">{{ r.descuento > 0 ? '−' + money(r.descuento) : '—' }}</td>
+              <td class="ta-r cn-num" [class.cn-pos]="r.descuento > 0">{{ r.descuento > 0 ? '−' + money(r.descuento) : '—' }}
+                @if ((r.nota_sin_clasificar || 0) > 0) {
+                  <span class="cn-sub">+{{ money(r.nota_sin_clasificar || 0) }} en notas sin clasificar</span>
+                }
+              </td>
               <td class="ta-r cn-num">
                 <span [class.cn-anom]="r.anomalo">{{ pct(r.rate) }}</span>
                 @if (r.anomalo) { <i class="pi pi-exclamation-triangle cn-warn" title="Tasa alta (>20%): probablemente incluye devoluciones/errores, no solo descuento"></i><span class="cn-sr">tasa anómala, revisar</span> }
@@ -119,7 +123,7 @@ import { COSTOS_COMPRA_TABS } from '../costos-compra-tabs';
             </td></tr>
           </ng-template>
         </p-table>
-        <p class="cn-foot">Muestra los {{ d.rows.length }} proveedores con más compras. El <b>%</b> con ⚠ (&gt;20%) probablemente incluye devoluciones o errores de captura, no solo descuento — revisar antes de usarlo como costo. Para reabasto: costo real ≈ costo de lista × (1 − %).</p>
+        <p class="cn-foot">Muestra los {{ d.rows.length }} proveedores con más compras. El <b>%</b> con ⚠ (&gt;20%) probablemente incluye devoluciones o errores de captura, no solo descuento — revisar antes de usarlo como costo. Para reabasto: costo real ≈ costo de lista × (1 − %). Las notas de crédito <b>sin clasificar</b> (su motivo no dice que sean descuento) no se restan: se muestran debajo del descuento. Las compras de sucursal que el CEDIS volvió a capturar se cuentan una sola vez.</p>
       }
     </div>
   `,
@@ -140,6 +144,7 @@ import { COSTOS_COMPRA_TABS } from '../costos-compra-tabs';
     .cn-num { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
     .cn-strong { font-weight:700; }
     .cn-pos { color:var(--ok-fg); }
+    .cn-sub { display:block; font-size:.72rem; font-weight:400; color:var(--text-muted); }
     .cn-anom { color:var(--warn-fg); font-weight:700; }
     .cn-warn { color:var(--warn-fg); margin-left:.3rem; font-size:var(--fs-xs); }
     .cn-w-amt { width:9rem; } .cn-w-pct { width:6rem; }

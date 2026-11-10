@@ -180,7 +180,10 @@ type ViewMode = 'ajustes' | 'duplicados' | 'reconciliacion' | 'fuga';
               <td class="dx-prov">{{ r.proveedor_nombre || r.proveedor_code || '—' }} <span class="dx-drillhint" aria-hidden="true">→ ajustes</span></td>
               <td><p-tag [value]="canalLabel(r.canal)" [severity]="canalTag(r.canal)"></p-tag></td>
               <td class="dx-r">{{ r.desc_pago ? money(r.desc_pago) : '—' }}</td>
-              <td class="dx-r">{{ r.desc_nota ? money(r.desc_nota) : '—' }}</td>
+              <td class="dx-r">{{ r.desc_nota ? money(r.desc_nota) : '—' }}
+                <!-- [RE.67] Notas de este proveedor cuyo motivo no dice que sean descuento: no se suman, se declaran. -->
+                @if ((r.nota_sin_clasificar || 0) > 0) { <span class="dx-sub">+{{ money(r.nota_sin_clasificar) }} sin clasificar</span> }
+              </td>
               <td class="dx-r dx-strong">{{ money(r.total_desc) }}</td>
               <td class="dx-r dx-muted">{{ r.pct_vs_compras != null ? (r.pct_vs_compras * 100 | number:'1.1-1') + '%' : '—' }}</td>
             </tr>
@@ -240,6 +243,7 @@ type ViewMode = 'ajustes' | 'duplicados' | 'reconciliacion' | 'fuga';
     .dx-r { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
     .dx-w-date { width: 5.5rem; } .dx-w-doc { width: 6rem; } .dx-w-cat { width: 9rem; } .dx-w-amt { width: 7rem; } .dx-w-x { width: 4rem; } .dx-w-per { width: 11rem; } .dx-w-canal { width: 6rem; } .dx-w-pct { width: 6rem; }
     .dx-muted { color: var(--text-muted); }
+    .dx-sub { display: block; font-size: .72rem; color: var(--text-muted); font-family: var(--font-sans, inherit); }
     .dx-strong { font-weight: 700; }
     .dx-bad { color: var(--bad-fg); }
     .dx-doc { font-size: .74rem; color: var(--text-muted); }

@@ -1264,9 +1264,11 @@ export interface DiscountReconRow {
   proveedor_code: string | null; proveedor_nombre: string | null;
   desc_pago: number; desc_nota: number; total_desc: number; compras: number;
   pct_vs_compras: number | null; canal: DiscountCanal; n_pagos_desc: number; n_notas: number;
+  /** `[RE.67]` Notas de crédito sin motivo que diga que son descuento: no se suman a `desc_nota`, se declaran. */
+  nota_sin_clasificar?: number; n_sin_clasificar?: number;
 }
 export interface DiscountReconResponse {
-  summary: { total_desc_pago: number; total_desc_nota: number; total_desc: number; suppliers: number; suppliers_ambos: number };
+  summary: { total_desc_pago: number; total_desc_nota: number; total_desc: number; suppliers: number; suppliers_ambos: number; total_nota_sin_clasificar?: number };
   rows: DiscountReconRow[];
 }
 /** RE.10 — "descuento no capturado" (pronto pago dejado en la mesa). */
@@ -2047,8 +2049,9 @@ export interface PolizaHeader { ejercicio: number; periodo: number; anio_mes: st
 export interface PolizaLine { ejercicio: number; periodo: number; num_movto: number; cuenta: string; cuenta_nombre: string | null; cuenta_afectable: boolean | null; cargo_abono: 'C' | 'A'; importe: number }
 export interface PolizaForReceipt { found: boolean; cuadra: boolean; polizas: PolizaHeader[]; lines: PolizaLine[] }
 
-export interface LandedCostRow { proveedor_code: string | null; proveedor_nombre: string | null; compras: number; desc_pago: number; desc_nota: number; descuento: number; rate: number; costo_neto: number; anomalo: boolean }
-export interface LandedCostResponse { summary: { compras: number; descuento: number; costo_neto: number; rate: number; suppliers: number }; rows: LandedCostRow[] }
+/** `nota_sin_clasificar` (`[RE.67]`): notas de crédito sin motivo que diga que son descuento — fuera de `descuento`, declaradas aparte. */
+export interface LandedCostRow { proveedor_code: string | null; proveedor_nombre: string | null; compras: number; desc_pago: number; desc_nota: number; descuento: number; rate: number; costo_neto: number; anomalo: boolean; nota_sin_clasificar?: number }
+export interface LandedCostResponse { summary: { compras: number; descuento: number; costo_neto: number; rate: number; suppliers: number; nota_sin_clasificar?: number }; rows: LandedCostRow[] }
 
 export type Compras360AjusteMode = 'con' | 'sin' | 'operativo' | 'comercial';
 export type Compras360OcMode = 'con' | 'sin';
