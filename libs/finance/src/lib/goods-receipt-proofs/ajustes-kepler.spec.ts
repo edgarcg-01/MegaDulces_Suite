@@ -80,3 +80,20 @@ describe('[RE.66] el traslado al CEDIS no es rebaja', () => {
     expect(AJUSTES_KEPLER_SQL).toMatch(/LEFT JOIN copia c ON u\.sucursal = '00' AND c\.cedis_folio = u\.folio/);
   });
 });
+
+describe('[RE.67] NOTAS_KEPLER_DOC_SQL: una fila por nota, para Costo por proveedor', () => {
+  it('no trae «?»: comercial le agrega parámetros de fecha por trx.raw y un «?» interno los correría', () => {
+    expect(sinSignoDeInterrogacion(NOTAS_KEPLER_DOC_SQL)).toBe(true);
+  });
+  it('el traslado sale del mismo primitivo que la columna Ajuste (no de un segundo criterio)', () => {
+    expect(NOTAS_KEPLER_DOC_SQL).toContain(AJUSTES_KEPLER_SQL);
+    expect(NOTAS_KEPLER_DOC_SQL).toContain(`WHERE grupo = 'traslado'`);
+    expect(NOTAS_KEPLER_DOC_SQL).toContain(`m.c43 IS DISTINCT FROM 'C'`);
+  });
+  it('NEGATIVA: una nota sin motivo NO es comercial — el importer la inventaba como «descuento_comercial»', () => {
+    // grupoAjusteSql: categoría nula de una 55 cae al ELSE, que es sin_clasificar, nunca comercial.
+    const g = grupoAjusteSql('c.tipo', 'c.categoria');
+    expect(g).toMatch(/ELSE 'sin_clasificar'/);
+    expect(g).not.toMatch(/IS NULL THEN 'comercial'/);
+  });
+});
