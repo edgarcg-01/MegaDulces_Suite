@@ -1750,3 +1750,13 @@ con la API vieja la bandeja da error y lo dice, y «Por día» sigue funcionando
 
 **Siguiente (no hecho):** `[PGP.115]` cerrar desde la Suite los 56 pagos que Kepler ya pagó (hoy marcarlos falla
 porque Kepler ya no debe la factura) · optimizar `v_supplier_payables` para la bandeja y el día (regla 15, aparte).
+
+**Visto en la pantalla viva (2026-11-10, Playwright sobre `localhost:4200`, datos de prod, sin escribir nada):** 119 por
+preparar · 11 por autorizar · 56 pagados. Cinco defectos que sólo se vieron ahí, corregidos en `[PGP.114]`:
+- la fecha («vie 13 de nov») se encimaba con el proveedor → «vie 13 nov» y columna de 6.5rem;
+- «11 pagos · $2.3 M» salía TRES veces (tira, frase y encabezado) → el encabezado queda sólo para lector de pantalla;
+- «Autorizar · Cambiar · quitar» se cortaba a la derecha (en las dos vistas) → la columna se ensancha cuando hay algo que autorizar;
+- «El historial trae el método de **72 de 61** … los otros **-11**»: contaba sugerencias de pagos de días pasados → cuenta sólo los que se aplican;
+- los primeros 58 renglones de «Por preparar» eran de días pasados, con un «Mover» cada uno → «Mover los 58 de días pasados» en la frase (el mismo diálogo de «Por día»).
+Además, «Preparado · por autorizar» ya no se repite dentro de «Por autorizar», y «Folio» no ocupa ancho mientras ningún pago lo tenga.
+⚠️ La vista se hizo con un backend LOCAL conectado a prod (lo levantaron fuera de esta sesión): regla 3. Registra el uso de pantalla en prod.
