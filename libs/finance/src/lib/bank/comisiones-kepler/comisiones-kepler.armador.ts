@@ -235,8 +235,13 @@ export interface PlanComisionesKepler {
 export type ResultadoComisiones = { ok: true; plan: PlanComisionesKepler } | { ok: false; motivos: string[] };
 
 const cent = (n: number): number => Math.round(Number(n) * 100);
-/** El banco redondea el IVA cargo por cargo: un centavo por renglón es la holgura contra el 16 %. */
 const TASA_IVA = 0.16;
+/**
+ * Cuánto se aleja el IVA del banco del 16 % de SU comisión. Medido en 272 bloques de la descarga (1–10 nov):
+ * BBVA, 260 de 261 al centavo exacto y uno a +1; Banorte, hasta ±4 centavos (calcula el IVA sobre otra base).
+ * Un IVA faltante, por chico que sea, lo detecta antes la revisión del bloque (`revisarBloque`).
+ */
+export const HOLGURA_IVA_CENTAVOS = 5;
 
 const ddmmaaaa = (d: string): string => `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`;
 
@@ -260,7 +265,7 @@ export function armarComisionesKepler(g: GrupoComisiones, p: PlantillaComisiones
   }
   const base = comisiones.reduce((s, c) => s + cent(c.importe), 0);
   const iva = g.cargos.filter((c) => c.tipo === 'iva').reduce((s, c) => s + cent(c.importe), 0);
-  if (comisiones.length && Math.abs(iva - Math.round(base * TASA_IVA)) > g.cargos.length) {
+  if (comisiones.length && Math.abs(iva - Math.round(base * TASA_IVA)) > HOLGURA_IVA_CENTAVOS * comisiones.length) {
     motivos.push(`El IVA del día (${(iva / 100).toFixed(2)}) no es el 16 % de las comisiones (${(base / 100).toFixed(2)}): falta o sobra un cargo`);
   }
   if (motivos.length) return { ok: false, motivos };
@@ -322,6 +327,22 @@ export function armarComisionesKepler(g: GrupoComisiones, p: PlantillaComisiones
   };
 }
 
+/**
+ * Un bloque completo trae UNA comisión y SU IVA, y el IVA es el 16 % de la comisión (±5 centavos). Medido: 272
+ * de 272 bloques de la descarga del 1 al 10-nov vienen así. Lo que no, se revisa: un IVA que falta, aunque sea
+ * de $0.14, se ve aquí y no se pierde en la suma del día. `null` = completo.
+ */
+export function revisarBloque(b: BloqueTarjeta): string | null {
+  const com = b.cargos.filter((c) => c.tipo === 'comision');
+  const iva = b.cargos.filter((c) => c.tipo === 'iva');
+  if (com.length !== 1 || iva.length !== 1) return `el bloque trae ${com.length} comisión(es) y ${iva.length} IVA: se esperaba una de cada una`;
+  const dif = Math.round(iva[0].importe * 100) - Math.round(com[0].importe * 100 * 0.16);
+  return Math.abs(dif) > HOLGURA_IVA_CENTAVOS ? `el IVA (${iva[0].importe.toFixed(2)}) no es el 16 % de su comisión (${com[0].importe.toFixed(2)})` : null;
+}
+
+/** El bloque cuyo depósito la sucursal todavía no captura en Kepler: sin él no hay sucursal ni día de venta. */
+export const MOTIVO_SIN_DEPOSITO = 'el depósito no está en Kepler (U-A-5)';
+
 /** Un depósito de tesorería capturado por la sucursal en Kepler (`U-A-5`), con su texto. */
 export interface DepositoKepler { sucursal: string; folio: string; cuenta: string; importe: number; fecha: string; concepto: string }
 
@@ -337,7 +358,7 @@ export function resolverBloque(
   b: BloqueTarjeta, depositos: readonly DepositoKepler[], acreedorDe: ReadonlyMap<string, string>,
 ): { sucursal: string; diaVenta: string; acreedor: string } | { motivo: string } {
   const m = depositos.filter((u) => u.cuenta === b.deposito.cuenta && Math.abs(u.importe - b.deposito.importe) < 0.005 && lejos(u.fecha, b.deposito.fecha) <= 3 * DIA);
-  if (!m.length) return { motivo: 'el depósito no está en Kepler (U-A-5)' };
+  if (!m.length) return { motivo: MOTIVO_SIN_DEPOSITO };
   if (new Set(m.map((u) => `${u.sucursal}|${u.concepto}`)).size > 1) return { motivo: 'dos U-A-5 con el mismo importe' };
   const acreedor = acreedorDe.get(b.deposito.cuenta);
   if (!acreedor) return { motivo: 'la cuenta no tiene acreedor GB en Kepler' };
@@ -388,6 +409,8 @@ export function gruposPorDiaDeVenta(
   const sinResolver: { bloque: BloqueTarjeta; motivo: string }[] = [];
   for (const b of bloques) {
     if (!b.cargos.length) continue;
+    const incompleto = revisarBloque(b);
+    if (incompleto) { sinResolver.push({ bloque: b, motivo: incompleto }); continue; }
     const r = donde(b);
     if ('motivo' in r) { sinResolver.push({ bloque: b, motivo: r.motivo }); continue; }
     const k = `${r.sucursal}|${r.diaVenta}|${r.acreedor}`;
