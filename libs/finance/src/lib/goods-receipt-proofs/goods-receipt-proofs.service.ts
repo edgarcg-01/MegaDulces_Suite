@@ -12,8 +12,9 @@ import { fechaDeCalendario } from './fecha-de-calendario';
 import type { ExpedienteConteos, ExpedienteHallazgo, ExpedienteResumenFila } from '@megadulces/contracts';
 import {
   parecidoNombre, rfcComparable, rfcBienFormado, evaluarPaquete, evaluarFolioInterno,
-  HOJAS_INTERNAS, CUADRE_SQL, CUADRE_MOTIVO_SQL, COMERCIAL_CATS,
+  HOJAS_INTERNAS, CUADRE_SQL, CUADRE_MOTIVO_SQL,
 } from './receipt-match';
+import { AJUSTES_KEPLER_POR_ENTRADA_SQL } from './ajustes-kepler';
 // `[RE.42]` Si un papel ya se subió: emisor + folio, nunca el folio solo. Puro y medido.
 import {
   folioNucleo, masGrave, mensajeDuplicado, papelesDeFila, veredictoDuplicado, SQL_CANDIDATOS_DUPLICADO,
@@ -755,12 +756,23 @@ export class GoodsReceiptProofsService {
        * pelado una devolución de la 00 se le pegaba a las entradas 02 y 03 del mismo folio,
        * atribuyéndole el ajuste a OTRO proveedor. Verificado 2026-08-25 (folio `0000505`).
        */
-      const adj = trx('analytics.erp_purchase_adjustments')
-        .select('sucursal', 'entrada_folio').sum({ ajuste: 'monto' }).count({ n_ajuste: '*' })
-        .select(trx.raw(`COALESCE(sum(monto) FILTER (WHERE categoria = ANY(?)), 0) AS ajuste_comercial`, [COMERCIAL_CATS]))
-        .select(trx.raw(`COALESCE(sum(monto) FILTER (WHERE categoria IS NULL OR NOT (categoria = ANY(?))), 0) AS ajuste_operativo`, [COMERCIAL_CATS]))
-        .where('tenant_id', tenantId).whereNotNull('entrada_folio')
-        .groupBy('sucursal', 'entrada_folio').as('a');
+      //
+      // `[RE.64]` La fuente es `AJUSTES_KEPLER_SQL` (lo que `kdxf` aplicó a la entrada + lo que nombra su entrada
+      // en c39, sin canceladas) y NO `analytics.erp_purchase_adjustments`: ése ligaba por c39, vacío en el 100 %
+      // de las X-D-55, y la columna salía «—» en 3,449 compras. Es el MISMO primitivo que lee el expediente:
+      // la columna y el panel no pueden contar distinto. La llave sigue siendo (sucursal, folio).
+      //
+      // ⭐ Como el universo (RE.49): la consulta entra a `base()`, que corre hasta tres veces por petición
+      // (filas, total, totales de dinero), y cada una cuesta ~90 ms (medido 2026-11-10: la consulta de totales
+      // pasó de 417–437 a 509–532 ms con el subquery directo). Se agrega UNA vez a una temporal de la
+      // transacción con `ANALYZE`; en sólo lectura (cuentas de desarrollo, RE.50) se queda el subquery.
+      let adj = trx.raw(`(${AJUSTES_KEPLER_POR_ENTRADA_SQL}) AS a`);
+      if (dinero && !soloLectura) {
+        const tAdj = `tmp_adj_${process.pid}_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+        await trx.raw(`CREATE TEMP TABLE ?? ON COMMIT DROP AS ${AJUSTES_KEPLER_POR_ENTRADA_SQL}`, [tAdj]);
+        await trx.raw('ANALYZE ??', [tAdj]);
+        adj = trx.raw('?? AS a', [tAdj]);
+      }
       // TODOS los `array_agg` de este subquery comparten EL MISMO orden (`PROOF_ORDER`): si
       // cada campo se ordenara por su cuenta, la fila podía decir "Rechazado" y traer el
       // `monto_match` de otro depósito. Y el desempate no es cosmético — ver `PROOF_ORDER`.

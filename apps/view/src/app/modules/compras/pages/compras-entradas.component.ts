@@ -116,11 +116,12 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                RE.20.1 — la bajada cambia con el lente porque la pregunta cambia. -->
           <p class="surf-page-sub">
             @if (dinero()) {
-              Una fila por compra: lo que facturó el proveedor, los ajustes ligados que lo
-              bajaron (devoluciones y notas de crédito) y el <strong>neto que realmente
-              pagamos</strong>
+              Una fila por compra: lo que facturó el proveedor, las notas de crédito y devoluciones
+              que Kepler le aplicó y el <strong>neto que realmente pagamos</strong>
               @if (report()) { , <strong>{{ ventanaTexto() }}</strong> }.
-              La misma cifra agregada por proveedor está en
+              <!-- [RE.64] Decía «la misma cifra agregada por proveedor»: no lo es (allá se suman todas las
+                   notas del proveedor, aquí sólo las que Kepler aplicó a cada compra). -->
+              Los descuentos de cada proveedor, sumados, están en
               <a routerLink="/compras/costo-neto">Costo por proveedor</a>.
             } @else {
               Las órdenes de entrada de la red
@@ -1966,11 +1967,15 @@ export class ComprasEntradasComponent {
   /** Qué compone el ajuste de esta fila, para el tooltip: el total solo no dice si preocupa. */
   ajusteTip(c: EntradaRow): string {
     const op = Number(c.ajuste_operativo || 0), com = Number(c.ajuste_comercial || 0);
+    // [RE.64] Lo que no es ni uno ni otro se DERIVA (total − los dos): una nota de Kepler sin motivo que la
+    // clasifique. Se dice, para que la suma de las partes sea el total que se ve en la celda.
+    const sinClas = Number(c.ajuste || 0) - op - com;
     const partes: string[] = [];
     if (com) partes.push(`${money(com)} negociado (descuento · pronto pago · apoyo)`);
-    if (op) partes.push(`${money(op)} operativo (faltante · mal estado · no solicitado)`);
+    if (op) partes.push(`${money(op)} operativo (faltante · mal estado · no solicitado · devolución)`);
+    if (Math.abs(sinClas) > 0.005) partes.push(`${money(sinClas)} sin clasificar (la nota de Kepler no dice el motivo)`);
     const n = Number(c.n_ajuste || 0);
-    return `${n} ${n === 1 ? 'ajuste ligado' : 'ajustes ligados'}${partes.length ? ' — ' + partes.join(' · ') : ''}`;
+    return `${n} ${n === 1 ? 'nota o devolución aplicada en Kepler' : 'notas o devoluciones aplicadas en Kepler'}${partes.length ? ' — ' + partes.join(' · ') : ''}`;
   }
 
   // RE.20.3 — "Descartadas" al final y separada: no es una etapa del proceso, es la salida.
