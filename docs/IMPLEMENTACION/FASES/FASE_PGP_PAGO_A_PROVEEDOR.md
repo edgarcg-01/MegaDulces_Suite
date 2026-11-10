@@ -1543,3 +1543,27 @@ junto a la validación de cada pago marcado «Pagado». 8 pruebas (mutante «sin
 
 ⛔ **La consecuencia que manda el orden:** por dinero, el 91 % es PPD. Sin el carril de REP vivo (D15 + extender el
 replicador, `[PGP.110]`), esas pólizas no se pueden generar. Es lo primero que destraba el cierre contable.
+
+### `[PGP.110]` El replicador sigue la marca del ADD (CP.9.6 de ADR-111) — 🔨 en código, NO ejercido
+
+`database/importers/contpaqi/replicate-contpaqi.js --add-por-marca`: por cada repositorio del ADD toma la última marca
+que tiene la réplica (`add_documento.timestamp`) menos `--margen-dias` (2), le pregunta al origen qué documentos tienen
+`Documento.Timestamp` ≥ esa marca (~250 al día en el principal) y, por lotes de 500 documentos y en UNA transacción
+cada uno, borra y vuelve a copiar **todas** sus filas en las tablas que cuelgan de `GuidDocument` (comprobante,
+conceptos, impuestos, CFDI relacionados, `Pagos`, `Pagos_Doc_Rel`, `TotalPagos`…; fuera las bitácoras `MigradorLog`,
+`TimbreTemp`, `MetadataDuplicados`). Cuadre al final: documentos con esa marca en el origen = en la réplica, o lo dice.
+Latido opcional (`--latido=contpaqi_replica_add_marca`). Su línea del cron está **comentada** junto a las de la
+réplica (`ops/vl/crontab.feeds`), esperando la D15.
+
+⚠️ Declarado: un documento BORRADO del ADD sigue en la réplica, y un cambio que no mueve `Documento.Timestamp` no se ve.
+⚠️ Es un sondeo cada 15 min, no un evento: SQL Server de ContPAQi no avisa; mismo patrón que la réplica aprobada en ADR-111.
+
+**NO MEDIDO:** no corrió nunca (falta la contraseña, D15). Primera corrida, en el pod `feeds-cron` de md, **en seco**:
+
+```
+CONTPAQI_SQL_PASSWORD=… node /app/database/importers/contpaqi/replicate-contpaqi.js --add-por-marca
+```
+
+Dice cuántos documentos recopiaría desde el 2026-10-28 (la marca de la réplica menos 2 días). Con eso bien: el mismo
+comando con `--apply` (fuera de horario la primera vez: ~10 días de documentos), y después descomentar su línea del
+cron con su umbral en `CRON_JOBS`.

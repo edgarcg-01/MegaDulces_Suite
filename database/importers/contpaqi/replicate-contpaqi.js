@@ -38,6 +38,8 @@
  *   … --sync --apply [--watch=5]   # recopia los tramos que difieren; con --watch, una vuelta cada N minutos
  *   … --sync --control             # prueba negativa: mueve una fila DENTRO de una transacción que se deshace
  *   … --sync --apply --latido=contpaqi_replica_ct   # reporta cada vuelta a `analytics.cron_runs` (Salud BD)
+ *   … --add-por-marca [--apply] [--watch=15] [--margen-dias=2] [--latido=contpaqi_replica_add_marca]
+ *                                  # `[PGP.110]` el ADD por su marca de tiempo: los documentos que cambiaron (REP incluidos)
  *   Destino: `DATABASE_URL_NEW`. Sin `--apply` no escribe nada. Una sola corrida que escribe a la vez (candado).
  */
 'use strict';
@@ -75,11 +77,22 @@ const WATCH_MIN = Number(arg('watch', 0));
 const CUBETA = Number(arg('cubeta', 4096));
 const TABLA_ENTERA_MAX = Number(arg('tabla-entera-max', 100000));
 const CONTROL = process.argv.includes('--control');
+/**
+ * `[PGP.110]` (CP.9.6 de ADR-111) La sincronía del ADD por su MARCA: `Documento.Timestamp`. Ver `sincronizarAddPorMarca`.
+ * `--margen-dias` vuelve a revisar esos días antes de la última marca de la réplica (lo leído con `NOLOCK` a medias).
+ */
+const POR_MARCA = process.argv.includes('--add-por-marca');
+const MARGEN_DIAS = Number(arg('margen-dias', 2));
+/** Documentos por transacción: 500 GUID caben de sobra en los 2,100 parámetros de SQL Server. */
+const LOTE_DOCS = 500;
+/** Bitácoras internas del ADD que también traen `GuidDocument` pero no son el documento: no se recopian por marca. */
+const ADD_SIN_MARCA = /^(migradorlog|timbretemp|metadataduplicados)$/i;
 /** `job_key` del latido de la sincronía (`--latido=…`). Su umbral va en `CRON_JOBS` cuando se agenda, no antes. */
 const LATIDO = arg('latido', null);
 // Se abre ANTES de conectar a ContPAQi: una contraseña mala falla ahí, y `run-feed.sh` sólo lo deja en el log.
-const REPORTA = Boolean(LATIDO && SYNC && APPLY && latido);
-const ETIQUETA_LATIDO = `Réplica de ContPAQi (${SOLO ? [...SOLO].join(', ') : 'todo'})`;
+const REPORTA = Boolean(LATIDO && (SYNC || POR_MARCA) && APPLY && latido);
+const ETIQUETA_LATIDO = POR_MARCA ? 'Réplica del ADD por marca (REP y CFDI recientes)'
+  : `Réplica de ContPAQi (${SOLO ? [...SOLO].join(', ') : 'todo'})`;
 /** Dos corridas que escriben a la vez se pisan: una borra el tramo que la otra acaba de copiar. */
 const CANDADO = 'contpaqi_ods.replica';
 /** Los dos schemas de la réplica en Postgres: nóminas va aparte porque no se concede a la app. */
@@ -666,6 +679,106 @@ async function asegurarEstadisticas(pg) {
  * `--latido` y `--apply`, cada vuelta se reporta a Salud BD: `error` si falló una tabla, falta una base que sí existe o
  * quedó un índice de expresión sin estadísticas.
  */
+/**
+ * `[PGP.110]` (CP.9.6, previsto en ADR-111) — **El ADD por su marca de tiempo.** La sincronía por huella deja «sin
+ * carril» a `Pagos` (102,581 filas) y `Pagos_Doc_Rel` (151,920): sin llave entera y arriba de `--tabla-entera-max`. Y
+ * son las que traen los REP que la póliza de egreso PPD espera (Contabilidad, 2026-11-10: PPD hasta que llega el REP).
+ *
+ * El ADD sí tiene marca: `Documento.Timestamp`, la hora en que el documento entró o cambió (unos 250 al día en el
+ * repositorio principal, medido 2026-10-20..30). Por repositorio:
+ *   1. desde = la última marca que tiene la réplica − `--margen-dias` (lo leído con `NOLOCK` a medias se revisa otra vez);
+ *   2. el origen dice qué documentos tienen marca ≥ desde;
+ *   3. de cada tabla del repositorio que cuelga de `GuidDocument` (comprobante, conceptos, impuestos, CFDI relacionados,
+ *      pagos, `Pagos_Doc_Rel`…) se leen las filas de esos documentos y, en UNA transacción por lote de
+ *      {@link LOTE_DOCS} documentos, se borran las suyas en la réplica y entran las del origen: quien lee nunca ve un
+ *      documento a medias.
+ *   4. Cuadre: los documentos con marca ≥ desde en el origen = los de la réplica. Si no, se dice (no se calla).
+ * Es idempotente: correrlo dos veces deja lo mismo. ⚠️ Lo que NO ve, declarado: un documento BORRADO del ADD (su fila
+ * sigue en la réplica) y un cambio que no mueve `Documento.Timestamp`.
+ */
+async function sincronizarAddPorMarca(pool, pg, f) {
+  const guidDe = (t) => t.columnas.find((c) => c.nombre.toLowerCase() === 'guiddocument');
+  const tablas = (await catalogo(pool, f.db)).filter((t) => t.esquema === 'dbo' && !TABLA_SECRETA.test(t.tabla)
+    && !ADD_SIN_MARCA.test(t.tabla) && guidDe(t));
+  const doc = tablas.find((t) => t.tabla.toLowerCase() === 'documento');
+  const colMarca = doc && doc.columnas.find((c) => c.nombre.toLowerCase() === 'timestamp');
+  if (!doc || !colMarca) return { nota: 'sin Documento.Timestamp: no hay marca que seguir', docs: 0, filas: 0, tablas: 0, cuadra: false };
+  const xd = contexto(f, doc);
+  // La marca viaja como TEXTO en los dos motores (sin huso horario): la réplica la guardó así del origen.
+  const m = (await pg.query(`SELECT to_char(max("timestamp") - make_interval(days => $2::int), 'YYYY-MM-DD"T"HH24:MI:SS') AS desde
+      FROM ${xd.destino} WHERE "_repo" = $1`, [f.repo, MARGEN_DIAS]).catch(() => ({ rows: [] }))).rows[0];
+  if (!m || !m.desde) return { nota: 'la réplica no tiene documentos de este repositorio: hace falta la carga inicial', docs: 0, filas: 0, tablas: 0, cuadra: false };
+  const guids = (await pool.request().input('desde', sql.VarChar(19), m.desde)
+    .query(`SELECT ${msId(guidDe(doc).nombre)} AS g FROM ${xd.desde} WITH (NOLOCK) WHERE ${msId(colMarca.nombre)} >= CONVERT(datetime2, @desde, 126)`))
+    .recordset.map((r) => String(r.g));
+  if (!APPLY) return { desde: m.desde, docs: guids.length, filas: 0, tablas: tablas.length, cuadra: true, nota: 'en seco: no se copió nada' };
+  for (const t of tablas) await asegurarTabla(pg, f, t, contexto(f, t));
+  let filas = 0;
+  for (let i = 0; i < guids.length && !detener; i += LOTE_DOCS) {
+    const lote = guids.slice(i, i + LOTE_DOCS);
+    // Se lee TODO del origen antes de abrir la transacción en Postgres: la réplica no queda con candados esperando a SQL Server.
+    const porTabla = [];
+    for (const t of tablas) {
+      const x = contexto(f, t);
+      const req = pool.request();
+      lote.forEach((g, k) => req.input(`g${k}`, sql.UniqueIdentifier, g));
+      const filasT = (await req.query(`SELECT ${x.select} FROM ${x.desde} WITH (NOLOCK) WHERE ${msId(guidDe(t).nombre)} IN (${lote.map((_, k) => `@g${k}`).join(',')})`)).recordset;
+      porTabla.push([t, x, filasT]);
+    }
+    await enTransaccion(pg, async () => {
+      for (const [t, x, filasT] of porTabla) {
+        await pg.query(`DELETE FROM ${x.destino} WHERE "_repo" = $1 AND ${pgId(guidDe(t).nombre.toLowerCase())} = ANY($2::uuid[])`, [f.repo, lote]);
+        await insertar(pg, x.destino, t.columnas, f.repo, filasT);
+        filas += filasT.length;
+      }
+    });
+    if (PAUSA_MS) await dormir(PAUSA_MS);
+  }
+  const nReplica = Number((await pg.query(`SELECT count(*)::bigint AS n FROM ${xd.destino} WHERE "_repo" = $1 AND "timestamp" >= $2::timestamp`,
+    [f.repo, m.desde])).rows[0].n);
+  const cuadra = nReplica === guids.length;
+  const nota = `marca ${hora()}: ${guids.length} documentos desde ${m.desde}, ${filas} filas en ${tablas.length} tablas`
+    + `${cuadra ? '' : ` · ⚠ la réplica tiene ${nReplica} con esa marca y el origen ${guids.length}`}`;
+  for (const t of tablas) {
+    const x = contexto(f, t);
+    await pg.query(`INSERT INTO ${x.esquemaPg}._sync_status (table_name, source_db, last_push_at, note) VALUES ($1, $2, now(), $3)
+      ON CONFLICT (table_name) DO UPDATE SET source_db = EXCLUDED.source_db, last_push_at = now(), note = EXCLUDED.note`, [x.clave, f.db, nota]);
+  }
+  return { desde: m.desde, docs: guids.length, filas, tablas: tablas.length, cuadra, nReplica, nota };
+}
+
+/** `[PGP.110]` Las vueltas del modo por marca: cada repositorio del ADD, con su latido y su cuadre. */
+async function sincronizarPorMarca(pool, pg, bases) {
+  let fallas = 0;
+  for (let vuelta = 1; ; vuelta++) {
+    if (REPORTA && vuelta > 1) await latido.begin(LATIDO, ETIQUETA_LATIDO);
+    const v = { docs: 0, filas: 0, fallas: [] };
+    for (const f of fuentes(bases).filter((x) => x.alias === 'add')) {
+      if (detener) break;
+      try {
+        const r = await sincronizarAddPorMarca(pool, pg, f);
+        v.docs += r.docs; v.filas += r.filas;
+        if (APPLY && !r.cuadra) v.fallas.push(`${f.repo}: ${r.nota}`);
+        console.log(`  ${r.cuadra ? '✓' : '⚠'} ADD ${f.repo}: ${r.desde ? `${r.docs} documentos desde ${r.desde}` : ''}${r.filas ? ` · ${r.filas} filas en ${r.tablas} tablas` : ''}${r.nota && !r.cuadra ? ` · ${r.nota}` : ''}`);
+      } catch (e) {
+        v.fallas.push(`${f.db}: ${e.message}`);
+        console.log(`  ✗ ADD ${f.repo}: FALLÓ — ${String(e.message).slice(0, 200)}`);
+      }
+    }
+    console.log(`${hora()} · MARCA vuelta ${vuelta}: ${v.docs} documentos · ${v.filas.toLocaleString('es-MX')} filas ${APPLY ? 'recopiadas' : '(en seco)'}`);
+    if (v.fallas.length) console.log(`  ✗ fallas (${v.fallas.length}):\n    ${v.fallas.join('\n    ')}`);
+    fallas += v.fallas.length;
+    if (REPORTA) {
+      await latido.end(LATIDO, { status: v.fallas.length ? 'error' : 'ok', rows: v.filas,
+        note: `${v.docs} documentos del ADD por marca · ${v.filas} filas`, error: v.fallas.length ? v.fallas.slice(0, 3).join(' · ') : null });
+    }
+    if (!WATCH_MIN || detener) break;
+    for (let i = 0; i < WATCH_MIN * 60 && !detener; i++) await dormir(1000);
+    if (detener) break;
+  }
+  return fallas;
+}
+
 async function sincronizar(pool, pg, bases, graves) {
   let fallas = 0;
   for (let vuelta = 1; ; vuelta++) {
@@ -756,13 +869,13 @@ async function sincronizar(pool, pg, bases, graves) {
 }
 
 (async () => {
-  if (LATIDO && SYNC && APPLY && !latido) console.log(`⚠ --latido=${LATIDO} sin ${LATIDO_RUTA}: esta corrida NO se reporta a Salud BD`);
+  if (LATIDO && (SYNC || POR_MARCA) && APPLY && !latido) console.log(`⚠ --latido=${LATIDO} sin ${LATIDO_RUTA}: esta corrida NO se reporta a Salud BD`);
   if (REPORTA) await latido.begin(LATIDO, ETIQUETA_LATIDO);
   const pg = new Client({ connectionString: process.env.DATABASE_URL_NEW });
   await pg.connect();
   const sid = (await pg.query('SELECT system_identifier::text AS s FROM pg_control_system()')).rows[0].s;
   const k = classify(process.env.DATABASE_URL_NEW);
-  console.log(`destino: ${k.kind} ${k.host}/${k.db} · system_identifier ${sid} · ${SYNC ? 'SINCRONÍA' : 'CARGA'} · `
+  console.log(`destino: ${k.kind} ${k.host}/${k.db} · system_identifier ${sid} · ${POR_MARCA ? 'ADD POR MARCA' : SYNC ? 'SINCRONÍA' : 'CARGA'} · `
     + `${APPLY ? 'ESCRIBE' : 'EN SECO (sin --apply no escribe)'}${CONTROL ? ' · con prueba negativa (se deshace)' : ''}`);
   const pool = await sql.connect(CFG);
   const estado = new Map((await pool.request().query('SELECT name, state_desc FROM sys.databases')).recordset.map((r) => [r.name, r.state_desc]));
@@ -781,6 +894,12 @@ async function sincronizar(pool, pg, bases, graves) {
   }
 
   process.on('SIGINT', () => { console.log('\n⏸ se detiene al terminar la tabla en curso…'); detener = true; });
+  if (POR_MARCA) {
+    const fallas = await sincronizarPorMarca(pool, pg, bases);
+    await pool.close();
+    await pg.end();
+    process.exit(fallas ? 1 : 0);
+  }
   if (SYNC) {
     const fallas = await sincronizar(pool, pg, bases, graves);
     if (graves.length) console.log(`  ⚠ no medidas (${graves.length}): ${graves.join('; ')}`);
