@@ -14,7 +14,8 @@ import {
   indexarCandidatos, candidatosPosibles,
   UMBRAL_NOMBRE_CONTPAQI,
 } from './expediente-verdict';
-import { COMERCIAL_CATS, parecidoNombre, rfcBienFormado, rfcComparable } from './receipt-match';
+import { parecidoNombre, rfcBienFormado, rfcComparable } from './receipt-match';
+import { AJUSTES_KEPLER_SQL, type AjusteKeplerFila } from './ajustes-kepler';
 import { EntradaParaIdentificar, clasificarIdentificacion } from './identificar-entrada';
 // `[RE.43.1]` El mismo criterio que `matchByOcr`: el folio del proveedor va contra `referencia`.
 import { folioNucleo } from './documento-duplicado';
@@ -38,7 +39,6 @@ interface HistorialFila { id: string; emisor_rfc: string; fecha: string; emisor_
 interface ListaSatFila { rfc: string; lista: string | number; situacion: string | null }
 /** `[RE.62]` La nota con lo que relaciona su XML (`NOTAS_TROZO_RELACIONES_SQL` + `relacionadosDeXml`). */
 type NotaFila = NotaConRelacion;
-interface AjusteFila { sucursal: string; entrada_folio: string; operativo: number; comercial: number }
 interface GemelaFila { proveedor_code: string; monto: number; receipt_date: string }
 
 /**
@@ -52,22 +52,6 @@ export const NOTAS_TROZO_RELACIONES_SQL = `CASE WHEN strpos(n.xml, 'CfdiRelacion
   ELSE substring(n.xml from strpos(n.xml, 'CfdiRelacionados')
     for CASE WHEN strpos(n.xml, '<cfdi:Emisor') > strpos(n.xml, 'CfdiRelacionados')
              THEN strpos(n.xml, '<cfdi:Emisor') - strpos(n.xml, 'CfdiRelacionados') ELSE 20000 END) END AS relaciones_xml`;
-
-/**
- * `[RE.63]` Las notas de crédito (`55`) y devoluciones de compra (`40`) que Kepler APLICÓ a una orden de entrada:
- * `kdxf` con el cargo de la nota sobre el abono A·20 de la entrada (ERP_KEPLER §3.z.4), unido al documento
- * en `kdm1` para dejar fuera las CANCELADAS (`c43 = 'C'`: Kepler no borra su aplicación de `kdxf`, ver
- * `[PGP.99]`) y traer folio, fecha y motivo. Mismo cruce que `analytics.v_supplier_payables` (`btrim(c1) =
- * sucursal`, proveedor `kdm1.c10 = kdxf.c2`). `?` = la entrada más vieja del lote (la nota se aplica después).
- */
-export const NOTAS_KEPLER_SQL = `
-  SELECT x.sucursal, btrim(x.c9) AS folio, x.c4 AS tipo, btrim(m.c6) AS nc_folio, x.c10::float8 AS aplicado,
-         to_char(m.c9::date, 'YYYY-MM-DD') AS fecha, NULLIF(btrim(m.c24), '') AS motivo
-    FROM kepler_ods.kdxf x
-    JOIN kepler_ods.kdm1 m
-      ON m.sucursal = x.sucursal AND m.c1 = x.c1 AND m.c10 = x.c2 AND m.c4 = x.c4 AND m.c5 = x.c5 AND m.c6 = x.c6
-   WHERE x.c7 = '20' AND x.c4 IN ('55', '40') AND btrim(x.c1) = x.sucursal AND x.c3 >= ?::date
-     AND m.c2 = 'X' AND m.c3 = 'D' AND m.c43 IS DISTINCT FROM 'C'`;
 
 /** Ventana de búsqueda de CFDI alrededor de la fecha de la entrada (días). */
 const VENTANA_BUSQUEDA = 60;
@@ -454,32 +438,24 @@ export class GoodsReceiptExpedienteService {
       }
     }
 
-    // 10. Ajustes de Kepler ligados a cada entrada (devolución = operativo; descuento/apoyo = comercial)
-    const ajustes = new Map<string, { operativo: number; comercial: number }>();
-    if (await this.existeTabla(trx, 'analytics', 'erp_purchase_adjustments')) {
-      const rows: AjusteFila[] = await enPares(trx('analytics.erp_purchase_adjustments')
-        .where({ tenant_id: tenantId }), 'sucursal', 'entrada_folio', pares)
-        .groupBy('sucursal', 'entrada_folio')
-        .select('sucursal', 'entrada_folio',
-          trx.raw(`COALESCE(sum(monto) FILTER (WHERE categoria IS NULL OR NOT (categoria = ANY(?))), 0)::float8 AS operativo`, [COMERCIAL_CATS]),
-          trx.raw(`COALESCE(sum(monto) FILTER (WHERE categoria = ANY(?)), 0)::float8 AS comercial`, [COMERCIAL_CATS]));
-      for (const r of rows) ajustes.set(llave(r.sucursal, r.entrada_folio), { operativo: Number(r.operativo), comercial: Number(r.comercial) });
-    }
-
-    // 10b. `[RE.63]` Las notas que KEPLER aplicó a cada entrada (kdxf 55/40 → A·20, sin canceladas), y las del
-    //      CFDI por factura: con las dos se dice dónde está la rebaja.
+    // 10. `[RE.64]` Las notas y devoluciones que KEPLER aplicó a cada entrada (`AJUSTES_KEPLER_SQL`: kdxf 55/40 →
+    //     A·20 + las que nombran su entrada en c39, sin canceladas). Un solo primitivo para el hallazgo
+    //     (operativo = entrega incompleta · comercial = descuento/apoyo), para el lado Kepler de RE.63 y para la
+    //     columna Ajuste/Neto de la lista: si leyeran fuentes distintas, el panel y la columna contarían distinto.
+    //     (Antes: `analytics.erp_purchase_adjustments`, ligado por c39, vacío en el 100 % de las X-D-55.)
     const enLote = new Set(preps.map((p) => p.k));
+    const ajustes = new Map<string, { operativo: number; comercial: number }>();
     const notasKepler = new Map<string, NotaKepler[]>();
-    const desde = entradas.map((e) => e.receipt_date).filter((x): x is string => !!x).sort()[0];
-    if (desde) {
-      const rows = (await trx.raw(NOTAS_KEPLER_SQL, [desde])).rows as
-        { sucursal: string; folio: string; tipo: '55' | '40'; nc_folio: string; aplicado: number | string; fecha: string | null; motivo: string | null }[];
-      for (const r of rows) {
-        const k = llave(r.sucursal, r.folio);
-        if (!enLote.has(k)) continue;
-        (notasKepler.get(k) ?? notasKepler.set(k, []).get(k)!)
-          .push({ tipo: r.tipo, folio: r.nc_folio, aplicado: Number(r.aplicado), fecha: r.fecha, motivo: r.motivo });
-      }
+    const filasKepler = (await trx.raw(AJUSTES_KEPLER_SQL)).rows as AjusteKeplerFila[];
+    for (const r of filasKepler) {
+      const k = llave(r.sucursal, r.folio);
+      if (!enLote.has(k)) continue;
+      const aplicado = Number(r.aplicado);
+      (notasKepler.get(k) ?? notasKepler.set(k, []).get(k)!)
+        .push({ tipo: r.tipo, folio: r.nc_folio, aplicado, fecha: r.fecha, motivo: r.motivo });
+      const a = ajustes.get(k) ?? ajustes.set(k, { operativo: 0, comercial: 0 }).get(k)!;
+      if (r.grupo === 'operativo') a.operativo += aplicado;
+      else if (r.grupo === 'comercial') a.comercial += aplicado;
     }
     const notasPorFactura = new Map<string, NotaRelacionada[]>();
     for (const n of notas) {
