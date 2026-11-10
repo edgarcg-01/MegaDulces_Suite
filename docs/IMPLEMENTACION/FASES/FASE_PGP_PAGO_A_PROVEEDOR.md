@@ -1354,3 +1354,106 @@ pago o nada se valida. Es el cuello del flujo nuevo, y se dice primero.
 
 ⛔ Escribir en Kepler no se deshace: `[PGP.106]` no se enciende sin el ensayo de `[PGP.105]` en verde
 durante 2 semanas contra lo que Tesorería capturó a mano.
+
+---
+
+## El cierre contable del pago: escribirlo en Kepler y armar la póliza de egreso de ContPAQi (2026-11-09)
+
+> *«Documenta esto, y que podamos generar la póliza de egreso automáticamente identificando PPD o
+> PUE, además empatando con la factura del gasto, para que se escriba el gasto en Kepler y la póliza
+> de ContPAQi.»* — Edgar, 2026-11-09.
+
+**El flujo completo, de punta a punta.** Lo de arriba de la línea ya existe; lo de abajo es lo que
+este apartado diseña:
+
+```
+Armar el día → forma de pago → Dirección autoriza → se paga en el banco
+  → VALIDAR: salida del estado de cuenta + comprobante          [PGP.103/104] 🔨 en código
+  → «Pagado» (sólo si validó)                                   [PGP.104]
+─────────────────────────────────────────────────────────────────────────────────────────────
+  → guardar QUÉ salida y QUÉ comprobante lo probaron            [PGP.107]
+  → cada factura del pago ↔ su CFDI (PUE o PPD)                 [PGP.108]
+  → KEPLER: el X-D-26 + su póliza interna (kdc2AAMM)            [PGP.105/106]
+  → CONTPAQI: la póliza de egreso, en el TXT del día            [PGP.109/112] (ADR-040: la importa una persona)
+  → PPD: cuando llega el REP del proveedor, se asocia           [PGP.110]
+```
+
+### Lo que ya quedó hecho hoy
+
+- **Los permisos de Kepler para escribir el pago** (`ops/prod/kepler-grants/pgp106_pago_proveedor.sql`):
+  aplicados y comprobados en **CEDIS** el 2026-11-09, desde `md` como `postgres` (runbook
+  `KEPLER_PUSH_DESPLIEGUE.md` §14.2). `kepler_push` ya puede insertar en `kdm1 kdm5 kdxe kdxf` y en la
+  póliza del mes (`kdc22611`, `kdc22612`), actualizar `kdxg`, `kdc126` y sólo `kdxe.c20`; no puede borrar
+  nada. ⚠️ Volver a correrlo cuando exista la tabla de enero (`kdc22701`).
+- **La validación banco + comprobante** (`[PGP.103]`/`[PGP.104]`): «Pagado» sólo con la salida del banco
+  y su comprobante; el candado de Kepler (`motivosParaNoEscribir`) la exige.
+
+### Lo que ya existe y se reutiliza (ADR-056: no se inventa otro primitivo)
+
+| Pieza | Dónde | Qué hace |
+|---|---|---|
+| Asiento del pago a proveedor | `libs/finance/src/lib/contpaqi/pago-proveedor.ts` (`armarPagoProveedorCompleto`) | 2120+sufijo / banco, traspaso de IVA 1470040000 → 1060000000 e IEPS 1470110000 → 1470100000, notas de crédito, redondeo < $1. Puro; reproduce 1,051 de 1,142 pólizas reales (su propia prueba) |
+| Asiento de gasto con factura | `contpaqi/gasto-con-factura.ts` | gasto 52xx + IVA del CFDI + banco. ⚠️ rechaza facturas con retención |
+| El archivo de ContPAQi | `purchase-book/poliza-txt.ts` + `txt-sink.adapter.ts` | TXT con renglones `P`/`M`/`AD` (el `AD` lleva el UUID). Devuelve `entregada`, nunca `aplicada` (ADR-040) |
+| Pareo pago ↔ facturas ↔ CFDI | `contpaqi/pago-proveedor.fuente.ts` | parte del banco, encuentra el X-D de Kepler y sigue `kdxf` hasta el CFDI. ⛔ necesita que el X-D ya exista en Kepler |
+| Confirmación manual de facturas | `contpaqi.pago_confirmaciones` | lo ambiguo lo decide una persona |
+| PUE/PPD con REP | DIOT y conciliación (`ppd_sin_rep`) | ya distinguen PPD sin REP |
+| El pago en Kepler | `payment-calendar/kepler-pago/` | arma el X-D-26; escribe 4 de las 8 escrituras; apagado y sin conectar |
+
+### Lo medido (prod, sólo lectura, 2026-11-09)
+
+| Qué | Cifra | Qué significa |
+|---|---|---|
+| CFDI recibidos con `metodo_pago` | **100 %** (~1,200 facturas al mes, al día) | PUE/PPD se sabe siempre |
+| PUE vs PPD | por número 44 % / 56 %; **por dinero 9 % / 91 %** | casi todo el dinero es PPD: el REP manda |
+| Factura del Calendario ↔ CFDI único, por el documento de Kepler (`kdxe` + RFC + total ±$1 + fecha ±45 días) | **67.5 % de los renglones, 70 % del dinero**; control negativo (importe corrido) 0.3 % | se puede ligar sola; el resto lo decide una persona (32 con varios candidatos, 58 sin CFDI, 17 sin RFC) |
+| … por el camino que usa hoy la pantalla (`v_payable_evidence`) | 13 % | ese camino pierde justo las ya pagadas |
+| De las ligadas, PPD | 96 % | |
+| PPD con al menos un REP (ene–ago) | 89 % de las facturas, 92 % del dinero | el proveedor sí lo emite… |
+| Días del pago al REP | mediana 3.5, p80 13, **p90 24** | …pero **después** de pagar: al pagar, el REP todavía no existe |
+| Espejo de REP (`contpaqi_ods.add_pagos`) | **detenido desde el 30-oct**; fue una carga inicial, no un carril vivo | sin carril vivo no hay REP que asociar |
+| Lo que hace hoy la contadora | 66 % de sus pólizas de egreso llevan la factura; **40 % el REP asociado** | la póliza se arma al pagar y el REP se asocia después |
+| Cuenta contable del proveedor de mercancía | 256 de 257 | alcanza |
+| Cuenta contable de los gastos | **0 de 51** (`contpaqi.account_rules` sin `cuenta_gasto`) | no se puede armar un gasto sin que alguien la defina |
+| Cuenta contable de los bancos | 18 de 20 | casi |
+| Pólizas exportadas a ContPAQi | **0** (`contpaqi.poliza_exports`) | el puente nunca ha entregado un archivo real |
+| Pagos del Calendario marcados pagados | **0** (36 días en borrador) | el evento «pagado» todavía no existe |
+
+⚠️ `finance.gl_supplier_accounts` (929 cuentas de proveedor) viene de un Excel (`libro_compras_xlsx`):
+revisarla contra la regla 1 antes de usarla; `contpaqi.supplier_accounts` confirmadas son 421.
+
+### La regla PUE / PPD (lo que decide el asiento)
+
+| Factura | En el pago | Después |
+|---|---|---|
+| **PUE** | asiento completo: proveedor (2120) / banco, y el IVA pasa de *por acreditar* a *acreditable* por lo pagado; el renglón `AD` lleva el UUID de la factura | nada |
+| **PPD** | el MISMO asiento, con el IVA **proporcional a lo que se pagó** (la parcialidad: 105 renglones del Calendario pagan menos que el documento); la póliza queda **«espera REP»** | cuando el REP del proveedor aparece (`add_pagos_doc_rel`: su `IdDocumento` = UUID de la factura), se asocia a la póliza (`AD` del REP). Si a los ~30 días no llega, se avisa a Cuentas por Pagar para pedirlo: sin REP el IVA no es acreditable |
+
+Hoy el traspaso de IVA lo decide otra regla (la provisión: $20 mil / mes anterior), no `metodo_pago`.
+Que el método decida es el cambio de `[PGP.109]`, y **la regla contable la confirma la contadora (P1)**.
+
+### Items
+
+| Item | Capa | Qué | Estado |
+|---|---|---|---|
+| `[PGP.107]` | C0 | **El evento «pagado» con su evidencia**: al marcar Pagado (ya validado) se guardan en el pago la salida del banco y el comprobante que lo probaron (columnas nuevas en `finance.payment_allocations`, nullables; regla 14: recorrer todos los caminos que la tocan). Sin esto ni Kepler ni ContPAQi saben fecha, cuenta e importe reales | ⬜ |
+| `[PGP.108]` | C0+C1 | **Cada factura del pago ↔ su CFDI**, por el documento de Kepler (RFC + total ±$1 + fecha ±45 días): 70 % del dinero único, control 0.3 %. Varios candidatos o ninguno → una persona elige (`contpaqi.pago_confirmaciones`). Con `metodo_pago`, `forma_pago`, IVA/IEPS y retenciones del CFDI | ⬜ |
+| `[PGP.109]` | C1 | **La regla PUE/PPD en el asiento**, sobre `armarPagoProveedorCompleto` (no un armador nuevo): PUE completo; PPD proporcional a la parcialidad + estado «espera REP». Pruebas con pólizas reales de la contadora como testigo | ⬜ espera P1 |
+| `[PGP.110]` | C0 | **Carril vivo de REP**: `contpaqi_ods.add_pagos` / `add_pagos_doc_rel` detenido desde el 30-oct. Sin él, ningún PPD se completa. Y la asociación del REP a la póliza ya emitida | ⬜ |
+| `[PGP.111]` | C1 | **Gastos**: la cuenta contable de cada proveedor de gasto (hoy 0 de 51) se PREGUNTA en el sistema como parámetro (dueño: la contadora), y las retenciones (honorarios, arrendamiento) que hoy se rechazan | ⬜ espera P3 |
+| `[PGP.112]` | C2+C3 | **Al quedar «Pagado»**: la póliza entra al TXT del día (`txt-sink`, ADR-040: la importa una persona y la Suite lee el cuadre de vuelta de `gl_polizas`); en pantalla, el pago dice «póliza armada · espera REP · entregada» | ⬜ |
+| `[PGP.106]` | C2 | **Kepler**: el X-D-26 con sus 8 escrituras — incluida la **póliza interna de Kepler** (`kdc2AAMM`) y los acumulados contables (`kdxg`, `kdc126`). Permisos ✅ en CEDIS; faltan en el adaptador `kdm5`, `kdxg`, `kdc2AAMM`, `kdc126` | ⚠️ falta la foto de una captura real de Tesorería (`foto-contadores.js`) |
+
+### Decisiones (de Edgar y de la contadora)
+
+| # | Pregunta | Recomendación |
+|---|---|---|
+| P1 | En PPD, ¿el IVA pasa a acreditable **al pagar** (y el REP se asocia después) o **hasta que llega el REP**? | Al pagar, proporcional a lo pagado, con el REP asociado después: es lo que hoy hace la contadora (40 % de sus pólizas ya llevan el REP asociado) y el REP llega en p90 24 días |
+| P2 | ¿Cada cuánto se entrega el TXT a ContPAQi? | Uno por día, con los pagos que quedaron «Pagado»; lo importa la contadora (ADR-040: la Suite nunca escribe directo en ContPAQi) |
+| P3 | ¿Quién define la cuenta contable de cada proveedor de gasto? | La contadora, contestándola en el sistema (una pregunta por proveedor, como parámetro); mientras no esté, el gasto no se arma y se dice por qué |
+| P4 | El mismo pago queda en DOS contabilidades: la póliza interna de Kepler (`kdc2AAMM`, la escribe la Suite con el X-D-26) y la de ContPAQi (el TXT). ¿Las dos? | Sí: Kepler necesita la suya para cuadrar su balanza; ContPAQi es el sistema de registro contable (ADR-040). Se comparan por UUID e importe |
+| P5 | ¿Se pregunta al proveedor de Kepler por su motor de documentos (`kdmx_26` / `k_docXml`)? | Sí, antes de escribir la póliza de Kepler a mano: si existe, Kepler arma su propia contabilidad y la Suite no la reproduce |
+
+⛔ **Orden:** `[PGP.107]` y `[PGP.108]` primero (sin ellos no hay qué contabilizar); `[PGP.110]` en
+paralelo (es infraestructura); `[PGP.109]`/`[PGP.111]` cuando la contadora conteste P1 y P3;
+`[PGP.112]` y `[PGP.106]` al final. Nada se enciende sin su ensayo.
