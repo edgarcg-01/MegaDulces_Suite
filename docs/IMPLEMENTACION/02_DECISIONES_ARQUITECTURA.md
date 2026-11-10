@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 468 KB, 4109 líneas, 114 secciones.
+> **Índice navegable** — 469 KB, 4111 líneas, 114 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/02_DECISIONES_ARQUITECTURA.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -89,38 +89,38 @@
 | 2669 | 2690 | 4 | ADR-082 — Un comprobante de pago a proveedor se valida SOLO cuando coinciden banco, fecha, monto y proveedor,  |
 | 2691 | 2708 | 3 | ADR-083 — La venta en firme del vendedor se cobra con el MISMO motor de precios que las cotizaciones |
 | 2709 | 2729 | 4 | ADR-084 — Mega Talento entra a la Suite como el espacio Recursos Humanos: una persona, un lector de relojes, u |
-| 2730 | 2759 | 7 | ADR-085 — La factura de compra pasa sola si cuadra; lo que se queda en manos del auxiliar enseña al motor, nun |
-| 2760 | 2780 | 2 | ADR-086 — El trabajo de piso del pedido se hace en la Suite; Kepler recibe UNA captura del resultado |
-| 2781 | 2800 | 2 | ADR-087 — Bodega y piso de venta son zonas de UN almacén; la ubicación se separa en tres capas y la cantidad p |
-| 2801 | 2820 | 3 | ADR-089 — El pedido de preventa cruza dos sistemas: la Suite lo surte y lo entrega, Kepler lo cobra, y la liga |
-| 2821 | 2841 | 3 | ADR-090 — Ubicaciones: código de 5 caracteres, módulo propio con permisos propios, cantidad sólo en reservas y |
-| 2842 | 2859 | 2 | ADR-091 — Comisiones y viáticos de logística se liberan por viaje cerrado con documentos de Kepler y se pagan  |
-| 2860 | 2883 | 5 | ADR-092 — La Suite escribe la requisición en Kepler clonando un documento del propio ERP, en la unidad que ya  |
-| 2884 | 2910 | 6 | ADR-093 — El movimiento de caja lo registra la máquina, y el humano pasa a revisar EXCEPCIONES; el par contabl |
-| 2911 | 2949 | 6 | ADR-094 — La obligación de pago se DERIVA de la deuda viva de Kepler, y la autorización es liberar el día, no  |
-| 2950 | 2987 | 5 | ADR-095 — Qué ES cada documento de venta de Kepler es un dato NUESTRO, con el universo tomado del ERP |
-| 2988 | 3058 | 4 | ADR-096 — Dos pantallas que hablan del mismo registro se unifican por el REGISTRO, no por la lista; y el mecan |
-| 3059 | 3108 | 3 | ADR-097 — Un papel del proveedor es duplicado por EMISOR + FOLIO; bloquear exige prueba fuerte, lo no probado  |
-| 3111 | 3139 | 2 | ADR-098 — Las aplicaciones de Kepler se leen VIGENTES desde una sola vista, y una compuerta impide leer `kdm5` |
-| 3140 | 3178 | 20 | ADRs vigentes (resumen) |
-| 3179 | 3226 | 3 | ADR-099 — Enlazar un papel a una entrada es ESCRIBIR: se busca con el alcance de captura, y el folio del prove |
-| 3227 | 3303 | 5 | ADR-100 — El pedido de traspaso de una sucursal lo decide Compras; la sucursal ve su mesa y marca excepciones |
-| 3304 | 3353 | 3 | ADR-101 — Un retiro de CAOS que se lleva una persona es una CUSTODIA a su cargo, no efectivo del cajón; cada g |
-| 3354 | 3385 | 2 | ADR-102 — El efectivo de la Caja General se lleva en PARTIDA DOBLE: cada peso sale de una cuenta y entra a otr |
-| 3386 | 3420 | 2 | ADR-103 — El libro de efectivo vive en un esquema propio, se escribe por UNA función de la base, en centavos e |
-| 3421 | 3482 | 4 | ADR-104 — Los movimientos de tesorería se MANTIENEN por cambio en la base, no se recalculan con `REFRESH` |
-| 3485 | 3529 | 23 | ADRs vigentes (resumen) |
-| 3530 | 3583 | 4 | ADR-105 — Un pedido del vendedor puede surtirse en varias sucursales de su zona: «pedido agrupado» |
-| 3584 | 3612 | 2 | ADR-106 — La preventa llega al surtidor pedido por pedido; se apaga el surtido de ruta junto |
-| 3613 | 3647 | 3 | ADR-107 — La existencia que ve el vendedor sale de la vista canónica y declara sus cuatro casos; lo que no hay |
-| 3648 | 3758 | 6 | ADR-108 — Cuando Kepler y el CFDI se contradicen sobre la identidad de un acreedor, gana el CFDI |
-| 3759 | 3835 | 4 | ADR-109 — Una premisa escrita en un filtro también se mide: la caja SÍ es origen de un pago |
-| 3836 | 3871 | 3 | ADR-110 — La caja revisa la preventa surtida antes de cobrar, y el pedido queda con lo que se cobra |
-| 3872 | 3983 | 7 | ADR-111 — ContPAQi entero como crudo canónico (`contpaqi_ods`), sincronizado por huella y no por marca de agua |
-| 3984 | 4060 | 4 | ADR-112 — La Caja General opera como una ventanilla bancaria: los billetes en la bóveda, ninguna salida sin or |
-| 4061 | 4109 | 3 | ADR-113 — La Suite arma el «Pedido Telemarketing» (`U-D-40` TELEMARK) en Kepler desde la cotización aceptada |
-| 4110 | 4161 | 3 | ADR-114 — La pregunta de negocio vive en el sistema: con dueño, versionada, y lo dicho por chat es propuesta |
-| 4162 | 4235 | 5 | ADR-115 — El vendedor captura lo que el cliente pide aunque no haya; el aviso y el sustituto llegan al agendar |
+| 2730 | 2761 | 8 | ADR-085 — La factura de compra pasa sola si cuadra; lo que se queda en manos del auxiliar enseña al motor, nun |
+| 2762 | 2782 | 2 | ADR-086 — El trabajo de piso del pedido se hace en la Suite; Kepler recibe UNA captura del resultado |
+| 2783 | 2802 | 2 | ADR-087 — Bodega y piso de venta son zonas de UN almacén; la ubicación se separa en tres capas y la cantidad p |
+| 2803 | 2822 | 3 | ADR-089 — El pedido de preventa cruza dos sistemas: la Suite lo surte y lo entrega, Kepler lo cobra, y la liga |
+| 2823 | 2843 | 3 | ADR-090 — Ubicaciones: código de 5 caracteres, módulo propio con permisos propios, cantidad sólo en reservas y |
+| 2844 | 2861 | 2 | ADR-091 — Comisiones y viáticos de logística se liberan por viaje cerrado con documentos de Kepler y se pagan  |
+| 2862 | 2885 | 5 | ADR-092 — La Suite escribe la requisición en Kepler clonando un documento del propio ERP, en la unidad que ya  |
+| 2886 | 2912 | 6 | ADR-093 — El movimiento de caja lo registra la máquina, y el humano pasa a revisar EXCEPCIONES; el par contabl |
+| 2913 | 2951 | 6 | ADR-094 — La obligación de pago se DERIVA de la deuda viva de Kepler, y la autorización es liberar el día, no  |
+| 2952 | 2989 | 5 | ADR-095 — Qué ES cada documento de venta de Kepler es un dato NUESTRO, con el universo tomado del ERP |
+| 2990 | 3060 | 4 | ADR-096 — Dos pantallas que hablan del mismo registro se unifican por el REGISTRO, no por la lista; y el mecan |
+| 3061 | 3110 | 3 | ADR-097 — Un papel del proveedor es duplicado por EMISOR + FOLIO; bloquear exige prueba fuerte, lo no probado  |
+| 3113 | 3141 | 2 | ADR-098 — Las aplicaciones de Kepler se leen VIGENTES desde una sola vista, y una compuerta impide leer `kdm5` |
+| 3142 | 3180 | 20 | ADRs vigentes (resumen) |
+| 3181 | 3228 | 3 | ADR-099 — Enlazar un papel a una entrada es ESCRIBIR: se busca con el alcance de captura, y el folio del prove |
+| 3229 | 3305 | 5 | ADR-100 — El pedido de traspaso de una sucursal lo decide Compras; la sucursal ve su mesa y marca excepciones |
+| 3306 | 3355 | 3 | ADR-101 — Un retiro de CAOS que se lleva una persona es una CUSTODIA a su cargo, no efectivo del cajón; cada g |
+| 3356 | 3387 | 2 | ADR-102 — El efectivo de la Caja General se lleva en PARTIDA DOBLE: cada peso sale de una cuenta y entra a otr |
+| 3388 | 3422 | 2 | ADR-103 — El libro de efectivo vive en un esquema propio, se escribe por UNA función de la base, en centavos e |
+| 3423 | 3484 | 4 | ADR-104 — Los movimientos de tesorería se MANTIENEN por cambio en la base, no se recalculan con `REFRESH` |
+| 3487 | 3531 | 23 | ADRs vigentes (resumen) |
+| 3532 | 3585 | 4 | ADR-105 — Un pedido del vendedor puede surtirse en varias sucursales de su zona: «pedido agrupado» |
+| 3586 | 3614 | 2 | ADR-106 — La preventa llega al surtidor pedido por pedido; se apaga el surtido de ruta junto |
+| 3615 | 3649 | 3 | ADR-107 — La existencia que ve el vendedor sale de la vista canónica y declara sus cuatro casos; lo que no hay |
+| 3650 | 3760 | 6 | ADR-108 — Cuando Kepler y el CFDI se contradicen sobre la identidad de un acreedor, gana el CFDI |
+| 3761 | 3837 | 4 | ADR-109 — Una premisa escrita en un filtro también se mide: la caja SÍ es origen de un pago |
+| 3838 | 3873 | 3 | ADR-110 — La caja revisa la preventa surtida antes de cobrar, y el pedido queda con lo que se cobra |
+| 3874 | 3985 | 7 | ADR-111 — ContPAQi entero como crudo canónico (`contpaqi_ods`), sincronizado por huella y no por marca de agua |
+| 3986 | 4062 | 4 | ADR-112 — La Caja General opera como una ventanilla bancaria: los billetes en la bóveda, ninguna salida sin or |
+| 4063 | 4111 | 3 | ADR-113 — La Suite arma el «Pedido Telemarketing» (`U-D-40` TELEMARK) en Kepler desde la cotización aceptada |
+| 4112 | 4163 | 3 | ADR-114 — La pregunta de negocio vive en el sistema: con dueño, versionada, y lo dicho por chat es propuesta |
+| 4164 | 4237 | 5 | ADR-115 — El vendedor captura lo que el cliente pide aunque no haya; el aviso y el sustituto llegan al agendar |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -2752,6 +2752,8 @@ Plan, mapa de tablas y sprints en [`FASE_RH_MIGRACION_MEGA_TALENTO.md`](FASES/FA
 **Evolución (2026-11-10, RE.63 — informativo, no cambia la regla):** el expediente dice **dónde está la rebaja** —en Kepler (X-D-55/40 que `kdxf` aplicó a la entrada, sin canceladas), en el CFDI (notas que relacionan su factura), en los dos o en ninguno— y la **consecuencia en netos** (entrada − notas Kepler contra factura − notas CFDI). Se compara por entrada y no nota por nota porque Kepler y el proveedor no registran la misma nota (Kepler captura el descuento pactado; el proveedor timbra otro monto). Sin factura ligada el lado del SAT se declara no medido. Medido desde agosto: 147 compras con la nota sólo en Kepler, 50 sólo en el CFDI, 193 en los dos. ⚖️ **Pendiente de decisión (Francisco/Edgar):** si el cuadre E1 debe comparar netos —hoy compara la factura menos sus notas CFDI contra la entrada bruta, sin descontar las notas que Kepler ya aplicó.
 
 **Evolución (2026-11-10, Regla R-v4, RE.65 — decisión D1 de Edgar):** el cuadre mira las notas de los dos lados **en netos** (entrada − notas de Kepler contra factura − notas del CFDI), y **asimétrico**: la factura **no pasa sola** si con las notas Kepler pagaría **más** de lo que el proveedor factura neto (dinero que se perdería); **pasa** si los netos cuadran aunque el bruto no; si Kepler pagaría **menos** (descontó y el proveedor no ha timbrado su nota) **no cambia** —la factura está bien y el CFDI lo pide Compras—. Rechazado: netos parejos, que detenían 108 facturas que el auxiliar no puede arreglar. Medido: 17 cambios de cubo (12 a revisar, 5 a pasa sola). Se informa a Francisco, dueño de la regla v1. **RE.66** corrige la fuente de las notas de Kepler: el «blanqueo» de la entrada de sucursal cuyo pago va por la copia del CEDIS es **traslado**, no rebaja.
+
+**Evolución (2026-11-10, RE.68/RE.69 — «retiremos el importer y el cron. todo del ods», Edgar):** las notas de crédito y devoluciones salen de la vista `analytics.v_purchase_adjustments` (derive-no-copy, todas las sucursales, sin canceladas); el clasificador y la regla del traslado viven SÓLO en la vista y el primitivo de RE.64 la lee. Tres decisiones: (1) **el traslado se decide por nota**, no por aplicación — las notas de cierre del corte cubren muchas entradas y una aplicación parcial dentro de ellas no es rebaja (medido: Neto $0 falso 169 → 130); (2) **proveedor interno = código `TI000`–`TI009`** de Kepler (las 10 sucursales/CEDIS; `kdxd` no trae marca, `c12` es el grupo contable): sus notas son traspasos y quien analiza descuentos o margen las excluye; (3) **el apareo de gemelas corre al aviso `caja_fuente` con una firma de las entradas**, no por reloj — el aviso llega con cualquier documento (15 en 90 s), así que sin firma sería más caro que el cron. La aprobación en lote conserva su liga escrita (`entrada_c39`, D2).
 
 ---
 
