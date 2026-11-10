@@ -101,11 +101,56 @@ export interface AcreedorAplicacion {
   cancelado: boolean;
 }
 
+/**
+ * `[ECA.8]` **Un pago del Calendario que tiene a esta factura.** Sólo pendientes y ejecutados: un pago
+ * cancelado o rebotado no aparta nada y no se muestra.
+ */
+export interface AcreedorDocProgramado {
+  allocation_id: string;
+  /** Día del Calendario en que está el pago (AAAA-MM-DD). */
+  fecha: string;
+  estado: 'pendiente' | 'ejecutado';
+  /** Pendiente en un día anterior a hoy: se programó y no se pagó. */
+  dia_pasado: boolean;
+  /** Lo que el pago cubre de ESTA factura (neto + descuento al pagar). */
+  cubierto: number;
+  /** Cuántas facturas lleva el pago y su total neto (un pago es una sola transferencia). */
+  facturas_en_pago: number;
+  total_pago: number;
+  creado_por: string | null;
+  /** Ejecutado: cuándo se marcó pagado (AAAA-MM-DD, hora de México), con qué y desde qué cuenta. */
+  pagado_el: string | null;
+  metodo: string | null;
+  banco: string | null;
+  referencia: string | null;
+  /** Folio del pago de Kepler ligado a este pago del Calendario (`X-D-26`), si ya se ligó. */
+  kepler_folio: string | null;
+  /**
+   * Ejecutado y Kepler YA aplicó ese pago a esta factura (está en sus aplicaciones). Entonces el saldo
+   * de Kepler ya lo descuenta: no se resta otra vez ni se dice «Kepler aún no la aplica».
+   */
+  aplicado_en_kepler: boolean;
+}
+
+/** `[ECA.8]` Lo que el Calendario aparta de este acreedor, sobre los documentos mostrados. */
+export interface AcreedorCalendario {
+  /** `false`: no se pudo leer el Calendario. La pantalla lo DECLARA; no lo pinta como «nada programado». */
+  medido: boolean;
+  /** Σ de lo cubierto por pagos PENDIENTES. */
+  programado: number;
+  /** Documentos con al menos un pago pendiente. */
+  documentos: number;
+  /** Lo pendiente que ningún pago cubre todavía (nunca negativo). */
+  sin_programar: number;
+}
+
 /** Documento que sube la deuda (abono `A`), con lo que se le aplicó. */
 export interface AcreedorDocumento {
   sucursal: string;
   documento: string;
   tipo_doc: number;
+  /** `[ECA.8]` Subtipo de Kepler (`kdxe.c5`): con sucursal, tipo y folio forma la llave del Calendario. */
+  sub: number;
   folio: string;
   fecha: string | null;
   /** `null` cuando Kepler no trae vencimiento (fecha centinela 1800). */
@@ -119,6 +164,8 @@ export interface AcreedorDocumento {
   /** `[ECA.7]` Cancelado en Kepler (`kdm1.c43='C'`): `aplicado` y `saldo` en cero. */
   cancelado: boolean;
   aplicaciones: AcreedorAplicacion[];
+  /** `[ECA.8]` Pagos del Calendario que la tienen, por fecha. Vacío = ninguno. */
+  programado: AcreedorDocProgramado[];
 }
 
 /** Cargo (`D`) con importe que todavía no se aplicó a ningún documento. */
@@ -166,5 +213,7 @@ export interface AcreedorEstadoCuentaResponse {
     pagos_sin_aplicar: number;
     saldo: number;
   };
+  /** `[ECA.8]` */
+  calendario: AcreedorCalendario;
   al: string;
 }

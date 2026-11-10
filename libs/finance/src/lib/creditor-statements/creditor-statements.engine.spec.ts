@@ -11,7 +11,8 @@
  * vencimiento NO está vencido (ADR-056: lo que no se puede medir se declara, no se pinta).
  */
 import {
-  armarEstado, clasificarAcreedor, estadoDocumento, nombreGrupo, totalesEstado, type AplicacionCruda, type DocCrudo,
+  adjuntarProgramado, armarEstado, calendarioDe, clasificarAcreedor, estadoDocumento, nombreGrupo, totalesEstado,
+  type AplicacionCruda, type DocCrudo, type ProgramadoCrudo,
 } from './creditor-statements.engine';
 
 const A = (folio: string, importe: string, over: Partial<DocCrudo> = {}): DocCrudo => ({
@@ -192,5 +193,86 @@ describe('[ECA.7] lo cancelado en Kepler no rebaja', () => {
   it('un pago cancelado con importe no aparece como saldo a favor', () => {
     const r = armarEstado([{ ...D('26', '0000030', '700', '2026-02-01'), cancelado: true }], [], '2026-10-10');
     expect(r.pagos_sin_aplicar).toEqual([]);
+  });
+});
+
+/**
+ * `[ECA.8]` Cada factura dice en qué pago del Calendario está. Casos de prod del 2026-11-09:
+ * GS011 (un acreedor de Gastos) con sus facturas en el pago del 13/11, y CJ0036 con pagos
+ * pendientes en días que ya pasaron (26/10, 04/11) sin pagarse.
+ */
+describe('[ECA.8] programado en el Calendario', () => {
+  const HOY = '2026-11-09';
+  const G = (folio: string, importe: string) => A(folio, importe, { tipo_doc: '10', documento: 'Gastos', fecha: '2026-08-27', vence: '2026-08-25' });
+  const p = (folio: string, over: Partial<ProgramadoCrudo> = {}): ProgramadoCrudo => ({
+    sucursal: '00', tipo_doc: '10', sub: '1', folio, allocation_id: 'a-13', fecha: '2026-11-13', estado: 'pending',
+    cubierto: '1856.00', facturas_en_pago: '5', total_pago: '7888.00', creado_por: 'tesoreria_prueba',
+    pagado_el: null, metodo: null, banco: null, referencia: null, kepler_folio: null, ...over,
+  });
+
+  it('la factura programada lleva su día; la que no, va vacía', () => {
+    const { documentos } = armarEstado([G('0007573', '1856.00'), G('0001690', '812.00')], [], HOY);
+    adjuntarProgramado(documentos, [p('0007573')], HOY);
+    const [sin, con] = [documentos.find((d) => d.folio === '0001690')!, documentos.find((d) => d.folio === '0007573')!];
+    expect(sin.programado).toEqual([]);
+    expect(con.sub).toBe(1);
+    expect(con.programado).toEqual([expect.objectContaining({ fecha: '2026-11-13', estado: 'pendiente', dia_pasado: false, cubierto: 1856, facturas_en_pago: 5, total_pago: 7888 })]);
+    expect(calendarioDe(documentos)).toEqual({ medido: true, programado: 1856, documentos: 1, sin_programar: 812 });
+  });
+
+  it('pendiente en un día que ya pasó se marca: se programó y no se pagó', () => {
+    const { documentos } = armarEstado([A('0000163', '154223.79', { sucursal: '06' })], [], HOY);
+    adjuntarProgramado(documentos, [p('0000163', { sucursal: '06', tipo_doc: '20', fecha: '2026-11-04', cubierto: '154223.79' })], HOY);
+    expect(documentos[0].programado[0].dia_pasado).toBe(true);
+  });
+
+  it('programada en parte: lo que queda sin programar es el saldo menos lo cubierto', () => {
+    const { documentos } = armarEstado([A('0000215', '168586.34', { sucursal: '06' })], [], HOY);
+    adjuntarProgramado(documentos, [p('0000215', { sucursal: '06', tipo_doc: '20', fecha: '2026-11-10', cubierto: '100000' })], HOY);
+    expect(calendarioDe(documentos)).toEqual({ medido: true, programado: 100000, documentos: 1, sin_programar: 68586.34 });
+  });
+
+  it('ejecutada: dice cuándo, con qué y desde dónde; no cuenta como programada ni como sin programar', () => {
+    const { documentos } = armarEstado([A('0009890', '36331.77')], [], HOY);
+    adjuntarProgramado(documentos, [p('0009890', {
+      tipo_doc: '20', fecha: '2026-11-05', estado: 'executed', cubierto: '36331.77', pagado_el: '2026-11-05',
+      metodo: 'transferencia', banco: 'BBVA 4821', referencia: ' SPEI 0511 ',
+    })], HOY);
+    expect(documentos[0].programado[0]).toEqual(expect.objectContaining({
+      estado: 'ejecutado', dia_pasado: false, pagado_el: '2026-11-05', metodo: 'transferencia', banco: 'BBVA 4821', referencia: 'SPEI 0511',
+    }));
+    expect(calendarioDe(documentos)).toEqual({ medido: true, programado: 0, documentos: 0, sin_programar: 0 });
+  });
+
+  it('ejecutada y YA aplicada en Kepler: no se resta dos veces de lo que falta programar', () => {
+    // Factura de $1,000 pagada en parte ($600) desde el Calendario; Kepler aplicó la transferencia 0016796.
+    const { documentos } = armarEstado([A('0009001', '1000')], [ap('0009001', '26', '0016796', '600', '2026-11-05')], HOY);
+    adjuntarProgramado(documentos, [p('0009001', { tipo_doc: '20', estado: 'executed', cubierto: '600', pagado_el: '2026-11-05', kepler_folio: '16796' })], HOY);
+    expect(documentos[0].saldo).toBe(400);
+    expect(documentos[0].programado[0].aplicado_en_kepler).toBe(true);
+    expect(calendarioDe(documentos).sin_programar).toBe(400);
+  });
+
+  it('PRUEBA NEGATIVA: ligada a un pago de Kepler que NO está entre las aplicaciones de la factura → aún no aplicada', () => {
+    const { documentos } = armarEstado([A('0009001', '1000')], [ap('0009001', '26', '0016000', '100', '2026-11-01')], HOY);
+    adjuntarProgramado(documentos, [p('0009001', { tipo_doc: '20', estado: 'executed', cubierto: '600', pagado_el: '2026-11-05', kepler_folio: '0016796' })], HOY);
+    expect(documentos[0].programado[0].aplicado_en_kepler).toBe(false);
+    expect(calendarioDe(documentos).sin_programar).toBe(300);
+  });
+
+  it('PRUEBA NEGATIVA: un pago cancelado o rebotado no aparece ni aparta nada', () => {
+    const { documentos } = armarEstado([A('0009775', '42184.99')], [], HOY);
+    adjuntarProgramado(documentos, [
+      p('0009775', { tipo_doc: '20', fecha: '2026-11-05', estado: 'cancelled', cubierto: '42184.99' }),
+      p('0009775', { tipo_doc: '20', fecha: '2026-11-06', estado: 'failed', cubierto: '42184.99' }),
+    ], HOY);
+    expect(documentos[0].programado).toEqual([]);
+    expect(calendarioDe(documentos)).toEqual({ medido: true, programado: 0, documentos: 0, sin_programar: 42184.99 });
+  });
+
+  it('PRUEBA NEGATIVA: otra sucursal con el mismo folio no se confunde', () => {
+    const { documentos } = armarEstado([A('0000215', '7548.00', { sucursal: '03' })], [], HOY);
+    adjuntarProgramado(documentos, [p('0000215', { sucursal: '06', tipo_doc: '20' })], HOY);
+    expect(documentos[0].programado).toEqual([]);
   });
 });

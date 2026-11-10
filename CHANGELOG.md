@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Added — Deuda con proveedores: cada factura dice en qué pago del Calendario está (ECA.8, 2026-11-10 · en código, sin soltar)
+- Debajo de cada factura del estado de cuenta, si está en un pago del Calendario: **«Programada para el viernes 13/11»** con el enlace **«Ver el 13/11 →»**, que abre el Calendario en ese día. Antes, una factura ya programada desaparecía de la lista para agregar y nadie sabía dónde estaba.
+- Si el pago quedó en un día que ya pasó sin pagarse, sale en rojo: «Se programó para el 04/11 y no se pagó: muévelo». Si se programó sólo una parte, dice cuánto queda. Si ya se pagó por transferencia, dice el día, el banco y la referencia, y que Kepler todavía no la aplica.
+- En el resumen del acreedor: «En el Calendario $X · N facturas · sin programar $Y». Si el Calendario no se puede leer, lo dice; no lo pinta como cero.
+- Sólo lectura: sin tablas nuevas, sin migración, sin permisos nuevos.
 ### Fixed — Gastos: nada atorado sin dueño (GX.91–GX.96, 2026-11-06)
 - Un doble clic en «Enviar a aprobación» ya no crea dos vales.
 - Un vale revisado cuya solicitud Kepler canceló ya no se queda «esperando el gasto» para siempre; los devueltos se quedan a la vista hasta recapturarse.
