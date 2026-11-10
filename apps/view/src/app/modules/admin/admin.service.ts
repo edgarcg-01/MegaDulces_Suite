@@ -16,7 +16,11 @@ import type {
   ResponsabilidadDePuesto,
   ResponsabilidadFila,
   ResponsabilidadesDePersona,
+  RenombreDeUsuario,
+  UsoDelUsuario,
 } from '@megadulces/contracts';
+
+export type { RenombreDeUsuario, UsoDelUsuario };
 
 /**
  * `[AU.2]` — El cliente de `/admin/*`.
@@ -246,6 +250,15 @@ export class AdminService {
       sessions_revoked_at: string | null;
       last_login_at: string | null;
     }>(`${this.users}/${id}/revoke-sessions`, { motivo: motivo ?? null });
+  }
+
+  /**
+   * `[AU.34]` — Cambia el username. El servidor lo rechaza (409, `code: 'usuario_con_historia'`,
+   * con `encontrados`) si algo lo usa como llave; si pasa, cierra sus sesiones y lo asienta.
+   * Exige `USUARIOS_PASSWORDS`, como cerrar sesiones.
+   */
+  renombrarPersona(id: string, username: string, motivo: string): Observable<RenombreDeUsuario> {
+    return this.http.post<RenombreDeUsuario>(`${this.users}/${id}/rename`, { username, motivo });
   }
 
   alcanceDe(id: string): Observable<AlcanceDePersona> {

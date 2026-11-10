@@ -370,7 +370,7 @@ export interface SheetSyncRunResult {
 /** [CB.58] La descarga de la banca: revisar (no escribe) → confirmar. Espejo de `estado-de-cuenta.service.ts`. */
 export type ComoSeFijoLaCuenta = 'en_archivo' | 'saldo_continuo' | 'sin_testigo';
 export interface RevisionEstadoBanco {
-  banco: 'santander' | 'banorte' | 'bbva' | 'banbajio';
+  banco: 'santander' | 'banorte' | 'bbva' | 'banbajio' | 'banamex';
   archivo: string | null; cuenta_en_archivo: string | null; cliente_en_archivo: string | null;
   cuenta: { id: string; alias: string } | null; como_se_fijo: ComoSeFijoLaCuenta | null;
   candidatas: { id: string; alias: string; saldo_conocido: number | null; coincide: boolean }[];

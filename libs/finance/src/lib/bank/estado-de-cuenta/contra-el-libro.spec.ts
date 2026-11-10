@@ -50,4 +50,36 @@ describe('[CB.60] compararContraElLibro', () => {
     const c = compararContraElLibro(BANCO, [r('2026-10-01', 500, 0, 1500), r('2026-10-01', 0, 200, 1300)]);
     expect(c.dias.map((d) => d.veredicto)).toEqual(['cuadra', 'sin_libro', 'abierto']);
   });
+
+  describe('[CB.61] categoría sin el libro', () => {
+    const conCat = (x: RenglonComparable, categoria: string | null, doc_tipo: string | null = null) => ({ ...x, categoria, doc_tipo });
+    // Sombra de prueba: depósito = cobranza; retiro de 3.51 = comisión; con documento N-A-26 = traspaso.
+    const sombra = (b: RenglonComparable, par: RenglonComparable) => ({
+      categoria: par.doc_tipo === 'N-A-26' ? 'traspaso_entre_cuentas' : Number(b.amount_in) > 0 ? 'cobranza' : Number(b.amount_out) === 3.51 ? 'comision_bancaria' : 'sin_clasificar',
+      por: par.doc_tipo ? 'documento' : 'banco',
+    });
+
+    it('cuenta cada par, también el del día abierto, y nombra los que difieren con las dos categorías', () => {
+      const libro = [
+        conCat(r('2026-10-01', 500, 0, 1500), 'cobranza'), conCat(r('2026-10-01', 0, 200, 1300), 'nomina', 'N-A-26'),
+        conCat(r('2026-10-02', 0, 3.51, 1296.49), 'comision_bancaria'), conCat(r('2026-10-02', 0, 0.56, 1295.93), 'iva_acreditable'),
+        conCat(r('2026-10-03', 100, 0, 1395.93), null),
+      ];
+      const k = compararContraElLibro(BANCO, libro, sombra).categorias;
+      expect(k).toMatchObject({ pareados: 5, coinciden: 2, difieren: 1, sin_categoria: 1, libro_sin_categoria: 1 });
+      expect(k.distintas).toEqual([
+        expect.objectContaining({ importe: 200, banco: 'traspaso_entre_cuentas', por: 'documento', libro: 'nomina' }),
+        expect.objectContaining({ importe: 0.56, banco: 'sin_clasificar', libro: 'iva_acreditable' }),
+      ]);
+    });
+
+    it('[negativa] la sombra NO lee la categoría del libro: un libro con otra categoría sale como distinto', () => {
+      const libro = [conCat(r('2026-10-01', 500, 0, 1500), 'devolucion_spei')];
+      expect(compararContraElLibro(BANCO, libro, sombra).categorias).toMatchObject({ pareados: 1, coinciden: 0, difieren: 1 });
+    });
+
+    it('sin clasificador no se juzga la categoría (cero pares, no «todo coincide»)', () => {
+      expect(compararContraElLibro(BANCO, [conCat(r('2026-10-01', 500, 0, 1500), 'cobranza')]).categorias.pareados).toBe(0);
+    });
+  });
 });
