@@ -18,9 +18,9 @@
 |---|---|---|
 | Preparación (RH.0) | hasta 9-oct | ⚠️ atrasada: faltan RH.0.2, RH.0.4, RH.0.5 y desplegar RH.0.6 |
 | **Corte de asistencia** (RH.1.8) | **7-nov** (viernes) | En riesgo por RH.1.4 (personas) |
-| Corte de reclutamiento + bot (RH.3.5) | 5-dic | Sin empezar (RH.2 y RH.3) |
-| Mega Talento en sólo lectura | 5-dic → 18-dic | — |
-| **Apagado de Mega Talento** (RH.4) | **18-dic** | — |
+| Corte de reclutamiento + bot (RH.3.5) | **10-nov** (Edgar lo adelantó del 5-dic) | Cargas ensayadas; runbook [`RH_CORTE_RECLUTAMIENTO.md`](../RUNBOOKS/RH_CORTE_RECLUTAMIENTO.md) |
+| Mega Talento en sólo lectura | 10-nov → 24-nov | 2 semanas como vuelta atrás |
+| **Apagado de Mega Talento** (RH.4) | **24-nov** | — |
 
 ---
 
@@ -113,7 +113,7 @@ Al encender, en el mismo cambio: `ENABLE_HR_ATTENDANCE_AGENT=true` + filas `hr_a
 | [RH.1.9] (opcional) | Modo push ADMS para PH y Morelia Abastos | — |
 | [RH.2.1]–[RH.2.4] | Reclutamiento: `talent.*`, API, pantallas, portal público `/empleo/*` con token firmado | 27-oct → 21-nov (se construye sin cortar; puede arrancar antes si RH.1 se adelanta) |
 | [RH.3.1]–[RH.3.4] | Bot en `libs/whatsapp`: ruteo por número, conversación, solicitud, CV, dictamen; se retira Firestore y el panel del bot | → 28-nov |
-| [RH.3.5] **Corte** | Reclutamiento + bot juntos: carga única de candidatos, mensajes y documentos (al bucket privado); el webhook de Meta apunta a la Suite. **9-nov: la carga de candidatos, vacantes, etapas y eventos ya existe** (`[RH.2.5]`, `carga-reclutamiento-mega-talento.js`); **y la del bot también** (`--con-bot`, `[RH.3.5a]`: 220,897 mensajes y 2,715 conversaciones, ensayadas con datos reales); **y la de los archivos** (`carga-archivos-mega-talento.js`, `[RH.3.5b]`: 5,773 archivos, 1.5 GB, ensayados bajándolos). Orden del corte: reclutamiento + bot → archivos → webhook de Meta a la Suite → apagar Railway. Falta: el webhook, medir el espacio del bucket de prod y que David saque 438 documentos que sólo están en el disco del bot | **5-dic** |
+| [RH.3.5] **Corte** | Reclutamiento + bot juntos: carga única de candidatos, mensajes y documentos (al bucket privado); el webhook de Meta apunta a la Suite. **9-nov: la carga de candidatos, vacantes, etapas y eventos ya existe** (`[RH.2.5]`, `carga-reclutamiento-mega-talento.js`); **y la del bot también** (`--con-bot`, `[RH.3.5a]`: 220,897 mensajes y 2,715 conversaciones, ensayadas con datos reales); **y la de los archivos** (`carga-archivos-mega-talento.js`, `[RH.3.5b]`: 5,773 archivos, 1.5 GB, ensayados bajándolos). Orden del corte: reclutamiento + bot → archivos → webhook de Meta a la Suite → apagar Railway. Falta: el webhook, medir el espacio del bucket de prod y que David saque 438 documentos que sólo están en el disco del bot | **10-nov** (runbook [`RH_CORTE_RECLUTAMIENTO.md`](../RUNBOOKS/RH_CORTE_RECLUTAMIENTO.md)) |
 | [RH.4.1]–[RH.4.3] | Apagar API, front y bot en Railway; quitar el servicio de Windows; rotar la contraseña de la base compartida y dar un rol propio a cada sistema que queda; cerrar `[CH.0.7]`–`[CH.0.10]` y `[ID.16]` | **18-dic** |
 | RH.5 | Nómina, sobres y entrega sin papel | después del apagado |
 
