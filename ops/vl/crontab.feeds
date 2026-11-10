@@ -281,7 +281,10 @@
 # el apareo incremental estuviera vivo, y bajarle la cadencia a este CLI habría podido dejar
 # el dinero contado dos veces sin que nadie se enterara. Si `twins_pairing` deja de latir,
 # esta línea vuelve a `* * * * *` y se investiga.
-30 4 * * *  /app/ops/vl/run-feed.sh receipts "node /app/database/importers/kepler/run-prod-feeds.js receipts --apply"
+# [RE.69] ⛔ RETIRADO 2026-11-10 («ningún cron», Edgar). El apareo de gemelas corre en el worker de la API
+# al aviso `caja_fuente` (GoodsReceiptTwinsService, sin reloj), y desde el corte del 1-oct casi no nacen
+# copias. El CLI (`run-prod-feeds.js receipts`) queda para un barrido histórico a mano.
+# 30 4 * * *  /app/ops/vl/run-feed.sh receipts "node /app/database/importers/kepler/run-prod-feeds.js receipts --apply"
 # ─── [NORM.2] EL CARRIL QUE NO EXISTÍA ────────────────────────────────────────────────────
 # `inventory.products` es el catálogo de escaneo del CONTEO FÍSICO, y su refrescador estaba
 # escrito desde agosto SIN AGENDA EN NINGÚN LADO. Medido el 2026-09-23: **37 días** sin un
