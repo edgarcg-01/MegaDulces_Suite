@@ -322,6 +322,59 @@ export function armarComisionesKepler(g: GrupoComisiones, p: PlantillaComisiones
   };
 }
 
+/** Un depósito de tesorería capturado por la sucursal en Kepler (`U-A-5`), con su texto. */
+export interface DepositoKepler { sucursal: string; folio: string; cuenta: string; importe: number; fecha: string; concepto: string }
+
+const DIA = 86_400_000;
+const lejos = (a: string, b: string): number => Math.abs(Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`));
+
+/**
+ * El bloque, resuelto con su depósito en Kepler: misma cuenta, importe exacto, ±3 días. Sin depósito, con
+ * dos depósitos distintos del mismo importe, sin acreedor para la cuenta o sin día de venta legible: motivo, y
+ * el bloque queda por revisar. Lo usan el servicio y la sombra (una sola regla).
+ */
+export function resolverBloque(
+  b: BloqueTarjeta, depositos: readonly DepositoKepler[], acreedorDe: ReadonlyMap<string, string>,
+): { sucursal: string; diaVenta: string; acreedor: string } | { motivo: string } {
+  const m = depositos.filter((u) => u.cuenta === b.deposito.cuenta && Math.abs(u.importe - b.deposito.importe) < 0.005 && lejos(u.fecha, b.deposito.fecha) <= 3 * DIA);
+  if (!m.length) return { motivo: 'el depósito no está en Kepler (U-A-5)' };
+  if (new Set(m.map((u) => `${u.sucursal}|${u.concepto}`)).size > 1) return { motivo: 'dos U-A-5 con el mismo importe' };
+  const acreedor = acreedorDe.get(b.deposito.cuenta);
+  if (!acreedor) return { motivo: 'la cuenta no tiene acreedor GB en Kepler' };
+  const dia = diaDeVentaDelTexto(m[0].concepto, b.deposito.fecha);
+  return dia ? { sucursal: m[0].sucursal, diaVenta: dia, acreedor } : { motivo: `el U-A-5 no dice el día de venta («${m[0].concepto}»)` };
+}
+
+/** Un `X-D-26` que Finanzas ya capturó a un banco (`GB…`). */
+export interface PagoKeplerCapturado { sucursal: string; folio: string; cuenta: string; importe: number; fecha: string }
+
+/**
+ * ⛔ **El candado contra duplicados.** Mientras Finanzas siga capturando a mano (D3: el cambio de manos es
+ * cuenta por cuenta), un cargo cuyo pago ya está en Kepler NO se escribe. Pareo uno a uno: misma cuenta,
+ * importe exacto, ±3 días; entre iguales, la sucursal del cargo y luego el día más cercano. Medido: 1,357 de
+ * 1,408 pagos de octubre casan así con un cargo del banco; contra otra cuenta del mismo banco, 40.
+ * Un falso pareo hace que un cargo NO se escriba (queda en revisión): el lado seguro.
+ */
+export function cruzarConKepler(
+  cargos: readonly (CargoTarjeta & { sucursal?: string })[], pagos: readonly PagoKeplerCapturado[],
+): Map<string, PagoKeplerCapturado> {
+  const usados = new Set<number>();
+  const out = new Map<string, PagoKeplerCapturado>();
+  for (const c of cargos) {
+    let mejor = -1;
+    for (let j = 0; j < pagos.length; j++) {
+      const k = pagos[j];
+      if (usados.has(j) || k.cuenta !== c.cuenta || Math.abs(k.importe - c.importe) >= 0.005 || lejos(k.fecha, c.fecha) > 3 * DIA) continue;
+      if (mejor < 0) { mejor = j; continue; }
+      const a = pagos[mejor];
+      const mejorPorSucursal = Number(k.sucursal === c.sucursal) - Number(a.sucursal === c.sucursal);
+      if (mejorPorSucursal > 0 || (mejorPorSucursal === 0 && lejos(k.fecha, c.fecha) < lejos(a.fecha, c.fecha))) mejor = j;
+    }
+    if (mejor >= 0) { usados.add(mejor); out.set(c.id, pagos[mejor]); }
+  }
+  return out;
+}
+
 /**
  * Junta los bloques en días de venta por sucursal. `donde` resuelve cada bloque con su depósito en Kepler
  * (sucursal y día de venta); el bloque que no se resuelve se devuelve aparte, con su porqué, y no entra a

@@ -5,6 +5,8 @@ import { BankReconPorAvisoService } from './bank-recon-aviso.service';
 import { CANAL_CAJA } from '../caja/caja-realtime.service';
 import { EstadoDeCuentaService } from './estado-de-cuenta/estado-de-cuenta.service';
 import { EstadoDeCuentaController } from './estado-de-cuenta/estado-de-cuenta.controller';
+import { ComisionesKeplerService } from './comisiones-kepler/comisiones-kepler.service';
+import { ComisionesKeplerController } from './comisiones-kepler/comisiones-kepler.controller';
 
 /**
  * `[CB.53.1]` — **Que compile no es que arranque.**
@@ -139,5 +141,24 @@ describe('[CB.58] el estado de cuenta de la banca está registrado en el módulo
     Reflect.defineMetadata('providers', [], SinServicio);
     Reflect.defineMetadata('imports', [], SinServicio);
     expect(alcanceDe(SinServicio).has(EstadoDeCuentaService)).toBe(false);
+  });
+});
+
+/** `[CB.62]` La propuesta de comisiones a Kepler: mismo candado que `[CB.58]` (registrada y con dos globales). */
+describe('[CB.62] la propuesta de comisiones a Kepler está registrada en el módulo', () => {
+  it('el servicio está entre los providers y el controlador entre los controllers', () => {
+    expect(meta<unknown>('providers', FinanceBankModule)).toContain(ComisionesKeplerService);
+    expect(meta<unknown>('controllers', FinanceBankModule)).toContain(ComisionesKeplerController);
+  });
+
+  it('el servicio pide dos dependencias y el controlador una (si cambian, revisar el arranque)', () => {
+    expect(ComisionesKeplerService.length).toBe(2);
+    expect(ComisionesKeplerController.length).toBe(1);
+  });
+
+  it('PRUEBA NEGATIVA: un módulo sin el controlador no lo registra (la ruta daría 404 con el CI en verde)', () => {
+    class SinControlador {}
+    Reflect.defineMetadata('controllers', [EstadoDeCuentaController], SinControlador);
+    expect(meta<unknown>('controllers', SinControlador)).not.toContain(ComisionesKeplerController);
   });
 });

@@ -1,6 +1,6 @@
 import {
-  armarComisionesKepler, bloquesDeTarjeta, cargoDeTarjeta, depositoDeTarjeta, diaDeVentaDelTexto, gruposPorDiaDeVenta,
-  type CargoTarjeta, type GrupoComisiones, type PlantillaComisiones, type RenglonDescarga,
+  armarComisionesKepler, bloquesDeTarjeta, cargoDeTarjeta, cruzarConKepler, depositoDeTarjeta, diaDeVentaDelTexto, gruposPorDiaDeVenta, resolverBloque,
+  type CargoTarjeta, type DepositoKepler, type GrupoComisiones, type PagoKeplerCapturado, type PlantillaComisiones, type RenglonDescarga,
 } from './comisiones-kepler.armador';
 
 /**
@@ -182,6 +182,51 @@ describe('[CB.62] bloques y día de venta — el lunes 3-nov de BBVA 4885', () =
     expect(bloquesDeTarjeta([L(0, V('CREDITO'), 465.62, 0), otroDia]).huerfanos).toHaveLength(1);
     const otraCuenta = { ...L(1, C('CREDITO'), 0, 9.35), cuenta: '4176' };
     expect(bloquesDeTarjeta([L(0, V('CREDITO'), 465.62, 0), otraCuenta]).huerfanos).toHaveLength(1);
+  });
+});
+
+describe('[CB.62] resolverBloque — el depósito en Kepler dice sucursal y día', () => {
+  const bloque = bloquesDeTarjeta([
+    { id: 'd', cuenta: '4885', fecha: '2026-11-03', seq: 0, concepto: 'VENTAS CREDITO/145096809 TERMINALES PUNTO DE VENTA', entra: 465.62, sale: 0 },
+    { id: 'c', cuenta: '4885', fecha: '2026-11-03', seq: 1, concepto: 'APLI TASA DE DES CREDITO/175096809 TERMINALES PUNTO DE VENTA', entra: 0, sale: 9.35 },
+  ]).bloques[0];
+  const ua5 = (o: Partial<DepositoKepler> = {}): DepositoKepler => ({ sucursal: '06', folio: '0000281', cuenta: '4885', importe: 465.62, fecha: '2026-11-03', concepto: 'VTA 02-11-26', ...o });
+  const acreedor = new Map([['4885', 'GB004']]);
+
+  it('misma cuenta, importe exacto, ±3 días → sucursal, día de venta y banco', () => {
+    expect(resolverBloque(bloque, [ua5()], acreedor)).toEqual({ sucursal: '06', diaVenta: '2026-11-02', acreedor: 'GB004' });
+  });
+  it('⛔ otro importe, otra cuenta o a más de 3 días: no hay depósito', () => {
+    for (const u of [ua5({ importe: 465.63 }), ua5({ cuenta: '4176' }), ua5({ fecha: '2026-10-30' })]) {
+      expect(resolverBloque(bloque, [u], acreedor)).toEqual({ motivo: 'el depósito no está en Kepler (U-A-5)' });
+    }
+  });
+  it('⛔ dos U-A-5 distintos con el mismo importe: no se elige uno', () => {
+    expect(resolverBloque(bloque, [ua5(), ua5({ sucursal: '02', concepto: 'VENTAS 2/11/2026 LPA' })], acreedor)).toEqual({ motivo: 'dos U-A-5 con el mismo importe' });
+  });
+  it('⛔ la cuenta sin banco acreedor en Kepler, o el texto sin día', () => {
+    expect('motivo' in resolverBloque(bloque, [ua5()], new Map())).toBe(true);
+    expect('motivo' in resolverBloque(bloque, [ua5({ concepto: 'VENTAS TARJETA' })], acreedor)).toBe(true);
+  });
+});
+
+describe('[CB.62] cruzarConKepler — el candado contra duplicados', () => {
+  const pago = (o: Partial<PagoKeplerCapturado> = {}): PagoKeplerCapturado => ({ sucursal: '07', folio: '0000232', cuenta: '4176', importe: 22.13, fecha: '2026-10-02', ...o });
+
+  it('el cargo con su X-D-26 ya capturado (misma cuenta, importe, ±3 días) se marca y no se escribe', () => {
+    const m = cruzarConKepler([MADERO[0]], [pago()]);
+    expect(m.get('c1')?.folio).toBe('0000232');
+  });
+  it('uno a uno: dos cargos iguales y un solo pago → sólo uno queda capturado', () => {
+    const m = cruzarConKepler([MADERO[0], { ...MADERO[0], id: 'c1b' }], [pago()]);
+    expect(m.size).toBe(1);
+  });
+  it('entre pagos del mismo importe gana la sucursal del cargo (un IVA de $10.91 en dos sucursales)', () => {
+    const m = cruzarConKepler([{ ...MADERO[0], sucursal: '03' }], [pago({ sucursal: '01', folio: 'X' }), pago({ sucursal: '03', folio: 'Y', fecha: '2026-10-04' })]);
+    expect(m.get('c1')?.folio).toBe('Y');
+  });
+  it('⛔ otra cuenta, otro importe o a más de 3 días: no es su pago', () => {
+    expect(cruzarConKepler([MADERO[0]], [pago({ cuenta: '4885' }), pago({ importe: 22.14 }), pago({ fecha: '2026-10-06' })]).size).toBe(0);
   });
 });
 

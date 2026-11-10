@@ -466,6 +466,17 @@ manos va cuenta por cuenta, empezando por BBVA 4885 · D4 va como item de CB (y 
     de sus pagos también (**44 de 44**) y el saldo del gasto en `kdxe.c20` es 0 (**7 de 7**). Control: con el abono
     del pago a 103 y el IVA a 122-002, la sombra cae a **0 de 7** y **0 de 44**.
   - 18 pruebas.
+- **C2 de sólo lectura — la propuesta (2026-11-10):** `GET finance/bank/comisiones-kepler?dias=14` (permiso
+  `FINANCE_BANK_VER`; [`comisiones-kepler.query.ts`](../../../libs/finance/src/lib/bank/comisiones-kepler/comisiones-kepler.query.ts)).
+  Cada día de venta sale `lista` · `ya_en_kepler` · `parcial` · `rechazada`, más los bloques por revisar con su porqué;
+  sin ODS responde `medido: false`, no una lista vacía. **El candado contra duplicados** (`cruzarConKepler`): un cargo
+  cuyo `X-D-26` ya capturó Finanzas no se propone (uno a uno, misma cuenta, importe exacto, ±3 días; un falso pareo
+  deja el cargo en revisión, el lado seguro). La sombra ahora corre **esta misma consulta** (no una copia) y da lo
+  mismo: sucursal 77/77, día 71/77, 7 gastos idénticos con póliza 7/7 y pagos 44/44. **Latencia en prod: 141 ms.**
+  Hoy, con la descarga del 31-oct al 3-nov: 28 cargos listos ($2,930.93) que Finanzas aún no captura, 92 ya
+  capturados, 24 por revisar (16 por depósito que la sucursal no ha capturado en Kepler). 26 pruebas del armador
+  (mutante del candado muerto) + el candado de arranque del módulo con su negativa. Typecheck de `libs/finance`:
+  0 errores en estos archivos (39 preexistentes, ajenos). Sin pantalla todavía (CB.62.5).
 
 ### 9.3 Lo que falta
 
