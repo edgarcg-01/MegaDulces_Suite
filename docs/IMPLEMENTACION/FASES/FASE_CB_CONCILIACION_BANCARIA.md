@@ -489,7 +489,8 @@ manos va cuenta por cuenta, empezando por BBVA 4885 · D4 va como item de CB (y 
   compuertas sin rojo en sus 4 archivos; CI: «Build & typecheck», «Typecheck (affected)» y «Test (affected)» en
   verde y **sellado** (`ci-green` = `21c48a8b6`). «Lint & test» rojo por `check-caja-sin-control` sobre dos archivos
   de Caja (`caja-cuadre-huecos.query.ts`, `hoja-gastos.service.ts`) — **el mismo rojo ya estaba en `0236304ec`**
-  (LE.6.29), ajeno a CB.62. **No soltado:** `prod-release` lo mueve una persona.
+  (LE.6.29), ajeno a CB.62. ✅ **En prod (2026-11-10):** `prod-release` = `ci-green` = `5dcea73ee`; `/api/health`
+  sirve `5dcea73ee` (uptime 7 min al medir), que contiene `21c48a8b6`; la ruta sigue en 401 contra 404 de control.
 - **Con la semana completa (2026-11-10, Tesorería subió 15 cuentas del 1 al 10-nov, ~1,500 renglones):**
   - **IVA por bloque, no por día.** En 272 bloques: 272 traen una comisión y su IVA; BBVA cobra el IVA al 16 % exacto
     en 260 de 261 (uno a +1 ¢) y **Banorte se desvía hasta ±4 ¢** (calcula sobre otra base). La regla del día (1 ¢
