@@ -4,6 +4,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Subscription } from 'rxjs';
 import type { ExpedienteCheck, ExpedienteCheckGrupo, ExpedienteCubo, ExpedienteLiga, ReceiptExpediente } from '@megadulces/contracts';
 import { EntradasService } from '../entradas.service';
+import { notasLadosTexto } from '../receipt-verdict';
 
 /** Texto y tono de cada cubo. El color nunca va solo (DESIGN.md §5): siempre ícono + palabra. */
 const CUBO: Record<ExpedienteCubo, { titulo: string; tono: 'ok' | 'warn' | 'info' | 'muted'; icono: string }> = {
@@ -64,6 +65,46 @@ const LIGA: Record<string, string> = {
         }
         @if (x.nota_credito; as n) {
           <p class="ex-ver-s">Cuadra descontando la nota de crédito por {{ money(n.total) }}.</p>
+        }
+
+        <!-- [RE.63] Dónde está la rebaja: Kepler y el proveedor no registran la misma nota, así que se dice
+             por entrada (no nota por nota) y se dice la consecuencia en netos. «Ninguna» no se pinta.
+             Primario = el estado · secundario = si cambia lo que se paga · terciario = los folios. -->
+        @if (x.notas_lados; as nl) {
+          @if (nl.estado !== 'ninguna') {
+            <div class="ex-nc" role="group" aria-labelledby="ex-nc-t">
+              <h4 id="ex-nc-t" class="ex-sub">Notas de crédito · Kepler y CFDI</h4>
+              @if (ladoTexto(); as lt) {
+                <p class="ex-nc-est" [attr.data-estado]="nl.estado">
+                  <i class="pi" [ngClass]="lt.icono" aria-hidden="true"></i>
+                  <span>{{ lt.titulo }}</span>
+                </p>
+                @if (lt.consecuencia) { <p class="ex-ver-s">{{ lt.consecuencia }}</p> }
+              }
+              <dl class="ex-nc-l">
+                <div>
+                  <dt>Kepler</dt>
+                  <dd>
+                    @for (k of nl.kepler; track k.tipo + k.folio) {
+                      <span class="ex-nc-doc">{{ k.tipo === '40' ? 'Devolución' : 'Nota de crédito' }} {{ k.folio }} · {{ money(k.aplicado) }}@if (k.motivo) { · {{ k.motivo }}}</span>
+                    } @empty { <span class="ex-nc-doc">Ninguna nota aplicada a esta entrada</span> }
+                  </dd>
+                </div>
+                <div>
+                  <dt>CFDI</dt>
+                  <dd>
+                    @if (nl.cfdi === null) {
+                      <span class="ex-nc-doc">Sin factura CFDI ligada: no se sabe si el proveedor timbró la nota</span>
+                    } @else {
+                      @for (c of nl.cfdi; track c.uuid) {
+                        <span class="ex-nc-doc">UUID {{ c.uuid }} · {{ money(c.total) }}@if (c.facturas > 1) { · relaciona {{ c.facturas }} facturas}</span>
+                      } @empty { <span class="ex-nc-doc">Ninguna nota relaciona esta factura</span> }
+                    }
+                  </dd>
+                </div>
+              </dl>
+            </div>
+          }
         }
 
         @if (pendientes().length) {
@@ -181,6 +222,17 @@ const LIGA: Record<string, string> = {
     .ex-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .ex-skel { display: flex; flex-direction: column; gap: var(--sp-2); }
     .ex-skel span { height: 1.4rem; border-radius: var(--r-sm); background: var(--surface-2); }
+    /* [RE.63] Notas en Kepler y en el CFDI: agrupado por espacio, sin caja nueva. El estado lo dice el
+       texto; el color sólo acompaña. */
+    .ex-nc { display: flex; flex-direction: column; gap: var(--sp-1); }
+    .ex-nc-est { margin: 0; display: flex; align-items: baseline; gap: .35rem; font-size: var(--fs-xs); font-weight: 600; color: var(--text-main); }
+    .ex-nc-est .pi { font-size: var(--fs-xs); color: var(--text-muted); }
+    .ex-nc-est[data-estado="solo_cfdi"] .pi, .ex-nc-est[data-estado="solo_kepler"] .pi { color: var(--warn-fg); }
+    .ex-nc-l { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: .15rem var(--sp-2); margin: 0; font-size: var(--fs-micro); }
+    .ex-nc-l > div { display: contents; }
+    .ex-nc-l dt { color: var(--text-muted); }
+    .ex-nc-l dd { margin: 0; display: flex; flex-direction: column; gap: .1rem; min-width: 0; }
+    .ex-nc-doc { color: var(--text-faint); font-variant-numeric: tabular-nums; word-break: break-word; }
     @media (max-width: 40rem) { .ex-imp { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   `],
 })
@@ -263,6 +315,12 @@ export class ComprasEntradaExpedienteComponent {
   }
 
   money(n: number | null | undefined): string {
-    return n == null ? '—' : n.toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2 });
+    return n == null ? '—' : Number(n).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2 });
   }
+
+  /** `[RE.63]` Dónde está la rebaja y si cambia lo que se paga (texto puro en `receipt-verdict.ts`, con su spec). */
+  readonly ladoTexto = computed(() => {
+    const nl = this.data()?.notas_lados;
+    return nl ? notasLadosTexto(nl) : null;
+  });
 }

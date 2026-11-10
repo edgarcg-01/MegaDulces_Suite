@@ -1,5 +1,5 @@
 import {
-  CfdiCandidato, EntradaVeredicto, LlavesLiga, cuadra, diferenciasUuid, extraerUuid, hallazgosDe, ligarCfdi, notaQueExplica, notasParaFactura, relacionadosDeXml, traeRelacion,
+  CfdiCandidato, EntradaVeredicto, LlavesLiga, cuadra, diferenciasUuid, extraerUuid, hallazgosDe, ligarCfdi, notaQueExplica, notasParaFactura, relacionadosDeXml, traeRelacion, notasLados,
   promoverRfcImporte, proveedorEnContpaqi, veredictoExpediente, indexarCandidatos, candidatosPosibles,
 } from './expediente-verdict';
 
@@ -564,5 +564,80 @@ describe('[RE.62] relacionadosDeXml: el trozo CfdiRelacionados del XML de la not
     expect(relacionadosDeXml(null)).toEqual([]);
     expect(traeRelacion(null)).toBe(false);
     expect(traeRelacion(bloque('07', A))).toBe(true);
+  });
+});
+
+describe('[RE.63] notasLados: la rebaja está en Kepler, en el CFDI, en los dos o en ninguno', () => {
+  const sinAj = { operativo: 0, comercial: 0 };
+  const k = (folio: string, aplicado: number) => ({ tipo: '55' as const, folio, aplicado, fecha: '2026-10-01', motivo: null });
+  const c = (uuid: string, total: number, facturas = 1) => ({ uuid, total, fecha: '2026-10-02', facturas });
+  const v = () => veredictoExpediente(base());
+  it('las dos: se dicen los dos totales y la diferencia CFDI − Kepler', () => {
+    const l = notasLados([k('0000101', 900), k('0000102', 100)], [c('NC-1', 1170)]);
+    expect(l.estado).toBe('ambas');
+    expect(l.keplerTotal).toBe(1000);
+    expect(l.cfdiTotal).toBe(1170);
+    expect(l.diferencia).toBe(170);
+    expect(hallazgosDe(v(), sinAj, l)).toEqual([]);
+  });
+  it('sólo CFDI: el proveedor la timbró y Kepler no la aplicó → aplicarla en Kepler', () => {
+    const l = notasLados([], [c('NC-1', 500)]);
+    expect(l.estado).toBe('solo_cfdi');
+    expect(l.diferencia).toBeNull();
+    expect(hallazgosDe(v(), sinAj, l)).toEqual(['nc_solo_cfdi']);
+  });
+  it('sólo Kepler: Kepler ya descontó y no hay CFDI de la nota → pedírsela al proveedor', () => {
+    const l = notasLados([k('0000101', 900)], []);
+    expect(l.estado).toBe('solo_kepler');
+    expect(hallazgosDe(v(), sinAj, l)).toEqual(['nc_solo_kepler']);
+  });
+  it('NEGATIVA: sin factura ligada el lado del SAT NO se mide — no es «sólo Kepler»', () => {
+    const l = notasLados([k('0000101', 900)], null);
+    expect(l.estado).toBe('cfdi_no_medido');
+    expect(l.cfdiTotal).toBeNull();
+    expect(hallazgosDe(v(), sinAj, l)).toEqual([]);
+  });
+  it('ninguna (con o sin factura ligada) no da hallazgo', () => {
+    expect(notasLados([], []).estado).toBe('ninguna');
+    expect(notasLados([], null).estado).toBe('ninguna');
+    expect(hallazgosDe(v(), sinAj, notasLados([], []))).toEqual([]);
+  });
+  it('una nota CFDI compartida con otras facturas se marca: su diferencia no es atribuible al peso', () => {
+    expect(notasLados([k('0000101', 900)], [c('NC-COMP', 3000, 4)]).compartida).toBe(true);
+    expect(notasLados([k('0000101', 900)], [c('NC-1', 900)]).compartida).toBe(false);
+  });
+  it('NEGATIVA: el lado de las notas NO cambia el cubo ni los demás hallazgos', () => {
+    const vv = veredictoExpediente(base({ cfdi: cfdi({ total: 48210.5 + 500 }) }));
+    expect(vv.cubo).toBe('revisar');
+    expect(hallazgosDe(vv, sinAj, notasLados([], [c('NC-1', 300)]))).toEqual(['cobrar_nc', 'nc_solo_cfdi']);
+    expect(veredictoExpediente(base()).cubo).toBe('auto');
+  });
+});
+
+describe('[RE.63] los netos: ¿la nota de un solo lado cambia lo que se paga?', () => {
+  const k = (aplicado: number) => ({ tipo: '55' as const, folio: '0000101', aplicado, fecha: null, motivo: null });
+  const c = (total: number, facturas = 1) => ({ uuid: 'NC-1', total, fecha: null, facturas });
+  it('sólo CFDI con la entrada capturada YA con el descuento: los netos cuadran (aplicarla en Kepler la duplicaría)', () => {
+    // Patrón medido en prod: factura 100,000 − nota 5,000 = entrada 95,000 (montos sintéticos).
+    const l = notasLados([], [c(5000)], { factura: 100000, entrada: 95000 });
+    expect(l.estado).toBe('solo_cfdi');
+    expect(l.netosCuadran).toBe(true);
+    expect(l.difNeta).toBe(0);
+  });
+  it('sólo CFDI con la entrada completa: Kepler pagaría la nota de más (dif neta negativa)', () => {
+    const l = notasLados([], [c(5000)], { factura: 100000, entrada: 100000 });
+    expect(l.netosCuadran).toBe(false);
+    expect(l.difNeta).toBe(-5000);
+  });
+  it('sólo Kepler con la factura completa: el proveedor factura neto más de lo que Kepler pagará', () => {
+    const l = notasLados([k(9000)], [], { factura: 100000, entrada: 100000 });
+    expect(l.estado).toBe('solo_kepler');
+    expect(l.netoKepler).toBe(91000);
+    expect(l.difNeta).toBe(9000);
+    expect(l.netosCuadran).toBe(false);
+  });
+  it('NEGATIVA: con nota compartida o sin factura ligada el neto del CFDI no se afirma', () => {
+    expect(notasLados([], [c(5000, 3)], { factura: 100000, entrada: 95000 }).netosCuadran).toBeNull();
+    expect(notasLados([k(9000)], null, { factura: null, entrada: 100000 }).netosCuadran).toBeNull();
   });
 });

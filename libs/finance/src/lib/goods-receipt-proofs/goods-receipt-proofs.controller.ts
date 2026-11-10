@@ -6,6 +6,7 @@ import { GoodsReceiptTwinsService } from './goods-receipt-twins.service';
 import { ReceiptSlaService } from './receipt-sla.service';
 import { GoodsReceiptExpedienteService } from './goods-receipt-expediente.service';
 import type { EntradasSinOcResumen, IdentificacionEntrada, IdentificarLectura, ReceiptExpediente } from '@megadulces/contracts';
+import { EXPEDIENTE_HALLAZGOS } from '@megadulces/contracts';
 import { RemisionLine } from '@megadulces/platform-core';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string }; }
@@ -70,7 +71,7 @@ export class GoodsReceiptProofsController {
       // inventado se volvería un filtro que no matchea nada y se leería como "no hay nada".
       bandeja: ['auto', 'revisar', 'sin_cfdi_aun'].includes(String(query['bandeja']))
         ? (query['bandeja'] as ListReceiptsQuery['bandeja']) : undefined,
-      hallazgo: ['cobrar_nc', 'mal_emitida', 'incompleta', 'sin_oc', 'nc_aplicada', 'comercial'].includes(String(query['hallazgo']))
+      hallazgo: (EXPEDIENTE_HALLAZGOS as readonly string[]).includes(String(query['hallazgo']))
         ? (query['hallazgo'] as ListReceiptsQuery['hallazgo']) : undefined,
       // `[RE.51]` Lista blanca: cualquier otra cosa es `todo`, el comportamiento de siempre.
       expediente_lote: query['expediente_lote'] === 'pagina' ? 'pagina' : undefined,

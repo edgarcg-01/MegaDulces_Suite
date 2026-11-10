@@ -401,6 +401,76 @@ export function notasParaFactura(
   return { relacionadas, sugerida: notaQueExplica(diferencia, monto, factura.fecha, sueltas) };
 }
 
+/**
+ * `[RE.63]` Una nota de Kepler aplicada a la orden de entrada: `kdxf` con cargo `55` (nota de crédito) o
+ * `40` (devolución de compra) sobre el abono A·20 de la entrada, sin las canceladas (`kdm1.c43 = 'C'`).
+ */
+export interface NotaKepler { tipo: '55' | '40'; folio: string; aplicado: number; fecha: string | null; motivo: string | null }
+
+/**
+ * `[RE.63]` Dónde está la rebaja de la entrada. Kepler y el SAT NO registran la misma nota (Kepler captura su
+ * descuento pactado, el proveedor timbra otro monto), así que se compara POR ENTRADA, no nota por nota:
+ *   · `ambas`          — Kepler aplicó notas y el CFDI de la factura tiene notas que la relacionan.
+ *   · `solo_cfdi`      — el proveedor timbró la nota y Kepler no la aplicó: Kepler sigue debiendo de más.
+ *   · `solo_kepler`    — Kepler ya descontó y el proveedor no ha timbrado la nota: la factura sigue completa.
+ *   · `ninguna`        — ni una ni otra.
+ *   · `cfdi_no_medido` — Kepler aplicó notas, pero la entrada no tiene factura CFDI ligada: el lado del SAT
+ *                        no se puede saber (no es «sólo Kepler»).
+ * Medido 2026-11-10 (980 entradas con factura ligada desde agosto): ambas 193, sólo Kepler 147 (en 141 la
+ * factura viene completa), sólo CFDI 50; con notas en los dos lados el monto coincide en 66 de 193 (placebo 0).
+ */
+export type LadoNotas = 'ambas' | 'solo_cfdi' | 'solo_kepler' | 'ninguna' | 'cfdi_no_medido';
+
+export interface NotasLados {
+  estado: LadoNotas;
+  kepler: NotaKepler[];
+  /** Notas cuyo CFDI relaciona la factura de la entrada; `null` si no hay factura ligada. */
+  cfdi: NotaRelacionada[] | null;
+  keplerTotal: number;
+  /** Suma de las notas CFDI; las compartidas entran completas (el CFDI no reparte su monto): ver `compartida`. */
+  cfdiTotal: number | null;
+  /** CFDI − Kepler, sólo con notas en los dos lados. */
+  diferencia: number | null;
+  /** Alguna nota CFDI relaciona también otras facturas: la diferencia no es atribuible al peso. */
+  compartida: boolean;
+  /**
+   * La consecuencia, en netos: lo que Kepler pagará (entrada − sus notas) contra lo que el proveedor factura
+   * neto (factura − sus notas). Que la nota esté de un solo lado no siempre cambia lo que se paga: si Kepler
+   * capturó la entrada ya con el descuento, aplicar la nota del CFDI la descontaría dos veces.
+   * `null` sin factura ligada o con una nota compartida (su monto no es atribuible a esta factura).
+   */
+  netoKepler: number;
+  netoCfdi: number | null;
+  /** netoCfdi − netoKepler: > 0, el proveedor factura neto más de lo que Kepler pagará; < 0, al revés. */
+  difNeta: number | null;
+  netosCuadran: boolean | null;
+}
+
+const centavos = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * `[RE.63]` Clasifica dónde está la rebaja de una entrada. `cfdi = null` = sin factura ligada.
+ * `montos` = total de la factura CFDI y de la entrada de Kepler, para los netos.
+ */
+export function notasLados(kepler: NotaKepler[], cfdi: NotaRelacionada[] | null, montos?: { factura: number | null; entrada: number }): NotasLados {
+  const keplerTotal = centavos(kepler.reduce((s, n) => s + n.aplicado, 0));
+  const cfdiTotal = cfdi ? centavos(cfdi.reduce((s, n) => s + n.total, 0)) : null;
+  const hayK = kepler.length > 0;
+  const hayC = !!cfdi && cfdi.length > 0;
+  const estado: LadoNotas = cfdi === null ? (hayK ? 'cfdi_no_medido' : 'ninguna')
+    : hayK && hayC ? 'ambas' : hayC ? 'solo_cfdi' : hayK ? 'solo_kepler' : 'ninguna';
+  const compartida = !!cfdi && cfdi.some((n) => n.facturas > 1);
+  const netoKepler = centavos((montos?.entrada ?? 0) - keplerTotal);
+  const netoCfdi = cfdi && !compartida && montos?.factura != null ? centavos(montos.factura - (cfdiTotal as number)) : null;
+  const difNeta = netoCfdi == null ? null : centavos(netoCfdi - netoKepler);
+  return {
+    estado, kepler, cfdi, keplerTotal, cfdiTotal,
+    diferencia: estado === 'ambas' ? centavos((cfdiTotal as number) - keplerTotal) : null,
+    compartida, netoKepler, netoCfdi, difNeta,
+    netosCuadran: difNeta == null ? null : cuadra(difNeta, netoKepler),
+  };
+}
+
 // ═══════════════════════════════════════ 2. El veredicto ═══════════════════════════════════════
 
 export interface EntradaExpediente {
@@ -690,9 +760,13 @@ function motivosDe(checks: ExpedienteCheck[]): string[] {
  * registró una devolución (ajuste operativo, X-D-40) es entrega incompleta; una factura mayor sin
  * devolución ni nota de crédito se trata como «cobrar nota de crédito».
  */
-export type Hallazgo = 'cobrar_nc' | 'mal_emitida' | 'incompleta' | 'sin_oc' | 'nc_aplicada' | 'comercial';
+export type Hallazgo = 'cobrar_nc' | 'mal_emitida' | 'incompleta' | 'sin_oc' | 'nc_aplicada' | 'comercial' | 'nc_solo_cfdi' | 'nc_solo_kepler';
 
-export function hallazgosDe(v: Pick<Veredicto, 'cubo' | 'checks' | 'diferencia' | 'via' | 'notaCredito' | 'notas'>, ajustes: { operativo: number; comercial: number }): Hallazgo[] {
+/**
+ * `[RE.63]` `lados` (opcional): dónde está la rebaja. `solo_cfdi` → aplicar la nota en Kepler; `solo_kepler` →
+ * pedirle el CFDI de la nota al proveedor. Informativo: no cambia el cubo (pasa sola / revisar).
+ */
+export function hallazgosDe(v: Pick<Veredicto, 'cubo' | 'checks' | 'diferencia' | 'via' | 'notaCredito' | 'notas'>, ajustes: { operativo: number; comercial: number }, lados?: NotasLados | null): Hallazgo[] {
   if (v.cubo === 'fuera_de_alcance' || v.cubo === 'sin_documento') return [];
   const falla = (clave: string) => v.checks.some((c) => c.clave === clave && c.estado === 'falla');
   const out: Hallazgo[] = [];
@@ -704,5 +778,7 @@ export function hallazgosDe(v: Pick<Veredicto, 'cubo' | 'checks' | 'diferencia' 
   if (falla('E2_oc')) out.push('sin_oc');
   if (v.notaCredito) out.push('nc_aplicada');
   if (ajustes.comercial !== 0) out.push('comercial');
+  if (lados?.estado === 'solo_cfdi') out.push('nc_solo_cfdi');
+  if (lados?.estado === 'solo_kepler') out.push('nc_solo_kepler');
   return out;
 }

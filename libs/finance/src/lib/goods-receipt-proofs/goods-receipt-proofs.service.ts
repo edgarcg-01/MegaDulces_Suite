@@ -9,7 +9,7 @@ import { LlmExtractorService, OcrReadingsService, RemisionFields, RemisionLine }
 import { GoodsReceiptExpedienteService, enPares } from './goods-receipt-expediente.service';
 import { REGLA_EXPEDIENTE } from './expediente-verdict';
 import { fechaDeCalendario } from './fecha-de-calendario';
-import type { ExpedienteConteos, ExpedienteResumenFila } from '@megadulces/contracts';
+import type { ExpedienteConteos, ExpedienteHallazgo, ExpedienteResumenFila } from '@megadulces/contracts';
 import {
   parecidoNombre, rfcComparable, rfcBienFormado, evaluarPaquete, evaluarFolioInterno,
   HOJAS_INTERNAS, CUADRE_SQL, CUADRE_MOTIVO_SQL, COMERCIAL_CATS,
@@ -251,7 +251,7 @@ export interface ListReceiptsQuery {
   /** `[RE.35.5]` La Bandeja: el veredicto del expediente (sólo las que tienen documento). */
   bandeja?: 'auto' | 'revisar' | 'sin_cfdi_aun';
   /** `[RE.35.5]` El Hallazgo: qué hacer y con quién. */
-  hallazgo?: 'cobrar_nc' | 'mal_emitida' | 'incompleta' | 'sin_oc' | 'nc_aplicada' | 'comercial';
+  hallazgo?: ExpedienteHallazgo;
   /**
    * `[RE.51]` De qué entradas se calcula el expediente. `todo` (default) = todo el universo, con los
    * conteos de la Bandeja · `pagina` = sólo los renglones de la página, y `expediente` (los conteos)

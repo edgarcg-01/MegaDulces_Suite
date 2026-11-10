@@ -1,4 +1,4 @@
-import type { ReceiptExpediente } from '@megadulces/contracts';
+import type { ExpedienteNotasLados, ReceiptExpediente } from '@megadulces/contracts';
 import { escalaDeLectura } from '@megadulces/contracts';
 import { EntradaDetail, EntradaLinea, ReceiptDeposit, type MotivoDescarte } from './entradas.service';
 import { money } from '../../shared/util';
@@ -211,4 +211,47 @@ export const MOTIVOS_DESCARTE: { code: MotivoDescarte; label: string; pista: str
 
 export function motivoDescarteLabel(code?: string | null): string {
   return MOTIVOS_DESCARTE.find((m) => m.code === code)?.label || '';
+}
+
+/**
+ * `[RE.63]` El texto del bloque «Notas de crédito · Kepler y CFDI» del expediente: DÓNDE está la rebaja
+ * (`titulo`) y si CAMBIA lo que se paga (`consecuencia`, en netos: lo que Kepler pagará = entrada − sus
+ * notas, contra lo que el proveedor factura neto = factura − sus notas). Una nota de un solo lado no
+ * siempre cambia lo que se paga: si Kepler capturó la entrada ya con el descuento, aplicar la nota del
+ * CFDI la descontaría dos veces (medido en prod, p. ej. una entrada del CEDIS que «pasa sola»).
+ * Puro, para probarlo sin montar el panel.
+ */
+export function notasLadosTexto(nl: ExpedienteNotasLados): { titulo: string; consecuencia: string | null; icono: string } {
+  const icono = nl.estado === 'solo_cfdi' || nl.estado === 'solo_kepler' ? 'pi-exclamation-triangle'
+    : nl.estado === 'ambas' && nl.netos_cuadran ? 'pi-check' : 'pi-info-circle';
+  let titulo = '';
+  switch (nl.estado) {
+    case 'ambas':
+      titulo = nl.diferencia != null && Math.abs(nl.diferencia) > EPS
+        ? `En Kepler y en el CFDI, con montos distintos: Kepler ${money(nl.kepler_total)}, CFDI ${money(nl.cfdi_total)}`
+        : `En Kepler y en el CFDI, por el mismo monto (${money(nl.kepler_total)})`;
+      break;
+    case 'solo_cfdi': titulo = 'Sólo en el CFDI: el proveedor timbró la nota y Kepler no la aplicó'; break;
+    case 'solo_kepler': titulo = 'Sólo en Kepler: Kepler ya descontó y el proveedor no ha timbrado la nota'; break;
+    case 'cfdi_no_medido': titulo = `Kepler aplicó ${money(nl.kepler_total)} en notas a esta entrada`; break;
+  }
+  return { titulo, icono, consecuencia: consecuenciaNetos(nl) };
+}
+
+function consecuenciaNetos(nl: ExpedienteNotasLados): string | null {
+  if (nl.estado === 'ninguna' || nl.estado === 'cfdi_no_medido') return null; // sin factura ligada, el renglón «CFDI» ya lo dice
+  if (nl.compartida && nl.netos_cuadran == null) {
+    return 'Una nota del CFDI relaciona también otras facturas: no se puede saber cuánto le toca a ésta.';
+  }
+  if (nl.netos_cuadran == null || nl.dif_neta == null) return null;
+  if (nl.netos_cuadran) {
+    return nl.estado === 'solo_cfdi'
+      ? `No cambia lo que se paga: Kepler capturó la entrada ya con el descuento (${money(nl.neto_kepler)}). Aplicar la nota en Kepler la descontaría dos veces.`
+      : `No cambia lo que se paga: Kepler pagará ${money(nl.neto_kepler)}, lo mismo que el proveedor factura neto.`;
+  }
+  const d = money(Math.abs(nl.dif_neta));
+  if (nl.dif_neta > 0) {
+    return `El proveedor factura neto ${d} más de lo que Kepler pagará (${money(nl.neto_kepler)})${nl.estado === 'solo_kepler' ? ': hay que pedirle el CFDI de la nota.' : '.'}`;
+  }
+  return `Kepler pagaría ${d} más de lo que el proveedor factura neto (${money(nl.neto_cfdi)})${nl.estado === 'solo_cfdi' ? ': hay que aplicar la nota en Kepler.' : '.'}`;
 }
