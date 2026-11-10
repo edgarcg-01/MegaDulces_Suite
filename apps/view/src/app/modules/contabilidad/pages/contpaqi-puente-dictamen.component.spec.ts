@@ -123,6 +123,8 @@ describe('[CP.8.97] /contabilidad/contpaqi-puente · la entrega con el dictamen 
       pendientes: (m) => of({ mes: m, total_importe: 0, filas: [] }),
       reglas: (m) => of({ mes: m, reglas: [] }),
       cuentasGasto: () => of({ cuentas: [] }),
+      // [PGP.111c] Leer los proveedores de gasto es lectura; firmar/quitar siguen fuera de la lista (cuentan como escritura).
+      cuentasGastoProveedor: () => of({ filas: [] }),
       pagosPorConfirmar: (m) => of({ mes: m, pagos: [] }),
       archivo: () => of(new HttpResponse({
         body: new Blob(['POLIZA'], { type: 'text/plain' }), headers: new HttpHeaders(archivoHeaders), status: 200,

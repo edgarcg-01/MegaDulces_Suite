@@ -1604,3 +1604,30 @@ sin historia: «Falta la cuenta de gasto… La define Contabilidad». Sin cuenta
 ⬜ Lo que falta de P3: dónde la FIRMA Contabilidad cuando no hay historia (o cuando la más usada no es segura, como
 CFE con 64 de 127). El Puente ContPAQi firma por categoría, no por proveedor: no se pone una liga ahí hasta que permita
 firmar por proveedor (un enlace afirma que el destino lo permite).
+
+### `[PGP.111c]` Contabilidad firma la cuenta de gasto por proveedor, en el Puente ContPAQi (🧪 2026-11-10)
+
+Cierra P3. **Dónde:** Contabilidad › Puente ContPAQi, paso «Reglas de cuenta», bloque «Y la de cada proveedor de
+gasto» (el mismo lugar donde ya firma la cuenta por categoría; mismo permiso `FISCAL_CONTPAQI_BRIDGE_GESTIONAR`, mismo
+catálogo de cuentas 52, la pista sin preselección como `[CP.8.51]`). Lista los proveedores de gasto del Calendario
+(90 días): primero los que **necesitan** firma (sin historia, o una cuenta que usó la mitad de las veces o menos),
+por dinero; los que ya tienen cuenta, a un clic.
+
+- Tabla nueva `contpaqi.supplier_expense_accounts` (migración `20261110102907`): una firma activa por RFC, cuenta 52
+  de 10 dígitos (CHECK), autor obligatorio, RLS forzada + `tenant_id` + auditoría; re-firmar desactiva la anterior.
+  ⛔ Va en prod ANTES del código (los lectores la buscan; si no existe, siguen con lo derivado y no truenan).
+- **La firma le gana a la derivada en los DOS lectores:** la póliza de gasto (`FuentePagoProveedor.cuentaGastoDe`) y el
+  Calendario (`leerCuentasGasto` → estado `firmada`, «firmada por …»).
+- Endpoints: `GET finance/contpaqi/cuentas-gasto-proveedor` (`_VER`), `POST …/:rfc/firma` y `POST …/:rfc/quitar`
+  (`_GESTIONAR`, con autor; rechazo con su motivo → 409).
+
+**Medido con el código real (prod, sólo lectura):** 21 proveedores de gasto, **2 necesitan firma** (sin historia);
+19 ya tienen cuenta derivada. La lista en UNA consulta tardaba **13 s**; en pasos, con las MISMAS consultas del CFDI
+del Calendario (`SQL_DOCUMENTOS_KEPLER`, `SQL_RFC_DE_ACREEDORES`), **~550 ms** — se pide aparte y no frena el paso;
+sigue arriba de 500 ms: declarado.
+
+**Pruebas:** `cuenta-gasto-proveedor.it.spec.ts` contra Postgres real en transacción revertida (job de integración del
+CI): rechazos (banco, baja, inexistente, RFC inválido, sin autor), firmar → `firmada`, re-firmar → una activa y el
+historial, quitar → «sin historia» y quitar dos veces se rechaza. NO MEDIDO: el RLS en esa prueba (corre como
+superusuario; la migración lo verifica al aplicarse) y el arranque de Nest (rutas nuevas, sin cambio de constructor:
+lo prueba `boot-api`). La suite no va a `run-all-tests.js` porque ese archivo trae cambios de otra sesión en el índice.

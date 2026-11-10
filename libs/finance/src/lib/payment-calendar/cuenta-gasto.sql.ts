@@ -36,13 +36,25 @@ export async function leerCuentasGasto(trx: Knex | Knex.Transaction, tenantId: s
     if (rfc) porRfc.set(rfc, [...(porRfc.get(rfc) ?? []), { cuenta: x.cuenta, f: x.f }]);
   }
   const elegidas = new Map(lista.map((rfc) => [rfc, cuentaGastoMasUsada(porRfc.get(rfc) ?? [])]));
+  // `[PGP.111c]` Lo que firmó Contabilidad le gana a lo derivado. Sin la tabla (antes de su migración) no hay firmas.
+  const hayFirmas = Boolean((await trx.raw(`SELECT to_regclass('contpaqi.supplier_expense_accounts') IS NOT NULL AS ok`)).rows[0]?.ok);
+  const firmas = hayFirmas
+    ? new Map(((await trx.raw(`SELECT rfc, cuenta, cuenta_nombre, firmada_por FROM contpaqi.supplier_expense_accounts
+        WHERE tenant_id = ? AND active AND rfc = ANY(?::text[])`, [tenantId, lista])).rows as { rfc: string; cuenta: string; cuenta_nombre: string | null; firmada_por: string }[])
+      .map((r) => [r.rfc, r]))
+    : new Map<string, { rfc: string; cuenta: string; cuenta_nombre: string | null; firmada_por: string }>();
   const codigos = [...new Set([...elegidas.values()].filter(Boolean).map((e) => e!.cuenta))];
   const nombres = codigos.length
     ? new Map(((await trx.raw(`SELECT codigo, nombre FROM analytics.contpaqi_accounts WHERE tenant_id = ? AND codigo = ANY(?::text[])`,
       [tenantId, codigos])).rows as { codigo: string; nombre: string }[]).map((r) => [r.codigo, r.nombre]))
     : new Map<string, string>();
   for (const rfc of lista) {
+    const f = firmas.get(rfc);
     const e = elegidas.get(rfc);
+    if (f) {
+      out.set(rfc, { estado: 'firmada', cuenta: f.cuenta, nombre: f.cuenta_nombre, firmada_por: f.firmada_por, veces: e?.veces ?? 0, total: e?.total ?? 0, rfc });
+      continue;
+    }
     out.set(rfc, e
       ? { estado: 'derivada', cuenta: e.cuenta, nombre: nombres.get(e.cuenta) ?? null, veces: e.veces, total: e.total, rfc }
       : { estado: 'sin_historia', cuenta: null, nombre: null, veces: 0, total: 0, rfc });

@@ -52,3 +52,10 @@ describe('[PGP.111b] el pago de gasto necesita su cuenta 52', () => {
     expect(polizaEgresoDelPago([fac({ metodo: 'PUE' })], [], DIA, true, null).estado).toBe('lista');
   });
 });
+
+describe('[PGP.111c] la cuenta firmada por Contabilidad', () => {
+  it('⭐ firmada cuenta como cuenta: la póliza se genera', () => {
+    expect(polizaEgresoDelPago([fac({ metodo: 'PUE' })], [], DIA, true,
+      { estado: 'firmada', cuenta: '5200590000', nombre: null, firmada_por: 'contadora', veces: 0, total: 0, rfc: 'X' }).estado).toBe('lista');
+  });
+});

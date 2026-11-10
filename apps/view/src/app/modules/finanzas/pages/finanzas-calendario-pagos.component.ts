@@ -867,10 +867,13 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                         <!-- [PGP.111b] La cuenta de gasto (52) de un pago de GASTO: la que Contabilidad ya usó con ese proveedor, con
                              cuántas veces de cuántas (una cuenta que usó la mitad de las veces no es segura, y se dice). -->
                         @if (a.cuenta_gasto; as cg) {
-                          @if (cg.estado === 'derivada') {
+                          @if (cg.estado === 'firmada') {
+                            <!-- [PGP.111c] La firmó Contabilidad en el Puente ContPAQi: le gana a la derivada. -->
+                            <p class="pg-x-d">Cuenta de gasto: <span class="comm-num">{{ cg.cuenta }}</span>@if (cg.nombre) { {{ cg.nombre }}} — firmada por {{ cg.firmada_por }} (Contabilidad).</p>
+                          } @else if (cg.estado === 'derivada') {
                             <p class="pg-x-d">Cuenta de gasto: <span class="comm-num">{{ cg.cuenta }}</span>@if (cg.nombre) { {{ cg.nombre }}} — la que Contabilidad usó {{ cg.veces }} de {{ cg.total }} {{ cg.total === 1 ? 'vez' : 'veces' }} con este proveedor@if (cg.veces * 2 <= cg.total) {; no siempre la carga igual: confírmala}.</p>
                           } @else {
-                            <p class="pg-x-d pg-ens-err"><i class="pi pi-info-circle" aria-hidden="true"></i> Falta la cuenta de gasto: @if (cg.estado === 'sin_rfc') {no se sabe el RFC del proveedor} @else {Contabilidad nunca ha registrado una póliza de este proveedor}. La define Contabilidad; sin ella la póliza no se genera.</p>
+                            <p class="pg-x-d pg-ens-err"><i class="pi pi-info-circle" aria-hidden="true"></i> Falta la cuenta de gasto: @if (cg.estado === 'sin_rfc') {no se sabe el RFC del proveedor} @else {Contabilidad nunca ha registrado una póliza de este proveedor}. La firma Contabilidad en Contabilidad › Puente ContPAQi (paso «Reglas de cuenta»); sin ella la póliza no se genera.</p>
                           }
                         }
                         <!-- [PGP.105] El ensayo: el X-D-26 que la Suite escribiría en Kepler (no escribe nada) y, si Tesorería ya lo

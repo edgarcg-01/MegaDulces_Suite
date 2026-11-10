@@ -42,7 +42,7 @@ SELECT k.oid::text AS oid, k.sucursal, k.acreedor, k.importe::float8 AS importe,
 
 /** Paso 3 — el RFC, sólo de los acreedores del día (filtrar por acreedor es lo que la vista aprovecha). Parámetros: `[acreedores (text[])]`. */
 export const SQL_RFC_DE_ACREEDORES = `
-SELECT sucursal, proveedor_code, rfc FROM analytics.v_supplier_rfc WHERE proveedor_code = ANY(?::text[])`;
+SELECT sucursal, proveedor_code, proveedor_nombre, rfc FROM analytics.v_supplier_rfc WHERE proveedor_code = ANY(?::text[])`;
 
 /**
  * Los CFDI recibidos tipo I, no cancelados, de esos RFC y alrededor de esas fechas. El IVA y el IEPS

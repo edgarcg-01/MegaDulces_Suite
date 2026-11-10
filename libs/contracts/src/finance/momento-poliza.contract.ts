@@ -49,9 +49,12 @@ export type EstadoPolizaEgreso = 'lista' | 'espera_rep' | 'sin_cfdi' | 'sin_meto
  * (`cuentaGastoMasUsada`, `[CP.8.87]`: 93 %, placebo 9 %). Sin historia no se adivina: la define Contabilidad.
  */
 export interface CuentaGastoDelPago {
-  estado: 'derivada' | 'sin_rfc' | 'sin_historia';
+  /** `[PGP.111c]` `firmada`: la definió Contabilidad (le gana a la derivada). */
+  estado: 'firmada' | 'derivada' | 'sin_rfc' | 'sin_historia';
   cuenta: string | null;
   nombre: string | null;
+  /** `[PGP.111c]` Quién la firmó, si está firmada. */
+  firmada_por?: string | null;
   /** Cuántas veces la usó Contabilidad con este RFC, de cuántas pólizas de gasto suyas. */
   veces: number;
   total: number;
@@ -90,7 +93,7 @@ export function polizaEgresoDelPago(facturas: readonly FacturaParaPoliza[], reps
   const estado: EstadoPolizaEgreso = !out.length ? 'sin_cfdi'
     : hay('sin_cfdi') ? 'sin_cfdi'
       : hay('sin_metodo') ? 'sin_metodo'
-        : cuentaGasto && cuentaGasto.estado !== 'derivada' ? 'sin_cuenta_gasto'
+        : cuentaGasto && cuentaGasto.estado !== 'derivada' && cuentaGasto.estado !== 'firmada' ? 'sin_cuenta_gasto'
         : hay('no_medido') ? 'no_medido'
           : hay('espera_rep') ? 'espera_rep'
             : 'lista';

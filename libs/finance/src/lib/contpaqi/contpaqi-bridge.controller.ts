@@ -6,7 +6,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import {
   ConfirmacionRechazada, ContpaqiArmadoService, EntregaRechazada, FirmaRechazada, type DictamenMes, type MovimientoVista, type PagoPorConfirmar,
-  type PendienteProveedor, type PruebaPorProveedor, type ReglaVista, type ResumenLote, type ResumenMes,
+  type PendienteProveedor, type PruebaPorProveedor, type ReglaVista, type ResumenLote, type ResumenMes, type CuentaGastoProveedor,
 } from './contpaqi-armado.service';
 import { ContpaqiCuadreService } from './contpaqi-cuadre.service';
 import {
@@ -326,6 +326,58 @@ export class ContpaqiBridgeController {
   }
 
   /** `[CP.8.53]` Revoca una firma: la categoría vuelve a `sin_regla` y deja de armarse. */
+  /**
+   * `[PGP.111c]` Los proveedores de gasto y su cuenta 52: firmada, derivada (la que la contadora usó más con ese RFC)
+   * o «falta». Lo que necesita firma va primero. `_VER`: mirar el trabajo pendiente no es hacerlo.
+   */
+  @Get('cuentas-gasto-proveedor')
+  @RequirePermissions(Permission.FISCAL_CONTPAQI_BRIDGE_VER)
+  @ApiOperation({ summary: '[PGP.111c] Proveedores de gasto con su cuenta 52 (firmada, derivada o falta) y si necesitan firma.' })
+  async cuentasGastoProveedor(): Promise<{ filas: CuentaGastoProveedor[] }> {
+    return { filas: await this.armado.cuentasGastoPorProveedor() };
+  }
+
+  /**
+   * `[PGP.111c]` Contabilidad firma la cuenta de gasto de un proveedor (RFC). Le gana a la derivada en la póliza y en
+   * el Calendario. ⛔ `_GESTIONAR` y deja el nombre de quien firma; el motivo de un rechazo vuelve tal cual (409).
+   */
+  @Post('cuentas-gasto-proveedor/:rfc/firma')
+  @RequirePermissions(Permission.FISCAL_CONTPAQI_BRIDGE_GESTIONAR)
+  @ApiOperation({ summary: '[PGP.111c] Firma la cuenta de gasto (52) de un proveedor por su RFC.' })
+  async firmarCuentaGastoProveedor(
+    @Param('rfc') rfc: string,
+    @Body() body: { cuenta?: string; nota?: string },
+    @Req() req: { user?: { username?: string; sub?: string } },
+  ): Promise<CuentaGastoProveedor> {
+    const quien = req?.user?.username || req?.user?.sub;
+    if (!quien) throw new BadRequestException('no se pudo identificar quién firma');
+    if (!body?.cuenta) throw new BadRequestException('hace falta `cuenta`');
+    try {
+      return await this.armado.firmarCuentaGastoProveedor(rfc, body.cuenta, quien, body.nota ?? null);
+    } catch (e) {
+      if (e instanceof FirmaRechazada) throw new ConflictException(e.message);
+      throw e;
+    }
+  }
+
+  /** `[PGP.111c]` Quita la firma: vuelve a mandar la cuenta derivada (o «falta»). `_GESTIONAR`, con autor. */
+  @Post('cuentas-gasto-proveedor/:rfc/quitar')
+  @RequirePermissions(Permission.FISCAL_CONTPAQI_BRIDGE_GESTIONAR)
+  @ApiOperation({ summary: '[PGP.111c] Quita la firma de la cuenta de gasto de un proveedor.' })
+  async quitarCuentaGastoProveedor(
+    @Param('rfc') rfc: string,
+    @Req() req: { user?: { username?: string; sub?: string } },
+  ): Promise<CuentaGastoProveedor> {
+    const quien = req?.user?.username || req?.user?.sub;
+    if (!quien) throw new BadRequestException('no se pudo identificar quién quita la firma');
+    try {
+      return await this.armado.quitarFirmaCuentaGasto(rfc, quien);
+    } catch (e) {
+      if (e instanceof FirmaRechazada) throw new ConflictException(e.message);
+      throw e;
+    }
+  }
+
   @Post('reglas/:categoria/revocar')
   @RequirePermissions(Permission.FISCAL_CONTPAQI_BRIDGE_GESTIONAR)
   @ApiOperation({ summary: 'Revoca la firma de una regla de cuenta.' })
