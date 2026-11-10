@@ -793,4 +793,42 @@ describe('[GX.91] FinanzasCapturarGastoComponent · nada se manda dos veces', ()
     comp.usarConceptoDeKepler();
     expect(comp.comentarios()).toBe('VIATICOS RUTA 5');
   });
+
+  /**
+   * `[GX.110]` La caja pedía «Últimos 4 dígitos»: con el folio 0010570, «0570» es el número 570 y no
+   * lo encuentra. El rótulo ahora pide el número sin los ceros, y si alguien escribe ceros de adelante
+   * la pantalla le dice cómo se leyó, en vez de afirmar que el folio no existe.
+   */
+  describe('[GX.110] el folio se escribe sin los ceros de adelante', () => {
+    function buscarSinResultados(q: string): void {
+      comp.buscar({ query: q });
+      http.match((r) => r.url.endsWith('/search-solicitudes')).forEach((r) => r.flush([]));
+    }
+
+    it('«0570» explica que se leyó como 570 y pide el número completo', () => {
+      buscarSinResultados('0570');
+      expect(comp.vacioMsg()).toContain('se lee como el folio 570');
+      expect(comp.vacioMsg()).toContain('10570');
+      expect(comp.vacioMsg()).not.toContain('No hay ninguna solicitud');
+    });
+
+    it('el número sin ceros que no existe sigue diciendo que no hay solicitud', () => {
+      buscarSinResultados('10570');
+      expect(comp.vacioMsg()).toContain('No hay ninguna solicitud con folio 10570');
+    });
+
+    it('el folio completo con sus 7 cifras no es un error de ceros', () => {
+      buscarSinResultados('0010570');
+      expect(comp.vacioMsg()).toContain('No hay ninguna solicitud con folio 0010570');
+    });
+
+    it('la caja ya no pide «Últimos 4 dígitos»', () => {
+      const fix = TestBed.createComponent(FinanzasCapturarGastoComponent);
+      fix.detectChanges();
+      http.match(() => true).forEach((r) => { if (!r.cancelled) r.flush([]); });
+      const html = (fix.nativeElement as HTMLElement).innerHTML;
+      expect(html).not.toContain('Últimos 4 dígitos');
+      expect(html).toContain('sin los ceros');
+    });
+  });
 });

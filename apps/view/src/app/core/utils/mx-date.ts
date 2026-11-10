@@ -29,6 +29,23 @@ export function toMxDateKey(value: Date | string | null | undefined): string {
 }
 
 /**
+ * `[GX.106]` El día de México (`YYYY-MM-DD`) de lo que manda el servidor: un día ya dado
+ * (`2026-11-05`) se queda igual; una marca de tiempo (`2026-11-06T02:30:00.000Z`) se lleva a la
+ * hora de México antes de tomar el día.
+ *
+ * ⚠️ Cortar en la `T` (lo que hacen `parseLocalDate` y `toMxDateKey` con un string) toma el día de
+ * Greenwich: un vale mandado a las 8:30 p. m. del 5 llega como `…06T02:30Z` y se leería del 6.
+ * Vacío o ilegible ⇒ `''`.
+ */
+export function diaMxDe(valor: string | null | undefined): string {
+  if (!valor) return '';
+  const s = String(valor);
+  if (!s.includes('T')) return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : '';
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? '' : toMxDateKey(d);
+}
+
+/**
  * Parsea un string `YYYY-MM-DD` como fecha LOCAL (midnight en la TZ del
  * browser, no UTC). Útil para extraer día de semana / día del mes sin que
  * el TZ corra al día anterior.

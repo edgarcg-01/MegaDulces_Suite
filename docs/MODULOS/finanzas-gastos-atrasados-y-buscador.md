@@ -40,9 +40,9 @@ aprobó.
   - `delDia()` devuelve `atrasados` (de otro día y no cerrados, `ORDER BY created_at ASC`) con
     `atrasados_total` y `atrasados_truncada`; `filas` queda sólo con el día.
   - `buscarGastos()` (nuevo): busca en `analytics.expense_requests` **desde el primer vale de la
-    Suite** con `applySmartSearch` (el primitivo de búsqueda que ya usa Caja General) y en
+    Suite** (`[GX.107]`: el folio exacto, por la fecha efectiva) con `applySmartSearch` (el primitivo de búsqueda que ya usa Caja General) y en
     `finance.v_expense_proofs` por sus campos o por estar ligado a una solicitud que coincidió.
-  - `searchSolicitudes()`: el folio exacto busca desde el inicio de la Suite y sin vale.
+  - `searchSolicitudes()`: el folio exacto busca desde el inicio de la Suite y sin vale (`[GX.107]`: por la fecha efectiva, ver la sección del final).
   - El armado del renglón (columnas + Kepler por punto + archivos firmados) se sacó a
     `columnasDelDia()` / `detallarDelDia()`, que comparten el día, los atrasados y el buscador.
 - `GET /finance/expenses/proofs/buscar?q=` con `FINANCE_EXPENSES_COMPROBAR`, declarado antes de
@@ -101,3 +101,50 @@ Medido con el código de producción (`7a399609b`) contra la base de producción
 - **Mis gastos / Historial:** `acreedor` de `analytics.expense_requests` es un `LATERAL` sobre `kdxd` sin índice por `btrim(c2)` (~400 ms). Ahora el nombre se trae una vez por clave (`acreedoresPorClave`), con la regla de la vista.
 - **Aprobación:** las búsquedas a Kepler, una por sucursal y en serie, pasan a una sola.
 - **Sin migraciones.** Y lo más importante: **la respuesta es idéntica** antes y después (Expediente 1,630 vales, Mis gastos 202, Historial 29 y 500), comparada campo por campo; el comparador detecta un cambio de un centavo (control).
+
+## Fechas de Kepler y a quién le llega cada solicitud (GX.103–GX.110, 2026-11-09/10)
+
+### Problema
+- Varios usuarios dijeron que buscar un gasto era «mucho más rápido» en Kepler: allá F9 enseña los últimos, folio + Enter abre, y todo es una tabla densa con teclado.
+- Una solicitud capturada en Kepler con la fecha de una **póliza vieja** (enero) no salía en la Suite: Capturar gasto, Mis gastos y el buscador la recortaban por la **fecha del documento** (`c9`, la que se teclea).
+- «Algunos gastos que se suben no aparecen». Medido en prod (sólo lectura): los **vales** sí le salen todos a su dueño (1,791); lo que no aparece son las **solicitudes de Kepler**. De 1,664 sin vale, **1,600 no le llegaban a nadie** en Mis gastos: la caja «Solicita» trae nombres, apodos o áreas, no el usuario de la Suite.
+- En Aprobación, un vale levantado y aprobado HOY no salía en ninguna pestaña hasta mañana.
+
+### Solución
+- **Buscador (GX.103):** «Últimos» / F9 / Enter con la caja vacía, folio + Enter abre si es UN vale, tabla densa ordenable con columnas parejas, `/` y flechas, monto, y lo buscado resaltado.
+- **Aprobación (GX.105, GX.109):** las tres listas en una lista desplegable; al entrar, la Bandeja de hoy; la bandeja vacía ofrece ir a los atrasados; lo de hoy ya aprobado sale en Atrasados.
+- **Mis gastos (GX.106):** «Se mandó» con la fecha en vez de «Días»; los días sólo si urge.
+- **La fecha del documento sólo se muestra (GX.107).** «Desde que arrancó la Suite» se cuenta por la **fecha efectiva**: la de captura (`c68`) si es más nueva. Así entra lo capturado tarde con fecha vieja, y lo que de verdad es de antes de la Suite sigue fuera.
+- **A quién le llega (GX.108):** además del usuario, por el **nombre exacto** de la persona, sólo si nadie más lo puede reclamar.
+
+### Cómo se implementó
+- `libs/finance/src/lib/expense-proofs/frontera-solicitudes.ts`: la fecha efectiva (`greatest(r.fecha, r.capturado_at::date)`), el folio exacto por texto (`candidatosDeFolio`: el número con ceros hasta 10) y las condiciones con O (`folioExactoDesde`, `desdeOFolioExacto`).
+- `solicita-por-nombre.ts`: la llave de nombre (sólo letras, sin acentos con `translate`), `SQL_MI_NOMBRE_LIGABLE` (el nombre no se usa si OTRO usuario tiene todas sus palabras) y `solicitaDe`.
+- `etapas-del-dia.ts`: `ESTADOS_ABIERTOS_SIN_FIRMA` (derivado) y `filtroAtrasados`, uno para la lista y su total.
+- `ValeAsignado.capturado` (opcional) para que Mis gastos ordene y cuente los días por la captura y muestre la fecha del documento sólo como dato.
+- **Sin migraciones ni cambios de datos.** La vista ya publicaba `capturado_at`.
+
+### Por qué así
+- **Un O, nunca sólo la captura:** `greatest` ignora el NULL, así que sin `c68` decide la fecha del documento como antes y nada de lo visible desaparece.
+- **El folio exacto NO es de cualquier fecha:** sin tope dejaba ver por folio 8,323 solicitudes de antes de la Suite, también a quien no tiene áreas (auditoría independiente, 2026-11-10).
+- **Privacidad antes que cobertura:** un nombre compartido o «contenido» en el de otro usuario no se liga; un nombre parecido tampoco (sería adivinar). Los ~1,100 restantes (áreas, apodos, nombres incompletos) necesitan una decisión, no una regla.
+- **Las condiciones con O se prueban compilando el SQL** (knex sin conexión): un paréntesis movido se saltaría el filtro de tenant y una comparación de texto no lo ve.
+
+### Medido en producción (sólo lectura, 2026-11-10)
+| Qué | Resultado |
+|---|---|
+| `c68` (captura) en las solicitudes X-A-15 | llena en 12,487 de 12,487 |
+| Folios X-A-15 | todos de 7 dígitos |
+| Folio exacto (Capturar gasto y buscador), antes → después | ~25 ms → ~35 ms, con `idx_kdm1_xa_doc` |
+| Lo asignado en Mis gastos, antes → después | ~325 ms → ~485 ms |
+| Solicitudes ligadas por nombre | 479 a 8 personas, 0 a dos o más |
+| De antes de la Suite visibles por folio exacto | 8,323 sin tope → 0 con la fecha efectiva |
+| Fechadas antes del arranque y capturadas después | 89 visibles por folio exacto |
+
+### Pendiente / declarado
+- **Sin validación visual** de GX.103, GX.105 y GX.106.
+- **Confirmar con Finanzas** que las 479 solicitudes ligadas por nombre (una persona recibe ~320) son pendientes reales y no pagos que nunca llevan vale.
+- ~1,100 solicitudes con áreas, apodos o nombres incompletos en «Solicita» no le llegan a nadie: escribir el usuario en Kepler, o una lista de equivalencias que alguien mantenga.
+- El texto y el monto del buscador siguen acotados por la fecha del documento: lo capturado tarde se encuentra por folio.
+- «Atorado» se cuenta desde que se mandó (antes, desde la fecha del gasto): decisión pendiente.
+- Sin prueba contra base con homónimos; un empleado SIN cuenta en la Suite con el mismo nombre que un usuario no se puede detectar.

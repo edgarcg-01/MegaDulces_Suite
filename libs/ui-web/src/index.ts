@@ -76,7 +76,10 @@ export {
   tokensDeBusqueda,
   coincideBusqueda,
   filtrarPorBusqueda,
+  resaltarCoincidencias,
 } from './search/buscar-en-cliente';
+/** `[GX.103]` Un tramo de texto marcado o no por `resaltarCoincidencias`. */
+export type { TramoResaltado } from './search/buscar-en-cliente';
 
 /**
  * `[NP.7.L.8b]` ¿La foto salió borrosa, movida o con el lente sucio? Se mide en el teléfono antes de
