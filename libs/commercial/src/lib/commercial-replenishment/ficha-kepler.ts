@@ -97,6 +97,16 @@ export function frenoFichaSinCaja(
 }
 
 /**
+ * `[PQ.105]` La celda cuya caja la dice la FICHA de Kepler de la sucursal (su escalera de
+ * unidades, fuente de `analytics.v_warehouse_box_factor`): ahí la caja de la demanda es la de la
+ * ficha, no el override manual ni el factor_sale. Sólo con `suf = 1` (demanda en la unidad base de
+ * Kepler): el granel trae la demanda en KG y su `suf × bf` ya es la caja (57009, cubeta de 20 KG).
+ * Misma regla que `FICHA_KEPLER` en `import-replenishment-plan.js`; alias `db` y `fz`.
+ */
+export const FICHA_KEPLER_SQL =
+  "(db.factor_source IN ('kepler_unidad_unica', 'kepler_ficha', 'kepler_ficha_costo', 'kepler_ficha_contradice_costo') AND fz.suf = 1)";
+
+/**
  * `[COT.7]` Cuántas unidades base trae la presentación `rotuloPres` según la ficha: 1 si es la
  * base (`c11`), el factor efectivo de la Unidad Dos (`c80`) o de la Tres (`c83`) si el rótulo es
  * el suyo, y `null` si la ficha no declara esa presentación. Con la misma regla de factor efectivo

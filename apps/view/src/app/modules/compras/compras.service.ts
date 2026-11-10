@@ -98,7 +98,7 @@ export interface PurchaseSuggestionRow {
   // RA-PRO.28 — verificación de unidad de venta
   stock_unit_factor?: number; // SUF: sub-unidades de demanda por unidad de stock (>1 = granel corregido)
   price_ratio?: number;       // ratio mayoreo $/u ÷ retail $/u (señal de unidad)
-  unit_source?: string;       // manual | granel | revisar | catalog
+  unit_source?: string;       // kepler | manual | granel | revisar | catalog  ([PQ.105] kepler = ficha de la sucursal)
   coverage_days_eff?: number; // RA-PRO.27 — cobertura aplicada (manual → cadencia Kepler+lead → auto → global)
   coverage_source?: string;   // RA-PRO.27/41 — manual | kepler | auto | global
   safety_pct_eff?: number;    // RA-PRO.27 — colchón % aplicado

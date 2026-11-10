@@ -631,7 +631,20 @@ const cte = (hist, tr, lead) => `
 // las dos viven en la misma unidad base y la caja es 1 para ambas. Con bf del producto (el
 // factor_sale de 40 del 15151 Lico) la demanda salía 40 veces más chica que la existencia y la
 // mesa no pedía: medido 2026-11-07, 282 celdas, 117 que deben pedir contra 42.
-const BF_ROW = `(CASE WHEN db.factor_source = 'kepler_unidad_unica' THEN 1 ELSE e.bf END)`;
+// [PQ.105] Y no sólo donde no hay caja: donde la sucursal TIENE ficha de Kepler (la escalera de
+// unidades, analytics.v_kepler_unit_ladder vía v_warehouse_box_factor) y la demanda viene en la
+// unidad base de Kepler (suf = 1), la caja de la demanda es la de la ficha. Fuera quedan el
+// override manual (el /15 sacado del NOMBRE del 99064 dividía su venta entre 15) y el factor_sale.
+// Medido en prod el 2026-11-10, solo lectura: 321 celdas (86 productos) cambian; testigo del mismo
+// grano (precio cobrado por unidad de demanda contra el precio base de la ficha de ESA sucursal):
+// 200 de 204 con testigo traen la demanda en la unidad de la ficha. En lo que sube, el costo de la
+// venta pasa de 6 % a 85 % de lo cobrado.
+// ⛔ suf <> 1 NO se toca: es el granel, cuya demanda viene en KG (Wincaja) y la ficha cuenta en
+// otra unidad (500 g, 250 g, cubeta). Ahí suf × bf ya es la caja en unidades de demanda y el
+// dinero lo confirma (57009: cubeta de 20 KG, razón de precio 20.6); cambiarlo inflaba 20×.
+// Wincaja y las rutas sin ficha siguen con su factor: no tienen escalera de Kepler (PQ.106).
+const FICHA_KEPLER = `(db.factor_source IN ('kepler_unidad_unica', 'kepler_ficha', 'kepler_ficha_costo', 'kepler_ficha_contradice_costo') AND e.suf = 1)`;
+const BF_ROW = `(CASE WHEN ${FICHA_KEPLER} THEN GREATEST(db.box_factor, 1) ELSE e.bf END)`;
 
 const PROJECT = `
     SELECT $1::uuid AS tenant_id, b.warehouse_id, b.product_id, e.sku, e.nombre, e.supplier_id, e.category_id,
@@ -660,7 +673,8 @@ const PROJECT = `
            -- peldaños y arrastra el rezago del promedio de 90 d).
            CASE WHEN e.lad_box_cost IS NOT NULL THEN 'kepler' ELSE 'bf' END AS cost_source,
            round(e.ratio, 4) AS price_ratio,
-           CASE WHEN e.is_manual THEN 'manual'
+           CASE WHEN ${FICHA_KEPLER} THEN 'kepler'   -- [PQ.105] la caja la dijo la ficha del ERP
+                WHEN e.is_manual THEN 'manual'
                 WHEN e.uxc <= 1 AND e.ratio >= 3 THEN 'granel'
                 WHEN e.uxc > 1 AND e.ratio >= 3 AND (e.ratio/e.uxc < 0.5 OR e.ratio/e.uxc > 2) THEN 'revisar'
                 ELSE 'catalog' END AS unit_source,

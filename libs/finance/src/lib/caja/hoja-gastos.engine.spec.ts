@@ -5,7 +5,7 @@
  */
 import { ZONAS_HOJA_GASTOS } from '@megadulces/contracts';
 import {
-  armarHojaAbierta, cuadreDelRetiro, hojaAbiertaAutorizada, depositoDeHoja, depositoKeplerDeHoja, instruccionDePago, loYaRepuesto, motivoFueraDeHoja, pagadoEnControl, requisitoDeHoja, retirosQueCuadran,
+  armarHojaAbierta, cuadreDelRetiro, hojaAbiertaAutorizada, depositoDeHoja, depositoKeplerDeHoja, instruccionDePago, loYaRepuesto, motivoFueraDeHoja, notaSinDeposito, pagadoEnControl, requisitoDeHoja, retirosQueCuadran,
   type BancoDeZona, type DepositoBancoHoja, type DepositoKeplerHoja, type JuicioDePagoHoja, type PagoDeZona, type RetiroCaosConLigas, type RetiroLibreHoja,
 } from './hoja-gastos.engine';
 
@@ -451,5 +451,27 @@ describe('[LE.6.20] lo que ya se repuso no se repone otra vez', () => {
     const r = loYaRepuesto(h.renglones, [], banco([dep('a', '2026-10-24', 58953.5), dep('b', '2026-10-25', 58953.6)]));
     expect(r.repuestos.size).toBe(0);
     expect([...r.sin_deposito.values()][0]).toContain('2 formas de llegar');
+  });
+});
+
+// ⭐ `[LE.6.29]` PM, 2026-11-10 (HG-15 de Morelia, $149,328.20): «aquí debo ver el folio del depósito». El
+// texto decía «Kepler trae hasta el 10/11» y Morelia Abastos no capturaba un U-A-5 desde el 6/11.
+describe('[LE.6.29] por qué la hoja pagada no trae su depósito', () => {
+  const nombre = (s: string) => ({ '07': 'Morelia Madero', '08': 'Morelia Abastos' } as Record<string, string>)[s] ?? s;
+  it('si ninguna sucursal capturó depósitos desde el pago, dice que todavía no puede estar, por nombre', () => {
+    const t = notaSinDeposito('1604', '2026-11-10', ['07', '08'], new Map([['07', '2026-11-09'], ['08', '2026-11-06']]), nombre);
+    expect(t).toContain('El depósito todavía no puede estar');
+    expect(t).toContain('Morelia Madero, el 09/11; Morelia Abastos, el 06/11');
+    expect(t).not.toMatch(/\b0[78]\b,/);
+  });
+  it('[negativa] si UNA ya capturó depósitos desde el pago (Madero el 9, Abastos el 6) no dice «todavía no puede estar»: no está', () => {
+    const t = notaSinDeposito('1604', '2026-11-07', ['07', '08'], new Map([['07', '2026-11-09'], ['08', '2026-11-06']]), nombre);
+    expect(t).not.toContain('todavía no puede estar');
+    expect(t).toContain('No hay un U-A-5 a la clave 1604 por el total (±$0.50) del 07/11 a siete días');
+    expect(t).toContain('Morelia Abastos, el 06/11');
+  });
+  it('una sucursal sin depósitos en la ventana se nombra, no se omite', () => {
+    expect(notaSinDeposito('5854', '2026-11-10', ['06'], new Map(), (s) => (s === '06' ? 'Canindo' : s)))
+      .toContain('Canindo, ninguno en estos días');
   });
 });
