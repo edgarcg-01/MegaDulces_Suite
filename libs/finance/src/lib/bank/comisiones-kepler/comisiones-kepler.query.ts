@@ -1,7 +1,7 @@
 import type { Knex } from 'knex';
 import {
-  armarComisionesKepler, bloquesDeTarjeta, cruzarConKepler, gruposPorDiaDeVenta, resolverBloque, MOTIVO_SIN_DEPOSITO,
-  type CargoTarjeta, type DepositoKepler, type PagoKeplerCapturado, type PlanComisionesKepler, type PlantillaComisiones, type RenglonDescarga,
+  armarComisionesKepler, bloquesDeTarjeta, cruzarConGastos, cruzarConKepler, gruposPorDiaDeVenta, resolverBloque, CUENTA_COMISION, MOTIVO_SIN_DEPOSITO,
+  type CargoTarjeta, type DepositoKepler, type PagoKeplerCapturado, type PlanComisionesKepler, type PlantillaComisiones, type RenglonDescarga, type RenglonGastoCapturado,
 } from './comisiones-kepler.armador';
 
 /**
@@ -32,6 +32,8 @@ export interface CargoPropuesta {
   /** El `X-D-26` que Finanzas ya capturó para este cargo, si lo hay, y en qué sucursal. */
   kepler_pago: string | null;
   kepler_sucursal: string | null;
+  /** La solicitud o el gasto de Finanzas donde ya está esta comisión como renglón 611-003, si lo hay. */
+  kepler_gasto: string | null;
 }
 
 export interface DiaPropuesta {
@@ -70,11 +72,48 @@ export interface PropuestaComisiones {
   dias: DiaPropuesta[];
   por_revisar: BloquePorRevisar[];
   huerfanos: CargoPropuesta[];
-  /** Cuatro montones que no se enciman y suman `cargos`. */
-  resumen: { cargos: number; listos: number; ya_en_kepler: number; esperando_sucursal: number; por_revisar: number; monto_listo: number };
+  /**
+   * Cinco montones que no se enciman y suman `cargos`: listos · con su pago ya en Kepler · en un día cuyo gasto
+   * Finanzas ya capturó pero sin este pago · esperando a la sucursal · por revisar.
+   */
+  resumen: {
+    cargos: number; listos: number; ya_en_kepler: number; gasto_capturado_sin_pago: number;
+    esperando_sucursal: number; por_revisar: number; monto_listo: number;
+  };
 }
 
 type Db = Knex | Knex.Transaction;
+
+/**
+ * ⛔ **Los tres candados contra duplicados, en orden.** Un día sólo puede quedar `lista` si los tres lo dejan pasar;
+ * si no, se dice por qué y NO se escribe. Pura, para probarla sola.
+ *   1. todos sus cargos tienen su `X-D-26` capturado → `ya_en_kepler`;
+ *   2. alguno tiene su pago, o alguna comisión ya es renglón 611-003 de una solicitud o gasto de Finanzas → `parcial`;
+ *   3. Finanzas tiene CUALQUIER solicitud o gasto a un banco de esa sucursal fechado ese día, aunque no case → `parcial`.
+ * `null` = ningún candado lo frena.
+ */
+export function candadosDelDia(
+  cargos: readonly Pick<CargoPropuesta, 'tipo' | 'kepler_pago' | 'kepler_gasto'>[], capturasDelDia: readonly string[],
+): { estado: 'ya_en_kepler' | 'parcial'; motivos: string[] } | null {
+  const capturados = cargos.filter((c) => c.kepler_pago).length;
+  const comisiones = cargos.filter((c) => c.tipo === 'comision');
+  const enGasto = comisiones.filter((c) => c.kepler_gasto).length;
+  if (cargos.length && capturados === cargos.length) return { estado: 'ya_en_kepler', motivos: ['Finanzas ya capturó estos pagos en Kepler'] };
+  if (capturados > 0 || enGasto > 0) {
+    const folios = [...new Set(comisiones.map((c) => c.kepler_gasto).filter(Boolean))].join(', ');
+    return {
+      estado: 'parcial',
+      motivos: [
+        ...(enGasto ? [`Finanzas ya capturó ${enGasto} de ${comisiones.length} comisiones en Kepler (${folios})`] : []),
+        `${capturados ? `${capturados} de ${cargos.length} pagos capturados` : 'ningún pago capturado todavía'}: no se escribe encima`,
+      ],
+    };
+  }
+  if (capturasDelDia.length) {
+    return { estado: 'parcial', motivos: [`Finanzas ya tiene de ese día ${capturasDelDia.join(', ')} con otros importes: se revisa, no se escribe encima`] };
+  }
+  return null;
+}
 
 /** La póliza vive en una tabla por mes (`kdc2AAMM`); el nombre sale de una fecha validada, no de texto libre. */
 export function tablaPoliza(fecha: string): string {
@@ -122,7 +161,7 @@ async function plantillas(db: Db, pares: { sucursal: string; acreedor: string }[
  */
 export async function leerPropuesta(db: Db, tenantId: string, desde: string, hasta: string, opciones: { armarTodo?: boolean } = {}): Promise<PropuestaComisiones> {
   const vacia = (medido: boolean, motivo: string | null): PropuestaComisiones => ({
-    medido, motivo, desde, hasta, dias: [], por_revisar: [], huerfanos: [], resumen: { cargos: 0, listos: 0, ya_en_kepler: 0, esperando_sucursal: 0, por_revisar: 0, monto_listo: 0 },
+    medido, motivo, desde, hasta, dias: [], por_revisar: [], huerfanos: [], resumen: { cargos: 0, listos: 0, ya_en_kepler: 0, gasto_capturado_sin_pago: 0, esperando_sucursal: 0, por_revisar: 0, monto_listo: 0 },
   });
   const ods = (await db.raw(`SELECT to_regclass('kepler_ods.kdm1') AS kdm1, to_regclass('kepler_ods.kdm6') AS kdm6, to_regclass('analytics.kepler_bank_movements') AS kbm`)).rows[0];
   if (!ods?.kdm1 || !ods?.kdm6 || !ods?.kbm) return vacia(false, 'Sin el ODS de Kepler en esta base: no se puede saber qué está capturado.');
@@ -165,7 +204,36 @@ export async function leerPropuesta(db: Db, tenantId: string, desde: string, has
   const sucursalDe = new Map<string, string>();
   for (const g of grupos) for (const c of g.cargos) sucursalDe.set(c.id, g.sucursal);
   const enKepler = cruzarConKepler(todos.map((c) => ({ ...c, sucursal: sucursalDe.get(c.id) })), pagos);
-  const vista = (c: CargoTarjeta): CargoPropuesta => ({ id: c.id, cuenta: c.cuenta, fecha: c.fecha, importe: c.importe, tipo: c.tipo, kepler_pago: enKepler.get(c.id)?.folio ?? null, kepler_sucursal: enKepler.get(c.id)?.sucursal ?? null });
+
+  // El segundo candado: las comisiones que Finanzas ya puso como renglón 611-003 de una solicitud o un gasto de esa
+  // sucursal, aunque todavía no capture sus pagos. Y el tercero: CUALQUIER solicitud o gasto a un banco de esa
+  // sucursal fechado ese día de venta, aunque sus importes no casen (Yurécuaro 4-nov: la Suite suma $17.83 y
+  // Finanzas tiene un gasto de ese día por $17.32) o el ODS no traiga sus renglones (`kdm6`): se revisa, no se escribe.
+  const diasVenta = grupos.map((g) => g.diaVenta).sort();
+  const capturas: { sucursal: string; folio: string; fecha: string; total: number; cuenta: string | null; importe: number | null }[] = !grupos.length ? [] : (await db.raw(`
+    SELECT m.sucursal, (CASE m.c4 WHEN 10 THEN 'gasto ' ELSE 'solicitud ' END) || btrim(m.c6) AS folio,
+           to_char(m.c9, 'YYYY-MM-DD') AS fecha, m.c16::float AS total, btrim(d.c8) AS cuenta, d.c11::float AS importe
+      FROM kepler_ods.kdm1 m
+      LEFT JOIN kepler_ods.kdm6 d ON d.sucursal = m.sucursal AND d.c2 = m.c2 AND d.c3 = m.c3 AND d.c4 = m.c4 AND d.c5 = m.c5 AND d.c6 = m.c6
+     WHERE m.c2 = 'X' AND m.c3 = 'A' AND m.c4 IN (10, 15) AND m.c43 <> 'C' AND btrim(m.c10) LIKE 'GB%'
+       AND m.sucursal = ANY(?) AND m.c9 BETWEEN ?::date - 7 AND ?::date + 7`,
+  [[...new Set(grupos.map((g) => g.sucursal))], diasVenta[0], diasVenta[diasVenta.length - 1]])).rows;
+  const renglones: RenglonGastoCapturado[] = capturas.filter((r) => r.cuenta === CUENTA_COMISION)
+    .map((r) => ({ sucursal: r.sucursal, folio: r.folio, fecha: r.fecha, importe: Number(r.importe) }));
+  const delDia = new Map<string, Set<string>>();
+  for (const r of capturas) {
+    const k = `${r.sucursal}|${r.fecha}`;
+    (delDia.get(k) ?? delDia.set(k, new Set()).get(k)!).add(`${r.folio} ($${Number(r.total).toFixed(2)})`);
+  }
+  // Primero los gastos y luego las solicitudes: que una comisión quede ligada al gasto si existe.
+  renglones.sort((a, b) => Number(b.folio.startsWith('gasto')) - Number(a.folio.startsWith('gasto')));
+  const enGasto = cruzarConGastos(grupos.flatMap((g) => g.cargos.filter((c) => c.tipo === 'comision')
+    .map((c) => ({ id: c.id, importe: c.importe, sucursal: g.sucursal, diaVenta: g.diaVenta }))), renglones);
+
+  const vista = (c: CargoTarjeta): CargoPropuesta => ({
+    id: c.id, cuenta: c.cuenta, fecha: c.fecha, importe: c.importe, tipo: c.tipo,
+    kepler_pago: enKepler.get(c.id)?.folio ?? null, kepler_sucursal: enKepler.get(c.id)?.sucursal ?? null, kepler_gasto: enGasto.get(c.id)?.folio ?? null,
+  });
 
   const pl = await plantillas(db, [...new Map(grupos.map((g) => [`${g.sucursal}|${g.acreedor}`, { sucursal: g.sucursal, acreedor: g.acreedor }])).values()], hasta);
   const dias: DiaPropuesta[] = grupos.map((g) => {
@@ -179,8 +247,8 @@ export async function leerPropuesta(db: Db, tenantId: string, desde: string, has
       const r = armarComisionesKepler(g, p);
       return r.ok ? r.plan : null;
     };
-    if (capturados === cargos.length) return { ...base, estado: 'ya_en_kepler', motivos: ['Finanzas ya capturó estos pagos en Kepler'], plan: paraMedir() };
-    if (capturados > 0) return { ...base, estado: 'parcial', motivos: [`Finanzas capturó ${capturados} de ${cargos.length} pagos: no se escribe encima`], plan: paraMedir() };
+    const candado = candadosDelDia(cargos, [...(delDia.get(`${g.sucursal}|${g.diaVenta}`) ?? [])]);
+    if (candado) return { ...base, ...candado, plan: paraMedir() };
     if (!p) return { ...base, estado: 'rechazada', motivos: ['Sin un gasto de comisiones anterior de esta sucursal y banco del cual copiar la plantilla'], plan: null };
     const r = armarComisionesKepler(g, p);
     return r.ok ? { ...base, estado: 'lista', motivos: [], plan: r.plan } : { ...base, estado: 'rechazada', motivos: r.motivos, plan: null };
@@ -197,15 +265,17 @@ export async function leerPropuesta(db: Db, tenantId: string, desde: string, has
     };
   });
   const listos = dias.filter((d) => d.estado === 'lista');
-  // Cuatro montones que no se enciman y suman el total: un día `lista` no tiene ningún cargo capturado, y un
-  // bloque en espera tampoco.
+  // Cinco montones que no se enciman y suman el total: un día `lista` no tiene ningún cargo capturado (ni pago
+  // ni renglón de gasto), y un bloque en espera tampoco.
   const nListos = listos.reduce((s, d) => s + d.cargos.length, 0);
   const nKepler = todos.filter((c) => enKepler.has(c.id)).length;
+  const nGastoSinPago = dias.filter((d) => d.cargos.some((c) => c.kepler_gasto)).reduce((s, d) => s + d.cargos.filter((c) => !c.kepler_pago).length, 0);
   const nEspera = por_revisar.filter((b) => b.espera).reduce((s, b) => s + b.cargos.length, 0);
   return {
     medido: true, motivo: null, desde, hasta, dias, por_revisar, huerfanos: huerfanos.map(vista),
     resumen: {
-      cargos: todos.length, listos: nListos, ya_en_kepler: nKepler, esperando_sucursal: nEspera, por_revisar: todos.length - nListos - nKepler - nEspera,
+      cargos: todos.length, listos: nListos, ya_en_kepler: nKepler, gasto_capturado_sin_pago: nGastoSinPago, esperando_sucursal: nEspera,
+      por_revisar: todos.length - nListos - nKepler - nGastoSinPago - nEspera,
       monto_listo: listos.reduce((s, d) => s + cent(d.total), 0) / 100,
     },
   };

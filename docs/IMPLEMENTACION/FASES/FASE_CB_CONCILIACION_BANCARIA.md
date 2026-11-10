@@ -506,15 +506,40 @@ manos va cuenta por cuenta, empezando por BBVA 4885 · D4 va como item de CB (y 
   - Resultado: **544 cargos = 124 listos ($17,155) + 143 ya capturados a mano + 272 esperando a la sucursal + 5 por
     revisar**. Sucursal 107/107, día de venta 101/107 (línea base 47), 12 gastos idénticos con póliza 12/12 y pagos
     72/72. Consulta del servicio: **172 ms**. 31 pruebas del armador (mutante de `revisarBloque` muerto: 3 rojas).
+  - ⚠️ **Corrección (mismo día): esos «124 listos» estaban mal.** Ver abajo: casi todos eran días que Finanzas ya
+    había capturado a medias.
+- **El segundo y el tercer candado (2026-11-10).** Al elegir un día real para la captura de prueba, el «listo» de
+  Morelia Abastos 31-oct ($4,578.15) resultó ser el gasto `0000321` que Finanzas ya había capturado **sin sus
+  pagos**: Finanzas captura primero la solicitud y el gasto, y días después los pagos. El candado de pagos no lo veía
+  → la Suite habría **duplicado** el gasto. Dos candados más (`candadosDelDia`, puro y probado):
+  - **2 · renglón de gasto:** cada comisión se busca como renglón 611-003 de una solicitud o gasto de Finanzas de la
+    misma sucursal (importe exacto, ±7 días del día de venta, uno a uno), sin mirar el acreedor que puso Finanzas (en
+    la `08` registró a Banorte un gasto de cargos BBVA) ni cómo agrupó los días. **110 de 119 comisiones** de los días
+    armados están ya en una solicitud o gasto; **control con el importe movido 1 centavo: 0**.
+  - **3 · el día:** si Finanzas tiene CUALQUIER solicitud o gasto a un banco de esa sucursal fechado ese día, aunque
+    no case (Yurécuaro 4-nov: la Suite suma $17.83, Finanzas tiene $17.32) o el ODS no traiga sus renglones, el día
+    se revisa y no se escribe.
+  - Resultado corregido: **544 cargos = 6 listos ($271.62, Zamora Centro 31-oct: lo único que Finanzas no ha tocado)
+    + 143 con su pago ya capturado + 115 en un día cuyo gasto ya capturó sin ese pago + 264 esperando a la sucursal
+    + 16 por revisar.** Lo que dice: en el paralelo, Finanzas captura casi todo (tarde); el valor de la Suite llega
+    cuando una cuenta pasa a ella (D3) y Finanzas deja de capturarla. Las coincidencias con Kepler no cambian (sucursal
+    107/107, día 101/107, pólizas 12/12 y 72/72).
+  - Latencia de la consulta del servicio con la ventana real (14 días), medida 4 veces desde la red de oficina:
+    **495, 335, 297, 343 ms** (la primera abre la conexión). 41 pruebas de `comisiones-kepler` + 13 del arranque;
+    mutantes muertos del candado 2 (ignorar la sucursal) y del 3 (ignorar el día).
+- **Permiso (2026-11-10):** [`ops/prod/kepler-grants/cb62_comisiones_terminal.sql`](../../../ops/prod/kepler-grants/cb62_comisiones_terminal.sql),
+  para 01–08, por el carril del runbook `KEPLER_PUSH_DESPLIEGUE.md` §14 (desde `md` como `postgres`; la contraseña la
+  teclea una persona). **Con seguro:** su primera sentencia aborta hasta que la foto cierre la lista de tablas; las
+  catorce tablas que nombra existen en el ODS.
 
 ### 9.3 Lo que falta
 
 | # | Capa | Qué | Criterio |
 |---|---|---|---|
 | CB.62.1 | C0 | Sombra con un **mes completo**: subir la descarga de **octubre** de BBVA 4885 y Banorte 7744 (hoy sólo hay 4 días) | Día de venta y sucursal ≥ 95 % de lo asignado; cada diferencia, explicada |
-| CB.62.2 | C1 | Decidir el centavo: la Suite escribe cada pago igual al banco (recomendado) o imita el ajuste de Finanzas | Firma de Edgar/Tesorería |
-| CB.62.3 | C2 | Cerrar la lista de tablas del **alta** con una captura real: póliza, `kdxe` y `kdxf` ya están medidos (§9.2); faltan los acumulados (`kdxg`, `kdc126`, `kdcn26`) y lo que el ODS no replica. Herramienta lista: `ops/prod/ensayo-pago-kepler/foto-contadores.js` (genérica): foto → Finanzas captura UNA solicitud + gasto + sus pagos de comisiones en una sucursal → foto → comparar. Requiere ssh a `md` autorizado por Edgar y la captura coordinada con Finanzas | La lista de tablas cerrada con una captura real |
-| CB.62.4 | C2 | Escritor apagado (interruptor como PGP), `GRANT` en las **9** bases, ensayo desde `md`, candado contra duplicados: un cargo con su `X-D-26` ya en Kepler no se escribe | Ensayo verde en una sucursal; prueba negativa del candado |
+| CB.62.2 | C1 | ✅ **Firmado por Edgar (2026-11-10): cada pago es idéntico al cargo del banco, al centavo.** No se imita el ajuste de Finanzas (IVA del gasto = 16 % de la base y un pago un centavo distinto). El armador ya lo hace así | — |
+| CB.62.3 | C2 | Cerrar la lista de tablas del **alta** con una captura real: póliza, `kdxe` y `kdxf` ya están medidos (§9.2); faltan los acumulados (`kdxg`, `kdc126`, `kdcn26`) y lo que el ODS no replica. **Acordado con Edgar (2026-11-10).** Herramienta lista: `ops/prod/ensayo-pago-kepler/foto-contadores.js` (genérica). Protocolo: (1) elegir un día que Finanzas aún no toque (la propuesta lo dice: estado `lista`) en una sucursal y una hora tranquila (las fotos cuentan TODO lo que escribe esa base); (2) foto; (3) Finanzas captura la solicitud, el gasto y sus pagos de ese día, nada más; (4) foto; (5) comparar y cruzar con los documentos nuevos de `kdm1` del lapso. Luego quitar el seguro de `cb62_comisiones_terminal.sql` y ajustar sus líneas | La lista de tablas cerrada con una captura real |
+| CB.62.4 | C2 | Escritor apagado (interruptor como PGP), `GRANT` en **01–08** (archivo listo, con seguro), ensayo desde `md`, y los **tres candados** de `candadosDelDia` (pago, renglón de gasto, el día) | Ensayo verde en una sucursal; prueba negativa de cada candado |
 | CB.62.5 | C3 | En Estados de cuenta: «N comisiones listas → Generar en Kepler», con lo «por revisar» y su porqué | `diseno` + `check:pantalla` |
 | CB.62.6 | — | Póliza de ContPAQi: ya existe (`[CP.8.91]`, banco × mes); falta la firma de contabilidad de `comision_bancaria` → 5200650000 | Firma de contabilidad |
 

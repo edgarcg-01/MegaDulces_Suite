@@ -1,6 +1,6 @@
 import {
-  armarComisionesKepler, bloquesDeTarjeta, cargoDeTarjeta, cruzarConKepler, depositoDeTarjeta, diaDeVentaDelTexto, gruposPorDiaDeVenta, resolverBloque, revisarBloque,
-  type CargoTarjeta, type DepositoKepler, type GrupoComisiones, type PagoKeplerCapturado, type PlantillaComisiones, type RenglonDescarga,
+  armarComisionesKepler, bloquesDeTarjeta, cargoDeTarjeta, cruzarConGastos, cruzarConKepler, depositoDeTarjeta, diaDeVentaDelTexto, gruposPorDiaDeVenta, resolverBloque, revisarBloque,
+  type CargoTarjeta, type DepositoKepler, type GrupoComisiones, type PagoKeplerCapturado, type PlantillaComisiones, type RenglonDescarga, type RenglonGastoCapturado,
 } from './comisiones-kepler.armador';
 
 /**
@@ -256,6 +256,25 @@ describe('[CB.62] cruzarConKepler — el candado contra duplicados', () => {
   });
   it('⛔ otra cuenta, otro importe o a más de 3 días: no es su pago', () => {
     expect(cruzarConKepler([MADERO[0]], [pago({ cuenta: '4885' }), pago({ importe: 22.14 }), pago({ fecha: '2026-10-06' })]).size).toBe(0);
+  });
+});
+
+describe('[CB.62] cruzarConGastos — el gasto que Finanzas capturó antes que sus pagos', () => {
+  // Morelia Abastos, venta del 31-oct: el gasto 0000321 ya estaba en Kepler (capturado el 9-nov) sin ningún pago.
+  const r = (o: Partial<RenglonGastoCapturado> = {}): RenglonGastoCapturado => ({ sucursal: '08', folio: 'gasto 0000321', fecha: '2026-10-31', importe: 93.56, ...o });
+  const com = (o: Partial<{ id: string; importe: number; sucursal: string; diaVenta: string }> = {}) => ({ id: 'k1', importe: 93.56, sucursal: '08', diaVenta: '2026-10-31', ...o });
+
+  it('la comisión que ya es renglón 611-003 de un gasto de esa sucursal queda ligada y no se escribe', () => {
+    expect(cruzarConGastos([com()], [r()]).get('k1')?.folio).toBe('gasto 0000321');
+  });
+  it('aunque Finanzas haya fechado el gasto distinto (juntó el fin de semana en el viernes): ±7 días', () => {
+    expect(cruzarConGastos([com({ diaVenta: '2026-11-02' })], [r()]).size).toBe(1);
+  });
+  it('uno a uno: dos comisiones iguales y un solo renglón → sólo una ligada', () => {
+    expect(cruzarConGastos([com(), com({ id: 'k2' })], [r()]).size).toBe(1);
+  });
+  it('⛔ otra sucursal, otro importe o a más de 7 días: no es su renglón', () => {
+    expect(cruzarConGastos([com()], [r({ sucursal: '07' }), r({ importe: 93.57 }), r({ fecha: '2026-11-08' })]).size).toBe(0);
   });
 });
 

@@ -396,6 +396,37 @@ export function cruzarConKepler(
   return out;
 }
 
+/** Un renglón 611-003 de un gasto `X-A-10` que Finanzas ya capturó a un banco (`GB…`). */
+export interface RenglonGastoCapturado { sucursal: string; folio: string; fecha: string; importe: number }
+
+/**
+ * ⛔ **El segundo candado: el gasto ya capturado sin sus pagos.** Finanzas captura primero el gasto y días después
+ * sus pagos (medido el 2026-11-10: de los días que la propuesta daba por «listos», el 31-oct de Padre Hidalgo, el
+ * 3 y 4-nov de Morelia Madero y casi toda Morelia Abastos ya tenían su gasto en Kepler y ningún pago). Buscar sólo
+ * el pago duplicaría esos gastos.
+ *
+ * Se busca cada COMISIÓN como renglón 611-003 de un gasto de la misma sucursal: importe exacto, ±7 días de su día
+ * de venta, uno a uno. No se mira el acreedor que puso Finanzas (en la `08` registró a Banorte un gasto de cargos
+ * BBVA) ni cómo agrupó los días (juntó un fin de semana en el gasto del viernes). Un falso pareo deja la comisión
+ * sin escribir: el lado seguro.
+ */
+export function cruzarConGastos(
+  comisiones: readonly { id: string; importe: number; sucursal: string; diaVenta: string }[], renglones: readonly RenglonGastoCapturado[],
+): Map<string, RenglonGastoCapturado> {
+  const usados = new Set<number>();
+  const out = new Map<string, RenglonGastoCapturado>();
+  for (const c of comisiones) {
+    let mejor = -1;
+    for (let j = 0; j < renglones.length; j++) {
+      const r = renglones[j];
+      if (usados.has(j) || r.sucursal !== c.sucursal || Math.abs(r.importe - c.importe) >= 0.005 || lejos(r.fecha, c.diaVenta) > 7 * DIA) continue;
+      if (mejor < 0 || lejos(r.fecha, c.diaVenta) < lejos(renglones[mejor].fecha, c.diaVenta)) mejor = j;
+    }
+    if (mejor >= 0) { usados.add(mejor); out.set(c.id, renglones[mejor]); }
+  }
+  return out;
+}
+
 /**
  * Junta los bloques en días de venta por sucursal. `donde` resuelve cada bloque con su depósito en Kepler
  * (sucursal y día de venta); el bloque que no se resuelve se devuelve aparte, con su porqué, y no entra a
