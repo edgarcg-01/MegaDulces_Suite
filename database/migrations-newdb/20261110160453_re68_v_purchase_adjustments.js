@@ -16,7 +16,13 @@
  *     que cubre ≥95 % de una entrada A·20 cuya compra se pagó por la copia del CEDIS (o dice «blanqueo»):
  *     no es rebaja, es el pago que se fue a otro lado. Quien sume dinero la excluye.
  *   · entrada_folio: `c39` si viene; si no, la entrada A·20 a la que `kdxf` la aplicó (cuando es una sola).
+ *     entrada_c39: sólo la liga ESCRITA en el documento (lo que el importer llamaba entrada_folio); la usa
+ *     la aprobación en lote, que no debe ampliarse por cambiar de fuente (decisión D2 de RE.65).
  *   · kepler_c1/c4/c5/c6/c10: las llaves crudas para cruzar con `kdxf` (las usa el primitivo de RE.64).
+ *   · proveedor_interno: el «proveedor» es otra sucursal o el CEDIS (códigos `TI000`–`TI009` de Kepler, los 10
+ *     llamados «SUCURSAL …» / «CENTRO DE DISTRIBUCIÓN»; `kdxd` no trae una marca: `c12` es el grupo contable).
+ *     Sus notas son traspasos entre sucursales —desde el corte, cierres de $2–18 M—, no ajustes de un
+ *     proveedor: quien analiza descuentos o margen las excluye.
  *   · Sin canceladas (`c43 = 'C'`) y sin las réplicas de otras ramas (`btrim(c1) = sucursal`).
  *
  * ── Lo medido antes (sólo lectura, prod, 2026-11-10) ────────────────────────────────────────
@@ -107,7 +113,9 @@ SELECT '00000000-0000-0000-0000-00000000d01c'::uuid AS tenant_id,
             WHEN c.categoria IN ('descuento_comercial', 'pronto_pago', 'apoyo_marca') THEN 'comercial'
             WHEN c.categoria IN ('no_solicitado', 'mal_estado', 'faltante', 'cambiada', 'devolucion_otra') OR c.c4 = 40 THEN 'operativo'
             ELSE 'sin_clasificar' END AS grupo,
-       c.c4::int::text AS tipo, c.c1 AS kepler_c1, c.c4 AS kepler_c4, c.c5 AS kepler_c5, c.c6 AS kepler_c6, c.c10 AS kepler_c10
+       c.c4::int::text AS tipo, c.c1 AS kepler_c1, c.c4 AS kepler_c4, c.c5 AS kepler_c5, c.c6 AS kepler_c6, c.c10 AS kepler_c10,
+       c.c39 AS entrada_c39,
+       COALESCE(c.proveedor_code ~ '^TI[0-9]{3}$', false) AS proveedor_interno
   FROM cat c
   LEFT JOIN liga l ON l.sucursal = c.sucursal AND l.c4 = c.c4 AND l.folio = c.folio
 `;

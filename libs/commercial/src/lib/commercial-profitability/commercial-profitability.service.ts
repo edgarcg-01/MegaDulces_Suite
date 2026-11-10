@@ -40,7 +40,7 @@ const SALES_FACT = 'analytics.mv_sales_blended';
  * proyecto) y se contrasta contra el costo del fact para marcar el conflicto.
  *
  * **Las palancas se leen por `categoria`, no por doctype.**
- * `analytics.erp_purchase_adjustments` ya trae la causa clasificada desde el
+ * `analytics.v_purchase_adjustments` (`[RE.68]`, vista del ODS) trae la causa clasificada desde el
  * motivo `c24` (RE.10 — la misma clasificación que usa `/compras/descuentos`).
  * Sumar por doctype metería `factura_duplicada` ($6.7M de error de captura)
  * dentro del margen negociado e inflaría el resultado:
@@ -347,8 +347,12 @@ export class CommercialProfitabilityService {
    * "este mes no hubo descuentos", cuando en realidad el feed no está cargado.
    */
   private async adjustmentsByCategory(trx: any, days: number, supplierCode?: string) {
-    let q = trx('analytics.erp_purchase_adjustments')
+    // [RE.68] La vista del ODS (todas las sucursales, sin canceladas). El traslado al CEDIS no tiene motivo y
+    // caería en «lo que ninguna lista reclama» por $46 M: no es palanca ni ajuste, se excluye.
+    let q = trx('analytics.v_purchase_adjustments')
       .whereRaw('tenant_id = public.current_tenant_id()')
+      .whereNot('grupo', 'traslado')
+      .where('proveedor_interno', false) // notas a otra sucursal o al CEDIS: traspasos, no palanca de un proveedor
       .whereRaw(`adjustment_date >= CURRENT_DATE - INTERVAL '${days} days'`);
     if (supplierCode) q = q.where('proveedor_code', supplierCode);
     const rows = await q
@@ -357,7 +361,7 @@ export class CommercialProfitabilityService {
     const byCat = new Map<string, { monto: number; docs: number }>(
       rows.map((r: any) => [r.categoria ?? 'sin_motivo', { monto: Number(r.monto) || 0, docs: Number(r.docs) || 0 }]),
     );
-    const [any] = await trx('analytics.erp_purchase_adjustments')
+    const [any] = await trx('analytics.v_purchase_adjustments')
       .whereRaw('tenant_id = public.current_tenant_id()')
       .limit(1)
       .select(trx.raw('1 AS ok'));
@@ -488,8 +492,8 @@ export class CommercialProfitabilityService {
           GROUP BY 1),
        aj AS (
          SELECT proveedor_code, SUM(monto) AS monto
-           FROM analytics.erp_purchase_adjustments
-          WHERE tenant_id = public.current_tenant_id()
+           FROM analytics.v_purchase_adjustments
+          WHERE tenant_id = public.current_tenant_id() AND grupo <> 'traslado' AND NOT proveedor_interno
             AND adjustment_date >= CURRENT_DATE - INTERVAL '${days} days'
             AND categoria IN (${LEVER_CATS.map((l) => `'${l.cat}'`).join(',')})
           GROUP BY 1),
@@ -622,7 +626,7 @@ export class CommercialProfitabilityService {
     });
 
     const levers = [
-      ...LEVER_CATS.map((l) => one(l.cat, l.label, l.owner, `erp_purchase_adjustments.categoria = '${l.cat}'`, adj.amount(l.cat), adj.docs(l.cat))),
+      ...LEVER_CATS.map((l) => one(l.cat, l.label, l.owner, `v_purchase_adjustments.categoria = '${l.cat}'`, adj.amount(l.cat), adj.docs(l.cat))),
       one('descuento_pago', 'Descuento tomado al pagar', 'Compras + Finanzas', 'erp_supplier_payments.descuento (c84)', pay.amount, pay.con_descuento),
     ];
     const commercialTotal = levers.reduce((a, l) => a + l.amount, 0);
@@ -831,8 +835,8 @@ export class CommercialProfitabilityService {
        */
       const [ov] = await trx.raw(
         `WITH nota AS (
-           SELECT proveedor_code, SUM(monto) m FROM analytics.erp_purchase_adjustments
-            WHERE tenant_id = public.current_tenant_id()
+           SELECT proveedor_code, SUM(monto) m FROM analytics.v_purchase_adjustments
+            WHERE tenant_id = public.current_tenant_id() AND grupo <> 'traslado' AND NOT proveedor_interno
               AND adjustment_date >= CURRENT_DATE - INTERVAL '${w.days} days'
               AND categoria = 'pronto_pago' GROUP BY 1),
          pago AS (

@@ -2924,9 +2924,13 @@ export class GoodsReceiptProofsService {
   ): Promise<{ doctype: string; folio: string; monto: number; categoria: string | null; adjustment_date: string } | null> {
     const delta = Math.abs(Number(p.delta) || 0);
     if (!delta) return null;
-    if (!(await this.existeTabla(trx, 'analytics', 'erp_purchase_adjustments'))) return null;
-    const r = await trx('analytics.erp_purchase_adjustments')
-      .where({ tenant_id: this.tenantCtx.requireTenantId(), sucursal: p.sucursal, entrada_folio: p.folio })
+    // [RE.68] La vista del ODS en vez del importer. La liga sigue siendo la ESCRITA en el documento (`c39`,
+    // `entrada_c39`), no la derivada de `kdxf`: una compuerta que aprueba sin revisión no se amplía por cambiar
+    // de fuente (D2 de RE.65). Cambia lo que ya no debía contar: canceladas y el traslado al CEDIS.
+    if (!(await this.existeTabla(trx, 'analytics', 'v_purchase_adjustments'))) return null;
+    const r = await trx('analytics.v_purchase_adjustments')
+      .where({ tenant_id: this.tenantCtx.requireTenantId(), sucursal: p.sucursal, entrada_c39: p.folio })
+      .whereNot('grupo', 'traslado')
       // Magnitud, no signo: la dirección contable no es estable (el ajuste va del 0% al 100% de
       // la entrada, y algunos son la recepción entera revertida). Ver §4.ter del plan RE.20.
       .whereRaw('ABS(ABS(monto::numeric) - ?) <= ?', [delta, Math.max(0.01, p.tolerancia)])

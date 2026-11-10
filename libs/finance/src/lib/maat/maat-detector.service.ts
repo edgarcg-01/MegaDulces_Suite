@@ -65,7 +65,7 @@ const RULES: RuleMeta[] = [
   { rule_key: 'prov_203_orfano', clase: 'error_captura', nombre: 'Provisión 203 sin descargar', descripcion: 'Provisiones en la cuenta 203 que nunca se descargan (nómina/IMSS/SAT).', params: {} },
   { rule_key: 'anticipo_stale', clase: 'error_captura', nombre: 'Anticipo 107 sin aplicar', descripcion: 'Anticipos a proveedores (107) que nunca se aplican contra factura.', params: {} },
   { rule_key: 'compra_sin_rfc', clase: 'error_captura', nombre: 'Compra/gasto sin RFC de proveedor', descripcion: 'Documentos de compra (XA2001) o gasto (XA1001) sin RFC del proveedor capturado: no son deducibles, no entran a DIOT y no permiten armar la materialidad del CFDI.', params: { min_monto: 10000 } },
-  { rule_key: 'fecha_futura', clase: 'error_captura', nombre: 'Documento con fecha futura', descripcion: 'Documento (recepción/pago/ajuste) con fecha POSTERIOR a hoy — error de captura (año/día tecleado mal). Ensucia la frescura, el aging (nunca aparece vencido) y el cuadre del mes. Severidad crítica para que NOTIFIQUE al detectarlo (una vez por documento, dedup). Fuentes: erp_goods_receipts / erp_supplier_payments / erp_purchase_adjustments.', params: { limit_por_fuente: 100 } },
+  { rule_key: 'fecha_futura', clase: 'error_captura', nombre: 'Documento con fecha futura', descripcion: 'Documento (recepción/pago/ajuste) con fecha POSTERIOR a hoy — error de captura (año/día tecleado mal). Ensucia la frescura, el aging (nunca aparece vencido) y el cuadre del mes. Severidad crítica para que NOTIFIQUE al detectarlo (una vez por documento, dedup). Fuentes: erp_goods_receipts / erp_supplier_payments / v_purchase_adjustments.', params: { limit_por_fuente: 100 } },
   { rule_key: 'contpaqi_proveedor_efos', clase: 'riesgo', nombre: 'Proveedor en lista negra del SAT (EFOS/69)', descripcion: 'Proveedor de la contabilidad (ContPAQi) cuyo RFC está en la lista negra del SAT: 69B = EFOS (facturan operaciones simuladas → CFDI no deducible, foco de auditoría), 69 = art. 69 CFF (incumplido / no localizado / cancelado). Cruce por RFC exacto sobre los proveedores reales de los libros.', params: {} },
   { rule_key: 'spread_proveedor_sku', clase: 'oportunidad', nombre: 'Ahorro por spread de precio', descripcion: 'Mismo SKU comprado a 2+ proveedores con diferencia de precio relevante — ahorro potencial.', params: { min_spread_pct: 15, max_spread_pct: 300, min_proveedores: 2, min_compras: 2 } },
   // PV.2 — validación de pólizas (Fase PV): ¿se subió mal esta póliza? Leen analytics.gl_polizas/gl_poliza_lines.
@@ -357,7 +357,7 @@ export class MaatDetectorService {
     const SOURCES = [
       { tabla: 'analytics.erp_goods_receipts', fecha: 'receipt_date', doc: 'Recepción' },
       { tabla: 'analytics.erp_supplier_payments', fecha: 'pago_date', doc: 'Pago a proveedor' },
-      { tabla: 'analytics.erp_purchase_adjustments', fecha: 'adjustment_date', doc: 'Ajuste de compra' },
+      { tabla: 'analytics.v_purchase_adjustments', fecha: 'adjustment_date', doc: 'Ajuste de compra' },
     ];
     const out: RawFinding[] = [];
     for (const s of SOURCES) {

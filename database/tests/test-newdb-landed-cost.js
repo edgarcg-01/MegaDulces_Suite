@@ -25,9 +25,9 @@ const ok = (c, m) => { console.log(`${c ? '  ✅' : '  ❌'} ${m}`); if (!c) fai
     const rows = (await c.query(
       `SELECT c.proveedor_code, c.compras::numeric compras,
               COALESCE(p.desc_pago,0)::numeric desc_pago, COALESCE(n.desc_nota,0)::numeric desc_nota
-         FROM (SELECT proveedor_code, sum(monto) compras FROM analytics.erp_goods_receipts WHERE tenant_id=$1 GROUP BY proveedor_code) c
+         FROM (SELECT proveedor_code, sum(monto) compras FROM analytics.erp_goods_receipts WHERE tenant_id=$1 AND dup_of_folio IS NULL GROUP BY proveedor_code) c
          LEFT JOIN (SELECT proveedor_code, sum(descuento) desc_pago FROM analytics.erp_supplier_payments WHERE tenant_id=$1 GROUP BY proveedor_code) p USING (proveedor_code)
-         LEFT JOIN (SELECT proveedor_code, sum(monto) desc_nota FROM analytics.erp_purchase_adjustments WHERE tenant_id=$1 AND categoria IN ('pronto_pago','descuento_comercial','apoyo_marca') GROUP BY proveedor_code) n USING (proveedor_code)
+         LEFT JOIN (SELECT proveedor_code, sum(monto) desc_nota FROM analytics.v_purchase_adjustments WHERE tenant_id=$1 AND grupo = 'comercial' GROUP BY proveedor_code) n USING (proveedor_code)
         WHERE c.compras > 0
         ORDER BY c.compras DESC`, [TENANT])).rows;
 

@@ -86,7 +86,7 @@ export class PromoSelloutController {
   @ApiOperation({
     summary: 'Lo negociado contra lo que el proveedor de verdad acreditó (notas de crédito del ERP)',
     description:
-      'Lee `analytics.erp_purchase_adjustments` (X-D-40 / X-D-55). Declara `fuente_vacia` si el ' +
+      'Lee `analytics.v_purchase_adjustments` (X-D-40 / X-D-55). Declara `fuente_vacia` si el ' +
       'espejo no tiene filas — no reporta $0 acreditado — y declara en `metodo` si la liga con ' +
       'el proveedor fue por código o por nombre (heurística).',
   })

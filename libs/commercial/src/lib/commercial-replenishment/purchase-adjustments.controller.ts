@@ -6,7 +6,7 @@ import { PurchaseAdjustmentsFindingsBridgeService } from './purchase-adjustments
 
 /**
  * RE.10 — Descuentos y ajustes de compra (X-D-40 / X-D-55). Proyecto Compras.
- * Read-only sobre `analytics.erp_purchase_adjustments`. VER = lectura.
+ * Read-only sobre `analytics.v_purchase_adjustments (RE.68; antes la tabla del importer erp_purchase_adjustments)`. VER = lectura.
  * Hace visible el canal de descuentos/apoyos ($20M) + facturas duplicadas ($6.7M)
  * que el Excel de recepción nunca capturó.
  */

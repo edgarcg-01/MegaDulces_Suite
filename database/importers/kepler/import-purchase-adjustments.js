@@ -1,5 +1,11 @@
 /* eslint-disable no-console */
 /**
+ * ⛔ RETIRADO 2026-11-10 `[RE.68]` — ya no corre en `run-prod-feeds.js`. Los ajustes de compra salen de la vista
+ * `analytics.v_purchase_adjustments` (migración 20261110160453): todas las sucursales, sin canceladas, sin categoría
+ * inventada. La tabla `analytics.erp_purchase_adjustments` queda congelada y ningún servicio la lee. Este archivo
+ * queda como referencia histórica del clasificador (`categorize()`), que la vista traduce a SQL.
+ */
+/**
  * Fase RE — Ajustes de compra de Kepler (X-D-40 + X-D-55) → analytics.erp_purchase_adjustments.
  *
  * Lee de `md.kdm1` los dos doctypes que explican el descuadre Factura-vs-Compra y
