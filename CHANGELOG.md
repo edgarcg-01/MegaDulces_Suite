@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Added — Revisión de facturas: la nota de crédito dice si está en el CFDI, en Kepler, en los dos o en ninguno (RE.63 · 2026-11-10 · en código, sin soltar)
+- En el expediente de cada compra, un bloque nuevo dice dónde está la rebaja: la nota que Kepler aplicó a la entrada, la que el proveedor timbró (CFDI) para su factura, las dos o ninguna, con sus folios y montos.
+- Y la consecuencia en lo que se paga: si lo que Kepler pagará cuadra con lo que el proveedor factura neto, o cuánto difiere y qué hacer (pedirle el CFDI al proveedor, o aplicar la nota en Kepler). Cuando Kepler ya capturó la entrada con el descuento, avisa que aplicar la nota la descontaría dos veces.
+- Dos filtros nuevos en Hallazgo: «Nota sólo en el CFDI (Kepler no la aplicó)» y «Nota sólo en Kepler (falta su CFDI)», con su conteo. Sin factura ligada no se afirma nada del lado del SAT.
+- Informativo: no cambia qué facturas pasan solas. Sin migraciones.
+
 ### Fixed — Revisión de facturas: la nota de crédito se aplica por su relación en el CFDI, no por importe (RE.62 · 2026-11-10 · en código, sin soltar)
 - Una factura mayor que la entrada sólo «cuadra con nota de crédito» si la nota, en su propio CFDI, **relaciona esa factura**. Antes bastaba con que una nota del mismo proveedor tuviera el monto parecido: de 42 marcadas «nota ya aplicada», 36 usaban la nota de otra factura y 23 «pasaban solas» así.
 - Una nota que relaciona varias facturas se muestra pero no se descuenta (el CFDI no dice cuánto le toca a cada una). La que sólo coincide por importe aparece como «posible nota, confírmala» y **nunca deja pasar sola** una factura.
