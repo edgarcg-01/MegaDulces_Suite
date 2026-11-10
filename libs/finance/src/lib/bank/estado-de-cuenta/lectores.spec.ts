@@ -1,5 +1,5 @@
 import * as ExcelJS from 'exceljs';
-import { aCentavos, controlarSaldo, detectarBanco, leerEstadoDeCuenta, type MovimientoBanco } from './lectores';
+import { aCentavos, controlarSaldo, describirArchivo, detectarBanco, leerEstadoDeCuenta, type MovimientoBanco } from './lectores';
 
 /**
  * `[CB.57]` — Los cuatro formatos de banco, con archivos FABRICADOS.
@@ -194,6 +194,18 @@ describe('[CB.57] Banamex (CSV Latin-1 con resumen; saldo sólo al cierre del d�
 describe('[CB.57] lo que no es estado de cuenta', () => {
   it('un formato desconocido devuelve null, no un estado de cuenta vacío', async () => {
     expect(await leerEstadoDeCuenta(Buffer.from('FECHA;IMPORTE\n01/11/2026;100', 'utf8'))).toBeNull();
+  });
+
+  it('un CSV guardado con BOM (Excel) se reconoce igual', async () => {
+    const r = await leerEstadoDeCuenta(Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), santander([S1, S2, S3])]));
+    expect(r?.banco).toBe('santander');
+  });
+
+  it('lo que no se reconoce se DESCRIBE para el mensaje: cómo empieza, o qué tipo de archivo es', () => {
+    expect(describirArchivo(Buffer.from('FECHA;IMPORTE\n01/11/2026;100', 'utf8'))).toBe('empieza con «FECHA;IMPORTE»');
+    expect(describirArchivo(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1]))).toMatch(/Excel viejo \(\.xls\)/);
+    expect(describirArchivo(Buffer.from('%PDF-1.7', 'latin1'))).toBe('es un PDF');
+    expect(describirArchivo(Buffer.from(''))).toBe('está vacío');
   });
 
   it('el libro «CUENTAS» (xlsx sin la hoja de BanBajío) se reporta, no se lee como banco', async () => {

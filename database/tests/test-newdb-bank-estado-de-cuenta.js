@@ -240,8 +240,8 @@ async function completo(urlAdmin, urlRuntime) {
     const catId = async (code) => (await admin('finance.movement_categories').where({ tenant_id: MEGA, code }).first('id'))?.id ?? null;
     const libroDe = async (cuentaId, filas) => {
       const [st] = await admin('finance.bank_statements').insert({ tenant_id: MEGA, bank_account_id: cuentaId, period: '2026-11' }).returning('id');
-      for (const [i, o, s, cat] of filas) {
-        await admin('finance.bank_movements').insert({ tenant_id: MEGA, statement_id: st.id ?? st, bank_account_id: cuentaId, movement_date: '2026-11-02',
+      for (const [i, o, s, cat, dia] of filas) {
+        await admin('finance.bank_movements').insert({ tenant_id: MEGA, statement_id: st.id ?? st, bank_account_id: cuentaId, movement_date: dia ?? '2026-11-02',
           concept: 'PRUEBA LIBRO', amount_in: i, amount_out: o, running_balance: s, client_uuid: `prueba-cb60-${cuentaId}-${s}`,
           category_id: cat ? await catId(cat) : null });
       }
@@ -251,7 +251,8 @@ async function completo(urlAdmin, urlRuntime) {
     // BBVA A: le entra la segunda descarga (el 02-nov deja de ser el último día) y el libro del 02-nov
     // NO tiene la comisión de $100.00.
     await svc.confirmar({ file_base64: BBVA_2, bank_account_id: BBVA_A }, 'prueba');
-    await libroDe(BBVA_A, [[1000, 0, 1200]]);
+    // El libro llega al 03-nov: el 02 ya no es su último día (si lo fuera, quedaría «a medias», no «difiere»).
+    await libroDe(BBVA_A, [[1000, 0, 1200], [1, 0, 1, null, '2026-11-03']]);
     const cl = await svc.contraElLibro(30, '2026-11-09');
     const de = (id) => cl.cuentas.find((c) => c.id === id);
     const veredictos = (id) => (de(id)?.dias || []).map((d) => `${d.fecha.slice(8)}:${d.veredicto}`).join(' ');

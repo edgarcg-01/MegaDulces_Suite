@@ -2,7 +2,7 @@ import * as crypto from 'node:crypto';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, todayMx } from '@megadulces/platform-core';
-import { leerEstadoDeCuenta, type Banco, type EstadoDeCuentaLeido, type MovimientoBanco } from './lectores';
+import { describirArchivo, leerEstadoDeCuenta, type Banco, type EstadoDeCuentaLeido, type MovimientoBanco } from './lectores';
 import { cierreDelDia, type RenglonDelLibro } from './saldo-del-libro';
 import { compararContraElLibro, type ClasificarSinLibro, type CuentaContraElLibro, type RenglonComparable } from './contra-el-libro';
 import { clasificarRenglon } from './clasificador';
@@ -214,7 +214,7 @@ export class EstadoDeCuentaService {
   private async leer(buf: Buffer): Promise<EstadoDeCuentaLeido> {
     let leido: EstadoDeCuentaLeido | null;
     try { leido = await leerEstadoDeCuenta(buf); } catch { throw new BadRequestException('no se pudo leer el archivo'); }
-    if (!leido) throw new BadRequestException('formato no reconocido: no es una descarga de Santander, Banorte, BBVA ni BanBajío');
+    if (!leido) throw new BadRequestException(`formato no reconocido: no es una descarga de Santander, Banorte, BBVA, BanBajío ni Banamex (el archivo ${describirArchivo(buf)})`);
     return leido;
   }
 

@@ -20,7 +20,8 @@ describe('[CB.60] compararContraElLibro', () => {
   });
 
   it('[negativa] un movimiento que el libro no tiene: el día difiere y lo nombra', () => {
-    const libro = [r('2026-10-01', 500, 0, 1500), r('2026-10-01', 0, 200, 1300), r('2026-10-02', 0, 3.51, 1296.49)];
+    // El libro llega al 03: el 02 ya no es su último día (si lo fuera, quedaría «a medias», abajo).
+    const libro = [r('2026-10-01', 500, 0, 1500), r('2026-10-01', 0, 200, 1300), r('2026-10-02', 0, 3.51, 1296.49), r('2026-10-03', 100, 0, 1396.49)];
     const d = compararContraElLibro(BANCO, libro).dias[1];
     expect(d.veredicto).toBe('difiere');
     expect(d.solo_banco).toEqual([expect.objectContaining({ lado: 'sale', importe: 0.56 })]);
@@ -49,6 +50,57 @@ describe('[CB.60] compararContraElLibro', () => {
   it('el libro no llega a ese día: sin libro, no difiere', () => {
     const c = compararContraElLibro(BANCO, [r('2026-10-01', 500, 0, 1500), r('2026-10-01', 0, 200, 1300)]);
     expect(c.dias.map((d) => d.veredicto)).toEqual(['cuadra', 'sin_libro', 'abierto']);
+  });
+
+  describe('el libro subido antes de cerrar su último día', () => {
+    // Banco: 01, 02 (dos movimientos) y 03 (abierto). El libro llega al 02 con UNO de los dos.
+    const libroHasta02 = () => [r('2026-10-01', 500, 0, 1500), r('2026-10-01', 0, 200, 1300), r('2026-10-02', 0, 3.51, 1296.49)];
+
+    it('su último día con renglones de menos no cuenta en contra: sin libro, declarado a medias', () => {
+      const d = compararContraElLibro(BANCO, libroHasta02()).dias[1];
+      expect(d).toMatchObject({ veredicto: 'sin_libro', libro_a_medias: true });
+      expect(d.solo_banco.map((x) => x.importe)).toEqual([0.56]);
+    });
+
+    it('[negativa] si el libro ya tiene un día posterior, ese mismo faltante SÍ difiere', () => {
+      const d = compararContraElLibro(BANCO, [...libroHasta02(), r('2026-10-03', 100, 0, 1396.49)]).dias[1];
+      expect(d).toMatchObject({ veredicto: 'difiere', libro_a_medias: false });
+    });
+
+    it('[negativa] un renglón que el banco no tiene, aun en el último día del libro, difiere', () => {
+      const d = compararContraElLibro(BANCO, [...libroHasta02(), r('2026-10-02', 0, 9, 1287.49)]).dias[1];
+      expect(d.veredicto).toBe('difiere');
+    });
+
+    it('una fecha absurda del libro (año mal capturado) no lo hace parecer al día', () => {
+      const d = compararContraElLibro(BANCO, [...libroHasta02(), r('2027-08-06', 1, 0, 1)]).dias[1];
+      expect(d.libro_a_medias).toBe(true);
+    });
+  });
+
+  describe('cierre que no se puede afirmar (el banco asienta fuera de orden)', () => {
+    // Un cargo fechado el 02 cuyo saldo viene ANTES que el resto del día: dos «finales» en la cadena.
+    const banco = [
+      r('2026-10-02', 0, 100, 900), r('2026-10-02', 50, 0, 1050), r('2026-10-02', 0, 30, 1020),
+      r('2026-10-03', 10, 0, 1030),
+    ];
+
+    it('todo casa y TODOS los saldos son los mismos: cuadra, declarado «por saldos»', () => {
+      const libro = [r('2026-10-02', 0, 30, 1020), r('2026-10-02', 0, 100, 900), r('2026-10-02', 50, 0, 1050)];
+      const d = compararContraElLibro(banco, libro).dias[0];
+      expect(d.cierre_banco).toBeNull();
+      expect(d).toMatchObject({ veredicto: 'cuadra', cuadre_por: 'saldos' });
+    });
+
+    it('[negativa] los mismos importes con un saldo distinto en el libro: difiere', () => {
+      const libro = [r('2026-10-02', 0, 30, 1020), r('2026-10-02', 0, 100, 901), r('2026-10-02', 50, 0, 1050)];
+      expect(compararContraElLibro(banco, libro).dias[0]).toMatchObject({ veredicto: 'difiere', cuadre_por: null });
+    });
+
+    it('con cierre afirmable se sigue juzgando por el cierre', () => {
+      const libro = [r('2026-10-01', 500, 0, 1500), r('2026-10-01', 0, 200, 1300)];
+      expect(compararContraElLibro(BANCO, libro).dias[0]).toMatchObject({ veredicto: 'cuadra', cuadre_por: 'cierre' });
+    });
   });
 
   describe('[CB.61] categoría sin el libro', () => {

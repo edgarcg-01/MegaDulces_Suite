@@ -164,6 +164,16 @@ describe('BancosEstadoBancoComponent', () => {
     expect(el.textContent).toContain('Sólo en el banco: sale');
   });
 
+  it('el libro subido a medias y el cuadre por saldos se dicen en palabras, no como «difiere»', () => {
+    const { cmp } = montar({ contra: CONTRA });
+    const dia = (p: Partial<CuentaContraElLibro['dias'][number]>) => ({ fecha: '2026-11-09', veredicto: 'sin_libro' as const, movimientos_banco: 14, renglones_libro: 1, pareados: 1,
+      fecha_distinta: 0, cierre_banco: null, cierre_libro: null, solo_banco: [], solo_libro: [], ...p });
+    expect(cmp.diaTexto(dia({ libro_a_medias: true }))).toBe('el libro se subió antes de cerrar este día: tiene 1 de 14 (no se juzga hasta que traiga un día posterior)');
+    expect(cmp.diaTexto(dia({ libro_a_medias: false, renglones_libro: 0 }))).toBe('el libro no tiene ese día');
+    expect(cmp.diaTexto(dia({ veredicto: 'cuadra', cuadre_por: 'saldos' }))).toMatch(/^cuadra: todos los saldos son iguales/);
+    expect(cmp.diaTexto(dia({ veredicto: 'cuadra', cuadre_por: 'cierre' }))).toBe('cuadra');
+  });
+
   it('[negativa] si la comparación no se pudo leer, se dice y no aparece ningún «cuadran»', () => {
     const { cmp, el } = montar({ contra: Object.assign(new Error('500'), { status: 500 }) });
     expect(cmp.cuentasContra()).toEqual([]);

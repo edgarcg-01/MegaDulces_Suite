@@ -15,6 +15,14 @@ import { cierreDelDia } from './saldo-del-libro';
  *
  * ⚠️ El último día de la descarga puede estar a medias (Banorte se bajó a las 11:54): mientras no
  * haya un renglón del banco de un día POSTERIOR, ese día queda `abierto` y no se cuenta en contra.
+ * Lo mismo del lado del libro (2026-11-10: el libro se subió el 9-nov a las 17:23 con 1 de los 14
+ * movimientos de BTE 7133 de ese día): su ÚLTIMO día, si sólo le faltan renglones y no le sobra
+ * ninguno, queda `sin_libro` con `libro_a_medias` hasta que el libro traiga un día posterior.
+ *
+ * ⚠️ El cierre no siempre se puede afirmar: BBVA asienta a veces un cargo con la fecha de un día y
+ * antes que los del día anterior (5712, 3-nov), y la cadena del día tiene dos «finales». Entonces el
+ * día cuadra sólo si, además de casar todo, los SALDOS de todos sus renglones son los mismos de los
+ * dos lados (`cuadre_por: 'saldos'`), que es más exigente que comparar un cierre.
  */
 export interface RenglonComparable {
   id: string;
@@ -64,6 +72,10 @@ export interface DiaContraElLibro {
   fecha_distinta: number;
   cierre_banco: number | null;
   cierre_libro: number | null;
+  /** Último día del libro y sólo le faltan renglones: el libro se subió antes de cerrarlo. */
+  libro_a_medias: boolean;
+  /** Si cuadra: por el cierre del día, o (cierre indeterminado) porque todos los saldos coinciden. */
+  cuadre_por: 'cierre' | 'saldos' | null;
   solo_banco: SueltoDelDia[];
   solo_libro: SueltoDelDia[];
 }
@@ -81,6 +93,15 @@ const centavos = (v: number | string | null | undefined) => Math.round(Number(v 
 const lado = (r: RenglonComparable): 'entra' | 'sale' => (centavos(r.amount_out) > 0 ? 'sale' : 'entra');
 const llave = (r: RenglonComparable) => `${lado(r)}|${lado(r) === 'sale' ? centavos(r.amount_out) : centavos(r.amount_in)}`;
 const diasEntre = (a: string, b: string) => Math.abs(Math.round((Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86400000));
+const sumarDias = (f: string, n: number) => new Date(Date.parse(`${f}T00:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
+/** Los saldos de todos los renglones del día, como conjunto, son los mismos en los dos lados. */
+function mismosSaldos(a: readonly RenglonComparable[], b: readonly RenglonComparable[]): boolean {
+  const saldos = (rs: readonly RenglonComparable[]) => rs.map((r) => (r.running_balance === null || r.running_balance === undefined ? null : centavos(r.running_balance)));
+  const x = saldos(a), y = saldos(b);
+  if (!x.length || x.length !== y.length || x.includes(null) || y.includes(null)) return false;
+  const ordena = (v: (number | null)[]) => (v as number[]).slice().sort((p, q) => p - q).join(',');
+  return ordena(x) === ordena(y);
+}
 const suelto = (r: RenglonComparable): SueltoDelDia => ({
   id: r.id, fecha: r.fecha, lado: lado(r),
   importe: (lado(r) === 'sale' ? centavos(r.amount_out) : centavos(r.amount_in)) / 100, concepto: r.concepto ?? null,
@@ -124,6 +145,10 @@ export function compararContraElLibro(banco: readonly RenglonComparable[], libro
     }
   }
 
+  // Último día del libro. Las fechas absurdas (año mal capturado: 2027 en BTE 7744, CB.UI.9) no cuentan.
+  const tope = ultimoDia ? sumarDias(ultimoDia, 31) : null;
+  const ultimoDelLibro = libro.map((l) => l.fecha).filter((f) => !tope || f <= tope).sort().pop() ?? null;
+
   const resumen = { cuadra: 0, difiere: 0, sin_libro: 0, abierto: 0, solo_banco: 0, solo_libro: 0, monto_solo_banco: 0, monto_solo_libro: 0 };
   const dias: DiaContraElLibro[] = diasBanco.map((fecha) => {
     const delBanco = banco.filter((b) => b.fecha === fecha);
@@ -132,9 +157,15 @@ export function compararContraElLibro(banco: readonly RenglonComparable[], libro
     const soloLibro = delLibro.filter((l) => !pareado.has(l.id)).map(suelto);
     const cierreBanco = cierreDelDia(delBanco);
     const cierreLibro = delLibro.length ? cierreDelDia(delLibro) : null;
+    const libroAMedias = delLibro.length > 0 && fecha === ultimoDelLibro && soloBanco.length > 0 && !soloLibro.length;
+    const todoCasa = !soloBanco.length && !soloLibro.length;
+    const cuadrePor: DiaContraElLibro['cuadre_por'] = !todoCasa ? null
+      : cierreBanco !== null && cierreBanco === cierreLibro ? 'cierre'
+      : (cierreBanco === null || cierreLibro === null) && mismosSaldos(delBanco, delLibro) ? 'saldos'
+      : null;
     const veredicto: VeredictoDelDia = fecha === ultimoDia ? 'abierto'
-      : !delLibro.length ? 'sin_libro'
-      : !soloBanco.length && !soloLibro.length && cierreBanco !== null && cierreBanco === cierreLibro ? 'cuadra'
+      : !delLibro.length || libroAMedias ? 'sin_libro'
+      : cuadrePor ? 'cuadra'
       : 'difiere';
     resumen[veredicto]++;
     if (veredicto !== 'abierto') {
@@ -145,7 +176,8 @@ export function compararContraElLibro(banco: readonly RenglonComparable[], libro
     return {
       fecha, veredicto, movimientos_banco: delBanco.length, renglones_libro: delLibro.length,
       pareados: delBanco.length - soloBanco.length, fecha_distinta: fechaDistinta.get(fecha) ?? 0,
-      cierre_banco: cierreBanco, cierre_libro: cierreLibro, solo_banco: soloBanco, solo_libro: soloLibro,
+      cierre_banco: cierreBanco, cierre_libro: cierreLibro, libro_a_medias: libroAMedias,
+      cuadre_por: veredicto === 'cuadra' ? cuadrePor : null, solo_banco: soloBanco, solo_libro: soloLibro,
     };
   });
   resumen.monto_solo_banco = Math.round(resumen.monto_solo_banco * 100) / 100;

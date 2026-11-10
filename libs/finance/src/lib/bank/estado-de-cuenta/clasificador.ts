@@ -45,17 +45,21 @@ function porDocumento(tipo: string, entidad: string): string | null {
   return null;
 }
 
-/** Lo que el banco escribe de sí mismo. El orden importa: «IVA COMISION» es IVA, no comisión. */
+/**
+ * Lo que el banco escribe de sí mismo. El orden importa: «IVA COMISION» es IVA, «COMISION FEDERAL»
+ * (CFE) es un servicio, y lo demás que dice COMISION en un estado de cuenta lo cobra el banco.
+ * «TRASPASO A CUENTA DE TERCEROS» NO es entre cuentas propias.
+ */
 const RETIRO: [RegExp, string][] = [
-  [/^IVA\b|\bIVA (COM|TASA|POR)|COBRO IVA|\bI V A\b/, 'iva_acreditable'],
-  [/TASA DE DES|^COMISION|^COM VTAS|COMISION POR ADMIN|RENTA (DE )?TERMINAL|RENTA TPV|CUOTA AFILIACION|MEMBRESIA|ANUALIDAD/, 'comision_bancaria'],
+  [/^IVA\b|\bIVA (COM|TASA|POR)|COBRO IVA|PAGO DE IVA|\bI V A\b|\bI\.V\.A\./, 'iva_acreditable'],
+  [/DOMICILIACION|^CFE\b|COMISION FEDERA|TELMEX|TELEFONOS DE MEXICO/, 'servicios'],
+  [/TASA DE DES|\bCOMISION\b|^COM VTAS|RENTA (DE )?TERMINAL|RENTA TPV|CUOTA AFILIACION|MEMBRESIA|ANUALIDAD/, 'comision_bancaria'],
   [/DISPOSICION POR POS/, 'compra_tarjeta'],
-  [/DOMICILIACION|^CFE\b|COMISION FEDERAL DE ELEC|TELMEX|TELEFONOS DE MEXICO/, 'servicios'],
-  [/^TRASPASO (ENTRE|A )|RETIRO DE RECURSOS/, 'traspaso_entre_cuentas'],
+  [/^TRASPASO (ENTRE|CUENTAS PROPIAS|A (?!CUENTA DE TERCEROS))|RETIRO DE RECURSOS/, 'traspaso_entre_cuentas'],
 ];
 const DEPOSITO: [RegExp, string][] = [
   [/SPEI DEVUELTO|^DEV\.? (SPEI|DEPOSITO)/, 'devolucion_spei'],
-  [/^TRASPASO (ENTRE|DE )|ENTREGA DE RECURSOS/, 'traspaso_entre_cuentas'],
+  [/^TRASPASO (ENTRE|CUENTAS PROPIAS|DE )|ENTREGA DE RECURSOS/, 'traspaso_entre_cuentas'],
   [/^ANUL|^BONI/, SIN],
 ];
 

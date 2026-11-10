@@ -184,6 +184,7 @@ export interface Veredicto { tono: 'ok' | 'warn' | 'bad' | 'muted'; icono: strin
             </ng-template>
           </p-table>
           <p class="eb-leyenda"><b>cuadra</b>: cada movimiento del banco tiene su renglón en el libro (mismo lado e importe) y el día cierra con el mismo saldo ·
+            <b>sin libro</b>: el libro no llega a ese día, o es su último día y se subió antes de cerrarlo ·
             <b>abierto</b>: el último día de la descarga puede haberse bajado a medias, no se juzga. Así se decide cuándo una cuenta deja el libro.</p>
         }
         @if (contraError(); as ce) { <p class="eb-leyenda eb-v--bad">{{ ce }}</p> }
@@ -357,7 +358,7 @@ export class BancosEstadoBancoComponent implements OnInit {
     const r = c.resumen;
     if (r.difiere) return { tono: 'bad', icono: 'pi-times-circle', texto: r.difiere === 1 ? 'difiere en 1 día' : `difiere en ${r.difiere} días` };
     if (r.cuadra) return { tono: 'ok', icono: 'pi-check-circle', texto: r.cuadra === 1 ? 'cuadra 1 día' : `cuadra ${r.cuadra} días` };
-    if (r.sin_libro) return { tono: 'muted', icono: 'pi-minus-circle', texto: 'el libro no llega a esos días' };
+    if (r.sin_libro) return { tono: 'muted', icono: 'pi-minus-circle', texto: 'el libro todavía no llega a esos días' };
     return { tono: 'muted', icono: 'pi-minus-circle', texto: 'sin días cerrados todavía' };
   }
 
@@ -367,9 +368,11 @@ export class BancosEstadoBancoComponent implements OnInit {
 
   diaTexto(d: DiaContraElLibro): string {
     switch (d.veredicto) {
-      case 'cuadra': return 'cuadra';
+      case 'cuadra': return d.cuadre_por === 'saldos' ? 'cuadra: todos los saldos son iguales (el banco asentó un renglón fuera de orden y el cierre no se puede afirmar)' : 'cuadra';
       case 'difiere': return `difiere: ${d.solo_banco.length} sólo en el banco, ${d.solo_libro.length} sólo en el libro`;
-      case 'sin_libro': return 'el libro no tiene ese día';
+      case 'sin_libro': return d.libro_a_medias
+        ? `el libro se subió antes de cerrar este día: tiene ${d.renglones_libro} de ${d.movimientos_banco} (no se juzga hasta que traiga un día posterior)`
+        : 'el libro no tiene ese día';
       default: return `abierto (no se juzga)${d.solo_banco.length ? ` · ${d.solo_banco.length} del banco aún sin renglón en el libro` : ''}`;
     }
   }

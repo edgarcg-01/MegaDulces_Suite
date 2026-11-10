@@ -112,7 +112,20 @@ const oNulo = (s: string) => (s === '' ? null : s);
 /** UTF-8 si se decodifica limpio; si no, Latin-1 (Banorte y BBVA vienen en Latin-1). */
 function aTexto(buf: Buffer): string {
   const utf8 = buf.toString('utf8');
-  return utf8.includes('�') ? buf.toString('latin1') : utf8;
+  // Un CSV guardado desde Excel arranca con BOM: sin quitarlo, «Cuenta,Fecha…» no empieza con «CUENTA».
+  return (utf8.includes('�') ? buf.toString('latin1') : utf8).replace(/^﻿/, '');
+}
+
+/**
+ * Para el mensaje de «formato no reconocido»: qué ES el archivo, en palabras, para que quien lo subió
+ * (y quien tenga que escribir el lector) sepa cuál es sin pedirlo por otro lado.
+ */
+export function describirArchivo(buf: Buffer): string {
+  if (buf.length >= 4 && buf[0] === 0xd0 && buf[1] === 0xcf && buf[2] === 0x11 && buf[3] === 0xe0) return 'es un Excel viejo (.xls)';
+  if (buf.length >= 4 && buf.subarray(0, 4).toString('latin1') === '%PDF') return 'es un PDF';
+  if (buf.length >= 2 && buf[0] === 0x50 && buf[1] === 0x4b) return 'es un Excel (.xlsx) sin la hoja de movimientos de BanBajío';
+  const primera = (lineas(aTexto(buf)).find((l) => l.trim() !== '') ?? '').replace(/[^\x20-\x7EÀ-ÿ]/g, ' ').trim();
+  return primera ? `empieza con «${primera.slice(0, 70)}»` : 'está vacío';
 }
 
 const lineas = (texto: string) => texto.split(/\r\n|\r|\n/);

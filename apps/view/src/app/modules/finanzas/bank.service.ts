@@ -401,6 +401,10 @@ export interface SueltoDelDia { id: string; fecha: string; lado: 'entra' | 'sale
 export interface DiaContraElLibro {
   fecha: string; veredicto: VeredictoDelDia; movimientos_banco: number; renglones_libro: number; pareados: number; fecha_distinta: number;
   cierre_banco: number | null; cierre_libro: number | null; solo_banco: SueltoDelDia[]; solo_libro: SueltoDelDia[];
+  /** El último día del libro, subido antes de cerrarlo: le faltan renglones y no le sobra ninguno. */
+  libro_a_medias?: boolean;
+  /** Cómo cuadró: por el cierre del día, o por todos los saldos (cuando el cierre no se puede afirmar). */
+  cuadre_por?: 'cierre' | 'saldos' | null;
 }
 export interface CuentaContraElLibro {
   id: string; alias: string; desde: string | null; hasta: string | null; dias: DiaContraElLibro[];
