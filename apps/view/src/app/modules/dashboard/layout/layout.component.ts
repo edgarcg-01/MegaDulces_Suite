@@ -559,6 +559,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
       items: [
         { label: 'Dashboard',    icon: 'pi pi-th-large',  route: '/logistica/dashboard',      permission: Permission.LOGISTICS_SHIPMENTS_VER },
         { label: 'Embarques',    icon: 'pi pi-truck',     route: '/logistica/shipments',      permission: Permission.LOGISTICS_SHIPMENTS_VER },
+        // [EMB.56] La hoja de ruta del chofer (la única pantalla del rol `chofer`).
+        { label: 'Guía de reparto', icon: 'pi pi-print',  route: '/logistica/guia-reparto',   permission: Permission.LOGISTICS_GUIA_REPARTO_VER },
         { label: 'Planeador',    icon: 'pi pi-compass',   route: '/logistica/planner',        permission: Permission.LOGISTICS_SHIPMENTS_VER },
         { label: 'Mis entregas', icon: 'pi pi-mobile',    route: '/logistica/my-assignments', permission: Permission.LOGISTICS_SHIPMENTS_VER },
         { label: 'Guías',        icon: 'pi pi-file-edit', route: '/logistica/guides',         permission: Permission.LOGISTICS_GUIDES_VER },

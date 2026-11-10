@@ -2300,6 +2300,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.LOGISTICS_SHIPMENTS_VER)]
       },
       {
+        // [EMB.56] La hoja de ruta del chofer: escoge su viaje del día e imprime la guía. Sin importes.
+        path: 'guia-reparto',
+        loadComponent: () => import('./modules/logistica/pages/logistica-guia-reparto.component').then(m => m.LogisticaGuiaRepartoComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_GUIA_REPARTO_VER)]
+      },
+      {
         path: 'guides',
         loadComponent: () => import('./modules/logistica/pages/logistica-guides.component').then(m => m.LogisticaGuidesComponent),
         canActivate: [permissionGuard(Permission.LOGISTICS_GUIDES_VER)]

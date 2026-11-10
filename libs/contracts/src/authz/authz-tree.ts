@@ -287,6 +287,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
         route: '/logistica',
         modules: [
           { id: 'shipments', label: 'Embarques', route: '/logistica/shipments', view: [Permission.LOGISTICS_SHIPMENTS_VER], manage: [Permission.LOGISTICS_SHIPMENTS_GESTIONAR] },
+          { id: 'guia-reparto', label: 'Guía de reparto', route: '/logistica/guia-reparto', view: [Permission.LOGISTICS_GUIA_REPARTO_VER], manage: [] },
           { id: 'guides', label: 'Guías', route: '/logistica/guides', view: [Permission.LOGISTICS_GUIDES_VER], manage: [Permission.LOGISTICS_GUIDES_GESTIONAR] },
           { id: 'fleet', label: 'Flotilla y personal', route: '/logistica/fleet', view: [Permission.LOGISTICS_FLEET_VER], manage: [Permission.LOGISTICS_FLEET_GESTIONAR] },
           { id: 'route-expenses', label: 'Gasto de flota (RD)', route: '/logistica/gasto-ruta', view: [Permission.LOGISTICS_ROUTE_EXPENSES_VER], manage: [Permission.LOGISTICS_ROUTE_EXPENSES_GESTIONAR] },

@@ -16,6 +16,13 @@ type Filas = Record<string, any[]>;
 function baseFalsa(tablas: Filas, opts: { paradas: any[]; sucursalNombre?: string | null }) {
   const tablasConsultadas: string[] = [];
   const raws: string[] = [];
+  // [EMB.56] Paradas y carga se piden por separado y por llave constante (ya no un LATERAL): la
+  // base de mentira contesta las dos vistas con las mismas filas de `opts.paradas`.
+  tablas = {
+    'analytics.erp_shipment_stops': opts.paradas,
+    'analytics.erp_shipment_stop_load': opts.paradas,
+    ...tablas,
+  };
   const trx: any = (tabla: string) => {
     tablasConsultadas.push(tabla);
     let filas = [...(tablas[tabla] ?? [])];
@@ -25,6 +32,10 @@ function baseFalsa(tablas: Filas, opts: { paradas: any[]; sucursalNombre?: strin
         filas = typeof a === 'string'
           ? filas.filter((f) => cumple(f, a, v))
           : filas.filter((f) => Object.entries(a).every(([k, x]) => cumple(f, k, x)));
+        return b;
+      },
+      whereIn(k: string, vs: any[]) {
+        filas = filas.filter((f) => !(k in f) || vs.includes(f[k]));
         return b;
       },
       whereNull: () => b,

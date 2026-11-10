@@ -157,3 +157,317 @@ queda; no hay otra pantalla que timbre) y el panel «Preparación del viaje».
 - **`/logistica/payroll`** (`logistics.liquidations`) no se enciende: EMB.20 y EMB.23 quedan
   resueltos por esta decisión cuando EMB.29 esté en uso.
 - **Descarga de regreso ($1/caja) y maniobra LAB** (EMB.18): no se decidieron aquí.
+
+---
+
+## 8. EMB.56 — La guía de reparto: la hoja de ruta del chofer ⬜ (requisito, 2026-11-09)
+
+**Pedido del PM (2026-11-09):** la guía de reparto que imprime Kepler trae por parada el folio del
+**pedido** (`U-D-40`) y el del **embarque** (`U-D-41`); hay que agregar el de la **factura TLMK**
+(`U-D-8`).
+
+**Quién la usa (PM, 2026-11-09):** **la imprime y la lleva el chofer: es su hoja de ruta.** **El
+chofer no cobra**: sólo el vendedor puede cobrar. La guía es para entregar, no para cobrar.
+
+**Dónde vive: Logística** (PM, 2026-11-09: *«el chofer interactúa al 100 % con Logística»*). Se
+consideró Telemarketing (`/telemarketing/documentos`, que ya liga factura ↔ embarque, `[AX.17]`) y
+se descartó: el chofer no es usuario de ese módulo. Es otra vista sobre los **mismos datos** que ya
+usa «Viajes del ERP» (`/logistica/shipments`, `ErpShipmentsService`,
+`analytics.erp_shipment_headers`), sin una segunda consulta ni copia. La lista de viajes de
+Logística **no se toca**: la usa `coordinador_embarques` (13 de 30 días, medido en
+`analytics.ui_usage` el 2026-11-09) y cubre los tres tipos de viaje.
+
+**Medido contra prod** (sólo lectura, `system_identifier 7688376744939610156`) sobre la guía impresa
+de Kepler `0000969` (Padre Hidalgo, 23-jul-2026, unidad `008`, 12 paradas, todas serie 1):
+
+1. **La columna «Pedido / Embarque» del papel trae casi siempre sólo el pedido.** El embarque aparece
+   en 1 de 12 renglones (`0000689 / 0000670`), el único con hora de captura (`c69`) antes de la hora
+   de impresión. **INFERIDO:** Kepler imprime la guía antes de capturar los embarques.
+2. **El importe impreso es el de la FACTURA, no el del embarque:** coincide al centavo con la factura
+   en 9 de 12 (los embarques difieren de centavos a $2). Kepler ya consulta la factura al imprimir,
+   pero no imprime su folio.
+3. **Un embarque puede tener varias facturas.** El embarque `0000694` tiene tres: dos canceladas en
+   $0 (`c43='C'`) y una vigente que factura **$188.84 más** que lo embarcado.
+4. **Chofer vacío en las 12 paradas** (`c84`), igual que el «Repartidor» en blanco del papel.
+5. Las horas `c69` **no ordenan** pedido → embarque → factura (hay facturas con hora anterior a la de
+   su embarque). No sirven para saber si la factura existía al imprimir. **NO MEDIDO.**
+
+**Liga factura → embarque:** `U-D-8` con `c37=41` + **serie** `c38` + folio `c39`, misma sucursal
+(`c1`). ⚠️ `analytics.erp_shipment_billing` liga sólo por sucursal + folio (sin serie) y **no descarta
+canceladas**: para la guía hay que filtrar `c43<>'C'` y ligar con serie, o corregir la vista. Más de
+una factura vigente: se listan todas. Sin factura todavía: «sin factura»; `c43='N'`: «no se factura».
+Sólo la entrega a cliente (serie 1) tiene factura; el traspaso y la carga a ruta no (ERP_KEPLER §3.y).
+
+**Las cinco preguntas de `diseno` §0b** (2026-11-09):
+
+| # | Pregunta | Respuesta |
+|---|---|---|
+| 1 | Qué ve y en qué orden | Encabezado: fecha, unidad, **chofer**, número de paradas y total de bultos. Después, una parada por bloque **en el orden de visita**: número de parada, cliente y **domicilio de entrega** (calle, población, teléfono; `c85` → `kdudent`), qué entrega (cajas y paquetes), la instrucción para él si la hay, y los folios de **factura** (la que entrega, la más visible), embarque y pedido. Al pie del bloque, espacio para la firma de recibido |
+| 2 | Qué no ve | **Nada de dinero**: ni la columna «Cobranza» (en Kepler vale $0.00 en las 12 paradas de la `0000969`, y el chofer no cobra), ni Descuento (0 en las 12, una con «-0.00»), ni importes ni total de la guía. La diferencia facturado ≠ embarcado (el `0000694`, $188.84) es para Facturación TM, no para el chofer. Tampoco la clave interna del cliente como dato principal, ni la nota `CJ/PQ/UB` como texto: los bultos se calculan (suma por unidad de `[AX.13]`) y la ubicación de espera es de quien carga (`[GP.4b]`) |
+| 3 | Accesibilidad | Se lee en papel, en blanco y negro y dentro del camión: domicilio y bultos en letra grande; cada parada numerada y separada; la factura identificable por su folio para entregarla |
+| 4 | Ligas | Pedido `U-D-40` → embarque `U-D-41` → factura(s) `U-D-8`, los tres folios en el bloque. El cobro (`U-A-7`) es del vendedor, con la Guía de Cobranza (`[GT]`): no se mezcla aquí. El viaje es el mismo que Logística toma para la comisión (`[EMB.12]`) |
+| 5 | ¿Le toca a esta pantalla? | Logística, en una vista propia y chica para el chofer: **los viajes de hoy en su sucursal → escoge el suyo → imprime**. No la lista de «Viajes del ERP», que es del coordinador y trae costo y comisión |
+
+**Lo que la interfaz no puede resolver (va primero):**
+
+1. ⛔ **El chofer no tiene usuario en la Suite.** En la matriz de accesos (generada el 2026-11-04) el
+   puesto «Chofer» no tiene rol propuesto ni personas con acceso. ✅ **Decidido (PM, 2026-11-09):** rol
+   `chofer` con **un solo permiso** de Logística: ver e imprimir las guías de reparto de su sucursal.
+   El item no se entrega hasta que el rol esté **repartido** en prod a los choferes reales (regla 20):
+   darles usuario es un acto de la sucursal / RH, no de código.
+2. **Kepler no sabe qué viaje es de qué chofer:** el chofer (`c84`) viene vacío en las 12 paradas de la
+   `0000969`, y la unidad `00008` lo trae en el 0.2 % de sus embarques. La unidad (`c83`) sí viene. El
+   chofer escoge su viaje por unidad, y **al imprimir queda registrado quién lo imprimió**: ese es el
+   chofer que hoy falta. Guardarlo es dato propio de la Suite (tabla real, como las guías de cobranza
+   archivadas de `[GT.12]`).
+3. ✅ **El orden de visita SÍ está en Kepler** (medido 2026-11-09, sólo lectura). El `| n` del papel es
+   **`kdm_rutas2.c4`**, ligado por embarque → domicilio de entrega (`c85`, vacío = `1`) → `kdudent.c13`
+   (ruta) → `kdm_rutas2` (sucursal, ruta `c1`, cliente `c2`, domicilio `c3`). En la guía `0000969`
+   casa en las **9 de 9** paradas distintas (3, 4, 5, 6, 7, 9, 11, 12, 13), aunque cruzan tres rutas
+   (`R0005`, `R0006`, `R0036`): la numeración es una sola secuencia. **Cobertura**, embarques de
+   Telemarketing (serie 1) de los últimos 30 días: **1,198 de 1,246 (96.1 %)** con orden (Padre
+   Hidalgo 470/477, Canindo 405/414, Morelia Abastos 323/355), 0 con orden duplicado. Las 48 sin orden
+   van **al final, rotuladas «sin orden en Kepler»**, nunca intercaladas a ciegas. ⚠️ Es un solo
+   papel de control: la liga se probó contra una guía impresa, no contra varias.
+4. ⛔ **El domicilio del embarque NO es el de entrega.** `kdm1.c33`/`c34` del embarque traen el
+   domicilio **fiscal**: las 5 paradas de un mismo cliente dicen su domicilio fiscal en Zamora, y el
+   papel las manda a tres pueblos distintos. El domicilio de entrega sale de
+   **`kdudent`** por `c85` (calle `c3`, ciudad `c5`, teléfono `c6`), que es lo que imprime Kepler.
+   Leer `c33`/`c34` mandaría al chofer a Zamora.
+
+**Orden de construcción (capas de `METODO_DE_TRABAJO.md`):**
+
+| Capa | Qué | Estado |
+|---|---|---|
+| C0 dato | Parada de entrega con orden de visita, domicilio de `kdudent` y carga: **ya existía** (`analytics.erp_shipment_stops` + `erp_shipment_stop_load`, EMB.12). Facturas: `analytics.erp_sales_invoices` por `doc_origen` (la liga de `[AX.17]`), sin canceladas. Sin migración de esquema | ✅ 2026-11-09 |
+| C1 dominio | `guia-reparto.logic.ts`: parada = cliente + domicilio; orden por `kdm_rutas2.c4` (sin orden al final); factura `facturado` / `sin_factura` / `no_se_factura` / `no_aplica`; instrucción = nota sin el conteo. **Cajas** de los renglones; **paquetes** de la nota (`PQ n`: los arma el checador, no se calculan, FASE_GP §2.5). Ningún importe | 🧪 2026-11-09 |
+| C2 API | `GET /logistics/guia-reparto/viajes` y `GET /logistics/guia-reparto/:sucursal/:guia`, clave `LOGISTICS_GUIA_REPARTO_VER`, recortados a la sucursal (fuera de alcance = 404). Rol `chofer` por migración `20261109110110` (⛔ sin aplicar en prod). Sin endpoints que escriban todavía | 🧪 2026-11-09 |
+| C1+C2 registro de impresión | Quién imprimió qué guía (el chofer que Kepler no trae): tabla propia + `POST`. Pide prueba contra base real (regla 13) | ⬜ |
+| C3 UI | `/logistica/guia-reparto` (en el menú de Logística › Operación y como aterrizaje del rol `chofer`) + la hoja en PDF (`guia-reparto-pdf.ts`, sobre `compras-pdf-comun` y `abrir-pdf`). §8.1 | 🧪 2026-11-09 |
+| Entrega | Migración aplicada en prod + rol repartido a los choferes reales (regla 20) | ⬜ espera usuarios |
+
+**Medido contra prod el 2026-11-09** (sólo lectura, el código real del servicio con una conexión
+`dev_ro`, guía `01-G0000969`): las 9 paradas salen en el orden del papel (3 → 13), con el
+domicilio de entrega, los folios pedido > embarque > factura de los 12 embarques (el `0000694`
+sólo con su factura vigente, `0000400`), y **cajas y paquetes iguales al papel** parada por parada
+(CJ 4, 28, 8, 7, 10; PQ 1, 9, 2, 1, 1, 1, 3, 8, 1).
+
+**Latencia, antes → después** (el mismo código, mismas filas):
+
+| Consulta | Antes | Después | Por qué |
+|---|---:|---:|---|
+| Guía de un viaje | 4,907 ms | 143–202 ms | la carga se pide por llave constante (sucursal + serie + folios), no por LATERAL: el agregado de `erp_shipment_stop_load` no recibía el filtro (1,880–2,283 ms → 6–13 ms) |
+| Viajes del día (una sucursal) | 3,626 ms | 84–94 ms | sale de cabeceras y paradas filtradas por fecha; `erp_shipment_trips` agrega todas las guías antes de filtrar (4,117–4,787 ms) |
+| Viajes del día (todas) | — | 168–174 ms | |
+| «Nuevo embarque» (`[EMB.12]`, comparte la carga) | 4,172 ms | 108–136 ms | mismo arreglo; mismas cifras (57 cajas, 12 paradas) |
+
+### 8.1 C3 — la pantalla `/logistica/guia-reparto`: los 12 pasos de `diseno` §0a (2026-11-09)
+
+| # | Paso | Respuesta |
+|---|---|---|
+| 1 | Propósito | El chofer **imprime la hoja de ruta de su viaje**. La frase: *«¿Qué hoja me llevo hoy?»* (sin «y») |
+| 2 | Quién entra | Rol `chofer` (0 cuentas hoy: hay que darlas) y quien ya ve embarques (`coordinador_embarques`, 13 de 30 días en `/logistica/shipments`) para reimprimirle |
+| 3 | Estado real | La guía la imprime Kepler, con el embarque en 1 de 12 renglones y el chofer vacío; un día normal tiene ~12 viajes en Padre Hidalgo y 28 en todas las sucursales (07-nov) |
+| 4 | Nivel 0 | Titular («Hoy, 12 viajes en Sucursal Hidalgo»), la fecha (hoy por default, para reimprimir otro día) y la lista de viajes **del más reciente al más viejo**: viaje, unidad y placas, paradas, a dónde va, y **un** botón por fila: «Imprimir guía» |
+| 5 | Qué no ve | Importes, comisión, GPS, responsables de almacén y el chofer de Kepler (viene vacío): nada de eso le sirve para escoger ni para entregar |
+| 6 | Desglose | Viaje → el PDF (nivel 2: paradas en orden, domicilio, bultos, instrucción, folios factura > embarque > pedido, firma). No hay más cifras en pantalla que viajes y paradas |
+| 7 | Accesibilidad | Se reconoce por **unidad y placas** (lo que el chofer sabe) y por los pueblos; la sucursal por nombre; el botón tiene el viaje en su `aria-label`; teclado: Tab llega a cada botón. Sin buscador: ~12–28 filas al día |
+| 8 | Ligas | El papel lleva pedido `U-D-40` > embarque `U-D-41` > factura `U-D-8`; el viaje es el mismo que «Viajes del ERP» de Embarques |
+| 9 | ¿Le toca? | Sí: Logística, donde trabaja el chofer. Costo y comisión se quedan en Embarques / Pagos de viaje |
+| 10 | Maqueta | ver abajo |
+| 11 | Aceptación | Estados separados (cargando / vacío / error); la edad del dato a la vista; un clic imprime; el doble clic no abre dos pestañas; la hoja dice lo mismo que el endpoint (spec del PDF); sin importes en pantalla ni en papel |
+| 12 | Lo que no resuelve | Darles cuenta a los choferes (regla 20) · registrar quién imprimió (C1+C2 pendiente) · los paquetes son los que escribió almacén, no un cálculo |
+
+```
+Guía de reparto
+Imprime la hoja de ruta de tu viaje: paradas en orden, domicilio, bultos y folios. Sin importes.
+
+[ 23/07/2026 ▾ ]                                         (datos de hace 1 min)
+Hoy, 12 viajes en Sucursal Hidalgo · 61 paradas
+┌──────────────┬──────────────────────────────┬─────────┬────────────────────────────┬──────────────────┐
+│ Viaje        │ Unidad                       │ Paradas │ A dónde va                 │                  │
+│ 01-G0000969  │ FORD 450 GASOLINA · 774H6V   │      12 │ Penjamillo · Zinapáro · …  │ [Imprimir guía]  │
+└──────────────┴──────────────────────────────┴─────────┴────────────────────────────┴──────────────────┘
+```
+
+**Construida (2026-11-09).** Lo que el papel real enseñó (PDF armado con la guía 0000969 de prod y
+mirado página por página):
+- **Los kilos salen del papel.** «4 cajas · 60 kg»: lo que se vende por kilo va en bulto y el bulto
+  ya cuenta como caja; el chofer buscaría 60 kg de más. La API los sigue dando.
+- **Embarque y pedido van en un renglón con su folio corto** (`Emb. 0000684 · Ped. 0000707`), la
+  factura completa arriba: con tres renglones por embarque, 9 paradas pedían una segunda hoja.
+- **La nota que repite el pueblo del domicilio no se imprime** («ZINAPARO» en Zinapáro).
+- **Las notas al pie con margen propio:** el helper compartido reserva 90 pt para las firmas de
+  Compras y mandaba una nota sola a otra hoja. Resultado: la guía 0000969 cabe en UNA hoja.
+
+**Segunda vuelta de las cinco preguntas, con la pantalla hecha:** (1) entra y ve el titular, los
+viajes del día del más reciente al más viejo y un botón por fila; (2) no hay un solo importe ni en
+pantalla ni en papel (candado en la spec); (3) el viaje se reconoce por unidad, placas y pueblos, la
+sucursal por nombre, el botón lleva el viaje en su `aria-label`; (4) el papel lleva factura > embarque
+> pedido; (5) vive en Logística, la lista de Embarques no se tocó.
+
+Pruebas: vitest de la pantalla y el PDF 14/14 (el PDF se dibuja con jsPDF real y se lee: orden,
+folios, una hoja, sin `$` ni centavos); `check:pantalla -- logistica-guia-reparto`: cumple las 10
+reglas, tipa; `check:templates` · `estilos` · `tokens` · `teclado` · `motion` · `templates-types` en
+verde. ⚠️ En `apps/view` fallan dos specs que no son de esto: `landing-guards` (Alta de clientes,
+`COMMERCIAL_ALTA_CLIENTES_KEPLER`) y `container-queries` (201 pantallas con `@media`). **Sin
+validación visual de la pantalla** (no se levanta en local); el PDF sí se miró.
+
+**Auditoría como la usaría un chofer (2026-11-09, `auditoria-diseno`).** Evidencia: captura del PM
+(superadmin, 19 viajes) para contar; código (nivel C); prod en sólo lectura (nivel B). Sin sesión
+de chofer ni navegador: lo visual fino queda NO MEDIDO.
+
+| # | Sev | Hallazgo | Arreglo |
+|---|---|---|---|
+| 1 | 🔴 | **«Paradas» contaba embarques**: la guía 0000969 decía 12 en la lista y 9 en la hoja (Cruce 2, el rótulo no dice lo que la celda muestra) | Paradas = cliente + domicilio, como la hoja. Medido en prod: lista 9 = hoja 9 |
+| 2 | 🟠 | **19 botones primarios naranjas** a la vez: ninguno destaca (Von Restorff: una primaria por pantalla) | Con varios viajes, botones secundarios; con uno (el chofer), primario |
+| 3 | 🟠 | **El conteo se repetía**: «19 viajes» en el titular y en la tira | El titular de quien coordina ya no cuenta; el chofer no ve tira (el titular le basta) |
+| 4 | 🟠 | **El viaje se nombraba con código de sucursal** («00-G0001474», «01-G0000969») en pantalla y en la hoja | «Guía 0001474» y la sucursal por nombre debajo; la hoja dice «Guía 0000969 · Sucursal Hidalgo» |
+| 5 | 🟠 | Botón chico (~32 px) para un chofer que entra del teléfono (Fitts: 44 px en `coarse`) | `min-height: 2.75rem` con `pointer: coarse` |
+| 6 | 🟠 | **No se sabe si la guía ya se imprimió** (retrabajo: reimprime sin saber) | Pendiente: el registro de quién imprimió (C1+C2) |
+
+**NO MEDIDO:** contraste de los botones en oscuro y en `forced-colors`; el recorrido con teclado y con
+lector de pantalla; la pantalla en un teléfono real; **dónde imprime el chofer** (si entra del
+teléfono, imprimir desde ahí no es realista: se pregunta al PM). Veredicto por capa: veracidad ✓
+después del arreglo 1; sencillez y comprensión con deuda (6); accesibilidad sin medir.
+
+**Cómo agrupa Kepler (medido 2026-11-09, 30 días, sólo lectura, sucursales CEDIS · Padre Hidalgo ·
+Canindo · Morelia Abastos):** la guía (`c86`) la arma almacén al dar la salida por embarque, y Kepler
+imprime **una hoja por guía**. Una guía nunca mezcla camiones (0 de 889) y casi nunca días (3 de 889):
+**la guía de Kepler es la misma unidad que la lista de la Suite**. Lo que Kepler NO junta es el día del
+camión: de 467 camión-día, **148 llevan 2 o más guías** (hasta 18) y **42 llevan guías de dos sucursales**
+(CEDIS + la sucursal, desde el corte del 1-oct). Caso: la Ford 450 `774H6V` el 9-nov lleva la guía de CEDIS
+`0001470` (traspaso, 7 embarques), la `0001979` de Padre Hidalgo (1 cliente de Telemarketing) y la
+`0001980` (traspaso, 3 embarques): el chofer tendría que imprimir **tres hojas** para una salida.
+~~Propuesta: agrupar por camión y día.~~ **Descartada con un testigo independiente (GPS, 2026-11-09):**
+en los camiones con rastreador, el día que Kepler les pone una guía **el camión no se movió (< 20 km,
+con el GPS encendido) en 6 de 19 días con clientes y 20 de 65 con traspasos** — ~1 de cada 3. Casos:
+un camión con 6 guías recorrió 1 km; otro con 3, 0 km. O sea que **el par (transporte `c83`, fecha `c9`)
+de Kepler no es una salida**: otro vehículo lo llevó, o salió otro día (6 de los 20 traspasos salieron
+al día siguiente). Y la `774H6V` (sin GPS) aparece en un mismo día con guías a León y a Morelia, rumbos
+opuestos. ⚠️ Muestra chica (19 días con clientes), casi toda de tráilers y camiones de ruta.
+
+**Consecuencias:**
+1. **La unidad de la hoja es la GUÍA**, como Kepler: es lo único que Kepler garantiza (un camión, un
+   día, armada a propósito por almacén). No se funden guías en una sola lista de paradas.
+2. El chofer no debe imprimir N hojas una por una: **«Imprimir todas» = un PDF con una guía por hoja**
+   (cada una con su encabezado y su firma), además de imprimir una sola.
+3. ⚠️ **Corrige la decisión anterior de filtrar por unidad:** si la unidad de Kepler no dice qué camión
+   salió en ~1 de cada 3 días, el chofer asignado a la unidad recibiría viajes que no manejó. La fuente
+   buena es el **chofer capturado en el embarque** (`c84`), que Canindo ya llena (41 de 44); la unidad
+   queda como respaldo y se marca «asignado por la unidad». Lo que se pide a almacén de Padre Hidalgo
+   y Morelia Abastos es **capturar el chofer en cada salida por embarque**, no asignarlo a la unidad.
+
+✅ **Aprobado por el PM y construido (2026-11-09):**
+- `asignacionDelChofer` dice POR QUÉ el viaje es suyo (`embarque` | `unidad`); la fila lo trae en
+  `asignado_por`, y con `unidad` la pantalla avisa: «Te sale por tu camión: almacén no te capturó como
+  chofer en este embarque». El vacío ya no menciona la unidad: pide que almacén lo capture en el embarque.
+- **«Imprimir todas (N)»** para el chofer con varias guías: un PDF, una guía por hoja (`pdfGuiasReparto`),
+  cada una con su encabezado y su firma. Fallo parcial: se arman las que se leyeron y se dice cuál faltó.
+  Es la única primaria; los botones por guía quedan secundarios.
+- Contra prod (sólo lectura): Canindo 06-nov, el chofer `00017` ve sus 2 guías, las dos `embarque`.
+- Pruebas: 81/81 en `logistics-erp-shipments`, 20/20 en la pantalla y el PDF; prueba negativa: dejar que
+  la unidad gane sobre el embarque pone 2 en rojo, y quitar el salto de hoja entre guías pone 1.
+  `check:pantalla`, `templates`, `estilos`, `motion`, `templates-types` y `ngc` en verde. Sin validación
+  visual de la pantalla.
+
+**Segundo análisis de la hoja (2026-11-09), con guías reales que no son de Telemarketing** (la Ford 450
+`774H6V` el 9-nov: traspaso de CEDIS `0001470`, cliente `0001979`, traspaso `0001980`), PDF armado con
+el código real y mirado hoja por hoja:
+
+| Sev | Lo que decía | Ahora |
+|---|---|---|
+| 🔴 | «Sin conteo de bultos» en la `0001979`, que lleva 9 kg sueltos: le decía al chofer que no llevaba nada | «Mercancía suelta · 9 kg» (los kilos sólo cuando no hay cajas que ya los cuenten); «Sin renglones en Kepler» si de verdad no hay |
+| 🟠 | En el traspaso, «Traspaso: sin factura» repetido por cada uno de los 7 embarques (14 renglones) | Una línea «Traspaso: no lleva factura» y los folios de embarque y pedido juntos |
+| 🟠 | La sucursal con el nombre del catálogo de Kepler («Sucursal Hidalgo», «Cedis Oficinas») y la pantalla con otro («Padre Hidalgo») | El mismo resolvedor de la pantalla (`warehouseName`) |
+| 🟡 | «Nota:» para una nota interna de almacén («PASSILO 2 Y3») | «Nota de almacén:»: no hay forma honesta de saber si es para el chofer |
+| 🟡 | Notas al pie que no aplicaban (paquetes sin paquetes; «sin orden de visita» con una sola parada) | Sólo las que aplican a esa guía |
+| 🟡 | El pie se encimaba con el número de página («p.mPágina») | Pie corto |
+
+⚠️ **Corrección a lo dicho antes en esta conversación:** `TI008` no es Morelia Abastos; Kepler lo nombra
+«Traspaso Abastos La Piedad» / «Sucursal Abastos LP». Pruebas: 23/23 de la pantalla y el PDF; compuertas y
+`ngc` en verde.
+
+**Clics medidos con Playwright (2026-11-09, Suite local contra prod en sólo lectura, escrituras
+bloqueadas y probado el bloqueo).** Imprimir la guía de HOY, quien coordina: 5 clics (entrar ·
+Logística · Guía de reparto · Imprimir guía · imprimir). Reimprimir la `0000969` del 23-jul: **11**, seis
+de ellos sólo para llegar a la fecha en el calendario, que además salía en inglés («November 2026»).
+
+✅ **Corregido el mismo día (aprobado por el PM):**
+- **«Número de guía» + Enter** (`GET /logistics/guia-reparto/buscar`, mismo alcance y filtro por chofer;
+  47–113 ms): número único → se imprime directo (medido: la `1979`, 0.4 s, 1 clic + teclear); número
+  repetido → se muestran para escoger, nunca uno a ciegas (la `0000969` está en Padre Hidalgo y en
+  CEDIS; medido: 2 clics). Reimprimir la 969 pasa de **6 clics de calendario a 1**. `normalizarNumeroDeGuia`
+  acepta «969», «0000969» o «G-969» y rechaza lo que no es una guía.
+- **PrimeNG en español para toda la app** (`core/i18n/primeng-es.ts` en `providePrimeNG`): medido después,
+  «noviembre 2026», días «D L M X J V S», «Mes anterior». Sólo textos; ni `dateFormat` ni el primer día
+  de la semana cambian.
+- Pruebas: 83/83 `logistics-erp-shipments`, 26/26 pantalla y PDF; compuertas y `ngc` en verde.
+
+#### Fuera la carga de Ruta Directa (PM, 2026-11-09)
+
+La camioneta de RD vende a bordo, pero Kepler registra su carga como un embarque `U-D-41` **serie 2
+a nombre de la ruta**: el cliente es `RUTA 21`, `RD021` o `RD 501` y el destino, `R.D. 21 …` o
+`RUTA DIRECTA 21`. Esas guías salían en la lista como viajes de reparto. Medido en prod, en sólo lectura:
+
+| Medición | Resultado |
+|---|---|
+| Guías con embarque en 60 días | 1,806 en las 9 sucursales |
+| De ellas, carga de RD | **552** (Padre Hidalgo 308, Canindo 236); ninguna mezclada con clientes |
+| Las dos marcas (código y destino), en un año | coinciden en 1,064 de 1,064 embarques, todos serie 2, desde el 27-jun |
+| El SQL tal cual lo manda Knex (con parámetros) | saca 544 embarques, **todos serie 2**, 0 de telemarketing; la 0000969 queda |
+| Lista del día con el filtro | 82 ms |
+
+Regla `esCargaDeRutaDirecta` (lógica pura, con su prueba negativa) y `sinRutaDirecta` en la lista y la
+búsqueda (`coalesce`: un NULL no tira el embarque). La hoja de una guía de RD contesta «es la carga de
+una camioneta de Ruta Directa: no lleva guía de reparto», y al chofer el mismo «no existe» de siempre.
+⚠️ Una primera medición dio 10 embarques de más: el script perdió el escape del punto (`R.s?D.`
+atrapa «RODRIGUEZ»). Quedó como caso de prueba, y el mutante sin escape pone la prueba en rojo.
+Permisos: ningún rol de RD recibe la clave (la migración sólo la da a quien ya ve embarques:
+coordinador de embarques, dirección, finanzas, repartidor, superadmin). **No ejercido por la API**:
+se midió el SQL, no el endpoint.
+
+⚠️ **Diferencia declarada de la lista:** una guía con embarques de dos días aparece en los dos
+(`erp_shipment_trips` la fecha en el primero). Es el día que el chofer busca.
+
+Pruebas: vitest `logistics-erp-shipments` **71/71** (nuevas: lógica con la guía 0000969 y
+controlador con permiso y recorte por sucursal). Prueba negativa hecha: quitar el recorte deja
+pasar otra sucursal y la prueba se pone roja. Contratos `authz` 79/79. `tsc --noEmit` sin errores en
+lo tocado (los 37 TS1272 de `libs/logistics` son de otros controladores y ya estaban). El
+constructor del controlador emite `[ErpShipmentsService, ScopeService]` con metadata encendida
+(`ts.transpileModule`). **Arranque de la API no verificado** (no se levanta en local).
+
+**⛔ Cada chofer ve SÓLO sus viajes (PM, 2026-11-09).** Medido ese día (TLMK, 30 días, sólo lectura):
+
+| Fuente posible | Padre Hidalgo | Canindo | Morelia Abastos | Sirve |
+|---|---|---|---|---|
+| Chofer en el embarque (`kdm1.c84`) | 1 de 61 guías | 41 de 44 | 3 de 88 | sólo donde se captura |
+| Tripulación capturada en la Suite (`delivery_guides`) | 0 | 0 | 0 | no existe |
+| **Ruta** (`kdudent.c13`) | 26 de 61 guías cruzan 2–4 rutas | 22 de 44 | 10 de 11 rutas las atiende más de una unidad | ⛔ no: una ruta no es de un chofer |
+| **Unidad** (`kdm1.c83`) | `00008` hace 57 de 61 | `00017` hace 41 de 44 | `00027` 56 y `00028` 21 de 88 | ✅ casi una unidad por chofer |
+
+En Canindo, donde el chofer sí se conoce, chofer ↔ unidad es 1 a 1 (`00017` ↔ `00017`, 41 guías).
+Kepler ya tiene esa liga: el **chofer asignado a la unidad** (`kdm_transporte.c4`) se precarga en
+cada embarque (`c84`), y la `00008` de Padre Hidalgo no lo tiene; por eso sale vacío. Propuesta:
+el viaje es del chofer si `c84` es él, o si `c84` viene vacío y él es el asignado a la unidad
+(`erp_shipment_headers.chofer_asignado_a_la_unidad`). Pide: asignar el chofer a cada unidad en
+Kepler (una vez por unidad) y ligar `logistics.drivers.user_id` (0 de 26 ligados hoy).
+
+✅ **Decidido por el PM (2026-11-09): por unidad, con el catálogo de Kepler.** 🧪 Construido ese día:
+- `esViajeDelChofer` (`guia-reparto.logic.ts`): suyo si `chofer_clave_kepler` es su clave; si el
+  embarque viene sin chofer, si es el asignado a la unidad (`kdm_transporte.c4`). Comparación exacta.
+- Quien tiene `LOGISTICS_SHIPMENTS_VER` (o administra la plataforma) ve todos los de su alcance;
+  cualquier otro, sólo los suyos (`quienPide`). La guía de un viaje ajeno responde 404.
+- Sin ficha ligada o sin clave de Kepler, la lista sale vacía **con el motivo** (`filtro.motivo`) y
+  la pantalla dice quién lo arregla: la cuenta se liga en Logística › Flotilla («Cuenta del sistema»);
+  la clave de Kepler **no se captura en ninguna pantalla** hoy (se reporta a Sistemas).
+- Contra prod (sólo lectura, ficha simulada porque no hay cuentas ligadas): Canindo 06-nov, el chofer
+  `00017` ve **2 de 8** viajes (sus dos Ford 450) y abre sólo esos; otra clave ve 0. Una cuenta sin
+  ficha recibe `sin_ficha_de_chofer`. Pruebas: vitest 80/80 en `logistics-erp-shipments` y 19/19 en la
+  pantalla y el PDF; prueba negativa: abrir el filtro a «todos» o dejar que la unidad gane sobre el
+  chofer del embarque pone 6 pruebas en rojo.
+- ⚠️ Hasta que almacén asigne el chofer a la `00008` (Padre Hidalgo) y a la `00027`/`00028` (Morelia
+  Abastos) en Kepler, esos choferes verán su lista vacía, con el motivo.
+
+**Alcance:** arranca con las entregas de Telemarketing (el pedido del PM). Traspasos y carga a ruta
+usan la misma hoja sin factura; **no** entran en este item.

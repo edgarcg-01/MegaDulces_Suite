@@ -22,6 +22,7 @@ import { diagnosticsInterceptor } from './core/http/diagnostics.interceptor';
 import { SelectivePreloadStrategy } from './core/strategies/selective-preload.strategy';
 
 import { providePrimeNG } from 'primeng/config';
+import { PRIMENG_ES } from './core/i18n/primeng-es';
 import { OperationsPreset } from './core/theme/operations-preset';
 import { ConfirmationService } from 'primeng/api';
 
@@ -68,7 +69,9 @@ export const appConfig: ApplicationConfig = {
         options: {
           darkModeSelector: '.theme-monochrome'
         }
-      }
+      },
+      // Textos de PrimeNG en español (calendarios, filtros, listas vacías). Sin esto decían «November 2026».
+      translation: PRIMENG_ES,
     }),
     ConfirmationService,
     provideServiceWorker('ngsw-worker.js', {
