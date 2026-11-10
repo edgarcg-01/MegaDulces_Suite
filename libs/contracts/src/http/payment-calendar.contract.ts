@@ -474,3 +474,38 @@ export interface SupplierPaymentHabit {
   clabe_ultima_vez?: string | null;
   clabes_distintas?: number | null;
 }
+
+/**
+ * `[PGP.105]` **El ensayo del pago en Kepler**: el `X-D-26` EXACTO que la Suite escribiría para este
+ * pago (armado con el mismo código que escribe, `armarPagoKepler`, con lo que trae la réplica
+ * `kepler_ods`), o por qué no se escribiría. No toca Kepler. Si Tesorería ya capturó ese pago a mano,
+ * se compara campo por campo: es lo que decide cuándo el ensayo está «en verde» (F3, Edgar 2026-11-09:
+ * dos semanas en verde antes de escribir de verdad).
+ */
+export interface PaymentCalendarEnsayoKepler {
+  allocation_id: string;
+  /** `listo`: se escribiría tal cual · `bloqueado`: no, y `motivos` dice por qué. */
+  estado: 'listo' | 'bloqueado';
+  motivos: string[];
+  /** El servidor de Kepler donde se escribiría (la sucursal de las facturas, `00`…`08`). */
+  servidor: string | null;
+  documento: null | {
+    fecha: string;
+    acreedor: string;
+    acreedor_nombre: string;
+    rfc: string;
+    importe: number;
+    /** `kdm1.c45`: la cuenta de tesorería de Kepler por la que sale. */
+    cuenta_tesoreria: string;
+    cuenta_nombre: string | null;
+    concepto: string;
+    referencia: string;
+    iva: number;
+    ieps: number;
+    aplicaciones: { factura: string; aplicado: number; saldo_antes: number; saldo_despues: number }[];
+  };
+  /** El `X-D-26` que Tesorería capturó a mano para este pago, si ya existe, y si coincide. */
+  captura: null | { folio: string; coincide: boolean; diferencias: string[] };
+  /** Lo que el adaptador todavía NO escribe (se declara: el ensayo no lo cubre). */
+  no_cubierto: string[];
+}

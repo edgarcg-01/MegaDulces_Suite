@@ -16,7 +16,7 @@ import { MessageService } from 'primeng/api';
 import type {
   PaymentCalendarAllocation, PaymentCalendarAllocationItem, PaymentCalendarDaySummary, PaymentCalendarWeek, PaymentCalendarWeekDay,
   PagoSugerido, PagosAtrasadosDia, PayableEvidenceRow, PaymentObligationSource, PaymentOriginAccount,
-  DiscountReason, PaymentCalendarDiscountLine, PaymentCalendarItemDiscountBody, PaymentCalendarItemDiscountResult,
+  DiscountReason, PaymentCalendarDiscountLine, PaymentCalendarEnsayoKepler, PaymentCalendarItemDiscountBody, PaymentCalendarItemDiscountResult,
 } from '@megadulces/contracts';
 import { warehouseName, DISCOUNT_REASONS, DISCOUNT_REASON_LABEL } from '@megadulces/contracts';
 import { textoValidacion, validadoParaKepler } from '@megadulces/contracts/finance/validacion-pago';
@@ -859,6 +859,38 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                           <!-- [PGP.104] Por qué todavía no se puede dar por pagado, en palabras. La CLABE destino no se compara: el catálogo de cuentas de proveedor está vacío. -->
                           <p class="pg-x-d">{{ v.motivo }} La CLABE destino no se compara todavía.</p>
                         } }
+                        <!-- [PGP.105] El ensayo: el X-D-26 que la Suite escribiría en Kepler (no escribe nada) y, si Tesorería ya lo
+                             capturó a mano, si coincide. Es lo que decide cuándo encender la escritura (F3: dos semanas en verde). -->
+                        @if (ensayoDatos()[a.id]; as en) {
+                          <div class="pg-ens" role="region" [attr.aria-label]="'Ensayo en Kepler del pago de ' + allocationTitle(a)">
+                            <p class="pg-ens-h" [class.is-ok]="en.estado === 'listo'">
+                              <i class="pi" [class.pi-check-circle]="en.estado === 'listo'" [class.pi-exclamation-circle]="en.estado !== 'listo'" aria-hidden="true"></i>
+                              @if (en.estado === 'listo') { Se escribiría así en Kepler ({{ branchLabel(en.servidor) }}) } @else { No se escribiría todavía en Kepler }
+                            </p>
+                            @if (en.documento; as d) {
+                              <p class="pg-x-d">X-D-26 a {{ d.acreedor_nombre }} ({{ d.acreedor }}) · <span class="comm-num">{{ money(d.importe) }}</span> · sale por {{ d.cuenta_nombre || d.cuenta_tesoreria }} · concepto {{ d.concepto }} · IVA <span class="comm-num">{{ money(d.iva) }}</span> · fecha {{ d.fecha }}</p>
+                              <ul class="pg-ens-l" [attr.aria-label]="'Facturas que salda el X-D-26 de ' + allocationTitle(a)">
+                                @for (x of d.aplicaciones; track x.factura) {
+                                  <li><span class="comm-num">{{ x.factura }}</span> recibe <span class="comm-num">{{ money(x.aplicado) }}</span> · saldo en Kepler <span class="comm-num">{{ money(x.saldo_antes) }} → {{ money(x.saldo_despues) }}</span></li>
+                                }
+                              </ul>
+                            }
+                            @if (en.captura; as c) {
+                              <p class="pg-ens-c" [class.is-ok]="c.coincide">@if (c.coincide) {Coincide con lo que Tesorería capturó a mano (X-D-26 {{ c.folio }}).} @else {Difiere de lo que Tesorería capturó a mano (X-D-26 {{ c.folio }}): {{ c.diferencias.join(' · ') }}.}</p>
+                            }
+                            @if (en.motivos.length) {
+                              <ul class="pg-ens-m" aria-label="Por qué no se escribiría">@for (m of en.motivos; track m) { <li>{{ m }}</li> }</ul>
+                            }
+                            <p class="pg-x-d">El ensayo todavía no cubre: {{ en.no_cubierto.join(' · ') }}.</p>
+                          </div>
+                        } @else if (ensayoEstado()[a.id] === 'cargando') {
+                          <p class="pg-x-d" aria-live="polite">Armando el X-D-26…</p>
+                        } @else if (ensayoEstado()[a.id] === 'error') {
+                          <p class="pg-x-d pg-ens-err" aria-live="polite">No se pudo armar el ensayo. <button type="button" class="pg-saldada-btn" (click)="verEnsayo(a)">Reintentar</button></p>
+                        } @else if (a.status !== 'cancelled' && (isReleased() || a.status === 'executed' || !!pagadoEnKepler(a))) {
+                          <button pButton type="button" class="p-button-sm p-button-text p-button-secondary pg-ens-btn" (click)="verEnsayo(a)"
+                                  [attr.aria-label]="'Ver cómo quedaría en Kepler el pago de ' + allocationTitle(a)"><span class="pi pi-eye" aria-hidden="true"></span>&nbsp;Ver cómo quedaría en Kepler</button>
+                        }
                         @if (a.notes) { <p class="cal-notes">{{ a.notes }}</p> }
                       </div>
                       <table class="pg-items-t">
@@ -1792,6 +1824,13 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
     .pg-val { display:inline-flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-xs); font-weight:600; color:var(--warn-soft-fg); }
     .pg-val.is-ok { color:var(--ok-fg); }
     /* [PGP.108] El CFDI de la factura, debajo de su archivo: terciario; lo que no se ligó, en ámbar con su palabra. */
+    /* [PGP.105] El ensayo en Kepler: dentro del desglose, terciario; el veredicto con icono + palabra. */
+    .pg-ens { display:flex; flex-direction:column; gap:var(--sp-1); padding:var(--sp-2) 0; }
+    .pg-ens-h, .pg-ens-c { margin:0; display:flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-sm); font-weight:600; color:var(--warn-soft-fg); }
+    .pg-ens-h.is-ok, .pg-ens-c.is-ok { color:var(--ok-fg); }
+    .pg-ens-l, .pg-ens-m { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:var(--sp-1); font-size:var(--fs-xs); color:var(--text-muted); }
+    .pg-ens-m li::before { content:'· '; }
+    .pg-ens-err { color:var(--warn-soft-fg); }
     .pg-cfdi { display:block; font-size:var(--fs-xs); color:var(--text-muted); }
     .pg-cfdi.is-no { color:var(--warn-soft-fg); }
     .pg-falta { display:inline-flex; align-items:center; gap:var(--sp-1); color:var(--warn-soft-fg); background:var(--warn-soft-bg); border-radius:var(--r-pill); padding:0 var(--sp-2); font-weight:600; }
@@ -3251,6 +3290,17 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   }
   readonly textoValidacion = textoValidacion;
   readonly textoCfdi = textoCfdi;
+  /** `[PGP.105]` El ensayo de cada pago en Kepler, pedido a demanda desde su desglose (es una consulta por pago). */
+  readonly ensayoDatos = signal<Record<string, PaymentCalendarEnsayoKepler>>({});
+  readonly ensayoEstado = signal<Record<string, 'cargando' | 'error'>>({});
+  verEnsayo(a: PaymentCalendarAllocation): void {
+    this.ensayoEstado.update((m) => ({ ...m, [a.id]: 'cargando' }));
+    this.http.get<PaymentCalendarEnsayoKepler>(`${this.base}/allocations/${a.id}/ensayo-kepler`)
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => { this.ensayoDatos.update((m) => ({ ...m, [a.id]: r })); this.ensayoEstado.update(({ [a.id]: _x, ...m }) => m); },
+        error: () => this.ensayoEstado.update((m) => ({ ...m, [a.id]: 'error' })),
+      });
+  }
   readonly textoMetodo = textoMetodo;
   readonly pagarLista = computed(() => { const a = this.pagarSolo(); return a ? [a] : this.porMarcar(); });
   readonly pagarListaTotal = computed(() => this.pagarLista().reduce((s, a) => s + Number(a.amount_assigned || 0), 0));

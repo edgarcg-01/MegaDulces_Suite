@@ -8,7 +8,7 @@ import {
 } from './payment-calendar.service';
 import type { DayOrderRank } from './payment-calendar.service';
 import { PaymentCalendarDocumentService } from './payment-calendar-document.service';
-import type { GuiaFueraDePrograma, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarItemDiscountResult, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
+import type { GuiaFueraDePrograma, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarEnsayoKepler, PaymentCalendarItemDiscountResult, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string } }
 
@@ -186,6 +186,17 @@ export class PaymentCalendarController {
   @ApiOperation({ summary: '[PGP.91] Fija o quita (0) el descuento al pagar de UNA factura del pago: lo cubierto no cambia; baja lo que sale del banco. Sólo en un día sin autorizar.' })
   setItemDiscount(@Param('id') id: string, @Param('itemId') itemId: string, @Body() body: ItemDiscountDto, @Req() req: AuthedRequest): Promise<PaymentCalendarItemDiscountResult> {
     return this.svc.setItemDiscount(id, itemId, body, req.user?.username || 'sistema');
+  }
+
+  /**
+   * `[PGP.105]` El `X-D-26` que la Suite escribiría para este pago, leído de la réplica (no toca
+   * Kepler), y su comparación contra lo que Tesorería capturó a mano. Sólo lectura.
+   */
+  @Get('allocations/:id/ensayo-kepler')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: '[PGP.105] Ensayo del pago en Kepler: el X-D-26 exacto que la Suite escribiría (armado con el mismo código que escribe, con datos de kepler_ods) o por qué no; si Tesorería ya lo capturó a mano, la comparación campo por campo. No escribe nada.' })
+  ensayoKepler(@Param('id') id: string): Promise<PaymentCalendarEnsayoKepler> {
+    return this.svc.ensayoKepler(id);
   }
 
   @Post('allocations/:id/reprogramar')

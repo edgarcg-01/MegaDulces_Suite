@@ -1349,7 +1349,7 @@ pago o nada se valida. Es el cuello del flujo nuevo, y se dice primero.
 | `[PGP.102]` | C0 | Medir el par **pago de la Suite ↔ movimiento del banco** (cuenta de origen del pago ↔ cuenta del estado de cuenta, ±$1, ±5 días) con control placebo, sobre los pagos que Kepler ya saldó; y el par pago ↔ comprobante (importe + CLABE) y pago en efectivo ↔ salida de ventanilla | ⬜ |
 | `[PGP.103]` | C1 | Regla pura `validacionDelPago`: `sin_movimiento · falta_comprobante · comprobante_sin_movimiento · discrepa · validado` (efectivo: `sin_salida_ventanilla · validado`). Lo no medible se declara | ⬜ |
 | `[PGP.104]` | C2+C3 | El día trae la validación por pago; el botón «Pagado» se retira: el estado sale de la evidencia. Lo que falta se dice con su nombre (sigue la línea de `[PGP.100]`) | ⬜ |
-| `[PGP.105]` | C2+C3 | **Ensayo**: por cada pago validado y que Kepler no tenga ya, el X-D-26 exacto que se escribiría (armador `[PGP.71]`), con «Aprobar» | ⬜ |
+| `[PGP.105]` | C2+C3 | **Ensayo**: por cada pago validado y que Kepler no tenga ya, el X-D-26 exacto que se escribiría (armador `[PGP.71]`), con «Aprobar» | 🧪 en código: `GET allocations/:id/ensayo-kepler` + «Ver cómo quedaría en Kepler» en el desglose. Línea base abajo: 0 de 51 coinciden |
 | `[PGP.106]` | C2 | **Escribir**: reclamar el pago de forma atómica (`kepler_payment_folio`) antes de escribir, revisar que Kepler no lo tenga ya capturado a mano, escribir las **8 tablas** (falta `kdm5` y la póliza `kdc2AAMM` en el armador) | ⚠️ espera el GRANT de quien administra Kepler (INSERT `kdxe`/`kdxf`, UPDATE `kdxe.c20`, …) y la lista completa de tablas (`ops/prod/ensayo-pago-kepler/foto-contadores.js`) |
 
 ⛔ Escribir en Kepler no se deshace: `[PGP.106]` no se enciende sin el ensayo de `[PGP.105]` en verde
@@ -1439,7 +1439,7 @@ Que el método decida es el cambio de `[PGP.109]`, y **la regla contable la conf
 | `[PGP.107]` | C0 | **El evento «pagado» con su evidencia**: al marcar Pagado (ya validado) se guardan en el pago la salida del banco y el comprobante que lo probaron (columnas nuevas en `finance.payment_allocations`, nullables; regla 14: recorrer todos los caminos que la tocan). Sin esto ni Kepler ni ContPAQi saben fecha, cuenta e importe reales | ⬜ |
 | `[PGP.108]` | C0+C1 | **Cada factura del pago ↔ su CFDI**, por el documento de Kepler (RFC + total ±$1 + fecha ±45 días): 70 % del dinero único, control 0.3 %. Varios candidatos o ninguno → una persona elige (`contpaqi.pago_confirmaciones`). Con `metodo_pago`, `forma_pago`, IVA/IEPS y retenciones del CFDI | ⬜ |
 | `[PGP.109]` | C1 | **La regla PUE/PPD en el asiento**, sobre `armarPagoProveedorCompleto` (no un armador nuevo): PUE completo; PPD proporcional a la parcialidad + estado «espera REP». Pruebas con pólizas reales de la contadora como testigo | ⬜ espera P1 |
-| `[PGP.110]` | C0 | **Carril vivo de REP**: `contpaqi_ods.add_pagos` / `add_pagos_doc_rel` detenido desde el 30-oct. Sin él, ningún PPD se completa. Y la asociación del REP a la póliza ya emitida | ⬜ |
+| `[PGP.110]` | C0 | **Carril vivo de REP**: `contpaqi_ods.add_pagos` / `add_pagos_doc_rel` detenido desde el 30-oct. Sin él, ningún PPD se completa. Y la asociación del REP a la póliza ya emitida | ⚠️ investigado 2026-11-10 (ver «El carril de REP» abajo): espera la D15 de Edgar, extender el replicador y una corrida en `feeds-cron` de md |
 | `[PGP.111]` | C1 | **Gastos**: la cuenta contable de cada proveedor de gasto (hoy 0 de 51) se PREGUNTA en el sistema como parámetro (dueño: la contadora), y las retenciones (honorarios, arrendamiento) que hoy se rechazan | ⬜ espera P3 |
 | `[PGP.112]` | C2+C3 | **Al quedar «Pagado»**: la póliza entra al TXT del día (`txt-sink`, ADR-040: la importa una persona y la Suite lee el cuadre de vuelta de `gl_polizas`); en pantalla, el pago dice «póliza armada · espera REP · entregada» | ⬜ |
 | `[PGP.106]` | C2 | **Kepler**: el X-D-26 con sus 8 escrituras — incluida la **póliza interna de Kepler** (`kdc2AAMM`) y los acumulados contables (`kdxg`, `kdc126`). Permisos ✅ en CEDIS; faltan en el adaptador `kdm5`, `kdxg`, `kdc2AAMM`, `kdc126` | ⚠️ falta la foto de una captura real de Tesorería (`foto-contadores.js`) |
@@ -1457,3 +1457,38 @@ Que el método decida es el cambio de `[PGP.109]`, y **la regla contable la conf
 ⛔ **Orden:** `[PGP.107]` y `[PGP.108]` primero (sin ellos no hay qué contabilizar); `[PGP.110]` en
 paralelo (es infraestructura); `[PGP.109]`/`[PGP.111]` cuando la contadora conteste P1 y P3;
 `[PGP.112]` y `[PGP.106]` al final. Nada se enciende sin su ensayo.
+
+### `[PGP.105]` El ensayo, medido con el código real (prod, sólo lectura, 2026-11-10)
+
+120 pagos del Calendario de los últimos 25 días; **51 ya los capturó Tesorería a mano** en Kepler (el
+cierre los encuentra por `kdxf`). Contra esos 51, lo que la Suite habría escrito:
+
+| Resultado | Pagos | Qué significa |
+|---|---:|---|
+| No se pudo armar | 15 | facturas sin concepto (`kdxe.c18` vacío), conceptos distintos en un pago, o acreedor que no es de compra (`G…`) |
+| Armado, **difiere SÓLO en la cuenta de tesorería** | 18 | el pago no traía cuenta de origen: con la cuenta preparada, coincidirían |
+| Armado, difiere en el **concepto** | 13 | ⚠️ la regla «concepto = el de la factura» no es la que usa Tesorería en 13 de 36: hay que decodificarla antes de escribir |
+| Difiere en importe, IVA/IEPS o en una factura | ~10 | casos a revisar uno por uno |
+| **Coincide en todo** | **0** | el ensayo NO está en verde |
+
+Tiempo: p50 319 ms, máximo 537 ms (se pide a demanda, un pago a la vez). **Lo que decide encender
+`[PGP.106]`:** (1) que Tesorería prepare la cuenta de origen (sin ella, 109 de 120 no se pueden armar);
+(2) decodificar el concepto (`c12`) que captura Tesorería; (3) dos semanas con «coincide» en todo.
+
+### `[PGP.110]` El carril de REP (investigado 2026-11-10, sólo lectura)
+
+- `contpaqi_ods` **no es una réplica lógica**: lo llena `database/importers/contpaqi/replicate-contpaqi.js` (excepción
+  autorizada, ADR-111), que **corrió UNA vez a mano** el 2026-10-30 en el pod `feeds-cron` de md. Su sincronía
+  sigue comentada en `ops/vl/crontab.feeds` esperando la **D15** (la contraseña del SQL Server de ContPAQi en
+  `/secrets/feeds.env`, regla 7).
+- ⛔ **Encender la D15 no basta:** `add_pagos` (102,581 filas) y `add_pagos_doc_rel` (151,920) no tienen llave entera y
+  pasan de 100 mil filas, así que el sincronizador las deja «sin carril». Hay que extender el replicador (CP.9.6,
+  previsto en ADR-111) para recopiar por la marca de tiempo del ADD las filas de los documentos que cambiaron.
+- La otra fuente (descarga masiva del SAT) también está parada desde el 27-oct.
+- Facturas PPD recibidas con su REP en la réplica: septiembre 275 de 574 · octubre 71 de 686 · noviembre 0 de 165.
+- **El camino sin copiar (regla 1):** una vista sobre `contpaqi_ods` (`add_comprobante` tipo P + `add_pagos` +
+  `add_pagos_doc_rel`, cuyo `iddocumento` es el UUID de la factura), con `fiscal.cfdi_payment_links` como segundo
+  testigo. Agregar el tipo P al importer de CFDI no sirve: sólo lee la cabecera, no qué facturas paga.
+- **Quién:** la D15 la decide Edgar; ponerse al día (`replicate-contpaqi.js --apply --solo=add --tabla=Pagos`, luego
+  `Pagos_Doc_Rel`, `Comprobante`, `Documento`) se corre en `feeds-cron` de md **fuera de horario** (borra e inserta
+  sin transacción; `Comprobante` tiene 629 mil filas).

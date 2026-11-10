@@ -11,6 +11,8 @@ import { SupplierPaymentAccountsService } from '../supplier-payment-accounts/sup
 import type { DiscountReason, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarItemDiscountResult, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 import { leerValidacionDelDia } from './validacion-pago.sql';
 import { leerCfdiDeFacturas } from './cfdi-factura.sql';
+import { leerEnsayoPagoKepler } from './kepler-pago/ensayo-ods.sql';
+import type { PaymentCalendarEnsayoKepler } from '@megadulces/contracts';
 import type { ValidacionPago } from '@megadulces/contracts/finance/validacion-pago';
 import { assertDescuentoPermitido, descuentoSobreCubierto, descuentosSobreCubierto, lineasDeDescuento, normalizarDescuento, round2, type DescuentosNormalizados } from './descuento-al-pagar';
 import { cierreCompleto, type CierreKeplerPago } from '@megadulces/contracts';
@@ -2235,6 +2237,19 @@ export class PaymentCalendarService {
           updated_by: username, updated_at: trx.fn.now(),
         }).returning('*');
       return updated;
+    });
+  }
+
+  /**
+   * `[PGP.105]` El ensayo del pago en Kepler: lo que se escribiría y, si Tesorería ya lo capturó, la
+   * comparación. Sólo lectura (la réplica `kepler_ods`, nunca el Kepler vivo).
+   */
+  async ensayoKepler(allocationId: string): Promise<PaymentCalendarEnsayoKepler> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const r = await leerEnsayoPagoKepler(trx, tenantId, allocationId, todayMx());
+      if (!r) throw new NotFoundException('Pago no encontrado');
+      return r;
     });
   }
 
