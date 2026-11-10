@@ -1,6 +1,6 @@
 import type { Knex } from 'knex';
 import {
-  armarComisionesKepler, bloquesDeTarjeta, cruzarConKepler, gruposPorDiaDeVenta, resolverBloque,
+  armarComisionesKepler, bloquesDeTarjeta, cruzarConKepler, gruposPorDiaDeVenta, resolverBloque, MOTIVO_SIN_DEPOSITO,
   type CargoTarjeta, type DepositoKepler, type PagoKeplerCapturado, type PlanComisionesKepler, type PlantillaComisiones, type RenglonDescarga,
 } from './comisiones-kepler.armador';
 
@@ -51,7 +51,16 @@ export interface BloquePorRevisar {
   deposito: { id: string; cuenta: string; fecha: string; importe: number };
   cargos: CargoPropuesta[];
   motivo: string;
+  /**
+   * La sucursal todavía no captura el depósito y es reciente (≤ `DIAS_DE_ESPERA`): no es un problema, es una
+   * espera. Medido en octubre: la sucursal captura su `U-A-5` con una mediana de 0 a 5 días según la sucursal
+   * (el 90 % dentro de 1 a 10). Pasado eso, sí se revisa.
+   */
+  espera: boolean;
 }
+
+/** Hasta cuántos días un depósito sin capturar se espera en vez de revisarse (p90 de la sucursal más lenta). */
+export const DIAS_DE_ESPERA = 10;
 
 export interface PropuestaComisiones {
   medido: boolean;
@@ -61,7 +70,8 @@ export interface PropuestaComisiones {
   dias: DiaPropuesta[];
   por_revisar: BloquePorRevisar[];
   huerfanos: CargoPropuesta[];
-  resumen: { cargos: number; listos: number; ya_en_kepler: number; por_revisar: number; monto_listo: number };
+  /** Cuatro montones que no se enciman y suman `cargos`. */
+  resumen: { cargos: number; listos: number; ya_en_kepler: number; esperando_sucursal: number; por_revisar: number; monto_listo: number };
 }
 
 type Db = Knex | Knex.Transaction;
@@ -112,7 +122,7 @@ async function plantillas(db: Db, pares: { sucursal: string; acreedor: string }[
  */
 export async function leerPropuesta(db: Db, tenantId: string, desde: string, hasta: string, opciones: { armarTodo?: boolean } = {}): Promise<PropuestaComisiones> {
   const vacia = (medido: boolean, motivo: string | null): PropuestaComisiones => ({
-    medido, motivo, desde, hasta, dias: [], por_revisar: [], huerfanos: [], resumen: { cargos: 0, listos: 0, ya_en_kepler: 0, por_revisar: 0, monto_listo: 0 },
+    medido, motivo, desde, hasta, dias: [], por_revisar: [], huerfanos: [], resumen: { cargos: 0, listos: 0, ya_en_kepler: 0, esperando_sucursal: 0, por_revisar: 0, monto_listo: 0 },
   });
   const ods = (await db.raw(`SELECT to_regclass('kepler_ods.kdm1') AS kdm1, to_regclass('kepler_ods.kdm6') AS kdm6, to_regclass('analytics.kepler_bank_movements') AS kbm`)).rows[0];
   if (!ods?.kdm1 || !ods?.kdm6 || !ods?.kbm) return vacia(false, 'Sin el ODS de Kepler en esta base: no se puede saber qué está capturado.');
@@ -175,18 +185,27 @@ export async function leerPropuesta(db: Db, tenantId: string, desde: string, has
     const r = armarComisionesKepler(g, p);
     return r.ok ? { ...base, estado: 'lista', motivos: [], plan: r.plan } : { ...base, estado: 'rechazada', motivos: r.motivos, plan: null };
   });
-  const por_revisar: BloquePorRevisar[] = sinResolver.map(({ bloque, motivo }) => ({
-    deposito: { id: bloque.deposito.id, cuenta: bloque.deposito.cuenta, fecha: bloque.deposito.fecha, importe: bloque.deposito.importe },
-    cargos: bloque.cargos.map(vista), motivo,
-  }));
+  const antiguedad = (f: string): number => (Date.parse(`${hasta}T00:00:00Z`) - Date.parse(`${f}T00:00:00Z`)) / 86_400_000;
+  const por_revisar: BloquePorRevisar[] = sinResolver.map(({ bloque, motivo }) => {
+    const cargos = bloque.cargos.map(vista);
+    const espera = motivo === MOTIVO_SIN_DEPOSITO && antiguedad(bloque.deposito.fecha) <= DIAS_DE_ESPERA && !cargos.some((c) => c.kepler_pago);
+    return {
+      deposito: { id: bloque.deposito.id, cuenta: bloque.deposito.cuenta, fecha: bloque.deposito.fecha, importe: bloque.deposito.importe },
+      cargos, espera,
+      motivo: espera ? 'la sucursal aún no captura este depósito en Kepler (suele tardar de 0 a 5 días)'
+        : motivo === MOTIVO_SIN_DEPOSITO ? `${motivo} después de ${Math.round(antiguedad(bloque.deposito.fecha))} días` : motivo,
+    };
+  });
   const listos = dias.filter((d) => d.estado === 'lista');
-  // Tres montones que no se enciman y suman el total: un día `lista` no tiene ningún cargo capturado.
+  // Cuatro montones que no se enciman y suman el total: un día `lista` no tiene ningún cargo capturado, y un
+  // bloque en espera tampoco.
   const nListos = listos.reduce((s, d) => s + d.cargos.length, 0);
   const nKepler = todos.filter((c) => enKepler.has(c.id)).length;
+  const nEspera = por_revisar.filter((b) => b.espera).reduce((s, b) => s + b.cargos.length, 0);
   return {
     medido: true, motivo: null, desde, hasta, dias, por_revisar, huerfanos: huerfanos.map(vista),
     resumen: {
-      cargos: todos.length, listos: nListos, ya_en_kepler: nKepler, por_revisar: todos.length - nListos - nKepler,
+      cargos: todos.length, listos: nListos, ya_en_kepler: nKepler, esperando_sucursal: nEspera, por_revisar: todos.length - nListos - nKepler - nEspera,
       monto_listo: listos.reduce((s, d) => s + cent(d.total), 0) / 100,
     },
   };

@@ -477,6 +477,26 @@ manos va cuenta por cuenta, empezando por BBVA 4885 · D4 va como item de CB (y 
   capturados, 24 por revisar (16 por depósito que la sucursal no ha capturado en Kepler). 26 pruebas del armador
   (mutante del candado muerto) + el candado de arranque del módulo con su negativa. Typecheck de `libs/finance`:
   0 errores en estos archivos (39 preexistentes, ajenos). Sin pantalla todavía (CB.62.5).
+  **Arranque:** `design:paramtypes` verificado transpilando sólo esos archivos (`ts.transpileModule` con
+  `emitDecoratorMetadata`): el servicio inyecta `TenantKnexService`/`TenantContextService` y el controlador el
+  servicio, igual que `EstadoDeCuentaService` (control, ya en prod); con `import type` (la forma de #414) la misma
+  verificación da `Object, Object`. El arranque completo (`boot-api.yml`, manual en GitHub) corre sobre un commit
+  empujado: **NO MEDIDO** hasta empujar.
+- **Con la semana completa (2026-11-10, Tesorería subió 15 cuentas del 1 al 10-nov, ~1,500 renglones):**
+  - **IVA por bloque, no por día.** En 272 bloques: 272 traen una comisión y su IVA; BBVA cobra el IVA al 16 % exacto
+    en 260 de 261 (uno a +1 ¢) y **Banorte se desvía hasta ±4 ¢** (calcula sobre otra base). La regla del día (1 ¢
+    por cargo) rechazaba un día bueno de Banorte, y con muchos cargos su holgura escondía un IVA chico faltante.
+    Ahora `revisarBloque` exige una comisión y su IVA a ±5 ¢ del 16 % por bloque (un IVA de $0.14 que falte se ve),
+    y la holgura del día queda en 5 ¢ por comisión. Contra los pagos de Kepler de sep–oct: las 7 fallas de BBVA de
+    la regla vieja eran **etiquetas de Finanzas** (pagos de comisión marcados «IVA»), no del banco.
+  - **«Esperando a la sucursal», no «por revisar».** Los 152 bloques sin `U-A-5` no aparecen en Kepler de ninguna
+    forma (ni en otra cuenta, ni con otro documento, ni en bruto) y se juntan en los últimos días: la sucursal aún
+    no los captura. Medido en octubre, la sucursal captura su `U-A-5` con mediana de **0 a 5 días** (p90 de 1 a 10;
+    la `08` es la más lenta). Un bloque sin depósito de ≤10 días y sin pago en Kepler queda `espera: true`; pasado
+    eso, por revisar con su antigüedad.
+  - Resultado: **544 cargos = 124 listos ($17,155) + 143 ya capturados a mano + 272 esperando a la sucursal + 5 por
+    revisar**. Sucursal 107/107, día de venta 101/107 (línea base 47), 12 gastos idénticos con póliza 12/12 y pagos
+    72/72. Consulta del servicio: **172 ms**. 31 pruebas del armador (mutante de `revisarBloque` muerto: 3 rojas).
 
 ### 9.3 Lo que falta
 

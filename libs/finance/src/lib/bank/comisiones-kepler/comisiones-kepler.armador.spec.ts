@@ -1,5 +1,5 @@
 import {
-  armarComisionesKepler, bloquesDeTarjeta, cargoDeTarjeta, cruzarConKepler, depositoDeTarjeta, diaDeVentaDelTexto, gruposPorDiaDeVenta, resolverBloque,
+  armarComisionesKepler, bloquesDeTarjeta, cargoDeTarjeta, cruzarConKepler, depositoDeTarjeta, diaDeVentaDelTexto, gruposPorDiaDeVenta, resolverBloque, revisarBloque,
   type CargoTarjeta, type DepositoKepler, type GrupoComisiones, type PagoKeplerCapturado, type PlantillaComisiones, type RenglonDescarga,
 } from './comisiones-kepler.armador';
 
@@ -182,6 +182,35 @@ describe('[CB.62] bloques y día de venta — el lunes 3-nov de BBVA 4885', () =
     expect(bloquesDeTarjeta([L(0, V('CREDITO'), 465.62, 0), otroDia]).huerfanos).toHaveLength(1);
     const otraCuenta = { ...L(1, C('CREDITO'), 0, 9.35), cuenta: '4176' };
     expect(bloquesDeTarjeta([L(0, V('CREDITO'), 465.62, 0), otraCuenta]).huerfanos).toHaveLength(1);
+  });
+});
+
+describe('[CB.62] revisarBloque — una comisión y su IVA al 16 %', () => {
+  const R = (seq: number, concepto: string, entra: number, sale: number): RenglonDescarga => ({ id: `b${seq}`, cuenta: '7744', fecha: '2026-11-03', seq, concepto, entra, sale });
+  const bloque = (com: number | null, iva: number | null) => bloquesDeTarjeta([
+    R(0, 'DULCERIA LOS ALTOS 08991964D', 49053.36, 0),
+    ...(com == null ? [] : [R(1, 'COMISION 08991964DAPLICACION DE TASAS DE DESCUENTO DE DEBITO; FAMILIA:VENTA', 0, com)]),
+    ...(iva == null ? [] : [R(2, 'IVA COMISION 08991964D', 0, iva)]),
+  ]).bloques[0];
+
+  it('Banorte real del 3-nov: $367.88 con IVA $58.82 (4 centavos bajo el 16 %) es un bloque completo', () => {
+    expect(revisarBloque(bloque(367.88, 58.82))).toBeNull();
+  });
+  it('y el día de Banorte que antes se rechazaba ahora se arma', () => {
+    const g = grupo({ sucursal: '08', acreedor: 'GB001', cargos: [cargo('x1', 367.88, 'comision', { cuenta: '7744', fecha: '2026-11-03' }), cargo('x2', 58.82, 'iva', { cuenta: '7744', fecha: '2026-11-03' })], diaVenta: '2026-11-01' });
+    expect(armarComisionesKepler(g, plantilla({ acreedor: 'GB001' })).ok).toBe(true);
+  });
+  it('⛔ sin su IVA (aunque fuera de centavos), o sólo el IVA: se revisa', () => {
+    expect(revisarBloque(bloque(0.85, null))).toMatch(/1 comisión\(es\) y 0 IVA/);
+    expect(revisarBloque(bloque(null, 0.14))).toMatch(/0 comisión\(es\) y 1 IVA/);
+  });
+  it('⛔ un IVA a más de 5 centavos del 16 % de su comisión: se revisa', () => {
+    expect(revisarBloque(bloque(367.88, 58.80))).toMatch(/no es el 16 %/);
+  });
+  it('⛔ y ese bloque no entra a ningún día: va a revisión con su motivo', () => {
+    const { grupos, sinResolver } = gruposPorDiaDeVenta([bloque(0.85, null)], () => ({ sucursal: '08', diaVenta: '2026-11-02', acreedor: 'GB001' }));
+    expect(grupos).toEqual([]);
+    expect(sinResolver[0].motivo).toMatch(/0 IVA/);
   });
 });
 
