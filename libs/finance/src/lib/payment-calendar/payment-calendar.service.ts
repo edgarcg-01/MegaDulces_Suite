@@ -10,6 +10,7 @@ import { destinosSugeridos, type FilaComprobanteClabe } from './destino-sugerido
 import { SupplierPaymentAccountsService } from '../supplier-payment-accounts/supplier-payment-accounts.service';
 import type { DiscountReason, PagosAtrasadosDia, PayableEvidenceFile, PayableEvidenceRow, PaymentCalendarAllocation, PaymentCalendarItemDiscountResult, PaymentCalendarWeek, PaymentOriginAccount, SupplierCreditRow, SupplierPaymentHabit, SupplierUnappliedCreditRow } from '@megadulces/contracts';
 import { leerValidacionDelDia } from './validacion-pago.sql';
+import type { ValidacionPago } from '@megadulces/contracts/finance/validacion-pago';
 import { assertDescuentoPermitido, descuentoSobreCubierto, descuentosSobreCubierto, lineasDeDescuento, normalizarDescuento, round2, type DescuentosNormalizados } from './descuento-al-pagar';
 import { cierreCompleto, type CierreKeplerPago } from '@megadulces/contracts';
 import { SQL_CIERRE_KEPLER, armarCierres, idsParaCierre, type FilaCierreKepler, type ItemParaCierre, type PagoParaCierre } from './cierre-kepler.sql';
@@ -2226,7 +2227,13 @@ export class PaymentCalendarService {
     });
   }
 
-  async execute(allocationId: string, username: string) {
+  /**
+   * Marca el pago como pagado. `[PGP.107]` (F2, Edgar 2026-11-09): sólo si lo prueban la salida del
+   * estado de cuenta y su comprobante (`validarPagos`), y guarda esa evidencia en el pago — de ahí
+   * salen el `X-D-26` de Kepler y la póliza de ContPAQi. El efectivo se valida a mano por ahora (la
+   * ventanilla sólo deja rastro después de Kepler, `[PGP.102]`). `hoy` sólo lo fijan las pruebas.
+   */
+  async execute(allocationId: string, username: string, hoy: string = todayMx()) {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const allocation = await trx('finance.payment_allocations').where({ tenant_id: tenantId, id: allocationId }).first();
@@ -2259,8 +2266,23 @@ export class PaymentCalendarService {
           throw new BadRequestException('Kepler ya no tiene saldo pendiente de esta factura (¿se pagó por fuera o tiene nota de crédito?). No se programa ni se ejecuta.');
         }
       }
+      // `[PGP.107]` La evidencia: va DESPUÉS del saldo de Kepler (un pago que Kepler ya no debe se
+      // rechaza por eso, no por falta de banco).
+      const { rows: [{ dia }] } = await trx.raw(`SELECT to_char(lot_date, 'YYYY-MM-DD') AS dia FROM finance.payment_calendar_lots WHERE id = ?`, [allocation.lot_id]);
+      const v: ValidacionPago | undefined = (await leerValidacionDelDia(trx, tenantId, dia, hoy)).get(allocationId);
+      if (!v || (v.estado !== 'validado' && v.estado !== 'efectivo_no_medido')) {
+        throw new BadRequestException(`No se puede marcar pagado sin la prueba de que salió: ${v?.motivo ?? 'el día del pago todavía no llega.'}`);
+      }
+      let evidencia: Record<string, unknown> = {};
+      if (v.estado === 'validado') {
+        const mov = await trx('finance.bank_movements').where({ id: v.movimiento_id }).first('movement_date', 'amount_out');
+        evidencia = {
+          paid_bank_movement_id: v.movimiento_id, paid_proof_id: v.comprobante_id,
+          paid_bank_date: mov?.movement_date ?? null, paid_bank_amount: mov?.amount_out ?? null, paid_validated_at: trx.fn.now(),
+        };
+      }
       const [updated] = await trx('finance.payment_allocations').where({ id: allocationId })
-        .update({ status: 'executed', executed_at: trx.fn.now(), updated_by: username, updated_at: trx.fn.now() }).returning('*');
+        .update({ status: 'executed', executed_at: trx.fn.now(), updated_by: username, updated_at: trx.fn.now(), ...evidencia }).returning('*');
       const items = await trx('finance.payment_allocation_items').where({ allocation_id: allocationId });
       // `[NX.11]` 2026-09-21 — nota para quien siga acá: era `items as any[]` y
       // `scripts/lint-boundary-gate.js` lo rechaza en líneas nuevas (ADR-052). Se nombran sólo los

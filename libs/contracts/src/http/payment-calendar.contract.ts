@@ -264,6 +264,12 @@ export interface PaymentCalendarAllocation {
    * comprobante (`validarPagos`, `[PGP.103]`). Null en un día por venir (no se ha pagado) o si la API es anterior.
    */
   validacion?: ValidacionPago | null;
+  /** `[PGP.107]` La evidencia guardada al marcar Pagado (null = sin marcar, efectivo, o anterior a PGP.107). */
+  paid_bank_movement_id?: string | null;
+  paid_proof_id?: string | null;
+  paid_bank_date?: string | null;
+  paid_bank_amount?: number | string | null;
+  paid_validated_at?: string | null;
   items: PaymentCalendarAllocationItem[];
 }
 

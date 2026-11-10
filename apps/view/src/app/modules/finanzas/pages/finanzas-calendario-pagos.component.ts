@@ -805,7 +805,7 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                         <button pButton type="button" class="p-button-sm p-button-text p-button-secondary pg-x" [disabled]="saving()" [attr.aria-label]="'Quitar del día a ' + allocationTitle(a)" (click)="quitarObjetivo.set(a)"><span class="pi pi-times" aria-hidden="true"></span></button>
                       } @else if (a.status === 'pending') {
                         <!-- [PGP.70] Abre el MISMO diálogo que el lote, con este pago solo: marcar no se deshace aquí. -->
-                        <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [disabled]="!prepared(a) || !validadoParaKepler(a.validacion) || saving()" (click)="abrirPagar(a)" [attr.aria-label]="'Marcar pagado el pago de ' + allocationTitle(a) + (validadoParaKepler(a.validacion) ? '' : ': falta validarlo con el banco y su comprobante')">Pagado</button>
+                        <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [disabled]="!prepared(a) || !sePuedeMarcar(a) || saving()" (click)="abrirPagar(a)" [attr.aria-label]="'Marcar pagado el pago de ' + allocationTitle(a) + (sePuedeMarcar(a) ? '' : ': falta validarlo con el banco y su comprobante')">Pagado</button>
                         <button pButton type="button" class="p-button-sm p-button-text p-button-secondary" [attr.aria-label]="'El pago de ' + allocationTitle(a) + ' rebotó'" (click)="openRebote(a)">Rebotó…</button>
                       } @else if (a.status === 'failed') {
                         <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [attr.aria-label]="'Mover a otro día el pago de ' + allocationTitle(a)" (click)="openReprogram(a)"><span class="pi pi-calendar" aria-hidden="true"></span>&nbsp;Mover</button>
@@ -3236,8 +3236,11 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    */
   readonly pagarSolo = signal<PaymentCalendarAllocation | null>(null);
   /** `[PGP.104]` Lo que se puede marcar pagado: preparado Y validado con banco y comprobante (F2). */
-  readonly porMarcar = computed(() => this.porPagar().filter((a) => validadoParaKepler(a.validacion)));
-  readonly validadoParaKepler = validadoParaKepler;
+  readonly porMarcar = computed(() => this.porPagar().filter((a) => this.sePuedeMarcar(a)));
+  /** `[PGP.107]` La misma regla que `execute()`: validado con banco y comprobante, o efectivo (se valida a mano por ahora). */
+  sePuedeMarcar(a: PaymentCalendarAllocation): boolean {
+    return validadoParaKepler(a.validacion) || a.validacion?.estado === 'efectivo_no_medido';
+  }
   readonly textoValidacion = textoValidacion;
   readonly pagarLista = computed(() => { const a = this.pagarSolo(); return a ? [a] : this.porMarcar(); });
   readonly pagarListaTotal = computed(() => this.pagarLista().reduce((s, a) => s + Number(a.amount_assigned || 0), 0));

@@ -33,6 +33,8 @@ const M = '00000000-0000-0000-0000-00000000d01c';
 const USER = 'tp_it_tesoreria';
 const D = '2030-01-15';      // día de pago de la prueba (lejos de cualquier dato local)
 const D2 = '2030-01-16';
+// `[PGP.107]` «Hoy» para marcar Pagado: los días de la prueba son de 2030 y un día que no ha llegado no se valida.
+const HOY = '2031-01-01';
 const MIGS = [
   '../../../../../database/migrations-newdb/20261008174741_analytics_v_supplier_payables.js',
   '../../../../../database/migrations-newdb/20261016002604_tp15_obligacion_desde_entrega_aceptada.js',
@@ -49,6 +51,8 @@ const MIGS = [
   '../../../../../database/migrations-newdb/20261106183612_pgp91_descuento_al_pagar_en_el_calendario.js',
   // `[PGP.101]` La columna de los renglones del descuento (varios por factura).
   '../../../../../database/migrations-newdb/20261109163309_pgp101_varios_descuentos_por_factura.js',
+  // `[PGP.107]` La evidencia que probó el pago (la escribe `execute()`).
+  '../../../../../database/migrations-newdb/20261110080925_pgp107_evidencia_del_pago.js',
 ];
 
 /** Las migraciones son CommonJS (`exports.up`): según el cargador llegan como `up` o `default.up`. */
@@ -75,6 +79,25 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
     const r = await trx('commercial.supplier_payment_obligations').where({ id: ob[folio] }).first();
     return Number(r.original_amount) - Number(r.reserved_amount) - Number(r.paid_amount);
   };
+  /**
+   * `[PGP.107]` La prueba de que un pago salió (F2): su salida en el estado de cuenta de su cuenta de
+   * origen, ese día y por su importe, y su comprobante con esa cuenta de origen. Sin esto, marcar
+   * Pagado se rechaza. La cuenta de prueba es «9999»: el OCR del comprobante termina en esos dígitos.
+   */
+  const evidencia = async (allocId: string) => {
+    const r = (await trx.raw(`SELECT a.amount_assigned::float8 AS monto, to_char(l.lot_date, 'YYYY-MM-DD') AS dia, a.bank_account_id::text AS cuenta
+        FROM finance.payment_allocations a JOIN finance.payment_calendar_lots l ON l.id = a.lot_id WHERE a.id = ?`, [allocId])).rows[0];
+    const periodo = r.dia.slice(0, 7);
+    const st = (await trx('finance.bank_statements').where({ tenant_id: M, bank_account_id: r.cuenta, period: periodo }).first())
+      ?? (await trx('finance.bank_statements').insert({ tenant_id: M, bank_account_id: r.cuenta, period: periodo }).returning('*'))[0];
+    await trx('finance.bank_movements').insert({
+      tenant_id: M, statement_id: st.id, bank_account_id: r.cuenta, movement_date: r.dia, raw_type: 'C', raw_code: '510',
+      concept: 'PGP107 IT', amount_out: r.monto, amount_in: 0, client_uuid: `pgp107-it-${allocId}`,
+    });
+    await trx('finance.supplier_payment_proofs').insert({
+      tenant_id: M, sucursal: '00', folio: `P107-${allocId.slice(0, 8)}`, ocr_monto: r.monto, ocr_fecha: r.dia, ocr_cuenta_origen: '012180001234569999',
+    });
+  };
 
   beforeAll(async () => {
     knex = knexFactory({ client: 'pg', connection: URL, pool: { min: 1, max: 1 } });
@@ -91,6 +114,7 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
     await migUp(MIGS[2], trx);   // `[TP.18]` el CHECK del cuarto origen (idempotente)
     await migUp(MIGS[5], trx);   // `[PGP.91]` las columnas del descuento al pagar (idempotente)
     await migUp(MIGS[6], trx);   // `[PGP.101]` los renglones del descuento (idempotente)
+    await migUp(MIGS[7], trx);   // `[PGP.107]` la evidencia del pago (idempotente)
 
     const tk = { run: <T>(fn: (t: Knex.Transaction) => Promise<T>) => fn(trx) };
     const ctx = { requireTenantId: () => M };
@@ -439,7 +463,16 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
   });
 
   it('ejecutar tras autorizar: lo reservado pasa a pagado', async () => {
-    await cal.execute(a1, USER);
+    // ⛔ `[PGP.107]` Sin la salida del banco y su comprobante, Pagado se rechaza (F2).
+    await expect(cal.execute(a1, USER, HOY)).rejects.toThrow(/prueba de que salió/);
+    expect((await trx('finance.payment_allocations').where({ id: a1 }).first()).status).toBe('pending');
+    await evidencia(a1);
+    const pagado = await cal.execute(a1, USER, HOY);
+    // La evidencia queda en el pago: de ahí salen Kepler y ContPAQi.
+    expect(pagado.paid_bank_movement_id).toBeTruthy();
+    expect(pagado.paid_proof_id).toBeTruthy();
+    expect(Number(pagado.paid_bank_amount)).toBeCloseTo(Number(pagado.amount_assigned), 2);
+    expect(pagado.paid_validated_at).toBeTruthy();
     const o = await trx('commercial.supplier_payment_obligations').where({ id: ob['TPIT-801'] }).first();
     expect(o.status).toBe('paid');
     expect(Number(o.paid_amount)).toBeCloseTo(16040.74, 2);
@@ -597,7 +630,8 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
       await cal.prepare(a3, { payment_method: 'transferencia', bank_account_id: originId, destination_account_text: 'BBVA · CLABE 032180000118359719' }, USER);
       const lot = await cal.releaseLot(D3, 'tp_it_gerencia');
       expect(lot.status).toBe('released');
-      await cal.execute(a3, USER);
+      await evidencia(a3);
+      await cal.execute(a3, USER, HOY);
       // Lo reservado pasó a pagado, y se lee al vuelo: la factura derivada queda sin disponible.
       const d = await derivada();
       expect(Number(d!.paid_amount)).toBeCloseTo(9500, 2);
@@ -926,7 +960,8 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
     });
 
     it('⭐ ejecutado, propone el documento por monto, día y proveedor', async () => {
-      await cal.execute(a5, USER);
+      await evidencia(a5);
+      await cal.execute(a5, USER, HOY);
       // El documento del ERP, capturado un día DESPUÉS de que salió el dinero (por eso ±3 días).
       await trx('kepler_ods.kdm1').insert({
         sucursal: '00', c1: '00', c2: 'X', c3: 'D', c4: 26, c5: 1, c6: 'CTPIT-KSUG1',
@@ -1159,7 +1194,8 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
       await cal.setPriorityRank(a.id, 1, USER);
       await cal.prepare(a.id, { payment_method: 'transferencia', bank_account_id: originId, destination_account_text: 'BBVA · CLABE 032180000118359719' }, USER);
       await cal.releaseLot(D9, 'tp_it_gerencia');
-      await cal.execute(a.id, USER);
+      await evidencia(a.id);
+      await cal.execute(a.id, USER, HOY);
       o = await trx('commercial.supplier_payment_obligations').where({ id: obCapturada }).first();
       // Pagado = 19,600 que salieron + 400 que descontó el proveedor = la factura entera.
       expect(Number(o.paid_amount)).toBeCloseTo(20000, 2);
@@ -1345,8 +1381,11 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
         await trx('budget.daily_capacity').insert({ tenant_id: M, capacity_date: D10, authorized_amount: 100000, created_by: 'tp_it', updated_by: 'tp_it' });
         await cal.setPriorityRank(aF5, 1, USER);
         await cal.setPriorityRank(aF6, 2, USER);
-        for (const id of [aF5, aF6]) {
-          await cal.prepare(id, { payment_method: 'transferencia', bank_account_id: originId, destination_account_text: 'BBVA · CLABE 032180000118359719' }, USER);
+        // `[PGP.107]` aF6 sale de OTRA cuenta: dos pagos idénticos (mismo día, importe y cuenta) no se
+        // validan solos (uno a uno), y este caso mide el saldo de Kepler, no el banco.
+        const [otra] = await trx('finance.bank_accounts').insert({ tenant_id: M, bank: 'BBVA', account_label: '8888', alias: 'BBVA 8888 (prueba)', kind: 'bank', active: true }).returning('id');
+        for (const [id, cuenta] of [[aF5, originId], [aF6, otra.id]] as [string, string][]) {
+          await cal.prepare(id, { payment_method: 'transferencia', bank_account_id: cuenta, destination_account_text: 'BBVA · CLABE 032180000118359719' }, USER);
         }
         await cal.releaseLot(D10, 'tp_it_gerencia');
         // Ya autorizado el día y ANTES de transferir, el proveedor emite la nota en Kepler.
@@ -1359,7 +1398,8 @@ suite('[TP.16.6] Calendario de Pagos contra Postgres real (transacción revertid
         // Control de la siembra: si la nota no pegara, el pendiente seguiría en 10,000 y el pago
         // pasaría por la regla general, no por la excepción que aquí se prueba.
         expect(await pendienteKepler(F5)).toBeCloseTo(9700, 2);
-        const r = await cal.execute(aF5, USER);
+        await evidencia(aF5);
+        const r = await cal.execute(aF5, USER, HOY);
         expect(r.status).toBe('executed');
         // Lo cubierto pasó a pagado: la factura no se vuelve a ofrecer aunque Kepler siga
         // mostrando los 9,700 hasta que registre la transferencia.
