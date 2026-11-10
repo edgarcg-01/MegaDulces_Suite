@@ -26,8 +26,9 @@
  *
  * ── Lo que NO trae (y se declara) ───────────────────────────────────────────────────────────────────────────────────
  *  · Lo que ya no existe en Mega Talento (33 ligas daban 404 el 9-nov): queda la liga, contado.
- *  · 439 documentos de julio de 13 candidatos que sólo están en el DISCO del bot (`archivo_local`, sin liga): desde
- *    fuera no se alcanzan; los tiene que sacar quien administra el bot de Mega Talento (David).
+ *  · Lo que sólo esté en el DISCO del bot (`archivo_local`, sin liga): desde fuera no se alcanza y se cuenta aparte.
+ *    Eran 438 de julio; el 9-nov Mega Talento les generó su liga (respaldo en su tabla `_respaldo_docs_sin_url_20261109`)
+ *    y ya bajan como los demás. Queda 1 que el bot nunca descargó de WhatsApp: no existe en ningún lado.
  *  · Las ligas a sitios de terceros (el reporte de la prueba en `podium.midot.com`): no son de Mega Talento.
  */
 const crypto = require('crypto');
