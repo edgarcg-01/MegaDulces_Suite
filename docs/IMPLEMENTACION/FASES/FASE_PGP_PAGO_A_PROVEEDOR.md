@@ -650,8 +650,8 @@ por mes) y `kdc126`.
 |---|---|---|---|---|
 | PGP.1 | `GET /commercial/supplier-payment-accounts/faltantes` + la lista en `/compras/cuentas-pago` | 🧪 **2026-10-22** | no | Guión de sólo lectura contra prod (ver abajo) |
 | PGP.3 | Las dos bandejas de pagos en «Mi trabajo» + la responsabilidad `finanzas.pagos` | 🧪 **2026-10-22** | sí (la migración) | `verify-pgp3-bandejas-pagos.js`, 4 controles. ⚠️ **La migración NO está aplicada en prod**: `sh ops/prod/aplicar-migracion.sh 20261022150827_pagos_responsabilidad.js`, y exige el commit empujado |
-| PGP.2.2 | Sembrar `supplier_payment_accounts` desde el circuito de solicitud | ⬜ | sí | ⛔ obligatoria, con el payload de la pantalla |
-| PGP.2.3 | `POST /finance/payment-calendar/allocations/:id/kepler/escribir` — escribe el `X-D-26` | ⬜ | **sí, al ERP** | ⛔ obligatoria + deshacer el documento, como hizo KR |
+| PGP.2.2 | Sembrar `supplier_payment_accounts` desde el circuito de solicitud | 🧪 en código (e1dee0f5c): `execute()` exige la validación (efectivo a mano) y guarda salida, comprobante, fecha, importe y hora; migración `20261110080925` (5 columnas NULLABLE, sin FK) va ANTES del código. NO MEDIDO: la integración corre en el CI | sí | ⛔ obligatoria, con el payload de la pantalla |
+| PGP.2.3 | `POST /finance/payment-calendar/allocations/:id/kepler/escribir` — escribe el `X-D-26` | 🧪 en código (246156863): `cfdisDeFacturas` + lectura en 4 pasos, sólo en días autorizados o que ya llegaron. Con el código real en prod: 225 únicos (216 PPD, 9 PUE), 33 varios, 60 sin CFDI, 15 sin RFC. Índice `20261110082041` (CONCURRENTLY, fuera de horario). NO MEDIDO: el tiempo con el índice; `v_supplier_rfc` sigue en ~280 ms | **sí, al ERP** | ⛔ obligatoria + deshacer el documento, como hizo KR |
 | PGP.2.4 | Compuerta: no se escribe a Kepler un pago que no esté `executed` y autorizado | ⬜ | no | ⛔ rota a propósito una vez |
 
 ⛔ **Los tres endpoints que escriben van contra base real antes de cerrar.** La regla nació de
