@@ -5,6 +5,18 @@ unidad (pieza, paquete, caja) y agenda el pedido. Las entradas más nuevas van a
 
 ---
 
+## Buscar leyendo el código de barras con la cámara (VTK.18 — en código el 2026-11-09, sin desplegar)
+
+- **Problema:** con el producto en la mano, había que escribir su nombre o su clave para encontrarlo.
+- **Solución:** un botón de cámara dentro del buscador. Lo leído busca ese producto y abajo dice qué se leyó
+  («Leíste 7501…: ‹producto› (clave 00052)»).
+- **Cómo:** el catálogo del pedido se busca por nombre y SKU, no por código de barras, así que el código se
+  traduce a su clave de Kepler — con la copia de precios del teléfono del checador (`[VTK.17]`, sirve sin
+  señal) o, si no está, en línea — y se busca esa clave. Medido en prod: el SKU ES la clave de 5 dígitos.
+  El lector y su lógica son los del checador (ver [`vendor-checador-de-precios.md`](vendor-checador-de-precios.md)).
+- **Por qué así:** si el código no se puede traducir se busca tal cual y se DICE («no está en el catálogo
+  de Kepler», o «no se pudo confirmar» si no hubo señal): no se elige un producto parecido.
+
 ## Lo que el cliente pide se captura aunque no haya; el servidor lo registra para Compras (DN.7, DN.8, DN.11a — en código el 2026-11-07, sin desplegar)
 
 - **Problema:** el bloqueo de MCP.3.16 frenaba el producto agotado EN EL TELÉFONO, sin llamar al servidor: lo que el

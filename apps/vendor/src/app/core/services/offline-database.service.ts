@@ -85,7 +85,9 @@ export interface PendingVendorSale {
 
 export interface CatalogoOffline {
   id: string;
-  tipo: 'ubicaciones' | 'conceptos' | 'niveles' | 'scoring' | 'planograma' | 'stores' | 'daily-captures-today' | 'daily-assignment-today' | 'frecuentes';
+  tipo: 'ubicaciones' | 'conceptos' | 'niveles' | 'scoring' | 'planograma' | 'stores' | 'daily-captures-today' | 'daily-assignment-today' | 'frecuentes'
+    // `[VTK.17]` La copia de precios del checador, por sucursal (`verificador-precios:NN`).
+    | 'verificador-precios';
   datos: any;
   version: string;
   ultima_sincronizacion: string;
@@ -617,6 +619,38 @@ export class OfflineDatabaseService extends Dexie {
 
   async getCatalogos(): Promise<CatalogoOffline[]> {
     return await this.catalogos.toArray();
+  }
+
+  // --- `[VTK.17]` Copia de precios del checador (una por sucursal) ---
+  // Misma forma que la del verificador de la tienda (`apps/view`): la llave es
+  // `verificador-precios:NN` y se lee con `get(id)`, no por índice de `tipo` — `where('tipo').first()`
+  // devolvería una sucursal cualquiera. Sin versión nueva de Dexie: `catalogos` ya existe con `id`
+  // como llave y `tipo` como índice, y un valor nuevo de `tipo` no cambia el esquema.
+
+  private static copiaPreciosId(sucursal: string): string {
+    return `verificador-precios:${sucursal}`;
+  }
+
+  /** Guarda (reemplaza) la copia de precios de UNA sucursal. `ultima_sincronizacion` = cuándo se bajó. */
+  async guardarCopiaPrecios(sucursal: string, datos: unknown, version: string): Promise<void> {
+    await this.catalogos.put({
+      id: OfflineDatabaseService.copiaPreciosId(sucursal),
+      tipo: 'verificador-precios',
+      datos,
+      version,
+      ultima_sincronizacion: new Date().toISOString(),
+    });
+  }
+
+  /** La copia de esa sucursal, o `undefined` si nunca se bajó. */
+  async getCopiaPrecios(sucursal: string): Promise<CatalogoOffline | undefined> {
+    return await this.catalogos.get(OfflineDatabaseService.copiaPreciosId(sucursal));
+  }
+
+  /** La copia bajada más recientemente (de cualquier sucursal): sin señal no se sabe la sucursal del día. */
+  async ultimaCopiaPrecios(): Promise<CatalogoOffline | undefined> {
+    const todas = await this.catalogos.where('tipo').equals('verificador-precios').toArray();
+    return todas.sort((a, b) => String(b.ultima_sincronizacion).localeCompare(String(a.ultima_sincronizacion)))[0];
   }
 
   // --- Sync Logs ---
