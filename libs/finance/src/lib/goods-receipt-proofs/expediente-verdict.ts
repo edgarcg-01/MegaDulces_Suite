@@ -35,7 +35,7 @@ import type {
 import { folioNumero, parecidoNombre, rfcBienFormado, rfcComparable, UMBRAL_NOMBRE } from './receipt-match';
 
 /** La regla y su versión: sello de cada veredicto (ADR-085). Cambiar un umbral = subir la versión. */
-export const REGLA_EXPEDIENTE = 'R-v3';
+export const REGLA_EXPEDIENTE = 'R-v4';
 /** Cuadre: la diferencia tiene que ser MENOR a las dos (decisión de Francisco, 2026-10-06). */
 export const TOLERANCIA_PCT = 0.0025;
 export const TOLERANCIA_ABS = 200;
@@ -514,6 +514,8 @@ export interface EntradaVeredicto {
   notasRelacionadas?: NotaRelacionada[];
   /** `[RE.62]` Nota sin relación en su CFDI que casaría por importe (`notaQueExplica`): sólo se sugiere. */
   notaSugerida?: NotaCredito | null;
+  /** `[RE.65]` Notas y devoluciones que Kepler aplicó a la entrada (`AJUSTES_KEPLER_SQL`): para el cuadre en netos. */
+  notasKepler?: NotaKepler[];
   /** `[RE.35.2]` El proveedor tiene CFDI en ContPAQi (si no, su papel se revisa como remisión). */
   proveedorEnContpaqi?: boolean;
   /**
@@ -629,6 +631,29 @@ export function veredictoExpediente(v: EntradaVeredicto): Veredicto {
       esperado: `diferencia menor a ${(TOLERANCIA_PCT * 100).toFixed(2)}% y a ${fmt(TOLERANCIA_ABS)}`,
       estado: ok ? 'ok' : 'falla', bloquea: true,
       nota: ok ? null : partes.join(' ') });
+  }
+  // ── `[RE.65]` R-v4: las notas de los DOS lados, en netos (entrada − notas de Kepler contra factura − notas del
+  //    CFDI; `notasLados`, el mismo primitivo del panel). Asimétrico, a propósito (Edgar, 2026-11-10):
+  //    · el bruto cuadra pero con las notas Kepler pagaría MÁS de lo que el proveedor factura neto → no pasa sola
+  //      (dinero que se perdería; medido: 12 compras desde agosto, una de $89.8 mil);
+  //    · el bruto no cuadra pero los netos sí → pasa (la factura ya venía neta y Kepler aplicó su nota; 5 compras);
+  //    · Kepler pagaría MENOS (descontó y el proveedor no ha timbrado su nota; 88) → no cambia: la factura está
+  //      bien y lo que falta lo pide Compras («Nota sólo en Kepler»); detenerla no consigue el CFDI.
+  //    Sin factura, con nota compartida o sin notas en ningún lado, no se toca.
+  if (via === 'factura' && diferencia != null) {
+    const lados = notasLados(v.notasKepler ?? [], v.notasRelacionadas ?? [], { factura: totalDoc, entrada: v.entrada.monto });
+    const e1 = checks.find((c) => c.clave === 'E1_cuadre');
+    const hayNotas = lados.kepler.length > 0 || (lados.cfdi?.length ?? 0) > 0;
+    if (e1 && hayNotas && lados.netosCuadran != null && lados.difNeta != null && lados.netoCfdi != null) {
+      if (e1.estado === 'ok' && !lados.netosCuadran && lados.difNeta < 0) {
+        e1.estado = 'falla';
+        e1.nota = `Con las notas, Kepler pagaría ${fmt(-lados.difNeta)} más de lo que el proveedor factura neto: entrada − notas de Kepler ${fmt(lados.netoKepler)} contra factura − notas del CFDI ${fmt(lados.netoCfdi)}.`;
+      } else if (e1.estado === 'falla' && lados.netosCuadran) {
+        e1.estado = 'ok';
+        e1.valor = `${fmt(lados.netoCfdi)} contra ${fmt(lados.netoKepler)} (netos)`;
+        e1.nota = `Cuadra en netos: factura − notas del CFDI ${fmt(lados.netoCfdi)} contra entrada − notas de Kepler ${fmt(lados.netoKepler)}.`;
+      }
+    }
   }
   add({ clave: 'E2_oc', grupo: 'entrada', etiqueta: 'Orden de compra', valor: v.entrada.oc_folio,
     esperado: 'obligatoria', estado: v.entrada.oc_folio ? 'ok' : 'falla', bloquea: true,

@@ -641,3 +641,36 @@ describe('[RE.63] los netos: ¿la nota de un solo lado cambia lo que se paga?', 
     expect(notasLados([k(9000)], null, { factura: null, entrada: 100000 }).netosCuadran).toBeNull();
   });
 });
+
+describe('[RE.65] R-v4: el cuadre mira las notas de los dos lados, en netos (asimétrico)', () => {
+  // Entrada de base: 48,210.50. Montos sintéticos.
+  const k = (aplicado: number) => ({ tipo: '55' as const, folio: '0000101', aplicado, fecha: null, motivo: null });
+  const c = (total: number, facturas = 1) => ({ uuid: 'NC-1', total, fecha: '2026-10-01', facturas });
+  it('bruto cuadra, pero con la nota del CFDI Kepler pagaría MÁS: no pasa sola', () => {
+    const v = veredictoExpediente(base({ notasRelacionadas: [c(4000)] }));
+    expect(check(v, 'E1_cuadre')?.estado).toBe('falla');
+    expect(check(v, 'E1_cuadre')?.nota).toMatch(/Kepler pagaría \$4,000\.00 más/);
+    expect(v.cubo).toBe('revisar');
+  });
+  it('bruto no cuadra (la factura ya venía neta) y los netos sí: pasa sola', () => {
+    const v = veredictoExpediente(base({ cfdi: cfdi({ total: 48210.5 - 4000 }), notasKepler: [k(4000)] }));
+    expect(check(v, 'E1_cuadre')?.estado).toBe('ok');
+    expect(check(v, 'E1_cuadre')?.valor).toMatch(/\(netos\)/);
+    expect(v.cubo).toBe('auto');
+  });
+  it('NEGATIVA: Kepler pagaría MENOS (descontó y el proveedor no timbró su nota): no cambia, pasa sola', () => {
+    const v = veredictoExpediente(base({ notasKepler: [k(4000)] }));
+    expect(check(v, 'E1_cuadre')?.estado).toBe('ok');
+    expect(v.cubo).toBe('auto');
+  });
+  it('NEGATIVA: con una nota compartida el neto no se afirma y el cuadre bruto manda', () => {
+    const v = veredictoExpediente(base({ notasRelacionadas: [c(4000, 3)] }));
+    expect(check(v, 'E1_cuadre')?.estado).toBe('ok');
+    expect(v.cubo).toBe('auto');
+  });
+  it('NEGATIVA: la vía remisión no mira notas', () => {
+    const v = veredictoExpediente(base({ cfdi: null, fechaDocumento: '2026-09-01', proveedorEnContpaqi: false, totalLeido: 48210.5, notasKepler: [k(4000)] }));
+    expect(v.via).toBe('remision');
+    expect(v.cubo).toBe('auto');
+  });
+});
