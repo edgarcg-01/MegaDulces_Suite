@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import type { Knex } from 'knex';
 import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import { HrAttendanceIngestService } from './attendance-ingest.service';
+import { avisarRelojes } from './avisos-relojes';
 import { esRelojDesconocido, nombreParaReloj, semaforoReloj, type Orden } from './logic/relojes';
 
 /**
@@ -113,6 +114,8 @@ export class HrAttendanceDevicesService {
       };
       await trx('hr.attendance_devices').insert({ ...fila, tenant_id: this.tenantCtx.requireTenantId(), serial_number: serie })
         .onConflict(['tenant_id', 'serial_number']).merge(Object.keys(fila));
+      // `[RH.1.3]` El lector relee la lista en cuanto esto se confirma (antes: cada 30 min, preguntando).
+      await avisarRelojes(trx, { tipo: 'padron' });
       return trx('hr.attendance_devices').where({ serial_number: serie })
         .first('id', 'serial_number', 'site_code', 'label', 'ip_address', 'port', 'ingest_mode', 'comm_key', 'is_active', 'is_paused', 'notes');
     });
@@ -244,5 +247,8 @@ export class HrAttendanceDevicesService {
       tenant_id: this.tenantCtx.requireTenantId(), device_id: deviceId, device_user_id: deviceUserId,
       command: orden, payload: JSON.stringify(payload), requested_by: q.id, requested_by_name: q.nombre,
     });
+    // `[RH.1.3]` El lector atiende la orden en cuanto esto se confirma (antes: preguntaba cada minuto por reloj).
+    const reloj: { serial_number: string } | undefined = await trx('hr.attendance_devices').where({ id: deviceId }).first('serial_number');
+    if (reloj) await avisarRelojes(trx, { tipo: 'comando', serie: reloj.serial_number });
   }
 }

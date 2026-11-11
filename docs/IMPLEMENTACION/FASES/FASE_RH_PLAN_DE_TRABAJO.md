@@ -17,8 +17,8 @@
 | Hito | Fecha | Estado |
 |---|---|---|
 | Preparación (RH.0) | hasta 9-oct | ⚠️ atrasada: faltan RH.0.2, RH.0.4, RH.0.5 y desplegar RH.0.6 |
-| **Corte de asistencia** (RH.1.8) | ~~7-nov~~ **por fijar** | ⚠️ **No ha ocurrido** (11-nov: `hr.*` vacío en prod). Pre-vuelo del 11-nov **sin bloqueos** (sólo el aviso de horario). Falta: personas, ensayo, paridad con la foto del día y pasar el lector de `LapSistemasA` a la Suite (David). Mientras no ocurra, Mega Talento **no** puede quedar en sólo lectura |
-| Corte de reclutamiento + bot (RH.3.5) | **10-nov** (Edgar lo adelantó del 5-dic) | ✅ **Hecho**: bitácora en [`RH_CORTE_RECLUTAMIENTO.md`](../RUNBOOKS/RH_CORTE_RECLUTAMIENTO.md). ⚠️ 11-nov: **nadie de RH tiene el rol en la Suite** (sigue trabajando en Mega Talento) y el bot viejo sigue mandando lo automático ([RH.3.6]) |
+| **Corte de asistencia** (RH.1.8) | ~~7-nov~~ **11-nov** («ya», Edgar; en horario hábil con su autorización) | 🔨 **Historial cargado en prod** (13:59: 12 plazas, 238,884 checadas, 1,065 personas ligadas; bitácora en [`RH_CORTE_ASISTENCIA.md`](../RUNBOOKS/RH_CORTE_ASISTENCIA.md)). ⏳ **Falta David**: el lector de `LapSistemasA` a la Suite (`reenviar "2026-11-11 12:59"`). Hasta entonces lo nuevo sigue llegando sólo a Mega Talento |
+| Corte de reclutamiento + bot (RH.3.5) | **10-nov** (Edgar lo adelantó del 5-dic) | ✅ **Hecho**: bitácora en [`RH_CORTE_RECLUTAMIENTO.md`](../RUNBOOKS/RH_CORTE_RECLUTAMIENTO.md). 11-nov: segunda pasada (lo que RH hizo en Mega Talento después del corte) y **rol `reclutamiento_asistencia` a Lesly y Tania** ([RH.2.6]). Falta portar lo automático del bot viejo ([RH.3.6]) |
 | Mega Talento en sólo lectura | 10-nov → 24-nov | 2 semanas como vuelta atrás |
 | **Apagado de Mega Talento** (RH.4) | **24-nov** | — |
 

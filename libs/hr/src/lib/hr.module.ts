@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
-import { AnthropicService, CloudinaryModule, SpeechToTextService, jwtVerifyOptions, requireJwtSecret } from '@megadulces/platform-core';
+import { AnthropicService, CloudinaryModule, PgListenService, SpeechToTextService, jwtVerifyOptions, requireJwtSecret } from '@megadulces/platform-core';
+import { HrRelojesAvisosService } from './attendance/avisos-relojes';
 import { HrAttendanceIngestController, HrAttendanceMtCompatController } from './attendance/attendance-ingest.controller';
 import { HrAttendanceDevicesController } from './attendance/attendance-devices.controller';
 import { HrAttendanceDevicesService } from './attendance/attendance-devices.service';
@@ -55,6 +56,9 @@ import { HrDocumentRequestService } from './talent/bot/pedir-documentos.service'
   controllers: [HrAttendanceIngestController, HrAttendanceMtCompatController, HrAttendanceController, HrAttendanceDevicesController, HrAttendanceEnrollmentsController, HrTalentController, HrTalentPublicController],
   providers: [
     HrAttendanceIngestService, HrIngestGuard,
+    // `[RH.1.3]` Los avisos al lector de relojes (SSE). `PgListenService` NO es global (cada módulo que escucha lo pone
+    // en sus providers, como `CajaRealtimeModule`): una conexión dedicada de LISTEN por pod de API.
+    PgListenService, HrRelojesAvisosService,
     HrAttendanceAgentService, HrAttendanceAlertsService, HrAttendanceReportService,
     HrAttendanceIncidentsService, HrAttendanceClosuresService, HrAttendanceSchedulesService, HrAttendanceDevicesService, HrAttendanceEnrollmentsService,
     HrTalentCandidatesService, HrTalentJobsService, HrTalentIntakeService, HrTalentLinksService, HrRecruitmentBotService,
