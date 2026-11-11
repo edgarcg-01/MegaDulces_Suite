@@ -37,7 +37,7 @@ function configDelEntorno(env = process.env, base = __dirname) {
       backfillMin: num('HR_AGENT_BACKFILL_MIN', 60),     // NO 5: bajar el log completo de 12 relojes no cierra en 5 min
       keepaliveSeg: 45,                                  // los ZK cierran la sesión inactiva
       agrupaSeg: 5,                                      // espera antes de mandar, para agrupar el cambio de turno
-      padronMin: num('HR_AGENT_PADRON_MIN', 30),         // cada cuánto se relee el padrón de la API
+      padronMin: num('HR_AGENT_PADRON_MIN', 30),         // SIN USO desde [RH.1.3] (11-nov): el padrón se relee por aviso de la Suite (avisos.js)
       vigilanciaMin: num('HR_AGENT_VIGILANCIA_MIN', 30), // sin que la API acepte NADA en este rato, se sale (k8s lo levanta)
     },
   };
