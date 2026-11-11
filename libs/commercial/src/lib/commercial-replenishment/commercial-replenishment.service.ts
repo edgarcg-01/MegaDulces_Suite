@@ -481,6 +481,13 @@ export interface RequisitionListRowDto {
   /** `[AB.32]` Por qué se rechazó. `null` = no se rechazó, o se rechazó antes de que existiera la constancia. */
   rejection_reason?: string | null;
   rejected_at?: string | null;
+  /**
+   * `[PQ.108]` Quién la generó (`created_by` → `identity.users.nombre`, o su usuario si no tiene
+   * nombre) y la sucursal ASIGNADA a esa persona. `null` = sin autor registrado / la persona no tiene
+   * sucursal (medido 2026-11-11: 6 de los 8 que generaron en 30 días no la tienen; son de Compras).
+   */
+  created_by_name?: string | null;
+  created_by_warehouse_name?: string | null;
 }
 
 /**
@@ -4917,6 +4924,10 @@ export class CommercialReplenishmentService {
 
       const totalRow: any = await base.clone().clearSelect().clearOrder().count('* as c').first();
       const rows = await base.clone()
+        // `[PQ.108]` Quién la mandó y de qué sucursal es esa persona. Sólo en la página (no en el
+        // conteo ni en el resumen): dos juntas por llave primaria, no multiplican filas.
+        .leftJoin('identity.users as cu', 'cu.id', 'r.created_by')
+        .leftJoin('commercial.warehouses as cuw', (j) => j.on('cuw.tenant_id', 'r.tenant_id').andOn('cuw.id', 'cu.warehouse_id'))
         .select('r.id', 'r.folio', 'r.estado', 'r.source_type', 'r.source_warehouse_id', 'r.target_basis', 'r.total_lines', 'r.total_units', 'r.total_cost',
           'r.notes', 'r.created_at', 'r.approved_at',
           ...(vigCols ? ['r.recalculated_at'] : []),
@@ -4939,6 +4950,8 @@ export class CommercialReplenishmentService {
           trx.raw(`to_jsonb(r) ->> 'rejection_reason' AS rejection_reason`),
           trx.raw(`to_jsonb(r) ->> 'rejected_at'      AS rejected_at`),
           trx.raw('sw.code AS source_warehouse_code'), trx.raw('sw.name AS source_warehouse_name'),
+          trx.raw(`COALESCE(NULLIF(btrim(cu.nombre), ''), cu.username) AS created_by_name`),
+          trx.raw('cuw.name AS created_by_warehouse_name'),
           // `[RQ.2]` La ANTIGUEDAD viaja en la fila. Sin ella la lista ordena por fecha y el
           // lector tiene que restar de cabeza para darse cuenta de que esa requisicion lleva
           // 77 dias parada. Se calcula en el servidor, con SU reloj, no con el del navegador

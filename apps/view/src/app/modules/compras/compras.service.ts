@@ -619,6 +619,9 @@ export interface RequisitionRow {
   /** `[AB.32]` Por qué se rechazó. `null` = no se rechazó, o fue antes de que existiera la constancia. */
   rejection_reason?: string | null;
   rejected_at?: string | null;
+  /** `[PQ.108]` Quién la generó y la sucursal asignada a esa persona. `null` = no registrado / sin sucursal. */
+  created_by_name?: string | null;
+  created_by_warehouse_name?: string | null;
   supplier_name: string | null;
   /**
    * `[RQ.15]` La orden de compra de Kepler que salió de esta requisición. Las DOS o ninguna.

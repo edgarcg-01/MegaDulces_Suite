@@ -151,6 +151,18 @@ describe('[PQ.28] Lo pedido', () => {
     expect(api.openPurchaseOrderDetail).not.toHaveBeenCalled();
   });
 
+  it('[PQ.108] cada fila dice quién la mandó, de qué sucursal es esa persona y a qué hora de México', () => {
+    const { c, f } = montar({ todo: [fila({ folio: 'RQ-2026-02505', created_at: '2026-11-11T16:55:00Z', created_by_name: 'Ana Pérez', created_by_warehouse_name: 'Morelia Abastos' })] });
+    // 16:55 UTC = 10:55 en México: la hora no es la del equipo que la mira
+    expect(c.quien(c.recientes()[0])).toBe('la mandó Ana Pérez, de Morelia Abastos · 11 nov, 10:55');
+    c.abrir(); f.detectChanges();
+    expect(document.body.textContent ?? '').toContain('la mandó Ana Pérez, de Morelia Abastos');
+    // cruce de medianoche: 05:30 UTC del 12 sigue siendo el 11 en México
+    expect(c.quien(fila({ created_at: '2026-11-12T05:30:00Z', created_by_name: 'Juan López' }))).toBe('la mandó Juan López · 11 nov, 23:30');
+    // NEGATIVA: sin autor se DICE, no se deja en blanco ni se inventa
+    expect(c.quien(fila({ created_at: '2026-11-11T16:55:00Z', created_by_name: null }))).toBe('sin autor registrado · 11 nov, 10:55');
+  });
+
   it('NEGATIVA: sin permiso de ver requisiciones, ni se pinta ni se pide nada', () => {
     const { f, api } = montar({ ver: false });
     expect((f.nativeElement as HTMLElement).textContent?.trim()).toBe('');

@@ -17,6 +17,10 @@ import { SucursalPipe } from '../../shared/pipes/sucursal.pipe';
 import { LoadStateComponent } from '../../shared/components/load-state/load-state.component';
 import { FreshnessPillComponent } from '../../shared/components/freshness-pill/freshness-pill.component';
 import { MetricStripComponent, type MetricStripItem } from '../../shared/components/metric-strip/metric-strip.component';
+import { MX_TZ } from '../../core/utils/mx-date';
+
+/** `[PQ.108]` «11 nov, 10:55» en la hora de México, sea cual sea la zona del equipo. */
+const FECHA_HORA_MX = new Intl.DateTimeFormat('es-MX', { timeZone: MX_TZ, day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 
 /**
  * `[PQ.28]` **«Lo pedido»: lo que salió de Pedido, sin salir de Pedido.**
@@ -73,7 +77,7 @@ import { MetricStripComponent, type MetricStripItem } from '../../shared/compone
               <p-table [value]="porAprobar()" dataKey="id" size="small" class="surf-table surf-table--plain">
                 <ng-template #body let-r>
                   <tr>
-                    <td class="lp-mono"><button type="button" class="lp-folio" [attr.aria-expanded]="detalleDe() === r.id" (click)="verDetalle(r)">{{ r.folio }}</button></td>
+                    <td class="lp-mono"><button type="button" class="lp-folio" [attr.aria-expanded]="detalleDe() === r.id" (click)="verDetalle(r)">{{ r.folio }}</button><span class="lp-quien">{{ quien(r) }}</span></td>
                     <td>{{ r.warehouse_name || (r.warehouse_code | sucursal) }}</td>
                     <td>{{ que(r) }}@if (r.requested_by_branch) { <span class="lp-muted"> · la pidió la sucursal</span> }</td>
                     <td class="lp-r">{{ dinero(r.total_cost) }}</td>
@@ -108,7 +112,7 @@ import { MetricStripComponent, type MetricStripItem } from '../../shared/compone
                 </ng-template>
                 <ng-template #body let-r>
                   <tr>
-                    <td class="lp-mono"><button type="button" class="lp-folio" [attr.aria-expanded]="detalleDe() === r.id" (click)="verDetalle(r)">{{ r.folio }}</button></td>
+                    <td class="lp-mono"><button type="button" class="lp-folio" [attr.aria-expanded]="detalleDe() === r.id" (click)="verDetalle(r)">{{ r.folio }}</button><span class="lp-quien">{{ quien(r) }}</span></td>
                     <td>{{ r.warehouse_name || (r.warehouse_code | sucursal) }}</td>
                     <td>{{ que(r) }}</td>
                     <td class="lp-r">{{ dinero(r.total_cost) }}</td>
@@ -182,6 +186,8 @@ import { MetricStripComponent, type MetricStripItem } from '../../shared/compone
     .lp-link { font-size: var(--fs-sm); }
     .lp-folio { all: unset; cursor: pointer; font-family: var(--font-mono, ui-monospace, monospace); font-weight: 600; color: var(--fg-1); text-decoration: underline; text-underline-offset: 2px; }
     .lp-folio:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+    /* [PQ.108] Quién la mandó y cuándo: terciario, bajo el folio, en letra normal y con quiebre. */
+    .lp-quien { display: block; max-width: 13rem; margin-top: .1rem; font-family: var(--font-body); font-weight: 400; white-space: normal; color: var(--fg-2); font-size: var(--fs-xs); }
     .lp-det { padding: .5rem 0 .75rem; display: flex; flex-direction: column; gap: .5rem; }
     .lp-t-det { width: 100%; border-collapse: collapse; font-size: var(--fs-xs); }
     .lp-t-det th, .lp-t-det td { padding: .25rem .4rem; text-align: left; border-bottom: 1px solid var(--border); }
@@ -327,6 +333,20 @@ export class LoPedidoComponent {
       },
       error: (e) => { this.ocupado.set(false); this.toast.add({ severity: 'error', life: 12000, summary: 'No se rechazó', detail: e?.error?.message || 'error del servidor' }); },
     });
+  }
+
+  /**
+   * `[PQ.108]` Quién la mandó, de qué sucursal es esa persona y a qué hora (Edgar, 2026-11-11). La
+   * hora se FORMATEA en la zona de México; no se compara con el reloj del navegador (VP.0).
+   * Sin autor se dice, no se calla (ADR-056). La sucursal es la de la PERSONA, por eso «de»: la del
+   * documento ya está en su columna.
+   */
+  quien(r: RequisitionRow): string {
+    const hora = r.created_at ? FECHA_HORA_MX.format(new Date(r.created_at)) : null;
+    const persona = r.created_by_name
+      ? `la mandó ${r.created_by_name}${r.created_by_warehouse_name ? `, de ${r.created_by_warehouse_name}` : ''}`
+      : 'sin autor registrado';
+    return hora ? `${persona} · ${hora}` : persona;
   }
 
   que(r: RequisitionRow): string {
