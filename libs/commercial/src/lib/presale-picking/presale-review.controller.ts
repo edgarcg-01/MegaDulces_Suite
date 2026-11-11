@@ -6,6 +6,7 @@ import type {
   PresaleReviewFinishRequest,
   PresaleReviewFinishResponse,
   PresaleReviewInboxResponse,
+  PresaleReviewSearchResponse,
 } from '@megadulces/contracts';
 import { PresaleReviewService } from './presale-review.service';
 
@@ -27,6 +28,14 @@ export class PresaleReviewController {
   @ApiOperation({ summary: 'Pedidos de preventa surtidos de mi sucursal: por revisar y lo revisado hoy' })
   inbox(@Query() query: Record<string, unknown>): Promise<PresaleReviewInboxResponse> {
     return this.service.inbox(query);
+  }
+
+  /** `[MCP.10.3]` Va ANTES de `:id`: si no, `search` se tomaría como un id de pedido. */
+  @Get('search')
+  @RequirePermissions(Permission.PREVENTA_GUIAS_GESTIONAR)
+  @ApiOperation({ summary: '¿En qué pedido por revisar de mi sucursal está este producto? Por código, SKU o nombre' })
+  search(@Query() query: Record<string, unknown>): Promise<PresaleReviewSearchResponse> {
+    return this.service.search(query);
   }
 
   @Get(':id')

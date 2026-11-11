@@ -5,7 +5,7 @@
  */
 import { ZONAS_HOJA_GASTOS } from '@megadulces/contracts';
 import {
-  armarHojaAbierta, cuadreDelRetiro, hojaAbiertaAutorizada, depositoDeHoja, depositoKeplerDeHoja, instruccionDePago, loYaRepuesto, motivoFueraDeHoja, notaSinDeposito, pagadoEnControl, requisitoDeHoja, retirosQueCuadran,
+  armarHojaAbierta, conTestigoBanco, cuadreDelRetiro, hojaAbiertaAutorizada, depositoDeHoja, depositoKeplerDeHoja, instruccionDePago, loYaRepuesto, motivoFueraDeHoja, notaSinDeposito, pagadoEnControl, requisitoDeHoja, retirosQueCuadran, testigoBancoDeHoja,
   type BancoDeZona, type DepositoBancoHoja, type DepositoKeplerHoja, type JuicioDePagoHoja, type PagoDeZona, type RetiroCaosConLigas, type RetiroLibreHoja,
 } from './hoja-gastos.engine';
 
@@ -458,20 +458,96 @@ describe('[LE.6.20] lo que ya se repuso no se repone otra vez', () => {
 // texto decía «Kepler trae hasta el 10/11» y Morelia Abastos no capturaba un U-A-5 desde el 6/11.
 describe('[LE.6.29] por qué la hoja pagada no trae su depósito', () => {
   const nombre = (s: string) => ({ '07': 'Morelia Madero', '08': 'Morelia Abastos' } as Record<string, string>)[s] ?? s;
-  it('si ninguna sucursal capturó depósitos desde el pago, dice que todavía no puede estar, por nombre', () => {
-    const t = notaSinDeposito('1604', '2026-11-10', ['07', '08'], new Map([['07', '2026-11-09'], ['08', '2026-11-06']]), nombre);
-    expect(t).toContain('El depósito todavía no puede estar');
-    expect(t).toContain('Morelia Madero, el 09/11; Morelia Abastos, el 06/11');
-    expect(t).not.toMatch(/\b0[78]\b,/);
+  const MORELIA = new Map([['07', '2026-11-09'], ['08', '2026-11-06']]);
+  it('si ninguna sucursal capturó depósitos después del pago, está EN ESPERA y dice hasta cuándo, por nombre (HG-15)', () => {
+    const r = notaSinDeposito('1604', '2026-11-10', ['07', '08'], MORELIA, nombre);
+    expect(r.vencido).toBe(false);
+    expect(r.nota).toContain('Kepler todavía no trae depósitos (U-A-5) de la zona capturados después del 10/11');
+    expect(r.nota).toContain('Morelia Madero, el 09/11; Morelia Abastos, el 06/11');
+    expect(r.nota).not.toMatch(/\b0[78]\b,/);
   });
-  it('[negativa] si UNA ya capturó depósitos desde el pago (Madero el 9, Abastos el 6) no dice «todavía no puede estar»: no está', () => {
-    const t = notaSinDeposito('1604', '2026-11-07', ['07', '08'], new Map([['07', '2026-11-09'], ['08', '2026-11-06']]), nombre);
-    expect(t).not.toContain('todavía no puede estar');
-    expect(t).toContain('No hay un U-A-5 a la clave 1604 por el total (±$0.50) del 07/11 a siete días');
-    expect(t).toContain('Morelia Abastos, el 06/11');
+  it('[LE.6.30] si UNA ya capturó depósitos después del pago y éste no está, está VENCIDO y la nombra (HG-9)', () => {
+    const r = notaSinDeposito('1604', '2026-11-05', ['07', '08'], MORELIA, nombre);
+    expect(r.vencido).toBe(true);
+    expect(r.nota).toContain('Morelia Madero ya capturó depósitos el 09/11 y Morelia Abastos ya capturó depósitos el 06/11 y éste no está');
+    expect(r.nota).toContain('no hay un U-A-5 a la clave 1604 por el total (±$0.50) del 05/11 a siete días');
+  });
+  it('[LE.6.30] [negativa] capturar el MISMO día del pago no lo vence: pudo ser antes de pagar la hoja (HG-13)', () => {
+    const r = notaSinDeposito('1604', '2026-11-09', ['07', '08'], MORELIA, nombre);
+    expect(r.vencido).toBe(false);
   });
   it('una sucursal sin depósitos en la ventana se nombra, no se omite', () => {
-    expect(notaSinDeposito('5854', '2026-11-10', ['06'], new Map(), (s) => (s === '06' ? 'Canindo' : s)))
-      .toContain('Canindo, ninguno en estos días');
+    const r = notaSinDeposito('5854', '2026-11-10', ['06'], new Map(), (s) => (s === '06' ? 'Canindo' : s));
+    expect(r.vencido).toBe(false);
+    expect(r.nota).toContain('Canindo, ninguno en estos días');
+  });
+});
+
+// ⭐ `[LE.6.31]` PM, 2026-11-11: la 1604 ya está cargada. El banco es el segundo testigo: dice si el dinero LLEGÓ.
+// Abonos reales de la 1604 (prod, sólo lectura): HG-1 ($83,981.89) se depositó con $83,982 el 30/10; para HG-9
+// ($71,326, pagada el 5/11) el más parecido es $71,332.50 del 3/11, ANTES del pago y $6.50 arriba.
+describe('[LE.6.31] el estado de cuenta de la zona como segundo testigo del depósito', () => {
+  const C1604 = (cargado_hasta: string | null) => ({ cuenta: '1604', cargado_hasta });
+  const ABONOS: DepositoBancoHoja[] = [
+    { id: 'm1', dia: '2026-10-30', importe: 101560 }, { id: 'm2', dia: '2026-10-30', importe: 83982 },
+    { id: 'm3', dia: '2026-11-03', importe: 71332.5 }, { id: 'm4', dia: '2026-11-06', importe: 84950 },
+    { id: 'm5', dia: '2026-11-13', importe: 71326 },
+  ];
+  it('encuentra el abono de HG-1 por su total (±$0.50) y lo dice con su día', () => {
+    const r = testigoBancoDeHoja(83981.89, '2026-10-30', 'Zona Morelia', C1604('2026-11-10'), ABONOS);
+    expect(r.estado).toBe('encontrado');
+    expect(r.deposito).toEqual({ id: 'm2', dia: '2026-10-30', importe: 83982 });
+    expect(r.texto).toBe('En el estado de cuenta de la 1604: $83,982.00 el 30/10.');
+  });
+  it('HG-9: con los siete días cargados y sin abono, NO llegó; el de antes del pago y el de después de la ventana no cuentan', () => {
+    const r = testigoBancoDeHoja(71326, '2026-11-05', 'Zona Morelia', C1604('2026-11-12'), ABONOS);
+    expect(r.estado).toBe('no_aparece');
+    expect(r.deposito).toBeNull();
+    expect(r.texto).toContain('No está en el estado de cuenta de la 1604 (cargado al 12/11)');
+    expect(r.texto).toContain('$71,326.00 del 05/11 a siete días');
+  });
+  it('[negativa] con seis de los siete días cargados no se afirma que no llegó: «todavía no aparece»', () => {
+    const r = testigoBancoDeHoja(71326, '2026-11-05', 'Zona Morelia', C1604('2026-11-11'), ABONOS);
+    expect(r.estado).toBe('todavia_no');
+    expect(r.texto).toContain('cargado al 11/11, todavía no aparece un abono por $71,326.00');
+  });
+  it('si el estado de cuenta no llega al día del pago, lo dice (HG-16, pagada el 11/11 con la 1604 al 10/11)', () => {
+    const r = testigoBancoDeHoja(93452.2, '2026-11-11', 'Zona Morelia', C1604('2026-11-10'), ABONOS);
+    expect(r.estado).toBe('sin_cargar');
+    expect(r.texto).toContain('llega al 10/11: todavía no cubre el pago del 11/11');
+  });
+  it('dos abonos por el total no se eligen: lo liga una persona', () => {
+    const r = testigoBancoDeHoja(84950, '2026-11-06', 'Zona Morelia', C1604('2026-11-13'),
+      [...ABONOS, { id: 'm6', dia: '2026-11-07', importe: 84950 }]);
+    expect(r.estado).toBe('ambiguo');
+    expect(r.deposito).toBeNull();
+  });
+  it('sin cuenta en el catálogo (Canindo) no se finge: lo dice con el nombre de la zona', () => {
+    const r = testigoBancoDeHoja(85866.52, '2026-11-06', 'Zona Canindo', null, []);
+    expect(r.estado).toBe('sin_cuenta');
+    expect(r.texto).toContain('Zona Canindo no está en el catálogo de bancos');
+  });
+
+  const SIN = (vencido: boolean) => ({ estado: 'no_aparece' as const, depositos: null, diferencia: null, nota: 'Kepler…', vencido });
+  const T = (estado: 'encontrado' | 'no_aparece' | 'todavia_no') => testigoBancoDeHoja(
+    estado === 'encontrado' ? 83981.89 : 71326, estado === 'encontrado' ? '2026-10-30' : '2026-11-05', 'Zona Morelia',
+    C1604(estado === 'todavia_no' ? '2026-11-10' : '2026-11-12'), ABONOS);
+  it('el banco manda: si cubre los siete días y no lo trae, está VENCIDO aunque Kepler sólo espere', () => {
+    expect(T('no_aparece').estado).toBe('no_aparece');
+    expect(conTestigoBanco(SIN(false), T('no_aparece')).vencido).toBe(true);
+  });
+  it('si el banco lo trae, el dinero llegó: no es vencido aunque Kepler ya debía tener su U-A-5', () => {
+    expect(conTestigoBanco(SIN(true), T('encontrado')).vencido).toBe(false);
+  });
+  it('[negativa] con el banco a medias, queda lo que dijo Kepler', () => {
+    expect(conTestigoBanco(SIN(true), T('todavia_no')).vencido).toBe(true);
+    expect(conTestigoBanco(SIN(false), T('todavia_no')).vencido).toBe(false);
+  });
+  it('[negativa] la hoja con su U-A-5 sigue depositada: el banco se dice al lado, no la mueve', () => {
+    const dep = { estado: 'depositada' as const, depositos: [{ id: 'x', dia: '2026-11-05', importe: 71326 }], diferencia: 0, nota: null };
+    const r = conTestigoBanco(dep, T('no_aparece'));
+    expect(r.estado).toBe('depositada');
+    expect(r.vencido).toBeUndefined();
+    expect(r.banco?.estado).toBe('no_aparece');
   });
 });

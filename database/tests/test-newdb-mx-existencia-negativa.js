@@ -161,9 +161,53 @@ function cargarServicio() {
       ok(await rechaza(() => ajeno.resolve({ warehouse_id: whId, sku: SKU_NEG, motivo: 'conteo_ajustado' }), /alcance/) === true, 'y no la puede resolver');
       const propio = new Svc({ run: (a, b) => (typeof a === 'function' ? a : b)(trx) }, ctx, alcance({ mode: 'own', values: [SUC] }));
       ok(deLa97(await propio.list({ pageSize: 200 })).some((x) => x.sku === SKU_NEG), 'CONTROL: con alcance sobre la 97 sí la ve');
+
+      // ── [IC.26] Traspaso enviado a la 97 y sin recepción → «entrada sin aplicar» ──────────────
+      console.log('\n[7] [IC.26] Traspasos en camino');
+      if (!(await trx.raw(`SELECT to_regclass('analytics.v_kepler_transfers_in_transit') AS v`)).rows[0].v) {
+        noMedido('falta analytics.v_kepler_transfers_in_transit (migración 20261111085104 sin aplicar)');
+        ok(b0.traspasos_revisados === false, 'sin la vista la bandeja lo DECLARA (traspasos_revisados = false), no lo da por cero');
+      } else {
+        ok(b0.traspasos_revisados === true, 'con la vista, la bandeja dice que revisó traspasos');
+        const [o96] = await trx('commercial.warehouses').insert({ tenant_id: T, code: '96', name: 'Prueba IC.26 origen', kepler_code: '96' }).returning('id');
+        const [o95] = await trx('commercial.warehouses').insert({ tenant_id: T, code: '95', name: 'Prueba IC.26 otro origen', kepler_code: '95' }).returning('id');
+        await trx('analytics.transfer_dest_map').insert([
+          { tenant_id: T, dest_code: 'TI097TEST', dest_label: 'Prueba IC.26 a la 97', warehouse_id: whId },
+          { tenant_id: T, dest_code: 'TI096TEST', dest_label: 'Prueba IC.26 a la 96', warehouse_id: o96.id || o96 },
+          { tenant_id: T, dest_code: 'TI095TEST', dest_label: 'Prueba IC.26 a la 95', warehouse_id: o95.id || o95 },
+        ]);
+        const SKU_TRAS = 'TEST-NEG-5'; // −30; la 96 le envió 150 sin recepción → queda en 120
+        const SKU_REC = 'TEST-NEG-6';  // −10; la 96 le envió 50 y SÍ se recibió → control: salió sin existencia
+        const SKU_COL = 'TEST-NEG-7';  // −8; la 95 le envió 20 con el MISMO folio que una recepción de la 96
+        await trx('kepler_ods.kdil').insert([kdil(SKU_TRAS, 0, 30, 1), kdil(SKU_REC, 0, 10, 1), kdil(SKU_COL, 0, 8, 1)]);
+        const ayer = trx.raw(`now() - interval '1 day'`);
+        const cab = (suc, c2, c3, c4, folio, c10, extra = {}) => ({ sucursal: suc, c1: suc, c2, c3, c4, c5: 2, c6: folio, c9: ayer, c10, ...extra });
+        const ren = (suc, folio, sku, qty) => ({ sucursal: suc, c1: suc, c2: 'U', c3: 'D', c4: 41, c5: 2, c6: folio, c7: 1, c8: sku, c9: qty, c32: ayer });
+        await trx('kepler_ods.kdm1').insert([
+          cab('96', 'U', 'D', 41, 'TT00001', 'TI097TEST'),                                         // embarque sin recibir
+          cab('96', 'U', 'D', 41, 'TT00002', 'TI097TEST'),                                         // embarque recibido…
+          cab(SUC, 'U', 'A', 50, 'TR00001', 'TI096TEST', { c37: 41, c38: 2, c39: 'TT00002' }),    // …por esta recepción
+          cab('95', 'U', 'D', 41, 'TT00003', 'TI097TEST'),                                         // embarque de OTRO origen…
+          cab(SUC, 'U', 'A', 50, 'TR00002', 'TI096TEST', { c37: 41, c38: 2, c39: 'TT00003' }),    // …y una recepción de la 96 con su folio
+        ]);
+        await trx('kepler_ods.kdm2').insert([ren('96', 'TT00001', SKU_TRAS, 150), ren('96', 'TT00002', SKU_REC, 50), ren('95', 'TT00003', SKU_COL, 20)]);
+
+        const b7 = deLa97(await lista());
+        const tr = b7.find((x) => x.sku === SKU_TRAS);
+        ok(!!tr && tr.causa === 'entrada_sin_aplicar' && tr.quedaria === 120 && tr.vale === null
+          && tr.traspaso?.piezas === 150 && tr.traspaso?.folios.join() === 'TT00001' && tr.traspaso?.origen === 'Prueba IC.26 origen',
+          `embarque sin recepción → «entrada sin aplicar», queda en 120, con folio y origen por NOMBRE (${tr?.donde})`);
+        ok(!!tr && /Prueba IC\.26 origen le envió 150 pz en el traspaso TT00001/.test(tr.donde) && /al capturarla queda en 120 pz/.test(tr.donde), 'el «dónde» dice quién lo envió y qué capturar');
+        const rc = b7.find((x) => x.sku === SKU_REC);
+        ok(!!rc && rc.causa === 'salio_sin_existencia' && !rc.traspaso && /ni traspaso/.test(rc.donde),
+          `CONTROL: el embarque que SÍ se recibió no cuenta (${rc?.causa})`);
+        const co = b7.find((x) => x.sku === SKU_COL);
+        ok(!!co && co.causa === 'entrada_sin_aplicar' && co.traspaso?.origen === 'Prueba IC.26 otro origen',
+          `el folio es secuencia POR sucursal: la recepción de la 96 no cierra el embarque de la 95 (${co?.causa})`);
+      }
       throw new Error(RB);
     }).catch((e) => { if (!e.message.includes(RB)) throw e; });
-    const quedo = await knex('kepler_ods.kdil').where({ sucursal: SUC }).whereIn('c3', [SKU_NEG, SKU_VALE, SKU_POS, SKU_VIEJO]);
+    const quedo = await knex('kepler_ods.kdil').where({ sucursal: SUC }).whereIn('c3', [SKU_NEG, SKU_VALE, SKU_POS, SKU_VIEJO, 'TEST-NEG-5', 'TEST-NEG-6', 'TEST-NEG-7']);
     ok(quedo.length === 0, 'ROLLBACK: no quedó ningún renglón sintético');
   } catch (e) {
     fail++;

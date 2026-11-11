@@ -22,7 +22,7 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
-import { parseLocalDate } from '../../../core/utils/mx-date';
+import { diaMxDe, parseLocalDate } from '../../../core/utils/mx-date';
 // `[GX.39]` La etapa la decide el SERVIDOR con `etapaDeEjercicio()`; acá sólo se lee el tipo.
 import type { EtapaEjercicio, ValeAsignado, TransferenciaGasto } from '@megadulces/contracts';
 import { aceptaEvidenciaAdicional } from '@megadulces/contracts';
@@ -61,7 +61,17 @@ interface FilaLista {
   proof: ExpenseProof | null;
   /** `[GX.97]` A quién le toca y qué falta. `null` = estado que la regla no conoce. */
   situacion: Situacion | null;
-  /** Días desde la fecha del gasto; `null` si no se puede leer. Va como campo para poder ordenar. */
+  /**
+   * `[GX.106]` El día (de México, `YYYY-MM-DD`) en que se mandó: el vale, cuando se subió a la Suite;
+   * la solicitud de Kepler sin vale, su fecha. `null` si no se puede leer. Va como campo para ordenar.
+   */
+  enviado: string | null;
+  /**
+   * `[GX.108]` La fecha del DOCUMENTO de una solicitud de Kepler cuando no es la de «Se mandó» (se capturó
+   * otro día: una póliza vieja). Sólo se muestra. `null` = es la misma, o es un vale nuestro.
+   */
+  fechaDocumentoDistinta: string | null;
+  /** `[GX.106]` Días desde que se mandó (antes: desde la fecha del gasto); `null` si no se puede leer. */
   dias: number | null;
 }
 
@@ -175,7 +185,8 @@ const FILTROS: readonly { value: AQuien; label: string; vacio: string }[] = [
                 <th pSortableColumn="titulo">Proveedor <p-sorticon field="titulo" /></th>
                 <th class="mg-c-etapa">Etapa</th>
                 <th>{{ filtro() === 'cerrado' ? 'Cómo cerró' : (filtro() === 'tu' ? 'Qué te falta' : 'A qué espera') }}</th>
-                <th class="comm-num mg-c-dias" pSortableColumn="dias">Días <p-sorticon field="dias" /></th>
+                <!-- [GX.106] La fecha en que se mandó, no «hace N días» (pedido del usuario, 2026-11-09). -->
+                <th class="mg-c-env" pSortableColumn="enviado">Se mandó <p-sorticon field="enviado" /></th>
                 <th class="comm-num" pSortableColumn="importe">Importe <p-sorticon field="importe" /></th>
                 <th><span class="mg-sr">Acción</span></th>
               </tr>
@@ -195,7 +206,10 @@ const FILTROS: readonly { value: AQuien; label: string; vacio: string }[] = [
                   <div class="mg-sub">
                     @if (f.proveedor_clave) { <span class="mg-clave">{{ f.proveedor_clave }}</span> }
                     @if (f.detalle) { <span>{{ f.detalle }}</span> }
-                    @if (diaLocal(f.fecha); as d) { <span>{{ d | date: 'dd/MM/yy' }}</span> }
+                    <!-- [GX.106] Rotulada: hay dos fechas en el renglón (cuándo se gastó y cuándo se mandó).
+                         La solicitud de Kepler sin vale no la repite: su fecha ya es la de «Se mandó». -->
+                    @if (f.proof && diaLocal(f.fecha); as d) { <span>gastado el {{ d | date: 'dd/MM/yy' }}</span> }
+                    @if (diaLocal(f.fechaDocumentoDistinta); as d) { <span>documento del {{ d | date: 'dd/MM/yy' }}</span> }
                   </div>
                 </td>
                 <td class="mg-c-etapa"><p-tag [value]="f.situacion?.etapaNombre ?? '—'" severity="secondary" /></td>
@@ -206,7 +220,15 @@ const FILTROS: readonly { value: AQuien; label: string; vacio: string }[] = [
                     <div class="mg-sub mg-clave">{{ foliosGasto(f) }}</div>
                   }
                 </td>
-                <td class="comm-num mg-c-dias" [class.mg-atorado]="atorado(f)">{{ diasTexto(f) }}</td>
+                <td class="mg-c-env">
+                  @if (diaLocal(f.enviado); as d) {
+                    <span class="mg-fecha">{{ d | date: 'dd/MM/yy' }}</span>
+                    <!-- Los días, sólo cuando urge: lo abierto que lleva más de un mes. En palabras, no sólo en ámbar. -->
+                    @if (atorado(f)) { <div class="mg-atorado">{{ hace(f) }}</div> }
+                  } @else {
+                    <span class="mg-sub">—</span>
+                  }
+                </td>
                 <td class="comm-num">{{ money(f.importe) }}</td>
                 <td class="mg-acc">
                   @if (f.puedeSubir) {
@@ -246,7 +268,7 @@ const FILTROS: readonly { value: AQuien; label: string; vacio: string }[] = [
     :host { display: block; }
     .mg { display: flex; flex-direction: column; gap: var(--sp-3); container-type: inline-size; }
     /* En angosto (teléfono, o el panel con el menú abierto) se quita la Etapa: lo que decide es el
-       folio, qué falta, los días (ahí vive la marca de atorado), el importe y la acción. */
+       folio, qué falta, cuándo se mandó (ahí vive la marca de atorado), el importe y la acción. */
     @container (max-width: 40rem) { .mg-c-etapa { display: none; } .mg-buscar input { width: 100%; } }
     .mg-head-acc { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
     .mg-aviso { margin: 0; font-size: var(--fs-sm); color: var(--warn-soft-fg); }
@@ -273,7 +295,9 @@ const FILTROS: readonly { value: AQuien; label: string; vacio: string }[] = [
     .mg-folio:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     /* El rojo sólo para lo que salió mal (te lo devolvieron); atorado, en el ámbar que se lee. */
     .mg-mal { color: var(--bad-fg); }
-    .mg-atorado { color: var(--warn-soft-fg); font-weight: var(--fw-bold); }
+    /* [GX.106] La fecha en que se mandó; debajo, sólo si urge, cuántos días lleva. */
+    .mg-fecha { font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--fg-1); }
+    .mg-atorado { font-size: var(--fs-xs); color: var(--warn-soft-fg); font-weight: var(--fw-bold); margin-top: 2px; white-space: nowrap; }
     .mg-acc { white-space: nowrap; text-align: right; }
     .mg-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
@@ -330,7 +354,11 @@ export class FinanzasMisGastosComponent {
         debeFactura: false, puedeSubir: true, proveedor_clave: null, gasto_folios: [] as string[],
         notaPago: null, proof: null,
       };
-      return { ...base, situacion: situacionDe(base), dias: diasDesde(v.fecha) };
+      // `[GX.108]` Se mandó el día que se CAPTURÓ en Kepler; la fecha del documento sólo se muestra.
+      const enviado = diaMxDe(v.capturado ?? v.fecha) || null;
+      const documento = diaMxDe(v.fecha) || null;
+      return { ...base, situacion: situacionDe(base), enviado, dias: diasDesde(enviado),
+        fechaDocumentoDistinta: documento && documento !== enviado ? documento : null };
     }),
     ...this.filas().map((p): FilaLista => {
       const base = {
@@ -345,8 +373,10 @@ export class FinanzasMisGastosComponent {
         // `[GX.75]` Ausente (servidor viejo) = no medido: ni «pagado» ni «sin pago».
         notaPago: notaDePago((p.transferencias ?? null) as TransferenciaGasto[] | null, Number(p.importe) || 0),
         proof: p,
+        fechaDocumentoDistinta: null,
       };
-      return { ...base, situacion: situacionDe(base), dias: diasDesde(p.fecha_gasto) };
+      const enviado = diaMxDe(p.created_at) || null;
+      return { ...base, situacion: situacionDe(base), enviado, dias: diasDesde(enviado) };
     }),
   ]);
 
@@ -384,12 +414,13 @@ export class FinanzasMisGastosComponent {
 
   /**
    * Las filas del filtro. Lo abierto, del más viejo al más nuevo: lo que más urge arriba. Lo
-   * cerrado, al revés: lo último que cerró es lo que se viene a confirmar.
+   * cerrado, al revés: lo último que cerró es lo que se viene a confirmar. `[GX.106]` Por la fecha
+   * en que se mandó, que es la que se ve: ordenar por otra la haría parecer revuelta.
    */
   readonly visibles = computed<FilaLista[]>(() => {
     const f = this.filtro();
     const filas = this.unificadas().filter((x) => x.situacion?.aQuien === f);
-    const porFecha = (a: FilaLista, b: FilaLista) => String(a.fecha ?? '').localeCompare(String(b.fecha ?? ''));
+    const porFecha = (a: FilaLista, b: FilaLista) => String(a.enviado ?? '').localeCompare(String(b.enviado ?? ''));
     return f === 'cerrado' ? [...filas].sort((a, b) => porFecha(b, a)) : [...filas].sort(porFecha);
   });
 
@@ -509,11 +540,9 @@ export class FinanzasMisGastosComponent {
 
   diaLocal(iso: string | null | undefined): Date | null { return parseLocalDate(iso); }
 
-  /** Lo cerrado no cuenta días (ya no espera nada); lo abierto, sí. */
-  diasTexto(f: FilaLista): string {
-    if (f.situacion?.aQuien === 'cerrado') return '—';
-    return f.dias === null ? '—' : textoAntiguedad(f.dias);
-  }
+  /** `[GX.106]` «hace N días», sólo para lo atorado: lo demás se lee en la fecha. */
+  hace(f: FilaLista): string { return textoAntiguedad(f.dias); }
+  /** Lo cerrado no está atorado (ya no espera nada); lo abierto, desde que se mandó. */
   atorado(f: FilaLista): boolean {
     return f.situacion?.aQuien !== 'cerrado' && f.dias !== null && f.dias > DIAS_ATORADO;
   }

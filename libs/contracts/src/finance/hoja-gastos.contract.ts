@@ -282,6 +282,31 @@ export interface RetiroParaHoja {
 
 export type EstadoDepositoHoja = 'depositada' | 'ambiguo' | 'no_aparece' | 'sin_medir';
 
+/**
+ * ⭐ `[LE.6.31]` El SEGUNDO testigo del depósito de una hoja pagada: el estado de cuenta de la cuenta de la
+ * zona (Santander 1604 de Morelia), además del `U-A-5` que la sucursal captura en su Kepler. El `U-A-5` lo
+ * escribe la propia sucursal; el banco dice si el dinero LLEGÓ. Medido el 2026-11-11 con la 1604 cargada al
+ * 10/11: UN abono por el total (±$0.50, del pago a siete días) encuentra HG-1 y el control (total corrido
+ * ±$1,000…±$20,000, 282 pruebas) 1 vez; en pares, el control 3 y HG-1 ambigua. Por eso uno solo, como en Kepler.
+ *  · `encontrado` / `ambiguo`: un abono / varios por el total en esos días.
+ *  · `no_aparece`: el estado de cuenta cubre los siete días y no está: el dinero no llegó a esa cuenta.
+ *  · `todavia_no`: cubre una parte de los siete días y, hasta ahí, no está.
+ *  · `sin_cargar`: no llega al día del pago. `sin_cuenta`: la cuenta de la zona no está en el catálogo de bancos.
+ */
+export type EstadoBancoHoja = 'encontrado' | 'ambiguo' | 'no_aparece' | 'todavia_no' | 'sin_cargar' | 'sin_cuenta';
+
+export interface TestigoBancoHoja {
+  estado: EstadoBancoHoja;
+  /** Terminación de la cuenta («1604»); `null` con `sin_cuenta`. */
+  cuenta: string | null;
+  /** Último día que trae el estado de cuenta cargado. `null` = ninguno, o sin cuenta. */
+  cargado_hasta: string | null;
+  /** El abono, cuando es UNO solo (`encontrado`). */
+  deposito: { id: string; dia: string; importe: number } | null;
+  /** En llano: lo que se vio en el banco o por qué no se puede ver. */
+  texto: string;
+}
+
 /** El pago de una hoja pagada: con qué salió, quién la pagó y si el depósito ya llegó a la cuenta de la zona. */
 export interface PagoDeHojaGastos {
   medio: MedioPagoHoja;
@@ -314,6 +339,16 @@ export interface PagoDeHojaGastos {
     diferencia?: number | null;
     /** Por qué no hay depósito todavía, en llano, cuando no lo hay. */
     nota: string | null;
+    /**
+     * `[LE.6.30]` Sin depósito (`no_aparece`): `true` = VENCIDO, una sucursal de la zona ya capturó depósitos
+     * en Kepler en un día posterior al pago y éste no está (incidencia); `false` = en espera, Kepler todavía no
+     * trae depósitos de después del pago. Ausente: una API anterior, o hay depósito. `[LE.6.31]` El banco
+     * manda sobre Kepler: si el estado de cuenta cubre los siete días y no lo trae, es `true`; si lo trae, `false`
+     * (el dinero llegó; falta capturarlo en Kepler).
+     */
+    vencido?: boolean;
+    /** `[LE.6.31]` Lo que dice el estado de cuenta de la zona. Ausente: una API anterior. */
+    banco?: TestigoBancoHoja;
   };
 }
 

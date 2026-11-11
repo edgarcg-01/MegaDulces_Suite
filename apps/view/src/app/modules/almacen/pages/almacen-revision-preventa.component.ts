@@ -1,5 +1,5 @@
 import {
-  ChangeDetectionStrategy, Component, DestroyRef, NgZone, OnInit, computed, inject, signal,
+  ChangeDetectionStrategy, Component, DestroyRef, ElementRef, Injector, NgZone, OnInit, afterNextRender, computed, inject, signal, viewChild,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -11,8 +11,11 @@ import type {
   PresaleReviewInboxResponse,
   PresaleReviewInboxRow,
   PresaleReviewLine,
+  PresaleReviewSearchHit,
 } from '@megadulces/contracts';
+import { coincideBusqueda } from '@megadulces/ui-web';
 import { PresaleReviewService } from '../presale-review.service';
+import { agruparPorVendedor } from '../pedidos-por-vendedor';
 import { encuestarVisible } from '../../../core/utils/poll-visible';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
@@ -20,6 +23,7 @@ import { MetricStripComponent, type MetricStripItem } from '../../../shared/comp
 import {
   type Accion,
   type ProgresoPedido,
+  alEscanear,
   aplicar,
   cantidadTexto,
   cuerpoDeCierre,
@@ -32,6 +36,7 @@ import {
   resuelto,
   resueltos,
   textoAtraso,
+  filtraLaLista,
 } from '../revision-caja';
 
 /** Cada cuánto se vuelve a pedir la bandeja mientras se ve: así llegan solos los pedidos que el surtidor termina. */
@@ -53,6 +58,14 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
  *  · «No coincide» / «Trajo otra cantidad» con − y + grandes; «Seguir con otro» mientras espera;
  *    «← Anterior» para deshacer; los otros pedidos se pueden tocar para cambiar;
  *  · al terminar, el pedido de la Suite queda con lo que se va a cobrar y la vendedora recibe aviso.
+ *
+ * `[MCP.10.2]` (David, 2026-11-09): el surtidor acomoda el carrito por cómo es el producto (lo blando
+ * arriba, lo duro abajo), no en el orden del pedido. Los demás productos de la lista se pueden TOCAR:
+ * el que la cajera tiene en la mano pasa a revisarse. Sigue siendo uno a la vez y en grande.
+ *
+ * `[MCP.10.3]` (David, 2026-11-09): con lector, se ESCANEA lo que se tiene en la mano: si el renglón es de
+ * una unidad, el escaneo ya lo confirma; si no, lo pone en grande; si no es del pedido, lo dice. Sin
+ * lector (o un producto sin código) se toca en la lista, que ahora pone lo pendiente arriba.
  */
 @Component({
   selector: 'app-almacen-revision-preventa',
@@ -96,8 +109,12 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
                         emptyIcon="pi-check-circle" emptyTitle="No hay pedidos por revisar"
                         emptyHint="Cuando el surtidor termine un pedido de preventa, va a aparecer aquí solo."
                         (retry)="cargar()">
+          <!-- [MCP.14] Los pedidos a revisar separados por vendedor y, dentro, en orden de folio. -->
           <div class="rv-lista">
-            @for (p of porRevisar(); track p.order_id) {
+            @for (g of grupos(); track g.vendedor) {
+              <h2 class="rv-grupo"><i class="pi pi-user" aria-hidden="true"></i> {{ g.vendedor }}
+                <span class="rv-grupo-n">· {{ g.pedidos.length === 1 ? '1 pedido' : g.pedidos.length + ' pedidos' }}</span></h2>
+            @for (p of g.pedidos; track p.order_id) {
               <button type="button" class="rv-card" [class.rv-card-atrasado]="!!atraso(p)" (click)="abrir(p.order_id)">
                 @if (atraso(p); as a) { <span class="rv-atraso"><i class="pi pi-clock" aria-hidden="true"></i> {{ a }}</span> }
                 <span class="rv-card-r1">
@@ -111,6 +128,7 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
                 </span>
                 <span class="rv-card-go">Revisar <i class="pi pi-arrow-right" aria-hidden="true"></i></span>
               </button>
+            }
             }
           </div>
           @if (revisados().length) {
@@ -147,16 +165,53 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
                 <div class="rv-barra" aria-hidden="true"><span [style.width.%]="pct()"></span></div>
                 <b>Producto {{ numeroActual() }} de {{ d.lines.length }}</b>
               </div>
-              @if (d.order.instructions) {
-                <p class="rv-indic"><i class="pi pi-comment" aria-hidden="true"></i> {{ d.order.instructions }}</p>
-              }
+              <!-- [MCP.10.3] El lector escribe aquí; también se escribe a mano: código, SKU o nombre. Si el campo
+                   pierde el foco se dice: un escaneo perdido no avisa. -->
+              <div class="rv-scan">
+                <label class="rv-scan-l" for="rv-scan-in"><i class="pi pi-barcode" aria-hidden="true"></i> Escanea o escribe: código, SKU o nombre</label>
+                <input #escaner id="rv-scan-in" class="rv-scan-in" type="text" inputmode="search" autocomplete="off" enterkeyhint="search"
+                       (input)="alEscribir($event)" (keydown.enter)="alEnter($event)" (keydown.escape)="limpiarBusqueda()" />
+                <label class="rv-scan-off" for="rv-scan-in">El lector no está listo: toca aquí antes de escanear.</label>
+                @if (!hayCodigos()) {
+                  <p class="rv-scan-sin"><i class="pi pi-info-circle" aria-hidden="true"></i> No se pudieron leer los códigos de Kepler de este pedido: busca por SKU o nombre, o tócalo en la lista.</p>
+                }
+                @if (avisoEscaneo(); as a) {
+                  <p class="rv-scan-msg" [class.rv-scan-ok]="a.tono === 'ok'" [class.rv-scan-warn]="a.tono === 'warn'" [class.rv-scan-mal]="a.tono === 'mal'">
+                    <i class="pi" [class.pi-check]="a.tono === 'ok'" [class.pi-times]="a.tono === 'mal'" [class.pi-info-circle]="a.tono === 'info' || a.tono === 'warn'" aria-hidden="true"></i>
+                    <span>{{ a.texto }}</span>
+                  </p>
+                }
+                <!-- [MCP.10.3] Lo que no es de este pedido se busca en los otros por revisar de la sucursal. -->
+                @if (otrosPedidos(); as o) {
+                  @if (o.estado === 'buscando') {
+                    <p class="rv-scan-msg"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i><span>«{{ o.q }}» no está en este pedido. Buscando en los otros pedidos por revisar…</span></p>
+                  } @else if (o.estado === 'error') {
+                    <p class="rv-scan-msg rv-scan-warn"><i class="pi pi-info-circle" aria-hidden="true"></i><span>«{{ o.q }}» no está en este pedido y no pude buscar en los otros. Revisa la conexión e inténtalo otra vez.</span></p>
+                  } @else if (!o.hits.length) {
+                    <p class="rv-scan-msg rv-scan-mal"><i class="pi pi-times" aria-hidden="true"></i><span>«{{ o.q }}» no está en este pedido ni en los otros por revisar{{ o.truncated ? ' (busqué sólo en los primeros)' : '' }}. Apártalo.</span></p>
+                  } @else {
+                    <p class="rv-scan-msg rv-scan-warn"><i class="pi pi-info-circle" aria-hidden="true"></i><span>«{{ o.q }}» no es de este pedido. Está en {{ o.hits.length === 1 ? 'este otro' : 'estos ' + o.hits.length }}:</span></p>
+                    <ul class="rv-hits">
+                      @for (h of o.hits; track h.order_id + '|' + h.product_name) {
+                        <li>
+                          <button type="button" class="rv-hit" (click)="abrirDesdeBusqueda(h)">
+                            <span class="rv-hit-n">{{ h.customer_name || h.code }}<small>{{ h.code }}{{ h.seller_name ? ' · ' + h.seller_name : '' }} · {{ h.product_name }}</small></span>
+                            <span class="rv-hit-go">Abrir <i class="pi pi-arrow-right" aria-hidden="true"></i></span>
+                          </button>
+                        </li>
+                      }
+                    </ul>
+                    @if (o.truncated) { <p class="rv-scan-sin">Hay más coincidencias: escribe más del nombre para acotar.</p> }
+                  }
+                }
+              </div>
               @if (progreso().hist.length && !editando()) {
                 <button type="button" class="rv-btn rv-btn-atras" (click)="anterior()"><i class="pi pi-arrow-left" aria-hidden="true"></i> Anterior</button>
               }
 
               @if (actual(); as l) {
                 @if (editando()) {
-                  <section class="rv-actual" aria-live="polite">
+                  <section tabindex="-1" class="rv-actual" aria-live="polite">
                     <span class="rv-flecha">▶ REVISANDO · CONTAR</span>
                     <span class="rv-nombre">{{ l.product_name }}</span>
                     @if (l.sku) { <span class="rv-sku">SKU {{ l.sku }}</span> }
@@ -171,7 +226,7 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
                     <button type="button" class="rv-btn" (click)="editando.set(null)">Cancelar</button>
                   </section>
                 } @else if (estadoDe(l) === 'por_revisar') {
-                  <section class="rv-actual">
+                  <section tabindex="-1" class="rv-actual">
                     <span class="rv-flecha">▶ REVISANDO</span>
                     <span class="rv-nombre">{{ l.product_name }}</span>
                     @if (l.sku) { <span class="rv-sku">SKU {{ l.sku }}</span> }
@@ -181,7 +236,7 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
                     <button type="button" class="rv-btn" (click)="contar(l)">No coincide</button>
                   </section>
                 } @else if (estadoDe(l) === 'falta') {
-                  <section class="rv-actual rv-actual-falta">
+                  <section tabindex="-1" class="rv-actual rv-actual-falta">
                     <span class="rv-flecha">▶ REVISANDO · FALTÓ{{ marca(l)?.despues ? ' · SIGUE ESPERANDO' : '' }}</span>
                     <span class="rv-nombre">{{ l.product_name }}</span>
                     @if (l.sku) { <span class="rv-sku">SKU {{ l.sku }}</span> }
@@ -201,7 +256,7 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
                     </div>
                   </section>
                 } @else if (estadoDe(l) === 'sobra') {
-                  <section class="rv-actual rv-actual-sobra">
+                  <section tabindex="-1" class="rv-actual rv-actual-sobra">
                     <span class="rv-flecha">▶ REVISANDO · VINO DE MÁS</span>
                     <span class="rv-nombre">{{ l.product_name }}</span>
                     @if (l.sku) { <span class="rv-sku">SKU {{ l.sku }}</span> }
@@ -229,22 +284,49 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
                 </div>
               }
 
-              <ul class="rv-items">
-                @for (x of d.lines; track x.key) {
-                  @if (x.key !== actual()?.key) {
-                    <li class="rv-item" [class.rv-item-ok]="resuelto(marca(x)) && estadoDe(x) !== 'nohay'" [class.rv-item-no]="estadoDe(x) === 'nohay'">
-                      <span class="rv-item-n">
-                        @if (estadoDe(x) === 'nohay') { <i class="pi pi-times" aria-hidden="true"></i> }
-                        @else if (resuelto(marca(x))) { <i class="pi pi-check" aria-hidden="true"></i> }
-                        {{ x.product_name }}{{ marca(x)?.despues && !resuelto(marca(x)) ? ' · esperando al surtidor' : '' }}
-                        @if (x.sku) { <span class="rv-sku">SKU {{ x.sku }}</span> }
-                        @if (x.substitutes_for) { <span class="rv-en-lugar"><i class="pi pi-sync" aria-hidden="true"></i> En lugar de {{ x.substitutes_for }}</span> }
-                      </span>
-                      <span class="rv-mono">{{ textoRenglon(x) }}</span>
+              <!-- [MCP.10.2] Lo que falta revisar se toca: el carrito no viene en el orden del pedido. -->
+              <!-- [MCP.10.3] Pendientes arriba y lo revisado aparte: menos que leer y menos que bajar. -->
+              @if (pendientesTotal() > 0) {
+                <h2 class="rv-items-h">Por revisar · {{ filtrando() ? pendientesOtros().length + ' de ' + pendientesTotal() : pendientesTotal() }}</h2>
+                @if (filtrando()) {
+                  <p class="rv-items-tip">
+                    {{ pendientesOtros().length ? 'Coinciden con «' + filtro().trim() + '».' : 'Ninguno de los que faltan coincide con «' + filtro().trim() + '»: presiona Enter para buscarlo en los otros pedidos.' }}
+                    <button type="button" class="rv-limpiar" (click)="limpiarBusqueda()">Ver todos</button>
+                  </p>
+                } @else {
+                  <p class="rv-items-tip">¿Tienes otro en la mano? Escanéalo o escríbelo arriba, o tócalo aquí.</p>
+                }
+                <ul class="rv-items">
+                  @for (x of pendientesOtros(); track x.key) {
+                    <li>
+                      <button type="button" class="rv-item rv-item-tocar" (click)="elegir(x)">
+                        <ng-container *ngTemplateOutlet="renglon; context: { $implicit: x }"></ng-container>
+                        <i class="pi pi-chevron-right" aria-hidden="true"></i>
+                      </button>
                     </li>
                   }
-                }
-              </ul>
+                </ul>
+              }
+              @if (revisadosLista().length) {
+                <h2 class="rv-items-h">Ya revisados · {{ revisadosLista().length }}</h2>
+                <ul class="rv-items">
+                  @for (x of revisadosLista(); track x.key) {
+                    <li class="rv-item" [class.rv-item-ok]="estadoDe(x) !== 'nohay'" [class.rv-item-no]="estadoDe(x) === 'nohay'">
+                      <ng-container *ngTemplateOutlet="renglon; context: { $implicit: x }"></ng-container>
+                    </li>
+                  }
+                </ul>
+              }
+              <ng-template #renglon let-x>
+                <span class="rv-item-n">
+                  @if (estadoDe(x) === 'nohay') { <i class="pi pi-times" aria-hidden="true"></i> }
+                  @else if (resuelto(marca(x))) { <i class="pi pi-check" aria-hidden="true"></i> }
+                  {{ x.product_name }}{{ marca(x)?.despues && !resuelto(marca(x)) ? ' · esperando al surtidor' : '' }}
+                  @if (x.sku) { <span class="rv-sku">SKU {{ x.sku }}</span> }
+                  @if (x.substitutes_for) { <span class="rv-en-lugar"><i class="pi pi-sync" aria-hidden="true"></i> En lugar de {{ x.substitutes_for }}</span> }
+                </span>
+                <span class="rv-mono">{{ textoRenglon(x) }}</span>
+              </ng-template>
             }
           }
         </app-load-state>
@@ -277,6 +359,10 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
     .rv-volver { min-width: var(--tap-min); min-height: var(--tap-min); border: 1px solid var(--border-color); border-radius: var(--r-md);
       background: var(--card-bg); color: var(--text-main); cursor: pointer; font-size: var(--fs-lg); }
     .rv-lista { display: flex; flex-direction: column; gap: var(--sp-2); }
+    /* [MCP.14] El vendedor encabeza su grupo de pedidos. */
+    .rv-grupo { display: flex; align-items: center; gap: var(--sp-2); margin: var(--sp-3) 0 0; font-size: var(--fs-lg); font-weight: 800; color: var(--text-main); }
+    .rv-grupo:first-child { margin-top: 0; }
+    .rv-grupo-n { font-weight: 500; color: var(--text-muted); }
     .rv-card { display: flex; flex-direction: column; gap: var(--sp-1); width: 100%; text-align: left; cursor: pointer;
       padding: var(--sp-4); border: 1px solid var(--border-color); border-radius: var(--r-lg); background: var(--card-bg); color: var(--text-main); }
     .rv-card:hover { background: var(--surface-hover); }
@@ -295,8 +381,6 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
     .rv-barra { flex: 1; min-width: 7rem; height: 0.75rem; background: var(--surface-border); border-radius: var(--r-pill); overflow: hidden; }
     .rv-barra span { display: block; height: 100%; background: var(--ok-fg); transition: width 250ms ease; }
     .rv-prog b { font-size: var(--fs-lg); white-space: nowrap; }
-    .rv-indic { margin: 0 0 var(--sp-3); padding: var(--sp-2) var(--sp-3); border-radius: var(--r-md); background: var(--info-soft-bg);
-      color: var(--info-soft-fg); font-size: var(--fs-body); }
     .rv-actual { display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-4); border: 4px solid var(--info-fg);
       border-radius: var(--r-xl); background: var(--info-soft-bg); margin-bottom: var(--sp-3); }
     .rv-actual-falta { border-color: var(--warn-fg); background: var(--warn-soft-bg); }
@@ -319,7 +403,7 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
     .rv-btn { display: flex; align-items: center; justify-content: center; gap: var(--sp-2); min-height: 3.5rem; width: 100%;
       padding: 0 var(--sp-4); border-radius: var(--r-lg); border: 2px solid var(--border-color); background: var(--card-bg);
       color: var(--text-main); font-size: var(--fs-lg); font-weight: 800; cursor: pointer; }
-    .rv-btn:focus-visible, .rv-card:focus-visible, .rv-pill:focus-visible, .rv-volver:focus-visible, .rv-paso button:focus-visible {
+    .rv-btn:focus-visible, .rv-card:focus-visible, .rv-pill:focus-visible, .rv-volver:focus-visible, .rv-paso button:focus-visible, .rv-item-tocar:focus-visible {
       outline: 3px solid var(--focus-ring); outline-offset: 2px; }
     .rv-btn:disabled { cursor: not-allowed; opacity: .6; }
     .rv-btn-ok { background: var(--ok-fg); border-color: var(--ok-fg); color: var(--card-bg); }
@@ -342,6 +426,47 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
     .rv-item-n { flex: 1; min-width: 0; }
     .rv-item-ok { border-color: transparent; background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
     .rv-item-no { border-color: transparent; background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
+    /* [MCP.10.2] Lo que falta revisar es un botón: se toca el que se tiene en la mano. */
+    .rv-items-tip { margin: 0 0 var(--sp-2); font-size: var(--fs-body); font-weight: 700; color: var(--text-main); }
+    .rv-item-tocar { width: 100%; min-height: var(--tap-min); text-align: left; cursor: pointer; border-width: 2px;
+      background: var(--card-bg); color: var(--text-main); font-family: inherit; }
+    .rv-item-tocar:hover { background: var(--surface-hover); }
+    .rv-item-tocar .pi-chevron-right { color: var(--text-muted); }
+    .rv-actual { scroll-margin-top: var(--sp-6); }
+    .rv-items-h { margin: var(--sp-4) 0 var(--sp-1); font-size: var(--fs-lg); font-weight: 800; color: var(--text-main); }
+    /* [MCP.10.3] El campo del lector. Sin foco se pone ámbar y lo dice: el escáner escribiría en ningún lado. */
+    .rv-scan { display: flex; flex-direction: column; gap: var(--sp-1); margin-bottom: var(--sp-3); scroll-margin-top: var(--sp-6); }
+    .rv-scan-l { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-body); font-weight: 700; color: var(--text-main); }
+    .rv-scan-in { min-height: var(--tap-min); padding: 0 var(--sp-3); border: 2px solid var(--border-color); border-radius: var(--r-md);
+      background: var(--card-bg); color: var(--text-main); font-family: var(--font-mono); font-size: var(--fs-lg); }
+    /* Sin el anillo naranja global de los campos (David, 2026-11-09): el foco del lector se marca con el borde
+       oscuro, por dentro. El foco sigue a la vista (pre-vuelo 6), sólo que sin sombra alrededor. */
+    .rv-scan-in:focus { outline: none !important; }
+    .rv-scan-in:focus-visible { border-color: var(--text-main); box-shadow: inset 0 0 0 1px var(--text-main); }
+    .rv-scan-off { display: none; font-size: var(--fs-body); font-weight: 700; color: var(--warn-fg); cursor: pointer; }
+    .rv-scan:not(:focus-within) .rv-scan-off { display: block; }
+    .rv-scan:not(:focus-within) .rv-scan-in { border-color: var(--warn-fg); }
+    .rv-scan-msg { display: flex; align-items: center; gap: var(--sp-2); margin: 0; font-size: var(--fs-lg); font-weight: 800; color: var(--text-main); }
+    .rv-scan-ok { color: var(--ok-fg); }
+    .rv-scan-warn { color: var(--warn-fg); }
+    .rv-scan-mal { color: var(--bad-fg); }
+    .rv-scan-sin { display: flex; align-items: center; gap: var(--sp-2); margin: 0; font-size: var(--fs-body); color: var(--text-muted); }
+    /* En celular no hay lector que se pierda: ahí el campo es un buscador y no se le exige el foco. */
+    @media (pointer: coarse) {
+      .rv-scan:not(:focus-within) .rv-scan-off { display: none; }
+      .rv-scan:not(:focus-within) .rv-scan-in { border-color: var(--border-color); }
+    }
+    .rv-hits { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+    .rv-hit { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); width: 100%; min-height: var(--tap-min);
+      padding: var(--sp-2) var(--sp-3); text-align: left; cursor: pointer; border: 2px solid var(--border-color); border-radius: var(--r-md);
+      background: var(--card-bg); color: var(--text-main); font-family: inherit; font-size: var(--fs-body); }
+    .rv-hit:hover { background: var(--surface-hover); }
+    .rv-hit:focus-visible, .rv-limpiar:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+    .rv-hit-n { flex: 1; min-width: 0; font-weight: 800; }
+    .rv-hit-n small { display: block; font-weight: 500; color: var(--text-muted); }
+    .rv-hit-go { font-weight: 800; color: var(--action); white-space: nowrap; }
+    .rv-limpiar { margin-left: var(--sp-2); min-height: var(--tap-min); padding: 0 var(--sp-3); border: 1px solid var(--border-color);
+      border-radius: var(--r-pill); background: var(--card-bg); color: var(--text-main); font-family: inherit; font-size: var(--fs-body); font-weight: 700; cursor: pointer; }
     .rv-otros { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-4); font-size: var(--fs-body); color: var(--text-muted); }
     .rv-otros-fila { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
     .rv-pill { min-height: var(--tap-min); padding: 0 var(--sp-4); border-radius: var(--r-pill); border: 2px solid var(--border-color);
@@ -362,6 +487,9 @@ export class AlmacenRevisionPreventaComponent implements OnInit {
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly zone = inject(NgZone);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly injector = inject(Injector);
+  private readonly escanerInput = viewChild<ElementRef<HTMLInputElement>>('escaner');
 
   readonly bandeja = signal<PresaleReviewInboxResponse | null>(null);
   readonly cargando = signal(false);
@@ -377,9 +505,21 @@ export class AlmacenRevisionPreventaComponent implements OnInit {
   readonly progreso = signal<ProgresoPedido>({ marcas: {}, hist: [] });
   /** El − / + abierto sobre el producto actual. */
   readonly editando = signal<{ key: string; n: number } | null>(null);
+  /** `[MCP.10.2]` El producto que la cajera tocó en la lista; `null` = el que sigue en el pedido. */
+  readonly elegido = signal<string | null>(null);
+  /** `[MCP.10.3]` Qué pasó con el último escaneo, junto al campo del lector. */
+  readonly avisoEscaneo = signal<{ tono: 'ok' | 'info' | 'warn' | 'mal'; texto: string } | null>(null);
+  /** `[MCP.10.3]` Lo que se va escribiendo en el buscador (filtra «Por revisar»). */
+  readonly filtro = signal('');
+  /** `[MCP.10.3]` Lo que no es de este pedido, buscado en los otros por revisar de la sucursal. */
+  readonly otrosPedidos = signal<{ estado: 'buscando' | 'listo' | 'error'; q: string; hits: PresaleReviewSearchHit[]; truncated: boolean } | null>(null);
+  /** `[MCP.10.3]` Al abrir desde «está en otro pedido», lo que hay que volver a buscar ahí. */
+  private buscarAlAbrir: string | null = null;
 
   readonly porRevisar = computed<PresaleReviewInboxRow[]>(() => (this.bandeja()?.data ?? []).filter((p) => p.state === 'por_revisar'));
   readonly revisados = computed<PresaleReviewInboxRow[]>(() => (this.bandeja()?.data ?? []).filter((p) => p.state === 'revisado'));
+  /** `[MCP.14]` Por vendedor (el que el surtidor terminó primero arriba) y en orden de folio. */
+  readonly grupos = computed(() => agruparPorVendedor(this.porRevisar(), (p) => p.finished?.at));
   readonly metricas = computed<MetricStripItem[]>(() => {
     const pend = this.porRevisar();
     const conFalta = pend.filter((p) => p.pick_outcome === 'con_faltantes').length;
@@ -397,8 +537,33 @@ export class AlmacenRevisionPreventaComponent implements OnInit {
   readonly actual = computed<PresaleReviewLine | null>(() => {
     const d = this.detalle();
     const p = this.progreso();
-    return d ? renglonActual(d.lines, p) : null;
+    const e = this.elegido();
+    return d ? renglonActual(d.lines, p, e) : null;
   });
+  /** `[MCP.10.2]` Lo que falta revisar además del que está en grande: se puede tocar. */
+  readonly pendientesTodos = computed<PresaleReviewLine[]>(() => {
+    const d = this.detalle();
+    const p = this.progreso();
+    const a = this.actual();
+    return d ? d.lines.filter((l) => l.key !== a?.key && !resuelto(p.marcas[l.key])) : [];
+  });
+  readonly pendientesTotal = computed(() => this.pendientesTodos().length);
+  /** `[MCP.10.3]` ¿Lo escrito está filtrando la lista? Si sí, la lista lo DICE («2 de 9»), no se ve como si fueran todos. */
+  readonly filtrando = computed(() => filtraLaLista(this.filtro()));
+  /** `[MCP.10.3]` Lo pendiente que coincide con lo escrito (código, SKU o nombre, con el buscador compartido). */
+  readonly pendientesOtros = computed<PresaleReviewLine[]>(() => {
+    const todos = this.pendientesTodos();
+    const f = this.filtro();
+    return filtraLaLista(f) ? todos.filter((l) => coincideBusqueda(f, l.product_name, l.sku)) : todos;
+  });
+  /** `[MCP.10.3]` Lo ya revisado va aparte, abajo: no estorba al buscar lo que falta. */
+  readonly revisadosLista = computed<PresaleReviewLine[]>(() => {
+    const d = this.detalle();
+    const p = this.progreso();
+    return d ? d.lines.filter((l) => resuelto(p.marcas[l.key])) : [];
+  });
+  /** `[MCP.10.3]` ¿Llegaron los códigos de Kepler? Si no, se DECLARA y se revisa tocando en la lista. */
+  readonly hayCodigos = computed(() => (this.detalle()?.lines ?? []).some((l) => l.codes !== undefined));
   readonly pct = computed(() => {
     const d = this.detalle();
     const p = this.progreso();
@@ -456,6 +621,12 @@ export class AlmacenRevisionPreventaComponent implements OnInit {
     this.abierto.set(orderId);
     this.detalle.set(null);
     this.editando.set(null);
+    this.elegido.set(null);
+    this.avisoEscaneo.set(null);
+    this.otrosPedidos.set(null);
+    this.filtro.set('');
+    const campo = this.escanerInput()?.nativeElement;
+    if (campo) campo.value = '';
     this.errorDetalle.set(null);
     this.cargandoDetalle.set(true);
     this.api.detail(orderId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -463,6 +634,11 @@ export class AlmacenRevisionPreventaComponent implements OnInit {
         this.progreso.set(this.leerGuardado(d) ?? progresoInicial(d.lines));
         this.detalle.set(d);
         this.cargandoDetalle.set(false);
+        this.listoParaEscanear();
+        // [MCP.10.3] Se abrió desde «está en otro pedido»: se vuelve a buscar aquí lo mismo.
+        const q = this.buscarAlAbrir;
+        this.buscarAlAbrir = null;
+        if (q) this.escanear(q);
       },
       error: (e) => { this.cargandoDetalle.set(false); this.errorDetalle.set(mensaje(e, 'No se pudo abrir el pedido.')); },
     });
@@ -479,7 +655,121 @@ export class AlmacenRevisionPreventaComponent implements OnInit {
 
   hacer(l: PresaleReviewLine, a: Accion): void {
     this.cambiar(aplicar(this.progreso(), l, a));
+    // [MCP.10.2] Lo tocado se suelta al resolverlo o al dejarlo esperando: sigue el primero pendiente.
+    if (a.tipo === 'despues' || resuelto(this.progreso().marcas[l.key])) this.elegido.set(null);
     this.anunciarSiguiente();
+    // [MCP.10.3] El botón tocado se lleva el foco: se le regresa al lector para el siguiente escaneo.
+    this.listoParaEscanear();
+  }
+
+  /** `[MCP.10.3]` Lo que se va escribiendo filtra «Por revisar» (salvo la ráfaga de dígitos del lector). */
+  alEscribir(ev: Event): void {
+    this.filtro.set((ev.target as HTMLInputElement).value);
+  }
+
+  /** `[MCP.10.3]` «Ver todos» o Esc: vacía el buscador y quita lo encontrado en otros pedidos. */
+  limpiarBusqueda(): void {
+    const campo = this.escanerInput()?.nativeElement;
+    if (campo) campo.value = '';
+    this.filtro.set('');
+    this.otrosPedidos.set(null);
+    this.listoParaEscanear();
+  }
+
+  /**
+   * `[MCP.10.3]` Enter (el lector lo manda solo). El campo se limpia al instante para el siguiente escaneo,
+   * salvo cuando lo escrito es un nombre con varias coincidencias: ahí se queda para que la lista las muestre.
+   */
+  alEnter(ev: Event): void {
+    ev.preventDefault();
+    const campo = ev.target as HTMLInputElement;
+    if (this.escanear(campo.value)) {
+      campo.value = '';
+      this.filtro.set('');
+    }
+  }
+
+  /**
+   * `[MCP.10.3]` Lo escaneado o escrito: confirma, señala, avisa o lo busca en los otros pedidos. Nunca cambia
+   * nada que no sea de este pedido. Devuelve si el campo se debe limpiar.
+   */
+  escanear(texto: string): boolean {
+    const d = this.detalle();
+    if (!d || d.order.state === 'revisado') return true;
+    const q = String(texto ?? '').trim();
+    const { escaneo, progreso } = alEscanear(d.lines, this.progreso(), q);
+    if (escaneo.tipo === 'vacio') return true;
+    this.editando.set(null);
+    this.otrosPedidos.set(null);
+    let aviso: { tono: 'ok' | 'info' | 'warn' | 'mal'; texto: string };
+    let limpiar = true;
+    switch (escaneo.tipo) {
+      case 'confirmado':
+        this.cambiar(progreso);
+        this.elegido.set(null);
+        aviso = { tono: 'ok', texto: `${escaneo.line.product_name} · bien` };
+        break;
+      case 'elegido':
+        this.elegido.set(escaneo.line.key);
+        aviso = { tono: 'info', texto: `${escaneo.line.product_name}: revísalo aquí abajo.` };
+        break;
+      case 'ya_revisado':
+        aviso = { tono: 'warn', texto: `${escaneo.line.product_name} ya lo revisaste.` };
+        break;
+      case 'varios':
+        if (escaneo.match === 'nombre') {
+          limpiar = false;
+          aviso = { tono: 'warn', texto: `${escaneo.lines.length} productos coinciden con «${q}»: toca el correcto en la lista.` };
+        } else {
+          aviso = { tono: 'warn', texto: `«${q}» es de ${escaneo.lines.length} productos de este pedido: toca el correcto en la lista.` };
+        }
+        break;
+      case 'no_es':
+        this.avisoEscaneo.set(null);
+        this.buscarEnOtros(q);
+        this.enfocarActual();
+        return true;
+      default:
+        return true;
+    }
+    this.avisoEscaneo.set(aviso);
+    this.anuncio.set(aviso.texto);
+    this.enfocarActual();
+    return limpiar;
+  }
+
+  /** `[MCP.10.3]` Lo abre y vuelve a buscar ahí lo mismo, para que quede señalado sin escanear otra vez. */
+  abrirDesdeBusqueda(h: PresaleReviewSearchHit): void {
+    this.buscarAlAbrir = this.otrosPedidos()?.q ?? null;
+    this.abrir(h.order_id);
+  }
+
+  /** `[MCP.10.3]` ¿En qué otro pedido por revisar está? Una respuesta tardía de otro pedido no se pinta. */
+  private buscarEnOtros(q: string): void {
+    const desde = this.abierto();
+    this.otrosPedidos.set({ estado: 'buscando', q, hits: [], truncated: false });
+    this.anuncio.set(`«${q}» no está en este pedido. Buscando en los otros pedidos por revisar.`);
+    this.api.search(q).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        if (this.abierto() !== desde) return;
+        const hits = r.data.filter((h) => h.order_id !== desde);
+        this.otrosPedidos.set({ estado: 'listo', q, hits, truncated: r.truncated });
+        this.anuncio.set(hits.length ? `«${q}» está en otro pedido: ${hits.map((h) => h.customer_name || h.code).join(', ')}.` : `«${q}» no está en ningún pedido por revisar.`);
+      },
+      error: () => {
+        if (this.abierto() !== desde) return;
+        this.otrosPedidos.set({ estado: 'error', q, hits: [], truncated: false });
+      },
+    });
+  }
+
+  /** `[MCP.10.2]` La cajera toca en la lista el producto que tiene en la mano: ése se revisa ahora. */
+  elegir(x: PresaleReviewLine): void {
+    if (resuelto(this.marca(x))) return;
+    this.editando.set(null);
+    this.elegido.set(x.key);
+    this.anuncio.set(`Ahora revisa: ${x.product_name}`);
+    this.enfocarActual();
   }
 
   contar(l: PresaleReviewLine): void {
@@ -501,8 +791,13 @@ export class AlmacenRevisionPreventaComponent implements OnInit {
   }
 
   anterior(): void {
+    const hist = this.progreso().hist;
+    const ultimo = hist[hist.length - 1]?.key ?? null;
     this.cambiar(deshacer(this.progreso()));
+    // [MCP.10.2] Regresa a ESE producto, aunque antes en la lista haya otros pendientes.
+    this.elegido.set(ultimo);
     this.anuncio.set('Regresaste al producto anterior.');
+    this.listoParaEscanear();
   }
 
   textoExistencia(l: PresaleReviewLine): string {
@@ -563,6 +858,32 @@ export class AlmacenRevisionPreventaComponent implements OnInit {
     try { localStorage.setItem(LLAVE + id, JSON.stringify(p)); } catch { /* sin almacenamiento: sólo se pierde al recargar */ }
   }
 
+  /**
+   * `[MCP.10.2]` Tras tocar uno de abajo de la lista, el producto en grande queda arriba, fuera de la
+   * vista en un pedido largo: se lleva la vista y el foco ahí (el botón tocado ya no existe).
+   */
+  private enfocarActual(): void {
+    afterNextRender(() => {
+      const raiz = this.host.nativeElement;
+      // [MCP.10.3] Con lector, arriba queda el campo (con el aviso del escaneo) y debajo el producto en grande.
+      (raiz.querySelector<HTMLElement>('.rv-scan') ?? raiz.querySelector<HTMLElement>('.rv-actual'))?.scrollIntoView?.({ block: 'start' });
+      this.enfocarLector(raiz);
+    }, { injector: this.injector });
+  }
+
+  /** `[MCP.10.3]` Deja el foco en el campo del lector, sin mover la vista. */
+  private listoParaEscanear(): void {
+    afterNextRender(() => this.enfocarLector(this.host.nativeElement), { injector: this.injector });
+  }
+
+  private enfocarLector(raiz: HTMLElement): void {
+    // En celular (dedo, sin lector) no se le da el foco al campo: abriría el teclado en cada toque.
+    const tactil = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+    const campo = this.escanerInput()?.nativeElement;
+    if (campo && !tactil) campo.focus({ preventScroll: true });
+    else raiz.querySelector<HTMLElement>('.rv-actual')?.focus({ preventScroll: true });
+  }
+
   private anunciarSiguiente(): void {
     const l = this.actual();
     this.anuncio.set(l ? `Ahora revisa: ${l.product_name}` : 'Pedido revisado. Ya puedes terminar.');
@@ -589,6 +910,11 @@ export class AlmacenRevisionPreventaComponent implements OnInit {
     this.abierto.set(null);
     this.detalle.set(null);
     this.editando.set(null);
+    this.elegido.set(null);
+    this.avisoEscaneo.set(null);
+    this.otrosPedidos.set(null);
+    this.filtro.set('');
+    this.buscarAlAbrir = null;
     this.progreso.set({ marcas: {}, hist: [] });
   }
 }

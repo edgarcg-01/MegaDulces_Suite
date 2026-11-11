@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Fixed — Pagos: las facturas «por confirmar» que Oficinas nunca registró ya se pueden programar (PGP.113 · 2026-11-10 · en código, sin soltar)
+- Las facturas de sucursal que vencían antes del 1-oct estaban bloqueadas todas, sin forma de destrabarlas. Ahora se sueltan las que Oficinas nunca registró: sin copia, sin pago por el mismo importe y sin nada aplicado. Hoy son **67 de 205 ($1.15 M)**.
+- La factura soltada aparece en la lista con su botón para agregarla y dice por qué se pudo. Las demás siguen «por confirmar» porque pueden estar pagadas desde Oficinas.
+- La propuesta automática del día no las incluye: se agregan a mano.
 ### Changed — Notas de crédito de proveedor: salen de Kepler para todas las sucursales, sin el importer (RE.68 · 2026-11-10 · en código, sin soltar)
 - Descuentos, Negociación de pedido, Rentabilidad, Promo sell-out, control de pagos, comprobantes de pago y la ficha de cada documento leen las notas de crédito y devoluciones directo de Kepler, de todas las sucursales. Antes sólo veían las del CEDIS, contaban las canceladas y daban por descuento las notas sin motivo.
 - Las notas entre sucursales (traspasos) ya no aparecen como ajustes de un proveedor en Descuentos ni en Rentabilidad.

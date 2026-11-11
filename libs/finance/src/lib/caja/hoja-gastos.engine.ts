@@ -1,7 +1,7 @@
 import {
   DIAS_RETIRO_HOJA, TOPE_CAJON_HOJA, ZONAS_HOJA_GASTOS, claseDeClave, folioHoja, leerFolioHoja, pagableConBilletesCaos,
   type ClaseRenglonHoja, type DiaYaRepuesto, type GrupoPagadoEnControl, type HojaAbierta, type InstruccionPagoHoja, type MotivoFueraDeHoja,
-  type RenglonHoja, type RetiroControlHoja, type RetiroParaHoja, type ZonaHojaGastos,
+  type PagoDeHojaGastos, type RenglonHoja, type RetiroControlHoja, type RetiroParaHoja, type TestigoBancoHoja, type ZonaHojaGastos,
 } from '@megadulces/contracts';
 import { redondea2 } from './caja-lote.engine';
 
@@ -380,6 +380,12 @@ export type DepositoKeplerDeHoja =
  * encuentra 3: la diferencia que se publica es la de un depósito que YA cuadró, nunca un «casi».
  */
 export function depositoKeplerDeHoja(total: number, desde: string, depositos: readonly DepositoKeplerHoja[]): DepositoKeplerDeHoja {
+  return unDepositoPorElTotal(total, desde, depositos);
+}
+
+/** UN depósito por el total ± $0.50, del día `desde` a siete días después. La misma regla en Kepler y en el banco. */
+function unDepositoPorElTotal<T extends DepositoBancoHoja>(total: number, desde: string, depositos: readonly T[])
+  : { estado: 'encontrado'; deposito: T; diferencia: number } | { estado: 'ambiguo'; opciones: number } | { estado: 'no_encontrado' } {
   const t = redondea2(total);
   const c = depositos.filter((d) => {
     const x = diasEntre(desde, d.dia);
@@ -398,17 +404,78 @@ const dmyCorto = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
  * documento de CUALQUIER tipo, y Morelia Abastos no había capturado un solo `U-A-5` desde el 6/11: el
  * depósito no podía estar y el texto daba a entender que sí. Ahora cuenta el último DEPÓSITO capturado por
  * cada sucursal de la zona, con su nombre, y si ninguna capturó desde el día del pago lo dice así.
+ *
+ * ⭐ `[LE.6.30]` Y separa la ESPERA de la INCIDENCIA (PM, 2026-11-11: *«es por eso que te pedí mostrar los
+ * depósitos, para que no pasen estas incidencias»*). VENCIDO: una sucursal de la zona ya capturó depósitos en
+ * un día POSTERIOR al pago y éste no está (HG-11 de Canindo: pagada el 6/11, Canindo capturó el 10/11). El
+ * mismo día no cuenta: la sucursal pudo capturar sus depósitos antes de que se pagara la hoja.
  */
 export function notaSinDeposito(
   banco: string, desde: string, sucursales: readonly string[], ultimoDeposito: ReadonlyMap<string, string>,
   nombre: (sucursal: string) => string,
-): string {
+): { nota: string; vencido: boolean } {
   const ultimos = sucursales.map((s) => ({ s, al: ultimoDeposito.get(s) ?? null }));
-  const lista = ultimos.map((u) => `${nombre(u.s)}, ${u.al ? `el ${dmyCorto(u.al)}` : 'ninguno en estos días'}`).join('; ');
-  if (ultimos.every((u) => !u.al || u.al < desde)) {
-    return `El depósito todavía no puede estar: desde el ${dmyCorto(desde)} ninguna sucursal de la zona ha capturado depósitos (U-A-5) en Kepler. Último capturado: ${lista}.`;
+  const despues = ultimos.filter((u): u is { s: string; al: string } => !!u.al && u.al > desde);
+  if (!despues.length) {
+    const lista = ultimos.map((u) => `${nombre(u.s)}, ${u.al ? `el ${dmyCorto(u.al)}` : 'ninguno en estos días'}`).join('; ');
+    return { vencido: false,
+      nota: `Kepler todavía no trae depósitos (U-A-5) de la zona capturados después del ${dmyCorto(desde)}. Último capturado: ${lista}.` };
   }
-  return `No hay un U-A-5 a la clave ${banco} por el total (±$0.50) del ${dmyCorto(desde)} a siete días. Último depósito capturado en Kepler: ${lista}.`;
+  const ya = despues.map((u) => `${nombre(u.s)} ya capturó depósitos el ${dmyCorto(u.al)}`).join(' y ');
+  return { vencido: true,
+    nota: `${ya} y éste no está: no hay un U-A-5 a la clave ${banco} por el total (±$0.50) del ${dmyCorto(desde)} a siete días.` };
+}
+
+/**
+ * ⭐ `[LE.6.31]` Lo que dice el ESTADO DE CUENTA de la zona sobre el depósito de una hoja pagada (PM, 2026-11-11:
+ * la 1604 ya está cargada). El `U-A-5` lo escribe la propia sucursal en su Kepler; el banco dice si el dinero
+ * llegó. La misma regla que en Kepler: UN abono por el total ± $0.50, del día `desde` a siete días (en pares,
+ * el control se equivoca el triple; medido en `TestigoBancoHoja`). `depositos` ya sin los que explican otra
+ * hoja. Sin cubrir los siete días no se afirma que no llegó: se dice hasta dónde se vio.
+ */
+export function testigoBancoDeHoja(
+  total: number, desde: string, nombreZona: string,
+  cuenta: { cuenta: string; cargado_hasta: string | null } | null, depositos: readonly DepositoBancoHoja[],
+): TestigoBancoHoja {
+  if (!cuenta) {
+    return { estado: 'sin_cuenta', cuenta: null, cargado_hasta: null, deposito: null,
+      texto: `La cuenta donde se deposita la reposición de ${nombreZona} no está en el catálogo de bancos: el banco no se puede revisar.` };
+  }
+  const base = { cuenta: cuenta.cuenta, cargado_hasta: cuenta.cargado_hasta };
+  const hasta = cuenta.cargado_hasta;
+  if (!hasta || hasta < desde) {
+    return { ...base, estado: 'sin_cargar', deposito: null,
+      texto: hasta ? `El estado de cuenta de la ${cuenta.cuenta} llega al ${dmyCorto(hasta)}: todavía no cubre el pago del ${dmyCorto(desde)}.`
+        : `La ${cuenta.cuenta} no tiene estado de cuenta cargado.` };
+  }
+  const r = unDepositoPorElTotal(total, desde, depositos);
+  if (r.estado === 'encontrado') {
+    const { id, dia, importe } = r.deposito;
+    return { ...base, estado: 'encontrado', deposito: { id, dia, importe },
+      texto: `En el estado de cuenta de la ${cuenta.cuenta}: ${pesos(importe)} el ${dmyCorto(dia)}.` };
+  }
+  if (r.estado === 'ambiguo') {
+    return { ...base, estado: 'ambiguo', deposito: null,
+      texto: `En la ${cuenta.cuenta} hay ${r.opciones} abonos por ese total en esos días: lo liga una persona.` };
+  }
+  return diasEntre(desde, hasta) >= DIAS_DEPOSITO_HOJA
+    ? { ...base, estado: 'no_aparece', deposito: null,
+      texto: `No está en el estado de cuenta de la ${cuenta.cuenta} (cargado al ${dmyCorto(hasta)}): ningún abono por ${pesos(redondea2(total))} del ${dmyCorto(desde)} a siete días.` }
+    : { ...base, estado: 'todavia_no', deposito: null,
+      texto: `En el estado de cuenta de la ${cuenta.cuenta}, cargado al ${dmyCorto(hasta)}, todavía no aparece un abono por ${pesos(redondea2(total))}.` };
+}
+
+/**
+ * ⭐ `[LE.6.31]` El banco manda sobre Kepler para decir si el depósito está VENCIDO: si el estado de cuenta cubre
+ * los siete días y no lo trae, el dinero no llegó, aunque la sucursal todavía no haya capturado depósitos; si lo
+ * trae, el dinero llegó y sólo falta su `U-A-5` (no es vencido). Con lo demás queda lo que dijo Kepler. Una hoja
+ * con su `U-A-5` sigue depositada: el banco se dice al lado, no la cambia de lugar.
+ */
+export function conTestigoBanco(dep: PagoDeHojaGastos['deposito'], banco: TestigoBancoHoja): PagoDeHojaGastos['deposito'] {
+  if (dep.estado !== 'no_aparece') return { ...dep, banco };
+  if (banco.estado === 'encontrado') return { ...dep, banco, vencido: false };
+  if (banco.estado === 'no_aparece') return { ...dep, banco, vencido: true };
+  return { ...dep, banco };
 }
 
 /** `[LE.6.20]` La cuenta de la zona tal como la lee el servicio: sus depósitos y hasta qué día está cargada. */

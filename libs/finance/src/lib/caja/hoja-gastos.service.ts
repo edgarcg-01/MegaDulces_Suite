@@ -12,7 +12,8 @@ import {
 } from '@megadulces/contracts';
 import { consultasHoja } from './hoja-gastos.query';
 import {
-  armarHojaAbierta, cuadreDelRetiro, depositoKeplerDeHoja, hojaAbiertaAutorizada, instruccionDePago, loYaRepuesto, notaSinDeposito, pagadoEnControl, retirosQueCuadran,
+  armarHojaAbierta, conTestigoBanco, cuadreDelRetiro, depositoKeplerDeHoja, hojaAbiertaAutorizada, instruccionDePago, loYaRepuesto, notaSinDeposito, pagadoEnControl,
+  retirosQueCuadran, testigoBancoDeHoja,
   type BancoDeZona, type DepositoBancoHoja, type DepositoKeplerHoja, type PagoDeZona, type RetiroCaosConLigas, type RetiroLibreHoja,
 } from './hoja-gastos.engine';
 import { hojasInstaladas } from './hoja-gastos.gate';
@@ -700,6 +701,11 @@ export class HojaGastosService {
     const { depositos, keplerAl } = await this.depositosKepler(trx, tenantId,
       pagadas.map((h) => diaMxDeInstante(h['pagada_at']) as string).sort()[0]);
     const usados = new Set<string>();
+    // `[LE.6.31]` El segundo testigo: el estado de cuenta de la cuenta de cada zona (la 1604 de Morelia). Un
+    // abono sólo explica a una hoja, como el `U-A-5`.
+    const bancoDe = new Map<string, BancoDeZona | null>();
+    for (const clave of new Set(pagadas.map((h) => String(h['zona'])))) bancoDe.set(clave, await this.bancoDeZona(trx, tenantId, this.zona(clave)));
+    const usadosBanco = new Set<string>();
 
     for (const h of [...pagadas].sort((a, b) => Number(a['numero']) - Number(b['numero']))) {
       const zona = this.zona(String(h['zona']));
@@ -725,10 +731,16 @@ export class HojaGastosService {
             nota: `Hay ${dep.opciones} depósitos U-A-5 por ese total en esos días: lo liga una persona.` };
         } else {
           // `[LE.6.29]` Hasta cuándo trae Kepler los DEPÓSITOS de cada sucursal, por nombre: no el último documento.
+          // `[LE.6.30]` Y si ya está VENCIDO (la sucursal capturó depósitos después del pago) o sólo en espera.
           deposito = { estado: 'no_aparece', depositos: null, diferencia: null,
-            nota: notaSinDeposito(banco, ancla, zona.sucursales, keplerAl, warehouseName) };
+            ...notaSinDeposito(banco, ancla, zona.sucursales, keplerAl, warehouseName) };
         }
       }
+      const cuenta = bancoDe.get(zona.clave) ?? null;
+      const testigo = testigoBancoDeHoja(Number(h['total']), ancla, zona.nombre, cuenta,
+        (cuenta?.depositos ?? []).filter((d) => !usadosBanco.has(d.id)));
+      if (testigo.deposito) usadosBanco.add(testigo.deposito.id);
+      deposito = conTestigoBanco(deposito, testigo);
       out.set(String(h['id']), {
         medio: h['medio'] as MedioPagoHoja, retiro, cajon: redondea2(Number(h['cajon'])),
         conteo: h['conteo'] ? { piezas: h['conteo'] as Record<string, number>, morralla: Number(h['conteo_morralla'] ?? 0) } : null,

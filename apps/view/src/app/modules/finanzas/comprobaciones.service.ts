@@ -417,6 +417,8 @@ export interface SolicitudSinVale {
 /** `[GX.88]` Lo que devuelve el buscador de gastos (sólo para quien aprueba). */
 export interface ResultadoBusquedaGastos {
   q: string;
+  /** `[GX.103]` Se pidió con la caja vacía: son los últimos gastos, no coincidencias de una búsqueda. */
+  recientes: boolean;
   vales: ExpedienteDelDia[];
   vales_truncado: boolean;
   sin_vale: SolicitudSinVale[];

@@ -13,7 +13,7 @@ import { AlertsSocketService } from '../../dashboard/command-center/alerts-socke
  * empezar, marcar lo que hubo y cerrar (completo o con reporte a la vendedora).
  */
 const fila = (p: Partial<PresalePickInboxRow> = {}): PresalePickInboxRow => ({
-  order_id: 'o-rosy', code: 'PD-2026-00072', customer_name: 'ABARROTES ROSY', seller_name: 'Paulina Placencia',
+  order_id: 'o-rosy', code: 'PD-2026-00072', customer_name: 'ABARROTES ROSY', seller_name: 'Vendedora Prueba',
   warehouse_id: 'w-02', warehouse_name: 'La Piedad Abastos', requested_delivery_date: '2026-10-14',
   bucket: 'hoy', days_late: 0, arrived_at: '2026-10-14T15:42:00.000Z', lines: 2, total: 475.44,
   state: 'nuevo', started: null, finished: null, unseen: true, ...p,
@@ -107,6 +107,26 @@ describe('AlmacenSurtirPreventaComponent · la bandeja del surtidor (MCP.3)', ()
     expect(texto()).not.toContain('ESCUELA AMARILLA');
   });
 
+  it('[MCP.14] separa por vendedor y, dentro, en orden de folio (no por hora de llegada)', async () => {
+    await montar();
+    const comp = fix.componentInstance;
+    comp.bandeja.set({
+      ...BANDEJA(),
+      data: [
+        fila({ order_id: 'b2', code: 'PD-2026-00399', customer_name: 'TIENDA B2', seller_name: 'Vendedor B', arrived_at: '2026-10-14T17:51:00.000Z' }),
+        fila({ order_id: 'a1', code: 'PD-2026-00376', customer_name: 'TIENDA A1', seller_name: 'Vendedor A', arrived_at: '2026-10-14T15:34:00.000Z' }),
+        fila({ order_id: 'b1', code: 'PD-2026-00377', customer_name: 'TIENDA B1', seller_name: 'Vendedor B', arrived_at: '2026-10-14T16:56:00.000Z' }),
+        fila({ order_id: 'a2', code: 'PD-2026-00392', customer_name: 'TIENDA A2', seller_name: 'Vendedor A', arrived_at: '2026-10-14T17:00:00.000Z' }),
+      ],
+    });
+    fix.detectChanges();
+    const el = fix.nativeElement as HTMLElement;
+    const grupos = Array.from(el.querySelectorAll('.sp-grupo')).map((h) => (h.textContent ?? '').replace(/\s+/g, ' ').trim());
+    expect(grupos).toEqual(['Vendedor A · 2 pedidos', 'Vendedor B · 2 pedidos']);
+    const orden = Array.from(el.querySelectorAll('.sp-card .sp-cliente')).map((c) => c.textContent?.trim());
+    expect(orden).toEqual(['TIENDA A1', 'TIENDA A2', 'TIENDA B1', 'TIENDA B2']);
+  });
+
   it('cambiar a Mañana muestra los de mañana', async () => {
     await montar();
     fix.componentInstance.pestana.set('manana');
@@ -149,7 +169,7 @@ describe('AlmacenSurtirPreventaComponent · la bandeja del surtidor (MCP.3)', ()
     (el().querySelector('[aria-label="Menos SALSA MAGA 1 1/2"]') as HTMLButtonElement).click();
     fix.detectChanges();
     expect(texto()).toContain('no hubo');
-    clic('Enviar reporte a Paulina Placencia · faltaron 1');
+    clic('Enviar reporte a Vendedora Prueba · faltaron 1');
     expect(api.finish).toHaveBeenCalledWith('o-rosy', { lines: [{ line_id: 'l1', picked: 5 }, { line_id: 'l2', picked: 0 }] });
   });
 

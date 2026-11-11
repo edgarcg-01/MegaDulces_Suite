@@ -6,6 +6,20 @@ vendedoras y preventa en la app) y **Telemarketing** (lo que llega de Kepler). L
 
 ---
 
+## Pedidos separados por vendedor y en orden de folio (MCP.14, 2026-11-10)
+
+- **Problema:** la operación de rutas vecinales pidió «separar los pedidos por vendedor» y «mostrar un orden de
+  folios capturados por vendedor». La lista de preventa era una sola, por hora de llegada, con todos los vendedores
+  intercalados: para surtir lo de un vendedor había que buscarlo entre los demás.
+- **Solución:** cada vendedor encabeza su grupo («Vendedor · N pedidos») y dentro sus pedidos van por folio, el orden
+  en que los capturó. Los grupos siguen el orden de llegada: arriba el vendedor del pedido más viejo. La tarjeta ya
+  no repite el nombre del vendedor. Lo mismo en Revisión de pedidos (las cajeras).
+- **Cómo:** regla compartida `almacen/pedidos-por-vendedor.ts`, sólo en la pantalla.
+- **Por qué los folios «se saltan»:** el folio es un solo contador para toda la empresa. Medido el 2026-11-09: del
+  PD-2026-00376 al 00407 existen los 32, repartidos entre 5 vendedores; no se pierde ninguno.
+
+---
+
 ## Cambiar lo que faltó por otro producto (MCP.13, 2026-11-04)
 
 ### El problema

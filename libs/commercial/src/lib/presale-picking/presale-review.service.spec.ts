@@ -113,4 +113,67 @@ describe('PresaleReviewService — arranque', () => {
     expect(meta('providers')).toContain(PresaleReviewService);
     expect(meta('controllers')).toContain(PresaleReviewController);
   });
+  it('[MCP.10.3] la ruta «search» se declara antes que «:id» (si no, Nest la toma como un id)', () => {
+    const metodos = Object.getOwnPropertyNames(PresaleReviewController.prototype);
+    expect(metodos.indexOf('search')).toBeGreaterThan(-1);
+    expect(metodos.indexOf('search')).toBeLessThan(metodos.indexOf('detail'));
+  });
+});
+
+describe('[MCP.10.3] PresaleReviewService.search — en qué pedido por revisar está el producto', () => {
+  const FICHA = { sku: '44340', nombre: 'PALETA', u1: 'PZA', u2: null, f2: null, u3: 'CJA', f3: 24,
+    b1: '7501000044340', b2: null, b3: null, d1: null, d2: null, d3: null, t1: null, t2: null, t3: null };
+
+  function armarBusqueda(kdii: 'ok' | 'falla', almacenes: string[] | null = ['wh-07']) {
+    const q: any = {};
+    for (const k of ['leftJoin', 'whereIn']) q[k] = () => q;
+    q.select = async () => [
+      { order_id: 'o-1', product_name: 'PALETA PAYASO GRANDE', sku: '44340' },
+      { order_id: 'o-2', product_name: 'MAZAPÁN GIGANTE 50 G', sku: '06001' },
+    ];
+    const sp = { raw: vi.fn(async () => ({ rows: [FICHA] })) };
+    const trx: any = Object.assign(() => q, {
+      transaction: vi.fn(async (fn: (t: unknown) => unknown) => { if (kdii === 'falla') throw new Error('kdii caído'); return fn(sp); }),
+    });
+    const tk = { run: vi.fn(async (fn: (t: unknown) => unknown) => fn(trx)) };
+    const svc = new PresaleReviewService(tk as any, { warehouseIds: vi.fn(async () => almacenes) } as any, {} as any, {} as any);
+    vi.spyOn(svc as any, 'leer').mockResolvedValue([
+      { id: 'o-1', code: 'PD-1', warehouse_code: '07', customer_name: 'TIENDA UNO', seller_name: 'Vendedor A', reviewed_at: null },
+      { id: 'o-2', code: 'PD-2', warehouse_code: '07', customer_name: 'TIENDA DOS', seller_name: 'Vendedor B', reviewed_at: null },
+      { id: 'o-3', code: 'PD-3', warehouse_code: '07', customer_name: 'YA REVISADA', seller_name: 'Vendedor A', reviewed_at: '2026-11-09T16:00:00Z' },
+    ]);
+    const contar = vi.spyOn(svc as any, 'contarPendientes').mockResolvedValue(2);
+    return { svc, sp, contar };
+  }
+
+  it('por el código de barras de Kepler encuentra el pedido, con su cliente y vendedor', async () => {
+    const { svc } = armarBusqueda('ok');
+    await expect(svc.search({ q: '7501000044340' })).resolves.toEqual({
+      q: '7501000044340', truncated: false,
+      data: [{ order_id: 'o-1', code: 'PD-1', customer_name: 'TIENDA UNO', seller_name: 'Vendedor A', product_name: 'PALETA PAYASO GRANDE', sku: '44340', match: 'codigo' }],
+    });
+  });
+
+  it('por SKU (aun con ceros de menos) y por nombre sin acentos', async () => {
+    const { svc } = armarBusqueda('ok');
+    expect((await svc.search({ q: '6001' })).data.map((d) => [d.code, d.match])).toEqual([['PD-2', 'sku']]);
+    expect((await svc.search({ q: 'mazapan gigante' })).data.map((d) => [d.code, d.match])).toEqual([['PD-2', 'nombre']]);
+  });
+
+  it('si los códigos de Kepler no se leen, busca igual por SKU y nombre (no truena)', async () => {
+    const { svc } = armarBusqueda('falla');
+    expect((await svc.search({ q: '44340' })).data.map((d) => d.code)).toEqual(['PD-1']);
+    expect((await svc.search({ q: '7501000044340' })).data).toEqual([]);
+  });
+
+  it('NEGATIVO: sin texto o sin sucursal no busca; si hay más pedidos por revisar de los que vio, lo declara', async () => {
+    const { svc, sp } = armarBusqueda('ok');
+    expect(await svc.search({ q: '   ' })).toEqual({ q: '', data: [], truncated: false });
+    expect(sp.raw).not.toHaveBeenCalled();
+    const sinSucursal = armarBusqueda('ok', []);
+    expect((await sinSucursal.svc.search({ q: 'paleta' })).data).toEqual([]);
+    const tope = armarBusqueda('ok');
+    tope.contar.mockResolvedValue(500);
+    expect((await tope.svc.search({ q: 'paleta' })).truncated).toBe(true);
+  });
 });

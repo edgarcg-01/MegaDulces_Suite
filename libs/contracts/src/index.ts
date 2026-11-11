@@ -212,6 +212,8 @@ export * from './finance/coincidencia-pago.contract';
 export * from './finance/cierre-kepler.contract';
 // [PGP.97] Lo que salió del banco a un proveedor, contra Kepler y contra el programa de pagos.
 export * from './finance/salida-proveedor.contract';
+// `[PGP.113]` La factura de sucursal anterior al corte que Oficinas nunca registró se puede programar.
+export * from './finance/corte-suelta.contract';
 // `[GX.79]` el tope de un archivo de evidencia de gasto (20 MB): pantalla, API y proxy.
 export * from './finance/archivo-gasto.contract';
 // `[GX.86]` las rondas de revision de gastos (se informan, no bloquean el alta).
