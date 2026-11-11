@@ -44,7 +44,7 @@ export interface ChequeoDeUsuario {
 }
 
 export const CHEQUEOS_DE_USUARIO: readonly ChequeoDeUsuario[] = [
-  { clave: 'kepler_cajero', etiqueta: 'es un código de cajero en Kepler', tabla: 'analytics.pos_cashiers', columnas: ['cajero_code'] },
+  { clave: 'kepler_cajero', etiqueta: 'es un código de cajero en Kepler', tabla: 'analytics.v_pos_cashiers', columnas: ['cajero_code'] },
   { clave: 'kepler_cortes', etiqueta: 'cerró cortes de caja en Kepler', tabla: 'analytics.cash_cuts', columnas: ['cajero_cierre'] },
   { clave: 'arqueos', etiqueta: 'tiene arqueos (conteo ciego) a su nombre', tabla: 'reconciliation.blind_counts', columnas: ['cajero_code'] },
   { clave: 'kepler_solicita', etiqueta: 'aparece en «Solicita» de gastos de Kepler', tabla: 'analytics.expense_requests', columnas: ['solicitante'] },

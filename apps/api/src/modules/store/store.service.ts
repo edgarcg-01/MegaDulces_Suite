@@ -932,7 +932,7 @@ export class StoreService {
     // las cajas de la TIENDA (`es_tienda`): la `01` guarda en el mismo libro las sesiones de sus
     // camionetas (`c1` = 01-001…01-006), que el importer mezclaba aquí como «caja 1».
     const sesQ = k('analytics.v_cash_sessions as s')
-      .leftJoin('analytics.pos_cashiers as pc', function (this: any) {
+      .leftJoin('analytics.v_pos_cashiers as pc', function (this: any) {
         this.on('pc.tenant_id', '=', 's.tenant_id').andOn('pc.warehouse_code', '=', 's.warehouse_code').andOn('pc.cajero_code', '=', 's.cajero_code');
       })
       /**
