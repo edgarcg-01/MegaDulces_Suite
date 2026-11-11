@@ -43,6 +43,7 @@ import {
   nombreUnidadBase,
   abrevUnidadBase,
   opcionesUnidad,
+  unidadDelEscaneo,
   paqueteDeCaja,
   esPaquete,
   gramosDeBase,
@@ -1818,9 +1819,11 @@ export class TeleventaQuoteNewComponent implements OnInit {
 
         // Si es escaneo exacto de código de barras o SKU
         const t = this.terminoArticulo.trim();
-        if (ordenados.length === 1 && t && (ordenados[0].sku.toUpperCase() === t.toUpperCase() || ordenados[0].barcode === t)) {
+        // [COT.42] o de cualquier casilla de Kepler (scan_factor), y entonces con la unidad de esa casilla.
+        if (ordenados.length === 1 && t && (ordenados[0].sku.toUpperCase() === t.toUpperCase() || ordenados[0].barcode === t || ordenados[0].scan_factor != null)) {
           this.elegirAlLlegarResultados = false;
           this.elegirArticulo(ordenados[0]);
+          this.aplicarUnidadDelEscaneo(ordenados[0]);
           return;
         }
         // Enter se presionó antes de que llegara esta lista: se elige ahora su primer renglón,
@@ -2066,6 +2069,16 @@ export class TeleventaQuoteNewComponent implements OnInit {
     // Dictado sin mouse (COT.16): elegido el artículo, el cursor pasa a la CANTIDAD (con el 1
     // seleccionado para sobrescribirlo). Enter ahí agrega y regresa al buscador.
     afterNextRender(() => this.cantidadInput()?.nativeElement.focus(), { injector: this.injector });
+  }
+
+  /** [COT.42] Escaneado el código de la caja (o del paquete), queda elegida esa unidad, no la pieza. */
+  private aplicarUnidadDelEscaneo(p: QuoteCatalogRow): void {
+    const u = unidadDelEscaneo(p);
+    if (u === 'sin-opcion') {
+      this.toast.add({ severity: 'warn', summary: 'Unidad del código', detail: `El código es de un empaque de ${p.scan_factor} que no tiene precio en esta sucursal: elige la unidad.` });
+    } else if (u && u !== 'base') {
+      this.setRung(u);
+    }
   }
 
   limpiarArticulo(): void {

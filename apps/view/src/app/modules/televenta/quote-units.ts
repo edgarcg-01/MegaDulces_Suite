@@ -208,6 +208,18 @@ export function opcionesUnidad(e: QuoteCatalogRow): OpcionUnidad[] {
 }
 
 /**
+ * `[COT.42]` La unidad que corresponde a un código escaneado: la opción cuyo tamaño es el factor de la
+ * casilla que casó (1 = pieza, el de la caja = caja). `null` = el término no fue un código. `'sin-opcion'`
+ * = el código es de una unidad que no está entre las cotizables (se avisa; no se cae en silencio a pieza).
+ */
+export function unidadDelEscaneo(e: QuoteCatalogRow): Rung | 'sin-opcion' | null {
+  const f = e.scan_factor;
+  if (f === null || f === undefined) return null;
+  const o = opcionesUnidad(e).find((x) => x.tamano === f);
+  return o ? o.rung : 'sin-opcion';
+}
+
+/**
  * `[E.20]` La cantidad tecleada, leída UNA vez para las dos pantallas de cotización.
  *
  * Antes: el alta hacía `replace(/\D/g,'')` —«2.5» se volvía **25**, diez veces más kilos— y el
