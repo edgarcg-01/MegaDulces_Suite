@@ -89,6 +89,18 @@ export function cifrasDeComisiones(p: PropuestaComisiones): MetricStripItem[] {
   ];
 }
 
+/**
+ * Cuando Finanzas capturó el pago con unos centavos de diferencia (ajusta un pago para que le cuadre el IVA del
+ * gasto), el detalle lo dice en vez de esconderlo: «Finanzas capturó $55.29, 1 ¢ menos que el banco». `null` si el
+ * pago es exacto o no hay pago.
+ */
+export function textoDeAjuste(c: Pick<CargoComision, 'importe' | 'kepler_pago' | 'kepler_ajuste_centavos'>): string | null {
+  const a = c.kepler_ajuste_centavos;
+  if (!c.kepler_pago || !a) return null;
+  const capturado = (Math.round(Number(c.importe) * 100) + a) / 100;
+  return `Finanzas capturó $${capturado.toFixed(2)}, ${Math.abs(a)} ¢ ${a < 0 ? 'menos' : 'más'} que el banco`;
+}
+
 /** Los renglones de la póliza del gasto como los verá la persona: cuenta, cargo o abono, importe. */
 export function polizaDelGasto(d: DiaComision): { cuenta: string; lado: 'Cargo' | 'Abono'; importe: number }[] {
   return (d.plan?.gasto.poliza.renglones ?? []).map((r) => ({ cuenta: r.c3, lado: r.c4 === 'C' ? 'Cargo' : 'Abono', importe: Number(r.c5) }));

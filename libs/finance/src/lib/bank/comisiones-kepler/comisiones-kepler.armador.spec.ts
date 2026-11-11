@@ -254,8 +254,35 @@ describe('[CB.62] cruzarConKepler — el candado contra duplicados', () => {
     const m = cruzarConKepler([{ ...MADERO[0], sucursal: '03' }], [pago({ sucursal: '01', folio: 'X' }), pago({ sucursal: '03', folio: 'Y', fecha: '2026-10-04' })]);
     expect(m.get('c1')?.folio).toBe('Y');
   });
-  it('⛔ otra cuenta, otro importe o a más de 3 días: no es su pago', () => {
-    expect(cruzarConKepler([MADERO[0]], [pago({ cuenta: '4885' }), pago({ importe: 22.14 }), pago({ fecha: '2026-10-06' })]).size).toBe(0);
+  it('⛔ otra cuenta, otro importe (3 centavos o más) o a más de 3 días: no es su pago', () => {
+    expect(cruzarConKepler([MADERO[0]], [pago({ cuenta: '4885' }), pago({ importe: 22.16 }), pago({ importe: 22.10 }), pago({ fecha: '2026-10-06' })]).size).toBe(0);
+  });
+
+  it('los centavos de Finanzas: el banco cobró $55.30 y Finanzas capturó $55.29 (pago 0000464) → es su pago, ajustado −1 ¢', () => {
+    const iva = cargo('i1', 55.3, 'iva', { cuenta: '4885', fecha: '2026-11-03' });
+    const m = cruzarConKepler([iva], [pago({ folio: '0000464', cuenta: '4885', importe: 55.29, fecha: '2026-11-03' })]);
+    expect(m.get('i1')).toMatchObject({ folio: '0000464', ajusteCentavos: -1 });
+  });
+
+  it('el pago exacto es 0 de ajuste', () => {
+    expect(cruzarConKepler([MADERO[0]], [pago()]).get('c1')?.ajusteCentavos).toBe(0);
+  });
+
+  it('⛔ un ajuste nunca le gana un pago exacto a otro cargo: $55.30 y $55.29 se quedan cada uno con el suyo', () => {
+    const a = cargo('a', 55.3, 'iva', { cuenta: '4885', fecha: '2026-11-03' });
+    const b = cargo('b', 55.29, 'iva', { cuenta: '4885', fecha: '2026-11-03' });
+    // El primer cargo vería el de 55.29 a 1 ¢ si se pareara en una sola pasada; con dos, cada quien su exacto.
+    const m = cruzarConKepler([a, b], [pago({ folio: 'P29', cuenta: '4885', importe: 55.29, fecha: '2026-11-03' }), pago({ folio: 'P30', cuenta: '4885', importe: 55.3, fecha: '2026-11-03' })]);
+    expect([m.get('a')?.folio, m.get('b')?.folio]).toEqual(['P30', 'P29']);
+    expect([m.get('a')?.ajusteCentavos, m.get('b')?.ajusteCentavos]).toEqual([0, 0]);
+  });
+
+  it('⛔ con un solo pago de $55.29, es del cargo de $55.29 (exacto), no del de $55.30 que va primero', () => {
+    const a = cargo('a', 55.3, 'iva', { cuenta: '4885', fecha: '2026-11-03' });
+    const b = cargo('b', 55.29, 'iva', { cuenta: '4885', fecha: '2026-11-03' });
+    const m = cruzarConKepler([a, b], [pago({ folio: 'P29', cuenta: '4885', importe: 55.29, fecha: '2026-11-03' })]);
+    expect(m.get('b')).toMatchObject({ folio: 'P29', ajusteCentavos: 0 });
+    expect(m.has('a')).toBe(false);
   });
 });
 

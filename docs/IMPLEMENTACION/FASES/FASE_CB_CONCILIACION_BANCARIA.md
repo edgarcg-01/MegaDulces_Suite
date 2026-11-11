@@ -564,6 +564,18 @@ viene del servidor y describe el dato) y **roja con el mismo `NG8008`** al quita
 respuesta pesa ~191 KB sin comprimir (cada cargo con su texto) y se pide al abrir Bancos para el número de la
 pestaña.
 
+**Los centavos de Finanzas (2026-11-11, pregunta de Edgar).** Finanzas ajusta un pago para que le cuadre el IVA del
+gasto (16 % de la base): captura $55.29 donde el banco cobró $55.30. El candado pareaba sólo el importe exacto, así
+que la vista **afirmaba que faltaba un pago que sí existe** (Padre Hidalgo 30-oct «a medias, 5 de 6 pagos», y dos
+cargos «por revisar»). Medido sobre los 399 cargos sin pago exacto: **3** casan con un pago libre de Finanzas a 1 ¢
+(misma cuenta, ±3 días), los tres aplicados a su gasto; **control con el importe movido $1.00: 0** (a 1, 2 y 5 ¢).
+Arreglo en `cruzarConKepler`: una segunda pasada, sólo con lo que el exacto no pareó, a ≤ 2 ¢ (`CENTAVOS_DE_AJUSTE`),
+que deja el cargo como pagado con su `ajusteCentavos`; el detalle del día lo dice («Finanzas capturó $55.29, 1 ¢
+menos que el banco»). La Suite sigue escribiendo igual al banco (CB.62.2). Después del arreglo, en prod: ningún
+cargo sin pago tiene un pago de Finanzas a ≤ 5 ¢, y las secciones siguen sumando el resumen. Dos mutantes muertos
+(sin tolerancia; una sola pasada, que le daba el pago de $55.29 al cargo de $55.30 — el primer intento de esa prueba
+no activaba el mutante y se reescribió).
+
 ### 9.3 Lo que falta
 
 | # | Capa | Qué | Criterio |

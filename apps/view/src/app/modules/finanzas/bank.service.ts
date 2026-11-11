@@ -420,6 +420,8 @@ export type EstadoDiaComision = 'lista' | 'ya_en_kepler' | 'parcial' | 'rechazad
 export interface CargoComision {
   id: string; cuenta: string; concepto: string; fecha: string; importe: number; tipo: 'comision' | 'iva';
   kepler_pago: string | null; kepler_sucursal: string | null; kepler_gasto: string | null;
+  /** Centavos que Finanzas capturó de más (+) o de menos (−) contra el banco; 0 = exacto, null = sin pago. */
+  kepler_ajuste_centavos: number | null;
 }
 /** Lo que se escribiría en Kepler: sólo lo que la pantalla muestra del plan (renglones del gasto y pólizas). */
 export interface PlanComision {
