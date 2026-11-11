@@ -606,9 +606,12 @@ const PRODUCT_BASE_LIST = '00000000-0000-0000-0000-0000c0ffee02'; // commercial.
 
 // Política de barcode (Edgar 2026-08-17): la plataforma CONSERVA el EAN real; Kepler solo llena si
 // está vacío o es placeholder (c7 = SKU con ceros, p.ej. '089137'). NUNCA pisa un EAN real con un
-// placeholder. Placeholder := nulo, o == sku (sin ceros), o < 8 chars. Real := ≥ 12 chars.
+// placeholder. Placeholder := nulo, o == sku (sin ceros), o < 8 chars. Real := ≥ 12 chars o EAN-8.
+// `[CANON.6.7]` (2026-11-11) EAN-8 entra a «real»: con «≥ 12» a secas este UPDATE pisaba el EAN-8
+// `75003135` con el placeholder `59264` y el backfill de import-label-data (que sí lo reconoce, con
+// `barcodeFormat`) lo regresaba — ~48 veces al día cada uno, semanas (master_data_history).
 const BARCODE_CASE = `CASE
-    WHEN length(coalesce(p.barcode,'')) >= 12
+    WHEN (length(coalesce(p.barcode,'')) >= 12 OR btrim(coalesce(p.barcode,'')) ~ '^[0-9]{8}$')
          AND (s.barcode IS NULL OR ltrim(s.barcode,'0') = ltrim(s.sku,'0') OR length(s.barcode) < 8)
       THEN p.barcode
     ELSE COALESCE(nullif(s.barcode,''), p.barcode)

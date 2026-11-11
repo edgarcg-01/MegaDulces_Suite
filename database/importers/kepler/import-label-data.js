@@ -12,8 +12,15 @@
  * Reconciliación de precio de pieza = misma regla que BASE-MXN (excl CEDIS + moda retail; piso c90>0.05).
  * NUNCA pisa filas source='manual'. Churn-free (solo reescribe lo que cambió).
  *
- * Este script mapea sku→product_id (con fallback por barcode para productos sin sku, que el hop-2 NO
- * cubre → por eso el nightly sigue siendo necesario) y hace el backfill de public.products.barcode.
+ * Este script mapea sku→product_id y hace el backfill de public.products.barcode.
+ *
+ * `[CANON.6.7]` (2026-11-11) — SIN fallback por barcode. Ese fallback amarraba un SKU de Kepler que no
+ * está en el catálogo al producto que comparte su código de barras. Medido en prod: los 13 amarres eran
+ * TODOS SKUs `* DESCONTINUADO`, y 7 caían sobre un producto VIGENTE (SUPER VELA 84234 ← 70216 descontinuado,
+ * BLISTER FOAMY 96842 ← 96230): como el SKU descontinuado es menor, llegaba primero, se quedaba el producto
+ * y escribía SU precio ($71.51 contra $40.37). El hop-2 lo regresaba ~20 min después, y así cada media hora
+ * durante un mes (master_data_history: 12 + 12 escrituras por fila al día). Ahora la identidad es la del
+ * hop-2: SÓLO por sku.
  *
  *   node database/importers/kepler/import-label-data.js          # dry-run
  *   node database/importers/kepler/import-label-data.js --apply  # commit
@@ -108,8 +115,9 @@ const APPLY = process.argv.includes('--apply');
     // 02 de otro — un precio que no existe en ningún lado y que nada marcaría como raro.
     const duenoDePid = new Map();
     for (const lab of labels) {
-      let pid = skuToId.get(lab.sku);
-      if (!pid) { const bc = String(lab.barcode_raw || '').trim(); if (bc) pid = bcToId.get(bc); }
+      // `[CANON.6.7]` Sólo por sku, igual que el hop-2 (ver la cabecera: el fallback por barcode sólo
+      // amarraba SKUs descontinuados y pisaba el precio de productos vigentes).
+      const pid = skuToId.get(lab.sku);
       if (!pid) { unmatched++; continue; }
       const dueno = duenoDePid.get(pid);
       if (dueno === undefined) duenoDePid.set(pid, lab.sku);

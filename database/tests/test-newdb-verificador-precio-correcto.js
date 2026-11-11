@@ -121,12 +121,9 @@ const igual = (a, b) => {
     if (p.sku) skuToId.set(p.sku, p.id);
     if (p.barcode && !bcToId.has(p.barcode)) bcToId.set(p.barcode, p.id);
   }
-  const resolver = (lab) => {
-    const pid = skuToId.get(lab.sku);
-    if (pid) return pid;
-    const bc = String(lab.barcode_raw || '').trim();
-    return bc ? bcToId.get(bc) : undefined;
-  };
+  // `[CANON.6.7]` El reconciliador ya no tiene fallback por barcode: la identidad es SÓLO por sku, igual
+  // que el hop-2. `bcToId` ya no participa en la resolución.
+  const resolver = (lab) => skuToId.get(lab.sku);
   const dueno = new Map();
   const colisionados = new Set();
   for (const lab of esperados) {
