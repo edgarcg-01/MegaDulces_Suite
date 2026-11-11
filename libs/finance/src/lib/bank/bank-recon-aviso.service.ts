@@ -238,12 +238,22 @@ export class BankReconPorAvisoService implements OnModuleInit, OnModuleDestroy {
           this.knex.raw(`count(*)::text AS filas, max(fecha_efectiva) AS ultima,
                          coalesce(round(sum(abs(importe)) * 100), 0)::text AS centavos`),
         );
-      const banco = await this.knex('finance.bank_movements as bm')
-        .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
-        .where('st.period', period).whereNull('bm.deleted_at')
-        .first<{ filas: string; ultimo: Date | null }>(
-          this.knex.raw(`count(*)::text AS filas, max(bm.updated_at) AS ultimo`),
-        );
+      /**
+       * ⛔ `[CB.60b]` El lado banco se cuenta CON el tenant fijado. Esto corre por un aviso, fuera de un request:
+       * no hay tenant, y `bank_movements` tiene RLS FORZADO (en prod la app corre como `app_runtime`). Sin el
+       * `set_config`, la cuenta daba CERO siempre — medido en prod el 2026-11-11, primera corrida: firma
+       * `…|0|` con 5,978 movimientos en octubre —, así que ninguna descarga ni carga del libro movía la firma y el
+       * aviso de Bancos terminaba en «firma igual, no corro». Kepler sí se ve: su vista no filtra por RLS.
+       */
+      const banco = await this.knex.transaction(async (trx) => {
+        await trx.raw("select set_config('app.tenant_id', ?, true)", [MEGA]);
+        return trx('finance.bank_movements as bm')
+          .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+          .where('bm.tenant_id', MEGA).where('st.period', period).whereNull('bm.deleted_at')
+          .first<{ filas: string; ultimo: Date | null }>(
+            trx.raw(`count(*)::text AS filas, max(bm.updated_at) AS ultimo`),
+          );
+      });
       const iso = (v: Date | null | undefined): string => (v ? new Date(v).toISOString() : '');
       return {
         kepFilas: Number(kep?.filas ?? 0),
