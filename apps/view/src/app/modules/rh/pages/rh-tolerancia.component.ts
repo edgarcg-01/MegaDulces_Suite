@@ -21,6 +21,8 @@ import { departamentoDe, hora12, rebasados } from '../reporte-formato';
   template: `
     <div class="rt-page">
       <app-rh-marco [barra]="true" [franja]="true" />
+      <!-- Sin plazas el marco lo declara: aquí no se pinta «nadie» ni ceros de algo que nadie midió. -->
+      @if (!est.sinPlazas()) {
       <app-load-state [loading]="est.loading() && !est.datos()" [error]="est.error()" (retry)="est.asegurar(true)">
         <section class="rt-card" aria-label="Tolerancia rebasada">
           @if (!mide()) {
@@ -44,6 +46,7 @@ import { departamentoDe, hora12, rebasados } from '../reporte-formato';
           }
         </section>
       </app-load-state>
+      }
     </div>
 
     <ng-template #tabla let-personas>
