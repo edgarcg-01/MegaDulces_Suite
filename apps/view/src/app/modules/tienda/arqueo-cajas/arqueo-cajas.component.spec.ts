@@ -142,7 +142,7 @@ describe('ArqueoCajasComponent · [SM.48] sucursales y sus cajas', () => {
   it('las rutas van en su bloque y no se cuentan en ninguna caja', async () => {
     await montar();
     cmp.activa.set('06'); await tick();
-    expect(texto()).toContain('RV · ruta 5V001');
+    expect(texto()).toContain('Ruta 5V001');
     const sum = el().querySelector('.ac-sum')!.textContent!;
     expect(sum).not.toContain('24,173');
   });
@@ -197,6 +197,40 @@ describe('ArqueoCajasComponent · [SM.48] sucursales y sus cajas', () => {
     expect(chips).toEqual(['Retiro de caja $18,800.00', 'Pago de nómina $15,000.00', 'Pago a proveedor $3,200.00', 'Sin concepto $900.00']);
     await abrirCajas();
     expect(el().querySelector('.ac-conc')?.textContent).toContain('Pago de nómina $15,000.00');
+  });
+
+  it('⭐ [SM.53] Ruta Directa, Ruta Vecinal y Conteos de efectivo en secciones propias, cada una con su total', async () => {
+    await montar();
+    cmp.activa.set('06'); await tick();
+    const secs = Array.from(el().querySelectorAll('h4.ac-sec')).map((x) => x.textContent?.replace(/\s+/g, ' ').trim() ?? '');
+    const iRd = secs.findIndex((x) => x.startsWith('Ruta Directa'));
+    const iRv = secs.findIndex((x) => x.startsWith('Ruta Vecinal'));
+    const iSc = secs.findIndex((x) => x.startsWith('Conteos de efectivo'));
+    expect(iRd).toBeGreaterThan(-1);
+    expect(iRv).toBe(iRd + 1);
+    expect(iSc).toBe(iRv + 1);
+    expect(secs[iRv]).toContain('1 conteo(s)');
+    expect(secs[iRv]).toContain('$24,173.00');
+    expect(texto()).toContain('Ruta 5V001');
+    // Las vacías se ven, y dicen que no hubo conteos (no se dibuja un $0).
+    expect(secs[iRd]).not.toContain('$');
+    expect(el().querySelectorAll('p.ac-sub').length).toBeGreaterThan(0);
+    expect((texto().match(/Sin conteos\./g) || []).length).toBe(2);
+  });
+
+  it('[SM.53] agrupa y suma por tipo; NEGATIVA: un RD no cae en la sección RV y un tipo raro no se pierde', async () => {
+    const c = (id: string, tipo: string, hora: string, total: number, route?: string) =>
+      ({ id, tipo, hora, total, route_code: route ?? null } as unknown as ArqueoCajasConteo);
+    await montar();
+    const cmp2 = cmp;
+    const g = cmp2.gruposSinCaja([c('a', 'rv', '16:00:00', 100, '3V001'), c('b', 'rd', '09:00:00', '250.5' as unknown as number, '1D002'),
+      c('d', 'rd', '08:00:00', 50, '1D001'), c('e', 'sin_caja', '12:00:00', 30), c('f', 'raro', '13:00:00', 7)]);
+    expect(g.map((x) => x.titulo)).toEqual(['Ruta Directa', 'Ruta Vecinal', 'Conteos de efectivo']);
+    expect(g[0].conteos.map((x) => x.id)).toEqual(['d', 'b']);
+    expect(g[0].total).toBe(300.5);
+    expect(g[1].conteos.map((x) => x.id)).toEqual(['a']);
+    expect(g[2].conteos.map((x) => x.id)).toEqual(['e', 'f']);
+    expect(cmp2.gruposSinCaja([]).every((x) => x.conteos.length === 0 && x.total === 0)).toBe(true);
   });
 
   it('cambiar la fecha la vuelve a pedir', async () => {
