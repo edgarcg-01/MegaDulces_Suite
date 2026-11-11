@@ -26,6 +26,11 @@ set -eu
 
 SRV="${DEPLOY_HOST:-superoot@192.168.0.222}"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
+# [RH.1.3] QUÉ COMMIT se construye. Por omisión HEAD (lo de siempre). ⛔ En el checkout compartido el `main` LOCAL
+# suele traer commits de otras sesiones que todavía no están en `origin` (medido el 2026-11-11: 8 commits ajenos en
+# database/importers): `git archive HEAD` los mandaría a producción sin aprobar. Para desplegar SÓLO lo empujado:
+#   DEPLOY_REF=origin/main sh ops/vl/deploy.sh --k3s
+REF_GIT="${DEPLOY_REF:-HEAD}"
 # Las MISMAS rutas que copia ops/ingest/Dockerfile. Si ahí se agrega un COPY, acá también.
 # [K3S.21] `ops/k3s` viaja: los manifiestos se aplican desde la copia de HEAD en `md`, no desde
 # lo que alguien tenga en su editor. Antes no viajaban porque se aplicaban A MANO, que es
@@ -218,14 +223,14 @@ verificar_limpio() {
 
 construir() {
   cd "$REPO"
-  commit=$(git rev-parse --short HEAD)
-  echo "── Construyendo desde HEAD ($commit) ──"
+  commit=$(git rev-parse --short "$REF_GIT")
+  echo "── Construyendo desde $REF_GIT ($commit) ──"
   # `git archive` aplica los atributos de .gitattributes, que es lo que mantiene los
   # `eol=lf`. ⚠️ Con core.autocrlf=true, un archivo SIN regla se exporta con CRLF —
   # así los 9 carriles corrieron en seco diciendo "ok" el 2026-09-11 (`--apply\r` no
   # matchea `argv.includes('--apply')`). El Dockerfile normaliza por si acaso y ROMPE
   # el build si queda un CR.
-  git archive --format=tar HEAD $RUTAS \
+  git archive --format=tar "$REF_GIT" $RUTAS \
     | ssh -o BatchMode=yes "$SRV" 'rm -rf ~/build-ingest && mkdir -p ~/build-ingest && tar -xf - -C ~/build-ingest'
   ssh_md "cd ~/build-ingest && docker build -q -f ops/ingest/Dockerfile -t trade-ingest:latest . >/dev/null && echo '   imagen lista'"
   # El compose vive en el repo y se copia aparte: no entra a la imagen, lo lee el host.
@@ -246,7 +251,7 @@ construir() {
 #
 # Medido: las 5 imágenes (5 GB) suben en 5 s. Es loopback y las capas se deduplican.
 publicar() {
-  commit=$(cd "$REPO" && git rev-parse --short HEAD)
+  commit=$(cd "$REPO" && git rev-parse --short "$REF_GIT")
   echo "── Publicando trade-ingest:$commit en el registry local ──"
   ssh_md "docker tag trade-ingest:latest localhost:5000/trade-ingest:$commit && \
     docker push localhost:5000/trade-ingest:$commit >/dev/null 2>&1 && echo '   publicada'" || {
@@ -265,7 +270,7 @@ publicar() {
 # El filtro es POR ARCHIVO, y lo que lo vuelve confiable es que `npm run check:k3s` exige que un
 # archivo no mezcle los dos estados. Sin esa regla, el filtro sería una suposición.
 aplicar_k3s() {
-  commit=$(cd "$REPO" && git rev-parse --short HEAD)
+  commit=$(cd "$REPO" && git rev-parse --short "$REF_GIT")
   echo "── Aplicando manifiestos de K3s (sólo los MIGRADO) ──"
   # ⛔⛔ [K3S.35] SÓLO EL NAMESPACE `ingesta`. Esto NO estaba y costó caro el 2026-10-01.
   #
