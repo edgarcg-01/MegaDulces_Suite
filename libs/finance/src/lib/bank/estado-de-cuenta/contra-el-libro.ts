@@ -106,6 +106,8 @@ export interface CuentaContraElLibro {
   resumen: { cuadra: number; difiere: number; sin_libro: number; abierto: number; solo_banco: number; solo_libro: number; monto_solo_banco: number; monto_solo_libro: number };
   categorias: CategoriasContraElLibro;
   sucursales: SucursalesContraElLibro;
+  /** `[CB.60b]` ¿Puede la cuenta dejar el libro? (Edgar, 2026-11-11: 10 días hábiles seguidos que cuadran.) */
+  listo_para_banco: ListoParaBanco;
   /** Renglones del banco en $0.00 que no se comparan (BanBajío lista la comisión exenta de cada SPEI). */
   renglones_en_cero: number;
 }
@@ -133,7 +135,29 @@ const suelto = (r: RenglonComparable): SueltoDelDia => ({
  * Compara UNA cuenta. `libro` puede traer días fuera del rango del banco (la ventana de ±3 los
  * necesita); sólo se juzgan los días en que hay banco.
  */
-export function compararContraElLibro(bancoTodo: readonly RenglonComparable[], libroTodo: readonly RenglonComparable[], clasificar?: ClasificarSinLibro): CuentaContraElLibro {
+/** `[CB.60b]` Días hábiles SEGUIDOS que cuadran para poder usar el banco (decisión firmada por Edgar, 2026-11-11). */
+export const DIAS_PARA_USAR_EL_BANCO = 10;
+
+/**
+ * `[CB.60b]` La racha de días que cuadran que termina en el último día juzgado. Al final se saltan el día
+ * `abierto` del banco y los días a los que el libro todavía no llega (`sin_libro`); a la mitad, cualquier día
+ * que no cuadra (difiere o sin libro) corta la racha: un día que no se pudo comparar no se cuenta a favor.
+ * `desde` es el día siguiente al último que cuadra: ahí empezaría a mandar el banco, sin tocar nada que el
+ * libro ya tenga cerrado.
+ */
+export interface ListoParaBanco { dias_seguidos: number; cumple: boolean; ultimo_que_cuadra: string | null; desde: string | null }
+
+export function listoParaBanco(dias: readonly DiaContraElLibro[]): ListoParaBanco {
+  let i = dias.length - 1;
+  while (i >= 0 && (dias[i].veredicto === 'abierto' || dias[i].veredicto === 'sin_libro')) i--;
+  let n = 0;
+  const ultimo = i >= 0 && dias[i].veredicto === 'cuadra' ? dias[i].fecha : null;
+  while (i >= 0 && dias[i].veredicto === 'cuadra') { n++; i--; }
+  return { dias_seguidos: n, cumple: n >= DIAS_PARA_USAR_EL_BANCO, ultimo_que_cuadra: ultimo, desde: ultimo ? sumarDias(ultimo, 1) : null };
+}
+
+/** `mapa`: si se pasa, la sucursal se aprende ahí (para guardar el catálogo al usar el banco). */
+export function compararContraElLibro(bancoTodo: readonly RenglonComparable[], libroTodo: readonly RenglonComparable[], clasificar?: ClasificarSinLibro, mapa = new MapaDeSucursal()): CuentaContraElLibro {
   // Un renglón en $0.00 no mueve dinero: no se busca en el libro ni entra a la cadena de saldos (repite el
   // saldo y deja el cierre del día sin afirmar). Se declara cuántos hubo (BB 4166, 2026-11-10: 6).
   const enCero = (r: RenglonComparable) => centavos(r.amount_in) === 0 && centavos(r.amount_out) === 0;
@@ -227,7 +251,6 @@ export function compararContraElLibro(bancoTodo: readonly RenglonComparable[], l
   }
   // [CB.61] Sucursal: cada día se deduce con lo aprendido de los días ANTERIORES y después se aprende el día.
   const sucursales: SucursalesContraElLibro = { con_sucursal_libro: 0, deducidas: 0, coinciden: 0, sin_senal: 0, distintas: [] };
-  const mapa = new MapaDeSucursal();
   const sLibro = (l: RenglonComparable) => String(l.sucursal ?? '').trim() || null;
   const paraSucursal = (b: RenglonComparable, l: RenglonComparable) =>
     ({ amount_in: b.amount_in, concepto: b.concepto, referencia: b.referencia });
@@ -246,5 +269,5 @@ export function compararContraElLibro(bancoTodo: readonly RenglonComparable[], l
     }
     for (const [b, l] of pares) { const s = sLibro(l); if (s) mapa.aprender(paraSucursal(b, l), s); }
   }
-  return { desde: diasBanco[0] ?? null, hasta: ultimoDia, dias, resumen, categorias, sucursales, renglones_en_cero: bancoTodo.length - banco.length };
+  return { desde: diasBanco[0] ?? null, hasta: ultimoDia, dias, resumen, categorias, sucursales, listo_para_banco: listoParaBanco(dias), renglones_en_cero: bancoTodo.length - banco.length };
 }

@@ -1,4 +1,4 @@
-import { compararContraElLibro, type RenglonComparable } from './contra-el-libro';
+import { compararContraElLibro, listoParaBanco, DIAS_PARA_USAR_EL_BANCO, type DiaContraElLibro, type RenglonComparable } from './contra-el-libro';
 
 // Importes inventados (el repo es público). Cuenta que abre en 1,000.00.
 let n = 0;
@@ -161,6 +161,26 @@ describe('[CB.60] compararContraElLibro', () => {
 
     it('sin clasificador no se juzga la categoría (cero pares, no «todo coincide»)', () => {
       expect(compararContraElLibro(BANCO, [conCat(r('2026-10-01', 500, 0, 1500), 'cobranza')]).categorias.pareados).toBe(0);
+    });
+  });
+
+  describe('[CB.60b] listo para usar el banco', () => {
+    const d = (fecha: string, veredicto: DiaContraElLibro['veredicto']) => ({ fecha, veredicto } as DiaContraElLibro);
+    const racha = (n: number) => Array.from({ length: n }, (_, k) => d('2026-10-' + String(k + 1).padStart(2, '0'), 'cuadra'));
+
+    it('cuenta la racha que termina en el último día juzgado; el abierto y el libro atrasado al final no la cortan', () => {
+      const l = listoParaBanco([...racha(DIAS_PARA_USAR_EL_BANCO), d('2026-10-11', 'sin_libro'), d('2026-10-12', 'abierto')]);
+      expect(l).toEqual({ dias_seguidos: DIAS_PARA_USAR_EL_BANCO, cumple: true, ultimo_que_cuadra: '2026-10-10', desde: '2026-10-11' });
+    });
+
+    it('[negativa] un día que difiere a la mitad corta la racha', () => {
+      const dias = racha(DIAS_PARA_USAR_EL_BANCO + 2); dias[3] = d(dias[3].fecha, 'difiere');
+      expect(listoParaBanco(dias)).toMatchObject({ dias_seguidos: DIAS_PARA_USAR_EL_BANCO - 2, cumple: false });
+    });
+
+    it('[negativa] un día sin libro a la mitad también la corta: lo que no se comparó no cuenta a favor', () => {
+      const dias = racha(DIAS_PARA_USAR_EL_BANCO + 1); dias[5] = d(dias[5].fecha, 'sin_libro');
+      expect(listoParaBanco(dias).cumple).toBe(false);
     });
   });
 });
