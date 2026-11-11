@@ -485,6 +485,8 @@ export class ComprasReclamosComponent implements OnInit {
     { label: 'Faltante', value: 'faltante' },
     { label: 'Dañado', value: 'dañado' },
     { label: 'Producto incorrecto', value: 'producto_incorrecto' },
+    // `[CE.2.4]` Un rojo de caducidad que el supervisor rechazó en el andén.
+    { label: 'Caducidad corta', value: 'caducidad_corta' },
   ];
   channelOpts = [
     { label: 'WhatsApp', value: 'whatsapp' },
@@ -692,10 +694,10 @@ export class ComprasReclamosComponent implements OnInit {
     return ({ open: 'warn', claimed: 'info', accepted: 'success', discarded: 'secondary', written_off: 'danger' } as Record<string, Sev>)[s] || 'secondary';
   }
   kindLabel(k: string): string {
-    return ({ faltante: 'Faltante', 'dañado': 'Dañado', producto_incorrecto: 'Producto incorrecto' } as Record<string, string>)[k] || k;
+    return ({ faltante: 'Faltante', 'dañado': 'Dañado', producto_incorrecto: 'Producto incorrecto', caducidad_corta: 'Caducidad corta' } as Record<string, string>)[k] || k;
   }
   kindIcon(k: string): string {
-    return ({ faltante: 'pi-minus-circle', 'dañado': 'pi-exclamation-triangle', producto_incorrecto: 'pi-replay' } as Record<string, string>)[k] || 'pi-circle';
+    return ({ faltante: 'pi-minus-circle', 'dañado': 'pi-exclamation-triangle', producto_incorrecto: 'pi-replay', caducidad_corta: 'pi-calendar-times' } as Record<string, string>)[k] || 'pi-circle';
   }
   /** GOTCHAS §6 — los numeric llegan como string: coercionar antes de formatear. */
   money(v: unknown): string {

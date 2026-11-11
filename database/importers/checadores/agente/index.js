@@ -39,6 +39,7 @@ const os = require('os');
 const { Cola } = require('./cola');
 const { Enviador, VERSION } = require('./enviar');
 const { RelojJob } = require('./reloj');
+const { escucharAvisos } = require('./avisos');
 const { motivo } = require('./zk/lectura-verificada');
 const { configDelEntorno } = require('./config');
 
@@ -218,7 +219,22 @@ async function arrancar() {
     else log(`⚠ hay ${serie} pendiente en la cola pero ese reloj ya no le toca a este agente.`);
   }
 
-  programarPadron(cfg, enviador, cola, trabajos);
+  // `[RH.1.3]` Padrón y órdenes por AVISO de la Suite (antes: cada 30 min y cada minuto por reloj). Al conectarse
+  // llega `ponte_al_dia`: se relee el padrón y se atiende lo pendiente de todos.
+  const releer = relectorDePadron(cfg, enviador, cola, trabajos);
+  escucharAvisos({
+    apiUrl: cfg.apiUrl, token: cfg.token, log,
+    alAviso: async (a) => {
+      if (!a || !a.tipo) return;
+      if (a.tipo === 'padron' || a.tipo === 'ponte_al_dia') await releer();
+      if (a.tipo === 'ponte_al_dia') for (const t of trabajos) t.pedirComandos();
+      if (a.tipo === 'comando') {
+        const t = trabajos.find((x) => x.reloj.serie === a.serie);
+        if (t) t.pedirComandos();
+        else log(`avisos: orden para ${a.serie}, que no le toca a este agente.`);
+      }
+    },
+  });
   programarVigilanciaGlobal(enviador, cfg);
   programarMantenimiento(cola);
   prepararApagado(cola, trabajos);
@@ -231,8 +247,9 @@ if (require.main === module) {
 module.exports = { relojesDeEsteAgente };
 
 /**
- * RELEER EL PADRÓN CADA `padronMin` — dar de alta un reloj no debe requerir
- * reiniciar un servicio en otra PC.
+ * RELEER EL PADRÓN CUANDO LA SUITE AVISA — dar de alta un reloj no debe requerir
+ * reiniciar un servicio en otra PC. `[RH.1.3]` (11-nov): ya no cada `padronMin`,
+ * sino al llegar el aviso `padron` o `ponte_al_dia` (`avisos.js`).
  *
  * `config.intervalos.padronMin` existía desde el principio y estaba comentado
  * como "cada cuánto se relee el padrón de la API", pero solo lo usaba el camino
@@ -248,8 +265,20 @@ module.exports = { relojesDeEsteAgente };
  * el servicio. Marcar esos relojes como inactivos —que fue la primera idea—
  * habría escondido el síntoma y dejado a dos plazas sin asistencia.
  */
-function programarPadron(cfg, enviador, cola, trabajos) {
-  setInterval(async () => {
+function relectorDePadron(cfg, enviador, cola, trabajos) {
+  // Un aviso que llega mientras se relee no se pierde ni se encima: se relee UNA vez más al terminar.
+  let corriendo = null;
+  let otraVez = false;
+  const releer = async () => {
+    if (corriendo) { otraVez = true; return corriendo; }
+    corriendo = (async () => {
+      do { otraVez = false; await releerUnaVez(); } while (otraVez);
+    })().finally(() => { corriendo = null; });
+    return corriendo;
+  };
+  return releer;
+
+  async function releerUnaVez() {
     let padron;
     try {
       padron = await relojesDeEsteAgente(cfg, enviador);
@@ -299,7 +328,7 @@ function programarPadron(cfg, enviador, cola, trabajos) {
       // relojes juntos, tres backfills completos a la vez saturan el enlace.
       await t.arrancar(3000 + i * 60000);
     }
-  }, cfg.intervalos.padronMin * 60000);
+  }
 }
 
 /**

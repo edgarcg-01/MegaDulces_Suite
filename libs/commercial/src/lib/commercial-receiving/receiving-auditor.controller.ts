@@ -115,6 +115,13 @@ export class ReceivingAuditorController {
     return this.service.listPolicies();
   }
 
+  @Get('policy/departments')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
+  @ApiOperation({ summary: '[CE.1.1] Departamentos de Kepler (ámbito «categoría» de una política), derivados del ODS' })
+  listDepartments(): Promise<string[]> {
+    return this.service.listDepartments();
+  }
+
   @Post('policy')
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
   @ApiOperation({ summary: 'Crear/actualizar una política de caducidad (por producto/categoría/proveedor)' })

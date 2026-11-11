@@ -32,8 +32,10 @@ function check(cond, msg) {
 const setCtx = (trx) => trx.raw(`SET LOCAL app.tenant_id = '${TENANT}'`);
 
 // Mirror EXACTO de ReceivingAuditorService.computeVerdict (mantener sincronizado).
+// `[CE.1.2]` incluida la regla de vencido; las de `shelfLifeDays`/`tracksExpiry` las prueba el spec.
 function computeVerdict({ confirmedExpiry, daysOfLife, existingMinExpiry, minShelfLifeDays, allowOlder }) {
   if (!confirmedExpiry) return { verdict: 'green', rule_broken: null };
+  if (daysOfLife != null && daysOfLife < 0) return { verdict: 'red', rule_broken: 'expired' };
   const belowMin = minShelfLifeDays != null && daysOfLife != null && daysOfLife < minShelfLifeDays;
   const olderThanExisting = !!existingMinExpiry && confirmedExpiry < existingMinExpiry;
   const nearMin = minShelfLifeDays != null && daysOfLife != null && !belowMin && daysOfLife < Math.ceil(minShelfLifeDays * 1.5);
@@ -158,7 +160,59 @@ async function ctx(trx, whId, prodId, confirmedExpiry) {
       // GREEN sin política ni existente + caducidad lejana
       v = computeVerdict({ confirmedExpiry: d.far, daysOfLife: 800, existingMinExpiry: null, minShelfLifeDays: null, allowOlder: false });
       check(v.verdict === 'green', `sin política, caducidad lejana → green (fue ${v.verdict})`);
+
+      // [CE.1.2] RED expired: el days_of_life del MISMO SQL del servicio sale negativo para una fecha pasada,
+      // y sin ninguna política el veredicto es rojo (antes entraba verde: 3 lotes así en prod).
+      const pasada = (await trx.raw(`SELECT (CURRENT_DATE - 30)::text AS f`)).rows[0].f;
+      c = await ctx(trx, whId, prodId, pasada);
+      check(c.daysOfLife === -30, `[CE.1.2] days_of_life de una fecha de hace 30 días = -30 (fue ${c.daysOfLife})`);
+      v = computeVerdict({ confirmedExpiry: pasada, ...c, minShelfLifeDays: null, allowOlder: true });
+      check(v.verdict === 'red' && v.rule_broken === 'expired', `[CE.1.2] vencida sin política → red expired (fue ${v.verdict}/${v.rule_broken})`);
     });
+
+    // ── [CE.1.1] La migración del Anexo CE: columnas nuevas, CHECK y semilla ──
+    console.log('\n[CE] Esquema del Anexo CE (¿caduca?, vida útil, motivo de cierre sin fecha)');
+    for (const [t, col] of [
+      ['expiry_receiving_policy', 'tracks_expiry'],
+      ['expiry_receiving_policy', 'shelf_life_days'],
+      ['receiving_sessions', 'expiry_waiver_reason'],
+      ['receiving_sessions', 'expiry_waiver_by'],
+      ['receiving_sessions', 'expiry_waiver_at'],
+    ]) {
+      const r = await knex.raw(
+        `SELECT 1 FROM information_schema.columns WHERE table_schema = 'commercial' AND table_name = ? AND column_name = ?`,
+        [t, col],
+      );
+      check(r.rows.length === 1, `commercial.${t}.${col} existe`);
+    }
+    let rechazado = false;
+    try {
+      await knex.transaction(async (trx) => {
+        await setCtx(trx);
+        await trx('commercial.expiry_receiving_policy').insert({
+          tenant_id: TENANT, supplier_code: 'CE-CHECK-NEG', shelf_life_days: 0, source: 'manual',
+        });
+      });
+    } catch (e) {
+      rechazado = /expiry_receiving_policy_shelf_life_pos/.test(String(e.message));
+    }
+    check(rechazado, '[CE.1.1] shelf_life_days = 0 lo rechaza el CHECK');
+    const chk = await knex.raw(
+      `SELECT pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conname = 'commercial_recv_claims_kind_chk'`,
+    );
+    check(/caducidad_corta/.test(String(chk.rows[0]?.d || '')), '[CE.2.4] el CHECK de reclamos acepta caducidad_corta');
+    const semilla = await knex.transaction(async (trx) => {
+      await setCtx(trx);
+      return trx('commercial.expiry_receiving_policy')
+        .whereNull('product_id').whereNull('supplier_code')
+        .whereIn('category', ['DESECHABLES', 'ARTICULOS DE FIESTAS'])
+        .where('tracks_expiry', false)
+        .count({ n: '*' }).first();
+    });
+    // En el CI el tenant se siembra DESPUÉS de las migraciones, así que la semilla no puede estar: se
+    // declara en vez de darla por buena o por rota. En prod la migración verifica la semilla ella misma.
+    if (Number(semilla?.n) === 0) console.log('  · [CE.1.1] semilla NO MEDIDA en esta base (el tenant se sembró después de la migración)');
+    else check(Number(semilla?.n) === 2, `[CE.1.1] semilla: DESECHABLES y ARTICULOS DE FIESTAS no caducan (${semilla?.n} de 2)`);
 
     // ── 5. Captura: insert + CHECK ──
     console.log('\n5) Captura (insert + CHECK constraint)');

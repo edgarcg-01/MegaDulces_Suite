@@ -581,6 +581,15 @@ export interface ExpiringLot {
   product_name: string | null;
   days_to_expiry: number;
   value_at_cost: number | string;
+  /** `[CE.3.1]` La sucursal de Kepler del almacén (para casar el juicio). Opcional: servidores previos no la traen. */
+  plaza?: string | null;
+  /** `[CE.1.4]` Lo SIN fecha (lote NA) del mismo producto en el mismo almacén. NULL/ausente = no se leyó. */
+  na_qty?: number | string | null;
+  /**
+   * `[CE.1.4]` true = puede estar ya vendido (la venta descuenta primero lo sin fecha). NULL/ausente = no se
+   * sabe: nunca se pinta como cierto.
+   */
+  dated_may_be_stale?: boolean | null;
 }
 
 // ── P2.6 — Control de Caducidades ──────────────────────────────────

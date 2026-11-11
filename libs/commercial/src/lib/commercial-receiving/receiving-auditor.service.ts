@@ -13,6 +13,8 @@ import {
 } from '@megadulces/platform-core';
 import { CommercialInventoryService } from '../commercial-inventory/commercial-inventory.service';
 import { UX_CAPTURAS_CLIENT_UUID, conLlave, esChoqueDe } from './receiving-idempotency';
+import { departamentosKepler, perfilesDeCaducidad } from './receiving-expiry-profile';
+import { ReceivingClaimsService } from './receiving-claims.service';
 
 /**
  * Fase WMS-REC (Pieza 2 — Auditor de recepción por caducidad, ADR-044).
@@ -65,6 +67,10 @@ export interface PolicyDto {
   supplier_code?: string | null;
   min_shelf_life_days?: number | null;
   allow_older_than_existing?: boolean;
+  /** `[CE.1.1]` `false` = no caduca (el Andén no pide fecha). `null`/ausente = sin decir. */
+  tracks_expiry?: boolean | null;
+  /** `[CE.1.1]` Vida útil total en días (sólo para sospechar de una fecha). */
+  shelf_life_days?: number | null;
   notes?: string | null;
 }
 
@@ -78,6 +84,7 @@ export class ReceivingAuditorService {
     private readonly inventory: CommercialInventoryService,
     private readonly storage: ObjectStorageService,
     private readonly ocr: LlmExtractorService,
+    private readonly claims: ReceivingClaimsService,
   ) {}
 
   /**
@@ -85,11 +92,18 @@ export class ReceivingAuditorService {
    * decide el semáforo. Sin efectos secundarios (testeable en aislamiento).
    *
    * - null expiry           → green (producto sin caducidad / no perecedero)
+   *   · salvo que el catálogo diga que SÍ caduca → yellow (no_expiry_on_perishable) `[CE.1.1]`
+   * - ya vencido            → red (expired), haya o no política `[CE.1.2]`
    * - bajo la mínima        → red (min_shelf_life)
    * - más viejo que existente y NO permitido → red (older_than_existing)
    * - más viejo que existente y permitido    → yellow (older_than_existing_allowed)
+   * - más lejos que 1.5× la vida útil del producto → yellow (beyond_shelf_life): la fecha no
+   *   cabe en lo que dura el producto; casi siempre es una fecha estimada o mal leída `[CE.1.3]`
    * - cerca de la mínima (<1.5×) → yellow (near_min_shelf_life)
    * - resto                 → green
+   *
+   * `[CE.1.2]` Antes, sin política, una fecha vencida salía VERDE: en prod entraron así 3 lotes
+   * (jul-2023, feb-2024, jun-2026) porque `expiry_receiving_policy` tenía 0 filas.
    */
   static computeVerdict(params: {
     confirmedExpiry: string | null;
@@ -97,9 +111,20 @@ export class ReceivingAuditorService {
     existingMinExpiry: string | null;
     minShelfLifeDays: number | null;
     allowOlder: boolean;
+    /** Vida útil total del producto (política o Kepler). Sólo para sospechar, nunca para rechazar. */
+    shelfLifeDays?: number | null;
+    /** `true` = el catálogo dice que caduca; `false` = que no; `null` = nadie lo dijo. */
+    tracksExpiry?: boolean | null;
   }): VerdictResult {
     const { confirmedExpiry, daysOfLife, existingMinExpiry, minShelfLifeDays, allowOlder } = params;
-    if (!confirmedExpiry) return { verdict: 'green', rule_broken: null };
+    const shelfLifeDays = params.shelfLifeDays ?? null;
+    if (!confirmedExpiry) {
+      return params.tracksExpiry === true
+        ? { verdict: 'yellow', rule_broken: 'no_expiry_on_perishable' }
+        : { verdict: 'green', rule_broken: null };
+    }
+
+    if (daysOfLife != null && daysOfLife < 0) return { verdict: 'red', rule_broken: 'expired' };
 
     const belowMin =
       minShelfLifeDays != null && daysOfLife != null && daysOfLife < minShelfLifeDays;
@@ -115,6 +140,8 @@ export class ReceivingAuditorService {
     if (belowMin) return { verdict: 'red', rule_broken: 'min_shelf_life' };
     if (olderThanExisting && !allowOlder) return { verdict: 'red', rule_broken: 'older_than_existing' };
     if (olderThanExisting && allowOlder) return { verdict: 'yellow', rule_broken: 'older_than_existing_allowed' };
+    if (shelfLifeDays != null && shelfLifeDays > 0 && daysOfLife != null && daysOfLife > Math.ceil(shelfLifeDays * 1.5))
+      return { verdict: 'yellow', rule_broken: 'beyond_shelf_life' };
     if (nearMin) return { verdict: 'yellow', rule_broken: 'near_min_shelf_life' };
     return { verdict: 'green', rule_broken: null };
   }
@@ -278,18 +305,11 @@ export class ReceivingAuditorService {
     return this.tk.run(async (trx) => {
       const userId = this.tenantCtx.get()?.userId || null;
 
-      // Taxonomía del producto para resolver la política por ámbito (ADR-044).
-      // OJO 1: `products` NO tiene columna `category` — la real es `department`
-      // (Kepler kdie: DULCES/BEBIDAS/BOTANAS). `category_id` apunta a PROVEEDORES
-      // (ver mig 20260615130000), así que no sirve como eje de taxonomía.
-      // OJO 2: se lee de `catalog.products` (la tabla), NO de la vista compat
-      // `public.products`: esa vista es un `SELECT *` congelado al crearse
-      // (mig 20260603150000) y NO expone las columnas agregadas después —
-      // `department` entre ellas (mig 20260615130000).
-      const prod = await trx('catalog.products')
-        .where({ id: dto.product_id })
-        .first('department');
-      const category: string | null = prod?.department || null;
+      // `[CE.1.1]` Taxonomía del producto para resolver la política por ámbito (ADR-044).
+      // El departamento se DERIVA de Kepler (`kdii.c4` → `kdie`): `catalog.products.department`
+      // existe pero está vacía en los 14,945 productos (medido 2026-11-11), así que leerla dejaba
+      // la política por departamento sin aplicar nunca. `category_id` apunta a PROVEEDORES.
+      const prod = await trx('catalog.products').where({ id: dto.product_id }).first('sku');
 
       // El renglón, si viene, debe existir y ser del MISMO producto: una captura
       // ligada al renglón equivocado falsea el cuadre "declarado vs recibido".
@@ -312,11 +332,9 @@ export class ReceivingAuditorService {
           throw new BadRequestException('El renglón corresponde a otro producto');
       }
 
-      const policy = await this.resolvePolicy(trx, {
-        product_id: dto.product_id,
-        category,
-        supplier_code: dto.supplier_code || null,
-      });
+      const perfil = (
+        await perfilesDeCaducidad(trx, [{ product_id: dto.product_id, sku: prod?.sku ?? null }], dto.supplier_code || null)
+      ).get(dto.product_id);
 
       // Contexto: días de vida + caducidad más próxima ya en stock.
       const ctxRows = await trx.raw(
@@ -339,8 +357,10 @@ export class ReceivingAuditorService {
         confirmedExpiry,
         daysOfLife,
         existingMinExpiry,
-        minShelfLifeDays: policy?.min_shelf_life_days ?? null,
-        allowOlder: policy?.allow_older_than_existing ?? false,
+        minShelfLifeDays: perfil?.min_shelf_life_days ?? null,
+        allowOlder: perfil?.allow_older_than_existing ?? false,
+        shelfLifeDays: perfil?.shelf_life_days ?? null,
+        tracksExpiry: perfil?.tracks_expiry ?? null,
       });
 
       const status = verdict === 'red' ? 'pending_authorization' : 'accepted';
@@ -428,9 +448,11 @@ export class ReceivingAuditorService {
     if (capture.status !== 'pending_authorization')
       throw new ConflictException(`La captura ya está ${capture.status}`);
     // Mismo claim atómico que authorize (no escribe stock, pero el 409 debe ser correcto).
+    // `[CE.2.4]` Y en la MISMA transacción, el reclamo de caducidad corta a quien la mandó: un
+    // rechazo que no deja reclamo es mercancía devuelta que nadie le cobra al proveedor.
     const claimed = await this.tk.run(async (trx) => {
       const userId = this.tenantCtx.get()?.userId || null;
-      return trx('commercial.receiving_lot_captures')
+      const n = await trx('commercial.receiving_lot_captures')
         .where({ id, status: 'pending_authorization' })
         .update({
           status: 'rejected',
@@ -438,6 +460,8 @@ export class ReceivingAuditorService {
           authorized_at: trx.fn.now(),
           resolution_notes: notes || null,
         });
+      if (n) await this.claims.raiseForRejectedCaptureInTx(trx, { ...capture, notes: notes || null });
+      return n;
     });
     if (!claimed) throw new ConflictException('La captura ya fue resuelta por otro usuario');
     return this.getCapture(id);
@@ -535,10 +559,16 @@ export class ReceivingAuditorService {
           'pol.id', 'pol.product_id', 'p.sku', 'p.nombre as product_name',
           'pol.category', 'pol.supplier_code',
           'pol.min_shelf_life_days', 'pol.allow_older_than_existing',
+          'pol.tracks_expiry', 'pol.shelf_life_days',
           'pol.source', 'pol.notes', 'pol.updated_at',
         )
         .orderBy('pol.updated_at', 'desc'),
     );
+  }
+
+  /** `[CE.1.1]` Departamentos de Kepler: el ámbito «categoría» de una política es uno de éstos. */
+  async listDepartments(): Promise<string[]> {
+    return this.tk.run(async (trx) => departamentosKepler(trx));
   }
 
   async upsertPolicy(dto: PolicyDto) {
@@ -548,6 +578,10 @@ export class ReceivingAuditorService {
       throw new BadRequestException('min_shelf_life_days debe ser entero >= 0');
     if (!dto.product_id && !dto.category && !dto.supplier_code)
       throw new BadRequestException('Debe indicar ámbito: product_id, category o supplier_code');
+    if (dto.shelf_life_days != null && (dto.shelf_life_days <= 0 || !Number.isInteger(dto.shelf_life_days)))
+      throw new BadRequestException('shelf_life_days debe ser entero > 0');
+    if (dto.tracks_expiry != null && typeof dto.tracks_expiry !== 'boolean')
+      throw new BadRequestException('tracks_expiry debe ser true, false o vacío');
 
     return this.tk.run(async (trx) => {
       const userId = this.tenantCtx.get()?.userId || null;
@@ -560,6 +594,8 @@ export class ReceivingAuditorService {
       const patch = {
         min_shelf_life_days: dto.min_shelf_life_days ?? null,
         allow_older_than_existing: !!dto.allow_older_than_existing,
+        tracks_expiry: dto.tracks_expiry ?? null,
+        shelf_life_days: dto.shelf_life_days ?? null,
         source: 'manual',
         notes: dto.notes || null,
         updated_at: trx.fn.now(),
@@ -659,36 +695,6 @@ export class ReceivingAuditorService {
         .where({ id: capture.id })
         .update({ stock_movement_id: movement.id });
     });
-  }
-
-  /** Resuelve la política por ámbito en cascada: producto → categoría → proveedor. */
-  private async resolvePolicy(
-    trx: any,
-    scope: { product_id: string | null; category: string | null; supplier_code: string | null },
-  ) {
-    if (scope.product_id) {
-      const byProduct = await trx('commercial.expiry_receiving_policy')
-        .where({ product_id: scope.product_id })
-        .first();
-      if (byProduct) return byProduct;
-    }
-    if (scope.category) {
-      const byCategory = await trx('commercial.expiry_receiving_policy')
-        .whereNull('product_id')
-        .where({ category: scope.category })
-        .whereNull('supplier_code')
-        .first();
-      if (byCategory) return byCategory;
-    }
-    if (scope.supplier_code) {
-      const bySupplier = await trx('commercial.expiry_receiving_policy')
-        .whereNull('product_id')
-        .whereNull('category')
-        .where({ supplier_code: scope.supplier_code })
-        .first();
-      if (bySupplier) return bySupplier;
-    }
-    return null;
   }
 
   private parseDataUri(dataUri: string): { base64: string; mediaType: string } | null {

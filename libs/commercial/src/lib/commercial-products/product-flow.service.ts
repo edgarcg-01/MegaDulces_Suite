@@ -77,7 +77,9 @@ import {
   TRASPASOS_SQL,
   VENTA_VIVO_SQL,
 } from './product-flow.sql';
-import type { CaducidadResumen, CuidarRespuesta, ProductosProveedorRespuesta, ProveedoresRespuesta } from './product-flow';
+import type {
+  CaducidadResumen, CuidarRespuesta, JuicioLotesRespuesta, LoteCaducidad, ProductosProveedorRespuesta, ProveedoresRespuesta,
+} from './product-flow';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Lo más que pide una página del catálogo (su paginador llega a 200). */
@@ -227,6 +229,29 @@ export class ProductFlowService {
       });
       if (!limpios.length) return respuesta([]);
       return respuesta((await this.resumenes(trx, p, corte, limpios, [opts.puedeVerCosto])).get(opts.puedeVerCosto) ?? []);
+    });
+  }
+
+  /**
+   * `[CE.3.1]` El juicio lote por lote (`juzgarLotes`) de unos productos, en UNA pasada: lo pide «Por vencer» para
+   * poner en cada renglón si alcanza a venderse y qué hacer. Es el mismo cálculo que la caducidad del flujo
+   * (`resumenes`), sin costo: el juicio no lo usa y quien entra por inventario no tiene por qué verlo.
+   */
+  async juicioLotes(ids: string[]): Promise<JuicioLotesRespuesta> {
+    const limpios = [...new Set((ids ?? []).filter((x) => UUID_RE.test(x)))];
+    if (limpios.length > MAX_IDS) throw new BadRequestException(`A lo más ${MAX_IDS} productos por consulta`);
+    return this.tk.run(async (trx) => {
+      const { corte, p } = await this.base(trx);
+      const porProducto = new Map<string, LoteCaducidad[]>();
+      if (limpios.length) {
+        await this.resumenes(trx, p, corte, limpios, [false], {
+          alJuzgarLotes: (id, lotes) => porProducto.set(id, lotes),
+        });
+      }
+      return {
+        periodos: p, corte, en_vivo_al: new Date().toISOString(), caducidad_aviso: CRITERIO_FLUJO.caducidadAviso,
+        productos: [...porProducto].map(([product_id, lotes]) => ({ product_id, lotes })),
+      };
     });
   }
 
@@ -405,7 +430,11 @@ export class ProductFlowService {
    * el costo y el margen sólo si alguna variante los lleva. Con `extra` se reusan líderes y lotes ya leídos.
    */
   private async resumenes(trx: Knex.Transaction, p: Periodos, corte: string, ids: string[], variantes: boolean[],
-    extra?: { lideres: Map<string, Lider>; lotes: LoteFila[] }): Promise<Map<boolean, FlujoListaRespuesta['productos']>> {
+    extra?: {
+      lideres?: Map<string, Lider>; lotes?: LoteFila[];
+      /** `[CE.3.1]` Recibe el juicio lote por lote de cada producto (el mismo que resume la caducidad). */
+      alJuzgarLotes?: (productId: string, lotes: LoteCaducidad[]) => void;
+    }): Promise<Map<boolean, FlujoListaRespuesta['productos']>> {
     const conCosto = variantes.includes(true);
     {
       const prods = (await trx.raw(`
@@ -464,7 +493,9 @@ export class ProductFlowService {
           todas: lotes.length > 0,
           ruta: ruta?.get(x.sku),
         });
-        const caducidad = resumirCaducidad(juzgarLotes(p, lotes, plazas, nombres));
+        const juzgados = juzgarLotes(p, lotes, plazas, nombres);
+        extra?.alJuzgarLotes?.(x.id, juzgados);
+        const caducidad = resumirCaducidad(juzgados);
         const r = resumirProducto(x.id, p, plazas.filter((pl) => pl.estado !== 'sin_movimiento'), { lider: lideres.get(x.id) ?? null, caducidad });
         if (!puedeVerCosto) return { ...r, margen_real: null, compra: { ...r.compra, inmovilizado: null } };
         const mg = margen.get(x.id);

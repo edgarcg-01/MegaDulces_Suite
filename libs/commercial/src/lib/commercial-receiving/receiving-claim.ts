@@ -13,14 +13,30 @@ import type { ReceivingOrigin } from './receiving-origin';
  * y lo persistió en `commercial.receiving_lines.discrepancy_kind`; esto sólo lo lee.
  */
 
-/** Discrepancias que se le reclaman a alguien. `sobrante` y `ok` no son reclamo. */
-export type ReceivingClaimKind = 'faltante' | 'dañado' | 'producto_incorrecto';
+/**
+ * Lo que se le reclama a alguien. Los tres primeros salen de la discrepancia del renglón al cerrar
+ * el vale; `caducidad_corta` sale de una captura de caducidad ROJA que un supervisor rechazó
+ * (`[CE.2.4]`): la mercancía llegó, pero vencida o con menos vida que la mínima.
+ */
+export type ReceivingClaimKind = 'faltante' | 'dañado' | 'producto_incorrecto' | 'caducidad_corta';
+
+/** `[CE.2.4]` Todos los tipos de reclamo, para filtrar la bandeja. */
+export const CLAIM_KINDS: readonly ReceivingClaimKind[] = ['faltante', 'dañado', 'producto_incorrecto', 'caducidad_corta'];
+
+/** `[CE.2.4]` Reglas del semáforo que, al rechazarse la mercancía, son culpa de quien la mandó. */
+export const RULES_CADUCIDAD_CORTA: readonly string[] = ['expired', 'min_shelf_life', 'older_than_existing'];
+
+/** `[CE.2.4]` Llave del reclamo de una captura rechazada: rechazar es una vez, pero se cuida igual. */
+export function claimDedupKeyCaptura(captureId: string): string {
+  return `recv-capture:${captureId}`;
+}
 
 export type ReceivingClaimStatus = 'open' | 'claimed' | 'accepted' | 'discarded' | 'written_off';
 
 /** `supplier` = proveedor externo · `branch` = la sucursal que embarcó el traspaso. */
 export type ReceivingResponsibleKind = 'supplier' | 'branch';
 
+/** Discrepancias de RENGLÓN que generan reclamo al cerrar. `sobrante` y `ok` no son reclamo. */
 export const CLAIMABLE_KINDS: readonly ReceivingClaimKind[] = ['faltante', 'dañado', 'producto_incorrecto'];
 
 /** Estados desde los que el reclamo sigue vivo (aparece en la bandeja como trabajo abierto). */

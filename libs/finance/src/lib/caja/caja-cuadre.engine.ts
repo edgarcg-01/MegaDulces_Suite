@@ -99,6 +99,10 @@ export interface ResultadoCuadre<T extends MovCuadre> {
  * captura (`caja-relevo.saldadosPorControl`)— y tienen que casar exactamente igual: si una se
  * moviera sola, la cola listaría como pendiente lo que el Cuadre da por casado. El porqué de los
  * $5 (antes $1) está medido en la cabecera de `caja-general.service.ts`.
+ *
+ * ⚠️ `[CGA-A.73]` La cola casa ADEMÁS lo que el Control anotó días después cuando su texto dice de
+ * quién es (`casadosPorControlDespues`); el Cuadre no, porque es POR DÍA. La regla de arriba se
+ * sigue cumpliendo: el paso del mismo día va primero y es éste, con esta tolerancia.
  */
 export const CUADRE_TOLERANCIA_PESOS = 5;
 
