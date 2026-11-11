@@ -3,6 +3,7 @@ import { PgListenService } from '@megadulces/platform-core';
 import { FinanceBankModule } from './finance-bank.module';
 import { BankReconPorAvisoService } from './bank-recon-aviso.service';
 import { CANAL_CAJA } from '../caja/caja-realtime.service';
+import { CANAL_BANCOS } from './aviso-bancos';
 import { EstadoDeCuentaService } from './estado-de-cuenta/estado-de-cuenta.service';
 import { EstadoDeCuentaController } from './estado-de-cuenta/estado-de-cuenta.controller';
 import { ComisionesKeplerService } from './comisiones-kepler/comisiones-kepler.service';
@@ -108,10 +109,9 @@ describe('[CB.53.1] sólo el worker se suscribe', () => {
     await conWorker('false', (escuchar) => expect(escuchar).not.toHaveBeenCalled());
   });
 
-  it('en el worker se suscribe UNA vez, al canal del carril de Kepler', async () => {
+  it('en el worker se suscribe UNA vez a cada lado: el carril de Kepler y, desde CB.60b, Bancos', async () => {
     await conWorker('true', (escuchar) => {
-      expect(escuchar).toHaveBeenCalledTimes(1);
-      expect(escuchar.mock.calls[0][0]).toBe(CANAL_CAJA);
+      expect(escuchar.mock.calls.map((c) => c[0])).toEqual([CANAL_CAJA, CANAL_BANCOS]);
     });
   });
 });

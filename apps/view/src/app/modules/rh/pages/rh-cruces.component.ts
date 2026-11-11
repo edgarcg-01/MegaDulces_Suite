@@ -44,6 +44,8 @@ const CLASES: Record<HrClaseCruce, { label: string; severity: 'danger' | 'warn' 
   template: `
     <div class="rc-page">
       <app-rh-marco [barra]="false" [franja]="false" />
+      <!-- Sin plazas el marco lo declara: aquí no se pinta «nadie» ni ceros de algo que nadie midió. -->
+      @if (!est.sinPlazas()) {
       <section class="rc-bar" aria-label="Semana">
         <p-select [options]="est.semanasElegibles()" optionLabel="label" optionValue="value" [ngModel]="est.jueves()"
                   (ngModelChange)="est.irASemana($event)" appendTo="body" ariaLabel="Semana de nómina" class="rc-semana" />
@@ -87,6 +89,7 @@ const CLASES: Record<HrClaseCruce, { label: string; severity: 'danger' | 'warn' 
           }
         </section>
       </app-load-state>
+      }
 
       <app-side-peek [open]="!!sel()" (openChange)="$event || sel.set(null)" [width]="640" [title]="sel()?.nombre ?? ''"
                      [subtitle]="sel() ? plazas(sel()!) : null">

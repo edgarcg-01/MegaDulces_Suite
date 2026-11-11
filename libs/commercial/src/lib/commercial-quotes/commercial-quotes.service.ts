@@ -222,6 +222,8 @@ export interface QuoteCatalogRow {
   sold_by_kg: boolean;
   /** COT.27: precio simbólico de Kepler ($0.01): regalo o promoción cuya condición está en el nombre. */
   precio_simbolico: boolean;
+  /** [COT.42] El término fue un código de Kepler: piezas de la unidad cuya casilla casó (1 = pieza). NULL = no fue código. */
+  scan_factor: number | null;
 }
 
 /** Cabecera + renglones. Las columnas se devuelven tal cual salen del SELECT. */
@@ -925,7 +927,16 @@ export class CommercialQuotesService {
                COALESCE(v.box_size, m.factor) AS box_size,
                CASE WHEN v.box_size IS NOT NULL OR v.box_price IS NOT NULL THEN 'CJA'
                     ELSE m.unidad END AS box_label,
-               v.sold_by_kg
+               v.sold_by_kg,
+               -- [COT.42] Si el término es un código de Kepler, cuántas piezas trae la unidad de la casilla
+               -- que casó (ERP_KEPLER §3.y.4): pieza c7/c93/c102 = 1 · dos c82/c95/c96 = c81 · tres c85 = c84.
+               -- Así el escaneo de la caja elige la caja. NULL = no fue un código.
+               (SELECT CASE WHEN :code::text IN (upper(btrim(k.c7::text)), upper(btrim(k.c93::text)), upper(btrim(k.c102::text))) THEN 1
+                            WHEN :code::text IN (upper(btrim(k.c82::text)), upper(btrim(k.c95::text)), upper(btrim(k.c96::text))) THEN floor(k.c81)::int
+                            WHEN :code::text = upper(btrim(k.c85::text)) THEN floor(k.c84)::int END
+                  FROM kepler_ods.kdii k
+                 WHERE :code::text IS NOT NULL AND btrim(k.sucursal) = :branch AND btrim(k.c1) = v.sku
+                 LIMIT 1) AS scan_factor
           FROM :inner v
           LEFT JOIN LATERAL (
             SELECT s.unidad, s.factor
@@ -963,7 +974,8 @@ export class CommercialQuotesService {
            v.name NULLS LAST,
            v.sku
         `,
-        { inner, branch: suc, term, pre: `${term}%` },
+        // El código, como en el buscador (COT.41): exacto, en mayúsculas, sin espacios; con espacios no es código.
+        { inner, branch: suc, term, pre: `${term}%`, code: term.trim() && !/\s/.test(term.trim()) ? term.trim().toUpperCase() : null },
       );
 
       // Los `numeric` de Postgres llegan como STRING por JSON (GOTCHAS §6): el tipo TS miente
@@ -982,6 +994,7 @@ export class CommercialQuotesService {
         box_label: (r['box_label'] as string) ?? null,
         sold_by_kg: r['sold_by_kg'] === true,
         precio_simbolico: num(r['piece_price']) !== null && (num(r['piece_price']) as number) <= PRECIO_SIMBOLICO_MAX,
+        scan_factor: num(r['scan_factor']),
       }));
     });
   }

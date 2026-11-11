@@ -6,6 +6,7 @@ import { FINANCE_FINDINGS_SINK_PORT, FinanceFindingsSinkPort, FinanceFindingInpu
 import { BancosGateway } from './bancos.gateway';
 import { buildClaimIndex, claimVerdict, type ClaimRow } from './recon-claim-key';
 import { compileRules, classifyWith, normKey } from './classify-rules';
+import { avisarBancos } from './aviso-bancos';
 
 /**
  * CB.2 — Conciliación bancaria (ADR-033). Servicio de lectura + reclasificación
@@ -3822,6 +3823,8 @@ export class FinanceBankService {
       }
 
       this.logger.log(`import banco periodo ${period} (${syncSource}): ${grandRows} movs, ${grandUncat} sin_clasificar, ${swept} borrados, por ${actor || '?'}`);
+      // [CB.60b] Cierra el hueco de CB.53: la carga del libro también avisa, y la conciliación corre al confirmar.
+      if (grandRows || swept) await avisarBancos(trx, { origen: 'libro', periodos: [period] });
       return { period, accounts: perAccount, byGroup, total: grandRows, deposits: grandIn, withdrawals: grandOut, sin_clasificar: grandUncat, swept };
     });
 

@@ -129,6 +129,8 @@ export interface QuoteCatalogRow {
   sold_by_kg: boolean;
   /** [COT.27] Precio simbólico de Kepler ($0.01): regalo de promoción, la condición está en el nombre. */
   precio_simbolico?: boolean;
+  /** [COT.42] El término fue un código de Kepler: piezas de la unidad cuya casilla casó (1 = pieza). null = no fue código. */
+  scan_factor?: number | null;
 }
 
 /**

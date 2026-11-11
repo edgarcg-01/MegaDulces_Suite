@@ -1,5 +1,11 @@
 /* eslint-disable no-console */
 /**
+ * ⛔ RETIRADO 2026-11-11 [CANON.6.4] — ya no corre en ningún carril. Desde D21 (`[PQ.16]`, 2026-10-26)
+ * la Suite no emite OC ni recepciones propias: las suyas quedaron congeladas y la recepción es la
+ * X-A-40 de Kepler, que se lee. Este script seguía creando OE sobre esas OC congeladas por presencia de
+ * SKU (158 OE sobre 80 OC después de D21). `matchEntradasToOrders` queda exportada por su prueba
+ * (`test-auto-received-matching.js`); no correr `--apply`.
+ *
  * RA.15.1 — Auto-received: concilia nuestras OC abiertas contra la orden de entrada
  * (X-A-40) de Kepler y las cierra sin captura manual (BULK, on-prem).
  *
