@@ -9,13 +9,14 @@ import { SelectModule } from 'primeng/select';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { CheckboxModule } from 'primeng/checkbox';
-import { MessageService } from 'primeng/api';
+import { ConfirmDialogModule } from 'primeng/confirmdialog';
+import { ConfirmationService, MessageService } from 'primeng/api';
 import { LoadStateComponent } from '../../../../shared/components/load-state/load-state.component';
 import { MetricStripComponent, MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
 import { FreshnessPillComponent } from '../../../../shared/components/freshness-pill/freshness-pill.component';
 import { AuthService } from '../../../../core/services/auth.service';
 import { Permission } from '../../../../core/constants/permissions';
-import { ArchivosDelBanco, BankService, ComoSeFijoLaCuenta, ContraElLibro, CuentaContraElLibro, DiaContraElLibro, RevisionEstadoBanco, VeredictoDelDia } from '../../bank.service';
+import { ArchivosDelBanco, BankService, ComoSeFijoLaCuenta, ContraElLibro, CuentaContraElLibro, DiaContraElLibro, RevisionEstadoBanco, UsoDelBanco, VeredictoDelDia } from '../../bank.service';
 import { BANCOS_STYLES } from './bancos.styles';
 
 const BANCO: Readonly<Record<RevisionEstadoBanco['banco'], string>> = {
@@ -57,14 +58,26 @@ export interface Veredicto { tono: 'ok' | 'warn' | 'bad' | 'muted'; icono: strin
  *  3. Accesibilidad: la cuenta por nombre; la que coincide por saldo ya viene elegida; si ninguna
  *     coincide, la fila pide confirmar la cuenta a mano y no se pinta en verde; el motivo de un
  *     bloqueo en una frase. Soltar es atajo, no requisito: «Elegir archivos» hace lo mismo.
- *  4. Ligas: viene de la banca en línea; TODAVÍA no alimenta Movimientos ni la conciliación (CB.60).
+ *  4. Ligas: viene de la banca en línea; alimenta Movimientos sólo en las cuentas que ya usan el banco (CB.60b).
  *  5. Le toca a Bancos › Cuentas y a quien hoy sube el libro (FINANCE_BANK_GESTIONAR); ver la lista
  *     pide FINANCE_BANK_VER, el mismo permiso de la pantalla.
+ *
+ * `[CB.60b]` «Usar el banco», cuenta por cuenta (D3–D5 firmadas por Edgar el 2026-11-11). Las cinco preguntas:
+ *  1. Qué ve y en qué orden: en la fila de cada cuenta de «Contra el libro», la columna «Dejar el libro»:
+ *     cuántos días seguidos lleva de los que pide la regla, el botón «Usar el banco» cuando ya cumple, o desde
+ *     cuándo lo usa. Orden: lo que difiere (hay que arreglar el libro), lo listo, el paralelo, y al final lo que ya pasó.
+ *  2. Qué no: el catálogo de terminales llave por llave, ni una pantalla aparte. El diálogo dice lo que va a pasar y
+ *     cuánto acertó la sucursal en el paralelo: eso es lo que confirma quien pulsa.
+ *  3. Accesibilidad: el estado se lee en palabras, sin abrir nada y sin depender del color; el botón va con teclado;
+ *     al confirmar el foco cae en «Cancelar» (no se regresa al libro con un botón).
+ *  4. Ligas: lo que entra va a Bancos › Movimientos (la pantalla refresca el periodo); la carga del libro avisa
+ *     qué renglones de esa cuenta ya no entran.
+ *  5. Pulsa quien sube el libro (FINANCE_BANK_GESTIONAR, el mismo permiso del endpoint); quien sólo ve, ve el estado.
  */
 @Component({
   selector: 'bancos-estado-banco',
   standalone: true,
-  imports: [CurrencyPipe, DatePipe, FormsModule, ButtonModule, SelectModule, TableModule, TagModule, CheckboxModule, LoadStateComponent, MetricStripComponent, FreshnessPillComponent],
+  imports: [CurrencyPipe, DatePipe, FormsModule, ButtonModule, SelectModule, TableModule, TagModule, CheckboxModule, ConfirmDialogModule, LoadStateComponent, MetricStripComponent, FreshnessPillComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="card-premium card-flat fb-tablewrap eb-card" aria-labelledby="eb-titulo"
@@ -73,7 +86,7 @@ export interface Veredicto { tono: 'ok' | 'warn' | 'bad' | 'muted'; icono: strin
         <h3 id="eb-titulo" class="fb-card-title eb-title">Estados de cuenta del banco</h3>
         <app-freshness-pill measures="data" [since]="ultimaSubida()" label="última subida" [staleAfterSec]="129600" />
       </div>
-      <p class="eb-sub">La descarga de la banca en línea, tal cual. No depende del periodo elegido arriba y todavía no alimenta Movimientos ni la conciliación: se compara contra el libro día por día.
+      <p class="eb-sub">La descarga de la banca en línea, tal cual. No depende del periodo elegido arriba. {{ textoAlimenta() }}
         @if (sinLector().length) { {{ sinLector().join(', ') }} no se puede subir aún: no hay lector de su banco. }</p>
 
       <app-load-state [loading]="cargando()" [error]="error()" [skeletonRows]="2" (retry)="cargar()">
@@ -146,7 +159,7 @@ export interface Veredicto { tono: 'ok' | 'warn' | 'bad' | 'muted'; icono: strin
             <ng-template #header>
               <tr>
                 <th class="eb-tog"><span class="sr-only">Ver los días</span></th><th>Cuenta</th><th>Contra el libro</th>
-                <th class="comm-num">Días que cuadran</th><th class="comm-num">Difieren</th><th class="comm-num">Sin libro</th><th>Abierto</th>
+                <th class="comm-num">Difieren</th><th class="comm-num">Sin libro</th><th>Abierto</th><th>Dejar el libro</th>
               </tr>
             </ng-template>
             <ng-template #body let-c let-expanded="expanded">
@@ -155,10 +168,21 @@ export interface Veredicto { tono: 'ok' | 'warn' | 'bad' | 'muted'; icono: strin
                           styleClass="p-button-text p-button-sm" [ariaLabel]="'Ver los días de ' + c.alias" /></td>
                 <td class="eb-strong">{{ c.alias }}</td>
                 <td><span [class]="'eb-v eb-v--' + estadoContra(c).tono"><i [class]="'pi ' + estadoContra(c).icono" aria-hidden="true"></i> {{ estadoContra(c).texto }}</span></td>
-                <td class="comm-num mono">{{ c.resumen.cuadra }}</td>
                 <td class="comm-num mono">{{ c.resumen.difiere }}</td>
                 <td class="comm-num mono">{{ c.resumen.sin_libro }}</td>
-                <td class="mono">{{ c.hasta | date:'dd/MM' }}</td>
+                <td class="mono">@if (c.resumen.abierto) { {{ c.hasta | date:'dd/MM' }} } @else { — }</td>
+                <!-- [CB.60b] Lo que decide: cuántos días seguidos lleva, el botón cuando cumple, o desde cuándo usa el banco. -->
+                <td class="eb-dejar">
+                  @if (dejar(c); as d) {
+                    @if (d.accion && puedeSubir()) {
+                      <button pButton type="button" class="p-button-sm p-button-outlined" [disabled]="pasando() !== null" [loading]="pasando() === c.id"
+                              (click)="pedirUsarElBanco(c)" [attr.aria-label]="'Usar el banco en ' + c.alias">
+                        <span class="p-button-label">Usar el banco</span></button>
+                    } @else {
+                      <span [class]="'eb-v eb-v--' + d.tono"><i [class]="'pi ' + d.icono" aria-hidden="true"></i> {{ d.texto }}</span>
+                    }
+                  }
+                </td>
               </tr>
             </ng-template>
             <ng-template #expandedrow let-c>
@@ -185,7 +209,24 @@ export interface Veredicto { tono: 'ok' | 'warn' | 'bad' | 'muted'; icono: strin
           </p-table>
           <p class="eb-leyenda"><b>cuadra</b>: cada movimiento del banco tiene su renglón en el libro (mismo lado e importe) y el día cierra con el mismo saldo ·
             <b>sin libro</b>: el libro no llega a ese día, o es su último día y se subió antes de cerrarlo ·
-            <b>abierto</b>: el último día de la descarga puede haberse bajado a medias, no se juzga. Así se decide cuándo una cuenta deja el libro.</p>
+            <b>abierto</b>: el último día de la descarga puede haberse bajado a medias, no se juzga.
+            @if (requeridos(); as n) { <b>Dejar el libro</b>: con {{ n }} días seguidos que cuadran, sin uno que difiera ni uno sin libro en medio, la cuenta puede usar el banco: desde el día siguiente sus movimientos salen de la descarga y el libro deja de entrar en esa cuenta. }</p>
+          <p-confirmdialog key="usar-el-banco" defaultFocus="reject" [style]="{ width: 'min(34rem, 92vw)' }">
+            <ng-template #message>
+              @if (aConfirmar(); as c) {
+                <div class="eb-confirma">
+                  <p>Desde el <b>{{ c.listo_para_banco?.desde | date:'dd/MM/yy' }}</b>, los movimientos de {{ c.alias }} salen de la descarga del banco, no del libro.</p>
+                  <ul>
+                    <li>Lo que el libro tiene hasta el {{ c.listo_para_banco?.ultimo_que_cuadra | date:'dd/MM' }} no se toca: su conciliación, su categoría y su póliza se quedan.</li>
+                    <li>Si el libro ya trae renglones desde esa fecha, los reemplazan los del banco.</li>
+                    <li>La carga del libro deja de meter renglones de esta cuenta desde esa fecha, y lo avisa.</li>
+                    <li>{{ textoSucursal(c) }}</li>
+                    <li>Queda registrado que lo decidiste tú. No hay botón para regresar al libro.</li>
+                  </ul>
+                </div>
+              }
+            </ng-template>
+          </p-confirmdialog>
         }
         @if (contraError(); as ce) { <p class="eb-leyenda eb-v--bad">{{ ce }}</p> }
 
@@ -256,6 +297,10 @@ export interface Veredicto { tono: 'ok' | 'warn' | 'bad' | 'muted'; icono: strin
     .eb-dias { list-style: none; margin: 0; padding: var(--sp-1) 0; display: grid; gap: var(--sp-2); font-size: var(--fs-sm); }
     .eb-dias > li { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-1) var(--sp-3); }
     .eb-suelto { flex-basis: 100%; padding-left: var(--sp-5); font-size: var(--fs-xs); color: var(--text-main); }
+    .eb-dejar { min-width: 11rem; white-space: nowrap; }
+    .eb-confirma { font-size: var(--fs-sm); color: var(--text-main); }
+    .eb-confirma p { margin: 0 0 var(--sp-2); }
+    .eb-confirma ul { margin: 0; padding-left: var(--sp-4); display: grid; gap: var(--sp-1); }
 
     @media (max-width: 40rem) {
       .eb-soltar { flex-wrap: wrap; }
@@ -266,9 +311,13 @@ export class BancosEstadoBancoComponent implements OnInit {
   private readonly api = inject(BankService);
   private readonly auth = inject(AuthService);
   private readonly toast = inject(MessageService);
+  private readonly confirm = inject(ConfirmationService);
   private readonly destroyRef = inject(DestroyRef);
 
-  /** Se guardó al menos un archivo: la pantalla refresca el número de la pestaña y el aviso del Cierre. */
+  /**
+   * Se guardó al menos un archivo, o una cuenta pasó a usar el banco: la pantalla refresca el número de la pestaña,
+   * el aviso del Cierre y el periodo (en una cuenta que usa el banco, guardar la descarga mete movimientos).
+   */
   readonly guardado = output<void>();
 
   readonly puedeSubir = computed(() => this.auth.user()?.permissions?.[Permission.FINANCE_BANK_GESTIONAR] === true);
@@ -280,11 +329,28 @@ export class BancosEstadoBancoComponent implements OnInit {
   readonly cargando = signal(true);
   readonly error = signal<string | null>(null);
 
-  /** [CB.60] Cada cuenta con descarga contra el libro. Lo que difiere va primero. */
+  /**
+   * [CB.60] Cada cuenta con descarga contra el libro. Orden (CB.60b): lo que difiere (hay que arreglar el libro),
+   * lo que ya puede usar el banco, el paralelo por días seguidos, y al final lo que ya usa el banco.
+   */
   readonly contra = signal<ContraElLibro | null>(null);
   readonly contraError = signal<string | null>(null);
   readonly cuentasContra = computed(() => [...(this.contra()?.cuentas ?? [])]
-    .sort((a, b) => b.resumen.difiere - a.resumen.difiere || a.alias.localeCompare(b.alias)));
+    .sort((a, b) => this.grupo(a) - this.grupo(b) || b.resumen.difiere - a.resumen.difiere
+      || (b.listo_para_banco?.dias_seguidos ?? 0) - (a.listo_para_banco?.dias_seguidos ?? 0) || a.alias.localeCompare(b.alias)));
+  /** [CB.60b] Cuántos días seguidos pide la regla: lo dice el servidor, no se repite aquí. */
+  readonly requeridos = computed(() => this.contra()?.cuentas.find((c) => c.listo_para_banco)?.listo_para_banco?.requeridos ?? null);
+  /** [CB.60b] Qué cuentas ya alimentan Movimientos. Sin la comparación no se afirma ni que sí ni que no. */
+  readonly textoAlimenta = computed(() => {
+    const c = this.contra();
+    if (!c) return '';
+    const usan = c.cuentas.filter((x) => x.banco_desde).map((x) => x.alias);
+    return usan.length ? `En ${usan.join(', ')} ya alimenta Movimientos; las demás cuentas se comparan contra el libro día por día.`
+      : 'Todavía no alimenta Movimientos ni la conciliación: se compara contra el libro día por día.';
+  });
+  /** [CB.60b] La cuenta que se está pasando al banco (una a la vez) y la que espera confirmación. */
+  readonly pasando = signal<string | null>(null);
+  readonly aConfirmar = signal<CuentaContraElLibro | null>(null);
 
   readonly lote = signal<ArchivoEnLote[]>([]);
   readonly encima = signal(false);
@@ -350,8 +416,78 @@ export class BancosEstadoBancoComponent implements OnInit {
     const juzgadas = cuentas.filter((c) => c.resumen.cuadra + c.resumen.difiere > 0);
     if (!juzgadas.length) return [];
     const difieren = juzgadas.filter((c) => c.resumen.difiere).map((c) => c.alias);
+    const listas = cuentas.filter((c) => !c.banco_desde && c.listo_para_banco?.cumple).map((c) => c.alias);
+    const partes = [difieren.length ? `difieren ${difieren.join(', ')}` : 'cuentas con días cerrados para comparar'];
+    if (listas.length) partes.push(`${listas.join(', ')} ${listas.length === 1 ? 'ya puede' : 'ya pueden'} usar el banco`);
     return [{ label: 'Cuadran con el libro', value: `${juzgadas.length - difieren.length} de ${juzgadas.length}`, format: 'text', tone: difieren.length ? 'bad' : 'ok',
-      sub: difieren.length ? `difieren ${difieren.join(', ')}` : 'cuentas con días cerrados para comparar' }];
+      sub: partes.join(' · ') }];
+  }
+
+  private grupo(c: CuentaContraElLibro): number {
+    if (c.banco_desde) return 3;
+    if (c.resumen.difiere) return 0;
+    return c.listo_para_banco?.cumple ? 1 : 2;
+  }
+
+  /**
+   * [CB.60b] La columna «Dejar el libro», en palabras. `accion`: la cuenta cumple y todavía no usa el banco.
+   * Una API sin `listo_para_banco` (anterior a CB.60b) se declara «no medido»: no se pinta como «0 de 10».
+   */
+  dejar(c: CuentaContraElLibro): { tono: Veredicto['tono']; icono: string; texto: string; accion: boolean } {
+    if (c.banco_desde) return { tono: 'ok', icono: 'pi-check-circle', texto: `usa el banco desde el ${this.fecha(c.banco_desde).slice(0, 5)}`, accion: false };
+    const l = c.listo_para_banco;
+    if (!l) return { tono: 'muted', icono: 'pi-minus-circle', texto: 'no medido', accion: false };
+    if (l.cumple) return { tono: 'ok', icono: 'pi-check-circle', texto: 'puede usar el banco', accion: true };
+    return { tono: 'muted', icono: 'pi-minus-circle', texto: `lleva ${l.dias_seguidos} de ${l.requeridos} días seguidos`, accion: false };
+  }
+
+  /** [CB.60b] Lo que confirma quien pulsa sobre la sucursal: cuánto acertó en el paralelo lo aprendido. */
+  textoSucursal(c: CuentaContraElLibro): string {
+    const s = c.sucursales;
+    if (!s || !s.deducidas) return 'En el paralelo no se aprendió ninguna terminal ni tarjeta con su sucursal: los movimientos llegarán sin sucursal.';
+    return `La sucursal sale de las terminales y tarjetas que se aprendieron en el paralelo (acertó ${s.coinciden} de ${s.deducidas}); un movimiento sin una que ya se conozca llega sin sucursal.`;
+  }
+
+  /** [CB.60b] Pide confirmación: dice desde qué día, qué no se toca y que no hay botón para regresar. */
+  pedirUsarElBanco(c: CuentaContraElLibro): void {
+    if (!c.listo_para_banco?.cumple || c.banco_desde || this.pasando() !== null) return;
+    this.aConfirmar.set(c);
+    this.confirm.confirm({
+      key: 'usar-el-banco', header: `Usar el banco en ${c.alias}`,
+      acceptLabel: 'Usar el banco', rejectLabel: 'Cancelar', rejectButtonStyleClass: 'p-button-text',
+      accept: () => { this.aConfirmar.set(null); this.usarElBanco(c); },
+      reject: () => this.aConfirmar.set(null),
+    });
+  }
+
+  usarElBanco(c: CuentaContraElLibro): void {
+    if (this.pasando() !== null) return;
+    this.pasando.set(c.id);
+    this.api.usarElBanco(c.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.pasando.set(null);
+        this.toast.add(this.avisoDelUso(r));
+        this.cargar();
+        this.guardado.emit();
+      },
+      error: (e: HttpErrorResponse) => {
+        this.pasando.set(null);
+        const motivos: string[] | undefined = e?.error?.motivos;
+        this.toast.add({ severity: 'error', summary: `${c.alias} sigue con el libro`, life: 8000,
+          detail: motivos?.length ? motivos.join('; ') : this.mensaje(e, 'No se pudo pasar la cuenta al banco.') });
+      },
+    });
+  }
+
+  /** El resultado en palabras, con lo que quedó sin sucursal o sin categoría dicho, no escondido. */
+  avisoDelUso(r: UsoDelBanco): { severity: 'success' | 'info' | 'warn'; summary: string; detail: string; life: number } {
+    const desde = this.fecha(r.desde).slice(0, 5);
+    if (r.ya_estaba) return { severity: 'info', summary: `${r.cuenta} ya usaba el banco desde el ${desde}`, detail: 'No se cambió nada.', life: 5000 };
+    const partes = [r.metidos === 1 ? '1 movimiento de la descarga entró a Movimientos' : `${r.metidos} movimientos de la descarga entraron a Movimientos`];
+    if (r.sin_sucursal) partes.push(`${r.sin_sucursal} sin sucursal`);
+    if (r.sin_categoria) partes.push(`${r.sin_categoria} sin categoría`);
+    if (r.libro_borrados) partes.push(`${r.libro_borrados} renglón(es) del libro de días sin cerrar quedaron reemplazados`);
+    return { severity: r.sin_sucursal || r.sin_categoria ? 'warn' : 'success', summary: `${r.cuenta} usa el banco desde el ${desde}`, detail: partes.join(' · '), life: 8000 };
   }
 
   estadoContra(c: CuentaContraElLibro): { tono: Veredicto['tono']; icono: string; texto: string } {

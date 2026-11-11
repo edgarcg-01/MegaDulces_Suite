@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection, signal } from '@angular/core';
 import { of, throwError } from 'rxjs';
-import { MessageService } from 'primeng/api';
+import { ConfirmationService, MessageService } from 'primeng/api';
 import { BancosEstadoBancoComponent } from './bancos-estado-banco.component';
-import { ArchivoEstadoBanco, ArchivosDelBanco, BankService, ContraElLibro, CuentaContraElLibro, RevisionEstadoBanco } from '../../bank.service';
+import { ArchivoEstadoBanco, ArchivosDelBanco, BankService, ContraElLibro, CuentaContraElLibro, RevisionEstadoBanco, UsoDelBanco } from '../../bank.service';
 import { AuthService } from '../../../../core/services/auth.service';
 import { Permission } from '../../../../core/constants/permissions';
 
@@ -49,11 +49,15 @@ function montar(opts: {
   datos?: ArchivosDelBanco;
   revisar?: (nombre: string, id?: string | null) => RevisionEstadoBanco;
   confirmar?: (nombre: string) => unknown;
+  usar?: (id: string) => UsoDelBanco | Error;
+  sinPermiso?: boolean;
 }) {
   const llamadas: [string, string | null | undefined][] = [];
   const guardados: unknown[][] = [];
+  const usados: string[] = [];
+  let cargas = 0;
   const api = {
-    archivosDelBanco: () => of(opts.datos ?? DATOS),
+    archivosDelBanco: () => { cargas++; return of(opts.datos ?? DATOS); },
     contraElLibro: () => (opts.contra instanceof Error ? throwError(() => opts.contra) : of(opts.contra ?? { desde: '2026-09-25', cuentas: [] })),
     revisarEstadoBanco: (_b: string, n: string, id?: string | null) => { llamadas.push([n, id]); return of(opts.revisar!(n, id)); },
     confirmarEstadoBanco: (...args: unknown[]) => {
@@ -61,18 +65,23 @@ function montar(opts: {
       const r = opts.confirmar?.(args[1] as string);
       return r instanceof Error ? throwError(() => r) : of({ cuenta: { alias: 'x' }, nuevos: 1, ya_existia: false });
     },
+    usarElBanco: (id: string) => { usados.push(id); const r = opts.usar!(id); return r instanceof Error ? throwError(() => r) : of(r); },
   };
-  const auth = { user: signal({ permissions: { [Permission.FINANCE_BANK_GESTIONAR]: true } }) };
+  const auth = { user: signal({ permissions: { [Permission.FINANCE_BANK_GESTIONAR]: !opts.sinPermiso } }) };
   TestBed.configureTestingModule({
     imports: [BancosEstadoBancoComponent],
-    providers: [provideZonelessChangeDetection(), MessageService,
+    providers: [provideZonelessChangeDetection(), MessageService, ConfirmationService,
       { provide: BankService, useValue: api }, { provide: AuthService, useValue: auth }],
   });
   const fx = TestBed.createComponent(BancosEstadoBancoComponent);
   fx.detectChanges();
   const cmp = fx.componentInstance;
   const soltar = async (...nombres: string[]) => { await cmp.agregarArchivos(nombres.map((nombre) => ({ nombre, b64: 'AAAA' }))); fx.detectChanges(); };
-  return { fx, cmp, llamadas, guardados, soltar, el: fx.nativeElement as HTMLElement };
+  const confirmaciones: { accept?: () => void; reject?: () => void; header?: string }[] = [];
+  TestBed.inject(ConfirmationService).requireConfirmation$.subscribe((c) => { if (c) confirmaciones.push(c as never); });
+  const toasts: { severity?: string; summary?: string; detail?: string }[] = [];
+  TestBed.inject(MessageService).messageObserver.subscribe((m) => toasts.push(...(Array.isArray(m) ? m : [m])));
+  return { fx, cmp, llamadas, guardados, usados, confirmaciones, toasts, cargas: () => cargas, soltar, el: fx.nativeElement as HTMLElement };
 }
 
 describe('BancosEstadoBancoComponent', () => {
@@ -180,5 +189,92 @@ describe('BancosEstadoBancoComponent', () => {
     expect(cmp.resumen().some((m) => m.label === 'Cuadran con el libro')).toBe(false);
     expect(cmp.contraError()).toBeTruthy();
     expect(el.textContent).not.toContain('Contra el libro');
+  });
+
+  describe('[CB.60b] usar el banco, cuenta por cuenta', () => {
+    const listo = (n: number) => ({ dias_seguidos: n, requeridos: 10, cumple: n >= 10, ultimo_que_cuadra: n ? '2026-11-09' : null, desde: n ? '2026-11-10' : null });
+    const cuentaB = (id: string, alias: string, p: Partial<CuentaContraElLibro>): CuentaContraElLibro =>
+      ({ id, alias, desde: '2026-11-01', hasta: '2026-11-11', dias: [], resumen: resumenC({}), banco_desde: null, ...p });
+    const CONTRA_B: ContraElLibro = { desde: '2026-09-27', cuentas: [
+      cuentaB('p', 'BB 4166', { resumen: resumenC({ cuadra: 10 }), listo_para_banco: listo(10), sucursales: { con_sucursal_libro: 100, deducidas: 80, coinciden: 79, sin_senal: 20 } }),
+      cuentaB('q', 'BBVA 6721', { resumen: resumenC({ cuadra: 8 }), listo_para_banco: listo(8) }),
+      cuentaB('r', 'BTE 3041', { resumen: resumenC({ cuadra: 12, abierto: 0 }), listo_para_banco: listo(12), banco_desde: '2026-11-03' }),
+      cuentaB('s', 'BBVA 4176', { resumen: resumenC({ cuadra: 8, difiere: 1 }), listo_para_banco: listo(0) }),
+    ] };
+    const USO: UsoDelBanco = { cuenta: 'BB 4166', desde: '2026-11-10', ya_estaba: false, llaves: 5, libro_borrados: 2, metidos: 30, en_cero: 0, sin_categoria: 0, sin_sucursal: 3 };
+    const boton = (el: HTMLElement, alias: string) => el.querySelector(`button[aria-label="Usar el banco en ${alias}"]`) as HTMLButtonElement | null;
+
+    it('la columna «Dejar el libro» en palabras, y el orden: difiere, lista, paralelo, ya usa el banco', () => {
+      const { cmp, el } = montar({ contra: CONTRA_B });
+      expect(cmp.cuentasContra().map((c) => c.alias)).toEqual(['BBVA 4176', 'BB 4166', 'BBVA 6721', 'BTE 3041']);
+      expect(cmp.cuentasContra().map((c) => cmp.dejar(c).texto)).toEqual(['lleva 0 de 10 días seguidos', 'puede usar el banco', 'lleva 8 de 10 días seguidos', 'usa el banco desde el 03/11']);
+      expect(boton(el, 'BB 4166')).not.toBeNull();
+      expect(boton(el, 'BBVA 6721')).toBeNull(); // [negativa] sin la racha no hay botón
+      expect(boton(el, 'BTE 3041')).toBeNull(); // [negativa] la que ya pasó no se ofrece otra vez
+      expect(cmp.textoAlimenta()).toBe('En BTE 3041 ya alimenta Movimientos; las demás cuentas se comparan contra el libro día por día.');
+      expect(cmp.resumen().find((m) => m.label === 'Cuadran con el libro')?.sub).toContain('BB 4166 ya puede usar el banco');
+      expect(el.querySelector('.eb-leyenda')?.textContent).toContain('con 10 días seguidos que cuadran');
+    });
+
+    it('pulsar pide confirmar; nada pasa antes. Al aceptar pasa la cuenta, lo dice con lo que quedó sin sucursal y recarga', () => {
+      const { cmp, fx, el, usados, confirmaciones, toasts, cargas } = montar({ contra: CONTRA_B, usar: () => USO });
+      let emitidos = 0;
+      cmp.guardado.subscribe(() => emitidos++);
+      const antes = cargas();
+      boton(el, 'BB 4166')!.click();
+      fx.detectChanges();
+      expect(confirmaciones.map((c) => c.header)).toEqual(['Usar el banco en BB 4166']);
+      expect(usados).toEqual([]);
+      expect(cmp.textoSucursal(cmp.aConfirmar()!)).toContain('acertó 79 de 80');
+      confirmaciones[0].accept!();
+      expect(usados).toEqual(['p']);
+      const t = toasts.find((x) => x.summary === 'BB 4166 usa el banco desde el 10/11');
+      expect(t?.severity).toBe('warn');
+      expect(t?.detail).toBe('30 movimientos de la descarga entraron a Movimientos · 3 sin sucursal · 2 renglón(es) del libro de días sin cerrar quedaron reemplazados');
+      expect(cargas()).toBe(antes + 1);
+      expect(emitidos).toBe(1);
+      expect(cmp.pasando()).toBeNull();
+    });
+
+    it('[negativa] cancelar no pasa nada', () => {
+      const { cmp, fx, el, usados, confirmaciones } = montar({ contra: CONTRA_B, usar: () => USO });
+      boton(el, 'BB 4166')!.click();
+      fx.detectChanges();
+      confirmaciones[0].reject!();
+      expect(usados).toEqual([]);
+      expect(cmp.aConfirmar()).toBeNull();
+    });
+
+    it('[negativa] si el servidor dice que no, se muestra su motivo y la cuenta sigue con el libro', () => {
+      const { cmp, toasts } = montar({ contra: CONTRA_B,
+        usar: () => Object.assign(new Error('400'), { error: { message: 'BB 4166 todavía no puede usar el banco', motivos: ['lleva 9 día(s) hábiles seguidos que cuadran con el libro; hacen falta 10'] } }) });
+      let emitidos = 0;
+      cmp.guardado.subscribe(() => emitidos++);
+      cmp.usarElBanco(cmp.cuentasContra()[1]);
+      const t = toasts.find((x) => x.severity === 'error');
+      expect(t?.summary).toBe('BB 4166 sigue con el libro');
+      expect(t?.detail).toContain('hacen falta 10');
+      expect(emitidos).toBe(0);
+      expect(cmp.pasando()).toBeNull();
+    });
+
+    it('[negativa] sin permiso de gestionar no hay botón: el estado se lee igual', () => {
+      const { el } = montar({ contra: CONTRA_B, sinPermiso: true });
+      expect(boton(el, 'BB 4166')).toBeNull();
+      expect(el.textContent).toContain('puede usar el banco');
+    });
+
+    it('[negativa] una API sin la racha (anterior a CB.60b) se declara «no medido»: ni «0 de 10» ni botón', () => {
+      const { cmp, el } = montar({ contra: CONTRA });
+      expect(cmp.dejar(cmp.cuentasContra()[1]).texto).toBe('no medido');
+      expect(el.querySelector('button[aria-label^="Usar el banco"]')).toBeNull();
+      expect(cmp.requeridos()).toBeNull();
+      expect(el.textContent).not.toContain('Dejar el libro:');
+    });
+
+    it('[negativa] sin la comparación no se afirma si la descarga alimenta o no Movimientos', () => {
+      const { cmp } = montar({ contra: Object.assign(new Error('500'), { status: 500 }) });
+      expect(cmp.textoAlimenta()).toBe('');
+    });
   });
 });

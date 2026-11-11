@@ -406,11 +406,24 @@ export interface DiaContraElLibro {
   /** Cómo cuadró: por el cierre del día, o por todos los saldos (cuando el cierre no se puede afirmar). */
   cuadre_por?: 'cierre' | 'saldos' | null;
 }
+/** [CB.60b] ¿Puede la cuenta dejar el libro? 10 días hábiles SEGUIDOS que cuadran (Edgar, 2026-11-11). */
+export interface ListoParaBanco { dias_seguidos: number; requeridos: number; cumple: boolean; ultimo_que_cuadra: string | null; desde: string | null }
 export interface CuentaContraElLibro {
   id: string; alias: string; desde: string | null; hasta: string | null; dias: DiaContraElLibro[];
   resumen: { cuadra: number; difiere: number; sin_libro: number; abierto: number; solo_banco: number; solo_libro: number; monto_solo_banco: number; monto_solo_libro: number };
+  /** [CB.60b] Opcionales: una API anterior a CB.60b no los manda, y entonces no se ofrece pasar al banco. */
+  listo_para_banco?: ListoParaBanco;
+  /** [CB.60b] Desde qué día la cuenta usa el banco (`null` = sigue con el libro). Sólo se compara lo anterior. */
+  banco_desde?: string | null;
+  /** [CB.61] La sucursal sin el libro contra la S del libro, en el paralelo. */
+  sucursales?: { con_sucursal_libro: number; deducidas: number; coinciden: number; sin_senal: number };
 }
 export interface ContraElLibro { desde: string; cuentas: CuentaContraElLibro[] }
+/** [CB.60b] Lo que hizo «usar el banco» (`POST statement-files/usar-el-banco`). */
+export interface UsoDelBanco {
+  cuenta: string; desde: string; ya_estaba: boolean; llaves: number; libro_borrados: number;
+  metidos: number; en_cero: number; sin_categoria: number; sin_sucursal: number;
+}
 
 /**
  * [CB.62] Las comisiones de la terminal que irían a Kepler (`GET comisiones-kepler`, sólo lee). Espejo de
@@ -538,6 +551,10 @@ export class BankService {
   }
   contraElLibro(): Observable<ContraElLibro> {
     return this.http.get<ContraElLibro>(`${this.base}/statement-files/contra-libro`);
+  }
+  /** [CB.60b] La cuenta deja el libro: desde el día siguiente al último que cuadró, sus movimientos salen de la descarga. */
+  usarElBanco(bankAccountId: string): Observable<UsoDelBanco> {
+    return this.http.post<UsoDelBanco>(`${this.base}/statement-files/usar-el-banco`, { bank_account_id: bankAccountId });
   }
   revisarEstadoBanco(fileBase64: string, fileName: string, bankAccountId?: string | null): Observable<RevisionEstadoBanco> {
     return this.http.post<RevisionEstadoBanco>(`${this.base}/statement-files/preview`, { file_base64: fileBase64, file_name: fileName, bank_account_id: bankAccountId || undefined });

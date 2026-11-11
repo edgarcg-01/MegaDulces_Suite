@@ -1,4 +1,4 @@
-import { llavesDeSucursal, MapaDeSucursal } from './sucursal';
+import { llavesDeSucursal, MapaDeSucursal, sucursalDelCatalogo } from './sucursal';
 
 // Conceptos con la forma de los estados de cuenta reales; terminales, tarjetas y afiliaciones inventadas.
 const tpv = (terminal: string) => ({ amount_in: 100, concepto: `VENTAS DEBITO/${terminal} TERMINALES PUNTO DE VENTA` });
@@ -32,5 +32,20 @@ describe('[CB.61] sucursal sin el libro', () => {
     m.aprender(gas('1111222233334444'), '50');
     m.aprender(gas('1111222233334444'), '54');
     expect(m.deducir(gas('1111222233334444'))).toBeNull();
+  });
+
+  it('[CB.60b] al usar el banco se guardan SÓLO las llaves que ya se creen (puras y vistas 2+ veces)', () => {
+    const m = new MapaDeSucursal();
+    m.aprender(tpv('100000001'), '40'); m.aprender(tpv('100000001'), '40'); // pura, 2 veces → se guarda
+    m.aprender(tpv('100000002'), '42');                                    // pura, 1 vez → no
+    m.aprender(gas('1111222233334444'), '50'); m.aprender(gas('1111222233334444'), '54'); // impura → no
+    const puras = m.llavesPuras().filter((k) => k.tipo !== 'concepto');
+    expect(puras).toEqual([{ tipo: 'terminal', valor: '100000001', sucursal: '40', veces: 2 }]);
+  });
+
+  it('[CB.60b] sin libro, la sucursal sale del catálogo confirmado; una llave que no está no da ninguna', () => {
+    const catalogo = new Map([['terminal|100000001', '40']]);
+    expect(sucursalDelCatalogo(tpv('100000001'), catalogo)).toEqual({ sucursal: '40', por: 'terminal' });
+    expect(sucursalDelCatalogo(tpv('100000099'), catalogo)).toBeNull();
   });
 });

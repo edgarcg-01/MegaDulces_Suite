@@ -34,6 +34,13 @@ export class EstadoDeCuentaController {
     return this.svc.contraElLibro(dias ? Number(dias) : undefined);
   }
 
+  @Post('usar-el-banco')
+  @RequirePermissions(Permission.FINANCE_BANK_GESTIONAR)
+  @ApiOperation({ summary: '[CB.60b] La cuenta deja el libro: guarda el catálogo de sucursal aprendido, y desde el día siguiente al último que cuadró la descarga del banco alimenta los movimientos. Sólo con 10 días hábiles seguidos que cuadran.' })
+  usarElBanco(@Body() body: { bank_account_id?: string }, @Req() req: AuthedRequest): ReturnType<Svc['usarElBanco']> {
+    return this.svc.usarElBanco(String(body?.bank_account_id ?? ''), req?.user?.full_name || req?.user?.username);
+  }
+
   @Post('preview')
   @RequirePermissions(Permission.FINANCE_BANK_GESTIONAR)
   @ApiOperation({ summary: 'Lee el archivo (base64) y dice qué entraría: banco, cuenta y cómo se fijó, cuadre de saldo, nuevos vs ya cargados y motivos de bloqueo. No escribe.' })
