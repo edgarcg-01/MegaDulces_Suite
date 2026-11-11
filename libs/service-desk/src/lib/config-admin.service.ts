@@ -30,7 +30,7 @@ import {
 import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import { parseHHMM } from './domain/business-clock';
 import { validarDefinicionCampo } from './domain/campos-extra';
-import { puedeAdministrarCola, puedeCoordinarCola } from './domain/queue-access';
+import { puedeAdministrarCola, puedeCoordinarCola, puedeLiberarConfidencialHuerfana, puedeMarcarConfidencial } from './domain/queue-access';
 import { ServiceDeskAgentsService } from './agents.service';
 import { ServiceDeskQueueMembersService } from './queue-members.service';
 import type { ActorCtx } from './service-desk.types';
@@ -235,6 +235,15 @@ export class ServiceDeskConfigAdminService {
     return this.get();
   }
 
+  /** `[MS.8.2]` Cuánta coordinación activa y cuántas solicitudes tiene la cola (decide si una confidencial está huérfana). */
+  private async huella(trx: Knex.Transaction, queueId: string): Promise<{ coordinadores: number; solicitudes: number }> {
+    const [c, s] = await Promise.all([
+      trx('servicedesk.queue_members').where({ queue_id: queueId, role: 'coordinador', active: true }).count({ n: '*' }).first(),
+      trx('servicedesk.requests').where({ queue_id: queueId }).count({ n: '*' }).first(),
+    ]);
+    return { coordinadores: Number(c?.n ?? 0), solicitudes: Number(s?.n ?? 0) };
+  }
+
   /** `[MSH.2]` ¿La cola es confidencial? De eso depende quién la administra (H1). Una cola inexistente cuenta como no confidencial: el 404/400 lo da quien llama. */
   private async esConfidencial(trx: Knex.Transaction, queueId: string): Promise<boolean> {
     const q = await trx('servicedesk.queues').where({ id: queueId }).whereNull('deleted_at').first('confidential');
@@ -264,6 +273,11 @@ export class ServiceDeskConfigAdminService {
     const name = String(dto?.name ?? '').trim();
     if (!CODIGO_RE.test(code)) throw new BadRequestException('code debe ir en minúsculas, empezar con letra y usar sólo letras, números y guion bajo');
     if (!name) throw new BadRequestException('Escribe el nombre de la cola');
+    // `[MS.8.2]` El god-mode no queda como miembro de lo que crea (`altaComoCoordinador`): una cola confidencial creada por él nacería
+    // sin coordinación y trabada (H1). Quien crea una confidencial tiene que quedar como su coordinación.
+    if (dto.confidential === true && !puedeMarcarConfidencial({ coordinadores: ctx.esGod ? 0 : 1 })) {
+      throw new BadRequestException('Créala sin la marca de confidencial, nombra a su coordinación y márcala después: una cola confidencial sólo la administra su coordinación, y sin ella quedaría trabada.');
+    }
     const orden = dto.sort_order !== undefined ? this.orden(dto.sort_order) : 100;
     const modelo = dto.priority_model !== undefined ? this.modelo(dto.priority_model) : 'impacto';
     await this.tk.run(async (trx) => {
@@ -317,8 +331,18 @@ export class ServiceDeskConfigAdminService {
     // `[MS.7.6]` Sólo la coordinación de ESA cola (o el god-mode) edita su cola.
     if (!puedeCoordinarCola(ctx.colas, id)) throw new ForbiddenException('Sólo la coordinación de esa cola puede cambiarla');
     await this.tk.run(async (trx) => {
-      // `[MSH.2]` H1: una cola confidencial sólo la cambia SU coordinación (no el god-mode).
-      if (!puedeAdministrarCola(ctx.colas, id, await this.esConfidencial(trx, id))) throw new ForbiddenException('Esta área es confidencial: sólo su coordinación puede cambiarla');
+      // `[MSH.2]` H1: una cola confidencial sólo la cambia SU coordinación (no el god-mode)…
+      const confidencial = await this.esConfidencial(trx, id);
+      if (!puedeAdministrarCola(ctx.colas, id, confidencial)) {
+        // `[MS.8.2]` …salvo quitarle la marca a una confidencial HUÉRFANA (sin coordinación ni solicitudes), que si no queda trabada.
+        if (!(confidencial && puedeLiberarConfidencialHuerfana(ctx.colas, await this.huella(trx, id), { ...dto }))) {
+          throw new ForbiddenException('Esta área es confidencial: sólo su coordinación puede cambiarla');
+        }
+      }
+      // `[MS.8.2]` Marcarla confidencial exige que ya tenga coordinación: sin ella, nadie la podría administrar después.
+      if (dto.confidential === true && !confidencial && !puedeMarcarConfidencial(await this.huella(trx, id))) {
+        throw new BadRequestException('Primero nombra a la coordinación de esta área: una cola confidencial sólo la administra su coordinación, y sin ella quedaría trabada.');
+      }
       if (cambiaResponsable) {
         /*
          * `[MS.7.10]` El responsable por omisión es a quien cae un ticket sin regla: **nunca** alguien que no sea miembro activo de

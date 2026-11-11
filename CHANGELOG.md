@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Added — Mesa de Servicio: área de Compras y «Nueva área» desde la pantalla (MS.8.1–MS.8.3, 2026-11-11 · en código, sin soltar)
+- Nueva área **Compras (precios y productos)** para reportar precio incorrecto, código de barras, producto no encontrado en Kepler, descripción, IVA, margen e IEPS, con sucursal obligatoria y código de barras / clave / observaciones opcionales. Responsable: Mario Ventura (los permisos de la Mesa se le dan sólo a él).
+- En **Mesa de Servicio › Configuración** se pueden crear áreas nuevas; nacen apagadas.
+- Un área ya no se puede marcar confidencial sin coordinación (quedaba trabada, como Mantenimiento), y el administrador puede quitarle la marca a una que se trabó sin solicitudes.
+- ⚠️ Migración `20261111135132_servicedesk_seed_compras` en prod **antes** de soltar; Mario vuelve a entrar.
 ### Fixed — Pagos: las facturas «por confirmar» que Oficinas nunca registró ya se pueden programar (PGP.113 · 2026-11-10 · en código, sin soltar)
 - Las facturas de sucursal que vencían antes del 1-oct estaban bloqueadas todas, sin forma de destrabarlas. Ahora se sueltan las que Oficinas nunca registró: sin copia, sin pago por el mismo importe y sin nada aplicado. Hoy son **67 de 205 ($1.15 M)**.
 - La factura soltada aparece en la lista con su botón para agregarla y dice por qué se pudo. Las demás siguen «por confirmar» porque pueden estar pagadas desde Oficinas.
