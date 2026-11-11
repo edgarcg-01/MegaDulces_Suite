@@ -17,8 +17,8 @@
 | Hito | Fecha | Estado |
 |---|---|---|
 | Preparación (RH.0) | hasta 9-oct | ⚠️ atrasada: faltan RH.0.2, RH.0.4, RH.0.5 y desplegar RH.0.6 |
-| **Corte de asistencia** (RH.1.8) | **7-nov** (viernes) | En riesgo por RH.1.4 (personas) |
-| Corte de reclutamiento + bot (RH.3.5) | **10-nov** (Edgar lo adelantó del 5-dic) | Cargas ensayadas; runbook [`RH_CORTE_RECLUTAMIENTO.md`](../RUNBOOKS/RH_CORTE_RECLUTAMIENTO.md) |
+| **Corte de asistencia** (RH.1.8) | ~~7-nov~~ **por fijar** | ⚠️ **No ha ocurrido** (11-nov: `hr.*` vacío en prod). Pre-vuelo del 11-nov **sin bloqueos** (sólo el aviso de horario). Falta: personas, ensayo, paridad con la foto del día y pasar el lector de `LapSistemasA` a la Suite (David). Mientras no ocurra, Mega Talento **no** puede quedar en sólo lectura |
+| Corte de reclutamiento + bot (RH.3.5) | **10-nov** (Edgar lo adelantó del 5-dic) | ✅ **Hecho**: bitácora en [`RH_CORTE_RECLUTAMIENTO.md`](../RUNBOOKS/RH_CORTE_RECLUTAMIENTO.md). ⚠️ 11-nov: **nadie de RH tiene el rol en la Suite** (sigue trabajando en Mega Talento) y el bot viejo sigue mandando lo automático ([RH.3.6]) |
 | Mega Talento en sólo lectura | 10-nov → 24-nov | 2 semanas como vuelta atrás |
 | **Apagado de Mega Talento** (RH.4) | **24-nov** | — |
 
@@ -206,6 +206,7 @@ relojes, candidatos (incl. no recontratables, spam, papelera), vacantes, revisio
 | Retención | [RH.10] ⬜ | permanencia, encuestas de onboarding |
 | Requisiciones | [RH.11] ⬜ | requisiciones, `/pedir-personal` (re-medir uso: el 6-oct tenían 0 filas) |
 | Bot | [RH.12] ⬜ | salud del bot |
+| **Bot — lo que manda solo** (añadido 11-nov: el inventario de pantallas no lo vio) | [RH.3.6] ⬜ | invitación y recordatorios de la prueba psicométrica (663 mensajes / 14 candidatos en 30 días), dictamen al reclutador (707), expediente completo (181), retomar postulación (40), invitación al proceso por plantilla (18) |
 | No se porta | — | usuarios y login (los reemplaza la identidad de la Suite) |
 
 Para revisarlo: `git log --since=<último port> -- api/src/agente-horarios api/src/cierres.ts api/src/checador.ts api/src/incidencias.ts`
