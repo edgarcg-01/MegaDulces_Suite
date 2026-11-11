@@ -1,6 +1,6 @@
 <!-- INDICE-AUTO:INICIO -->
 
-> **Índice navegable** — 2366 KB, 14026 líneas, 76 secciones.
+> **Índice navegable** — 2367 KB, 14026 líneas, 76 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -391,9 +391,9 @@ Y se actualiza el símbolo al avanzar:
 - [ ] **[VAC.D1–D6]** ⏸️ Leer de `analytics.v_label_prices`, códigos como vista, override manual, frescura por sucursal, snapshot y reapuntar el candado de paridad `[CV.26]` — **todo necesita lectura de prod** (hoy sin acceso). Decisiones **D2, D3, D5** sin firmar.
 - [x] **[VAC.PROTOCOLO]** 🧪 Las observaciones de la auditoría de diseño del PM y las lecciones del ciclo entran al protocolo previo al PR: `ONBOARDING.md` §8.0b puntos **18–25** y punto **(15)** de `CLAUDE.md`; y, tras el incidente de arranque, **30 y 31** (`GOTCHAS.md` §84).
 - [x] **[VAC.FIX]** 🚀 `e5fa64ec8` (Edgar, 2026-10-15): alias de sólo tipo en el parámetro decorado de `kp.controller.ts` + prueba sobre `design:paramtypes`. **Verificado el 2026-10-16:** `/api/health` de prod `200`, commit `11d37aa77` (incluye el arreglo). La duración de la caída **no se midió**.
-- [x] **[VAC.U16]** 🧪 2026-11-07 (0Sistemas): logo 50 % más grande (96 → 144 px; kiosco 64 → 96), pie (productos escaneados y respaldo) al 80 % de opacidad, y la frescura **no se pinta en kiosco** (la ve el operador, no la clienta; se eligió sobre quitarla siempre para no romper la regla 11 ni sellar deuda `§9`). 47 pruebas del componente en verde (1 nueva). Validación visual **NO MEDIDA**.
-- [x] **[VAC.P1]** 🧪 2026-11-07 El escaneo deja de barrer `kdii`: la búsqueda en 7 columnas pasa de 7 `OR` a un arreglo con `@>` + migración `20261107115424_kdii_indice_codigos_verificador` (GIN + `lpad`, `CONCURRENTLY`). Medido en prod (sólo lectura): 62–66 ms de Seq Scan sobre 86,132 filas por escaneo; mismas filas en 428 códigos / 3,815 filas (0 diferencias, negativa en rojo); plan con índice <1 ms (local). ⛔ Falta aplicar la migración en prod y re-medir.
-- [x] **[VAC.PROTOCOLO.2]** 🧪 2026-11-07 Observaciones del PM del ciclo al protocolo previo al PR: `ONBOARDING.md` §8.0b puntos **82–85**.
+- [x] **[VAC.U16]** 🚀 2026-11-07 (0Sistemas): logo 50 % más grande (96 → 144 px; kiosco 64 → 96), pie (productos escaneados y respaldo) al 80 % de opacidad, y la frescura **no se pinta en kiosco** (la ve el operador, no la clienta). **En prod desde #507** (fusionado 2026-11-08; `/api/health` = `dd13a0261` lo contiene, medido 2026-11-11). ⛔ No es ✅: falta verla en el monitor real del mostrador (`[VAC.ATERRIZAJE]`).
+- [x] **[VAC.P1]** ✅ 2026-11-11 El escaneo dejó de barrer `kdii` (#507; migración `20261107115424_kdii_indice_codigos_verificador` aplicada en prod el 2026-11-08 06:18 UTC, los dos índices `indisvalid = true`). **Medido en prod, mismo instrumento antes y después:** la consulta pasó de 62–66 ms (Parallel Seq Scan, 8,892 buffers) a **0.7 ms** (Bitmap Index Scan sobre `ix_kdii_codigos_verificador`, 19 buffers); `/api/kp/precio` en la LAN, de ~75 ms a **15–24 ms** (5 corridas). Un código de barras de muestra; por `megadulcessuite.com` NO re-medido.
+- [x] **[VAC.PROTOCOLO.2]** 🧪 2026-11-07 Observaciones del PM del ciclo al protocolo previo al PR: `ONBOARDING.md` §8.0b puntos **82–85**; y al cerrarlo (2026-11-11), **101–102**.
 - [ ] **[VAC.ATERRIZAJE]** ⚠️ Para marcar ✅ (DoD de `METODO_DE_TRABAJO` §5): validación visual en el monitor real + H1 con Precios/Comercial; el resto (L2/L4/L5/L8, U1–U3, U14, D1–D6) en ⏸️ con nombre. Estado punto por punto en `FASE_VAC` §12.
 - [ ] ⚠️ **Falta la validación visual en el monitor real de mostrador** (lector, cámara, pantalla completa y datos reales): todo lo visual se vio en renders estáticos, no en la app.
 
