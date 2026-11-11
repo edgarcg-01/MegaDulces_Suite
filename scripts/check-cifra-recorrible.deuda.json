@@ -1,7 +1,4 @@
 {
-  "apps/view/src/app/modules/almacen/pages/almacen-recepcion-sesion.component.ts": [
-    "listCaptures"
-  ],
   "apps/view/src/app/modules/comercial/pages/comercial-expedientes.component.ts": [
     "expedientes"
   ],

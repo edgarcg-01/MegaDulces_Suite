@@ -38,7 +38,7 @@ import type {
   RespuestaListaPrecios,
   RespuestaSinClasificar,
 } from '@megadulces/contracts';
-import type { CuidarRespuesta, FlujoDetalle, FlujoListaRespuesta, MargenesProducto, ProductosProveedorRespuesta, ProveedoresRespuesta } from './product-flow';
+import type { CuidarRespuesta, FlujoDetalle, FlujoListaRespuesta, JuicioLotesRespuesta, MargenesProducto, ProductosProveedorRespuesta, ProveedoresRespuesta } from './product-flow';
 
 /**
  * Admin de products. Reads gateados por COMMERCIAL_PRODUCTS_VER, mutaciones por
@@ -428,6 +428,18 @@ export class CommercialProductsController {
       req?.user?.permissions?.[Permission.COMPRAS_COSTO_ESTANDAR_VER] === true ||
       isPlatformAdminRole(req?.user?.role_name);
     return this.flow.cuidar({ puedeVerCosto });
+  }
+
+  // `[CE.3.1]` «Por vencer» (gate COMMERCIAL_INVENTORY_VER) pide el juicio de SUS lotes: quien entra por
+  // inventario también lo ve. Sin costo: el juicio no lo usa.
+  @Get('flow/lotes')
+  @RequireAnyPermission(Permission.COMMERCIAL_PRODUCTS_VER, Permission.COMMERCIAL_INVENTORY_VER)
+  @ApiOperation({
+    summary: '`[CE.3.1]` El juicio de caducidad lote por lote (`juzgarLotes`) de unos productos (ids separados por '
+      + 'coma, hasta 200): caducado / no alcanza / justo / a tiempo, y mover a otra sucursal, promover o devolver.',
+  })
+  flowLotes(@Query('ids') ids?: string): Promise<JuicioLotesRespuesta> {
+    return this.flow.juicioLotes(String(ids ?? '').split(',').map((x) => x.trim()).filter(Boolean));
   }
 
   @Get('flow/proveedores')

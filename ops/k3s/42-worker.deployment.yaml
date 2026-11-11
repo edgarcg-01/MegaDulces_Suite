@@ -174,10 +174,13 @@ spec:
             # ⭐ PRENDIDO por Edgar el 2026-11-11 («si, enciendelo»). Hasta ese día NUNCA había corrido:
             #   medido en prod, cero latidos `bank_recon_aviso` en analytics.cron_runs desde que existe
             #   (2026-10-21). Se conciliaba sólo cuando alguien pulsaba «Conciliar».
-            #   Escucha los avisos de Kepler (`caja_movimientos`) y, desde [CB.60b], los de Bancos
+            #   Escucha los documentos de Kepler (`caja_fuente`) y, desde [CB.60b], los de Bancos
             #   (`bancos_movimientos`: la descarga del banco que entra a los movimientos y la carga del
-            #   libro). Corre `runMatch` —el MISMO del botón— tras 60 s de silencio y sólo si la firma del
-            #   periodo cambió; escribe `bank_recon_matches` y el `recon_status` de cada movimiento.
+            #   libro). Mira a los 60 s del primer aviso (los de en medio se absorben), al arrancar, y
+            #   corre `runMatch` —el MISMO del botón— sólo si la firma del periodo cambió; escribe
+            #   `bank_recon_matches` y el `recon_status` de cada movimiento.
+            #   ⛔ Hasta el 2026-11-11 escuchaba `caja_movimientos`, que sólo suena por cuentas de
+            #   EFECTIVO: prendido, no corrió ni una vez.
             #   Cada corrida late en analytics.cron_runs (`bank_recon_aviso`): ése es el testigo.
             # ⛔ Va aquí y no con `kubectl set env`: lo que no está en el manifiesto no sobrevive al
             #   siguiente despliegue (pasó dos veces el 2026-10-19 con el autollenado).

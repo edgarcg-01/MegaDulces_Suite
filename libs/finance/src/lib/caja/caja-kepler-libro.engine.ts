@@ -35,6 +35,10 @@
  * corrido 28 días casó más (19 %) que el real (7 %). Un casamiento que el azar hace igual de bien
  * no se publica como hecho. Esos documentos siguen saliendo como pendientes y se declaran en
  * `FASE_CGA_PLAN_IMPLEMENTACION.md` §11.4.3.
+ *
+ * `[CGA-A.73]` La COLA de captura sí los casa ya, pero no por importe: por lo que el Control
+ * ESCRIBIÓ (la ruta y el día de venta, «Morelia», o la venta vecinal en dos renglones), con su
+ * control negativo en 0. Ver `caja-relevo.casadosPorControlDespues`.
  */
 
 import { casarPorImporte, redondea2, type MovCuadre, type ParCasado, type ResultadoCuadre } from './caja-cuadre.engine';

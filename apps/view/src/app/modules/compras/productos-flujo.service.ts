@@ -108,7 +108,14 @@ export interface CaducidadResumen {
 
 export type EstadoLote = 'caducado' | 'no_alcanza' | 'justo' | 'a_tiempo';
 
+/** El estado de un lote en palabras: el MISMO en el flujo del producto y en «Por vencer» (`[CE.3.1]`). */
+export const LOTE_TEXTO: Record<EstadoLote, string> = {
+  caducado: 'Caducado', no_alcanza: 'No alcanza a venderse', justo: 'Caduca pronto', a_tiempo: 'Se vende a tiempo',
+};
+
 export interface LoteCaducidad {
+  /** `[CE.3.1]` El renglón de `commercial.stock_lots` juzgado. Opcional: servidores previos no lo traen. */
+  lot_id?: string | null;
   plaza: string;
   nombre: string | null;
   lote: string | null;
@@ -123,6 +130,15 @@ export interface LoteCaducidad {
   mover_a: Array<{ plaza: string; nombre: string | null; cantidad: number }>;
   sin_destino: number;
   escalera: UnidadEscalera[] | null;
+}
+
+/** `[CE.3.1]` El juicio de `juzgarLotes` para unos productos (`GET /commercial/products/flow/lotes`). */
+export interface JuicioLotes {
+  periodos: PeriodosFlujo;
+  corte: string;
+  en_vivo_al: string;
+  caducidad_aviso: number;
+  productos: Array<{ product_id: string; lotes: LoteCaducidad[] }>;
 }
 
 export type VeredictoCompra = 'comprar' | 'traspasar' | 'esperar' | 'sobra' | 'no_comprar' | 'sin_movimiento';
@@ -361,6 +377,11 @@ export class ProductosFlujoService {
 
   listar(ids: string[]): Observable<FlujoLista> {
     return this.http.get<FlujoLista>(`${this.base}/flow`, { params: new HttpParams().set('ids', ids.join(',')) });
+  }
+
+  /** `[CE.3.1]` El juicio lote por lote de unos productos (hasta 200 por llamada). */
+  juicioLotes(ids: string[]): Observable<JuicioLotes> {
+    return this.http.get<JuicioLotes>(`${this.base}/flow/lotes`, { params: new HttpParams().set('ids', ids.join(',')) });
   }
 
   cuidar(): Observable<CuidarRespuesta> {

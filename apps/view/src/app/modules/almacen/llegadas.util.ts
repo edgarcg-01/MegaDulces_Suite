@@ -51,6 +51,15 @@ export interface ResumenLlegadas {
   sin_caducidad: number;
   por_autorizar: number;
   en_camino: number;
+  /**
+   * `[CE.3.3]` La métrica de la fase: de los renglones que YA llegaron (sin lo que va en camino),
+   * cuántos ya no esperan fecha — fechados, o declarados sin caducidad. Un camión sin abrir cuenta
+   * todos sus renglones como pendientes: entraron a Kepler y a nadie se le pidió la fecha.
+   */
+  renglones_llegados: number;
+  renglones_listos: number;
+  /** 0..100, redondeado; `null` si no llegó ningún renglón (no es 0 %: no hubo qué medir). */
+  cobertura_pct: number | null;
 }
 
 export function resumirLlegadas(lista: readonly AndenLlegada[], hoy: string): ResumenLlegadas {
@@ -58,12 +67,15 @@ export function resumirLlegadas(lista: readonly AndenLlegada[], hoy: string): Re
     llegaron: 0, proveedor: 0, traspaso: 0, manual: 0, anteriores: 0,
     sin_abrir: 0, importe_sin_abrir: 0, a_medias: 0, renglones_sin_fecha: 0,
     completas: 0, sin_caducidad: 0, por_autorizar: 0, en_camino: 0,
+    renglones_llegados: 0, renglones_listos: 0, cobertura_pct: null,
   };
   for (const l of lista) {
     r.sin_caducidad += l.resumen.sin_caducidad;
     r.por_autorizar += l.resumen.por_autorizar;
     if (l.estado === 'en_camino') { r.en_camino++; continue; }
     r.llegaron++;
+    r.renglones_llegados += l.resumen.renglones;
+    r.renglones_listos += l.resumen.listos;
     if (l.tipo === 'compra') r.proveedor++;
     else if (l.tipo === 'traspaso') r.traspaso++;
     else r.manual++;
@@ -72,5 +84,6 @@ export function resumirLlegadas(lista: readonly AndenLlegada[], hoy: string): Re
     else if (l.estado === 'a_medias') { r.a_medias++; r.renglones_sin_fecha += l.resumen.faltan; }
     else r.completas++;
   }
+  r.cobertura_pct = r.renglones_llegados ? Math.round((100 * r.renglones_listos) / r.renglones_llegados) : null;
   return r;
 }

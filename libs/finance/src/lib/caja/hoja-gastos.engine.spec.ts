@@ -5,7 +5,7 @@
  */
 import { ZONAS_HOJA_GASTOS } from '@megadulces/contracts';
 import {
-  armarHojaAbierta, cuadreDelRetiro, hojaAbiertaAutorizada, depositoDeHoja, depositoKeplerDeHoja, instruccionDePago, loYaRepuesto, motivoFueraDeHoja, notaSinDeposito, pagadoEnControl, requisitoDeHoja, retirosQueCuadran,
+  armarHojaAbierta, conTestigoBanco, cuadreDelRetiro, hojaAbiertaAutorizada, depositoDeHoja, depositoKeplerDeHoja, instruccionDePago, loYaRepuesto, motivoFueraDeHoja, notaSinDeposito, pagadoEnControl, requisitoDeHoja, retirosQueCuadran, testigoBancoDeHoja,
   type BancoDeZona, type DepositoBancoHoja, type DepositoKeplerHoja, type JuicioDePagoHoja, type PagoDeZona, type RetiroCaosConLigas, type RetiroLibreHoja,
 } from './hoja-gastos.engine';
 
@@ -480,5 +480,74 @@ describe('[LE.6.29] por qué la hoja pagada no trae su depósito', () => {
     const r = notaSinDeposito('5854', '2026-11-10', ['06'], new Map(), (s) => (s === '06' ? 'Canindo' : s));
     expect(r.vencido).toBe(false);
     expect(r.nota).toContain('Canindo, ninguno en estos días');
+  });
+});
+
+// ⭐ `[LE.6.31]` PM, 2026-11-11: la 1604 ya está cargada. El banco es el segundo testigo: dice si el dinero LLEGÓ.
+// Abonos reales de la 1604 (prod, sólo lectura): HG-1 ($83,981.89) se depositó con $83,982 el 30/10; para HG-9
+// ($71,326, pagada el 5/11) el más parecido es $71,332.50 del 3/11, ANTES del pago y $6.50 arriba.
+describe('[LE.6.31] el estado de cuenta de la zona como segundo testigo del depósito', () => {
+  const C1604 = (cargado_hasta: string | null) => ({ cuenta: '1604', cargado_hasta });
+  const ABONOS: DepositoBancoHoja[] = [
+    { id: 'm1', dia: '2026-10-30', importe: 101560 }, { id: 'm2', dia: '2026-10-30', importe: 83982 },
+    { id: 'm3', dia: '2026-11-03', importe: 71332.5 }, { id: 'm4', dia: '2026-11-06', importe: 84950 },
+    { id: 'm5', dia: '2026-11-13', importe: 71326 },
+  ];
+  it('encuentra el abono de HG-1 por su total (±$0.50) y lo dice con su día', () => {
+    const r = testigoBancoDeHoja(83981.89, '2026-10-30', 'Zona Morelia', C1604('2026-11-10'), ABONOS);
+    expect(r.estado).toBe('encontrado');
+    expect(r.deposito).toEqual({ id: 'm2', dia: '2026-10-30', importe: 83982 });
+    expect(r.texto).toBe('En el estado de cuenta de la 1604: $83,982.00 el 30/10.');
+  });
+  it('HG-9: con los siete días cargados y sin abono, NO llegó; el de antes del pago y el de después de la ventana no cuentan', () => {
+    const r = testigoBancoDeHoja(71326, '2026-11-05', 'Zona Morelia', C1604('2026-11-12'), ABONOS);
+    expect(r.estado).toBe('no_aparece');
+    expect(r.deposito).toBeNull();
+    expect(r.texto).toContain('No está en el estado de cuenta de la 1604 (cargado al 12/11)');
+    expect(r.texto).toContain('$71,326.00 del 05/11 a siete días');
+  });
+  it('[negativa] con seis de los siete días cargados no se afirma que no llegó: «todavía no aparece»', () => {
+    const r = testigoBancoDeHoja(71326, '2026-11-05', 'Zona Morelia', C1604('2026-11-11'), ABONOS);
+    expect(r.estado).toBe('todavia_no');
+    expect(r.texto).toContain('cargado al 11/11, todavía no aparece un abono por $71,326.00');
+  });
+  it('si el estado de cuenta no llega al día del pago, lo dice (HG-16, pagada el 11/11 con la 1604 al 10/11)', () => {
+    const r = testigoBancoDeHoja(93452.2, '2026-11-11', 'Zona Morelia', C1604('2026-11-10'), ABONOS);
+    expect(r.estado).toBe('sin_cargar');
+    expect(r.texto).toContain('llega al 10/11: todavía no cubre el pago del 11/11');
+  });
+  it('dos abonos por el total no se eligen: lo liga una persona', () => {
+    const r = testigoBancoDeHoja(84950, '2026-11-06', 'Zona Morelia', C1604('2026-11-13'),
+      [...ABONOS, { id: 'm6', dia: '2026-11-07', importe: 84950 }]);
+    expect(r.estado).toBe('ambiguo');
+    expect(r.deposito).toBeNull();
+  });
+  it('sin cuenta en el catálogo (Canindo) no se finge: lo dice con el nombre de la zona', () => {
+    const r = testigoBancoDeHoja(85866.52, '2026-11-06', 'Zona Canindo', null, []);
+    expect(r.estado).toBe('sin_cuenta');
+    expect(r.texto).toContain('Zona Canindo no está en el catálogo de bancos');
+  });
+
+  const SIN = (vencido: boolean) => ({ estado: 'no_aparece' as const, depositos: null, diferencia: null, nota: 'Kepler…', vencido });
+  const T = (estado: 'encontrado' | 'no_aparece' | 'todavia_no') => testigoBancoDeHoja(
+    estado === 'encontrado' ? 83981.89 : 71326, estado === 'encontrado' ? '2026-10-30' : '2026-11-05', 'Zona Morelia',
+    C1604(estado === 'todavia_no' ? '2026-11-10' : '2026-11-12'), ABONOS);
+  it('el banco manda: si cubre los siete días y no lo trae, está VENCIDO aunque Kepler sólo espere', () => {
+    expect(T('no_aparece').estado).toBe('no_aparece');
+    expect(conTestigoBanco(SIN(false), T('no_aparece')).vencido).toBe(true);
+  });
+  it('si el banco lo trae, el dinero llegó: no es vencido aunque Kepler ya debía tener su U-A-5', () => {
+    expect(conTestigoBanco(SIN(true), T('encontrado')).vencido).toBe(false);
+  });
+  it('[negativa] con el banco a medias, queda lo que dijo Kepler', () => {
+    expect(conTestigoBanco(SIN(true), T('todavia_no')).vencido).toBe(true);
+    expect(conTestigoBanco(SIN(false), T('todavia_no')).vencido).toBe(false);
+  });
+  it('[negativa] la hoja con su U-A-5 sigue depositada: el banco se dice al lado, no la mueve', () => {
+    const dep = { estado: 'depositada' as const, depositos: [{ id: 'x', dia: '2026-11-05', importe: 71326 }], diferencia: 0, nota: null };
+    const r = conTestigoBanco(dep, T('no_aparece'));
+    expect(r.estado).toBe('depositada');
+    expect(r.vencido).toBeUndefined();
+    expect(r.banco?.estado).toBe('no_aparece');
   });
 });
