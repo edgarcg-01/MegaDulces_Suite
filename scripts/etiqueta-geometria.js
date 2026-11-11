@@ -21,6 +21,11 @@
  *
  * `--pdf` deja una hoja para mirar con los ojos, que es la única forma de juzgar una etiqueta;
  * `--skus` recorta el corpus a unos pocos para inspección visual sin perder el corpus completo.
+ *
+ * `[ETQ-OFERTA.1]` El diseño EN OFERTA (meta en la columna derecha, precio normal tachado, escalón
+ * "Oferta 1 a N", barra de ahorro) se arma cuando la fila trae una promo que le toca al hero:
+ *   node scripts/etiqueta-geometria.js oferta --casos scripts/fixtures/etiqueta-oferta-casos.json
+ * El corpus congelado no trae promos, así que su salida no cambia (verificado byte a byte).
  */
 const fs = require('fs');
 const path = require('path');
@@ -36,6 +41,16 @@ const PDF = arg('--pdf');
 const PNG = arg('--png');
 const SIN_FUENTES = argv.includes('--sin-fuentes');
 const SKUS = (arg('--skus') || '').split(',').map((s) => s.trim()).filter(Boolean);
+/**
+ * `[ETQ-OFERTA.1]` `--casos <archivo.json>` mide OTRO conjunto con la misma forma que el corpus
+ * (`{ corpus: [...] }`, `pesos_catalogo_pct` opcional). Existe para el diseño de OFERTA, que el
+ * corpus congelado no trae (0 de 221 filas con `promo_pct`): ver `fixtures/etiqueta-oferta-casos.json`.
+ * Una fila puede traer `_hero` (el rótulo que eligió el operador en la cola) y `_id` (para
+ * distinguir dos filas del mismo SKU). `--json <archivo>` vuelca las filas medidas, para comparar
+ * dos corridas campo por campo.
+ */
+const CASOS = arg('--casos');
+const JSON_OUT = arg('--json');
 
 const STYLES_CSS = path.join(RAIZ, 'apps/view/src/styles.css');
 const FONTS_DIR = path.join(RAIZ, 'apps/view/src/assets/fonts');
@@ -105,6 +120,29 @@ const K = {
   // en vez de copiarse por lo mismo que las otras siete: un número a mano se separa de su fuente.
   MAX_RENGLONES: num(/const MAX_RENGLONES = ([\d.]+)/, null),
 };
+
+/**
+ * `[ETQ-OFERTA.1]` Las constantes que SÓLO usa el diseño de oferta. Van aparte de `K` a propósito:
+ * `K` se imprime en la cabecera del reporte y agregarle llaves cambiaría la salida de las
+ * etiquetas normales, que tiene que quedar idéntica.
+ *
+ * `PISO_MONTO_MM` es el piso de legibilidad del monto: el `size > 2.6` del encogido de `fitTiers`
+ * (el comentario de `MAX_RENGLONES` lo nombra así). Se extrae del bucle, no se escribe acá.
+ */
+const KP = {
+  MONTO_MAX_PROMO_K: num(/const MONTO_MAX_PROMO_K = ([\d.]+)/, null),
+  BARCODE_MAX_PROMO_MM: num(/const BARCODE_MAX_PROMO_MM = ([\d.]+)/, null),
+  PISO_MONTO_MM: num(/while \(\(noCabe\(\) \|\| !anchoOk\(\)\) && size > ([\d.]+)/, null),
+};
+for (const [k, v] of Object.entries(KP)) {
+  if (v == null) throw new Error(`etiqueta-geometria: no se pudo leer ${k} del componente`);
+}
+/**
+ * `[ETQ-OFERTA.1]` Tope de renglones TOTALES de la columna de la oferta. Opcional a propósito: sin la
+ * constante (el componente de antes del arreglo) el arnés mide la oferta como la imprimía, con el
+ * tope de presentaciones de siempre — así el mismo arnés da el «antes» y el «después».
+ */
+const MAX_RENGLONES_OFERTA = num(/const MAX_RENGLONES_OFERTA = ([\d.]+)/, null);
 
 /**
  * Casos límite CONOCIDOS y declarados: el arnés los reporta pero no los cuenta como rojo.
@@ -178,7 +216,11 @@ const capit = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 function vista(m) {
   const ps = (Array.isArray(m.presentaciones) ? m.presentaciones : []).filter((p) => p && p.unidad);
   const conPrecio = ps.filter((p) => n(p.precio_lista) > 0);
-  const hero = conPrecio.find((p) => m.sold_by_kg && String(p.unidad).toUpperCase() === 'KG')
+  // `[ETQ-OFERTA.1]` El hero que eligió el operador (`hero` de `heroPres`), si la fila lo trae. El
+  // corpus congelado no lo trae, así que para él este renglón no cambia nada.
+  const pedido = String(m._hero ?? '').trim().toUpperCase();
+  const hero = (pedido && conPrecio.find((p) => String(p.unidad).toUpperCase() === pedido))
+    || conPrecio.find((p) => m.sold_by_kg && String(p.unidad).toUpperCase() === 'KG')
     || conPrecio.find((p) => p.origen === 'base')
     || conPrecio[0]
     || null;
@@ -187,6 +229,7 @@ function vista(m) {
   const heroWord = hero ? legible(hero.unidad).singular : legible(m.unit_base).singular;
   const heroVal = hero ? n(hero.precio_lista) : n(m.piece_price);
   const heroU = hero ? String(hero.unidad).toUpperCase() : '';
+  const promo = vistaPromo(m, hero, heroVal);
 
   const tiers = [];
   for (const p of ps) {
@@ -204,7 +247,11 @@ function vista(m) {
       if (det && det.replace(/^1\s+/, '').toLowerCase() === leg.singular.toLowerCase()) det = null;
       tiers.push({ txt: `${esc(capit(leg.singular))}${det ? ` <span class="etq-red">${esc(det)}</span>` : ''}`, amt: lista, factor: f });
     }
-    if (p.mayoreo_veredicto === 'ok' && may > 0 && desde !== null && desde > 1) {
+    // `[ETQ-OFERTA.1]` `ganaALaOferta`: bajo oferta, el peldaño de la presentación del hero sólo se
+    // imprime si le gana al precio grande. Sin oferta la condición es siempre cierta (igual que en
+    // el componente), así que el corpus normal no cambia.
+    const ganaALaOferta = !promo || u !== heroU || (may > 0 && may < promo.precioGrande);
+    if (p.mayoreo_veredicto === 'ok' && may > 0 && desde !== null && desde > 1 && ganaALaOferta) {
       tiers.push({
         txt: `Mayoreo <span class="etq-red">${desde}+</span> ${esc(leg.plural)}`,
         amt: may, cu: true, esMay: true,
@@ -217,16 +264,20 @@ function vista(m) {
   // `[ETQ-PRES.4]` El MISMO recorte que `recortar()` en el componente. Sin esto el arnés mide una
   // etiqueta de cinco renglones que la app ya no imprime, y su veredicto no vale para el papel.
   // ⚠️ `MAX_RENGLONES` se extrae del fuente (ver K): si el componente lo cambia, el arnés lo sigue.
-  if (K.MAX_RENGLONES && tiers.length > K.MAX_RENGLONES) {
+  // `[ETQ-OFERTA.1]` En oferta, el tope es de la columna: descuenta "Precio normal" y el escalón.
+  const tope = promo && MAX_RENGLONES_OFERTA != null
+    ? Math.max(0, MAX_RENGLONES_OFERTA - 1 - (promo.escalon ? 1 : 0))
+    : K.MAX_RENGLONES;
+  if (tope != null && tiers.length > tope) {
     const fuera = new Set();
     const orden = (a, b) => a.i - b.i;
     const idx = tiers.map((t, i) => ({ ...t, i }));
     for (const t of idx.filter((t) => t.esMay).sort((a, b) => a.desc - b.desc)) {
-      if (tiers.length - fuera.size <= K.MAX_RENGLONES) break;
+      if (tiers.length - fuera.size <= tope) break;
       fuera.add(t.i);
     }
     for (const t of idx.filter((t) => !t.esMay).sort((a, b) => a.factor - b.factor || orden(a, b))) {
-      if (tiers.length - fuera.size <= K.MAX_RENGLONES) break;
+      if (tiers.length - fuera.size <= tope) break;
       fuera.add(t.i);
     }
     for (let i = tiers.length - 1; i >= 0; i--) if (fuera.has(i)) tiers.splice(i, 1);
@@ -246,7 +297,54 @@ function vista(m) {
   // "25 kg" arriba de un precio de 500 g. Acá cambia además el ANCHO del bloque, así que el arnés
   // tiene que renderizar el mismo texto o mide una meta que no existe.
   const content = hero ? (hero.contenido ?? null) : (ps.length ? null : m.content);
-  return { nombre, heroWord, heroVal, tiers, content, sku: m.sku, bcDigits };
+  const base = { nombre, heroWord, heroVal, tiers, content, sku: m.sku, bcDigits };
+  // `[ETQ-OFERTA.1]` Sólo las filas EN OFERTA (o con `_id`) llevan campos de más: las normales
+  // devuelven exactamente el mismo objeto que antes.
+  if (m._id) base.id = String(m._id);
+  if (promo) Object.assign(base, { promo, heroUnidad: hero ? String(hero.unidad) : null });
+  return base;
+}
+
+/**
+ * ⭐ `[ETQ-OFERTA.1]` Réplica de la OFERTA del componente: `promoPct`, `precioNormal`,
+ * `peldanoDeLaPromo`, `heroMayoreo`, `escalonOferta`, `precioGrande`, `beneficio`,
+ * `condicionMayoreo` y `promoDesde`. `null` = la etiqueta NO va en oferta (sin promo, o la promo es
+ * de otra unidad que la que va en grande): entonces se mide el diseño normal, igual que antes.
+ *
+ * ⚠️ Es una RÉPLICA, como `vista`: si el componente cambia una de estas reglas y ésta no, el arnés
+ * mide una etiqueta que no se imprime. El texto lo vigila `label.component.spec.ts`; esto, la geometría.
+ */
+function vistaPromo(m, hero, heroVal) {
+  const pct = n(m.promo_pct);
+  if (!(pct > 0) || pct >= 100) return null;
+  const dePromo = String(m.promo_unidad ?? '').trim().toUpperCase();
+  const delHero = hero ? String(hero.unidad).trim().toUpperCase() : '';
+  if (!dePromo || !delHero || dePromo !== delHero) return null;
+  const precioPromo = heroVal * (1 - pct / 100);
+  const q = n(m.promo_min_qty);
+  const promoDesde = q > 1 ? q : null;
+  let heroMayoreo = null;
+  if (hero && hero.mayoreo_veredicto === 'ok' && promoDesde === null) {
+    const pr = n(hero.mayoreo_precio);
+    const min = hero.mayoreo_desde == null ? null : Number(hero.mayoreo_desde);
+    if (pr > 0 && min !== null && min > 1) {
+      const apilado = pr * (1 - pct / 100);
+      if (apilado > 0 && apilado < precioPromo - 0.005) heroMayoreo = { precio: apilado, min };
+    }
+  }
+  const precioGrande = heroMayoreo ? heroMayoreo.precio : precioPromo;
+  const precioNormal = heroVal;
+  const ahorro = precioNormal - precioGrande;
+  let beneficio = null;
+  if (ahorro > 0 && precioNormal > 0) {
+    const p100 = Math.round(100 * (1 - precioGrande / precioNormal));
+    beneficio = ahorro > p100 ? { pesos: true, valor: ahorro } : { pesos: false, valor: p100 };
+  }
+  return {
+    pct, precioPromo, precioGrande, precioNormal, promoDesde, beneficio,
+    escalon: heroMayoreo ? { hasta: heroMayoreo.min - 1, precio: precioPromo } : null,
+    condicion: heroMayoreo ? `${heroMayoreo.min}+ ${legible(hero.unidad).plural}` : null,
+  };
 }
 
 const SPROUT = '<svg class="etq-sprout" viewBox="0 0 40 40" fill="hsl(141, 60%, 38%)">'
@@ -260,7 +358,57 @@ const BROTE_EN_BANDA = /\.etq-head\s+\.etq-sprout|\.etq-head\.[\w-]*\s*\.etq-spr
 /** La franja de unidad tiene marcado propio si el CSS declara `.etq-pieza-txt`. */
 const FRANJA_NUEVA = /\.etq-pieza-txt\{/.test(css);
 
+const filaTier = (t) => `<div class="etq-tier${t.may ? ' is-mayoreo' : ''}">
+        <div class="txt">${t.txt}</div>
+        <div class="pricecell"><span class="amt">${dinero(t.amt)}</span>${t.cu ? '<span class="unit">c/u</span>' : ''}</div></div>`;
+
+/**
+ * ⭐ `[ETQ-OFERTA.1]` El marcado de la etiqueta EN OFERTA, espejo del template del componente:
+ *
+ *   · `.is-promo` (+ `.con-ahorro` si hay beneficio) en la raíz; la insignia "Oferta" antes del nombre;
+ *   · la `.etq-meta` SALE de la columna izquierda y BAJA a la derecha, entre los renglones y el código;
+ *   · el número grande es `precioGrande`, con la barra de ahorro y la franja "Llevando N+ …";
+ *   · en `.etq-tiers`: el escalón "Oferta 1 a N" (si lo hay), "Precio normal" tachado y después
+ *     los renglones de presentaciones (ya recortados a `MAX_RENGLONES`), con `--n` = la suma.
+ */
+function htmlPromo(v) {
+  const p = v.promo;
+  const ent = dinero(p.precioGrande).slice(1).split('.');
+  const franja = p.condicion
+    ? `<div class="etq-pieza"><span class="etq-pieza-txt"><span class="pre">Llevando</span><span class="u">${esc(p.condicion)}</span></span></div>`
+    : `<div class="etq-pieza"><span class="etq-pieza-txt"><span class="pre">Precio por</span><span class="u">${esc(v.heroWord)}</span></span></div>`;
+  const barra = p.beneficio
+    ? `<div class="etq-ahorro-bar">${p.beneficio.pesos ? `Ahorra <b>${dinero(p.beneficio.valor)}</b>` : `<b>-${p.beneficio.valor}%</b> de descuento`}</div>`
+    : '';
+  const extra = [];
+  if (p.escalon) extra.push(`<div class="etq-tier">
+        <div class="txt">Oferta 1 a <span class="etq-red">${p.escalon.hasta}</span></div>
+        <div class="pricecell"><span class="amt">${dinero(p.escalon.precio)}</span></div></div>`);
+  extra.push(`<div class="etq-tier etq-antes">
+        <div class="txt">Precio normal${p.promoDesde ? ` · desde <span class="etq-red">${p.promoDesde}</span>` : ''}</div>
+        <div class="pricecell"><span class="amt etq-tachado">${dinero(p.precioNormal)}</span></div></div>`);
+  const nImpresos = extra.length + v.tiers.length;
+  const metaN = (v.content ? String(v.content).length + 1 : 0) + 'Código: '.length + String(v.sku).length;
+  return `<wrap data-sku="${esc(v.id ?? v.sku)}" data-promo="1"><div class="etq-label is-promo${p.beneficio ? ' con-ahorro' : ''}">
+  <div class="etq-head"><span class="etq-oferta-tag">Oferta</span><span class="etq-head-txt">${esc(v.nombre)}</span>${BROTE_EN_BANDA ? SPROUT : ''}</div>
+  <div class="etq-body">
+    <div class="etq-left">
+      <div class="etq-pricebox">${BROTE_EN_BANDA ? '' : SPROUT}
+        <div class="etq-price"><span class="cur">$</span>${ent[0]}<span class="dot">.</span>${ent[1]}</div>
+        ${barra}
+        ${franja}
+      </div>
+    </div>
+    <div class="etq-right">
+      <div class="etq-tiers" style="--n:${nImpresos}">${extra.join('')}${v.tiers.map(filaTier).join('')}</div>
+      <div class="etq-meta" style="--etq-meta-n:${metaN}">${v.content ? `<span>${esc(v.content)}</span><span class="sep">|</span>` : ''}<span>Código: <span class="etq-red">${esc(v.sku)}</span></span></div>
+      <div class="etq-barcode">${BARRAS}${v.bcDigits ? `<div class="etq-bc-digits">${v.bcDigits}</div>` : ''}</div>
+    </div>
+  </div></div></wrap>`;
+}
+
 function html(v) {
+  if (v.promo) return htmlPromo(v);
   const ent = dinero(v.heroVal).slice(1).split('.');
   // `[ETQ-PRES.4d]` Sin unidad declarada la franja lleva la frase, no la palabra inventada.
   const franja = !v.heroWord
@@ -268,7 +416,7 @@ function html(v) {
     : FRANJA_NUEVA
       ? `<div class="etq-pieza"><span class="etq-pieza-txt"><span class="pre">Precio por</span><span class="u">${esc(v.heroWord)}</span></span></div>`
       : `<div class="etq-pieza">Precio por ${esc(v.heroWord)}</div>`;
-  return `<wrap data-sku="${esc(v.sku)}"><div class="etq-label">
+  return `<wrap data-sku="${esc(v.id ?? v.sku)}"><div class="etq-label">
   <div class="etq-head">${BROTE_EN_BANDA ? SPROUT : ''}<span class="etq-head-txt">${esc(v.nombre)}</span></div>
   <div class="etq-body">
     <div class="etq-left">
@@ -288,7 +436,7 @@ function html(v) {
 }
 
 (async () => {
-  const leido = JSON.parse(fs.readFileSync(CORPUS, 'utf8'));
+  const leido = JSON.parse(fs.readFileSync(CASOS || CORPUS, 'utf8'));
   const pesos = leido.pesos_catalogo_pct;
   const corpus = SKUS.length ? leido.corpus.filter((c) => SKUS.includes(c.sku)) : leido.corpus;
   if (!corpus.length) { console.error('El filtro --skus no dejó ninguna fila.'); process.exit(1); }
@@ -335,11 +483,180 @@ function html(v) {
     console.log('   los de la etiqueta buena: lo que vale de esta pasada son los INVARIANTES.');
   }
 
-  const filas = await page.evaluate((K) => {
+  const filas = await page.evaluate((K, KP) => {
     const MM = (px) => +(px / 96 * 25.4).toFixed(2);
     const out = [];
+
+    /**
+     * ⭐ `[ETQ-OFERTA.1]` Mide una etiqueta EN OFERTA corriendo los ajustes EN EL ORDEN DEL
+     * COMPONENTE (`layout()`): nombre → unidad → precio → `fitBarcode` → `fitTiers` → `fitAmts`.
+     *
+     * ⚠️ El diseño normal del arnés corre el código de barras AL FINAL (orden viejo); acá no se
+     * copia ese desvío porque lo que se juzga es justamente el reparto de alto de la columna
+     * derecha, y ese reparto lo decide el orden. El normal NO se toca: su salida queda idéntica.
+     *
+     * `fitBarcode` se replica TAL CUAL, incluido que su `usado` = renglones + bloque del código y
+     * NO resta la `.etq-meta`, que en oferta vive en la misma columna. El alto de la meta
+     * (= `meta_alto_mm`) es cuánto aire de más cree tener por eso.
+     *
+     * Las dos invariantes nuevas:
+     *   · `tiers_pisa_meta` — el último renglón (sus celdas, no su rect) baja más allá del borde de
+     *     arriba de `.etq-meta`: es el "Código: 06001" encimado sobre los montos del reporte;
+     *   · `monto_bajo_piso` — algún monto impreso queda debajo del piso legible (`KP.PISO_MONTO_MM`).
+     */
+    const medirPromo = (wr, lab) => {
+      const pr = lab.querySelector('.etq-price');
+      const box = pr.parentElement;
+      const cs = getComputedStyle(box);
+      const availW = box.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      const availHtot = box.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+      const sp = box.querySelector('.etq-sprout');
+      const guarda = sp ? Math.max(0, sp.getBoundingClientRect().bottom - (box.getBoundingClientRect().top + parseFloat(cs.paddingTop))) : 0;
+      const availH = availHtot - guarda;
+      // nombre (mismo bucle que el normal)
+      const head = lab.querySelector('.etq-head'), htxt = lab.querySelector('.etq-head-txt');
+      let hs = 3.9; head.classList.remove('es-doble'); head.style.fontSize = hs + 'mm';
+      for (let g = 0; htxt.scrollWidth > htxt.clientWidth && hs > 2.3 && g < 40; g++) { hs -= 0.12; head.style.fontSize = hs + 'mm'; }
+      if (htxt.scrollWidth > htxt.clientWidth) {
+        head.classList.add('es-doble');
+        hs = Math.min(hs, 3.2); head.style.fontSize = hs + 'mm';
+        for (let g = 0; htxt.scrollHeight > htxt.clientHeight + 1 && hs > 2.3 && g < 40; g++) { hs -= 0.12; head.style.fontSize = hs + 'mm'; }
+      }
+      // unidad
+      const ptxt = lab.querySelector('.etq-pieza-txt');
+      const pieza = lab.querySelector('.etq-pieza');
+      let us = K.UNIDAD_MM;
+      pieza.style.fontSize = us + 'mm';
+      for (let g = 0; ptxt.scrollWidth > ptxt.clientWidth && us > 2.4 && g < 60; g++) { us -= 0.1; pieza.style.fontSize = us + 'mm'; }
+      // precio
+      let s = K.PRECIO_MM;
+      pr.style.fontSize = s + 'mm';
+      const cabe = () => pr.offsetWidth * 1.12 <= availW && pr.offsetHeight <= availH;
+      if (availW > 0 && availH > 0) {
+        if (!cabe()) { for (let g = 0; !cabe() && s > 4.5 && g < 200; g++) { s -= 0.25; pr.style.fontSize = s + 'mm'; } }
+        else {
+          for (let g = 0; g < 200; g++) {
+            const t = s + 0.25; if (t > K.PRECIO_MAX_MM) break;
+            pr.style.fontSize = t + 'mm';
+            if (!cabe()) { pr.style.fontSize = s + 'mm'; break; }
+            s = t;
+          }
+        }
+      }
+      const tb = lab.querySelector('.etq-tiers');
+      const col = tb.parentElement;
+      const meta = lab.querySelector('.etq-right .etq-meta');
+      const svg = lab.querySelector('.etq-barcode svg');
+      const bloque = svg.parentElement;
+      const amts = [...tb.querySelectorAll('.amt')];
+      const altoFila = (f) => {
+        const rect = f.getBoundingClientRect().height;
+        const celdas = [...f.children];
+        if (!celdas.length) return rect;
+        const c2 = getComputedStyle(f);
+        const pad = (parseFloat(c2.paddingTop) || 0) + (parseFloat(c2.paddingBottom) || 0);
+        return Math.max(rect, Math.max(...celdas.map((c) => c.getBoundingClientRect().height)) + pad);
+      };
+      const extension = () => {
+        const h = [...tb.children]; if (!h.length) return 0;
+        const gap = parseFloat(getComputedStyle(tb).rowGap) || 0;
+        return h.reduce((a, e) => a + altoFila(e), 0) + (h.length - 1) * gap;
+      };
+      const set = (v) => amts.forEach((a) => { a.style.fontSize = v + 'mm'; });
+      // ── fitBarcode (componente): desde el mínimo, montos en su arranque, aire contra la COLUMNA.
+      svg.style.height = K.BARCODE_MIN_MM + 'mm';
+      set(K.MONTO_MM);
+      let bc = K.BARCODE_MIN_MM;
+      let aireBc = null;
+      if (col.clientHeight > 0) {
+        aireBc = (col.clientHeight - (extension() + bloque.offsetHeight)) / 96 * 25.4;
+        if (aireBc > 0) {
+          bc = Math.max(K.BARCODE_MIN_MM, Math.min(KP.BARCODE_MAX_PROMO_MM, K.BARCODE_MIN_MM + aireBc - 0.3));
+          svg.style.height = bc + 'mm';
+        }
+      }
+      const metaAlto = meta.getBoundingClientRect().height + (parseFloat(getComputedStyle(meta).marginBottom) || 0);
+      // ── fitTiers (componente)
+      amts.forEach((a) => { a.style.fontSize = ''; });
+      const cssMm = amts.length ? parseFloat(getComputedStyle(amts[0]).fontSize) / 96 * 25.4 : 0;
+      const techoBase = cssMm > 0 ? Math.min(K.MONTO_MM, cssMm) : K.MONTO_MM;
+      let t = techoBase;
+      const cabeAncho = () => amts.every((a) => a.parentElement.scrollWidth <= a.parentElement.clientWidth);
+      if (amts.length && tb.clientHeight > 0) {
+        set(t);
+        if (extension() > tb.clientHeight + 1 || !cabeAncho()) {
+          for (let g = 0; (extension() > tb.clientHeight + 1 || !cabeAncho()) && t > KP.PISO_MONTO_MM && g < 60; g++) { t -= 0.2; set(t); }
+        } else {
+          const techo = Math.min(techoBase, Math.min(K.MONTO_MAX_MM, s * KP.MONTO_MAX_PROMO_K));
+          for (let g = 0; g < 60; g++) {
+            const v = t + 0.2; if (v > techo) break;
+            set(v);
+            if (extension() > tb.clientHeight + 1 || !cabeAncho()) { set(t); break; }
+            t = v;
+          }
+        }
+      }
+      // ── fitAmts
+      const finales = amts.map((a) => {
+        const c = a.parentElement;
+        let u = parseFloat(a.style.fontSize) || K.MONTO_MM;
+        for (let g = 0; c.scrollWidth > c.clientWidth && u > 2.4 && g < 200; g++) { u -= 0.15; a.style.fontSize = u + 'mm'; }
+        return +u.toFixed(2);
+      });
+      // ── medición
+      const filasT = [...tb.children];
+      const bordes = filasT.flatMap((f) => [...f.children].map((c) => c.getBoundingClientRect()));
+      const abajo = bordes.length ? Math.max(...bordes.map((r) => r.bottom)) : 0;
+      const arriba = bordes.length ? Math.min(...bordes.map((r) => r.top)) : 0;
+      const rMeta = meta.getBoundingClientRect();
+      const rCol = col.getBoundingClientRect();
+      const encima = Math.max(0, abajo - rMeta.top);
+      const rb = pr.getBoundingClientRect();
+      const barra = lab.querySelector('.etq-ahorro-bar');
+      const rf = (barra || pieza).getBoundingClientRect();
+      const rotulos = [...tb.querySelectorAll('.txt')];
+      return {
+        sku: wr.dataset.sku,
+        promo: true,
+        renglones: amts.length,
+        renglones_impresos: filasT.length,
+        precio_mm: +s.toFixed(2),
+        precio_llenado_ancho: Math.round(pr.offsetWidth * 1.12 / availW * 100),
+        precio_llenado_alto: Math.round(pr.offsetHeight / availHtot * 100),
+        unidad_mm: +us.toFixed(2),
+        monto_mm: finales.length ? Math.min(...finales) : null,
+        montos_uniformes: finales.length <= 1 || new Set(finales).size === 1,
+        aire_tiers_mm: MM(Math.max(0, tb.clientHeight - extension())),
+        falta_mm: MM(Math.max(0, extension() - tb.clientHeight)),
+        barcode_mm: +bc.toFixed(2),
+        realces: lab.querySelectorAll('.etq-tier.is-mayoreo').length,
+        columna_mm: MM(col.clientHeight),
+        tiers_alto_mm: MM(tb.clientHeight),
+        tiers_necesita_mm: MM(extension()),
+        meta_alto_mm: MM(metaAlto),
+        aire_fitbarcode_mm: aireBc === null ? null : +aireBc.toFixed(2),
+        encima_meta_mm: MM(encima),
+        sale_arriba_mm: MM(Math.max(0, rCol.top - arriba)),
+        rotulos_cortados: rotulos.filter((e) => e.scrollWidth > e.clientWidth + 1).length,
+        precio_desborda: pr.offsetWidth * 1.12 > availW + 1 || pr.offsetHeight > availHtot + 1,
+        monto_desborda: amts.some((a) => a.parentElement.scrollWidth > a.parentElement.clientWidth + 1),
+        tiers_recortado: extension() > tb.clientHeight + 1,
+        unidad_recortada: !!(ptxt && ptxt.scrollWidth > ptxt.clientWidth + 1),
+        codigo_recortado: meta.scrollWidth > meta.clientWidth + 1,
+        nombre_recortado: head.classList.contains('es-doble')
+          ? htxt.scrollHeight > htxt.clientHeight + 1
+          : htxt.scrollWidth > htxt.clientWidth + 1,
+        precio_toca_brote: false,
+        precio_tapa_franja: rb.bottom > rf.top + 1,
+        jerarquia_ok: finales.length === 0 || Math.max(...finales) <= s * 0.7 + 0.01,
+        tiers_pisa_meta: encima > 1,
+        monto_bajo_piso: finales.length > 0 && Math.min(...finales) < KP.PISO_MONTO_MM - 0.001,
+      };
+    };
+
     document.querySelectorAll('wrap').forEach((wr) => {
       const lab = wr.querySelector('.etq-label');
+      if (wr.dataset.promo) { out.push(medirPromo(wr, lab)); return; }
       const pr = lab.querySelector('.etq-price');
       const box = pr.parentElement;
       const cs = getComputedStyle(box);
@@ -498,7 +815,8 @@ function html(v) {
       });
     });
     return out;
-  }, K);
+  }, K, KP);
+  if (JSON_OUT) fs.writeFileSync(JSON_OUT, JSON.stringify(filas, null, 1));
 
   if (PDF) {
     await page.pdf({ path: PDF, format: 'Letter', landscape: true, printBackground: true,
@@ -555,6 +873,8 @@ function html(v) {
 
   console.log(`\n=== etiqueta · geometría · ${etiqueta} ===`);
   console.log(`corpus ${filas.length} filas · constantes del fuente: ${JSON.stringify(K)}`);
+  // `[ETQ-OFERTA.1]` Un `--casos` sin pesos de catálogo no se pondera: no hay contra qué.
+  if (pesos) {
   console.log('\nponderado por catálogo:');
   console.log(`  precio                    ${wDig('precio_mm').toFixed(2)} mm`);
   console.log(`  llenado de la caja        ancho ${Math.round(wDig('precio_llenado_ancho'))}% · alto ${Math.round(wDig('precio_llenado_alto'))}%`
@@ -568,6 +888,7 @@ function html(v) {
     const set = corpus.filter((c) => c._digitos === d).map((c) => porSku.get(c.sku)).filter(Boolean);
     if (set.length) console.log(`  ${d} dígito(s) (${pesos.digitos[d]}% del catálogo, ${String(set.length).padStart(3)} filas): `
       + `precio ${(set.reduce((a, f) => a + f.precio_mm, 0) / set.length).toFixed(2)} mm`);
+  }
   }
   console.log('\ninvariantes (todos tienen que ser 0):');
   const inv = ['precio_desborda', 'monto_desborda', 'tiers_recortado', 'unidad_recortada', 'nombre_recortado', 'precio_tapa_franja', 'codigo_recortado'];
@@ -599,8 +920,43 @@ function html(v) {
       + [...porN.keys()].sort().map((k) => `${k} renglones ${porN.get(k)}/${tot.get(k)}`).join(' · '));
   }
 
+  /**
+   * ⭐ `[ETQ-OFERTA.1]` El diseño de OFERTA, con sus dos invariantes propias. Sólo se imprime si hay
+   * filas en oferta: con el corpus congelado (0 promos) la salida queda idéntica a la de antes.
+   */
+  const promos = filas.filter((f) => f.promo);
+  const invPromo = ['tiers_pisa_meta', 'monto_bajo_piso'];
+  if (promos.length) {
+    console.log(`\n── OFERTA: ${promos.length} etiqueta(s) · constantes: ${JSON.stringify(KP)}`);
+    for (const k of invPromo) {
+      const c = promos.filter((f) => f[k]);
+      console.log(`  ${k.padEnd(22)} ${c.length}${c.length ? '   sku: ' + c.map((f) => f.sku).slice(0, 6).join(' ') : ''}`);
+    }
+    const porN = new Map();
+    for (const f of promos) {
+      const e = porN.get(f.renglones_impresos) || { n: 0, mal: 0, encima: 0, monto: Infinity, rot: 0 };
+      e.n++; if (invPromo.some((k) => f[k]) || f.tiers_recortado) e.mal++;
+      e.encima = Math.max(e.encima, f.encima_meta_mm); e.monto = Math.min(e.monto, f.monto_mm ?? Infinity);
+      if (f.rotulos_cortados) e.rot++;
+      porN.set(f.renglones_impresos, e);
+    }
+    console.log('  por renglones impresos (precio normal + escalón + presentaciones):');
+    for (const k of [...porN.keys()].sort((a, b) => a - b)) {
+      const e = porN.get(k);
+      console.log(`    ${k} renglones: ${e.n} etiquetas · rompen ${e.mal} · peor encimado ${e.encima.toFixed(2)} mm`
+        + ` · monto mínimo ${e.monto === Infinity ? '-' : e.monto} mm · con rótulo cortado ${e.rot}`);
+    }
+    if (SKUS.length || promos.length <= 12) {
+      for (const f of promos) {
+        console.log(`  ${f.sku}: ${f.renglones_impresos} renglones · columna ${f.columna_mm} mm · .etq-tiers ${f.tiers_alto_mm} mm (necesita ${f.tiers_necesita_mm})`
+          + ` · monto ${f.monto_mm} mm · meta ${f.meta_alto_mm} mm · código ${f.barcode_mm} mm (fitBarcode vio ${f.aire_fitbarcode_mm} mm de aire)`
+          + ` · encima de la meta ${f.encima_meta_mm} mm · sale por arriba ${f.sale_arriba_mm} mm · rótulos cortados ${f.rotulos_cortados}`);
+      }
+    }
+  }
+
   // Rojo SÓLO por lo que no está declarado. Un sku conocido se reporta y no cuenta.
-  const falla = (f) => inv.some((k) => f[k]) || !f.montos_uniformes || !f.jerarquia_ok;
+  const falla = (f) => inv.some((k) => f[k]) || !f.montos_uniformes || !f.jerarquia_ok || invPromo.some((k) => f[k]);
   const nuevos = filas.filter((f) => falla(f) && !CONOCIDOS[f.sku]);
   const conocidos = filas.filter((f) => falla(f) && CONOCIDOS[f.sku]);
   if (conocidos.length) {
