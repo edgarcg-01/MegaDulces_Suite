@@ -1,5 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { ALL_SECTIONS, LabelComponent, LabelModel, LabelSections, MEDIDOR_DE_TEXTO } from './label.component';
+import { ALL_SECTIONS, LabelComponent, LabelModel, LabelSections, MAX_RENGLONES, MAX_RENGLONES_OFERTA, MEDIDOR_DE_TEXTO } from './label.component';
 
 /**
  * La etiqueta RENDERIZADA (jsdom). Los candados de `../etiqueta-hoja.spec.ts` leen el código;
@@ -692,6 +692,43 @@ describe('LabelComponent · lo que sale impreso', () => {
       await render({ ...CON_PROMO, promo_unidad: 'CJA', promo_aplica: 'caja' });
       expect(precio()).toContain('12.50');
       expect(antes()).toBeNull();
+    });
+
+    describe('⭐⭐ [ETQ-OFERTA.1] la columna de la oferta no se pasa de MAX_RENGLONES_OFERTA', () => {
+      const filas = (): string[] => Array.from(el().querySelectorAll('.etq-tiers .etq-tier')).map((t) => t.textContent ?? '');
+
+      it('CON_PROMO: escalón + precio normal + 3 presentaciones = 5 → se imprimen 4 y cede el peldaño', async () => {
+        // Como el CHOC SNICKERS 06001 de Morelia Abastos: con 5–6 renglones y el «Código» en la misma
+        // columna, los montos bajaban a 1.42 mm y el «Código» se encimaba 3.47 mm.
+        await render(CON_PROMO);
+        const c = fix.componentInstance;
+        expect(c.renglonesImpresos).toBe(MAX_RENGLONES_OFERTA);
+        expect(filas().length).toBe(MAX_RENGLONES_OFERTA);
+        // El escalón y el precio normal son el argumento de la oferta: no ceden.
+        expect(c.escalonOferta).not.toBeNull();
+        expect(c.precioNormal).not.toBeNull();
+        // Cede el peldaño de menor descuento (PAQ $85); las listas siguen.
+        expect(filas().some((t) => t.includes('85.00'))).toBe(false);
+        expect(filas().some((t) => t.includes('90.00'))).toBe(true);
+        expect(filas().some((t) => t.includes('250.00'))).toBe(true);
+        expect(c.renglonesOcultos).toBe(1);
+      });
+
+      it('⭐ NEGATIVA: el mayoreo del hero que la oferta consume NO es «1 no entra»', async () => {
+        // Escalón + precio normal + PAQ lista + PAQ mayoreo = 4: no se recorta nada. Antes la cuenta
+        // repetía la regla a mano, contaba también el PZA mayoreo (que ya es el precio grande) y
+        // decía «1 no entra».
+        await render({ ...CON_PROMO, presentaciones: (CON_PROMO.presentaciones ?? []).filter((p) => p.unidad !== 'CJA') });
+        expect(fix.componentInstance.renglonesImpresos).toBe(4);
+        expect(fix.componentInstance.renglonesOcultos).toBe(0);
+      });
+
+      it('sin oferta el tope sigue siendo MAX_RENGLONES de presentaciones (el diseño normal no cambia)', async () => {
+        await render(BASE);
+        expect(fix.componentInstance.enPromo).toBe(false);
+        expect(fix.componentInstance.renglonesImpresos).toBe(fix.componentInstance.renglones.length);
+        expect(fix.componentInstance.renglones.length).toBeLessThanOrEqual(MAX_RENGLONES);
+      });
     });
 
     it('sin plaza no hay promo, y eso NO se pinta como "sin descuento"', async () => {
