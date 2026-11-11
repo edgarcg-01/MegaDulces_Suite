@@ -6,7 +6,26 @@
 > la de `identity.users` (`20261012094356`, candado exclusivo: de noche); lo que escribe la carga o reinicia pods, de
 > preferencia fuera de horario.
 > **Escrito el 2026-10-07** con los guiones ya probados contra la base local y contra Mega Talento real (sólo lectura).
-> Nada de esto se ha corrido contra prod todavía: desde la máquina de trabajo no hay acceso a `md`.
+> ~~Nada de esto se ha corrido contra prod todavía~~ → **corrido el 11-nov**: bitácora abajo.
+
+## ✅ Bitácora del corte — 11-nov-2026 (Edgar: «ya»; en horario hábil, con su autorización)
+
+| Hora (MX) | Paso | Resultado |
+|---|---|---|
+| 13:56 | Guiones de la imagen = repo | md5 idénticos (pre-vuelo, carga única, personas, mapeo) |
+| 13:57 | Lógica de Mega Talento desde la paridad del 9-nov | Un solo commit, `c445974`: el NÚMERO de semana (la 47 era la 46), no el cálculo. Paridad de 0 diferencias vigente; la etiqueta se portó en `[RH.6.4]` |
+| 13:58 | Pre-vuelo con Mega Talento | **Sin bloqueos** · 1 aviso (horario) · padrón NO MEDIDO (esperado) · `HR_INGEST_KEY` presente |
+| 13:59 | Ensayo de la carga | 12 plazas · 12 relojes · 1,615 enrolamientos · 238,884 de 238,887 checadas (3 fecha basura) · 310 incidencias · 163 horarios · 12,236 alertas · se deshizo |
+| **13:59:42** | **Carga real** (`--aplicar`) — ⭐ la hora que usa el `reenviar` de David | El mismo cuadre que el ensayo, 27 s |
+| 14:00 | Personas: ensayo y `--aplicar` | 1,065 personas (1,038 creadas, 27 ligadas a cuenta), **0 por decidir**, 1,062 de 1,069 enrolamientos activos ligados. 3 avisos para Sistemas (informe con nombres en `md:~/rh-personas-20261111-*.json`, 600) |
+| 14:01 | Pre-vuelo otra vez | **padrón OK**: todo lo que checó en 30 días tiene persona. Los avisos de «datos previos» son esta carga |
+| 14:01 | En pantalla (sesión real) | `/rh/asistencia` › 8-Esquinas: 31 personas, la semana completa hasta las ~13:00; los relojes dicen «Sin señal» (correcto: el lector todavía manda a Mega Talento) |
+| 14:05 | Prueba negativa de la ingesta | Sin llave y con llave falsa → **401** |
+| 14:10 | Rol de RH (`[RH.2.6]`, mig `20261111140242`) | `reclutamiento_asistencia` a Lesly y Tania (complemento; conservan `administrativo`) |
+
+**Pendiente (paso 4 de §3, David):** `probar` → `a-suite` → servicio detenido → `reenviar "2026-11-11 12:59"` → arrancar.
+Después: latidos (`hr_attendance_ingest`), `ENABLE_HR_ATTENDANCE_AGENT=true` en el worker (paso 7), y Mega Talento de sólo
+lectura en asistencia. Los 12 relojes quedaron `ingest_mode = agente` (lo que exige `probar`).
 
 ## 0.0 Antes de empezar: decisiones del 14 y 16-oct
 
