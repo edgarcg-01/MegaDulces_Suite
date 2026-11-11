@@ -251,6 +251,16 @@ interface FilaMenuAnden {
   ultimo: string | null;
 }
 
+/** `[CE.1.1]` `[CE.2.3]` Lo que el detalle del vale le agrega a cada renglón: caduca, y la fecha que propone el origen. */
+interface RenglonDelDetalle {
+  product_id: string | null;
+  sku: string | null;
+  tracks_expiry?: boolean | null;
+  suggested_lot?: string | null;
+  suggested_expiry?: string | null;
+  suggested_from?: string | null;
+}
+
 @Injectable()
 export class ReceivingSessionService {
   private readonly logger = new Logger(ReceivingSessionService.name);
@@ -1551,7 +1561,7 @@ export class ReceivingSessionService {
    * salvo `expiryWaiver`: un supervisor deja el motivo y queda escrito en el vale. Lo que entra así
    * sigue en «Por fechar», pero con nombre, motivo y fecha de quien lo dejó pasar.
    */
-  async close(sessionId: string, expiryWaiver?: { reason: string }) {
+  async close(sessionId: string, expiryWaiver?: { reason: string }): Promise<Record<string, unknown>> {
     if (!UUID.test(sessionId)) throw new BadRequestException('session_id inválido');
     const motivo = expiryWaiver ? motivoValido(expiryWaiver.reason) : null;
     if (expiryWaiver && !motivo)
@@ -1706,7 +1716,7 @@ export class ReceivingSessionService {
    * `accepted`/`authorized`) y si el producto caduca según el catálogo. Una consulta + el perfil.
    */
   private async renglonesParaFecha(trx: Knex.Transaction, sessionId: string, supplierCode: string | null): Promise<RenglonParaFecha[]> {
-    const rows = await trx('commercial.receiving_lines as l')
+    const rows: Array<{ line_id: string; product_id: string | null; sku: string | null; product_name: string | null; received_qty: unknown; declared_qty: unknown }> = await trx('commercial.receiving_lines as l')
       .leftJoin('public.products as p', 'p.id', 'l.product_id')
       .where('l.session_id', sessionId)
       .select(
@@ -1722,10 +1732,10 @@ export class ReceivingSessionService {
       );
     const perfiles = await perfilesDeCaducidad(
       trx,
-      rows.filter((r: any) => r.product_id).map((r: any) => ({ product_id: r.product_id, sku: r.sku })),
+      rows.filter((r) => r.product_id).map((r) => ({ product_id: r.product_id as string, sku: r.sku })),
       supplierCode,
     );
-    return rows.map((r: any) => ({
+    return rows.map((r) => ({
       line_id: r.line_id,
       product_id: r.product_id ?? null,
       sku: r.sku ?? null,
@@ -2088,19 +2098,20 @@ export class ReceivingSessionService {
         .orderBy('l.created_at');
 
       // `[CE.1.1]` Si el catálogo dice que el producto no caduca, el Andén no le pide fecha.
+      const renglonesCE = lines as RenglonDelDetalle[];
       const perfiles = await perfilesDeCaducidad(
         trx,
-        lines.filter((l: any) => l.product_id).map((l: any) => ({ product_id: l.product_id, sku: l.sku })),
+        renglonesCE.filter((l) => l.product_id).map((l) => ({ product_id: l.product_id as string, sku: l.sku })),
         session.supplier_code ?? null,
       );
-      for (const l of lines as any[])
+      for (const l of renglonesCE)
         l.tracks_expiry = l.product_id ? (perfiles.get(l.product_id)?.tracks_expiry ?? null) : null;
 
       // `[CE.2.3]` En un traspaso, la fecha que propone el almacén que lo mandó (FEFO del origen).
       if (traspaso) {
         const origen = await almacenDeSucursal(trx, traspaso.origen);
-        const sug = await sugerenciasDeOrigen(trx, origen, lines.map((l: any) => l.product_id));
-        for (const l of lines as any[]) {
+        const sug = await sugerenciasDeOrigen(trx, origen, renglonesCE.map((l) => l.product_id ?? ''));
+        for (const l of renglonesCE) {
           const s = l.product_id ? sug.get(l.product_id) : undefined;
           l.suggested_lot = s?.lot_code ?? null;
           l.suggested_expiry = s?.expiry_date ?? null;

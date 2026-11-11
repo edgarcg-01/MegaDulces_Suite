@@ -205,7 +205,7 @@ export class ReceivingSessionController {
     summary:
       '[CE.2.1] Cerrar un vale con renglones sin caducidad: sólo un supervisor, con motivo escrito. Lo no fechado sigue en «Por fechar».',
   })
-  closeWithPendingExpiry(@Param('id') id: string, @Body() body: { reason?: string }) {
+  closeWithPendingExpiry(@Param('id') id: string, @Body() body: { reason?: string }): Promise<Record<string, unknown>> {
     return this.service.close(id, { reason: String(body?.reason ?? '') });
   }
 

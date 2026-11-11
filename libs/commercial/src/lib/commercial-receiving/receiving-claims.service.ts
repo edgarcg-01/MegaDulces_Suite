@@ -47,6 +47,20 @@ import {
  * inventario (`close()` da de alta sólo `received_qty`) y la nota de crédito real vive en
  * Kepler, que es read-only. El monto es estimación para priorizar y lo dice.
  */
+/** Un renglón del vale tal como lo lee el cierre para levantar el reclamo. */
+interface RenglonReclamable {
+  id: string;
+  product_id: string | null;
+  expected_sku: string | null;
+  expected_name: string | null;
+  expected_qty: unknown;
+  received_qty: unknown;
+  discrepancy_kind: string;
+  notes: string | null;
+  sku: string | null;
+  product_name: string | null;
+}
+
 @Injectable()
 export class ReceivingClaimsService {
   private readonly logger = new Logger(ReceivingClaimsService.name);
@@ -111,7 +125,7 @@ export class ReceivingClaimsService {
     const { costBySku, responsible, supplier, transferOrigin } = await this.contextoDeReclamoTx(trx, session);
 
     const items: Array<Record<string, unknown>> = [];
-    for (const l of lines as any[]) {
+    for (const l of lines as RenglonReclamable[]) {
       const kind = l.discrepancy_kind as (typeof CLAIMABLE_KINDS)[number];
       const qty = claimQtyFor(l.expected_qty, l.received_qty);
       const cost = costBySku.get(String(l.expected_sku ?? ''))?.unit_cost ?? null;
@@ -172,7 +186,7 @@ export class ReceivingClaimsService {
    * transacción que el rechazo: si no se puede escribir el reclamo, no se rechaza.
    */
   async raiseForRejectedCaptureInTx(
-    trx: any,
+    trx: Knex.Transaction,
     capture: { id: string; receiving_line_id: string | null; rule_broken: string | null; quantity: unknown; notes?: string | null },
   ): Promise<Record<string, unknown> | null> {
     if (!capture.receiving_line_id) return null;
@@ -239,7 +253,7 @@ export class ReceivingClaimsService {
    * y su ficha. Una sola implementación para los dos caminos (antes vivía dentro del cierre).
    */
   private async contextoDeReclamoTx(
-    trx: any,
+    trx: Knex.Transaction,
     session: { supplier_code: string | null; source_ref: string | null },
   ) {
     const tenantId = this.tenantCtx.get()?.tenantId || null;

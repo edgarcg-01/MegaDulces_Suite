@@ -118,7 +118,7 @@ export class ReceivingAuditorController {
   @Get('policy/departments')
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
   @ApiOperation({ summary: '[CE.1.1] Departamentos de Kepler (ámbito «categoría» de una política), derivados del ODS' })
-  listDepartments() {
+  listDepartments(): Promise<string[]> {
     return this.service.listDepartments();
   }
 
