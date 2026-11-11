@@ -1779,3 +1779,16 @@ Kepler (`kepler_payable`, sin tabla): cuando Kepler salda la factura, desaparece
 
 Verificado: `check:pantalla` (tipa, 0 nuevas), templates, reactividad, 1,455 pruebas de Finanzas (vista). Sin validación
 visual (el backend local ya no corre).
+
+#### `[PGP.116]` ⬜ La bandeja tarda ~1 s: el diagnóstico (2026-11-11)
+
+Medido con el código real en prod: de ~0.9–1.0 s, **~450 ms son `analytics.v_supplier_payables`** (las etiquetas de las
+facturas), y lo paga igual cada día de la semana. `EXPLAIN ANALYZE` con un filtro por llave natural (una sola factura):
+**451 ms**. La vista declara sus CTE `MATERIALIZED`, así que agrega TODO antes de filtrar: `apl` suma las 38,882
+aplicaciones de `kdxf` (~240 ms) y `canc`/`aplc` cruza 2,364 cancelados (~135 ms) en cada consulta.
+
+⛔ **No se arregla con una tercera copia.** La cuenta «importe − aplicado vigente» ya vive DOS veces (la vista y
+`SQL_CIERRE_KEPLER`, con su aviso de que si una cambia la otra también). El arreglo es UNA definición parametrizada por
+llave (una función SQL que la vista y el cierre usen), con comparación fila por fila contra la vista actual sobre toda la
+deuda viva antes de cambiar nada (regla 15), y la migración fuera de horario. Beneficia también a «Por día», a la deuda
+(`obligations`) y a todo consumidor de la vista.
