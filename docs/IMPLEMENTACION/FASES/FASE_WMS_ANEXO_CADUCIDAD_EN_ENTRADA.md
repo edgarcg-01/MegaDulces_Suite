@@ -142,11 +142,11 @@ y se dejó de usar.**
 ### C0 · Dato
 | # | Item | Estado | Verificado contra |
 |---|---|---|---|
-| CE.0.1 | Descartar un defecto: abrir un vale de prueba en el Andén de prod en CEDIS y revisar los logs de `/commercial/receiving/*` desde el 7-oct. Preguntar en almacén por qué se dejó de usar | ⬜ | Logs de la API + un vale real |
-| CE.0.2 | Diagnosticar el OCR (0 lecturas): llave del proveedor de IA en el pod y una foto de control con fecha conocida | ⬜ | Foto de control |
-| CE.0.3 | Medir los traspasos CEDIS → sucursal por renglón y día, y qué parte de la entrada de cada sucursal llega por traspaso | ⬜ | `analytics.erp_shipment_lines` contra la entrada física |
-| CE.0.4 | Medir el costo HOY de la promoción por caducidad: dónde lo registra Comercial (Kepler, hoja, nada) | ⬜ | Testigo que dé Comercial (pregunta 3) |
-| CE.0.5 | Limpiar el pasado: corregir la doble captura de VOLT DARK (2,112 piezas dos veces, 18-sep), cerrar o cancelar los 26 vales abiertos, revisar los 3 lotes vencidos aceptados | ⬜ | Conteo físico del lote |
+| CE.0.1 | Descartar un defecto: abrir un vale de prueba en el Andén de prod en CEDIS y revisar los logs de `/commercial/receiving/*` desde el 7-oct. Preguntar en almacén por qué se dejó de usar | ⚠️ | Medido 2026-11-11: el único operario real (almacenista, Padre Hidalgo) fechó del 18-sep al 7-oct y siguió entrando hasta el 21-oct; su aterrizaje era la estación vieja sin fechas (corregido en CE.2.2). Los logs de la API de octubre ya no existen (pods reiniciados). **Falta: preguntarle en piso** — dueño: jefe de almacén (pregunta 1) |
+| CE.0.2 | Diagnosticar el OCR (0 lecturas): llave del proveedor de IA en el pod y una foto de control con fecha conocida | ⚠️ | Código: sin `ANTHROPIC_API_KEY` el OCR devuelve vacío en silencio (`llm-extractor.service.ts` `extractExpiryLabel`). Leer el pod de prod lo bloqueó el clasificador: **falta correr en md** el comando de la bitácora (2026-11-11). NO MEDIDO |
+| CE.0.3 | Medir los traspasos CEDIS → sucursal por renglón y día, y qué parte de la entrada de cada sucursal llega por traspaso | ✅ | Medido 2026-11-11 (kdm1 U-D-41 a TI### + erp_shipment_lines, 60 días): ~19,600 renglones de traspaso contra 11,583 de compra. Origen principal: Padre Hidalgo (~6,800), CEDIS (~7,500), Morelia Abastos (~3,200). Por eso CE.2.3 vale más de lo estimado |
+| CE.0.4 | Medir el costo HOY de la promoción por caducidad: dónde lo registra Comercial (Kepler, hoja, nada) | ⚠️ | La promoción se da de alta en Kepler y la suite no guarda el motivo (`commercial.promotions` 0 filas; `analytics.erp_promotions` sin dato de motivo). **Falta: que Comercial diga dónde lo registra** (pregunta 3). NO MEDIDO |
+| CE.0.5 | Limpiar el pasado: corregir la doble captura de VOLT DARK (2,112 piezas dos veces, 18-sep), cerrar o cancelar los 26 vales abiertos, revisar los 3 lotes vencidos aceptados | 🧪 | En la mig `20261111132543`: 17 vales abiertos sin ninguna captura y de antes del 8-oct se cancelan (cancel no toca existencia); la captura duplicada de VOLT DARK pasa a `rejected` (la existencia NO se infló: las dos fueron reclasificaciones de cantidad 0). Los 8 vales abiertos CON capturas quedan para Almacén. Los 3 lotes vencidos aceptados: revisarlos en piso |
 | CE.0.6 | Probar la unidad de `kdii.c101` (¿días?) contra una etiqueta física de 5 SKUs | ⬜ | Etiqueta |
 
 ### C1 · Dominio
@@ -155,22 +155,23 @@ y se dejó de usar.**
 | CE.1.1 | `expiry_receiving_policy` + `tracks_expiry` y `shelf_life_days` (D1); semilla por departamento + `kdii.c101` | 🧪 | Migración idempotente, generada; cascada probada con base real |
 | CE.1.2 | Regla fija: fecha ya vencida = rojo, haya o no política (el margen de días lo firma el negocio, D2) | 🧪 | Prueba de `computeVerdict` + prueba negativa |
 | CE.1.3 | Fecha que no cabe en 1.5× la vida útil del producto = amarillo `beyond_shelf_life` (la heurística de «fecha redonda» se descartó: 12-dic o 31-dic pueden ser reales) | 🧪 | Prueba con las 48 capturas reales |
-| CE.1.4 | Por vencer declara cuando el `NA` del producto supera lo fechado (D4) | ⬜ | Caso con `NA` > fechado |
+| CE.1.4 | Por vencer declara cuando el `NA` del producto supera lo fechado (D4) | 🧪 | `commercial-inventory/por-vencer.ts` (`declararFechado`): cada lote trae `na_qty` y `dated_may_be_stale`; la pantalla dice «puede estar ya vendido» y cuántos/cuánto valor no son seguros. Medido 2026-11-11: de 70 lotes a 30 días, 50 tienen existencia sin fecha en su almacén (42 con más sin fecha que el lote) |
+| CE.1.5 | El valor en riesgo de «Por vencer» sin recalcular entera `analytics.v_erp_unit_cost` (hoy ~23 s por esa vista; 16 ms sin ella) | ⬜ | Medición antes/después del valor y del tiempo (regla 15) |
 
 ### C2 · API
 | # | Item | Estado | ¿Escribe? | Prueba contra base real |
 |---|---|---|---|---|
 | CE.2.1 | `close` exige fecha por renglón salvo `tracks_expiry=false` o «fecha pendiente» autorizada (D3) | 🧪 | sí | ⛔ obligatoria, con el payload del Andén |
 | CE.2.2 | Retirar la estación vieja `recepcion-sesiones` (D5) | 🧪 | — | Ruta 404 + menú |
-| CE.2.3 | El vale de traspaso en la sucursal **propone** la fecha del lote que el CEDIS despachó por FEFO; el operario confirma | ⬜ | sí | ⛔ obligatoria |
-| CE.2.4 | Reclamo `caducidad_corta` al proveedor desde un rojo rechazado | ⬜ | sí | ⛔ obligatoria |
+| CE.2.3 | El vale de traspaso en la sucursal **propone** la fecha del lote que el origen despacharía por FEFO; el operario confirma | 🧪 | `receiving-transfer-expiry.ts`: propone el lote FEFO del origen en el detalle del vale y en el paquete sin red; el Andén ofrece «Usar la de <origen>» y el operario confirma. Sólo lectura de `stock_lots` | ⛔ obligatoria |
+| CE.2.4 | Reclamo `caducidad_corta` al proveedor desde un rojo rechazado | 🧪 | `raiseForRejectedCaptureInTx` en la misma transacción que `reject()`; reglas `expired`, `min_shelf_life`, `older_than_existing`; CHECK ampliado en la mig; filtro y etiqueta en Compras › Reclamos. ⛔ Falta la prueba contra API real | ⛔ obligatoria |
 
 ### C3 · UI
 | # | Item | Estado | `check:pantalla` antes → después |
 |---|---|---|---|
-| CE.3.1 | Por vencer con la acción de `juzgarLotes`: mover a otra sucursal, devolver, promover — con dueño y fecha | ⬜ | — |
+| CE.3.1 | Por vencer con la acción de `juzgarLotes`: mover a otra sucursal, devolver, promover — con dueño y fecha | 🧪 | Columna «Qué hacer» con el MISMO `juzgarLotes` del flujo del producto (`GET /commercial/products/flow/lotes`, una pasada, hasta 200 productos): estado, acción y destinos por nombre; «Armar el traspaso en Pedido» si propone mover. Dueño y fecha de la acción: no construidos (pregunta 1). Tiempo del endpoint NO MEDIDO |
 | CE.3.2 | Llegadas repartida al jefe de almacén: el camión que Kepler recibió y nadie abrió es la bandeja del día | 🧪 permiso repartido a almacenista y supervisor en la mig (falta validación visual) | — |
-| CE.3.3 | Tablero de adopción por almacén y día (la métrica de la cabecera) | ⬜ | — |
+| CE.3.3 | Tablero de adopción por almacén y día (la métrica de la cabecera) | 🧪 | Se REUSA «Llegadas al andén» (WMS-REC.22, ya cuenta camiones sin abrir / a medias / completos por sucursal): se le agrega la cifra de la fase arriba — % de renglones llegados que ya tienen caducidad — y se reparte su permiso (CE.3.2). Sin pantalla nueva |
 
 ⛔ Cargar la skill `diseno` antes del primer item C3, y la sección de observaciones de diseño al final de este doc.
 
@@ -215,3 +216,5 @@ y se dejó de usar.**
 |---|---|---|
 | 2026-11-11 | Plan escrito con el inventario de lo existente y la medición de prod (sólo lectura). Estado ⬜ por cupo | Claude (pedido de Edgar) |
 | 2026-11-11 | Edgar firma D0–D6 («nosotros ahora»). En código: CE.1.1–1.3, CE.2.1–2.2, CE.3.2 (mig `20261111132543`, ADR-116). Hallazgos al construir: `catalog.products.department` vacía en los 14,945 productos (el departamento se deriva de Kepler `kdii.c4`→`kdie`); el aterrizaje del almacenista era la estación vieja que no pide fecha; sólo 9 personas (rol almacenista) + 1 supervisor tienen el permiso de recibir en `true`; 1 sola persona real fechó. Pruebas: 116 vitest de recepción (rojo verificado), 145 del Andén, `check:templates-types` verde. **Falta:** aplicar la mig en prod, desplegar api+view, validación visual, CE.0.x, CE.2.3–2.4, CE.3.1, CE.3.3 | Claude |
+| 2026-11-11 | Segunda tanda («hagamos lo pendiente»): CE.0.3 medido (los traspasos pesan más que las compras), CE.0.5 en la migración (17 vales vacíos cancelados, duplicado de VOLT DARK marcado; **corrección:** la existencia no se infló), CE.2.3 (el traspaso propone la fecha del origen), CE.2.4 (reclamo de caducidad corta al rechazar un rojo), CE.3.3 (la cifra de la fase en «Llegadas al andén», sin pantalla nueva). CE.0.1 y CE.0.4 quedan ⚠️ con dueño en piso/Comercial. CE.0.2: el clasificador bloqueó leer el pod; el comando para md es `ssh superoot@192.168.0.222 'export KUBECONFIG=/etc/rancher/k3s/k3s.yaml; P=$(k3s kubectl -n prod get pods -l app=api -o jsonpath="{.items[0].metadata.name}"); k3s kubectl -n prod exec $P -c api -- sh -c "test -n \"\$ANTHROPIC_API_KEY\" && echo HAY_LLAVE \|\| echo SIN_LLAVE"'` (no imprime el valor) | Claude |
+| 2026-11-11 | CE.1.4 y CE.3.1 en código (agente). ⚠️ **Hallazgo: «Por vencer» ya tardaba ~23 s en prod** (antes de este cambio): todo el tiempo es el `LEFT JOIN analytics.v_erp_unit_cost` (CTE MATERIALIZED: calcula la vista entera para 70 lotes); sin él, 16 ms. Deuda con nombre **CE.1.5**: el costo del valor en riesgo sin recalcular la vista entera — cambia la fuente de un número, exige medición antes/después (regla 15) | Claude |

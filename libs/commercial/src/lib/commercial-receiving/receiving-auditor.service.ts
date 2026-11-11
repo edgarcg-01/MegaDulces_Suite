@@ -14,6 +14,7 @@ import {
 import { CommercialInventoryService } from '../commercial-inventory/commercial-inventory.service';
 import { UX_CAPTURAS_CLIENT_UUID, conLlave, esChoqueDe } from './receiving-idempotency';
 import { departamentosKepler, perfilesDeCaducidad } from './receiving-expiry-profile';
+import { ReceivingClaimsService } from './receiving-claims.service';
 
 /**
  * Fase WMS-REC (Pieza 2 — Auditor de recepción por caducidad, ADR-044).
@@ -83,6 +84,7 @@ export class ReceivingAuditorService {
     private readonly inventory: CommercialInventoryService,
     private readonly storage: ObjectStorageService,
     private readonly ocr: LlmExtractorService,
+    private readonly claims: ReceivingClaimsService,
   ) {}
 
   /**
@@ -446,9 +448,11 @@ export class ReceivingAuditorService {
     if (capture.status !== 'pending_authorization')
       throw new ConflictException(`La captura ya está ${capture.status}`);
     // Mismo claim atómico que authorize (no escribe stock, pero el 409 debe ser correcto).
+    // `[CE.2.4]` Y en la MISMA transacción, el reclamo de caducidad corta a quien la mandó: un
+    // rechazo que no deja reclamo es mercancía devuelta que nadie le cobra al proveedor.
     const claimed = await this.tk.run(async (trx) => {
       const userId = this.tenantCtx.get()?.userId || null;
-      return trx('commercial.receiving_lot_captures')
+      const n = await trx('commercial.receiving_lot_captures')
         .where({ id, status: 'pending_authorization' })
         .update({
           status: 'rejected',
@@ -456,6 +460,8 @@ export class ReceivingAuditorService {
           authorized_at: trx.fn.now(),
           resolution_notes: notes || null,
         });
+      if (n) await this.claims.raiseForRejectedCaptureInTx(trx, { ...capture, notes: notes || null });
+      return n;
     });
     if (!claimed) throw new ConflictException('La captura ya fue resuelta por otro usuario');
     return this.getCapture(id);

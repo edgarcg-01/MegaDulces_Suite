@@ -175,6 +175,14 @@ export interface AndenLineaOffline {
    * `null`/ausente = nadie lo ha dicho (se pide, como siempre). Opcional: paquetes viejos no lo traen.
    */
   tracks_expiry?: boolean | null;
+  /**
+   * `[CE.2.3]` En un traspaso: el lote y la caducidad que el almacén de ORIGEN despacharía primero
+   * (FEFO). Es una PROPUESTA para confirmar con la etiqueta, nunca un dato. Ausente = sin propuesta.
+   */
+  suggested_lot?: string | null;
+  suggested_expiry?: string | null;
+  /** Nombre del almacén que lo mandó. */
+  suggested_from?: string | null;
 }
 
 /** `[WMS-REC.20]` Un vale pendiente de la sucursal, con sus renglones, para abrirlo sin red. */

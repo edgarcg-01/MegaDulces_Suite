@@ -197,6 +197,10 @@ async function ctx(trx, whId, prodId, confirmedExpiry) {
       rechazado = /expiry_receiving_policy_shelf_life_pos/.test(String(e.message));
     }
     check(rechazado, '[CE.1.1] shelf_life_days = 0 lo rechaza el CHECK');
+    const chk = await knex.raw(
+      `SELECT pg_get_constraintdef(oid) AS d FROM pg_constraint WHERE conname = 'commercial_recv_claims_kind_chk'`,
+    );
+    check(/caducidad_corta/.test(String(chk.rows[0]?.d || '')), '[CE.2.4] el CHECK de reclamos acepta caducidad_corta');
     const semilla = await knex.transaction(async (trx) => {
       await setCtx(trx);
       return trx('commercial.expiry_receiving_policy')

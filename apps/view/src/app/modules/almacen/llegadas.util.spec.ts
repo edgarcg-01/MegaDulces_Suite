@@ -73,6 +73,20 @@ describe('[WMS-REC.22] el resumen', () => {
       llegaron: 4, proveedor: 1, traspaso: 2, manual: 1, anteriores: 1,
       sin_abrir: 2, importe_sin_abrir: 1500, a_medias: 1, renglones_sin_fecha: 2,
       completas: 1, sin_caducidad: 1, por_autorizar: 1, en_camino: 1,
+      renglones_llegados: 10, renglones_listos: 8, cobertura_pct: 80,
     });
+  });
+
+  it('[CE.3.3] la cobertura cuenta lo sin abrir como pendiente y deja fuera lo que va en camino', () => {
+    const r = resumirLlegadas([
+      llegada({ estado: 'sin_abrir', resumen: { renglones: 3, listos: 0, faltan: 3, sin_caducidad: 0, verdes: 0, amarillos: 0, rojos: 0, por_autorizar: 0 } }),
+      llegada({ estado: 'completa', resumen: { renglones: 1, listos: 1, faltan: 0, sin_caducidad: 1, verdes: 0, amarillos: 0, rojos: 0, por_autorizar: 0 } }),
+      llegada({ estado: 'en_camino', resumen: { renglones: 50, listos: 0, faltan: 50, sin_caducidad: 0, verdes: 0, amarillos: 0, rojos: 0, por_autorizar: 0 } }),
+    ], HOY);
+    expect([r.renglones_listos, r.renglones_llegados, r.cobertura_pct]).toEqual([1, 4, 25]);
+  });
+
+  it('[CE.3.3] sin renglones llegados la cobertura no es 0 %: es «sin medir» (null)', () => {
+    expect(resumirLlegadas([llegada({ estado: 'en_camino' })], HOY).cobertura_pct).toBeNull();
   });
 });

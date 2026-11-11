@@ -3,6 +3,7 @@ import { join } from 'path';
 import { ReceivingAuditorService } from './receiving-auditor.service';
 import { resolverPerfil, type PoliticaCaducidad } from './receiving-expiry-profile';
 import { motivoValido, renglonesSinFecha, type RenglonParaFecha } from './receiving-expiry-gate';
+import { CLAIMABLE_KINDS, CLAIM_KINDS, RULES_CADUCIDAD_CORTA, claimDedupKeyCaptura } from './receiving-claim';
 
 /**
  * Anexo CE de la Fase WMS — **toda entrada con caducidad**.
@@ -175,5 +176,44 @@ describe('[CE.2.1] el candado está en el cierre, antes de dar de alta', () => {
   });
   it('declarado = accepted + authorized (lo retenido o rechazado no fecha nada)', () => {
     expect(SESION).toMatch(/c\.status IN \('accepted', 'authorized'\)/);
+  });
+});
+
+describe('[CE.2.4] el rojo rechazado se le reclama a quien lo mandó', () => {
+  const AUDITOR = readFileSync(join(__dirname, 'receiving-auditor.service.ts'), 'utf8');
+  const CLAIMS = readFileSync(join(__dirname, 'receiving-claims.service.ts'), 'utf8');
+  const MIG = readFileSync(
+    join(__dirname, '../../../../../database/migrations-newdb/20261111132543_ce_caducidad_en_entrada.js'),
+    'utf8',
+  );
+  it('sólo por reglas que son culpa del origen; la llave es por captura', () => {
+    expect([...RULES_CADUCIDAD_CORTA].sort()).toEqual(['expired', 'min_shelf_life', 'older_than_existing']);
+    expect(claimDedupKeyCaptura('abc')).toBe('recv-capture:abc');
+    expect(CLAIM_KINDS).toContain('caducidad_corta');
+    expect(CLAIMABLE_KINDS).not.toContain('caducidad_corta'); // no es discrepancia de renglón
+  });
+  it('el reclamo va en la MISMA transacción que el rechazo, y sólo si el rechazo ganó', () => {
+    const reject = AUDITOR.slice(AUDITOR.indexOf('async reject('), AUDITOR.indexOf('async listCaptures('));
+    const tx = reject.slice(reject.indexOf('this.tk.run('));
+    expect(tx.indexOf("status: 'rejected'")).toBeGreaterThan(0);
+    expect(tx).toMatch(/if \(n\) await this\.claims\.raiseForRejectedCaptureInTx\(trx,/);
+  });
+  it('la migración acepta el tipo nuevo en el CHECK', () => {
+    expect(MIG).toMatch(/CHECK \(kind IN \('faltante','dañado','producto_incorrecto','caducidad_corta'\)\)/);
+  });
+  it('el contexto del reclamo es UNO para los dos caminos', () => {
+    expect((CLAIMS.match(/this\.contextoDeReclamoTx\(trx,/g) || []).length).toBe(2);
+  });
+});
+
+describe('[CE.2.3] el traspaso propone la fecha del origen', () => {
+  const TE = readFileSync(join(__dirname, 'receiving-transfer-expiry.ts'), 'utf8');
+  it('propone lo que el origen despacharía primero: fechado, con existencia, no vencido, el más próximo', () => {
+    expect(TE).toMatch(/sl\.quantity > 0 AND sl\.expiry_date IS NOT NULL/);
+    expect(TE).toMatch(/sl\.expiry_date >= \(now\(\) AT TIME ZONE 'America\/Mexico_City'\)::date/);
+    expect(TE).toMatch(/ORDER BY sl\.product_id, sl\.expiry_date ASC/);
+  });
+  it('nunca escribe: sólo lee stock_lots', () => {
+    expect(TE).not.toMatch(/\.insert\(|\.update\(|INSERT INTO|UPDATE /);
   });
 });

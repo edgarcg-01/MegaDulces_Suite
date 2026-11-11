@@ -40,6 +40,10 @@ export interface ReceivingLine {
    * caducidad» de entrada. `true`/`null` = se pide la fecha, como siempre.
    */
   tracks_expiry?: boolean | null;
+  /** `[CE.2.3]` Traspaso: lote y caducidad que propone el almacén de origen (FEFO). Se confirma con la etiqueta. */
+  suggested_lot?: string | null;
+  suggested_expiry?: string | null;
+  suggested_from?: string | null;
 }
 
 /** Ficha del vale del ERP — derivada del espejo al leer, no almacenada. */

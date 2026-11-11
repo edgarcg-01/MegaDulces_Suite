@@ -227,7 +227,7 @@ export const LIDERES_SQL = `
  * así que se topa con la existencia de hoy en la lógica. Parámetros: ids (NULL = todos los productos con lote).
  */
 export const LOTES_CADUCIDAD_SQL = `
-  SELECT l.product_id::text AS product_id, p.sku, p.nombre, w.kepler_code AS plaza, l.lot_code AS lote,
+  SELECT l.id::text AS lot_id, l.product_id::text AS product_id, p.sku, p.nombre, w.kepler_code AS plaza, l.lot_code AS lote,
          to_char(l.expiry_date, 'YYYY-MM-DD') AS caduca, l.quantity::float AS cantidad,
          to_char(l.received_at, 'YYYY-MM-DD') AS registrado
     FROM commercial.stock_lots l

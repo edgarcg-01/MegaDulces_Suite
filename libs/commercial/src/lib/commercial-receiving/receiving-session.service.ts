@@ -24,6 +24,7 @@ import { classifyReceivingOrigin } from './receiving-origin';
 import { ReceivingClaimsService } from './receiving-claims.service';
 import { UX_SESIONES_CLIENT_UUID, conLlave, esChoqueDe } from './receiving-idempotency';
 import { perfilesDeCaducidad } from './receiving-expiry-profile';
+import { almacenDeSucursal, sugerenciasDeOrigen, type SugerenciaOrigen } from './receiving-transfer-expiry';
 import { motivoValido, renglonesSinFecha, type RenglonParaFecha } from './receiving-expiry-gate';
 import {
   type LoteCrudo,
@@ -572,6 +573,15 @@ export class ReceivingSessionService {
       null,
     );
 
+    // `[CE.2.3]` La fecha que propone el origen de cada traspaso: una consulta por sucursal de origen.
+    const sugPorOrigen = new Map<string, Map<string, SugerenciaOrigen>>();
+    const idsProd = [...productos.values()].map((p) => p.id);
+    for (const origenSuc of new Set(traspasos.map((d) => d.sucursal))) {
+      const origen = await almacenDeSucursal(trx, origenSuc);
+      sugPorOrigen.set(origenSuc, await sugerenciasDeOrigen(trx, origen, idsProd));
+    }
+    const origenDeClave = new Map(traspasos.map((d) => [claveDoc(d), d.sucursal]));
+
     const out = new Map<string, AndenLineaOffline[]>(docs.map((d) => [claveDoc(d), []]));
     for (const f of filas) {
       const p = f.sku ? productos.get(String(f.sku)) : undefined;
@@ -585,6 +595,11 @@ export class ReceivingSessionService {
         sku: p?.sku ?? null,
         product_name: p?.nombre ?? null,
         tracks_expiry: p ? (perfiles.get(p.id)?.tracks_expiry ?? null) : null,
+        ...(() => {
+          const suc = origenDeClave.get(f.clave);
+          const s = p && suc ? sugPorOrigen.get(suc)?.get(p.id) : undefined;
+          return s ? { suggested_lot: s.lot_code, suggested_expiry: s.expiry_date, suggested_from: s.origin_name } : {};
+        })(),
       });
     }
     return out;
@@ -2080,6 +2095,18 @@ export class ReceivingSessionService {
       );
       for (const l of lines as any[])
         l.tracks_expiry = l.product_id ? (perfiles.get(l.product_id)?.tracks_expiry ?? null) : null;
+
+      // `[CE.2.3]` En un traspaso, la fecha que propone el almacén que lo mandó (FEFO del origen).
+      if (traspaso) {
+        const origen = await almacenDeSucursal(trx, traspaso.origen);
+        const sug = await sugerenciasDeOrigen(trx, origen, lines.map((l: any) => l.product_id));
+        for (const l of lines as any[]) {
+          const s = l.product_id ? sug.get(l.product_id) : undefined;
+          l.suggested_lot = s?.lot_code ?? null;
+          l.suggested_expiry = s?.expiry_date ?? null;
+          l.suggested_from = s?.origin_name ?? null;
+        }
+      }
 
       const progress = {
         lines: lines.length,

@@ -113,6 +113,14 @@ type Semaforo = 'g' | 'y' | 'r' | 'n';
       }
 
       @if (!sinCaducidad()) {
+      <!-- [CE.2.3] Traspaso: el origen ya fechó este producto. Se PROPONE, no se llena solo:
+           el operario lo confirma contra la etiqueta (el lote del origen puede no ser el que viajó). -->
+      @if (linea().suggested_expiry && !fechaRaw() && !entradas().length) {
+        <button type="button" class="fx-sug" (click)="usarSugerencia()">
+          <i class="pi pi-arrow-down-left" aria-hidden="true"></i>
+          Usar la de {{ linea().suggested_from || 'el origen' }}: {{ eco(linea().suggested_expiry ?? null) }}@if (linea().suggested_lot && linea().suggested_lot !== 'NA') { · lote {{ linea().suggested_lot }} }
+        </button>
+      }
       <label class="fx-foto">
         <span class="fx-foto-btn" [class.fx-busy]="ocrCorriendo()">
           <i class="pi" [class.pi-camera]="!ocrCorriendo()" [class.pi-spin]="ocrCorriendo()"
@@ -271,6 +279,13 @@ type Semaforo = 'g' | 'y' | 'r' | 'n';
       text-decoration: underline; text-underline-offset: 2px;
     }
     .fx-sincad:hover { color: var(--action); }
+    .fx-sug {
+      width: 100%; min-height: 44px; display: flex; align-items: center; justify-content: center; gap: var(--sp-2);
+      padding: 0 var(--sp-3); cursor: pointer; font: inherit; font-size: var(--fs-sm); color: var(--text-main);
+      background: var(--overlay-hover); border: 1px dashed var(--border-color); border-radius: var(--r-md);
+    }
+    .fx-sug:hover { border-color: var(--action); }
+    .fx-sug:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
     .fx-sincad:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; border-radius: var(--r-sm); }
     .fx-sinc {
       display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); flex-wrap: wrap;
@@ -575,6 +590,18 @@ export class AndenCaducidadComponent {
     this.fotoDataUri.set(null);
     this.ocrConfianza.set(null);
     this.ocrCorriendo.set(false);
+  }
+
+  /**
+   * `[CE.2.3]` Precarga la fecha y el lote que propone el almacén de origen del traspaso. Queda en
+   * el formulario para que el operario la compare con la etiqueta antes de guardar.
+   */
+  usarSugerencia(): void {
+    const iso = this.linea().suggested_expiry;
+    if (!iso) return;
+    const [y, m, d] = iso.split('-');
+    const lote = this.linea().suggested_lot;
+    this.precargar(lote && lote !== 'NA' ? lote : '', `${d}${m}${y}`);
   }
 
   /** Precarga lote y fecha de una captura anterior (el fechado en bloque). */
