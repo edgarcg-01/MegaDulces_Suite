@@ -28,11 +28,9 @@ const { descubrir } = require('./descubrir');
 const { ErrorEnvio } = require('./enviar');
 const { ejecutarComando } = require('./escritura');
 
-/**
- * Cada cuánto se preguntan los comandos pendientes (eliminar/renombrar). Un
- * minuto: es una consulta chica a la API y RH ve el resultado casi al momento.
- */
-const COMANDOS_MS = 60 * 1000;
+// Las órdenes (eliminar/renombrar) ya NO se preguntan cada minuto: la Suite AVISA (`avisos.js`, `[RH.1.3]`, 11-nov)
+// y el reloj las atiende en cuanto su candado está libre (`pedirComandos` + `soltarCandado`). Al conectarse se
+// atiende lo pendiente: lo que llegó mientras no había sesión no se pierde.
 
 /** Tope para UN comando completo: leer padrón + escribir + releer. */
 const LIMITE_ESCRITURA_MS = 3 * 60 * 1000;
@@ -157,8 +155,6 @@ class RelojJob {
     await this.reconectar('arranque');
     // Los backfills se escalonan: si los 8 relojes bajan su log completo al
     // mismo tiempo, se saturan la red de la plaza y el enlace de salida.
-    this.timers.comandos = setInterval(
-      () => this.atenderComandos().catch((e) => this.log(`comandos: ${motivo(e)}`)), COMANDOS_MS);
     this.timers.backfill = setTimeout(() => {
       this.backfill().catch((e) => this.log(`backfill: ${motivo(e)}`));
       this.timers.backfillRepe = setInterval(
@@ -174,10 +170,29 @@ class RelojJob {
   // acepta una sola sesión, y un comando encimado con una lectura es lo que lo
   // deja mudo. Si el candado está tomado (backfill en curso) se espera a la
   // siguiente vuelta; el comando no se pierde, sigue pendiente en la API.
+  /**
+   * La Suite avisó que hay una orden para este reloj (o el lector se puso al día). Se marca y se atiende ya si el
+   * candado está libre; si no, la atiende quien lo suelte (`soltarCandado`). Ninguna orden espera a un reloj.
+   */
+  pedirComandos() {
+    this.comandosEnEspera = true;
+    this.atenderComandos().catch((e) => this.log(`comandos: ${motivo(e)}`));
+  }
+
+  /** Suelta el candado del reloj y, si una orden llegó mientras estaba tomado, la atiende enseguida. */
+  soltarCandado() {
+    this.ocupado = false;
+    if (this.comandosEnEspera && this.corriendo) {
+      setImmediate(() => this.atenderComandos().catch((e) => this.log(`comandos: ${motivo(e)}`)));
+    }
+  }
+
   async atenderComandos() {
-    if (!this.corriendo || !this.zk || this.ocupado) return;
+    if (!this.corriendo || !this.zk || this.ocupado) return;   // la marca queda: la atiende quien suelte el candado
+    this.comandosEnEspera = false;
     const pendientes = await this.enviador.comandosPendientes(this.reloj.serie);
-    if (!pendientes.length || !this.zk || this.ocupado) return;
+    if (!pendientes.length) return;
+    if (!this.zk || this.ocupado) { this.comandosEnEspera = true; return; }   // se tomó el candado mientras se preguntaba
 
     this.ocupado = true;
     let sesionRota = false;
@@ -200,7 +215,7 @@ class RelojJob {
       }
     } finally {
       if (sesionRota) destruirSocket(this.zk);
-      this.ocupado = false;
+      this.soltarCandado();
     }
     if (sesionRota && this.corriendo) await this.reconectar('después de un comando');
   }
@@ -296,6 +311,8 @@ class RelojJob {
       this.fallosKeepalive = 0;
       this.ultimoError = null;
       this.log(`🟢 vigilando ${this.reloj.ip} (${porque})`);
+      // Con sesión nueva se atiende lo que haya pendiente (lo que llegó mientras no había): lo hace `soltarCandado`.
+      this.comandosEnEspera = true;
       await this.enviador.latido(this.reloj.serie, {
         ip: this.reloj.ip,
         infoReloj: this.infoReloj ? { logCounts: this.infoReloj.logCounts, userCounts: this.infoReloj.userCounts } : undefined,
@@ -314,7 +331,7 @@ class RelojJob {
       await this.enviador.latido(this.reloj.serie, { ip: this.reloj.ip, error: this.ultimoError });
       this.programarReintento();
     } finally {
-      this.ocupado = false;
+      this.soltarCandado();
     }
   }
 
@@ -589,7 +606,7 @@ class RelojJob {
       this.log(`❌ backfill: ${this.ultimoError}`);
       await this.enviador.latido(this.reloj.serie, { ip: this.reloj.ip, error: this.ultimoError });
     } finally {
-      this.ocupado = false;
+      this.soltarCandado();
       // Vuelve el stream. Si esto falla, `reconectar` deja programado su propio
       // reintento — el reloj no se queda sin nadie que lo vigile.
       if (this.corriendo) await this.reconectar('después del backfill');

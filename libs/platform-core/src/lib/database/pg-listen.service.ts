@@ -34,6 +34,11 @@ export class PgListenService implements OnModuleDestroy {
   private reintento: NodeJS.Timeout | null = null;
   /** canal → oyentes. Se guarda para poder re-suscribir TODO al reconectar. */
   private readonly canales = new Map<string, Set<(payload: string) => void>>();
+  /**
+   * `[RH.1.3]` Quien necesita «ponerse al día» cuando el LISTEN vuelve: lo que se emitió mientras la conexión
+   * estuvo caída se perdió (NOTIFY no se guarda), y la reconexión ES el evento que avisa de ese hueco — sin reloj.
+   */
+  private readonly alVolver = new Set<() => void>();
   private intentos = 0;
 
   /**
@@ -109,11 +114,24 @@ export class PgListenService implements OnModuleDestroy {
       // Re-suscribir TODO: una reconexión con la lista vacía deja el canal mudo para siempre.
       for (const canal of this.canales.keys()) await this.suscribir(canal);
       this.logger.log(`LISTEN activo en ${this.canales.size} canal(es).`);
+      for (const o of this.alVolver) {
+        try { o(); } catch (e) { this.logger.warn(`oyente de reconexión falló: ${(e as Error)?.message}`); }
+      }
     } catch (e: unknown) {
       this.logger.warn(`no se pudo abrir la conexión de LISTEN: ${(e as Error)?.message}`);
       this.client = null;
       this.programarReintento();
     }
+  }
+
+  /**
+   * Avisa cada vez que el LISTEN queda activo (la primera conexión y cada reconexión), DESPUÉS de re-suscribir: es el
+   * momento de pedir lo que pudo perderse. Devuelve la función para dejar de avisar.
+   */
+  alConectar(oyente: () => void): () => void {
+    this.alVolver.add(oyente);
+    this.asegurarConexion();
+    return () => { this.alVolver.delete(oyente); };
   }
 
   private async suscribir(canal: string): Promise<void> {
