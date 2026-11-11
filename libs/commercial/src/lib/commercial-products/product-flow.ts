@@ -818,11 +818,18 @@ export interface LoteFila {
   /** La cantidad REGISTRADA, en unidad base. */
   cantidad: number | string;
   registrado: string | null;
+  /**
+   * `[CE.3.1]` El renglón de `commercial.stock_lots` del que salió. Opcional: sólo viaja para que otra pantalla
+   * (Por vencer) ponga el juicio en SU renglón sin volver a emparejar por sucursal + lote + fecha.
+   */
+  lot_id?: string | null;
 }
 
 export type EstadoLote = 'caducado' | 'no_alcanza' | 'justo' | 'a_tiempo';
 
 export interface LoteCaducidad {
+  /** `[CE.3.1]` El renglón de `commercial.stock_lots` juzgado (NULL si la fila no lo trajo). */
+  lot_id: string | null;
   plaza: string;
   nombre: string | null;
   lote: string | null;
@@ -946,6 +953,7 @@ export function juzgarLotes(p: Periodos, lotes: LoteFila[], plazas: PlazaFlujo[]
         accion = 'Alcanza a venderse antes de que caduque';
       }
       out.push({
+        lot_id: l.lot_id ?? null,
         plaza, nombre: pl?.nombre ?? nombres.get(plaza) ?? null, lote: l.lote && l.lote !== 'NA' ? l.lote : null,
         caduca: l.caduca, dias, registrado,
         en_existencia: existencia === null ? null : Math.round(presente * 1000) / 1000,
@@ -976,6 +984,19 @@ export function resumirCaducidad(lotes: LoteCaducidad[]): CaducidadResumen | nul
     plazas_en_riesgo: unicos(riesgo.map(nombre)),
     lotes: lotes.length,
   };
+}
+
+/**
+ * `[CE.3.1]` El juicio de `juzgarLotes` para los productos que otra pantalla ya listó (Por vencer), en una sola
+ * pasada. Cada lote lleva su `lot_id`; los productos sin código de Kepler no salen (quien llama lo DECLARA).
+ */
+export interface JuicioLotesRespuesta {
+  periodos: Periodos;
+  corte: string;
+  en_vivo_al: string;
+  /** Días con los que un lote que sí alcanza se marca «justo». */
+  caducidad_aviso: number;
+  productos: Array<{ product_id: string; lotes: LoteCaducidad[] }>;
 }
 
 // ─────────────────────────────── [PF.4] los que no se venden ───────────────────────────────

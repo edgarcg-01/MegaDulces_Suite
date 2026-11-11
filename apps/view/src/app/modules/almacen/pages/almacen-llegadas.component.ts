@@ -88,6 +88,11 @@ const dmy = (v: string | null | undefined): string => {
         <div class="ll-skeleton" aria-busy="true">@for (i of skel; track $index) { <div class="ll-skel-row"></div> }</div>
       } @else if (data(); as d) {
         @let r = resumen();
+        <!-- [CE.3.3] La cifra de la fase, primero: qué parte de lo que llegó ya tiene caducidad. -->
+        <p class="ll-cob" aria-live="polite">
+          @if (r.cobertura_pct === null) { Todavía no llegó ningún renglón en este periodo. }
+          @else { <b class="num">{{ r.cobertura_pct }} %</b> de los renglones que llegaron ya tienen caducidad <span class="muted num">({{ r.renglones_listos }} de {{ r.renglones_llegados }}, contando los declarados sin caducidad)</span> }
+        </p>
         <div class="ll-kpis" role="group" aria-label="Resumen y filtro por estado">
           <button type="button" class="ll-kpi" [class.on]="!estado()" [attr.aria-pressed]="!estado()" (click)="estado.set(null)">
             <span class="ll-kpi-l">Camiones que llegaron</span><span class="ll-kpi-v num">{{ r.llegaron }}</span>
@@ -142,7 +147,7 @@ const dmy = (v: string | null | undefined): string => {
                     <span class="muted">Sin hora</span><span class="muted ll-sub">Kepler: {{ diaTexto(l.dia, d.hoy) }}</span>
                   }
                 </td>
-                <td role="cell" data-label="Sucursal"><span class="mono">{{ l.warehouse_code || '—' }}</span><span class="muted ll-sub">{{ l.warehouse_name || '' }}</span></td>
+                <td role="cell" data-label="Sucursal">{{ l.warehouse_name || 'Sin almacén' }}</td>
                 <td role="cell" data-label="De"><span class="ll-trunc">{{ deQuien(l) }}</span><span class="muted ll-sub mono">{{ l.documento || l.vale?.folio || '—' }}</span></td>
                 <td class="ta-r" role="cell" data-label="Mercancía"><span class="num">{{ l.resumen.renglones }} reng.</span><span class="muted ll-sub num">{{ l.importe === null ? '—' : money(l.importe) }}</span></td>
                 <td role="cell" data-label="Renglones listos">
@@ -191,7 +196,7 @@ const dmy = (v: string | null | undefined): string => {
               <p class="ll-frase" [class.ll-frase-bad]="x.estado === 'sin_abrir'">{{ frase(x) }}</p>
               <div class="ll-step">
                 <div class="ll-r"><span>De</span><span>{{ deQuien(x) }}</span></div>
-                <div class="ll-r"><span>Entra a</span><span>{{ x.warehouse_code || '—' }} {{ x.warehouse_name || '' }}</span></div>
+                <div class="ll-r"><span>Entra a</span><span>{{ x.warehouse_name || 'Sin almacén' }}</span></div>
                 @if (x.tipo === 'traspaso') {
                   <div class="ll-r"><span>Salió (Kepler)</span><span class="mono">{{ dmy(x.salio) }}</span></div>
                   <div class="ll-r"><span>Recibido en Kepler</span><span class="mono">{{ x.recibido_kepler ? dmy(x.recibido_kepler) : 'Todavía no' }}</span></div>
@@ -246,6 +251,8 @@ const dmy = (v: string | null | undefined): string => {
     .ll-seg-b { height:2.25rem; padding:0 .75rem; border:0; border-left:1px solid var(--border-color); background:transparent; color:var(--text-main); font:inherit; font-size:var(--fs-sm); cursor:pointer; }
     .ll-seg-b:first-child { border-left:0; }
     .ll-seg-b.on { background:var(--text-main); color:var(--card-bg); }
+    .ll-cob { margin:0 0 var(--sp-2); font-size:var(--fs-body); color:var(--text-main); }
+    .ll-cob b { font-size:var(--fs-h3); font-weight:var(--fw-bold); }
     .ll-kpis { display:grid; grid-template-columns:repeat(auto-fit, minmax(11rem, 1fr)); gap:.5rem; margin-bottom:.75rem; }
     .ll-kpi { position:relative; display:flex; flex-direction:column; align-items:flex-start; gap:.1rem; padding:.55rem .75rem .6rem .9rem; text-align:left; border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); color:var(--text-main); font:inherit; cursor:pointer; min-width:0; }
     .ll-kpi::before { content:''; position:absolute; left:0; top:.6rem; bottom:.6rem; width:3px; border-radius:0 3px 3px 0; background:transparent; }
@@ -367,7 +374,7 @@ export class AlmacenLlegadasComponent implements OnInit {
     for (const l of this.data()?.llegadas ?? []) if (l.warehouse_code) vistas.set(l.warehouse_code, l.warehouse_name || '');
     return [
       { label: 'Todas las sucursales', value: null as string | null },
-      ...[...vistas.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([code, name]) => ({ label: `${code} ${name}`.trim(), value: code as string | null })),
+      ...[...vistas.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([code, name]) => ({ label: name || 'Sin nombre', value: code as string | null })),
     ];
   });
 

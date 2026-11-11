@@ -3,7 +3,6 @@
   "apps/view/src/app/modules/almacen/pages/almacen-existencia.component.ts",
   "apps/view/src/app/modules/almacen/pages/almacen-monitoreo.component.ts",
   "apps/view/src/app/modules/almacen/pages/almacen-prevencion.component.ts",
-  "apps/view/src/app/modules/almacen/pages/almacen-recepcion-sesiones.component.ts",
   "apps/view/src/app/modules/almacen/pages/almacen-ubicaciones.component.ts",
   "apps/view/src/app/modules/comercial/pages/comercial-documentos.component.ts",
   "apps/view/src/app/modules/comercial/pages/comercial-expiry-reviews.component.ts",

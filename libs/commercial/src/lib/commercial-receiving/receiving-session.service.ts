@@ -23,6 +23,9 @@ import { CommercialInventoryService } from '../commercial-inventory/commercial-i
 import { classifyReceivingOrigin } from './receiving-origin';
 import { ReceivingClaimsService } from './receiving-claims.service';
 import { UX_SESIONES_CLIENT_UUID, conLlave, esChoqueDe } from './receiving-idempotency';
+import { perfilesDeCaducidad } from './receiving-expiry-profile';
+import { almacenDeSucursal, sugerenciasDeOrigen, type SugerenciaOrigen } from './receiving-transfer-expiry';
+import { motivoValido, renglonesSinFecha, type RenglonParaFecha } from './receiving-expiry-gate';
 import {
   type LoteCrudo,
   type RenglonValeCrudo,
@@ -246,6 +249,16 @@ interface FilaMenuAnden {
   /** `[WMS-REC.18]` De `pendientes`, las de dias anteriores. */
   anteriores: number | string;
   ultimo: string | null;
+}
+
+/** `[CE.1.1]` `[CE.2.3]` Lo que el detalle del vale le agrega a cada renglón: caduca, y la fecha que propone el origen. */
+interface RenglonDelDetalle {
+  product_id: string | null;
+  sku: string | null;
+  tracks_expiry?: boolean | null;
+  suggested_lot?: string | null;
+  suggested_expiry?: string | null;
+  suggested_from?: string | null;
 }
 
 @Injectable()
@@ -562,6 +575,23 @@ export class ReceivingSessionService {
       unidades.set(k, set);
     }
 
+    // `[CE.1.1]` Si caduca o no, por producto y departamento. Sin el proveedor: el paquete mezcla
+    // vales de muchos y una política por proveedor sólo la ve el detalle del vale ya abierto.
+    const perfiles = await perfilesDeCaducidad(
+      trx,
+      [...productos.values()].map((p) => ({ product_id: p.id, sku: p.sku })),
+      null,
+    );
+
+    // `[CE.2.3]` La fecha que propone el origen de cada traspaso: una consulta por sucursal de origen.
+    const sugPorOrigen = new Map<string, Map<string, SugerenciaOrigen>>();
+    const idsProd = [...productos.values()].map((p) => p.id);
+    for (const origenSuc of new Set(traspasos.map((d) => d.sucursal))) {
+      const origen = await almacenDeSucursal(trx, origenSuc);
+      sugPorOrigen.set(origenSuc, await sugerenciasDeOrigen(trx, origen, idsProd));
+    }
+    const origenDeClave = new Map(traspasos.map((d) => [claveDoc(d), d.sucursal]));
+
     const out = new Map<string, AndenLineaOffline[]>(docs.map((d) => [claveDoc(d), []]));
     for (const f of filas) {
       const p = f.sku ? productos.get(String(f.sku)) : undefined;
@@ -574,6 +604,12 @@ export class ReceivingSessionService {
         product_id: p?.id ?? null,
         sku: p?.sku ?? null,
         product_name: p?.nombre ?? null,
+        tracks_expiry: p ? (perfiles.get(p.id)?.tracks_expiry ?? null) : null,
+        ...(() => {
+          const suc = origenDeClave.get(f.clave);
+          const s = p && suc ? sugPorOrigen.get(suc)?.get(p.id) : undefined;
+          return s ? { suggested_lot: s.lot_code, suggested_expiry: s.expiry_date, suggested_from: s.origin_name } : {};
+        })(),
       });
     }
     return out;
@@ -1518,9 +1554,18 @@ export class ReceivingSessionService {
     });
   }
 
-  /** Cierra la sesión: finaliza discrepancias (pending con expected>0 → faltante). */
-  async close(sessionId: string) {
+  /**
+   * Cierra la sesión: finaliza discrepancias (pending con expected>0 → faltante).
+   *
+   * `[CE.2.1]` No cierra si algún renglón recibido quedó sin fecha (ver `receiving-expiry-gate`),
+   * salvo `expiryWaiver`: un supervisor deja el motivo y queda escrito en el vale. Lo que entra así
+   * sigue en «Por fechar», pero con nombre, motivo y fecha de quien lo dejó pasar.
+   */
+  async close(sessionId: string, expiryWaiver?: { reason: string }): Promise<Record<string, unknown>> {
     if (!UUID.test(sessionId)) throw new BadRequestException('session_id inválido');
+    const motivo = expiryWaiver ? motivoValido(expiryWaiver.reason) : null;
+    if (expiryWaiver && !motivo)
+      throw new BadRequestException('Escribe por qué se cierra sin fecha (al menos 5 letras)');
     return this.tk.run(async (trx) => {
       const session = await trx('commercial.receiving_sessions').where({ id: sessionId }).first();
       if (!session) throw new NotFoundException('Sesión no encontrada');
@@ -1544,6 +1589,27 @@ export class ReceivingSessionService {
         );
 
       const userId = this.tenantCtx.get()?.userId || null;
+
+      // ── [CE.2.1] Toda entrada con caducidad ────────────────────────────────
+      const sinFecha = renglonesSinFecha(await this.renglonesParaFecha(trx, sessionId, session.supplier_code ?? null));
+      if (sinFecha.length && !motivo) {
+        throw new ConflictException({
+          statusCode: 409,
+          code: 'expiry_missing',
+          message:
+            `Faltan fechas de caducidad en ${sinFecha.length} renglón(es). Captúralas (o márcalas «sin caducidad») ` +
+            'antes de cerrar; si no se puede, un supervisor puede cerrarlo dejando el motivo.',
+          lines: sinFecha,
+        });
+      }
+      if (sinFecha.length && motivo) {
+        await trx('commercial.receiving_sessions').where({ id: sessionId }).update({
+          expiry_waiver_reason: motivo,
+          expiry_waiver_by: userId,
+          expiry_waiver_at: trx.fn.now(),
+        });
+        this.logger.warn(`Vale ${session.folio}: cerrado con ${sinFecha.length} renglón(es) sin fecha — motivo: ${motivo}`);
+      }
 
       // ── LUZ VERDE: la mercancía confirmada entra a inventario ──────────────
       //
@@ -1643,6 +1709,41 @@ export class ReceivingSessionService {
       // pantalla puede decir la verdad en vez de una promesa.
       return { ...detalle, claims: reclamos };
     });
+  }
+
+  /**
+   * `[CE.2.1]` Lo que el candado de cierre necesita por renglón: recibido, declarado (capturas
+   * `accepted`/`authorized`) y si el producto caduca según el catálogo. Una consulta + el perfil.
+   */
+  private async renglonesParaFecha(trx: Knex.Transaction, sessionId: string, supplierCode: string | null): Promise<RenglonParaFecha[]> {
+    const rows: Array<{ line_id: string; product_id: string | null; sku: string | null; product_name: string | null; received_qty: unknown; declared_qty: unknown }> = await trx('commercial.receiving_lines as l')
+      .leftJoin('public.products as p', 'p.id', 'l.product_id')
+      .where('l.session_id', sessionId)
+      .select(
+        'l.id as line_id',
+        'l.product_id',
+        'p.sku',
+        'p.nombre as product_name',
+        'l.received_qty',
+        trx.raw(`COALESCE((
+          SELECT SUM(c.quantity) FROM commercial.receiving_lot_captures c
+           WHERE c.receiving_line_id = l.id AND c.status IN ('accepted', 'authorized')
+        ), 0)::numeric AS declared_qty`),
+      );
+    const perfiles = await perfilesDeCaducidad(
+      trx,
+      rows.filter((r) => r.product_id).map((r) => ({ product_id: r.product_id as string, sku: r.sku })),
+      supplierCode,
+    );
+    return rows.map((r) => ({
+      line_id: r.line_id,
+      product_id: r.product_id ?? null,
+      sku: r.sku ?? null,
+      product_name: r.product_name ?? null,
+      received_qty: Number(r.received_qty) || 0,
+      declared_qty: Number(r.declared_qty) || 0,
+      tracks_expiry: r.product_id ? (perfiles.get(r.product_id)?.tracks_expiry ?? null) : null,
+    }));
   }
 
   /**
@@ -1995,6 +2096,28 @@ export class ReceivingSessionService {
         )
         .orderByRaw(`CASE l.discrepancy_kind WHEN 'pending' THEN 0 WHEN 'faltante' THEN 1 WHEN 'sobrante' THEN 2 ELSE 3 END`)
         .orderBy('l.created_at');
+
+      // `[CE.1.1]` Si el catálogo dice que el producto no caduca, el Andén no le pide fecha.
+      const renglonesCE = lines as RenglonDelDetalle[];
+      const perfiles = await perfilesDeCaducidad(
+        trx,
+        renglonesCE.filter((l) => l.product_id).map((l) => ({ product_id: l.product_id as string, sku: l.sku })),
+        session.supplier_code ?? null,
+      );
+      for (const l of renglonesCE)
+        l.tracks_expiry = l.product_id ? (perfiles.get(l.product_id)?.tracks_expiry ?? null) : null;
+
+      // `[CE.2.3]` En un traspaso, la fecha que propone el almacén que lo mandó (FEFO del origen).
+      if (traspaso) {
+        const origen = await almacenDeSucursal(trx, traspaso.origen);
+        const sug = await sugerenciasDeOrigen(trx, origen, renglonesCE.map((l) => l.product_id ?? ''));
+        for (const l of renglonesCE) {
+          const s = l.product_id ? sug.get(l.product_id) : undefined;
+          l.suggested_lot = s?.lot_code ?? null;
+          l.suggested_expiry = s?.expiry_date ?? null;
+          l.suggested_from = s?.origin_name ?? null;
+        }
+      }
 
       const progress = {
         lines: lines.length,

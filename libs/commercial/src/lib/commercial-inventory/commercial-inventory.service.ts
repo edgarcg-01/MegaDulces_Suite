@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
+import { declararFechado } from './por-vencer';
 
 export type StockMovementType =
   | 'in'
@@ -451,6 +452,14 @@ export class CommercialInventoryService {
   /**
    * P2.2 — lotes próximos a vencer (o ya vencidos) con stock > 0, dentro de
    * `days` días (default 30). Base de alertas/dashboard de caducidad. (VER)
+   *
+   * `[CE.1.4]` Cada renglón trae `na_qty` (lo sin fecha del mismo almacén × producto) y
+   * `dated_may_be_stale` (ver `por-vencer.ts`): con NA > 0 el lote puede estar ya vendido y la
+   * pantalla lo DECLARA, nunca lo dibuja como cierto.
+   * ⚠️ Medido en prod el 2026-11-11 (sólo lectura): la consulta tarda ~23 s y el tiempo es TODO del
+   * LEFT JOIN a `analytics.v_erp_unit_cost` (sus CTE son MATERIALIZED: se calcula la vista entera
+   * aunque se pidan 70 lotes). Sin ese join: 16 ms; el NA de CE.1.4 suma ~3 ms. Arreglarlo pide
+   * cambiar la vista (migración): deuda declarada, no se esconde aquí.
    */
   async listExpiring(query: { days?: number; warehouse_id?: string }) {
     const days = Number.isFinite(Number(query.days)) ? Math.max(0, Math.floor(Number(query.days))) : 30;
@@ -468,11 +477,19 @@ export class CommercialInventoryService {
             .andOn('uc.warehouse_id', '=', 'l.warehouse_id')
             .andOn('uc.product_id', '=', 'l.product_id');
         })
+        // [CE.1.4] Lo SIN fecha (lote NA) del mismo almacén × producto: la venta lo descuenta primero, así
+        // que con NA > 0 el lote fechado puede estar ya vendido. Índice whp; medido en prod: +~3 ms.
+        .joinRaw(`LEFT JOIN LATERAL (
+            SELECT COALESCE(SUM(n.quantity), 0) AS na_qty
+              FROM commercial.stock_lots n
+             WHERE n.tenant_id = l.tenant_id AND n.warehouse_id = l.warehouse_id AND n.product_id = l.product_id
+               AND n.lot_code = 'NA' AND n.expiry_date IS NULL
+          ) na ON true`)
         .whereNotNull('l.expiry_date')
         .where('l.quantity', '>', 0)
         .whereRaw('l.expiry_date <= (CURRENT_DATE + ?::int)', [days]);
       if (query.warehouse_id) q = q.where('l.warehouse_id', query.warehouse_id);
-      return q
+      const rows = await q
         .select(
           'l.id',
           'l.lot_code',
@@ -480,15 +497,19 @@ export class CommercialInventoryService {
           'l.quantity',
           'l.warehouse_id',
           'w.code as warehouse_code',
+          // [CE.3.1] La sucursal de Kepler: con ella el juicio de juzgarLotes casa con su almacén.
+          'w.kepler_code as plaza',
           'l.product_id',
           'p.sku as sku',
           'p.nombre as product_name',
           trx.raw('(l.expiry_date - CURRENT_DATE)::int as days_to_expiry'),
           trx.raw('(l.quantity * uc.costo_unitario)::numeric as value_at_cost'),
           trx.raw('uc.costo_source AS costo_source'),
+          'na.na_qty',
         )
         .orderBy('l.expiry_date', 'asc')
         .limit(500);
+      return (rows as Array<Record<string, unknown> & { na_qty: unknown }>).map((r) => ({ ...r, ...declararFechado(r.na_qty) }));
     });
   }
 

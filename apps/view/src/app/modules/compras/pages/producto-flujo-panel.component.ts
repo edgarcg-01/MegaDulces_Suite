@@ -4,7 +4,7 @@ import { rxResource } from '@angular/core/rxjs-interop';
 import { TooltipModule } from 'primeng/tooltip';
 import type { UnidadEscalera } from '@megadulces/contracts';
 import {
-  EstadoLote, EstadoPlaza, FlujoDetalle, LoteCaducidad, Margen, Margenes, MargenesProducto, PlazaFlujo,
+  EstadoLote, EstadoPlaza, FlujoDetalle, LOTE_TEXTO, LoteCaducidad, Margen, Margenes, MargenesProducto, PlazaFlujo,
   ProductosFlujoService, VeredictoCompra,
 } from '../productos-flujo.service';
 import { existenciaPartes, listaUnidades, textoUnidades } from '../productos-nuevos-vista';
@@ -15,9 +15,8 @@ const REFRESCO_MS = 60_000;
 export const ESTADO_TEXTO: Record<EstadoPlaza, string> = {
   agotado: 'Agotado', estancado: 'Estancado', se_freno: 'Se frenó', le_sobra: 'Le sobra', se_mueve: 'Se mueve', sin_movimiento: 'Sin movimiento',
 };
-export const LOTE_TEXTO: Record<EstadoLote, string> = {
-  caducado: 'Caducado', no_alcanza: 'No alcanza a venderse', justo: 'Caduca pronto', a_tiempo: 'Se vende a tiempo',
-};
+/** `[CE.3.1]` Vive en el servicio para que «Por vencer» diga lo mismo sin cargar este panel. */
+export { LOTE_TEXTO };
 /** "en 25 días" / "hoy" / "hace 8 días". */
 export const diasTexto = (d: number) => d === 0 ? 'hoy' : d === 1 ? 'mañana' : d > 0 ? `en ${d} días` : d === -1 ? 'ayer' : `hace ${-d} días`;
 /** "Líder · #3 en venta de la red (1.2%)". */

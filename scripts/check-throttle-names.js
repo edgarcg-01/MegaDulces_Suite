@@ -60,14 +60,29 @@ const EXCEPCIONES = {
   },
 };
 
-/** Los nombres de tier que `ThrottlerModule.forRoot(...)` configura. */
-function tiersConfigurados(texto) {
+const LIMITADORES_TS = 'libs/platform-core/src/lib/decorators/limites-de-peticiones.ts';
+
+/**
+ * Los nombres de tier que `ThrottlerModule.forRoot(...)` configura.
+ *
+ * Dos formas: el literal `throttlers: [{ name: 'short', … }]`, o `throttlers: LIMITADORES…` (`[RH.1.3]`: los
+ * nombres viven en platform-core para que `SIN_LIMITE_DE_PETICIONES` los cubra a todos). En la segunda se leen
+ * del `export const LIMITADORES = [ … ]` que devuelve `leerLimitadores()`; si no se puede, no se inventan.
+ */
+function tiersConfigurados(texto, leerLimitadores = () => null) {
   const i = texto.indexOf('ThrottlerModule.forRoot(');
   if (i < 0) return [];
   const j = texto.indexOf('(', i);
   const bloque = extraerBalanceado(texto, j, '(', ')');
   if (bloque === null) return [];
-  return [...bloque.matchAll(/\bname:\s*['"](\w+)['"]/g)].map((m) => m[1]);
+  const literales = [...bloque.matchAll(/\bname:\s*['"](\w+)['"]/g)].map((m) => m[1]);
+  if (literales.length || !/\bthrottlers:\s*LIMITADORES\b/.test(bloque)) return literales;
+  const fuente = leerLimitadores();
+  if (!fuente) return [];
+  const k = fuente.indexOf('export const LIMITADORES');
+  if (k < 0) return [];
+  const arr = extraerBalanceado(fuente, fuente.indexOf('[', k), '[', ']');
+  return arr === null ? [] : [...arr.matchAll(/\bname:\s*['"](\w+)['"]/g)].map((m) => m[1]);
 }
 
 /** El texto entre el delimitador de apertura en `desde` y su cierre balanceado (sin incluirlos); `null` si no cierra. */
@@ -196,6 +211,11 @@ function selfTest() {
 
   ok(JSON.stringify(tiersConfigurados("ThrottlerModule.forRoot({ throttlers: [ { name: 'short', ttl: 1, limit: 2 }, { name: 'long', ttl: 3, limit: 4 } ] })")) === '["short","long"]', 'lee los tiers del forRoot');
   ok(tiersConfigurados('nada que ver').length === 0, 'sin forRoot no inventa tiers');
+  const conLimitadores = 'ThrottlerModule.forRoot({ throttlers: LIMITADORES.map((l) => ({ ...l })) })';
+  const fuenteLim = "export const LIMITADORES = [\n  { name: 'short', ttl: 1, limit: 2 },\n  { name: 'long', ttl: 3, limit: 4 },\n] as const;";
+  ok(JSON.stringify(tiersConfigurados(conLimitadores, () => fuenteLim)) === '["short","long"]', 'lee los tiers de LIMITADORES (platform-core)');
+  ok(tiersConfigurados(conLimitadores, () => null).length === 0, 'con LIMITADORES ilegible no inventa tiers (sigue fallando)');
+  ok(tiersConfigurados('ThrottlerModule.forRoot({ throttlers: otraCosa })', () => fuenteLim).length === 0, 'otra variable no se confunde con LIMITADORES');
 
   const malo = violacionesDeTexto("@Throttle({ default: { limit: 20, ttl: 60_000 } })\nmetodo() {}", tiers);
   ok(malo.length === 1 && malo[0].clave === 'default' && malo[0].linea === 1, '⛔ `@Throttle({ default })` SE MARCA (la forma que no limitaba nada)');
@@ -232,7 +252,10 @@ function main() {
     console.error(`✖ throttle-names: no existe ${APP_MODULE}; no hay contra qué juzgar.`);
     process.exit(1);
   }
-  const tiers = tiersConfigurados(fs.readFileSync(modulo, 'utf8'));
+  const tiers = tiersConfigurados(fs.readFileSync(modulo, 'utf8'), () => {
+    const p = path.join(RAIZ, LIMITADORES_TS);
+    return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : null;
+  });
   if (tiers.length === 0) {
     console.error(`✖ throttle-names: no se pudo leer NINGÚN tier de ThrottlerModule.forRoot en ${APP_MODULE}. Una compuerta que no sabe contra qué juzgar no reporta verde.`);
     process.exit(1);
