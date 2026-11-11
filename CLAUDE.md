@@ -125,62 +125,51 @@
 | **A.0-multitenant** | Nueva DB multi-tenant | ⬜ |
 | **A.0bis** | Plan correctivo audit (post-multitenant) | ⏸️ |
 | **A.1-A.7** | Fundaciones (Sentry, Pino, Redis, CI, etc.) | ⏸️ |
-| **B** | Core Comercial (built from scratch, no ERP externo) | 🟢 |
-| **C** | Sales Intelligence ampliado | 🟢 |
-| **D** | Catálogo + Portal B2B + Pedidos | 🟢 |
-| **E** | Telemarketing (antes "Remote Manager / Televenta") | 🟢 |
 | **F** | WhatsApp Bot conversacional | ⏸️ |
 | **G** | Growth (campañas + promociones) | ⏸️ |
 | **H** | Fintech (wallet) | ⏸️ |
 | **I** | ML credit risk + WS scaling | ⏸️ |
-| **J** | Logística (embarques, flotilla, costos) | 🟢 |
-| **LT** | Rastreo de flota GPS (MagniTracking) | 🟢 |
-| **K** | AI product match en captures (pgvector + Voyage + Haiku) | 🟢 |
 | **Horus** | Supervisor AI de ejecución (Trade) | ⏸️ |
 | **LM** | Última Milla (entrega a domicilio local en moto) | ⏸️ |
 | **VR** | Venta en Ruta (autoventa offline-first, lap/móvil) | ⏸️ |
 | **Maat** | AI de Finanzas (conocimiento + chat + patrones) | ⏸️ |
-| **RA** | Compras / Reabastecimiento (punto de reorden + existencia crítica + sugerido) | 🟢 |
-| **AB** | Autoabasto: Compras decide el traspaso, cada sucursal ve su mesa (ADR-100) | 🔨 |
-| **CB** | Conciliación bancaria (interfaz reemplaza el Excel) | 🚀 |
-| **CP** | Conector ContPAQi (SoR contable externo) | 🚀 |
+| **AB** | Autoabasto: Compras decide el traspaso, cada sucursal ve su mesa (ADR-100). **Pausada por cupo (2026-11-06).** | ⏸️ |
 | **CC** | Comprobantes de Cobranza (ficha de depósito + OCR) | ⏸️ |
 | **LC** | Libro de Compras (el proceso aquí, a ContPAQi solo el TXT) | ⏸️ |
-| **RE** | Recepción de Mercancía 360 (digitaliza el Excel de recepción) | 🟢 |
-| **CA** | CEDIS (Kepler Access 97) → ODS | 🟢 |
-| **WR** | Réplica cruda Wincaja (Access 97 → Postgres, continua) | 🟢 |
-| **AX** | Anexo de venta imprimible (detalle + pagaré) | 🟢 |
 | **MR** | Motor de Rentabilidad (cascada de margen) | ⚠️ |
 | **VP** | Verdad y Procedencia (el número declara con qué se calculó) | ⏸️ |
-| **OBS** | Ingesta que no se cae en silencio | 🟢 |
-| **CV** | Catálogo, verificador de precios y tienda mayorista (migración de proyecto externo) | 🟢 |
-| **VL** | VPS local (sacar la ingesta de la máquina de trabajo) | 🟢 |
-| **TP** | Calendario de Pagos | 🟢 |
 | **SN** | Suite: navegación por espacios ("Mi trabajo" en `/projects`) | 🧪 |
-| **CDRP** | Cuadro de Resultados por Puesto (el tablero directivo, DENTRO de «Mi trabajo») | 🟢 |
 | **FLT** | Lista de faltantes (la venta que NO ocurrió) | 🧪 |
 | **PU** | Presupuestos (motor de planeación y control) | 🧪 |
-| **IC** | Inventario Continuo (3 ritmos) | 🚀 |
-| **CE** | Costo estándar de Kepler (el que fija el precio) | 🚀 |
 | **PO** | Post-corte del 1-oct-2026 (el `00` dejó de concentrar) | ⏸️ |
 | **NP** | Productos nuevos (seguimiento a 30/60/90 días) | 🧪 |
 | **PF** | Flujo de venta de cualquier producto (Compras › Catálogo › Productos) | 🧪 |
 | **MS** | Mesa de Servicio (tickets de servicio) | ⏸️ |
-| **CSU** | Cortes/Sucursales (corte de caja → cobro → ingreso) | 🟢 |
 | **CGA** | Caja General: cazar el ingreso/egreso pendiente (ruta detalle, vecinal, proveedores en efectivo) — absorbida por LE el 2026-10-27 | ⏸️ |
 | **LE** | Libro de efectivo de partida doble: Caja General + CAOS como un banco; opera como **ventanilla bancaria** (ADR-112: billetes en la bóveda, ninguna salida sin orden, pagar es registrar); reemplaza a CGA | 🔨 |
 | **ECA** | Estado de cuenta de acreedores (por tipo) | 🧪 |
 | **RH** | Recursos Humanos: migración de Mega Talento | 🔨 |
 | **GP** | Gestión de pedidos en almacén (surtido/checado/embarque sin papel) | 🧪 |
-| **VAC** | Acople del verificador de precios al estándar (`/tienda/verificador`) | 🟢 |
 | **PGP** | Pago a proveedor de punta a punta (firma → ejecución → `X-D-26` escrito en Kepler). 9ª en curso: el PM abrió O3 (escribir el pago en Kepler) el 2026-11-04 por encima del cupo de 4 | 🔨 |
 | **PQ** | `/compras/pedido`: del sugerido al ERP sin inventar nada (lo aprobado sale, agenda de proveedores, lazo cerrado; M1/M2 medidas) | 🔨 |
-| **FC** | Flotilla: costo por unidad — reemplaza la hoja «TRANSPORTES 2026» (anexo FCU; todo con pantalla). 5ª en curso, abierta por el PM el 2026-10-26 | 🔨 |
-| **MX** | Movimientos por excepción: el Diario (`/almacen/movimientos`) pasa a reportería y se auditan sólo las diferencias. 6ª en curso, abierta por el PM el 2026-10-28 por encima del cupo de 4 | 🔨 |
-| **DP** | Definiciones de negocio: la regla que falta se PREGUNTA en el sistema (dueño, tipo, vigencia) y contestarla es configurarla; primer consumidor, las 17 preguntas de Comisiones RD. 7ª en curso, abierta por el PM el 2026-11-03 por encima del cupo de 4 | 🔨 |
-| **TOR** | Torres de control: Sistemas (servidores y carriles de Kepler) y Desarrollo (nuestra infraestructura); reemplaza `/admin/db-health`. 8ª en curso, abierta por el PM el 2026-11-04 por encima del cupo de 4 | 🔨 |
+| **FC** | Flotilla: costo por unidad — reemplaza la hoja «TRANSPORTES 2026» (anexo FCU; todo con pantalla). **Pausada por cupo (2026-11-06).** | ⏸️ |
+| **MX** | Movimientos por excepción: el Diario (`/almacen/movimientos`) pasa a reportería y se auditan sólo las diferencias. **Pausada por cupo (2026-11-06).** | ⏸️ |
+| **BU** | Un solo buscador: toda caja usa `applySmartSearch` (multi-token, proveedor+folio+monto como "delicias 396 248") y el usuario lo descubre; retira el duplicado `contpaqi/busqueda.ts` (ADR-056). Hoy 22/47 services migrados, 25 crudos | ⬜ |
+| **DP** | Definiciones de negocio: la regla que falta se PREGUNTA en el sistema (dueño, tipo, vigencia) y contestarla es configurarla; primer consumidor, las 17 preguntas de Comisiones RD. **Pausada por cupo (2026-11-06).** | ⏸️ |
+| **TOR** | Torres de control: Sistemas (servidores y carriles de Kepler) y Desarrollo (nuestra infraestructura); reemplaza `/admin/db-health`. **Pausada por cupo (2026-11-06).** | ⏸️ |
 | **ALC** | Alta de clientes desde la constancia del SAT (o a mano) → crédito con firma → liga con la clave de Kepler; la Suite NO escribe `kdud` (D1-b, de Edgar). 9ª en curso, **empezada por Francisco el 2026-11-04 por encima del cupo: falta que el PM la ratifique** | 🧪 |
 | **DN** | Demanda negada para Compras: lo que el cliente pide y no hay. Frente 1 del [anexo A](docs/IMPLEMENTACION/FASES/FASE_DN_ANEXO_AVISO_AL_AGENDAR.md): el vendedor captura sin bloqueo y el servidor registra lo agotado al agendar (ADR-115). 10ª en curso, **aprobada por Edgar el 2026-11-07 por encima del cupo** (lo comunicó Francisco) | 🔨 |
+| **RP** | Reporte de problema de producto: cualquiera reporta en ≤2 toques un producto mal (precio, impuesto, código de barras, descripción, margen) desde donde lo ve (ficha, POS con scan); cae como ticket en la cola Catálogo para que Compras lo corrija en Kepler. **Frente de MS** (cola + categorías + entradas precargadas, no un reporter nuevo). Dueño: Felipe/Sistemas. Abierta 2026-11-11 por Edgar | ⬜ |
+
+### Entregadas — 23 fases fuera del tablero activo (🟢 beta / 🚀 en prod)
+
+> Salieron de la tabla de arriba el 2026-11-06 para dejar espacio. **Su detalle sigue en
+> [`00_ROADMAP_FASES_DETALLE.md`](docs/IMPLEMENTACION/00_ROADMAP_FASES_DETALLE.md)**; si una vuelve a
+> abrirse (bug, extensión), regresa a la tabla activa con su nuevo estado.
+
+🚀 **en prod:** CB Conciliación bancaria · CP Conector ContPAQi · IC Inventario Continuo · CE Costo estándar de Kepler.
+
+🟢 **beta:** B Core Comercial · C Sales Intelligence · D Catálogo+Portal B2B+Pedidos · E Telemarketing · J Logística · LT Rastreo GPS de flota · K AI product match · RA Reabastecimiento · RE Recepción de Mercancía 360 · CA CEDIS→ODS · WR Réplica Wincaja · AX Anexo de venta · OBS Ingesta sin silencio · CV Catálogo+verificador+tienda · VL VPS local · TP Calendario de Pagos · CDRP Cuadro de Resultados por Puesto · CSU Cortes/Sucursales · VAC Verificador acople al estándar.
 
 ---
 
