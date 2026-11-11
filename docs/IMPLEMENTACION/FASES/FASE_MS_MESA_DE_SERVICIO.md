@@ -499,6 +499,15 @@ Entra una solicitud a una cola → quien la atiende ve una **ventana emergente**
 - **Windows, medido el 2026-11-04:** con la pestaña oculta (simulada: Playwright nunca reporta `hidden`) sale «Nueva solicitud» y se vio en el equipo real. **Hueco encontrado:** con la Suite abierta **detrás de otro programa** no sale (`hidden: false`, `hasFocus: false`) — es por qué en prod «no avisaba». Arreglo pendiente: `[MS.AVISO.2]`.
 - **`[MS.AVISO.2]` (2026-11-07, 🧪):** la de Windows sale si `document.hidden || !document.hasFocus()`. Probado en un Chrome real con otro programa encima: salió «Nueva solicitud» en Windows. El permiso es por sitio (el de prod no vale para `localhost`).
 
+## Áreas nuevas: Compras, «Nueva área» y la confidencial que se trababa — `[MS.8.1]`–`[MS.8.3]` (2026-11-11)
+
+Pedido de Sistemas: un apartado para que las sucursales reporten a **Compras** los problemas de precios y productos, con **Mario Ventura** de responsable; y poder agregar áreas desde la pantalla.
+
+- **`[MS.8.1]` Compras (precios y productos):** migración `20261111135132_servicedesk_seed_compras`. 8 categorías con sucursal obligatoria (Precio incorrecto · Código de barras · Producto no encontrado en Kepler · Descripción del producto incorrecta · IVA · Margen · IEPS · Otro), 3 preguntas de texto opcionales (código de barras, clave del producto, observaciones). Mario recibe **sólo él** los dos permisos de la Mesa, queda de coordinador y responsable por omisión; la cola se enciende sólo si eso quedó. **Se aplica en prod antes de mergear** (sólo inserta filas).
+- **`[MS.8.2]` La confidencial que se trababa:** el 2026-11-10 «Mantenimiento» (0 miembros) se marcó confidencial y nadie podía quitar la marca (H1 sólo deja a su coordinación). Ahora el servidor no deja marcar confidencial —ni al cambiarla ni al crearla— un área sin coordinación, y el god-mode puede **sólo quitar la marca** de una confidencial sin coordinación ni solicitudes.
+- **`[MS.8.3]` «Nueva área»:** formulario en `/servicio/configuracion` (antes sólo la API creaba colas). El área nace **apagada**. Ojo: el god-mode no queda como miembro de lo que crea (`[MS.7.6]`), así que después hay que nombrar a su coordinación.
+- **No medido contra la API:** las reglas de `[MS.8.2]` en el servidor (la API de prueba corría el código anterior); la regla pura sí, con negativas y mutación.
+
 ## Observaciones de diseño UI — revisión del plan (2026-10-26)
 
 > **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que

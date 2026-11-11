@@ -1,4 +1,4 @@
-import { SIN_COLAS, TODAS_LAS_COLAS, accesoATicket, colasDeLectura, construirAcceso, esMiembroDeCola, puedeAdministrarCola, puedeAtenderCola, puedeCoordinarCola } from './queue-access';
+import { SIN_COLAS, TODAS_LAS_COLAS, accesoATicket, colasDeLectura, construirAcceso, esMiembroDeCola, puedeAdministrarCola, puedeLiberarConfidencialHuerfana, puedeMarcarConfidencial, puedeAtenderCola, puedeCoordinarCola } from './queue-access';
 
 const TI = 'q-ti';
 const MTO = 'q-mto';
@@ -89,6 +89,35 @@ describe('MSH.2 · puedeAdministrarCola', () => {
   });
   it('⛔ ni un técnico de la cola ni la coordinación de OTRA cola, normal o confidencial', () => {
     for (const c of [tecnico, otra]) for (const conf of [false, true]) expect(puedeAdministrarCola(c, COLA, conf)).toBe(false);
+  });
+});
+
+/** `[MS.8.2]` Una cola confidencial sin coordinación quedaba trabada para siempre (Mantenimiento, 2026-11-10). */
+describe('MS.8.2 · cola confidencial huérfana', () => {
+  const god = { todas: true, atiende: new Set<string>(), coordina: new Set<string>() };
+  const coord = { todas: false, atiende: new Set(['q']), coordina: new Set(['q']) };
+  const huerfana = { coordinadores: 0, solicitudes: 0 };
+
+  it('⭐ el god-mode puede QUITAR la marca de una confidencial sin coordinación ni solicitudes', () => {
+    expect(puedeLiberarConfidencialHuerfana(god, huerfana, { confidential: false })).toBe(true);
+  });
+  it('⛔ NEGATIVA — con solicitudes NO (hay contenido confidencial que proteger)', () => {
+    expect(puedeLiberarConfidencialHuerfana(god, { coordinadores: 0, solicitudes: 1 }, { confidential: false })).toBe(false);
+  });
+  it('⛔ NEGATIVA — con coordinación NO (la administra ella, como siempre)', () => {
+    expect(puedeLiberarConfidencialHuerfana(god, { coordinadores: 1, solicitudes: 0 }, { confidential: false })).toBe(false);
+  });
+  it('⛔ NEGATIVA — sólo quitar la marca: ni ponerla, ni cambiar otra cosa junto', () => {
+    expect(puedeLiberarConfidencialHuerfana(god, huerfana, { confidential: true })).toBe(false);
+    expect(puedeLiberarConfidencialHuerfana(god, huerfana, { active: true })).toBe(false);
+    expect(puedeLiberarConfidencialHuerfana(god, huerfana, { confidential: false, active: true })).toBe(false);
+  });
+  it('⛔ NEGATIVA — quien no es god-mode, no', () => {
+    expect(puedeLiberarConfidencialHuerfana(coord, huerfana, { confidential: false })).toBe(false);
+  });
+  it('⭐ marcar confidencial exige coordinación; CONTROL: con coordinación sí', () => {
+    expect(puedeMarcarConfidencial({ coordinadores: 0 })).toBe(false);
+    expect(puedeMarcarConfidencial({ coordinadores: 1 })).toBe(true);
   });
 });
 
