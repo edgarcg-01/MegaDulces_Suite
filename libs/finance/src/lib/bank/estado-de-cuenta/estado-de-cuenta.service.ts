@@ -8,6 +8,7 @@ import { compararContraElLibro, DIAS_PARA_USAR_EL_BANCO, type ClasificarSinLibro
 import { clasificarRenglon } from './clasificador';
 import { MapaDeSucursal, sucursalDelCatalogo } from './sucursal';
 import { classifyWith, compileRules } from '../classify-rules';
+import { avisarBancos } from '../aviso-bancos';
 
 /**
  * `[CB.58]` Subir el estado de cuenta descargado de la banca, en dos pasos: REVISAR (no escribe)
@@ -488,6 +489,8 @@ export class EstadoDeCuentaService {
       const r = await trx('finance.bank_movements').insert(filas.slice(i, i + 500)).onConflict(['tenant_id', 'client_uuid']).ignore().returning('id');
       res.metidos += r.length;
     }
+    // La conciliación con Kepler corre al llegar el dato (CB.53), no al apretar un botón: el aviso sale al confirmar.
+    if (res.metidos) await avisarBancos(trx, { origen: 'descarga', cuenta: cuentaId, periodos: [...estados.keys()] });
     return res;
   }
 
