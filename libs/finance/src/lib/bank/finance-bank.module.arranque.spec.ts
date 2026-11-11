@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { PgListenService } from '@megadulces/platform-core';
 import { FinanceBankModule } from './finance-bank.module';
 import { BankReconPorAvisoService } from './bank-recon-aviso.service';
+import { CANAL_FUENTE_KEPLER } from '../goods-receipt-proofs/entradas-por-aviso';
 import { CANAL_CAJA } from '../caja/caja-realtime.service';
 import { CANAL_BANCOS } from './aviso-bancos';
 import { EstadoDeCuentaService } from './estado-de-cuenta/estado-de-cuenta.service';
@@ -109,9 +110,15 @@ describe('[CB.53.1] sólo el worker se suscribe', () => {
     await conWorker('false', (escuchar) => expect(escuchar).not.toHaveBeenCalled());
   });
 
-  it('en el worker se suscribe UNA vez a cada lado: el carril de Kepler y, desde CB.60b, Bancos', async () => {
+  it('en el worker se suscribe UNA vez a cada lado: los documentos de Kepler y, desde CB.60b, Bancos', async () => {
     await conWorker('true', (escuchar) => {
-      expect(escuchar.mock.calls.map((c) => c[0])).toEqual([CANAL_CAJA, CANAL_BANCOS]);
+      expect(escuchar.mock.calls.map((c) => c[0])).toEqual([CANAL_FUENTE_KEPLER, CANAL_BANCOS]);
+    });
+  });
+
+  it('[negativa] NO escucha caja_movimientos: ese aviso sólo suena por cuentas de EFECTIVO (cero corridas en prod, 2026-11-11)', async () => {
+    await conWorker('true', (escuchar) => {
+      expect(escuchar.mock.calls.map((c) => c[0])).not.toContain(CANAL_CAJA);
     });
   });
 });
