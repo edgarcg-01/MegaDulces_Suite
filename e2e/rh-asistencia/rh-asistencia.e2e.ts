@@ -144,18 +144,32 @@ test.describe('RH › Asistencia', () => {
     sinDanos(obs);
   });
 
-  test('sin plazas de checado, la pantalla lo DICE: no afirma «0 personas» ni «nadie con irregularidades»', async ({ page }) => {
-    test.skip(activos.length > 0, `hay ${activos.length} plaza(s) activa(s): este caso no aplica hoy`);
-    const obs = await abrir(page);
-    await expect(page.getByRole('combobox', { name: 'Plaza' })).toBeVisible({ timeout: 20_000 });
-    // Sin plaza no hay qué calcular: pedir el reporte sería inventar una plaza.
-    expect(obs.reportes.length, 'GET /report sin plaza').toBe(0);
-    // Ley 0: nada afirma lo que no es. Con 0 plazas nadie midió irregularidades ni personas.
-    await expect(page.getByText('Nadie con irregularidades en lo que se ve'), 'afirma un resultado que nadie midió').toHaveCount(0);
-    await expect(page.getByText(/\b0 personas\b/), 'dibuja como cero lo que no se midió').toHaveCount(0);
-    await expect(page.getByText(/no hay (ninguna )?plaza|ninguna plaza|sin plazas/i).first(), 'debe declarar que no hay plazas de checado').toBeVisible();
-    sinDanos(obs);
-  });
+  // Visto en el navegador el 2026-11-11 con 0 plazas: seis pestañas afirmaban un resultado que nadie midió.
+  const AFIRMACIONES_SIN_MEDIR: Array<[string, RegExp]> = [
+    ['/rh/asistencia', /Nadie con irregularidades|\b0 personas\b/],
+    ['/rh/asistencia/tolerancia', /Nadie agotó su tolerancia/],
+    ['/rh/asistencia/faltas', /Nadie faltó/],
+    ['/rh/asistencia/horas-extra', /Nadie tiene horas extra/],
+    // El «0» y el «de 0 dadas…» viven en elementos distintos: por eso se busca en el texto de toda la pantalla.
+    ['/rh/asistencia/cruces', /0\s*de\s*0\s*dadas/],
+    ['/rh/asistencia/bajas', /Nadie está de baja/],
+  ];
+  for (const [ruta, afirma] of AFIRMACIONES_SIN_MEDIR) {
+    test(`sin plazas de checado, ${ruta} lo DICE en vez de afirmar ${afirma.source}`, async ({ page }) => {
+      test.skip(activos.length > 0, `hay ${activos.length} plaza(s) activa(s): este caso no aplica hoy`);
+      const obs = await abrir(page, ruta);
+      await expect(page.getByRole('navigation', { name: 'Asistencia' })).toBeVisible({ timeout: 20_000 });
+      await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => { /* socket de alertas */ });
+      // Sin plaza no hay qué calcular: pedir el reporte sería inventar una plaza.
+      expect(obs.reportes.length, 'GET /report sin plaza').toBe(0);
+      // Ley 0: nada afirma lo que no es. Con 0 plazas nadie midió nada. Prueba negativa hecha el 2026-11-11 en
+      // prod con sesión real: las seis pantallas salieron ROJO, y Relojes (que declara su vacío) no disparó la regla.
+      const texto = ((await page.locator('main').textContent()) ?? '').replace(/\s+/g, ' ');
+      expect(texto, 'afirma un resultado que nadie midió').not.toMatch(afirma);
+      await expect(page.getByText(/no hay (ninguna )?plaza|ninguna plaza|sin plazas/i).first(), 'debe declarar que no hay plazas de checado').toBeVisible();
+      sinDanos(obs);
+    });
+  }
 
   test('con plazas: el reporte de la primera plaza y la semana de nómina en curso, contado como lo trae la API', async ({ page }) => {
     test.skip(activos.length === 0, 'NO MEDIDO: prod no tiene plazas de checado activas (el corte de asistencia no ha ocurrido)');
