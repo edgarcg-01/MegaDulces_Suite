@@ -34,6 +34,11 @@ describe('[RH.1.3] lector de relojes — configuración', () => {
     expect(() => configDelEntorno({ ...base, HR_AGENT_API_URL: 'api:10000' })).toThrow(/http/);
   });
 
+  it('[RH.1.3] el reloj avisa cada checada por omisión; HR_AGENT_AVISOS=0 vuelve al vigía de antes', () => {
+    expect(configDelEntorno(base).intervalos.avisos).toBe(true);
+    expect(configDelEntorno({ ...base, HR_AGENT_AVISOS: '0' }).intervalos.avisos).toBe(false);
+  });
+
   it('un intervalo inválido cae a su valor por omisión, no a cero', () => {
     expect(configDelEntorno({ ...base, HR_AGENT_BACKFILL_MIN: '0' }).intervalos.backfillMin).toBe(60);
     expect(configDelEntorno({ ...base, HR_AGENT_BACKFILL_MIN: 'x' }).intervalos.backfillMin).toBe(60);
@@ -42,9 +47,12 @@ describe('[RH.1.3] lector de relojes — configuración', () => {
 });
 
 describe('[RH.1.3] lector de relojes — manifiesto, agente y API alineados', () => {
-  it('⛔ nace FUERA del despliegue: preparado-externo (el deploy saltea «migracion: preparado»), singleton y Recreate', () => {
-    expect(MANIFIESTO).toMatch(/^\s+migracion: preparado-externo$/m);
-    expect(MANIFIESTO.includes('migracion: preparado')).toBe(true);   // la subcadena que busca ops/vl/deploy.sh
+  // Hasta el corte nacía `preparado-externo` (el deploy lo salteaba) para no pelearle los relojes a la laptop. Se
+  // encendió el 2026-11-11 15:44 con el servicio de `SeniorDev` ya detenido: desde ahí es `migrado` y el deploy lo
+  // aplica. Lo que NO cambia: un solo pod, nunca dos (un ZKTeco acepta UNA sesión).
+  it('⛔ encendido desde el corte (migrado), y nunca dos a la vez: singleton, una réplica y Recreate', () => {
+    expect(MANIFIESTO).toMatch(/^\s+migracion: migrado$/m);
+    expect(MANIFIESTO.includes('migracion: preparado')).toBe(false);  // la subcadena con la que ops/vl/deploy.sh lo saltaría
     expect(MANIFIESTO).toMatch(/^\s+singleton: "true"$/m);
     expect(MANIFIESTO).toMatch(/strategy:\s*\n\s+type: Recreate/);
     expect(MANIFIESTO).toMatch(/^\s+replicas: 1$/m);

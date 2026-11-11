@@ -11,7 +11,7 @@ import { environment } from '../../../environments/environment';
  * que va aparte de `ComprasService` en vez de forzarle otra base URL.
  */
 
-export type ClaimKind = 'faltante' | 'dañado' | 'producto_incorrecto';
+export type ClaimKind = 'faltante' | 'dañado' | 'producto_incorrecto' | 'caducidad_corta';
 export type ClaimStatus = 'open' | 'claimed' | 'accepted' | 'discarded' | 'written_off';
 export type ClaimResponsibleKind = 'supplier' | 'branch';
 

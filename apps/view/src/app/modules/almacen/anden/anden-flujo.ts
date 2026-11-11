@@ -129,3 +129,25 @@ export function motivoNoCerrable(estado: FlujoEstado): string | null {
     return `Faltan ${faltanFechar} ${faltanFechar === 1 ? 'renglón' : 'renglones'} por fechar.`;
   return null;
 }
+
+/**
+ * `[CE.4.2]` `[CE.4.3]` **Los renglones que se resuelven sin teclear nada.**
+ *
+ * - `noCaducan`: el catálogo dice que no caducan (desechables, artículos de fiesta…). Un toque.
+ * - `conFechaDelOrigen`: en un traspaso, el almacén que lo mandó ya los fechó; se usa SU fecha.
+ *   Lo que no caduca no entra aquí aunque el origen tenga fecha: ya lo cubre el otro atajo.
+ *
+ * Sólo cuenta lo que todavía espera fecha (`faltaFechar > 0`).
+ */
+export interface LineaAtajo {
+  faltaFechar: number;
+  tracks_expiry?: boolean | null;
+  suggested_expiry?: string | null;
+  suggested_from?: string | null;
+}
+export function atajosDelVale<T extends LineaAtajo>(lineas: readonly T[]): { noCaducan: T[]; conFechaDelOrigen: T[]; origen: string | null } {
+  const pendientes = lineas.filter((l) => l.faltaFechar > 0);
+  const noCaducan = pendientes.filter((l) => l.tracks_expiry === false);
+  const conFechaDelOrigen = pendientes.filter((l) => !!l.suggested_expiry && l.tracks_expiry !== false);
+  return { noCaducan, conFechaDelOrigen, origen: conFechaDelOrigen[0]?.suggested_from ?? null };
+}

@@ -39,7 +39,8 @@ require('ts-node').register({
 // mano abajo). Se registran en la caché de módulos: no se escribe ningún archivo de stub.
 const todayMx = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 const STUBS = {
-  '@megadulces/platform-core': { TenantKnexService: class {}, TenantContextService: class {}, todayMx, applySmartSearch: () => {}, Permission: {}, isPlatformAdminRole: () => false },
+  '@megadulces/platform-core': { TenantKnexService: class {}, TenantContextService: class {}, todayMx, applySmartSearch: () => {}, Permission: {}, isPlatformAdminRole: () => false,
+    KNEX_NEW_DB: 'KNEX_NEW_DB', PgListenService: class {}, latirCron: async () => {} },
   '@megadulces/contracts': { FINANCE_FINDINGS_SINK_PORT: 'FINANCE_FINDINGS_SINK_PORT' },
 };
 const stubIds = {};
@@ -376,6 +377,27 @@ async function completo(urlAdmin, urlRuntime) {
       check(imp.total > 0 && aLibro.length === 1 && aLibro[0].origen === 'libro' && aLibro[0].periodos.join() === '2026-10',
         `la carga del libro también avisa a la conciliación: era el hueco declarado de CB.53 (${imp.total} renglón(es), ${JSON.stringify(aLibro)})`);
       await oyente.end();
+
+      // [CB.60b] La FIRMA del oyente de la conciliación (CB.53) cuenta el lado banco con el tenant fijado. Corre fuera
+      // de un request y como app_runtime (RLS forzado): sin el set_config contaba CERO siempre (prod, 2026-11-11).
+      if (!(await admin.raw("select to_regclass('analytics.kepler_bank_movements') r")).rows[0].r) {
+        // Sólo en un clúster sin la vista de Kepler (el temporal); si existe (CI, desarrollo) NO se toca.
+        await admin.raw('create schema if not exists analytics');
+        await admin.raw(`create view analytics.kepler_bank_movements as select null::uuid as tenant_id, null::text as account_label,
+          null::date as fecha_efectiva, 0::int as signo, 0::numeric as importe where false`);
+        await admin.raw('grant usage on schema analytics to app_runtime');
+        await admin.raw('grant select on analytics.kepler_bank_movements to app_runtime');
+      }
+      const { BankReconPorAvisoService } = require(path.join(ROOT, 'libs/finance/src/lib/bank/bank-recon-aviso.service.ts'));
+      const oyenteSvc = new BankReconPorAvisoService(runtime, {}, {}, {});
+      oyenteSvc.logger = { log() {}, warn() {}, error() {}, debug() {} };
+      const [{ n: sinTenant }] = await runtime('finance.bank_movements').where({ tenant_id: MEGA }).count('* as n');
+      check(Number(sinTenant) === 0, `control: sin tenant, app_runtime no ve ni una fila de bank_movements (${sinTenant}) — lo que le pasaba a la firma`);
+      const firma = await oyenteSvc.firmaDe('2026-10');
+      const [{ n: esperado }] = await admin('finance.bank_movements as bm').join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+        .where({ 'bm.tenant_id': MEGA, 'st.period': '2026-10' }).whereNull('bm.deleted_at').count('* as n');
+      check(Number(esperado) > 0 && firma.bancoFilas === Number(esperado),
+        `⛔ la firma del oyente ve el lado banco como app_runtime (RLS forzado): ${firma.bancoFilas} de ${esperado}`);
       const vivosLibro = await admin('finance.bank_movements').where({ bank_account_id: BANCO }).whereIn('sync_source', ['upload', 'sheet'])
         .where('movement_date', '>=', '2026-10-12').whereNull('deleted_at').count('* as n');
       check(Number(vivosLibro[0].n) === 0, `⛔ ningún renglón del libro vive desde el 12 (ni el borrado revivió): ${vivosLibro[0].n}`);

@@ -3,19 +3,20 @@
 # Lee los 12 relojes ZKTeco por TCP 4370 y empuja las checadas a la entrada compatible de la
 # Suite (`/api/hr/attendance/ingest/mt/checador/ingesta…`, [RH.1.2b]). Es el agente de Mega
 # Talento traído al monorepo (`database/importers/checadores/agente/`), sólo con el origen
-# 'relojes'. Hasta el corte, ese agente corre como servicio de Windows en una laptop
-# (`LapSistemasA`): esto es lo que lo saca de ahí.
+# 'relojes'. Hasta el corte corría como servicio de Windows en la máquina `SeniorDev` (el runbook
+# decía `LapSistemasA`; medido el 11-nov): esto es lo que lo sacó de ahí.
 #
-# ⛔⛔ UN ZKTECO ACEPTA UNA SOLA SESIÓN TCP. Si este pod y el servicio de la laptop corren a la vez,
+# ⛔⛔ UN ZKTECO ACEPTA UNA SOLA SESIÓN TCP. Si este pod y el servicio de Windows corren a la vez,
 # se pelean el socket de cada reloj y los dos leen a medias. Por eso:
-#   · `migracion: preparado-externo` — el deploy (ops/vl/deploy.sh) NO lo aplica: su filtro
-#     saltea todo archivo con 'migracion: preparado'. Se enciende en el corte con UN commit que
-#     cambia la etiqueta a `migrado` (runbook RH_CORTE_ASISTENCIA §3), DESPUÉS de detener el
-#     servicio «Mega Talento Agente de Checadas» en la laptop. Así queda en git cuándo se encendió.
+#   · Hasta el corte la etiqueta `migracion` llevaba el valor que `ops/vl/deploy.sh` saltea (busca la
+#     SUBCADENA en todo el archivo: ⛔ no escribirla ni en un comentario, o el deploy deja de aplicarlo).
+#     **Encendido el 2026-11-11 15:44** con el servicio de `SeniorDev` ya detenido y deshabilitado:
+#     desde ahí es `migrado` y el deploy lo aplica.
 #   · `strategy: Recreate` — nunca hay dos pods a la vez, ni durante un despliegue.
 #   · `singleton: "true"` — que `check:k3s` lo trate como tal.
-# Volver atrás: `kubectl -n ingesta scale deploy/hr-relojes --replicas=0` y arrancar el servicio en
-# la laptop (después, devolver la etiqueta a `preparado-externo` para que el deploy no lo reviva).
+# Volver atrás: `kubectl -n ingesta scale deploy/hr-relojes --replicas=0` y, en `SeniorDev`,
+# `Set-Service -Name 'megatalentoagentedechecadas.exe' -StartupType Automatic; Start-Service -Name 'megatalentoagentedechecadas.exe'`
+# (y devolver la etiqueta al valor que el deploy saltea, para que no lo reviva).
 #
 # ── Lo persistente ──
 # La cola SQLite (lo leído que todavía no aceptó la API) y la copia del padrón viven en
@@ -45,7 +46,7 @@ metadata:
   labels:
     carril: hr-relojes
     singleton: "true"
-    migracion: preparado-externo
+    migracion: migrado
 spec:
   replicas: 1
   strategy:

@@ -233,7 +233,7 @@ interface ValePendiente extends ReceivingLine {
       <!-- Administración de políticas (SUPERVISAR) -->
       <p-dialog [visible]="policyOpen()" (visibleChange)="policyOpen.set($event)" [modal]="true" [style]="{ width: '660px' }"
         header="Políticas de caducidad en recepción" [dismissableMask]="true">
-        <p class="rec-hint rec-pol-intro">Definí la vida útil mínima exigida y si se acepta un lote más viejo que el existente, por producto, categoría o proveedor. Resolución en cascada: producto → categoría → proveedor. Sin política, solo aplica la regla “no más viejo que lo existente”.</p>
+        <p class="rec-hint rec-pol-intro">Define si el producto caduca, su vida útil y la mínima que se le acepta al recibirlo, por producto, departamento de Kepler o proveedor. Se resuelve campo por campo: producto → departamento → proveedor. Lo que no caduca no pide fecha en el Andén. Una fecha ya vencida siempre queda retenida, haya o no política.</p>
 
         <div class="rec-pol-form">
           <div class="rec-row">
@@ -244,13 +244,24 @@ interface ValePendiente extends ReceivingLine {
             @if (policyScopeKind === 'product') {
               <label class="rec-field"><span>Producto</span><app-product-search (productSelected)="policyProduct = $event"></app-product-search></label>
             } @else if (policyScopeKind === 'category') {
-              <label class="rec-field"><span>Categoría</span><input pInputText [(ngModel)]="policyCategory" placeholder="ej. Chocolates" /></label>
+              <label class="rec-field"><span>Departamento (Kepler)</span>
+                <p-select [options]="departments()" [(ngModel)]="policyCategory" placeholder="Elige un departamento"
+                  [filter]="true" ariaLabel="Departamento de Kepler"></p-select>
+              </label>
             } @else {
               <label class="rec-field"><span>Proveedor (código)</span><input pInputText [(ngModel)]="policySupplier" placeholder="ej. C001" /></label>
             }
           </div>
           <div class="rec-row">
-            <label class="rec-field"><span>Vida útil mínima (días)</span><input pInputText type="number" min="0" [(ngModel)]="policyMinDays" placeholder="ej. 180" /></label>
+            <label class="rec-field">
+              <span>¿Caduca?</span>
+              <p-select [options]="tracksOptions" [(ngModel)]="policyTracks" optionLabel="label" optionValue="value"
+                ariaLabel="¿El producto caduca?"></p-select>
+            </label>
+            <label class="rec-field"><span>Vida útil total (días)</span><input pInputText type="number" min="1" [(ngModel)]="policyShelfLife" placeholder="ej. 180" [disabled]="policyTracks === false" /></label>
+          </div>
+          <div class="rec-row">
+            <label class="rec-field"><span>Vida útil mínima al recibir (días)</span><input pInputText type="number" min="0" [(ngModel)]="policyMinDays" placeholder="ej. 60" [disabled]="policyTracks === false" /></label>
             <label class="rec-field rec-check"><input type="checkbox" [(ngModel)]="policyAllowOlder" /> <span>Aceptar más viejo que el existente</span></label>
           </div>
           <label class="rec-field"><span>Notas</span><input pInputText [(ngModel)]="policyNotes" /></label>
@@ -261,18 +272,20 @@ interface ValePendiente extends ReceivingLine {
 
         <p-table [value]="policies()" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="240px">
           <ng-template #header>
-            <tr><th scope="col">Ámbito</th><th scope="col" class="num">Mín. días</th><th scope="col">+viejo</th><th scope="col"><span class="sr-only">Acciones</span></th></tr>
+            <tr><th scope="col">Ámbito</th><th scope="col">¿Caduca?</th><th scope="col" class="num">Vida útil</th><th scope="col" class="num">Mín. días</th><th scope="col">+viejo</th><th scope="col"><span class="sr-only">Acciones</span></th></tr>
           </ng-template>
           <ng-template #body let-p>
             <tr>
               <td>{{ policyScopeLabel(p) }}</td>
+              <td>{{ p.tracks_expiry === false ? 'No caduca' : p.tracks_expiry === true ? 'Sí' : 'Sin decir' }}</td>
+              <td class="num">{{ p.shelf_life_days ?? '—' }}</td>
               <td class="num">{{ p.min_shelf_life_days ?? '—' }}</td>
               <td>{{ p.allow_older_than_existing ? 'Sí' : 'No' }}</td>
               <td><button pButton size="small" severity="danger" [text]="true" (click)="deletePolicy(p)" title="Eliminar"><span class="pi pi-trash" aria-hidden="true"></span></button></td>
             </tr>
           </ng-template>
           <ng-template #emptymessage>
-            <tr><td colspan="4" class="comm-empty-cell"><div class="comm-empty"><p>Sin políticas configuradas.</p></div></td></tr>
+            <tr><td colspan="6" class="comm-empty-cell"><div class="comm-empty"><p>Sin políticas configuradas.</p></div></td></tr>
           </ng-template>
         </p-table>
       </p-dialog>
@@ -400,9 +413,19 @@ export class AlmacenRecepcionAuditorComponent implements OnInit {
   policyMinDays: number | null = null;
   policyAllowOlder = false;
   policyNotes = '';
+  /** `[CE.1.1]` ¿Caduca? `null` = sin decir (el Andén pide la fecha, como siempre). */
+  policyTracks: boolean | null = null;
+  policyShelfLife: number | null = null;
+  readonly tracksOptions = [
+    { label: 'Sin decir', value: null },
+    { label: 'Sí caduca', value: true },
+    { label: 'No caduca (no pedir fecha)', value: false },
+  ];
+  /** `[CE.1.1]` Departamentos de Kepler (DULCES, BOTANAS, DESECHABLES…), derivados del ODS. */
+  readonly departments = signal<string[]>([]);
   readonly scopeKindOptions = [
     { label: 'Producto', value: 'product' },
-    { label: 'Categoría', value: 'category' },
+    { label: 'Departamento', value: 'category' },
     { label: 'Proveedor', value: 'supplier' },
   ];
 
@@ -574,6 +597,12 @@ export class AlmacenRecepcionAuditorComponent implements OnInit {
   openPolicies(): void {
     this.policyOpen.set(true);
     this.loadPolicies();
+    if (!this.departments().length) {
+      this.svc.listDepartments().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (d) => this.departments.set(d || []),
+        error: () => this.departments.set([]),
+      });
+    }
   }
 
   loadPolicies(): void {
@@ -586,16 +615,22 @@ export class AlmacenRecepcionAuditorComponent implements OnInit {
   savePolicy(): void {
     const md = this.policyMinDays === null || this.policyMinDays === undefined || (this.policyMinDays as unknown) === ''
       ? null : Number(this.policyMinDays);
+    const vida = this.policyShelfLife === null || this.policyShelfLife === undefined || (this.policyShelfLife as unknown) === ''
+      ? null : Number(this.policyShelfLife);
+    const noCaduca = this.policyTracks === false;
     const dto: Partial<ReceivingPolicy> = {
-      min_shelf_life_days: md,
+      // Lo que no caduca no lleva vida útil: se manda vacío aunque haya quedado algo tecleado.
+      min_shelf_life_days: noCaduca ? null : md,
       allow_older_than_existing: this.policyAllowOlder,
+      tracks_expiry: this.policyTracks,
+      shelf_life_days: noCaduca ? null : vida,
       notes: this.policyNotes?.trim() || null,
     };
     if (this.policyScopeKind === 'product') {
       if (!this.policyProduct) { this.toast.add({ severity: 'warn', summary: 'Falta producto', detail: 'Elige un producto' }); return; }
       dto.product_id = this.policyProduct.id;
     } else if (this.policyScopeKind === 'category') {
-      if (!this.policyCategory.trim()) { this.toast.add({ severity: 'warn', summary: 'Falta categoría', detail: 'Escribe la categoría' }); return; }
+      if (!this.policyCategory.trim()) { this.toast.add({ severity: 'warn', summary: 'Falta departamento', detail: 'Elige el departamento de Kepler' }); return; }
       dto.category = this.policyCategory.trim();
     } else {
       if (!this.policySupplier.trim()) { this.toast.add({ severity: 'warn', summary: 'Falta proveedor', detail: 'Escribe el código de proveedor' }); return; }
@@ -617,7 +652,7 @@ export class AlmacenRecepcionAuditorComponent implements OnInit {
 
   policyScopeLabel(p: ReceivingPolicy): string {
     if (p.product_id) return `Producto · ${p.sku || p.product_name || p.product_id}`;
-    if (p.category) return `Categoría · ${p.category}`;
+    if (p.category) return `Departamento · ${p.category}`;
     if (p.supplier_code) return `Proveedor · ${p.supplier_code}`;
     return '—';
   }
@@ -642,6 +677,8 @@ export class AlmacenRecepcionAuditorComponent implements OnInit {
     this.policyMinDays = null;
     this.policyAllowOlder = false;
     this.policyNotes = '';
+    this.policyTracks = null;
+    this.policyShelfLife = null;
   }
 
   verdictLabel(v: Verdict): string {
@@ -656,6 +693,9 @@ export class AlmacenRecepcionAuditorComponent implements OnInit {
       case 'older_than_existing': return 'Más viejo que el inventario existente';
       case 'older_than_existing_allowed': return 'Más viejo que lo existente (permitido)';
       case 'near_min_shelf_life': return 'Cerca del mínimo de vida útil';
+      case 'expired': return 'Ya vencido al recibir';
+      case 'beyond_shelf_life': return 'La fecha no cabe en la vida útil: revisa la etiqueta';
+      case 'no_expiry_on_perishable': return 'Sin fecha en un producto que caduca';
       default: return '';
     }
   }

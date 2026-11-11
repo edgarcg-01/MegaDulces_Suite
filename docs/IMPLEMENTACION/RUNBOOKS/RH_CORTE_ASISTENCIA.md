@@ -6,7 +6,37 @@
 > la de `identity.users` (`20261012094356`, candado exclusivo: de noche); lo que escribe la carga o reinicia pods, de
 > preferencia fuera de horario.
 > **Escrito el 2026-10-07** con los guiones ya probados contra la base local y contra Mega Talento real (sólo lectura).
-> Nada de esto se ha corrido contra prod todavía: desde la máquina de trabajo no hay acceso a `md`.
+> ~~Nada de esto se ha corrido contra prod todavía~~ → **corrido el 11-nov**: bitácora abajo.
+
+## ✅ Bitácora del corte — 11-nov-2026 (Edgar: «ya»; en horario hábil, con su autorización)
+
+| Hora (MX) | Paso | Resultado |
+|---|---|---|
+| 13:56 | Guiones de la imagen = repo | md5 idénticos (pre-vuelo, carga única, personas, mapeo) |
+| 13:57 | Lógica de Mega Talento desde la paridad del 9-nov | Un solo commit, `c445974`: el NÚMERO de semana (la 47 era la 46), no el cálculo. Paridad de 0 diferencias vigente; la etiqueta se portó en `[RH.6.4]` |
+| 13:58 | Pre-vuelo con Mega Talento | **Sin bloqueos** · 1 aviso (horario) · padrón NO MEDIDO (esperado) · `HR_INGEST_KEY` presente |
+| 13:59 | Ensayo de la carga | 12 plazas · 12 relojes · 1,615 enrolamientos · 238,884 de 238,887 checadas (3 fecha basura) · 310 incidencias · 163 horarios · 12,236 alertas · se deshizo |
+| **13:59:42** | **Carga real** (`--aplicar`) — ⭐ la hora que usa el `reenviar` de David | El mismo cuadre que el ensayo, 27 s |
+| 14:00 | Personas: ensayo y `--aplicar` | 1,065 personas (1,038 creadas, 27 ligadas a cuenta), **0 por decidir**, 1,062 de 1,069 enrolamientos activos ligados. 3 avisos para Sistemas (informe con nombres en `md:~/rh-personas-20261111-*.json`, 600) |
+| 14:01 | Pre-vuelo otra vez | **padrón OK**: todo lo que checó en 30 días tiene persona. Los avisos de «datos previos» son esta carga |
+| 14:01 | En pantalla (sesión real) | `/rh/asistencia` › 8-Esquinas: 31 personas, la semana completa hasta las ~13:00; los relojes dicen «Sin señal» (correcto: el lector todavía manda a Mega Talento) |
+| 14:05 | Prueba negativa de la ingesta | Sin llave y con llave falsa → **401** |
+| 14:10 | Rol de RH (`[RH.2.6]`, mig `20261111140242`) | `reclutamiento_asistencia` a Lesly y Tania (complemento; conservan `administrativo`) |
+
+| 15:30 | `[RH.0.3]` desde `md` | ping 11/12; Sucursal PH (`192.168.10.2`) no responde |
+| 15:38 | El lector viejo (Edgar, en la máquina) | ⚠️ **No estaba en `LapSistemasA`: corre en `SeniorDev`**, servicio `megatalentoagentedechecadas.exe` («Mega Talento Agente de Checadas», node-windows, `C:\Users\Administrator\Documents\mega-talento-90\api\agente`). **Detenido y deshabilitado** (no desinstalado: es la reversa) |
+| 15:41:26 | Mega Talento deja de recibir | Último lote; 2 min sin nada antes de seguir |
+| 15:43 | `tcp` desde `md` (con la laptop ya parada) | 11/12 abren el 4370; PH no |
+| 15:44 | **Opción B: lector en `md`** (Edgar: «que corra en md hoy») | Secreto `hr-relojes-env` (huella = la de la API y la del lector viejo), `deploy/hr-relojes` con `trade-ingest:3aa0520a9`; «Relojes a cargo» 12, vigilando 11 (CEDIS incluido, que la laptop dejó de leer el 15-oct) |
+| 15:45 | Primer respaldo | 8-Esquinas 59,952 y CEDIS 25,645 releídos: **34 checadas nuevas** (14:06–15:43, el hueco), el resto ya estaba. Ráfaga de **429**: `@SkipThrottle()` sin argumentos no exentaba los limitadores `short/medium/long` → corregido en `[RH.1.3]` (`da497b10a`); mientras sale, sólo frena la ráfaga |
+
+**Sucursal PH:** su último lote a Mega Talento fue el **11-nov 04:12** (la laptop también la perdió): el reloj está apagado,
+desconectado o cambió de IP. Revisión en sitio. El lector de `md` lo sigue buscando en su red.
+
+**Lo que queda:** `ENABLE_HR_ATTENDANCE_AGENT` (paso 7) **NO se enciende**: es un `@Cron` cada 30 min y la regla del
+2026-11-10 prohíbe crons nuevos; la cola de alertas de Mega Talento nunca la decidió nadie (§5). Mega Talento de sólo
+lectura en asistencia (David). Reversa: `kubectl -n ingesta scale deploy/hr-relojes --replicas=0` y, en `SeniorDev`,
+`Set-Service -Name 'megatalentoagentedechecadas.exe' -StartupType Automatic; Start-Service -Name 'megatalentoagentedechecadas.exe'`.
 
 ## 0.0 Antes de empezar: decisiones del 14 y 16-oct
 

@@ -1,9 +1,11 @@
-import { Body, Controller, Get, Param, Post, Query, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, Post, Query, Res, Sse, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
 import type { Response } from 'express';
-import { Public } from '@megadulces/platform-core';
+import type { Observable } from 'rxjs';
+import { Public, SIN_LIMITE_DE_PETICIONES } from '@megadulces/platform-core';
 import { HrIngestGuard } from './hr-ingest.guard';
+import { HrRelojesAvisosService, type EventoSse } from './avisos-relojes';
 import { HrAttendanceIngestService } from './attendance-ingest.service';
 import type { HeartbeatBody, IngestResult, OrdenParaAgente } from './attendance-ingest.service';
 import type { IncomingBatch } from './ingest-batch';
@@ -25,7 +27,7 @@ import type { IncomingBatch } from './ingest-batch';
 @ApiTags('hr')
 @Controller('hr/attendance/ingest')
 @Public()
-@SkipThrottle()
+@SkipThrottle(SIN_LIMITE_DE_PETICIONES)
 @UseGuards(HrIngestGuard)
 export class HrAttendanceIngestController {
   constructor(private readonly service: HrAttendanceIngestService) {}
@@ -82,10 +84,24 @@ export class HrAttendanceIngestController {
 @ApiTags('hr')
 @Controller('hr/attendance/ingest/mt/checador/ingesta')
 @Public()
-@SkipThrottle()
+@SkipThrottle(SIN_LIMITE_DE_PETICIONES)
 @UseGuards(HrIngestGuard)
 export class HrAttendanceMtCompatController {
-  constructor(private readonly service: HrAttendanceIngestService) {}
+  // `@Inject` explícito en los dos: no depender de `design:paramtypes` (`#414` tiró la API con el CI en verde).
+  constructor(
+    @Inject(HrAttendanceIngestService) private readonly service: HrAttendanceIngestService,
+    @Inject(HrRelojesAvisosService) private readonly avisos: HrRelojesAvisosService,
+  ) {}
+
+  /**
+   * `[RH.1.3]` Los avisos al lector (SSE): «cambió la lista de relojes», «hay una orden para el reloj X» y «ponte al
+   * día». Reemplaza las preguntas periódicas del lector (padrón cada 30 min, órdenes cada minuto por reloj).
+   */
+  @Sse('eventos')
+  @ApiOperation({ summary: 'RH — avisos al lector de relojes (SSE): padrón, órdenes y ponte al día.' })
+  eventos(): Observable<EventoSse> {
+    return this.avisos.flujo();
+  }
 
   @Post()
   @ApiOperation({ summary: 'RH — compatibilidad: lote del agente de Mega Talento.' })
