@@ -145,7 +145,7 @@ export const DIAS_PARA_USAR_EL_BANCO = 10;
  * `desde` es el día siguiente al último que cuadra: ahí empezaría a mandar el banco, sin tocar nada que el
  * libro ya tenga cerrado.
  */
-export interface ListoParaBanco { dias_seguidos: number; cumple: boolean; ultimo_que_cuadra: string | null; desde: string | null }
+export interface ListoParaBanco { dias_seguidos: number; requeridos: number; cumple: boolean; ultimo_que_cuadra: string | null; desde: string | null }
 
 export function listoParaBanco(dias: readonly DiaContraElLibro[]): ListoParaBanco {
   let i = dias.length - 1;
@@ -153,16 +153,22 @@ export function listoParaBanco(dias: readonly DiaContraElLibro[]): ListoParaBanc
   let n = 0;
   const ultimo = i >= 0 && dias[i].veredicto === 'cuadra' ? dias[i].fecha : null;
   while (i >= 0 && dias[i].veredicto === 'cuadra') { n++; i--; }
-  return { dias_seguidos: n, cumple: n >= DIAS_PARA_USAR_EL_BANCO, ultimo_que_cuadra: ultimo, desde: ultimo ? sumarDias(ultimo, 1) : null };
+  return { dias_seguidos: n, requeridos: DIAS_PARA_USAR_EL_BANCO, cumple: n >= DIAS_PARA_USAR_EL_BANCO, ultimo_que_cuadra: ultimo, desde: ultimo ? sumarDias(ultimo, 1) : null };
 }
 
-/** `mapa`: si se pasa, la sucursal se aprende ahí (para guardar el catálogo al usar el banco). */
-export function compararContraElLibro(bancoTodo: readonly RenglonComparable[], libroTodo: readonly RenglonComparable[], clasificar?: ClasificarSinLibro, mapa = new MapaDeSucursal()): CuentaContraElLibro {
+/**
+ * `mapa`: si se pasa, la sucursal se aprende ahí (para guardar el catálogo al usar el banco).
+ * `cortaEn` `[CB.60b]`: la cuenta usa el banco desde ese día; sólo se juzga lo anterior (el paralelo), en los dos
+ * lados ANTES de parear. Si el banco trae días después del corte, el último día juzgado no está «abierto».
+ */
+export function compararContraElLibro(bancoTodo: readonly RenglonComparable[], libroTodo: readonly RenglonComparable[], clasificar?: ClasificarSinLibro, mapa = new MapaDeSucursal(), cortaEn?: string | null): CuentaContraElLibro {
   // Un renglón en $0.00 no mueve dinero: no se busca en el libro ni entra a la cadena de saldos (repite el
   // saldo y deja el cierre del día sin afirmar). Se declara cuántos hubo (BB 4166, 2026-11-10: 6).
   const enCero = (r: RenglonComparable) => centavos(r.amount_in) === 0 && centavos(r.amount_out) === 0;
-  const banco = bancoTodo.filter((r) => !enCero(r));
-  const libro = libroTodo.filter((r) => !enCero(r));
+  const antesDelCorte = (r: RenglonComparable) => !cortaEn || r.fecha < cortaEn;
+  const banco = bancoTodo.filter((r) => antesDelCorte(r) && !enCero(r));
+  const libro = libroTodo.filter((r) => antesDelCorte(r) && !enCero(r));
+  const hayDespuesDelCorte = bancoTodo.some((r) => !antesDelCorte(r));
   const diasBanco = Array.from(new Set(banco.map((b) => b.fecha))).sort();
   const ultimoDia = diasBanco[diasBanco.length - 1] ?? null;
   const pareado = new Set<string>(); // ids de los dos lados ya usados
@@ -214,7 +220,7 @@ export function compararContraElLibro(bancoTodo: readonly RenglonComparable[], l
       : cierreBanco !== null && cierreBanco === cierreLibro ? 'cierre'
       : (cierreBanco === null || cierreLibro === null) && mismosSaldos(delBanco, delLibro) ? 'saldos'
       : null;
-    const veredicto: VeredictoDelDia = fecha === ultimoDia ? 'abierto'
+    const veredicto: VeredictoDelDia = fecha === ultimoDia && !hayDespuesDelCorte ? 'abierto'
       : !delLibro.length || libroAMedias ? 'sin_libro'
       : cuadrePor ? 'cuadra'
       : 'difiere';
@@ -269,5 +275,5 @@ export function compararContraElLibro(bancoTodo: readonly RenglonComparable[], l
     }
     for (const [b, l] of pares) { const s = sLibro(l); if (s) mapa.aprender(paraSucursal(b, l), s); }
   }
-  return { desde: diasBanco[0] ?? null, hasta: ultimoDia, dias, resumen, categorias, sucursales, listo_para_banco: listoParaBanco(dias), renglones_en_cero: bancoTodo.length - banco.length };
+  return { desde: diasBanco[0] ?? null, hasta: ultimoDia, dias, resumen, categorias, sucursales, listo_para_banco: listoParaBanco(dias), renglones_en_cero: bancoTodo.filter((r) => antesDelCorte(r) && enCero(r)).length };
 }

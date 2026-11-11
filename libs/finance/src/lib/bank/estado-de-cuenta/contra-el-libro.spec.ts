@@ -170,7 +170,7 @@ describe('[CB.60] compararContraElLibro', () => {
 
     it('cuenta la racha que termina en el último día juzgado; el abierto y el libro atrasado al final no la cortan', () => {
       const l = listoParaBanco([...racha(DIAS_PARA_USAR_EL_BANCO), d('2026-10-11', 'sin_libro'), d('2026-10-12', 'abierto')]);
-      expect(l).toEqual({ dias_seguidos: DIAS_PARA_USAR_EL_BANCO, cumple: true, ultimo_que_cuadra: '2026-10-10', desde: '2026-10-11' });
+      expect(l).toEqual({ dias_seguidos: DIAS_PARA_USAR_EL_BANCO, requeridos: DIAS_PARA_USAR_EL_BANCO, cumple: true, ultimo_que_cuadra: '2026-10-10', desde: '2026-10-11' });
     });
 
     it('[negativa] un día que difiere a la mitad corta la racha', () => {
@@ -181,6 +181,36 @@ describe('[CB.60] compararContraElLibro', () => {
     it('[negativa] un día sin libro a la mitad también la corta: lo que no se comparó no cuenta a favor', () => {
       const dias = racha(DIAS_PARA_USAR_EL_BANCO + 1); dias[5] = d(dias[5].fecha, 'sin_libro');
       expect(listoParaBanco(dias).cumple).toBe(false);
+    });
+  });
+
+  describe('[CB.60b] la cuenta que ya usa el banco se juzga sólo hasta el corte', () => {
+    const libro = [r('2026-10-01', 0, 200, 1300), r('2026-10-01', 500, 0, 1500), r('2026-10-02', 0, 0.56, 1295.93), r('2026-10-02', 0, 3.51, 1296.49)];
+
+    it('desde el corte no hay días «sin libro»; el último día antes del corte está cerrado, no abierto', () => {
+      const c = compararContraElLibro([...BANCO, r('2026-10-03', 0, 0, 1395.93)], libro, undefined, undefined, '2026-10-03');
+      expect(c.dias.map((x) => [x.fecha, x.veredicto])).toEqual([['2026-10-01', 'cuadra'], ['2026-10-02', 'cuadra']]);
+      expect(c.resumen).toMatchObject({ cuadra: 2, sin_libro: 0, abierto: 0 });
+      expect(c.renglones_en_cero).toBe(0); // el renglón en cero del 03 es posterior al corte: no se declara aquí
+    });
+
+    it('[negativa] sin corte, el mismo libro deja el 03 abierto: el corte es lo que cambia el veredicto', () => {
+      const c = compararContraElLibro(BANCO, libro);
+      expect(c.dias.map((x) => x.veredicto)).toEqual(['cuadra', 'cuadra', 'abierto']);
+    });
+
+    it('[negativa] un renglón del banco después del corte no se parea con el libro de antes (±3 días)', () => {
+      // El libro del 01 trae una salida de 50 que el banco no tiene ese día; el banco la trae el 03, ya cortado.
+      // Sin cortar ANTES de parear, el 03 se la llevaría y el 01 dejaría de nombrarla.
+      const c = compararContraElLibro([...BANCO, r('2026-10-03', 0, 50, 1345.93)], [...libro, r('2026-10-01', 0, 50, 1250)], undefined, undefined, '2026-10-03');
+      expect(c.dias[0].solo_libro.map((x) => x.importe)).toEqual([50]);
+    });
+
+    it('[negativa] un renglón del LIBRO después del corte tampoco se parea (la captura de WhatsApp no se borra al pasar)', () => {
+      // Al libro del 02 le falta la comisión de 0.56; la trae el 03, ya cortado. Sin cortar el libro, el 02 la tomaría prestada.
+      const libro02 = [r('2026-10-01', 0, 200, 1300), r('2026-10-01', 500, 0, 1500), r('2026-10-02', 0, 3.51, 1296.49), r('2026-10-03', 0, 0.56, 1295.93)];
+      const c = compararContraElLibro([...BANCO, r('2026-10-03', 0, 0, 1395.93)], libro02, undefined, undefined, '2026-10-03');
+      expect(c.dias[1].solo_banco.map((x) => x.importe)).toEqual([0.56]);
     });
   });
 });

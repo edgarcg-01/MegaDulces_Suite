@@ -383,10 +383,15 @@ export class EstadoDeCuentaService {
         trx.raw(conBanco ? "to_char(statement_source_since, 'YYYY-MM-DD') as banco_desde" : 'null::text as banco_desde')))
       .map((a: { id: string; alias: string; banco_desde: string | null }) => [a.id, { alias: a.alias, banco_desde: a.banco_desde }]));
     const de = (rows: (RenglonComparable & { bank_account_id: string })[], id: string) => rows.filter((r) => r.bank_account_id === id);
-    return ids.map((id) => ({
-      id, alias: cuentas.get(id)?.alias ?? id, banco_desde: cuentas.get(id)?.banco_desde ?? null,
-      ...compararContraElLibro(de(banco, id), de(libro, id), clasificar, id === soloCuenta ? mapa : undefined),
-    })).sort((a, b) => a.alias.localeCompare(b.alias));
+    // [CB.60b] Una cuenta que ya usa el banco se compara sólo hasta el día anterior a `banco_desde`: desde ahí el
+    // libro ya no entra, y juzgar esos días los pintaría «sin libro» para siempre. La cuenta sigue en la lista con su fecha.
+    return ids.map((id) => {
+      const bd = cuentas.get(id)?.banco_desde ?? null;
+      return {
+        id, alias: cuentas.get(id)?.alias ?? id, banco_desde: bd,
+        ...compararContraElLibro(de(banco, id), de(libro, id), clasificar, id === soloCuenta ? mapa : undefined, bd),
+      };
+    }).sort((a, b) => a.alias.localeCompare(b.alias));
   }
 
   private async reglaDelLibro(trx: Knex.Transaction): Promise<(concepto: string) => string> {

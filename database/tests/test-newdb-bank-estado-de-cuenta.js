@@ -329,10 +329,15 @@ async function completo(urlAdmin, urlRuntime) {
       const c13 = await svc.confirmar({ file_base64: bbva(r13.map((x) => x.txt).reverse()), bank_account_id: BANCO, aceptar_sin_testigo: true }, 'prueba');
       check(c13.alimentado?.metidos === 2, `la descarga siguiente entra sola a los movimientos (${JSON.stringify(c13.alimentado)})`);
 
-      // ⛔ El comparador no compara al banco contra sí mismo.
+      // ⛔ Desde que usa el banco, la cuenta ya no se juzga contra el libro: ni «cuadra» contra lo que metió el propio
+      // banco, ni «sin libro» para siempre. Sigue en la lista con su paralelo y su fecha.
       const cl2 = await svc.contraElLibro(30, '2026-10-20');
-      const d12 = cl2.cuentas.find((c) => c.id === BANCO)?.dias.find((d) => d.fecha === '2026-10-12');
-      check(d12?.veredicto === 'sin_libro', `⛔ el 12 ya no «cuadra» contra los renglones que metió el propio banco (${d12?.veredicto})`);
+      const c2 = cl2.cuentas.find((c) => c.id === BANCO);
+      const ultimo = c2?.dias[c2.dias.length - 1];
+      check(c2?.banco_desde === '2026-10-12' && ultimo?.fecha === '2026-10-11' && ultimo?.veredicto === 'cuadra',
+        `⛔ desde el 12 no se juzga: el último día comparado es el 11 y cuadra (${ultimo?.fecha} ${ultimo?.veredicto}, banco_desde ${c2?.banco_desde})`);
+      check(c2?.resumen.sin_libro === 0 && c2?.resumen.abierto === 0 && c2?.listo_para_banco.cumple === true,
+        `la cuenta conserva su paralelo: ningún día «sin libro» ni abierto (${JSON.stringify(c2?.resumen)})`);
 
       // La carga del libro: en esa cuenta, desde el 12, sus renglones NO entran (ni reviven el borrado) y lo dice.
       const ExcelJS = require('exceljs');
