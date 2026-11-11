@@ -328,7 +328,7 @@ export class CortesSucursalesService {
       const cajeros = [...new Set(filas.map((f) => f.cajero_cierre).filter((x): x is string => !!x))];
       if (cajeros.length) {
         const pc = await trx.raw(
-          `SELECT warehouse_code, cajero_code, nombre FROM analytics.pos_cashiers
+          `SELECT warehouse_code, cajero_code, nombre FROM analytics.v_pos_cashiers
             WHERE tenant_id = ?::uuid AND cajero_code = ANY(?::text[]) AND NULLIF(btrim(nombre), '') IS NOT NULL`,
           [tenantId, cajeros],
         );

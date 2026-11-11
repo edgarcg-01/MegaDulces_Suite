@@ -184,7 +184,7 @@ SELECT k.sucursal || '/' || btrim(k.c2::text) || '/' || k.c3::bigint::text AS cl
        'Caja ' || btrim(k.c2::text) || COALESCE(' · ' || COALESCE(NULLIF(btrim(pc.nombre), ''), NULLIF(btrim(k.c8), '')), '') AS detalle,
        k.c5::date AS fecha, NULL::numeric AS monto, count(*) OVER()::int AS total
   FROM kepler_ods.kdpv_folio_caja k
-  LEFT JOIN analytics.pos_cashiers pc ON pc.tenant_id = :t AND pc.warehouse_code = k.sucursal AND pc.cajero_code = btrim(k.c8)
+  LEFT JOIN analytics.v_pos_cashiers pc ON pc.tenant_id = :t AND pc.warehouse_code = k.sucursal AND pc.cajero_code = btrim(k.c8)
  WHERE k.sucursal = :kc
    AND k.c10::date <> DATE '1800-01-01'
    AND k.c5::date >= ${HOY} - 7
@@ -210,7 +210,7 @@ SELECT b.id::text AS clave, COALESCE(b.cash_cut_folio, '')::text AS folio,
   LEFT JOIN LATERAL (SELECT x.nombre FROM identity.users x
                       WHERE x.tenant_id = b.tenant_id AND upper(x.username) = upper(b.cajero_code) AND x.deleted_at IS NULL
                       LIMIT 1) u ON true
-  LEFT JOIN analytics.pos_cashiers pc ON pc.tenant_id = b.tenant_id AND pc.warehouse_code = b.warehouse_code AND pc.cajero_code = btrim(b.cajero_code)
+  LEFT JOIN analytics.v_pos_cashiers pc ON pc.tenant_id = b.tenant_id AND pc.warehouse_code = b.warehouse_code AND pc.cajero_code = btrim(b.cajero_code)
  WHERE b.tenant_id = :t AND b.warehouse_code = :kc AND b.tipo = 'cierre' AND b.validado_at IS NULL
    AND b.business_date >= ${HOY} - 7
  ORDER BY b.business_date, b.caja

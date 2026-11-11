@@ -119,7 +119,7 @@ export interface CorteArqueo {
   contado_total: number;
   /** Clave del cajero que cerró en Kepler (`c8`). */
   cajero: string | null;
-  /** `[CSU.21]` Su nombre (`analytics.pos_cashiers`); `null` si el catálogo no lo tiene. */
+  /** `[CSU.21]` Su nombre (`analytics.v_pos_cashiers`); `null` si el catálogo no lo tiene. */
   cajero_nombre: string | null;
   /**
    * `[CSU.9]` ⭐⭐ **El único efectivo que alguien contó de verdad**: billetes + monedas + lo

@@ -338,7 +338,8 @@ const STEPS = {
     // RETIRADO 2026-11-05 [CANON.5.0]: wincaja/import-sales-by-vendor-monthly.js — lee la réplica de
     // Wincaja, que dejó de moverse con el corte (WR.7). Tardaba ~9 min cada noche para 0 updates
     // (n_tup_upd = 0). La tabla queda como FOTO FIJA: la sigue leyendo Thot (thot-tools.service.ts).
-    path.join(K, 'import-pos-cashiers.js'),      // dim cajeros POS → analytics.pos_cashiers
+    // RETIRADO 2026-11-11 [CANON.6.1]: import-pos-cashiers.js — los cajeros salen de la VISTA
+    // analytics.v_pos_cashiers sobre kepler_ods (kdpv_kdku + kdpv_gerentes); analytics.pos_cashiers queda congelada.
     path.join(K, 'import-supplier-params.js'),   // params de proveedor → catalog.suppliers (UPDATE)
     // RETIRADO 2026-08-26: import-kepler-accounts — finance.kepler_accounts es VISTA derive-no-copy
     // sobre analytics.ledger_monthly (mig 20260826190000). Correrlo pegaría INSERT contra la vista.

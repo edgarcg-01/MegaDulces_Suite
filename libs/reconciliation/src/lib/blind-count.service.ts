@@ -755,7 +755,7 @@ export class BlindCountService {
                 k.c43 AS arqueo_billetes, k.c44 AS arqueo_monedas, k.c48 AS efectivo_retirado, k.c46 AS cash_limit
            FROM kepler_ods.kdpv_folio_caja k
            LEFT JOIN commercial.warehouses w ON w.tenant_id = ? AND w.code = k.sucursal AND w.deleted_at IS NULL
-           LEFT JOIN analytics.pos_cashiers pc ON pc.tenant_id = ? AND pc.warehouse_code = k.sucursal AND pc.cajero_code = btrim(k.c8)
+           LEFT JOIN analytics.v_pos_cashiers pc ON pc.tenant_id = ? AND pc.warehouse_code = k.sucursal AND pc.cajero_code = btrim(k.c8)
           WHERE k.c5::date = ?::date ${filtroSuc}
           ORDER BY k.sucursal, btrim(k.c2::text), NULLIF(btrim(k.c6), '')`,
         warehouseCodes == null ? [tenantId, tenantId, fecha] : [tenantId, tenantId, fecha, warehouseCodes],
@@ -1187,7 +1187,7 @@ export class BlindCountService {
       const b = trx('analytics.cash_cuts as cc')
         .where('cc.tenant_id', tenantId)
         .whereNotNull('cc.cajero_cierre')
-        .leftJoin('analytics.pos_cashiers as pc', function (this: any) {
+        .leftJoin('analytics.v_pos_cashiers as pc', function (this: any) {
           this.on('pc.tenant_id', '=', 'cc.tenant_id')
             .andOn('pc.warehouse_code', '=', 'cc.warehouse_code')
             .andOn('pc.cajero_code', '=', 'cc.cajero_cierre');
@@ -1455,7 +1455,7 @@ export class BlindCountService {
              ORDER BY c.folio
              LIMIT 1
           ) cc ON true`)
-        .leftJoin('analytics.pos_cashiers as pc', function (this: any) {
+        .leftJoin('analytics.v_pos_cashiers as pc', function (this: any) {
           this.on('pc.tenant_id', '=', 'bc.tenant_id').andOn('pc.warehouse_code', '=', 'bc.warehouse_code').andOn('pc.cajero_code', '=', 'bc.cajero_code');
         })
         .select('bc.id', 'bc.tipo', 'bc.secuencia', 'bc.warehouse_code', 'bc.caja', 'bc.business_date', 'bc.turno', 'bc.cajero_code', 'bc.cajero_entrante',

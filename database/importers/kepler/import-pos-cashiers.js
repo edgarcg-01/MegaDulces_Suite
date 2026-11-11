@@ -1,4 +1,8 @@
 /**
+ * ⛔ RETIRADO 2026-11-11 [CANON.6.1] — ya no corre en ningún carril. Los cajeros se leen de la vista
+ * `analytics.v_pos_cashiers` (kepler_ods.kdpv_kdku + kdpv_gerentes, misma regla que `readOds` de abajo).
+ * `analytics.pos_cashiers` queda congelada; su borrado se pide aparte. Se conserva para leer la historia.
+ *
  * SM.7 — Importer del catálogo de cajeros POS (nombres).
  *
  * Lee `md.kdpv_gerentes` (c1=suc, c2=clave, c3=nombre) y `md.kdpv_kdku`

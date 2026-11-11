@@ -103,7 +103,25 @@ console.log('\n── B. el endpoint que escribe, contra base real ──');
         AND table_name='users' AND column_name='sessions_revoked_at') AS c`)).rows[0].c;
       if (!col) { noMedido('falta identity.users.sessions_revoked_at (migración [ID.38] sin aplicar)'); throw REVERTIR; }
       if (!(await trx.raw('SELECT 1 FROM identity.tenants WHERE id = ?', [T])).rows.length) { noMedido('la base no tiene el tenant mega_dulces'); throw REVERTIR; }
-      if (!(await trx.raw(`SELECT to_regclass('analytics.pos_cashiers') t`)).rows[0].t) { noMedido('falta analytics.pos_cashiers'); throw REVERTIR; }
+      // `[CANON.6.1]` Los cajeros de Kepler se leen de la vista `analytics.v_pos_cashiers` sobre el ODS. Una
+      // base sin ODS (la del CI) no tiene `kepler_ods.kdpv_*`: las tablas las crea el handler de ingesta en
+      // runtime, no una migración. Se crean con lo mínimo y la vista con SU migración, dentro de esta
+      // transacción (que se revierte).
+      if (!(await trx.raw(`SELECT to_regclass('analytics.v_pos_cashiers') t`)).rows[0].t) {
+        try {
+          await trx.raw('SAVEPOINT ods_au34');
+          await trx.raw('CREATE SCHEMA IF NOT EXISTS kepler_ods');
+          await trx.raw('CREATE TABLE IF NOT EXISTS kepler_ods.kdpv_kdku (sucursal text, c1 text, c2 text)');
+          await trx.raw('CREATE TABLE IF NOT EXISTS kepler_ods.kdpv_gerentes (sucursal text, c1 text, c2 text, c3 text)');
+          await require(path.join(__dirname, '../migrations-newdb', '20261111093151_canon61_v_pos_cashiers.js')).up(trx);
+          await trx.raw('RELEASE SAVEPOINT ods_au34');
+          console.log('  ·  (se creó analytics.v_pos_cashiers con su migración, dentro de la transacción)');
+        } catch (e) {
+          await trx.raw('ROLLBACK TO SAVEPOINT ods_au34');
+          noMedido(`falta analytics.v_pos_cashiers y su migración no aplica en esta base: ${e.message.slice(0, 120)}`);
+          throw REVERTIR;
+        }
+      }
       // Una base local atrasada no tiene todas las tablas del catálogo. Se crean con SU migración
       // dentro de esta transacción (que se revierte); si alguna no aplica, se declara, no se finge.
       const MIGRACION_DE = {
@@ -136,8 +154,8 @@ console.log('\n── B. el endpoint que escribe, contra base real ──');
       }
       // El código de cajero viene de Kepler en MAYÚSCULAS: tiene que reconocerse igual. El segundo es
       // de un cajero SIN cuenta en la Suite: nadie debe poder renombrarse a él y heredar sus cortes.
-      await trx.raw(`INSERT INTO analytics.pos_cashiers (tenant_id, warehouse_code, cajero_code, nombre) VALUES
-        (?, '99', 'AU34_CAJERA', 'CAJERA DE PRUEBA'), (?, '99', 'AU34_AJENO', 'CAJERO SIN CUENTA')`, [T, T]);
+      await trx.raw(`INSERT INTO kepler_ods.kdpv_kdku (sucursal, c1, c2) VALUES
+        ('99', 'AU34_CAJERA', 'CAJERA DE PRUEBA'), ('99', 'AU34_AJENO', 'CAJERO SIN CUENTA')`);
       await trx.raw('SET LOCAL session_replication_role = origin');
 
       let invalidados = 0;
@@ -207,7 +225,7 @@ console.log('\n── B. el endpoint que escribe, contra base real ──');
 
       // 5. PRUEBA NEGATIVA de la compuerta: si una tabla obligatoria no se puede revisar, no renombra.
       await trx.raw('SAVEPOINT sin_tabla');
-      await trx.raw('ALTER TABLE analytics.pos_cashiers RENAME TO pos_cashiers_au34');
+      await trx.raw('ALTER VIEW analytics.v_pos_cashiers RENAME TO v_pos_cashiers_au34');
       e = await falla(() => s.rename(OTRA, 'au34_otra3', 'cambio de prueba', yo));
       const c2 = e && e.getResponse ? e.getResponse() : {};
       ok(e && ['usuario_con_historia', 'usuario_nuevo_ocupado'].includes(c2.code) && (c2.sin_revisar || []).some((h) => h.clave === 'kepler_cajero'),
@@ -222,8 +240,8 @@ console.log('\n── B. el endpoint que escribe, contra base real ──');
       // corte que la persona cerró con su sesión todavía viva). Vive en esta transacción y se revierte.
       await trx.raw(`CREATE FUNCTION pg_temp.au34_aparece() RETURNS trigger LANGUAGE plpgsql AS $f$
         BEGIN
-          INSERT INTO analytics.pos_cashiers (tenant_id, warehouse_code, cajero_code, nombre)
-          VALUES (OLD.tenant_id, '98', upper(OLD.username), 'APARECIO DURANTE EL CAMBIO') ON CONFLICT DO NOTHING;
+          INSERT INTO kepler_ods.kdpv_kdku (sucursal, c1, c2)
+          VALUES ('98', upper(OLD.username), 'APARECIO DURANTE EL CAMBIO') ON CONFLICT DO NOTHING;
           RETURN NEW;
         END $f$`);
       await trx.raw(`CREATE TRIGGER au34_aparece AFTER UPDATE OF username ON identity.users
