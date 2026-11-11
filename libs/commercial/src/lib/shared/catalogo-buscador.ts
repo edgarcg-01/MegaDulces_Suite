@@ -88,7 +88,27 @@ export function consultaBuscadorCatalogo(
     .limit(n);
   if (term) {
     inner.andWhere((g) => {
-      g.where('v.barcode', term).orWhere((porPalabras) =>
+      g.where('v.barcode', term);
+      // [COT.41] El código escaneado se busca en TODAS las casillas de Kepler (ERP_KEPLER §3.y.4, las
+      // mismas que `kdii-codigo.ts` usa en el checado), no sólo en el `barcode` de la vista, que lee
+      // `c7` o, si no, `c95` (una casilla del PAQUETE). Medido 2026-11-11 en Canindo: 2,177 de 9,575
+      // artículos tienen su código sólo en `c93` (la 2ª casilla de la pieza), como el agua 59108 que
+      // el cotizador no encontraba. Igualdad exacta, como el checado: quitar ceros confundiría la pieza
+      // con el paquete. Un término con espacios no es un código.
+      const codigo = term.trim().toUpperCase();
+      if (codigo && !/\s/.test(codigo)) {
+        // `= ANY(ARRAY(...))` y no `IN (SELECT ...)`: el arreglo se calcula una vez antes de recorrer la
+        // vista y el filtro baja a ella; con `IN` la vista de la sucursal se armaba entera (1.0–1.2 s).
+        g.orWhereRaw(
+          `v.sku = ANY(ARRAY(
+             SELECT btrim(k.c1) FROM kepler_ods.kdii k
+              WHERE k.sucursal = ? AND ? IN (upper(btrim(k.c7::text)), upper(btrim(k.c93::text)), upper(btrim(k.c102::text)),
+                                             upper(btrim(k.c82::text)), upper(btrim(k.c95::text)), upper(btrim(k.c96::text)),
+                                             upper(btrim(k.c85::text)))))`,
+          [suc, codigo],
+        );
+      }
+      g.orWhere((porPalabras) =>
         applySmartSearch(porPalabras, term, {
           columns: ['v.name', 'v.sku'],
           fuzzy: false,

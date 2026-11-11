@@ -328,6 +328,16 @@ ensayo en 00, 02–05, 07, 08 · pedidos con regalos (rechazados a propósito).
 
 ## Bitácora
 
+- **2026-11-11** — 🧪 **[COT.41] El código de barras se busca en todas las casillas de Kepler.** En Canindo, el código de
+  un agua de 500 ml no encontraba nada: el buscador comparaba sólo con el `barcode` de `v_label_prices`, que lee `c7` o, si
+  no, `c95` (una casilla del paquete), y ese código vive en `c93`, la 2ª casilla de la pieza (ERP_KEPLER §3.y.4). En
+  Canindo, 2,177 de 9,575 artículos tienen su código sólo ahí. Ahora un término sin espacios también se compara, por
+  igualdad exacta, con las 7 casillas de las tres unidades (`c7 c93 c102 · c82 c95 c96 · c85`, las del checado). Lo hereda
+  el buscador del levantamiento (NP.7.L.10), que usa la misma consulta. Medido en prod (sólo lectura): lo encuentra en
+  160–180 ms; con `IN (SELECT …)` tardaba 1.0–1.2 s porque la vista se armaba entera, de ahí `= ANY(ARRAY(…))`. La
+  búsqueda por palabras no cambia (~130 ms). Prueba negativa ejercida (apagar la búsqueda por casillas → rojo).
+  **Pendiente, no hecho:** al escanear el código de la caja, el artículo sale pero la unidad no se elige sola.
+
 - **2026-11-10** — 🧪 **[COT.40] El cliente que nunca ha comprado en la sucursal ya se puede mandar a Kepler** (commit
   local, sin empujar). Una cotización de Padre Hidalgo rebotó con «falta GRANT SELECT ON md.kdud»: su cliente no tenía un
   solo documento de venta ahí y el adaptador, sin precedente, leía el catálogo vivo de Kepler, que el usuario de escritura
