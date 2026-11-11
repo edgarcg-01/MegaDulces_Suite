@@ -34,6 +34,8 @@ export interface CargoPropuesta {
   /** El `X-D-26` que Finanzas ya capturó para este cargo, si lo hay, y en qué sucursal. */
   kepler_pago: string | null;
   kepler_sucursal: string | null;
+  /** Cuántos centavos capturó Finanzas de más (+) o de menos (−) contra el banco; 0 = exacto, null = sin pago. */
+  kepler_ajuste_centavos: number | null;
   /** La solicitud o el gasto de Finanzas donde ya está esta comisión como renglón 611-003, si lo hay. */
   kepler_gasto: string | null;
 }
@@ -243,7 +245,7 @@ export async function leerPropuesta(db: Db, tenantId: string, desde: string, has
 
   const vista = (c: CargoTarjeta): CargoPropuesta => ({
     id: c.id, cuenta: c.cuenta, concepto: conceptoDe.get(c.id) ?? '', fecha: c.fecha, importe: c.importe, tipo: c.tipo,
-    kepler_pago: enKepler.get(c.id)?.folio ?? null, kepler_sucursal: enKepler.get(c.id)?.sucursal ?? null, kepler_gasto: enGasto.get(c.id)?.folio ?? null,
+    kepler_pago: enKepler.get(c.id)?.folio ?? null, kepler_sucursal: enKepler.get(c.id)?.sucursal ?? null, kepler_ajuste_centavos: enKepler.get(c.id)?.ajusteCentavos ?? null, kepler_gasto: enGasto.get(c.id)?.folio ?? null,
   });
 
   const pl = await plantillas(db, [...new Map(grupos.map((g) => [`${g.sucursal}|${g.acreedor}`, { sucursal: g.sucursal, acreedor: g.acreedor }])).values()], hasta);

@@ -8,8 +8,8 @@ import { MetricStripComponent } from '../../../../shared/components/metric-strip
 import { SidePeekComponent } from '../../../../shared/components/side-peek/side-peek.component';
 import { ContextHelpComponent } from '../../../../shared/context-help/context-help.component';
 import { SucursalPipe } from '../../../../shared/pipes/sucursal.pipe';
-import type { DiaComision, PropuestaComisiones } from '../../bank.service';
-import { cifrasDeComisiones, polizaDelGasto, vistaDeComisiones, type SeccionComisiones } from './bancos-comisiones';
+import type { CargoComision, DiaComision, PropuestaComisiones } from '../../bank.service';
+import { cifrasDeComisiones, polizaDelGasto, textoDeAjuste, vistaDeComisiones, type SeccionComisiones } from './bancos-comisiones';
 import { dmShort, dmy } from './bancos-shared';
 import { BANCOS_STYLES } from './bancos.styles';
 
@@ -180,7 +180,8 @@ import { BANCOS_STYLES } from './bancos.styles';
                 <td class="mono">{{ dm(c.fecha) }}</td>
                 <td class="cm-concepto">{{ c.concepto }}<span class="muted"> · {{ c.tipo === 'iva' ? 'IVA' : 'comisión' }} · cuenta {{ c.cuenta }}</span></td>
                 <td class="comm-num">{{ c.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-                <td class="mono muted">@if (c.kepler_pago) { pago {{ c.kepler_pago }} } @else if (c.kepler_gasto) { {{ c.kepler_gasto }} } @else { — }</td>
+                <td class="mono muted">@if (c.kepler_pago) { pago {{ c.kepler_pago }}
+                    @if (ajuste(c); as aj) { <span class="cm-ajuste">· {{ aj }}</span> } } @else if (c.kepler_gasto) { {{ c.kepler_gasto }} } @else { — }</td>
               </tr>
             }
           </tbody>
@@ -229,6 +230,7 @@ import { BANCOS_STYLES } from './bancos.styles';
     .cm-tabla { width: 100%; margin-bottom: var(--sp-3); }
     .cm-concepto { font-size: var(--fs-sm); word-break: break-word; }
     .cm-plan { font-size: var(--fs-sm); margin: 0 0 var(--sp-2); }
+    .cm-ajuste { font-family: inherit; color: var(--warn-fg); }
   `],
 })
 export class BancosComisionesComponent {
@@ -256,6 +258,7 @@ export class BancosComisionesComponent {
   alternar(s: SeccionComisiones): void { this.abierta.set(this.abierta() === s ? null : s); }
   /** La cifra de la franja abre su lista. */
   abrir(s: string): void { if (s === 'medias' || s === 'espera' || s === 'revisar') this.abierta.set(s); }
+  ajuste(c: CargoComision): string | null { return textoDeAjuste(c); }
   dm(v: string | null | undefined): string { return v ? dmShort(v) : '—'; }
   dmLargo(v: string): string { return dmy(v); }
 }

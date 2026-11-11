@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { CargoComision, DiaComision, PropuestaComisiones } from '../../bank.service';
-import { cifrasDeComisiones, polizaDelGasto, vistaDeComisiones } from './bancos-comisiones';
+import { cifrasDeComisiones, polizaDelGasto, textoDeAjuste, vistaDeComisiones } from './bancos-comisiones';
 
 /**
  * `[CB.62]` La vista «Comisiones»: cada sección cuenta lo mismo que el resumen de la API (si la lista y la cifra de
  * arriba no casan, la pantalla miente), lo más reciente primero, y lo que ya está completo en Kepler no sale.
  */
 const c = (id: string, tipo: 'comision' | 'iva', importe: number, o: Partial<CargoComision> = {}): CargoComision =>
-  ({ id, cuenta: '4885', concepto: `${tipo === 'iva' ? 'IVA TASA' : 'APLI TASA'} DE DES CREDITO/175096865`, fecha: '2026-11-03', importe, tipo, kepler_pago: null, kepler_sucursal: null, kepler_gasto: null, ...o });
+  ({ id, cuenta: '4885', concepto: `${tipo === 'iva' ? 'IVA TASA' : 'APLI TASA'} DE DES CREDITO/175096865`, fecha: '2026-11-03', importe, tipo, kepler_pago: null, kepler_sucursal: null, kepler_ajuste_centavos: null, kepler_gasto: null, ...o });
 const dia = (sucursal: string, dia_venta: string, estado: DiaComision['estado'], cargos: CargoComision[], o: Partial<DiaComision> = {}): DiaComision =>
   ({ sucursal, dia_venta, acreedor: 'GB004', banco: 'BBVA', estado, motivos: [], total: cargos.reduce((s, x) => s + x.importe, 0), iva: 0, cargos, plan: null, ...o });
 
@@ -95,5 +95,16 @@ describe('[CB.62] cifras y póliza', () => {
       { cuenta: '201', lado: 'Abono', importe: 108.55 }, { cuenta: '122-001', lado: 'Cargo', importe: 14.97 }, { cuenta: '611-003', lado: 'Cargo', importe: 93.58 },
     ]);
     expect(polizaDelGasto(PROPUESTA.dias[0])).toEqual([]);
+  });
+});
+
+describe('[CB.62] los centavos de Finanzas', () => {
+  it('el pago que Finanzas capturó a 1 ¢ se dice, no se esconde', () => {
+    expect(textoDeAjuste(c('i1', 'iva', 55.3, { kepler_pago: '0000464', kepler_ajuste_centavos: -1 }))).toBe('Finanzas capturó $55.29, 1 ¢ menos que el banco');
+    expect(textoDeAjuste(c('i2', 'iva', 12.93, { kepler_pago: '0000223', kepler_ajuste_centavos: 1 }))).toBe('Finanzas capturó $12.94, 1 ¢ más que el banco');
+  });
+  it('exacto o sin pago: nada que decir', () => {
+    expect(textoDeAjuste(c('i3', 'iva', 3.54, { kepler_pago: '0000233', kepler_ajuste_centavos: 0 }))).toBeNull();
+    expect(textoDeAjuste(c('i4', 'iva', 3.54))).toBeNull();
   });
 });

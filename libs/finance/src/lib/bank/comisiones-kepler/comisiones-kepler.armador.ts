@@ -368,6 +368,10 @@ export function resolverBloque(
 
 /** Un `X-D-26` que Finanzas ya capturó a un banco (`GB…`). */
 export interface PagoKeplerCapturado { sucursal: string; folio: string; cuenta: string; importe: number; fecha: string }
+/** El pago de Finanzas que corresponde a un cargo, y cuántos centavos lo ajustó Finanzas (pago − banco; 0 = exacto). */
+export type PagoCruzado = PagoKeplerCapturado & { ajusteCentavos: number };
+/** Hasta cuántos centavos se reconoce un pago de Finanzas como el de un cargo (medido: ±1; control: 0 a 5). */
+export const CENTAVOS_DE_AJUSTE = 2;
 
 /**
  * ⛔ **El candado contra duplicados.** Mientras Finanzas siga capturando a mano (D3: el cambio de manos es
@@ -375,23 +379,37 @@ export interface PagoKeplerCapturado { sucursal: string; folio: string; cuenta: 
  * importe exacto, ±3 días; entre iguales, la sucursal del cargo y luego el día más cercano. Medido: 1,357 de
  * 1,408 pagos de octubre casan así con un cargo del banco; contra otra cuenta del mismo banco, 40.
  * Un falso pareo hace que un cargo NO se escriba (queda en revisión): el lado seguro.
+ *
+ * ⭐ **Los centavos de Finanzas.** Finanzas calcula el IVA del gasto como 16 % de la base y ajusta un pago para que
+ * le cuadre: captura $55.29 donde el banco cobró $55.30. Sin una segunda pasada, ese cargo salía «sin pago» y la
+ * vista afirmaba que faltaba un pago que sí existe. Medido el 2026-11-11 sobre los 399 cargos sin pago exacto: 3
+ * casan con un pago libre de Finanzas a 1 centavo (misma cuenta, ±3 días), los tres aplicados a su gasto; control
+ * con el importe movido $1.00: 0, a 1, 2 y 5 centavos. La Suite escribe igual al banco (CB.62.2); esto sólo
+ * reconoce lo que Finanzas ya capturó, y lo dice (`ajusteCentavos`).
  */
 export function cruzarConKepler(
   cargos: readonly (CargoTarjeta & { sucursal?: string })[], pagos: readonly PagoKeplerCapturado[],
-): Map<string, PagoKeplerCapturado> {
+): Map<string, PagoCruzado> {
   const usados = new Set<number>();
-  const out = new Map<string, PagoKeplerCapturado>();
-  for (const c of cargos) {
-    let mejor = -1;
-    for (let j = 0; j < pagos.length; j++) {
-      const k = pagos[j];
-      if (usados.has(j) || k.cuenta !== c.cuenta || Math.abs(k.importe - c.importe) >= 0.005 || lejos(k.fecha, c.fecha) > 3 * DIA) continue;
-      if (mejor < 0) { mejor = j; continue; }
-      const a = pagos[mejor];
-      const mejorPorSucursal = Number(k.sucursal === c.sucursal) - Number(a.sucursal === c.sucursal);
-      if (mejorPorSucursal > 0 || (mejorPorSucursal === 0 && lejos(k.fecha, c.fecha) < lejos(a.fecha, c.fecha))) mejor = j;
+  const out = new Map<string, PagoCruzado>();
+  const cent = (n: number): number => Math.round(n * 100);
+  // Dos pasadas: primero el importe exacto (todas), y sólo con lo que quede, el pago que Finanzas capturó a unos
+  // centavos. Así un ajuste nunca le gana un pago exacto a otro cargo.
+  for (const tope of [0, CENTAVOS_DE_AJUSTE]) {
+    for (const c of cargos) {
+      if (out.has(c.id)) continue;
+      let mejor = -1;
+      for (let j = 0; j < pagos.length; j++) {
+        const k = pagos[j];
+        if (usados.has(j) || k.cuenta !== c.cuenta || Math.abs(cent(k.importe) - cent(c.importe)) > tope || lejos(k.fecha, c.fecha) > 3 * DIA) continue;
+        if (mejor < 0) { mejor = j; continue; }
+        const a = pagos[mejor];
+        const mejorPorSucursal = Number(k.sucursal === c.sucursal) - Number(a.sucursal === c.sucursal);
+        const masCerca = Math.abs(cent(k.importe) - cent(c.importe)) - Math.abs(cent(a.importe) - cent(c.importe));
+        if (mejorPorSucursal > 0 || (mejorPorSucursal === 0 && (masCerca < 0 || (masCerca === 0 && lejos(k.fecha, c.fecha) < lejos(a.fecha, c.fecha))))) mejor = j;
+      }
+      if (mejor >= 0) { usados.add(mejor); out.set(c.id, { ...pagos[mejor], ajusteCentavos: cent(pagos[mejor].importe) - cent(c.importe) }); }
     }
-    if (mejor >= 0) { usados.add(mejor); out.set(c.id, pagos[mejor]); }
   }
   return out;
 }
