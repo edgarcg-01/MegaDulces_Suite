@@ -1,4 +1,3 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BankReconPorAvisoService } from './bank-recon-aviso.service';
 import { CANAL_BANCOS } from './aviso-bancos';
 
