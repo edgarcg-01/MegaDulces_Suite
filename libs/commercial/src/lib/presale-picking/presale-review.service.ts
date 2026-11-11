@@ -18,6 +18,9 @@ import { estadoDeProductos, type EstadoEnSucursal } from '../commercial-inventor
 import { PresalePickingService } from './presale-picking.service';
 import { RevisionInvalida, armarRenglonesRevision, buscarEnRenglones, codigosDeFicha, planearRevision, type RenglonVivo } from './presale-review.engine';
 import { kdiiPorSku } from '../shared/kdii-lectura';
+import { MOTIVOS_CAJA, MOTIVO_OBLIGATORIO_EN_SERVIDOR } from '@megadulces/contracts';
+import { MotivoInvalido, armarJustificantes, conMotivosEnRevision, exigirMotivosDeRenglones, motivosPorRenglon } from '../commercial-orders/justificantes.engine';
+import { historiaDeCambios } from '../commercial-orders/justificantes.lectura';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /**
@@ -116,7 +119,13 @@ export class PresaleReviewService {
           ...(codigos ? { codes: sku ? codigos.get(sku) ?? [] : [] } : {}),
         };
       });
-      return { order: this.aRenglon(fila), lines };
+      // [MCP.18] Por qué cambió antes de llegar a caja: lo que corrigió la vendedora y lo que quitó el surtido.
+      const justifications = armarJustificantes({
+        historia: (await historiaDeCambios(trx, [orderId])).get(orderId) ?? [],
+        reporte: (fila['report'] as PresalePickReport | null) ?? null,
+        surtio: { name: (fila['finished_by_name'] as string) ?? null, at: fila['finished_at'] as string },
+      });
+      return { order: this.aRenglon(fila), lines, justifications };
     });
   }
 
@@ -182,6 +191,14 @@ export class PresaleReviewService {
         throw new ConflictException(`Este pedido ya lo revisó ${pick.reviewed_by_name} a las ${horaMx(pick.reviewed_at)}.`);
       }
       const renglones = armarRenglonesRevision(await this.vivos(trx, orderId), (pick.report as PresalePickReport | null) ?? null);
+      // [MCP.18] El motivo de lo que la caja deja por debajo de lo surtido, validado antes de escribir.
+      let motivos: ReturnType<typeof motivosPorRenglon>;
+      try {
+        motivos = motivosPorRenglon((dto?.lines ?? []) as unknown as Array<Record<string, unknown>>, MOTIVOS_CAJA, 'key');
+      } catch (e) {
+        if (e instanceof MotivoInvalido) throw new BadRequestException(e.message);
+        throw e;
+      }
       let plan;
       try {
         plan = planearRevision(renglones, dto?.lines ?? []);
@@ -189,11 +206,20 @@ export class PresaleReviewService {
         if (e instanceof RevisionInvalida) throw new BadRequestException(e.message);
         throw e;
       }
+      // [MCP.18] D4: lo que la caja deja por debajo de lo surtido trae su porqué, o no se escribe nada.
+      if (MOTIVO_OBLIGATORIO_EN_SERVIDOR) {
+        try {
+          exigirMotivosDeRenglones(plan.lines.filter((l) => l.final < l.picked - 1e-9).map((l) => ({ id: l.key, product_name: l.product_name })), motivos);
+        } catch (e) {
+          if (e instanceof MotivoInvalido) throw new BadRequestException(e.message);
+          throw e;
+        }
+      }
       let totales = { total_before: Number(fila['total']), total_after: Number(fila['total']) };
       if (plan.cambia) {
         totales = await this.orders.ajustarTrasRevision(trx, orderId, plan, `revisión en caja: ${nombre}`);
       }
-      const review: PresaleReviewResult = { lines: plan.lines, ...totales };
+      const review: PresaleReviewResult = { lines: conMotivosEnRevision(plan.lines, motivos), ...totales };
       await trx('commercial.presale_picks').where({ id: pick.id }).update({
         reviewed_by: userId,
         reviewed_by_name: nombre,

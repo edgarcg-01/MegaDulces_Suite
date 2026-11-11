@@ -15,6 +15,7 @@ import { VecinalVendorsMonitorController } from './vecinal-vendors-monitor.contr
   // [MV.2] VecinalVendorsMonitorController: Monitoreo vecinal, vendedores (prefijo propio).
   controllers: [SupervisorBoardController, CommercialVendorRoutesController, VisitMonitorController, VecinalVendorsMonitorController],
   providers: [CommercialVendorRoutesService, VisitMonitorService, SupervisorBoardService, VecinalVendorsMonitorService],
-  exports: [CommercialVendorRoutesService],
+  // [MCP.19] El recuento del día del vendedor (PresalePickingModule) lee el mismo día de visitas.
+  exports: [CommercialVendorRoutesService, VisitMonitorService],
 })
 export class CommercialVendorRoutesModule {}

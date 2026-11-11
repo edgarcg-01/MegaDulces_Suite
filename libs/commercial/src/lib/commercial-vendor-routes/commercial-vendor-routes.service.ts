@@ -882,6 +882,18 @@ export class CommercialVendorRoutesService {
                WHERE vv2.customer_id = c.id AND vv2.user_id = ?) as last_visit_at`,
             [me],
           ),
+          // [MCP.21] El «no pidió» de hoy: el renglón de «Mi ruta» lo dice sin abrir al cliente.
+          // Es el de la última visita de hoy cerrada sin pedido (finishVisit sólo guarda motivo si no hubo venta).
+          trx.raw(
+            `(SELECT vv3.no_sale_reason FROM commercial.vendor_visits vv3
+               WHERE vv3.customer_id = c.id AND vv3.user_id = ?
+                 AND vv3.no_sale_reason IS NOT NULL
+                 AND (vv3.visited_at AT TIME ZONE 'America/Mexico_City')::date
+                     = (now() AT TIME ZONE 'America/Mexico_City')::date
+               ORDER BY vv3.ended_at DESC NULLS LAST, vv3.visited_at DESC
+               LIMIT 1) as no_sale_reason_today`,
+            [me],
+          ),
           trx.raw(
             `EXISTS (
                SELECT 1 FROM commercial.orders o

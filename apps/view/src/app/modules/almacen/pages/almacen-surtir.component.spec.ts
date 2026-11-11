@@ -97,7 +97,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     almacenesSurtido: ReturnType<typeof vi.fn>;
   };
   let user: { warehouse_code?: string; sub?: string } | null;
-  let pv: Record<'inbox' | 'detail' | 'start' | 'finish' | 'routes' | 'routeStart', ReturnType<typeof vi.fn>>;
+  let pv: Record<'inbox' | 'detail' | 'start' | 'finish' | 'routes' | 'routeStart' | 'otherUnits', ReturnType<typeof vi.fn>>;
   /** [MCP.3.8] El aviso de clientes nuevos sin clave de Kepler. */
   let cn: { resumen: ReturnType<typeof vi.fn> };
 
@@ -157,6 +157,7 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
       routes: vi.fn(() => of({ today: '2026-10-19', data: [], scope: 'propios' })),
       routeStart: vi.fn(() => of({})),
       detail: vi.fn(() => of(DETALLE())),
+      otherUnits: vi.fn(() => of({ for_line_id: '', product_id: '', product_name: '', ordered: 0, unit: 'PZA', factor: 1, units: [] })),
       start: vi.fn(() => of(DETALLE().order)),
       finish: vi.fn(() => of({
         order_id: 'o-rosy', outcome: 'con_faltantes',
@@ -348,12 +349,36 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     expect(texto()).not.toContain('ABARROTES ROSY');
   });
 
+  it('[MCP.14] separa los pedidos por vendedor y en orden de folio; lo que yo empecé va primero y aparte', async () => {
+    pv['inbox'].mockReturnValue(of(BANDEJA([
+      PV({ order_id: 'a2', code: 'PD-2026-00095', customer_name: 'CLIENTE A2', seller_name: 'Vendedor A', arrived_at: '2026-10-19T15:00:00.000Z' }),
+      PV({ order_id: 'b1', code: 'PD-2026-00091', customer_name: 'CLIENTE B1', seller_name: 'Vendedor B', arrived_at: '2026-10-19T16:00:00.000Z' }),
+      PV({ order_id: 'a1', code: 'PD-2026-00093', customer_name: 'CLIENTE A1', seller_name: 'Vendedor A', arrived_at: '2026-10-19T17:00:00.000Z' }),
+      PV({ order_id: 'sv', code: 'PD-2026-00080', customer_name: 'CLIENTE SV', seller_name: null }),
+      PV({ order_id: 'mio', code: 'PD-2026-00099', customer_name: 'CLIENTE MIO', seller_name: 'Vendedor B', state: 'surtiendo',
+        started: { user_id: 'yo', name: 'Surtidor Prueba', at: '2026-10-19T18:00:00.000Z' } }),
+    ])));
+    await montar();
+    clic('Sucursal');
+    const grupos = Array.from(el().querySelectorAll('.sr-grupo')).map((n) => (n.textContent ?? '').replace(/\s+/g, ' ').trim());
+    expect(grupos).toEqual(['Los que estás surtiendo · 1 pedido', 'Vendedor A · 2 pedidos', 'Vendedor B · 1 pedido', 'Sin vendedor · 1 pedido']);
+    const clientes = Array.from(el().querySelectorAll('.sr-ped-cli')).map((n) => n.textContent?.trim());
+    // A llegó primero (15:00) y dentro va por folio: 00093 antes que 00095. Sin vendedor, al final.
+    expect(clientes).toEqual(['CLIENTE MIO', 'CLIENTE A1', 'CLIENTE A2', 'CLIENTE B1', 'CLIENTE SV']);
+    // Dentro de su grupo la tarjeta no repite el vendedor; en «Los que estás surtiendo» sí, porque ahí se mezclan.
+    const tarjetas = Array.from(el().querySelectorAll('.sr-ped')).map((n) => (n.textContent ?? '').replace(/\s+/g, ' '));
+    expect(tarjetas.find((t) => t.includes('CLIENTE MIO'))).toContain('Vendedor B');
+    expect(tarjetas.find((t) => t.includes('CLIENTE A1'))).not.toContain('Vendedor A');
+    // Prueba negativa: ningún pedido se pierde ni se duplica al agrupar.
+    expect(el().querySelectorAll('.sr-ped').length).toBe(5);
+  });
+
   it('⭐ "Surtir este" empieza el pedido (queda quién y a qué hora) y lo abre con los MISMOS renglones', async () => {
     await montar();
     clic('Sucursal');
-    clic('Surtir este');
-    expect(pv.start).toHaveBeenCalledWith('o-rosy');
-    expect(pv.detail).toHaveBeenCalledWith('o-rosy');
+    clic('Surtir este'); // [MCP.14] el primero en orden de folio: VERO VASCO, PD-2026-00070
+    expect(pv.start).toHaveBeenCalledWith('o-vero');
+    expect(pv.detail).toHaveBeenCalledWith('o-vero');
     expect(c.fase()).toBe('surtiendo');
     expect(texto()).toContain('BOMBON GRANDE');
     expect(cantidades()).toContain('Surtir 5 PAQ');
@@ -382,13 +407,138 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     fix.detectChanges();
     expect(api.pick).not.toHaveBeenCalled();
     clic('Terminé de surtir');
-    expect(pv.finish).toHaveBeenCalledWith('o-rosy', { lines: [{ line_id: 'pl1', picked: 5 }, { line_id: 'pl2', picked: 0 }] });
+    // [MCP.18] El faltante viaja con su motivo: sin tocar, el de por omisión («No había en la sucursal»).
+    expect(pv.finish).toHaveBeenCalledWith('o-rosy', { lines: [{ line_id: 'pl1', picked: 5 }, { line_id: 'pl2', picked: 0, reason: 'sin_existencia' }] });
     expect(api.finish).not.toHaveBeenCalled();
     expect(c.fase()).toBe('cerrada');
     expect(texto()).toContain('Se quitó SALSA MAGA');
     expect(texto()).toContain('ya se le avisó a la vendedora');
     expect(boton('Ver pedidos')).toBeTruthy();
     expect(boton('Tomar siguiente')).toBeFalsy();
+  });
+
+  // ── [MCP.17] Pidieron CJA y no hubo caja completa: el mismo producto en otra unidad ──────
+  /** SALSA MAGA pide 2 CJA de 12: Kepler la vende también en PZA y en PAQ de 6. */
+  const UNIDADES = () => ({
+    for_line_id: 'pl2', product_id: 'p2', product_name: 'SALSA MAGA', ordered: 2, unit: 'CJA', factor: 12,
+    units: [{ unit: 'PZA', factor: 1, price: 5 }, { unit: 'PAQ', factor: 6, price: 28 }],
+  });
+  const sinSalsa = async (): Promise<void> => {
+    await montar();
+    clic('Sucursal');
+    clic('Surtir este');
+    clic('Completo'); // BOMBON GRANDE
+    c.noHabia(c.pendientes()[0]); // SALSA MAGA: no hubo las 2 CJA
+    fix.detectChanges();
+  };
+
+  describe('[MCP.18] el porqué de lo que faltó (Sucursal)', () => {
+    const radio = (t: string): HTMLButtonElement =>
+      Array.from((fix.nativeElement as HTMLElement).querySelectorAll('[role="radio"]')).find((b) => (b.textContent ?? '').includes(t)) as HTMLButtonElement;
+
+    it('el renglón sin existencia pregunta «¿Por qué?» con «No había en la sucursal» marcado; el completo no', async () => {
+      await sinSalsa();
+      expect((fix.nativeElement as HTMLElement).querySelectorAll('app-motivo-chips').length).toBe(1);
+      expect(radio('No había en la sucursal').getAttribute('aria-checked')).toBe('true');
+    });
+
+    it('elegir «Dañado o caducado» viaja al cerrar, y se guarda en el celular hasta cerrar', async () => {
+      await sinSalsa();
+      radio('Dañado o caducado').click();
+      fix.detectChanges();
+      expect(JSON.parse(localStorage.getItem('gp.surtir.preventa.motivo.v1.o-rosy') || '{}')).toEqual({ pl2: { reason: 'danado', note: '' } });
+      clic('Terminé de surtir');
+      expect(pv.finish.mock.calls[0][1].lines[1]).toEqual({ line_id: 'pl2', picked: 0, reason: 'danado' });
+      expect(localStorage.getItem('gp.surtir.preventa.motivo.v1.o-rosy') || '').toBe('');
+    });
+
+    it('negativa: «Otro motivo» sin escribir detiene «Terminé de surtir» y lo dice', async () => {
+      await sinSalsa();
+      radio('Otro motivo').click();
+      fix.detectChanges();
+      expect(texto()).toContain('Escribe cuál fue el «Otro motivo»');
+      expect(boton('Terminé de surtir')?.disabled).toBe(true);
+      boton('Terminé de surtir')?.click();
+      expect(pv.finish).not.toHaveBeenCalled();
+    });
+
+    it('D5: el surtidor ve todo el porqué del pedido al abrirlo (la vendedora y lo que ya se quitó)', async () => {
+      pv.detail = vi.fn(() => of({ ...DETALLE(), justifications: [
+        { actor: 'seller', action: 'reopened', by_name: 'Vendedora Prueba', at: '2026-11-10T15:00:00.000Z', product_name: null, detail: null, reason: 'El cliente quiere agregar productos' },
+        // D5 (David, 2026-11-11): los tres roles ven todo; antes al surtir sólo se veía lo de la vendedora.
+        { actor: 'picker', action: 'removed', by_name: 'Otro Surtidor', at: '2026-11-10T15:30:00.000Z', product_name: 'CHICLE', detail: '1 PAQ', reason: null },
+      ] }));
+      await montar();
+      clic('Sucursal');
+      clic('Surtir este');
+      expect(texto()).toContain('Por qué cambió este pedido');
+      expect(texto()).toContain('Corrigió el pedido. Motivo: El cliente quiere agregar productos');
+      expect(texto()).toContain('Quitó CHICLE');
+    });
+  });
+
+  it('⭐ [MCP.17] lo que faltó se surte en PAQ del mismo producto y viaja al cerrar como cambio con su mismo producto', async () => {
+    pv['otherUnits'] = vi.fn(() => of(UNIDADES()));
+    await sinSalsa();
+    clic('Surtir en otra unidad');
+    expect(pv['otherUnits']).toHaveBeenCalledWith('o-rosy', 'pl2');
+    // Elige sola la más grande de las chicas (de una caja salen paquetes), y dice cuántos caben: 2 CJA × 12 / 6 = 4.
+    expect(c.otraElegida()).toBe('PAQ');
+    expect(texto()).toContain('No hubo CJA completa');
+    expect(texto()).toContain('Caben hasta 4');
+    c.otraCant.set(3);
+    fix.detectChanges();
+    clic('Poner');
+    expect(texto()).toContain('Van 3 PAQ en otra unidad');
+    clic('Terminé de surtir');
+    expect(pv.finish).toHaveBeenCalledWith('o-rosy', { lines: [
+      { line_id: 'pl1', picked: 5 },
+      { line_id: 'pl2', picked: 0, substitute: { product_id: 'p2', unit: 'PAQ', quantity: 3 }, reason: 'sin_existencia' },
+    ] });
+  });
+
+  it('[MCP.17] prueba negativa: más de lo que faltó no se puede poner, y lo dice', async () => {
+    pv['otherUnits'] = vi.fn(() => of(UNIDADES()));
+    await sinSalsa();
+    clic('Surtir en otra unidad');
+    c.otraCant.set(5); // caben 4 PAQ
+    fix.detectChanges();
+    expect(boton('Poner')?.disabled).toBe(true);
+    expect(texto()).toContain('no se surte más de lo que faltó');
+    // En piezas caben 24.
+    c.otraElegida.set('PZA');
+    c.otraCant.set(24);
+    fix.detectChanges();
+    expect(boton('Poner')?.disabled).toBe(false);
+  });
+
+  it('[MCP.17] si Kepler no tiene nada más chico lo dice; si cambia lo surtido, lo de otra unidad se quita', async () => {
+    pv['otherUnits'] = vi.fn(() => of({ ...UNIDADES(), units: [] }));
+    await sinSalsa();
+    clic('Surtir en otra unidad');
+    expect(texto()).toContain('Kepler no tiene una presentación más chica que CJA');
+    expect(boton('Poner')?.disabled).toBe(true);
+    // Con presentaciones: se pone, y luego se corrige el renglón a «Completo».
+    pv['otherUnits'] = vi.fn(() => of(UNIDADES()));
+    clic('Cancelar');
+    clic('Surtir en otra unidad');
+    c.otraCant.set(2);
+    fix.detectChanges();
+    clic('Poner');
+    c.completo(c.ola()!.lines.find((l) => l.id === 'pl2')!);
+    fix.detectChanges();
+    expect(texto()).not.toContain('en otra unidad');
+    expect(c.anuncio()).toContain('Lo de otra unidad se quitó');
+    clic('Terminé de surtir');
+    expect(pv.finish).toHaveBeenCalledWith('o-rosy', { lines: [{ line_id: 'pl1', picked: 5 }, { line_id: 'pl2', picked: 2 }] });
+  });
+
+  it('[MCP.17] prueba negativa: en Telemarketing (olas de Kepler) no se ofrece', async () => {
+    await montar();
+    clic('Tomar siguiente');
+    c.noHabia(c.pendientes()[0]);
+    fix.detectChanges();
+    expect(boton('Surtir en otra unidad')).toBeFalsy();
   });
 
   // ── [MCP.3.15] Indicaciones del vendedor ───────────────────────────────────────────────

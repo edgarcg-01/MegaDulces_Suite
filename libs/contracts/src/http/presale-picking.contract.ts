@@ -18,6 +18,7 @@
 
 import type { PresaleReviewResult } from './presale-review.contract';
 import type { StockState } from './stock-state.contract';
+import type { OrderJustification } from './order-justification.contract';
 
 /** Pestañas de la bandeja. `hoy` incluye lo vencido: lo atrasado también se surte hoy. */
 export type PresalePickBucket = 'hoy' | 'manana' | 'proximos';
@@ -106,11 +107,17 @@ export interface PresalePickLine {
 export interface PresalePickDetail {
   order: PresalePickInboxRow;
   lines: PresalePickLine[];
+  /** `[MCP.18]` Por qué cambió el pedido (vendedora, surtidor, caja), con su motivo. Ausente = servidor anterior. */
+  justifications?: OrderJustification[];
 }
 
 export interface PresalePickFinishRequest {
-  /** Una entrada por cada renglón del pedido: lo que sí hubo, en la unidad mostrada. */
-  lines: Array<{ line_id: string; picked: number; substitute?: PresalePickSubstituteChoice | null }>;
+  /**
+   * Una entrada por cada renglón del pedido: lo que sí hubo, en la unidad mostrada.
+   * `[MCP.18]` `reason` (clave de `MOTIVOS_SURTIDO`) y `reason_note`: por qué faltó. Sólo cuenta en un
+   * renglón con faltante; ausente = sin motivo registrado (una pantalla anterior no lo manda).
+   */
+  lines: Array<{ line_id: string; picked: number; substitute?: PresalePickSubstituteChoice | null; reason?: string | null; reason_note?: string | null }>;
 }
 
 /**
@@ -139,6 +146,8 @@ export interface PresalePickSubstitution {
   quantity: number;
   unit: string;
   line_total: number;
+  /** `[MCP.17]` Es el MISMO producto en otra unidad (no hubo la caja completa); ausente = otro producto. */
+  same_product?: boolean;
 }
 
 /** `[MCP.13]` Una unidad en que se puede surtir el sustituto, con su precio de lista (IVA incluido). */
@@ -160,6 +169,35 @@ export interface PresaleSubstituteCandidate {
   stock_state: StockState;
   /** Por qué se sugiere: comparte palabras del nombre, es del mismo proveedor, o lo buscó el surtidor. */
   match: 'nombre' | 'nombre_y_proveedor' | 'proveedor' | 'busqueda';
+}
+
+/**
+ * `[MCP.17]` Las presentaciones más CHICAS del mismo producto de un renglón, para surtir en otra unidad lo
+ * que faltó: pidieron 1 CJA, no hubo caja completa y van 8 PAQ. El sistema cuenta piezas, no cajas
+ * cerradas: sólo el surtidor sabe si la caja está completa.
+ */
+export interface PresaleOtherUnitsResponse {
+  for_line_id: string;
+  product_id: string;
+  product_name: string;
+  /** Lo pedido, en la unidad del renglón (la que ve el surtidor). */
+  ordered: number;
+  unit: string;
+  /** Piezas base por cada unidad del renglón (1 CJA = 24). */
+  factor: number;
+  /** Más chicas que la del renglón y con precio en la sucursal. Vacío = no hay otra presentación. */
+  units: PresaleSubstituteUnit[];
+}
+
+/**
+ * `[MCP.17]` Cuántas de `unidad` caben en lo que faltó (en piezas base): hacia abajo, porque no se surte
+ * más de lo que faltó; en peso no se redondea. La usan la pantalla (el tope del campo) y el servidor (el 400),
+ * para que «cabe» signifique lo mismo en los dos lados.
+ */
+export function topeEnUnidad(faltoBase: number, unidad: { unit: string; factor: number }): number {
+  const t = Number(faltoBase) / Number(unidad.factor);
+  if (!(t > 0) || !Number.isFinite(t)) return 0;
+  return /^(KG|GR|LT|LTS|L|ML)$/i.test(unidad.unit) ? Math.round(t * 1000) / 1000 : Math.floor(t + 1e-9);
 }
 
 export interface PresaleSubstituteResponse {
@@ -186,6 +224,10 @@ export interface PresalePickReportLine {
    * lo completa con el surtidor. Sin esto (reportes viejos) la caja no puede completarlo.
    */
   restore?: PresalePickRestore;
+  /** `[MCP.18]` Por qué faltó: clave de `MOTIVOS_SURTIDO`. Ausente = sin motivo registrado (reportes de antes). */
+  reason?: string;
+  /** `[MCP.18]` Nota del motivo (obligatoria con «Otro motivo»). */
+  reason_note?: string;
 }
 
 /** `[MCP.10]` Copia del renglón borrado al surtir, para poder reponerlo. Cantidad en unidad BASE. */
@@ -210,6 +252,8 @@ export interface PresalePickReport {
   adjusted: PresalePickReportLine[];
   /** `[MCP.13]` Lo que el surtidor cambió por otro producto. Ausente en reportes de antes del cambio. */
   substituted?: PresalePickSubstitution[];
+  /** `[MCP.13.1]` No hubo nada de ningún producto: el pedido se canceló al terminar de surtir. */
+  order_cancelled?: boolean;
   total_before: number;
   total_after: number;
 }
@@ -236,6 +280,8 @@ export interface PresaleSellerCharge {
 export interface PresaleSellerOrder {
   order_id: string;
   code: string;
+  /** `[MCP.21]` Para «Corregir» desde la tarjeta (abre la captura de ese cliente). Ausente en servidores de antes. */
+  customer_id?: string | null;
   customer_name: string | null;
   requested_delivery_date: string;
   total: number;
@@ -255,10 +301,20 @@ export interface PresaleSellerOrder {
   delivered_at: string | null;
   /** El reporte de surtido todavía no lo ha visto la vendedora. */
   report_unseen: boolean;
+  /** `[MCP.18]` Por qué cambió el pedido (quién, cuándo, motivo). Ausente = servidor anterior. */
+  justifications?: OrderJustification[];
 }
 
 export interface PresaleSellerStatusResponse {
   today: string;
   data: PresaleSellerOrder[];
   unseen_reports: number;
+  /**
+   * `[MCP.20]` Con `?date=YYYY-MM-DD`: el día pedido, y `data` = los pedidos que la vendedora
+   * LEVANTÓ ese día (fecha de captura en México, el mismo universo que el recuento del día).
+   * Sin `date` (apps de antes): ausente, y `data` = los agendados de cualquier día + los recientes.
+   */
+  date?: string;
+  /** `[MCP.20]` Días (`YYYY-MM-DD`, de captura) con un reporte de surtido que la vendedora no ha visto. */
+  unseen_days?: string[];
 }

@@ -14,6 +14,10 @@ import type {
   PresaleReviewSearchHit,
 } from '@megadulces/contracts';
 import { coincideBusqueda } from '@megadulces/ui-web';
+import { MOTIVOS_CAJA, MOTIVO_CAJA_POR_OMISION } from '@megadulces/contracts';
+import { MotivoChipsComponent } from '../shared/motivo-chips.component';
+import { JustificantesComponent } from '../shared/justificantes.component';
+import { camposDeMotivo, motivoDe, motivosIncompletos, pidenMotivoEnCaja, type MotivoLinea } from '../shared/motivos-preventa';
 import { PresaleReviewService } from '../presale-review.service';
 import { agruparPorVendedor } from '../pedidos-por-vendedor';
 import { encuestarVisible } from '../../../core/utils/poll-visible';
@@ -70,7 +74,7 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
 @Component({
   selector: 'app-almacen-revision-preventa',
   standalone: true,
-  imports: [CommonModule, ToastModule, LoadStateComponent, FreshnessPillComponent, MetricStripComponent],
+  imports: [CommonModule, ToastModule, LoadStateComponent, FreshnessPillComponent, MetricStripComponent, MotivoChipsComponent, JustificantesComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -155,6 +159,8 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
 
         <app-load-state [loading]="cargandoDetalle()" [error]="errorDetalle()" [isEmpty]="false" (retry)="abrir(abierto()!, false)">
           @if (detalle(); as d) {
+            <!-- [MCP.18] Por qué cambió antes de llegar a caja: lo que corrigió la vendedora y lo que quitó el surtidor. -->
+            <app-justificantes [items]="d.justifications" idBase="rv-jf"></app-justificantes>
             @if (d.order.state === 'revisado') {
               <div class="rv-fin">
                 <b>Este pedido ya se revisó</b>
@@ -277,7 +283,15 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
                   } @else {
                     <span>Todos los productos están bien.</span>
                   }
-                  <button type="button" class="rv-btn rv-btn-ok" [disabled]="trabajando()" (click)="terminar(d)">
+                  <!-- [MCP.18] Lo que la CAJA deja por debajo de lo surtido lleva su porqué (ya viene «No venía en el carrito»). -->
+                  @for (l of pidenMotivo(); track l.key) {
+                    <div class="rv-motivo">
+                      <b>{{ l.product_name }}</b>
+                      <app-motivo-chips [opciones]="motivosCaja" [valor]="motivoDeLinea(l.key)" [idBase]="'rv-mot-' + $index"
+                                        [etiqueta]="'Por qué no se cobra todo de ' + l.product_name" (cambio)="ponerMotivo(l.key, $event)"></app-motivo-chips>
+                    </div>
+                  }
+                  <button type="button" class="rv-btn rv-btn-ok" [disabled]="trabajando() || motivosSinCompletar().length > 0" (click)="terminar(d)">
                     @if (trabajando()) { <i class="pi pi-spin pi-spinner" aria-hidden="true"></i> }
                     Terminar y seguir con el siguiente
                   </button>
@@ -420,6 +434,8 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
       border-radius: var(--r-xl); background: var(--ok-soft-bg); color: var(--ok-soft-fg); margin-bottom: var(--sp-3); font-size: var(--fs-body); }
     .rv-fin b { font-size: var(--fs-h3); }
     .rv-aviso { color: var(--bad-fg); font-weight: 800; font-size: var(--fs-lg); }
+    /* [MCP.18] El porqué de lo que la caja no cobra, uno por producto. */
+    .rv-motivo { align-self: stretch; text-align: left; padding-top: var(--sp-2); border-top: 1px solid var(--border-color); }
     .rv-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
     .rv-item { display: flex; justify-content: space-between; align-items: center; gap: var(--sp-3); padding: var(--sp-2) var(--sp-3);
       border-radius: var(--r-md); border: 1px solid var(--border-color); color: var(--text-muted); font-size: var(--fs-body); }
@@ -579,6 +595,27 @@ export class AlmacenRevisionPreventaComponent implements OnInit {
     const p = this.progreso();
     return d ? noHubo(d.lines, p) : [];
   });
+  /** `[MCP.18]` El motivo elegido por renglón que la caja deja con menos; sin tocar = «No venía en el carrito». */
+  readonly motivosLinea = signal<Record<string, MotivoLinea>>({});
+  readonly motivosCaja = MOTIVOS_CAJA;
+  /** `[MCP.18]` Sólo lo que la CAJA deja por debajo de lo surtido pide motivo (lo del surtido ya trae el suyo). */
+  readonly pidenMotivo = computed(() => {
+    const d = this.detalle();
+    const p = this.progreso();
+    return d ? pidenMotivoEnCaja(d.lines, p) : [];
+  });
+  readonly motivosSinCompletar = computed(() => {
+    const m = this.motivosLinea();
+    return motivosIncompletos(m, this.pidenMotivo().map((l) => l.key), MOTIVOS_CAJA, MOTIVO_CAJA_POR_OMISION);
+  });
+
+  motivoDeLinea(key: string): MotivoLinea {
+    return motivoDe(this.motivosLinea(), key, MOTIVO_CAJA_POR_OMISION);
+  }
+
+  ponerMotivo(key: string, m: MotivoLinea): void {
+    this.motivosLinea.update((x) => ({ ...x, [key]: m }));
+  }
 
   readonly resuelto = resuelto;
   readonly cantidadTexto = cantidadTexto;
@@ -620,6 +657,8 @@ export class AlmacenRevisionPreventaComponent implements OnInit {
     if (navegar) { this.router.navigate([], { relativeTo: this.route, queryParams: { pedido: orderId } }); return; }
     this.abierto.set(orderId);
     this.detalle.set(null);
+    // [MCP.18] Las llaves «borrado:N» se repiten entre pedidos: los motivos son de UN pedido.
+    this.motivosLinea.set({});
     this.editando.set(null);
     this.elegido.set(null);
     this.avisoEscaneo.set(null);
@@ -822,6 +861,9 @@ export class AlmacenRevisionPreventaComponent implements OnInit {
       this.toast.add({ severity: 'warn', summary: (e as Error).message, life: 6000 });
       return;
     }
+    // [MCP.18] El justificante va sólo en lo que la caja deja por debajo de lo surtido.
+    const conMotivo = new Set(this.pidenMotivo().map((l) => l.key));
+    cuerpo = { lines: cuerpo.lines.map((x) => (conMotivo.has(x.key) ? { ...x, ...camposDeMotivo(this.motivoDeLinea(x.key)) } : x)) };
     this.trabajando.set(true);
     this.api.finish(d.order.order_id, cuerpo).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
@@ -916,6 +958,7 @@ export class AlmacenRevisionPreventaComponent implements OnInit {
     this.filtro.set('');
     this.buscarAlAbrir = null;
     this.progreso.set({ marcas: {}, hist: [] });
+    this.motivosLinea.set({});
   }
 }
 

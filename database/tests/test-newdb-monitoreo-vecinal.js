@@ -172,11 +172,11 @@ function cargar() {
       const A = await pedido([{ product_id: p1.id, quantity: 1 }, { product_id: p2.id, quantity: 2 }]);
       const [a1, a2] = await lineas(A);
       await como(SURT, () => picking.start(A));
-      await como(SURT, () => picking.finish(A, { lines: [{ line_id: a1.id, picked: 1 }, { line_id: a2.id, picked: 1, substitute: { product_id: p3.id, quantity: 1, unit: 'PZA' } }] }));
+      await como(SURT, () => picking.finish(A, { lines: [{ line_id: a1.id, picked: 1 }, { line_id: a2.id, picked: 1, reason: 'sin_existencia', substitute: { product_id: p3.id, quantity: 1, unit: 'PZA' } }] })); // [MCP.18] D4
       const B = await pedido([{ product_id: p4.id, quantity: 3 }]);
       const [b1] = await lineas(B);
       await como(SURT, () => picking.start(B));
-      await como(SURT, () => picking.finish(B, { lines: [{ line_id: b1.id, picked: 2 }] }));
+      await como(SURT, () => picking.finish(B, { lines: [{ line_id: b1.id, picked: 2, reason: 'sin_existencia' }] })); // [MCP.18] D4
       const s1 = fila((await como(CAJA, () => monitor.pickers(q))).rows, SURT);
       ok(d(s1, s0, 'taken') === 2 && d(s1, s0, 'finished') === 2, `el surtidor suma 2 tomados y 2 terminados (${d(s1, s0, 'taken')}, ${d(s1, s0, 'finished')})`);
       ok(d(s1, s0, 'with_shortage') === 2, `los dos con faltante (${d(s1, s0, 'with_shortage')})`);

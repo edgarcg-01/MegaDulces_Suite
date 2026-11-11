@@ -114,7 +114,7 @@ describe('PresalePickingService · terminar', () => {
 
   it('con faltantes quita lo que no hubo, guarda el reporte y se lo manda a la vendedora', async () => {
     const { svc, orders, alerts, updates, push } = armar({ pick: ABIERTO_POR(YO), lineas: LINEAS });
-    const r = await svc.finish(PEDIDO, { lines: [{ line_id: 'l1', picked: 3 }, { line_id: 'l2', picked: 0 }] });
+    const r = await svc.finish(PEDIDO, { lines: [{ line_id: 'l1', picked: 3, reason: 'no_localizado' }, { line_id: 'l2', picked: 0, reason: 'sin_existencia' }] });
     expect(r.outcome).toBe('con_faltantes');
     expect(orders.recortarTrasSurtido).toHaveBeenCalledWith(
       expect.anything(), PEDIDO,
@@ -126,6 +126,13 @@ describe('PresalePickingService · terminar', () => {
     expect(alerts.emitTo).toHaveBeenCalledWith(T, '42pmpb', expect.objectContaining({ title: 'Reporte de surtido: faltó 2 productos' }));
     await Promise.resolve();
     expect(push.sendToUser).toHaveBeenCalledWith('vend-1', expect.objectContaining({ url: '/vendor/mis-pedidos' }));
+  });
+
+  it('[MCP.18] D4: un faltante sin motivo (pantalla vieja) es 400 y no recorta nada', async () => {
+    const { svc, orders } = armar({ pick: ABIERTO_POR(YO), lineas: LINEAS });
+    await expect(svc.finish(PEDIDO, { lines: [{ line_id: 'l1', picked: 3, reason: 'no_localizado' }, { line_id: 'l2', picked: 0 }] }))
+      .rejects.toThrow(/Falta el porqué .*SALSA MAGA/);
+    expect(orders.recortarTrasSurtido).not.toHaveBeenCalled();
   });
 
   it('sólo quien empezó lo puede cerrar', async () => {
@@ -179,7 +186,7 @@ describe('[MCP.3.13] pedido agrupado · bandeja y avisos', () => {
 
   it('con faltantes, también nombra la sucursal', async () => {
     const { svc, alerts } = armar({ pick: ABIERTO_POR(YO), lineas: LINEAS, grupo: PARTE_LPA });
-    await svc.finish(PEDIDO, { lines: [{ line_id: 'l1', picked: 3 }, { line_id: 'l2', picked: 0 }] });
+    await svc.finish(PEDIDO, { lines: [{ line_id: 'l1', picked: 3, reason: 'no_localizado' }, { line_id: 'l2', picked: 0, reason: 'sin_existencia' }] });
     expect(alerts.emitTo).toHaveBeenCalledWith(T, '42pmpb', expect.objectContaining({
       title: 'Tu pedido P-10482 · parte de La Piedad Abastos: faltó 2 productos',
     }));

@@ -14,15 +14,17 @@ export class PresaleStatusService {
   private readonly http = inject(HttpClient);
   private readonly base = `${environment.apiUrl}/vendor/presale-status`;
 
-  status(): Observable<PresaleSellerStatusResponse> {
-    return this.http.get<PresaleSellerStatusResponse>(this.base);
+  /** `[MCP.20]` Con `date` (`YYYY-MM-DD`): los pedidos que levanté ese día. Sin él: lo agendado de cualquier día. */
+  status(date?: string): Observable<PresaleSellerStatusResponse> {
+    return this.http.get<PresaleSellerStatusResponse>(this.base, date ? { params: { date } } : {});
   }
 
   unseen(): Observable<{ unseen_reports: number }> {
     return this.http.get<{ unseen_reports: number }>(`${this.base}/unseen`);
   }
 
-  markSeen(): Observable<{ updated: number }> {
-    return this.http.post<{ updated: number }>(`${this.base}/seen`, {});
+  /** `[MCP.20]` Con `orderIds`, sólo los reportes de esos pedidos (los del día en pantalla). */
+  markSeen(orderIds?: readonly string[]): Observable<{ updated: number }> {
+    return this.http.post<{ updated: number }>(`${this.base}/seen`, orderIds ? { order_ids: [...orderIds] } : {});
   }
 }

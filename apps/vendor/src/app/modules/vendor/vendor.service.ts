@@ -9,6 +9,7 @@ import {
   OrderLine,
 } from '../portal/portal.service';
 import { AuthService } from '../../core/services/auth.service';
+import type { MotivoElegido, OrderModifyChange } from '@megadulces/contracts';
 import { OfflineDatabaseService } from '../../core/services/offline-database.service';
 import { VENDOR_CLIENT_BUILD } from '../../core/client-build';
 import { type OrigenCatalogo, sirveCopia } from './catalogo-al-abrir';
@@ -80,6 +81,8 @@ export interface HomePendingOrder {
   requested_delivery_date?: string | null;
   created_at: string;
   is_preventa?: boolean;
+  /** [MCP.3.14] Pedido agrupado: sus partes comparten este id (cuenta una vez). */
+  group_id?: string | null;
 }
 
 // [VR.SUP.1] La forma vive en libs/contracts: la comparten el backend y esta app.
@@ -106,6 +109,8 @@ export interface HomeCustomer {
   pending_count: number;
   pending_total: number;
   has_preventa_pending: boolean;
+  /** [MCP.21] Motivo de «no pidió» de hoy (el de la última visita cerrada sin pedido); null = no se marcó. */
+  no_sale_reason_today?: string | null;
   pending_orders: HomePendingOrder[];
   /** [VK.4] 'kepler' = su ficha la gobierna el ERP (se corrige en Kepler); 'manual' = alta de la app. */
   source?: 'kepler' | 'manual';
@@ -606,8 +611,32 @@ export class VendorService {
    * El backend rechaza lo entregado, lo cancelado, lo de otro vendedor, y avisa si el
    * cliente ya tiene otro pedido en curso.
    */
-  reopenOrder(orderId: string, reason?: string): Observable<VendorOrder> {
-    return this.http.post<VendorOrder>(`${this.base}/orders/${orderId}/reopen`, { reason });
+  reopenOrder(orderId: string, motivo?: MotivoElegido): Observable<VendorOrder> {
+    // [MCP.18] El justificante: clave del catálogo + nota. El servidor lo valida y lo guarda en la historia.
+    return this.http.post<VendorOrder>(`${this.base}/orders/${orderId}/reopen`, motivo ? { reason_code: motivo.reason_code, note: motivo.note ?? null } : {});
+  }
+
+  /**
+   * `[MCP.18]` ¿Se puede corregir? Las mismas reglas de «Corregir» (D1: no con el surtido empezado) sin
+   * reabrir nada, para no pedirle el motivo a la vendedora y después decirle que no.
+   */
+  puedeCorregir(orderId: string): Observable<VendorOrder> {
+    return this.http.post<VendorOrder>(`${this.base}/orders/${orderId}/reopen`, { check_only: true });
+  }
+
+  /** `[MCP.18]` Cancelar un pedido que ya estaba agendado, con su motivo. */
+  /**
+   * `[MCP.21]` Modificar un pedido agendado desde su tarjeta (cantidades y quitar), con UN motivo, en una sola
+   * transacción del servidor. `keepOpen` lo deja abierto para agregar productos en la captura.
+   */
+  modificarPedido(orderId: string, motivo: MotivoElegido, changes: OrderModifyChange[], keepOpen = false): Observable<VendorOrder> {
+    return this.http.post<VendorOrder>(`${this.base}/orders/${orderId}/modify`, {
+      reason_code: motivo.reason_code, note: motivo.note ?? null, changes, ...(keepOpen ? { keep_open: true } : {}),
+    });
+  }
+
+  cancelarConMotivo(orderId: string, motivo: MotivoElegido): Observable<Order> {
+    return this.http.post<Order>(`${this.base}/orders/${orderId}/cancel`, { reason_code: motivo.reason_code, note: motivo.note ?? null });
   }
 
   /** confirmed → fulfilled. El vendedor marca el pedido como entregado en campo. */

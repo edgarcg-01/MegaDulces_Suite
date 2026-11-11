@@ -90,6 +90,26 @@ export function unidadesDeEscalera(led: EscaleraParaSustituto | null | undefined
   return out;
 }
 
+/**
+ * `[MCP.17]` Para surtir en otra unidad del MISMO producto: sólo las presentaciones más chicas que la del
+ * renglón (de una caja que no está completa salen paquetes o piezas, no al revés) y con precio en la sucursal.
+ * Nunca la unidad del renglón misma, aunque la escalera le dé otro factor (el catálogo y Kepler a veces no
+ * coinciden: medido, una CJA de 28 en el ERP y de 12 en la escalera).
+ */
+export function unidadesMasChicas(
+  units: PresaleSubstituteUnit[],
+  factorDelRenglon: number,
+  unidadDelRenglon: string,
+): PresaleSubstituteUnit[] {
+  const f = Number(factorDelRenglon);
+  if (!(f > 1)) return [];
+  const propia = normalizar(unidadDelRenglon).trim();
+  return units.filter((u) => u.factor < f && u.price != null && u.unit !== propia);
+}
+
+/** `[MCP.17]` Vive en `libs/contracts` (la pantalla pone el mismo tope); se reexporta para el servidor. */
+export { topeEnUnidad } from '@megadulces/contracts';
+
 /** La unidad del renglón original si el sustituto la tiene; si no, su unidad base. */
 export function unidadSugerida(units: PresaleSubstituteUnit[], unidadOriginal: string): PresaleSubstituteUnit | null {
   if (!units.length) return null;

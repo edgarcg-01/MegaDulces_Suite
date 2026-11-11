@@ -22,6 +22,8 @@ import type {
   PresaleReviewResult,
   PresaleSellerOrder,
   PresaleSellerStatusResponse,
+  PresaleOtherUnitsResponse,
+  PresaleOrderRow,
   PresaleSubstituteCandidate,
   PresaleSubstituteResponse,
 } from '@megadulces/contracts';
@@ -42,8 +44,19 @@ import {
   planearCierre,
   sumarDias,
 } from './presale-picking.engine';
-import { ordenarSugerencias, palabrasClave, puntuarSustituto, unidadesDeEscalera, unidadSugerida } from './presale-substitute.engine';
+import {
+  ordenarSugerencias,
+  palabrasClave,
+  puntuarSustituto,
+  topeEnUnidad,
+  unidadesDeEscalera,
+  unidadesMasChicas,
+  unidadSugerida,
+} from './presale-substitute.engine';
 import { PEDIDO_EN_RUTA_SQL, SURTIDO_DE_RUTA } from './presale-route.engine';
+import { MOTIVOS_SURTIDO, MOTIVO_OBLIGATORIO_EN_SERVIDOR } from '@megadulces/contracts';
+import { MotivoInvalido, armarJustificantes, conMotivosEnReporte, exigirMotivosDeRenglones, motivosPorRenglon } from '../commercial-orders/justificantes.engine';
+import { historiaDeCambios } from '../commercial-orders/justificantes.lectura';
 
 /**
  * `[MCP.3.13]` Pedido agrupado, en SQL sobre `o` = `commercial.orders`: folio del principal, partes
@@ -163,7 +176,16 @@ export class PresalePickingService {
           ...(enLugarDe.has(l.id) ? { substitutes: enLugarDe.get(l.id) } : {}),
         };
       });
-      return { order: this.aRenglon(fila, hoy), lines };
+      // [MCP.18] Por qué cambió: lo que corrigió la vendedora, lo que quitó el surtido y lo que quitó la caja.
+      const revision = revisado ? ((await trx('commercial.presale_picks').where({ order_id: orderId }).first('review'))?.review ?? null) : null;
+      const justifications = armarJustificantes({
+        historia: (await historiaDeCambios(trx, [orderId])).get(orderId) ?? [],
+        reporte,
+        surtio: fila['finished_at'] ? { name: (fila['finished_by_name'] as string) ?? null, at: fila['finished_at'] as string } : null,
+        revision,
+        reviso: revisado ? { name: (fila['reviewed_by_name'] as string) ?? null, at: fila['reviewed_at'] as string } : null,
+      });
+      return { order: this.aRenglon(fila, hoy), lines, justifications };
     });
   }
 
@@ -220,9 +242,13 @@ export class PresalePickingService {
       const parte = parteDe(fila);
       if (report) {
         const n = report.removed.length + report.adjusted.length;
-        const c = report.substituted?.length ?? 0;
         // [MCP.13] Si el surtidor cambió algo por otro producto, la vendedora lo sabe desde el aviso.
-        const falto = `faltó ${n} ${n === 1 ? 'producto' : 'productos'}${c ? ` · ${c} ${c === 1 ? 'cambiado' : 'cambiados'} por otro` : ''}`;
+        // [MCP.17] Lo surtido en otra unidad del mismo producto no es «por otro»: se dice aparte.
+        const u = (report.substituted ?? []).filter((s) => s.same_product).length;
+        const c = (report.substituted?.length ?? 0) - u;
+        const falto = `faltó ${n} ${n === 1 ? 'producto' : 'productos'}`
+          + (c ? ` · ${c} ${c === 1 ? 'cambiado' : 'cambiados'} por otro` : '')
+          + (u ? ` · ${u} en otra unidad` : '');
         this.avisarVendedora(fila, parte ? `${parte}: ${falto}` : `Reporte de surtido: ${falto}`, `${cliente} · nuevo total ${report.total_after.toFixed(2)}`);
       } else {
         this.avisarVendedora(fila, parte ? `${parte}: surtido completo` : 'Tu pedido se surtió completo', `${cliente} · listo para cobrar`);
@@ -245,6 +271,8 @@ export class PresalePickingService {
     pickId: string,
     marcados: PresalePickFinishRequest['lines'],
     quien: { userId: string; nombre: string },
+    /** `[MCP.18]` D4. El surtido por ruta (apagado) no pide motivo en su pantalla: pasa `false`. */
+    opts: { exigirMotivos?: boolean } = {},
   ): Promise<{ outcome: PlanCierre['outcome']; report: PresalePickReport | null; plan: PlanCierre }> {
     const orderId = fila['id'] as string;
     const lineas = await trx('commercial.order_lines as l')
@@ -256,6 +284,14 @@ export class PresalePickingService {
         'l.product_id', 'l.qty_factor_source', 'l.discount_percent', 'l.unit_price', 'l.tax_rate',
         'l.source_warehouse_id', 'l.line_number', 'l.notes', 'p.sku',
       );
+    // [MCP.18] El motivo de cada faltante, validado ANTES de escribir nada (uno inválido es un 400).
+    let motivos: ReturnType<typeof motivosPorRenglon>;
+    try {
+      motivos = motivosPorRenglon(marcados as unknown as Array<Record<string, unknown>>, MOTIVOS_SURTIDO, 'line_id');
+    } catch (e) {
+      if (e instanceof MotivoInvalido) throw new BadRequestException(e.message);
+      throw e;
+    }
     let plan: PlanCierre;
     try {
       plan = planearCierre(
@@ -276,11 +312,20 @@ export class PresalePickingService {
       if (e instanceof CierreInvalido) throw new BadRequestException(e.message);
       throw e;
     }
+    // [MCP.18] D4: cada renglón quitado o recortado trae su porqué, o no se escribe nada.
+    if (MOTIVO_OBLIGATORIO_EN_SERVIDOR && opts.exigirMotivos !== false) {
+      try {
+        exigirMotivosDeRenglones([...plan.removed, ...plan.adjusted].map((l) => ({ id: String(l.line_id ?? ''), product_name: l.product_name })), motivos);
+      } catch (e) {
+        if (e instanceof MotivoInvalido) throw new BadRequestException(e.message);
+        throw e;
+      }
+    }
     let totales = { total_before: Number(fila['total']), total_after: Number(fila['total']) };
     // [MCP.13] Lo que el surtidor puso en lugar de lo que faltó entra ANTES de recortar: así el
     // pedido nunca queda sin renglones aunque el original se borre, y el total se recalcula una vez.
     const sustituidos = plan.sustituir.length
-      ? await this.ponerSustitutos(trx, orderId, String(fila['warehouse_id']), plan, lineas as Array<{ id: string; product_id: string; sku?: string | null }>)
+      ? await this.ponerSustitutos(trx, orderId, String(fila['warehouse_id']), plan, lineas as Array<{ id: string; product_id: string; sku?: string | null; quantity: string; qty_unit: string | null }>)
       : [];
     if (plan.outcome === 'con_faltantes') {
       const r = await this.orders.recortarTrasSurtido(
@@ -289,7 +334,8 @@ export class PresalePickingService {
       );
       totales = { total_before: Number(fila['total']), total_after: r.total_after };
     }
-    const report = armarReporte(plan, totales.total_before, totales.total_after, sustituidos);
+    // [MCP.18] Cada renglón quitado o recortado lleva su motivo; sin motivo = «sin motivo registrado».
+    const report = conMotivosEnReporte(armarReporte(plan, totales.total_before, totales.total_after, sustituidos), motivos);
     await trx('commercial.presale_picks').where({ id: pickId }).update({
       finished_by: quien.userId,
       finished_by_name: quien.nombre,
@@ -311,7 +357,7 @@ export class PresalePickingService {
     orderId: string,
     warehouseId: string,
     plan: PlanCierre,
-    originales: Array<{ id: string; product_id: string; sku?: string | null }>,
+    originales: Array<{ id: string; product_id: string; sku?: string | null; quantity?: string | number | null; qty_unit?: string | null }>,
   ): Promise<PresalePickSubstitution[]> {
     const ids = [...new Set(plan.sustituir.map((x) => x.product_id))];
     if (ids.length !== plan.sustituir.length) {
@@ -322,16 +368,36 @@ export class PresalePickingService {
       .select('id', 'sku', 'nombre')) as Array<{ id: string; sku: string | null; nombre: string | null }>;
     const porId = new Map(prods.map((p) => [p.id, p]));
     const yaEnPedido = new Set(originales.map((o) => o.product_id));
+    const originalDe = new Map(originales.map((o) => [o.id, o]));
     const escaleras = await this.orders.escalerasDeAlmacen(trx, warehouseId, prods.map((p) => String(p.sku ?? '').trim()).filter(Boolean));
     const estado = await this.existenciaEn(trx, warehouseId, ids);
-    const items: Array<{ product_id: string; quantity: number; qty_unit: string; qty_factor: number; for_product_name: string }> = [];
+    const items: Array<{ product_id: string; quantity: number; qty_unit: string; qty_factor: number; for_product_name: string; notes?: string }> = [];
+    const mismos = new Set<string>();
     for (const x of plan.sustituir) {
       const p = porId.get(x.product_id);
       if (!p) throw new BadRequestException(`El producto que pusiste en lugar de «${x.for_product_name}» no existe o está dado de baja.`);
       if (esNombreDePromocion(p.nombre)) throw new BadRequestException(`«${p.nombre}» es una promoción: no se usa para cambiar un producto.`);
-      if (yaEnPedido.has(p.id)) throw new BadRequestException(`«${p.nombre}» ya viene en este pedido: elige otro producto.`);
+      // [MCP.17] El MISMO producto del renglón, en otra unidad: la caja no estaba completa y van paquetes.
+      const orig = originalDe.get(x.for_line_id);
+      const mismo = !!orig && orig.product_id === p.id;
+      if (!mismo && yaEnPedido.has(p.id)) throw new BadRequestException(`«${p.nombre}» ya viene en este pedido: elige otro producto.`);
       const unidad = unidadesDeEscalera(escaleras.get(String(p.sku ?? '').trim())).find((u) => u.unit === x.unit);
       if (!unidad) throw new BadRequestException(`«${p.nombre}» no se vende en ${x.unit} en esta sucursal.`);
+      if (mismo) {
+        // No más de lo que faltó: lo pedido menos lo surtido en la unidad del renglón, en piezas base.
+        const quedo = plan.recortar.find((r) => r.line_id === x.for_line_id)?.quantity ?? 0;
+        const tope = topeEnUnidad(Number(orig.quantity) - quedo, unidad);
+        if (x.quantity > tope + 1e-9) {
+          throw new BadRequestException(`«${p.nombre}»: de lo que faltó caben ${tope} ${unidad.unit}; pusiste ${x.quantity}.`);
+        }
+        // Sin revisar la existencia de Kepler: el surtidor lo tiene en la mano, y ese dato llega con atraso.
+        mismos.add(x.for_line_id);
+        items.push({
+          product_id: p.id, quantity: x.quantity, qty_unit: unidad.unit, qty_factor: unidad.factor, for_product_name: x.for_product_name,
+          notes: `En ${unidad.unit}: no hubo ${String(orig.qty_unit ?? '').trim() || 'la presentación pedida'} completa al surtir`,
+        });
+        continue;
+      }
       const st = estado?.(warehouseId, p.id).state;
       if (st === 'agotado' || st === 'no_se_maneja') {
         throw new BadRequestException(`«${p.nombre}» ${st === 'agotado' ? 'está agotado' : 'no se maneja'} en esta sucursal: elige otro.`);
@@ -353,6 +419,7 @@ export class PresalePickingService {
         quantity: x.quantity,
         unit: items[i].qty_unit,
         line_total: puestos[i].line_total,
+        ...(mismos.has(x.for_line_id) ? { same_product: true } : {}),
       };
     });
   }
@@ -371,6 +438,38 @@ export class PresalePickingService {
       this.logger.warn(`[MCP.13] no se pudo leer la existencia: ${(e as Error).message}`);
       return null;
     }
+  }
+
+  /**
+   * `[MCP.17]` Las presentaciones más chicas del MISMO producto de un renglón, con su precio en la sucursal
+   * del pedido: pidieron 1 CJA, no hubo caja completa y el surtidor pone 8 PAQ. Sólo lectura; lo que se
+   * elija viaja en `finish` como `substitute` con el mismo `product_id`.
+   */
+  async otherUnits(orderId: string, lineId: string, query: Record<string, unknown> = {}): Promise<PresaleOtherUnitsResponse> {
+    if (!UUID_RE.test(orderId) || !UUID_RE.test(lineId)) throw new BadRequestException('id inválido');
+    const almacenes = await this.scope.warehouseIds(query, AREA);
+    return this.tk.run(async (trx) => {
+      const fila = await this.pedidoEnAlcance(trx, orderId, almacenes);
+      const r = (await trx('commercial.order_lines as l')
+        .join('catalog.products as p', 'p.id', 'l.product_id')
+        .where({ 'l.order_id': orderId, 'l.id': lineId })
+        .first('l.product_id', 'l.quantity', 'l.qty_unit', 'l.qty_factor', 'p.nombre', 'p.sku')) as
+        | { product_id: string; quantity: string; qty_unit: string | null; qty_factor: string | null; nombre: string | null; sku: string | null }
+        | undefined;
+      if (!r) throw new NotFoundException('Ese renglón no es de este pedido.');
+      const m = cantidadMostrada({ quantity: Number(r.quantity), qty_unit: r.qty_unit, qty_factor: r.qty_factor == null ? null : Number(r.qty_factor) });
+      const sku = String(r.sku ?? '').trim();
+      const escaleras = sku ? await this.orders.escalerasDeAlmacen(trx, String(fila['warehouse_id']), [sku]) : null;
+      return {
+        for_line_id: lineId,
+        product_id: r.product_id,
+        product_name: r.nombre ?? 'Producto',
+        ordered: m.qty,
+        unit: m.unit,
+        factor: m.factor,
+        units: unidadesMasChicas(unidadesDeEscalera(escaleras?.get(sku)), m.factor, m.unit),
+      };
+    });
   }
 
   /**
@@ -463,68 +562,112 @@ export class PresalePickingService {
   // ───────────────────────────── Vendedora ─────────────────────────────
 
   /** Los pedidos de preventa que levantó la persona en sesión, con su avance. */
-  async sellerStatus(): Promise<PresaleSellerStatusResponse> {
+  async sellerStatus(fecha?: string): Promise<PresaleSellerStatusResponse> {
     const userId = this.tenantCtx.get()?.userId;
     if (!userId) throw new UnauthorizedException('Sin usuario en la sesión.');
     const hoy = relojMx(new Date()).fecha;
+    // [MCP.20] Con día: lo levantado ESE día. Sin día (apps de antes): agendados de cualquier día +
+    // recientes. Medido en prod el 2026-11-11: sin día, una vendedora tenía 145 pedidos en la lista
+    // (72 de hace más de 7 días, el más viejo del 26-ago), porque casi ninguno llega a «entregado».
+    const dia = fechaDelDia(fecha, hoy);
     return this.tk.run(async (trx) => {
       const pedidos = await this.presale.pedidosParaGuias(trx, { almacenes: null, autorId: userId });
       const recientes = pedidos
-        .filter((p) => p.status === 'confirmed' || p.requested_delivery_date >= sumarDias(hoy, -2))
+        .filter((p) => (dia
+          ? fechaMx(p.created_at) === dia
+          : p.status === 'confirmed' || p.requested_delivery_date >= sumarDias(hoy, -2)))
         .sort((a, b) => (a.requested_delivery_date === b.requested_delivery_date
           ? (a.created_at < b.created_at ? 1 : -1)
           : a.requested_delivery_date < b.requested_delivery_date ? -1 : 1));
-      const ids = recientes.map((p) => p.id);
-      const picks = ids.length ? await trx('commercial.presale_picks').whereIn('order_id', ids) : [];
-      const pickDe = new Map<string, FilaPick>((picks as FilaPick[]).map((p) => [p.order_id, p]));
-      const confirmados = ids.length
-        ? await trx('commercial.orders').whereIn('id', ids).select('id', 'confirmed_at')
-        : [];
-      const confirmadoDe = new Map<string, Date | string | null>(
-        (confirmados as Array<{ id: string; confirmed_at: Date | string | null }>).map((o) => [o.id, o.confirmed_at]),
-      );
-
-      let detecciones = 0;
-      const data: PresaleSellerOrder[] = [];
-      for (const p of recientes) {
-        const pk = pickDe.get(p.id);
-        let charge: PresaleSellerOrder['charge'] = null;
-        if (p.link) {
-          charge = { source: 'liga', folio_digital: p.link.folio_digital, fecha: p.link.fecha, total: p.link.total, shared_products: p.lines, order_products: p.lines };
-        } else if (pk?.finished_at && p.status === 'confirmed' && (p.possible_documents ?? 0) > 0 && detecciones < MAX_DETECCIONES) {
-          detecciones++;
-          try {
-            const { candidates } = await this.presale.candidatosParaCampo(trx as Knex.Transaction, p.id);
-            const c = detectarCobro(candidates, p.lines, fechaMx(pk.finished_at));
-            if (c) charge = { source: 'detectado', folio_digital: c.folio_digital, fecha: c.fecha, total: c.total, shared_products: c.shared_products, order_products: c.order_products };
-          } catch (e) {
-            this.logger.warn(`[MCP.8] no se pudo buscar el cobro de ${p.code}: ${(e as Error).message}`);
-          }
-        }
-        data.push({
-          order_id: p.id,
-          code: p.code,
-          customer_name: p.customer_name,
-          requested_delivery_date: p.requested_delivery_date,
-          total: p.total,
-          lines: p.lines,
-          status: p.status,
-          scheduled_at: iso(confirmadoDe.get(p.id)),
-          warehouse_name: p.warehouse_name,
-          started: pk ? { user_id: pk.started_by, name: pk.started_by_name, at: iso(pk.started_at) as string } : null,
-          finished: pk?.finished_at
-            ? { user_id: pk.finished_by ?? '', name: pk.finished_by_name ?? '', at: iso(pk.finished_at) as string, outcome: pk.outcome ?? 'completo' }
-            : null,
-          report: pk?.report ?? null,
-          review: pk?.reviewed_at ? (pk.review ?? null) : null,
-          reviewed: pk?.reviewed_at ? { user_id: pk.reviewed_by ?? '', name: pk.reviewed_by_name ?? '', at: iso(pk.reviewed_at) as string } : null,
-          charge,
-          delivered_at: p.delivery?.delivered_at ?? null,
-          report_unseen: !!pk?.finished_at && !pk.seller_seen_at,
-        });
-      }
-      return { today: hoy, data, unseen_reports: data.filter((d) => d.report_unseen).length };
+      const data = await this.armarAvance(trx, recientes);
+      if (!dia) return { today: hoy, data, unseen_reports: data.filter((d) => d.report_unseen).length };
+      const sinVer = await trx('commercial.presale_picks as pp')
+        .join('commercial.orders as o', 'o.id', 'pp.order_id')
+        .where('o.user_id', userId)
+        .whereNotNull('pp.finished_at')
+        .whereNull('pp.seller_seen_at')
+        .distinct(trx.raw(`to_char(o.created_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS dia`));
+      const unseen_days = (sinVer as Array<{ dia: string }>).map((r) => r.dia).sort().reverse();
+      return { today: hoy, date: dia, data, unseen_reports: data.filter((d) => d.report_unseen).length, unseen_days };
     });
+  }
+
+  /**
+   * `[MCP.19]` El avance de unos pedidos (los que se levantaron en un día), con el MISMO armado que
+   * «Mis pedidos»: así el recuento del día y la lista dicen lo mismo de cada pedido. No marca nada como
+   * visto. Quien llama ya decidió que puede verlos.
+   */
+  async avanceDe(orderIds: readonly string[]): Promise<PresaleSellerOrder[]> {
+    if (!orderIds.length) return [];
+    return this.tk.run(async (trx) => {
+      const pedidos = await this.presale.pedidosParaGuias(trx, { almacenes: null, orderIds: [...orderIds] });
+      return this.armarAvance(trx, pedidos);
+    });
+  }
+
+  /** `[MCP.8]` Cada pedido con su surtido, revisión, cobro, entrega y justificantes. */
+  private async armarAvance(trx: Knex.Transaction, recientes: PresaleOrderRow[]): Promise<PresaleSellerOrder[]> {
+    const ids = recientes.map((p) => p.id);
+    const picks = ids.length ? await trx('commercial.presale_picks').whereIn('order_id', ids) : [];
+    const pickDe = new Map<string, FilaPick>((picks as FilaPick[]).map((p) => [p.order_id, p]));
+    // [MCP.18] Los «Corregir» y cancelaciones de todos sus pedidos, en una consulta.
+    const historias = await historiaDeCambios(trx, ids);
+    const confirmados = ids.length
+      ? await trx('commercial.orders').whereIn('id', ids).select('id', 'confirmed_at')
+      : [];
+    const confirmadoDe = new Map<string, Date | string | null>(
+      (confirmados as Array<{ id: string; confirmed_at: Date | string | null }>).map((o) => [o.id, o.confirmed_at]),
+    );
+
+    let detecciones = 0;
+    const data: PresaleSellerOrder[] = [];
+    for (const p of recientes) {
+      const pk = pickDe.get(p.id);
+      let charge: PresaleSellerOrder['charge'] = null;
+      if (p.link) {
+        charge = { source: 'liga', folio_digital: p.link.folio_digital, fecha: p.link.fecha, total: p.link.total, shared_products: p.lines, order_products: p.lines };
+      } else if (pk?.finished_at && p.status === 'confirmed' && (p.possible_documents ?? 0) > 0 && detecciones < MAX_DETECCIONES) {
+        detecciones++;
+        try {
+          const { candidates } = await this.presale.candidatosParaCampo(trx as Knex.Transaction, p.id);
+          const c = detectarCobro(candidates, p.lines, fechaMx(pk.finished_at));
+          if (c) charge = { source: 'detectado', folio_digital: c.folio_digital, fecha: c.fecha, total: c.total, shared_products: c.shared_products, order_products: c.order_products };
+        } catch (e) {
+          this.logger.warn(`[MCP.8] no se pudo buscar el cobro de ${p.code}: ${(e as Error).message}`);
+        }
+      }
+      data.push({
+        order_id: p.id,
+        code: p.code,
+        customer_id: p.customer_id ?? null,
+        customer_name: p.customer_name,
+        requested_delivery_date: p.requested_delivery_date,
+        total: p.total,
+        lines: p.lines,
+        status: p.status,
+        scheduled_at: iso(confirmadoDe.get(p.id)),
+        warehouse_name: p.warehouse_name,
+        started: pk ? { user_id: pk.started_by, name: pk.started_by_name, at: iso(pk.started_at) as string } : null,
+        finished: pk?.finished_at
+          ? { user_id: pk.finished_by ?? '', name: pk.finished_by_name ?? '', at: iso(pk.finished_at) as string, outcome: pk.outcome ?? 'completo' }
+          : null,
+        report: pk?.report ?? null,
+        review: pk?.reviewed_at ? (pk.review ?? null) : null,
+        reviewed: pk?.reviewed_at ? { user_id: pk.reviewed_by ?? '', name: pk.reviewed_by_name ?? '', at: iso(pk.reviewed_at) as string } : null,
+        charge,
+        delivered_at: p.delivery?.delivered_at ?? null,
+        report_unseen: !!pk?.finished_at && !pk.seller_seen_at,
+        // [MCP.18] Por qué cambió su pedido: quién, cuándo y el motivo (o «sin motivo registrado»).
+        justifications: armarJustificantes({
+          historia: historias.get(p.id) ?? [],
+          reporte: pk?.report ?? null,
+          surtio: pk?.finished_at ? { name: pk.finished_by_name ?? null, at: pk.finished_at } : null,
+          revision: pk?.reviewed_at ? (pk.review ?? null) : null,
+          reviso: pk?.reviewed_at ? { name: pk.reviewed_by_name ?? null, at: pk.reviewed_at } : null,
+        }),
+      });
+    }
+    return data;
   }
 
   /** Para el globito de la barra: cuántos reportes de surtido no ha visto. Una consulta, sin ODS. */
@@ -543,14 +686,24 @@ export class PresalePickingService {
     });
   }
 
-  /** La vendedora vio sus reportes de surtido. */
-  async sellerSeen(): Promise<{ updated: number }> {
+  /**
+   * La vendedora vio sus reportes de surtido. `[MCP.20]` Con `orderIds`, sólo los de esos pedidos (los
+   * del día que tiene en pantalla): los de otro día siguen «nuevos» hasta que los vea.
+   */
+  async sellerSeen(orderIds?: readonly string[]): Promise<{ updated: number }> {
     const userId = this.tenantCtx.get()?.userId;
     if (!userId) throw new UnauthorizedException('Sin usuario en la sesión.');
+    if (orderIds !== undefined && orderIds !== null) {
+      if (!Array.isArray(orderIds) || orderIds.length > 500 || orderIds.some((x) => typeof x !== 'string' || !UUID_RE.test(x))) {
+        throw new BadRequestException('order_ids tiene que ser una lista de pedidos (máx. 500).');
+      }
+      if (!orderIds.length) return { updated: 0 };
+    }
     return this.tk.run(async (trx) => {
       const updated = await trx('commercial.presale_picks as pp')
         .whereNotNull('pp.finished_at')
         .whereNull('pp.seller_seen_at')
+        .modify((q) => { if (orderIds?.length) q.whereIn('pp.order_id', [...orderIds]); })
         .whereExists(function () {
           this.select(trx.raw('1')).from('commercial.orders as o').whereRaw('o.id = pp.order_id').andWhere('o.user_id', userId);
         })
@@ -740,6 +893,17 @@ function iso(v: unknown): string | null {
 function horaMx(v: unknown): string {
   const d = v instanceof Date ? v : new Date(String(v));
   return new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City', hour: '2-digit', minute: '2-digit', hour12: false }).format(d);
+}
+
+/** `[MCP.20]` El día pedido (`YYYY-MM-DD`), validado; `null` = sin día. Un día que no existe o futuro es 400. */
+function fechaDelDia(v: string | undefined, hoy: string): string | null {
+  const f = String(v ?? '').trim();
+  if (!f) return null;
+  const valido = /^\d{4}-\d{2}-\d{2}$/.test(f) && !Number.isNaN(Date.parse(`${f}T00:00:00Z`))
+    && new Date(`${f}T00:00:00Z`).toISOString().slice(0, 10) === f;
+  if (!valido) throw new BadRequestException('El día tiene que ser AAAA-MM-DD.');
+  if (f > hoy) throw new BadRequestException('Ese día todavía no llega.');
+  return f;
 }
 
 /** `YYYY-MM-DD` en hora de México. */

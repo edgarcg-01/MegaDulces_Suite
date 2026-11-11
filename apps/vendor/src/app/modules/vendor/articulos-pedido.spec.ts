@@ -49,6 +49,23 @@ describe('articulosDelPedido', () => {
     expect(a[2].enLugarDe).toBe('SALSA PRUEBA');
   });
 
+  it('[MCP.17] no hubo la caja completa: el mismo producto en piezas dice qué unidad faltó (y otro producto, sólo el nombre)', () => {
+    const p = pedido({
+      finished: { ...persona, outcome: 'con_faltantes' },
+      report: {
+        adjusted: [],
+        removed: [{ line_id: 'lx', product_name: 'SALSA PRUEBA', unit: 'CJA', ordered: 1, picked: 0 }],
+        substituted: [{ line_id: 'l3', for_line_id: 'lx', for_product_name: 'SALSA PRUEBA', for_sku: null, product_id: 'px', product_name: 'SALSA PRUEBA', sku: null, quantity: 5, unit: 'PZA', line_total: 10, same_product: true }],
+        total_before: 200, total_after: 10,
+      },
+    } as Partial<PresaleSellerOrder>);
+    const lineas = [{ id: 'l3', product_name: 'SALSA PRUEBA', quantity: 5, qty_unit: 'PZA', qty_factor: 1 }];
+    expect(articulosDelPedido(p, lineas)!.find((x) => x.clave === 'l3')?.enLugarDe).toBe('SALSA PRUEBA en CJA');
+    // Prueba negativa: sin `same_product` es un cambio por otro producto y no se le agrega unidad.
+    const otro = { ...p, report: { ...p.report!, substituted: [{ ...p.report!.substituted![0], same_product: undefined }] } } as PresaleSellerOrder;
+    expect(articulosDelPedido(otro, lineas)!.find((x) => x.clave === 'l3')?.enLugarDe).toBe('SALSA PRUEBA');
+  });
+
   it('revisado en caja: todos los renglones con pidió, surtió y cómo quedó (sin pedir las líneas)', () => {
     const p = pedido({
       finished: { ...persona, outcome: 'con_faltantes' },

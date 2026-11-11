@@ -21,6 +21,10 @@ import type {
 } from '@megadulces/contracts';
 import { PresalePickingService } from '../presale-picking.service';
 import { agruparPorVendedor } from '../pedidos-por-vendedor';
+import { MOTIVOS_SURTIDO, MOTIVO_SURTIDO_POR_OMISION } from '@megadulces/contracts';
+import { MotivoChipsComponent } from '../shared/motivo-chips.component';
+import { JustificantesComponent } from '../shared/justificantes.component';
+import { camposDeMotivo, motivoDe, motivosIncompletos, type MotivoLinea } from '../shared/motivos-preventa';
 import { AlertsSocketService } from '../../dashboard/command-center/alerts-socket.service';
 import { encuestarVisible } from '../../../core/utils/poll-visible';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
@@ -68,7 +72,7 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
 @Component({
   selector: 'app-almacen-surtir-preventa',
   standalone: true,
-  imports: [CommonModule, ButtonModule, TagModule, ToastModule, LoadStateComponent, FreshnessPillComponent, SegmentedComponent],
+  imports: [CommonModule, ButtonModule, TagModule, ToastModule, LoadStateComponent, FreshnessPillComponent, SegmentedComponent, MotivoChipsComponent, JustificantesComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -161,6 +165,8 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
 
         <app-load-state [loading]="cargandoDetalle()" [error]="errorDetalle()" [isEmpty]="false" (retry)="abrir(abierto()!)">
           @if (detalle(); as d) {
+            <!-- [MCP.18] Por qué cambió el pedido (vendedora, surtidor, caja), con su motivo. -->
+            <app-justificantes [items]="d.justifications" idBase="sp-jf"></app-justificantes>
             @if (d.order.state === 'nuevo' || d.order.state === 'en_recorrido') {
               <ul class="sp-renglones">
                 @for (l of d.lines; track l.line_id) {
@@ -201,6 +207,9 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
                     </div>
                     <!-- [MCP.13] Lo que faltó se puede cambiar por otro producto con existencia. -->
                     @if (marca(l) !== null && marca(l)! < l.qty) {
+                      <!-- [MCP.18] Por qué faltó: ya viene «No había en la sucursal»; se cambia con un toque. -->
+                      <app-motivo-chips [opciones]="motivosSurtido" [valor]="motivoDeLinea(l.line_id)" [idBase]="'sp-mot-' + l.line_id"
+                                        [etiqueta]="'Por qué faltó ' + l.product_name" (cambio)="ponerMotivo(l.line_id, $event)"></app-motivo-chips>
                       @if (cambioDe(l); as c) {
                         <div class="sp-cambio">
                           <span class="sp-cambio-t"><i class="pi pi-sync" aria-hidden="true"></i> En lugar de lo que faltó</span>
@@ -273,7 +282,8 @@ const hora = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City',
                 @if (marcados() < d.lines.length) {
                   <button type="button" class="sp-btn sp-btn-go" disabled><span>Marca todos los productos para terminar</span></button>
                 } @else if (conFaltante()) {
-                  <button type="button" class="sp-btn sp-btn-warn" [disabled]="trabajando()" (click)="terminar(d)">
+                  @if (motivosSinCompletar(d).length) { <p class="sp-tip">Escribe cuál fue el «Otro motivo» para poder enviar el reporte.</p> }
+                  <button type="button" class="sp-btn sp-btn-warn" [disabled]="trabajando() || motivosSinCompletar(d).length > 0" (click)="terminar(d)">
                     <i class="pi pi-send" aria-hidden="true"></i>
                     <span>Enviar reporte a {{ d.order.seller_name || 'la vendedora' }} · faltaron {{ conFaltante() }}</span>
                   </button>
@@ -419,6 +429,9 @@ export class AlmacenSurtirPreventaComponent implements OnInit {
   readonly marcas = signal<Record<string, number>>({});
   /** `[MCP.13]` Lo que puso en lugar de lo que faltó, por renglón. */
   readonly cambios = signal<Record<string, CambioElegido>>({});
+  /** `[MCP.18]` El motivo elegido por renglón con faltante; sin tocar = «No había en la sucursal». */
+  readonly motivosLinea = signal<Record<string, MotivoLinea>>({});
+  readonly motivosSurtido = MOTIVOS_SURTIDO;
   /** El renglón cuyo panel de «Cambiar por otro producto» está abierto. */
   readonly sustituyendo = signal<string | null>(null);
   readonly sugerencias = signal<PresaleSubstituteResponse | null>(null);
@@ -506,6 +519,7 @@ export class AlmacenSurtirPreventaComponent implements OnInit {
     this.abierto.set(orderId);
     this.detalle.set(null);
     this.marcas.set({});
+    this.motivosLinea.set({});
     this.limpiarCambios();
     this.errorDetalle.set(null);
     this.cargandoDetalle.set(true);
@@ -643,7 +657,11 @@ export class AlmacenSurtirPreventaComponent implements OnInit {
     this.api.finish(d.order.order_id, {
       lines: d.lines.map((l) => {
         const x = m[l.line_id] < l.qty ? c[l.line_id] : undefined;
-        return { line_id: l.line_id, picked: m[l.line_id], ...(x ? { substitute: { product_id: x.product_id, quantity: x.quantity, unit: x.unit } } : {}) };
+        return {
+          line_id: l.line_id, picked: m[l.line_id], ...(x ? { substitute: { product_id: x.product_id, quantity: x.quantity, unit: x.unit } } : {}),
+          // [MCP.18] El justificante de cada faltante (sin tocar = el de por omisión, lo que se marcó).
+          ...(m[l.line_id] < l.qty ? camposDeMotivo(motivoDe(this.motivosLinea(), l.line_id, MOTIVO_SURTIDO_POR_OMISION)) : {}),
+        };
       }),
     })
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -665,7 +683,25 @@ export class AlmacenSurtirPreventaComponent implements OnInit {
     this.abierto.set(null);
     this.detalle.set(null);
     this.marcas.set({});
+    this.motivosLinea.set({});
     this.limpiarCambios();
+  }
+
+  // ── [MCP.18] El justificante de cada faltante ──
+
+  motivoDeLinea(id: string): MotivoLinea {
+    return motivoDe(this.motivosLinea(), id, MOTIVO_SURTIDO_POR_OMISION);
+  }
+
+  ponerMotivo(id: string, m: MotivoLinea): void {
+    this.motivosLinea.update((x) => ({ ...x, [id]: m }));
+  }
+
+  /** Renglones con faltante cuyo motivo todavía no se puede mandar («Otro motivo» sin escribir). */
+  motivosSinCompletar(d: PresalePickDetail): string[] {
+    const m = this.marcas();
+    const ids = d.lines.filter((l) => m[l.line_id] != null && m[l.line_id] < l.qty).map((l) => l.line_id);
+    return motivosIncompletos(this.motivosLinea(), ids, MOTIVOS_SURTIDO, MOTIVO_SURTIDO_POR_OMISION);
   }
 
   /** [MCP.10.1] La caja dejó otra cantidad de la que surtió el surtidor (completó o quitó). */

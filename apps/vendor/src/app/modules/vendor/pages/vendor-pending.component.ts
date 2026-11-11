@@ -18,6 +18,8 @@ import { Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { VendorService, VendorOrder } from '../vendor.service';
 import { OrderLine } from '../../portal/portal.service';
+import { MOTIVOS_CORREGIR, type MotivoElegido } from '@megadulces/contracts';
+import { VendorMotivoSheetComponent } from '../components/vendor-motivo-sheet.component';
 
 /**
  * Apartado "Por entregar": pedidos pendientes de la cartera del vendedor
@@ -36,11 +38,24 @@ import { OrderLine } from '../../portal/portal.service';
     ButtonModule,
     SkeletonModule,
     ConfirmDialogModule,
+    VendorMotivoSheetComponent,
   ],
   providers: [ConfirmationService],
   template: `
     <p-confirmdialog></p-confirmdialog>
-    
+    <!-- [MCP.18] El justificante de «Corregir»: el surtidor y la caja ven por qué cambió el pedido. -->
+    @if (corrigiendo(); as c) {
+      <app-vendor-motivo-sheet
+        titulo="¿Por qué lo corriges?"
+        [sub]="(c.folio || c.code) + ' · ' + (c.customer_name || 'Cliente') + ' · vuelve a borrador con el mismo folio; al terminar lo agendas de nuevo'"
+        [opciones]="motivosCorregir"
+        confirmarTexto="Corregir el pedido"
+        [busy]="guardandoMotivo()"
+        (confirm)="confirmarCorregir(c, $event)"
+        (cancel)="corrigiendo.set(null)"
+      ></app-vendor-motivo-sheet>
+    }
+
     <div class="page-head">
       <div>
         <h1 class="page-title">Por entregar</h1>
@@ -255,6 +270,10 @@ export class VendorPendingComponent implements OnInit {
   readonly linesById = signal<Record<string, OrderLine[]>>({});
   readonly linesLoading = signal<Set<string>>(new Set());
   readonly processing = signal<Set<string>>(new Set());
+  /** `[MCP.18]` El pedido al que se le está pidiendo el motivo de «Corregir»; `null` = hoja cerrada. */
+  readonly corrigiendo = signal<VendorOrder | null>(null);
+  readonly guardandoMotivo = signal(false);
+  readonly motivosCorregir = MOTIVOS_CORREGIR;
 
   ngOnInit(): void {
     this.reload();
@@ -340,44 +359,66 @@ export class VendorPendingComponent implements OnInit {
    * al vendedor a la pantalla de captura, con el pedido cargado. Si el backend
    * rechaza —otro vendedor, ya entregado, o el cliente con otro pedido en curso—
    * se muestra el motivo tal cual y NO se navega.
+   *
+   * `[MCP.18]` Primero se pregunta si se puede (D1: con el surtido empezado ya no): así no se le pide
+   * el motivo para después decirle que no. Si se puede, se pide el justificante y con él se reabre.
    */
   askReopen(o: VendorOrder): void {
-    this.confirmSvc.confirm({
-      header: 'Corregir pedido',
-      message: `¿Abrir ${o.folio || o.code} para corregirlo? Vuelve a quedar en borrador con el mismo folio; hay que agendarlo de nuevo al terminar.`,
-      icon: 'pi pi-pencil',
-      acceptLabel: 'Corregir',
-      rejectLabel: 'Cancelar',
-      accept: () => {
-        const busy = new Set(this.processing());
-        busy.add(o.id);
-        this.processing.set(busy);
-        this.api
-          .reopenOrder(o.id)
-          .pipe(takeUntilDestroyed(this.destroyRef))
-          .subscribe({
-            next: () => {
-              this.clearProcessing(o.id);
-              if (!o.customer_id) {
-                this.toast.add({ severity: 'warn', summary: 'Pedido reabierto', detail: 'Ábrelo desde el cliente para corregirlo.' });
-                this.reload();
-                return;
-              }
-              this.router.navigate(['/vendor/take-order', o.customer_id], {
-                queryParams: { order: o.id },
-              });
-            },
-            error: (e) => {
-              this.clearProcessing(o.id);
-              this.toast.add({
-                severity: 'error',
-                summary: 'No se puede corregir',
-                detail: e?.error?.message || 'Intenta de nuevo.',
-              });
-            },
+    if (this.processing().has(o.id)) return;
+    const busy = new Set(this.processing());
+    busy.add(o.id);
+    this.processing.set(busy);
+    this.api
+      .puedeCorregir(o.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.clearProcessing(o.id);
+          this.corrigiendo.set(o);
+        },
+        error: (e) => {
+          this.clearProcessing(o.id);
+          this.toast.add({
+            severity: 'warn',
+            summary: 'No se puede corregir',
+            detail: e?.error?.message || 'Intenta de nuevo.',
+            life: 12000,
           });
-      },
-    });
+        },
+      });
+  }
+
+  /** `[MCP.18]` Con el motivo elegido, se reabre y se va a corregir. */
+  confirmarCorregir(o: VendorOrder, motivo: MotivoElegido): void {
+    if (this.guardandoMotivo()) return;
+    this.guardandoMotivo.set(true);
+    this.api
+      .reopenOrder(o.id, motivo)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.guardandoMotivo.set(false);
+          this.corrigiendo.set(null);
+          if (!o.customer_id) {
+            this.toast.add({ severity: 'warn', summary: 'Pedido reabierto', detail: 'Ábrelo desde el cliente para corregirlo.' });
+            this.reload();
+            return;
+          }
+          this.router.navigate(['/vendor/take-order', o.customer_id], {
+            queryParams: { order: o.id },
+          });
+        },
+        error: (e) => {
+          this.guardandoMotivo.set(false);
+          this.corrigiendo.set(null);
+          this.toast.add({
+            severity: 'error',
+            summary: 'No se puede corregir',
+            detail: e?.error?.message || 'Intenta de nuevo.',
+            life: 12000,
+          });
+        },
+      });
   }
 
   askFulfill(o: VendorOrder): void {

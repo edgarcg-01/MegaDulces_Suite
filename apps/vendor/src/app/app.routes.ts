@@ -115,13 +115,9 @@ export const appRoutes: Routes = [
             (m) => m.VendorNotificationsComponent,
           ),
       },
-      {
-        path: 'today',
-        loadComponent: () =>
-          import('./modules/vendor/pages/vendor-today.component').then(
-            (m) => m.VendorTodayComponent,
-          ),
-      },
+      // [MCP.19] «Mi día» se juntó con «Pedidos» (el recuento del día vive arriba de la lista). Un
+      // enlace o un marcador viejo a /vendor/today cae ahí, no en una pantalla en blanco.
+      { path: 'today', redirectTo: 'mis-pedidos', pathMatch: 'full' },
       {
         path: 'assistant',
         loadComponent: () =>
