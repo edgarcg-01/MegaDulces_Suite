@@ -26,8 +26,10 @@
  */
 const TENANT = '00000000-0000-0000-0000-00000000d01c';
 const CORTE_D21 = '2026-10-26T17:07:00-06:00';
+// Lo lee Compras en el detalle de la OC (tabla de recepciones, columna de nota): sin jerga interna
+// («carril», «auto-received») y sin emoji (la UI no los usa; `check-no-emoji-ui` no ve el dato).
 const ROTULO =
-  ' · ⚠️ Creada DESPUÉS de D21 (PQ.16, 26-oct-2026): la Suite ya no emite recepciones; el carril auto-received la casó por presencia de SKU contra una OC congelada. No verificada contra Kepler.';
+  ' · Generada automáticamente después del 26-oct-2026, cuando la Suite ya no emitía recepciones (D21): se ligó a esta orden sólo porque la entrada de Kepler traía el mismo producto. No está verificada contra Kepler.';
 
 exports.ROTULO = ROTULO;
 
