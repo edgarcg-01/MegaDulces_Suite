@@ -522,3 +522,57 @@ carril, tabla vieja congelada.
 **Para que lleguen a prod** (en este orden): push → CI → aplicar las 4 migraciones (`20261111093151`,
 `20261111093819` —el índice, con la receta de la skill `entrega` §5—, `20261111093820`,
 `20261111094100`) → soltar la API → desplegar la ingesta (que es la que deja de correr los 3 pasos).
+
+**Entregada el 2026-11-11:** API en prod `dd13a0261` (13:24), las 4 migraciones aplicadas una por una
+(índice `indisvalid`), ingesta desplegada `trade-ingest:ffa49e979` (13:51, 9 carriles y 3 cronjobs;
+`kubectl diff` previo: sólo cambiaba la imagen y el árbitro de pólizas `[OPS-AUD.13.4]`, que estaba en
+`main` desde el 29-oct sin haber llegado). Falta medir que las tablas congeladas dejen de moverse
+(kardex y tickets a las :15; cajeros después de las 03:30).
+
+### 8.6 Oleada 8 — medida antes de construir: la premisa no sobrevivió (2026-11-11)
+
+El plan decía «un primitivo por cambio: `feeds-ingest` avisa QUÉ tabla del ODS cambió, y con él se
+retiran tres relojes». Medido en prod (sólo lectura) antes de escribir código:
+
+| Reloj | Costo medido (7 días, `cron_run_log`) | Fuentes (`pg_depend`) | Ritmo de cambio de las fuentes |
+|---|---|---|---|
+| `refresh-existencia-aux` (4 matviews) | **19.2 s por corrida** (el comentario decía 6.7), máx 54 s · 288/día · **5,533 s/día** | `kdm1`, `kdm2`, `kdii`, `kdik`, `kdpv_*`, catálogo, overrides, Wincaja | `kdm2` ~35 cambios/min en horario hábil |
+| `refresh-cierre-matview` | 2.0 s · 96/día · 188 s/día; reescribe las 115 filas cada vez (`refrescado_en` cambia por construcción) | `gl_polizas`, `gl_poliza_lines`, `bank_movements`, `cfdis` | `gl_*` cambian cada minuto (pólizas de Kepler todo el día) |
+| `auto-received` (nocturno) | 1–2 s | `kdm1`/`kdm2` X-A-40 | 22–59 entradas/día |
+
+**Lo que eso dice:** un aviso por TABLA no sirve para los dos primeros — sus fuentes cambian cada
+minuto, así que «refrescar al aviso» es refrescar todo el día. Lo que sirve es **mantener por llave**
+(ADR-104, ya aplicado en caja y en `[PQ.59]`/`[PQ.60]`/`[PQ.61]`): recalcular sólo los productos o
+meses que tocó la sentencia. Y el `MiradaAlAviso` de `[RE.69]` no gana un tercer consumidor, así que
+**no se mueve a `libs/`**: moverlo sin consumidor nuevo es churn, no ADR-056.
+
+**`auto-received` no se pasa a evento: se retira (`[CANON.6.4]`).** Desde D21 (`[PQ.16]`,
+2026-10-26, firmado) la Suite no emite OC ni recepciones propias; sus OC quedaron congeladas. El
+script siguió creando OE sobre ellas por presencia de SKU. Medido después de D21: **158 OE sobre 80
+OC congeladas** (11,232 unidades; 56 casaron una entrada de más de 14 días después de su OC) y 19 OC
+pasaron a `received`. ⚠️ **Pendiente de Edgar:** esas 158 OE se quedan (borrar es regla 5); ¿se
+rotulan «auto-conciliada después de D21» o se revierten?
+
+**El orden nuevo:**
+
+| | Qué | Esfuerzo | Estado |
+|---|---|---|---|
+| 8a | `auto-received` fuera del nocturno (contradice D21) | S | 🧪 2026-11-11, commit local; llega con el próximo despliegue de la ingesta |
+| 8b | `existencia-aux` → una tabla por matview mantenida por llave (ADR-104): función por producto/almacén, triggers por sentencia en sus fuentes del ODS, árbitro nocturno que debe encontrar 0 | L | ⬜ — es donde está el costo (1.5 h de CPU al día) y el factor de caja que se imprime al cliente |
+| 8c | cierre por mes tocado (ADR-104) | M | ⬜ — antes medir cuántas sentencias por minuto le llegan: si recalcular un mes por sentencia cuesta más que 188 s/día, se dice y se decide |
+
+**8b, el diseño medido (2026-11-11, prod sólo lectura).** Costo por matview en el log del carril
+(3 corridas): `mv_warehouse_box_factor` 8–13 s (45 %) · `mv_price_truth` 7–10.5 s (38 %) ·
+`mv_kepler_unit_cost` 1.6–2.3 s · `mv_product_box_factor` 0.7–1 s. La forma: **una tabla por matview
+que se recalcula DESDE LA MISMA VISTA filtrada a las llaves tocadas** (`DELETE … WHERE sku = ANY(k)` +
+`INSERT … SELECT * FROM <vista> WHERE sku = ANY(k)`), con triggers por sentencia en cada fuente que
+sacan los SKU de sus tablas de transición. La regla sigue viviendo en un solo lugar —la vista— y el
+nombre `mv_*` se conserva como vista sobre la tabla (ADR-104 §6: ninguna pantalla cambia). Costo de la
+vista filtrada a 10 SKU: `v_warehouse_box_factor` **150–190 ms** (contra 8–13 s entera) ·
+`v_product_box_factor` **13 ms** · `v_kepler_unit_cost` 400 ms (el filtro no llega al `GROUP BY` de
+`kdik`: su recálculo filtra `kdik` directo). Antes de construir:
+- `mv_price_truth` no tiene vista debajo (el SQL vive en la matview): primero sacarlo a `v_price_truth_calc`.
+- `v_warehouse_box_factor` lee **otra matview**, `mv_kepler_sold_rung`: localizar quién la refresca (es
+  un reloj más que entra al mismo arreglo).
+- Crear triggers en `kdm2`/`kdii`/`kdik` toma candado y la carga inicial recorre todo: **fuera de horario**.
+- Árbitro nocturno por matview: tabla vs vista completa, debe encontrar 0.

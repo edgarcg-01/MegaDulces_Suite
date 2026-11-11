@@ -261,7 +261,10 @@ const STEPS = {
     // RETIRADO 2026-08-28: import-in-transit — el tránsito (X-A-35 sin X-A-40) se DERIVA del ODS
     // dentro de import-replenishment-plan (CTE `tr`). Mientras fue tabla + importer aparte, el
     // rename qty_in_transit → transit_cajas se comió la conversión de unidad. Ver GOTCHAS §25.
-    path.join(K, 'import-auto-received.js'),     // RA.15.1 auto-received: X-A-40 Kepler → cierra nuestras OC abiertas (OE source=kepler, sin mover stock)
+    // RETIRADO 2026-11-11 [CANON.6.4]: import-auto-received.js — creaba recepciones (OE) sobre las OC
+    // propias, y desde D21 (`[PQ.16]`, 2026-10-26) la Suite ya no emite OC ni OE: las suyas quedaron
+    // congeladas. Medido: después de D21 escribió 158 OE sobre 80 OC congeladas (56 casaban una
+    // entrada de más de 14 días después de su OC). La recepción es la X-A-40 de Kepler, que se LEE.
     path.join(K, 'import-stock-movements.js'),  // DM — Diario de movimientos (kdm1⋈kdm2 filtrado por doctype.k_binv) → analytics.stock_movements (ventana 120d)
     // RETIRADO 2026-11-05 [CANON.5.8]: import-purchase-velocity.js — su único lector era
     // import-replenishment-plan, que ahora deriva la velocidad de compra en línea de

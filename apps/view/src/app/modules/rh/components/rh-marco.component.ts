@@ -48,7 +48,16 @@ const VER_ASISTENCIA = [Permission.HR_ATTENDANCE_VER, Permission.HR_ATTENDANCE_G
 
     <app-page-tabs [tabs]="tabs()" variant="underline" ariaLabel="Asistencia" />
 
-    @if (barra()) {
+    <!-- Sin plazas no hay nada que medir: se dice una vez aquí, y las pestañas que calculan no pintan «nadie» ni ceros. -->
+    @if (est.sinPlazas()) {
+      <section class="mc-sin" role="status" aria-labelledby="mc-sin-t">
+        <h2 id="mc-sin-t">Todavía no hay plazas de checado en la Suite</h2>
+        <p>Las plazas, sus relojes y su historial llegan con el corte de asistencia desde Mega Talento, que aún no se hace.
+          Mientras tanto la asistencia se consulta en Mega Talento: aquí no hay nada medido, por eso no se muestran cifras.</p>
+      </section>
+    }
+
+    @if (barra() && !est.sinPlazas()) {
       <section class="mc-bar" aria-label="Qué ver">
         <p-select [options]="est.sitios()" optionLabel="name" optionValue="code" [ngModel]="est.sitio()" (ngModelChange)="est.setSitio($event)"
                   placeholder="Plaza" appendTo="body" ariaLabel="Plaza" class="mc-plaza" />
@@ -165,6 +174,9 @@ const VER_ASISTENCIA = [Permission.HR_ATTENDANCE_VER, Permission.HR_ATTENDANCE_G
     .mc-cierre p { margin: 0; flex: 1 1 30ch; }
     .mc-cierre-link { font-weight: 600; color: inherit; }
     .mc-nota { margin: 0; font-size: var(--fs-xs); color: var(--text-muted); }
+    .mc-sin { padding: var(--sp-4); border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); }
+    .mc-sin h2 { margin: 0; font: 700 var(--fs-h3)/1.25 var(--font-body); color: var(--text-main); }
+    .mc-sin p { margin: var(--sp-1) 0 0; font-size: var(--fs-sm); color: var(--text-muted); max-width: 72ch; }
     .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
     @media (max-width: 40rem) {
       .mc-buscar { margin-left: 0; max-width: none; }
