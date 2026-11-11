@@ -9,6 +9,7 @@ import { SelectModule } from 'primeng/select';
 import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { SelectButtonModule } from 'primeng/selectbutton';
 import { TooltipModule } from 'primeng/tooltip';
+import { InputTextModule } from 'primeng/inputtext';
 import {
   ComercialService, InventoryVarianceEvent, InventoryVarianceLine,
   InventoryVarianceCoverage, InventoryCountPlan, InventoryVarianceKpi, Warehouse,
@@ -23,6 +24,9 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
 import { TableDensityComponent } from '../../../shared/components/table-density/table-density.component';
 import { TableDensityService } from '../../../shared/components/table-density/table-density.service';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+import { KardexProductoComponent } from '../../almacen/components/kardex-producto.component';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
 
 /**
  * [IC.0] Diferencias del conteo físico de Kepler.
@@ -44,7 +48,8 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
   standalone: true,
   imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule,
     ToggleSwitchModule, SelectButtonModule, TooltipModule, MetricCardComponent,
-    ContextHelpComponent, TableDensityComponent, FreshnessPillComponent, SidePeekComponent, SucursalPipe],
+    ContextHelpComponent, TableDensityComponent, FreshnessPillComponent, SidePeekComponent, SucursalPipe,
+    InputTextModule, KardexProductoComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page inv-var">
@@ -70,8 +75,8 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
 
       <div class="inv-var-filters">
         <p-select [options]="warehouseOptions()" optionLabel="label" optionValue="value"
-          [(ngModel)]="warehouseFilter" (onChange)="load()" placeholder="Todos los almacenes"
-          styleClass="inv-var-wh"></p-select>
+          [(ngModel)]="warehouseFilter" (onChange)="load(); histAviso.set(null)" placeholder="Todos los almacenes"
+          ariaLabel="Almacén" styleClass="inv-var-wh"></p-select>
         <label class="inv-var-toggle">
           <p-toggleswitch [(ngModel)]="includeInitialLoad" (onChange)="load()"></p-toggleswitch>
           <span>Incluir cargas iniciales</span>
@@ -80,7 +85,21 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
           <span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span>
           <span class="p-button-label">Actualizar</span>
         </button>
+        <!-- [IC.25] El historial de existencia de UN producto en la sucursal elegida, aunque nunca
+             haya entrado a un conteo: el expediente de abajo sólo se abre desde un conteo. -->
+        <form class="inv-var-hist" role="search" aria-label="Historial de existencia de un producto"
+              (ngSubmit)="abrirHistorial()">
+          <input pInputText type="search" name="histSku" [(ngModel)]="histSku" autocomplete="off"
+                 placeholder="SKU" aria-label="SKU del producto" class="inv-var-hist-in" />
+          <button pButton type="submit" [text]="true">
+            <span class="p-button-icon p-button-icon-left pi pi-history" aria-hidden="true"></span>
+            <span class="p-button-label">Historial de existencia</span>
+          </button>
+        </form>
       </div>
+      @if (histAviso(); as aviso) {
+        <p class="inv-var-note" role="status">{{ aviso }}</p>
+      }
 
       @if (vista === 'programa') {
         <!-- ── [IC.6] El programa: los tres ritmos en un lugar ────────────────────── -->
@@ -478,8 +497,8 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
             <td>
               <i class="pi" [ngClass]="selected?.rowKey === e.rowKey ? 'pi-angle-down' : 'pi-angle-right'"
                  aria-hidden="true"></i>
-              {{ e.warehouse_code }} — {{ e.warehouse_name }}</td>
-            <td>{{ e.fecha }}</td>
+              {{ e.warehouse_name || (e.warehouse_code | sucursal) }}</td>
+            <td class="inv-var-nowrap">{{ fechaLegible(e.fecha) }}</td>
             <td>
               @if (e.tipo_evento === 'carga_inicial') {
                 <p-tag severity="secondary" value="Carga inicial"></p-tag>
@@ -505,7 +524,7 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
 
       @if (vista === 'diferencias' && selected) {
         <section class="inv-var-detail">
-          <h2>{{ selected.warehouse_code | sucursal }} · {{ selected.fecha }}</h2>
+          <h2>{{ selected.warehouse_code | sucursal }} · {{ fechaLegible(selected.fecha) }}</h2>
 
           @if (coverage(); as c) {
             <div class="inv-var-coverage">
@@ -826,6 +845,14 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
                 </p>
               }
             }
+            <!-- [IC.25] De «cuánto hay hoy» a «cómo llegó ahí», sin volver a escribir el SKU. -->
+            @if (selected && peekSku(); as sku) {
+              <button pButton type="button" class="p-button-sm p-button-text"
+                      (click)="abrirHistorial(sku, selected.warehouse_id)">
+                <span class="p-button-icon p-button-icon-left pi pi-history" aria-hidden="true"></span>
+                <span class="p-button-label">Ver su historial de existencia</span>
+              </button>
+            }
 
             <!-- 6 · Prevención. -->
             <h3 class="inv-var-exp-h">Expediente de investigación</h3>
@@ -848,6 +875,24 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
                 </table>
               }
             }
+          }
+        }
+      </app-side-peek>
+
+      <!-- [IC.25] Historial de existencia: el kardex de Kepler del producto en la sucursal, con el
+           saldo después de cada movimiento. Es el MISMO componente que usa Existencia negativa. -->
+      <app-side-peek [open]="histPeek()" (openChange)="histPeek.set($event)" [width]="640"
+                     [title]="histAbierto() ? 'Historial · ' + histAbierto()!.sku : 'Historial de existencia'"
+                     [subtitle]="histAbierto()?.sucursal || ''">
+        @if (histAbierto(); as h) {
+          <h3 class="inv-var-exp-h inv-var-hist-h">Movimiento por movimiento, con el saldo
+            <app-context-help topic="almacen-kardex-negativo" /></h3>
+          @if (!puedeKardex) {
+            <p class="inv-var-note inv-var-oculto"><i class="pi pi-lock" aria-hidden="true"></i>
+              El historial no se muestra porque tu perfil no incluye COMMERCIAL_MOVEMENTS_VER. No es
+              que no haya información: es que no te corresponde verla.</p>
+          } @else {
+            <app-kardex-producto [warehouseId]="h.warehouse_id" [sku]="h.sku" [encabezado]="true" alto="28rem" />
           }
         }
       </app-side-peek>
@@ -921,12 +966,62 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
     .inv-var-tabs { margin-bottom: .75rem; }
     .inv-var-prog h2.inv-var-h2 { font-size: var(--fs-h3); margin: 1.25rem 0 .5rem; }
     .inv-var-salv { font-size: var(--fs-nano); color: var(--fg-3); }
+    /* [IC.25] El buscador del historial va al final de la barra; en angosto baja completo. */
+    .inv-var-hist { display: inline-flex; gap: .375rem; align-items: center; margin-left: auto; }
+    .inv-var-hist-in { width: 9rem; }
+    .inv-var-hist-h { display: flex; align-items: center; gap: .375rem; margin-top: 0; }
+    .inv-var-nowrap { white-space: nowrap; }
+    :host { display: block; container-type: inline-size; }
+    @container (max-width: 40rem) {
+      .inv-var-hist { margin-left: 0; width: 100%; }
+      .inv-var-hist-in { flex: 1; width: auto; }
+    }
     .num { text-align: right; }
     .tabular { font-variant-numeric: tabular-nums; }
   `],
 })
 export class ComercialInventoryVarianceComponent {
   private readonly api = inject(ComercialService);
+  private readonly perms = inject(PermissionsService);
+
+  // ── [IC.25] Historial de existencia de un producto ─────────────────────────────────────
+  /**
+   * El kardex pide su propio permiso (el de movimientos), que dos de los puestos que ven esta
+   * pantalla no tienen (almacenista y cliente B2B, medido el 2026-11-10). Para ellos el panel lo
+   * DICE en vez de abrirse vacío.
+   */
+  readonly puedeKardex = this.perms.hasAny(Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER);
+  histSku = '';
+  readonly histAviso = signal<string | null>(null);
+  readonly histPeek = signal(false);
+  readonly histAbierto = signal<{ warehouse_id: string; sku: string; sucursal: string } | null>(null);
+
+  /**
+   * Abre el historial del SKU en la sucursal. Desde la barra usa la sucursal del selector; desde
+   * el expediente, la del conteo abierto. Sin sucursal no se adivina: se pide.
+   */
+  abrirHistorial(sku: string = this.histSku, warehouseId: string | null = this.warehouseFilter): void {
+    const s = (sku ?? '').trim();
+    if (!s) { this.histAviso.set('Escribe el SKU del producto.'); return; }
+    if (!warehouseId) {
+      this.histAviso.set(`Elige la sucursal en el selector de almacén para ver el historial del ${s}.`);
+      return;
+    }
+    this.histAviso.set(null);
+    const w = this.warehouses().find((x) => x.id === warehouseId);
+    this.peek.set(false);
+    this.histAbierto.set({ warehouse_id: warehouseId, sku: s, sucursal: w?.name ?? '' });
+    this.histPeek.set(true);
+  }
+
+  /** `2026-09-23T06:00:00.000Z` (un DATE de Postgres serializado) → «23 sep 2026». */
+  fechaLegible(f: string | null | undefined): string {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(f ?? ''));
+    if (!m) return String(f ?? '');
+    const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+    return new Intl.DateTimeFormat('es-MX', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
+      .format(d).replace('.', '');
+  }
   /** §564 #2 — la densidad la elige quien usa la pantalla, y se recuerda entre pantallas. */
   readonly density = inject(TableDensityService);
 
@@ -1012,7 +1107,8 @@ export class ComercialInventoryVarianceComponent {
 
   readonly warehouseOptions = computed(() => [
     { label: 'Todos los almacenes', value: null as string | null },
-    ...this.warehouses().map((w) => ({ label: `${w.code} — ${w.name}`, value: w.id })),
+    // Por nombre, nunca por código (regla del PM, 2026-10-22).
+    ...this.warehouses().map((w) => ({ label: w.name, value: w.id })),
   ]);
 
   /** Cuántos renglones del detalle no tienen «debía haber» reconstruible. */
@@ -1366,7 +1462,7 @@ export class ComercialInventoryVarianceComponent {
 
   peekSub(): string {
     const e = this.selected;
-    return e ? `${e.warehouse_code} · ${e.fecha}` : '';
+    return e ? `${e.warehouse_name || e.warehouse_code} · ${this.fechaLegible(e.fecha)}` : '';
   }
 
   abrirExpediente(l: InventoryVarianceLine) {

@@ -929,6 +929,142 @@ pueda romperla en silencio— más un **control de arnés** que exige que los do
 distingan (si no, esa prueba pasaría por vacía). **Mutado a rojo**: quitando el desvío, **8 de 16
 combinaciones** se mueven y la suite falla. `nx test view` completo: **2,066 ✓ / 0 ✗**.
 
+### `[IC.25]` — Diferencias: el historial de existencia de UN producto, aunque nunca se haya contado · 🧪 EN CÓDIGO (2026-11-10)
+
+**Pedido (Edgar, 2026-11-10):** *«necesito ver el historial de existencia del 83816 [en Padre
+Hidalgo]… poder hacerlo yo»*, desde `/almacen/inventory/diferencias`. La pantalla no podía: el
+expediente de un SKU **sólo se abre desde un conteo**, y el 83816 llegó a Padre Hidalgo el 8-oct,
+**después** de sus dos conteos (26-jun y 11-sep). No había forma de llegar a él.
+
+**Lo que se midió antes de diseñar (prod, sólo lectura, 2026-11-10):**
+
+| Fuente candidata | Qué dice del 83816 en Padre Hidalgo | Veredicto |
+|---|---|---|
+| Foto diaria `analytics.stock_snapshots` | 150 → 40 → **0** del 19-oct al 9-nov | ⛔ **No guarda negativos** (0 de 22,352 renglones el 9-nov): pinta 0 donde Kepler estuvo en **−145** |
+| Diario `analytics.stock_movements` | +150 (8-oct) · −30 (6-nov) · +150 (9-nov) | ⛔ En Padre Hidalgo **no trae las ventas de mostrador**: la caída 150 → 0 no se ve |
+| Kardex `GET /commercial/movements/negative-stock/kardex` (`[MX.2.9]`, lee `kdm2`) | 26 renglones, saldo corrido, **mínimo −145 el 8-nov**, `cuadra: true` | ✅ **223 ms**; sirve para cualquier SKU, no sólo negativos |
+
+La historia real, que el kardex cuenta y las otras dos no: entró 150 (8-oct) → mostrador hasta 0
+(19-oct) → **embarque de 30 a Yurécuaro el 6-nov SIN existencia** → mostrador hasta **−145** (8-nov)
+→ la recepción de 150 del 9-nov lo regresó a 0. Arbitrado contra `sales_daily`: cada día cuadra.
+
+**Las doce preguntas de `diseno` §0a, en una línea cada una:**
+
+1. **Propósito:** ¿cuánto hubo de este producto en esta sucursal, y qué lo movió?
+2. **Quién:** 11 puestos ven Diferencias; 9 tienen el permiso del kardex (`COMMERCIAL_MOVEMENTS_VER`
+   o `RECONCILIATION_VER`). `almacenista` y `customer_b2b` no: el panel **lo dice**. Uso medido en
+   30 días: sólo `superadmin`.
+3. **Estado real:** la tabla de arriba.
+4. **Nivel 0:** un campo «SKU» + «Historial de existencia» al final de la barra de filtros; usa la
+   sucursal del selector que ya existe.
+5. **Qué no ve:** no hay tabla ni KPI nuevos en la página; el historial vive en un panel lateral.
+6. **Desglose:** SKU → panel con el kardex (producto, existencia de Kepler hoy, saldo más bajo si
+   fue negativo, control contra Kepler, movimiento por movimiento) → endpoint que ya existía.
+7. **Accesibilidad:** un campo + Enter; sin sucursal no se adivina, se pide en llano; la sucursal
+   por nombre; el saldo negativo en rojo **y** con su signo.
+8. **Ligas:** el expediente de un renglón ahora tiene «Ver su historial de existencia» (mismo SKU,
+   misma sucursal, sin reescribirlo).
+9. **¿Le toca?** Sí: Diferencias es donde se pregunta por qué descuadró, y el kardex es el testigo.
+10. **Maqueta:** `[Almacén ▾] [cargas iniciales] [Actualizar]  ……  [SKU____] [Historial de existencia]`.
+11. **Aceptación:** Padre Hidalgo + 83816 abre 26 movimientos, dice «el 8-nov cerró en −145 pz» y
+    «Control: los movimientos suman 0 pz, lo mismo que Kepler».
+12. **Lo que la interfaz NO resuelve** (C0, se declara): la foto diaria sin negativos y el Diario
+    sin el mostrador de Padre Hidalgo — las dos fuentes **siguen** mintiendo donde se usan.
+
+**Lo que se hizo:**
+
+- **El kardex se extrajo a un componente compartido** (`modules/almacen/components/kardex-producto`):
+  vivía dentro de Existencia negativa y la segunda pantalla no lo copia (ADR-056). Existencia
+  negativa ahora lo usa; su comportamiento no cambia salvo una línea nueva: si no hay racha negativa
+  ACTUAL pero el saldo fue negativo, dice cuánto bajó y cuándo.
+- **Diferencias:** el buscador, su panel y el botón desde el expediente.
+- **De paso, en la misma pantalla:** la fecha de los conteos salía cruda (`2026-09-23T06:00:00.000Z`)
+  → «23 sep 2026»; el selector y la tabla decían «01 — Padre Hidalgo» → «Padre Hidalgo» (regla del
+  PM, 2026-10-22); `:host` con `display:block` y `@container` (se va el aviso #9 de `check:pantalla`).
+
+**Verificación:** `kardex-producto.component.spec.ts` 5 ✓ con los números reales del 83816;
+**mutado a rojo dos veces** (el mínimo deja de verse → 1 ✗; el mínimo vuelve a ser intradía → 1 ✗).
+`almacen-incidencias.component.spec.ts` (que monta Existencia negativa) 4 ✓. `check:pantalla` de
+las dos pantallas: **0 fallas nuevas**; `check:templates`, `check:templates-types`, `check:estilos`,
+`check:motion`, `check:teclado` en verde. El endpoint se ejerció en vivo (GET de sólo lectura,
+sesión real): 200 en 223 ms.
+
+**Validación visual (Edgar, 2026-11-10), contra el reporte de kardex de Kepler lado a lado:** mismos
+documentos, mismas cantidades, entradas 300 = salidas 300, saldo final 0; la pista de «entrada
+tardía» nombra la recepción 0000625. ⭐ **Una diferencia, y corrigió el diseño:** el 9-nov Kepler
+lista el ticket de 5 pz ANTES de la recepción (el saldo pasaría por −150) y este kardex lo acomoda
+después (−145). **`kdm2` no guarda la hora** (sólo `c32`, la fecha; verificado en los 21 renglones del
+8 y 9-nov), así que el orden dentro del día no se sabe. La línea decía «llegó a −145 pz» —afirmaba
+un mínimo intradía— y pasó a **«el 8-nov cerró en −145 pz»**: el saldo al cierre del día es el mismo
+en cualquier orden.
+
+**La conclusión del caso 83816 (lo que pidió Edgar):** no hubo faltante. CEDIS recibió 150 y los
+traspasó a Padre Hidalgo el 6-nov; ese mismo día Padre Hidalgo ya mandó 30 a Yurécuaro (o sea, la
+mercancía ya estaba en la tienda) y el 7 y 8-nov vendió 115 en mostrador, pero **la recepción se
+capturó en Kepler hasta el 9-nov**. Al capturarla cuadró exacto: 150 = 30 + 120 vendidas. Yurécuaro
+capturó sus 30 también el 9-nov. Causa: **recepción de traspaso capturada tarde**; no requiere ajuste.
+El envío de CEDIS se amarró a la recepción por fecha y cantidad (único envío del SKU a Padre Hidalgo
+en noviembre), no por folio de origen.
+
+**Deuda que se encontró y NO se arregló aquí:**
+
+- Al abrir un conteo, la lista del detalle muestra **200 renglones** de los ~2,193 del conteo de
+  Padre Hidalgo del 11-sep y **no avisa** que faltan (ley 0: una lista topada miente).
+- «Movimientos del período» del expediente sale de `stock_movements`: en Padre Hidalgo **no trae el
+  mostrador**, así que ese bloque subcuenta las salidas.
+
+### `[IC.26]` — Existencia negativa reconoce un traspaso enviado y sin recibir · 🧪 EN CÓDIGO (2026-11-11)
+
+**Pedido (Edgar, 2026-11-11):** *«¿por qué este no se agregó al apartado de incidencias?»* — la
+opción A de tres. El 83816 en Padre Hidalgo **sí debió aparecer** en Existencia negativa del 6 al
+9-nov (la lista es la existencia de Kepler EN VIVO y no guarda historia; Prevención la abrió el 7-nov
+y nadie la resolvió), pero rotulado **«Salió sin existencia»**: la causa «entrada sin aplicar» sólo
+conocía los vales de compra (X-A-37 sin X-A-40). Un traspaso enviado (U-D-41) sin su recepción
+(U-A-50) era invisible. Y la bandeja de movimientos (MX) no lo toma por diseño: el traspaso cuadró
+150 = 150 y se recibió dentro de la tolerancia de 15 días.
+
+**C0 — el dato (prod, sólo lectura, 2026-11-11):**
+
+| Medición | Valor |
+|---|---:|
+| Embarques entre sucursales en 60 días | 5,144 |
+| …sin recepción que los apunte | 376 |
+| Negativos de hoy | 3,133 |
+| **…con un traspaso en camino hacia su sucursal** | **47** (45 quedarían en 0 o más) |
+| …con un vale de compra sin aplicar (lo que ya se veía) | 21 |
+
+- **La llave**, verificada con el caso: el embarque declara su DESTINO en `kdm1.c10`; la recepción
+  apunta a su embarque con `c37/c38/c39` (`41`/serie/folio) y declara su ORIGEN en `c10`. Las 2,391
+  recepciones de 75 días resuelven su origen; 2,389 casan con un embarque real de ese origen a esa
+  sucursal. Con el origen en la llave, el folio repetido entre sucursales no cierra el embarque ajeno.
+- **Dos implementaciones** (el pareo de `[DM.20]` por destino + ventana −15/+90, y la llave exacta)
+  dieron **los mismos 376** embarques pendientes. La exacta tarda ~185 ms la vista entera (la otra
+  ~860 ms: el planeador estima 1–12 filas y anida ciclos; `MATERIALIZED` + `NOT IN` lo evita).
+- Vista `analytics.v_kepler_transfers_in_transit`, derivada, sin copia (regla 1), migración
+  `20261111085104` — **sin aplicar en prod**.
+
+**C1 — la regla** (`existencia-negativa.contract.ts`): `entrada_sin_aplicar` = vale sin aplicar
+**o** traspaso sin recibir; lo que queda suma los dos. El texto con sólo vale no cambió (las pruebas
+viejas pasan intactas). Si los traspasos no se pudieron revisar, «salió sin existencia» NO dice
+«ningún traspaso lo explica». 20 ✓; mutado a rojo (2 ✗).
+
+**C2 — el servicio:** tercera consulta en paralelo; si la vista no existe, `traspasos_revisados:
+false`. **Ensayado el servicio REAL contra prod en sólo lectura** (la vista sustituida por su mismo
+SELECT): la causa pasa de **11 a 58** pendientes, «salió sin existencia» de 1,443 a 1,402 y el rezago
+de 1,679 a 1,673 (un negativo viejo con un traspaso nunca recibido ya dice qué capturar: CEDIS 70106,
+120 pz que Morelia Abastos envió el 24-sep). La prueba de base (`test-newdb-mx-existencia-negativa.js`
+§7) agrega tres casos sintéticos —pendiente, recibido (control) y folio repetido de otro origen— y
+corre en el CI; no se corre local porque el `.env` apunta a prod.
+
+**C3 — la pantalla:** el panel dice qué capturar («capturando en Padre Hidalgo la recepción del
+traspaso 0001457 que envió CEDIS») y la fila «queda en X al recibir». Si la vista falta, una nota lo
+declara. ⛔ **Defecto que se habría colado:** el panel leía `f.vale!.folios` para toda «entrada sin
+aplicar»; con un traspaso sin vale, `vale` es `null` y la pantalla tronaba. `check:pantalla` 0 fallas,
+`check:templates-types` verde. Sin validación visual.
+
+**Orden de despliegue:** el código va primero sin riesgo (sin la vista, declara); después se aplica
+la migración en prod con `apply-one-migration-prod.js`.
+
 ---
 
 ## 6. Lo que NO se construye, y por qué

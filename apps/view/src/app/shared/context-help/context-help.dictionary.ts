@@ -671,8 +671,8 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       {
         heading: 'Causas',
         entries: [
-          { term: 'Entrada sin aplicar', def: 'La mercancía se recibió en un vale de entrada, pero falta su orden de entrada, que es la que suma al inventario de Kepler. Al aplicarla, la existencia queda en lo que dice la fila. Es la única causa que el dato prueba.' },
-          { term: 'Salió sin existencia', def: 'Se vendió o se mandó más de lo que había y ningún vale pendiente lo explica. El dato no dice por qué: puede ser una venta con otra clave, una entrada que nunca se capturó o un faltante real.' },
+          { term: 'Entrada sin aplicar', def: 'Hay mercancía que todavía no suma al inventario de Kepler, en una de dos formas: un vale de entrada sin su orden de entrada, o un traspaso que otra sucursal envió y aquí no se ha capturado la recepción. Al aplicarla o recibirla, la existencia queda en lo que dice la fila. Es la única causa que el dato prueba.' },
+          { term: 'Salió sin existencia', def: 'Se vendió o se mandó más de lo que había y ningún vale ni traspaso pendiente lo explica. El dato no dice por qué: puede ser una venta con otra clave, una entrada que nunca se capturó o un faltante real.' },
           { term: 'Rezago', def: 'En negativo y sin entradas ni salidas en 30 días: un negativo viejo. Va aparte para revisarse en bloque, no mezclado con lo que pasa hoy.' },
         ],
       },

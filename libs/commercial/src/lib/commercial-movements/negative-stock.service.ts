@@ -17,6 +17,9 @@ import {
  *
  *   analytics.v_kepler_negative_stock      ~150 ms en el servidor (kdil, 3,030 filas el 2026-11-03)
  *   analytics.v_kepler_unapplied_receipts  ~220 ms en el servidor (vales sin orden de entrada)
+ *   analytics.v_kepler_transfers_in_transit ~185 ms (`[IC.26]`, traspasos enviados sin recepción).
+ *     Si la vista no existe (migración sin aplicar) NO se da por cero: `traspasos_revisados: false`
+ *     y la causa «salió sin existencia» no afirma que ningún traspaso la explique.
  *
  * Alcance (D10, Edgar 2026-11-03): Prevención ve la red; el encargado de tienda (`warehouse: own`)
  * sólo su sucursal. Se recorta en SQL con la llave canónica de sucursal (`branchKeySql`), no en la
@@ -50,6 +53,11 @@ interface FilaVale {
   piezas: number;
   desde: string | null;
   folios: string | null;
+}
+
+interface FilaTraspaso extends FilaVale {
+  /** Nombre(s) de la sucursal que envió. */
+  origenes: string | null;
 }
 
 export interface NegativeStockQuery {
@@ -100,8 +108,9 @@ export class NegativeStockService {
     };
     const fn = filtro('n');
     const fv = filtro('v');
+    const ft = filtro('t');
 
-    const [negativos, vales] = await Promise.all([
+    const [negativos, vales, traspasos] = await Promise.all([
       this.tk.run(tenantId, async (trx) => {
         const ax = await trx.raw(`SELECT to_regclass('analytics.mv_kepler_unit_cost') AS kc`);
         const FUENTE_KC = ax.rows?.[0]?.kc ? 'analytics.mv_kepler_unit_cost' : 'analytics.v_kepler_unit_cost';
@@ -134,15 +143,35 @@ export class NegativeStockService {
            WHERE ${fv.sql}`, fv.binds);
         return rows as FilaVale[];
       }),
+      // [IC.26] Tercera conexión, en paralelo: traspasos que otra sucursal envió y aquí no se recibieron.
+      // `null` = la vista no existe todavía → no se revisaron (se declara, no se da por cero).
+      this.tk.run(tenantId, async (trx) => {
+        const ex = await trx.raw(`SELECT to_regclass('analytics.v_kepler_transfers_in_transit') AS v`);
+        if (!ex.rows?.[0]?.v) return null;
+        const { rows } = await trx.raw(`
+          SELECT t.warehouse_id, t.sku, t.piezas::float8 AS piezas,
+                 to_char(t.desde, 'YYYY-MM-DD') AS desde, t.folios, t.origenes
+            FROM analytics.v_kepler_transfers_in_transit t
+            JOIN commercial.warehouses w ON w.tenant_id = t.tenant_id AND w.id = t.warehouse_id
+           WHERE ${ft.sql}`, ft.binds);
+        return rows as FilaTraspaso[];
+      }),
     ]);
 
+    const traspasosRevisados = traspasos !== null;
     const valePor = new Map(vales.map((v) => [`${v.warehouse_id}|${v.sku}`, v]));
+    const traspasoPor = new Map((traspasos ?? []).map((t) => [`${t.warehouse_id}|${t.sku}`, t]));
     const items: ExistenciaNegativaItem[] = negativos.map((n) => {
       const v = valePor.get(`${n.warehouse_id}|${n.sku}`) ?? null;
+      const t = traspasoPor.get(`${n.warehouse_id}|${n.sku}`) ?? null;
       const k = {
         existencia: n.existencia, ult_entrada: n.ult_entrada, ult_salida: n.ult_salida,
         vale_piezas: v?.piezas ?? null, vale_desde: v?.desde ?? null,
         vale_folios: v?.folios ? v.folios.split(',') : [],
+        traspaso_piezas: t?.piezas ?? null, traspaso_desde: t?.desde ?? null,
+        traspaso_folios: t?.folios ? t.folios.split(',') : [],
+        traspaso_origen: t?.origenes ?? null,
+        traspasos_revisados: traspasosRevisados,
       };
       const c = clasificarNegativo(k, hoy);
       const resolucion: ResolucionNegativo | null = n.resolution_reason
@@ -160,6 +189,7 @@ export class NegativeStockService {
         ult_entrada: n.ult_entrada, ult_salida: n.ult_salida,
         causa: c.causa, donde: describirNegativo(k, c),
         vale: v ? { piezas: v.piezas, desde: v.desde, folios: k.vale_folios } : null,
+        traspaso: t ? { piezas: t.piezas, desde: t.desde, folios: k.traspaso_folios, origen: t.origenes } : null,
         quedaria: c.quedaria,
         resolucion,
         reabierta: resolucion ? reaperturaNegativo(resolucion, k) : null,
@@ -201,9 +231,11 @@ export class NegativeStockService {
 
     const pageSize = Math.min(Math.max(Number(q.pageSize) || 50, 1), 200);
     const page = Math.max(Number(q.page) || 1, 1);
-    this.logger.log(`existencia negativa: ${items.length} en alcance, ${vales.length} vales, ${Date.now() - t0} ms`);
+    this.logger.log(`existencia negativa: ${items.length} en alcance, ${vales.length} vales, `
+      + `${traspasos ? `${traspasos.length} renglones de traspaso en camino` : 'traspasos NO revisados (falta la vista)'}, ${Date.now() - t0} ms`);
     return {
       alcance: codes ? 'propias' : 'todas',
+      traspasos_revisados: traspasosRevisados,
       totals: {
         universo: enSeleccion.length, pendientes: enSeleccion.length - resueltas, resueltas,
         por_causa: porCausa, por_sucursal: porSucursal,

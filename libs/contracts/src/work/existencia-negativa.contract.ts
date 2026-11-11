@@ -8,10 +8,15 @@
  * con movimiento en 30 días.
  *
  * ── Qué prueba el dato y qué NO (ADR-056) ──────────────────────────────────────────────────
- *  · `entrada_sin_aplicar` — la ÚNICA causa que el dato prueba: hay un vale de entrada (X-A-37) sin
- *    su orden de entrada (X-A-40, la que suma inventario). Medido: 14–20 de ~3,030 (17210 en Zamora
- *    Centro es uno). Se dice cuánto quedaría al aplicarla.
- *  · `salio_sin_existencia` — salió más de lo que entró y ningún vale pendiente lo explica. NO se
+ *  · `entrada_sin_aplicar` — la ÚNICA causa que el dato prueba, en dos formas:
+ *    - un vale de entrada (X-A-37) sin su orden de entrada (X-A-40, la que suma inventario). Medido:
+ *      14–20 de ~3,030 (17210 en Zamora Centro es uno);
+ *    - `[IC.26]` un TRASPASO que otra sucursal le envió (U-D-41) sin su recepción (U-A-50). Medido el
+ *      2026-11-11: 47 de 3,133 (más del doble que los vales). El caso que lo destapó: 83816 en Padre
+ *      Hidalgo, recepción capturada 3 días después de que CEDIS lo envió.
+ *    Se dice cuánto quedaría al aplicarla/capturarla.
+ *  · `salio_sin_existencia` — salió más de lo que entró y ningún vale (ni traspaso, cuando se pudieron
+ *    revisar) pendiente lo explica. NO se
  *    afirma por qué (venta con otra clave, entrada que nunca se capturó, faltante real): eso lo
  *    averigua Prevención y lo deja en el motivo.
  *  · `rezago` — sin entrada ni salida en {@link DIAS_REZAGO} días: un negativo viejo. Decisión D9
@@ -49,11 +54,23 @@ export interface NegativoKepler {
   vale_piezas: number | null;
   vale_desde: string | null;
   vale_folios: readonly string[];
+  /** `[IC.26]` Piezas en traspasos enviados a esta sucursal sin recepción (null/ausente = no hay). */
+  traspaso_piezas?: number | null;
+  /** Fecha del embarque más viejo de los pendientes. */
+  traspaso_desde?: string | null;
+  traspaso_folios?: readonly string[];
+  /** NOMBRE de la(s) sucursal(es) que enviaron. */
+  traspaso_origen?: string | null;
+  /**
+   * `true` = se revisaron los traspasos en camino. Ausente/`false` = no se pudieron revisar (falta la
+   * vista): entonces no se afirma que «ningún traspaso lo explica» (ADR-056: lo no medido se declara).
+   */
+  traspasos_revisados?: boolean;
 }
 
 export interface ClasificacionNegativo {
   causa: CausaNegativo;
-  /** Sólo `entrada_sin_aplicar`: la existencia si se aplica el vale. */
+  /** Sólo `entrada_sin_aplicar`: la existencia si se aplica el vale y se captura el traspaso. */
   quedaria: number | null;
 }
 
@@ -70,8 +87,10 @@ export function ultimaActividad(n: Pick<NegativoKepler, 'ult_entrada' | 'ult_sal
 
 /** `hoy` en `YYYY-MM-DD` (hora de México, la pone el servicio). */
 export function clasificarNegativo(n: NegativoKepler, hoy: string): ClasificacionNegativo {
-  if ((n.vale_piezas ?? 0) > 0) {
-    return { causa: 'entrada_sin_aplicar', quedaria: redondear(n.existencia + (n.vale_piezas as number)) };
+  const vale = n.vale_piezas ?? 0;
+  const traspaso = n.traspaso_piezas ?? 0;
+  if (vale > 0 || traspaso > 0) {
+    return { causa: 'entrada_sin_aplicar', quedaria: redondear(n.existencia + Math.max(vale, 0) + Math.max(traspaso, 0)) };
   }
   const ultima = ultimaActividad(n);
   if (!ultima || diasEntre(hoy, ultima) > DIAS_REZAGO) return { causa: 'rezago', quedaria: null };
@@ -98,14 +117,27 @@ function piezas(x: number): string {
 export function describirNegativo(n: NegativoKepler, c: ClasificacionNegativo): string {
   const marca = `Kepler marca ${piezas(n.existencia)}`;
   if (c.causa === 'entrada_sin_aplicar') {
-    const folios = n.vale_folios.length > 1 ? `los vales ${n.vale_folios.join(', ')}` : `el vale ${n.vale_folios[0] ?? ''}`.trim();
-    return `${marca}. Hay ${piezas(n.vale_piezas as number)} en ${folios} (desde ${dia(n.vale_desde)}) sin orden de entrada: al aplicarla queda en ${piezas(c.quedaria as number)}.`;
+    const hayVale = (n.vale_piezas ?? 0) > 0;
+    const hayTraspaso = (n.traspaso_piezas ?? 0) > 0;
+    const partes: string[] = [];
+    if (hayVale) {
+      const folios = n.vale_folios.length > 1 ? `los vales ${n.vale_folios.join(', ')}` : `el vale ${n.vale_folios[0] ?? ''}`.trim();
+      partes.push(`Hay ${piezas(n.vale_piezas as number)} en ${folios} (desde ${dia(n.vale_desde)}) sin orden de entrada`);
+    }
+    if (hayTraspaso) {
+      const tf = n.traspaso_folios ?? [];
+      const folios = tf.length > 1 ? `los traspasos ${tf.join(', ')}` : `el traspaso ${tf[0] ?? ''}`.trim();
+      partes.push(`${n.traspaso_origen || 'Otra sucursal'} le envió ${piezas(n.traspaso_piezas as number)} en ${folios} (desde ${dia(n.traspaso_desde ?? null)}) y aquí no se ha capturado la recepción`);
+    }
+    const accion = hayVale && hayTraspaso ? 'al aplicar las dos' : hayVale ? 'al aplicarla' : 'al capturarla';
+    return `${marca}. ${partes.join(', y ')}: ${accion} queda en ${piezas(c.quedaria as number)}.`;
   }
   if (c.causa === 'rezago') {
     const u = ultimaActividad(n);
     return `${marca}, sin movimiento desde ${dia(u)}.`;
   }
-  return `${marca}: salió más de lo que entró. Última salida ${dia(n.ult_salida)}, última entrada ${dia(n.ult_entrada)}; ningún vale pendiente lo explica.`;
+  const nada = n.traspasos_revisados ? 'ningún vale ni traspaso pendiente lo explica' : 'ningún vale pendiente lo explica';
+  return `${marca}: salió más de lo que entró. Última salida ${dia(n.ult_salida)}, última entrada ${dia(n.ult_entrada)}; ${nada}.`;
 }
 
 // ════════════════════════════════════════════════════════════════════════════════════════════
@@ -193,6 +225,8 @@ export interface ExistenciaNegativaItem {
   causa: CausaNegativo;
   donde: string;
   vale: { piezas: number; desde: string | null; folios: string[] } | null;
+  /** `[IC.26]` Traspasos que otra sucursal le envió y aquí no se han recibido. `origen` = nombre. */
+  traspaso?: { piezas: number; desde: string | null; folios: string[]; origen: string | null } | null;
   quedaria: number | null;
   /** Vigente o no: si `reabierta` trae motivo, la resolución ya no vale y está en pendientes. */
   resolucion: ResolucionNegativo | null;
@@ -204,6 +238,11 @@ export type EstadoNegativo = 'pendientes' | 'resueltas';
 export interface ExistenciaNegativaResponse {
   /** `todas` = ve la red; `propias` = sólo sus sucursales (D10, alcance `own`). */
   alcance: 'todas' | 'propias';
+  /**
+   * `[IC.26]` `false` = los traspasos en camino NO se revisaron (falta la vista): la pantalla lo dice
+   * y la causa «salió sin existencia» no afirma que ningún traspaso la explique.
+   */
+  traspasos_revisados?: boolean;
   totals: {
     /** Todo lo que está en negativo dentro del alcance, resuelto o no. */
     universo: number;
