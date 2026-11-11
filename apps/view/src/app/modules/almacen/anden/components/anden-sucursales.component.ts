@@ -87,7 +87,8 @@ import { DIAS_PENDIENTES_ANDEN } from '@megadulces/contracts';
             <li>
               <button type="button" class="su-row" [class.su-row-mal]="b.sin_almacen"
                 [disabled]="b.sin_almacen" (click)="elegir.emit(b)">
-                <span class="su-code">{{ b.warehouse_code || b.sucursal }}</span>
+                <!-- [CE] La sucursal se NOMBRA, jamás se numera: el ícono reemplaza al código «00»/«01». -->
+                <span class="su-code" aria-hidden="true"><i class="pi pi-building"></i></span>
                 <span class="su-nm">
                   {{ b.warehouse_name || 'Sucursal ' + b.sucursal }}
                   @if (b.sin_almacen) { <small>sin almacén configurado — no se puede recibir</small> }

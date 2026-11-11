@@ -106,7 +106,8 @@ import {
             <td class="ex-mono">{{ it.sku || '—' }}</td>
             <td class="ex-name">{{ it.product_name || '—' }}</td>
             <td class="ex-mono">{{ it.lot_code }}</td>
-            <td class="ex-mono">{{ it.expiry_date }}</td>
+            <!-- La fecha llega como instante de la medianoche de México ("2023-07-29T06:00:00.000Z"): se lee en UTC para que el día no se corra. -->
+            <td class="ex-mono">{{ it.expiry_date | date: 'dd/MM/yyyy' : 'UTC' }}</td>
             <td class="num">
               <p-tag [value]="dayLabel(+it.days_to_expiry)" [severity]="daySeverity(+it.days_to_expiry)"></p-tag>
             </td>
