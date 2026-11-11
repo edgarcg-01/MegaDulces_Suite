@@ -18,7 +18,9 @@
 const BASE = `http://localhost:${process.env.RECON_TEST_PORT || 3334}/api`;
 const { Client } = require('pg');
 const DST = process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
-// `[IDG.1]` Este test BORRA de `analytics.stock_ledger` y `analytics.cash_cuts`.
+// `[IDG.1]` Este test BORRA de `kepler_ods.kdij` (sólo la sucursal sintética ZZ) y `analytics.cash_cuts`.
+// `[CANON.6.2]` La merma se lee de la vista `analytics.v_stock_ledger` sobre `kepler_ods.kdij`: el renglón
+// sintético va al kardex del ODS, no a la tabla congelada `analytics.stock_ledger`.
 require('./_lib/assert-safe-target').assertSafeTarget('http-reconciliation-test', { url: DST });
 const M = '00000000-0000-0000-0000-00000000d01c';
 const WH = 'ZZ';          // sucursal sintética (aislada)
@@ -44,7 +46,7 @@ async function cleanup(pg) {
   await pg.query(`DELETE FROM reconciliation.discrepancy_feedback WHERE tenant_id=$1 AND discrepancy_id IN (SELECT id FROM reconciliation.discrepancies WHERE tenant_id=$1 AND (entity->>'sucursal')=$2)`, [M, WH]).catch(() => {});
   await pg.query(`DELETE FROM reconciliation.discrepancies WHERE tenant_id=$1 AND (entity->>'sucursal')=$2`, [M, WH]).catch(() => {});
   await pg.query(`DELETE FROM analytics.cash_cuts WHERE tenant_id=$1 AND warehouse_code=$2`, [M, WH]).catch(() => {});
-  await pg.query(`DELETE FROM analytics.stock_ledger WHERE tenant_id=$1 AND warehouse_code=$2`, [M, WH]).catch(() => {});
+  await pg.query(`DELETE FROM kepler_ods.kdij WHERE sucursal=$1`, [WH]).catch(() => {});
 }
 
 (async () => {
@@ -64,11 +66,11 @@ async function cleanup(pg) {
     [M, WH, FECHA],
   );
   await pg.query(
-    `INSERT INTO analytics.stock_ledger (tenant_id, warehouse_code, sku, genero, naturaleza, grupo, clase_mov, folio, unidades, importe, fecha)
-     VALUES ($1,$2,$3,'N','D','5','merma','SMOKE-M',5,150000,$4)`,
-    [M, WH, SKU, FECHA],
+    `INSERT INTO kepler_ods.kdij (sucursal, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c13)
+     VALUES ($1,$1,1,$2,'N','D',5,1,'SMOKE-M',5,$3,150000)`,
+    [WH, SKU, FECHA],
   );
-  check('cash_cut + stock_ledger sintéticos insertados', true);
+  check('cash_cut + kardex (kepler_ods.kdij) sintéticos insertados', true);
 
   console.log('\n── 2. Escaneo del motor ──');
   const scan = await req('POST', '/reconciliation/scan', token);

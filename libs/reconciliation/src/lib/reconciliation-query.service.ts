@@ -62,7 +62,7 @@ export class ReconciliationQueryService {
           trx.raw('ROUND(SUM(-LEAST(efectivo_diff, 0))::numeric, 2) AS sobrante'),
           trx.raw('ROUND(SUM(venta_total)::numeric, 2) AS venta'),
         ).first();
-      const merma: any = await this.applyWh(trx('analytics.stock_ledger').where({ tenant_id: tenantId, clase_mov: 'merma' }), 'warehouse_code', wh)
+      const merma: any = await this.applyWh(trx('analytics.v_stock_ledger').where({ tenant_id: tenantId, clase_mov: 'merma' }), 'warehouse_code', wh)
         .select(trx.raw('COUNT(*)::int AS movs'), trx.raw('ROUND(SUM(importe)::numeric, 2) AS monto')).first();
       const disc: any = await trx('reconciliation.discrepancies')
         .where('tenant_id', trx.raw('public.current_tenant_id()')).whereIn('status', ['nuevo', 'en_revision'])
@@ -85,7 +85,7 @@ export class ReconciliationQueryService {
           trx.raw('COUNT(*)::int AS cortes'),
           trx.raw('ROUND(SUM(GREATEST(efectivo_diff, 0))::numeric, 2) AS faltante'))
         .orderByRaw('SUM(GREATEST(efectivo_diff, 0)) DESC');
-      const mermaSuc = await this.applyWh(trx('analytics.stock_ledger').where({ tenant_id: tenantId, clase_mov: 'merma' }), 'warehouse_code', wh)
+      const mermaSuc = await this.applyWh(trx('analytics.v_stock_ledger').where({ tenant_id: tenantId, clase_mov: 'merma' }), 'warehouse_code', wh)
         .groupBy('warehouse_code')
         .select('warehouse_code', trx.raw('ROUND(SUM(importe)::numeric, 2) AS merma'))
         .orderByRaw('SUM(importe) DESC');
@@ -230,7 +230,7 @@ export class ReconciliationQueryService {
     const limit = Math.min(1000, Math.max(1, Number(q.limit) || 300));
     const wh = await this.warehouseScope();
     return this.tk.run(async (trx) => {
-      const b = this.applyWh(trx('analytics.stock_ledger as sl').where('sl.tenant_id', tenantId), 'sl.warehouse_code', wh)
+      const b = this.applyWh(trx('analytics.v_stock_ledger as sl').where('sl.tenant_id', tenantId), 'sl.warehouse_code', wh)
         .leftJoin('public.products as p', function (this: any) {
           this.on('p.sku', '=', 'sl.sku').andOn('p.tenant_id', '=', 'sl.tenant_id');
         })

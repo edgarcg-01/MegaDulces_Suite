@@ -794,7 +794,7 @@ export class MovementReconcileService {
   private async detMermaInventario(trx: any, tenantId: string, params: any): Promise<RawDiscrepancy[]> {
     const minMonto = Number(params.min_monto) || 5000;
     const critico = Number(params.critico) || 100000;
-    const rows = await trx('analytics.stock_ledger')
+    const rows = await trx('analytics.v_stock_ledger')
       .where('tenant_id', tenantId)
       .where('clase_mov', 'merma')
       .groupBy('warehouse_code', 'sku')

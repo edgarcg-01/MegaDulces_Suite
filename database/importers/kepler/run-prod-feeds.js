@@ -203,7 +203,8 @@ const STEPS = {
     // kepler_ods.kdm1 (mig 20260819220000) → se derivan EN VIVO del ODS, sin importer que se atrase.
     // Correr los importers pegaría contra la vista → error. Los .js quedan como fallback histórico.
     path.join(K, 'import-pos-ticket-sales.js'),    // venta de tickets → analytics.pos_ticket_sales
-    path.join(K, 'import-kardex.js'),              // movimientos de inventario → analytics.stock_ledger
+    // RETIRADO 2026-11-11 [CANON.6.2]: import-kardex.js — los movimientos de inventario (género N) salen
+    // de la VISTA analytics.v_stock_ledger sobre kepler_ods.kdij; analytics.stock_ledger queda congelada.
     // RETIRADO 2026-11-10 [RE.68]: import-purchase-adjustments.js → los ajustes de compra salen de la VISTA
     // analytics.v_purchase_adjustments (mig 20261110160453), derive-no-copy sobre kepler_ods.kdm1 de TODAS las
     // sucursales. El importer copiaba sólo el CEDIS, contaba canceladas e inventaba categoría. Su tabla queda

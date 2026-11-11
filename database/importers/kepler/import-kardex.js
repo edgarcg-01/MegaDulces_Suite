@@ -1,4 +1,8 @@
 /**
+ * ⛔ RETIRADO 2026-11-11 [CANON.6.2] — ya no corre en ningún carril. Los movimientos de género N se leen
+ * de la vista `analytics.v_stock_ledger` (kepler_ods.kdij, misma regla que `readOds` + `dedupeAggregate`
+ * + `claseMov` de abajo). `analytics.stock_ledger` queda congelada; su borrado se pide aparte.
+ *
  * SM.2 — Importer de movimientos de inventario (Supervisor de Movimientos, Plano 1).
  *
  * Lee md.kdij (kardex) de las sucursales Kepler, SOLO movimientos de inventario
