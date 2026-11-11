@@ -62,14 +62,14 @@ export class ReconciliationQueryService {
           trx.raw('ROUND(SUM(-LEAST(efectivo_diff, 0))::numeric, 2) AS sobrante'),
           trx.raw('ROUND(SUM(venta_total)::numeric, 2) AS venta'),
         ).first();
-      const merma: any = await this.applyWh(trx('analytics.v_stock_ledger').where({ tenant_id: tenantId, clase_mov: 'merma' }), 'warehouse_code', wh)
+      const merma: { movs: number; monto: string | null } | undefined = await this.applyWh(trx('analytics.v_stock_ledger').where({ tenant_id: tenantId, clase_mov: 'merma' }), 'warehouse_code', wh)
         .select(trx.raw('COUNT(*)::int AS movs'), trx.raw('ROUND(SUM(importe)::numeric, 2) AS monto')).first();
       const disc: any = await trx('reconciliation.discrepancies')
         .where('tenant_id', trx.raw('public.current_tenant_id()')).whereIn('status', ['nuevo', 'en_revision'])
         .select(trx.raw('COUNT(*)::int AS pendientes'), trx.raw("COUNT(*) FILTER (WHERE severity='critical')::int AS criticos")).first();
 
       const topCajeros = await this.applyWh(trx('analytics.cash_cuts as cc').where('cc.tenant_id', tenantId), 'cc.warehouse_code', wh)
-        .leftJoin('analytics.v_pos_cashiers as pc', function (this: any) {
+        .leftJoin('analytics.v_pos_cashiers as pc', function (this: Knex.JoinClause) {
           this.on('pc.tenant_id', '=', 'cc.tenant_id').andOn('pc.warehouse_code', '=', 'cc.warehouse_code').andOn('pc.cajero_code', '=', 'cc.cajero_cierre');
         })
         .whereRaw('cc.efectivo_diff >= 50').whereNotNull('cc.cajero_cierre')
@@ -121,7 +121,7 @@ export class ReconciliationQueryService {
       const b = this.applyWh(trx('analytics.cash_cuts as cc').where('cc.tenant_id', tenantId), 'cc.warehouse_code', wh);
       if (scope === 'cajero') {
         b.whereNotNull('cc.cajero_cierre')
-          .leftJoin('analytics.v_pos_cashiers as pc', (j: any) => j.on('pc.tenant_id', '=', 'cc.tenant_id').andOn('pc.warehouse_code', '=', 'cc.warehouse_code').andOn('pc.cajero_code', '=', 'cc.cajero_cierre'));
+          .leftJoin('analytics.v_pos_cashiers as pc', (j: Knex.JoinClause) => j.on('pc.tenant_id', '=', 'cc.tenant_id').andOn('pc.warehouse_code', '=', 'cc.warehouse_code').andOn('pc.cajero_code', '=', 'cc.cajero_cierre'));
       }
       const rows = await b
         .groupBy(...(scope === 'cajero' ? [...groupCols, 'pc.nombre'] : groupCols))
@@ -171,7 +171,7 @@ export class ReconciliationQueryService {
     const wh = await this.warehouseScope();
     return this.tk.run(async (trx) => {
       const b = this.applyWh(trx('analytics.cash_cuts as cc').where('cc.tenant_id', tenantId), 'cc.warehouse_code', wh)
-        .leftJoin('analytics.v_pos_cashiers as pc', function (this: any) {
+        .leftJoin('analytics.v_pos_cashiers as pc', function (this: Knex.JoinClause) {
           this.on('pc.tenant_id', '=', 'cc.tenant_id').andOn('pc.warehouse_code', '=', 'cc.warehouse_code').andOn('pc.cajero_code', '=', 'cc.cajero_cierre');
         })
         // SM.9 — arqueo ciego (cierre) ligado por suc/caja/fecha/cajero. RLS de blind_counts aplica dentro de tk.run.
