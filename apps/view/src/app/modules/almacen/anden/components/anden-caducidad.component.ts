@@ -151,7 +151,7 @@ type Semaforo = 'g' | 'y' | 'r' | 'n';
       }
       } @else {
         <div class="fx-sinc">
-          <span>Sin fecha de caducidad · entra como lote NA</span>
+          <span>{{ linea().tracks_expiry === false ? 'No caduca (según el catálogo)' : 'Sin fecha de caducidad' }} · entra como lote NA</span>
           <button type="button" class="fx-sincad" (click)="sinCaducidad.set(false)">Sí tiene caducidad</button>
         </div>
       }
@@ -430,6 +430,8 @@ export class AndenCaducidadComponent {
     if (d === null) return 'n';
     const min = this.minShelfLife();
     const ex = this.existingMinExpiry();
+    // `[CE.1.2]` Ya vencida: rojo siempre, haya o no mínimo (el backend hace lo mismo: `expired`).
+    if (d < 0) return 'r';
     if (min != null && d < min) return 'r';
     if (ex && this.iso()! < ex) return 'r';
     if (min != null && d < min + 60) return 'y';
@@ -443,6 +445,7 @@ export class AndenCaducidadComponent {
     const min = this.minShelfLife();
     const s = this.semaforo();
     if (s === 'r') {
+      if (d < 0) return `Vencido hace ${-d} ${-d === 1 ? 'día' : 'días'} · revisa la etiqueta; si es correcto, quedará retenido`;
       const ex = this.existingMinExpiry();
       if (ex && this.iso()! < ex) return `${d} días · más viejo que lo que ya hay en stock — quedará retenido`;
       return `${d} días de vida · bajo el mínimo de ${min} — quedará retenido`;
@@ -466,6 +469,9 @@ export class AndenCaducidadComponent {
       this.entradas.set([]);
       this.limpiarFormulario();
       this.cantidad.set(Math.max(0, l.faltaFechar));
+      // `[CE.1.1]` Si el catálogo dice que no caduca (desechables, artículos de fiesta…), se propone
+      // «sin caducidad» de entrada: el operario sólo confirma la cantidad. Puede corregirlo.
+      if (l.tracks_expiry === false) this.sinCaducidad.set(true);
     });
   }
 

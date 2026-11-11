@@ -170,6 +170,11 @@ export interface AndenLineaOffline {
   product_id: string | null;
   sku: string | null;
   product_name: string | null;
+  /**
+   * `[CE.1.1]` `false` = el catálogo dice que NO caduca: el Andén no le pide fecha. `true` = caduca.
+   * `null`/ausente = nadie lo ha dicho (se pide, como siempre). Opcional: paquetes viejos no lo traen.
+   */
+  tracks_expiry?: boolean | null;
 }
 
 /** `[WMS-REC.20]` Un vale pendiente de la sucursal, con sus renglones, para abrirlo sin red. */

@@ -35,6 +35,11 @@ export interface ReceivingLine {
   holds?: number;
   /** Unidad TAL CUAL la manda el vale del ERP (PAQ/PZA/KG/CJA/BTO…). Derivada, no copiada. */
   expected_unit?: string | null;
+  /**
+   * `[CE.1.1]` `false` = el catálogo dice que el producto NO caduca: el Andén lo propone «sin
+   * caducidad» de entrada. `true`/`null` = se pide la fecha, como siempre.
+   */
+  tracks_expiry?: boolean | null;
 }
 
 /** Ficha del vale del ERP — derivada del espejo al leer, no almacenada. */
@@ -289,6 +294,14 @@ export class ReceivingSessionService {
 
   addLine(id: string, dto: { product_id?: string; barcode?: string; expected_qty?: number }): Observable<ReceivingSession> {
     return this.http.post<ReceivingSession>(`${this.base}/${id}/add-line`, dto);
+  }
+
+  /**
+   * `[CE.2.1]` Cerrar con renglones sin caducidad: sólo un supervisor (`COMMERCIAL_INVENTORY_SUPERVISAR`),
+   * con el motivo escrito. Lo no fechado sigue en «Por fechar».
+   */
+  closeWithPendingExpiry(id: string, reason: string): Observable<ReceivingSession> {
+    return this.http.post<ReceivingSession>(`${this.base}/${id}/close-with-pending-expiry`, { reason });
   }
 
   close(id: string): Observable<ReceivingSession> {

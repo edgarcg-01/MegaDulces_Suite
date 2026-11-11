@@ -168,6 +168,7 @@ function lineaLocal(l: AndenLineaOffline, i: number): ReceivingLine {
     held_qty: 0,
     holds: 0,
     expected_unit: l.expected_unit,
+    tracks_expiry: l.tracks_expiry ?? null,
   };
 }
 

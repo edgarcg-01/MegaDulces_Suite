@@ -243,6 +243,30 @@ import { hoyMexico } from './dia-mx';
                 <button pButton type="button" [loading]="s.guardando()" (click)="cerrarVale()">
                   Cerrar el vale
                 </button>
+                @if (faltanFechas(); as faltan) {
+                  <section class="an-sinfecha" aria-labelledby="an-sinfecha-t">
+                    <h3 id="an-sinfecha-t">El sistema no deja cerrar: faltan fechas</h3>
+                    <ul>
+                      @for (f of faltan; track $index) {
+                        <li>{{ f.product_name || f.sku || 'Renglón sin nombre' }} · faltan {{ f.missing_qty | number }}</li>
+                      }
+                    </ul>
+                    @if (puedeCerrarSinFecha()) {
+                      <label class="an-sinfecha-m">
+                        <span>Motivo para cerrar sin fecha (queda escrito en el vale)</span>
+                        <textarea rows="2" maxlength="500" [value]="motivoSinFecha()"
+                          (input)="motivoSinFecha.set($any($event.target).value)"></textarea>
+                      </label>
+                      <button pButton type="button" severity="secondary" [outlined]="true"
+                        [disabled]="motivoSinFecha().trim().length < 5" [loading]="s.guardando()"
+                        (click)="cerrarConFechaPendiente()">
+                        Cerrar con fecha pendiente
+                      </button>
+                    } @else {
+                      <p>Fecha esos renglones, o pide a un supervisor que lo cierre dejando el motivo.</p>
+                    }
+                  </section>
+                }
               }
               <button pButton type="button" [text]="true" severity="secondary" (click)="otroCamion()">
                 Recibir otro camión
@@ -428,6 +452,13 @@ import { hoyMexico } from './dia-mx';
       text-align: center; padding: var(--sp-8) var(--sp-3); }
     .an-big { font-size: 48px; font-weight: var(--fw-black); line-height: 1; color: var(--ok-fg); }
     .an-fin h2 { margin: 0; font-size: var(--fs-h2); font-weight: var(--fw-bold); }
+    .an-sinfecha { width: 100%; max-width: 40ch; display: flex; flex-direction: column; gap: var(--sp-2);
+      padding: var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); text-align: left; }
+    .an-sinfecha h3 { margin: 0; font-size: var(--fs-body); font-weight: var(--fw-bold); color: var(--warn-fg); }
+    .an-sinfecha ul { margin: 0; padding-left: var(--sp-4); font-size: var(--fs-sm); }
+    .an-sinfecha-m { display: flex; flex-direction: column; gap: var(--sp-1); font-size: var(--fs-sm); }
+    .an-sinfecha-m textarea { font: inherit; padding: var(--sp-2); border: 1px solid var(--border-color);
+      border-radius: var(--r-sm); background: var(--card-bg); color: inherit; resize: vertical; }
     .an-fin p { margin: 0 0 var(--sp-2); max-width: 32ch; font-size: var(--fs-sm); color: var(--text-muted); }
   `],
 })
@@ -1326,6 +1357,59 @@ export class AndenComponent implements OnInit {
           return;
         }
         this.s.guardando.set(false);
+        // `[CE.2.1]` El servidor no cierra con mercancía sin fecha: se dice CUÁLES renglones, por nombre.
+        if (e?.status === 409 && e?.error?.code === 'expiry_missing') {
+          const lineas = (e.error.lines ?? []) as Array<{ sku: string | null; product_name: string | null; missing_qty: number }>;
+          this.faltanFechas.set(lineas);
+          this.toast.add({
+            severity: 'warn', summary: 'Faltan fechas de caducidad',
+            detail: lineas.slice(0, 3).map((l) => `${l.product_name || l.sku || 'Renglón'} (${l.missing_qty})`).join(' · ')
+              + (lineas.length > 3 ? ` y ${lineas.length - 3} más` : ''),
+            life: 9000,
+          });
+          return;
+        }
+        this.toast.add({ severity: 'error', summary: 'No se pudo cerrar', detail: e?.error?.message || 'Error' });
+      },
+    });
+  }
+
+  /**
+   * `[CE.2.1]` Renglones que el servidor reportó sin fecha al intentar cerrar. `null` = no ha pasado.
+   * Se limpia al cerrar o al cambiar de vale.
+   */
+  readonly faltanFechas = signal<Array<{ sku: string | null; product_name: string | null; missing_qty: number }> | null>(null);
+  /** El motivo que escribe el supervisor para cerrar con fecha pendiente. */
+  readonly motivoSinFecha = signal('');
+
+  /** `[CE.2.1]` Sólo un supervisor cierra un vale con fechas pendientes (el servidor lo vuelve a exigir). */
+  readonly puedeCerrarSinFecha = computed(() => {
+    const p = this.auth.user()?.permissions;
+    return this.perms.isAdmin() || p?.[Permission.COMMERCIAL_INVENTORY_SUPERVISAR] === true;
+  });
+
+  /** `[CE.2.1]` Cierre de supervisor: deja el motivo escrito en el vale; lo no fechado sigue en «Por fechar». */
+  cerrarConFechaPendiente(): void {
+    const v = this.s.vale();
+    const motivo = this.motivoSinFecha().trim();
+    if (!v || this.s.cerrado() || motivo.length < 5 || this.s.guardando()) return;
+    this.s.guardando.set(true);
+    this.sessions.closeWithPendingExpiry(v.id, motivo).pipe(timeout(TOPE.escritura), takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (upd) => {
+        this.s.guardando.set(false);
+        this.faltanFechas.set(null);
+        this.motivoSinFecha.set('');
+        this.s.cargarDesdeVale(upd);
+        void this.red.registrarDetalle(upd);
+        this.guardarBorrador();
+        this.toast.add({
+          severity: 'success', summary: 'Vale cerrado con fecha pendiente',
+          detail: 'Quedó el motivo en el vale; lo que falta fechar sigue en Inventario › Por fechar.',
+          life: 7000,
+        });
+      },
+      error: (e) => {
+        this.s.guardando.set(false);
         this.toast.add({ severity: 'error', summary: 'No se pudo cerrar', detail: e?.error?.message || 'Error' });
       },
     });
@@ -1460,6 +1544,8 @@ export class AndenComponent implements OnInit {
     this.masiva.set(false);
     this.avance.set(null);
     this.confirmandoCambio.set(false);
+    this.faltanFechas.set(null);
+    this.motivoSinFecha.set('');
     // El muro del inventario fisico es del ALMACEN del vale que se deja. Si se quedara puesto,
     // tapaba el menu entero: el boton "Salir" del muro llamaba aca y no se veia nada.
     this.congelado.set(null);

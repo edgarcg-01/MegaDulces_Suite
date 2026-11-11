@@ -97,9 +97,10 @@ export const ALMACEN_AREAS: AlmacenArea[] = [
     // Ojo: 'recepcion-sesiones' NO es hijo de 'recepcion' (no hay `/` entre
     // medio), por eso van los dos prefijos explícitos. El detalle handheld
     // `/recepcion-sesiones/:id` cae por prefijo → sigue resolviendo a Entrada.
-    match: ['/almacen/inventory/recepcion', '/almacen/inventory/recepcion-sesiones'],
+    // `[CE.2.2]` La estación vieja de vales (`recepcion-sesiones`) se retiró: sus URL redirigen al
+    // Andén. Queda «Caducidad», que es donde viven las políticas de caducidad en recepción.
+    match: ['/almacen/inventory/recepcion'],
     tabs: [
-      { label: 'Vales', icon: 'pi pi-list', route: '/almacen/inventory/recepcion-sesiones', permission: Permission.COMMERCIAL_INVENTORY_RECIBIR, exact: true },
       { label: 'Caducidad', icon: 'pi pi-camera', route: '/almacen/inventory/recepcion', permission: Permission.COMMERCIAL_INVENTORY_RECIBIR, exact: true },
     ],
   },

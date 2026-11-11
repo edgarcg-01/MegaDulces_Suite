@@ -1654,10 +1654,10 @@ export const routes: Routes = [
         canDeactivate: [countFocusGuard]
       },
       {
-        // WMS-REC Pieza 1 — estación handheld de una sesión (escaneo + líneas + cierre)
+        // `[CE.2.2]` La estación vieja de un vale se retiró (Anexo CE, D5): cerraba vales sin pedir
+        // una sola fecha. El vale se trabaja en el Andén; la URL vieja queda viva como redirect.
         path: 'inventory/recepcion-sesiones/:id',
-        loadComponent: () => import('./modules/almacen/pages/almacen-recepcion-sesion.component').then(m => m.AlmacenRecepcionSesionComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_RECIBIR)]
+        redirectTo: '/almacen/anden',
       },
       {
         /**
@@ -1988,10 +1988,9 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_RECIBIR)]
       },
       {
-        // WMS-REC Pieza 1 (ADR-044) — Vales de entrada (sesiones de recepción por escaneo)
+        // `[CE.2.2]` La lista vieja de vales se retiró (Anexo CE, D5): una sola interfaz por flujo.
         path: 'inventory/recepcion-sesiones',
-        loadComponent: () => import('./modules/almacen/pages/almacen-recepcion-sesiones.component').then(m => m.AlmacenRecepcionSesionesComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_RECIBIR)]
+        redirectTo: '/almacen/anden',
       },
       {
         // WMS-REC Pieza 3 (ADR-044) — Ubicaciones bin-level (auxiliar + put-away + FEFO)

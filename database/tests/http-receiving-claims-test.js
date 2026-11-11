@@ -135,7 +135,16 @@ const near = (a, b, tol = 0.005) => Math.abs(N(a) - N(b)) <= tol;
 
     // ── 4. El cierre levanta los reclamos ─────────────────────────────────
     console.log('\n── 4. Cerrar el vale levanta el reclamo (y no bloquea) ──');
-    const close = await req('POST', `/commercial/receiving/sessions/${sid}/close`, {}, token);
+    // [CE.2.1] Recibido sin fecha: el cierre normal ya no lo deja pasar (409 expiry_missing).
+    const sinFecha = await req('POST', `/commercial/receiving/sessions/${sid}/close`, {}, token);
+    check('[CE.2.1] cerrar con renglones sin fecha → 409 expiry_missing',
+      sinFecha.status === 409 && sinFecha.body?.code === 'expiry_missing' && (sinFecha.body?.lines || []).length >= 1,
+      { status: sinFecha.status, code: sinFecha.body?.code, n: (sinFecha.body?.lines || []).length });
+    const motivoCorto = await req('POST', `/commercial/receiving/sessions/${sid}/close-with-pending-expiry`, { reason: ' ' }, token);
+    check('[CE.2.1] sin motivo real → 400', motivoCorto.status === 400, motivoCorto.status);
+    // Un supervisor lo cierra dejando el motivo: lo que esta prueba mide son los reclamos, no las fechas.
+    const close = await req('POST', `/commercial/receiving/sessions/${sid}/close-with-pending-expiry`, { reason: 'smoke de reclamos sin fechas' }, token);
+    check('[CE.2.1] el vale guarda el motivo', !!close.body?.expiry_waiver_reason, close.body?.expiry_waiver_reason);
     check('el faltante NO bloquea el cierre', close.status === 200 || close.status === 201,
       { status: close.status, msg: close.body?.message });
     check('el vale quedó cerrado', close.body?.status === 'closed', close.body?.status);
@@ -245,7 +254,7 @@ const near = (a, b, tol = 0.005) => Math.abs(N(a) - N(b)) <= tol;
       const esperado = N(tLine.expected_qty);
       const recibido = Math.floor(esperado / 2);
       await req('POST', `/commercial/receiving/sessions/${tid}/lines/${tLine.id}`, { received_qty: recibido }, token);
-      const tClose = await req('POST', `/commercial/receiving/sessions/${tid}/close`, {}, token);
+      const tClose = await req('POST', `/commercial/receiving/sessions/${tid}/close-with-pending-expiry`, { reason: 'smoke de reclamos sin fechas' }, token);
       check('traspaso cerrado con su reclamo', N(tClose.body?.claims?.raised) >= 1, { status: tClose.status, c: tClose.body?.claims });
 
       const tFolio = tClose.body?.folio;
@@ -286,7 +295,7 @@ const near = (a, b, tol = 0.005) => Math.abs(N(a) - N(b)) <= tol;
     await req('POST', `/commercial/receiving/sessions/${fid}/add-line`, { product_id: pA, expected_qty: 30 }, token);
     const fDet = (await req('GET', `/commercial/receiving/sessions/${fid}`, null, token)).body;
     await req('POST', `/commercial/receiving/sessions/${fid}/lines/${fDet.lines[0].id}`, { received_qty: 20 }, token);
-    const fClose = await req('POST', `/commercial/receiving/sessions/${fid}/close`, {}, token);
+    const fClose = await req('POST', `/commercial/receiving/sessions/${fid}/close-with-pending-expiry`, { reason: 'smoke de reclamos sin fechas' }, token);
     check('reclamo de traspaso levantado', N(fClose.body?.claims?.raised) === 1, fClose.body?.claims);
 
     const pend = await req('GET', '/commercial/receiving/claims/transfer-origins', null, token);

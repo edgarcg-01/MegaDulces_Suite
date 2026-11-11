@@ -95,8 +95,6 @@ const DEUDA_COLUMNAS = new Set([
   'apps/view/src/app/modules/almacen/pages/almacen-autoabasto.component.ts',
   'apps/view/src/app/modules/almacen/pages/almacen-cuadre.component.ts',
   'apps/view/src/app/modules/almacen/pages/almacen-movimientos.component.ts',
-  'apps/view/src/app/modules/almacen/pages/almacen-recepcion-sesion.component.ts',
-  'apps/view/src/app/modules/almacen/pages/almacen-recepcion-sesiones.component.ts',
   'apps/view/src/app/modules/almacen/pages/almacen-riesgo.component.ts',
   'apps/view/src/app/modules/comercial/pages/comercial-comisiones.component.ts',
   'apps/view/src/app/modules/comercial/pages/comercial-customers-360.component.ts',
