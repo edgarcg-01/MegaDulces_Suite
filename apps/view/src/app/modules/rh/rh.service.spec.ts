@@ -118,14 +118,19 @@ describe('[RH.1.7] RhService — lo que se pide', () => {
   });
 });
 
-describe('[RH.6.4] semana fiscal de nómina (regla de RH, 29/09/2026)', () => {
-  it('la del jueves 24 de septiembre de 2026 es la 41, cualquier día de esa semana', () => {
-    expect(semanaFiscal('2026-09-24')).toEqual({ numero: 41, anio: 2026 });
-    expect(semanaFiscal('2026-09-30')).toEqual({ numero: 41, anio: 2026 });
+describe('[RH.6.4] semana fiscal de nómina (corregida el 10-nov por RH: «la 47 es la 46», Mega Talento c445974)', () => {
+  it('la del 5 al 11 de noviembre de 2026 es la 46 (la que RH reportó), cualquier día de esa semana', () => {
+    expect(semanaFiscal('2026-11-05')).toEqual({ numero: 46, anio: 2026 });
+    expect(semanaFiscal('2026-11-11')).toEqual({ numero: 46, anio: 2026 });
   });
-  it('el año trae 52: la del 10 de diciembre es la 52 y la del 17 abre el ciclo 2027', () => {
-    expect(semanaFiscal('2026-12-10')).toEqual({ numero: 52, anio: 2026 });
-    expect(semanaFiscal('2026-12-17')).toEqual({ numero: 1, anio: 2027 });
-    expect(semanaFiscal('2025-12-18')).toEqual({ numero: 1, anio: 2026 });
+  it('cuadra con los PDF de RH: la SEM 33 es del jue 6 al mié 12 de agosto, y la del 24 de septiembre es la 40', () => {
+    expect(semanaFiscal('2026-08-06')).toEqual({ numero: 33, anio: 2026 });
+    expect(semanaFiscal('2026-08-12')).toEqual({ numero: 33, anio: 2026 });
+    expect(semanaFiscal('2026-09-24')).toEqual({ numero: 40, anio: 2026 });
+  });
+  it('el año trae 52: la del 17 de diciembre es la 52 y la del 24 abre el ciclo 2027 (sin confirmar con RH)', () => {
+    expect(semanaFiscal('2026-12-17')).toEqual({ numero: 52, anio: 2026 });
+    expect(semanaFiscal('2026-12-24')).toEqual({ numero: 1, anio: 2027 });
+    expect(semanaFiscal('2025-12-25')).toEqual({ numero: 1, anio: 2026 });
   });
 });

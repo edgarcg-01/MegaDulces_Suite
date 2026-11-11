@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { abrevUnidadBase, desglose, esPaquete, gramosDeBase, unidadBaseLegible, unidadBaseDesglose, textoHay, nombreUnidadBase, opcionesUnidad, paqueteDeCaja, parseCantidad, vendedorDelCliente, descuentoDerivado, descuentoDelMecanismo, textoDescuento, existenciaEnUnidad, tonoFuentePrecio } from './quote-units';
+import { abrevUnidadBase, desglose, esPaquete, gramosDeBase, unidadBaseLegible, unidadBaseDesglose, textoHay, nombreUnidadBase, opcionesUnidad, paqueteDeCaja, parseCantidad, vendedorDelCliente, descuentoDerivado, descuentoDelMecanismo, textoDescuento, existenciaEnUnidad, tonoFuentePrecio, unidadDelEscaneo } from './quote-units';
 import { pasosDelPrecio } from './quote-discount-breakdown';
 import { etiquetaDesglose } from './quote-deliverable-export';
 import type { QuoteCatalogRow } from './quotes.service';
@@ -216,4 +216,13 @@ describe('renglón antes de guardar = renglón guardado', () => {
     expect(tonoFuentePrecio('promo_qty')).toBe('success');
     expect(tonoFuentePrecio('algo')).toBe('secondary');
   });
+});
+
+describe('[COT.42] unidadDelEscaneo — el código de la caja elige la caja', () => {
+  const agua = fila({ unit_base: 'PZA', pack_size: 6, pack_label: 'PAQ', box_size: 24, box_label: 'CJA' });
+  it('sin código (búsqueda por palabras): null, no toca la unidad', () => expect(unidadDelEscaneo({ ...agua, scan_factor: null })).toBeNull());
+  it('código de la pieza: base', () => expect(unidadDelEscaneo({ ...agua, scan_factor: 1 })).toBe('base'));
+  it('código del paquete: pack', () => expect(unidadDelEscaneo({ ...agua, scan_factor: 6 })).toBe('pack'));
+  it('código de la caja: box', () => expect(unidadDelEscaneo({ ...agua, scan_factor: 24 })).toBe('box'));
+  it('un empaque sin precio en la sucursal: se avisa, no cae a pieza', () => expect(unidadDelEscaneo({ ...agua, scan_factor: 12 })).toBe('sin-opcion'));
 });

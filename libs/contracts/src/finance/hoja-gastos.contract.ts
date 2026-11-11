@@ -314,6 +314,12 @@ export interface PagoDeHojaGastos {
     diferencia?: number | null;
     /** Por qué no hay depósito todavía, en llano, cuando no lo hay. */
     nota: string | null;
+    /**
+     * `[LE.6.30]` Sin depósito (`no_aparece`): `true` = VENCIDO, una sucursal de la zona ya capturó depósitos
+     * en Kepler en un día posterior al pago y éste no está (incidencia); `false` = en espera, Kepler todavía no
+     * trae depósitos de después del pago. Ausente: una API anterior, o hay depósito.
+     */
+    vencido?: boolean;
   };
 }
 

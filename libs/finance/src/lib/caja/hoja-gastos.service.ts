@@ -725,8 +725,9 @@ export class HojaGastosService {
             nota: `Hay ${dep.opciones} depósitos U-A-5 por ese total en esos días: lo liga una persona.` };
         } else {
           // `[LE.6.29]` Hasta cuándo trae Kepler los DEPÓSITOS de cada sucursal, por nombre: no el último documento.
+          // `[LE.6.30]` Y si ya está VENCIDO (la sucursal capturó depósitos después del pago) o sólo en espera.
           deposito = { estado: 'no_aparece', depositos: null, diferencia: null,
-            nota: notaSinDeposito(banco, ancla, zona.sucursales, keplerAl, warehouseName) };
+            ...notaSinDeposito(banco, ancla, zona.sucursales, keplerAl, warehouseName) };
         }
       }
       out.set(String(h['id']), {

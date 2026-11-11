@@ -328,6 +328,26 @@ ensayo en 00, 02–05, 07, 08 · pedidos con regalos (rechazados a propósito).
 
 ## Bitácora
 
+- **2026-11-11** — 🧪 **[COT.42] El código escaneado elige su unidad.** La búsqueda devuelve `scan_factor`: las piezas de
+  la unidad cuya casilla casó (pieza `c7 c93 c102` = 1 · dos `c82 c95 c96` = `c81` · tres `c85` = `c84`). Con un solo
+  resultado, el alta y el detalle eligen el artículo solos (antes sólo si casaba el `barcode` de la vista) y la opción de
+  unidad de ese tamaño; si ninguna opción lo tiene, avisan en vez de caer en pieza. Medido en Canindo (sólo lectura): con
+  código de paquete hay 351 artículos y con código de caja sólo 7; en 3 de caja el factor coincide con el tamaño de la
+  vista (24, 6) o de la cubeta (50). La subconsulta va por `ix_kdii_suc_sku`, 0.08 ms por resultado. Pruebas: 5 de
+  `unidadDelEscaneo` con prueba negativa (2 rojas); 104/104 de televenta; `ngc` sin errores. **NO MEDIDO:** el escaneo en
+  la pantalla real. **COT.40 comprobado:** COT-2026-00208 (cliente sin compras previas) salió como pedido 0003905 de Padre
+  Hidalgo, ya EMBARCADO, con nombre, domicilio y estado con CP.
+
+- **2026-11-11** — 🧪 **[COT.41] El código de barras se busca en todas las casillas de Kepler.** En Canindo, el código de
+  un agua de 500 ml no encontraba nada: el buscador comparaba sólo con el `barcode` de `v_label_prices`, que lee `c7` o, si
+  no, `c95` (una casilla del paquete), y ese código vive en `c93`, la 2ª casilla de la pieza (ERP_KEPLER §3.y.4). En
+  Canindo, 2,177 de 9,575 artículos tienen su código sólo ahí. Ahora un término sin espacios también se compara, por
+  igualdad exacta, con las 7 casillas de las tres unidades (`c7 c93 c102 · c82 c95 c96 · c85`, las del checado). Lo hereda
+  el buscador del levantamiento (NP.7.L.10), que usa la misma consulta. Medido en prod (sólo lectura): lo encuentra en
+  160–180 ms; con `IN (SELECT …)` tardaba 1.0–1.2 s porque la vista se armaba entera, de ahí `= ANY(ARRAY(…))`. La
+  búsqueda por palabras no cambia (~130 ms). Prueba negativa ejercida (apagar la búsqueda por casillas → rojo).
+  **Pendiente, no hecho:** al escanear el código de la caja, el artículo sale pero la unidad no se elige sola.
+
 - **2026-11-10** — 🧪 **[COT.40] El cliente que nunca ha comprado en la sucursal ya se puede mandar a Kepler** (commit
   local, sin empujar). Una cotización de Padre Hidalgo rebotó con «falta GRANT SELECT ON md.kdud»: su cliente no tenía un
   solo documento de venta ahí y el adaptador, sin precedente, leía el catálogo vivo de Kepler, que el usuario de escritura

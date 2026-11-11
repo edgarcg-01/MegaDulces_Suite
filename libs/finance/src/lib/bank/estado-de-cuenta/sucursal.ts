@@ -60,6 +60,18 @@ export class MapaDeSucursal {
     }
   }
 
+  /** `[CB.60b]` Las llaves que ya se creen (puras y vistas lo suficiente): lo que se guarda en el catálogo al usar el banco. */
+  llavesPuras(): { tipo: LlaveDeSucursal; valor: string; sucursal: string; veces: number }[] {
+    const out: { tipo: LlaveDeSucursal; valor: string; sucursal: string; veces: number }[] = [];
+    for (const [id, s] of this.vistas) {
+      const veces = this.veces.get(id) ?? 0;
+      if (s.size !== 1 || veces < VECES_MINIMAS) continue;
+      const corte = id.indexOf('|');
+      out.push({ tipo: id.slice(0, corte) as LlaveDeSucursal, valor: id.slice(corte + 1), sucursal: [...s][0], veces });
+    }
+    return out;
+  }
+
   /** La sucursal de la primera llave PURA (una sola S en lo aprendido), o `null`: no se adivina. */
   deducir(r: RenglonParaSucursal): { sucursal: string; por: LlaveDeSucursal } | null {
     for (const [tipo, k] of llavesDeSucursal(r)) {
@@ -68,4 +80,16 @@ export class MapaDeSucursal {
     }
     return null;
   }
+}
+
+/**
+ * `[CB.60b]` Cuando la cuenta ya usa el banco no hay libro de dónde aprender: la sucursal sale del catálogo
+ * CONFIRMADO (`finance.bank_branch_keys`, llave `tipo|valor` → S). Una llave que no está, no da sucursal.
+ */
+export function sucursalDelCatalogo(r: RenglonParaSucursal, catalogo: ReadonlyMap<string, string>): { sucursal: string; por: LlaveDeSucursal } | null {
+  for (const [tipo, k] of llavesDeSucursal(r)) {
+    const s = catalogo.get(`${tipo}|${k}`);
+    if (s) return { sucursal: s, por: tipo };
+  }
+  return null;
 }

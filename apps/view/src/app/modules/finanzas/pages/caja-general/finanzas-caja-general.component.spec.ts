@@ -6021,6 +6021,38 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       expect(reposicion(fx).kpis().find((k) => k.label === 'Pagado sin depósito')?.value).toBe(0);
     });
 
+    // ⭐ `[LE.6.30]` PM, 2026-11-11: «es por eso que te pedí mostrar los depósitos, para que no pasen estas
+    // incidencias». La vencida (la sucursal ya capturó depósitos después) no se ve igual que la que espera a Kepler.
+    it('[LE.6.30] la hoja con el depósito VENCIDO va primero, lo dice en palabras y pone la cifra en rojo; la que espera, después', () => {
+      const sinDep = (vencido: boolean, nota: string) => PAGO({ estado: 'no_aparece', depositos: null, diferencia: null, nota, vencido });
+      const espera = HOJA({ id: 'h15', numero: 15, folio: 'HG-15', estado: 'pagada', total: 149328.2,
+        pago: sinDep(false, 'Kepler todavía no trae depósitos (U-A-5) de la zona capturados después del 10/11.') });
+      const vencida = HOJA({ id: 'h9', numero: 9, folio: 'HG-9', estado: 'pagada', total: 71326,
+        pago: sinDep(true, 'Morelia Abastos ya capturó depósitos el 06/11 y éste no está.') });
+      const fx = montar({ hojasDeGastos: vi.fn(() => of(HOJAS({ cerradas: [espera, vencida] }))) });
+      fx.detectChanges();
+      const filas = [...ventana(fx).querySelectorAll('[data-testid="rp-falta-deposito"]')].map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim());
+      expect(filas).toHaveLength(2);
+      expect(filas[0]).toContain('Depósito vencido: Morelia Abastos ya capturó depósitos el 06/11');
+      expect(filas[1]).toContain('Esperando el depósito: Kepler todavía no trae');
+      expect(ventana(fx).querySelector('[data-vencido="true"] .rp-vencido')).not.toBeNull();
+      expect(ventana(fx).querySelector('[data-vencido="false"] .rp-vencido')).toBeNull();
+      const k = reposicion(fx).kpis().find((x) => x.label === 'Pagado sin depósito');
+      expect(k?.value).toBe(220654.2);
+      expect(k?.tone).toBe('bad');
+      expect(k?.sub).toContain('1 vencida ($71,326.00)');
+      expect(k?.sub).toContain('1 en espera de Kepler');
+    });
+
+    it('[LE.6.30] [negativa] si todas esperan a Kepler, nada se marca vencido y la cifra queda en aviso, no en rojo', () => {
+      const fx = montar({ hojasDeGastos: vi.fn(() => of(HOJAS({ cerradas: [HOJA({ estado: 'pagada',
+        pago: PAGO({ estado: 'no_aparece', depositos: null, diferencia: null, nota: 'Kepler todavía no trae depósitos.', vencido: false }) })] }))) });
+      fx.detectChanges();
+      expect(ventana(fx).querySelector('.rp-vencido')).toBeNull();
+      expect(ventana(fx).querySelector('[data-testid="rp-falta-deposito"]')?.textContent).toContain('Esperando el depósito');
+      expect(reposicion(fx).kpis().find((x) => x.label === 'Pagado sin depósito')?.tone).toBe('warn');
+    });
+
     // ⭐ `[LE.6.25]` PM, 2026-11-09: «identificar qué se repone a la sucursal y qué se le carga, pero lo pagó
     // oficinas». Los pagos reales del 29/10: oficinas pagó compras de Abastos y Canindo con su caja.
     const CARGO = (folio: string, centro: string, sucursal: string | null, importe: number) => ({

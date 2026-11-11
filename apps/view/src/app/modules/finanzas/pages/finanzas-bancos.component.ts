@@ -58,6 +58,20 @@ export function avisoHojasSinCuenta(res: Pick<ImportResult, 'accounts'>): { summ
 }
 
 /**
+ * `[CB.60b]` En una cuenta que ya usa el banco, los renglones del libro desde esa fecha NO entran (los trae la
+ * descarga): el servidor lo anota en la hoja y aquí se dice, para que nadie los busque en Movimientos como perdidos.
+ */
+export function avisoCuentasDelBanco(res: Pick<ImportResult, 'accounts'>): { summary: string; detail: string } | null {
+  const cuentas = (res.accounts ?? []).map((a) => ({ hoja: a.sheet, m: /usa el banco desde (\d{4})-(\d{2})-(\d{2}): (\d+)/.exec(a.note ?? '') }))
+    .filter((x) => x.m).map((x) => `«${x.hoja}» desde el ${x.m![3]}/${x.m![2]}: ${x.m![4]} renglón(es)`);
+  if (!cuentas.length) return null;
+  return {
+    summary: cuentas.length === 1 ? '1 cuenta ya usa el banco' : `${cuentas.length} cuentas ya usan el banco`,
+    detail: `${cuentas.join('; ')} del libro no entraron: esos movimientos los trae la descarga del banco.`,
+  };
+}
+
+/**
  * CB.3 — Conciliación bancaria (ADR-033). Reemplaza el workbook Excel: tablero
  * CONCENTRADO (pivote cuenta × grupo), grid de movimientos con reclasificación
  * inline, y lista de cuentas. Surface Operations (denso, quiet-luxury, dark-first).
@@ -207,7 +221,7 @@ export function avisoHojasSinCuenta(res: Pick<ImportResult, 'accounts'>): { summ
       <!-- ── CUENTAS: cuadre de saldos por cuenta (clic → sus movimientos) ── -->
       <!-- ── ESTADOS DE CUENTA: la descarga del banco, la que reemplaza al libro (CB.59) ── -->
       @if (view() === 'estados') {
-        <bancos-estado-banco (guardado)="cargarDescargas(); cargarComisiones()" />
+        <bancos-estado-banco (guardado)="cargarDescargas(); cargarComisiones(); softRefresh()" />
         <!-- El libro sigue entrando mientras dure el paralelo (D2, CB.60): sus dos entradas viven aquí. -->
         <section class="card-premium card-flat fb-libro" aria-labelledby="fb-libro-t">
           <div class="fb-libro-txt">
@@ -598,6 +612,8 @@ export class FinanzasBancosComponent implements OnInit {
       this.toast.add({ severity: 'success', summary: `Importado ${res.period}`, detail: `${res.total} movimientos · ${res.sin_clasificar} sin clasificar`, life: 4000 });
       const aviso = avisoHojasSinCuenta(res);
       if (aviso) this.toast.add({ severity: 'warn', sticky: true, ...aviso });
+      const delBanco = avisoCuentasDelBanco(res);
+      if (delBanco) this.toast.add({ severity: 'info', life: 10000, ...delBanco });
       if (!this.periods().includes(res.period)) this.periods.update((ps) => [res.period, ...ps].sort().reverse());
       this.setPeriod(res.period);
       return;
@@ -655,8 +671,8 @@ export class FinanzasBancosComponent implements OnInit {
     this.wsTimer = setTimeout(() => this.softRefresh(), 600);
   }
 
-  /** Refresco silencioso (sin skeleton) del periodo + la vista abierta, tras un cambio remoto. */
-  private softRefresh(): void {
+  /** Refresco silencioso (sin skeleton) del periodo + la vista abierta, tras un cambio remoto o de la descarga (CB.60b). */
+  softRefresh(): void {
     const p = this.period();
     if (!p) return;
     this.api.concentrado(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: (c) => this.concentrado.set(c), error: () => { /* silencioso */ } });

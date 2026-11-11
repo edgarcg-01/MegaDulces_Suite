@@ -35,6 +35,8 @@ import { fechaHoraMx } from '../reclutamiento-formato';
   template: `
     <div class="rb-page">
       <app-rh-marco [barra]="false" [franja]="false" />
+      <!-- Sin plazas el marco lo declara: aquí no se pinta «nadie» ni ceros de algo que nadie midió. -->
+      @if (!est.sinPlazas()) {
       <section class="rb-bar" aria-label="Plaza">
         <p-select [options]="est.sitios()" optionLabel="name" optionValue="code" [ngModel]="est.sitio()" (ngModelChange)="est.setSitio($event)"
                   placeholder="Plaza" appendTo="body" ariaLabel="Plaza" class="rb-plaza" />
@@ -93,6 +95,7 @@ import { fechaHoraMx } from '../reclutamiento-formato';
           }
         </section>
       </app-load-state>
+      }
     </div>
   `,
   styles: [`

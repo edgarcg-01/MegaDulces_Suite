@@ -4,9 +4,11 @@ import { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, todayMx } from '@megadulces/platform-core';
 import { describirArchivo, leerEstadoDeCuenta, type Banco, type EstadoDeCuentaLeido, type MovimientoBanco } from './lectores';
 import { cierreDelDia, type RenglonDelLibro } from './saldo-del-libro';
-import { compararContraElLibro, type ClasificarSinLibro, type CuentaContraElLibro, type RenglonComparable } from './contra-el-libro';
+import { compararContraElLibro, DIAS_PARA_USAR_EL_BANCO, type ClasificarSinLibro, type CuentaContraElLibro, type RenglonComparable } from './contra-el-libro';
 import { clasificarRenglon } from './clasificador';
+import { MapaDeSucursal, sucursalDelCatalogo } from './sucursal';
 import { classifyWith, compileRules } from '../classify-rules';
+import { avisarBancos } from '../aviso-bancos';
 
 /**
  * `[CB.58]` Subir el estado de cuenta descargado de la banca, en dos pasos: REVISAR (no escribe)
@@ -270,7 +272,10 @@ export class EstadoDeCuentaService {
         await trx('finance.bank_statement_files').where({ id: archivoId }).update({ lines_new: insertadas, updated_at: trx.fn.now() });
       }
       this.logger.log(`[CB.58] ${rev.banco} ${rev.cuenta.alias} ${rev.desde}..${rev.hasta}: ${insertadas} nuevos de ${rev.movimientos} (${rev.como_se_fijo})`);
-      return { ...rev, nuevos: insertadas, ya_cargados: rev.movimientos - insertadas, archivo_id: archivoId, ya_existia: false };
+      // [CB.60b] Si la cuenta ya usa el banco, lo nuevo entra a los movimientos de Bancos en la misma transacción.
+      const desdeBanco = await this.bancoDesde(trx, rev.cuenta.id);
+      const alimentado = desdeBanco ? await this.alimentarDesdeElBanco(trx, tenantId, rev.cuenta.id, desdeBanco, actor) : null;
+      return { ...rev, nuevos: insertadas, ya_cargados: rev.movimientos - insertadas, archivo_id: archivoId, ya_existia: false, alimentado };
     });
   }
 
@@ -313,50 +318,190 @@ export class EstadoDeCuentaService {
    * La ventana va por la fecha del movimiento (últimos `dias`); el libro se lee 3 días más atrás
    * porque el pareo con fecha distinta lo necesita.
    */
-  async contraElLibro(dias = 45, hoy = todayMx()): Promise<{ desde: string; cuentas: (CuentaContraElLibro & { id: string; alias: string })[] }> {
+  async contraElLibro(dias = 45, hoy = todayMx()): Promise<{ desde: string; cuentas: CuentaComparada[] }> {
     this.tenantCtx.requireTenantId();
-    const ventana = Math.min(Math.max(1, Math.trunc(dias) || 45), 120);
-    const d = new Date(`${hoy}T00:00:00Z`); d.setUTCDate(d.getUTCDate() - ventana);
-    const desde = d.toISOString().slice(0, 10);
-    return this.tk.run(async (trx) => {
-      const banco = await trx('finance.bank_statement_lines')
-        .where('movement_date', '>=', desde)
-        .select('id', 'bank_account_id', trx.raw("to_char(movement_date, 'YYYY-MM-DD') as fecha"), 'amount_in', 'amount_out', 'running_balance', 'concept as concepto', 'reference as referencia');
-      const ids = Array.from(new Set(banco.map((b: { bank_account_id: string }) => b.bank_account_id)));
-      if (!ids.length) return { desde, cuentas: [] };
-      // [CB.61] Cada renglón del libro trae su categoría y el documento de Kepler con que casó (el de
-      // mayor importe), con la entidad del documento: con eso se clasifica el renglón del banco sin M/C.
-      // La entidad vive en la vista derivada del ODS; sin ODS (CI, desarrollo) la vista no la tiene y
-      // va nula: el renglón pierde la señal de proveedor/nómina, no la consulta.
-      const conEntidad = (await trx.raw(`select 1 from information_schema.columns
-        where table_schema = 'analytics' and table_name = 'kepler_bank_movements' and column_name = 'entidad_code'`)).rows.length > 0;
-      const entidad = conEntidad
-        ? `(select kb.entidad_code from analytics.kepler_bank_movements kb
-             where kb.sucursal = r.kepler_sucursal and kb.doc_tipo = r.kepler_doc_tipo and kb.folio = r.kepler_doc_folio limit 1)`
-        : 'null::text';
-      const libro = await trx('finance.bank_movements as bm')
-        .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
-        .joinRaw(`left join lateral (
-            select r.kepler_doc_tipo as doc_tipo, ${entidad} as entidad
-              from finance.bank_recon_matches r where r.bank_movement_id = bm.id
-             order by r.kepler_amount desc limit 1) k on true`)
-        .whereIn('bm.bank_account_id', ids).whereNull('bm.deleted_at')
-        .andWhere('bm.movement_date', '>=', trx.raw("?::date - 3", [desde]))
-        .select('bm.id', 'bm.bank_account_id', trx.raw("to_char(bm.movement_date, 'YYYY-MM-DD') as fecha"), 'bm.amount_in', 'bm.amount_out',
-          'bm.running_balance', 'bm.concept as concepto', 'mc.code as categoria', 'k.doc_tipo', 'k.entidad', 'bm.sucursal');
-      const reglas = compileRules(await trx('finance.bank_classify_rules').where({ active: true })
-        .select('priority', 'match_type', 'match_code', 'match_concept', 'category_code'));
-      const reglaDelLibro = (concepto: string) => classifyWith(reglas, '', '', concepto);
-      const clasificar: ClasificarSinLibro = (b, par) => clasificarRenglon(
-        { amount_in: b.amount_in, amount_out: b.amount_out, concepto: b.concepto, doc_tipo: par.doc_tipo, entidad: par.entidad }, reglaDelLibro);
-      const alias = new Map<string, string>((await trx('finance.bank_accounts').whereIn('id', ids)
-        .select('id', trx.raw('coalesce(alias, account_label) as alias'))).map((a: { id: string; alias: string }) => [a.id, a.alias]));
-      const de = (rows: (RenglonComparable & { bank_account_id: string })[], id: string) => rows.filter((r) => r.bank_account_id === id);
+    const desde = this.ventana(dias, hoy);
+    return this.tk.run(async (trx) => ({ desde, cuentas: await this.compararEn(trx, desde) }));
+  }
+
+  private ventana(dias: number, hoy: string): string {
+    const n = Math.min(Math.max(1, Math.trunc(dias) || 45), 120);
+    const d = new Date(`${hoy}T00:00:00Z`); d.setUTCDate(d.getUTCDate() - n);
+    return d.toISOString().slice(0, 10);
+  }
+
+  /** `[CB.60b]` ¿Existe ya la columna? La API puede desplegarse antes que la migración: sin columna, nada usa el banco. */
+  private async conColumnaBanco(trx: Knex.Transaction): Promise<boolean> {
+    return trx.schema.withSchema('finance').hasColumn('bank_accounts', 'statement_source_since');
+  }
+
+  /** `[CB.60b]` Desde qué día manda el banco en la cuenta (`null` = sigue con el libro). */
+  private async bancoDesde(trx: Knex.Transaction, cuentaId: string): Promise<string | null> {
+    if (!(await this.conColumnaBanco(trx))) return null;
+    const r = await trx('finance.bank_accounts').where({ id: cuentaId })
+      .first(trx.raw("to_char(statement_source_since, 'YYYY-MM-DD') as desde"));
+    return (r as { desde: string | null } | undefined)?.desde ?? null;
+  }
+
+  /**
+   * La descarga contra el libro, por cuenta. `soloCuenta` + `mapa`: para «usar el banco», que necesita lo que
+   * se aprendió de la sucursal. ⛔ El lado libro EXCLUYE lo que el propio banco alimentó (`sync_source = 'banco'`):
+   * comparar el banco contra sí mismo daría «cuadra» siempre.
+   */
+  private async compararEn(trx: Knex.Transaction, desde: string, soloCuenta?: string, mapa?: MapaDeSucursal): Promise<CuentaComparada[]> {
+    const banco = await trx('finance.bank_statement_lines')
+      .where('movement_date', '>=', desde)
+      .modify((q) => { if (soloCuenta) q.where('bank_account_id', soloCuenta); })
+      .select('id', 'bank_account_id', trx.raw("to_char(movement_date, 'YYYY-MM-DD') as fecha"), 'amount_in', 'amount_out', 'running_balance', 'concept as concepto', 'reference as referencia');
+    const ids: string[] = Array.from(new Set((banco as { bank_account_id: string }[]).map((b) => b.bank_account_id)));
+    if (!ids.length) return [];
+    // [CB.61] Cada renglón del libro trae su categoría y el documento de Kepler con que casó (el de
+    // mayor importe), con la entidad del documento: con eso se clasifica el renglón del banco sin M/C.
+    // La entidad vive en la vista derivada del ODS; sin ODS (CI, desarrollo) la vista no la tiene y
+    // va nula: el renglón pierde la señal de proveedor/nómina, no la consulta.
+    const conEntidad = (await trx.raw(`select 1 from information_schema.columns
+      where table_schema = 'analytics' and table_name = 'kepler_bank_movements' and column_name = 'entidad_code'`)).rows.length > 0;
+    const entidad = conEntidad
+      ? `(select kb.entidad_code from analytics.kepler_bank_movements kb
+           where kb.sucursal = r.kepler_sucursal and kb.doc_tipo = r.kepler_doc_tipo and kb.folio = r.kepler_doc_folio limit 1)`
+      : 'null::text';
+    const libro = await trx('finance.bank_movements as bm')
+      .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
+      .joinRaw(`left join lateral (
+          select r.kepler_doc_tipo as doc_tipo, ${entidad} as entidad
+            from finance.bank_recon_matches r where r.bank_movement_id = bm.id
+           order by r.kepler_amount desc limit 1) k on true`)
+      .whereIn('bm.bank_account_id', ids).whereNull('bm.deleted_at').whereNot('bm.sync_source', 'banco')
+      .andWhere('bm.movement_date', '>=', trx.raw("?::date - 3", [desde]))
+      .select('bm.id', 'bm.bank_account_id', trx.raw("to_char(bm.movement_date, 'YYYY-MM-DD') as fecha"), 'bm.amount_in', 'bm.amount_out',
+        'bm.running_balance', 'bm.concept as concepto', 'mc.code as categoria', 'k.doc_tipo', 'k.entidad', 'bm.sucursal');
+    const reglaDelLibro = await this.reglaDelLibro(trx);
+    const clasificar: ClasificarSinLibro = (b, par) => clasificarRenglon(
+      { amount_in: b.amount_in, amount_out: b.amount_out, concepto: b.concepto, doc_tipo: par.doc_tipo, entidad: par.entidad }, reglaDelLibro);
+    const conBanco = await this.conColumnaBanco(trx);
+    const cuentas = new Map<string, { alias: string; banco_desde: string | null }>((await trx('finance.bank_accounts').whereIn('id', ids)
+      .select('id', trx.raw('coalesce(alias, account_label) as alias'),
+        trx.raw(conBanco ? "to_char(statement_source_since, 'YYYY-MM-DD') as banco_desde" : 'null::text as banco_desde')))
+      .map((a: { id: string; alias: string; banco_desde: string | null }) => [a.id, { alias: a.alias, banco_desde: a.banco_desde }]));
+    const de = (rows: (RenglonComparable & { bank_account_id: string })[], id: string) => rows.filter((r) => r.bank_account_id === id);
+    // [CB.60b] Una cuenta que ya usa el banco se compara sólo hasta el día anterior a `banco_desde`: desde ahí el
+    // libro ya no entra, y juzgar esos días los pintaría «sin libro» para siempre. La cuenta sigue en la lista con su fecha.
+    return ids.map((id) => {
+      const bd = cuentas.get(id)?.banco_desde ?? null;
       return {
-        desde,
-        cuentas: ids.map((id) => ({ id, alias: alias.get(id) ?? id, ...compararContraElLibro(de(banco, id), de(libro, id), clasificar) }))
-          .sort((a, b) => a.alias.localeCompare(b.alias)),
+        id, alias: cuentas.get(id)?.alias ?? id, banco_desde: bd,
+        ...compararContraElLibro(de(banco, id), de(libro, id), clasificar, id === soloCuenta ? mapa : undefined, bd),
       };
+    }).sort((a, b) => a.alias.localeCompare(b.alias));
+  }
+
+  private async reglaDelLibro(trx: Knex.Transaction): Promise<(concepto: string) => string> {
+    const reglas = compileRules(await trx('finance.bank_classify_rules').where({ active: true })
+      .select('priority', 'match_type', 'match_code', 'match_concept', 'category_code'));
+    return (concepto: string) => classifyWith(reglas, '', '', concepto);
+  }
+
+  /**
+   * `[CB.60b]` **Usar el banco** en una cuenta (decisiones firmadas por Edgar, 2026-11-11). Sólo si lleva
+   * `DIAS_PARA_USAR_EL_BANCO` días hábiles seguidos que cuadran. En UNA transacción:
+   *  1. guarda el catálogo de llaves → sucursal aprendido del paralelo, confirmado por quien pulsa;
+   *  2. desde el día siguiente al último que cuadró, marca borrados los renglones del LIBRO de la cuenta
+   *     (los días que el libro no había cerrado; el banco los trae completos) — nada de lo ya cerrado se toca;
+   *  3. mete a `bank_movements` los renglones de la descarga desde ese día, con categoría y sucursal;
+   *  4. fija `statement_source_since`: de ahí en adelante cada descarga guardada entra sola, y la carga del
+   *     libro ignora esa cuenta desde esa fecha (y lo dice).
+   */
+  async usarElBanco(cuentaId: string, actor?: string, hoy = todayMx()): Promise<UsoDelBanco> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!cuentaId) throw new BadRequestException('bank_account_id requerido');
+    if (!actor) throw new BadRequestException('usar el banco lo decide una persona: falta quién');
+    return this.tk.run(async (trx) => {
+      if (!(await this.conColumnaBanco(trx))) throw new BadRequestException('falta aplicar la migración CB.60b (usar el banco)');
+      const cuenta = await trx('finance.bank_accounts').where({ id: cuentaId, kind: 'bank' })
+        .first('id', trx.raw('coalesce(alias, account_label) as alias'), trx.raw("to_char(statement_source_since, 'YYYY-MM-DD') as desde"));
+      if (!cuenta) throw new BadRequestException('la cuenta no existe o no es de banco');
+      if (cuenta.desde) return { cuenta: cuenta.alias, desde: cuenta.desde, ya_estaba: true, llaves: 0, libro_borrados: 0, ...SIN_ALIMENTAR };
+      const mapa = new MapaDeSucursal();
+      const [c] = await this.compararEn(trx, this.ventana(120, hoy), cuentaId, mapa);
+      const listo = c?.listo_para_banco;
+      if (!listo?.cumple || !listo.desde) {
+        throw new BadRequestException({ message: `${cuenta.alias} todavía no puede usar el banco`,
+          motivos: [`lleva ${listo?.dias_seguidos ?? 0} día(s) hábiles seguidos que cuadran con el libro; hacen falta ${DIAS_PARA_USAR_EL_BANCO}`] });
+      }
+      const desde = listo.desde;
+      const llaves = mapa.llavesPuras();
+      for (let i = 0; i < llaves.length; i += 500) {
+        await trx('finance.bank_branch_keys').insert(llaves.slice(i, i + 500).map((k) => ({
+          tenant_id: tenantId, bank_account_id: cuentaId, key_type: k.tipo, key_value: k.valor, sucursal: k.sucursal, seen: k.veces,
+          confirmed_by: actor, created_by: actor, updated_by: actor,
+        })));
+      }
+      const libroBorrados = await trx('finance.bank_movements')
+        .where({ bank_account_id: cuentaId }).where('movement_date', '>=', desde)
+        .whereIn('sync_source', ['upload', 'sheet']).whereRaw("client_uuid NOT LIKE 'whatsapp:%'").whereNull('deleted_at')
+        .update({ deleted_at: trx.fn.now(), recon_status: 'ignored', updated_at: trx.fn.now() });
+      await trx('finance.bank_accounts').where({ id: cuentaId })
+        .update({ statement_source_since: desde, statement_source_set_by: actor, statement_source_set_at: trx.fn.now(), updated_at: trx.fn.now() });
+      const alimentado = await this.alimentarDesdeElBanco(trx, tenantId, cuentaId, desde, actor);
+      this.logger.log(`[CB.60b] ${cuenta.alias} usa el banco desde ${desde} (por ${actor}): ${llaves.length} llaves, ${libroBorrados} del libro borrados, ${alimentado.metidos} del banco`);
+      return { cuenta: cuenta.alias, desde, ya_estaba: false, llaves: llaves.length, libro_borrados: libroBorrados, ...alimentado };
     });
   }
+
+  /**
+   * `[CB.60b]` Los renglones de la descarga de una cuenta, desde `desde`, a `bank_movements`: `sync_source = 'banco'`,
+   * `classified_by = 'banco'` (la reclasificación por reglas del libro no los toca), `client_uuid = 'banco:' + line_key`
+   * (el mismo renglón no entra dos veces). Categoría del clasificador sin M/C; sucursal del catálogo confirmado.
+   * Los renglones en $0.00 no entran (no mueven dinero). Quedan `pending` para la conciliación con Kepler.
+   */
+  private async alimentarDesdeElBanco(trx: Knex.Transaction, tenantId: string, cuentaId: string, desde: string, actor?: string): Promise<Alimentado> {
+    const lineas = await trx('finance.bank_statement_lines').where({ bank_account_id: cuentaId }).where('movement_date', '>=', desde)
+      .select(trx.raw("to_char(movement_date, 'YYYY-MM-DD') as fecha"), 'concept', 'reference', 'amount_in', 'amount_out', 'running_balance', 'line_key')
+      .orderBy([{ column: 'movement_date' }, { column: 'seq' }]);
+    const reglaDelLibro = await this.reglaDelLibro(trx);
+    const categorias = new Map<string, string>((await trx('finance.movement_categories').select('id', 'code')).map((r: { id: string; code: string }) => [r.code, r.id]));
+    const catalogo = new Map<string, string>((await trx('finance.bank_branch_keys').where({ bank_account_id: cuentaId, active: true })
+      .select('key_type', 'key_value', 'sucursal')).map((k: { key_type: string; key_value: string; sucursal: string }) => [`${k.key_type}|${k.key_value}`, k.sucursal]));
+    const estados = new Map<string, string>();
+    const res: Alimentado = { metidos: 0, en_cero: 0, sin_categoria: 0, sin_sucursal: 0 };
+    const filas: Record<string, unknown>[] = [];
+    for (const l of lineas as { fecha: string; concept: string; reference: string | null; amount_in: string; amount_out: string; running_balance: string; line_key: string }[]) {
+      if (Math.round(Number(l.amount_in) * 100) === 0 && Math.round(Number(l.amount_out) * 100) === 0) { res.en_cero++; continue; }
+      const periodo = l.fecha.slice(0, 7);
+      if (!estados.has(periodo)) {
+        await trx('finance.bank_statements').insert({ tenant_id: tenantId, bank_account_id: cuentaId, period: periodo, source_file: 'banco',
+          status: 'imported', imported_at: trx.fn.now(), imported_by: actor ?? null }).onConflict(['tenant_id', 'bank_account_id', 'period']).ignore();
+        const st = await trx('finance.bank_statements').where({ bank_account_id: cuentaId, period: periodo }).first('id');
+        estados.set(periodo, (st as { id: string }).id);
+      }
+      const cat = clasificarRenglon({ amount_in: l.amount_in, amount_out: l.amount_out, concepto: l.concept }, reglaDelLibro).categoria;
+      const suc = sucursalDelCatalogo({ amount_in: l.amount_in, concepto: l.concept, referencia: l.reference }, catalogo);
+      if (cat === 'sin_clasificar') res.sin_categoria++;
+      if (!suc) res.sin_sucursal++;
+      filas.push({
+        tenant_id: tenantId, statement_id: estados.get(periodo), bank_account_id: cuentaId, movement_date: l.fecha,
+        category_id: cat === 'sin_clasificar' ? null : categorias.get(cat) ?? null, classified_by: 'banco', sync_source: 'banco',
+        sucursal: suc?.sucursal ?? null, concept: l.concept, amount_in: l.amount_in, amount_out: l.amount_out, running_balance: l.running_balance,
+        client_uuid: `banco:${l.line_key}`, source_file: 'banco',
+      });
+    }
+    for (let i = 0; i < filas.length; i += 500) {
+      const r = await trx('finance.bank_movements').insert(filas.slice(i, i + 500)).onConflict(['tenant_id', 'client_uuid']).ignore().returning('id');
+      res.metidos += r.length;
+    }
+    // La conciliación con Kepler corre al llegar el dato (CB.53), no al apretar un botón: el aviso sale al confirmar.
+    if (res.metidos) await avisarBancos(trx, { origen: 'descarga', cuenta: cuentaId, periodos: [...estados.keys()] });
+    return res;
+  }
+
 }
+
+/** `[CB.60b]` Lo que hizo alimentar `bank_movements` desde la descarga. */
+export interface Alimentado { metidos: number; en_cero: number; sin_categoria: number; sin_sucursal: number }
+const SIN_ALIMENTAR: Alimentado = { metidos: 0, en_cero: 0, sin_categoria: 0, sin_sucursal: 0 };
+
+export interface UsoDelBanco extends Alimentado {
+  cuenta: string; desde: string; ya_estaba: boolean; llaves: number; libro_borrados: number;
+}
+
+export type CuentaComparada = CuentaContraElLibro & { id: string; alias: string; banco_desde: string | null };

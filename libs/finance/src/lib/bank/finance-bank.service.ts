@@ -6,6 +6,7 @@ import { FINANCE_FINDINGS_SINK_PORT, FinanceFindingsSinkPort, FinanceFindingInpu
 import { BancosGateway } from './bancos.gateway';
 import { buildClaimIndex, claimVerdict, type ClaimRow } from './recon-claim-key';
 import { compileRules, classifyWith, normKey } from './classify-rules';
+import { avisarBancos } from './aviso-bancos';
 
 /**
  * CB.2 — Conciliación bancaria (ADR-033). Servicio de lectura + reclasificación
@@ -3700,8 +3701,12 @@ export class FinanceBankService {
       const catMap = new Map<string, { id: string; group: string }>(
         (await trx('finance.movement_categories').select('id', 'code', 'group_key'))
           .map((r: any) => [r.code, { id: r.id, group: r.group_key }]));
+      // [CB.60b] Una cuenta que ya usa el banco (statement_source_since) no recibe renglones del libro desde esa fecha:
+      // el banco los trae, y un renglón del libro que vuelve a llegar REVIVIRÍA el que se borró al pasarla (upsert por contenido).
+      const conBanco = await trx.schema.withSchema('finance').hasColumn('bank_accounts', 'statement_source_since');
       const acctMap = new Map<string, any>(
-        (await trx('finance.bank_accounts').select('id', 'alias', 'account_label'))
+        (await trx('finance.bank_accounts').select('id', 'alias', 'account_label',
+          trx.raw(conBanco ? "to_char(statement_source_since, 'YYYY-MM-DD') as banco_desde" : 'null::text as banco_desde')))
           .map((r: any) => [normKey(r.alias), r]));
       const compiled = compileRules(
         await trx('finance.bank_classify_rules').where({ active: true })
@@ -3743,13 +3748,14 @@ export class FinanceBankService {
         processedAcctIds.add(acct.id);
 
         const rows: any[] = []; const seen = new Map<string, number>();
-        let tin = 0, tout = 0, uncat = 0, lastBal: number | null = null, openingBal: number | null = null;
+        let tin = 0, tout = 0, uncat = 0, lastBal: number | null = null, openingBal: number | null = null, delBanco = 0;
         for (let r = hRow + 1; r <= ws.rowCount; r++) {
           const row = ws.getRow(r);
           const date = excelDate(cellVal(row, ci.fecha));
           if (!date) continue;
           const amtIn = money(cellVal(row, ci.dep)), amtOut = money(cellVal(row, ci.ret));
           if (amtIn === 0 && amtOut === 0) continue;
+          if (acct.banco_desde && date >= acct.banco_desde) { delBanco++; continue; }
           const M = String(cellVal(row, ci.m) ?? '').trim(), C = String(cellVal(row, ci.c) ?? '').trim(), S = String(cellVal(row, ci.s) ?? '').trim();
           const concept = String(cellVal(row, ci.prov) ?? '').replace(/\s+/g, ' ').trim();
           const bal = ci.saldo ? money(cellVal(row, ci.saldo)) : null;
@@ -3794,7 +3800,8 @@ export class FinanceBankService {
         }
 
         grandIn += tin; grandOut += tout; grandUncat += uncat; grandRows += rows.length;
-        perAccount.push({ sheet: ws.name, movs: rows.length, deposits: Math.round(tin), withdrawals: Math.round(tout), sin_clasificar: uncat });
+        perAccount.push({ sheet: ws.name, movs: rows.length, deposits: Math.round(tin), withdrawals: Math.round(tout), sin_clasificar: uncat,
+          ...(delBanco ? { note: `usa el banco desde ${acct.banco_desde}: ${delBanco} renglón(es) del libro no entraron` } : {}) });
       }
 
       // CB.33 — Barrido soft-delete (upload Y sheet). Marca deleted_at las filas del MISMO
@@ -3816,6 +3823,8 @@ export class FinanceBankService {
       }
 
       this.logger.log(`import banco periodo ${period} (${syncSource}): ${grandRows} movs, ${grandUncat} sin_clasificar, ${swept} borrados, por ${actor || '?'}`);
+      // [CB.60b] Cierra el hueco de CB.53: la carga del libro también avisa, y la conciliación corre al confirmar.
+      if (grandRows || swept) await avisarBancos(trx, { origen: 'libro', periodos: [period] });
       return { period, accounts: perAccount, byGroup, total: grandRows, deposits: grandIn, withdrawals: grandOut, sin_clasificar: grandUncat, swept };
     });
 

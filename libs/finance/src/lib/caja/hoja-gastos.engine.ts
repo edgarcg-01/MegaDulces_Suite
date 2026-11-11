@@ -398,17 +398,26 @@ const dmyCorto = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
  * documento de CUALQUIER tipo, y Morelia Abastos no había capturado un solo `U-A-5` desde el 6/11: el
  * depósito no podía estar y el texto daba a entender que sí. Ahora cuenta el último DEPÓSITO capturado por
  * cada sucursal de la zona, con su nombre, y si ninguna capturó desde el día del pago lo dice así.
+ *
+ * ⭐ `[LE.6.30]` Y separa la ESPERA de la INCIDENCIA (PM, 2026-11-11: *«es por eso que te pedí mostrar los
+ * depósitos, para que no pasen estas incidencias»*). VENCIDO: una sucursal de la zona ya capturó depósitos en
+ * un día POSTERIOR al pago y éste no está (HG-11 de Canindo: pagada el 6/11, Canindo capturó el 10/11). El
+ * mismo día no cuenta: la sucursal pudo capturar sus depósitos antes de que se pagara la hoja.
  */
 export function notaSinDeposito(
   banco: string, desde: string, sucursales: readonly string[], ultimoDeposito: ReadonlyMap<string, string>,
   nombre: (sucursal: string) => string,
-): string {
+): { nota: string; vencido: boolean } {
   const ultimos = sucursales.map((s) => ({ s, al: ultimoDeposito.get(s) ?? null }));
-  const lista = ultimos.map((u) => `${nombre(u.s)}, ${u.al ? `el ${dmyCorto(u.al)}` : 'ninguno en estos días'}`).join('; ');
-  if (ultimos.every((u) => !u.al || u.al < desde)) {
-    return `El depósito todavía no puede estar: desde el ${dmyCorto(desde)} ninguna sucursal de la zona ha capturado depósitos (U-A-5) en Kepler. Último capturado: ${lista}.`;
+  const despues = ultimos.filter((u): u is { s: string; al: string } => !!u.al && u.al > desde);
+  if (!despues.length) {
+    const lista = ultimos.map((u) => `${nombre(u.s)}, ${u.al ? `el ${dmyCorto(u.al)}` : 'ninguno en estos días'}`).join('; ');
+    return { vencido: false,
+      nota: `Kepler todavía no trae depósitos (U-A-5) de la zona capturados después del ${dmyCorto(desde)}. Último capturado: ${lista}.` };
   }
-  return `No hay un U-A-5 a la clave ${banco} por el total (±$0.50) del ${dmyCorto(desde)} a siete días. Último depósito capturado en Kepler: ${lista}.`;
+  const ya = despues.map((u) => `${nombre(u.s)} ya capturó depósitos el ${dmyCorto(u.al)}`).join(' y ');
+  return { vencido: true,
+    nota: `${ya} y éste no está: no hay un U-A-5 a la clave ${banco} por el total (±$0.50) del ${dmyCorto(desde)} a siete días.` };
 }
 
 /** `[LE.6.20]` La cuenta de la zona tal como la lee el servicio: sus depósitos y hasta qué día está cargada. */

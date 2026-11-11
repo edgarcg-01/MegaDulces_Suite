@@ -458,20 +458,27 @@ describe('[LE.6.20] lo que ya se repuso no se repone otra vez', () => {
 // texto decía «Kepler trae hasta el 10/11» y Morelia Abastos no capturaba un U-A-5 desde el 6/11.
 describe('[LE.6.29] por qué la hoja pagada no trae su depósito', () => {
   const nombre = (s: string) => ({ '07': 'Morelia Madero', '08': 'Morelia Abastos' } as Record<string, string>)[s] ?? s;
-  it('si ninguna sucursal capturó depósitos desde el pago, dice que todavía no puede estar, por nombre', () => {
-    const t = notaSinDeposito('1604', '2026-11-10', ['07', '08'], new Map([['07', '2026-11-09'], ['08', '2026-11-06']]), nombre);
-    expect(t).toContain('El depósito todavía no puede estar');
-    expect(t).toContain('Morelia Madero, el 09/11; Morelia Abastos, el 06/11');
-    expect(t).not.toMatch(/\b0[78]\b,/);
+  const MORELIA = new Map([['07', '2026-11-09'], ['08', '2026-11-06']]);
+  it('si ninguna sucursal capturó depósitos después del pago, está EN ESPERA y dice hasta cuándo, por nombre (HG-15)', () => {
+    const r = notaSinDeposito('1604', '2026-11-10', ['07', '08'], MORELIA, nombre);
+    expect(r.vencido).toBe(false);
+    expect(r.nota).toContain('Kepler todavía no trae depósitos (U-A-5) de la zona capturados después del 10/11');
+    expect(r.nota).toContain('Morelia Madero, el 09/11; Morelia Abastos, el 06/11');
+    expect(r.nota).not.toMatch(/\b0[78]\b,/);
   });
-  it('[negativa] si UNA ya capturó depósitos desde el pago (Madero el 9, Abastos el 6) no dice «todavía no puede estar»: no está', () => {
-    const t = notaSinDeposito('1604', '2026-11-07', ['07', '08'], new Map([['07', '2026-11-09'], ['08', '2026-11-06']]), nombre);
-    expect(t).not.toContain('todavía no puede estar');
-    expect(t).toContain('No hay un U-A-5 a la clave 1604 por el total (±$0.50) del 07/11 a siete días');
-    expect(t).toContain('Morelia Abastos, el 06/11');
+  it('[LE.6.30] si UNA ya capturó depósitos después del pago y éste no está, está VENCIDO y la nombra (HG-9)', () => {
+    const r = notaSinDeposito('1604', '2026-11-05', ['07', '08'], MORELIA, nombre);
+    expect(r.vencido).toBe(true);
+    expect(r.nota).toContain('Morelia Madero ya capturó depósitos el 09/11 y Morelia Abastos ya capturó depósitos el 06/11 y éste no está');
+    expect(r.nota).toContain('no hay un U-A-5 a la clave 1604 por el total (±$0.50) del 05/11 a siete días');
+  });
+  it('[LE.6.30] [negativa] capturar el MISMO día del pago no lo vence: pudo ser antes de pagar la hoja (HG-13)', () => {
+    const r = notaSinDeposito('1604', '2026-11-09', ['07', '08'], MORELIA, nombre);
+    expect(r.vencido).toBe(false);
   });
   it('una sucursal sin depósitos en la ventana se nombra, no se omite', () => {
-    expect(notaSinDeposito('5854', '2026-11-10', ['06'], new Map(), (s) => (s === '06' ? 'Canindo' : s)))
-      .toContain('Canindo, ninguno en estos días');
+    const r = notaSinDeposito('5854', '2026-11-10', ['06'], new Map(), (s) => (s === '06' ? 'Canindo' : s));
+    expect(r.vencido).toBe(false);
+    expect(r.nota).toContain('Canindo, ninguno en estos días');
   });
 });
