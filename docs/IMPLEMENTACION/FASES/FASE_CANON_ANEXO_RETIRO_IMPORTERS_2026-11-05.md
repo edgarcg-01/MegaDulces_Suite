@@ -576,3 +576,26 @@ vista filtrada a 10 SKU: `v_warehouse_box_factor` **150–190 ms** (contra 8–1
   un reloj más que entra al mismo arreglo).
 - Crear triggers en `kdm2`/`kdii`/`kdik` toma candado y la carga inicial recorre todo: **fuera de horario**.
 - Árbitro nocturno por matview: tabla vs vista completa, debe encontrar 0.
+
+**8b, decisiones y diseño final (2026-11-11).**
+
+- **D-8b.1 — ventanas ancladas a la última venta (Edgar: «hagamos a»).** `mv_kepler_sold_rung` (365 d),
+  `mv_kepler_bought_rung` (365 d) y `mv_price_truth` (90 d) cuentan desde `CURRENT_DATE`: su valor cambia
+  sin que llegue ningún evento, y eso no se puede mantener por llave. Se anclan a la ÚLTIMA venta/compra
+  del SKU. Medido sobre los mismos datos vivos: peldaño vendido **0 cambios** en `rung_max`/`rung_modal`
+  (28,760 llaves; sólo el conteo de renglones en 29). Precio (aproximación de la regla, no la consulta
+  exacta): moda distinta en ~660 de 25,480 sucursal×SKU (2.6 %); la regla «sin venta en 90 días → precio
+  de configuración» se queda **en la lectura** (`CASE` sobre `ultimo_cobro`), así esos 5,679 no cambian.
+- **Mecanismo: cola de llaves sucias, no recálculo en la ingesta.** Triggers por sentencia en las fuentes
+  sólo anotan el SKU en `analytics.llaves_sucias` (dedup) y avisan `NOTIFY`; el worker junta ~30 s
+  (`MiradaAlAviso`, que gana su 3er consumidor y se muda a `libs/platform-core`) y llama a una función
+  `SECURITY DEFINER` que recalcula cada SKU una vez, en orden: peldaños → factor por producto → factor por
+  almacén / precio / costo. La cola persiste: un aviso perdido se drena al arrancar.
+- **Fuentes con trigger:** `kdm2`, `kdm1` (por documento → SKU vía `kdm2`), `kdii`, `kdik`,
+  `kdpv_prod_util`, `kdpv_prov_prod`, `catalog.products`, `product_label_prices`,
+  `product_unit_overrides`, `analytics.product_box_factor`, `product_prices`, `wincaja.articulos`;
+  `commercial.warehouses` y `TRUNCATE` reconstruyen todo. Existentes y compatibles: ADR-104 en `kdm1`,
+  `[PQ.59]` en `kdii`.
+- **Se retiran:** el renglón `existencia-aux` (cada 5 min) y las dos entradas nocturnas de
+  `analytics-refresh` (`sold_rung`, `bought_rung`). Las matviews quedan sin refresco y su borrado se pide
+  aparte (regla 5); sus lectores (vistas y código) se repuntan a las tablas.
