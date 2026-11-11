@@ -1,6 +1,11 @@
 # Anexo CANON.5 — Retiro de los importers vivos (inventario del 2026-11-05)
 
-> **Estado: ⏸️ — no se abre como fase.** El tablero tiene 9 fases 🔨 contra un cupo de 4
+> ⛔⛔ **2026-11-11 — la regla se endureció: «ningún importer y ningún cron» (Edgar, 2026-11-10) y
+> «hay que erradicarlos» (2026-11-11).** «Repuntar» (seguir siendo tabla con reloj, pero leyendo el
+> ODS) **ya no cierra nada**, y la categoría «se queda como tabla con razón» (§3.2) tampoco existe
+> si la tabla se llena con reloj. El plan vigente es el **§8**; §2–§7 quedan como historia.
+>
+> **Estado anterior: ⏸️ — no se abre como fase.** El tablero tiene 9 fases 🔨 contra un cupo de 4
 > (`node .claude/skills/pm/tablero.js`, 2026-11-05). Este anexo deja el trabajo **clasificado y
 > priorizado**; sólo la oleada 0 (abajo) se hizo, porque no toca el esquema. Lo demás espera cupo o
 > una excepción firmada (D1).
@@ -409,3 +414,111 @@ se decide dinero: margen, pagos, precios»), no de un monto.
 - Los 2 backfills de `warehouse_id`. Siguen trabajando: medido el 2026-11-05, hay 2,949 renglones de
   `gl_poliza_lines`, 23 de `gl_polizas` y 34 de `blind_counts` sin almacén.
 - `import-route-stock` e `import-route-collections`: sin agenda, pendientes de Edgar desde RD.32/RC.4.
+
+---
+
+## 8. Erradicación — «ningún importer y ningún cron» (2026-11-11)
+
+### 8.0 El pedido, literal
+
+- 2026-11-10, Edgar: **«hay reglas, ningún importer y ningún cron»**.
+- 2026-11-11, Edgar, al saber que quedaban decenas de pasos con reloj: **«hay que erradicarlos»**.
+
+Lo que cambia contra §3: el único destino válido para un dato de Kepler es una **vista sobre
+`kepler_ods`**, o —si la vista no cabe en 500 ms— algo **mantenido por cambio** (trigger por
+sentencia en la base, ADR-104; o aviso + recálculo acotado, como el apareo de `[RE.69]`). Un
+reloj sólo se tolera como **árbitro que alarma** (debe encontrar 0) y con fecha de retiro.
+
+**Cupo:** esto sigue dentro de la excepción que Edgar firmó para CANON.5 el 2026-11-10; no se abre
+fase nueva. Items nuevos: `[CANON.6.N]`.
+
+### 8.1 El universo, medido el 2026-11-11
+
+Medido sobre `run-prod-feeds.js` (sólo pasos sin comentar), `ops/vl/crontab.feeds` (sólo líneas
+activas), el loop `feeds-livefast` y `ops/k3s/*.cronjob.yaml`. Las tablas, contra el catálogo de
+`pg-prod` (sólo lectura, `system_identifier` 7688376744939610156); los lectores, con `git grep` en
+`apps/` y `libs/` (sin specs).
+
+| Qué | Cuántos |
+|---|---:|
+| Scripts distintos que corren con reloj en la ingesta | **61** |
+| …agendados en 20 renglones del crontab + 1 loop de 60 s | — |
+| Tablas que esos scripts escriben | 66 |
+| …de ésas, **sin ningún lector** en código ni vista | **0** (no hay retiro gratis) |
+| CronJobs de K3s (reconciliadores del ODS) | 2 |
+| `@Cron` dentro de la API (`libs/` + `apps/api/`), **universo aparte, no contado arriba** | 73 en 66 archivos |
+
+⚠️ **Lo que §3 no veía:** `contpaqi_ods` **existe** (202 tablas, 4.8 GB), pero su sincronía está
+**apagada** desde que se construyó (`crontab.feeds` líneas «contpaqi-replica»: falta
+`CONTPAQI_SQL_PASSWORD` en `/secrets/feeds.env`, **D15**, regla 7). Por eso los importers de
+ContPAQi siguen leyendo SQL Server directo.
+
+⚠️ **La ingesta corre código viejo.** `ops/vl/deploy.sh --estado` (2026-11-11 ~09:30): 7 pods de
+K3s (`feeds-cron`, `feeds-livefast`, los 5 `ods-*`) con un digest de código anterior a la imagen
+`latest`. Todo lo que diga «falta desplegar `ingesta`» (CANON.5.12–5.29, RE.68/69) sigue sin correr.
+
+### 8.2 Los 61, por destino
+
+| Destino | # | Scripts | Qué lo reemplaza |
+|---|---:|---|---|
+| **V — vista** (el dato ya está en `kepler_ods` y la consulta cabe) | 11 | `pos-cashiers` · `kardex` · `pos-ticket-sales` · `transfers-monthly` · `box-price` · `expense-requests` · `ap-findings` · `refresh-inventory-products` · `refresh-products-active` · `sales-by-route-monthly` (pierna Kepler) · `branch-stock-live` (`v_erp_stock_on_hand` ya cuadra 100 %, ~44 lectores: L) | vista `analytics.v_*`, lectores repuntados, paso fuera del carril — **patrón `[RE.68]`** |
+| **E — mantenido por cambio** (agregado caro o cálculo propio) | 23 | `stock-movements` · `product-sales-daily` · `expenses-polizas` · `ledger-chain` · `sales-fact` · `customer-sales` · `sales-stats` · `demand-clean` · `demand-acceleration` · `inventory-health` · `computed-reorder` · `network-reorder` · `replenishment-plan` · `replenishment-cadence` · `supplier-params` · `sales-boxes-monthly` · `top-sellers` · `thot-build-features` · `thot-build-pdv-presence` · `reconcile-route-provenance` · `refresh-existencia-aux` (4 matviews) · `refresh-cierre-matview` · `auto-received` (escribe nuestros documentos) | trigger por sentencia sobre `kepler_ods` (ADR-104) o aviso desde `feeds-ingest` + recálculo acotado (`MiradaAlAviso`, `[RE.69]`) |
+| **C — catálogo con dueño mixto** (Kepler pone unas columnas y la Suite otras) | 11 | `repoint-catalog-presence` · `-names` · `-cost` · `-prices` · `label-data` · `product-barcodes` · `brands-lineas` · `kepler-suppliers` · `logistics-dims` · `margin` · `rotation` | lo de Kepler se LEE de una vista unida al vuelo; lo de la Suite queda en su tabla — **patrón `[PQ.107]` `v_product_supplier`** |
+| **X — fuente que no es Kepler y su carril ODS está apagado** | 10 | ContPAQi: `contpaqi-polizas` · `-bank-movements` · `-ledger` · `-suppliers` · `-cfdis` · `derivar-reglas` (→ `contpaqi_ods`, **D15**) · Push de camionetas: `route-push-lines` · `route-push-monthly` · `canindo-routes` · `refresh-consolidado` (→ **D4**) | encender el carril y derivar como V/E |
+| **A — árbitro con reloj** (permitido: alarma, debe encontrar 0) | 4 | `health-watchdog` · `sales-by-channel` (árbitro independiente por diseño, VERDAD_ABSOLUTA) · `kepler-replica-refresh` · `publish-ods-remote` (salida a la tienda) | se quedan; cada uno declara su fecha de retiro o por qué no la tiene |
+| **B — backfill que tapa un INSERT incompleto** | 2 | `backfill-warehouse-id-batch1` · `-batch2` | arreglar el camino que inserta sin `warehouse_id`; después se borra el backfill |
+
+### 8.3 El orden (dinero × esfuerzo)
+
+| Oleada | Qué | Relojes que mueren | Esfuerzo | Bloqueo |
+|---|---|---:|---|---|
+| **7** | V chicas, ya repuntadas al ODS: `pos-cashiers`, `kardex`, `pos-ticket-sales`, `transfers-monthly`, `box-price`, `inventory-products`, `products-active` | 7 | S c/u | — |
+| **8** | Primitivo **«por cambio»** en `libs/` (ADR-056): `feeds-ingest` avisa QUÉ tabla del ODS cambió; con él, `refresh-existencia-aux` (288 corridas/día), `refresh-cierre-matview` y `auto-received` | 3 | M | — |
+| **9** | C, catálogo: una vista de lo que Kepler dice del producto/proveedor/ruta, y los lectores a ella | 11 | L | — |
+| **10** | Venta: `sales_daily` desde el ODS (CANON.2.1) y su cadena de cálculos por cambio | 14 | XL | **D4** |
+| **11** | Contable: `expenses-polizas`, `ledger-chain`, `ap-findings`, `expense-requests` y ContPAQi | 10 | L | **D15** |
+| **12** | B: el INSERT pone `warehouse_id`; se borran los backfills | 2 | S | — |
+| — | Los 73 `@Cron` de la API: inventario propio (`PLAN_AUDITORIA_PLATAFORMA_2026-10-27.md`) | — | — | después de la 12 |
+
+**Cómo se cierra cada uno (DoD):** la vista o el mantenimiento existe en prod · comparación
+tabla-vs-vista medida, con las diferencias explicadas una por una · todos los lectores repuntados ·
+el paso fuera del carril y **la ingesta desplegada** · la tabla vieja queda congelada y su borrado se
+pide aparte (regla 5).
+
+### 8.4 Decisiones (firma Edgar)
+
+- **D4 (reabierta) — el push de las camionetas entra al ODS.** Con «ningún importer», dejarlo en el
+  `mart` ya no es opción: `sales-fact`, `customer-sales` y las 4 rutas de X dependen de él.
+  **Recomendación: replicarlo al ODS** como cualquier otra fuente.
+- **D15 — `CONTPAQI_SQL_PASSWORD` en `/secrets/feeds.env`** para encender `contpaqi_ods`. Es
+  credencial: la pone Edgar (regla 7). Sin eso, la oleada 11 sólo cubre la parte de Kepler.
+- **Despliegue de la ingesta** (`sh ops/vl/deploy.sh` + `--k3s`). Además del OK, está frenado por
+  trabajo sin commitear de otras sesiones en rutas que viajan en la imagen
+  (`database/importers/kepler/route-push/armar-push-camioneta.js`, `ops/k3s/52-pg-prod.deployment.yaml`):
+  el script archiva `HEAD` y se detiene si hay cambios sueltos ahí.
+
+### 8.5 Oleada 7 — lo hecho el 2026-11-11 (🧪, commits locales, sin empujar)
+
+Cada vista se comparó contra su tabla en prod (sólo lectura, por knex: el mismo cliente que la API),
+llave por llave. Patrón `[RE.68]`: vista nueva `analytics.v_*`, lectores repuntados, paso fuera del
+carril, tabla vieja congelada.
+
+| Item | Vista | Comparación | Lo que cambia | Costo |
+|---|---|---|---|---|
+| `[CANON.6.1]` `pos-cashiers` | `v_pos_cashiers` | 1,373 de 1,375 llaves idénticas (nombre, origen, almacén) | 2 lugares de cajero que Kepler dejó **sin nombre** (Morelia Madero 03, Morelia Abastos 04); la tabla guardaba el último por un UPSERT sin borrado. Ningún corte los cita | 8 ms |
+| `[CANON.6.2]` `kardex` | `v_stock_ledger` + índice `ix_kdij_genero_n` | 29,293 de 29,296 idénticas (unidades, importe, clase) | las 3 que sobran son las mermas de Canindo **canceladas** en Kepler (`[CANON.5.29]`): merma acumulada $6,040,555 → $6,034,576 | 382 ms sin índice |
+| `[CANON.6.3]` `pos-ticket-sales` | `v_pos_ticket_sales` | 4,896 de 4,908 cajero×día idénticos | los 12 distintos son de HOY, con la vista más alta: va al día, la tabla iba a la corrida de las 09:15 | ~1.6 s; su único lector es el escáner de conciliación, no una pantalla |
+
+**Reclasificados al medir** (no eran S):
+
+- `transfers-monthly` → **M**: une renglones de `kdm2` por mes y su lector es una pantalla
+  (`/logistica/traspasos`); la vista necesita que el filtro de mes llegue a un índice.
+- `box-price` → **E con hueco**: ya se mantiene por evento (`normalizeBoxPrice` en `feeds-ingest`),
+  pero el respaldo nocturno **corrige 47–270 precios cada noche** (`cron_run_log`, 31-oct → 11-nov).
+  Retirarlo hoy dejaría ~50 precios de caja viejos por día. Primero: qué cambio no dispara el evento.
+- `refresh-inventory-products` y `refresh-products-active` → **C**: no copian el ODS, copian
+  `catalog.products` (una 2ª materialización, regla 2). Van con el catálogo (oleada 9).
+
+**Para que lleguen a prod** (en este orden): push → CI → aplicar las 4 migraciones (`20261111093151`,
+`20261111093819` —el índice, con la receta de la skill `entrega` §5—, `20261111093820`,
+`20261111094100`) → soltar la API → desplegar la ingesta (que es la que deja de correr los 3 pasos).
