@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { cuadreTurno } from './cash-cut-identity';
 
@@ -217,7 +218,7 @@ export class MovementReconcileService {
     const critico = Number(params.critico) || 5000;
     const rows = await trx('analytics.cash_cuts as cc')
       .where('cc.tenant_id', tenantId)
-      .leftJoin('analytics.v_pos_cashiers as pc', (j: any) => j.on('pc.tenant_id', '=', 'cc.tenant_id').andOn('pc.warehouse_code', '=', 'cc.warehouse_code').andOn('pc.cajero_code', '=', 'cc.cajero_cierre'))
+      .leftJoin('analytics.v_pos_cashiers as pc', (j: Knex.JoinClause) => j.on('pc.tenant_id', '=', 'cc.tenant_id').andOn('pc.warehouse_code', '=', 'cc.warehouse_code').andOn('pc.cajero_code', '=', 'cc.cajero_cierre'))
       .whereRaw('abs(cc.efectivo_diff) >= ?', [umbral])
       .select('cc.warehouse_code', 'cc.warehouse_name', 'cc.caja', 'cc.folio', 'cc.business_date',
         'cc.cajero_cierre', trx.raw('pc.nombre AS cajero_nombre'), 'cc.efectivo_esperado', 'cc.efectivo_contado', 'cc.efectivo_diff')
@@ -254,7 +255,7 @@ export class MovementReconcileService {
     const criticoSuma = Number(params.critico_suma) || 10000;
     const rows = await trx('analytics.cash_cuts as cc')
       .where('cc.tenant_id', tenantId)
-      .leftJoin('analytics.v_pos_cashiers as pc', (j: any) => j.on('pc.tenant_id', '=', 'cc.tenant_id').andOn('pc.warehouse_code', '=', 'cc.warehouse_code').andOn('pc.cajero_code', '=', 'cc.cajero_cierre'))
+      .leftJoin('analytics.v_pos_cashiers as pc', (j: Knex.JoinClause) => j.on('pc.tenant_id', '=', 'cc.tenant_id').andOn('pc.warehouse_code', '=', 'cc.warehouse_code').andOn('pc.cajero_code', '=', 'cc.cajero_cierre'))
       .whereNotNull('cc.cajero_cierre')
       .whereRaw('cc.business_date >= (CURRENT_DATE - (? || \' days\')::interval)', [ventana])
       .whereRaw('cc.efectivo_diff >= ?', [minFalta]) // solo faltantes
@@ -292,7 +293,7 @@ export class MovementReconcileService {
     const critico = Number(params.critico) || 2000;
     const rows = await trx('analytics.cash_cuts as cc')
       .where('cc.tenant_id', tenantId)
-      .leftJoin('analytics.v_pos_cashiers as pc', (j: any) => j.on('pc.tenant_id', '=', 'cc.tenant_id').andOn('pc.warehouse_code', '=', 'cc.warehouse_code').andOn('pc.cajero_code', '=', 'cc.cajero_cierre'))
+      .leftJoin('analytics.v_pos_cashiers as pc', (j: Knex.JoinClause) => j.on('pc.tenant_id', '=', 'cc.tenant_id').andOn('pc.warehouse_code', '=', 'cc.warehouse_code').andOn('pc.cajero_code', '=', 'cc.cajero_cierre'))
       .whereRaw('(abs(cc.tarjeta_diff) >= ? OR abs(cc.transfer_diff) >= ?)', [umbral, umbral])
       .select('cc.warehouse_code', 'cc.warehouse_name', 'cc.caja', 'cc.folio', 'cc.business_date', 'cc.cajero_cierre', trx.raw('pc.nombre AS cajero_nombre'),
         'cc.tarjeta_esperado', 'cc.tarjeta_contado', 'cc.tarjeta_diff', 'cc.transfer_esperado', 'cc.transfer_contado', 'cc.transfer_diff')
@@ -334,7 +335,7 @@ export class MovementReconcileService {
     const pct = Number(params.pct_exacto) || 0.9;
     const rows = await trx('analytics.cash_cuts as cc')
       .where('cc.tenant_id', tenantId)
-      .leftJoin('analytics.v_pos_cashiers as pc', (j: any) => j.on('pc.tenant_id', '=', 'cc.tenant_id').andOn('pc.warehouse_code', '=', 'cc.warehouse_code').andOn('pc.cajero_code', '=', 'cc.cajero_cierre'))
+      .leftJoin('analytics.v_pos_cashiers as pc', (j: Knex.JoinClause) => j.on('pc.tenant_id', '=', 'cc.tenant_id').andOn('pc.warehouse_code', '=', 'cc.warehouse_code').andOn('pc.cajero_code', '=', 'cc.cajero_cierre'))
       .whereNotNull('cc.cajero_cierre')
       .whereRaw('cc.efectivo_esperado >= ?', [minMonto])
       .groupBy('cc.warehouse_code', 'cc.cajero_cierre', 'pc.nombre')
@@ -375,7 +376,7 @@ export class MovementReconcileService {
     const shiftLargo = Number(params.shift_largo_h) || 10;
     const rows = await trx('analytics.cash_cuts as cc')
       .where('cc.tenant_id', tenantId)
-      .leftJoin('analytics.v_pos_cashiers as pc', (j: any) => j.on('pc.tenant_id', '=', 'cc.tenant_id').andOn('pc.warehouse_code', '=', 'cc.warehouse_code').andOn('pc.cajero_code', '=', 'cc.cajero_cierre'))
+      .leftJoin('analytics.v_pos_cashiers as pc', (j: Knex.JoinClause) => j.on('pc.tenant_id', '=', 'cc.tenant_id').andOn('pc.warehouse_code', '=', 'cc.warehouse_code').andOn('pc.cajero_code', '=', 'cc.cajero_cierre'))
       .whereRaw('cc.efectivo_diff = 0')                       // cuadró exacto (posible enmascaramiento)
       .whereRaw('cc.efectivo_esperado >= ?', [minMonto])
       .whereRaw('cc.cajero_apertura IS DISTINCT FROM cc.cajero_cierre')  // cambio de cajero
@@ -421,7 +422,7 @@ export class MovementReconcileService {
       .where('cc.tenant_id', tenantId)
       .whereNotNull('cc.cajero_cierre')
       .whereRaw('cc.duracion_horas >= ?', [minHoras])
-      .leftJoin('analytics.v_pos_cashiers as pc', (j: any) => j.on('pc.tenant_id', '=', 'cc.tenant_id').andOn('pc.warehouse_code', '=', 'cc.warehouse_code').andOn('pc.cajero_code', '=', 'cc.cajero_cierre'))
+      .leftJoin('analytics.v_pos_cashiers as pc', (j: Knex.JoinClause) => j.on('pc.tenant_id', '=', 'cc.tenant_id').andOn('pc.warehouse_code', '=', 'cc.warehouse_code').andOn('pc.cajero_code', '=', 'cc.cajero_cierre'))
       .groupBy('cc.warehouse_code', 'cc.cajero_cierre', 'pc.nombre')
       .groupByRaw("to_char(cc.business_date,'YYYY-MM')")
       .havingRaw('count(*) >= ?', [minTurnos])
@@ -543,7 +544,7 @@ export class MovementReconcileService {
           // El folio cuando el conteo lo tiene (SM.40 permite capturar sin turno).
           .andOn(trx.raw('(bc.cash_cut_folio IS NULL OR bc.cash_cut_folio = cc.folio)'));
       })
-      .leftJoin('analytics.v_pos_cashiers as pc', function (this: any) {
+      .leftJoin('analytics.v_pos_cashiers as pc', function (this: Knex.JoinClause) {
         this.on('pc.tenant_id', '=', 'bc.tenant_id').andOn('pc.warehouse_code', '=', 'bc.warehouse_code').andOn('pc.cajero_code', '=', 'bc.cajero_code');
       })
       .where('bc.tipo', 'cierre')
@@ -656,11 +657,11 @@ export class MovementReconcileService {
         trx.raw('COALESCE(ts.ticket_count,0)::int AS tickets'),
         trx.raw('pc.nombre AS cajero_nombre'))
       .from('cortes as co')
-      .leftJoin('analytics.v_pos_ticket_sales as ts', function (this: any) {
+      .leftJoin('analytics.v_pos_ticket_sales as ts', function (this: Knex.JoinClause) {
         this.on('ts.tenant_id', '=', trx.raw('?', [tenantId])).andOn('ts.warehouse_code', '=', 'co.warehouse_code')
           .andOn('ts.cajero_code', '=', 'co.cajero_cierre').andOn('ts.business_date', '=', 'co.business_date');
       })
-      .leftJoin('analytics.v_pos_cashiers as pc', function (this: any) {
+      .leftJoin('analytics.v_pos_cashiers as pc', function (this: Knex.JoinClause) {
         this.on('pc.tenant_id', '=', trx.raw('?', [tenantId])).andOn('pc.warehouse_code', '=', 'co.warehouse_code').andOn('pc.cajero_code', '=', 'co.cajero_cierre');
       })
       .whereRaw('abs(co.venta_corte - COALESCE(ts.ticket_total,0)) >= ?', [umbral])

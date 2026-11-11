@@ -1187,7 +1187,7 @@ export class BlindCountService {
       const b = trx('analytics.cash_cuts as cc')
         .where('cc.tenant_id', tenantId)
         .whereNotNull('cc.cajero_cierre')
-        .leftJoin('analytics.v_pos_cashiers as pc', function (this: any) {
+        .leftJoin('analytics.v_pos_cashiers as pc', function (this: Knex.JoinClause) {
           this.on('pc.tenant_id', '=', 'cc.tenant_id')
             .andOn('pc.warehouse_code', '=', 'cc.warehouse_code')
             .andOn('pc.cajero_code', '=', 'cc.cajero_cierre');
@@ -1455,7 +1455,7 @@ export class BlindCountService {
              ORDER BY c.folio
              LIMIT 1
           ) cc ON true`)
-        .leftJoin('analytics.v_pos_cashiers as pc', function (this: any) {
+        .leftJoin('analytics.v_pos_cashiers as pc', function (this: Knex.JoinClause) {
           this.on('pc.tenant_id', '=', 'bc.tenant_id').andOn('pc.warehouse_code', '=', 'bc.warehouse_code').andOn('pc.cajero_code', '=', 'bc.cajero_code');
         })
         .select('bc.id', 'bc.tipo', 'bc.secuencia', 'bc.warehouse_code', 'bc.caja', 'bc.business_date', 'bc.turno', 'bc.cajero_code', 'bc.cajero_entrante',
