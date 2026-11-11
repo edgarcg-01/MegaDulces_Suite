@@ -24,6 +24,7 @@
 
 const { fmt, conectar, cerrar, leerVerificado, normalizarChecadas, normalizarUsuarios, motivo, serieCoincide } =
   require('./zk/lectura-verificada');
+const { escucharAvisosDelReloj } = require('./zk/eventos');
 const { descubrir } = require('./descubrir');
 const { ErrorEnvio } = require('./enviar');
 const { ejecutarComando } = require('./escritura');
@@ -157,10 +158,12 @@ class RelojJob {
     // mismo tiempo, se saturan la red de la plaza y el enlace de salida.
     this.timers.backfill = setTimeout(() => {
       this.backfill().catch((e) => this.log(`backfill: ${motivo(e)}`));
-      this.timers.backfillRepe = setInterval(
-        () => this.backfill().catch((e) => this.log(`backfill: ${motivo(e)}`)),
-        this.intervalos.backfillMin * 60000
-      );
+      // `[RH.1.3]` La relectura de cada hora sólo para el reloj que NO avisa: el que avisa tiene al árbitro del vigía
+      // (relee sólo si registró más checadas de las que avisó). Deuda con nombre para los que no avisan.
+      this.timers.backfillRepe = setInterval(() => {
+        if (this.soltarAvisos) return;
+        this.backfill().catch((e) => this.log(`backfill: ${motivo(e)}`));
+      }, this.intervalos.backfillMin * 60000);
     }, retrasoBackfillMs);
   }
 
@@ -227,7 +230,16 @@ class RelojJob {
     await this.soltarSocket();
   }
 
+  /** `[RH.1.3]` Una checada que el reloj avisó: a la cola ya (`origen = 'aviso'`), sin releer nada. */
+  alChecada(c) {
+    if (this.primerAviso) { this.primerAviso = false; this.log('📣 el reloj avisa cada checada (sin releer su memoria)'); }
+    this.avisosSinCuadrar = (this.avisosSinCuadrar || 0) + 1;
+    const encoladas = this.cola.encolar(this.reloj.serie, normalizarChecadas([c]), 'aviso');
+    if (encoladas) this.programarEnvio();
+  }
+
   async soltarSocket() {
+    if (this.soltarAvisos) { this.soltarAvisos(); this.soltarAvisos = null; }
     const zk = this.zk;
     this.zk = null;
     if (!zk) return;
@@ -318,10 +330,19 @@ class RelojJob {
         infoReloj: this.infoReloj ? { logCounts: this.infoReloj.logCounts, userCounts: this.infoReloj.userCounts } : undefined,
       });
 
+      // `[RH.1.3]` El reloj AVISA cada checada por esta misma sesión (medido el 11-nov: CEZU y 3266 sí). Lo avisado
+      // entra a la cola en el momento; el vigía queda como pulso de la sesión y ÁRBITRO (ver `vigilar`).
+      if (this.intervalos.avisos !== false) {
+        this.avisosSinCuadrar = 0;
+        this.duda = false;
+        this.primerAviso = true;
+        this.soltarAvisos = escucharAvisosDelReloj(this.zk, { log: (m) => this.log(m), alChecada: (c) => this.alChecada(c) });
+      }
+
       // EL VIGÍA: consulta el conteo del reloj cada pollSeg. Barato (getInfo es
-      // un comando chico). Cuando el número sube, alguien marcó → se baja el log
-      // y se empuja lo nuevo. Reemplaza al stream (getRealTimeLogs), que no se
-      // pudo comprobar en estos equipos; getInfo sí es de fiar.
+      // un comando chico). Mantiene viva la sesión (los ZK la cierran si no se usa)
+      // y es el ÁRBITRO de los avisos: si el conteo sube más de lo avisado, se
+      // relee la memoria completa (y si el reloj no avisa, así entra todo).
       this.timers.keepalive = setInterval(
         () => this.vigilar(), (this.intervalos.pollSeg || 30) * 1000
       );
@@ -390,9 +411,29 @@ class RelojJob {
     }
 
     if (this.conteoVisto != null && info.logCounts > this.conteoVisto) {
-      this.log(`+${info.logCounts - this.conteoVisto} checada(s) nueva(s) — bajando…`);
-      await this.backfill('movimiento nuevo');
-      return;
+      const subio = info.logCounts - this.conteoVisto;
+      // `[RH.1.3]` EL ÁRBITRO de los avisos. Si el reloj avisa y lo avisado cubre lo que subió, ya está en la cola:
+      // no se relee nada. Si falta, se da UNA vuelta de gracia (el aviso pudo venir en camino) y después se relee la
+      // memoria completa — y se DICE, porque un aviso perdido es justo lo que este árbitro existe para contar.
+      if (this.soltarAvisos) {
+        if ((this.avisosSinCuadrar || 0) >= subio) {
+          this.avisosSinCuadrar = 0;
+          this.duda = false;
+          this.conteoVisto = info.logCounts;
+        } else if (!this.duda) {
+          this.duda = true;
+        } else {
+          this.log(`⚠ árbitro: el reloj registró ${subio} y avisó ${this.avisosSinCuadrar || 0} — releyendo su memoria`);
+          this.avisosSinCuadrar = 0;
+          this.duda = false;
+          await this.backfill('aviso perdido');
+          return;
+        }
+      } else {
+        this.log(`+${subio} checada(s) nueva(s) — bajando…`);
+        await this.backfill('movimiento nuevo');
+        return;
+      }
     }
 
     // ══ LATIDO PERIÓDICO ════════════════════════════════════════════

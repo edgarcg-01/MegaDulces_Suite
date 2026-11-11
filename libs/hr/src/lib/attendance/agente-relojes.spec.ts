@@ -34,6 +34,11 @@ describe('[RH.1.3] lector de relojes — configuración', () => {
     expect(() => configDelEntorno({ ...base, HR_AGENT_API_URL: 'api:10000' })).toThrow(/http/);
   });
 
+  it('[RH.1.3] el reloj avisa cada checada por omisión; HR_AGENT_AVISOS=0 vuelve al vigía de antes', () => {
+    expect(configDelEntorno(base).intervalos.avisos).toBe(true);
+    expect(configDelEntorno({ ...base, HR_AGENT_AVISOS: '0' }).intervalos.avisos).toBe(false);
+  });
+
   it('un intervalo inválido cae a su valor por omisión, no a cero', () => {
     expect(configDelEntorno({ ...base, HR_AGENT_BACKFILL_MIN: '0' }).intervalos.backfillMin).toBe(60);
     expect(configDelEntorno({ ...base, HR_AGENT_BACKFILL_MIN: 'x' }).intervalos.backfillMin).toBe(60);
