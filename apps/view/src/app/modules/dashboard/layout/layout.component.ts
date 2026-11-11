@@ -859,6 +859,15 @@ export class LayoutComponent implements OnInit, OnDestroy {
 
   // `[RH.1.7]` Fase RH — Personal. Cada item por la misma lista que su ruta (gestionar implica ver).
   private rhNavGroups: { title: string; items: NavItem[] }[] = [
+    // `[RH.2.3]` Reclutamiento no tenía entrada en el menú: la pantalla existía y sólo se llegaba tecleando la
+    // URL (0 llamadas a /hr/talent/candidates en 30 días, medido el 2026-11-11). Una sola entrada: Resumen,
+    // Candidatos, Vacantes y Revisiones son pestañas del marco. Mismo `anyOf` que la ruta.
+    {
+      title: 'Reclutamiento',
+      items: [
+        { label: 'Reclutamiento', icon: 'pi pi-users', route: '/rh/reclutamiento', anyOf: [Permission.HR_RECRUITMENT_VER, Permission.HR_RECRUITMENT_GESTIONAR] },
+      ],
+    },
     {
       title: 'Asistencia',
       items: [
