@@ -599,3 +599,15 @@ vista filtrada a 10 SKU: `v_warehouse_box_factor` **150–190 ms** (contra 8–1
 - **Se retiran:** el renglón `existencia-aux` (cada 5 min) y las dos entradas nocturnas de
   `analytics-refresh` (`sold_rung`, `bought_rung`). Las matviews quedan sin refresco y su borrado se pide
   aparte (regla 5); sus lectores (vistas y código) se repuntan a las tablas.
+
+**8b, D-8b.1 REEMPLAZADA (Edgar firmó, 2026-11-11): no se ancla nada.** Al medir el peldaño COMPRADO, anclar
+cambiaba el factor de caja final de 40 de 11,365 productos **a uno equivocado** (50 → 1, 12 → 1, 100 → 1:
+compras de hace más de un año en peldaño 1 que la ventana de hoy descarta a propósito). Se mantiene la regla
+de hoy exacta: por llave al llegar el evento + **un recálculo completo con el primer movimiento de cada día**
+(lo único que la fecha mueve). Medido: llaves que pierden un día cada día — precio 3,511, peldaño vendido
+626, comprado 12; recalcular por llave ~330 s, todo junto ~50 s → gana el recálculo completo. Ningún número
+cambia. Costo total estimado ~2,000 s/día contra ~5,560 de hoy; frescura de ≤5 min a ~30 s. Por llave, el
+precio es lo caro (~90 ms/SKU): segunda etapa, un histograma diario de precios mantenido por evento.
+Lo que se declara: lo que envejece a medianoche se pone al día con el primer movimiento de la mañana.
+
+**Orden firmado (dinero × esfuerzo): oleada 12 (S, 2 relojes) → 9 (L, 11) → 8b (L, 3).**
