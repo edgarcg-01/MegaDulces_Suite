@@ -1,4 +1,8 @@
 /**
+ * ⛔ RETIRADO 2026-11-11 [CANON.6.3] — ya no corre en ningún carril. La venta por cajero y día se lee de
+ * la vista `analytics.v_pos_ticket_sales` (kepler_ods.kdm1, misma consulta que `readOds` de abajo).
+ * `analytics.pos_ticket_sales` queda congelada; su borrado se pide aparte.
+ *
  * SM.8 / P6 — Importer de venta atómica de tickets POS (cruce independiente).
  *
  * Agrega `md.kdm1` (venta real U/D/10) por sucursal×cajero(c67)×día(c9) y UPSERT a

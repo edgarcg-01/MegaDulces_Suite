@@ -656,7 +656,7 @@ export class MovementReconcileService {
         trx.raw('COALESCE(ts.ticket_count,0)::int AS tickets'),
         trx.raw('pc.nombre AS cajero_nombre'))
       .from('cortes as co')
-      .leftJoin('analytics.pos_ticket_sales as ts', function (this: any) {
+      .leftJoin('analytics.v_pos_ticket_sales as ts', function (this: any) {
         this.on('ts.tenant_id', '=', trx.raw('?', [tenantId])).andOn('ts.warehouse_code', '=', 'co.warehouse_code')
           .andOn('ts.cajero_code', '=', 'co.cajero_cierre').andOn('ts.business_date', '=', 'co.business_date');
       })
