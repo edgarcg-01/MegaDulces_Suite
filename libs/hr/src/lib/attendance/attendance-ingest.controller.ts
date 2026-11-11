@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Post, Query, Res, UseGuards } from '@nest
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
 import type { Response } from 'express';
-import { Public } from '@megadulces/platform-core';
+import { Public, SIN_LIMITE_DE_PETICIONES } from '@megadulces/platform-core';
 import { HrIngestGuard } from './hr-ingest.guard';
 import { HrAttendanceIngestService } from './attendance-ingest.service';
 import type { HeartbeatBody, IngestResult, OrdenParaAgente } from './attendance-ingest.service';
@@ -25,7 +25,7 @@ import type { IncomingBatch } from './ingest-batch';
 @ApiTags('hr')
 @Controller('hr/attendance/ingest')
 @Public()
-@SkipThrottle()
+@SkipThrottle(SIN_LIMITE_DE_PETICIONES)
 @UseGuards(HrIngestGuard)
 export class HrAttendanceIngestController {
   constructor(private readonly service: HrAttendanceIngestService) {}
@@ -82,7 +82,7 @@ export class HrAttendanceIngestController {
 @ApiTags('hr')
 @Controller('hr/attendance/ingest/mt/checador/ingesta')
 @Public()
-@SkipThrottle()
+@SkipThrottle(SIN_LIMITE_DE_PETICIONES)
 @UseGuards(HrIngestGuard)
 export class HrAttendanceMtCompatController {
   constructor(private readonly service: HrAttendanceIngestService) {}
