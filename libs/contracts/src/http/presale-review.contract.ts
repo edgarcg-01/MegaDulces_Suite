@@ -11,6 +11,7 @@
  */
 import type { StockState } from './stock-state.contract';
 import type { PresalePickPerson } from './presale-picking.contract';
+import type { OrderJustification } from './order-justification.contract';
 
 /**
  * `por_revisar` = surtido y sin revisar (desde cualquier día: no caduca); `revisado` = la caja ya lo
@@ -154,14 +155,18 @@ export function coincidenciaDeCodigo(
 export interface PresaleReviewDetail {
   order: PresaleReviewInboxRow;
   lines: PresaleReviewLine[];
+  /** `[MCP.18]` Por qué cambió el pedido antes de llegar a caja (vendedora, surtidor). Ausente = servidor anterior. */
+  justifications?: OrderJustification[];
 }
 
 export interface PresaleReviewFinishRequest {
   /**
    * Una entrada por cada renglón de la revisión. `final` = lo que se queda en el pedido y se cobra
    * (0..lo pedido, en la unidad mostrada). `returned` = lo que vino de más y se devolvió al surtidor.
+   * `[MCP.18]` `reason` (clave de `MOTIVOS_CAJA`) y `reason_note`: por qué la caja deja MENOS de lo que
+   * surtió el surtidor. En cualquier otro renglón se ignora; ausente = sin motivo registrado.
    */
-  lines: Array<{ key: string; final: number; returned?: number }>;
+  lines: Array<{ key: string; final: number; returned?: number; reason?: string | null; reason_note?: string | null }>;
 }
 
 /** Cómo se resolvió un renglón en caja. */
@@ -178,6 +183,10 @@ export interface PresaleReviewResultLine {
   resolution: PresaleReviewResolution;
   /** `[MV.1]` SKU del producto; ausente en revisiones anteriores al monitoreo vecinal. */
   sku?: string | null;
+  /** `[MCP.18]` Por qué la caja dejó menos de lo surtido: clave de `MOTIVOS_CAJA`. Ausente = sin motivo registrado. */
+  reason?: string;
+  /** `[MCP.18]` Nota del motivo (obligatoria con «Otro motivo»). */
+  reason_note?: string;
 }
 
 /** Lo que se guarda en `presale_picks.review`. */

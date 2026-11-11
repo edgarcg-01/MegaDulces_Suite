@@ -11,8 +11,9 @@ import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import type {
   KeplerWavesAutoResponse, PickerWave, PickerWaveLine, PresalePickBucket, PresalePickDetail,
-  PresalePickInboxResponse, PresalePickInboxRow, PresalePickReport,
+  PresalePickInboxResponse, PresalePickInboxRow, PresalePickReport, PresaleOtherUnitsResponse,
 } from '@megadulces/contracts';
+import { topeEnUnidad } from '@megadulces/contracts';
 import { coincideBusqueda } from '@megadulces/ui-web';
 import { PickingService } from '../../reparto/picking.service';
 import { PresalePickingService } from '../presale-picking.service';
@@ -20,6 +21,11 @@ import { AuthService } from '../../../core/services/auth.service';
 import { AlmacenRutasHoyComponent } from '../surtir-ruta/almacen-rutas-hoy.component';
 import { ClientesNuevosAvisoComponent } from '../clientes-nuevos-aviso.component';
 import { textoParte } from '../surtir-ruta/ruta-surtido.util';
+import { agruparPorVendedor } from '../pedidos-por-vendedor';
+import { MOTIVOS_SURTIDO, MOTIVO_SURTIDO_POR_OMISION, textoDeMotivo, type OrderJustification } from '@megadulces/contracts';
+import { MotivoChipsComponent } from '../shared/motivo-chips.component';
+import { JustificantesComponent } from '../shared/justificantes.component';
+import { camposDeMotivo, motivoDe, motivosIncompletos, type MotivoLinea } from '../shared/motivos-preventa';
 
 /**
  * Preferencias guardadas en el dispositivo (almacén y origen elegidos): el surtidor no tiene por
@@ -44,6 +50,12 @@ type Origen = 'TELEMARK' | 'SUCURSAL';
 
 /** Lo marcado en un pedido de Sucursal vive en el celular hasta "Terminé de surtir". */
 const PREF_MARCAS = 'gp.surtir.preventa.v1.';
+/** `[MCP.17]` Lo que se surte en otra unidad del mismo producto, también en el celular hasta cerrar. */
+const PREF_OTRA = 'gp.surtir.preventa.otra.v1.';
+/** `[MCP.18]` El motivo de cada faltante, también en el celular hasta cerrar. */
+const PREF_MOTIVO = 'gp.surtir.preventa.motivo.v1.';
+
+type OtraUnidad = { product_id: string; unit: string; quantity: number };
 
 /** Cada cuánto se vuelve a pedir la lista de Sucursal mientras se está viendo. */
 const SUCURSAL_CADA_MS = 30_000;
@@ -79,7 +91,7 @@ function plural(n: number, uno: string, varios: string): string {
 @Component({
   selector: 'app-almacen-surtir',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TagModule, ToastModule, AlmacenRutasHoyComponent, ClientesNuevosAvisoComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TagModule, ToastModule, AlmacenRutasHoyComponent, ClientesNuevosAvisoComponent, MotivoChipsComponent, JustificantesComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -200,7 +212,23 @@ function plural(n: number, uno: string, varios: string): string {
             @if (!pedidosDelDia().length) {
               <p class="sr-tip sr-sec-vacia">No hay pedidos de sucursal {{ diaTexto() }}.</p>
             }
-            @for (p of pedidosDelDia(); track p.order_id) {
+            <!-- [MCP.14] Lo que ya empezó esta persona, primero; lo demás separado por vendedor y en orden de
+                 folio (la pantalla del PDF de rutas vecinales: «separar los pedidos x vendedor»). -->
+            @if (misEnCurso().length) {
+              <h3 class="sr-grupo" [attr.aria-level]="rutasHoy() > 0 ? 4 : null"><i class="pi pi-play" aria-hidden="true"></i> Los que estás surtiendo
+                <span class="sr-grupo-n">· {{ plural(misEnCurso().length, 'pedido', 'pedidos') }}</span></h3>
+              @for (p of misEnCurso(); track p.order_id) {
+                <ng-container *ngTemplateOutlet="tarjetaPedido; context: { $implicit: p, conVendedor: true }"></ng-container>
+              }
+            }
+            @for (g of gruposDelDia(); track g.vendedor) {
+              <h3 class="sr-grupo" [attr.aria-level]="rutasHoy() > 0 ? 4 : null"><i class="pi pi-user" aria-hidden="true"></i> {{ g.vendedor }}
+                <span class="sr-grupo-n">· {{ plural(g.pedidos.length, 'pedido', 'pedidos') }}</span></h3>
+              @for (p of g.pedidos; track p.order_id) {
+                <ng-container *ngTemplateOutlet="tarjetaPedido; context: { $implicit: p, conVendedor: false }"></ng-container>
+              }
+            }
+            <ng-template #tarjetaPedido let-p let-conVendedor="conVendedor">
               <article class="sr-ped" [class.sr-ped-tarde]="p.days_late > 0">
                 <div class="sr-ped-top">
                   <span class="sr-ola-code">{{ p.code }}</span>
@@ -214,7 +242,7 @@ function plural(n: number, uno: string, varios: string): string {
                 <!-- [MCP.3.15] Trae indicaciones del vendedor: se ven completas al abrirlo. -->
                 @if (p.instructions) { <span class="sr-tag-ind"><i class="pi pi-megaphone" aria-hidden="true"></i> Con indicaciones del vendedor</span> }
                 <div class="sr-datos">
-                  <span class="sr-dato"><i class="pi pi-user" aria-hidden="true"></i>{{ p.seller_name || 'Sin vendedor' }}</span>
+                  @if (conVendedor) { <span class="sr-dato"><i class="pi pi-user" aria-hidden="true"></i>{{ p.seller_name || 'Sin vendedor' }}</span> }
                   <span class="sr-dato">{{ plural(p.lines, 'producto', 'productos') }}</span>
                   <span class="sr-dato">{{ dinero(p.total) }}</span>
                 </div>
@@ -232,7 +260,7 @@ function plural(n: number, uno: string, varios: string): string {
                   </button>
                 }
               </article>
-            }
+            </ng-template>
           } @else if (cargandoSucursal()) {
             <div class="sr-msg"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Buscando pedidos…</div>
           }
@@ -295,6 +323,10 @@ function plural(n: number, uno: string, varios: string): string {
               Cumplí las indicaciones
             </label>
           </section>
+        }
+        <!-- [MCP.18] Por qué cambió el pedido antes de que lo tomaras (D5: los tres roles ven todo). -->
+        @if (pedidoSucursal()) {
+          <app-justificantes [items]="justificantesPedido()" idBase="sr-jf"></app-justificantes>
         }
 
         <section class="sr-buscar">
@@ -405,6 +437,64 @@ function plural(n: number, uno: string, varios: string): string {
               <button pButton type="button" [text]="true" class="sr-tap" (click)="abrirFaltante(l)"
                       [attr.aria-label]="'Corregir ' + (l.product_name || l.sku)">Corregir</button>
             </article>
+            <!-- [MCP.18] Por qué faltó: ya viene «No había en la sucursal» (lo que dice el botón); se cambia con un toque. -->
+            @if (pedidoSucursal() && l.status !== 'surtido') {
+              <app-motivo-chips class="sr-motivo" [opciones]="motivosSurtido" [valor]="motivoDeLinea(l.id)" [idBase]="'sr-mot-' + l.id"
+                                [etiqueta]="'Por qué faltó ' + (l.product_name || l.sku)" (cambio)="ponerMotivo(l.id, $event)"></app-motivo-chips>
+            }
+            <!-- [MCP.17] Pidieron 1 CJA y no hubo caja completa: lo que faltó se surte en una presentación más
+                 chica del MISMO producto. Sólo en pedidos de Sucursal (los cierra el servidor de preventa). -->
+            @if (pedidoSucursal() && l.status !== 'surtido') {
+              <div class="sr-otra-fila">
+                @if (otraUnidad()[l.id]; as ou) {
+                  <span class="sr-otra-tag"><i class="pi pi-box" aria-hidden="true"></i> Van {{ fmtNum(ou.quantity) }} {{ ou.unit }} en otra unidad</span>
+                  <button pButton type="button" [text]="true" class="sr-tap" (click)="quitarOtraUnidad(l)"
+                          [attr.aria-label]="'Quitar lo de otra unidad de ' + (l.product_name || l.sku)">Quitar</button>
+                } @else if (otraAbierta() !== l.id) {
+                  <button pButton type="button" [text]="true" class="sr-tap" (click)="abrirOtraUnidad(l)"
+                          [attr.aria-label]="'Surtir en otra unidad ' + (l.product_name || l.sku)">
+                    <i class="pi pi-box" aria-hidden="true"></i>&nbsp;Surtir en otra unidad</button>
+                }
+              </div>
+              @if (otraAbierta() === l.id) {
+                <div class="sr-falta sr-otra" role="group" [attr.aria-label]="'Surtir ' + (l.product_name || l.sku) + ' en otra unidad'">
+                  @switch (otraCarga().estado) {
+                    @case ('cargando') { <p class="sr-tip"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Buscando sus presentaciones…</p> }
+                    @case ('error') {
+                      <p class="sr-tip sr-tip-bad">{{ otraCarga().msg }}</p>
+                      <button pButton type="button" severity="secondary" [outlined]="true" class="sr-tap" (click)="abrirOtraUnidad(l)">Reintentar</button>
+                    }
+                    @default {
+                      @if (otraCarga().data; as d) {
+                        @if (!d.units.length) {
+                          <p class="sr-tip">Kepler no tiene una presentación más chica que {{ d.unit }} para este producto.</p>
+                        } @else {
+                          <p class="sr-l">No hubo {{ d.unit }} completa: ¿en qué lo surtes?</p>
+                          <div class="sr-chips" role="radiogroup" aria-label="Unidad">
+                            @for (u of d.units; track u.unit) {
+                              <button type="button" class="sr-chip" role="radio" [attr.aria-checked]="otraElegida() === u.unit"
+                                      [class.sr-chip-on]="otraElegida() === u.unit" (click)="otraElegida.set(u.unit)">{{ u.unit }} de {{ fmtNum(u.factor) }}</button>
+                            }
+                          </div>
+                          <label class="sr-l" for="sr-otra-q">¿Cuántos {{ otraElegida() }}? Caben hasta {{ fmtNum(otraTope(l)) }}</label>
+                          <input id="sr-otra-q" class="sr-falta-input" type="number" inputmode="numeric" min="1" [attr.max]="otraTope(l)"
+                                 [ngModel]="otraCant()" (ngModelChange)="otraCant.set($event)"
+                                 (keydown.enter)="ponerOtraUnidad(l)" (keydown.escape)="otraAbierta.set(null)"
+                                 (wheel)="$any($event.target).blur()" autocomplete="off" />
+                          @if (otraCant() != null && !otraValida(l)) {
+                            <p class="sr-tip sr-tip-bad">Entre 1 y {{ fmtNum(otraTope(l)) }} {{ otraElegida() }}: no se surte más de lo que faltó.</p>
+                          }
+                        }
+                      }
+                    }
+                  }
+                  <div class="sr-falta-acc">
+                    <button pButton type="button" severity="secondary" [outlined]="true" class="sr-tap" (click)="otraAbierta.set(null)">Cancelar</button>
+                    <button pButton type="button" class="sr-tap" [disabled]="!otraValida(l)" (click)="ponerOtraUnidad(l)">Poner</button>
+                  </div>
+                </div>
+              }
+            }
           }
         }
 
@@ -417,8 +507,9 @@ function plural(n: number, uno: string, varios: string): string {
             }
             @if (conFaltante()) { · <span class="sr-falt">{{ plural(conFaltante(), 'con faltante', 'con faltante') }}</span> }
             @if (faltaMarcarIndicaciones()) { · <span class="sr-falt">Falta marcar «Cumplí las indicaciones»</span> }
+            @if (motivosSinCompletar().length) { · <span class="sr-falt">Escribe cuál fue el «Otro motivo»</span> }
           </div>
-          <button type="button" class="sr-btn sr-btn-go sr-btn-fin" [disabled]="pendientesTotal() > 0 || faltaMarcarIndicaciones() || cerrando()" (click)="cerrar()">
+          <button type="button" class="sr-btn sr-btn-go sr-btn-fin" [disabled]="pendientesTotal() > 0 || faltaMarcarIndicaciones() || motivosSinCompletar().length > 0 || cerrando()" (click)="cerrar()">
             <i class="pi" [class.pi-check]="!cerrando()" [class.pi-spin]="cerrando()" [class.pi-spinner]="cerrando()" aria-hidden="true"></i>
             <span>Terminé de surtir</span>
           </button>
@@ -451,8 +542,13 @@ function plural(n: number, uno: string, varios: string): string {
                 Se ajustó el pedido y ya se le avisó a la vendedora:
               </p>
               <ul class="sr-lista-min">
-                @for (x of r.removed; track x.product_name) { <li>Se quitó <strong>{{ x.product_name }}</strong> ({{ fmtNum(x.ordered) }} {{ x.unit }})</li> }
-                @for (x of r.adjusted; track x.product_name) { <li><strong>{{ x.product_name }}</strong>: hubo {{ fmtNum(x.picked) }} de {{ fmtNum(x.ordered) }} {{ x.unit }}</li> }
+                @for (x of r.removed; track x.product_name) { <li>Se quitó <strong>{{ x.product_name }}</strong> ({{ fmtNum(x.ordered) }} {{ x.unit }}){{ motivoReporte(x) }}</li> }
+                @for (x of r.adjusted; track x.product_name) { <li><strong>{{ x.product_name }}</strong>: hubo {{ fmtNum(x.picked) }} de {{ fmtNum(x.ordered) }} {{ x.unit }}{{ motivoReporte(x) }}</li> }
+                <!-- [MCP.17] Lo surtido en otra unidad del mismo producto (y [MCP.13] por otro producto). -->
+                @for (x of r.substituted ?? []; track x.line_id) {
+                  @if (x.same_product) { <li><strong>{{ x.product_name }}</strong>: van {{ fmtNum(x.quantity) }} {{ x.unit }} en otra unidad</li> }
+                  @else { <li><strong>{{ x.product_name }}</strong> en lugar de {{ x.for_product_name }} ({{ fmtNum(x.quantity) }} {{ x.unit }})</li> }
+                }
               </ul>
               <p class="sr-tip">Total: {{ dinero(r.total_before) }} → <strong>{{ dinero(r.total_after) }}</strong></p>
             }
@@ -593,6 +689,13 @@ function plural(n: number, uno: string, varios: string): string {
     .sr-hecho { display: flex; align-items: center; gap: .6rem; padding: .25rem .25rem .25rem .75rem; margin-bottom: .4rem;
       border-left: 4px solid var(--ok-fg); border-radius: var(--r-sm); background: var(--surface-card); }
     .sr-hecho-falta { border-left-color: var(--warn-fg); }
+    /* [MCP.17] Surtir en otra unidad: debajo del renglón con faltante, sin apretar su fila. */
+    .sr-otra-fila { display: flex; align-items: center; justify-content: flex-end; gap: .5rem; flex-wrap: wrap; margin: -.2rem 0 .5rem; }
+    /* [MCP.18] El «¿Por qué?» del faltante, pegado a su renglón (proximidad: el motivo es de ESE producto). */
+    .sr-motivo { margin: -.2rem 0 .4rem .75rem; }
+    .sr-otra-tag { display: inline-flex; align-items: center; gap: .35rem; font-size: var(--fs-sm); font-weight: 700; color: var(--text-main); }
+    .sr-otra { padding: .75rem; margin-bottom: .6rem; border: 1px solid var(--surface-border); border-radius: var(--r-md); background: var(--surface-card); }
+    .sr-otra .sr-chips { justify-content: center; }
     .sr-hecho-n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       font-size: var(--fs-body); color: var(--text-muted); }
 
@@ -607,6 +710,9 @@ function plural(n: number, uno: string, varios: string): string {
 
     /* [MCP.3.1] Pedidos de Sucursal. */
     .sr-sec-vacia { margin: .5rem 0 1rem; }
+    /* [MCP.14] Encabezado de cada vendedor (y de «Los que estás surtiendo»). */
+    .sr-grupo { display: flex; align-items: center; gap: var(--sp-2); margin: var(--sp-4) 0 0; font-size: var(--fs-body); font-weight: 800; color: var(--text-main); }
+    .sr-grupo-n { font-weight: 500; color: var(--text-muted); }
     .sr-ped { background: var(--surface-card); border: 1px solid var(--surface-border); border-radius: var(--r-lg);
       padding: .75rem .85rem; margin: .6rem 0; display: flex; flex-direction: column; gap: .35rem; }
     .sr-ped-tarde { border-left: 4px solid var(--warn-fg); }
@@ -707,6 +813,14 @@ export class AlmacenSurtirComponent implements OnInit {
       .filter((p) => p.bucket === this.dia())
       .sort((a, b) => Number(this.esMio(b)) - Number(this.esMio(a))),
   );
+  /** [MCP.14] Los que ya empezó esta persona: arriba y aparte, en orden de folio. */
+  readonly misEnCurso = computed(() =>
+    this.pedidosDelDia().filter((p) => this.esMio(p)).sort((a, b) => a.code.localeCompare(b.code)),
+  );
+  /** [MCP.14] El resto, separado por vendedor y en orden de folio; los grupos, por orden de llegada (D5). */
+  readonly gruposDelDia = computed(() =>
+    agruparPorVendedor(this.pedidosDelDia().filter((p) => !this.esMio(p)), (p) => p.arrived_at),
+  );
   readonly diaTexto = computed(() => ({ hoy: 'para hoy', manana: 'para mañana', proximos: 'para los próximos días' })[this.dia()]);
   readonly ola = signal<PickerWave | null>(null);
   readonly sinTrabajo = signal<{ motivo: string; armado: KeplerWavesAutoResponse | null } | null>(null);
@@ -719,6 +833,24 @@ export class AlmacenSurtirComponent implements OnInit {
   /** Renglón con el teclado de faltante abierto. */
   readonly editando = signal<string | null>(null);
   readonly borrador = signal<number | null>(null);
+  /** `[MCP.17]` Por renglón: lo que faltó y se surte en una presentación más chica del mismo producto. */
+  readonly otraUnidad = signal<Record<string, OtraUnidad>>({});
+  /** `[MCP.18]` El motivo elegido por renglón con faltante; sin tocar = «No había en la sucursal». */
+  readonly motivosLinea = signal<Record<string, MotivoLinea>>({});
+  readonly motivosSurtido = MOTIVOS_SURTIDO;
+  /** `[MCP.18]` Lo que cambió del pedido (quién y por qué) antes de que lo tomaran. D5: todo, no sólo la vendedora. */
+  readonly justificantesPedido = signal<OrderJustification[]>([]);
+  /** `[MCP.18]` Renglones con «Otro motivo» sin escribir: «Terminé de surtir» espera. */
+  readonly motivosSinCompletar = computed(() => {
+    const m = this.motivosLinea();
+    const ids = (this.ola()?.lines ?? []).filter((l) => l.status !== 'pendiente' && l.status !== 'surtido').map((l) => l.id);
+    return this.pedidoSucursal() ? motivosIncompletos(m, ids, MOTIVOS_SURTIDO, MOTIVO_SURTIDO_POR_OMISION) : [];
+  });
+  /** El renglón cuyo panel «Surtir en otra unidad» está abierto. */
+  readonly otraAbierta = signal<string | null>(null);
+  readonly otraCarga = signal<{ estado: 'cargando' | 'error' | 'listo'; data?: PresaleOtherUnitsResponse; msg?: string }>({ estado: 'cargando' });
+  readonly otraElegida = signal<string | null>(null);
+  readonly otraCant = signal<number | null>(null);
   /** Renglones con un guardado en vuelo: sus botones se apagan para no mandar dos veces. */
   readonly guardando = signal<ReadonlySet<string>>(new Set());
   /** Lo último que pasó, para lectores de pantalla. */
@@ -870,9 +1002,129 @@ export class AlmacenSurtirComponent implements OnInit {
     this.ola.set(ola);
     this.busqueda.set('');
     this.editando.set(null);
+    // [MCP.17] Lo que ya se había puesto en otra unidad, si se cerró la app a medio surtir.
+    this.otraUnidad.set(this.otraGuardada(d.order.order_id, new Set(ola.lines.map((l) => l.id))));
+    // [MCP.18] Los motivos ya elegidos (si se cerró la app a medio surtir) y por qué cambió el pedido.
+    this.motivosLinea.set(this.motivosGuardados(d.order.order_id, new Set(ola.lines.map((l) => l.id))));
+    this.justificantesPedido.set(d.justifications ?? []);
+    this.otraAbierta.set(null);
     this.ocultarHechos.set(false);
     this.fase.set('surtiendo');
     this.anuncio.set(`Pedido ${d.order.code}: ${plural(ola.lines.length, 'renglón', 'renglones')}.`);
+  }
+
+  // ── [MCP.17] Surtir en otra unidad del mismo producto ──────────────────────────────────────
+
+  private otraGuardada(orderId: string, renglones: Set<string>): Record<string, OtraUnidad> {
+    try {
+      const v = JSON.parse(this.leer(PREF_OTRA + orderId) || '{}') as Record<string, OtraUnidad>;
+      const out: Record<string, OtraUnidad> = {};
+      for (const [k, x] of Object.entries(v && typeof v === 'object' ? v : {})) {
+        // Sólo lo que sigue siendo de este pedido y tiene forma: lo demás se descarta, no se adivina.
+        if (renglones.has(k) && x && typeof x.product_id === 'string' && typeof x.unit === 'string' && Number(x.quantity) > 0) out[k] = x;
+      }
+      return out;
+    } catch {
+      return {};
+    }
+  }
+
+  private guardarOtra(orderId: string): void {
+    const m = this.otraUnidad();
+    this.guardar(PREF_OTRA + orderId, Object.keys(m).length ? JSON.stringify(m) : '');
+  }
+
+  abrirOtraUnidad(l: PickerWaveLine): void {
+    const o = this.ola();
+    if (!o || !this.pedidoSucursal()) return;
+    this.otraAbierta.set(l.id);
+    this.otraCarga.set({ estado: 'cargando' });
+    this.otraElegida.set(null);
+    this.otraCant.set(null);
+    this.preventa.otherUnits(o.id, l.id).subscribe({
+      next: (d) => {
+        if (this.otraAbierta() !== l.id) return;
+        this.otraCarga.set({ estado: 'listo', data: d });
+        // La más grande de las chicas: de una caja incompleta salen primero paquetes.
+        this.otraElegida.set(d.units.length ? d.units[d.units.length - 1].unit : null);
+      },
+      error: (e) => {
+        if (this.otraAbierta() !== l.id) return;
+        this.otraCarga.set({ estado: 'error', msg: this.mensaje(e, 'No se pudieron leer sus presentaciones.') });
+      },
+    });
+  }
+
+  /** Cuántas de la unidad elegida caben en lo que faltó (la misma regla que aplica el servidor). */
+  otraTope(l: PickerWaveLine): number {
+    const d = this.otraCarga().data;
+    const u = d?.units.find((x) => x.unit === this.otraElegida());
+    if (!d || !u) return 0;
+    const falto = (l.qty_requested - Number(l.qty_picked ?? 0)) * d.factor;
+    return topeEnUnidad(falto, u);
+  }
+
+  otraValida(l: PickerWaveLine): boolean {
+    const raw = this.otraCant();
+    if (raw == null || (raw as unknown) === '') return false;
+    const q = Number(raw);
+    const u = this.otraElegida() ?? '';
+    const pesable = /^(KG|GR|LT|LTS|L|ML)$/i.test(u);
+    return Number.isFinite(q) && q > 0 && q <= this.otraTope(l) + 1e-9 && (pesable || Number.isInteger(q));
+  }
+
+  ponerOtraUnidad(l: PickerWaveLine): void {
+    const o = this.ola();
+    const d = this.otraCarga().data;
+    const u = this.otraElegida();
+    if (!o || !d || !u || !this.otraValida(l)) return;
+    const quantity = Number(this.otraCant());
+    this.otraUnidad.update((m) => ({ ...m, [l.id]: { product_id: d.product_id, unit: u, quantity } }));
+    this.guardarOtra(o.id);
+    this.otraAbierta.set(null);
+    this.anuncio.set(`${l.product_name || l.sku}: van ${this.fmtNum(quantity)} ${u} en otra unidad.`);
+  }
+
+  quitarOtraUnidad(l: PickerWaveLine): void {
+    const o = this.ola();
+    if (!o) return;
+    this.otraUnidad.update((m) => {
+      const { [l.id]: _fuera, ...resto } = m;
+      return resto;
+    });
+    this.guardarOtra(o.id);
+    this.anuncio.set(`${l.product_name || l.sku}: ya no va nada en otra unidad.`);
+  }
+
+  // ── [MCP.18] El justificante de cada faltante ──────────────────────────────────────────────
+
+  motivoDeLinea(id: string): MotivoLinea {
+    return motivoDe(this.motivosLinea(), id, MOTIVO_SURTIDO_POR_OMISION);
+  }
+
+  ponerMotivo(id: string, m: MotivoLinea): void {
+    const o = this.ola();
+    this.motivosLinea.update((x) => ({ ...x, [id]: m }));
+    if (o) this.guardar(PREF_MOTIVO + o.id, JSON.stringify(this.motivosLinea()));
+  }
+
+  /** « · Dañado o caducado» en el resumen al cerrar; vacío si el reporte no trae motivo. */
+  motivoReporte(x: { reason?: string; reason_note?: string }): string {
+    return x.reason ? ` · ${textoDeMotivo(MOTIVOS_SURTIDO, x.reason, x.reason_note)}` : '';
+  }
+
+  private motivosGuardados(orderId: string, renglones: Set<string>): Record<string, MotivoLinea> {
+    try {
+      const v = JSON.parse(this.leer(PREF_MOTIVO + orderId) || '{}') as Record<string, MotivoLinea>;
+      const out: Record<string, MotivoLinea> = {};
+      for (const [k, x] of Object.entries(v && typeof v === 'object' ? v : {})) {
+        // Sólo lo que sigue siendo de este pedido y tiene forma: lo demás se descarta, no se adivina.
+        if (renglones.has(k) && x && typeof x.reason === 'string') out[k] = { reason: x.reason, note: typeof x.note === 'string' ? x.note : '' };
+      }
+      return out;
+    } catch {
+      return {};
+    }
   }
 
   private estadoDe(levantado: number, pedido: number): PickerWaveLine['status'] {
@@ -900,7 +1152,17 @@ export class AlmacenSurtirComponent implements OnInit {
     marcas[l.id] = qty;
     this.guardar(PREF_MARCAS + o.id, JSON.stringify(marcas));
     const nombre = l.product_name || l.sku || 'Renglón';
-    this.anuncio.set(status === 'surtido' ? `${nombre}: completo.` : status === 'agotado' ? `${nombre}: no había.` : `${nombre}: con faltante.`);
+    // [MCP.17] Lo de otra unidad se calculó contra lo que faltaba: si cambia lo surtido, se vuelve a poner.
+    const habiaOtra = !!this.otraUnidad()[l.id];
+    if (habiaOtra) {
+      this.otraUnidad.update((m) => {
+        const { [l.id]: _fuera, ...resto } = m;
+        return resto;
+      });
+      this.guardarOtra(o.id);
+    }
+    this.anuncio.set((status === 'surtido' ? `${nombre}: completo.` : status === 'agotado' ? `${nombre}: no había.` : `${nombre}: con faltante.`)
+      + (habiaOtra ? ' Lo de otra unidad se quitó: vuelve a ponerlo si hace falta.' : ''));
     if (this.busqueda()) {
       this.limpiarBusqueda();
     } else {
@@ -912,10 +1174,23 @@ export class AlmacenSurtirComponent implements OnInit {
   /** Cierra el pedido de Sucursal: lo que no hubo se quita y se recalcula (MCP.8), y se avisa a la vendedora. */
   private cerrarSucursal(o: PickerWave): void {
     this.cerrando.set(true);
-    this.preventa.finish(o.id, { lines: o.lines.map((l) => ({ line_id: l.id, picked: Number(l.qty_picked ?? 0) })) }).subscribe({
+    const otra = this.otraUnidad();
+    const lines = o.lines.map((l) => ({
+      line_id: l.id,
+      picked: Number(l.qty_picked ?? 0),
+      // [MCP.17] El mismo producto en otra unidad viaja como un cambio con su mismo product_id.
+      ...(otra[l.id] && l.status !== 'surtido' ? { substitute: otra[l.id] } : {}),
+      // [MCP.18] El justificante de cada faltante (sin tocar = el de por omisión, lo que dice el botón).
+      ...(l.status !== 'surtido' ? camposDeMotivo(motivoDe(this.motivosLinea(), l.id, MOTIVO_SURTIDO_POR_OMISION)) : {}),
+    }));
+    this.preventa.finish(o.id, { lines }).subscribe({
       next: (r) => {
         this.cerrando.set(false);
         this.guardar(PREF_MARCAS + o.id, '');
+        this.guardar(PREF_OTRA + o.id, '');
+        this.guardar(PREF_MOTIVO + o.id, '');
+        this.motivosLinea.set({});
+        this.otraUnidad.set({});
         this.resumen.set({
           completos: o.lines.filter((l) => l.status === 'surtido').length,
           faltantes: this.conFaltante(),

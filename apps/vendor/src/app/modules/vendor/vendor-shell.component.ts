@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Capacitor } from '@capacitor/core';
 import { NavigationEnd, Router, RouterModule, RouterOutlet } from '@angular/router';
@@ -20,6 +20,7 @@ import { VendorService } from './vendor.service';
 import { ChecadorPreciosService } from './checador-precios.service';
 import { sucursalDelChecador } from './checador-precios';
 import { VendorChecadorPreciosComponent } from './pages/vendor-checador-precios.component';
+import { VendorCotizarEncabezadoComponent } from './components/cotizar-encabezado.component';
 
 interface DiagProbe {
   build: { commit: string; ts: string };
@@ -42,7 +43,7 @@ interface DiagProbe {
 @Component({
   selector: 'app-vendor-shell',
   standalone: true,
-  imports: [CommonModule, RouterModule, RouterOutlet, ButtonModule, ToastModule, VendorChecadorPreciosComponent],
+  imports: [CommonModule, RouterModule, RouterOutlet, ButtonModule, ToastModule, VendorChecadorPreciosComponent, VendorCotizarEncabezadoComponent],
   providers: [MessageService],
   template: `
     <div class="vendor-shell">
@@ -58,6 +59,9 @@ interface DiagProbe {
              hace. Antes: una pastilla arriba («escondido») y luego un panel desde la barra («otra ventana»). -->
         <app-vendor-checador-precios class="hdr-precios" [compacto]="true" />
         <div class="vendor-user">
+          <!-- [MCP.16] «Cotizar» a la mano en todas las pantallas, como el checador (David, 2026-11-10: «disponible
+               y a la mano 24/7»). El botón, su ventana y quién lo ve viven en el componente. -->
+          <app-vendor-cotizar-encabezado />
           <a
             pButton
 
@@ -163,18 +167,13 @@ interface DiagProbe {
           <i class="pi pi-map"></i>
           <span>Mi ruta</span>
         </a>
-        <a routerLink="today" routerLinkActive="active" class="has-badge">
-          <i class="pi pi-chart-bar"></i>
-          @if (pendingOrders() > 0) {
-            <span class="nav-badge">{{ pendingOrders() }}</span>
-          }
-          <span>Mi día</span>
-        </a>
-        <!-- [MCP.8] El avance de sus pedidos de preventa: surtidor, faltantes, cobro. -->
-        <a routerLink="mis-pedidos" routerLinkActive="active" class="has-badge">
-          <i class="pi pi-list-check"></i>
-          @if (unseenReports() > 0) {
-            <span class="nav-badge">{{ unseenReports() }}</span>
+        <!-- [MCP.8] El avance de sus pedidos de preventa: surtidor, faltantes, cobro.
+             [MCP.19] Y el recuento del día: «Mi día» se juntó aquí (David, 2026-11-10). El globito suma lo
+             que está en el celular sin enviar y los reportes de surtido sin ver; la etiqueta dice cuál es cuál. -->
+        <a routerLink="mis-pedidos" routerLinkActive="active" class="has-badge" [attr.aria-label]="etiquetaPedidos()">
+          <i class="pi pi-list-check" aria-hidden="true"></i>
+          @if (globitoPedidos() > 0) {
+            <span class="nav-badge" aria-hidden="true">{{ globitoPedidos() }}</span>
           }
           <span>Pedidos</span>
         </a>
@@ -184,12 +183,6 @@ interface DiagProbe {
             <span>Carga</span>
           </a>
         }
-        @if (canCierre) {
-          <a routerLink="close-route" routerLinkActive="active">
-            <i class="pi pi-receipt"></i>
-            <span>Cierre</span>
-          </a>
-        }
         @if (canVerEquipo) {
           <!-- [SUP.2] El supervisor ve a su equipo del día (vendedor_ruta no tiene la llave). -->
           <a routerLink="supervisor/equipo" routerLinkActive="active">
@@ -197,13 +190,31 @@ interface DiagProbe {
             <span>Equipo</span>
           </a>
         }
-        @if (canAssignRoutes) {
-          <a routerLink="supervisor/routes" routerLinkActive="active">
-            <i class="pi pi-directions"></i>
-            <span>Rutas</span>
-          </a>
-        }
+        <!-- [MCP.21] Lo de una vez al día (Cierre, asignar Rutas) y lo que casi no se usa (Por entregar: 0 «Aprobar» y 1
+             «Marcar entregado» en 30 días) va en «Más»: la barra queda con lo de todos los días. -->
+        <button type="button" class="nav-mas" [class.active]="masOpen() || enMas()" [attr.aria-expanded]="masOpen()"
+                aria-controls="vendor-mas" (click)="masOpen.set(!masOpen())">
+          <i class="pi pi-ellipsis-h" aria-hidden="true"></i>
+          <span>Más</span>
+        </button>
       </nav>
+      @if (masOpen()) {
+        <div class="settings-backdrop" (click)="masOpen.set(false)"></div>
+        <div class="settings-panel mas-panel" id="vendor-mas" role="menu" aria-label="Más">
+          @if (canCierre) {
+            <a class="set-row" role="menuitem" routerLink="close-route" (click)="masOpen.set(false)">
+              <i class="pi pi-receipt" aria-hidden="true"></i><span class="lbl">Cierre</span>
+            </a>
+          }
+          @if (canAssignRoutes) {
+            <a class="set-row" role="menuitem" routerLink="supervisor/routes" (click)="masOpen.set(false)">
+              <i class="pi pi-directions" aria-hidden="true"></i><span class="lbl">Rutas</span>
+            </a>
+          }
+          <a class="set-row" role="menuitem" routerLink="pending" (click)="masOpen.set(false)">
+            <i class="pi pi-inbox" aria-hidden="true"></i><span class="lbl">Por entregar (pedidos de campo)</span>
+          </a>        </div>
+      }
 
       <!-- Overlay de diagnóstico PWA (Ajustes → Diagnóstico PWA): la verdad del device -->
       @if (diagOpen()) {
@@ -357,11 +368,22 @@ interface DiagProbe {
         white-space: nowrap;
       }
       .vendor-bottom-nav a i { font-size: 1.4rem; }
+      /* [MCP.21] «Más»: se ve igual que las demás pestañas, pero abre el panel de lo de una vez al día. */
+      .vendor-bottom-nav .nav-mas {
+        flex: 1; max-width: 110px; display: flex; flex-direction: column; align-items: center; gap: 0.125rem;
+        justify-content: center; border: 0; background: none; color: var(--text-muted); padding: 0.6rem 0.25rem;
+        font-family: inherit; font-size: 0.72rem; white-space: nowrap; cursor: pointer;
+      }
+      .vendor-bottom-nav .nav-mas i { font-size: 1.4rem; }
+      .vendor-bottom-nav .nav-mas.active { color: var(--brand-700); font-weight: 600; }
+      .vendor-bottom-nav .nav-mas:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+      .mas-panel { top: auto; bottom: calc(env(safe-area-inset-bottom) + 4.6rem); }
+      .mas-panel a.set-row { text-decoration: none; min-height: var(--tap-min); }
       .vendor-bottom-nav a.active {
         color: var(--brand-700);
         font-weight: 600;
       }
-      /* Badge de pedidos offline sin enviar, sobre el ícono de "Mi día". */
+      /* Globito de «Pedidos»: lo que está sin enviar en el celular + los reportes de surtido sin ver. */
       .vendor-bottom-nav a.has-badge { position: relative; }
       .vendor-bottom-nav .nav-badge {
         position: absolute; top: 0.35rem; left: 50%; margin-left: 0.35rem;
@@ -473,15 +495,29 @@ export class VendorShellComponent {
   private static readonly BG_ONBOARD_KEY = 'vendorBgGeoOnboarded';
 
   readonly settingsOpen = signal(false);
+  /** `[MCP.21]` El panel «Más» de la barra de abajo, y si la pantalla actual es una de las suyas (se marca la pestaña). */
+  readonly masOpen = signal(false);
+  private readonly urlActual = signal('');
+  readonly enMas = computed(() => /\/vendor\/(close-route|supervisor\/routes|pending)(\/|\?|$)/.test(this.urlActual()));
   readonly pushBusy = signal(false);
   readonly diagOpen = signal(false);
   readonly diag = signal<DiagProbe | null>(null);
   readonly copied = signal(false);
   readonly bgHelpOpen = signal(false);
-  /** Pedidos confirmados offline sin sincronizar (badge en "Mi día"). */
+  /** Pedidos confirmados offline sin sincronizar (globito en «Pedidos»). */
   readonly pendingOrders = signal(0);
-  /** `[MCP.8]` Reportes de surtido que la vendedora no ha visto (badge en "Pedidos"). */
+  /** `[MCP.8]` Reportes de surtido que la vendedora no ha visto (globito en «Pedidos»). */
   readonly unseenReports = signal(0);
+  /** `[MCP.19]` Un solo globito en «Pedidos» (ahí viven los dos); el número es la suma. */
+  readonly globitoPedidos = computed(() => this.pendingOrders() + this.unseenReports());
+  /** Lo que el lector de pantalla dice del globito: cuántos de cada cosa. */
+  readonly etiquetaPedidos = computed(() => {
+    const partes = [
+      this.pendingOrders() ? `${this.pendingOrders()} sin enviar` : '',
+      this.unseenReports() ? `${this.unseenReports()} ${this.unseenReports() === 1 ? 'reporte nuevo' : 'reportes nuevos'}` : '',
+    ].filter(Boolean);
+    return partes.length ? `Pedidos: ${partes.join(' y ')}` : 'Pedidos';
+  });
   /** Transacciones muertas (visitas+pedidos al tope de reintentos) — dinero/visita real invisible. */
   readonly deadCount = signal(0);
   readonly retryingDead = signal(false);
@@ -495,7 +531,8 @@ export class VendorShellComponent {
     this.refreshPendingBadge();
     this.router.events
       .pipe(filter((e) => e instanceof NavigationEnd), takeUntilDestroyed(this.destroyRef))
-      .subscribe(() => this.refreshPendingBadge());
+      .subscribe(() => { this.refreshPendingBadge(); this.urlActual.set(this.router.url); this.masOpen.set(false); });
+    this.urlActual.set(this.router.url);
     // Onboarding one-time de ubicación en segundo plano (solo nativo): explica
     // los 3 ajustes que hacen que el GPS siga con la pantalla bloqueada.
     if (Capacitor.isNativePlatform() && !this.bgOnboarded()) {
@@ -522,7 +559,7 @@ export class VendorShellComponent {
     });
   }
 
-  /** Refresca el contador de pedidos offline sin sincronizar (badge "Mi día") + muertos. */
+  /** Refresca el contador de pedidos offline sin sincronizar (globito de «Pedidos») + muertos. */
   private refreshPendingBadge(): void {
     void this.offlineApi.count().then((n) => this.pendingOrders.set(n)).catch(() => void 0);
     void this.sync.getDeadCount().then((n) => this.deadCount.set(n)).catch(() => void 0);

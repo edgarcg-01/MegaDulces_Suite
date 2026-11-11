@@ -185,9 +185,11 @@ function cargar() {
       await como(SURT, () => picking.start(A));
 
       console.log('\n[5] Negativas que no escriben (antes del cierre bueno)');
-      const marcado = (sub, picked2 = 1) => ({ lines: [{ line_id: a1.id, picked: 1 }, { line_id: a2.id, picked: picked2, substitute: sub }] });
+      // [MCP.18] D4: lo que faltó lleva su motivo, como lo manda la pantalla (así cada negativa mide lo suyo).
+      const marcado = (sub, picked2 = 1) => ({ lines: [{ line_id: a1.id, picked: 1 }, { line_id: a2.id, picked: picked2, reason: 'sin_existencia', substitute: sub }] });
       const negativas = [
-        ['el mismo producto', { product_id: p2.id, quantity: 1, unit: 'PZA' }, 1, /mismo producto/],
+        // [MCP.17] El mismo producto sólo en OTRA unidad; en la misma es lo surtido, no un cambio.
+        ['el mismo producto en la misma unidad', { product_id: p2.id, quantity: 1, unit: 'PZA' }, 1, /otra unidad/],
         ['uno que ya viene en el pedido', { product_id: p1.id, quantity: 1, unit: 'PZA' }, 1, /ya viene en este pedido/],
         ['una unidad que Kepler no declara', { product_id: p3.id, quantity: 1, unit: 'BTO' }, 1, /no se vende en BTO/],
         ['un cambio sobre lo que sí hubo', { product_id: p3.id, quantity: 1, unit: 'PZA' }, 2, /hubo todo/],
@@ -249,7 +251,7 @@ function cargar() {
       const B = await pedido([{ product_id: p1.id, quantity: 2 }]);
       const [b1] = await lineas(B);
       await como(SURT, () => picking.start(B));
-      const finB = await como(SURT, () => picking.finish(B, { lines: [{ line_id: b1.id, picked: 0, substitute: { product_id: p4.id, quantity: 2, unit: 'PZA' } }] }));
+      const finB = await como(SURT, () => picking.finish(B, { lines: [{ line_id: b1.id, picked: 0, reason: 'sin_existencia', substitute: { product_id: p4.id, quantity: 2, unit: 'PZA' } }] }));
       const lsB = await lineas(B);
       ok(lsB.length === 1 && lsB[0].product_id === p4.id && Number(lsB[0].quantity) === 2, 'el original se quitó y quedó el sustituto (2 PZA): el pedido no quedó vacío');
       ok(finB.report.removed[0]?.line_id === b1.id && finB.report.substituted?.[0]?.for_line_id === b1.id, 'el reporte dice que se quitó y por qué se cambió');
@@ -272,6 +274,54 @@ function cargar() {
       ok(busca.data.some((x) => x.product_id === p3.id && x.match === 'busqueda'), `buscar por SKU (${p3.sku}) lo encuentra`);
       const nB = await falla(SURT, () => picking.substitutes(C, a1.id, ''), 404, /no es de este pedido/);
       ok(nB.ok, `un renglón de otro pedido → 404 (${nB.msg})`);
+
+      console.log('\n[7] [MCP.17] Pidieron 1 CJA y no hubo caja completa: el mismo producto en piezas');
+      const D = await pedido([{ product_id: p1.id, quantity: 1, qty_unit: 'CJA' }]);
+      const [d1] = await lineas(D);
+      // El factor de la caja lo pone el ERP de la base (no se fuerza: el servidor rechaza un empaque que no coincide).
+      const F = Number(d1?.qty_factor);
+      if (d1?.qty_unit !== 'CJA' || !(F > 1)) {
+        noMedido(`el renglón de prueba no quedó en CJA con factor > 1 (${d1?.quantity} ${d1?.qty_unit}×${d1?.qty_factor})`);
+      } else {
+        await como(SURT, () => picking.start(D));
+        const ou = await como(SURT, () => picking.otherUnits(D, d1.id));
+        ok(ou.unit === 'CJA' && ou.ordered === 1 && ou.factor === F && ou.product_id === p1.id, `lee el renglón: ${ou.ordered} ${ou.unit} de ${ou.factor}`);
+        ok(ou.units.length === 1 && ou.units[0].unit === 'PZA' && ou.units[0].factor === 1 && ou.units[0].price === 20,
+          `ofrece sólo lo más chico, con precio, y nunca la CJA aunque la escalera le dé 12 (${ou.units.map((u) => `${u.unit}×${u.factor} $${u.price}`).join(', ')})`);
+        const ouPza = await como(SURT, () => picking.otherUnits(C, c1.id));
+        ok(ouPza.units.length === 0, 'un renglón en piezas no tiene nada más chico que ofrecer');
+        const de = (sub) => ({ lines: [{ line_id: d1.id, picked: 0, reason: 'presentacion', substitute: sub }] }); // [MCP.18] D2/D4
+        const n13 = await falla(SURT, () => picking.finish(D, de({ product_id: p1.id, quantity: F + 1, unit: 'PZA' })), 400, new RegExp(`caben ${F} PZA`));
+        ok(n13.ok, `más de lo que faltó (${F + 1} PZA de una caja de ${F}) → 400 (${n13.msg})`);
+        // Control del tope: justo lo que faltó sí pasa (corre en un savepoint que se revierte con este truco).
+        const justo = await falla(SURT, async () => { await picking.finish(D, de({ product_id: p1.id, quantity: F, unit: 'PZA' })); throw new Error('revertir'); }, null, /^revertir$/);
+        ok(justo.ok, `justo lo que faltó (${F} PZA) sí se acepta; se revierte (${justo.msg})`);
+        const nCja = await falla(SURT, () => picking.finish(D, de({ product_id: p1.id, quantity: 1, unit: 'CJA' })), 400, /otra unidad/);
+        ok(nCja.ok, `el mismo producto en la misma CJA → 400 (${nCja.msg})`);
+        ok((await lineas(D)).length === 1 && !(await trx('commercial.presale_picks').where({ order_id: D }).first('finished_at')).finished_at,
+          'las negativas no escribieron nada');
+        const totalD0 = await totalDe(D);
+        const avisosAntes = avisos.length;
+        const finD = await como(SURT, () => picking.finish(D, de({ product_id: p1.id, quantity: 8, unit: 'PZA' })));
+        const lsD = await lineas(D);
+        ok(lsD.length === 1 && lsD[0].product_id === p1.id && Number(lsD[0].quantity) === 8 && lsD[0].qty_unit === 'PZA' && Number(lsD[0].qty_factor) === 1,
+          `la caja se quitó y quedaron 8 PZA del mismo producto (${lsD.map((l) => `${l.quantity} ${l.qty_unit}`).join(', ')})`);
+        ok(Number(lsD[0]?.line_total) === 160, `a precio de pieza: $${lsD[0]?.line_total} (8 × $20, no la caja)`);
+        ok(/^En PZA: no hubo CJA completa/.test(lsD[0]?.notes ?? ''), `el renglón dice por qué va en piezas («${lsD[0]?.notes}»)`);
+        const tD = await totalDe(D);
+        ok(Math.abs(tD - (await sumaDe(D))) < 0.005 && Math.abs(finD.report.total_after - tD) < 0.005 && Math.abs(finD.report.total_before - totalD0) < 0.005,
+          `total ${finD.report.total_before} → ${tD} = suma de renglones = reporte`);
+        ok(finD.report.substituted?.[0]?.same_product === true && finD.report.removed[0]?.line_id === d1.id, 'el reporte lo marca como el mismo producto en otra unidad');
+        const nuevos = avisos.slice(avisosAntes).map((a) => a.title);
+        ok(nuevos.some((t) => /1 en otra unidad/.test(t)) && !nuevos.some((t) => /cambiado por otro/.test(t)),
+          `la vendedora lo sabe sin decirle «por otro» (${nuevos.join(' | ') || 'ningún aviso'})`);
+        const revD = await como(CAJA, () => review.detail(D));
+        ok(revD.lines[0]?.substitutes_for === `${p1.nombre} en CJA`, `la caja lee «en lugar de ${revD.lines[0]?.substitutes_for}»`);
+        ok(revD.lines.length === 1 && revD.lines[0].ordered === 8 && !revD.lines.some((l) => l.key.startsWith('borrado:')),
+          `la caja revisa 8 PZA y no pide reponer la caja (${revD.lines.map((l) => `${l.key}:${l.ordered}`).join(', ')})`);
+        const rD = await como(CAJA, () => review.finish(D, { lines: revD.lines.map((l) => ({ key: l.key, final: l.ordered })) }));
+        ok(Math.abs(rD.review.total_after - tD) < 0.005, `la caja cierra con el payload de la pantalla y el total no se mueve (${rD.review.total_after})`);
+      }
 
       throw new Error(RB);
     });

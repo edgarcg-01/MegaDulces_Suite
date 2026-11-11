@@ -63,7 +63,14 @@ function delReporte(l: LineaDelPedido, unidad: string, reportadas: readonly Pres
 }
 
 export function articulosDelPedido(p: PresaleSellerOrder, lineas: readonly LineaDelPedido[] | null): Articulo[] | null {
-  const sustitutos = new Map((p.report?.substituted ?? []).map((s) => [s.line_id, s.for_product_name]));
+  // [MCP.17] El mismo producto en otra unidad dice qué unidad no hubo completa («en lugar de X en CJA»).
+  const unidadDe = new Map(
+    [...(p.report?.removed ?? []), ...(p.report?.adjusted ?? [])].filter((r) => !!r.line_id).map((r) => [r.line_id as string, r.unit]),
+  );
+  const sustitutos = new Map((p.report?.substituted ?? []).map((s) => [
+    s.line_id,
+    s.same_product && unidadDe.get(s.for_line_id) ? `${s.for_product_name} en ${unidadDe.get(s.for_line_id)}` : s.for_product_name,
+  ]));
 
   // 1 · Revisado en caja: la revisión trae todos los renglones con sus tres números.
   const revision = p.review?.lines;

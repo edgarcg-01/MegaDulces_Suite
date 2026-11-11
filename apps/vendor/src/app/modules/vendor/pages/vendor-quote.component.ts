@@ -221,6 +221,8 @@ export class VendorQuoteComponent implements OnInit {
   readonly hoy = new Intl.DateTimeFormat('es-MX', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date());
 
   private customerId = '';
+  /** `[MCP.16]` De dónde se abrió: desde «Mis cotizaciones» la flecha regresa ahí, no a «Tomar pedido». */
+  private desde: string | null = null;
 
   readonly propios = computed<RenglonCotizado[]>(() => (this.cot()?.lines ?? []).filter((l) => l.parent_line_number == null));
   readonly visibles = computed<PriceRow[]>(() => {
@@ -243,6 +245,7 @@ export class VendorQuoteComponent implements OnInit {
   ngOnInit(): void {
     this.customerId = this.route.snapshot.paramMap.get('id') ?? '';
     const cotId = this.route.snapshot.queryParamMap.get('cot');
+    this.desde = this.route.snapshot.queryParamMap.get('desde');
     forkJoin({ c: this.api.getCustomer(this.customerId), f: this.api.myStockSources() })
       .pipe(
         switchMap(({ c, f }) => {
@@ -313,7 +316,8 @@ export class VendorQuoteComponent implements OnInit {
       : this.quotes.create({ customer_id: this.customerId, source_branch: s.code, warehouse_id: s.id, contact_phone: this.cliente()?.phone || undefined }).pipe(
           switchMap((c) => {
             // La cotización se puede retomar: su id va en la URL.
-            this.router.navigate([], { relativeTo: this.route, queryParams: { cot: c.id }, replaceUrl: true });
+            // [MCP.16] merge: conserva «desde» si se abrió desde «Mis cotizaciones».
+            this.router.navigate([], { relativeTo: this.route, queryParams: { cot: c.id }, queryParamsHandling: 'merge', replaceUrl: true });
             return of(c.id);
           }),
         );
@@ -371,6 +375,7 @@ export class VendorQuoteComponent implements OnInit {
 
   volver(): void {
     if (this.vista() === 'doc') { this.vista.set('armar'); return; }
+    if (this.desde === 'cotizaciones') { this.router.navigate(['/vendor/mis-pedidos'], { queryParams: { ver: 'cotizaciones' } }); return; }
     this.router.navigate(['/vendor/take-order', this.customerId]);
   }
 

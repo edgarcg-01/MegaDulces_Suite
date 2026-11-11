@@ -2,8 +2,10 @@ import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, injec
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import type { VecinalVendorDetail, VisitMonitorRow, VisitMonitorVendor } from '@megadulces/contracts';
+import type { SellerDayRecap, VecinalVendorDetail, VisitMonitorRow, VisitMonitorVendor } from '@megadulces/contracts';
 import { SupervisorEquipoService } from '../supervisor-equipo.service';
+import { RecuentoDiaService } from '../recuento-dia.service';
+import { VendorRecuentoDiaComponent } from '../components/recuento-dia.component';
 import {
   etiquetaCliente,
   fechaCorta,
@@ -25,11 +27,15 @@ type VentaDetalle = { ok: true; data: VecinalVendorDetail } | { ok: false; motiv
  * `[SUP.2]` Un vendedor de mi equipo, ese día: cada cliente de su ruta (primero las faltas y lo que
  * falta por visitar), a qué hora llegó, cuánto estuvo, por qué no hubo pedido, qué le levantó
  * producto por producto y qué le cobró Kepler.
+ *
+ * `[MCP.19]` Y su recuento del día, el MISMO que él ve arriba de «Pedidos»: cómo van al surtir sus
+ * pedidos y lo que le quedó pendiente (borradores, por aprobar, cancelados). Las visitas y los clientes
+ * sin visita no se repiten: ya están arriba y en la lista.
  */
 @Component({
   selector: 'app-vendor-supervisor-vendedor',
   standalone: true,
-  imports: [CommonModule, RouterLink],
+  imports: [CommonModule, RouterLink, VendorRecuentoDiaComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="sv">
@@ -75,6 +81,11 @@ type VentaDetalle = { ok: true; data: VecinalVendorDetail } | { ok: false; motiv
           @if (!v.closed && v.counts.pendientes) {
             <p class="sv-nota">Su ruta sigue abierta: lo que no ha visitado se juzga al terminarla.</p>
           }
+
+          <!-- [MCP.19] Su recuento del día: el mismo que él ve en «Pedidos». -->
+          <app-vendor-recuento-dia class="sv-rd"
+            [recuento]="recuento()" [estado]="recuentoEstado()" [error]="recuentoError()" [cargadoEn]="recuentoEn()"
+            [propio]="false" [conVisitas]="false" [conClientes]="false" (reintentar)="cargarRecuento()" />
 
           <ul class="sv-lista">
             @for (c of clientes(); track c.customer_id) {
@@ -137,6 +148,7 @@ type VentaDetalle = { ok: true; data: VecinalVendorDetail } | { ok: false; motiv
     .sv-head h1 { margin: 0; font-size: var(--fs-h2); font-weight: 800; }
     .sv-sub, .sv-nota { font-size: var(--fs-xs); color: var(--text-muted); }
     .sv-nota { margin: 0; }
+    .sv-rd { margin: var(--sp-3) 0; }
     .sv-err { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-3); border: 1px solid var(--bad-border);
       border-radius: var(--r-md); color: var(--bad-fg); }
     .sv-err button { margin-left: auto; min-height: var(--tap-min); border-radius: var(--r-md); border: 1px solid var(--border-color);
@@ -214,6 +226,31 @@ export class VendorSupervisorVendedorComponent implements OnInit {
         ok: false,
         motivo: (e as { status?: number })?.status === 404 ? 'su ruta de ese día no es vecinal.' : motivoDeError(e, 'no se pudo leer.'),
       }),
+    });
+    this.cargarRecuento();
+  }
+
+  // ─── [MCP.19] Su recuento del día ───
+  private readonly recuentoApi = inject(RecuentoDiaService);
+  readonly recuento = signal<SellerDayRecap | null>(null);
+  readonly recuentoEstado = signal<'cargando' | 'listo' | 'error'>('cargando');
+  readonly recuentoError = signal<string | null>(null);
+  readonly recuentoEn = signal<string | null>(null);
+
+  cargarRecuento(): void {
+    this.recuentoEstado.set('cargando');
+    this.recuentoApi.dia(this.fecha, this.userId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.recuento.set(r);
+        this.recuentoEstado.set('listo');
+        this.recuentoError.set(null);
+        this.recuentoEn.set(new Date().toISOString());
+      },
+      error: (e) => {
+        this.recuento.set(null);
+        this.recuentoEstado.set('error');
+        this.recuentoError.set(motivoDeError(e, 'No se pudo cargar su recuento del día.'));
+      },
     });
   }
 

@@ -5,9 +5,45 @@ import {
   ordenarSugerencias,
   palabrasClave,
   puntuarSustituto,
+  topeEnUnidad,
   unidadesDeEscalera,
+  unidadesMasChicas,
   unidadSugerida,
 } from './presale-substitute.engine';
+
+describe('[MCP.17] unidadesMasChicas · en qué más se puede surtir el mismo producto', () => {
+  const U = [
+    { unit: 'PZA', factor: 1, price: 2 },
+    { unit: 'PAQ', factor: 12, price: 22 },
+    { unit: 'CJA', factor: 24, price: 40 },
+  ];
+  it('de una CJA de 24: paquete y pieza, nunca la caja', () => {
+    expect(unidadesMasChicas(U, 24, 'CJA').map((u) => u.unit)).toEqual(['PZA', 'PAQ']);
+  });
+  it('de un PAQ: sólo pieza (no se sube a caja)', () => {
+    expect(unidadesMasChicas(U, 12, 'paq ').map((u) => u.unit)).toEqual(['PZA']);
+  });
+  it('un renglón en piezas no tiene nada más chico', () => {
+    expect(unidadesMasChicas(U, 1, 'PZA')).toEqual([]);
+  });
+  it('prueba negativa: sin precio no se ofrece, y la unidad propia tampoco aunque la escalera le dé otro factor', () => {
+    const raro = [{ unit: 'PZA', factor: 1, price: null }, { unit: 'CJA', factor: 12, price: 40 }];
+    expect(unidadesMasChicas(raro, 28, 'CJA')).toEqual([]);
+  });
+});
+
+describe('[MCP.17] topeEnUnidad · no más de lo que faltó', () => {
+  it('de 24 piezas que faltaron caben 2 PAQ de 12, no 2.5', () => {
+    expect(topeEnUnidad(24, { unit: 'PAQ', factor: 12, price: 1 })).toBe(2);
+    expect(topeEnUnidad(30, { unit: 'PAQ', factor: 12, price: 1 })).toBe(2);
+  });
+  it('en peso no se redondea a entero', () => {
+    expect(topeEnUnidad(2.5, { unit: 'KG', factor: 1, price: 1 })).toBe(2.5);
+  });
+  it('nada faltó: tope cero', () => {
+    expect(topeEnUnidad(0, { unit: 'PZA', factor: 1, price: 1 })).toBe(0);
+  });
+});
 
 /**
  * `[MCP.13]` El cambio de producto al surtir, sin base: qué se sugiere, en qué unidad, qué acepta el
@@ -117,8 +153,21 @@ describe('planearCierre · con cambio de producto', () => {
     expect(() => planearCierre(R, [{ line_id: 'a', picked: 3, substitute: cambio }, { line_id: 'b', picked: 2 }])).toThrow(/hubo todo/);
   });
 
-  it('no se cambia por el mismo producto', () => {
-    expect(() => planearCierre(R, [{ line_id: 'a', picked: 3 }, { line_id: 'b', picked: 1, substitute: { ...cambio, product_id: 'p-b' } }])).toThrow(/mismo producto/);
+  it('[MCP.17] el mismo producto en la MISMA unidad no es un cambio (va en lo surtido)', () => {
+    expect(() => planearCierre(R, [{ line_id: 'a', picked: 3 }, { line_id: 'b', picked: 1, substitute: { ...cambio, product_id: 'p-b' } }])).toThrow(/otra unidad/);
+    // Prueba negativa: la unidad escrita distinto («pza ») sigue siendo la misma.
+    expect(() => planearCierre(R, [{ line_id: 'a', picked: 3 }, { line_id: 'b', picked: 1, substitute: { product_id: 'p-b', quantity: 1, unit: 'pza ' } }])).toThrow(/otra unidad/);
+  });
+
+  it('⭐ [MCP.17] pidieron 1 CJA y no hubo caja completa: el mismo producto va en PAQ y la caja se quita', () => {
+    const conCaja: typeof R = [...R, { line_id: 'c', product_id: 'p-c', product_name: 'BOMBON', quantity: 24, qty_unit: 'CJA', qty_factor: 24, line_total: 480 }];
+    const p = planearCierre(conCaja, [
+      { line_id: 'a', picked: 3 },
+      { line_id: 'b', picked: 2 },
+      { line_id: 'c', picked: 0, substitute: { product_id: 'p-c', quantity: 8, unit: 'paq' } },
+    ]);
+    expect(p.quitar).toEqual(['c']);
+    expect(p.sustituir).toEqual([{ for_line_id: 'c', for_product_name: 'BOMBON', product_id: 'p-c', quantity: 8, unit: 'PAQ' }]);
   });
 
   it('cantidad cero, negativa o con decimales en piezas se rechaza', () => {
@@ -178,5 +227,22 @@ describe('armarRenglonesRevision · la caja con un cambio de producto', () => {
     expect(r.map((x) => x.product_name)).toEqual(['TAMARINDO', 'COCADA']);
     // La llave del borrado conserva su posición en el reporte: la caja y el servidor la leen igual.
     expect(r[1].key).toBe('borrado:1');
+  });
+
+  it('[MCP.17] el mismo producto en otra unidad: la caja ve qué unidad no hubo completa, y no pide reponer la caja', () => {
+    const restore = { product_id: 'p-b', quantity: 24, qty_unit: 'CJA', qty_factor: 24, qty_factor_source: null, discount_percent: 0, unit_price: 400, tax_rate: 0, source_warehouse_id: null, line_number: 1, notes: null };
+    const reporte: PresalePickReport = {
+      removed: [{ product_name: 'BANDERILLA', unit: 'CJA', ordered: 1, picked: 0, line_id: 'b', restore }],
+      adjusted: [],
+      substituted: [{ ...sustitucion('b', 'n'), product_id: 'p-b', product_name: 'BANDERILLA', quantity: 8, unit: 'PAQ', same_product: true }],
+      total_before: 400, total_after: 160,
+    };
+    const r = armarRenglonesRevision([{ line_id: 'n', product_id: 'p-b', product_name: 'BANDERILLA', quantity: 96, qty_unit: 'PAQ', qty_factor: 12 }], reporte);
+    expect(r).toHaveLength(1);
+    expect(r[0]).toMatchObject({ ordered: 8, unit: 'PAQ', substitutes_for: 'BANDERILLA en CJA' });
+    // Prueba negativa: un cambio por OTRO producto sigue diciendo sólo el nombre.
+    const otro = armarRenglonesRevision([{ line_id: 'n', product_id: 'p-x', product_name: 'TAMARINDO', quantity: 2, qty_unit: 'PZA', qty_factor: 1 }],
+      { ...reporte, substituted: [sustitucion('b', 'n')] });
+    expect(otro[0].substitutes_for).toBe('BANDERILLA');
   });
 });

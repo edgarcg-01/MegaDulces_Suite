@@ -13,6 +13,7 @@ import type {
   PresalePickFinishResponse,
   PresalePickInboxResponse,
   PresalePickInboxRow,
+  PresaleOtherUnitsResponse,
   PresaleSellerStatusResponse,
   PresaleSubstituteResponse,
   RouteBatchDetail,
@@ -101,6 +102,17 @@ export class PresalePickingController {
     return this.service.substitutes(id, lineId, q, query);
   }
 
+  @Get(':id/lines/:lineId/units')
+  @RequirePermissions(Permission.COMMERCIAL_PICKING_GESTIONAR)
+  @ApiOperation({ summary: '[MCP.17] Presentaciones más chicas del mismo producto, para surtir en otra unidad lo que faltó' })
+  otherUnits(
+    @Param('id') id: string,
+    @Param('lineId') lineId: string,
+    @Query() query: Record<string, unknown>,
+  ): Promise<PresaleOtherUnitsResponse> {
+    return this.service.otherUnits(id, lineId, query);
+  }
+
   @Post(':id/start')
   @RequirePermissions(Permission.COMMERCIAL_PICKING_GESTIONAR)
   @ApiOperation({ summary: 'Empezar a surtir: registra quién y a qué hora' })
@@ -133,9 +145,9 @@ export class PresaleSellerStatusController {
 
   @Get()
   @RequireAnyPermission(Permission.VENDOR_APP_ACCESS, Permission.COMMERCIAL_ORDERS_VER)
-  @ApiOperation({ summary: 'Mis pedidos de preventa: agendado, surtido, cobrado, entregado' })
-  status(): Promise<PresaleSellerStatusResponse> {
-    return this.service.sellerStatus();
+  @ApiOperation({ summary: 'Mis pedidos de preventa: agendado, surtido, cobrado, entregado. [MCP.20] ?date=YYYY-MM-DD: los que levanté ese día.' })
+  status(@Query('date') date?: string): Promise<PresaleSellerStatusResponse> {
+    return this.service.sellerStatus(date);
   }
 
   @Get('unseen')
@@ -147,9 +159,9 @@ export class PresaleSellerStatusController {
 
   @Post('seen')
   @RequireAnyPermission(Permission.VENDOR_APP_ACCESS, Permission.COMMERCIAL_ORDERS_VER)
-  @ApiOperation({ summary: 'Marcar como vistos mis reportes de surtido' })
-  seen(): Promise<{ updated: number }> {
-    return this.service.sellerSeen();
+  @ApiOperation({ summary: 'Marcar como vistos mis reportes de surtido. [MCP.20] { order_ids }: sólo los de esos pedidos.' })
+  seen(@Body() body?: { order_ids?: string[] }): Promise<{ updated: number }> {
+    return this.service.sellerSeen(body?.order_ids);
   }
 }
 
