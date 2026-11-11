@@ -655,3 +655,17 @@ costo de `sales-fact`) · 9.3 `is_promo` por evento (4–13 por corrida; único 
 hueco) · 9.5 marcas por evento en `kdig` (hoy una línea nueva cae en `SIN-LINEA` hasta 7 días) ·
 9.6 `products_active` a vista (además borra una FK en cada corrida: DDL en un cron) · 9.7 códigos de
 barras (residuo) · después logística, `inventory.products`, costo y altas.
+
+**9.1 hecho en código (2026-11-11, `[CANON.6.7]`): dos pleitos, no huecos.** Con `analytics.master_data_history`:
+- **Precio de etiqueta:** cada :02/:32 `import-label-data` escribía en SUPER VELA AGUA TUBO/70 (84234) y
+  BLISTER FOAMY (96842) el precio de un SKU **descontinuado** con su mismo código de barras (70216: $71.51
+  contra $40.37; 96230: $74.69 contra $48.99), por su fallback por barcode; el hop-2 lo regresaba ~20 min
+  después. Un mes así, 8 plazas cada uno. Los 13 amarres del fallback eran todos `* DESCONTINUADO` (7 sobre
+  productos vigentes): el fallback se quita; la identidad queda sólo por sku, como el hop-2.
+- **Código de barras del catálogo:** el hop-2 sólo protegía códigos de ≥ 12 caracteres y pisaba el EAN-8 de
+  BOING CAJA 500 ML (59264: `75003135` → `59264`); el backfill del script lo regresaba. ~48 veces al día
+  cada uno, semanas. `BARCODE_CASE` protege también el EAN-8 — medido: cambia la decisión de ese único producto.
+- ⚠️ **Hallazgo, de Edgar (credencial):** `STORE_NOTIFY_URL`/`STORE_INGEST_KEY` no están en el carril
+  `feeds-cron`: el aviso de cambio de precio a las pantallas no sale («aviso NO enviado», 1,109 corridas).
+- Llega con el próximo despliegue de la ingesta (script y hop-2 viajan en la imagen). Después de eso, retirar
+  el script requiere mover al hop-2 su único aporte legítimo: el EAN real cuando la ficha trae placeholder.
