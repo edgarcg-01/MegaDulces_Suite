@@ -1,5 +1,9 @@
 /* eslint-disable no-console */
 /**
+ * ⛔ RETIRADO 2026-11-11 [CANON.6.6] — ya no corre en ningún carril. El warehouse_id lo resuelve el trigger
+ * `trg_warehouse_id_al_escribir` (migración 20261111160714) AL ESCRIBIR, con esta misma regla. Queda
+ * como herramienta manual; no hace falta correrlo.
+ *
  * Normalización ALMACÉN — Paso 2 BATCH 2: backfill de `warehouse_id` (uuid) desde `sucursal` (texto)
  * para las tablas de la migración 20260818160000. Aditivo, idempotente (solo filas warehouse_id NULL).
  * Dry-run default; `--apply` escribe. Lee prod del runner (patrón prodUrl, no la imprime).

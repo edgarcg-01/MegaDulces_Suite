@@ -366,12 +366,10 @@ const STEPS = {
     // (analytics.wincaja_product_box_factor) no tiene lector: lo reemplazó v_warehouse_box_factor
     // (commercial-replenishment.service.ts). La tabla se queda; borrarla pide firma (regla 5).
     [path.join(K, 'import-replenishment-plan.js'), '--hb=nightly'], // RA-PRO.31 fact del pedido — AL FINAL (tras demanda/stock/velocity/tránsito/reorden). `--hb`: ver el carril `stock`.
-    // Norm ALMACÉN Paso 2b (BARRIDO): tras todos los importers, llena warehouse_id NULL de las
-    // tablas normalizadas (batch 1 warehouse_code + batch 2 sucursal). Idempotente (solo toca NULL),
-    // barato. Batch 1 ya va inline en sus writers; esto cubre batch 2 (~15 importers) sin editarlos +
-    // identity.users (app-escrita) + auto-cubre futuros batches. AL FINAL (tras poblarse las filas).
-    path.join(SCRIPTS, 'backfill-warehouse-id-batch1.js'),
-    path.join(SCRIPTS, 'backfill-warehouse-id-batch2.js'),
+    // RETIRADO 2026-11-11 [CANON.6.6]: backfill-warehouse-id-batch1.js y -batch2.js — el
+    // warehouse_id lo resuelve un trigger AL ESCRIBIR (`trg_warehouse_id_al_escribir`, migración
+    // 20261111160714) con la misma regla, sin importar quién escribe. Medido antes: de las 33 tablas
+    // 10 ya eran vistas y 5 congeladas; lo pendiente era lo escrito ese día por la app y la carga de RH.
   ],
   catalog: [
     path.join(K, 'import-brands-lineas.js'), // líneas kdig → brands nuevas (si falta la línea, el producto se descarta abajo)
