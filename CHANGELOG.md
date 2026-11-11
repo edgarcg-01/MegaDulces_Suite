@@ -9,6 +9,8 @@
 ---
 
 ## [Unreleased]
+### Changed — Verificador de precios: el escaneo, medido en prod (VAC.P1, 2026-11-11 · en prod)
+- Con la migración `20261107115424` aplicada (2026-11-08), la consulta del escaneo pasó de 62–66 ms a **0.7 ms** y `/api/kp/precio` en la red local de ~75 ms a **15–24 ms**. Los ajustes del mostrador (VAC.U16) también están en prod; falta verlos en el monitor real.
 ### Fixed — Etiquetas: la oferta ya no se encima y la impresión espera su tipografía (ETQ-OFERTA.1 · ETQ-FUENTE.2 · 2026-11-11)
 - Las etiquetas EN OFERTA llevan como máximo 4 renglones en la columna derecha, contando «Precio normal» y «Oferta 1 a N». Antes podían llevar 6, encimados sobre el «Código» y con los montos ilegibles: le pasaba a **52 de las 238** promos vigentes. Lo que no cabe lo declara la cola («N no entran»), que además dejó de decir «1 no entra» cuando no se recortaba nada.
 - La impresión espera a que la hoja de impresión cargue sus tres tipografías. Si no cargan, no imprime y lo dice. Con la tipografía de respaldo, el último dígito del código salía cortado.

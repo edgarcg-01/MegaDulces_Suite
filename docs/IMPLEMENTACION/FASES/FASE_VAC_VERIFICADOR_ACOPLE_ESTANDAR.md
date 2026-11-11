@@ -345,8 +345,13 @@ crea dos índices (`GIN` sobre las 7 columnas + `lpad` de la clave corta), `CONC
 - Mismas filas: 428 códigos, 3,815 filas, 0 diferencias contra la WHERE vieja; la prueba negativa
   (quitar `c85`) sí difiere.
 - Plan con los índices (base local): <1 ms con EAN y con clave corta.
-- ⛔ **Pendiente:** aplicar la migración en prod (una por una, fuera de horario) y re-medir el
-  `EXPLAIN` y el tiempo de `/api/kp/precio` después. Sin el índice el código nuevo funciona igual
-  de rápido que el viejo (mismo barrido), no peor.
+- ✅ **Cerrado el 2026-11-11 (medido en prod, sólo lectura).** #507 fusionado el 2026-11-08; la
+  migración se aplicó el 2026-11-08 06:18 UTC y los dos índices están válidos; `/api/health`
+  (`dd13a0261`) contiene el merge. Mismo instrumento que el antes: la consulta pasó de **62–66 ms a
+  0.7 ms** (Bitmap Index Scan, 19 buffers) y `/api/kp/precio` en la LAN de **~75 a 15–24 ms**. No
+  re-medido por `megadulcessuite.com`.
+- **Visual (`[VAC.U16]`):** en prod; **falta verla en el monitor real del mostrador** (logo de 144 px
+  contra el precio, pie al 80 % en oscuro, kiosco sin frescura, lector y cámara). Es lo que queda
+  para `[VAC.ATERRIZAJE]`.
 
-**Protocolo:** las observaciones del PM de este ciclo entraron a `ONBOARDING.md` §8.0b, puntos 82–85.
+**Protocolo:** las observaciones del PM de este ciclo entraron a `ONBOARDING.md` §8.0b, puntos 82–85; y al cerrarlo, 101–102.
