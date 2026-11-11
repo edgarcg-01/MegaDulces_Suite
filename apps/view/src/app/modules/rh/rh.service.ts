@@ -232,12 +232,16 @@ export function etiquetaSemana(jueves: string): string {
 }
 
 /**
- * `[RH.6.4]` La SEMANA FISCAL de nómina (Mega Talento `semana-fiscal.ts`, regla confirmada por RH el 29/09/2026):
- * jueves a miércoles, el año trae SIEMPRE 52 semanas, y la del jueves 24 de septiembre de 2026 es la 41. Ninguna
- * regla de calendario da eso: es el calendario propio de nómina, anclado en la semana 1 del ciclo 2026 (jueves
- * 18-dic-2025). Si RH mueve el inicio de un ciclo, basta con cambiar el ancla.
+ * `[RH.6.4]` La SEMANA FISCAL de nómina (Mega Talento `semana-fiscal.ts`): jueves a miércoles, el año trae SIEMPRE 52
+ * semanas. Es el calendario propio de nómina, anclado en la semana 1 del ciclo 2026. Si RH mueve el inicio de un
+ * ciclo, basta con cambiar el ancla.
+ *
+ * ⚠️ Corregido el 2026-11-11 (Mega Talento `c445974`, 10-nov): RH reportó que «la 47 es la 46». La regla del 29/09
+ * («la del 24 de septiembre es la 41») se dijo de palabra y dejó todo UNA semana adelantado; sus PDF de la semana 33
+ * (jue 06/08 – mié 12/08/26) cuadran con el ancla en el jueves 25-dic-2025: la del 5 al 11 de noviembre es la 46.
+ * El inicio del ciclo 2027 (jueves 24-dic-2026) está sin confirmar con RH, igual que en Mega Talento.
  */
-const ANCLA_SEMANA_1 = '2025-12-18';
+const ANCLA_SEMANA_1 = '2025-12-25';
 const ANIO_DEL_ANCLA = 2026;
 export const SEMANAS_POR_ANIO = 52;
 

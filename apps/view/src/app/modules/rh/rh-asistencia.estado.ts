@@ -54,6 +54,14 @@ export class RhAsistenciaEstado {
   readonly saldosHE = signal<Map<string, number> | null>(null);
   readonly directorio = signal<HrPersonaDirectorioDto[] | null>(null);
   readonly directorioError = signal(false);
+  /** Las plazas ya se leyeron con éxito (separa «todavía no sé» y «no se pudo leer» de «no hay ninguna»). */
+  readonly sitiosLeidos = signal(false);
+  /**
+   * La Suite no tiene ni una plaza de checado activa: no hay nada que medir. Las pestañas que calculan NO pintan su
+   * «nadie faltó», «0 personas» ni ceros: el marco lo declara una vez (ley 0). Medido el 2026-11-11 en prod: 0 plazas
+   * porque el corte de asistencia no ha ocurrido, y seis pestañas afirmaban un resultado.
+   */
+  readonly sinPlazas = computed(() => this.sitiosLeidos() && !this.sitios().length);
 
   readonly juevesActual = computed(() => juevesDeLaSemana(this.hoy()));
   readonly esSemanaActual = computed(() => this.jueves() >= this.juevesActual());
@@ -108,6 +116,7 @@ export class RhAsistenciaEstado {
       next: (s) => {
         const activos = s.filter((x) => x.is_active);
         this.sitios.set(activos);
+        this.sitiosLeidos.set(true);
         if (!this.sitio() && activos.length) this.sitio.set(activos[0].code);
         this.asegurar();
       },

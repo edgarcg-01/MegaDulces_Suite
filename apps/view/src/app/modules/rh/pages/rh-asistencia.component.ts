@@ -47,6 +47,8 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
   template: `
     <div class="ra-page">
       <app-rh-marco [barra]="true" [franja]="true" [personas]="true" />
+      <!-- Sin plazas el marco lo declara: aquí no se pinta «nadie» ni ceros de algo que nadie midió. -->
+      @if (!est.sinPlazas()) {
 
       <app-load-state [loading]="est.loading() && !est.datos()" [error]="est.error()" [isEmpty]="vacio()"
                       emptyIcon="pi-users" [emptyTitle]="vacioTitulo()" emptyHint="Revisa en la franja de relojes que el reloj de la plaza esté mandando checadas."
@@ -118,6 +120,7 @@ interface FormFicha { codigo: string; nombre: string; seccion: string; promotora
           </section>
         }
       </app-load-state>
+      }
 
       <p-popover #acc appendTo="body" ariaLabel="Acciones de la persona">
         @if (enMenu(); as p) {
