@@ -28,6 +28,7 @@ import {
   nombreUnidadBase,
   abrevUnidadBase,
   opcionesUnidad,
+  unidadDelEscaneo,
   paqueteDeCaja,
   desglose,
   parseCantidad,
@@ -1485,8 +1486,16 @@ export class TeleventaQuoteDetailComponent implements OnInit {
         this.catalogoAbierto.set(this.buscadorEnFoco);
 
         const t = this.termino.trim();
-        if (ordenados.length === 1 && t && (ordenados[0].sku.toUpperCase() === t.toUpperCase() || ordenados[0].barcode === t)) {
+        // [COT.42] o de cualquier casilla de Kepler (scan_factor), y entonces con la unidad de esa casilla.
+        if (ordenados.length === 1 && t && (ordenados[0].sku.toUpperCase() === t.toUpperCase() || ordenados[0].barcode === t || ordenados[0].scan_factor != null)) {
           this.elegir(ordenados[0]);
+          const u = unidadDelEscaneo(ordenados[0]);
+          if (u === 'sin-opcion') {
+            this.toast.add({ severity: 'warn', summary: 'Unidad del código', detail: `El código es de un empaque de ${ordenados[0].scan_factor} que no tiene precio en esta sucursal: elige la unidad.` });
+          } else if (u) {
+            // Aquí elegir() no reinicia la unidad: también la pieza se pone explícita.
+            this.setRung(u);
+          }
         }
       });
 
