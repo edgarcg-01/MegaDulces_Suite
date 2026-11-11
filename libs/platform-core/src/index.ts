@@ -56,6 +56,7 @@ export * from './lib/guards/roles.guard';
 export * from './lib/decorators/permissions.decorator';
 export * from './lib/decorators/req-user.decorator';
 export * from './lib/decorators/skip-tenant-tx.decorator';
+export * from './lib/decorators/limites-de-peticiones';
 // roles.decorator.ts deprecado (sin exports) — no se re-exporta.
 
 // ── ai ──
