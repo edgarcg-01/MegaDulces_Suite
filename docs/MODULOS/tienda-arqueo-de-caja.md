@@ -1,3 +1,29 @@
+# Tienda › Arqueo de caja — «Sucursales y sus cajas»: Ruta Directa, Ruta Vecinal y Conteos de efectivo por separado (SM.53)
+
+## Problema
+
+Quien valida veía los conteos de Ruta Directa, de Ruta Vecinal y los «Conteos de efectivo» (sin caja) mezclados en una sola
+lista, «Rutas y conteos de efectivo (sin caja)», sin total. Para saber cuánto entregaron las rutas había que sumar a mano.
+
+## Solución
+
+- Debajo de las cajas de cada sucursal salen tres secciones fijas, en este orden: **Ruta Directa**, **Ruta Vecinal** y **Conteos de efectivo**.
+- Cada una dice cuántos conteos tiene y su total, y lista cada conteo por hora: ruta, quién lo capturó, monto y reimprimir.
+- Una sección sin conteos se ve igual, con «Sin conteos.»: no se dibuja un $0.
+- Sigue la nota: las rutas y los conteos de efectivo no suman a ninguna caja ni a ningún cuadre.
+
+## Cómo se implementó
+
+- Solo pantalla: `apps/view/src/app/modules/tienda/arqueo-cajas/arqueo-cajas.component.ts`. El servidor ya mandaba estos conteos en `sin_caja`.
+- `gruposSinCaja()` reparte los conteos por tipo (`rd`, `rv`, el resto a Conteos de efectivo), los ordena por hora y suma con `Number()` (los montos pueden llegar como texto).
+- Pruebas en `arqueo-cajas.component.spec.ts`: el orden de las secciones con su total y las vacías; y la negativa (un RD no cae en RV, un tipo raro no se pierde).
+
+## Por qué así
+
+- Las tres secciones salen siempre para que quien valida vea de un vistazo que una sucursal no tuvo rutas, en vez de no saber si faltan.
+- Un tipo nuevo o desconocido cae en Conteos de efectivo para que ningún conteo desaparezca de la vista.
+
+---
 # Tienda › Arqueo de caja — la cajera escribe su caja; sin lista de turnos, avisos ni historial (SM.51)
 
 ## Problema
