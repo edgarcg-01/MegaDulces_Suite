@@ -11,6 +11,11 @@
 ## [Unreleased]
 ### Changed — Verificador de precios: el escaneo, medido en prod (VAC.P1, 2026-11-11 · en prod)
 - Con la migración `20261107115424` aplicada (2026-11-08), la consulta del escaneo pasó de 62–66 ms a **0.7 ms** y `/api/kp/precio` en la red local de ~75 ms a **15–24 ms**. Los ajustes del mostrador (VAC.U16) también están en prod; falta verlos en el monitor real.
+### Fixed — Etiquetas: la oferta ya no se encima y la impresión espera su tipografía (ETQ-OFERTA.1 · ETQ-FUENTE.2 · 2026-11-11)
+- Las etiquetas EN OFERTA llevan como máximo 4 renglones en la columna derecha, contando «Precio normal» y «Oferta 1 a N». Antes podían llevar 6, encimados sobre el «Código» y con los montos ilegibles: le pasaba a **52 de las 238** promos vigentes. Lo que no cabe lo declara la cola («N no entran»), que además dejó de decir «1 no entra» cuando no se recortaba nada.
+- La impresión espera a que la hoja de impresión cargue sus tres tipografías. Si no cargan, no imprime y lo dice. Con la tipografía de respaldo, el último dígito del código salía cortado.
+- `scripts/etiqueta-geometria.js` ya mide la etiqueta en oferta.
+
 ### Fixed — Pagos: las facturas «por confirmar» que Oficinas nunca registró ya se pueden programar (PGP.113 · 2026-11-10 · en código, sin soltar)
 - Las facturas de sucursal que vencían antes del 1-oct estaban bloqueadas todas, sin forma de destrabarlas. Ahora se sueltan las que Oficinas nunca registró: sin copia, sin pago por el mismo importe y sin nada aplicado. Hoy son **67 de 205 ($1.15 M)**.
 - La factura soltada aparece en la lista con su botón para agregarla y dice por qué se pudo. Las demás siguen «por confirmar» porque pueden estar pagadas desde Oficinas.

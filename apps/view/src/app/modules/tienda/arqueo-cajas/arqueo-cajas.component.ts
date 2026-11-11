@@ -213,22 +213,25 @@ const MEDIOS: Record<string, string> = {
               </ul>
             }
 
-            <h4 class="ac-sec">Rutas y conteos de efectivo (sin caja)</h4>
-            @if (s.sin_caja.length) {
-              <ul class="ac-lista">
-                @for (a of s.sin_caja; track a.id) {
-                  <li class="ac-li">
-                    <span>{{ etiquetaTipo(a) }}</span><span class="ac-num">{{ hm(a.hora) }}</span>
-                    <span class="ac-sub">{{ a.motivo || (a.usuario_nombre ? nombre(a.usuario_nombre) : (a.usuario || '—')) }}</span>
-                    <b class="ac-num ac-r">{{ money(a.total) }}</b>
-                    <p-button type="button" icon="pi pi-print" [text]="true" size="small" [ariaLabel]="'Reimprimir ' + etiquetaTipo(a)" (click)="reimprimir(s, null, a)" />
-                  </li>
-                }
-              </ul>
-              <p class="ac-sub ac-sec-nota">No suman a ninguna caja ni a ningún cuadre.</p>
-            } @else {
-              <p class="ac-sub">Ninguno ese día.</p>
+            <!-- [SM.53] Ruta Directa, Ruta Vecinal y Conteos de efectivo, cada una con su total -->
+            @for (g of gruposSinCaja(s.sin_caja); track g.tipo) {
+              <h4 class="ac-sec">{{ g.titulo }}@if (g.conteos.length) { <span class="ac-sub ac-num"> · {{ g.conteos.length }} conteo(s) · <b>{{ money(g.total) }}</b></span> }</h4>
+              @if (g.conteos.length) {
+                <ul class="ac-lista">
+                  @for (a of g.conteos; track a.id) {
+                    <li class="ac-li">
+                      <span>{{ g.tipo === 'sin_caja' ? 'Conteo de efectivo' : (a.route_code ? 'Ruta ' + a.route_code : 'Sin ruta') }}</span><span class="ac-num">{{ hm(a.hora) }}</span>
+                      <span class="ac-sub">{{ a.motivo || (a.usuario_nombre ? nombre(a.usuario_nombre) : (a.usuario || '—')) }}</span>
+                      <b class="ac-num ac-r">{{ money(a.total) }}</b>
+                      <p-button type="button" icon="pi pi-print" [text]="true" size="small" [ariaLabel]="'Reimprimir ' + etiquetaTipo(a)" (click)="reimprimir(s, null, a)" />
+                    </li>
+                  }
+                </ul>
+              } @else {
+                <p class="ac-sub">Sin conteos.</p>
+              }
             }
+            <p class="ac-sub ac-sec-nota">Las rutas y los conteos de efectivo no suman a ninguna caja ni a ningún cuadre.</p>
           }
         </section>
       </div>
@@ -534,6 +537,21 @@ export class ArqueoCajasComponent {
     }
     if (a.tipo === 'relevo') return 'Relevo';
     return 'Cierre (cajón)';
+  }
+
+  /**
+   * [SM.53] Los conteos sin caja de una sucursal, en tres secciones fijas y en este orden:
+   * Ruta Directa, Ruta Vecinal y Conteos de efectivo. Las tres salen siempre (vacía = «Sin conteos»),
+   * cada una ordenada por hora y con su total. Un tipo desconocido no se pierde: va a Conteos de efectivo.
+   */
+  gruposSinCaja(conteos: ArqueoCajasConteo[]): { tipo: 'rd' | 'rv' | 'sin_caja'; titulo: string; conteos: ArqueoCajasConteo[]; total: number }[] {
+    const lista = [...(conteos || [])].sort((a, b) => String(a.hora).localeCompare(String(b.hora)));
+    const de = (fn: (a: ArqueoCajasConteo) => boolean) => lista.filter(fn);
+    return [
+      { tipo: 'rd' as const, titulo: 'Ruta Directa', conteos: de((a) => a.tipo === 'rd') },
+      { tipo: 'rv' as const, titulo: 'Ruta Vecinal', conteos: de((a) => a.tipo === 'rv') },
+      { tipo: 'sin_caja' as const, titulo: 'Conteos de efectivo', conteos: de((a) => a.tipo !== 'rd' && a.tipo !== 'rv') },
+    ].map((g) => ({ ...g, total: g.conteos.reduce((s, a) => s + Number(a.total || 0), 0) }));
   }
 
   etiquetaTipo(a: ArqueoCajasConteo): string {

@@ -1,0 +1,103 @@
+{
+ "generado": "2026-11-11",
+ "fuente": "prod pg-prod (system_identifier 7688376744939610156), SQL de resolveForLabels con plaza 08: analytics.v_label_prices + v_label_promotions + v_label_presentations; sólo lectura",
+ "nota": "Las dos etiquetas EN OFERTA reportadas por Morelia Abastos (plaza 08) el 2026-11-11. _hero = PAQ: el operador puso el paquete en grande (la promo es de PAQ y la base es PZA, así que con el hero por default la etiqueta NO sale en oferta). Uso: node scripts/etiqueta-geometria.js oferta --casos scripts/fixtures/etiqueta-oferta-casos.json",
+ "corpus": [
+  {
+   "sku": "06001",
+   "name": "CHOC SNICKERS /6",
+   "content": null,
+   "sucursal": "08",
+   "barcode": "706460241181",
+   "barcode_format": "UPC",
+   "piece_price": 23.99,
+   "unit_base": "PZA",
+   "sold_by_kg": false,
+   "promo_pct": 5,
+   "promo_min_qty": 1,
+   "promo_unidad": "PAQ",
+   "promo_hasta": "2026-12-15",
+   "presentaciones": [
+    {
+     "unidad": "PZA",
+     "factor": 1,
+     "origen": "base",
+     "contenido": null,
+     "precio_lista": 23.99,
+     "mayoreo_precio": 20,
+     "mayoreo_desde": 3,
+     "mayoreo_veredicto": "ok"
+    },
+    {
+     "unidad": "PAQ",
+     "factor": 6,
+     "origen": "ranura",
+     "contenido": null,
+     "precio_lista": 102.98,
+     "mayoreo_precio": 93.01,
+     "mayoreo_desde": 3,
+     "mayoreo_veredicto": "ok"
+    },
+    {
+     "unidad": "CJA",
+     "factor": 192,
+     "origen": "ranura",
+     "contenido": null,
+     "precio_lista": 2950.57,
+     "mayoreo_precio": 2909.1,
+     "mayoreo_desde": 3,
+     "mayoreo_veredicto": "ok"
+    }
+   ],
+   "_hero": "PAQ"
+  },
+  {
+   "sku": "65124",
+   "name": "SKWINKLES SALSAGHETI SANDIA/12",
+   "content": null,
+   "sucursal": "08",
+   "barcode": "725181249016",
+   "barcode_format": "UPC",
+   "piece_price": 12.68,
+   "unit_base": "PZA",
+   "sold_by_kg": false,
+   "promo_pct": 5,
+   "promo_min_qty": 1,
+   "promo_unidad": "PAQ",
+   "promo_hasta": "2026-12-15",
+   "presentaciones": [
+    {
+     "unidad": "PZA",
+     "factor": 1,
+     "origen": "base",
+     "contenido": null,
+     "precio_lista": 12.68,
+     "mayoreo_precio": 10.57,
+     "mayoreo_desde": 3,
+     "mayoreo_veredicto": "ok"
+    },
+    {
+     "unidad": "PAQ",
+     "factor": 12,
+     "origen": "ranura",
+     "contenido": null,
+     "precio_lista": 105.67,
+     "mayoreo_precio": 97.84,
+     "mayoreo_desde": 3,
+     "mayoreo_veredicto": "ok"
+    },
+    {
+     "unidad": "CJA",
+     "factor": 240,
+     "origen": "ranura",
+     "contenido": null,
+     "precio_lista": 1922.19,
+     "mayoreo_precio": 1887.56,
+     "mayoreo_desde": 3,
+     "mayoreo_veredicto": "ok"
+    }
+   ],
+   "_hero": "PAQ"
+  }
+ ]
+}
