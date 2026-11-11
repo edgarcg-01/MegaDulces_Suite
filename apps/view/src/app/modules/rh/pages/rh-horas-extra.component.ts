@@ -30,6 +30,8 @@ const MOTIVO_MINIMO = 5;
   template: `
     <div class="he-page">
       <app-rh-marco [barra]="false" [franja]="false" />
+      <!-- Sin plazas el marco lo declara: aquí no se pinta «nadie» ni ceros de algo que nadie midió. -->
+      @if (!est.sinPlazas()) {
       <section class="he-bar" aria-label="Plaza">
         <p-select [options]="est.sitios()" optionLabel="name" optionValue="code" [ngModel]="est.sitio()" (ngModelChange)="est.setSitio($event)"
                   placeholder="Plaza" appendTo="body" ariaLabel="Plaza" class="he-plaza" />
@@ -73,6 +75,7 @@ const MOTIVO_MINIMO = 5;
           }
         </section>
       </app-load-state>
+      }
 
       <app-side-peek [open]="!!sel()" (openChange)="cambio($event)" [width]="560" [title]="sel()?.nombreCompleto ?? ''" [subtitle]="subtitulo()">
         @if (sel(); as p) {

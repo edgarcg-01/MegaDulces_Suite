@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 import { vi } from 'vitest';
 import { PermissionsService } from '../../core/services/permissions.service';
 import { Permission } from '../../core/constants/permissions';
@@ -117,5 +117,31 @@ describe('[RH.1.7c] RhAsistenciaEstado', () => {
     est.cargarDirectorio();
     est.cargarDirectorio();
     expect(api['directorio']).toHaveBeenCalledTimes(1);
+  });
+
+  // Prod el 2026-11-11: 0 plazas (el corte de asistencia no ha ocurrido) y seis pestañas pintaban «nadie faltó».
+  describe('⭐ sinPlazas: sólo cuando se LEYÓ y no hay ninguna activa', () => {
+    it('sin plazas activas → sinPlazas, y no se pide ningún cálculo', () => {
+      crear(Permission.HR_ATTENDANCE_VER);
+      api['sitios'].mockReturnValue(of(SITIOS.map((s) => ({ ...s, is_active: false }))));
+      expect(est.sinPlazas()).toBe(false);   // antes de leer: todavía no se sabe
+      est.iniciar();
+      expect(est.sinPlazas()).toBe(true);
+      expect(api['asistencia']).not.toHaveBeenCalled();
+    });
+
+    it('⛔ no poder leer las plazas NO es «no hay plazas»', () => {
+      crear(Permission.HR_ATTENDANCE_VER);
+      api['sitios'].mockReturnValue(throwError(() => ({ status: 403 })));
+      est.iniciar();
+      expect(est.sinPlazas()).toBe(false);
+      expect(est.error()).not.toBeNull();
+    });
+
+    it('con plazas activas → no', () => {
+      crear(Permission.HR_ATTENDANCE_VER);
+      est.iniciar();
+      expect(est.sinPlazas()).toBe(false);
+    });
   });
 });

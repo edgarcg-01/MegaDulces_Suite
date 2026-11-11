@@ -22,6 +22,8 @@ import { departamentoDe, diaLargo, faltasDelPeriodo, horarioDe } from '../report
   template: `
     <div class="rf-page">
       <app-rh-marco [barra]="true" [franja]="true" />
+      <!-- Sin plazas el marco lo declara: aquí no se pinta «nadie» ni ceros de algo que nadie midió. -->
+      @if (!est.sinPlazas()) {
       <app-load-state [loading]="est.loading() && !est.datos()" [error]="est.error()" (retry)="est.asegurar(true)">
         <section class="rf-card" aria-label="Faltas">
           <p class="rf-nota">Una <b>falta</b> es un día que esa persona normalmente trabaja y en el que no checó. Sólo se cuenta entre su primera checada
@@ -54,6 +56,7 @@ import { departamentoDe, diaLargo, faltasDelPeriodo, horarioDe } from '../report
           }
         </section>
       </app-load-state>
+      }
     </div>
   `,
   styles: [`
