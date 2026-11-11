@@ -1,6 +1,6 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { avance, motivoNoCerrable, siguientePaso, FlujoEstado, FlujoLinea } from './anden-flujo';
+import { atajosDelVale, avance, motivoNoCerrable, siguientePaso, FlujoEstado, FlujoLinea } from './anden-flujo';
 
 /**
  * Candados del flujo del Andén.
@@ -120,5 +120,31 @@ describe('[WMS-REC.21] el Andén ya no acomoda', () => {
 
   it('la portada manda a acomodar a Ubicaciones, que tiene su sección «Por acomodar»', () => {
     expect(PANTALLA).toContain('routerLink="/almacen/inventory/ubicaciones"');
+  });
+});
+
+describe('[CE.4.2][CE.4.3] atajos del vale', () => {
+  const l = (p: Partial<{ faltaFechar: number; tracks_expiry: boolean | null; suggested_expiry: string | null; suggested_from: string | null }>) => ({
+    faltaFechar: 5, tracks_expiry: null, suggested_expiry: null, suggested_from: null, ...p,
+  });
+  it('lo que no caduca va al primer atajo; lo que trae fecha del origen, al segundo', () => {
+    const a = atajosDelVale([
+      l({ tracks_expiry: false }),
+      l({ suggested_expiry: '2027-08-19', suggested_from: 'CEDIS' }),
+      l({}),
+    ]);
+    expect(a.noCaducan).toHaveLength(1);
+    expect(a.conFechaDelOrigen).toHaveLength(1);
+    expect(a.origen).toBe('CEDIS');
+  });
+  it('lo ya fechado no se ofrece, y lo que no caduca no se fecha aunque el origen traiga fecha', () => {
+    const a = atajosDelVale([
+      l({ tracks_expiry: false, faltaFechar: 0 }),
+      l({ tracks_expiry: false, suggested_expiry: '2027-01-01' }),
+      l({ suggested_expiry: '2027-01-01', faltaFechar: 0 }),
+    ]);
+    expect(a.noCaducan).toHaveLength(1);
+    expect(a.conFechaDelOrigen).toHaveLength(0);
+    expect(a.origen).toBeNull();
   });
 });

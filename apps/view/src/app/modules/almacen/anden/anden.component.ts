@@ -14,7 +14,7 @@ import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { BinLocationService, WarehouseFreeze } from '../bin-location.service';
-import { siguientePaso, avance, motivoNoCerrable, FlujoEstado, FlujoAvance } from './anden-flujo';
+import { siguientePaso, avance, motivoNoCerrable, atajosDelVale, FlujoEstado, FlujoAvance } from './anden-flujo';
 import { AndenState, AndenLinea } from './anden.state';
 import { AndenDraftService } from './anden-draft.service';
 import { AndenFolioComponent } from './components/anden-folio.component';
@@ -278,6 +278,30 @@ import { hoyMexico } from './dia-mx';
               Kepler: <b>corrígela si llegó de menos</b>, porque de ahí sale el reclamo.
             </p>
 
+            <!-- [CE.4.2][CE.4.3] Los atajos que resuelven renglones sin teclear nada van PRIMERO:
+                 lo que no caduca y, en un traspaso, las fechas que ya puso el origen. -->
+            @if (avance(); as a) {
+              @if (!a.terminado) {
+                <p class="an-bloque" role="status">Guardando {{ a.hechas }} de {{ a.total }}…</p>
+              } @else if (a.fallas.length || a.retenidas) {
+                <p class="an-bloque an-bloque--mal" role="status">
+                  {{ a.total - a.fallas.length }} de {{ a.total }} guardados@if (a.retenidas) { · {{ a.retenidas }} retenidos en rojo }@if (a.fallas.length) { · no se pudo: {{ a.fallas[0].nombre }}@if (a.fallas.length > 1) { y {{ a.fallas.length - 1 }} más } }
+                </p>
+              }
+            }
+            @if (noCaducanPendientes().length) {
+              <button pButton type="button" class="an-atajo" [disabled]="s.guardando() || enBloque()" (click)="recibirLosQueNoCaducan()">
+                <i class="pi pi-check-circle" aria-hidden="true"></i>
+                Recibir {{ noCaducanPendientes().length === 1 ? 'el renglón que no caduca' : 'los ' + noCaducanPendientes().length + ' renglones que no caducan' }}
+              </button>
+            }
+            @if (conFechaDelOrigen().length) {
+              <button pButton type="button" class="an-atajo" [disabled]="s.guardando() || enBloque()" (click)="usarFechasDelOrigen()">
+                <i class="pi pi-arrow-down-left" aria-hidden="true"></i>
+                Usar las fechas de {{ origenDelTraspaso() || 'el origen' }} ({{ conFechaDelOrigen().length }} {{ conFechaDelOrigen().length === 1 ? 'renglón' : 'renglones' }})
+              </button>
+            }
+
             <!-- El caso normal de una entrega es una sola fecha para toda la tarima.
                  Va arriba de la lista porque resuelve el vale entero de un golpe. -->
             <button pButton type="button" class="an-masiva" [outlined]="true" (click)="masiva.set(true)">
@@ -425,6 +449,9 @@ import { hoyMexico } from './dia-mx';
     }
     .an-nota b { color: var(--text-main); }
     .an-masiva { width: 100%; min-height: 50px; font-weight: var(--fw-bold); }
+    .an-atajo { width: 100%; min-height: 50px; font-weight: var(--fw-bold); justify-content: center; gap: var(--sp-2); }
+    .an-bloque { margin: 0; font-size: var(--fs-sm); color: var(--text-muted); text-align: center; }
+    .an-bloque--mal { color: var(--warn-fg); }
     /* El vacío por filtro dice qué hacer. "Sin resultados" a secas deja al
        bodeguero parado con el producto en la mano y sin salida. */
     .an-vacio {
@@ -490,6 +517,8 @@ export class AndenComponent implements OnInit {
   /** Panel de "todos caducan el mismo día" abierto. */
   readonly masiva = signal(false);
   readonly avance = signal<AvanceMasivo | null>(null);
+  /** `[CE.4.2]` Un guardado en bloque corriendo: los atajos se apagan en el primer toque (no se dispara dos veces). */
+  readonly enBloque = computed(() => { const a = this.avance(); return !!a && !a.terminado; });
 
   /**
    * Lo tecleado o disparado en la barra única. **Una sola por sección**, y la
@@ -1265,19 +1294,50 @@ export class AndenComponent implements OnInit {
    * fechan, y los que no se listan con nombre y motivo.
    */
   async fecharTodo(m: FechadoMasivo): Promise<void> {
+    return this.fecharEnBloque(m.lineas.map((l) => ({ l, lote: m.lote, caducidadIso: m.caducidadIso })));
+  }
+
+  /**
+   * `[CE.4.2]` Lo que el catálogo dice que NO caduca (desechables, artículos de fiesta…), en un toque:
+   * se declara «sin caducidad» con la cantidad que manda Kepler. ~18 % de los renglones de entrada.
+   */
+  private readonly atajos = computed(() => atajosDelVale(this.s.pendientesFechar()));
+  readonly noCaducanPendientes = computed(() => this.atajos().noCaducan);
+  recibirLosQueNoCaducan(): Promise<void> {
+    return this.fecharEnBloque(this.noCaducanPendientes().map((l) => ({ l, lote: 'NA', caducidadIso: null })));
+  }
+
+  /**
+   * `[CE.4.3]` En un traspaso, las fechas que propone el almacén que lo mandó (FEFO), en un toque.
+   * Cada renglón con SU fecha; el semáforo del servidor sigue juzgando cada una.
+   */
+  readonly conFechaDelOrigen = computed(() => this.atajos().conFechaDelOrigen);
+  readonly origenDelTraspaso = computed(() => this.atajos().origen);
+  usarFechasDelOrigen(): Promise<void> {
+    return this.fecharEnBloque(
+      this.conFechaDelOrigen().map((l) => ({
+        l,
+        lote: l.suggested_lot && l.suggested_lot !== 'NA' ? l.suggested_lot : 'NA',
+        caducidadIso: l.suggested_expiry ?? null,
+      })),
+    );
+  }
+
+  /** Guarda varios renglones de una pasada, cada uno con su lote y fecha. Lo usan los tres atajos. */
+  private async fecharEnBloque(items: Array<{ l: AndenLinea; lote: string; caducidadIso: string | null }>): Promise<void> {
     const v = this.s.vale();
-    if (!v || !m.lineas.length) return;
-    const total = m.lineas.length;
+    if (!v || !items.length) return;
+    const total = items.length;
     const fallas: { nombre: string; motivo: string }[] = [];
     let retenidas = 0;
     let enCola = 0;
     this.avance.set({ hechas: 0, total, fallas: [], retenidas: 0, terminado: false });
 
-    for (const l of m.lineas) {
+    for (const { l, lote, caducidadIso } of items) {
       try {
         if (!l.product_id) throw new Error('el renglón no tiene producto del catálogo');
         const cap = await this.guardarUna(l, {
-          cantidad: l.faltaFechar, lote: m.lote, caducidadIso: m.caducidadIso, fotoDataUri: null,
+          cantidad: l.faltaFechar, lote, caducidadIso, fotoDataUri: null,
         });
         if (cap.verdict === 'red') retenidas++;
         if (cap.verdict === 'en_cola') enCola++;
@@ -1415,10 +1475,29 @@ export class AndenComponent implements OnInit {
     });
   }
 
-  /** Entra al alta: el menú de sucursales, ya cargado. */
+  /**
+   * Entra al alta: el menú de sucursales, ya cargado.
+   *
+   * `[CE.4.1]` Si el usuario tiene sucursal asignada (`warehouse_code` en su sesión) y esa sucursal
+   * está en el menú, se entra DIRECTO a sus vales: elegirla cada vez era un toque por camión, y la
+   * mitad de los camiones trae 3 renglones o menos (medido 2026-11-11). «← Sucursales» sigue ahí.
+   */
   irAAlta(): void {
     this.modo.set('alta');
+    this.entrarASuSucursal = true;
     this.cargarSucursales();
+  }
+
+  /** `[CE.4.1]` Sólo la primera carga del menú salta a la sucursal propia; volver al menú no rebota. */
+  private entrarASuSucursal = false;
+
+  private saltarASuSucursal(sucursales: ErpPendingBranch[]): void {
+    if (!this.entrarASuSucursal) return;
+    this.entrarASuSucursal = false;
+    const propia = String(this.auth.user()?.warehouse_code ?? '').trim();
+    if (!propia) return;
+    const b = sucursales.find((x) => !x.sin_almacen && (x.warehouse_code === propia || x.sucursal === propia));
+    if (b) this.elegirSucursal(b);
   }
 
   /**
@@ -1443,6 +1522,7 @@ export class AndenComponent implements OnInit {
         this.alcanceAbierto.set(r?.alcance === 'all');
         this.paqueteAl.set(null);
         this.bajarPaquetes(r);
+        this.saltarASuSucursal(r?.sucursales ?? []);
       },
       error: (e) => {
         if (esSinRed(e)) {
