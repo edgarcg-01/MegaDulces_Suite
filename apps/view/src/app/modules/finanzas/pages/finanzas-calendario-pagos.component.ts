@@ -286,8 +286,12 @@ function isPrepared(a: PaymentCalendarAllocation): boolean {
                   @if (d.allocations.length) {
                     {{ pagos(d.allocations.length) }}
                     <!-- [PGP.19] Un resumen por día: ámbar = falta algo, rojo = algo está mal, siempre con su palabra. -->
+                    <!-- [PGP.115] Por la etapa de cada pago, la misma de la bandeja: lo que Kepler ya pagó no «falta». -->
                     @if (dayFailed(d) > 0) { · <b class="cal-bad-txt">{{ dayFailed(d) === 1 ? '1 rebotó' : dayFailed(d) + ' rebotaron' }}</b> }
                     @else if (dayUnprepared(d) > 0) { · <b class="cal-warn-txt">faltan {{ dayUnprepared(d) }}</b> }
+                    @else if (dayEtapa(d, 'autorizar') > 0) { · {{ dayEtapa(d, 'autorizar') }} por autorizar }
+                    @else if (dayEtapa(d, 'pagar') > 0) { · {{ dayEtapa(d, 'pagar') }} por pagar }
+                    @else if (dayEtapa(d, 'pagado') === d.allocations.length) { · pagados }
                     @else if (d.summary.lot_status === 'closed') { · cerrado }
                     @else if (d.summary.lot_status === 'released' || d.summary.lot_status === 'executing') { · autorizado }
                     @else { · listos }
@@ -2289,7 +2293,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
    * `[PGP.114]` A quiénes aplica «Aplicar a los N»: pendientes sin preparar de lo que se ve, salvo los de
    * días que ya pasaron (ésos se mueven, no se preparan) y los autorizados (congelados).
    */
-  readonly porPrepararAplicables = computed(() => this.allocations().filter((a) => a.status === 'pending' && !isPrepared(a) && !this.pasado(a) && !this.autorizadoFila(a)));
+  readonly porPrepararAplicables = computed(() => this.allocations().filter((a) => this.etapa(a) === 'preparar' && !this.pasado(a) && !this.autorizadoFila(a)));
   readonly totalVisible = computed(() => this.allocations().reduce((s, a) => s + Number(a.amount_assigned || 0), 0));
   /** «10 nov, 14:32» en hora de la Ciudad de México. */
   fechaHora(iso: string | null | undefined): string {
@@ -2346,7 +2350,8 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
   private readonly pendientesEnOrden = computed(() => this.allocations().filter((a) => a.status === 'pending').map((a) => a.id));
   readonly pendingCount = computed(() => this.allocations().filter((a) => a.status === 'pending').length);
   readonly unrankedCount = computed(() => this.allocations().filter((a) => a.status === 'pending' && a.priority_rank == null).length);
-  readonly unpreparedCount = computed(() => this.allocations().filter((a) => a.status === 'pending' && !isPrepared(a)).length);
+  // `[PGP.115]` Por etapa: lo que Kepler ya pagó (su día llegó y lo saldó) no es «sin preparar».
+  readonly unpreparedCount = computed(() => this.allocations().filter((a) => this.etapa(a) === 'preparar').length);
   readonly isReleased = computed(() => {
     const s = this.selectedDay()?.summary.lot_status;
     return s === 'released' || s === 'executing' || s === 'closed';
@@ -2991,7 +2996,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
 
   /** El primer pago al que le falta algo: el que el veredicto nombra y al que lleva su botón. */
   primerIncompleto(): PaymentCalendarAllocation | null {
-    return this.allocations().find((a) => a.status === 'pending' && !isPrepared(a)) ?? null;
+    return this.allocations().find((a) => this.etapa(a) === 'preparar') ?? null;  // [PGP.115] la misma regla que «faltan N»
   }
   /** Qué le falta, dicho con el nombre del campo que hay que llenar. */
   faltaDe(a: PaymentCalendarAllocation): string {
@@ -3159,7 +3164,7 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
       // [PGP.15] SIN botón aquí: repetía lo que ya hace «Para los N pagos» (Edgar: «estás repitiendo dos
       // veces el botón de elegir método»). La frase dice dónde se resuelve; el botón principal del paso es
       // «Aplicar a los N», en la barra de los pagos, y lo de un solo pago es «Preparar» en su fila.
-      const sinMetodo = this.allocations().filter((x) => x.status === 'pending' && !x.payment_method).length;
+      const sinMetodo = this.allocations().filter((x) => this.etapa(x) === 'preparar' && !x.payment_method).length;
       // [PGP.44] El rótulo se cita TEXTUAL: si el botón dice «Para 1 pago» y esto manda a
       // «Para los 1 pagos», el aviso apunta a algo que no existe en pantalla.
       // [PGP.49] El rótulo de la barra cambió a «Para los N sin preparar»: se cita igual.
@@ -4078,7 +4083,12 @@ export class FinanzasCalendarioPagosComponent implements OnInit {
     const cap = Number(d.summary.authorized_amount ?? 0);
     return cap > 0 ? Math.min(100, (Number(d.summary.assigned_amount) / cap) * 100) : 0;
   }
-  dayUnprepared(d: PaymentCalendarWeekDay): number { return d.allocations.filter((a) => a.status === 'pending' && !isPrepared(a)).length; }
+  /**
+   * `[PGP.115]` «Faltan N» = los que de verdad esperan su forma de pago (etapa «preparar»). Contaba todo pendiente sin
+   * preparar, y medido el 2026-11-11 había 58 pagos que Kepler ya pagó el día programado contándose como «faltan».
+   */
+  dayUnprepared(d: PaymentCalendarWeekDay): number { return this.dayEtapa(d, 'preparar'); }
+  dayEtapa(d: PaymentCalendarWeekDay, e: EtapaPago): number { return d.allocations.filter((a) => etapaDelPago(a, this.todayIso, d.date) === e).length; }
   /** `[PGP.14]` Un pago rebotado se ve desde la cola: el día decía «autorizado» y nada más. */
   dayFailed(d: PaymentCalendarWeekDay): number { return d.allocations.filter((a) => a.status === 'failed').length; }
   /**
