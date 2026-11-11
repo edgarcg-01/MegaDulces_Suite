@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, ViewChild, ViewEncapsulation, afterNextRender, computed, effect, inject, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, Injector, ViewChild, ViewEncapsulation, afterNextRender, computed, effect, inject, runInInjectionContext, signal, viewChild } from '@angular/core';
 import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -10,7 +10,7 @@ import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
 import { TextareaModule } from 'primeng/textarea';
 import { unidadLegible } from '@megadulces/contracts';
-import { LabelComponent, LabelModel, LabelSections, HeroKey, MAX_RENGLONES, FUENTES_USABLES, familiasFaltantes } from '../components/label.component';
+import { LabelComponent, LabelModel, LabelSections, HeroKey, FUENTES_SPECS, FUENTES_USABLES, familiasFaltantes } from '../components/label.component';
 import { EtiquetasService, Freshness, FreshnessStatus, SearchHit } from '../etiquetas.service';
 // `[ETQ-PLAZA.1]` El catálogo de plazas y su frescura de ODS. Se reusa el del verificador en vez
 // de escribir un segundo camino: si las dos pantallas de mostrador listaran sucursales distinto,
@@ -587,6 +587,7 @@ export class TiendaEtiquetasComponent {
   private readonly socket = inject(StoreSocketService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly auth = inject(AuthService);
+  private readonly injector = inject(Injector);
 
   /**
    * `[ETQ-PLAZA.1]` LA TIENDA PARA LA QUE SE IMPRIME — y por qué dejó de ser opcional.
@@ -1367,28 +1368,27 @@ export class TiendaEtiquetasComponent {
   /**
    * `[ETQ-PRES.4]` Cuántas presentaciones NO caben en el papel con este hero.
    *
-   * Replica `renglones` + `recortar` del componente — ⚠️ y eso es una segunda implementación de
-   * la misma regla, que es como se separan. Se acepta acá porque la cola NO renderiza la etiqueta
-   * (no tiene de dónde preguntárselo) y porque el candado de `label.component.spec.ts` mide el
-   * DOM: si las dos se separan, el conteo miente pero el papel sigue bien. La alternativa —
-   * renderizar 500 etiquetas ocultas para contar renglones— cuesta más de lo que vale.
+   * `[ETQ-OFERTA.1]` Se le PREGUNTA a la etiqueta (`renglonesOcultos` de una instancia sin vista),
+   * en vez de replicar `renglones` + `recortar` acá. La réplica era una segunda implementación de la
+   * misma regla y se había separado: no sabía de la oferta, así que no contaba lo que el tope de la
+   * oferta oculta y sí contaba el mayoreo del hero que la oferta ya consume (el 06001 de Morelia
+   * Abastos decía «1 no entra» sin que se hubiera recortado nada). La instancia no toca el DOM: los
+   * observadores y los ajustes nacen en `ngAfterViewInit`, que acá no corre. Una por (modelo, hero,
+   * secciones), guardada mientras viva el modelo.
    */
+  private readonly ocultosCache = new WeakMap<LabelModel, Map<string, number>>();
   ocultos(m: LabelModel, hero: HeroKey): number {
-    const ps = (m.presentaciones ?? []).filter((p) => !!p?.unidad);
-    if (!ps.length) return 0;
-    const conPrecio = ps.filter((p) => this.n(p.precio_lista) > 0);
-    const h = String(hero ?? '').trim().toUpperCase();
-    const elegida = conPrecio.find((p) => String(p.unidad).toUpperCase() === h)
-      || (m.sold_by_kg ? conPrecio.find((p) => String(p.unidad).toUpperCase() === 'KG') : undefined)
-      || conPrecio.find((p) => p.origen === 'base')
-      || conPrecio[0];
-    const heroU = elegida ? String(elegida.unidad).toUpperCase() : '';
-    let n = 0;
-    for (const p of ps) {
-      if (String(p.unidad).toUpperCase() !== heroU && this.n(p.precio_lista) > 0) n++;
-      if (p.mayoreo_veredicto === 'ok' && this.n(p.mayoreo_precio) > 0 && Number(p.mayoreo_desde) > 1) n++;
-    }
-    return Math.max(0, n - MAX_RENGLONES);
+    const show = this.showMap();
+    const clave = `${hero ?? ''}|${+show.presentaciones}${+show.mayoreo}${+show.barcode}`;
+    let porModelo = this.ocultosCache.get(m);
+    if (!porModelo) { porModelo = new Map(); this.ocultosCache.set(m, porModelo); }
+    const visto = porModelo.get(clave);
+    if (visto !== undefined) return visto;
+    const etq = runInInjectionContext(this.injector, () => new LabelComponent());
+    etq.model = m; etq.hero = hero; etq.show = show;
+    const n = etq.renglonesOcultos;
+    porModelo.set(clave, n);
+    return n;
   }
 
   heroOptions(m: LabelModel): { value: HeroKey; label: string }[] {
@@ -1569,11 +1569,44 @@ export class TiendaEtiquetasComponent {
     // en "Preparando…" hasta el timeout de limpieza.
     window.addEventListener('afterprint', finish);
     const fire = () => { try { win.focus(); win.print(); } catch { finish(); } };
-    const fonts = (doc as any).fonts;
-    if (fonts?.ready) fonts.ready.then(() => setTimeout(fire, 150)).catch(() => setTimeout(fire, 300));
-    else setTimeout(fire, 450);
+    // `[ETQ-FUENTE.2]` Se imprime SÓLO con las caras cargadas en el iframe. Los tamaños viajan inline,
+    // medidos con Baloo 2 en la hoja oculta; si el papel sale con la de respaldo (1–8 % más ancha), el
+    // `overflow:hidden` corta el final del renglón — así salió «Código: 4208…» en la NUTELLA 42089.
+    // Antes bastaba `fonts.ready` + 150 ms, y medido en headless resuelve a 1 ms, antes de que la hoja
+    // de estilos clonada declare ninguna cara.
+    void this.fuentesDelIframe(doc).then((faltan) => {
+      if (!faltan?.length) { setTimeout(fire, 150); return; }
+      const nombres = faltan.map((s) => s.replace(/^[\d.]+mm /, '').replace(/['"]/g, '')).join(', ');
+      this.msg.set({ kind: 'error', text: `No se imprimió: la hoja de impresión no alcanzó a cargar ${nombres}, `
+        + 'y con la tipografía de respaldo el código y los montos salen cortados. Vuelve a dar Imprimir; '
+        + 'si se repite, recarga la página con Ctrl+F5.' });
+      finish();
+    });
     // Fallback de limpieza si nunca llega afterprint (ej. usuario deja el diálogo abierto).
     setTimeout(finish, 120000);
+  }
+
+  /**
+   * `[ETQ-FUENTE.2]` Espera a que el iframe tenga sus hojas de estilo y sus TRES caras cargadas, con
+   * tope de 8 s. Devuelve las que faltan (vacío = listo) o `null` si el navegador no deja preguntar:
+   * ahí se imprime igual, con la misma política que `bloqueoTipografia` (no saber no frena).
+   */
+  private async fuentesDelIframe(doc: Document): Promise<string[] | null> {
+    const limite = Date.now() + 8000;
+    const links = Array.from(doc.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'));
+    await Promise.all(links.map((l) => (l.sheet ? Promise.resolve() : new Promise<void>((ok) => {
+      l.addEventListener('load', () => ok(), { once: true });
+      l.addEventListener('error', () => ok(), { once: true });
+      setTimeout(ok, Math.max(0, limite - Date.now()));
+    }))));
+    const f: any = (doc as any).fonts;
+    if (!f?.load) return familiasFaltantes(doc);
+    await Promise.all(FUENTES_SPECS.map((s) => f.load(s).catch(() => undefined)));
+    for (;;) {
+      const faltan = familiasFaltantes(doc);
+      if (faltan === null || faltan.length === 0 || Date.now() > limite) return faltan;
+      await new Promise<void>((r) => setTimeout(r, 60));
+    }
   }
 
   private finishPrint(): void {
