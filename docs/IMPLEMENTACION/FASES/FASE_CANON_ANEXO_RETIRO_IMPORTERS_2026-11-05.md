@@ -611,3 +611,21 @@ precio es lo caro (~90 ms/SKU): segunda etapa, un histograma diario de precios m
 Lo que se declara: lo que envejece a medianoche se pone al día con el primer movimiento de la mañana.
 
 **Orden firmado (dinero × esfuerzo): oleada 12 (S, 2 relojes) → 9 (L, 11) → 8b (L, 3).**
+
+### 8.7 Oleada 12 — el `warehouse_id` al escribir (`[CANON.6.6]`, 2026-11-11)
+
+Medido antes (prod, sólo lectura): de las 33 tablas de los dos barridos, **10 ya eran vistas** y **5
+congeladas**; de las 18 vivas, 13 sin pendientes (sus escritores ya ponen el almacén). Lo pendiente era lo
+escrito ese día: `identity.users` 1,011 altas de la carga de RH (más 4 de abril–octubre que el barrido
+nunca llenó: probablemente el RLS forzado sin tenant), `reconciliation.blind_counts` 57,
+`finance.goods_receipt_proofs` 13, pólizas 393 + 3. Ningún código resuelve a dos almacenes.
+
+Arreglo: `commercial.warehouse_id_de(tenant, valor, regla)` (la regla de los dos barridos, en un solo
+lugar) + `trg_warehouse_id_al_escribir` (`BEFORE INSERT OR UPDATE`, nunca frena al escritor) en las 18
+tablas vivas; la migración llena lo pendiente una vez. En `identity.users` los triggers de alertas (firma,
+permiso, puesto, rol) son `UPDATE OF` otras columnas: el llenado no los dispara. Prueba contra base real
+`test-newdb-warehouse-id-al-escribir.js` con negativa (sin el trigger queda NULL) — local NO MEDIDA (el
+`.env` apunta a prod y la guarda aborta, correcto); la corre `pruebas-db` en el CI.
+
+**Orden de entrega:** push → CI (`pruebas-db` verde en esta prueba) → aplicar `20261111160714` → **después**
+desplegar la ingesta (si la ingesta va antes, esa noche nadie llena lo pendiente).
