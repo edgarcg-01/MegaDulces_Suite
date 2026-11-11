@@ -6040,8 +6040,8 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       const k = reposicion(fx).kpis().find((x) => x.label === 'Pagado sin depósito');
       expect(k?.value).toBe(220654.2);
       expect(k?.tone).toBe('bad');
-      expect(k?.sub).toContain('1 vencida ($71,326.00)');
-      expect(k?.sub).toContain('1 en espera de Kepler');
+      expect(k?.sub).toContain('1 vencida ($71,326.00): ya debían tener su depósito');
+      expect(k?.sub).toContain('1 en espera');
     });
 
     it('[LE.6.30] [negativa] si todas esperan a Kepler, nada se marca vencido y la cifra queda en aviso, no en rojo', () => {
@@ -6051,6 +6051,41 @@ describe('[CG.160] cierre de un corte con conteo ya sellado', () => {
       expect(ventana(fx).querySelector('.rp-vencido')).toBeNull();
       expect(ventana(fx).querySelector('[data-testid="rp-falta-deposito"]')?.textContent).toContain('Esperando el depósito');
       expect(reposicion(fx).kpis().find((x) => x.label === 'Pagado sin depósito')?.tone).toBe('warn');
+    });
+
+    // ⭐ `[LE.6.31]` PM, 2026-11-11: la 1604 ya está cargada. El banco es el segundo testigo: dice si el dinero llegó.
+    const BANCO = (estado: 'encontrado' | 'no_aparece', texto: string) => ({ estado, cuenta: '1604', cargado_hasta: '2026-11-12', texto,
+      deposito: estado === 'encontrado' ? { id: 'm9', dia: '2026-11-06', importe: 71326 } : null });
+    it('[LE.6.31] sin Kepler ni banco es «No llegó al banco» y va primero; en el banco sin U-A-5 se dice así y no suma a la cifra', () => {
+      const sinDep = (vencido: boolean, banco: ReturnType<typeof BANCO>) => PAGO({ estado: 'no_aparece', depositos: null, diferencia: null,
+        nota: 'Kepler todavía no trae depósitos.', vencido, banco });
+      const enBanco = HOJA({ id: 'h11', numero: 11, folio: 'HG-11', estado: 'pagada', total: 85866.52,
+        pago: sinDep(false, BANCO('encontrado', 'En el estado de cuenta de la 1604: $85,866.52 el 06/11.')) });
+      const noLlego = HOJA({ id: 'h9', numero: 9, folio: 'HG-9', estado: 'pagada', total: 71326,
+        pago: sinDep(true, BANCO('no_aparece', 'No está en el estado de cuenta de la 1604 (cargado al 12/11).')) });
+      const fx = montar({ hojasDeGastos: vi.fn(() => of(HOJAS({ cerradas: [enBanco, noLlego] }))) });
+      fx.detectChanges();
+      const filas = [...ventana(fx).querySelectorAll('[data-testid="rp-falta-deposito"]')].map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim());
+      expect(filas).toHaveLength(2);
+      expect(filas[0]).toContain('No llegó al banco:');
+      expect(filas[0]).toContain('No está en el estado de cuenta de la 1604 (cargado al 12/11)');
+      expect(filas[1]).toContain('En el banco, falta en Kepler:');
+      expect(filas[1]).toContain('$85,866.52 el 06/11');
+      expect(ventana(fx).querySelector('[data-vencido="true"] .rp-vencido')).not.toBeNull();
+      expect(ventana(fx).querySelector('[data-vencido="false"] .rp-vencido')).toBeNull();
+      const k = reposicion(fx).kpis().find((x) => x.label === 'Pagado sin depósito');
+      expect(k?.value, 'lo que ya está en el banco no es «pagado sin depósito»').toBe(71326);
+      expect(k?.tone).toBe('bad');
+      expect(k?.sub).toContain('1 ya en el banco, sin su U-A-5 en Kepler');
+    });
+
+    it('[LE.6.31] [negativa] la hoja con su U-A-5 sigue en el historial y dice al lado lo que vio el banco', () => {
+      const fx = enHistorial(HOJA({ estado: 'pagada', pago: PAGO({ estado: 'depositada', diferencia: 0.11, nota: null,
+        depositos: [{ id: '08|U-A-5|0000303|1604', dia: '2026-10-30', importe: 83982, folio: '0000303', sucursal: '08', banco: '1604' }],
+        banco: { ...BANCO('encontrado', 'En el estado de cuenta de la 1604: $83,982.00 el 30/10.') } }) }));
+      expect(ventana(fx).querySelector('.rp-pagado')).not.toBeNull();
+      expect(ventana(fx).querySelector('[data-testid="rp-hoja-banco"]')?.textContent).toContain('En el estado de cuenta de la 1604: $83,982.00 el 30/10.');
+      expect(reposicion(fx).kpis().find((x) => x.label === 'Pagado sin depósito')).toBeUndefined();
     });
 
     // ⭐ `[LE.6.25]` PM, 2026-11-09: «identificar qué se repone a la sucursal y qué se le carga, pero lo pagó
