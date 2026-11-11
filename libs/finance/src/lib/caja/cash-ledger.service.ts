@@ -1623,6 +1623,11 @@ export class CashLedgerService {
      * arranca el PRIMERO DE ESE MES, y de los días anteriores al corte quita lo que el Control ya
      * saldó — con el mismo casamiento del Cuadre de `/finanzas/caja` (`saldadosPorControl`), así que
      * las dos pantallas no pueden decir cosas distintas. Medido: del 1 al 10-oct quedan ~46 de 541.
+     *
+     * `[CGA-A.73]` Y, después del casamiento del mismo día, lo que el Control anotó hasta 4 días más
+     * tarde cuando su texto dice de quién es (ruta y día de venta, «Morelia», o la venta vecinal en
+     * dos renglones). Medido el 2026-11-11: de 43 que quedaban salen 32; con cada condición rota
+     * (ruta vecina, lugar cambiado, día corrido, importe corrido) la regla casa 0.
      */
     const inicio = relevo ? inicioDelMes(relevo) : null;
     const controlSaldo = relevo && inicio && inicio < relevo

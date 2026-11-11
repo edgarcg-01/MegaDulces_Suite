@@ -35,6 +35,9 @@ const skip = (m) => { nomedido++; console.log('  ⃝ NO MEDIDO —', m); };
 const salir = () => { console.log(`\n  ${pass} ✓ · ${fail} ✗ · ${nomedido} no medido`); process.exit(fail ? 1 : (pass ? 0 : 2)); };
 
 let Servicio;
+// El servicio importa la guarda de autenticación, que se niega a cargar sin secreto de firma: en el
+// CI eso dejaba esta prueba en NO MEDIDO (2026-11-10). Un secreto de prueba, como test-newdb-alc-alta-clientes.
+process.env.JWT_SECRET = process.env.JWT_SECRET || `prueba-local-cga72-${'x'.repeat(40)}`;
 try {
   require('ts-node').register({
     transpileOnly: true, skipProject: true,

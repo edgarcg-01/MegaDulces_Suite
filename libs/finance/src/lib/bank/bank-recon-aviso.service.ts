@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { KNEX_NEW_DB, latirCron, PgListenService, TenantContextService } from '@megadulces/platform-core';
 import type { Knex } from 'knex';
-import { CANAL_CAJA } from '../caja/caja-realtime.service';
+import { CANAL_FUENTE_KEPLER } from '../goods-receipt-proofs/entradas-por-aviso';
 import { CANAL_BANCOS } from './aviso-bancos';
 import { FinanceBankService } from './finance-bank.service';
 import {
@@ -55,6 +55,16 @@ const SVC_RECON = { id: '00000000-0000-0000-0000-0000000000cb', username: 'svc_c
  *
  * ⭐ **Cerrado en `[CB.60b]` (2026-11-11):** la descarga que entra a `bank_movements` y la carga del libro emiten
  * `pg_notify('bancos_movimientos')` dentro de su transacción (`aviso-bancos.ts`), y este oyente escucha los DOS canales.
+ *
+ * ⛔⛔ **Corregido en `[CB.60b]` (2026-11-11): este oyente NO escuchaba `caja_fuente`.** El texto de arriba lo
+ * dice, pero el código escuchaba `caja_movimientos` (`CANAL_CAJA`), que el disparador de
+ * `analytics.bank_movement_legs` emite SÓLO cuando entra una pierna de una cuenta de EFECTIVO: los documentos de
+ * banco nunca lo disparaban. Medido en prod el día que se prendió: nueve piernas nuevas en 25 minutos, cero
+ * corridas y cero líneas suyas en el log. Ahora escucha `caja_fuente` (`CANAL_FUENTE_KEPLER`, el mismo de RE.69).
+ *
+ * ⛔ Y `caja_fuente` suena unas 15 veces cada 90 s en horario hábil (medido por RE.69): una espera de silencio
+ * que se reinicia con cada aviso no correría nunca de día. El primer aviso agenda UNA mirada, los de en medio se
+ * absorben, y la firma decide si hay algo que conciliar.
  */
 @Injectable()
 export class BankReconPorAvisoService implements OnModuleInit, OnModuleDestroy {
@@ -106,20 +116,23 @@ export class BankReconPorAvisoService implements OnModuleInit, OnModuleDestroy {
      * «¿quién estaba escuchando?».
      */
     if (process.env.WORKER !== 'true') {
-      this.logger.log(`no escucho ${CANAL_CAJA}: este proceso no es el worker (WORKER≠true)`);
+      this.logger.log(`no escucho ${CANAL_FUENTE_KEPLER} ni ${CANAL_BANCOS}: este proceso no es el worker (WORKER≠true)`);
       return;
     }
     try {
       // Kepler (los documentos) y Bancos (la descarga y el libro): cualquiera de los dos lados mueve la firma.
-      this.dejarDeEscuchar = [CANAL_CAJA, CANAL_BANCOS].map((canal) => this.listen.escuchar(canal, () => { this.programar(); }));
+      this.dejarDeEscuchar = [CANAL_FUENTE_KEPLER, CANAL_BANCOS].map((canal) => this.listen.escuchar(canal, () => { this.programar(); }));
       this.logger.log(
-        `escuchando ${CANAL_CAJA} y ${CANAL_BANCOS} (sin reloj) · ${this.habilitado ? `ACTIVO, quiet ${this.quietMs / 1000}s` : 'APAGADO: no va a conciliar'}`,
+        `escuchando ${CANAL_FUENTE_KEPLER} y ${CANAL_BANCOS} (sin reloj) · ${this.habilitado ? `ACTIVO, mira a los ${this.quietMs / 1000}s del primer aviso` : 'APAGADO: no va a conciliar'}`,
       );
+      // NOTIFY no se persiste: lo avisado mientras el worker estaba abajo se perdió. Una mirada al arrancar lo
+      // recoge (sin firma previa, corre); si nada cambió, la firma lo dice y no repite trabajo.
+      this.programar();
     } catch (e: unknown) {
       // ⛔ No tumba el arranque del worker: hay 50 trabajos más en este proceso. Se DICE, y el
       // latido se queda viejo, que es como db-health se entera.
       this.logger.error(
-        `no se pudo escuchar ${CANAL_CAJA} ni ${CANAL_BANCOS}: ${(e as Error)?.message} — la conciliación NO va a correr sola`,
+        `no se pudo escuchar ${CANAL_FUENTE_KEPLER} ni ${CANAL_BANCOS}: ${(e as Error)?.message} — la conciliación NO va a correr sola`,
       );
     }
   }
@@ -132,11 +145,12 @@ export class BankReconPorAvisoService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Agenda la corrida tras `quiet` de silencio. Un lote de ingesta que emite diez avisos
-   * seguidos produce **una** corrida, no diez: cada aviso corre el reloj de nuevo.
+   * Agenda UNA mirada a `quiet` del primer aviso; los que llegan mientras está agendada se absorben. Diez avisos
+   * seguidos siguen siendo una mirada. ⛔ No reinicia el reloj con cada aviso: `caja_fuente` suena cada pocos
+   * segundos de día, y una espera de silencio no llegaría nunca.
    */
   private programar(): void {
-    if (this.pendiente) clearTimeout(this.pendiente);
+    if (this.pendiente) return;
     this.pendiente = setTimeout(() => {
       this.pendiente = null;
       void this.correr().catch((e: unknown) => {
@@ -224,12 +238,22 @@ export class BankReconPorAvisoService implements OnModuleInit, OnModuleDestroy {
           this.knex.raw(`count(*)::text AS filas, max(fecha_efectiva) AS ultima,
                          coalesce(round(sum(abs(importe)) * 100), 0)::text AS centavos`),
         );
-      const banco = await this.knex('finance.bank_movements as bm')
-        .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
-        .where('st.period', period).whereNull('bm.deleted_at')
-        .first<{ filas: string; ultimo: Date | null }>(
-          this.knex.raw(`count(*)::text AS filas, max(bm.updated_at) AS ultimo`),
-        );
+      /**
+       * ⛔ `[CB.60b]` El lado banco se cuenta CON el tenant fijado. Esto corre por un aviso, fuera de un request:
+       * no hay tenant, y `bank_movements` tiene RLS FORZADO (en prod la app corre como `app_runtime`). Sin el
+       * `set_config`, la cuenta daba CERO siempre — medido en prod el 2026-11-11, primera corrida: firma
+       * `…|0|` con 5,978 movimientos en octubre —, así que ninguna descarga ni carga del libro movía la firma y el
+       * aviso de Bancos terminaba en «firma igual, no corro». Kepler sí se ve: su vista no filtra por RLS.
+       */
+      const banco = await this.knex.transaction(async (trx) => {
+        await trx.raw("select set_config('app.tenant_id', ?, true)", [MEGA]);
+        return trx('finance.bank_movements as bm')
+          .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+          .where('bm.tenant_id', MEGA).where('st.period', period).whereNull('bm.deleted_at')
+          .first<{ filas: string; ultimo: Date | null }>(
+            trx.raw(`count(*)::text AS filas, max(bm.updated_at) AS ultimo`),
+          );
+      });
       const iso = (v: Date | null | undefined): string => (v ? new Date(v).toISOString() : '');
       return {
         kepFilas: Number(kep?.filas ?? 0),

@@ -6725,8 +6725,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     const partes: string[] = [];
     if (ok < enPagina) partes.push('el resto necesita que su cuenta esté declarada');
     // [CGA-A.43] El alcance lo dice el servidor: desde el primer corte del libro, o su ventana.
-    // [CGA-A.44] Desde el 1 del mes del relevo; antes del corte, sólo lo que el Control no concilió
-    // (por día, como el Cuadre: un cobro que el Control anotó otro día sigue apareciendo).
+    // [CGA-A.44] Desde el 1 del mes del relevo; antes del corte, sólo lo que el Control no concilió:
+    // el mismo día, como el Cuadre, y [CGA-A.73] lo que anotó hasta 4 días después cuando su texto
+    // dice la ruta y el día, «Morelia», o la venta vecinal en dos renglones (caja-relevo.ts).
     if (srv?.motivo === 'relevo' && srv.desde && srv.relevo && srv.desde < srv.relevo) {
       // [CGA-A.49] Partido en sus dos colas: «del libro» es la MISMA que cuentan la campana y
       // «Mi trabajo»; sin partirlo, la responsable ve dos números y no sabe cuál es el bueno.

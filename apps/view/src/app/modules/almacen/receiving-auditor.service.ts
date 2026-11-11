@@ -78,6 +78,10 @@ export interface ReceivingPolicy {
   supplier_code?: string | null;
   min_shelf_life_days?: number | null;
   allow_older_than_existing: boolean;
+  /** `[CE.1.1]` `false` = no caduca (el Andén no pide fecha) · `true` = caduca · `null` = sin decir. */
+  tracks_expiry?: boolean | null;
+  /** `[CE.1.1]` Vida útil total en días: sólo para sospechar de una fecha que no cabe. */
+  shelf_life_days?: number | null;
   source?: string;
   notes?: string | null;
   updated_at?: string;
@@ -143,6 +147,11 @@ export class ReceivingAuditorService {
 
   listPolicies(): Observable<ReceivingPolicy[]> {
     return this.http.get<ReceivingPolicy[]>(`${this.base}/policy`);
+  }
+
+  /** `[CE.1.1]` Departamentos de Kepler: el ámbito «departamento» de una política. */
+  listDepartments(): Observable<string[]> {
+    return this.http.get<string[]>(`${this.base}/policy/departments`);
   }
 
   upsertPolicy(dto: Partial<ReceivingPolicy>): Observable<ReceivingPolicy> {

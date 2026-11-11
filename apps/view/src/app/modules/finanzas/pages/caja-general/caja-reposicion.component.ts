@@ -296,7 +296,9 @@ export function avisoDeReposicion(
                       <!-- [LE.6.30] La incidencia (vencido) no se ve igual que la espera: lo dice el texto, el color sólo acompaña. -->
                       <span data-testid="rp-falta-deposito" [attr.data-vencido]="f.h.pago?.deposito?.vencido ?? null">
                         <strong [class.rp-vencido]="depositoVencido(f.h)">{{ etiquetaSinDeposito(f.h) }}:</strong>
-                        {{ f.h.pago?.deposito?.nota ?? 'no se pudo leer si llegó.' }}</span>
+                        {{ f.h.pago?.deposito?.nota ?? 'no se pudo leer si llegó.' }}
+                        <!-- [LE.6.31] El segundo testigo: si el dinero llegó a la cuenta de la zona. -->
+                        @if (f.h.pago?.deposito?.banco; as b) { <span class="d-block" data-testid="rp-banco">{{ b.texto }}</span> }</span>
                       <small class="fin-dim d-block">Pagada {{ textoPagoHoja(f.h) }}. Pasa al historial cuando aparezca su U-A-5 en Kepler.</small>
                     } @else {
                       <!-- [LE.6.21] Historial: la hoja pagada dice con qué salió y si su depósito ya llegó. -->
@@ -443,6 +445,7 @@ export function avisoDeReposicion(
                       } @else {
                         <strong>sin depósito que cuadre</strong> — {{ p.deposito.nota ?? 'el depósito todavía no aparece.' }}
                       }
+                      @if (p.deposito.banco; as b) { <span class="d-block" data-testid="rp-hoja-banco">{{ b.texto }}</span> }
                     </p>
                   }
                   <p-table [value]="f.h.renglones" size="small" class="rp-mini">
@@ -799,7 +802,15 @@ export class CajaReposicionComponent implements OnInit {
    * incidencia, va PRIMERO en la lista. En espera = Kepler todavía no trae depósitos de esos días.
    */
   depositoVencido(h: HojaGastos): boolean { return h.pago?.deposito?.vencido === true; }
+  /**
+   * ⭐ `[LE.6.31]` El estado de cuenta de la zona es el segundo testigo: el dinero está en el banco y sólo falta su
+   * `U-A-5` en Kepler. No es vencido ni cuenta como pagado sin depósito; se queda aquí hasta que se capture.
+   */
+  enBancoSinKepler(h: HojaGastos): boolean { return !this.depositoValidado(h) && h.pago?.deposito?.banco?.estado === 'encontrado'; }
   etiquetaSinDeposito(h: HojaGastos): string {
+    const b = h.pago?.deposito?.banco?.estado;
+    if (b === 'encontrado') return 'En el banco, falta en Kepler';
+    if (b === 'no_aparece') return 'No llegó al banco';
     const v = h.pago?.deposito?.vencido;
     return v === true ? 'Depósito vencido' : v === false ? 'Esperando el depósito' : 'Falta el depósito';
   }
@@ -896,8 +907,11 @@ export class CajaReposicionComponent implements OnInit {
     const cajon = this.grupos().reduce((a, g) => a + g.cajon, 0);
     const n = this.nPorResolver();
     const m = this.sinRetiro().length;
-    const sinDep = Math.round(this.hojasSinDeposito().reduce((a, h) => a + h.total, 0) * 100) / 100;
-    const k = this.hojasSinDeposito().length;
+    // `[LE.6.31]` Lo que ya está en el banco no es «pagado sin depósito»: sólo le falta su U-A-5.
+    const enBanco = this.hojasSinDeposito().filter((h) => this.enBancoSinKepler(h)).length;
+    const sinDep = Math.round(this.hojasSinDeposito().filter((h) => !this.enBancoSinKepler(h)).reduce((a, h) => a + h.total, 0) * 100) / 100;
+    const k = this.hojasSinDeposito().length - enBanco;
+    const yaEnBanco = enBanco ? ` · ${enBanco} ya en el banco, sin su U-A-5 en Kepler` : '';
     const nv = this.hojasVencidas().length;
     const vencido = Math.round(this.hojasVencidas().reduce((a, h) => a + h.total, 0) * 100) / 100;
     if (this.vista() === 'historial') {
@@ -915,9 +929,9 @@ export class CajaReposicionComponent implements OnInit {
       // `[LE.6.27]` Lo pagado que todavía no prueba con un depósito que el dinero salió. `[LE.6.30]` Rojo si
       // alguna ya está VENCIDA; y el subtítulo separa la incidencia de la espera.
       { label: 'Pagado sin depósito', value: sinDep, format: 'currency2', tone: nv > 0 ? 'bad' : sinDep > 0 ? 'warn' : 'ok',
-        sub: nv > 0
-          ? `${nv} ${nv === 1 ? 'vencida' : 'vencidas'} (${money(vencido)}): la sucursal ya capturó depósitos después y no está · ${k - nv} en espera de Kepler`
-          : `${k} ${k === 1 ? 'hoja pagada' : 'hojas pagadas'} sin su U-A-5 en Kepler` },
+        sub: (nv > 0
+          ? `${nv} ${nv === 1 ? 'vencida' : 'vencidas'} (${money(vencido)}): ya debían tener su depósito y no está · ${k - nv} en espera`
+          : `${k} ${k === 1 ? 'hoja pagada' : 'hojas pagadas'} sin su U-A-5 en Kepler`) + yaEnBanco },
     ];
   });
 
@@ -961,7 +975,8 @@ export class CajaReposicionComponent implements OnInit {
     const d = p.deposito.depositos?.[0];
     const dep = p.deposito.estado === 'depositada'
       ? (d?.folio ? `depósito U-A-5 ${d.folio} de ${this.nombre(d.sucursal ?? '')} · cuadra` : 'depositada')
-      : p.deposito.estado === 'no_aparece' ? 'el depósito todavía no aparece'
+      : p.deposito.estado === 'no_aparece'
+        ? (p.deposito.banco?.estado === 'encontrado' ? `el depósito está en la ${p.deposito.banco.cuenta}, falta su U-A-5 en Kepler` : 'el depósito todavía no aparece')
         : p.deposito.estado === 'ambiguo' ? 'el depósito lo liga una persona' : 'depósito sin medir';
     return `${con} · ${dep}`;
   }

@@ -3,7 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { CacheModule } from '@nestjs/cache-manager';
 import { createKeyv } from '@keyv/redis';
 import Keyv from 'keyv';
-import { TenantCacheModule } from '@megadulces/platform-core';
+import { TenantCacheModule, LIMITADORES } from '@megadulces/platform-core';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 // ServeStaticModule + join removidos — nginx sirve el SPA, NestJS solo /api/*.
@@ -438,11 +438,9 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
     // Defaults pensados para mobile + web admin. Endpoints sensibles
     // (login, upload) pueden tener @Throttle más estricto por método.
     ThrottlerModule.forRoot({
-      throttlers: [
-        { name: 'short', ttl: 1000, limit: 10 },     // 10 req/seg
-        { name: 'medium', ttl: 10_000, limit: 60 },  // 60 req/10seg
-        { name: 'long', ttl: 60_000, limit: 200 },   // 200 req/min
-      ],
+      // Los nombres viven en `LIMITADORES` (platform-core) para que `SIN_LIMITE_DE_PETICIONES` los cubra a todos:
+      // `@SkipThrottle()` sin argumentos sólo exenta a `default`, que aquí no existe (429 al lector de relojes, 11-nov).
+      throttlers: LIMITADORES.map((l) => ({ ...l })),
       // Bypass para regression suite. Setear THROTTLE_DISABLED=true en el
       // entorno del API antes de correr database/run-all-tests.js. NUNCA
       // dejarlo activo en prod.

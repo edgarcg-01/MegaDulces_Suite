@@ -223,7 +223,9 @@ export const ALMACEN_LANDING: LandingCandidate[] = withTreeCandidates('almacen',
   // `[AUTHZ.6]` El piso de almacén. Ninguno de estos era candidato, así que el `almacenista`
   // caía al fallback `/almacen/inventory` — que exige `_INVENTORY_VER`, el permiso que NO tiene
   // — y de ahí a `/sin-acceso`. Su landing es el trabajo del día: los vales por recibir.
-  { perm: Permission.COMMERCIAL_INVENTORY_RECIBIR, url: '/almacen/inventory/recepcion-sesiones' },
+  // `[CE.2.2]` Aterrizaba en la estación vieja de vales, que cerraba sin pedir una sola fecha; el
+  // Andén estaba oculto del menú y era la puerta correcta. Ahora el almacenista entra al Andén.
+  { perm: Permission.COMMERCIAL_INVENTORY_RECIBIR, url: '/almacen/anden' },
   { perm: Permission.COMMERCIAL_INVENTORY_SUPERVISAR, url: '/almacen/inventory/sessions' },
   // `[IC.23]` El encargado de sucursal: su trabajo del día es armar el equipo del conteo. Va
   // DESPUÉS de SUPERVISAR a propósito — los 5 roles que tienen las dos claves no cambian de

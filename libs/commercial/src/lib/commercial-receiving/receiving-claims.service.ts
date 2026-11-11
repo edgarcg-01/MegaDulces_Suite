@@ -13,12 +13,16 @@ import {
 import type { Knex } from 'knex';
 import { classifyReceivingOrigin, type ReceivingOrigin } from './receiving-origin';
 import { classifyShipmentOrigin, parseTransferRef } from './receiving-transfer';
+import { almacenDeSucursal } from './receiving-transfer-expiry';
 import {
   CLAIMABLE_KINDS,
+  CLAIM_KINDS,
   OPEN_STATUSES,
+  RULES_CADUCIDAD_CORTA,
   ReceivingClaimStatus,
   claimAmount,
   claimDedupKey,
+  claimDedupKeyCaptura,
   claimQtyFor,
   nextClaimStatus,
   responsibleFor,
@@ -43,6 +47,20 @@ import {
  * inventario (`close()` da de alta sólo `received_qty`) y la nota de crédito real vive en
  * Kepler, que es read-only. El monto es estimación para priorizar y lo dice.
  */
+/** Un renglón del vale tal como lo lee el cierre para levantar el reclamo. */
+interface RenglonReclamable {
+  id: string;
+  product_id: string | null;
+  expected_sku: string | null;
+  expected_name: string | null;
+  expected_qty: unknown;
+  received_qty: unknown;
+  discrepancy_kind: string;
+  notes: string | null;
+  sku: string | null;
+  product_name: string | null;
+}
+
 @Injectable()
 export class ReceivingClaimsService {
   private readonly logger = new Logger(ReceivingClaimsService.name);
@@ -84,7 +102,6 @@ export class ReceivingClaimsService {
       closed_at?: Date | string | null;
     },
   ): Promise<{ raised: number; items: Array<Record<string, unknown>> }> {
-    const tenantId = this.tenantCtx.get()?.tenantId || null;
     const userId = this.tenantCtx.get()?.userId || null;
 
     const lines = await trx('commercial.receiving_lines as l')
@@ -105,6 +122,141 @@ export class ReceivingClaimsService {
       );
     if (!lines.length) return { raised: 0, items: [] };
 
+    const { costBySku, responsible, supplier, transferOrigin } = await this.contextoDeReclamoTx(trx, session);
+
+    const items: Array<Record<string, unknown>> = [];
+    for (const l of lines as RenglonReclamable[]) {
+      const kind = l.discrepancy_kind as (typeof CLAIMABLE_KINDS)[number];
+      const qty = claimQtyFor(l.expected_qty, l.received_qty);
+      const cost = costBySku.get(String(l.expected_sku ?? ''))?.unit_cost ?? null;
+      const amount = claimAmount(qty, cost);
+      const row = {
+        tenant_id: trx.raw('public.current_tenant_id()'),
+        session_id: session.id,
+        receiving_line_id: l.id,
+        warehouse_id: session.warehouse_id,
+        product_id: l.product_id || null,
+        folio: session.folio,
+        source_ref: session.source_ref || null,
+        sku: l.sku || l.expected_sku || null,
+        product_name: l.product_name || l.expected_name || null,
+        kind,
+        expected_qty: Number(l.expected_qty) || 0,
+        received_qty: Number(l.received_qty) || 0,
+        qty_claimed: qty,
+        qty_unit: costBySku.get(String(l.expected_sku ?? ''))?.unidad ?? null,
+        responsible_kind: responsible.responsible_kind,
+        responsible_code: session.supplier_code || null,
+        responsible_label: responsible.responsible_label,
+        supplier_id: supplier?.id || null,
+        responsible_warehouse_id: transferOrigin?.warehouse_id || null,
+        unit_cost: cost,
+        amount,
+        amount_source: amount == null ? 'sin_dato' : 'erp_line',
+        status: 'open' as ReceivingClaimStatus,
+        opened_at: session.closed_at || trx.fn.now(),
+        notes: l.notes || null,
+        dedup_key: claimDedupKey(l.id),
+        created_by: userId,
+      };
+      const inserted = await trx('commercial.receiving_claims')
+        .insert(row)
+        .onConflict(['tenant_id', 'dedup_key'])
+        .ignore()
+        .returning(['id', 'kind', 'qty_claimed', 'qty_unit', 'amount', 'sku', 'product_name']);
+      if (inserted?.length) items.push(inserted[0]);
+    }
+
+    if (items.length)
+      this.logger.log(
+        `Vale ${session.folio}: ${items.length} reclamo(s) levantados a ` +
+          `${responsible.responsible_kind === 'supplier' ? 'proveedor' : 'traspaso'} ` +
+          `${responsible.responsible_label ?? session.supplier_code ?? 'sin identificar'}`,
+      );
+    return { raised: items.length, items };
+  }
+
+  /**
+   * `[CE.2.4]` **Reclamo de caducidad corta**: un supervisor rechazó una captura ROJA (vencida, bajo
+   * la vida mínima o más vieja que lo que ya hay). Esa mercancía llegó pero no se aceptó, así que se
+   * le reclama a quien la mandó — proveedor o sucursal que embarcó —, con el costo del documento.
+   *
+   * Sólo con renglón de vale (la captura suelta no tiene documento con qué reclamar) y sólo por las
+   * reglas de `RULES_CADUCIDAD_CORTA`. Idempotente por `recv-capture:<id>`. Va en la MISMA
+   * transacción que el rechazo: si no se puede escribir el reclamo, no se rechaza.
+   */
+  async raiseForRejectedCaptureInTx(
+    trx: Knex.Transaction,
+    capture: { id: string; receiving_line_id: string | null; rule_broken: string | null; quantity: unknown; notes?: string | null },
+  ): Promise<Record<string, unknown> | null> {
+    if (!capture.receiving_line_id) return null;
+    if (!RULES_CADUCIDAD_CORTA.includes(String(capture.rule_broken ?? ''))) return null;
+    const qty = Number(capture.quantity) || 0;
+    if (qty <= 0) return null;
+
+    const l = await trx('commercial.receiving_lines as l')
+      .join('commercial.receiving_sessions as s', function (this: Knex.JoinClause) {
+        this.on('s.tenant_id', '=', 'l.tenant_id').andOn('s.id', '=', 'l.session_id');
+      })
+      .leftJoin('public.products as p', 'p.id', 'l.product_id')
+      .where('l.id', capture.receiving_line_id)
+      .first(
+        'l.id', 'l.product_id', 'l.expected_sku', 'l.expected_name', 'l.expected_qty', 'l.received_qty',
+        'p.sku', 'p.nombre as product_name',
+        's.id as session_id', 's.folio', 's.warehouse_id', 's.supplier_code', 's.source_ref',
+      );
+    if (!l) return null;
+
+    const { costBySku, responsible, supplier, transferOrigin } = await this.contextoDeReclamoTx(trx, l);
+    const cost = costBySku.get(String(l.expected_sku ?? ''))?.unit_cost ?? null;
+    const amount = claimAmount(qty, cost);
+    const [row] = await trx('commercial.receiving_claims')
+      .insert({
+        tenant_id: trx.raw('public.current_tenant_id()'),
+        session_id: l.session_id,
+        receiving_line_id: l.id,
+        warehouse_id: l.warehouse_id,
+        product_id: l.product_id || null,
+        folio: l.folio,
+        source_ref: l.source_ref || null,
+        sku: l.sku || l.expected_sku || null,
+        product_name: l.product_name || l.expected_name || null,
+        kind: 'caducidad_corta',
+        expected_qty: Number(l.expected_qty) || 0,
+        received_qty: Number(l.received_qty) || 0,
+        qty_claimed: qty,
+        qty_unit: costBySku.get(String(l.expected_sku ?? ''))?.unidad ?? null,
+        responsible_kind: responsible.responsible_kind,
+        responsible_code: l.supplier_code || null,
+        responsible_label: responsible.responsible_label,
+        supplier_id: supplier?.id || null,
+        responsible_warehouse_id: transferOrigin?.warehouse_id || null,
+        unit_cost: cost,
+        amount,
+        amount_source: amount == null ? 'sin_dato' : 'erp_line',
+        status: 'open' as ReceivingClaimStatus,
+        opened_at: trx.fn.now(),
+        notes: capture.notes || `Caducidad rechazada en recepción (${capture.rule_broken})`,
+        dedup_key: claimDedupKeyCaptura(capture.id),
+        created_by: this.tenantCtx.get()?.userId || null,
+      })
+      .onConflict(['tenant_id', 'dedup_key'])
+      .ignore()
+      .returning(['id', 'kind', 'qty_claimed', 'qty_unit', 'amount', 'sku', 'product_name']);
+    if (row) this.logger.log(`Vale ${l.folio}: reclamo de caducidad corta a ${responsible.responsible_label ?? l.supplier_code ?? 'sin identificar'}`);
+    return row ?? null;
+  }
+
+  /**
+   * `[CE.2.4]` Lo que un reclamo necesita saber del vale, sea por un renglón al cerrar o por una
+   * captura de caducidad rechazada: el costo y la unidad del documento por SKU, a quién se le reclama
+   * y su ficha. Una sola implementación para los dos caminos (antes vivía dentro del cierre).
+   */
+  private async contextoDeReclamoTx(
+    trx: Knex.Transaction,
+    session: { supplier_code: string | null; source_ref: string | null },
+  ) {
+    const tenantId = this.tenantCtx.get()?.tenantId || null;
     // Costo y unidad DEL DOCUMENTO, en una sola pasada por el folio del ERP (no una
     // subconsulta por renglón: `analytics.erp_goods_receipt_lines` es una VISTA viva
     // sobre `kepler_ods` en prod). `analytics.*` NO tiene RLS → tenant explícito
@@ -165,16 +317,8 @@ export class ReceivingClaimsService {
     // documento), no hace falta el crosswalk capturado a mano.
     let almacenQueEmbarco: string | null = null;
     if (traspaso) {
-      const porMapa = await trx('commercial.erp_sucursal_warehouse as m')
-        .join('commercial.warehouses as w', function (this: Knex.JoinClause) {
-          this.on('w.tenant_id', '=', 'm.tenant_id').andOn('w.id', '=', 'm.warehouse_id');
-        })
-        .where('m.sucursal', traspaso.origen)
-        .whereNull('w.deleted_at')
-        .first('w.id', 'w.name');
-      const wo =
-        porMapa ||
-        (await trx('commercial.warehouses').where({ code: traspaso.origen }).whereNull('deleted_at').first('id', 'name'));
+      // `[CE.2.3]` La misma resolución sucursal → almacén que propone la fecha del traspaso.
+      const wo = await almacenDeSucursal(trx, traspaso.origen);
       almacenQueEmbarco = wo?.id || null;
       origin = classifyShipmentOrigin(traspaso.origen, wo?.name ?? null);
     } else {
@@ -204,57 +348,7 @@ export class ReceivingClaimsService {
       : responsible.responsible_kind === 'branch' && session.supplier_code
         ? await this.findTransferOriginTx(trx, session.supplier_code)
         : null;
-
-    const items: Array<Record<string, unknown>> = [];
-    for (const l of lines as any[]) {
-      const kind = l.discrepancy_kind as (typeof CLAIMABLE_KINDS)[number];
-      const qty = claimQtyFor(l.expected_qty, l.received_qty);
-      const cost = costBySku.get(String(l.expected_sku ?? ''))?.unit_cost ?? null;
-      const amount = claimAmount(qty, cost);
-      const row = {
-        tenant_id: trx.raw('public.current_tenant_id()'),
-        session_id: session.id,
-        receiving_line_id: l.id,
-        warehouse_id: session.warehouse_id,
-        product_id: l.product_id || null,
-        folio: session.folio,
-        source_ref: session.source_ref || null,
-        sku: l.sku || l.expected_sku || null,
-        product_name: l.product_name || l.expected_name || null,
-        kind,
-        expected_qty: Number(l.expected_qty) || 0,
-        received_qty: Number(l.received_qty) || 0,
-        qty_claimed: qty,
-        qty_unit: costBySku.get(String(l.expected_sku ?? ''))?.unidad ?? null,
-        responsible_kind: responsible.responsible_kind,
-        responsible_code: session.supplier_code || null,
-        responsible_label: responsible.responsible_label,
-        supplier_id: supplier?.id || null,
-        responsible_warehouse_id: transferOrigin?.warehouse_id || null,
-        unit_cost: cost,
-        amount,
-        amount_source: amount == null ? 'sin_dato' : 'erp_line',
-        status: 'open' as ReceivingClaimStatus,
-        opened_at: session.closed_at || trx.fn.now(),
-        notes: l.notes || null,
-        dedup_key: claimDedupKey(l.id),
-        created_by: userId,
-      };
-      const inserted = await trx('commercial.receiving_claims')
-        .insert(row)
-        .onConflict(['tenant_id', 'dedup_key'])
-        .ignore()
-        .returning(['id', 'kind', 'qty_claimed', 'qty_unit', 'amount', 'sku', 'product_name']);
-      if (inserted?.length) items.push(inserted[0]);
-    }
-
-    if (items.length)
-      this.logger.log(
-        `Vale ${session.folio}: ${items.length} reclamo(s) levantados a ` +
-          `${responsible.responsible_kind === 'supplier' ? 'proveedor' : 'traspaso'} ` +
-          `${responsible.responsible_label ?? session.supplier_code ?? 'sin identificar'}`,
-      );
-    return { raised: items.length, items };
+    return { costBySku, responsible, supplier, transferOrigin };
   }
 
   // ── Bandeja ────────────────────────────────────────────────────────────────
@@ -297,7 +391,7 @@ export class ReceivingClaimsService {
           });
         if (q.responsible_kind && ['supplier', 'branch'].includes(q.responsible_kind))
           b.where('c.responsible_kind', q.responsible_kind);
-        if (q.kind && (CLAIMABLE_KINDS as unknown as string[]).includes(q.kind)) b.where('c.kind', q.kind);
+        if (q.kind && (CLAIM_KINDS as unknown as string[]).includes(q.kind)) b.where('c.kind', q.kind);
         if (q.supplier_id) b.where('c.supplier_id', q.supplier_id);
         if (q.warehouse_id) b.where('c.warehouse_id', q.warehouse_id);
         if (q.date_from) b.where('c.opened_at', '>=', `${q.date_from} 00:00:00`);
