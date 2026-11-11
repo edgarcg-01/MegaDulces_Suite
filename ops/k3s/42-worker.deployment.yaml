@@ -170,6 +170,18 @@ spec:
             # es una decisión contable, no de operación: antes del 10-oct hay 13,206 movimientos
             # por $162,080,748.92 que ya están conciliados del otro lado.
             - { name: CAJA_AUTOLLENADO_PISO, value: "2026-10-10" }
+            # ═══ [CB.53] La conciliación bancaria corre al llegar el dato, no por reloj ═══
+            # ⭐ PRENDIDO por Edgar el 2026-11-11 («si, enciendelo»). Hasta ese día NUNCA había corrido:
+            #   medido en prod, cero latidos `bank_recon_aviso` en analytics.cron_runs desde que existe
+            #   (2026-10-21). Se conciliaba sólo cuando alguien pulsaba «Conciliar».
+            #   Escucha los avisos de Kepler (`caja_movimientos`) y, desde [CB.60b], los de Bancos
+            #   (`bancos_movimientos`: la descarga del banco que entra a los movimientos y la carga del
+            #   libro). Corre `runMatch` —el MISMO del botón— tras 60 s de silencio y sólo si la firma del
+            #   periodo cambió; escribe `bank_recon_matches` y el `recon_status` de cada movimiento.
+            #   Cada corrida late en analytics.cron_runs (`bank_recon_aviso`): ése es el testigo.
+            # ⛔ Va aquí y no con `kubectl set env`: lo que no está en el manifiesto no sobrevive al
+            #   siguiente despliegue (pasó dos veces el 2026-10-19 con el autollenado).
+            - { name: ENABLE_BANK_RECON_AVISO, value: "true" }
             # [K.VEC.2] 2026-10-16 - el corpus vectorial se recreo desde cero (pg-rag quedo
             #   vacio en la mudanza a md del 22-sep; ver GOTCHAS §83). Aplicado en el cluster
             #   por Edgar a las 09:57 con `kubectl set env`; este valor es el mismo, para que

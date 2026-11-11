@@ -300,6 +300,18 @@ async function completo(urlAdmin, urlRuntime) {
           sucursal: x.i ? '40' : null, category_id: await catId(x.i ? 'cobranza' : 'comision_bancaria'), client_uuid: `prueba-cb60b-${x.d}-${x.i}` });
       }
 
+      // [CB.60b] El aviso a la conciliación (CB.53) se escucha de verdad: sale al CONFIRMAR y sólo si entró algo.
+      const { Client } = require('pg');
+      const oyente = new Client({ connectionString: urlAdmin });
+      await oyente.connect();
+      const avisos = [];
+      oyente.on('notification', (m) => { if (m.channel === 'bancos_movimientos') avisos.push(JSON.parse(m.payload)); });
+      await oyente.query('LISTEN bancos_movimientos');
+      const recoger = async () => { await new Promise((r) => setTimeout(r, 400)); return avisos.splice(0); };
+      const { avisarBancos } = require(path.join(ROOT, 'libs/finance/src/lib/bank/aviso-bancos.ts'));
+      await niega(() => admin.transaction(async (trx) => { await avisarBancos(trx, { origen: 'descarga', periodos: ['2026-10'] }); throw new Error('rollback a propósito'); }));
+      check((await recoger()).length === 0, '⛔ una transacción que se deshace NO avisa: el oyente nunca concilia un dato que no quedó');
+
       // STDR tiene UN día que cuadra (el 02): hay racha, pero corta. Con cero días fallaría por otro lado y no probaría la regla.
       const corto = await niega(() => svc.usarElBanco(STDR, 'prueba', '2026-11-09'));
       check(/hacen falta 10/.test(JSON.stringify(corto?.response ?? corto?.message ?? '')),
@@ -307,7 +319,11 @@ async function completo(urlAdmin, urlRuntime) {
       const sinQuien = await niega(() => svc.usarElBanco(BANCO, undefined, '2026-10-20'));
       check(!!sinQuien, '⛔ sin una persona que lo decida, no se pasa');
 
+      check((await recoger()).length === 0, '⛔ pasar al banco rechazado (sin racha, sin persona) no avisa');
       const u = await svc.usarElBanco(BANCO, 'prueba', '2026-10-20');
+      const aU = await recoger();
+      check(aU.length === 1 && aU[0].origen === 'descarga' && aU[0].cuenta === BANCO && aU[0].periodos.join() === '2026-10',
+        `al pasar la cuenta, UN aviso a la conciliación con su periodo (${JSON.stringify(aU)})`);
       check(u.desde === '2026-10-12' && u.ya_estaba === false, `manda el banco desde el día siguiente al último que cuadró (${u.desde})`);
       check(u.libro_borrados === 1, `el renglón del libro del día a medias se marca borrado (${u.libro_borrados})`);
       check(u.metidos === 2 && u.sin_sucursal === 0 && u.sin_categoria === 0, `los 2 renglones del banco del 12 entran con categoría y sucursal (${JSON.stringify(u)})`);
@@ -323,11 +339,14 @@ async function completo(urlAdmin, urlRuntime) {
 
       const otra = await svc.usarElBanco(BANCO, 'prueba', '2026-10-20');
       check(otra.ya_estaba === true && otra.metidos === 0, 'pulsar dos veces no hace nada dos veces');
+      check((await recoger()).length === 0, '⛔ y no avisa: no entró nada');
 
       // Lo que se sube después entra solo.
       const r13 = renglonesDe(13, 13, r12[r12.length - 1].s);
       const c13 = await svc.confirmar({ file_base64: bbva(r13.map((x) => x.txt).reverse()), bank_account_id: BANCO, aceptar_sin_testigo: true }, 'prueba');
       check(c13.alimentado?.metidos === 2, `la descarga siguiente entra sola a los movimientos (${JSON.stringify(c13.alimentado)})`);
+      const a13 = await recoger();
+      check(a13.length === 1 && a13[0].origen === 'descarga', `y avisa a la conciliación (${JSON.stringify(a13)})`);
 
       // ⛔ Desde que usa el banco, la cuenta ya no se juzga contra el libro: ni «cuadra» contra lo que metió el propio
       // banco, ni «sin libro» para siempre. Sigue en la lista con su paralelo y su fecha.
@@ -353,6 +372,10 @@ async function completo(urlAdmin, urlRuntime) {
       const imp = await fbs.importFromBuffer(Buffer.from(await wb.xlsx.writeBuffer()), '2026-10', 'prueba-cb60b.xlsx', 'prueba', 'upload');
       const hoja = imp.accounts.find((a) => a.sheet === `${ALIAS} BANCO`);
       check(/usa el banco desde 2026-10-12: 1 renglón/.test(hoja?.note ?? ''), `la carga del libro declara lo que no entró (${hoja?.note})`);
+      const aLibro = await recoger();
+      check(imp.total > 0 && aLibro.length === 1 && aLibro[0].origen === 'libro' && aLibro[0].periodos.join() === '2026-10',
+        `la carga del libro también avisa a la conciliación: era el hueco declarado de CB.53 (${imp.total} renglón(es), ${JSON.stringify(aLibro)})`);
+      await oyente.end();
       const vivosLibro = await admin('finance.bank_movements').where({ bank_account_id: BANCO }).whereIn('sync_source', ['upload', 'sheet'])
         .where('movement_date', '>=', '2026-10-12').whereNull('deleted_at').count('* as n');
       check(Number(vivosLibro[0].n) === 0, `⛔ ningún renglón del libro vive desde el 12 (ni el borrado revivió): ${vivosLibro[0].n}`);

@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nest
 import { KNEX_NEW_DB, latirCron, PgListenService, TenantContextService } from '@megadulces/platform-core';
 import type { Knex } from 'knex';
 import { CANAL_CAJA } from '../caja/caja-realtime.service';
+import { CANAL_BANCOS } from './aviso-bancos';
 import { FinanceBankService } from './finance-bank.service';
 import {
   decidirCorrida, firmaVacia, periodosAEvaluar, textoFirma,
@@ -51,11 +52,14 @@ const SVC_RECON = { id: '00000000-0000-0000-0000-0000000000cb', username: 'svc_c
  * cargado a las 10:00 lo recoge el primer aviso de Kepler que llegue después. Pero **no está
  * garantizado por construcción**, y ésa es la deuda: emitir el aviso también al terminar el
  * import del estado de cuenta.
+ *
+ * ⭐ **Cerrado en `[CB.60b]` (2026-11-11):** la descarga que entra a `bank_movements` y la carga del libro emiten
+ * `pg_notify('bancos_movimientos')` dentro de su transacción (`aviso-bancos.ts`), y este oyente escucha los DOS canales.
  */
 @Injectable()
 export class BankReconPorAvisoService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(BankReconPorAvisoService.name);
-  private dejarDeEscuchar: (() => void) | null = null;
+  private dejarDeEscuchar: (() => void)[] = [];
   private corriendo = false;
   /** Firma del último periodo procesado, por periodo. Vacío = todavía no corrió ninguno. */
   private readonly ultimaFirma = new Map<string, string>();
@@ -106,22 +110,23 @@ export class BankReconPorAvisoService implements OnModuleInit, OnModuleDestroy {
       return;
     }
     try {
-      this.dejarDeEscuchar = this.listen.escuchar(CANAL_CAJA, () => { this.programar(); });
+      // Kepler (los documentos) y Bancos (la descarga y el libro): cualquiera de los dos lados mueve la firma.
+      this.dejarDeEscuchar = [CANAL_CAJA, CANAL_BANCOS].map((canal) => this.listen.escuchar(canal, () => { this.programar(); }));
       this.logger.log(
-        `escuchando ${CANAL_CAJA} (sin reloj) · ${this.habilitado ? `ACTIVO, quiet ${this.quietMs / 1000}s` : 'APAGADO: no va a conciliar'}`,
+        `escuchando ${CANAL_CAJA} y ${CANAL_BANCOS} (sin reloj) · ${this.habilitado ? `ACTIVO, quiet ${this.quietMs / 1000}s` : 'APAGADO: no va a conciliar'}`,
       );
     } catch (e: unknown) {
       // ⛔ No tumba el arranque del worker: hay 50 trabajos más en este proceso. Se DICE, y el
       // latido se queda viejo, que es como db-health se entera.
       this.logger.error(
-        `no se pudo escuchar ${CANAL_CAJA}: ${(e as Error)?.message} — la conciliación NO va a correr sola`,
+        `no se pudo escuchar ${CANAL_CAJA} ni ${CANAL_BANCOS}: ${(e as Error)?.message} — la conciliación NO va a correr sola`,
       );
     }
   }
 
   onModuleDestroy(): void {
-    this.dejarDeEscuchar?.();
-    this.dejarDeEscuchar = null;
+    for (const dejar of this.dejarDeEscuchar) dejar();
+    this.dejarDeEscuchar = [];
     if (this.pendiente) clearTimeout(this.pendiente);
     this.pendiente = null;
   }
