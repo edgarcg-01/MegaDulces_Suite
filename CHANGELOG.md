@@ -9,6 +9,8 @@
 ---
 
 ## [Unreleased]
+### Changed — Verificador de precios: el escaneo, medido en prod (VAC.P1, 2026-11-11 · en prod)
+- Con la migración `20261107115424` aplicada (2026-11-08), la consulta del escaneo pasó de 62–66 ms a **0.7 ms** y `/api/kp/precio` en la red local de ~75 ms a **15–24 ms**. Los ajustes del mostrador (VAC.U16) también están en prod; falta verlos en el monitor real.
 ### Fixed — Pagos: las facturas «por confirmar» que Oficinas nunca registró ya se pueden programar (PGP.113 · 2026-11-10 · en código, sin soltar)
 - Las facturas de sucursal que vencían antes del 1-oct estaban bloqueadas todas, sin forma de destrabarlas. Ahora se sueltan las que Oficinas nunca registró: sin copia, sin pago por el mismo importe y sin nada aplicado. Hoy son **67 de 205 ($1.15 M)**.
 - La factura soltada aparece en la lista con su botón para agregarla y dice por qué se pudo. Las demás siguen «por confirmar» porque pueden estar pagadas desde Oficinas.
