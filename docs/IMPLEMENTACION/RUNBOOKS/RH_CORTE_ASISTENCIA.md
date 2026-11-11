@@ -23,9 +23,20 @@
 | 14:05 | Prueba negativa de la ingesta | Sin llave y con llave falsa → **401** |
 | 14:10 | Rol de RH (`[RH.2.6]`, mig `20261111140242`) | `reclutamiento_asistencia` a Lesly y Tania (complemento; conservan `administrativo`) |
 
-**Pendiente (paso 4 de §3, David):** `probar` → `a-suite` → servicio detenido → `reenviar "2026-11-11 12:59"` → arrancar.
-Después: latidos (`hr_attendance_ingest`), `ENABLE_HR_ATTENDANCE_AGENT=true` en el worker (paso 7), y Mega Talento de sólo
-lectura en asistencia. Los 12 relojes quedaron `ingest_mode = agente` (lo que exige `probar`).
+| 15:30 | `[RH.0.3]` desde `md` | ping 11/12; Sucursal PH (`192.168.10.2`) no responde |
+| 15:38 | El lector viejo (Edgar, en la máquina) | ⚠️ **No estaba en `LapSistemasA`: corre en `SeniorDev`**, servicio `megatalentoagentedechecadas.exe` («Mega Talento Agente de Checadas», node-windows, `C:\Users\Administrator\Documents\mega-talento-90\api\agente`). **Detenido y deshabilitado** (no desinstalado: es la reversa) |
+| 15:41:26 | Mega Talento deja de recibir | Último lote; 2 min sin nada antes de seguir |
+| 15:43 | `tcp` desde `md` (con la laptop ya parada) | 11/12 abren el 4370; PH no |
+| 15:44 | **Opción B: lector en `md`** (Edgar: «que corra en md hoy») | Secreto `hr-relojes-env` (huella = la de la API y la del lector viejo), `deploy/hr-relojes` con `trade-ingest:3aa0520a9`; «Relojes a cargo» 12, vigilando 11 (CEDIS incluido, que la laptop dejó de leer el 15-oct) |
+| 15:45 | Primer respaldo | 8-Esquinas 59,952 y CEDIS 25,645 releídos: **34 checadas nuevas** (14:06–15:43, el hueco), el resto ya estaba. Ráfaga de **429**: `@SkipThrottle()` sin argumentos no exentaba los limitadores `short/medium/long` → corregido en `[RH.1.3]` (`da497b10a`); mientras sale, sólo frena la ráfaga |
+
+**Sucursal PH:** su último lote a Mega Talento fue el **11-nov 04:12** (la laptop también la perdió): el reloj está apagado,
+desconectado o cambió de IP. Revisión en sitio. El lector de `md` lo sigue buscando en su red.
+
+**Lo que queda:** `ENABLE_HR_ATTENDANCE_AGENT` (paso 7) **NO se enciende**: es un `@Cron` cada 30 min y la regla del
+2026-11-10 prohíbe crons nuevos; la cola de alertas de Mega Talento nunca la decidió nadie (§5). Mega Talento de sólo
+lectura en asistencia (David). Reversa: `kubectl -n ingesta scale deploy/hr-relojes --replicas=0` y, en `SeniorDev`,
+`Set-Service -Name 'megatalentoagentedechecadas.exe' -StartupType Automatic; Start-Service -Name 'megatalentoagentedechecadas.exe'`.
 
 ## 0.0 Antes de empezar: decisiones del 14 y 16-oct
 

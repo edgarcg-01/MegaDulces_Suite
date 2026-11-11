@@ -45,7 +45,7 @@ metadata:
   labels:
     carril: hr-relojes
     singleton: "true"
-    migracion: preparado-externo
+    migracion: migrado
 spec:
   replicas: 1
   strategy:
