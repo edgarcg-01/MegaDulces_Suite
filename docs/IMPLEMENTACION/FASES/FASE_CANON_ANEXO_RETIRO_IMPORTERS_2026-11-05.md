@@ -560,3 +560,19 @@ rotulan «auto-conciliada después de D21» o se revierten?
 | 8a | `auto-received` fuera del nocturno (contradice D21) | S | 🧪 2026-11-11, commit local; llega con el próximo despliegue de la ingesta |
 | 8b | `existencia-aux` → una tabla por matview mantenida por llave (ADR-104): función por producto/almacén, triggers por sentencia en sus fuentes del ODS, árbitro nocturno que debe encontrar 0 | L | ⬜ — es donde está el costo (1.5 h de CPU al día) y el factor de caja que se imprime al cliente |
 | 8c | cierre por mes tocado (ADR-104) | M | ⬜ — antes medir cuántas sentencias por minuto le llegan: si recalcular un mes por sentencia cuesta más que 188 s/día, se dice y se decide |
+
+**8b, el diseño medido (2026-11-11, prod sólo lectura).** Costo por matview en el log del carril
+(3 corridas): `mv_warehouse_box_factor` 8–13 s (45 %) · `mv_price_truth` 7–10.5 s (38 %) ·
+`mv_kepler_unit_cost` 1.6–2.3 s · `mv_product_box_factor` 0.7–1 s. La forma: **una tabla por matview
+que se recalcula DESDE LA MISMA VISTA filtrada a las llaves tocadas** (`DELETE … WHERE sku = ANY(k)` +
+`INSERT … SELECT * FROM <vista> WHERE sku = ANY(k)`), con triggers por sentencia en cada fuente que
+sacan los SKU de sus tablas de transición. La regla sigue viviendo en un solo lugar —la vista— y el
+nombre `mv_*` se conserva como vista sobre la tabla (ADR-104 §6: ninguna pantalla cambia). Costo de la
+vista filtrada a 10 SKU: `v_warehouse_box_factor` **150–190 ms** (contra 8–13 s entera) ·
+`v_product_box_factor` **13 ms** · `v_kepler_unit_cost` 400 ms (el filtro no llega al `GROUP BY` de
+`kdik`: su recálculo filtra `kdik` directo). Antes de construir:
+- `mv_price_truth` no tiene vista debajo (el SQL vive en la matview): primero sacarlo a `v_price_truth_calc`.
+- `v_warehouse_box_factor` lee **otra matview**, `mv_kepler_sold_rung`: localizar quién la refresca (es
+  un reloj más que entra al mismo arreglo).
+- Crear triggers en `kdm2`/`kdii`/`kdik` toma candado y la carga inicial recorre todo: **fuera de horario**.
+- Árbitro nocturno por matview: tabla vs vista completa, debe encontrar 0.
