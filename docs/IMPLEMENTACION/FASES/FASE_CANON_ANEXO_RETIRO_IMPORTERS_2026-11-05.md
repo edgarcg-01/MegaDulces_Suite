@@ -629,3 +629,29 @@ permiso, puesto, rol) son `UPDATE OF` otras columnas: el llenado no los dispara.
 
 **Orden de entrega:** push → CI (`pruebas-db` verde en esta prueba) → aplicar `20261111160714` → **después**
 desplegar la ingesta (si la ingesta va antes, esa noche nadie llena lo pendiente).
+
+### 8.8 Oleada 9 — el catálogo, medido: no son respaldos ociosos (2026-11-11)
+
+Inventario del código (lectura) + bitácora de 30 días en prod (sólo lectura). Los 13 por clase: **ya por
+evento (E)** nombres, códigos de barras, etiquetas, costo y altas · **vista o por evento (V)** `is_promo`,
+`markup_pct`, `inventory.products_active` · **dueño mixto (C)** marcas, proveedores (`[PQ.107]`, 35 lectores
+por repuntar: es de PQ), logística · **no Kepler** rotación (sale de `sales_daily`, espera D4),
+`inventory.products` (2ª copia de `catalog.products`).
+
+**Los «E» siguen escribiendo** — cada uno esconde un hueco o un pleito que hay que explicar ANTES de quitarlo:
+
+| Script | 30 días | Lectura |
+|---|---|---|
+| `repoint-catalog-names` | 54 identidades en 25 de 29 noches; 3 el 10-nov | hueco vivo: nombres que cambian sin que el evento los vea (¿edición en la Suite que Kepler pisa, o ficha que no se reenvía?) |
+| `import-product-barcodes` | 100–190/día hasta el 29-oct; 0–4/día desde el 30-oct (34 el 3-nov) | el evento ya cubre casi todo; residuo chico por explicar |
+| `import-label-data` | «2 productos» en CADA corrida (1,109 de 1,442), ~90/día, un mes | ida y vuelta entre dos escritores (como H12 en nombres); y `STORE_NOTIFY_URL` sin configurar en la ingesta: el aviso de precio a pantallas no sale |
+
+Costo de todos juntos: ~550 s/día (etiquetas 371, códigos 118, `is_promo` 32). No es CPU lo que se gana:
+es que ningún dato dependa de un reloj y que los pleitos se cierren.
+
+**Orden propuesto (dinero × esfuerzo):** 9.1 etiquetas — el pleito de los 2 productos y el aviso apagado
+(precio que ve el cliente) · 9.2 `markup_pct` por evento en `kdpv_prod_util` (37 cambios/noche; entra al
+costo de `sales-fact`) · 9.3 `is_promo` por evento (4–13 por corrida; único escritor) · 9.4 nombres (el
+hueco) · 9.5 marcas por evento en `kdig` (hoy una línea nueva cae en `SIN-LINEA` hasta 7 días) ·
+9.6 `products_active` a vista (además borra una FK en cada corrida: DDL en un cron) · 9.7 códigos de
+barras (residuo) · después logística, `inventory.products`, costo y altas.
