@@ -43,17 +43,37 @@ function fechaCorta(iso: string): string {
   return `${Number(d)} ${MESES[Number(m) - 1]}`;
 }
 
-/** «hace 40 s», «hace 1 h 12 m», «sin señal desde el 17 jul», «nunca ha reportado», «en pausa». */
-export function desdeCuando(r: HrRelojEstadoDto): string {
-  if (r.semaforo === 'pendiente') return 'en pausa';
-  const s = r.segundosSinSenal;
-  if (s == null) return 'nunca ha reportado';
+/** «hace 40 s», «hace 1 h 12 m»; null pasando un día (ahí se dice la fecha). */
+function haceTanto(s: number): string | null {
   if (s < 90) return `hace ${Math.max(0, Math.round(s))} s`;
   if (s < 3600) return `hace ${Math.round(s / 60)} min`;
   if (s < 86400) {
     const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
     return `hace ${h} h${m ? ' ' + m + ' m' : ''}`;
   }
+  return null;
+}
+
+/**
+ * «hace 40 s», «hace 1 h 12 m», «sin señal desde el 17 jul», «nunca ha reportado», «en pausa».
+ *
+ * `[RH.13.1]` Con error del lector se cuenta desde la última LECTURA buena: «última lectura hace 4 h 30 m». Los
+ * latidos con error sólo prueban que el lector vive; contar desde ellos decía «hace 2 min» de un reloj caído.
+ */
+export function desdeCuando(r: HrRelojEstadoDto): string {
+  if (r.semaforo === 'pendiente') return 'en pausa';
+  const porLectura = !!r.ultimoError && r.segundosSinLectura !== undefined;
+  if (porLectura) {
+    const s = r.segundosSinLectura;
+    if (s == null) return 'nunca se ha leído';
+    const hace = haceTanto(s);
+    if (hace) return `última lectura ${hace}`;
+    return r.ultimaLectura ? `sin lectura desde el ${fechaCorta(r.ultimaLectura)}` : `última lectura hace ${Math.floor(s / 86400)} días`;
+  }
+  const s = r.segundosSinSenal;
+  if (s == null) return 'nunca ha reportado';
+  const hace = haceTanto(s);
+  if (hace) return hace;
   return r.ultimaSenal ? `sin señal desde el ${fechaCorta(r.ultimaSenal)}` : `hace ${Math.floor(s / 86400)} días`;
 }
 

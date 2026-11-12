@@ -142,6 +142,17 @@ suite('[RH.2.2] API de reclutamiento contra la base', () => {
         // ── Edición ────────────────────────────────────────────────────────────────────────
         r['edicion'] = (await svc.editar(saludo, { city_branch: ' Zamora ', email: '' })).city_branch;
         r['edicionVacia'] = await fallo(() => svc.editar(saludo, {}));
+
+        // ── `[RH.13.3]` Buscar: cada palabra en ALGÚN dato (nombre, puesto, ciudad, teléfono) ──────────────
+        const total = async (q: string) => (await svc.listar({ view: 'en_proceso', q })).total;
+        r['buscar'] = {
+          nombreYTelefono: await total(`ana ${tel10.slice(0, 3)}`),   // el del portal y el del bot
+          ciudad: (await svc.listar({ view: 'en_proceso', q: 'ZAMORA' })).filas.map((x) => x.full_name),
+          nombreYCiudad: await total('solo zamora'),
+          ciudadQueNoEs: await total('ana zamora'),                  // ⛔ AND: ninguna Ana es de Zamora
+          telefonoConEspacios: await total('443 111 2233'),
+          telefonoConGuiones: await total('443-111-2233'),
+        };
         r['noExiste'] = await fallo(() => svc.ficha('no-es-uuid'));
 
         // ── Vacantes ───────────────────────────────────────────────────────────────────────
@@ -193,6 +204,9 @@ suite('[RH.2.2] API de reclutamiento contra la base', () => {
     expect(r['enProceso']).toBe(4);
     expect(r['spam']).toBe(1);
     expect(r['porTelefono']).toBe(2); // el del bot (13 dígitos) y el del portal (10)
+    expect(r['buscar']).toEqual({
+      nombreYTelefono: 2, ciudad: ['Solo saludó'], nombreYCiudad: 1, ciudadQueNoEs: 0, telefonoConEspacios: 1, telefonoConGuiones: 1,
+    });
     expect(r['viejoEnPsico']).toEqual([['Viejo', 'psicometria', 'dictamen']]);
     expect(r['vistaMala']).toBe('400');
     expect(r['pasos']).toEqual([['filtro_inicial', 'entrevista_rh', true, 'rh_prueba'], ['entrevista_rh', 'aptitudes', true, 'rh_prueba']]);

@@ -32,6 +32,19 @@ describe('[RH.1.7b] desdeCuando', () => {
   });
 });
 
+describe('[RH.13.1] con error del lector se cuenta desde la última LECTURA buena', () => {
+  const caido = { ultimoError: 'no responde en 192.0.2.10:4370', segundosSinSenal: 120, semaforo: 'mudo' as const };
+  it('el caso de PH: el lector late cada pocos minutos, el reloj no entrega desde hace 4 h 30 m', () => {
+    expect(desdeCuando(r({ ...caido, segundosSinLectura: 4.5 * 3600 }))).toBe('última lectura hace 4 h 30 m');
+    expect(desdeCuando(r({ ...caido, segundosSinLectura: 3 * 86400, ultimaLectura: '2026-07-17T20:00:00Z' }))).toBe('sin lectura desde el 17 jul');
+    expect(desdeCuando(r({ ...caido, segundosSinLectura: null }))).toBe('nunca se ha leído');
+  });
+  it('⛔ NEGATIVA — sin el campo (API anterior) o sin error, la regla de siempre', () => {
+    expect(desdeCuando(r({ ...caido }))).toBe('hace 2 min');
+    expect(desdeCuando(r({ segundosSinSenal: 120, segundosSinLectura: 9_999 }))).toBe('hace 2 min');
+  });
+});
+
 describe('[RH.1.7b] hora corrida y faltantes', () => {
   it('la hora corrida se marca pasando 2 minutos, con su signo', () => {
     expect(desfaseTexto(r({ desfaseRelojSeg: 420 }))).toBe('hora corrida +7 min');

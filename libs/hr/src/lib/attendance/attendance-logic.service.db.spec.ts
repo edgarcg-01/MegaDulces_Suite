@@ -165,6 +165,7 @@ suite('lógica de asistencia contra la base', () => {
         quien(A, 'rh_a');
         const vac = await incidents.capturar({ site_code: site, person_code: '15', incident_type: 'vacaciones', date_from: '2026-09-15', note: 'folio 9' }, califica);
         r['vacaciones'] = [vac.status, vac.banderas];
+        r['vacacionesDeQuien'] = vac.person_name;
         const a2 = (await report.asistencia(sem)).personas.find((p) => p.codigo === '15');
         r['anaConVacaciones'] = [a2?.faltas, a2?.faltasJustificadas];
 
@@ -221,6 +222,20 @@ suite('lógica de asistencia contra la base', () => {
         r['estadosReabiertos'] = (await trx('hr.attendance_incidents').where({ site_code: site }).orderBy('date_from').select('status')).map((x: { status: string }) => x.status);
         r['capturarReabierta'] = (await incidents.capturar({ site_code: site, person_code: '17', incident_type: 'incapacidad', date_from: '2026-09-11', note: 'imss' }, califica)).status;
 
+        // ── `[RH.13.2]` De quién es cada incidencia: ligado → el nombre de la Suite (no el del reloj); sin ligar → el
+        //    del reloj; un número que ningún reloj de la plaza conoce → null (la pantalla muestra el número).
+        //    El «15» también está en un SEGUNDO reloj, sin ligar y visto después: manda el ligado, no el más nuevo.
+        const [dev2] = await trx('hr.attendance_devices').insert({ tenant_id: TENANT, serial_number: `${serie}-2`, site_code: site }).returning('id');
+        await trx('hr.device_enrollments').insert({ tenant_id: TENANT, device_id: typeof dev2 === 'object' ? dev2.id : dev2,
+          device_user_id: '15', device_name: 'OTRO RELOJ', last_seen_at: trx.raw(`now() + interval '1 day'`) });
+        await incidents.capturar({ site_code: site, person_code: '17', incident_type: 'vacaciones', date_from: '2026-09-25', note: 'nombre' }, califica);
+        await incidents.capturar({ site_code: site, person_code: '99', incident_type: 'vacaciones', date_from: '2026-09-25', note: 'nombre' }, califica);
+        const deQuien = await incidents.listar({ site_code: site, date_from: '2026-09-10', date_to: '2026-09-30' });
+        r['deQuien'] = [...new Map(deQuien.map((x) => [x.person_code, x.person_name])).entries()].sort();
+        // La foto de la bitácora es la fila de la tabla: el nombre derivado no entra.
+        const fotoLog = await trx('hr.attendance_incident_log').where({ incident_id: deQuien[0].id }).first('row_snapshot');
+        r['fotoSinNombre'] = 'person_name' in (fotoLog?.row_snapshot ?? {});
+
         throw ROLLBACK;
       });
     } catch (e) {
@@ -276,5 +291,8 @@ suite('lógica de asistencia contra la base', () => {
     expect(r['reabrirSinMotivo']).toBe('400');
     expect(r['estadosReabiertos']).toEqual(['calificada', 'calificada']);
     expect(r['capturarReabierta']).toBe('calificada');
+    expect(r['vacacionesDeQuien']).toBe('PRUEBA UNO');
+    expect(r['deQuien']).toEqual([['15', 'PRUEBA UNO'], ['17', 'Juan'], ['99', null]]);
+    expect(r['fotoSinNombre']).toBe(false);
   }, 120000);
 });

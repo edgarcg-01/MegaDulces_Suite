@@ -181,7 +181,10 @@ const CON_AUTORIZACION = new Set(['horario_distinto', 'desayuno_distinto', 'comi
                 <tbody>
                   @for (i of lista(); track i.id) {
                     <tr [class.sel]="sel()?.id === i.id" (click)="abrir(i)" tabindex="0" (keydown.enter)="abrir(i)">
-                      <td class="mono dt-id" role="cell" data-label="Persona">#{{ i.person_code }}</td>
+                      <td class="dt-id" role="cell" data-label="Persona">
+                        @if (i.person_name) { {{ i.person_name }} <span class="mono ri-cod">#{{ i.person_code }}</span> }
+                        @else { <span class="mono">#{{ i.person_code }}</span> }
+                      </td>
                       <td role="cell" data-label="Tipo"><b class="mono">{{ tipoDe(i)?.codigo ?? 'OTR' }}</b> {{ tipoDe(i)?.etiqueta ?? i.incident_type }}</td>
                       <td class="mono" role="cell" data-label="Periodo">{{ periodo(i) }}</td>
                       <td role="cell" data-label="Estado"><span class="pill" [attr.data-s]="i.status">{{ estadoLabel[i.status] }}</span></td>
@@ -198,8 +201,8 @@ const CON_AUTORIZACION = new Set(['horario_distinto', 'desayuno_distinto', 'comi
             <section class="ri-detail" aria-label="Ficha de la incidencia">
               <header class="ri-dhead">
                 <div>
-                  <h2>{{ tipoDe(i)?.etiqueta ?? i.incident_type }} · #{{ i.person_code }}</h2>
-                  <p class="mono">{{ periodo(i) }} · <span class="pill" [attr.data-s]="i.status">{{ estadoLabel[i.status] }}</span></p>
+                  <h2>{{ tipoDe(i)?.etiqueta ?? i.incident_type }} · {{ i.person_name || '#' + i.person_code }}</h2>
+                  <p class="mono">@if (i.person_name) { #{{ i.person_code }} · }{{ periodo(i) }} · <span class="pill" [attr.data-s]="i.status">{{ estadoLabel[i.status] }}</span></p>
                 </div>
                 <p-button icon="pi pi-times" [text]="true" severity="secondary" ariaLabel="Cerrar ficha" (onClick)="cerrar()" />
               </header>
@@ -289,6 +292,7 @@ const CON_AUTORIZACION = new Set(['horario_distinto', 'desayuno_distinto', 'comi
     .ri-table tbody tr.sel { background: var(--surface-selected-bg); }
     .ri-table tbody tr:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
     .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+    .ri-cod { color: var(--text-muted); font-size: var(--fs-xs); }
     .pill { display: inline-block; padding: 1px var(--sp-2); border-radius: var(--r-pill); font-size: var(--fs-xs); white-space: nowrap; background: var(--surface-2); color: var(--text-muted); }
     .pill[data-s='capturada'] { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
     .pill[data-s='calificada'], .pill[data-s='cerrada'], .pill[data-s='auditada'] { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
