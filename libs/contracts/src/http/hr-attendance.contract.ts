@@ -300,6 +300,11 @@ export interface HrIncidenciaDto {
   void_reason: string | null;
   hd_30d?: number | null;
   banderas?: HrBanderaIncidencia[];
+  /**
+   * `[RH.13.2]` El nombre de la persona en esa plaza (el de la Suite o, sin ligar, el del reloj). Null si no hay
+   * ninguno: se muestra el número, no se inventa. Opcional: una API anterior no lo manda.
+   */
+  person_name?: string | null;
 }
 
 /** `POST /hr/attendance/incidents`. */
@@ -526,6 +531,12 @@ export interface HrRelojEstadoDto {
   ultimaChecada: string | null;
   ultimoBackfill: string | null;
   segundosSinSenal: number | null;
+  /**
+   * `[RH.13.1]` La última LECTURA buena del reloj (`last_sync_at`) y su edad. Con `ultimoError`, es lo que cuenta: el
+   * lector sigue mandando latidos aunque no alcance al equipo. Opcionales: una API anterior no los manda.
+   */
+  ultimaLectura?: string | null;
+  segundosSinLectura?: number | null;
   logsEnReloj: number | null;
   logsEnBase: number | null;
   desfaseRelojSeg: number | null;

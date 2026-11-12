@@ -83,6 +83,18 @@ describe('[RH.1.7] RhIncidenciasComponent', () => {
     expect(c.form()?.date_from).toBe('2026-09-25');
   });
 
+  it('⭐ [RH.13.2] la lista dice DE QUIÉN es la incidencia, con su número; sin nombre, sólo el número', async () => {
+    await render({ claves: [Permission.HR_INCIDENTS_CAPTURAR], lista: [
+      incidencia({ id: 'i-1', person_code: '101', person_name: 'PERSONA DE PRUEBA' }),
+      incidencia({ id: 'i-2', person_code: '102', person_name: null }),
+    ] });
+    const celdas = Array.from(el().querySelectorAll('td[data-label="Persona"]')).map((td) => td.textContent?.replace(/s+/g, ' ').trim());
+    expect(celdas).toEqual(['PERSONA DE PRUEBA #101', '#102']);
+    fix.componentInstance.abrir(fix.componentInstance.lista()[0]);
+    fix.detectChanges();
+    expect(el().querySelector('.ri-dhead h2')?.textContent).toContain('PERSONA DE PRUEBA');
+  });
+
   it('⛔ NEGATIVA — un sitio que no existe en la URL no se usa: cae al primero activo', async () => {
     await render({ claves: [Permission.HR_INCIDENTS_CAPTURAR], query: { site: 'NO-EXISTE' } });
     expect(fix.componentInstance.sitio()).toBe('PH');

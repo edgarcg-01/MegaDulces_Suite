@@ -33,6 +33,15 @@ describe('[CE.1.4] la consulta de Por vencer lee el NA correcto', () => {
     expect(bloque).toMatch(/n\.lot_code = 'NA' AND n\.expiry_date IS NULL/);
   });
 
+  it('[CE.1.5] el costo es el resolvedor VIVO, evaluado una vez para las celdas de los lotes (sin copia ni refresco)', () => {
+    expect(bloque).toContain("trx('analytics.v_erp_unit_cost as c')");
+    expect(bloque).toContain(".withMaterialized('lotes', lotes)");
+    expect(bloque).toContain(".withMaterialized('uc', costo)");
+    // ⛔ ni el JOIN directo a la vista (31 s: la recalcula por lote) ni la copia con cron
+    expect(bloque).not.toContain("leftJoin('analytics.v_erp_unit_cost");
+    expect(bloque).not.toContain('mv_erp_unit_cost');
+  });
+
   it('cada renglón sale con su declaración y con la sucursal de Kepler (para casar el juicio)', () => {
     expect(bloque).toContain('declararFechado(r.na_qty)');
     expect(bloque).toContain("'w.kepler_code as plaza'");

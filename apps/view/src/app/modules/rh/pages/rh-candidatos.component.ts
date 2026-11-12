@@ -47,7 +47,7 @@ const POR_PAGINA = 100;
         </div>
         <div class="rc-buscar">
           <i class="pi pi-search" aria-hidden="true"></i>
-          <input pInputText type="search" placeholder="Nombre, puesto o teléfono" autocomplete="off" aria-label="Buscar candidato"
+          <input pInputText type="search" placeholder="Nombre, puesto, ciudad o teléfono" autocomplete="off" aria-label="Buscar candidato"
                  [ngModel]="busqueda()" (ngModelChange)="buscar($event)" />
         </div>
         <!-- [RH.8.1] Llegó desde una celda del Resumen: la ciudad se ve y se quita. -->

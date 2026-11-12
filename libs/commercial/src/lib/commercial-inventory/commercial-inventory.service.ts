@@ -456,23 +456,44 @@ export class CommercialInventoryService {
    * `[CE.1.4]` Cada renglón trae `na_qty` (lo sin fecha del mismo almacén × producto) y
    * `dated_may_be_stale` (ver `por-vencer.ts`): con NA > 0 el lote puede estar ya vendido y la
    * pantalla lo DECLARA, nunca lo dibuja como cierto.
-   * ⚠️ Medido en prod el 2026-11-11 (sólo lectura): la consulta tarda ~23 s y el tiempo es TODO del
-   * LEFT JOIN a `analytics.v_erp_unit_cost` (sus CTE son MATERIALIZED: se calcula la vista entera
-   * aunque se pidan 70 lotes). Sin ese join: 16 ms; el NA de CE.1.4 suma ~3 ms. Arreglarlo pide
-   * cambiar la vista (migración): deuda declarada, no se esconde aquí.
+   *
+   * `[CE.1.5]` El costo sale del resolvedor VIVO (`analytics.v_erp_unit_cost`, derivado del ODS:
+   * `kdik` en Kepler, `existencias` en Wincaja), **evaluado UNA sola vez y sólo para las celdas de
+   * los lotes** (CTE MATERIALIZED `lotes` → `uc`). Antes era un LEFT JOIN directo y el planificador,
+   * que cree que hay 1 almacén (`commercial.warehouses` nunca analizada) y 1 lote, lo resolvía con
+   * un nested loop que recalculaba la vista entera POR LOTE. Medido en prod el 2026-11-12, sólo
+   * lectura, 30 d (73 lotes): JOIN directo **31.1 s** (18,252,117 filas descartadas) → la vista una
+   * vez para esas celdas **~1.9 s**. Mismo resolvedor, mismo número; sin copia ni refresco.
+   * ⚠️ Sigue arriba de 500 ms: el piso es la enumeración del resolvedor (deuda con nombre en el plan).
    */
   async listExpiring(query: { days?: number; warehouse_id?: string }) {
     const days = Number.isFinite(Number(query.days)) ? Math.max(0, Math.floor(Number(query.days))) : 30;
     if (query.warehouse_id && !UUID_REGEX.test(query.warehouse_id))
       throw new BadRequestException('warehouse_id inválido');
     return this.tk.run(async (trx) => {
-      let q = trx('commercial.stock_lots as l')
+      // Los lotes primero (~16 ms): el mismo filtro, orden y tope de siempre.
+      let lotes = trx('commercial.stock_lots as l0')
+        .join('commercial.warehouses as w0', function () {
+          this.on('w0.tenant_id', '=', 'l0.tenant_id').andOn('w0.id', '=', 'l0.warehouse_id');
+        })
+        .whereNotNull('l0.expiry_date')
+        .where('l0.quantity', '>', 0)
+        .whereRaw('l0.expiry_date <= (CURRENT_DATE + ?::int)', [days]);
+      if (query.warehouse_id) lotes = lotes.where('l0.warehouse_id', query.warehouse_id);
+      lotes = lotes.select('l0.*').orderBy('l0.expiry_date', 'asc').limit(500);
+      // [KE.3] El resolvedor único de costo, una vez, sólo para las celdas de esos lotes.
+      const costo = trx('analytics.v_erp_unit_cost as c')
+        .whereIn(['c.tenant_id', 'c.warehouse_id', 'c.product_id'], trx('lotes').select('tenant_id', 'warehouse_id', 'product_id'))
+        .select('c.tenant_id', 'c.warehouse_id', 'c.product_id', 'c.costo_unitario', 'c.costo_source');
+      const q = trx
+        .withMaterialized('lotes', lotes)
+        .withMaterialized('uc', costo)
+        .from('lotes as l')
         .join('commercial.warehouses as w', function () {
           this.on('w.tenant_id', '=', 'l.tenant_id').andOn('w.id', '=', 'l.warehouse_id');
         })
         .leftJoin('public.products as p', 'p.id', 'l.product_id')
-        // [KE.3] mismo resolvedor unico de costo que el resto del inventario.
-        .leftJoin('analytics.v_erp_unit_cost as uc', function () {
+        .leftJoin('uc', function () {
           this.on('uc.tenant_id', '=', 'l.tenant_id')
             .andOn('uc.warehouse_id', '=', 'l.warehouse_id')
             .andOn('uc.product_id', '=', 'l.product_id');
@@ -484,11 +505,7 @@ export class CommercialInventoryService {
               FROM commercial.stock_lots n
              WHERE n.tenant_id = l.tenant_id AND n.warehouse_id = l.warehouse_id AND n.product_id = l.product_id
                AND n.lot_code = 'NA' AND n.expiry_date IS NULL
-          ) na ON true`)
-        .whereNotNull('l.expiry_date')
-        .where('l.quantity', '>', 0)
-        .whereRaw('l.expiry_date <= (CURRENT_DATE + ?::int)', [days]);
-      if (query.warehouse_id) q = q.where('l.warehouse_id', query.warehouse_id);
+          ) na ON true`);
       const rows = await q
         .select(
           'l.id',

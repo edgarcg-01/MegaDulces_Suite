@@ -28,6 +28,29 @@ describe('semáforo del reloj', () => {
     expect(semaforoReloj({ pendiente: false, segundosSinSenal: OK_SEG })).toBe('atrasado');
     expect(semaforoReloj({ pendiente: false, segundosSinSenal: MUDO_SEG })).toBe('mudo');
   });
+
+  // `[RH.13.1]` El caso de PH (11-nov): el lector manda latidos con error cada pocos minutos.
+  const PH = { pendiente: false, segundosSinSenal: 120, error: 'no responde en 192.0.2.10:4370' };
+  it('lector vivo pero reloj caído hace 4 h 30 m: rojo, no verde', () => {
+    expect(semaforoReloj({ ...PH, segundosSinLectura: 4.5 * 3600 })).toBe('mudo');
+  });
+  it('con error nunca es verde, aunque la última lectura buena sea reciente', () => {
+    expect(semaforoReloj({ ...PH, segundosSinLectura: 30 })).toBe('atrasado');
+    expect(semaforoReloj({ ...PH, segundosSinLectura: MUDO_SEG - 1 })).toBe('atrasado');
+    expect(semaforoReloj({ ...PH, segundosSinLectura: MUDO_SEG })).toBe('mudo');
+  });
+  it('con error y sin ninguna lectura buena: rojo', () => {
+    expect(semaforoReloj({ ...PH, segundosSinLectura: null })).toBe('mudo');
+    expect(semaforoReloj({ ...PH })).toBe('mudo');
+  });
+  it('sin error, la regla de siempre (el error en blanco no cuenta)', () => {
+    expect(semaforoReloj({ pendiente: false, segundosSinSenal: 120, error: '', segundosSinLectura: 9_999 })).toBe('ok');
+    expect(semaforoReloj({ pendiente: false, segundosSinSenal: 120, error: '   ', segundosSinLectura: null })).toBe('ok');
+    expect(semaforoReloj({ pendiente: false, segundosSinSenal: 120, error: null })).toBe('ok');
+  });
+  it('en pausa gana aunque haya error', () => {
+    expect(semaforoReloj({ ...PH, pendiente: true, segundosSinLectura: null })).toBe('pendiente');
+  });
 });
 
 describe('intentos de una orden', () => {
