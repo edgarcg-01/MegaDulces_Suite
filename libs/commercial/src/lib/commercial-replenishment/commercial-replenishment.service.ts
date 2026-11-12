@@ -27,7 +27,7 @@ import { plantillaDe, plantillaTlmkDe, urlDeServidor } from './kepler-servidores
 import { buscarLoteRepetido, mensajeLoteRepetido, type LoteRepetido } from './lote-repetido';
 import { VENTANA_YA_PEDIDO_DIAS } from './ya-pedido-sucursal';
 import { cerrarTraspasosNoEjecutados } from './traspaso-no-ejecutado';
-import { limpiarComprasSinDocumento } from './compra-sin-documento';
+import { limpiarComprasSinDocumento, INICIO_ENVIO_AUTOMATICO } from './compra-sin-documento';
 import { bajoReorden, cumplimientoSoloCompra, frenadoPorReorden, segunReorden } from './faltante';
 import { FICHA_KEPLER_SQL } from './ficha-kepler';
 import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt } from '../shared/freshness';
@@ -667,6 +667,32 @@ interface CabeceraPushKepler {
   prov_code: string | null;
   prov_name: string | null;
   origen_kepler_code: string | null;
+  /** `[PQ.109]` Los nombres de las dos sucursales, para que el motivo diga CUÁL Kepler no contestó. */
+  wname?: string | null;
+  origen_name?: string | null;
+  /** `[PQ.109]` Para no prometer el reintento solo a quien no lo tiene (`reintentarKepler`). */
+  approved_at?: string | Date | null;
+}
+
+/**
+ * `[PQ.109]` El motivo cuando el envío LANZA en vez de devolver un rechazo — hoy, un Kepler que no
+ * contesta (`pool.connect()` del adapter está fuera de su try). Dice CUÁL Kepler, por nombre, y qué
+ * pasa después: el reintento solo existe para compras aprobadas desde que hay escritura
+ * (`reintentarKepler`); lo demás se reintenta desde la ficha. No afirma «no contestó» de una falla
+ * que no es de conexión.
+ */
+export function motivoSinRespuesta(
+  cab: { estado: string; wname?: string | null; origen_name?: string | null; approved_at?: string | Date | null },
+  tipo: 'compra' | 'traspaso', sucDoc: string, e: unknown,
+): string {
+  const detalle = String((e as { message?: string })?.message || 'sin detalle').slice(0, 200);
+  const nombre = (tipo === 'traspaso' ? cab.origen_name : cab.wname) || `la sucursal ${sucDoc}`;
+  const conexion = /timeout|ECONNREFUSED|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|ENOTFOUND|terminated|connect/i.test(detalle);
+  const aprobada = cab.approved_at ? new Date(cab.approved_at) : null;
+  const solo = tipo === 'compra' && cab.estado === 'approved' && !!aprobada
+    && aprobada.getTime() >= new Date(`${INICIO_ENVIO_AUTOMATICO}T00:00:00-06:00`).getTime();
+  return `${conexion ? `El Kepler de ${nombre} no contestó` : `Falló el envío al Kepler de ${nombre}`} (${detalle}); `
+    + `${solo ? 'la Suite la reintenta sola cada 30 min' : 'reintenta desde la ficha'}.`;
 }
 
 /** `[KR.6]` El renglón tal como sale de la consulta: `numeric` de pg llega como string. */
@@ -5752,7 +5778,7 @@ export class CommercialReplenishmentService {
           'r.kepler_sucursal', 'r.kepler_folio',
           'w.code as wcode', 'w.kepler_code', 'sup.code as prov_code', 'sup.name as prov_name',
           // `[KR.10]` El ORIGEN del traspaso: ahí se crea el pedido, y el destino va de `TI###`.
-          'sw.kepler_code as origen_kepler_code')
+          'sw.kepler_code as origen_kepler_code', 'w.name as wname', 'sw.name as origen_name', 'r.approved_at')
         .first()) as CabeceraPushKepler | undefined;
       if (!cab) throw new NotFoundException('Requisición no encontrada');
       // `[KR.6]` El factor de caja viaja con la línea: es el TESTIGO contra el que el adapter
@@ -5783,13 +5809,15 @@ export class CommercialReplenishmentService {
     // 3. Frenos. Cada uno existe porque su ausencia escribe basura en el ERP.
     // `[KR.10]` Compra y traspaso son DOS documentos distintos de Kepler, no el mismo con otro
     // código: `X-A-30` Requisición contra `U-D-40` Pedido. Lo decide `source_type`.
+    // `[PQ.109]` Cada freno deja su motivo en `kepler_error` ANTES de avisar (`frenarEnvio`): antes
+    // sólo lo dejaban el interruptor y el rechazo del ERP, y lo demás se leía «por enviar» para siempre.
     const tipo: 'compra' | 'traspaso' = cab.source_type === 'branch' ? 'traspaso' : 'compra';
-    if (!cab.kepler_code) throw new BadRequestException(`El almacén ${cab.wcode} no tiene kepler_code: no se sabe a qué sucursal va.`);
-    if (tipo === 'compra' && !cab.prov_code) throw new BadRequestException('El proveedor no tiene código Kepler cargado (kdm1.c10 es obligatorio).');
+    if (!cab.kepler_code) return this.frenarEnvio(tenantId, id, `El almacén ${cab.wcode} no tiene kepler_code: no se sabe a qué sucursal va.`);
+    if (tipo === 'compra' && !cab.prov_code) return this.frenarEnvio(tenantId, id, 'El proveedor no tiene código Kepler cargado (kdm1.c10 es obligatorio).');
     // ⚠️ En un traspaso, el almacén del ENCABEZADO es el destino y `source_warehouse_id` el
     // origen — al revés que en la compra, donde el encabezado es dónde se entrega.
-    if (tipo === 'traspaso' && !cab.origen_kepler_code) throw new BadRequestException('El traspaso no tiene sucursal ORIGEN con kepler_code: no se sabe desde dónde sale.');
-    if (!datos.lineas.length) throw new BadRequestException('La requisición no tiene renglones con cantidad > 0');
+    if (tipo === 'traspaso' && !cab.origen_kepler_code) return this.frenarEnvio(tenantId, id, 'El traspaso no tiene sucursal ORIGEN con kepler_code: no se sabe desde dónde sale.');
+    if (!datos.lineas.length) return this.frenarEnvio(tenantId, id, 'La requisición no tiene renglones con cantidad > 0');
 
     // 4. Armar los renglones. `final_qty` ya viene en CAJAS y Kepler las acepta: sin conversión.
     let lineas = datos.lineas;
@@ -5809,7 +5837,7 @@ export class CommercialReplenishmentService {
     // `[PQ.17]` …salvo que la fracción sea un número ENTERO de piezas: entonces el adapter la
     // escribe en la unidad base de Kepler (los 42 renglones vivos con fracción lo eran).
     const fraccion = renglonesSinUnidadEntera(lineas.map((l) => ({ sku: l.sku, final_qty: l.final_qty, piezas_por_caja: l.box_factor })));
-    if (fraccion.length) throw new BadRequestException(mensajeFraccion(fraccion));
+    if (fraccion.length) return this.frenarEnvio(tenantId, id, mensajeFraccion(fraccion));
 
     // `[PQ.20]` El interruptor de la Suite: se lee en CADA envío, así que apagar vale al instante.
     // Apagada se anota en `kepler_error` igual que un rechazo del ERP (la bandeja lo muestra).
@@ -5821,30 +5849,41 @@ export class CommercialReplenishmentService {
       throw new BadRequestException(motivo);
     }
 
-    const res = await this.keplerSink.entregar({
-      tope_dia: sw ? sw.tope_dia : undefined,
-      // `[PQ.22]` La OC de Kepler junto con la requisición, si la sucursal lo tiene encendido.
-      generar_orden: tipo === 'compra' && !!sw?.genera_orden,
-      requisition_id: cab.id, folio_suite: cab.folio, tipo,
-      // El documento se crea DONDE SALE la mercancía: en la compra, el almacén que recibe del
-      // proveedor; en el traspaso, la sucursal origen — y el destino viaja como `TI###`.
-      sucursal: tipo === 'traspaso' ? cab.origen_kepler_code! : cab.kepler_code,
-      destino_sucursal: tipo === 'traspaso' ? cab.kepler_code : undefined,
-      proveedor_code: cab.prov_code ?? undefined, proveedor_nombre: cab.prov_name ?? undefined,
-      fecha: todayMx(), total: Number(cab.total_cost) || 0,
-      // ⭐ `[KR.6]` La Suite manda CAJAS y el adapter las escribe en `CJA`, sin convertir.
-      // El testigo (`piezas_por_caja`) se retiró el 2026-10-14: existía para contrastar antes de
-      // convertir, y ya no se convierte — Kepler copia el renglón entre documentos.
-      lineas: lineas.map((l) => ({
-        sku: String(l.sku), nombre: String(l.nombre),
-        cajas: Number(l.final_qty),
-        // `[PQ.17]` El factor viaja para que una fracción de caja que es piezas enteras se
-        // escriba en la unidad base; con cajas enteras el adapter lo ignora.
-        piezas_por_caja: Number(l.box_factor) > 0 ? Number(l.box_factor) : null,
-        costo_caja: Number(l.unit_cost) || 0,
-        importe: Number(l.line_cost) || 0,
-      })),
-    });
+    // `[PQ.109]` El adapter abre la conexión FUERA de su try (`pool.connect()`), así que un Kepler
+    // que no contesta LANZA en vez de devolver un rechazo. Medido el 2026-11-11: RQ-2026-02505
+    // (Padre Hidalgo) y -02507 (CEDIS) fallaron en cada reintento con «connection timeout» y la
+    // bandeja decía «por enviar». Se atrapa AQUÍ —cualquier cosa que lance el sink, no sólo
+    // ésa— y se anota con el NOMBRE de la sucursal; la compra sigue en la cola del reintento
+    // (`kepler_folio` NULL) y al primer envío bueno `kepler_error` vuelve a NULL.
+    let res: Awaited<ReturnType<KeplerRequisitionSinkPort['entregar']>>;
+    try {
+      res = await this.keplerSink.entregar({
+        tope_dia: sw ? sw.tope_dia : undefined,
+        // `[PQ.22]` La OC de Kepler junto con la requisición, si la sucursal lo tiene encendido.
+        generar_orden: tipo === 'compra' && !!sw?.genera_orden,
+        requisition_id: cab.id, folio_suite: cab.folio, tipo,
+        // El documento se crea DONDE SALE la mercancía: en la compra, el almacén que recibe del
+        // proveedor; en el traspaso, la sucursal origen — y el destino viaja como `TI###`.
+        sucursal: tipo === 'traspaso' ? cab.origen_kepler_code! : cab.kepler_code,
+        destino_sucursal: tipo === 'traspaso' ? cab.kepler_code : undefined,
+        proveedor_code: cab.prov_code ?? undefined, proveedor_nombre: cab.prov_name ?? undefined,
+        fecha: todayMx(), total: Number(cab.total_cost) || 0,
+        // ⭐ `[KR.6]` La Suite manda CAJAS y el adapter las escribe en `CJA`, sin convertir.
+        // El testigo (`piezas_por_caja`) se retiró el 2026-10-14: existía para contrastar antes de
+        // convertir, y ya no se convierte — Kepler copia el renglón entre documentos.
+        lineas: lineas.map((l) => ({
+          sku: String(l.sku), nombre: String(l.nombre),
+          cajas: Number(l.final_qty),
+          // `[PQ.17]` El factor viaja para que una fracción de caja que es piezas enteras se
+          // escriba en la unidad base; con cajas enteras el adapter lo ignora.
+          piezas_por_caja: Number(l.box_factor) > 0 ? Number(l.box_factor) : null,
+          costo_caja: Number(l.unit_cost) || 0,
+          importe: Number(l.line_cost) || 0,
+        })),
+      });
+    } catch (e: unknown) {
+      return this.frenarEnvio(tenantId, id, motivoSinRespuesta(cab, tipo, sucDoc, e));
+    }
 
     // 5. Anotar. `kepler_error` se guarda igual que el folio: "no salió" y "salió mal" son
     //    ausencias distintas y con una sola columna en NULL se leen igual (ADR-056).
@@ -5880,6 +5919,20 @@ export class CommercialReplenishmentService {
    * `undefined` = la tabla todavía no existe en esta base: se conserva el comportamiento de la
    * variable de entorno, para que desplegar antes de migrar no apague nada.
    */
+  /**
+   * `[PQ.109]` **Un envío que no sale deja su motivo antes de avisar.** Hasta acá sólo el interruptor
+   * y el rechazo del ERP lo anotaban; los frenos de la Suite y un Kepler sin respuesta lanzaban sin
+   * escribir, y como `pushKeplerTrasAprobar` nunca lanza, la bandeja decía «por enviar» de algo que
+   * fallaba en cada intento (ADR-056: «no se intentó» y «falló» son ausencias distintas).
+   * `whereNull('kepler_folio')`: nunca pisa una que ya salió. Si anotar falla, el aviso sale igual.
+   */
+  private async frenarEnvio(tenantId: string, id: string, motivo: string): Promise<never> {
+    await this.tk.run((trx) => trx('commercial.purchase_requisitions')
+      .where({ tenant_id: tenantId, id }).whereNull('kepler_folio').update({ kepler_error: motivo }))
+      .catch((e: unknown) => this.logger.warn(`[PQ.109] No se pudo anotar el motivo de ${id}: ${(e as Error)?.message}`));
+    throw new BadRequestException(motivo);
+  }
+
   private async interruptorKepler(tenantId: string, sucursal: string, tipo: 'compra' | 'traspaso')
     : Promise<{ encendida: boolean; tope_dia: number | null; genera_orden: boolean } | undefined> {
     try {
