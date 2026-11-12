@@ -1761,3 +1761,22 @@ preparar · 11 por autorizar · 56 pagados. Cinco defectos que sólo se vieron a
 - los primeros 58 renglones de «Por preparar» eran de días pasados, con un «Mover» cada uno → «Mover los 58 de días pasados» en la frase (el mismo diálogo de «Por día»).
 Además, «Preparado · por autorizar» ya no se repite dentro de «Por autorizar», y «Folio» no ocupa ancho mientras ningún pago lo tenga.
 ⚠️ La vista se hizo con un backend LOCAL conectado a prod (lo levantaron fuera de esta sesión): regla 3. Registra el uso de pantalla en prod.
+
+#### `[PGP.115]` Lo que Kepler ya pagó: medido antes de «cerrarlo» (🧪 2026-11-11)
+
+Se pidió «cerrar desde la Suite los pagos que Kepler ya pagó, que siguen apartando saldo». **Medido en prod (sólo lectura,
+código real del cierre): la premisa era FALSA.** Son 58 pagos ($9.9 M) y sus 122 facturas son TODAS de la deuda derivada de
+Kepler (`kepler_payable`, sin tabla): cuando Kepler salda la factura, desaparece de la deuda y no queda nada apartado.
+⭐ Y lo que sí dicen: **Tesorería paga lo que el Calendario programa, el día programado** (desfase mediana 0 días, de −4 a
++3; 54 transferencias, 6 cheques, 27 notas de crédito), sólo que lo captura en Kepler y no lo marca en la Suite.
+
+- **Marcarlos «Pagado» NO se hace ahora:** al llegar el TXT de pólizas (`[PGP.112]`) la Suite les generaría póliza a pagos
+  que Contabilidad ya registró a mano → **pólizas duplicadas**. Su cierre se diseña con `[PGP.112]` (qué pagos genera la Suite
+  y cuáles ya existen en ContPAQi: la llave es el UUID de la factura en `gl_polizas`).
+- **Lo que sí se corrigió (pantalla):** los contadores del día los contaban como pendientes. La tira de la semana («faltan N»),
+  el veredicto del día («Faltan N por preparar» y el pago que nombra) y «Aplicar a los N» usan ahora la etapa de cada pago
+  (la misma regla que la bandeja). Medido con la bandeja real: **«faltan» baja de 173 a 120** en 9 días; el 4-nov decía
+  «faltan 20» y faltan 2 (Kepler pagó 21 de 23). La tira dice además «N por autorizar», «N por pagar» o «pagados».
+
+Verificado: `check:pantalla` (tipa, 0 nuevas), templates, reactividad, 1,455 pruebas de Finanzas (vista). Sin validación
+visual (el backend local ya no corre).
