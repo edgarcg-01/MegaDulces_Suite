@@ -492,7 +492,15 @@ async function applyRawUpsert(client, tenantId, rows, meta) {
           if (COALESCIBLES.has(clave)) { acumular(clave, norm, keys); continue; }
           // cada normalizador en su PROPIA tx → si uno falla, NO tumba a los otros ni al CDC (lo toma el barrido).
           try { const nz = await conActor(client, norm.name, () => norm(client, tenantId, keys)); if (nz) console.log(`  [normalize:${table}:${norm.name}] ${nz} filas (${keys.length} llaves)`); }
-          catch (e) { console.error(`  [normalize:${table}:${norm.name}] ⚠ ${String(e.message).slice(0, 140)} (CDC ok; lo toma el barrido)`); }
+          catch (e) {
+            // `[CANON.6.10]` Ya no hay barrido nocturno que «lo tome»: se reintenta AQUÍ, partiendo el lote.
+            const r = await reintentarPorPartes(client, tenantId, norm, keys);
+            const tag = `  [normalize:${table}:${norm.name}] ⚠ ${String(e.message).slice(0, 140)}`;
+            if (!r.fallidas.length) console.error(`${tag} — se recuperó al reintentar: ${r.filas} filas (${keys.length} llaves)`);
+            else console.error(`${tag} — reintentado por partes: ${r.filas} filas; ${r.fallidas.length} de ${keys.length} llaves siguen fallando`
+              + ` (${r.fallidas.slice(0, 5).join(', ')}${r.fallidas.length > 5 ? ', …' : ''}): ${String(r.error && r.error.message).slice(0, 120)}`
+              + ' — quedan como estaban hasta su próximo cambio; las mide el script manual en seco');
+          }
         }
       }
     }
@@ -652,14 +660,36 @@ async function normalizeProductsFromOds(client, tenantId, skus) {
                AND NOT EXISTS (SELECT 1 FROM catalog.products p2 WHERE p2.tenant_id=$1 AND p2.brand_id=eff.brand_id AND p2.nombre=eff.nombre)
              ORDER BY eff.brand_id, eff.nombre, eff.sku) d`, [tenantId, fallback])).rowCount : 0;
 
-    // 2) UPDATE identidad (nombre + barcode por política), churn-free, sin colisión de la unique.
+    // 2) UPDATE identidad (nombre + barcode por política + marca al renombrar), churn-free, sin colisión.
+    // `[CANON.6.10]` Hace ahora lo que sólo hacía el barrido `repoint-catalog-names` (retirado):
+    //   · una clave REUSADA (Kepler le cambia el nombre a un SKU que ya existía) se lleva también la
+    //     MARCA de su línea nueva. Sólo cuando el nombre cambia de verdad (sin contar mayúsculas ni
+    //     espacios): reasignar marca a nombres iguales movía ~500 filas sin validar (CANON.1.3b);
+    //   · la guarda de colisión mira la marca EFECTIVA (la que va a quedar), no la vieja;
+    //   · dos SKUs del MISMO lote que irían al mismo (marca, nombre) ya no tumban el lote: la unique
+    //     se valida renglón por renglón, el NOT EXISTS sólo ve el estado previo, y un 23505 revertía
+    //     TODOS los SKUs del lote. Pasa el de clave menor; el otro queda como estaba (igual que antes
+    //     con el barrido, que deduplicaba por la misma razón).
     const idn = (await client.query(`
-      UPDATE catalog.products p SET nombre=s.nombre, barcode=${BARCODE_CASE}, updated_at=now()
-      FROM snap_p s
-      WHERE p.tenant_id=$1 AND p.deleted_at IS NULL AND p.sku=s.sku
-        AND ( p.nombre IS DISTINCT FROM s.nombre OR p.barcode IS DISTINCT FROM ${BARCODE_CASE} )
+      WITH cand AS (
+        SELECT p.id, p.sku, s.nombre,
+               CASE WHEN btrim(upper(p.nombre)) <> btrim(upper(s.nombre)) THEN COALESCE(s.brand_id, p.brand_id)
+                    ELSE p.brand_id END AS marca,
+               ${BARCODE_CASE} AS cb,
+               (p.nombre IS DISTINCT FROM s.nombre) AS renombra
+          FROM catalog.products p JOIN snap_p s ON s.sku = p.sku
+         WHERE p.tenant_id=$1 AND p.deleted_at IS NULL),
+      ok AS (
+        SELECT id, nombre, marca, cb FROM cand WHERE NOT renombra
+        UNION ALL
+        SELECT * FROM (SELECT DISTINCT ON (marca, nombre) id, nombre, marca, cb FROM cand WHERE renombra
+                        ORDER BY marca, nombre, sku) d)
+      UPDATE catalog.products p SET nombre=ok.nombre, brand_id=ok.marca, barcode=ok.cb, updated_at=now()
+      FROM ok
+      WHERE p.id = ok.id
+        AND ( p.nombre IS DISTINCT FROM ok.nombre OR p.barcode IS DISTINCT FROM ok.cb OR p.brand_id IS DISTINCT FROM ok.marca )
         AND NOT EXISTS (SELECT 1 FROM catalog.products p2 WHERE p2.tenant_id=$1 AND p2.id<>p.id
-                          AND p2.brand_id=p.brand_id AND p2.nombre=s.nombre)`, [tenantId])).rowCount;
+                          AND p2.brand_id=ok.marca AND p2.nombre=ok.nombre)`, [tenantId])).rowCount;
 
     // El PRECIO ya no se escribe acá. Vivía como "UPSERT c90 > 0.05" tomando la fila de CEDIS
     // primero y sin una sola validación — era el escritor que estampaba las plantillas de kdii
@@ -902,6 +932,35 @@ async function vaciarCoalescidos(client, tenantId) {
 }
 // ═══════════════════════════════════════════════════════════════════════════════════════════
 
+/**
+ * `[CANON.6.10]` Reintento de un normalizador que falló con un lote de llaves. Antes el error se registraba
+ * con «lo toma el barrido» y el lote entero esperaba al nocturno; los nocturnos se retiran (CANON.6), así
+ * que la red pasa a estar aquí:
+ *   · lote de una llave → se reintenta una vez (un error pasajero: candado, tiempo agotado);
+ *   · lote de varias → se parte en mitades y cada mitad se reintenta, partiéndose otra vez si falla. Una
+ *     llave ENVENENADA (siempre falla) queda aislada en ~2·log₂(n) intentos y las demás se escriben.
+ * Lo que sigue fallando se devuelve para registrarlo: el dato queda como estaba hasta su próximo cambio.
+ * NUNCA lanza. Exportada sólo para su prueba.
+ * @returns {Promise<{filas:number, fallidas:string[], error:Error|null}>}
+ */
+async function reintentarPorPartes(client, tenantId, norm, keys) {
+  const intentar = async (lote) => {
+    try {
+      return { filas: (await conActor(client, norm.name, () => norm(client, tenantId, lote))) || 0, fallidas: [], error: null };
+    } catch (e) {
+      if (lote.length === 1) return { filas: 0, fallidas: lote, error: e };
+      return partir(lote);
+    }
+  };
+  const partir = async (lote) => {
+    const m = Math.ceil(lote.length / 2);
+    const a = await intentar(lote.slice(0, m));
+    const b = await intentar(lote.slice(m));
+    return { filas: a.filas + b.filas, fallidas: [...a.fallidas, ...b.fallidas], error: b.error || a.error };
+  };
+  return keys.length === 1 ? intentar(keys) : partir(keys);
+}
+
 // Una tabla → { skuCol?, fns:[...] }. skuCol = de qué columna sacar los SKUs que llegaron (default pk[0];
 // kdik lo tiene en c2, no en su pk[0]=c1). Cada fn se corre en orden, en su PROPIA tx.
 // Todo lo derivado de current-state del ODS va acá (al-momento) → feedback_ods_derived_realtime_no_batch_lag.
@@ -977,7 +1036,7 @@ HANDLERS['raw-normalize'] = applyRawNormalize;
 
 module.exports = {
   HANDLERS, applyStockDelta, applyWincajaStock, applyWincajaSalesBronze, applyRawUpsert,
-  applyRawDelete, applyCdcHeartbeat, normalizeProductsFromOds, UUID_RE, conActor,
+  applyRawDelete, applyCdcHeartbeat, normalizeProductsFromOds, UUID_RE, conActor, reintentarPorPartes,
   normalizacionCoalescible, encolarNormalizacion,
   // [DB-MEM.20] Expuesto SOLO para `database/tests/test-newdb-price-coalesce.js`. Nada de
   // producción lo importa: el coalescedor se usa desde `applyRawUpsert`, que está arriba. Se

@@ -299,7 +299,10 @@ const STEPS = {
     path.join(K, 'import-canindo-routes-monthly.js'),
     [path.join(K, 'reconcile-route-provenance.js'), '--apply'], // VP/ADR-056 (deuda D) — DECLARA push vs branch en la llave que ambos escriben (GREATEST ciego); tras push+canindo. Sólo metadata → route_monthly_provenance; el sensor route_provenance dispara si branch gana (push atorado)
     path.join(K, 'repoint-catalog-presence.js'), // catálogo — INSERTA productos nuevos + REACTIVA borrados-vivos desde KP_CONCENTRADA (el snapshot Mega_Dulces se atrasa). ANTES de names/prices para que existan al repuntarlos.
-    path.join(K, 'repoint-catalog-names.js'), // catálogo — repoint UPDATE-only de nombres de claves REUSADAS desde KP_CONCENTRADA (catalogo_completo externo se atrasa)
+    // RETIRADO 2026-11-12 [CANON.6.10]: repoint-catalog-names.js — el nombre (y la marca de una clave
+    // reusada) lo mantiene el hop-2 al llegar el cambio de kdii (`normalizeProductsFromOds`), que ahora
+    // mueve la marca y no tumba el lote por dos SKUs al mismo nombre; un normalizador que falla se
+    // reintenta partiendo el lote. Desde el 7-nov este paso corrigió 0 casi todas las noches.
     // catálogo — RELLENO de precio base + recálculo de is_promo. Degradado a --gap-fill-only 2026-08-24:
     // el precio de venta lo lleva `normalizeSalePrice` (ods-derived) AL MOMENTO vía hop-2, porque leer
     // `kdii.c90` como "precio pieza" es un decode equivocado (c90 es el precio de la UNIDAD BASE) y
