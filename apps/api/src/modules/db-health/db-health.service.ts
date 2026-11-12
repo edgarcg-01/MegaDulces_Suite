@@ -8,6 +8,7 @@ import { Client } from 'pg';
 // ejercitarla de verdad: este archivo arrastra NestJS y `@megadulces/*`, así que un test de Node
 // no lo puede cargar y terminaría reimplementando la regla — que es no probarla.
 import { RECURRENCIA, recurrenciaLevantaLaMano } from './db-health-recurrencia';
+import { ARBITRO_MARKUP_SQL, ARBITRO_NOMBRES_SQL, ARBITRO_PROMO_SQL } from './db-health-arbitro-catalogo';
 import { esCarrilRetirado, etiquetaBase, filasEstimadas, pctMuertas } from './db-health-lecturas';
 
 /**
@@ -880,6 +881,21 @@ const APP_SOURCES: SourceCfg[] = [
                              ELSE '' END AS note_extra
               FROM vivas v`,
     warnH: 96, critH: 192, cadence: 'intradía ~1h (push de camionetas, :18 de cada hora)',
+  },
+  // `[CANON.6.11]` ÁRBITRO del catálogo mantenido por evento (CANON.6.8–6.10): markup, promo y nombres ya
+  // no los reescribe un nocturno; los toma el hop-2 al llegar el cambio de Kepler. Estos tres deben dar 0;
+  // si no, nombran cuántos quedaron sin tomar y cómo cerrarlos. Detalle y costo en el archivo del SQL.
+  {
+    key: 'catalogo_markup_evento', label: 'Catálogo por evento — markup (árbitro)', table: 'catalog.products', tsCandidates: [],
+    sql: ARBITRO_MARKUP_SQL, warnH: 24, critH: 48, cadence: 'continuo (hop-2 al llegar kdpv_prod_util) — debe dar 0',
+  },
+  {
+    key: 'catalogo_promo_evento', label: 'Catálogo por evento — marca de promo (árbitro)', table: 'catalog.products', tsCandidates: [],
+    sql: ARBITRO_PROMO_SQL, warnH: 24, critH: 48, cadence: 'continuo (hop-2 al llegar kdii / kdik) — debe dar 0',
+  },
+  {
+    key: 'catalogo_nombres_evento', label: 'Catálogo por evento — nombres (árbitro)', table: 'catalog.products', tsCandidates: [],
+    sql: ARBITRO_NOMBRES_SQL, warnH: 24, critH: 48, cadence: 'continuo (hop-2 al llegar kdii) — debe dar 0',
   },
 ];
 
