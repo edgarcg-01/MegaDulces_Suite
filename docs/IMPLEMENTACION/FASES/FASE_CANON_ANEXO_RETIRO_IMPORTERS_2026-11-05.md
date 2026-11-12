@@ -683,3 +683,23 @@ columnas): el testigo de que el evento funciona es ese «difieren = 0». Prueba 
 negativa (`normalize=false` no mueve el markup) y dos mutantes en rojo. Llega con el mismo despliegue de la
 ingesta que 9.1 y la oleada 12; el hueco del día del despliegue (lo cambiado entre las 03:00 y ese momento)
 se mide con `import-margin.js` sin `--apply` y, si da > 0, se cierra con `--apply` una sola vez.
+
+**9.3 hecho en código (2026-11-12, `[CANON.6.9]`): `is_promo` por evento.** La recalculaba
+`repoint-catalog-prices --solo-promo` cada 30 min (1,443 corridas al mes) con tres pases que se peleaban
+dentro de la misma transacción: el pase 1 (precio, en los dos sentidos) apagaba 4–13 productos y el pase 2
+(costo) los volvía a encender — 1,013 corridas fueron «13 + 13». Una sola regla da exactamente el mismo
+estado (0 diferencias en 14,946 filas, 3,581 borradas; 166 ms el catálogo, 7–9 ms acotada): con precio en
+`kdii` manda el precio máximo ≤ $0.05 y sin precio se conserva; en filas vivas, además, costo en (0, $0.05]
+o «= GRATIS» sin costo real. Corre donde cambia una entrada: hop-2 de `kdii` (al final de su cadena) y de
+`kdik` (tras el costo), y los dos nocturnos que todavía escriben costo o nombre (`repoint-catalog-cost`, todo
+el catálogo; `repoint-catalog-names`, sólo lo renombrado). El script queda manual (sin `--apply` mide
+«difieren»); se quitaron `--escribir-precio` (deshacía los rechazos de `normalizeSalePrice`, VPR.3) y la
+fuente `.245`. Prueba: 21 ✓ con paridad contra los tres pases (copiados como oráculo) en 13 casos, dos
+negativas y tres mutantes en rojo. Sin hueco el día del despliegue: el estado ya es el punto fijo.
+- ⚠️ **Hallazgo, de negocio:** la regla hereda que el costo manda sobre el precio. Hoy 4 productos con precio
+  real quedan como promo por un costo de Kepler ≤ $0.05 y por eso **salen de los reportes de venta**:
+  BUTTER CHOC/CAFÉ 300GR (precio $35.63, costo $0.001), «1 PIÑATA PACK + 1 PIÑATA TRADICIONAL POR $200»
+  (costo $0.01), «VENTAS AL 8% IEPS» y una oblea «= GRATIS» con precio $9.37. O el costo se corrige en Kepler
+  o se decide que el precio real gane; no se cambió aquí.
+- ⚠️ `/comercial/precios` todavía rotula la lista BASE-MXN como hecha por `repoint-catalog-prices.js`; desde
+  `[VPR.3]` (5-oct) la escribe `normalizeSalePrice`. Rótulo que miente, pendiente (toca pantalla).
