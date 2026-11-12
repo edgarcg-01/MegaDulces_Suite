@@ -238,14 +238,6 @@
 # El resto va a los :42, fuera de los múltiplos de 5, para no chocar con la de cada 5 min.
 #*/5 * * * * /app/ops/vl/run-feed.sh contpaqi-replica       "node /app/database/importers/contpaqi/replicate-contpaqi.js --sync --apply --solo=ct,gen --latido=contpaqi_replica_ct"
 #42 * * * *  /app/ops/vl/run-feed.sh contpaqi-replica-resto "node /app/database/importers/contpaqi/replicate-contpaqi.js --sync --apply --solo=sat,dir,nom,nomgen,add,addo --latido=contpaqi_replica_resto"
-#
-# `[PGP.110]` EL ADD POR SU MARCA (CP.9.6) — los REP y CFDI recientes. ⛔ APAGADA HASTA LA D15, como las dos de arriba.
-# La huella deja «sin carril» a Pagos y Pagos_Doc_Rel (sin llave entera y arriba de 100 mil filas): son los REP que
-# la póliza de egreso PPD espera. Ésta sigue `Documento.Timestamp` (~250 documentos al día) y recopia, por documento y
-# en una transacción, todas sus tablas. Cada 15 min, a los :07 (fuera de los múltiplos de 5 y del :42); mismo candado.
-# Para encenderla: lo mismo de arriba (1, 3 y 4) con `contpaqi_replica_add_marca` warn 1 h · crit 6 h, y antes UNA
-# corrida en seco: el mismo comando sin `--apply` dice cuántos documentos recopiaría desde la última marca.
-#7,22,37,52 * * * * /app/ops/vl/run-feed.sh contpaqi-add-marca "node /app/database/importers/contpaqi/replicate-contpaqi.js --add-por-marca --apply --latido=contpaqi_replica_add_marca"
 
 
 # ── horario / cada 2 h ───────────────────────────────────────────────────────
