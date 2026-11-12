@@ -30,8 +30,14 @@
 | 15:44 | **Opción B: lector en `md`** (Edgar: «que corra en md hoy») | Secreto `hr-relojes-env` (huella = la de la API y la del lector viejo), `deploy/hr-relojes` con `trade-ingest:3aa0520a9`; «Relojes a cargo» 12, vigilando 11 (CEDIS incluido, que la laptop dejó de leer el 15-oct) |
 | 15:45 | Primer respaldo | 8-Esquinas 59,952 y CEDIS 25,645 releídos: **34 checadas nuevas** (14:06–15:43, el hueco), el resto ya estaba. Ráfaga de **429**: `@SkipThrottle()` sin argumentos no exentaba los limitadores `short/medium/long` → corregido en `[RH.1.3]` (`da497b10a`); mientras sale, sólo frena la ráfaga |
 
-**Sucursal PH:** su último lote a Mega Talento fue el **11-nov 04:12** (la laptop también la perdió): el reloj está apagado,
-desconectado o cambió de IP. Revisión en sitio. El lector de `md` lo sigue buscando en su red.
+**Sucursal PH:** su último lote a Mega Talento fue el **11-nov 04:12** (la laptop también la perdió). ✅ **Volvió sola el
+12-nov a las 02:48:** el lector de `md` la alcanzó y bajó **194 checadas** guardadas desde el 11-nov 07:26. El reloj
+seguía grabando; lo que se cortó fue la red. Ya no hace falta la revisión en sitio.
+
+**12-nov — el lector en su propia imagen y detrás del vigía** (`[OPS.ING.1]`): imagen `trade-relojes` (ya no
+`trade-ingest`), que el CI construye y `md` despliega al soltar, sin laptop. Tras el reinicio de ese despliegue (13:57),
+los 12 relojes quedaron vigilados y con avisos en vivo: las primeras checadas llegaron a la Suite en 13 y 22 s. Las 429
+del primer respaldo ya no ocurren (`da497b10a` está en prod).
 
 **Lo que queda:** `ENABLE_HR_ATTENDANCE_AGENT` (paso 7) **NO se enciende**: es un `@Cron` cada 30 min y la regla del
 2026-11-10 prohíbe crons nuevos; la cola de alertas de Mega Talento nunca la decidió nadie (§5). Mega Talento de sólo
