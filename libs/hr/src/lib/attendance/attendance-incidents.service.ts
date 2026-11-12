@@ -62,6 +62,8 @@ export interface FilaIncidencia {
   void_reason: string | null;
   hd_30d?: number | null;
   banderas?: BanderaIncidencia[];
+  /** `[RH.13.2]` Derivado, no es columna: el nombre de la persona en esa plaza (ver `NOMBRE_EN_LA_PLAZA`). */
+  person_name?: string | null;
 }
 
 const SELECT_FILA = `
@@ -71,6 +73,25 @@ const SELECT_FILA = `
   i.created_by, i.created_by_name, i.created_at, i.rated_by, i.rated_by_name, i.rated_at, i.rejection_reason,
   i.audited_by, i.audited_by_name, i.audited_at, i.audit_note,
   i.voided_by, i.voided_by_name, i.voided_at, i.void_reason`;
+
+/**
+ * `[RH.13.2]` El nombre de la persona detrás del código, en ESA plaza. La misma regla que el directorio y el
+ * padrón (`attendance-reader.ts`): manda el enrolamiento ligado a una persona de la Suite (su nombre) y, si no hay
+ * persona, el nombre con el que está en el reloj; entre iguales, el visto más recientemente. Antes la lista daba
+ * sólo el número («#101») y RH tenía que ir a otra pantalla para saber de quién era la falta que calificaba.
+ * Sin ningún nombre, null: la pantalla muestra el número y no inventa uno.
+ */
+const NOMBRE_EN_LA_PLAZA = `
+  LEFT JOIN LATERAL (
+    SELECT COALESCE(NULLIF(btrim(u.nombre), ''), NULLIF(btrim(e.device_name), '')) AS nombre
+      FROM hr.device_enrollments e
+      JOIN hr.attendance_devices d ON d.tenant_id = e.tenant_id AND d.id = e.device_id
+      LEFT JOIN identity.users u ON u.id = e.user_id
+     WHERE d.tenant_id = i.tenant_id AND d.site_code = i.site_code
+       AND COALESCE(e.person_code, e.device_user_id) = i.person_code
+     ORDER BY (u.id IS NULL), e.last_seen_at DESC NULLS LAST
+     LIMIT 1
+  ) quien ON true`;
 
 @Injectable()
 export class HrAttendanceIncidentsService {
@@ -106,13 +127,13 @@ export class HrAttendanceIncidentsService {
       let filtro = '';
       if (f.person_code) { params.push(f.person_code); filtro = ' AND i.person_code = ?'; }
       const { rows } = await trx.raw<{ rows: FilaIncidencia[] }>(`
-        SELECT ${SELECT_FILA},
+        SELECT ${SELECT_FILA}, quien.nombre AS person_name,
                CASE WHEN i.incident_type = 'horario_distinto' THEN (
                  SELECT count(*)::int FROM hr.attendance_incidents j
                   WHERE j.site_code = i.site_code AND j.person_code = i.person_code
                     AND j.incident_type = 'horario_distinto' AND j.status NOT IN ('anulada', 'rechazada')
                     AND j.date_from BETWEEN i.date_from - 29 AND i.date_from) END AS hd_30d
-          FROM hr.attendance_incidents i
+          FROM hr.attendance_incidents i${NOMBRE_EN_LA_PLAZA}
          WHERE i.site_code = ? AND i.date_from <= ?::date AND i.date_to >= ?::date
            AND i.status IN (${estados.map(() => '?').join(', ')})${filtro}
          ORDER BY i.date_from, i.created_at`, params);
@@ -196,17 +217,20 @@ export class HrAttendanceIncidentsService {
   }
 
   private async leer(trx: Knex.Transaction, id: string): Promise<FilaIncidencia> {
-    const { rows: [r] } = await trx.raw<{ rows: FilaIncidencia[] }>(`SELECT ${SELECT_FILA} FROM hr.attendance_incidents i WHERE i.id = ?`, [id]);
+    const { rows: [r] } = await trx.raw<{ rows: FilaIncidencia[] }>(
+      `SELECT ${SELECT_FILA}, quien.nombre AS person_name FROM hr.attendance_incidents i${NOMBRE_EN_LA_PLAZA} WHERE i.id = ?`, [id]);
     return r;
   }
 
   /** La bitácora: la fila completa después de cada acción. */
   async registrar(trx: Knex.Transaction, fila: FilaIncidencia, accion: string, antes: string | null, detalle: string | null): Promise<void> {
     const q = this.quien();
+    // La foto es la de la FILA de la tabla: el nombre es derivado (puede cambiar después) y no entra.
+    const { person_name: _derivado, ...filaDeLaTabla } = fila;
     await trx('hr.attendance_incident_log').insert({
       tenant_id: this.tenantCtx.requireTenantId(), incident_id: fila.id, action: accion,
       status_before: antes, status_after: fila.status, actor_id: q.id, actor_name: q.nombre,
-      detail: detalle, row_snapshot: JSON.stringify(fila),
+      detail: detalle, row_snapshot: JSON.stringify(filaDeLaTabla),
       // `now()` es la hora de la TRANSACCIÓN: el cierre escribe varios pasos en una sola, y con
       // `now()` quedarían empatados y su orden sería al azar.
       acted_at: trx.raw('clock_timestamp()'),

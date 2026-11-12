@@ -184,11 +184,13 @@ export class HrTalentCandidatesService {
             if (ciudad === HR_TALENT_SIN_CIUDAD) w.orWhereNull('c.city_branch').orWhereRaw(`btrim(c.city_branch) = ''`);
           });
         }
-        // [BU.2.2] Motor único `applySmartSearch`: nombre + puesto de interés por texto, y el
-        // teléfono por dígitos (vía numérica cuando la consulta es un número).
+        // [BU.2.2] Motor único `applySmartSearch`: cada palabra tiene que estar en ALGÚN dato de la fila.
+        // `[RH.13.3]` También la ciudad y el teléfono van al texto: antes «juan 443» o «almacenista morelia»
+        // daban 0 (el teléfono sólo se buscaba si TODA la consulta era número, y la ciudad nunca). La vía
+        // numérica se queda para un teléfono escrito con guiones («443-111-2233»: una sola palabra).
         if (f.q && f.q.trim()) {
           applySmartSearch(q, f.q, {
-            columns: ['c.full_name', 'c.position_interest'],
+            columns: ['c.full_name', 'c.position_interest', 'c.city_branch', 'c.phone_key'],
             numeric: ['c.phone_key'],
           });
         }
