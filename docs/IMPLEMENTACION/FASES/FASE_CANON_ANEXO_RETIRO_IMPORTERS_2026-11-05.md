@@ -687,11 +687,17 @@ se mide con `import-margin.js` sin `--apply` y, si da > 0, se cierra con `--appl
   Edgar corrió `--apply` desde `feeds-cron` (con `/secrets/feeds.env`; la imagen desplegada es la versión de 6.8):
   19 escritos, árbitro de markup en 0. Fechados por `xmin` contra las filas de `knex_migrations` de las 19:48 y 20:24
   UTC: 17 de los 19 cambiaron en Kepler ANTES del despliegue (lo esperado), 44320 en la ventana y **01033 DESPUÉS**
-  —su costo sí entró por evento (`hop2:normalizeCost`, 20:24 y 20:28), su markup no—. ⚠️ **Abierto:** confirmar en
-  los logs de `ods-live-mirror` / `ods-reconcile-chicas` si `normalizeMarkup` corrió o falló para 01033; hasta
-  desplegar `20261112102727` las fallas no quedan en `analytics.hop2_fallas`. Medir desde la base no alcanzó:
-  `pg_stat_statements` tampoco muestra el UPDATE de `normalizeCost`, que sí corrió (control negativo), así que su
-  ausencia no prueba nada.
+  —su costo sí entró por evento (`hop2:normalizeCost`, 20:24 y 20:28), su markup no—. Logs (Edgar, 4 h):
+  `normalizeMarkup` está en la imagen y corre en `ods-live-mirror` (6 lotes) y `ods-reconcile-chicas` (2), **sin un
+  ⚠**. No fue una falla. ⚠️ **Hipótesis abierta, no probada:** carrera entre los dos carriles — los dos normalizan
+  el mismo SKU; si uno tomó su lectura de `kdpv` ANTES del cambio y espera el candado del producto, al soltarse
+  escribe el valor viejo encima del bueno (actualización perdida en READ COMMITTED: el `UPDATE … FROM` usa la foto
+  del inicio de la sentencia). Cuadra con el `xmin` (el producto se escribió 4 transacciones después de la fila
+  nueva y quedó con el valor de la noche); los logs no dan SKUs. **Prueba:** el árbitro de markup el 13-nov — si
+  aparece otro rezagado con su cambio en Kepler posterior al despliegue, el arreglo es bloquear las filas del
+  producto (`FOR UPDATE`) y recalcular en una sentencia aparte (foto nueva), en markup, costo y promo. Medir desde la
+  base no alcanzó: `pg_stat_statements` tampoco muestra el UPDATE de `normalizeCost`, que sí corrió (control
+  negativo), así que su ausencia no prueba nada.
 
 **9.3 hecho en código (2026-11-12, `[CANON.6.9]`): `is_promo` por evento.** La recalculaba
 `repoint-catalog-prices --solo-promo` cada 30 min (1,443 corridas al mes) con tres pases que se peleaban
