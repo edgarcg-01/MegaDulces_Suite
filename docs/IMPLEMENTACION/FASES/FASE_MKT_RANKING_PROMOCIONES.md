@@ -103,6 +103,18 @@ Permisos: **sin claves nuevas** — `MKT_AGREEMENTS_VER` (ve) y `MKT_AGREEMENTS_
 
 **Antes de soltar:** aplicar en prod `20261111131929` y `20261111173031` (en ese orden, una por una). Base local: se aplicaron además 6 migraciones de RH que faltaban (`hr_attendance` … `hr_secciones_por_ficha`) para poder probar.
 
+## 6d. `[MKT.19]`–`[MKT.21]` — rediseño tras la auditoría de uso (2026-11-12)
+
+Auditoría en la pantalla viva (local, semilla): **13 controles y 533 px** antes de la primera fila; al recargar, la tabla parpadeaba a vacío; el resumen no cambiaba con la vista; el filtro de estado no aplicaba en «Por vendedora».
+
+| Item | Qué | Medido |
+|---|---|---|
+| MKT.19 | Una sola barra (semana · canal · vista · «Filtros»); filtros plegados con etiquetas quitables; semana en calendario (`p-datepicker` con número de semana, elige el lunes ISO); secciones del módulo en menú de lista (`app-page-tabs variant="menu"`, aditivo: los otros 103 usos no cambian); resumen de 3 cifras por vista; vendedora abre su detalle; al recargar se conservan los datos (sin salto: 0 px medido) | primera fila a 316 px, 7 controles |
+| MKT.20 | Mercadotecnia con su propio menú lateral (`PROJECT_KEY.mkt`); antes caía al de Auditoría en ruta | — |
+| MKT.21 | Con filtros, el PDF trae sólo lo que se ve (canal abierto, mismas filas que la pantalla), lo declara en portada, nota y nombre de archivo; sin filtros, el reporte general de 4 canales | 27 pruebas (componente + PDF) |
+
+**NO MEDIDO:** tiempo de punta a punta en prod (local: Sucursales 1.1–1.2 s, Rutas 0.17 s); contenido visual del PDF filtrado (cubierto por pruebas, no leído a ojo).
+
 ## 7. Pendiente / abierto
 
 - ⚠️ Ratificación del PM (fase nueva en Fase 0) y fila en el roadmap.
