@@ -87,7 +87,10 @@ const salir = () => { console.log(`\n  ${pass} ✓ · ${fail} ✗ · ${nm} no me
     await c.query(`SELECT set_config('app.tenant_id', $1, true)`, [OTRO]);
     await prod(OTRO, await marca(OTRO, 'T613O'), 'T613-A5', 'OTRO TENANT T613');
     await c.query(`SELECT set_config('app.tenant_id', $1, true)`, [M]);
-    await c.query(`INSERT INTO inventory.products (sku, subfamilia, categoria, image_url, image_source, nombre) VALUES
+    // En una base con `[CANON.6.15]` aplicada (el CI corre migrate:latest), `inventory.products` es una vista y lo que
+    // no se deriva (subfamilia, categoría, imagen) vive en `inventory.products_legado_fdw`: ahí se siembra.
+    const INV = (await relkind('inventory.products')) === 'v' ? 'inventory.products_legado_fdw' : 'inventory.products';
+    await c.query(`INSERT INTO ${INV} (sku, subfamilia, categoria, image_url, image_source, nombre) VALUES
       ('T613-A1','SF T613','CAT T613','http://img/t613','cloudinary','NOMBRE VIEJO INV'), ('T613-A6', NULL, NULL, NULL, NULL, 'DESDE INVENTARIO T613')`);
     await c.query(`INSERT INTO inventory.products_active (sku, nombre) VALUES ('T613-A1','ALFA VIEJO T613'), ('T613-OLD','YA NO ACTIVO T613')`);
     const filasTabla = Number((await q(`SELECT count(*)::int n FROM inventory.products_active`))[0].n);

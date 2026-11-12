@@ -277,19 +277,9 @@
 # al aviso `caja_fuente` (GoodsReceiptTwinsService, sin reloj), y desde el corte del 1-oct casi no nacen
 # copias. El CLI (`run-prod-feeds.js receipts`) queda para un barrido histórico a mano.
 # 30 4 * * *  /app/ops/vl/run-feed.sh receipts "node /app/database/importers/kepler/run-prod-feeds.js receipts --apply"
-# ─── [NORM.2] EL CARRIL QUE NO EXISTÍA ────────────────────────────────────────────────────
-# `inventory.products` es el catálogo de escaneo del CONTEO FÍSICO, y su refrescador estaba
-# escrito desde agosto SIN AGENDA EN NINGÚN LADO. Medido el 2026-09-23: **37 días** sin un
-# `synced_at` nuevo y **147 SKUs** que el contador no podía escanear — y un producto que no se
-# escanea se cuenta como faltante.
-# ⛔ SIN `--prod`, A PROPÓSITO: ese flag lee `C:/KeplerRunner/run-feeds.cmd` (ruta de Windows)
-#    buscando una URL de **Railway**, que ya no es prod — está muerto y en Linux tiraría. Sin él
-#    usa `DATABASE_URL_NEW`, que en ESTE contenedor es `pg-prod:5432/railway` (verificado).
-# ⛔ El script es INSERT-SOLO-NUEVOS y así debe quedarse: un UPDATE desde `catalog.products`
-#    NULEARÍA `subfamilia`/`categoria`/`image_*` de las 13.8k filas existentes, porque catalog es
-#    una proyección NORMALIZADA y no un superset. Esa regresión ya se vivió el 2026-08-17.
-# 05:10 = después del nocturno (03:00, dura 69–99 min) y sin chocar con receipts ni contpaqi-full.
-10 5 * * *  /app/ops/vl/run-feed.sh inventory-products "node /app/database/importers/refresh-inventory-products.js --apply"
+# RETIRADO 2026-11-12 [CANON.6.15]: inventory-products (05:10). `inventory.products` es una VISTA sobre
+# `catalog.products` (migración 20261112152928): nombre, código y unidades al momento, y lo que el catálogo no tiene
+# (subfamilia, categoría, imágenes…) de la foto congelada `inventory.products_legado_fdw`. Ya no hay altas que agregar.
 # RETIRADO 2026-11-12 [CANON.6.13]: products-active (05:20). `inventory.products_active` es una VISTA sobre
 # `catalog.products` + `inventory.products` (migración 20261112135015): la misma consulta que copiaba con
 # TRUNCATE+INSERT, evaluada al leer. Lo del día (nombres, altas) ya no espera a la mañana siguiente.

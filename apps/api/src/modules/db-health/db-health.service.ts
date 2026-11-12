@@ -952,7 +952,7 @@ const EXT_SOURCES: ExtCfg[] = [
   //     `kepler_ods.kdii` en vez de borrarla.
   //     Los 9 consumidores reales NO se ven afectados, pero por otro motivo: leen
   //     `inventory.products_active` (todos la califican) — desde `[CANON.6.13]` una VISTA sobre
-  //     `catalog.products` + `inventory.products`, explícitamente NO desde el FDW.
+  //     `catalog.products` + la foto congelada `inventory.products_legado_fdw` (`[CANON.6.15]`), explícitamente NO desde el FDW.
 ];
 
 const RANK: Record<Status, number> = { ok: 0, warn: 1, unknown: 2, critical: 3 };
@@ -1291,13 +1291,9 @@ export const CRON_JOBS: CronCfg[] = [
   // la nota de `CronCfg`): su llave cae sola en `unknown`. El CLI queda para correrlo a mano si hace falta.
   { key: 'feed_intraday',       label: 'Feed intraday (transaccionales)',   cadence: 'cada 1 h',     warnH: 3,   critH: 8, maxRunH: 2 },
   { key: 'feed_nightly',        label: 'Feed nightly (batch nocturno)',     cadence: 'diario 03:00', warnH: 30,  critH: 50, maxRunH: 4 },
-  // [NORM.2] Este carril EXISTÍA COMO SCRIPT Y NO ESTABA AGENDADO EN NINGÚN LADO. Llena
-  // `inventory.products`, que es el catálogo de escaneo del conteo físico: medido el 2026-09-23,
-  // llevaba **37 días** sin un `synced_at` nuevo y **147 SKUs** no eran escaneables. Un producto
-  // que el ERP dio de alta y que el contador no puede escanear se cuenta como faltante.
-  // 05:10 = después del nocturno (03:00) que puebla `catalog.products`, y sin chocar con
-  // `receipts` (04:30) ni `contpaqi-cfdis-full` (05:45).
-  { key: 'inventory_products_refresh', label: 'inventory.products ← catalog (escaneo de conteo)', cadence: 'diario 05:10 MX', warnH: 26, critH: 50, maxRunH: 1 },
+  // RETIRADO 2026-11-12 [CANON.6.15]: `inventory_products_refresh` (diario 05:10). `inventory.products` es una
+  // VISTA sobre `catalog.products` (migración 20261112152928): un producto dado de alta es escaneable al momento,
+  // sin esperar a la mañana siguiente; no hay latido que vigilar.
   // RETIRADO 2026-11-12 [CANON.6.13]: `products_active_refresh` (diario 05:20). `inventory.products_active`
   // es una VISTA sobre `catalog.products` (migración 20261112135015): no hay copia que refrescar ni latido
   // que vigilar. Fallaba el 20 % de las corridas.

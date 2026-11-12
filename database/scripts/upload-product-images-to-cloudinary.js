@@ -2,7 +2,8 @@
 /* eslint-disable no-console */
 /**
  * Sube las imágenes de productos a Cloudinary y actualiza
- * `inventory.products.image_url` con la URL retornada.
+ * `inventory.products.image_url` con la URL retornada (desde `[CANON.6.15]`, en `inventory.products_legado_fdw`:
+ * `inventory.products` es una vista y la imagen es dato propio de la Suite, que vive en esa tabla).
  *
  * Convención:
  *   - filename (sin extensión) = SKU del producto
@@ -132,16 +133,19 @@ async function main() {
       const url = result.secure_url;
       const storageKey = result.public_id;
 
-      // UPDATE en cada target DB
+      // UPDATE en cada target DB.
+      // `[CANON.6.15]` Si `inventory.products` ya es VISTA (migración 20261112152928), la imagen se escribe en la
+      // tabla dueña de lo que no se deriva, `inventory.products_legado_fdw`, y como UPSERT: un producto dado de
+      // alta después de junio no tiene fila ahí, y un UPDATE a secas perdería su imagen sin decir nada.
       for (const k of [local, railway].filter(Boolean)) {
-        await k('inventory.products')
-          .where({ sku })
-          .update({
-            image_url: url,
-            image_source: 'cloudinary',
-            image_storage_key: storageKey,
-            image_updated_at: k.fn.now(),
-          });
+        const esVista = ((await k.raw(`SELECT relkind FROM pg_class WHERE oid = to_regclass('inventory.products')`)).rows[0] || {}).relkind === 'v';
+        const img = { image_url: url, image_source: 'cloudinary', image_storage_key: storageKey, image_updated_at: k.fn.now() };
+        if (esVista) {
+          await k('inventory.products_legado_fdw').insert({ sku, synced_from: 'upload-product-images', ...img })
+            .onConflict('sku').merge(Object.keys(img));
+        } else {
+          await k('inventory.products').where({ sku }).update(img);
+        }
       }
       updated++;
 
