@@ -246,7 +246,10 @@ const STEPS = {
   nightly: [
     path.join(K, 'import-rotation-from-consolidado.js'),
     path.join(K, 'import-top-sellers-from-consolidado.js'),
-    path.join(K, 'import-margin.js'),        // KV.4 markup (lee sucursal) — antes del fact
+    // RETIRADO 2026-11-12 [CANON.6.8]: import-margin.js — el markup (`catalog.products.markup_pct`) lo
+    // mantiene el hop-2 al llegar el cambio de `kdpv_prod_util` (`normalizeMarkup`). Este paso lo
+    // reescribía a las 03:00 (2–181 cambios por noche, y `updated_at` de los 9,066 productos). El fact
+    // de abajo ya no necesita ir detrás de nadie: lee el markup vigente.
     path.join(K, 'import-sales-fact.js'),    // KV.1 fact (lee consolidado; cost usa markup)
     path.join(K, 'import-sales-stats.js'),   // KV.2 ABC/share (lee prod sales_daily) — tras sales-fact
     // RETIRADO 2026-11-05 [CANON.5.0]: import-sales-monthly.js — analytics.sales_monthly no tiene

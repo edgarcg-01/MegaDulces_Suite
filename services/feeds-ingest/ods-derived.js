@@ -196,6 +196,52 @@ async function normalizeBoxPrice(client, tenantId, skus) {
 }
 
 /**
+ * MARKUP (KV.4) — `kdpv_prod_util.c6` (markup % sobre costo) → `catalog.products.markup_pct`.
+ * `[CANON.6.8]` (2026-11-12) Pasa al hop-2: antes lo escribía `import-margin.js` cada noche a las 03:00,
+ * así que un cambio de Kepler se veía hasta el día siguiente (medido: 2–181 markups cambiados por noche;
+ * el 12-nov a las 09:30 ya había uno nuevo esperando). Se recalcula al llegar el cambio de ESE SKU.
+ *
+ * La regla es la misma que tenía el importer, sin cambiar un número: promedio de `c6` sobre todos los
+ * escalones/presentaciones del SKU en UNA sucursal (`MARGIN_BRANCH`, default '03' = 8 Esquinas; los
+ * markups se fijan central). Medido el 12-nov: 9,066 productos vivos con fuente, 1 diferente (el del
+ * cambio de la mañana). Tampoco cambia lo que NO hace: un SKU que se queda sin filas en la '03' conserva
+ * su markup (el importer nunca lo limpió; hoy son 0 casos) y una fila borrada (`deleted_at`) no se toca.
+ *
+ * Sin churn: sólo escribe el producto cuyo markup cambió. El importer reescribía `updated_at` de los
+ * 9,066 cada noche.
+ *
+ * Llega por cualquier sucursal (el hop-2 dispara con el SKU, venga de la rama que venga): si el cambio
+ * no fue en la '03', recalcula, sale igual y no escribe nada.
+ */
+const MARKUP_BRANCH = process.env.MARGIN_BRANCH || '03';
+
+/** La fuente del markup: una fila por SKU. Parámetros: $1 = sucursal, $2 = SKUs (sólo si `scoped`). */
+function markupFuenteSql(scoped) {
+  return `SELECT c1 AS sku, round(avg(c6::numeric), 4) AS markup
+            FROM kepler_ods.kdpv_prod_util
+           WHERE sucursal = $1 AND c6 IS NOT NULL AND btrim(coalesce(c1, '')) <> '' ${scoped ? 'AND c1 = ANY($2)' : ''}
+           GROUP BY c1`;
+}
+
+async function normalizeMarkup(client, tenantId, skus) {
+  const s = clean(skus);                 // null/[] = catálogo completo
+  const scoped = s.length > 0;
+  const params = scoped ? [MARKUP_BRANCH, s, tenantId] : [MARKUP_BRANCH, tenantId];
+  const pt = scoped ? '$3' : '$2';
+  await client.query('BEGIN');
+  try {
+    await client.query(`SET LOCAL app.tenant_id = '${tenantId}'`);
+    const up = await client.query(`
+      UPDATE catalog.products p SET markup_pct = f.markup, updated_at = now()
+        FROM (${markupFuenteSql(scoped)}) f
+       WHERE p.tenant_id = ${pt} AND p.deleted_at IS NULL AND p.sku = f.sku
+         AND p.markup_pct IS DISTINCT FROM f.markup`, params);
+    await client.query('COMMIT');
+    return up.rowCount;
+  } catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; }
+}
+
+/**
  * PRECIO DE VENTA → commercial.product_prices (BASE-MXN).
  *
  * REGLA (Edgar 2026-08-25): **manda lo que el punto de venta COBRA**, no la configuración.
@@ -431,4 +477,4 @@ async function normalizeSalePrice(client, tenantId, skus) {
   } catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; }
 }
 
-module.exports = { normalizeCost, normalizeReorder, normalizeBoxFactor, normalizeBoxPrice, normalizeSalePrice, salePriceCtes };
+module.exports = { normalizeCost, normalizeReorder, normalizeBoxFactor, normalizeBoxPrice, normalizeSalePrice, salePriceCtes, normalizeMarkup, markupFuenteSql, MARKUP_BRANCH };

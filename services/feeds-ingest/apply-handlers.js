@@ -21,7 +21,7 @@ const { computeLabels, toStageTuple, upsertLabels } = require('./label-compute')
 const { notifyLabelPricesChanged } = require('./notify-store');
 const { computeBarcodes } = require('./barcode-compute');
 const { identitySnapshotSql } = require('./product-identity');
-const { normalizeCost, normalizeReorder, normalizeBoxFactor, normalizeBoxPrice, normalizeSalePrice } = require('./ods-derived');
+const { normalizeCost, normalizeReorder, normalizeBoxFactor, normalizeBoxPrice, normalizeSalePrice, normalizeMarkup } = require('./ods-derived');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const BATCH = 1000;
@@ -908,7 +908,8 @@ async function vaciarCoalescidos(client, tenantId) {
 const ODS_NORMALIZERS = {
   kdii: { fns: [normalizeProductsFromOds, normalizeSalePrice, normalizeLabelsFromOds, normalizeBarcodesFromOds, normalizeCost, normalizeBoxFactor, normalizeReorder] },
   kdik: { skuCol: 'c2', fns: [normalizeCost] },              // costo: c16 es la fuente primaria
-  kdpv_prod_util: { fns: [normalizeSalePrice, normalizeLabelsFromOds, normalizeBoxPrice] },
+  // `[CANON.6.8]` + markup (`catalog.products.markup_pct`): antes lo escribía `import-margin.js` de noche.
+  kdpv_prod_util: { fns: [normalizeSalePrice, normalizeLabelsFromOds, normalizeBoxPrice, normalizeMarkup] },
   // Bitácora de cambios de precio de Kepler: es la FUENTE del precio de venta, así que un cambio de
   // precio recalcula al instante. Su SKU vive en c3 (el pk[0] es la sucursal).
   // Una VENTA nueva es un precio nuevo: el PdV es la fuente. Su SKU vive en c8.
