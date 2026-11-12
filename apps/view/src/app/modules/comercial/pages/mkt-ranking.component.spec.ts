@@ -176,7 +176,7 @@ describe('[MKT.11] MktRankingComponent', () => {
     expect(comp.datos()?.promedio_general).toBe(0.6);
     expect(comp.actualizando()).toBe(true);
     expect(comp.kpis().find((k) => k.label === 'Promedio general')?.value).toBe(60);
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Actualizando…');
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Actualizando el ranking…');
     req.flush(ranking({ promedio_general: 0.5 }));
     await fixture.whenStable();
     expect(comp.actualizando()).toBe(false);

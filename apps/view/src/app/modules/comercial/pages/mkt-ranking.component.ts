@@ -81,10 +81,12 @@ import { pdfRanking } from '../mkt-ranking-pdf';
           <!-- Calendario: cualquier semana en dos clics (abrir y elegir un día), no N clics de flecha. -->
           <button type="button" class="rk-semana-btn" (click)="calendario.toggle($event)" aria-haspopup="dialog"
                   [attr.aria-label]="'Semana: ' + (datos() ? semanaTexto() : 'cargando') + '. Elegir otra en el calendario'" [disabled]="!datos()">
-            <i class="pi pi-calendar" aria-hidden="true"></i>
-            <span class="rk-semana-txt">{{ datos() ? semanaTexto() : 'Cargando semana…' }}
-              @if (actualizando()) { <span class="rk-actualizando-txt" role="status">Actualizando…</span> }</span>
+            <!-- Al recargar cambia SÓLO el ícono (mismo tamaño): un texto extra hacía crecer el botón
+                 34→52 px y bajaba toda la pantalla 15 px (medido 2026-11-12). -->
+            <i [class]="actualizando() ? 'pi pi-spin pi-spinner' : 'pi pi-calendar'" aria-hidden="true"></i>
+            <span class="rk-semana-txt">{{ datos() ? semanaTexto() : 'Cargando semana…' }}</span>
           </button>
+          <span class="sr-only" role="status">{{ actualizando() ? 'Actualizando el ranking…' : '' }}</span>
           <p-popover #calendario appendTo="body" ariaLabel="Elegir semana">
             <p-datepicker [inline]="true" [showWeek]="true" [firstDayOfWeek]="1" [maxDate]="hoy" [ngModel]="lunesFecha()"
                           (onSelect)="elegirDia($event); calendario.hide()" ariaLabel="Elige un día: se abre su semana (lunes a domingo)" />
@@ -388,7 +390,6 @@ import { pdfRanking } from '../mkt-ranking-pdf';
     .rk-cuerpo { transition: opacity var(--dur-short) ease; }
     .rk-cuerpo app-metric-strip { display: block; margin-bottom: var(--sp-3); }
     .rk-actualizando { opacity: 0.55; }
-    .rk-actualizando-txt { display: block; font-size: var(--fs-xs); font-weight: var(--fw-regular); color: var(--text-muted); }
     .rk-de { color: var(--text-muted); font-size: var(--fs-xs); margin-left: var(--sp-1); }
     .rk-liga { margin-left: var(--sp-2); color: var(--action); text-decoration: underline; }
     .rk-btn-filtros { margin-left: auto; }
