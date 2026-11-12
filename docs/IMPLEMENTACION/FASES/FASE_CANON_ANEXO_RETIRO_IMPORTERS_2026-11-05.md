@@ -850,3 +850,27 @@ borrado.** `import-product-barcodes.js` corría cada 30 min (carril `prices`): ~
   cantidad ×factor); los 50 que Kepler dejó sin código piden tu regla — `catalog.products.barcode` ya conserva el EAN
   real cuando Kepler pone relleno (política del 2026-08-17), y lo consistente sería que el escáner también lo
   conserve, pero con la unidad de Kepler, no `CJA`.
+
+**Después de la oleada 9 — `inventory.products` (2026-11-12, `[CANON.6.15]`): VISTA sobre el catálogo.** Era la foto de
+junio del FDW muerto (13,852 filas) más las altas que `refresh-inventory-products.js` le agregaba a las 05:10 (909),
+sin actualizar nunca las existentes. Es el «catálogo del almacén» del conteo físico, de la ficha de producto
+(`entity-ref`) y de `products_active`.
+- **Medido (prod, sólo lectura):** de 14,761 filas, 10,222 son productos vivos del catálogo — 1,346 con OTRO nombre y
+  1,310 con OTRO código de barras —; faltaban 13 vivos. Las 4,539 fuera del catálogo vivo: 2,676 borrados, 1,333
+  fantasmas del FDW (ni catálogo ni `kdii`) y 530 en `kdii` sin producto, de los que 521 se llaman «* DESCONTINUADO»
+  (los 9 restantes son de presencia). El conteo físico no se usa desde junio (6 folios, todos cancelados). Lectores
+  reales con la vista: de ~4 a ~18 ms.
+- **Migración `20261112152928`:** la tabla se RENOMBRA a `inventory.products_legado_fdw` (regla 5; sin permisos para la
+  app) y queda como dueña de lo que no se deriva: subfamilia, categoría, factores, impuestos, estadísticas anuales e
+  IMÁGENES. El nombre pasa a una vista: productos VIVOS del catálogo con SKU (activos o no), con nombre, código,
+  descripción y unidades del catálogo al momento y lo demás de la foto, tal cual. Los **factores no cambian de
+  fuente**: catálogo y Kepler discrepan en unidades (`UNIDADES_DE_MEDIDA.md`); cambiarla sin verificar sería adivinar.
+  Dueña `postgres`, tenant fijo, piso anti-vaciado. `products_active` (6.13) la sigue por OID: tras el renombre lee la
+  foto para lo que toma de ella.
+- **Fuera:** la línea de las 05:10 (el script se borra: ya no hay altas que agregar) y el latido
+  `inventory_products_refresh`. `upload-product-images-to-cloudinary.js` escribe la imagen en `products_legado_fdw`
+  como UPSERT (un producto nuevo no tiene fila ahí; un UPDATE la perdería en silencio).
+- Pruebas: 15 ✓ en base vacía y en base con las migraciones ya aplicadas (como el CI, que corre `migrate:latest`);
+  la de 6.13 se ajustó para ese caso. 9 mutantes en rojo. API: `tsc` exit 0, `db-health` 24 ✓.
+- **Para Edgar:** borrar `products_legado_fdw` NO — guarda las imágenes y la foto que nada más tiene. Lo que sí se
+  puede firmar es quitarle las columnas que el catálogo ya trae (nombre, código, unidades), cuando se quiera.
