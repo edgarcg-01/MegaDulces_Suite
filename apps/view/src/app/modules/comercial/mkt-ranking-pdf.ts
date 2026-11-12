@@ -120,6 +120,12 @@ export interface DatosPdfRanking {
   rankings: RankingSemana[];
   elaboro: string;
   consultado: Date;
+  /**
+   * [MKT.21] Reporte FILTRADO: lo que la persona tenía puesto en pantalla ("Canal: Sucursales", "Sucursal: Padre
+   * Hidalgo"…). Vacío o ausente = el reporte completo de la semana. Un PDF parcial que no dijera sus filtros se
+   * leería como el ranking completo: por eso van en la portada, en la nota y en el nombre del archivo.
+   */
+  filtros?: string[];
 }
 
 /** El reporte semanal: lugares por canal y, después, el detalle de cada participante. */
@@ -127,14 +133,25 @@ export async function pdfRanking(d: DatosPdfRanking): Promise<{ blob: Blob; arch
   const [{ jsPDF, autoTable }, logo] = await Promise.all([loadLibs(), loadLogo()]);
   const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' });
   const emitido = new Date();
+  const filtrado = !!d.filtros?.length;
   let y = dibujarEncabezado(doc, logo, {
-    titulo: 'Ranking de promociones',
+    titulo: filtrado ? 'Ranking de promociones (filtrado)' : 'Ranking de promociones',
     cajaTitulo: `SEMANA ${d.semana.numero}`,
     cajaLineas: [textoSemana(d.semana).replace(/^Semana \d+ · /, ''), `Emitido: ${fecha(emitido)}`, `Elaboró: ${d.elaboro}`],
   });
 
+  if (filtrado) {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...INK);
+    doc.text('Reporte filtrado: no es el ranking completo.', M, y + 10);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(...MUTED);
+    const lineas = doc.splitTextToSize(d.filtros!.join('  ·  '), doc.internal.pageSize.getWidth() - 2 * M);
+    doc.text(lineas, M, y + 24);
+    y += 24 + lineas.length * 11 + 8;
+  }
+
   for (const r of d.rankings) {
-    const gen = r.promedio_general === null ? 'sin objetivos capturados' : `promedio general ${pct(r.promedio_general)}`;
+    const gen = r.promedio_general === null ? 'sin objetivos capturados'
+      : `promedio general ${filtrado ? 'de la semana completa ' : ''}${pct(r.promedio_general)}`;
     y = titulo(doc, y, CANAL_LARGO[r.canal], `${r.promos_vigentes} promociones vigentes · ${gen}`);
     autoTable(doc, {
       ...tablaBase,
@@ -209,10 +226,12 @@ export async function pdfRanking(d: DatosPdfRanking): Promise<{ blob: Blob; arch
     'Bajo cada promoción, el producto que la activa y lo vendido de él en la semana (piezas y cajas). Kepler no liga el código con el producto: se deduce de los tickets donde se aplicó y de su nombre; si no se puede, dice «sin identificar».',
     'Objetivo: el que fijó Mercadotecnia o, marcado «dinámico», el promedio de las 4 semanas anteriores dentro de la vigencia, recalculado cada semana.',
     'Por vendedora: Kepler no sabe quién vendió en el mostrador; lo escriben las cajeras en su arqueo. Cuenta sólo los tickets que tienen vendedora.',
-    'Es el reporte completo de la semana: no aplica los filtros de la pantalla.',
+    filtrado
+      ? 'Reporte filtrado: trae sólo lo que coincide con los filtros de la portada. El lugar es el de la semana completa, por eso puede saltar números.'
+      : 'Es el reporte completo de la semana: no aplica los filtros de la pantalla.',
   ]);
   dibujarPies(doc, `Ranking de promociones, semana ${d.semana.numero}`, d.consultado, 'Mercadotecnia > Ranking');
-  return { blob: doc.output('blob'), archivo: `RANKING-PROMOCIONES-S${d.semana.numero}-${fechaHoraArchivo(emitido)}.pdf` };
+  return { blob: doc.output('blob'), archivo: `RANKING-PROMOCIONES-S${d.semana.numero}${filtrado ? '-FILTRADO' : ''}-${fechaHoraArchivo(emitido)}.pdf` };
 }
 
 export interface DatosPdfIncentivos {

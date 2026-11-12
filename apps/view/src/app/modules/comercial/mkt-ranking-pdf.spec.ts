@@ -94,4 +94,23 @@ describe('[MKT.16–18] PDF del ranking (dibujo real)', () => {
     await pdfRanking({ semana: mostrador.semana, rankings: [{ ...mostrador, canal: 'ruta', vendedoras: null }], elaboro: 'prueba', consultado: new Date() });
     expect(tablas.map((t) => t.head?.[0]?.[1])).not.toContain('Vendedora');
   });
+it('[MKT.21] filtrado: la portada dice que NO es el ranking completo y con qué filtros; el archivo lo lleva en el nombre', async () => {
+    const { pdfRanking } = await import('./mkt-ranking-pdf');
+    const { archivo } = await pdfRanking({ semana: mostrador.semana, rankings: [mostrador], elaboro: 'prueba', consultado: new Date(),
+      filtros: ['Canal: Sucursales (mostrador)', 'Sucursal: Padre Hidalgo'] });
+    const todo = textos.join(' ');
+    expect(archivo).toMatch(/^RANKING-PROMOCIONES-S45-FILTRADO-/);
+    expect(todo).toContain('Reporte filtrado: no es el ranking completo.');
+    expect(todo).toContain('Sucursal: Padre Hidalgo');
+    expect(todo).toContain('promedio general de la semana completa');
+    expect(todo).not.toContain('Es el reporte completo de la semana');
+  });
+
+  it('sin filtros sigue siendo el reporte completo (control)', async () => {
+    const { pdfRanking } = await import('./mkt-ranking-pdf');
+    const { archivo } = await pdfRanking({ semana: mostrador.semana, rankings: [mostrador], elaboro: 'prueba', consultado: new Date(), filtros: [] });
+    expect(archivo).not.toContain('FILTRADO');
+    expect(textos.join(' ')).not.toContain('Reporte filtrado');
+  });
 });
+

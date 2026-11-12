@@ -251,6 +251,31 @@ describe('[MKT.11] MktRankingComponent', () => {
     await fixture.whenStable();
   });
 
+  it('[MKT.21] reporte filtrado: lleva SÓLO lo que se ve, y la portada nombra cada filtro', async () => {
+    const { comp, fixture, http } = await montar(ranking());
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Reporte de la semana');
+    comp.sucursales.set(['04']);
+    fixture.detectChanges();
+    http.expectOne((q) => q.url === BASE && q.params.get('sucursales') === '04').flush(ranking());
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Reporte filtrado');
+    const r = comp.rankingFiltrado(comp.datos()!);
+    expect(r.participantes.map((p) => p.nombre)).toEqual(['Yurécuaro']);
+    expect(r.vendedoras?.personas.map((x) => x.nombre)).toEqual(['VENDEDORA DEMO B']);
+    // La cobertura se recalcula con la sucursal filtrada: 0 de 4, no «4 de 10» de toda la semana.
+    expect([r.vendedoras?.tickets_con_vendedora, r.vendedoras?.tickets_con_promo]).toEqual([0, 4]);
+    expect(comp.filtrosTexto()).toEqual(['Canal: Sucursales (mostrador)', 'Sucursal: Yurécuaro']);
+  });
+
+  it('[MKT.21] con estado «no cumplidas», el detalle de cada sucursal trae sólo esas promociones', async () => {
+    const { comp } = await montar(ranking());
+    comp.elegirEstado('no_cumplida');
+    const r = comp.rankingFiltrado(comp.datos()!);
+    expect(r.participantes.map((p) => [p.nombre, p.promos.length])).toEqual([['Padre Hidalgo', 1]]);
+    expect(comp.filtrosTexto()).toContain('Estado: No cumplidas');
+  });
+
   it('una columna que es cero en todas las filas no se pinta; aparece en cuanto alguien la tiene', async () => {
     const { comp } = await montar(ranking());
     expect(comp.colSinVenta()).toBe(false);

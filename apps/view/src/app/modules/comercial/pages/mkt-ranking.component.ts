@@ -65,8 +65,9 @@ import { pdfRanking } from '../mkt-ranking-pdf';
         </div>
         <div class="rk-acciones">
           <app-freshness-pill measures="fetch" [since]="datos()?.consultado_at ?? null" [staleAfterSec]="900"></app-freshness-pill>
-          <button pButton type="button" class="p-button-sm" (click)="pdf()" [disabled]="generando() || !datos()" [loading]="generando()">
-            <span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span><span class="p-button-label">Reporte PDF</span>
+          <button pButton type="button" class="p-button-sm" (click)="pdf()" [disabled]="generando() || !datos() || actualizando()" [loading]="generando()"
+                  [attr.aria-label]="hayFiltros() ? 'Reporte filtrado: sólo lo que ves con tus filtros' : 'Reporte de la semana: los 4 canales completos'">
+            <span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span><span class="p-button-label">{{ hayFiltros() ? 'Reporte filtrado' : 'Reporte de la semana' }}</span>
           </button>
         </div>
       </header>
@@ -732,9 +733,47 @@ export class MktRankingComponent {
   irAObjetivos(): void { void this.router.navigate(['/mkt/ranking/promociones']); }
 
   /** El reporte de la semana con los CUATRO canales (sólo los que tienen promociones). */
+  /**
+   * [MKT.21] Lo que el PDF filtrado dice en su portada: el canal y cada filtro con su nombre. Sale de
+   * las mismas señales que pintan las etiquetas de la pantalla.
+   */
+  readonly filtrosTexto = computed<string[]>(() => {
+    const t = ['Canal: ' + CANAL_LARGO[this.canal()]];
+    const pr = this.promo();
+    if (pr) t.push('Promoción: ' + this.nombrePromo(pr));
+    const ss = this.sucursales();
+    if (ss.length) t.push((ss.length === 1 ? 'Sucursal: ' : 'Sucursales: ') + ss.map((x) => warehouseName(x)).join(', '));
+    if (this.estado() !== 'todas') t.push('Estado: ' + (this.opcionesEstado.find((o) => o.value === this.estado())?.label ?? ''));
+    if (this.busqueda().trim()) t.push('Búsqueda: «' + this.busqueda().trim() + '»');
+    return t;
+  });
+
+  /**
+   * [MKT.21] El ranking tal como se VE: las mismas listas que pinta la pantalla (`filas`, `filasPromo`,
+   * `filasVendedora`), así el PDF no puede decir otra cosa que la pantalla. La cobertura de vendedoras
+   * se recalcula con las sucursales filtradas (si no, diría «4 de 10» de toda la semana).
+   */
+  rankingFiltrado(d: RankingSemana): RankingSemana {
+    const v = d.vendedoras;
+    const ps = v ? v.por_sucursal.filter((x) => this.enSucursal(x.warehouse_code)) : [];
+    return {
+      ...d,
+      participantes: this.filas().map((p) => ({ ...p, promos: this.promosVisibles(p) })),
+      promos_ranking: this.filasPromo(),
+      vendedoras: v ? {
+        ...v,
+        personas: this.filasVendedora(),
+        por_sucursal: ps,
+        tickets_con_promo: ps.reduce((a, x) => a + x.tickets_con_promo, 0),
+        tickets_con_vendedora: ps.reduce((a, x) => a + x.tickets_con_vendedora, 0),
+      } : null,
+    };
+  }
+
   async pdf(): Promise<void> {
     const d = this.datos();
-    if (!d || this.generando()) return;
+    if (!d || this.generando() || this.actualizando()) return;
+    if (this.hayFiltros()) { await this.pdfFiltrado(d); return; }
     this.generando.set(true);
     const win = abrirPestanaParaPdf('Preparando el ranking…');
     try {
@@ -758,6 +797,30 @@ export class MktRankingComponent {
       }
       const { blob, archivo } = await pdfRanking({
         semana: d.semana, rankings: todos, elaboro: this.auth.user()?.username ?? 'Mercadotecnia', consultado: new Date(d.consultado_at),
+      });
+      const donde = entregarPdf(win, blob, archivo);
+      if (donde === 'descarga') this.toast.add({ severity: 'success', summary: 'Reporte descargado', detail: archivo });
+    } catch {
+      cerrarPestanaDePdf(win);
+      this.toast.add({ severity: 'error', summary: 'No se pudo generar el PDF', detail: 'Intenta de nuevo.' });
+    } finally {
+      this.generando.set(false);
+    }
+  }
+  /** [MKT.21] El PDF de lo que se ve: el canal en pantalla con sus filtros, dicho en la portada. */
+  private async pdfFiltrado(d: RankingSemana): Promise<void> {
+    const r = this.rankingFiltrado(d);
+    const hayAlgo = r.participantes.length || r.promos_ranking.length || (r.vendedoras?.personas.length ?? 0);
+    if (!hayAlgo) {
+      this.toast.add({ severity: 'info', summary: 'Nada que reportar', detail: 'Ningún renglón coincide con tus filtros. Cámbialos o quítalos.' });
+      return;
+    }
+    this.generando.set(true);
+    const win = abrirPestanaParaPdf('Preparando el reporte filtrado…');
+    try {
+      const { blob, archivo } = await pdfRanking({
+        semana: d.semana, rankings: [r], elaboro: this.auth.user()?.username ?? 'Mercadotecnia',
+        consultado: new Date(d.consultado_at), filtros: this.filtrosTexto(),
       });
       const donde = entregarPdf(win, blob, archivo);
       if (donde === 'descarga') this.toast.add({ severity: 'success', summary: 'Reporte descargado', detail: archivo });
