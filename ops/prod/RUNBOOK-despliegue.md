@@ -271,10 +271,11 @@ prevuelo del registro, aplica los manifiestos `namespace: ingesta`, espera cada 
 - Se niega si la API sirve otro commit o no contesta: la ingesta nunca corre un commit que no
   pasó las compuertas del vigía.
 
-⛔ **`~/ops/prod/auto-deploy.sh` es una COPIA y no se actualiza sola.** La primera vez que se
-suelta un commit con `[OPS.ING.1]`, la copia vieja ve `trade-relojes` como una imagen que no sabe
-construir y **frena el despliegue de la API**. Antes de ese primer soltar, en `md`, desde GitHub
-(no desde una laptop):
+⛔ **`~/ops/prod/auto-deploy.sh` es una COPIA y no se actualiza sola** (hasta `[OPS.ING.2]`). Con
+el primer soltar de `[OPS.ING.1]`, la copia vieja habría visto `trade-relojes` como una imagen que
+no sabe construir y **habría frenado el despliegue de la API**. Por eso se instaló antes, en `md`,
+desde GitHub. Se hizo el 2026-11-12 y el respaldo es `auto-deploy.sh.anterior-20261112`. Cada cambio
+futuro de ese guion se instala igual (no desde una laptop):
 
 ```sh
 cd ~/auto-deploy/repo && GIT_SSH_COMMAND="ssh -i ~/.ssh/deploy_md -o IdentitiesOnly=yes" \
@@ -284,8 +285,10 @@ cd ~/auto-deploy/repo && GIT_SSH_COMMAND="ssh -i ~/.ssh/deploy_md -o IdentitiesO
   mv ~/ops/prod/.auto-deploy.sh.nuevo ~/ops/prod/auto-deploy.sh && chmod +x ~/ops/prod/auto-deploy.sh
 ```
 
-⚠️ El primer despliegue reinicia **una vez** los once carriles (pasan de la etiqueta por commit a la
-de contenido). Después, sólo el que cambió.
+✅ El primer despliegue (2026-11-12, de 13:56 a 13:57, con `d592bfbf2`) reinició **una vez** los
+**diez** carriles (antes se decía once, por error) y les puso la etiqueta nueva a las tres CronJob.
+Trajo de GHCR `trade-ingest:e-f3c1c90e9216` y `trade-relojes:e-81f1114c1760` y tardó 76 s.
+Desde entonces sólo se reinicia el carril que cambió.
 
 ---
 
