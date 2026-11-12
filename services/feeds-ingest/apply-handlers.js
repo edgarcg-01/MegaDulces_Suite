@@ -480,36 +480,7 @@ async function applyRawUpsert(client, tenantId, rows, meta) {
     // se llena de errores que no son fallas — y un tablero con ruido se lee igual que uno apagado.
     // Default sin cambios: si `normalize` no viene, se comporta exactamente como antes.
     const normalizar = !(meta && meta.normalize === false);
-    const cfg = (schema === 'kepler_ods' && normalizar) ? ODS_NORMALIZERS[table] : null;
-    if (cfg && Array.isArray(rows) && rows.length) {
-      const skuCol = cfg.skuCol || pk[0];
-      const keys = Array.from(new Set(rows.map((r) => (r[skuCol] == null ? '' : String(r[skuCol]).trim())).filter(Boolean)));
-      if (keys.length) {
-        for (const norm of cfg.fns) {
-          // [DB-MEM.20] El caro no corre acá: se junta y se vacía por ventana. El precio SIGUE
-          // saliendo de la venta; lo que cambia es cada cuánto se recalcula la moda de 90 días.
-          const clave = `${table}:${norm.name}`;
-          if (COALESCIBLES.has(clave)) { acumular(clave, norm, keys); continue; }
-          // cada normalizador en su PROPIA tx → si uno falla, NO tumba a los otros ni al CDC (lo toma el barrido).
-          try { const nz = await conActor(client, norm.name, () => norm(client, tenantId, keys)); if (nz) console.log(`  [normalize:${table}:${norm.name}] ${nz} filas (${keys.length} llaves)`); }
-          catch (e) {
-            // `[CANON.6.10]` Ya no hay barrido nocturno que «lo tome»: se reintenta AQUÍ, partiendo el lote.
-            const r = await reintentarPorPartes(client, tenantId, norm, keys);
-            const tag = `  [normalize:${table}:${norm.name}] ⚠ ${String(e.message).slice(0, 140)}`;
-            if (!r.fallidas.length) console.error(`${tag} — se recuperó al reintentar: ${r.filas} filas (${keys.length} llaves)`);
-            else {
-              // `[CANON.6.11]` La falla definitiva queda como DATO en el momento (el log del pod se pierde en
-              // cada reinicio); el sensor `hop2_fallas` de db-health la lleva a la bandeja.
-              const reg = await registrarFalla(client, tenantId, table, norm.name, r.fallidas, keys.length, r.error);
-              console.error(`${tag} — reintentado por partes: ${r.filas} filas; ${r.fallidas.length} de ${keys.length} llaves siguen fallando`
-                + ` (${r.fallidas.slice(0, 5).join(', ')}${r.fallidas.length > 5 ? ', …' : ''}): ${String(r.error && r.error.message).slice(0, 120)}`
-                + ` — quedan como estaban hasta su próximo cambio; ${reg ? 'registrada en analytics.hop2_fallas'
-                  : 'NO se pudo registrar (¿falta la migración 20261112102727?)'}`);
-            }
-          }
-        }
-      }
-    }
+    if (schema === 'kepler_ods' && normalizar) await normalizarLlaves(client, tenantId, table, rows, pk);
     // [DB-MEM.20] FUERA del `if (cfg…)` a propósito: si `kdm2` deja de embarcar un rato, lo que ya
     // se juntó igual tiene que salir. Es no-op mientras no le toque la ventana, y nunca tira.
     if (schema === 'kepler_ods' && normalizar && pendientes.size) {
@@ -520,6 +491,42 @@ async function applyRawUpsert(client, tenantId, rows, meta) {
   } catch (e) {
     await client.query('ROLLBACK').catch(() => {});
     throw e;
+  }
+}
+
+/**
+ * Corre los normalizadores de `table` (ODS_NORMALIZERS) sobre las llaves de `rows`, cada uno en su PROPIA tx:
+ * si uno falla NO tumba a los otros ni al CDC. Lo usan `raw-upsert` (lo que llegó) y, desde `[CANON.6.14]`,
+ * `raw-delete` (lo que Kepler quitó). Nunca lanza por un normalizador: lo reintenta partiendo el lote y, si
+ * sigue fallando, lo deja como dato en `analytics.hop2_fallas`.
+ */
+async function normalizarLlaves(client, tenantId, table, rows, pk) {
+  const cfg = ODS_NORMALIZERS[table];
+  if (!cfg || !Array.isArray(rows) || !rows.length) return;
+  const skuCol = cfg.skuCol || pk[0];
+  const keys = Array.from(new Set(rows.map((r) => (r[skuCol] == null ? '' : String(r[skuCol]).trim())).filter(Boolean)));
+  if (!keys.length) return;
+  for (const norm of cfg.fns) {
+    // [DB-MEM.20] El caro no corre acá: se junta y se vacía por ventana. El precio SIGUE
+    // saliendo de la venta; lo que cambia es cada cuánto se recalcula la moda de 90 días.
+    const clave = `${table}:${norm.name}`;
+    if (COALESCIBLES.has(clave)) { acumular(clave, norm, keys); continue; }
+    try { const nz = await conActor(client, norm.name, () => norm(client, tenantId, keys)); if (nz) console.log(`  [normalize:${table}:${norm.name}] ${nz} filas (${keys.length} llaves)`); }
+    catch (e) {
+      // `[CANON.6.10]` Ya no hay barrido nocturno que «lo tome»: se reintenta AQUÍ, partiendo el lote.
+      const r = await reintentarPorPartes(client, tenantId, norm, keys);
+      const tag = `  [normalize:${table}:${norm.name}] ⚠ ${String(e.message).slice(0, 140)}`;
+      if (!r.fallidas.length) console.error(`${tag} — se recuperó al reintentar: ${r.filas} filas (${keys.length} llaves)`);
+      else {
+        // `[CANON.6.11]` La falla definitiva queda como DATO en el momento (el log del pod se pierde en
+        // cada reinicio); el sensor `hop2_fallas` de db-health la lleva a la bandeja.
+        const reg = await registrarFalla(client, tenantId, table, norm.name, r.fallidas, keys.length, r.error);
+        console.error(`${tag} — reintentado por partes: ${r.filas} filas; ${r.fallidas.length} de ${keys.length} llaves siguen fallando`
+          + ` (${r.fallidas.slice(0, 5).join(', ')}${r.fallidas.length > 5 ? ', …' : ''}): ${String(r.error && r.error.message).slice(0, 120)}`
+          + ` — quedan como estaban hasta su próximo cambio; ${reg ? 'registrada en analytics.hop2_fallas'
+            : 'NO se pudo registrar (¿falta la migración 20261112102727?)'}`);
+      }
+    }
   }
 }
 
@@ -558,6 +565,13 @@ async function applyRawDelete(client, tenantId, rows, meta) {
        VALUES ($1, now(), $2, $2)
        ON CONFLICT (table_name) DO UPDATE SET last_push_at=now()`, [table, del.rowCount]).catch(() => {});
     await client.query('COMMIT');
+    // `[CANON.6.14]` Lo que Kepler QUITA también se normaliza. Antes el borrado llegaba al ODS y nadie
+    // recalculaba: un SKU que Kepler eliminó de `kdii` dejaba vivos sus códigos de barras (y su precio, su
+    // promo…) hasta que un barrido los encontraba — medido el 12-nov: 4 de las 5 bajas de códigos que hizo
+    // `import-product-barcodes` en dos semanas eran SKUs que ya no existen en `kdii`. Los normalizadores
+    // recalculan desde lo que QUEDA (idempotentes); si la llave no viene en las filas del borrado (p. ej. el
+    // SKU de `kdik` va en `c2`, fuera de su PK), no corre nada.
+    if (del.rowCount && !(meta && meta.normalize === false)) await normalizarLlaves(client, tenantId, table, rows, pk);
     return del.rowCount;
   } catch (e) {
     await client.query('ROLLBACK').catch(() => {});
@@ -1153,7 +1167,7 @@ HANDLERS['raw-normalize'] = applyRawNormalize;
 
 module.exports = {
   HANDLERS, applyStockDelta, applyWincajaStock, applyWincajaSalesBronze, applyRawUpsert,
-  applyRawDelete, applyCdcHeartbeat, normalizeProductsFromOds, normalizeBrandsFromKdig, UUID_RE, conActor, reintentarPorPartes, registrarFalla,
+  applyRawDelete, applyCdcHeartbeat, normalizeProductsFromOds, normalizeBrandsFromKdig, normalizeBarcodesFromOds, UUID_RE, conActor, reintentarPorPartes, registrarFalla,
   normalizacionCoalescible, encolarNormalizacion,
   // [DB-MEM.20] Expuesto SOLO para `database/tests/test-newdb-price-coalesce.js`. Nada de
   // producción lo importa: el coalescedor se usa desde `applyRawUpsert`, que está arriba. Se

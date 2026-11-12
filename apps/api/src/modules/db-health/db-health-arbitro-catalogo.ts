@@ -41,7 +41,7 @@
  * éstos: es la alarma del hop-2 mismo.
  *
  * Sin acentos graves en los SQL de abajo: viven en template literals. Costo medido en prod el 12-nov:
- * markup ~85 ms, promo ~150 ms, nombres ~300–380 ms.
+ * markup ~85 ms, promo ~150 ms, nombres ~300–380 ms; marcas ~200–450 ms y códigos ~400 ms (CANON.6.12/6.14).
  */
 
 const T = `'00000000-0000-0000-0000-00000000d01c'`;
@@ -195,6 +195,50 @@ export const ARBITRO_MARCAS_SQL = `
   ${veredicto('catalogo_marcas_evento', 'marca', 'Medir: node database/importers/kepler/import-brands-lineas.js; cerrar: --apply', 'import-brands-lineas.js',
     ['feed_catalog/import-brands-lineas.js'],
     'sin tomar de Kepler (líneas sin marca, o productos en SIN-LINEA cuya línea ya es marca)')}`;
+
+/**
+ * `[CANON.6.14]` Códigos de barras: misma regla que `computeBarcodes` (`services/feeds-ingest/barcode-compute.js`)
+ * — por plaza, slots BASE c7/c93 (unidad c11, PZA si falta), U2 c82/c95 (c80), U3 c85 (c83); código real = 8–14
+ * dígitos, no todo ceros, distinto del SKU; un (sku, código) en varios slots se queda con el de mayor precedencia.
+ * Cuenta tres cosas que deben ser 0:
+ *   · faltan  — Kepler trae el código, el producto vive, y no hay fila viva con ese (sku, código);
+ *   · sobran  — fila viva `kepler_*` cuyo (sku, código) Kepler ya no trae (lo que se escapaba cuando Kepler BORRABA
+ *               una fila de `kdii`, antes de `[CANON.6.14]`);
+ *   · como Wincaja — fila viva `wincaja` de un (sku, código) que Kepler sí trae (el hop-2 la vuelve `kepler_*`).
+ * NO compara unidad ni factor: el mismo código con unidades distintas entre plazas se desempata en el orden en que
+ * llegan las filas, y eso no es determinista entre el sensor y el hop-2. Las filas `wincaja` cuyo código Kepler ya
+ * retiró tampoco cuentan: son decisión aparte (102 el 12-nov), no hueco del hop-2.
+ */
+//  Para contar PRESENCIA no hace falta la precedencia entre unidades: basta el conjunto (sku, código). Un slot cuya
+//  unidad no existe (c80 / c83 vacíos) no aporta código, como en `computeBarcodes`. Cada código viene repetido en
+//  las 9 plazas: se deduplica ANTES de la regex (medido en prod: la regex sobre los ~430 mil valores crudos costaba
+//  ~500 ms; el sensor entero pasó de ~1.1 s a ~400 ms en prod, con el mismo resultado).
+export const ARBITRO_CODIGOS_SQL = `
+  WITH kep AS MATERIALIZED (
+    SELECT sku, bc FROM (
+      SELECT DISTINCT btrim(k.c1) AS sku, btrim(v) AS bc
+        FROM kepler_ods.kdii k,
+             unnest(array_remove(ARRAY[k.c7, k.c93,
+               CASE WHEN btrim(coalesce(k.c80, '')) <> '' THEN k.c82 END,
+               CASE WHEN btrim(coalesce(k.c80, '')) <> '' THEN k.c95 END,
+               CASE WHEN btrim(coalesce(k.c83, '')) <> '' THEN k.c85 END], NULL)) AS v
+       WHERE btrim(coalesce(k.c1, '')) <> '') x
+     WHERE length(bc) BETWEEN 8 AND 14 AND bc ~ '^[0-9]{8,14}$' AND bc !~ '^0+$' AND ltrim(bc, '0') <> ltrim(sku, '0')),
+  pb AS MATERIALIZED (
+    SELECT btrim(sku) AS sku, barcode, source FROM catalog.product_barcodes
+     WHERE tenant_id = ${T} AND deleted_at IS NULL),
+  c AS MATERIALIZED (
+    SELECT ${VISTOS} AS vistos,
+           (SELECT count(*) FROM kep
+             WHERE EXISTS (SELECT 1 FROM catalog.products p WHERE p.tenant_id = ${T} AND btrim(p.sku) = kep.sku AND p.deleted_at IS NULL)
+               AND NOT EXISTS (SELECT 1 FROM pb WHERE pb.sku = kep.sku AND pb.barcode = kep.bc))
+         + (SELECT count(*) FROM pb WHERE pb.source LIKE 'kepler\\_%'
+               AND NOT EXISTS (SELECT 1 FROM kep WHERE kep.sku = pb.sku AND kep.bc = pb.barcode))
+         + (SELECT count(*) FROM pb WHERE pb.source = 'wincaja'
+               AND EXISTS (SELECT 1 FROM kep WHERE kep.sku = pb.sku AND kep.bc = pb.barcode)) AS difieren)
+  ${veredicto('catalogo_codigos_evento', 'código de barras', 'Medir: node database/importers/kepler/import-product-barcodes.js; cerrar: --apply', 'import-product-barcodes.js',
+    ['feed_prices/import-product-barcodes.js'],
+    'códigos sin tomar de Kepler (faltan, sobran o siguen como Wincaja)')}`;
 
 /**
  * `[CANON.6.11]` La alarma por EVENTO del hop-2: lo que el propio hop-2 escribió en `analytics.hop2_fallas`

@@ -423,7 +423,9 @@ const STEPS = {
     //
     // Sin `--apply` explícito: el runner ya lo agrega en modo aplicar (línea ~313); ponerlo acá
     // lo haría escribir también en un dry-run, que es justo lo que el dry-run evita.
-    path.join(K, 'import-product-barcodes.js'),                  // → catalog.product_barcodes (1 SKU → N, Kepler ∪ Wincaja)
+    // RETIRADO 2026-11-12 [CANON.6.14]: import-product-barcodes.js — lo de Kepler lo mantiene el hop-2 al llegar
+    // Y al borrarse una fila de kdii; lo de Wincaja venía de una foto congelada (29-sep) y sólo revivía, como
+    // CJA, códigos que Kepler había retirado (102 vivos así). El .js queda como herramienta manual, Kepler solo.
     // `[VPR.3]` 2026-10-05 — ESTE PASO YA NO ESCRIBE EL PRECIO. Pasaba `--sync` y competia con
     // `services/feeds-ingest/ods-derived.js`, que escribe la MISMA columna con la politica
     // contraria: este ponia lo que Kepler CONFIGURA (`kdii.c90`) y aquel lo que el PdV COBRA

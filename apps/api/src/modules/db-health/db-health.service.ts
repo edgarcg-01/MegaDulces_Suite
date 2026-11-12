@@ -8,7 +8,7 @@ import { Client } from 'pg';
 // ejercitarla de verdad: este archivo arrastra NestJS y `@megadulces/*`, así que un test de Node
 // no lo puede cargar y terminaría reimplementando la regla — que es no probarla.
 import { RECURRENCIA, recurrenciaLevantaLaMano } from './db-health-recurrencia';
-import { ARBITRO_MARCAS_SQL, ARBITRO_MARKUP_SQL, ARBITRO_NOMBRES_SQL, ARBITRO_PROMO_SQL, HOP2_FALLAS_SQL } from './db-health-arbitro-catalogo';
+import { ARBITRO_CODIGOS_SQL, ARBITRO_MARCAS_SQL, ARBITRO_MARKUP_SQL, ARBITRO_NOMBRES_SQL, ARBITRO_PROMO_SQL, HOP2_FALLAS_SQL } from './db-health-arbitro-catalogo';
 import { esCarrilRetirado, etiquetaBase, filasEstimadas, pctMuertas } from './db-health-lecturas';
 
 /**
@@ -901,6 +901,11 @@ const APP_SOURCES: SourceCfg[] = [
   {
     key: 'catalogo_marcas_evento', label: 'Catálogo por evento — marcas (árbitro)', table: 'catalog.brands', tsCandidates: [],
     sql: ARBITRO_MARCAS_SQL, warnH: 24, critH: 48, cadence: 'continuo (hop-2 al llegar kdig / kdii) — debe dar 0',
+  },
+  // `[CANON.6.14]` Códigos de barras por unidad: los mantiene el hop-2 al llegar Y al borrarse una fila de kdii.
+  {
+    key: 'catalogo_codigos_evento', label: 'Catálogo por evento — códigos de barras (árbitro)', table: 'catalog.product_barcodes', tsCandidates: [],
+    sql: ARBITRO_CODIGOS_SQL, warnH: 24, critH: 48, cadence: 'continuo (hop-2 al llegar o borrarse kdii) — debe dar 0',
   },
   // `[CANON.6.11]` La alarma por EVENTO del hop-2: lee lo que el propio hop-2 escribió al fallar (no compara).
   {
