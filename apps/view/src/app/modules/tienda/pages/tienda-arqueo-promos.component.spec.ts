@@ -97,4 +97,27 @@ describe('[MKT.18] TiendaArqueoPromosComponent', () => {
     await fixture.whenStable();
     expect(comp.datos()?.sucursal).toBe('03');
   });
+
+  it('⭐ admin sin sucursal propia: se le ofrece elegirla (no «revisa tu conexión»)', async () => {
+    TestBed.configureTestingModule({ imports: [TiendaArqueoPromosComponent], providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])] });
+    const fixture = TestBed.createComponent(TiendaArqueoPromosComponent);
+    fixture.detectChanges();
+    const http = TestBed.inject(HttpTestingController);
+    http.expectOne((q) => q.url === BASE).flush({ message: 'Tu usuario no tiene sucursal asignada.' }, { status: 400, statusText: 'Bad Request' });
+    await fixture.whenStable();
+    const comp = fixture.componentInstance;
+    expect(comp.pideSucursal()).toBe(true);
+    expect(comp.error()).not.toContain('conexión');
+  });
+
+  it('otro 4xx dice el motivo del servidor; sin respuesta se culpa a la conexión', async () => {
+    TestBed.configureTestingModule({ imports: [TiendaArqueoPromosComponent], providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])] });
+    const fixture = TestBed.createComponent(TiendaArqueoPromosComponent);
+    fixture.detectChanges();
+    const http = TestBed.inject(HttpTestingController);
+    http.expectOne((q) => q.url === BASE).flush({ message: 'No tienes permiso' }, { status: 403, statusText: 'Forbidden' });
+    await fixture.whenStable();
+    expect(fixture.componentInstance.error()).toBe('No tienes permiso');
+    expect(fixture.componentInstance.pideSucursal()).toBe(false);
+  });
 });

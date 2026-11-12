@@ -76,6 +76,8 @@ export class MktVendedorasService {
     }
     const dim = (await this.scope.current()).dims.warehouse;
     if (dim.modeWrite !== 'all' && dim.valuesWrite.length === 1) return dim.valuesWrite[0];
+    // Quien ve TODAS (admin, supervisión) no tiene «su» sucursal: que elija, no es un error de alta.
+    if (dim.modeWrite === 'all') throw new BadRequestException('Elige la sucursal: tienes acceso a todas.');
     throw new BadRequestException(dim.valuesWrite.length > 1
       ? `Elige la sucursal: tienes ${dim.valuesWrite.length} asignadas.`
       : 'Tu usuario no tiene sucursal asignada.');

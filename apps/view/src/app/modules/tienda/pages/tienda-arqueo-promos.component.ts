@@ -174,16 +174,22 @@ export class TiendaArqueoPromosComponent {
     stream: ({ params }) => this.api.tickets(params.sucursal, params.dias),
   });
   readonly datos = computed<TicketsDeTurnos | undefined>(() => (this.res.hasValue() ? this.res.value() : undefined));
-  private readonly mensajeError = computed(() => {
-    const e = this.res.error() as { error?: { message?: string } } | undefined;
-    return e ? (e.error?.message ?? '') : null;
+  private readonly falla = computed(() => {
+    const e = this.res.error() as { status?: number; error?: { message?: string } } | undefined;
+    return e ? { status: e.status ?? 0, mensaje: e.error?.message ?? '' } : null;
   });
-  /** El servidor pide sucursal cuando el usuario tiene varias asignadas. */
-  readonly pideSucursal = computed(() => !!this.mensajeError()?.startsWith('Elige la sucursal'));
+  /**
+   * El servidor pide sucursal cuando el usuario tiene varias, todas (admin/supervisión) o ninguna
+   * asignada. En todos esos casos se ofrece elegirla: la sucursal sigue validándose en el servidor.
+   */
+  readonly pideSucursal = computed(() => /sucursal/i.test(this.falla()?.mensaje ?? '') && this.falla()?.status === 400);
   readonly error = computed(() => {
-    const m = this.mensajeError();
-    if (m === null) return null;
-    return m.startsWith('Elige la sucursal') ? 'Elige la sucursal arriba para ver sus tickets.' : 'No se pudieron cargar los tickets. Revisa tu conexión y vuelve a intentar.';
+    const f = this.falla();
+    if (!f) return null;
+    if (this.pideSucursal()) return 'Elige la sucursal arriba para ver sus tickets.';
+    // Un 4xx trae su motivo: se dice tal cual. Sólo sin respuesta del servidor se culpa a la conexión.
+    if (f.status >= 400 && f.status < 500 && f.mensaje) return f.mensaje;
+    return 'No se pudieron cargar los tickets. Revisa tu conexión y vuelve a intentar.';
   });
 
   valor(t: TicketConPromo): string | null {
