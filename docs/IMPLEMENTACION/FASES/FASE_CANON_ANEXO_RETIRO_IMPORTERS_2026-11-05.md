@@ -736,5 +736,19 @@ en verde. La nota dice cuántos y con qué script se miden y se cierran. Torre: 
   negativa de ceguera y cuatro mutantes en rojo. Lo que este árbitro NO ve: que la regla misma esté mal.
 - Llega con el despliegue de la API (no de la ingesta). Si la API sale antes que la ingesta, el sensor de markup
   dirá `warn` hasta entonces — es verdad, no ruido.
+- ⚠️ **Sí corre con reloj** (Edgar preguntó, 2026-11-12): el escáner de `db-health` es un `@Cron` de la API, cada
+  5 min; no agregué uno, le agregué 3 consultas. Decisión de Edgar: **1 + 2**:
+  1. **Alarma por evento:** cuando un normalizador sigue fallando después de reintentar, el hop-2 escribe la falla
+     en `analytics.hop2_fallas` en ese momento (tabla, normalizador, llaves, lote, error; migración
+     `20261112102727`). Antes quedaba sólo en el log del pod, que se pierde en cada reinicio. El sensor
+     `hop2_fallas` sólo LEE esa tabla (no compara nada): una falla en 24 h → warn. Llega a la bandeja en el
+     siguiente escaneo (≤ 5 min); abrirla al instante exigiría que el escáner deje de cerrar las alertas que él no
+     evalúa — cambio aparte, no hecho.
+  2. **Fecha de retiro de los tres árbitros, como condición medible:** cada uno pide su propio retiro (warn
+     «CUMPLIÓ … retirar este sensor») cuando su script nocturno lleva 30 días sin correr y en esos 30 días no
+     tuvo ni una alerta. Con la ingesta desplegada esta semana, cae a mediados de diciembre. Lo que el evento
+     solo no puede ver —un cambio que nunca llegó, sin error, como el del 9-nov— es justo lo que cubren mientras
+     tanto. `hop2_fallas` no se retira con ellos: es la alarma del hop-2 mismo.
+  Pruebas: `hop2_fallas` 8 ✓ (ejerce el `up()` real de la migración), árbitro 16 ✓; seis mutantes en rojo.
 - `repoint-catalog-names` sale del nocturno y queda manual con la misma función del hop-2; se quitó `--source=kp`.
   Prueba: 13 ✓ con tres negativas y tres mutantes en rojo.
