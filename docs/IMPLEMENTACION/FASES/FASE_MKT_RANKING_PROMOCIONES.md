@@ -87,6 +87,22 @@ Permisos: **sin claves nuevas** — `MKT_AGREEMENTS_VER` (ve) y `MKT_AGREEMENTS_
 
 **Límites declarados:** el ranking pasó de ~0.5 s a ~2.5 s por la identificación (corre en paralelo con lo demás); Objetivos tarda ~2 s más. Si molesta, se guarda el resultado por semana cerrada. No hay corrección manual del producto (no se pidió): si Marketing la necesita, va como item aparte.
 
+## 6c. `[MKT.16]`–`[MKT.18]` — filtros, objetivo dinámico y quién vendió (2026-11-11)
+
+**Pedido:** filtros por sucursal, promoción, venta y canal; ranking de promociones; «quién hizo la venta», ligado al arqueo para que las cajeras lo escriban; objetivo dinámico. Decisiones del dev responsable: dinámico = se recalcula solo cada semana; captura por ticket, precargada de Kepler; lista = quien checó en el reloj (RH no tiene plantilla con puestos); opcional, no bloquea el arqueo; filtro de venta = cumplida / no cumplida / sin venta.
+
+| Item | Qué | Dato que lo sostiene |
+|---|---|---|
+| MKT.16 | Vista «Por promoción» (misma regla: `puntaje` + `ordenarRanking`); filtro de promoción recalculado en el servidor (`?promo=`, id inválido = 400); sucursal filtra filas y recalcula el ranking de promos (`?sucursales=`); estado sobre los renglones | — |
+| MKT.17 | Sin objetivo fijado → **dinámico** de esa semana (promedio de las 4 previas en la vigencia, hacia arriba, mín. 1), calculado al consultar, no guardado; lo fijado gana; se quitan «Sugerir los que faltan» / «Llenar vacíos» | HTTP: dinámico DM007 = ceil(4 semanas ÷ 4) por SQL directo |
+| MKT.18 | Pestaña del arqueo «Promociones vendidas»: la cajera elige quién vendió cada ticket con promo de sus turnos; ranking «Por vendedora» (mostrador) que declara la cobertura | Kepler no sabe quién vendió (148/149 tickets de PH a nombre de «PISO»); `kdm1.c80` liga el ticket a su turno 543/543; `hr.employees` = 0 filas, reloj: 57 personas en PH en 30 días |
+
+**MKT.18 — reglas:** la tabla `commercial.mkt_promo_ticket_sellers` guarda sólo QUIÉN (clave del reloj + nombre de ese momento); ticket, promos y cantidades se leen de Kepler. El servidor vuelve a buscar cada ticket en los turnos de quien guarda (o la sucursal si supervisa: misma regla que el arqueo para revelar) y pone el nombre. Sin claves nuevas (`STORE_ARQUEO_CAPTURAR`).
+
+**Pruebas:** HTTP local 61/61, dos corridas sin rastro; frontend comercial+tienda 889/889 + 4 de la pestaña; migración: 4 negativas + down→up→up; prod (sólo lectura): lista del reloj 93 ms, tickets del turno 377 ms. **NO MEDIDO:** el alcance de una cajera sin permiso de supervisor (no hay ese usuario en local). Sin validación visual.
+
+**Antes de soltar:** aplicar en prod `20261111131929` y `20261111173031` (en ese orden, una por una). Base local: se aplicaron además 6 migraciones de RH que faltaban (`hr_attendance` … `hr_secciones_por_ficha`) para poder probar.
+
 ## 7. Pendiente / abierto
 
 - ⚠️ Ratificación del PM (fase nueva en Fase 0) y fila en el roadmap.
