@@ -71,7 +71,7 @@ import { HealthAlertToastComponent } from './health-alert-toast.component';
 import { NotificationsBellComponent } from './notifications-bell.component';
 
 /** Clave interna de proyecto de este layout: indexa los `*NavGroups` escritos a mano (deuda SN). */
-type LayoutProject = 'trademk' | 'comercial' | 'admin' | 'logistica' | 'tienda' | 'reparto' | 'finanzas' | 'contabilidad' | 'almacen' | 'compras' | 'telemarketing' | 'desarrolladores' | 'servicio' | 'rh' | 'sucursal';
+type LayoutProject = 'trademk' | 'mkt' | 'comercial' | 'admin' | 'logistica' | 'tienda' | 'reparto' | 'finanzas' | 'contabilidad' | 'almacen' | 'compras' | 'telemarketing' | 'desarrolladores' | 'servicio' | 'rh' | 'sucursal';
 
 /** `AuthzProject.id` → clave interna. Lo que no está acá (whatsapp) cae al default. */
 const PROJECT_KEY: Readonly<Record<string, LayoutProject>> = {
@@ -94,6 +94,9 @@ const PROJECT_KEY: Readonly<Record<string, LayoutProject>> = {
   rh: 'rh',
   // `[AB.46]` Pendientes de sucursal: módulo propio.
   sucursal: 'sucursal',
+  // `[MKT.20]` MKT es proyecto propio desde `[MKT.0]` (2026-09-28), pero aquí faltaba: caía al default
+  // `trademk` y Mercadotecnia veía el menú de Auditoría en ruta (Dashboard, Captura Diaria, Mapas…).
+  mkt: 'mkt',
 };
 
 interface NavItem {
@@ -426,7 +429,13 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Supervisor IA',     icon: 'pi pi-sparkles',      route: '/dashboard/supervisor-ai',        permission: Permission.SUPERVISOR_AI_VER     },
     { label: 'Asignación Diaria', icon: 'pi pi-calendar-plus', route: '/dashboard/daily-assignments',    permission: Permission.USUARIOS_ASIGNAR_RUTA },
     { label: 'Tiendas',           icon: 'pi pi-building',      route: '/dashboard/stores',               permission: Permission.TIENDAS_VER           },
-    // [NAV.1] Las cuatro de MKT (`/mkt/*`) en UNA entrada. Ninguna tenía entrada de sidebar en ningún proyecto: vivían sólo en su barra.
+  ];
+
+  /**
+   * `[MKT.20]` El menú de MKT: una sola entrada (antes vivía en el de Auditoría en ruta, `[NAV.1]`).
+   * Las secciones se cambian desde la lista de la propia pantalla (`app-page-tabs` variante menú).
+   */
+  private mktNavItems: NavItem[] = [
     { label: 'Promociones MKT', icon: 'pi pi-megaphone', route: '/mkt/promotions', tabs: PROMOS_TABS },
   ];
 
@@ -1138,6 +1147,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
     if (this.currentProject() === 'reparto') {
       return this.dedupeByRoute(this.repartoNavItems.filter((i) => this.hasPermFor(i)));
     }
+    if (this.currentProject() === 'mkt') {
+      return this.dedupeByRoute(this.mktNavItems.filter((i) => this.hasPermFor(i)));
+    }
     // Finanzas: superficie contable con nav propio, sin depender del dashboard completo
     // (un usuario de finanzas puede no tener REPORTES_VER_*). Cada item por su permiso:
     // el route-guard bloquea la navegación pero no oculta el link.
@@ -1230,6 +1242,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
     // COMPRAS_ENTRADAS_VER a un auxiliar "le daba acceso a todo Compras".
     if (this.currentProject() === 'reparto') {
       return this.mapGroups([{ title: 'Reparto', items: this.repartoNavItems }], true);
+    }
+    if (this.currentProject() === 'mkt') {
+      return this.mapGroups([{ title: 'Mercadotecnia', items: this.mktNavItems }], true);
     }
     if (this.currentProject() === 'finanzas') {
       return this.mapGroups(this.finanzasNavGroups, true);

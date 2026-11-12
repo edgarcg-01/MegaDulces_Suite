@@ -664,6 +664,73 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       },
     ],
   },
+  // [MKT.11] Ranking de promociones (antes el Excel «RANKING SEMANA NN» de Mercadotecnia).
+  'mkt-ranking': {
+    title: 'Ranking de promociones — cómo se calcula',
+    intro: 'Mide qué tanto se aplicaron las promociones de la semana en cada sucursal o vendedor. La venta sale sola de Kepler: lo único que captura Mercadotecnia es qué promociones cuentan y su objetivo.',
+    groups: [
+      {
+        heading: 'Las cifras',
+        entries: [
+          { term: 'Venta', def: 'Las veces que se aplicó el código de la promoción en Kepler, de lunes a domingo. En sucursales cuenta el mostrador; vecinal, rutas y televenta tienen su propio ranking.' },
+          { term: 'Objetivo', def: 'Cuántas veces debe aplicarse por semana. Si Mercadotecnia fija uno, gana el suyo; si no, va el dinámico.' },
+          { term: 'Dinámico', def: 'El objetivo que se calcula solo cada semana: el promedio de lo aplicado en las 4 semanas anteriores dentro de la vigencia, hacia arriba y mínimo 1. Sin ninguna semana de historia no hay dinámico: la promoción queda sin objetivo.' },
+          { term: 'Producto', def: 'El producto que activa la promoción y lo vendido de él en la semana. Kepler no liga el código con el producto: se deduce de los tickets donde se aplicó y de su nombre; si no se puede, dice «sin identificar».' },
+          { term: 'Por promoción', def: 'El mismo cálculo visto al revés: cada promoción con el cubrimiento promedio de las sucursales o vendedores que la tienen, y cuántos llegaron a su objetivo.' },
+          { term: 'Cubrimiento', def: 'Venta entre objetivo, con tope de 100 % por promoción: cumplir de más una promoción no tapa las que no se cumplieron.' },
+          { term: 'Lugar', def: 'El promedio del cubrimiento de las promociones CON objetivo. Las que no tienen objetivo se cuentan aparte y no como cero; quien no tiene ningún objetivo queda sin lugar.' },
+          { term: 'Regalos en existencia', def: 'La existencia del código de la promoción según Kepler (los regalos disponibles). No es un conteo físico.' },
+        ],
+      },
+      {
+        heading: 'Por qué se da de alta',
+        entries: [
+          { term: 'Vigencia', def: 'Kepler no guarda cuándo empieza ni cuándo termina una promoción, y reutiliza el mismo código para otra. Por eso se da de alta con su vigencia; al vencer deja de contar sola.' },
+          { term: 'Código reutilizado', def: 'Si Kepler vendió el código con otra descripción, el detalle lo avisa: puede ser otra promoción con el mismo código.' },
+        ],
+      },
+    ],
+  },
+  // [MKT.18] Pestaña del arqueo: quién vendió cada ticket con promoción.
+  'arqueo-promos': {
+    title: '¿Quién vendió las promociones?',
+    intro: 'Kepler sabe qué promociones llevó cada ticket, pero en el mostrador no sabe quién lo vendió: todo sale a nombre de «piso». Aquí lo dices tú, ticket por ticket. No es obligatorio y no cambia tu arqueo.',
+    groups: [
+      {
+        heading: 'Cómo se llena',
+        entries: [
+          { term: 'Los tickets', def: 'Los de tus turnos que llevan una promoción que Mercadotecnia está midiendo, tal como los registró Kepler: folio, caja y cuántas veces se aplicó cada promoción. No hay que teclear cantidades.' },
+          { term: 'La persona', def: 'Sale de quien checó en el reloj de tu sucursal en los últimos 30 días. Si alguien no aparece, es que no ha checado: avisa a RH.' },
+          { term: 'Asignar los vacíos', def: 'Pone a la misma persona en todos los tickets que todavía no tienen. Revisa antes de guardar: puedes cambiar cualquiera.' },
+          { term: 'Guardar', def: 'Nada se guarda hasta que presionas «Guardar». Si sales con cambios, la pantalla te avisa.' },
+        ],
+      },
+    ],
+  },
+  // [MKT.14] Incentivos de venta (antes los bloques «PESOS POR CAJAS» del Excel).
+  'mkt-incentivos': {
+    title: 'Incentivos de venta — cómo se calcula el pago',
+    intro: 'Lo que se le paga a cada vendedor por vender ciertos productos. La regla se captura una vez y el pago sale de la venta de Kepler. Esta pantalla calcula; no paga ni escribe en nómina.',
+    groups: [
+      {
+        heading: 'Cómo se paga',
+        entries: [
+          { term: 'Por caja vendida', def: 'Las unidades vendidas entre el factor de caja de la ficha de Kepler de esa sucursal. Si la ficha no tiene factor, esas ventas se muestran aparte y no se pagan hasta corregirla.' },
+          { term: 'Por cada monto vendido', def: 'El importe vendido (con impuestos) entre el monto de la regla. Ejemplo:  por cada 20.' },
+          { term: 'Por cliente distinto', def: 'Clientes distintos a los que se les vendió en la semana; se mide y se paga por semana.' },
+          { term: 'Por exhibidor colocado', def: 'Kepler no lo registra: Mercadotecnia lo captura por vendedor cada semana.' },
+          { term: 'Sólo unidades completas', def: 'Si se marca, no se pagan fracciones (2.9 cajas pagan 2). Sin marcar se paga la fracción, como en el Excel.' },
+        ],
+      },
+      {
+        heading: 'Semana y acumulado',
+        entries: [
+          { term: 'Acumulado', def: 'Lo ganado desde que empezó el incentivo hasta el domingo de la semana elegida.' },
+          { term: 'A pagar esta semana', def: 'La diferencia entre el acumulado de esta semana y el de la anterior.' },
+        ],
+      },
+    ],
+  },
   'almacen-existencia-negativa': {
     title: 'Existencia negativa — guía',
     intro: 'Productos que Kepler tiene en negativo hoy en una sucursal: salió más de lo que entró. Kepler deja vender sin existencia y la pantalla de Existencia lo muestra como 0, así que aquí es donde se ve. Se corrige en Kepler; aquí se registra qué pasó.',

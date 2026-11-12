@@ -72,6 +72,8 @@ import { CommercialPromoAgreementsModule } from '@megadulces/commercial';
 // [MKT.6] La otra mitad: el expediente prueba que se EJECUTÓ, esto mide si SIRVIÓ (venta del
 // ERP contra una línea base del mismo largo). Sólo lectura y sin permisos nuevos.
 import { CommercialPromoSelloutModule } from '@megadulces/commercial';
+// [MKT.10] Ranking de promociones e incentivos de Marketing (reemplaza el Excel semanal).
+import { MktRankingModule } from '@megadulces/commercial';
 import { CommercialReplenishmentModule, CommercialMovementsModule, CommercialLabelsModule, CommercialSalesDocumentsModule, CommercialBiAlmacenModule, CommercialTicketsModule } from '@megadulces/commercial';
 // Resolvedor universal de refs — "todo es clickeable" (/compras/entradas, /compras/compras-360)
 import { EntityRefModule } from '@megadulces/commercial';
@@ -216,6 +218,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       CommercialPosVoidsModule,
       CommercialPromoAgreementsModule,
       CommercialPromoSelloutModule,
+      MktRankingModule,
       CommercialOrdersModule,
       CommercialPaymentsModule,
       CommercialHomeDeliveryModule,

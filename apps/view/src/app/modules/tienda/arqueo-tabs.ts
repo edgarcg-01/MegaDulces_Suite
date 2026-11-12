@@ -23,4 +23,6 @@ export const ARQUEO_TABS: PageTab[] = [
   // por cajera, o sea un historial — justo lo que no debe tener. Con un solo
   // tab visible la barra se oculta sola (ver comentario de arriba).
   { label: 'Por cajera', route: '/tienda/arqueos', icon: 'pi pi-users', permission: Permission.RECONCILIATION_VER },
+  // [MKT.18] Quién vendió los tickets con promoción del turno: lo escribe quien captura el arqueo.
+  { label: 'Promociones vendidas', route: '/tienda/arqueo/promociones', icon: 'pi pi-tags', permission: Permission.STORE_ARQUEO_CAPTURAR },
 ];

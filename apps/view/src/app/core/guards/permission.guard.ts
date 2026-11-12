@@ -203,6 +203,8 @@ export const comercialHomeGuard: CanActivateFn = landingRedirectGuard(COMERCIAL_
 
 /** `[MKT.0]` Promociones y Promos ERP salieron de COMERCIAL_LANDING y viven acá. */
 export const MKT_LANDING: LandingCandidate[] = withTreeCandidates('mkt', [
+  // [MKT.11] El ranking semanal es la superficie que Mercadotecnia usa; el motor de promociones está vacío.
+  { perm: Permission.MKT_AGREEMENTS_VER, url: '/mkt/ranking' },
   { perm: Permission.COMMERCIAL_PROMOTIONS_VER, url: '/mkt/promotions' },
   { perm: Permission.COMMERCIAL_ERP_PROMOS_VER, url: '/mkt/erp-promos' },
 ]);
