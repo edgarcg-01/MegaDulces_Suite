@@ -658,7 +658,18 @@ export class FinanceBankService {
         : null;
       return {
         total,
-        rows: rows.map((r: any) => {
+        // La fila sale de un `select('*')` sobre la unión libro + descarga, así que además de las
+        // columnas que esta función toca arrastra las del esquema que el llamador reexpide con el
+        // spread. Se nombran las que se leen y el resto queda `unknown`: tipado real, sin `any`.
+        rows: rows.map((r: {
+          id: string;
+          fuente: string;
+          sync_source?: string | null;
+          amount_in: unknown;
+          amount_out: unknown;
+          running_balance: unknown;
+          [columna: string]: unknown;
+        }) => {
           const cat = r.fuente === 'descarga' ? catDeDescarga(r.id) : null;
           return {
             ...r,

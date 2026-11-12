@@ -81,8 +81,12 @@ import { BANCOS_STYLES } from './bancos.styles';
         <span class="muted">· {{ d.trae | number }} coinciden</span>
       </div>
     }
-    <div class="card-premium card-flat fb-tablewrap">
-      <p-table [value]="movements()" dataKey="id" [expandedRowKeys]="expandidas()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="58vh"
+    <!-- dt-scope + dt-stack: con la columna «Descarga» la cabecera llega a 8 columnas, y son CAMPOS
+         de un movimiento, así que en estrecho cada fila se apila con su rótulo (DESIGN_TABLES §"Tabla
+         estrecha"). styleClass dejó de existir en p-table con PrimeNG v22 (falla muda: no aplicaba
+         nada), por eso la densidad vuelve por size="small". -->
+    <div class="card-premium card-flat fb-tablewrap dt-scope">
+      <p-table [value]="movements()" dataKey="id" [expandedRowKeys]="expandidas()" size="small" class="dt-stack" [rowHover]="true" [scrollable]="true" scrollHeight="58vh"
                [paginator]="movements().length > 50" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]">
         <ng-template #header>
           <tr>
@@ -102,25 +106,25 @@ import { BANCOS_STYLES } from './bancos.styles';
               [class.fb-uncat]="!m.category_id && !colorByGroup() && m.fuente !== 'descarga'"
               [class.fb-row-desc]="m.fuente === 'descarga'"
               [attr.aria-expanded]="abierta() === m.id" (click)="openMov(m)" tabindex="0" role="button" (keyup.enter)="openMov(m)">
-            <td class="mono">{{ dm(m.movement_date) }}</td>
-            <td class="muted">{{ m.account_label }}</td>
-            <td class="fb-concept" [title]="m.concept">{{ m.concept || '—' }}</td>
-            <td>
+            <td role="cell" data-label="Fecha" class="mono">{{ dm(m.movement_date) }}</td>
+            <td role="cell" data-label="Cuenta" class="muted">{{ m.account_label }}</td>
+            <td role="cell" data-label="Concepto" class="fb-concept" [title]="m.concept">{{ m.concept || '—' }}</td>
+            <td role="cell" data-label="Categoría">
               @if (m.category_name) { <span class="fb-cat-chip">{{ m.category_name }}</span> }
               @else if (m.fuente === 'descarga') { <span class="fb-cat-chip fb-cat-none">el banco no dice qué es</span> }
               @else { <span class="fb-cat-chip fb-cat-none">sin clasificar</span> }
             </td>
-            <td class="ta-r mono">{{ m.amount_in ? (m.amount_in | currency:'MXN':'symbol-narrow':'1.2-2') : '' }}</td>
-            <td class="ta-r mono">{{ m.amount_out ? (m.amount_out | currency:'MXN':'symbol-narrow':'1.2-2') : '' }}</td>
+            <td role="cell" data-label="Depósito" class="ta-r mono">{{ m.amount_in ? (m.amount_in | currency:'MXN':'symbol-narrow':'1.2-2') : '' }}</td>
+            <td role="cell" data-label="Retiro" class="ta-r mono">{{ m.amount_out ? (m.amount_out | currency:'MXN':'symbol-narrow':'1.2-2') : '' }}</td>
             @if (descarga()) {
-              <td class="fb-desc-c">
+              <td role="cell" data-label="Descarga" class="fb-desc-c">
                 @if (m.fuente === 'descarga') { <span class="fb-desc-solo" [class.fb-desc-falta]="m.motivo === 'falta_en_libro'">{{ motivoCorto(m.motivo) }}</span> }
                 @else if (m.en_descarga === 'trae') { <i class="pi pi-check fb-desc-ok" aria-hidden="true"></i><span class="sr-only">La descarga lo trae</span> }
                 @else if (m.en_descarga === 'es_descarga') { <span class="muted">de ahí</span> }
                 @else if (m.en_descarga === 'no_trae') { <span class="fb-desc-no">no viene</span> }
               </td>
             }
-            <td class="ta-c">
+            <td role="cell" data-label="Conciliación" class="ta-c">
               @if (m.recon_status === 'matched') { <i class="pi pi-check-circle fb-rec-ok" title="Conciliado con Kepler"></i> }
               @else if (m.recon_status === 'unmatched') { <i class="pi pi-circle fb-rec-no" title="Sin conciliar"></i> }
             </td>
