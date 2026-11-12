@@ -378,7 +378,10 @@ const STEPS = {
     // 10 ya eran vistas y 5 congeladas; lo pendiente era lo escrito ese día por la app y la carga de RH.
   ],
   catalog: [
-    path.join(K, 'import-brands-lineas.js'), // líneas kdig → brands nuevas (si falta la línea, el producto se descarta abajo)
+    // RETIRADO 2026-11-12 [CANON.6.12]: import-brands-lineas.js — una línea nueva de Kepler es marca AL
+    // LLEGAR (`normalizeBrandsFromKdig`, hop-2 de `kdig`), y sus productos salen de SIN-LINEA. Aquí, los
+    // sábados, una línea nueva esperaba hasta 7 días y sus productos se quedaban en SIN-LINEA para siempre
+    // (31 vivos el 12-nov). El .js queda como herramienta manual.
     // CANON.0.2 (2026-08-21) — RETIRADOS los 2 escritores .245 (Mega_Dulces) → mata la fuente .245 (7→6):
     //   · import-catalog-bulk.js  — su COSTO ya lo cubre repoint-catalog-cost (CANON.0.1); nombre/precio/
     //     presencia/barcode los cubren los repoints ODS (CANON.1.3). Los campos ESTÁTICOS que solo él

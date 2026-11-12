@@ -676,26 +676,34 @@ async function normalizeProductsFromOds(client, tenantId, skus) {
     //     se valida renglón por renglón, el NOT EXISTS sólo ve el estado previo, y un 23505 revertía
     //     TODOS los SKUs del lote. Pasa el de clave menor; el otro queda como estaba (igual que antes
     //     con el barrido, que deduplicaba por la misma razón).
+    //   · `[CANON.6.12]` un producto que entró a SIN-LINEA (su línea todavía no era marca) pasa a la marca
+    //     de su línea en cuanto ésta existe. Antes NADIE lo movía: el alta de marcas sólo creaba la marca y
+    //     este UPDATE sólo cambiaba marca al renombrar — 31 productos vivos se quedaron en SIN-LINEA con su
+    //     marca ya creada (KURUMAYA, COLOMBINA, PERFETTI…; medido en prod el 12-nov). Sólo desde SIN-LINEA:
+    //     una marca puesta a mano (dedup de CANON.1.3b) no se toca.
     const idn = (await client.query(`
       WITH cand AS (
         SELECT p.id, p.sku, s.nombre,
                CASE WHEN btrim(upper(p.nombre)) <> btrim(upper(s.nombre)) THEN COALESCE(s.brand_id, p.brand_id)
+                    WHEN p.brand_id = $2::uuid AND s.brand_id IS NOT NULL THEN s.brand_id
                     ELSE p.brand_id END AS marca,
                ${BARCODE_CASE} AS cb,
-               (p.nombre IS DISTINCT FROM s.nombre) AS renombra
+               -- cambia su llave única (marca, nombre): se renombra o sale de SIN-LINEA
+               -- (coalesce: sin marca SIN-LINEA, $2 es NULL y un NULL aquí sacaría la fila de las DOS ramas de ok)
+               (p.nombre IS DISTINCT FROM s.nombre OR coalesce(p.brand_id = $2::uuid AND s.brand_id IS NOT NULL, false)) AS mueve
           FROM catalog.products p JOIN snap_p s ON s.sku = p.sku
          WHERE p.tenant_id=$1 AND p.deleted_at IS NULL),
       ok AS (
-        SELECT id, nombre, marca, cb FROM cand WHERE NOT renombra
+        SELECT id, nombre, marca, cb FROM cand WHERE NOT mueve
         UNION ALL
-        SELECT * FROM (SELECT DISTINCT ON (marca, nombre) id, nombre, marca, cb FROM cand WHERE renombra
+        SELECT * FROM (SELECT DISTINCT ON (marca, nombre) id, nombre, marca, cb FROM cand WHERE mueve
                         ORDER BY marca, nombre, sku) d)
       UPDATE catalog.products p SET nombre=ok.nombre, brand_id=ok.marca, barcode=ok.cb, updated_at=now()
       FROM ok
       WHERE p.id = ok.id
         AND ( p.nombre IS DISTINCT FROM ok.nombre OR p.barcode IS DISTINCT FROM ok.cb OR p.brand_id IS DISTINCT FROM ok.marca )
         AND NOT EXISTS (SELECT 1 FROM catalog.products p2 WHERE p2.tenant_id=$1 AND p2.id<>p.id
-                          AND p2.brand_id=ok.marca AND p2.nombre=ok.nombre)`, [tenantId])).rowCount;
+                          AND p2.brand_id=ok.marca AND p2.nombre=ok.nombre)`, [tenantId, fallback])).rowCount;
 
     // El PRECIO ya no se escribe acá. Vivía como "UPSERT c90 > 0.05" tomando la fila de CEDIS
     // primero y sin una sola validación — era el escritor que estampaba las plantillas de kdii
@@ -708,6 +716,86 @@ async function normalizeProductsFromOds(client, tenantId, skus) {
     await client.query('ROLLBACK').catch(() => {});
     throw e;
   }
+}
+
+/**
+ * `[CANON.6.12]` Líneas de Kepler (`kepler_ods.kdig`: c1 = código, c2 = nombre del proveedor/marca) →
+ * `catalog.brands`, AL LLEGAR la línea. Lo hacía `import-brands-lineas.js` los sábados a las 02:00: una línea
+ * nueva dejaba sus productos en SIN-LINEA hasta 7 días — y después para siempre, porque nadie los movía.
+ *
+ * Las reglas del script, sin cambios (la normalización manual de marcas es intocable; sólo ALTAS, nunca
+ * renombra ni borra):
+ *   · el código ya es de una marca viva                    → nada.
+ *   · el nombre ya es de una marca viva SIN código          → la marca adopta el código.
+ *   · el nombre ya es de una marca viva con OTRO código     → conflicto: nada (dos líneas de Kepler, una marca).
+ *   · el nombre es de una marca BORRADA                     → nada (se borró a propósito en la dedup; la unique
+ *                                                            de nombre cuenta las borradas).
+ *   · si no                                                 → alta, nombre en mayúsculas y espacios colapsados.
+ * La precedencia también es la del script: el nombre de un código sale de la sucursal menor que lo trae, y
+ * entre dos códigos nuevos con el mismo nombre gana el que aparece primero (sucursal menor, código menor).
+ * Por eso se calcula sobre TODO `kdig` (~5 mil filas) y se acota a los NOMBRES de las líneas que llegaron:
+ * una línea que pierde el desempate no deja sin alta al ganador que no vino en este lote.
+ *
+ * Después mueve a la marca nueva los productos vivos que estaban en SIN-LINEA con esas líneas — con el mismo
+ * `normalizeProductsFromOds` (su regla SIN-LINEA → marca de la línea), en su propia transacción.
+ *
+ * `codes` = códigos de línea que llegaron; `null` = todas (la herramienta manual `import-brands-lineas.js`).
+ * @returns {Promise<number>} marcas dadas de alta + códigos adoptados + productos movidos
+ */
+async function normalizeBrandsFromKdig(client, tenantId, codes) {
+  assertTenant(tenantId);
+  const todas = codes == null;
+  if (!todas && (!Array.isArray(codes) || !codes.length)) return 0;
+  const lineas = todas ? null : [...new Set(codes.map((c) => String(c).trim()).filter(Boolean))];
+  let marcas = 0;
+  let skus = [];
+  await client.query('BEGIN');
+  try {
+    await client.query(`SET LOCAL app.tenant_id = '${tenantId}'`);
+    // k: un renglón por código (su nombre, de la sucursal menor). n: los códigos sin marca viva, y de ésos
+    // UNO por nombre (el que gana el desempate). Acotado a los nombres de las líneas que llegaron.
+    await client.query(`
+      CREATE TEMP TABLE kdig_n ON COMMIT DROP AS
+      WITH k AS (
+        SELECT DISTINCT ON (btrim(c1)) btrim(c1) AS code, upper(btrim(regexp_replace(c2, '\\s+', ' ', 'g'))) AS nombre,
+               btrim(sucursal) AS suc
+          FROM kepler_ods.kdig
+         WHERE btrim(coalesce(c1, '')) <> '' AND btrim(coalesce(c2, '')) <> ''
+         ORDER BY btrim(c1), btrim(sucursal))
+      SELECT DISTINCT ON (k.nombre) k.code, k.nombre
+        FROM k
+       WHERE NOT EXISTS (SELECT 1 FROM catalog.brands b WHERE b.tenant_id = $1 AND b.deleted_at IS NULL AND btrim(b.code) = k.code)
+         AND ($2::text[] IS NULL OR k.nombre IN (SELECT k2.nombre FROM k k2 WHERE k2.code = ANY($2::text[])))
+       ORDER BY k.nombre, k.suc, k.code`, [tenantId, lineas]);
+    // Adoptar: la marca viva sin código con ese nombre (y sólo si es UNA: dos con el mismo nombre normalizado
+    // recibirían el mismo código y romperían la unique parcial de código).
+    marcas += (await client.query(`
+      UPDATE catalog.brands b SET code = n.code, updated_at = now()
+        FROM kdig_n n
+       WHERE b.tenant_id = $1 AND b.deleted_at IS NULL AND b.code IS NULL AND btrim(upper(b.nombre)) = n.nombre
+         AND NOT EXISTS (SELECT 1 FROM catalog.brands b2 WHERE b2.tenant_id = $1 AND b2.deleted_at IS NULL
+                           AND b2.id <> b.id AND btrim(upper(b2.nombre)) = n.nombre)`, [tenantId])).rowCount;
+    // Alta: ninguna marca (viva o borrada) con ese nombre.
+    marcas += (await client.query(`
+      INSERT INTO catalog.brands (code, nombre, tenant_id, created_at, updated_at)
+      SELECT n.code, n.nombre, $1, now(), now()
+        FROM kdig_n n
+       WHERE NOT EXISTS (SELECT 1 FROM catalog.brands b WHERE b.tenant_id = $1 AND btrim(upper(b.nombre)) = n.nombre)
+      ON CONFLICT (tenant_id, nombre) DO NOTHING`, [tenantId])).rowCount;
+    // Los productos vivos en SIN-LINEA cuya línea (identidad retail-primero de kdii) es una de éstas. Dentro
+    // de la transacción: con RLS, fuera de ella `app.tenant_id` ya no está y la lista saldría vacía.
+    const sl = (await client.query(`
+      SELECT p.sku FROM catalog.products p JOIN catalog.brands b ON b.id = p.brand_id AND b.code = 'SIN-LINEA'
+       WHERE p.tenant_id = $1 AND p.deleted_at IS NULL AND p.sku IS NOT NULL`, [tenantId])).rows.map((r) => r.sku);
+    skus = !sl.length ? [] : (await client.query(`
+      SELECT i.sku FROM (${identitySnapshotSql({ skuParam: '$1' })}) i
+       WHERE i.linea IS NOT NULL AND ($2::text[] IS NULL OR i.linea = ANY($2::text[]))`, [sl, lineas])).rows.map((r) => r.sku);
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw e;
+  }
+  return marcas + (skus.length ? await normalizeProductsFromOds(client, tenantId, skus) : 0);
 }
 
 /**
@@ -996,6 +1084,8 @@ const ODS_NORMALIZERS = {
   // (`normalizeProductsFromOds`) y el costo (`normalizeCost`). Antes lo hacía `repoint-catalog-prices` cada 30 min.
   kdii: { fns: [normalizeProductsFromOds, normalizeSalePrice, normalizeLabelsFromOds, normalizeBarcodesFromOds, normalizeCost, normalizeBoxFactor, normalizeReorder, normalizePromo] },
   kdik: { skuCol: 'c2', fns: [normalizeCost, normalizePromo] },  // costo: c16 es la fuente primaria; la promo depende del costo
+  // `[CANON.6.12]` Una línea nueva de Kepler es una marca al llegar (antes `import-brands-lineas.js`, sábados).
+  kdig: { skuCol: 'c1', fns: [normalizeBrandsFromKdig] },
   // `[CANON.6.8]` + markup (`catalog.products.markup_pct`): antes lo escribía `import-margin.js` de noche.
   kdpv_prod_util: { fns: [normalizeSalePrice, normalizeLabelsFromOds, normalizeBoxPrice, normalizeMarkup] },
   // Bitácora de cambios de precio de Kepler: es la FUENTE del precio de venta, así que un cambio de
@@ -1063,7 +1153,7 @@ HANDLERS['raw-normalize'] = applyRawNormalize;
 
 module.exports = {
   HANDLERS, applyStockDelta, applyWincajaStock, applyWincajaSalesBronze, applyRawUpsert,
-  applyRawDelete, applyCdcHeartbeat, normalizeProductsFromOds, UUID_RE, conActor, reintentarPorPartes, registrarFalla,
+  applyRawDelete, applyCdcHeartbeat, normalizeProductsFromOds, normalizeBrandsFromKdig, UUID_RE, conActor, reintentarPorPartes, registrarFalla,
   normalizacionCoalescible, encolarNormalizacion,
   // [DB-MEM.20] Expuesto SOLO para `database/tests/test-newdb-price-coalesce.js`. Nada de
   // producción lo importa: el coalescedor se usa desde `applyRawUpsert`, que está arriba. Se

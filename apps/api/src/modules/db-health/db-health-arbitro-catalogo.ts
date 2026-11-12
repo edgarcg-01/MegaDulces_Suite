@@ -53,7 +53,8 @@ const TOPE_WARN = 50;
  * reemplaza; `llaves` = sus `cron_run_log.job_key` EXACTAS (con `LIKE '%…'` recorría las 2.18 M filas de la
  * bitácora: +500 ms por sensor; con la llave exacta va por `ix_crl_job`).
  */
-function veredicto(clave: string, que: string, comoCerrar: string, paso: string, llaves: string[]): string {
+function veredicto(clave: string, que: string, comoCerrar: string, paso: string, llaves: string[],
+                   difiere = `con ${que} distinto al de Kepler`): string {
   const corridas = `analytics.cron_run_log WHERE tenant_id = ${T}
                        AND job_key = ANY(ARRAY[${llaves.map((k) => `'${k}'`).join(', ')}])`;
   return `,
@@ -74,7 +75,7 @@ function veredicto(clave: string, que: string, comoCerrar: string, paso: string,
                   THEN '${que} al día con Kepler: 0 difieren de ' || c.vistos || ' productos · se retira con 30 días sin ${paso}'
                        || coalesce(' (corrió por última vez el ' || to_char(ret.ultimo_nocturno AT TIME ZONE 'America/Mexico_City', 'DD/MM') || ')', '')
                        || ' y sin alertas'
-                ELSE c.difieren || ' con ${que} distinto al de Kepler: el hop-2 no tomó su cambio' ||
+                ELSE c.difieren || ' ${difiere}: el hop-2 no tomó su cambio' ||
                      CASE WHEN c.difieren > ${TOPE_WARN} THEN ' (son demasiados: ¿corre el hop-2 de esa tabla?)' ELSE '' END ||
                      '. ${comoCerrar}' END AS note_extra
       FROM c, ret`;
@@ -147,6 +148,53 @@ export const ARBITRO_NOMBRES_SQL = `
                  AND p2.brand_id = d.marca AND p2.nombre = d.nombre)) AS difieren)
   ${veredicto('catalogo_nombres_evento', 'nombre', 'Medir: node database/importers/kepler/repoint-catalog-names.js; cerrar: --apply', 'repoint-catalog-names.js',
     ['feed_nightly/repoint-catalog-names.js'])}`;
+
+/**
+ * `[CANON.6.12]` Marcas: misma regla que `normalizeBrandsFromKdig` (y `normalizeProductsFromOds` para SIN-LINEA).
+ * Cuenta dos cosas que deben ser 0:
+ *   · nombres de línea de `kdig` cuyo código no es de ninguna marca viva y que la regla daría de alta (el nombre
+ *     no es de ninguna marca, viva o borrada) o adoptaría (es de UNA marca viva sin código). Los conflictos —el
+ *     nombre ya es de otra marca con código— y los nombres borrados en la dedup NO cuentan: son decisión, no hueco;
+ *   · productos vivos en SIN-LINEA cuya línea (identidad retail-primero de `kdii`) ya es una marca viva, sin
+ *     contar los que frena la unique (marca, nombre).
+ * Sólo mira los productos en SIN-LINEA (~250), no todo `kdii`: ~10 ms de catálogo + un recorrido de `kdii`.
+ */
+export const ARBITRO_MARCAS_SQL = `
+  WITH k AS (
+    SELECT DISTINCT ON (btrim(c1)) btrim(c1) AS code, upper(btrim(regexp_replace(c2, '\\s+', ' ', 'g'))) AS nombre
+      FROM kepler_ods.kdig
+     WHERE btrim(coalesce(c1, '')) <> '' AND btrim(coalesce(c2, '')) <> ''
+     ORDER BY btrim(c1), btrim(sucursal)),
+  alta AS (
+    SELECT DISTINCT k.nombre FROM k
+     WHERE NOT EXISTS (SELECT 1 FROM catalog.brands b WHERE b.tenant_id = ${T} AND b.deleted_at IS NULL AND btrim(b.code) = k.code)
+       AND (NOT EXISTS (SELECT 1 FROM catalog.brands b WHERE b.tenant_id = ${T} AND btrim(upper(b.nombre)) = k.nombre)
+            OR (SELECT count(*) FROM catalog.brands b WHERE b.tenant_id = ${T} AND b.deleted_at IS NULL
+                   AND btrim(upper(b.nombre)) = k.nombre) = 1
+               AND EXISTS (SELECT 1 FROM catalog.brands b WHERE b.tenant_id = ${T} AND b.deleted_at IS NULL
+                              AND b.code IS NULL AND btrim(upper(b.nombre)) = k.nombre))),
+  sl AS MATERIALIZED (
+    SELECT p.id, p.sku, p.nombre
+      FROM catalog.products p JOIN catalog.brands b ON b.id = p.brand_id AND b.code = 'SIN-LINEA'
+     WHERE p.tenant_id = ${T} AND p.deleted_at IS NULL AND p.sku IS NOT NULL),
+  una AS (
+    SELECT DISTINCT ON (btrim(k.c1)) btrim(k.c1) AS sku, btrim(k.c3::text) AS linea
+      FROM kepler_ods.kdii k
+     WHERE btrim(k.c1) IN (SELECT sku FROM sl) AND btrim(coalesce(k.c2, '')) <> ''
+     ORDER BY btrim(k.c1), (btrim(k.sucursal) <> '00') DESC, k.c90::numeric DESC NULLS LAST, btrim(k.sucursal)),
+  mov AS (
+    SELECT sl.id, sl.nombre, b.id AS marca
+      FROM sl JOIN una u ON u.sku = sl.sku
+      JOIN catalog.brands b ON b.tenant_id = ${T} AND b.deleted_at IS NULL AND btrim(b.code) = u.linea AND b.code <> 'SIN-LINEA'),
+  c AS MATERIALIZED (
+    SELECT ${VISTOS} AS vistos,
+           (SELECT count(*) FROM alta)
+           + (SELECT count(*) FROM mov WHERE NOT EXISTS (
+                SELECT 1 FROM catalog.products p2 WHERE p2.tenant_id = ${T} AND p2.id <> mov.id
+                   AND p2.brand_id = mov.marca AND p2.nombre = mov.nombre)) AS difieren)
+  ${veredicto('catalogo_marcas_evento', 'marca', 'Medir: node database/importers/kepler/import-brands-lineas.js; cerrar: --apply', 'import-brands-lineas.js',
+    ['feed_catalog/import-brands-lineas.js'],
+    'sin tomar de Kepler (líneas sin marca, o productos en SIN-LINEA cuya línea ya es marca)')}`;
 
 /**
  * `[CANON.6.11]` La alarma por EVENTO del hop-2: lo que el propio hop-2 escribió en `analytics.hop2_fallas`
