@@ -2572,6 +2572,11 @@ la borraría y la API daría 500: quien reconstruya esa cadena tiene que recrear
 renglones por mes que 2025). Más de 500 ms: queda en caché.
 ## 20. El menú de Compras de Kepler dentro de la Suite (2026-11-09)
 
+> ⭐ **Completado y reemplazado por el [anexo K](FASE_PQ_ANEXO_MENU_COMPRAS_KEPLER.md)
+> (2026-11-12)**: cubre los 10 módulos (agrega Reportes, Autorización y Consulta de documentos) y
+> corrige «Saldar»: `kdmm` lo llama «Saldar documento **CxP**», no el cierre de una OC. Esta sección
+> queda como historia.
+
 **Pedido literal (PM, 2026-11-09):** *«agreguemos todos estos módulos, pero bien optimizados:
 analicemos si de verdad es necesario tener una interfaz completa o agregarlo en una pantalla»*,
 sobre la captura del menú Compras de Kepler: Requisición, Órdenes de compra (con «Modifica»), Vale
@@ -2689,6 +2694,7 @@ tiene a propósito** (KR). Ahí D40 tendría que decidir si se le da o si la Sui
 
 | Fecha | Qué pasó | Quién |
 |---|---|---|
+| 2026-11-12 | **Anexo K**: el menú Compras de Kepler completo, 10 módulos y 25 opciones, cada una con su destino (cero pantallas nuevas). Medido: una de cada 8 OC se cancela; la autorización no frena nada; «Saldar» es un documento de cuentas por pagar (corrige §20). Nacen **PQ.122–PQ.123** y **DK1–DK3**, sin firma | Claude |
 | 2026-11-10 | **§19.11 base de partida**: propuesta de temporadas × productos desde la historia (Wincaja + Kepler, sell-out canónico diario): 495 propuestas en CSV fuera del repo. La lista de temporadas sale del Plan Anual de Mercadotecnia 2026; la ventana es la del MAYORISTA (Muertos 1-sep → 2-nov), y con ella la repetición 2025→2026 sube de 1/16 a 26/58. PQ.94 corregida: siembra, regla de la mitad del mes, 45/45 | sesión Claude + Francisco |
 | 2026-11-10 | **PQ.94 🧪 C0** (§19.10): migración de Temporadas (3 tablas en `catalog`, 2 vistas) sin aplicar en prod; la venta sale del sell-out canónico `mv_sellout_monthly` (no de `sales_daily`, importer); 37/37 contra Postgres real con dos pruebas negativas. Lista de Navidad «no reponer» para Compras: 47 productos, 4 con ~$197 mil en tránsito (fuera del repo). D36: la temporada en el catálogo de la Suite; una sola puerta de escritura | sesión Claude + Francisco |
 | 2026-11-10 | **D35 contestada por Francisco** (dueños: Compras, Mercadotecnia, Dirección Comercial y General; falta que el PM la ratifique) y regla **«compra única, lo que sobra es remate»** (§19.7). Remate de Muertos/Halloween: 43 productos, ~$102 mil a costo; Canels Piñatero se sacó a mano (es de posadas). PQ.96 ⬜ | sesión Claude + Francisco |
