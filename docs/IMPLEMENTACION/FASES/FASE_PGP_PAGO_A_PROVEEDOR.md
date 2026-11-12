@@ -1876,3 +1876,54 @@ lectura, `system_identifier` verificado):
 **Hallazgo aparte, sin tocar:** `cfdi_payment_links.fecha_pago` guarda la `FechaPago` del XML (hora local, sin zona)
 como si fuera UTC. 194 de 14,484 ligas caen un día antes en hora de México y 3 cambian de mes, que es el mes en que
 DIOT cuenta un pago PPD. Arreglarlo cambia números de DIOT: va aparte, con su medición antes y después (regla 15).
+
+### `[PGP.117]` A la semana, el pago que nadie pagó se libera y queda en la bitácora (🧪 2026-11-12)
+
+Edgar, 2026-11-12: *«después de una semana hay que quitar lo que no se haya pagado, pero dejar logs de lo
+ocurrido»*. Lo destapó el pago de $16,475.45 a un acreedor: un pago pendiente APARTA el saldo de sus facturas, y
+mientras siga `pending` la lista de deuda no las ofrece. `[PGP.48]` sólo avisaba de los atrasados.
+
+**Medido en prod (sólo lectura, 2026-11-12):** 196 pagos `pending` ($42.4 M) y **ninguno `executed`** (el cierre
+lo hace Kepler). 76 tienen su día hace 7 días o más ($14.9 M):
+
+| Qué dicen los testigos | Pagos | Monto | Qué pasa |
+|---|---:|---:|---|
+| Kepler saldó todas sus facturas | 54 | $9,769,510.84 | se conservan (se pagaron) |
+| Kepler abonó a alguna (a medias) | 8 | $2,700,582.34 | se conservan |
+| Alguna factura no viene de Kepler (sin testigo) | 7 | $1,041,468.47 | se conservan |
+| Kepler sin nada, pero el banco tiene una salida por el mismo importe | 2 | $1,047,472.00 | se conservan |
+| **Ningún testigo de pago** | **5** | **$354,346.17** | **se liberan** |
+
+Coincidir con el banco por importe (±$1, desde 3 días antes del día programado): 55 de 76 a importe exacto contra
+**0 de 76 con placebo +$100**. El ruido sólo puede CONSERVAR un pago, nunca liberarlo.
+
+- **La regla** (`libs/contracts/src/finance/pago-vencido.contract.ts`, pura): se libera sólo si pasaron 7 días
+  desde su día, Kepler no registra abono a NINGUNA de sus facturas desde que se programó (`cierreDelPago` de
+  `[PGP.94]`), todas sus facturas vienen de Kepler, el banco no tiene una salida por ese importe y nadie lo ligó a
+  mano. Ante la duda se queda: banco ilegible, factura sin medir o un abono parcial lo conservan.
+- **Liberar no borra:** `status = 'cancelled'`, se agrega una nota al pago (`[liberado AAAA-MM-DD] …`),
+  `updated_by = 'sistema:pagos-vencidos'`, los renglones se quedan, y el saldo vuelve a ofrecerse
+  (`recalcObligation`).
+- **La bitácora:** tabla nueva `finance.payment_allocation_history` (migración `20261112154247`, append-only:
+  `app_runtime` sólo SELECT e INSERT). Una fila por pago liberado con el día, el estado del día, quién lo programó
+  y autorizó, el importe, cada renglón y lo que dijeron Kepler y el banco en ese momento. Cancelar y escribir la
+  bitácora van en UNA transacción: **sin la tabla no se libera nada**.
+- **Qué lo dispara, sin reloj:** el mismo primitivo que `[PGP.110c]`. El primer aviso de `caja_fuente` de cada día
+  corre una pasada en el worker (`pagos-vencidos.service.ts`), por tenant. El `PgListenService` llega de
+  `CajaRealtimeModule` (una sola conexión `LISTEN` para finanzas, `[CG.197]`). Se apaga con
+  `DISABLE_PAGOS_VENCIDOS=true`.
+- **Pruebas:** 12 de la regla, con 6 mutaciones fuera del árbol (sin el testigo del banco, liberar al día 6,
+  ignorar una factura sin medir, banco ilegible como «sin salida», liberar a medias, ignorar el ligado): las 6 en
+  rojo. 9 del arranque del módulo (grafo, una sola conexión LISTEN, sólo el worker escucha, el interruptor, sin
+  `@Cron`, con sus negativas). **Ensayo en seco con el código real** (las mismas consultas y la misma regla,
+  importadas, contra prod en sólo lectura): libera los mismos 5 pagos por $354,346.17, y coincide con una
+  medición SQL independiente. Las lecturas tardan 9 + 181 + 179 ms.
+- **NO MEDIDO:** la escritura contra una base real (el `UPDATE` + `INSERT` en la bitácora + `recalcObligation`) y
+  que el worker escuche de verdad. Se verifica el primer día tras desplegar: `finance.payment_allocation_history`
+  con `event = 'liberado_por_vencimiento'` y el log `pagos vencidos …` del worker.
+- **Orden de entrega:** la migración se aplica ANTES de desplegar (sin la tabla, la pasada falla y no libera nada,
+  pero lo dice en el log).
+- **Deuda con nombre `[PGP.117b]`:** la bitácora todavía no se ve en pantalla. Hoy se lee en la tabla y en la nota
+  del pago.
+- **Hallazgo aparte:** 54 pagos ($9.77 M) que Kepler ya saldó siguen `pending` en la Suite. Ya no apartan nada
+  (las facturas salieron de la deuda viva), pero inflan «pagos atrasados». Cerrarlos como pagados es otro item.

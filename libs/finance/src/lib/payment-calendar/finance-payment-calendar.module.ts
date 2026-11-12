@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { CloudinaryModule } from '@megadulces/platform-core';
+import { PagosVencidosService } from './pagos-vencidos.service';
+import { CajaRealtimeModule } from '../caja/caja-realtime.module';
 import { BudgetCapacityService } from './budget-capacity.service';
 import { BudgetCapacityController } from './budget-capacity.controller';
 import { BudgetExpenseObligationsService } from './budget-expense-obligations.service';
@@ -32,7 +34,11 @@ import { BUDGET_LEDGER_PORT } from '../budget/budget-ledger.port';
   // `[PGP.46]` El catálogo de cuentas de proveedor, para que la CLABE que alguien teclea al
   // preparar un pago quede PEDIDA de alta y no haya que teclearla otra vez. Sin ciclo:
   // `FinanceSupplierPaymentAccountsModule` sólo importa `CloudinaryModule`.
-  imports: [FinanceBudgetModule, CloudinaryModule, FinanceSupplierPaymentAccountsModule],
+  // `[PGP.117]` ⛔ `CajaRealtimeModule` se IMPORTA por `PgListenService`, y NO se provee acá: lo exporta
+  // a propósito para que todos los oyentes de finanzas compartan la MISMA conexión `LISTEN` (`[CG.197]`).
+  // Proveerlo aquí compila igual y abre una segunda conexión a prod para el mismo aviso. Sin ciclo:
+  // `CajaRealtimeModule` sólo importa `JwtModule`.
+  imports: [FinanceBudgetModule, CloudinaryModule, FinanceSupplierPaymentAccountsModule, CajaRealtimeModule],
   controllers: [
     BudgetCapacityController,
     BudgetExpenseObligationsController,
@@ -49,6 +55,9 @@ import { BUDGET_LEDGER_PORT } from '../budget/budget-ledger.port';
     FinancialCommitmentsService,
     PaymentCalendarService,
     PaymentCalendarDocumentService,
+    // `[PGP.117]` Escucha `caja_fuente` y, una vez al día, libera los pagos que nadie pagó en una
+    // semana (con bitácora). Su `PgListenService` llega de `CajaRealtimeModule` (ver `imports`).
+    PagosVencidosService,
     // El movimiento del ledger de la partida lo hace BudgetLinesService, expuesto por token para no
     // acoplar TP a la clase concreta (BUDGET_LEDGER_PORT).
     { provide: BUDGET_LEDGER_PORT, useExisting: BudgetLinesService },
