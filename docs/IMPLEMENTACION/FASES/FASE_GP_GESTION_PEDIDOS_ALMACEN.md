@@ -1065,6 +1065,73 @@ lee de aquí cuando existan.
 
 ---
 
+## 11. GP.9 — Continuidad desde telemarketing: la cotización sigue a su pedido (2026-11-12)
+
+**Pedido (Edgar, 2026-11-12):** *«el punto es dar la accesibilidad al surtidor. Podemos seguir el
+proceso en TLMK, para que haya una continuidad de pasos.»* Nació del caso Canindo (embarque
+`06UD4101-0001823`: 10 CJA de 40 capturadas antes de que la ficha cambiara a 25; la factura las
+re-presentó como 16 CJA) y de la revisión AX.22 ([`FASE_AX`](FASE_AX_ANEXO_VENTA.md) §AX.22).
+
+**Medido en prod, sólo lectura (2026-11-12):**
+- La cotización terminaba en «Pedido en Kepler X». De 98 pedidos nacidos en cotización (30 días):
+  69 embarcados, 13 detenidos en surtido o checado, 15 creados sin autorizar, 1 autorizado.
+- Kepler registra **quién surtió en 42 de 98** y quién embarcó en 24 (con 69 ya embarcados). La
+  hora de cada etapa no existe en Kepler (§2.3).
+- GP ya lee los pedidos `AUTORIZADO` de Kepler (GP.2) — los de telemarketing incluidos — pero **no
+  se usa**: 39 olas desde el 08-oct, la última creada el 04-nov, ninguna checada.
+
+| Item | Qué | Estado |
+|---|---|---|
+| **GP.9.1** | En `/telemarketing/cotizaciones/:id`, debajo de «Pedido en Kepler», los pasos Pedido → Autorizado → Surtido → Checado → Embarcado → Facturado: cuándo (sólo si existe), quién (nombre si lo marcó la Suite, clave de Kepler si no), embarques y facturas (canceladas tachadas), aviso si el pedido quizá no es el de la cotización y los hallazgos abiertos de AX.22. `GET /api/commercial/quotes/:id/tracking`, sólo lectura, sin migración | 🧪 |
+| **GP.9.2** | El surtidor recibe el pedido de telemarketing completo en su pantalla (GP.3): observaciones, dirección de entrega y el aviso de **caja en transición** (la ficha cambió en los últimos 30 días, `analytics.kepler_ficha_history`: «¿cuántas piezas trae esta caja?») | ⬜ — espera D2 |
+| **GP.9.3** | Lo que el surtidor marca regresa al vendedor: un faltante avisa en su campana («faltó X en tu pedido») antes del embarque; el mismo faltante es demanda negada para DN | ⬜ — espera D2 |
+
+**Decisiones abiertas:** D1 — GP vuelve a 🔨 y el cupo queda en 6 de 4: qué pasa a ⏸️ (Edgar). D2 —
+qué sucursal y qué surtidores pilotean la pantalla del celular (Edgar). Sin piloto, GP.9.2/9.3 no
+tienen datos y GP.9.1 sólo muestra lo que Kepler registra.
+
+### 11.1 GP.9.1 — las cinco preguntas, antes de la plantilla
+
+1. **Qué ve y en qué orden.** Quien levantó la cotización y viene a preguntar «¿dónde va mi
+   pedido?». Primero lo que pide actuar (pedido dudoso, hallazgo abierto), después **la respuesta en
+   una línea** («Facturado · 11 nov 16:49» / «Surtido — sigue: checado» / «la factura X se canceló
+   y falta refacturar») y abajo los seis pasos en orden del proceso.
+2. **Qué NO ve.** Cantidades por etapa (`kdm2.c51..c54`): pedida y surtida vienen en unidades
+   distintas (§2.3, «embarcado ÷ pedido» da 102 %) — publicarlas mentiría. Horas que Kepler no
+   guarda. Importe del embarque (lo que importa al vendedor es lo facturado).
+3. **Accesibilidad.** Cero clics: está donde ya estaba el folio. Lista ordenada (`<ol>`), estado con
+   icono **y** texto para lector de pantalla, nunca sólo color. La factura abre en Facturación TM
+   (`?doc=`) para quien tiene ese permiso; a los demás se les muestra el folio, copiable.
+4. **Ligas.** Cotización → pedido `U-D-40` → embarque `U-D-41` → factura `U-D-8`, por el apuntador
+   `c37/c38/c39` del hijo. Folio visible en cada paso.
+5. **¿Le toca a esta pantalla?** Sí: es la continuación de la decisión que se toma aquí (aceptar →
+   pedido). No es otra pantalla ni otra lista.
+
+**Jerarquía:** primario = el paso en que va · secundario = la lista con fecha y documento ·
+terciario = quién (clave) y la nota de lo que Kepler no guarda.
+
+### 11.2 GP.9.1 — lo medido
+
+- **Servicio real contra prod (sólo lectura), 115 cotizaciones:** 109 con pedido en Kepler, 0
+  pendientes de réplica; último paso: 76 facturadas, 4 embarcadas, 5 checadas, 7 surtidas, 1
+  autorizada, 16 sólo creadas. **26 ms p50, 37 ms p95, 86 ms máx.**
+- **Control independiente:** el cliente de la cadena contra el de la cotización — pedido 106/109,
+  embarque 73/76, factura 76/82. **Placebo** (pedido con folio + 1): 18/107. Las filas que no casan
+  tienen un patrón: los 3 pedidos **no traen** el código de la cotización en «Comentarios» y son de
+  otro cliente (COT-2026-00016, -00174, y -00219 de contado cambiado a cliente con nombre); las
+  facturas restantes son de contado facturadas a nombre de quien pidió (normal). Por eso el
+  seguimiento declara la **identidad** del pedido: 98 confirmadas (código en comentarios), 8 por
+  folio (mismo cliente), 3 dudosas — esas se muestran con aviso, no como seguras.
+- **Pruebas:** reglas 18/18 (con mutante rojo: «Facturado» contando canceladas), arranque y
+  acceso 9/9 (no toca la base si la cotización es ajena; NG8008 rojo si falta `[quoteId]`),
+  pantalla 7/7; módulo de cotizaciones 186 verdes.
+- ⚠️ **Sin validación visual** (no se levanta la app en local) y **arranque de Nest no verificado
+  en proceso real** — se confirma al soltar.
+- **Corrección:** la factura `UD0801-0001370` **no es** la refactura de Canindo (es de C3084,
+  embarque 1759). El embarque 1823 sólo tiene la 1350, cancelada; está pendiente de refacturar.
+
+---
+
 ## Observaciones de diseño UI — revisión del plan (2026-10-26)
 
 > **Con qué se miró: el plan, no la pantalla** (nivel C). Nada visual se da por medido; lo que

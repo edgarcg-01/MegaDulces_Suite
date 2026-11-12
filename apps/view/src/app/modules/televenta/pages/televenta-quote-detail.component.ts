@@ -59,6 +59,7 @@ import { totalesCotizacion } from '@megadulces/contracts';
 import { desgloseDescuento, pasosDelPrecio, explicacionDelPrecio, precioSinRedondear } from '../quote-discount-breakdown';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { QuoteLinesTableComponent, type RenglonTabla, type CambioCantidad } from '../components/quote-lines-table.component';
+import { QuoteTrackingComponent } from '../components/quote-tracking.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { branchName } from '../../../core/constants/store-branches';
 
@@ -112,6 +113,7 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
     InputTextModule,
     FreshnessPillComponent,
     QuoteLinesTableComponent,
+    QuoteTrackingComponent,
     ContextHelpComponent,
   ],
   providers: [MessageService],
@@ -773,6 +775,8 @@ const PELDANOS: Array<{ rung: Rung; label: string }> = [
               @if (q.order_notes) {
                 <p class="tot-nota dir-fija">Observaciones: {{ q.order_notes }}</p>
               }
+              <!-- [GP.9.1] Lo que pasó después: surtido, checado, embarque y factura, sin llamarle al almacén. -->
+              <app-quote-tracking [quoteId]="q.id" />
             } @else if (aceptable()) {
               <div class="rail-kepler">
                 <!-- [COT.26] A dónde va el pedido decide la ruta que lo entrega (Dir. envío en Kepler).
