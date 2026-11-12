@@ -290,12 +290,9 @@
 #    una proyección NORMALIZADA y no un superset. Esa regresión ya se vivió el 2026-08-17.
 # 05:10 = después del nocturno (03:00, dura 69–99 min) y sin chocar con receipts ni contpaqi-full.
 10 5 * * *  /app/ops/vl/run-feed.sh inventory-products "node /app/database/importers/refresh-inventory-products.js --apply"
-# 05:20 y NO antes: `products_active` hace LEFT JOIN a `inventory.products` para traer
-# subfamilia/categoria/image_*, así que corre DESPUÉS del carril de arriba o los SKUs recién
-# insertados entrarían sin esos campos.
-# ⛔ SIN `--reactivate`, a propósito: ese flag hace UPDATE de `catalog.products.activo`, que es un
-#    cambio de DATO DE NEGOCIO, no un refresco de caché. Medido hoy: 0 filas de drift. Queda manual.
-20 5 * * *  /app/ops/vl/run-feed.sh products-active "node /app/database/importers/refresh-products-active.js --apply"
+# RETIRADO 2026-11-12 [CANON.6.13]: products-active (05:20). `inventory.products_active` es una VISTA sobre
+# `catalog.products` + `inventory.products` (migración 20261112135015): la misma consulta que copiaba con
+# TRUNCATE+INSERT, evaluada al leer. Lo del día (nombres, altas) ya no espera a la mañana siguiente.
 0 2 * * 6   /app/ops/vl/run-feed.sh catalog "node /app/database/importers/kepler/run-prod-feeds.js catalog --apply"
 # [VL.7.1] El RECONCILIADOR de CFDIs (pareja del incremental de arriba): recorre año por año
 # ignorando el watermark, o sea ~167,000 CFDIs. Va a las 05:45 por dos razones medidas: el

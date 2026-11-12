@@ -945,9 +945,9 @@ const EXT_SOURCES: ExtCfg[] = [
   //     la encuentra. Y el search_path pone `catalog` ANTES que `public`: un `products_active` sin
   //     calificar resuelve a la que tiene el FDW. La mig 20260905140000 la repunta a
   //     `kepler_ods.kdii` en vez de borrarla.
-  //     Los 9 consumidores reales NO se ven afectados, pero por otro motivo: leen la TABLA
-  //     `inventory.products_active` (todos la califican), que llena `refresh-products-active.js`
-  //     desde `catalog.products` + `kepler_ods.kdii`, explícitamente NO desde el FDW.
+  //     Los 9 consumidores reales NO se ven afectados, pero por otro motivo: leen
+  //     `inventory.products_active` (todos la califican) — desde `[CANON.6.13]` una VISTA sobre
+  //     `catalog.products` + `inventory.products`, explícitamente NO desde el FDW.
 ];
 
 const RANK: Record<Status, number> = { ok: 0, warn: 1, unknown: 2, critical: 3 };
@@ -1293,11 +1293,9 @@ export const CRON_JOBS: CronCfg[] = [
   // 05:10 = después del nocturno (03:00) que puebla `catalog.products`, y sin chocar con
   // `receipts` (04:30) ni `contpaqi-cfdis-full` (05:45).
   { key: 'inventory_products_refresh', label: 'inventory.products ← catalog (escaneo de conteo)', cadence: 'diario 05:10 MX', warnH: 26, critH: 50, maxRunH: 1 },
-  // [NORM.2] Hermana de la de arriba y con el mismo defecto de origen: escrita, con 9 lectores
-  // vivos (buscador, pricing, portal, extractor de tickets, AI-matcher) y SIN AGENDA. Refresca por
-  // TRUNCATE+INSERT, así que se le agregó un PISO anti-vaciado: si el origen diera menos del 50%
-  // de lo que la tabla tiene, ABORTA y late en rojo en vez de commitear una tabla casi vacía.
-  { key: 'products_active_refresh',    label: 'inventory.products_active ← catalog (9 lectores)',  cadence: 'diario 05:20 MX', warnH: 26, critH: 50, maxRunH: 1 },
+  // RETIRADO 2026-11-12 [CANON.6.13]: `products_active_refresh` (diario 05:20). `inventory.products_active`
+  // es una VISTA sobre `catalog.products` (migración 20261112135015): no hay copia que refrescar ni latido
+  // que vigilar. Fallaba el 20 % de las corridas.
   // La tarea \Kepler\Catalog es SEMANAL (MSFT_TaskWeeklyTrigger, domingos 02:00), no diaria:
   // con umbrales de 30/50 h quedaba en ROJO PERMANENTE entre corridas legítimas. Eso es peor
   // que no monitorear — un tablero que grita siempre entrena a ignorarlo, y es la explicación
