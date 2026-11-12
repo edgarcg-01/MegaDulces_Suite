@@ -8,6 +8,8 @@ import { DescargaOrchestratorService } from './descarga-orchestrator.service';
 import { SatSoapService } from './sat-soap.service';
 import { SatSoapNodecfdiService } from './sat-soap-nodecfdi.service';
 import { SAT_SOAP_PORT } from './sat-soap.port';
+import { PgListenService } from '@megadulces/platform-core';
+import { SatAlDiaService } from './sat-al-dia.service';
 
 /**
  * FISCAL.4 (libs/fiscal) — Descarga masiva de CFDI (WS SAT).
@@ -21,6 +23,11 @@ import { SAT_SOAP_PORT } from './sat-soap.port';
   providers: [
     DescargaService,
     DescargaOrchestratorService,
+    // `[PGP.110c]` Escucha `caja_fuente` y le pide al SAT lo nuevo una vez al día. `PgListenService` NO es
+    // global: cada dominio que escucha lo provee (como RH, CAOS y comercial). Abre su conexión LISTEN sólo
+    // al escuchar, y sólo escucha el worker: en los pods de la API no abre nada.
+    PgListenService,
+    SatAlDiaService,
     SatSoapService,
     SatSoapNodecfdiService,
     // FE.9: @nodecfdi es el default (firma WS-Security real). FISCAL_SAT_CLIENT=reference
