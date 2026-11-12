@@ -51,6 +51,8 @@
     "check:docker": "node scripts/check-docker-context.js",
     "check:k3s": "node scripts/check-k3s-manifests.js",
     "check:base-tags": "node scripts/check-base-image-tags.js",
+    "check:guiones-host": "node scripts/check-guiones-host.js",
+    "check:guiones-host:self": "node scripts/check-guiones-host.js --self-test",
     "typecheck:fast": "nx run api:typecheck",
     "check:ts7paths": "node scripts/check-ts7-paths.js",
     "check:powershell": "node scripts/check-powershell.js",
