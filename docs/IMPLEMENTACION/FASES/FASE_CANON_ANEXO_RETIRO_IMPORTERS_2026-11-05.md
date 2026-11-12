@@ -703,3 +703,26 @@ negativas y tres mutantes en rojo. Sin hueco el día del despliegue: el estado y
   o se decide que el precio real gane; no se cambió aquí.
 - ⚠️ `/comercial/precios` todavía rotula la lista BASE-MXN como hecha por `repoint-catalog-prices.js`; desde
   `[VPR.3]` (5-oct) la escribe `normalizeSalePrice`. Rótulo que miente, pendiente (toca pantalla).
+
+**9.4 hecho en código (2026-11-12, `[CANON.6.10]`): nombres sin barrido, y el hop-2 deja de depender de
+uno.** Con `master_data_history`, las 50 correcciones de `repoint-catalog-names` en 30 días: 44 eran el pleito
+H12 (el barrido contra el hop-2 con CEDIS primero, p. ej. DOÑA VITA cada noche), cerrado por `[CANON.5.23]` el
+6-nov; desde entonces 0 casi todas las noches y 3 claves reusadas el 10-nov (95340–95342, «CHOC BOLSA REGALO
+PAF» → «TOP-TOP NACHO») que el hop-2 no tomó cuando llegaron, el 9-nov hacia las 14:07. **Causa NO
+DEMOSTRABLE**: el registro del carril se perdió con el reinicio del 11-nov. Descartado, medido: choque dentro del
+lote (cada fila llegó en su propia transacción), la cola `[OBS.15]` (`kdii` no va por ahí), la regla de CEDIS
+primero (la imagen ya traía la nueva) y un nombre duplicado (no hay). Los 11 que difieren hoy no son hueco: Kepler
+los llamó «INHABILITADO»/«* DESCONTINUADO» y la unique (marca, nombre) los frena en los dos escritores.
+- El hop-2 hace ahora lo que sólo hacía el barrido: **mueve la marca** de una clave reusada cuando el nombre
+  cambia de verdad (no por mayúsculas, CANON.1.3b), guarda la colisión con la marca efectiva, y **no tumba el
+  lote** cuando dos SKUs irían al mismo (marca, nombre) — el UPDATE anterior revienta con 23505 y revertía el
+  lote entero. Medido en prod: sobre las 9,005 claves, hoy escribiría 0.
+- ⭐ **El hop-2 ya no tiene «lo toma el barrido»**: un normalizador que falla se reintenta partiendo el lote
+  (`reintentarPorPartes`): un error pasajero se recupera y una llave envenenada queda aislada mientras las demás
+  se escriben. Vale para todos los normalizadores, incluidos markup (9.2) y promo (9.3). Lo que siga fallando se
+  registra con sus llaves y queda como estaba hasta su próximo cambio.
+- ⚠️ **Lo que queda sin árbitro automático:** los tres scripts manuales (`import-margin`, `repoint-catalog-prices`,
+  `repoint-catalog-names`) miden en seco «cuántos difieren», pero nadie los corre ni alarma. Un sensor que los
+  cuente y se ponga rojo con > 0 (el árbitro que la regla sí permite) es el siguiente paso de esta oleada.
+- `repoint-catalog-names` sale del nocturno y queda manual con la misma función del hop-2; se quitó `--source=kp`.
+  Prueba: 13 ✓ con tres negativas y tres mutantes en rojo.
