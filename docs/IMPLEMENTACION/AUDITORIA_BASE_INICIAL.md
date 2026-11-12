@@ -1039,6 +1039,23 @@ Lo encontró `[CE.1.7]` al barrer las fuentes de «Por vencer».
 - **Decisiones que faltan (de Edgar):** (1) Wincaja — replicar su existencia/costo al ODS o declarar esas
   celdas `sin_costo` (los números de rentabilidad Wincaja cambian); (2) Kepler sin `kdik` — sustituir el
   catálogo por el costo estándar de la ficha (cambia ~104 mil celdas; exige medición antes/después).
+- **RESUELTAS las dos en código — `[AUD-DAT.31.2]` 🧪 (2026-11-12, mig `20261112165701`, sin aplicar):**
+  - **(1) Wincaja ya no existe** (Edgar, 2026-11-12). Medido: sus únicos almacenes propios son los 7 `RUTA-*`;
+    `wincaja.existencias` no se importa desde el 2026-09-29; la existencia del ODS no trae ni un renglón de
+    Wincaja; `commercial.stock` y `stock_lots`, 0 renglones ahí. Sale del resolvedor (79,653 celdas) y de
+    Reabasto (`costUnit`). Lo único que aún los nombra: `analytics.replenishment_plan`, 4,315 renglones de
+    rutas, que quedan sin costo — **deuda:** el plan sigue generando renglones de almacenes muertos.
+  - **(2) Kepler sin `kdik`:** la ficha de ESA sucursal (`kdii.c77`, procedencia `kepler_ficha`); sin
+    ninguno, `sin_costo`. El catálogo ya no valúa nada (resolvedor y Existencia). Árbitro de la unidad:
+    donde hay `kdik` y ficha (35,242 celdas), la ficha cae a ±10 % en 91 % (mediana 1.000). El $0.01 son
+    promociones «= GRATIS» (lo dicen también `kdik` y el catálogo).
+  - Ensayo en prod (pg_temp + ROLLBACK): 45,644 → `kepler_ficha`; 89,670 → `sin_costo` (58,438 son productos
+    que no están en la ficha de esa sucursal, existencia 0); `kdik` y las columnas del testigo, mismo md5 en
+    las 170,685 de Kepler; inventario valuado $70,759,508 → $70,755,047; por celda = vista (3,000).
+    ⛔ Quitar la CTE de Wincaja hizo que el planificador eligiera un merge join (1.3 s → **40 s**); `kc`
+    pasó a empatar por (sucursal, código) como la ficha: **0.6–1.0 s** (hoy 1.1–1.7 s).
+  - Deuda a la vista: `celdas_costo_invertido` de Existencia ya no puede ser > 0; y
+    `analytics.v_erp_stock_on_hand` conserva su rama Wincaja (hoy vacía).
 
 ---
 
