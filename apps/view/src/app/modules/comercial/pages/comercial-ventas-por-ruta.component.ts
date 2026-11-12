@@ -556,7 +556,7 @@ const MES: Record<string, string> = {
             @case ('semanas') {
               <!-- [VEC.42] La misma venta de «Por día», sumada por semana de lunes a domingo. Sin
                    depósito a propósito: ése es de Caja General y se sigue viendo día por día. -->
-              <p-table [value]="porSemana().semanas" dataKey="lunes" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="52vh">
+              <p-table [value]="porSemana().semanas" dataKey="lunes" size="small" class="surf-table" [scrollable]="true" scrollHeight="52vh">
                 <ng-template #header><tr>
                   <th scope="col">Semana</th>
                   <th scope="col" class="comm-num">Días con venta</th>

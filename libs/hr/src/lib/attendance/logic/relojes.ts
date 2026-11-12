@@ -30,11 +30,27 @@ export const OK_SEG = 10 * 60;
 /**
  * REGLA DE PRODUCTO (de Mega Talento): la pantalla nunca debe parecer al día cuando no lo está.
  * Falta de dato ≠ falta del empleado, pero el atraso tiene que VERSE. Sin señal nunca = mudo.
+ *
+ * `[RH.13.1]` Un latido CON error prueba que el LECTOR está vivo, no que el reloj entregue: el agente lo
+ * manda en cada reintento cuando no alcanza al equipo (`reloj.js`: descubrir, abrir sesión, backfill).
+ * Antes se medía sólo `last_seen_at`, que esos latidos refrescan, y un reloj caído desde las 11:40 salía
+ * VERDE a las 16:10 (sucursal PH, 11-nov-2026, con 23 faltas en el reporte de ese día). Con error, la edad
+ * que cuenta es la de la última LECTURA buena (`last_sync_at`), y el reloj nunca sale verde.
  */
-export function semaforoReloj(r: { pendiente: boolean; segundosSinSenal: number | null }): Semaforo {
+export function semaforoReloj(r: {
+  pendiente: boolean;
+  segundosSinSenal: number | null;
+  /** El error que reportó el lector en su último latido; vacío o null = la última lectura salió bien. */
+  error?: string | null;
+  /** Segundos desde la última lectura BUENA del reloj (`last_sync_at`); null = nunca se leyó. */
+  segundosSinLectura?: number | null;
+}): Semaforo {
   if (r.pendiente) return 'pendiente';
-  if (r.segundosSinSenal == null || r.segundosSinSenal >= MUDO_SEG) return 'mudo';
-  return r.segundosSinSenal < OK_SEG ? 'ok' : 'atrasado';
+  const conError = !!String(r.error ?? '').trim();
+  const edad = conError ? (r.segundosSinLectura ?? null) : r.segundosSinSenal;
+  if (edad == null || edad >= MUDO_SEG) return 'mudo';
+  if (conError) return 'atrasado';
+  return edad < OK_SEG ? 'ok' : 'atrasado';
 }
 
 /** Tras estos intentos fallidos una orden se queda en `error` y deja de reintentarse. */

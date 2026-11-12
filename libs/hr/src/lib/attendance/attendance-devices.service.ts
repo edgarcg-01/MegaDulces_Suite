@@ -67,24 +67,33 @@ export class HrAttendanceDevicesService {
    * El semáforo de cada reloj activo. Mide la última SEÑAL del lector (lote o latido), no la
    * última checada: un reloj vivo sin nadie checando es verde; un reloj sin señal es rojo
    * aunque su última checada sea de hace un minuto.
+   *
+   * `[RH.13.1]` Si el lector reporta error, la señal que cuenta es la última LECTURA buena
+   * (`last_sync_at`): sus latidos con error prueban que el lector vive, no que el reloj entregue.
    */
   async estado(): Promise<unknown[]> {
     return this.tk.run(this.tenantCtx.requireTenantId(), async (trx) => {
-      const rows: Array<Record<string, unknown> & { serial_number: string; is_paused: boolean; segundos: number | null }> =
+      const rows: Array<Record<string, unknown> & {
+        serial_number: string; is_paused: boolean; segundos: number | null; segundos_lectura: number | null; last_error: string | null;
+      }> =
         await trx('hr.attendance_devices').where({ is_active: true })
           .orderBy([{ column: 'site_code' }, { column: 'label' }])
           .select('serial_number', 'site_code', 'label', 'ingest_mode', 'ip_address', 'seen_ip', 'notes', 'is_paused',
-            'last_seen_at', 'last_punch_at', 'last_backfill_at', 'record_count', 'logs_in_db', 'clock_drift_seconds',
+            'last_seen_at', 'last_sync_at', 'last_punch_at', 'last_backfill_at', 'record_count', 'logs_in_db', 'clock_drift_seconds',
             'last_error', 'agent_version', 'agent_host',
-            trx.raw('EXTRACT(EPOCH FROM (now() - last_seen_at))::int AS segundos'));
+            trx.raw('EXTRACT(EPOCH FROM (now() - last_seen_at))::int AS segundos'),
+            trx.raw('EXTRACT(EPOCH FROM (now() - last_sync_at))::int AS segundos_lectura'));
       return rows.filter((r) => !esRelojDesconocido(r.serial_number)).map((r) => ({
         serie: r.serial_number, sucursalId: r['site_code'], alias: r['label'] || '', modo: r['ingest_mode'],
         ip: r['seen_ip'] || r['ip_address'] || '', nota: r['notes'] || '',
         ultimaSenal: r['last_seen_at'], ultimaChecada: r['last_punch_at'], ultimoBackfill: r['last_backfill_at'],
         segundosSinSenal: r.segundos, logsEnReloj: r['record_count'], logsEnBase: r['logs_in_db'],
-        desfaseRelojSeg: r['clock_drift_seconds'], ultimoError: r['last_error'] || '',
+        ultimaLectura: r['last_sync_at'] ?? null, segundosSinLectura: r.segundos_lectura,
+        desfaseRelojSeg: r['clock_drift_seconds'], ultimoError: r.last_error || '',
         agenteVersion: r['agent_version'] || '', agenteHost: r['agent_host'] || '',
-        semaforo: semaforoReloj({ pendiente: r.is_paused, segundosSinSenal: r.segundos }),
+        semaforo: semaforoReloj({
+          pendiente: r.is_paused, segundosSinSenal: r.segundos, error: r.last_error, segundosSinLectura: r.segundos_lectura,
+        }),
       }));
     });
   }

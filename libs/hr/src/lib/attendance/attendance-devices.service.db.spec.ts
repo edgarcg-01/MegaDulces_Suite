@@ -77,6 +77,17 @@ suite('administración de relojes contra la base', () => {
         const estado = await devices.estado() as Array<{ serie: string; semaforo: string }>;
         r['semaforo'] = [estado.find((e) => e.serie === A)?.semaforo, estado.find((e) => e.serie === B)?.semaforo];
 
+        // ── `[RH.13.1]` El caso de PH: el lector sigue latiendo, pero CON error; la última lectura buena fue
+        //    hace 4 h 30 m. Antes salía verde (sólo se medía el latido). Al volver a leer bien, vuelve el verde.
+        type Est = { serie: string; semaforo: string; ultimoError: string; segundosSinSenal: number; segundosSinLectura: number | null };
+        await ingest.heartbeat({ serie: A, error: 'no responde en 10.0.0.1:4370' });
+        await trx('hr.attendance_devices').where({ serial_number: A }).update({ last_sync_at: trx.raw(`now() - interval '4 hours 30 minutes'`) });
+        const caido = (await devices.estado() as Est[]).find((e) => e.serie === A)!;
+        r['caido'] = [caido.semaforo, caido.ultimoError, caido.segundosSinSenal, caido.segundosSinLectura];
+        await ingest.heartbeat({ serie: A });
+        const vuelve = (await devices.estado() as Est[]).find((e) => e.serie === A)!;
+        r['vuelve'] = [vuelve.semaforo, vuelve.ultimoError, vuelve.segundosSinLectura];
+
         // ── Enrolamientos: en A la persona es «15»; en B (otra numeración) es el «915» crudo ──
         const [devA] = await trx('hr.attendance_devices').where({ serial_number: A }).select('id');
         const [devB] = await trx('hr.attendance_devices').where({ serial_number: B }).select('id');
@@ -146,6 +157,9 @@ suite('administración de relojes contra la base', () => {
     expect(r['loteReprocesado']).toEqual(['aplicado', null, true]);
     expect(r['repetirReproceso']).toBe(0);
     expect(r['semaforo']).toEqual(['ok', 'mudo']);
+    // `now()` es la hora de la transacción: el latido queda en 0 s y la lectura, en 4 h 30 m exactas.
+    expect(r['caido']).toEqual(['mudo', 'no responde en 10.0.0.1:4370', 0, 16200]);
+    expect(r['vuelve']).toEqual(['ok', '', 0]);
     expect(r['renombrar']).toEqual(['Perez Nunez', 2]);
     expect(r['ordenA']).toEqual([['15', 'renombrar_usuario', 'Perez Nunez']]);
     // En el reloj B la persona es el «915»: el «15» de B es OTRA persona y no se toca.
