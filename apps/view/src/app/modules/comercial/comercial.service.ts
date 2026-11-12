@@ -3750,15 +3750,24 @@ export interface ErpCustomerProduct {
   revenue_180d: number;
   last_purchase_date: string | null;
 }
+/** `[MKT.7]` Regla de promoción vigente en Kepler (`v_erp_discount_rules`, todas las tiendas). */
 export interface ErpPromoRow {
   sku: string;
   product_name: string;
   promo_type: string;
+  /** Presentación a la que aplica (PAQ, CJA, PZA…): el umbral se cuenta en ella. */
+  unit: string | null;
   threshold: number | null;
+  /** false en los mecanismos por MONTO: su unidad no tiene testigo. */
+  threshold_verified: boolean;
+  /** pct = % de descuento · free_qty = cantidad regalada. */
+  benefit_kind: 'pct' | 'free_qty';
   benefit: number | null;
   free_product_name: string | null;
+  free_unit: string | null;
   valid_from: string | null;
   valid_to: string | null;
+  /** Nombre de la tienda (el campo conserva su nombre histórico). */
   warehouse_code: string | null;
 }
 

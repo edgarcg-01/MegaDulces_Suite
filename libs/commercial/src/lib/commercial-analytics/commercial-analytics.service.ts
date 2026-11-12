@@ -51,6 +51,7 @@ interface IncomeSeriesRaw {
   mostrador: string; telemarketing: string; ruta: string; vecinal: string; contado: string; otro: string;
 }
 import { calculateRouteSalesPace } from './route-sales-pace';
+import { ERP_PROMOTIONS_SQL, type ErpPromoRow, toErpPromoRow } from './erp-promotions';
 
 /**
  * Sales analytics agregado sobre `commercial.*`.
@@ -4968,23 +4969,17 @@ export class CommercialAnalyticsService {
     });
   }
 
-  /** KV.6 — Promos vigentes del ERP. */
-  async erpPromotions() {
+  /**
+   * KV.6 — Promos vigentes del ERP, de TODAS las tiendas. `[MKT.7]`: lee `v_erp_discount_rules`
+   * (la vieja `analytics.erp_promotions` estaba clavada en la sucursal 03 y salía vacía). Ver
+   * `erp-promotions.ts`.
+   */
+  async erpPromotions(): Promise<ErpPromoRow[]> {
     const tenantId = this.tenantCtx.requireTenantId();
-    return this.tk.run(async (trx) =>
-      trx('analytics.erp_promotions AS pr')
-        .join('catalog.products AS p', 'p.id', 'pr.product_id')
-        .leftJoin('catalog.products AS fp', 'fp.id', 'pr.free_product_id')
-        .leftJoin('commercial.warehouses AS w', 'w.id', 'pr.warehouse_id') // nombre actual de la dim, no el code denorm (stale)
-        .where('pr.tenant_id', tenantId)
-        .select(
-          'p.sku', 'p.nombre AS product_name', 'pr.promo_type', 'pr.threshold', 'pr.benefit',
-          'fp.nombre AS free_product_name', 'pr.valid_from', 'pr.valid_to',
-          trx.raw('COALESCE(w.name, pr.warehouse_code) AS warehouse_code'),
-        )
-        .orderBy('pr.valid_to', 'asc')
-        .limit(1000),
-    );
+    return this.tk.run(async (trx) => {
+      const res = await trx.raw(ERP_PROMOTIONS_SQL, [tenantId]);
+      return (res.rows as Record<string, unknown>[]).map(toErpPromoRow);
+    });
   }
 
   // ─────────── Fase RS — Generador Sell-Out por empresa (marca/proveedor) ───────────
