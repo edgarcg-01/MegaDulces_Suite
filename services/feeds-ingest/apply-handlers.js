@@ -21,7 +21,7 @@ const { computeLabels, toStageTuple, upsertLabels } = require('./label-compute')
 const { notifyLabelPricesChanged } = require('./notify-store');
 const { computeBarcodes } = require('./barcode-compute');
 const { identitySnapshotSql } = require('./product-identity');
-const { normalizeCost, normalizeReorder, normalizeBoxFactor, normalizeBoxPrice, normalizeSalePrice, normalizeMarkup } = require('./ods-derived');
+const { normalizeCost, normalizeReorder, normalizeBoxFactor, normalizeBoxPrice, normalizeSalePrice, normalizeMarkup, normalizePromo } = require('./ods-derived');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const BATCH = 1000;
@@ -906,8 +906,10 @@ async function vaciarCoalescidos(client, tenantId) {
 // kdik lo tiene en c2, no en su pk[0]=c1). Cada fn se corre en orden, en su PROPIA tx.
 // Todo lo derivado de current-state del ODS va acá (al-momento) → feedback_ods_derived_realtime_no_batch_lag.
 const ODS_NORMALIZERS = {
-  kdii: { fns: [normalizeProductsFromOds, normalizeSalePrice, normalizeLabelsFromOds, normalizeBarcodesFromOds, normalizeCost, normalizeBoxFactor, normalizeReorder] },
-  kdik: { skuCol: 'c2', fns: [normalizeCost] },              // costo: c16 es la fuente primaria
+  // `[CANON.6.9]` `normalizePromo` va AL FINAL: sus entradas son el precio de kdii, el nombre
+  // (`normalizeProductsFromOds`) y el costo (`normalizeCost`). Antes lo hacía `repoint-catalog-prices` cada 30 min.
+  kdii: { fns: [normalizeProductsFromOds, normalizeSalePrice, normalizeLabelsFromOds, normalizeBarcodesFromOds, normalizeCost, normalizeBoxFactor, normalizeReorder, normalizePromo] },
+  kdik: { skuCol: 'c2', fns: [normalizeCost, normalizePromo] },  // costo: c16 es la fuente primaria; la promo depende del costo
   // `[CANON.6.8]` + markup (`catalog.products.markup_pct`): antes lo escribía `import-margin.js` de noche.
   kdpv_prod_util: { fns: [normalizeSalePrice, normalizeLabelsFromOds, normalizeBoxPrice, normalizeMarkup] },
   // Bitácora de cambios de precio de Kepler: es la FUENTE del precio de venta, así que un cambio de

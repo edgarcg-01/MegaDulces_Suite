@@ -14,7 +14,7 @@
  */
 const { Client } = require('pg');
 const { declararActor } = require('../lib/declare-actor');
-const { normalizeCost } = require('../../../services/feeds-ingest/ods-derived');
+const { normalizeCost, normalizePromo } = require('../../../services/feeds-ingest/ods-derived');
 
 const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DST_URL || process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
@@ -33,6 +33,10 @@ const APPLY = process.argv.includes('--apply');
     if (!APPLY) { console.log('DRY-RUN: delega el full-catálogo en normalizeCost(null). Corré --apply.'); return; }
     const n = await normalizeCost(db, M, null);
     console.log(`[APPLY] ${n} costos actualizados (en banda, churn-free, full).`);
+    // `[CANON.6.9]` El costo es entrada de `is_promo` (costo en (0, $0.05] = clave de regalo). Quien
+    // cambia el costo recalcula la marca; antes lo hacía `repoint-catalog-prices` cada 30 min.
+    const np = await normalizePromo(db, M, null);
+    console.log(`[APPLY] is_promo: ${np} productos cambiaron de marca.`);
   } catch (e) {
     console.error('\nERROR:', e.message);
     if (e.detail) console.error('  detail:', e.detail);

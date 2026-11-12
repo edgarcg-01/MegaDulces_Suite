@@ -32,40 +32,7 @@ let pass = 0, fail = 0, nm = 0;
 const ok = (c, m, extra) => { if (c) { pass++; console.log('  ✓', m); } else { fail++; console.log('  ✗', m, extra ? `— ${extra}` : ''); } };
 const noMedido = (m) => { nm++; console.log('  ·  NO MEDIDO —', m); };
 const salir = () => { console.log(`\n  ${pass} ✓ · ${fail} ✗ · ${nm} no medido`); process.exit(fail ? 1 : (pass ? 0 : 2)); };
-
-/**
- * Cliente que vive DENTRO de la transacción de la prueba: BEGIN → SAVEPOINT, COMMIT → RELEASE (y suelta
- * las tablas temporales, como haría `ON COMMIT DROP`), ROLLBACK → ROLLBACK TO. Una sentencia suelta fuera
- * de un BEGIN también va en su savepoint, para que un error no aborte la transacción de la prueba.
- */
-function dentroDeLaPrueba(c) {
-  const pila = []; let n = 0;
-  const soltarTemporales = `DO $$ DECLARE r record; BEGIN
-      FOR r IN SELECT relname FROM pg_class WHERE relnamespace = pg_my_temp_schema() AND relkind = 'r'
-      LOOP EXECUTE format('DROP TABLE pg_temp.%I', r.relname); END LOOP; END $$`;
-  return {
-    async query(sql, params) {
-      const k = typeof sql === 'string' ? sql.trim().toUpperCase() : '';
-      if (k === 'BEGIN') { const sp = `sp_${++n}`; pila.push(sp); await c.query(`SAVEPOINT ${sp}`); return { rows: [], rowCount: 0 }; }
-      if (k === 'COMMIT') {
-        const sp = pila.pop();
-        if (sp) await c.query(`RELEASE SAVEPOINT ${sp}`);
-        if (!pila.length) await c.query(soltarTemporales);
-        return { rows: [], rowCount: 0 };
-      }
-      if (k === 'ROLLBACK') {
-        const sp = pila.pop();
-        if (sp) { await c.query(`ROLLBACK TO SAVEPOINT ${sp}`); await c.query(`RELEASE SAVEPOINT ${sp}`); }
-        return { rows: [], rowCount: 0 };
-      }
-      if (pila.length) return c.query(sql, params);
-      const sp = `sq_${++n}`;
-      await c.query(`SAVEPOINT ${sp}`);
-      try { const r = await c.query(sql, params); await c.query(`RELEASE SAVEPOINT ${sp}`); return r; }
-      catch (e) { await c.query(`ROLLBACK TO SAVEPOINT ${sp}`); await c.query(`RELEASE SAVEPOINT ${sp}`); throw e; }
-    },
-  };
-}
+const { dentroDeLaPrueba } = require('./_lib/transaccion-de-prueba');
 
 const COLS = [['sucursal', 'text'], ['c1', 'text'], ['c2', 'text'], ['c3', 'numeric'], ['c4', 'numeric'],
   ['c5', 'numeric'], ['c6', 'numeric'], ['c7', 'numeric']].map(([name, type]) => ({ name, type }));

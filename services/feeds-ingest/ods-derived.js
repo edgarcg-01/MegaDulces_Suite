@@ -242,6 +242,61 @@ async function normalizeMarkup(client, tenantId, skus) {
 }
 
 /**
+ * PROMO (CANON.0.2) — la marca de clave promo/regalo de Kepler (`$0.01`/`$0.05`, no venta real) →
+ * `catalog.products.is_promo`. La leen los reportes de venta (la excluyen por defecto) y `normalizeSalePrice`.
+ * `[CANON.6.9]` (2026-11-12) Pasa al hop-2: antes la recalculaba `repoint-catalog-prices --solo-promo` cada
+ * 30 min en TRES pases que se peleaban dentro de la misma transacción — el pase 1 (precio, en los dos
+ * sentidos) apagaba 4–13 productos y el pase 2 (costo) los volvía a encender, 1,443 corridas al mes.
+ *
+ * UNA regla, que da EXACTAMENTE lo que dejaban los tres pases (medido el 12-nov: 0 diferencias en las
+ * 14,946 filas, 3,581 de ellas borradas):
+ *   · con precio en `kdii` (retail, sin CEDIS): promo si el precio MÁXIMO es ≤ $0.05; sin precio, conserva
+ *     lo que tenía (el pase 1 no lo evaluaba);
+ *   · y además, sólo en filas vivas: costo en (0, $0.05] (el `$0.01` de las claves de regalo; costo 0 es
+ *     costo FALTANTE, no promo) o nombre «= GRATIS» sin costo real (trade-promo «compra X = GRATIS Y»).
+ * ⚠️ Lo que la regla hereda sin juzgarlo: el costo manda sobre el precio. Hoy 4 productos con precio real
+ * quedan como promo por un costo de Kepler ≤ $0.05 (p. ej. BUTTER CHOC/CAFÉ 300GR: precio $35.63, costo
+ * $0.001) y por eso salen de los reportes de venta. Cambiarlo es decisión de negocio, no de este normalizador.
+ *
+ * Se dispara donde cambia una entrada: `kdii` (precio y nombre, DESPUÉS de `normalizeProductsFromOds` y
+ * `normalizeCost`), `kdik` (costo, después de `normalizeCost`), y los dos nocturnos que todavía escriben
+ * costo o nombre (`repoint-catalog-cost`, `repoint-catalog-names`) lo llaman al terminar.
+ * Parámetros de `promoSql`: $1 = tenant, $2 = SKUs (sólo si `scoped`).
+ */
+function promoSql(scoped) {
+  return `
+    WITH k AS (
+      SELECT btrim(c1) AS sku, max(c90::numeric) AS maxp
+        FROM kepler_ods.kdii
+       WHERE btrim(coalesce(c1, '')) <> '' AND btrim(sucursal) <> '00' ${scoped ? 'AND btrim(c1) = ANY($2)' : ''}
+       GROUP BY btrim(c1))
+    SELECT p.id, p.is_promo AS antes,
+           (CASE WHEN k.maxp IS NOT NULL THEN k.maxp <= 0.05 ELSE p.is_promo END)
+           OR (p.deleted_at IS NULL AND (
+                 coalesce(p.cost_base > 0 AND p.cost_base <= 0.05, false)
+              OR (upper(p.nombre) LIKE '%= GRATIS%' AND (p.cost_base IS NULL OR p.cost_base <= 0.05)))) AS promo
+      FROM catalog.products p LEFT JOIN k ON k.sku = p.sku
+     WHERE p.tenant_id = $1 ${scoped ? 'AND p.sku = ANY($2)' : ''}`;
+}
+
+/** `skus` vacío o null = catálogo completo. ⛔ Quien llama con «los que cambié» debe NO llamar si son cero. */
+async function normalizePromo(client, tenantId, skus) {
+  const s = clean(skus);
+  const scoped = s.length > 0;
+  const params = scoped ? [tenantId, s] : [tenantId];
+  await client.query('BEGIN');
+  try {
+    await client.query(`SET LOCAL app.tenant_id = '${tenantId}'`);
+    const up = await client.query(`
+      UPDATE catalog.products p SET is_promo = f.promo, updated_at = now()
+        FROM (${promoSql(scoped)}) f
+       WHERE p.id = f.id AND p.is_promo IS DISTINCT FROM f.promo`, params);
+    await client.query('COMMIT');
+    return up.rowCount;
+  } catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; }
+}
+
+/**
  * PRECIO DE VENTA → commercial.product_prices (BASE-MXN).
  *
  * REGLA (Edgar 2026-08-25): **manda lo que el punto de venta COBRA**, no la configuración.
@@ -477,4 +532,4 @@ async function normalizeSalePrice(client, tenantId, skus) {
   } catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; }
 }
 
-module.exports = { normalizeCost, normalizeReorder, normalizeBoxFactor, normalizeBoxPrice, normalizeSalePrice, salePriceCtes, normalizeMarkup, markupFuenteSql, MARKUP_BRANCH };
+module.exports = { normalizeCost, normalizeReorder, normalizeBoxFactor, normalizeBoxPrice, normalizeSalePrice, salePriceCtes, normalizeMarkup, markupFuenteSql, MARKUP_BRANCH, normalizePromo, promoSql };

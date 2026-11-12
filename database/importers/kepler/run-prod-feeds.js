@@ -428,7 +428,10 @@ const STEPS = {
     // La politica ya estaba decidida (Edgar 2026-08-25): manda lo que el PdV cobra. Asi que
     // el dueno del precio es `ods-derived` y este paso queda SOLO con `is_promo`, que es lo
     // unico que nadie mas recalcula. Ver la cabecera de repoint-catalog-prices.js.
-    [path.join(K, 'repoint-catalog-prices.js'), '--solo-promo'],  // → catalog.products.is_promo (el precio lo escribe ods-derived)
+    // RETIRADO 2026-11-12 [CANON.6.9]: repoint-catalog-prices.js --solo-promo — `is_promo` lo
+    // mantiene el hop-2 (`normalizePromo`, al llegar kdii/kdik) y lo recalculan los dos nocturnos que
+    // todavía escriben costo o nombre. Sus tres pases se peleaban en cada corrida (1,013 de 1,443 del
+    // mes: el pase 1 apagaba 13 productos y el pase 2 los volvía a encender).
   ],
   // KV.8 — logística sola (on-demand): dims. (import-erp-shipments RETIRADO 2026-08-20:
   // analytics.erp_shipments es VISTA derive-no-copy sobre kepler_ods.kdpord, mig 20260820170000

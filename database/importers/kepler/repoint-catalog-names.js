@@ -21,6 +21,7 @@
 const { Client } = require('pg');
 const { declararActor } = require('../lib/declare-actor');
 const { identitySnapshotSql } = require('../../../services/feeds-ingest/product-identity');
+const { normalizePromo } = require('../../../services/feeds-ingest/ods-derived');
 
 const M = '00000000-0000-0000-0000-00000000d01c';
 const SRC = process.env.SRC_URL || process.env.KP_CONCENTRADA_URL || 'postgresql://postgres:superoot@192.168.0.245:5432/KP_CONCENTRADA';
@@ -110,9 +111,17 @@ const clean = (v) => { const s = (v == null ? '' : String(v)).trim(); return s =
         nombre = t.nombre,
         brand_id = COALESCE(t.brand_id, p.brand_id),
         updated_at = now()
-      FROM tmp_fresh t WHERE ${WHERE}`, [M]);
+      FROM tmp_fresh t WHERE ${WHERE}
+      RETURNING p.sku`, [M]);
     await dst.query('COMMIT');
     console.log(`\n[APPLY] COMMIT — ${res.rowCount} identidades corregidas (nombre/marca; UPDATE-only). Barcode = label-data.`);
+    // `[CANON.6.9]` El nombre es entrada de `is_promo` («= GRATIS»): se recalcula SÓLO lo renombrado.
+    // ⛔ Con cero renombrados NO se llama: una lista vacía es «catálogo completo» para el normalizador.
+    const renombrados = res.rows.map((r) => r.sku).filter(Boolean);
+    if (renombrados.length) {
+      const np = await normalizePromo(dst, M, renombrados);
+      console.log(`[APPLY] is_promo: ${np} de ${renombrados.length} renombrados cambiaron de marca.`);
+    }
   } catch (e) {
     await dst.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);
