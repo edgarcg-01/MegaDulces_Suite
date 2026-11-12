@@ -1440,7 +1440,7 @@ Que el método decida es el cambio de `[PGP.109]`, y **la regla contable la conf
 | `[PGP.107]` | C0 | **El evento «pagado» con su evidencia**: al marcar Pagado (ya validado) se guardan en el pago la salida del banco y el comprobante que lo probaron (columnas nuevas en `finance.payment_allocations`, nullables; regla 14: recorrer todos los caminos que la tocan). Sin esto ni Kepler ni ContPAQi saben fecha, cuenta e importe reales | ⬜ |
 | `[PGP.108]` | C0+C1 | **Cada factura del pago ↔ su CFDI**, por el documento de Kepler (RFC + total ±$1 + fecha ±45 días): 70 % del dinero único, control 0.3 %. Varios candidatos o ninguno → una persona elige (`contpaqi.pago_confirmaciones`). Con `metodo_pago`, `forma_pago`, IVA/IEPS y retenciones del CFDI | ⬜ |
 | `[PGP.109]` | C1 | **La regla PUE/PPD en el asiento**, sobre `armarPagoProveedorCompleto` (no un armador nuevo): PUE completo; PPD proporcional a la parcialidad + estado «espera REP». Pruebas con pólizas reales de la contadora como testigo | ⬜ espera P1 |
-| `[PGP.110]` | C0 | **Carril vivo de REP**: `contpaqi_ods.add_pagos` / `add_pagos_doc_rel` detenido desde el 30-oct. Sin él, ningún PPD se completa. Y la asociación del REP a la póliza ya emitida | ⚠️ investigado 2026-11-10 (ver «El carril de REP» abajo): espera la D15 de Edgar, extender el replicador y una corrida en `feeds-cron` de md |
+| `[PGP.110]` | C0 | **Carril vivo de REP**: `contpaqi_ods.add_pagos` / `add_pagos_doc_rel` detenido desde el 30-oct. Sin él, ningún PPD se completa. Y la asociación del REP a la póliza ya emitida | ⚠️ investigado 2026-11-10 (ver «El carril de REP» abajo). **2026-11-11:** ya no espera la D15 — el carril es la descarga del SAT (`fiscal.cfdi_payment_links`); su ingesta perdía 16,195 de 16,845 CFDI, arreglada en `[PGP.110b]` 🧪; falta re-descargar y medir |
 | `[PGP.111]` | C1 | **Gastos**: la cuenta contable de cada proveedor de gasto (hoy 0 de 51) se PREGUNTA en el sistema como parámetro (dueño: la contadora), y las retenciones (honorarios, arrendamiento) que hoy se rechazan | ⬜ espera P3 |
 | `[PGP.112]` | C2+C3 | **Al quedar «Pagado»**: la póliza entra al TXT del día (`txt-sink`, ADR-040: la importa una persona y la Suite lee el cuadre de vuelta de `gl_polizas`); en pantalla, el pago dice «póliza armada · espera REP · entregada» | ⬜ |
 | `[PGP.106]` | C2 | **Kepler**: el X-D-26 con sus 8 escrituras — incluida la **póliza interna de Kepler** (`kdc2AAMM`) y los acumulados contables (`kdxg`, `kdc126`). Permisos ✅ en CEDIS; faltan en el adaptador `kdm5`, `kdxg`, `kdc2AAMM`, `kdc126` | ⚠️ falta la foto de una captura real de Tesorería (`foto-contadores.js`) |
@@ -1545,7 +1545,11 @@ junto a la validación de cada pago marcado «Pagado». 8 pruebas (mutante «sin
 ⛔ **La consecuencia que manda el orden:** por dinero, el 91 % es PPD. Sin el carril de REP vivo (D15 + extender el
 replicador, `[PGP.110]`), esas pólizas no se pueden generar. Es lo primero que destraba el cierre contable.
 
-### `[PGP.110]` El replicador sigue la marca del ADD (CP.9.6 de ADR-111) — 🔨 en código, NO ejercido
+### `[PGP.110]` El replicador sigue la marca del ADD (CP.9.6 de ADR-111) — ❌ retirado el 2026-11-11 sin haber corrido
+
+> ❌ **Retirado (Edgar, 2026-11-11):** el modo `--add-por-marca` y su renglón comentado del cron salieron del repo
+> (`git revert` manual de `dff70f5a5`). Nada de cron ni de importer: los REP se van a leer de lo que la Suite ya guarda
+> del SAT, ver `[PGP.110b]` al final. Lo de abajo queda como registro de lo que se diseñó.
 
 `database/importers/contpaqi/replicate-contpaqi.js --add-por-marca`: por cada repositorio del ADD toma la última marca
 que tiene la réplica (`add_documento.timestamp`) menos `--margen-dias` (2), le pregunta al origen qué documentos tienen
@@ -1793,3 +1797,58 @@ aplicaciones de `kdxf` (~240 ms) y `canc`/`aplc` cruza 2,364 cancelados (~135 ms
 llave (una función SQL que la vista y el cierre usen), con comparación fila por fila contra la vista actual sobre toda la
 deuda viva antes de cambiar nada (regla 15), y la migración fuera de horario. Beneficia también a «Por día», a la deuda
 (`obligations`) y a todo consumidor de la vista.
+
+### `[PGP.110b]` Los REP desde el SAT en vez de la copia de ContPAQi — medido: todavía no (2026-11-11)
+
+Edgar aprobó (2026-11-11) leer los REP de los CFDI del SAT que la Suite ya guarda, en lugar de la réplica de ContPAQi
+(detenida desde el 30-oct, y encenderla pedía la D15 y un cron). Antes de cambiar la vista se midió en prod (sólo
+lectura, `system_identifier` verificado):
+
+- **La tabla correcta ya existe:** `fiscal.cfdi_payment_links`. La llena `cfdi-ingest.service.ts` al ingerir cada CFDI
+  (por evento, sin cron) y ya la usan Conciliación y DIOT. No hace falta parsear el XML en una vista: además, 697 de
+  los 785 XML de REP recibidos traen BOM y Postgres no los acepta como `xml` sin quitarla. Buscar por factura con
+  igualdad directa sobre `docto_uuid` (guardado en mayúsculas): 2–4 ms.
+- **Donde las dos fuentes coinciden, coinciden:** 1,480 de 1,480 ligas con el mismo monto que ContPAQi. 101 difieren un
+  día en la fecha (ver el hallazgo de abajo).
+- ⛔ **Pero la copia del SAT está incompleta.** De las facturas PPD recibidas de enero a agosto, ContPAQi encuentra el
+  REP de entre 85 % y 97 % cada mes y el SAT de entre 1 % y 45 %. El SAT no tiene ni un REP que ContPAQi no tenga.
+  Cambiar la fuente hoy dejaría sin REP a la mayoría de las pólizas PPD. **No se cambió:** la vista
+  `analytics.v_rep_de_factura` y `leerRepsDeFacturas` siguen leyendo ContPAQi.
+
+**Por qué está incompleta (el defecto, encontrado):**
+
+- La descarga de recibidas del 27-oct (1-ene a 27-oct) anunció 16,845 CFDI y dejó 650 en la base. Sus 5 paquetes
+  terminaron en error con «Máximo de descargas permitidas».
+- Desde `[PGP.23]` (27-oct) las ligas se guardan con `.merge()`, y un `INSERT … ON CONFLICT DO UPDATE` no admite la
+  misma llave dos veces en un mismo comando: Postgres aborta el comando entero. **Cada uno de los 5 paquetes tenía
+  exactamente UN REP que relaciona varios documentos con `IdDocumento` en ceros y parcialidad 1** (ninguno de los 619
+  REP con ligas tiene una llave repetida). El lote abortó, el job reintentó la DESCARGA y el SAT la negó. Es la cadena
+  que describe el comentario de `[PGP.24]` en `descarga-orchestrator.service.ts`, al que le faltaba el porqué.
+- CFDI y ligas iban en transacciones separadas: los 166 REP de los lotes caídos quedaron guardados **sin** sus ligas.
+- Los ZIP no se guardaron (R2 no está configurado en prod: `stored_ref` vacío en los 24 paquetes de la historia), así
+  que no hay de dónde reprocesar: hay que volver a pedirle al SAT.
+
+**El arreglo — 🧪 2026-11-11** (`libs/fiscal/src/lib/cfdi/ligas-de-pago.ts` y `cfdi-ingest.service.ts`):
+
+- Las ligas con `IdDocumento` vacío o en ceros no se insertan (no identifican ninguna factura); de una llave repetida
+  queda la primera; un CFDI repetido en el lote, una vez. Lo omitido se **declara** en el log del paquete.
+- CFDI y ligas van en **una** transacción por lote: si las ligas fallan, el lote entero se revierte.
+- `libs/fiscal` estrena su runner de pruebas (`vitest.config.ts`; hasta hoy tenía 0 specs): 5 pruebas con la forma real
+  del 27-oct. Prueba negativa hecha: sin el filtro de ceros, la prueba del 27-oct se pone roja.
+- **NO MEDIDO:** el INSERT contra una base real. No hay Postgres de pruebas en la máquina donde se escribió, y las
+  `*.it.spec` de `fiscal` no correrían en el CI (el job de integración sólo recorre `finance` y `commercial`). El
+  ejercicio real es la re-descarga del paso 2.
+
+**Lo que sigue, en orden:**
+
+1. Desplegar el arreglo.
+2. **Una persona con la e.firma** vuelve a pedir en la Suite (descarga masiva) las **recibidas del 1-ene-2026 a hoy**.
+   ⚠️ Repetir el rango exacto del 27-oct puede rechazarse como duplicado; con fin = hoy es otra solicitud.
+3. Medir mes por mes que las facturas PPD con REP en el SAT sean ≥ las de ContPAQi. Recién entonces la vista pasa a
+   leer `fiscal.cfdi_payment_links`, y `sincronizado_hasta` sale de la última descarga de recibidas que terminó bien.
+4. `[PGP.110c]` ⬜ Hoy la descarga la dispara una persona. Si la Suite puede pedirla sola cuando un pago PPD espera su
+   REP (con la e.firma que ya usa el orquestador) se mide antes de prometerlo.
+
+**Hallazgo aparte, sin tocar:** `cfdi_payment_links.fecha_pago` guarda la `FechaPago` del XML (hora local, sin zona)
+como si fuera UTC. 194 de 14,484 ligas caen un día antes en hora de México y 3 cambian de mes, que es el mes en que
+DIOT cuenta un pago PPD. Arreglarlo cambia números de DIOT: va aparte, con su medición antes y después (regla 15).

@@ -4,6 +4,7 @@ import { TenantKnexService } from '@megadulces/platform-core';
 import { CfdiParserService } from './cfdi-parser.service';
 import { CfdiStorageService } from './cfdi-storage.service';
 import { CfdiHeader } from './cfdi.types';
+import { cfdisUnicos, ligasParaInsertar } from './ligas-de-pago';
 
 export interface IngestResult { storedRef: string | null; parsed: number; skipped: number; total: number; }
 
@@ -44,26 +45,35 @@ export class CfdiIngestService {
     let batch: any[] = [];
     let linkBatch: any[] = [];
 
+    // `[PGP.110b]` Lo que se quitó del insert por no poder ligarse; se DECLARA al final.
+    const omitidas = { sinDocumento: 0, repetidas: 0, cfdisRepetidos: 0 };
+
     const flush = async () => {
-      if (batch.length) {
-        const rows = batch; batch = [];
+      if (!batch.length && !linkBatch.length) return;
+      // `[PGP.110b]` Un `merge()` no admite la misma llave dos veces en el mismo INSERT: sin esto,
+      // un REP con varios `IdDocumento` en ceros tumbaba el lote y el resto del paquete.
+      const { cfdis, repetidos } = cfdisUnicos(batch); batch = [];
+      const l = ligasParaInsertar(linkBatch); linkBatch = [];
+      omitidas.cfdisRepetidos += repetidos;
+      omitidas.sinDocumento += l.sinDocumento;
+      omitidas.repetidas += l.repetidas;
+      // `[PGP.110b]` CFDI y ligas en UNA transacción: si las ligas fallan, el lote entero se
+      // revierte. Antes iban por separado y un fallo dejaba REP guardados sin sus ligas (166 el 27-oct).
+      await this.tk.run(tenantId, async (trx) => {
         // MAT.0: merge('xml') backfillea el documento en re-descargas sin pisar el resto
         // de la metadata (idempotente por (tenant, uuid)).
-        await this.tk.run(tenantId, async (trx) =>
-          trx('fiscal.cfdis').insert(rows).onConflict(['tenant_id', 'uuid']).merge(['xml']));
-      }
-      if (linkBatch.length) {
-        const rows = linkBatch; linkBatch = [];
-        await this.tk.run(tenantId, async (trx) =>
-          // `[PGP.23]` Pasa de `.ignore()` a `.merge()` de SOLO las dos columnas de la cuenta —
-          // mismo criterio que el `merge(['xml'])` de arriba. Con `.ignore()`, una re-descarga
-          // de un periodo ya ingerido NO habría rellenado la cuenta de las filas existentes, que
-          // es justo lo que queremos que ocurra. Los importes no se tocan: si el REP cambió de
-          // monto, eso es otro problema y no se resuelve pisándolo en silencio.
-          trx('fiscal.cfdi_payment_links').insert(rows)
+        if (cfdis.length) await trx('fiscal.cfdis').insert(cfdis).onConflict(['tenant_id', 'uuid']).merge(['xml']);
+        // `[PGP.23]` Pasa de `.ignore()` a `.merge()` de SOLO las dos columnas de la cuenta —
+        // mismo criterio que el `merge(['xml'])` de arriba. Con `.ignore()`, una re-descarga
+        // de un periodo ya ingerido NO habría rellenado la cuenta de las filas existentes, que
+        // es justo lo que queremos que ocurra. Los importes no se tocan: si el REP cambió de
+        // monto, eso es otro problema y no se resuelve pisándolo en silencio.
+        if (l.ligas.length) {
+          await trx('fiscal.cfdi_payment_links').insert(l.ligas)
             .onConflict(['tenant_id', 'rep_uuid', 'docto_uuid', 'num_parcialidad'])
-            .merge(['cta_beneficiario', 'rfc_banco_beneficiario']));
-      }
+            .merge(['cta_beneficiario', 'rfc_banco_beneficiario']);
+        }
+      });
     };
 
     for (const e of xmls) {
@@ -80,6 +90,10 @@ export class CfdiIngestService {
     await flush();
 
     this.logger.log(`Paquete ${packageId}: ${parsed} CFDI parseados, ${skipped} omitidos de ${xmls.length} XML.`);
+    if (omitidas.sinDocumento || omitidas.repetidas || omitidas.cfdisRepetidos) {
+      this.logger.warn(`Paquete ${packageId}: ${omitidas.sinDocumento} ligas de REP sin documento (IdDocumento vacío o en ceros), `
+        + `${omitidas.repetidas} ligas repetidas y ${omitidas.cfdisRepetidos} CFDI repetidos no se insertaron.`);
+    }
     return { storedRef, parsed, skipped, total: xmls.length };
   }
 
