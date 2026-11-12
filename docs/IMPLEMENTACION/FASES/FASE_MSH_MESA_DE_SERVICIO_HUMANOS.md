@@ -1,6 +1,6 @@
 # FASE MSH — La Mesa de Servicio de Recursos Humanos (cola confidencial)
 
-> **Estado:** 🔨 **MSH.1 (base de datos), MSH.2 (lógica y pruebas) y MSH.3 (pantalla) construidos 2026-10-08**; **PRV.2 (consentimiento del aviso de privacidad) construido 2026-10-12**; MSH.4 sin código. Diseñado 2026-10-06. Segunda cola de la Mesa después de Mantenimiento ([`FASE_MS7_MANTENIMIENTO`](FASE_MS7_MANTENIMIENTO.md)); hereda de ADR-081 y del diseño de MS.7. **ADR por asignar** (la numeración 082 y 083 ya está ocupada).
+> **Estado:** 🔨 **MSH.1 (base de datos), MSH.2 (lógica y pruebas) y MSH.3 (pantalla) construidos 2026-10-08**; **PRV.2 (consentimiento del aviso de privacidad) construido 2026-10-12**; **MSH.1–MSH.3 y PRV.2 en producción** (medido 2026-11-12: las dos migraciones en `public.knex_migrations`, `privacy_notices` con 0 avisos, ninguna cola `rh`); **R8, R2 y R4 resueltos por el dueño de la Mesa el 2026-11-12** (ver «Decisiones 2026-11-12»); **borrador del aviso (PRV.1) listo para Legal** en [`FASE_MSH_AVISO_DE_PRIVACIDAD_RH`](FASE_MSH_AVISO_DE_PRIVACIDAD_RH.md); MSH.4 y MSH.5 sin código; **la parte legal queda pendiente** y es condición para encender la cola. Diseñado 2026-10-06. Segunda cola de la Mesa después de Mantenimiento ([`FASE_MS7_MANTENIMIENTO`](FASE_MS7_MANTENIMIENTO.md)); hereda de ADR-081 y del diseño de MS.7. **ADR por asignar** (la numeración 082 y 083 ya está ocupada).
 > **Nombre de los sprints (cambio 2026-10-07):** esta fase es **MSH** («Mesa de Servicio · Humanos»), sus sprints son **MSH.0–MSH.4** y el archivo se llama `FASE_MSH_MESA_DE_SERVICIO_HUMANOS.md`. Antes se llamaban `RH.0–RH.4` y el archivo `FASE_RH_MESA_DE_SERVICIO.md`, **códigos que chocaban con la Fase RH de la migración de Mega Talento** ([`FASE_RH_MIGRACION_MEGA_TALENTO`](FASE_RH_MIGRACION_MEGA_TALENTO.md): `[RH.0.x]`, `[RH.1]` asistencia, `[RH.2]` reclutamiento, `[RH.3]` bot, `[RH.4]` retiro de Railway). **Esta fase NO es esa**: es la cola confidencial de RH dentro de la Mesa de Servicio. Si ves `RH.n` sin prefijo, es Mega Talento; si ves `MSH.n`, es este plan.
 > **Origen:** `PLAN_MESA_SERVICIO_RH.md` + `PROMPT_CLAUDE_CODE_RH.md` (Sistemas), contrastados con el código real. Este documento reemplaza a ambos como fuente: trae el plan ajustado, la matriz de **20 casos** y el prompt maestro corregido (Apéndice).
 > **Para quién:** Sistemas (dueño de la Mesa), RH (Lesly Berber y Tania Solorio), Edgar (revisión) y el dev que lo construya.
@@ -61,13 +61,13 @@ Hoy la base sólo fija el tenant por sesión (`app.tenant_id`). Agregar el actor
 | # | Duda | Propuesta |
 |---|---|---|
 | **R1** (A) | ¿Dónde vive la marca? | `queues.confidential`; al crear el ticket **se copia y ya no cambia** (trigger). El ticket **no puede** declararse confidencial ni no confidencial por el cliente: la base lo fija desde la cola. |
-| **R2** (B) | ¿Qué es «información básica» del administrador? | Folio, cola, fecha de alta, estado y fecha de resolución. **Sin** título, descripción, hilo, adjuntos, ni nombre del solicitante, **ni conteos por categoría**. La **API** tampoco envía los campos ocultos (no basta esconderlos en pantalla). |
+| **R2** (B) ✅ | ¿Qué es «información básica» del administrador? | Folio, cola, fecha de alta, estado y fecha de resolución. **Sin** título, descripción, hilo, adjuntos, ni nombre del solicitante, **ni conteos por categoría**. La **API** tampoco envía los campos ocultos (no basta esconderlos en pantalla). **Confirmado tal cual por el dueño de la Mesa el 2026-11-12.** |
 | **R3** (C, D) ✅ | ¿Qué significa «sólo entre responsables» y qué pasa al salir de RH? | **Un ticket de RH NO se puede transferir a una cola no confidencial** (si no, los miembros de TI verían un ticket de RH). Entre Lesly y Tania se usa **reasignar**, no transferir. Hacia otra cola confidencial: sólo un coordinador, y sólo hacia un coordinador de la cola destino. **Confirmado por Sistemas el 2026-10-06.** |
-| **R4** (E) | Mínimo de casos en reportes. | `queues.report_min_cases`, configurable; propuesta inicial **5**. Bajo el mínimo se muestra «—». |
+| **R4** (E) ✅ | Mínimo de casos en reportes. | `queues.report_min_cases`, configurable; propuesta inicial **5**. Bajo el mínimo se muestra «—». **Confirmado tal cual el 2026-11-12.** |
 | **R5** (F) | SLA sin prioridad. | v1 **sin SLA en RH**: se declara «—», nunca 0. El SLA calibrado queda para después. |
 | **R6** (G) | Responsable por omisión. | Ninguno (son dos coordinadoras): el ticket queda «Sin asignar» y lo ven ambas. |
 | **R7** (H) ✅ | Categorías. | **Resuelto por Sistemas el 2026-10-06: las 10 de §3.3** (nómina, vacaciones y permisos, incapacidades, altas y bajas, constancias y documentos, credenciales y uniformes, capacitación, conflicto laboral, prestaciones y préstamos, datos personales y expediente). Se afinan con RH al abrir. La ubicación es opcional. |
-| **R8** | **¿Cómo llega un ticket a RH?** (sin respuesta aún: rige la propuesta «de momento») (las decisiones 1 y 2 del plan dicen «redirige la solicitud a RH»). | La persona **elige explícitamente el área RH** al levantar el ticket (con el aviso «esta solicitud será confidencial»). **Sin** un botón de «reporte confidencial» dentro de otra cola. |
+| **R8** ✅ | **¿Cómo llega un ticket a RH?** (las decisiones 1 y 2 del plan dicen «redirige la solicitud a RH»). | **Resuelto por el dueño de la Mesa el 2026-11-12: las DOS puertas.** (a) La persona **elige explícitamente el área RH** al levantar el ticket (con el aviso «esta solicitud será confidencial»); y (b) un botón **«Reporte confidencial»** en el formulario de cualquier área, que **manda el reporte a la cola RH** para que sólo lo vea RH. Cómo se respeta R1 con (b): ver «Decisiones 2026-11-12» y **MSH.5**. ~~Sin un botón de «reporte confidencial» dentro de otra cola~~ (propuesta anterior, reemplazada). |
 | **R9** | ¿Quién ve un ticket levantado a nombre de otra persona? | Sólo el solicitante y los miembros de RH (H7). |
 
 ### 3.3 Categorías de RH (resueltas por Sistemas el 2026-10-06)
@@ -117,7 +117,8 @@ Una rama y un PR por sprint. Migraciones aditivas, idempotentes y reversibles, *
 | **MSH.1** ✅ Base de datos | Columnas de cola, `requests.confidential` y sus **dos triggers**. Pruebas de subida y reversa en copia. | Un ticket no puede cambiar su marca ni salir a una cola no confidencial, ni por SQL con `app_runtime`. |
 | **MSH.2** ✅ Lógica y pruebas | `accesoATicket` completo (incluye `basico` para el administrador); `queue_members` de una cola confidencial sólo los edita su coordinador (H1); **candado estático** de lecturas (H2); `me-work`/`me-tasks` acotados por cola (H2); avisos neutros **al escribir** (H3); URL prefirmada corta (H4); modelo sin prioridad y barredor que salta la cola (H5); levantar a nombre de otro (H7); transferencia (R3); reportes con mínimo y supresión complementaria (H8); filtro del puerto de Bitácora (H9). | Cada regla probada **rompiéndola a propósito**. TI y Mantenimiento sin regresión. |
 | **MSH.3** ✅ Pantalla | Aviso «esta solicitud será confidencial» al elegir RH; formulario sin preguntas de prioridad; **sin semáforo ni chip** en listados y fichas de RH; vista limitada del administrador; bandera y mínimo de casos en `/servicio/configuracion`. Todo en español. | E2E pasando. |
-| **MSH.4** Siembra y verificación cruzada | La cola RH **sólo con configuración** (cola confidencial, sin prioridad ni SLA, categorías validadas, Lesly Berber y Tania Solorio coordinadoras). Se corre la **matriz de 20 casos**. | Matriz en verde, caso por caso; los fallos se reportan, no se maquillan. |
+| **MSH.4** Siembra y verificación cruzada | La cola RH **sólo con configuración** (cola confidencial, sin prioridad ni SLA, categorías validadas, Lesly Berber y Tania Solorio coordinadoras, con `SERVICIO_ATENDER`+`SERVICIO_COORDINAR` individuales; el aviso de PRV.1 en `borrador` ligado a la cola). **Nace apagada**: se enciende sólo con PRV.0/PRV.1/PRV.3 aprobados. Se siembra **por migración**, no desde «Nueva área»: desde MS.8.2 la pantalla no deja crear una cola confidencial sin coordinación. Se corre la **matriz de 20 casos**. | Matriz en verde, caso por caso; los fallos se reportan, no se maquillan. |
+| **MSH.5** Botón «Reporte confidencial» (R8-b, 2026-11-12) | En el formulario de cualquier área, el botón cambia el destino a la cola RH (no marca confidencial un ticket de otra cola: R1 intacta). Sólo aparece con la cola RH encendida. | Casos 21–24 de «Decisiones 2026-11-12», cada uno con su negativa. |
 
 **Regla de entrada de MSH.4:** nunca se siembra la cola antes de que el acceso por cola y la confidencialidad pasen sus pruebas.
 **Fuera de v1:** tickets padre-hijo (altas de empleado), campos extra, SLA calibrado, ruteo por ubicación y definir «urgente» en RH.
@@ -182,6 +183,56 @@ Primer paso de código del plan legal ([`FASE_MSH_PRIVACIDAD_Y_RETENCION`](FASE_
 - **Despliegue:** migración **antes** del código (el servicio lee `queues.privacy_notice_code` y las dos tablas nuevas). Sin permisos nuevos → sin re-login.
 - **Declarado, no construido:** pantalla de administración de avisos (se publican por SQL o desde la siembra de MSH.4); el texto del aviso (PRV.1, legal); quién consiente cuando se levanta a nombre de una persona que nunca ha aceptado (pregunta para legal).
 
+### Decisiones 2026-11-12 — R8, R2/R4 y el borrador del aviso
+
+Las tomó el dueño de la Mesa. Lo que se midió en producción ese día (sólo lectura, `system_identifier` verificado):
+
+- **MSH.1, MSH.2, MSH.3 y PRV.2 están en producción**: las dos migraciones están aplicadas y la pantalla vive en el
+  código desplegado.
+- `servicedesk.privacy_notices` tiene **0 avisos** y **no existe** una cola `rh`.
+- `lesly_berber` y `tania_solorio` existen y están activas con rol `administrativo`, pero **sólo pueden reportar**: no
+  tienen `SERVICIO_ATENDER` ni `SERVICIO_COORDINAR`.
+
+**1. La parte legal queda pendiente.** El dueño pidió un aviso estándar como punto de partida:
+[`FASE_MSH_AVISO_DE_PRIVACIDAD_RH`](FASE_MSH_AVISO_DE_PRIVACIDAD_RH.md) (PRV.1, **borrador para Legal**). Trae:
+
+- el aviso integral;
+- el simplificado y el texto de la casilla, que ya caben en las restricciones de `privacy_notices` (909 y 168
+  caracteres con los `[…]`);
+- la línea corta;
+- la lista de lo que Legal revisa.
+
+**PRV.0, PRV.1 aprobado y PRV.3 siguen siendo condición para ENCENDER la cola**, no para construirla.
+
+**2. R8 — las dos puertas.**
+
+- **(a) Elegir el área RH:** ya existe (MSH.3).
+- **(b) El botón «Reporte confidencial»:** es nuevo y se construye en **MSH.5**. Para no romper R1 (la marca vive en
+  la cola y el cliente no la declara), el botón **no vuelve confidencial un ticket de TI, Mantenimiento ni Compras**:
+  **cambia el destino a la cola RH**. El ticket nace en RH y hereda la marca de la base, como cualquier ticket de RH.
+
+Lo que hace el botón (diseño a confirmar en la revisión de pantalla, no en el negocio):
+
+- conserva el título y la descripción que la persona ya escribió;
+- **descarta** la categoría y las preguntas del área de origen, porque no aplican a RH, y pide elegir una categoría de RH;
+- muestra el aviso «será confidencial» y la casilla del aviso de privacidad;
+- **no deja rastro en la cola de origen**: no se crea un ticket allá ni se avisa a sus miembros.
+
+**Sólo se muestra si existe una cola RH encendida**. Sin ella el botón no aparece, para que nunca prometa algo que no
+puede cumplir.
+
+**3. R2 y R4 se confirman tal cual:** el administrador ve folio, cola, fechas y estado; los reportes tienen un mínimo
+de 5 casos.
+
+**Casos que MSH.5 agrega a la matriz (§6):**
+
+| # | Caso | Esperado |
+|---|---|---|
+| 21 | Desde el formulario de TI, la persona pulsa «Reporte confidencial» y envía | El ticket nace en **RH**, `confidential = true`; los miembros de TI no lo ven, ni en lista, ni en la búsqueda, ni en los avisos |
+| 22 | Mismo caso, con categoría y preguntas de TI ya llenas | El ticket de RH **no** guarda las respuestas de TI |
+| 23 | Con la cola RH apagada o inexistente | El botón no aparece y la API rechaza el envío a RH |
+| 24 | Sin marcar la casilla del aviso | No se envía (PRV.2, 400) |
+
 
 ---
 
@@ -233,11 +284,11 @@ Más una **prueba de build**: el candado estático falla si un archivo nuevo, fu
 ## 8. Preguntas abiertas
 
 1. ~~**R3:**~~ ✅ resuelto el 2026-10-06: un ticket de RH **no** sale a una cola no confidencial.
-2. **R8:** ¿la persona elige RH explícitamente, o debe existir otra puerta («reporte confidencial» desde cualquier lado)?
-3. **R2/R4:** ¿«información básica» y el mínimo de 5 casos, tal cual?
+2. ~~**R8:**~~ ✅ resuelto el 2026-11-12: **las dos puertas** (elegir RH y el botón «Reporte confidencial», MSH.5).
+3. ~~**R2/R4:**~~ ✅ confirmados tal cual el 2026-11-12.
 4. ~~**R7:**~~ ✅ resuelto el 2026-10-06 (las 10 categorías de §3.3); sólo falta afinarlas con RH al abrir.
-5. **Alta de usuarios:** confirmar en producción que Lesly Berber y Tania Solorio tienen usuario y las capacidades `SERVICIO_ATENDER` y `SERVICIO_COORDINAR` (esta máquina no tiene sus fichas).
-6. **Legal:** aviso de privacidad y retención.
+5. **Alta de usuarios:** medido el 2026-11-12: `lesly_berber` y `tania_solorio` existen y están activas, pero **sin** `SERVICIO_ATENDER` ni `SERVICIO_COORDINAR`. Se les otorgan en la migración de MSH.4.
+6. **Legal:** ⏳ **pendiente** (decisión del dueño, 2026-11-12). Ya existe el borrador del aviso para revisar: [`FASE_MSH_AVISO_DE_PRIVACIDAD_RH`](FASE_MSH_AVISO_DE_PRIVACIDAD_RH.md). Faltan las 6 decisiones de PRV.0, la aprobación de PRV.1 y PRV.3.
 
 ---
 
