@@ -14,6 +14,12 @@
 #     desde ahí es `migrado` y el deploy lo aplica.
 #   · `strategy: Recreate` — nunca hay dos pods a la vez, ni durante un despliegue.
 #   · `singleton: "true"` — que `check:k3s` lo trate como tal.
+#
+# ── La imagen y quién la despliega ── `[OPS.ING.1]` (2026-11-12)
+# Imagen PROPIA, `trade-relojes` (`ops/relojes/Dockerfile`): antes compartía `trade-ingest` con los diez carriles
+# del ODS, y desplegar uno reiniciaba al otro. La construye el CI y la despliega `md` sola
+# (`ops/prod/desplegar-ingesta.sh`, que corre el vigía cuando la API ya sirve el commit). El `__COMMIT__` de abajo
+# se sustituye por el hash de lo que la imagen copia: si el lector no cambió, el pod no se toca.
 # Volver atrás: `kubectl -n ingesta scale deploy/hr-relojes --replicas=0` y, en `SeniorDev`,
 # `Set-Service -Name 'megatalentoagentedechecadas.exe' -StartupType Automatic; Start-Service -Name 'megatalentoagentedechecadas.exe'`
 # (y devolver la etiqueta al valor que el deploy saltea, para que no lo reviva).
@@ -63,7 +69,7 @@ spec:
       restartPolicy: Always
       containers:
         - name: lector
-          image: localhost:5000/trade-ingest:__COMMIT__
+          image: localhost:5000/trade-relojes:__COMMIT__
           imagePullPolicy: IfNotPresent
           command: ["/bin/sh", "-c"]
           args:

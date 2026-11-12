@@ -96,3 +96,53 @@ jobs:
           # Caché por servicio en GitHub Actions: lo que en `md` costaba 80 GB de disco de prod.
           cache-from: type=gha,scope=${{ matrix.servicio }}
           cache-to: type=gha,mode=max,scope=${{ matrix.servicio }}
+
+  # ═══ `[OPS.ING.1]` LAS IMÁGENES DE LA INGESTA, POR LA MISMA VÍA (2026-11-12) ═══════════════════════════════════
+  # Hasta hoy `trade-ingest` se construía EN `md` desde el árbol de una laptop (`ops/vl/deploy.sh --k3s`): era lo
+  # único que `md` seguía compilando después de `[OPS.CI.1]`, y lo único que no pasaba por el CI. Ahora el CI las
+  # publica como a las apps y `ops/prod/desplegar-ingesta.sh` (en `md`, detrás del vigía) las descarga.
+  # `trade-relojes` va aparte: el lector sostiene una sesión TCP por reloj y no debe reiniciarse por un cambio del ODS.
+  # ⛔ `md` verifica la etiqueta `org.opencontainers.image.revision` contra el sha que despliega: no la quites.
+  ingesta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - imagen: trade-ingest
+            dockerfile: ops/ingest/Dockerfile
+          - imagen: trade-relojes
+            dockerfile: ops/relojes/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Sello del commit
+        id: sello
+        run: |
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "sha9=$(git rev-parse HEAD | cut -c1-9)" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ steps.sello.outputs.sha }}
+          tags: |
+            ghcr.io/edgarcg-01/${{ matrix.imagen }}:${{ steps.sello.outputs.sha }}
+            ghcr.io/edgarcg-01/${{ matrix.imagen }}:${{ steps.sello.outputs.sha9 }}
+          push: true
+          cache-from: type=gha,scope=${{ matrix.imagen }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.imagen }}

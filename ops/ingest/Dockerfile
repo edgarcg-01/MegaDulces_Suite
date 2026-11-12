@@ -56,6 +56,10 @@ RUN npm install --omit=dev --no-audit --no-fund
 
 # Código. Las rutas replican la estructura del repo para no romper los requires relativos.
 COPY database/importers ./database/importers
+# `[OPS.ING.1]` El lector de relojes vive en su propia imagen (`ops/relojes/Dockerfile`): acá se quita para que
+# un cambio suyo no reinicie los carriles del ODS. ⚠️ Esta línea es también la que `ops/prod/etiqueta-imagen.sh`
+# lee para dejar `checadores` FUERA de la etiqueta de esta imagen: un `RUN rm -rf ./<ruta>` por renglón.
+RUN rm -rf ./database/importers/checadores
 COPY services/feeds-ingest ./services/feeds-ingest
 COPY ops/ingest/health.js ops/ingest/health-lane.sh ./ops/ingest/
 RUN sed -i 's/\r$//' ./ops/ingest/health-lane.sh && chmod +x ./ops/ingest/health-lane.sh

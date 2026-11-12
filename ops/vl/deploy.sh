@@ -334,15 +334,28 @@ recrear() {
   echo "      veredicto. Un contenedor 'healthy' con el latido viejo ya pasó (VL.6.1)."
 }
 
-case "${1:---todo}" in
+# ⛔⛔ `[OPS.ING.1]` 2026-11-12 — ESTA LAPTOP YA NO CONSTRUYE NI DESPLIEGA LA INGESTA.
+# Hasta hoy `--k3s`/`--todo` hacían `git archive` del árbol LOCAL y `docker build` en `md`: sin laptop no había
+# despliegue, podía viajar código que el CI nunca aprobó, y era lo único que `md` seguía compilando después de
+# `[OPS.CI.1]`. Ahora el CI construye `trade-ingest` y `trade-relojes` (`imagenes.yml`) y `md` las despliega solo,
+# detrás del vigía, cuando la API ya sirve el commit (`ops/prod/desplegar-ingesta.sh`). Lo único que queda acá es
+# PEDIRLE a `md` que converja — con el guion y el commit de SU checkout, no con nada de esta máquina.
+# `construir`/`publicar`/`aplicar_k3s` quedan escritos como referencia y no se llaman.
+pedir_a_md() {
+  echo "── La ingesta se despliega DESDE md (ops/prod/desplegar-ingesta.sh), con el commit que sirve la API ──"
+  ssh_md 'sh ~/auto-deploy/repo/ops/prod/desplegar-ingesta.sh'
+}
+retirado() {
+  echo "⛔ '$1' construía desde ESTA laptop y se retiró ([OPS.ING.1], 2026-11-12)." >&2
+  echo "   La ingesta la construye el CI y la despliega md solo, al soltar. Para forzar que converja ya:" >&2
+  echo "     sh ops/vl/deploy.sh --k3s      (le pide a md que lo haga; no compila nada acá)" >&2
+  exit 2
+}
+
+case "${1:---k3s}" in
   --estado)      estado ;;
-  --solo-imagen) verificar_limpio; construir ;;
-  # [K3S.21] Reaplicar K3s sin tocar Compose. ⛔ CONSTRUYE IGUAL, a propósito: si publicara
-  # `trade-ingest:latest` tal como esté, le pondría el tag del commit de HEAD a una imagen que
-  # puede ser de OTRO commit — un tag que miente sobre lo que contiene, que es exactamente la
-  # clase de defecto que esta entrega cierra. El build está cacheado: si no cambió nada, es rápido.
-  --k3s)         verificar_limpio; construir; publicar; aplicar_k3s ;;
-  --todo)        verificar_limpio; construir; publicar; aplicar_k3s; recrear $SERVICIOS_DEF ;;
+  --k3s|--todo)  pedir_a_md ;;
+  --solo-imagen) retirado "$1" ;;
   -*)            sed -n '2,10p' "$0"; exit 2 ;;
-  *)             verificar_limpio; construir; publicar; aplicar_k3s; recrear "$@" ;;
+  *)             retirado "recrear $*" ;;
 esac
