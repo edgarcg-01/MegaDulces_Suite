@@ -343,7 +343,9 @@ recrear() {
 # `construir`/`publicar`/`aplicar_k3s` quedan escritos como referencia y no se llaman.
 pedir_a_md() {
   echo "── La ingesta se despliega DESDE md (ops/prod/desplegar-ingesta.sh), con el commit que sirve la API ──"
-  ssh_md 'sh ~/auto-deploy/repo/ops/prod/desplegar-ingesta.sh'
+  # `[OPS.ING.2]` Con el candado del vigía: sin él, un despliegue en curso podría mover el checkout bajo los pies.
+  ssh_md 'flock -n -E 9 /tmp/auto-deploy.lock sh ~/auto-deploy/repo/ops/prod/desplegar-ingesta.sh' \
+    || { _rc=$?; [ "$_rc" = 9 ] && echo "⛔ hay un despliegue en curso en md: reintentá cuando termine" >&2; exit "$_rc"; }
 }
 retirado() {
   echo "⛔ '$1' construía desde ESTA laptop y se retiró ([OPS.ING.1], 2026-11-12)." >&2

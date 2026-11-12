@@ -153,6 +153,9 @@ const COMPUERTAS = [
   // `[THR.1]` `@Throttle({ default })` y `@SkipThrottle()` a secas NO limitan ni saltan nada: los tiers se llaman
   // short/medium/long y el guard ignora cualquier otro nombre sin avisar (GOTCHAS §84). Medido 2026-10-16: 4 endpoints
   // con un LLM de pago por uso creían tener tope. Deuda declarada con ratchet en el propio script.
+  // `[OPS.ING.2]` md instala SÓLO los guiones que dice `ops/prod/guiones-del-host.txt`: uno que otro llama y nadie
+  // lista no llega nunca, callado. Estático, sin red ni `sh` (el instalador de verdad se prueba en `:self`).
+  { nombre: 'guiones-host', script: 'check-guiones-host.js', que: 'todo guion que llaman los guiones del host de md está en la lista que md instala, y nadie los sube desde una laptop', push: true, ms: 80 },
   { nombre: 'throttle', script: 'check-throttle-names.js', que: 'todo @Throttle/@SkipThrottle usa un tier que el servidor configura (si no, no limita nada)', push: true, ms: 698 },
   { nombre: 'primeng', script: 'check-primeng-api.js', que: 'sin API de PrimeNG retirada en v22 (falla muda)', push: true, ms: 2084 },
   //   · track: `@for (i of skel; track i)` sobre `Array.from({ length: 8 })` repite la llave

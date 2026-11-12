@@ -345,7 +345,14 @@ subir_compose() {
   # provee — y cada despliegue con una migración pendiente moría con "falta
   # compuerta-migraciones.sh". Regla: si un guion de esta lista llama a otro archivo, ese
   # archivo va en la lista.
-  _guiones="docker-compose.yml Caddyfile pgprod.sh restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh podar-disco.sh auto-deploy.sh aplicar-k3s-prod.sh termometro.sh tunel-vigia.sh clasificar-migraciones.awk compuerta-migraciones.sh node.sh dev-ro.sql dev-ro-crear.sh dev-ro-verificar.sh"
+  #
+  # ⛔⛔ `[OPS.ING.2]` 2026-11-12 — LOS GUIONES YA NO SALEN DE ESTA LAPTOP. Los instala `md` desde el
+  # commit que la API ya sirve (`ops/prod/instalar-guiones.sh`, lista en `guiones-del-host.txt`), al
+  # final de cada despliegue. Acá sólo se le PIDE a `md` que converja, con el candado del vigía. De
+  # esta laptop viajan nada más el `Caddyfile` y el compose, que en la lista son `mano`.
+  ssh_md 'flock -n -E 9 /tmp/auto-deploy.lock sh ~/auto-deploy/repo/ops/prod/instalar-guiones.sh' \
+    || echo "   ⚠ md no instaló los guiones (¿un despliegue en curso?) — ver el latido instalar_guiones"
+  _guiones="docker-compose.yml Caddyfile"
   for a in $_guiones; do
     scp -q -o BatchMode=yes "$REPO/ops/prod/$a" "$SRV:ops/prod/.$a.nuevo"
   done
@@ -382,7 +389,7 @@ subir_compose() {
   ssh_md "cd ~/ops/prod && for a in $_guiones; do
             if [ \"\$a\" = Caddyfile ]; then cat \".\$a.nuevo\" > \"\$a\" && rm -f \".\$a.nuevo\"
             else mv -f \".\$a.nuevo\" \"\$a\"; fi
-          done && chmod +x restaurar.sh esperar-y-restaurar.sh verificar.sh probar-pitr.sh podar-disco.sh auto-deploy.sh termometro.sh tunel-vigia.sh dev-ro-crear.sh dev-ro-verificar.sh"
+          done"
   ssh_md "cd ~/ops/prod && set -a && . ~/secrets/prod-compose.env && set +a && docker compose -p prod config >/dev/null && echo '   compose válido'"
 
   # ⛔ [K3S.34] EL CADDYFILE NUEVO NO SIRVE DE NADA SI NADIE RELEE EL ARCHIVO.
