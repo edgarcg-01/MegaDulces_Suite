@@ -55,7 +55,7 @@ import {
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
-      <app-page-tabs [tabs]="promoTabs" />
+      <app-page-tabs [tabs]="promoTabs" variant="menu" ariaLabel="Secciones de Mercadotecnia" />
 
       <header class="surf-page-head">
         <div class="surf-page-head-text">

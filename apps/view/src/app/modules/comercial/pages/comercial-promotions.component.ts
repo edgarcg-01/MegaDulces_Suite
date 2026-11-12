@@ -64,7 +64,7 @@ interface ProductOption {
     <div class="surf-page pm">
       <p-toast></p-toast>
       <p-confirmdialog></p-confirmdialog>
-      <app-page-tabs [tabs]="promoTabs" />
+      <app-page-tabs [tabs]="promoTabs" variant="menu" ariaLabel="Secciones de Mercadotecnia" />
     
       <!-- PAGE HEAD -->
       <header class="surf-page-head">

@@ -149,7 +149,7 @@ interface Formulario {
         }
         </div>
       </header>
-      <app-page-tabs [tabs]="tabs" />
+      <app-page-tabs [tabs]="tabs" variant="menu" ariaLabel="Secciones de Mercadotecnia" />
 
       <div class="rp-filtros">
         <app-segmented [options]="vistas()" [value]="vista()" (valueChange)="vista.set($any($event))" ariaLabel="Qué promociones ver"></app-segmented>

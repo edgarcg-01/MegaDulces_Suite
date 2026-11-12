@@ -111,7 +111,7 @@ export function dtoDeForm(f: FormIncentivo): IncentivoDto | string {
             <span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span><span class="p-button-label">PDF de pago</span></button>
         </div>
       </header>
-      <app-page-tabs [tabs]="tabs" />
+      <app-page-tabs [tabs]="tabs" variant="menu" ariaLabel="Secciones de Mercadotecnia" />
 
       <div class="inc-filtros">
         <div class="inc-semana" role="group" aria-label="Semana">

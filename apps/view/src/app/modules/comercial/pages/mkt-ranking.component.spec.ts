@@ -160,8 +160,102 @@ describe('[MKT.11] MktRankingComponent', () => {
     expect(comp.opcionesVista().map((o) => o.value)).toContain('vendedoras');
     comp.elegirVista('vendedoras');
     expect(comp.filasVendedora().map((x) => x.nombre)).toEqual(['VENDEDORA DEMO A', 'VENDEDORA DEMO B']);
-    expect(comp.coberturaTexto()).toContain('4 de 10 tickets con promoción tienen vendedora (40 %)');
+    const tickets = comp.kpis().find((k) => k.label === 'Tickets con vendedora')!;
+    expect(tickets.value).toBe('4 de 10');
+    expect(tickets.state).toBe('parcial');
+    expect(comp.coberturaTexto()).toContain('cuenta sólo los tickets que ya tienen vendedora');
     expect(comp.coberturaTexto()).toContain('Sin captura: Yurécuaro');
+  });
+
+  it('⭐ NEGATIVA (auditoría 2026-11-12): al recargar, la franja NO vuelve a cero — se queda lo anterior y dice «Actualizando…»', async () => {
+    const { comp, http, fixture } = await montar(ranking());
+    comp.elegirSucursales(['04']);
+    fixture.detectChanges();
+    const req = http.expectOne((q) => q.url === BASE && q.params.get('sucursales') === '04');
+    // Mientras viaja la respuesta: los datos siguen ahí y la pantalla lo declara.
+    expect(comp.datos()?.promedio_general).toBe(0.6);
+    expect(comp.actualizando()).toBe(true);
+    expect(comp.kpis().find((k) => k.label === 'Promedio general')?.value).toBe(60);
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Actualizando…');
+    req.flush(ranking({ promedio_general: 0.5 }));
+    await fixture.whenStable();
+    expect(comp.actualizando()).toBe(false);
+    expect(comp.kpis().find((k) => k.label === 'Promedio general')?.value).toBe(50);
+  });
+
+  it('si la recarga FALLA, lo anterior se suelta (no se finge vigente)', async () => {
+    const { comp, http, fixture } = await montar(ranking());
+    comp.elegirSucursales(['04']);
+    fixture.detectChanges();
+    http.expectOne((q) => q.url === BASE && q.params.get('sucursales') === '04').flush({ message: 'x' }, { status: 500, statusText: 'Error' });
+    await fixture.whenStable();
+    expect(comp.datos()).toBeUndefined();
+    expect(comp.error()).toContain('No se pudo cargar');
+  });
+
+  it('⭐ la franja habla de la vista: «Primer lugar» es una sucursal, una promoción o una vendedora según lo que se ve', async () => {
+    const { comp } = await montar(ranking());
+    expect(comp.kpis()[0]).toMatchObject({ label: 'Primer lugar', value: 'Padre Hidalgo' });
+    comp.elegirVista('promociones');
+    expect(comp.kpis()[0]).toMatchObject({ label: 'Mejor promoción', value: '3 leches = gratis 1' });
+    comp.elegirVista('vendedoras');
+    expect(comp.kpis()[0]).toMatchObject({ label: 'Primer lugar', value: 'VENDEDORA DEMO A' });
+    expect(comp.kpis().find((k) => k.label === 'Sucursales sin captura')?.value).toBe(1);
+    // Con filtro de sucursal, el primero visible no es el 1.º de la semana: se dice.
+    comp.sucursales.set(['04']);
+    expect(comp.kpis()[0]).toMatchObject({ label: 'Arriba en el filtro', value: 'VENDEDORA DEMO B' });
+  });
+
+  it('por vendedora: la fila abre todo lo que vendió y el estado «cumplida» no se ofrece', async () => {
+    const { comp, fixture } = await montar(ranking());
+    comp.filtrosAbiertos.set(true);
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('No cumplidas'); // control: en sucursales sí se ofrece
+    comp.elegirVista('vendedoras');
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('No cumplidas');
+    expect(comp.textoBuscar()).toBe('Buscar vendedora, sucursal o promoción');
+    comp.abrirVendedora(comp.filasVendedora()[0]);
+    expect(comp.subtituloVendedora()).toContain('Lugar 1 de 2');
+    comp.elegirVista('participantes');
+    expect(comp.abiertaVendedora()).toBeNull();
+  });
+
+  it('⭐ diseño limpio: los filtros nacen plegados, pero lo filtrado SIEMPRE se ve como etiqueta y se quita de un clic', async () => {
+    const { comp, fixture, http } = await montar(ranking());
+    const texto = () => (fixture.nativeElement as HTMLElement).textContent || '';
+    expect(comp.filtrosAbiertos()).toBe(false);
+    expect(texto()).not.toContain('Todas las promociones');
+    comp.busqueda.set('yure');
+    comp.elegirEstado('no_cumplida');
+    fixture.detectChanges();
+    expect(comp.chips().map((c) => c.texto)).toEqual(['No cumplidas', '«yure»']);
+    expect(texto()).toContain('Filtros (2)');
+    expect(texto()).toContain('«yure»');
+    comp.quitarFiltro('busqueda');
+    expect(comp.chips().map((c) => c.id)).toEqual(['estado']);
+    comp.quitarFiltro('estado');
+    expect(comp.hayFiltros()).toBe(false);
+    http.verify();
+  });
+
+  it('calendario: cualquier día abre SU semana (lunes); el domingo es de la semana que termina, no de la siguiente', async () => {
+    const { comp, http, fixture } = await montar(ranking());
+    expect(comp.lunesFecha()?.getDate()).toBe(2);
+    comp.elegirDia(new Date(2026, 9, 1)); // jueves 1-oct
+    fixture.detectChanges();
+    http.expectOne((q) => q.url === BASE && q.params.get('semana') === '2026-09-28').flush(ranking());
+    comp.elegirDia(new Date(2026, 10, 8)); // domingo 8-nov → semana del 2-nov
+    fixture.detectChanges();
+    http.expectOne((q) => q.url === BASE && q.params.get('semana') === '2026-11-02').flush(ranking());
+    await fixture.whenStable();
+  });
+
+  it('una columna que es cero en todas las filas no se pinta; aparece en cuanto alguien la tiene', async () => {
+    const { comp } = await montar(ranking());
+    expect(comp.colSinVenta()).toBe(false);
+    expect(comp.colSinObjetivo()).toBe(true); // Yurécuaro tiene 3 sin objetivo
+    expect(comp.kpis().map((k) => k.label)).toEqual(['Primer lugar', 'Promedio general', 'Cumplieron todas', 'Sin objetivo']);
   });
 
   it('[MKT.18] la vista por vendedora sólo existe en mostrador; cambiar de canal la suelta', async () => {
