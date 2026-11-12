@@ -721,8 +721,20 @@ los llamó «INHABILITADO»/«* DESCONTINUADO» y la unique (marca, nombre) los 
   (`reintentarPorPartes`): un error pasajero se recupera y una llave envenenada queda aislada mientras las demás
   se escriben. Vale para todos los normalizadores, incluidos markup (9.2) y promo (9.3). Lo que siga fallando se
   registra con sus llaves y queda como estaba hasta su próximo cambio.
-- ⚠️ **Lo que queda sin árbitro automático:** los tres scripts manuales (`import-margin`, `repoint-catalog-prices`,
-  `repoint-catalog-names`) miden en seco «cuántos difieren», pero nadie los corre ni alarma. Un sensor que los
-  cuente y se ponga rojo con > 0 (el árbitro que la regla sí permite) es el siguiente paso de esta oleada.
+- ~~⚠️ Lo que queda sin árbitro automático~~ → cerrado por `[CANON.6.11]`, abajo.
+
+**Árbitro (2026-11-12, `[CANON.6.11]`): tres sensores de `db-health` que deben dar 0.** `catalogo_markup_evento`,
+`catalogo_promo_evento`, `catalogo_nombres_evento` comparan lo guardado contra la regla sobre `kepler_ods`; el
+escáner de `db-health` (cada 5 min, ya existía) abre la alerta: 1–50 difieren → `warn` a la bandeja; más de 50 →
+`critical` con correo (el hop-2 de esa tabla no corre); sin productos a la vista → **NO MEDIDO en rojo**, nunca 0
+en verde. La nota dice cuántos y con qué script se miden y se cierran. Torre: Desarrollo (el hop-2 es nuestro).
+- Medido en prod el 12-nov (sólo lectura, con el mismo `.ts`): markup **`warn` con 4** (los cambios de Kepler desde
+  las 03:00: se queda así hasta desplegar la ingesta), promo 0, nombres 0. Costo ~85 / ~150 / ~300–380 ms; nombres
+  usa un atajo exacto (la regla de desempate sólo para los que difieren de alguna fila de `kdii`) porque ordenar
+  `kdii` completo costaba 0.6–5 s y la pantalla corre los sensores en vivo.
+- La regla vive **dos veces a propósito** (SQL del sensor, JS del normalizador) y la prueba las cruza: 13 ✓, la
+  negativa de ceguera y cuatro mutantes en rojo. Lo que este árbitro NO ve: que la regla misma esté mal.
+- Llega con el despliegue de la API (no de la ingesta). Si la API sale antes que la ingesta, el sensor de markup
+  dirá `warn` hasta entonces — es verdad, no ruido.
 - `repoint-catalog-names` sale del nocturno y queda manual con la misma función del hop-2; se quitó `--source=kp`.
   Prueba: 13 ✓ con tres negativas y tres mutantes en rojo.
