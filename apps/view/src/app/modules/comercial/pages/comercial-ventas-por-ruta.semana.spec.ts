@@ -78,7 +78,7 @@ describe('VEC.42 · Ventas por ruta: pestaña «Por semana»', () => {
     TestBed.resetTestingModule();
   });
 
-  it('pinta las semanas al lado de «Por día», de la más reciente a la más vieja', () => {
+  it('pinta las semanas al lado de «Por día» y en su mismo orden, de la más vieja a la más reciente', () => {
     const { fix, cmp } = montar();
     cmp.openRoute(ruta('1V009'), '11');
     cmp.setTab('semanas');
@@ -89,7 +89,7 @@ describe('VEC.42 · Ventas por ruta: pestaña «Por semana»', () => {
     expect(html).toContain('S46 · 9–15 nov');
     expect(html).toContain('en curso');
     const semanas = cmp.porSemana().semanas;
-    expect(semanas.map((s: { etiqueta: string }) => s.etiqueta)).toEqual(['S46 · 9–15 nov', 'S45 · 2–8 nov']);
+    expect(semanas.map((s: { etiqueta: string }) => s.etiqueta)).toEqual(['S45 · 2–8 nov', 'S46 · 9–15 nov']);
     // Control: las semanas suman lo mismo que los días.
     const suma = semanas.reduce((a: number, s: { revenue: number }) => a + s.revenue, 0);
     expect(suma).toBe(DAILY.reduce((a, d) => a + d.revenue, 0));

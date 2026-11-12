@@ -54,7 +54,7 @@ export interface SemanaDeVenta {
 }
 
 export interface VentaPorSemana {
-  /** De la más reciente a la más vieja. */
+  /** De la más vieja a la más reciente: el mismo orden en que el servidor manda los días de «Por día». */
   semanas: SemanaDeVenta[];
   /** Renglones cuya fecha no se pudo leer. Se cuentan para declararlos, no se pierden callados. */
   sinFecha: number;
@@ -131,7 +131,7 @@ export function agruparPorSemana(
   const ultimoDiaDelPeriodo = dia(ms(periodo.hasta) - DIA_MS);
 
   const semanas: SemanaDeVenta[] = [];
-  for (let t = ultima; t >= primera; t -= 7 * DIA_MS) {
+  for (let t = primera; t <= ultima; t += 7 * DIA_MS) {
     const lunes = dia(t);
     const domingo = dia(t + 6 * DIA_MS);
     const a = acum.get(lunes) ?? { dias: 0, tickets: 0, revenue: 0, units: 0 };

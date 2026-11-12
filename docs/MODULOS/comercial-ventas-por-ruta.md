@@ -16,7 +16,7 @@ y la semana que empieza el 26 de octubre) o que todavía no termina se veía igu
 ### La solución
 
 Una pestaña **«Por semana»** junto a «Por día». Cada renglón es una semana de lunes a domingo
-(`S45 · 2–8 nov`), de la más reciente a la más vieja, con días con venta, tickets, venta y
+(`S45 · 2–8 nov`), de la más vieja a la más reciente —el mismo orden que «Por día»—, con días con venta, tickets, venta y
 **promedio por día**. La semana que no termina dice «en curso» y la que el periodo corta dice qué
 días cubre («sólo 1 nov»). Una semana sin venta entre otras dos sale como renglón propio. El clic
 en la semana lleva a sus tickets, igual que el clic en un día.

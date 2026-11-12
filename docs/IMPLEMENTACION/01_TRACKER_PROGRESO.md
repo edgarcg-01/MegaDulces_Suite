@@ -661,7 +661,7 @@ Y se actualiza el símbolo al avanzar:
   (ya tardaba; no cambia aquí). Typecheck de la plantilla OK (`check:pantalla`); backend NO MEDIDO.
 - [ ] **[VEC.42]** 🧪 2026-11-11 — **Pestaña «Por semana» junto a «Por día»** en el desglose de
   `/comercial/ventas-por-ruta`. Semana ISO de lunes a domingo (`S45 · 2–8 nov`, la misma de
-  los reportes semanales del servidor), de la más reciente a la más vieja: días con venta, tickets,
+  los reportes semanales del servidor), de la más vieja a la más reciente como «Por día»: días con venta, tickets,
   venta y **promedio por día**. Se SUMA en la pantalla de los mismos renglones de «Por día»: sin
   consulta ni migración nuevas, y las semanas suman el total del encabezado. La semana que el
   periodo corta dice «sólo 1 nov» y la que no termina, «en curso»; una semana sin venta entre otras

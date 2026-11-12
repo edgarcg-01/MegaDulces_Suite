@@ -41,11 +41,11 @@ describe('VEC.42 · agruparPorSemana', () => {
     dia('2026-11-09', 500, 1), dia('2026-11-11', 700, 2),
   ];
 
-  it('agrupa de la semana más reciente a la más vieja, con días, tickets y promedio por día', () => {
+  it('agrupa de la semana más vieja a la más reciente (como «Por día»), con días, tickets y promedio por día', () => {
     const { semanas, sinFecha } = agruparPorSemana(DIAS, NOVIEMBRE, '2026-11-11');
     expect(sinFecha).toBe(0);
-    expect(semanas.map((s) => s.lunes)).toEqual(['2026-11-09', '2026-11-02']);
-    const [s46, s45] = semanas;
+    expect(semanas.map((s) => s.lunes)).toEqual(['2026-11-02', '2026-11-09']);
+    const [s45, s46] = semanas;
     expect(s45).toMatchObject({ dias: 3, tickets: 9, revenue: 6000, promedioDia: 2000, estado: 'completa' });
     expect(s46).toMatchObject({ dias: 2, tickets: 3, revenue: 1200, promedioDia: 600, estado: 'en_curso' });
   });
@@ -75,7 +75,7 @@ describe('VEC.42 · agruparPorSemana', () => {
 
   it('una semana sin venta entre otras dos sale como renglón vacío, sin promedio inventado', () => {
     const { semanas } = agruparPorSemana([dia('2026-10-19', 100), dia('2026-11-02', 300)], { desde: '2026-10-01', hasta: '2026-12-01' }, '2026-11-20');
-    expect(semanas.map((s) => s.lunes)).toEqual(['2026-11-02', '2026-10-26', '2026-10-19']);
+    expect(semanas.map((s) => s.lunes)).toEqual(['2026-10-19', '2026-10-26', '2026-11-02']);
     expect(semanas[1]).toMatchObject({ dias: 0, revenue: 0, tickets: 0, promedioDia: null });
   });
 
