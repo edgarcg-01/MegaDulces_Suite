@@ -1,6 +1,7 @@
 <!-- INDICE-AUTO:INICIO -->
 
 > **Índice navegable** — 2477 KB, 14083 líneas, 77 secciones.
+> **Índice navegable** — 2475 KB, 14068 líneas, 76 secciones.
 > ⛔ **No intentes leer este archivo entero: no cabe en una ventana de contexto.**
 > Buscá tu tema acá y leé sólo ese tramo: `sed -n 'DESDE,HASTAp' docs/IMPLEMENTACION/01_TRACKER_PROGRESO.md`.
 > Lo genera `npm run docs:indices` — no lo edites a mano.
@@ -84,6 +85,82 @@
 | 14104 | 14131 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
 | 14132 | 14154 | 9 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
 | 14155 | 14172 | 3 | MKT.7 — Auditoría de Promociones MKT (2026-11-11) · ficha [`docs/MODULOS/mkt-promociones.md`](../MODULOS/mkt-p |
+| 89 | 96 | 15 | Tracker de Progreso |
+| 97 | 195 | 281 | 📊 Estado global de fases |
+| 196 | 222 | 1 | 🚦 Estado por item (granular) |
+| 223 | 3634 | 513 | 🎯 EN PROGRESO |
+| 3651 | 3688 | 2 | GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código) |
+| 3689 | 3722 | 2 | GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en códi |
+| 3723 | 3807 | 6 | GX.14 — Cómo se pagó, y la foto tomada en vivo 🧪 2026-09-24 (en código) |
+| 3808 | 3911 | 6 | GX.15 — El expediente del gasto: los cuatro eslabones juntos, y su PDF 🧪 2026-09-24 (en código) |
+| 3912 | 3978 | 4 | GX.16 — Áreas de gasto: el motor propone, la persona confirma 🧪 2026-09-24 (en código) |
+| 3979 | 4082 | 7 | IG — Ingresos contables: el otro lado del libro 🧪 2026-09-25 (en código) |
+| 4083 | 4166 | 6 | GX.19 — Egresos: el número no cambia, ahora dice con qué se calculó 🧪 2026-09-25 (en código) |
+| 4167 | 4336 | 13 | GX.20 — Aprobación de gastos: el día, en tres pestañas 🧪 2026-09-25 (en código) |
+| 4337 | 4399 | 4 | GX.26 — El historial de toda la empresa pasa a god-mode 🧪 2026-09-25 (en código) |
+| 4400 | 4472 | 5 | GX.27 — El Historial de gastos, como calendario 🧪 2026-09-26 (en código) |
+| 4473 | 4524 | 3 | GX.59 — La evidencia del gasto: comprueba el monto, no decide 🧪 2026-10-02 (en código) |
+| 4525 | 5363 | 129 | Fase PERF — lo que la pantalla paga por consulta (2026-09-24) |
+| 5364 | 5377 | 1 | GX.28 — Lo que Kepler decidió sobre el vale, en pantalla ✅ 2026-09-26 |
+| 5378 | 5402 | 2 | GX.29 — Reapertura de un vale ya aprobado ✅ 2026-09-26 |
+| 5403 | 5425 | 2 | GX.30 — «Apruebo, pero es provisional», y la reapertura en pantalla ✅ 2026-09-27 |
+| 5426 | 5464 | 3 | GX.31 — ⛔ La captura de gastos estaba MUERTA desde GX.18 ✅ 2026-09-28 |
+| 5465 | 6238 | 71 | GX.39 — «Por ejercer» y «Ejercido»: el vale después de que firmamos 🧪 2026-09-29 (en código) |
+| 6239 | 6423 | 16 | 📋 BACKLOG — Fase A: Fundaciones |
+| 6424 | 6466 | 6 | 📋 BACKLOG — Fase B: Core Comercial (construido desde cero) |
+| 6467 | 6544 | 10 | 📋 BACKLOG — Fase C: Sales Intelligence ampliado |
+| 6545 | 6638 | 12 | 📋 BACKLOG — Fase D: Catálogo + Pedidos + Portal B2B |
+| 6639 | 6774 | 13 | 📋 BACKLOG — Fase K: AI product match en captures (pgvector + Voyage + Haiku) |
+| 6775 | 6791 | 3 | 📋 SPRINT — Vendor Capture Offline-First ✅ (2026-06-08) |
+| 6792 | 6844 | 95 | Fase SM — Supervisor de Movimientos (Cuadre) — ADR-029 |
+| 6845 | 6912 | 9 | 📋 BACKLOG — Fase F: Comercio Conversacional por WhatsApp |
+| 6913 | 7165 | 20 | Fase CH — Checadores / Control de asistencia |
+| 7166 | 7231 | 10 | COMM — Transportes de comunicación (auditoría ADR-045) — ✅ CERRADO 2026-08-18 |
+| 7232 | 7259 | 4 | ER — "Todo es clickeable" (resolvedor de refs + panel de ficha) — 2026-08-20 |
+| 7260 | 7426 | 49 | FASE UN — Normalización de usuarios, departamentos y puestos |
+| 7427 | 7795 | 142 | 📋 BACKLOG — Fase RE.13: Órdenes de entrada por trabajo (sucursal · CEDIS · revisor · global) |
+| 7796 | 7858 | 31 | Fase MR — Motor de Rentabilidad (ADR-051) · plan en [`FASE_MR`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md) |
+| 7859 | 7988 | 44 | Fase OBS — Ingesta que no se cae en silencio (ADR-053) · plan en [`FASE_OBS`](FASES/FASE_OBS_INGESTA_OBSERVABL |
+| 7989 | 8051 | 27 | Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) |
+| 8052 | 8212 | 66 | Fase IDG — Integridad del padrón (hermana de AUTHZ e ID) |
+| 8213 | 8283 | 16 | Fase AUTHZ — Retiro de CASL (ADR-054) |
+| 8284 | 8332 | 11 | Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo) |
+| 8333 | 8365 | 4 | ADR-055 — La cantidad se muestra en la unidad MÁS GRANDE, con el divisor del ERP dueño del almacén |
+| 8366 | 8922 | 69 | Fase CV — Catálogo, verificador de precios y tienda mayorista · plan en [`FASE_CV`](FASES/FASE_CV_CATALOGO_TIE |
+| 8923 | 9054 | 10 | Fase REP — Réplica viva de prod para desarrollo (2026-09-08) |
+| 9055 | 9108 | 37 | Fase VL — VPS local: sacar la ingesta de la máquina de trabajo · plan en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.m |
+| 9109 | 9148 | 23 | Fase OR — El usuario es una persona con un puesto (2026-09-11) |
+| 9149 | 9201 | 7 | Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11) |
+| 9202 | 9268 | 20 | Fase WMS-BI — Análisis BI de Almacén |
+| 9269 | 9431 | 11 | Fase PP — Programa de Pagos / Tesorería · plan en [`FASE_PP`](FASES/FASE_PP_PROGRAMA_PAGOS.md) |
+| 9432 | 9715 | 24 | Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14 |
+| 9716 | 9883 | 14 | 🎟️ FASE TK — Tickets de venta (buscar cualquier folio y reimprimirlo) |
+| 9884 | 12314 | 189 | 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma) |
+| 12315 | 12323 | 1 | Fase RR — Ventas por ruta |
+| 12324 | 12619 | 30 | Fase CAT — Catálogo de productos (proyecto Compras) |
+| 12620 | 12630 | 2 | VTK — Tomar pedido (vendedor) homologado con cotizaciones 🔨 2026-10-04 (en código) — ADR-083 |
+| 12631 | 12651 | 2 | VK.8 — Vecinales de Morelia y Zamora con Kepler + rutas nombradas "<código Kepler> <EJECUTIVO>" 🔨 2026-10-03  |
+| 12652 | 12662 | 1 | VS.1 — Buscar cliente: pestañas "Tu ruta" / "Clientes otras rutas" 🔨 2026-10-03 (en código) |
+| 12663 | 12674 | 1 | VR.SUP.1 — El supervisor escoge qué ruta de su equipo trabaja hoy 🔨 2026-09-28 (en código) |
+| 12675 | 12734 | 5 | VK — La cartera del vendedor la gobierna Kepler 🔨 2026-09-28 (en código, piloto 4 rutas vecinales) |
+| 12735 | 13162 | 37 | VSO — Verdad absoluta del Sell-Out: canal, sucursal y vendedor 🧪 2026-09-28 (en código · DB en prod) |
+| 13163 | 13177 | 5 | 🔍 Fase DC — Descuentos de cliente · auditoría de `/comercial/tickets` (2026-09-28) |
+| 13178 | 13219 | 4 | BND — El bundle de `view` — 2026-09-29 (🧪 en código · sin validación visual) |
+| 13220 | 13376 | 73 | UIM — La tabla densa en un teléfono — 2026-09-28 (🧪 en código · sin validación visual) |
+| 13377 | 13407 | 2 | 🚦 FASE CD — Despliegue desacoplado y CI legible (2026-10-02) |
+| 13408 | 13455 | 10 | 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_ |
+| 13456 | 13515 | 85 | 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR |
+| 13516 | 13524 | 5 | 📦 FASE MV — Monitoreo vecinal (Comercial › Ruta y vendedores) · en PR · ⚠️ SIN tarjeta del PM todavía (David  |
+| 13525 | 13554 | 4 | 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACION |
+| 13561 | 13570 | 1 | 📝 Convenciones |
+| 13571 | 13608 | 15 | NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local) |
+| 13609 | 13627 | 9 | Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · ADR por asignar) |
+| 13628 | 13680 | 28 | Fase PU.VG — Integridad del presupuesto de EGRESOS (auditoría PU.VG · ADR por asignar) |
+| 13681 | 14052 | 55 | Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040 |
+| 14053 | 14083 | 8 | Fase CP.9 — Cobertura total de ContPAQi |
+| 14084 | 14105 | 9 | Fase DN — Demanda negada por agotado, para Compras (planeada 2026-10-10) |
+| 14106 | 14133 | 7 | Fase ALC — Alta de clientes desde la constancia del SAT (2026-11-04) |
+| 14134 | 14156 | 9 | CANON.5 — Retiro de los importers vivos · anexo [`FASE_CANON_ANEXO_RETIRO_IMPORTERS_2026-11-05`](FASES/FASE_CA |
 
 <!-- INDICE-AUTO:FIN -->
 
@@ -13356,10 +13433,13 @@ semántico que la paleta ya tiene (`--bad-fg`). Más `--surface-section` (1 uso)
 - [x] **[THR.1]** 🧪 2026-10-16 → **cerrada al mergear #424 (2026-10-21); cierre documentado 2026-10-23.** Los cuatro `@Throttle({ default: … })` de `commercial-analytics.controller.ts` ya usan `long` y la compuerta `check:throttle-names` cubre todo el repo; el detalle está en la fila `[THR.1]` de arriba y en GOTCHAS §88. Esta fila seguía abierta (`⬜`, «decide Edgar») por haber quedado escrita antes del PR. **Pendiente que NO es de esta fila:** `@SkipThrottle()` a secas en 2 controladores de ingesta de checadas (`libs/hr`): decide RH/seguridad.
 - [ ] ⬜ **[AUD.W]** `check:pantalla` cuenta un widget (p. ej. `sd-dictado`) como pantalla y le exige Q.1/§2/§9: reconocer componentes que no son página.
 - [x] **[MS.DICTADO]** 🧪 2026-10-14 **Dictar la descripción de una solicitud** («Cuéntanos qué pasa» de «Nueva solicitud»): botón «Dictar» → se graba → se transcribe (Groq Whisper compartido de `platform-core`, `POST /service-desk/transcribe`, 20 por minuto) → el texto se AGREGA a lo escrito para que la persona lo revise. El audio no se guarda. **No se ofrece en un área confidencial** (el audio lo procesa un proveedor externo; lo exige el servidor —403—, no sólo la pantalla). Sin migración ni permisos nuevos. Pruebas: regla pura (5, mutada a rojo), grabador sin micrófono (10), componente (9, 6 negativas) y pantalla (6, mutada a rojo). ⚠️ Pendiente: `GROQ_API_KEY` en prod (sin ella dice «el dictado no está configurado» y escribir sigue sirviendo), validación visual y con micrófono real, y que legal diga si Groq puede procesar audio de RH (hoy se excluye). Deuda declarada: 3 copias más de grabación en el front (`thot-ai-input`, `media-capture`, `vendor-assistant`) que deberían consumir `shared/voz/grabador-voz`.
-- [x] **[PRV.2]** 🧪 2026-10-12 **Consentimiento del aviso de privacidad de la cola de RH** ([`FASE_MSH_PRIVACIDAD_Y_RETENCION`](docs/IMPLEMENTACION/FASES/FASE_MSH_PRIVACIDAD_Y_RETENCION.md) §6.1). Migración `20261012081459` (avisos por código y versión + aceptaciones, RLS forzado; el texto publicado no se edita y las aceptaciones no se reescriben) + regla del servidor (sin versión vigente no se crea; a nombre de otra persona la casilla de quien atiende no consiente) + casilla en el formulario. Smoke de base 38/0 con 4 mutaciones, 283 specs de `service-desk`, 7 de `view`. **Sin efecto hoy**: ninguna cola exige aviso. **Pendiente:** correr el bloque 36 del E2E (no corrido), publicar el texto (PRV.1, legal) y PRV.3–PRV.6; la migración va ANTES del código.
-- [x] **[MSH.3]** 🧪 2026-10-08 **Pantalla de la cola confidencial de RH** ([`FASE_MSH`](docs/IMPLEMENTACION/FASES/FASE_MSH_MESA_DE_SERVICIO_HUMANOS.md)). Sin migración ni endpoint. Aviso «será confidencial» al elegir el área; formulario sin preguntas de prioridad donde no se usa; bandeja y ficha sin chip, plazo ni «Afecta» con `priority: null`; vista limitada del administrador (folio, área, estado, fechas; sin hilo ni acciones); configuración con las casillas Confidencial / Usa prioridad / Mide plazos y el mínimo de casos; reporte suprimido sin cifras. 5 specs nuevos (+31 aserciones) con negativas y mutación; `nx test view` 2543 ✅ (3 rojos ajenos). **Pendiente:** validación visual en navegador y MSH.4 (siembra + matriz de 20 casos).
-- [x] **[MSH.2]** 🧪 2026-10-08 **Lógica de la cola confidencial de RH** ([`FASE_MSH`](docs/IMPLEMENTACION/FASES/FASE_MSH_MESA_DE_SERVICIO_HUMANOS.md)). Sin migración ni pantalla. Vista limitada del administrador (la API no envía el contenido) y sin oráculo de búsqueda; cola confidencial administrada sólo por su coordinación; candado estático `sd-confid` (lista cerrada de lectores de `servicedesk.requests`, con self-test); avisos neutros al escribir; URL de adjunto de 60 s; sin prioridad ni SLA (`priority: null`, el barrido salta la cola); levantar a nombre de otro sólo siendo miembro; traslado sin cambiar de clase (R3); reportes con mínimo de casos y supresión complementaria; Bitácora sin confidenciales. E2E 773/0 (+43), service-desk 274, smokes 130/0 y 32/0; cinco defensas probadas rompiéndolas. **Pendiente:** MSH.3 (pantalla) y MSH.4 (siembra); el código exige la migración de MSH.1 aplicada antes.
-- [x] **[MSH.1]** 🧪 2026-10-08 **Base de la cola confidencial de RH** ([`FASE_MSH`](docs/IMPLEMENTACION/FASES/FASE_MSH_MESA_DE_SERVICIO_HUMANOS.md)). Migración `20261008160900_servicedesk_confidencial_base`: `queues.confidential`/`uses_priority`/`sla_enabled`/`report_min_cases` y `requests.confidential`, con **tres triggers** (la marca del ticket se copia de la cola y no se falsifica; no cambia nunca y el ticket sólo se mueve entre colas de su misma clase; la marca de una cola con tickets no se cambia). R1, R4 y R5 aprobadas para construir (pendientes de validar con RH). Ninguna cola es confidencial aún: TI y Mantenimiento intactos. Va más allá del plan en dos cosas (invariante completo `ticket = cola` y el trigger sobre `queues`). Smoke 32/0 (cada trigger apagado → rojo en lo suyo, también como `app_runtime`), Mesa 130/0, E2E 730/0. **Falta:** MSH.2 (lógica), MSH.3 (pantalla), MSH.4 (siembra con RH).
+- [ ] **[MSH.5]** ⬜ 2026-11-12 **Botón «Reporte confidencial»** (R8-b, decisión del dueño de la Mesa 2026-11-12): desde el formulario de cualquier área cambia el destino a la cola RH; no marca confidencial un ticket de otra cola (R1 intacta); sólo aparece con la cola RH encendida. Criterio: casos 21–24 de [`FASE_MSH`](docs/IMPLEMENTACION/FASES/FASE_MSH_MESA_DE_SERVICIO_HUMANOS.md) «Decisiones 2026-11-12», cada uno con su negativa.
+- [ ] **[MSH.4]** ⬜ 2026-11-12 **Siembra de la cola RH + matriz de 20 casos** ([`FASE_MSH`](docs/IMPLEMENTACION/FASES/FASE_MSH_MESA_DE_SERVICIO_HUMANOS.md) §5): migración con la cola `rh` confidencial, apagada, sin prioridad ni SLA, 10 categorías, Lesly Berber y Tania Solorio coordinadoras con `SERVICIO_ATENDER`+`SERVICIO_COORDINAR` (hoy sólo reportan, medido 2026-11-12) y la cola ligada al código de aviso `rh` (el aviso NO se siembra: se carga con el texto aprobado). Encender ⚠️ espera a Legal (PRV.0/PRV.1/PRV.3).
+- [ ] **[PRV.1]** 🔨 2026-11-12 **Borrador del aviso de privacidad de RH, para Legal**: [`FASE_MSH_AVISO_DE_PRIVACIDAD_RH`](docs/IMPLEMENTACION/FASES/FASE_MSH_AVISO_DE_PRIVACIDAD_RH.md) — integral, simplificado (909 car.) y casilla (168 car.) dentro de las restricciones de `privacy_notices`, línea corta y 8 puntos a revisar. ⚠️ **La parte legal queda pendiente** (decisión del dueño de la Mesa, 2026-11-12): no se publica ni se carga como `vigente` sin aprobación.
+- [x] **[PRV.2]** ✅ 2026-10-12 **Consentimiento del aviso de privacidad de la cola de RH** ([`FASE_MSH_PRIVACIDAD_Y_RETENCION`](docs/IMPLEMENTACION/FASES/FASE_MSH_PRIVACIDAD_Y_RETENCION.md) §6.1). Migración `20261012081459` (avisos por código y versión + aceptaciones, RLS forzado; el texto publicado no se edita y las aceptaciones no se reescriben) + regla del servidor (sin versión vigente no se crea; a nombre de otra persona la casilla de quien atiende no consiente) + casilla en el formulario. Smoke de base 38/0 con 4 mutaciones, 283 specs de `service-desk`, 7 de `view`. **Sin efecto hoy**: ninguna cola exige aviso. **Pendiente:** correr el bloque 36 del E2E (no corrido), publicar el texto (PRV.1, legal) y PRV.3–PRV.6; la migración va ANTES del código. ✅ **en prod** (medido 2026-11-12: migración en `public.knex_migrations`, código desplegado). ⚠️ El bloque 36 del E2E HTTP sigue **NO corrido**: va en la matriz de MSH.4.
+- [x] **[MSH.3]** ✅ 2026-10-08 **Pantalla de la cola confidencial de RH** ([`FASE_MSH`](docs/IMPLEMENTACION/FASES/FASE_MSH_MESA_DE_SERVICIO_HUMANOS.md)). Sin migración ni endpoint. Aviso «será confidencial» al elegir el área; formulario sin preguntas de prioridad donde no se usa; bandeja y ficha sin chip, plazo ni «Afecta» con `priority: null`; vista limitada del administrador (folio, área, estado, fechas; sin hilo ni acciones); configuración con las casillas Confidencial / Usa prioridad / Mide plazos y el mínimo de casos; reporte suprimido sin cifras. 5 specs nuevos (+31 aserciones) con negativas y mutación; `nx test view` 2543 ✅ (3 rojos ajenos). **Pendiente:** validación visual en navegador y MSH.4 (siembra + matriz de 20 casos). ✅ **en prod** (medido 2026-11-12: migración en `public.knex_migrations`, código desplegado).
+- [x] **[MSH.2]** ✅ 2026-10-08 **Lógica de la cola confidencial de RH** ([`FASE_MSH`](docs/IMPLEMENTACION/FASES/FASE_MSH_MESA_DE_SERVICIO_HUMANOS.md)). Sin migración ni pantalla. Vista limitada del administrador (la API no envía el contenido) y sin oráculo de búsqueda; cola confidencial administrada sólo por su coordinación; candado estático `sd-confid` (lista cerrada de lectores de `servicedesk.requests`, con self-test); avisos neutros al escribir; URL de adjunto de 60 s; sin prioridad ni SLA (`priority: null`, el barrido salta la cola); levantar a nombre de otro sólo siendo miembro; traslado sin cambiar de clase (R3); reportes con mínimo de casos y supresión complementaria; Bitácora sin confidenciales. E2E 773/0 (+43), service-desk 274, smokes 130/0 y 32/0; cinco defensas probadas rompiéndolas. **Pendiente:** MSH.3 (pantalla) y MSH.4 (siembra); el código exige la migración de MSH.1 aplicada antes. ✅ **en prod** (medido 2026-11-12: migración en `public.knex_migrations`, código desplegado).
+- [x] **[MSH.1]** ✅ 2026-10-08 **Base de la cola confidencial de RH** ([`FASE_MSH`](docs/IMPLEMENTACION/FASES/FASE_MSH_MESA_DE_SERVICIO_HUMANOS.md)). Migración `20261008160900_servicedesk_confidencial_base`: `queues.confidential`/`uses_priority`/`sla_enabled`/`report_min_cases` y `requests.confidential`, con **tres triggers** (la marca del ticket se copia de la cola y no se falsifica; no cambia nunca y el ticket sólo se mueve entre colas de su misma clase; la marca de una cola con tickets no se cambia). R1, R4 y R5 aprobadas para construir (pendientes de validar con RH). Ninguna cola es confidencial aún: TI y Mantenimiento intactos. Va más allá del plan en dos cosas (invariante completo `ticket = cola` y el trigger sobre `queues`). Smoke 32/0 (cada trigger apagado → rojo en lo suyo, también como `app_runtime`), Mesa 130/0, E2E 730/0. **Falta:** MSH.2 (lógica), MSH.3 (pantalla), MSH.4 (siembra con RH). ✅ **en prod** (medido 2026-11-12: migración en `public.knex_migrations`, código desplegado).
 - [ ] **[MSH]** 📋 2026-10-06 **(antes `[RH]`; renombrada 2026-10-07 porque chocaba con la Fase RH de Mega Talento) La Mesa de Servicio de Recursos Humanos (cola confidencial)** — [`FASE_MSH`](docs/IMPLEMENTACION/FASES/FASE_MSH_MESA_DE_SERVICIO_HUMANOS.md). Plan de Sistemas contrastado con el código: **se puede construir**, pero el prerrequisito no está cumplido (el PR #269 es sólo el plan: no existe `queue_members` ni acceso por cola) y el plan no cubría 9 fugas (H1–H9): el administrador puede agregarse a RH, 9 archivos leen `servicedesk.requests` sin punto único de control, el título se copia a `notification_log`, URLs de adjunto de 600 s, `priority` NOT NULL, `UPDATE` libre sobre la marca, levantar a nombre de otro, reportes globales y el puerto de Bitácora. Diseño: marca de la cola copiada al ticket y fijada por **trigger**, acceso por ticket completo|básico|ninguno, **candado estático** de lecturas, avisos neutros al escribir, sin prioridad ni SLA (`uses_priority`/`sla_enabled`), reportes con mínimo de casos. RLS por ticket descartado por ahora. Sprints RH.0–RH.4 y **matriz de 20 casos**; prompt maestro corregido en el Apéndice. **Abiertas:** R3 (un ticket de RH no sale a una cola no confidencial), R8 (cómo llega a RH), categorías con RH, alta de Lesly Berber y Tania Solorio en prod, aviso de privacidad. Sin código.
 - [ ] **[MS.3.9]** 🧪 2026-10-02 Validación visual **HECHA** con API + vista reales y tres personas (solicitante, agente, coordinación): claro, oscuro y 390 px, 19 capturas. **Seis defectos que ninguna otra prueba veía, todos corregidos:** (1) `pi-life-ring` y `pi-hand-pointer` NO existen en PrimeIcons (el `<i>` medía 0 px: botones sin ícono; spec nuevo que lee `primeicons.css`); (2) el hilo mostraba el USUARIO (`vis_frank`) y no el nombre, porque el JWT sólo trae el usuario (`ServiceDeskActorsService`; E2E 189→190); (3) con la ficha abierta la lista se apretaba hasta partir el título en 6 renglones (columnas secundarias ocultas); (4) en móvil la ficha quedaba bajo los KPIs y filtros; (5) «Mi trabajo» no tenía acceso a reportar; (6) **estando ya en la página, pulsar un aviso de la campana o «Reportar un problema» cambiaba la URL y la pantalla NO reaccionaba** (el parámetro se leía una vez al iniciar; ahora se escucha). **Aún NO medido:** impresión/lectores de pantalla y un teléfono físico.
 
