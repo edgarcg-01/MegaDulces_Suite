@@ -669,3 +669,17 @@ barras (residuo) · después logística, `inventory.products`, costo y altas.
   `feeds-cron`: el aviso de cambio de precio a las pantallas no sale («aviso NO enviado», 1,109 corridas).
 - Llega con el próximo despliegue de la ingesta (script y hop-2 viajan en la imagen). Después de eso, retirar
   el script requiere mover al hop-2 su único aporte legítimo: el EAN real cuando la ficha trae placeholder.
+
+**9.2 hecho en código (2026-11-12, `[CANON.6.8]`): el markup por evento.** `catalog.products.markup_pct` lo
+reescribía `import-margin` a las 03:00 —2 a 181 cambios por noche (56, 24, 100, 181, 40, 37, 2 la última
+semana) y además `updated_at` de los 9,066 productos cada noche—; la '03' sí llega en el día (3 filas entre
+las 03:00 y las 09:30, y ya había un markup nuevo esperando). Ahora `normalizeMarkup` corre en el hop-2 de
+`kdpv_prod_util` con la misma regla (promedio de `c6` de la '03'), acotado al SKU que llegó y sin churn.
+No cambia un número: 9,066 con fuente, 1 diferente (el de la mañana); el SKU sin filas en la '03' conserva
+su markup como antes (hoy 0 casos). `import-margin.js` sale del nocturno y queda manual: sin `--apply` mide
+cuántos difieren del ODS (debe dar 0), con `--apply` recalcula con la misma función; se quitó
+`--source=branch` (leer el POS directo). `master_data_history` no vigila `markup_pct` (su trigger lista 7
+columnas): el testigo de que el evento funciona es ese «difieren = 0». Prueba contra base real: 15 ✓, la
+negativa (`normalize=false` no mueve el markup) y dos mutantes en rojo. Llega con el mismo despliegue de la
+ingesta que 9.1 y la oleada 12; el hueco del día del despliegue (lo cambiado entre las 03:00 y ese momento)
+se mide con `import-margin.js` sin `--apply` y, si da > 0, se cierra con `--apply` una sola vez.
