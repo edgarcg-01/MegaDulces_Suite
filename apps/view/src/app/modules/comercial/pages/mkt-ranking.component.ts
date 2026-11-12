@@ -109,7 +109,39 @@ import { pdfRanking } from '../mkt-ranking-pdf';
         }
       }
 
-      @if (vista() === 'promociones') {
+      @if (vista() === 'vendedoras') {
+      @if (datos()?.vendedoras) {
+        <p class="rk-nota" role="status"><i class="pi pi-info-circle" aria-hidden="true"></i>
+          {{ coberturaTexto() }}</p>
+      }
+      <app-load-state [loading]="res.isLoading() && !datos()" [error]="error()" [isEmpty]="!!datos() && !filasVendedora().length"
+                      emptyIcon="pi-user-edit" [emptyTitle]="'Nadie tiene ventas atribuidas esta semana'"
+                      emptyHint="Las cajeras escriben quién vendió cada ticket en «Arqueo › Promociones vendidas». Kepler no lo sabe en el mostrador." (retry)="res.reload()">
+        <p-table [value]="filasVendedora()" size="small" class="surf-table surf-table--plain surf-table--sticky dt-stack">
+          <ng-template #header>
+            <tr>
+              <th class="comm-num rk-col-lugar">Lugar</th>
+              <th>Vendedora</th>
+              <th class="comm-num">Promociones aplicadas</th>
+              <th class="comm-num">Tickets</th>
+              <th>Lo que más vendió</th>
+            </tr>
+          </ng-template>
+          <ng-template #body let-x>
+            <tr>
+              <td class="comm-num rk-lugar" data-label="Lugar">{{ x.lugar }}</td>
+              <td data-label="Vendedora"><span class="rk-nombre">{{ x.nombre }}</span><span class="rk-tenue">{{ x.warehouse_name }}</span></td>
+              <td class="comm-num rk-pct" data-label="Aplicadas">{{ x.aplicaciones | number:'1.0-2' }}</td>
+              <td class="comm-num" data-label="Tickets">{{ x.tickets }}</td>
+              <td data-label="Lo que más vendió">
+                @for (p of x.promos.slice(0, 2); track p.code) { <span class="rk-producto">{{ p.mecanica }} × {{ p.cantidad | number:'1.0-2' }}</span> }
+                @if (x.promos.length > 2) { <span class="rk-tenue">y {{ x.promos.length - 2 }} más</span> }
+              </td>
+            </tr>
+          </ng-template>
+        </p-table>
+      </app-load-state>
+      } @else if (vista() === 'promociones') {
       <app-load-state [loading]="res.isLoading() && !datos()" [error]="error()" [isEmpty]="!!datos() && !filasPromo().length"
                       emptyIcon="pi-search" [emptyTitle]="datos()?.promos_vigentes ? 'Ninguna promoción coincide con los filtros' : 'Sin promociones dadas de alta para esta semana'"
                       [emptyHint]="datos()?.promos_vigentes ? 'Cambia o quita los filtros.' : null" (retry)="res.reload()">
@@ -336,7 +368,7 @@ export class MktRankingComponent {
   readonly generando = signal(false);
 
   // ── `[MKT.16]` filtros ──
-  readonly vista = signal<'participantes' | 'promociones'>('participantes');
+  readonly vista = signal<'participantes' | 'promociones' | 'vendedoras'>('participantes');
   /** Promo del filtro: el SERVIDOR recalcula el lugar sólo con ella (una sola implementación de la regla). */
   readonly promo = signal<string | null>(null);
   /** Sucursales: filtran filas aquí; el ranking de promociones lo recalcula el servidor con ellas. */
@@ -352,6 +384,8 @@ export class MktRankingComponent {
   readonly opcionesVista = computed<SegOption[]>(() => [
     { label: this.canal() === 'mostrador' ? 'Por sucursal' : 'Por vendedor', value: 'participantes' },
     { label: 'Por promoción', value: 'promociones' },
+    // [MKT.18] Sólo el mostrador: ahí Kepler no sabe quién vendió y lo escriben las cajeras.
+    ...(this.canal() === 'mostrador' ? [{ label: 'Por vendedora', value: 'vendedoras' }] : []),
   ]);
 
   readonly res = rxResource({
@@ -407,7 +441,30 @@ export class MktRankingComponent {
   });
 
   nombrePromo(id: string): string { return this.datos()?.promos_lista.find((p) => p.id === id)?.mecanica ?? 'la promoción elegida'; }
-  elegirVista(v: string): void { this.cerrarDetalles(); this.vista.set(v === 'promociones' ? 'promociones' : 'participantes'); }
+  elegirVista(v: string): void {
+    this.cerrarDetalles();
+    this.vista.set(v === 'promociones' || v === 'vendedoras' ? v : 'participantes');
+  }
+
+  /** [MKT.18] Vendedoras del mostrador, con los filtros de búsqueda y sucursal. */
+  readonly filasVendedora = computed(() => {
+    const q = this.busqueda();
+    return (this.datos()?.vendedoras?.personas ?? []).filter((x) =>
+      this.enSucursal(x.warehouse_code) && coincideBusqueda(q, x.nombre, x.warehouse_name, ...x.promos.map((p) => p.mecanica)));
+  });
+
+  /** Cuánto de la venta está atribuido: el ranking por vendedora sólo cuenta eso, y se dice. */
+  readonly coberturaTexto = computed(() => {
+    const v = this.datos()?.vendedoras;
+    if (!v) return '';
+    const filas = v.por_sucursal.filter((x) => this.enSucursal(x.warehouse_code));
+    const t = filas.reduce((a, x) => a + x.tickets_con_promo, 0);
+    const c = filas.reduce((a, x) => a + x.tickets_con_vendedora, 0);
+    if (!t) return 'Esta semana no hay tickets de mostrador con estas promociones.';
+    const sin = filas.filter((x) => x.tickets_con_vendedora === 0).map((x) => warehouseName(x.warehouse_code));
+    return `${c} de ${t} tickets con promoción tienen vendedora (${Math.round((100 * c) / t)} %). El ranking cuenta sólo ésos.`
+      + (sin.length ? ` Sin captura: ${sin.join(', ')}.` : '');
+  });
   elegirPromo(id: string | null): void { this.cerrarDetalles(); this.promo.set(id || null); }
   elegirSucursales(v: string[] | null): void { this.cerrarDetalles(); this.sucursales.set(v ?? []); }
   elegirEstado(v: string): void { this.estado.set(v as EstadoVenta); }
@@ -460,6 +517,7 @@ export class MktRankingComponent {
 
   elegirCanal(v: string): void {
     this.cerrarDetalles();
+    if (v !== 'mostrador' && this.vista() === 'vendedoras') this.vista.set('participantes');
     this.promo.set(null); // las promos de otro canal son otras
     this.canal.set(v as Canal);
   }

@@ -72,6 +72,17 @@ export interface ParticipanteRanking {
   promos: RenglonRanking[];
 }
 
+export interface VendedoraEnRanking {
+  lugar: number; warehouse_code: string; warehouse_name: string; person_code: string; nombre: string;
+  tickets: number; aplicaciones: number; promos: Array<{ code: string; mecanica: string; cantidad: number }>;
+}
+export interface VendedorasSemana {
+  tickets_con_promo: number;
+  tickets_con_vendedora: number;
+  personas: VendedoraEnRanking[];
+  por_sucursal: Array<{ warehouse_code: string; tickets_con_promo: number; tickets_con_vendedora: number }>;
+}
+
 export interface PromoEnRanking {
   promo_id: string; code: string; nombre: string;
   productos: string[]; productos_metodo: MetodoProducto;
@@ -100,6 +111,8 @@ export interface RankingSemana {
   participantes: ParticipanteRanking[];
   /** [MKT.16] El ranking de promociones (misma regla que el de participantes). */
   promos_ranking: PromoEnRanking[];
+  /** [MKT.18] Quién vendió en mostrador (lo escriben las cajeras en su arqueo); null en otros canales. */
+  vendedoras: VendedorasSemana | null;
   criterio: string;
   consultado_at: string;
 }

@@ -2175,6 +2175,13 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.STORE_LIVE_VER)]
       },
       {
+        // [MKT.18] Pestaña del arqueo: quién vendió cada ticket con promoción del turno (opcional, no bloquea el conteo).
+        path: 'arqueo/promociones',
+        loadComponent: () => import('./modules/tienda/pages/tienda-arqueo-promos.component').then(m => m.TiendaArqueoPromosComponent),
+        canActivate: [permissionGuard(Permission.STORE_ARQUEO_CAPTURAR)],
+        canDeactivate: [unsavedChangesGuard]
+      },
+      {
         path: 'arqueo',
         loadComponent: () => import('./modules/tienda/pages/tienda-arqueo.component').then(m => m.TiendaArqueoComponent),
         canActivate: [anyPermissionGuard(Permission.STORE_ARQUEO_VER, Permission.STORE_ARQUEO_CAPTURAR, Permission.STORE_ARQUEO_SIN_CAJA_CAPTURAR)],

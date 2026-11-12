@@ -69,6 +69,18 @@ const DISPARADORES = [
   ['DM209', 'WAFER FRESA EXH /12', 12, 30, 'DM008', 2],
   ['DM210', 'REFRESCO COLA 600ML /24', 24, 17, 'DM010', 3],
 ];
+/**
+ * [MKT.18] Personas del reloj checador de cada sucursal (nombres INVENTADOS: el repo es público).
+ * [clave del reloj, nombre, promotora]. La cuarta no vende: sirve para ver que la lista trae a todos.
+ */
+const PERSONAS = [['901', 'VENDEDORA DEMO A', false], ['902', 'VENDEDORA DEMO B', false], ['903', 'PROMOTORA DEMO C', true], ['904', 'ALMACEN DEMO D', false]];
+const MARCA_HR = 'DEMO-MKT';
+/** Los sitios del reloj van en minúsculas (CHECK de hr.attendance_sites). */
+const SITIO = 'demo-mkt';
+/** Apertura del turno de mostrador de una sucursal en un día (kdpv_folio_caja.c3 = kdm1.c80). */
+const aperturaDe = (s, d) => 900000 + Number(s) * 1000 + (Math.floor(Date.parse(d) / 86400000) % 1000);
+/** Clave de la cajera del turno: en 01 es el usuario local demo_flujo, para probar «sólo mis turnos». */
+const cajeraDe = (s) => (s === '01' ? 'DEMO_FLUJO' : `CAJERA_DEMO_${s}`);
 /** Qué tanto vende cada sucursal (para que el ranking tenga forma). */
 const PESO = { '01': 1.6, '02': 0.7, '03': 1.1, '04': 0.5, '05': 0.6, '06': 1.3, '07': 0.9, '08': 1.5 };
 const CANALES = [
@@ -104,6 +116,14 @@ const lunes = (ymd) => { const d = new Date(ymd + 'T00:00:00Z'); return dia(ymd,
 async function limpiar(c) {
   await c.query(`DELETE FROM commercial.mkt_ranking_promos WHERE notas = $1`, [MARCA]);
   await c.query(`DELETE FROM commercial.mkt_incentives WHERE notas = $1`, [MARCA]);
+  // [MKT.18] turnos, reloj checador y quién vendió
+  await c.query(`DELETE FROM commercial.mkt_promo_ticket_sellers WHERE folio LIKE 'DM%'`);
+  await c.query(`DELETE FROM kepler_ods.kdpv_folio_caja WHERE c13 = $1`, [MARCA_HR]);
+  await c.query(`DELETE FROM hr.attendance_logs WHERE device_id IN (SELECT id FROM hr.attendance_devices WHERE serial_number LIKE $1)`, [`${MARCA_HR}-%`]);
+  await c.query(`DELETE FROM hr.device_enrollments WHERE device_id IN (SELECT id FROM hr.attendance_devices WHERE serial_number LIKE $1)`, [`${MARCA_HR}-%`]);
+  await c.query(`DELETE FROM hr.person_site_profiles WHERE site_code LIKE $1`, [`${SITIO}-%`]);
+  await c.query(`DELETE FROM hr.attendance_devices WHERE serial_number LIKE $1`, [`${MARCA_HR}-%`]);
+  await c.query(`DELETE FROM hr.attendance_sites WHERE code LIKE $1`, [`${SITIO}-%`]);
   await c.query(`DELETE FROM kepler_ods.kdm2 WHERE c6 LIKE 'DM%'`);
   await c.query(`DELETE FROM kepler_ods.kdm1 WHERE c6 LIKE 'DM%'`);
   await c.query(`DELETE FROM kepler_ods.kduv WHERE c2 LIKE 'DM%' OR c3 LIKE '%DEMO%'`);
@@ -165,6 +185,28 @@ async function limpiar(c) {
     const desde = dia(lunes(hoy), -35);
     const r = rng(20261111);
     let docs = 0, lineas = 0;
+    const vendidos = [];
+
+    // ── [MKT.18] turnos de mostrador (kdpv_folio_caja) y reloj checador por sucursal ──
+    for (const s of SUC) {
+      for (let d = desde; d <= hoy; d = dia(d, 1)) {
+        await c.query(
+          `INSERT INTO kepler_ods.kdpv_folio_caja (sucursal, c1, c2, c3, c5, c6, c8, c10, c11, c13)
+           VALUES ($1, $1, '91', $2, $3, '08:00:00', $4, $5, '20:00:00', $6)`,
+          [s, aperturaDe(s, d), d, cajeraDe(s), d < hoy ? d : '1800-01-01', MARCA_HR]);
+      }
+      const site = `${SITIO}-${s}`;
+      await c.query(`INSERT INTO hr.attendance_sites (tenant_id, code, name, warehouse_code) VALUES ($1, $2, $3, $4)`, [T, site, `Reloj demo ${s}`, s]);
+      const { rows: [dev] } = await c.query(
+        `INSERT INTO hr.attendance_devices (tenant_id, serial_number, site_code) VALUES ($1, $2, $3) RETURNING id`, [T, `${MARCA_HR}-SN-${s}`, site]);
+      for (const [code, nombre, promotora] of PERSONAS) {
+        await c.query(`INSERT INTO hr.device_enrollments (tenant_id, device_id, device_user_id, device_name, person_code) VALUES ($1, $2, $3, $4, $3)`, [T, dev.id, code, nombre]);
+        await c.query(`INSERT INTO hr.person_site_profiles (tenant_id, site_code, person_code, is_promoter, is_active) VALUES ($1, $2, $3, $4, true)`, [T, site, code, promotora]);
+        for (let k = 1; k <= 5; k++) {
+          await c.query(`INSERT INTO hr.attendance_logs (tenant_id, device_id, device_user_id, punched_at, punched_local, source) VALUES ($1, $2, $3, $4::date + time '08:00', $4::date + time '08:00', 'manual')`, [T, dev.id, code, dia(hoy, -k)]);
+        }
+      }
+    }
     for (let d = desde; d <= hoy; d = dia(d, 1)) {
       const semanaIdx = Math.floor((Date.parse(d) - Date.parse(desde)) / (7 * 86400000));
       for (const s of SUC) {
@@ -192,13 +234,19 @@ async function limpiar(c) {
               if (q > 0) prodT.push([sku, nombre, q, 'PZA', pv]);
             }
             const cliente = `DMC${s}${String(Math.floor(r() * 40)).padStart(3, '0')}`;
+            // [MKT.18] El ticket de mostrador lleva la apertura de su turno (kdm1.c80), como en Kepler.
+            const apertura = canal === 'mostrador' ? aperturaDe(s, d) : null;
             for (const [folio, renglones] of [[`DM${d.replace(/-/g, '')}${k}`, promosT], [`DM${d.replace(/-/g, '')}P${k}`, prodT]]) {
               if (!renglones.length) continue;
               const total = renglones.reduce((a, x) => a + x[2] * x[4], 0);
               await c.query(
-                `INSERT INTO kepler_ods.kdm1 (sucursal, c1, c2, c3, c4, c5, c6, c9, c10, c12, c13, c16, c43, c67)
-                 VALUES ($1, $1, 'U', 'D', $2, $3, $4, $5, $6, $7, 0, $8, '', '')`,
-                [s, doc, caja, folio, d, cliente, vcode, Math.round(total * 100) / 100]);
+                `INSERT INTO kepler_ods.kdm1 (sucursal, c1, c2, c3, c4, c5, c6, c9, c10, c12, c13, c16, c43, c67, c80)
+                 VALUES ($1, $1, 'U', 'D', $2, $3, $4, $5, $6, $7, 0, $8, '', '', $9)`,
+                [s, doc, caja, folio, d, cliente, vcode, Math.round(total * 100) / 100, apertura === null ? null : String(apertura)]);
+              // [MKT.18] En 01 y 03 la cajera ya dijo quién vendió ~70 % de los tickets con promo.
+              if (apertura !== null && renglones === promosT && (s === '01' || s === '03') && r() < 0.7) {
+                vendidos.push([s, doc, String(caja), folio, d, String(apertura), PERSONAS[Math.floor(r() * 3)]]);
+              }
               docs++;
               let n = 0;
               for (const [sku, desc, q, un, precio] of renglones) {
@@ -213,6 +261,14 @@ async function limpiar(c) {
           }
         }
       }
+    }
+
+    // ── [MKT.18] quién vendió (lo que ya escribieron las cajeras de 01 y 03) ──
+    for (const [s, doc, caja, folio, d, apertura, [code, nombre]] of vendidos) {
+      await c.query(
+        `INSERT INTO commercial.mkt_promo_ticket_sellers (tenant_id, warehouse_code, doc_tipo, caja, folio, business_date, turno_apertura, person_code, person_name, created_by_username, updated_by_username)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'semilla', 'semilla')`,
+        [T, s, doc, caja, folio, d, apertura, code, nombre]);
     }
 
     // ── alta de promos (8 de 10) y objetivos ──

@@ -126,6 +126,53 @@ async function http(method, path, token, body) {
     }
     check((await http('GET', '/commercial/mkt-ranking?semana=2099-01-05', token)).status === 400, '[negativa] semana futura: 400');
 
+    console.log('\n[3b] [MKT.18] Quién vendió (pestaña del arqueo) — payload de la pantalla');
+    const vt = await http('GET', '/commercial/mkt-ranking/vendedoras?sucursal=01&dias=7', token);
+    check(vt.status === 200 && vt.json.tickets.length > 0, 'la cajera ve tickets con promoción de sus turnos', vt.status);
+    check(vt.json.personas.map((p) => p.nombre).sort().join() === 'ALMACEN DEMO D,PROMOTORA DEMO C,VENDEDORA DEMO A,VENDEDORA DEMO B',
+      'la lista sale del reloj checador de esa sucursal (los 4, sin filtrar por puesto)', vt.json.personas.map((p) => p.nombre));
+    // Segunda implementación: tickets de mostrador de 01 con alguna promo DADA DE ALTA, vigente ese día, en 7 días.
+    const { rows: [nt] } = await db.query(
+      `SELECT count(DISTINCT (l.doc_tipo, l.caja, l.folio))::int n FROM analytics.v_kepler_sales_lines l
+         JOIN commercial.mkt_ranking_promos p ON p.code = l.sku AND p.deleted_at IS NULL AND p.activo AND 'mostrador' = ANY(p.canales)
+          AND l.business_date >= p.vigencia_desde AND (p.vigencia_hasta IS NULL OR l.business_date <= p.vigencia_hasta)
+        WHERE l.warehouse_code = '01' AND l.canal = 'mostrador' AND l.business_date BETWEEN (current_date - 7) AND current_date`);
+    check(vt.json.tickets.length === nt.n, '⭐ tickets del arqueo = SQL directo (promos dadas de alta, vigentes ese día)', { api: vt.json.tickets.length, sql: nt.n });
+    check(vt.json.tickets.every((x) => x.turno_apertura && x.promos.length && x.promos.every((p) => p.cantidad > 0)), 'cada ticket trae su turno y sus promos con cantidad de Kepler');
+    const libre = vt.json.tickets.find((x) => !x.vendedora);
+    const conV = vt.json.tickets.find((x) => x.vendedora);
+    creados.vendedoraAntes = conV ? { ...conV } : null;
+    const put18 = await http('PUT', '/commercial/mkt-ranking/vendedoras', token, {
+      sucursal: '01',
+      items: [
+        { doc_tipo: libre.doc_tipo, caja: libre.caja, folio: libre.folio, person_code: '903' },
+        ...(conV ? [{ doc_tipo: conV.doc_tipo, caja: conV.caja, folio: conV.folio, person_code: null }] : []),
+      ],
+    });
+    check(put18.status === 200 && put18.json.guardados === 1 && put18.json.quitados === (conV ? 1 : 0), 'guardar: 1 asignado y 1 quitado', put18.json);
+    creados.libre = libre;
+    const { rows: [fila18] } = await db.query(
+      `SELECT person_code, person_name, turno_apertura, business_date::text d FROM commercial.mkt_promo_ticket_sellers
+        WHERE warehouse_code='01' AND doc_tipo=$1 AND caja=$2 AND folio=$3`, [libre.doc_tipo, libre.caja, libre.folio]);
+    check(fila18 && fila18.person_code === '903' && fila18.person_name === 'PROMOTORA DEMO C' && fila18.turno_apertura === libre.turno_apertura && fila18.d === libre.business_date,
+      '⭐ en la base: la persona con el NOMBRE que pone el servidor y el turno/fecha de Kepler (no de la pantalla)', fila18);
+    check((await http('PUT', '/commercial/mkt-ranking/vendedoras', token, { sucursal: '01', items: [{ doc_tipo: libre.doc_tipo, caja: libre.caja, folio: libre.folio, person_code: 'NO-EXISTE' }] })).status === 400,
+      '[negativa] persona que no está en el reloj: 400');
+    check((await http('PUT', '/commercial/mkt-ranking/vendedoras', token, { sucursal: '01', items: [{ doc_tipo: 10, caja: '91', folio: 'FOLIO-INVENTADO', person_code: '901' }] })).status === 400,
+      '[negativa] ticket que no existe en Kepler: 400');
+    check((await http('PUT', '/commercial/mkt-ranking/vendedoras', token, { sucursal: '1', items: [] })).status === 400, '[negativa] sucursal inválida o nada que guardar: 400');
+    const rv = await http('GET', '/commercial/mkt-ranking?canal=mostrador', token);
+    const { rows: [cv] } = await db.query(
+      `SELECT count(DISTINCT (s.doc_tipo, s.caja, s.folio, s.warehouse_code))::int n FROM commercial.mkt_promo_ticket_sellers s
+         JOIN analytics.v_kepler_sales_lines l ON l.warehouse_code = s.warehouse_code AND l.doc_tipo = s.doc_tipo AND l.caja = s.caja AND l.folio = s.folio
+        WHERE l.canal = 'mostrador' AND l.business_date BETWEEN $1 AND $2
+          AND l.sku IN (SELECT code FROM commercial.mkt_ranking_promos WHERE deleted_at IS NULL AND activo AND 'mostrador' = ANY(canales))`,
+      [rv.json.semana.lunes, rv.json.semana.hasta]);
+    check(rv.json.vendedoras && rv.json.vendedoras.tickets_con_vendedora === cv.n, '⭐ ranking: tickets con vendedora = SQL directo', { api: rv.json.vendedoras?.tickets_con_vendedora, sql: cv.n });
+    const pv = rv.json.vendedoras.personas;
+    check(pv.length > 0 && pv.every((x, i) => i === 0 || pv[i - 1].aplicaciones >= x.aplicaciones), 'el lugar sigue a las promociones aplicadas');
+    check((await http('GET', '/commercial/mkt-ranking?canal=ruta', token)).json.vendedoras === null, 'fuera de mostrador no hay ranking por vendedora (Kepler ya trae al vendedor)');
+
     console.log('\n[4] Alta de una promoción (payload de la pantalla)');
     const cods = await http('GET', '/commercial/mkt-ranking/codigos-kepler?q=DM009', token);
     check(cods.status === 200 && cods.json.some((c) => c.code === 'DM009' && !c.ya_registrada), 'DM009 aparece y no está dada de alta');
@@ -211,6 +258,18 @@ async function http(method, path, token, body) {
   } finally {
     if (creados.promo) await db.query(`DELETE FROM commercial.mkt_ranking_promos WHERE id=$1`, [creados.promo]);
     if (creados.incentivo) await db.query(`DELETE FROM commercial.mkt_incentives WHERE id=$1`, [creados.incentivo]);
+    // [MKT.18] Deja la asignación como estaba: borra la nueva y repone la que se quitó.
+    if (creados.libre) {
+      await db.query(`DELETE FROM commercial.mkt_promo_ticket_sellers WHERE warehouse_code='01' AND doc_tipo=$1 AND caja=$2 AND folio=$3`,
+        [creados.libre.doc_tipo, creados.libre.caja, creados.libre.folio]);
+    }
+    if (creados.vendedoraAntes) {
+      const a = creados.vendedoraAntes;
+      await db.query(
+        `INSERT INTO commercial.mkt_promo_ticket_sellers (tenant_id, warehouse_code, doc_tipo, caja, folio, business_date, turno_apertura, person_code, person_name, created_by_username, updated_by_username)
+         VALUES ('00000000-0000-0000-0000-00000000d01c', '01', $1, $2, $3, $4, $5, $6, $7, 'semilla', 'semilla') ON CONFLICT DO NOTHING`,
+        [a.doc_tipo, a.caja, a.folio, a.business_date, a.turno_apertura, a.vendedora.code, a.vendedora.nombre]);
+    }
     await db.query(`DELETE FROM commercial.mkt_ranking_objectives WHERE fuente = 'sugerido' AND created_at >= $1`, [t0]);
     await db.end();
   }

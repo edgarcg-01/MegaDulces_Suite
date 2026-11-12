@@ -130,8 +130,25 @@ export interface RankingSemana {
   participantes: ParticipanteRanking[];
   /** `[MKT.16]` El ranking de promociones: cada promo, con los participantes que la tienen. */
   promos_ranking: PromoEnRanking[];
+  /** `[MKT.18]` Quién vendió en el mostrador (lo escriben las cajeras); NULL en los otros canales. */
+  vendedoras: VendedorasSemana | null;
   criterio: string;
   consultado_at: string;
+}
+
+/** `[MKT.18]` El ranking por vendedora del mostrador y qué tanto está capturado. */
+export interface VendedorasSemana {
+  /** Tickets de mostrador con alguna promo del ranking en la semana (Kepler). */
+  tickets_con_promo: number;
+  /** De ésos, cuántos tienen vendedora escrita por la cajera. */
+  tickets_con_vendedora: number;
+  personas: Array<{
+    lugar: number; warehouse_code: string; warehouse_name: string; person_code: string; nombre: string;
+    tickets: number; aplicaciones: number;
+    promos: Array<{ code: string; mecanica: string; cantidad: number }>;
+  }>;
+  /** Por sucursal: tickets con promo y capturados (para decir dónde falta). */
+  por_sucursal: Array<{ warehouse_code: string; tickets_con_promo: number; tickets_con_vendedora: number }>;
 }
 
 export interface PromoEnRanking {
@@ -650,6 +667,64 @@ export class MktRankingService {
     }
   }
 
+  /**
+   * `[MKT.18]` Por vendedora (mostrador): los tickets que la cajera atribuyó, con lo que Kepler dice
+   * que llevaban de cada promo vigente. Lugar = más aplicaciones; no hay objetivo por persona (el
+   * objetivo es de la sucursal). La captura es opcional: se DECLARA cuánto de la venta está atribuido.
+   */
+  private async vendedorasDeLaSemana(trx: Knex.Transaction, promos: PromoMkt[], semana: Semana, nombres: Map<string, string>): Promise<VendedorasSemana> {
+    const codes = [...new Set(promos.map((p) => p.code))];
+    const mecanica = new Map(promos.map((p) => [p.code, p.mecanica]));
+    const [lineas, asignados] = await Promise.all([
+      trx.raw(
+        `SELECT warehouse_code, doc_tipo, caja, folio, sku, sum(qty) qty
+           FROM analytics.v_kepler_sales_lines
+          WHERE business_date BETWEEN ? AND ? AND canal = 'mostrador' AND sku = ANY(?::text[])
+          GROUP BY 1, 2, 3, 4, 5`,
+        [semana.lunes, semana.hasta, codes]),
+      trx('commercial.mkt_promo_ticket_sellers').whereBetween('business_date', [semana.lunes, semana.hasta])
+        .select('warehouse_code', 'doc_tipo', 'caja', 'folio', 'person_code', 'person_name'),
+    ]);
+    const k = (x: Record<string, unknown>) => `${x['warehouse_code']}|${Number(x['doc_tipo'])}|${String(x['caja']).trim()}|${String(x['folio']).trim()}`;
+    const quien = new Map((asignados as Array<Record<string, unknown>>).map((a) => [k(a), { code: String(a['person_code']), nombre: String(a['person_name']) }]));
+    const tickets = new Map<string, string>(); // ticket -> sucursal
+    const conVendedora = new Set<string>();
+    const porPersona = new Map<string, { warehouse_code: string; person_code: string; nombre: string; tickets: Set<string>; promos: Map<string, number> }>();
+    for (const l of lineas.rows as Array<Record<string, unknown>>) {
+      const t = k(l);
+      tickets.set(t, String(l['warehouse_code']));
+      const q = quien.get(t);
+      if (!q) continue;
+      conVendedora.add(t);
+      const pk = `${l['warehouse_code']}|${q.code}`;
+      const acc = porPersona.get(pk) ?? { warehouse_code: String(l['warehouse_code']), person_code: q.code, nombre: q.nombre, tickets: new Set<string>(), promos: new Map<string, number>() };
+      acc.tickets.add(t);
+      acc.promos.set(String(l['sku']), (acc.promos.get(String(l['sku'])) ?? 0) + n(l['qty']));
+      porPersona.set(pk, acc);
+    }
+    const personas = [...porPersona.values()].map((p) => {
+      const promosP = [...p.promos].map(([code, cantidad]) => ({ code, mecanica: mecanica.get(code) ?? code, cantidad }))
+        .sort((a, b) => b.cantidad - a.cantidad);
+      return {
+        warehouse_code: p.warehouse_code, warehouse_name: nombres.get(p.warehouse_code) ?? `Sucursal ${p.warehouse_code}`,
+        person_code: p.person_code, nombre: p.nombre, tickets: p.tickets.size,
+        aplicaciones: promosP.reduce((a, x) => a + x.cantidad, 0), promos: promosP,
+      };
+    }).sort((a, b) => b.aplicaciones - a.aplicaciones || b.tickets - a.tickets || a.nombre.localeCompare(b.nombre, 'es'))
+      .map((p, i) => ({ lugar: i + 1, ...p }));
+    const suc = new Map<string, { t: number; c: number }>();
+    for (const [t, w] of tickets) {
+      const a = suc.get(w) ?? { t: 0, c: 0 };
+      a.t++; if (conVendedora.has(t)) a.c++;
+      suc.set(w, a);
+    }
+    return {
+      tickets_con_promo: tickets.size, tickets_con_vendedora: conVendedora.size, personas,
+      por_sucursal: [...suc].map(([w, a]) => ({ warehouse_code: w, tickets_con_promo: a.t, tickets_con_vendedora: a.c }))
+        .sort((a, b) => a.warehouse_code.localeCompare(b.warehouse_code)),
+    };
+  }
+
   private async promosVigentes(trx: Knex.Transaction, s: Semana): Promise<PromoMkt[]> {
     const rows = await trx('commercial.mkt_ranking_promos')
       .whereNull('deleted_at').where('activo', true)
@@ -683,7 +758,7 @@ export class MktRankingService {
         promos_lista: todas.map((p) => ({ id: p.id, code: p.code, mecanica: p.mecanica }))
           .sort((a, b) => a.mecanica.localeCompare(b.mecanica, 'es')),
         promo_filtrada: promoId ? (promos[0]?.id ?? null) : null,
-        promedio_general: null, participantes: [], promos_ranking: [],
+        promedio_general: null, participantes: [], promos_ranking: [], vendedoras: null,
         criterio: 'Objetivo = el que fijó Mercadotecnia o, si no fijó, el DINÁMICO: el promedio de las 4 semanas anteriores '
           + 'dentro de la vigencia, recalculado cada semana. '
           + 'Cubrimiento = venta ÷ objetivo semanal, con tope de 100 % por promoción. El lugar es el promedio de '
@@ -833,7 +908,8 @@ export class MktRankingService {
           ...pt,
         };
       }));
-      return { ...base, participantes: ordenados, promedio_general: promedioGeneral(ordenados), promos_ranking: promosRanking };
+      const vendedoras = canal === 'mostrador' ? await this.vendedorasDeLaSemana(trx, promos, semana, nombres) : null;
+      return { ...base, participantes: ordenados, promedio_general: promedioGeneral(ordenados), promos_ranking: promosRanking, vendedoras };
     });
   }
 

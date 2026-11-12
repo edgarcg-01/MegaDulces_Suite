@@ -29,6 +29,14 @@ const ranking = (over: Partial<RankingSemana> = {}): RankingSemana => ({
   promos_lista: [{ id: 'a', code: 'DM001', mecanica: '3 leches = gratis 1' }], promo_filtrada: null,
   promos_ranking: [{ promo_id: 'a', code: 'DM001', nombre: '3 leches = gratis 1', productos: ['LECHE ENTERA LT /12'], productos_metodo: 'ticket_y_nombre',
     participantes: 2, venta_total: 18, objetivo_total: 10, lugar: 1, puntaje: 0.9, con_objetivo: 1, sin_objetivo: 1, cumplidas: 0, sin_venta: 0 }],
+  vendedoras: {
+    tickets_con_promo: 10, tickets_con_vendedora: 4,
+    personas: [{ lugar: 1, warehouse_code: '01', warehouse_name: 'Padre Hidalgo', person_code: '901', nombre: 'VENDEDORA DEMO A', tickets: 3, aplicaciones: 7,
+      promos: [{ code: 'DM001', mecanica: '3 leches = gratis 1', cantidad: 7 }] },
+      { lugar: 2, warehouse_code: '04', warehouse_name: 'Yurécuaro', person_code: '902', nombre: 'VENDEDORA DEMO B', tickets: 1, aplicaciones: 2,
+      promos: [{ code: 'DM001', mecanica: '3 leches = gratis 1', cantidad: 2 }] }],
+    por_sucursal: [{ warehouse_code: '01', tickets_con_promo: 6, tickets_con_vendedora: 4 }, { warehouse_code: '04', tickets_con_promo: 4, tickets_con_vendedora: 0 }],
+  },
   criterio: 'Cubrimiento con tope', consultado_at: '2026-11-11T18:00:00Z',
   ...over,
 });
@@ -145,5 +153,25 @@ describe('[MKT.11] MktRankingComponent', () => {
     expect(comp.filasDePromo().map((f) => f.nombre)).toEqual(['Padre Hidalgo', 'Yurécuaro']);
     comp.elegirEstado('sin_venta');
     expect(comp.filasPromo()).toEqual([]);
+  });
+
+  it('[MKT.18] por vendedora: dice cuánto está atribuido y dónde no hay captura (no lo dibuja como cero)', async () => {
+    const { comp } = await montar(ranking());
+    expect(comp.opcionesVista().map((o) => o.value)).toContain('vendedoras');
+    comp.elegirVista('vendedoras');
+    expect(comp.filasVendedora().map((x) => x.nombre)).toEqual(['VENDEDORA DEMO A', 'VENDEDORA DEMO B']);
+    expect(comp.coberturaTexto()).toContain('4 de 10 tickets con promoción tienen vendedora (40 %)');
+    expect(comp.coberturaTexto()).toContain('Sin captura: Yurécuaro');
+  });
+
+  it('[MKT.18] la vista por vendedora sólo existe en mostrador; cambiar de canal la suelta', async () => {
+    const { comp, http, fixture } = await montar(ranking());
+    comp.elegirVista('vendedoras');
+    comp.elegirCanal('ruta');
+    fixture.detectChanges();
+    http.expectOne((q) => q.url === BASE && q.params.get('canal') === 'ruta').flush(ranking({ canal: 'ruta', vendedoras: null }));
+    await fixture.whenStable();
+    expect(comp.vista()).toBe('participantes');
+    expect(comp.opcionesVista().map((o) => o.value)).not.toContain('vendedoras');
   });
 });

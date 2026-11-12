@@ -312,6 +312,8 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
         modules: [
           { id: 'store-live', label: 'Tienda en Vivo', route: '/tienda/live', view: [Permission.STORE_LIVE_VER], manage: [] },
           { id: 'store-labels', label: 'Etiquetas de anaquel', route: '/tienda/etiquetas', view: [Permission.STORE_LABELS_VER], manage: [Permission.STORE_LABELS_COMPARTIR] },
+          // [MKT.18] Pestaña del arqueo: la cajera escribe quién vendió cada ticket con promoción.
+          { id: 'store-arqueo-promos', label: 'Promociones vendidas (quién vendió)', route: '/tienda/arqueo/promociones', view: [Permission.STORE_ARQUEO_CAPTURAR], manage: [Permission.STORE_ARQUEO_CAPTURAR] },
           { id: 'store-arqueo', label: 'Arqueo ciego de caja', route: '/tienda/arqueo', view: [Permission.STORE_ARQUEO_VER], manage: [Permission.STORE_ARQUEO_CAPTURAR, Permission.STORE_ARQUEO_RUTA_CAPTURAR, Permission.STORE_ARQUEO_SIN_CAJA_CAPTURAR] },
           { id: 'store-caducidades', label: 'Control de Caducidades', route: '/tienda/caducidades', view: [Permission.COMMERCIAL_EXPIRY_VER], manage: [Permission.COMMERCIAL_EXPIRY_CAPTURAR] },
           { id: 'store-analytics', label: 'Análisis de ventas', route: '/tienda/analisis-semanal', view: [Permission.STORE_ANALYTICS_VER], manage: [] },

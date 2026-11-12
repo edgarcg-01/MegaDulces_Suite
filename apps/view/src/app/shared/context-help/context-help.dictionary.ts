@@ -691,6 +691,22 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       },
     ],
   },
+  // [MKT.18] Pestaña del arqueo: quién vendió cada ticket con promoción.
+  'arqueo-promos': {
+    title: '¿Quién vendió las promociones?',
+    intro: 'Kepler sabe qué promociones llevó cada ticket, pero en el mostrador no sabe quién lo vendió: todo sale a nombre de «piso». Aquí lo dices tú, ticket por ticket. No es obligatorio y no cambia tu arqueo.',
+    groups: [
+      {
+        heading: 'Cómo se llena',
+        entries: [
+          { term: 'Los tickets', def: 'Los de tus turnos que llevan una promoción que Mercadotecnia está midiendo, tal como los registró Kepler: folio, caja y cuántas veces se aplicó cada promoción. No hay que teclear cantidades.' },
+          { term: 'La persona', def: 'Sale de quien checó en el reloj de tu sucursal en los últimos 30 días. Si alguien no aparece, es que no ha checado: avisa a RH.' },
+          { term: 'Asignar los vacíos', def: 'Pone a la misma persona en todos los tickets que todavía no tienen. Revisa antes de guardar: puedes cambiar cualquiera.' },
+          { term: 'Guardar', def: 'Nada se guarda hasta que presionas «Guardar». Si sales con cambios, la pantalla te avisa.' },
+        ],
+      },
+    ],
+  },
   // [MKT.14] Incentivos de venta (antes los bloques «PESOS POR CAJAS» del Excel).
   'mkt-incentivos': {
     title: 'Incentivos de venta — cómo se calcula el pago',
