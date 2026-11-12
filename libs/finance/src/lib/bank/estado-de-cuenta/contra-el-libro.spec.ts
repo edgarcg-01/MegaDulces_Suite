@@ -1,4 +1,4 @@
-import { compararContraElLibro, descargaEnMovimientos, listoParaBanco, DIAS_PARA_USAR_EL_BANCO, type DiaContraElLibro, type RenglonComparable } from './contra-el-libro';
+import { compararContraElLibro, corteSinParalelo, descargaEnMovimientos, listoParaBanco, DIAS_PARA_USAR_EL_BANCO, type DiaContraElLibro, type RenglonComparable } from './contra-el-libro';
 
 // Importes inventados (el repo es público). Cuenta que abre en 1,000.00.
 let n = 0;
@@ -284,5 +284,37 @@ describe('[CB.64] descargaEnMovimientos: la descarga dentro de Movimientos', () 
     expect(d.no_trae).toEqual([extra.id]);
     // [negativa] sin corte, el 03 sigue siendo de la descarga sola y el 02 no es el día abierto, así que el extra igual se acusa.
     expect(motivos(descargaEnMovimientos(B, L, COBERTURA))[b5]).toBe('libro_no_llega');
+  });
+});
+
+describe('[CB.67] corte sin paralelo: el libro deja de existir', () => {
+  const HOY = '2026-11-12';
+  it('manda desde el ÚLTIMO día del libro (se reemplaza: puede estar a medias) si la descarga lo cubre', () => {
+    expect(corteSinParalelo('2026-11-10', [{ desde: '2026-10-31', hasta: '2026-11-05' }, { desde: '2026-11-06', hasta: '2026-11-12' }], HOY))
+      .toEqual({ desde: '2026-11-10', ultimo_del_libro: '2026-11-10', cubre: true, motivo: null });
+  });
+  it('[negativa] el libro termina antes de que empiece la descarga: se niega y dice qué falta bajar', () => {
+    const c = corteSinParalelo('2026-08-31', [{ desde: '2026-11-03', hasta: '2026-11-06' }], HOY);
+    expect(c.cubre).toBe(false);
+    expect(c.motivo).toBe('el libro llega al 2026-08-31 y la descarga empieza el 2026-11-03: falta bajar del 2026-08-31 al 2026-11-02');
+  });
+  it('[negativa] un hueco entre archivos después del corte: se niega y nombra los días', () => {
+    const c = corteSinParalelo('2026-11-03', [{ desde: '2026-11-01', hasta: '2026-11-04' }, { desde: '2026-11-08', hasta: '2026-11-12' }], HOY);
+    expect(c.cubre).toBe(false);
+    expect(c.motivo).toBe('a la descarga le faltan del 2026-11-05 al 2026-11-07');
+  });
+  it('[negativa] una fecha FUTURA del libro (capturada mal) no es su último día', () => {
+    const c = corteSinParalelo('2027-08-06', [{ desde: '2026-10-31', hasta: '2026-11-12' }], HOY);
+    expect(c.ultimo_del_libro).toBeNull();
+    expect(c.desde).toBe('2026-10-31');
+    expect(c.cubre).toBe(true);
+  });
+  it('sin libro manda desde el primer día de la descarga; sin descarga, no hay corte', () => {
+    expect(corteSinParalelo(null, [{ desde: '2026-11-03', hasta: '2026-11-12' }], HOY).desde).toBe('2026-11-03');
+    expect(corteSinParalelo('2026-11-10', [], HOY)).toEqual({ desde: null, ultimo_del_libro: '2026-11-10', cubre: false, motivo: 'no hay ninguna descarga subida' });
+  });
+  it('[negativa] la descarga termina antes del último día del libro', () => {
+    expect(corteSinParalelo('2026-11-10', [{ desde: '2026-11-01', hasta: '2026-11-06' }], HOY).motivo)
+      .toBe('el libro llega al 2026-11-10 y la descarga termina el 2026-11-06: falta bajar del 2026-11-10 en adelante');
   });
 });

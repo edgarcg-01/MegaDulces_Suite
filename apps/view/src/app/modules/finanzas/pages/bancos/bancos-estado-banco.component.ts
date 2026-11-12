@@ -263,9 +263,12 @@ export interface Veredicto { tono: 'ok' | 'warn' | 'bad' | 'muted'; icono: strin
             <ng-template #message>
               @if (aConfirmar(); as c) {
                 <div class="eb-confirma">
-                  <p>Desde el <b>{{ c.listo_para_banco?.desde | date:'dd/MM/yy' }}</b>, los movimientos de {{ c.alias }} salen de la descarga del banco, no del libro.</p>
+                  <p>Desde el <b>{{ desdeDe(c) | date:'dd/MM/yy' }}</b>, los movimientos de {{ c.alias }} salen de la descarga del banco, no del libro.</p>
                   <ul>
-                    <li>Lo que el libro tiene hasta el {{ c.listo_para_banco?.ultimo_que_cuadra | date:'dd/MM' }} no se toca: su conciliación, su categoría y su póliza se quedan.</li>
+                    @if (sinParalelo(c)) {
+                      <li><b>Sin el paralelo de {{ c.listo_para_banco?.requeridos }} días</b> (lleva {{ c.listo_para_banco?.dias_seguidos }}): el libro deja de existir. Ese día es el último que tiene el libro y se reemplaza completo con el del banco.</li>
+                    }
+                    <li>Lo que el libro tiene antes del {{ desdeDe(c) | date:'dd/MM' }} no se toca: su conciliación, su categoría y su póliza se quedan.</li>
                     <li>Si el libro ya trae renglones desde esa fecha, los reemplazan los del banco.</li>
                     <li>La carga del libro deja de meter renglones de esta cuenta desde esa fecha, y lo avisa.</li>
                     <li>{{ textoSucursal(c) }}</li>
@@ -527,7 +530,7 @@ export class BancosEstadoBancoComponent implements OnInit {
     const juzgadas = cuentas.filter((c) => c.resumen.cuadra + c.resumen.difiere > 0);
     if (!juzgadas.length) return [];
     const difieren = juzgadas.filter((c) => c.resumen.difiere).map((c) => c.alias);
-    const listas = cuentas.filter((c) => !c.banco_desde && c.listo_para_banco?.cumple).map((c) => c.alias);
+    const listas = cuentas.filter((c) => !c.banco_desde && this.desdeDe(c)).map((c) => c.alias);
     const partes = [difieren.length ? `difieren ${difieren.join(', ')}` : 'cuentas con días cerrados para comparar'];
     if (listas.length) partes.push(`${listas.join(', ')} ${listas.length === 1 ? 'ya puede' : 'ya pueden'} usar el banco`);
     return [{ label: 'Cuadran con el libro', value: `${juzgadas.length - difieren.length} de ${juzgadas.length}`, format: 'text', tone: difieren.length ? 'bad' : 'ok',
@@ -537,7 +540,7 @@ export class BancosEstadoBancoComponent implements OnInit {
   private grupo(c: CuentaContraElLibro): number {
     if (c.banco_desde) return 3;
     if (c.resumen.difiere) return 0;
-    return c.listo_para_banco?.cumple ? 1 : 2;
+    return this.desdeDe(c) ? 1 : 2;
   }
 
   /**
@@ -549,8 +552,19 @@ export class BancosEstadoBancoComponent implements OnInit {
     const l = c.listo_para_banco;
     if (!l) return { tono: 'muted', icono: 'pi-minus-circle', texto: 'no medido', accion: false };
     if (l.cumple) return { tono: 'ok', icono: 'pi-check-circle', texto: 'puede usar el banco', accion: true };
+    // [CB.67] El libro deja de existir: sin el paralelo, puede si la descarga cubre desde el último día del libro.
+    const s = c.sin_paralelo;
+    if (s?.cubre) return { tono: 'ok', icono: 'pi-check-circle', texto: 'puede usar el banco', accion: true };
+    if (s?.motivo) return { tono: 'warn', icono: 'pi-exclamation-triangle', texto: `no puede: ${s.motivo}`, accion: false };
     return { tono: 'muted', icono: 'pi-minus-circle', texto: `lleva ${l.dias_seguidos} de ${l.requeridos} días seguidos`, accion: false };
   }
+
+  /** [CB.67] Desde qué día mandaría el banco: con el paralelo, el siguiente al último que cuadró; sin él, el último del libro. */
+  desdeDe(c: CuentaContraElLibro): string | null {
+    return c.listo_para_banco?.cumple ? c.listo_para_banco.desde : c.sin_paralelo?.cubre ? c.sin_paralelo.desde : null;
+  }
+
+  sinParalelo(c: CuentaContraElLibro): boolean { return !c.listo_para_banco?.cumple && !!c.sin_paralelo?.cubre; }
 
   /** [CB.60b] Lo que confirma quien pulsa sobre la sucursal: cuánto acertó en el paralelo lo aprendido. */
   textoSucursal(c: CuentaContraElLibro): string {
@@ -561,7 +575,7 @@ export class BancosEstadoBancoComponent implements OnInit {
 
   /** [CB.60b] Pide confirmación: dice desde qué día, qué no se toca y que no hay botón para regresar. */
   pedirUsarElBanco(c: CuentaContraElLibro): void {
-    if (!c.listo_para_banco?.cumple || c.banco_desde || this.pasando() !== null) return;
+    if (!this.desdeDe(c) || c.banco_desde || this.pasando() !== null) return;
     this.aConfirmar.set(c);
     this.confirm.confirm({
       key: 'usar-el-banco', header: `Usar el banco en ${c.alias}`,

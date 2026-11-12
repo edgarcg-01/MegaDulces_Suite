@@ -436,6 +436,8 @@ export interface CuentaContraElLibro {
   resumen: { cuadra: number; difiere: number; sin_libro: number; abierto: number; solo_banco: number; solo_libro: number; monto_solo_banco: number; monto_solo_libro: number };
   /** [CB.60b] Opcionales: una API anterior a CB.60b no los manda, y entonces no se ofrece pasar al banco. */
   listo_para_banco?: ListoParaBanco;
+  /** [CB.67] El libro deja de existir: desde qué día mandaría el banco sin el paralelo, o por qué no se puede. */
+  sin_paralelo?: { desde: string | null; ultimo_del_libro: string | null; cubre: boolean; motivo: string | null };
   /** [CB.60b] Desde qué día la cuenta usa el banco (`null` = sigue con el libro). Sólo se compara lo anterior. */
   banco_desde?: string | null;
   /** [CB.61] La sucursal sin el libro contra la S del libro, en el paralelo. */

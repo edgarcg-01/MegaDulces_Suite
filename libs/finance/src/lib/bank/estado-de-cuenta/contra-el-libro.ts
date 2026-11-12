@@ -254,6 +254,39 @@ export function listoParaBanco(dias: readonly DiaContraElLibro[]): ListoParaBanc
 }
 
 /**
+ * `[CB.67]` **El libro deja de existir** (Edgar, 2026-11-12: «el libro ya no va a existir» → opción 2: todas las
+ * cuentas pasan al banco sin el paralelo de 10 días). Sin días que cuadren, el corte es el ÚLTIMO día del libro
+ * (ese día se reemplaza: puede haberse capturado a medias), y sólo si la descarga lo cubre de ahí en adelante sin
+ * hueco: si no, el banco dejaría días sin ningún renglón. Las fechas FUTURAS del libro (capturadas mal, p. ej.
+ * 2027 en BTE 7744) no cuentan como su último día. Sin libro, manda desde el primer día de la descarga.
+ */
+export interface CorteSinParalelo { desde: string | null; ultimo_del_libro: string | null; cubre: boolean; motivo: string | null }
+
+export function corteSinParalelo(ultimoDelLibro: string | null, archivos: readonly { desde: string; hasta: string }[], hoy: string): CorteSinParalelo {
+  const ult = ultimoDelLibro && ultimoDelLibro <= hoy ? ultimoDelLibro : null;
+  const rangos: { desde: string; hasta: string }[] = [];
+  for (const a of [...archivos].sort((x, y) => x.desde.localeCompare(y.desde))) {
+    const u = rangos[rangos.length - 1];
+    if (u && a.desde <= sumarDias(u.hasta, 1)) { if (a.hasta > u.hasta) u.hasta = a.hasta; } else rangos.push({ desde: a.desde, hasta: a.hasta });
+  }
+  if (!rangos.length) return { desde: null, ultimo_del_libro: ult, cubre: false, motivo: 'no hay ninguna descarga subida' };
+  const desde = ult ?? rangos[0].desde;
+  const r = rangos.find((x) => x.desde <= desde && x.hasta >= desde);
+  if (!r) {
+    const sig = rangos.find((x) => x.desde > desde);
+    return { desde, ultimo_del_libro: ult, cubre: false, motivo: sig
+      ? `el libro llega al ${desde} y la descarga empieza el ${sig.desde}: falta bajar del ${desde} al ${sumarDias(sig.desde, -1)}`
+      : `el libro llega al ${desde} y la descarga termina el ${rangos[rangos.length - 1].hasta}: falta bajar del ${desde} en adelante` };
+  }
+  const i = rangos.indexOf(r);
+  if (i < rangos.length - 1) {
+    return { desde, ultimo_del_libro: ult, cubre: false,
+      motivo: `a la descarga le faltan del ${sumarDias(r.hasta, 1)} al ${sumarDias(rangos[i + 1].desde, -1)}` };
+  }
+  return { desde, ultimo_del_libro: ult, cubre: true, motivo: null };
+}
+
+/**
  * `mapa`: si se pasa, la sucursal se aprende ahí (para guardar el catálogo al usar el banco).
  * `cortaEn` `[CB.60b]`: la cuenta usa el banco desde ese día; sólo se juzga lo anterior (el paralelo), en los dos
  * lados ANTES de parear. Si el banco trae días después del corte, el último día juzgado no está «abierto».
