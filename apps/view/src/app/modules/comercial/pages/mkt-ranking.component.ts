@@ -27,7 +27,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { PROMOS_TABS } from '../promos-tabs';
 import {
-  CANALES, CANAL_CORTO, Canal, MktRankingService, ParticipanteRanking, RankingSemana, moverSemana, pct, textoSemana,
+  CANALES, CANAL_CORTO, CANAL_LARGO, Canal, MktRankingService, ParticipanteRanking, RankingSemana, moverSemana, pct, textoSemana,
   textoVentaProducto, textoProductos, EstadoVenta, PromoEnRanking, RenglonRanking, estadoDe,
 } from '../mkt-ranking.service';
 import { SUCURSALES_VENTA } from './mkt-ranking-promos.component';
@@ -537,9 +537,17 @@ export class MktRankingComponent {
     this.generando.set(true);
     const win = abrirPestanaParaPdf('Preparando el ranking…');
     try {
-      const otros = CANALES.filter((c) => c !== d.canal);
-      const resto = await firstValueFrom(forkJoin(otros.map((c) => this.api.ranking(d.semana.lunes, c).pipe(catchError(() => of(null))))));
-      const todos = [d, ...resto.filter((x): x is RankingSemana => !!x)]
+      // [MKT.16] El reporte es la semana COMPLETA: los 4 canales se piden SIN los filtros de la
+      // pantalla. Reusar `d` mezclaba un canal filtrado (p. ej. una sola promoción) con tres completos.
+      // Si un canal no llega, NO se arma el reporte: un PDF sin un canal se lee como «ese canal no vendió».
+      const todosLos = await firstValueFrom(forkJoin(CANALES.map((c) => this.api.ranking(d.semana.lunes, c).pipe(catchError(() => of(null))))));
+      const falto = CANALES.filter((_, i) => !todosLos[i]);
+      if (falto.length) {
+        cerrarPestanaDePdf(win);
+        this.toast.add({ severity: 'error', summary: 'Reporte incompleto: no se generó', detail: `No se pudo traer ${falto.map((c) => CANAL_LARGO[c]).join(', ')}. Intenta de nuevo.` });
+        return;
+      }
+      const todos = todosLos.filter((x): x is RankingSemana => !!x)
         .filter((r) => r.promos_vigentes > 0 && r.participantes.length > 0)
         .sort((a, b) => CANALES.indexOf(a.canal) - CANALES.indexOf(b.canal));
       if (!todos.length) {

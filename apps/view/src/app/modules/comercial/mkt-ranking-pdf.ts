@@ -16,6 +16,7 @@ import {
   CANAL_LARGO, IncentivoConResultado, ParticipanteRanking, RankingSemana, Semana, pct, textoSemana,
   textoProductos, textoVentaProducto,
 } from './mkt-ranking.service';
+import { warehouseName } from '@megadulces/contracts';
 
 /** Salto de línea dentro de una celda de autoTable. */
 const SALTO = String.fromCharCode(10);
@@ -42,13 +43,48 @@ export function filasDetalle(p: ParticipanteRanking, conExistencia: boolean): st
         x.mecanica + (x.descripcion_distinta ? ' (el código cambió de promoción en Kepler)' : ''),
         ...(x.productos.length ? x.productos.map(textoVentaProducto) : [textoProductos(x.productos_metodo, [])]),
       ].join(SALTO),
-      x.objetivo === null ? 'Sin objetivo' : n0(x.objetivo),
+      // [MKT.17] El dinámico se dice: no es una meta que alguien fijó.
+      x.objetivo === null ? 'Sin objetivo' : n0(x.objetivo) + (x.objetivo_fuente === 'dinamico' ? SALTO + '(dinámico)' : ''),
       n0(x.venta),
       x.cubrimiento === null ? '-' : pct(x.cubrimiento),
     ];
     if (conExistencia) fila.push(x.existencia === null ? '-' : n0(x.existencia));
     return fila;
   });
+}
+
+/** [MKT.16] Renglones del ranking de promociones de un canal: la misma regla que el de participantes. */
+export function filasPromociones(r: RankingSemana): string[][] {
+  return r.promos_ranking.map((x) => [
+    x.lugar === null ? '-' : String(x.lugar),
+    [`${x.nombre} (${x.code})`, ...(x.productos.length ? [x.productos.join(' · ')] : [])].join(SALTO),
+    x.puntaje === null ? 'Sin objetivos' : pct(x.puntaje),
+    `${x.cumplidas} de ${x.con_objetivo}`,
+    n0(x.venta_total),
+    `${x.sin_venta} de ${x.participantes}`,
+  ]);
+}
+
+/** [MKT.18] Renglones del ranking por vendedora (mostrador). */
+export function filasVendedoras(r: RankingSemana): string[][] {
+  return (r.vendedoras?.personas ?? []).map((x) => [
+    String(x.lugar),
+    x.nombre,
+    x.warehouse_name,
+    n0(x.aplicaciones),
+    String(x.tickets),
+    x.promos.slice(0, 2).map((p) => `${p.mecanica} x ${n0(p.cantidad)}`).join(SALTO) + (x.promos.length > 2 ? `${SALTO}y ${x.promos.length - 2} más` : ''),
+  ]);
+}
+
+/** [MKT.18] Cuánto de la venta está atribuido: el ranking por vendedora sólo cuenta eso. */
+export function coberturaVendedoras(r: RankingSemana): string {
+  const v = r.vendedoras;
+  if (!v || !v.tickets_con_promo) return 'Esta semana no hay tickets de mostrador con promociones del ranking.';
+  const sin = v.por_sucursal.filter((x) => x.tickets_con_vendedora === 0).map((x) => warehouseName(x.warehouse_code));
+  return `${v.tickets_con_vendedora} de ${v.tickets_con_promo} tickets con promoción tienen vendedora `
+    + `(${Math.round((100 * v.tickets_con_vendedora) / v.tickets_con_promo)} %); el ranking cuenta sólo ésos.`
+    + (sin.length ? ` Sin captura: ${sin.join(', ')}.` : '');
 }
 
 /** Renglones del pago de un incentivo, con su total. */
@@ -110,6 +146,40 @@ export async function pdfRanking(d: DatosPdfRanking): Promise<{ blob: Blob; arch
       margin: { left: M, right: M, bottom: 40 },
     });
     y = lastY(doc, y) + 16;
+
+    // [MKT.16] La misma semana vista por promoción.
+    if (r.promos_ranking.length) {
+      y = titulo(doc, y, `${CANAL_LARGO[r.canal]} · por promoción`, 'Cubrimiento promedio de quienes la tienen con objetivo; cuántos llegaron a su objetivo.');
+      autoTable(doc, {
+        ...tablaBase,
+        startY: y,
+        head: [['Lugar', 'Promoción', 'Cubrimiento', 'Cumplieron', 'Venta', 'Sin venta']],
+        body: filasPromociones(r),
+        styles: { ...tablaBase.styles, fontSize: 7.5 },
+        columnStyles: { 0: { cellWidth: 40, halign: 'right' }, 2: { halign: 'right', cellWidth: 64 }, 3: { halign: 'right', cellWidth: 60 }, 4: { halign: 'right', cellWidth: 46 }, 5: { halign: 'right', cellWidth: 52 } },
+        didParseCell: alinearTitulos([0, 2, 3, 4, 5]),
+        margin: { left: M, right: M, bottom: 40 },
+      });
+      y = lastY(doc, y) + 16;
+    }
+
+    // [MKT.18] Quién vendió en el mostrador, con lo que falta por capturar dicho.
+    if (r.canal === 'mostrador' && r.vendedoras) {
+      y = titulo(doc, y, 'Sucursales · por vendedora', coberturaVendedoras(r));
+      if (r.vendedoras.personas.length) {
+        autoTable(doc, {
+          ...tablaBase,
+          startY: y,
+          head: [['Lugar', 'Vendedora', 'Sucursal', 'Aplicadas', 'Tickets', 'Lo que más vendió']],
+          body: filasVendedoras(r),
+          styles: { ...tablaBase.styles, fontSize: 7.5 },
+          columnStyles: { 0: { cellWidth: 40, halign: 'right' }, 3: { halign: 'right', cellWidth: 52 }, 4: { halign: 'right', cellWidth: 44 } },
+          didParseCell: alinearTitulos([0, 3, 4]),
+          margin: { left: M, right: M, bottom: 40 },
+        });
+        y = lastY(doc, y) + 16;
+      }
+    }
   }
 
   for (const r of d.rankings) {
@@ -137,6 +207,9 @@ export async function pdfRanking(d: DatosPdfRanking): Promise<{ blob: Blob; arch
     'Cubrimiento = venta / objetivo semanal, con tope de 100 % por promoción. El lugar es el promedio de las promociones CON objetivo; las que no tienen se cuentan aparte y no como cero.',
     'Venta = veces que se aplicó el código de la promoción en Kepler, de lunes a domingo. Existencia = regalos disponibles según Kepler.',
     'Bajo cada promoción, el producto que la activa y lo vendido de él en la semana (piezas y cajas). Kepler no liga el código con el producto: se deduce de los tickets donde se aplicó y de su nombre; si no se puede, dice «sin identificar».',
+    'Objetivo: el que fijó Mercadotecnia o, marcado «dinámico», el promedio de las 4 semanas anteriores dentro de la vigencia, recalculado cada semana.',
+    'Por vendedora: Kepler no sabe quién vendió en el mostrador; lo escriben las cajeras en su arqueo. Cuenta sólo los tickets que tienen vendedora.',
+    'Es el reporte completo de la semana: no aplica los filtros de la pantalla.',
   ]);
   dibujarPies(doc, `Ranking de promociones, semana ${d.semana.numero}`, d.consultado, 'Mercadotecnia > Ranking');
   return { blob: doc.output('blob'), archivo: `RANKING-PROMOCIONES-S${d.semana.numero}-${fechaHoraArchivo(emitido)}.pdf` };
