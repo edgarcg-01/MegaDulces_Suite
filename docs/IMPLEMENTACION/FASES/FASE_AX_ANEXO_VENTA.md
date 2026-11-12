@@ -194,6 +194,68 @@ Se planteó aquí porque Facturación TM ya liga factura ↔ embarque (`[AX.17]`
 hoja de ruta del chofer y el chofer trabaja al 100 % con Logística (PM, 2026-11-09). Vive en
 `[EMB.56]`, [`FASE_EMB_PAGO_POR_VIAJE.md`](FASE_EMB_PAGO_POR_VIAJE.md) §8.
 
+### AX.22 — La factura contra lo embarcado: el factor de caja que cambió en medio 🔨 (2026-11-12)
+
+Pedido de Edgar: «validar que la factura de TLMK tenga lo mismo que lo embarcado; si no, notificarlo».
+Lo abrió un caso de Canindo (06): factura 06UD0801-0001350 con **16 cajas** de `95644 CHILITO`
+cuando salieron **10**.
+
+**Lo que pasó (medido en prod, sólo lectura):** el pedido 06UD4001-0001608 se capturó como
+10 CJA × **40** = 400 PAQ. El 29-oct la ficha de la 06 cambió a CJA = **25** (la compra de ese día
+ya entró a 25). El embarque 06UD4101-0001823 copió el pedido (10 × 40 = 400 PAQ) y la factura
+arrastra los 400 PAQ y los presenta con la ficha de hoy: 400 ÷ 25 = **16**. Regenerarla repite el
+16 porque el embarque guarda 400. Comparar factura contra embarque **en unidad base** no lo ve
+(400 = 400): el desfase está en el factor, no en la cantidad.
+
+**Lo que se descartó en el camino:** la línea factura↔embarque difiere en 5 de 3,772 casos en
+120 días (4 de 5 son una segunda factura que re-cobra) · el CFDI = las líneas de Kepler en 1,500
+de 1,500 · ningún cambio de precio entre el 9 y el 11-nov. ⛔ El embarque de Kepler **no es
+testigo físico**: los 689 renglones embarcados de los 76 pedidos que la Suite escribió en Kepler
+(nov) son idénticos a su pedido; el surtido no corrige cantidades en Kepler. Y GP (el surtido de la
+Suite) lleva 18 olas en 30 días: hoy no hay registro de lo contado.
+
+- 🧪 **AX.22.1 (C0)** `analytics.v_erp_order_line_box_factor` (mig `20261112093306`): cada renglón
+  de pedido `U-D-40` / embarque `U-D-41` contra la ficha **vigente** de su sucursal
+  (`analytics.kdii_ficha`, la regla de PQ.59/PQ.13). `status`: `al_dia` · `factor_cambio` ·
+  `unidad_base_cambio` · `presentacion_no_en_ficha` · `sin_ficha` · `sin_presentacion`, más
+  `qty_in_current_unit` (lo que presentará la factura: 16) y `base_qty_at_current_factor` (las
+  mismas cajas con la caja de hoy: 250). Probada **ejerciendo `up()`/`down()`** con un doble y
+  corriendo el cuerpo exacto contra prod en `READ ONLY`: positivo (95644 del 1823 → `factor_cambio`,
+  16 y 250) ✔ · negativo (95641 del mismo embarque → `al_dia`) ✔ · calibración (los 4,611 renglones
+  capturados hoy y ayer → 100 % `al_dia`) ✔ · **mutante** (comparación de factor apagada) → el
+  positivo se pone rojo ✔. Por llave: 3 ms; 30 días agregados: 2.6 s. 30 días de embarques:
+  **26 renglones `factor_cambio` en 16 embarques** (01, 06, 08), 274 `unidad_base_cambio`, 98
+  `presentacion_no_en_ficha`. ⚠️ Migración **sin aplicar**. ⚠️ `unidad_base_cambio` no distingue
+  rótulo de cambio real: se publica, no se avisa.
+- 🧪 **AX.22.2 (C1)** `TlmkRevisionService` (`libs/commercial/.../commercial-sales-documents/`): al
+  aviso `caja_fuente` (sin cron; `MiradaAlAviso` se **mudó a `platform-core`** —lo usan dos dominios,
+  ADR-056— y finance lo reexporta) revisa los `U-D-40/41/8` serie 1 creados o modificados desde ayer
+  (14 días al arrancar). Reglas puras en `tlmk-revision.reglas.ts`: `tlmk_embarque_caja_cambio`,
+  `tlmk_pedido_caja_cambio` (pedido aún sin embarcar) y `tlmk_factura_distinta_embarque` (Σ facturas
+  vivas vs embarque, por producto, en unidad base). Van a la bandeja (`FINANCE_FINDINGS_SINK_PORT`) y,
+  si el hallazgo es **nuevo** (`xmax = 0` del sink: con 2 réplicas de API sólo una avisa) y el
+  documento es de ayer u hoy, a la campana de quien levantó la cotización (`COT-` en `kdm1.c24` →
+  `commercial.quotes` → `emitTo`, tipo `tlmk_documento`). **Pruebas:** reglas 11/11 + arranque y
+  aviso 11/11, cada una con negativa (mutantes: suma por factura → rojo; quitar «sólo si es nuevo» →
+  rojo); vecinas de finance 243/243 y Facturación TM + alertas 54/54; `tsc` sin errores en lo tocado
+  (los 142 TS1272 de controladores son previos). **Ejercido contra prod en READ ONLY** con las
+  consultas reales del servicio (knex real; la vista sustituida por su cuerpo exacto; bandeja y
+  campana con dobles): arranque 14 d = 2,808 documentos → **10 hallazgos** (8 embarques y 1 pedido
+  con caja cambiada —Canindo «la factura dirá 16 CJA… en juego $5,395.50»— y 1 factura distinta:
+  `06UD4101-0001368`, la factura 1224 vuelve a cobrar `88001` × 120 que ya cobró la 1012, $1,507.20,
+  verificado renglón por renglón); **3.3 s** al arrancar y **0.46 s** por pasada. ⛔ Los renglones de
+  factura van directo a `kdm2` por llave: la vista `erp_sales_invoice_lines` tardaba 5.3–6.0 s por
+  lote contra 7 ms, con 1,220/1,220 llaves y 0 diferencias. ⚠️ **Arranque de Nest no verificado** en
+  un proceso real (el grafo del módulo sí, por decoradores). ⚠️ Un hallazgo corregido en Kepler no se
+  cierra solo. ⚠️ Pedido capturado directo en Kepler (sin `COT-`): bandeja sí, campana no — hoy ~89 %.
+  Una conexión `LISTEN` más por pod de API (`PgListenService` no es global).
+- ⬜ **AX.22.3 (C3)** En `/telemarketing/documentos`, antes de facturar: «se capturó 10 CJA de 40;
+  hoy la caja es de 25: ¿qué salió?» → contesta quien checó (`resp_checado` del embarque) y la Suite
+  dice qué corregir en Kepler. La respuesta es dato propio (tabla con `tenant_id`).
+- ⬜ **AX.22.4** Prevención: al cambiar la ficha (un renglón nuevo en `kepler_ficha_history` con
+  otro `f2`/`f3`), avisar los pedidos abiertos capturados con el factor viejo. En pedidos nacidos
+  en la Suite el aviso va a quien levantó la cotización.
+
 ### Diferidos
 - ⬜ **AX.5** Agente de impresión por WebSocket (`/print`, room por sucursal) para sucursal desatendida. Hoy **no existe** ESC/POS ni agente local en el repo; el navegador cubre oficina.
 - ⬜ **AX.6** IA: búsqueda en lenguaje natural → **filtros estructurados** (el LLM nunca calcula importes, ADR-016); aviso de riesgo por motor determinista; OCR del pagaré firmado (`extractDepositSlip` ya recibe PDF nativo).

@@ -12,6 +12,7 @@ export * from './lib/database/neo4j.module';
 // global sin un solo consumidor, cuyo único efecto observable era una advertencia falsa
 // sobre el Sell-Out en cada arranque. Ver el comentario en `apps/api/src/app.module.ts`.
 export * from './lib/database/pg-listen.service';
+export * from './lib/database/mirada-al-aviso';
 
 // ── queue (worker-tier, pg-boss) ──
 export * from './lib/queue/queue.module';

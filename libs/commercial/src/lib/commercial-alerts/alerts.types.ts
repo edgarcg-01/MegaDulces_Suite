@@ -25,6 +25,9 @@ export type AlertType =
   // [MCP.8] A la VENDEDORA (emitTo): su pedido lo empezaron a surtir, o se cerró completo o con
   // faltantes. `data.route` lleva a «Mis pedidos».
   | 'presale_pick'
+  // [AX.22] A quien levantó la cotización (emitTo): su pedido/embarque se capturó con una caja que
+  // ya cambió, o su factura no dice lo mismo que lo embarcado. `data.route` lleva a Facturación TM.
+  | 'tlmk_documento'
   | 'test';              // manual trigger para smoke testing
 
 export type AlertSeverity = 'info' | 'warn' | 'critical';

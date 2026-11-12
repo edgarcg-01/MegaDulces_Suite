@@ -24,8 +24,11 @@ import { Knex } from 'knex';
  *
  * ⚠️ `NOTIFY` no se persiste: lo que se emite mientras nadie escucha se pierde. Por eso cada proceso mira
  * una vez al arrancar (sin firma previa → corre), que recoge lo que pasó mientras estuvo abajo.
+ *
+ * `[AX.22]` El canal y `MiradaAlAviso` se mudaron a `@megadulces/platform-core` (los usa también
+ * `libs/commercial`); se reexportan aquí para que los imports de finance no cambien.
  */
-export const CANAL_FUENTE_KEPLER = 'caja_fuente';
+export { CANAL_FUENTE_KEPLER, MiradaAlAviso } from '@megadulces/platform-core';
 
 /** Lo que se espera tras el primer aviso antes de mirar. Configurable con `RECEIPTS_AVISO_S` (1–600). */
 export function esperaAvisoMs(): number {
@@ -44,41 +47,4 @@ export async function firmaEntradas(knex: Knex, dias: number): Promise<string> {
   );
   const x = r.rows[0];
   return x ? `${x.n}|${x.s}|${x.f ?? ''}|${x.canc}` : '';
-}
-
-/**
- * Agenda `trabajo` al aviso: a lo más una mirada por espera, con la firma de antes y la de ahora. La firma
- * nueva se guarda sólo si el trabajo terminó bien: si falla, la siguiente mirada lo reintenta.
- */
-export class MiradaAlAviso {
-  private pendiente: ReturnType<typeof setTimeout> | null = null;
-  private ultimaFirma: string | null = null;
-
-  constructor(
-    private readonly esperaMs: number,
-    private readonly firma: () => Promise<string>,
-    private readonly trabajo: (cambio: boolean) => Promise<void>,
-    private readonly alFallar: (e: unknown) => void,
-  ) {}
-
-  /** Un aviso: agenda una mirada si no hay una ya agendada. */
-  avisar(): void {
-    if (this.pendiente) return;
-    this.pendiente = setTimeout(() => {
-      this.pendiente = null;
-      this.mirar().catch(this.alFallar);
-    }, this.esperaMs);
-  }
-
-  /** Mira ya: calcula la firma y corre el trabajo diciendo si cambió. */
-  async mirar(): Promise<void> {
-    const f = await this.firma();
-    await this.trabajo(f !== this.ultimaFirma);
-    this.ultimaFirma = f;
-  }
-
-  detener(): void {
-    if (this.pendiente) clearTimeout(this.pendiente);
-    this.pendiente = null;
-  }
 }
