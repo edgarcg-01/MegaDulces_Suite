@@ -8,6 +8,9 @@ import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
+import { SelectModule } from 'primeng/select';
+import { MultiSelectModule } from 'primeng/multiselect';
+import { warehouseName } from '@megadulces/contracts';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { coincideBusqueda } from '@megadulces/ui-web';
@@ -25,8 +28,9 @@ import { Permission } from '../../../core/constants/permissions';
 import { PROMOS_TABS } from '../promos-tabs';
 import {
   CANALES, CANAL_CORTO, Canal, MktRankingService, ParticipanteRanking, RankingSemana, moverSemana, pct, textoSemana,
-  textoVentaProducto, textoProductos,
+  textoVentaProducto, textoProductos, EstadoVenta, PromoEnRanking, RenglonRanking, estadoDe,
 } from '../mkt-ranking.service';
+import { SUCURSALES_VENTA } from './mkt-ranking-promos.component';
 import { pdfRanking } from '../mkt-ranking-pdf';
 
 /**
@@ -45,7 +49,7 @@ import { pdfRanking } from '../mkt-ranking-pdf';
 @Component({
   selector: 'app-mkt-ranking',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, TableModule, TagModule, ButtonModule, InputTextModule, ToastModule,
+  imports: [CommonModule, FormsModule, RouterLink, TableModule, TagModule, ButtonModule, InputTextModule, SelectModule, MultiSelectModule, ToastModule,
     PageTabsComponent, LoadStateComponent, FreshnessPillComponent, MetricStripComponent, SegmentedComponent, SidePeekComponent, ContextHelpComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -75,9 +79,28 @@ import { pdfRanking } from '../mkt-ranking-pdf';
             <span class="p-button-icon pi pi-chevron-right" aria-hidden="true"></span></button>
         </div>
         <app-segmented [options]="opcionesCanal()" [value]="canal()" (valueChange)="elegirCanal($event)" ariaLabel="Canal"></app-segmented>
-        <input pInputText type="search" class="rk-buscar" [ngModel]="busqueda()" (ngModelChange)="busqueda.set($event)"
-               [placeholder]="canal() === 'mostrador' ? 'Buscar sucursal' : 'Buscar vendedor o sucursal'" aria-label="Buscar en el ranking" />
+        <app-segmented [options]="opcionesVista()" [value]="vista()" (valueChange)="elegirVista($event)" ariaLabel="Ver el ranking por"></app-segmented>
       </div>
+      <div class="rk-filtros rk-filtros--2">
+        <p-select [options]="datos()?.promos_lista ?? []" optionLabel="mecanica" optionValue="id" [ngModel]="promo()" (ngModelChange)="elegirPromo($event)"
+                  [filter]="true" filterBy="mecanica,code" [showClear]="true" placeholder="Todas las promociones" appendTo="body"
+                  class="rk-promo-sel" ariaLabel="Filtrar por promoción">
+          <ng-template #item let-o><span>{{ o.mecanica }}</span> <span class="rk-tenue rk-inline">{{ o.code }}</span></ng-template>
+        </p-select>
+        <p-multiselect [options]="opcionesSucursal" optionLabel="label" optionValue="value" [ngModel]="sucursales()" (ngModelChange)="elegirSucursales($event)"
+                       placeholder="Todas las sucursales" [showClear]="true" display="comma" [maxSelectedLabels]="2" selectedItemsLabel="{0} sucursales"
+                       appendTo="body" ariaLabel="Filtrar por sucursal"></p-multiselect>
+        <app-segmented [options]="opcionesEstado" [value]="estado()" (valueChange)="elegirEstado($event)" ariaLabel="Filtrar por venta"></app-segmented>
+        <input pInputText type="search" class="rk-buscar" [ngModel]="busqueda()" (ngModelChange)="busqueda.set($event)"
+               [placeholder]="vista() === 'promociones' ? 'Buscar promoción o producto' : canal() === 'mostrador' ? 'Buscar sucursal' : 'Buscar vendedor o sucursal'" aria-label="Buscar en el ranking" />
+        @if (hayFiltros()) {
+          <button pButton type="button" class="p-button-sm p-button-text" (click)="limpiarFiltros()">
+            <span class="p-button-icon p-button-icon-left pi pi-filter-slash" aria-hidden="true"></span><span class="p-button-label">Quitar filtros</span></button>
+        }
+      </div>
+      @if (datos()?.promo_filtrada; as pf) {
+        <p class="rk-nota" role="status"><i class="pi pi-filter" aria-hidden="true"></i> El lugar se calcula sólo con «{{ nombrePromo(pf) }}».</p>
+      }
 
       @if (datos(); as d) {
         <app-metric-strip [items]="kpis()" ariaLabel="Resumen de la semana" (drill)="drill($event)"></app-metric-strip>
@@ -86,6 +109,45 @@ import { pdfRanking } from '../mkt-ranking-pdf';
         }
       }
 
+      @if (vista() === 'promociones') {
+      <app-load-state [loading]="res.isLoading() && !datos()" [error]="error()" [isEmpty]="!!datos() && !filasPromo().length"
+                      emptyIcon="pi-search" [emptyTitle]="datos()?.promos_vigentes ? 'Ninguna promoción coincide con los filtros' : 'Sin promociones dadas de alta para esta semana'"
+                      [emptyHint]="datos()?.promos_vigentes ? 'Cambia o quita los filtros.' : null" (retry)="res.reload()">
+        <p-table [value]="filasPromo()" dataKey="promo_id" selectionMode="single" size="small" [rowHover]="true"
+                 class="surf-table surf-table--plain surf-table--sticky dt-stack" (onRowSelect)="abrirPromo($any($event).data)">
+          <ng-template #header>
+            <tr>
+              <th class="comm-num rk-col-lugar">Lugar</th>
+              <th>Promoción</th>
+              <th class="rk-col-cub">Cubrimiento</th>
+              <th class="comm-num">Cumplieron</th>
+              <th class="comm-num">Venta</th>
+              <th class="comm-num">Sin venta</th>
+            </tr>
+          </ng-template>
+          <ng-template #body let-x>
+            <tr [pSelectableRow]="x" [attr.aria-label]="'Ver quién vendió ' + x.nombre">
+              <td class="comm-num rk-lugar" data-label="Lugar">{{ x.lugar ?? '—' }}</td>
+              <td data-label="Promoción">
+                <span class="rk-nombre">{{ x.nombre }}</span>
+                <span class="rk-tenue">{{ x.code }}@if (x.productos.length) { · {{ x.productos.join(' · ') }} }</span>
+              </td>
+              <td class="rk-col-cub" data-label="Cubrimiento">
+                @if (x.puntaje !== null) {
+                  <div class="rk-barra" aria-hidden="true"><span [style.width.%]="x.puntaje * 100" [class.ok]="x.puntaje >= 0.9" [class.bajo]="x.puntaje < 0.5"></span></div>
+                  <span class="rk-pct">{{ pct(x.puntaje) }}</span>
+                } @else {
+                  <span class="rk-tenue">Sin objetivos: no se puede medir</span>
+                }
+              </td>
+              <td class="comm-num" data-label="Cumplieron">{{ x.cumplidas }} <span class="rk-tenue">de {{ x.con_objetivo }}</span></td>
+              <td class="comm-num" data-label="Venta">{{ x.venta_total | number:'1.0-2' }}</td>
+              <td class="comm-num" data-label="Sin venta">{{ x.sin_venta }} <span class="rk-tenue">de {{ x.participantes }}</span></td>
+            </tr>
+          </ng-template>
+        </p-table>
+      </app-load-state>
+      } @else {
       <app-load-state [loading]="res.isLoading() && !datos()" [error]="error()" [isEmpty]="!!datos() && !filas().length"
                       [emptyIcon]="datos()?.promos_vigentes ? 'pi-search' : 'pi-megaphone'"
                       [emptyTitle]="vacioTitulo()" [emptyHint]="vacioPista()"
@@ -125,10 +187,46 @@ import { pdfRanking } from '../mkt-ranking-pdf';
           </ng-template>
         </p-table>
       </app-load-state>
+      }
 
       @if (datos(); as d) {
         <p class="rk-metodo">{{ d.criterio }}</p>
       }
+
+      <app-side-peek [open]="!!abiertaPromo()" (openChange)="$event ? null : abiertaPromo.set(null)" [width]="760"
+                     [title]="abiertaPromo()?.nombre ?? ''" [subtitle]="subtituloPromo()">
+        @if (abiertaPromo(); as x) {
+          <p class="rk-peek-frase">
+            @if (x.puntaje !== null) {
+              Cubrimiento promedio <strong>{{ pct(x.puntaje) }}</strong>: {{ x.cumplidas }} de {{ x.con_objetivo }} llegaron a su objetivo.
+            } @else { Nadie tiene objetivo en esta promoción. }
+            @if (x.sin_venta) { {{ x.sin_venta }} sin venta. }
+          </p>
+          <p-table [value]="filasDePromo()" size="small" class="surf-table surf-table--plain">
+            <ng-template #header>
+              <tr>
+                <th>{{ canal() === 'mostrador' ? 'Sucursal' : 'Vendedor' }}</th>
+                <th class="comm-num">Objetivo</th>
+                <th class="comm-num">Venta</th>
+                <th class="comm-num">Cubrimiento</th>
+              </tr>
+            </ng-template>
+            <ng-template #body let-f>
+              <tr>
+                <td>
+                  <span class="rk-promo">{{ f.nombre }}</span>
+                  @if (canal() !== 'mostrador') { <span class="rk-tenue">{{ f.warehouse_name }}</span> }
+                  @for (pr of f.renglon.productos; track pr.sku) { <span class="rk-producto">{{ textoVentaProducto(pr) }}</span> }
+                </td>
+                <td class="comm-num">@if (f.renglon.objetivo !== null) { {{ f.renglon.objetivo | number:'1.0-2' }} } @else { <p-tag value="Sin objetivo" severity="warn"></p-tag> }</td>
+                <td class="comm-num">{{ f.renglon.venta | number:'1.0-2' }}</td>
+                <td class="comm-num rk-pct">{{ pct(f.renglon.cubrimiento) }}</td>
+              </tr>
+            </ng-template>
+            <ng-template #emptymessage><tr><td colspan="4" class="rk-tenue">Nadie coincide con los filtros.</td></tr></ng-template>
+          </p-table>
+        }
+      </app-side-peek>
 
       <app-side-peek [open]="!!abierto()" (openChange)="$event ? null : abierto.set(null)" [width]="760"
                      [title]="abierto()?.nombre ?? ''" [subtitle]="subtitulo()">
@@ -141,7 +239,7 @@ import { pdfRanking } from '../mkt-ranking-pdf';
             }
             @if (p.sin_objetivo) { {{ p.sin_objetivo }} sin objetivo no cuentan. }
           </p>
-          <p-table [value]="p.promos" size="small" class="surf-table surf-table--plain">
+          <p-table [value]="promosVisibles(p)" size="small" class="surf-table surf-table--plain">
             <ng-template #header>
               <tr>
                 <th>Promoción</th>
@@ -193,6 +291,9 @@ import { pdfRanking } from '../mkt-ranking-pdf';
     .rk-filtros { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-3); margin: var(--sp-4) 0 var(--sp-3); }
     .rk-semana { display: inline-flex; align-items: center; gap: var(--sp-1); }
     .rk-semana-txt { font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; min-width: 15rem; text-align: center; }
+    .rk-filtros--2 { margin-top: 0; }
+    .rk-promo-sel { min-width: 18rem; max-width: 26rem; }
+    .rk-inline { display: inline; }
     .rk-buscar { min-width: 14rem; margin-left: auto; }
     .rk-nota { display: flex; gap: var(--sp-2); align-items: center; color: var(--text-muted); font-size: var(--fs-sm); margin: var(--sp-2) 0; }
     .rk-col-lugar { width: 4.5rem; }
@@ -234,17 +335,88 @@ export class MktRankingComponent {
   readonly abierto = signal<ParticipanteRanking | null>(null);
   readonly generando = signal(false);
 
+  // ── `[MKT.16]` filtros ──
+  readonly vista = signal<'participantes' | 'promociones'>('participantes');
+  /** Promo del filtro: el SERVIDOR recalcula el lugar sólo con ella (una sola implementación de la regla). */
+  readonly promo = signal<string | null>(null);
+  /** Sucursales: filtran filas aquí; el ranking de promociones lo recalcula el servidor con ellas. */
+  readonly sucursales = signal<string[]>([]);
+  readonly estado = signal<EstadoVenta>('todas');
+  readonly abiertaPromo = signal<PromoEnRanking | null>(null);
+
+  readonly opcionesSucursal = SUCURSALES_VENTA.map((c) => ({ value: c, label: warehouseName(c) }));
+  readonly opcionesEstado: SegOption[] = [
+    { label: 'Todas', value: 'todas' }, { label: 'Cumplidas', value: 'cumplida' },
+    { label: 'No cumplidas', value: 'no_cumplida' }, { label: 'Sin venta', value: 'sin_venta' },
+  ];
+  readonly opcionesVista = computed<SegOption[]>(() => [
+    { label: this.canal() === 'mostrador' ? 'Por sucursal' : 'Por vendedor', value: 'participantes' },
+    { label: 'Por promoción', value: 'promociones' },
+  ]);
+
   readonly res = rxResource({
-    params: () => ({ semana: this.semana(), canal: this.canal() }),
-    stream: ({ params }) => this.api.ranking(params.semana, params.canal),
+    params: () => ({ semana: this.semana(), canal: this.canal(), promo: this.promo(), sucursales: this.sucursales() }),
+    stream: ({ params }) => this.api.ranking(params.semana, params.canal, params.promo, params.sucursales),
   });
   readonly datos = computed<RankingSemana | undefined>(() => (this.res.hasValue() ? this.res.value() : undefined));
   readonly error = computed(() => (this.res.error() ? 'No se pudo cargar el ranking. Revisa tu conexión y vuelve a intentar.' : null));
 
+  private readonly enSucursal = (w: string) => !this.sucursales().length || this.sucursales().includes(w);
+  private readonly conEstado = (x: RenglonRanking) => this.estado() === 'todas' || estadoDe(x) === this.estado();
+
   readonly filas = computed(() => {
     const q = this.busqueda();
-    return (this.datos()?.participantes ?? []).filter((p) => coincideBusqueda(q, p.nombre, p.warehouse_name));
+    return (this.datos()?.participantes ?? []).filter((p) =>
+      coincideBusqueda(q, p.nombre, p.warehouse_name) && this.enSucursal(p.warehouse_code)
+      && (this.estado() === 'todas' || p.promos.some(this.conEstado)));
   });
+
+  /** Ranking de promociones: con el estado elegido, sólo las que tienen algún participante en él. */
+  readonly filasPromo = computed(() => {
+    const d = this.datos();
+    if (!d) return [];
+    const q = this.busqueda();
+    return d.promos_ranking.filter((x) =>
+      coincideBusqueda(q, x.nombre, x.code, ...x.productos)
+      && (this.estado() === 'todas' || this.renglonesDe(x.promo_id).some((f) => this.conEstado(f.renglon))));
+  });
+
+  /** Los participantes de la promo abierta, con su renglón, según los filtros. */
+  readonly filasDePromo = computed(() => {
+    const x = this.abiertaPromo();
+    return x ? this.renglonesDe(x.promo_id).filter((f) => this.conEstado(f.renglon)) : [];
+  });
+
+  private renglonesDe(promoId: string): Array<{ nombre: string; warehouse_name: string; renglon: RenglonRanking }> {
+    return (this.datos()?.participantes ?? [])
+      .filter((p) => this.enSucursal(p.warehouse_code))
+      .flatMap((p) => p.promos.filter((r) => r.promo_id === promoId).map((renglon) => ({ nombre: p.nombre, warehouse_name: p.warehouse_name, renglon })))
+      .sort((a, b) => (b.renglon.cubrimiento ?? -1) - (a.renglon.cubrimiento ?? -1) || b.renglon.venta - a.renglon.venta);
+  }
+
+  promosVisibles(p: ParticipanteRanking): RenglonRanking[] { return p.promos.filter(this.conEstado); }
+
+  readonly hayFiltros = computed(() => !!this.promo() || this.sucursales().length > 0 || this.estado() !== 'todas' || !!this.busqueda());
+
+  readonly subtituloPromo = computed(() => {
+    const x = this.abiertaPromo();
+    const d = this.datos();
+    if (!x || !d) return null;
+    const lugar = x.lugar === null ? 'Sin lugar' : `Lugar ${x.lugar} de ${d.promos_ranking.filter((y) => y.lugar !== null).length}`;
+    return `${x.code} · ${lugar} · ${textoSemana(d.semana)}`;
+  });
+
+  nombrePromo(id: string): string { return this.datos()?.promos_lista.find((p) => p.id === id)?.mecanica ?? 'la promoción elegida'; }
+  elegirVista(v: string): void { this.cerrarDetalles(); this.vista.set(v === 'promociones' ? 'promociones' : 'participantes'); }
+  elegirPromo(id: string | null): void { this.cerrarDetalles(); this.promo.set(id || null); }
+  elegirSucursales(v: string[] | null): void { this.cerrarDetalles(); this.sucursales.set(v ?? []); }
+  elegirEstado(v: string): void { this.estado.set(v as EstadoVenta); }
+  abrirPromo(x: PromoEnRanking): void { this.abiertaPromo.set(x); }
+  limpiarFiltros(): void {
+    this.cerrarDetalles();
+    this.promo.set(null); this.sucursales.set([]); this.estado.set('todas'); this.busqueda.set('');
+  }
+  private cerrarDetalles(): void { this.abierto.set(null); this.abiertaPromo.set(null); }
 
   readonly opcionesCanal = computed<SegOption[]>(() => CANALES.map((c) => ({ label: CANAL_CORTO[c], value: c })));
 
@@ -282,12 +454,13 @@ export class MktRankingComponent {
   cambiarSemana(delta: number): void {
     const d = this.datos();
     if (!d) return;
-    this.abierto.set(null);
+    this.cerrarDetalles();
     this.semana.set(moverSemana(d.semana.lunes, delta));
   }
 
   elegirCanal(v: string): void {
-    this.abierto.set(null);
+    this.cerrarDetalles();
+    this.promo.set(null); // las promos de otro canal son otras
     this.canal.set(v as Canal);
   }
 

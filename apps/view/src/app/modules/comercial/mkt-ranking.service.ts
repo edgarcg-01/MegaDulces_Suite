@@ -71,13 +71,34 @@ export interface ParticipanteRanking {
   promos: RenglonRanking[];
 }
 
+export interface PromoEnRanking {
+  promo_id: string; code: string; nombre: string;
+  productos: string[]; productos_metodo: MetodoProducto;
+  participantes: number; venta_total: number; objetivo_total: number;
+  lugar: number | null; puntaje: number | null;
+  con_objetivo: number; sin_objetivo: number; cumplidas: number; sin_venta: number;
+}
+
+/** [MKT.16] Estado de un renglón promo × participante, para el filtro «venta». */
+export type EstadoVenta = 'todas' | 'cumplida' | 'no_cumplida' | 'sin_venta';
+export function estadoDe(x: { venta: number; cubrimiento: number | null }): Exclude<EstadoVenta, 'todas'> | 'sin_objetivo' {
+  if (!(x.venta > 0)) return 'sin_venta';
+  if (x.cubrimiento === null) return 'sin_objetivo';
+  return x.cubrimiento >= 1 ? 'cumplida' : 'no_cumplida';
+}
+
 export interface RankingSemana {
   semana: Semana;
   canal: Canal;
   canal_texto: string;
   promos_vigentes: number;
+  /** [MKT.16] Todas las promos vigentes del canal, para el filtro. */
+  promos_lista: Array<{ id: string; code: string; mecanica: string }>;
+  promo_filtrada: string | null;
   promedio_general: number | null;
   participantes: ParticipanteRanking[];
+  /** [MKT.16] El ranking de promociones (misma regla que el de participantes). */
+  promos_ranking: PromoEnRanking[];
   criterio: string;
   consultado_at: string;
 }
@@ -207,9 +228,11 @@ export class MktRankingService {
   private readonly http = inject(HttpClient);
   private readonly base = `${environment.apiUrl}/commercial/mkt-ranking`;
 
-  ranking(semana: string | null, canal: Canal): Observable<RankingSemana> {
+  ranking(semana: string | null, canal: Canal, promo: string | null = null, sucursales: string[] = []): Observable<RankingSemana> {
     let p = new HttpParams().set('canal', canal);
     if (semana) p = p.set('semana', semana);
+    if (promo) p = p.set('promo', promo);
+    if (sucursales.length) p = p.set('sucursales', sucursales.join(','));
     return this.http.get<RankingSemana>(this.base, { params: p });
   }
 

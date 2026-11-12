@@ -94,6 +94,25 @@ async function http(method, path, token, body) {
     check(Number(lp.q) === le.unidades && Math.abs(le.cajas - Number(lp.q) / 12) < 0.01,
       '⭐ piezas de leche en Padre Hidalgo = SQL directo, cajas = piezas ÷ 12', { api: le, sql: Number(lp.q) });
 
+    console.log('\n[2c] [MKT.16] Ranking por promoción y filtros');
+    const prDm1 = rk.promos_ranking.find((x) => x.code === 'DM001');
+    const filasDm1 = rk.participantes.flatMap((pa) => pa.promos.filter((x) => x.code === 'DM001'));
+    const conObj1 = filasDm1.filter((x) => x.cubrimiento !== null);
+    check(prDm1 && Math.abs(prDm1.puntaje - conObj1.reduce((a, x) => a + x.cubrimiento, 0) / conObj1.length) < 1e-9,
+      '⭐ cubrimiento de la promo = promedio con tope de sus participantes CON objetivo', prDm1?.puntaje);
+    check(prDm1.venta_total === filasDm1.reduce((a, x) => a + x.venta, 0) && prDm1.participantes === 8, 'venta de la promo = suma de sus 8 sucursales');
+    const sinObjPromo = rk.promos_ranking.filter((x) => x.puntaje === null);
+    check(sinObjPromo.length === 2 && sinObjPromo.every((x) => x.lugar === null), '⭐ las 2 promos sin objetivo no tienen lugar (no se rankean como 0)', sinObjPromo.map((x) => x.code));
+    const r1 = await http('GET', `/commercial/mkt-ranking?canal=mostrador&promo=${prDm1.promo_id}`, token);
+    const ph1 = r1.json.participantes.find((p) => p.warehouse_code === '01');
+    check(r1.status === 200 && r1.json.promo_filtrada === prDm1.promo_id && r1.json.promos_vigentes === 1
+      && ph1.promos.length === 1 && Math.abs(ph1.puntaje - ph1.promos[0].cubrimiento) < 1e-9 && r1.json.promos_lista.length === rk.promos_vigentes,
+      '⭐ filtro de promoción: el lugar se recalcula sólo con ella; la lista del filtro sigue completa');
+    const r2s = await http('GET', `/commercial/mkt-ranking?canal=mostrador&sucursales=01,03`, token);
+    check(r2s.json.promos_ranking.find((x) => x.code === 'DM001').participantes === 2 && r2s.json.participantes.length === 8,
+      'filtro de sucursal: el ranking de promos se calcula con esas 2; el de sucursales no cambia');
+    check((await http('GET', '/commercial/mkt-ranking?canal=mostrador&promo=no-es-uuid', token)).status === 400, '[negativa] promoción inválida: 400 (no un ranking vacío)');
+
     console.log('\n[3] Otros canales');
     for (const c of ['preventa', 'ruta', 'mayoreo']) {
       const x = await http('GET', `/commercial/mkt-ranking?canal=${c}`, token);

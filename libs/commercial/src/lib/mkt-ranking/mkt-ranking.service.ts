@@ -115,10 +115,35 @@ export interface RankingSemana {
   canal: Canal;
   canal_texto: string;
   promos_vigentes: number;
+  /** `[MKT.16]` Todas las promos vigentes del canal, para el filtro (aunque se pida una sola). */
+  promos_lista: Array<{ id: string; code: string; mecanica: string }>;
+  /** La promo pedida en el filtro; NULL = todas (o el id no es una promo vigente de este canal). */
+  promo_filtrada: string | null;
   promedio_general: number | null;
   participantes: ParticipanteRanking[];
+  /** `[MKT.16]` El ranking de promociones: cada promo, con los participantes que la tienen. */
+  promos_ranking: PromoEnRanking[];
   criterio: string;
   consultado_at: string;
+}
+
+export interface PromoEnRanking {
+  promo_id: string;
+  code: string;
+  nombre: string;
+  productos: string[];
+  productos_metodo: MetodoProducto;
+  participantes: number;
+  venta_total: number;
+  objetivo_total: number;
+  lugar: number | null;
+  /** Promedio del cubrimiento con tope entre los participantes CON objetivo. */
+  puntaje: number | null;
+  con_objetivo: number;
+  sin_objetivo: number;
+  /** Participantes que llegaron a su objetivo. */
+  cumplidas: number;
+  sin_venta: number;
 }
 
 export interface CodigoKepler {
@@ -623,15 +648,25 @@ export class MktRankingService {
     return new Map(rows.map((r: { kepler_code: string; name: string }) => [String(r.kepler_code).trim(), r.name]));
   }
 
-  async ranking(semanaPedida: string | undefined, canalPedido: string | undefined): Promise<RankingSemana> {
+  /**
+   * `promoId` (`[MKT.16]`): el ranking de UNA promoción — el lugar se recalcula sólo con ella, con
+   * la misma regla. La lista de promos del filtro (`promos_lista`) sale siempre completa.
+   * `sucursales`: el ranking de PROMOCIONES se calcula sólo con los participantes de esas sucursales;
+   * el de participantes no cambia (su lugar es el de toda la semana; la pantalla sólo filtra filas).
+   */
+  async ranking(semanaPedida: string | undefined, canalPedido: string | undefined, promoId?: string, sucursales?: string[]): Promise<RankingSemana> {
     const canal: Canal = esCanal(canalPedido) ? canalPedido : 'mostrador';
     const semana = this.semana(semanaPedida);
     return this.tk.run(async (trx) => {
       const nombres = await this.nombresSucursal(trx);
-      const promos = (await this.promosVigentes(trx, semana)).filter((p) => p.canales.includes(canal));
+      const todas = (await this.promosVigentes(trx, semana)).filter((p) => p.canales.includes(canal));
+      const promos = promoId ? todas.filter((p) => p.id === promoId) : todas;
       const base: RankingSemana = {
         semana, canal, canal_texto: CANAL_TEXTO[canal], promos_vigentes: promos.length,
-        promedio_general: null, participantes: [],
+        promos_lista: todas.map((p) => ({ id: p.id, code: p.code, mecanica: p.mecanica }))
+          .sort((a, b) => a.mecanica.localeCompare(b.mecanica, 'es')),
+        promo_filtrada: promoId ? (promos[0]?.id ?? null) : null,
+        promedio_general: null, participantes: [], promos_ranking: [],
         criterio: 'Cubrimiento = venta ÷ objetivo semanal, con tope de 100 % por promoción. El lugar es el promedio de '
           + 'las promociones CON objetivo; las que no tienen se cuentan aparte. Venta = veces que se aplicó el código de '
           + 'promoción en Kepler, de lunes a domingo.',
@@ -749,7 +784,25 @@ export class MktRankingService {
         };
       });
       const ordenados = ordenarRanking(participantes);
-      return { ...base, participantes: ordenados, promedio_general: promedioGeneral(ordenados) };
+
+      // `[MKT.16]` Ranking de PROMOCIONES: cada promo con los renglones de todos sus participantes,
+      // con la MISMA regla (tope de 100 %, sólo los que tienen objetivo, sin lugar si nadie tiene).
+      const promosRanking = ordenarRanking(promos.map((p) => {
+        const filas = ordenados.filter((pa) => !sucursales?.length || sucursales.includes(pa.warehouse_code))
+          .flatMap((pa) => pa.promos.filter((x) => x.promo_id === p.id));
+        const pt = puntaje(filas.map((x) => ({ promo_id: p.id, objetivo: x.objetivo, venta: x.venta })));
+        const ident = identificados.get(p.code);
+        return {
+          promo_id: p.id, code: p.code, nombre: p.mecanica,
+          productos: (ident?.productos ?? []).map((x) => x.nombre ?? x.sku),
+          productos_metodo: ident?.metodo ?? ('sin_identificar' as MetodoProducto),
+          participantes: filas.length,
+          venta_total: filas.reduce((a, x) => a + x.venta, 0),
+          objetivo_total: filas.reduce((a, x) => a + (x.objetivo ?? 0), 0),
+          ...pt,
+        };
+      }));
+      return { ...base, participantes: ordenados, promedio_general: promedioGeneral(ordenados), promos_ranking: promosRanking };
     });
   }
 

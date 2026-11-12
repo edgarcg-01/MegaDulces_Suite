@@ -23,8 +23,12 @@ const ranking = (over: Partial<RankingSemana> = {}): RankingSemana => ({
   canal: 'mostrador', canal_texto: 'Sucursales (mostrador)', promos_vigentes: 3, promedio_general: 0.6,
   participantes: [
     p({}),
-    p({ clave: '04|', warehouse_code: '04', warehouse_name: 'Yurécuaro', nombre: 'Yurécuaro', lugar: null, puntaje: null, con_objetivo: 0, sin_objetivo: 3, cumplidas: 0 }),
+    p({ clave: '04|', warehouse_code: '04', warehouse_name: 'Yurécuaro', nombre: 'Yurécuaro', lugar: null, puntaje: null, con_objetivo: 0, sin_objetivo: 3, cumplidas: 0,
+      promos: [{ ...p({}).promos[0], objetivo: null, objetivo_fuente: null, cubrimiento: null }] }),
   ],
+  promos_lista: [{ id: 'a', code: 'DM001', mecanica: '3 leches = gratis 1' }], promo_filtrada: null,
+  promos_ranking: [{ promo_id: 'a', code: 'DM001', nombre: '3 leches = gratis 1', productos: ['LECHE ENTERA LT /12'], productos_metodo: 'ticket_y_nombre',
+    participantes: 2, venta_total: 18, objetivo_total: 10, lugar: 1, puntaje: 0.9, con_objetivo: 1, sin_objetivo: 1, cumplidas: 0, sin_venta: 0 }],
   criterio: 'Cubrimiento con tope', consultado_at: '2026-11-11T18:00:00Z',
   ...over,
 });
@@ -97,5 +101,49 @@ describe('[MKT.11] MktRankingComponent', () => {
     TestBed.tick();
     http.expectOne((req) => req.url === BASE && req.params.get('canal') === 'ruta').flush(ranking({ canal: 'ruta', participantes: [] }));
     expect(comp.abierto()).toBeNull();
+  });
+
+  it('[MKT.16] estado «cumplidas»: Padre Hidalgo (90 %) sale; «no cumplidas» lo deja con su renglón', async () => {
+    const { comp } = await montar(ranking());
+    comp.elegirEstado('cumplida');
+    expect(comp.filas().map((x) => x.nombre)).toEqual([]);
+    comp.elegirEstado('no_cumplida');
+    expect(comp.filas().map((x) => x.nombre)).toEqual(['Padre Hidalgo']);
+    expect(comp.promosVisibles(comp.filas()[0]).map((x) => x.code)).toEqual(['DM001']);
+  });
+
+  it('[MKT.16] sucursal: filtra filas aquí y la pide al servidor (el ranking de promos se recalcula allá)', async () => {
+    const { comp, http, fixture } = await montar(ranking());
+    comp.elegirSucursales(['04']);
+    fixture.detectChanges();
+    const req = http.expectOne((q) => q.url === BASE && q.params.get('sucursales') === '04');
+    req.flush(ranking());
+    await fixture.whenStable();
+    expect(comp.filas().map((x) => x.nombre)).toEqual(['Yurécuaro']);
+  });
+
+  it('[MKT.16] promoción: el servidor recalcula el lugar sólo con ella; quitar filtros la suelta', async () => {
+    const { comp, http, fixture } = await montar(ranking());
+    comp.elegirPromo('a');
+    fixture.detectChanges();
+    http.expectOne((q) => q.url === BASE && q.params.get('promo') === 'a').flush(ranking({ promo_filtrada: 'a' }));
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('El lugar se calcula sólo con «3 leches = gratis 1»');
+    comp.limpiarFiltros();
+    fixture.detectChanges();
+    http.expectOne((q) => q.url === BASE && !q.params.has('promo')).flush(ranking());
+    await fixture.whenStable();
+    expect(comp.hayFiltros()).toBe(false);
+  });
+
+  it('[MKT.16] por promoción: la fila abre quién la vendió, mejor cubrimiento primero', async () => {
+    const { comp } = await montar(ranking());
+    comp.elegirVista('promociones');
+    expect(comp.filasPromo().map((x) => x.code)).toEqual(['DM001']);
+    comp.abrirPromo(comp.filasPromo()[0]);
+    expect(comp.filasDePromo().map((f) => f.nombre)).toEqual(['Padre Hidalgo', 'Yurécuaro']);
+    comp.elegirEstado('sin_venta');
+    expect(comp.filasPromo()).toEqual([]);
   });
 });

@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { MktRankingService } from './mkt-ranking.service';
@@ -30,8 +30,13 @@ export class MktRankingController {
   @Get()
   @RequirePermissions(Permission.MKT_AGREEMENTS_VER)
   @ApiOperation({ summary: 'Ranking de la semana por canal (mostrador · preventa · ruta · mayoreo), en vivo desde Kepler' })
-  ranking(@Query('semana') semana?: string, @Query('canal') canal?: string): ReturnType<MktRankingService['ranking']> {
-    return this.service.ranking(semana, canal);
+  ranking(@Query('semana') semana?: string, @Query('canal') canal?: string, @Query('promo') promo?: string, @Query('sucursales') sucursales?: string): ReturnType<MktRankingService['ranking']> {
+    // Un id que no es UUID no filtra nada: se rechaza en vez de devolver un ranking vacío que parezca real.
+    if (promo && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(promo)) {
+      throw new BadRequestException('La promoción del filtro no es válida');
+    }
+    const whs = String(sucursales ?? '').split(',').map((x) => x.trim()).filter((x) => /^\d{2}$/.test(x));
+    return this.service.ranking(semana, canal, promo || undefined, whs.length ? whs : undefined);
   }
 
   // ─────────── promociones ───────────
