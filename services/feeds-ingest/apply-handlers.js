@@ -497,9 +497,15 @@ async function applyRawUpsert(client, tenantId, rows, meta) {
             const r = await reintentarPorPartes(client, tenantId, norm, keys);
             const tag = `  [normalize:${table}:${norm.name}] ⚠ ${String(e.message).slice(0, 140)}`;
             if (!r.fallidas.length) console.error(`${tag} — se recuperó al reintentar: ${r.filas} filas (${keys.length} llaves)`);
-            else console.error(`${tag} — reintentado por partes: ${r.filas} filas; ${r.fallidas.length} de ${keys.length} llaves siguen fallando`
-              + ` (${r.fallidas.slice(0, 5).join(', ')}${r.fallidas.length > 5 ? ', …' : ''}): ${String(r.error && r.error.message).slice(0, 120)}`
-              + ' — quedan como estaban hasta su próximo cambio; las mide el script manual en seco');
+            else {
+              // `[CANON.6.11]` La falla definitiva queda como DATO en el momento (el log del pod se pierde en
+              // cada reinicio); el sensor `hop2_fallas` de db-health la lleva a la bandeja.
+              const reg = await registrarFalla(client, tenantId, table, norm.name, r.fallidas, keys.length, r.error);
+              console.error(`${tag} — reintentado por partes: ${r.filas} filas; ${r.fallidas.length} de ${keys.length} llaves siguen fallando`
+                + ` (${r.fallidas.slice(0, 5).join(', ')}${r.fallidas.length > 5 ? ', …' : ''}): ${String(r.error && r.error.message).slice(0, 120)}`
+                + ` — quedan como estaban hasta su próximo cambio; ${reg ? 'registrada en analytics.hop2_fallas'
+                  : 'NO se pudo registrar (¿falta la migración 20261112102727?)'}`);
+            }
           }
         }
       }
@@ -961,6 +967,27 @@ async function reintentarPorPartes(client, tenantId, norm, keys) {
   return keys.length === 1 ? intentar(keys) : partir(keys);
 }
 
+/**
+ * `[CANON.6.11]` Escribe la falla DEFINITIVA de un normalizador en `analytics.hop2_fallas` (migración
+ * 20261112102727): la alarma por evento. NUNCA lanza — si la tabla aún no existe o la escritura falla,
+ * devuelve `false` y el carril sigue (quien llama lo dice en el log). Exportada sólo para su prueba.
+ */
+async function registrarFalla(client, tenantId, tabla, normalizador, llaves, lote, error) {
+  try {
+    await client.query('BEGIN');
+    await client.query(`SELECT set_config('app.tenant_id', $1, true)`, [tenantId]);
+    await client.query(
+      `INSERT INTO analytics.hop2_fallas (tenant_id, tabla, normalizador, llaves, llaves_lote, error, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, 'hop2')`,
+      [tenantId, tabla, normalizador, llaves.slice(0, 500), lote, String((error && error.message) || error || '').slice(0, 500)]);
+    await client.query('COMMIT');
+    return true;
+  } catch {
+    await client.query('ROLLBACK').catch(() => {});
+    return false;
+  }
+}
+
 // Una tabla → { skuCol?, fns:[...] }. skuCol = de qué columna sacar los SKUs que llegaron (default pk[0];
 // kdik lo tiene en c2, no en su pk[0]=c1). Cada fn se corre en orden, en su PROPIA tx.
 // Todo lo derivado de current-state del ODS va acá (al-momento) → feedback_ods_derived_realtime_no_batch_lag.
@@ -1036,7 +1063,7 @@ HANDLERS['raw-normalize'] = applyRawNormalize;
 
 module.exports = {
   HANDLERS, applyStockDelta, applyWincajaStock, applyWincajaSalesBronze, applyRawUpsert,
-  applyRawDelete, applyCdcHeartbeat, normalizeProductsFromOds, UUID_RE, conActor, reintentarPorPartes,
+  applyRawDelete, applyCdcHeartbeat, normalizeProductsFromOds, UUID_RE, conActor, reintentarPorPartes, registrarFalla,
   normalizacionCoalescible, encolarNormalizacion,
   // [DB-MEM.20] Expuesto SOLO para `database/tests/test-newdb-price-coalesce.js`. Nada de
   // producción lo importa: el coalescedor se usa desde `applyRawUpsert`, que está arriba. Se

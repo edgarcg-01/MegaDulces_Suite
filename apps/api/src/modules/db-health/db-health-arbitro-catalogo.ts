@@ -29,26 +29,55 @@
  * Un evento a medio camino (fila ya en el ODS, normalizador aún corriendo, ~1–2 s) puede dar un warn de
  * un ciclo: se resuelve solo en el siguiente escaneo.
  *
+ * ⛔ FECHA DE RETIRO (Edgar, 2026-11-12: el reloj sólo como árbitro, y con fecha de retiro). Cada sensor
+ * PIDE SU PROPIO RETIRO —se pone en warn con «CUMPLIÓ … retirar este sensor»— cuando su script nocturno
+ * lleva 30 días sin correr (`analytics.cron_run_log`) y en esos 30 días no tuvo ni una alerta
+ * (`analytics.db_health_alerts`). Con la ingesta desplegada esta semana, cae a mediados de diciembre. Si el
+ * nocturno sigue corriendo, o hubo una alerta, NO se retira y la nota lo dice. Retirarlo = borrar su
+ * entrada en `db-health.service.ts` y su SQL de aquí.
+ *
+ * La falla por EVENTO (la que el hop-2 escribe en `analytics.hop2_fallas` en el momento) tiene su propio
+ * sensor, `hop2_fallas`: ése no compara nada, sólo lee lo que el hop-2 registró. Ése no se retira con
+ * éstos: es la alarma del hop-2 mismo.
+ *
  * Sin acentos graves en los SQL de abajo: viven en template literals. Costo medido en prod el 12-nov:
- * markup ~70 ms, promo ~170 ms, nombres ~370 ms.
+ * markup ~85 ms, promo ~150 ms, nombres ~300–380 ms.
  */
 
 const T = `'00000000-0000-0000-0000-00000000d01c'`;
 const TOPE_WARN = 50;
 
-/** Las dos columnas que espera `db-health` a partir de un CTE `c(vistos, difieren)`. */
-function veredicto(que: string, comoCerrar: string): string {
-  return `
+/**
+ * Las dos columnas que espera `db-health`, a partir de un CTE `c(vistos, difieren)` que el sensor deja
+ * abierto. Agrega `ret` (¿ya cumplió su condición de retiro?). `paso` = el script nocturno que este sensor
+ * reemplaza; `llaves` = sus `cron_run_log.job_key` EXACTAS (con `LIKE '%…'` recorría las 2.18 M filas de la
+ * bitácora: +500 ms por sensor; con la llave exacta va por `ix_crl_job`).
+ */
+function veredicto(clave: string, que: string, comoCerrar: string, paso: string, llaves: string[]): string {
+  const corridas = `analytics.cron_run_log WHERE tenant_id = ${T}
+                       AND job_key = ANY(ARRAY[${llaves.map((k) => `'${k}'`).join(', ')}])`;
+  return `,
+  ret AS MATERIALIZED (
+    SELECT NOT EXISTS (SELECT 1 FROM ${corridas} AND finished_at > now() - interval '30 days')
+           AND NOT EXISTS (SELECT 1 FROM analytics.db_health_alerts
+                            WHERE source_key = '${clave}' AND last_seen_at > now() - interval '30 days') AS retirable,
+           (SELECT max(finished_at) FROM ${corridas}) AS ultimo_nocturno)
     SELECT CASE WHEN c.vistos = 0 THEN now() - interval '100 days'
+                WHEN c.difieren = 0 AND ret.retirable THEN now() - interval '30 hours'
                 WHEN c.difieren = 0 THEN now()
                 WHEN c.difieren <= ${TOPE_WARN} THEN now() - interval '30 hours'
                 ELSE now() - interval '100 days' END AS last_update,
            CASE WHEN c.vistos = 0 THEN 'NO MEDIDO: el sensor no ve catalog.products (sin tenant o sin permiso)'
-                WHEN c.difieren = 0 THEN '${que} al día con Kepler: 0 difieren de ' || c.vistos || ' productos'
+                WHEN c.difieren = 0 AND ret.retirable
+                  THEN 'CUMPLIÓ: 0 difieren, 30 días sin ${paso} y sin una alerta — retirar este sensor ([CANON.6.11])'
+                WHEN c.difieren = 0
+                  THEN '${que} al día con Kepler: 0 difieren de ' || c.vistos || ' productos · se retira con 30 días sin ${paso}'
+                       || coalesce(' (corrió por última vez el ' || to_char(ret.ultimo_nocturno AT TIME ZONE 'America/Mexico_City', 'DD/MM') || ')', '')
+                       || ' y sin alertas'
                 ELSE c.difieren || ' con ${que} distinto al de Kepler: el hop-2 no tomó su cambio' ||
                      CASE WHEN c.difieren > ${TOPE_WARN} THEN ' (son demasiados: ¿corre el hop-2 de esa tabla?)' ELSE '' END ||
                      '. ${comoCerrar}' END AS note_extra
-      FROM c`;
+      FROM c, ret`;
 }
 
 const VISTOS = `(SELECT count(*) FROM catalog.products WHERE tenant_id = ${T} AND deleted_at IS NULL)`;
@@ -64,7 +93,8 @@ export const ARBITRO_MARKUP_SQL = `
     SELECT ${VISTOS} AS vistos,
            count(*) FILTER (WHERE p.markup_pct IS DISTINCT FROM f.markup) AS difieren
       FROM f JOIN catalog.products p ON p.sku = f.sku AND p.tenant_id = ${T} AND p.deleted_at IS NULL)
-  ${veredicto('markup', 'Medir: node database/importers/kepler/import-margin.js; cerrar: --apply')}`;
+  ${veredicto('catalogo_markup_evento', 'markup', 'Medir: node database/importers/kepler/import-margin.js; cerrar: --apply', 'import-margin.js',
+    ['feed_nightly/import-margin.js'])}`;
 
 /** Promo: misma regla que `normalizePromo` (todas las filas, borradas incluidas). */
 export const ARBITRO_PROMO_SQL = `
@@ -82,7 +112,9 @@ export const ARBITRO_PROMO_SQL = `
       FROM catalog.products p LEFT JOIN k ON k.sku = p.sku
      WHERE p.tenant_id = ${T}),
   c AS MATERIALIZED (SELECT ${VISTOS} AS vistos, count(*) FILTER (WHERE promo IS DISTINCT FROM antes) AS difieren FROM r)
-  ${veredicto('la marca de promo', 'Medir: node database/importers/kepler/repoint-catalog-prices.js; cerrar: --apply')}`;
+  ${veredicto('catalogo_promo_evento', 'la marca de promo', 'Medir: node database/importers/kepler/repoint-catalog-prices.js; cerrar: --apply', 'repoint-catalog-prices.js',
+    ['feed_prices/repoint-catalog-prices.js --solo-promo', 'feed_nightly/repoint-catalog-prices.js --solo-promo',
+     'feed_prices/repoint-catalog-prices.js --sync', 'feed_nightly/repoint-catalog-prices.js --gap-fill-only'])}`;
 
 /** Nombres: identidad retail-primero de `kdii` (`identitySnapshotSql`), sin los que frena la unique. */
 //  Atajo EXACTO, para no ordenar las ~76k filas de kdii en cada escaneo (eso costaba 0.6–5 s): un producto
@@ -113,4 +145,30 @@ export const ARBITRO_NOMBRES_SQL = `
            (SELECT count(*) FROM d WHERE NOT EXISTS (
               SELECT 1 FROM catalog.products p2 WHERE p2.tenant_id = ${T} AND p2.id <> d.id
                  AND p2.brand_id = d.marca AND p2.nombre = d.nombre)) AS difieren)
-  ${veredicto('nombre', 'Medir: node database/importers/kepler/repoint-catalog-names.js; cerrar: --apply')}`;
+  ${veredicto('catalogo_nombres_evento', 'nombre', 'Medir: node database/importers/kepler/repoint-catalog-names.js; cerrar: --apply', 'repoint-catalog-names.js',
+    ['feed_nightly/repoint-catalog-names.js'])}`;
+
+/**
+ * `[CANON.6.11]` La alarma por EVENTO del hop-2: lo que el propio hop-2 escribió en `analytics.hop2_fallas`
+ * cuando un normalizador siguió fallando después de reintentar por partes. No compara nada contra Kepler:
+ * sólo lee el registro. Una falla en las últimas 24 h → warn (más de 50 → critical); se limpia sola a las
+ * 24 h, y si el dato sigue mal lo dicen los tres árbitros de arriba. Sin productos a la vista → NO MEDIDO
+ * (la misma RLS que cegaría el catálogo cegaría esta tabla: un 0 ciego sería un verde falso).
+ */
+export const HOP2_FALLAS_SQL = `
+  WITH f AS (
+    SELECT tabla, normalizador, llaves FROM analytics.hop2_fallas
+     WHERE tenant_id = ${T} AND created_at > now() - interval '24 hours'),
+  c AS MATERIALIZED (
+    SELECT ${VISTOS} AS vistos, (SELECT count(*) FROM f) AS n,
+           (SELECT string_agg(DISTINCT tabla || ':' || normalizador, ', ') FROM f) AS donde,
+           (SELECT string_agg(l, ', ') FROM (SELECT DISTINCT unnest(llaves) AS l FROM f ORDER BY 1 LIMIT 8) x) AS llaves)
+  SELECT CASE WHEN c.vistos = 0 THEN now() - interval '100 days'
+              WHEN c.n = 0 THEN now()
+              WHEN c.n <= ${TOPE_WARN} THEN now() - interval '30 hours'
+              ELSE now() - interval '100 days' END AS last_update,
+         CASE WHEN c.vistos = 0 THEN 'NO MEDIDO: el sensor no ve catalog.products (sin tenant o sin permiso)'
+              WHEN c.n = 0 THEN 'sin fallas del hop-2 en las últimas 24 h'
+              ELSE c.n || ' fallas del hop-2 en 24 h (' || c.donde || ') · llaves: ' || coalesce(c.llaves, '?') ||
+                   ' — quedan como estaban hasta su próximo cambio; detalle en analytics.hop2_fallas' END AS note_extra
+    FROM c`;

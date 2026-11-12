@@ -69,6 +69,16 @@ const salir = () => { console.log(`\n  ${pass} ✓ · ${fail} ✗ · ${nm} no me
       is_promo boolean NOT NULL DEFAULT false, cost_base numeric, cost_with_tax numeric, cost_per_case numeric, iva_rate numeric,
       ieps_rate numeric, factor_sale numeric, created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now(),
       deleted_at timestamptz, UNIQUE (tenant_id, brand_id, nombre))`);
+    await c.query(`CREATE SCHEMA IF NOT EXISTS analytics`);
+    await c.query(`CREATE TABLE IF NOT EXISTS analytics.cron_run_log (id bigserial PRIMARY KEY, tenant_id uuid NOT NULL, job_key text NOT NULL,
+      status text NOT NULL, finished_at timestamptz, logged_at timestamptz NOT NULL DEFAULT now())`);
+    await c.query(`CREATE TABLE IF NOT EXISTS analytics.db_health_alerts (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid NOT NULL,
+      source_key varchar NOT NULL, status varchar NOT NULL, last_seen_at timestamptz NOT NULL DEFAULT now(), resolved_at timestamptz)`);
+    // Los nocturnos que estos sensores reemplazan «corrieron hace un rato»: así ninguno pide su retiro todavía.
+    const LLAVES = ['feed_nightly/import-margin.js', 'feed_prices/repoint-catalog-prices.js --solo-promo', 'feed_nightly/repoint-catalog-names.js'];
+    for (const k of LLAVES) {
+      await c.query(`INSERT INTO analytics.cron_run_log (tenant_id, job_key, status, finished_at) VALUES ($1, $2, 'ok', now() - interval '1 hour')`, [M, k]);
+    }
     await c.query(`SELECT set_config('app.tenant_id', $1, true)`, [M]);
     const [{ id: B }] = await q(`INSERT INTO catalog.brands (tenant_id, nombre, code) VALUES ($1, 'Marca CANON.6.11', 'T611') RETURNING id`, [M]);
     const prod = (sku, nombre, extra = {}) => c.query(
@@ -130,6 +140,23 @@ const salir = () => { console.log(`\n  ${pass} ✓ · ${fail} ✗ · ${nm} no me
     } else noMedido('veredicto warn/critical: la base ya trae diferencias de markup propias');
     const ok0 = await sensor(A.ARBITRO_PROMO_SQL);
     if (ok0.n === 0) ok(cubeta(ok0.h) === 'ok', 'veredicto: 0 difieren → ok');
+
+    // ── Fecha de retiro: 30 días sin el nocturno y sin una alerta ─────────────────────────────
+    const nombres = async () => sensor(A.ARBITRO_NOMBRES_SQL);
+    const r0 = await nombres();
+    if (r0.n === 0) {
+      ok(cubeta(r0.h) === 'ok' && /se retira con 30 días sin repoint-catalog-names\.js/.test(r0.nota),
+        'retiro: con el nocturno corriendo, ok y la nota dice cuándo se retira', r0.nota);
+      await c.query(`UPDATE analytics.cron_run_log SET finished_at = now() - interval '31 days'
+                      WHERE job_key = 'feed_nightly/repoint-catalog-names.js'`);
+      await c.query(`DELETE FROM analytics.db_health_alerts WHERE source_key = 'catalogo_nombres_evento'`);
+      const r1 = await nombres();
+      ok(cubeta(r1.h) === 'warn' && /^CUMPLIÓ/.test(r1.nota), 'retiro: 30 días sin el nocturno y sin alertas → warn «CUMPLIÓ … retirar este sensor»', r1.nota);
+      await c.query(`INSERT INTO analytics.db_health_alerts (tenant_id, source_key, status, last_seen_at)
+                      VALUES ($1, 'catalogo_nombres_evento', 'warn', now() - interval '10 days')`, [M]);
+      const r2 = await nombres();
+      ok(cubeta(r2.h) === 'ok' && !/CUMPLIÓ/.test(r2.nota), 'NEGATIVA retiro: con una alerta en los últimos 30 días NO se retira', r2.nota);
+    } else noMedido('retiro: la base ya trae diferencias de nombres propias');
     await c.query(`UPDATE catalog.products SET deleted_at = now() WHERE tenant_id=$1 AND deleted_at IS NULL`, [M]);
     for (const [k, sql] of [['markup', A.ARBITRO_MARKUP_SQL], ['promo', A.ARBITRO_PROMO_SQL], ['nombres', A.ARBITRO_NOMBRES_SQL]]) {
       const s = await sensor(sql);

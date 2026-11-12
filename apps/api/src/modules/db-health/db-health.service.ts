@@ -8,7 +8,7 @@ import { Client } from 'pg';
 // ejercitarla de verdad: este archivo arrastra NestJS y `@megadulces/*`, así que un test de Node
 // no lo puede cargar y terminaría reimplementando la regla — que es no probarla.
 import { RECURRENCIA, recurrenciaLevantaLaMano } from './db-health-recurrencia';
-import { ARBITRO_MARKUP_SQL, ARBITRO_NOMBRES_SQL, ARBITRO_PROMO_SQL } from './db-health-arbitro-catalogo';
+import { ARBITRO_MARKUP_SQL, ARBITRO_NOMBRES_SQL, ARBITRO_PROMO_SQL, HOP2_FALLAS_SQL } from './db-health-arbitro-catalogo';
 import { esCarrilRetirado, etiquetaBase, filasEstimadas, pctMuertas } from './db-health-lecturas';
 
 /**
@@ -896,6 +896,11 @@ const APP_SOURCES: SourceCfg[] = [
   {
     key: 'catalogo_nombres_evento', label: 'Catálogo por evento — nombres (árbitro)', table: 'catalog.products', tsCandidates: [],
     sql: ARBITRO_NOMBRES_SQL, warnH: 24, critH: 48, cadence: 'continuo (hop-2 al llegar kdii) — debe dar 0',
+  },
+  // `[CANON.6.11]` La alarma por EVENTO del hop-2: lee lo que el propio hop-2 escribió al fallar (no compara).
+  {
+    key: 'hop2_fallas', label: 'Hop-2 de la ingesta — fallas definitivas (24 h)', table: 'analytics.hop2_fallas', tsCandidates: [],
+    sql: HOP2_FALLAS_SQL, warnH: 24, critH: 48, cadence: 'por evento (el hop-2 escribe al fallar) — debe dar 0',
   },
 ];
 
