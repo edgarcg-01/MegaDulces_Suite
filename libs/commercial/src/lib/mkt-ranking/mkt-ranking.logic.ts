@@ -141,6 +141,95 @@ export function objetivoSugerido(ventasSemanales: number[]): number | null {
   return Math.max(1, Math.ceil(prom));
 }
 
+// ─────────────────────────────── el producto de la promoción ───────────────────────────────
+//
+// Kepler NO guarda qué producto activa un código de promoción: el código simbólico («3 LECHE SAN
+// JUAN = GRATIS 1 MAS», $0.01) es un producto aparte, sin liga a la leche. Barrido de las 242
+// tablas de `kepler_ods` (2026-11-11): ninguna los relaciona; `kdpv_gratisxq/xm` tienen 5 reglas por
+// sucursal, vencidas en 2025. La liga sólo queda en el TICKET: el cajero cobra la leche y aplica
+// el código en la misma venta. Por eso se deriva de ahí, con DOS pruebas a la vez:
+//   1. el producto sale en el mismo ticket que el código (en ≥ 10 % de esos tickets, mínimo 2);
+//   2. su nombre comparte una palabra con lo que la promoción pide comprar (antes del «=»).
+// Medido en prod (4 semanas de mostrador, 117 códigos con venta): 60 identificados así; sólo con
+// la prueba 1 salían M&M's para «4 GALLETAS INDICADAS» (39 % de los tickets). Lo que no pasa las
+// dos pruebas se DECLARA «sin identificar», nunca se adivina.
+
+export type MetodoProducto = 'mismo_codigo' | 'ticket_y_nombre' | 'sin_identificar' | 'pocos_tickets';
+
+export interface CandidatoProducto { sku: string; nombre: string | null; tickets: number }
+export interface ProductoIdentificado { sku: string; nombre: string | null; tickets: number; pct: number | null }
+export interface ProductosDePromo { metodo: MetodoProducto; tickets: number; productos: ProductoIdentificado[]; nota: string }
+
+/** Palabras que dicen CÓMO es la promoción, no QUÉ producto: no sirven para ligar un nombre. */
+const PALABRAS_VACIAS = new Set([
+  'COMPRA', 'GRATIS', 'GRATUS', 'PROD', 'PRODS', 'PRODUCTO', 'PRODUCTOS', 'INDICADO', 'INDICADOS', 'INDICADA',
+  'INDICADAS', 'BOLSA', 'BOLSAS', 'CAJAS', 'PIEZA', 'PIEZAS', 'LINEA', 'MERCANCIA', 'MERCA', 'EXHIBIDOR',
+  'EXHIBIDORES', 'PEGAR', 'CADA', 'PROMOCIONAL', 'ENTRE', 'SURTIDO', 'SURTIDOS', 'PAQUETE', 'REJAS',
+]);
+export const MIN_TICKETS_PRODUCTO = 3;
+const MAX_PRODUCTOS = 6;
+
+const sinAcentos = (s: string) => s.toUpperCase().normalize('NFD').replace(/\p{M}/gu, '');
+
+/** Las palabras de lo que se COMPRA (antes del «=»), sin plural: «LECHES» busca «LECHE». */
+export function palabrasDePromo(descripcion: string | null | undefined): string[] {
+  const pide = sinAcentos(String(descripcion ?? '')).split('=')[0];
+  const out = new Set<string>();
+  for (const w of pide.split(/[^A-Z]+/)) {
+    if (w.length < 4 || PALABRAS_VACIAS.has(w)) continue;
+    out.add(w.length >= 5 && w.endsWith('ES') && !w.endsWith('SES') ? w.slice(0, -1) : w.length >= 5 && w.endsWith('S') ? w.slice(0, -1) : w);
+  }
+  return [...out];
+}
+
+/** ¿El nombre del producto tiene alguna palabra que EMPIECE como una de la promoción? */
+export function nombreCoincide(nombre: string | null | undefined, palabras: string[]): boolean {
+  if (!nombre || !palabras.length) return false;
+  const ws = sinAcentos(nombre).split(/[^A-Z]+/).filter(Boolean);
+  return palabras.some((p) => ws.some((w) => w.startsWith(p)));
+}
+
+/**
+ * Qué producto activa la promoción. `esSimbolico` = el código cuesta $0.01 o dice «= GRATIS»;
+ * si NO lo es («WINIS T7 /24 + % GRATIS» a precio real), el producto ES el mismo código.
+ */
+export function identificarProductos(p: {
+  code: string; descripcion: string | null; esSimbolico: boolean; tickets: number; candidatos: CandidatoProducto[];
+}): ProductosDePromo {
+  if (!p.esSimbolico) {
+    return {
+      metodo: 'mismo_codigo', tickets: p.tickets,
+      productos: [{ sku: p.code, nombre: p.descripcion, tickets: p.tickets, pct: null }],
+      nota: 'El código es el producto mismo, con contenido de regalo; no es un código simbólico.',
+    };
+  }
+  if (p.tickets < MIN_TICKETS_PRODUCTO) {
+    return {
+      metodo: 'pocos_tickets', tickets: p.tickets, productos: [],
+      nota: `Sólo ${p.tickets} ${p.tickets === 1 ? 'ticket' : 'tickets'} con la promoción en las últimas 4 semanas: no alcanza para saber con qué producto se vende.`,
+    };
+  }
+  const palabras = palabrasDePromo(p.descripcion);
+  const minimo = Math.max(2, Math.ceil(p.tickets * 0.1));
+  const productos = p.candidatos
+    .filter((c) => c.sku !== p.code && c.tickets >= minimo && nombreCoincide(c.nombre, palabras))
+    .sort((a, b) => b.tickets - a.tickets || a.sku.localeCompare(b.sku))
+    .slice(0, MAX_PRODUCTOS)
+    .map((c) => ({ sku: c.sku, nombre: c.nombre, tickets: c.tickets, pct: Math.round((100 * c.tickets) / p.tickets) }));
+  if (!productos.length) {
+    return {
+      metodo: 'sin_identificar', tickets: p.tickets, productos: [],
+      nota: palabras.length
+        ? `Ningún producto de los ${p.tickets} tickets con la promoción se llama como lo que pide («${palabras.join(', ')}»).`
+        : 'La promoción no nombra un producto («productos indicados», «$X de mercancía»): Kepler no dice cuáles son.',
+    };
+  }
+  return {
+    metodo: 'ticket_y_nombre', tickets: p.tickets, productos,
+    nota: `Sale en el mismo ticket que la promoción y su nombre coincide con lo que pide (${p.tickets} tickets, últimas 4 semanas).`,
+  };
+}
+
 // ─────────────────────────────── incentivos ───────────────────────────────
 
 export type TipoIncentivo = 'por_caja' | 'por_unidad' | 'por_monto' | 'por_cliente' | 'por_captura';

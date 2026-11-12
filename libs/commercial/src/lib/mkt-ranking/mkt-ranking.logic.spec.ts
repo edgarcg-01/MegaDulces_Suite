@@ -1,6 +1,6 @@
 import {
   cubrimiento, puntaje, ordenarRanking, promedioGeneral, objetivoSugerido, resolverSemana, lunesDe, numeroSemana,
-  unidadesDePago, textoRegla, esCanal,
+  unidadesDePago, textoRegla, esCanal, palabrasDePromo, nombreCoincide, identificarProductos,
 } from './mkt-ranking.logic';
 
 describe('[MKT.10] semanas', () => {
@@ -98,5 +98,71 @@ describe('[MKT.14] incentivos', () => {
   it('sólo hay cuatro canales', () => {
     expect(['mostrador', 'preventa', 'ruta', 'mayoreo'].every(esCanal)).toBe(true);
     expect(esCanal('vecinal')).toBe(false);
+  });
+});
+
+describe('[MKT.15] el producto de la promoción (casos medidos en prod, 4 semanas de mostrador)', () => {
+  const leche = {
+    code: '09066', descripcion: '3 LECHE SAN JUAN = GRATIS 1 MAS', esSimbolico: true, tickets: 138,
+    candidatos: [
+      { sku: '99891', nombre: 'LECHE ENTERA 1L / 1 SAN JUAN', tickets: 66 },
+      { sku: '99893', nombre: 'LECHE DESLACTOSADA 1L / 1 SAN JUAN', tickets: 64 },
+      { sku: '70001', nombre: 'LA ROSA MAZAPAN /30', tickets: 30 },
+    ],
+  };
+
+  it('las palabras son lo que se COMPRA (antes del «=»), sin plural ni palabras vacías', () => {
+    expect(palabrasDePromo('3 LECHES DEMO 1LT = GRATIS 1 MAS')).toEqual(['LECHE', 'DEMO']);
+    expect(palabrasDePromo('4 GALL INDICADAS = GRATIS 1 GALL MARIAS')).toEqual(['GALL']);
+    expect(palabrasDePromo('$120 NUTRESA = GRATIS 1 EXH NUCITA')).toEqual(['NUTRESA']);
+    expect(palabrasDePromo(null)).toEqual([]);
+  });
+
+  it('el nombre coincide si una palabra EMPIEZA igual, sin importar acentos', () => {
+    expect(nombreCoincide('LECHE ENTERA 1L', ['LECHE'])).toBe(true);
+    expect(nombreCoincide('BARCEL FUEGO', ['BARCEL', 'BIMBO'])).toBe(true);
+    expect(nombreCoincide('CHOC M&M S PEANUT /6', ['GALLETA'])).toBe(false);
+    expect(nombreCoincide('PIÑATA PACK', ['PINATA'])).toBe(true);
+    expect(nombreCoincide(null, ['LECHE'])).toBe(false);
+  });
+
+  it('09066 «3 LECHE SAN JUAN» → las dos leches; el mazapán del mismo ticket NO', () => {
+    const r = identificarProductos(leche);
+    expect(r.metodo).toBe('ticket_y_nombre');
+    expect(r.productos.map((x) => x.sku)).toEqual(['99891', '99893']);
+    expect(r.productos[0].pct).toBe(48);
+  });
+
+  it('00517 «4 GALL INDICADAS»: los M&M del 39 % de los tickets NO se adivinan', () => {
+    const r = identificarProductos({
+      code: '00517', descripcion: '4 GALL INDICADAS = GRATIS 1 GALL MARIAS CHOCOTELA', esSimbolico: true, tickets: 36,
+      candidatos: [{ sku: '06004', nombre: 'CHOC M&M S PEANUT /6', tickets: 14 }],
+    });
+    expect(r.metodo).toBe('sin_identificar');
+    expect(r.productos).toEqual([]);
+  });
+
+  it('un producto que coincide de nombre pero sale en < 10 % de los tickets no cuenta', () => {
+    const r = identificarProductos({ ...leche, candidatos: [{ sku: '99892', nombre: 'LECHE LIGTH 1L', tickets: 13 }] });
+    expect(r.metodo).toBe('sin_identificar');
+  });
+
+  it('con menos de 3 tickets no se decide nada', () => {
+    const r = identificarProductos({ ...leche, tickets: 2, candidatos: [{ sku: '99891', nombre: 'LECHE ENTERA', tickets: 2 }] });
+    expect(r.metodo).toBe('pocos_tickets');
+    expect(r.productos).toEqual([]);
+  });
+
+  it('27100 «WINIS T7 + % GRATIS» a precio real: el producto es el mismo código', () => {
+    const r = identificarProductos({ code: '27100', descripcion: 'WINIS T7 SURTIDO TUBO /24 + % GRATIS', esSimbolico: false, tickets: 498, candidatos: [] });
+    expect(r.metodo).toBe('mismo_codigo');
+    expect(r.productos.map((x) => x.sku)).toEqual(['27100']);
+  });
+
+  it('el propio código nunca es su producto, y se topa a 6', () => {
+    const muchos = Array.from({ length: 9 }, (_, i) => ({ sku: `9989${i}`, nombre: `LECHE ${i}`, tickets: 50 - i }));
+    const r = identificarProductos({ ...leche, candidatos: [{ sku: '09066', nombre: 'LECHE', tickets: 138 }, ...muchos] });
+    expect(r.productos).toHaveLength(6);
+    expect(r.productos.some((x) => x.sku === '09066')).toBe(false);
   });
 });

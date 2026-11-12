@@ -14,8 +14,11 @@ import {
 } from '../compras/compras-pdf-comun';
 import {
   CANAL_LARGO, IncentivoConResultado, ParticipanteRanking, RankingSemana, Semana, pct, textoSemana,
+  textoProductos, textoVentaProducto,
 } from './mkt-ranking.service';
 
+/** Salto de línea dentro de una celda de autoTable. */
+const SALTO = String.fromCharCode(10);
 const n0 = (v: number) => (Math.round(v * 100) / 100).toLocaleString('es-MX', { maximumFractionDigits: 2 });
 
 /** Renglones de la tabla de lugares. Un participante sin ningún objetivo va sin lugar y lo dice. */
@@ -35,7 +38,10 @@ export function filasDetalle(p: ParticipanteRanking, conExistencia: boolean): st
   return p.promos.map((x) => {
     const fila = [
       x.code,
-      x.mecanica + (x.descripcion_distinta ? ' (el código cambió de promoción en Kepler)' : ''),
+      [
+        x.mecanica + (x.descripcion_distinta ? ' (el código cambió de promoción en Kepler)' : ''),
+        ...(x.productos.length ? x.productos.map(textoVentaProducto) : [textoProductos(x.productos_metodo, [])]),
+      ].join(SALTO),
       x.objetivo === null ? 'Sin objetivo' : n0(x.objetivo),
       n0(x.venta),
       x.cubrimiento === null ? '-' : pct(x.cubrimiento),
@@ -130,6 +136,7 @@ export async function pdfRanking(d: DatosPdfRanking): Promise<{ blob: Blob; arch
   y = dibujarNotas(doc, y + 4, [
     'Cubrimiento = venta / objetivo semanal, con tope de 100 % por promoción. El lugar es el promedio de las promociones CON objetivo; las que no tienen se cuentan aparte y no como cero.',
     'Venta = veces que se aplicó el código de la promoción en Kepler, de lunes a domingo. Existencia = regalos disponibles según Kepler.',
+    'Bajo cada promoción, el producto que la activa y lo vendido de él en la semana (piezas y cajas). Kepler no liga el código con el producto: se deduce de los tickets donde se aplicó y de su nombre; si no se puede, dice «sin identificar».',
   ]);
   dibujarPies(doc, `Ranking de promociones, semana ${d.semana.numero}`, d.consultado, 'Mercadotecnia > Ranking');
   return { blob: doc.output('blob'), archivo: `RANKING-PROMOCIONES-S${d.semana.numero}-${fechaHoraArchivo(emitido)}.pdf` };

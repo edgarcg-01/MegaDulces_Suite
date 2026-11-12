@@ -1,7 +1,8 @@
 import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
-import { MktRankingService, PromoDto, ObjetivoDto, IncentivoDto, Quien } from './mkt-ranking.service';
+import { MktRankingService } from './mkt-ranking.service';
+import type { PromoDto, ObjetivoDto, IncentivoDto, Quien } from './mkt-ranking.service';
 
 interface AuthedRequest { user?: { id?: string; username?: string } }
 const quien = (req: AuthedRequest): Quien => ({ id: req?.user?.id, username: req?.user?.username });

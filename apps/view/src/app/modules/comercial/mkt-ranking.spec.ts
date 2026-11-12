@@ -9,8 +9,11 @@ const part = (over: Partial<ParticipanteRanking>): ParticipanteRanking => ({
   clave: '01|', warehouse_code: '01', warehouse_name: 'Padre Hidalgo', vendor_code: '', nombre: 'Padre Hidalgo',
   lugar: 1, puntaje: 0.875, con_objetivo: 4, sin_objetivo: 1, cumplidas: 2, sin_venta: 1,
   promos: [
-    { promo_id: 'a', code: '09066', mecanica: '3 leches = gratis 1', objetivo: 10, objetivo_fuente: 'manual', venta: 26, cubrimiento: 1, existencia: 10, descripcion_distinta: false },
-    { promo_id: 'b', code: '00229', mecanica: '2 exh Turín', objetivo: null, objetivo_fuente: null, venta: 9, cubrimiento: null, existencia: null, descripcion_distinta: true },
+    { promo_id: 'a', code: '09066', mecanica: '3 leches = gratis 1', objetivo: 10, objetivo_fuente: 'manual', venta: 26, cubrimiento: 1, existencia: 10, descripcion_distinta: false,
+      productos: [{ sku: '99891', nombre: 'LECHE ENTERA 1L', unidades: 78, cajas: 6.5 }, { sku: '99893', nombre: 'LECHE DESLACTOSADA 1L', unidades: 5, cajas: null }],
+      productos_metodo: 'ticket_y_nombre' as const, productos_nota: '' },
+    { promo_id: 'b', code: '00229', mecanica: '2 exh Turín', objetivo: null, objetivo_fuente: null, venta: 9, cubrimiento: null, existencia: null, descripcion_distinta: true,
+      productos: [], productos_metodo: 'sin_identificar' as const, productos_nota: '' },
   ],
   ...over,
 });
@@ -38,10 +41,22 @@ describe('[MKT.12] filas del PDF', () => {
 
   it('el detalle: sin objetivo se escribe; el código reutilizado se avisa; la existencia sólo en mostrador', () => {
     const d = filasDetalle(part({}), true);
-    expect(d[0]).toEqual(['09066', '3 leches = gratis 1', '10', '26', '100 %', '10']);
+    expect(d[0][0]).toBe('09066');
+    expect(d[0].slice(2)).toEqual(['10', '26', '100 %', '10']);
     expect(d[1][1]).toContain('cambió de promoción en Kepler');
     expect(d[1][2]).toBe('Sin objetivo');
     expect(filasDetalle(part({}), false)[0]).toHaveLength(5);
+  });
+
+  it('[MKT.15] bajo cada promo, su producto con piezas y cajas; sin factor o sin producto, se DICE', () => {
+    const d = filasDetalle(part({}), true);
+    const lineas = d[0][1].split(String.fromCharCode(10));
+    expect(lineas).toEqual([
+      '3 leches = gratis 1',
+      'LECHE ENTERA 1L (99891): 78 pz · 6.5 cj',
+      'LECHE DESLACTOSADA 1L (99893): 5 pz · sin factor de caja',
+    ]);
+    expect(d[1][1]).toContain('Producto sin identificar');
   });
 
   it('el pago de un incentivo lleva su total y declara lo que no tiene factor', () => {

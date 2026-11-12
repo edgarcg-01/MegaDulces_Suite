@@ -83,6 +83,17 @@ async function http(method, path, token, body) {
     const prom = conObj.reduce((a, x) => a + x.cubrimiento, 0) / conObj.length;
     check(Math.abs(prom - ph.puntaje) < 1e-9, 'el puntaje es el promedio de las promos CON objetivo', { api: ph.puntaje, calc: prom });
 
+    console.log('\n[2b] [MKT.15] El producto de cada promo (derivado del ticket)');
+    check(dm001.productos_metodo === 'ticket_y_nombre' && dm001.productos.map((x) => x.sku).join() === 'DM201,DM202',
+      '⭐ DM001 «3 LECHES» → sus dos leches, y nada más (el chocolate del mismo ticket no)', dm001.productos.map((x) => x.sku));
+    const { rows: [lp] } = await db.query(
+      `SELECT coalesce(sum(qty),0)::numeric q FROM analytics.v_kepler_sales_lines
+        WHERE warehouse_code='01' AND sku='DM201' AND canal='mostrador' AND business_date BETWEEN $1 AND $2`,
+      [rk.semana.lunes, rk.semana.domingo]);
+    const le = dm001.productos.find((x) => x.sku === 'DM201');
+    check(Number(lp.q) === le.unidades && Math.abs(le.cajas - Number(lp.q) / 12) < 0.01,
+      '⭐ piezas de leche en Padre Hidalgo = SQL directo, cajas = piezas ÷ 12', { api: le, sql: Number(lp.q) });
+
     console.log('\n[3] Otros canales');
     for (const c of ['preventa', 'ruta', 'mayoreo']) {
       const x = await http('GET', `/commercial/mkt-ranking?canal=${c}`, token);
@@ -99,6 +110,12 @@ async function http(method, path, token, body) {
     });
     check(alta.status === 201 && alta.json.code === 'DM009', 'alta 201, código normalizado a mayúsculas', alta.status);
     creados.promo = alta.json?.id;
+    // ⭐ NEGATIVA [MKT.15]: DM009 se vende junto con otras promos y sus productos, pero ninguno se
+    // llama como lo que pide: se DECLARA sin identificar, no se adivina el más frecuente.
+    const lista = await http('GET', '/commercial/mkt-ranking/promos', token);
+    const p9 = lista.json.find((p) => p.code === 'DM009');
+    check(p9?.productos?.metodo === 'sin_identificar' && p9.productos.productos.length === 0 && p9.productos.tickets > 0,
+      '⭐ [negativa] DM009 tiene tickets pero ningún producto coincide: «sin identificar»', p9?.productos);
     check((await http('POST', '/commercial/mkt-ranking/promos', token, { code: 'DM009', mecanica: 'x', vigencia_desde: '2026-11-10', vigencia_hasta: '2026-11-01' })).status === 400, '[negativa] fin antes de inicio: 400');
     check((await http('POST', '/commercial/mkt-ranking/promos', token, { code: 'DM009', mecanica: 'xxx', vigencia_desde: '2026-11-10', canales: ['vecinal'] })).status === 400, '[negativa] canal inventado: 400');
 

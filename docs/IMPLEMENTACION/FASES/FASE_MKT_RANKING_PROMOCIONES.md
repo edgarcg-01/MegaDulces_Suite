@@ -68,6 +68,25 @@ Permisos: **sin claves nuevas** — `MKT_AGREEMENTS_VER` (ve) y `MKT_AGREEMENTS_
 - Compuertas: `check:pantalla` 0 fallas en las 3 · `boundary` limpio · `check:templates` ✅ · migraciones sin colisión (contra git; contra el ledger de prod: **NO MEDIDO**, falta `PROD_DB_URL`).
 - **Sin validación visual** (la vista local no estaba levantada).
 
+## 6b. `[MKT.15]` El producto (SKU) de cada promoción — 2026-11-11
+
+**El pedido:** «jala el SKU de las promociones; ya los dan de alta, sólo jálalos» — y medir su venta.
+
+**El dato (C0), medido en prod, sólo lectura:**
+- Kepler **no guarda** qué producto activa un código simbólico. Barrido de las **242 tablas** de `kepler_ods` buscando un renglón con `09066` y la leche (`99891/99893`): sólo `kdmx_26`, que es el XML del ticket (otra vez la venta). `kdpv_gratisxq/xm` tienen 5 reglas por sucursal, vencidas en 2025. `commercial.promo_agreement_codes`: 0 filas. El Excel tampoco lo trae (columna CÓDIGO = el código de promo).
+- La liga vive sólo en el **ticket**: el cajero cobra la leche y aplica el código en la misma venta. Se deriva con DOS pruebas a la vez: sale en ≥ 10 % de los tickets del código (mín. 2) **y** su nombre comparte una palabra con lo que la promo pide comprar (antes del «=»).
+- Barrido de 4 semanas de mostrador (117 códigos con venta): **60 identificados** (09066 → leche entera y deslactosada San Juan; 00196 → wafer Colombina; 00209 → Orbit…); **34 sin identificar** (sólo la prueba del ticket daba M&M's para «4 GALL INDICADAS», 39 %); **23 con < 3 tickets**.
+- ~10 códigos «+ GRATIS» (27100 WINIS T7, 2714x FRUTAFFY, mayonesas) **no son simbólicos**: tienen precio real y son el producto con contenido extra → su producto es el mismo código. Se distingue por «= GRATIS» en el nombre o $0.01 en todas las plazas (`ERP_KEPLER` §2.9).
+- **Tiempo:** unir la vista con la lista de códigos por `unnest` hacía que el planificador recorriera los 104 mil encabezados del periodo una vez por código (**5.7 s**); filtrar la vista con constantes y recortar la ventana después: **2.0 s** (3 códigos reales) / 1.8 s (30 en lote).
+
+**Decisión:** derivado **en vivo**, sin tabla ni captura (regla 1: derivar, no copiar). La ventana son las 4 semanas que cierran la del ranking, **sin salir de la vigencia** (un código reutilizado no mezcla la campaña anterior). Lo que no pasa las dos pruebas se **declara** «sin identificar» con su porqué, nunca se adivina.
+
+**Lo que se ve:** en el detalle del ranking, bajo cada promoción, su producto y lo vendido de él en la semana (piezas y cajas por la escalera de esa sucursal; sin factor, se dice). En Objetivos, el producto bajo cada promo, y se busca por él. En el PDF, el mismo renglón y una nota de cómo se deduce.
+
+**Pruebas:** lógica 8 casos con los casos medidos (leche, galletas indicadas, Winis, < 10 %, < 3 tickets, tope de 6) — 32/32; frontend 19/19 (incluye el PDF con «sin factor de caja» y «sin identificar»); el SQL exacto del servicio corrido en prod contra 09066/00517/27100; semilla local con un producto por promo (DM009 sin producto a propósito) y venta cruzada: Canindo DM001 × 36 → 72 pz de leche entera (2 por aplicación) ✓. `check:pantalla` 0 fallas.
+
+**Límites declarados:** el ranking pasó de ~0.5 s a ~2.5 s por la identificación (corre en paralelo con lo demás); Objetivos tarda ~2 s más. Si molesta, se guarda el resultado por semana cerrada. No hay corrección manual del producto (no se pidió): si Marketing la necesita, va como item aparte.
+
 ## 7. Pendiente / abierto
 
 - ⚠️ Ratificación del PM (fase nueva en Fase 0) y fila en el roadmap.

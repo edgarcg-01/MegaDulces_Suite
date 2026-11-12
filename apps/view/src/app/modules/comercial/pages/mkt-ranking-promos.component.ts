@@ -31,6 +31,7 @@ import { Permission } from '../../../core/constants/permissions';
 import { PROMOS_TABS } from '../promos-tabs';
 import {
   CANALES, CANAL_CORTO, Canal, CodigoKepler, MktRankingService, Objetivo, PromoMkt, Sugerido,
+  ProductosDePromo, textoProductos,
 } from '../mkt-ranking.service';
 
 /** Las 8 sucursales que venden (la 00 es oficinas). */
@@ -184,6 +185,9 @@ interface Formulario {
               <td data-label="Promoción">
                 <span class="rp-nombre">{{ p.mecanica }}</span>
                 <span class="rp-tenue">{{ p.code }}@if (p.descripcion_kepler && p.descripcion_kepler !== p.mecanica) { · Kepler: {{ p.descripcion_kepler }} }</span>
+                @if (p.productos; as pr) {
+                  <span class="rp-producto" [title]="pr.nota">{{ textoProductos(pr.metodo, nombresProducto(pr)) }}</span>
+                }
               </td>
               <td class="rp-nowrap" data-label="Vigencia">{{ fecha(p.vigencia_desde) }} → {{ p.vigencia_hasta ? fecha(p.vigencia_hasta) : 'hasta agotar' }}</td>
               <td data-label="Canales">{{ canalesTexto(p.canales) }}</td>
@@ -325,6 +329,7 @@ interface Formulario {
     .rp-filtros { display: flex; flex-wrap: wrap; gap: var(--sp-3); align-items: center; margin: var(--sp-4) 0 var(--sp-3); }
     .rp-buscar { min-width: 14rem; margin-left: auto; }
     .rp-nombre { display: block; font-weight: var(--fw-medium); }
+    .rp-producto { display: block; font-size: var(--fs-xs); color: var(--fg-2); }
     .rp-tenue { display: block; color: var(--text-muted); font-size: var(--fs-xs); }
     .rp-tenue-i { color: var(--text-muted); font-size: var(--fs-xs); font-weight: var(--fw-regular); }
     .rp-nowrap { white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -374,7 +379,7 @@ export class MktRankingPromosComponent {
   readonly cargadoEn = computed(() => (this.promos() ? new Date() : null));
   readonly filas = computed(() => {
     const q = this.busqueda();
-    return (this.promos() ?? []).filter((p) => coincideBusqueda(q, p.code, p.mecanica, p.descripcion_kepler));
+    return (this.promos() ?? []).filter((p) => coincideBusqueda(q, p.code, p.mecanica, p.descripcion_kepler, ...(p.productos?.productos ?? []).flatMap((x) => [x.sku, x.nombre ?? ''])));
   });
   readonly vistas = computed<SegOption[]>(() => [{ label: 'Vigentes', value: 'vigentes' }, { label: 'Todas', value: 'todas' }]);
   readonly kpis = computed<MetricStripItem[]>(() => {
@@ -408,6 +413,12 @@ export class MktRankingPromosComponent {
     this.buscar$.pipe(debounceTime(250), distinctUntilChanged(), switchMap((q) => this.api.codigosKepler(q).pipe(catchError(() => of([] as CodigoKepler[]))))),
     { initialValue: [] as CodigoKepler[] },
   );
+
+  readonly textoProductos = textoProductos;
+  /** [MKT.15] El producto que activa la promo, por nombre (derivado de sus tickets). */
+  nombresProducto(pr: ProductosDePromo): string[] {
+    return pr.productos.map((x) => x.nombre ?? x.sku);
+  }
 
   fecha(s: string): string {
     return new Intl.DateTimeFormat('es-MX', { day: 'numeric', month: 'short', year: '2-digit', timeZone: 'UTC' }).format(new Date(`${s}T00:00:00Z`)).replace('.', '');

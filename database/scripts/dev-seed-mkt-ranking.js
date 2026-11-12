@@ -52,6 +52,23 @@ const PRODUCTOS = [
   ['DM103', 'PALETA DEMO COLOMBA 40P', 'PZA', 'CJA', 24, 45, 6],
   ['DM104', 'CARAMELO DEMO COLOMBA BOLSA', 'PZA', 'CJA', 30, 38, 5],
 ];
+/**
+ * `[MKT.15]` El producto que activa cada promo (Kepler no guarda la liga: se deriva del ticket).
+ * [sku, nombre, factor caja, precio pieza, promo, piezas por cada vez que se aplica]. El nombre
+ * comparte una palabra con la promo (no «DEMO»). DM009 NO tiene producto: debe salir «sin identificar».
+ */
+const DISPARADORES = [
+  ['DM201', 'LECHE ENTERA LT /12', 12, 26, 'DM001', 2],
+  ['DM202', 'LECHE DESLACTOSADA LT /12', 12, 28, 'DM001', 1],
+  ['DM203', 'CHOC LUNA EXH /24', 24, 9, 'DM002', 2],
+  ['DM204', 'CHICLE MENTA EXH /40', 40, 4, 'DM003', 5],
+  ['DM205', 'GALLETA MARIA PAQ /10', 10, 18, 'DM004', 3],
+  ['DM206', 'DULCE TAMARINDO BOLSA 1KG', 10, 65, 'DM005', 4],
+  ['DM207', 'BOTANA MIX BOLSON 500G', 12, 48, 'DM006', 1],
+  ['DM208', 'TAPATIA BARQUILLO /20', 20, 7, 'DM007', 20],
+  ['DM209', 'WAFER FRESA EXH /12', 12, 30, 'DM008', 2],
+  ['DM210', 'REFRESCO COLA 600ML /24', 24, 17, 'DM010', 3],
+];
 /** Qué tanto vende cada sucursal (para que el ranking tenga forma). */
 const PESO = { '01': 1.6, '02': 0.7, '03': 1.1, '04': 0.5, '05': 0.6, '06': 1.3, '07': 0.9, '08': 1.5 };
 const CANALES = [
@@ -113,7 +130,7 @@ async function limpiar(c) {
     // ── catálogo ──
     const marca = (await c.query(`SELECT id FROM catalog.brands WHERE tenant_id = $1 ORDER BY created_at LIMIT 1`, [T])).rows[0];
     if (!marca) throw new Error('No hay ninguna marca en catalog.brands local');
-    for (const [sku, nombre] of [...PROMOS.map((p) => [p[0], p[1]]), ...PRODUCTOS.map((p) => [p[0], p[1]])]) {
+    for (const [sku, nombre] of [...PROMOS.map((p) => [p[0], p[1]]), ...PRODUCTOS.map((p) => [p[0], p[1]]), ...DISPARADORES.map((p) => [p[0], p[1]])]) {
       await c.query(
         `INSERT INTO catalog.products (tenant_id, brand_id, sku, nombre, is_promo, activo) VALUES ($1, $2, $3, $4, $5, true)`,
         [T, marca.id, sku, nombre, sku < 'DM100']);
@@ -129,6 +146,13 @@ async function limpiar(c) {
           `INSERT INTO kepler_ods.kdii (sucursal, c1, c2, c11, c80, c81, c77, c78, c90, c91)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
           [s, sku, nombre, u1, u2, String(f), String(costo), String(costo * f), String(pv), String(pv * f)]);
+      }
+      for (const [sku, nombre, f, pv] of DISPARADORES) {
+        const costo = Math.round(pv * 0.8 * 100) / 100;
+        await c.query(
+          `INSERT INTO kepler_ods.kdii (sucursal, c1, c2, c11, c80, c81, c77, c78, c90, c91)
+           VALUES ($1, $2, $3, 'PZA', 'CJA', $4, $5, $6, $7, $8)`,
+          [s, sku, nombre, String(f), String(costo), String(costo * f), String(pv), String(pv * f)]);
       }
       for (const [, , , vend] of CANALES) {
         const [code, name] = vend(s);
@@ -148,34 +172,43 @@ async function limpiar(c) {
           const [vcode] = vend(s);
           // 3 documentos por día y canal, con clientes distintos (para «por cliente distinto»).
           for (let k = 1; k <= 3; k++) {
-            const folio = `DM${d.replace(/-/g, '')}${k}`;
-            const renglones = [];
+            // Dos tickets: el de las promos (cada promo junto con SU producto, como cobra el cajero)
+            // y el de los productos de incentivo, aparte — si compartieran ticket, el barrido de
+            // `[MKT.15]` los tomaría por producto de una promo («CHOC DEMO SPORT» ↔ «CHOC DEMO»).
+            const promosT = [];
             for (const [sku, desc, media] of PROMOS) {
               // DM009/DM010 sólo venden las últimas 2 semanas: son promos nuevas.
               if ((sku === 'DM009' || sku === 'DM010') && semanaIdx < 4) continue;
               const q = poisson(r, (media * PESO[s] * prop * (0.85 + semanaIdx * 0.05)) / 3);
-              if (q > 0) renglones.push([sku, desc, q, 'PZA', 0.01]);
+              if (q <= 0) continue;
+              promosT.push([sku, desc, q, 'PZA', 0.01]);
+              for (const [psku, pnom, , pv, promo, pzas] of DISPARADORES) {
+                if (promo === sku) promosT.push([psku, pnom, q * pzas, 'PZA', pv]);
+              }
             }
+            const prodT = [];
             for (const [sku, nombre, , , , pv, media] of PRODUCTOS) {
               const q = poisson(r, (media * PESO[s] * prop) / 3);
-              if (q > 0) renglones.push([sku, nombre, q, 'PZA', pv]);
+              if (q > 0) prodT.push([sku, nombre, q, 'PZA', pv]);
             }
-            if (!renglones.length) continue;
-            const total = renglones.reduce((a, x) => a + x[2] * x[4], 0);
             const cliente = `DMC${s}${String(Math.floor(r() * 40)).padStart(3, '0')}`;
-            await c.query(
-              `INSERT INTO kepler_ods.kdm1 (sucursal, c1, c2, c3, c4, c5, c6, c9, c10, c12, c13, c16, c43, c67)
-               VALUES ($1, $1, 'U', 'D', $2, $3, $4, $5, $6, $7, 0, $8, '', '')`,
-              [s, doc, caja, folio, d, cliente, vcode, Math.round(total * 100) / 100]);
-            docs++;
-            let n = 0;
-            for (const [sku, desc, q, un, precio] of renglones) {
-              n++;
+            for (const [folio, renglones] of [[`DM${d.replace(/-/g, '')}${k}`, promosT], [`DM${d.replace(/-/g, '')}P${k}`, prodT]]) {
+              if (!renglones.length) continue;
+              const total = renglones.reduce((a, x) => a + x[2] * x[4], 0);
               await c.query(
-                `INSERT INTO kepler_ods.kdm2 (sucursal, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c32)
-                 VALUES ($1, $1, 'U', 'D', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-                [s, doc, caja, folio, n, sku, q, desc, un, precio, Math.round(q * precio * 100) / 100, d]);
-              lineas++;
+                `INSERT INTO kepler_ods.kdm1 (sucursal, c1, c2, c3, c4, c5, c6, c9, c10, c12, c13, c16, c43, c67)
+                 VALUES ($1, $1, 'U', 'D', $2, $3, $4, $5, $6, $7, 0, $8, '', '')`,
+                [s, doc, caja, folio, d, cliente, vcode, Math.round(total * 100) / 100]);
+              docs++;
+              let n = 0;
+              for (const [sku, desc, q, un, precio] of renglones) {
+                n++;
+                await c.query(
+                  `INSERT INTO kepler_ods.kdm2 (sucursal, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c32)
+                   VALUES ($1, $1, 'U', 'D', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+                  [s, doc, caja, folio, n, sku, q, desc, un, precio, Math.round(q * precio * 100) / 100, d]);
+                lineas++;
+              }
             }
           }
         }

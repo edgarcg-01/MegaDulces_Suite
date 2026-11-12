@@ -5,6 +5,7 @@ import {
   Canal, CANALES, CANAL_TEXTO, Semana, TipoIncentivo, Redondeo,
   esCanal, resolverSemana, sumarDias, cubrimiento, puntaje, ordenarRanking, promedioGeneral,
   objetivoSugerido, unidadesDePago, textoRegla, lunesDe,
+  identificarProductos, ProductosDePromo, MetodoProducto, CandidatoProducto,
 } from './mkt-ranking.logic';
 
 /**
@@ -40,6 +41,18 @@ export interface PromoMkt {
   objetivos: number;
   updated_at: string;
   updated_by_username: string | null;
+  /** `[MKT.15]` Qué producto activa la promoción, derivado de los tickets (sólo en el listado). */
+  productos?: ProductosDePromo;
+}
+
+/** `[MKT.15]` La venta de la semana de un producto de la promoción, en el participante. */
+export interface VentaProductoPromo {
+  sku: string;
+  nombre: string | null;
+  /** Unidades base de Kepler (`qty` de la línea canónica). */
+  unidades: number;
+  /** unidades ÷ factor de caja de la ficha de ESA sucursal; NULL = sin factor (se declara). */
+  cajas: number | null;
 }
 
 export interface PromoDto {
@@ -76,6 +89,10 @@ export interface RenglonRanking {
   existencia: number | null;
   /** La descripción con la que se vendió no es la del alta: el código cambió de promo en Kepler. */
   descripcion_distinta: boolean;
+  /** `[MKT.15]` El producto que activa la promoción y lo que se vendió de él en la semana. */
+  productos: VentaProductoPromo[];
+  productos_metodo: MetodoProducto;
+  productos_nota: string;
 }
 
 export interface ParticipanteRanking {
@@ -199,9 +216,95 @@ export class MktRankingService {
       if (!opts.todas) {
         q.where('p.activo', true).where((w) => w.whereNull('p.vigencia_hasta').orWhere('p.vigencia_hasta', '>=', todayMx()));
       }
-      const rows = await q;
-      return rows.map((r: Record<string, unknown>) => this.mapPromo(r));
+      const promos = (await q).map((r: Record<string, unknown>) => this.mapPromo(r));
+      // `[MKT.15]` El producto de cada promo, de los tickets de sus últimas 4 semanas de vigencia.
+      const hoy = todayMx();
+      const productos = await this.productosDePromos(trx, promos.map((p) => {
+        const hasta = p.vigencia_hasta && p.vigencia_hasta < hoy ? p.vigencia_hasta : hoy;
+        const hace4 = sumarDias(hasta, -27);
+        return { code: p.code, descripcion: p.descripcion_kepler ?? p.mecanica, desde: p.vigencia_desde > hace4 ? p.vigencia_desde : hace4, hasta };
+      }));
+      return promos.map((p) => ({ ...p, productos: productos.get(p.code) }));
     });
+  }
+
+  /**
+   * `[MKT.15]` Qué producto activa cada código de promoción — Kepler no lo guarda (ver
+   * `identificarProductos`). Se deriva de los tickets donde se aplicó el código, en su ventana.
+   * Medido en prod (2026-11-11): con la forma de abajo, 3 códigos reales (09066, 00517, 27100) × 4 semanas en 2.0 s y 30 en lote en 1.8 s; unir la línea de venta con
+   * `kdm2` por una llave armada (sin índice) tardaba 25 s — aquí se une por `ix_kdm2_venta_doc`.
+   */
+  private async productosDePromos(
+    trx: Knex.Transaction,
+    pedidos: Array<{ code: string; descripcion: string | null; desde: string; hasta: string }>,
+  ): Promise<Map<string, ProductosDePromo>> {
+    const out = new Map<string, ProductosDePromo>();
+    // Un código repetido (dos altas del mismo código) se identifica una vez, con la ventana más amplia.
+    const porCode = new Map<string, { code: string; descripcion: string | null; desde: string; hasta: string }>();
+    for (const p of pedidos) {
+      const a = porCode.get(p.code);
+      porCode.set(p.code, a ? { ...a, desde: a.desde < p.desde ? a.desde : p.desde, hasta: a.hasta > p.hasta ? a.hasta : p.hasta } : p);
+    }
+    const lista = [...porCode.values()].filter((p) => p.desde <= p.hasta);
+    if (!lista.length) {
+      for (const p of porCode.values()) out.set(p.code, identificarProductos({ ...p, esSimbolico: true, tickets: 0, candidatos: [] }));
+      return out;
+    }
+    const minDesde = lista.reduce((a, p) => (p.desde < a ? p.desde : a), lista[0].desde);
+    const maxHasta = lista.reduce((a, p) => (p.hasta > a ? p.hasta : a), lista[0].hasta);
+    const co = await trx.raw(
+      `WITH p AS (SELECT * FROM unnest(?::text[], ?::date[], ?::date[]) AS p(code, desde, hasta)),
+       -- La vista se filtra SÓLO con constantes; unida a «p» el planificador recorría los 104 mil
+       -- encabezados del periodo una vez por código (5.7 s medido contra 2.0 s así).
+       l AS MATERIALIZED (
+         SELECT DISTINCT sku code, warehouse_code w, caja, folio, doc_tipo, business_date d
+           FROM analytics.v_kepler_sales_lines
+          WHERE sku = ANY(?::text[]) AND business_date BETWEEN ? AND ?
+       ),
+       t AS MATERIALIZED (
+         SELECT DISTINCT l.code, l.w, l.caja, l.folio, l.doc_tipo FROM l JOIN p ON p.code = l.code AND l.d BETWEEN p.desde AND p.hasta
+       ),
+       n AS (SELECT code, count(*)::int tickets FROM t GROUP BY 1),
+       co AS (
+         SELECT t.code, btrim(d.c8) sku, count(DISTINCT (t.w, t.caja, t.folio))::int tk
+           FROM t JOIN kepler_ods.kdm2 d
+             ON btrim(d.sucursal) = t.w AND d.c2 = 'U' AND d.c3 = 'D' AND d.c4::int = t.doc_tipo
+            AND d.c5::int = t.caja::int AND btrim(d.c6) = t.folio AND btrim(d.c1) = t.w
+          WHERE btrim(d.c8) <> t.code
+          GROUP BY 1, 2
+       )
+       SELECT n.code, n.tickets, co.sku, co.tk
+         FROM n LEFT JOIN co ON co.code = n.code AND co.tk >= greatest(2, ceil(n.tickets * 0.1))`,
+      [lista.map((p) => p.code), lista.map((p) => p.desde), lista.map((p) => p.hasta), lista.map((p) => p.code), minDesde, maxHasta],
+    );
+    const filas = co.rows as Array<{ code: string; tickets: number; sku: string | null; tk: number | null }>;
+    const skus = [...new Set([...porCode.keys(), ...filas.map((f) => f.sku).filter((s): s is string => !!s)])];
+    // Simbólico = «= GRATIS» en el nombre o $0.01 en TODAS las plazas (ERP_KEPLER §2.9). Un candidato
+    // simbólico es otra promoción del mismo ticket, no un producto.
+    const fichas = await trx.raw(
+      `SELECT btrim(c1) sku, (array_agg(btrim(c2) ORDER BY sucursal))[1] nombre,
+              (bool_or(c2 ~* '= *GRAT') OR bool_and(c90 = 0.01)) simbolico
+         FROM kepler_ods.kdii WHERE btrim(c1) = ANY(?::text[]) GROUP BY 1`,
+      [skus],
+    );
+    const ficha = new Map<string, { nombre: string | null; simbolico: boolean }>(
+      (fichas.rows as Array<{ sku: string; nombre: string | null; simbolico: boolean }>).map((f) => [f.sku, { nombre: f.nombre, simbolico: f.simbolico === true }]));
+    const tickets = new Map<string, number>();
+    const cands = new Map<string, CandidatoProducto[]>();
+    for (const f of filas) {
+      tickets.set(f.code, n(f.tickets));
+      if (!f.sku || ficha.get(f.sku)?.simbolico) continue;
+      (cands.get(f.code) ?? cands.set(f.code, []).get(f.code)!).push({ sku: f.sku, nombre: ficha.get(f.sku)?.nombre ?? null, tickets: n(f.tk) });
+    }
+    for (const p of porCode.values()) {
+      out.set(p.code, identificarProductos({
+        code: p.code, descripcion: p.descripcion,
+        // Sin ficha en kdii no se sabe: se trata como simbólico (se busca su producto, no se asume).
+        esSimbolico: ficha.get(p.code)?.simbolico ?? true,
+        tickets: tickets.get(p.code) ?? 0, candidatos: cands.get(p.code) ?? [],
+      }));
+    }
+    return out;
   }
 
   private mapPromo(r: Record<string, unknown>): PromoMkt {
@@ -538,7 +641,12 @@ export class MktRankingService {
 
       const codes = [...new Set(promos.map((p) => p.code))];
       const ids = promos.map((p) => p.id);
-      const [ventas, objetivos, existencias] = await Promise.all([
+      const [identificados, ventas, objetivos, existencias] = await Promise.all([
+        // `[MKT.15]` El producto de cada promo: tickets de las 4 semanas que cierran ésta, sin salir de su vigencia.
+        this.productosDePromos(trx, promos.map((p) => {
+          const hace4 = sumarDias(semana.lunes, -21);
+          return { code: p.code, descripcion: p.descripcion_kepler ?? p.mecanica, desde: p.vigencia_desde > hace4 ? p.vigencia_desde : hace4, hasta: semana.hasta };
+        })),
         trx.raw(
           `SELECT warehouse_code, CASE WHEN ? = 'mostrador' THEN '' ELSE vendor_code END vendor_code,
                   max(vendor_name) vendor_name, sku, sum(qty) qty, array_agg(DISTINCT producto) descripciones
@@ -566,6 +674,29 @@ export class MktRankingService {
       const exDe = new Map<string, number>();
       for (const e of existencias.rows as Array<Record<string, unknown>>) exDe.set(`${e['warehouse_code']}|${e['sku']}`, n(e['qty_stock_units']));
 
+      // `[MKT.15]` La venta de la semana de esos productos, en el mismo canal y participante. Se lee
+      // la línea (no la matview: ésa pide el producto en el catálogo) y la caja sale de la ficha de
+      // Kepler de cada sucursal, en consulta aparte (unirla dentro tardaba 31 s, ver incentivos).
+      const skusProducto = [...new Set([...identificados.values()].flatMap((x) => x.productos.map((p) => p.sku)))];
+      const [ventaProd, factores] = skusProducto.length
+        ? await Promise.all([
+          trx.raw(
+            `SELECT warehouse_code, CASE WHEN ? = 'mostrador' THEN '' ELSE vendor_code END vendor_code, sku, sum(qty) qty
+               FROM analytics.v_kepler_sales_lines
+              WHERE business_date BETWEEN ? AND ? AND sku = ANY(?::text[]) AND canal = ?
+              GROUP BY 1, 2, 3`,
+            [canal, semana.lunes, semana.hasta, skusProducto, canal]),
+          trx.raw(`SELECT sucursal, sku, factor_caja FROM analytics.v_kepler_unit_ladder WHERE sku = ANY(?::text[])`, [skusProducto]),
+        ])
+        : [{ rows: [] }, { rows: [] }];
+      const prodDe = new Map<string, number>();
+      for (const v of ventaProd.rows as Array<Record<string, unknown>>) prodDe.set(`${v['warehouse_code']}|${v['vendor_code']}|${v['sku']}`, n(v['qty']));
+      const factorDe = new Map<string, number>();
+      for (const f of factores.rows as Array<Record<string, unknown>>) {
+        const v = nOrNull(f['factor_caja']);
+        if (v && v > 0) factorDe.set(`${String(f['sucursal']).trim()}|${f['sku']}`, v);
+      }
+
       // Participantes: en mostrador, cada sucursal donde aplica alguna promo; en los demás canales,
       // cada vendedor que vendió algún código o que tiene un objetivo.
       const part = new Map<string, { warehouse_code: string; vendor_code: string; vendor_name: string }>();
@@ -590,7 +721,16 @@ export class MktRankingService {
           const o = objDe.get(`${p.id}|${pa.warehouse_code}|${pa.vendor_code}`);
           const venta = v?.qty ?? 0;
           const alta = normal(p.descripcion_kepler);
+          const ident = identificados.get(p.code);
+          const productos: VentaProductoPromo[] = (ident?.productos ?? []).map((x) => {
+            const unidades = prodDe.get(`${pa.warehouse_code}|${pa.vendor_code}|${x.sku}`) ?? 0;
+            const f = factorDe.get(`${pa.warehouse_code}|${x.sku}`);
+            return { sku: x.sku, nombre: x.nombre, unidades, cajas: f ? Math.round((unidades / f) * 100) / 100 : null };
+          });
           return {
+            productos,
+            productos_metodo: ident?.metodo ?? 'sin_identificar',
+            productos_nota: ident?.nota ?? 'Sin dato.',
             promo_id: p.id, code: p.code, mecanica: p.mecanica,
             objetivo: o?.v ?? null, objetivo_fuente: o?.fuente ?? null,
             venta, cubrimiento: cubrimiento(venta, o?.v ?? null),

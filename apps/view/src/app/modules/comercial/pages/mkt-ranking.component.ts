@@ -25,6 +25,7 @@ import { Permission } from '../../../core/constants/permissions';
 import { PROMOS_TABS } from '../promos-tabs';
 import {
   CANALES, CANAL_CORTO, Canal, MktRankingService, ParticipanteRanking, RankingSemana, moverSemana, pct, textoSemana,
+  textoVentaProducto, textoProductos,
 } from '../mkt-ranking.service';
 import { pdfRanking } from '../mkt-ranking-pdf';
 
@@ -155,6 +156,11 @@ import { pdfRanking } from '../mkt-ranking-pdf';
                 <td>
                   <span class="rk-promo">{{ x.mecanica }}</span>
                   <span class="rk-tenue">{{ x.code }}</span>
+                  @for (pr of x.productos; track pr.sku) {
+                    <span class="rk-producto">{{ textoVentaProducto(pr) }}</span>
+                  } @empty {
+                    <span class="rk-tenue" [title]="x.productos_nota">{{ textoProductos(x.productos_metodo, []) }}</span>
+                  }
                   @if (x.descripcion_distinta) {
                     <span class="rk-aviso"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> Kepler vendió este código con otra descripción: puede ser otra promoción.</span>
                   }
@@ -193,6 +199,7 @@ import { pdfRanking } from '../mkt-ranking-pdf';
     .rk-col-cub { min-width: 14rem; }
     .rk-lugar { font-size: var(--fs-lg); font-weight: var(--fw-bold); font-variant-numeric: tabular-nums; }
     .rk-nombre { display: block; font-weight: var(--fw-bold); }
+    .rk-producto { display: block; font-size: var(--fs-xs); color: var(--fg-2); }
     .rk-tenue { display: block; color: var(--text-muted); font-size: var(--fs-xs); }
     .rk-col-cub { white-space: nowrap; }
     .rk-barra { display: inline-block; vertical-align: middle; width: 8rem; height: 0.5rem; border-radius: var(--r-pill); background: var(--overlay-hover); overflow: hidden; margin-right: var(--sp-2); }
@@ -216,6 +223,8 @@ export class MktRankingComponent {
   private readonly perms = inject(PermissionsService);
   readonly tabs = PROMOS_TABS;
   readonly pct = pct;
+  readonly textoVentaProducto = textoVentaProducto;
+  readonly textoProductos = textoProductos;
   readonly puedeGestionar = this.perms.has(Permission.MKT_AGREEMENTS_GESTIONAR);
 
   /** NULL = la última semana cerrada (la decide el servidor). */

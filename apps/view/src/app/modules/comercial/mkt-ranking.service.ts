@@ -20,6 +20,24 @@ export const CANAL_LARGO: Record<Canal, string> = {
   mostrador: 'Sucursales (mostrador)', preventa: 'Vecinal (preventa)', ruta: 'Rutas', mayoreo: 'Televenta (mayoreo)',
 };
 
+/** [MKT.15] Cómo se supo el producto de la promo: Kepler no guarda la liga, se deriva del ticket. */
+export type MetodoProducto = 'mismo_codigo' | 'ticket_y_nombre' | 'sin_identificar' | 'pocos_tickets';
+export interface ProductoIdentificado { sku: string; nombre: string | null; tickets: number; pct: number | null }
+export interface ProductosDePromo { metodo: MetodoProducto; tickets: number; productos: ProductoIdentificado[]; nota: string }
+export interface VentaProductoPromo { sku: string; nombre: string | null; unidades: number; cajas: number | null }
+
+const fmt = (v: number) => v.toLocaleString('es-MX', { maximumFractionDigits: 2 });
+/** «LECHE ENTERA 1L (99891): 120 pz · 10 cj» — sin factor de caja se dice, no se inventa. */
+export function textoVentaProducto(p: VentaProductoPromo): string {
+  const cajas = p.cajas === null ? 'sin factor de caja' : `${fmt(p.cajas)} cj`;
+  return `${p.nombre ?? p.sku} (${p.sku}): ${fmt(p.unidades)} pz · ${cajas}`;
+}
+/** El producto en una línea, para el listado y el PDF. Sin producto, lo dice. */
+export function textoProductos(metodo: MetodoProducto, nombres: string[]): string {
+  if (nombres.length) return nombres.join(' · ');
+  return metodo === 'pocos_tickets' ? 'Producto: aún sin tickets suficientes' : 'Producto sin identificar';
+}
+
 export interface Semana { lunes: string; domingo: string; numero: number; hasta: string; en_curso: boolean }
 
 export interface RenglonRanking {
@@ -32,6 +50,10 @@ export interface RenglonRanking {
   cubrimiento: number | null;
   existencia: number | null;
   descripcion_distinta: boolean;
+  /** [MKT.15] El producto que activa la promo (derivado del ticket) y su venta de la semana. */
+  productos: VentaProductoPromo[];
+  productos_metodo: MetodoProducto;
+  productos_nota: string;
 }
 
 export interface ParticipanteRanking {
@@ -74,6 +96,7 @@ export interface PromoMkt {
   objetivos: number;
   updated_at: string;
   updated_by_username: string | null;
+  productos?: ProductosDePromo;
 }
 
 export interface PromoDto {
