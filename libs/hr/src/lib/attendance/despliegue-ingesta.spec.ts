@@ -19,6 +19,8 @@ const leer = (rel: string) => fs.readFileSync(path.join(RAIZ, rel), 'utf8');
 const ETIQUETA = path.join(RAIZ, 'ops/prod/etiqueta-imagen.sh');
 const DESPLEGAR = path.join(RAIZ, 'ops/prod/desplegar-ingesta.sh');
 const DOCKERFILES = { 'trade-ingest': 'ops/ingest/Dockerfile', 'trade-relojes': 'ops/relojes/Dockerfile' } as const;
+// Estas pruebas lanzan sh y git de verdad: en Windows cada una tarda segundos.
+vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
 function correr(cmd: string, args: string[], cwd: string, env: NodeJS.ProcessEnv = process.env) {
   const r = spawnSync(cmd, args, { cwd, env, encoding: 'utf8' });
@@ -174,7 +176,7 @@ describe('[OPS.ING.1] desplegar-ingesta.sh — sólo el commit que sirve la API'
     expect(r.status).toBe(0);
     expect(r.llamadas).toMatch(/k3s kubectl apply -f -/);
     expect(r.llamadas).not.toMatch(/^docker (pull|build)/m);   // el registro "ya las tiene": no se trae nada
-  });
+  }, 60_000);   // en Windows el guion tarda ~6 s (muchos procesos sh); en Linux, menos
 });
 
 describe('[OPS.ING.1] CI, manifiestos, vigía y guion nombran lo mismo', () => {
