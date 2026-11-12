@@ -1,5 +1,5 @@
 import { ErrorHandler, Injectable, inject } from '@angular/core';
-import { AppErrorService } from './app-error.service';
+import { AppErrorService, AppErrorKind } from './app-error.service';
 
 /**
  * ErrorHandler global de la plataforma web.
@@ -28,7 +28,18 @@ export class GlobalErrorHandler implements ErrorHandler {
     const stack = error instanceof Error && error.stack
       ? error.stack.split('\n').slice(0, 6).join('\n')
       : undefined;
-    const err = this.errors.report(isStaleChunk(error, message) ? 'stale-version' : 'unexpected', message, stack);
+
+    if (fallaDeCarga(error, message)) {
+      // ⛔ No se afirma la causa todavía: el navegador da el MISMO error para
+      // «ya no existe» y «no llegó». Se pregunta y recién entonces se dice.
+      const recurso = recursoDe(error, message) ?? undefined;
+      const err = this.errors.report('load-checking', message, stack, recurso);
+      console.error(`[${err.id}]`, error);
+      void clasificarFallaDeCarga(recurso ?? null).then((kind) => this.errors.resolver(err.id, kind));
+      return;
+    }
+
+    const err = this.errors.report('unexpected', message, stack);
     // El id se imprime junto al error para poder cruzar lo que reporta el
     // usuario con lo que quedó en la consola.
     console.error(`[${err.id}]`, error);
@@ -36,13 +47,13 @@ export class GlobalErrorHandler implements ErrorHandler {
 }
 
 /**
- * ¿El error es un trozo de código que ya no está en el servidor?
+ * ¿El error es un trozo de código de la app que no se pudo cargar?
  *
- * Pasa cuando se despliega con la pestaña abierta: los nombres de archivo llevan
- * hash, así que el que la pestaña vieja pide desapareció. Cada bundler lo dice
- * distinto, de ahí la lista.
+ * ⚠️ Dice **que la carga falló**, no POR QUÉ. Cada bundler lo redacta distinto, de ahí la
+ * lista; ninguno distingue un archivo que ya no está de uno que no llegó. Esa pregunta la
+ * contesta `clasificarFallaDeCarga` preguntándole al servidor.
  */
-export function isStaleChunk(error: unknown, message: string): boolean {
+export function fallaDeCarga(error: unknown, message: string): boolean {
   if (error && typeof error === 'object' && (error as { name?: string }).name === 'ChunkLoadError') {
     return true;
   }
@@ -54,6 +65,81 @@ export function isStaleChunk(error: unknown, message: string): boolean {
     m.includes('loading css chunk') ||
     m.includes('importing a module script failed')                 // Safari
   );
+}
+
+/**
+ * El archivo que no cargó, sacado del texto del error.
+ *
+ * Los bundlers lo incluyen en el mensaje ("Failed to fetch dynamically imported module:
+ * https://…/chunk-ABC.js"). Sin él no se puede preguntar nada y la causa queda declarada
+ * como indeterminada, que es lo correcto — no se adivina.
+ */
+export function recursoDe(error: unknown, message: string): string | null {
+  const directo = (error as { request?: unknown; url?: unknown } | null)?.request
+    ?? (error as { url?: unknown } | null)?.url;
+  if (typeof directo === 'string' && /^https?:\/\//i.test(directo)) return directo;
+  const m = /https?:\/\/[^\s"')]+/i.exec(message);
+  return m ? m[0] : null;
+}
+
+/** Cuánto se espera al servidor antes de declarar que no se pudo saber. */
+const TIMEOUT_MS = 4000;
+
+/**
+ * ⭐ El discriminador: le pregunta al servidor por el archivo que falló.
+ *
+ * Es lo único que separa las cuatro causas, porque el error del navegador es idéntico en
+ * todas. **404/410 es el único caso en el que se puede afirmar que hubo versión nueva**: el
+ * archivo lleva hash en el nombre, así que si el servidor dice que no existe es porque se
+ * publicó otra cosa encima.
+ *
+ * Se consulta con `no-store` a propósito: una respuesta de la caché contestaría por un
+ * archivo que el navegador ya tenía y no por el que falló.
+ */
+export async function clasificarFallaDeCarga(
+  recurso: string | null,
+  deps: {
+    fetch?: typeof fetch;
+    enLinea?: () => boolean;
+    timeoutMs?: number;
+  } = {},
+): Promise<AppErrorKind> {
+  const enLinea = deps.enLinea ?? (() => globalThis.navigator?.onLine !== false);
+  const hacerFetch = deps.fetch ?? globalThis.fetch?.bind(globalThis);
+
+  if (!enLinea()) return 'load-offline';
+  if (!recurso || !hacerFetch) return 'load-unknown';
+
+  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const ms = deps.timeoutMs ?? TIMEOUT_MS;
+  let t: ReturnType<typeof setTimeout> | undefined;
+
+  // ⚠️ El corte NO se delega en la señal de aborto: si quien contesta la ignora, la promesa
+  // se queda colgada y el aviso se queda en «un momento» para siempre. Por eso el reloj es
+  // una carrera aparte, y el aborto va además para no dejar la consulta viva.
+  const porTiempo = new Promise<AppErrorKind>((resolve) => {
+    t = setTimeout(() => { ctrl?.abort(); resolve('load-unknown'); }, ms);
+  });
+
+  const porServidor = (async (): Promise<AppErrorKind> => {
+    try {
+      const r = await hacerFetch(recurso, { method: 'HEAD', cache: 'no-store', signal: ctrl?.signal });
+      if (r.status === 404 || r.status === 410) return 'stale-version';
+      if (r.status >= 500) return 'load-server';
+      // Contesta bien (o con otro 4xx): el archivo está. Fue algo pasajero y se DECLARA
+      // como indeterminado — afirmar «versión nueva» acá es justo el defecto de AUD.6.
+      return 'load-unknown';
+    } catch {
+      // La consulta tampoco llegó. Si entretanto se cayó la red, eso explica las dos.
+      return enLinea() ? 'load-unknown' : 'load-offline';
+    }
+  })();
+
+  try {
+    return await Promise.race([porServidor, porTiempo]);
+  } finally {
+    clearTimeout(t);
+  }
 }
 
 function describe(err: unknown): string {
