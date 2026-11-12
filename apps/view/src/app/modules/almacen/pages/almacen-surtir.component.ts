@@ -387,6 +387,12 @@ function plural(n: number, uno: string, varios: string): string {
               @if (l.unidad_mixta) {
                 <p class="sr-tip"><i class="pi pi-info-circle" aria-hidden="true"></i> Los pedidos lo piden en unidades distintas: cuenta en {{ unidadConteo(l) }}.</p>
               }
+              <!-- [GP.9.2] La caja que tiene enfrente puede no ser la de la hoja (caso Canindo). -->
+              @if (l.aviso_caja; as a) {
+                <p class="sr-tip sr-tip-caja" [class.sr-tip-bad]="a.tipo === 'capturada_con_otra'" role="note">
+                  <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ a.texto }}
+                </p>
+              }
 
               @if (editando() === l.id) {
                 <div class="sr-falta">
@@ -990,6 +996,8 @@ export class AlmacenSurtirComponent implements OnInit {
           note: null,
           existencia: null,
           existencia_unidad: null,
+          // [GP.9.2] Preventa no es un pedido de Kepler: no hay factor capturado contra el cual comparar.
+          aviso_caja: null,
         };
       }),
     };
@@ -1516,8 +1524,14 @@ export class AlmacenSurtirComponent implements OnInit {
     return `Faltaron ${this.fmt(falta)} de ${this.fmt(pedido)} ${this.unidadConteo(l)}`;
   }
 
-  /** Hay presentación usable: con unidad y cantidad > 0 (una presentación en 0 se ignora). */
+  /**
+   * Hay presentación usable: con unidad y cantidad > 0 (una presentación en 0 se ignora).
+   * `[GP.9.2]` Si el pedido se capturó con OTRA caja que la de hoy (10 CJA de 40, y hoy la CJA es de
+   * 25), la presentación miente: se cuenta en la unidad base (400 PAQ), y el faltante no se convierte
+   * con el factor viejo.
+   */
   private tienePresentacion(l: PickerWaveLine): boolean {
+    if (l.aviso_caja?.tipo === 'capturada_con_otra') return false;
     return l.qty_presentacion != null && l.qty_presentacion > 0 && !!l.unidad_presentacion;
   }
 

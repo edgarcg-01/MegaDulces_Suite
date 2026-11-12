@@ -1083,7 +1083,7 @@ re-presentó como 16 CJA) y de la revisión AX.22 ([`FASE_AX`](FASE_AX_ANEXO_VEN
 | Item | Qué | Estado |
 |---|---|---|
 | **GP.9.1** | En `/telemarketing/cotizaciones/:id`, debajo de «Pedido en Kepler», los pasos Pedido → Autorizado → Surtido → Checado → Embarcado → Facturado: cuándo (sólo si existe), quién (nombre si lo marcó la Suite, clave de Kepler si no), embarques y facturas (canceladas tachadas), aviso si el pedido quizá no es el de la cotización y los hallazgos abiertos de AX.22. `GET /api/commercial/quotes/:id/tracking`, sólo lectura, sin migración | 🧪 |
-| **GP.9.2** | El surtidor recibe el pedido de telemarketing completo en su pantalla (GP.3): observaciones, dirección de entrega y el aviso de **caja en transición** (la ficha cambió en los últimos 30 días, `analytics.kepler_ficha_history`: «¿cuántas piezas trae esta caja?») | ⬜ — espera D2 |
+| **GP.9.2** | En la pantalla del surtidor (`/almacen/surtir`), por renglón, el **aviso de caja** (§11.3): *capturada con otra caja* (el pedido trae un factor que ya no es el de la ficha → el renglón se cuenta en la unidad BASE) o *en transición* (la caja cambió en 30 días → revisar cuántas piezas trae). Observaciones y dirección del pedido TLMK: siguen ⬜ | 🧪 aviso de caja |
 | **GP.9.3** | Lo que el surtidor marca regresa al vendedor: un faltante avisa en su campana («faltó X en tu pedido») antes del embarque; el mismo faltante es demanda negada para DN | ⬜ — espera D2 |
 
 **Decisiones abiertas:** D1 — GP vuelve a 🔨 y el cupo queda en 6 de 4: qué pasa a ⏸️ (Edgar). D2 —
@@ -1129,6 +1129,41 @@ terciario = quién (clave) y la nota de lo que Kepler no guarda.
   en proceso real** — se confirma al soltar.
 - **Corrección:** la factura `UD0801-0001370` **no es** la refactura de Canindo (es de C3084,
   embarque 1759). El embarque 1823 sólo tiene la 1350, cancelada; está pendiente de refacturar.
+
+### 11.3 GP.9.2 — el aviso de caja en la pantalla del surtidor
+
+**El problema, en la hoja:** el pedido de Canindo dice «10 CJA · 400 PAQ» porque se capturó con la
+caja de 40; el 29-oct la caja pasó a 25. Si el surtidor cuenta 10 cajas nuevas salen 250 PAQ, y un
+faltante capturado en cajas se convertía con el factor viejo (×40).
+
+**Dos señales por renglón** (`libs/commercial/.../commercial-picking/aviso-caja.ts`, campo
+`aviso_caja` de `PickerWaveLine`):
+1. **capturada_con_otra** — algún pedido de la ola trae ese SKU con `status = factor_cambio` en
+   `analytics.v_erp_order_line_box_factor` (AX.22.1). La pantalla deja de contar en la presentación:
+   la cantidad principal pasa a la base («400 PAQ») y el faltante se guarda tal cual, sin factor.
+2. **transicion** — la ficha de esa presentación cambió de factor en los últimos 30 días
+   (`analytics.kepler_ficha_history`, que existe desde el 2026-11-04: un cambio anterior sólo lo ve
+   la señal 1). Se avisa y se sigue contando en la presentación.
+
+**Lo que se encontró al medir (06, 2026-11-12):** la primera versión comparaba casilla por casilla y
+habría avisado en **178 SKU**; 150 eran Kepler moviendo la CJA de la 2ª a la 3ª presentación con el
+**mismo** factor. Comparando **por nombre de unidad** (y tratando factor 0 como «no declarado»)
+quedan **19 SKU** de 1,477 pedidos en 30 días (1.3 %): CJA 18→12, CJA 40→4, KG 2→2.5…
+
+**Medido:** `cajasDeOla` real sobre las 15 olas de prod: 16 ms p50, 50 ms máx, sin errores (son olas
+de prueba de octubre, sin avisos: no hay positivo en olas reales todavía). La consulta de la vista con
+la llave de Canindo devuelve 95644 CJA 40→25 y el aviso «El pedido se capturó con CJA de 40 y hoy la
+CJA es de 25. Cuenta 400 PAQ, no cajas.». Si una lectura de aviso falla, la ola sale sin avisos
+(savepoint: no aborta la transacción de la ola) y se registra.
+
+**Pruebas:** reglas 17 (reacomodo de casilla, 0→40, reacomodo que no tapa un cambio real), surtido
+126 verdes; pantalla 84/84 con 3 nuevas — Canindo cuenta en base y guarda 250 PAQ sin ×40 (mutante
+rojo al quitar la regla), transición conserva la presentación, sin aviso no se pinta nada.
+⚠️ Sin validación visual en el celular.
+
+**Pendiente de GP.9.2:** observaciones y dirección de entrega del pedido TLMK en la pantalla, y
+**capturar** la respuesta del surtidor («esta caja trae N») — eso escribe, y exige su prueba contra base
+real antes de prod.
 
 ---
 

@@ -68,6 +68,7 @@ const L = (p: Partial<PickerWaveLine> = {}): PickerWaveLine => ({
   note: null,
   existencia: 300,
   existencia_unidad: 'KG',
+  aviso_caja: null,
   ...p,
 });
 
@@ -755,6 +756,42 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     clic('Guardar');
     expect(api.pick).toHaveBeenCalledWith('ola-1', 'l1', { qty_picked: 50, status: undefined });
     expect(texto()).toContain('Faltaron 1 de 3 BTO');
+  });
+
+  // [GP.9.2] El caso Canindo: 10 CJA capturadas con caja de 40 (= 400 PAQ); hoy la CJA es de 25.
+  const CANINDO = L({
+    sku: '95644', product_name: 'CHILITO', qty_requested: 400, qty_unit: 'PAQ', qty_presentacion: 10, unidad_presentacion: 'CJA',
+    existencia: 900, existencia_unidad: 'PAQ',
+    aviso_caja: {
+      tipo: 'capturada_con_otra', unidad: 'CJA', factor_antes: 40, factor_hoy: 25, desde: null,
+      texto: 'El pedido se capturó con CJA de 40 y hoy la CJA es de 25. Cuenta 400 PAQ, no cajas.',
+    },
+  });
+
+  it('⭐ [GP.9.2] caja capturada con otro factor: la hoja manda contar en la BASE (400 PAQ), no «10 CJA», y lo dice', async () => {
+    await surtiendo([CANINDO]);
+    expect(texto()).toContain('Cuenta 400 PAQ, no cajas.');
+    expect(c.cantidadPrincipal(c.pendientes()[0])).toBe('400 PAQ');
+    clic('Faltante');
+    expect(texto()).toContain('¿Cuánto levantaste? (PAQ)');
+    c.borrador.set(250);
+    fix.detectChanges();
+    clic('Guardar');
+    // 250 PAQ tal cual — con el factor viejo habrían sido 250 × 40.
+    expect(api.pick).toHaveBeenCalledWith('ola-1', 'l1', { qty_picked: 250, status: undefined });
+  });
+
+  it('[GP.9.2] caja en transición: se avisa, pero se sigue contando en la presentación de la hoja', async () => {
+    await surtiendo([L({ aviso_caja: { tipo: 'transicion', unidad: 'BTO', factor_antes: 20, factor_hoy: 25, desde: '2026-11-10T16:00:00.000Z',
+      texto: 'La BTO cambió de 20 a 25 el 10 nov: revisa cuántas piezas trae antes de contarla por caja.' } })]);
+    expect(texto()).toContain('La BTO cambió de 20 a 25 el 10 nov');
+    clic('Faltante');
+    expect(texto()).toContain('¿Cuánto levantaste? (BTO)');
+  });
+
+  it('[GP.9.2] sin aviso no se pinta ninguna nota de caja (prueba negativa)', async () => {
+    await surtiendo();
+    expect(fix.nativeElement.querySelector('.sr-tip-caja')).toBeNull();
   });
 
   it('no deja guardar más de lo pedido (4 BTO de 3) ni el campo vacío (prueba negativa)', async () => {
