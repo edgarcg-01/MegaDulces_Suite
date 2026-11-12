@@ -4,7 +4,7 @@ import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
-import { etiquetaFuentePrecio, textoDescuento, tonoFuentePrecio, type PasoDesglose } from '../quote-units';
+import { etiquetaFuentePrecio, netoPorUnidad, textoDescuento, tonoFuentePrecio, type PasoDesglose } from '../quote-units';
 import { notaRedondeo } from '../quote-discount-breakdown';
 
 /**
@@ -160,6 +160,10 @@ export interface CambioCantidad {
                 @if (r.desglose.length) {
                   <span class="p-unit-sub-breakdown">(@for (p of r.desglose; track p.unidad; let ultimo = $last) {<span>{{ p.cantidad }} {{ p.unidad }} {{ p.precio | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>@if (!ultimo) { · }})</span>
                 }
+                <!-- [COT.43] Lo que paga el cliente por unidad con el % del cliente ya aplicado (importe neto ÷ cantidad). -->
+                @if (netoUnidad(r); as nu) {
+                  <span class="p-neto">Con −{{ clientePct() }} %: <strong>{{ nu.precio | currency:'MXN':'symbol-narrow':'1.2-2' }}</strong>@if (r.unidad) { {{ r.unidad }}}@for (p of nu.pasos; track p.unidad) { · {{ p.precio | currency:'MXN':'symbol-narrow':'1.2-2' }} {{ p.unidad }}}</span>
+                }
               </div>
             } @else {
               <span class="t-none">sin precio</span>
@@ -250,6 +254,9 @@ export interface CambioCantidad {
       .p-unit-main { font-weight: 700; }
       .p-unit-sub-breakdown { font-size: var(--fs-micro); color: var(--text-muted); font-weight: 500; }
       .imp-antes { display: block; font-size: var(--fs-micro); color: var(--text-muted); white-space: normal; }
+      /* [COT.43] El neto por unidad: debajo del desglose, mismo tamaño, el precio en el color del texto principal. */
+      .p-neto { display: block; font-size: var(--fs-micro); color: var(--text-muted); white-space: normal; }
+      .p-neto strong { color: var(--text); font-weight: 600; }
       .imp-antes .junto { white-space: nowrap; }
       .inline-qty-box { display: flex; justify-content: flex-end; }
       .qty-inline { width: 4rem; text-align: right; font-variant-numeric: tabular-nums; }
@@ -293,6 +300,11 @@ export class QuoteLinesTableComponent {
 
   dinero(v: number | null): string {
     return v === null ? '—' : v.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
+  }
+
+  /** `[COT.43]` Precio por unidad con el % del cliente; null sin % de cliente (el precio ya es el neto). */
+  netoUnidad(r: RenglonTabla): { precio: number; pasos: PasoDesglose[] } | null {
+    return netoPorUnidad(r.neto, r.importe, r.cantidad, r.desglose);
   }
 
   /** `[E.29]` «Kepler redondea por PAQ a centavos: …» cuando el precio no es el de su último paso. */

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { abrevUnidadBase, desglose, esPaquete, gramosDeBase, unidadBaseLegible, unidadBaseDesglose, textoHay, nombreUnidadBase, opcionesUnidad, paqueteDeCaja, parseCantidad, vendedorDelCliente, descuentoDerivado, descuentoDelMecanismo, textoDescuento, existenciaEnUnidad, tonoFuentePrecio, unidadDelEscaneo } from './quote-units';
+import { abrevUnidadBase, desglose, esPaquete, gramosDeBase, unidadBaseLegible, unidadBaseDesglose, textoHay, nombreUnidadBase, opcionesUnidad, paqueteDeCaja, parseCantidad, vendedorDelCliente, descuentoDerivado, descuentoDelMecanismo, textoDescuento, existenciaEnUnidad, tonoFuentePrecio, unidadDelEscaneo, netoPorUnidad } from './quote-units';
 import { pasosDelPrecio } from './quote-discount-breakdown';
 import { etiquetaDesglose } from './quote-deliverable-export';
 import type { QuoteCatalogRow } from './quotes.service';
@@ -225,4 +225,18 @@ describe('[COT.42] unidadDelEscaneo — el código de la caja elige la caja', ()
   it('código del paquete: pack', () => expect(unidadDelEscaneo({ ...agua, scan_factor: 6 })).toBe('pack'));
   it('código de la caja: box', () => expect(unidadDelEscaneo({ ...agua, scan_factor: 24 })).toBe('box'));
   it('un empaque sin precio en la sucursal: se avisa, no cae a pieza', () => expect(unidadDelEscaneo({ ...agua, scan_factor: 12 })).toBe('sin-opcion'));
+});
+
+describe('[COT.43] netoPorUnidad — lo que paga el cliente por unidad, con todo descontado', () => {
+  it('el ejemplo de Televenta: 10 CJA x6, neto $2,573.02 → $257.30 la CJA y $42.88 el PAQ', () => {
+    const r = netoPorUnidad(2573.02, 2652.6, 10, desglose(265.26, 6, 'PAQ'))!;
+    expect(r.precio.toFixed(2)).toBe('257.30');
+    expect(r.pasos.map((p) => [p.unidad, p.precio.toFixed(2)])).toEqual([['PAQ', '42.88']]);
+  });
+  it('caja con paquete y pieza: reparte en las dos', () => {
+    const r = netoPorUnidad(970, 1000, 1, desglose(1000, 140, 'PZA', 10))!;
+    expect(r.pasos.map((p) => [p.unidad, p.precio.toFixed(2)])).toEqual([['PAQ', '69.29'], ['PZA', '6.93']]);
+  });
+  it('sin % de cliente (neto = importe) no se repite: null', () => expect(netoPorUnidad(100, 100, 2, [])).toBeNull());
+  it('sin neto o cantidad cero: null', () => { expect(netoPorUnidad(null, 100, 2, [])).toBeNull(); expect(netoPorUnidad(90, 100, 0, [])).toBeNull(); });
 });

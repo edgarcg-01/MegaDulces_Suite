@@ -126,6 +126,24 @@ export function desglose(
 }
 
 /**
+ * `[COT.43]` Lo que de verdad paga el cliente por unidad, con TODOS los descuentos (el % del cliente
+ * incluido): el importe neto del renglón entre su cantidad, y eso repartido en las unidades menores
+ * del desglose con la misma regla proporcional. Pedido de Televenta (2026-11-10): 10 CJA x6 con 3 %
+ * cliente, importe neto $2,573.02 → $257.30 la CJA y $42.88 el PAQ.
+ * null = no hay % de cliente (el precio mostrado ya es el neto) o no se puede dividir.
+ */
+export function netoPorUnidad(
+  neto: number | null,
+  importe: number | null,
+  cantidad: number,
+  pasos: PasoDesglose[],
+): { precio: number; pasos: PasoDesglose[] } | null {
+  if (neto === null || importe === null || neto === importe || !(cantidad > 0)) return null;
+  const precio = neto / cantidad;
+  return { precio, pasos: pasos.filter((p) => p.cantidad > 0).map((p) => ({ ...p, precio: precio / p.cantidad })) };
+}
+
+/**
  * `[COT.30]` Gramos de la unidad base cuando el ERP lo DEMUESTRA: rótulo numérico (`500`) y una
  * intermedia KG cuyo factor la completa a 1,000 g (70500: base `500`, KG de 2). Sin esa prueba el
  * número sigue siendo unidad desconocida (UNIDADES_DE_MEDIDA §7.6) y se devuelve null.

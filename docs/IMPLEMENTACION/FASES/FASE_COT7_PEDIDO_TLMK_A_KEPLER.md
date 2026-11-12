@@ -328,6 +328,16 @@ ensayo en 00, 02–05, 07, 08 · pedidos con regalos (rechazados a propósito).
 
 ## Bitácora
 
+- **2026-11-12** — 🧪 **[COT.43] El precio por unidad con todos los descuentos** (solicitud de Televenta del 10-nov: «mostrar
+  el descuento total ya aplicado por unidad paquete»). Debajo del precio de Kepler y su desglose, cuando hay % de cliente:
+  «Con −3 %: **$257.30** CJA · $42.88 PAQ» = importe neto del renglón ÷ cantidad, repartido en las unidades menores con la
+  regla proporcional del desglose (el ejemplo de la solicitud, al centavo, es una prueba). Sin % de cliente no se pinta:
+  el precio ya es el neto. Cinco preguntas: (1) ve primero el precio de Kepler, que es el que se escribe, y debajo lo
+  que paga el cliente; (2) no se repite sin % de cliente; (3) en la misma celda, sin clic; (4) es el importe neto de la
+  columna de al lado dividido, la misma cifra; (5) lo pidió Televenta, alta y detalle (misma tabla). Pruebas: 4 con
+  prueba negativa (2 rojas); 108/108 de televenta; `ngc` limpio; `check:pantalla televenta` 0 nuevas. **Sin validación
+  visual.**
+
 - **2026-11-11** — 🧪 **[COT.42] El código escaneado elige su unidad.** La búsqueda devuelve `scan_factor`: las piezas de
   la unidad cuya casilla casó (pieza `c7 c93 c102` = 1 · dos `c82 c95 c96` = `c81` · tres `c85` = `c84`). Con un solo
   resultado, el alta y el detalle eligen el artículo solos (antes sólo si casaba el `barcode` de la vista) y la opción de
