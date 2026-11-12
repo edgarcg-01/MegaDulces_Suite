@@ -232,6 +232,8 @@ if [ "$VIVO" = "$DESEADO" ]; then
     di "⛔ al día en $DESEADO pero SIN RÉPLICAS VIVAS: $_sin_vivas"
     latir error "prod al día en $DESEADO pero estos no tienen ni una réplica viva: $_sin_vivas"
   else
+    # `[OPS.ING.2]` En seco se DICE (es lo que `instalar-guiones.sh` cita como prueba); en vivo lo dice el latido.
+    [ "$SECO" = 1 ] && di "SECO: al día en $DESEADO — nada que desplegar"
     latir ok "al día en $DESEADO"
     # `[OPS.ING.1]` La API ya sirve este commit: la ingesta converge a él (no-op si su código no cambió).
     # `[OPS.ING.2]` Y los guiones de este host también (no-op si ninguno cambió). Nunca en seco: la prueba en seco
