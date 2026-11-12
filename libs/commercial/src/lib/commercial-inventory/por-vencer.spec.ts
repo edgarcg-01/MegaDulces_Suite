@@ -33,12 +33,11 @@ describe('[CE.1.4] la consulta de Por vencer lee el NA correcto', () => {
     expect(bloque).toMatch(/n\.lot_code = 'NA' AND n\.expiry_date IS NULL/);
   });
 
-  it('[CE.1.5] el costo es el resolvedor VIVO, evaluado una vez para las celdas de los lotes (sin copia ni refresco)', () => {
-    expect(bloque).toContain("trx('analytics.v_erp_unit_cost as c')");
+  it('[CE.1.6] el costo es el resolvedor VIVO, celda por celda (sin enumerar la vista, sin copia ni refresco)', () => {
     expect(bloque).toContain(".withMaterialized('lotes', lotes)");
-    expect(bloque).toContain(".withMaterialized('uc', costo)");
-    // ⛔ ni el JOIN directo a la vista (31 s: la recalcula por lote) ni la copia con cron
-    expect(bloque).not.toContain("leftJoin('analytics.v_erp_unit_cost");
+    expect(bloque).toMatch(/LEFT JOIN LATERAL analytics\.erp_unit_cost_at\(l\.warehouse_id, l\.product_id\) uc ON uc\.tenant_id = l\.tenant_id/);
+    // ⛔ ni el JOIN directo a la vista (31 s: la recalcula por lote), ni enumerarla (1.4 s), ni la copia con cron
+    expect(bloque).not.toContain('analytics.v_erp_unit_cost');
     expect(bloque).not.toContain('mv_erp_unit_cost');
   });
 

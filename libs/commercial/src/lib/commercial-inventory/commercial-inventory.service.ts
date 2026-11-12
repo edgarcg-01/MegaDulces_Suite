@@ -464,7 +464,11 @@ export class CommercialInventoryService {
    * un nested loop que recalculaba la vista entera POR LOTE. Medido en prod el 2026-11-12, sólo
    * lectura, 30 d (73 lotes): JOIN directo **31.1 s** (18,252,117 filas descartadas) → la vista una
    * vez para esas celdas **~1.9 s**. Mismo resolvedor, mismo número; sin copia ni refresco.
-   * ⚠️ Sigue arriba de 500 ms: el piso es la enumeración del resolvedor (deuda con nombre en el plan).
+   *
+   * `[CE.1.6]` Ya no se enumera el resolvedor: cada lote pide SU celda a
+   * `analytics.erp_unit_cost_at(warehouse_id, product_id)` — la MISMA fórmula que la vista
+   * (`analytics.erp_unit_cost_resolve`, mig 20261112135447), buscando sólo esa celda en `kdik`
+   * (`ix_kdik_suc_btrim_c2`) o en Wincaja. Ensayado en prod: mismo md5 de los 73 lotes que con la vista.
    */
   async listExpiring(query: { days?: number; warehouse_id?: string }) {
     const days = Number.isFinite(Number(query.days)) ? Math.max(0, Math.floor(Number(query.days))) : 30;
@@ -481,23 +485,17 @@ export class CommercialInventoryService {
         .whereRaw('l0.expiry_date <= (CURRENT_DATE + ?::int)', [days]);
       if (query.warehouse_id) lotes = lotes.where('l0.warehouse_id', query.warehouse_id);
       lotes = lotes.select('l0.*').orderBy('l0.expiry_date', 'asc').limit(500);
-      // [KE.3] El resolvedor único de costo, una vez, sólo para las celdas de esos lotes.
-      const costo = trx('analytics.v_erp_unit_cost as c')
-        .whereIn(['c.tenant_id', 'c.warehouse_id', 'c.product_id'], trx('lotes').select('tenant_id', 'warehouse_id', 'product_id'))
-        .select('c.tenant_id', 'c.warehouse_id', 'c.product_id', 'c.costo_unitario', 'c.costo_source');
       const q = trx
         .withMaterialized('lotes', lotes)
-        .withMaterialized('uc', costo)
         .from('lotes as l')
         .join('commercial.warehouses as w', function () {
           this.on('w.tenant_id', '=', 'l.tenant_id').andOn('w.id', '=', 'l.warehouse_id');
         })
         .leftJoin('public.products as p', 'p.id', 'l.product_id')
-        .leftJoin('uc', function () {
-          this.on('uc.tenant_id', '=', 'l.tenant_id')
-            .andOn('uc.warehouse_id', '=', 'l.warehouse_id')
-            .andOn('uc.product_id', '=', 'l.product_id');
-        })
+        // [KE.3 · CE.1.6] El resolvedor único de costo, celda por celda (no las 250 mil).
+        .joinRaw(
+          `LEFT JOIN LATERAL analytics.erp_unit_cost_at(l.warehouse_id, l.product_id) uc ON uc.tenant_id = l.tenant_id`,
+        )
         // [CE.1.4] Lo SIN fecha (lote NA) del mismo almacén × producto: la venta lo descuenta primero, así
         // que con NA > 0 el lote fechado puede estar ya vendido. Índice whp; medido en prod: +~3 ms.
         .joinRaw(`LEFT JOIN LATERAL (
