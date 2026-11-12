@@ -179,7 +179,7 @@ export * from './http/revision-gps.contract';
 export * from './http/cierre-viaje.contract';
 // [FCU] Costo por unidad: lo que hacía la hoja «TRANSPORTES 2026», con pantalla.
 export * from './http/costo-unidad.contract';
-// [FCT] El viaje TM: venta de Kepler + costo del cierre de Logística (la hoja «RENTABILIDAD TLMKT»).
+// [FCT] El viaje TM: venta de Kepler + costo capturado en Logística (la hoja «RENTABILIDAD TLMKT»).
 export * from './http/tlmk-viajes.contract';
 // [EMB.56] La guía de reparto: la hoja de ruta del chofer, sin importes.
 export * from './http/guia-reparto.contract';
