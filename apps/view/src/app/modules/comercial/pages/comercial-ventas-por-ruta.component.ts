@@ -47,7 +47,7 @@ import { RoutePromoComponent } from './comercial-route-promo.component';
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
 import { agruparPorSemana, etiquetaSemana, PeriodoConsultado, VentaPorSemana } from './ventas-por-semana';
 
-type DetailTab = 'productos' | 'unidades' | 'dias' | 'semanas' | 'clientes' | 'tickets' | 'deposito';
+type DetailTab = 'productos' | 'unidades' | 'dias' | 'calendario' | 'clientes' | 'tickets' | 'deposito';
 
 /**
  * `[VEC.12.2]` Un día de la ruta contra el dinero que se contó.
@@ -433,7 +433,7 @@ const MES: Record<string, string> = {
             <button type="button" role="radio" [class.on]="tab()==='productos'" [attr.aria-checked]="tab()==='productos'" (click)="setTab('productos')">Productos</button>
             <button type="button" role="radio" [class.on]="tab()==='unidades'" [attr.aria-checked]="tab()==='unidades'" (click)="setTab('unidades')">Unidades</button>
             <button type="button" role="radio" [class.on]="tab()==='dias'" [attr.aria-checked]="tab()==='dias'" (click)="setTab('dias')">Por día</button>
-            <button type="button" role="radio" [class.on]="tab()==='semanas'" [attr.aria-checked]="tab()==='semanas'" (click)="setTab('semanas')">Por semana</button>
+            <button type="button" role="radio" [class.on]="tab()==='calendario'" [attr.aria-checked]="tab()==='calendario'" (click)="setTab('calendario')">Calendario</button>
             <button type="button" role="radio" [class.on]="tab()==='clientes'" [attr.aria-checked]="tab()==='clientes'" (click)="setTab('clientes')">Clientes</button>
             <button type="button" role="radio" [class.on]="tab()==='tickets'" [attr.aria-checked]="tab()==='tickets'" (click)="setTab('tickets')">Tickets</button>
             <button type="button" role="radio" [class.on]="tab()==='deposito'" [attr.aria-checked]="tab()==='deposito'" (click)="setTab('deposito')">Depósito</button>
@@ -553,56 +553,96 @@ const MES: Record<string, string> = {
                 }
               }
             }
-            @case ('semanas') {
-              <!-- [VEC.42] La misma venta de «Por día», sumada por semana de lunes a domingo. Sin
-                   depósito a propósito: ése es de Caja General y se sigue viendo día por día. -->
-              <p-table [value]="porSemana().semanas" dataKey="lunes" size="small" class="surf-table" [scrollable]="true" scrollHeight="52vh">
+            @case ('calendario') {
+              <!-- [VEC.43] Calendario de la venta (reemplaza a la tabla «Por semana» de [VEC.42]): una fila por semana (lunes a domingo), un cuadro por
+                   día y el total de la semana. Sale de los mismos días de «Por día». Sin depósito a
+                   propósito: ése es de Caja General y se sigue viendo día por día en «Por día». -->
+              <p-table [value]="porSemana().semanas" dataKey="lunes" size="small" class="surf-table rr-cal-tabla" [scrollable]="true" scrollHeight="56vh">
                 <ng-template #header><tr>
                   <th scope="col">Semana</th>
-                  <th scope="col" class="comm-num">Días con venta</th>
-                  <th scope="col" class="comm-num">Tickets</th>
-                  <th scope="col" class="comm-num">Venta</th>
-                  <th scope="col" class="comm-num">Promedio por día</th>
-                  <th scope="col" class="rr-barcol"><span class="sr-only">Proporción</span></th></tr>
+                  <th scope="col" class="rr-cal-th"><abbr title="Lunes">Lun</abbr></th>
+                  <th scope="col" class="rr-cal-th"><abbr title="Martes">Mar</abbr></th>
+                  <th scope="col" class="rr-cal-th"><abbr title="Miércoles">Mié</abbr></th>
+                  <th scope="col" class="rr-cal-th"><abbr title="Jueves">Jue</abbr></th>
+                  <th scope="col" class="rr-cal-th"><abbr title="Viernes">Vie</abbr></th>
+                  <th scope="col" class="rr-cal-th"><abbr title="Sábado">Sáb</abbr></th>
+                  <th scope="col" class="rr-cal-th"><abbr title="Domingo">Dom</abbr></th>
+                  <th scope="col" class="comm-num">Total de la semana</th></tr>
                 </ng-template>
                 <ng-template #body let-s>
-                  @if (s.dias) {
-                    <tr class="rr-row" (click)="drillWeek(s.lunes)" [title]="'Ver tickets de la ' + s.etiqueta">
-                      <td>
-                        <span class="rr-sem-cell">
-                          <button type="button" class="rr-link" (click)="$event.stopPropagation(); drillWeek(s.lunes)"
-                                  [attr.aria-label]="'Filtrar por la semana ' + s.etiqueta">{{ s.etiqueta }}</button>
-                          @if (s.estado === 'en_curso') {
-                            <p-tag value="en curso" severity="secondary" />
-                          } @else if (s.estado === 'incompleta') {
-                            <p-tag [value]="'sólo ' + s.cubre" severity="secondary" />
+                  <tr>
+                    <td>
+                      <span class="rr-sem-cell">
+                        <button type="button" class="rr-link" (click)="drillWeek(s.lunes)"
+                                [attr.aria-label]="'Ver los tickets de la semana ' + s.etiqueta">{{ s.etiqueta }}</button>
+                        @if (s.estado === 'en_curso') {
+                          <p-tag value="en curso" severity="secondary" />
+                        } @else if (s.estado === 'incompleta') {
+                          <p-tag [value]="'sólo ' + s.cubre" severity="secondary" />
+                        }
+                      </span>
+                    </td>
+                    @for (c of s.celdas; track c.fecha) {
+                      <td class="rr-cal-td">
+                        @switch (c.estado) {
+                          @case ('venta') {
+                            <button type="button" class="rr-cal" [attr.data-nivel]="c.nivel" (click)="drillDay(c.fecha)"
+                                    [title]="'Ver los tickets del ' + c.nombre"
+                                    [attr.aria-label]="c.nombre + ': ' + (c.revenue | currency:'MXN':'symbol-narrow':'1.0-0') + ', ' + c.tickets + (c.tickets === 1 ? ' ticket' : ' tickets') + '. Ver sus tickets'">
+                              <span class="rr-cal-dia" aria-hidden="true">{{ c.dia }}</span>
+                              <span class="rr-cal-venta" aria-hidden="true">{{ c.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+                              <span class="rr-cal-sub" aria-hidden="true">{{ c.tickets | number }} {{ c.tickets === 1 ? 'ticket' : 'tickets' }}</span>
+                            </button>
                           }
-                        </span>
+                          @case ('sin_venta') {
+                            <div class="rr-cal rr-cal-vacio" [title]="c.nombre + ': sin venta'">
+                              <span class="rr-cal-dia">{{ c.dia }}</span>
+                              <span aria-hidden="true">—</span><span class="sr-only">sin venta</span>
+                            </div>
+                          }
+                          @default {
+                            <div class="rr-cal rr-cal-fuera" [title]="c.nombre + (c.estado === 'futuro' ? ': su venta todavía no llega' : ': fuera del periodo')">
+                              <span class="rr-cal-dia">{{ c.dia }}</span>
+                              <span aria-hidden="true">·</span><span class="sr-only">{{ c.estado === 'futuro' ? 'su venta todavía no llega' : 'fuera del periodo' }}</span>
+                            </div>
+                          }
+                        }
                       </td>
-                      <td class="comm-num">{{ s.dias }}</td>
-                      <td class="comm-num">{{ s.tickets | number }}</td>
-                      <td class="comm-num rr-strong">{{ s.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                      <td class="comm-num">{{ s.promedioDia | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                      <td class="rr-barcol"><span class="rr-bar" [style.width.%]="barSemana(s.revenue)"></span></td>
-                    </tr>
-                  } @else {
-                    <tr>
-                      <td class="comm-muted">{{ s.etiqueta }}</td>
-                      <td colspan="5" class="comm-muted">Sin venta registrada</td>
-                    </tr>
-                  }
+                    }
+                    <td class="comm-num">
+                      @if (s.dias) {
+                        <div class="rr-strong">{{ s.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</div>
+                        <div class="rr-cal-sub">{{ s.tickets | number }} {{ s.tickets === 1 ? 'ticket' : 'tickets' }} · {{ s.dias }} {{ s.dias === 1 ? 'día' : 'días' }}</div>
+                        <div class="rr-cal-sub">{{ s.promedioDia | currency:'MXN':'symbol-narrow':'1.0-0' }} por día</div>
+                      } @else {
+                        <span class="comm-muted">Sin venta registrada</span>
+                      }
+                    </td>
+                  </tr>
                 </ng-template>
                 <ng-template #emptymessage>
-                  <tr><td colspan="6" class="comm-muted">Sin venta en el periodo.</td></tr>
+                  <tr><td colspan="9" class="comm-muted">Sin venta en el periodo.</td></tr>
                 </ng-template>
               </p-table>
+              @if (porSemana().mejorDia; as m) {
+                <p class="rr-note rr-cal-leyenda">
+                  <span class="rr-cal-escala" aria-hidden="true">
+                    menos
+                    <span class="rr-cal-muestra" data-nivel="1"></span><span class="rr-cal-muestra" data-nivel="2"></span><span class="rr-cal-muestra" data-nivel="3"></span><span class="rr-cal-muestra" data-nivel="4"></span>
+                    más venta
+                  </span>
+                  El tono más intenso es el mejor día del periodo: el {{ m.nombre }}, con
+                  <strong>{{ m.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</strong>.
+                  «—» es un día que ya pasó sin venta; «·», uno fuera del periodo o cuya venta todavía no llega (la de hoy se ve mañana).
+                </p>
+              }
               <p class="rr-note">
-                Semana de lunes a domingo. Suma los mismos días de «Por día», así que las semanas
-                suman la venta del encabezado. Una semana <strong>en curso</strong> o que el periodo
-                corta (<strong>«sólo …»</strong>) tiene menos días: para compararla con las demás usa
-                el <strong>promedio por día</strong>, no la venta total.
+                Semana de lunes a domingo, con los mismos días de «Por día»: las semanas suman la venta
+                del encabezado. Clic en un día para ver sus tickets; en la semana, los de toda la semana.
+                Una semana <strong>en curso</strong> o que el periodo corta (<strong>«sólo …»</strong>)
+                tiene menos días: para compararla con las demás usa su <strong>promedio por día</strong>.
                 @if (porSemana().sinFecha) {
-                  {{ porSemana().sinFecha }} días sin fecha válida no se pudieron poner en ninguna semana.
+                  {{ porSemana().sinFecha }} días sin fecha válida no se pudieron poner en el calendario.
                 }
               </p>
             }
@@ -1240,6 +1280,27 @@ const MES: Record<string, string> = {
     .rr-barcol { width:80px; }
     .rr-bar { display:block; height:8px; border-radius:4px; background:var(--action); opacity:.55; }
     .rr-sem-cell { display:inline-flex; align-items:center; flex-wrap:wrap; gap:var(--sp-2); }
+    /* [VEC.43] Calendario: el tono codifica la venta (data-viz), siempre con la cifra al lado. */
+    .rr-cal-th { text-align:center; }
+    .rr-cal-th abbr { text-decoration:none; }
+    .rr-cal-td { padding:var(--sp-1); }
+    .rr-cal { display:flex; flex-direction:column; align-items:flex-end; gap:2px; width:100%; min-width:84px; min-height:58px;
+              padding:var(--sp-1) var(--sp-2); border:1px solid transparent; border-radius:var(--radius-sm);
+              background:transparent; font:inherit; color:var(--fg-1); text-align:right; font-variant-numeric:tabular-nums; }
+    button.rr-cal { cursor:pointer; }
+    button.rr-cal:hover { border-color:var(--action); }
+    button.rr-cal:focus-visible { outline:2px solid var(--action); outline-offset:1px; }
+    .rr-cal[data-nivel="1"], .rr-cal-muestra[data-nivel="1"] { background:color-mix(in srgb, var(--chart-1) 10%, transparent); }
+    .rr-cal[data-nivel="2"], .rr-cal-muestra[data-nivel="2"] { background:color-mix(in srgb, var(--chart-1) 20%, transparent); }
+    .rr-cal[data-nivel="3"], .rr-cal-muestra[data-nivel="3"] { background:color-mix(in srgb, var(--chart-1) 32%, transparent); }
+    .rr-cal[data-nivel="4"], .rr-cal-muestra[data-nivel="4"] { background:color-mix(in srgb, var(--chart-1) 46%, transparent); }
+    .rr-cal-dia { align-self:flex-start; font-size:var(--fs-xs); color:var(--fg-3); }
+    .rr-cal-venta { font-weight:700; }
+    .rr-cal-sub { font-size:var(--fs-xs); color:var(--fg-2); }
+    .rr-cal-vacio { color:var(--fg-2); }
+    .rr-cal-fuera { color:var(--fg-3); }
+    .rr-cal-escala { display:inline-flex; align-items:center; gap:var(--sp-1); margin-right:var(--sp-2); color:var(--fg-2); }
+    .rr-cal-muestra { display:inline-block; width:14px; height:14px; border-radius:var(--radius-sm); border:1px solid var(--border-color); }
     /* RR2 — margen con cobertura + desglose por ticket */
     .rr-dkpi-wide { grid-column:1 / -1; }
     .rr-dkpi em { display:block; font-style:normal; font-size:.62rem; color:var(--text-muted); margin-top:.1rem; }
@@ -1845,7 +1906,7 @@ export class ComercialVentasPorRutaComponent {
   dClientName = signal<string | null>(null);
   dUnit = signal<string | null>(null);
   dDay = signal<string | null>(null);
-  /** `[VEC.42]` Lunes de la semana elegida en «Por semana» (YYYY-MM-DD); null = sin semana. */
+  /** `[VEC.42]` Lunes de la semana elegida en el «Calendario» (YYYY-MM-DD); null = sin semana. */
   dWeek = signal<string | null>(null);
   readonly dWeekLabel = computed(() => {
     const l = this.dWeek();
@@ -2356,7 +2417,7 @@ export class ComercialVentasPorRutaComponent {
 
   private fetchDetail(routeCode: string) {
     const b = this.dayBounds() ?? this.weekBounds() ?? this.detailBounds();
-    // `[VEC.42]` El periodo que se PIDE viaja con la respuesta: «Por semana» decide con él qué
+    // `[VEC.42]` El periodo que se PIDE viaja con la respuesta: el «Calendario» decide con él qué
     // semana quedó cortada. Leerlo de los filtros al pintar describiría la petición siguiente.
     const rango: PeriodoConsultado = {
       desde: b.from ?? `${this.year}-01-01`,
@@ -2390,23 +2451,18 @@ export class ComercialVentasPorRutaComponent {
 
   barPct(v: number): number { return this.dailyMax > 0 ? Math.round((v / this.dailyMax) * 100) : 0; }
 
-  // ── `[VEC.42]` «Por semana»: la venta diaria sumada por semana de lunes a domingo ──────────
+  // ── `[VEC.42]` «Calendario»: la venta diaria en semanas de lunes a domingo ──────────────────
   /** El periodo con que se pidió el desglose que está en pantalla (ver `fetchDetail`). */
   readonly detailRango = signal<PeriodoConsultado | null>(null);
 
   readonly porSemana = computed<VentaPorSemana>(() => {
     const d = this.detail();
     const r = this.detailRango();
-    if (!d || !r) return { semanas: [], sinFecha: 0 };
+    if (!d || !r) return { semanas: [], mejorDia: null, sinFecha: 0 };
     // Hoy en México: la misma cuenta que usa el resto del archivo (UTC−6).
     const hoy = new Date(Date.now() - 6 * 3600 * 1000).toISOString().slice(0, 10);
     return agruparPorSemana(d.daily ?? [], r, hoy);
   });
-
-  private readonly semanaMax = computed(() =>
-    Math.max(1, ...this.porSemana().semanas.map((s) => s.revenue)));
-
-  barSemana(v: number): number { return Math.round((v / this.semanaMax()) * 100); }
 
   mes(m: string): string { return MES[m] ?? m; }
   cell(row: SalesByRouteRow, m: string) { return row.monthly[m]; }
