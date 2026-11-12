@@ -132,7 +132,7 @@ interface Formulario {
   template: `
     <div class="surf-page rp">
       <p-toast></p-toast>
-      <p-confirmDialog></p-confirmDialog>
+      <p-confirmdialog></p-confirmdialog>
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Objetivos del ranking <app-context-help topic="mkt-ranking" /></h1>
@@ -229,9 +229,9 @@ interface Formulario {
                     } @else { <span class="rp-tenue">Sin historia</span> }
                   </td>
                   <td class="comm-num rp-input">
-                    <p-inputNumber [(ngModel)]="f.valor" (ngModelChange)="marcarSucio()" [min]="0" [max]="1000000" [maxFractionDigits]="0"
+                    <p-inputnumber [(ngModel)]="f.valor" (ngModelChange)="marcarSucio()" [min]="0" [max]="1000000" [maxFractionDigits]="0"
                                    [disabled]="!puedeGestionar" [inputStyle]="{ width: '6rem', 'text-align': 'right' }"
-                                   [ariaLabel]="'Objetivo de ' + f.nombre" placeholder="—"></p-inputNumber>
+                                   [ariaLabel]="'Objetivo de ' + f.nombre" placeholder="—"></p-inputnumber>
                     @if (f.fuente === 'sugerido' && f.valor === f.guardado) { <span class="rp-tenue">sugerido</span> }
                   </td>
                 </tr>
@@ -304,8 +304,8 @@ interface Formulario {
                 }
               </div>
               <label class="rp-campo" for="rp-sucs">Sucursales <span class="rp-tenue-i">(vacío = todas)</span></label>
-              <p-multiSelect inputId="rp-sucs" [options]="opcionesSucursal" optionLabel="label" optionValue="value" [(ngModel)]="f.sucursales"
-                             placeholder="Todas las sucursales" display="chip" appendTo="body" [showToggleAll]="true"></p-multiSelect>
+              <p-multiselect inputId="rp-sucs" [options]="opcionesSucursal" optionLabel="label" optionValue="value" [(ngModel)]="f.sucursales"
+                             placeholder="Todas las sucursales" display="chip" appendTo="body" [showToggleAll]="true"></p-multiselect>
               @if (errorForm()) { <p class="rp-error" role="alert">{{ errorForm() }}</p> }
             }
           </div>

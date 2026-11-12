@@ -95,7 +95,7 @@ export function dtoDeForm(f: FormIncentivo): IncentivoDto | string {
   template: `
     <div class="surf-page inc">
       <p-toast></p-toast>
-      <p-confirmDialog></p-confirmDialog>
+      <p-confirmdialog></p-confirmdialog>
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Incentivos de venta <app-context-help topic="mkt-incentivos" /></h1>
@@ -205,7 +205,7 @@ export function dtoDeForm(f: FormIncentivo): IncentivoDto | string {
                 <ng-template #body let-c>
                   <tr>
                     <td><span class="inc-nombre">{{ c.nombre }}</span><span class="inc-tenue">{{ suc(c.warehouse_code) }}</span></td>
-                    <td class="comm-num"><p-inputNumber [(ngModel)]="c.cantidad" [min]="0" [maxFractionDigits]="0" [inputStyle]="{ width: '6rem', 'text-align': 'right' }" [ariaLabel]="'Exhibidores de ' + c.nombre"></p-inputNumber></td>
+                    <td class="comm-num"><p-inputnumber [(ngModel)]="c.cantidad" [min]="0" [maxFractionDigits]="0" [inputStyle]="{ width: '6rem', 'text-align': 'right' }" [ariaLabel]="'Exhibidores de ' + c.nombre"></p-inputnumber></td>
                   </tr>
                 </ng-template>
               </p-table>
@@ -239,12 +239,12 @@ export function dtoDeForm(f: FormIncentivo): IncentivoDto | string {
               </div>
               <div>
                 <label class="inc-campo" for="inc-pago">Se pagan</label>
-                <p-inputNumber inputId="inc-pago" [(ngModel)]="f.pago" mode="currency" currency="MXN" locale="es-MX" [min]="0"></p-inputNumber>
+                <p-inputnumber inputId="inc-pago" [(ngModel)]="f.pago" mode="currency" currency="MXN" locale="es-MX" [min]="0"></p-inputnumber>
               </div>
               @if (f.tipo === 'por_monto') {
                 <div>
                   <label class="inc-campo" for="inc-base">Por cada (pesos vendidos)</label>
-                  <p-inputNumber inputId="inc-base" [(ngModel)]="f.base_monto" mode="currency" currency="MXN" locale="es-MX" [min]="0"></p-inputNumber>
+                  <p-inputnumber inputId="inc-base" [(ngModel)]="f.base_monto" mode="currency" currency="MXN" locale="es-MX" [min]="0"></p-inputnumber>
                 </div>
               }
             </div>
@@ -287,8 +287,8 @@ export function dtoDeForm(f: FormIncentivo): IncentivoDto | string {
               }
             </div>
             <label class="inc-campo" for="inc-sucs">Sucursales <span class="inc-tenue-i">(vacío = todas)</span></label>
-            <p-multiSelect inputId="inc-sucs" [options]="opcionesSucursal" optionLabel="label" optionValue="value" [(ngModel)]="f.sucursales"
-                           placeholder="Todas las sucursales" display="chip" appendTo="body"></p-multiSelect>
+            <p-multiselect inputId="inc-sucs" [options]="opcionesSucursal" optionLabel="label" optionValue="value" [(ngModel)]="f.sucursales"
+                           placeholder="Todas las sucursales" display="chip" appendTo="body"></p-multiselect>
             @if (errorForm()) { <p class="inc-error" role="alert">{{ errorForm() }}</p> }
           </div>
         }
