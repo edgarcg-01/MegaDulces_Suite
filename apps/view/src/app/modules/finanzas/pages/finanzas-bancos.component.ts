@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnInit, ViewChild, computed, effect, inject, signal } from '@angular/core';
-import { DatePipe } from '@angular/common';
+import { DatePipe, DecimalPipe } from '@angular/common';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 
@@ -16,6 +16,7 @@ import { IconFieldModule } from 'primeng/iconfield';
 import { InputIconModule } from 'primeng/inputicon';
 import { MenuItem, MessageService } from 'primeng/api';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
+import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { ArchivosDelBanco, BankService, BankAccount, MovementCategory, BankStatement, BankMovement, DescargaEnMovimientos, Concentrado, Reconciliation, MatchResult, Differences, Balances, Diagnostico, KeplerAccount, ContpaqiCompare, ContpaqiBankAccount, FactorajeCompare, ThreeWay, SheetSyncConfig, ImportResult, SyncFindingsResult, SheetSyncRunResult, PropuestaComisiones } from '../bank.service';
@@ -79,7 +80,7 @@ export function avisoCuentasDelBanco(res: Pick<ImportResult, 'accounts'>): { sum
 @Component({
   selector: 'app-finanzas-bancos',
   standalone: true,
-  imports: [DatePipe, FormsModule, ButtonModule, MenuModule, TableModule, ToastModule, SelectModule, CheckboxModule, InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent, BancosConcentradoComponent, BancosConciliacionComponent, BancosCuentasComponent, BancosEstadoBancoComponent, BancosDescargasAvisoComponent, BancosCierreComponent, BancosMovimientosComponent, BancosAdminComponent, BancosContpaqiComponent, BancosThreeWayComponent, BancosCapturasComponent, BancosComisionesComponent, PageTabsComponent],
+  imports: [DatePipe, FormsModule, ButtonModule, MenuModule, TableModule, ToastModule, SelectModule, CheckboxModule, InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, LoadStateComponent, FreshnessPillComponent, ContextHelpComponent, BancosConcentradoComponent, BancosConciliacionComponent, BancosCuentasComponent, BancosEstadoBancoComponent, BancosDescargasAvisoComponent, BancosCierreComponent, BancosMovimientosComponent, BancosAdminComponent, BancosContpaqiComponent, BancosThreeWayComponent, BancosCapturasComponent, BancosComisionesComponent, PageTabsComponent, SidePeekComponent, DecimalPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -166,13 +167,6 @@ export function avisoCuentasDelBanco(res: Pick<ImportResult, 'accounts'>): { sum
         }
       }
 
-      <!-- ── MOVIMIENTOS: la tabla de todos los ingresos y egresos ── -->
-      @if (view() === 'movimientos') {
-        <bancos-movimientos [movements]="movements()" [movTotal]="movTotal()" [descarga]="movDescarga()" [fDescarga]="fDescarga()"
-          [accountOpts]="accountOpts()" [groupOpts]="groupOpts()" [reconOpts]="reconOpts"
-          [fAccount]="fAccount()" [fGroup]="fGroup()" [fRecon]="fRecon()" [fUncat]="fUncat()" [fSearch]="fSearch()"
-          (filter)="onMovFilter($event)" (searchChange)="onSearch($event)" />
-      }
 
       <!-- ── CONCILIACIÓN banco ↔ Kepler (answer-first: veredicto → sin conciliar → evidencia) ── -->
       @if (view() === 'conciliacion') {
@@ -238,6 +232,15 @@ export function avisoCuentasDelBanco(res: Pick<ImportResult, 'accounts'>): { sum
       }
 
       @if (view() === 'cuentas') {
+        <!-- [CB.64] Los movimientos se abren en una ventana: de una cuenta (clic en su fila), de todas, o los sin clasificar. -->
+        <div class="fb-cuentas-acc">
+          <button pButton type="button" class="p-button-sm p-button-outlined" (click)="abrirMovimientos({})">
+            <span class="p-button-icon p-button-icon-left pi pi-list" aria-hidden="true"></span><span class="p-button-label">Ver todos los movimientos</span></button>
+          @if (diagnostico()?.sin_clasificar_n; as n) {
+            <button pButton type="button" class="p-button-sm p-button-text" (click)="abrirMovimientos({ uncat: true })">
+              <span class="p-button-label">{{ n | number }} sin clasificar</span></button>
+          }
+        </div>
         <bancos-cuentas [balances]="balances()" [statements]="statements()" [diagnostico]="diagnostico()"
           [period]="period()" (openAccount)="verCuentaMovs($event)" />
       }
@@ -250,10 +253,28 @@ export function avisoCuentasDelBanco(res: Pick<ImportResult, 'accounts'>): { sum
           (addAccount)="addAccount($event)" />
       }
       }
+
+      <!-- [CB.64] MOVIMIENTOS: una ventana encima de la vista donde se pidió; cerrarla regresa a donde estabas. -->
+      <app-side-peek mode="window" [width]="1240" [open]="movAbierta()" (openChange)="$event || cerrarMovimientos()"
+                     [title]="tituloMovimientos()" subtitle="Del más nuevo al más viejo, con lo que trajo la descarga del banco en la misma lista.">
+        @if (movAbierta()) {
+          @if (movError()) {
+            <app-load-state [error]="movError()" (retry)="reloadMovements()"></app-load-state>
+          } @else if (movCargando() && !movements().length) {
+            <div class="fb-skeleton" aria-busy="true">@for (i of [1,2,3,4,5,6]; track i) { <div class="fb-skel-row"></div> }</div>
+          } @else {
+            <bancos-movimientos [movements]="movements()" [movTotal]="movTotal()" [descarga]="movDescarga()" [fDescarga]="fDescarga()"
+              [accountOpts]="accountOpts()" [groupOpts]="groupOpts()" [reconOpts]="reconOpts"
+              [fAccount]="fAccount()" [fGroup]="fGroup()" [fRecon]="fRecon()" [fUncat]="fUncat()" [fSearch]="fSearch()"
+              (filter)="onMovFilter($event)" (searchChange)="onSearch($event)" />
+          }
+        }
+      </app-side-peek>
     </div>
   `,
   styles: [BANCOS_STYLES, FINANZAS_SHARED_STYLES, `
     .fb-head-actions { display: flex; align-items: center; gap: var(--sp-3); }
+    .fb-cuentas-acc { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); }
     .fb-period { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-xs); color: var(--text-muted); }
 
     :host ::ng-deep .fb-sel.p-select { font-size: var(--fs-sm); }
@@ -402,6 +423,17 @@ export class FinanzasBancosComponent implements OnInit {
   /** [CB.64] '' | 'solo_descarga' | 'no_trae': la descarga del banco contra el libro, dentro de Movimientos. */
   readonly fDescarga = signal('');
   readonly movDescarga = signal<DescargaEnMovimientos | null>(null);
+  /** [CB.64] La ventana de Movimientos. Cerrada, no se piden movimientos (antes se cargaban con cada periodo aunque nadie los viera). */
+  readonly movAbierta = signal(false);
+  readonly movCargando = signal(false);
+  readonly tituloMovimientos = computed(() => {
+    const a = this.accounts().find((x) => x.id === this.fAccount());
+    const cuenta = a ? (a.alias || `${a.bank} ${a.account_label}`) : 'todas las cuentas';
+    const p = this.period();
+    const mes = /^\d{4}-\d{2}$/.test(p)
+      ? new Intl.DateTimeFormat('es-MX', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${p}-01T00:00:00Z`)) : p;
+    return `Movimientos · ${cuenta}${this.fUncat() ? ' · sin clasificar' : ''} · ${mes}`;
+  });
   readonly uploading = signal(false);
   private searchTimer: any = null;
 
@@ -558,6 +590,7 @@ export class FinanzasBancosComponent implements OnInit {
     const q0 = this.route.snapshot.queryParamMap;
     const v0 = q0.get('view');
     if (this.isView(v0)) this.view.set(v0);
+    else if (v0 === 'movimientos') { this.view.set('cuentas'); this.movAbierta.set(true); }
 
     this.api.periods().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (ps) => {
@@ -798,16 +831,18 @@ export class FinanzasBancosComponent implements OnInit {
   }
 
   reloadMovements(): void {
+    if (!this.movAbierta()) return;
     const p = this.period();
     if (!p) { this.loading.set(false); return; }
     this.movError.set(null);
+    this.movCargando.set(true);
     this.api.movements({
       period: p, account_id: this.fAccount() || undefined, group_key: this.fGroup() || undefined,
       uncategorized: this.fUncat() || undefined, recon_status: this.fRecon() || undefined,
       search: this.fSearch() || undefined, limit: 500, contra_descarga: this.fDescarga() || undefined,
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => { this.movements.set(r.rows); this.movTotal.set(r.total); this.movDescarga.set(r.descarga ?? null); this.loading.set(false); },
-      error: () => { this.movError.set('No se pudieron cargar los movimientos.'); this.loading.set(false); },
+      next: (r) => { this.movements.set(r.rows); this.movTotal.set(r.total); this.movDescarga.set(r.descarga ?? null); this.movCargando.set(false); this.loading.set(false); },
+      error: () => { this.movError.set('No se pudieron cargar los movimientos.'); this.movCargando.set(false); this.loading.set(false); },
     });
   }
 
@@ -887,31 +922,34 @@ export class FinanzasBancosComponent implements OnInit {
   /** Checklist accionable: salta al lugar exacto para resolver cada descuadre del diagnóstico. */
   itemAction(it: { tipo?: string }): void {
     switch (it?.tipo) {
-      case 'sin_clasificar': this.view.set('movimientos'); this.fGroup.set(''); this.fUncat.set(true); this.reloadMovements(); break;
-      case 'traspaso_descuadre': this.view.set('movimientos'); this.fUncat.set(false); this.fGroup.set('traspaso'); this.reloadMovements(); break;
+      case 'sin_clasificar': this.abrirMovimientos({ uncat: true }); break;
+      case 'traspaso_descuadre': this.abrirMovimientos({ group: 'traspaso' }); break;
       case 'saldo_no_cuadra': this.view.set('cuentas'); break;
       case 'kepler_pnl': this.view.set('conciliacion'); break;
       case 'cuenta_sin_cargar': this.fileInput?.nativeElement.click(); break;
-      default: this.view.set('movimientos'); this.reloadMovements();
+      default: this.abrirMovimientos({});
     }
   }
+
+  /** [CB.64] Abre la ventana de Movimientos con estos filtros (lo que no se pasa, limpio). No cambia la vista de abajo. */
+  abrirMovimientos(f: { account?: string; group?: string; uncat?: boolean }): void {
+    this.fAccount.set(f.account || ''); this.fGroup.set(f.group || ''); this.fUncat.set(!!f.uncat);
+    this.fRecon.set(''); this.fDescarga.set(''); this.fSearch.set('');
+    this.movements.set([]); this.movTotal.set(0); this.movDescarga.set(null);
+    this.movAbierta.set(true);
+    this.reloadMovements();
+  }
+
+  cerrarMovimientos(): void { this.movAbierta.set(false); }
   /** Desde Cuentas: salta a Movimientos filtrado a esa cuenta. */
   verCuentaMovs(a: { bank: string; account_label: string }): void {
     const acct = this.accounts().find((x) => x.bank === a.bank && x.account_label === a.account_label);
-    this.fAccount.set(acct?.id || '');
-    this.fGroup.set('');
-    this.fUncat.set(false);
-    this.fDescarga.set('');
-    this.view.set('movimientos');
-    this.reloadMovements();
+    this.abrirMovimientos({ account: acct?.id });
   }
 
   /** [CB.64] Desde Estados de cuenta: los movimientos de esa cuenta, con lo que trajo la descarga en la misma lista. */
   verMovimientosDeCuenta(cuentaId: string): void {
-    this.fAccount.set(cuentaId || '');
-    this.fGroup.set(''); this.fUncat.set(false); this.fRecon.set(''); this.fDescarga.set('');
-    this.goView('movimientos');
-    this.reloadMovements();
+    this.abrirMovimientos({ account: cuentaId });
   }
   // CB.13 — búsqueda en el catálogo real de cuentas de Kepler.
   onKaSearch(v: string): void {

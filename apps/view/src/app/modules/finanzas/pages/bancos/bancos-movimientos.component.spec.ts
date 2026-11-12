@@ -118,6 +118,29 @@ describe('[CB.64] la descarga del banco dentro de Movimientos', () => {
     expect(cmp.detail()?.fields.find((f) => f.k === 'Descarga del banco')?.v).toBe('la descarga no lo trae');
   });
 
+  it('el detalle se despliega bajo su fila (la lista ya vive en una ventana: nada de otro panel encima) y otro clic lo cierra', () => {
+    const { fx, el, fila } = montar(FILAS, RESUMEN);
+    fila(3).click();
+    fx.detectChanges();
+    const det = el.querySelector('tr.fb-mov-det');
+    expect(det?.textContent).toContain('Detalle del movimiento');
+    expect(det?.previousElementSibling).toBe(fila(3));
+    expect(fila(3).getAttribute('aria-expanded')).toBe('true');
+    expect(el.querySelector('app-side-peek')).toBeNull();
+    fila(3).click();
+    fx.detectChanges();
+    expect(el.querySelector('tr.fb-mov-det')).toBeNull();
+  });
+
+  it('[negativa] el de la descarga se despliega sin la sección del flujo (no está en Movimientos, no tiene flujo)', () => {
+    const { fx, el, fila } = montar(FILAS, RESUMEN);
+    fila(0).click();
+    fx.detectChanges();
+    const det = el.querySelector('tr.fb-mov-det') as HTMLElement;
+    expect(det.textContent).toContain('Movimiento de la descarga del banco');
+    expect((det.querySelector('.fb-flow-sec') as HTMLElement).hidden).toBe(true);
+  });
+
   it('el Excel dice lo mismo que la columna, en palabras', () => {
     const { cmp } = montar(FILAS, RESUMEN);
     expect(FILAS.map((m) => cmp.descargaTexto(m))).toEqual([

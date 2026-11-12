@@ -8,7 +8,7 @@ describe('[CB.59] barra de Bancos por proceso', () => {
   it('cada vista vive en un grupo que existe, en el orden del trabajo', () => {
     const grupos = VIEW_GRUPOS.map((g) => g.key);
     expect(WORK_VIEWS.every((v) => grupos.includes(v.grupo))).toBe(true);
-    expect(WORK_VIEWS.map((v) => v.key)).toEqual(['cierre', 'estados', 'movimientos', 'cuentas', 'conciliacion', 'cuadre', 'comisiones', 'concentrado', 'contpaqi', 'capturas']);
+    expect(WORK_VIEWS.map((v) => v.key)).toEqual(['cierre', 'estados', 'cuentas', 'conciliacion', 'cuadre', 'comisiones', 'concentrado', 'contpaqi', 'capturas']);
     expect(WORK_VIEWS.filter((v) => v.grupo === 'mas').map((v) => v.label)).toEqual(['Concentrado', 'Factoraje', 'Capturas WhatsApp']);
   });
 
@@ -17,9 +17,9 @@ describe('[CB.59] barra de Bancos por proceso', () => {
     expect(n).toEqual({ texto: '1/2', aria: '1 de 2 cuentas con su descarga', aviso: true });
   });
 
-  it('Movimientos y Cuentas sólo llevan número cuando hay trabajo', () => {
-    expect(numeroDePestana('movimientos', { ...BASE, sinClasificar: 266 })?.aria).toBe('266 sin clasificar');
-    expect(numeroDePestana('movimientos', { ...BASE, sinClasificar: 0 })).toBeNull();
+  it('[CB.64] Movimientos ya no es pestaña (es la ventana de Cuentas); Cuentas sólo lleva número cuando hay trabajo', () => {
+    expect(WORK_VIEWS.some((v) => v.key === 'movimientos')).toBe(false);
+    expect(numeroDePestana('movimientos', { ...BASE, sinClasificar: 266 })).toBeNull();
     expect(numeroDePestana('cuentas', { ...BASE, descuadradas: 3 })?.texto).toBe('3');
     expect(numeroDePestana('cuentas', { ...BASE, descuadradas: 0 })).toBeNull();
   });

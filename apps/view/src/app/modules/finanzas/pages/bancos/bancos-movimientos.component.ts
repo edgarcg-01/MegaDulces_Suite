@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, EventEmitter, Output, inject, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, EventEmitter, Output, computed, inject, input, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -9,7 +9,6 @@ import { InputTextModule } from 'primeng/inputtext';
 import { IconFieldModule } from 'primeng/iconfield';
 import { InputIconModule } from 'primeng/inputicon';
 import { ButtonModule } from 'primeng/button';
-import { SidePeekComponent } from '../../../../shared/components/side-peek/side-peek.component';
 import { BankService, BankMovement, MovementFlow, DescargaEnMovimientos } from '../../bank.service';
 import { GROUP_ORDER, groupLabel, groupColorVar, dmy, dmShort, money } from './bancos-shared';
 import { exportXlsx } from '../../../../shared/export/xlsx-export';
@@ -23,7 +22,7 @@ import { BANCOS_STYLES } from './bancos.styles';
 @Component({
   selector: 'bancos-movimientos',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, SelectModule, CheckboxModule, InputTextModule, IconFieldModule, InputIconModule, ButtonModule, SidePeekComponent],
+  imports: [CommonModule, FormsModule, TableModule, SelectModule, CheckboxModule, InputTextModule, IconFieldModule, InputIconModule, ButtonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="fb-filters">
@@ -83,7 +82,7 @@ import { BANCOS_STYLES } from './bancos.styles';
       </div>
     }
     <div class="card-premium card-flat fb-tablewrap">
-      <p-table [value]="movements()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="58vh"
+      <p-table [value]="movements()" dataKey="id" [expandedRowKeys]="expandidas()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="58vh"
                [paginator]="movements().length > 50" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]">
         <ng-template #header>
           <tr>
@@ -102,7 +101,7 @@ import { BANCOS_STYLES } from './bancos.styles';
               [style.--g]="colorByGroup() ? color(m.group_key) : null"
               [class.fb-uncat]="!m.category_id && !colorByGroup() && m.fuente !== 'descarga'"
               [class.fb-row-desc]="m.fuente === 'descarga'"
-              (click)="openMov(m)" tabindex="0" role="button" (keyup.enter)="openMov(m)">
+              [attr.aria-expanded]="abierta() === m.id" (click)="openMov(m)" tabindex="0" role="button" (keyup.enter)="openMov(m)">
             <td class="mono">{{ dm(m.movement_date) }}</td>
             <td class="muted">{{ m.account_label }}</td>
             <td class="fb-concept" [title]="m.concept">{{ m.concept || '—' }}</td>
@@ -127,92 +126,94 @@ import { BANCOS_STYLES } from './bancos.styles';
             </td>
           </tr>
         </ng-template>
+        <!-- El detalle se despliega bajo su fila: la lista vive en una ventana y un segundo panel encima no se puede
+             cerrar sin cerrar los dos (Esc los cierra a ambos). -->
+        <ng-template #expandedrow let-m>
+          <tr class="fb-mov-det"><td [attr.colspan]="descarga() ? 8 : 7">
+            @if (detail(); as d) {
+              <p class="fb-det-t">{{ d.title }}</p>
+              <p class="fb-det-nota">{{ d.note }}</p>
+              <dl class="fb-dl fb-dl--grid">
+                @for (f of d.fields; track f.k) { <div class="fb-dl-row"><dt>{{ f.k }}</dt><dd [class.mono]="f.mono">{{ f.v }}</dd></div> }
+              </dl>
+
+              <!-- CB.15.2 — de dónde viene: cadena del proveedor (pago) o cómo Kepler tiene la cobranza (depósito) -->
+              <div class="fb-flow-sec" [hidden]="m.fuente === 'descarga'">
+                <!-- El flujo se carga solo al abrir. El botón sobrevive como REINTENTO: si falló, hay
+                     que decirlo, no dejar un hueco que se lee como "este movimiento no tiene flujo". -->
+                @if (flowError()) {
+                  <p class="muted fb-flow-loading">No se pudo rastrear el flujo.</p>
+                  <button pButton type="button" class="p-button-sm p-button-outlined" (click)="loadFlow()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Reintentar</span></button>
+                }
+                @if (flowLoading()) { <p class="muted fb-flow-loading"><i class="pi pi-spin pi-spinner"></i> Rastreando el flujo…</p> }
+                @if (flow(); as fl) {
+                  @if (fl.proveedor && (fl.proveedor.banco_movs || fl.proveedor.kepler_movs)) {
+                    <div class="fb-flow-cuadre">
+                      <span class="fb-flow-prov">{{ fl.proveedor.nombre }}</span>
+                      <div class="fb-flow-nums">
+                        <span><b class="mono">{{ fl.proveedor.banco_total_mes | currency:'MXN':'symbol-narrow':'1.2-2' }}</b> banco ({{ fl.proveedor.banco_movs }})</span>
+                        <span class="muted">vs</span>
+                        <span><b class="mono">{{ fl.proveedor.kepler_total_mes | currency:'MXN':'symbol-narrow':'1.2-2' }}</b> Kepler 102 ({{ fl.proveedor.kepler_movs }})</span>
+                        @if (provCuadra(fl)) { <i class="pi pi-check-circle ok" title="Cuadra en el mes"></i> }
+                        @else { <i class="pi pi-exclamation-triangle warn" title="Difieren en el mes"></i> }
+                      </div>
+                    </div>
+                  }
+                  @if (fl.cadena.length) {
+                    <div class="fb-flow-chain">
+                      <div class="fb-flow-h">Compras del proveedor en el mes (orden → recepción → factura → pago)</div>
+                      <table class="surf-table surf-table--plain is-dense fb-flow-table">
+                        <thead><tr><th>Factura</th><th>Orden</th><th>Recepción</th><th>Pago</th><th class="comm-num">Total</th></tr></thead>
+                        <tbody>
+                          @for (r of fl.cadena; track r.factura_folio) {
+                            <tr>
+                              <td class="mono">{{ r.factura_folio || '—' }} <span class="muted">{{ ds(r.factura_fecha) }}</span></td>
+                              <td class="mono muted">{{ r.orden_folio || '—' }}</td>
+                              <td class="mono muted">{{ r.recepcion_folio || '—' }}</td>
+                              <td class="mono muted">{{ r.pago_folio || '—' }} {{ ds(r.pago_fecha) }}</td>
+                              <td class="comm-num">{{ r.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                            </tr>
+                          }
+                        </tbody>
+                      </table>
+                    </div>
+                  }
+                  @if (fl.cobranza && fl.cobranza.kepler_movs) {
+                    <div class="fb-flow-chain">
+                      <div class="fb-flow-h">Cómo lo tiene Kepler</div>
+                      <p class="fb-flow-cob">Este cobrador tiene <b>{{ fl.cobranza.kepler_movs }}</b> pólizas de cobranza en el mes (suman <b class="mono">{{ fl.cobranza.kepler_suma | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>). El banco lo depositó junto; Kepler lo tiene por venta.</p>
+                    </div>
+                  }
+                  @if (fl.docs.length) {
+                    <div class="fb-flow-chain">
+                      <div class="fb-flow-h">{{ fl.tipo === 'deposito' ? 'Ventas cobradas — folios en Kepler (102)' : 'Pagos del proveedor — folios en Kepler (102)' }} <span class="muted">· {{ fl.docs.length }}</span></div>
+                      <table class="surf-table surf-table--plain is-dense fb-flow-table">
+                        <thead><tr><th>Doc</th><th>Folio</th><th>Fecha</th><th class="comm-num">Importe</th></tr></thead>
+                        <tbody>
+                          @for (dc of fl.docs; track dc.doc_tipo + dc.folio) {
+                            <tr>
+                              <td class="mono muted">{{ dc.doc_tipo }}</td>
+                              <td class="mono">{{ dc.folio }}</td>
+                              <td class="mono muted">{{ ds(dc.fecha) }}</td>
+                              <td class="comm-num">{{ dc.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                            </tr>
+                          }
+                        </tbody>
+                      </table>
+                    </div>
+                  }
+                  <p class="fb-dl-note muted"><i class="pi pi-info-circle"></i> {{ fl.nota }}</p>
+                }
+              </div>
+            }
+          </td></tr>
+        </ng-template>
         <ng-template #emptymessage>
           <tr><td [attr.colspan]="descarga() ? 8 : 7"><div class="surf-empty"><i class="pi pi-inbox"></i><p>Sin movimientos con estos filtros.</p></div></td></tr>
         </ng-template>
       </p-table>
     </div>
 
-    <!-- Detalle del movimiento (clic en fila): a qué se atribuye + estado + flujo. -->
-    <!-- DESIGN O.1: los documentos financieros extensos NO se leen en modal — la cadena
-         orden→recepción→factura→pago se lee al lado, sin perder la lista de movimientos. -->
-    <app-side-peek [open]="!!detail()" (openChange)="$event || closeDetail()"
-                   [title]="detail()?.title || 'Movimiento'" [subtitle]="detail()?.note || ''">
-      @if (detail(); as d) {
-        <dl class="fb-dl">
-          @for (f of d.fields; track f.k) { <div class="fb-dl-row"><dt>{{ f.k }}</dt><dd [class.mono]="f.mono">{{ f.v }}</dd></div> }
-        </dl>
-
-        <!-- CB.15.2 — de dónde viene: cadena del proveedor (pago) o cómo Kepler tiene la cobranza (depósito) -->
-        <div class="fb-flow-sec">
-          <!-- El flujo se carga solo al abrir. El botón sobrevive como REINTENTO: si falló, hay
-               que decirlo, no dejar un hueco que se lee como "este movimiento no tiene flujo". -->
-          @if (flowError()) {
-            <p class="muted fb-flow-loading">No se pudo rastrear el flujo.</p>
-            <button pButton type="button" class="p-button-sm p-button-outlined" (click)="loadFlow()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Reintentar</span></button>
-          }
-          @if (flowLoading()) { <p class="muted fb-flow-loading"><i class="pi pi-spin pi-spinner"></i> Rastreando el flujo…</p> }
-          @if (flow(); as fl) {
-            @if (fl.proveedor && (fl.proveedor.banco_movs || fl.proveedor.kepler_movs)) {
-              <div class="fb-flow-cuadre">
-                <span class="fb-flow-prov">{{ fl.proveedor.nombre }}</span>
-                <div class="fb-flow-nums">
-                  <span><b class="mono">{{ fl.proveedor.banco_total_mes | currency:'MXN':'symbol-narrow':'1.2-2' }}</b> banco ({{ fl.proveedor.banco_movs }})</span>
-                  <span class="muted">vs</span>
-                  <span><b class="mono">{{ fl.proveedor.kepler_total_mes | currency:'MXN':'symbol-narrow':'1.2-2' }}</b> Kepler 102 ({{ fl.proveedor.kepler_movs }})</span>
-                  @if (provCuadra(fl)) { <i class="pi pi-check-circle ok" title="Cuadra en el mes"></i> }
-                  @else { <i class="pi pi-exclamation-triangle warn" title="Difieren en el mes"></i> }
-                </div>
-              </div>
-            }
-            @if (fl.cadena.length) {
-              <div class="fb-flow-chain">
-                <div class="fb-flow-h">Compras del proveedor en el mes (orden → recepción → factura → pago)</div>
-                <table class="surf-table surf-table--plain is-dense fb-flow-table">
-                  <thead><tr><th>Factura</th><th>Orden</th><th>Recepción</th><th>Pago</th><th class="comm-num">Total</th></tr></thead>
-                  <tbody>
-                    @for (r of fl.cadena; track r.factura_folio) {
-                      <tr>
-                        <td class="mono">{{ r.factura_folio || '—' }} <span class="muted">{{ ds(r.factura_fecha) }}</span></td>
-                        <td class="mono muted">{{ r.orden_folio || '—' }}</td>
-                        <td class="mono muted">{{ r.recepcion_folio || '—' }}</td>
-                        <td class="mono muted">{{ r.pago_folio || '—' }} {{ ds(r.pago_fecha) }}</td>
-                        <td class="comm-num">{{ r.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-                      </tr>
-                    }
-                  </tbody>
-                </table>
-              </div>
-            }
-            @if (fl.cobranza && fl.cobranza.kepler_movs) {
-              <div class="fb-flow-chain">
-                <div class="fb-flow-h">Cómo lo tiene Kepler</div>
-                <p class="fb-flow-cob">Este cobrador tiene <b>{{ fl.cobranza.kepler_movs }}</b> pólizas de cobranza en el mes (suman <b class="mono">{{ fl.cobranza.kepler_suma | currency:'MXN':'symbol-narrow':'1.2-2' }}</b>). El banco lo depositó junto; Kepler lo tiene por venta.</p>
-              </div>
-            }
-            @if (fl.docs.length) {
-              <div class="fb-flow-chain">
-                <div class="fb-flow-h">{{ fl.tipo === 'deposito' ? 'Ventas cobradas — folios en Kepler (102)' : 'Pagos del proveedor — folios en Kepler (102)' }} <span class="muted">· {{ fl.docs.length }}</span></div>
-                <table class="surf-table surf-table--plain is-dense fb-flow-table">
-                  <thead><tr><th>Doc</th><th>Folio</th><th>Fecha</th><th class="comm-num">Importe</th></tr></thead>
-                  <tbody>
-                    @for (dc of fl.docs; track dc.doc_tipo + dc.folio) {
-                      <tr>
-                        <td class="mono muted">{{ dc.doc_tipo }}</td>
-                        <td class="mono">{{ dc.folio }}</td>
-                        <td class="mono muted">{{ ds(dc.fecha) }}</td>
-                        <td class="comm-num">{{ dc.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-                      </tr>
-                    }
-                  </tbody>
-                </table>
-              </div>
-            }
-            <p class="fb-dl-note muted"><i class="pi pi-info-circle"></i> {{ fl.nota }}</p>
-          }
-        </div>
-      }
-    </app-side-peek>
   `,
   styles: [BANCOS_STYLES, `
     /* Boton de export: ghost, discreto -- accion secundaria. */
@@ -271,6 +272,11 @@ import { BANCOS_STYLES } from './bancos.styles';
     .fb-desc-ok { color: var(--text-muted); font-size: 0.8rem; }
     .fb-desc-no, .fb-cat-chip.fb-desc-falta { color: var(--warn-soft-fg); }
     .fb-desc-solo { color: var(--text-muted); }
+    /* El detalle bajo su fila. */
+    .fb-mov-det > td { background: var(--surface-2); padding: var(--sp-3) var(--sp-4); }
+    .fb-det-t { margin: 0; font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); }
+    .fb-det-nota { margin: var(--sp-1) 0 var(--sp-3); font-size: var(--fs-sm); color: var(--text-muted); max-width: 80ch; line-height: 1.4; }
+    .fb-dl.fb-dl--grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); gap: var(--sp-2) var(--sp-4); }
   `],
 })
 export class BancosMovimientosComponent {
@@ -329,13 +335,16 @@ export class BancosMovimientosComponent {
   }
 
   readonly detail = signal<{ title: string; fields: { k: string; v: string; mono?: boolean }[]; note: string } | null>(null);
+  /** La fila desplegada (id del renglón, del libro o de la descarga). Una a la vez. */
+  readonly abierta = signal<string | null>(null);
+  readonly expandidas = computed<Record<string, boolean>>(() => { const id = this.abierta(); return id ? { [id]: true } : {}; });
   private readonly currentId = signal<string | null>(null);
   readonly flow = signal<MovementFlow | null>(null);
   readonly flowLoading = signal(false);
   readonly flowError = signal(false);
 
   closeDetail(): void {
-    this.detail.set(null); this.flow.set(null); this.currentId.set(null);
+    this.detail.set(null); this.flow.set(null); this.currentId.set(null); this.abierta.set(null);
     // Si se cierra con una petición en vuelo, su respuesta se descarta abajo — hay que bajar
     // la bandera acá o el próximo movimiento abriría mostrando "Rastreando…" para siempre.
     this.flowLoading.set(false); this.flowError.set(false);
@@ -411,8 +420,11 @@ export class BancosMovimientosComponent {
   }
 
   openMov(m: BankMovement): void {
+    // Otro clic en la fila abierta la cierra.
+    if (this.abierta() === m.id) { this.closeDetail(); return; }
     this.flow.set(null);
-    if (m.fuente === 'descarga') { this.closeDetail(); this.openDescarga(m); return; }
+    if (m.fuente === 'descarga') { this.closeDetail(); this.abierta.set(m.id); this.openDescarga(m); return; }
+    this.abierta.set(m.id);
     this.currentId.set(m.id);
     const esRetiro = (m.amount_out || 0) > 0;
     const conciliado = m.recon_status === 'matched';
