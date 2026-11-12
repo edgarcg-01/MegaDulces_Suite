@@ -149,6 +149,39 @@ async function normalizeBoxFactor(client, tenantId, skus) {
   } catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; }
 }
 
+/**
+ * `[CANON.6.16]` FACTOR DE CAJA VACÍO ← el árbitro (`analytics.v_product_box_factor`), AL LLEGAR el cambio de `kdii`.
+ * Lo hacía `repoint-catalog-presence.js` de noche (`[VSO.10]`, ~40 en 30 días): un producto recién dado de alta
+ * entra con `factor_sale` NULL y nadie más lo llena. Las mismas tres reglas:
+ *   · sólo lo VACÍO — nunca pisa un valor escrito (es decisión de otro y se audita en su candado);
+ *   · sólo con TESTIGO (`source <> 'default'`): un default es ausencia de testigo, no un número;
+ *   · sólo si es ENTERO: `factor_sale` es integer y el árbitro emite fracción cuando el factor es un peso.
+ * La vista cuesta ~0.5 s aunque se acote (no deja empujar el filtro), así que primero se mira —barato— si alguna de
+ * las llaves trae `factor_sale` vacío: casi ningún lote de `kdii` toca uno (100 de ~9,600 SKUs vivos el 12-nov).
+ * Va en la cadena de `kdii` DESPUÉS de `normalizeBoxFactor` (que alimenta al árbitro) y ANTES de `normalizeCost`
+ * (`cost_per_case` usa `factor_sale`). `skus` null/[] = catálogo entero (herramienta manual).
+ */
+async function normalizeFactorSale(client, tenantId, skus) {
+  const s = clean(skus);
+  const scoped = s.length > 0;
+  await client.query('BEGIN');
+  try {
+    await client.query(`SET LOCAL app.tenant_id = '${tenantId}'`);
+    const ids = (await client.query(
+      `SELECT id FROM catalog.products WHERE tenant_id = $1 AND deleted_at IS NULL AND factor_sale IS NULL
+          ${scoped ? 'AND btrim(coalesce(sku, \'\')) = ANY($2)' : ''}`, scoped ? [tenantId, s] : [tenantId])).rows.map((r) => r.id);
+    if (!ids.length) { await client.query('COMMIT'); return 0; }
+    const r = await client.query(`
+      UPDATE catalog.products p SET factor_sale = b.box_factor::int, updated_at = now()
+        FROM analytics.v_product_box_factor b
+       WHERE b.product_id = p.id AND b.tenant_id = p.tenant_id
+         AND p.tenant_id = $1 AND p.id = ANY($2::uuid[]) AND p.deleted_at IS NULL AND p.factor_sale IS NULL
+         AND b.source <> 'default' AND b.box_factor = round(b.box_factor)`, [tenantId, ids]);
+    await client.query('COMMIT');
+    return r.rowCount;
+  } catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; }
+}
+
 /** BOX PRICE (RA-PRO.39) — kdpv CJA (list=min c4 tier), fallback PAQ×factor_sale → analytics.product_box_price. */
 async function normalizeBoxPrice(client, tenantId, skus) {
   const s = clean(skus);
@@ -532,4 +565,4 @@ async function normalizeSalePrice(client, tenantId, skus) {
   } catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; }
 }
 
-module.exports = { normalizeCost, normalizeReorder, normalizeBoxFactor, normalizeBoxPrice, normalizeSalePrice, salePriceCtes, normalizeMarkup, markupFuenteSql, MARKUP_BRANCH, normalizePromo, promoSql };
+module.exports = { normalizeCost, normalizeReorder, normalizeBoxFactor, normalizeFactorSale, normalizeBoxPrice, normalizeSalePrice, salePriceCtes, normalizeMarkup, markupFuenteSql, MARKUP_BRANCH, normalizePromo, promoSql };

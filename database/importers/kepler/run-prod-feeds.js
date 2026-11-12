@@ -298,7 +298,9 @@ const STEPS = {
     // la era Wincaja está CERRADA — lo que se mueve intradía es el push, que ya corre cada hora.
     path.join(K, 'import-canindo-routes-monthly.js'),
     [path.join(K, 'reconcile-route-provenance.js'), '--apply'], // VP/ADR-056 (deuda D) — DECLARA push vs branch en la llave que ambos escriben (GREATEST ciego); tras push+canindo. Sólo metadata → route_monthly_provenance; el sensor route_provenance dispara si branch gana (push atorado)
-    path.join(K, 'repoint-catalog-presence.js'), // catálogo — INSERTA productos nuevos + REACTIVA borrados-vivos desde KP_CONCENTRADA (el snapshot Mega_Dulces se atrasa). ANTES de names/prices para que existan al repuntarlos.
+    // RETIRADO 2026-11-12 [CANON.6.16]: repoint-catalog-presence.js — altas, reactivaciones y factor de caja vacío
+    // los hace el hop-2 al llegar el cambio de kdii (normalizeProductsFromOds + normalizeFactorSale). En 30 días el
+    // nocturno dio 1 alta, 5 reactivaciones y ~40 factores. El .js queda como herramienta manual.
     // RETIRADO 2026-11-12 [CANON.6.10]: repoint-catalog-names.js — el nombre (y la marca de una clave
     // reusada) lo mantiene el hop-2 al llegar el cambio de kdii (`normalizeProductsFromOds`), que ahora
     // mueve la marca y no tumba el lote por dos SKUs al mismo nombre; un normalizador que falla se

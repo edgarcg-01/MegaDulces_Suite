@@ -21,7 +21,7 @@ const { computeLabels, toStageTuple, upsertLabels } = require('./label-compute')
 const { notifyLabelPricesChanged } = require('./notify-store');
 const { computeBarcodes } = require('./barcode-compute');
 const { identitySnapshotSql } = require('./product-identity');
-const { normalizeCost, normalizeReorder, normalizeBoxFactor, normalizeBoxPrice, normalizeSalePrice, normalizeMarkup, normalizePromo } = require('./ods-derived');
+const { normalizeCost, normalizeReorder, normalizeBoxFactor, normalizeFactorSale, normalizeBoxPrice, normalizeSalePrice, normalizeMarkup, normalizePromo } = require('./ods-derived');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const BATCH = 1000;
@@ -669,6 +669,31 @@ async function normalizeProductsFromOds(client, tenantId, skus) {
     const fallback = (await client.query(
       `SELECT id FROM catalog.brands WHERE tenant_id=$1 AND code='SIN-LINEA' LIMIT 1`, [tenantId])).rows[0]?.id || null;
 
+    // 0) `[CANON.6.16]` REACTIVAR: el SKU sólo tiene filas BORRADAS en el catálogo y Kepler lo trae VIVO —precio real
+    //    (c90 > 0.05) con un nombre que no es «DESCONTINUADO» ni sólo asteriscos, en alguna plaza—. Lo hacía
+    //    `repoint-catalog-presence.js` de noche (5 en 30 días); aquí el alta de abajo no lo tomaba porque el SKU ya
+    //    tiene fila. Una sola fila por SKU (la más reciente): reactivar dos dejaría dos vivas con el mismo SKU. Después
+    //    el UPDATE de identidad de abajo le pone el nombre, la marca y el código de hoy.
+    //    Dos pasos a propósito: primero —barato, sobre el catálogo— qué SKUs del lote sólo tienen filas borradas (casi
+    //    nunca hay); sólo entonces se mira `kdii`, y acotado a ésos (leer `kdii` entero con ILIKE y regex costó ~1 s).
+    const borrados = (await client.query(`
+      SELECT DISTINCT p.sku FROM catalog.products p JOIN snap_p s ON s.sku = p.sku
+       WHERE p.tenant_id = $1 AND p.deleted_at IS NOT NULL
+         AND NOT EXISTS (SELECT 1 FROM catalog.products a WHERE a.tenant_id = $1 AND a.sku = p.sku AND a.deleted_at IS NULL)`,
+      [tenantId])).rows.map((r) => r.sku);
+    const react = !borrados.length ? 0 : (await client.query(`
+      WITH vivo AS (
+        SELECT DISTINCT btrim(k.c1) AS sku FROM kepler_ods.kdii k
+         WHERE btrim(k.c1) = ANY($2::text[]) AND k.c90::numeric > 0.05 AND btrim(coalesce(k.c2, '')) <> ''
+           AND btrim(k.c2) NOT ILIKE '%DESCONTINUADO%' AND btrim(k.c2) !~ '^[*[:space:]]+$'),
+      cand AS (
+        SELECT DISTINCT ON (p.sku) p.id
+          FROM catalog.products p JOIN vivo v ON v.sku = p.sku
+         WHERE p.tenant_id = $1 AND p.deleted_at IS NOT NULL
+         ORDER BY p.sku, p.updated_at DESC NULLS LAST, p.id)
+      UPDATE catalog.products p SET deleted_at = NULL, updated_at = now()
+        FROM cand WHERE p.id = cand.id`, [tenantId, borrados])).rowCount;
+
     // 1) INSERT nuevos: sku sin fila alguna, (brand,nombre) sin colisión, marca = resuelta ∨ fallback.
     const ins = fallback ? (await client.query(`
       INSERT INTO catalog.products (id, tenant_id, brand_id, sku, nombre, barcode, source, created_at, updated_at)
@@ -725,7 +750,7 @@ async function normalizeProductsFromOds(client, tenantId, skus) {
     // BITÁCORA con su unidad y valida contra lo cobrado / la escalera / el costo. Sigue siendo
     // al-momento: está registrado en ODS_NORMALIZERS para kdm2 (la venta), kdii y kdpv_prod_util.
     await client.query('COMMIT');
-    return ins + idn;
+    return react + ins + idn;
   } catch (e) {
     await client.query('ROLLBACK').catch(() => {});
     throw e;
@@ -1096,7 +1121,9 @@ async function registrarFalla(client, tenantId, tabla, normalizador, llaves, lot
 const ODS_NORMALIZERS = {
   // `[CANON.6.9]` `normalizePromo` va AL FINAL: sus entradas son el precio de kdii, el nombre
   // (`normalizeProductsFromOds`) y el costo (`normalizeCost`). Antes lo hacía `repoint-catalog-prices` cada 30 min.
-  kdii: { fns: [normalizeProductsFromOds, normalizeSalePrice, normalizeLabelsFromOds, normalizeBarcodesFromOds, normalizeCost, normalizeBoxFactor, normalizeReorder, normalizePromo] },
+  // `[CANON.6.16]` + normalizeFactorSale (el factor de caja vacío, antes en repoint-catalog-presence): DESPUÉS de
+  // normalizeBoxFactor (alimenta al árbitro) y ANTES de normalizeCost (cost_per_case usa factor_sale).
+  kdii: { fns: [normalizeProductsFromOds, normalizeSalePrice, normalizeLabelsFromOds, normalizeBarcodesFromOds, normalizeBoxFactor, normalizeFactorSale, normalizeCost, normalizeReorder, normalizePromo] },
   kdik: { skuCol: 'c2', fns: [normalizeCost, normalizePromo] },  // costo: c16 es la fuente primaria; la promo depende del costo
   // `[CANON.6.12]` Una línea nueva de Kepler es una marca al llegar (antes `import-brands-lineas.js`, sábados).
   kdig: { skuCol: 'c1', fns: [normalizeBrandsFromKdig] },
