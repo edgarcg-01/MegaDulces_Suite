@@ -4,8 +4,9 @@ import { TenantKnexService, TenantContextService, branchName } from '@megadulces
 import { CommercialQuotesService } from './commercial-quotes.service';
 import type { QuienCotiza } from './quote-scope';
 import {
-  armarPasos, docPedido, hallazgosAbiertos, identidadDelPedido, llavesHallazgo,
+  armarPasos, cambiosContraCotizacion, docPedido, hallazgosAbiertos, identidadDelPedido, llavesHallazgo,
   type EmbarqueCrudo, type FacturaCruda, type HallazgoCrudo, type PedidoCrudo, type PisoCrudo, type SeguimientoCotizacion,
+  type RenglonCotizadoCrudo, type RenglonPedidoCrudo,
 } from './quote-tracking.reglas';
 
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -53,6 +54,26 @@ SELECT DISTINCT ON (f.c5, f.c6)
  WHERE f.sucursal = ? AND f.c2 = 'U' AND f.c3 = 'D' AND (f.c4)::int = 8
    AND btrim(f.c1) = btrim(f.sucursal) AND btrim(f.c37::text) = '41'
  ORDER BY f.c5, f.c6, f.c9 DESC`;
+
+/**
+ * `[GP.9.3]` Lo cotizado: renglones con precio y sin padre (los mismos que `QuoteKeplerService.enviar`
+ * escribió; con un regalo o un renglón sin catálogo la escritura se rechaza entera).
+ */
+const COTIZADO_SQL = `
+SELECT btrim(p.sku) AS sku, p.nombre, ql.quantity::float8 AS cantidad, ql.qty_unit AS presentacion,
+       ql.qty_factor::float8 AS factor, ql.line_total::float8 AS importe
+  FROM commercial.quote_lines ql
+  JOIN catalog.products p ON p.tenant_id = ql.tenant_id AND p.id = ql.product_id
+ WHERE ql.tenant_id = ? AND ql.quote_id = ? AND ql.parent_line_number IS NULL AND ql.unit_price IS NOT NULL
+ ORDER BY ql.line_number`;
+
+/** `[GP.9.3]` El pedido de Kepler HOY, en unidad base (`c9`, `c11`). */
+const PEDIDO_LINEAS_SQL = `
+SELECT btrim(l.c8::text) AS sku, NULLIF(btrim(l.c10::text), '') AS nombre, l.c9::float8 AS base,
+       NULLIF(btrim(l.c11::text), '') AS unidad_base
+  FROM kepler_ods.kdm2 l
+ WHERE l.sucursal = ? AND l.c2 = 'U' AND l.c3 = 'D' AND (l.c4)::int = 40 AND (l.c5)::int = ? AND btrim(l.c6::text) = ?
+   AND btrim(l.c1) = btrim(l.sucursal) AND NULLIF(btrim(l.c8::text), '') IS NOT NULL`;
 
 /** Lo que el piso marcó en la Suite (GP): el surtido es la ola terminada, el checado su `order_checks`. */
 const PISO_SQL = `
@@ -106,7 +127,7 @@ export class QuoteTrackingService {
       )).rows[0] as { code: string; erp_customer_code: string | null; kepler_sucursal: string | null; kepler_folio: string | null } | undefined;
       if (!cab) throw new NotFoundException('Cotización no encontrada');
 
-      const vacio = { pedido: null, pasos: [], hallazgos: [], leido_en };
+      const vacio = { pedido: null, pasos: [], cambios: [], hallazgos: [], leido_en };
       if (!cab.kepler_folio || !cab.kepler_sucursal) return { en_kepler: false, pendiente_replica: false, ...vacio };
       const suc = cab.kepler_sucursal.trim();
       const folio = cab.kepler_folio.trim().padStart(7, '0');
@@ -130,14 +151,20 @@ export class QuoteTrackingService {
         [tenantId, llavesHallazgo(suc, pedido, embarques)],
       )).rows as HallazgoCrudo[];
 
+      const cotizado = (await k.raw(COTIZADO_SQL, [tenantId, id])).rows as RenglonCotizadoCrudo[];
+      const enPedido = (await k.raw(PEDIDO_LINEAS_SQL, [suc, pedido.serie, pedido.folio])).rows as RenglonPedidoCrudo[];
+      // Con la identidad dudosa (el pedido quizá no es éste), comparar renglones fabricaría «quitados» falsos.
+      const identidad = identidadDelPedido(pedido, cab.erp_customer_code);
+
       const r: SeguimientoCotizacion = {
         en_kepler: true,
         pendiente_replica: false,
         pedido: {
           sucursal: suc, sucursal_nombre: branchName(suc), documento: docPedido(pedido.serie, pedido.folio), estatus: pedido.estatus,
-          identidad: identidadDelPedido(pedido, cab.erp_customer_code),
+          identidad,
         },
         pasos: armarPasos(pedido, embarques, facturas, piso ?? null),
+        cambios: identidad === 'dudosa' ? [] : cambiosContraCotizacion(cotizado, enPedido),
         hallazgos: hallazgosAbiertos(hall),
         leido_en,
       };

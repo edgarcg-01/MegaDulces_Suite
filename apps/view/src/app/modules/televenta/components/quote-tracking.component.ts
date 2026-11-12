@@ -6,7 +6,7 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
-import { QuotesService, type PasoSeguimiento, type SeguimientoCotizacion } from '../quotes.service';
+import { QuotesService, type CambioContraCotizacion, type PasoSeguimiento, type SeguimientoCotizacion } from '../quotes.service';
 
 const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 
@@ -86,6 +86,22 @@ export function respuesta(pasos: PasoSeguimiento[]): { ahora: string; sigue: str
             @if (r.sigue) { <p class="seg-sigue" [class.seg-sigue--bad]="r.sigue.startsWith('La factura')">{{ r.sigue }}</p> }
           }
 
+          <!-- [GP.9.3] Lo que el cliente pidió y el pedido de Kepler ya no trae igual: para avisarle antes de que llegue. -->
+          @if (d.cambios.length) {
+            <div class="seg-cambios" role="region" aria-labelledby="seg-cambios-t">
+              <p id="seg-cambios-t" class="seg-cambios-t">{{ resumenCambios(d.cambios) }}</p>
+              <ul class="seg-cambios-l">
+                @for (c of d.cambios; track c.sku + c.tipo) {
+                  <li class="seg-cambio" [class.is-quitado]="c.tipo === 'quitado'">
+                    <span class="seg-cambio-n">{{ c.nombre || c.sku }} <span class="mono seg-sku">{{ c.sku }}</span></span>
+                    <span class="seg-cambio-q">{{ textoCambio(c) }}</span>
+                  </li>
+                }
+              </ul>
+              <p class="seg-nota">Se compara la cotización con el pedido de Kepler de hoy. Kepler no guarda por qué se quitó o cambió un renglón.</p>
+            </div>
+          }
+
           <ol class="seg-pasos">
             @for (p of d.pasos; track p.clave) {
               <li class="seg-paso" [class.is-hecho]="p.hecho">
@@ -150,6 +166,15 @@ export function respuesta(pasos: PasoSeguimiento[]): { ahora: string; sigue: str
     .seg-tag { font-size: var(--fs-xs); color: var(--bad-fg); font-weight: var(--fw-medium); }
     .seg-num { font-variant-numeric: tabular-nums; color: var(--text-muted); }
     .seg-nota { margin: 0; font-size: var(--fs-xs); color: var(--text-faint); line-height: 1.4; }
+    .seg-cambios { display: flex; flex-direction: column; gap: var(--sp-1); padding: var(--sp-2) var(--sp-3);
+                   border: 1px solid var(--warn-border); border-radius: var(--r-sm); background: var(--warn-soft-bg); }
+    .seg-cambios-t { margin: 0; font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--warn-soft-fg); }
+    .seg-cambios-l { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
+    .seg-cambio { display: flex; flex-direction: column; font-size: var(--fs-xs); color: var(--text-main); }
+    .seg-cambio-n { font-weight: var(--fw-medium); }
+    .seg-sku { color: var(--text-muted); margin-left: var(--sp-1); }
+    .seg-cambio-q { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+    .seg-cambio.is-quitado .seg-cambio-q { color: var(--bad-fg); }
     .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
   `],
 })
@@ -186,4 +211,38 @@ export class QuoteTrackingComponent implements OnInit {
   fecha(v: string | null): string {
     return fechaCorta(v);
   }
+
+  textoCambio(c: CambioContraCotizacion): string {
+    return textoCambio(c);
+  }
+
+  resumenCambios(cs: CambioContraCotizacion[]): string {
+    return resumenCambios(cs);
+  }
+}
+
+const num = (n: number | null): string => (n == null ? '?' : Number.isInteger(n) ? String(n) : n.toLocaleString('es-MX', { maximumFractionDigits: 3 }));
+const conUnidad = (n: number | null, u: string | null) => `${num(n)}${u ? ' ' + u : ''}`;
+
+/** `[GP.9.3]` Una línea por renglón, en la presentación cotizada: «Cotizaste 2 CJA; el pedido ya no lo trae». */
+export function textoCambio(c: CambioContraCotizacion): string {
+  switch (c.tipo) {
+    case 'quitado': return `Cotizaste ${conUnidad(c.cotizado, c.unidad)}; el pedido ya no lo trae`;
+    case 'menos': return `Cotizaste ${conUnidad(c.cotizado, c.unidad)}; el pedido trae ${conUnidad(c.pedido, c.unidad)}`;
+    case 'mas': return `Cotizaste ${conUnidad(c.cotizado, c.unidad)}; el pedido trae ${conUnidad(c.pedido, c.unidad)} (más)`;
+    case 'agregado': return `No se cotizó; el pedido trae ${conUnidad(c.pedido, c.unidad)}`;
+  }
+}
+
+/** «En Kepler cambiaron 5 renglones de tu cotización: 3 quitados ($1,234.50 cotizados), 2 con otra cantidad». */
+export function resumenCambios(cs: CambioContraCotizacion[]): string {
+  const q = cs.filter((c) => c.tipo === 'quitado');
+  const otros = cs.length - q.length;
+  const importe = q.reduce((s, c) => s + (c.importe_cotizado ?? 0), 0);
+  const partes: string[] = [];
+  if (q.length) {
+    partes.push(`${q.length} ${q.length === 1 ? 'quitado' : 'quitados'} (${importe.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })} cotizados)`);
+  }
+  if (otros) partes.push(`${otros} con otra cantidad o agregado${otros === 1 ? '' : 's'}`);
+  return `En Kepler cambiaron ${cs.length} ${cs.length === 1 ? 'renglón' : 'renglones'} de tu cotización: ${partes.join(', ')}`;
 }

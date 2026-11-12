@@ -1,4 +1,4 @@
-import { armarPasos, claveCapturada, hallazgosAbiertos, horaMx, identidadDelPedido, llavesHallazgo, type PedidoCrudo, type EmbarqueCrudo, type FacturaCruda } from './quote-tracking.reglas';
+import { armarPasos, cambiosContraCotizacion, claveCapturada, hallazgosAbiertos, horaMx, identidadDelPedido, llavesHallazgo, type PedidoCrudo, type EmbarqueCrudo, type FacturaCruda } from './quote-tracking.reglas';
 
 /**
  * `[GP.9.1]` Anclado a la cadena real de Canindo (06, medida en prod 2026-11-12): pedido
@@ -86,6 +86,43 @@ describe('armarPasos', () => {
   it('ESTATUS desconocido no adelanta pasos', () => {
     const p = porClave(armarPasos(pedido({ estatus: 'RARO' }), [], [], null));
     expect(p['autorizado'].hecho).toBe(false);
+  });
+});
+
+describe('cambiosContraCotizacion (GP.9.3) — COT-2026-00173: 14 renglones cotizados, el pedido 08UD4001-0001187 quedó con 9', () => {
+  const cot = (sku: string, cantidad: number, o: Partial<{ presentacion: string | null; factor: number | null; importe: number | null; nombre: string | null }> = {}) =>
+    ({ sku, nombre: `P${sku}`, cantidad, presentacion: 'CJA', factor: 24, importe: 100, ...o });
+  const ped = (sku: string, base: number) => ({ sku, nombre: `K${sku}`, base, unidad_base: 'PAQ' });
+
+  it('renglón cotizado que ya no está en el pedido → quitado, en la presentación cotizada y con su importe', () => {
+    const r = cambiosContraCotizacion([cot('47005', 2, { importe: 812.5 }), cot('20092', 1)], [ped('20092', 24)]);
+    expect(r).toEqual([{ sku: '47005', nombre: 'P47005', tipo: 'quitado', cotizado: 2, pedido: 0, unidad: 'CJA', importe_cotizado: 812.5 }]);
+  });
+
+  it('cantidad bajada se dice en la presentación cotizada (2 CJA → 1 CJA), no en piezas', () => {
+    expect(cambiosContraCotizacion([cot('83306', 2)], [ped('83306', 24)])).toEqual([
+      { sku: '83306', nombre: 'P83306', tipo: 'menos', cotizado: 2, pedido: 1, unidad: 'CJA', importe_cotizado: 100 },
+    ]);
+  });
+
+  it('igual en base aunque el pedido lo parta en dos renglones → sin cambio (prueba negativa)', () => {
+    expect(cambiosContraCotizacion([cot('99624', 2)], [ped('99624', 30), ped('99624', 18)])).toEqual([]);
+  });
+
+  it('el pedido trae un producto que no se cotizó → agregado, en su unidad base', () => {
+    expect(cambiosContraCotizacion([], [ped('11111', 6)])).toEqual([
+      { sku: '11111', nombre: 'K11111', tipo: 'agregado', cotizado: null, pedido: 6, unidad: 'PAQ', importe_cotizado: null },
+    ]);
+  });
+
+  it('orden: quitados primero, luego bajados, subidos y agregados', () => {
+    const r = cambiosContraCotizacion([cot('3', 1), cot('2', 2), cot('1', 1)], [ped('2', 24), ped('3', 48), ped('9', 1)]);
+    expect(r.map((x) => `${x.tipo}:${x.sku}`)).toEqual(['quitado:1', 'menos:2', 'mas:3', 'agregado:9']);
+  });
+
+  it('sin factor (se cotizó en la base) compara uno a uno', () => {
+    expect(cambiosContraCotizacion([cot('5', 10, { presentacion: null, factor: null })], [ped('5', 7)])[0])
+      .toMatchObject({ tipo: 'menos', cotizado: 10, pedido: 7, unidad: null });
   });
 });
 

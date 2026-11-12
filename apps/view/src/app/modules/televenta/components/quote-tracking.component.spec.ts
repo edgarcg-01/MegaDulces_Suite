@@ -1,4 +1,4 @@
-import { fechaCorta, respuesta } from './quote-tracking.component';
+import { fechaCorta, respuesta, resumenCambios, textoCambio } from './quote-tracking.component';
 import type { PasoSeguimiento } from '../quotes.service';
 
 /** `[GP.9.1]` La línea que contesta «¿dónde va mi pedido?», con casos medidos en prod el 2026-11-12. */
@@ -36,6 +36,27 @@ describe('respuesta', () => {
 
   it('sin pasos hechos no inventa avance', () => {
     expect(respuesta(cadena(-1))).toEqual({ ahora: 'Sin avance en Kepler', sigue: null });
+  });
+});
+
+describe('[GP.9.3] cambios contra la cotización', () => {
+  const c = (tipo: 'quitado' | 'menos' | 'mas' | 'agregado', o: Record<string, unknown> = {}) =>
+    ({ sku: '47005', nombre: 'X', tipo, cotizado: 2, pedido: tipo === 'quitado' ? 0 : 1, unidad: 'CJA', importe_cotizado: 812.5, ...o }) as never;
+
+  it('cada tipo se lee en la presentación cotizada', () => {
+    expect(textoCambio(c('quitado'))).toBe('Cotizaste 2 CJA; el pedido ya no lo trae');
+    expect(textoCambio(c('menos'))).toBe('Cotizaste 2 CJA; el pedido trae 1 CJA');
+    expect(textoCambio(c('mas', { pedido: 3 }))).toBe('Cotizaste 2 CJA; el pedido trae 3 CJA (más)');
+    expect(textoCambio(c('agregado', { cotizado: null, pedido: 6, unidad: 'PAQ' }))).toBe('No se cotizó; el pedido trae 6 PAQ');
+  });
+
+  it('el resumen cuenta los quitados con su importe cotizado y aparte lo demás', () => {
+    const r = resumenCambios([c('quitado'), c('quitado', { sku: '2', importe_cotizado: 187.5 }), c('menos', { sku: '3' })]);
+    expect(r).toMatch(/^En Kepler cambiaron 3 renglones de tu cotización: 2 quitados \(\$1,000\.00 cotizados\), 1 con otra cantidad o agregado$/);
+  });
+
+  it('un solo renglón, en singular', () => {
+    expect(resumenCambios([c('menos')])).toBe('En Kepler cambiaron 1 renglón de tu cotización: 1 con otra cantidad o agregado');
   });
 });
 

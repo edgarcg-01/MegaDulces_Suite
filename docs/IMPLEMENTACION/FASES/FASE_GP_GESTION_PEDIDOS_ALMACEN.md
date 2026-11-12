@@ -1084,7 +1084,7 @@ re-presentó como 16 CJA) y de la revisión AX.22 ([`FASE_AX`](FASE_AX_ANEXO_VEN
 |---|---|---|
 | **GP.9.1** | En `/telemarketing/cotizaciones/:id`, debajo de «Pedido en Kepler», los pasos Pedido → Autorizado → Surtido → Checado → Embarcado → Facturado: cuándo (sólo si existe), quién (nombre si lo marcó la Suite, clave de Kepler si no), embarques y facturas (canceladas tachadas), aviso si el pedido quizá no es el de la cotización y los hallazgos abiertos de AX.22. `GET /api/commercial/quotes/:id/tracking`, sólo lectura, sin migración | 🧪 |
 | **GP.9.2** | En la pantalla del surtidor (`/almacen/surtir`), por renglón, el **aviso de caja** (§11.3): *capturada con otra caja* (el pedido trae un factor que ya no es el de la ficha → el renglón se cuenta en la unidad BASE) o *en transición* (la caja cambió en 30 días → revisar cuántas piezas trae). Observaciones y dirección del pedido TLMK: siguen ⬜ | 🧪 aviso de caja |
-| **GP.9.3** | Lo que el surtidor marca regresa al vendedor: un faltante avisa en su campana («faltó X en tu pedido») antes del embarque; el mismo faltante es demanda negada para DN | ⬜ — espera D2 |
+| **GP.9.3** | Lo que el vendedor no se entera: en el seguimiento de la cotización, **lo que cambió en Kepler contra lo cotizado** (renglón quitado, cantidad bajada/subida, producto agregado) — sin esperar al piloto (§11.4). Pendiente: el aviso en la campana al cambiar, y el faltante que marque el surtidor en la Suite (espera D2) | 🧪 cambios en el seguimiento |
 
 **Decisiones abiertas:** D1 — GP vuelve a 🔨 y el cupo queda en 6 de 4: qué pasa a ⏸️ (Edgar). D2 —
 qué sucursal y qué surtidores pilotean la pantalla del celular (Edgar). Sin piloto, GP.9.2/9.3 no
@@ -1164,6 +1164,30 @@ rojo al quitar la regla), transición conserva la presentación, sin aviso no se
 **Pendiente de GP.9.2:** observaciones y dirección de entrega del pedido TLMK en la pantalla, y
 **capturar** la respuesta del surtidor («esta caja trae N») — eso escribe, y exige su prueba contra base
 real antes de prod.
+
+### 11.4 GP.9.3 — lo cotizado contra lo que quedó en Kepler
+
+**Por qué no sale de Kepler solo (medido 2026-11-12, 103 pedidos de cotización):** el pedido contra su
+embarque coincide en **698/698** renglones y lo pedido contra lo surtido en **1,005/1,005** — cero
+faltantes. No es que no falte nada: cuando falta, **Kepler corrige el pedido mismo** y el pedido deja
+de recordar lo que se pidió. Lo pedido de verdad vive en la cotización de la Suite.
+
+**Lo medido contra la cotización** (base = cantidad × factor de la presentación, el que se verificó
+contra la ficha al escribir): de 115 cotizaciones en Kepler, **67 tienen cambios** — 448 renglones
+quitados, 51 con cantidad bajada, 14 subida, 27 productos agregados. La escritura del pedido es todo o
+nada (`armarPedidoTlmk`), así que un renglón ausente lo quitó alguien en Kepler después.
+- **Testigo independiente:** de los quitados, 32.8 % no tiene existencia hoy; de los que se quedaron,
+  5.8 %. Apunta a faltante, **no lo prueba** renglón por renglón (Kepler no guarda por qué): la pantalla
+  dice el hecho, no el motivo.
+- **Dos implementaciones:** el servicio y un script aparte cuentan los mismos 448 quitados.
+- **No es la réplica a medias:** COT-2026-00279 (enviada 15:31, ya EMBARCADO) quedó con 7 de 14
+  renglones, renumerados 1–7, y el total de la cabecera cuadra con esos 7.
+- Con la identidad del pedido **dudosa** no se comparan renglones (fabricaría quitados falsos).
+
+**En pantalla:** debajo de la respuesta, «En Kepler cambiaron N renglones de tu cotización: X quitados
+($ cotizados), Y con otra cantidad o agregados» y la lista en la presentación cotizada («Cotizaste 2
+CJA; el pedido ya no lo trae»). Servicio real contra prod: 32 ms p50, 82 ms máx. Pruebas: reglas 6
+nuevas, panel 3 nuevas; cotizaciones 192 verdes.
 
 ---
 

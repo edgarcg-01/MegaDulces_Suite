@@ -360,8 +360,19 @@ export interface SeguimientoCotizacion {
   pendiente_replica: boolean;
   pedido: { sucursal: string; sucursal_nombre: string; documento: string; estatus: string | null; identidad: 'confirmada' | 'por_folio' | 'dudosa' } | null;
   pasos: PasoSeguimiento[];
+  /** `[GP.9.3]` Lo que el pedido de Kepler ya no dice igual que la cotización (quitado / bajado / subido / agregado). */
+  cambios: CambioContraCotizacion[];
   hallazgos: Array<{ titulo: string; resumen: string; importe: number | null; severidad: string | null }>;
   leido_en: string;
+}
+export interface CambioContraCotizacion {
+  sku: string;
+  nombre: string | null;
+  tipo: 'quitado' | 'menos' | 'mas' | 'agregado';
+  cotizado: number | null;
+  pedido: number | null;
+  unidad: string | null;
+  importe_cotizado: number | null;
 }
 
 @Injectable({ providedIn: 'root' })

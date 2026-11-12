@@ -57,8 +57,45 @@ export interface SeguimientoCotizacion {
     identidad: IdentidadPedido;
   } | null;
   pasos: PasoSeguimiento[];
+  /** `[GP.9.3]` Lo que el pedido de Kepler ya no dice igual que la cotización (renglón quitado, cantidad cambiada, agregado). */
+  cambios: CambioContraCotizacion[];
   hallazgos: HallazgoSeguimiento[];
   leido_en: string;
+}
+
+/**
+ * `[GP.9.3]` Un renglón cuyo pedido en Kepler ya no es lo cotizado. La escritura del pedido es todo o
+ * nada (`armarPedidoTlmk`): si el renglón no está, alguien lo quitó en Kepler DESPUÉS. Medido el
+ * 2026-11-12 en 112 cotizaciones: 448 renglones quitados en 60 de ellas y 52 con cantidad bajada. El
+ * motivo no se afirma: de los quitados, 32.8 % no tiene existencia hoy (contra 5.8 % de los que se
+ * quedaron) — apunta a faltante, pero no lo prueba renglón por renglón.
+ */
+export interface CambioContraCotizacion {
+  sku: string;
+  nombre: string | null;
+  tipo: 'quitado' | 'menos' | 'mas' | 'agregado';
+  /** En la presentación cotizada (2 CJA); para `agregado`, en la unidad base del pedido. */
+  cotizado: number | null;
+  pedido: number | null;
+  unidad: string | null;
+  /** Importe cotizado del renglón (lo que el cliente aceptó); null en `agregado`. */
+  importe_cotizado: number | null;
+}
+
+export interface RenglonCotizadoCrudo {
+  sku: string;
+  nombre: string | null;
+  cantidad: number;
+  presentacion: string | null;
+  factor: number | null;
+  importe: number | null;
+}
+
+export interface RenglonPedidoCrudo {
+  sku: string;
+  nombre: string | null;
+  base: number;
+  unidad_base: string | null;
 }
 
 // ── Lo que llega de la base (crudo) ────────────────────────────────────────────────────────────
@@ -210,6 +247,45 @@ export function hallazgosAbiertos(rows: HallazgoCrudo[]): HallazgoSeguimiento[] 
   return rows
     .filter((h) => !HALLAZGO_CERRADO.has((h.status ?? '').toLowerCase()))
     .map((h) => ({ titulo: h.titulo, resumen: h.resumen, importe: h.importe, severidad: h.severity }));
+}
+
+const EPS = 1e-6;
+const r3 = (n: number) => Math.round(n * 1000) / 1000;
+
+/**
+ * `[GP.9.3]` Lo cotizado contra el pedido de Kepler de HOY, por SKU y en unidad base (cotización:
+ * cantidad × factor de la presentación, el mismo que se verificó contra la ficha al escribir). Se
+ * reporta en la presentación cotizada para que el vendedor lo lea como lo ofreció («2 CJA → 1 CJA»).
+ * Orden: quitados, bajados, subidos, agregados — lo que el cliente pidió y no va, primero.
+ */
+export function cambiosContraCotizacion(cot: RenglonCotizadoCrudo[], pedido: RenglonPedidoCrudo[]): CambioContraCotizacion[] {
+  const porSku = new Map<string, { cantidad: number; base: number; f: number; pres: string | null; nombre: string | null; importe: number }>();
+  for (const l of cot) {
+    const f = l.factor && l.factor > 0 ? l.factor : 1;
+    const a = porSku.get(l.sku);
+    if (a) { a.cantidad += l.cantidad; a.base += l.cantidad * f; a.importe += l.importe ?? 0; }
+    else porSku.set(l.sku, { cantidad: l.cantidad, base: l.cantidad * f, f, pres: l.presentacion, nombre: l.nombre, importe: l.importe ?? 0 });
+  }
+  const ped = new Map<string, RenglonPedidoCrudo>();
+  for (const l of pedido) {
+    const a = ped.get(l.sku);
+    if (a) a.base += l.base; else ped.set(l.sku, { ...l });
+  }
+  const out: CambioContraCotizacion[] = [];
+  for (const [sku, c] of porSku) {
+    const p = ped.get(sku);
+    if (!p) { out.push({ sku, nombre: c.nombre, tipo: 'quitado', cotizado: r3(c.cantidad), pedido: 0, unidad: c.pres, importe_cotizado: c.importe }); continue; }
+    if (Math.abs(p.base - c.base) <= EPS) continue;
+    out.push({
+      sku, nombre: c.nombre ?? p.nombre, tipo: p.base < c.base ? 'menos' : 'mas',
+      cotizado: r3(c.cantidad), pedido: r3(p.base / c.f), unidad: c.pres, importe_cotizado: c.importe,
+    });
+  }
+  for (const [sku, p] of ped) {
+    if (!porSku.has(sku)) out.push({ sku, nombre: p.nombre, tipo: 'agregado', cotizado: null, pedido: r3(p.base), unidad: p.unidad_base, importe_cotizado: null });
+  }
+  const orden = { quitado: 0, menos: 1, mas: 2, agregado: 3 } as const;
+  return out.sort((a, b) => orden[a.tipo] - orden[b.tipo] || a.sku.localeCompare(b.sku));
 }
 
 /** Las llaves con que `TlmkRevisionService` (AX.22.2) guarda sus hallazgos para esta cadena. */
