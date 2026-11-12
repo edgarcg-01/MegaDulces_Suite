@@ -255,6 +255,40 @@ ssh superoot@192.168.0.222 'crontab -l | sed "s|^#PAUSADO ||" | crontab -'
 
 ---
 
+## 5bis. La ingesta (ODS, CAOS, feeds, relojes) — `[OPS.ING.1]`, 2026-11-12
+
+**Ya no se despliega desde una laptop.** El CI construye `trade-ingest` y `trade-relojes`
+(`imagenes.yml`, a GHCR) y el vigía, cuando la API **ya sirve** el commit, corre
+`ops/prod/desplegar-ingesta.sh` desde su checkout: descarga, verifica la etiqueta `revision`,
+prevuelo del registro, aplica los manifiestos `namespace: ingesta`, espera cada rollout y
+**revierte sólo el que no levanta**. La API no se toca. Latido aparte: `auto_deploy_ingesta`.
+
+- La etiqueta es el hash de lo que la imagen copia (`ops/prod/etiqueta-imagen.sh`): si el código
+  de un carril no cambió, su pod no se reinicia. El lector de relojes tiene imagen propia
+  (`ops/relojes/`), así que no se reinicia por un cambio del ODS ni al revés.
+- Forzar que converja ya, desde `md`: `sh ~/auto-deploy/repo/ops/prod/desplegar-ingesta.sh`
+  (o desde una laptop, `sh ops/vl/deploy.sh --k3s`, que sólo se lo pide a `md`).
+- Se niega si la API sirve otro commit o no contesta: la ingesta nunca corre un commit que no
+  pasó las compuertas del vigía.
+
+⛔ **`~/ops/prod/auto-deploy.sh` es una COPIA y no se actualiza sola.** La primera vez que se
+suelta un commit con `[OPS.ING.1]`, la copia vieja ve `trade-relojes` como una imagen que no sabe
+construir y **frena el despliegue de la API**. Antes de ese primer soltar, en `md`, desde GitHub
+(no desde una laptop):
+
+```sh
+cd ~/auto-deploy/repo && GIT_SSH_COMMAND="ssh -i ~/.ssh/deploy_md -o IdentitiesOnly=yes" \
+  git fetch --depth 50 origin +refs/heads/main:refs/remotes/origin/main && \
+  git show origin/main:ops/prod/auto-deploy.sh > ~/ops/prod/.auto-deploy.sh.nuevo && \
+  sh -n ~/ops/prod/.auto-deploy.sh.nuevo && cp ~/ops/prod/auto-deploy.sh ~/ops/prod/auto-deploy.sh.anterior && \
+  mv ~/ops/prod/.auto-deploy.sh.nuevo ~/ops/prod/auto-deploy.sh && chmod +x ~/ops/prod/auto-deploy.sh
+```
+
+⚠️ El primer despliegue reinicia **una vez** los once carriles (pasan de la etiqueta por commit a la
+de contenido). Después, sólo el que cambió.
+
+---
+
 ## 6. Lo que este runbook NO cubre, y se declara
 
 - **El CI de GitHub sigue apagado** (`disabled_manually`, última corrida 2026-08-25) y la
